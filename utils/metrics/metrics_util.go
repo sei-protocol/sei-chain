@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 	"runtime/debug"
 	"strconv"
@@ -10,7 +11,19 @@ import (
 	metrics "github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/prometheus"
+	sdk "go.opentelemetry.io/otel/sdk/metric"
 )
+
+func SetupOtelMetricsProvider() error {
+	metricsExporter, err := prometheus.New(prometheus.WithNamespace("sei-chain"))
+	if err != nil {
+		return fmt.Errorf("failed to create Prometheus exporter: %w", err)
+	}
+	otel.SetMeterProvider(sdk.NewMeterProvider(sdk.WithReader(metricsExporter)))
+	return nil
+}
 
 func SafeTelemetryIncrCounter(val float32, keys ...string) {
 	defer func() {
@@ -187,6 +200,30 @@ func SetEpochNew(epochNum uint64) {
 	)
 }
 
+// sei_evm_zero_storage_pruned_keys
+func IncrEvmZeroStoragePrunedKeys(count uint64) {
+	SafeTelemetryIncrCounter(
+		float32(count),
+		"sei", "evm", "zero", "storage", "pruned", "keys",
+	)
+}
+
+// sei_evm_zero_storage_processed_keys
+func IncrEvmZeroStorageProcessedKeys(count uint64) {
+	SafeTelemetryIncrCounter(
+		float32(count),
+		"sei", "evm", "zero", "storage", "processed", "keys",
+	)
+}
+
+// sei_evm_zero_storage_pruned_bytes
+func IncrEvmZeroStoragePrunedBytes(bytes uint64) {
+	SafeTelemetryIncrCounter(
+		float32(bytes),
+		"sei", "evm", "zero", "storage", "pruned", "bytes",
+	)
+}
+
 // Measures throughput
 // Metric Name:
 //
@@ -357,6 +394,30 @@ func IncrementAssociationError(scenario string, err types.AssociationMissingErr)
 		[]metrics.Label{
 			telemetry.NewLabel("scenario", scenario),
 			telemetry.NewLabel("type", err.AddressType()),
+		},
+	)
+}
+
+func IncrementNonceMismatch(tooHigh bool) {
+	cause := "too_low"
+	if tooHigh {
+		cause = "too_high"
+	}
+	SafeTelemetryIncrCounterWithLabels(
+		[]string{"sei", "nonce", "mismatch"},
+		1,
+		[]metrics.Label{
+			telemetry.NewLabel("cause", cause),
+		},
+	)
+}
+
+func IncrementPendingNonce(event string) {
+	SafeTelemetryIncrCounterWithLabels(
+		[]string{"sei", "pending", "nonce"},
+		1,
+		[]metrics.Label{
+			telemetry.NewLabel("event", event),
 		},
 	)
 }

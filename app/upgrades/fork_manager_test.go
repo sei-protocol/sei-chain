@@ -7,6 +7,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	"github.com/stretchr/testify/suite"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -86,7 +87,7 @@ func (suite *ForkTestSuite) TestHardForkManager() {
 	// increments height and runs begin block
 	suite.Ctx = suite.Ctx.WithBlockHeight(2)
 	newHeader := tmtypes.Header{Height: suite.Ctx.BlockHeight(), ChainID: suite.Ctx.ChainID(), Time: time.Now().UTC()}
-	suite.App.BeginBlocker(suite.Ctx, abci.RequestBeginBlock{Header: newHeader})
+	legacyabci.BeginBlock(suite.Ctx, newHeader.Height, []abci.VoteInfo{}, []abci.Misbehavior{}, suite.App.BeginBlockKeepers)
 	suite.Require().False(runFlag1)
 	suite.Require().False(runFlag2)
 	suite.Require().False(runFlag3)
@@ -96,7 +97,7 @@ func (suite *ForkTestSuite) TestHardForkManager() {
 	// run with height of 3 - runflag 1 should now be true
 	suite.Ctx = suite.Ctx.WithBlockHeight(3)
 	newHeader = tmtypes.Header{Height: suite.Ctx.BlockHeight(), ChainID: suite.Ctx.ChainID(), Time: time.Now().UTC()}
-	suite.App.BeginBlocker(suite.Ctx, abci.RequestBeginBlock{Header: newHeader})
+	suite.App.BeginBlock(suite.Ctx, newHeader.Height, []abci.VoteInfo{}, []abci.Misbehavior{}, false)
 	suite.Require().True(runFlag1)
 	suite.Require().False(runFlag2)
 	suite.Require().False(runFlag3)
@@ -107,7 +108,7 @@ func (suite *ForkTestSuite) TestHardForkManager() {
 	suite.Require().Panics(func() {
 		suite.Ctx = suite.Ctx.WithBlockHeight(4)
 		newHeader = tmtypes.Header{Height: suite.Ctx.BlockHeight(), ChainID: suite.Ctx.ChainID(), Time: time.Now().UTC()}
-		suite.App.BeginBlocker(suite.Ctx, abci.RequestBeginBlock{Header: newHeader})
+		suite.App.BeginBlock(suite.Ctx, newHeader.Height, []abci.VoteInfo{}, []abci.Misbehavior{}, false)
 	})
 	suite.Require().True(runFlag3)
 	suite.Require().False(runFlag4)

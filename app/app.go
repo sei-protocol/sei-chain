@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,7 +28,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/server/api"
 	"github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -44,7 +44,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	authrest "github.com/cosmos/cosmos-sdk/x/auth/client/rest"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	authsims "github.com/cosmos/cosmos-sdk/x/auth/simulation"
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
@@ -109,6 +108,7 @@ import (
 	"github.com/sei-protocol/sei-chain/aclmapping"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
@@ -147,6 +147,7 @@ import (
 	tmos "github.com/tendermint/tendermint/libs/os"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
+	"go.opentelemetry.io/otel/attribute"
 
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
@@ -179,6 +180,13 @@ func getGovProposalHandlers() []govclient.ProposalHandler {
 var (
 	// DefaultNodeHome default home directories for the application daemon
 	DefaultNodeHome string
+
+	// upgradePanicRe matches upgrade panic messages using Cosmovisor-compatible regex
+	// Matches multiple upgrade-related panic patterns:
+	// 1. UPGRADE "name" NEEDED at height: 123 (or height123)
+	// 2. Wrong app version X, upgrade handler is missing for name upgrade plan
+	// 3. BINARY UPDATED BEFORE TRIGGER! UPGRADE "name"
+	upgradePanicRe = regexp.MustCompile(`^(UPGRADE "[^"]+" NEEDED at height:?\s*\d+|Wrong app version \d+, upgrade handler is missing for .+ upgrade plan|BINARY UPDATED BEFORE TRIGGER! UPGRADE "[^"]+")`)
 
 	// ModuleBasics defines the module BasicManager is in charge of setting up basic,
 	// non-dependant module elements, such as codec registration
@@ -259,7 +267,6 @@ var (
 
 var (
 	_ servertypes.Application = (*App)(nil)
-	_ simapp.App              = (*App)(nil)
 )
 
 const (
@@ -345,11 +352,10 @@ type App struct {
 
 	TokenFactoryKeeper tokenfactorykeeper.Keeper
 
+	BeginBlockKeepers legacyabci.BeginBlockKeepers
+
 	// mm is the module manager
 	mm *module.Manager
-
-	// sm is the simulation manager
-	sm *module.SimulationManager
 
 	configurator module.Configurator
 
@@ -386,6 +392,8 @@ type App struct {
 	wsServerStartSignal       chan struct{}
 	httpServerStartSignalSent bool
 	wsServerStartSignalSent   bool
+
+	txPrioritizer sdk.TxPrioritizer
 }
 
 type AppOption func(*App)
@@ -419,6 +427,11 @@ func New(
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetVersion(version.Version)
 	bApp.SetInterfaceRegistry(interfaceRegistry)
+
+	// Bind OTEL metrics provider once at application construction
+	if err := metrics.SetupOtelMetricsProvider(); err != nil {
+		logger.Error(err.Error())
+	}
 
 	keys := sdk.NewKVStoreKeys(
 		acltypes.StoreKey, authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
@@ -608,7 +621,6 @@ func New(
 
 	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
 	ssConfig := ssconfig.DefaultStateStoreConfig()
-	ssConfig.DedicatedChangelog = true
 	ssConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
 	ssConfig.DBDirectory = receiptStorePath
 	ssConfig.KeepLastVersion = false
@@ -728,7 +740,7 @@ func New(
 			encodingConfig.TxConfig,
 		),
 		aclmodule.NewAppModule(appCodec, app.AccessControlKeeper),
-		auth.NewAppModule(appCodec, app.AccountKeeper, nil),
+		auth.NewAppModule(appCodec, app.AccountKeeper),
 		vesting.NewAppModule(app.AccountKeeper, app.BankKeeper),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
 		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
@@ -744,7 +756,7 @@ func New(
 		ibc.NewAppModule(app.IBCKeeper),
 		params.NewAppModule(app.ParamsKeeper),
 		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
-		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
+		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper),
 		evm.NewAppModule(appCodec, &app.EvmKeeper),
 		transferModule,
 		epochModule,
@@ -753,36 +765,17 @@ func New(
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 
-	// During begin block slashing happens after distr.BeginBlocker so that
-	// there is nothing left over in the validator fee pool, so as to keep the
-	// CanWithdrawInvariant invariant.
-	// NOTE: staking module is required if HistoricalEntries param > 0
-	app.mm.SetOrderBeginBlockers(
-		epochmoduletypes.ModuleName,
-		upgradetypes.ModuleName,
-		capabilitytypes.ModuleName,
-		minttypes.ModuleName,
-		distrtypes.ModuleName,
-		slashingtypes.ModuleName,
-		evidencetypes.ModuleName,
-		stakingtypes.ModuleName,
-		authtypes.ModuleName,
-		banktypes.ModuleName,
-		govtypes.ModuleName,
-		crisistypes.ModuleName,
-		genutiltypes.ModuleName,
-		authz.ModuleName,
-		feegrant.ModuleName,
-		paramstypes.ModuleName,
-		vestingtypes.ModuleName,
-		ibchost.ModuleName,
-		ibctransfertypes.ModuleName,
-		oracletypes.ModuleName,
-		evmtypes.ModuleName,
-		wasm.ModuleName,
-		tokenfactorytypes.ModuleName,
-		acltypes.ModuleName,
-	)
+	app.BeginBlockKeepers = legacyabci.BeginBlockKeepers{
+		EpochKeeper:      &app.EpochKeeper,
+		UpgradeKeeper:    &app.UpgradeKeeper,
+		CapabilityKeeper: app.CapabilityKeeper,
+		DistrKeeper:      &app.DistrKeeper,
+		SlashingKeeper:   &app.SlashingKeeper,
+		EvidenceKeeper:   &app.EvidenceKeeper,
+		StakingKeeper:    &app.StakingKeeper,
+		IBCKeeper:        app.IBCKeeper,
+		EvmKeeper:        &app.EvmKeeper,
+	}
 
 	app.mm.SetOrderMidBlockers(
 		oracletypes.ModuleName,
@@ -853,29 +846,6 @@ func New(
 	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter())
 	app.mm.RegisterServices(app.configurator)
 
-	// create the simulation manager and define the order of the modules for deterministic simulations
-	app.sm = module.NewSimulationManager(
-		auth.NewAppModule(appCodec, app.AccountKeeper, authsims.RandomGenesisAccounts),
-		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
-		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
-		feegrantmodule.NewAppModule(appCodec, app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, app.interfaceRegistry),
-		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
-		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
-		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
-		distr.NewAppModule(appCodec, app.DistrKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
-		slashing.NewAppModule(appCodec, app.SlashingKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
-		params.NewAppModule(app.ParamsKeeper),
-		evidence.NewAppModule(app.EvidenceKeeper),
-		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
-		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
-		ibc.NewAppModule(app.IBCKeeper),
-		transferModule,
-		epochModule,
-		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
-		// this line is used by starport scaffolding # stargate/app/appModule
-	)
-	app.sm.RegisterStoreDecoders()
-
 	app.RegisterUpgradeHandlers()
 	app.SetStoreUpgradeHandlers()
 
@@ -889,7 +859,6 @@ func New(
 
 	// initialize BaseApp
 	app.SetInitChainer(app.InitChainer)
-	app.SetBeginBlocker(app.BeginBlocker)
 
 	signModeHandler := encodingConfig.TxConfig.SignModeHandler()
 	// app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
@@ -949,7 +918,7 @@ func New(
 			tmos.Exit(err.Error())
 		}
 
-		ctx := app.BaseApp.NewUncachedContext(true, tmproto.Header{})
+		ctx := app.NewUncachedContext(true, tmproto.Header{})
 		if err := app.WasmKeeper.InitializePinnedCodes(ctx); err != nil {
 			tmos.Exit(fmt.Sprintf("failed initialize pinned codes %s", err))
 		}
@@ -977,17 +946,14 @@ func New(
 
 	app.RegisterDeliverTxHook(app.AddCosmosEventsToEVMReceiptIfApplicable)
 
+	app.txPrioritizer = NewSeiTxPrioritizer(logger, &app.EvmKeeper, &app.UpgradeKeeper, &app.ParamsKeeper).GetTxPriorityHint
+	app.SetTxPrioritizer(app.txPrioritizer)
 	return app
 }
 
 // HandlePreCommit happens right before the block is committed
 func (app *App) HandlePreCommit(ctx sdk.Context) error {
-	if app.evmRPCConfig.FlushReceiptSync {
-		return app.EvmKeeper.FlushTransientReceiptsSync(ctx)
-	} else {
-		return app.EvmKeeper.FlushTransientReceiptsAsync(ctx)
-	}
-
+	return app.EvmKeeper.FlushTransientReceipts(ctx)
 }
 
 // Close closes all items that needs closing (called by baseapp)
@@ -1077,20 +1043,6 @@ func (app *App) GetBaseApp() *baseapp.BaseApp { return app.BaseApp }
 // GetStateStore returns the state store of the application
 func (app *App) GetStateStore() seidb.StateStore { return app.stateStore }
 
-// BeginBlocker application updates every begin block
-func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
-	metrics.GaugeSeidVersionAndCommit(app.versionInfo.Version, app.versionInfo.GitCommit)
-	// check if we've reached a target height, if so, execute any applicable handlers
-	if app.forkInitializer != nil {
-		app.forkInitializer(ctx)
-		app.forkInitializer = nil
-	}
-	if app.HardForkManager.TargetHeightReached(ctx) {
-		app.HardForkManager.ExecuteForTargetHeight(ctx)
-	}
-	return app.mm.BeginBlock(ctx, req)
-}
-
 // MidBlocker application updates every mid block
 func (app *App) MidBlocker(ctx sdk.Context, height int64) []abci.Event {
 	return app.mm.MidBlock(ctx, height)
@@ -1133,7 +1085,7 @@ func (app *App) ClearOptimisticProcessingInfo() {
 	app.optimisticProcessingInfo = OptimisticProcessingInfo{}
 }
 
-func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
+func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
 
@@ -1143,20 +1095,23 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			Status: abci.ResponseProcessProposal_REJECT,
 		}, nil
 	}
-	if app.GetOptimisticProcessingInfo().Completion == nil {
+
+	app.optimisticProcessingInfoMutex.Lock()
+	shouldStartOptimisticProcessing := app.optimisticProcessingInfo.Completion == nil
+	if shouldStartOptimisticProcessing {
 		completionSignal := make(chan struct{}, 1)
-		optimisticProcessingInfo := OptimisticProcessingInfo{
+		app.optimisticProcessingInfo = OptimisticProcessingInfo{
 			Height:     req.Height,
 			Hash:       req.Hash,
 			Completion: completionSignal,
 		}
-		app.optimisticProcessingInfoMutex.Lock()
-		app.optimisticProcessingInfo = optimisticProcessingInfo
-		app.optimisticProcessingInfoMutex.Unlock()
+	}
+	app.optimisticProcessingInfoMutex.Unlock()
 
+	if shouldStartOptimisticProcessing {
 		plan, found := app.UpgradeKeeper.GetUpgradePlan(ctx)
 		if found && plan.ShouldExecute(ctx) {
-			app.Logger().Info(fmt.Sprintf("Potential upgrade planned for height=%d skipping optimistic processing", plan.Height))
+			app.Logger().Info("Potential upgrade planned; skipping optimistic processing", "height", plan.Height)
 			app.optimisticProcessingInfoMutex.Lock()
 			app.optimisticProcessingInfo.Aborted = true
 			completion := app.optimisticProcessingInfo.Completion
@@ -1164,24 +1119,40 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			completion <- struct{}{}
 		} else {
 			go func() {
-				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit, false)
+				// ProcessBlock has panic recovery and returns error for any processing failures
+				// All panics (including GetSigners) are handled in ProcessBlock, not affecting proposal acceptance
+				events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit, false)
+
 				app.optimisticProcessingInfoMutex.Lock()
-				app.optimisticProcessingInfo.Events = events
-				app.optimisticProcessingInfo.TxRes = txResults
-				app.optimisticProcessingInfo.EndBlockResp = endBlockResp
+				if processErr != nil {
+					// ProcessBlock failed (including GetSigners panics), mark as aborted
+					app.Logger().Info("ProcessBlock failed in optimistic processing", "error", processErr)
+					app.optimisticProcessingInfo.Aborted = true
+				} else {
+					// ProcessBlock succeeded, store results
+					app.optimisticProcessingInfo.Events = events
+					app.optimisticProcessingInfo.TxRes = txResults
+					app.optimisticProcessingInfo.EndBlockResp = endBlockResp
+				}
 				completion := app.optimisticProcessingInfo.Completion
 				app.optimisticProcessingInfoMutex.Unlock()
 				completion <- struct{}{}
 			}()
 		}
-	} else if !bytes.Equal(app.GetOptimisticProcessingInfo().Hash, req.Hash) {
-		app.optimisticProcessingInfoMutex.Lock()
-		app.optimisticProcessingInfo.Aborted = true
-		app.optimisticProcessingInfoMutex.Unlock()
+	} else {
+		// Optimistic processing already running, check if hash matches
+		if !bytes.Equal(app.GetOptimisticProcessingInfo().Hash, req.Hash) {
+			app.optimisticProcessingInfoMutex.Lock()
+			app.optimisticProcessingInfo.Aborted = true
+			app.optimisticProcessingInfoMutex.Unlock()
+		}
 	}
-	return &abci.ResponseProcessProposal{
+
+	resp = &abci.ResponseProcessProposal{
 		Status: abci.ResponseProcessProposal_ACCEPT,
-	}, nil
+	}
+
+	return resp, nil
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
@@ -1224,7 +1195,11 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}
 	metrics.IncrementOptimisticProcessingCounter(false)
 	ctx.Logger().Info("optimistic processing ineligible")
-	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit, false)
+	events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit, false)
+	if processErr != nil {
+		ctx.Logger().Error("ProcessBlock failed in FinalizeBlocker", "error", processErr)
+		return nil, processErr
+	}
 
 	app.SetDeliverStateToCommit()
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
@@ -1585,7 +1560,23 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedT
 	return app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices), ctx
 }
 
-func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			panicMsg := fmt.Sprintf("%v", r)
+			// Re-panic for upgrade-related panics to allow proper upgrade mechanism
+			if upgradePanicRe.MatchString(panicMsg) {
+				ctx.Logger().Error("upgrade panic detected, panicking to trigger upgrade", "panic", r)
+				panic(r) // Re-panic to trigger upgrade mechanism
+			}
+			ctx.Logger().Error("panic recovered in ProcessBlock", "panic", r)
+			err = fmt.Errorf("ProcessBlock panic: %v", r)
+			events = nil
+			txResults = nil
+			endBlockResp = abci.ResponseEndBlock{}
+		}
+	}()
+
 	defer func() {
 		if !app.httpServerStartSignalSent {
 			app.httpServerStartSignalSent = true
@@ -1598,34 +1589,17 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	}()
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
-	events := []abci.Event{}
-	beginBlockReq := abci.RequestBeginBlock{
-		Hash: req.GetHash(),
-		ByzantineValidators: utils.Map(req.GetByzantineValidators(), func(mis abci.Misbehavior) abci.Evidence {
-			return abci.Evidence(mis)
-		}),
-		LastCommitInfo: abci.LastCommitInfo{
-			Round: lastCommit.Round,
-			Votes: utils.Map(lastCommit.Votes, func(vote abci.VoteInfo) abci.VoteInfo {
-				return abci.VoteInfo{
-					Validator:       vote.Validator,
-					SignedLastBlock: vote.SignedLastBlock,
-				}
-			}),
-		},
-		Header: tmproto.Header{
-			ChainID:         app.ChainID,
-			Height:          req.GetHeight(),
-			Time:            req.GetTime(),
-			ProposerAddress: ctx.BlockHeader().ProposerAddress,
-		},
-		Simulate: simulate,
-	}
-	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
+	blockSpanCtx, blockSpan := app.GetBaseApp().TracingInfo.Start("Block")
+	defer blockSpan.End()
+	blockSpan.SetAttributes(attribute.Int64("height", req.GetHeight()))
+	ctx = ctx.WithTraceSpanContext(blockSpanCtx)
+
+	events = []abci.Event{}
+	beginBlockResp := app.BeginBlock(ctx, req.GetHeight(), lastCommit.Votes, req.GetByzantineValidators(), true)
 	events = append(events, beginBlockResp.Events...)
 
 	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs)) // nil for non-EVM txs
-	txResults := make([]*abci.ExecTxResult, len(txs))
+	txResults = make([]*abci.ExecTxResult, len(txs))
 	typedTxs := app.DecodeTransactionsConcurrently(ctx, txs)
 
 	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs, typedTxs)
@@ -1664,7 +1638,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		}
 	}
 
-	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
+	endBlockResp = app.EndBlock(ctx, abci.RequestEndBlock{
 		Height:       req.GetHeight(),
 		BlockGasUsed: evmTotalGasUsed,
 	})
@@ -1871,26 +1845,28 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 
 // RegisterTxService implements the Application.RegisterTxService method.
 func (app *App) RegisterTxService(clientCtx client.Context) {
-	authtx.RegisterTxService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.BaseApp.Simulate, app.interfaceRegistry)
+	authtx.RegisterTxService(app.GRPCQueryRouter(), clientCtx, app.Simulate, app.interfaceRegistry)
 }
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
-		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
+		return app.GetCheckCtx().WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
-	closestUpgrade, _ := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
-	ctx = ctx.WithClosestUpgradeName(closestUpgrade)
 	if err != nil {
-		app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
-		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
+		panic(err)
 	}
+	closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
+	if closestUpgrade == "" && upgradeHeight == 0 {
+		closestUpgrade = LatestUpgrade
+	}
+	ctx = ctx.WithClosestUpgradeName(closestUpgrade)
 	return ctx.WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false)
 }
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
 func (app *App) RegisterTendermintService(clientCtx client.Context) {
-	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
+	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
 	txConfigProvider := func(height int64) client.TxConfig {
 		if app.ChainID != "pacific-1" {
 			return app.encodingConfig.TxConfig
@@ -1903,7 +1879,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, nil)
 		if err != nil {
 			panic(err)
 		}
@@ -1916,7 +1892,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome)
 		if err != nil {
 			panic(err)
 		}
@@ -1943,7 +1919,14 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 // checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of
 // the total gas by the txs in the block. The gas of a tx is either the gas estimate if it's an EVM tx,
 // or the gas wanted if it's a Cosmos tx.
-func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
+func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			ctx.Logger().Error("panic recovered in checkTotalBlockGas", "panic", r)
+			result = false // Reject proposal if panic occurs
+		}
+	}()
+
 	totalGas, totalGasWanted := uint64(0), uint64(0)
 	nonzeroTxsCnt := 0
 	for _, tx := range txs {
@@ -1955,7 +1938,13 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 		// check gasless first (this has to happen before other checks to avoid panics)
 		isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
 		if err != nil {
-			ctx.Logger().Error("error checking if tx is gasless", "error", err)
+			if strings.Contains(err.Error(), "panic in IsTxGasless") {
+				// This is a unexpected panic, reject the entire proposal
+				ctx.Logger().Error("malicious transaction detected in gasless check", "error", err)
+				return false
+			}
+			// Other business logic errors (like duplicate votes) - continue processing but tx is not gasless
+			ctx.Logger().Info("transaction failed gasless check but not malicious", "error", err)
 			continue
 		}
 		if isGasless {
@@ -1986,7 +1975,7 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 			gasWanted = feeTx.GetGas()
 		}
 
-		if int64(gasWanted) < 0 || int64(totalGas) > math.MaxInt64-int64(gasWanted) {
+		if int64(gasWanted) < 0 || int64(totalGas) > math.MaxInt64-int64(gasWanted) { // nolint:gosec
 			return false
 		}
 
@@ -1996,22 +1985,29 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 
 		totalGasWanted += gasWanted
 
-		// If the gas estimate is set and at least 21k (the minimum gas needed for an EVM tx), use the gas estimate.
-		// Otherwise, use the gas wanted. Typically the gas estimate is set for EVM txs and not set for Cosmos txs.
+		// If the gas estimate is set and at least 21k (the minimum gas needed for an EVM tx)
+		// and less than or equal to the tx gas limit, use the gas estimate. Otherwise, use gasWanted.
+		useEstimate := false
 		if decodedTx.GetGasEstimate() >= MinGasEVMTx {
+			if decodedTx.GetGasEstimate() <= gasWanted {
+				useEstimate = true
+			}
+		}
+		if useEstimate {
 			totalGas += decodedTx.GetGasEstimate()
 		} else {
 			totalGas += gasWanted
 		}
 
-		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGasWanted) {
+		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGasWanted) { //nolint:gosec
 			return false
 		}
 
-		if totalGas > uint64(ctx.ConsensusParams().Block.MaxGas) {
+		if totalGas > uint64(ctx.ConsensusParams().Block.MaxGas) { //nolint:gosec
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -2084,11 +2080,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
 
 	return paramsKeeper
-}
-
-// SimulationManager implements the SimulationApp interface
-func (app *App) SimulationManager() *module.SimulationManager {
-	return app.sm
 }
 
 func (app *App) BlacklistedAccAddrs() map[string]bool {

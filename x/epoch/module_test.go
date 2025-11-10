@@ -19,7 +19,7 @@ import (
 func TestBasic(t *testing.T) {
 	t.Parallel()
 	// Create a mock context and keeper
-	app := app.Setup(false, false, false)
+	app := app.Setup(t, false, false, false)
 	appModule := epoch.NewAppModule(
 		app.AppCodec(),
 		app.EpochKeeper,
@@ -40,7 +40,7 @@ func TestBasic(t *testing.T) {
 
 // This test is just to make sure that the routes can be added without crashing
 func TestRoutesAddition(t *testing.T) {
-	testApp := app.Setup(false, false, false)
+	testApp := app.Setup(t, false, false, false)
 	appModule := epoch.NewAppModule(
 		testApp.AppCodec(),
 		testApp.EpochKeeper,
@@ -57,7 +57,7 @@ func TestRoutesAddition(t *testing.T) {
 func TestExportGenesis(t *testing.T) {
 	t.Parallel()
 	// Create a mock context and keeper
-	app := app.Setup(false, false, false)
+	app := app.Setup(t, false, false, false)
 	appModule := epoch.NewAppModule(
 		app.AppCodec(),
 		app.EpochKeeper,
@@ -81,13 +81,7 @@ func hasEventType(ctx sdk.Context, eventType string) bool {
 func TestBeginBlock(t *testing.T) {
 	t.Parallel()
 	// Create a mock context and keeper
-	app := app.Setup(false, false, false)
-	appModule := epoch.NewAppModule(
-		app.AppCodec(),
-		app.EpochKeeper,
-		app.AccountKeeper,
-		app.BankKeeper,
-	)
+	app := app.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	now := time.Now()
 	ctx = ctx.WithBlockTime(now)
@@ -102,7 +96,7 @@ func TestBeginBlock(t *testing.T) {
 	}
 	app.EpochKeeper.SetEpoch(ctx, lastEpoch)
 
-	appModule.BeginBlock(ctx, abci.RequestBeginBlock{})
+	app.EpochKeeper.BeginBlock(ctx)
 	newEpoch := app.EpochKeeper.GetEpoch(ctx)
 
 	ctx.EventManager().Events()
@@ -115,7 +109,7 @@ func TestBeginBlock(t *testing.T) {
 	ctx = ctx.WithBlockTime(lastEpoch.CurrentEpochStartTime.Add(30 * time.Minute)) // only 30 minutes passed
 	app.EpochKeeper.SetEpoch(ctx, lastEpoch)
 
-	appModule.BeginBlock(ctx, abci.RequestBeginBlock{})
+	app.EpochKeeper.BeginBlock(ctx)
 	newEpoch = app.EpochKeeper.GetEpoch(ctx)
 
 	require.Equal(t, lastEpoch.CurrentEpoch, newEpoch.CurrentEpoch)
