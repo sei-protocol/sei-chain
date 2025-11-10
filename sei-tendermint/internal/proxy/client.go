@@ -143,7 +143,7 @@ func (app *proxyClient) LoadLatest(ctx context.Context, req *types.RequestLoadLa
 	return app.client.LoadLatest(ctx, req)
 }
 
-func (app *proxyClient) GetTxPriorityHint(ctx context.Context, req *types.RequestGetTxPriorityHint) (*types.ResponseGetTxPriorityHint, error) {
+func (app *proxyClient) GetTxPriorityHint(ctx context.Context, req *types.RequestGetTxPriorityHintV2) (*types.ResponseGetTxPriorityHint, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "get_tx_priority", "type", "sync"))()
 	return app.client.GetTxPriorityHint(ctx, req)
 }
@@ -158,7 +158,7 @@ func (app *proxyClient) Flush(ctx context.Context) error {
 	return app.client.Flush(ctx)
 }
 
-func (app *proxyClient) CheckTx(ctx context.Context, req *types.RequestCheckTx) (*types.ResponseCheckTxV2, error) {
+func (app *proxyClient) CheckTx(ctx context.Context, req *types.RequestCheckTxV2) (*types.ResponseCheckTxV2, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "check_tx", "type", "sync"))()
 	return app.client.CheckTx(ctx, req)
 }

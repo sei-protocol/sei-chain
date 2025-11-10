@@ -239,3 +239,31 @@ type ResponseCheckTxV2 struct {
 	IsEVM            bool
 	Priority         int64
 }
+
+type CheckTxTypeV2 int32
+
+const (
+	CheckTxTypeV2New CheckTxTypeV2 = iota
+	CheckTxTypeV2Recheck
+)
+
+type RequestCheckTxV2 struct {
+	Tx   []byte
+	Type CheckTxTypeV2
+}
+
+type RequestDeliverTxV2 struct {
+	Tx          []byte
+	SigVerified bool
+}
+
+type RequestGetTxPriorityHintV2 struct {
+	Tx []byte
+}
+
+type TxResultV2 struct {
+	Height int64
+	Index  uint32
+	Tx     []byte
+	Result ExecTxResult
+}
