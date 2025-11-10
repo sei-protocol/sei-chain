@@ -14,6 +14,7 @@ import (
 	"github.com/tendermint/tendermint/crypto/merkle"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/mempool"
+	"github.com/tendermint/tendermint/internal/state/indexer"
 	"github.com/tendermint/tendermint/libs/log"
 	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
@@ -49,6 +50,9 @@ type BlockExecutor struct {
 
 	// cache the verification results over a single height
 	cache map[string]struct{}
+
+	// optional indexer service for pruning tx_index.db
+	indexerService *indexer.Service
 }
 
 // NewBlockExecutor returns a new BlockExecutor with the passed-in EventBus.
@@ -73,6 +77,11 @@ func NewBlockExecutor(
 		cache:      make(map[string]struct{}),
 		blockStore: blockStore,
 	}
+}
+
+// SetIndexerService sets the indexer service for pruning support.
+func (blockExec *BlockExecutor) SetIndexerService(indexerService *indexer.Service) {
+	blockExec.indexerService = indexerService
 }
 
 func (blockExec *BlockExecutor) Store() Store {
@@ -407,7 +416,7 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		if err != nil {
 			blockExec.logger.Error("failed to prune blocks", "retain_height", retainHeight, "err", err)
 		} else {
-			blockExec.logger.Debug("pruned blocks", "pruned", pruned, "retain_height", retainHeight)
+			blockExec.logger.Info("pruned blocks", "num_blocks_pruned", pruned, "retain_height", retainHeight, "latency_ms", time.Since(pruneBlockTime).Milliseconds())
 		}
 	}
 	blockExec.metrics.PruneBlockLatency.Observe(float64(time.Since(pruneBlockTime).Milliseconds()))
@@ -868,5 +877,20 @@ func (blockExec *BlockExecutor) pruneBlocks(retainHeight int64) (uint64, error) 
 	if err != nil {
 		return 0, fmt.Errorf("failed to prune state store: %w", err)
 	}
+
+	// Prune indexer data if indexer service is available
+	// Only prune retainHeight - 1 (the oldest height below the retention threshold)
+	// This is called on each block, so we only need to prune one height at a time
+	// Note here we intentionally only prune a single height instead of from base till retain height for perf reasons
+	if blockExec.indexerService != nil && retainHeight > 0 {
+		targetHeight := retainHeight - 1
+		if targetHeight > 0 {
+			if err := blockExec.indexerService.Prune(targetHeight); err != nil {
+				blockExec.logger.Error("failed to prune indexer", "target_height", targetHeight, "err", err)
+				// Don't fail the entire pruning operation if indexer pruning fails
+			}
+		}
+	}
+
 	return pruned, nil
 }

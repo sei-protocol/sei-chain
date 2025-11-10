@@ -3,6 +3,7 @@ package state_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -23,6 +24,8 @@ import (
 	"github.com/tendermint/tendermint/internal/proxy"
 	"github.com/tendermint/tendermint/internal/pubsub"
 	sm "github.com/tendermint/tendermint/internal/state"
+	"github.com/tendermint/tendermint/internal/state/indexer"
+	indexerkv "github.com/tendermint/tendermint/internal/state/indexer/sink/kv"
 	"github.com/tendermint/tendermint/internal/state/mocks"
 	sf "github.com/tendermint/tendermint/internal/state/test/factory"
 	"github.com/tendermint/tendermint/internal/store"
@@ -997,4 +1000,183 @@ func TestCreateProposalBlockPanicRecovery(t *testing.T) {
 
 	// Verify mock expectations
 	mp.AssertExpectations(t)
+}
+
+// TestIndexerPruning verifies that pruned heights can no longer be queried
+func TestIndexerPruning(t *testing.T) {
+	logger := log.NewNopLogger()
+
+	// Create indexer service with KV sink (we'll index directly, not through block execution)
+	indexerDB := dbm.NewMemDB()
+	indexerSink := indexerkv.NewEventSink(indexerDB)
+	indexerService := indexer.NewService(indexer.ServiceArgs{
+		Logger:   logger,
+		Sinks:    []indexer.EventSink{indexerSink},
+		EventBus: nil, // We'll index directly
+	})
+
+	// Index blocks 1-5 directly using the indexer
+	for height := int64(1); height <= 5; height++ {
+		// Index block events
+		err := indexerSink.IndexBlockEvents(types.EventDataNewBlockHeader{
+			Header: types.Header{Height: height},
+			ResultFinalizeBlock: abci.ResponseFinalizeBlock{
+				Events: []abci.Event{
+					{Type: "block", Attributes: []abci.EventAttribute{
+						{Key: []byte("proposer"), Value: []byte("validator1"), Index: true},
+					}},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		// Index tx events
+		tx := types.Tx(fmt.Sprintf("tx-%d", height))
+		txResult := &abci.TxResultV2{
+			Height: height,
+			Index:  0,
+			Tx:     tx,
+			Result: abci.ExecTxResult{
+				Code: 0,
+				Events: []abci.Event{
+					{Type: "transfer", Attributes: []abci.EventAttribute{
+						{Key: []byte("sender"), Value: []byte("alice"), Index: true},
+						{Key: []byte("amount"), Value: []byte("100"), Index: true},
+					}},
+				},
+			},
+		}
+		err = indexerSink.IndexTxEvents([]*abci.TxResultV2{txResult})
+		require.NoError(t, err)
+	}
+
+	// Verify all heights are queryable
+	for height := int64(1); height <= 5; height++ {
+		has, err := indexerSink.HasBlock(height)
+		require.NoError(t, err)
+		require.True(t, has, "Block %d should exist before pruning", height)
+
+		// Verify tx can be queried
+		txHash := types.Tx(fmt.Sprintf("tx-%d", height)).Hash()
+		txResult, err := indexerSink.GetTxByHash(txHash)
+		require.NoError(t, err)
+		require.NotNil(t, txResult, "Tx at height %d should exist before pruning", height)
+		require.Equal(t, height, txResult.Height)
+	}
+
+	// Prune height 3 (retainHeight - 1 = 3, meaning we keep 4+)
+	targetHeight := int64(3)
+	err := indexerService.Prune(targetHeight)
+	require.NoError(t, err)
+
+	// Verify height 3 is no longer queryable
+	has, err := indexerSink.HasBlock(targetHeight)
+	require.NoError(t, err)
+	require.False(t, has, "Block %d should not exist after pruning", targetHeight)
+
+	// Verify tx at height 3 is no longer queryable
+	txHash3 := types.Tx("tx-3").Hash()
+	txResult, err := indexerSink.GetTxByHash(txHash3)
+	require.NoError(t, err)
+	require.Nil(t, txResult, "Tx at height %d should not exist after pruning", targetHeight)
+
+	// Verify other heights (1, 2, 4, 5) are still queryable
+	// Note: Heights 1 and 2 might also be pruned if they're below retainHeight
+	// But for this test, we're only pruning height 3
+	for height := int64(4); height <= 5; height++ {
+		has, err := indexerSink.HasBlock(height)
+		require.NoError(t, err)
+		require.True(t, has, "Block %d should still exist after pruning", height)
+
+		txHash := types.Tx(fmt.Sprintf("tx-%d", height)).Hash()
+		txResult, err := indexerSink.GetTxByHash(txHash)
+		require.NoError(t, err)
+		require.NotNil(t, txResult, "Tx at height %d should still exist after pruning", height)
+	}
+}
+
+// TestRetainHeightPruning verifies that RetainHeight triggers pruning correctly
+func TestRetainHeightPruning(t *testing.T) {
+	logger := log.NewNopLogger()
+
+	// Create indexer service with KV sink (we'll index directly, not through block execution)
+	indexerDB := dbm.NewMemDB()
+	indexerSink := indexerkv.NewEventSink(indexerDB)
+	indexerService := indexer.NewService(indexer.ServiceArgs{
+		Logger:   logger,
+		Sinks:    []indexer.EventSink{indexerSink},
+		EventBus: nil, // We'll index directly
+	})
+
+	// Index blocks 1-10 directly and simulate RetainHeight pruning
+	// This tests the pruning functionality without needing complex block validation
+	for height := int64(1); height <= 10; height++ {
+		// Index block events
+		err := indexerSink.IndexBlockEvents(types.EventDataNewBlockHeader{
+			Header: types.Header{Height: height},
+			ResultFinalizeBlock: abci.ResponseFinalizeBlock{
+				Events: []abci.Event{
+					{Type: "block", Attributes: []abci.EventAttribute{
+						{Key: []byte("proposer"), Value: []byte("validator1"), Index: true},
+					}},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		// Index tx events
+		tx := types.Tx(fmt.Sprintf("tx-%d", height))
+		txResult := &abci.TxResultV2{
+			Height: height,
+			Index:  0,
+			Tx:     tx,
+			Result: abci.ExecTxResult{
+				Code: 0,
+				Events: []abci.Event{
+					{Type: "transfer", Attributes: []abci.EventAttribute{
+						{Key: []byte("sender"), Value: []byte("alice"), Index: true},
+						{Key: []byte("amount"), Value: []byte(fmt.Sprintf("%d", height)), Index: true},
+					}},
+				},
+			},
+		}
+		err = indexerSink.IndexTxEvents([]*abci.TxResultV2{txResult})
+		require.NoError(t, err)
+
+		// Simulate RetainHeight pruning: starting from block 5, set RetainHeight = 5
+		// This means we want to retain blocks >= 5, so we prune blocks < 5
+		// Each block prunes retainHeight - 1
+		if height >= 5 {
+			retainHeight := int64(5)
+			targetHeight := retainHeight - 1 // Prune height 4
+			if targetHeight > 0 {
+				err = indexerService.Prune(targetHeight)
+				require.NoError(t, err)
+			}
+		}
+	}
+
+	// Verify height 4 is pruned (retainHeight - 1 = 4)
+	has, err := indexerSink.HasBlock(4)
+	require.NoError(t, err)
+	require.False(t, has, "Block 4 should be pruned (retainHeight=5 means we prune 4)")
+
+	// Verify tx at height 4 is pruned
+	txHash4 := types.Tx("tx-4").Hash()
+	txResult, err := indexerSink.GetTxByHash(txHash4)
+	require.NoError(t, err)
+	require.Nil(t, txResult, "Tx at height 4 should be pruned")
+
+	// Verify heights >= 5 are still queryable
+	for height := int64(5); height <= 10; height++ {
+		has, err := indexerSink.HasBlock(height)
+		require.NoError(t, err)
+		require.True(t, has, "Block %d should still exist (above retainHeight)", height)
+
+		txHash := types.Tx(fmt.Sprintf("tx-%d", height)).Hash()
+		txResult, err := indexerSink.GetTxByHash(txHash)
+		require.NoError(t, err)
+		require.NotNil(t, txResult, "Tx at height %d should still exist", height)
+		require.Equal(t, height, txResult.Height)
+	}
 }

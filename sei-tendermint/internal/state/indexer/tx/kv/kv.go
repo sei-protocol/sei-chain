@@ -97,6 +97,153 @@ func (txi *TxIndex) Index(results []*abci.TxResultV2) error {
 	return b.WriteSync()
 }
 
+// Prune removes all transaction index data for the given targetHeight.
+func (txi *TxIndex) Prune(targetHeight int64) error {
+	if targetHeight <= 0 {
+		return nil
+	}
+
+	// Step 1: Get all tx hashes for the target height from the height index
+	// Key format: (TxHeightKey, heightStr, height, index) -> hash
+	heightStr := fmt.Sprintf("%d", targetHeight)
+	heightPrefix, err := orderedcode.Append(nil, types.TxHeightKey, heightStr)
+	if err != nil {
+		return fmt.Errorf("failed to create height prefix: %w", err)
+	}
+
+	heightIt, err := dbm.IteratePrefix(txi.store, heightPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to create iterator for height keys: %w", err)
+	}
+	defer heightIt.Close()
+
+	// Collect all tx hashes and their indices for this height
+	type txInfo struct {
+		hash  []byte
+		index int64
+		key   []byte
+	}
+	txHashes := make(map[string]txInfo) // key is string(hash) for lookup
+
+	for ; heightIt.Valid(); heightIt.Next() {
+		key := heightIt.Key()
+		hash := heightIt.Value()
+
+		// Parse the height from the key to verify it matches targetHeight
+		var (
+			compositeKey, value string
+			height, index       int64
+		)
+		remaining, err := orderedcode.Parse(string(key), &compositeKey, &value, &height, &index)
+		if err != nil {
+			// Skip invalid keys
+			continue
+		}
+		if len(remaining) != 0 {
+			continue
+		}
+
+		// Verify this key is for the target height
+		if height != targetHeight {
+			// Since we're using a prefix iterator, we can break if we've passed the target height
+			break
+		}
+
+		txHashes[string(hash)] = txInfo{
+			hash:  hash,
+			index: index,
+			key:   key,
+		}
+	}
+
+	if err := heightIt.Error(); err != nil {
+		return fmt.Errorf("iterator error during height key iteration: %w", err)
+	}
+
+	if len(txHashes) == 0 {
+		// No transactions at this height, nothing to prune
+		return nil
+	}
+
+	// Step 2: Delete height keys and primary keys
+	batch := txi.store.NewBatch()
+	defer batch.Close()
+
+	for _, info := range txHashes {
+		// Delete the height key
+		if err := batch.Delete(info.key); err != nil {
+			return fmt.Errorf("failed to delete height key: %w", err)
+		}
+
+		// Delete the primary key (tx result)
+		if err := batch.Delete(primaryKey(info.hash)); err != nil {
+			return fmt.Errorf("failed to delete primary key: %w", err)
+		}
+	}
+
+	// Step 3: Scan all event keys and delete those matching targetHeight and our tx hashes
+	// Event key format: (compositeKey, value, height, index) -> hash
+	// Since height is the 3rd element, we need to scan and check
+	// Note: This is necessary because compositeKey and value are variable (first two elements),
+	// so we can't use a prefix to find all keys with a specific height
+	allKeysIt, err := txi.store.Iterator(nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create iterator for all keys: %w", err)
+	}
+	defer allKeysIt.Close()
+
+	for ; allKeysIt.Valid(); allKeysIt.Next() {
+		key := allKeysIt.Key()
+		hashValue := allKeysIt.Value()
+
+		// Parse the key once to check if it's an event key
+		// Event key format: (compositeKey, value, height, index) -> hash
+		var (
+			compositeKey, value string
+			height, index       int64
+		)
+		remaining, err := orderedcode.Parse(string(key), &compositeKey, &value, &height, &index)
+		if err != nil {
+			// Not a valid 4-element key (might be primary key with 2 elements, or invalid)
+			// Skip it - we've already handled primary keys and height keys
+			continue
+		}
+		if len(remaining) != 0 {
+			// Not a valid event key format (has extra elements)
+			continue
+		}
+
+		// Skip height keys and primary keys (we already handled those)
+		if compositeKey == types.TxHeightKey || compositeKey == types.TxHashKey {
+			continue
+		}
+
+		// Check if this event key is for our target height
+		if height != targetHeight {
+			continue
+		}
+
+		// Check if the hash value matches one of our tx hashes
+		if _, ok := txHashes[string(hashValue)]; ok {
+			// This event key belongs to one of our transactions, delete it
+			if err := batch.Delete(key); err != nil {
+				return fmt.Errorf("failed to delete event key: %w", err)
+			}
+		}
+	}
+
+	if err := allKeysIt.Error(); err != nil {
+		return fmt.Errorf("iterator error during event key scanning: %w", err)
+	}
+
+	// Write all deletions
+	if err := batch.WriteSync(); err != nil {
+		return fmt.Errorf("failed to write pruning batch: %w", err)
+	}
+
+	return nil
+}
+
 func (txi *TxIndex) indexEvents(result *abci.TxResultV2, hash []byte, store dbm.Batch) error {
 	for _, event := range result.Result.Events {
 		// only index events with a non-empty type

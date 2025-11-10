@@ -2,6 +2,7 @@ package kv
 
 import (
 	"context"
+	"fmt"
 
 	dbm "github.com/tendermint/tm-db"
 
@@ -61,4 +62,18 @@ func (kves *EventSink) HasBlock(h int64) (bool, error) {
 
 func (kves *EventSink) Stop() error {
 	return kves.store.Close()
+}
+
+func (kves *EventSink) Prune(targetHeight int64) error {
+	// Prune transaction index
+	if err := kves.txi.Prune(targetHeight); err != nil {
+		return fmt.Errorf("failed to prune tx index: %w", err)
+	}
+
+	// Prune block index
+	if err := kves.bi.Prune(targetHeight); err != nil {
+		return fmt.Errorf("failed to prune block index: %w", err)
+	}
+
+	return nil
 }

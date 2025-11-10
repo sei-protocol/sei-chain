@@ -73,6 +73,107 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockHeader) error {
 	return batch.WriteSync()
 }
 
+// Prune removes all block index data for the given targetHeight.
+func (idx *BlockerIndexer) Prune(targetHeight int64) error {
+	if targetHeight <= 0 {
+		return nil
+	}
+
+	batch := idx.store.NewBatch()
+	defer batch.Close()
+
+	prunedCount := 0
+
+	// 1. Delete primary height key directly (we can construct it)
+	heightKeyToDelete, err := heightKey(targetHeight)
+	if err != nil {
+		return fmt.Errorf("failed to create height key: %w", err)
+	}
+
+	// Check if the key exists before deleting
+	has, err := idx.store.Has(heightKeyToDelete)
+	if err != nil {
+		return fmt.Errorf("failed to check height key existence: %w", err)
+	}
+	if has {
+		if err := batch.Delete(heightKeyToDelete); err != nil {
+			return fmt.Errorf("failed to delete height key: %w", err)
+		}
+		prunedCount++
+	}
+
+	// 2. Prune event keys for the target height
+	// Event key format: (compositeKey, eventValue, height, typ) -> height bytes
+	// Since height is the 3rd element, we can't use a prefix, but we can optimize by:
+	// - Checking the value (height bytes) first - if it doesn't match targetHeight, skip parsing
+	// - Only parse keys where the value matches (most keys will be filtered out here)
+	allKeysIt, err := idx.store.Iterator(nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create iterator for all keys: %w", err)
+	}
+	defer allKeysIt.Close()
+
+	for ; allKeysIt.Valid(); allKeysIt.Next() {
+		key := allKeysIt.Key()
+		value := allKeysIt.Value()
+
+		// Skip the height key we already handled
+		if string(key) == string(heightKeyToDelete) {
+			continue
+		}
+
+		// Optimization: Check the value first - block event keys store height bytes as value
+		// If the value doesn't match targetHeight, skip parsing entirely
+		// This filters out most keys without expensive parsing (avoids parsing ~99% of keys)
+		storedHeight := int64FromBytes(value)
+		if storedHeight != targetHeight {
+			continue
+		}
+
+		// Try to parse as block event key: (compositeKey, eventValue, height, typ)
+		// Block event keys have "finalize_block" as the last element (typ)
+		var (
+			compositeKey, typ, eventValue string
+			height                        int64
+		)
+		remaining, err := orderedcode.Parse(string(key), &compositeKey, &eventValue, &height, &typ)
+		if err != nil {
+			// Not a block event key (might be a tx event key or other key), skip
+			continue
+		}
+		if len(remaining) != 0 {
+			// Not a valid block event key format
+			continue
+		}
+
+		// Only process block event keys (typ == "finalize_block")
+		// This ensures we don't accidentally delete tx event keys
+		if typ != "finalize_block" {
+			continue
+		}
+
+		// Verify height matches targetHeight (double-check after parsing)
+		if height == targetHeight {
+			if err := batch.Delete(key); err != nil {
+				return fmt.Errorf("failed to delete event key: %w", err)
+			}
+			prunedCount++
+		}
+	}
+
+	if err := allKeysIt.Error(); err != nil {
+		return fmt.Errorf("iterator error during event key pruning: %w", err)
+	}
+
+	if prunedCount > 0 {
+		if err := batch.WriteSync(); err != nil {
+			return fmt.Errorf("failed to write pruning batch: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // Search performs a query for block heights that match a given FinalizeBlock
 // The given query can match against zero or more block heights. In the case
 // of height queries, i.e. block.height=H, if the height is indexed, that height

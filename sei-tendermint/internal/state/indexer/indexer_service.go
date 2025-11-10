@@ -140,6 +140,17 @@ func (is *Service) OnStop() {
 	}
 }
 
+// Prune removes all indexed data for the given targetHeight from all event sinks.
+func (is *Service) Prune(targetHeight int64) error {
+	for _, sink := range is.eventSinks {
+		if err := sink.Prune(targetHeight); err != nil {
+			is.logger.Error("failed to prune eventsink", "eventsink", sink.Type(), "target_height", targetHeight, "err", err)
+			return err
+		}
+	}
+	return nil
+}
+
 // ServiceArgs are arguments for constructing a new indexer service.
 type ServiceArgs struct {
 	Sinks    []EventSink

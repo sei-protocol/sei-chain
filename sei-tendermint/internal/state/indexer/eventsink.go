@@ -53,4 +53,9 @@ type EventSink interface {
 
 	// Stop will close the data store connection, if the eventsink supports it.
 	Stop() error
+
+	// Prune removes all indexed data for the given targetHeight.
+	// This is called during block pruning to maintain consistency with the block store.
+	// Only the specified targetHeight is pruned, not a range of heights.
+	Prune(targetHeight int64) error
 }

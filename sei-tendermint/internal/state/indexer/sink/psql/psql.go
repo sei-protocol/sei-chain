@@ -255,3 +255,21 @@ func (es *EventSink) HasBlock(h int64) (bool, error) {
 
 // Stop closes the underlying PostgreSQL database.
 func (es *EventSink) Stop() error { return es.store.Close() }
+
+// Prune removes all indexed data for the given targetHeight.
+func (es *EventSink) Prune(targetHeight int64) error {
+	if targetHeight <= 0 {
+		return nil
+	}
+
+	// Delete blocks and cascade to related records (tx_results, events, attributes)
+	// The foreign key constraints will ensure related records are deleted
+	_, err := es.store.Exec(`
+		DELETE FROM `+tableBlocks+` WHERE height = $1;
+	`, targetHeight)
+	if err != nil {
+		return fmt.Errorf("failed to prune postgres indexer: %w", err)
+	}
+
+	return nil
+}

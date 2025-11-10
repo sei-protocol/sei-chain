@@ -49,3 +49,7 @@ func (nes *EventSink) HasBlock(h int64) (bool, error) {
 func (nes *EventSink) Stop() error {
 	return nil
 }
+
+func (nes *EventSink) Prune(targetHeight int64) error {
+	return nil
+}

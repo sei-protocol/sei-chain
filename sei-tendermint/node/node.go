@@ -311,6 +311,9 @@ func makeNode(
 		nodeMetrics.state,
 	)
 
+	// Set indexer service for pruning support
+	blockExec.SetIndexerService(indexerService)
+
 	// Determine whether we should attempt state sync.
 	stateSync := cfg.StateSync.Enable && !onlyValidatorIsUs(state, pubKey)
 	if stateSync && state.LastBlockHeight > 0 {
