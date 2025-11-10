@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"strings"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -67,7 +66,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 	defer func() {
 		HandlePrecompileError(err, evm, operation)
 		if err != nil {
-			bz = []byte(replaceWasmdVersionStr(err.Error()))
+			bz = []byte(err.Error())
 			err = vm.ErrExecutionReverted
 		}
 	}()
@@ -160,7 +159,7 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	defer func() {
 		HandlePrecompileError(err, evm, operation)
 		if err != nil {
-			ret = []byte(replaceWasmdVersionStr(err.Error()))
+			ret = []byte(err.Error())
 			err = vm.ErrExecutionReverted
 		}
 	}()
@@ -299,8 +298,4 @@ func GetSeiAddressFromArg(ctx sdk.Context, arg interface{}, evmKeeper putils.EVM
 		return nil, errors.New("invalid addr")
 	}
 	return GetSeiAddressByEvmAddress(ctx, addr, evmKeeper)
-}
-
-func replaceWasmdVersionStr(err string) string {
-	return strings.Replace(err, "sei-wasmd@v0.3.11", "sei-wasmd@v0.3.10", 1)
 }
