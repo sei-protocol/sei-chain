@@ -210,6 +210,24 @@ func (_m *EventSink) Type() indexer.EventSinkType {
 	return r0
 }
 
+// Prune provides a mock function with given fields: _a0
+func (_m *EventSink) Prune(_a0 int64) error {
+	ret := _m.Called(_a0)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Prune")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(int64) error); ok {
+		r0 = rf(_a0)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // NewEventSink creates a new instance of EventSink. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewEventSink(t interface {
