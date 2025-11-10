@@ -1,15 +1,15 @@
 package config
 
 const (
-	DefaultSnapshotInterval   = 10000
-	DefaultSnapshotKeepRecent = 0 // set to 0 to only keep one current snapshot
-	DefaultAsyncCommitBuffer  = 100
-	DefaultCacheSize          = 100000
-	DefaultSSKeepRecent       = 100000
-	DefaultSSPruneInterval    = 600
-	DefaultSSImportWorkers    = 1
-	DefaultSSAsyncBuffer      = 100
-	DefaultSSHashRange        = 1000000
+	DefaultSnapshotInterval          = 10000
+	DefaultSnapshotKeepRecent        = 0 // set to 0 to only keep one current snapshot
+	DefaultAsyncCommitBuffer         = 100
+	DefaultSnapshotPrefetchThreshold = 0.8 // prefetch if <80% pages in cache
+	DefaultSSKeepRecent              = 100000
+	DefaultSSPruneInterval           = 600
+	DefaultSSImportWorkers           = 1
+	DefaultSSAsyncBuffer             = 100
+	DefaultSSHashRange               = -1
 )
 
 type StateCommitConfig struct {
@@ -42,6 +42,14 @@ type StateCommitConfig struct {
 
 	// SnapshotWriterLimit defines the concurrency for taking commit store snapshot
 	SnapshotWriterLimit int `mapstructure:"snapshot-writer-limit"`
+
+	// SnapshotPrefetchThreshold defines the page cache residency threshold (0.0-1.0)
+	// to trigger snapshot prefetch during cold-start.
+	// Prefetch sequentially reads nodes/leaves files into page cache for faster replay.
+	// Only active trees (evm/bank/acc) are prefetched, skipping sparse kv files.
+	// Skips prefetch if >threshold of pages already resident (e.g., 0.8 = 80%).
+	// Setting to 0 disables prefetching. Defaults to 0.8
+	SnapshotPrefetchThreshold float64 `mapstructure:"snapshot-prefetch-threshold"`
 
 	// CacheSize defines the size of the cache for each memiavl store.
 	// Deprecated: this is removed, we will just rely on mmap page cache
@@ -90,16 +98,17 @@ type StateStoreConfig struct {
 	KeepLastVersion bool `mapstructure:"keep-last-version"`
 
 	// Range of blocks after which a XOR hash is computed and stored
-	// defaults to 1,000,000 blocks
+	// defaults to 1,000,000 blocks. Set to -1 to disable.
 	HashRange int64 `json:"hash_range"`
 }
 
 func DefaultStateCommitConfig() StateCommitConfig {
 	return StateCommitConfig{
-		Enable:             true,
-		AsyncCommitBuffer:  DefaultAsyncCommitBuffer,
-		SnapshotInterval:   DefaultSnapshotInterval,
-		SnapshotKeepRecent: DefaultSnapshotKeepRecent,
+		Enable:                    true,
+		AsyncCommitBuffer:         DefaultAsyncCommitBuffer,
+		SnapshotInterval:          DefaultSnapshotInterval,
+		SnapshotKeepRecent:        DefaultSnapshotKeepRecent,
+		SnapshotPrefetchThreshold: DefaultSnapshotPrefetchThreshold,
 	}
 }
 

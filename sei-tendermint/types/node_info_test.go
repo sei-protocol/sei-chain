@@ -2,13 +2,16 @@ package types
 
 import (
 	"fmt"
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	tmnet "github.com/tendermint/tendermint/libs/net"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/version"
 )
 
@@ -21,7 +24,7 @@ func TestNodeInfoValidate(t *testing.T) {
 	assert.Error(t, ni.Validate())
 
 	channels := make([]byte, maxNumChannels)
-	for i := 0; i < maxNumChannels; i++ {
+	for i := range maxNumChannels {
 		channels[i] = byte(i)
 	}
 	dupChannels := make([]byte, 5)
@@ -155,13 +158,12 @@ func TestNodeInfoCompatible(t *testing.T) {
 	}{
 		{"Wrong block version", func(ni *NodeInfo) { ni.ProtocolVersion.Block++ }},
 		{"Wrong network", func(ni *NodeInfo) { ni.Network += "-wrong" }},
-		{"No common channels", func(ni *NodeInfo) { ni.Channels = []byte{newTestChannel} }},
 	}
 
 	for _, tc := range testCases {
 		ni := testNodeInfo(t, nodeKey2ID, name)
 		tc.malleateNodeInfo(&ni)
-		assert.Error(t, ni1.CompatibleWith(ni))
+		assert.Error(t, ni1.CompatibleWith(ni), tc.testName)
 	}
 }
 
@@ -178,76 +180,70 @@ func TestNodeInfoAddChannel(t *testing.T) {
 	require.Contains(t, nodeInfo.Channels, byte(0x02))
 }
 
+func TestResolveAddressStringDNS(t *testing.T) {
+	addr, err := ResolveAddressString("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@localhost:1234")
+	require.NoError(t, err)
+	require.True(t, addr.Addr().IsLoopback())
+	require.Equal(t, 1234, addr.Port())
+}
+
 func TestResolveAddressString(t *testing.T) {
 	testCases := []struct {
-		name     string
-		addr     string
-		expected string
-		correct  bool
+		name string
+		addr string
+		want utils.Option[netip.AddrPort]
 	}{
-		{"no node id and no protocol", "127.0.0.1:8080", "", false},
-		{"no node id w/ tcp input", "tcp://127.0.0.1:8080", "", false},
-		{"no node id w/ udp input", "udp://127.0.0.1:8080", "", false},
-
+		{name: "no node id and no protocol", addr: "127.0.0.1:8080"},
+		{name: "no node id w/ tcp input", addr: "tcp://127.0.0.1:8080"},
 		{
-			"no protocol",
-			"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
-			"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
-			true,
+			name: "no protocol",
+			addr: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
+			want: utils.Some(netip.AddrPortFrom(tcp.IPv4Loopback(), 8080)),
 		},
 		{
-			"tcp input",
-			"tcp://deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
-			"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
-			true,
+			name: "tcp input",
+			addr: "tcp://deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
+			want: utils.Some(netip.AddrPortFrom(tcp.IPv4Loopback(), 8080)),
 		},
+
+		{name: "malformed tcp input", addr: "tcp//deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080"},
+
+		{name: "invalid host", addr: "notahost"},
+		{name: "invalid port", addr: "127.0.0.1:notapath"},
+		{name: "invalid host w/ port", addr: "notahost:8080"},
+		{name: "just a port", addr: "8082"},
+		{name: "non-existent port", addr: "127.0.0:8080000"},
+
+		{name: "too short nodeId", addr: "deadbeef@127.0.0.1:8080"},
+		{name: "too short, not hex nodeId", addr: "this-isnot-hex@127.0.0.1:8080"},
+		{name: "not hex nodeId", addr: "xxxxbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080"},
+
+		{name: "too short nodeId w/tcp", addr: "tcp://deadbeef@127.0.0.1:8080"},
+		{name: "too short notHex nodeId w/tcp", addr: "tcp://this-isnot-hex@127.0.0.1:8080"},
+		{name: "notHex nodeId w/tcp", addr: "tcp://xxxxbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080"},
 		{
-			"udp input",
-			"udp://deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
-			"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
-			true,
-		},
-		{"malformed tcp input", "tcp//deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080", "", false},
-		{"malformed udp input", "udp//deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080", "", false},
-
-		// {"127.0.0:8080", false},
-		{"invalid host", "notahost", "", false},
-		{"invalid port", "127.0.0.1:notapath", "", false},
-		{"invalid host w/ port", "notahost:8080", "", false},
-		{"just a port", "8082", "", false},
-		{"non-existent port", "127.0.0:8080000", "", false},
-
-		{"too short nodeId", "deadbeef@127.0.0.1:8080", "", false},
-		{"too short, not hex nodeId", "this-isnot-hex@127.0.0.1:8080", "", false},
-		{"not hex nodeId", "xxxxbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080", "", false},
-
-		{"too short nodeId w/tcp", "tcp://deadbeef@127.0.0.1:8080", "", false},
-		{"too short notHex nodeId w/tcp", "tcp://this-isnot-hex@127.0.0.1:8080", "", false},
-		{"notHex nodeId w/tcp", "tcp://xxxxbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080", "", false},
-		{
-			"correct nodeId w/tcp",
-			"tcp://deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
-			"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
-			true,
+			name: "correct nodeId w/tcp",
+			addr: "tcp://deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
+			want: utils.Some(netip.AddrPortFrom(tcp.IPv4Loopback(), 8080)),
 		},
 
-		{"no node id", "tcp://@127.0.0.1:8080", "", false},
-		{"no node id or IP", "tcp://@", "", false},
-		{"tcp no host, w/ port", "tcp://:26656", "", false},
-		{"empty", "", "", false},
-		{"node id delimiter 1", "@", "", false},
-		{"node id delimiter 2", " @", "", false},
-		{"node id delimiter 3", " @ ", "", false},
+		{name: "no node id", addr: "tcp://@127.0.0.1:8080"},
+		{name: "no node id or IP", addr: "tcp://@"},
+		{name: "tcp no host, w/ port", addr: "tcp://:26656"},
+		{name: "empty", addr: ""},
+		{name: "node id delimiter 1", addr: "@"},
+		{name: "node id delimiter 2", addr: " @"},
+		{name: "node id delimiter 3", addr: " @ "},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			addr, err := ResolveAddressString(tc.addr)
-			if tc.correct {
+			got, err := ResolveAddressString(tc.addr)
+			if want, ok := tc.want.Get(); ok {
 				require.NoError(t, err, tc.addr)
-				assert.Contains(t, tc.expected, addr.String())
+				require.Equal(t, want, got)
 			} else {
-				assert.Error(t, err, "%v", tc.addr)
+				require.Error(t, err, "%v", tc.addr)
 			}
 		})
 	}

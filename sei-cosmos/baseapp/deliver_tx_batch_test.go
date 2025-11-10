@@ -111,7 +111,6 @@ func TestDeliverTxBatch(t *testing.T) {
 	for blockN := 0; blockN < nBlocks; blockN++ {
 		header := tmproto.Header{Height: int64(blockN) + 1}
 		app.setDeliverState(header)
-		app.BeginBlock(app.deliverState.ctx, abci.RequestBeginBlock{Header: header})
 
 		var requests []*sdk.DeliverTxEntry
 		for i := 0; i < txPerHeight; i++ {
@@ -121,7 +120,7 @@ func TestDeliverTxBatch(t *testing.T) {
 			txBytes, err := codec.Marshal(tx)
 			require.NoError(t, err)
 			requests = append(requests, &sdk.DeliverTxEntry{
-				Request:       abci.RequestDeliverTx{Tx: txBytes},
+				Request:       abci.RequestDeliverTxV2{Tx: txBytes},
 				SdkTx:         *tx,
 				AbsoluteIndex: i,
 			})
@@ -170,7 +169,6 @@ func TestDeliverTxBatchEmpty(t *testing.T) {
 	for blockN := 0; blockN < nBlocks; blockN++ {
 		header := tmproto.Header{Height: int64(blockN) + 1}
 		app.setDeliverState(header)
-		app.BeginBlock(app.deliverState.ctx, abci.RequestBeginBlock{Header: header})
 
 		var requests []*sdk.DeliverTxEntry
 		responses := app.DeliverTxBatch(app.deliverState.ctx, sdk.DeliverTxBatchRequest{TxEntries: requests})

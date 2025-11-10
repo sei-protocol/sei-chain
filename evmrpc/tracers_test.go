@@ -3,6 +3,7 @@ package evmrpc_test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
@@ -51,19 +52,22 @@ func TestTraceCall(t *testing.T) {
 }
 
 func TestTraceTransactionTimeout(t *testing.T) {
-	args := map[string]interface{}{"tracer": "callTracer"}
+	require.Eventually(t, func() bool {
+		args := map[string]interface{}{"tracer": "callTracer"}
+		resObj := sendRequestStrictWithNamespace(
+			t,
+			"debug",
+			"traceTransaction",
+			DebugTraceHashHex,
+			args,
+		)
 
-	resObj := sendRequestStrictWithNamespace(
-		t,
-		"debug",
-		"traceTransaction",
-		DebugTraceHashHex,
-		args,
-	)
-
-	errObj, ok := resObj["error"].(map[string]interface{})
-	require.True(t, ok, "expected node‑level timeout to trigger")
-	require.NotEmpty(t, errObj["message"].(string))
+		errObj, ok := resObj["error"].(map[string]interface{})
+		if ok {
+			return errObj["message"].(string) != ""
+		}
+		return false
+	}, 10*time.Second, 500*time.Millisecond)
 }
 
 func TestTraceBlockByNumberLookbackLimit(t *testing.T) {

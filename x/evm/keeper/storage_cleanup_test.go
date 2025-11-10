@@ -11,7 +11,7 @@ import (
 )
 
 func TestPruneZeroStorageSlots(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper(t)
 
 	addr1 := common.HexToAddress("0x0100000000000000000000000000000000000000")
 	addr2 := common.HexToAddress("0x0200000000000000000000000000000000000000")

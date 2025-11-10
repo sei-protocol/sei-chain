@@ -26,7 +26,7 @@ func (nes *EventSink) IndexBlockEvents(bh types.EventDataNewBlockHeader) error {
 	return nil
 }
 
-func (nes *EventSink) IndexTxEvents(results []*abci.TxResult) error {
+func (nes *EventSink) IndexTxEvents(results []*abci.TxResultV2) error {
 	return nil
 }
 
@@ -34,11 +34,11 @@ func (nes *EventSink) SearchBlockEvents(ctx context.Context, q *query.Query) ([]
 	return nil, nil
 }
 
-func (nes *EventSink) SearchTxEvents(ctx context.Context, q *query.Query) ([]*abci.TxResult, error) {
+func (nes *EventSink) SearchTxEvents(ctx context.Context, q *query.Query) ([]*abci.TxResultV2, error) {
 	return nil, nil
 }
 
-func (nes *EventSink) GetTxByHash(hash []byte) (*abci.TxResult, error) {
+func (nes *EventSink) GetTxByHash(hash []byte) (*abci.TxResultV2, error) {
 	return nil, nil
 }
 

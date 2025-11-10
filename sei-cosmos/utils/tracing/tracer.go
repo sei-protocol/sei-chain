@@ -49,7 +49,6 @@ func GetTracerProviderOptions(url string) ([]trace.TracerProviderOption, error) 
 
 type Info struct {
 	tracer         otrace.Tracer
-	blockSpan      otrace.Span
 	tracingEnabled atomic.Bool
 	mtx            sync.RWMutex
 }
@@ -57,7 +56,6 @@ type Info struct {
 func NewTracingInfo(tr otrace.Tracer, tracingEnabled bool) *Info {
 	info := &Info{
 		tracer:         tr,
-		blockSpan:      NoOpSpan,
 		tracingEnabled: atomic.Bool{},
 	}
 	info.tracingEnabled.Store(tracingEnabled)
@@ -73,12 +71,7 @@ func (i *Info) Start(name string) (context.Context, otrace.Span) {
 	}
 	i.mtx.Lock()
 	defer i.mtx.Unlock()
-	// if we have a started block span, we can use that as a parent span
-	ctx := context.Background()
-	if i.blockSpan.IsRecording() {
-		ctx = otrace.ContextWithSpanContext(ctx, i.blockSpan.SpanContext())
-	}
-	return i.tracer.Start(ctx, name)
+	return i.tracer.Start(context.Background(), name)
 }
 
 func (i *Info) StartWithContext(name string, ctx context.Context) (context.Context, otrace.Span) {
@@ -91,32 +84,4 @@ func (i *Info) StartWithContext(name string, ctx context.Context) (context.Conte
 		ctx = context.Background()
 	}
 	return i.tracer.Start(ctx, name)
-}
-
-func (i *Info) StartBlockSpan() otrace.Span {
-	if !i.tracingEnabled.Load() {
-		return NoOpSpan
-	}
-	i.mtx.Lock()
-	defer i.mtx.Unlock()
-	if i.blockSpan.IsRecording() { // already started
-		return i.blockSpan
-	}
-	_, span := i.tracer.Start(context.Background(), "Block")
-	i.blockSpan = span
-	return span
-
-}
-
-func (i *Info) EndBlockSpan() {
-	if !i.tracingEnabled.Load() {
-		return
-	}
-	i.mtx.Lock()
-	defer i.mtx.Unlock()
-	if !i.blockSpan.IsRecording() { // already ended
-		return
-	}
-	i.blockSpan.End()
-	i.blockSpan = NoOpSpan
 }

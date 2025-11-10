@@ -999,6 +999,10 @@ type StateSyncConfig struct {
 	// If this is true, then state sync will look for existing snapshots
 	// which are located in the snapshot-dir configured in app.toml (default to [home-dir]/data/snapshots)
 	UseLocalSnapshot bool `mapstructure:"use-local-snapshot"`
+
+	// LightBlockResponseTimeout is how long the dispatcher waits for a peer to
+	// return a light block.
+	LightBlockResponseTimeout time.Duration `mapstructure:"light-block-response-timeout"`
 }
 
 func (cfg *StateSyncConfig) TrustHashBytes() []byte {
@@ -1013,14 +1017,15 @@ func (cfg *StateSyncConfig) TrustHashBytes() []byte {
 // DefaultStateSyncConfig returns a default configuration for the state sync service
 func DefaultStateSyncConfig() *StateSyncConfig {
 	return &StateSyncConfig{
-		TrustPeriod:             168 * time.Hour,
-		DiscoveryTime:           15 * time.Second,
-		ChunkRequestTimeout:     15 * time.Second,
-		Fetchers:                2,
-		BackfillBlocks:          0,
-		BackfillDuration:        0 * time.Second,
-		VerifyLightBlockTimeout: 60 * time.Second,
-		BlacklistTTL:            5 * time.Minute,
+		TrustPeriod:               168 * time.Hour,
+		DiscoveryTime:             15 * time.Second,
+		ChunkRequestTimeout:       15 * time.Second,
+		Fetchers:                  2,
+		BackfillBlocks:            0,
+		BackfillDuration:          0 * time.Second,
+		VerifyLightBlockTimeout:   60 * time.Second,
+		BlacklistTTL:              5 * time.Minute,
+		LightBlockResponseTimeout: 10 * time.Second,
 	}
 }
 

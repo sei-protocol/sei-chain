@@ -130,46 +130,13 @@ func (app *BaseApp) Info(ctx context.Context, req *abci.RequestInfo) (*abci.Resp
 	}, nil
 }
 
-// BeginBlock implements the ABCI application interface.
-func (app *BaseApp) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res abci.ResponseBeginBlock) {
-	defer telemetry.MeasureSince(time.Now(), "abci", "begin_block")
-
-	if !req.Simulate {
-		if err := app.validateHeight(req); err != nil {
-			panic(err)
-		}
-	}
-
-	if app.beginBlocker != nil {
-		res = app.beginBlocker(ctx, req)
-		res.Events = sdk.MarkEventsToIndex(res.Events, app.indexEvents)
-	}
-
-	// call the streaming service hooks with the EndBlock messages
-	if !req.Simulate {
-		for _, streamingListener := range app.abciListeners {
-			if err := streamingListener.ListenBeginBlock(app.deliverState.ctx, req, res); err != nil {
-				app.logger.Error("EndBlock listening hook failed", "height", req.Header.Height, "err", err)
-			}
-		}
-	}
-	return res
-}
-
 func (app *BaseApp) MidBlock(ctx sdk.Context, height int64) (events []abci.Event) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "mid_block")
 
 	if app.midBlocker != nil {
 		midBlockEvents := app.midBlocker(ctx, height)
-		events = sdk.MarkEventsToIndex(midBlockEvents, app.indexEvents)
+		events = sdk.MarkEventsToIndex(midBlockEvents, app.IndexEvents)
 	}
-	// TODO: add listener handling
-	// // call the streaming service hooks with the EndBlock messages
-	// for _, streamingListener := range app.abciListeners {
-	// 	if err := streamingListener.ListenMidBlock(app.deliverState.ctx, req, res); err != nil {
-	// 		app.logger.Error("MidBlock listening hook failed", "height", req.Height, "err", err)
-	// 	}
-	// }
 
 	return events
 }
@@ -183,18 +150,11 @@ func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abc
 
 	if app.endBlocker != nil {
 		res = app.endBlocker(ctx, req)
-		res.Events = sdk.MarkEventsToIndex(res.Events, app.indexEvents)
+		res.Events = sdk.MarkEventsToIndex(res.Events, app.IndexEvents)
 	}
 
 	if cp := app.GetConsensusParams(ctx); cp != nil {
 		res.ConsensusParamUpdates = legacytm.ABCIToLegacyConsensusParams(cp)
-	}
-
-	// call the streaming service hooks with the EndBlock messages
-	for _, streamingListener := range app.abciListeners {
-		if err := streamingListener.ListenEndBlock(app.deliverState.ctx, req, res); err != nil {
-			app.logger.Error("EndBlock listening hook failed", "height", req.Height, "err", err)
-		}
 	}
 
 	return res
@@ -206,20 +166,20 @@ func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abc
 // internal CheckTx state if the AnteHandler passes. Otherwise, the ResponseCheckTx
 // will contain releveant error information. Regardless of tx execution outcome,
 // the ResponseCheckTx will contain relevant gas execution context.
-func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, error) {
+func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "check_tx")
 
 	var mode runTxMode
 
 	switch {
-	case req.Type == abci.CheckTxType_New:
+	case req.Type == abci.CheckTxTypeV2New:
 		mode = runTxModeCheck
 
-	case req.Type == abci.CheckTxType_Recheck:
+	case req.Type == abci.CheckTxTypeV2Recheck:
 		mode = runTxModeReCheck
 
 	default:
-		panic(fmt.Sprintf("unknown RequestCheckTx type: %s", req.Type))
+		panic(fmt.Sprintf("unknown RequestCheckTx type: %d", req.Type))
 	}
 
 	sdkCtx := app.getContextForTx(mode, req.Tx)
@@ -228,7 +188,7 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abc
 		res := sdkerrors.ResponseCheckTx(err, 0, 0, app.trace)
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, err
 	}
-	gInfo, result, _, priority, pendingTxChecker, expireTxHandler, txCtx, err := app.runTx(sdkCtx, mode, tx, sha256.Sum256(req.Tx))
+	gInfo, result, _, priority, pendingTxChecker, expireTxHandler, checkTxCallback, txCtx, err := app.runTx(sdkCtx, mode, tx, sha256.Sum256(req.Tx))
 	if err != nil {
 		res := sdkerrors.ResponseCheckTx(err, gInfo.GasWanted, gInfo.GasUsed, app.trace)
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, err
@@ -242,9 +202,11 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abc
 			GasEstimated: int64(gInfo.GasEstimate),
 		},
 		ExpireTxHandler:  expireTxHandler,
+		CheckTxCallback:  checkTxCallback,
 		EVMNonce:         txCtx.EVMNonce(),
 		EVMSenderAddress: txCtx.EVMSenderAddress(),
 		IsEVM:            txCtx.IsEVM(),
+		Priority:         txCtx.Priority(),
 	}
 	if pendingTxChecker != nil {
 		res.IsPendingTransaction = true
@@ -281,15 +243,8 @@ func (app *BaseApp) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchReques
 // Otherwise, the ResponseDeliverTx will contain relevant error information.
 // Regardless of tx execution outcome, the ResponseDeliverTx will contain relevant
 // gas execution context.
-func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) (res abci.ResponseDeliverTx) {
+func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res abci.ResponseDeliverTx) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "deliver_tx")
-	defer func() {
-		for _, streamingListener := range app.abciListeners {
-			if err := streamingListener.ListenDeliverTx(app.deliverState.ctx, req, res); err != nil {
-				app.logger.Error("DeliverTx listening hook failed", "err", err)
-			}
-		}
-	}()
 
 	gInfo := sdk.GasInfo{}
 	resultStr := "successful"
@@ -301,14 +256,14 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk
 		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
 	}()
 
-	gInfo, result, anteEvents, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum).WithVoteInfos(app.voteInfos), runTxModeDeliver, tx, checksum)
+	gInfo, result, anteEvents, _, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum).WithVoteInfos(app.voteInfos), runTxModeDeliver, tx, checksum)
 	if err != nil {
 		resultStr = "failed"
 		// if we have a result, use those events instead of just the anteEvents
 		if result != nil {
-			return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(result.Events, app.indexEvents), app.trace)
+			return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(result.Events, app.IndexEvents), app.trace)
 		}
-		return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(anteEvents, app.indexEvents), app.trace)
+		return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(anteEvents, app.IndexEvents), app.trace)
 	}
 
 	res = abci.ResponseDeliverTx{
@@ -316,7 +271,7 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk
 		GasUsed:   int64(gInfo.GasUsed),   // TODO: Should type accept unsigned ints?
 		Log:       result.Log,
 		Data:      result.Data,
-		Events:    sdk.MarkEventsToIndex(result.Events, app.indexEvents),
+		Events:    sdk.MarkEventsToIndex(result.Events, app.IndexEvents),
 	}
 	if resCtx.IsEVM() {
 		res.EvmTxInfo = &abci.EvmTxInfo{
@@ -1189,7 +1144,7 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		if err != nil {
 			return nil, err
 		}
-		res.Events = sdk.MarkEventsToIndex(res.Events, app.indexEvents)
+		res.Events = sdk.MarkEventsToIndex(res.Events, app.IndexEvents)
 		// set the signed validators for addition to context in deliverTx
 		app.setVotesInfo(req.DecidedLastCommit.GetVotes())
 
@@ -1197,14 +1152,6 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 	} else {
 		return nil, errors.New("finalize block handler not set")
 	}
-}
-
-func (app *BaseApp) ExtendVote(ctx context.Context, req *abci.RequestExtendVote) (*abci.ResponseExtendVote, error) {
-	return &abci.ResponseExtendVote{}, nil
-}
-
-func (app *BaseApp) VerifyVoteExtension(ctx context.Context, req *abci.RequestVerifyVoteExtension) (*abci.ResponseVerifyVoteExtension, error) {
-	return &abci.ResponseVerifyVoteExtension{}, nil
 }
 
 func (app *BaseApp) LoadLatest(ctx context.Context, req *abci.RequestLoadLatest) (*abci.ResponseLoadLatest, error) {
@@ -1215,7 +1162,7 @@ func (app *BaseApp) LoadLatest(ctx context.Context, req *abci.RequestLoadLatest)
 	return &abci.ResponseLoadLatest{}, nil
 }
 
-func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxPriorityHint) (_resp *abci.ResponseGetTxPriorityHint, _err error) {
+func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxPriorityHintV2) (_resp *abci.ResponseGetTxPriorityHint, _err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			// Fall back to no-op priority if we panic for any reason. This is to avoid DoS

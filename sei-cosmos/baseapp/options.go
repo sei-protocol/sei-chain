@@ -159,14 +159,6 @@ func (app *BaseApp) SetInitChainer(initChainer sdk.InitChainer) {
 	app.initChainer = initChainer
 }
 
-func (app *BaseApp) SetBeginBlocker(beginBlocker sdk.BeginBlocker) {
-	if app.sealed {
-		panic("SetBeginBlocker() on sealed BaseApp")
-	}
-
-	app.beginBlocker = beginBlocker
-}
-
 func (app *BaseApp) SetMidBlocker(midBlocker sdk.MidBlocker) {
 	if app.sealed {
 		panic("SetMidBlocker() on sealed BaseApp")
@@ -357,17 +349,6 @@ func (app *BaseApp) SetInterfaceRegistry(registry types.InterfaceRegistry) {
 	app.interfaceRegistry = registry
 	app.grpcQueryRouter.SetInterfaceRegistry(registry)
 	app.msgServiceRouter.SetInterfaceRegistry(registry)
-}
-
-// SetStreamingService is used to set a streaming service into the BaseApp hooks and load the listeners into the multistore
-func (app *BaseApp) SetStreamingService(s StreamingService) {
-	// add the listeners for each StoreKey
-	for key, lis := range s.Listeners() {
-		app.cms.AddListeners(key, lis)
-	}
-	// register the StreamingService within the BaseApp
-	// BaseApp will pass BeginBlock, DeliverTx, and EndBlock requests and responses to the streaming services to update their ABCI context
-	app.abciListeners = append(app.abciListeners, s)
 }
 
 // SetQueryMultiStore set a alternative MultiStore implementation to support online migration fallback read.

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"testing"
 
+	"github.com/CosmWasm/wasmd/app"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client/tx"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/testutil"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -24,7 +24,7 @@ func TestRegisterMsgService(t *testing.T) {
 	db := dbm.NewMemDB()
 
 	// Create an encoding config that doesn't register testdata Msg services.
-	encCfg := simapp.MakeTestEncodingConfig()
+	encCfg := app.MakeEncodingConfig()
 	app := baseapp.NewBaseApp("test", log.NewTestingLogger(t), db, encCfg.TxConfig.TxDecoder(), nil, &testutil.TestAppOpts{})
 	app.SetInterfaceRegistry(encCfg.InterfaceRegistry)
 	require.Panics(t, func() {
@@ -47,7 +47,7 @@ func TestRegisterMsgService(t *testing.T) {
 func TestRegisterMsgServiceTwice(t *testing.T) {
 	// Setup baseapp.
 	db := dbm.NewMemDB()
-	encCfg := simapp.MakeTestEncodingConfig()
+	encCfg := app.MakeEncodingConfig()
 	app := baseapp.NewBaseApp("test", log.NewTestingLogger(t), db, encCfg.TxConfig.TxDecoder(), nil, &testutil.TestAppOpts{})
 	app.SetInterfaceRegistry(encCfg.InterfaceRegistry)
 	testdata.RegisterInterfaces(encCfg.InterfaceRegistry)
@@ -71,7 +71,7 @@ func TestRegisterMsgServiceTwice(t *testing.T) {
 
 func TestMsgService(t *testing.T) {
 	priv, _, _ := testdata.KeyTestPubAddr()
-	encCfg := simapp.MakeTestEncodingConfig()
+	encCfg := app.MakeEncodingConfig()
 	testdata.RegisterInterfaces(encCfg.InterfaceRegistry)
 	db := dbm.NewMemDB()
 	decoder := encCfg.TxConfig.TxDecoder()
@@ -89,7 +89,7 @@ func TestMsgService(t *testing.T) {
 				txResults = append(txResults, &abci.ExecTxResult{})
 				continue
 			}
-			deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
+			deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTxV2{
 				Tx: txbz,
 			}, tx, sha256.Sum256(txbz))
 			txResults = append(txResults, &abci.ExecTxResult{

@@ -28,7 +28,7 @@ func VerifyCommit(chainID string, vals *ValidatorSet, blockID BlockID,
 	height int64, commit *Commit) error {
 	// run a basic validation of the arguments
 	if err := verifyBasicValsAndCommit(vals, commit, height, blockID); err != nil {
-		return err
+		return fmt.Errorf("verifyBasicValsAndCommit(): %w", err)
 	}
 
 	// calculate voting power needed. Note that total voting power is capped to
@@ -246,7 +246,7 @@ func verifyCommitBatch(
 			// go back from the batch index to the commit.Signatures index
 			idx := batchSigIdxs[i]
 			sig := commit.Signatures[idx]
-			return fmt.Errorf("wrong signature (#%d): %X", idx, sig)
+			return errBadSig{fmt.Errorf("wrong signature (#%d): %X", idx, sig)}
 		}
 	}
 
@@ -311,7 +311,7 @@ func verifyCommitSingle(
 		voteSignBytes = commit.VoteSignBytes(chainID, int32(idx))
 
 		if !val.PubKey.VerifySignature(voteSignBytes, commitSig.Signature) {
-			return fmt.Errorf("wrong signature (#%d): %X", idx, commitSig.Signature)
+			return errBadSig{fmt.Errorf("wrong signature (#%d): %X", idx, commitSig.Signature)}
 		}
 
 		// If this signature counts then add the voting power of the validator
@@ -351,8 +351,8 @@ func verifyBasicValsAndCommit(vals *ValidatorSet, commit *Commit, height int64, 
 		return NewErrInvalidCommitHeight(height, commit.Height)
 	}
 	if !blockID.Equals(commit.BlockID) {
-		return fmt.Errorf("invalid commit -- wrong block ID: want %v, got %v",
-			blockID, commit.BlockID)
+		return errBadBlockID{fmt.Errorf("invalid commit -- wrong block ID: want %v, got %v",
+			blockID, commit.BlockID)}
 	}
 
 	return nil

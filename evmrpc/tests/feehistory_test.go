@@ -13,7 +13,7 @@ func TestFeeHistoryExcludeAnteFailedTxs(t *testing.T) {
 	tx2Data := sendErc20(2)
 	tx2 := signTxWithMnemonic(sendErc20(1), erc20DeployerMnemonics) // should fail ante due to stale nonce
 	tx2Bz := encodeEvmTx(tx2Data, tx2)
-	SetupTestServer([][][]byte{{tx1Bz, tx2Bz}}, erc20Initializer()).Run(
+	SetupTestServer(t, [][][]byte{{tx1Bz, tx2Bz}}, erc20Initializer()).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "feeHistory", 1, "0x2", []float64{50, 60, 70})
 			reward := res["result"].(map[string]interface{})["reward"].([]interface{})[0].([]interface{})

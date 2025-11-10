@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -68,10 +70,11 @@ func (ts TestServer) SetupBlocks(blocks [][][]byte, initializer ...func(sdk.Cont
 }
 
 func initializeApp(
+	t *testing.T,
 	chainID string,
 	initializer ...func(sdk.Context, *app.App),
 ) (*app.App, *abci.ResponseFinalizeBlock) {
-	a := app.Setup(false, true, chainID == "pacific-1")
+	a := app.Setup(t, false, true, chainID == "pacific-1")
 	a.ChainID = chainID
 	res, err := a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 		Txs:    [][]byte{},
@@ -91,10 +94,11 @@ func initializeApp(
 }
 
 func SetupTestServer(
+	t *testing.T,
 	blocks [][][]byte,
 	initializer ...func(sdk.Context, *app.App),
 ) TestServer {
-	a, res := initializeApp("sei-test", initializer...)
+	a, res := initializeApp(t, "sei-test", initializer...)
 	mockClient := &MockClient{blocks: append([][][]byte{{}}, blocks...)}
 	mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	for i, block := range blocks {
@@ -118,8 +122,8 @@ func SetupTestServer(
 	return setupTestServer(a, a.RPCContextProvider, mockClient)
 }
 
-func SetupMockPacificTestServer(initializer func(*app.App, *MockClient) sdk.Context) TestServer {
-	a, res := initializeApp("pacific-1")
+func SetupMockPacificTestServer(t *testing.T, initializer func(*app.App, *MockClient) sdk.Context) TestServer {
+	a, res := initializeApp(t, "pacific-1")
 	mockClient := &MockClient{blocks: [][][]byte{{}}}
 	// seed mock client with genesis block results so latest height queries work
 	mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
@@ -141,6 +145,7 @@ func setupTestServer(
 		cfg,
 		mockClient,
 		&a.EvmKeeper,
+		a.BeginBlockKeepers,
 		a.BaseApp,
 		a.TracerAnteHandler,
 		ctxProvider,
@@ -152,6 +157,16 @@ func setupTestServer(
 	)
 	if err != nil {
 		panic(err)
+	}
+	if store := a.EvmKeeper.ReceiptStore(); store != nil {
+		latest := int64(math.MaxInt64)
+		if latest <= 0 {
+			latest = 1
+		}
+		if err := store.SetLatestVersion(latest); err != nil {
+			panic(err)
+		}
+		_ = store.SetEarliestVersion(1, true)
 	}
 	return TestServer{EVMServer: s, port: port, mockClient: mockClient, app: a}
 }

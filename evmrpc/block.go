@@ -43,6 +43,7 @@ type BlockAPI struct {
 	namespace            string
 	includeShellReceipts bool
 	includeBankTransfers bool
+	watermarks           *WatermarkManager
 	globalBlockCache     BlockCache
 	cacheCreationMutex   *sync.Mutex
 }
@@ -52,7 +53,7 @@ type SeiBlockAPI struct {
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
 }
 
-func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) *BlockAPI {
+func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType, watermarks *WatermarkManager, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) *BlockAPI {
 	return &BlockAPI{
 		tmClient:             tmClient,
 		keeper:               k,
@@ -62,6 +63,7 @@ func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 		includeShellReceipts: false,
 		includeBankTransfers: false,
 		namespace:            EthNamespace,
+		watermarks:           watermarks,
 		globalBlockCache:     globalBlockCache,
 		cacheCreationMutex:   cacheCreationMutex,
 	}
@@ -74,6 +76,7 @@ func NewSeiBlockAPI(
 	txConfigProvider func(int64) client.TxConfig,
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
+	watermarks *WatermarkManager,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 ) *SeiBlockAPI {
@@ -86,6 +89,7 @@ func NewSeiBlockAPI(
 		includeShellReceipts: true,
 		includeBankTransfers: false,
 		namespace:            SeiNamespace,
+		watermarks:           watermarks,
 		globalBlockCache:     globalBlockCache,
 		cacheCreationMutex:   cacheCreationMutex,
 	}
@@ -102,10 +106,11 @@ func NewSei2BlockAPI(
 	txConfigProvider func(int64) client.TxConfig,
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
+	watermarks *WatermarkManager,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 ) *SeiBlockAPI {
-	blockAPI := NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, connectionType, isPanicTx, globalBlockCache, cacheCreationMutex)
+	blockAPI := NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, connectionType, isPanicTx, watermarks, globalBlockCache, cacheCreationMutex)
 	blockAPI.namespace = Sei2Namespace
 	blockAPI.includeBankTransfers = true
 	return blockAPI
@@ -128,7 +133,7 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if err != nil {
 		return nil, err
 	}
-	block, err := blockByNumberWithRetry(ctx, a.tmClient, numberPtr, 1)
+	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, numberPtr, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +143,7 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockTransactionCountByHash", a.namespace), a.connectionType, startTime, returnErr)
-	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
+	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +158,7 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool, isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr)
-	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
+	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +227,7 @@ func (a *BlockAPI) getBlockByNumber(
 		}
 	}
 
-	block, err := blockByNumberWithRetry(ctx, a.tmClient, numberPtr, 1)
+	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, numberPtr, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +247,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		return nil, err
 	}
 
-	block, err := blockByNumberWithRetry(ctx, a.tmClient, heightPtr, 1)
+	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, heightPtr, 1)
 	if err != nil {
 		return nil, err
 	}

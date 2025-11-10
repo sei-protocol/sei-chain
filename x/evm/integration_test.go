@@ -104,7 +104,7 @@ func TestERC721RoyaltiesPointerToCW721Royalties(t *testing.T) {
 	cosmosTx := txBuilder.GetTx()
 	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
 	require.Nil(t, err)
-	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
 	pointerAddr, _, exists := k.GetERC721CW721Pointer(ctx, cw2981Addr.String())
 	require.True(t, exists)
@@ -132,7 +132,7 @@ func TestERC721RoyaltiesPointerToCW721Royalties(t *testing.T) {
 	cosmosTx = txBuilder.GetTx()
 	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
 	require.Nil(t, err)
-	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
+	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
 	typedTxData := sdk.TxMsgData{}
 	require.Nil(t, typedTxData.Unmarshal(res.Data))
@@ -187,12 +187,11 @@ func TestCW721RoyaltiesPointerToERC721Royalties(t *testing.T) {
 	cosmosTx := txBuilder.GetTx()
 	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
 	require.Nil(t, err)
-	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
-	err = k.FlushTransientReceiptsSync(ctx)
+	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
-	receipt, err := k.GetReceipt(ctx, tx.Hash())
-	require.Nil(t, err)
+	receipt := testkeeper.WaitForReceipt(t, &k, ctx, tx.Hash())
 	require.NotEmpty(t, receipt.ContractAddress)
 	require.Empty(t, receipt.VmError)
 	// set royalty
@@ -217,7 +216,7 @@ func TestCW721RoyaltiesPointerToERC721Royalties(t *testing.T) {
 	cosmosTx = txBuilder.GetTx()
 	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
 	require.Nil(t, err)
-	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
+	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
 	// deploy CW->ERC pointer
 	res2, err := keeper.NewMsgServerImpl(&k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
@@ -325,7 +324,7 @@ func TestERC1155RoyaltiesPointerToCW1155Royalties(t *testing.T) {
 	cosmosTx := txBuilder.GetTx()
 	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
 	require.Nil(t, err)
-	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
 	pointerAddr, _, exists := k.GetERC1155CW1155Pointer(ctx, cw2981Addr.String())
 	require.True(t, exists)
@@ -353,7 +352,7 @@ func TestERC1155RoyaltiesPointerToCW1155Royalties(t *testing.T) {
 	cosmosTx = txBuilder.GetTx()
 	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
 	require.Nil(t, err)
-	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
+	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
 	typedTxData := sdk.TxMsgData{}
 	require.Nil(t, typedTxData.Unmarshal(res.Data))
@@ -368,6 +367,7 @@ func TestERC1155RoyaltiesPointerToCW1155Royalties(t *testing.T) {
 func TestCW1155RoyaltiesPointerToERC1155Royalties(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	var receipt *types.Receipt
 	// deploy erc2981
 	privKey := testkeeper.MockPrivateKey()
 	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
@@ -408,12 +408,11 @@ func TestCW1155RoyaltiesPointerToERC1155Royalties(t *testing.T) {
 	cosmosTx := txBuilder.GetTx()
 	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
 	require.Nil(t, err)
-	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
-	err = k.FlushTransientReceiptsSync(ctx)
+	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
-	receipt, err := k.GetReceipt(ctx, tx.Hash())
-	require.Nil(t, err)
+	receipt = testkeeper.WaitForReceipt(t, &k, ctx, tx.Hash())
 	require.NotEmpty(t, receipt.ContractAddress)
 	require.Empty(t, receipt.VmError)
 	// set royalty
@@ -438,7 +437,7 @@ func TestCW1155RoyaltiesPointerToERC1155Royalties(t *testing.T) {
 	cosmosTx = txBuilder.GetTx()
 	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
 	require.Nil(t, err)
-	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
+	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
 	// deploy CW->ERC pointer
 	res2, err := keeper.NewMsgServerImpl(&k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
@@ -507,12 +506,12 @@ func TestNonceIncrementsForInsufficientFunds(t *testing.T) {
 	cosmosTx := txBuilder.GetTx()
 	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
 	require.Nil(t, err)
-	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(5), res.Code)                 // insufficient funds has error code 5
 	require.Equal(t, uint64(1), k.GetNonce(ctx, evmAddr)) // make sure nonce is incremented regardless
 
 	// ensure that old txs cannot be used by malicious party to bump nonces
-	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
+	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(32), res.Code)                // wrong nonce has error code 32
 	require.Equal(t, uint64(1), k.GetNonce(ctx, evmAddr)) // nonce should not be incremented this time because the tx is an old one
 }
@@ -546,7 +545,7 @@ func TestInvalidAssociateMsg(t *testing.T) {
 	cosmosTx := txBuilder.GetTx()
 	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
 	require.Nil(t, err)
-	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(21), res.Code) // tx too large
 
 	// cosmos associate tx
@@ -558,7 +557,7 @@ func TestInvalidAssociateMsg(t *testing.T) {
 	signedTx := signTx(txBuilder, privKey, k.AccountKeeper().GetAccount(ctx, seiAddr))
 	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(signedTx)
 	require.Nil(t, err)
-	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, signedTx, sha256.Sum256(txbz))
+	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, signedTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(21), res.Code)
 
 	// multiple associate msgs should charge gas (and run out of gas in this test case)
@@ -574,7 +573,7 @@ func TestInvalidAssociateMsg(t *testing.T) {
 	signedTx = signTx(txBuilder, privKey, k.AccountKeeper().GetAccount(ctx, seiAddr))
 	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(signedTx)
 	require.Nil(t, err)
-	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, signedTx, sha256.Sum256(txbz))
+	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, signedTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(11), res.Code) // out of gas
 }
 

@@ -130,7 +130,7 @@ func TestClient(t *testing.T) {
 	t.Run("SequentialVerification", func(t *testing.T) {
 		newKeys := genPrivKeys(4)
 		newVals := newKeys.ToValidators(10, 1)
-		differentVals, _ := factory.ValidatorSet(ctx, t, 10, 100)
+		differentVals, _ := factory.ValidatorSet(ctx, 10, 100)
 
 		testCases := []struct {
 			name         string

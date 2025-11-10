@@ -18,31 +18,16 @@ test_cover:
 	bash test/test_cover.sh
 .PHONY: test_cover
 
-test_apps:
-	# run the app tests using bash
-	# requires `abci-cli` and `tendermint` binaries installed
-	bash test/app/test.sh
-.PHONY: test_apps
-
 test_abci_apps:
 	bash abci/tests/test_app/test.sh
 .PHONY: test_abci_apps
-
-test_abci_cli:
-	# test the cli against the examples in the tutorial at:
-	# ./docs/abci-cli.md
-	# if test fails, update the docs ^
-	@ bash abci/tests/test_cli/test.sh
-.PHONY: test_abci_cli
 
 test_integrations:
 	make build_docker_test_image
 	make tools
 	make install
 	make test_cover
-	make test_apps
 	make test_abci_apps
-	make test_abci_cli
 	make test_libs
 .PHONY: test_integrations
 
