@@ -30,35 +30,20 @@ type WorkerPool struct {
 }
 
 var (
-	globalWorkerPool     *WorkerPool
-	globalWorkerPoolLock sync.RWMutex
+	poolOnce         sync.Once
+	globalWorkerPool *WorkerPool
 )
 
-// InitGlobalWorkerPool initializes the global worker pool with the given configuration
-// This should be called once during server initialization
+// InitGlobalWorkerPool initializes the global worker pool with the given configuration.
+// This should be called once during server initialization.
+// If workerPoolSize or workerQueueSize is <= 0, defaults are applied by NewWorkerPool.
+// Using sync.Once ensures initialization happens exactly once, even with concurrent calls.
 func InitGlobalWorkerPool(workerPoolSize, workerQueueSize int) {
-	globalWorkerPoolLock.Lock()
-	defer globalWorkerPoolLock.Unlock()
-
-	if globalWorkerPool != nil {
-		// Already initialized
-		return
-	}
-
-	// Apply defaults if needed
-	if workerPoolSize <= 0 {
-		workerPoolSize = runtime.NumCPU() * 2
-	}
-	if workerQueueSize <= 0 {
-		workerQueueSize = DefaultWorkerQueueSize
-	}
-
-	globalWorkerPool = &WorkerPool{
-		workers:   workerPoolSize,
-		taskQueue: make(chan func(), workerQueueSize),
-		done:      make(chan struct{}),
-	}
-	globalWorkerPool.start()
+	poolOnce.Do(func() {
+		// NewWorkerPool will apply defaults if needed
+		globalWorkerPool = NewWorkerPool(workerPoolSize, workerQueueSize)
+		globalWorkerPool.start()
+	})
 }
 
 // GetGlobalWorkerPool returns the singleton worker pool instance.
@@ -66,21 +51,25 @@ func InitGlobalWorkerPool(workerPoolSize, workerQueueSize int) {
 // - Worker count: runtime.NumCPU() * 2
 // - Queue size: DefaultWorkerQueueSize
 func GetGlobalWorkerPool() *WorkerPool {
-	globalWorkerPoolLock.RLock()
-	if globalWorkerPool != nil {
-		globalWorkerPoolLock.RUnlock()
-		return globalWorkerPool
-	}
-	globalWorkerPoolLock.RUnlock()
-
-	// Initialize with defaults if not already initialized
+	// Ensure initialization with defaults if not called explicitly
+	// sync.Once guarantees this is thread-safe
 	InitGlobalWorkerPool(0, 0)
 	return globalWorkerPool
 }
 
-// NewWorkerPool creates a new worker pool with custom configuration
-// for testing purposes
+// NewWorkerPool creates a new worker pool with the specified number of workers and queue size.
+// If workers or queueSize is <= 0, defaults are applied:
+// - workers: runtime.NumCPU() * 2
+// - queueSize: DefaultWorkerQueueSize
 func NewWorkerPool(workers, queueSize int) *WorkerPool {
+	// Apply defaults if invalid
+	if workers <= 0 {
+		workers = runtime.NumCPU() * 2
+	}
+	if queueSize <= 0 {
+		queueSize = DefaultWorkerQueueSize
+	}
+
 	return &WorkerPool{
 		workers:   workers,
 		taskQueue: make(chan func(), queueSize),

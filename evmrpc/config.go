@@ -140,8 +140,8 @@ var DefaultConfig = Config{
 	MaxTraceLookbackBlocks:       10000,
 	TraceTimeout:                 30 * time.Second,
 	RPCStatsInterval:             10 * time.Second,
-	WorkerPoolSize:               0, // 0 = use default (runtime.NumCPU() * 2)
-	WorkerQueueSize:              0, // 0 = use default (1000)
+	WorkerPoolSize:               runtime.NumCPU() * 2,   // Default: CPU cores × 2
+	WorkerQueueSize:              DefaultWorkerQueueSize, // Default: 1000 tasks
 }
 
 const (
@@ -410,10 +410,10 @@ max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
 trace_timeout = "{{ .EVM.TraceTimeout }}"
 
 # WorkerPoolSize defines the number of workers in the worker pool.
-# Set to 0 to use default (runtime.NumCPU() * 2)
+# Default is CPU cores × 2. Set to 0 to auto-detect based on CPU cores.
 worker_pool_size = {{ .EVM.WorkerPoolSize }}
 
 # WorkerQueueSize defines the size of the task queue in the worker pool.
-# Set to 0 to use default (1000)
+# Default is 1000 tasks. Set to 0 to use the default value.
 worker_queue_size = {{ .EVM.WorkerQueueSize }}
 `

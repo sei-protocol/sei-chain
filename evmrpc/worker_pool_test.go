@@ -1,7 +1,6 @@
 package evmrpc
 
 import (
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -407,20 +406,9 @@ func TestInitGlobalWorkerPool(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Apply defaults like InitGlobalWorkerPool does
-			workerPoolSize := tt.workerPoolSize
-			workerQueueSize := tt.workerQueueSize
-
-			if workerPoolSize <= 0 {
-				workerPoolSize = runtime.NumCPU() * 2
-			}
-			if workerQueueSize <= 0 {
-				workerQueueSize = DefaultWorkerQueueSize
-			}
-
 			// Create a new worker pool for each test (not using global)
-			// because we can't easily reset the global singleton in tests
-			wp := NewWorkerPool(workerPoolSize, workerQueueSize)
+			// NewWorkerPool will apply defaults if values are <= 0
+			wp := NewWorkerPool(tt.workerPoolSize, tt.workerQueueSize)
 			wp.Start()
 			defer wp.Close()
 
@@ -476,8 +464,8 @@ func TestInitGlobalWorkerPoolIdempotent(t *testing.T) {
 	// The important guarantee is that InitGlobalWorkerPool is idempotent:
 	// - First call initializes the pool
 	// - Subsequent calls are no-ops
-	// This is ensured by the check in InitGlobalWorkerPool:
-	//   if globalWorkerPool != nil { return }
+	// This is ensured by sync.Once in InitGlobalWorkerPool, which guarantees
+	// the initialization function runs exactly once, even with concurrent calls.
 }
 
 // Test worker pool with large queue under stress
