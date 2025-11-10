@@ -560,6 +560,11 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	targetPath := filepath.Join(db.dir, snapshotDir)
 	if _, err := os.Stat(targetPath); err == nil {
 		db.logger.Info("snapshot already exists, skipping rewrite", "snapshot", snapshotDir)
+		// Ensure 'current' symlink points to this snapshot
+		if err := updateCurrentSymlink(db.dir, snapshotDir); err != nil {
+			db.logger.Error("failed to update current symlink for existing snapshot", "snapshot", snapshotDir, "error", err)
+			return err
+		}
 		return nil
 	}
 

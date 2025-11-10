@@ -397,7 +397,7 @@ func (t *Tree) WriteSnapshot(ctx context.Context, snapshotDir string) error {
 		treeSize = t.root.Size() * 2 // Total nodes (leaves + branches)
 	}
 
-	// Use 256MB buffer for all trees (large buffer for better performance)
+	// Use 128MB buffer for all trees (large buffer for better performance)
 	bufSize := bufIOSize
 
 	err := writeSnapshotWithBuffer(ctx, snapshotDir, t.version, bufSize, treeSize, t.logger, func(w *snapshotWriter) (uint32, error) {
@@ -470,7 +470,7 @@ func writeSnapshotWithBuffer(
 	leavesMonitor := &monitoringWriter{f: fpLeaves}
 	kvsMonitor := &monitoringWriter{f: fpKVs}
 
-	// Create buffered writers with large buffers (2GB each for EVM tree)
+	// Create buffered writers with buffers
 	nodesWriter := bufio.NewWriterSize(nodesMonitor, bufSize)
 	leavesWriter := bufio.NewWriterSize(leavesMonitor, bufSize)
 	kvsWriter := bufio.NewWriterSize(kvsMonitor, bufSize)

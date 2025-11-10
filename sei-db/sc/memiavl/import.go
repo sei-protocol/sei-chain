@@ -13,7 +13,7 @@ import (
 
 var (
 	// Pipeline channel size - controls how many operations can be queued
-	// Reduced to 1M to balance memory usage (1M ops * 120 bytes * 3 channels = ~360MB)
+	// Increased to 1M to improve throughput (1M ops * 120 bytes * 3 channels = ~360MB)
 	nodeChanSize = 1000000
 
 	// bufio.Writer buffer size - 128MB balances performance and memory usage

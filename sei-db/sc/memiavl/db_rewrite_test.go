@@ -46,9 +46,19 @@ func TestRewriteSnapshotAlreadyExists(t *testing.T) {
 	_, err = os.Stat(targetPath)
 	require.NoError(t, err)
 
-	// Try to rewrite again - should skip because snapshot already exists
+	// Remove the 'current' symlink to simulate a broken state
+	currentPath := filepath.Join(db.dir, "current")
+	err = os.Remove(currentPath)
+	require.NoError(t, err)
+
+	// Try to rewrite again - should skip snapshot creation but update symlink
 	err = db.RewriteSnapshot(context.Background())
-	require.NoError(t, err) // Should succeed but skip
+	require.NoError(t, err)
+
+	// Verify 'current' symlink was restored and points to the correct snapshot
+	linkTarget, err := os.Readlink(currentPath)
+	require.NoError(t, err)
+	require.Equal(t, snapshotDir, linkTarget, "'current' symlink should point to the snapshot")
 
 	db.Close()
 }
