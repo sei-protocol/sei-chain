@@ -115,21 +115,9 @@ jobs:
             ]
           },
           {
-            name: "dApp Tests - Uniswap",
+            name: "dApp Tests",
             scripts: [
-              "./integration_test/dapp_tests/dapp_tests.sh seilocal uniswap"
-            ]
-          },
-          {
-            name: "dApp Tests - Steak",
-            scripts: [
-              "./integration_test/dapp_tests/dapp_tests.sh seilocal steak"
-            ]
-          },
-          {
-            name: "dApp Tests - NFT Marketplace",
-            scripts: [
-              "./integration_test/dapp_tests/dapp_tests.sh seilocal nft"
+              "./integration_test/dapp_tests/dapp_tests.sh seilocal"
             ]
           },
         ]
