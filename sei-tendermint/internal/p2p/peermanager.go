@@ -48,10 +48,7 @@ type peerManagerInner struct {
 }
 
 func (i *peerManagerInner) findFailedPeer() (types.NodeID,bool) {
-	conns := i.conns.Load()
 	for old,pa := range i.addrs {
-		if _,ok := i.dialing[old]; ok { continue }
-		if _,ok := conns.Get(old); ok { continue }
 		if len(pa.fails)<len(pa.addrs) { continue }
 		return old,true
 	}
@@ -85,22 +82,24 @@ func (i *peerManagerInner) AddAddr(addr NodeAddress) bool {
 	// Prune any failing address if maxAddrsPerPeer has been reached.
 	if len(pa.addrs) == maxAddrsPerPeer {
 		var failedAddr utils.Option[NodeAddress]
-		for old,_ := range pa.fails {
+		for old := range pa.fails {
 			failedAddr = utils.Some(old)
 			break
 		}
 		toPrune,ok := failedAddr.Get()
 		if !ok { return false }
 		delete(pa.addrs, toPrune)
+		delete(pa.fails, toPrune)
 	}
 	pa.addrs[addr] = struct{}{}
 	return true
 }
 
+// None = -inf (i.e. beginning of time)
 func before(a, b utils.Option[time.Time]) bool {
-	at,ok := a.Get()
-	if !ok { return false }
 	bt,ok := b.Get()
+	if !ok { return false }
+	at,ok := a.Get()
 	if !ok { return true }
 	return at.Before(bt)
 }
@@ -129,7 +128,6 @@ func (i *peerManagerInner) TryStartDial(persistentPeer bool) (NodeAddress,bool) 
 		addrs = i.persistentAddrs
 	}
 	for id,peerAddrs := range addrs {
-		if i.isPersistent(id) != persistentPeer || len(peerAddrs.addrs)==0 { continue }
 		if _,ok := i.dialing[id]; ok { continue }
 		if _,ok := conns.Get(id); ok { continue }
 		if x,ok := bestPeer.Get(); !ok || before(peerAddrs.lastFail, x.lastFail) {
@@ -146,6 +144,8 @@ func (i *peerManagerInner) TryStartDial(persistentPeer bool) (NodeAddress,bool) 
 		}
 	}
 	if x,ok := best.Get(); ok {
+		// clear the failed status for the chosen address and mark it as dialing.
+		delete(addrs[x.NodeID].fails,x)
 		i.dialing[x.NodeID] = x
 	}
 	return best.Get()
@@ -339,7 +339,7 @@ func (m *PeerManager) Conns() connSet {
 // Addresses to persistent peers are ignored, since they are populated in constructor.
 // Known addresses are ignored.
 // If maxAddrsPerPeer limit is exceeded, new address replaces a random failed address of that peer.
-// If options.MaxPeers limit is exceeded, some peer with ALL addresses failed (which is not connected or dialing) is replaced.
+// If options.MaxPeers limit is exceeded, some peer with ALL addresses failed is replaced.
 // If there is no such address/peer to replace, the new address is ignored.
 // If some address is invalid, an error is returned.
 // Even if an error is returned, some addresses might have been added.

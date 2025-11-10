@@ -70,7 +70,11 @@ func TestRngSplit(rng *rand.Rand) *rand.Rand {
 
 // TestRng returns a deterministic random number generator.
 func TestRng() *rand.Rand {
-	return rand.New(rand.NewSource(789345342))
+	return TestRngFromSeed(789345342)
+}
+
+func TestRngFromSeed(seed int64) *rand.Rand {
+	return rand.New(rand.NewSource(seed))
 }
 
 var alphanum = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")

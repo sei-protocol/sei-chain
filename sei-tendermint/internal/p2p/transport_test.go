@@ -45,29 +45,30 @@ func makeInfo(key crypto.PrivKey) types.NodeInfo {
 
 func TestRouter_MaxConnected(t *testing.T) {
 	logger, _ := log.NewDefaultLogger("plain", "debug")
+	rng := utils.TestRng()
 	opts := makeRouterOptions()
 	maxConnected := 2
 	opts.MaxConnected = utils.Some(maxConnected)
 
 	err := utils.IgnoreCancel(scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		r := makeRouterWithOptions(logger, opts)
+		r := makeRouterWithOptions(logger, rng, opts)
 		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
 		if err := r.WaitForStart(ctx); err != nil {
 			return err
 		}
 
 		var total atomic.Int64
-		t.Logf("spawn a bunch of connections, making sure that no more than %d are accepted at any given time", opts.MaxConnected)
+		t.Logf("spawn a bunch of connections, making sure that no more than %d are accepted at any given time", maxConnected)
 		for range 10 {
 			s.SpawnNamed("test", func() error {
-				x := makeRouter(logger)
+				x := makeRouter(logger,rng)
 				// Establish a connection.
 				addr := TestAddress(r)
 				tcpConn, err := x.dial(ctx, addr)
 				if err != nil {
 					return fmt.Errorf("tcp.dial(): %w", err)
 				}
-				conn, err := x.HandshakeOrClose(ctx, tcpConn, utils.Some(addr))
+				conn, err := x.handshake(ctx, tcpConn, utils.Some(addr))
 				if err != nil {
 					return fmt.Errorf("handshake(): %w", err)
 				}
@@ -104,10 +105,11 @@ func TestRouter_Listen(t *testing.T) {
 		t.Run(tc.Addr().String(), func(t *testing.T) {
 			logger, _ := log.NewDefaultLogger("plain", "debug")
 			t.Cleanup(leaktest.Check(t))
+			rng := utils.TestRng()
 			err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 				opts := makeRouterOptions()
 				opts.Endpoint.AddrPort = tc
-				r := makeRouterWithOptions(logger, opts)
+				r := makeRouterWithOptions(logger, rng, opts)
 				s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
 				if err := r.WaitForStart(ctx); err != nil {
 					return err
@@ -117,14 +119,14 @@ func TestRouter_Listen(t *testing.T) {
 					return fmt.Errorf("r.Endpoint() = %v, want %v", got, want)
 				}
 
-				x := makeRouter(logger)
+				x := makeRouter(logger, rng)
 				addr := TestAddress(r)
 				tcpConn, err := x.dial(ctx, addr)
 				if err != nil {
 					return fmt.Errorf("tcp.dial(): %v", err)
 				}
 				defer tcpConn.Close()
-				if _, err := x.HandshakeOrClose(ctx, tcpConn, utils.Some(addr)); err != nil {
+				if _, err := x.handshake(ctx, tcpConn, utils.Some(addr)); err != nil {
 					return fmt.Errorf("handshake(): %v", err)
 				}
 				return nil
@@ -139,21 +141,22 @@ func TestRouter_Listen(t *testing.T) {
 // Test checking that handshake provides correct NodeInfo.
 func TestHandshake_NodeInfo(t *testing.T) {
 	logger, _ := log.NewDefaultLogger("plain", "debug")
+	rng := utils.TestRng()
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		r := makeRouter(logger)
+		r := makeRouter(logger, rng)
 		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
 		if err := r.WaitForStart(ctx); err != nil {
 			return err
 		}
 
-		x := makeRouter(logger)
+		x := makeRouter(logger, rng)
 		addr := TestAddress(r)
 		tcpConn, err := x.dial(ctx, addr)
 		if err != nil {
 			return fmt.Errorf("tcp.dial(): %v", err)
 		}
 		defer tcpConn.Close()
-		conn, err := x.HandshakeOrClose(ctx, tcpConn, utils.Some(addr))
+		conn, err := x.handshake(ctx, tcpConn, utils.Some(addr))
 		if err != nil {
 			return fmt.Errorf("handshake(): %v", err)
 		}
@@ -171,9 +174,10 @@ func TestHandshake_NodeInfo(t *testing.T) {
 // Test checking that handshake respects the context.
 func TestHandshake_Context(t *testing.T) {
 	logger, _ := log.NewDefaultLogger("plain", "debug")
+	rng := utils.TestRng()
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		a := makeRouter(logger)
-		b := makeRouter(logger)
+		a := makeRouter(logger, rng)
+		b := makeRouter(logger, rng)
 		listener, err := tcp.Listen(a.Endpoint().AddrPort)
 		if err != nil {
 			return fmt.Errorf("tcp.Listen(): %w", err)
@@ -201,7 +205,7 @@ func TestHandshake_Context(t *testing.T) {
 			}
 			s.SpawnBg(func() error {
 				defer tcpConn.Close()
-				conn, err := b.HandshakeOrClose(ctx, tcpConn, utils.Some(addr))
+				conn, err := b.handshake(ctx, tcpConn, utils.Some(addr))
 				if err == nil {
 					defer conn.Close()
 					return fmt.Errorf("handshake(): expected error, got %w", err)

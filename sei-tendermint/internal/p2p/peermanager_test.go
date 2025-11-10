@@ -1,38 +1,32 @@
 package p2p
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"math"
-	"strings"
+	"context"
 	"testing"
 	"time"
 	"math/rand"
+	"sync/atomic"
 
-	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/crypto/ed25519"
-
-	"github.com/fortytw2/leaktest"
-	"github.com/stretchr/testify/assert"
-	dbm "github.com/tendermint/tm-db"
 
 	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/types"
 )
 
-const selfID = makeNodeID()
+var selfID = types.NodeIDFromPubKey(ed25519.GenPrivKeyFromSecret([]byte("selfID")).PubKey())
 
-func makeKey(rng *rand.Rand) crypto.PrivKey {
-	return crypto.GenKeyFromSecret(utils.GenBytes(rng, 32))
+func makeKey(rng *rand.Rand) ed25519.PrivKey {
+	return ed25519.GenPrivKeyFromSecret(utils.GenBytes(rng, 32))
 }
 
-func makeNodeID(rng *rand.Rand) NodeID {
-	return types.NodeIDFromPubKey(makeKey(rng))
+func makeNodeID(rng *rand.Rand) types.NodeID {
+	return types.NodeIDFromPubKey(makeKey(rng).PubKey())
 }
 
-func makeAddrFor(rng *rand.Rand, id NodeID) NodeAddress {
+func makeAddrFor(rng *rand.Rand, id types.NodeID) NodeAddress {
 	return NodeAddress{
 		NodeID:   id,
 		Hostname: fmt.Sprintf("%s.example.com",utils.GenString(rng,10)),
@@ -52,7 +46,7 @@ func (m *PeerManager) Addresses(id types.NodeID) []NodeAddress {
 			peerAddrs = inner.persistentAddrs
 		}
 		if pa,ok := peerAddrs[id]; ok {
-			for addr := range pa {
+			for addr := range pa.addrs {
 				addrs = append(addrs,addr)
 			}
 		}
@@ -60,33 +54,38 @@ func (m *PeerManager) Addresses(id types.NodeID) []NodeAddress {
 	return addrs
 }
 
-func TestRouterOptions_Validate(t *testing.T) {
-	addrs := utils.Slice(makeAddr(),makeAddr(),makeAddr())
-	addrs2 := utils.Slice(makeAddr())
-	ids := utils.Slice(addrs[0].NodeID,addrs[2].NodeID)
-	optsOk := RouterOptions {
-		PersistentPeers: addrs,
-		BootstrapPeers: addrs2,
-		BlockSyncPeers: ids,
-		UnconditionalPeers: ids,
-		PrivatePeers: ids,
+func TestRouterOptions(t *testing.T) {
+	rng := utils.TestRng()
+
+	makeOpts := func(rng *rand.Rand) RouterOptions {
+		addrs := utils.Slice(makeAddr(rng),makeAddr(rng),makeAddr(rng))
+		addrs2 := utils.Slice(makeAddr(rng))
+		ids := utils.Slice(addrs[0].NodeID,addrs[2].NodeID)
+		return RouterOptions {
+			PersistentPeers: addrs,
+			BootstrapPeers: addrs2,
+			BlockSyncPeers: ids,
+			UnconditionalPeers: ids,
+			PrivatePeers: ids,
+		}
 	}
-	optsBadPersistent := optsOk
+	optsOk := makeOpts(rng)
+	optsBadPersistent := makeOpts(rng)
 	optsBadPersistent.PersistentPeers[1].NodeID = "X"
-	optsBadBootstrap := optsOk
+	optsBadBootstrap := makeOpts(rng)
 	optsBadBootstrap.BootstrapPeers[0].NodeID = "QQ"
-	optsBadBlockSync := optsOk
+	optsBadBlockSync := makeOpts(rng)
 	optsBadBlockSync.BlockSyncPeers[1] = "Y"
-	optsBadUnconditional := optsOk
+	optsBadUnconditional := makeOpts(rng)
 	optsBadUnconditional.UnconditionalPeers[0] = "Z"
-	optsBadPrivate := optsOk
+	optsBadPrivate := makeOpts(rng)
 	optsBadPrivate.PrivatePeers[1] = "W"
 	testcases := map[string]struct {
 		options RouterOptions
 		ok      bool
 	}{
-		"zero options is valid": {RouterOptions{}, true},
-		"valid ": {optsOk, true},
+		"empty": {RouterOptions{}, true},
+		"valid": {optsOk, true},
 		"bad PersistentPeers": {optsBadPersistent, false},
 		"bad BootstrapPeers": {optsBadBootstrap, false},
 		"bad BlockSyncPeers": {optsBadBlockSync, false},
@@ -105,61 +104,245 @@ func TestRouterOptions_Validate(t *testing.T) {
 	}
 }
 
-func TestPeerManager_KindsOfPeers(t *testing.T) {
+func TestPeerManager_AddAddrs(t *testing.T) {
 	rng := utils.TestRng()
+
+	t.Log("Generate some addresses")
 	var ids []types.NodeID
-	for range 5 { ids = append(ids, makeNodeID(rng)) }
-	var addrs = map[types.NodeID][]NodeAddress{}
+	for range 6 { ids = append(ids, makeNodeID(rng)) }
+	addrs := map[types.NodeID][]NodeAddress{}
+	for _,id := range ids {
+		for range rng.Intn(3)+2 {
+			addrs[id] = append(addrs[id],makeAddrFor(rng,id))
+		}
+	}
 
-	// Create an initial peer manager and add the peers.
-	// TODO: Bootstrap peers
-	// unconditional/blocksync/private peers addrs should be accepted.
-	// persistent peer addr should be ignored.
-	m := NewPeerManager(selfID, RouterOptions{
-		UnconditionalPeers: utils.Slice(ids[0]),
-		BlockSyncPeers: utils.Slice(ids[1]),
-		PrivatePeers: utils.Slice(ids[2]),
-	})
-	require.NoError(m.AddAddrs(utils.Slice(aAddr,bAddr,cAddr)))
-	require.ElementsMatch(t, utils.Slice(aAddr), m.Addresses(aAddr.NodeID))
-	require.ElementsMatch(t, utils.Slice(bAddr), m.Addresses(bAddr.NodeID))
-	require.ElementsMatch(t, utils.Slice(cAddr), m.Addresses(cAddr.NodeID))
-}
+	t.Log("Collect all persistent peers' addrs.")
+	var persistentAddrs []NodeAddress
+	for _,id := range ids[:2] {
+		persistentAddrs = append(persistentAddrs, addrs[id]...)
+	}
+	t.Log("Collect some other peers' addrs.")
+	var bootstrapAddrs []NodeAddress
+	for _,id := range ids[2:] {
+		bootstrapAddrs = append(bootstrapAddrs, addrs[id][:2]...)
+	}
 
-func TestPeerManager_Add(t *testing.T) {
-	rng := utils.TestRng()
-	persistent := utils.Slice(makeAddr(rng),makeAddr(rng))
-
-	maxPeers := 5
-	m := newPeerManager(selfID, RouterOptions{
-		PersistentPeers: persistent,
+	t.Log("Create peer manager.")
+	maxPeers := 10
+	m := newPeerManager(selfID, &RouterOptions{
+		BootstrapPeers: bootstrapAddrs,
+		PersistentPeers: persistentAddrs,
+		UnconditionalPeers: utils.Slice(ids[2]),
+		BlockSyncPeers: utils.Slice(ids[3]),
+		PrivatePeers: utils.Slice(ids[4]),
 		MaxPeers: utils.Some(maxPeers),
-		MaxConns: utils.Some(maxPeers),
 	})
 
-	for
-	// Adding a couple of addresses should work.
-	addrs := utils.Slice(makeAddr(),makeAddr())
-	require.NoError(peerManager.AddAddrs(addrs))
-	require.ElementsMatch(t, addrs1, peerManager.Addresses(addrs1[0].NodeID))
+	t.Log("Check that all expected addrs are present.")
+	for _,id := range ids[:2] {
+		require.ElementsMatch(t, addrs[id], m.Addresses(id))
+	}
+	for _,id := range ids[2:] {
+		require.ElementsMatch(t, addrs[id][:2], m.Addresses(id))
+	}
 
-	// Adding a different peer should be fine.
-	addrs2 := utils.Slice(makeAddr())
-	require.NoError(peerManager.AddAddrs(addrs2)
-	require.ElementsMatch(t, bAddrs, peerManager.Addresses(addrs2[0].NodeID))
+	t.Log("Add all addresses at once.")
+	var allAddrs []NodeAddress
+	for _,id := range ids {
+		allAddrs = append(allAddrs,addrs[id]...)
+	}
+	require.NoError(t, m.AddAddrs(allAddrs))
 
-	// Adding an existing address again should be a noop.
-	require.NoError(peerManager.AddAddrs(utils.Slice[
-	require.NoError(t, err)
-	require.ElementsMatch(t, aAddresses, peerManager.Addresses(aID))
+	t.Log("Check that all expected addrs are present.")
+	for _,id := range ids {
+		require.ElementsMatch(t, addrs[id], m.Addresses(id))
+	}
 
-	// Adding above capacity should be discarded
+	t.Log("Check that adding new persistent peer address is ignored.")
+	require.NoError(t, m.AddAddrs(utils.Slice(makeAddrFor(rng, ids[0]))))
+	require.ElementsMatch(t, addrs[ids[0]], m.Addresses(ids[0]))
 
-	// Once dial fail, the peer should be replaceable.
+	t.Log("Check that maxAddrsPerPeer limit is respected")
+	idWithManyAddrs := ids[2]
+	for range maxAddrsPerPeer {
+		addrs[idWithManyAddrs] = append(addrs[idWithManyAddrs], makeAddrFor(rng, idWithManyAddrs))
+	}
+	require.NoError(t, m.AddAddrs(addrs[idWithManyAddrs]))
+	// WARNING: here we implicitly assume that addresses are added in order.
+	require.ElementsMatch(t, addrs[idWithManyAddrs][:maxAddrsPerPeer], m.Addresses(idWithManyAddrs))
 
-	// Adding up to maxAddrsPerPeer should be fine.
+	t.Log("Check that options.MaxPeers limit is respected")
+	var newAddrs []NodeAddress
+	for range maxPeers {
+		addr := makeAddr(rng)
+		ids = append(ids,addr.NodeID)
+		addrs[addr.NodeID] = utils.Slice(addr)
+		newAddrs = append(newAddrs,addr)
+	}
+	require.NoError(t, m.AddAddrs(newAddrs))
+	expectedIDs := maxPeers+2 // There are 2 persistent peers.
+	for _,id := range ids[:expectedIDs] {
+		expectedAddrs := min(len(addrs[id]),maxAddrsPerPeer)
+		require.ElementsMatch(t, addrs[id][:expectedAddrs], m.Addresses(id))
+	}
+	for _,id := range ids[expectedIDs:] {
+		require.ElementsMatch(t, nil, m.Addresses(id))
+	}
+
+	t.Log("Check that failed addresses are replaceable")
+	m.DialFailed(addrs[idWithManyAddrs][1]) // we fail 1 arbitrary adderess
+	newAddrs = addrs[idWithManyAddrs][maxAddrsPerPeer:]
+	require.NoError(t, m.AddAddrs(newAddrs)) // we try to add some addrs
+	want := append([]NodeAddress(nil),addrs[idWithManyAddrs][:maxAddrsPerPeer]...)
+	want[1] = newAddrs[0] // the first one newly added should replace the failed one.
+	require.ElementsMatch(t, want, m.Addresses(idWithManyAddrs))
+
+	t.Log("Check that failed peers are replaceable")
+	for _,addr := range addrs[ids[4]] {
+		m.DialFailed(addr)
+	}
+	newPeer := makeAddr(rng)
+	require.NoError(t, m.AddAddrs(utils.Slice(newPeer)))
+	require.ElementsMatch(t, nil, m.Addresses(ids[4]))
+	require.ElementsMatch(t, utils.Slice(newPeer), m.Addresses(newPeer.NodeID))
 }
 
+func TestPeerManager_DuplicateDials(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	maxDials := 3
+	m := newPeerManager(makeNodeID(rng), &RouterOptions {
+		MaxConcurrentDials: utils.Some(maxDials),
+	})
+	var addrs []NodeAddress
+	addrMap := map[NodeAddress]bool{}
+	dialing := utils.NewMutex(map[types.NodeID]bool{})
+	for range 10 {
+		addr := makeAddr(rng)
+		addrs = append(addrs, addr)
+		addrMap[addr] = true
+	}
+	require.NoError(t, m.AddAddrs(addrs))
+	var total atomic.Int64
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for range 20 {
+			addr,err := m.StartDial(ctx, false) // dial non-persistent peer
+			if err!=nil {
+				return fmt.Errorf("StartDial(): %w",err)
+			}
+			if !addrMap[addr] {
+				return fmt.Errorf("unexpected addr")
+			}
+			for dialing := range dialing.Lock() {
+				if dialing[addr.NodeID] {
+					return fmt.Errorf("dialing same peer on 2 addresses")
+				}
+				dialing[addr.NodeID] = true
+			}
+			if got:=total.Add(1); got>int64(maxDials) {
+				return fmt.Errorf("dials limit exceeded: %v",got)
+			}
+			s.Spawn(func() error {
+				if err:=utils.Sleep(ctx, 100*time.Millisecond); err!=nil {
+					return err
+				}
+				total.Add(-1)
+				m.DialFailed(addr)
+				return nil
+			})
+		}
+		return nil
+	})
+	if err!=nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPeerManager_ConcurrentDials(t *testing.T) {
+	ctx := t.Context()
+	for _,tc := range []struct{ peers, maxDials, rounds int } {
+		{peers: 10, maxDials: 3, rounds: 20}, // dialing limited by MaxConcurrentDials
+		{peers: 3, maxDials: 10, rounds: 20}, // dialing limited by available peer addrs
+	} {
+		t.Run(fmt.Sprintf("peers=%v maxDials=%v",tc.peers,tc.maxDials), func(t *testing.T) {
+			rng := utils.TestRng()
+			m := newPeerManager(makeNodeID(rng), &RouterOptions {
+				MaxConcurrentDials: utils.Some(tc.maxDials),
+			})
+			addrsMap := map[NodeAddress]bool{}
+			var addrs []NodeAddress
+			for range tc.peers {
+				addr := makeAddr(rng)
+				addrs = append(addrs, addr)
+				addrsMap[addr] = true
+			}
+			require.NoError(t, m.AddAddrs(addrs))
+			dialing := utils.NewMutex(map[types.NodeID]bool{})
+			err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+				for range tc.rounds {
+					addr,err := m.StartDial(ctx, false) // dial non-persistent peer
+					if err!=nil {
+						return fmt.Errorf("StartDial(): %w",err)
+					}
+					if !addrsMap[addr] {
+						return fmt.Errorf("unexpected addr %v",addr)
+					}
+					for dialing := range dialing.Lock() {
+						if got:=len(dialing); got>tc.maxDials {
+							return fmt.Errorf("dials limit exceeded: %v",got)
+						}
+						if dialing[addr.NodeID] {
+							return fmt.Errorf("duplicate concurrent dials for %v",addr.NodeID)
+						}
+						dialing[addr.NodeID] = true
+					}
+					s.Spawn(func() error {
+						if err:=utils.Sleep(ctx, 50*time.Millisecond); err!=nil {
+							return err
+						}
+						for dialing := range dialing.Lock() {
+							delete(dialing,addr.NodeID)
+						}
+						m.DialFailed(addr)
+						return nil
+					})
+				}
+				return nil
+			})
+			if err!=nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// Test checking that all the provided addresses are eventually dialed.
+func TestPeerManager_DialRoundRobin(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	m := newPeerManager(makeNodeID(rng), &RouterOptions {})
+	addrsMap := map[NodeAddress]bool{}
+	var addrs []NodeAddress
+	for range 10 {
+		id := makeNodeID(rng)
+		for range rng.Intn(5)+1 {
+			addr := makeAddrFor(rng,id)
+			addrsMap[addr] = true
+			addrs = append(addrs, addr)
+		}
+	}
+	require.NoError(t, m.AddAddrs(addrs))
+	for len(addrsMap)>0 {
+		addr,err := m.StartDial(ctx, false) // dial non-persistent peer
+		require.NoError(t, err)
+		delete(addrsMap,addr)
+		m.DialFailed(addr)
+	}
+}
+
+
+/*
 func TestPeerManager_DialNext(t *testing.T) {
 	ctx := t.Context()
 
@@ -1168,4 +1351,4 @@ func TestPeerManager_Subscribe(t *testing.T) {
 
 	require.NoError(t, peerManager.DialFailed(ctx, a))
 	require.Empty(t, sub.Updates())
-}
+}*/
