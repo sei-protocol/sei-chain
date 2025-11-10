@@ -53,8 +53,6 @@ ldflags = -X github.com/cosmos/cosmos-sdk/version.Name=sei \
 			-X "github.com/cosmos/cosmos-sdk/version.BuildTags=$(build_tags_comma_sep)"
 
 # go 1.23+ needs a workaround to link memsize (see https://github.com/fjl/memsize).
-# NOTE: this is a terribly ugly and unstable way of comparing version numbers,
-# but that's what you get when you do anything nontrivial in a Makefile.
 ifeq ($(firstword $(sort go1.23 $(shell go env GOVERSION))), go1.23)
 	ldflags += -checklinkname=0
 endif
@@ -83,6 +81,38 @@ install-with-race-detector: go.sum
 
 install-price-feeder: go.sum
 		go install $(BUILD_FLAGS) ./oracle/price-feeder
+
+###############################################################################
+###                       RocksDB Backend Support                           ###
+###############################################################################
+
+build-rocksdb:
+	@echo "Building RocksDB v8.9.1..."
+	@if [ -d "rocksdb" ]; then \
+		echo "rocksdb directory already exists, removing..."; \
+		rm -rf rocksdb; \
+	fi
+	git clone https://github.com/facebook/rocksdb.git
+	cd rocksdb && \
+		git checkout v8.9.1 && \
+		make clean && \
+		CXXFLAGS='-march=native -DNDEBUG' make -j"$$(nproc)" shared_lib && \
+		sudo make install-shared
+	@echo '/usr/local/lib' | sudo tee /etc/ld.so.conf.d/rocksdb.conf
+	@sudo ldconfig
+	@echo "RocksDB installation complete!"
+
+install-rocksdb: go.sum
+	@echo "Checking for RocksDB installation..."
+	@if ! ldconfig -p | grep -q librocksdb; then \
+		echo "Error: RocksDB not found. Please run 'make build-rocksdb' first."; \
+		exit 1; \
+	fi
+	@echo "RocksDB found, proceeding with installation..."
+	CGO_CFLAGS="-I/usr/local/include" \
+	CGO_LDFLAGS="-L/usr/local/lib -lrocksdb -lz -lbz2 -lsnappy -llz4 -lzstd -ljemalloc" \
+	go install $(BUILD_FLAGS) -tags "$(build_tags) rocksdbBackend" ./cmd/seid
+	@echo "seid installed with RocksDB backend support!"
 
 loadtest: go.sum
 		go build $(BUILD_FLAGS) -o ./build/loadtest ./loadtest/
@@ -118,16 +148,7 @@ build-loadtest:
 ###############################################################################
 ###                       Local testing using docker container              ###
 ###############################################################################
-# To start a 4-node cluster from scratch:
-# make clean && make docker-cluster-start
-# To stop the 4-node cluster:
-# make docker-cluster-stop
-# If you have already built the binary, you can skip the build:
-# make docker-cluster-start-skipbuild
-###############################################################################
 
-
-# Build linux binary on other platforms
 build-linux:
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc make build
 .PHONY: build-linux
@@ -136,7 +157,6 @@ build-price-feeder-linux:
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc make build-price-feeder
 .PHONY: build-price-feeder-linux
 
-# Build docker image
 build-docker-node:
 	@cd docker && docker build --tag sei-chain/localnode localnode --platform linux/x86_64
 .PHONY: build-docker-node
@@ -145,7 +165,6 @@ build-rpc-node:
 	@cd docker && docker build --tag sei-chain/rpcnode rpcnode --platform linux/x86_64
 .PHONY: build-rpc-node
 
-# Run a single node docker container
 run-local-node: kill-sei-node build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
 	docker run --rm \
@@ -159,7 +178,6 @@ run-local-node: kill-sei-node build-docker-node
 	sei-chain/localnode
 .PHONY: run-local-node
 
-# Run a single rpc state sync node docker container
 run-rpc-node: build-rpc-node
 	docker run --rm \
 	--name sei-rpc-node \
@@ -199,42 +217,34 @@ kill-sei-node:
 kill-rpc-node:
 	docker ps --filter name=sei-rpc-node --filter status=running -aq | xargs docker kill 2> /dev/null || true
 
-# Run a 4-node docker containers
 docker-cluster-start: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
 	@mkdir -p $(shell go env GOPATH)/pkg/mod
 	@mkdir -p $(shell go env GOCACHE)
 	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} docker compose up
-
 .PHONY: localnet-start
 
-# Use this to skip the seid build process
 docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
 	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 SKIP_BUILD=true docker compose up
 .PHONY: localnet-start
 
-# Stop 4-node docker containers
 docker-cluster-stop:
 	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose down
 .PHONY: localnet-stop
 
 
-# Implements test splitting and running. This is pulled directly from
-# the github action workflows for better local reproducibility.
+###############################################################################
+###                       Testing (CI + Local)                              ###
+###############################################################################
 
 GO_TEST_FILES != find $(CURDIR) -name "*_test.go"
-
-# default to four splits by default
 NUM_SPLIT ?= 4
 
 $(BUILDDIR):
 	mkdir -p $@
 
-# The format statement filters out all packages that don't have tests.
-# Note we need to check for both in-package tests (.TestGoFiles) and
-# out-of-package tests (.XTestGoFiles).
-$(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
+$(BUILDDIR)/packages.txt: $(GO_TEST_FILES) $(BUILDDIR)
 	go list -f "{{ if (or .TestGoFiles .XTestGoFiles) }}{{ .ImportPath }}{{ end }}" ./... \
 	  | sort \
 	  | grep -v '/occ_tests$$' \
@@ -242,10 +252,9 @@ $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
 
 TARGET_PACKAGE := github.com/sei-protocol/sei-chain/occ_tests
 
-TARGET_PACKAGE := github.com/sei-protocol/sei-chain/occ_tests
-
-split-test-packages:$(BUILDDIR)/packages.txt
+split-test-packages: $(BUILDDIR)/packages.txt
 	split -d -n l/$(NUM_SPLIT) $< $<.
+
 test-group-%: split-test-packages
 	@echo "🔍 Checking for special package: $(TARGET_PACKAGE)"
 	@if grep -q "$(TARGET_PACKAGE)" $(BUILDDIR)/packages.txt.$*; then \
@@ -255,9 +264,20 @@ test-group-%: split-test-packages
 		echo "⚡ Not found, running with -parallel=4"; \
 		PARALLEL="-parallel=4"; \
 	fi; \
-	cat $(BUILDDIR)/packages.txt.$* | xargs go test $$PARALLEL -mod=readonly -timeout=15m -race -coverprofile=$*.profile.out -covermode=atomic
+	cat $(BUILDDIR)/packages.txt.$* | xargs go test $$PARALLEL -mod=readonly -timeout=15m -race \
+		-coverprofile=$*.profile.out -covermode=atomic -coverpkg=./...
 
 test-occ:
-	@echo "Running occ_tests serially (no -race) to avoid cgo SIGBUS)"
+	@echo "Running occ_tests serially (no -race) to avoid cgo SIGBUS"
 	GODEBUG=madvdontneed=1 go test ./occ_tests -count=1 -p=1 -parallel=1 \
-		-coverprofile=occ.profile.out -covermode=atomic
+		-timeout=20m -coverprofile=occ.profile.out -covermode=atomic
+
+# Run all groups + occ tests sequentially
+test-all:
+	@echo "🧪 Running all test groups + occ tests"
+	@for i in $(shell seq 0 $$(($(NUM_SPLIT)-1))); do \
+		echo "▶️  Running test group $$i"; \
+		$(MAKE) test-group-$$i || exit 1; \
+	done
+	$(MAKE) test-occ
+	@echo "✅ All tests passed."

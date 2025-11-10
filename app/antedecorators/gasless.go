@@ -2,6 +2,7 @@ package antedecorators
 
 import (
 	"encoding/hex"
+	"fmt"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -59,10 +60,12 @@ func (gd GaslessDecorator) handleWrapped(ctx sdk.Context, tx sdk.Tx, simulate bo
 	}
 	// iterating instead of recursing the handler for readability
 	for _, handler := range gd.wrapped {
-		ctx, err := handler.AnteHandle(ctx, tx, simulate, terminatorHandler)
+		newCtx, err := handler.AnteHandle(ctx, tx, simulate, terminatorHandler)
 		if err != nil {
-			return ctx, err
+			return newCtx, err
 		}
+		// We need to replace with the new context returned by the handler otherwise we could be losing data
+		ctx = newCtx
 	}
 	return next(ctx, tx, simulate)
 }
@@ -109,7 +112,15 @@ func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk
 	return next(append(txDeps, deps...), tx, txIndex)
 }
 
-func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) (bool, error) {
+func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) (isGasless bool, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			ctx.Logger().Error("panic recovered in IsTxGasless", "panic", r)
+			err = fmt.Errorf("panic in IsTxGasless: %v", r)
+			isGasless = false
+		}
+	}()
+
 	if len(tx.GetMsgs()) == 0 {
 		// empty TX shouldn't be gasless
 		return false, nil

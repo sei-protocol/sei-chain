@@ -33,6 +33,19 @@ func send(nonce uint64) ethtypes.TxData {
 	}
 }
 
+func sendAmount(nonce uint64, amount *big.Int) ethtypes.TxData {
+	_, recipient := testkeeper.MockAddressPair()
+	return &ethtypes.DynamicFeeTx{
+		Nonce:     nonce,
+		GasFeeCap: big.NewInt(1000000000),
+		Gas:       21000,
+		To:        &recipient,
+		Value:     amount,
+		Data:      []byte{},
+		ChainID:   chainId,
+	}
+}
+
 func sendErc20(nonce uint64) ethtypes.TxData {
 	_, recipient := testkeeper.MockAddressPair()
 	parsedABI, _ := abi.JSON(strings.NewReader(string(GetABI("ERC20"))))
@@ -40,7 +53,7 @@ func sendErc20(nonce uint64) ethtypes.TxData {
 	return &ethtypes.DynamicFeeTx{
 		Nonce:     nonce,
 		GasFeeCap: big.NewInt(1000000000),
-		Gas:       100000,
+		Gas:       500000,
 		To:        &erc20Addr,
 		Data:      bz,
 		ChainID:   chainId,
@@ -53,7 +66,7 @@ func depositErc20(nonce uint64) ethtypes.TxData {
 	return &ethtypes.DynamicFeeTx{
 		Nonce:     nonce,
 		GasFeeCap: big.NewInt(1000000000),
-		Gas:       100000,
+		Gas:       500000,
 		To:        &erc20Addr,
 		Value:     big.NewInt(1),
 		Data:      bz,
@@ -79,7 +92,7 @@ func registerCW20Pointer(nonce uint64, cw20Addr string) ethtypes.TxData {
 	input, _ := pInfo.ABI.Pack("addCW20Pointer", cw20Addr)
 	pointer := common.HexToAddress(pointer.PointerAddress)
 	return &ethtypes.DynamicFeeTx{
-		Nonce:     0,
+		Nonce:     nonce,
 		GasFeeCap: big.NewInt(1000000000),
 		Gas:       4000000,
 		To:        &pointer,

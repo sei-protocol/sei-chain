@@ -1,23 +1,24 @@
-package aclwasmmapping
+package aclwasmmapping_test
 
 import (
 	"testing"
 
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
+	aclwasmmapping "github.com/sei-protocol/sei-chain/aclmapping/wasm"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestWasmDependencyGenerator(t *testing.T) {
-	wasmDependencyGenerator := NewWasmDependencyGenerator().GetWasmDependencyGenerators()
+	wasmDependencyGenerator := aclwasmmapping.NewWasmDependencyGenerator().GetWasmDependencyGenerators()
 	// verify that there's one entry, for bank send
 	require.Equal(t, 1, len(wasmDependencyGenerator))
 	// check that bank send generator is in the map
@@ -29,7 +30,7 @@ func TestGeneratorInvalidMessageTypes(t *testing.T) {
 	accs := authtypes.GenesisAccounts{}
 	balances := []types.Balance{}
 
-	app := simapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	oracleVote := oracletypes.MsgAggregateExchangeRateVote{
@@ -38,7 +39,7 @@ func TestGeneratorInvalidMessageTypes(t *testing.T) {
 		Validator:     "validator",
 	}
 
-	_, err := NewWasmDependencyGenerator().WasmExecuteContractGenerator(app.AccessControlKeeper, ctx, &oracleVote)
+	_, err := aclwasmmapping.NewWasmDependencyGenerator().WasmExecuteContractGenerator(app.AccessControlKeeper, ctx, &oracleVote)
 	require.Error(t, err)
 }
 
@@ -67,7 +68,7 @@ func TestMsgBeginWasmExecuteGenerator(t *testing.T) {
 		},
 	}
 
-	app := simapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	execMsg := wasmtypes.MsgExecuteContract{
@@ -77,7 +78,7 @@ func TestMsgBeginWasmExecuteGenerator(t *testing.T) {
 		Funds:    coins,
 	}
 
-	accessOps, err := NewWasmDependencyGenerator().WasmExecuteContractGenerator(app.AccessControlKeeper, ctx, &execMsg)
+	accessOps, err := aclwasmmapping.NewWasmDependencyGenerator().WasmExecuteContractGenerator(app.AccessControlKeeper, ctx, &execMsg)
 	require.NoError(t, err)
 	err = acltypes.ValidateAccessOps(accessOps)
 	require.NoError(t, err)
@@ -99,7 +100,7 @@ func TestGeneratorInvalidMsgFormat(t *testing.T) {
 		},
 	}
 
-	app := simapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	execMsg := wasmtypes.MsgExecuteContract{
@@ -109,7 +110,7 @@ func TestGeneratorInvalidMsgFormat(t *testing.T) {
 		Funds:    coins,
 	}
 
-	_, err := NewWasmDependencyGenerator().WasmExecuteContractGenerator(app.AccessControlKeeper, ctx, &execMsg)
+	_, err := aclwasmmapping.NewWasmDependencyGenerator().WasmExecuteContractGenerator(app.AccessControlKeeper, ctx, &execMsg)
 	require.Error(t, err)
 }
 
@@ -129,7 +130,7 @@ func TestGeneratorInvalidContractAddrFormat(t *testing.T) {
 		},
 	}
 
-	app := simapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	execMsg := wasmtypes.MsgExecuteContract{
@@ -139,7 +140,7 @@ func TestGeneratorInvalidContractAddrFormat(t *testing.T) {
 		Funds:    coins,
 	}
 
-	_, err := NewWasmDependencyGenerator().WasmExecuteContractGenerator(app.AccessControlKeeper, ctx, &execMsg)
+	_, err := aclwasmmapping.NewWasmDependencyGenerator().WasmExecuteContractGenerator(app.AccessControlKeeper, ctx, &execMsg)
 	require.Error(t, err)
 }
 
@@ -163,7 +164,7 @@ func TestGeneratorGetRawWasmDependencyMappingError(t *testing.T) {
 			Coins:   coins,
 		},
 	}
-	app := simapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	execMsg := wasmtypes.MsgExecuteContract{
@@ -205,6 +206,6 @@ func TestGeneratorGetRawWasmDependencyMappingError(t *testing.T) {
 		},
 	})
 
-	_, err := NewWasmDependencyGenerator().WasmExecuteContractGenerator(app.AccessControlKeeper, ctx, &execMsg)
+	_, err := aclwasmmapping.NewWasmDependencyGenerator().WasmExecuteContractGenerator(app.AccessControlKeeper, ctx, &execMsg)
 	require.Error(t, err)
 }

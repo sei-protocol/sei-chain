@@ -1,20 +1,78 @@
 package tests
 
 import (
+	"crypto/sha256"
 	"strconv"
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGetTransactionByBlockNumberAndIndex(t *testing.T) {
+	tx1 := signAndEncodeCosmosTx(bankSendMsg(mnemonic1), mnemonic1, 7, 0)
+	cw20 := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+	tx2 := signAndEncodeCosmosTx(transferCW20Msg(mnemonic1, cw20), mnemonic1, 7, 1)
+	tx3Data := send(0)
+	signedTx3 := signTxWithMnemonic(send(0), mnemonic1)
+	tx3 := encodeEvmTx(tx3Data, signedTx3)
+	SetupTestServer(t, [][][]byte{{tx1, tx2, tx3}}, mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, true)).Run(
+		func(port int) {
+			// if eth_, the first tx should be tx3 since both tx1 and tx2 are non-EVM.
+			res := sendRequestWithNamespace("eth", port, "getTransactionByBlockNumberAndIndex", "0x2", "0x0")
+			require.Equal(t, "0x0", res["result"].(map[string]any)["transactionIndex"].(string))
+			require.Equal(t, signedTx3.Hash().Hex(), res["result"].(map[string]any)["hash"].(string))
+
+			// if sei_, the first tx should be tx2 and the second tx should be tx3. tx1
+			// is excluded because we don't support sei2_getTransaction*.
+			// The first tx cannot be represented as RPCTransaction because it's not an EVM transaction.
+			res = sendRequestWithNamespace("sei", port, "getTransactionByBlockNumberAndIndex", "0x2", "0x0")
+			require.Contains(t, res["error"].(map[string]any)["message"].(string), "transaction is not an EVM transaction")
+			res = sendRequestWithNamespace("sei", port, "getTransactionByBlockNumberAndIndex", "0x2", "0x1")
+			require.Equal(t, "0x1", res["result"].(map[string]any)["transactionIndex"].(string))
+			require.Equal(t, signedTx3.Hash().Hex(), res["result"].(map[string]any)["hash"].(string))
+		},
+	)
+}
+
+func TestGetTransactionByHash(t *testing.T) {
+	tx1 := signAndEncodeCosmosTx(bankSendMsg(mnemonic1), mnemonic1, 7, 0)
+	cw20 := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+	tx2 := signAndEncodeCosmosTx(transferCW20Msg(mnemonic1, cw20), mnemonic1, 7, 1)
+	tx3Data := send(0)
+	signedTx3 := signTxWithMnemonic(send(0), mnemonic1)
+	tx3 := encodeEvmTx(tx3Data, signedTx3)
+	SetupTestServer(t, [][][]byte{{tx1, tx2, tx3}}, mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, true)).Run(
+		func(port int) {
+			// if eth_, the first tx should be tx3 since both tx1 and tx2 are non-EVM.
+			res := sendRequestWithNamespace("eth", port, "getTransactionByHash", signedTx3.Hash().Hex())
+			require.Equal(t, "0x0", res["result"].(map[string]any)["transactionIndex"].(string))
+			require.Equal(t, signedTx3.Hash().Hex(), res["result"].(map[string]any)["hash"].(string))
+			res = sendRequestWithNamespace("eth", port, "getTransactionByHash", common.Hash(sha256.Sum256(tx1)).Hex())
+			require.Nil(t, res["result"])
+			res = sendRequestWithNamespace("eth", port, "getTransactionByHash", common.Hash(sha256.Sum256(tx2)).Hex())
+			require.Nil(t, res["result"])
+
+			// if sei_, the first tx should be tx2 and the second tx should be tx3. tx1
+			// is excluded because we don't support sei2_getTransaction*.
+			// The first tx cannot be represented as RPCTransaction because it's not an EVM transaction.
+			res = sendRequestWithNamespace("sei", port, "getTransactionByHash", signedTx3.Hash().Hex())
+			require.Equal(t, "0x1", res["result"].(map[string]any)["transactionIndex"].(string))
+			require.Equal(t, signedTx3.Hash().Hex(), res["result"].(map[string]any)["hash"].(string))
+			res = sendRequestWithNamespace("sei", port, "getTransactionByHash", common.Hash(sha256.Sum256(tx1)).Hex())
+			require.Nil(t, res["result"])
+			res = sendRequestWithNamespace("sei", port, "getTransactionByHash", common.Hash(sha256.Sum256(tx2)).Hex())
+			require.Contains(t, res["error"].(map[string]any)["message"].(string), "transaction is not an EVM transaction")
+		},
+	)
+}
 
 func TestGetTransactionSkipSyntheticIndex(t *testing.T) {
 	tx1 := signAndEncodeCosmosTx(bankSendMsg(mnemonic1), mnemonic1, 7, 0)
 	tx2Data := send(0)
 	signedTx2 := signTxWithMnemonic(tx2Data, mnemonic1)
 	tx2 := encodeEvmTx(tx2Data, signedTx2)
-	SetupTestServer([][][]byte{{tx1, tx2}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{tx1, tx2}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getTransactionByHash", signedTx2.Hash().Hex())
 			txIdx := res["result"].(map[string]any)["transactionIndex"].(string)
@@ -27,10 +85,10 @@ func TestGetTransactionAnteFailed(t *testing.T) {
 	tx1Data := send(1) // incorrect nonce
 	signedTx1 := signTxWithMnemonic(tx1Data, mnemonic1)
 	tx1 := encodeEvmTx(tx1Data, signedTx1)
-	SetupTestServer([][][]byte{{tx1}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{tx1}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getTransactionByHash", signedTx1.Hash().Hex())
-			require.Equal(t, "not found", res["error"].(map[string]interface{})["message"].(string))
+			require.Nil(t, res["result"])
 		},
 	)
 }
@@ -39,7 +97,7 @@ func TestGetTransactionReceiptFailedTx(t *testing.T) {
 	tx1Data := sendErc20(0)
 	signedTx1 := signTxWithMnemonic(tx1Data, mnemonic1)
 	tx1 := encodeEvmTx(tx1Data, signedTx1)
-	SetupTestServer([][][]byte{{tx1}}, erc20Initializer(), mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{tx1}}, erc20Initializer(), mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getTransactionReceipt", signedTx1.Hash().Hex())
 			receipt := res["result"].(map[string]interface{})
@@ -66,7 +124,7 @@ func TestEVMTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 	signedTx2 := signTxWithMnemonic(tx2Data, mnemonic1)
 	tx2 := encodeEvmTx(tx2Data, signedTx2)
 
-	SetupTestServer([][][]byte{{cosmosTx1, tx1, cosmosTx2, tx2}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{cosmosTx1, tx1, cosmosTx2, tx2}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			blockNumber := "0x2"
 			numberOfEVMTransactions := 2
@@ -164,7 +222,7 @@ func TestEVMTransactionIndexResolutionOnInput(t *testing.T) {
 		signedTx2 := signTxWithMnemonic(tx2Data, mnemonic1)
 		tx2 := encodeEvmTx(tx2Data, signedTx2)
 
-		SetupTestServer([][][]byte{{cosmosTx1, cosmosTx2, tx1, cosmosTx3, tx2}}, mnemonicInitializer(mnemonic1)).Run(
+		SetupTestServer(t, [][][]byte{{cosmosTx1, cosmosTx2, tx1, cosmosTx3, tx2}}, mnemonicInitializer(mnemonic1)).Run(
 			func(port int) {
 				blockNumber := "0x2"
 
@@ -228,7 +286,7 @@ func TestEVMTransactionIndexResolutionOnInput(t *testing.T) {
 		signedTx2 := signTxWithMnemonic(tx2Data, mnemonic1)
 		tx2 := encodeEvmTx(tx2Data, signedTx2)
 
-		SetupTestServer([][][]byte{{cosmosTx1, tx1, cosmosTx2, tx2}}, mnemonicInitializer(mnemonic1)).Run(
+		SetupTestServer(t, [][][]byte{{cosmosTx1, tx1, cosmosTx2, tx2}}, mnemonicInitializer(mnemonic1)).Run(
 			func(port int) {
 				blockNumber := "0x2"
 
@@ -266,7 +324,7 @@ func TestGetTransactionGasPrice(t *testing.T) {
 	txData := send(0)
 	signedTx := signTxWithMnemonic(txData, mnemonic1)
 	tx := encodeEvmTx(txData, signedTx)
-	SetupTestServer([][][]byte{{tx}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{tx}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getTransactionByHash", signedTx.Hash().Hex())
 			result := res["result"].(map[string]any)
@@ -287,34 +345,11 @@ func TestGetTransactionReceiptSkipFailedAnte(t *testing.T) {
 	tx2Data := send(0)
 	signedTx2 := signTxWithMnemonic(tx2Data, mnemonic1)
 	txBz2 := encodeEvmTx(tx2Data, signedTx2)
-	SetupTestServer([][][]byte{{txBz1, txBz2}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{txBz1, txBz2}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getTransactionByHash", signedTx2.Hash().Hex())
 			txIdx := res["result"].(map[string]any)["transactionIndex"].(string)
 			require.Equal(t, "0x0", txIdx) // should skip the first tx as it failed ante
-		},
-	)
-}
-
-// Test the scenario where a transaction contains both synthetic and non-synthetic logs.
-// Only non-synthetic logs should be included in the response to eth_, whereas all logs
-// should be included in the response to sei_.
-func TestGetTransactionReceiptWithMixedLogs(t *testing.T) {
-	cw20 := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
-	testerSeiAddress := sdk.AccAddress(mixedLogTesterAddr.Bytes())
-	tx0 := signAndEncodeCosmosTx(transferCW20MsgTo(mnemonic1, cw20, testerSeiAddress), mnemonic1, 9, 0)
-	txData := mixedLogTesterTransfer(0, getAddrWithMnemonic(mnemonic1))
-	signedTx := signTxWithMnemonic(txData, mnemonic1)
-	txBz := encodeEvmTx(txData, signedTx)
-	SetupTestServer([][][]byte{{tx0}, {txBz}}, mixedLogTesterInitializer(), mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1)).Run(
-		func(port int) {
-			res := sendRequestWithNamespace("eth", port, "getTransactionReceipt", signedTx.Hash().Hex())
-			logs := res["result"].(map[string]any)["logs"].([]interface{})
-			require.Len(t, logs, 1)
-
-			res = sendRequestWithNamespace("sei", port, "getTransactionReceipt", signedTx.Hash().Hex())
-			logs = res["result"].(map[string]any)["logs"].([]interface{})
-			require.Len(t, logs, 2)
 		},
 	)
 }

@@ -22,7 +22,7 @@ func TestBaseFeePerGas(t *testing.T) {
 }
 
 func TestAdjustBaseFeePerGas(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper(t)
 	testCases := []struct {
 		name            string
 		currentBaseFee  float64
@@ -180,7 +180,7 @@ func TestAdjustBaseFeePerGas(t *testing.T) {
 }
 
 func TestGetDynamicBaseFeePerGasWithNilMinFee(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper(t)
 
 	// Test case 1: When dynamic base fee doesn't exist and minimum fee is nil
 	store := ctx.KVStore(k.GetStoreKey())
@@ -201,7 +201,7 @@ func TestGetDynamicBaseFeePerGasWithNilMinFee(t *testing.T) {
 }
 
 func TestGetPrevBlockBaseFeePerGasWithNilMinFee(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper(t)
 
 	// Test case 1: When dynamic base fee doesn't exist and minimum fee is nil
 	store := ctx.KVStore(k.GetStoreKey())

@@ -61,6 +61,7 @@ var (
 	BaseFeePerGasPrefix             = []byte{0x1b}
 	NextBaseFeePerGasPrefix         = []byte{0x1c}
 	EvmOnlyBlockBloomPrefix         = []byte{0x1d}
+	ZeroStorageCleanupCheckpointKey = []byte{0x1e}
 )
 
 var (

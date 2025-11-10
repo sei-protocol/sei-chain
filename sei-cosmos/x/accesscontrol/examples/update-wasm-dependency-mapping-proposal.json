@@ -1,0 +1,58 @@
+{
+    "title": "Updating Wasm Dependency Mapping",
+    "description": "Updating mapping for contract address 'sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m'",
+    "deposit": "10sei",
+    "contract_address": "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
+    "wasm_dependency_mapping":
+        {
+          "enabled": true,
+          "base_access_ops": [
+            {
+              "operation": {
+                "access_type": "UNKNOWN",
+                "resource_type": "ANY",
+                "identifier_template": "*"
+              },
+              "selector_type": "NONE"
+            },
+            {
+              "operation": {
+                "access_type": "COMMIT",
+                "resource_type": "ANY",
+                "identifier_template": "*"
+              },
+              "selector_type": "NONE"
+            }
+          ],
+          "query_access_ops": [
+            {
+              "message_name": "query_something",
+              "wasm_operations": [
+                {
+                  "operation": {
+                    "access_type": "READ",
+                    "resource_type": "KV_WASM",
+                    "identifier_template": "*"
+                  },
+                  "selector_type": "NONE"
+                }
+              ]
+            }
+          ],
+          "execute_access_ops": [
+            {
+              "message_name": "execute_something",
+              "wasm_operations": [
+                {
+                  "operation": {
+                    "access_type": "WRITE",
+                    "resource_type": "KV_WASM",
+                    "identifier_template": "*"
+                  },
+                  "selector_type": "NONE"
+                }
+              ]
+            }
+          ]
+        }
+}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net"
 	"net/http"
@@ -333,6 +334,9 @@ func (c *MockClient) BlockByHash(_ context.Context, hash bytes.HexBytes) (*coret
 	if hash.String() == MultiTxBlockHash[2:] {
 		return c.mockBlock(MockHeight2), nil
 	}
+	if strings.ToLower(hash.String()) == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+		return nil, errors.New("not found")
+	}
 	return c.mockBlock(MockHeight8), nil
 }
 
@@ -395,6 +399,15 @@ func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.
 				MaxBytes: 100000000,
 				MaxGas:   200000000,
 			},
+		},
+	}, nil
+}
+
+func (c *MockClient) Status(context.Context) (*coretypes.ResultStatus, error) {
+	return &coretypes.ResultStatus{
+		SyncInfo: coretypes.SyncInfo{
+			LatestBlockHeight:   MockHeight103,
+			EarliestBlockHeight: 1,
 		},
 	}, nil
 }
@@ -527,7 +540,7 @@ var MultiTxCtx sdk.Context
 
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
-	testApp := app.Setup(false, false, false)
+	testApp := app.SetupWithDefaultHome(false, false, false)
 	Ctx = testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
 	MultiTxCtx, _ = Ctx.CacheContext()
 	EVMKeeper = &testApp.EvmKeeper
@@ -545,6 +558,13 @@ func init() {
 		panic(err)
 	}
 	testApp.Commit(context.Background())
+	if store := EVMKeeper.ReceiptStore(); store != nil {
+		latest := int64(math.MaxInt64)
+		if err := store.SetLatestVersion(latest); err != nil {
+			panic(err)
+		}
+		_ = store.SetEarliestVersion(1, true)
+	}
 	ctxProvider := func(height int64) sdk.Context {
 		if height == MockHeight2 {
 			return MultiTxCtx.WithIsTracing(true)
@@ -562,7 +582,7 @@ func init() {
 		panic(err)
 	}
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
-	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", isPanicTxFunc)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", isPanicTxFunc)
 	if err != nil {
 		panic(err)
 	}
@@ -574,7 +594,7 @@ func init() {
 	badConfig := evmrpc.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -593,6 +613,7 @@ func init() {
 		strictConfig,
 		&MockClient{},
 		EVMKeeper,
+		testApp.BeginBlockKeepers,
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		ctxProvider,
@@ -617,6 +638,7 @@ func init() {
 		archiveConfig,
 		&MockClient{},
 		EVMKeeper,
+		testApp.BeginBlockKeepers,
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		ctxProvider,
@@ -632,7 +654,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "")
+	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "")
 	if err != nil {
 		panic(err)
 	}
@@ -1055,6 +1077,13 @@ func setupLogs() {
 	EVMKeeper.SetBlockBloom(Ctx, []ethtypes.Bloom{bloomSynth, bloom4, bloomTx1})
 	EVMKeeper.SetEvmOnlyBlockBloom(Ctx, []ethtypes.Bloom{bloom4, bloomTx1})
 
+	if store := EVMKeeper.ReceiptStore(); store != nil {
+		if err := store.SetLatestVersion(MockHeight103); err != nil {
+			panic(err)
+		}
+		_ = store.SetEarliestVersion(1, true)
+	}
+
 }
 
 //nolint:deadcode
@@ -1105,17 +1134,17 @@ func sendRequestWithNamespace(t *testing.T, namespace string, port int, method s
 	if len(params) > 0 {
 		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")
 	}
-	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_%s\",\"params\":[%s],\"id\":\"test\"}", namespace, method, paramsFormatted)
+	body := fmt.Sprintf(`{"jsonrpc": "2.0","method": "%s_%s","params":[%s],"id":"test"}`, namespace, method, paramsFormatted)
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, port), strings.NewReader(body))
-	require.Nil(t, err)
+	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	res, err := http.DefaultClient.Do(req)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	defer res.Body.Close()
 	resBody, err := io.ReadAll(res.Body)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	resObj := map[string]interface{}{}
-	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	require.NoError(t, json.Unmarshal(resBody, &resObj))
 	return resObj
 }
 

@@ -86,7 +86,7 @@ func TestQueryPointer(t *testing.T) {
 }
 
 func TestQueryPointee(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper(t)
 	_, pointerAddr1 := testkeeper.MockAddressPair()
 	seiAddr2, evmAddr2 := testkeeper.MockAddressPair()
 	seiAddr3, evmAddr3 := testkeeper.MockAddressPair()

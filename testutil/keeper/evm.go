@@ -3,6 +3,7 @@ package keeper
 import (
 	"encoding/hex"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
@@ -15,9 +16,10 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/stretchr/testify/require"
 )
 
-var EVMTestApp = app.Setup(false, true, false)
+var EVMTestApp = app.SetupWithDefaultHome(false, true, false)
 var mockKeeper *evmkeeper.Keeper
 var mockCtx sdk.Context
 var mtx = &sync.Mutex{}
@@ -50,8 +52,8 @@ func MockEVMKeeperWithPrecompiles() (*evmkeeper.Keeper, sdk.Context) {
 	return &k, ctx
 }
 
-func MockEVMKeeper() (*evmkeeper.Keeper, sdk.Context) {
-	testApp := app.Setup(false, false, false)
+func MockEVMKeeper(t *testing.T) (*evmkeeper.Keeper, sdk.Context) {
+	testApp := app.Setup(t, false, false, false)
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8).WithBlockTime(time.Now())
 	k := testApp.EvmKeeper
 	k.InitGenesis(ctx, *evmtypes.DefaultGenesis())
@@ -72,8 +74,8 @@ func MockEVMKeeper() (*evmkeeper.Keeper, sdk.Context) {
 	return &k, ctx
 }
 
-func MockEVMKeeperPrecompiles() (*evmkeeper.Keeper, sdk.Context) {
-	testApp := app.Setup(false, true, false)
+func MockEVMKeeperPrecompiles(t *testing.T) (*evmkeeper.Keeper, sdk.Context) {
+	testApp := app.Setup(t, false, true, false)
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8).WithBlockTime(time.Now())
 	k := testApp.EvmKeeper
 	k.InitGenesis(ctx, *evmtypes.DefaultGenesis())
@@ -125,4 +127,32 @@ func PrivateKeyToAddresses(privKey cryptotypes.PrivKey) (sdk.AccAddress, common.
 
 func UseiCoins(amount int64) sdk.Coins {
 	return sdk.NewCoins(sdk.NewCoin(sdk.MustGetBaseDenom(), sdk.NewInt(amount)))
+}
+
+func WaitForReceipt(t *testing.T, k *evmkeeper.Keeper, ctx sdk.Context, txHash common.Hash) *evmtypes.Receipt {
+	t.Helper()
+	var receipt *evmtypes.Receipt
+	require.Eventually(t, func() bool {
+		var err error
+		receipt, err = k.GetReceipt(ctx, txHash)
+		return err == nil
+	}, 2*time.Second, 10*time.Millisecond)
+	return receipt
+}
+
+func WaitForReceiptFromStore(t *testing.T, k *evmkeeper.Keeper, ctx sdk.Context, txHash common.Hash) *evmtypes.Receipt {
+	t.Helper()
+	var receipt *evmtypes.Receipt
+	require.Eventually(t, func() bool {
+		var err error
+		receipt, err = k.GetReceiptFromReceiptStore(ctx, txHash)
+		return err == nil
+	}, 2*time.Second, 10*time.Millisecond)
+	return receipt
+}
+
+func MustMockReceipt(t *testing.T, k *evmkeeper.Keeper, ctx sdk.Context, txHash common.Hash, receipt *evmtypes.Receipt) {
+	t.Helper()
+	require.NoError(t, k.MockReceipt(ctx, txHash, receipt))
+	WaitForReceipt(t, k, ctx, txHash)
 }

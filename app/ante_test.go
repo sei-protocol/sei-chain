@@ -1,7 +1,6 @@
 package app_test
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"math/big"
@@ -11,7 +10,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -66,7 +64,7 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 	suite.Ctx = suite.Ctx.WithMsgValidator(msgValidator)
 
 	// Set up TxConfig.
-	encodingConfig := simapp.MakeTestEncodingConfig()
+	encodingConfig := app.MakeEncodingConfig()
 	// We're using TestMsg encoding in some tests, so register it here.
 	encodingConfig.Amino.RegisterConcrete(&testdata.TestMsg{}, "testdata.TestMsg", nil)
 	testdata.RegisterInterfaces(encodingConfig.InterfaceRegistry)
@@ -79,10 +77,7 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 	otel.SetTracerProvider(defaultTracer)
 	tr := defaultTracer.Tracer("component-main")
 
-	tracingInfo := &tracing.Info{
-		Tracer: &tr,
-	}
-	tracingInfo.SetContext(context.Background())
+	tracingInfo := tracing.NewTracingInfo(tr, true)
 	antehandler, _, anteDepGenerator, err := app.NewAnteHandlerAndDepGenerator(
 		app.HandlerOptions{
 			HandlerOptions: ante.HandlerOptions{
