@@ -8,9 +8,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"math/rand"
 
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 
 	"github.com/fortytw2/leaktest"
 	"github.com/stretchr/testify/assert"
@@ -20,64 +22,76 @@ import (
 	"github.com/tendermint/tendermint/types"
 )
 
-var selfID = makeInfo(makeKey()).NodeID
+const selfID = makeNodeID()
 
-func testAddr(x string) NodeAddress {
-	if len(x) != 1 {
-		panic("x must be a single character")
-	}
+func makeKey(rng *rand.Rand) crypto.PrivKey {
+	return crypto.GenKeyFromSecret(utils.GenBytes(rng, 32))
+}
+
+func makeNodeID(rng *rand.Rand) NodeID {
+	return types.NodeIDFromPubKey(makeKey(rng))
+}
+
+func makeAddrFor(rng *rand.Rand, id NodeID) NodeAddress {
 	return NodeAddress{
-		NodeID:   types.NodeID(strings.Repeat(x, 40)),
-		Hostname: fmt.Sprintf("%v.com", x),
-		Port:     26657,
+		NodeID:   id,
+		Hostname: fmt.Sprintf("%s.example.com",utils.GenString(rng,10)),
+		Port:     uint16(rng.Int()),
 	}
 }
 
-func TestRouterOptions_Validate(t *testing.T) {
-	nodeID := types.NodeID("00112233445566778899aabbccddeeff00112233")
+func makeAddr(rng *rand.Rand) NodeAddress {
+	return makeAddrFor(rng,makeNodeID(rng))
+}
 
+func (m *PeerManager) Addresses(id types.NodeID) []NodeAddress {
+	var addrs []NodeAddress
+	for inner := range m.inner.Lock() {
+		peerAddrs := inner.addrs
+		if inner.isPersistent(id) {
+			peerAddrs = inner.persistentAddrs
+		}
+		if pa,ok := peerAddrs[id]; ok {
+			for addr := range pa {
+				addrs = append(addrs,addr)
+			}
+		}
+	}
+	return addrs
+}
+
+func TestRouterOptions_Validate(t *testing.T) {
+	addrs := utils.Slice(makeAddr(),makeAddr(),makeAddr())
+	addrs2 := utils.Slice(makeAddr())
+	ids := utils.Slice(addrs[0].NodeID,addrs[2].NodeID)
+	optsOk := RouterOptions {
+		PersistentPeers: addrs,
+		BootstrapPeers: addrs2,
+		BlockSyncPeers: ids,
+		UnconditionalPeers: ids,
+		PrivatePeers: ids,
+	}
+	optsBadPersistent := optsOk
+	optsBadPersistent.PersistentPeers[1].NodeID = "X"
+	optsBadBootstrap := optsOk
+	optsBadBootstrap.BootstrapPeers[0].NodeID = "QQ"
+	optsBadBlockSync := optsOk
+	optsBadBlockSync.BlockSyncPeers[1] = "Y"
+	optsBadUnconditional := optsOk
+	optsBadUnconditional.UnconditionalPeers[0] = "Z"
+	optsBadPrivate := optsOk
+	optsBadPrivate.PrivatePeers[1] = "W"
 	testcases := map[string]struct {
 		options RouterOptions
 		ok      bool
 	}{
 		"zero options is valid": {RouterOptions{}, true},
-
-		// PersistentPeers
-		"valid PersistentPeers NodeID": {RouterOptions{
-			PersistentPeers: []types.NodeID{"00112233445566778899aabbccddeeff00112233"},
-		}, true},
-		"invalid PersistentPeers NodeID": {RouterOptions{
-			PersistentPeers: []types.NodeID{"foo"},
-		}, false},
-		"uppercase PersistentPeers NodeID": {RouterOptions{
-			PersistentPeers: []types.NodeID{"00112233445566778899AABBCCDDEEFF00112233"},
-		}, false},
-		"PersistentPeers at MaxConnected": {RouterOptions{
-			PersistentPeers: []types.NodeID{nodeID, nodeID, nodeID},
-			MaxConnected:    utils.Some(3),
-		}, true},
-		"PersistentPeers above MaxConnected": {RouterOptions{
-			PersistentPeers: []types.NodeID{nodeID, nodeID, nodeID},
-			MaxConnected:    utils.Some(2),
-		}, false},
-		"PersistentPeers above MaxConnected below MaxConnectedUpgrade": {RouterOptions{
-			PersistentPeers:     []types.NodeID{nodeID, nodeID, nodeID},
-			MaxConnected:        utils.Some(2),
-		}, false},
-
-		// MaxPeers
-		"MaxPeers without MaxConnected": {RouterOptions{
-			MaxPeers: 3,
-		}, false},
-		"MaxPeers below MaxConnected+MaxConnectedUpgrade": {RouterOptions{
-			MaxPeers:            2,
-			MaxConnected:        2,
-			MaxConnectedUpgrade: 1,
-		}, false},
-		"MaxPeers at MaxConnected+MaxConnectedUpgrade": {RouterOptions{
-			MaxPeers:            3,
-			MaxConnected:        2,
-		}, true},
+		"valid ": {optsOk, true},
+		"bad PersistentPeers": {optsBadPersistent, false},
+		"bad BootstrapPeers": {optsBadBootstrap, false},
+		"bad BlockSyncPeers": {optsBadBlockSync, false},
+		"bad UnconditionalPeers": {optsBadUnconditional, false},
+		"bad PrivatePeers": {optsBadPrivate, false},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
@@ -91,199 +105,65 @@ func TestRouterOptions_Validate(t *testing.T) {
 	}
 }
 
-func TestNewPeerManager(t *testing.T) {
-	logger, _ := log.NewDefaultLogger("plain", "debug")
-
-	// Zero options should be valid.
-	_, err := NewPeerManager(logger, selfID, dbm.NewMemDB(), RouterOptions{}, NopMetrics())
-	require.NoError(t, err)
-
-	// Invalid options should error.
-	_, err = NewPeerManager(logger, selfID, dbm.NewMemDB(), RouterOptions{
-		PersistentPeers: []types.NodeID{"foo"},
-	}, NopMetrics())
-	require.Error(t, err)
-}
-
-func TestNewPeerManager_Persistence(t *testing.T) {
-	aID := types.NodeID(strings.Repeat("a", 40))
-	aAddresses := []NodeAddress{
-		{NodeID: aID, Hostname: "127.0.0.1", Port: 26657},
-	}
-
-	bID := types.NodeID(strings.Repeat("b", 40))
-	bAddresses := []NodeAddress{
-		{NodeID: bID, Hostname: "b10c::1", Port: 26657},
-	}
-
-	cID := types.NodeID(strings.Repeat("c", 40))
-	cAddresses := []NodeAddress{
-		{NodeID: cID, Hostname: "host.domain", Port: 80},
-	}
+func TestPeerManager_KindsOfPeers(t *testing.T) {
+	rng := utils.TestRng()
+	var ids []types.NodeID
+	for range 5 { ids = append(ids, makeNodeID(rng)) }
+	var addrs = map[types.NodeID][]NodeAddress{}
 
 	// Create an initial peer manager and add the peers.
-	db := dbm.NewMemDB()
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, db, RouterOptions{
-		PersistentPeers: []types.NodeID{aID},
-		PeerScores:      map[types.NodeID]PeerScore{bID: 1},
-	}, NopMetrics())
-	require.NoError(t, err)
-
-	for _, addr := range append(append(aAddresses, bAddresses...), cAddresses...) {
-		added, err := peerManager.Add(addr)
-		require.NoError(t, err)
-		require.True(t, added)
-	}
-
-	require.ElementsMatch(t, aAddresses, peerManager.Addresses(aID))
-	require.ElementsMatch(t, bAddresses, peerManager.Addresses(bID))
-	require.ElementsMatch(t, cAddresses, peerManager.Addresses(cID))
-
-	require.Equal(t, map[types.NodeID]PeerScore{
-		aID: PeerScorePersistent,
-		bID: 1,
-		cID: DefaultMutableScore,
-	}, peerManager.Scores())
-
-	// Creating a new peer manager with the same database should retain the
-	// peers, but they should have updated scores from the new PersistentPeers
-	// configuration.
-	peerManager, err = NewPeerManager(log.NewNopLogger(), selfID, db, RouterOptions{
-		PersistentPeers: []types.NodeID{bID},
-		PeerScores:      map[types.NodeID]PeerScore{cID: 1},
-	}, NopMetrics())
-	require.NoError(t, err)
-
-	require.ElementsMatch(t, aAddresses, peerManager.Addresses(aID))
-	require.ElementsMatch(t, bAddresses, peerManager.Addresses(bID))
-	require.ElementsMatch(t, cAddresses, peerManager.Addresses(cID))
-	require.Equal(t, map[types.NodeID]PeerScore{
-		aID: 0,
-		bID: PeerScorePersistent,
-		cID: 1,
-	}, peerManager.Scores())
-
-	// Introduce a dial failure and persistent peer score should be reduced by one
-	ctx := t.Context()
-	peerManager.DialFailed(ctx, bAddresses[0])
-	require.Equal(t, map[types.NodeID]PeerScore{
-		aID: 0,
-		bID: PeerScorePersistent,
-		cID: 1,
-	}, peerManager.Scores())
-}
-
-func TestNewPeerManager_Unconditional(t *testing.T) {
-	aID := types.NodeID(strings.Repeat("a", 40))
-	aAddresses := []NodeAddress{
-		{NodeID: aID, Hostname: "127.0.0.1", Port: 26657},
-	}
-
-	bID := types.NodeID(strings.Repeat("b", 40))
-	bAddresses := []NodeAddress{
-		{NodeID: bID, Hostname: "b10c::1", Port: 26657},
-	}
-
-	cID := types.NodeID(strings.Repeat("c", 40))
-	cAddresses := []NodeAddress{
-		{NodeID: cID, Hostname: "host.domain", Port: 80},
-	}
-
-	// Create an initial peer manager and add the peers.
-	db := dbm.NewMemDB()
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, db, RouterOptions{
-		UnconditionalPeers: []types.NodeID{aID},
-		PeerScores:         map[types.NodeID]PeerScore{bID: 1},
-	}, NopMetrics())
-	require.NoError(t, err)
-
-	for _, addr := range append(append(aAddresses, bAddresses...), cAddresses...) {
-		added, err := peerManager.Add(addr)
-		require.NoError(t, err)
-		require.True(t, added)
-	}
-
-	require.ElementsMatch(t, aAddresses, peerManager.Addresses(aID))
-	require.ElementsMatch(t, bAddresses, peerManager.Addresses(bID))
-	require.ElementsMatch(t, cAddresses, peerManager.Addresses(cID))
-	require.Equal(t, map[types.NodeID]PeerScore{
-		aID: PeerScoreUnconditional,
-		bID: 1,
-		cID: DefaultMutableScore,
-	}, peerManager.Scores())
-
-	// Creating a new peer manager with the same database should retain the
-	// peers, but they should have updated scores from the new PersistentPeers
-	// configuration.
-	peerManager, err = NewPeerManager(log.NewNopLogger(), selfID, db, RouterOptions{
-		UnconditionalPeers: []types.NodeID{bID},
-		PeerScores:         map[types.NodeID]PeerScore{cID: 1},
-	}, NopMetrics())
-	require.NoError(t, err)
-
-	require.ElementsMatch(t, aAddresses, peerManager.Addresses(aID))
-	require.ElementsMatch(t, bAddresses, peerManager.Addresses(bID))
-	require.ElementsMatch(t, cAddresses, peerManager.Addresses(cID))
-	require.Equal(t, map[types.NodeID]PeerScore{
-		aID: 0,
-		bID: PeerScoreUnconditional,
-		cID: 1,
-	}, peerManager.Scores())
+	// TODO: Bootstrap peers
+	// unconditional/blocksync/private peers addrs should be accepted.
+	// persistent peer addr should be ignored.
+	m := NewPeerManager(selfID, RouterOptions{
+		UnconditionalPeers: utils.Slice(ids[0]),
+		BlockSyncPeers: utils.Slice(ids[1]),
+		PrivatePeers: utils.Slice(ids[2]),
+	})
+	require.NoError(m.AddAddrs(utils.Slice(aAddr,bAddr,cAddr)))
+	require.ElementsMatch(t, utils.Slice(aAddr), m.Addresses(aAddr.NodeID))
+	require.ElementsMatch(t, utils.Slice(bAddr), m.Addresses(bAddr.NodeID))
+	require.ElementsMatch(t, utils.Slice(cAddr), m.Addresses(cAddr.NodeID))
 }
 
 func TestPeerManager_Add(t *testing.T) {
-	aID := types.NodeID(strings.Repeat("a", 40))
-	bID := types.NodeID(strings.Repeat("b", 40))
-	cID := types.NodeID(strings.Repeat("c", 40))
+	rng := utils.TestRng()
+	persistent := utils.Slice(makeAddr(rng),makeAddr(rng))
 
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
-		PersistentPeers: []types.NodeID{aID, cID},
-		MaxPeers:        2,
-		MaxConnected:    2,
-	}, NopMetrics())
-	require.NoError(t, err)
+	maxPeers := 5
+	m := newPeerManager(selfID, RouterOptions{
+		PersistentPeers: persistent,
+		MaxPeers: utils.Some(maxPeers),
+		MaxConns: utils.Some(maxPeers),
+	})
 
+	for
 	// Adding a couple of addresses should work.
-	aAddresses := []NodeAddress{
-		{NodeID: aID, Hostname: "localhost"},
-	}
-	for _, addr := range aAddresses {
-		added, err := peerManager.Add(addr)
-		require.NoError(t, err)
-		require.True(t, added)
-	}
-	require.ElementsMatch(t, aAddresses, peerManager.Addresses(aID))
+	addrs := utils.Slice(makeAddr(),makeAddr())
+	require.NoError(peerManager.AddAddrs(addrs))
+	require.ElementsMatch(t, addrs1, peerManager.Addresses(addrs1[0].NodeID))
 
 	// Adding a different peer should be fine.
-	bAddress := NodeAddress{NodeID: bID, Hostname: "localhost"}
-	added, err := peerManager.Add(bAddress)
-	require.NoError(t, err)
-	require.True(t, added)
-	require.Equal(t, []NodeAddress{bAddress}, peerManager.Addresses(bID))
-	require.ElementsMatch(t, aAddresses, peerManager.Addresses(aID))
+	addrs2 := utils.Slice(makeAddr())
+	require.NoError(peerManager.AddAddrs(addrs2)
+	require.ElementsMatch(t, bAddrs, peerManager.Addresses(addrs2[0].NodeID))
 
 	// Adding an existing address again should be a noop.
-	added, err = peerManager.Add(aAddresses[0])
+	require.NoError(peerManager.AddAddrs(utils.Slice[
 	require.NoError(t, err)
-	require.False(t, added)
 	require.ElementsMatch(t, aAddresses, peerManager.Addresses(aID))
 
-	// Adding a third peer with MaxPeers=2 should cause bID, which is
-	// the lowest-scored peer (not in PersistentPeers), to be removed.
-	added, err = peerManager.Add(NodeAddress{NodeID: cID, Hostname: "localhost"})
-	require.NoError(t, err)
-	require.True(t, added)
-	require.ElementsMatch(t, []types.NodeID{aID, cID}, peerManager.Peers())
+	// Adding above capacity should be discarded
 
-	// Adding an invalid address should error.
-	_, err = peerManager.Add(NodeAddress{})
-	require.Error(t, err)
+	// Once dial fail, the peer should be replaceable.
+
+	// Adding up to maxAddrsPerPeer should be fine.
 }
 
 func TestPeerManager_DialNext(t *testing.T) {
 	ctx := t.Context()
 
-	a := testAddr("a")
+	a := makeAddr()"a")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{}, NopMetrics())
 	require.NoError(t, err)
@@ -308,11 +188,9 @@ func TestPeerManager_DialNext(t *testing.T) {
 func TestPeerManager_DialNext_Retry(t *testing.T) {
 	ctx := t.Context()
 
-	a := testAddr("a")
+	a := makeAddr()
 
 	options := RouterOptions{
-		MinRetryTime: 100 * time.Millisecond,
-		MaxRetryTime: 1000 * time.Millisecond,
 	}
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), options, NopMetrics())
 	require.NoError(t, err)
@@ -320,11 +198,6 @@ func TestPeerManager_DialNext_Retry(t *testing.T) {
 	added, err := peerManager.Add(a)
 	require.NoError(t, err)
 	require.True(t, added)
-
-	// Do five dial retries (six dials total). The retry time should double for
-	// each failure. At the forth retry, MaxRetryTime should kick in.
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
 
 	for i := 0; i < 3; i++ {
 		start := time.Now()
@@ -339,396 +212,23 @@ func TestPeerManager_DialNext_Retry(t *testing.T) {
 	}
 }
 
-func TestPeerManagerDeleteOnMaxRetries(t *testing.T) {
-	ctx := t.Context()
+func TestPeerManager_Dial(t *testing.T) {
+	// Wake Persistent/non-persistent
+	// OnAddedAddr - addr avail
+	// OnDialFailed - dial slot avail, addr avail
+	// OnConnect - dial slot avail
+	// OnDisconnect - should reconnect
 
-	a := testAddr("a")
-
-	options := RouterOptions{
-		MinRetryTime: 100 * time.Millisecond,
-		MaxRetryTime: 1000 * time.Millisecond,
-	}
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), options, NopMetrics())
-	require.NoError(t, err)
-
-	added, err := peerManager.Add(a)
-	require.NoError(t, err)
-	require.True(t, added)
-
-	// Do five dial retries (six dials total). The retry time should double for
-	// each failure. At the forth retry, MaxRetryTime should kick in.
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	for i := 0; i < 4; i++ {
-		start := time.Now()
-		dial, err := peerManager.DialNext(ctx)
-		require.NoError(t, err)
-		require.Equal(t, a, dial)
-		elapsed := time.Since(start).Round(time.Millisecond)
-		if i > 0 {
-			require.GreaterOrEqual(t, elapsed, time.Duration(math.Pow(2, float64(i)))*options.MinRetryTime)
-		}
-		if i == 3 {
-			if got, err := (DialFailuresError{}), peerManager.DialFailed(ctx, a); !errors.As(err, &got) || got.Failures != 4 {
-				t.Errorf("expected 4 failures, got error %v", err)
-			}
-
-			continue
-		}
-		require.NoError(t, peerManager.DialFailed(ctx, a))
-	}
-}
-
-func TestPeerManager_DialNext_WakeOnDialFailed(t *testing.T) {
-	ctx := t.Context()
-
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
-		MaxConnected: 1,
-	}, NopMetrics())
-	require.NoError(t, err)
-
-	a := testAddr("a")
-	b := testAddr("b")
-
-	// Add and dial a.
-	added, err := peerManager.Add(a)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err := peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Equal(t, a, dial)
-
-	// Add b. We shouldn't be able to dial it, due to MaxConnected.
-	added, err = peerManager.Add(b)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err = peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Zero(t, dial)
-
-	// Spawn a goroutine to fail a's dial attempt.
-	sig := make(chan struct{})
-	go func() {
-		defer close(sig)
-		time.Sleep(200 * time.Millisecond)
-		require.NoError(t, peerManager.DialFailed(ctx, a))
-	}()
-
-	// This should make b available for dialing (not a, retries are disabled).
-	opctx, opcancel := context.WithTimeout(ctx, 3*time.Second)
-	defer opcancel()
-	dial, err = peerManager.DialNext(opctx)
-	require.NoError(t, err)
-	require.Equal(t, b, dial)
-	<-sig
-}
-
-func TestPeerManager_DialNext_WakeOnDialFailedRetry(t *testing.T) {
-	ctx := t.Context()
-
-	options := RouterOptions{MinRetryTime: 200 * time.Millisecond}
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), options, NopMetrics())
-	require.NoError(t, err)
-
-	a := testAddr("a")
-
-	// Add a, dial it, and mark it a failure. This will start a retry timer.
-	added, err := peerManager.Add(a)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err := peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Equal(t, a, dial)
-	require.NoError(t, peerManager.DialFailed(ctx, dial))
-	failed := time.Now()
-
-	// The retry timer should unblock DialNext and make a available again after
-	// the retry time passes.
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	dial, err = peerManager.DialNext(ctx)
-	require.NoError(t, err)
-	require.Equal(t, a, dial)
-	require.GreaterOrEqual(t, time.Since(failed), options.MinRetryTime)
-}
-
-func TestPeerManager_DialNext_WakeOnDisconnected(t *testing.T) {
-	ctx := t.Context()
-
-	a := testAddr("a")
-
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{}, NopMetrics())
-	require.NoError(t, err)
-
-	added, err := peerManager.Add(a)
-	require.NoError(t, err)
-	require.True(t, added)
-	err = peerManager.Accepted(a.NodeID)
-	require.NoError(t, err)
-
-	dial, err := peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Zero(t, dial)
-
-	dctx, dcancel := context.WithTimeout(ctx, 300*time.Millisecond)
-	defer dcancel()
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-		peerManager.Disconnected(dctx, a.NodeID)
-	}()
-
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	dial, err = peerManager.DialNext(ctx)
-	require.NoError(t, err)
-	require.Equal(t, a, dial)
-}
-
-func TestPeerManager_TryDialNext_MaxConnected(t *testing.T) {
-	a := testAddr("a")
-	b := testAddr("b")
-	c := testAddr("c")
-
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
-		MaxConnected: 2,
-	}, NopMetrics())
-	require.NoError(t, err)
-
-	// Add a and connect to it.
-	added, err := peerManager.Add(a)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err := peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Equal(t, a, dial)
-	require.NoError(t, peerManager.Dialed(a))
-
-	// Add b and start dialing it.
-	added, err = peerManager.Add(b)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err = peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Equal(t, b, dial)
-
-	// At this point, adding c will not allow dialing it.
-	added, err = peerManager.Add(c)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err = peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Zero(t, dial)
-}
-
-func TestPeerManager_TryDialNext_MaxConnectedUpgrade(t *testing.T) {
-	ctx := t.Context()
-
-	a := testAddr("a")
-	b := testAddr("b")
-	c := testAddr("c")
-	d := testAddr("d")
-	e := testAddr("e")
-
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
-		PeerScores: map[types.NodeID]PeerScore{
-			a.NodeID: 10,
-			b.NodeID: 11,
-			c.NodeID: 12,
-			d.NodeID: 13,
-			e.NodeID: 10,
-		},
-		PersistentPeers:     []types.NodeID{c.NodeID, d.NodeID},
-		MaxConnected:        2,
-		MaxConnectedUpgrade: 1,
-	}, NopMetrics())
-	require.NoError(t, err)
-
-	// Add a and connect to it.
-	added, err := peerManager.Add(a)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err := peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Equal(t, a, dial)
-	require.NoError(t, peerManager.Dialed(a))
-
-	// Add b and start dialing it.
-	added, err = peerManager.Add(b)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err = peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Equal(t, b, dial)
-
-	// Even though we are at capacity, we should be allowed to dial c for an
-	// upgrade of a, since it's higher-scored.
-	added, err = peerManager.Add(c)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err = peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Equal(t, c, dial)
-
-	// However, since we're using all upgrade slots now, we can't add and dial
-	// d, even though it's also higher-scored.
-	added, err = peerManager.Add(d)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err = peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Zero(t, dial)
-
-	// We go through with c's upgrade.
-	require.NoError(t, peerManager.Dialed(c))
-
-	// Still can't dial d.
-	dial, err = peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Zero(t, dial)
-
-	// Now, if we disconnect a, we should be allowed to dial d because we have a
-	// free upgrade slot.
-	peerManager.Disconnected(ctx, a.NodeID)
-	dial, err = peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Equal(t, d, dial)
-	require.NoError(t, peerManager.Dialed(d))
-
-	// However, if we disconnect b (such that only c and d are connected), we
-	// should not be allowed to dial e even though there are upgrade slots,
-	// because there are no lower-scored nodes that can be upgraded.
-	peerManager.Disconnected(ctx, b.NodeID)
-	added, err = peerManager.Add(e)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err = peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Zero(t, dial)
-}
-
-func TestPeerManager_TryDialNext_UpgradeReservesPeer(t *testing.T) {
-	a := testAddr("a")
-	b := testAddr("b")
-	c := testAddr("c")
-
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
-		PeerScores:          map[types.NodeID]PeerScore{b.NodeID: DefaultMutableScore + 1, c.NodeID: DefaultMutableScore + 1},
-		MaxConnected:        1,
-		MaxConnectedUpgrade: 2,
-	}, NopMetrics())
-	require.NoError(t, err)
-
-	// Add a and connect to it.
-	added, err := peerManager.Add(a)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err := peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Equal(t, a, dial)
-	require.NoError(t, peerManager.Dialed(a))
-
-	// Add b and start dialing it. This will claim a for upgrading.
-	added, err = peerManager.Add(b)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err = peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Equal(t, b, dial)
-
-	// Adding c and dialing it will fail, because a is the only connected
-	// peer that can be upgraded, and b is already trying to upgrade it.
-	added, err = peerManager.Add(c)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err = peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Empty(t, dial)
-}
-
-func TestPeerManager_TryDialNext_DialingConnected(t *testing.T) {
-	a := testAddr("a")
-	a2 := a
-	a2.Hostname = "else.com"
-	b := testAddr("b")
-
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
-		MaxConnected: 2,
-	}, NopMetrics())
-	require.NoError(t, err)
-
-	// Add a and dial it.
-	added, err := peerManager.Add(a)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err := peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Equal(t, a, dial)
-
-	// Adding a's TCP address will not dispense a, since it's already dialing.
-	added, err = peerManager.Add(a2)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err = peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Zero(t, dial)
-
-	// Marking a as dialed will still not dispense it.
-	require.NoError(t, peerManager.Dialed(a))
-	dial, err = peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Zero(t, dial)
-
-	// Adding b and accepting a connection from it will not dispense it either.
-	added, err = peerManager.Add(b)
-	require.NoError(t, err)
-	require.True(t, added)
-	require.NoError(t, peerManager.Accepted(b.NodeID))
-	dial, err = peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Zero(t, dial)
-}
-
-func TestPeerManager_TryDialNext_Multiple(t *testing.T) {
-	ctx := t.Context()
-
-	aID := types.NodeID(strings.Repeat("a", 40))
-	bID := types.NodeID(strings.Repeat("b", 40))
-	addresses := []NodeAddress{
-		{NodeID: aID, Hostname: "127.0.0.1"},
-		{NodeID: bID, Hostname: "::1"},
-	}
-
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{}, NopMetrics())
-	require.NoError(t, err)
-
-	for _, address := range addresses {
-		added, err := peerManager.Add(address)
-		require.NoError(t, err)
-		require.True(t, added)
-	}
-
-	// All addresses should be dispensed as long as dialing them has failed.
-	dial := []NodeAddress{}
-	for range addresses {
-		address, err := peerManager.TryDialNext()
-		require.NoError(t, err)
-		require.NotZero(t, address)
-		require.NoError(t, peerManager.DialFailed(ctx, address))
-		dial = append(dial, address)
-	}
-	require.ElementsMatch(t, dial, addresses)
-
-	address, err := peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Zero(t, address)
+	// Respect MaxConnected/MaxDial
+	// No conn/Dial duplicates
+	// another test: interactions with inbound conns.
 }
 
 func TestPeerManager_DialFailed(t *testing.T) {
 	// DialFailed is tested through other tests, we'll just check a few basic
 	// things here, e.g. reporting unknown addresses.
-	a := testAddr("a")
-	b := testAddr("b")
+	a := makeAddr()"a")
+	b := makeAddr()"b")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{}, NopMetrics())
 	require.NoError(t, err)
@@ -765,9 +265,9 @@ func TestPeerManager_DialFailed(t *testing.T) {
 func TestPeerManager_DialFailed_UnreservePeer(t *testing.T) {
 	ctx := t.Context()
 
-	a := testAddr("a")
-	b := testAddr("b")
-	c := testAddr("c")
+	a := makeAddr()"a")
+	b := makeAddr()"b")
+	c := makeAddr()"c")
 
 	logger, _ := log.NewDefaultLogger("plain", "debug")
 	peerManager, err := NewPeerManager(logger, selfID, dbm.NewMemDB(), RouterOptions{
@@ -812,8 +312,8 @@ func TestPeerManager_DialFailed_UnreservePeer(t *testing.T) {
 }
 
 func TestPeerManager_Dialed_Connected(t *testing.T) {
-	a := testAddr("a")
-	b := testAddr("b")
+	a := makeAddr()"a")
+	b := makeAddr()"b")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{}, NopMetrics())
 	require.NoError(t, err)
@@ -852,8 +352,8 @@ func TestPeerManager_Dialed_Self(t *testing.T) {
 }
 
 func TestPeerManager_Dialed_MaxConnected(t *testing.T) {
-	a := testAddr("a")
-	b := testAddr("b")
+	a := makeAddr()"a")
+	b := makeAddr()"b")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
 		MaxConnected: 1,
@@ -880,10 +380,10 @@ func TestPeerManager_Dialed_MaxConnected(t *testing.T) {
 }
 
 func TestPeerManager_Dialed_MaxConnectedUpgrade(t *testing.T) {
-	a := testAddr("a")
-	b := testAddr("b")
-	c := testAddr("c")
-	d := testAddr("d")
+	a := makeAddr()"a")
+	b := makeAddr()"b")
+	c := makeAddr()"c")
+	d := makeAddr()"d")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
 		MaxConnected:        2,
@@ -932,7 +432,7 @@ func TestPeerManager_Dialed_MaxConnectedUpgrade(t *testing.T) {
 }
 
 func TestPeerManager_Dialed_Unknown(t *testing.T) {
-	a := testAddr("a")
+	a := makeAddr()"a")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{}, NopMetrics())
 	require.NoError(t, err)
@@ -942,9 +442,9 @@ func TestPeerManager_Dialed_Unknown(t *testing.T) {
 }
 
 func TestPeerManager_Dialed_Upgrade(t *testing.T) {
-	a := testAddr("a")
-	b := testAddr("b")
-	c := testAddr("c")
+	a := makeAddr()"a")
+	b := makeAddr()"b")
+	c := makeAddr()"c")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
 		MaxConnected:        1,
@@ -988,10 +488,10 @@ func TestPeerManager_Dialed_Upgrade(t *testing.T) {
 func TestPeerManager_Dialed_UpgradeEvenLower(t *testing.T) {
 	ctx := t.Context()
 
-	a := testAddr("a")
-	b := testAddr("b")
-	c := testAddr("c")
-	d := testAddr("d")
+	a := makeAddr()"a")
+	b := makeAddr()"b")
+	c := makeAddr()"c")
+	d := makeAddr()"d")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
 		MaxConnected:        2,
@@ -1046,9 +546,9 @@ func TestPeerManager_Dialed_UpgradeEvenLower(t *testing.T) {
 func TestPeerManager_Dialed_UpgradeNoEvict(t *testing.T) {
 	ctx := t.Context()
 
-	a := testAddr("a")
-	b := testAddr("b")
-	c := testAddr("c")
+	a := makeAddr()"a")
+	b := makeAddr()"b")
+	c := makeAddr()"c")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
 		MaxConnected:        2,
@@ -1093,10 +593,10 @@ func TestPeerManager_Dialed_UpgradeNoEvict(t *testing.T) {
 }
 
 func TestPeerManager_Accepted(t *testing.T) {
-	a := testAddr("a")
-	b := testAddr("b")
-	c := testAddr("c")
-	d := testAddr("d")
+	a := makeAddr()"a")
+	b := makeAddr()"b")
+	c := makeAddr()"c")
+	d := makeAddr()"d")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{}, NopMetrics())
 	require.NoError(t, err)
@@ -1140,9 +640,9 @@ func TestPeerManager_Accepted(t *testing.T) {
 }
 
 func TestPeerManager_Accepted_MaxConnected(t *testing.T) {
-	a := testAddr("a")
-	b := testAddr("b")
-	c := testAddr("c")
+	a := makeAddr()"a")
+	b := makeAddr()"b")
+	c := makeAddr()"c")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
 		MaxConnected: 2,
@@ -1168,10 +668,10 @@ func TestPeerManager_Accepted_MaxConnected(t *testing.T) {
 }
 
 func TestPeerManager_Accepted_MaxConnectedUpgrade(t *testing.T) {
-	a := testAddr("a")
-	b := testAddr("b")
-	c := testAddr("c")
-	d := testAddr("d")
+	a := makeAddr()"a")
+	b := makeAddr()"b")
+	c := makeAddr()"c")
+	d := makeAddr()"d")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
 		PeerScores: map[types.NodeID]PeerScore{
@@ -1216,9 +716,9 @@ func TestPeerManager_Accepted_MaxConnectedUpgrade(t *testing.T) {
 func TestPeerManager_Accepted_Upgrade(t *testing.T) {
 	ctx := t.Context()
 
-	a := testAddr("a")
-	b := testAddr("b")
-	c := testAddr("c")
+	a := makeAddr()"a")
+	b := makeAddr()"b")
+	c := makeAddr()"c")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
 		PeerScores: map[types.NodeID]PeerScore{
@@ -1261,9 +761,9 @@ func TestPeerManager_Accepted_Upgrade(t *testing.T) {
 }
 
 func TestPeerManager_Accepted_UpgradeDialing(t *testing.T) {
-	a := testAddr("a")
-	b := testAddr("b")
-	c := testAddr("c")
+	a := makeAddr()"a")
+	b := makeAddr()"b")
+	c := makeAddr()"c")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
 		PeerScores: map[types.NodeID]PeerScore{
@@ -1310,8 +810,8 @@ func TestPeerManager_Accepted_UpgradeDialing(t *testing.T) {
 }
 
 func TestPeerManager_Ready(t *testing.T) {
-	a := testAddr("a")
-	b := testAddr("b")
+	a := makeAddr()"a")
+	b := makeAddr()"b")
 
 	ctx := t.Context()
 
@@ -1353,7 +853,7 @@ func TestPeerManager_Ready_Channels(t *testing.T) {
 
 	sub := pm.Subscribe(ctx)
 
-	a := testAddr("a")
+	a := makeAddr()"a")
 	added, err := pm.Add(a)
 	require.NoError(t, err)
 	require.True(t, added)
@@ -1371,7 +871,7 @@ func TestPeerManager_Ready_Channels(t *testing.T) {
 func TestPeerManager_EvictNext(t *testing.T) {
 	ctx := t.Context()
 
-	a := testAddr("a")
+	a := makeAddr()"a")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{}, NopMetrics())
 	require.NoError(t, err)
@@ -1406,7 +906,7 @@ func TestPeerManager_EvictNext(t *testing.T) {
 func TestPeerManager_EvictNext_WakeOnError(t *testing.T) {
 	ctx := t.Context()
 
-	a := testAddr("a")
+	a := makeAddr()"a")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{}, NopMetrics())
 	require.NoError(t, err)
@@ -1434,8 +934,8 @@ func TestPeerManager_EvictNext_WakeOnError(t *testing.T) {
 func TestPeerManager_EvictNext_WakeOnUpgradeDialed(t *testing.T) {
 	ctx := t.Context()
 
-	a := testAddr("a")
-	b := testAddr("b")
+	a := makeAddr()"a")
+	b := makeAddr()"b")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
 		MaxConnected:        1,
@@ -1474,8 +974,8 @@ func TestPeerManager_EvictNext_WakeOnUpgradeDialed(t *testing.T) {
 func TestPeerManager_EvictNext_WakeOnUpgradeAccepted(t *testing.T) {
 	ctx := t.Context()
 
-	a := testAddr("a")
-	b := testAddr("b")
+	a := makeAddr()"a")
+	b := makeAddr()"b")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
 		MaxConnected:        1,
@@ -1549,7 +1049,7 @@ func TestPeerManager_TryEvictNext(t *testing.T) {
 }
 
 func TestPeerManager_Disconnected(t *testing.T) {
-	a := testAddr("a")
+	a := makeAddr()"a")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{}, NopMetrics())
 	require.NoError(t, err)
@@ -1603,50 +1103,13 @@ func TestPeerManager_Disconnected(t *testing.T) {
 	require.Zero(t, dial)
 }
 
-func TestPeerManager_Errored(t *testing.T) {
-	ctx := t.Context()
-
-	a := testAddr("a")
-
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{}, NopMetrics())
-	require.NoError(t, err)
-
-	// Erroring an unknown peer does nothing.
-	peerManager.Errored(a.NodeID, errors.New("foo"))
-	require.Empty(t, peerManager.Peers())
-	evict, err := peerManager.TryEvictNext()
-	require.NoError(t, err)
-	require.Zero(t, evict)
-
-	// Erroring a known peer does nothing, and won't evict it later,
-	// even when it connects.
-	added, err := peerManager.Add(a)
-	require.NoError(t, err)
-	require.True(t, added)
-	peerManager.Errored(a.NodeID, errors.New("foo"))
-	evict, err = peerManager.TryEvictNext()
-	require.NoError(t, err)
-	require.Zero(t, evict)
-
-	require.NoError(t, peerManager.Accepted(a.NodeID))
-	peerManager.Ready(ctx, a.NodeID, nil)
-	evict, err = peerManager.TryEvictNext()
-	require.NoError(t, err)
-	require.Zero(t, evict)
-
-	// However, erroring once connected will evict it.
-	peerManager.Errored(a.NodeID, errors.New("foo"))
-	evict, err = peerManager.TryEvictNext()
-	require.NoError(t, err)
-	if ev, ok := evict.Get(); !ok || ev.ID != a.NodeID {
-		t.Fatalf("evict = %v, expected %s", evict, a.NodeID)
-	}
+func TestPeerManager_Evict(t *testing.T) {
 }
 
 func TestPeerManager_Subscribe(t *testing.T) {
 	ctx := t.Context()
 
-	a := testAddr("a")
+	a := makeAddr()"a")
 
 	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{}, NopMetrics())
 	require.NoError(t, err)
@@ -1705,167 +1168,4 @@ func TestPeerManager_Subscribe(t *testing.T) {
 
 	require.NoError(t, peerManager.DialFailed(ctx, a))
 	require.Empty(t, sub.Updates())
-}
-
-func TestPeerManager_Subscribe_Close(t *testing.T) {
-	ctx := t.Context()
-
-	a := testAddr("a")
-
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{}, NopMetrics())
-	require.NoError(t, err)
-
-	sub := peerManager.Subscribe(ctx)
-
-	added, err := peerManager.Add(a)
-	require.NoError(t, err)
-	require.True(t, added)
-	require.NoError(t, peerManager.Accepted(a.NodeID))
-	require.Empty(t, sub.Updates())
-
-	peerManager.Ready(ctx, a.NodeID, nil)
-	require.NotEmpty(t, sub.Updates())
-	require.Equal(t, PeerUpdate{NodeID: a.NodeID, Status: PeerStatusUp}, <-sub.Updates())
-
-	// Closing the subscription should not send us the disconnected update.
-	t.Cleanup(func() {
-		peerManager.Disconnected(ctx, a.NodeID)
-		require.Empty(t, sub.Updates())
-	})
-}
-
-func TestPeerManager_Subscribe_Broadcast(t *testing.T) {
-	ctx := t.Context()
-
-	t.Cleanup(leaktest.Check(t))
-
-	a := testAddr("a")
-
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{}, NopMetrics())
-	require.NoError(t, err)
-
-	s2ctx, s2cancel := context.WithCancel(ctx)
-	defer s2cancel()
-
-	s1 := peerManager.Subscribe(ctx)
-	s2 := peerManager.Subscribe(s2ctx)
-	s3 := peerManager.Subscribe(ctx)
-
-	// Connecting to a peer should send updates on all subscriptions.
-	added, err := peerManager.Add(a)
-	require.NoError(t, err)
-	require.True(t, added)
-	require.NoError(t, peerManager.Accepted(a.NodeID))
-	peerManager.Ready(ctx, a.NodeID, nil)
-
-	expectUp := PeerUpdate{NodeID: a.NodeID, Status: PeerStatusUp}
-	require.NotEmpty(t, s1)
-	require.Equal(t, expectUp, <-s1.Updates())
-	require.NotEmpty(t, s2)
-	require.Equal(t, expectUp, <-s2.Updates())
-	require.NotEmpty(t, s3)
-	require.Equal(t, expectUp, <-s3.Updates())
-
-	// We now close s2. Disconnecting the peer should only send updates
-	// on s1 and s3.
-	s2cancel()
-	time.Sleep(250 * time.Millisecond) // give the thread a chance to exit
-	peerManager.Disconnected(ctx, a.NodeID)
-
-	expectDown := PeerUpdate{NodeID: a.NodeID, Status: PeerStatusDown}
-	require.NotEmpty(t, s1)
-	require.Equal(t, expectDown, <-s1.Updates())
-	require.Empty(t, s2.Updates())
-	require.NotEmpty(t, s3)
-	require.Equal(t, expectDown, <-s3.Updates())
-}
-
-func TestPeerManager_Close(t *testing.T) {
-	// leaktest will check that spawned goroutines are closed.
-	t.Cleanup(leaktest.CheckTimeout(t, 1*time.Second))
-
-	ctx := t.Context()
-
-	a := testAddr("a")
-
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
-		MinRetryTime: 10 * time.Second,
-	}, NopMetrics())
-	require.NoError(t, err)
-
-	// This subscription isn't closed, but PeerManager.Close()
-	// should reap the spawned goroutine.
-	_ = peerManager.Subscribe(ctx)
-
-	// This dial failure will start a retry timer for 10 seconds, which
-	// should be reaped.
-	added, err := peerManager.Add(a)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err := peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Equal(t, a, dial)
-	require.NoError(t, peerManager.DialFailed(ctx, a))
-}
-
-func TestPeerManager_Advertise(t *testing.T) {
-	aID := types.NodeID(strings.Repeat("a", 40))
-	aTCP := NodeAddress{NodeID: aID, Hostname: "127.0.0.1", Port: 26657}
-
-	bID := types.NodeID(strings.Repeat("b", 40))
-	bTCP := NodeAddress{NodeID: bID, Hostname: "b10c::1", Port: 26657}
-
-	cID := types.NodeID(strings.Repeat("c", 40))
-	cTCP := NodeAddress{NodeID: cID, Hostname: "host.domain", Port: 80}
-
-	dID := types.NodeID(strings.Repeat("d", 40))
-
-	// Create an initial peer manager and add the peers.
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
-		PeerScores: map[types.NodeID]PeerScore{aID: 3, bID: 2, cID: 1},
-	}, NopMetrics())
-	require.NoError(t, err)
-
-	added, err := peerManager.Add(aTCP)
-	require.NoError(t, err)
-	require.True(t, added)
-	added, err = peerManager.Add(bTCP)
-	require.NoError(t, err)
-	require.True(t, added)
-	added, err = peerManager.Add(cTCP)
-	require.NoError(t, err)
-	require.True(t, added)
-
-	// d should get all addresses.
-	require.ElementsMatch(t, []NodeAddress{
-		aTCP, bTCP, cTCP,
-	}, peerManager.Advertise(dID, 100))
-
-	// a should not get its own addresses.
-	require.ElementsMatch(t, []NodeAddress{
-		bTCP, cTCP,
-	}, peerManager.Advertise(aID, 100))
-
-	// Asking for 0 addresses should return, well, 0.
-	require.Empty(t, peerManager.Advertise(aID, 0))
-
-	// Asking for 2 addresses should get the highest-rated ones, i.e. a.
-	require.ElementsMatch(t, []NodeAddress{
-		aTCP,
-	}, peerManager.Advertise(dID, 1))
-}
-
-func TestPeerManager_Advertise_Self(t *testing.T) {
-	dID := types.NodeID(strings.Repeat("d", 40))
-
-	self := NodeAddress{NodeID: selfID, Hostname: "2001:db8::1", Port: 26657}
-
-	// Create a peer manager with SelfAddress defined.
-	peerManager, err := NewPeerManager(selfID, RouterOptions{ SelfAddress: utils.Some[self] })
-	require.NoError(t, err)
-
-	// peer manager should always advertise its SelfAddress.
-	require.ElementsMatch(t, []NodeAddress{
-		self,
-	}, peerManager.Advertise(dID, 100))
 }

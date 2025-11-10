@@ -237,7 +237,13 @@ type TestNode struct {
 	Router      *Router
 }
 
-func (n *TestNode) waitForConn(ctx context.Context, target types.NodeID, status bool) {
+func (n *TestNode) WaitForConns(ctx context.Context, wantPeers int) {
+	if _,err := n.Router.peerManager.conns.Wait(ctx, func(conns connSet) bool {
+		return conns.Len()>=wantPeers
+	}); err!=nil { panic(err) }
+}
+
+func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status bool) {
 	if _,err := n.Router.peerManager.conns.Wait(ctx, func(conns connSet) bool {
 		_,ok := conns.Get(target)
 		return ok==status
@@ -246,15 +252,15 @@ func (n *TestNode) waitForConn(ctx context.Context, target types.NodeID, status 
 
 func (n *TestNode) Connect(ctx context.Context, target *TestNode) {
 	n.Router.peerManager.AddAddrs(utils.Slice(target.NodeAddress))
-	n.waitForConn(ctx, target.NodeID, true)
-	target.waitForConn(ctx, n.NodeID, true)
+	n.WaitForConn(ctx, target.NodeID, true)
+	target.WaitForConn(ctx, n.NodeID, true)
 }
 
 func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
 	conn,ok := n.Router.peerManager.Conns().Get(target)
 	if !ok { panic("not connected") }
 	conn.Close()
-	n.waitForConn(ctx, target, false)
+	n.WaitForConn(ctx, target, false)
 }
 
 // MakeNode creates a new Node configured for the network with a

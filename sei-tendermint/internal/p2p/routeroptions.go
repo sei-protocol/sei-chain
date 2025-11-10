@@ -11,7 +11,6 @@ import (
 	"net/netip"
 )
 
-
 type DialFailuresError struct {
 	Failures uint32
 	Address  types.NodeID
@@ -141,6 +140,11 @@ func (o *RouterOptions) maxPeers() int {
 
 // Validate validates the options.
 func (o *RouterOptions) Validate() error {
+	for _,addr := range o.BootstrapPeers {
+		if err := addr.Validate(); err != nil {
+			return fmt.Errorf("invalid BoodstrapPeer address %v: %w", addr, err)
+		}
+	}
 	for _,addr := range o.PersistentPeers {
 		if err := addr.Validate(); err != nil {
 			return fmt.Errorf("invalid PersistentPeer address %v: %w", addr, err)
@@ -159,11 +163,6 @@ func (o *RouterOptions) Validate() error {
 	for _,id := range o.PrivatePeers {
 		if err := id.Validate(); err != nil {
 			return fmt.Errorf("invalid private peer ID %q: %w", id, err)
-		}
-	}
-	if maxPeers,ok := o.MaxPeers.Get(); ok {
-		if maxConnected,ok := o.MaxConnected.Get(); !ok || maxConnected > maxPeers {
-			return fmt.Errorf("MaxConnected %v can't exceed MaxPeers %v", maxConnected, maxPeers)
 		}
 	}
 	return nil

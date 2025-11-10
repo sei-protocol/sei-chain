@@ -48,8 +48,15 @@ type Connection struct {
 	mconn        *conn.MConnection
 }
 
-// Handshake implements Connection.
-func (r *Router) HandshakeOrClose(ctx context.Context, tcpConn *net.TCPConn, dialAddr utils.Option[NodeAddress]) (c *Connection, err error) {
+// handshake handshakes with a peer, validating the peer's information. If
+// dialAddr is given, we check that the peer's info matches it.
+// Closes the tcpConn if case of any error.
+func (r *Router) handshake(ctx context.Context, tcpConn *net.TCPConn, dialAddr utils.Option[NodeAddress]) (c *Connection, err error) {
+	if d,ok := r.options.HandshakeTimeout.Get(); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d)
+		defer cancel()
+	}
 	defer func() {
 		// Late error check. Close conn to avoid leaking it.
 		if err != nil {
@@ -91,8 +98,24 @@ func (r *Router) HandshakeOrClose(ctx context.Context, tcpConn *net.TCPConn, dia
 			return nil, fmt.Errorf("peer's public key did not match its node ID %q (expected %q)",
 				peerInfo.NodeID, peerID)
 		}
+		// Validate the received info.
 		if err := peerInfo.Validate(); err != nil {
 			return nil, fmt.Errorf("invalid handshake NodeInfo: %w", err)
+		}
+		nodeInfo := r.nodeInfoProducer()
+		if peerInfo.Network != nodeInfo.Network {
+			return nil, errBadNetwork{fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)}
+		}
+		if want, ok := dialAddr.Get(); ok && want.NodeID != peerInfo.NodeID {
+			return nil, fmt.Errorf("expected to connect with peer %q, got %q",
+				want.NodeID, peerInfo.NodeID)
+		}
+		if err := nodeInfo.CompatibleWith(peerInfo); err != nil {
+			return nil, ErrRejected{
+				err:            err,
+				id:             peerInfo.ID(),
+				isIncompatible: true,
+			}
 		}
 		ok.Store(true)
 		return &Connection{

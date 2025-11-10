@@ -63,12 +63,12 @@ func NewRouter(
 	db dbm.DB,
 	options *RouterOptions,
 ) (*Router,error) {
-	selfID := types.NodeIDFromPubKey(privKey.PubKey())
-	peerManager,err := NewPeerManager(selfID, options)
-	if err!=nil {
-		return nil,fmt.Errorf("NewPeerManager(): %w", err)
+	if err:=options.Validate(); err!=nil {
+		return nil, err
 	}
-	peerDB,err := newPeerDB(db)
+	selfID := types.NodeIDFromPubKey(privKey.PubKey())
+	peerManager := newPeerManager(selfID, options)
+	peerDB,err := newPeerDB(db, options)
 	if err!=nil {
 		return nil, fmt.Errorf("newPeerDB(): %w",err)
 	}
@@ -115,15 +115,10 @@ func (r *Router) Subscribe() *PeerUpdatesRecv {
 }
 
 func (r *Router) Advertise(maxAddrs int) []NodeAddress {
-	if maxAddrs==0 { return nil }
-	var addrs []NodeAddress
-	if selfAddr,ok := r.options.SelfAddress.Get(); ok {
-		addrs = append(addrs, selfAddr)
-	}
 	for peerDB := range r.peerDB.Lock() {
-		addrs = append(addrs, peerDB.GetLast(maxAddrs-1)...)
+		return peerDB.Advertise(maxAddrs)
 	}
-	return addrs
+	panic("unreachable")
 }
 
 // OpenChannel opens a new channel for the given message type.
@@ -334,41 +329,6 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (*net.TCPConn, erro
 		return tcpConn.(*net.TCPConn), nil
 	}
 	return nil, errors.New("all endpoints failed")
-}
-
-// handshakePeer handshakes with a peer, validating the peer's information. If
-// expectID is given, we check that the peer's info matches it.
-func (r *Router) handshake(
-	ctx context.Context,
-	tcpConn *net.TCPConn,
-	dialAddr utils.Option[NodeAddress],
-) (*Connection, error) {
-	if d,ok := r.options.HandshakeTimeout.Get(); ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, d)
-		defer cancel()
-	}
-	conn, err := r.HandshakeOrClose(ctx, tcpConn, dialAddr)
-	if err != nil {
-		return nil, err
-	}
-	peerInfo := conn.PeerInfo()
-	nodeInfo := r.nodeInfoProducer()
-	if peerInfo.Network != nodeInfo.Network {
-		return nil, errBadNetwork{fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)}
-	}
-	if want, ok := dialAddr.Get(); ok && want.NodeID != peerInfo.NodeID {
-		return nil, fmt.Errorf("expected to connect with peer %q, got %q",
-			want.NodeID, peerInfo.NodeID)
-	}
-	if err := nodeInfo.CompatibleWith(peerInfo); err != nil {
-		return nil, ErrRejected{
-			err:            err,
-			id:             peerInfo.ID(),
-			isIncompatible: true,
-		}
-	}
-	return conn, nil
 }
 
 func (r *Router) Run(ctx context.Context) error {

@@ -87,11 +87,13 @@ func (a peerDBRow) Compare(b peerDBRow) int {
 
 type peerDB struct {
 	db dbm.DB
+	options *RouterOptions
+	isPrivate map[types.NodeID]bool
 	byNodeID map[types.NodeID]peerDBRow
 	byLastConnected *btree.BTreeG[peerDBRow]
 }
 
-func newPeerDB(db dbm.DB) (*peerDB, error) {
+func newPeerDB(db dbm.DB, options *RouterOptions) (*peerDB, error) {
 	byNodeID := map[types.NodeID]peerDBRow{}
 	start, end := keyPeerInfoRange()
 	iter, err := db.Iterator(start, end)
@@ -121,8 +123,9 @@ func newPeerDB(db dbm.DB) (*peerDB, error) {
 	if iter.Error() != nil {
 		return nil, iter.Error()
 	}
-
-	return &peerDB{db,byNodeID,byLastConnected}, nil
+	isPrivate := map[types.NodeID]bool{}
+	for _,id := range options.PrivatePeers { isPrivate[id] = true }
+	return &peerDB{db,options,isPrivate,byNodeID,byLastConnected}, nil
 }
 
 func (db *peerDB) Insert(addr NodeAddress, lastConnected time.Time) error {
@@ -164,15 +167,22 @@ func (db *peerDB) Truncate(maxRows int) error {
 	return nil
 }
 
-// GetLast fetches min(n,db.size) rows with newests LastConnected timestamp.
-func (db *peerDB) GetLast(n int) []NodeAddress {
+// Advertise returns up to n non-private addresses from the db.
+// options.SelfAddress is included if present.
+// Addresses with newer LastConnected timestamp are preferred.
+// It returns less than n addresses iff there is not enough rows in db.
+func (db *peerDB) Advertise(maxAddrs int) []NodeAddress {
+	if maxAddrs<=0 { return nil }
 	var addrs []NodeAddress
+	if selfAddr,ok := db.options.SelfAddress.Get(); ok {
+		addrs = append(addrs,selfAddr)
+	}
 	db.byLastConnected.Descend(func(r peerDBRow) bool {
-		if len(addrs) >= n { return false }
-		addrs = append(addrs, r.Addr)
+		if len(addrs) >= maxAddrs { return false }
+		if !db.isPrivate[r.Addr.NodeID] {
+			addrs = append(addrs, r.Addr)
+		}
 		return true
 	})
 	return addrs
 }
-
-

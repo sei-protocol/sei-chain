@@ -11,7 +11,6 @@ import (
 	"github.com/gogo/protobuf/proto"
 
 	"fmt"
-	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/libs/utils/scope"
@@ -21,10 +20,6 @@ import (
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/libs/log"
 )
-
-func makeKey() crypto.PrivKey {
-	return ed25519.GenPrivKey()
-}
 
 func makeInfo(key crypto.PrivKey) types.NodeInfo {
 	nodeID := types.NodeIDFromPubKey(key.PubKey())
@@ -48,10 +43,11 @@ func makeInfo(key crypto.PrivKey) types.NodeInfo {
 	return peerInfo
 }
 
-func TestRouter_MaxAcceptedConnections(t *testing.T) {
+func TestRouter_MaxConnected(t *testing.T) {
 	logger, _ := log.NewDefaultLogger("plain", "debug")
 	opts := makeRouterOptions()
-	opts.MaxAcceptedConnections = 2
+	maxConnected := 2
+	opts.MaxConnected = utils.Some(maxConnected)
 
 	err := utils.IgnoreCancel(scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		r := makeRouterWithOptions(logger, opts)
@@ -61,22 +57,23 @@ func TestRouter_MaxAcceptedConnections(t *testing.T) {
 		}
 
 		var total atomic.Int64
-		t.Logf("spawn a bunch of connections, making sure that no more than %d are accepted at any given time", opts.MaxAcceptedConnections)
+		t.Logf("spawn a bunch of connections, making sure that no more than %d are accepted at any given time", opts.MaxConnected)
 		for range 10 {
 			s.SpawnNamed("test", func() error {
 				x := makeRouter(logger)
 				// Establish a connection.
-				tcpConn, err := x.Dial(ctx, TestAddress(r))
+				addr := TestAddress(r)
+				tcpConn, err := x.dial(ctx, addr)
 				if err != nil {
-					return fmt.Errorf("tcp.Dial(): %w", err)
+					return fmt.Errorf("tcp.dial(): %w", err)
 				}
-				conn, err := HandshakeOrClose(ctx, x, tcpConn)
+				conn, err := x.HandshakeOrClose(ctx, tcpConn, utils.Some(addr))
 				if err != nil {
 					return fmt.Errorf("handshake(): %w", err)
 				}
 				defer conn.Close()
 				// Check that limit was not exceeded.
-				if got, wantMax := total.Add(1), int64(opts.MaxAcceptedConnections); got > wantMax {
+				if got, wantMax := total.Add(1), int64(maxConnected); got > wantMax {
 					return fmt.Errorf("accepted too many connections: %d > %d", got, wantMax)
 				}
 				defer total.Add(-1)
@@ -121,12 +118,13 @@ func TestRouter_Listen(t *testing.T) {
 				}
 
 				x := makeRouter(logger)
-				tcpConn, err := x.Dial(ctx, TestAddress(r))
+				addr := TestAddress(r)
+				tcpConn, err := x.dial(ctx, addr)
 				if err != nil {
-					return fmt.Errorf("tcp.Dial(): %v", err)
+					return fmt.Errorf("tcp.dial(): %v", err)
 				}
 				defer tcpConn.Close()
-				if _, err := HandshakeOrClose(ctx, x, tcpConn); err != nil {
+				if _, err := x.HandshakeOrClose(ctx, tcpConn, utils.Some(addr)); err != nil {
 					return fmt.Errorf("handshake(): %v", err)
 				}
 				return nil
@@ -149,12 +147,13 @@ func TestHandshake_NodeInfo(t *testing.T) {
 		}
 
 		x := makeRouter(logger)
-		tcpConn, err := x.Dial(ctx, TestAddress(r))
+		addr := TestAddress(r)
+		tcpConn, err := x.dial(ctx, addr)
 		if err != nil {
-			return fmt.Errorf("tcp.Dial(): %v", err)
+			return fmt.Errorf("tcp.dial(): %v", err)
 		}
 		defer tcpConn.Close()
-		conn, err := HandshakeOrClose(ctx, x, tcpConn)
+		conn, err := x.HandshakeOrClose(ctx, tcpConn, utils.Some(addr))
 		if err != nil {
 			return fmt.Errorf("handshake(): %v", err)
 		}
@@ -195,13 +194,14 @@ func TestHandshake_Context(t *testing.T) {
 		})
 		s.Spawn(func() error {
 			// Second connection end tries to handshake.
-			tcpConn, err := b.Dial(ctx, TestAddress(a))
+			addr := TestAddress(a)
+			tcpConn, err := b.dial(ctx, addr)
 			if err != nil {
-				t.Fatalf("tcp.Dial(): %v", err)
+				t.Fatalf("tcp.dial(): %v", err)
 			}
 			s.SpawnBg(func() error {
 				defer tcpConn.Close()
-				conn, err := HandshakeOrClose(ctx, b, tcpConn)
+				conn, err := b.HandshakeOrClose(ctx, tcpConn, utils.Some(addr))
 				if err == nil {
 					defer conn.Close()
 					return fmt.Errorf("handshake(): expected error, got %w", err)

@@ -40,7 +40,6 @@ type peerManagerInner struct {
 	selfID types.NodeID
 	options *RouterOptions
 	isUnconditional map[types.NodeID]bool
-	isPrivate map[types.NodeID]bool
 	persistentAddrs map[types.NodeID]*peerAddrs
 	// TODO: consider replacing Connection with an interface
 	// * comparable
@@ -307,15 +306,11 @@ func (m *PeerManager) Subscribe() *PeerUpdatesRecv {
 	}
 }
 
-func NewPeerManager(selfID types.NodeID, options *RouterOptions) (*PeerManager,error) {
-	if err:=options.Validate(); err!=nil {
-		return nil, err
-	}
+func newPeerManager(selfID types.NodeID, options *RouterOptions) *PeerManager {
 	inner := &peerManagerInner{
 		selfID: selfID,
 		options: options,
 		persistentAddrs: map[types.NodeID]*peerAddrs{},
-		isPrivate: map[types.NodeID]bool{},
 		isUnconditional: map[types.NodeID]bool{},
 
 		conns: utils.NewAtomicSend(im.NewMap[types.NodeID,*Connection]()),
@@ -323,7 +318,6 @@ func NewPeerManager(selfID types.NodeID, options *RouterOptions) (*PeerManager,e
 		dialing: map[types.NodeID]NodeAddress{},
 	}
 	isBlockSyncPeer := map[types.NodeID]bool{}
-	for _,id := range options.PrivatePeers { inner.isPrivate[id] = true }
 	for _,id := range options.UnconditionalPeers { inner.isUnconditional[id] = true }
 	for _,id := range options.BlockSyncPeers { inner.isUnconditional[id] = true }
 	for _,addr := range options.PersistentPeers {
@@ -340,7 +334,7 @@ func NewPeerManager(selfID types.NodeID, options *RouterOptions) (*PeerManager,e
 		isBlockSyncPeer: isBlockSyncPeer,
 		conns: inner.conns.Subscribe(),
 		inner: utils.NewWatch(inner),
-	},nil
+	}
 }
 
 func (m *PeerManager) Conns() connSet {
@@ -361,6 +355,9 @@ func (m *PeerManager) AddAddrs(addrs []NodeAddress) error {
 	return nil
 }
 
+// StartDial waits until there is a (persistent/non-persistent) address available for dialing.
+// On success, it marks the peer as dialing - peer won't be available for dialing until DialFailed
+// is called.
 func (m *PeerManager) StartDial(ctx context.Context, persistentPeer bool) (NodeAddress,error) {
 	for inner,ctrl := range m.inner.Lock() {
 		for {
@@ -375,7 +372,9 @@ func (m *PeerManager) StartDial(ctx context.Context, persistentPeer bool) (NodeA
 	panic("unreachable")
 }
 
-// Release releases the reservation made via Acquire.
+// DialFailed marks the address as "failed to dial".
+// The addr.NodeID peer will be added back to the pool of peers
+// available for dialing.
 func (p *PeerManager) DialFailed(addr NodeAddress) {
 	for inner,ctrl := range p.inner.Lock() {
 		ctrl.Updated()
@@ -383,6 +382,10 @@ func (p *PeerManager) DialFailed(addr NodeAddress) {
 	}
 }
 
+// Connected adds conn to the connections pool.
+// Connected peer won't be available for dialing until disconnect (we don't need duplicate connections).
+// May close and drop a duplicate connection already present in the pool.
+// Returns an error if the connection should be rejected.
 func (m *PeerManager) Connected(conn *Connection) error {
 	for inner,ctrl := range m.inner.Lock() {
 		ctrl.Updated()
@@ -391,6 +394,9 @@ func (m *PeerManager) Connected(conn *Connection) error {
 	panic("unreachable")
 }
 
+// Disconnected removes conn from the connection pool.
+// Noop if conn was not in the connection pool.
+// conn.PeerInfo().NodeID peer is available for dialing again.
 func (m *PeerManager) Disconnected(conn *Connection) {
 	for inner,ctrl := range m.inner.Lock() {
 		ctrl.Updated()
@@ -398,6 +404,8 @@ func (m *PeerManager) Disconnected(conn *Connection) {
 	}
 }
 
+// Evict removes known addresses of the peer (if not persistent) and
+// closes and drops connection to the peer (if not unconditional).
 func (m *PeerManager) Evict(id types.NodeID) {
 	for inner,ctrl := range m.inner.Lock() {
 		inner.Evict(id)
