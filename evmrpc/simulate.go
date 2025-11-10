@@ -383,7 +383,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 				IdxInEthBlock:              -1,
 				TraceRunnable: func(sd vm.StateDB) {
 					typedStateDB := state.GetDBImpl(sd)
-					_ = b.app.DeliverTx(typedStateDB.Ctx(), abci.RequestDeliverTx{}, decoded, sha256.Sum256(tmBlock.Block.Txs[i]))
+					_ = b.app.DeliverTx(typedStateDB.Ctx(), abci.RequestDeliverTxV2{}, decoded, sha256.Sum256(tmBlock.Block.Txs[i]))
 				},
 			})
 		}
@@ -500,7 +500,7 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 		if utils.IsTxPrioritized(sdkTx) {
 			continue
 		}
-		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTx{Tx: tx}, sdkTx, sha256.Sum256(tx))
+		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTxV2{Tx: tx}, sdkTx, sha256.Sum256(tx))
 	}
 	return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, nil
 }

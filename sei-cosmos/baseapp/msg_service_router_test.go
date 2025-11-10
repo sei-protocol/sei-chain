@@ -89,7 +89,7 @@ func TestMsgService(t *testing.T) {
 				txResults = append(txResults, &abci.ExecTxResult{})
 				continue
 			}
-			deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
+			deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTxV2{
 				Tx: txbz,
 			}, tx, sha256.Sum256(txbz))
 			txResults = append(txResults, &abci.ExecTxResult{
