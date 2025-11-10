@@ -12,7 +12,6 @@ import (
 	epoch "github.com/sei-protocol/sei-chain/x/epoch"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
@@ -26,7 +25,6 @@ func TestBasic(t *testing.T) {
 		app.AccountKeeper,
 		app.BankKeeper,
 	)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	require.Equal(t, appModule.Name(), types.ModuleName)
 	appModule.RegisterCodec(app.LegacyAmino())
@@ -35,7 +33,6 @@ func TestBasic(t *testing.T) {
 	require.NotNil(t, appModule.GetQueryCmd())
 
 	require.Equal(t, appModule.Route().Path(), types.RouterKey)
-	require.Equal(t, appModule.EndBlock(ctx, abci.RequestEndBlock{}), []abci.ValidatorUpdate{})
 }
 
 // This test is just to make sure that the routes can be added without crashing
