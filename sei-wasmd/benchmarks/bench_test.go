@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 
-	abci "github.com/tendermint/tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
@@ -114,7 +113,7 @@ func BenchmarkTxSending(b *testing.B) {
 					require.NoError(b, err)
 				}
 
-				appInfo.App.EndBlock(appInfo.App.GetContextForDeliverTx([]byte{}), abci.RequestEndBlock{Height: height})
+				appInfo.App.EndBlock(appInfo.App.GetContextForDeliverTx([]byte{}), height, 0)
 				appInfo.App.SetDeliverStateToCommit()
 				appInfo.App.Commit(context.Background())
 				height++

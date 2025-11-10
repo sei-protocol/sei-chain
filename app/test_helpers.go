@@ -200,8 +200,7 @@ func (s *TestWrapper) BeginBlock() {
 }
 
 func (s *TestWrapper) EndBlock() {
-	reqEndBlock := abci.RequestEndBlock{Height: s.Ctx.BlockHeight()}
-	s.App.EndBlocker(s.Ctx, reqEndBlock)
+	legacyabci.EndBlock(s.Ctx, s.Ctx.BlockHeight(), 0, s.App.EndBlockKeepers)
 }
 
 func setupReceiptStore() (seidbtypes.StateStore, error) {

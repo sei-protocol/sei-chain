@@ -71,7 +71,6 @@ func TestABCI(t *testing.T) {
 	amt := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, amt)
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, sdk.AccAddress(evmAddr1[:]), amt)
-	m := evm.NewAppModule(nil, k)
 	// first block
 	k.BeginBlock(ctx)
 	// 1st tx
@@ -95,7 +94,7 @@ func TestABCI(t *testing.T) {
 	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(3), ethtypes.Bloom{}, common.Hash{3}, surplus)
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}, {Code: 0}})
 	k.SetMsgs([]*types.MsgEVMTransaction{nil, {}, nil, {}})
-	m.EndBlock(ctx, abci.RequestEndBlock{})
+	k.EndBlock(ctx, 0, 0)
 	require.Equal(t, uint64(0), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())
 	require.Equal(t, uint64(2), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), "usei").Amount.Uint64())
 
@@ -111,7 +110,7 @@ func TestABCI(t *testing.T) {
 	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(2), ethtypes.Bloom{}, common.Hash{2}, surplus)
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}})
 	k.SetMsgs([]*types.MsgEVMTransaction{nil, nil, {}})
-	m.EndBlock(ctx, abci.RequestEndBlock{})
+	k.EndBlock(ctx, 0, 0)
 	require.Equal(t, uint64(1), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())
 	require.Equal(t, uint64(2), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), "usei").Amount.Uint64())
 
@@ -120,7 +119,7 @@ func TestABCI(t *testing.T) {
 	msg := mockEVMTransactionMessage(t)
 	k.SetMsgs([]*types.MsgEVMTransaction{msg})
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 1, Log: "test error"}})
-	m.EndBlock(ctx, abci.RequestEndBlock{})
+	k.EndBlock(ctx, 0, 0)
 	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
 	tx, _ := msg.AsTransaction()
@@ -146,7 +145,6 @@ func TestLegacyReceiptMigrationInterval(t *testing.T) {
 	a := app.Setup(t, false, false, false)
 	k := a.EvmKeeper
 	ctx := a.GetContextForDeliverTx([]byte{})
-	m := evm.NewAppModule(nil, &k)
 
 	// Seed a legacy receipt directly into KV
 	txHash := common.BytesToHash([]byte{0x42})
@@ -163,7 +161,7 @@ func TestLegacyReceiptMigrationInterval(t *testing.T) {
 	for i := int64(1); i <= interval; i++ {
 		ctx = ctx.WithBlockHeight(i)
 		k.BeginBlock(ctx)
-		m.EndBlock(ctx, abci.RequestEndBlock{})
+		k.EndBlock(ctx, 0, 0)
 	}
 	require.NoError(t, k.FlushTransientReceipts(ctx))
 
@@ -185,11 +183,10 @@ func TestAnteSurplus(t *testing.T) {
 	a := app.Setup(t, false, false, false)
 	k := a.EvmKeeper
 	ctx := a.GetContextForDeliverTx([]byte{})
-	m := evm.NewAppModule(nil, &k)
 	// first block
 	k.BeginBlock(ctx)
 	k.AddAnteSurplus(ctx, common.BytesToHash([]byte("1234")), sdk.NewInt(1_000_000_000_001))
-	m.EndBlock(ctx, abci.RequestEndBlock{})
+	k.EndBlock(ctx, 0, 0)
 	require.Equal(t, uint64(1), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())
 	require.Equal(t, uint64(1), k.BankKeeper().GetWeiBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName)).Uint64())
 	// ante surplus should be cleared
