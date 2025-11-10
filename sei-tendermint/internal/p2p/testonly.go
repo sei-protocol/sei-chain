@@ -100,7 +100,7 @@ func (n *TestNetwork) ConnectCycle(ctx context.Context, t *testing.T) {
 		nodes[i].Router.peerManager.AddAddrs(utils.Slice(nodes[(i+1)%len(nodes)].NodeAddress))
 	}
 	for i := range n.Nodes() {
-		if _, err:=nodes[i].Router.peerManager.conns.Wait(ctx, func(conns connSet) bool {
+		if _, err:=nodes[i].Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
 			for _, peer := range utils.Slice(nodes[(i+1)%N], nodes[(i+N-1)%N]) {
 				if _,ok := conns.Get(peer.NodeID); !ok { return false }
 			}
@@ -124,7 +124,7 @@ func (n *TestNetwork) Start(t *testing.T) {
 	}
 	t.Log("Await connections.")
 	for _, source := range nodes {
-		if _,err := source.Router.peerManager.conns.Wait(t.Context(), func(conns connSet) bool {
+		if _,err := source.Router.peerManager.conns.Wait(t.Context(), func(conns ConnSet) bool {
 			for _, target := range nodes {
 				if target.NodeID == source.NodeID { continue }
 				_, ok := conns.Get(target.NodeID)
@@ -218,7 +218,7 @@ func (n *TestNetwork) Remove(t *testing.T, id types.NodeID) {
 	}
 	node.Router.Stop()
 	for _,peer := range peers {
-		if _, err:=peer.Router.peerManager.conns.Wait(t.Context(), func(conns connSet) bool {
+		if _, err:=peer.Router.peerManager.conns.Wait(t.Context(), func(conns ConnSet) bool {
 			_,ok := conns.Get(id)
 			return !ok
 		}); err!=nil {
@@ -238,13 +238,13 @@ type TestNode struct {
 }
 
 func (n *TestNode) WaitForConns(ctx context.Context, wantPeers int) {
-	if _,err := n.Router.peerManager.conns.Wait(ctx, func(conns connSet) bool {
+	if _,err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
 		return conns.Len()>=wantPeers
 	}); err!=nil { panic(err) }
 }
 
 func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status bool) {
-	if _,err := n.Router.peerManager.conns.Wait(ctx, func(conns connSet) bool {
+	if _,err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
 		_,ok := conns.Get(target)
 		return ok==status
 	}); err!=nil { panic(err) }

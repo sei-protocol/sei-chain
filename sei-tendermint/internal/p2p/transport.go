@@ -48,6 +48,14 @@ type Connection struct {
 	mconn        *conn.MConnection
 }
 
+func (c *Connection) Info() peerConnInfo {
+	return peerConnInfo {
+		ID: c.peerInfo.NodeID,
+		Channels: c.peerChannels,
+		DialAddr: c.dialAddr,
+	}
+}
+
 // handshake handshakes with a peer, validating the peer's information. If
 // dialAddr is given, we check that the peer's info matches it.
 // Closes the tcpConn if case of any error.

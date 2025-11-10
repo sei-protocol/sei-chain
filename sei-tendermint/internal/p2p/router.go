@@ -23,6 +23,10 @@ import (
 
 type errBadNetwork struct {error}
 
+type PeerManager = peerManager[*Connection]
+type PeerUpdatesRecv = peerUpdatesRecv[*Connection]
+type ConnSet = connSet[*Connection]
+
 // Router manages peer connections and routes messages between peers and channels.
 type Router struct {
 	*service.BaseService
@@ -67,7 +71,7 @@ func NewRouter(
 		return nil, err
 	}
 	selfID := types.NodeIDFromPubKey(privKey.PubKey())
-	peerManager := newPeerManager(selfID, options)
+	peerManager := newPeerManager[*Connection](selfID, options)
 	peerDB,err := newPeerDB(db, options)
 	if err!=nil {
 		return nil, fmt.Errorf("newPeerDB(): %w",err)
