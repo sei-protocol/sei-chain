@@ -90,13 +90,13 @@ func TestSnapshotKey(t *testing.T) {
 // TestSnapshotRootNodeEmpty tests RootNode on empty snapshot
 func TestSnapshotRootNodeEmpty(t *testing.T) {
 	snapshot := NewEmptySnapshot(0)
-	
+
 	// Should panic on empty snapshot
 	defer func() {
 		r := recover()
 		require.NotNil(t, r)
 	}()
-	
+
 	snapshot.RootNode()
 }
 
@@ -123,11 +123,11 @@ func TestPrefetchSnapshot(t *testing.T) {
 	opts := Options{}
 	opts.FillDefaults()
 	opts.PrefetchThreshold = 0.0 // Always prefetch for testing
-	
+
 	snapshot, err := OpenSnapshot(snapshotDir, opts)
 	require.NoError(t, err)
 	defer snapshot.Close()
-	
+
 	require.NotNil(t, snapshot)
 }
 
@@ -138,7 +138,7 @@ func TestShouldPreloadTree(t *testing.T) {
 	require.True(t, shouldPreloadTree("bank"))
 	require.True(t, shouldPreloadTree("acc"))
 	require.True(t, shouldPreloadTree("wasm"))
-	
+
 	// Other trees should not be preloaded
 	require.False(t, shouldPreloadTree("other"))
 	require.False(t, shouldPreloadTree("test"))
@@ -179,7 +179,7 @@ func TestImportCancellation(t *testing.T) {
 
 	ch := make(chan *types.SnapshotNode, 100)
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	// Start exporting
 	go func() {
 		defer close(ch)
@@ -207,4 +207,3 @@ func TestImportCancellation(t *testing.T) {
 		require.Contains(t, err.Error(), "context")
 	}
 }
-
