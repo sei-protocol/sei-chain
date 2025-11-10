@@ -36,6 +36,8 @@ type opts struct {
 	maxTraceLookbackBlocks       interface{}
 	traceTimeout                 interface{}
 	rpcStatsInterval             interface{}
+	workerPoolSize               interface{}
+	workerQueueSize              interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -120,6 +122,12 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.rpc_stats_interval" {
 		return o.rpcStatsInterval
 	}
+	if k == "evm.worker_pool_size" {
+		return o.workerPoolSize
+	}
+	if k == "evm.worker_queue_size" {
+		return o.workerQueueSize
+	}
 	panic("unknown key")
 }
 
@@ -152,6 +160,8 @@ func TestReadConfig(t *testing.T) {
 		int64(100),
 		30 * time.Second,
 		10 * time.Second,
+		32,
+		1000,
 	}
 	_, err := evmrpc.ReadConfig(&goodOpts)
 	require.Nil(t, err)
@@ -245,4 +255,99 @@ func TestReadConfig(t *testing.T) {
 	badOpts.traceTimeout = "bad"
 	_, err = evmrpc.ReadConfig(&badOpts)
 	require.NotNil(t, err)
+
+	// Test bad types for worker pool config
+	badOpts = goodOpts
+	badOpts.workerPoolSize = "bad"
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.workerQueueSize = "bad"
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+}
+
+// Test worker pool configuration values
+func TestReadConfigWorkerPool(t *testing.T) {
+	tests := []struct {
+		name              string
+		workerPoolSize    interface{}
+		workerQueueSize   interface{}
+		expectedWorkers   int
+		expectedQueue     int
+	}{
+		{
+			name:            "custom values",
+			workerPoolSize:  32,
+			workerQueueSize: 1000,
+			expectedWorkers: 32,
+			expectedQueue:   1000,
+		},
+		{
+			name:            "zero values (use defaults)",
+			workerPoolSize:  0,
+			workerQueueSize: 0,
+			expectedWorkers: 0,
+			expectedQueue:   0,
+		},
+		{
+			name:            "only worker size",
+			workerPoolSize:  48,
+			workerQueueSize: 0,
+			expectedWorkers: 48,
+			expectedQueue:   0,
+		},
+		{
+			name:            "only queue size",
+			workerPoolSize:  0,
+			workerQueueSize: 2000,
+			expectedWorkers: 0,
+			expectedQueue:   2000,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := opts{
+				httpEnabled:                  true,
+				httpPort:                     8545,
+				wsEnabled:                    true,
+				wsPort:                       8546,
+				readTimeout:                  time.Duration(5),
+				readHeaderTimeout:            time.Duration(5),
+				writeTimeout:                 time.Duration(5),
+				idleTimeout:                  time.Duration(5),
+				simulationGasLimit:           uint64(10),
+				simulationEVMTimeout:         time.Duration(60),
+				corsOrigins:                  "*",
+				wsOrigins:                    "*",
+				filterTimeout:                time.Duration(5),
+				checkTxTimeout:               time.Duration(5),
+				maxTxPoolTxs:                 1000,
+				slow:                         false,
+				disableWatermark:             false,
+				denyList:                     make([]string, 0),
+				maxLogNoBlock:                20000,
+				maxBlocksForLog:              1000,
+				maxSubscriptionsNewHead:      10000,
+				enableTestAPI:                false,
+				maxConcurrentTraceCalls:      uint64(10),
+				maxConcurrentSimulationCalls: uint64(10),
+				maxTraceLookbackBlocks:       int64(100),
+				traceTimeout:                 30 * time.Second,
+				rpcStatsInterval:             10 * time.Second,
+				workerPoolSize:               tt.workerPoolSize,
+				workerQueueSize:              tt.workerQueueSize,
+			}
+
+			cfg, err := evmrpc.ReadConfig(&opts)
+			require.Nil(t, err)
+
+			require.Equal(t, tt.expectedWorkers, cfg.WorkerPoolSize,
+				"WorkerPoolSize mismatch")
+			require.Equal(t, tt.expectedQueue, cfg.WorkerQueueSize,
+				"WorkerQueueSize mismatch")
+		})
+	}
 }

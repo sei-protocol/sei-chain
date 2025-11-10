@@ -7,12 +7,9 @@ import (
 )
 
 const (
-	WorkerBatchSize = 100
-	WorkerQueueSize = 200
-)
-
-var (
-	MaxNumOfWorkers = runtime.NumCPU() * 2 // each worker will handle a batch of WorkerBatchSize blocks
+	WorkerBatchSize        = 100
+	DefaultWorkerQueueSize = 200
+	DefaultMaxNumOfWorkers = 0 // 0 = runtime.NumCPU() * 2
 )
 
 // WorkerPool manages a pool of goroutines for concurrent task execution
@@ -27,20 +24,49 @@ type WorkerPool struct {
 }
 
 var (
-	globalWorkerPool *WorkerPool
-	poolOnce         sync.Once
+	globalWorkerPool     *WorkerPool
+	globalWorkerPoolLock sync.RWMutex
 )
 
+// InitGlobalWorkerPool initializes the global worker pool with the given configuration
+// This should be called once during server initialization
+func InitGlobalWorkerPool(workerPoolSize, workerQueueSize int) {
+	globalWorkerPoolLock.Lock()
+	defer globalWorkerPoolLock.Unlock()
+
+	if globalWorkerPool != nil {
+		// Already initialized
+		return
+	}
+
+	// Apply defaults if needed
+	if workerPoolSize <= 0 {
+		workerPoolSize = runtime.NumCPU() * 2
+	}
+	if workerQueueSize <= 0 {
+		workerQueueSize = DefaultWorkerQueueSize
+	}
+
+	globalWorkerPool = &WorkerPool{
+		workers:   workerPoolSize,
+		taskQueue: make(chan func(), workerQueueSize),
+		done:      make(chan struct{}),
+	}
+	globalWorkerPool.start()
+}
+
 // GetGlobalWorkerPool returns the singleton worker pool instance
+// If not initialized, it creates one with default values
 func GetGlobalWorkerPool() *WorkerPool {
-	poolOnce.Do(func() {
-		globalWorkerPool = &WorkerPool{
-			workers:   MaxNumOfWorkers,
-			taskQueue: make(chan func(), WorkerQueueSize),
-			done:      make(chan struct{}),
-		}
-		globalWorkerPool.start()
-	})
+	globalWorkerPoolLock.RLock()
+	if globalWorkerPool != nil {
+		globalWorkerPoolLock.RUnlock()
+		return globalWorkerPool
+	}
+	globalWorkerPoolLock.RUnlock()
+
+	// Initialize with defaults if not already initialized
+	InitGlobalWorkerPool(0, 0)
 	return globalWorkerPool
 }
 
