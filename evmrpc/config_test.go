@@ -271,11 +271,11 @@ func TestReadConfig(t *testing.T) {
 // Test worker pool configuration values
 func TestReadConfigWorkerPool(t *testing.T) {
 	tests := []struct {
-		name              string
-		workerPoolSize    interface{}
-		workerQueueSize   interface{}
-		expectedWorkers   int
-		expectedQueue     int
+		name            string
+		workerPoolSize  interface{}
+		workerQueueSize interface{}
+		expectedWorkers int
+		expectedQueue   int
 	}{
 		{
 			name:            "custom values",

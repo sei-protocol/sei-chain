@@ -109,7 +109,7 @@ type Config struct {
 	WorkerPoolSize int `mapstructure:"worker_pool_size"`
 
 	// WorkerQueueSize defines the size of the task queue in the worker pool.
-	// Set to 0 to use default (200)
+	// Set to 0 to use default (1000)
 	WorkerQueueSize int `mapstructure:"worker_queue_size"`
 }
 
@@ -141,7 +141,7 @@ var DefaultConfig = Config{
 	TraceTimeout:                 30 * time.Second,
 	RPCStatsInterval:             10 * time.Second,
 	WorkerPoolSize:               0, // 0 = use default (runtime.NumCPU() * 2)
-	WorkerQueueSize:              0, // 0 = use default (200)
+	WorkerQueueSize:              0, // 0 = use default (1000)
 }
 
 const (
@@ -414,6 +414,6 @@ trace_timeout = "{{ .EVM.TraceTimeout }}"
 worker_pool_size = {{ .EVM.WorkerPoolSize }}
 
 # WorkerQueueSize defines the size of the task queue in the worker pool.
-# Set to 0 to use default (200)
+# Set to 0 to use default (1000)
 worker_queue_size = {{ .EVM.WorkerQueueSize }}
 `

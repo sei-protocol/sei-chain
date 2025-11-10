@@ -7,9 +7,15 @@ import (
 )
 
 const (
-	WorkerBatchSize        = 100
-	DefaultWorkerQueueSize = 200
-	DefaultMaxNumOfWorkers = 0 // 0 = runtime.NumCPU() * 2
+	// WorkerBatchSize is the number of blocks processed in each batch.
+	// Used in filter.go for batch processing of block queries.
+	WorkerBatchSize = 100
+
+	// DefaultWorkerQueueSize is the default size of the task queue.
+	// This represents the number of tasks (not blocks) that can be queued.
+	// Total capacity = DefaultWorkerQueueSize * WorkerBatchSize blocks
+	// Example: 1000 tasks * 100 blocks/task = 100,000 blocks can be buffered
+	DefaultWorkerQueueSize = 1000
 )
 
 // WorkerPool manages a pool of goroutines for concurrent task execution
@@ -55,8 +61,10 @@ func InitGlobalWorkerPool(workerPoolSize, workerQueueSize int) {
 	globalWorkerPool.start()
 }
 
-// GetGlobalWorkerPool returns the singleton worker pool instance
-// If not initialized, it creates one with default values
+// GetGlobalWorkerPool returns the singleton worker pool instance.
+// If not initialized, it creates one with default values:
+// - Worker count: runtime.NumCPU() * 2
+// - Queue size: DefaultWorkerQueueSize
 func GetGlobalWorkerPool() *WorkerPool {
 	globalWorkerPoolLock.RLock()
 	if globalWorkerPool != nil {

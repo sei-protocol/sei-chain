@@ -287,6 +287,27 @@ func TestWorkerPoolConstants(t *testing.T) {
 	if DefaultWorkerQueueSize <= 0 {
 		t.Errorf("DefaultWorkerQueueSize should be positive, got %d", DefaultWorkerQueueSize)
 	}
+
+	// Verify expected values
+	if WorkerBatchSize != 100 {
+		t.Errorf("WorkerBatchSize = %d, want 100", WorkerBatchSize)
+	}
+
+	if DefaultWorkerQueueSize != 1000 {
+		t.Errorf("DefaultWorkerQueueSize = %d, want 1000", DefaultWorkerQueueSize)
+	}
+
+	// Verify the relationship: Total capacity = queue size × batch size
+	totalCapacity := DefaultWorkerQueueSize * WorkerBatchSize
+	if totalCapacity != 100000 {
+		t.Errorf("Total capacity = %d, want 100000 (1000 tasks × 100 blocks/task)", totalCapacity)
+	}
+
+	t.Logf("✅ All constants validated:")
+	t.Logf("  - WorkerBatchSize: %d blocks/task", WorkerBatchSize)
+	t.Logf("  - DefaultWorkerQueueSize: %d tasks", DefaultWorkerQueueSize)
+	t.Logf("  - Total capacity: %d blocks", totalCapacity)
+	t.Logf("  - Default workers: CPU × 2")
 }
 
 func TestWorkerPoolOrderingNotGuaranteed(t *testing.T) {
