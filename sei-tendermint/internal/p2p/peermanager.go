@@ -15,12 +15,6 @@ const maxAddrsPerPeer = 10
 
 type connSet = im.Map[types.NodeID,*Connection]
 
-// latest successful dial.
-type dial struct {
-	Address  NodeAddress
-	SuccessTime time.Time
-}
-
 type peerAddrs struct {
 	lastFail utils.Option[time.Time]
 	// Invariants:
@@ -341,6 +335,14 @@ func (m *PeerManager) Conns() connSet {
 	return m.conns.Load()
 }
 
+// AddAddrs adds addresses, so that they are available for dialing.
+// Addresses to persistent peers are ignored, since they are populated in constructor.
+// Known addresses are ignored.
+// If maxAddrsPerPeer limit is exceeded, new address replaces a random failed address of that peer.
+// If options.MaxPeers limit is exceeded, some peer with ALL addresses failed (which is not connected or dialing) is replaced.
+// If there is no such address/peer to replace, the new address is ignored.
+// If some address is invalid, an error is returned.
+// Even if an error is returned, some addresses might have been added.
 func (m *PeerManager) AddAddrs(addrs []NodeAddress) error {
 	for inner,ctrl := range m.inner.Lock() {
 		for _,addr := range addrs {
@@ -377,8 +379,8 @@ func (m *PeerManager) StartDial(ctx context.Context, persistentPeer bool) (NodeA
 // available for dialing.
 func (p *PeerManager) DialFailed(addr NodeAddress) {
 	for inner,ctrl := range p.inner.Lock() {
-		ctrl.Updated()
 		inner.DialFailed(addr)
+		ctrl.Updated()
 	}
 }
 
@@ -388,7 +390,7 @@ func (p *PeerManager) DialFailed(addr NodeAddress) {
 // Returns an error if the connection should be rejected.
 func (m *PeerManager) Connected(conn *Connection) error {
 	for inner,ctrl := range m.inner.Lock() {
-		ctrl.Updated()
+		defer ctrl.Updated()
 		return inner.Connected(conn)
 	}
 	panic("unreachable")
@@ -399,8 +401,8 @@ func (m *PeerManager) Connected(conn *Connection) error {
 // conn.PeerInfo().NodeID peer is available for dialing again.
 func (m *PeerManager) Disconnected(conn *Connection) {
 	for inner,ctrl := range m.inner.Lock() {
-		ctrl.Updated()
 		inner.Disconnected(conn)
+		ctrl.Updated()
 	}
 }
 
