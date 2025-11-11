@@ -461,3 +461,32 @@ func (m *peerManager[C]) Advertise(maxAddrs int) []NodeAddress {
 	}
 	return addrs
 }
+
+func (m *peerManager[C]) Peers() []types.NodeID {
+	var ids []types.NodeID
+	for inner := range m.inner.Lock() {
+		for id := range inner.persistentAddrs {
+			ids = append(ids,id)
+		}
+		for id := range inner.addrs {
+			ids = append(ids,id)
+		}
+	}
+	return ids
+}
+
+func (m *peerManager[C]) Addresses(id types.NodeID) []NodeAddress {
+	var addrs []NodeAddress
+	for inner := range m.inner.Lock() {
+		peerAddrs := inner.addrs
+		if inner.isPersistent(id) {
+			peerAddrs = inner.persistentAddrs
+		}
+		if pa,ok := peerAddrs[id]; ok {
+			for addr := range pa.addrs {
+				addrs = append(addrs,addr)
+			}
+		}
+	}
+	return addrs
+}

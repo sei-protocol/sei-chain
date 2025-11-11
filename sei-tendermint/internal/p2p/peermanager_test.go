@@ -86,22 +86,6 @@ func justIDs[C peerConn](conns connSet[C]) map[types.NodeID]bool {
 	return ids
 }
 
-func (m *peerManager[C]) Addresses(id types.NodeID) []NodeAddress {
-	var addrs []NodeAddress
-	for inner := range m.inner.Lock() {
-		peerAddrs := inner.addrs
-		if inner.isPersistent(id) {
-			peerAddrs = inner.persistentAddrs
-		}
-		if pa,ok := peerAddrs[id]; ok {
-			for addr := range pa.addrs {
-				addrs = append(addrs,addr)
-			}
-		}
-	}
-	return addrs
-}
-
 func TestRouterOptions(t *testing.T) {
 	rng := utils.TestRng()
 

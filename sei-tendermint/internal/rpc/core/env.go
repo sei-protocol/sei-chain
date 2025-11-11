@@ -83,7 +83,7 @@ type Environment struct {
 	NodeInfo    types.NodeInfo
 
 	// interfaces for new p2p interfaces
-	router peerManager
+	PeerManager peerManager
 
 	// objects
 	PubKey            crypto.PubKey

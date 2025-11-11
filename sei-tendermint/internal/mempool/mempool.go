@@ -20,6 +20,7 @@ import (
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/types"
+	"github.com/tendermint/tendermint/internal/p2p"
 )
 
 // Using SHA-256 truncated to 128 bits as the cache key: At 2K tx/sec, the
@@ -751,7 +752,11 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 			txmp.failedCheckTxCounts[txInfo.SenderNodeID]++
 			if txmp.config.CheckTxErrorBlacklistEnabled && txmp.failedCheckTxCounts[txInfo.SenderNodeID] > uint64(txmp.config.CheckTxErrorThreshold) {
 				// evict peer
-				txmp.peerManager.Errored(txInfo.SenderNodeID, errors.New("checkTx error exceeded threshold"))
+				txmp.peerManager.SendError(p2p.PeerError{
+					NodeID: txInfo.SenderNodeID,
+					Err: errors.New("checkTx error exceeded threshold"),
+					Fatal: true,
+				})
 			}
 		}
 		return err

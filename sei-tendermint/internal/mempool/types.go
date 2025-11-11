@@ -157,5 +157,5 @@ func PostCheckMaxGas(maxGas int64) PostCheckFunc {
 }
 
 type PeerEvictor interface {
-	Errored(types.NodeID, error)
+	SendError(p2p.PeerError)
 }
