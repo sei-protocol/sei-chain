@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -28,7 +29,6 @@ type testPeer struct {
 	base      int64
 	height    int64
 	inputChan chan inputData // make sure each peer's data is sequential
-	score     p2p.PeerScore
 }
 
 type inputData struct {
@@ -77,33 +77,27 @@ func makePeers(numPeers int, minHeight, maxHeight int64) testPeers {
 			panic(err)
 		}
 		peerID := types.NodeID(hex.EncodeToString(bytes))
-		peers[peerID] = testPeer{peerID, minHeight, maxHeight, make(chan inputData, 10), 1}
+		peers[peerID] = testPeer{peerID, minHeight, maxHeight, make(chan inputData, 10)}
 	}
 	return peers
 }
 
-func makePeerManager(peers map[types.NodeID]testPeer) *p2p.PeerManager {
+func makeRouter(peers map[types.NodeID]testPeer) *p2p.Router {
 	selfKey := ed25519.GenPrivKeyFromSecret([]byte{0xf9, 0x1b, 0x08, 0xaa, 0x38, 0xee, 0x34, 0xdd})
-	selfID := types.NodeIDFromPubKey(selfKey.PubKey())
-	peerScores := make(map[types.NodeID]p2p.PeerScore)
-	for nodeId, peer := range peers {
-		peerScores[nodeId] = peer.score
-	}
-	peerManager, _ := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
-		PeerScores:          peerScores,
-		MaxConnected:        1,
-		MaxConnectedUpgrade: 2,
-	}, p2p.NopMetrics())
+	router, _ := p2p.NewRouter(log.NewNopLogger(), p2p.NopMetrics(), selfKey, nil/*TODO(gprusak)*/, dbm.NewMemDB(), &p2p.RouterOptions{
+		MaxConnected:        utils.Some(1),
+	})
 	for nodeId := range peers {
-		_, err := peerManager.Add(p2p.NodeAddress{NodeID: nodeId, Hostname: "a.com", Port: 1234})
-		peerManager.MarkReadyConnected(nodeId)
+		err := router.AddAddrs(utils.Slice(p2p.NodeAddress{NodeID: nodeId, Hostname: "a.com", Port: 1234}))
 		if err != nil {
 			panic(err)
 		}
+		//router.MarkReadyConnected(nodeId)
 	}
 
-	return peerManager
+	return router
 }
+
 func TestBlockPoolBasic(t *testing.T) {
 	ctx := t.Context()
 
@@ -111,7 +105,7 @@ func TestBlockPoolBasic(t *testing.T) {
 	peers := makePeers(10, start, 1000)
 	errorsCh := make(chan peerError, 1000)
 	requestsCh := make(chan BlockRequest, 1000)
-	pool := NewBlockPool(log.NewNopLogger(), start, requestsCh, errorsCh, makePeerManager(peers))
+	pool := NewBlockPool(log.NewNopLogger(), start, requestsCh, errorsCh, makeRouter(peers))
 
 	if err := pool.Start(ctx); err != nil {
 		t.Error(err)
@@ -166,7 +160,7 @@ func TestBlockPoolTimeout(t *testing.T) {
 	peers := makePeers(10, start, 1000)
 	errorsCh := make(chan peerError, 1000)
 	requestsCh := make(chan BlockRequest, 1000)
-	pool := NewBlockPool(log.NewNopLogger(), start, requestsCh, errorsCh, makePeerManager(peers))
+	pool := NewBlockPool(log.NewNopLogger(), start, requestsCh, errorsCh, makeRouter(peers))
 	err := pool.Start(ctx)
 	if err != nil {
 		t.Error(err)
@@ -217,12 +211,12 @@ func TestBlockPoolRemovePeer(t *testing.T) {
 			peerID = types.NodeID(strings.Repeat(fmt.Sprintf("%d", i+1), 40))
 		}
 		height := int64(i + 1)
-		peers[peerID] = testPeer{peerID, 0, height, make(chan inputData), 1}
+		peers[peerID] = testPeer{peerID, 0, height, make(chan inputData)}
 	}
 	requestsCh := make(chan BlockRequest)
 	errorsCh := make(chan peerError)
 
-	pool := NewBlockPool(log.NewNopLogger(), 1, requestsCh, errorsCh, makePeerManager(peers))
+	pool := NewBlockPool(log.NewNopLogger(), 1, requestsCh, errorsCh, makeRouter(peers))
 	err := pool.Start(ctx)
 	require.NoError(t, err)
 	t.Cleanup(func() { pool.Wait() })
@@ -254,13 +248,13 @@ func TestSortedPeers(t *testing.T) {
 	peerIdB := types.NodeID(strings.Repeat("b", 40))
 	peerIdC := types.NodeID(strings.Repeat("c", 40))
 
-	peers[peerIdA] = testPeer{peerIdA, 0, 1, make(chan inputData), 11}
-	peers[peerIdB] = testPeer{peerIdA, 0, 1, make(chan inputData), 10}
-	peers[peerIdC] = testPeer{peerIdA, 0, 1, make(chan inputData), 13}
+	peers[peerIdA] = testPeer{peerIdA, 0, 1, make(chan inputData)}
+	peers[peerIdB] = testPeer{peerIdA, 0, 1, make(chan inputData)}
+	peers[peerIdC] = testPeer{peerIdA, 0, 1, make(chan inputData)}
 
 	requestsCh := make(chan BlockRequest)
 	errorsCh := make(chan peerError)
-	pool := NewBlockPool(log.NewNopLogger(), 1, requestsCh, errorsCh, makePeerManager(peers))
+	pool := NewBlockPool(log.NewNopLogger(), 1, requestsCh, errorsCh, makeRouter(peers))
 	// add peers
 	for peerID, peer := range peers {
 		pool.SetPeerRange(peerID, peer.base, peer.height)
@@ -274,13 +268,13 @@ func TestBlockPoolMaliciousNodeMaxInt64(t *testing.T) {
 	goodNodeId := types.NodeID(strings.Repeat("a", 40))
 	badNodeId := types.NodeID(strings.Repeat("b", 40))
 	peers := testPeers{
-		goodNodeId: testPeer{goodNodeId, 1, initialHeight, make(chan inputData), 1},
-		badNodeId:  testPeer{badNodeId, 1, math.MaxInt64, make(chan inputData), 1},
+		goodNodeId: testPeer{goodNodeId, 1, initialHeight, make(chan inputData)},
+		badNodeId:  testPeer{badNodeId, 1, math.MaxInt64, make(chan inputData)},
 	}
 	errorsCh := make(chan peerError, 3)
 	requestsCh := make(chan BlockRequest)
 
-	pool := NewBlockPool(log.NewNopLogger(), 1, requestsCh, errorsCh, makePeerManager(peers))
+	pool := NewBlockPool(log.NewNopLogger(), 1, requestsCh, errorsCh, makeRouter(peers))
 	// add peers
 	for peerID, peer := range peers {
 		pool.SetPeerRange(peerID, peer.base, peer.height)
@@ -288,6 +282,5 @@ func TestBlockPoolMaliciousNodeMaxInt64(t *testing.T) {
 	require.Equal(t, int64(math.MaxInt64), pool.maxPeerHeight)
 	// now the bad peer withdraws its malicious height
 	pool.SetPeerRange(badNodeId, 1, initialHeight)
-	require.Equal(t, p2p.PeerScore(0), pool.peerManager.Scores()[badNodeId])
 	require.Equal(t, int64(initialHeight), pool.maxPeerHeight)
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/tendermint/tendermint/abci/example/kvstore"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
+	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/types"
 )
@@ -236,8 +237,8 @@ func (e *TestPeerEvictor) IsEvicted(peerID types.NodeID) bool {
 	return ok
 }
 
-func (e *TestPeerEvictor) Errored(peerID types.NodeID, err error) {
-	e.evicting[peerID] = struct{}{}
+func (e *TestPeerEvictor) SendError(pe p2p.PeerError) {
+	e.evicting[pe.NodeID] = struct{}{}
 }
 
 func TestTxMempool_TxsAvailable(t *testing.T) {

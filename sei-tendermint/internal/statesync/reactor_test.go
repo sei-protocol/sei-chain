@@ -63,9 +63,8 @@ func setup(
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{
 		NumNodes: 1,
 		NodeOpts: p2p.TestNodeOptions{
-			MaxPeers:     100,
-			MaxConnected: 100,
-			MaxRetryTime: time.Second,
+			MaxPeers:     utils.Some(100),
+			MaxConnected: utils.Some(100),
 		},
 	})
 	stateStore := &smmocks.Store{}
@@ -127,18 +126,22 @@ func setup(
 	}
 }
 
+func orPanic[T any](v T, err error) T {
+	if err!=nil { panic(err) }
+	return v
+}
+
 func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
 	testNode := rts.network.MakeNode(t, p2p.TestNodeOptions{
-		MaxPeers:     1,
-		MaxConnected: 1,
-		MaxRetryTime: time.Second,
+		MaxPeers:     utils.Some(1),
+		MaxConnected: utils.Some(1),
 	})
 	n := &Node{
 		TestNode:   testNode,
-		snapshotCh: testNode.Router.OpenChannelOrPanic(GetSnapshotChannelDescriptor()),
-		chunkCh:    testNode.Router.OpenChannelOrPanic(GetChunkChannelDescriptor()),
-		blockCh:    testNode.Router.OpenChannelOrPanic(GetLightBlockChannelDescriptor()),
-		paramsCh:   testNode.Router.OpenChannelOrPanic(GetParamsChannelDescriptor()),
+		snapshotCh: orPanic(testNode.Router.OpenChannel(GetSnapshotChannelDescriptor())),
+		chunkCh:    orPanic(testNode.Router.OpenChannel(GetChunkChannelDescriptor())),
+		blockCh:    orPanic(testNode.Router.OpenChannel(GetLightBlockChannelDescriptor())),
+		paramsCh:   orPanic(testNode.Router.OpenChannel(GetParamsChannelDescriptor())),
 	}
 	rts.node.Connect(t.Context(), testNode)
 	return n

@@ -119,6 +119,11 @@ func (r *Router) Subscribe() *PeerUpdatesRecv {
 	return r.peerManager.Subscribe()
 }
 
+func (r *Router) Connected(id types.NodeID) bool {
+	_,ok := r.peerManager.Conns().Get(id)
+	return ok
+}
+
 func (r *Router) State(id types.NodeID) string  {
 	return r.peerManager.State(id)
 }
