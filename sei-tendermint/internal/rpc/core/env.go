@@ -59,7 +59,6 @@ type consensusState interface {
 
 type peerManager interface {
 	Peers() []types.NodeID
-	Score(types.NodeID) int
 	State(types.NodeID) string
 	Addresses(types.NodeID) []p2p.NodeAddress
 }
@@ -84,7 +83,7 @@ type Environment struct {
 	NodeInfo    types.NodeInfo
 
 	// interfaces for new p2p interfaces
-	PeerManager peerManager
+	router peerManager
 
 	// objects
 	PubKey            crypto.PubKey

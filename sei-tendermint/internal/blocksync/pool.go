@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -363,7 +362,7 @@ func (pool *BlockPool) SetPeerRange(peerID types.NodeID, base int64, height int6
 				"prevHeight", peer.height, "prevBase", peer.base)
 			// RemovePeer will redo all requesters associated with this peer.
 			pool.removePeer(peerID, true)
-			pool.peerManager.SendError(p2p.PeerError{
+			pool.router.SendError(p2p.PeerError{
 				NodeID: peerID,
 				Err:    errors.New("peer is reporting height/base that is lower than what it previously reported"),
 				Fatal: true,
@@ -436,18 +435,12 @@ func (pool *BlockPool) updateMaxPeerHeight() {
 	pool.maxPeerHeight = max
 }
 
+// TODO(gprusak): there is no really sorting here, since peer scoring has been removed.
 func (pool *BlockPool) getSortedPeers(peers map[types.NodeID]*bpPeer) []types.NodeID {
-	// Generate a sorted list
 	sortedPeers := make([]types.NodeID, 0, len(peers))
-
 	for peer := range peers {
 		sortedPeers = append(sortedPeers, peer)
 	}
-
-	// Sort from high to low score
-	sort.Slice(sortedPeers, func(i, j int) bool {
-		return pool.peerManager.Score(sortedPeers[i]) > pool.peerManager.Score(sortedPeers[j])
-	})
 	return sortedPeers
 }
 
@@ -474,13 +467,8 @@ func (pool *BlockPool) pickIncrAvailablePeer(height int64) *bpPeer {
 			continue
 		}
 		// We only want to work with peers that are ready & connected (not dialing)
-		if pool.peerManager.State(nodeId) == "ready,connected" {
+		if pool.router.State(nodeId) == "ready,connected" {
 			goodPeers = append(goodPeers, nodeId)
-		}
-
-		// Skip the ones with zero score to avoid connecting to bad peers
-		if pool.peerManager.Score(nodeId) <= 0 {
-			break
 		}
 	}
 

@@ -20,7 +20,6 @@ import (
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/light"
 	"github.com/tendermint/tendermint/light/provider"
 	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
@@ -291,7 +290,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		}
 		return nil
 	}
-	r.sendBlockError = r.router.PeerManager().SendError
+	r.sendBlockError = r.router.SendError
 
 	r.initStateProvider = func(ctx context.Context, chainID string, initialHeight int64) error {
 		to := light.TrustOptions{
@@ -913,7 +912,7 @@ func (r *Reactor) processSnapshotCh(ctx context.Context) {
 		r.processChGuard.Lock()
 		if err := r.handleSnapshotMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process snapshotCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 		r.processChGuard.Unlock()
 	}
@@ -928,7 +927,7 @@ func (r *Reactor) processChunkCh(ctx context.Context) {
 		r.processChGuard.Lock()
 		if err := r.handleChunkMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process chunkCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 		r.processChGuard.Unlock()
 	}
@@ -943,7 +942,7 @@ func (r *Reactor) processLightBlockCh(ctx context.Context) {
 		r.processChGuard.Lock()
 		if err := r.handleLightBlockMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process lightBlockCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 		r.processChGuard.Unlock()
 	}
@@ -958,7 +957,7 @@ func (r *Reactor) processParamsCh(ctx context.Context) {
 		r.processChGuard.Lock()
 		if err := r.handleParamsMessage(ctx, m, r.paramsChannel); err != nil {
 			r.logger.Error("failed to process paramsCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 		r.processChGuard.Unlock()
 	}
@@ -1032,12 +1031,9 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 // PeerUpdate messages. When the reactor is stopped, we will catch the signal and
 // close the p2p PeerUpdatesCh gracefully.
 func (r *Reactor) processPeerUpdates(ctx context.Context) {
-	peerUpdates := r.router.PeerManager().Subscribe(ctx)
-	for _, update := range peerUpdates.PreexistingPeers() {
-		r.processPeerUpdate(update)
-	}
+	recv := r.router.Subscribe()
 	for {
-		peerUpdate, err := utils.Recv(ctx, peerUpdates.Updates())
+		peerUpdate, err := recv.Recv(ctx)
 		if err != nil {
 			return
 		}

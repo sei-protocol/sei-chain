@@ -16,7 +16,6 @@ import (
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
-	"github.com/tendermint/tendermint/libs/utils"
 	bcproto "github.com/tendermint/tendermint/proto/tendermint/blocksync"
 	"github.com/tendermint/tendermint/types"
 )
@@ -167,7 +166,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 
 	requestsCh := make(chan BlockRequest, maxTotalRequesters)
 	errorsCh := make(chan peerError, maxPeerErrBuffer) // NOTE: The capacity should be larger than the peer count.
-	r.pool = NewBlockPool(r.logger, startHeight, requestsCh, errorsCh, r.router.PeerManager())
+	r.pool = NewBlockPool(r.logger, startHeight, requestsCh, errorsCh, r.router)
 	r.requestsCh = requestsCh
 	r.errorsCh = errorsCh
 
@@ -281,7 +280,7 @@ func (r *Reactor) processBlockSyncCh(ctx context.Context, blockSyncCh *p2p.Chann
 			}
 
 			r.logger.Error("failed to process blockSyncCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }
@@ -350,12 +349,9 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 // PeerUpdate messages. When the reactor is stopped, we will catch the signal and
 // close the p2p PeerUpdatesCh gracefully.
 func (r *Reactor) processPeerUpdates(ctx context.Context) {
-	peerUpdates := r.router.PeerManager().Subscribe(ctx)
-	for _, update := range peerUpdates.PreexistingPeers() {
-		r.processPeerUpdate(update)
-	}
+	recv := r.router.Subscribe()
 	for {
-		update, err := utils.Recv(ctx, peerUpdates.Updates())
+		update, err := recv.Recv(ctx)
 		if err != nil {
 			return
 		}
@@ -398,7 +394,7 @@ func (r *Reactor) requestRoutine(ctx context.Context, blockSyncCh *p2p.Channel) 
 		case request := <-r.requestsCh:
 			blockSyncCh.Send(&bcproto.BlockRequest{Height: request.Height}, request.PeerID)
 		case pErr := <-r.errorsCh:
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: pErr.peerID, Err: pErr.err})
+			r.router.SendError(p2p.PeerError{NodeID: pErr.peerID, Err: pErr.err})
 		case <-statusUpdateTicker.C:
 			blockSyncCh.Broadcast(&bcproto.StatusRequest{})
 		}
@@ -541,11 +537,11 @@ func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool, blockSyncCh
 				// NOTE: We've already removed the peer's request, but we still need
 				// to clean up the rest.
 				peerID := r.pool.RedoRequest(first.Height)
-				r.router.PeerManager().SendError(p2p.PeerError{NodeID: peerID, Err: err})
+				r.router.SendError(p2p.PeerError{NodeID: peerID, Err: err})
 
 				peerID2 := r.pool.RedoRequest(second.Height)
 				if peerID2 != peerID {
-					r.router.PeerManager().SendError(p2p.PeerError{NodeID: peerID2, Err: err})
+					r.router.SendError(p2p.PeerError{NodeID: peerID2, Err: err})
 				}
 				return
 			}

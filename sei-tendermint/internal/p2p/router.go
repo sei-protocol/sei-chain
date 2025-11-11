@@ -119,6 +119,10 @@ func (r *Router) Subscribe() *PeerUpdatesRecv {
 	return r.peerManager.Subscribe()
 }
 
+func (r *Router) State(id types.NodeID) string  {
+	return r.peerManager.State(id)
+}
+
 func (r *Router) Advertise(maxAddrs int) []NodeAddress {
 	return r.peerManager.Advertise(maxAddrs)
 }
