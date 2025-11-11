@@ -124,6 +124,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
+	evmconfig "github.com/sei-protocol/sei-chain/x/evm/config"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
@@ -393,7 +394,9 @@ type App struct {
 	httpServerStartSignalSent bool
 	wsServerStartSignalSent   bool
 
-	txPrioritizer       sdk.TxPrioritizer
+	txPrioritizer sdk.TxPrioritizer
+
+	enableBenchmarkMode bool
 	benchmarkProposalCh <-chan *abci.ResponsePrepareProposal
 }
 
@@ -949,6 +952,12 @@ func New(
 
 	app.txPrioritizer = NewSeiTxPrioritizer(logger, &app.EvmKeeper, &app.UpgradeKeeper, &app.ParamsKeeper).GetTxPriorityHint
 	app.SetTxPrioritizer(app.txPrioritizer)
+
+	if app.enableBenchmarkMode {
+		evmChainID := evmconfig.GetEVMChainID(app.ChainID).Int64()
+		app.InitGenerator(context.Background(), evmChainID, logger)
+	}
+
 	return app
 }
 

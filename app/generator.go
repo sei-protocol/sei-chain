@@ -111,6 +111,14 @@ func NewGeneratorCh(ctx context.Context, txConfig client.TxConfig, chainID int64
 	return ch
 }
 
+func (app *App) InitGenerator(ctx context.Context, evmChainID int64, logger log.Logger) {
+	logger.Info("Initializing benchmark mode generator", "mode", "benchmark")
+	defaultMaxTxBytes := int64(20 * 1024 * 1024) // 20MB
+	app.benchmarkProposalCh = NewGeneratorCh(ctx, app.encodingConfig.TxConfig, evmChainID, defaultMaxTxBytes, logger)
+	app.SetPrepareProposalHandler(app.PrepareProposalGeneratorHandler)
+	logger.Info("Benchmark generator initialized and started", "maxTxBytes", defaultMaxTxBytes)
+}
+
 func (app *App) PrepareProposalGeneratorHandler(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
 	// Pull from generator channel - the generator has already filtered transactions by size
 	select {
