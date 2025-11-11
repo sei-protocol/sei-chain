@@ -3,6 +3,7 @@ package p2p
 import (
 	"testing"
 	"time"
+	"iter"
 
 	"slices"
 	"github.com/tendermint/tendermint/libs/utils"
@@ -20,9 +21,9 @@ func justKeys[K comparable, V any](m map[K]V) map[K]bool {
 	return r
 }
 
-func toMap[T comparable](vs []T) map[T]bool {
+func toMap[T comparable](vs iter.Seq[T]) map[T]bool {
 	m := map[T]bool{}
-	for _,v := range vs {
+	for v := range vs {
 		m[v] = true
 	}
 	return m
@@ -46,53 +47,24 @@ func TestPeerDB(t *testing.T) {
 	db := dbm.NewMemDB()
 
 	addrs := map[NodeAddress]time.Time{}
+	maxRows := 30
 	for range 10 {
-		t.Log("load & populate")
-		peerDB,err := newPeerDB(db, &RouterOptions{})
+		t.Log("load")
+		peerDB,err := newPeerDB(db, maxRows)
 		require.NoError(t, err)
-		if err:=utils.TestDiff(justKeys(addrs),toMap(peerDB.Advertise(1000))); err!=nil {
+		if err:=utils.TestDiff(justKeys(addrs),toMap(peerDB.All())); err!=nil {
 			t.Fatal(err)
 		}
+		t.Log("populate")
 		for range 20 {
 			addr := makeAddr(rng)
 			ts := utils.GenTimestamp(rng)
 			require.NoError(t, peerDB.Insert(addr,ts))
 			addrs[addr] = ts
 		}
-		if err:=utils.TestDiff(justKeys(addrs),toMap(peerDB.Advertise(1000))); err!=nil {
+		addrs = truncate(addrs, maxRows)
+		if err:=utils.TestDiff(justKeys(addrs),toMap(peerDB.All())); err!=nil {
 			t.Fatal(err)
-		}
-
-		t.Log("load & truncate")
-		peerDB,err = newPeerDB(db, &RouterOptions{})
-		require.NoError(t, err)
-		if err:=utils.TestDiff(justKeys(addrs),toMap(peerDB.Advertise(1000))); err!=nil {
-			t.Fatal(err)
-		}
-		addrs = truncate(addrs,15)
-		require.NoError(t, peerDB.Truncate(15))
-		if err:=utils.TestDiff(justKeys(addrs),toMap(peerDB.Advertise(1000))); err!=nil {
-			t.Fatal(err)
-		}
-
-		t.Log("advertise")
-		for n := range len(addrs)+5 {
-			if err:=utils.TestDiff(justKeys(truncate(addrs,n)),toMap(peerDB.Advertise(n))); err!=nil {
-				t.Fatal(err)
-			}
-		}
-		t.Log("advertise with self")
-		selfAddr := makeAddr(rng)
-		peerDB,err = newPeerDB(db, &RouterOptions{
-			SelfAddress: utils.Some(selfAddr),
-		})
-		require.NoError(t, err)
-		for n := range len(addrs)+5 {
-			x := justKeys(truncate(addrs,n-1))
-			if n>0 { x[selfAddr] = true }
-			if err:=utils.TestDiff(justKeys(x),toMap(peerDB.Advertise(n))); err!=nil {
-				t.Fatal(err)
-			}
 		}
 	}
 }

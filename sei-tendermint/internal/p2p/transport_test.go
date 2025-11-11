@@ -43,12 +43,12 @@ func makeInfo(key crypto.PrivKey) types.NodeInfo {
 	return peerInfo
 }
 
-func TestRouter_MaxConnected(t *testing.T) {
+func TestRouter_MaxConcurrentAccepts(t *testing.T) {
 	logger, _ := log.NewDefaultLogger("plain", "debug")
 	rng := utils.TestRng()
 	opts := makeRouterOptions()
-	maxConnected := 2
-	opts.MaxConnected = utils.Some(maxConnected)
+	maxAccepts := 2
+	opts.MaxConcurrentAccepts = utils.Some(maxAccepts)
 
 	err := utils.IgnoreCancel(scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		r := makeRouterWithOptions(logger, rng, opts)
@@ -58,7 +58,7 @@ func TestRouter_MaxConnected(t *testing.T) {
 		}
 
 		var total atomic.Int64
-		t.Logf("spawn a bunch of connections, making sure that no more than %d are accepted at any given time", maxConnected)
+		t.Logf("spawn a bunch of connections, making sure that no more than %d are accepted at any given time", maxAccepts)
 		for range 10 {
 			s.SpawnNamed("test", func() error {
 				x := makeRouter(logger,rng)
@@ -68,13 +68,14 @@ func TestRouter_MaxConnected(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("tcp.dial(): %w", err)
 				}
-				conn, err := x.handshake(ctx, tcpConn, utils.Some(addr))
-				if err != nil {
-					return fmt.Errorf("handshake(): %w", err)
+				defer tcpConn.Close()
+				// Begin handshake (but not finish)
+				var input [1]byte
+				if _,err := tcp.ReadOrClose(ctx, tcpConn, input[:]); err!=nil {
+					return fmt.Errorf("tcpConn.Read(): %w",err)
 				}
-				defer conn.Close()
 				// Check that limit was not exceeded.
-				if got, wantMax := total.Add(1), int64(maxConnected); got > wantMax {
+				if got, wantMax := total.Add(1), int64(maxAccepts); got > wantMax {
 					return fmt.Errorf("accepted too many connections: %d > %d", got, wantMax)
 				}
 				defer total.Add(-1)

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"time"
+	"sync"
 
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
@@ -72,7 +73,7 @@ func NewRouter(
 	}
 	selfID := types.NodeIDFromPubKey(privKey.PubKey())
 	peerManager := newPeerManager[*Connection](selfID, options)
-	peerDB,err := newPeerDB(db, options)
+	peerDB,err := newPeerDB(db, options.maxPeers())
 	if err!=nil {
 		return nil, fmt.Errorf("newPeerDB(): %w",err)
 	}
@@ -119,10 +120,7 @@ func (r *Router) Subscribe() *PeerUpdatesRecv {
 }
 
 func (r *Router) Advertise(maxAddrs int) []NodeAddress {
-	for peerDB := range r.peerDB.Lock() {
-		return peerDB.Advertise(maxAddrs)
-	}
-	panic("unreachable")
+	return r.peerManager.Advertise(maxAddrs)
 }
 
 // OpenChannel opens a new channel for the given message type.
@@ -174,6 +172,8 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 			r.metrics.NewConnections.With("direction", "in").Add(1)
 			// Spawn a goroutine per connection.
 			s.Spawn(func() error {
+				release := sync.OnceFunc(func(){ sem.Release(1) })
+				defer release()
 				defer tcpConn.Close()
 				remoteAddr := tcp.RemoteAddr(tcpConn)
 				if err := connTracker.AddConn(remoteAddr); err != nil {
@@ -194,9 +194,9 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					r.logger.Error("peer filtered by IP", "ip", remoteAddr, "err", err)
 					return nil
 				}
-				if err := r.runConn(ctx, conn); err != nil {
-					r.logger.Error("r.runConn(inbound)", "err", err)
-				}
+				release()
+				err = r.runConn(ctx, conn)
+				r.logger.Error("r.runConn(inbound)", "err", err)
 				return nil
 			})
 		}
@@ -226,10 +226,10 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 						if err!=nil {
 							r.peerManager.DialFailed(addr)
 							r.logger.Error("r.handshake()", "addr", addr, "err", err)
+							return nil
 						}
-						if err := r.runConn(ctx, conn); err!=nil {
-							r.logger.Error("r.runConn(outbound)", "err", err)
-						}
+						err = r.runConn(ctx, conn)
+						r.logger.Error("r.runConn(outbound)", "err", err)
 						return nil
 					})
 				}
@@ -247,18 +247,12 @@ func (r *Router) storePeersRoutine(ctx context.Context) error {
 		for db := range r.peerDB.Lock() {
 			// Mark connections as still available.
 			now := time.Now()
-			// TODO(gprusak): accessing conns directly breaks peerManager abstraction.
 			for _,conn := range r.peerManager.Conns().All() {
 				if addr,ok := conn.dialAddr.Get(); ok {
-					// TODO(gprusak): nit the db interaction should rather be by batching changes
-					// and doing a single WriteSync.
 					if err:=db.Insert(addr,now); err!=nil {
 						return fmt.Errorf("db.Insert(): %w",err)
 					}
 				}
-			}
-			if err:=db.Truncate(r.options.maxPeers()); err!=nil {
-				return fmt.Errorf("db.Prune(): %w",err)
 			}
 		}
 		if err:=utils.Sleep(ctx,storeInterval); err!=nil {

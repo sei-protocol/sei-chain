@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 	"cmp"
+	"iter"
 
 	"github.com/google/btree"
 	"github.com/gogo/protobuf/proto"
@@ -32,6 +33,21 @@ func peerDBRowFromProto(msg *p2pproto.PeerInfo) (peerDBRow, error) {
 		Addr: addr,
 		LastConnected: *msg.LastConnected,
 	},nil
+}
+
+func peerDBRowFromBytes(buf []byte) (peerDBRow,error) {
+	var msg p2pproto.PeerInfo
+	if err := proto.Unmarshal(buf, &msg); err != nil {
+		return peerDBRow{}, fmt.Errorf("invalid peer Protobuf data: %w", err)
+	}
+	row,err := peerDBRowFromProto(&msg)
+	if err!=nil {
+		return peerDBRow{}, err
+	}
+	if err:=row.Addr.Validate(); err!=nil {
+		return peerDBRow{}, err
+	}
+	return row,nil
 }
 
 // ToProto converts the peerInfo to p2pproto.PeerInfo for database storage. The
@@ -87,13 +103,12 @@ func (a peerDBRow) Compare(b peerDBRow) int {
 
 type peerDB struct {
 	db dbm.DB
-	options *RouterOptions
-	isPrivate map[types.NodeID]bool
+	maxRows int
 	byNodeID map[types.NodeID]peerDBRow
 	byLastConnected *btree.BTreeG[peerDBRow]
 }
 
-func newPeerDB(db dbm.DB, options *RouterOptions) (*peerDB, error) {
+func newPeerDB(db dbm.DB, maxRows int) (*peerDB, error) {
 	byNodeID := map[types.NodeID]peerDBRow{}
 	start, end := keyPeerInfoRange()
 	iter, err := db.Iterator(start, end)
@@ -102,11 +117,7 @@ func newPeerDB(db dbm.DB, options *RouterOptions) (*peerDB, error) {
 	}
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
-		var msg p2pproto.PeerInfo
-		if err := proto.Unmarshal(iter.Value(), &msg); err != nil {
-			return nil, fmt.Errorf("invalid peer Protobuf data: %w", err)
-		}
-		r, err := peerDBRowFromProto(&msg)
+		r,err := peerDBRowFromBytes(iter.Value())
 		if err!=nil {
 			// Prune invalid data.
 			if err:=db.Delete(iter.Key());err!=nil {
@@ -123,9 +134,17 @@ func newPeerDB(db dbm.DB, options *RouterOptions) (*peerDB, error) {
 	if iter.Error() != nil {
 		return nil, iter.Error()
 	}
-	isPrivate := map[types.NodeID]bool{}
-	for _,id := range options.PrivatePeers { isPrivate[id] = true }
-	return &peerDB{db,options,isPrivate,byNodeID,byLastConnected}, nil
+	peerDB := &peerDB{db,maxRows,byNodeID,byLastConnected}
+	if err:=peerDB.truncate(); err!=nil {
+		return nil,err
+	}
+	return peerDB,nil
+}
+
+func (db *peerDB) All() iter.Seq[NodeAddress] {
+	return func(yield func(addr NodeAddress) bool) {
+		db.byLastConnected.Descend(func(r peerDBRow) bool { return yield(r.Addr) })
+	}
 }
 
 func (db *peerDB) Insert(addr NodeAddress, lastConnected time.Time) error {
@@ -144,14 +163,18 @@ func (db *peerDB) Insert(addr NodeAddress, lastConnected time.Time) error {
 	if oldOk {
 		db.byLastConnected.Delete(old)
 	}
+	db.byNodeID[addr.NodeID] = r
 	db.byLastConnected.ReplaceOrInsert(r)
+	if err:=db.truncate(); err!=nil {
+		return err
+	}
 	return nil
 }
 
-func (db *peerDB) Truncate(maxRows int) error {
+func (db *peerDB) truncate() error {
 	var toPrune []types.NodeID
 	db.byLastConnected.Ascend(func(r peerDBRow) bool {
-		if len(db.byNodeID)-len(toPrune) <= maxRows { return false }
+		if len(db.byNodeID)-len(toPrune) <= db.maxRows { return false }
 		toPrune = append(toPrune, r.Addr.NodeID)
 		return true
 	})
@@ -165,24 +188,4 @@ func (db *peerDB) Truncate(maxRows int) error {
 		delete(db.byNodeID, id)
 	}
 	return nil
-}
-
-// Advertise returns up to n non-private addresses from the db.
-// options.SelfAddress is included if present.
-// Addresses with newer LastConnected timestamp are preferred.
-// It returns less than n addresses iff there is not enough rows in db.
-func (db *peerDB) Advertise(maxAddrs int) []NodeAddress {
-	if maxAddrs<=0 { return nil }
-	var addrs []NodeAddress
-	if selfAddr,ok := db.options.SelfAddress.Get(); ok {
-		addrs = append(addrs,selfAddr)
-	}
-	db.byLastConnected.Descend(func(r peerDBRow) bool {
-		if len(addrs) >= maxAddrs { return false }
-		if !db.isPrivate[r.Addr.NodeID] {
-			addrs = append(addrs, r.Addr)
-		}
-		return true
-	})
-	return addrs
 }

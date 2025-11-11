@@ -52,7 +52,6 @@ type TestNetworkOptions struct {
 type TestNodeOptions struct {
 	MaxPeers     utils.Option[int]
 	MaxConnected utils.Option[int]
-	MaxDialRate  utils.Option[rate.Limit]
 }
 
 func TestAddress(r *Router) NodeAddress {
@@ -100,14 +99,8 @@ func (n *TestNetwork) ConnectCycle(ctx context.Context, t *testing.T) {
 		nodes[i].Router.peerManager.AddAddrs(utils.Slice(nodes[(i+1)%len(nodes)].NodeAddress))
 	}
 	for i := range n.Nodes() {
-		if _, err:=nodes[i].Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
-			for _, peer := range utils.Slice(nodes[(i+1)%N], nodes[(i+N-1)%N]) {
-				if _,ok := conns.Get(peer.NodeID); !ok { return false }
-			}
-			return true
-		}); err!=nil {
-			panic(err)
-		}
+		nodes[i].WaitForConn(ctx, nodes[(i+1)%N].NodeID, true)
+		nodes[i].WaitForConn(ctx, nodes[(i+N-1)%N].NodeID, true)
 	}
 }
 
@@ -218,12 +211,7 @@ func (n *TestNetwork) Remove(t *testing.T, id types.NodeID) {
 	}
 	node.Router.Stop()
 	for _,peer := range peers {
-		if _, err:=peer.Router.peerManager.conns.Wait(t.Context(), func(conns ConnSet) bool {
-			_,ok := conns.Get(id)
-			return !ok
-		}); err!=nil {
-			panic(err)
-		}
+		peer.WaitForConn(t.Context(), id, false)
 	}
 }
 
@@ -235,6 +223,14 @@ type TestNode struct {
 	NodeAddress NodeAddress
 	PrivKey     crypto.PrivKey
 	Router      *Router
+}
+
+// Waits for the specific connection to get disconnected.
+func (n *TestNode) WaitForDisconnect(ctx context.Context, conn *Connection) {
+	if _,err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
+		got,ok := conns.Get(conn.Info().ID)
+		return !ok || got!=conn
+	}); err!=nil { panic(err) }
 }
 
 func (n *TestNode) WaitForConns(ctx context.Context, wantPeers int) {
@@ -276,7 +272,7 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 		Connection:               conn.DefaultMConnConfig(),
 		IncomingConnectionWindow: utils.Some[time.Duration](0),
 		MaxAcceptRate: utils.Some(rate.Inf),
-		MaxDialRate:   opts.MaxDialRate,
+		MaxDialRate:   utils.Some(rate.Limit(30.)),
 		MaxPeers:      opts.MaxPeers,
 		MaxConnected:  opts.MaxConnected,
 	}
@@ -300,6 +296,7 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	require.NoError(t, err)
 	require.NoError(t, router.Start(t.Context()))
 	require.NoError(t, router.WaitForStart(t.Context()))
+	t.Cleanup(router.Stop)
 
 	node := &TestNode{
 		Logger:      logger,

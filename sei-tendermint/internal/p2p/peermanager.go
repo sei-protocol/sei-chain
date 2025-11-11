@@ -68,6 +68,8 @@ func (i *peerManagerInner[C]) isPersistent(id types.NodeID) bool {
 
 func (i *peerManagerInner[C]) AddAddr(addr NodeAddress) bool {
 	id := addr.NodeID
+	// Ignore self.
+	if id == i.selfID { return false }
 	// Adding persistent peer addrs is only allowed during initialization.
 	// This is to make sure that malicious peers won't cause the preconfigured addrs to be dropped.
 	if i.isPersistent(id) { return false }
@@ -252,6 +254,7 @@ func (i *peerManagerInner[C]) Disconnected(conn C) {
 type peerManager[C peerConn] struct {
 	options *RouterOptions
 	isBlockSyncPeer map[types.NodeID]bool
+	isPrivate map[types.NodeID]bool
 	// Receiver of the inner.conns. It is copyable and allows accessing connections
 	// without taking lock on inner.
 	conns utils.AtomicRecv[connSet[C]]
@@ -322,6 +325,8 @@ func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *pe
 		dialing: map[types.NodeID]NodeAddress{},
 	}
 	isBlockSyncPeer := map[types.NodeID]bool{}
+	isPrivate := map[types.NodeID]bool {}
+	for _,id := range options.PrivatePeers { isPrivate[id] = true }
 	for _,id := range options.UnconditionalPeers { inner.isUnconditional[id] = true }
 	for _,id := range options.BlockSyncPeers { inner.isUnconditional[id] = true }
 	for _,addr := range options.PersistentPeers {
@@ -336,6 +341,7 @@ func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *pe
 	return &peerManager[C] {
 		options: options,
 		isBlockSyncPeer: isBlockSyncPeer,
+		isPrivate: isPrivate,
 		conns: inner.conns.Subscribe(),
 		inner: utils.NewWatch(inner),
 	}
@@ -400,7 +406,7 @@ func (p *peerManager[C]) DialFailed(addr NodeAddress) {
 // Returns an error if the connection should be rejected.
 func (m *peerManager[C]) Connected(conn C) error {
 	for inner,ctrl := range m.inner.Lock() {
-		defer ctrl.Updated()
+		ctrl.Updated()
 		return inner.Connected(conn)
 	}
 	panic("unreachable")
@@ -423,7 +429,6 @@ func (m *peerManager[C]) Evict(id types.NodeID) {
 		inner.Evict(id)
 		ctrl.Updated()
 	}
-	panic("unreachable")
 }
 
 func (m *peerManager[C]) IsBlockSyncPeer(id types.NodeID) bool {
@@ -440,4 +445,19 @@ func (m *peerManager[C]) State(id types.NodeID) string {
 		}
 	}
 	return ""
+}
+
+func (m *peerManager[C]) Advertise(maxAddrs int) []NodeAddress {
+	if maxAddrs<=0 { return nil }
+	var addrs []NodeAddress
+	if selfAddr,ok := m.options.SelfAddress.Get(); ok {
+		addrs = append(addrs,selfAddr)
+	}
+	for _, conn := range m.conns.Load().All() {
+		if len(addrs) >= maxAddrs { break }
+		if addr,ok := conn.Info().DialAddr.Get(); ok && !m.isPrivate[addr.NodeID] {
+			addrs = append(addrs,addr)
+		}
+	}
+	return addrs
 }

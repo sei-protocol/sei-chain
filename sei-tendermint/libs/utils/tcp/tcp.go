@@ -134,6 +134,31 @@ func (l *Listener) AcceptOrClose(ctx context.Context) (*net.TCPConn, error) {
 	return nil, err
 }
 
+func ReadOrClose(ctx context.Context, conn *net.TCPConn, buf []byte) (int,error) {
+	var res atomic.Pointer[int]
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error {
+			<-ctx.Done()
+			if res.Load() != nil {
+				return nil
+			}
+			s.Cancel(ctx.Err())
+			// Early close to abort Read().
+			conn.Close()
+			return nil
+		})
+		n, err := conn.Read(buf)
+		res.Store(&n)
+		return err
+	})
+	if err != nil {
+		// Late close in case Read succeded while context got canceled.
+		conn.Close()
+		return 0,err
+	}
+	return *res.Load(), nil
+}
+
 // Listen opens a TCP listener on the given address.
 // It takes into account the reserved addresses (in tests) and sets the SO_REUSEPORT.
 // nolint: contextcheck

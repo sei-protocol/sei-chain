@@ -211,8 +211,8 @@ func (r *Router) runConn(ctx context.Context, conn *Connection) error {
 	r.logger.Info("peer connected", "peer", conn.PeerInfo().NodeID, "endpoint", conn)
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("mconn.Run", func() error { return conn.mconn.Run(ctx) })
-		s.Spawn(func() error { return r.connSendRoutine(ctx, conn) })
-		s.Spawn(func() error { return r.connRecvRoutine(ctx, conn) })
+		s.SpawnNamed("connSendRoutine", func() error { return r.connSendRoutine(ctx, conn) })
+		s.SpawnNamed("connRecvRoutine", func() error { return r.connRecvRoutine(ctx, conn) })
 		return nil
 	})
 }

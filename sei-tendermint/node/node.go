@@ -393,8 +393,7 @@ func makeNode(
 		pxReactor, err := pex.NewReactor(
 			logger,
 			node.router,
-			restartCh,
-			cfg.SelfRemediation,
+			pex.DefaultSendInterval,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("pex.NewReactor(): %w", err)

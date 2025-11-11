@@ -92,17 +92,15 @@ func TestRouter_Network(t *testing.T) {
 	}
 	RequireReceiveUnordered(t, channel, want)
 
-	t.Logf("We then submit an error for a peer, and watch it get disconnected and")
-	t.Logf("then reconnected as the router retries it.")
-	peerUpdates := local.Router.Subscribe()
+	t.Logf("We report a fatal error and expect the peer to get disconnected")
+	conn,ok := local.Router.peerManager.Conns().Get(peers[0].NodeID)
+	require.True(t, ok)
 	local.Router.SendError(PeerError{
 		NodeID: peers[0].NodeID,
 		Err:    errors.New("boom"),
+		Fatal:  true,
 	})
-	RequireUpdates(t, peerUpdates, []PeerUpdate{
-		{NodeID: peers[0].NodeID, Status: PeerStatusDown},
-		{NodeID: peers[0].NodeID, Status: PeerStatusUp},
-	})
+	local.WaitForDisconnect(ctx, conn)
 }
 
 func TestRouter_Channel_Basic(t *testing.T) {
@@ -279,25 +277,19 @@ func (w *wrapperMessage) Unwrap() (proto.Message, error) {
 	return &TestMessage{Value: fmt.Sprintf("unwrap:%v", w.Value)}, nil
 }
 
-func TestRouter_Channel_Error(t *testing.T) {
+func TestRouter_SendError(t *testing.T) {
+	ctx := t.Context()
 	t.Cleanup(leaktest.Check(t))
-	chDesc := makeChDesc(5)
-
 	t.Logf("Create a test network and open a channel on all nodes.")
-	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 3})
+	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 2})
 	network.Start(t)
 
-	ids := network.NodeIDs()
-	aID, bID := ids[0], ids[1]
-	_ = network.MakeChannels(t, chDesc)
-
-	t.Logf("Erroring b should cause it to be disconnected. It will reconnect shortly after.")
-	sub := network.Node(aID).MakePeerUpdates()
-	network.Node(aID).Router.SendError(PeerError{NodeID: bID, Err: errors.New("boom")})
-	RequireUpdates(t, sub, []PeerUpdate{
-		{NodeID: bID, Status: PeerStatusDown},
-		{NodeID: bID, Status: PeerStatusUp},
-	})
+	t.Logf("Erroring b should cause it to be disconnected.")
+	nodes := network.Nodes()
+	conn,ok := nodes[0].Router.peerManager.Conns().Get(nodes[1].NodeID)
+	require.True(t, ok)
+	nodes[0].Router.SendError(PeerError{NodeID: nodes[1].NodeID, Err: errors.New("boom"), Fatal: true})
+	nodes[0].WaitForDisconnect(ctx,conn)
 }
 
 var keyFiltered = makeKey(utils.TestRngFromSeed(738234133))
@@ -321,6 +313,7 @@ func makeRouterWithOptionsAndKey(logger log.Logger, opts *RouterOptions, key cry
 
 func makeRouterOptions() *RouterOptions {
 	return &RouterOptions{
+		MaxAcceptRate: utils.Some(rate.Inf),
 		MaxDialRate: utils.Some(rate.Inf),
 		MaxConcurrentDials: utils.Some(100),
 		Endpoint:           Endpoint{tcp.TestReserveAddr()},
@@ -460,8 +453,8 @@ func TestRouter_AcceptPeers(t *testing.T) {
 					if err != nil {
 						return nil
 					}
-					if err := x.runConn(ctx, conn); !errors.Is(err, io.EOF) {
-						return fmt.Errorf("want EOF, got %w", err)
+					if err := x.runConn(ctx, conn); utils.IgnoreCancel(err)==nil {
+						return fmt.Errorf("want non-cancellation error, got %w", err)
 					}
 				}
 				return nil
@@ -592,7 +585,6 @@ func TestRouter_dialPeer_Reject(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			logger, _ := log.NewDefaultLogger("plain", "debug")
 			t.Cleanup(leaktest.Check(t))
-			rng := utils.TestRng()
 			err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 				r := makeRouter(logger, rng)
 				s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
@@ -721,10 +713,6 @@ func TestRouter_EvictPeers(t *testing.T) {
 			NodeID: peerID,
 			Err: errors.New("boom"),
 			Fatal: true,
-		})
-		RequireUpdate(t, sub, PeerUpdate{
-			NodeID: peerID,
-			Status: PeerStatusDown,
 		})
 		t.Log("Wait for conn down")
 		if err := x.runConn(ctx, conn); !errors.Is(err, io.EOF) {

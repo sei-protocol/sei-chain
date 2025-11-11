@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/utils"
@@ -17,6 +16,7 @@ import (
 )
 
 const (
+	testSendInterval = 500 * time.Millisecond
 	checkFrequency = 500 * time.Millisecond
 	shortWait      = 5 * time.Second
 )
@@ -68,21 +68,10 @@ func TestReactorSendsRequestsTooOften(t *testing.T) {
 
 	n0, n1 := testNet.checkNodePair(t, 0, 1)
 	ch := testNet.pexChannels[n0]
-	t.Log("Send request.")
-	ch.Send(&p2pproto.PexRequest{}, n1)
-	t.Log("Await response.")
-	for {
-		m, err := ch.Recv(ctx)
-		require.NoError(t, err)
-		require.Equal(t, n1, m.From)
-		_, ok := m.Message.(*p2pproto.PexResponse)
-		if !ok {
-			continue
-		}
-		break
+	t.Log("Send request too many times.")
+	for range maxPeerRecvBurst+10 {
+		ch.Send(&p2pproto.PexRequest{}, n1)
 	}
-	t.Log("Send again.")
-	ch.Send(&p2pproto.PexRequest{}, n1)
 	t.Log("n1 should force disconnect.")
 	testNet.listenForPeerDown(t, 1, 0)
 }
@@ -295,8 +284,7 @@ func setupNetwork(t *testing.T, opts testOptions) *reactorTestSuite {
 			reactor, err := NewReactor(
 				node.Logger,
 				node.Router,
-				make(chan struct{}),
-				config.DefaultSelfRemediationConfig(),
+				testSendInterval,
 			)
 			if err != nil {
 				t.Fatalf("NewReactor(): %v", err)
@@ -362,8 +350,7 @@ func (r *reactorTestSuite) addNodes(t *testing.T, nodes int) {
 		reactor, err := NewReactor(
 			node.Logger,
 			node.Router,
-			make(chan struct{}),
-			config.DefaultSelfRemediationConfig(),
+			testSendInterval,
 		)
 		if err != nil {
 			t.Fatalf("NewReactor(): %v", err)
