@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -181,58 +182,57 @@ func (txi *TxIndex) Prune(targetHeight int64) error {
 		}
 	}
 
-	// Step 3: Scan all event keys and delete those matching targetHeight and our tx hashes
-	// Event key format: (compositeKey, value, height, index) -> hash
-	// Since height is the 3rd element, we need to scan and check
-	// Note: This is necessary because compositeKey and value are variable (first two elements),
-	// so we can't use a prefix to find all keys with a specific height
-	allKeysIt, err := txi.store.Iterator(nil, nil)
+	// Step 3: Iterate event keys for the target height using an ordered range.
+	startKey, err := orderedcode.Append(nil,
+		orderedcode.StringOrInfinity{String: ""},
+		orderedcode.StringOrInfinity{String: ""},
+		targetHeight,
+		int64(math.MinInt64),
+	)
 	if err != nil {
-		return fmt.Errorf("failed to create iterator for all keys: %w", err)
+		return fmt.Errorf("failed to build start key for event iteration: %w", err)
 	}
-	defer allKeysIt.Close()
+	endKey, err := orderedcode.Append(nil,
+		orderedcode.StringOrInfinity{Infinity: true},
+		orderedcode.StringOrInfinity{Infinity: true},
+		targetHeight+1,
+		int64(math.MinInt64),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to build end key for event iteration: %w", err)
+	}
 
-	for ; allKeysIt.Valid(); allKeysIt.Next() {
-		key := allKeysIt.Key()
-		hashValue := allKeysIt.Value()
+	eventsIt, err := txi.store.Iterator(startKey, endKey)
+	if err != nil {
+		return fmt.Errorf("failed to create iterator for event keys: %w", err)
+	}
+	defer eventsIt.Close()
 
-		// Parse the key once to check if it's an event key
-		// Event key format: (compositeKey, value, height, index) -> hash
+	for ; eventsIt.Valid(); eventsIt.Next() {
+		key := eventsIt.Key()
+		hashValue := eventsIt.Value()
+
 		var (
-			compositeKey, value string
-			height, index       int64
+			compositeKey orderedcode.StringOrInfinity
+			valueKey     orderedcode.StringOrInfinity
+			height       int64
+			index        int64
 		)
-		remaining, err := orderedcode.Parse(string(key), &compositeKey, &value, &height, &index)
-		if err != nil {
-			// Not a valid 4-element key (might be primary key with 2 elements, or invalid)
-			// Skip it - we've already handled primary keys and height keys
+		remaining, err := orderedcode.Parse(string(key), &compositeKey, &valueKey, &height, &index)
+		if err != nil || len(remaining) != 0 {
 			continue
 		}
-		if len(remaining) != 0 {
-			// Not a valid event key format (has extra elements)
+		if compositeKey.String == types.TxHeightKey || compositeKey.String == types.TxHashKey {
 			continue
 		}
-
-		// Skip height keys and primary keys (we already handled those)
-		if compositeKey == types.TxHeightKey || compositeKey == types.TxHashKey {
-			continue
-		}
-
-		// Check if this event key is for our target height
-		if height != targetHeight {
-			continue
-		}
-
-		// Check if the hash value matches one of our tx hashes
 		if _, ok := txHashes[string(hashValue)]; ok {
-			// This event key belongs to one of our transactions, delete it
 			if err := batch.Delete(key); err != nil {
 				return fmt.Errorf("failed to delete event key: %w", err)
 			}
 		}
 	}
 
-	if err := allKeysIt.Error(); err != nil {
+	if err := eventsIt.Error(); err != nil {
 		return fmt.Errorf("iterator error during event key scanning: %w", err)
 	}
 
