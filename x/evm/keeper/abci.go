@@ -3,9 +3,11 @@ package keeper
 import (
 	"fmt"
 	"math"
+	"time"
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -19,6 +21,7 @@ import (
 )
 
 func (k *Keeper) BeginBlock(ctx sdk.Context) {
+	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyBeginBlocker)
 	// clear tx/tx responses from last block
 	if !ctx.IsTracing() {
 		k.SetMsgs([]*types.MsgEVMTransaction{})
@@ -57,6 +60,7 @@ func (k *Keeper) BeginBlock(ctx sdk.Context) {
 }
 
 func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
+	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyEndBlocker)
 	// TODO: remove after all TxHashes have been removed
 	k.RemoveFirstNTxHashes(ctx, DefaultTxHashesToRemove)
 

@@ -56,6 +56,9 @@ func BeginBlock(
 	slashing.BeginBlocker(ctx, votes, *keepers.SlashingKeeper)
 	evidence.BeginBlocker(ctx, byzantineValidators, *keepers.EvidenceKeeper)
 	staking.BeginBlocker(ctx, *keepers.StakingKeeper)
-	ibcclient.BeginBlocker(ctx, keepers.IBCKeeper.ClientKeeper)
+	func() {
+		defer telemetry.ModuleMeasureSince("ibc", time.Now(), telemetry.MetricKeyBeginBlocker)
+		ibcclient.BeginBlocker(ctx, keepers.IBCKeeper.ClientKeeper)
+	}()
 	keepers.EvmKeeper.BeginBlock(ctx)
 }
