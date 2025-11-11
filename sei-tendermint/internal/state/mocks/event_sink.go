@@ -22,15 +22,15 @@ type EventSink struct {
 }
 
 // GetTxByHash provides a mock function with given fields: _a0
-func (_m *EventSink) GetTxByHash(_a0 []byte) (*types.TxResult, error) {
+func (_m *EventSink) GetTxByHash(_a0 []byte) (*types.TxResultV2, error) {
 	ret := _m.Called(_a0)
 
-	var r0 *types.TxResult
-	if rf, ok := ret.Get(0).(func([]byte) *types.TxResult); ok {
+	var r0 *types.TxResultV2
+	if rf, ok := ret.Get(0).(func([]byte) *types.TxResultV2); ok {
 		r0 = rf(_a0)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*types.TxResult)
+			r0 = ret.Get(0).(*types.TxResultV2)
 		}
 	}
 
@@ -80,11 +80,11 @@ func (_m *EventSink) IndexBlockEvents(_a0 tenderminttypes.EventDataNewBlockHeade
 }
 
 // IndexTxEvents provides a mock function with given fields: _a0
-func (_m *EventSink) IndexTxEvents(_a0 []*types.TxResult) error {
+func (_m *EventSink) IndexTxEvents(_a0 []*types.TxResultV2) error {
 	ret := _m.Called(_a0)
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func([]*types.TxResult) error); ok {
+	if rf, ok := ret.Get(0).(func([]*types.TxResultV2) error); ok {
 		r0 = rf(_a0)
 	} else {
 		r0 = ret.Error(0)
@@ -117,15 +117,15 @@ func (_m *EventSink) SearchBlockEvents(_a0 context.Context, _a1 *query.Query) ([
 }
 
 // SearchTxEvents provides a mock function with given fields: _a0, _a1
-func (_m *EventSink) SearchTxEvents(_a0 context.Context, _a1 *query.Query) ([]*types.TxResult, error) {
+func (_m *EventSink) SearchTxEvents(_a0 context.Context, _a1 *query.Query) ([]*types.TxResultV2, error) {
 	ret := _m.Called(_a0, _a1)
 
-	var r0 []*types.TxResult
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query) []*types.TxResult); ok {
+	var r0 []*types.TxResultV2
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query) []*types.TxResultV2); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*types.TxResult)
+			r0 = ret.Get(0).([]*types.TxResultV2)
 		}
 	}
 

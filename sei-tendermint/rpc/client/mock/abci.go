@@ -55,7 +55,7 @@ func (a ABCIApp) ABCIQueryWithOptions(ctx context.Context, path string, data byt
 // this function does not actually wait for a commit.
 // TODO: Make it wait for a commit and set res.Height appropriately.
 func (a ABCIApp) BroadcastTxCommit(ctx context.Context, tx types.Tx) (*coretypes.ResultBroadcastTxCommit, error) {
-	resp, err := a.App.CheckTx(ctx, &abci.RequestCheckTx{Tx: tx})
+	resp, err := a.App.CheckTx(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func (a ABCIApp) BroadcastTxCommit(ctx context.Context, tx types.Tx) (*coretypes
 }
 
 func (a ABCIApp) BroadcastTxAsync(ctx context.Context, tx types.Tx) (*coretypes.ResultBroadcastTx, error) {
-	c, err := a.App.CheckTx(ctx, &abci.RequestCheckTx{Tx: tx})
+	c, err := a.App.CheckTx(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func (a ABCIApp) BroadcastTxSync(ctx context.Context, tx types.Tx) (*coretypes.R
 }
 
 func (a ABCIApp) BroadcastTx(ctx context.Context, tx types.Tx) (*coretypes.ResultBroadcastTx, error) {
-	c, err := a.App.CheckTx(ctx, &abci.RequestCheckTx{Tx: tx})
+	c, err := a.App.CheckTx(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	if err != nil {
 		return nil, err
 	}

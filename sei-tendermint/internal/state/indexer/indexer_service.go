@@ -70,7 +70,7 @@ func (is *Service) publish(msg pubsub.Message) error {
 	curr := is.currentBlock.batch
 	if curr.Pending != 0 {
 		// GATHER: Accumulate a transaction into the current block's batch.
-		txResult := msg.Data().(types.EventDataTx).TxResult
+		txResult := msg.Data().(types.EventDataTx).TxResultV2
 		if err := curr.Add(&txResult); err != nil {
 			is.logger.Error("failed to add tx to batch",
 				"height", is.currentBlock.height, "index", txResult.Index, "err", err)

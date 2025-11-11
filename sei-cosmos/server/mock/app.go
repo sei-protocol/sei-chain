@@ -46,7 +46,7 @@ func NewApp(rootDir string, logger log.Logger) (abci.Application, error) {
 				txResults = append(txResults, &abci.ExecTxResult{})
 				continue
 			}
-			deliverTxResp := baseApp.DeliverTx(ctx, abci.RequestDeliverTx{
+			deliverTxResp := baseApp.DeliverTx(ctx, abci.RequestDeliverTxV2{
 				Tx: txbz,
 			}, tx, sha256.Sum256(txbz))
 			txResults = append(txResults, &abci.ExecTxResult{

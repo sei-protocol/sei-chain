@@ -45,12 +45,6 @@ func ToRequestInfo(req *RequestInfo) *Request {
 	}
 }
 
-func ToRequestCheckTx(req *RequestCheckTx) *Request {
-	return &Request{
-		Value: &Request_CheckTx{req},
-	}
-}
-
 func ToRequestCommit() *Request {
 	return &Request{
 		Value: &Request_Commit{&RequestCommit{}},
@@ -114,12 +108,6 @@ func ToRequestFinalizeBlock(req *RequestFinalizeBlock) *Request {
 func ToRequestLoadLatest(req *RequestLoadLatest) *Request {
 	return &Request{
 		Value: &Request_LoadLatest{req},
-	}
-}
-
-func ToRequestGetTxPriorityHint(req *RequestGetTxPriorityHint) *Request {
-	return &Request{
-		Value: &Request_GetTxPriorityHint{req},
 	}
 }
 

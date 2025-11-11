@@ -38,7 +38,7 @@ func BenchmarkTxSearch(b *testing.B) {
 			b.Errorf("failed produce random bytes: %s", err)
 		}
 
-		txResult := &abci.TxResult{
+		txResult := &abci.TxResultV2{
 			Height: int64(i),
 			Index:  0,
 			Tx:     types.Tx(string(txBz)),
@@ -50,7 +50,7 @@ func BenchmarkTxSearch(b *testing.B) {
 			},
 		}
 
-		if err := indexer.Index([]*abci.TxResult{txResult}); err != nil {
+		if err := indexer.Index([]*abci.TxResultV2{txResult}); err != nil {
 			b.Errorf("failed to index tx: %s", err)
 		}
 	}

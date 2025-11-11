@@ -73,21 +73,21 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 		NumTxs: int64(2),
 	})
 	require.NoError(t, err)
-	txResult1 := &abci.TxResult{
+	txResult1 := &abci.TxResultV2{
 		Height: 1,
 		Index:  uint32(0),
 		Tx:     types.Tx("foo"),
 		Result: abci.ExecTxResult{Code: 0},
 	}
-	err = eventBus.PublishEventTx(types.EventDataTx{TxResult: *txResult1})
+	err = eventBus.PublishEventTx(types.EventDataTx{TxResultV2: *txResult1})
 	require.NoError(t, err)
-	txResult2 := &abci.TxResult{
+	txResult2 := &abci.TxResultV2{
 		Height: 1,
 		Index:  uint32(1),
 		Tx:     types.Tx("bar"),
 		Result: abci.ExecTxResult{Code: 0},
 	}
-	err = eventBus.PublishEventTx(types.EventDataTx{TxResult: *txResult2})
+	err = eventBus.PublishEventTx(types.EventDataTx{TxResultV2: *txResult2})
 	require.NoError(t, err)
 
 	time.Sleep(100 * time.Millisecond)

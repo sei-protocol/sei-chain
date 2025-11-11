@@ -177,12 +177,12 @@ INSERT INTO `+tableBlocks+` (height, chain_id, created_at)
 	})
 }
 
-func (es *EventSink) IndexTxEvents(txrs []*abci.TxResult) error {
+func (es *EventSink) IndexTxEvents(txrs []*abci.TxResultV2) error {
 	ts := time.Now().UTC()
 
 	for _, txr := range txrs {
 		// Encode the result message in protobuf wire format for indexing.
-		resultData, err := proto.Marshal(txr)
+		resultData, err := proto.Marshal(&abci.TxResult{Height: txr.Height, Index: txr.Index, Tx: txr.Tx, Result: txr.Result})
 		if err != nil {
 			return fmt.Errorf("marshaling tx_result: %w", err)
 		}
@@ -239,12 +239,12 @@ func (es *EventSink) SearchBlockEvents(ctx context.Context, q *query.Query) ([]i
 }
 
 // SearchTxEvents is not implemented by this sink, and reports an error for all queries.
-func (es *EventSink) SearchTxEvents(ctx context.Context, q *query.Query) ([]*abci.TxResult, error) {
+func (es *EventSink) SearchTxEvents(ctx context.Context, q *query.Query) ([]*abci.TxResultV2, error) {
 	return nil, errors.New("tx search is not supported via the postgres event sink")
 }
 
 // GetTxByHash is not implemented by this sink, and reports an error for all queries.
-func (es *EventSink) GetTxByHash(hash []byte) (*abci.TxResult, error) {
+func (es *EventSink) GetTxByHash(hash []byte) (*abci.TxResultV2, error) {
 	return nil, errors.New("getTxByHash is not supported via the postgres event sink")
 }
 

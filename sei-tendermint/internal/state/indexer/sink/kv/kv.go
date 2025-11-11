@@ -39,7 +39,7 @@ func (kves *EventSink) IndexBlockEvents(bh types.EventDataNewBlockHeader) error 
 	return kves.bi.Index(bh)
 }
 
-func (kves *EventSink) IndexTxEvents(results []*abci.TxResult) error {
+func (kves *EventSink) IndexTxEvents(results []*abci.TxResultV2) error {
 	return kves.txi.Index(results)
 }
 
@@ -47,11 +47,11 @@ func (kves *EventSink) SearchBlockEvents(ctx context.Context, q *query.Query) ([
 	return kves.bi.Search(ctx, q)
 }
 
-func (kves *EventSink) SearchTxEvents(ctx context.Context, q *query.Query) ([]*abci.TxResult, error) {
+func (kves *EventSink) SearchTxEvents(ctx context.Context, q *query.Query) ([]*abci.TxResultV2, error) {
 	return kves.txi.Search(ctx, q)
 }
 
-func (kves *EventSink) GetTxByHash(hash []byte) (*abci.TxResult, error) {
+func (kves *EventSink) GetTxByHash(hash []byte) (*abci.TxResultV2, error) {
 	return kves.txi.Get(hash)
 }
 
