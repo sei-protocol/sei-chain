@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/client"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/sei-protocol/sei-load/config"
@@ -108,4 +109,23 @@ func NewGeneratorCh(ctx context.Context, txConfig client.TxConfig, chainID int64
 		}
 	}()
 	return ch
+}
+
+func (app *App) PrepareProposalGeneratorHandler(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
+	// Pull from generator channel - the generator has already filtered transactions by size
+	select {
+	case proposal, ok := <-app.benchmarkProposalCh:
+		if proposal == nil || !ok {
+			// Channel closed or no proposal available, return empty (req.Txs will remain in mempool)
+			return &abci.ResponsePrepareProposal{
+				TxRecords: []*abci.TxRecord{},
+			}, nil
+		}
+		return proposal, nil
+	default:
+		// No proposal ready yet, return empty (req.Txs will remain in mempool)
+		return &abci.ResponsePrepareProposal{
+			TxRecords: []*abci.TxRecord{},
+		}, nil
+	}
 }

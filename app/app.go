@@ -393,7 +393,8 @@ type App struct {
 	httpServerStartSignalSent bool
 	wsServerStartSignalSent   bool
 
-	txPrioritizer sdk.TxPrioritizer
+	txPrioritizer       sdk.TxPrioritizer
+	benchmarkProposalCh <-chan *abci.ResponsePrepareProposal
 }
 
 type AppOption func(*App)
