@@ -1,4 +1,4 @@
-package metrics
+package memiavl
 
 import (
 	"go.opentelemetry.io/otel"
@@ -8,7 +8,7 @@ import (
 var (
 	meter = otel.Meter("seidb_memiavl")
 
-	SeiDBMetrics = struct {
+	otelMetrics = struct {
 		RestartLatency          metric.Float64Histogram
 		SnapshotCreationLatency metric.Float64Histogram
 		CommitLatency           metric.Float64Histogram

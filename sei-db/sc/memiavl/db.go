@@ -21,7 +21,6 @@ import (
 	"github.com/cosmos/iavl"
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/stream/changelog"
@@ -90,12 +89,19 @@ type DB struct {
 const (
 	SnapshotPrefix = "snapshot-"
 	SnapshotDirLen = len(SnapshotPrefix) + 20
+
+	// Catch-up detection thresholds for snapshot creation
+	// During rapid catch-up (e.g., state sync), we skip snapshot creation if:
+	// - Block interval is large (> CatchupBlockThreshold)
+	// - Time since last snapshot is short (< CatchupTimeThreshold)
+	CatchupBlockThreshold = 10000            // blocks
+	CatchupTimeThreshold  = 60 * time.Minute // 60 minutes
 )
 
 func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *DB, _err error) {
 	startTime := time.Now()
 	defer func() {
-		metrics.SeiDBMetrics.RestartLatency.Record(
+		otelMetrics.RestartLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", _err == nil)),
@@ -232,10 +238,6 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		}
 	}
 
-	// We need to prune snapshots during start up to avoid snapshot leaks
-	if !db.readOnly {
-		db.pruneSnapshots()
-	}
 	return db, nil
 }
 
@@ -312,7 +314,7 @@ func (db *DB) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (_err error) {
 
 	startTime := time.Now()
 	defer func() {
-		metrics.SeiDBMetrics.ApplyChangesetLatency.Record(
+		otelMetrics.ApplyChangesetLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", _err == nil)),
@@ -438,51 +440,48 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 func (db *DB) pruneSnapshots() {
 	// wait until last prune finish
 	db.pruneSnapshotLock.Lock()
+	defer db.pruneSnapshotLock.Unlock()
 
-	go func() {
-		defer db.pruneSnapshotLock.Unlock()
+	currentVersion, err := currentVersion(db.dir)
+	if err != nil {
+		db.logger.Error("failed to read current snapshot version", "err", err)
+		return
+	}
 
-		currentVersion, err := currentVersion(db.dir)
-		if err != nil {
-			db.logger.Error("failed to read current snapshot version", "err", err)
-			return
-		}
-
-		counter := db.snapshotKeepRecent
-		if err := traverseSnapshots(db.dir, false, func(version int64) (bool, error) {
-			if version >= currentVersion {
-				// ignore any newer snapshot directories, there could be ongoning snapshot rewrite.
-				return false, nil
-			}
-
-			if counter > 0 {
-				counter--
-				return false, nil
-			}
-
-			name := snapshotName(version)
-			db.logger.Info("prune snapshot", "name", name)
-
-			if err := atomicRemoveDir(filepath.Join(db.dir, name)); err != nil {
-				db.logger.Error("failed to prune snapshot", "err", err)
-			}
-
+	counter := db.snapshotKeepRecent
+	if err := traverseSnapshots(db.dir, false, func(version int64) (bool, error) {
+		if version >= currentVersion {
+			// ignore any newer snapshot directories, there could be ongoning snapshot rewrite.
 			return false, nil
-		}); err != nil {
-			db.logger.Error("fail to prune snapshots", "err", err)
-			return
 		}
 
-		// truncate Rlog until the earliest remaining snapshot
-		earliestVersion, err := GetEarliestVersion(db.dir)
-		if err != nil {
-			db.logger.Error("failed to find first snapshot", "err", err)
+		if counter > 0 {
+			counter--
+			return false, nil
 		}
 
-		if err := db.streamHandler.TruncateBefore(utils.VersionToIndex(earliestVersion+1, db.initialVersion.Load())); err != nil {
-			db.logger.Error("failed to truncate rlog", "err", err, "version", earliestVersion+1)
+		name := snapshotName(version)
+		db.logger.Info("prune snapshot", "name", name)
+
+		if err := atomicRemoveDir(filepath.Join(db.dir, name)); err != nil {
+			db.logger.Error("failed to prune snapshot", "err", err)
 		}
-	}()
+
+		return false, nil
+	}); err != nil {
+		db.logger.Error("fail to prune snapshots", "err", err)
+		return
+	}
+
+	// truncate Rlog until the earliest remaining snapshot
+	earliestVersion, err := GetEarliestVersion(db.dir)
+	if err != nil {
+		db.logger.Error("failed to find first snapshot", "err", err)
+	}
+
+	if err := db.streamHandler.TruncateBefore(utils.VersionToIndex(earliestVersion+1, db.initialVersion.Load())); err != nil {
+		db.logger.Error("failed to truncate rlog", "err", err, "version", earliestVersion+1)
+	}
 }
 
 // Commit wraps SaveVersion to bump the version and writes the pending changes into log files to persist on disk
@@ -490,13 +489,13 @@ func (db *DB) Commit() (version int64, _err error) {
 	startTime := time.Now()
 	defer func() {
 		ctx := context.Background()
-		metrics.SeiDBMetrics.CommitLatency.Record(
+		otelMetrics.CommitLatency.Record(
 			ctx,
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", _err == nil)),
 		)
-		metrics.SeiDBMetrics.MemNodeTotalSize.Record(ctx, TotalMemNodeSize.Load())
-		metrics.SeiDBMetrics.NumOfMemNode.Record(ctx, TotalNumOfMemNode.Load())
+		otelMetrics.MemNodeTotalSize.Record(ctx, TotalMemNodeSize.Load())
+		otelMetrics.NumOfMemNode.Record(ctx, TotalNumOfMemNode.Load())
 	}()
 
 	db.mtx.Lock()
@@ -664,15 +663,15 @@ func (db *DB) rewriteIfApplicable(height int64) {
 	// create snapshot when current height - last snapshot height > interval
 	if blocksSinceLastSnapshot >= int64(db.snapshotInterval) {
 		// During catch-up (rapid block processing), use a more conservative strategy:
-		// Only create snapshot if:
-		// 1. It's been more than 60 minutes since last snapshot, AND
-		// 2. Block interval is large (> 10000 blocks)
+		// Skip snapshot creation if we're in rapid catch-up mode to avoid overhead
 		// This prevents excessive snapshot creation during state sync catch-up
 		timeSinceLastSnapshot := time.Since(db.lastSnapshotTime)
-		if blocksSinceLastSnapshot > 10000 && timeSinceLastSnapshot < 60*time.Minute {
+		if blocksSinceLastSnapshot > CatchupBlockThreshold && timeSinceLastSnapshot < CatchupTimeThreshold {
 			db.logger.Debug("skipping snapshot during catch-up",
 				"blocks_since_last", blocksSinceLastSnapshot,
 				"time_since_last", timeSinceLastSnapshot,
+				"threshold_blocks", CatchupBlockThreshold,
+				"threshold_time", CatchupTimeThreshold,
 			)
 			return
 		}
@@ -749,7 +748,7 @@ func (db *DB) rewriteSnapshotBackground() error {
 		ch <- snapshotResult{mtree: mtree}
 		totalElapsed := time.Since(startTime).Seconds()
 		cloned.logger.Info("snapshot rewrite process completed", "duration_sec", totalElapsed, "duration_min", totalElapsed/60)
-		metrics.SeiDBMetrics.SnapshotCreationLatency.Record(
+		otelMetrics.SnapshotCreationLatency.Record(
 			context.Background(),
 			totalElapsed,
 		)
