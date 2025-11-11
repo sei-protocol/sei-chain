@@ -902,7 +902,16 @@ func New(
 	app.SetAnteDepGenerator(anteDepGenerator)
 	app.SetMidBlocker(app.MidBlocker)
 	app.SetEndBlocker(app.EndBlocker)
-	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
+
+	// Set PrepareProposalHandler - use benchmark handler if enabled, otherwise default
+	if app.enableBenchmarkMode {
+		evmChainID := evmconfig.GetEVMChainID(app.ChainID).Int64()
+		app.InitGenerator(context.Background(), app.ChainID, evmChainID, logger)
+		app.SetPrepareProposalHandler(app.PrepareProposalGeneratorHandler)
+	} else {
+		app.SetPrepareProposalHandler(app.PrepareProposalHandler)
+	}
+
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
 	app.SetFinalizeBlocker(app.FinalizeBlocker)
 	app.SetInplaceTestnetInitializer(app.inplacetestnetInitializer)
@@ -952,11 +961,6 @@ func New(
 
 	app.txPrioritizer = NewSeiTxPrioritizer(logger, &app.EvmKeeper, &app.UpgradeKeeper, &app.ParamsKeeper).GetTxPriorityHint
 	app.SetTxPrioritizer(app.txPrioritizer)
-
-	if app.enableBenchmarkMode {
-		evmChainID := evmconfig.GetEVMChainID(app.ChainID).Int64()
-		app.InitGenerator(context.Background(), evmChainID, logger)
-	}
 
 	return app
 }

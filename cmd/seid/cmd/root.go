@@ -222,6 +222,7 @@ func addModuleInitFlags(startCmd *cobra.Command) {
 	crisis.AddModuleInitFlags(startCmd)
 	startCmd.Flags().Bool("migrate-iavl", false, "Run migration of IAVL data store to SeiDB State Store")
 	startCmd.Flags().Int64("migrate-height", 0, "Height at which to start the migration")
+	startCmd.Flags().Bool("benchmark", false, "Enable benchmark mode using sei-load generator with default EVM Transfer config")
 }
 
 // newApp creates a new Cosmos SDK app
@@ -268,6 +269,12 @@ func newApp(
 	// This makes it such that the wasm VM gas converts to sdk gas at a 6.66x rate vs that of the previous multiplier
 	wasmGasRegisterConfig.GasMultiplier = 21_000_000
 
+	// Build app options
+	appOptions := app.EmptyAppOptions
+	if cast.ToBool(appOpts.Get("benchmark")) {
+		appOptions = append(appOptions, app.WithBenchmarkMode())
+	}
+
 	app := app.New(
 		logger,
 		db,
@@ -289,7 +296,7 @@ func newApp(
 			),
 		},
 		[]aclkeeper.Option{},
-		app.EmptyAppOptions,
+		appOptions,
 		baseapp.SetPruning(pruningOpts),
 		baseapp.SetMinGasPrices(cast.ToString(appOpts.Get(server.FlagMinGasPrices))),
 		baseapp.SetMinRetainBlocks(cast.ToUint64(appOpts.Get(server.FlagMinRetainBlocks))),

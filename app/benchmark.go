@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -15,10 +14,10 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 )
 
-func NewGeneratorCh(ctx context.Context, txConfig client.TxConfig, chainID int64, maxTxBytes int64, logger log.Logger) <-chan *abci.ResponsePrepareProposal {
+func NewGeneratorCh(ctx context.Context, txConfig client.TxConfig, chainID string, evmChainID int64, logger log.Logger) <-chan *abci.ResponsePrepareProposal {
 	gen, err := generator.NewConfigBasedGenerator(&config.LoadConfig{
-		ChainID:    chainID,
-		SeiChainID: fmt.Sprintf("%d", chainID), // Use chainID as string for SeiChainID
+		ChainID:    evmChainID,
+		SeiChainID: chainID,
 		Accounts:   &config.AccountConfig{Accounts: 5000},
 		Scenarios: []config.Scenario{{
 			Name:   scenarios.EVMTransfer,
@@ -28,7 +27,7 @@ func NewGeneratorCh(ctx context.Context, txConfig client.TxConfig, chainID int64
 	if err != nil {
 		panic("failed to initialize generator: " + err.Error())
 	}
-	ch := make(chan *abci.ResponsePrepareProposal, 1000)
+	ch := make(chan *abci.ResponsePrepareProposal, 100)
 	go func() {
 		defer close(ch)
 		var height int64
@@ -43,8 +42,7 @@ func NewGeneratorCh(ctx context.Context, txConfig client.TxConfig, chainID int64
 				continue
 			}
 
-			// Convert LoadTx to Cosmos SDK transaction bytes and filter by size
-			var totalBytes int64
+			// Convert LoadTx to Cosmos SDK transaction bytes
 			txRecords := make([]*abci.TxRecord, 0, len(loadTxs))
 			for _, loadTx := range loadTxs {
 				if loadTx.EthTx == nil {
@@ -55,13 +53,13 @@ func NewGeneratorCh(ctx context.Context, txConfig client.TxConfig, chainID int64
 				txData, err := ethtx.NewTxDataFromTx(loadTx.EthTx)
 				if err != nil {
 					logger.Error("failed to convert eth tx to tx data", "error", err)
-					continue
+					panic(err)
 				}
 
 				msg, err := evmtypes.NewMsgEVMTransaction(txData)
 				if err != nil {
 					logger.Error("failed to create msg evm transaction", "error", err)
-					continue
+					panic(err)
 				}
 
 				gasUsedEstimate := loadTx.EthTx.Gas() // Use gas limit from transaction
@@ -69,25 +67,18 @@ func NewGeneratorCh(ctx context.Context, txConfig client.TxConfig, chainID int64
 				txBuilder := txConfig.NewTxBuilder()
 				if err = txBuilder.SetMsgs(msg); err != nil {
 					logger.Error("failed to set msgs", "error", err)
-					continue
+					panic(err)
 				}
 				txBuilder.SetGasEstimate(gasUsedEstimate)
 
 				txbz, encodeErr := txConfig.TxEncoder()(txBuilder.GetTx())
 				if encodeErr != nil {
 					logger.Error("failed to encode tx", "error", encodeErr)
-					continue
+					panic(encodeErr)
 				}
-
-				// Filter by MaxTxBytes - stop adding transactions if we exceed the limit
-				txSize := int64(len(txbz))
-				if totalBytes+txSize > maxTxBytes {
-					break
-				}
-				totalBytes += txSize
 
 				txRecords = append(txRecords, &abci.TxRecord{
-					Action: abci.TxRecord_UNMODIFIED,
+					Action: abci.TxRecord_GENERATED,
 					Tx:     txbz,
 				})
 			}
@@ -111,12 +102,11 @@ func NewGeneratorCh(ctx context.Context, txConfig client.TxConfig, chainID int64
 	return ch
 }
 
-func (app *App) InitGenerator(ctx context.Context, evmChainID int64, logger log.Logger) {
+// InitGenerator initializes the benchmark generator with default config
+func (app *App) InitGenerator(ctx context.Context, chainID string, evmChainID int64, logger log.Logger) {
 	logger.Info("Initializing benchmark mode generator", "mode", "benchmark")
-	defaultMaxTxBytes := int64(20 * 1024 * 1024) // 20MB
-	app.benchmarkProposalCh = NewGeneratorCh(ctx, app.encodingConfig.TxConfig, evmChainID, defaultMaxTxBytes, logger)
-	app.SetPrepareProposalHandler(app.PrepareProposalGeneratorHandler)
-	logger.Info("Benchmark generator initialized and started", "maxTxBytes", defaultMaxTxBytes)
+	app.benchmarkProposalCh = NewGeneratorCh(ctx, app.encodingConfig.TxConfig, chainID, evmChainID, logger)
+	logger.Info("Benchmark generator initialized and started", "config", "default EVM Transfers")
 }
 
 func (app *App) PrepareProposalGeneratorHandler(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
@@ -135,5 +125,12 @@ func (app *App) PrepareProposalGeneratorHandler(_ sdk.Context, req *abci.Request
 		return &abci.ResponsePrepareProposal{
 			TxRecords: []*abci.TxRecord{},
 		}, nil
+	}
+}
+
+// WithBenchmarkMode is an AppOption that enables benchmark mode with default config
+func WithBenchmarkMode() AppOption {
+	return func(app *App) {
+		app.enableBenchmarkMode = true
 	}
 }

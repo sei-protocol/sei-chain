@@ -121,6 +121,7 @@ type TxRecordSet struct {
 	unmodified Txs
 	removed    Txs
 	unknown    Txs
+	generated  Txs // Generated transactions (benchmark mode)
 }
 
 // NewTxRecordSet constructs a new set from the given transaction records.
@@ -139,6 +140,10 @@ func NewTxRecordSet(trs []*abci.TxRecord) TxRecordSet {
 		switch tr.GetAction() {
 		case abci.TxRecord_UNMODIFIED:
 			txrSet.unmodified = append(txrSet.unmodified, txrSet.all[i])
+			txrSet.included = append(txrSet.included, txrSet.all[i])
+		case abci.TxRecord_GENERATED:
+			// GENERATED transactions are included but bypass validation (used in benchmark mode)
+			txrSet.generated = append(txrSet.generated, txrSet.all[i])
 			txrSet.included = append(txrSet.included, txrSet.all[i])
 		}
 	}
