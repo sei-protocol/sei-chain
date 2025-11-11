@@ -151,6 +151,7 @@ func setupTestServer(
 		ctxProvider,
 		func(int64) client.TxConfig { return a.GetTxConfig() },
 		"",
+		a.GetStateStore(),
 		func(ctx context.Context, hash common.Hash) (bool, error) {
 			return false, nil
 		},
@@ -160,9 +161,6 @@ func setupTestServer(
 	}
 	if store := a.EvmKeeper.ReceiptStore(); store != nil {
 		latest := int64(math.MaxInt64)
-		if latest <= 0 {
-			latest = 1
-		}
 		if err := store.SetLatestVersion(latest); err != nil {
 			panic(err)
 		}
