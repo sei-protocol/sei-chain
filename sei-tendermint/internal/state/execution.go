@@ -53,6 +53,9 @@ type BlockExecutor struct {
 
 	// optional indexer service for pruning tx_index.db
 	indexerService *indexer.Service
+
+	// enable indexer pruning based on config
+	enableIndexerPruning bool
 }
 
 // NewBlockExecutor returns a new BlockExecutor with the passed-in EventBus.
@@ -82,6 +85,11 @@ func NewBlockExecutor(
 // SetIndexerService sets the indexer service for pruning support.
 func (blockExec *BlockExecutor) SetIndexerService(indexerService *indexer.Service) {
 	blockExec.indexerService = indexerService
+}
+
+// SetIndexerPruningEnabled sets whether indexer pruning is enabled.
+func (blockExec *BlockExecutor) SetIndexerPruningEnabled(enabled bool) {
+	blockExec.enableIndexerPruning = enabled
 }
 
 func (blockExec *BlockExecutor) Store() Store {
@@ -412,7 +420,7 @@ func (blockExec *BlockExecutor) ApplyBlock(
 	}
 	pruneBlockTime := time.Now()
 	if retainHeight > 0 {
-		pruned, err := blockExec.pruneBlocks(retainHeight)
+		pruned, err := blockExec.PruneBlocks(retainHeight)
 		if err != nil {
 			blockExec.logger.Error("failed to prune blocks", "retain_height", retainHeight, "err", err)
 		} else {
@@ -863,7 +871,9 @@ func ExecCommitBlock(
 	return finalizeBlockResponse.AppHash, nil
 }
 
-func (blockExec *BlockExecutor) pruneBlocks(retainHeight int64) (uint64, error) {
+// PruneBlocks prunes old blocks, state, and indexer data based on retainHeight.
+// It is called automatically during block execution when RetainHeight is set.
+func (blockExec *BlockExecutor) PruneBlocks(retainHeight int64) (uint64, error) {
 	base := blockExec.blockStore.Base()
 	if retainHeight <= base {
 		return 0, nil
@@ -878,11 +888,11 @@ func (blockExec *BlockExecutor) pruneBlocks(retainHeight int64) (uint64, error) 
 		return 0, fmt.Errorf("failed to prune state store: %w", err)
 	}
 
-	// Prune indexer data if indexer service is available
+	// Prune indexer data if indexer service is available and pruning is enabled
 	// Only prune retainHeight - 1 (the oldest height below the retention threshold)
 	// This is called on each block, so we only need to prune one height at a time
 	// Note here we intentionally only prune a single height instead of from base till retain height for perf reasons
-	if blockExec.indexerService != nil && retainHeight > 0 {
+	if blockExec.indexerService != nil && blockExec.enableIndexerPruning && retainHeight > 0 {
 		targetHeight := retainHeight - 1
 		if targetHeight > 0 {
 			if err := blockExec.indexerService.Prune(targetHeight); err != nil {

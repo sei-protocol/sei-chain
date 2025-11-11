@@ -313,6 +313,8 @@ func makeNode(
 
 	// Set indexer service for pruning support
 	blockExec.SetIndexerService(indexerService)
+	// Enable/disable indexer pruning based on config
+	blockExec.SetIndexerPruningEnabled(cfg.TxIndex.EnablePruning)
 
 	// Determine whether we should attempt state sync.
 	stateSync := cfg.StateSync.Enable && !onlyValidatorIsUs(state, pubKey)

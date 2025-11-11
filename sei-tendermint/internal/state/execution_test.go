@@ -1002,7 +1002,8 @@ func TestCreateProposalBlockPanicRecovery(t *testing.T) {
 	mp.AssertExpectations(t)
 }
 
-// TestIndexerPruning verifies that pruned heights can no longer be queried
+// TestIndexerPruning verifies that pruned heights can no longer be queried.
+// This test explicitly enables pruning config to ensure the pruning functionality works correctly.
 func TestIndexerPruning(t *testing.T) {
 	logger := log.NewNopLogger()
 
@@ -1064,9 +1065,84 @@ func TestIndexerPruning(t *testing.T) {
 		require.Equal(t, height, txResult.Height)
 	}
 
+	// Test pruning through BlockExecutor with pruning enabled
+	stateStore := sm.NewStore(dbm.NewMemDB())
+	blockStore := store.NewBlockStore(dbm.NewMemDB())
+
+	// Create a valid state with validators for block creation
+	testState, _, _ := makeState(t, 1, 1)
+	// Save state to stateStore so pruning can work (needs consensus params, validators, etc.)
+	require.NoError(t, stateStore.Save(testState))
+
+	// Add some blocks to the blockStore so pruning can work
+	// We need at least height 5 to test pruning height 3 with retainHeight=4
+	// For height 1, commit can be nil; for others, use a minimal commit
+	var seenCommit *types.Commit
+	for height := int64(1); height <= 5; height++ {
+		testState.LastBlockHeight = height - 1
+		// Update and save state for each height so pruning can access consensus params
+		testState.LastValidators = testState.Validators.Copy()
+		require.NoError(t, stateStore.Save(testState))
+
+		var lastCommit *types.Commit
+		if height > 1 {
+			lastCommit = seenCommit
+		}
+		block := sf.MakeBlock(testState, height, lastCommit)
+		// For height 1, block.LastCommit is nil, but BlockStore requires it to be non-nil
+		// Set it to an empty commit to satisfy BlockStore requirements
+		if height == 1 && block.LastCommit == nil {
+			block.LastCommit = &types.Commit{
+				Height:     0,
+				Round:      0,
+				BlockID:    types.BlockID{},
+				Signatures: []types.CommitSig{},
+			}
+		}
+		parts, err := block.MakePartSet(testPartSize)
+		require.NoError(t, err)
+		// Create a minimal commit for saving (seenCommit) - this is the commit for THIS block
+		// BlockStore always requires a non-nil commit, even for height 1
+		blockID := types.BlockID{Hash: block.Hash()}
+		seenCommit = &types.Commit{
+			Height:     height,
+			Round:      0,
+			BlockID:    blockID,
+			Signatures: []types.CommitSig{types.NewCommitSigAbsent()},
+		}
+		blockStore.SaveBlock(block, parts, seenCommit)
+	}
+
+	mp := &mpmocks.Mempool{}
+	mp.On("Lock").Return()
+	mp.On("Unlock").Return()
+	eventBus := eventbus.NewDefault(logger)
+	ctx := t.Context()
+	require.NoError(t, eventBus.Start(ctx))
+	defer func() {
+		eventBus.Stop()
+		eventBus.Wait()
+	}()
+
+	blockExec := sm.NewBlockExecutor(
+		stateStore,
+		logger,
+		nil,
+		mp,
+		sm.EmptyEvidencePool{},
+		blockStore,
+		eventBus,
+		sm.NopMetrics(),
+	)
+	blockExec.SetIndexerService(indexerService)
+	// IMPORTANT: Always enable pruning for pruning tests to ensure the feature is tested
+	blockExec.SetIndexerPruningEnabled(true)
+
 	// Prune height 3 (retainHeight - 1 = 3, meaning we keep 4+)
-	targetHeight := int64(3)
-	err := indexerService.Prune(targetHeight)
+	// Using retainHeight = 4, so targetHeight = 4 - 1 = 3
+	retainHeight := int64(4)
+	targetHeight := retainHeight - 1 // height 3
+	_, err := blockExec.PruneBlocks(retainHeight)
 	require.NoError(t, err)
 
 	// Verify height 3 is no longer queryable
@@ -1095,7 +1171,8 @@ func TestIndexerPruning(t *testing.T) {
 	}
 }
 
-// TestRetainHeightPruning verifies that RetainHeight triggers pruning correctly
+// TestRetainHeightPruning verifies that RetainHeight triggers pruning correctly.
+// This test explicitly enables pruning config to ensure the pruning functionality works correctly.
 func TestRetainHeightPruning(t *testing.T) {
 	logger := log.NewNopLogger()
 
@@ -1143,16 +1220,85 @@ func TestRetainHeightPruning(t *testing.T) {
 		err = indexerSink.IndexTxEvents([]*abci.TxResultV2{txResult})
 		require.NoError(t, err)
 
-		// Simulate RetainHeight pruning: starting from block 5, set RetainHeight = 5
-		// This means we want to retain blocks >= 5, so we prune blocks < 5
-		// Each block prunes retainHeight - 1
-		if height >= 5 {
-			retainHeight := int64(5)
-			targetHeight := retainHeight - 1 // Prune height 4
-			if targetHeight > 0 {
-				err = indexerService.Prune(targetHeight)
+		// Test pruning through BlockExecutor with pruning enabled
+		// Set up BlockExecutor once
+		if height == 5 {
+			stateStore := sm.NewStore(dbm.NewMemDB())
+			blockStore := store.NewBlockStore(dbm.NewMemDB())
+
+			// Create a valid state with validators for block creation
+			testState, _, _ := makeState(t, 1, 1)
+			// Save state to stateStore so pruning can work (needs consensus params, validators, etc.)
+			require.NoError(t, stateStore.Save(testState))
+
+			// Add blocks to the blockStore so pruning can work
+			var seenCommit *types.Commit
+			for h := int64(1); h <= 10; h++ {
+				testState.LastBlockHeight = h - 1
+				// Update and save state for each height so pruning can access consensus params
+				testState.LastValidators = testState.Validators.Copy()
+				require.NoError(t, stateStore.Save(testState))
+
+				var lastCommit *types.Commit
+				if h > 1 {
+					lastCommit = seenCommit
+				}
+				block := sf.MakeBlock(testState, h, lastCommit)
+				// For height 1, block.LastCommit is nil, but BlockStore requires it to be non-nil
+				// Set it to an empty commit to satisfy BlockStore requirements
+				if h == 1 && block.LastCommit == nil {
+					block.LastCommit = &types.Commit{
+						Height:     0,
+						Round:      0,
+						BlockID:    types.BlockID{},
+						Signatures: []types.CommitSig{},
+					}
+				}
+				parts, err := block.MakePartSet(testPartSize)
 				require.NoError(t, err)
+				// Create a minimal commit for saving (seenCommit) - this is the commit for THIS block
+				// BlockStore always requires a non-nil commit, even for height 1
+				blockID := types.BlockID{Hash: block.Hash()}
+				seenCommit = &types.Commit{
+					Height:     h,
+					Round:      0,
+					BlockID:    blockID,
+					Signatures: []types.CommitSig{types.NewCommitSigAbsent()},
+				}
+				blockStore.SaveBlock(block, parts, seenCommit)
 			}
+
+			mp := &mpmocks.Mempool{}
+			mp.On("Lock").Return()
+			mp.On("Unlock").Return()
+			eventBus := eventbus.NewDefault(logger)
+			ctx := t.Context()
+			require.NoError(t, eventBus.Start(ctx))
+			defer func() {
+				eventBus.Stop()
+				eventBus.Wait()
+			}()
+
+			blockExec := sm.NewBlockExecutor(
+				stateStore,
+				logger,
+				nil,
+				mp,
+				sm.EmptyEvidencePool{},
+				blockStore,
+				eventBus,
+				sm.NopMetrics(),
+			)
+			blockExec.SetIndexerService(indexerService)
+			// IMPORTANT: Always enable pruning for pruning tests to ensure the feature is tested
+			blockExec.SetIndexerPruningEnabled(true)
+
+			// Simulate RetainHeight pruning: starting from block 5, set RetainHeight = 5
+			// This means we want to retain blocks >= 5, so we prune blocks < 5
+			// Each block prunes retainHeight - 1
+			retainHeight := int64(5)
+			_, err := blockExec.PruneBlocks(retainHeight)
+			require.NoError(t, err)
 		}
 	}
 
@@ -1179,4 +1325,150 @@ func TestRetainHeightPruning(t *testing.T) {
 		require.NotNil(t, txResult, "Tx at height %d should still exist", height)
 		require.Equal(t, height, txResult.Height)
 	}
+}
+
+// TestIndexerPruningConfig verifies that the pruning config controls whether pruning happens
+func TestIndexerPruningConfig(t *testing.T) {
+	logger := log.NewNopLogger()
+
+	// Create indexer service with KV sink
+	indexerDB := dbm.NewMemDB()
+	indexerSink := indexerkv.NewEventSink(indexerDB)
+	indexerService := indexer.NewService(indexer.ServiceArgs{
+		Logger:   logger,
+		Sinks:    []indexer.EventSink{indexerSink},
+		EventBus: nil,
+	})
+
+	// Create BlockExecutor with indexer service
+	stateStore := sm.NewStore(dbm.NewMemDB())
+	blockStore := store.NewBlockStore(dbm.NewMemDB())
+
+	// Create a valid state with validators for block creation
+	testState, _, _ := makeState(t, 1, 1)
+	// Save state to stateStore so pruning can work (needs consensus params, validators, etc.)
+	require.NoError(t, stateStore.Save(testState))
+
+	// Add blocks to the blockStore so pruning can work
+	var seenCommit *types.Commit
+	for h := int64(1); h <= 5; h++ {
+		testState.LastBlockHeight = h - 1
+		// Update and save state for each height so pruning can access consensus params
+		testState.LastValidators = testState.Validators.Copy()
+		require.NoError(t, stateStore.Save(testState))
+
+		var lastCommit *types.Commit
+		if h > 1 {
+			lastCommit = seenCommit
+		}
+		block := sf.MakeBlock(testState, h, lastCommit)
+		// For height 1, block.LastCommit is nil, but BlockStore requires it to be non-nil
+		// Set it to an empty commit to satisfy BlockStore requirements
+		if h == 1 && block.LastCommit == nil {
+			block.LastCommit = &types.Commit{
+				Height:     0,
+				Round:      0,
+				BlockID:    types.BlockID{},
+				Signatures: []types.CommitSig{},
+			}
+		}
+		parts, err := block.MakePartSet(testPartSize)
+		require.NoError(t, err)
+		// Create a minimal commit for saving (seenCommit) - this is the commit for THIS block
+		// BlockStore always requires a non-nil commit, even for height 1
+		blockID := types.BlockID{Hash: block.Hash()}
+		seenCommit = &types.Commit{
+			Height:     h,
+			Round:      0,
+			BlockID:    blockID,
+			Signatures: []types.CommitSig{types.NewCommitSigAbsent()},
+		}
+		blockStore.SaveBlock(block, parts, seenCommit)
+	}
+
+	mp := &mpmocks.Mempool{}
+	mp.On("Lock").Return()
+	mp.On("Unlock").Return()
+	eventBus := eventbus.NewDefault(logger)
+	ctx := t.Context()
+	require.NoError(t, eventBus.Start(ctx))
+	defer func() {
+		eventBus.Stop()
+		eventBus.Wait()
+	}()
+
+	blockExec := sm.NewBlockExecutor(
+		stateStore,
+		logger,
+		nil, // appClient not needed for this test
+		mp,
+		sm.EmptyEvidencePool{},
+		blockStore,
+		eventBus,
+		sm.NopMetrics(),
+	)
+	blockExec.SetIndexerService(indexerService)
+
+	// Index some blocks directly
+	for height := int64(1); height <= 5; height++ {
+		err := indexerSink.IndexBlockEvents(types.EventDataNewBlockHeader{
+			Header: types.Header{Height: height},
+			ResultFinalizeBlock: abci.ResponseFinalizeBlock{
+				Events: []abci.Event{
+					{Type: "block", Attributes: []abci.EventAttribute{
+						{Key: []byte("proposer"), Value: []byte("validator1"), Index: true},
+					}},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		tx := types.Tx(fmt.Sprintf("tx-%d", height))
+		txResult := &abci.TxResultV2{
+			Height: height,
+			Index:  0,
+			Tx:     tx,
+			Result: abci.ExecTxResult{Code: 0},
+		}
+		err = indexerSink.IndexTxEvents([]*abci.TxResultV2{txResult})
+		require.NoError(t, err)
+	}
+
+	// Verify all blocks exist
+	for height := int64(1); height <= 5; height++ {
+		has, err := indexerSink.HasBlock(height)
+		require.NoError(t, err)
+		require.True(t, has, "Block %d should exist before pruning", height)
+	}
+
+	// Test 1: Pruning disabled - should NOT prune
+	blockExec.SetIndexerPruningEnabled(false)
+	retainHeight := int64(3)
+	_, err := blockExec.PruneBlocks(retainHeight)
+	require.NoError(t, err)
+
+	// Verify blocks still exist (pruning was disabled)
+	has, err := indexerSink.HasBlock(2) // retainHeight - 1 = 2
+	require.NoError(t, err)
+	require.True(t, has, "Block 2 should still exist when pruning is disabled")
+
+	// Test 2: Pruning enabled - should prune
+	blockExec.SetIndexerPruningEnabled(true)
+	retainHeight = int64(4)
+	_, err = blockExec.PruneBlocks(retainHeight)
+	require.NoError(t, err)
+
+	// Verify targetHeight (retainHeight - 1 = 3) is pruned
+	has, err = indexerSink.HasBlock(3)
+	require.NoError(t, err)
+	require.False(t, has, "Block 3 should be pruned when pruning is enabled")
+
+	// Verify blocks >= retainHeight still exist
+	has, err = indexerSink.HasBlock(4)
+	require.NoError(t, err)
+	require.True(t, has, "Block 4 should still exist (>= retainHeight)")
+
+	has, err = indexerSink.HasBlock(5)
+	require.NoError(t, err)
+	require.True(t, has, "Block 5 should still exist (>= retainHeight)")
 }

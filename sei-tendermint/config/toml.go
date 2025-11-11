@@ -585,6 +585,13 @@ indexer = [{{ range $i, $e := .TxIndex.Indexer }}{{if $i}}, {{end}}{{ printf "%q
 #   postgresql://<user>:<password>@<host>:<port>/<db>?<opts>
 psql-conn = "{{ .TxIndex.PsqlConn }}"
 
+# Enable automatic pruning of old transaction index data.
+# When enabled, the indexer will prune data for blocks older than min-retain-blocks
+# on each block commit. This helps manage disk space for nodes that don't need
+# to retain full transaction history.
+# Default: false
+enable-pruning = {{ .TxIndex.EnablePruning }}
+
 #######################################################################
 ###       Instrumentation Configuration (Auto-managed)             ###
 #######################################################################

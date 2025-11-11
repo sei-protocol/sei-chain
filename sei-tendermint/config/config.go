@@ -1304,16 +1304,29 @@ type TxIndexConfig struct {
 	// The PostgreSQL connection configuration, the connection format:
 	// postgresql://<user>:<password>@<host>:<port>/<db>?<opts>
 	PsqlConn string `mapstructure:"psql-conn"`
+
+	// Enable automatic pruning of old transaction index data.
+	// When enabled, the indexer will prune data for blocks older than min-retain-blocks
+	// on each block commit. This helps manage disk space for nodes that don't need
+	// to retain full transaction history.
+	// Default: false
+	EnablePruning bool `mapstructure:"enable-pruning"`
 }
 
 // DefaultTxIndexConfig returns a default configuration for the transaction indexer.
 func DefaultTxIndexConfig() *TxIndexConfig {
-	return &TxIndexConfig{Indexer: []string{"kv"}}
+	return &TxIndexConfig{
+		Indexer:       []string{"kv"},
+		EnablePruning: false,
+	}
 }
 
 // TestTxIndexConfig returns a default configuration for the transaction indexer.
 func TestTxIndexConfig() *TxIndexConfig {
-	return &TxIndexConfig{Indexer: []string{"kv"}}
+	return &TxIndexConfig{
+		Indexer:       []string{"kv"},
+		EnablePruning: false,
+	}
 }
 
 //-----------------------------------------------------------------------------
