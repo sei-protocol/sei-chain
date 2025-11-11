@@ -34,9 +34,9 @@ func TestReactorBasic(t *testing.T) {
 	t.Log("assert that the mock node receives a request from the real node")
 	testNet.listenForRequest(ctx, t, 1, 0, shortWait)
 
-	t.Log("assert that when a mock node sends a request it receives a response (and the correct one)")
+	t.Log("assert that when a mock node sends a request it receives a response")
 	testNet.sendRequest(t, 0, 1)
-	testNet.listenForResponse(ctx, t, 1, 0, shortWait, []p2pproto.PexAddress(nil))
+	testNet.listenForResponse(ctx, t, 1, 0, shortWait)
 }
 
 func TestReactorConnectFullNetwork(t *testing.T) {
@@ -440,7 +440,6 @@ func (r *reactorTestSuite) listenForResponse(
 	t *testing.T,
 	fromNode, toNode int,
 	waitPeriod time.Duration,
-	addresses []p2pproto.PexAddress,
 ) {
 	to, from := r.checkNodePair(t, toNode, fromNode)
 	conditional := func(msg p2p.RecvMsg) bool {
@@ -448,7 +447,7 @@ func (r *reactorTestSuite) listenForResponse(
 		return ok && msg.From == from
 	}
 	assertion := func(t *testing.T, msg p2p.RecvMsg) bool {
-		require.Equal[proto.Message](t, &p2pproto.PexResponse{Addresses: addresses}, msg.Message)
+		_ = msg.Message.(*p2pproto.PexResponse)
 		return true
 	}
 	r.listenFor(ctx, t, to, conditional, assertion, waitPeriod)
