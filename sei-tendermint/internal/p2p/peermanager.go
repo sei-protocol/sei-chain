@@ -191,8 +191,10 @@ func (i *peerManagerInner[C]) Evict(id types.NodeID) {
 // Connected registers a new connection.
 // If it is an outbound connection the dialing status is cleared (EVEN IF IT RETURNS AN ERROR).
 // It atomically checks maximum connection limit and duplicate connections.
-// TODO(gprusak): instead of returning an error. Call conn.Close(cause), once it is supported.
-func (i *peerManagerInner[C]) Connected(conn C) error {
+func (i *peerManagerInner[C]) Connected(conn C) (err error) {
+	defer func() {
+		if err!=nil { conn.Close() }
+	}()
 	info := conn.Info()
 	if addr,ok := info.DialAddr.Get(); ok && i.dialing[addr.NodeID] == addr {
 		delete(i.dialing, addr.NodeID)
@@ -218,7 +220,6 @@ func (i *peerManagerInner[C]) Connected(conn C) error {
 	}
 	if !i.isUnconditional[peerID] {
 		if i.conditionalConns >= i.options.maxConns() {
-			conn.Close()
 			return errors.New("too many connections")
 		}
 		i.conditionalConns += 1

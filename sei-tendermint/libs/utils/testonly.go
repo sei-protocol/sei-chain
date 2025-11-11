@@ -77,6 +77,10 @@ func TestRngFromSeed(seed int64) *rand.Rand {
 	return rand.New(rand.NewSource(seed))
 }
 
+func GenBool(rng *rand.Rand) bool {
+	return rng.Intn(2)==0
+}
+
 var alphanum = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
 // GenString generates a random string of length n.
