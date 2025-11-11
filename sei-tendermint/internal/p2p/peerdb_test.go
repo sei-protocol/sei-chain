@@ -1,143 +1,98 @@
 package p2p
-/*
-import (
-	"strings"
-	"testing"
 
-	"github.com/tendermint/tendermint/libs/log"
+import (
+	"testing"
+	"time"
+
+	"slices"
+	"github.com/tendermint/tendermint/libs/utils"
 
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/tendermint/tendermint/libs/utils/require"
-	"github.com/tendermint/tendermint/types"
 )
 
+func justKeys[K comparable, V any](m map[K]V) map[K]bool {
+	r := map[K]bool{}
+	for k := range m {
+		r[k] = true
+	}
+	return r
+}
+
+func toMap[T comparable](vs []T) map[T]bool {
+	m := map[T]bool{}
+	for _,v := range vs {
+		m[v] = true
+	}
+	return m
+}
+
+func truncate[K comparable](m map[K]time.Time, n int) map[K]time.Time {
+	var keys []K
+	for k := range m { keys = append(keys,k) }
+	// Sort from newest to oldest.
+	slices.SortFunc(keys,func(a,b K) int { return -m[a].Compare(m[b]) })
+	r := map[K]time.Time{}
+	if len(keys)>n { keys = keys[:max(0,n)] }
+	for _,k := range keys {
+		r[k] = m[k]
+	}
+	return r
+}
+
 func TestPeerDB(t *testing.T) {
-	aID := types.NodeID(strings.Repeat("a", 40))
-	aAddresses := []NodeAddress{
-		{NodeID: aID, Hostname: "127.0.0.1", Port: 26657},
-	}
-
-	bID := types.NodeID(strings.Repeat("b", 40))
-	bAddresses := []NodeAddress{
-		{NodeID: bID, Hostname: "b10c::1", Port: 26657},
-	}
-
-	cID := types.NodeID(strings.Repeat("c", 40))
-	cAddresses := []NodeAddress{
-		{NodeID: cID, Hostname: "host.domain", Port: 80},
-	}
-
-	// Create an initial peer manager and add the peers.
+	rng := utils.TestRng()
 	db := dbm.NewMemDB()
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, db, RouterOptions{
-		PersistentPeers: []types.NodeID{aID},
-		PeerScores:      map[types.NodeID]PeerScore{bID: 1},
-	}, NopMetrics())
-	require.NoError(t, err)
 
-	for _, addr := range append(append(aAddresses, bAddresses...), cAddresses...) {
-		added, err := peerManager.Add(addr)
+	addrs := map[NodeAddress]time.Time{}
+	for range 10 {
+		t.Log("load & populate")
+		peerDB,err := newPeerDB(db, &RouterOptions{})
 		require.NoError(t, err)
-		require.True(t, added)
+		if err:=utils.TestDiff(justKeys(addrs),toMap(peerDB.Advertise(1000))); err!=nil {
+			t.Fatal(err)
+		}
+		for range 20 {
+			addr := makeAddr(rng)
+			ts := utils.GenTimestamp(rng)
+			require.NoError(t, peerDB.Insert(addr,ts))
+			addrs[addr] = ts
+		}
+		if err:=utils.TestDiff(justKeys(addrs),toMap(peerDB.Advertise(1000))); err!=nil {
+			t.Fatal(err)
+		}
+
+		t.Log("load & truncate")
+		peerDB,err = newPeerDB(db, &RouterOptions{})
+		require.NoError(t, err)
+		if err:=utils.TestDiff(justKeys(addrs),toMap(peerDB.Advertise(1000))); err!=nil {
+			t.Fatal(err)
+		}
+		addrs = truncate(addrs,15)
+		require.NoError(t, peerDB.Truncate(15))
+		if err:=utils.TestDiff(justKeys(addrs),toMap(peerDB.Advertise(1000))); err!=nil {
+			t.Fatal(err)
+		}
+
+		t.Log("advertise")
+		for n := range len(addrs)+5 {
+			if err:=utils.TestDiff(justKeys(truncate(addrs,n)),toMap(peerDB.Advertise(n))); err!=nil {
+				t.Fatal(err)
+			}
+		}
+		t.Log("advertise with self")
+		selfAddr := makeAddr(rng)
+		peerDB,err = newPeerDB(db, &RouterOptions{
+			SelfAddress: utils.Some(selfAddr),
+		})
+		require.NoError(t, err)
+		for n := range len(addrs)+5 {
+			x := justKeys(truncate(addrs,n-1))
+			if n>0 { x[selfAddr] = true }
+			if err:=utils.TestDiff(justKeys(x),toMap(peerDB.Advertise(n))); err!=nil {
+				t.Fatal(err)
+			}
+		}
 	}
-
-	require.ElementsMatch(t, aAddresses, peerManager.Addresses(aID))
-	require.ElementsMatch(t, bAddresses, peerManager.Addresses(bID))
-	require.ElementsMatch(t, cAddresses, peerManager.Addresses(cID))
-
-	require.Equal(t, map[types.NodeID]PeerScore{
-		aID: PeerScorePersistent,
-		bID: 1,
-		cID: DefaultMutableScore,
-	}, peerManager.Scores())
-
-	// Creating a new peer manager with the same database should retain the
-	// peers, but they should have updated scores from the new PersistentPeers
-	// configuration.
-	peerManager, err = NewPeerManager(log.NewNopLogger(), selfID, db, RouterOptions{
-		PersistentPeers: []types.NodeID{bID},
-		PeerScores:      map[types.NodeID]PeerScore{cID: 1},
-	}, NopMetrics())
-	require.NoError(t, err)
-
-	require.ElementsMatch(t, aAddresses, peerManager.Addresses(aID))
-	require.ElementsMatch(t, bAddresses, peerManager.Addresses(bID))
-	require.ElementsMatch(t, cAddresses, peerManager.Addresses(cID))
-	require.Equal(t, map[types.NodeID]PeerScore{
-		aID: 0,
-		bID: PeerScorePersistent,
-		cID: 1,
-	}, peerManager.Scores())
-
-	// Introduce a dial failure and persistent peer score should be reduced by one
-	ctx := t.Context()
-	peerManager.DialFailed(ctx, bAddresses[0])
-	require.Equal(t, map[types.NodeID]PeerScore{
-		aID: 0,
-		bID: PeerScorePersistent,
-		cID: 1,
-	}, peerManager.Scores())
 }
-
-func TestPeerManager_Advertise(t *testing.T) {
-	aID := types.NodeID(strings.Repeat("a", 40))
-	aTCP := NodeAddress{NodeID: aID, Hostname: "127.0.0.1", Port: 26657}
-
-	bID := types.NodeID(strings.Repeat("b", 40))
-	bTCP := NodeAddress{NodeID: bID, Hostname: "b10c::1", Port: 26657}
-
-	cID := types.NodeID(strings.Repeat("c", 40))
-	cTCP := NodeAddress{NodeID: cID, Hostname: "host.domain", Port: 80}
-
-	dID := types.NodeID(strings.Repeat("d", 40))
-
-	// Create an initial peer manager and add the peers.
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), RouterOptions{
-		PeerScores: map[types.NodeID]PeerScore{aID: 3, bID: 2, cID: 1},
-	}, NopMetrics())
-	require.NoError(t, err)
-
-	added, err := peerManager.Add(aTCP)
-	require.NoError(t, err)
-	require.True(t, added)
-	added, err = peerManager.Add(bTCP)
-	require.NoError(t, err)
-	require.True(t, added)
-	added, err = peerManager.Add(cTCP)
-	require.NoError(t, err)
-	require.True(t, added)
-
-	// d should get all addresses.
-	require.ElementsMatch(t, []NodeAddress{
-		aTCP, bTCP, cTCP,
-	}, peerManager.Advertise(dID, 100))
-
-	// a should not get its own addresses.
-	require.ElementsMatch(t, []NodeAddress{
-		bTCP, cTCP,
-	}, peerManager.Advertise(aID, 100))
-
-	// Asking for 0 addresses should return, well, 0.
-	require.Empty(t, peerManager.Advertise(aID, 0))
-
-	// Asking for 2 addresses should get the highest-rated ones, i.e. a.
-	require.ElementsMatch(t, []NodeAddress{
-		aTCP,
-	}, peerManager.Advertise(dID, 1))
-}
-
-func TestPeerManager_Advertise_Self(t *testing.T) {
-	dID := types.NodeID(strings.Repeat("d", 40))
-
-	self := NodeAddress{NodeID: selfID, Hostname: "2001:db8::1", Port: 26657}
-
-	// Create a peer manager with SelfAddress defined.
-	peerManager, err := NewPeerManager(selfID, RouterOptions{ SelfAddress: utils.Some[self] })
-	require.NoError(t, err)
-
-	// peer manager should always advertise its SelfAddress.
-	require.ElementsMatch(t, []NodeAddress{
-		self,
-	}, peerManager.Advertise(dID, 100))
-}*/
