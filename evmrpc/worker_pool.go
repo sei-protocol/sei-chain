@@ -15,7 +15,18 @@ const (
 	// This represents the number of tasks (not blocks) that can be queued.
 	// Total capacity = DefaultWorkerQueueSize * WorkerBatchSize blocks
 	// Example: 1000 tasks * 100 blocks/task = 100,000 blocks can be buffered
+	//
+	// Memory footprint estimate:
+	// - Queue channel overhead: ~8KB (1000 * 8 bytes per channel slot)
+	// - Each task closure: ~24 bytes
+	// - Total queue memory: ~32KB (negligible)
+	// Note: Actual memory usage depends on block data processed by workers
 	DefaultWorkerQueueSize = 1000
+
+	// MaxWorkerPoolSize caps the number of workers to prevent excessive
+	// goroutine creation on high-core machines. Tasks are primarily I/O bound
+	// (fetching and processing block logs), so 2x CPU cores can be excessive.
+	MaxWorkerPoolSize = 64
 )
 
 // WorkerPool manages a pool of goroutines for concurrent task execution
@@ -59,12 +70,15 @@ func GetGlobalWorkerPool() *WorkerPool {
 
 // NewWorkerPool creates a new worker pool with the specified number of workers and queue size.
 // If workers or queueSize is <= 0, defaults are applied:
-// - workers: runtime.NumCPU() * 2
+// - workers: min(runtime.NumCPU() * 2, MaxWorkerPoolSize)
 // - queueSize: DefaultWorkerQueueSize
 func NewWorkerPool(workers, queueSize int) *WorkerPool {
 	// Apply defaults if invalid
 	if workers <= 0 {
 		workers = runtime.NumCPU() * 2
+		if workers > MaxWorkerPoolSize {
+			workers = MaxWorkerPoolSize
+		}
 	}
 	if queueSize <= 0 {
 		queueSize = DefaultWorkerQueueSize

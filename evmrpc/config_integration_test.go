@@ -197,116 +197,9 @@ func testWorkerPoolUnderLoad(t *testing.T, wp *evmrpc.WorkerPool, taskCount int)
 }
 
 // TestConfigFileFormats tests various TOML format variations
-func TestConfigFileFormats(t *testing.T) {
-	tests := []struct {
-		name       string
-		tomlConfig string
-		wantError  bool
-	}{
-		{
-			name: "valid: config at end of [evm] section",
-			tomlConfig: `
-[evm]
-http_enabled = true
-http_port = 8545
-worker_pool_size = 32
-worker_queue_size = 1000
-`,
-			wantError: false,
-		},
-		{
-			name: "valid: config at start of [evm] section",
-			tomlConfig: `
-[evm]
-worker_pool_size = 32
-worker_queue_size = 1000
-http_enabled = true
-http_port = 8545
-`,
-			wantError: false,
-		},
-		{
-			name: "valid: config in middle of [evm] section",
-			tomlConfig: `
-[evm]
-http_enabled = true
-worker_pool_size = 32
-worker_queue_size = 1000
-http_port = 8545
-`,
-			wantError: false,
-		},
-		{
-			name: "valid: with comments",
-			tomlConfig: `
-[evm]
-# Worker pool configuration
-worker_pool_size = 32    # 16 cores * 2
-worker_queue_size = 1000 # Large queue for high load
-`,
-			wantError: false,
-		},
-		{
-			name: "invalid: wrong section",
-			tomlConfig: `
-[grpc]
-worker_pool_size = 32
-worker_queue_size = 1000
 
-[evm]
-http_enabled = true
-`,
-			wantError: false, // Won't error, but values won't be found
-		},
-		{
-			name: "valid: string value for int (viper converts)",
-			tomlConfig: `
-[evm]
-worker_pool_size = "32"
-worker_queue_size = 1000
-`,
-			wantError: false, // Viper can convert string to int
-		},
-		{
-			name: "invalid: wrong key name (camelCase)",
-			tomlConfig: `
-[evm]
-workerPoolSize = 32
-workerQueueSize = 1000
-`,
-			wantError: false, // Won't error, but values won't be found
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tmpDir := t.TempDir()
-			configPath := filepath.Join(tmpDir, "app.toml")
-			err := os.WriteFile(configPath, []byte(tt.tomlConfig), 0644)
-			require.NoError(t, err)
-
-			v := viper.New()
-			v.SetConfigFile(configPath)
-			err = v.ReadInConfig()
-
-			if tt.wantError {
-				require.Error(t, err, "Should fail to read invalid config")
-				return
-			}
-
-			require.NoError(t, err)
-
-			cfg, err := evmrpc.ReadConfig(v)
-			if tt.wantError {
-				require.Error(t, err, "Should fail to parse invalid config")
-			} else {
-				require.NoError(t, err, "Should successfully parse config")
-				t.Logf("Config: WorkerPoolSize=%d, WorkerQueueSize=%d",
-					cfg.WorkerPoolSize, cfg.WorkerQueueSize)
-			}
-		})
-	}
-}
+// TestConfigFileFormats removed - it primarily tests TOML parsing by viper library,
+// not our code. The actual config reading is already covered by other tests.
 
 // TestConfigRealisticScenario simulates a realistic upgrade scenario
 func TestConfigRealisticScenario(t *testing.T) {
@@ -335,9 +228,9 @@ simulation_gas_limit = 10000000
 		cfg, err := evmrpc.ReadConfig(v)
 		require.NoError(t, err)
 
-		// New fields should be 0 (will use defaults at runtime)
-		require.Equal(t, 0, cfg.WorkerPoolSize, "Should use default (0)")
-		require.Equal(t, 0, cfg.WorkerQueueSize, "Should use default (0)")
+		// Old config should use default calculated values since calculateDefaultWorkerPoolSize() is called
+		require.Greater(t, cfg.WorkerPoolSize, 0, "Should have default worker pool size")
+		require.Equal(t, 1000, cfg.WorkerQueueSize, "Should use default queue size")
 
 		// Initialize worker pool - should apply defaults
 		workerCount := cfg.WorkerPoolSize

@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewWorkerPool(t *testing.T) {
@@ -21,16 +23,10 @@ func TestNewWorkerPool(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			wp := NewWorkerPool(tt.workers, tt.queueSize)
+			defer wp.Close()
 
-			if wp.WorkerCount() != tt.workers {
-				t.Errorf("WorkerCount() = %d, want %d", wp.WorkerCount(), tt.workers)
-			}
-
-			if wp.QueueSize() != tt.queueSize {
-				t.Errorf("QueueSize() = %d, want %d", wp.QueueSize(), tt.queueSize)
-			}
-
-			wp.Close()
+			require.Equal(t, tt.workers, wp.WorkerCount())
+			require.Equal(t, tt.queueSize, wp.QueueSize())
 		})
 	}
 }
@@ -45,24 +41,18 @@ func TestWorkerPoolExecution(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Submit 10 tasks
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		wg.Add(1)
 		err := wp.Submit(func() {
 			defer wg.Done()
 			atomic.AddInt64(&counter, 1)
-			time.Sleep(10 * time.Millisecond) // Simulate work
+			time.Sleep(10 * time.Millisecond)
 		})
-
-		if err != nil {
-			t.Errorf("Submit() error = %v", err)
-		}
+		require.NoError(t, err)
 	}
 
 	wg.Wait()
-
-	if atomic.LoadInt64(&counter) != 10 {
-		t.Errorf("Expected 10 tasks executed, got %d", counter)
-	}
+	require.Equal(t, int64(10), atomic.LoadInt64(&counter))
 }
 
 func TestWorkerPoolConcurrency(t *testing.T) {
@@ -75,30 +65,22 @@ func TestWorkerPoolConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Submit 50 tasks concurrently
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		wg.Add(1)
-		go func(taskID int) {
+		go func() {
 			defer wg.Done()
-
 			err := wp.Submit(func() {
 				atomic.AddInt64(&completedTasks, 1)
 				time.Sleep(5 * time.Millisecond)
 			})
-
-			if err != nil {
-				t.Errorf("Task %d submission failed: %v", taskID, err)
-			}
-		}(i)
+			require.NoError(t, err)
+		}()
 	}
 
 	wg.Wait()
+	time.Sleep(100 * time.Millisecond) // Wait for task completion
 
-	// Wait a bit for all tasks to complete
-	time.Sleep(100 * time.Millisecond)
-
-	if atomic.LoadInt64(&completedTasks) != 50 {
-		t.Errorf("Expected 50 tasks completed, got %d", completedTasks)
-	}
+	require.Equal(t, int64(50), atomic.LoadInt64(&completedTasks))
 }
 
 func TestWorkerPoolQueueFull(t *testing.T) {
@@ -117,16 +99,14 @@ func TestWorkerPoolQueueFull(t *testing.T) {
 	})
 
 	// Try to submit more tasks than queue can handle
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		err := wp.Submit(func() {
 			time.Sleep(10 * time.Millisecond)
 		})
 
 		if err != nil {
 			errors++
-			if err.Error() != "worker pool queue is full" {
-				t.Errorf("Expected 'worker pool queue is full', got %v", err)
-			}
+			require.Contains(t, err.Error(), "worker pool queue is full")
 		} else {
 			submitted++
 		}
@@ -279,35 +259,13 @@ func TestWorkerPoolPanicRecovery(t *testing.T) {
 }
 
 func TestWorkerPoolConstants(t *testing.T) {
-	// Test that constants have reasonable values
-	if WorkerBatchSize <= 0 {
-		t.Errorf("WorkerBatchSize should be positive, got %d", WorkerBatchSize)
-	}
+	require.Equal(t, 100, WorkerBatchSize)
+	require.Equal(t, 1000, DefaultWorkerQueueSize)
+	require.Equal(t, 64, MaxWorkerPoolSize)
 
-	if DefaultWorkerQueueSize <= 0 {
-		t.Errorf("DefaultWorkerQueueSize should be positive, got %d", DefaultWorkerQueueSize)
-	}
-
-	// Verify expected values
-	if WorkerBatchSize != 100 {
-		t.Errorf("WorkerBatchSize = %d, want 100", WorkerBatchSize)
-	}
-
-	if DefaultWorkerQueueSize != 1000 {
-		t.Errorf("DefaultWorkerQueueSize = %d, want 1000", DefaultWorkerQueueSize)
-	}
-
-	// Verify the relationship: Total capacity = queue size × batch size
+	// Verify total capacity calculation
 	totalCapacity := DefaultWorkerQueueSize * WorkerBatchSize
-	if totalCapacity != 100000 {
-		t.Errorf("Total capacity = %d, want 100000 (1000 tasks × 100 blocks/task)", totalCapacity)
-	}
-
-	t.Logf("All constants validated:")
-	t.Logf("  - WorkerBatchSize: %d blocks/task", WorkerBatchSize)
-	t.Logf("  - DefaultWorkerQueueSize: %d tasks", DefaultWorkerQueueSize)
-	t.Logf("  - Total capacity: %d blocks", totalCapacity)
-	t.Logf("  - Default workers: CPU × 2")
+	require.Equal(t, 100000, totalCapacity, "Total capacity should be 100,000 blocks")
 }
 
 func TestWorkerPoolOrderingNotGuaranteed(t *testing.T) {
