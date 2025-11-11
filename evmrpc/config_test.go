@@ -131,8 +131,9 @@ func (o *opts) Get(k string) interface{} {
 	panic("unknown key")
 }
 
-func TestReadConfig(t *testing.T) {
-	goodOpts := opts{
+// getDefaultOpts returns a valid opts struct with all required fields set
+func getDefaultOpts() opts {
+	return opts{
 		true,
 		1,
 		true,
@@ -163,6 +164,10 @@ func TestReadConfig(t *testing.T) {
 		32,
 		1000,
 	}
+}
+
+func TestReadConfig(t *testing.T) {
+	goodOpts := getDefaultOpts()
 	_, err := evmrpc.ReadConfig(&goodOpts)
 	require.Nil(t, err)
 	badOpts := goodOpts
@@ -309,37 +314,10 @@ func TestReadConfigWorkerPool(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts := opts{
-				httpEnabled:                  true,
-				httpPort:                     8545,
-				wsEnabled:                    true,
-				wsPort:                       8546,
-				readTimeout:                  time.Duration(5),
-				readHeaderTimeout:            time.Duration(5),
-				writeTimeout:                 time.Duration(5),
-				idleTimeout:                  time.Duration(5),
-				simulationGasLimit:           uint64(10),
-				simulationEVMTimeout:         time.Duration(60),
-				corsOrigins:                  "*",
-				wsOrigins:                    "*",
-				filterTimeout:                time.Duration(5),
-				checkTxTimeout:               time.Duration(5),
-				maxTxPoolTxs:                 1000,
-				slow:                         false,
-				disableWatermark:             false,
-				denyList:                     make([]string, 0),
-				maxLogNoBlock:                20000,
-				maxBlocksForLog:              1000,
-				maxSubscriptionsNewHead:      10000,
-				enableTestAPI:                false,
-				maxConcurrentTraceCalls:      uint64(10),
-				maxConcurrentSimulationCalls: uint64(10),
-				maxTraceLookbackBlocks:       int64(100),
-				traceTimeout:                 30 * time.Second,
-				rpcStatsInterval:             10 * time.Second,
-				workerPoolSize:               tt.workerPoolSize,
-				workerQueueSize:              tt.workerQueueSize,
-			}
+			opts := getDefaultOpts()
+			// Only set the fields we're testing
+			opts.workerPoolSize = tt.workerPoolSize
+			opts.workerQueueSize = tt.workerQueueSize
 
 			cfg, err := evmrpc.ReadConfig(&opts)
 			require.Nil(t, err)

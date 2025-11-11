@@ -103,11 +103,7 @@ http_port = 8545
 			cfg, err := evmrpc.ReadConfig(v)
 			require.NoError(t, err, "Failed to read EVM config")
 
-			// Step 4: Log config values (Note: 0 values will be converted to defaults by NewWorkerPool)
-			t.Logf("Config loaded: WorkerPoolSize=%d, WorkerQueueSize=%d",
-				cfg.WorkerPoolSize, cfg.WorkerQueueSize)
-
-			// Step 5: Create a new worker pool with the config (not global)
+			// Step 4: Create a new worker pool with the config (not global)
 			// to avoid singleton issues in tests
 			workerCount := cfg.WorkerPoolSize
 			queueSize := cfg.WorkerQueueSize
@@ -129,9 +125,6 @@ http_port = 8545
 			actualWorkers := wp.WorkerCount()
 			actualQueue := wp.QueueSize()
 
-			t.Logf("Worker pool created: Workers=%d, QueueSize=%d",
-				actualWorkers, actualQueue)
-
 			// Verify defaults are applied when config is 0 or -1
 			if tt.expectedWorkers == 0 || tt.expectedWorkers == -1 {
 				require.Greater(t, actualWorkers, 0,
@@ -144,7 +137,7 @@ http_port = 8545
 			require.Equal(t, tt.expectedQueue, actualQueue,
 				"Queue size mismatch")
 
-			// Step 7: Test worker pool under load
+			// Step 5: Test worker pool under load
 			failures := testWorkerPoolUnderLoad(t, wp, tt.concurrentTasks)
 
 			if tt.shouldHandleLoad {
@@ -154,9 +147,6 @@ http_port = 8545
 				require.Greater(t, failures, tt.expectedFailures/2,
 					"Worker pool should have failures under high load with small config")
 			}
-
-			t.Logf("Load test results: %d/%d tasks failed",
-				failures, tt.concurrentTasks)
 		})
 	}
 }
@@ -166,8 +156,8 @@ http_port = 8545
 func testWorkerPoolUnderLoad(t *testing.T, wp *evmrpc.WorkerPool, taskCount int) int {
 	t.Helper()
 
-	failures := 0
-	completed := 0
+	var failures atomic.Int32
+	var completed atomic.Int32
 
 	// Block the workers with slow tasks
 	for i := 0; i < wp.WorkerCount(); i++ {
@@ -180,10 +170,10 @@ func testWorkerPoolUnderLoad(t *testing.T, wp *evmrpc.WorkerPool, taskCount int)
 	for i := 0; i < taskCount; i++ {
 		err := wp.Submit(func() {
 			time.Sleep(10 * time.Millisecond)
-			completed++
+			completed.Add(1)
 		})
 		if err != nil {
-			failures++
+			failures.Add(1)
 			if err.Error() != "worker pool queue is full" {
 				t.Errorf("Unexpected error: %v", err)
 			}
@@ -193,13 +183,8 @@ func testWorkerPoolUnderLoad(t *testing.T, wp *evmrpc.WorkerPool, taskCount int)
 	// Wait for tasks to complete
 	time.Sleep(200 * time.Millisecond)
 
-	return failures
+	return int(failures.Load())
 }
-
-// TestConfigFileFormats tests various TOML format variations
-
-// TestConfigFileFormats removed - it primarily tests TOML parsing by viper library,
-// not our code. The actual config reading is already covered by other tests.
 
 // TestConfigRealisticScenario simulates a realistic upgrade scenario
 func TestConfigRealisticScenario(t *testing.T) {
@@ -250,9 +235,6 @@ simulation_gas_limit = 10000000
 		require.Greater(t, wp.WorkerCount(), 0, "Should apply default worker count")
 		require.Equal(t, evmrpc.DefaultWorkerQueueSize, wp.QueueSize(),
 			"Should apply default queue size")
-
-		t.Logf("Old node works with defaults: Workers=%d, Queue=%d",
-			wp.WorkerCount(), wp.QueueSize())
 	})
 
 	t.Run("manually updated config", func(t *testing.T) {
@@ -295,9 +277,6 @@ worker_queue_size = 1000
 		// Verify custom values are used
 		require.Equal(t, 36, wp.WorkerCount(), "Should use custom worker count")
 		require.Equal(t, 1000, wp.QueueSize(), "Should use custom queue size")
-
-		t.Logf("Manually updated config works: Workers=%d, Queue=%d",
-			wp.WorkerCount(), wp.QueueSize())
 	})
 }
 
@@ -345,7 +324,6 @@ func TestWorkerPoolPerformanceWithConfig(t *testing.T) {
 
 			var completed atomic.Int32
 			failed := 0
-			start := time.Now()
 			var wg sync.WaitGroup
 
 			for i := 0; i < tc.taskCount; i++ {
@@ -363,20 +341,8 @@ func TestWorkerPoolPerformanceWithConfig(t *testing.T) {
 
 			// Wait for all tasks to complete
 			wg.Wait()
-			elapsed := time.Since(start)
 
 			successRate := float64(tc.taskCount-failed) / float64(tc.taskCount) * 100
-
-			completedCount := int(completed.Load())
-			t.Logf("Performance results:")
-			t.Logf("  - Workers: %d", tc.workers)
-			t.Logf("  - Queue: %d", tc.queueSize)
-			t.Logf("  - Tasks: %d", tc.taskCount)
-			t.Logf("  - Completed: %d", completedCount)
-			t.Logf("  - Failed: %d", failed)
-			t.Logf("  - Success rate: %.2f%%", successRate)
-			t.Logf("  - Duration: %v", elapsed)
-			t.Logf("  - Throughput: %.2f tasks/sec", float64(tc.taskCount)/elapsed.Seconds())
 
 			// With proper config, success rate should be high
 			require.Greater(t, successRate, 80.0,
