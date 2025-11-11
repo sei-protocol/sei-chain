@@ -398,6 +398,7 @@ type App struct {
 
 	enableBenchmarkMode bool
 	benchmarkProposalCh <-chan *abci.ResponsePrepareProposal
+	benchmarkLogger     *benchmarkLogger
 }
 
 type AppOption func(*App)
