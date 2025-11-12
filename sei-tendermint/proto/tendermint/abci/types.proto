@@ -458,7 +458,6 @@ message TxRecord {
   // Deprecate entire usage: https://github.com/tendermint/tendermint/pull/9283
   enum TxAction {
     UNMODIFIED = 0; // The Application did not modify this transaction.
-    GENERATED = 1;  // The Application generated this transaction (bypasses validation for benchmark mode).
   }
 }
 

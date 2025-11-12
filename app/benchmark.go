@@ -220,7 +220,7 @@ func NewGeneratorCh(ctx context.Context, txConfig client.TxConfig, chainID strin
 				}
 
 				txRecords = append(txRecords, &abci.TxRecord{
-					Action: abci.TxRecord_GENERATED,
+					Action: abci.TxRecord_UNMODIFIED,
 					Tx:     txbz,
 				})
 			}

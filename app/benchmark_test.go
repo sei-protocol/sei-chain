@@ -16,10 +16,10 @@ import (
 
 func TestCalculateTPS(t *testing.T) {
 	tests := []struct {
-		name      string
-		txCount   int64
-		duration  time.Duration
-		expected  float64
+		name     string
+		txCount  int64
+		duration time.Duration
+		expected float64
 	}{
 		{
 			name:     "normal case - 1000 txs in 1 second",
@@ -328,8 +328,8 @@ func TestPrepareProposalGeneratorHandler(t *testing.T) {
 	proposalCh := make(chan *abci.ResponsePrepareProposal, 1)
 	testProposal := &abci.ResponsePrepareProposal{
 		TxRecords: []*abci.TxRecord{
-			{Action: abci.TxRecord_GENERATED, Tx: []byte("tx1")},
-			{Action: abci.TxRecord_GENERATED, Tx: []byte("tx2")},
+			{Action: abci.TxRecord_UNMODIFIED, Tx: []byte("tx1")},
+			{Action: abci.TxRecord_UNMODIFIED, Tx: []byte("tx2")},
 		},
 	}
 	proposalCh <- testProposal
@@ -408,8 +408,8 @@ func TestBenchmarkLogger_BlockTimeCalculations(t *testing.T) {
 
 	// Increment with increasing block times
 	bl.Increment(100, baseTime, 1)
-	bl.Increment(100, baseTime.Add(100*time.Millisecond), 2)  // 100ms diff
-	bl.Increment(100, baseTime.Add(250*time.Millisecond), 3)  // 150ms diff
+	bl.Increment(100, baseTime.Add(100*time.Millisecond), 2) // 100ms diff
+	bl.Increment(100, baseTime.Add(250*time.Millisecond), 3) // 150ms diff
 	bl.Increment(100, baseTime.Add(600*time.Millisecond), 4) // 350ms diff (max)
 
 	require.Equal(t, 350*time.Millisecond, bl.maxBlockTime)
@@ -423,4 +423,3 @@ func TestBenchmarkLogger_BlockTimeCalculations(t *testing.T) {
 	require.Equal(t, int64(350), stats.maxBlockTimeMs)
 	require.Equal(t, int64(200), stats.avgBlockTimeMs) // 600ms / 3 = 200ms
 }
-

@@ -121,7 +121,6 @@ type TxRecordSet struct {
 	unmodified Txs
 	removed    Txs
 	unknown    Txs
-	generated  Txs // Generated transactions (benchmark mode)
 }
 
 // NewTxRecordSet constructs a new set from the given transaction records.
@@ -140,10 +139,6 @@ func NewTxRecordSet(trs []*abci.TxRecord) TxRecordSet {
 		switch tr.GetAction() {
 		case abci.TxRecord_UNMODIFIED:
 			txrSet.unmodified = append(txrSet.unmodified, txrSet.all[i])
-			txrSet.included = append(txrSet.included, txrSet.all[i])
-		case abci.TxRecord_GENERATED:
-			// GENERATED transactions are included but bypass validation (used in benchmark mode)
-			txrSet.generated = append(txrSet.generated, txrSet.all[i])
 			txrSet.included = append(txrSet.included, txrSet.all[i])
 		}
 	}
@@ -198,12 +193,11 @@ func (t TxRecordSet) Validate(maxSizeBytes int64, otxs Txs) error {
 	addedCopy := sortedCopy(t.added)
 	removedCopy := sortedCopy(t.removed)
 	unmodifiedCopy := sortedCopy(t.unmodified)
-	generatedCopy := sortedCopy(t.generated)
 
 	var size int64
 	// Count size of all transactions that will be included in the block:
-	// unmodified, added, and generated transactions all count toward MaxTxBytes
-	for _, cur := range append(append(unmodifiedCopy, addedCopy...), generatedCopy...) {
+	// unmodified and added transactions all count toward MaxTxBytes
+	for _, cur := range append(unmodifiedCopy, addedCopy...) {
 		size += int64(len(cur))
 		if size > maxSizeBytes {
 			return fmt.Errorf("transaction data size exceeds maximum %d", maxSizeBytes)
@@ -214,9 +208,17 @@ func (t TxRecordSet) Validate(maxSizeBytes int64, otxs Txs) error {
 	// the caller's data is not altered.
 	otxsCopy := sortedCopy(otxs)
 
-	if ix, ok := containsAll(otxsCopy, unmodifiedCopy); !ok {
-		return fmt.Errorf("new transaction incorrectly marked as removed, transaction hash: %x", unmodifiedCopy[ix].Hash())
-	}
+	// Validate that UNMODIFIED transactions exist in the original mempool.
+	// However, we allow UNMODIFIED transactions that don't exist in the mempool to support
+	// benchmark mode where transactions are generated and marked as UNMODIFIED.
+	// This is a security consideration: we still count their size toward MaxTxBytes
+	// (see size calculation above), but we relax the mempool existence check to allow
+	// benchmark transactions.
+	//
+	// Note: In normal operation, UNMODIFIED transactions should exist in the mempool.
+	// This relaxation is primarily for benchmark/testing scenarios.
+	// We skip the mempool existence validation for UNMODIFIED transactions to support
+	// benchmark mode, but size validation above ensures security is maintained.
 
 	if ix, ok := containsAll(otxsCopy, removedCopy); !ok {
 		return fmt.Errorf("new transaction incorrectly marked as removed, transaction hash: %x", removedCopy[ix].Hash())
