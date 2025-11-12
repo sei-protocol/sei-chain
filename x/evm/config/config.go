@@ -37,3 +37,13 @@ func IsLiveChainID(ctx sdk.Context) bool {
 	_, ok := ChainIDMapping[ctx.ChainID()]
 	return ok
 }
+
+// IsLiveEVMChainID returns true is this chainID is reserved for one of the live chains.
+func IsLiveEVMChainID(evmChainID int64) bool {
+	for _, v := range ChainIDMapping {
+		if v == evmChainID {
+			return true
+		}
+	}
+	return false
+}

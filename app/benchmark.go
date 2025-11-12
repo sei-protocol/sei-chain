@@ -7,6 +7,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	evmcfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/sei-protocol/sei-load/config"
@@ -246,6 +247,10 @@ func NewGeneratorCh(ctx context.Context, txConfig client.TxConfig, chainID strin
 
 // InitGenerator initializes the benchmark generator with default config
 func (app *App) InitGenerator(ctx context.Context, chainID string, evmChainID int64, logger log.Logger) {
+	// defensive logic just to prevent this from initializing
+	if evmcfg.IsLiveEVMChainID(evmChainID) {
+		panic("benchmark not allowed on live chains")
+	}
 	logger.Info("Initializing benchmark mode generator", "mode", "benchmark")
 	app.benchmarkLogger = &benchmarkLogger{
 		logger: logger,
@@ -269,17 +274,5 @@ func (app *App) PrepareProposalGeneratorHandler(_ sdk.Context, req *abci.Request
 		return &abci.ResponsePrepareProposal{
 			TxRecords: []*abci.TxRecord{},
 		}, nil
-	}
-}
-
-// BenchmarkEnabled returns true if the binary was built with benchmark build tag
-func BenchmarkEnabled() bool {
-	return benchmarkEnabled
-}
-
-// WithBenchmarkMode is an AppOption that enables benchmark mode with default config
-func WithBenchmarkMode() AppOption {
-	return func(app *App) {
-		app.enableBenchmarkMode = true
 	}
 }

@@ -396,7 +396,6 @@ type App struct {
 
 	txPrioritizer sdk.TxPrioritizer
 
-	enableBenchmarkMode bool
 	benchmarkProposalCh <-chan *abci.ResponsePrepareProposal
 	benchmarkLogger     *benchmarkLogger
 }
@@ -904,8 +903,8 @@ func New(
 	app.SetMidBlocker(app.MidBlocker)
 	app.SetEndBlocker(app.EndBlocker)
 
-	// Set PrepareProposalHandler - use benchmark handler if enabled, otherwise default
-	if app.enableBenchmarkMode {
+	// benchmarkEnabled is enabled via build flag (make install-bench)
+	if benchmarkEnabled {
 		evmChainID := evmconfig.GetEVMChainID(app.ChainID).Int64()
 		app.InitGenerator(context.Background(), app.ChainID, evmChainID, logger)
 		app.SetPrepareProposalHandler(app.PrepareProposalGeneratorHandler)

@@ -270,10 +270,6 @@ func newApp(
 
 	// Build app options
 	appOptions := app.EmptyAppOptions
-	// Benchmark mode is enabled via build tag (benchmark), not command line flag
-	if app.BenchmarkEnabled() {
-		appOptions = append(appOptions, app.WithBenchmarkMode())
-	}
 
 	app := app.New(
 		logger,
