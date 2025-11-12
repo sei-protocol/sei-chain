@@ -40,7 +40,8 @@ func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.
 	case parsedMessage.CallEVM != nil:
 		return evmwasm.EncodeCallEVM(parsedMessage.CallEVM, sender, info)
 	case parsedMessage.DelegateCallEVM != nil:
-		return evmwasm.EncodeDelegateCallEVM(parsedMessage.DelegateCallEVM, sender, info, codeInfo)
+		// TEMPORARY: Use CallEVM instead of DelegateCallEVM to trigger EVM->CW->EVM error at line 78
+		return evmwasm.EncodeCallEVM(parsedMessage.DelegateCallEVM, sender, info)
 	default:
 		return []sdk.Msg{}, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Wasm Message"}
 	}
