@@ -1,11 +1,10 @@
-package p2p_test
+package p2p
 
 import (
 	"net/netip"
 	"testing"
 
 	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/types"
@@ -100,71 +99,71 @@ func TestParseNodeAddress(t *testing.T) {
 
 	testcases := []struct {
 		url    string
-		expect p2p.NodeAddress
+		expect NodeAddress
 		ok     bool
 	}{
 		// Valid addresses.
 		{
 			user + "@127.0.0.1",
-			p2p.NodeAddress{NodeID: id, Hostname: "127.0.0.1"},
+			NodeAddress{NodeID: id, Hostname: "127.0.0.1", Port: defaultPort},
 			true,
 		},
 		{
 			user + "@hostname.domain",
-			p2p.NodeAddress{NodeID: id, Hostname: "hostname.domain"},
+			NodeAddress{NodeID: id, Hostname: "hostname.domain", Port: defaultPort},
 			true,
 		},
 		{
 			user + "@hostname.domain:80",
-			p2p.NodeAddress{NodeID: id, Hostname: "hostname.domain", Port: 80},
+			NodeAddress{NodeID: id, Hostname: "hostname.domain", Port: 80},
 			true,
 		},
 		{
 			user + "@%F0%9F%91%8B",
-			p2p.NodeAddress{NodeID: id, Hostname: "👋"},
+			NodeAddress{NodeID: id, Hostname: "👋", Port: defaultPort},
 			true,
 		},
 		{
 			user + "@%F0%9F%91%8B:80/path",
-			p2p.NodeAddress{NodeID: id, Hostname: "👋", Port: 80},
+			NodeAddress{NodeID: id, Hostname: "👋", Port: 80},
 			true,
 		},
 		{
 			user + "@127.0.0.1:26657",
-			p2p.NodeAddress{NodeID: id, Hostname: "127.0.0.1", Port: 26657},
+			NodeAddress{NodeID: id, Hostname: "127.0.0.1", Port: 26657},
 			true,
 		},
 		{
 			user + "@0.0.0.0:0",
-			p2p.NodeAddress{NodeID: id, Hostname: "0.0.0.0", Port: 0},
+			NodeAddress{NodeID: id, Hostname: "0.0.0.0", Port: defaultPort},
 			true,
 		},
 		{
 			user + "@[1::]",
-			p2p.NodeAddress{NodeID: id, Hostname: "1::"},
+			NodeAddress{NodeID: id, Hostname: "1::", Port: defaultPort},
 			true,
 		},
 		{
-			user + "@[fd80:b10c::2]:26657",
-			p2p.NodeAddress{NodeID: id, Hostname: "fd80:b10c::2", Port: 26657},
+			user + "@[fd80:b10c::2]:1234",
+			NodeAddress{NodeID: id, Hostname: "fd80:b10c::2", Port: 1234},
 			true,
 		},
 
 		// Invalid addresses.
-		{"", p2p.NodeAddress{}, false},
-		{"127.0.0.1", p2p.NodeAddress{}, false},
-		{"hostname", p2p.NodeAddress{}, false},
-		{"scheme:", p2p.NodeAddress{}, false},
-		{user + "@%F%F0", p2p.NodeAddress{}, false},
-		{"//" + user + "@127.0.0.1", p2p.NodeAddress{}, false},
-		{"://" + user + "@127.0.0.1", p2p.NodeAddress{}, false},
-		{"mconn://foo@127.0.0.1", p2p.NodeAddress{}, false},
-		{"mconn://" + user + "@127.0.0.1:65536", p2p.NodeAddress{}, false},
-		{"mconn://" + user + "@:80", p2p.NodeAddress{}, false},
+		{"", NodeAddress{}, false},
+		{"127.0.0.1", NodeAddress{}, false},
+		{"hostname", NodeAddress{}, false},
+		{"scheme:", NodeAddress{}, false},
+		{user + "@%F%F0", NodeAddress{}, false},
+		{"//" + user + "@127.0.0.1", NodeAddress{}, false},
+		{"://" + user + "@127.0.0.1", NodeAddress{}, false},
+		{"mconn://foo@127.0.0.1", NodeAddress{}, false},
+		{"mconn://" + user + "@127.0.0.1:65536", NodeAddress{}, false},
+		{"mconn://" + user + "@:80", NodeAddress{}, false},
 	}
 	for _, tc := range testcases {
 		t.Run(tc.url, func(t *testing.T) {
-			address, err := p2p.ParseNodeAddress(tc.url)
+			address, err := ParseNodeAddress(tc.url)
 			if !tc.ok {
 				require.Error(t, err)
 			} else {
@@ -177,47 +176,47 @@ func TestParseNodeAddress(t *testing.T) {
 
 func TestNodeAddress_Resolve(t *testing.T) {
 	testcases := []struct {
-		address p2p.NodeAddress
-		expect  p2p.Endpoint
+		address NodeAddress
+		expect  Endpoint
 		ok      bool
 	}{
 		// Valid networked addresses (with hostname).
 		{
-			p2p.NodeAddress{Hostname: "127.0.0.1", Port: 80},
-			p2p.Endpoint{netip.AddrPortFrom(tcp.IPv4Loopback(), 80)},
+			NodeAddress{Hostname: "127.0.0.1", Port: 80},
+			Endpoint{netip.AddrPortFrom(tcp.IPv4Loopback(), 80)},
 			true,
 		},
 		{
-			p2p.NodeAddress{Hostname: "127.0.0.1"},
-			p2p.Endpoint{netip.AddrPortFrom(tcp.IPv4Loopback(), 0)},
+			NodeAddress{Hostname: "127.0.0.1"},
+			Endpoint{netip.AddrPortFrom(tcp.IPv4Loopback(), 0)},
 			true,
 		},
 		{
-			p2p.NodeAddress{Hostname: "::1"},
-			p2p.Endpoint{netip.AddrPortFrom(netip.IPv6Loopback(), 0)},
+			NodeAddress{Hostname: "::1"},
+			Endpoint{netip.AddrPortFrom(netip.IPv6Loopback(), 0)},
 			true,
 		},
 		{
-			p2p.NodeAddress{Hostname: "8.8.8.8"},
-			p2p.Endpoint{netip.AddrPortFrom(netip.AddrFrom4([4]byte{8, 8, 8, 8}), 0)},
+			NodeAddress{Hostname: "8.8.8.8"},
+			Endpoint{netip.AddrPortFrom(netip.AddrFrom4([4]byte{8, 8, 8, 8}), 0)},
 			true,
 		},
 		{
-			p2p.NodeAddress{Hostname: "2001:0db8::ff00:0042:8329"},
-			p2p.Endpoint{netip.AddrPortFrom(netip.AddrFrom16([16]byte{
+			NodeAddress{Hostname: "2001:0db8::ff00:0042:8329"},
+			Endpoint{netip.AddrPortFrom(netip.AddrFrom16([16]byte{
 				0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x42, 0x83, 0x29}), 0)},
 			true,
 		},
 		{
-			p2p.NodeAddress{Hostname: "some.missing.host.tendermint.com"},
-			p2p.Endpoint{},
+			NodeAddress{Hostname: "some.missing.host.tendermint.com"},
+			Endpoint{},
 			false,
 		},
 
 		// Invalid addresses.
-		{p2p.NodeAddress{}, p2p.Endpoint{}, false},
-		{p2p.NodeAddress{Hostname: "127.0.0.1:80"}, p2p.Endpoint{}, false},
-		{p2p.NodeAddress{Hostname: "💥"}, p2p.Endpoint{}, false},
+		{NodeAddress{}, Endpoint{}, false},
+		{NodeAddress{Hostname: "127.0.0.1:80"}, Endpoint{}, false},
+		{NodeAddress{Hostname: "💥"}, Endpoint{}, false},
 	}
 	for _, tc := range testcases {
 		t.Run(tc.address.String(), func(t *testing.T) {
@@ -236,14 +235,14 @@ func TestNodeAddress_Resolve(t *testing.T) {
 		})
 	}
 	t.Run("Resolve localhost", func(t *testing.T) {
-		addr := p2p.NodeAddress{Hostname: "localhost", Port: 80}
+		addr := NodeAddress{Hostname: "localhost", Port: 80}
 		endpoints, err := addr.Resolve(t.Context())
 		require.NoError(t, err)
 		require.True(t, len(endpoints) > 0)
 		for _, got := range endpoints {
 			require.True(t, got.Addr().IsLoopback())
 			// Any loopback address is acceptable, so ignore it in comparison.
-			want := p2p.Endpoint{netip.AddrPortFrom(got.Addr(), 80)}
+			want := Endpoint{netip.AddrPortFrom(got.Addr(), 80)}
 			require.Equal(t, want, got)
 		}
 	})
@@ -253,22 +252,22 @@ func TestNodeAddress_String(t *testing.T) {
 	id := types.NodeID("00112233445566778899aabbccddeeff00112233")
 	user := string(id)
 	testcases := []struct {
-		address p2p.NodeAddress
+		address NodeAddress
 		expect  string
 	}{
 		// Valid networked addresses (with hostname).
 		{
-			p2p.NodeAddress{NodeID: id, Hostname: "host", Port: 80},
+			NodeAddress{NodeID: id, Hostname: "host", Port: 80},
 			"mconn://" + user + "@host:80",
 		},
 		{
-			p2p.NodeAddress{NodeID: id, Hostname: "host.domain"},
+			NodeAddress{NodeID: id, Hostname: "host.domain"},
 			"mconn://" + user + "@host.domain",
 		},
 
 		// Addresses with weird contents, which are technically fine (not harmful).
 		{
-			p2p.NodeAddress{NodeID: "👨", Hostname: "💻", Port: 80},
+			NodeAddress{NodeID: "👨", Hostname: "💻", Port: 80},
 			"mconn://%F0%9F%91%A8@%F0%9F%92%BB:80",
 		},
 	}
@@ -282,17 +281,17 @@ func TestNodeAddress_String(t *testing.T) {
 func TestNodeAddress_Validate(t *testing.T) {
 	id := types.NodeID("00112233445566778899aabbccddeeff00112233")
 	testcases := []struct {
-		address p2p.NodeAddress
+		address NodeAddress
 		ok      bool
 	}{
 		// Valid addresses.
-		{p2p.NodeAddress{NodeID: id, Hostname: "host", Port: 80}, true},
-		{p2p.NodeAddress{NodeID: id, Hostname: "host"}, true},
+		{NodeAddress{NodeID: id, Hostname: "host", Port: 80}, true},
 
 		// Invalid addresses.
-		{p2p.NodeAddress{}, false},
-		{p2p.NodeAddress{NodeID: "foo", Hostname: "host"}, false},
-		{p2p.NodeAddress{NodeID: id, Port: 80}, false},
+		{NodeAddress{}, false},
+		{NodeAddress{NodeID: id, Hostname: "host"}, false},
+		{NodeAddress{NodeID: "foo", Hostname: "host", Port: defaultPort}, false},
+		{NodeAddress{NodeID: id, Port: defaultPort}, false},
 	}
 	for _, tc := range testcases {
 		t.Run(tc.address.String(), func(t *testing.T) {

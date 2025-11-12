@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/netip"
 	"sync"
 	"time"
 
@@ -333,9 +332,6 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (*net.TCPConn, erro
 		}
 		if err := endpoint.Validate(); err != nil {
 			return nil, err
-		}
-		if endpoint.Port() == 0 {
-			endpoint.AddrPort = netip.AddrPortFrom(endpoint.Addr(), 26657)
 		}
 		dialer := net.Dialer{}
 		tcpConn, err := dialer.DialContext(dialCtx, "tcp", endpoint.String())
