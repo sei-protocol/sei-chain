@@ -2,7 +2,8 @@ package config
 
 const (
 	DefaultSnapshotInterval          = 10000
-	DefaultSnapshotKeepRecent        = 0 // set to 0 to only keep one current snapshot
+	DefaultSnapshotKeepRecent        = 0    // set to 0 to only keep one current snapshot
+	DefaultSnapshotMinTimeInterval   = 3600 // 1 hour in seconds
 	DefaultAsyncCommitBuffer         = 100
 	DefaultSnapshotPrefetchThreshold = 0.8 // prefetch if <80% pages in cache
 	DefaultSSKeepRecent              = 100000
@@ -39,6 +40,10 @@ type StateCommitConfig struct {
 
 	// SnapshotInterval defines the block interval the memiavl snapshot is taken, default to 10000.
 	SnapshotInterval uint32 `mapstructure:"snapshot-interval"`
+
+	// SnapshotMinTimeInterval defines the minimum time interval (in seconds) between snapshots.
+	// This prevents excessive snapshot creation during catch-up. Default to 3600 seconds (1 hour).
+	SnapshotMinTimeInterval uint32 `mapstructure:"snapshot-min-time-interval"`
 
 	// SnapshotWriterLimit defines the concurrency for taking commit store snapshot
 	SnapshotWriterLimit int `mapstructure:"snapshot-writer-limit"`
@@ -108,6 +113,7 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		AsyncCommitBuffer:         DefaultAsyncCommitBuffer,
 		SnapshotInterval:          DefaultSnapshotInterval,
 		SnapshotKeepRecent:        DefaultSnapshotKeepRecent,
+		SnapshotMinTimeInterval:   DefaultSnapshotMinTimeInterval,
 		SnapshotPrefetchThreshold: DefaultSnapshotPrefetchThreshold,
 	}
 }

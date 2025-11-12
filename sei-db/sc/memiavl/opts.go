@@ -43,6 +43,10 @@ type Options struct {
 	// Prefetch the snapshot file if amount of file in cache is below the threshold
 	// Setting to <=0 means disable prefetching
 	PrefetchThreshold float64
+
+	// Minimum time interval between snapshots (in seconds)
+	// This prevents excessive snapshot creation. Default is 3600 seconds (1 hour)
+	SnapshotMinTimeInterval uint32
 }
 
 func (opts Options) Validate() error {
@@ -64,6 +68,10 @@ func (opts *Options) FillDefaults() {
 
 	if opts.SnapshotWriterLimit <= 0 {
 		opts.SnapshotWriterLimit = runtime.NumCPU()
+	}
+
+	if opts.SnapshotMinTimeInterval <= 0 {
+		opts.SnapshotMinTimeInterval = 3600 // 1 hour in seconds
 	}
 
 	opts.PrefetchThreshold = 0.8

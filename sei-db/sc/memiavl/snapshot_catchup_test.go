@@ -10,22 +10,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSnapshotThrottlingDuringCatchup verifies that snapshots are throttled during catch-up scenarios
-func TestSnapshotThrottlingDuringCatchup(t *testing.T) {
+// TestSnapshotTimeThrottling verifies that snapshots are throttled by minimum time interval
+func TestSnapshotTimeThrottling(t *testing.T) {
 	dir := t.TempDir()
 
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:              dir,
-		CreateIfMissing:  true,
-		InitialStores:    []string{"test"},
-		SnapshotInterval: 100, // Small interval for testing
+		Dir:                     dir,
+		CreateIfMissing:         true,
+		InitialStores:           []string{"test"},
+		SnapshotInterval:        100,  // Small interval for testing
+		SnapshotMinTimeInterval: 3600, // 1 hour minimum time interval
 	})
 	require.NoError(t, err)
 	defer db.Close()
 
-	// Apply changesets to simulate catch-up scenario
-	// We'll commit 15000 blocks rapidly (simulating state sync catch-up)
-	for i := 0; i < 15000; i++ {
+	// Apply changesets rapidly (simulating state sync catch-up)
+	// Even though we exceed the block interval (100 blocks), snapshots won't be created
+	// because the minimum time interval (1 hour) hasn't elapsed
+	for i := 0; i < 1000; i++ {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: "test",
@@ -55,9 +57,10 @@ func TestSnapshotThrottlingDuringCatchup(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Less(t, snapshotCount, 5, "should create very few snapshots during rapid catch-up")
+	// Should create at most 1 snapshot because time threshold (1 hour) prevents more
+	require.LessOrEqual(t, snapshotCount, 1, "should create very few snapshots when time threshold not met")
 
-	t.Logf("Snapshots created during catch-up: %d (expected < 5)", snapshotCount)
+	t.Logf("Snapshots created during rapid commits: %d (expected <= 1)", snapshotCount)
 }
 
 // TestSnapshotCreationAfterTimeThreshold verifies snapshot creation after time threshold
@@ -143,21 +146,22 @@ func TestSnapshotCreationAfterTimeThreshold(t *testing.T) {
 	t.Logf("Snapshots before: %d, after: %d", initialCount, finalCount)
 }
 
-// TestSnapshotNormalOperation verifies normal snapshot creation without throttling
-func TestSnapshotNormalOperation(t *testing.T) {
+// TestSnapshotWithShortTimeInterval verifies snapshot creation with short time intervals
+func TestSnapshotWithShortTimeInterval(t *testing.T) {
 	dir := t.TempDir()
 
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:              dir,
-		CreateIfMissing:  true,
-		InitialStores:    []string{"test"},
-		SnapshotInterval: 100,
+		Dir:                     dir,
+		CreateIfMissing:         true,
+		InitialStores:           []string{"test"},
+		SnapshotInterval:        100,
+		SnapshotMinTimeInterval: 1, // 1 second minimum time interval for testing
 	})
 	require.NoError(t, err)
 	defer db.Close()
 
-	// Simulate normal operation with moderate block intervals
-	// 500 blocks should not trigger throttling (< 10000 threshold)
+	// Commit blocks with short time intervals between them
+	// This allows multiple snapshots to be created since time threshold is low (1 second)
 	for i := 0; i < 500; i++ {
 		cs := []*proto.NamedChangeSet{
 			{
@@ -174,9 +178,9 @@ func TestSnapshotNormalOperation(t *testing.T) {
 		require.NoError(t, err)
 
 		// Check and wait for background snapshots periodically
-		// Wait longer to ensure snapshot completes
+		// Add small delay to allow time threshold to be met
 		if i%100 == 0 && i > 0 {
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(1100 * time.Millisecond) // > 1 second to meet time threshold
 			require.NoError(t, db.checkBackgroundSnapshotRewrite())
 		}
 	}
@@ -185,7 +189,7 @@ func TestSnapshotNormalOperation(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	require.NoError(t, db.checkBackgroundSnapshotRewrite())
 
-	// Count snapshots - should have multiple snapshots (not throttled)
+	// Count snapshots - should have multiple snapshots
 	snapshotCount := 0
 	err = traverseSnapshots(dir, true, func(version int64) (bool, error) {
 		if version > 0 {
@@ -196,9 +200,9 @@ func TestSnapshotNormalOperation(t *testing.T) {
 	require.NoError(t, err)
 
 	// 500 blocks / 100 interval = up to 5 snapshots
-	// In async mode, we expect at least 1 snapshot to be created
-	// (timing-dependent, but catch-up logic should NOT prevent creation for < 10000 blocks)
-	require.GreaterOrEqual(t, snapshotCount, 1, "should create regular snapshots during normal operation")
+	// With 1 second time threshold and delays, we should create at least 1 snapshot
+	// (actual count depends on timing and background processing)
+	require.GreaterOrEqual(t, snapshotCount, 1, "should create snapshots with short time interval")
 
-	t.Logf("Snapshots created during normal operation: %d (expected 1-5 depending on timing)", snapshotCount)
+	t.Logf("Snapshots created with short time interval: %d (expected >= 1)", snapshotCount)
 }

@@ -63,6 +63,8 @@ type DB struct {
 	snapshotKeepRecent uint32
 	// block interval to take a new snapshot
 	snapshotInterval uint32
+	// minimum time interval between snapshots (in seconds)
+	snapshotMinTimeInterval uint32
 	// timestamp of the last successful snapshot creation
 	lastSnapshotTime time.Time
 	// make sure only one snapshot rewrite is running
@@ -89,12 +91,19 @@ type DB struct {
 const (
 	SnapshotPrefix = "snapshot-"
 	SnapshotDirLen = len(SnapshotPrefix) + 20
-
-	// Catch-up detection: time threshold for snapshot creation
-	// During rapid catch-up (e.g., state sync), skip snapshot if time since last < threshold
-	// This prevents excessive snapshot creation during state sync catch-up
-	CatchupTimeThreshold = 60 * time.Minute // 60 minutes
 )
+
+// getSnapshotModTime returns the modification time of the snapshot directory.
+// If the directory doesn't exist or there's an error, returns current time.
+func getSnapshotModTime(dir string, version int64) time.Time {
+	snapshotDir := filepath.Join(dir, snapshotName(version))
+	info, err := os.Stat(snapshotDir)
+	if err != nil {
+		// If we can't get the modification time, use current time as fallback
+		return time.Now()
+	}
+	return info.ModTime()
+}
 
 func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *DB, _err error) {
 	startTime := time.Now()
@@ -211,18 +220,23 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 	// create worker pool. recv tasks to write snapshot
 	workerPool := pond.New(opts.SnapshotWriterLimit, opts.SnapshotWriterLimit*10)
 
+	// Initialize lastSnapshotTime from the current snapshot directory's modification time
+	// This ensures accurate time tracking even after restarts
+	lastSnapshotTime := getSnapshotModTime(opts.Dir, mtree.Version())
+
 	db := &DB{
-		MultiTree:          *mtree,
-		logger:             logger,
-		dir:                opts.Dir,
-		fileLock:           fileLock,
-		readOnly:           opts.ReadOnly,
-		streamHandler:      streamHandler,
-		snapshotKeepRecent: opts.SnapshotKeepRecent,
-		snapshotInterval:   opts.SnapshotInterval,
-		lastSnapshotTime:   time.Now(), // Initialize to current time on startup
-		snapshotWriterPool: workerPool,
-		opts:               opts,
+		MultiTree:               *mtree,
+		logger:                  logger,
+		dir:                     opts.Dir,
+		fileLock:                fileLock,
+		readOnly:                opts.ReadOnly,
+		streamHandler:           streamHandler,
+		snapshotKeepRecent:      opts.SnapshotKeepRecent,
+		snapshotInterval:        opts.SnapshotInterval,
+		snapshotMinTimeInterval: opts.SnapshotMinTimeInterval,
+		lastSnapshotTime:        lastSnapshotTime,
+		snapshotWriterPool:      workerPool,
+		opts:                    opts,
 	}
 
 	if !db.readOnly && db.Version() == 0 && len(opts.InitialStores) > 0 {
@@ -646,40 +660,26 @@ func (db *DB) rewriteIfApplicable(height int64) {
 	snapshotVersion := db.SnapshotVersion()
 	blocksSinceLastSnapshot := height - snapshotVersion
 
-	// create snapshot when current height - last snapshot height >= interval
+	// Create snapshot when both conditions are met:
+	// 1. Block height interval is reached (height - last snapshot >= interval)
+	// 2. Minimum time interval has elapsed (prevents excessive snapshots during catch-up)
 	if blocksSinceLastSnapshot >= int64(db.snapshotInterval) {
 		timeSinceLastSnapshot := time.Since(db.lastSnapshotTime)
+		minTimeInterval := time.Duration(db.snapshotMinTimeInterval) * time.Second
 
-		// Catch-up detection: check if we're processing blocks rapidly
-		// Calculate average block processing speed
-		// Normal operation: ~2.5 blocks/sec (400ms per block)
-		// Catch-up/state-sync: 4-20 blocks/sec
-		// Only apply catch-up throttling if we've processed a significant number of blocks (> 1000)
-		// This prevents tests with small snapshotInterval from being throttled
-		secondsElapsed := timeSinceLastSnapshot.Seconds()
-		if secondsElapsed > 0 && blocksSinceLastSnapshot > 1000 {
-			blocksPerSecond := float64(blocksSinceLastSnapshot) / secondsElapsed
-
-			// If processing > 10 blocks/sec, we're in catch-up mode
-			// Threshold set above normal (2.5) with buffer to avoid false positives
-			// In catch-up mode, only create snapshot if time threshold is exceeded
-			if blocksPerSecond > 10 {
-				if timeSinceLastSnapshot < CatchupTimeThreshold {
-					db.logger.Debug("skipping snapshot during catch-up",
-						"blocks_since_last", blocksSinceLastSnapshot,
-						"time_since_last", timeSinceLastSnapshot,
-						"blocks_per_sec", blocksPerSecond,
-						"time_threshold", CatchupTimeThreshold,
-					)
-					return
-				}
-				db.logger.Info("creating snapshot during catch-up (time threshold exceeded)",
-					"blocks_since_last", blocksSinceLastSnapshot,
-					"time_since_last", timeSinceLastSnapshot,
-					"blocks_per_sec", blocksPerSecond,
-				)
-			}
+		if timeSinceLastSnapshot < minTimeInterval {
+			db.logger.Debug("skipping snapshot (minimum time interval not reached)",
+				"blocks_since_last", blocksSinceLastSnapshot,
+				"time_since_last", timeSinceLastSnapshot,
+				"min_time_interval", minTimeInterval,
+			)
+			return
 		}
+
+		db.logger.Info("creating snapshot",
+			"blocks_since_last", blocksSinceLastSnapshot,
+			"time_since_last", timeSinceLastSnapshot,
+		)
 
 		if err := db.rewriteSnapshotBackground(); err != nil {
 			db.logger.Error("failed to rewrite snapshot in background", "err", err)

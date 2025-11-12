@@ -29,6 +29,10 @@ sc-keep-recent = {{ .StateCommit.SnapshotKeepRecent }}
 # SnapshotInterval defines the block interval the snapshot is taken, default to 10000 blocks.
 sc-snapshot-interval = {{ .StateCommit.SnapshotInterval }}
 
+# SnapshotMinTimeInterval defines the minimum time interval (in seconds) between snapshots.
+# This prevents excessive snapshot creation during catch-up. Default to 3600 seconds (1 hour).
+sc-snapshot-min-time-interval = {{ .StateCommit.SnapshotMinTimeInterval }}
+
 # SnapshotWriterLimit defines the max concurrency for taking commit store snapshot
 sc-snapshot-writer-limit = {{ .StateCommit.SnapshotWriterLimit }}
 

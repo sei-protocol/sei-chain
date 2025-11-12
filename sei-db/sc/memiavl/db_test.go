@@ -163,15 +163,16 @@ func RequireCommitWithNoError(t *testing.T, db *DB, key, val string) int64 {
 func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 	dir := t.TempDir()
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:                dir,
-		CreateIfMissing:    true,
-		InitialStores:      []string{"test"},
-		SnapshotInterval:   5,
-		SnapshotKeepRecent: 0,
+		Dir:                     dir,
+		CreateIfMissing:         true,
+		InitialStores:           []string{"test"},
+		SnapshotInterval:        5,
+		SnapshotKeepRecent:      0,
+		SnapshotMinTimeInterval: 1, // 1 second minimum time interval for testing
 	})
 	require.NoError(t, err)
 
-	// Heights 1..4 should NOT trigger because diff<=interval
+	// Heights 1..4 should NOT trigger because diff<interval
 	for i := 1; i < 5; i++ {
 		v := RequireCommitWithNoError(t, db, "k"+strconv.Itoa(i), "v")
 		require.EqualValues(t, i, v)
@@ -182,7 +183,10 @@ func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 		require.EqualValues(t, 0, db.MultiTree.SnapshotVersion())
 	}
 
-	// Height 5 should trigger rewrite
+	// Wait for minimum time interval to elapse (1 second + buffer)
+	time.Sleep(1100 * time.Millisecond)
+
+	// Height 5 should trigger rewrite (interval reached and time threshold met)
 	v := RequireCommitWithNoError(t, db, "k6", "v")
 	require.Equal(t, int64(5), v)
 
@@ -195,7 +199,7 @@ func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 		return db.snapshotRewriteChan == nil
 	}, 5*time.Second, 100*time.Millisecond)
 
-	// After completion, snapshot version should be 6
+	// After completion, snapshot version should be 5
 	require.EqualValues(t, 5, db.MultiTree.SnapshotVersion())
 
 	require.NoError(t, db.Close())
@@ -531,11 +535,12 @@ func TestFastCommit(t *testing.T) {
 	dir := t.TempDir()
 
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:               dir,
-		CreateIfMissing:   true,
-		InitialStores:     []string{"test"},
-		SnapshotInterval:  3,
-		AsyncCommitBuffer: 10,
+		Dir:                     dir,
+		CreateIfMissing:         true,
+		InitialStores:           []string{"test"},
+		SnapshotInterval:        3,
+		AsyncCommitBuffer:       10,
+		SnapshotMinTimeInterval: 1, // 1 second for testing
 	})
 	require.NoError(t, err)
 
@@ -553,6 +558,10 @@ func TestFastCommit(t *testing.T) {
 		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{Name: "test", Changeset: cs}}))
 		_, err := db.Commit()
 		require.NoError(t, err)
+		// After reaching snapshot interval (3), wait for time threshold to be met
+		if i == 2 {
+			time.Sleep(1100 * time.Millisecond)
+		}
 	}
 	<-db.snapshotRewriteChan
 	require.NoError(t, db.Close())
