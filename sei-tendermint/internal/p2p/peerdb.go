@@ -1,13 +1,13 @@
 package p2p
 
 import (
-	"fmt"
-	"time"
 	"cmp"
+	"fmt"
 	"iter"
+	"time"
 
-	"github.com/google/btree"
 	"github.com/gogo/protobuf/proto"
+	"github.com/google/btree"
 	"github.com/google/orderedcode"
 	dbm "github.com/tendermint/tm-db"
 
@@ -19,35 +19,35 @@ import (
 // peerInfoFromProto converts a Protobuf PeerInfo message to a peerInfo,
 // erroring if the data is invalid.
 func peerDBRowFromProto(msg *p2pproto.PeerInfo) (peerDBRow, error) {
-	if msg.LastConnected==nil {
+	if msg.LastConnected == nil {
 		return peerDBRow{}, fmt.Errorf("missing LastConnected")
 	}
-	if len(msg.AddressInfo)==0 {
+	if len(msg.AddressInfo) == 0 {
 		return peerDBRow{}, fmt.Errorf("missing AddressInfo")
 	}
 	addr, err := ParseNodeAddress(msg.AddressInfo[0].Address)
-	if err!=nil {
-		return peerDBRow{},fmt.Errorf("ParseNodeAddress(): %w",err)
+	if err != nil {
+		return peerDBRow{}, fmt.Errorf("ParseNodeAddress(): %w", err)
 	}
 	return peerDBRow{
-		Addr: addr,
+		Addr:          addr,
 		LastConnected: *msg.LastConnected,
-	},nil
+	}, nil
 }
 
-func peerDBRowFromBytes(buf []byte) (peerDBRow,error) {
+func peerDBRowFromBytes(buf []byte) (peerDBRow, error) {
 	var msg p2pproto.PeerInfo
 	if err := proto.Unmarshal(buf, &msg); err != nil {
 		return peerDBRow{}, fmt.Errorf("invalid peer Protobuf data: %w", err)
 	}
-	row,err := peerDBRowFromProto(&msg)
-	if err!=nil {
+	row, err := peerDBRowFromProto(&msg)
+	if err != nil {
 		return peerDBRow{}, err
 	}
-	if err:=row.Addr.Validate(); err!=nil {
+	if err := row.Addr.Validate(); err != nil {
 		return peerDBRow{}, err
 	}
-	return row,nil
+	return row, nil
 }
 
 // ToProto converts the peerInfo to p2pproto.PeerInfo for database storage. The
@@ -58,7 +58,7 @@ func (r peerDBRow) ToProto() *p2pproto.PeerInfo {
 	return &p2pproto.PeerInfo{
 		ID:            string(r.Addr.NodeID),
 		LastConnected: utils.Alloc(r.LastConnected),
-		AddressInfo: []*p2pproto.PeerAddressInfo{{Address: r.Addr.String()}},
+		AddressInfo:   []*p2pproto.PeerAddressInfo{{Address: r.Addr.String()}},
 	}
 }
 
@@ -91,20 +91,20 @@ func keyPeerInfoRange() ([]byte, []byte) {
 
 type peerDBRow struct {
 	LastConnected time.Time
-	Addr NodeAddress
+	Addr          NodeAddress
 }
 
 func (a peerDBRow) Compare(b peerDBRow) int {
 	return cmp.Or(
 		a.LastConnected.Compare(b.LastConnected),
-		cmp.Compare(a.Addr.NodeID,b.Addr.NodeID),
+		cmp.Compare(a.Addr.NodeID, b.Addr.NodeID),
 	)
 }
 
 type peerDB struct {
-	db dbm.DB
-	maxRows int
-	byNodeID map[types.NodeID]peerDBRow
+	db              dbm.DB
+	maxRows         int
+	byNodeID        map[types.NodeID]peerDBRow
 	byLastConnected *btree.BTreeG[peerDBRow]
 }
 
@@ -117,28 +117,28 @@ func newPeerDB(db dbm.DB, maxRows int) (*peerDB, error) {
 	}
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
-		r,err := peerDBRowFromBytes(iter.Value())
-		if err!=nil {
+		r, err := peerDBRowFromBytes(iter.Value())
+		if err != nil {
 			// Prune invalid data.
-			if err:=db.Delete(iter.Key());err!=nil {
+			if err := db.Delete(iter.Key()); err != nil {
 				return nil, fmt.Errorf("failed to delete invalid peer info: %w", err)
 			}
 			continue
 		}
 		byNodeID[r.Addr.NodeID] = r
 	}
-	byLastConnected := btree.NewG(2,func(a,b peerDBRow) bool { return a.Compare(b)<0 })
-	for _,r := range byNodeID {
+	byLastConnected := btree.NewG(2, func(a, b peerDBRow) bool { return a.Compare(b) < 0 })
+	for _, r := range byNodeID {
 		byLastConnected.ReplaceOrInsert(r)
 	}
 	if iter.Error() != nil {
 		return nil, iter.Error()
 	}
-	peerDB := &peerDB{db,maxRows,byNodeID,byLastConnected}
-	if err:=peerDB.truncate(); err!=nil {
-		return nil,err
+	peerDB := &peerDB{db, maxRows, byNodeID, byLastConnected}
+	if err := peerDB.truncate(); err != nil {
+		return nil, err
 	}
-	return peerDB,nil
+	return peerDB, nil
 }
 
 func (db *peerDB) All() iter.Seq[NodeAddress] {
@@ -148,24 +148,24 @@ func (db *peerDB) All() iter.Seq[NodeAddress] {
 }
 
 func (db *peerDB) Insert(addr NodeAddress, lastConnected time.Time) error {
-	old,oldOk := db.byNodeID[addr.NodeID]
+	old, oldOk := db.byNodeID[addr.NodeID]
 	if oldOk && !old.LastConnected.Before(lastConnected) {
 		return nil
 	}
-	r := peerDBRow {lastConnected, addr}
+	r := peerDBRow{lastConnected, addr}
 	bz, err := r.ToProto().Marshal()
 	if err != nil {
-		panic(fmt.Errorf("info.ToProto().Marshal(): %w",err))
+		panic(fmt.Errorf("info.ToProto().Marshal(): %w", err))
 	}
-	if err:=db.db.Set(keyPeerInfo(r.Addr.NodeID), bz); err!=nil {
-		return fmt.Errorf("Set(): %w",err)
+	if err := db.db.Set(keyPeerInfo(r.Addr.NodeID), bz); err != nil {
+		return fmt.Errorf("Set(): %w", err)
 	}
 	if oldOk {
 		db.byLastConnected.Delete(old)
 	}
 	db.byNodeID[addr.NodeID] = r
 	db.byLastConnected.ReplaceOrInsert(r)
-	if err:=db.truncate(); err!=nil {
+	if err := db.truncate(); err != nil {
 		return err
 	}
 	return nil
@@ -174,13 +174,15 @@ func (db *peerDB) Insert(addr NodeAddress, lastConnected time.Time) error {
 func (db *peerDB) truncate() error {
 	var toPrune []types.NodeID
 	db.byLastConnected.Ascend(func(r peerDBRow) bool {
-		if len(db.byNodeID)-len(toPrune) <= db.maxRows { return false }
+		if len(db.byNodeID)-len(toPrune) <= db.maxRows {
+			return false
+		}
 		toPrune = append(toPrune, r.Addr.NodeID)
 		return true
 	})
 	for _, id := range toPrune {
-		if err:=db.db.Delete(keyPeerInfo(id)); err!=nil {
-			return fmt.Errorf("Delete(): %w",err)
+		if err := db.db.Delete(keyPeerInfo(id)); err != nil {
+			return fmt.Errorf("Delete(): %w", err)
 		}
 	}
 	for _, id := range toPrune {

@@ -21,7 +21,6 @@ import (
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/internal/p2p/pex"
-	"github.com/tendermint/tendermint/libs/utils"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/internal/state/indexer"
 	"github.com/tendermint/tendermint/internal/statesync"
@@ -29,6 +28,7 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	tmnet "github.com/tendermint/tendermint/libs/net"
 	tmstrings "github.com/tendermint/tendermint/libs/strings"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/privval"
 	tmgrpc "github.com/tendermint/tendermint/privval/grpc"
 	"github.com/tendermint/tendermint/types"
@@ -243,7 +243,7 @@ func createRouter(
 
 	options.SelfAddress = utils.Some(selfAddr)
 	options.MaxConnected = utils.Some(maxConns)
-	options.MaxPeers = utils.Some(2*maxConns)
+	options.MaxPeers = utils.Some(2 * maxConns)
 	options.PrivatePeers = privatePeerIDs
 
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PersistentPeers, ",", " ") {
@@ -267,19 +267,19 @@ func createRouter(
 		if err != nil {
 			return nil, closer, fmt.Errorf("invalid peer address %q: %w", p, err)
 		}
-		options.PersistentPeers = append(options.PersistentPeers,address)
-		options.BlockSyncPeers = append(options.BlockSyncPeers,address.NodeID)
+		options.PersistentPeers = append(options.PersistentPeers, address)
+		options.BlockSyncPeers = append(options.BlockSyncPeers, address.NodeID)
 	}
 
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.UnconditionalPeerIDs, ",", " ") {
-		options.UnconditionalPeers = append(options.UnconditionalPeers,types.NodeID(p))
+		options.UnconditionalPeers = append(options.UnconditionalPeers, types.NodeID(p))
 	}
 	peerDB, err := dbProvider(&config.DBContext{ID: "peerstore", Config: cfg})
 	if err != nil {
 		return nil, closer, fmt.Errorf("unable to initialize peer store: %w", err)
 	}
 	closer = peerDB.Close
-	router,err := p2p.NewRouter(
+	router, err := p2p.NewRouter(
 		logger.With("module", "p2p"),
 		p2pMetrics,
 		nodeKey.PrivKey,
@@ -287,7 +287,7 @@ func createRouter(
 		peerDB,
 		options,
 	)
-	if err!=nil {
+	if err != nil {
 		return nil, closer, fmt.Errorf("p2p.NewRouter(): %w", err)
 	}
 	return router, closer, nil

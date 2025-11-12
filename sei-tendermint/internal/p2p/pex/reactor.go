@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"golang.org/x/time/rate"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
@@ -15,6 +14,7 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	protop2p "github.com/tendermint/tendermint/proto/tendermint/p2p"
 	"github.com/tendermint/tendermint/types"
+	"golang.org/x/time/rate"
 )
 
 var (
@@ -42,7 +42,7 @@ const (
 	maxMsgSize = maxAddressSize * maxGetSelection
 
 	// the minimum time one peer can send another request to the same peer
-	maxPeerRecvBurst = 10
+	maxPeerRecvBurst    = 10
 	DefaultSendInterval = 10 * time.Second
 
 	// the maximum amount of addresses that can be included in a response
@@ -78,11 +78,11 @@ func ChannelDescriptor() conn.ChannelDescriptor {
 type Reactor struct {
 	service.BaseService
 	sendInterval time.Duration
-	logger log.Logger
-	router *p2p.Router
+	logger       log.Logger
+	router       *p2p.Router
 	// peerLimiters limits the number of messages received from peers.
 	peerLimiters utils.Mutex[map[types.NodeID]*rate.Limiter]
-	channel *p2p.Channel
+	channel      *p2p.Channel
 }
 
 // NewReactor returns a reference to a new reactor.
@@ -96,10 +96,10 @@ func NewReactor(
 		return nil, err
 	}
 	r := &Reactor{
-		logger:                        logger,
+		logger:       logger,
 		sendInterval: sendInterval,
-		channel:                       channel,
-		router:                        router,
+		channel:      channel,
+		router:       router,
 		peerLimiters: utils.NewMutex(map[types.NodeID]*rate.Limiter{}),
 	}
 	r.BaseService = *service.NewBaseService(logger, "PEX", r)
@@ -128,7 +128,7 @@ func (r *Reactor) sendRoutine(ctx context.Context) error {
 	for {
 		r.logger.Info("PEX broadcast")
 		r.channel.Broadcast(&protop2p.PexRequest{})
-		if err:=utils.Sleep(ctx, r.sendInterval); err!=nil {
+		if err := utils.Sleep(ctx, r.sendInterval); err != nil {
 			return err
 		}
 	}
@@ -137,7 +137,7 @@ func (r *Reactor) sendRoutine(ctx context.Context) error {
 // processPexCh implements a blocking event loop where we listen for p2p
 // Envelope messages from the pexCh.
 func (r *Reactor) processPexCh(ctx context.Context) error {
-	for ctx.Err()==nil {
+	for ctx.Err() == nil {
 		m, err := r.channel.Recv(ctx)
 		if err != nil {
 			return err
@@ -173,8 +173,8 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 // duration is 0.
 func (r *Reactor) handlePexMessage(m p2p.RecvMsg) error {
 	for peerLimiters := range r.peerLimiters.Lock() {
-		if _,ok := peerLimiters[m.From]; !ok {
-			peerLimiters[m.From] = rate.NewLimiter(maxPeerRecvRate,maxPeerRecvBurst)
+		if _, ok := peerLimiters[m.From]; !ok {
+			peerLimiters[m.From] = rate.NewLimiter(maxPeerRecvRate, maxPeerRecvBurst)
 		}
 		if !peerLimiters[m.From].Allow() {
 			return fmt.Errorf("peer rate limit exceeded")
@@ -205,9 +205,9 @@ func (r *Reactor) handlePexMessage(m p2p.RecvMsg) error {
 			if err != nil {
 				return fmt.Errorf("PEX parse node address error: %w", err)
 			}
-			addrs = append(addrs,addr)
+			addrs = append(addrs, addr)
 		}
-		if err := r.router.AddAddrs(addrs); err!=nil {
+		if err := r.router.AddAddrs(addrs); err != nil {
 			return fmt.Errorf("failed adding addresses from PEX response: %w", err)
 		}
 		return nil

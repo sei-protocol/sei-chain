@@ -15,9 +15,9 @@ import (
 
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/internal/test/factory"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/libs/utils"
 	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
@@ -52,8 +52,10 @@ func setup(t *testing.T) *testSuite {
 		},
 	})
 	n := network.Nodes()[0]
-	ch,err := n.Router.OpenChannel(GetLightBlockChannelDescriptor())
-	if err!=nil { panic(err) }
+	ch, err := n.Router.OpenChannel(GetLightBlockChannelDescriptor())
+	if err != nil {
+		panic(err)
+	}
 	network.Start(t)
 	t.Cleanup(leaktest.Check(t))
 
@@ -78,11 +80,13 @@ func (ts *testSuite) AddPeer(t *testing.T) *Node {
 		MaxPeers:     utils.Some(1),
 		MaxConnected: utils.Some(1),
 	})
-	blockCh,err := testNode.Router.OpenChannel(GetLightBlockChannelDescriptor())
-	if err!=nil { panic(err) }
+	blockCh, err := testNode.Router.OpenChannel(GetLightBlockChannelDescriptor())
+	if err != nil {
+		panic(err)
+	}
 	n := &Node{
 		TestNode: testNode,
-		blockCh: blockCh,
+		blockCh:  blockCh,
 	}
 	ts.node.Connect(t.Context(), testNode)
 	return n

@@ -134,7 +134,7 @@ func (l *Listener) AcceptOrClose(ctx context.Context) (*net.TCPConn, error) {
 	return nil, err
 }
 
-func ReadOrClose(ctx context.Context, conn *net.TCPConn, buf []byte) (int,error) {
+func ReadOrClose(ctx context.Context, conn *net.TCPConn, buf []byte) (int, error) {
 	var res atomic.Pointer[int]
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
@@ -154,7 +154,7 @@ func ReadOrClose(ctx context.Context, conn *net.TCPConn, buf []byte) (int,error)
 	if err != nil {
 		// Late close in case Read succeded while context got canceled.
 		conn.Close()
-		return 0,err
+		return 0, err
 	}
 	return *res.Load(), nil
 }

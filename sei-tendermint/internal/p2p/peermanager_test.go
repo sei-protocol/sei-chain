@@ -1,38 +1,38 @@
 package p2p
 
 import (
-	"fmt"
 	"context"
-	"testing"
-	"time"
+	"fmt"
 	"math/rand"
 	"sync/atomic"
+	"testing"
+	"time"
 
+	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/crypto/ed25519"
 
 	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/types"
 )
 
 type fakeConn struct {
-	info peerConnInfo
+	info   peerConnInfo
 	closed atomic.Bool
 }
 
 func makeConnFor(rng *rand.Rand, id types.NodeID, dialing bool) *fakeConn {
-	info := peerConnInfo {ID: id}
+	info := peerConnInfo{ID: id}
 	if dialing {
-		info.DialAddr = utils.Some(makeAddrFor(rng,id))
+		info.DialAddr = utils.Some(makeAddrFor(rng, id))
 	}
-	return &fakeConn {info: info}
+	return &fakeConn{info: info}
 }
 
 func makeConnTo(addr NodeAddress) *fakeConn {
-	return &fakeConn {
-		info: peerConnInfo {
-			ID: addr.NodeID,
+	return &fakeConn{
+		info: peerConnInfo{
+			ID:       addr.NodeID,
 			DialAddr: utils.Some(addr),
 		},
 	}
@@ -53,7 +53,7 @@ func (c *fakeConn) Close() {
 }
 
 func makePeerManager(selfID types.NodeID, options *RouterOptions) *peerManager[*fakeConn] {
-	return newPeerManager[*fakeConn](selfID,options)
+	return newPeerManager[*fakeConn](selfID, options)
 }
 
 var selfID = types.NodeIDFromPubKey(ed25519.GenPrivKeyFromSecret([]byte("selfID")).PubKey())
@@ -69,13 +69,13 @@ func makeNodeID(rng *rand.Rand) types.NodeID {
 func makeAddrFor(rng *rand.Rand, id types.NodeID) NodeAddress {
 	return NodeAddress{
 		NodeID:   id,
-		Hostname: fmt.Sprintf("%s.example.com",utils.GenString(rng,10)),
+		Hostname: fmt.Sprintf("%s.example.com", utils.GenString(rng, 10)),
 		Port:     uint16(rng.Int()),
 	}
 }
 
 func makeAddr(rng *rand.Rand) NodeAddress {
-	return makeAddrFor(rng,makeNodeID(rng))
+	return makeAddrFor(rng, makeNodeID(rng))
 }
 
 func justIDs[C peerConn](conns connSet[C]) map[types.NodeID]bool {
@@ -90,15 +90,15 @@ func TestRouterOptions(t *testing.T) {
 	rng := utils.TestRng()
 
 	makeOpts := func(rng *rand.Rand) RouterOptions {
-		addrs := utils.Slice(makeAddr(rng),makeAddr(rng),makeAddr(rng))
+		addrs := utils.Slice(makeAddr(rng), makeAddr(rng), makeAddr(rng))
 		addrs2 := utils.Slice(makeAddr(rng))
-		ids := utils.Slice(addrs[0].NodeID,addrs[2].NodeID)
-		return RouterOptions {
-			PersistentPeers: addrs,
-			BootstrapPeers: addrs2,
-			BlockSyncPeers: ids,
+		ids := utils.Slice(addrs[0].NodeID, addrs[2].NodeID)
+		return RouterOptions{
+			PersistentPeers:    addrs,
+			BootstrapPeers:     addrs2,
+			BlockSyncPeers:     ids,
 			UnconditionalPeers: ids,
-			PrivatePeers: ids,
+			PrivatePeers:       ids,
 		}
 	}
 	optsOk := makeOpts(rng)
@@ -116,13 +116,13 @@ func TestRouterOptions(t *testing.T) {
 		options RouterOptions
 		ok      bool
 	}{
-		"empty": {RouterOptions{}, true},
-		"valid": {optsOk, true},
-		"bad PersistentPeers": {optsBadPersistent, false},
-		"bad BootstrapPeers": {optsBadBootstrap, false},
-		"bad BlockSyncPeers": {optsBadBlockSync, false},
+		"empty":                  {RouterOptions{}, true},
+		"valid":                  {optsOk, true},
+		"bad PersistentPeers":    {optsBadPersistent, false},
+		"bad BootstrapPeers":     {optsBadBootstrap, false},
+		"bad BlockSyncPeers":     {optsBadBlockSync, false},
 		"bad UnconditionalPeers": {optsBadUnconditional, false},
-		"bad PrivatePeers": {optsBadPrivate, false},
+		"bad PrivatePeers":       {optsBadPrivate, false},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
@@ -141,53 +141,55 @@ func TestPeerManager_AddAddrs(t *testing.T) {
 
 	t.Log("Generate some addresses")
 	var ids []types.NodeID
-	for range 6 { ids = append(ids, makeNodeID(rng)) }
+	for range 6 {
+		ids = append(ids, makeNodeID(rng))
+	}
 	addrs := map[types.NodeID][]NodeAddress{}
-	for _,id := range ids {
-		for range rng.Intn(3)+2 {
-			addrs[id] = append(addrs[id],makeAddrFor(rng,id))
+	for _, id := range ids {
+		for range rng.Intn(3) + 2 {
+			addrs[id] = append(addrs[id], makeAddrFor(rng, id))
 		}
 	}
 
 	t.Log("Collect all persistent peers' addrs.")
 	var persistentAddrs []NodeAddress
-	for _,id := range ids[:2] {
+	for _, id := range ids[:2] {
 		persistentAddrs = append(persistentAddrs, addrs[id]...)
 	}
 	t.Log("Collect some other peers' addrs.")
 	var bootstrapAddrs []NodeAddress
-	for _,id := range ids[2:] {
+	for _, id := range ids[2:] {
 		bootstrapAddrs = append(bootstrapAddrs, addrs[id][:2]...)
 	}
 
 	t.Log("Create peer manager.")
 	maxPeers := 10
 	m := makePeerManager(selfID, &RouterOptions{
-		BootstrapPeers: bootstrapAddrs,
-		PersistentPeers: persistentAddrs,
+		BootstrapPeers:     bootstrapAddrs,
+		PersistentPeers:    persistentAddrs,
 		UnconditionalPeers: utils.Slice(ids[2]),
-		BlockSyncPeers: utils.Slice(ids[3]),
-		PrivatePeers: utils.Slice(ids[4]),
-		MaxPeers: utils.Some(maxPeers),
+		BlockSyncPeers:     utils.Slice(ids[3]),
+		PrivatePeers:       utils.Slice(ids[4]),
+		MaxPeers:           utils.Some(maxPeers),
 	})
 
 	t.Log("Check that all expected addrs are present.")
-	for _,id := range ids[:2] {
+	for _, id := range ids[:2] {
 		require.ElementsMatch(t, addrs[id], m.Addresses(id))
 	}
-	for _,id := range ids[2:] {
+	for _, id := range ids[2:] {
 		require.ElementsMatch(t, addrs[id][:2], m.Addresses(id))
 	}
 
 	t.Log("Add all addresses at once.")
 	var allAddrs []NodeAddress
-	for _,id := range ids {
-		allAddrs = append(allAddrs,addrs[id]...)
+	for _, id := range ids {
+		allAddrs = append(allAddrs, addrs[id]...)
 	}
 	require.NoError(t, m.AddAddrs(allAddrs))
 
 	t.Log("Check that all expected addrs are present.")
-	for _,id := range ids {
+	for _, id := range ids {
 		require.ElementsMatch(t, addrs[id], m.Addresses(id))
 	}
 
@@ -208,17 +210,17 @@ func TestPeerManager_AddAddrs(t *testing.T) {
 	var newAddrs []NodeAddress
 	for range maxPeers {
 		addr := makeAddr(rng)
-		ids = append(ids,addr.NodeID)
+		ids = append(ids, addr.NodeID)
 		addrs[addr.NodeID] = utils.Slice(addr)
-		newAddrs = append(newAddrs,addr)
+		newAddrs = append(newAddrs, addr)
 	}
 	require.NoError(t, m.AddAddrs(newAddrs))
-	expectedIDs := maxPeers+2 // There are 2 persistent peers.
-	for _,id := range ids[:expectedIDs] {
-		expectedAddrs := min(len(addrs[id]),maxAddrsPerPeer)
+	expectedIDs := maxPeers + 2 // There are 2 persistent peers.
+	for _, id := range ids[:expectedIDs] {
+		expectedAddrs := min(len(addrs[id]), maxAddrsPerPeer)
 		require.ElementsMatch(t, addrs[id][:expectedAddrs], m.Addresses(id))
 	}
-	for _,id := range ids[expectedIDs:] {
+	for _, id := range ids[expectedIDs:] {
 		require.ElementsMatch(t, nil, m.Addresses(id))
 	}
 
@@ -226,12 +228,12 @@ func TestPeerManager_AddAddrs(t *testing.T) {
 	m.DialFailed(addrs[idWithManyAddrs][1]) // we fail 1 arbitrary adderess
 	newAddrs = addrs[idWithManyAddrs][maxAddrsPerPeer:]
 	require.NoError(t, m.AddAddrs(newAddrs)) // we try to add some addrs
-	want := append([]NodeAddress(nil),addrs[idWithManyAddrs][:maxAddrsPerPeer]...)
+	want := append([]NodeAddress(nil), addrs[idWithManyAddrs][:maxAddrsPerPeer]...)
 	want[1] = newAddrs[0] // the first one newly added should replace the failed one.
 	require.ElementsMatch(t, want, m.Addresses(idWithManyAddrs))
 
 	t.Log("Check that failed peers are replaceable")
-	for _,addr := range addrs[ids[4]] {
+	for _, addr := range addrs[ids[4]] {
 		m.DialFailed(addr)
 	}
 	newPeer := makeAddr(rng)
@@ -242,11 +244,11 @@ func TestPeerManager_AddAddrs(t *testing.T) {
 
 func TestPeerManager_ConcurrentDials(t *testing.T) {
 	ctx := t.Context()
-	for _,tc := range []struct{ peers, maxDials, dials int } {
+	for _, tc := range []struct{ peers, maxDials, dials int }{
 		{peers: 10, maxDials: 3, dials: 20}, // dialing limited by MaxConcurrentDials
 		{peers: 4, maxDials: 10, dials: 20}, // dialing limited by available peer addrs
 	} {
-		t.Run(fmt.Sprintf("peers=%v maxDials=%v",tc.peers,tc.maxDials), func(t *testing.T) {
+		t.Run(fmt.Sprintf("peers=%v maxDials=%v", tc.peers, tc.maxDials), func(t *testing.T) {
 			rng := utils.TestRng()
 			addrsMap := map[NodeAddress]bool{}
 			// Generate some persistent and non-persistent peers.
@@ -254,47 +256,47 @@ func TestPeerManager_ConcurrentDials(t *testing.T) {
 			var persistentAddrs []NodeAddress
 			for i := range tc.peers {
 				addrs := &bootstrapAddrs
-				if i%2==0 {
+				if i%2 == 0 {
 					addrs = &persistentAddrs
 				}
 				addr := makeAddr(rng)
 				*addrs = append(*addrs, addr)
 				addrsMap[addr] = (addrs == &persistentAddrs)
 			}
-			m := makePeerManager(makeNodeID(rng), &RouterOptions {
-				BootstrapPeers: bootstrapAddrs,
-				PersistentPeers: persistentAddrs,
+			m := makePeerManager(makeNodeID(rng), &RouterOptions{
+				BootstrapPeers:     bootstrapAddrs,
+				PersistentPeers:    persistentAddrs,
 				MaxConcurrentDials: utils.Some(tc.maxDials),
-				MaxConnected: utils.Some(tc.dials),
+				MaxConnected:       utils.Some(tc.dials),
 			})
 			dialing := utils.NewMutex(map[types.NodeID]bool{})
 			err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 				for i := range tc.dials {
-					persistentPeer := i%2==0
-					addr,err := m.StartDial(ctx, persistentPeer)
-					if err!=nil {
-						return fmt.Errorf("StartDial(): %w",err)
+					persistentPeer := i%2 == 0
+					addr, err := m.StartDial(ctx, persistentPeer)
+					if err != nil {
+						return fmt.Errorf("StartDial(): %w", err)
 					}
-					if isPersistent,ok := addrsMap[addr]; !ok {
-						return fmt.Errorf("unexpected addr %v",addr)
-					} else if isPersistent!=persistentPeer {
+					if isPersistent, ok := addrsMap[addr]; !ok {
+						return fmt.Errorf("unexpected addr %v", addr)
+					} else if isPersistent != persistentPeer {
 						return fmt.Errorf("address does not match the requested type (peristent/non-persistent)")
 					}
 					for dialing := range dialing.Lock() {
-						if got:=len(dialing); got>tc.maxDials {
-							return fmt.Errorf("dials limit exceeded: %v",got)
+						if got := len(dialing); got > tc.maxDials {
+							return fmt.Errorf("dials limit exceeded: %v", got)
 						}
 						if dialing[addr.NodeID] {
-							return fmt.Errorf("duplicate concurrent dials for %v",addr.NodeID)
+							return fmt.Errorf("duplicate concurrent dials for %v", addr.NodeID)
 						}
 						dialing[addr.NodeID] = true
 					}
 					s.Spawn(func() error {
-						if err:=utils.Sleep(ctx, 50*time.Millisecond); err!=nil {
+						if err := utils.Sleep(ctx, 50*time.Millisecond); err != nil {
 							return err
 						}
 						for dialing := range dialing.Lock() {
-							delete(dialing,addr.NodeID)
+							delete(dialing, addr.NodeID)
 						}
 						m.DialFailed(addr)
 						return nil
@@ -302,7 +304,7 @@ func TestPeerManager_ConcurrentDials(t *testing.T) {
 				}
 				return nil
 			})
-			if err!=nil {
+			if err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -316,25 +318,25 @@ func TestPeerManager_DialRoundRobin(t *testing.T) {
 	addrsMap := map[NodeAddress]bool{}
 	var persistentAddrs []NodeAddress
 	var bootstrapAddrs []NodeAddress
-	for _,addrs := range utils.Slice(&persistentAddrs,&bootstrapAddrs) {
+	for _, addrs := range utils.Slice(&persistentAddrs, &bootstrapAddrs) {
 		for range 10 {
 			id := makeNodeID(rng)
-			for range rng.Intn(5)+1 {
-				addr := makeAddrFor(rng,id)
+			for range rng.Intn(5) + 1 {
+				addr := makeAddrFor(rng, id)
 				addrsMap[addr] = true
 				*addrs = append(*addrs, addr)
 			}
 		}
 	}
-	m := makePeerManager(makeNodeID(rng), &RouterOptions {
-		BootstrapPeers: bootstrapAddrs,
+	m := makePeerManager(makeNodeID(rng), &RouterOptions{
+		BootstrapPeers:  bootstrapAddrs,
 		PersistentPeers: persistentAddrs,
 	})
-	for i:=0; len(addrsMap)>0; i++ {
-		persistentPeer := i%2==0
-		addr,err := m.StartDial(ctx, persistentPeer)
+	for i := 0; len(addrsMap) > 0; i++ {
+		persistentPeer := i%2 == 0
+		addr, err := m.StartDial(ctx, persistentPeer)
 		require.NoError(t, err)
-		delete(addrsMap,addr)
+		delete(addrsMap, addr)
 		m.DialFailed(addr)
 	}
 }
@@ -359,20 +361,20 @@ func TestPeerManager_MaxConnected(t *testing.T) {
 		}
 	}
 
-	m := makePeerManager(makeNodeID(rng), &RouterOptions {
-		PersistentPeers: persistentPeers,
+	m := makePeerManager(makeNodeID(rng), &RouterOptions{
+		PersistentPeers:    persistentPeers,
 		UnconditionalPeers: unconditionalPeers,
-		MaxConnected: utils.Some(maxConns),
+		MaxConnected:       utils.Some(maxConns),
 	})
 
 	// Construct connections to all unconditional peers and some regular peers.
 	want := map[types.NodeID]bool{}
-	for i := range max(len(persistentPeers),len(unconditionalPeers),maxConns+5) {
+	for i := range max(len(persistentPeers), len(unconditionalPeers), maxConns+5) {
 		// One connection to persistent peer.
 		if i < len(persistentPeers) {
-			addr,err := m.StartDial(ctx, true)
-			require.NoError(t,err)
-			conn := makeConnFor(rng,addr.NodeID,utils.GenBool(rng))
+			addr, err := m.StartDial(ctx, true)
+			require.NoError(t, err)
+			conn := makeConnFor(rng, addr.NodeID, utils.GenBool(rng))
 			require.NoError(t, m.Connected(conn))
 			want[addr.NodeID] = true
 		}
@@ -380,24 +382,24 @@ func TestPeerManager_MaxConnected(t *testing.T) {
 		// One connection to unconditional peer.
 		if i < len(unconditionalPeers) {
 			id := unconditionalPeers[i]
-			conn := makeConnFor(rng,id,utils.GenBool(rng))
+			conn := makeConnFor(rng, id, utils.GenBool(rng))
 			require.NoError(t, m.Connected(conn))
 			want[id] = true
 		}
 
 		// One connection to regular peer.
 		conn := makeConn(rng, utils.GenBool(rng))
-		wantErr := i>=maxConns
-		if err := m.Connected(conn); (err!=nil)!=wantErr {
-			t.Fatalf("m.Connected() = %v, wantErr = %v",err,wantErr)
+		wantErr := i >= maxConns
+		if err := m.Connected(conn); (err != nil) != wantErr {
+			t.Fatalf("m.Connected() = %v, wantErr = %v", err, wantErr)
 		}
 		if !wantErr {
 			want[conn.Info().ID] = true
 		}
 
 		// Check if connection sets match.
-		if err:=utils.TestDiff(want,justIDs(m.Conns())); err!=nil {
-			t.Fatal(fmt.Errorf("m.Conns() %w",err))
+		if err := utils.TestDiff(want, justIDs(m.Conns())); err != nil {
+			t.Fatal(fmt.Errorf("m.Conns() %w", err))
 		}
 	}
 }
@@ -413,15 +415,15 @@ func TestPeerManager_MaxConnectedForDial(t *testing.T) {
 	for range maxConns {
 		addrs = append(addrs, makeAddr(rng))
 	}
-	m := makePeerManager(makeNodeID(rng), &RouterOptions {
-		BootstrapPeers: addrs,
+	m := makePeerManager(makeNodeID(rng), &RouterOptions{
+		BootstrapPeers:     addrs,
 		MaxConcurrentDials: utils.Some(maxConns),
-		MaxConnected: utils.Some(maxConns),
+		MaxConnected:       utils.Some(maxConns),
 	})
 	var conns []*fakeConn
 	for range maxConns {
 		conn := makeConn(rng, false)
-		conns = append(conns,conn)
+		conns = append(conns, conn)
 		require.NoError(t, m.Connected(conn))
 	}
 	var dialsAndConns atomic.Int64
@@ -429,8 +431,10 @@ func TestPeerManager_MaxConnectedForDial(t *testing.T) {
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error {
 			// Gradually disconnect existing connections.
-			for _,conn := range conns {
-				if err:=utils.Sleep(ctx, 50*time.Millisecond); err!=nil { return err }
+			for _, conn := range conns {
+				if err := utils.Sleep(ctx, 50*time.Millisecond); err != nil {
+					return err
+				}
 				dialsAndConns.Add(-1)
 				m.Disconnected(conn)
 			}
@@ -438,15 +442,17 @@ func TestPeerManager_MaxConnectedForDial(t *testing.T) {
 		})
 		for range maxConns {
 			// Dial peers as fast as possible.
-			_,err := m.StartDial(ctx, false)
-			if err!=nil { return fmt.Errorf("m.StartDial(): %w",err) }
-			if got:=int(dialsAndConns.Add(1)); got>maxConns {
-				return fmt.Errorf("dials + conns = %v, want <= %v",got,maxConns)
+			_, err := m.StartDial(ctx, false)
+			if err != nil {
+				return fmt.Errorf("m.StartDial(): %w", err)
+			}
+			if got := int(dialsAndConns.Add(1)); got > maxConns {
+				return fmt.Errorf("dials + conns = %v, want <= %v", got, maxConns)
 			}
 		}
 		return nil
 	})
-	if err!=nil {
+	if err != nil {
 		t.Fatal(err)
 	}
 }
@@ -458,30 +464,30 @@ func TestPeerManager_Wake(t *testing.T) {
 	maxDials := 1
 	maxConns := 2
 	persistentAddr := makeAddr(rng)
-	m := makePeerManager(makeNodeID(rng), &RouterOptions {
-		PersistentPeers: utils.Slice(persistentAddr),
+	m := makePeerManager(makeNodeID(rng), &RouterOptions{
+		PersistentPeers:    utils.Slice(persistentAddr),
 		MaxConcurrentDials: utils.Some(maxDials),
-		MaxConnected: utils.Some(maxConns),
+		MaxConnected:       utils.Some(maxConns),
 	})
 	// Adding an address while none are available should wake.
 	addrs := utils.Slice(makeAddr(rng))
 	require.True(t, utils.MonitorWatchUpdates(&m.inner, func() {
-		require.NoError(t,m.AddAddrs(addrs))
+		require.NoError(t, m.AddAddrs(addrs))
 	}))
 	// Adding duplicate address should NOT wake.
 	require.False(t, utils.MonitorWatchUpdates(&m.inner, func() {
-		require.NoError(t,m.AddAddrs(addrs))
+		require.NoError(t, m.AddAddrs(addrs))
 	}))
 	conns := map[bool]*fakeConn{}
-	for _, persistentPeer := range utils.Slice(false,true) {
+	for _, persistentPeer := range utils.Slice(false, true) {
 		// Freeing a dial slot via DialFailed should wake.
-		addr,err := m.StartDial(ctx, persistentPeer)
+		addr, err := m.StartDial(ctx, persistentPeer)
 		require.NoError(t, err)
 		require.True(t, utils.MonitorWatchUpdates(&m.inner, func() {
 			m.DialFailed(addr)
 		}))
 		// Freeing a dial slot via Connected should wake.
-		addr,err = m.StartDial(ctx, persistentPeer)
+		addr, err = m.StartDial(ctx, persistentPeer)
 		require.NoError(t, err)
 		conns[persistentPeer] = makeConnTo(addr)
 		require.True(t, utils.MonitorWatchUpdates(&m.inner, func() {
@@ -489,7 +495,7 @@ func TestPeerManager_Wake(t *testing.T) {
 		}))
 	}
 	// Fill all the connection slots.
-	for m.Conns().Len()<maxConns {
+	for m.Conns().Len() < maxConns {
 		require.NoError(t, m.Connected(makeConn(rng, false)))
 	}
 	// Freeing a connection slot via Disconnected should wake (as long as there are addresses to dial),
@@ -507,28 +513,28 @@ func TestPeerManager_DuplicateConn(t *testing.T) {
 	var persistentAddrs []NodeAddress
 	for range 10 {
 		addr := makeAddr(rng)
-		addrs = append(addrs,addr)
+		addrs = append(addrs, addr)
 		if utils.GenBool(rng) {
-			persistentAddrs = append(persistentAddrs,addr)
+			persistentAddrs = append(persistentAddrs, addr)
 		}
 	}
-	m := makePeerManager(makeNodeID(rng), &RouterOptions {
+	m := makePeerManager(makeNodeID(rng), &RouterOptions{
 		PersistentPeers: persistentAddrs,
 	})
-	for _,addr := range addrs {
+	for _, addr := range addrs {
 		var active utils.Option[*fakeConn]
 		for range 5 {
-			conn := makeConnFor(rng,addr.NodeID, utils.GenBool(rng))
+			conn := makeConnFor(rng, addr.NodeID, utils.GenBool(rng))
 			toClose := utils.Some(conn)
 			// Peer manager has internal logic deciding whether a new connection should replace the old one (err == nil) or not.
 			// However at most 1 connection to each peer should be active at all times.
-			if err := m.Connected(conn); err==nil {
-				active,toClose = toClose,active
+			if err := m.Connected(conn); err == nil {
+				active, toClose = toClose, active
 			}
-			activeConn,ok := active.Get()
+			activeConn, ok := active.Get()
 			require.True(t, ok)
 			require.False(t, activeConn.Closed())
-			if toCloseConn,ok := toClose.Get(); ok {
+			if toCloseConn, ok := toClose.Get(); ok {
 				require.True(t, toCloseConn.Closed())
 			}
 		}
@@ -539,12 +545,12 @@ func TestPeerManager_Subscribe(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	maxConns := 60
-	m := makePeerManager(makeNodeID(rng), &RouterOptions {
+	m := makePeerManager(makeNodeID(rng), &RouterOptions{
 		MaxConnected: utils.Some(maxConns),
 	})
 	t.Log("initialize with some connections")
 	for range 5 {
-		require.NoError(t,m.Connected(makeConn(rng,utils.GenBool(rng))))
+		require.NoError(t, m.Connected(makeConn(rng, utils.GenBool(rng))))
 	}
 	t.Log("subscribe with preexisting connections")
 	recv := m.Subscribe()
@@ -553,10 +559,10 @@ func TestPeerManager_Subscribe(t *testing.T) {
 		// Modify connections.
 		for range 10 {
 			conns := m.Conns()
-			if conns.Len()==0 || (conns.Len()<maxConns && utils.GenBool(rng)) {
-				require.NoError(t,m.Connected(makeConn(rng,utils.GenBool(rng))))
+			if conns.Len() == 0 || (conns.Len() < maxConns && utils.GenBool(rng)) {
+				require.NoError(t, m.Connected(makeConn(rng, utils.GenBool(rng))))
 			} else {
-				for _,conn := range conns.All() {
+				for _, conn := range conns.All() {
 					m.Disconnected(conn)
 					break
 				}
@@ -564,12 +570,14 @@ func TestPeerManager_Subscribe(t *testing.T) {
 		}
 		// Check updates.
 		conns := m.Conns()
-		for len(got)!=conns.Len() || utils.TestDiff(justIDs(conns),got)!=nil {
-			update,err := recv.Recv(ctx)
+		for len(got) != conns.Len() || utils.TestDiff(justIDs(conns), got) != nil {
+			update, err := recv.Recv(ctx)
 			require.NoError(t, err)
 			switch update.Status {
-			case PeerStatusUp: got[update.NodeID] = true
-			case PeerStatusDown: delete(got,update.NodeID)
+			case PeerStatusUp:
+				got[update.NodeID] = true
+			case PeerStatusDown:
+				delete(got, update.NodeID)
 			}
 		}
 	}

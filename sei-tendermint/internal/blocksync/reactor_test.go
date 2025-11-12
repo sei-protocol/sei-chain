@@ -270,7 +270,7 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 
 	// Remove synced node from the syncing node which should not result in any
 	// deadlocks or race conditions within the context of poolRoutine.
-	rts.network.Remove(t,rts.nodes[0])
+	rts.network.Remove(t, rts.nodes[0])
 }
 
 func TestReactor_SyncTime(t *testing.T) {

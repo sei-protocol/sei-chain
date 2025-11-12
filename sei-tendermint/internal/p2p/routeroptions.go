@@ -1,14 +1,14 @@
 package p2p
 
 import (
-	"fmt"
 	"context"
-	"time"
+	"fmt"
+	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
-	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"golang.org/x/time/rate"
 	"net/netip"
+	"time"
 )
 
 type DialFailuresError struct {
@@ -140,27 +140,27 @@ func (o *RouterOptions) maxPeers() int {
 
 // Validate validates the options.
 func (o *RouterOptions) Validate() error {
-	for _,addr := range o.BootstrapPeers {
+	for _, addr := range o.BootstrapPeers {
 		if err := addr.Validate(); err != nil {
 			return fmt.Errorf("invalid BoodstrapPeer address %v: %w", addr, err)
 		}
 	}
-	for _,addr := range o.PersistentPeers {
+	for _, addr := range o.PersistentPeers {
 		if err := addr.Validate(); err != nil {
 			return fmt.Errorf("invalid PersistentPeer address %v: %w", addr, err)
 		}
 	}
-	for _,id := range o.BlockSyncPeers {
-		if err := id.Validate(); err!=nil {
+	for _, id := range o.BlockSyncPeers {
+		if err := id.Validate(); err != nil {
 			return fmt.Errorf("invalid block sync peer ID %q: %w", id, err)
 		}
 	}
-	for _,id := range o.UnconditionalPeers {
-		if err := id.Validate(); err!=nil {
+	for _, id := range o.UnconditionalPeers {
+		if err := id.Validate(); err != nil {
 			return fmt.Errorf("invalid unconditional peer ID %q: %w", id, err)
 		}
 	}
-	for _,id := range o.PrivatePeers {
+	for _, id := range o.PrivatePeers {
 		if err := id.Validate(); err != nil {
 			return fmt.Errorf("invalid private peer ID %q: %w", id, err)
 		}
@@ -185,17 +185,15 @@ func (o *RouterOptions) maxIncomingConnectionAttempts() uint {
 }
 
 func (o *RouterOptions) filterPeerByIP(ctx context.Context, addrPort netip.AddrPort) error {
-	if f,ok := o.FilterPeerByIP.Get(); ok {
+	if f, ok := o.FilterPeerByIP.Get(); ok {
 		return f(ctx, addrPort)
 	}
 	return nil
 }
 
 func (o *RouterOptions) filterPeerByID(ctx context.Context, id types.NodeID) error {
-	if f,ok := o.FilterPeerByID.Get(); ok {
+	if f, ok := o.FilterPeerByID.Get(); ok {
 		return f(ctx, id)
 	}
 	return nil
 }
-
-

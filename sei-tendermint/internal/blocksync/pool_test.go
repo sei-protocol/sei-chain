@@ -10,19 +10,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/p2p"
-	dbm "github.com/tendermint/tm-db"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
 )
-
-func init() {
-	peerTimeout = 2 * time.Second
-}
 
 type testPeer struct {
 	id        types.NodeID
@@ -82,20 +75,35 @@ func makePeers(numPeers int, minHeight, maxHeight int64) testPeers {
 	return peers
 }
 
-func makeRouter(peers map[types.NodeID]testPeer) *p2p.Router {
-	selfKey := ed25519.GenPrivKeyFromSecret([]byte{0xf9, 0x1b, 0x08, 0xaa, 0x38, 0xee, 0x34, 0xdd})
-	router, _ := p2p.NewRouter(log.NewNopLogger(), p2p.NopMetrics(), selfKey, nil/*TODO(gprusak)*/, dbm.NewMemDB(), &p2p.RouterOptions{
-		MaxConnected:        utils.Some(1),
-	})
-	for nodeId := range peers {
-		err := router.AddAddrs(utils.Slice(p2p.NodeAddress{NodeID: nodeId, Hostname: "a.com", Port: 1234}))
-		if err != nil {
-			panic(err)
-		}
-		//router.MarkReadyConnected(nodeId)
-	}
+type fakeRouter struct {
+	peers  map[types.NodeID]testPeer
+	errors map[types.NodeID]p2p.PeerError
+}
 
-	return router
+func (r *fakeRouter) IsBlockSyncPeer(id types.NodeID) bool {
+	_, ok := r.peers[id]
+	return ok
+}
+
+func (r *fakeRouter) SendError(pe p2p.PeerError) {
+	if pe.Fatal {
+		r.errors[pe.NodeID] = pe
+	}
+}
+
+func (r *fakeRouter) Connected(id types.NodeID) bool {
+	if pe, ok := r.errors[id]; ok && pe.Fatal {
+		return false
+	}
+	_, ok := r.peers[id]
+	return ok
+}
+
+func makeRouter(peers map[types.NodeID]testPeer) *fakeRouter {
+	return &fakeRouter{
+		peers:  peers,
+		errors: map[types.NodeID]p2p.PeerError{},
+	}
 }
 
 func TestBlockPoolBasic(t *testing.T) {
@@ -189,21 +197,14 @@ func TestBlockPoolTimeout(t *testing.T) {
 	}()
 
 	// Pull from channels
-	for {
-		select {
-		case <-errorsCh:
-			return
-		// consider error to be always timeout here
-		default:
-		}
-	}
+	<-errorsCh
 }
 
 func TestBlockPoolRemovePeer(t *testing.T) {
 	ctx := t.Context()
 
 	peers := make(testPeers, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		var peerID types.NodeID
 		if i+1 == 10 {
 			peerID = types.NodeID(strings.Repeat(fmt.Sprintf("%d", i+1), 20))
@@ -240,27 +241,6 @@ func TestBlockPoolRemovePeer(t *testing.T) {
 	}
 
 	assert.EqualValues(t, 0, pool.MaxPeerHeight())
-}
-
-func TestSortedPeers(t *testing.T) {
-	peers := make(testPeers, 10)
-	peerIdA := types.NodeID(strings.Repeat("a", 40))
-	peerIdB := types.NodeID(strings.Repeat("b", 40))
-	peerIdC := types.NodeID(strings.Repeat("c", 40))
-
-	peers[peerIdA] = testPeer{peerIdA, 0, 1, make(chan inputData)}
-	peers[peerIdB] = testPeer{peerIdA, 0, 1, make(chan inputData)}
-	peers[peerIdC] = testPeer{peerIdA, 0, 1, make(chan inputData)}
-
-	requestsCh := make(chan BlockRequest)
-	errorsCh := make(chan peerError)
-	pool := NewBlockPool(log.NewNopLogger(), 1, requestsCh, errorsCh, makeRouter(peers))
-	// add peers
-	for peerID, peer := range peers {
-		pool.SetPeerRange(peerID, peer.base, peer.height)
-	}
-	// Peers should be sorted by score via peerManager
-	assert.Equal(t, []types.NodeID{peerIdC, peerIdA, peerIdB}, pool.getSortedPeers(pool.peers))
 }
 
 func TestBlockPoolMaliciousNodeMaxInt64(t *testing.T) {

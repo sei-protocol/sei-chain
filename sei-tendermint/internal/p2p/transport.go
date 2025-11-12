@@ -6,8 +6,8 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
-	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"math"
 	"net"
@@ -40,7 +40,7 @@ func (cs ChannelIDSet) Contains(id ChannelID) bool {
 
 // Connection implements Connection for Transport.
 type Connection struct {
-	dialAddr   utils.Option[NodeAddress]
+	dialAddr     utils.Option[NodeAddress]
 	conn         *net.TCPConn
 	peerChannels ChannelIDSet
 	peerInfo     types.NodeInfo
@@ -49,8 +49,8 @@ type Connection struct {
 }
 
 func (c *Connection) Info() peerConnInfo {
-	return peerConnInfo {
-		ID: c.peerInfo.NodeID,
+	return peerConnInfo{
+		ID:       c.peerInfo.NodeID,
 		Channels: c.peerChannels,
 		DialAddr: c.dialAddr,
 	}
@@ -60,7 +60,7 @@ func (c *Connection) Info() peerConnInfo {
 // dialAddr is given, we check that the peer's info matches it.
 // Closes the tcpConn if case of any error.
 func (r *Router) handshake(ctx context.Context, tcpConn *net.TCPConn, dialAddr utils.Option[NodeAddress]) (c *Connection, err error) {
-	if d,ok := r.options.HandshakeTimeout.Get(); ok {
+	if d, ok := r.options.HandshakeTimeout.Get(); ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, d)
 		defer cancel()
@@ -127,7 +127,7 @@ func (r *Router) handshake(ctx context.Context, tcpConn *net.TCPConn, dialAddr u
 		}
 		ok.Store(true)
 		return &Connection{
-			dialAddr: dialAddr,
+			dialAddr:     dialAddr,
 			conn:         tcpConn,
 			sendQueue:    NewQueue[sendMsg](queueBufferDefault),
 			peerInfo:     peerInfo,
@@ -204,7 +204,7 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *Connection) error {
 }
 
 func (r *Router) runConn(ctx context.Context, conn *Connection) error {
-	if err:=r.peerManager.Connected(conn); err!=nil {
+	if err := r.peerManager.Connected(conn); err != nil {
 		return fmt.Errorf("r.peerManager.Connected(): %w", err)
 	}
 	defer r.peerManager.Disconnected(conn)

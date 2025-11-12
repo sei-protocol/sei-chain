@@ -86,17 +86,14 @@ func makeSeedNode(
 	}
 	// Register a listener to restart router if signalled to do so
 	go func() {
-		for {
-			select {
-			case <-restartCh:
-				logger.Info("Received signal to restart router, restarting...")
-				router.OnStop()
-				router.Wait()
-				logger.Info("Router successfully stopped. Restarting...")
-				// Start the transport.
-				if err := router.Start(ctx); err != nil {
-					logger.Error("Unable to start router, retrying...", err)
-				}
+		for range restartCh {
+			logger.Info("Received signal to restart router, restarting...")
+			router.OnStop()
+			router.Wait()
+			logger.Info("Router successfully stopped. Restarting...")
+			// Start the transport.
+			if err := router.Start(ctx); err != nil {
+				logger.Error("Unable to start router, retrying...", err)
 			}
 		}
 	}()
@@ -128,8 +125,8 @@ func makeSeedNode(
 		logger:     logger,
 		genesisDoc: genDoc,
 
-		nodeKey:     nodeKey,
-		router:      router,
+		nodeKey: nodeKey,
+		router:  router,
 
 		shutdownOps: peerCloser,
 

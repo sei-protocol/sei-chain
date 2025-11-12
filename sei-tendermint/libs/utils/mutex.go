@@ -265,7 +265,9 @@ func MonitorWatchUpdates[T any](w *Watch[T], f func()) bool {
 	w.ctrl.mu.Unlock()
 	f()
 	select {
-	case <-updated: return true
-	default: return false
+	case <-updated:
+		return true
+	default:
+		return false
 	}
 }

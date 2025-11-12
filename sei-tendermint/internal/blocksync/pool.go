@@ -50,9 +50,16 @@ const (
 	// Used to indicate the reason of the redo
 	PeerRemoved RetryReason = "PeerRemoved"
 	BadBlock    RetryReason = "BadBlock"
+
+	peerTimeout = 2 * time.Second
 )
 
-var peerTimeout = 2 * time.Second // not const so we can override with tests
+// Interface abstracting p2p.Router for tests.
+type router interface {
+	IsBlockSyncPeer(types.NodeID) bool
+	SendError(p2p.PeerError)
+	Connected(types.NodeID) bool
+}
 
 /*
 	Peers self report their heights when we join the block pool.
@@ -85,7 +92,7 @@ type BlockPool struct {
 	height     int64 // the lowest key in requesters.
 	// peers
 	peers         map[types.NodeID]*bpPeer
-	router   *p2p.Router
+	router        router
 	maxPeerHeight int64 // the biggest reported height
 
 	// atomic
@@ -107,7 +114,7 @@ func NewBlockPool(
 	start int64,
 	requestsCh chan<- BlockRequest,
 	errorsCh chan<- peerError,
-	router *p2p.Router,
+	router router,
 ) *BlockPool {
 	bp := &BlockPool{
 		logger:       logger,
@@ -119,7 +126,7 @@ func NewBlockPool(
 		requestsCh:   requestsCh,
 		errorsCh:     errorsCh,
 		lastSyncRate: 0,
-		router: router,
+		router:       router,
 	}
 	bp.BaseService = *service.NewBaseService(logger, "BlockPool", bp)
 	return bp
@@ -365,7 +372,7 @@ func (pool *BlockPool) SetPeerRange(peerID types.NodeID, base int64, height int6
 			pool.router.SendError(p2p.PeerError{
 				NodeID: peerID,
 				Err:    errors.New("peer is reporting height/base that is lower than what it previously reported"),
-				Fatal: true,
+				Fatal:  true,
 			})
 			return
 		}
@@ -435,26 +442,15 @@ func (pool *BlockPool) updateMaxPeerHeight() {
 	pool.maxPeerHeight = max
 }
 
-// TODO(gprusak): there is no really sorting here, since peer scoring has been removed.
-func (pool *BlockPool) getSortedPeers(peers map[types.NodeID]*bpPeer) []types.NodeID {
-	sortedPeers := make([]types.NodeID, 0, len(peers))
-	for peer := range peers {
-		sortedPeers = append(sortedPeers, peer)
-	}
-	return sortedPeers
-}
-
 // Pick an available peer with the given height available.
 // If no peers are available, returns nil.
 func (pool *BlockPool) pickIncrAvailablePeer(height int64) *bpPeer {
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
 
-	// Generate a sorted list
-	sortedPeers := pool.getSortedPeers(pool.peers)
 	var goodPeers []types.NodeID
 	// Remove peers with 0 score and shuffle list
-	for _, nodeId := range sortedPeers {
+	for nodeId := range pool.peers {
 		peer := pool.peers[nodeId]
 		if peer.didTimeout {
 			pool.removePeer(peer.id, true)
@@ -467,15 +463,15 @@ func (pool *BlockPool) pickIncrAvailablePeer(height int64) *bpPeer {
 			continue
 		}
 		// We only want to work with peers that are ready & connected (not dialing)
-		if pool.router.State(nodeId) == "ready,connected" {
+		if pool.router.Connected(nodeId) {
 			goodPeers = append(goodPeers, nodeId)
 		}
 	}
 
-	// randomly pick one
+	// randomly pick one with weak entropy.
 	if len(goodPeers) > 0 {
-		rand.Seed(time.Now().UnixNano())
-		index := rand.Intn(len(goodPeers))
+		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+		index := rng.Intn(len(goodPeers))
 		if index >= len(goodPeers) {
 			index = len(goodPeers) - 1
 		}
@@ -524,26 +520,6 @@ func (pool *BlockPool) sendError(err error, peerID types.NodeID) {
 		return
 	}
 	pool.errorsCh <- peerError{err, peerID}
-}
-
-// for debugging purposes
-//
-//nolint:unused
-func (pool *BlockPool) debug() string {
-	pool.mtx.Lock()
-	defer pool.mtx.Unlock()
-
-	str := ""
-	nextHeight := pool.height + pool.requestersLen()
-	for h := pool.height; h < nextHeight; h++ {
-		if pool.requesters[h] == nil {
-			str += fmt.Sprintf("H(%v):X ", h)
-		} else {
-			str += fmt.Sprintf("H(%v):", h)
-			str += fmt.Sprintf("B?(%v) ", pool.requesters[h].block != nil)
-		}
-	}
-	return str
 }
 
 func (pool *BlockPool) targetSyncBlocks() int64 {

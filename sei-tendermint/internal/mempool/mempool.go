@@ -16,11 +16,11 @@ import (
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/internal/libs/clist"
 	"github.com/tendermint/tendermint/internal/libs/reservoir"
+	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/types"
-	"github.com/tendermint/tendermint/internal/p2p"
 )
 
 // Using SHA-256 truncated to 128 bits as the cache key: At 2K tx/sec, the
@@ -754,8 +754,8 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 				// evict peer
 				txmp.peerManager.SendError(p2p.PeerError{
 					NodeID: txInfo.SenderNodeID,
-					Err: errors.New("checkTx error exceeded threshold"),
-					Fatal: true,
+					Err:    errors.New("checkTx error exceeded threshold"),
+					Fatal:  true,
 				})
 			}
 		}

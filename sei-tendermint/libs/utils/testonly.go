@@ -78,7 +78,7 @@ func TestRngFromSeed(seed int64) *rand.Rand {
 }
 
 func GenBool(rng *rand.Rand) bool {
-	return rng.Intn(2)==0
+	return rng.Intn(2) == 0
 }
 
 var alphanum = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")

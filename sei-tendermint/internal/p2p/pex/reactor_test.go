@@ -6,19 +6,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/require"
 	p2pproto "github.com/tendermint/tendermint/proto/tendermint/p2p"
 	"github.com/tendermint/tendermint/types"
-	"github.com/gogo/protobuf/proto"
 )
 
 const (
 	testSendInterval = 500 * time.Millisecond
-	checkFrequency = 500 * time.Millisecond
-	shortWait      = 5 * time.Second
+	checkFrequency   = 500 * time.Millisecond
+	shortWait        = 5 * time.Second
 )
 
 func TestReactorBasic(t *testing.T) {
@@ -69,7 +69,7 @@ func TestReactorSendsRequestsTooOften(t *testing.T) {
 	n0, n1 := testNet.checkNodePair(t, 0, 1)
 	ch := testNet.pexChannels[n0]
 	t.Log("Send request too many times.")
-	for range maxPeerRecvBurst+10 {
+	for range maxPeerRecvBurst + 10 {
 		ch.Send(&p2pproto.PexRequest{}, n1)
 	}
 	t.Log("n1 should force disconnect.")
@@ -278,8 +278,8 @@ func setupNetwork(t *testing.T, opts testOptions) *reactorTestSuite {
 		if idx < opts.MockNodes {
 			rts.mocks = append(rts.mocks, nodeID)
 			var err error
-			rts.pexChannels[nodeID],err = node.Router.OpenChannel(ChannelDescriptor())
-			require.NoError(t,err)
+			rts.pexChannels[nodeID], err = node.Router.OpenChannel(ChannelDescriptor())
+			require.NoError(t, err)
 		} else {
 			reactor, err := NewReactor(
 				node.Logger,
@@ -514,12 +514,12 @@ func (r *reactorTestSuite) checkNodePair(t *testing.T, first, second int) (types
 	return r.nodes[first], r.nodes[second]
 }
 
-func (r *reactorTestSuite) addAddresses(t *testing.T, node int, addrIDs[]int) {
+func (r *reactorTestSuite) addAddresses(t *testing.T, node int, addrIDs []int) {
 	var addrs []p2p.NodeAddress
 	for _, i := range addrIDs {
-		addrs = append(addrs,r.network.Node(r.nodes[i]).NodeAddress)
+		addrs = append(addrs, r.network.Node(r.nodes[i]).NodeAddress)
 	}
-	require.NoError(t,r.network.Node(r.nodes[node]).Router.AddAddrs(addrs))
+	require.NoError(t, r.network.Node(r.nodes[node]).Router.AddAddrs(addrs))
 }
 
 func randomNodeID() types.NodeID {

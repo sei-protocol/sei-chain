@@ -4,18 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/fortytw2/leaktest"
+	"github.com/gogo/protobuf/proto"
+	gogotypes "github.com/gogo/protobuf/types"
+	dbm "github.com/tendermint/tm-db"
+	"golang.org/x/time/rate"
 	"io"
+	"math/rand"
 	"net"
 	"net/netip"
 	"strings"
 	"sync/atomic"
 	"testing"
-	"math/rand"
-	"golang.org/x/time/rate"
-	"github.com/fortytw2/leaktest"
-	"github.com/gogo/protobuf/proto"
-	gogotypes "github.com/gogo/protobuf/types"
-	dbm "github.com/tendermint/tm-db"
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
@@ -93,7 +93,7 @@ func TestRouter_Network(t *testing.T) {
 	RequireReceiveUnordered(t, channel, want)
 
 	t.Logf("We report a fatal error and expect the peer to get disconnected")
-	conn,ok := local.Router.peerManager.Conns().Get(peers[0].NodeID)
+	conn, ok := local.Router.peerManager.Conns().Get(peers[0].NodeID)
 	require.True(t, ok)
 	local.Router.SendError(PeerError{
 		NodeID: peers[0].NodeID,
@@ -286,10 +286,10 @@ func TestRouter_SendError(t *testing.T) {
 
 	t.Logf("Erroring b should cause it to be disconnected.")
 	nodes := network.Nodes()
-	conn,ok := nodes[0].Router.peerManager.Conns().Get(nodes[1].NodeID)
+	conn, ok := nodes[0].Router.peerManager.Conns().Get(nodes[1].NodeID)
 	require.True(t, ok)
 	nodes[0].Router.SendError(PeerError{NodeID: nodes[1].NodeID, Err: errors.New("boom"), Fatal: true})
-	nodes[0].WaitForDisconnect(ctx,conn)
+	nodes[0].WaitForDisconnect(ctx, conn)
 }
 
 var keyFiltered = makeKey(utils.TestRngFromSeed(738234133))
@@ -297,7 +297,7 @@ var infoFiltered = makeInfo(keyFiltered)
 
 func makeRouterWithOptionsAndKey(logger log.Logger, opts *RouterOptions, key crypto.PrivKey) *Router {
 	info := makeInfo(key)
-	r,err := NewRouter(
+	r, err := NewRouter(
 		logger.With("node", info.NodeID),
 		NopMetrics(),
 		key,
@@ -305,7 +305,7 @@ func makeRouterWithOptionsAndKey(logger log.Logger, opts *RouterOptions, key cry
 		dbm.NewMemDB(),
 		opts,
 	)
-	if err!=nil {
+	if err != nil {
 		panic(err)
 	}
 	return r
@@ -313,8 +313,8 @@ func makeRouterWithOptionsAndKey(logger log.Logger, opts *RouterOptions, key cry
 
 func makeRouterOptions() *RouterOptions {
 	return &RouterOptions{
-		MaxAcceptRate: utils.Some(rate.Inf),
-		MaxDialRate: utils.Some(rate.Inf),
+		MaxAcceptRate:      utils.Some(rate.Inf),
+		MaxDialRate:        utils.Some(rate.Inf),
 		MaxConcurrentDials: utils.Some(100),
 		Endpoint:           Endpoint{tcp.TestReserveAddr()},
 		Connection:         conn.DefaultMConnConfig(),
@@ -369,7 +369,7 @@ func TestRouter_FilterByIP(t *testing.T) {
 			return fmt.Errorf("peerTransport.dial(): %w", err)
 		}
 		defer tcpConn.Close()
-		conn, err := r2.handshake(ctx, tcpConn,utils.Some(addr))
+		conn, err := r2.handshake(ctx, tcpConn, utils.Some(addr))
 		if err != nil {
 			return fmt.Errorf("handshake(): %w", err)
 		}
@@ -453,7 +453,7 @@ func TestRouter_AcceptPeers(t *testing.T) {
 					if err != nil {
 						return nil
 					}
-					if err := x.runConn(ctx, conn); utils.IgnoreCancel(err)==nil {
+					if err := x.runConn(ctx, conn); utils.IgnoreCancel(err) == nil {
 						return fmt.Errorf("want non-cancellation error, got %w", err)
 					}
 				}
@@ -692,7 +692,7 @@ func TestRouter_EvictPeers(t *testing.T) {
 		sub := r.peerManager.Subscribe()
 
 		x := makeRouter(logger, rng)
-		addr :=TestAddress(r)
+		addr := TestAddress(r)
 		tcpConn, err := x.dial(ctx, addr)
 		if err != nil {
 			return fmt.Errorf("dial(): %w", err)
@@ -709,10 +709,10 @@ func TestRouter_EvictPeers(t *testing.T) {
 		})
 
 		t.Log("Report the peer as bad.")
-		r.SendError(PeerError {
+		r.SendError(PeerError{
 			NodeID: peerID,
-			Err: errors.New("boom"),
-			Fatal: true,
+			Err:    errors.New("boom"),
+			Fatal:  true,
 		})
 		t.Log("Wait for conn down")
 		if err := x.runConn(ctx, conn); !errors.Is(err, io.EOF) {

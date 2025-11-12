@@ -374,7 +374,7 @@ func TestBroadcastTxForPeerStopsWhenPeerStops(t *testing.T) {
 	rts.start(t)
 
 	// disconnect peer
-	rts.network.Remove(t,secondary)
+	rts.network.Remove(t, secondary)
 
 	txs := checkTxs(ctx, t, rts.reactors[primary].mempool, 4, UnknownPeerID)
 	require.Equal(t, 4, len(txs))

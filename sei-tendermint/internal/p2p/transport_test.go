@@ -61,7 +61,7 @@ func TestRouter_MaxConcurrentAccepts(t *testing.T) {
 		t.Logf("spawn a bunch of connections, making sure that no more than %d are accepted at any given time", maxAccepts)
 		for range 10 {
 			s.SpawnNamed("test", func() error {
-				x := makeRouter(logger,rng)
+				x := makeRouter(logger, rng)
 				// Establish a connection.
 				addr := TestAddress(r)
 				tcpConn, err := x.dial(ctx, addr)
@@ -71,8 +71,8 @@ func TestRouter_MaxConcurrentAccepts(t *testing.T) {
 				defer tcpConn.Close()
 				// Begin handshake (but not finish)
 				var input [1]byte
-				if _,err := tcp.ReadOrClose(ctx, tcpConn, input[:]); err!=nil {
-					return fmt.Errorf("tcpConn.Read(): %w",err)
+				if _, err := tcp.ReadOrClose(ctx, tcpConn, input[:]); err != nil {
+					return fmt.Errorf("tcpConn.Read(): %w", err)
 				}
 				// Check that limit was not exceeded.
 				if got, wantMax := total.Add(1), int64(maxAccepts); got > wantMax {

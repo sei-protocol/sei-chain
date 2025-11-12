@@ -35,9 +35,9 @@ import (
 	"github.com/tendermint/tendermint/internal/statesync"
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/service"
 	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/privval"
 	"github.com/tendermint/tendermint/types"
 
@@ -228,7 +228,7 @@ func makeNode(
 		genesisDoc:    genDoc,
 		privValidator: privValidator,
 
-		nodeKey:     nodeKey,
+		nodeKey: nodeKey,
 
 		eventSinks:     eventSinks,
 		indexerService: indexerService,
