@@ -42,6 +42,14 @@ func NewEVMHTTPServer(
 	homeDir string,
 	isPanicOrSyntheticTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // used in *ExcludeTraceFail endpoints
 ) (EVMServer, error) {
+	logger = logger.With("module", "evmrpc")
+
+	// Initialize global worker pool with configuration
+	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
+
+	// Initialize RPC tracker (stats package not available in release branch)
+	// stats.InitRPCTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
+
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
 		ReadHeaderTimeout: config.ReadHeaderTimeout,
@@ -181,6 +189,14 @@ func NewEVMWebSocketServer(
 	earliestVersion func() int64,
 	homeDir string,
 ) (EVMServer, error) {
+	logger = logger.With("module", "evmrpc")
+
+	// Initialize global worker pool with configuration
+	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
+
+	// Initialize WebSocket tracker (stats package not available in release branch)
+	// stats.InitWSTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
+
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
 		ReadHeaderTimeout: config.ReadHeaderTimeout,
