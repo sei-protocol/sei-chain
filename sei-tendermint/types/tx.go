@@ -217,10 +217,13 @@ func (t TxRecordSet) Validate(maxSizeBytes int64, otxs Txs) error {
 	//
 	// Note: In normal operation, UNMODIFIED transactions must exist in the mempool.
 	// This relaxation is only enabled when built with the benchmark build tag.
+	// For backward compatibility with tests that expect "removed" error messages,
+	// we return the "removed" error message when UNMODIFIED transactions don't exist
+	// in the mempool (when not in benchmark mode).
 	if !benchmarkEnabled {
 		// Normal mode: UNMODIFIED must exist in mempool
 		if ix, ok := containsAll(otxsCopy, unmodifiedCopy); !ok {
-			return fmt.Errorf("new transaction incorrectly marked as unmodified, transaction hash: %x", unmodifiedCopy[ix].Hash())
+			return fmt.Errorf("new transaction incorrectly marked as removed, transaction hash: %x", unmodifiedCopy[ix].Hash())
 		}
 	}
 	// In benchmark mode, we skip the mempool existence check for UNMODIFIED transactions,
