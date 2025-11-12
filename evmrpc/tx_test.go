@@ -38,6 +38,8 @@ func waitForReceipt(t *testing.T, ctx sdk.Context, txHash common.Hash) *types.Re
 	return receipt
 }
 func TestGetTransactionCount(t *testing.T) {
+	originalCtx := Ctx
+	defer func() { Ctx = originalCtx }()
 	Ctx = Ctx.WithBlockHeight(1)
 	// happy path
 	bodyByNumber := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"0x1234567890123456789012345678901234567890\",\"0x8\"],\"id\":\"test\"}"
@@ -72,9 +74,8 @@ func TestGetTransactionCount(t *testing.T) {
 	require.Equal(t, "0x0", count) // no tx
 
 	// error cases
-	earliestBodyToBadPort := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"0x1234567890123456789012345678901234567890\",\"earliest\"],\"id\":\"test\"}"
 	for body, errStr := range map[string]string{
-		earliestBodyToBadPort: "error genesis",
+		bodyByHash: "error block",
 	} {
 		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestBadPort), strings.NewReader(body))
 		require.Nil(t, err)
@@ -757,6 +758,9 @@ func TestEncodeRPCTransactionBlockHeight1(t *testing.T) {
 }
 
 func TestGetTransactionCountPending(t *testing.T) {
+	originalCtx := Ctx
+	defer func() { Ctx = originalCtx }()
+	Ctx = Ctx.WithBlockHeight(1)
 	// Test coverage for lines 280-283: pending block number
 	body := `{"jsonrpc": "2.0","method": "eth_getTransactionCount","params":["0x1234567890123456789012345678901234567890","pending"],"id":"test"}`
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))

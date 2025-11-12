@@ -737,7 +737,7 @@ func TestEvmError(t *testing.T) {
 	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(sdktx)
 	require.Nil(t, err)
 
-	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, sdktx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
 	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt := testkeeper.WaitForReceipt(t, &k, ctx, common.HexToHash(res.EvmTxInfo.TxHash))
@@ -769,7 +769,7 @@ func TestEvmError(t *testing.T) {
 	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(sdktx)
 	require.Nil(t, err)
 
-	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
+	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, sdktx, sha256.Sum256(txbz))
 	require.NoError(t, k.FlushTransientReceipts(ctx))
 	require.Equal(t, sdkerrors.ErrEVMVMError.ABCICode(), res.Code)
 	receipt = testkeeper.WaitForReceipt(t, &k, ctx, common.HexToHash(res.EvmTxInfo.TxHash))
@@ -853,12 +853,12 @@ func TestAssociate(t *testing.T) {
 	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(sdktx)
 	require.Nil(t, err)
 
-	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, sdktx, sha256.Sum256(txbz))
 	require.NotEqual(t, uint32(0), res.Code) // not enough balance
 
 	require.Nil(t, testkeeper.EVMTestApp.BankKeeper.AddWei(ctx, sdk.AccAddress(evmAddr[:]), sdk.OneInt()))
 
-	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
+	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, sdktx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
 }
 

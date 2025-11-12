@@ -12,7 +12,7 @@ type Application interface {
 	Query(context.Context, *RequestQuery) (*ResponseQuery, error) // Query for state
 
 	// Mempool Connection
-	CheckTx(context.Context, *RequestCheckTx) (*ResponseCheckTxV2, error) // Validate a tx for the mempool
+	CheckTx(context.Context, *RequestCheckTxV2) (*ResponseCheckTxV2, error) // Validate a tx for the mempool
 
 	// Consensus Connection
 	InitChain(context.Context, *RequestInitChain) (*ResponseInitChain, error) // Initialize blockchain w validators/other info from TendermintCore
@@ -20,10 +20,6 @@ type Application interface {
 	ProcessProposal(context.Context, *RequestProcessProposal) (*ResponseProcessProposal, error)
 	// Commit the state and return the application Merkle root hash
 	Commit(context.Context) (*ResponseCommit, error)
-	// Create application specific vote extension
-	ExtendVote(context.Context, *RequestExtendVote) (*ResponseExtendVote, error)
-	// Verify application's vote extension data
-	VerifyVoteExtension(context.Context, *RequestVerifyVoteExtension) (*ResponseVerifyVoteExtension, error)
 	// Deliver the decided block with its txs to the Application
 	FinalizeBlock(context.Context, *RequestFinalizeBlock) (*ResponseFinalizeBlock, error)
 
@@ -34,7 +30,7 @@ type Application interface {
 	ApplySnapshotChunk(context.Context, *RequestApplySnapshotChunk) (*ResponseApplySnapshotChunk, error) // Apply a shapshot chunk
 	// Notify application to load latest application state (e.g. after DBSync finishes)
 	LoadLatest(context.Context, *RequestLoadLatest) (*ResponseLoadLatest, error)
-	GetTxPriorityHint(context.Context, *RequestGetTxPriorityHint) (*ResponseGetTxPriorityHint, error)
+	GetTxPriorityHint(context.Context, *RequestGetTxPriorityHintV2) (*ResponseGetTxPriorityHint, error)
 }
 
 //-------------------------------------------------------
@@ -52,22 +48,12 @@ func (BaseApplication) Info(_ context.Context, req *RequestInfo) (*ResponseInfo,
 	return &ResponseInfo{}, nil
 }
 
-func (BaseApplication) CheckTx(_ context.Context, req *RequestCheckTx) (*ResponseCheckTxV2, error) {
+func (BaseApplication) CheckTx(_ context.Context, req *RequestCheckTxV2) (*ResponseCheckTxV2, error) {
 	return &ResponseCheckTxV2{ResponseCheckTx: &ResponseCheckTx{Code: CodeTypeOK}}, nil
 }
 
 func (BaseApplication) Commit(_ context.Context) (*ResponseCommit, error) {
 	return &ResponseCommit{}, nil
-}
-
-func (BaseApplication) ExtendVote(_ context.Context, req *RequestExtendVote) (*ResponseExtendVote, error) {
-	return &ResponseExtendVote{}, nil
-}
-
-func (BaseApplication) VerifyVoteExtension(_ context.Context, req *RequestVerifyVoteExtension) (*ResponseVerifyVoteExtension, error) {
-	return &ResponseVerifyVoteExtension{
-		Status: ResponseVerifyVoteExtension_ACCEPT,
-	}, nil
 }
 
 func (BaseApplication) Query(_ context.Context, req *RequestQuery) (*ResponseQuery, error) {
@@ -128,6 +114,6 @@ func (BaseApplication) LoadLatest(_ context.Context, _ *RequestLoadLatest) (*Res
 	return &ResponseLoadLatest{}, nil
 }
 
-func (BaseApplication) GetTxPriorityHint(context.Context, *RequestGetTxPriorityHint) (*ResponseGetTxPriorityHint, error) {
+func (BaseApplication) GetTxPriorityHint(context.Context, *RequestGetTxPriorityHintV2) (*ResponseGetTxPriorityHint, error) {
 	return &ResponseGetTxPriorityHint{}, nil
 }

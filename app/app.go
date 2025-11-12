@@ -108,6 +108,7 @@ import (
 	"github.com/sei-protocol/sei-chain/aclmapping"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
@@ -146,6 +147,7 @@ import (
 	tmos "github.com/tendermint/tendermint/libs/os"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
+	"go.opentelemetry.io/otel/attribute"
 
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
@@ -349,6 +351,8 @@ type App struct {
 	EpochKeeper epochmodulekeeper.Keeper
 
 	TokenFactoryKeeper tokenfactorykeeper.Keeper
+
+	BeginBlockKeepers legacyabci.BeginBlockKeepers
 
 	// mm is the module manager
 	mm *module.Manager
@@ -761,36 +765,17 @@ func New(
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 
-	// During begin block slashing happens after distr.BeginBlocker so that
-	// there is nothing left over in the validator fee pool, so as to keep the
-	// CanWithdrawInvariant invariant.
-	// NOTE: staking module is required if HistoricalEntries param > 0
-	app.mm.SetOrderBeginBlockers(
-		epochmoduletypes.ModuleName,
-		upgradetypes.ModuleName,
-		capabilitytypes.ModuleName,
-		minttypes.ModuleName,
-		distrtypes.ModuleName,
-		slashingtypes.ModuleName,
-		evidencetypes.ModuleName,
-		stakingtypes.ModuleName,
-		authtypes.ModuleName,
-		banktypes.ModuleName,
-		govtypes.ModuleName,
-		crisistypes.ModuleName,
-		genutiltypes.ModuleName,
-		authz.ModuleName,
-		feegrant.ModuleName,
-		paramstypes.ModuleName,
-		vestingtypes.ModuleName,
-		ibchost.ModuleName,
-		ibctransfertypes.ModuleName,
-		oracletypes.ModuleName,
-		evmtypes.ModuleName,
-		wasm.ModuleName,
-		tokenfactorytypes.ModuleName,
-		acltypes.ModuleName,
-	)
+	app.BeginBlockKeepers = legacyabci.BeginBlockKeepers{
+		EpochKeeper:      &app.EpochKeeper,
+		UpgradeKeeper:    &app.UpgradeKeeper,
+		CapabilityKeeper: app.CapabilityKeeper,
+		DistrKeeper:      &app.DistrKeeper,
+		SlashingKeeper:   &app.SlashingKeeper,
+		EvidenceKeeper:   &app.EvidenceKeeper,
+		StakingKeeper:    &app.StakingKeeper,
+		IBCKeeper:        app.IBCKeeper,
+		EvmKeeper:        &app.EvmKeeper,
+	}
 
 	app.mm.SetOrderMidBlockers(
 		oracletypes.ModuleName,
@@ -874,7 +859,6 @@ func New(
 
 	// initialize BaseApp
 	app.SetInitChainer(app.InitChainer)
-	app.SetBeginBlocker(app.BeginBlocker)
 
 	signModeHandler := encodingConfig.TxConfig.SignModeHandler()
 	// app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
@@ -1059,20 +1043,6 @@ func (app *App) GetBaseApp() *baseapp.BaseApp { return app.BaseApp }
 // GetStateStore returns the state store of the application
 func (app *App) GetStateStore() seidb.StateStore { return app.stateStore }
 
-// BeginBlocker application updates every begin block
-func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
-	metrics.GaugeSeidVersionAndCommit(app.versionInfo.Version, app.versionInfo.GitCommit)
-	// check if we've reached a target height, if so, execute any applicable handlers
-	if app.forkInitializer != nil {
-		app.forkInitializer(ctx)
-		app.forkInitializer = nil
-	}
-	if app.HardForkManager.TargetHeightReached(ctx) {
-		app.HardForkManager.ExecuteForTargetHeight(ctx)
-	}
-	return app.mm.BeginBlock(ctx, req)
-}
-
 // MidBlocker application updates every mid block
 func (app *App) MidBlocker(ctx sdk.Context, height int64) []abci.Event {
 	return app.mm.MidBlock(ctx, height)
@@ -1243,7 +1213,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 }
 
 func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) *abci.ExecTxResult {
-	deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
+	deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTxV2{
 		Tx: tx,
 	}, typedTx, sha256.Sum256(tx))
 
@@ -1510,7 +1480,7 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs [
 
 func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex int, bz []byte, tx sdk.Tx) (res *sdk.DeliverTxEntry) {
 	res = &sdk.DeliverTxEntry{
-		Request:       abci.RequestDeliverTx{Tx: bz},
+		Request:       abci.RequestDeliverTxV2{Tx: bz},
 		SdkTx:         tx,
 		Checksum:      sha256.Sum256(bz),
 		AbsoluteIndex: absoluateIndex,
@@ -1619,30 +1589,13 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	}()
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
+	blockSpanCtx, blockSpan := app.GetBaseApp().TracingInfo.Start("Block")
+	defer blockSpan.End()
+	blockSpan.SetAttributes(attribute.Int64("height", req.GetHeight()))
+	ctx = ctx.WithTraceSpanContext(blockSpanCtx)
+
 	events = []abci.Event{}
-	beginBlockReq := abci.RequestBeginBlock{
-		Hash: req.GetHash(),
-		ByzantineValidators: utils.Map(req.GetByzantineValidators(), func(mis abci.Misbehavior) abci.Evidence {
-			return abci.Evidence(mis)
-		}),
-		LastCommitInfo: abci.LastCommitInfo{
-			Round: lastCommit.Round,
-			Votes: utils.Map(lastCommit.Votes, func(vote abci.VoteInfo) abci.VoteInfo {
-				return abci.VoteInfo{
-					Validator:       vote.Validator,
-					SignedLastBlock: vote.SignedLastBlock,
-				}
-			}),
-		},
-		Header: tmproto.Header{
-			ChainID:         app.ChainID,
-			Height:          req.GetHeight(),
-			Time:            req.GetTime(),
-			ProposerAddress: ctx.BlockHeader().ProposerAddress,
-		},
-		Simulate: simulate,
-	}
-	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
+	beginBlockResp := app.BeginBlock(ctx, req.GetHeight(), lastCommit.Votes, req.GetByzantineValidators(), true)
 	events = append(events, beginBlockResp.Events...)
 
 	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs)) // nil for non-EVM txs
@@ -1926,7 +1879,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), nil)
 		if err != nil {
 			panic(err)
 		}
@@ -1939,7 +1892,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore())
 		if err != nil {
 			panic(err)
 		}

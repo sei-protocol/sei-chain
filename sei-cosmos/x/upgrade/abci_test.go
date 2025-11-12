@@ -24,7 +24,6 @@ import (
 )
 
 type TestSuite struct {
-	module  module.BeginBlockAppModule
 	keeper  keeper.Keeper
 	querier sdk.Querier
 	handler govtypes.Handler
@@ -53,8 +52,7 @@ func setupTest(t *testing.T, height int64, skip map[int64]bool) TestSuite {
 	s.keeper = app.UpgradeKeeper
 	s.ctx = app.BaseApp.NewContext(false, tmproto.Header{Height: height, Time: time.Now()})
 
-	s.module = upgrade.NewAppModule(s.keeper)
-	s.querier = s.module.LegacyQuerierHandler(app.LegacyAmino())
+	s.querier = upgrade.NewAppModule(s.keeper).LegacyQuerierHandler(app.LegacyAmino())
 	s.handler = upgrade.NewSoftwareUpgradeProposalHandler(s.keeper)
 	return s
 }
@@ -98,9 +96,8 @@ func VerifyDoUpgrade(t *testing.T) {
 	t.Log("Verify that a panic happens at the upgrade height")
 	newCtx := s.ctx.WithBlockHeight(s.ctx.BlockHeight() + 1).WithBlockTime(time.Now())
 
-	req := abci.RequestBeginBlock{Header: newCtx.BlockHeader()}
 	require.Panics(t, func() {
-		s.module.BeginBlock(newCtx, req)
+		upgrade.BeginBlocker(s.keeper, newCtx)
 	})
 
 	t.Log("Verify that the upgrade can be successfully applied with a handler")
@@ -108,7 +105,7 @@ func VerifyDoUpgrade(t *testing.T) {
 		return vm, nil
 	})
 	require.NotPanics(t, func() {
-		s.module.BeginBlock(newCtx, req)
+		upgrade.BeginBlocker(s.keeper, newCtx)
 	})
 
 	VerifyCleared(t, newCtx)
@@ -116,9 +113,8 @@ func VerifyDoUpgrade(t *testing.T) {
 
 func VerifyDoUpgradeWithCtx(t *testing.T, newCtx sdk.Context, proposalName string) {
 	t.Log("Verify that a panic happens at the upgrade height")
-	req := abci.RequestBeginBlock{Header: newCtx.BlockHeader()}
 	require.Panics(t, func() {
-		s.module.BeginBlock(newCtx, req)
+		upgrade.BeginBlocker(s.keeper, newCtx)
 	})
 
 	t.Log("Verify that the upgrade can be successfully applied with a handler")
@@ -126,7 +122,7 @@ func VerifyDoUpgradeWithCtx(t *testing.T, newCtx sdk.Context, proposalName strin
 		return vm, nil
 	})
 	require.NotPanics(t, func() {
-		s.module.BeginBlock(newCtx, req)
+		upgrade.BeginBlocker(s.keeper, newCtx)
 	})
 
 	VerifyCleared(t, newCtx)
@@ -142,9 +138,8 @@ func TestHaltIfTooNew(t *testing.T) {
 	})
 
 	newCtx := s.ctx.WithBlockHeight(s.ctx.BlockHeight() + 1).WithBlockTime(time.Now())
-	req := abci.RequestBeginBlock{Header: newCtx.BlockHeader()}
 	require.NotPanics(t, func() {
-		s.module.BeginBlock(newCtx, req)
+		upgrade.BeginBlocker(s.keeper, newCtx)
 	})
 	require.Equal(t, 0, called)
 
@@ -152,16 +147,15 @@ func TestHaltIfTooNew(t *testing.T) {
 	err := s.handler(s.ctx, &types.SoftwareUpgradeProposal{Title: "prop", Plan: types.Plan{Name: "future", Height: s.ctx.BlockHeight() + 3}})
 	require.NoError(t, err)
 	require.Panics(t, func() {
-		s.module.BeginBlock(newCtx, req)
+		upgrade.BeginBlocker(s.keeper, newCtx)
 	})
 	require.Equal(t, 0, called)
 
 	t.Log("Verify we no longer panic if the plan is on time")
 
 	futCtx := s.ctx.WithBlockHeight(s.ctx.BlockHeight() + 3).WithBlockTime(time.Now())
-	req = abci.RequestBeginBlock{Header: futCtx.BlockHeader()}
 	require.NotPanics(t, func() {
-		s.module.BeginBlock(futCtx, req)
+		upgrade.BeginBlocker(s.keeper, futCtx)
 	})
 	require.Equal(t, 1, called)
 
@@ -202,9 +196,8 @@ func TestCantApplySameUpgradeTwice(t *testing.T) {
 func TestNoSpuriousUpgrades(t *testing.T) {
 	s := setupTest(t, 10, map[int64]bool{})
 	t.Log("Verify that no upgrade panic is triggered in the BeginBlocker when we haven't scheduled an upgrade")
-	req := abci.RequestBeginBlock{Header: s.ctx.BlockHeader()}
 	require.NotPanics(t, func() {
-		s.module.BeginBlock(s.ctx, req)
+		upgrade.BeginBlocker(s.keeper, s.ctx)
 	})
 }
 
@@ -367,14 +360,14 @@ func TestBinaryVersion(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		ctx, req := tc.preRun()
+		ctx, _ := tc.preRun()
 		if tc.expectPanic {
 			require.Panics(t, func() {
-				s.module.BeginBlock(ctx, req)
+				upgrade.BeginBlocker(s.keeper, ctx)
 			})
 		} else {
 			require.NotPanics(t, func() {
-				s.module.BeginBlock(ctx, req)
+				upgrade.BeginBlocker(s.keeper, ctx)
 			})
 		}
 	}

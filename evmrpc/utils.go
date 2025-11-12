@@ -41,13 +41,14 @@ const LatestCtxHeight int64 = -1
 const Pacific1EVMLaunchHeight int64 = 79123881
 
 // GetBlockNumberByNrOrHash returns the height of the block with the given number or hash.
-func GetBlockNumberByNrOrHash(ctx context.Context, tmClient rpcclient.Client, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
+func GetBlockNumberByNrOrHash(ctx context.Context, tmClient rpcclient.Client, wm *WatermarkManager, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
 	if blockNrOrHash.BlockHash != nil {
-		res, err := blockByHash(ctx, tmClient, blockNrOrHash.BlockHash[:])
+		block, err := blockByHashRespectingWatermarks(ctx, tmClient, wm, blockNrOrHash.BlockHash[:], 1)
 		if err != nil {
 			return nil, err
 		}
-		return &res.Block.Height, nil
+		height := block.Block.Height
+		return &height, nil
 	}
 	return getBlockNumber(ctx, tmClient, *blockNrOrHash.BlockNumber)
 }

@@ -216,9 +216,22 @@ func TestGetProof(t *testing.T) {
 		_, err := testApp.Commit(context.Background())
 		require.Nil(t, err)
 	}
+	if store := testApp.EvmKeeper.ReceiptStore(); store != nil {
+		require.NoError(t, store.SetLatestVersion(MockHeight8))
+		require.NoError(t, store.SetEarliestVersion(1, true))
+	}
 	client := &MockClient{}
-	watermarks := evmrpc.NewWatermarkManager(client, func(int64) sdk.Context { return testApp.GetCheckCtx() }, nil, testApp.EvmKeeper.ReceiptStore())
-	stateAPI := evmrpc.NewStateAPI(client, &testApp.EvmKeeper, func(int64) sdk.Context { return testApp.GetCheckCtx() }, evmrpc.ConnectionTypeHTTP, watermarks)
+	ctxProvider := func(height int64) sdk.Context {
+		ctx := testApp.GetCheckCtx()
+		switch {
+		case height == evmrpc.LatestCtxHeight || height <= 0:
+			return ctx.WithBlockHeight(MockHeight8)
+		default:
+			return ctx.WithBlockHeight(height)
+		}
+	}
+	watermarks := evmrpc.NewWatermarkManager(client, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+	stateAPI := evmrpc.NewStateAPI(client, &testApp.EvmKeeper, ctxProvider, evmrpc.ConnectionTypeHTTP, watermarks)
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000616263", testApp.EvmKeeper.GetState(testApp.GetCheckCtx(), evmAddr, common.BytesToHash(key)).Hex())
 	tests := []struct {
 		key         string
