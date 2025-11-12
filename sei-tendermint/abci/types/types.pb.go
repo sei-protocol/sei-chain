@@ -165,17 +165,14 @@ type TxRecord_TxAction int32
 
 const (
 	TxRecord_UNMODIFIED TxRecord_TxAction = 0
-	TxRecord_GENERATED  TxRecord_TxAction = 1
 )
 
 var TxRecord_TxAction_name = map[int32]string{
 	0: "UNMODIFIED",
-	1: "GENERATED",
 }
 
 var TxRecord_TxAction_value = map[string]int32{
 	"UNMODIFIED": 0,
-	"GENERATED":  1,
 }
 
 func (x TxRecord_TxAction) String() string {
