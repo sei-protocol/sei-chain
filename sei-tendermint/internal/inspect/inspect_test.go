@@ -115,7 +115,7 @@ func TestTxSearch(t *testing.T) {
 	testHash := []byte("test")
 	testTx := []byte("tx")
 	testQuery := fmt.Sprintf("tx.hash = '%s'", string(testHash))
-	testTxResult := &abcitypes.TxResultV2{
+	testTxResult := &abcitypes.TxResult{
 		Height: 1,
 		Index:  100,
 		Tx:     testTx,
@@ -128,7 +128,7 @@ func TestTxSearch(t *testing.T) {
 	eventSinkMock.On("Type").Return(indexer.KV)
 	eventSinkMock.On("SearchTxEvents", mock.Anything,
 		mock.MatchedBy(func(q *query.Query) bool { return testQuery == q.String() })).
-		Return([]*abcitypes.TxResultV2{testTxResult}, nil)
+		Return([]*abcitypes.TxResult{testTxResult}, nil)
 
 	rpcConfig := config.TestRPCConfig()
 	l := log.NewNopLogger()
@@ -174,7 +174,7 @@ func TestTx(t *testing.T) {
 	eventSinkMock := &indexermocks.EventSink{}
 	eventSinkMock.On("Stop").Return(nil)
 	eventSinkMock.On("Type").Return(indexer.KV)
-	eventSinkMock.On("GetTxByHash", testHash).Return(&abcitypes.TxResultV2{
+	eventSinkMock.On("GetTxByHash", testHash).Return(&abcitypes.TxResult{
 		Tx: testTx,
 	}, nil)
 

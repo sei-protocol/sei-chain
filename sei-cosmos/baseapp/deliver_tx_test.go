@@ -230,7 +230,7 @@ func TestWithRouter(t *testing.T) {
 			require.NoError(t, err)
 
 			decoded, _ := app.txDecoder(txBytes)
-			res := app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTxV2{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+			res := app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
 			require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
 		}
 
@@ -434,7 +434,7 @@ func TestMultiMsgDeliverTx(t *testing.T) {
 	txBytes, err := codec.Marshal(tx)
 	require.NoError(t, err)
 	decoded, _ := app.txDecoder(txBytes)
-	res := app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTxV2{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+	res := app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
 	require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
 
 	store := app.deliverState.ctx.KVStore(capKey1)
@@ -455,7 +455,7 @@ func TestMultiMsgDeliverTx(t *testing.T) {
 	txBytes, err = codec.Marshal(tx)
 	require.NoError(t, err)
 	decoded, _ = app.txDecoder(txBytes)
-	res = app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTxV2{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+	res = app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
 	require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
 
 	store = app.deliverState.ctx.KVStore(capKey1)
@@ -925,7 +925,7 @@ func TestBaseAppAnteHandler(t *testing.T) {
 	txBytes, err := cdc.Marshal(tx)
 	require.NoError(t, err)
 	decoded, _ := app.txDecoder(txBytes)
-	res := app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTxV2{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+	res := app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
 	require.Empty(t, res.Events)
 	require.False(t, res.IsOK(), fmt.Sprintf("%v", res))
 
@@ -942,7 +942,7 @@ func TestBaseAppAnteHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	decoded, _ = app.txDecoder(txBytes)
-	res = app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTxV2{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+	res = app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
 	// should emit ante event
 	require.NotEmpty(t, res.Events)
 	require.False(t, res.IsOK(), fmt.Sprintf("%v", res))
@@ -960,7 +960,7 @@ func TestBaseAppAnteHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	decoded, _ = app.txDecoder(txBytes)
-	res = app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTxV2{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+	res = app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
 	require.NotEmpty(t, res.Events)
 	require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
 
@@ -1014,7 +1014,7 @@ func TestPrecommitHandlerPanic(t *testing.T) {
 	txBytes, err := cdc.Marshal(tx)
 	require.NoError(t, err)
 	decoded, _ := app.txDecoder(txBytes)
-	res := app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTxV2{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+	res := app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
 	require.Empty(t, res.Events)
 	require.False(t, res.IsOK(), fmt.Sprintf("%v", res))
 
@@ -1031,7 +1031,7 @@ func TestPrecommitHandlerPanic(t *testing.T) {
 	require.NoError(t, err)
 
 	decoded, _ = app.txDecoder(txBytes)
-	res = app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTxV2{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+	res = app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
 	// should emit ante event
 	require.NotEmpty(t, res.Events)
 	require.False(t, res.IsOK(), fmt.Sprintf("%v", res))
@@ -1049,7 +1049,7 @@ func TestPrecommitHandlerPanic(t *testing.T) {
 	require.NoError(t, err)
 
 	decoded, _ = app.txDecoder(txBytes)
-	res = app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTxV2{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+	res = app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
 	require.NotEmpty(t, res.Events)
 	require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
 
@@ -1127,7 +1127,7 @@ func TestGasConsumptionBadTx(t *testing.T) {
 	txBytes, err := cdc.Marshal(tx)
 	require.NoError(t, err)
 
-	res := app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTxV2{Tx: txBytes}, tx, sha256.Sum256(txBytes))
+	res := app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTx{Tx: txBytes}, tx, sha256.Sum256(txBytes))
 	require.False(t, res.IsOK(), fmt.Sprintf("%v", res))
 
 	// removed the block gas exceeded because of removal of block gas meter, gasWanted < max block gas is still fulfilled by various other checks
@@ -1501,7 +1501,7 @@ func TestCheckTx(t *testing.T) {
 		tx := newTxCounter(i, 0) // no messages
 		txBytes, err := codec.Marshal(tx)
 		require.NoError(t, err)
-		r, _ := app.CheckTx(context.Background(), &abci.RequestCheckTxV2{Tx: txBytes})
+		r, _ := app.CheckTx(context.Background(), &abci.RequestCheckTx{Tx: txBytes})
 		require.True(t, r.IsOK(), fmt.Sprintf("%v", r))
 	}
 
@@ -1577,7 +1577,7 @@ func TestDeliverTx(t *testing.T) {
 				ctx = ctx.WithEVMSenderAddress("address")
 			}
 
-			res := app.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+			res := app.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
 			require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
 			events := res.GetEvents()
 			require.Len(t, events, 3, "should contain ante handler, message type and counter events respectively")
@@ -1630,13 +1630,13 @@ func TestDeliverTxHooks(t *testing.T) {
 
 	// register noop hook
 	app.RegisterDeliverTxHook(func(ctx sdk.Context, tx sdk.Tx, b [32]byte, rdt sdk.DeliverTxHookInput) {})
-	res := app.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+	res := app.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
 	require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
 
 	// register panic hook (should be captured by recover() middleware)
 	app.RegisterDeliverTxHook(func(ctx sdk.Context, tx sdk.Tx, b [32]byte, rdt sdk.DeliverTxHookInput) { panic(1) })
 	require.NotPanics(t, func() {
-		res = app.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+		res = app.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
 	})
 	require.False(t, res.IsOK(), fmt.Sprintf("%v", res))
 }
@@ -1830,7 +1830,7 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 			}
 			txBytes, err := codec.Marshal(tx)
 			require.NoError(t, err)
-			resp := app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTxV2{Tx: txBytes}, tx, sha256.Sum256(txBytes))
+			resp := app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTx{Tx: txBytes}, tx, sha256.Sum256(txBytes))
 			require.True(t, resp.IsOK(), "%v", resp.String())
 		}
 		app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{Height: height})

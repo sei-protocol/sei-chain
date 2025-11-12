@@ -759,7 +759,7 @@ func FireEvents(
 
 	for i, tx := range block.Data.Txs {
 		if err := eventBus.PublishEventTx(types.EventDataTx{
-			TxResultV2: abci.TxResultV2{
+			TxResult: abci.TxResult{
 				Height: block.Height,
 				Index:  uint32(i),
 				Tx:     tx,

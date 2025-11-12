@@ -43,7 +43,7 @@ type testTx struct {
 var DefaultGasEstimated = int64(1)
 var DefaultGasWanted = int64(1)
 
-func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
+func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, error) {
 
 	var (
 		priority int64
@@ -166,7 +166,7 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 	}}, nil
 }
 
-func (app *application) GetTxPriorityHint(context.Context, *abci.RequestGetTxPriorityHintV2) (*abci.ResponseGetTxPriorityHint, error) {
+func (app *application) GetTxPriorityHint(context.Context, *abci.RequestGetTxPriorityHint) (*abci.ResponseGetTxPriorityHint, error) {
 	return &abci.ResponseGetTxPriorityHint{
 		// Return non-zero priority to allow testing the eviction logic effectively.
 		Priority: 1,

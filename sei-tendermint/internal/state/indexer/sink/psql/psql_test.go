@@ -184,7 +184,7 @@ func TestIndexing(t *testing.T) {
 
 			{Type: "", Attributes: []abci.EventAttribute{{Key: []byte("not_allowed"), Value: []byte("Vlad"), Index: true}}},
 		})
-		require.NoError(t, indexer.IndexTxEvents([]*abci.TxResultV2{txResult}))
+		require.NoError(t, indexer.IndexTxEvents([]*abci.TxResult{txResult}))
 
 		txr, err := loadTxResult(types.Tx(txResult.Tx).Hash())
 		require.NoError(t, err)
@@ -203,7 +203,7 @@ func TestIndexing(t *testing.T) {
 		})
 
 		// try to insert the duplicate tx events.
-		err = indexer.IndexTxEvents([]*abci.TxResultV2{txResult})
+		err = indexer.IndexTxEvents([]*abci.TxResult{txResult})
 		require.NoError(t, err)
 	})
 }
@@ -258,8 +258,8 @@ func resetDatabase(db *sql.DB) error {
 
 // txResultWithEvents constructs a fresh transaction result with fixed values
 // for testing, that includes the specified events.
-func txResultWithEvents(events []abci.Event) *abci.TxResultV2 {
-	return &abci.TxResultV2{
+func txResultWithEvents(events []abci.Event) *abci.TxResult {
+	return &abci.TxResult{
 		Height: 1,
 		Index:  0,
 		Tx:     types.Tx("HELLO WORLD"),
@@ -272,7 +272,7 @@ func txResultWithEvents(events []abci.Event) *abci.TxResultV2 {
 	}
 }
 
-func loadTxResult(hash []byte) (*abci.TxResultV2, error) {
+func loadTxResult(hash []byte) (*abci.TxResult, error) {
 	hashString := fmt.Sprintf("%X", hash)
 	var resultData []byte
 	if err := testDB().QueryRow(`
@@ -286,7 +286,7 @@ SELECT tx_result FROM `+tableTxResults+` WHERE tx_hash = $1;
 		return nil, fmt.Errorf("unmarshaling txr: %w", err)
 	}
 
-	return &abci.TxResultV2{Height: txr.Height, Index: txr.Index, Tx: txr.Tx, Result: txr.Result}, nil
+	return txr, nil
 }
 
 func verifyTimeStamp(tableName string) error {

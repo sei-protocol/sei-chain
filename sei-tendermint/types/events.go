@@ -274,7 +274,7 @@ func (e EventDataNewEvidence) ToLegacy() LegacyEventData {
 
 // All txs fire EventDataTx
 type EventDataTx struct {
-	abci.TxResultV2
+	abci.TxResult
 }
 
 // TypeTag implements the required method of jsontypes.Tagged.

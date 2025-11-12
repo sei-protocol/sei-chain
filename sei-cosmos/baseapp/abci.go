@@ -166,20 +166,20 @@ func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abc
 // internal CheckTx state if the AnteHandler passes. Otherwise, the ResponseCheckTx
 // will contain releveant error information. Regardless of tx execution outcome,
 // the ResponseCheckTx will contain relevant gas execution context.
-func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
+func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "check_tx")
 
 	var mode runTxMode
 
 	switch {
-	case req.Type == abci.CheckTxTypeV2New:
+	case req.Type == abci.CheckTxType_New:
 		mode = runTxModeCheck
 
-	case req.Type == abci.CheckTxTypeV2Recheck:
+	case req.Type == abci.CheckTxType_Recheck:
 		mode = runTxModeReCheck
 
 	default:
-		panic(fmt.Sprintf("unknown RequestCheckTx type: %d", req.Type))
+		panic(fmt.Sprintf("unknown RequestCheckTx type: %s", req.Type))
 	}
 
 	sdkCtx := app.getContextForTx(mode, req.Tx)
@@ -243,7 +243,7 @@ func (app *BaseApp) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchReques
 // Otherwise, the ResponseDeliverTx will contain relevant error information.
 // Regardless of tx execution outcome, the ResponseDeliverTx will contain relevant
 // gas execution context.
-func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res abci.ResponseDeliverTx) {
+func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) (res abci.ResponseDeliverTx) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "deliver_tx")
 
 	gInfo := sdk.GasInfo{}
@@ -1162,7 +1162,7 @@ func (app *BaseApp) LoadLatest(ctx context.Context, req *abci.RequestLoadLatest)
 	return &abci.ResponseLoadLatest{}, nil
 }
 
-func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxPriorityHintV2) (_resp *abci.ResponseGetTxPriorityHint, _err error) {
+func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxPriorityHint) (_resp *abci.ResponseGetTxPriorityHint, _err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			// Fall back to no-op priority if we panic for any reason. This is to avoid DoS
