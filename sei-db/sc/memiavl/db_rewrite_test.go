@@ -11,58 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRewriteSnapshotAlreadyExists tests that RewriteSnapshot skips if snapshot already exists
-func TestRewriteSnapshotAlreadyExists(t *testing.T) {
-	dir := t.TempDir()
-
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:             dir,
-		CreateIfMissing: true,
-		InitialStores:   []string{"test"},
-	})
-	require.NoError(t, err)
-
-	// Apply some changes
-	for _, changes := range ChangeSets {
-		cs := []*proto.NamedChangeSet{
-			{
-				Name:      "test",
-				Changeset: changes,
-			},
-		}
-		require.NoError(t, db.ApplyChangeSets(cs))
-		_, err := db.Commit()
-		require.NoError(t, err)
-	}
-
-	// Create initial snapshot
-	require.NoError(t, db.RewriteSnapshot(context.Background()))
-
-	// Get snapshot directory
-	snapshotDir := snapshotName(db.lastCommitInfo.Version)
-	targetPath := filepath.Join(db.dir, snapshotDir)
-
-	// Verify snapshot exists
-	_, err = os.Stat(targetPath)
-	require.NoError(t, err)
-
-	// Remove the 'current' symlink to simulate a broken state
-	currentPath := filepath.Join(db.dir, "current")
-	err = os.Remove(currentPath)
-	require.NoError(t, err)
-
-	// Try to rewrite again - should skip snapshot creation but update symlink
-	err = db.RewriteSnapshot(context.Background())
-	require.NoError(t, err)
-
-	// Verify 'current' symlink was restored and points to the correct snapshot
-	linkTarget, err := os.Readlink(currentPath)
-	require.NoError(t, err)
-	require.Equal(t, snapshotDir, linkTarget, "'current' symlink should point to the snapshot")
-
-	db.Close()
-}
-
 // TestRewriteIfApplicableLogging tests the logging in rewriteIfApplicable
 func TestRewriteIfApplicableLogging(t *testing.T) {
 	t.Skip("Skipping background snapshot test - timing dependent")

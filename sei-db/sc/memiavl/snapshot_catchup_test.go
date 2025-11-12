@@ -55,10 +55,6 @@ func TestSnapshotThrottlingDuringCatchup(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// With the throttling logic:
-	// - Without throttling: 15000 / 100 = 150 snapshots
-	// - With throttling (time < 60 min): Should skip most of them during rapid catch-up
-	// We expect significantly fewer snapshots (should be close to 0-2)
 	require.Less(t, snapshotCount, 5, "should create very few snapshots during rapid catch-up")
 
 	t.Logf("Snapshots created during catch-up: %d (expected < 5)", snapshotCount)
