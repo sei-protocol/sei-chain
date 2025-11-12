@@ -130,7 +130,7 @@ func TestWorkerPoolClose(t *testing.T) {
 	var tasksCompleted int64
 
 	// Submit some tasks
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		wp.Submit(func() {
 			atomic.AddInt64(&tasksStarted, 1)
 			time.Sleep(50 * time.Millisecond)
@@ -207,7 +207,7 @@ func TestWorkerPoolStartIdempotent(t *testing.T) {
 	var counter int64
 	var wg sync.WaitGroup
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		wg.Add(1)
 		wp.Submit(func() {
 			defer wg.Done()
@@ -279,7 +279,7 @@ func TestWorkerPoolOrderingNotGuaranteed(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Submit tasks with different execution times
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		wg.Add(1)
 		taskID := i
 		wp.Submit(func() {
@@ -313,7 +313,7 @@ func TestWorkerPoolOrderingNotGuaranteed(t *testing.T) {
 	}
 
 	// All task IDs should be present
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if !resultMap[i] {
 			t.Errorf("Task %d was not executed", i)
 		}
@@ -494,7 +494,7 @@ func TestWorkerPoolQueueSizeImpact(t *testing.T) {
 			errors := 0
 			submitted := 0
 
-			for i := 0; i < tasksToSubmit; i++ {
+			for range tasksToSubmit {
 				err := wp.Submit(func() {
 					time.Sleep(10 * time.Millisecond)
 				})

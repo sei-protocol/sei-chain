@@ -9,16 +9,6 @@ import (
 	"github.com/spf13/cast"
 )
 
-// calculateDefaultWorkerPoolSize returns the default worker pool size.
-// Capped at 64 to prevent excessive goroutines on high-core machines.
-func calculateDefaultWorkerPoolSize() int {
-	workers := runtime.NumCPU() * 2
-	if workers > 64 {
-		return 64
-	}
-	return workers
-}
-
 // EVMRPC Config defines configurations for EVM RPC server on this node
 type Config struct {
 	// controls whether an HTTP EVM server is enabled
@@ -115,11 +105,11 @@ type Config struct {
 	RPCStatsInterval time.Duration `mapstructure:"rpc_stats_interval"`
 
 	// WorkerPoolSize defines the number of workers in the worker pool.
-	// Set to 0 to use default (runtime.NumCPU() * 2)
+	// Set to 0 to use default: min(64, runtime.NumCPU() * 2)
 	WorkerPoolSize int `mapstructure:"worker_pool_size"`
 
 	// WorkerQueueSize defines the size of the task queue in the worker pool.
-	// Set to 0 to use default (1000)
+	// Set to 0 to use default: 1000
 	WorkerQueueSize int `mapstructure:"worker_queue_size"`
 }
 
@@ -150,8 +140,8 @@ var DefaultConfig = Config{
 	MaxTraceLookbackBlocks:       10000,
 	TraceTimeout:                 30 * time.Second,
 	RPCStatsInterval:             10 * time.Second,
-	WorkerPoolSize:               calculateDefaultWorkerPoolSize(), // Default: min(CPU cores × 2, 64)
-	WorkerQueueSize:              DefaultWorkerQueueSize,           // Default: 1000 tasks
+	WorkerPoolSize:               min(MaxWorkerPoolSize, runtime.NumCPU()*2), // Default: min(64, CPU cores × 2)
+	WorkerQueueSize:              DefaultWorkerQueueSize,                     // Default: 1000 tasks
 }
 
 const (
@@ -420,11 +410,11 @@ max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
 trace_timeout = "{{ .EVM.TraceTimeout }}"
 
 # WorkerPoolSize defines the number of workers in the worker pool.
-# Default is min(CPU cores × 2, 64). Capped at 64 for high-core machines.
-# Set to 0 to auto-detect based on CPU cores.
+# Default: min(64, CPU cores × 2). Capped at 64 to prevent excessive goroutines on high-core machines.
+# Set to 0 to use the default.
 worker_pool_size = {{ .EVM.WorkerPoolSize }}
 
 # WorkerQueueSize defines the size of the task queue in the worker pool.
-# Default is 1000 tasks. Set to 0 to use the default value.
+# Default: 1000 tasks. Set to 0 to use the default.
 worker_queue_size = {{ .EVM.WorkerQueueSize }}
 `

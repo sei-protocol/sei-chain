@@ -160,14 +160,14 @@ func testWorkerPoolUnderLoad(t *testing.T, wp *evmrpc.WorkerPool, taskCount int)
 	var completed atomic.Int32
 
 	// Block the workers with slow tasks
-	for i := 0; i < wp.WorkerCount(); i++ {
+	for range wp.WorkerCount() {
 		wp.Submit(func() {
 			time.Sleep(50 * time.Millisecond)
 		})
 	}
 
 	// Try to submit many tasks quickly
-	for i := 0; i < taskCount; i++ {
+	for range taskCount {
 		err := wp.Submit(func() {
 			time.Sleep(10 * time.Millisecond)
 			completed.Add(1)
@@ -213,7 +213,7 @@ simulation_gas_limit = 10000000
 		cfg, err := evmrpc.ReadConfig(v)
 		require.NoError(t, err)
 
-		// Old config should use default calculated values since calculateDefaultWorkerPoolSize() is called
+		// Old config should use default calculated values: min(MaxWorkerPoolSize, runtime.NumCPU() * 2)
 		require.Greater(t, cfg.WorkerPoolSize, 0, "Should have default worker pool size")
 		require.Equal(t, 1000, cfg.WorkerQueueSize, "Should use default queue size")
 
@@ -326,7 +326,7 @@ func TestWorkerPoolPerformanceWithConfig(t *testing.T) {
 			failed := 0
 			var wg sync.WaitGroup
 
-			for i := 0; i < tc.taskCount; i++ {
+			for range tc.taskCount {
 				wg.Add(1)
 				err := wp.Submit(func() {
 					defer wg.Done()

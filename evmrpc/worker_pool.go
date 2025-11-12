@@ -59,7 +59,7 @@ func InitGlobalWorkerPool(workerPoolSize, workerQueueSize int) {
 
 // GetGlobalWorkerPool returns the singleton worker pool instance.
 // If not initialized, it creates one with default values:
-// - Worker count: runtime.NumCPU() * 2
+// - Worker count: min(MaxWorkerPoolSize, runtime.NumCPU() * 2)
 // - Queue size: DefaultWorkerQueueSize
 func GetGlobalWorkerPool() *WorkerPool {
 	// Ensure initialization with defaults if not called explicitly
@@ -70,15 +70,12 @@ func GetGlobalWorkerPool() *WorkerPool {
 
 // NewWorkerPool creates a new worker pool with the specified number of workers and queue size.
 // If workers or queueSize is <= 0, defaults are applied:
-// - workers: min(runtime.NumCPU() * 2, MaxWorkerPoolSize)
+// - workers: min(MaxWorkerPoolSize, runtime.NumCPU() * 2)
 // - queueSize: DefaultWorkerQueueSize
 func NewWorkerPool(workers, queueSize int) *WorkerPool {
 	// Apply defaults if invalid
 	if workers <= 0 {
-		workers = runtime.NumCPU() * 2
-		if workers > MaxWorkerPoolSize {
-			workers = MaxWorkerPoolSize
-		}
+		workers = min(MaxWorkerPoolSize, runtime.NumCPU()*2)
 	}
 	if queueSize <= 0 {
 		queueSize = DefaultWorkerQueueSize
