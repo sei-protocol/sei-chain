@@ -129,12 +129,6 @@ func ToRequestLoadLatest(req *RequestLoadLatest) *Request {
 	}
 }
 
-func ToRequestGetTxPriorityHint(req *RequestGetTxPriorityHint) *Request {
-	return &Request{
-		Value: &Request_GetTxPriorityHint{req},
-	}
-}
-
 //----------------------------------------
 
 func ToResponseException(errStr string) *Response {

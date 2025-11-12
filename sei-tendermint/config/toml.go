@@ -433,6 +433,7 @@ drop-priority-reservoir-size = {{ .Mempool.DropPriorityReservoirSize }}
 #######################################################################
 ###         State Sync Configuration Options                        ###
 #######################################################################
+
 [statesync]
 # State sync rapidly bootstraps a new node by discovering, fetching, and restoring a state machine
 # snapshot from peers instead of fetching and replaying historical blocks. Requires some peers in
