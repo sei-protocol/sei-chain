@@ -15,6 +15,7 @@
 .vagrant
 .vendor-new/
 .vscode/
+abci/abci-cli
 addrbook.json
 artifacts/*
 build/*

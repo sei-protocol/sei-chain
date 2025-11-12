@@ -39,7 +39,13 @@ func ClientFactory(logger log.Logger, addr, transport, dbDir string) (abciclient
 	case "noop":
 		return abciclient.NewLocalClient(logger, types.NewBaseApplication()), noopCloser{}, nil
 	default:
-		panic("unknown client type")
+		const mustConnect = false // loop retrying
+		client, err := abciclient.NewClient(logger, addr, transport, mustConnect)
+		if err != nil {
+			return nil, noopCloser{}, err
+		}
+
+		return client, noopCloser{}, nil
 	}
 }
 
