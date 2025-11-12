@@ -984,7 +984,8 @@ func (snapshot *Snapshot) prefetchSnapshot(snapshotDir string, prefetchThreshold
 	residentLeaves, errLeaves := residentRatio(snapshot.leaves)
 	if errNodes == nil && errLeaves == nil {
 		if residentNodes >= prefetchThreshold && residentLeaves >= prefetchThreshold {
-			log.Debug(fmt.Sprintf("Skipped prefetching for tree %s\n", treeName))
+			log.Info(fmt.Sprintf("Skipped prefetching for tree %s (nodes: %.2f%%, leaves: %.2f%%, threshold: %.2f%%)\n",
+				treeName, residentNodes*100, residentLeaves*100, prefetchThreshold*100))
 			return
 		}
 	}
@@ -1032,30 +1033,12 @@ func SequentialReadAndFillPageCache(filePath string) error {
 	}
 
 	totalSize := fileInfo.Size()
-	fmt.Printf("[PREFETCH] Starting to prefetch file: %s (size: %d MB)\n", filePath, totalSize/(1024*1024))
-
-	// Mmap the file to apply madvise hints
-	// This tells the kernel to:
-	// 1. Read sequentially (MADV_SEQUENTIAL) - enables aggressive readahead
-	// 2. Keep in cache (MADV_WILLNEED) - prioritize retention
-	// This helps prevent eviction when write buffers compete for memory
-	if totalSize > 0 {
-		data, err := unix.Mmap(int(f.Fd()), 0, int(totalSize), unix.PROT_READ, unix.MAP_SHARED)
-		if err == nil {
-			// Tell kernel this will be read sequentially - enables aggressive readahead
-			_ = unix.Madvise(data, unix.MADV_SEQUENTIAL)
-			// Tell kernel we need this data soon - start readahead immediately
-			_ = unix.Madvise(data, unix.MADV_WILLNEED)
-			// Unmap after setting hints - the hints persist on the underlying pages
-			defer unix.Munmap(data)
-			fmt.Printf("[PREFETCH] Applied madvise hints (SEQUENTIAL + WILLNEED) to %s\n", filePath)
-		} else {
-			fmt.Printf("[PREFETCH] Warning: mmap failed for %s: %v (continuing with read)\n", filePath, err)
-		}
-	} else {
+	if totalSize == 0 {
 		fmt.Printf("[PREFETCH] Skipping empty file: %s\n", filePath)
 		return nil
 	}
+
+	fmt.Printf("[PREFETCH] Starting to prefetch file: %s (size: %d MB)\n", filePath, totalSize/(1024*1024))
 
 	reportDone := make(chan struct{})
 	var totalRead int64

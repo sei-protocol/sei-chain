@@ -13,11 +13,11 @@ import (
 
 var (
 	// Pipeline channel size - controls how many operations can be queued
-	// Increased to 1M to improve throughput (1M ops * 120 bytes * 3 channels = ~360MB)
-	nodeChanSize = 1000000
+	// Profiling: peak 440k nodes, 1GB overhead. Small buffer causes frequent blocking.
+	nodeChanSize = 500000
 
 	// bufio.Writer buffer size - 128MB balances performance and memory usage
-	// Total memory: 128MB * 3 files + 360MB channels ≈ 750MB per snapshot write
+	// Large buffer reduces syscalls and improves throughput for sequential writes
 	bufIOSize = 128 * 1024 * 1024
 )
 
@@ -150,7 +150,6 @@ func doImport(ctx context.Context, dir string, version int64, nodes <-chan *type
 
 		// Check for context cancellation every 100k nodes to minimize overhead
 		// This provides ~1 second response time for EVM tree (1B nodes / 100k = 10k checks at 1M nodes/s)
-		// while avoiding per-node overhead that caused 20% performance degradation
 		const cancelCheckInterval = 100000
 		nodeCount := 0
 

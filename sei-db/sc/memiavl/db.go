@@ -90,12 +90,10 @@ const (
 	SnapshotPrefix = "snapshot-"
 	SnapshotDirLen = len(SnapshotPrefix) + 20
 
-	// Catch-up detection thresholds for snapshot creation
-	// During rapid catch-up (e.g., state sync), we skip snapshot creation if:
-	// - Block interval is large (> CatchupBlockThreshold)
-	// - Time since last snapshot is short (< CatchupTimeThreshold)
-	CatchupBlockThreshold = 10000            // blocks
-	CatchupTimeThreshold  = 60 * time.Minute // 60 minutes
+	// Catch-up detection: time threshold for snapshot creation
+	// During rapid catch-up (e.g., state sync), skip snapshot if time since last < threshold
+	// This prevents excessive snapshot creation during state sync catch-up
+	CatchupTimeThreshold = 60 * time.Minute // 60 minutes
 )
 
 func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *DB, _err error) {
@@ -559,19 +557,7 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	}
 
 	snapshotDir := snapshotName(db.lastCommitInfo.Version)
-
-	// Skip if snapshot already exists
 	targetPath := filepath.Join(db.dir, snapshotDir)
-	if _, err := os.Stat(targetPath); err == nil {
-		db.logger.Info("snapshot already exists, skipping rewrite", "snapshot", snapshotDir)
-		// Ensure 'current' symlink points to this snapshot
-		if err := updateCurrentSymlink(db.dir, snapshotDir); err != nil {
-			db.logger.Error("failed to update current symlink for existing snapshot", "snapshot", snapshotDir, "error", err)
-			return err
-		}
-		return nil
-	}
-
 	tmpDir := snapshotDir + "-tmp"
 	path := filepath.Join(db.dir, tmpDir)
 
@@ -662,16 +648,16 @@ func (db *DB) rewriteIfApplicable(height int64) {
 
 	// create snapshot when current height - last snapshot height > interval
 	if blocksSinceLastSnapshot >= int64(db.snapshotInterval) {
-		// During catch-up (rapid block processing), use a more conservative strategy:
-		// Skip snapshot creation if we're in rapid catch-up mode to avoid overhead
-		// This prevents excessive snapshot creation during state sync catch-up
+		// During catch-up (rapid block processing), use time-based throttling:
+		// If blocks accumulated > snapshotInterval but time elapsed < 60min, we're in catch-up mode
+		// Skip snapshot creation to avoid overhead during state sync
 		timeSinceLastSnapshot := time.Since(db.lastSnapshotTime)
-		if blocksSinceLastSnapshot > CatchupBlockThreshold && timeSinceLastSnapshot < CatchupTimeThreshold {
+		if timeSinceLastSnapshot < CatchupTimeThreshold {
 			db.logger.Debug("skipping snapshot during catch-up",
 				"blocks_since_last", blocksSinceLastSnapshot,
 				"time_since_last", timeSinceLastSnapshot,
-				"threshold_blocks", CatchupBlockThreshold,
-				"threshold_time", CatchupTimeThreshold,
+				"snapshot_interval", db.snapshotInterval,
+				"time_threshold", CatchupTimeThreshold,
 			)
 			return
 		}
@@ -725,10 +711,7 @@ func (db *DB) rewriteSnapshotBackground() error {
 		cloned.logger.Info("finished rewriting snapshot", "version", cloned.Version(), "elapsed", time.Since(rewriteStart).Seconds())
 
 		loadStart := time.Now()
-		// Disable prefetch to avoid cache interference with main chain
-		loadOpts := db.opts
-		loadOpts.PrefetchThreshold = 0
-		mtree, err := LoadMultiTree(currentPath(cloned.dir), loadOpts)
+		mtree, err := LoadMultiTree(currentPath(cloned.dir), db.opts)
 		if err != nil {
 			cloned.logger.Error("failed to load multitree after snapshot", "error", err)
 			ch <- snapshotResult{err: err}
