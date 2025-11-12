@@ -93,10 +93,19 @@ const (
 	SnapshotDirLen = len(SnapshotPrefix) + 20
 )
 
-// getSnapshotModTime returns the modification time of the snapshot directory.
+// getSnapshotModTime returns the modification time of the current snapshot directory.
+// It reads the "current" symlink to get the actual snapshot directory.
 // If the directory doesn't exist or there's an error, returns current time.
-func getSnapshotModTime(dir string, version int64) time.Time {
-	snapshotDir := filepath.Join(dir, snapshotName(version))
+func getSnapshotModTime(dir string) time.Time {
+	// Read the "current" symlink to get the actual snapshot directory
+	currentLink := currentPath(dir)
+	snapshotName, err := os.Readlink(currentLink)
+	if err != nil {
+		// If we can't read the symlink, use current time as fallback
+		return time.Now()
+	}
+
+	snapshotDir := filepath.Join(dir, snapshotName)
 	info, err := os.Stat(snapshotDir)
 	if err != nil {
 		// If we can't get the modification time, use current time as fallback
@@ -222,7 +231,8 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 
 	// Initialize lastSnapshotTime from the current snapshot directory's modification time
 	// This ensures accurate time tracking even after restarts
-	lastSnapshotTime := getSnapshotModTime(opts.Dir, mtree.Version())
+	// Read the "current" symlink to get the actual snapshot directory's ModTime
+	lastSnapshotTime := getSnapshotModTime(opts.Dir)
 
 	db := &DB{
 		MultiTree:               *mtree,
