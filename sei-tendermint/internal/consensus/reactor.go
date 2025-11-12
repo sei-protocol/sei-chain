@@ -1302,7 +1302,7 @@ func (r *Reactor) processVoteSetBitsCh(ctx context.Context) {
 		if err != nil {
 			return
 		}
-		if err := r.handleVoteSetBitsMessage(ctx, m); err != nil {
+		if err := r.handleVoteSetBitsMessage(m); err != nil {
 			r.logger.Error("failed to process voteSetCh message", "err", err)
 			if ctx.Err() == nil {
 				r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err})
