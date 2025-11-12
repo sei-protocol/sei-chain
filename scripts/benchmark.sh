@@ -18,14 +18,9 @@ keyname=admin
 # clean up old sei directory
 rm -rf ~/.sei
 echo "Building..."
-# install seid -- conditionally build with mock balance function
-if [ "$MOCK_BALANCES" = true ]; then
-    echo "Building with mock balances enabled..."
-    make install-mock-balances
-else
-    echo "Building with standard configuration..."
-    make install
-fi
+# install seid with benchmark support (includes mock_balances)
+echo "Building with benchmark and mock balances support enabled..."
+make install-bench
 # initialize chain with chain ID and add the first key
 ~/go/bin/seid init demo --chain-id sei-chain
 ~/go/bin/seid keys add $keyname --keyring-backend test
@@ -113,4 +108,5 @@ fi
 ~/go/bin/seid config keyring-backend test
 
 # start the chain with log tracing
-~/go/bin/seid start --benchmark --chain-id sei-chain 2>&1 | grep benchmark
+# Benchmark mode is enabled via build tag, no --benchmark flag needed
+~/go/bin/seid start --chain-id sei-chain 2>&1 | grep benchmark

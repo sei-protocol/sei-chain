@@ -222,7 +222,6 @@ func addModuleInitFlags(startCmd *cobra.Command) {
 	crisis.AddModuleInitFlags(startCmd)
 	startCmd.Flags().Bool("migrate-iavl", false, "Run migration of IAVL data store to SeiDB State Store")
 	startCmd.Flags().Int64("migrate-height", 0, "Height at which to start the migration")
-	startCmd.Flags().Bool("benchmark", false, "Enable benchmark mode using sei-load generator with default EVM Transfer config")
 }
 
 // newApp creates a new Cosmos SDK app
@@ -271,7 +270,8 @@ func newApp(
 
 	// Build app options
 	appOptions := app.EmptyAppOptions
-	if cast.ToBool(appOpts.Get("benchmark")) {
+	// Benchmark mode is enabled via build tag (benchmark), not command line flag
+	if app.BenchmarkEnabled() {
 		appOptions = append(appOptions, app.WithBenchmarkMode())
 	}
 

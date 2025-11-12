@@ -272,6 +272,11 @@ func (app *App) PrepareProposalGeneratorHandler(_ sdk.Context, req *abci.Request
 	}
 }
 
+// BenchmarkEnabled returns true if the binary was built with benchmark build tag
+func BenchmarkEnabled() bool {
+	return benchmarkEnabled
+}
+
 // WithBenchmarkMode is an AppOption that enables benchmark mode with default config
 func WithBenchmarkMode() AppOption {
 	return func(app *App) {
