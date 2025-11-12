@@ -268,9 +268,6 @@ func newApp(
 	// This makes it such that the wasm VM gas converts to sdk gas at a 6.66x rate vs that of the previous multiplier
 	wasmGasRegisterConfig.GasMultiplier = 21_000_000
 
-	// Build app options
-	appOptions := app.EmptyAppOptions
-
 	app := app.New(
 		logger,
 		db,
@@ -292,7 +289,7 @@ func newApp(
 			),
 		},
 		[]aclkeeper.Option{},
-		appOptions,
+		app.EmptyAppOptions,
 		baseapp.SetPruning(pruningOpts),
 		baseapp.SetMinGasPrices(cast.ToString(appOpts.Get(server.FlagMinGasPrices))),
 		baseapp.SetMinRetainBlocks(cast.ToUint64(appOpts.Get(server.FlagMinRetainBlocks))),
