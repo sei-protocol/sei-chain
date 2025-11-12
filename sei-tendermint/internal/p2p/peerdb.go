@@ -141,6 +141,10 @@ func newPeerDB(db dbm.DB, maxRows int) (*peerDB, error) {
 	return peerDB, nil
 }
 
+func (db *peerDB) Close() {
+	db.db.Close()
+}
+
 func (db *peerDB) All() iter.Seq[NodeAddress] {
 	return func(yield func(addr NodeAddress) bool) {
 		db.byLastConnected.Descend(func(r peerDBRow) bool { return yield(r.Addr) })
