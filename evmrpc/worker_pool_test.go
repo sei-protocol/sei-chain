@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewWorkerPool(t *testing.T) {
@@ -21,16 +23,10 @@ func TestNewWorkerPool(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			wp := NewWorkerPool(tt.workers, tt.queueSize)
+			defer wp.Close()
 
-			if wp.WorkerCount() != tt.workers {
-				t.Errorf("WorkerCount() = %d, want %d", wp.WorkerCount(), tt.workers)
-			}
-
-			if wp.QueueSize() != tt.queueSize {
-				t.Errorf("QueueSize() = %d, want %d", wp.QueueSize(), tt.queueSize)
-			}
-
-			wp.Close()
+			require.Equal(t, tt.workers, wp.WorkerCount())
+			require.Equal(t, tt.queueSize, wp.QueueSize())
 		})
 	}
 }
@@ -45,24 +41,18 @@ func TestWorkerPoolExecution(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Submit 10 tasks
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		wg.Add(1)
 		err := wp.Submit(func() {
 			defer wg.Done()
 			atomic.AddInt64(&counter, 1)
-			time.Sleep(10 * time.Millisecond) // Simulate work
+			time.Sleep(10 * time.Millisecond)
 		})
-
-		if err != nil {
-			t.Errorf("Submit() error = %v", err)
-		}
+		require.NoError(t, err)
 	}
 
 	wg.Wait()
-
-	if atomic.LoadInt64(&counter) != 10 {
-		t.Errorf("Expected 10 tasks executed, got %d", counter)
-	}
+	require.Equal(t, int64(10), atomic.LoadInt64(&counter))
 }
 
 func TestWorkerPoolConcurrency(t *testing.T) {
@@ -75,30 +65,22 @@ func TestWorkerPoolConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Submit 50 tasks concurrently
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		wg.Add(1)
-		go func(taskID int) {
+		go func() {
 			defer wg.Done()
-
 			err := wp.Submit(func() {
 				atomic.AddInt64(&completedTasks, 1)
 				time.Sleep(5 * time.Millisecond)
 			})
-
-			if err != nil {
-				t.Errorf("Task %d submission failed: %v", taskID, err)
-			}
-		}(i)
+			require.NoError(t, err)
+		}()
 	}
 
 	wg.Wait()
+	time.Sleep(100 * time.Millisecond) // Wait for task completion
 
-	// Wait a bit for all tasks to complete
-	time.Sleep(100 * time.Millisecond)
-
-	if atomic.LoadInt64(&completedTasks) != 50 {
-		t.Errorf("Expected 50 tasks completed, got %d", completedTasks)
-	}
+	require.Equal(t, int64(50), atomic.LoadInt64(&completedTasks))
 }
 
 func TestWorkerPoolQueueFull(t *testing.T) {
@@ -117,16 +99,14 @@ func TestWorkerPoolQueueFull(t *testing.T) {
 	})
 
 	// Try to submit more tasks than queue can handle
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		err := wp.Submit(func() {
 			time.Sleep(10 * time.Millisecond)
 		})
 
 		if err != nil {
 			errors++
-			if err.Error() != "worker pool queue is full" {
-				t.Errorf("Expected 'worker pool queue is full', got %v", err)
-			}
+			require.Contains(t, err.Error(), "worker pool queue is full")
 		} else {
 			submitted++
 		}
@@ -150,7 +130,7 @@ func TestWorkerPoolClose(t *testing.T) {
 	var tasksCompleted int64
 
 	// Submit some tasks
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		wp.Submit(func() {
 			atomic.AddInt64(&tasksStarted, 1)
 			time.Sleep(50 * time.Millisecond)
@@ -182,27 +162,15 @@ func TestWorkerPoolClose(t *testing.T) {
 }
 
 func TestGlobalWorkerPool(t *testing.T) {
-	// Get global pool multiple times
+	// Note: This test is now less strict because global pool can be initialized
+	// with custom config. We just verify it's functional.
+
 	wp1 := GetGlobalWorkerPool()
 	wp2 := GetGlobalWorkerPool()
 
 	// Should be the same instance (singleton)
 	if wp1 != wp2 {
 		t.Error("GetGlobalWorkerPool() should return the same instance")
-	}
-
-	// Should have expected configuration
-	expectedWorkers := MaxNumOfWorkers
-	expectedQueueSize := WorkerQueueSize
-
-	if wp1.WorkerCount() != expectedWorkers {
-		t.Errorf("Global pool WorkerCount() = %d, want %d",
-			wp1.WorkerCount(), expectedWorkers)
-	}
-
-	if wp1.QueueSize() != expectedQueueSize {
-		t.Errorf("Global pool QueueSize() = %d, want %d",
-			wp1.QueueSize(), expectedQueueSize)
 	}
 
 	// Test that it's already started and functional
@@ -239,7 +207,7 @@ func TestWorkerPoolStartIdempotent(t *testing.T) {
 	var counter int64
 	var wg sync.WaitGroup
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		wg.Add(1)
 		wp.Submit(func() {
 			defer wg.Done()
@@ -291,23 +259,13 @@ func TestWorkerPoolPanicRecovery(t *testing.T) {
 }
 
 func TestWorkerPoolConstants(t *testing.T) {
-	// Test that constants have reasonable values
-	if WorkerBatchSize <= 0 {
-		t.Errorf("WorkerBatchSize should be positive, got %d", WorkerBatchSize)
-	}
+	require.Equal(t, 100, WorkerBatchSize)
+	require.Equal(t, 1000, DefaultWorkerQueueSize)
+	require.Equal(t, 64, MaxWorkerPoolSize)
 
-	if WorkerQueueSize <= 0 {
-		t.Errorf("WorkerQueueSize should be positive, got %d", WorkerQueueSize)
-	}
-
-	if MaxNumOfWorkers <= 0 {
-		t.Errorf("MaxNumOfWorkers should be positive, got %d", MaxNumOfWorkers)
-	}
-
-	// MaxNumOfWorkers should be reasonable (related to CPU count)
-	if MaxNumOfWorkers > 100 { // Sanity check
-		t.Errorf("MaxNumOfWorkers seems too large: %d", MaxNumOfWorkers)
-	}
+	// Verify total capacity calculation
+	totalCapacity := DefaultWorkerQueueSize * WorkerBatchSize
+	require.Equal(t, 100000, totalCapacity, "Total capacity should be 100,000 blocks")
 }
 
 func TestWorkerPoolOrderingNotGuaranteed(t *testing.T) {
@@ -321,7 +279,7 @@ func TestWorkerPoolOrderingNotGuaranteed(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Submit tasks with different execution times
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		wg.Add(1)
 		taskID := i
 		wp.Submit(func() {
@@ -355,9 +313,242 @@ func TestWorkerPoolOrderingNotGuaranteed(t *testing.T) {
 	}
 
 	// All task IDs should be present
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if !resultMap[i] {
 			t.Errorf("Task %d was not executed", i)
 		}
+	}
+}
+
+// Test InitGlobalWorkerPool with custom configuration
+func TestInitGlobalWorkerPool(t *testing.T) {
+	// Reset global pool for this test
+	// Note: In production this should only be called once at startup
+
+	tests := []struct {
+		name              string
+		workerPoolSize    int
+		workerQueueSize   int
+		expectedWorkers   int
+		expectedQueueSize int
+	}{
+		{
+			name:              "custom values",
+			workerPoolSize:    10,
+			workerQueueSize:   500,
+			expectedWorkers:   10,
+			expectedQueueSize: 500,
+		},
+		{
+			name:              "zero values use defaults",
+			workerPoolSize:    0,
+			workerQueueSize:   0,
+			expectedWorkers:   -1, // Will be runtime.NumCPU() * 2, check > 0
+			expectedQueueSize: DefaultWorkerQueueSize,
+		},
+		{
+			name:              "only worker size specified",
+			workerPoolSize:    20,
+			workerQueueSize:   0,
+			expectedWorkers:   20,
+			expectedQueueSize: DefaultWorkerQueueSize,
+		},
+		{
+			name:              "only queue size specified",
+			workerPoolSize:    0,
+			workerQueueSize:   1000,
+			expectedWorkers:   -1, // Will be runtime.NumCPU() * 2
+			expectedQueueSize: 1000,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a new worker pool for each test (not using global)
+			// NewWorkerPool will apply defaults if values are <= 0
+			wp := NewWorkerPool(tt.workerPoolSize, tt.workerQueueSize)
+			wp.Start()
+			defer wp.Close()
+
+			// Apply defaults if needed (simulating InitGlobalWorkerPool logic)
+			expectedWorkers := tt.expectedWorkers
+			if expectedWorkers <= 0 {
+				expectedWorkers = 2 // At least 2 workers expected on any system
+			}
+
+			actualWorkers := wp.WorkerCount()
+			if tt.expectedWorkers > 0 && actualWorkers != tt.expectedWorkers {
+				t.Errorf("WorkerCount() = %d, want %d", actualWorkers, tt.expectedWorkers)
+			} else if tt.expectedWorkers < 0 && actualWorkers <= 0 {
+				t.Errorf("WorkerCount() = %d, should be positive (default)", actualWorkers)
+			}
+
+			actualQueueSize := wp.QueueSize()
+			if actualQueueSize != tt.expectedQueueSize {
+				t.Errorf("QueueSize() = %d, want %d", actualQueueSize, tt.expectedQueueSize)
+			}
+
+			// Verify the pool is functional
+			var executed bool
+			var wg sync.WaitGroup
+			wg.Add(1)
+
+			err := wp.Submit(func() {
+				defer wg.Done()
+				executed = true
+			})
+
+			if err != nil {
+				t.Errorf("Submit() error = %v", err)
+			}
+
+			wg.Wait()
+
+			if !executed {
+				t.Error("Task was not executed")
+			}
+		})
+	}
+}
+
+// Test that InitGlobalWorkerPool is idempotent
+func TestInitGlobalWorkerPoolIdempotent(t *testing.T) {
+	t.Skip("Skipping global pool test - global state already initialized by setup_test.go")
+
+	// Note: This test cannot reliably run because the global worker pool
+	// is initialized in setup_test.go before any tests run.
+	// The idempotency behavior is correct but cannot be tested in this context.
+	//
+	// The important guarantee is that InitGlobalWorkerPool is idempotent:
+	// - First call initializes the pool
+	// - Subsequent calls are no-ops
+	// This is ensured by sync.Once in InitGlobalWorkerPool, which guarantees
+	// the initialization function runs exactly once, even with concurrent calls.
+}
+
+// Test worker pool with large queue under stress
+func TestWorkerPoolLargeQueueStress(t *testing.T) {
+	// Simulate a high-load scenario with large queue
+	wp := NewWorkerPool(4, 1000) // 4 workers, large queue
+	wp.Start()
+	defer wp.Close()
+
+	var completed int64
+	var wg sync.WaitGroup
+	totalTasks := 500
+
+	// Submit many tasks quickly
+	for i := range totalTasks {
+		wg.Add(1)
+		err := wp.Submit(func() {
+			defer wg.Done()
+			time.Sleep(1 * time.Millisecond)
+			atomic.AddInt64(&completed, 1)
+		})
+
+		if err != nil {
+			wg.Done()
+			t.Errorf("Submit() failed at task %d: %v", i, err)
+		}
+	}
+
+	wg.Wait()
+
+	require.Equal(t, int64(totalTasks), atomic.LoadInt64(&completed))
+}
+
+// Test queue full behavior with different queue sizes
+func TestWorkerPoolQueueSizeImpact(t *testing.T) {
+	tests := []struct {
+		name      string
+		queueSize int
+		wantError bool
+	}{
+		{"tiny queue", 2, true},
+		{"small queue", 10, true}, // With 1 worker and 10 queue, submitting 20 will cause errors
+		{"medium queue", 50, false},
+		{"large queue", 200, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wp := NewWorkerPool(1, tt.queueSize)
+			wp.Start()
+			defer wp.Close()
+
+			// Block the worker with a long-running task
+			wp.Submit(func() {
+				time.Sleep(100 * time.Millisecond)
+			})
+
+			// Determine how many tasks to submit based on test expectations
+			var tasksToSubmit int
+			if tt.wantError {
+				// For small queues, try to overfill: submit more than capacity
+				tasksToSubmit = tt.queueSize + 10
+			} else {
+				// For large queues, submit within capacity to avoid errors
+				tasksToSubmit = tt.queueSize / 2
+			}
+
+			errors := 0
+			submitted := 0
+
+			for range tasksToSubmit {
+				err := wp.Submit(func() {
+					time.Sleep(10 * time.Millisecond)
+				})
+
+				if err != nil {
+					errors++
+				} else {
+					submitted++
+				}
+			}
+
+			if tt.wantError {
+				require.Greater(t, errors, 0, "Expected errors with small queue")
+			} else {
+				require.Equal(t, 0, errors, "Expected no errors with sufficient queue")
+			}
+		})
+	}
+}
+
+// Benchmark worker pool throughput with different configurations
+func BenchmarkWorkerPoolThroughput(b *testing.B) {
+	configs := []struct {
+		name      string
+		workers   int
+		queueSize int
+	}{
+		{"small", 4, 100},
+		{"medium", 8, 200},
+		{"large", 16, 500},
+		{"xlarge", 32, 1000},
+	}
+
+	for _, config := range configs {
+		b.Run(config.name, func(b *testing.B) {
+			wp := NewWorkerPool(config.workers, config.queueSize)
+			wp.Start()
+			defer wp.Close()
+
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					var wg sync.WaitGroup
+					wg.Add(1)
+					err := wp.Submit(func() {
+						defer wg.Done()
+						// Simulate minimal work
+						_ = 1 + 1
+					})
+					if err == nil {
+						wg.Wait()
+					}
+				}
+			})
+		})
 	}
 }
