@@ -10,7 +10,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 	"io"
-	"math/rand"
 	"net"
 	"net/netip"
 	"strings"
@@ -327,7 +326,7 @@ func makeRouterOptions() *RouterOptions {
 	}
 }
 
-func makeRouterWithOptions(logger log.Logger, rng *rand.Rand, opts *RouterOptions) *Router {
+func makeRouterWithOptions(logger log.Logger, rng utils.Rng, opts *RouterOptions) *Router {
 	return makeRouterWithOptionsAndKey(logger, opts, makeKey(rng))
 }
 
@@ -335,7 +334,7 @@ func makeRouterWithKey(logger log.Logger, key crypto.PrivKey) *Router {
 	return makeRouterWithOptionsAndKey(logger, makeRouterOptions(), key)
 }
 
-func makeRouter(logger log.Logger, rng *rand.Rand) *Router {
+func makeRouter(logger log.Logger, rng utils.Rng) *Router {
 	return makeRouterWithKey(logger, makeKey(rng))
 }
 

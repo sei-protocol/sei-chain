@@ -3,7 +3,6 @@ package p2p
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -21,7 +20,7 @@ type fakeConn struct {
 	closed atomic.Bool
 }
 
-func makeConnFor(rng *rand.Rand, id types.NodeID, dialing bool) *fakeConn {
+func makeConnFor(rng utils.Rng, id types.NodeID, dialing bool) *fakeConn {
 	info := peerConnInfo{ID: id}
 	if dialing {
 		info.DialAddr = utils.Some(makeAddrFor(rng, id))
@@ -38,7 +37,7 @@ func makeConnTo(addr NodeAddress) *fakeConn {
 	}
 }
 
-func makeConn(rng *rand.Rand, dialing bool) *fakeConn {
+func makeConn(rng utils.Rng, dialing bool) *fakeConn {
 	return makeConnFor(rng, makeNodeID(rng), dialing)
 }
 
@@ -58,15 +57,15 @@ func makePeerManager(selfID types.NodeID, options *RouterOptions) *peerManager[*
 
 var selfID = types.NodeIDFromPubKey(ed25519.GenPrivKeyFromSecret([]byte("selfID")).PubKey())
 
-func makeKey(rng *rand.Rand) ed25519.PrivKey {
+func makeKey(rng utils.Rng) ed25519.PrivKey {
 	return ed25519.GenPrivKeyFromSecret(utils.GenBytes(rng, 32))
 }
 
-func makeNodeID(rng *rand.Rand) types.NodeID {
+func makeNodeID(rng utils.Rng) types.NodeID {
 	return types.NodeIDFromPubKey(makeKey(rng).PubKey())
 }
 
-func makeAddrFor(rng *rand.Rand, id types.NodeID) NodeAddress {
+func makeAddrFor(rng utils.Rng, id types.NodeID) NodeAddress {
 	return NodeAddress{
 		NodeID:   id,
 		Hostname: fmt.Sprintf("%s.example.com", utils.GenString(rng, 10)),
@@ -74,7 +73,7 @@ func makeAddrFor(rng *rand.Rand, id types.NodeID) NodeAddress {
 	}
 }
 
-func makeAddr(rng *rand.Rand) NodeAddress {
+func makeAddr(rng utils.Rng) NodeAddress {
 	return makeAddrFor(rng, makeNodeID(rng))
 }
 
@@ -89,7 +88,7 @@ func justIDs[C peerConn](conns connSet[C]) map[types.NodeID]bool {
 func TestRouterOptions(t *testing.T) {
 	rng := utils.TestRng()
 
-	makeOpts := func(rng *rand.Rand) RouterOptions {
+	makeOpts := func(rng utils.Rng) RouterOptions {
 		addrs := utils.Slice(makeAddr(rng), makeAddr(rng), makeAddr(rng))
 		addrs2 := utils.Slice(makeAddr(rng))
 		ids := utils.Slice(addrs[0].NodeID, addrs[2].NodeID)
