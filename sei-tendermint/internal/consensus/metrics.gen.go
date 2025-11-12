@@ -206,6 +206,12 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 
 			Buckets: []float64{-10, -.5, -.025, 0, .1, .5, 1, 1.5, 2, 10},
 		}, append(labels, "is_timely")).With(labelsAndValues...),
+		VoteExtensionReceiveCount: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "vote_extension_receive_count",
+			Help:      "Number of vote extensions received labeled by application response status.",
+		}, append(labels, "status")).With(labelsAndValues...),
 		ProposalReceiveCount: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
@@ -325,6 +331,7 @@ func NopMetrics() *Metrics {
 		QuorumPrevoteDelay:            discard.NewGauge(),
 		FullPrevoteDelay:              discard.NewGauge(),
 		ProposalTimestampDifference:   discard.NewHistogram(),
+		VoteExtensionReceiveCount:     discard.NewCounter(),
 		ProposalReceiveCount:          discard.NewCounter(),
 		ProposalCreateCount:           discard.NewCounter(),
 		RoundVotingPowerPercent:       discard.NewGauge(),

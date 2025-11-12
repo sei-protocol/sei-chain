@@ -66,6 +66,11 @@ type Manifest struct {
 	// Number of bytes per tx. Default is 1kb (1024)
 	TxSize int `toml:"tx_size"`
 
+	// VoteExtensionsEnableHeight configures the first height during which
+	// the chain will use and require vote extension data to be present
+	// in precommit messages.
+	VoteExtensionsEnableHeight int64 `toml:"vote_extensions_enable_height"`
+
 	// ABCIProtocol specifies the protocol used to communicate with the ABCI
 	// application: "unix", "tcp", "grpc", or "builtin". Defaults to builtin.
 	// builtin will build a complete Tendermint node into the application and
@@ -77,6 +82,7 @@ type Manifest struct {
 	PrepareProposalDelayMS uint64 `toml:"prepare_proposal_delay_ms"`
 	ProcessProposalDelayMS uint64 `toml:"process_proposal_delay_ms"`
 	CheckTxDelayMS         uint64 `toml:"check_tx_delay_ms"`
+	VoteExtensionDelayMS   uint64 `toml:"vote_extension_delay_ms"`
 	FinalizeBlockDelayMS   uint64 `toml:"finalize_block_delay_ms"`
 }
 

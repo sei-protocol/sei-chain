@@ -33,6 +33,8 @@ message Request {
     RequestApplySnapshotChunk apply_snapshot_chunk = 14;
     RequestPrepareProposal prepare_proposal = 15;
     RequestProcessProposal process_proposal = 16;
+    RequestExtendVote extend_vote = 17;
+    RequestVerifyVoteExtension verify_vote_extension = 18;
     RequestFinalizeBlock finalize_block = 19;
     RequestBeginBlock begin_block = 20;
     RequestDeliverTx deliver_tx = 21;
@@ -40,8 +42,7 @@ message Request {
     RequestLoadLatest load_latest = 23;
     RequestGetTxPriorityHint get_tx_priority_hint = 24;
   }
-  reserved 6, 8, 9, 17, 18; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestExtendVote, RequestVerifyVoteExtension
-  reserved "extend_vote", "verify_vote_extension";
+  reserved 6, 8, 9; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock
 }
 
 message RequestEcho {
@@ -117,8 +118,7 @@ message RequestPrepareProposal {
   // txs is an array of transactions that will be included in a block,
   // sent to the app for possible modifications.
   repeated bytes txs = 2;
-  reserved 3; // local_last_commit
-  reserved "local_last_commit";
+  ExtendedCommitInfo local_last_commit = 3 [(gogoproto.nullable) = false];
   repeated Misbehavior byzantine_validators = 4 [(gogoproto.nullable) = false];
   int64 height = 5;
   google.protobuf.Timestamp time = 6 [
@@ -138,7 +138,6 @@ message RequestPrepareProposal {
   bytes last_block_part_set_hash = 16;
   bytes last_commit_hash = 17;
   bytes last_results_hash = 18;
-  CommitInfo local_last_commit_info = 19 [(gogoproto.nullable) = false]; // meant to replace the deprecated ExtendedCommitInfo local_last_commit
 }
 
 message RequestProcessProposal {
@@ -165,6 +164,20 @@ message RequestProcessProposal {
   bytes last_block_part_set_hash = 17;
   bytes last_commit_hash = 18;
   bytes last_results_hash = 19;
+}
+
+// Extends a vote with application-side injection
+message RequestExtendVote {
+  bytes hash = 1;
+  int64 height = 2;
+}
+
+// Verify the vote extension
+message RequestVerifyVoteExtension {
+  bytes hash = 1;
+  bytes validator_address = 2;
+  int64 height = 3;
+  bytes vote_extension = 4;
 }
 
 message RequestFinalizeBlock {
@@ -236,6 +249,8 @@ message Response {
     ResponseApplySnapshotChunk apply_snapshot_chunk = 15;
     ResponsePrepareProposal prepare_proposal = 16;
     ResponseProcessProposal process_proposal = 17;
+    ResponseExtendVote extend_vote = 18;
+    ResponseVerifyVoteExtension verify_vote_extension = 19;
     ResponseFinalizeBlock finalize_block = 20;
     ResponseBeginBlock begin_block = 21;
     ResponseDeliverTx deliver_tx = 22;
@@ -243,8 +258,7 @@ message Response {
     ResponseLoadLatest load_latest = 24;
     ResponseGetTxPriorityHint get_tx_priority_hint = 25;
   }
-  reserved 7, 9, 10, 18, 19; // ResponseBeginBlock, ResponseDeliverTx, ResponseEndBlock, ResponseExtendVote, ResponseVerifyVoteExtension
-  reserved "extend_vote", "verify_vote_extension";
+  reserved 7, 9, 10; // ResponseBeginBlock, ResponseDeliverTx, ResponseEndBlock
 }
 
 // nondeterministic
@@ -396,6 +410,20 @@ message ResponseProcessProposal {
   }
 }
 
+message ResponseExtendVote {
+  bytes vote_extension = 1;
+}
+
+message ResponseVerifyVoteExtension {
+  VerifyStatus status = 1;
+
+  enum VerifyStatus {
+    UNKNOWN = 0;
+    ACCEPT = 1;
+    REJECT = 2;
+  }
+}
+
 message ResponseFinalizeBlock {
   repeated Event events = 1 [
     (gogoproto.nullable) = false,
@@ -424,6 +452,17 @@ message CommitInfo {
 message LastCommitInfo {
   int32 round = 1;
   repeated VoteInfo votes = 2 [(gogoproto.nullable) = false];
+}
+
+// ExtendedCommitInfo is similar to CommitInfo except that it is only used in
+// the PrepareProposal request such that Tendermint can provide vote extensions
+// to the application.
+message ExtendedCommitInfo {
+  // The round at which the block proposer decided in the previous height.
+  int32 round = 1;
+  // List of validators' addresses in the last validator set with their voting
+  // information, including vote extensions.
+  repeated ExtendedVoteInfo votes = 2 [(gogoproto.nullable) = false];
 }
 
 // Event allows application developers to attach additional information to
@@ -523,6 +562,16 @@ message VoteInfo {
   bool signed_last_block = 2;
 }
 
+// ExtendedVoteInfo
+message ExtendedVoteInfo {
+  // The validator that sent the vote.
+  Validator validator = 1 [(gogoproto.nullable) = false];
+  // Indicates whether the validator signed the last block, allowing for rewards based on validator availability.
+  bool signed_last_block = 2;
+  // Non-deterministic extension provided by the sending validator's application.
+  bytes vote_extension = 3;
+}
+
 enum MisbehaviorType {
   UNKNOWN = 0;
   DUPLICATE_VOTE = 1;
@@ -601,6 +650,8 @@ service ABCIApplication {
   rpc ApplySnapshotChunk(RequestApplySnapshotChunk) returns (ResponseApplySnapshotChunk);
   rpc PrepareProposal(RequestPrepareProposal) returns (ResponsePrepareProposal);
   rpc ProcessProposal(RequestProcessProposal) returns (ResponseProcessProposal);
+  rpc ExtendVote(RequestExtendVote) returns (ResponseExtendVote);
+  rpc VerifyVoteExtension(RequestVerifyVoteExtension) returns (ResponseVerifyVoteExtension);
   rpc FinalizeBlock(RequestFinalizeBlock) returns (ResponseFinalizeBlock);
   rpc LoadLatest(RequestLoadLatest) returns (ResponseLoadLatest);
   rpc GetTxPriorityHint(RequestGetTxPriorityHint) returns (ResponseGetTxPriorityHint);

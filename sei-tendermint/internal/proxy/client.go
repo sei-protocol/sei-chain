@@ -139,6 +139,16 @@ func (app *proxyClient) ProcessProposal(ctx context.Context, req *types.RequestP
 	return app.client.ProcessProposal(ctx, req)
 }
 
+func (app *proxyClient) ExtendVote(ctx context.Context, req *types.RequestExtendVote) (*types.ResponseExtendVote, error) {
+	defer addTimeSample(app.metrics.MethodTiming.With("method", "extend_vote", "type", "sync"))()
+	return app.client.ExtendVote(ctx, req)
+}
+
+func (app *proxyClient) VerifyVoteExtension(ctx context.Context, req *types.RequestVerifyVoteExtension) (*types.ResponseVerifyVoteExtension, error) {
+	defer addTimeSample(app.metrics.MethodTiming.With("method", "verify_vote_extension", "type", "sync"))()
+	return app.client.VerifyVoteExtension(ctx, req)
+}
+
 func (app *proxyClient) FinalizeBlock(ctx context.Context, req *types.RequestFinalizeBlock) (*types.ResponseFinalizeBlock, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "finalize_block", "type", "sync"))()
 	return app.client.FinalizeBlock(ctx, req)

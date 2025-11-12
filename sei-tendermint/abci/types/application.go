@@ -20,6 +20,10 @@ type Application interface {
 	ProcessProposal(context.Context, *RequestProcessProposal) (*ResponseProcessProposal, error)
 	// Commit the state and return the application Merkle root hash
 	Commit(context.Context) (*ResponseCommit, error)
+	// Create application specific vote extension
+	ExtendVote(context.Context, *RequestExtendVote) (*ResponseExtendVote, error)
+	// Verify application's vote extension data
+	VerifyVoteExtension(context.Context, *RequestVerifyVoteExtension) (*ResponseVerifyVoteExtension, error)
 	// Deliver the decided block with its txs to the Application
 	FinalizeBlock(context.Context, *RequestFinalizeBlock) (*ResponseFinalizeBlock, error)
 
@@ -54,6 +58,16 @@ func (BaseApplication) CheckTx(_ context.Context, req *RequestCheckTx) (*Respons
 
 func (BaseApplication) Commit(_ context.Context) (*ResponseCommit, error) {
 	return &ResponseCommit{}, nil
+}
+
+func (BaseApplication) ExtendVote(_ context.Context, req *RequestExtendVote) (*ResponseExtendVote, error) {
+	return &ResponseExtendVote{}, nil
+}
+
+func (BaseApplication) VerifyVoteExtension(_ context.Context, req *RequestVerifyVoteExtension) (*ResponseVerifyVoteExtension, error) {
+	return &ResponseVerifyVoteExtension{
+		Status: ResponseVerifyVoteExtension_ACCEPT,
+	}, nil
 }
 
 func (BaseApplication) Query(_ context.Context, req *RequestQuery) (*ResponseQuery, error) {

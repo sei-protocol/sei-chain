@@ -117,7 +117,7 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 		&abci.RequestPrepareProposal{
 			MaxTxBytes:            maxDataBytes,
 			Txs:                   block.Txs.ToSliceOfBytes(),
-			LocalLastCommitInfo:   buildCommitInfo(lastCommit, blockExec.store, state.InitialHeight),
+			LocalLastCommit:       buildExtendedCommitInfo(lastCommit, blockExec.store, state.InitialHeight),
 			ByzantineValidators:   block.Evidence.ToABCI(),
 			Height:                block.Height,
 			Time:                  block.Time,
@@ -559,8 +559,8 @@ func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) a
 	}
 }
 
-// buildCommitInfo populates an ABCI commit from the
-// corresponding Tendermint commit ec, using the stored validator set
+// buildExtendedCommitInfo populates an ABCI extended commit from the
+// corresponding Tendermint extended commit ec, using the stored validator set
 // from ec.  It requires ec to include the original precommit votes along with
 // the vote extensions from the last commit.
 //
@@ -568,51 +568,51 @@ func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) a
 // data, it returns an empty record.
 //
 // Assumes that the commit signatures are sorted according to validator index.
-func buildCommitInfo(commit *types.Commit, store Store, initialHeight int64) abci.CommitInfo {
-	if commit.Height < initialHeight {
+func buildExtendedCommitInfo(ec *types.Commit, store Store, initialHeight int64) abci.ExtendedCommitInfo {
+	if ec.Height < initialHeight {
 		// There are no extended commits for heights below the initial height.
-		return abci.CommitInfo{}
+		return abci.ExtendedCommitInfo{}
 	}
 
-	valSet, err := store.LoadValidators(commit.Height)
+	valSet, err := store.LoadValidators(ec.Height)
 	if err != nil {
-		panic(fmt.Errorf("failed to load validator set at height %d, initial height %d: %w", commit.Height, initialHeight, err))
+		panic(fmt.Errorf("failed to load validator set at height %d, initial height %d: %w", ec.Height, initialHeight, err))
 	}
 
 	var (
-		commitSize = commit.Size()
-		valSetLen  = len(valSet.Validators)
+		ecSize    = ec.Size()
+		valSetLen = len(valSet.Validators)
 	)
 
-	// Ensure that the size of the validator set in the commit matches
+	// Ensure that the size of the validator set in the extended commit matches
 	// the size of the validator set in the state store.
-	if commitSize != valSetLen {
+	if ecSize != valSetLen {
 		panic(fmt.Errorf(
-			"commit size (%d) does not match validator set length (%d) at height %d\n\n%v\n\n%v",
-			commitSize, valSetLen, commit.Height, commit.Signatures, valSet.Validators,
+			"extended commit size (%d) does not match validator set length (%d) at height %d\n\n%v\n\n%v",
+			ecSize, valSetLen, ec.Height, ec.Signatures, valSet.Validators,
 		))
 	}
 
-	votes := make([]abci.VoteInfo, commitSize)
+	votes := make([]abci.ExtendedVoteInfo, ecSize)
 	for i, val := range valSet.Validators {
-		commitSig := commit.Signatures[i]
+		ecs := ec.Signatures[i]
 
 		// Absent signatures have empty validator addresses, but otherwise we
 		// expect the validator addresses to be the same.
-		if commitSig.BlockIDFlag != types.BlockIDFlagAbsent && !bytes.Equal(commitSig.ValidatorAddress, val.Address) {
+		if ecs.BlockIDFlag != types.BlockIDFlagAbsent && !bytes.Equal(ecs.ValidatorAddress, val.Address) {
 			panic(fmt.Errorf("validator address of extended commit signature in position %d (%s) does not match the corresponding validator's at height %d (%s)",
-				i, commitSig.ValidatorAddress, commit.Height, val.Address,
+				i, ecs.ValidatorAddress, ec.Height, val.Address,
 			))
 		}
 
-		votes[i] = abci.VoteInfo{
+		votes[i] = abci.ExtendedVoteInfo{
 			Validator:       types.TM2PB.Validator(val),
-			SignedLastBlock: commitSig.BlockIDFlag != types.BlockIDFlagAbsent,
+			SignedLastBlock: ecs.BlockIDFlag != types.BlockIDFlagAbsent,
 		}
 	}
 
-	return abci.CommitInfo{
-		Round: commit.Round,
+	return abci.ExtendedCommitInfo{
+		Round: ec.Round,
 		Votes: votes,
 	}
 }
@@ -693,7 +693,7 @@ func (state State) Update(
 
 	nextVersion := state.Version
 
-	// NOTE: the AppHash has not been populated.
+	// NOTE: the AppHash and the VoteExtension has not been populated.
 	// It will be filled on state.Save.
 	return State{
 		Version:                          nextVersion,
