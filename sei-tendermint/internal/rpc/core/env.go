@@ -59,7 +59,6 @@ type consensusState interface {
 
 type peerManager interface {
 	Peers() []types.NodeID
-	Score(types.NodeID) int
 	State(types.NodeID) string
 	Addresses(types.NodeID) []p2p.NodeAddress
 }

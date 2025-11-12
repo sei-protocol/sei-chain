@@ -10,6 +10,7 @@ import (
 	"github.com/tendermint/tendermint/abci/example/kvstore"
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/internal/mempool"
+	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/types"
 )
@@ -22,8 +23,8 @@ func NewTestPeerEvictor() *TestPeerEvictor {
 	return &TestPeerEvictor{evicting: map[types.NodeID]struct{}{}}
 }
 
-func (e *TestPeerEvictor) Errored(peerID types.NodeID, err error) {
-	e.evicting[peerID] = struct{}{}
+func (e *TestPeerEvictor) SendError(pe p2p.PeerError) {
+	e.evicting[pe.NodeID] = struct{}{}
 }
 
 func FuzzMempool(f *testing.F) {

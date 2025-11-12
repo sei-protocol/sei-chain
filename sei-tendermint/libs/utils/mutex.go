@@ -83,6 +83,24 @@ type atomicWatch[T any] struct {
 	ptr atomic.Pointer[version[T]]
 }
 
+type AtomicSend[T any] struct{ atomicWatch[T] }
+
+func (w *AtomicSend[T]) Subscribe() AtomicRecv[T] {
+	return AtomicRecv[T]{&w.atomicWatch}
+}
+
+// NewAtomicWatch creates a new AtomicWatch with the given initial value.
+func NewAtomicSend[T any](value T) (w AtomicSend[T]) {
+	w.ptr.Store(newVersion(value))
+	// nolint:nakedret
+	return
+}
+
+// Store updates the value of the atomic watch.
+func (w *AtomicSend[T]) Store(value T) {
+	close(w.ptr.Swap(newVersion(value)).updated)
+}
+
 // AtomicWatch stores a pointer to an IMMUTABLE value.
 // Loading and waiting for updates do NOT require locking.
 // TODO(gprusak): remove mutex and rename to AtomicSend,
@@ -237,5 +255,19 @@ func (w *Watch[T]) Lock() iter.Seq2[T, *WatchCtrl] {
 		w.ctrl.mu.Lock()
 		defer w.ctrl.mu.Unlock()
 		_ = yield(w.val, &w.ctrl)
+	}
+}
+
+// MonitorWatchUpdates calls f and checks if it has updated the watch.
+func MonitorWatchUpdates[T any](w *Watch[T], f func()) bool {
+	w.ctrl.mu.Lock()
+	updated := w.ctrl.updated
+	w.ctrl.mu.Unlock()
+	f()
+	select {
+	case <-updated:
+		return true
+	default:
+		return false
 	}
 }

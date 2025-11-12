@@ -646,7 +646,7 @@ type P2PConfig struct { //nolint: maligned
 	// Comma separated list of nodes for block sync only
 	BlockSyncPeers string `mapstructure:"blocksync-peers"`
 
-	// UPNP port forwarding
+	// UPNP port forwarding. UNUSED
 	UPNP bool `mapstructure:"upnp"`
 
 	// MaxConnections defines the maximum number of connected peers (inbound and
@@ -664,7 +664,7 @@ type P2PConfig struct { //nolint: maligned
 	// other peers)
 	PrivatePeerIDs string `mapstructure:"private-peer-ids"`
 
-	// Toggle to disable guard against peers connecting from the same ip.
+	// Toggle to disable guard against peers connecting from the same ip. UNUSED
 	AllowDuplicateIP bool `mapstructure:"allow-duplicate-ip"`
 
 	// Time to wait before flushing messages out on the connection

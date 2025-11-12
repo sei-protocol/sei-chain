@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -51,9 +50,16 @@ const (
 	// Used to indicate the reason of the redo
 	PeerRemoved RetryReason = "PeerRemoved"
 	BadBlock    RetryReason = "BadBlock"
+
+	peerTimeout = 2 * time.Second
 )
 
-var peerTimeout = 2 * time.Second // not const so we can override with tests
+// Interface abstracting p2p.Router for tests.
+type router interface {
+	IsBlockSyncPeer(types.NodeID) bool
+	SendError(p2p.PeerError)
+	Connected(types.NodeID) bool
+}
 
 /*
 	Peers self report their heights when we join the block pool.
@@ -86,7 +92,7 @@ type BlockPool struct {
 	height     int64 // the lowest key in requesters.
 	// peers
 	peers         map[types.NodeID]*bpPeer
-	peerManager   *p2p.PeerManager
+	router        router
 	maxPeerHeight int64 // the biggest reported height
 
 	// atomic
@@ -108,7 +114,7 @@ func NewBlockPool(
 	start int64,
 	requestsCh chan<- BlockRequest,
 	errorsCh chan<- peerError,
-	peerManager *p2p.PeerManager,
+	router router,
 ) *BlockPool {
 	bp := &BlockPool{
 		logger:       logger,
@@ -120,7 +126,7 @@ func NewBlockPool(
 		requestsCh:   requestsCh,
 		errorsCh:     errorsCh,
 		lastSyncRate: 0,
-		peerManager:  peerManager,
+		router:       router,
 	}
 	bp.BaseService = *service.NewBaseService(logger, "BlockPool", bp)
 	return bp
@@ -321,9 +327,6 @@ func (pool *BlockPool) AddBlock(peerID types.NodeID, block *types.Block, blockSi
 		if peer != nil {
 			peer.decrPending(blockSize)
 		}
-
-		// Increment the number of consecutive successful block syncs for the peer
-		pool.peerManager.IncrementBlockSyncs(peerID)
 	} else {
 		err := errors.New("requester is different or block already exists")
 		pool.sendError(err, peerID)
@@ -353,8 +356,7 @@ func (pool *BlockPool) SetPeerRange(peerID types.NodeID, base int64, height int6
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
 
-	blockSyncPeers := pool.peerManager.GetBlockSyncPeers()
-	if len(blockSyncPeers) > 0 && !blockSyncPeers[peerID] {
+	if !pool.router.IsBlockSyncPeer(peerID) {
 		return
 	}
 
@@ -367,9 +369,11 @@ func (pool *BlockPool) SetPeerRange(peerID types.NodeID, base int64, height int6
 				"prevHeight", peer.height, "prevBase", peer.base)
 			// RemovePeer will redo all requesters associated with this peer.
 			pool.removePeer(peerID, true)
-			if err := pool.peerManager.BanPeer(peerID); err != nil {
-				pool.logger.Error("failed to ban peer", "peer", peerID)
-			}
+			pool.router.SendError(p2p.PeerError{
+				NodeID: peerID,
+				Err:    errors.New("peer is reporting height/base that is lower than what it previously reported"),
+				Fatal:  true,
+			})
 			return
 		}
 		peer.base = base
@@ -438,32 +442,15 @@ func (pool *BlockPool) updateMaxPeerHeight() {
 	pool.maxPeerHeight = max
 }
 
-func (pool *BlockPool) getSortedPeers(peers map[types.NodeID]*bpPeer) []types.NodeID {
-	// Generate a sorted list
-	sortedPeers := make([]types.NodeID, 0, len(peers))
-
-	for peer := range peers {
-		sortedPeers = append(sortedPeers, peer)
-	}
-
-	// Sort from high to low score
-	sort.Slice(sortedPeers, func(i, j int) bool {
-		return pool.peerManager.Score(sortedPeers[i]) > pool.peerManager.Score(sortedPeers[j])
-	})
-	return sortedPeers
-}
-
 // Pick an available peer with the given height available.
 // If no peers are available, returns nil.
 func (pool *BlockPool) pickIncrAvailablePeer(height int64) *bpPeer {
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
 
-	// Generate a sorted list
-	sortedPeers := pool.getSortedPeers(pool.peers)
 	var goodPeers []types.NodeID
 	// Remove peers with 0 score and shuffle list
-	for _, nodeId := range sortedPeers {
+	for nodeId := range pool.peers {
 		peer := pool.peers[nodeId]
 		if peer.didTimeout {
 			pool.removePeer(peer.id, true)
@@ -476,20 +463,15 @@ func (pool *BlockPool) pickIncrAvailablePeer(height int64) *bpPeer {
 			continue
 		}
 		// We only want to work with peers that are ready & connected (not dialing)
-		if pool.peerManager.State(nodeId) == "ready,connected" {
+		if pool.router.Connected(nodeId) {
 			goodPeers = append(goodPeers, nodeId)
-		}
-
-		// Skip the ones with zero score to avoid connecting to bad peers
-		if pool.peerManager.Score(nodeId) <= 0 {
-			break
 		}
 	}
 
-	// randomly pick one
+	// randomly pick one with weak entropy.
 	if len(goodPeers) > 0 {
-		rand.Seed(time.Now().UnixNano())
-		index := rand.Intn(len(goodPeers))
+		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+		index := rng.Intn(len(goodPeers))
 		if index >= len(goodPeers) {
 			index = len(goodPeers) - 1
 		}
@@ -538,26 +520,6 @@ func (pool *BlockPool) sendError(err error, peerID types.NodeID) {
 		return
 	}
 	pool.errorsCh <- peerError{err, peerID}
-}
-
-// for debugging purposes
-//
-//nolint:unused
-func (pool *BlockPool) debug() string {
-	pool.mtx.Lock()
-	defer pool.mtx.Unlock()
-
-	str := ""
-	nextHeight := pool.height + pool.requestersLen()
-	for h := pool.height; h < nextHeight; h++ {
-		if pool.requesters[h] == nil {
-			str += fmt.Sprintf("H(%v):X ", h)
-		} else {
-			str += fmt.Sprintf("H(%v):", h)
-			str += fmt.Sprintf("B?(%v) ", pool.requesters[h].block != nil)
-		}
-	}
-	return str
 }
 
 func (pool *BlockPool) targetSyncBlocks() int64 {

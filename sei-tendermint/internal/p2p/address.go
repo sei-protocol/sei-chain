@@ -64,7 +64,7 @@ func ParseNodeAddress(urlString string) (NodeAddress, error) {
 		address.NodeID = types.NodeID(strings.ToLower(url.User.Username()))
 	}
 
-	address.Hostname = strings.ToLower(url.Hostname())
+	address.Hostname = url.Hostname()
 
 	if portString := url.Port(); portString != "" {
 		port64, err := strconv.ParseUint(portString, 10, 16)
