@@ -198,9 +198,12 @@ func (t TxRecordSet) Validate(maxSizeBytes int64, otxs Txs) error {
 	addedCopy := sortedCopy(t.added)
 	removedCopy := sortedCopy(t.removed)
 	unmodifiedCopy := sortedCopy(t.unmodified)
+	generatedCopy := sortedCopy(t.generated)
 
 	var size int64
-	for _, cur := range append(unmodifiedCopy, addedCopy...) {
+	// Count size of all transactions that will be included in the block:
+	// unmodified, added, and generated transactions all count toward MaxTxBytes
+	for _, cur := range append(append(unmodifiedCopy, addedCopy...), generatedCopy...) {
 		size += int64(len(cur))
 		if size > maxSizeBytes {
 			return fmt.Errorf("transaction data size exceeds maximum %d", maxSizeBytes)
