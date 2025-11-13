@@ -23,15 +23,15 @@ type TimeoutTicker interface {
 // and fired on the tockChan.
 type timeoutTicker struct {
 	logger   log.Logger
-	tick     utils.AtomicWatch[utils.Option[timeoutInfo]] // for scheduling timeouts
-	tockChan chan timeoutInfo                             // for notifying about them
+	tick     utils.Mutex[*utils.AtomicSend[utils.Option[timeoutInfo]]] // for scheduling timeouts
+	tockChan chan timeoutInfo                                          // for notifying about them
 }
 
 // NewTimeoutTicker returns a new TimeoutTicker.
 func NewTimeoutTicker(logger log.Logger) TimeoutTicker {
 	tt := &timeoutTicker{
 		logger:   logger,
-		tick:     utils.NewAtomicWatch(utils.None[timeoutInfo]()),
+		tick:     utils.NewMutex(utils.Alloc(utils.NewAtomicSend(utils.None[timeoutInfo]()))),
 		tockChan: make(chan timeoutInfo),
 	}
 	return tt
@@ -45,22 +45,30 @@ func (t *timeoutTicker) Chan() <-chan timeoutInfo {
 // ScheduleTimeout schedules a new timeout, which replaces the previous one.
 // Noop if a timeout for a later height/round/step has been already scheduled.
 func (t *timeoutTicker) ScheduleTimeout(newti timeoutInfo) {
-	t.tick.Update(func(old utils.Option[timeoutInfo]) (utils.Option[timeoutInfo], bool) {
+	for tick := range t.tick.Lock() {
+		old := tick.Load()
 		if oldti, ok := old.Get(); !ok || oldti.Less(&newti) {
-			return utils.Some(newti), true
+			tick.Store(utils.Some(newti))
 		}
-		return old, false
-	})
+	}
+}
+
+func (t *timeoutTicker) tickSubscribe() utils.AtomicRecv[utils.Option[timeoutInfo]] {
+	for tick := range t.tick.Lock() {
+		return tick.Subscribe()
+	}
+	panic("unreachable")
 }
 
 // timers are interupted and replaced by new ticks from later steps
 // timeouts of 0 on the tickChan will be immediately relayed to the tockChan
 func (t *timeoutTicker) Run(ctx context.Context) error {
-	tock := utils.NewAtomicWatch(utils.None[timeoutInfo]()) // last fired timeout
+	tockSend := utils.NewAtomicSend(utils.None[timeoutInfo]()) // last fired timeout
+	tockRecv := tockSend.Subscribe()
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error {
-			// Task measuring timeouts.
-			return t.tick.Iter(ctx, func(ctx context.Context, mti utils.Option[timeoutInfo]) error {
+			// Task measuring timeouts. Owns tockSend.
+			return t.tickSubscribe().Iter(ctx, func(ctx context.Context, mti utils.Option[timeoutInfo]) error {
 				ti, ok := mti.Get()
 				if !ok {
 					return nil
@@ -70,14 +78,14 @@ func (t *timeoutTicker) Run(ctx context.Context) error {
 					return err
 				}
 				t.logger.Debug("Internal state machine timeout elapsed ", "duration", ti.Duration, "height", ti.Height, "round", ti.Round, "step", ti.Step)
-				tock.Store(utils.Some(ti))
+				tockSend.Store(utils.Some(ti))
 				return nil
 			})
 		})
-		// Task reporting timeouts via channel.
+		// Task reporting timeouts via channel. Owns tockRecv.
 		// TODO(gprusak): it would be better to expose t.tock directly,
 		// however the receiving task doesn't support receiving from AtomicWatch yet.
-		return tock.Iter(ctx, func(ctx context.Context, mto utils.Option[timeoutInfo]) error {
+		return tockRecv.Iter(ctx, func(ctx context.Context, mto utils.Option[timeoutInfo]) error {
 			to, ok := mto.Get()
 			if !ok {
 				return nil
