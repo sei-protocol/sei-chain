@@ -10,7 +10,9 @@ on:
 
 jobs:
   integration-tests:
+    name: ${{ matrix.test.name }}
     runs-on: ubuntu-latest
+
     strategy:
       fail-fast: false
       matrix:
@@ -26,39 +28,39 @@ jobs:
           - { name: Upgrade Module (Minor), script: upgrade_minor_test.sh }
           - { name: Upgrade Module (Major), script: upgrade_major_test.sh }
 
-    name: ${{ matrix.test.name }}
-
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Set up dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y jq python3-pip docker-compose
           pip install toml
 
-      - name: Set up environment
+      - name: Set environment variables
         run: |
           echo "DOCKER_COMPOSE_TEST_FILE=integration_test/docker-compose.yml" >> $GITHUB_ENV
           echo "CHAIN_ID=sei-chain" >> $GITHUB_ENV
           echo "INVARIANT_CHECK_INTERVAL=5" >> $GITHUB_ENV
+          mkdir -p integration_test/output guardian
 
-      - name: Check for test script
+      - name: Verify test script presence
         id: check_script
         run: |
-          if [ ! -f "integration_test/${{ matrix.test.script }}" ]; then
-            echo "⚠️ Skipping: script integration_test/${{ matrix.test.script }} not found"
+          TEST_SCRIPT="integration_test/${{ matrix.test.script }}"
+          if [ ! -f "$TEST_SCRIPT" ]; then
+            echo "⚠️ Missing test script: $TEST_SCRIPT"
             echo "skip=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Start docker cluster (if docker-compose exists)
+      - name: Launch docker cluster (if configuration exists)
         if: steps.check_script.outputs.skip != 'true'
         run: |
           if [ -f "$DOCKER_COMPOSE_TEST_FILE" ]; then
-            echo "🚀 Starting docker cluster using $DOCKER_COMPOSE_TEST_FILE"
+            echo "🚀 Launching Docker cluster using $DOCKER_COMPOSE_TEST_FILE"
             docker-compose -f $DOCKER_COMPOSE_TEST_FILE up -d --build
           else
             echo "⚠️ Skipping docker-compose: $DOCKER_COMPOSE_TEST_FILE not found"
@@ -67,32 +69,36 @@ jobs:
       - name: Run ${{ matrix.test.name }}
         if: steps.check_script.outputs.skip != 'true'
         run: |
-          echo "🔎 Running test: ${{ matrix.test.script }}"
-          chmod +x integration_test/${{ matrix.test.script }}
-          bash integration_test/${{ matrix.test.script }}
+          TEST_SCRIPT="integration_test/${{ matrix.test.script }}"
+          LOG_PATH="integration_test/output/${{ matrix.test.name | toJSON | fromJSON | gsub(" "; "_") | gsub("[()]"; "") }}.log"
+          echo "🔎 Executing test script: $TEST_SCRIPT"
+          chmod +x "$TEST_SCRIPT"
+          bash "$TEST_SCRIPT" 2>&1 | tee "$LOG_PATH"
 
-      - name: Upload Logs (if present)
+      - name: Upload logs (if any)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: logs-${{ matrix.test.name }}
-          path: integration_test/output/
+          path: integration_test/output/**
+          if-no-files-found: warn
 
-      - name: Notarize Result with SoulSigil
+      - name: Notarize test result with SoulSigil
         if: always()
         run: |
-          mkdir -p guardian
           SAFE_NAME=$(echo "${{ matrix.test.name }}" | tr ' ' '_' | tr -d '()')
-          SHA=$(sha512sum integration_test/output/* | head -n1 | cut -d' ' -f1 || echo "none")
+          OUTPUT_FILES=$(find integration_test/output -type f -name "*${SAFE_NAME}*" | sort || true)
+          SHA=$(if [ -n "$OUTPUT_FILES" ]; then sha512sum $OUTPUT_FILES | sha512sum | cut -d' ' -f1; else echo "none"; fi)
           DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           jq -n --arg sha "$SHA" --arg date "$DATE" --arg module "${{ matrix.test.name }}" --arg commit "${{ github.sha }}" '{
             module: $module,
             sha512: $sha,
             timestamp: $date,
             commit: $commit,
-            type: "integration-test-soul"
+            type: "integration-test-soulsigil"
           }' > guardian/soulsigil-$SAFE_NAME.json
           echo "SAFE_NAME=$SAFE_NAME" >> $GITHUB_ENV
+          echo "✅ SoulSigil created for $SAFE_NAME"
 
       - name: Upload SoulSigil JSON
         if: always()
@@ -100,10 +106,20 @@ jobs:
         with:
           name: soulsigil-${{ matrix.test.name }}
           path: guardian/soulsigil-${{ env.SAFE_NAME }}.json
+          if-no-files-found: warn
 
-      - name: (Optional) Post SoulSigil to VaultObserver
+      - name: Post SoulSigil to VaultObserver (optional)
         if: always()
+        env:
+          SAFE_NAME: ${{ env.SAFE_NAME }}
         run: |
-          curl -X POST https://vault.keepernet.xyz/api/submit \
-            -H 'Content-Type: application/json' \
-            -d @guardian/soulsigil-${SAFE_NAME}.json || echo "Vault Observer optional post skipped."
+          SIGIL_FILE="guardian/soulsigil-${SAFE_NAME}.json"
+          if [ -f "$SIGIL_FILE" ]; then
+            echo "📡 Posting SoulSigil to VaultObserver..."
+            curl -s -X POST https://vault.keepernet.xyz/api/submit \
+              -H 'Content-Type: application/json' \
+              -d @"$SIGIL_FILE" \
+              || echo "⚠️ VaultObserver post failed or skipped."
+          else
+            echo "⚠️ No SoulSigil found for $SAFE_NAME; skipping post."
+          fi
