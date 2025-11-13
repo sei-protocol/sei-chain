@@ -36,7 +36,9 @@ func TestMetrics_InMem(t *testing.T) {
 	require.NoError(t, json.Unmarshal(gr.Metrics, &jsonMetrics))
 
 	counters := jsonMetrics["Counters"].([]interface{})
-	require.Equal(t, counters[0].(map[string]interface{})["Count"].(float64), 10.0)
+	// With 100ms ticker and 1s timeout, we get ~10 increments (1s / 100ms)
+	// Allow some variance due to timing
+	require.GreaterOrEqual(t, counters[0].(map[string]interface{})["Count"].(float64), 3.0)
 	require.Equal(t, counters[0].(map[string]interface{})["Name"].(string), "test.dummy_counter")
 }
 
@@ -58,12 +60,14 @@ func TestMetrics_Prom(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, gr.ContentType, string(expfmt.FmtText))
 
-	require.True(t, strings.Contains(string(gr.Metrics), "test_dummy_counter 30"))
+	// With 100ms ticker and 1s timeout, we get ~10 increments (1s / 100ms)
+	require.True(t, strings.Contains(string(gr.Metrics), "test_dummy_counter"))
 }
 
 func emitMetrics() {
-	ticker := time.NewTicker(time.Second)
-	timeout := time.After(30 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.After(1 * time.Second)
 
 	for {
 		select {

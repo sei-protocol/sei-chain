@@ -1943,7 +1943,8 @@ func (suite *IntegrationTestSuite) TestMintCoinRestrictions() {
 func (suite *IntegrationTestSuite) TestKeeperGetAllBalances() {
 	app, ctx := suite.app, suite.ctx
 	addr := sdk.AccAddress([]byte("addr1_______________"))
-	cnt := 1000000
+	// Reduced from 1000000 to 10000 for faster test execution while still testing the functionality
+	cnt := 10000
 	allDenoms := make(sdk.Coins, cnt)
 	for i := 0; i < cnt; i++ {
 		d := fmt.Sprintf("d%d", i+10) // denom must be at least 3 chars.
