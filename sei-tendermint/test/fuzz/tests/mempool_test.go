@@ -22,8 +22,8 @@ func NewTestPeerEvictor() *TestPeerEvictor {
 	return &TestPeerEvictor{evicting: map[types.NodeID]struct{}{}}
 }
 
-func (e *TestPeerEvictor) Errored(peerID types.NodeID, err error) {
-	e.evicting[peerID] = struct{}{}
+func (e *TestPeerEvictor) Evict(id types.NodeID, _ error) {
+	e.evicting[id] = struct{}{}
 }
 
 func FuzzMempool(f *testing.F) {
