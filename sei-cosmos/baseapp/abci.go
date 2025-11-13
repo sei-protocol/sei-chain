@@ -1154,14 +1154,6 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 	}
 }
 
-func (app *BaseApp) LoadLatest(ctx context.Context, req *abci.RequestLoadLatest) (*abci.ResponseLoadLatest, error) {
-	if err := app.LoadLatestVersion(); err != nil {
-		return nil, err
-	}
-	app.initialHeight = app.cms.LastCommitID().Version
-	return &abci.ResponseLoadLatest{}, nil
-}
-
 func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxPriorityHintV2) (_resp *abci.ResponseGetTxPriorityHint, _err error) {
 	defer func() {
 		if r := recover(); r != nil {
