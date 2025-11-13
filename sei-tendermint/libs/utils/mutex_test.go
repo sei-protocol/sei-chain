@@ -10,22 +10,23 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
-func TestAtomicWatch(t *testing.T) {
+func TestAtomicSend(t *testing.T) {
 	ctx := t.Context()
 	v := 5
-	w := utils.NewAtomicWatch(&v)
-	require.Equal(t, 5, *w.Load())
+	send := utils.NewAtomicSend(&v)
+	recv := send.Subscribe()
+	require.Equal(t, 5, *recv.Load())
 
 	want := 10
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error {
 			for i := 0; i <= want; i++ {
-				w.Store(&i)
+				send.Store(&i)
 			}
 			return nil
 		})
 
-		got, err := w.Wait(ctx, func(v *int) bool { return *v >= want })
+		got, err := recv.Wait(ctx, func(v *int) bool { return *v >= want })
 		if err != nil {
 			return err
 		}

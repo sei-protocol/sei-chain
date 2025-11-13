@@ -60,12 +60,12 @@ func (s Scope) Cancel(err error) {
 
 // JoinHandle is a handle to an awaitable task.
 type JoinHandle[R any] struct {
-	result *utils.AtomicWatch[*R]
+	result utils.AtomicRecv[*R]
 }
 
 // Spawn1 is the same as Scope.Spawn, but allows awaiting completion of a task and getting its result.
 func Spawn1[R any](s Scope, t func() (R, error)) JoinHandle[R] {
-	result := utils.NewAtomicWatch[*R](nil)
+	result := utils.NewAtomicSend[*R](nil)
 	s.Spawn(func() error {
 		v, err := t()
 		if err != nil {
@@ -74,7 +74,7 @@ func Spawn1[R any](s Scope, t func() (R, error)) JoinHandle[R] {
 		result.Store(&v)
 		return nil
 	})
-	return JoinHandle[R]{&result}
+	return JoinHandle[R]{result.Subscribe()}
 }
 
 // Join awaits completion of a task and returns its result.

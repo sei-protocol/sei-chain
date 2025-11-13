@@ -63,9 +63,8 @@ func setup(
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{
 		NumNodes: 1,
 		NodeOpts: p2p.TestNodeOptions{
-			MaxPeers:     100,
-			MaxConnected: 100,
-			MaxRetryTime: time.Second,
+			MaxPeers:     utils.Some(100),
+			MaxConnected: utils.Some(100),
 		},
 	})
 	stateStore := &smmocks.Store{}
@@ -127,18 +126,24 @@ func setup(
 	}
 }
 
+func orPanic[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
 func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
 	testNode := rts.network.MakeNode(t, p2p.TestNodeOptions{
-		MaxPeers:     1,
-		MaxConnected: 1,
-		MaxRetryTime: time.Second,
+		MaxPeers:     utils.Some(1),
+		MaxConnected: utils.Some(1),
 	})
 	n := &Node{
 		TestNode:   testNode,
-		snapshotCh: testNode.Router.OpenChannelOrPanic(GetSnapshotChannelDescriptor()),
-		chunkCh:    testNode.Router.OpenChannelOrPanic(GetChunkChannelDescriptor()),
-		blockCh:    testNode.Router.OpenChannelOrPanic(GetLightBlockChannelDescriptor()),
-		paramsCh:   testNode.Router.OpenChannelOrPanic(GetParamsChannelDescriptor()),
+		snapshotCh: orPanic(testNode.Router.OpenChannel(GetSnapshotChannelDescriptor())),
+		chunkCh:    orPanic(testNode.Router.OpenChannel(GetChunkChannelDescriptor())),
+		blockCh:    orPanic(testNode.Router.OpenChannel(GetLightBlockChannelDescriptor())),
+		paramsCh:   orPanic(testNode.Router.OpenChannel(GetParamsChannelDescriptor())),
 	}
 	rts.node.Connect(t.Context(), testNode)
 	return n
@@ -178,7 +183,7 @@ func TestReactor_Sync(t *testing.T) {
 				return
 			}
 			n := rts.AddPeer(t)
-			go n.handleLightBlockRequests(t, chain, 0)
+			go n.handleLightBlockRequests(t, chain, false)
 			go n.handleChunkRequests(t, []byte("abc"))
 			go n.handleConsensusParamsRequest(t)
 			go n.handleSnapshotRequests(t, []snapshot{
@@ -244,8 +249,6 @@ func TestReactor_ChunkRequest(t *testing.T) {
 
 			rts := setup(t, conn, nil, false)
 			n := rts.AddPeer(t)
-			// Send an invalid message, which should be just ignored.
-			n.chunkCh.Broadcast(&ssproto.SnapshotsRequest{})
 			// Send the actual message.
 			n.chunkCh.Broadcast(tc.request)
 			m, err := n.chunkCh.Recv(ctx)
@@ -302,9 +305,6 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 
 			rts := setup(t, conn, nil, false)
 			n := rts.AddPeer(t)
-			// Send an invalid message, which should be just ignored.
-			// TODO(gprusak): P2P message type safety should be provided by router.
-			n.snapshotCh.Broadcast(&ssproto.ChunkRequest{})
 			// Send the actual message.
 			n.snapshotCh.Broadcast(&ssproto.SnapshotsRequest{})
 
@@ -393,8 +393,8 @@ func TestReactor_BlockProviders(t *testing.T) {
 	b := rts.AddPeer(t)
 
 	chain := buildLightBlockChain(ctx, t, 1, 10, time.Now())
-	go a.handleLightBlockRequests(t, chain, 0)
-	go b.handleLightBlockRequests(t, chain, 0)
+	go a.handleLightBlockRequests(t, chain, false)
+	go b.handleLightBlockRequests(t, chain, false)
 
 	peers := rts.reactor.peers.All()
 	require.Len(t, peers, 2)
@@ -440,7 +440,7 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 	peerC := rts.AddPeer(t)
 	chain := buildLightBlockChain(ctx, t, 1, 10, time.Now())
 	for _, peer := range utils.Slice(peerA, peerB, peerC) {
-		go peer.handleLightBlockRequests(t, chain, 0)
+		go peer.handleLightBlockRequests(t, chain, false)
 		go peer.handleConsensusParamsRequest(t)
 	}
 
@@ -521,15 +521,13 @@ func TestReactor_Backfill(t *testing.T) {
 				stopTime          = time.Date(2020, 1, 1, 0, 100, 0, 0, time.UTC)
 			)
 
-			peers := utils.Slice(
-				rts.AddPeer(t),
-				rts.AddPeer(t),
-				rts.AddPeer(t),
-				rts.AddPeer(t),
-			)
+			var peers []*Node
+			for range 10 {
+				peers = append(peers, rts.AddPeer(t))
+			}
 			chain := buildLightBlockChain(ctx, t, stopHeight-1, startHeight+1, stopTime)
-			for _, peer := range peers {
-				go peer.handleLightBlockRequests(t, chain, failureRate)
+			for i, peer := range peers {
+				go peer.handleLightBlockRequests(t, chain, i < failureRate)
 			}
 
 			trackingHeight := startHeight
@@ -551,25 +549,18 @@ func TestReactor_Backfill(t *testing.T) {
 				factory.MakeBlockIDWithHash(chain[startHeight].Header.Hash()),
 				stopTime,
 			)
-			if failureRate > 3 {
-				require.Error(t, err)
+			require.NoError(t, err)
 
-				require.NotEqual(t, rts.reactor.backfilledBlocks, rts.reactor.backfillBlockTotal)
-				require.Equal(t, startHeight-stopHeight+1, rts.reactor.backfillBlockTotal)
-			} else {
-				require.NoError(t, err)
-
-				for height := startHeight; height <= stopHeight; height++ {
-					blockMeta := rts.blockStore.LoadBlockMeta(height)
-					require.NotNil(t, blockMeta)
-				}
-
-				require.Nil(t, rts.blockStore.LoadBlockMeta(stopHeight-1))
-				require.Nil(t, rts.blockStore.LoadBlockMeta(startHeight+1))
-
-				require.Equal(t, startHeight-stopHeight+1, rts.reactor.backfilledBlocks)
-				require.Equal(t, startHeight-stopHeight+1, rts.reactor.backfillBlockTotal)
+			for height := startHeight; height <= stopHeight; height++ {
+				blockMeta := rts.blockStore.LoadBlockMeta(height)
+				require.NotNil(t, blockMeta)
 			}
+
+			require.Nil(t, rts.blockStore.LoadBlockMeta(stopHeight-1))
+			require.Nil(t, rts.blockStore.LoadBlockMeta(startHeight+1))
+
+			require.Equal(t, startHeight-stopHeight+1, rts.reactor.backfilledBlocks)
+			require.Equal(t, startHeight-stopHeight+1, rts.reactor.backfillBlockTotal)
 			require.Equal(t, rts.reactor.backfilledBlocks, rts.reactor.BackFilledBlocks())
 			require.Equal(t, rts.reactor.backfillBlockTotal, rts.reactor.BackFillBlocksTotal())
 		})
@@ -629,7 +620,7 @@ type Node struct {
 func (n *Node) handleLightBlockRequests(
 	t *testing.T,
 	chain map[int64]*types.LightBlock,
-	failureRate int,
+	shouldFail bool,
 ) {
 	ctx := t.Context()
 	errorCount := 0
@@ -642,7 +633,7 @@ func (n *Node) handleLightBlockRequests(
 		if !ok {
 			continue
 		}
-		if requests%10 >= failureRate {
+		if !shouldFail {
 			lb, err := chain[int64(msg.Height)].ToProto()
 			require.NoError(t, err)
 			n.blockCh.Send(&ssproto.LightBlockResponse{LightBlock: lb}, m.From)
