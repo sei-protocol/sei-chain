@@ -21,7 +21,6 @@ import (
 	"github.com/tendermint/tendermint/abci/example/kvstore"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/types"
 )
@@ -229,8 +228,8 @@ func (e *TestPeerEvictor) IsEvicted(peerID types.NodeID) bool {
 	return ok
 }
 
-func (e *TestPeerEvictor) SendError(pe p2p.PeerError) {
-	e.evicting[pe.NodeID] = struct{}{}
+func (e *TestPeerEvictor) Evict(id types.NodeID, _ error) {
+	e.evicting[id] = struct{}{}
 }
 
 func TestTxMempool_TxsAvailable(t *testing.T) {
@@ -1149,7 +1148,7 @@ func TestTxMempool_FailedCheckTxCount(t *testing.T) {
 	txmp.config.CheckTxErrorThreshold = 0
 	tx = []byte("bad tx")
 	require.NoError(t, txmp.CheckTx(ctx, tx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
-	require.True(t, txmp.peerManager.(*TestPeerEvictor).IsEvicted("sender"))
+	require.True(t, txmp.router.(*TestPeerEvictor).IsEvicted("sender"))
 }
 
 func TestAppendCheckTxErr(t *testing.T) {

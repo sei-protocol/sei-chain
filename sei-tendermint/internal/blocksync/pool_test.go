@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/internal/p2p"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/tendermint/tendermint/libs/log"
@@ -77,7 +76,7 @@ func makePeers(numPeers int, minHeight, maxHeight int64) testPeers {
 
 type fakeRouter struct {
 	peers  map[types.NodeID]testPeer
-	errors map[types.NodeID]p2p.PeerError
+	errors map[types.NodeID]error
 }
 
 func (r *fakeRouter) IsBlockSyncPeer(id types.NodeID) bool {
@@ -85,14 +84,12 @@ func (r *fakeRouter) IsBlockSyncPeer(id types.NodeID) bool {
 	return ok
 }
 
-func (r *fakeRouter) SendError(pe p2p.PeerError) {
-	if pe.Fatal {
-		r.errors[pe.NodeID] = pe
-	}
+func (r *fakeRouter) Evict(id types.NodeID, err error) {
+	r.errors[id] = err
 }
 
 func (r *fakeRouter) Connected(id types.NodeID) bool {
-	if pe, ok := r.errors[id]; ok && pe.Fatal {
+	if _, ok := r.errors[id]; ok {
 		return false
 	}
 	_, ok := r.peers[id]
@@ -102,7 +99,7 @@ func (r *fakeRouter) Connected(id types.NodeID) bool {
 func makeRouter(peers map[types.NodeID]testPeer) *fakeRouter {
 	return &fakeRouter{
 		peers:  peers,
-		errors: map[types.NodeID]p2p.PeerError{},
+		errors: map[types.NodeID]error{},
 	}
 }
 

@@ -103,6 +103,14 @@ type Config struct {
 
 	// RPCStatsInterval for how often to report stats
 	RPCStatsInterval time.Duration `mapstructure:"rpc_stats_interval"`
+
+	// WorkerPoolSize defines the number of workers in the worker pool.
+	// Set to 0 to use default: min(64, runtime.NumCPU() * 2)
+	WorkerPoolSize int `mapstructure:"worker_pool_size"`
+
+	// WorkerQueueSize defines the size of the task queue in the worker pool.
+	// Set to 0 to use default: 1000
+	WorkerQueueSize int `mapstructure:"worker_queue_size"`
 }
 
 var DefaultConfig = Config{
@@ -132,6 +140,8 @@ var DefaultConfig = Config{
 	MaxTraceLookbackBlocks:       10000,
 	TraceTimeout:                 30 * time.Second,
 	RPCStatsInterval:             10 * time.Second,
+	WorkerPoolSize:               min(MaxWorkerPoolSize, runtime.NumCPU()*2), // Default: min(64, CPU cores × 2)
+	WorkerQueueSize:              DefaultWorkerQueueSize,                     // Default: 1000 tasks
 }
 
 const (
@@ -161,6 +171,8 @@ const (
 	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
 	flagTraceTimeout                 = "evm.trace_timeout"
 	flagRPCStatsInterval             = "evm.rpc_stats_interval"
+	flagWorkerPoolSize               = "evm.worker_pool_size"
+	flagWorkerQueueSize              = "evm.worker_queue_size"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -296,6 +308,16 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagWorkerPoolSize); v != nil {
+		if cfg.WorkerPoolSize, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagWorkerQueueSize); v != nil {
+		if cfg.WorkerQueueSize, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
 
 	return cfg, nil
 }
@@ -386,4 +408,13 @@ max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
 
 # Timeout for each trace call
 trace_timeout = "{{ .EVM.TraceTimeout }}"
+
+# WorkerPoolSize defines the number of workers in the worker pool.
+# Default: min(64, CPU cores × 2). Capped at 64 to prevent excessive goroutines on high-core machines.
+# Set to 0 to use the default.
+worker_pool_size = {{ .EVM.WorkerPoolSize }}
+
+# WorkerQueueSize defines the size of the task queue in the worker pool.
+# Default: 1000 tasks. Set to 0 to use the default.
+worker_queue_size = {{ .EVM.WorkerQueueSize }}
 `

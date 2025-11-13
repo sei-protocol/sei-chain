@@ -235,9 +235,9 @@ func (i *peerManagerInner[C]) Connected(conn C) (err error) {
 		// * allow inbound conn to override outbound iff peerID > selfID.
 		//   This resolves the situation when peers try to connect to each other
 		//   at the same time.
-		oldDir := old.Info().DialAddr.IsPresent()
-		newDir := info.DialAddr.IsPresent()
-		if oldDir != newDir && (peerID < i.selfID) != newDir {
+		oldDirection := old.Info().DialAddr.IsPresent()
+		newDirection := info.DialAddr.IsPresent()
+		if oldDirection != newDirection && (peerID < i.selfID) != newDirection {
 			return fmt.Errorf("duplicate connection from peer %q", peerID)
 		}
 		old.Close()

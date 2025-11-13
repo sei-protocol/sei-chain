@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/netip"
 	"sync"
 	"time"
 
@@ -290,16 +289,10 @@ func (r *Router) metricsRoutine(ctx context.Context) error {
 	return err
 }
 
-// SendError reports a peer misbehavior to the router.
-func (r *Router) SendError(pe PeerError) {
-	r.logger.Error("peer error",
-		"peer", pe.NodeID,
-		"err", pe.Err,
-		"fatal", pe.Fatal,
-	)
-	if pe.Fatal {
-		r.peerManager.Evict(pe.NodeID)
-	}
+// Evict reports a peer misbehavior and forces peer to be disconnected.
+func (r *Router) Evict(id types.NodeID, err error) {
+	r.logger.Error("evicting", "peer", id, "err", err)
+	r.peerManager.Evict(id)
 }
 
 func (r *Router) IsBlockSyncPeer(id types.NodeID) bool {
@@ -334,9 +327,6 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (*net.TCPConn, erro
 		if err := endpoint.Validate(); err != nil {
 			return nil, err
 		}
-		if endpoint.Port() == 0 {
-			endpoint.AddrPort = netip.AddrPortFrom(endpoint.Addr(), 26657)
-		}
 		dialer := net.Dialer{}
 		tcpConn, err := dialer.DialContext(dialCtx, "tcp", endpoint.String())
 		if err != nil {
@@ -351,12 +341,6 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (*net.TCPConn, erro
 }
 
 func (r *Router) Run(ctx context.Context) error {
-	// TODO(gprusak): for some reason Router is responsible for closing a db it did not open.
-	defer func() {
-		for db := range r.peerDB.Lock() {
-			db.Close()
-		}
-	}()
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("acceptPeers", func() error { return r.acceptPeersRoutine(ctx) })
 		s.SpawnNamed("dialPeers", func() error { return r.dialPeersRoutine(ctx) })

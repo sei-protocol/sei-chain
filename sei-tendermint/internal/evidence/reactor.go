@@ -144,8 +144,7 @@ func (r *Reactor) processEvidenceCh(ctx context.Context) error {
 			return err
 		}
 		if err := r.handleEvidenceMessage(ctx, m); err != nil {
-			r.logger.Error("failed to process evidenceCh message", "err", err)
-			r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.Evict(m.From, fmt.Errorf("evidence: %w", err))
 		}
 	}
 }

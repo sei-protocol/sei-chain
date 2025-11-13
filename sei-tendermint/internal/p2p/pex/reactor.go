@@ -143,7 +143,7 @@ func (r *Reactor) processPexCh(ctx context.Context) error {
 			return err
 		}
 		if err := r.handlePexMessage(m); err != nil {
-			r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err, Fatal: true})
+			r.router.Evict(m.From, fmt.Errorf("pex: %w", err))
 		}
 	}
 	return nil

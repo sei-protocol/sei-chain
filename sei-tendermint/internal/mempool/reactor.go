@@ -203,11 +203,7 @@ func (r *Reactor) processMempoolCh(ctx context.Context) {
 			return
 		}
 		if err := r.handleMessage(ctx, m); err != nil {
-			r.logger.Error("failed to process message", "err", err)
-			r.router.SendError(p2p.PeerError{
-				NodeID: m.From,
-				Err:    err,
-			})
+			r.router.Evict(m.From, fmt.Errorf("mempool: %w", err))
 		}
 	}
 }

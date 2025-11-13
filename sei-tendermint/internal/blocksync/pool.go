@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/tendermint/tendermint/internal/libs/flowrate"
-	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/types"
@@ -57,7 +56,7 @@ const (
 // Interface abstracting p2p.Router for tests.
 type router interface {
 	IsBlockSyncPeer(types.NodeID) bool
-	SendError(p2p.PeerError)
+	Evict(id types.NodeID, err error)
 	Connected(types.NodeID) bool
 }
 
@@ -363,17 +362,12 @@ func (pool *BlockPool) SetPeerRange(peerID types.NodeID, base int64, height int6
 	peer := pool.peers[peerID]
 	if peer != nil {
 		if base < peer.base || height < peer.height {
-			pool.logger.Info("Peer is reporting height/base that is lower than what it previously reported",
-				"peer", peerID,
-				"height", height, "base", base,
-				"prevHeight", peer.height, "prevBase", peer.base)
 			// RemovePeer will redo all requesters associated with this peer.
 			pool.removePeer(peerID, true)
-			pool.router.SendError(p2p.PeerError{
-				NodeID: peerID,
-				Err:    errors.New("peer is reporting height/base that is lower than what it previously reported"),
-				Fatal:  true,
-			})
+			pool.router.Evict(peerID, fmt.Errorf(
+				"peer is reporting (base=%v,height=%v), which is lower than previously reported (base=%v,height=%v)",
+				base, height, peer.base, peer.height,
+			))
 			return
 		}
 		peer.base = base

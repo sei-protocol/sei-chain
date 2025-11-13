@@ -223,9 +223,12 @@ func createRouter(
 	options.Connection.SendRate = cfg.P2P.SendRate
 	options.Connection.RecvRate = cfg.P2P.RecvRate
 	options.Connection.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
-	selfAddr, err := p2p.ParseNodeAddress(nodeKey.ID.AddressString(cfg.P2P.ExternalAddress))
-	if err != nil {
-		return nil, closer, fmt.Errorf("couldn't parse ExternalAddress %q: %w", cfg.P2P.ExternalAddress, err)
+	if addr := cfg.P2P.ExternalAddress; addr != "" {
+		nodeAddr, err := p2p.ParseNodeAddress(nodeKey.ID.AddressString(addr))
+		if err != nil {
+			return nil, closer, fmt.Errorf("couldn't parse ExternalAddress %q: %w", cfg.P2P.ExternalAddress, err)
+		}
+		options.SelfAddress = utils.Some(nodeAddr)
 	}
 	var privatePeerIDs []types.NodeID
 	for _, id := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PrivatePeerIDs, ",", " ") {
@@ -241,7 +244,6 @@ func createRouter(
 		maxConns = 64
 	}
 
-	options.SelfAddress = utils.Some(selfAddr)
 	options.MaxConnected = utils.Some(maxConns)
 	options.MaxPeers = utils.Some(2 * maxConns)
 	options.PrivatePeers = privatePeerIDs

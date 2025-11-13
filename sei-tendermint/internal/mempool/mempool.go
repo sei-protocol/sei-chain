@@ -15,7 +15,6 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/internal/libs/clist"
-	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
@@ -122,14 +121,14 @@ type TxMempool struct {
 	failedCheckTxCounts    map[types.NodeID]uint64
 	mtxFailedCheckTxCounts sync.RWMutex
 
-	peerManager PeerEvictor
+	router router
 }
 
 func NewTxMempool(
 	logger log.Logger,
 	cfg *config.MempoolConfig,
 	proxyAppConn abciclient.Client,
-	peerManager PeerEvictor,
+	router router,
 	options ...TxMempoolOption,
 ) *TxMempool {
 
@@ -147,7 +146,7 @@ func NewTxMempool(
 		pendingTxs:          NewPendingTxs(cfg),
 		totalCheckTxCount:   atomic.Uint64{},
 		failedCheckTxCounts: map[types.NodeID]uint64{},
-		peerManager:         peerManager,
+		router:              router,
 	}
 
 	if cfg.CacheSize > 0 {
@@ -709,12 +708,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 			defer txmp.mtxFailedCheckTxCounts.Unlock()
 			txmp.failedCheckTxCounts[txInfo.SenderNodeID]++
 			if txmp.config.CheckTxErrorBlacklistEnabled && txmp.failedCheckTxCounts[txInfo.SenderNodeID] > uint64(txmp.config.CheckTxErrorThreshold) {
-				// evict peer
-				txmp.peerManager.SendError(p2p.PeerError{
-					NodeID: txInfo.SenderNodeID,
-					Err:    errors.New("checkTx error exceeded threshold"),
-					Fatal:  true,
-				})
+				txmp.router.Evict(txInfo.SenderNodeID, errors.New("mempool: checkTx error exceeded threshold"))
 			}
 		}
 		return err
