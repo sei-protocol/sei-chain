@@ -136,11 +136,11 @@ type Reactor struct {
 	stateStore    sm.Store
 	blockStore    *store.BlockStore
 
-	conn           abciclient.Client
-	tempDir        string
-	router         *p2p.Router
-	sendBlockError func(p2p.PeerError)
-	postSyncHook   func(context.Context, sm.State) error
+	conn         abciclient.Client
+	tempDir      string
+	router       *p2p.Router
+	evict        func(types.NodeID, error)
+	postSyncHook func(context.Context, sm.State) error
 
 	// when true, the reactor will, during startup perform a
 	// statesync for this node, and otherwise just provide
@@ -290,7 +290,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		}
 		return nil
 	}
-	r.sendBlockError = r.router.SendError
+	r.evict = r.router.Evict
 
 	r.initStateProvider = func(ctx context.Context, chainID string, initialHeight int64) error {
 		to := light.TrustOptions{
@@ -557,10 +557,7 @@ func (r *Reactor) backfill(
 						r.logger.Info("backfill: fetched light block failed validate basic, removing peer...",
 							"err", err, "height", height)
 						queue.retry(height)
-						r.sendBlockError(p2p.PeerError{
-							NodeID: peer,
-							Err:    fmt.Errorf("received invalid light block: %w", err),
-						})
+						r.evict(peer, fmt.Errorf("statesync: received invalid light block: %w", err))
 						continue
 					}
 
@@ -592,10 +589,7 @@ func (r *Reactor) backfill(
 			if w, g := trustedBlockID.Hash, resp.block.Hash(); !bytes.Equal(w, g) {
 				r.logger.Info("received invalid light block. header hash doesn't match trusted LastBlockID",
 					"trustedHash", w, "receivedHash", g, "height", resp.block.Height)
-				r.sendBlockError(p2p.PeerError{
-					NodeID: resp.peer,
-					Err:    fmt.Errorf("received invalid light block. Expected hash %v, got: %v", w, g),
-				})
+				r.evict(resp.peer, fmt.Errorf("statesync: received invalid light block. Expected hash %v, got: %v", w, g))
 				queue.retry(resp.block.Height)
 				continue
 			}
@@ -904,60 +898,56 @@ func (r *Reactor) recoverToErr(err *error) {
 }
 
 func (r *Reactor) processSnapshotCh(ctx context.Context) {
-	for {
+	for ctx.Err() == nil {
 		m, err := r.snapshotChannel.Recv(ctx)
 		if err != nil {
 			return
 		}
 		r.processChGuard.Lock()
-		if err := r.handleSnapshotMessage(ctx, m); err != nil {
-			r.logger.Error("failed to process snapshotCh message", "err", err)
-			r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+		if err := r.handleSnapshotMessage(ctx, m); err != nil && ctx.Err() == nil {
+			r.router.Evict(m.From, fmt.Errorf("statesync.snapshot: %w", err))
 		}
 		r.processChGuard.Unlock()
 	}
 }
 
 func (r *Reactor) processChunkCh(ctx context.Context) {
-	for {
+	for ctx.Err() == nil {
 		m, err := r.chunkChannel.Recv(ctx)
 		if err != nil {
 			return
 		}
 		r.processChGuard.Lock()
-		if err := r.handleChunkMessage(ctx, m); err != nil {
-			r.logger.Error("failed to process chunkCh message", "err", err)
-			r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+		if err := r.handleChunkMessage(ctx, m); err != nil && ctx.Err() == nil {
+			r.router.Evict(m.From, fmt.Errorf("statesync.chunk: %w", err))
 		}
 		r.processChGuard.Unlock()
 	}
 }
 
 func (r *Reactor) processLightBlockCh(ctx context.Context) {
-	for {
+	for ctx.Err() == nil {
 		m, err := r.lightBlockChannel.Recv(ctx)
 		if err != nil {
 			return
 		}
 		r.processChGuard.Lock()
-		if err := r.handleLightBlockMessage(ctx, m); err != nil {
-			r.logger.Error("failed to process lightBlockCh message", "err", err)
-			r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+		if err := r.handleLightBlockMessage(ctx, m); err != nil && ctx.Err() == nil {
+			r.router.Evict(m.From, fmt.Errorf("statesync.lightBlock: %w", err))
 		}
 		r.processChGuard.Unlock()
 	}
 }
 
 func (r *Reactor) processParamsCh(ctx context.Context) {
-	for {
+	for ctx.Err() == nil {
 		m, err := r.paramsChannel.Recv(ctx)
 		if err != nil {
 			return
 		}
 		r.processChGuard.Lock()
-		if err := r.handleParamsMessage(ctx, m, r.paramsChannel); err != nil {
-			r.logger.Error("failed to process paramsCh message", "err", err)
-			r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+		if err := r.handleParamsMessage(ctx, m, r.paramsChannel); err != nil && ctx.Err() == nil {
+			r.router.Evict(m.From, fmt.Errorf("statesync.params: %w", err))
 		}
 		r.processChGuard.Unlock()
 	}

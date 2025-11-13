@@ -94,11 +94,7 @@ func TestRouter_Network(t *testing.T) {
 	t.Logf("We report a fatal error and expect the peer to get disconnected")
 	conn, ok := local.Router.peerManager.Conns().Get(peers[0].NodeID)
 	require.True(t, ok)
-	local.Router.SendError(PeerError{
-		NodeID: peers[0].NodeID,
-		Err:    errors.New("boom"),
-		Fatal:  true,
-	})
+	local.Router.Evict(peers[0].NodeID, errors.New("boom"))
 	local.WaitForDisconnect(ctx, conn)
 }
 
@@ -287,7 +283,7 @@ func TestRouter_SendError(t *testing.T) {
 	nodes := network.Nodes()
 	conn, ok := nodes[0].Router.peerManager.Conns().Get(nodes[1].NodeID)
 	require.True(t, ok)
-	nodes[0].Router.SendError(PeerError{NodeID: nodes[1].NodeID, Err: errors.New("boom"), Fatal: true})
+	nodes[0].Router.Evict(nodes[1].NodeID, errors.New("boom"))
 	nodes[0].WaitForDisconnect(ctx, conn)
 }
 
@@ -708,11 +704,7 @@ func TestRouter_EvictPeers(t *testing.T) {
 		})
 
 		t.Log("Report the peer as bad.")
-		r.SendError(PeerError{
-			NodeID: peerID,
-			Err:    errors.New("boom"),
-			Fatal:  true,
-		})
+		r.Evict(peerID, errors.New("boom"))
 		t.Log("Wait for conn down")
 		if err := x.runConn(ctx, conn); !errors.Is(err, io.EOF) {
 			return fmt.Errorf("want EOF, got %w", err)

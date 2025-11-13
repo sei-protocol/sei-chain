@@ -488,8 +488,7 @@ func (r *Reactor) processMetadataCh(ctx context.Context, ch *p2p.Channel) {
 			return
 		}
 		if err := r.handleMetadataMessage(ctx, m); err != nil {
-			r.logger.Error("failed to process metadataCh message", "err", err)
-			r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.Evict(m.From, fmt.Errorf("dbsync.metadata: %w", err))
 		}
 	}
 }
@@ -501,8 +500,7 @@ func (r *Reactor) processFileCh(ctx context.Context, ch *p2p.Channel) {
 			return
 		}
 		if err := r.handleFileMessage(m); err != nil {
-			r.logger.Error("failed to process fileCh message", "err", err)
-			r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.Evict(m.From, fmt.Errorf("dbsync.file: %w", err))
 		}
 	}
 }
@@ -514,8 +512,7 @@ func (r *Reactor) processLightBlockCh(ctx context.Context, ch *p2p.Channel) {
 			return
 		}
 		if err := r.handleLightBlockMessage(ctx, m); err != nil {
-			r.logger.Error("failed to process lightBlockCh message", "err", err)
-			r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.Evict(m.From, fmt.Errorf("dbsync.lightBlock: %w", err))
 		}
 	}
 }
@@ -527,8 +524,7 @@ func (r *Reactor) processParamsCh(ctx context.Context, ch *p2p.Channel) {
 			return
 		}
 		if err := r.handleParamsMessage(ctx, m); err != nil {
-			r.logger.Error("failed to process paramsCh message", "err", err)
-			r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.Evict(m.From, fmt.Errorf("dbsync.params: %w", err))
 		}
 	}
 }

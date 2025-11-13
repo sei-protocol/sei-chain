@@ -289,16 +289,10 @@ func (r *Router) metricsRoutine(ctx context.Context) error {
 	return err
 }
 
-// SendError reports a peer misbehavior to the router.
-func (r *Router) SendError(pe PeerError) {
-	r.logger.Error("peer error",
-		"peer", pe.NodeID,
-		"err", pe.Err,
-		"fatal", pe.Fatal,
-	)
-	if pe.Fatal {
-		r.peerManager.Evict(pe.NodeID)
-	}
+// Evict reports a peer misbehavior and forces peer to be disconnected.
+func (r *Router) Evict(id types.NodeID, err error) {
+	r.logger.Error("evicting", "peer", id, "err", err)
+	r.peerManager.Evict(id)
 }
 
 func (r *Router) IsBlockSyncPeer(id types.NodeID) bool {

@@ -269,18 +269,13 @@ func (r *Reactor) handleMessage(m p2p.RecvMsg, blockSyncCh *p2p.Channel) (err er
 // When the reactor is stopped, we will catch the signal and close the p2p Channel
 // gracefully.
 func (r *Reactor) processBlockSyncCh(ctx context.Context, blockSyncCh *p2p.Channel) {
-	for {
+	for ctx.Err() == nil {
 		m, err := blockSyncCh.Recv(ctx)
 		if err != nil {
 			return
 		}
-		if err := r.handleMessage(m, blockSyncCh); err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return
-			}
-
-			r.logger.Error("failed to process blockSyncCh message", "err", err)
-			r.router.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+		if err := r.handleMessage(m, blockSyncCh); err != nil && ctx.Err() == nil {
+			r.router.Evict(m.From, fmt.Errorf("blocksync: %w", err))
 		}
 	}
 }
@@ -394,7 +389,7 @@ func (r *Reactor) requestRoutine(ctx context.Context, blockSyncCh *p2p.Channel) 
 		case request := <-r.requestsCh:
 			blockSyncCh.Send(&bcproto.BlockRequest{Height: request.Height}, request.PeerID)
 		case pErr := <-r.errorsCh:
-			r.router.SendError(p2p.PeerError{NodeID: pErr.peerID, Err: pErr.err})
+			r.router.Evict(pErr.peerID, fmt.Errorf("blocksync.request: %w", pErr.err))
 		case <-statusUpdateTicker.C:
 			blockSyncCh.Broadcast(&bcproto.StatusRequest{})
 		}
@@ -537,11 +532,11 @@ func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool, blockSyncCh
 				// NOTE: We've already removed the peer's request, but we still need
 				// to clean up the rest.
 				peerID := r.pool.RedoRequest(first.Height)
-				r.router.SendError(p2p.PeerError{NodeID: peerID, Err: err})
+				r.router.Evict(peerID, fmt.Errorf("blocksync: %w", err))
 
 				peerID2 := r.pool.RedoRequest(second.Height)
 				if peerID2 != peerID {
-					r.router.SendError(p2p.PeerError{NodeID: peerID2, Err: err})
+					r.router.Evict(peerID2, fmt.Errorf("blocksync: %w", err))
 				}
 				return
 			}

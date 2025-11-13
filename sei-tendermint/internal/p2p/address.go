@@ -68,7 +68,7 @@ func ParseNodeAddress(urlString string) (NodeAddress, error) {
 
 	address.Hostname = url.Hostname()
 
-	if portString := url.Port(); portString!="" {
+	if portString := url.Port(); portString != "" {
 		port64, err := strconv.ParseUint(portString, 10, 16)
 		if err != nil {
 			return NodeAddress{}, fmt.Errorf("invalid port %q: %w", url.Port(), err)
@@ -76,7 +76,7 @@ func ParseNodeAddress(urlString string) (NodeAddress, error) {
 		address.Port = uint16(port64)
 	}
 	// For some reasons, missing or 0 port on parsing is interpretented as the default port.
-	if address.Port==0 {
+	if address.Port == 0 {
 		address.Port = uint16(defaultPort)
 	}
 	return address, address.Validate()
