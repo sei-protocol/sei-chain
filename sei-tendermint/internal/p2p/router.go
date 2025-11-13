@@ -341,12 +341,6 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (*net.TCPConn, erro
 }
 
 func (r *Router) Run(ctx context.Context) error {
-	// TODO(gprusak): for some reason Router is responsible for closing a db it did not open.
-	defer func() {
-		for db := range r.peerDB.Lock() {
-			db.Close()
-		}
-	}()
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("acceptPeers", func() error { return r.acceptPeersRoutine(ctx) })
 		s.SpawnNamed("dialPeers", func() error { return r.dialPeersRoutine(ctx) })

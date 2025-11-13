@@ -238,8 +238,6 @@ func makeNode(
 		stateStore:   stateStore,
 		blockStore:   blockStore,
 
-		shutdownOps: makeCloser(closers),
-
 		rpcEnv: &rpccore.Environment{
 			ProxyApp: proxyApp,
 
@@ -263,6 +261,7 @@ func makeNode(
 	}
 	node.router = router
 	node.rpcEnv.PeerManager = router
+	node.shutdownOps = makeCloser(closers)
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(logger, cfg, dbProvider,
 		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
