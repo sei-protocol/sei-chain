@@ -1797,7 +1797,9 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 	}
 
 	snapshotInterval := uint64(2)
-	snapshotTimeout := 1 * time.Minute
+	// Reduced timeout for faster test execution, especially with race detector
+	// Snapshots should complete much faster in tests, and if they don't, it indicates a real issue
+	snapshotTimeout := 5 * time.Second
 	snapshotDir, err := os.MkdirTemp("", "baseapp")
 	require.NoError(t, err)
 	snapshotStore, err := snapshots.NewStore(dbm.NewMemDB(), snapshotDir)

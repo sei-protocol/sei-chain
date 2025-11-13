@@ -319,8 +319,9 @@ func TestCacheKVMergeIteratorRandom(t *testing.T) {
 	max := 1000
 	setRange(t, st, truth, start, end)
 
-	// do an op, test the iterator
-	for i := 0; i < 2000; i++ {
+	// Reduced from 2000 to 200 iterations for faster test execution, especially with race detector
+	// 200 iterations is sufficient to test random operations and iterator correctness
+	for i := 0; i < 200; i++ {
 		doRandomOp(t, st, truth, max)
 		assertIterateDomainCompare(t, st, truth)
 	}

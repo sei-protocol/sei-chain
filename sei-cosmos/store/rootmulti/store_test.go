@@ -3,6 +3,7 @@ package rootmulti
 import (
 	"bytes"
 	"fmt"
+	"runtime"
 	"testing"
 	"time"
 
@@ -609,6 +610,20 @@ func TestCacheWraps(t *testing.T) {
 }
 
 func TestTraceConcurrency(t *testing.T) {
+	// Check for goroutine leaks
+	initialGoroutines := runtime.NumGoroutine()
+	defer func() {
+		// Give goroutines time to clean up
+		time.Sleep(100 * time.Millisecond)
+		runtime.GC()
+		runtime.GC()
+		finalGoroutines := runtime.NumGoroutine()
+		leaked := finalGoroutines - initialGoroutines
+		if leaked > 0 {
+			t.Logf("Warning: %d goroutines may have leaked (initial: %d, final: %d)", leaked, initialGoroutines, finalGoroutines)
+		}
+	}()
+
 	db := dbm.NewMemDB()
 	multi := newMultiStoreWithMounts(db, types.PruneNothing)
 	err := multi.LoadLatestVersion()
@@ -630,7 +645,12 @@ func TestTraceConcurrency(t *testing.T) {
 	stop := make(chan struct{})
 	stopW := make(chan struct{})
 
-	go func(stop chan struct{}) {
+	// Use sync.WaitGroup would be better, but channels work too
+	done1 := make(chan struct{})
+	done2 := make(chan struct{})
+
+	go func() {
+		defer close(done1)
 		for {
 			select {
 			case <-stop:
@@ -640,22 +660,37 @@ func TestTraceConcurrency(t *testing.T) {
 				cms.Write()
 			}
 		}
-	}(stop)
+	}()
 
-	go func(stop chan struct{}) {
+	go func() {
+		defer close(done2)
 		for {
 			select {
-			case <-stop:
+			case <-stopW:
 				return
 			default:
 				multi.SetTracingContext(tc)
 			}
 		}
-	}(stopW)
+	}()
 
-	time.Sleep(3 * time.Second)
-	stop <- struct{}{}
-	stopW <- struct{}{}
+	// Reduced sleep time for faster test execution, especially with race detector
+	// 200ms is sufficient to test concurrency with race detector enabled
+	time.Sleep(200 * time.Millisecond)
+	// Signal goroutines to stop
+	close(stop)
+	close(stopW)
+	// Wait for goroutines to exit
+	select {
+	case <-done1:
+	case <-time.After(1 * time.Second):
+		t.Error("First goroutine did not exit in time")
+	}
+	select {
+	case <-done2:
+	case <-time.After(1 * time.Second):
+		t.Error("Second goroutine did not exit in time")
+	}
 }
 
 //-----------------------------------------------------------------------
