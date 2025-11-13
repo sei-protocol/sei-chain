@@ -48,6 +48,9 @@ func NewEVMHTTPServer(
 ) (EVMServer, error) {
 	logger = logger.With("module", "evmrpc")
 
+	// Initialize global worker pool with configuration
+	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
+
 	// Initialize RPC tracker
 	stats.InitRPCTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
 
@@ -220,6 +223,9 @@ func NewEVMWebSocketServer(
 	stateStore sstypes.StateStore,
 ) (EVMServer, error) {
 	logger = logger.With("module", "evmrpc")
+
+	// Initialize global worker pool with configuration
+	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
 
 	// Initialize WebSocket tracker.
 	stats.InitWSTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
