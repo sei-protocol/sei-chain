@@ -656,23 +656,6 @@ blocks-behind-check-interval = {{ .SelfRemediation.BlocksBehindCheckIntervalSeco
 # Cooldown between each restart
 restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
 
-#######################################################################
-###               DB Sync Configuration (Auto-managed)              ###
-#######################################################################
-[db-sync]
-db-sync-enable = "{{ .DBSync.Enable }}"
-snapshot-interval = "{{ .DBSync.SnapshotInterval }}"
-snapshot-directory = "{{ .DBSync.SnapshotDirectory }}"
-snapshot-worker-count = "{{ .DBSync.SnapshotWorkerCount }}"
-timeout-in-seconds = "{{ .DBSync.TimeoutInSeconds }}"
-no-file-sleep-in-seconds = "{{ .DBSync.NoFileSleepInSeconds }}"
-file-worker-count = "{{ .DBSync.FileWorkerCount }}"
-file-worker-timeout = "{{ .DBSync.FileWorkerTimeout }}"
-trust-height = "{{ .DBSync.TrustHeight }}"
-trust-hash = "{{ .DBSync.TrustHash }}"
-trust-period = "{{ .DBSync.TrustPeriod }}"
-verify-light-block-timeout = "{{ .DBSync.VerifyLightBlockTimeout }}"
-blacklist-ttl = "{{ .DBSync.BlacklistTTL }}"
 `
 
 // defaultConfigTemplate combines manual and auto-managed templates for backward compatibility

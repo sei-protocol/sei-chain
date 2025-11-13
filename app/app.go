@@ -925,7 +925,7 @@ func New(
 		return nil
 	}
 
-	if app.LastCommitID().Version > 0 || app.TmConfig == nil || !app.TmConfig.DBSync.Enable {
+	if app.LastCommitID().Version > 0 || app.TmConfig == nil {
 		if err := loadVersionHandler(); err != nil {
 			panic(err)
 		}
