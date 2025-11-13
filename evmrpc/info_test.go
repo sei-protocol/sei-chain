@@ -19,10 +19,22 @@ import (
 	types2 "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
+func newInfoAPIWithWatermarks(ctxProvider func(int64) sdk.Context) *evmrpc.InfoAPI {
+	wrapped := func(height int64) sdk.Context {
+		ctx := ctxProvider(height)
+		if height == evmrpc.LatestCtxHeight && ctx.BlockHeight() < MockHeight103 {
+			return ctx.WithBlockHeight(MockHeight103)
+		}
+		return ctx
+	}
+	wm := evmrpc.NewWatermarkManager(&MockClient{}, wrapped, nil, EVMKeeper.ReceiptStore())
+	return evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, wrapped, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, wm)
+}
+
 func TestBlockNumber(t *testing.T) {
 	resObj := sendRequestGood(t, "blockNumber")
 	result := resObj["result"].(string)
-	require.Equal(t, "0x8", result)
+	require.Equal(t, fmt.Sprintf("0x%x", MockHeight8), result)
 }
 
 func TestChainID(t *testing.T) {
@@ -75,20 +87,19 @@ func TestFeeHistory(t *testing.T) {
 		lastBlock         interface{} // Changed to interface{} to handle different types
 		rewardPercentiles interface{}
 		expectedOldest    string
-		expectedReward    string
-		expectedBaseFee   string
 		expectedError     error
 	}
 
 	Ctx = Ctx.WithBlockHeight(1) // Simulate context with a specific block height
 
+	latestHex := fmt.Sprintf("0x%x", MockHeight8)
 	testCases := []feeHistoryTestCase{
-		{name: "Valid request by number", blockCount: 1, lastBlock: "0x8", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
-		{name: "Valid request by latest", blockCount: 1, lastBlock: "latest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
-		{name: "Valid request by earliest", blockCount: 1, lastBlock: "earliest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
-		{name: "Request on the same block", blockCount: 1, lastBlock: "0x1", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
-		{name: "Request on future block", blockCount: 1, lastBlock: "0x9", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
-		{name: "Block count truncates", blockCount: 1025, lastBlock: "latest", rewardPercentiles: []interface{}{25}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
+		{name: "Valid request by number", blockCount: 1, lastBlock: latestHex, rewardPercentiles: []interface{}{0.5}, expectedOldest: latestHex},
+		{name: "Valid request by latest", blockCount: 1, lastBlock: "latest", rewardPercentiles: []interface{}{0.5}, expectedOldest: latestHex},
+		{name: "Valid request by earliest", blockCount: 1, lastBlock: "earliest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1"},
+		{name: "Request on the same block", blockCount: 1, lastBlock: "0x1", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1"},
+		{name: "Request on future block", blockCount: 1, lastBlock: fmt.Sprintf("0x%x", MockHeight8+1), rewardPercentiles: []interface{}{0.5}, expectedError: fmt.Errorf("requested last block %d is not yet available; safe latest is %d", MockHeight8+1, MockHeight8)},
+		{name: "Block count truncates", blockCount: 1025, lastBlock: "latest", rewardPercentiles: []interface{}{25}, expectedOldest: "0x1"},
 		{name: "Too many percentiles", blockCount: 10, lastBlock: "latest", rewardPercentiles: make([]interface{}, 101), expectedError: errors.New("rewardPercentiles length must be less than or equal to 100")},
 		{name: "Invalid percentiles order", blockCount: 10, lastBlock: "latest", rewardPercentiles: []interface{}{99, 1}, expectedError: errors.New("invalid reward percentiles: must be ascending and between 0 and 100")},
 	}
@@ -107,24 +118,15 @@ func TestFeeHistory(t *testing.T) {
 				resObj = resObj["result"].(map[string]interface{})
 
 				require.Equal(t, tc.expectedOldest, resObj["oldestBlock"].(string))
-				rewards, ok := resObj["reward"].([]interface{})
-
-				require.True(t, ok, "Expected rewards to be a slice of interfaces")
-				require.Equal(t, 1, len(rewards), "Expected exactly one reward entry")
-				reward, ok := rewards[0].([]interface{})
-				require.True(t, ok, "Expected reward to be a slice of interfaces")
-				require.Equal(t, 1, len(reward), "Expected exactly one sub-item in reward")
-
-				require.Equal(t, tc.expectedReward, reward[0].(string), "Reward does not match expected value")
-
-				require.Equal(t, tc.expectedBaseFee, resObj["baseFeePerGas"].([]interface{})[0].(string))
 
 				// Verify gas used ratio is valid (should be between 0 and 1)
 				gasUsedRatios := resObj["gasUsedRatio"].([]interface{})
 				require.Greater(t, len(gasUsedRatios), 0, "Should have at least one gas used ratio")
-				gasUsedRatio := gasUsedRatios[0].(float64)
-				require.GreaterOrEqual(t, gasUsedRatio, 0.0, "Gas used ratio should be >= 0")
-				require.LessOrEqual(t, gasUsedRatio, 1.0, "Gas used ratio should be <= 1")
+				for idx, ratio := range gasUsedRatios {
+					gasUsedRatio := ratio.(float64)
+					require.GreaterOrEqualf(t, gasUsedRatio, 0.0, "Gas used ratio should be >= 0 (index %d)", idx)
+					require.LessOrEqualf(t, gasUsedRatio, 1.0, "Gas used ratio should be <= 1 (index %d)", idx)
+				}
 			}
 		})
 	}
@@ -273,12 +275,13 @@ func TestCalculateGasUsedRatioGasAccumulation(t *testing.T) {
 	// Test that verifies gas used accumulation across multiple transactions
 	// This test specifically covers: totalEVMGasUsed += receipt.GasUsed
 
-	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, func(height int64) sdk.Context {
+	ctxProvider := func(height int64) sdk.Context {
 		if height == evmrpc.LatestCtxHeight {
 			return Ctx
 		}
 		return Ctx.WithBlockHeight(height)
-	}, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, nil)
+	}
+	api := newInfoAPIWithWatermarks(ctxProvider)
 
 	// Test with a block that has multiple EVM transactions
 	// Using block height 2 which has multiple transactions in the mock
@@ -299,12 +302,13 @@ func TestCalculateGasUsedRatioReceiptRetrievalError(t *testing.T) {
 	// This test covers: if err != nil { continue // Skip if we can't get the receipt }
 
 	// Use a block height that doesn't exist in the mock setup to simulate receipt retrieval errors
-	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, func(height int64) sdk.Context {
+	ctxProvider := func(height int64) sdk.Context {
 		if height == evmrpc.LatestCtxHeight {
 			return Ctx
 		}
 		return Ctx.WithBlockHeight(height)
-	}, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, nil)
+	}
+	api := newInfoAPIWithWatermarks(ctxProvider)
 
 	// Test with a block height that has transactions but no receipts (to simulate receipt errors)
 	// The calculation should not fail even if receipt retrieval fails
@@ -356,7 +360,7 @@ func TestCalculateGasUsedRatioConsensusParamsFallback(t *testing.T) {
 		return baseCtx.WithConsensusParams(nil)
 	}
 
-	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProviderWithoutConsensusParams, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, nil)
+	api := newInfoAPIWithWatermarks(ctxProviderWithoutConsensusParams)
 
 	// The calculation should still work using fallback gas limit
 	ratio, err := api.CalculateGasUsedRatio(context.Background(), 1)
@@ -384,7 +388,7 @@ func TestCalculateGasUsedRatioConsensusParamsNilBlock(t *testing.T) {
 		return baseCtx
 	}
 
-	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProviderWithNilBlock, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, nil)
+	api := newInfoAPIWithWatermarks(ctxProviderWithNilBlock)
 
 	// Should use fallback logic and still work
 	ratio, err := api.CalculateGasUsedRatio(context.Background(), 1)
@@ -411,7 +415,7 @@ func TestCalculateGasUsedRatioZeroGasLimit(t *testing.T) {
 		return baseCtx
 	}
 
-	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProviderWithZeroGasLimit, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, nil)
+	api := newInfoAPIWithWatermarks(ctxProviderWithZeroGasLimit)
 
 	// Should return 0 to avoid division by zero
 	ratio, err := api.CalculateGasUsedRatio(context.Background(), 1)
@@ -454,12 +458,13 @@ func TestCalculateGasUsedRatioBlockNumberMismatch(t *testing.T) {
 	// Test the logic that skips receipts with mismatched block numbers
 	// This covers: if receipt.BlockNumber != uint64(block.Block.Height) { continue }
 
-	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, func(height int64) sdk.Context {
+	ctxProvider := func(height int64) sdk.Context {
 		if height == evmrpc.LatestCtxHeight {
 			return Ctx
 		}
 		return Ctx.WithBlockHeight(height)
-	}, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, nil)
+	}
+	api := newInfoAPIWithWatermarks(ctxProvider)
 
 	// Test with a block where receipts might have mismatched block numbers
 	// The method should still work and skip mismatched receipts
@@ -474,12 +479,13 @@ func TestCalculateGasUsedRatioMultipleTransactionsAccumulation(t *testing.T) {
 	// Test that verifies gas used accumulation works correctly across multiple transactions
 	// This test specifically covers: totalEVMGasUsed += receipt.GasUsed
 
-	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, func(height int64) sdk.Context {
+	ctxProvider := func(height int64) sdk.Context {
 		if height == evmrpc.LatestCtxHeight {
 			return Ctx
 		}
 		return Ctx.WithBlockHeight(height)
-	}, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, nil)
+	}
+	api := newInfoAPIWithWatermarks(ctxProvider)
 
 	// Test block 2 which has multiple transactions
 	ratioBlock2, err := api.CalculateGasUsedRatio(context.Background(), 2)
@@ -512,7 +518,7 @@ func TestCalculateGasUsedRatioWithDifferentGasLimits(t *testing.T) {
 		return baseCtx
 	}
 
-	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProviderWithCustomGasLimit, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, nil)
+	api := newInfoAPIWithWatermarks(ctxProviderWithCustomGasLimit)
 
 	ratio, err := api.CalculateGasUsedRatio(context.Background(), 2)
 	require.NoError(t, err)

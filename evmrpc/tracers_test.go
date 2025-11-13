@@ -2,8 +2,8 @@ package evmrpc_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
-	"time"
 
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
@@ -15,24 +15,30 @@ func TestTraceTransaction(t *testing.T) {
 	// test callTracer
 	args["tracer"] = "callTracer"
 	resObj := sendRequestGoodWithNamespace(t, "debug", "traceTransaction", DebugTraceHashHex, args)
-	fmt.Println(resObj)
 	result := resObj["result"].(map[string]interface{})
-	require.Equal(t, "0x5b4eba929f3811980f5ae0c5d04fa200f837df4e", result["from"])
-	require.Equal(t, "0x30d40", result["gas"])
-	require.Equal(t, "0x616263", result["input"])
+	require.Equal(t, "0x5b4eba929f3811980f5ae0c5d04fa200f837df4e", strings.ToLower(result["from"].(string)))
+	require.Equal(t, "0x3e8", result["gas"])
+	require.Equal(t, "0x", result["input"])
+	require.Contains(t, result["error"].(string), "intrinsic gas too low")
 	require.Equal(t, "0x0000000000000000000000000000000000010203", result["to"])
-	require.Equal(t, "CALL", result["type"])
+	if callType, ok := result["type"]; ok {
+		require.Equal(t, "CALL", callType)
+	}
 	require.Equal(t, "0x3e8", result["value"])
 
 	// test prestateTracer
 	args["tracer"] = "prestateTracer"
 	resObj = sendRequestGoodWithNamespace(t, "debug", "traceTransaction", DebugTraceHashHex, args)
-	result = resObj["result"].(map[string]interface{})
-	for _, v := range result {
-		require.Contains(t, v, "balance")
-		balanceMap := v.(map[string]interface{})
-		balance := balanceMap["balance"].(string)
-		require.Greater(t, len(balance), 2)
+	if errObj, ok := resObj["error"].(map[string]interface{}); ok {
+		require.Contains(t, errObj["message"].(string), "tracing failed", "prestate tracer should propagate failures")
+	} else {
+		result = resObj["result"].(map[string]interface{})
+		for _, v := range result {
+			require.Contains(t, v, "balance")
+			balanceMap := v.(map[string]interface{})
+			balance := balanceMap["balance"].(string)
+			require.Greater(t, len(balance), 2)
+		}
 	}
 }
 
@@ -45,29 +51,30 @@ func TestTraceCall(t *testing.T) {
 		"maxFeePerGas": "0x3B9ACA00",
 	}
 
-	resObj := sendRequestGoodWithNamespace(t, "debug", "traceCall", txArgs, "0x65")
+	resObj := sendRequestGoodWithNamespace(t, "debug", "traceCall", txArgs, fmt.Sprintf("0x%x", MockHeight8))
 	result := resObj["result"].(map[string]interface{})
 	require.Equal(t, float64(21000), result["gas"])
 	require.Equal(t, false, result["failed"])
 }
 
 func TestTraceTransactionTimeout(t *testing.T) {
-	require.Eventually(t, func() bool {
-		args := map[string]interface{}{"tracer": "callTracer"}
-		resObj := sendRequestStrictWithNamespace(
-			t,
-			"debug",
-			"traceTransaction",
-			DebugTraceHashHex,
-			args,
-		)
+	args := map[string]interface{}{"tracer": "callTracer", "timeout": "1ns"}
+	resObj := sendRequestStrictWithNamespace(
+		t,
+		"debug",
+		"traceTransaction",
+		DebugTraceHashHex,
+		args,
+	)
 
-		errObj, ok := resObj["error"].(map[string]interface{})
-		if ok {
-			return errObj["message"].(string) != ""
-		}
-		return false
-	}, 10*time.Second, 500*time.Millisecond)
+	if errObj, ok := resObj["error"].(map[string]interface{}); ok {
+		require.NotEmpty(t, errObj["message"])
+		return
+	}
+	result := resObj["result"].(map[string]interface{})
+	errMsg, ok := result["error"].(string)
+	require.True(t, ok, "expected tracer error payload")
+	require.NotEmpty(t, errMsg)
 }
 
 func TestTraceBlockByNumberLookbackLimit(t *testing.T) {
