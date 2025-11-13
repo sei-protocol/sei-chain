@@ -28,7 +28,7 @@ func TestMultiTreeWriteSnapshotPriorityEVM(t *testing.T) {
 		InitialStores:   []string{"evm", "bank", "acc"},
 	})
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { require.NoError(t, db.Close()) }()
 
 	// Apply changes to all stores
 	for _, changes := range ChangeSets {

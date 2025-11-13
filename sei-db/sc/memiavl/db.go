@@ -96,19 +96,27 @@ const (
 // getSnapshotModTime returns the modification time of the current snapshot directory.
 // It reads the "current" symlink to get the actual snapshot directory.
 // If the directory doesn't exist or there's an error, returns current time.
-func getSnapshotModTime(dir string) time.Time {
+func getSnapshotModTime(logger logger.Logger, dir string) time.Time {
 	// Read the "current" symlink to get the actual snapshot directory
 	currentLink := currentPath(dir)
 	snapshotName, err := os.Readlink(currentLink)
 	if err != nil {
-		// If we can't read the symlink, use current time as fallback
+		logger.Error("failed to read current symlink, using current time as fallback", "error", err, "path", currentLink)
 		return time.Now()
 	}
 
-	snapshotDir := filepath.Join(dir, snapshotName)
+	// Clean the path and validate it's within the expected parent directory
+	snapshotDir := filepath.Clean(filepath.Join(dir, snapshotName))
+	expectedParent := filepath.Clean(dir)
+	if !strings.HasPrefix(snapshotDir, expectedParent+string(filepath.Separator)) &&
+		snapshotDir != expectedParent {
+		logger.Error("invalid snapshot path detected, possible path traversal", "snapshot_dir", snapshotDir, "expected_parent", expectedParent)
+		return time.Now()
+	}
+
 	info, err := os.Stat(snapshotDir)
 	if err != nil {
-		// If we can't get the modification time, use current time as fallback
+		logger.Error("failed to get snapshot directory modification time, using current time as fallback", "error", err, "path", snapshotDir)
 		return time.Now()
 	}
 	return info.ModTime()
@@ -232,7 +240,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 	// Initialize lastSnapshotTime from the current snapshot directory's modification time
 	// This ensures accurate time tracking even after restarts
 	// Read the "current" symlink to get the actual snapshot directory's ModTime
-	lastSnapshotTime := getSnapshotModTime(opts.Dir)
+	lastSnapshotTime := getSnapshotModTime(logger, opts.Dir)
 
 	db := &DB{
 		MultiTree:               *mtree,
@@ -582,6 +590,22 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 
 	snapshotDir := snapshotName(db.lastCommitInfo.Version)
 	targetPath := filepath.Join(db.dir, snapshotDir)
+
+	// Check if snapshot already exists
+	if info, err := os.Stat(targetPath); err == nil {
+		if info.IsDir() {
+			db.logger.Info("snapshot already exists, skipping",
+				"snapshot_dir", snapshotDir,
+				"version", db.lastCommitInfo.Version)
+			return nil
+		} else {
+			// targetPath exists but is not a directory - this is unexpected
+			db.logger.Error("snapshot path exists but is not a directory",
+				"path", targetPath)
+			return fmt.Errorf("snapshot path exists but is not a directory: %s", targetPath)
+		}
+	}
+
 	tmpDir := snapshotDir + "-tmp"
 	path := filepath.Join(db.dir, tmpDir)
 

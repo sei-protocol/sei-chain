@@ -22,12 +22,12 @@ func TestSnapshotTimeThrottling(t *testing.T) {
 		SnapshotMinTimeInterval: 3600, // 1 hour minimum time interval
 	})
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { require.NoError(t, db.Close()) }()
 
 	// Apply changesets rapidly (simulating state sync catch-up)
 	// Even though we exceed the block interval (100 blocks), snapshots won't be created
 	// because the minimum time interval (1 hour) hasn't elapsed
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: "test",
@@ -44,8 +44,9 @@ func TestSnapshotTimeThrottling(t *testing.T) {
 	}
 
 	// Wait for any background snapshot operations to complete before checking count
-	time.Sleep(500 * time.Millisecond)
-	require.NoError(t, db.checkBackgroundSnapshotRewrite())
+	require.Eventually(t, func() bool {
+		return db.checkBackgroundSnapshotRewrite() == nil
+	}, 2*time.Second, 50*time.Millisecond, "background snapshot should complete")
 
 	// Count snapshots created (excluding the initial one)
 	snapshotCount := 0
@@ -74,10 +75,10 @@ func TestSnapshotCreationAfterTimeThreshold(t *testing.T) {
 		SnapshotInterval: 100,
 	})
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { require.NoError(t, db.Close()) }()
 
 	// Commit initial blocks
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: "test",
@@ -94,8 +95,9 @@ func TestSnapshotCreationAfterTimeThreshold(t *testing.T) {
 	}
 
 	// Wait for any background operations
-	time.Sleep(200 * time.Millisecond)
-	require.NoError(t, db.checkBackgroundSnapshotRewrite())
+	require.Eventually(t, func() bool {
+		return db.checkBackgroundSnapshotRewrite() == nil
+	}, 2*time.Second, 50*time.Millisecond, "background operations should complete")
 
 	initialCount := 0
 	err = traverseSnapshots(dir, true, func(version int64) (bool, error) {
@@ -110,7 +112,8 @@ func TestSnapshotCreationAfterTimeThreshold(t *testing.T) {
 	db.lastSnapshotTime = time.Now().Add(-61 * time.Minute)
 
 	// Now commit more blocks to trigger snapshot (need to exceed interval)
-	for i := 200; i < 400; i++ {
+	for idx := range 200 {
+		i := idx + 200
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: "test",
@@ -127,8 +130,9 @@ func TestSnapshotCreationAfterTimeThreshold(t *testing.T) {
 	}
 
 	// Wait longer for background snapshot to complete
-	time.Sleep(1 * time.Second)
-	require.NoError(t, db.checkBackgroundSnapshotRewrite())
+	require.Eventually(t, func() bool {
+		return db.checkBackgroundSnapshotRewrite() == nil
+	}, 3*time.Second, 50*time.Millisecond, "background snapshot should complete after time threshold")
 
 	finalCount := 0
 	err = traverseSnapshots(dir, true, func(version int64) (bool, error) {
@@ -158,11 +162,11 @@ func TestSnapshotWithShortTimeInterval(t *testing.T) {
 		SnapshotMinTimeInterval: 1, // 1 second minimum time interval for testing
 	})
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { require.NoError(t, db.Close()) }()
 
 	// Commit blocks with short time intervals between them
 	// This allows multiple snapshots to be created since time threshold is low (1 second)
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: "test",
@@ -181,13 +185,16 @@ func TestSnapshotWithShortTimeInterval(t *testing.T) {
 		// Add small delay to allow time threshold to be met
 		if i%100 == 0 && i > 0 {
 			time.Sleep(1100 * time.Millisecond) // > 1 second to meet time threshold
-			require.NoError(t, db.checkBackgroundSnapshotRewrite())
+			require.Eventually(t, func() bool {
+				return db.checkBackgroundSnapshotRewrite() == nil
+			}, 2*time.Second, 50*time.Millisecond, "background snapshot should complete")
 		}
 	}
 
 	// Wait longer for any remaining background snapshot to complete
-	time.Sleep(1 * time.Second)
-	require.NoError(t, db.checkBackgroundSnapshotRewrite())
+	require.Eventually(t, func() bool {
+		return db.checkBackgroundSnapshotRewrite() == nil
+	}, 3*time.Second, 50*time.Millisecond, "remaining background snapshot should complete")
 
 	// Count snapshots - should have multiple snapshots
 	snapshotCount := 0

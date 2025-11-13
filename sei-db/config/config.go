@@ -2,8 +2,8 @@ package config
 
 const (
 	DefaultSnapshotInterval          = 10000
-	DefaultSnapshotKeepRecent        = 0    // set to 0 to only keep one current snapshot
-	DefaultSnapshotMinTimeInterval   = 3600 // 1 hour in seconds
+	DefaultSnapshotKeepRecent        = 0       // set to 0 to only keep one current snapshot
+	DefaultSnapshotMinTimeInterval   = 60 * 60 // 1 hour in seconds
 	DefaultAsyncCommitBuffer         = 100
 	DefaultSnapshotPrefetchThreshold = 0.8 // prefetch if <80% pages in cache
 	DefaultSSKeepRecent              = 100000

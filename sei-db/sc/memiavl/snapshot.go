@@ -992,12 +992,12 @@ func (snapshot *Snapshot) prefetchSnapshot(snapshotDir string, prefetchThreshold
 
 	if residentNodes < prefetchThreshold {
 		log.Info(fmt.Sprintf("Tree %s nodes page cache residency ratio is %f, below threshold %f\n", treeName, residentNodes, prefetchThreshold))
-		_ = SequentialReadAndFillPageCache(filepath.Join(snapshotDir, FileNameNodes))
+		_ = SequentialReadAndFillPageCache(log, filepath.Join(snapshotDir, FileNameNodes))
 	}
 
 	if residentLeaves < prefetchThreshold {
 		log.Info(fmt.Sprintf("Tree %s leaves page cache residency ratio is %f, below threshold %f\n", treeName, residentLeaves, prefetchThreshold))
-		_ = SequentialReadAndFillPageCache(filepath.Join(snapshotDir, FileNameLeaves))
+		_ = SequentialReadAndFillPageCache(log, filepath.Join(snapshotDir, FileNameLeaves))
 	}
 
 	log.Info(fmt.Sprintf("Prefetch snapshot for %s completed in %fs. Consider adding more RAM for page cache to avoid preloading during restart.\n", treeName, time.Since(startTime).Seconds()))
@@ -1019,7 +1019,7 @@ func shouldPreloadTree(treeName string) bool {
 	return activeTrees[treeName]
 }
 
-func SequentialReadAndFillPageCache(filePath string) error {
+func SequentialReadAndFillPageCache(log logger.Logger, filePath string) error {
 	startTime := time.Now()
 	f, err := os.Open(filePath)
 	if err != nil {
@@ -1034,17 +1034,18 @@ func SequentialReadAndFillPageCache(filePath string) error {
 
 	totalSize := fileInfo.Size()
 	if totalSize == 0 {
-		fmt.Printf("[PREFETCH] Skipping empty file: %s\n", filePath)
+		log.Debug("skipping empty file for prefetch", "path", filePath)
 		return nil
 	}
 
-	fmt.Printf("[PREFETCH] Starting to prefetch file: %s (size: %d MB)\n", filePath, totalSize/(1024*1024))
+	sizeMiB := float64(totalSize) / (1024 * 1024)
+	log.Debug("starting to prefetch file", "path", filePath, "size_mib", sizeMiB)
 
 	reportDone := make(chan struct{})
 	var totalRead int64
 	defer close(reportDone) // Stop progress reporter before returning
 
-	startPrefetchProgressReporter(filePath, totalSize, &totalRead, startTime, reportDone)
+	startPrefetchProgressReporter(log, filePath, totalSize, &totalRead, startTime, reportDone)
 
 	concurrency := runtime.NumCPU()
 	var wg sync.WaitGroup
@@ -1073,14 +1074,18 @@ func SequentialReadAndFillPageCache(filePath string) error {
 	wg.Wait()
 
 	elapsed := time.Since(startTime).Seconds()
-	avgSpeedMBps := float64(totalSize) / elapsed / (1024 * 1024)
-	fmt.Printf("Completed prefetching %s: %d MB in %.1fs (%.1f MB/s)\n",
-		filePath, totalSize/(1024*1024), elapsed, avgSpeedMBps)
+	completedSizeMiB := float64(totalSize) / (1024 * 1024)
+	avgSpeedMiBps := float64(totalSize) / elapsed / (1024 * 1024)
+	log.Debug("completed prefetching file",
+		"path", filePath,
+		"size_mib", completedSizeMiB,
+		"elapsed_sec", elapsed,
+		"speed_mib_per_sec", avgSpeedMiBps)
 	return nil
 }
 
 // startPrefetchProgressReporter periodically logs progress until done is closed.
-func startPrefetchProgressReporter(filePath string, totalSize int64, totalRead *int64, startTime time.Time, done <-chan struct{}) {
+func startPrefetchProgressReporter(log logger.Logger, filePath string, totalSize int64, totalRead *int64, startTime time.Time, done <-chan struct{}) {
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
@@ -1094,11 +1099,18 @@ func startPrefetchProgressReporter(filePath string, totalSize int64, totalRead *
 				if elapsed <= 0 {
 					continue
 				}
-				speedMBps := float64(tr) / elapsed / (1024 * 1024)
+				readMiB := float64(tr) / (1024 * 1024)
+				totalMiB := float64(totalSize) / (1024 * 1024)
+				speedMiBps := float64(tr) / elapsed / (1024 * 1024)
 				progressPct := float64(tr) * 100 / float64(totalSize)
-				remaining := float64(totalSize-tr) / (speedMBps * 1024 * 1024)
-				fmt.Printf("Prefetching file '%s': %d/%d MB (%.1f%%), speed: %.1f MB/s, ETA: %.0fs\n",
-					filePath, tr/(1024*1024), totalSize/(1024*1024), progressPct, speedMBps, remaining)
+				remaining := float64(totalSize-tr) / (speedMiBps * 1024 * 1024)
+				log.Debug("prefetching file progress",
+					"path", filePath,
+					"read_mib", readMiB,
+					"total_mib", totalMiB,
+					"progress_pct", progressPct,
+					"speed_mib_per_sec", speedMiBps,
+					"eta_sec", remaining)
 			}
 		}
 	}()

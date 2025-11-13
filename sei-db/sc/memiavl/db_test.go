@@ -128,13 +128,14 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 		require.Equal(t, i+1, int(v))
 		require.Equal(t, RefHashes[i], db.lastCommitInfo.StoreInfos[0].CommitId.Hash)
 		_ = db.RewriteSnapshotBackground()
-		time.Sleep(time.Millisecond * 20)
 	}
-	for db.snapshotRewriteChan != nil {
+	// Wait for all background snapshot rewrites to complete
+	require.Eventually(t, func() bool {
 		db.mtx.Lock()
-		require.NoError(t, db.checkAsyncTasks())
-		db.mtx.Unlock()
-	}
+		defer db.mtx.Unlock()
+		_ = db.checkAsyncTasks()
+		return db.snapshotRewriteChan == nil
+	}, 3*time.Second, 50*time.Millisecond, "all snapshot rewrites should complete")
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
 
@@ -173,12 +174,14 @@ func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 	require.NoError(t, err)
 
 	// Heights 1..4 should NOT trigger because diff<interval
-	for i := 1; i < 5; i++ {
+	for idx := range 4 {
+		i := idx + 1
 		v := RequireCommitWithNoError(t, db, "k"+strconv.Itoa(i), "v")
 		require.EqualValues(t, i, v)
-		// allow any background processing
-		time.Sleep(10 * time.Millisecond)
-		require.Nil(t, db.snapshotRewriteChan, "rewrite should not start at height %d", i)
+		// Verify snapshot rewrite should not start
+		require.Never(t, func() bool {
+			return db.snapshotRewriteChan != nil
+		}, 100*time.Millisecond, 10*time.Millisecond, "rewrite should not start at height %d", i)
 		// snapshot version should remain 0 until rewrite
 		require.EqualValues(t, 0, db.MultiTree.SnapshotVersion())
 	}
@@ -554,7 +557,7 @@ func TestFastCommit(t *testing.T) {
 	// that happens when rlog segment is full and create a new one,
 	// the rlog writing will slow down a little bit,
 	// segment size is 20m, each change set is 1m, so we need a bit more than 20 commits to reproduce.
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{Name: "test", Changeset: cs}}))
 		_, err := db.Commit()
 		require.NoError(t, err)

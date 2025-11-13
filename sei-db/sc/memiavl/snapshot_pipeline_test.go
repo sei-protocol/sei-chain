@@ -3,7 +3,6 @@ package memiavl
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-db/common/logger"
@@ -41,7 +40,7 @@ func TestSnapshotWriterPipeline(t *testing.T) {
 func TestSnapshotWriterCancellation(t *testing.T) {
 	// Create a large tree to ensure cancellation happens during write
 	tree := New(0)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		changeset := iavl.ChangeSet{
 			Pairs: []*iavl.KVPair{
 				{Key: []byte("key" + string(rune(i))), Value: []byte("value" + string(rune(i)))},
@@ -71,7 +70,7 @@ func TestSnapshotWriterWithLargeBuffer(t *testing.T) {
 	tree := New(0)
 
 	// Add enough data to exceed 100M nodes threshold (simulated via multiple versions)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		changeset := iavl.ChangeSet{
 			Pairs: []*iavl.KVPair{
 				{Key: []byte("key" + string(rune(i))), Value: make([]byte, 1024)},
@@ -106,7 +105,7 @@ func TestSnapshotWriterProgress(t *testing.T) {
 // TestMonitoringWriter tests the monitoring writer wrapper
 func TestMonitoringWriter(t *testing.T) {
 	tree := New(0)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		changeset := iavl.ChangeSet{
 			Pairs: []*iavl.KVPair{
 				{Key: []byte("key" + string(rune(i))), Value: make([]byte, 1024*1024)}, // 1MB values
@@ -159,7 +158,7 @@ func TestPipelineMetrics(t *testing.T) {
 	tree := New(0)
 
 	// Create enough data to generate meaningful metrics
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		changeset := iavl.ChangeSet{
 			Pairs: []*iavl.KVPair{
 				{Key: []byte("key" + string(rune(i))), Value: []byte("value" + string(rune(i)))},
@@ -235,7 +234,7 @@ func TestSnapshotWriterProgressReporting(t *testing.T) {
 
 	// Create enough nodes to trigger progress reporting (>30 seconds worth)
 	// We'll use a smaller interval for testing
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		changeset := iavl.ChangeSet{
 			Pairs: []*iavl.KVPair{
 				{Key: []byte("key" + string(rune(i))), Value: []byte("value" + string(rune(i)))},
@@ -285,7 +284,6 @@ func TestImportWithContext(t *testing.T) {
 			ch <- node
 			// Cancel after first node
 			cancel()
-			time.Sleep(10 * time.Millisecond)
 		}
 	}()
 

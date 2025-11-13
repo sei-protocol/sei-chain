@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/sc/types"
@@ -148,21 +149,26 @@ func doImport(ctx context.Context, dir string, version int64, nodes <-chan *type
 			nodeStack:   make([]*MemNode, 0),
 		}
 
-		// Check for context cancellation every 100k nodes to minimize overhead
+		// Check for context cancellation every 100k nodes or every 5 seconds to minimize overhead
 		// This provides ~1 second response time for EVM tree (1B nodes / 100k = 10k checks at 1M nodes/s)
+		// while guaranteeing max 5-second response time in case of slow imports
 		const cancelCheckInterval = 100000
+		const maxCheckInterval = 5 * time.Second
 		nodeCount := 0
+		lastCheck := time.Now()
 
 		for node := range nodes {
 			nodeCount++
 
-			// Check for cancellation periodically (every 100k nodes)
-			if nodeCount%cancelCheckInterval == 0 {
+			// Check for cancellation periodically (every 100k nodes or every 5 seconds)
+			timeSinceLastCheck := time.Since(lastCheck)
+			if nodeCount%cancelCheckInterval == 0 || timeSinceLastCheck >= maxCheckInterval {
 				select {
 				case <-ctx.Done():
 					return 0, fmt.Errorf("import cancelled: %w", ctx.Err())
 				default:
 				}
+				lastCheck = time.Now()
 			}
 
 			if err := i.Add(node); err != nil {

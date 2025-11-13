@@ -41,7 +41,7 @@ func TestWriteSnapshotWithData(t *testing.T) {
 	tree.logger = logger.NewNopLogger()
 
 	// Add some data
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		key := []byte{byte(i)}
 		value := []byte{byte(i * 2)}
 		tree.Set(key, value)
@@ -76,10 +76,10 @@ func TestMultiTreeWriteSnapshotSequential(t *testing.T) {
 		InitialStores:   []string{"store1", "store2", "store3"},
 	})
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { require.NoError(t, db.Close()) }()
 
 	// Add data to all stores
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: "store1",
@@ -139,7 +139,7 @@ func TestSnapshotWriteWithContextCancellation(t *testing.T) {
 	tree.logger = logger.NewNopLogger()
 
 	// Add a moderate amount of data
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		key := []byte{byte(i >> 8), byte(i & 0xff)}
 		value := make([]byte, 100)
 		for j := range value {
