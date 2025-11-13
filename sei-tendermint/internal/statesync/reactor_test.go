@@ -183,7 +183,7 @@ func TestReactor_Sync(t *testing.T) {
 				return
 			}
 			n := rts.AddPeer(t)
-			go n.handleLightBlockRequests(t, chain, 0)
+			go n.handleLightBlockRequests(t, chain, false)
 			go n.handleChunkRequests(t, []byte("abc"))
 			go n.handleConsensusParamsRequest(t)
 			go n.handleSnapshotRequests(t, []snapshot{
@@ -393,8 +393,8 @@ func TestReactor_BlockProviders(t *testing.T) {
 	b := rts.AddPeer(t)
 
 	chain := buildLightBlockChain(ctx, t, 1, 10, time.Now())
-	go a.handleLightBlockRequests(t, chain, 0)
-	go b.handleLightBlockRequests(t, chain, 0)
+	go a.handleLightBlockRequests(t, chain, false)
+	go b.handleLightBlockRequests(t, chain, false)
 
 	peers := rts.reactor.peers.All()
 	require.Len(t, peers, 2)
@@ -440,7 +440,7 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 	peerC := rts.AddPeer(t)
 	chain := buildLightBlockChain(ctx, t, 1, 10, time.Now())
 	for _, peer := range utils.Slice(peerA, peerB, peerC) {
-		go peer.handleLightBlockRequests(t, chain, 0)
+		go peer.handleLightBlockRequests(t, chain, false)
 		go peer.handleConsensusParamsRequest(t)
 	}
 
@@ -521,15 +521,13 @@ func TestReactor_Backfill(t *testing.T) {
 				stopTime          = time.Date(2020, 1, 1, 0, 100, 0, 0, time.UTC)
 			)
 
-			peers := utils.Slice(
-				rts.AddPeer(t),
-				rts.AddPeer(t),
-				rts.AddPeer(t),
-				rts.AddPeer(t),
-			)
+			var peers []*Node
+			for range 10 {
+				peers = append(peers, rts.AddPeer(t))
+			}
 			chain := buildLightBlockChain(ctx, t, stopHeight-1, startHeight+1, stopTime)
-			for _, peer := range peers {
-				go peer.handleLightBlockRequests(t, chain, failureRate)
+			for i, peer := range peers {
+				go peer.handleLightBlockRequests(t, chain, i < failureRate)
 			}
 
 			trackingHeight := startHeight
@@ -551,25 +549,18 @@ func TestReactor_Backfill(t *testing.T) {
 				factory.MakeBlockIDWithHash(chain[startHeight].Header.Hash()),
 				stopTime,
 			)
-			if failureRate > 3 {
-				require.Error(t, err)
+			require.NoError(t, err)
 
-				require.NotEqual(t, rts.reactor.backfilledBlocks, rts.reactor.backfillBlockTotal)
-				require.Equal(t, startHeight-stopHeight+1, rts.reactor.backfillBlockTotal)
-			} else {
-				require.NoError(t, err)
-
-				for height := startHeight; height <= stopHeight; height++ {
-					blockMeta := rts.blockStore.LoadBlockMeta(height)
-					require.NotNil(t, blockMeta)
-				}
-
-				require.Nil(t, rts.blockStore.LoadBlockMeta(stopHeight-1))
-				require.Nil(t, rts.blockStore.LoadBlockMeta(startHeight+1))
-
-				require.Equal(t, startHeight-stopHeight+1, rts.reactor.backfilledBlocks)
-				require.Equal(t, startHeight-stopHeight+1, rts.reactor.backfillBlockTotal)
+			for height := startHeight; height <= stopHeight; height++ {
+				blockMeta := rts.blockStore.LoadBlockMeta(height)
+				require.NotNil(t, blockMeta)
 			}
+
+			require.Nil(t, rts.blockStore.LoadBlockMeta(stopHeight-1))
+			require.Nil(t, rts.blockStore.LoadBlockMeta(startHeight+1))
+
+			require.Equal(t, startHeight-stopHeight+1, rts.reactor.backfilledBlocks)
+			require.Equal(t, startHeight-stopHeight+1, rts.reactor.backfillBlockTotal)
 			require.Equal(t, rts.reactor.backfilledBlocks, rts.reactor.BackFilledBlocks())
 			require.Equal(t, rts.reactor.backfillBlockTotal, rts.reactor.BackFillBlocksTotal())
 		})
@@ -629,7 +620,7 @@ type Node struct {
 func (n *Node) handleLightBlockRequests(
 	t *testing.T,
 	chain map[int64]*types.LightBlock,
-	failureRate int,
+	shouldFail bool,
 ) {
 	ctx := t.Context()
 	errorCount := 0
@@ -642,7 +633,7 @@ func (n *Node) handleLightBlockRequests(
 		if !ok {
 			continue
 		}
-		if requests%10 >= failureRate {
+		if !shouldFail {
 			lb, err := chain[int64(msg.Height)].ToProto()
 			require.NoError(t, err)
 			n.blockCh.Send(&ssproto.LightBlockResponse{LightBlock: lb}, m.From)
