@@ -249,8 +249,6 @@ func TestReactor_ChunkRequest(t *testing.T) {
 
 			rts := setup(t, conn, nil, false)
 			n := rts.AddPeer(t)
-			// Send an invalid message, which should be just ignored.
-			n.chunkCh.Broadcast(&ssproto.SnapshotsRequest{})
 			// Send the actual message.
 			n.chunkCh.Broadcast(tc.request)
 			m, err := n.chunkCh.Recv(ctx)
@@ -307,9 +305,6 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 
 			rts := setup(t, conn, nil, false)
 			n := rts.AddPeer(t)
-			// Send an invalid message, which should be just ignored.
-			// TODO(gprusak): P2P message type safety should be provided by router.
-			n.snapshotCh.Broadcast(&ssproto.ChunkRequest{})
 			// Send the actual message.
 			n.snapshotCh.Broadcast(&ssproto.SnapshotsRequest{})
 
