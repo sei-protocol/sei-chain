@@ -925,12 +925,8 @@ func New(
 		return nil
 	}
 
-	if app.LastCommitID().Version > 0 || app.TmConfig == nil {
-		if err := loadVersionHandler(); err != nil {
-			panic(err)
-		}
-	} else {
-		app.SetLoadVersionHandler(loadVersionHandler)
+	if err := loadVersionHandler(); err != nil {
+		panic(err)
 	}
 
 	app.ScopedIBCKeeper = scopedIBCKeeper
