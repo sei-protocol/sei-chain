@@ -18,7 +18,6 @@ import (
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/light"
 	"github.com/tendermint/tendermint/light/provider"
 	dstypes "github.com/tendermint/tendermint/proto/tendermint/dbsync"
@@ -472,12 +471,9 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 }
 
 func (r *Reactor) processPeerUpdates(ctx context.Context) {
-	peerUpdates := r.router.PeerManager().Subscribe(ctx)
-	for _, update := range peerUpdates.PreexistingPeers() {
-		r.processPeerUpdate(update)
-	}
+	recv := r.router.Subscribe()
 	for {
-		update, err := utils.Recv(ctx, peerUpdates.Updates())
+		update, err := recv.Recv(ctx)
 		if err != nil {
 			return
 		}
@@ -492,8 +488,7 @@ func (r *Reactor) processMetadataCh(ctx context.Context, ch *p2p.Channel) {
 			return
 		}
 		if err := r.handleMetadataMessage(ctx, m); err != nil {
-			r.logger.Error("failed to process metadataCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.Evict(m.From, fmt.Errorf("dbsync.metadata: %w", err))
 		}
 	}
 }
@@ -505,8 +500,7 @@ func (r *Reactor) processFileCh(ctx context.Context, ch *p2p.Channel) {
 			return
 		}
 		if err := r.handleFileMessage(m); err != nil {
-			r.logger.Error("failed to process fileCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.Evict(m.From, fmt.Errorf("dbsync.file: %w", err))
 		}
 	}
 }
@@ -518,8 +512,7 @@ func (r *Reactor) processLightBlockCh(ctx context.Context, ch *p2p.Channel) {
 			return
 		}
 		if err := r.handleLightBlockMessage(ctx, m); err != nil {
-			r.logger.Error("failed to process lightBlockCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.Evict(m.From, fmt.Errorf("dbsync.lightBlock: %w", err))
 		}
 	}
 }
@@ -531,8 +524,7 @@ func (r *Reactor) processParamsCh(ctx context.Context, ch *p2p.Channel) {
 			return
 		}
 		if err := r.handleParamsMessage(ctx, m); err != nil {
-			r.logger.Error("failed to process paramsCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.Evict(m.From, fmt.Errorf("dbsync.params: %w", err))
 		}
 	}
 }
