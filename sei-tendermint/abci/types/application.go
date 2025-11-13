@@ -29,9 +29,6 @@ type Application interface {
 	OfferSnapshot(context.Context, *RequestOfferSnapshot) (*ResponseOfferSnapshot, error)                // Offer a snapshot to the application
 	LoadSnapshotChunk(context.Context, *RequestLoadSnapshotChunk) (*ResponseLoadSnapshotChunk, error)    // Load a snapshot chunk
 	ApplySnapshotChunk(context.Context, *RequestApplySnapshotChunk) (*ResponseApplySnapshotChunk, error) // Apply a shapshot chunk
-
-	// Deprecated
-	LoadLatest(context.Context, *RequestLoadLatest) (*ResponseLoadLatest, error)
 }
 
 //-------------------------------------------------------
