@@ -48,7 +48,7 @@ func TestQueryForEvent(t *testing.T) {
 
 func TestTryUnmarshalForEvent(t *testing.T) {
 	eventData := EventDataTx{
-		TxResult: types.TxResult{
+		TxResultV2: types.TxResultV2{
 			Height: 123,
 		},
 	}

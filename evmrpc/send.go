@@ -54,6 +54,7 @@ func NewSendAPI(
 	connectionType ConnectionType,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
+	watermarks *WatermarkManager,
 ) *SendAPI {
 	return &SendAPI{
 		tmClient:         tmClient,
@@ -62,7 +63,7 @@ func NewSendAPI(
 		keeper:           k,
 		ctxProvider:      ctxProvider,
 		homeDir:          homeDir,
-		backend:          NewBackend(ctxProvider, k, beginBlockKeepers, txConfigProvider, tmClient, simulateConfig, app, antehandler, globalBlockCache, cacheCreationMutex),
+		backend:          NewBackend(ctxProvider, k, beginBlockKeepers, txConfigProvider, tmClient, simulateConfig, app, antehandler, globalBlockCache, cacheCreationMutex, watermarks),
 		connectionType:   connectionType,
 	}
 }
