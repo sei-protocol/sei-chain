@@ -421,9 +421,14 @@ func (db *DB) CommittedVersion() (int64, error) {
 func (db *DB) checkBackgroundSnapshotRewrite() error {
 	// check the completeness of background snapshot rewriting
 	select {
-	case result := <-db.snapshotRewriteChan:
+	case result, ok := <-db.snapshotRewriteChan:
 		db.snapshotRewriteChan = nil
 		db.snapshotRewriteCancelFunc = nil
+
+		if !ok {
+			// channel was closed without sending a result
+			return errors.New("snapshot rewrite channel closed unexpectedly")
+		}
 
 		if result.mtree == nil {
 			// background snapshot rewrite failed
@@ -745,7 +750,8 @@ func (db *DB) rewriteSnapshotBackground() error {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ch := make(chan snapshotResult)
+	// Use buffered channel to avoid blocking the goroutine when sending result
+	ch := make(chan snapshotResult, 1)
 	db.snapshotRewriteChan = ch
 	db.snapshotRewriteCancelFunc = cancel
 
@@ -812,7 +818,12 @@ func (db *DB) Close() error {
 	db.logger.Info("Closing rewrite channel...")
 	if db.snapshotRewriteChan != nil {
 		db.snapshotRewriteCancelFunc()
-		<-db.snapshotRewriteChan
+		// Wait for goroutine to finish and send result
+		if result, ok := <-db.snapshotRewriteChan; ok {
+			if result.err != nil {
+				db.logger.Error("snapshot rewrite failed during close", "error", result.err)
+			}
+		}
 		db.snapshotRewriteChan = nil
 		db.snapshotRewriteCancelFunc = nil
 	}
