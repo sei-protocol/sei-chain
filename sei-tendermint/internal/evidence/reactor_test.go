@@ -97,10 +97,6 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 
 func (rts *reactorTestSuite) start(t *testing.T) {
 	rts.network.Start(t)
-	require.Len(t,
-		rts.network.RandomNode().Router.PeerManager().Peers(),
-		rts.numStateStores-1,
-		"network does not have expected number of nodes")
 }
 
 func (rts *reactorTestSuite) waitForEvidence(t *testing.T, evList types.EvidenceList, ids ...types.NodeID) {
@@ -200,40 +196,6 @@ func createEvidenceList(
 	}
 
 	return evList
-}
-
-func TestReactorMultiDisconnect(t *testing.T) {
-	ctx := t.Context()
-
-	val := types.NewMockPV()
-	height := int64(numEvidence) + 10
-
-	stateDB1 := initializeValidatorState(ctx, t, val, height)
-	stateDB2 := initializeValidatorState(ctx, t, val, height)
-
-	rts := setup(ctx, t, []sm.Store{stateDB1, stateDB2})
-	primary := rts.nodes[0]
-	secondary := rts.nodes[1]
-
-	_ = createEvidenceList(ctx, t, rts.pools[primary.NodeID], val, numEvidence)
-
-	require.Equal(t, primary.Router.PeerManager().Status(secondary.NodeID), p2p.PeerStatusDown)
-
-	rts.start(t)
-
-	require.Equal(t, primary.Router.PeerManager().Status(secondary.NodeID), p2p.PeerStatusUp)
-	// Ensure "disconnecting" the secondary peer from the primary more than once
-	// is handled gracefully.
-
-	primary.Router.PeerManager().Disconnected(ctx, secondary.NodeID)
-	require.Equal(t, primary.Router.PeerManager().Status(secondary.NodeID), p2p.PeerStatusDown)
-	_, err := primary.Router.PeerManager().TryEvictNext()
-	require.NoError(t, err)
-	primary.Router.PeerManager().Disconnected(ctx, secondary.NodeID)
-
-	require.Equal(t, primary.Router.PeerManager().Status(secondary.NodeID), p2p.PeerStatusDown)
-	require.Equal(t, secondary.Router.PeerManager().Status(primary.NodeID), p2p.PeerStatusUp)
-
 }
 
 // TestReactorBroadcastEvidence creates an environment of multiple peers that

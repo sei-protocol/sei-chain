@@ -91,7 +91,7 @@ type MConnection struct {
 
 	conn      net.Conn
 	sendQueue utils.Watch[*sendQueue]
-	recvPong  utils.AtomicWatch[bool]
+	recvPong  utils.Mutex[*utils.AtomicSend[bool]]
 	recvCh    chan mConnMessage
 	config    MConnConfig
 }
@@ -175,7 +175,7 @@ func NewMConnection(
 		conn:      conn,
 		sendQueue: utils.NewWatch(newSendQueue(chDescs)),
 		recvCh:    make(chan mConnMessage),
-		recvPong:  utils.NewAtomicWatch(false),
+		recvPong:  utils.NewMutex(utils.Alloc(utils.NewAtomicSend(false))),
 		config:    config,
 	}
 }
@@ -226,6 +226,13 @@ func (c *MConnection) Recv(ctx context.Context) (ChannelID, []byte, error) {
 	return m.channelID, m.payload, err
 }
 
+func (c *MConnection) recvPongSubscribe() utils.AtomicRecv[bool] {
+	for recvPong := range c.recvPong.Lock() {
+		return recvPong.Subscribe()
+	}
+	panic("unreachable")
+}
+
 func (c *MConnection) pingRoutine(ctx context.Context) error {
 	for {
 		// Send ping.
@@ -235,7 +242,7 @@ func (c *MConnection) pingRoutine(ctx context.Context) error {
 		}
 		// Wait for pong.
 		if err := utils.WithTimeout(ctx, c.config.PongTimeout, func(ctx context.Context) error {
-			_, err := c.recvPong.Wait(ctx, func(gotPong bool) bool { return gotPong })
+			_, err := c.recvPongSubscribe().Wait(ctx, func(gotPong bool) bool { return gotPong })
 			return err
 		}); err != nil {
 			if ctx.Err() != nil {
@@ -243,7 +250,9 @@ func (c *MConnection) pingRoutine(ctx context.Context) error {
 			}
 			return errPongTimeout
 		}
-		c.recvPong.Store(false)
+		for recvPong := range c.recvPong.Lock() {
+			recvPong.Store(false)
+		}
 		// Sleep.
 		if err := utils.Sleep(ctx, c.config.PingInterval); err != nil {
 			return err
@@ -394,7 +403,9 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 				ctrl.Updated()
 			}
 		case *p2p.Packet_PacketPong:
-			c.recvPong.Store(true)
+			for recvPong := range c.recvPong.Lock() {
+				recvPong.Store(true)
+			}
 		case *p2p.Packet_PacketMsg:
 			channelID, castOk := utils.SafeCast[ChannelID](p.PacketMsg.ChannelID)
 			ch, ok := channels[channelID]

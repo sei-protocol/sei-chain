@@ -36,6 +36,7 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
 	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/privval"
 	"github.com/tendermint/tendermint/types"
 
@@ -59,7 +60,6 @@ type nodeImpl struct {
 	shouldHandshake bool                // set during makeNode
 
 	// network
-	peerManager      *p2p.PeerManager
 	router           *p2p.Router
 	routerRestartCh  chan struct{} // Used to signal a restart the node on the application level
 	ServiceRestartCh chan []string
@@ -220,14 +220,6 @@ func makeNode(
 		}
 	}
 
-	peerManager, peerCloser, err := createPeerManager(logger, cfg, dbProvider, nodeKey.ID, nodeMetrics.p2p)
-	closers = append(closers, peerCloser)
-	if err != nil {
-		return nil, combineCloseError(
-			fmt.Errorf("failed to create peer manager: %w", err),
-			makeCloser(closers))
-	}
-
 	// TODO construct node here:
 	node := &nodeImpl{
 		config:        cfg,
@@ -235,8 +227,7 @@ func makeNode(
 		genesisDoc:    genDoc,
 		privValidator: privValidator,
 
-		peerManager: peerManager,
-		nodeKey:     nodeKey,
+		nodeKey: nodeKey,
 
 		eventSinks:     eventSinks,
 		indexerService: indexerService,
@@ -246,16 +237,11 @@ func makeNode(
 		stateStore:   stateStore,
 		blockStore:   blockStore,
 
-		shutdownOps: makeCloser(closers),
-
 		rpcEnv: &rpccore.Environment{
 			ProxyApp: proxyApp,
 
 			StateStore: stateStore,
 			BlockStore: blockStore,
-
-			PeerManager: peerManager,
-
 			GenDoc:     genDoc,
 			EventSinks: eventSinks,
 			EventBus:   eventBus,
@@ -265,12 +251,16 @@ func makeNode(
 		},
 	}
 
-	node.router, err = createRouter(logger, nodeMetrics.p2p, node.NodeInfo, nodeKey, peerManager, cfg, proxyApp)
+	router, peerCloser, err := createRouter(logger, nodeMetrics.p2p, node.NodeInfo, nodeKey, cfg, proxyApp, dbProvider)
+	closers = append(closers, peerCloser)
 	if err != nil {
 		return nil, combineCloseError(
 			fmt.Errorf("failed to create router: %w", err),
 			makeCloser(closers))
 	}
+	node.router = router
+	node.rpcEnv.PeerManager = router
+	node.shutdownOps = makeCloser(closers)
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(logger, cfg, dbProvider,
 		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
@@ -381,8 +371,7 @@ func makeNode(
 		pxReactor, err := pex.NewReactor(
 			logger,
 			node.router,
-			restartCh,
-			cfg.SelfRemediation,
+			pex.DefaultSendInterval,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("pex.NewReactor(): %w", err)
@@ -771,11 +760,11 @@ func LoadStateFromDBOrGenesisDocProvider(stateStore sm.Store, genDoc *types.Gene
 	return state, nil
 }
 
-func getRouterConfig(conf *config.Config, appClient abciclient.Client) p2p.RouterOptions {
+func getRouterConfig(conf *config.Config, appClient abciclient.Client) *p2p.RouterOptions {
 	opts := p2p.RouterOptions{}
 
 	if conf.FilterPeers && appClient != nil {
-		opts.FilterPeerByID = func(ctx context.Context, id types.NodeID) error {
+		opts.FilterPeerByID = utils.Some(func(ctx context.Context, id types.NodeID) error {
 			res, err := appClient.Query(ctx, &abci.RequestQuery{
 				Path: fmt.Sprintf("/p2p/filter/id/%s", id),
 			})
@@ -787,9 +776,9 @@ func getRouterConfig(conf *config.Config, appClient abciclient.Client) p2p.Route
 			}
 
 			return nil
-		}
+		})
 
-		opts.FilterPeerByIP = func(ctx context.Context, addrPort netip.AddrPort) error {
+		opts.FilterPeerByIP = utils.Some(func(ctx context.Context, addrPort netip.AddrPort) error {
 			res, err := appClient.Query(ctx, &abci.RequestQuery{
 				Path: fmt.Sprintf("/p2p/filter/addr/%v", addrPort),
 			})
@@ -801,9 +790,9 @@ func getRouterConfig(conf *config.Config, appClient abciclient.Client) p2p.Route
 			}
 
 			return nil
-		}
+		})
 
 	}
 
-	return opts
+	return &opts
 }

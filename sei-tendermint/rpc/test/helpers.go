@@ -34,7 +34,7 @@ func waitForRPC(ctx context.Context, conf *config.Config) {
 	}
 	result := new(coretypes.ResultStatus)
 	for {
-		err := client.Call(ctx, "status", map[string]interface{}{}, result)
+		err := client.Call(ctx, "status", map[string]any{}, result)
 		if err == nil {
 			return
 		}
@@ -111,7 +111,7 @@ func StartTendermint(
 		node.NoOpMetricsProvider(),
 	)
 	if err != nil {
-		return nil, func(_ context.Context) error { cancel(); return nil }, err
+		return nil, func(_ context.Context) error { cancel(); return nil }, fmt.Errorf("node.New(%q): %w", conf.Mode, err)
 	}
 
 	err = tmNode.Start(ctx)
