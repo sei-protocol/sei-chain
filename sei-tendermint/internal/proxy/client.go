@@ -138,11 +138,6 @@ func (app *proxyClient) FinalizeBlock(ctx context.Context, req *types.RequestFin
 	return app.client.FinalizeBlock(ctx, req)
 }
 
-func (app *proxyClient) LoadLatest(ctx context.Context, req *types.RequestLoadLatest) (*types.ResponseLoadLatest, error) {
-	defer addTimeSample(app.metrics.MethodTiming.With("method", "load_latest", "type", "sync"))()
-	return app.client.LoadLatest(ctx, req)
-}
-
 func (app *proxyClient) GetTxPriorityHint(ctx context.Context, req *types.RequestGetTxPriorityHintV2) (*types.ResponseGetTxPriorityHint, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "get_tx_priority", "type", "sync"))()
 	return app.client.GetTxPriorityHint(ctx, req)
