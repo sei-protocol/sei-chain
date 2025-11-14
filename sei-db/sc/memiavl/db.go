@@ -480,8 +480,6 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		// reset memnode counter
 		TotalMemNodeSize.Store(0)
 		TotalNumOfMemNode.Store(0)
-		// update snapshot timestamp for catch-up detection
-		db.lastSnapshotTime = time.Now()
 		db.logger.Info("switched to new memiavl snapshot", "version", db.MultiTree.Version())
 		db.pruneSnapshots()
 
@@ -773,6 +771,9 @@ func (db *DB) rewriteSnapshotBackground() error {
 	ch := make(chan snapshotResult, 1)
 	db.snapshotRewriteChan = ch
 	db.snapshotRewriteCancelFunc = cancel
+
+	// Update snapshot timestamp at start (not at completion) for accurate interval calculation
+	db.lastSnapshotTime = time.Now()
 
 	cloned := db.copy()
 	go func() {
