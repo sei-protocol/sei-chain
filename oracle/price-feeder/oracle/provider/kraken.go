@@ -690,7 +690,7 @@ func newKrakenTickerSubscriptionMsg(pairs ...string) KrakenSubscriptionMsg {
 	}
 }
 
-// newKrakenSubscriptionMsg returns a new subscription Msg.
+// newKrakenCandleSubscriptionMsg returns a new subscription Msg.
 func newKrakenCandleSubscriptionMsg(pairs ...string) KrakenSubscriptionMsg {
 	return KrakenSubscriptionMsg{
 		Event: "subscribe",
