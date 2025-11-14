@@ -20,7 +20,6 @@ import (
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/blocksync"
 	"github.com/tendermint/tendermint/internal/consensus"
-	"github.com/tendermint/tendermint/internal/dbsync"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/eventlog"
 	"github.com/tendermint/tendermint/internal/evidence"
@@ -273,19 +272,12 @@ func makeNode(
 	node.rpcEnv.EvidencePool = evPool
 	node.evPool = evPool
 
-	info, err := client.Info(ctx, &abci.RequestInfo{})
-	if err != nil {
-		return nil, err
-	}
-	shoulddbsync := cfg.DBSync.Enable && info.LastBlockHeight == 0
-
 	mpReactor, mp, err := createMempoolReactor(logger, cfg, proxyApp, stateStore, nodeMetrics.mempool, node.router)
 	if err != nil {
 		return nil, fmt.Errorf("createMempoolReactor(): %w", err)
 	}
-	if !shoulddbsync {
-		mpReactor.MarkReadyToStart()
-	}
+	mpReactor.MarkReadyToStart()
+
 	node.rpcEnv.Mempool = mp
 	node.services = append(node.services, mpReactor)
 
@@ -308,14 +300,10 @@ func makeNode(
 		stateSync = false
 	}
 
-	if stateSync && shoulddbsync {
-		panic("statesync and dbsync cannot be turned on at the same time")
-	}
-
 	// Determine whether we should do block sync. This must happen after the handshake, since the
 	// app may modify the validator set, specifying ourself as the only validator.
 	blockSync := !onlyValidatorIsUs(state, pubKey)
-	waitSync := stateSync || blockSync || shoulddbsync
+	waitSync := stateSync || blockSync
 
 	csState, err := consensus.NewState(logger.With("module", "consensus"),
 		cfg.Consensus,
@@ -359,7 +347,7 @@ func makeNode(
 		blockStore,
 		csReactor,
 		node.router,
-		blockSync && !stateSync && !shoulddbsync,
+		blockSync && !stateSync,
 		nodeMetrics.consensus,
 		eventBus,
 		restartCh,
@@ -432,32 +420,8 @@ func makeNode(
 		return nil, fmt.Errorf("statesync.NewReactor(): %w", err)
 	}
 
-	node.shouldHandshake = !stateSync && !shoulddbsync
+	node.shouldHandshake = !stateSync
 	node.services = append(node.services, ssReactor)
-
-	dbsyncReactor, err := dbsync.NewReactor(
-		logger.With("module", "dbsync"),
-		*cfg.DBSync,
-		cfg.BaseConfig,
-		node.router,
-		stateStore,
-		blockStore,
-		genDoc.InitialHeight,
-		genDoc.ChainID,
-		eventBus,
-		shoulddbsync,
-		func(ctx context.Context, state sm.State) error {
-			if _, err := client.LoadLatest(ctx, &abci.RequestLoadLatest{}); err != nil {
-				return err
-			}
-			mpReactor.MarkReadyToStart()
-			return postSyncHook(ctx, state)
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("dbsync.NewReactor(): %w", err)
-	}
-	node.services = append(node.services, dbsyncReactor)
 
 	if cfg.Mode == config.ModeValidator {
 		if privValidator != nil {

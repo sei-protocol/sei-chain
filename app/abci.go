@@ -88,12 +88,3 @@ func (app *App) Commit(ctx context.Context) (res *abci.ResponseCommit, err error
 	defer span.End()
 	return app.BaseApp.Commit(ctx)
 }
-
-func (app *App) LoadLatest(ctx context.Context, req *abci.RequestLoadLatest) (*abci.ResponseLoadLatest, error) {
-	err := app.ReloadDB()
-	if err != nil {
-		return nil, err
-	}
-	app.mounter()
-	return app.BaseApp.LoadLatest(ctx, req)
-}
