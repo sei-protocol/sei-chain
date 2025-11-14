@@ -25,6 +25,10 @@ linters:
       - linters:
           - gosec
         text: "Use of weak random number generator"
+      - linters:
+          - govet
+        path: x/mint/client/rest/grpc_query_test.go
+        text: "buildtag"
 
 formatters:
   enable:

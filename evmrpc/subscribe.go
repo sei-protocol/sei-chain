@@ -280,7 +280,15 @@ func encodeTmHeader(
 	for _, txRes := range header.ResultFinalizeBlock.TxResults {
 		gasWanted += txRes.GasUsed
 	}
-	gasLimit := uint64(header.ResultFinalizeBlock.ConsensusParamUpdates.Block.MaxGas) //nolint:gosec
+
+	// Get gas limit from consensus params, or use default if nil
+	var gasLimit uint64
+	if header.ResultFinalizeBlock.ConsensusParamUpdates != nil && header.ResultFinalizeBlock.ConsensusParamUpdates.Block != nil {
+		gasLimit = uint64(header.ResultFinalizeBlock.ConsensusParamUpdates.Block.MaxGas) //nolint:gosec
+	} else {
+		// Use default gas limit when ConsensusParamUpdates is nil
+		gasLimit = keeper.DefaultBlockGasLimit
+	}
 	result := map[string]interface{}{
 		"difficulty":            (*hexutil.Big)(utils.Big0), // inapplicable to Sei
 		"extraData":             hexutil.Bytes{},            // inapplicable to Sei
