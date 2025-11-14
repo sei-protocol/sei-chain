@@ -546,6 +546,7 @@ func TestFastCommit(t *testing.T) {
 		SnapshotMinTimeInterval: 1, // 1 second for testing
 	})
 	require.NoError(t, err)
+	initialSnapshotTime := db.lastSnapshotTime
 
 	cs := iavl.ChangeSet{
 		Pairs: []*iavl.KVPair{
@@ -566,7 +567,12 @@ func TestFastCommit(t *testing.T) {
 			time.Sleep(1100 * time.Millisecond)
 		}
 	}
-	<-db.snapshotRewriteChan
+
+	require.Eventually(t, func() bool {
+		require.NoError(t, db.checkBackgroundSnapshotRewrite())
+		return db.snapshotRewriteChan == nil && db.lastSnapshotTime.After(initialSnapshotTime)
+	}, 10*time.Second, 10*time.Millisecond, "snapshot rewrite did not finish in time")
+
 	require.NoError(t, db.Close())
 }
 
