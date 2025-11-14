@@ -1,4 +1,4 @@
-package params
+moneypackage params
 
 import (
 	srvconfig "github.com/cosmos/cosmos-sdk/server/config"
