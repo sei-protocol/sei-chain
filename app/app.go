@@ -353,6 +353,7 @@ type App struct {
 	TokenFactoryKeeper tokenfactorykeeper.Keeper
 
 	BeginBlockKeepers legacyabci.BeginBlockKeepers
+	EndBlockKeepers   legacyabci.EndBlockKeepers
 
 	// mm is the module manager
 	mm *module.Manager
@@ -776,36 +777,17 @@ func New(
 		IBCKeeper:        app.IBCKeeper,
 		EvmKeeper:        &app.EvmKeeper,
 	}
+	app.EndBlockKeepers = legacyabci.EndBlockKeepers{
+		CrisisKeeper:        &app.CrisisKeeper,
+		GovKeeper:           &app.GovKeeper,
+		StakingKeeper:       &app.StakingKeeper,
+		OracleKeeper:        &app.OracleKeeper,
+		EvmKeeper:           &app.EvmKeeper,
+		AccessControlKeeper: &app.AccessControlKeeper,
+	}
 
 	app.mm.SetOrderMidBlockers(
 		oracletypes.ModuleName,
-	)
-
-	app.mm.SetOrderEndBlockers(
-		crisistypes.ModuleName,
-		govtypes.ModuleName,
-		stakingtypes.ModuleName,
-		capabilitytypes.ModuleName,
-		authtypes.ModuleName,
-		banktypes.ModuleName,
-		distrtypes.ModuleName,
-		slashingtypes.ModuleName,
-		minttypes.ModuleName,
-		genutiltypes.ModuleName,
-		evidencetypes.ModuleName,
-		authz.ModuleName,
-		feegrant.ModuleName,
-		paramstypes.ModuleName,
-		upgradetypes.ModuleName,
-		vestingtypes.ModuleName,
-		ibchost.ModuleName,
-		ibctransfertypes.ModuleName,
-		oracletypes.ModuleName,
-		epochmoduletypes.ModuleName,
-		evmtypes.ModuleName,
-		wasm.ModuleName,
-		tokenfactorytypes.ModuleName,
-		acltypes.ModuleName,
 	)
 
 	// NOTE: The genutils module must occur after staking so that pools are
@@ -897,7 +879,6 @@ func New(
 	app.SetAnteHandler(anteHandler)
 	app.SetAnteDepGenerator(anteDepGenerator)
 	app.SetMidBlocker(app.MidBlocker)
-	app.SetEndBlocker(app.EndBlocker)
 	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
 	app.SetFinalizeBlocker(app.FinalizeBlocker)
@@ -1042,11 +1023,6 @@ func (app *App) GetStateStore() seidb.StateStore { return app.stateStore }
 // MidBlocker application updates every mid block
 func (app *App) MidBlocker(ctx sdk.Context, height int64) []abci.Event {
 	return app.mm.MidBlock(ctx, height)
-}
-
-// EndBlocker application updates every end block
-func (app *App) EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock {
-	return app.mm.EndBlock(ctx, req)
 }
 
 // InitChainer application update at chain initialization
@@ -1634,10 +1610,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		}
 	}
 
-	endBlockResp = app.EndBlock(ctx, abci.RequestEndBlock{
-		Height:       req.GetHeight(),
-		BlockGasUsed: evmTotalGasUsed,
-	})
+	endBlockResp = app.EndBlock(ctx, req.GetHeight(), evmTotalGasUsed)
 
 	events = append(events, endBlockResp.Events...)
 	return events, txResults, endBlockResp, nil

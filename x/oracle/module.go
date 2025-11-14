@@ -187,9 +187,3 @@ func (AppModule) ConsensusVersion() uint64 { return 6 }
 func (am AppModule) MidBlock(ctx sdk.Context, _ int64) {
 	MidBlocker(ctx, am.keeper)
 }
-
-// EndBlock returns the end blocker for the oracle module.
-func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abci.ValidatorUpdate) {
-	EndBlocker(ctx, am.keeper)
-	return []abci.ValidatorUpdate{}
-}
