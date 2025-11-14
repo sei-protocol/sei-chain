@@ -31,7 +31,7 @@ func (suite *AnteTestSuite) TestValidateBasic() {
 	suite.Require().NoError(err)
 
 	vbd := ante.NewValidateBasicDecorator()
-	antehandler, _ := sdk.ChainAnteDecorators(sdk.DefaultWrappedAnteDecorator(vbd))
+	antehandler := sdk.ChainAnteDecorators(vbd)
 	_, err = antehandler(suite.ctx, invalidTx, false)
 
 	suite.Require().NotNil(err, "Did not error on invalid tx")
@@ -74,7 +74,7 @@ func (suite *AnteTestSuite) TestValidateMemo() {
 
 	// require that long memos get rejected
 	vmd := ante.NewValidateMemoDecorator(suite.app.AccountKeeper)
-	antehandler, _ := sdk.ChainAnteDecorators(sdk.DefaultWrappedAnteDecorator(vmd))
+	antehandler := sdk.ChainAnteDecorators(vmd)
 	_, err = antehandler(suite.ctx, invalidTx, false)
 
 	suite.Require().NotNil(err, "Did not error on tx with high memo")
@@ -100,7 +100,7 @@ func (suite *AnteTestSuite) TestConsumeGasForTxSize() {
 	gasLimit := testdata.NewTestGasLimit()
 
 	cgtsd := ante.NewConsumeGasForTxSizeDecorator(suite.app.AccountKeeper)
-	antehandler, _ := sdk.ChainAnteDecorators(sdk.DefaultWrappedAnteDecorator(cgtsd))
+	antehandler := sdk.ChainAnteDecorators(cgtsd)
 
 	testCases := []struct {
 		name  string
@@ -177,7 +177,7 @@ func (suite *AnteTestSuite) TestConsumeGasForTxSize() {
 func (suite *AnteTestSuite) TestTxHeightTimeoutDecorator() {
 	suite.SetupTest(true)
 
-	antehandler, _ := sdk.ChainAnteDecorators(sdk.DefaultWrappedAnteDecorator(ante.NewTxTimeoutHeightDecorator()))
+	antehandler := sdk.ChainAnteDecorators(ante.NewTxTimeoutHeightDecorator())
 
 	// keys and addresses
 	priv1, _, addr1 := testdata.KeyTestPubAddr()

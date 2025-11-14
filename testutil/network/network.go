@@ -75,7 +75,6 @@ func DefaultConfig() network.Config {
 				wasm.EnableAllProposals,
 				&TestAppOptions{},
 				nil,
-				app.EmptyACLOpts,
 				app.EmptyAppOptions,
 				baseapp.SetPruning(storetypes.NewPruningOptionsFromString(val.AppConfig.Pruning)),
 				baseapp.SetMinGasPrices(val.AppConfig.MinGasPrices),

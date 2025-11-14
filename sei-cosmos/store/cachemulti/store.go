@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 
-	abci "github.com/tendermint/tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
@@ -116,20 +115,6 @@ func (cms Store) Write() {
 	cms.db.Write()
 	for _, store := range cms.stores {
 		store.Write()
-	}
-}
-
-func (cms Store) GetEvents() []abci.Event {
-	events := []abci.Event{}
-	for _, store := range cms.stores {
-		events = append(events, store.GetEvents()...)
-	}
-	return events
-}
-
-func (cms Store) ResetEvents() {
-	for _, store := range cms.stores {
-		store.ResetEvents()
 	}
 }
 

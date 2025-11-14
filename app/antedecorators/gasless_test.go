@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -27,11 +26,6 @@ func (ad FakeAnteDecoratorOne) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	return next(ctx, tx, simulate)
 }
 
-func (ad FakeAnteDecoratorOne) AnteDeps(txDeps []accesscontrol.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []accesscontrol.AccessOperation, err error) {
-	outputDeps = fmt.Sprintf("%sone", outputDeps)
-	return next(txDeps, tx, txIndex)
-}
-
 type FakeAnteDecoratorTwo struct{}
 
 func (ad FakeAnteDecoratorTwo) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
@@ -39,21 +33,11 @@ func (ad FakeAnteDecoratorTwo) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	return next(ctx, tx, simulate)
 }
 
-func (ad FakeAnteDecoratorTwo) AnteDeps(txDeps []accesscontrol.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []accesscontrol.AccessOperation, err error) {
-	outputDeps = fmt.Sprintf("%stwo", outputDeps)
-	return next(txDeps, tx, txIndex)
-}
-
 type FakeAnteDecoratorThree struct{}
 
 func (ad FakeAnteDecoratorThree) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	output = fmt.Sprintf("%sthree", output)
 	return next(ctx, tx, simulate)
-}
-
-func (ad FakeAnteDecoratorThree) AnteDeps(txDeps []accesscontrol.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []accesscontrol.AccessOperation, err error) {
-	outputDeps = fmt.Sprintf("%sthree", outputDeps)
-	return next(txDeps, tx, txIndex)
 }
 
 type FakeAnteDecoratorGasReqd struct{}
@@ -92,10 +76,10 @@ func (t FakeTx) FeeGranter() sdk.AccAddress {
 }
 
 func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg sdk.Msg, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) error {
-	anteDecorators := []sdk.AnteFullDecorator{
-		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{sdk.DefaultWrappedAnteDecorator(FakeAnteDecoratorGasReqd{})}, oracleKeeper, evmKeeper),
+	anteDecorators := []sdk.AnteDecorator{
+		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{FakeAnteDecoratorGasReqd{}}, oracleKeeper, evmKeeper),
 	}
-	chainedHandler, depGen := sdk.ChainAnteDecorators(anteDecorators...)
+	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 	fakeTx := FakeTx{
 		FakeMsgs: []sdk.Msg{
 			msg,
@@ -105,7 +89,6 @@ func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg sdk.Msg, oracleKeeper orac
 	if err != nil {
 		return err
 	}
-	_, err = depGen([]accesscontrol.AccessOperation{}, fakeTx, 1)
 	return err
 }
 

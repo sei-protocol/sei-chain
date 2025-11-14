@@ -9,9 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/internal/conv"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
-	sdktypes "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/kv"
-	abci "github.com/tendermint/tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -23,7 +21,6 @@ type Store struct {
 	unsortedCache *sync.Map
 	sortedCache   *dbm.MemDB // always ascending sorted
 	parent        types.KVStore
-	eventManager  *sdktypes.EventManager
 	storeKey      types.StoreKey
 	cacheSize     int
 }
@@ -38,7 +35,6 @@ func NewStore(parent types.KVStore, storeKey types.StoreKey, cacheSize int) *Sto
 		unsortedCache: &sync.Map{},
 		sortedCache:   dbm.NewMemDB(),
 		parent:        parent,
-		eventManager:  sdktypes.NewEventManager(),
 		storeKey:      storeKey,
 		cacheSize:     cacheSize,
 	}
@@ -46,16 +42,6 @@ func NewStore(parent types.KVStore, storeKey types.StoreKey, cacheSize int) *Sto
 
 func (store *Store) GetWorkingHash() ([]byte, error) {
 	panic("should never attempt to get working hash from cache kv store")
-}
-
-// Implements Store
-func (store *Store) GetEvents() []abci.Event {
-	return store.eventManager.ABCIEvents()
-}
-
-// Implements Store
-func (store *Store) ResetEvents() {
-	store.eventManager = sdktypes.NewEventManager()
 }
 
 // GetStoreType implements Store.
@@ -182,7 +168,7 @@ func (store *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 		}
 	}()
 	store.dirtyItems(start, end)
-	cache = newMemIterator(start, end, store.sortedCache, store.deleted, ascending, store.eventManager, store.storeKey)
+	cache = newMemIterator(start, end, store.sortedCache, store.deleted, ascending)
 	return NewCacheMergeIterator(parent, cache, ascending, store.storeKey)
 }
 

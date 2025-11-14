@@ -1,16 +1,11 @@
 package ante
 
 import (
-	"encoding/hex"
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/cosmos/cosmos-sdk/x/feegrant"
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 )
 
@@ -48,87 +43,6 @@ func NewDeductFeeDecorator(
 		paramsKeeper:   paramsKeeper,
 		txFeeChecker:   tfc,
 	}
-}
-
-func (d DeductFeeDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
-	feeTx, _ := tx.(sdk.FeeTx)
-	deps := []sdkacltypes.AccessOperation{}
-
-	moduleAdr := d.accountKeeper.GetModuleAddress(types.FeeCollectorName)
-
-	deps = append(deps, []sdkacltypes.AccessOperation{
-		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(moduleAdr)),
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_BANK_DEFERRED_MODULE_TX_INDEX,
-			IdentifierTemplate: hex.EncodeToString(banktypes.CreateDeferredCacheModuleTxIndexedPrefix(moduleAdr, uint64(txIndex))),
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_BANK_DEFERRED_MODULE_TX_INDEX,
-			IdentifierTemplate: hex.EncodeToString(banktypes.CreateDeferredCacheModuleTxIndexedPrefix(moduleAdr, uint64(txIndex))),
-		},
-	}...)
-
-	if feeTx.FeePayer() != nil {
-		deps = append(deps,
-			[]sdkacltypes.AccessOperation{
-				{
-					AccessType:         sdkacltypes.AccessType_READ,
-					ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-					IdentifierTemplate: hex.EncodeToString(authtypes.CreateAddressStoreKeyFromBech32(feeTx.FeePayer().String())),
-				},
-				{
-					AccessType:         sdkacltypes.AccessType_READ,
-					ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-					IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(feeTx.FeePayer())),
-				},
-				{
-					AccessType:         sdkacltypes.AccessType_WRITE,
-					ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-					IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(feeTx.FeePayer())),
-				},
-			}...)
-		if feeTx.FeeGranter() != nil {
-			deps = append(deps,
-				[]sdkacltypes.AccessOperation{
-					// read acc
-					{
-						AccessType:         sdkacltypes.AccessType_READ,
-						ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-						IdentifierTemplate: hex.EncodeToString(authtypes.CreateAddressStoreKeyFromBech32(feeTx.FeeGranter().String())),
-					},
-					// read and write feegrant
-					{
-						AccessType:         sdkacltypes.AccessType_READ,
-						ResourceType:       sdkacltypes.ResourceType_KV_FEEGRANT_ALLOWANCE,
-						IdentifierTemplate: hex.EncodeToString(feegrant.FeeAllowanceKey(feeTx.FeeGranter(), feeTx.FeePayer())),
-					},
-					{
-						AccessType:         sdkacltypes.AccessType_WRITE,
-						ResourceType:       sdkacltypes.ResourceType_KV_FEEGRANT_ALLOWANCE,
-						IdentifierTemplate: hex.EncodeToString(feegrant.FeeAllowanceKey(feeTx.FeeGranter(), feeTx.FeePayer())),
-					},
-					// read / write bank balances
-					{
-						AccessType:         sdkacltypes.AccessType_READ,
-						ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-						IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(feeTx.FeeGranter())),
-					},
-					{
-						AccessType:         sdkacltypes.AccessType_WRITE,
-						ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-						IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(feeTx.FeeGranter())),
-					},
-				}...)
-		}
-	}
-
-	return next(append(txDeps, deps...), tx, txIndex)
 }
 
 func (dfd DeductFeeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {

@@ -4,9 +4,7 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/x/oracle"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
@@ -24,7 +22,7 @@ func TestOracleVoteAloneAnteHandler(t *testing.T) {
 	testNonOracleMsg2 := banktypes.MsgSend{}
 
 	decorator := oracle.NewOracleVoteAloneDecorator()
-	anteHandler, depGen := sdk.ChainAnteDecorators(decorator)
+	anteHandler := sdk.ChainAnteDecorators(decorator)
 	testCases := []struct {
 		name   string
 		expErr bool
@@ -43,8 +41,6 @@ func TestOracleVoteAloneAnteHandler(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			_, err = depGen([]sdkacltypes.AccessOperation{}, tc.tx, 1)
-			require.NoError(t, err)
 		})
 	}
 }
@@ -58,7 +54,7 @@ func TestSpammingPreventionAnteHandler(t *testing.T) {
 	invalidVoteMsg := types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[3], testutils.ValAddrs[2])
 
 	spd := oracle.NewSpammingPreventionDecorator(input.OracleKeeper)
-	anteHandler, _ := sdk.ChainAnteDecorators(spd)
+	anteHandler := sdk.ChainAnteDecorators(spd)
 
 	recheckCtx := input.Ctx.WithIsReCheckTx(true)
 	_, err := anteHandler(recheckCtx, app.NewTestTx([]sdk.Msg{voteMsg}), false) // should skip the SPD
@@ -89,36 +85,4 @@ func TestSpammingPreventionAnteHandler(t *testing.T) {
 	// now should fail
 	_, err = anteHandler(ctx, app.NewTestTx([]sdk.Msg{voteMsg}), false)
 	require.Error(t, err)
-}
-
-func TestSpammingPreventionAnteDeps(t *testing.T) {
-	input, _ := setup(t)
-
-	exchangeRateStr := randomExchangeRate.String() + utils.MicroAtomDenom
-
-	voteMsg := types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[0], testutils.ValAddrs[0])
-
-	spd := oracle.NewSpammingPreventionDecorator(input.OracleKeeper)
-	anteHandler, depGen := sdk.ChainAnteDecorators(spd)
-
-	ctx := input.Ctx.WithIsCheckTx(true)
-
-	// test anteDeps
-	msgValidator := sdkacltypes.NewMsgValidator(aclutils.StoreKeyToResourceTypePrefixMap)
-	ctx = ctx.WithMsgValidator(msgValidator)
-	ms := ctx.MultiStore()
-	msCache := ms.CacheMultiStore()
-	ctx = ctx.WithMultiStore(msCache)
-	tx := app.NewTestTx([]sdk.Msg{voteMsg})
-
-	_, err := anteHandler(ctx, tx, false)
-	require.NoError(t, err)
-
-	newDeps, err := depGen([]sdkacltypes.AccessOperation{}, tx, 1)
-	require.NoError(t, err)
-
-	storeAccessOpEvents := msCache.GetEvents()
-
-	missingAccessOps := ctx.MsgValidator().ValidateAccessOperations(newDeps, storeAccessOpEvents)
-	require.Equal(t, 0, len(missingAccessOps))
 }

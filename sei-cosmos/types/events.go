@@ -1,7 +1,6 @@
 package types
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -105,32 +104,6 @@ func (em *EventManager) EmitTypedEvents(tevs ...proto.Message) error {
 
 	em.EmitEvents(events)
 	return nil
-}
-
-func (em *EventManager) EmitResourceAccessReadEvent(operation string, storeKey StoreKey, key, value []byte) {
-	em.EmitEvent(
-		NewEvent(
-			EventTypeResourceAccess,
-			NewAttribute(AttributeKeyAccessType, AttributeKeyAccessTypeRead),
-			NewAttribute(AttributeKeyStoreKey, storeKey.Name()),
-			NewAttribute(AttributeKeyResourceKey, hex.EncodeToString(key)),
-			NewAttribute(AttributeKeyResourceValue, hex.EncodeToString(value)),
-			NewAttribute(AttributeKeyOperation, operation),
-		),
-	)
-}
-
-func (em *EventManager) EmitResourceAccessWriteEvent(operation string, storeKey StoreKey, key, value []byte) {
-	em.EmitEvent(
-		NewEvent(
-			EventTypeResourceAccess,
-			NewAttribute(AttributeKeyAccessType, AttributeKeyAccessTypeWrite),
-			NewAttribute(AttributeKeyStoreKey, storeKey.Name()),
-			NewAttribute(AttributeKeyResourceKey, hex.EncodeToString(key)),
-			NewAttribute(AttributeKeyResourceValue, hex.EncodeToString(value)),
-			NewAttribute(AttributeKeyOperation, operation),
-		),
-	)
 }
 
 // TypedEventToEvent takes typed event and converts to Event object
