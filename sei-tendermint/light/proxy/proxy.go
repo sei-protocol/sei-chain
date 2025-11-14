@@ -7,11 +7,11 @@ import (
 	"net/http"
 
 	tmpubsub "github.com/tendermint/tendermint/internal/pubsub"
-	rpccore "github.com/tendermint/tendermint/internal/rpc/core"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/light"
 	lrpc "github.com/tendermint/tendermint/light/rpc"
 	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
+	rpccore "github.com/tendermint/tendermint/rpc/core"
 	rpcserver "github.com/tendermint/tendermint/rpc/jsonrpc/server"
 )
 
