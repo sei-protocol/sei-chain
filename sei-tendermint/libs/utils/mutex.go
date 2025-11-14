@@ -83,51 +83,30 @@ type atomicWatch[T any] struct {
 	ptr atomic.Pointer[version[T]]
 }
 
-// AtomicWatch stores a pointer to an IMMUTABLE value.
-// Loading and waiting for updates do NOT require locking.
-// TODO(gprusak): remove mutex and rename to AtomicSend,
-// this will allow for sharing a mutex across multiple AtomicSenders.
-type AtomicWatch[T any] struct {
-	atomicWatch[T]
-	mu sync.Mutex
+type AtomicSend[T any] struct{ atomicWatch[T] }
+
+func (w *AtomicSend[T]) Subscribe() AtomicRecv[T] {
+	return AtomicRecv[T]{&w.atomicWatch}
 }
 
-// AtomicRecv is a read-only reference to AtomicWatch.
-type AtomicRecv[T any] struct{ *atomicWatch[T] }
-
 // NewAtomicWatch creates a new AtomicWatch with the given initial value.
-func NewAtomicWatch[T any](value T) (w AtomicWatch[T]) {
+func NewAtomicSend[T any](value T) (w AtomicSend[T]) {
 	w.ptr.Store(newVersion(value))
 	// nolint:nakedret
 	return
 }
 
-// Subscribe returns a view-only API of the atomic watch.
-func (w *AtomicWatch[T]) Subscribe() AtomicRecv[T] {
-	return AtomicRecv[T]{&w.atomicWatch}
+// Store updates the value of the atomic watch.
+func (w *AtomicSend[T]) Store(value T) {
+	close(w.ptr.Swap(newVersion(value)).updated)
 }
+
+// AtomicRecv is a read-only reference to AtomicWatch.
+type AtomicRecv[T any] struct{ *atomicWatch[T] }
 
 // Load returns the current value of the atomic watch.
 // Does not do any locking.
 func (w *atomicWatch[T]) Load() T { return w.ptr.Load().value }
-
-// Store updates the value of the atomic watch.
-func (w *AtomicWatch[T]) Store(value T) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	close(w.ptr.Swap(newVersion(value)).updated)
-}
-
-// Update conditionally updates the value of the atomic watch.
-func (w *AtomicWatch[T]) Update(f func(T) (T, bool)) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	old := w.ptr.Load()
-	if value, ok := f(old.value); ok {
-		w.ptr.Store(newVersion(value))
-		close(old.updated)
-	}
-}
 
 // Wait waits for the value of the atomic watch to satisfy the predicate.
 // Does not do any locking.
@@ -237,5 +216,19 @@ func (w *Watch[T]) Lock() iter.Seq2[T, *WatchCtrl] {
 		w.ctrl.mu.Lock()
 		defer w.ctrl.mu.Unlock()
 		_ = yield(w.val, &w.ctrl)
+	}
+}
+
+// MonitorWatchUpdates calls f and checks if it has updated the watch.
+func MonitorWatchUpdates[T any](w *Watch[T], f func()) bool {
+	w.ctrl.mu.Lock()
+	updated := w.ctrl.updated
+	w.ctrl.mu.Unlock()
+	f()
+	select {
+	case <-updated:
+		return true
+	default:
+		return false
 	}
 }

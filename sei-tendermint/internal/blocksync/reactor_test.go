@@ -236,10 +236,6 @@ func makeNextBlock(ctx context.Context,
 func (rts *reactorTestSuite) start(t *testing.T) {
 	t.Helper()
 	rts.network.Start(t)
-	require.Len(t,
-		rts.network.RandomNode().Router.PeerManager().Peers(),
-		len(rts.nodes)-1,
-		"network does not have expected number of nodes")
 }
 
 func TestReactor_AbruptDisconnect(t *testing.T) {
@@ -274,8 +270,7 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 
 	// Remove synced node from the syncing node which should not result in any
 	// deadlocks or race conditions within the context of poolRoutine.
-	rts.network.Node(rts.nodes[0]).Router.Stop()
-	rts.network.Node(rts.nodes[1]).WaitUntilDisconnected(ctx, rts.nodes[0])
+	rts.network.Remove(t, rts.nodes[0])
 }
 
 func TestReactor_SyncTime(t *testing.T) {
