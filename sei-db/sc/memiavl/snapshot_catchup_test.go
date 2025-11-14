@@ -18,8 +18,8 @@ func TestSnapshotTimeThrottling(t *testing.T) {
 		Dir:                     dir,
 		CreateIfMissing:         true,
 		InitialStores:           []string{"test"},
-		SnapshotInterval:        100,  // Small interval for testing
-		SnapshotMinTimeInterval: 3600, // 1 hour minimum time interval
+		SnapshotInterval:        100,                // Small interval for testing
+		SnapshotMinTimeInterval: 1 * time.Hour, // 1 hour minimum time interval
 	})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, db.Close()) }()
@@ -159,7 +159,7 @@ func TestSnapshotWithShortTimeInterval(t *testing.T) {
 		CreateIfMissing:         true,
 		InitialStores:           []string{"test"},
 		SnapshotInterval:        100,
-		SnapshotMinTimeInterval: 1, // 1 second minimum time interval for testing
+		SnapshotMinTimeInterval: 1 * time.Second, // 1 second minimum time interval for testing
 	})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, db.Close()) }()

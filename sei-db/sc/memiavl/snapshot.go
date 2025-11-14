@@ -621,13 +621,8 @@ type snapshotWriter struct {
 // Larger values provide more parallelism but use more memory
 // Default is 10000. Recommended range: 1000-50000
 func SetPipelineBufferSize(size int) {
-	if size < 100 {
-		size = 100 // Minimum to avoid deadlocks
-	}
-	if size > 100000 {
-		size = 100000 // Maximum to avoid excessive memory usage
-	}
-	nodeChanSize = size
+	// Clamp size between 100 (minimum to avoid deadlocks) and 100000 (maximum to avoid excessive memory)
+	nodeChanSize = max(100, min(size, 100000))
 }
 
 func newSnapshotWriter(ctx context.Context, nodesWriter, leavesWriter, kvsWriter io.Writer, log logger.Logger) *snapshotWriter {
@@ -1020,6 +1015,7 @@ func shouldPreloadTree(treeName string) bool {
 }
 
 func SequentialReadAndFillPageCache(log logger.Logger, filePath string) error {
+	filePath = filepath.Clean(filePath)
 	startTime := time.Now()
 	f, err := os.Open(filePath)
 	if err != nil {

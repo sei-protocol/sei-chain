@@ -63,9 +63,11 @@ type DB struct {
 	snapshotKeepRecent uint32
 	// block interval to take a new snapshot
 	snapshotInterval uint32
-	// minimum time interval between snapshots (in seconds)
-	snapshotMinTimeInterval uint32
+	// minimum time interval between snapshots
+	// Protected by db.mtx (only accessed in Commit call chain)
+	snapshotMinTimeInterval time.Duration
 	// timestamp of the last successful snapshot creation
+	// Protected by db.mtx (only accessed in Commit call chain)
 	lastSnapshotTime time.Time
 	// make sure only one snapshot rewrite is running
 	pruneSnapshotLock sync.Mutex
@@ -95,13 +97,24 @@ const (
 
 // getSnapshotModTime returns the modification time of the current snapshot directory.
 // It reads the "current" symlink to get the actual snapshot directory.
-// If the directory doesn't exist or there's an error, returns current time.
+// If the directory doesn't exist or there's an error, returns current time as fallback.
+// This is safe for first startup (no snapshots yet) and error recovery scenarios.
+//
+// NOTE: Relies on filesystem ModTime which may be inaccurate after backup/restore operations.
+// TODO: Consider storing timestamp in MultiTreeMetadata for reliability.
 func getSnapshotModTime(logger logger.Logger, dir string) time.Time {
 	// Read the "current" symlink to get the actual snapshot directory
-	currentLink := currentPath(dir)
+	currentLink := filepath.Clean(currentPath(dir))
 	snapshotName, err := os.Readlink(currentLink)
 	if err != nil {
-		logger.Error("failed to read current symlink, using current time as fallback", "error", err, "path", currentLink)
+		if os.IsNotExist(err) {
+			// First startup: no snapshot exists yet, use current time
+			// This is expected and normal for new nodes
+			logger.Debug("no current snapshot link found (first startup or after cleanup)", "path", currentLink)
+		} else {
+			// Unexpected error reading symlink
+			logger.Error("failed to read current snapshot link, using current time as fallback", "error", err, "path", currentLink)
+		}
 		return time.Now()
 	}
 
@@ -116,9 +129,16 @@ func getSnapshotModTime(logger logger.Logger, dir string) time.Time {
 
 	info, err := os.Stat(snapshotDir)
 	if err != nil {
-		logger.Error("failed to get snapshot directory modification time, using current time as fallback", "error", err, "path", snapshotDir)
+		if os.IsNotExist(err) {
+			// Snapshot directory was deleted but symlink exists (inconsistent state)
+			logger.Error("snapshot directory not found but symlink exists", "path", snapshotDir)
+		} else {
+			// Other stat errors (permission, I/O error, etc.)
+			logger.Error("failed to stat snapshot directory, using current time as fallback", "error", err, "path", snapshotDir)
+		}
 		return time.Now()
 	}
+
 	return info.ModTime()
 }
 
@@ -594,7 +614,7 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	}
 
 	snapshotDir := snapshotName(db.lastCommitInfo.Version)
-	targetPath := filepath.Join(db.dir, snapshotDir)
+	targetPath := filepath.Clean(filepath.Join(db.dir, snapshotDir))
 
 	// Check if snapshot already exists
 	if info, err := os.Stat(targetPath); err == nil {
@@ -612,7 +632,7 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	}
 
 	tmpDir := snapshotDir + "-tmp"
-	path := filepath.Join(db.dir, tmpDir)
+	path := filepath.Clean(filepath.Join(db.dir, tmpDir))
 
 	writeStart := time.Now()
 	err := db.MultiTree.WriteSnapshot(ctx, path, db.snapshotWriterPool)
@@ -630,7 +650,7 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 				"cleanup_error", cleanupErr,
 			)
 		} else {
-			db.logger.Info("temporary snapshot directory cleaned up successfully",
+			db.logger.Debug("temporary snapshot directory cleaned up successfully",
 				"tmpDir", tmpDir,
 			)
 		}
@@ -704,13 +724,12 @@ func (db *DB) rewriteIfApplicable(height int64) {
 	// 2. Minimum time interval has elapsed (prevents excessive snapshots during catch-up)
 	if blocksSinceLastSnapshot >= int64(db.snapshotInterval) {
 		timeSinceLastSnapshot := time.Since(db.lastSnapshotTime)
-		minTimeInterval := time.Duration(db.snapshotMinTimeInterval) * time.Second
 
-		if timeSinceLastSnapshot < minTimeInterval {
+		if timeSinceLastSnapshot < db.snapshotMinTimeInterval {
 			db.logger.Debug("skipping snapshot (minimum time interval not reached)",
 				"blocks_since_last", blocksSinceLastSnapshot,
 				"time_since_last", timeSinceLastSnapshot,
-				"min_time_interval", minTimeInterval,
+				"min_time_interval", db.snapshotMinTimeInterval,
 			)
 			return
 		}

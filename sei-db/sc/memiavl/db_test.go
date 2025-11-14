@@ -169,7 +169,7 @@ func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 		InitialStores:           []string{"test"},
 		SnapshotInterval:        5,
 		SnapshotKeepRecent:      0,
-		SnapshotMinTimeInterval: 1, // 1 second minimum time interval for testing
+		SnapshotMinTimeInterval: 1 * time.Second, // 1 second minimum time interval for testing
 	})
 	require.NoError(t, err)
 
@@ -543,7 +543,7 @@ func TestFastCommit(t *testing.T) {
 		InitialStores:           []string{"test"},
 		SnapshotInterval:        3,
 		AsyncCommitBuffer:       10,
-		SnapshotMinTimeInterval: 1, // 1 second for testing
+		SnapshotMinTimeInterval: 1 * time.Second, // 1 second for testing
 	})
 	require.NoError(t, err)
 	initialSnapshotTime := db.lastSnapshotTime

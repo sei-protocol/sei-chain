@@ -11,13 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRewriteIfApplicableLogging tests the logging in rewriteIfApplicable
-func TestRewriteIfApplicableLogging(t *testing.T) {
-	t.Skip("Skipping background snapshot test - timing dependent")
-	// This test is timing-dependent and may be flaky
-	// The logging functionality is covered by other tests
-}
-
 // TestMultiTreeWriteSnapshotPriorityEVM tests the priority EVM write strategy
 func TestMultiTreeWriteSnapshotPriorityEVM(t *testing.T) {
 	dir := t.TempDir()

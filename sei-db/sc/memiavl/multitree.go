@@ -21,7 +21,12 @@ import (
 	"github.com/sei-protocol/sei-db/stream/types"
 )
 
-const MetadataFileName = "__metadata"
+const (
+	MetadataFileName = "__metadata"
+
+	// Load time threshold for performance warning (300 seconds)
+	slowLoadThreshold = 5 * time.Minute
+)
 
 type NamedTree struct {
 	*Tree
@@ -97,10 +102,11 @@ func LoadMultiTree(dir string, opts Options) (*MultiTree, error) {
 		}
 		treeMap[name] = NewFromSnapshot(snapshot, opts)
 	}
-	timeElapsed := time.Since(startTime).Seconds()
-	log.Info(fmt.Sprintf("All %d memIAVL trees loaded in %.1fs\n", len(treeNames), timeElapsed))
-	if timeElapsed > 600 {
-		log.Info("Loading MemIAVL tree from disk is too slow! Consider increasing the disk bandwidth to speed up the initialization time.\n")
+	elapsed := time.Since(startTime)
+	log.Info(fmt.Sprintf("All %d memIAVL trees loaded in %.1fs\n", len(treeNames), elapsed.Seconds()))
+
+	if elapsed > slowLoadThreshold {
+		log.Info("Loading MemIAVL tree from disk is too slow! Consider increasing the disk bandwidth to speed up the tree loading time within 300 seconds.")
 	}
 	slices.Sort(treeNames)
 

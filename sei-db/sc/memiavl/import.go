@@ -14,12 +14,18 @@ import (
 
 var (
 	// Pipeline channel size - controls how many operations can be queued
-	// Profiling: peak 440k nodes, 1GB overhead. Small buffer causes frequent blocking.
+	// Memory footprint (worst case, all 3 channels full in snapshot.go):
+	// - kvChan: 500k × ~140 bytes (key+value avg) = ~70 MiB
+	// - leafChan: 500k × ~48 bytes (fixed size) = ~24 MiB
+	// - branchChan: 500k × ~45 bytes (fixed size) = ~22.5 MiB
+	// Total: ~116 MiB for channel buffers
+	// Profiling shows peak usage of ~440k nodes with 1GB total overhead.
+	// Smaller buffer causes frequent blocking and context switch overhead.
 	nodeChanSize = 500000
 
-	// bufio.Writer buffer size - 128MB balances performance and memory usage
+	// bufio.Writer buffer size - 128 MiB balances performance and memory usage
 	// Large buffer reduces syscalls and improves throughput for sequential writes
-	bufIOSize = 128 * 1024 * 1024
+	bufIOSize = 128 << 20 // 128 MiB
 )
 
 type MultiTreeImporter struct {

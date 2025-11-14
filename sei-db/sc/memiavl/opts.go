@@ -3,6 +3,7 @@ package memiavl
 import (
 	"errors"
 	"runtime"
+	"time"
 
 	"github.com/sei-protocol/sei-db/common/logger"
 
@@ -44,9 +45,9 @@ type Options struct {
 	// Setting to <=0 means disable prefetching
 	PrefetchThreshold float64
 
-	// Minimum time interval between snapshots (in seconds)
-	// This prevents excessive snapshot creation. Default is 3600 seconds (1 hour)
-	SnapshotMinTimeInterval uint32
+	// Minimum time interval between snapshots
+	// This prevents excessive snapshot creation during catch-up. Default is 1 hour.
+	SnapshotMinTimeInterval time.Duration
 }
 
 func (opts Options) Validate() error {
@@ -71,7 +72,7 @@ func (opts *Options) FillDefaults() {
 	}
 
 	if opts.SnapshotMinTimeInterval <= 0 {
-		opts.SnapshotMinTimeInterval = 3600 // 1 hour in seconds
+		opts.SnapshotMinTimeInterval = 1 * time.Hour
 	}
 
 	opts.PrefetchThreshold = 0.8
