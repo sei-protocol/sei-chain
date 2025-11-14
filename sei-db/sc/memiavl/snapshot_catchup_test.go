@@ -18,7 +18,7 @@ func TestSnapshotTimeThrottling(t *testing.T) {
 		Dir:                     dir,
 		CreateIfMissing:         true,
 		InitialStores:           []string{"test"},
-		SnapshotInterval:        100,                // Small interval for testing
+		SnapshotInterval:        100,           // Small interval for testing
 		SnapshotMinTimeInterval: 1 * time.Hour, // 1 hour minimum time interval
 	})
 	require.NoError(t, err)

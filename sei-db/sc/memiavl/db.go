@@ -790,7 +790,17 @@ func (db *DB) rewriteSnapshotBackground() error {
 		cloned.logger.Info("finished rewriting snapshot", "version", cloned.Version(), "elapsed", time.Since(rewriteStart).Seconds())
 
 		loadStart := time.Now()
-		mtree, err := LoadMultiTree(currentPath(cloned.dir), db.opts)
+
+		// Disable prefetch when loading newly created snapshot in background.
+		// Profiling shows: with prefetch = 35 min, without = 15 min (20 min difference!)
+		// The snapshot was just written, so some data is still in page cache, but mincore()
+		// checks mmap pages (not file cache) and reports low residency because mmap hasn't
+		// been accessed yet. Prefetch causes unnecessary I/O that competes with ongoing
+		// commits and evicts hot pages from the active snapshot still being used by main chain.
+		loadOpts := db.opts
+		loadOpts.PrefetchThreshold = 0
+
+		mtree, err := LoadMultiTree(currentPath(cloned.dir), loadOpts)
 		if err != nil {
 			cloned.logger.Error("failed to load multitree after snapshot", "error", err)
 			ch <- snapshotResult{err: err}
