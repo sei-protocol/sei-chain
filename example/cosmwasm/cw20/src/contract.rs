@@ -136,7 +136,7 @@ pub fn execute_increase_allowance(
 
     // Send the message to approve the new amount
     let payload = querier.erc20_approve_payload(spender.clone(), new_allowance)?;
-    let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
+    let msg = EvmMsg::CallEvm { to: erc_addr, data: payload.encoded_payload, value: "0".to_string() };
 
     let res = Response::new()
         .add_attribute("action", "increase_allowance")
@@ -175,7 +175,7 @@ pub fn execute_decrease_allowance(
     
     // Send the message to approve the new amount.
     let payload = querier.erc20_approve_payload(spender.clone(), new_allowance)?;
-    let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
+    let msg = EvmMsg::CallEvm { to: erc_addr, data: payload.encoded_payload, value: "0".to_string() };
 
     let res = Response::new()
         .add_attribute("action", "decrease_allowance")
@@ -237,7 +237,8 @@ fn transfer(
 
     let querier = EvmQuerier::new(&deps.querier);
     let payload = querier.erc20_transfer_payload(recipient.clone(), amount)?;
-    let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
+    // Use CallEvm instead of DelegateCallEvm to trigger EVM->CW->EVM error at line 78-79
+    let msg = EvmMsg::CallEvm { to: erc_addr, data: payload.encoded_payload, value: "0".to_string() };
     let res = Response::new()
         .add_attribute("from", info.sender)
         .add_attribute("to", recipient)
@@ -262,7 +263,7 @@ pub fn transfer_from(
 
     let querier = EvmQuerier::new(&deps.querier);
     let payload = querier.erc20_transfer_from_payload(owner.clone(), recipient.clone(), amount)?;
-    let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
+    let msg = EvmMsg::CallEvm { to: erc_addr, data: payload.encoded_payload, value: "0".to_string() };
     let res = Response::new()
         .add_attribute("from", owner)
         .add_attribute("to", recipient)
