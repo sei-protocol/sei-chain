@@ -3,6 +3,7 @@ package sc
 import (
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
@@ -31,6 +32,7 @@ func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCom
 		AsyncCommitBuffer:                config.AsyncCommitBuffer,
 		SnapshotInterval:                 config.SnapshotInterval,
 		SnapshotKeepRecent:               config.SnapshotKeepRecent,
+		SnapshotMinTimeInterval:          time.Duration(config.SnapshotMinTimeInterval) * time.Second,
 		SnapshotWriterLimit:              config.SnapshotWriterLimit,
 		PrefetchThreshold:                config.SnapshotPrefetchThreshold,
 		CreateIfMissing:                  true,
