@@ -17,6 +17,7 @@ jobs:
       GO_TEST_TIMEOUT: 30m
     name: "Test ${{ matrix.modules.name }}"
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
