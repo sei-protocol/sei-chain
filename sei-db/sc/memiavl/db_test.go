@@ -180,6 +180,8 @@ func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 		require.EqualValues(t, i, v)
 		// Verify snapshot rewrite should not start
 		require.Never(t, func() bool {
+			db.mtx.Lock()
+			defer db.mtx.Unlock()
 			return db.snapshotRewriteChan != nil
 		}, 100*time.Millisecond, 10*time.Millisecond, "rewrite should not start at height %d", i)
 		// snapshot version should remain 0 until rewrite
