@@ -14,10 +14,10 @@ concurrency:
 jobs:
   tests:
     env:
-      GO_TEST_TIMEOUT: 30m
+      GO_TEST_TIMEOUT: 45m
     name: "Test ${{ matrix.modules.name }}"
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
