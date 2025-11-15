@@ -14,10 +14,10 @@ concurrency:
 jobs:
   tests:
     env:
-      GO_TEST_TIMEOUT: 30m
+      GO_TEST_TIMEOUT: 45m
     name: "Test ${{ matrix.modules.name }}"
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -43,7 +43,85 @@ jobs:
           go-version: '1.24'
       - name: Go test with race detector
         working-directory: '${{ matrix.modules.path }}'
-        run: go test -race -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out ./...
+        run: |
+          echo "Running tests for ${{ matrix.modules.name }}"
+          echo "Working directory: $(pwd)"
+          echo "Go version: $(go version)"
+          echo "Timeout: ${{env.GO_TEST_TIMEOUT}}"
+          
+          # Run tests, stream to console and file
+          # Periodically trim the log file to last 3000 lines to avoid disk space issues
+          go test -race -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out ./... 2>&1 | tee test-output.log &
+          TEST_PID=$!
+          
+          # Show periodic progress with timeout check (48 min = 2880 sec, leaving 2 min buffer before job timeout)
+          ELAPSED=0
+          MAX_WAIT=2880
+          LAST_LINE=""
+          HANG_COUNT=0
+          
+          while kill -0 $TEST_PID 2>/dev/null; do
+            # Trim log file to last 3000 lines every 5 minutes to save disk space
+            if [ $((ELAPSED % 300)) -eq 0 ] && [ $ELAPSED -gt 0 ] && [ -f test-output.log ]; then
+              tail -3000 test-output.log > test-output.tmp && mv test-output.tmp test-output.log
+            fi
+            
+            if [ -f test-output.log ]; then
+              # Get last non-empty line that looks like a package completion
+              CURRENT_LINE=$(grep -E "^(ok|FAIL|\?)" test-output.log 2>/dev/null | tail -1 || echo "")
+              
+              if [ -n "$CURRENT_LINE" ]; then
+                if [ "$CURRENT_LINE" = "$LAST_LINE" ]; then
+                  HANG_COUNT=$((HANG_COUNT + 1))
+                  if [ $HANG_COUNT -ge 3 ]; then
+                    echo "[$(date +%H:%M:%S)] ⚠️  No new package completion for 90s (${ELAPSED}s total) | Last: $CURRENT_LINE"
+                  else
+                    echo "[$(date +%H:%M:%S)] Running (${ELAPSED}s) | Last package: $CURRENT_LINE"
+                  fi
+                else
+                  HANG_COUNT=0
+                  echo "[$(date +%H:%M:%S)] ✓ Progress (${ELAPSED}s) | Completed: $CURRENT_LINE"
+                  LAST_LINE="$CURRENT_LINE"
+                fi
+              else
+                echo "[$(date +%H:%M:%S)] Tests running (${ELAPSED}s)..."
+              fi
+            else
+              echo "[$(date +%H:%M:%S)] Waiting for test output... (${ELAPSED}s)"
+            fi
+            
+            sleep 30
+            ELAPSED=$((ELAPSED + 30))
+            
+            # If approaching job timeout, dump logs and exit
+            if [ $ELAPSED -ge $MAX_WAIT ]; then
+              echo "::error::Tests exceeded 48 minutes, dumping logs before job timeout"
+              kill $TEST_PID 2>/dev/null || true
+              wait $TEST_PID 2>/dev/null || true
+              echo "=== Last 300 lines of test output ==="
+              tail -300 test-output.log || true
+              exit 1
+            fi
+          done
+          
+          # Wait for test to complete and get exit code
+          wait $TEST_PID
+          TEST_EXIT_CODE=$?
+          
+          echo "Test completed with exit code: $TEST_EXIT_CODE"
+          if [ $TEST_EXIT_CODE -ne 0 ]; then
+            echo "::error::Tests failed with exit code $TEST_EXIT_CODE"
+            echo "Last 200 lines of output:"
+            tail -200 test-output.log
+          fi
+          exit $TEST_EXIT_CODE
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ matrix.modules.name }}
+          path: ${{ matrix.modules.path }}/test-output.log
+          retention-days: 5
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:

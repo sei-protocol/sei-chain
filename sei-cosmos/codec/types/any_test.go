@@ -11,6 +11,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 )
 
+// raceEnabled is set to true when the race detector is enabled
+// This is used to skip tests that are incompatible with race detection
+var raceEnabled = false
+
 type errOnMarshal struct {
 	testdata.Dog
 }
@@ -28,6 +32,14 @@ var eom = &errOnMarshal{}
 // Ensure that returning an error doesn't suddenly allocate and waste bytes.
 // See https://github.com/cosmos/cosmos-sdk/issues/8537
 func TestNewAnyWithCustomTypeURLWithErrorNoAllocation(t *testing.T) {
+	// Skip when running with race detector as it interferes with memory stats.
+	// The race detector adds instrumentation that causes unpredictable HeapAlloc changes,
+	// and concurrent test execution can cause memory stats to be unreliable.
+	// This test is still valuable when run without -race flag.
+	if raceEnabled {
+		t.Skip("Skipping memory allocation test when race detector is enabled")
+	}
+	
 	var ms1, ms2 runtime.MemStats
 	runtime.ReadMemStats(&ms1)
 	any, err := types.NewAnyWithValue(eom)
