@@ -90,10 +90,10 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.
 
 		res := &abci.ResponseCheckTxV2{
 			ResponseCheckTx: &abci.ResponseCheckTx{
-				GasWanted:    int64(gInfo.GasWanted), // TODO: Should type accept unsigned ints?
+				GasWanted:    int64(gInfo.GasWanted), //nolint:gosec
 				Data:         result.Data,
 				Priority:     txCtx.Priority(),
-				GasEstimated: int64(gInfo.GasEstimate),
+				GasEstimated: int64(gInfo.GasEstimate), //nolint:gosec
 			},
 			ExpireTxHandler:  txCtx.ExpireTxHandler(),
 			CheckTxCallback:  txCtx.CheckTxCallback(),

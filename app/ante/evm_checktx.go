@@ -47,12 +47,13 @@ func EvmCheckTxAnte(
 		return ctx, err
 	}
 	msg := tx.GetMsgs()[0].(*evmtypes.MsgEVMTransaction)
-	etx, txData := msg.AsTransaction() // cached and validated
 
+	txData, _ := evmtypes.UnpackTxData(msg.Data) // cached and validated
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	if atx, ok := txData.(*ethtx.AssociateTx); ok {
 		return HandleAssociateTx(ctx, ek, atx)
 	}
+	etx := ethtypes.NewTx(txData.AsEthereumData())
 	evmAddr, seiAddr, seiPubkey, version, err := CheckAndDecodeSignature(ctx, txData, chainID)
 	if err != nil {
 		return ctx, err
@@ -133,6 +134,9 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 	txData, err := evmtypes.UnpackTxData(msg.Data)
 	if err != nil {
 		return err
+	}
+	if _, ok := txData.(*ethtx.AssociateTx); ok {
+		return nil
 	}
 	etx, _ := msg.AsTransaction()
 	if etx.To() == nil && len(etx.Data()) > params.MaxInitCodeSize {

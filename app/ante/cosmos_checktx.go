@@ -80,22 +80,25 @@ func CosmosCheckTxAnte(
 			returnErr = HandleOutofGas(r, tx.(GasTx).GetGas(), ctx.GasMeter().GasConsumed())
 		}
 	}()
-	gasMeter, err := GetGasMeter(ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter()), tx, oraclek, ek, pk)
+	gasMeter, isGasless, err := GetGasMeter(ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter()), tx, oraclek, ek, pk)
 	if err != nil {
 		return ctx, err
 	}
 	ctx = ctx.WithGasMeter(gasMeter)
 
-	priority, err := CheckAndChargeFees(ctx, tx, accountKeeper, bankKeeper, feegrantKeeper, pk)
-	if err != nil {
-		return ctx, err
+	if !isGasless {
+		priority, err := CheckAndChargeFees(ctx, tx, accountKeeper, bankKeeper, feegrantKeeper, pk)
+		if err != nil {
+			return ctx, err
+		}
+		if priority > antedecorators.MaxPriority {
+			ctx = ctx.WithPriority(antedecorators.MaxPriority)
+		} else {
+			ctx = ctx.WithPriority(priority)
+		}
 	}
 	if oracleVote {
 		ctx = ctx.WithPriority(antedecorators.OraclePriority)
-	} else if priority > antedecorators.MaxPriority {
-		ctx = ctx.WithPriority(antedecorators.MaxPriority)
-	} else {
-		ctx = ctx.WithPriority(priority)
 	}
 
 	authParams := accountKeeper.GetParams(ctx)
@@ -144,7 +147,7 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 	if cp := consensusParams; cp != nil && cp.Block != nil {
 		// If there exists a maximum block gas limit, we must ensure that the tx
 		// does not exceed it.
-		if cp.Block.MaxGas > 0 && gasTx.GetGas() > uint64(cp.Block.MaxGas) {
+		if cp.Block.MaxGas > 0 && gasTx.GetGas() > uint64(cp.Block.MaxGas) { //nolint:gosec
 			return false, sdkerrors.Wrapf(sdkerrors.ErrOutOfGas, "tx gas wanted %d exceeds block max gas limit %d", gasTx.GetGas(), cp.Block.MaxGas)
 		}
 	}
@@ -192,7 +195,7 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 	}
 
 	timeoutHeight := timeoutTx.GetTimeoutHeight()
-	if timeoutHeight > 0 && uint64(height) > timeoutHeight {
+	if timeoutHeight > 0 && uint64(height) > timeoutHeight { //nolint:gosec
 		return oracleVote, sdkerrors.Wrapf(
 			sdkerrors.ErrTxTimeoutHeight, "block height: %d, timeout height: %d", height, timeoutHeight,
 		)
@@ -244,17 +247,17 @@ func GetGasMeter(
 	ctx sdk.Context, tx sdk.Tx, oracleKeeper oraclekeeper.Keeper,
 	evmKeeper *evmkeeper.Keeper,
 	paramsKeeper paramskeeper.Keeper,
-) (sdk.GasMeter, error) {
+) (sdk.GasMeter, bool, error) {
 	// TODO: may not be necessary for CheckTx
 	isGasless, err := antedecorators.IsTxGasless(tx, ctx, oracleKeeper, evmKeeper)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if !isGasless {
 		cosmosGasParams := paramsKeeper.GetCosmosGasParams(ctx)
-		return storetypes.NewMultiplierGasMeter(tx.(GasTx).GetGas(), cosmosGasParams.CosmosGasMultiplierNumerator, cosmosGasParams.CosmosGasMultiplierDenominator), nil
+		return storetypes.NewMultiplierGasMeter(tx.(GasTx).GetGas(), cosmosGasParams.CosmosGasMultiplierNumerator, cosmosGasParams.CosmosGasMultiplierDenominator), isGasless, nil
 	}
-	return ctx.GasMeter(), nil
+	return ctx.GasMeter(), isGasless, nil
 }
 
 func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, feegrantKeeper *feegrantkeeper.Keeper, paramsKeeper paramskeeper.Keeper) (priority int64, err error) {
@@ -280,7 +283,7 @@ func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.Acc
 		}
 	}
 	if gas > 0 {
-		priority = authante.GetTxPriority(feeCoins, int64(gas))
+		priority = authante.GetTxPriority(feeCoins, int64(gas)) //nolint:gosec
 	}
 	if addr := accountKeeper.GetModuleAddress(authtypes.FeeCollectorName); addr == nil {
 		return priority, fmt.Errorf("fee collector module account (%s) has not been set", authtypes.FeeCollectorName)
@@ -362,7 +365,7 @@ func CheckPubKeys(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKe
 		accountKeeper.SetAccount(ctx, acc)
 
 		sigCount += authante.CountSubKeys(pk)
-		if uint64(sigCount) > authParams.TxSigLimit {
+		if uint64(sigCount) > authParams.TxSigLimit { //nolint:gosec
 			return sdkerrors.Wrapf(sdkerrors.ErrTooManySignatures,
 				"signatures: %d, limit: %d", sigCount, authParams.TxSigLimit)
 		}
