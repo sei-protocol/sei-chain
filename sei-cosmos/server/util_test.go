@@ -407,12 +407,6 @@ func TestInterceptConfigsWithBadPermissions(t *testing.T) {
 }
 
 func TestWaitForQuitSignals(t *testing.T) {
-	// Skip this test as it hangs in Linux CI with race detector
-	// Problem: syscall.Kill(syscall.Getpid(), SIGTERM) sends signal to entire process
-	// Race detector on Linux intercepts/delays signal delivery causing indefinite hang
-	// Works fine on macOS but fails consistently in GitHub Actions (Ubuntu)
-	t.Skip("Skipping signal handling test - causes hangs in Linux CI with race detector")
-
 	t.Run("WithRestartChannelAndCanRestartAfterNotReached", func(t *testing.T) {
 		restartCh := make(chan struct{})
 		go func() {

@@ -14,10 +14,9 @@ concurrency:
 jobs:
   tests:
     env:
-      GO_TEST_TIMEOUT: ${{ matrix.modules.timeout || '45m' }}
+      GO_TEST_TIMEOUT: 30m
     name: "Test ${{ matrix.modules.name }}"
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.modules.job_timeout || 50 }}
     strategy:
       fail-fast: false
       matrix:
@@ -27,8 +26,6 @@ jobs:
           - name: sei-cosmos
             path: ./sei-cosmos
             tags: ledger test_ledger_mock
-            timeout: 45m
-            job_timeout: 50
           - name: sei-db
             path: ./sei-db
           - name: sei-tendermint
@@ -45,126 +42,7 @@ jobs:
           go-version: '1.24'
       - name: Go test with race detector
         working-directory: '${{ matrix.modules.path }}'
-        run: |
-          echo "Running tests for ${{ matrix.modules.name }}"
-          echo "Working directory: $(pwd)"
-          echo "Go version: $(go version)"
-          echo "Timeout: ${{env.GO_TEST_TIMEOUT}}"
-          
-          # Run tests and capture output for monitoring
-          # Note: -v flag is intentionally omitted for performance (adds ~40% overhead)
-          go test -race -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out ./... 2>&1 | tee test-output.log &
-          TEST_PID=$!
-          
-          # Show periodic progress with timeout check (leaving 3 min buffer before job timeout)
-          JOB_TIMEOUT_MIN=${{ matrix.modules.job_timeout || 50 }}
-          ELAPSED=0
-          MAX_WAIT=$((JOB_TIMEOUT_MIN * 60 - 180))
-          LAST_LINE=""
-          HANG_COUNT=0
-          CURRENT_PKG=""
-          SAVED_PKG=""
-          
-          while kill -0 $TEST_PID 2>/dev/null; do
-            if [ -f test-output.log ]; then
-              # Extract last package completion from current log
-              NEW_PKG=$(grep -E "^(ok|FAIL|\?)" test-output.log 2>/dev/null | tail -1 || echo "")
-              
-              # If we found a package and it's different from what we saved, update
-              if [ -n "$NEW_PKG" ] && [ "$NEW_PKG" != "$SAVED_PKG" ]; then
-                SAVED_PKG="$NEW_PKG"
-                CURRENT_PKG="$NEW_PKG"
-              elif [ -z "$NEW_PKG" ] && [ -n "$SAVED_PKG" ]; then
-                # Log was trimmed, use saved value
-                CURRENT_PKG="$SAVED_PKG"
-              fi
-              
-              # Without -v flag, we only get package-level output, not individual tests
-              # So we just track the last line of output as activity indicator
-              LAST_TEST=$(tail -1 test-output.log 2>/dev/null || echo "")
-              
-              # Trim log file to last 10000 lines every 10 minutes to save disk space
-              # Keep more lines to avoid losing recent package completions between checks
-              # Important: Do this AFTER reading current status
-              if [ $((ELAPSED % 600)) -eq 0 ] && [ $ELAPSED -gt 0 ]; then
-                tail -10000 test-output.log > test-output.tmp && mv test-output.tmp test-output.log
-              fi
-              
-              # Check if we have any progress (either package or test level)
-              # Prioritize test-level activity as it's more reliable than package completion
-              # (package completion may be lost during log trimming)
-              CURRENT_ACTIVITY="$CURRENT_PKG|$LAST_TEST"
-              
-              if [ -n "$CURRENT_PKG" ] || [ -n "$LAST_TEST" ]; then
-                # Check if EITHER package OR test has changed (not both must change)
-                if [ "$CURRENT_ACTIVITY" = "$LAST_LINE" ]; then
-                  HANG_COUNT=$((HANG_COUNT + 1))
-                  
-                  # Dump logs every 2 minutes when hung, terminate after 15 minutes
-                  if [ $HANG_COUNT -ge 30 ]; then
-                    echo "::error::No test progress for 15+ minutes - terminating"
-                    echo "Last package: $CURRENT_PKG"
-                    echo "Last test: $LAST_TEST"
-                    kill $TEST_PID 2>/dev/null || true
-                    wait $TEST_PID 2>/dev/null || true
-                    echo "=== Last 500 lines of test output ==="
-                    tail -500 test-output.log || true
-                    exit 1
-                  elif [ $((HANG_COUNT % 4)) -eq 0 ] && [ $HANG_COUNT -ge 4 ]; then
-                    # Dump logs every 2 minutes (4 * 30s) when no progress
-                    echo "[$(date +%H:%M:%S)] ⚠️  No progress for $((HANG_COUNT * 30))s - dumping last 50 lines:"
-                    tail -50 test-output.log 2>/dev/null | sed 's/^/  | /' || echo "  (no output)"
-                  elif [ $HANG_COUNT -ge 2 ]; then
-                    echo "[$(date +%H:%M:%S)] ⚠️  No progress for $((HANG_COUNT * 30))s (${ELAPSED}s, hang_count=$HANG_COUNT) | Pkg: ${CURRENT_PKG:0:60}"
-                  else
-                    echo "[$(date +%H:%M:%S)] Running (${ELAPSED}s) | Pkg: ${CURRENT_PKG:0:60}"
-                  fi
-                else
-                  HANG_COUNT=0
-                  if [ "$CURRENT_PKG" != "${LAST_LINE%%|*}" ]; then
-                    echo "[$(date +%H:%M:%S)] ✓ Package (${ELAPSED}s) | ${CURRENT_PKG:0:80}"
-                  fi
-                  LAST_LINE="$CURRENT_ACTIVITY"
-                fi
-              else
-                echo "[$(date +%H:%M:%S)] Tests running (${ELAPSED}s)..."
-              fi
-            else
-              echo "[$(date +%H:%M:%S)] Waiting for test output... (${ELAPSED}s)"
-            fi
-            
-            sleep 30
-            ELAPSED=$((ELAPSED + 30))
-            
-            # If approaching job timeout, dump logs and exit
-            if [ $ELAPSED -ge $MAX_WAIT ]; then
-              echo "::error::Tests exceeded timeout ($JOB_TIMEOUT_MIN min), dumping logs before job timeout"
-              kill $TEST_PID 2>/dev/null || true
-              wait $TEST_PID 2>/dev/null || true
-              echo "=== Last 500 lines of test output ==="
-              tail -500 test-output.log || true
-              exit 1
-            fi
-          done
-          
-          # Wait for test to complete and get exit code
-          wait $TEST_PID
-          TEST_EXIT_CODE=$?
-          
-          echo "Test completed with exit code: $TEST_EXIT_CODE"
-          if [ $TEST_EXIT_CODE -ne 0 ]; then
-            echo "::error::Tests failed with exit code $TEST_EXIT_CODE"
-            echo "Last 200 lines of output:"
-            tail -200 test-output.log
-          fi
-          exit $TEST_EXIT_CODE
-      - name: Upload test logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-logs-${{ matrix.modules.name }}
-          path: ${{ matrix.modules.path }}/test-output.log
-          retention-days: 5
+        run: go test -race -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out ./...
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
