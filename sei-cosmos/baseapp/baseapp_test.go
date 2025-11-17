@@ -164,7 +164,7 @@ func TestSetOccEnabled(t *testing.T) {
 // }
 
 func TestListSnapshots(t *testing.T) {
-	app, _ := setupBaseAppWithSnapshots(t, 2, 5)
+	app := setupBaseAppWithSnapshots(t, 2, 5)
 
 	expected := abci.ResponseListSnapshots{Snapshots: []*abci.Snapshot{
 		{Height: 2, Format: 1, Chunks: 2},
