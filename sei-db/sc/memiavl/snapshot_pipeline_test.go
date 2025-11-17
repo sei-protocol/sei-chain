@@ -272,6 +272,7 @@ func TestImportWithContext(t *testing.T) {
 
 	ch := make(chan *types.SnapshotNode)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Ensure context cleanup even if test fails early
 
 	go func() {
 		defer close(ch)

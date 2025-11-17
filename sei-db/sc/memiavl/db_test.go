@@ -25,6 +25,7 @@ func TestRewriteSnapshot(t *testing.T) {
 		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
+	defer db.Close() // Ensure DB cleanup
 
 	for i, changes := range ChangeSets {
 		cs := []*proto.NamedChangeSet{
@@ -98,9 +99,11 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 		SnapshotKeepRecent: 0, // only a single snapshot is kept
 	})
 	require.NoError(t, err)
+	defer db.Close() // Ensure DB cleanup and goroutine termination
 
 	// spin up goroutine to keep querying the tree
 	stopCh := make(chan struct{})
+	defer close(stopCh) // Ensure goroutine cleanup even if test fails early
 	go func() {
 		ticker := time.NewTicker(5 * time.Millisecond)
 		defer ticker.Stop()
@@ -144,7 +147,7 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 
 	// three files: snapshot, current link, rlog, LOCK
 	require.Equal(t, 4, len(entries))
-	close(stopCh)
+	// stopCh is closed by defer above
 }
 
 // helper to commit one change to bump height
@@ -250,6 +253,7 @@ func TestRlog(t *testing.T) {
 
 	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir})
 	require.NoError(t, err)
+	defer db.Close() // Close the reopened DB
 
 	require.Equal(t, "newtest", db.lastCommitInfo.StoreInfos[0].Name)
 	require.Equal(t, 1, len(db.lastCommitInfo.StoreInfos))
@@ -310,6 +314,7 @@ func TestInitialVersion(t *testing.T) {
 
 		db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir})
 		require.NoError(t, err)
+		defer db.Close() // Close the reopened DB at end of loop iteration
 		require.Equal(t, uint32(initialVersion), db.initialVersion.Load())
 		require.Equal(t, v, db.Version())
 		require.Equal(t, hex.EncodeToString(hash), hex.EncodeToString(db.LastCommitInfo().StoreInfos[0].CommitId.Hash))
@@ -390,6 +395,7 @@ func TestLoadVersion(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, RefHashes[v-1], tmp.TreeByName("test").RootHash())
 		require.Equal(t, expItems, collectIter(tmp.TreeByName("test").Iterator(nil, nil, true)))
+		require.NoError(t, tmp.Close()) // Close each readonly DB instance
 	}
 }
 
@@ -495,6 +501,7 @@ func TestEmptyValue(t *testing.T) {
 
 	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ZeroCopy: true})
 	require.NoError(t, err)
+	defer db.Close() // Close the reopened DB
 	require.Equal(t, version, db.Version())
 }
 

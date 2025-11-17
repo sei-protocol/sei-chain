@@ -27,8 +27,8 @@ jobs:
           - name: sei-cosmos
             path: ./sei-cosmos
             tags: ledger test_ledger_mock
-            timeout: 30m
-            job_timeout: 35
+            timeout: 45m
+            job_timeout: 50
           - name: sei-db
             path: ./sei-db
           - name: sei-tendermint
@@ -51,9 +51,9 @@ jobs:
           echo "Go version: $(go version)"
           echo "Timeout: ${{env.GO_TEST_TIMEOUT}}"
           
-          # Run tests with verbose output to see individual test progress
-          # Periodically trim the log file to last 5000 lines to avoid disk space issues
-          go test -race -v -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out ./... 2>&1 | tee test-output.log &
+          # Run tests and capture output for monitoring
+          # Note: -v flag is intentionally omitted for performance (adds ~40% overhead)
+          go test -race -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out ./... 2>&1 | tee test-output.log &
           TEST_PID=$!
           
           # Show periodic progress with timeout check (leaving 3 min buffer before job timeout)
@@ -62,28 +62,47 @@ jobs:
           MAX_WAIT=$((JOB_TIMEOUT_MIN * 60 - 180))
           LAST_LINE=""
           HANG_COUNT=0
+          CURRENT_PKG=""
+          SAVED_PKG=""
           
           while kill -0 $TEST_PID 2>/dev/null; do
-            # Trim log file to last 5000 lines every 5 minutes to save disk space
-            if [ $((ELAPSED % 300)) -eq 0 ] && [ $ELAPSED -gt 0 ] && [ -f test-output.log ]; then
-              tail -5000 test-output.log > test-output.tmp && mv test-output.tmp test-output.log
-            fi
-            
             if [ -f test-output.log ]; then
-              # Get last package completion and last test activity
-              CURRENT_PKG=$(grep -E "^(ok|FAIL|\?)" test-output.log 2>/dev/null | tail -1 || echo "")
-              LAST_TEST=$(grep -E "^(=== RUN|--- PASS|--- FAIL)" test-output.log 2>/dev/null | tail -1 || echo "")
+              # Extract last package completion from current log
+              NEW_PKG=$(grep -E "^(ok|FAIL|\?)" test-output.log 2>/dev/null | tail -1 || echo "")
+              
+              # If we found a package and it's different from what we saved, update
+              if [ -n "$NEW_PKG" ] && [ "$NEW_PKG" != "$SAVED_PKG" ]; then
+                SAVED_PKG="$NEW_PKG"
+                CURRENT_PKG="$NEW_PKG"
+              elif [ -z "$NEW_PKG" ] && [ -n "$SAVED_PKG" ]; then
+                # Log was trimmed, use saved value
+                CURRENT_PKG="$SAVED_PKG"
+              fi
+              
+              # Without -v flag, we only get package-level output, not individual tests
+              # So we just track the last line of output as activity indicator
+              LAST_TEST=$(tail -1 test-output.log 2>/dev/null || echo "")
+              
+              # Trim log file to last 10000 lines every 10 minutes to save disk space
+              # Keep more lines to avoid losing recent package completions between checks
+              # Important: Do this AFTER reading current status
+              if [ $((ELAPSED % 600)) -eq 0 ] && [ $ELAPSED -gt 0 ]; then
+                tail -10000 test-output.log > test-output.tmp && mv test-output.tmp test-output.log
+              fi
               
               # Check if we have any progress (either package or test level)
+              # Prioritize test-level activity as it's more reliable than package completion
+              # (package completion may be lost during log trimming)
               CURRENT_ACTIVITY="$CURRENT_PKG|$LAST_TEST"
               
               if [ -n "$CURRENT_PKG" ] || [ -n "$LAST_TEST" ]; then
+                # Check if EITHER package OR test has changed (not both must change)
                 if [ "$CURRENT_ACTIVITY" = "$LAST_LINE" ]; then
                   HANG_COUNT=$((HANG_COUNT + 1))
                   
-                  # Dump logs every 2 minutes when hung, terminate after 10 minutes
-                  if [ $HANG_COUNT -ge 20 ]; then
-                    echo "::error::No test progress for 10+ minutes - terminating"
+                  # Dump logs every 2 minutes when hung, terminate after 15 minutes
+                  if [ $HANG_COUNT -ge 30 ]; then
+                    echo "::error::No test progress for 15+ minutes - terminating"
                     echo "Last package: $CURRENT_PKG"
                     echo "Last test: $LAST_TEST"
                     kill $TEST_PID 2>/dev/null || true

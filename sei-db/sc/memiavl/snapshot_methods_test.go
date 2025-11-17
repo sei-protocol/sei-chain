@@ -179,6 +179,7 @@ func TestImportCancellation(t *testing.T) {
 
 	ch := make(chan *types.SnapshotNode, 100)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Ensure context cleanup even if test fails early
 
 	// Start exporting
 	go func() {
