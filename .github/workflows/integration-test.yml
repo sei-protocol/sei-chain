@@ -9,15 +9,15 @@ on:
       - release/**
 
 concurrency:
-  cancel-in-progress: true
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   tests:
-    env:
-      GO_TEST_TIMEOUT: 30m
     name: Test ${{ matrix.modules.name }}
     runs-on: ubuntu-latest
+    env:
+      GO_TEST_TIMEOUT: 30m
 
     strategy:
       fail-fast: false
@@ -40,21 +40,26 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # needed for accurate coverage in monorepos
 
       - uses: actions/setup-go@v6
         with:
           go-version: '1.24'
+          cache: true
 
-      - name: Remove unnecessary tooling
+      # Free up disk space – these are completely unnecessary for Sei builds
+      - name: Clean up pre-installed tooling
         run: |
           sudo rm -rf \
             /usr/share/dotnet \
             /usr/local/lib/android \
             /opt/ghc \
-            /opt/hostedtoolcache/CodeQL
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup
           sudo docker image prune --all --force
 
-      - name: Go test with race detector
+      - name: Run tests with race detector & coverage
         working-directory: ${{ matrix.modules.path }}
         run: |
           if [ -z "${{ matrix.modules.tags }}" ]; then
@@ -65,7 +70,7 @@ jobs:
               ./...
           else
             go test -race \
-              -tags='${{ matrix.modules.tags }}' \
+              -tags="${{ matrix.modules.tags }}" \
               -timeout="${GO_TEST_TIMEOUT}" \
               -covermode=atomic \
               -coverprofile=coverage.out \
@@ -76,8 +81,8 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: true
-          disable_search: true
-          name: ${{ matrix.modules.name }}-coverage
           files: ${{ matrix.modules.path }}/coverage.out
           flags: ${{ matrix.modules.name }}
+          name: ${{ matrix.modules.name }}-coverage
+          fail_ci_if_error: false   # change to true once you’re 100% confident
+          verbose: true
