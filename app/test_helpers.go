@@ -83,6 +83,11 @@ func (t TestAppOpts) Get(s string) interface{} {
 	if s == FlagSCEnable {
 		return t.useSc
 	}
+	// Disable snapshot creation in tests to avoid background goroutines
+	// that are not relevant to the test logic
+	if s == FlagSCSnapshotInterval {
+		return uint32(0) // 0 = disabled
+	}
 	return nil
 }
 
