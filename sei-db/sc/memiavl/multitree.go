@@ -458,9 +458,10 @@ func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp
 		group, _ := wp.GroupContext(ctx)
 
 		for _, entry := range otherTrees {
-			tree, name := entry.Tree, entry.Name
+			// Capture loop variables for goroutine closure to avoid data race
+			entry := entry // Create new variable for closure capture
 			group.Submit(func() error {
-				return tree.WriteSnapshot(ctx, filepath.Join(dir, name))
+				return entry.Tree.WriteSnapshot(ctx, filepath.Join(dir, entry.Name))
 			})
 		}
 
