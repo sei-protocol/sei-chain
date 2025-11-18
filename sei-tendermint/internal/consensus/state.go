@@ -308,10 +308,9 @@ func (cs *State) GetRoundStateJSON() ([]byte, error) {
 	return json.Marshal(*cs.roundState.CopyInternal())
 }
 
-// GetRoundStateSimpleJSON returns a json of RoundStateSimple
+// GetRoundStateSimpleJSON returns a json of RoundStateSimple. UNSTABLE.
 func (cs *State) GetRoundStateSimpleJSON() ([]byte, error) {
-	copy := cs.roundState.CopyInternal()
-	return json.Marshal(copy.RoundStateSimple())
+	return json.Marshal(cs.roundState.CopyInternal().RoundStateSimple())
 }
 
 // GetValidators returns a copy of the current validators.
