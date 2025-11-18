@@ -242,7 +242,6 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 			stores[k] = store
 		}
 	}
-	// TODO: May need to add historical SC store as well for nodes that doesn't enable ss but still need historical queries
 
 	// add SS stores for historical queries
 	if rs.ssStore != nil {
