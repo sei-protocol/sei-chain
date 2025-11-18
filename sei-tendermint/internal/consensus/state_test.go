@@ -25,6 +25,7 @@ import (
 	tmtime "github.com/tendermint/tendermint/libs/time"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
 /*
@@ -165,7 +166,7 @@ func TestStateEnterProposeNoPrivValidator(t *testing.T) {
 	ctx := t.Context()
 
 	cs, _ := makeState(ctx, t, makeStateArgs{config: config, validators: 1})
-	cs.SetPrivValidator(ctx, nil)
+	cs.SetPrivValidator(ctx, utils.None[types.PrivValidator]())
 	height, round := cs.roundState.Height(), cs.roundState.Round()
 
 	// Listen for propose timeout event
@@ -2683,18 +2684,6 @@ func subscribe(
 		}
 	}()
 	return ch
-}
-
-func signAddPrecommitWithExtension(ctx context.Context,
-	t *testing.T,
-	cs *State,
-	chainID string,
-	blockID types.BlockID,
-	stub *validatorStub,
-) {
-	v, err := stub.signVote(ctx, tmproto.PrecommitType, chainID, blockID)
-	require.NoError(t, err, "failed to sign vote")
-	addVotes(cs, v)
 }
 
 func TestAddProposalBlockPartMemoryLimit(t *testing.T) {

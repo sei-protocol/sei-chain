@@ -35,6 +35,7 @@ import (
 	"github.com/tendermint/tendermint/privval"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
 const (
@@ -507,7 +508,7 @@ func newStateWithConfigAndBlockStore(
 		panic(err)
 	}
 
-	cs.SetPrivValidator(ctx, pv)
+	cs.SetPrivValidator(ctx, utils.Some(pv))
 
 	return cs
 }

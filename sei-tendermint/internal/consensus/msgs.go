@@ -37,9 +37,7 @@ func init() {
 // NewRoundStepMessage is sent for every step taken in the ConsensusState.
 // For every height/round/step transition
 type NewRoundStepMessage struct {
-	Height                int64 `json:",string"`
-	Round                 int32
-	Step                  cstypes.RoundStepType
+	cstypes.HRS
 	SecondsSinceStartTime int64 `json:",string"`
 	LastCommitRound       int32
 }
@@ -478,9 +476,11 @@ func MsgFromProto(msg *tmcons.Message) (Message, error) {
 			return nil, fmt.Errorf("denying message due to possible overflow: %w", err)
 		}
 		pb = &NewRoundStepMessage{
-			Height:                msg.NewRoundStep.Height,
-			Round:                 msg.NewRoundStep.Round,
-			Step:                  cstypes.RoundStepType(rs),
+			HRS: cstypes.HRS {
+				Height:                msg.NewRoundStep.Height,
+				Round:                 msg.NewRoundStep.Round,
+				Step:                  cstypes.RoundStepType(rs),
+			},
 			SecondsSinceStartTime: msg.NewRoundStep.SecondsSinceStartTime,
 			LastCommitRound:       msg.NewRoundStep.LastCommitRound,
 		}

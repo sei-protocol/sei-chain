@@ -44,8 +44,8 @@ type PeerState struct {
 	// NOTE: Modify below using setters, never directly.
 	mtx    sync.RWMutex
 	cancel context.CancelFunc
-	PRS    cstypes.PeerRoundState `json:"round_state"`
-	Stats  *peerStateStats        `json:"stats"`
+	PRS    cstypes.PeerRoundState
+	Stats  *peerStateStats
 }
 
 // NewPeerState returns a new PeerState for the given node ID.
@@ -54,7 +54,7 @@ func NewPeerState(logger log.Logger, peerID types.NodeID) *PeerState {
 		peerID: peerID,
 		logger: logger,
 		PRS: cstypes.PeerRoundState{
-			Round:              -1,
+			HRS: cstypes.HRS { Round: -1 },
 			ProposalPOLRound:   -1,
 			LastCommitRound:    -1,
 			CatchupCommitRound: -1,
@@ -394,7 +394,7 @@ func (ps *PeerState) ApplyNewRoundStepMessage(msg *NewRoundStepMessage) {
 	defer ps.mtx.Unlock()
 
 	// ignore duplicates or decreases
-	if CompareHRS(msg.Height, msg.Round, msg.Step, ps.PRS.Height, ps.PRS.Round, ps.PRS.Step) <= 0 {
+	if msg.HRS.Cmp(ps.PRS.HRS) <= 0 {
 		return
 	}
 
@@ -403,12 +403,10 @@ func (ps *PeerState) ApplyNewRoundStepMessage(msg *NewRoundStepMessage) {
 		psRound              = ps.PRS.Round
 		psCatchupCommitRound = ps.PRS.CatchupCommitRound
 		psCatchupCommit      = ps.PRS.CatchupCommit
-		startTime            = tmtime.Now().Add(-1 * time.Duration(msg.SecondsSinceStartTime) * time.Second)
+		startTime            = tmtime.Now().Add(time.Duration(msg.SecondsSinceStartTime) * (-time.Second))
 	)
 
-	ps.PRS.Height = msg.Height
-	ps.PRS.Round = msg.Round
-	ps.PRS.Step = msg.Step
+	ps.PRS.HRS = msg.HRS
 	ps.PRS.StartTime = startTime
 
 	if psHeight != msg.Height || psRound != msg.Round {
@@ -512,25 +510,4 @@ func (ps *PeerState) ApplyVoteSetBitsMessage(msg *VoteSetBitsMessage, ourVotes *
 			votes.Update(hasVotes)
 		}
 	}
-}
-
-// String returns a string representation of the PeerState
-func (ps *PeerState) String() string {
-	return ps.StringIndented("")
-}
-
-// StringIndented returns a string representation of the PeerState
-func (ps *PeerState) StringIndented(indent string) string {
-	ps.mtx.Lock()
-	defer ps.mtx.Unlock()
-	return fmt.Sprintf(`PeerState{
-%s  Key        %v
-%s  RoundState %v
-%s  Stats      %v
-%s}`,
-		indent, ps.peerID,
-		indent, ps.PRS.StringIndented(indent+"  "),
-		indent, ps.Stats,
-		indent,
-	)
 }

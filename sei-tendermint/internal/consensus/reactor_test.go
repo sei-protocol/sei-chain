@@ -307,7 +307,7 @@ func TestReactorWithEvidence(t *testing.T) {
 		cs, err := NewState(logger.With("validator", i, "module", "consensus"),
 			thisConfig.Consensus, stateStore, blockExec, blockStore, mempool, evpool2, eventBus, []trace.TracerProviderOption{})
 		require.NoError(t, err)
-		cs.SetPrivValidator(ctx, pv)
+		cs.SetPrivValidator(ctx, utils.Some(pv))
 
 		cs.SetTimeoutTicker(tickerFunc())
 

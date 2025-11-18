@@ -33,7 +33,6 @@ import (
 	tmtime "github.com/tendermint/tendermint/libs/time"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/privval"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -346,11 +345,11 @@ func (cs *State) GetValidators() (int64, []*types.Validator) {
 
 // SetPrivValidator sets the private validator account for signing votes. It
 // immediately requests pubkey and caches it.
-func (cs *State) SetPrivValidator(ctx context.Context, priv types.PrivValidator) {
+func (cs *State) SetPrivValidator(ctx context.Context, priv utils.Option[types.PrivValidator]) {
 	cs.mtx.Lock()
 	defer cs.mtx.Unlock()
 
-	cs.privValidator = utils.Some(priv)
+	cs.privValidator = priv
 	if err := cs.updatePrivValidatorPubKey(ctx); err != nil {
 		cs.logger.Error("failed to get private validator pubkey", "err", err)
 	}
@@ -2863,25 +2862,6 @@ func (cs *State) calculatePrevoteMessageDelayMetrics() {
 
 //---------------------------------------------------------
 
-func CompareHRS(h1 int64, r1 int32, s1 cstypes.RoundStepType, h2 int64, r2 int32, s2 cstypes.RoundStepType) int {
-	if h1 < h2 {
-		return -1
-	} else if h1 > h2 {
-		return 1
-	}
-	if r1 < r2 {
-		return -1
-	} else if r1 > r2 {
-		return 1
-	}
-	if s1 < s2 {
-		return -1
-	} else if s1 > s2 {
-		return 1
-	}
-	return 0
-}
-
 // repairWalFile decodes messages from src (until the decoder errors) and
 // writes them to dst.
 func repairWalFile(src, dst string) error {
@@ -2943,9 +2923,7 @@ func (cs *State) voteTimeout(round int32) time.Duration {
 	if cs.config.UnsafeVoteTimeoutDeltaOverride != 0 {
 		vd = cs.config.UnsafeVoteTimeoutDeltaOverride
 	}
-	return time.Duration(
-		v.Nanoseconds()+vd.Nanoseconds()*int64(round),
-	) * time.Nanosecond
+	return v+vd*time.Duration(round)
 }
 
 func (cs *State) commitTime(t time.Time) time.Time {

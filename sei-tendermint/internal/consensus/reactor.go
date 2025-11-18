@@ -1143,10 +1143,6 @@ func (r *Reactor) peerStatsRoutine(ctx context.Context) error {
 	}
 }
 
-func (r *Reactor) GetConsensusState() *State {
-	return r.state
-}
-
 func (r *Reactor) SetStateSyncingMetrics(v float64) {
 	r.Metrics.StateSyncing.Set(v)
 }
