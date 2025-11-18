@@ -54,10 +54,14 @@ func CheckTx(
 	txCtx sdk.Context,
 	err error,
 ) {
+	label := "check"
+	if ctx.IsReCheckTx() {
+		label = "recheck"
+	}
 	defer telemetry.MeasureThroughputSinceWithLabels(
 		telemetry.TxCount,
 		[]gometrics.Label{
-			telemetry.NewLabel("mode", "check"),
+			telemetry.NewLabel("mode", label),
 		},
 		time.Now(),
 	)

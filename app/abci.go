@@ -2,12 +2,10 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
@@ -69,48 +67,7 @@ func (app *App) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) (res
 }
 
 func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
-	_, span := app.GetBaseApp().TracingInfo.StartWithContext("CheckTx", ctx)
-	defer span.End()
-	if req.Type == abci.CheckTxTypeV2New {
-		defer telemetry.MeasureSince(time.Now(), "abci", "check_tx")
-		sdkCtx := app.GetCheckTxContext(req.Tx)
-		tx, err := app.txDecoder(req.Tx)
-		if err != nil {
-			res := sdkerrors.ResponseCheckTx(err, 0, 0, false)
-			return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, err
-		}
-		checksum := sha256.Sum256(req.Tx)
-		gInfo, result, txCtx, err := legacyabci.CheckTx(sdkCtx, tx, app.GetTxConfig(), &app.CheckTxKeepers, checksum, func(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
-			return app.CacheTxContext(ctx, checksum)
-		}, app.GetCheckCtx, app.TracingInfo)
-		if err != nil {
-			res := sdkerrors.ResponseCheckTx(err, gInfo.GasWanted, gInfo.GasUsed, false)
-			return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, err
-		}
-
-		res := &abci.ResponseCheckTxV2{
-			ResponseCheckTx: &abci.ResponseCheckTx{
-				GasWanted:    int64(gInfo.GasWanted), //nolint:gosec
-				Data:         result.Data,
-				Priority:     txCtx.Priority(),
-				GasEstimated: int64(gInfo.GasEstimate), //nolint:gosec
-			},
-			ExpireTxHandler:  txCtx.ExpireTxHandler(),
-			CheckTxCallback:  txCtx.CheckTxCallback(),
-			EVMNonce:         txCtx.EVMNonce(),
-			EVMSenderAddress: txCtx.EVMSenderAddress(),
-			IsEVM:            txCtx.IsEVM(),
-			Priority:         txCtx.Priority(),
-		}
-		if txCtx.PendingTxChecker() != nil {
-			res.IsPendingTransaction = true
-			res.Checker = txCtx.PendingTxChecker()
-		}
-
-		return res, nil
-	}
-	// recheck case only
-	return app.BaseApp.CheckTx(ctx, req)
+	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{}}, nil
 }
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {

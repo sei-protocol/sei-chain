@@ -86,21 +86,6 @@ func CosmosCheckTxAnte(
 	}
 	ctx = ctx.WithGasMeter(gasMeter)
 
-	if !isGasless {
-		priority, err := CheckAndChargeFees(ctx, tx, accountKeeper, bankKeeper, feegrantKeeper, pk)
-		if err != nil {
-			return ctx, err
-		}
-		if priority > antedecorators.MaxPriority {
-			ctx = ctx.WithPriority(antedecorators.MaxPriority)
-		} else {
-			ctx = ctx.WithPriority(priority)
-		}
-	}
-	if oracleVote {
-		ctx = ctx.WithPriority(antedecorators.OraclePriority)
-	}
-
 	authParams := accountKeeper.GetParams(ctx)
 
 	if err := CheckMemoLength(tx, authParams); err != nil {
@@ -109,17 +94,24 @@ func CosmosCheckTxAnte(
 
 	ctx.GasMeter().ConsumeGas(authParams.TxSizeCostPerByte*sdk.Gas(len(ctx.TxBytes())), "txSize")
 
-	if err := CheckPubKeys(ctx, tx, accountKeeper, authParams); err != nil {
+	signerAccounts, err := CheckPubKeys(ctx, tx, accountKeeper, authParams)
+	if err != nil {
 		return ctx, err
 	}
 
-	if err := CheckSignatures(ctx, txConfig, tx, accountKeeper, authParams); err != nil {
+	if err := CheckSignatures(ctx, txConfig, tx, signerAccounts, authParams); err != nil {
 		return ctx, err
 	}
 
 	if err := UpdateSigners(ctx, tx, accountKeeper, ek); err != nil {
 		return ctx, err
 	}
+
+	priority, err := CheckAndChargeFees(ctx, tx, accountKeeper, bankKeeper, feegrantKeeper, pk, isGasless)
+	if err != nil {
+		return ctx, err
+	}
+	ctx = DecoratePriority(ctx, priority, oracleVote)
 
 	return ctx, CheckMessage(ctx, tx, ibcKeeper, oraclek)
 }
@@ -260,7 +252,10 @@ func GetGasMeter(
 	return ctx.GasMeter(), isGasless, nil
 }
 
-func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, feegrantKeeper *feegrantkeeper.Keeper, paramsKeeper paramskeeper.Keeper) (priority int64, err error) {
+func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, feegrantKeeper *feegrantkeeper.Keeper, paramsKeeper paramskeeper.Keeper, isGasless bool) (priority int64, err error) {
+	if isGasless {
+		return 0, nil
+	}
 	feeTx := tx.(sdk.FeeTx)
 	feeCoins := feeTx.GetFee()
 	feeParams := paramsKeeper.GetFeesParams(ctx)
@@ -328,6 +323,15 @@ func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.Acc
 	return
 }
 
+func DecoratePriority(ctx sdk.Context, priority int64, oracleVote bool) sdk.Context {
+	if oracleVote {
+		return ctx.WithPriority(antedecorators.OraclePriority)
+	} else if priority > antedecorators.MaxPriority {
+		return ctx.WithPriority(antedecorators.MaxPriority)
+	}
+	return ctx.WithPriority(priority)
+}
+
 func CheckMemoLength(tx sdk.Tx, authParams authtypes.Params) error {
 	memoLength := len(tx.(sdk.TxWithMemo).GetMemo())
 	if uint64(memoLength) > authParams.MaxMemoCharacters {
@@ -339,41 +343,40 @@ func CheckMemoLength(tx sdk.Tx, authParams authtypes.Params) error {
 	return nil
 }
 
-func CheckPubKeys(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, authParams authtypes.Params) error {
+func CheckPubKeys(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, authParams authtypes.Params) ([]authtypes.AccountI, error) {
 	sigCount := 0
 	pubkeys, err := tx.(authsigning.SigVerifiableTx).GetPubKeys()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	signers := tx.(authsigning.SigVerifiableTx).GetSigners()
+	signerAcounts := make([]authtypes.AccountI, len(signers))
 	for i, pk := range pubkeys {
-		if pk == nil {
-			continue
-		}
 		acc, err := authante.GetSignerAcc(ctx, accountKeeper, signers[i])
 		if err != nil {
-			return err
+			return nil, err
 		}
-		// account already has pubkey set,no need to reset
-		if acc.GetPubKey() != nil {
+		if pk == nil || acc.GetPubKey() != nil {
+			signerAcounts[i] = acc
 			continue
 		}
 		err = acc.SetPubKey(pk)
 		if err != nil {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, err.Error())
+			return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, err.Error())
 		}
 		accountKeeper.SetAccount(ctx, acc)
+		signerAcounts[i] = acc
 
 		sigCount += authante.CountSubKeys(pk)
 		if uint64(sigCount) > authParams.TxSigLimit { //nolint:gosec
-			return sdkerrors.Wrapf(sdkerrors.ErrTooManySignatures,
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrTooManySignatures,
 				"signatures: %d, limit: %d", sigCount, authParams.TxSigLimit)
 		}
 	}
-	return nil
+	return signerAcounts, nil
 }
 
-func CheckSignatures(ctx sdk.Context, txConfig client.TxConfig, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, authParams authtypes.Params) error {
+func CheckSignatures(ctx sdk.Context, txConfig client.TxConfig, tx sdk.Tx, signerAccounts []authtypes.AccountI, authParams authtypes.Params) error {
 	sigTx := tx.(authsigning.SigVerifiableTx)
 	sigs, err := sigTx.GetSignaturesV2()
 	if err != nil {
@@ -393,10 +396,7 @@ func CheckSignatures(ctx sdk.Context, txConfig client.TxConfig, tx sdk.Tx, accou
 			return err
 		}
 
-		signerAcc, err := authante.GetSignerAcc(ctx, accountKeeper, signerAddrs[i])
-		if err != nil {
-			return err
-		}
+		signerAcc := signerAccounts[i]
 
 		pubKey := signerAcc.GetPubKey()
 
@@ -412,19 +412,18 @@ func CheckSignatures(ctx sdk.Context, txConfig client.TxConfig, tx sdk.Tx, accou
 			return err
 		}
 
-		acc, err := authante.GetSignerAcc(ctx, accountKeeper, signerAddrs[i])
-		if err != nil {
-			return err
-		}
-
 		// Check account sequence number.
-		if sig.Sequence != acc.GetSequence() {
+		if sig.Sequence != signerAcc.GetSequence() {
 			if !authParams.GetDisableSeqnoCheck() {
 				return sdkerrors.Wrapf(
 					sdkerrors.ErrWrongSequence,
-					"account sequence mismatch, expected %d, got %d", acc.GetSequence(), sig.Sequence,
+					"account sequence mismatch, expected %d, got %d", signerAcc.GetSequence(), sig.Sequence,
 				)
 			}
+		}
+
+		if ctx.IsReCheckTx() {
+			continue
 		}
 
 		// retrieve signer data
@@ -432,12 +431,12 @@ func CheckSignatures(ctx sdk.Context, txConfig client.TxConfig, tx sdk.Tx, accou
 		chainID := ctx.ChainID()
 		var accNum uint64
 		if !genesis {
-			accNum = acc.GetAccountNumber()
+			accNum = signerAcc.GetAccountNumber()
 		}
 		signerData := authsigning.SignerData{
 			ChainID:       chainID,
 			AccountNumber: accNum,
-			Sequence:      acc.GetSequence(),
+			Sequence:      signerAcc.GetSequence(),
 		}
 
 		err = authsigning.VerifySignature(pubKey, signerData, sig.Data, txConfig.SignModeHandler(), tx)
@@ -446,7 +445,7 @@ func CheckSignatures(ctx sdk.Context, txConfig client.TxConfig, tx sdk.Tx, accou
 			if authante.OnlyLegacyAminoSigners(sig.Data) {
 				// If all signers are using SIGN_MODE_LEGACY_AMINO, we rely on VerifySignature to check account sequence number,
 				// and therefore communicate sequence number as a potential cause of error.
-				errMsg = fmt.Sprintf("signature verification failed; please verify account number (%d), sequence (%d) and chain-id (%s)", accNum, acc.GetSequence(), chainID)
+				errMsg = fmt.Sprintf("signature verification failed; please verify account number (%d), sequence (%d) and chain-id (%s)", accNum, signerAcc.GetSequence(), chainID)
 			} else {
 				errMsg = fmt.Sprintf("signature verification failed; please verify account number (%d) and chain-id (%s)", accNum, chainID)
 			}
@@ -552,6 +551,9 @@ func CheckMessage(ctx sdk.Context, tx sdk.Tx, ibcKeeper *ibckeeper.Keeper, oracl
 			}
 
 		case *oracletypes.MsgAggregateExchangeRateVote:
+			if ctx.IsReCheckTx() {
+				continue
+			}
 			feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
 			if err != nil {
 				return err

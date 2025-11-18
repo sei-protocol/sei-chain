@@ -819,10 +819,14 @@ func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context 
 	return ctx
 }
 
-func (app *BaseApp) GetCheckTxContext(txBytes []byte) sdk.Context {
+func (app *BaseApp) GetCheckTxContext(txBytes []byte, recheck bool) sdk.Context {
 	app.votesInfoLock.RLock()
 	defer app.votesInfoLock.RUnlock()
-	ctx := app.getState(runTxModeCheck).Context().
+	mode := runTxModeCheck
+	if recheck {
+		mode = runTxModeReCheck
+	}
+	ctx := app.getState(mode).Context().
 		WithTxBytes(txBytes).
 		WithVoteInfos(app.voteInfos)
 
@@ -975,7 +979,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	// Result if any single message fails or does not have a registered Handler.
 	result, err = app.runMsgs(runMsgCtx, msgs, mode)
 
-	if err == nil && mode == runTxModeDeliver {
+	if err == nil {
 		msCache.Write()
 	}
 	// we do this since we will only be looking at result in DeliverTx
@@ -1041,10 +1045,6 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 
 	// NOTE: GasWanted is determined by the AnteHandler and GasUsed by the GasMeter.
 	for i, msg := range msgs {
-		// skip actual execution for (Re)CheckTx mode
-		if mode == runTxModeCheck || mode == runTxModeReCheck {
-			break
-		}
 		var (
 			msgResult    *sdk.Result
 			eventMsgName string // name to use as value in event `message.action`
