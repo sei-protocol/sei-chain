@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -34,8 +33,7 @@ import (
 )
 
 func TestLoadSnapshotChunk(t *testing.T) {
-	app, teardown := setupBaseAppWithSnapshots(t, 2, 5)
-	defer teardown()
+	app := setupBaseAppWithSnapshots(t, 2, 5)
 
 	testcases := map[string]struct {
 		height      uint64
@@ -70,8 +68,7 @@ func TestLoadSnapshotChunk(t *testing.T) {
 
 func TestOfferSnapshot_Errors(t *testing.T) {
 	// Set up app before test cases, since it's fairly expensive.
-	app, teardown := setupBaseAppWithSnapshots(t, 0, 0)
-	defer teardown()
+	app := setupBaseAppWithSnapshots(t, 0, 0)
 
 	m := snapshottypes.Metadata{ChunkHashes: [][]byte{{1}, {2}, {3}}}
 	metadata, err := m.Marshal()
@@ -125,11 +122,9 @@ func TestOfferSnapshot_Errors(t *testing.T) {
 }
 
 func TestApplySnapshotChunk(t *testing.T) {
-	source, teardown := setupBaseAppWithSnapshots(t, 4, 10)
-	defer teardown()
+	source := setupBaseAppWithSnapshots(t, 4, 10)
 
-	target, teardown := setupBaseAppWithSnapshots(t, 0, 0)
-	defer teardown()
+	target := setupBaseAppWithSnapshots(t, 0, 0)
 
 	// Fetch latest snapshot to restore
 	respList, _ := source.ListSnapshots(context.Background(), &abci.RequestListSnapshots{})
@@ -1785,7 +1780,7 @@ func TestLoadVersionInvalid(t *testing.T) {
 }
 
 // simple one store baseapp with data and snapshots. Each tx is 1 MB in size (uncompressed).
-func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options ...func(*BaseApp)) (*BaseApp, func()) {
+func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options ...func(*BaseApp)) *BaseApp {
 	codec := codec.NewLegacyAmino()
 	registerTestCodec(codec)
 	routerOpt := func(bapp *BaseApp) {
@@ -1798,13 +1793,8 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 
 	snapshotInterval := uint64(2)
 	snapshotTimeout := 1 * time.Minute
-	snapshotDir, err := os.MkdirTemp("", "baseapp")
+	snapshotStore, err := snapshots.NewStore(dbm.NewMemDB(), t.TempDir())
 	require.NoError(t, err)
-	snapshotStore, err := snapshots.NewStore(dbm.NewMemDB(), snapshotDir)
-	require.NoError(t, err)
-	teardown := func() {
-		os.RemoveAll(snapshotDir)
-	}
 
 	app := setupBaseApp(t, append(options,
 		SetSnapshotStore(snapshotStore),
@@ -1856,7 +1846,7 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 		}
 	}
 
-	return app, teardown
+	return app
 }
 
 func TestMountStores(t *testing.T) {
