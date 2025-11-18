@@ -2,11 +2,11 @@ package consensus
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
-	"encoding/json"
 
 	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
 	"github.com/tendermint/tendermint/libs/bits"

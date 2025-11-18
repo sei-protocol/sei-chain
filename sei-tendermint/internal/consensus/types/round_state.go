@@ -354,21 +354,21 @@ func (s *SafeRoundState) CompleteProposalEvent() types.EventDataCompleteProposal
 // NOTE: Not thread safe. Should only be manipulated by functions downstream
 // of the cs.receiveRoutine
 type RoundState struct {
-	Height    int64         // Height we are working on
-	Round     int32         
-	Step      RoundStepType 
-	StartTime time.Time     
+	Height    int64 // Height we are working on
+	Round     int32
+	Step      RoundStepType
+	StartTime time.Time
 
 	// Subjective time when +2/3 precommits for Block at Round were found
-	CommitTime          time.Time           
-	Validators          *types.ValidatorSet 
-	Proposal            *types.Proposal     
-	ProposalReceiveTime time.Time           
-	ProposalBlock       *types.Block        
-	ProposalBlockParts  *types.PartSet      
+	CommitTime          time.Time
+	Validators          *types.ValidatorSet
+	Proposal            *types.Proposal
+	ProposalReceiveTime time.Time
+	ProposalBlock       *types.Block
+	ProposalBlockParts  *types.PartSet
 	LockedRound         int32
 	LockedBlock         *types.Block
-	LockedBlockParts    *types.PartSet 
+	LockedBlockParts    *types.PartSet
 
 	// The variables below starting with "Valid..." derive their name from
 	// the algorithm presented in this paper:
@@ -379,15 +379,15 @@ type RoundState struct {
 	//   * has nothing to do with whether the Application returned "Accept" in its
 	//     response to `ProcessProposal`, or "Reject"
 
-	ValidRound int32 // Last known round with POL for non-nil valid block.
-	ValidBlock *types.Block  // Last known block of POL mentioned above.
-	ValidBlockParts           *types.PartSet // Last known block parts of POL mentioned above.
+	ValidRound      int32          // Last known round with POL for non-nil valid block.
+	ValidBlock      *types.Block   // Last known block of POL mentioned above.
+	ValidBlockParts *types.PartSet // Last known block parts of POL mentioned above.
 
-	Votes                     *HeightVoteSet      
-	CommitRound               int32                
-	LastCommit                *types.VoteSet       // Last precommits at Height-1
-	LastValidators            *types.ValidatorSet 
-	TriggeredTimeoutPrecommit bool                
+	Votes                     *HeightVoteSet
+	CommitRound               int32
+	LastCommit                *types.VoteSet // Last precommits at Height-1
+	LastValidators            *types.ValidatorSet
+	TriggeredTimeoutPrecommit bool
 }
 
 // Compressed version of the RoundState for use in RPC.
