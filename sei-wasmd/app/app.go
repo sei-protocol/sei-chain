@@ -574,34 +574,6 @@ func NewWasmApp(
 		crisis.NewAppModule(&app.crisisKeeper, skipGenesisInvariants), // always be last to make sure that it checks for all invariants and not only part of them
 	)
 
-	// During begin block slashing happens after distr.BeginBlocker so that
-	// there is nothing left over in the validator fee pool, so as to keep the
-	// CanWithdrawInvariant invariant.
-	// NOTE: staking module is required if HistoricalEntries param > 0
-	app.mm.SetOrderBeginBlockers(
-		upgradetypes.ModuleName,
-		capabilitytypes.ModuleName,
-		minttypes.ModuleName,
-		distrtypes.ModuleName,
-		slashingtypes.ModuleName,
-		evidencetypes.ModuleName,
-		stakingtypes.ModuleName,
-		authtypes.ModuleName,
-		banktypes.ModuleName,
-		govtypes.ModuleName,
-		crisistypes.ModuleName,
-		genutiltypes.ModuleName,
-		authz.ModuleName,
-		feegrant.ModuleName,
-		paramstypes.ModuleName,
-		vestingtypes.ModuleName,
-		// additional non simd modules
-		ibctransfertypes.ModuleName,
-		ibchost.ModuleName,
-		icatypes.ModuleName,
-		wasm.ModuleName,
-	)
-
 	app.mm.SetOrderEndBlockers(
 		crisistypes.ModuleName,
 		govtypes.ModuleName,
@@ -694,7 +666,6 @@ func NewWasmApp(
 	app.SetAnteHandler(anteHandler)
 	app.SetAnteDepGenerator(anteDepGenerator)
 	app.SetInitChainer(app.InitChainer)
-	app.SetBeginBlocker(app.BeginBlocker)
 	app.SetEndBlocker(app.EndBlocker)
 	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
@@ -751,35 +722,13 @@ func (app *WasmApp) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestPro
 }
 
 func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	capability.BeginBlocker(ctx, *app.capabilityKeeper)
+	distr.BeginBlocker(ctx, []abci.VoteInfo{}, app.distrKeeper)
+	slashing.BeginBlocker(ctx, []abci.VoteInfo{}, *&app.slashingKeeper)
+	evidence.BeginBlocker(ctx, []abci.Misbehavior{}, *&app.evidenceKeeper)
+	staking.BeginBlocker(ctx, app.stakingKeeper)
+	ibcclient.BeginBlocker(ctx, app.ibcKeeper.ClientKeeper)
 	events := []abci.Event{}
-	beginBlockResp := app.BeginBlock(ctx, abci.RequestBeginBlock{
-		Hash: req.Hash,
-		ByzantineValidators: utils.Map(req.ByzantineValidators, func(mis abci.Misbehavior) abci.Evidence {
-			return abci.Evidence{
-				Type:             abci.MisbehaviorType(mis.Type),
-				Validator:        abci.Validator(mis.Validator),
-				Height:           mis.Height,
-				Time:             mis.Time,
-				TotalVotingPower: mis.TotalVotingPower,
-			}
-		}),
-		LastCommitInfo: abci.LastCommitInfo{
-			Round: req.DecidedLastCommit.Round,
-			Votes: utils.Map(req.DecidedLastCommit.Votes, func(vote abci.VoteInfo) abci.VoteInfo {
-				return abci.VoteInfo{
-					Validator:       abci.Validator(vote.Validator),
-					SignedLastBlock: vote.SignedLastBlock,
-				}
-			}),
-		},
-		Header: tmproto.Header{
-			ChainID:         app.ChainID,
-			Height:          req.Height,
-			Time:            req.Time,
-			ProposerAddress: ctx.BlockHeader().ProposerAddress,
-		},
-	})
-	events = append(events, beginBlockResp.Events...)
 
 	typedTxs := []sdk.Tx{}
 	for _, tx := range req.Txs {
@@ -794,7 +743,7 @@ func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBl
 	txResults := []*abci.ExecTxResult{}
 	for i, tx := range req.Txs {
 		ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
-		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
+		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTxV2{
 			Tx: tx,
 		}, typedTxs[i], sha256.Sum256(tx))
 		txResults = append(txResults, &abci.ExecTxResult{
@@ -844,11 +793,6 @@ func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBl
 		},
 		AppHash: appHash,
 	}, nil
-}
-
-// application updates every begin block
-func (app *WasmApp) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
-	return app.mm.BeginBlock(ctx, req)
 }
 
 // EndBlocker application updates every end block
@@ -933,6 +877,22 @@ func (app *WasmApp) RegisterTendermintService(clientCtx client.Context) {
 
 func (app *WasmApp) AppCodec() codec.Codec {
 	return app.appCodec
+}
+
+func (app *WasmApp) GetCapabilityKeeper() *capabilitykeeper.Keeper {
+	return app.capabilityKeeper
+}
+
+func (app *WasmApp) GetDistrKeeper() *distrkeeper.Keeper {
+	return &app.distrKeeper
+}
+
+func (app *WasmApp) GetSlashingKeeper() *slashingkeeper.Keeper {
+	return &app.slashingKeeper
+}
+
+func (app *WasmApp) GetEvidenceKeeper() *evidencekeeper.Keeper {
+	return &app.evidenceKeeper
 }
 
 // RegisterSwaggerAPI registers swagger route with API Server

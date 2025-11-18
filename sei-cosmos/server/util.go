@@ -338,7 +338,6 @@ func AddCommands(
 		commands.MakeKeyMigrateCommand(conf, logger),
 		debug.GetDebugCommand(logger),
 		commands.NewCompletionCmd(tendermintCmd, true),
-		commands.MakeSnapshotCommand(InterceptConfigs),
 	)
 
 	startCmd := StartCmd(appCreator, defaultNodeHome, tracerProviderOptions)

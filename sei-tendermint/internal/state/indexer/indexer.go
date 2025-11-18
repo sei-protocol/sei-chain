@@ -14,14 +14,14 @@ type TxIndexer interface {
 	// Index analyzes, indexes and stores transactions. For indexing multiple
 	// Transacions must guarantee the Index of the TxResult is in order.
 	// See Batch struct.
-	Index(results []*abci.TxResult) error
+	Index(results []*abci.TxResultV2) error
 
 	// Get returns the transaction specified by hash or nil if the transaction is not indexed
 	// or stored.
-	Get(hash []byte) (*abci.TxResult, error)
+	Get(hash []byte) (*abci.TxResultV2, error)
 
 	// Search allows you to query for transactions.
-	Search(ctx context.Context, q *query.Query) ([]*abci.TxResult, error)
+	Search(ctx context.Context, q *query.Query) ([]*abci.TxResultV2, error)
 }
 
 // BlockIndexer defines an interface contract for indexing block events.
@@ -41,17 +41,17 @@ type BlockIndexer interface {
 // Batch groups together multiple Index operations to be performed at the same time.
 // NOTE: Batch is NOT thread-safe and must not be modified after starting its execution.
 type Batch struct {
-	Ops     []*abci.TxResult
+	Ops     []*abci.TxResultV2
 	Pending int64
 }
 
 // NewBatch creates a new Batch.
 func NewBatch(n int64) *Batch {
-	return &Batch{Ops: make([]*abci.TxResult, n), Pending: n}
+	return &Batch{Ops: make([]*abci.TxResultV2, n), Pending: n}
 }
 
 // Add or update an entry for the given result.Index.
-func (b *Batch) Add(result *abci.TxResult) error {
+func (b *Batch) Add(result *abci.TxResultV2) error {
 	if b.Ops[result.Index] == nil {
 		b.Pending--
 		b.Ops[result.Index] = result

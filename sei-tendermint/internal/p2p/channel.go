@@ -97,11 +97,7 @@ func (ch *Channel) send(msg proto.Message, queues ...*Queue[sendMsg]) {
 }
 
 func (ch *Channel) Send(msg proto.Message, to types.NodeID) {
-	ok := false
-	var c *Connection
-	for conns := range ch.router.conns.RLock() {
-		c, ok = conns[to]
-	}
+	c, ok := ch.router.peerManager.Conns().Get(to)
 	if !ok {
 		ch.router.logger.Debug("dropping message for unconnected peer", "peer", to, "channel", ch.desc.ID)
 		return
@@ -119,12 +115,9 @@ func (ch *Channel) Send(msg proto.Message, to types.NodeID) {
 // Broadcasts msg to all peers on the channel.
 func (ch *Channel) Broadcast(msg proto.Message) {
 	var queues []*Queue[sendMsg]
-	for conns := range ch.router.conns.RLock() {
-		queues = make([]*Queue[sendMsg], 0, len(conns))
-		for _, c := range conns {
-			if _, ok := c.peerChannels[ch.desc.ID]; ok {
-				queues = append(queues, c.sendQueue)
-			}
+	for _, c := range ch.router.peerManager.Conns().All() {
+		if _, ok := c.peerChannels[ch.desc.ID]; ok {
+			queues = append(queues, c.sendQueue)
 		}
 	}
 	ch.send(msg, queues...)

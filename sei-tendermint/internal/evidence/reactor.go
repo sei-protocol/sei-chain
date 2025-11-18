@@ -11,7 +11,6 @@ import (
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
-	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -145,8 +144,7 @@ func (r *Reactor) processEvidenceCh(ctx context.Context) error {
 			return err
 		}
 		if err := r.handleEvidenceMessage(ctx, m); err != nil {
-			r.logger.Error("failed to process evidenceCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.Evict(m.From, fmt.Errorf("evidence: %w", err))
 		}
 	}
 }
@@ -205,12 +203,9 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 // PeerUpdate messages. When the reactor is stopped, we will catch the signal and
 // close the p2p PeerUpdatesCh gracefully.
 func (r *Reactor) processPeerUpdates(ctx context.Context) error {
-	peerUpdates := r.router.PeerManager().Subscribe(ctx)
-	for _, update := range peerUpdates.PreexistingPeers() {
-		r.processPeerUpdate(ctx, update)
-	}
+	recv := r.router.Subscribe()
 	for {
-		update, err := utils.Recv(ctx, peerUpdates.Updates())
+		update, err := recv.Recv(ctx)
 		if err != nil {
 			return err
 		}

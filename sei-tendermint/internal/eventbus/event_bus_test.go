@@ -55,7 +55,7 @@ func TestEventBusPublishEventTx(t *testing.T) {
 	}()
 
 	err = eventBus.PublishEventTx(types.EventDataTx{
-		TxResult: abci.TxResult{
+		TxResultV2: abci.TxResultV2{
 			Height: 1,
 			Index:  0,
 			Tx:     tx,
@@ -221,7 +221,7 @@ func TestEventBusPublishEventTxDuplicateKeys(t *testing.T) {
 			}()
 
 			assert.NoError(t, eventBus.PublishEventTx(types.EventDataTx{
-				TxResult: abci.TxResult{
+				TxResultV2: abci.TxResultV2{
 					Height: 1,
 					Index:  0,
 					Tx:     tx,

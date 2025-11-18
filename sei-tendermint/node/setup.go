@@ -28,6 +28,7 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	tmnet "github.com/tendermint/tendermint/libs/net"
 	tmstrings "github.com/tendermint/tendermint/libs/strings"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/privval"
 	tmgrpc "github.com/tendermint/tendermint/privval/grpc"
 	"github.com/tendermint/tendermint/types"
@@ -152,7 +153,7 @@ func createMempoolReactor(
 		logger,
 		cfg.Mempool,
 		appClient,
-		router.PeerManager(),
+		router,
 		mempool.WithMetrics(memplMetrics),
 		mempool.WithPreCheck(sm.TxPreCheckFromStore(store)),
 		mempool.WithPostCheck(sm.TxPostCheckFromStore(store)),
@@ -200,131 +201,98 @@ func createEvidenceReactor(
 	return evidenceReactor, evidencePool, evidenceDB.Close, nil
 }
 
-func createPeerManager(
+func createRouter(
 	logger log.Logger,
+	p2pMetrics *p2p.Metrics,
+	nodeInfoProducer func() *types.NodeInfo,
+	nodeKey types.NodeKey,
 	cfg *config.Config,
+	appClient abciclient.Client,
 	dbProvider config.DBProvider,
-	nodeID types.NodeID,
-	metrics *p2p.Metrics,
-) (*p2p.PeerManager, closer, error) {
-	selfAddr, err := p2p.ParseNodeAddress(nodeID.AddressString(cfg.P2P.ExternalAddress))
+) (*p2p.Router, closer, error) {
+	closer := func() error { return nil }
+	ep, err := p2p.ResolveEndpoint(nodeKey.ID.AddressString(cfg.P2P.ListenAddress))
 	if err != nil {
-		return nil, func() error { return nil }, fmt.Errorf("couldn't parse ExternalAddress %q: %w", cfg.P2P.ExternalAddress, err)
+		return nil, closer, err
 	}
-
-	privatePeerIDs := make(map[types.NodeID]struct{})
+	options := getRouterConfig(cfg, appClient)
+	options.Endpoint = ep
+	options.MaxConcurrentAccepts = utils.Some(int(cfg.P2P.MaxConnections))
+	options.Connection = conn.DefaultMConnConfig()
+	options.Connection.FlushThrottle = cfg.P2P.FlushThrottleTimeout
+	options.Connection.SendRate = cfg.P2P.SendRate
+	options.Connection.RecvRate = cfg.P2P.RecvRate
+	options.Connection.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
+	if addr := cfg.P2P.ExternalAddress; addr != "" {
+		nodeAddr, err := p2p.ParseNodeAddress(nodeKey.ID.AddressString(addr))
+		if err != nil {
+			return nil, closer, fmt.Errorf("couldn't parse ExternalAddress %q: %w", cfg.P2P.ExternalAddress, err)
+		}
+		options.SelfAddress = utils.Some(nodeAddr)
+	}
+	var privatePeerIDs []types.NodeID
 	for _, id := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PrivatePeerIDs, ",", " ") {
-		privatePeerIDs[types.NodeID(id)] = struct{}{}
+		privatePeerIDs = append(privatePeerIDs, types.NodeID(id))
 	}
 
-	var maxConns uint16
+	var maxConns int
 
 	switch {
 	case cfg.P2P.MaxConnections > 0:
-		maxConns = cfg.P2P.MaxConnections
+		maxConns = int(cfg.P2P.MaxConnections)
 	default:
 		maxConns = 64
 	}
 
-	maxUpgradeConns := uint16(4)
+	options.MaxConnected = utils.Some(maxConns)
+	options.MaxPeers = utils.Some(2 * maxConns)
+	options.PrivatePeers = privatePeerIDs
 
-	options := p2p.PeerManagerOptions{
-		SelfAddress:            selfAddr,
-		MaxConnected:           maxConns,
-		MaxConnectedUpgrade:    maxUpgradeConns,
-		MaxPeers:               maxUpgradeConns + 2*maxConns,
-		MinRetryTime:           250 * time.Millisecond,
-		MaxRetryTime:           2 * time.Minute,
-		MaxRetryTimePersistent: 2 * time.Minute,
-		RetryTimeJitter:        5 * time.Second,
-		PrivatePeers:           privatePeerIDs,
-	}
-
-	peers := []p2p.NodeAddress{}
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PersistentPeers, ",", " ") {
 		address, err := p2p.ParseNodeAddress(p)
 		if err != nil {
-			return nil, func() error { return nil }, fmt.Errorf("invalid peer address %q: %w", p, err)
+			return nil, closer, fmt.Errorf("invalid peer address %q: %w", p, err)
 		}
-
-		peers = append(peers, address)
-		options.PersistentPeers = append(options.PersistentPeers, address.NodeID)
+		options.PersistentPeers = append(options.PersistentPeers, address)
 	}
 
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.BootstrapPeers, ",", " ") {
 		address, err := p2p.ParseNodeAddress(p)
 		if err != nil {
-			return nil, func() error { return nil }, fmt.Errorf("invalid peer address %q: %w", p, err)
+			return nil, closer, fmt.Errorf("invalid peer address %q: %w", p, err)
 		}
-		peers = append(peers, address)
+		options.BootstrapPeers = append(options.BootstrapPeers, address)
 	}
 
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.BlockSyncPeers, ",", " ") {
 		address, err := p2p.ParseNodeAddress(p)
 		if err != nil {
-			return nil, func() error { return nil }, fmt.Errorf("invalid peer address %q: %w", p, err)
+			return nil, closer, fmt.Errorf("invalid peer address %q: %w", p, err)
 		}
-
-		peers = append(peers, address)
+		options.PersistentPeers = append(options.PersistentPeers, address)
 		options.BlockSyncPeers = append(options.BlockSyncPeers, address.NodeID)
 	}
 
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.UnconditionalPeerIDs, ",", " ") {
 		options.UnconditionalPeers = append(options.UnconditionalPeers, types.NodeID(p))
 	}
-
 	peerDB, err := dbProvider(&config.DBContext{ID: "peerstore", Config: cfg})
 	if err != nil {
-		return nil, func() error { return nil }, fmt.Errorf("unable to initialize peer store: %w", err)
+		return nil, closer, fmt.Errorf("unable to initialize peer store: %w", err)
 	}
-	p2pLogger := logger.With("module", "p2p")
-	peerManager, err := p2p.NewPeerManager(p2pLogger, nodeID, peerDB, options, metrics)
-	if err != nil {
-		return nil, peerDB.Close, fmt.Errorf("failed to create peer manager: %w", err)
-	}
-
-	for _, peer := range peers {
-		if _, err := peerManager.Add(peer); err != nil {
-			return nil, peerDB.Close, fmt.Errorf("failed to add peer %q: %w", peer, err)
-		}
-	}
-
-	return peerManager, peerDB.Close, nil
-}
-
-func createRouter(
-	logger log.Logger,
-	p2pMetrics *p2p.Metrics,
-	nodeInfoProducer func() *types.NodeInfo,
-	nodeKey types.NodeKey,
-	peerManager *p2p.PeerManager,
-	cfg *config.Config,
-	appClient abciclient.Client,
-) (*p2p.Router, error) {
-
-	p2pLogger := logger.With("module", "p2p")
-
-	ep, err := p2p.ResolveEndpoint(nodeKey.ID.AddressString(cfg.P2P.ListenAddress))
-	if err != nil {
-		return nil, err
-	}
-	config := getRouterConfig(cfg, appClient)
-	config.Endpoint = ep
-	config.MaxAcceptedConnections = uint32(cfg.P2P.MaxConnections)
-	config.Connection = conn.DefaultMConnConfig()
-	config.Connection.FlushThrottle = cfg.P2P.FlushThrottleTimeout
-	config.Connection.SendRate = cfg.P2P.SendRate
-	config.Connection.RecvRate = cfg.P2P.RecvRate
-	config.Connection.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
-	return p2p.NewRouter(
-		p2pLogger,
+	closer = peerDB.Close
+	router, err := p2p.NewRouter(
+		logger.With("module", "p2p"),
 		p2pMetrics,
 		nodeKey.PrivKey,
-		peerManager,
 		nodeInfoProducer,
-		nil, // TODO: replace with mempool CheckTx failure based filterer
-		config,
-	), nil
+		peerDB,
+		options,
+	)
+	if err != nil {
+		return nil, closer, fmt.Errorf("p2p.NewRouter(): %w", err)
+	}
+	return router, closer, nil
 }
 
 func makeNodeInfo(

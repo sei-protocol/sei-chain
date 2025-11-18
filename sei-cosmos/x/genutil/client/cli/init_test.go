@@ -7,11 +7,9 @@ import (
 	"io"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
-	abci_server "github.com/tendermint/tendermint/abci/server"
 	"github.com/tendermint/tendermint/libs/cli"
 	"github.com/tendermint/tendermint/libs/log"
 
@@ -20,7 +18,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	"github.com/cosmos/cosmos-sdk/server"
-	"github.com/cosmos/cosmos-sdk/server/mock"
 	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
@@ -164,37 +161,6 @@ func TestEmptyState(t *testing.T) {
 	require.Contains(t, out, "consensus_params")
 	require.Contains(t, out, "app_hash")
 	require.Contains(t, out, "app_state")
-}
-
-func TestStartStandAlone(t *testing.T) {
-	home := t.TempDir()
-	logger := log.NewNopLogger()
-	interfaceRegistry := types.NewInterfaceRegistry()
-	marshaler := codec.NewProtoCodec(interfaceRegistry)
-	err := genutiltest.ExecInitCmd(testMbm, home, marshaler)
-	require.NoError(t, err)
-
-	app, err := mock.NewApp(home, logger)
-	require.NoError(t, err)
-
-	svrAddr, _, err := server.FreeTCPAddr()
-	require.NoError(t, err)
-
-	svr, err := abci_server.NewServer(logger, svrAddr, "socket", app)
-	require.NoError(t, err, "error creating listener")
-
-	ctx, cancelFn := context.WithCancel(context.Background())
-	defer cancelFn()
-	err = svr.Start(ctx)
-	require.NoError(t, err)
-
-	timer := time.NewTimer(time.Duration(2) * time.Second)
-	for range timer.C {
-		cancelFn()
-		svr.Wait()
-		require.NoError(t, err)
-		break
-	}
 }
 
 func TestInitNodeValidatorFiles(t *testing.T) {

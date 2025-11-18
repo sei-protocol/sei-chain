@@ -39,13 +39,7 @@ func ClientFactory(logger log.Logger, addr, transport, dbDir string) (abciclient
 	case "noop":
 		return abciclient.NewLocalClient(logger, types.NewBaseApplication()), noopCloser{}, nil
 	default:
-		const mustConnect = false // loop retrying
-		client, err := abciclient.NewClient(logger, addr, transport, mustConnect)
-		if err != nil {
-			return nil, noopCloser{}, err
-		}
-
-		return client, noopCloser{}, nil
+		panic("unknown client type")
 	}
 }
 
@@ -144,12 +138,7 @@ func (app *proxyClient) FinalizeBlock(ctx context.Context, req *types.RequestFin
 	return app.client.FinalizeBlock(ctx, req)
 }
 
-func (app *proxyClient) LoadLatest(ctx context.Context, req *types.RequestLoadLatest) (*types.ResponseLoadLatest, error) {
-	defer addTimeSample(app.metrics.MethodTiming.With("method", "load_latest", "type", "sync"))()
-	return app.client.LoadLatest(ctx, req)
-}
-
-func (app *proxyClient) GetTxPriorityHint(ctx context.Context, req *types.RequestGetTxPriorityHint) (*types.ResponseGetTxPriorityHint, error) {
+func (app *proxyClient) GetTxPriorityHint(ctx context.Context, req *types.RequestGetTxPriorityHintV2) (*types.ResponseGetTxPriorityHint, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "get_tx_priority", "type", "sync"))()
 	return app.client.GetTxPriorityHint(ctx, req)
 }
@@ -164,7 +153,7 @@ func (app *proxyClient) Flush(ctx context.Context) error {
 	return app.client.Flush(ctx)
 }
 
-func (app *proxyClient) CheckTx(ctx context.Context, req *types.RequestCheckTx) (*types.ResponseCheckTxV2, error) {
+func (app *proxyClient) CheckTx(ctx context.Context, req *types.RequestCheckTxV2) (*types.ResponseCheckTxV2, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "check_tx", "type", "sync"))()
 	return app.client.CheckTx(ctx, req)
 }

@@ -122,7 +122,7 @@ type TxMempool struct {
 	failedCheckTxCounts    map[types.NodeID]uint64
 	mtxFailedCheckTxCounts sync.RWMutex
 
-	peerManager       PeerEvictor
+	router            router
 	priorityReservoir *reservoir.Sampler[int64]
 }
 
@@ -130,7 +130,7 @@ func NewTxMempool(
 	logger log.Logger,
 	cfg *config.MempoolConfig,
 	proxyAppConn abciclient.Client,
-	peerManager PeerEvictor,
+	router router,
 	options ...TxMempoolOption,
 ) *TxMempool {
 
@@ -148,7 +148,7 @@ func NewTxMempool(
 		pendingTxs:          NewPendingTxs(cfg),
 		totalCheckTxCount:   atomic.Uint64{},
 		failedCheckTxCounts: map[types.NodeID]uint64{},
-		peerManager:         peerManager,
+		router:              router,
 		priorityReservoir:   reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
 	}
 
@@ -321,7 +321,7 @@ func (txmp *TxMempool) CheckTx(
 	if txmp.config.DropUtilisationThreshold > 0 && txmp.utilisation() >= txmp.config.DropUtilisationThreshold {
 		txmp.metrics.CheckTxMetDropUtilisationThreshold.Add(1)
 
-		hint, err := txmp.proxyAppConn.GetTxPriorityHint(ctx, &abci.RequestGetTxPriorityHint{Tx: tx})
+		hint, err := txmp.proxyAppConn.GetTxPriorityHint(ctx, &abci.RequestGetTxPriorityHintV2{Tx: tx})
 		if err != nil {
 			txmp.metrics.observeCheckTxPriorityDistribution(0, true, txInfo.SenderNodeID, err)
 			txmp.logger.Error("failed to get tx priority hint", "err", err)
@@ -363,7 +363,7 @@ func (txmp *TxMempool) CheckTx(
 		c.Increment(txHash)
 	}
 
-	res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTx{Tx: tx})
+	res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	txmp.totalCheckTxCount.Add(1)
 	if err != nil {
 		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
@@ -750,8 +750,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 			defer txmp.mtxFailedCheckTxCounts.Unlock()
 			txmp.failedCheckTxCounts[txInfo.SenderNodeID]++
 			if txmp.config.CheckTxErrorBlacklistEnabled && txmp.failedCheckTxCounts[txInfo.SenderNodeID] > uint64(txmp.config.CheckTxErrorThreshold) {
-				// evict peer
-				txmp.peerManager.Errored(txInfo.SenderNodeID, errors.New("checkTx error exceeded threshold"))
+				txmp.router.Evict(txInfo.SenderNodeID, errors.New("mempool: checkTx error exceeded threshold"))
 			}
 		}
 		return err
@@ -960,9 +959,9 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 		// Only execute CheckTx if the transaction is not marked as removed which
 		// could happen if the transaction was evicted.
 		if !txmp.txStore.IsTxRemoved(wtx) {
-			res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTx{
+			res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTxV2{
 				Tx:   wtx.tx,
-				Type: abci.CheckTxType_Recheck,
+				Type: abci.CheckTxTypeV2Recheck,
 			})
 			if err != nil {
 				// no need in retrying since the tx will be rechecked after the next block

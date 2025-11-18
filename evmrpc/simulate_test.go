@@ -17,10 +17,12 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	sstypes "github.com/sei-protocol/sei-db/ss/types"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/rpc/client/mock"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -36,6 +38,18 @@ func (br brFailClient) BlockResults(ctx context.Context, h *int64) (*coretypes.R
 type bcFailClient struct {
 	*MockClient
 	first bool
+}
+
+func primeReceiptStore(t *testing.T, store sstypes.StateStore, latest int64) {
+	t.Helper()
+	if store == nil {
+		return
+	}
+	if latest <= 0 {
+		latest = 1
+	}
+	require.NoError(t, store.SetLatestVersion(latest))
+	require.NoError(t, store.SetEarliestVersion(1, true))
 }
 
 func (bc *bcFailClient) Block(ctx context.Context, h *int64) (*coretypes.ResultBlock, error) {
@@ -67,7 +81,7 @@ func TestEstimateGas(t *testing.T) {
 	resObj = sendRequestGood(t, "estimateGas", txArgs, "latest", map[string]interface{}{})
 	result = resObj["result"].(string)
 	require.Equal(t, "0x5208", result) // 21000
-	resObj = sendRequestGood(t, "estimateGas", txArgs, "0x123456", map[string]interface{}{})
+	resObj = sendRequestGood(t, "estimateGas", txArgs, "0x1", map[string]interface{}{})
 	result = resObj["result"].(string)
 	require.Equal(t, "0x5208", result) // 21000
 
@@ -109,6 +123,7 @@ func TestChainConfigReflectsSstoreParam(t *testing.T) {
 	params := testApp.EvmKeeper.GetParams(newCtx)
 	params.SeiSstoreSetGasEip2200 = 72000
 	testApp.EvmKeeper.SetParams(newCtx, params)
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), newCtx.BlockHeight())
 
 	oldHeight := oldCtx.BlockHeight()
 	ctxProvider := func(height int64) sdk.Context {
@@ -125,16 +140,20 @@ func TestChainConfigReflectsSstoreParam(t *testing.T) {
 	}
 
 	encodingCfg := app.MakeEncodingConfig()
+	tmClient := &mock.Client{}
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	backend := evmrpc.NewBackend(
 		ctxProvider,
 		&testApp.EvmKeeper,
+		legacyabci.BeginBlockKeepers{},
 		func(int64) client.TxConfig { return encodingCfg.TxConfig },
-		&mock.Client{},
+		tmClient,
 		&SConfig,
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		evmrpc.NewBlockCache(3000),
 		&sync.Mutex{},
+		watermarks,
 	)
 
 	oldCfg := backend.ChainConfigAtHeight(oldHeight)
@@ -284,12 +303,19 @@ func TestNewRevertError(t *testing.T) {
 }
 
 func TestConvertBlockNumber(t *testing.T) {
+	tmClient := &MockClient{}
+	watermarks := evmrpc.NewWatermarkManager(tmClient, func(i int64) sdk.Context {
+		if i == evmrpc.LatestCtxHeight {
+			return sdk.Context{}.WithBlockHeight(1000)
+		}
+		return sdk.Context{}
+	}, nil, nil)
 	backend := evmrpc.NewBackend(func(i int64) sdk.Context {
 		if i == evmrpc.LatestCtxHeight {
 			return sdk.Context{}.WithBlockHeight(1000)
 		}
 		return sdk.Context{}
-	}, nil, nil, &MockClient{}, nil, nil, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	}, nil, legacyabci.BeginBlockKeepers{}, nil, &MockClient{}, nil, nil, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks)
 	require.Equal(t, int64(10), backend.ConvertBlockNumber(10))
 	require.Equal(t, int64(1), backend.ConvertBlockNumber(0))
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-2))
@@ -324,16 +350,20 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 		EVMTimeout: time.Second * 30,
 	}
 
+	tmClient := NewMockClientWithLatest(3000)
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	backend := evmrpc.NewBackend(
 		ctxProvider,
 		&testApp.EvmKeeper,
+		legacyabci.BeginBlockKeepers{},
 		func(int64) client.TxConfig { return TxConfig },
-		&MockClient{},
+		tmClient,
 		config,
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		evmrpc.NewBlockCache(3000),
 		&sync.Mutex{},
+		watermarks,
 	)
 
 	// Test HeaderByNumber with a height before v6.2.0 upgrade
@@ -358,16 +388,20 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 		return testCtxDifferentChain.WithBlockHeight(height)
 	}
 
+	diffTmClient := NewMockClientWithLatest(3000)
+	diffWatermarks := evmrpc.NewWatermarkManager(diffTmClient, ctxProviderDifferentChain, nil, testApp.EvmKeeper.ReceiptStore())
 	backendDifferentChain := evmrpc.NewBackend(
 		ctxProviderDifferentChain,
 		&testApp.EvmKeeper,
+		legacyabci.BeginBlockKeepers{},
 		func(int64) client.TxConfig { return TxConfig },
-		&MockClient{},
+		diffTmClient,
 		config,
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		evmrpc.NewBlockCache(3000),
 		&sync.Mutex{},
+		diffWatermarks,
 	)
 
 	headerDifferentChain, err := backendDifferentChain.HeaderByNumber(context.Background(), 1000)
@@ -386,9 +420,12 @@ func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 	ctxProvider := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
 	cfg := &evmrpc.SimulateConfig{GasCap: 10_000_000, EVMTimeout: time.Second}
 
+	tmClient := &MockClient{}
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	backend := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper,
+		legacyabci.BeginBlockKeepers{},
 		func(int64) client.TxConfig { return TxConfig },
-		&MockClient{}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+		tmClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks)
 
 	header, err := backend.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
@@ -407,13 +444,17 @@ func TestGasLimitFallbackToDefault(t *testing.T) {
 	cfg := &evmrpc.SimulateConfig{GasCap: 20_000_000, EVMTimeout: time.Second}
 
 	// Case 1: BlockResults fails
-	backend1 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &brFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	brClient := &brFailClient{MockClient: &MockClient{}}
+	watermarks1 := evmrpc.NewWatermarkManager(brClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+	backend1 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, brClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks1)
 	h1, err := backend1.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(10_000_000), h1.GasLimit) // DefaultBlockGasLimit
 
 	// Case 2: Block fails
-	backend2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &bcFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	bcClient := &bcFailClient{MockClient: &MockClient{}}
+	watermarks2 := evmrpc.NewWatermarkManager(bcClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+	backend2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, bcClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks2)
 	h2, err := backend2.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(10_000_000), h2.GasLimit) // DefaultBlockGasLimit
@@ -452,10 +493,13 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		// Use the existing test app from the global setup
 		testApp := testkeeper.TestApp(t)
 
+		watermarks := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore())
+
 		// Create simulation API
 		simAPI := evmrpc.NewSimulationAPI(
 			ctxProvider,
 			EVMKeeper,
+			legacyabci.BeginBlockKeepers{},
 			func(int64) client.TxConfig { return TxConfig },
 			&MockClient{},
 			config,
@@ -464,6 +508,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 			evmrpc.ConnectionTypeHTTP,
 			evmrpc.NewBlockCache(3000),
 			&sync.Mutex{},
+			watermarks,
 		)
 
 		// Setup test data - create addresses and fund account

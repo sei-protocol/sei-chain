@@ -15,6 +15,14 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
+func LocalAddr(conn *net.TCPConn) netip.AddrPort {
+	return conn.LocalAddr().(*net.TCPAddr).AddrPort()
+}
+
+func RemoteAddr(conn *net.TCPConn) netip.AddrPort {
+	return conn.RemoteAddr().(*net.TCPAddr).AddrPort()
+}
+
 // reserverAddrs is a global register of reserved ports.
 //   - Some(fd) indicates that the port is not currently in use.
 //     fd is the socket bound to the addr, which guards the port from being allocated to different process.
@@ -46,8 +54,13 @@ func testBind(addr netip.AddrPort) int {
 	} else {
 		domain = unix.AF_INET6
 	}
+	// NONBLOCK and CLOEXEC for consistency with net.ListenConfig.Listen().
 	fd, err := unix.Socket(domain, unix.SOCK_STREAM, 0)
 	if err != nil {
+		panic(err)
+	}
+	unix.CloseOnExec(fd)
+	if err := unix.SetNonblock(fd, true); err != nil {
 		panic(err)
 	}
 	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1); err != nil {
@@ -124,6 +137,31 @@ func (l *Listener) AcceptOrClose(ctx context.Context) (*net.TCPConn, error) {
 		conn.Close()
 	}
 	return nil, err
+}
+
+func ReadOrClose(ctx context.Context, conn *net.TCPConn, buf []byte) (int, error) {
+	var res atomic.Pointer[int]
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error {
+			<-ctx.Done()
+			if res.Load() != nil {
+				return nil
+			}
+			s.Cancel(ctx.Err())
+			// Early close to abort Read().
+			conn.Close()
+			return nil
+		})
+		n, err := conn.Read(buf)
+		res.Store(&n)
+		return err
+	})
+	if err != nil {
+		// Late close in case Read succeded while context got canceled.
+		conn.Close()
+		return 0, err
+	}
+	return *res.Load(), nil
 }
 
 // Listen opens a TCP listener on the given address.

@@ -6,18 +6,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/config"
+	"github.com/gogo/protobuf/proto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/p2p"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	p2pproto "github.com/tendermint/tendermint/proto/tendermint/p2p"
 	"github.com/tendermint/tendermint/types"
 )
 
 const (
-	checkFrequency = 500 * time.Millisecond
-	shortWait      = 5 * time.Second
-	longWait       = 20 * time.Second
+	testSendInterval = 500 * time.Millisecond
+	checkFrequency   = 500 * time.Millisecond
+	shortWait        = 5 * time.Second
 )
 
 func TestReactorBasic(t *testing.T) {
@@ -33,9 +34,9 @@ func TestReactorBasic(t *testing.T) {
 	t.Log("assert that the mock node receives a request from the real node")
 	testNet.listenForRequest(ctx, t, 1, 0, shortWait)
 
-	t.Log("assert that when a mock node sends a request it receives a response (and the correct one)")
+	t.Log("assert that when a mock node sends a request it receives a response")
 	testNet.sendRequest(t, 0, 1)
-	testNet.listenForResponse(ctx, t, 1, 0, shortWait, []p2pproto.PexAddress(nil))
+	testNet.listenForResponse(ctx, t, 1, 0, shortWait)
 }
 
 func TestReactorConnectFullNetwork(t *testing.T) {
@@ -52,7 +53,7 @@ func TestReactorConnectFullNetwork(t *testing.T) {
 
 	t.Logf("assert that all nodes add each other in the network")
 	for idx := 0; idx < len(testNet.nodes); idx++ {
-		testNet.requireNumberOfPeers(t, idx, len(testNet.nodes)-1, longWait)
+		testNet.requireNumberOfPeers(t, idx, len(testNet.nodes)-1)
 	}
 }
 
@@ -67,21 +68,10 @@ func TestReactorSendsRequestsTooOften(t *testing.T) {
 
 	n0, n1 := testNet.checkNodePair(t, 0, 1)
 	ch := testNet.pexChannels[n0]
-	t.Log("Send request.")
-	ch.Send(&p2pproto.PexRequest{}, n1)
-	t.Log("Await response.")
-	for {
-		m, err := ch.Recv(ctx)
-		require.NoError(t, err)
-		require.Equal(t, n1, m.From)
-		_, ok := m.Message.(*p2pproto.PexResponse)
-		if !ok {
-			continue
-		}
-		break
+	t.Log("Send request too many times.")
+	for range maxPeerRecvBurst + 10 {
+		ch.Send(&p2pproto.PexRequest{}, n1)
 	}
-	t.Log("Send again.")
-	ch.Send(&p2pproto.PexRequest{}, n1)
 	t.Log("n1 should force disconnect.")
 	testNet.listenForPeerDown(t, 1, 0)
 }
@@ -173,9 +163,8 @@ func TestReactorSmallPeerStoreInALargeNetwork(t *testing.T) {
 
 	testNet := setupNetwork(t, testOptions{
 		TotalNodes:   8,
-		MaxPeers:     7, // total-1, because PeerManager doesn't count self
-		MaxConnected: 2, // enough capacity to establish a connected graph
-		MaxRetryTime: 5 * time.Minute,
+		MaxPeers:     utils.Some(7), // total-1, because PeerManager doesn't count self
+		MaxConnected: utils.Some(2), // enough capacity to establish a connected graph
 	})
 	testNet.network.ConnectCycle(ctx, t) // Saturate capacity by connecting nodes in a cycle.
 	testNet.start(ctx, t)
@@ -184,9 +173,9 @@ func TestReactorSmallPeerStoreInALargeNetwork(t *testing.T) {
 	for _, nodeID := range testNet.nodes {
 		node := testNet.network.Node(nodeID)
 		require.Eventually(t, func() bool {
-			return node.Router.PeerManager().PeerRatio() >= 0.9
+			return node.Router.PeerRatio() >= 0.9
 		}, time.Minute, checkFrequency,
-			"peer ratio is: %f", node.Router.PeerManager().PeerRatio())
+			"peer ratio is: %f", node.Router.PeerRatio())
 	}
 }
 
@@ -195,16 +184,15 @@ func TestReactorLargePeerStoreInASmallNetwork(t *testing.T) {
 
 	testNet := setupNetwork(t, testOptions{
 		TotalNodes:   3,
-		MaxPeers:     25,
-		MaxConnected: 25,
-		MaxRetryTime: 5 * time.Minute,
+		MaxPeers:     utils.Some(25),
+		MaxConnected: utils.Some(25),
 	})
 	testNet.seedAddrs(t)
 	testNet.start(ctx, t)
 
 	// assert that all nodes add each other in the network
 	for idx := 0; idx < len(testNet.nodes); idx++ {
-		testNet.requireNumberOfPeers(t, idx, len(testNet.nodes)-1, longWait)
+		testNet.requireNumberOfPeers(t, idx, len(testNet.nodes)-1)
 	}
 }
 
@@ -220,7 +208,7 @@ func TestReactorWithNetworkGrowth(t *testing.T) {
 
 	// assert that all nodes add each other in the network
 	for idx := 0; idx < len(testNet.nodes); idx++ {
-		testNet.requireNumberOfPeers(t, idx, len(testNet.nodes)-1, shortWait)
+		testNet.requireNumberOfPeers(t, idx, len(testNet.nodes)-1)
 	}
 
 	// now we inject 10 more nodes
@@ -237,7 +225,7 @@ func TestReactorWithNetworkGrowth(t *testing.T) {
 
 	// assert that all nodes add each other in the network
 	for idx := 0; idx < len(testNet.nodes); idx++ {
-		testNet.requireNumberOfPeers(t, idx, len(testNet.nodes)-1, longWait)
+		testNet.requireNumberOfPeers(t, idx, len(testNet.nodes)-1)
 	}
 }
 
@@ -256,9 +244,8 @@ type reactorTestSuite struct {
 type testOptions struct {
 	MockNodes    int
 	TotalNodes   int
-	MaxPeers     uint16
-	MaxConnected uint16
-	MaxRetryTime time.Duration
+	MaxPeers     utils.Option[int]
+	MaxConnected utils.Option[int]
 }
 
 // setup setups a test suite with a network of nodes. Mocknodes represent the
@@ -272,7 +259,6 @@ func setupNetwork(t *testing.T, opts testOptions) *reactorTestSuite {
 		NodeOpts: p2p.TestNodeOptions{
 			MaxPeers:     opts.MaxPeers,
 			MaxConnected: opts.MaxConnected,
-			MaxRetryTime: opts.MaxRetryTime,
 		},
 	}
 	realNodes := opts.TotalNodes - opts.MockNodes
@@ -291,13 +277,14 @@ func setupNetwork(t *testing.T, opts testOptions) *reactorTestSuite {
 		// the first nodes in the array are always mock nodes
 		if idx < opts.MockNodes {
 			rts.mocks = append(rts.mocks, nodeID)
-			rts.pexChannels[nodeID] = node.Router.OpenChannelOrPanic(ChannelDescriptor())
+			var err error
+			rts.pexChannels[nodeID], err = node.Router.OpenChannel(ChannelDescriptor())
+			require.NoError(t, err)
 		} else {
 			reactor, err := NewReactor(
 				node.Logger,
 				node.Router,
-				make(chan struct{}),
-				config.DefaultSelfRemediationConfig(),
+				testSendInterval,
 			)
 			if err != nil {
 				t.Fatalf("NewReactor(): %v", err)
@@ -358,14 +345,12 @@ func (r *reactorTestSuite) addNodes(t *testing.T, nodes int) {
 		node := r.network.MakeNode(t, p2p.TestNodeOptions{
 			MaxPeers:     r.opts.MaxPeers,
 			MaxConnected: r.opts.MaxConnected,
-			MaxRetryTime: r.opts.MaxRetryTime,
 		})
 		nodeID := node.NodeID
 		reactor, err := NewReactor(
 			node.Logger,
 			node.Router,
-			make(chan struct{}),
-			config.DefaultSelfRemediationConfig(),
+			testSendInterval,
 		)
 		if err != nil {
 			t.Fatalf("NewReactor(): %v", err)
@@ -410,7 +395,7 @@ func (r *reactorTestSuite) listenForRequest(ctx context.Context, t *testing.T, f
 		return ok && msg.From == from
 	}
 	assertion := func(t *testing.T, msg p2p.RecvMsg) bool {
-		require.Equal(t, &p2pproto.PexRequest{}, msg.Message)
+		require.Equal[proto.Message](t, &p2pproto.PexRequest{}, msg.Message)
 		return true
 	}
 	r.listenFor(ctx, t, to, conditional, assertion, waitPeriod)
@@ -455,7 +440,6 @@ func (r *reactorTestSuite) listenForResponse(
 	t *testing.T,
 	fromNode, toNode int,
 	waitPeriod time.Duration,
-	addresses []p2pproto.PexAddress,
 ) {
 	to, from := r.checkNodePair(t, toNode, fromNode)
 	conditional := func(msg p2p.RecvMsg) bool {
@@ -463,7 +447,7 @@ func (r *reactorTestSuite) listenForResponse(
 		return ok && msg.From == from
 	}
 	assertion := func(t *testing.T, msg p2p.RecvMsg) bool {
-		require.Equal(t, &p2pproto.PexResponse{Addresses: addresses}, msg.Message)
+		_ = msg.Message.(*p2pproto.PexResponse)
 		return true
 	}
 	r.listenFor(ctx, t, to, conditional, assertion, waitPeriod)
@@ -474,7 +458,7 @@ func (r *reactorTestSuite) listenForPeerDown(
 	onNode, withNode int,
 ) {
 	on, with := r.checkNodePair(t, onNode, withNode)
-	r.network.Node(on).WaitUntilDisconnected(t.Context(), with)
+	r.network.Node(on).WaitForConn(t.Context(), with, false)
 }
 
 func (r *reactorTestSuite) getAddressesFor(nodes []int) []p2pproto.PexAddress {
@@ -505,21 +489,8 @@ func (r *reactorTestSuite) sendResponse(
 	r.pexChannels[from].Send(&p2pproto.PexResponse{Addresses: addrs}, to)
 }
 
-func (r *reactorTestSuite) requireNumberOfPeers(
-	t *testing.T,
-	nodeIndex, numPeers int,
-	waitPeriod time.Duration,
-) {
-	t.Helper()
-	node := r.network.Node(r.nodes[nodeIndex])
-	require.Eventuallyf(t, func() bool {
-		actualNumPeers := len(node.Router.PeerManager().Peers())
-		return actualNumPeers >= numPeers
-	}, waitPeriod, checkFrequency, "peer failed to connect with the asserted amount of peers "+
-		"index=%d, node=%q, waitPeriod=%s expected=%d actual=%d",
-		nodeIndex, r.nodes[nodeIndex], waitPeriod, numPeers,
-		len(node.Router.PeerManager().Peers()),
-	)
+func (r *reactorTestSuite) requireNumberOfPeers(t *testing.T, nodeIndex, numPeers int) {
+	r.network.Node(r.nodes[nodeIndex]).WaitForConns(t.Context(), numPeers)
 }
 
 func (r *reactorTestSuite) connectAll(t *testing.T) {
@@ -532,8 +503,7 @@ func (r *reactorTestSuite) seedAddrs(t *testing.T) {
 	for i := range r.total - 1 {
 		n1 := r.network.Node(r.nodes[i])
 		n2 := r.network.Node(r.nodes[i+1])
-		_, err := n1.Router.PeerManager().Add(n2.NodeAddress)
-		require.NoError(t, err)
+		require.NoError(t, n1.Router.AddAddrs(utils.Slice(n2.NodeAddress)))
 	}
 }
 
@@ -544,15 +514,12 @@ func (r *reactorTestSuite) checkNodePair(t *testing.T, first, second int) (types
 	return r.nodes[first], r.nodes[second]
 }
 
-func (r *reactorTestSuite) addAddresses(t *testing.T, node int, addrs []int) {
-	peerManager := r.network.Node(r.nodes[node]).Router.PeerManager()
-	for _, addr := range addrs {
-		require.Less(t, addr, r.total)
-		address := r.network.Node(r.nodes[addr]).NodeAddress
-		added, err := peerManager.Add(address)
-		require.NoError(t, err)
-		require.True(t, added)
+func (r *reactorTestSuite) addAddresses(t *testing.T, node int, addrIDs []int) {
+	var addrs []p2p.NodeAddress
+	for _, i := range addrIDs {
+		addrs = append(addrs, r.network.Node(r.nodes[i]).NodeAddress)
 	}
+	require.NoError(t, r.network.Node(r.nodes[node]).Router.AddAddrs(addrs))
 }
 
 func randomNodeID() types.NodeID {

@@ -2,21 +2,15 @@ package kvstore
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"testing"
-	"time"
 
-	"github.com/fortytw2/leaktest"
 	"github.com/stretchr/testify/require"
-
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
 
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	"github.com/tendermint/tendermint/abci/example/code"
-	abciserver "github.com/tendermint/tendermint/abci/server"
 	"github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/libs/log"
 )
 
 const (
@@ -245,92 +239,6 @@ func valsEqual(t *testing.T, vals1, vals2 []types.ValidatorUpdate) {
 			t.Fatalf("vals dont match at index %d. got %X/%d , expected %X/%d", i, v2.PubKey, v2.Power, v1.PubKey, v1.Power)
 		}
 	}
-}
-
-func makeSocketClientServer(
-	ctx context.Context,
-	t *testing.T,
-	logger log.Logger,
-	app types.Application,
-	name string,
-) (abciclient.Client, service.Service, error) {
-	t.Helper()
-
-	ctx, cancel := context.WithCancel(ctx)
-	t.Cleanup(cancel)
-	t.Cleanup(leaktest.CheckTimeout(t, 10*time.Second))
-
-	// Start the listener
-	socket := fmt.Sprintf("unix://%s.sock", name)
-
-	server := abciserver.NewSocketServer(logger.With("module", "abci-server"), socket, app)
-	if err := server.Start(ctx); err != nil {
-		cancel()
-		return nil, nil, err
-	}
-
-	// Connect to the socket
-	client := abciclient.NewSocketClient(logger.With("module", "abci-client"), socket, false)
-	if err := client.Start(ctx); err != nil {
-		cancel()
-		return nil, nil, err
-	}
-
-	return client, server, nil
-}
-
-func makeGRPCClientServer(
-	ctx context.Context,
-	t *testing.T,
-	logger log.Logger,
-	app types.Application,
-	name string,
-) (abciclient.Client, service.Service, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	t.Cleanup(cancel)
-	t.Cleanup(leaktest.CheckTimeout(t, 10*time.Second))
-
-	// Start the listener
-	socket := fmt.Sprintf("unix://%s.sock", name)
-
-	server := abciserver.NewGRPCServer(logger.With("module", "abci-server"), socket, app)
-
-	if err := server.Start(ctx); err != nil {
-		cancel()
-		return nil, nil, err
-	}
-
-	client := abciclient.NewGRPCClient(logger.With("module", "abci-client"), socket, true)
-
-	if err := client.Start(ctx); err != nil {
-		cancel()
-		return nil, nil, err
-	}
-	return client, server, nil
-}
-
-func TestClientServer(t *testing.T) {
-	ctx := t.Context()
-	logger := log.NewNopLogger()
-
-	// set up socket app
-	kvstore := NewApplication()
-	client, server, err := makeSocketClientServer(ctx, t, logger, kvstore, "kvstore-socket")
-	require.NoError(t, err)
-	t.Cleanup(func() { server.Wait() })
-	t.Cleanup(func() { client.Wait() })
-
-	runClientTests(ctx, t, client)
-
-	// set up grpc app
-	kvstore = NewApplication()
-	gclient, gserver, err := makeGRPCClientServer(ctx, t, logger, kvstore, "/tmp/kvstore-grpc")
-	require.NoError(t, err)
-
-	t.Cleanup(func() { gserver.Wait() })
-	t.Cleanup(func() { gclient.Wait() })
-
-	runClientTests(ctx, t, gclient)
 }
 
 func runClientTests(ctx context.Context, t *testing.T, client abciclient.Client) {

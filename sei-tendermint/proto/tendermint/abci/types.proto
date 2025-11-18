@@ -25,7 +25,6 @@ message Request {
     RequestInfo info = 3;
     RequestInitChain init_chain = 4;
     RequestQuery query = 5;
-    RequestCheckTx check_tx = 7;
     RequestCommit commit = 10;
     RequestListSnapshots list_snapshots = 11;
     RequestOfferSnapshot offer_snapshot = 12;
@@ -35,13 +34,11 @@ message Request {
     RequestProcessProposal process_proposal = 16;
     RequestFinalizeBlock finalize_block = 19;
     RequestBeginBlock begin_block = 20;
-    RequestDeliverTx deliver_tx = 21;
     RequestEndBlock end_block = 22;
     RequestLoadLatest load_latest = 23;
-    RequestGetTxPriorityHint get_tx_priority_hint = 24;
   }
-  reserved 6, 8, 9, 17, 18; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestExtendVote, RequestVerifyVoteExtension
-  reserved "extend_vote", "verify_vote_extension";
+  reserved 6, 8, 9, 17, 18, 7, 21, 24; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestExtendVote, RequestVerifyVoteExtension, RequestCheckTx, RequestDeliverTx, RequestGetTxPriorityHint
+  reserved "extend_vote", "verify_vote_extension", "check_tx", "deliver_tx", "get_tx_priority_hint";
 }
 
 message RequestEcho {
@@ -74,16 +71,6 @@ message RequestQuery {
   string path = 2;
   int64 height = 3;
   bool prove = 4;
-}
-
-enum CheckTxType {
-  NEW = 0 [(gogoproto.enumvalue_customname) = "New"];
-  RECHECK = 1 [(gogoproto.enumvalue_customname) = "Recheck"];
-}
-
-message RequestCheckTx {
-  bytes tx = 1;
-  CheckTxType type = 2;
 }
 
 message RequestCommit {}
@@ -201,21 +188,12 @@ message RequestBeginBlock {
   bool simulate = 5;
 }
 
-message RequestDeliverTx {
-  bytes tx = 1;
-  bool sig_verified = 2;
-}
-
 message RequestEndBlock {
   int64 height = 1;
   int64 block_gas_used = 2;
 }
 
 message RequestLoadLatest {}
-
-message RequestGetTxPriorityHint {
-  bytes tx = 1; // raw tx bytes
-}
 
 //----------------------------------------
 // Response types
@@ -582,26 +560,4 @@ message Snapshot {
   uint32 chunks = 3; // Number of chunks in the snapshot
   bytes hash = 4; // Arbitrary snapshot hash, equal only if identical
   bytes metadata = 5; // Arbitrary application metadata
-}
-
-//----------------------------------------
-// Service Definition
-
-service ABCIApplication {
-  rpc Echo(RequestEcho) returns (ResponseEcho);
-  rpc Flush(RequestFlush) returns (ResponseFlush);
-  rpc Info(RequestInfo) returns (ResponseInfo);
-  rpc CheckTx(RequestCheckTx) returns (ResponseCheckTx);
-  rpc Query(RequestQuery) returns (ResponseQuery);
-  rpc Commit(RequestCommit) returns (ResponseCommit);
-  rpc InitChain(RequestInitChain) returns (ResponseInitChain);
-  rpc ListSnapshots(RequestListSnapshots) returns (ResponseListSnapshots);
-  rpc OfferSnapshot(RequestOfferSnapshot) returns (ResponseOfferSnapshot);
-  rpc LoadSnapshotChunk(RequestLoadSnapshotChunk) returns (ResponseLoadSnapshotChunk);
-  rpc ApplySnapshotChunk(RequestApplySnapshotChunk) returns (ResponseApplySnapshotChunk);
-  rpc PrepareProposal(RequestPrepareProposal) returns (ResponsePrepareProposal);
-  rpc ProcessProposal(RequestProcessProposal) returns (ResponseProcessProposal);
-  rpc FinalizeBlock(RequestFinalizeBlock) returns (ResponseFinalizeBlock);
-  rpc LoadLatest(RequestLoadLatest) returns (ResponseLoadLatest);
-  rpc GetTxPriorityHint(RequestGetTxPriorityHint) returns (ResponseGetTxPriorityHint);
 }
