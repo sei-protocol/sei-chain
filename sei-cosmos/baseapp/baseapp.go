@@ -1202,8 +1202,11 @@ func (app *BaseApp) Close() error {
 	if err := app.cms.Close(); err != nil {
 		return err
 	}
-	if err := app.snapshotManager.Close(); err != nil {
-		return err
+	// close snapshot manager if configured
+	if app.snapshotManager != nil {
+		if err := app.snapshotManager.Close(); err != nil {
+			return err
+		}
 	}
 	if app.closeHandler == nil {
 		return nil

@@ -16,10 +16,10 @@ import (
 	"unsafe"
 
 	"github.com/sei-protocol/sei-db/common/logger"
+	"github.com/sei-protocol/sei-db/sc/types"
 	"golang.org/x/sys/unix"
 
 	"github.com/sei-protocol/sei-db/common/errors"
-	"github.com/sei-protocol/sei-db/sc/types"
 )
 
 const (
@@ -37,6 +37,22 @@ const (
 	FileNameKVs      = "kvs"
 	FileNameMetadata = "metadata"
 )
+
+// monitoringWriter wraps an os.File to track write progress
+type monitoringWriter struct {
+	f       *os.File
+	written int64
+}
+
+func (w *monitoringWriter) Write(p []byte) (n int, err error) {
+	n, err = w.f.Write(p)
+	if err != nil {
+		return n, err
+	}
+
+	w.written += int64(n)
+	return n, err
+}
 
 // Snapshot manage the lifecycle of mmap-ed files for the snapshot,
 // it must out live the objects that derived from it.
@@ -312,11 +328,12 @@ func (snapshot *Snapshot) LeafKeyValue(index uint32) ([]byte, []byte) {
 	return key, snapshot.kvs[offset : offset+length]
 }
 
-// Export exports the nodes from snapshot file sequentially, more efficient than a post-order traversal.
+// Export returns an Exporter for state sync
 func (snapshot *Snapshot) Export() *Exporter {
 	return newExporter(snapshot.export)
 }
 
+// export is the internal implementation that iterates through the snapshot in post-order
 func (snapshot *Snapshot) export(callback func(*types.SnapshotNode) bool) {
 	if snapshot.leavesLen() == 0 {
 		return
@@ -335,7 +352,7 @@ func (snapshot *Snapshot) export(callback func(*types.SnapshotNode) bool) {
 
 	var pendingTrees int
 	var i, j uint32
-	for ; i < uint32(snapshot.nodesLen()); i++ { //nolint:gosec
+	for ; i < uint32(snapshot.nodesLen()); i++ {
 		// pending branch node
 		node := snapshot.nodesLayout.Node(i)
 		for pendingTrees < int(node.PreTrees())+2 {
@@ -373,9 +390,17 @@ func (snapshot *Snapshot) export(callback func(*types.SnapshotNode) bool) {
 	}
 }
 
-// WriteSnapshot save the IAVL tree to a new snapshot directory.
 func (t *Tree) WriteSnapshot(ctx context.Context, snapshotDir string) error {
-	return writeSnapshot(ctx, snapshotDir, t.version, func(w *snapshotWriter) (uint32, error) {
+	// Estimate tree size: root.Size() returns leaf count, total = leaves + branches ≈ 2x
+	treeSize := int64(0)
+	if t.root != nil {
+		treeSize = t.root.Size() * 2 // Total nodes (leaves + branches)
+	}
+
+	// Use 128MB buffer for all trees (large buffer for better performance)
+	bufSize := bufIOSize
+
+	err := writeSnapshotWithBuffer(ctx, snapshotDir, t.version, bufSize, treeSize, t.logger, func(w *snapshotWriter) (uint32, error) {
 		if t.root == nil {
 			return 0, nil
 		}
@@ -385,11 +410,21 @@ func (t *Tree) WriteSnapshot(ctx context.Context, snapshotDir string) error {
 		}
 		return w.leafCounter, nil
 	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func writeSnapshot(
+// writeSnapshotWithBuffer writes snapshot with specified buffer size
+func writeSnapshotWithBuffer(
 	ctx context.Context,
 	dir string, version uint32,
+	bufSize int,
+	totalNodes int64,
+	log logger.Logger,
 	doWrite func(*snapshotWriter) (uint32, error),
 ) (returnErr error) {
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil { //nolint:gosec
@@ -430,14 +465,35 @@ func writeSnapshot(
 		}
 	}()
 
-	nodesWriter := bufio.NewWriterSize(fpNodes, bufIOSize)
-	leavesWriter := bufio.NewWriterSize(fpLeaves, bufIOSize)
-	kvsWriter := bufio.NewWriterSize(fpKVs, bufIOSize)
+	// Wrap files with monitoring writers for progress tracking
+	nodesMonitor := &monitoringWriter{f: fpNodes}
+	leavesMonitor := &monitoringWriter{f: fpLeaves}
+	kvsMonitor := &monitoringWriter{f: fpKVs}
 
-	w := newSnapshotWriter(ctx, nodesWriter, leavesWriter, kvsWriter)
+	// Create buffered writers with buffers
+	nodesWriter := bufio.NewWriterSize(nodesMonitor, bufSize)
+	leavesWriter := bufio.NewWriterSize(leavesMonitor, bufSize)
+	kvsWriter := bufio.NewWriterSize(kvsMonitor, bufSize)
+
+	w := newSnapshotWriter(ctx, nodesWriter, leavesWriter, kvsWriter, log)
+	w.treeName = filepath.Base(dir) // Set tree name for progress reporting
+	w.totalNodes = totalNodes       // Set total nodes for progress percentage
+	w.traversalStartTime = time.Now()
+
 	leaves, err := doWrite(w)
+	// Always wait for writer goroutines to finish
+	waitErr := w.waitForWrites()
+
+	// Handle errors with priority to waitErr (the underlying I/O error)
 	if err != nil {
+		// If doWrite failed due to context cancellation, return the real I/O error
+		if err == context.Canceled && waitErr != nil {
+			return waitErr
+		}
 		return err
+	}
+	if waitErr != nil {
+		return waitErr
 	}
 
 	if leaves > 0 {
@@ -450,14 +506,13 @@ func writeSnapshot(
 		if err := kvsWriter.Flush(); err != nil {
 			return err
 		}
-
-		if err := fpKVs.Sync(); err != nil {
+		if err := fpNodes.Sync(); err != nil {
 			return err
 		}
 		if err := fpLeaves.Sync(); err != nil {
 			return err
 		}
-		if err := fpNodes.Sync(); err != nil {
+		if err := fpKVs.Sync(); err != nil {
 			return err
 		}
 	}
@@ -486,9 +541,44 @@ func writeSnapshot(
 	return fpMetadata.Sync()
 }
 
+// writeSnapshot is a compatibility wrapper that uses default buffer size
+func writeSnapshot(
+	ctx context.Context,
+	dir string, version uint32,
+	doWrite func(*snapshotWriter) (uint32, error),
+) error {
+	// Use nop logger for backward compatibility
+	return writeSnapshotWithBuffer(ctx, dir, version, bufIOSize, 0, logger.NewNopLogger(), doWrite)
+}
+
+// kvWriteOp represents a key-value write operation
+type kvWriteOp struct {
+	key   []byte
+	value []byte
+}
+
+// leafWriteOp represents a leaf write operation
+type leafWriteOp struct {
+	version   uint32
+	keyLen    uint32
+	keyOffset uint64
+	hash      []byte
+}
+
+// branchWriteOp represents a branch write operation
+type branchWriteOp struct {
+	version  uint32
+	size     uint32
+	height   uint8
+	preTrees uint8
+	keyLeaf  uint32
+	hash     []byte
+}
+
 type snapshotWriter struct {
 	// context for cancel the writing process
-	ctx context.Context
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	nodesWriter, leavesWriter, kvWriter io.Writer
 
@@ -497,19 +587,180 @@ type snapshotWriter struct {
 
 	// record the current writing offset in kvs file
 	kvsOffset uint64
+
+	// for progress reporting
+	treeName               string
+	totalNodes             int64 // Total nodes to write (for progress percentage)
+	traversalStartTime     time.Time
+	lastProgressReport     time.Time
+	progressReportInterval time.Duration
+	logger                 logger.Logger
+
+	// Pipeline for async writes - separate channels for each file
+	kvChan     chan kvWriteOp
+	leafChan   chan leafWriteOp
+	branchChan chan branchWriteOp
+
+	writeErrors chan error
+	wg          sync.WaitGroup // Wait for all writer goroutines
+
+	// Pipeline metrics for each channel
+	maxKvFill         int
+	maxLeafFill       int
+	maxBranchFill     int
+	kvFillSum         int64
+	leafFillSum       int64
+	branchFillSum     int64
+	kvFillCount       int64
+	leafFillCount     int64
+	branchFillCount   int64
+	lastMetricsReport time.Time
 }
 
-func newSnapshotWriter(ctx context.Context, nodesWriter, leavesWriter, kvsWriter io.Writer) *snapshotWriter {
-	return &snapshotWriter{
-		ctx:          ctx,
-		nodesWriter:  nodesWriter,
-		leavesWriter: leavesWriter,
-		kvWriter:     kvsWriter,
+// SetPipelineBufferSize allows configuring the pipeline buffer size
+// Larger values provide more parallelism but use more memory
+// Default is 10000. Recommended range: 1000-50000
+func SetPipelineBufferSize(size int) {
+	// Clamp size between 100 (minimum to avoid deadlocks) and 100000 (maximum to avoid excessive memory)
+	nodeChanSize = max(100, min(size, 100000))
+}
+
+func newSnapshotWriter(ctx context.Context, nodesWriter, leavesWriter, kvsWriter io.Writer, log logger.Logger) *snapshotWriter {
+	// Create a cancelable context so we can stop producers on error
+	ctx, cancel := context.WithCancel(ctx)
+	now := time.Now()
+
+	// Create separate buffered channels for each file type
+	// This allows parallel writes to all 3 files
+	// Buffer size is configurable via SetPipelineBufferSize()
+	kvChan := make(chan kvWriteOp, nodeChanSize)
+	leafChan := make(chan leafWriteOp, nodeChanSize)
+	branchChan := make(chan branchWriteOp, nodeChanSize)
+	writeErrors := make(chan error, 3) // Buffer for errors from all 3 goroutines
+
+	w := &snapshotWriter{
+		ctx:                    ctx,
+		cancel:                 cancel,
+		nodesWriter:            nodesWriter,
+		leavesWriter:           leavesWriter,
+		kvWriter:               kvsWriter,
+		lastProgressReport:     now,
+		progressReportInterval: 30 * time.Second,
+		logger:                 log,
+		kvChan:                 kvChan,
+		leafChan:               leafChan,
+		branchChan:             branchChan,
+		writeErrors:            writeErrors,
+		lastMetricsReport:      now,
+	}
+
+	// Start 3 parallel writer goroutines - one for each file
+	w.wg.Add(3)
+	go w.kvWriterLoop()
+	go w.leafWriterLoop()
+	go w.branchWriterLoop()
+
+	return w
+}
+
+// kvWriterLoop processes KV write operations in parallel
+func (w *snapshotWriter) kvWriterLoop() {
+	defer w.wg.Done()
+
+	for op := range w.kvChan {
+		if err := w.writeKeyValueDirect(op.key, op.value); err != nil {
+			w.fail(fmt.Errorf("kv write error: %w", err))
+			return
+		}
 	}
 }
 
-// writeKeyValue append key-value pair to kvs file and record the offset
-func (w *snapshotWriter) writeKeyValue(key, value []byte) error {
+// leafWriterLoop processes leaf write operations in parallel
+func (w *snapshotWriter) leafWriterLoop() {
+	defer w.wg.Done()
+
+	for op := range w.leafChan {
+		if err := w.writeLeafDirect(op.version, op.keyLen, op.keyOffset, op.hash); err != nil {
+			w.fail(fmt.Errorf("leaf write error: %w", err))
+			return
+		}
+	}
+}
+
+// branchWriterLoop processes branch write operations in parallel
+func (w *snapshotWriter) branchWriterLoop() {
+	defer w.wg.Done()
+
+	for op := range w.branchChan {
+		if err := w.writeBranchDirect(op.version, op.size, op.height, op.preTrees, op.keyLeaf, op.hash); err != nil {
+			w.fail(fmt.Errorf("branch write error: %w", err))
+			return
+		}
+	}
+}
+
+// fail records an error and cancels the context to stop producers
+func (w *snapshotWriter) fail(err error) {
+	// Log the error immediately for debugging
+	if w.logger != nil {
+		w.logger.Error("snapshot writer failed, canceling operation",
+			"tree", w.treeName,
+			"error", err.Error(),
+			"branches_written", w.branchCounter,
+			"leaves_written", w.leafCounter,
+		)
+	}
+
+	select {
+	case w.writeErrors <- err:
+	default:
+		// Channel full, error already recorded
+	}
+	w.cancel()
+}
+
+// waitForWrites waits for all pending writes to complete and returns any error
+func (w *snapshotWriter) waitForWrites() error {
+	// Close all channels to signal completion
+	close(w.kvChan)
+	close(w.leafChan)
+	close(w.branchChan)
+
+	if w.logger != nil {
+		w.logger.Info("waiting for async writers to complete",
+			"tree", w.treeName,
+			"branches_queued", w.branchCounter,
+			"leaves_queued", w.leafCounter,
+		)
+	}
+
+	// Wait for all writer goroutines to finish
+	w.wg.Wait()
+
+	// Check for any errors
+	select {
+	case err := <-w.writeErrors:
+		if w.logger != nil {
+			w.logger.Error("async writer reported error after completion",
+				"tree", w.treeName,
+				"error", err.Error(),
+			)
+		}
+		return err
+	default:
+		if w.logger != nil {
+			w.logger.Info("all async writers completed successfully",
+				"tree", w.treeName,
+				"total_branches", w.branchCounter,
+				"total_leaves", w.leafCounter,
+			)
+		}
+		return nil
+	}
+}
+
+// writeKeyValueDirect writes key-value pair directly (called by writer goroutine)
+func (w *snapshotWriter) writeKeyValueDirect(key, value []byte) error {
 	var numBuf [4]byte
 
 	keyLen := uint32(len(key))     //nolint:gosec
@@ -531,19 +782,76 @@ func (w *snapshotWriter) writeKeyValue(key, value []byte) error {
 		return err
 	}
 
-	w.kvsOffset += 4 + 4 + uint64(keyLen) + uint64(valueLen)
 	return nil
 }
 
+// writeLeaf sends leaf and KV write operations to the pipeline
 func (w *snapshotWriter) writeLeaf(version uint32, key, value, hash []byte) error {
+	// Track channel fill metrics for all channels
+	kvFill := len(w.kvChan)
+	leafFill := len(w.leafChan)
+
+	if kvFill > w.maxKvFill {
+		w.maxKvFill = kvFill
+	}
+	if leafFill > w.maxLeafFill {
+		w.maxLeafFill = leafFill
+	}
+
+	atomic.AddInt64(&w.kvFillSum, int64(kvFill))
+	atomic.AddInt64(&w.kvFillCount, 1)
+	atomic.AddInt64(&w.leafFillSum, int64(leafFill))
+	atomic.AddInt64(&w.leafFillCount, 1)
+
+	// Calculate key offset BEFORE sending to KV channel
+	keyOffset := w.kvsOffset
+	keyLen := uint32(len(key))
+	valueLen := uint32(len(value))
+	w.kvsOffset += 4 + 4 + uint64(keyLen) + uint64(valueLen)
+
+	// Make copies since we're sending to another goroutine
+	keyCopy := make([]byte, len(key))
+	copy(keyCopy, key)
+	valueCopy := make([]byte, len(value))
+	copy(valueCopy, value)
+	hashCopy := make([]byte, len(hash))
+	copy(hashCopy, hash)
+
+	// Send KV write operation
+	kvOp := kvWriteOp{
+		key:   keyCopy,
+		value: valueCopy,
+	}
+
+	select {
+	case w.kvChan <- kvOp:
+	case <-w.ctx.Done():
+		return w.ctx.Err()
+	}
+
+	// Send leaf write operation
+	leafOp := leafWriteOp{
+		version:   version,
+		keyLen:    keyLen,
+		keyOffset: keyOffset,
+		hash:      hashCopy,
+	}
+
+	select {
+	case w.leafChan <- leafOp:
+		w.leafCounter++
+		return nil
+	case <-w.ctx.Done():
+		return w.ctx.Err()
+	}
+}
+
+// writeLeafDirect performs the actual leaf write (called by writer goroutine)
+func (w *snapshotWriter) writeLeafDirect(version uint32, keyLen uint32, keyOffset uint64, hash []byte) error {
 	var buf [SizeLeafWithoutHash]byte
 	binary.LittleEndian.PutUint32(buf[OffsetLeafVersion:], version)
-	binary.LittleEndian.PutUint32(buf[OffsetLeafKeyLen:], uint32(len(key))) //nolint:gosec
-	binary.LittleEndian.PutUint64(buf[OffsetLeafKeyOffset:], w.kvsOffset)
-
-	if err := w.writeKeyValue(key, value); err != nil {
-		return err
-	}
+	binary.LittleEndian.PutUint32(buf[OffsetLeafKeyLen:], keyLen)
+	binary.LittleEndian.PutUint64(buf[OffsetLeafKeyOffset:], keyOffset)
 
 	if _, err := w.leavesWriter.Write(buf[:]); err != nil {
 		return err
@@ -552,11 +860,43 @@ func (w *snapshotWriter) writeLeaf(version uint32, key, value, hash []byte) erro
 		return err
 	}
 
-	w.leafCounter++
 	return nil
 }
 
+// writeBranch sends a branch write operation to the pipeline
 func (w *snapshotWriter) writeBranch(version, size uint32, height, preTrees uint8, keyLeaf uint32, hash []byte) error {
+	// Track channel fill metrics
+	branchFill := len(w.branchChan)
+	if branchFill > w.maxBranchFill {
+		w.maxBranchFill = branchFill
+	}
+	atomic.AddInt64(&w.branchFillSum, int64(branchFill))
+	atomic.AddInt64(&w.branchFillCount, 1)
+
+	// Make copy of hash since we're sending to another goroutine
+	hashCopy := make([]byte, len(hash))
+	copy(hashCopy, hash)
+
+	op := branchWriteOp{
+		version:  version,
+		size:     size,
+		height:   height,
+		preTrees: preTrees,
+		keyLeaf:  keyLeaf,
+		hash:     hashCopy,
+	}
+
+	select {
+	case w.branchChan <- op:
+		w.branchCounter++
+		return nil
+	case <-w.ctx.Done():
+		return w.ctx.Err()
+	}
+}
+
+// writeBranchDirect performs the actual branch write (called by writer goroutine)
+func (w *snapshotWriter) writeBranchDirect(version, size uint32, height, preTrees uint8, keyLeaf uint32, hash []byte) error {
 	var buf [SizeNodeWithoutHash]byte
 	buf[OffsetHeight] = height
 	buf[OffsetPreTrees] = preTrees
@@ -571,18 +911,17 @@ func (w *snapshotWriter) writeBranch(version, size uint32, height, preTrees uint
 		return err
 	}
 
-	w.branchCounter++
 	return nil
 }
 
-// writeRecursive write the node recursively in depth-first post-order,
-// returns `(nodeIndex, err)`.
+// writeRecursive writes the node recursively in depth-first post-order
 func (w *snapshotWriter) writeRecursive(node Node) error {
 	select {
 	case <-w.ctx.Done():
 		return w.ctx.Err()
 	default:
 	}
+
 	if node.IsLeaf() {
 		return w.writeLeaf(node.Version(), node.Key(), node.Value(), node.Hash())
 	}
@@ -640,41 +979,44 @@ func (snapshot *Snapshot) prefetchSnapshot(snapshotDir string, prefetchThreshold
 	residentLeaves, errLeaves := residentRatio(snapshot.leaves)
 	if errNodes == nil && errLeaves == nil {
 		if residentNodes >= prefetchThreshold && residentLeaves >= prefetchThreshold {
-			log.Debug(fmt.Sprintf("Skipped prefetching for tree %s\n", treeName))
+			log.Info(fmt.Sprintf("Skipped prefetching for tree %s (nodes: %.2f%%, leaves: %.2f%%, threshold: %.2f%%)\n",
+				treeName, residentNodes*100, residentLeaves*100, prefetchThreshold*100))
 			return
 		}
 	}
 
 	if residentNodes < prefetchThreshold {
 		log.Info(fmt.Sprintf("Tree %s nodes page cache residency ratio is %f, below threshold %f\n", treeName, residentNodes, prefetchThreshold))
-		_ = SequentialReadAndFillPageCache(filepath.Join(snapshotDir, FileNameNodes))
+		_ = SequentialReadAndFillPageCache(log, filepath.Join(snapshotDir, FileNameNodes))
 	}
 
 	if residentLeaves < prefetchThreshold {
 		log.Info(fmt.Sprintf("Tree %s leaves page cache residency ratio is %f, below threshold %f\n", treeName, residentLeaves, prefetchThreshold))
-		_ = SequentialReadAndFillPageCache(filepath.Join(snapshotDir, FileNameLeaves))
+		_ = SequentialReadAndFillPageCache(log, filepath.Join(snapshotDir, FileNameLeaves))
 	}
 
-	log.Info(fmt.Sprintf("Prefetch snapshot for %s completed in %fs. Consider adding more RAM to speed up prefetching when loading snapshots.\n", treeName, time.Since(startTime).Seconds()))
+	log.Info(fmt.Sprintf("Prefetch snapshot for %s completed in %fs. Consider adding more RAM for page cache to avoid preloading during restart.\n", treeName, time.Since(startTime).Seconds()))
 }
 
 // shouldPreloadTree determines if a tree should be preloaded based on size and name
 // Only large/active trees benefit from preload; small trees add overhead
 func shouldPreloadTree(treeName string) bool {
-	// Preload the 3 largest/most active trees
+	// Preload the 4 largest/most active trees
 	// Parallel loading + madvise hints will maximize throughput even on slow disks
+	// evm (512M nodes), bank (278M nodes), acc (155M nodes), wasm (27M nodes)
 	activeTrees := map[string]bool{
 		"evm":  true,
 		"bank": true,
 		"acc":  true,
+		"wasm": true, // Added: 27M nodes, worth prefetching in cold start
 	}
 
 	return activeTrees[treeName]
 }
 
-func SequentialReadAndFillPageCache(filePath string) error {
+func SequentialReadAndFillPageCache(log logger.Logger, filePath string) error {
+	filePath = filepath.Clean(filePath)
 	startTime := time.Now()
-	fmt.Printf("[PREFETCH] Starting to prefetch file: %s\n", filePath)
 	f, err := os.Open(filePath)
 	if err != nil {
 		return err
@@ -685,12 +1027,21 @@ func SequentialReadAndFillPageCache(filePath string) error {
 	if err != nil {
 		return err
 	}
+
+	totalSize := fileInfo.Size()
+	if totalSize == 0 {
+		log.Debug("skipping empty file for prefetch", "path", filePath)
+		return nil
+	}
+
+	sizeMiB := float64(totalSize) / (1024 * 1024)
+	log.Debug("starting to prefetch file", "path", filePath, "size_mib", sizeMiB)
+
 	reportDone := make(chan struct{})
 	var totalRead int64
-	totalSize := fileInfo.Size()
 	defer close(reportDone) // Stop progress reporter before returning
 
-	startPrefetchProgressReporter(filePath, totalSize, &totalRead, startTime, reportDone)
+	startPrefetchProgressReporter(log, filePath, totalSize, &totalRead, startTime, reportDone)
 
 	concurrency := runtime.NumCPU()
 	var wg sync.WaitGroup
@@ -719,14 +1070,18 @@ func SequentialReadAndFillPageCache(filePath string) error {
 	wg.Wait()
 
 	elapsed := time.Since(startTime).Seconds()
-	avgSpeedMBps := float64(totalSize) / elapsed / (1024 * 1024)
-	fmt.Printf("Completed prefetching %s: %d MB in %.1fs (%.1f MB/s)\n",
-		filePath, totalSize/(1024*1024), elapsed, avgSpeedMBps)
+	completedSizeMiB := float64(totalSize) / (1024 * 1024)
+	avgSpeedMiBps := float64(totalSize) / elapsed / (1024 * 1024)
+	log.Debug("completed prefetching file",
+		"path", filePath,
+		"size_mib", completedSizeMiB,
+		"elapsed_sec", elapsed,
+		"speed_mib_per_sec", avgSpeedMiBps)
 	return nil
 }
 
 // startPrefetchProgressReporter periodically logs progress until done is closed.
-func startPrefetchProgressReporter(filePath string, totalSize int64, totalRead *int64, startTime time.Time, done <-chan struct{}) {
+func startPrefetchProgressReporter(log logger.Logger, filePath string, totalSize int64, totalRead *int64, startTime time.Time, done <-chan struct{}) {
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
@@ -740,11 +1095,18 @@ func startPrefetchProgressReporter(filePath string, totalSize int64, totalRead *
 				if elapsed <= 0 {
 					continue
 				}
-				speedMBps := float64(tr) / elapsed / (1024 * 1024)
+				readMiB := float64(tr) / (1024 * 1024)
+				totalMiB := float64(totalSize) / (1024 * 1024)
+				speedMiBps := float64(tr) / elapsed / (1024 * 1024)
 				progressPct := float64(tr) * 100 / float64(totalSize)
-				remaining := float64(totalSize-tr) / (speedMBps * 1024 * 1024)
-				fmt.Printf("Prefetching file '%s': %d/%d MB (%.1f%%), speed: %.1f MB/s, ETA: %.0fs\n",
-					filePath, tr/(1024*1024), totalSize/(1024*1024), progressPct, speedMBps, remaining)
+				remaining := float64(totalSize-tr) / (speedMiBps * 1024 * 1024)
+				log.Debug("prefetching file progress",
+					"path", filePath,
+					"read_mib", readMiB,
+					"total_mib", totalMiB,
+					"progress_pct", progressPct,
+					"speed_mib_per_sec", speedMiBps,
+					"eta_sec", remaining)
 			}
 		}
 	}()
