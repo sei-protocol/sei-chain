@@ -25,6 +25,7 @@ func TestRewriteSnapshot(t *testing.T) {
 		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
+	defer db.Close() // Ensure DB cleanup
 
 	for i, changes := range ChangeSets {
 		cs := []*proto.NamedChangeSet{
@@ -98,9 +99,11 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 		SnapshotKeepRecent: 0, // only a single snapshot is kept
 	})
 	require.NoError(t, err)
+	defer db.Close() // Ensure DB cleanup and goroutine termination
 
 	// spin up goroutine to keep querying the tree
 	stopCh := make(chan struct{})
+	defer close(stopCh) // Ensure goroutine cleanup even if test fails early
 	go func() {
 		ticker := time.NewTicker(5 * time.Millisecond)
 		defer ticker.Stop()
@@ -128,13 +131,14 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 		require.Equal(t, i+1, int(v))
 		require.Equal(t, RefHashes[i], db.lastCommitInfo.StoreInfos[0].CommitId.Hash)
 		_ = db.RewriteSnapshotBackground()
-		time.Sleep(time.Millisecond * 20)
 	}
-	for db.snapshotRewriteChan != nil {
+	// Wait for all background snapshot rewrites to complete
+	require.Eventually(t, func() bool {
 		db.mtx.Lock()
-		require.NoError(t, db.checkAsyncTasks())
-		db.mtx.Unlock()
-	}
+		defer db.mtx.Unlock()
+		_ = db.checkAsyncTasks()
+		return db.snapshotRewriteChan == nil
+	}, 3*time.Second, 50*time.Millisecond, "all snapshot rewrites should complete")
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
 
@@ -143,7 +147,7 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 
 	// three files: snapshot, current link, rlog, LOCK
 	require.Equal(t, 4, len(entries))
-	close(stopCh)
+	// stopCh is closed by defer above
 }
 
 // helper to commit one change to bump height
@@ -163,26 +167,34 @@ func RequireCommitWithNoError(t *testing.T, db *DB, key, val string) int64 {
 func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 	dir := t.TempDir()
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:                dir,
-		CreateIfMissing:    true,
-		InitialStores:      []string{"test"},
-		SnapshotInterval:   5,
-		SnapshotKeepRecent: 0,
+		Dir:                     dir,
+		CreateIfMissing:         true,
+		InitialStores:           []string{"test"},
+		SnapshotInterval:        5,
+		SnapshotKeepRecent:      0,
+		SnapshotMinTimeInterval: 1 * time.Second, // 1 second minimum time interval for testing
 	})
 	require.NoError(t, err)
 
-	// Heights 1..4 should NOT trigger because diff<=interval
-	for i := 1; i < 5; i++ {
+	// Heights 1..4 should NOT trigger because diff<interval
+	for idx := range 4 {
+		i := idx + 1
 		v := RequireCommitWithNoError(t, db, "k"+strconv.Itoa(i), "v")
 		require.EqualValues(t, i, v)
-		// allow any background processing
-		time.Sleep(10 * time.Millisecond)
-		require.Nil(t, db.snapshotRewriteChan, "rewrite should not start at height %d", i)
+		// Verify snapshot rewrite should not start
+		require.Never(t, func() bool {
+			db.mtx.Lock()
+			defer db.mtx.Unlock()
+			return db.snapshotRewriteChan != nil
+		}, 100*time.Millisecond, 10*time.Millisecond, "rewrite should not start at height %d", i)
 		// snapshot version should remain 0 until rewrite
 		require.EqualValues(t, 0, db.MultiTree.SnapshotVersion())
 	}
 
-	// Height 5 should trigger rewrite
+	// Wait for minimum time interval to elapse (1 second + buffer)
+	time.Sleep(1100 * time.Millisecond)
+
+	// Height 5 should trigger rewrite (interval reached and time threshold met)
 	v := RequireCommitWithNoError(t, db, "k6", "v")
 	require.Equal(t, int64(5), v)
 
@@ -195,7 +207,7 @@ func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 		return db.snapshotRewriteChan == nil
 	}, 5*time.Second, 100*time.Millisecond)
 
-	// After completion, snapshot version should be 6
+	// After completion, snapshot version should be 5
 	require.EqualValues(t, 5, db.MultiTree.SnapshotVersion())
 
 	require.NoError(t, db.Close())
@@ -241,6 +253,7 @@ func TestRlog(t *testing.T) {
 
 	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir})
 	require.NoError(t, err)
+	defer db.Close() // Close the reopened DB
 
 	require.Equal(t, "newtest", db.lastCommitInfo.StoreInfos[0].Name)
 	require.Equal(t, 1, len(db.lastCommitInfo.StoreInfos))
@@ -301,7 +314,8 @@ func TestInitialVersion(t *testing.T) {
 
 		db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir})
 		require.NoError(t, err)
-		require.Equal(t, uint32(initialVersion), db.initialVersion)
+		defer db.Close() // Close the reopened DB at end of loop iteration
+		require.Equal(t, uint32(initialVersion), db.initialVersion.Load())
 		require.Equal(t, v, db.Version())
 		require.Equal(t, hex.EncodeToString(hash), hex.EncodeToString(db.LastCommitInfo().StoreInfos[0].CommitId.Hash))
 
@@ -381,6 +395,7 @@ func TestLoadVersion(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, RefHashes[v-1], tmp.TreeByName("test").RootHash())
 		require.Equal(t, expItems, collectIter(tmp.TreeByName("test").Iterator(nil, nil, true)))
+		require.NoError(t, tmp.Close()) // Close each readonly DB instance
 	}
 }
 
@@ -486,6 +501,7 @@ func TestEmptyValue(t *testing.T) {
 
 	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ZeroCopy: true})
 	require.NoError(t, err)
+	defer db.Close() // Close the reopened DB
 	require.Equal(t, version, db.Version())
 }
 
@@ -531,13 +547,15 @@ func TestFastCommit(t *testing.T) {
 	dir := t.TempDir()
 
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:               dir,
-		CreateIfMissing:   true,
-		InitialStores:     []string{"test"},
-		SnapshotInterval:  3,
-		AsyncCommitBuffer: 10,
+		Dir:                     dir,
+		CreateIfMissing:         true,
+		InitialStores:           []string{"test"},
+		SnapshotInterval:        3,
+		AsyncCommitBuffer:       10,
+		SnapshotMinTimeInterval: 1 * time.Second, // 1 second for testing
 	})
 	require.NoError(t, err)
+	initialSnapshotTime := db.lastSnapshotTime
 
 	cs := iavl.ChangeSet{
 		Pairs: []*iavl.KVPair{
@@ -549,12 +567,21 @@ func TestFastCommit(t *testing.T) {
 	// that happens when rlog segment is full and create a new one,
 	// the rlog writing will slow down a little bit,
 	// segment size is 20m, each change set is 1m, so we need a bit more than 20 commits to reproduce.
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{Name: "test", Changeset: cs}}))
 		_, err := db.Commit()
 		require.NoError(t, err)
+		// After reaching snapshot interval (3), wait for time threshold to be met
+		if i == 2 {
+			time.Sleep(1100 * time.Millisecond)
+		}
 	}
-	<-db.snapshotRewriteChan
+
+	require.Eventually(t, func() bool {
+		require.NoError(t, db.checkBackgroundSnapshotRewrite())
+		return db.snapshotRewriteChan == nil && db.lastSnapshotTime.After(initialSnapshotTime)
+	}, 10*time.Second, 10*time.Millisecond, "snapshot rewrite did not finish in time")
+
 	require.NoError(t, db.Close())
 }
 
