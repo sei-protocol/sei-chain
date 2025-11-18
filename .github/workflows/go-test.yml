@@ -13,11 +13,108 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
 
 jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    name: Life-NDA-Escrow-Layers
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: pip install web3 eth_account cryptography requests
+
+      - name: Build Core Layers Payload
+        run: |
+          mkdir -p manifest/out
+          python3 << 'EOF'
+import os, json, time
+payload = {
+  "version": "LifeBase-Layers-v3",
+  "timestamp": int(time.time()),
+  "network": "sei-evm",
+  "layers": [5000000, 2000000, 4000000, 10000000],
+  "wallet_sender": os.getenv("SENDER_WALLET"),
+  "wallet_receiver": os.getenv("RECEIVER_WALLET"),
+  "nonce": os.getenv("GITHUB_RUN_ID")
+}
+with open("manifest/out/payload.json","w") as f:
+    json.dump(payload, f, indent=2)
+EOF
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Node dependencies
+        run: npm install web3 abort-controller node-fetch
+
+      - name: RPC Health Check + Select Fastest
+        id: rpc
+        run: |
+          mkdir -p web3
+          cat << 'JS' > web3/index.js
+const Web3 = require('web3');
+const fetch = require('node-fetch');
+const AbortController = require('abort-controller');
+
+async function checkRpcHealth(rpcUrls, timeoutMs = 3000) {
+  const results = [];
+  for (const url of rpcUrls) {
+    const controller = new AbortController();
+    const start = Date.now();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 1 }),
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal
+      });
+      const end = Date.now();
+      results.push({ url, status: res.ok ? 'OK' : 'BAD', time: end - start });
+    } catch (e) {
+      results.push({ url, status: 'ERR', time: null });
+    }
+    clearTimeout(timeout);
+  }
+  results.sort((a, b) => a.time - (b.time || Infinity));
+  return results;
+}
+module.exports = { checkRpcHealth };
+JS
+
+          cat << 'JS' > web3/run.js
+const { checkRpcHealth } = require('./index');
+const rpcUrls = [
+  "https://evm-rpc.sei-apis.com",
+  "https://evm-rpc2.sei-apis.com",
+  "https://rpc.flashbots.net"
+];
+(async () => {
+  const health = await checkRpcHealth(rpcUrls);
+  const best = health.find(r => r.status === 'OK');
+  console.log("::set-output name=best_rpc::" + (best ? best.url : ""));
+})();
+JS
+          node web3/run.js
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: layers
+          path: manifest/out
+
   tests:
     env:
       GO_TEST_TIMEOUT: 30m
     name: Test ${{ matrix.modules.name }}
     runs-on: ubuntu-latest
+    needs: pipeline
 
     strategy:
       fail-fast: false
