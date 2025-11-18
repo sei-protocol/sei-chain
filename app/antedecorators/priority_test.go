@@ -8,7 +8,6 @@ import (
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	authante "github.com/cosmos/cosmos-sdk/x/auth/ante"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
@@ -22,11 +21,11 @@ import (
 
 func TestPriorityAnteDecorator(t *testing.T) {
 	output = ""
-	anteDecorators := []sdk.AnteFullDecorator{
-		sdk.DefaultWrappedAnteDecorator(antedecorators.NewPriorityDecorator()),
+	anteDecorators := []sdk.AnteDecorator{
+		antedecorators.NewPriorityDecorator(),
 	}
 	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
-	chainedHandler, _ := sdk.ChainAnteDecorators(anteDecorators...)
+	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 	// test with normal priority
 	newCtx, err := chainedHandler(
 		ctx.WithPriority(125),
@@ -39,11 +38,11 @@ func TestPriorityAnteDecorator(t *testing.T) {
 
 func TestPriorityAnteDecoratorTooHighPriority(t *testing.T) {
 	output = ""
-	anteDecorators := []sdk.AnteFullDecorator{
-		sdk.DefaultWrappedAnteDecorator(antedecorators.NewPriorityDecorator()),
+	anteDecorators := []sdk.AnteDecorator{
+		antedecorators.NewPriorityDecorator(),
 	}
 	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
-	chainedHandler, _ := sdk.ChainAnteDecorators(anteDecorators...)
+	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 	// test with too high priority, should be auto capped
 	newCtx, err := chainedHandler(
 		ctx.WithPriority(math.MaxInt64-50),
@@ -60,11 +59,11 @@ func TestPriorityAnteDecoratorTooHighPriority(t *testing.T) {
 
 func TestPriorityAnteDecoratorOracleMsg(t *testing.T) {
 	output = ""
-	anteDecorators := []sdk.AnteFullDecorator{
-		sdk.DefaultWrappedAnteDecorator(antedecorators.NewPriorityDecorator()),
+	anteDecorators := []sdk.AnteDecorator{
+		antedecorators.NewPriorityDecorator(),
 	}
 	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
-	chainedHandler, _ := sdk.ChainAnteDecorators(anteDecorators...)
+	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 	// test with zero priority, should be bumped up to oracle priority
 	newCtx, err := chainedHandler(
 		ctx.WithPriority(0),
@@ -89,10 +88,6 @@ func (d PriorityCaptureDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	return next(ctx, tx, simulate)
 }
 
-func (d PriorityCaptureDecorator) AnteDeps(txDeps []accesscontrol.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) ([]accesscontrol.AccessOperation, error) {
-	return next(txDeps, tx, txIndex)
-}
-
 func TestPriorityWithExactAnteChain_BankSend(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
 	ctx := testApp.NewContext(false, tmproto.Header{ChainID: "sei-test"}).WithBlockHeight(2).WithIsCheckTx(true)
@@ -104,22 +99,22 @@ func TestPriorityWithExactAnteChain_BankSend(t *testing.T) {
 	var seenAfterSpamming int64 = -1
 	var seenAfterPriority int64 = -1
 
-	decorators := []sdk.AnteFullDecorator{
-		sdk.DefaultWrappedAnteDecorator(authante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(testApp.ParamsKeeper))),
-		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{authante.NewDeductFeeDecorator(testApp.AccountKeeper, testApp.BankKeeper, testApp.FeeGrantKeeper, testApp.ParamsKeeper, nil)}, testApp.OracleKeeper, &testApp.EvmKeeper),
-		func() sdk.AnteFullDecorator {
+	decorators := []sdk.AnteDecorator{
+		authante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(testApp.ParamsKeeper)),
+		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{authante.NewDeductFeeDecorator(testApp.AccountKeeper, testApp.BankKeeper, testApp.FeeGrantKeeper, testApp.ParamsKeeper, nil)}, testApp.OracleKeeper, &testApp.EvmKeeper),
+		func() sdk.AnteDecorator {
 			var simLimit sdk.Gas = 1_000_000
-			return sdk.DefaultWrappedAnteDecorator(wasmkeeper.NewLimitSimulationGasDecorator(&simLimit, antedecorators.GetGasMeterSetter(testApp.ParamsKeeper)))
+			return wasmkeeper.NewLimitSimulationGasDecorator(&simLimit, antedecorators.GetGasMeterSetter(testApp.ParamsKeeper))
 		}(),
-		sdk.DefaultWrappedAnteDecorator(PriorityCaptureDecorator{captured: &seenAfterLimit}),
-		sdk.DefaultWrappedAnteDecorator(authante.NewRejectExtensionOptionsDecorator()),
-		sdk.DefaultWrappedAnteDecorator(PriorityCaptureDecorator{captured: &seenAfterReject}),
+		PriorityCaptureDecorator{captured: &seenAfterLimit},
+		authante.NewRejectExtensionOptionsDecorator(),
+		PriorityCaptureDecorator{captured: &seenAfterReject},
 		oracle.NewSpammingPreventionDecorator(testApp.OracleKeeper),
-		sdk.DefaultWrappedAnteDecorator(PriorityCaptureDecorator{captured: &seenAfterSpamming}),
-		sdk.DefaultWrappedAnteDecorator(antedecorators.NewPriorityDecorator()),
-		sdk.DefaultWrappedAnteDecorator(PriorityCaptureDecorator{captured: &seenAfterPriority}),
+		PriorityCaptureDecorator{captured: &seenAfterSpamming},
+		antedecorators.NewPriorityDecorator(),
+		PriorityCaptureDecorator{captured: &seenAfterPriority},
 	}
-	handler, _ := sdk.ChainAnteDecorators(decorators...)
+	handler := sdk.ChainAnteDecorators(decorators...)
 
 	from, _ := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
 	to, _ := sdk.AccAddressFromBech32("sei1jdppe6fnj2q7hjsepty5crxtrryzhuqsjrj95y")
@@ -160,10 +155,6 @@ func (d PrioritySetterDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	return next(newCtx, tx, simulate)
 }
 
-func (d PrioritySetterDecorator) AnteDeps(txDeps []accesscontrol.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) ([]accesscontrol.AccessOperation, error) {
-	return next(txDeps, tx, txIndex)
-}
-
 func TestPrioritySetterWithAnteHandlers(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
 	ctx := testApp.NewContext(false, tmproto.Header{}).WithBlockHeight(2).WithIsCheckTx(true)
@@ -177,23 +168,23 @@ func TestPrioritySetterWithAnteHandlers(t *testing.T) {
 	var seenAfterSpamming int64 = -1
 	var seenAfterPriority int64 = -1
 
-	decorators := []sdk.AnteFullDecorator{
-		sdk.DefaultWrappedAnteDecorator(authante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(testApp.ParamsKeeper))),
-		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{PrioritySetterDecorator{priority: expectedPriority}}, testApp.OracleKeeper, &testApp.EvmKeeper),
-		sdk.DefaultWrappedAnteDecorator(PriorityCaptureDecorator{captured: &seenAfterSetter}),
-		func() sdk.AnteFullDecorator {
+	decorators := []sdk.AnteDecorator{
+		authante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(testApp.ParamsKeeper)),
+		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{PrioritySetterDecorator{priority: expectedPriority}}, testApp.OracleKeeper, &testApp.EvmKeeper),
+		PriorityCaptureDecorator{captured: &seenAfterSetter},
+		func() sdk.AnteDecorator {
 			var simLimit sdk.Gas = 1_000_000
-			return sdk.DefaultWrappedAnteDecorator(wasmkeeper.NewLimitSimulationGasDecorator(&simLimit, antedecorators.GetGasMeterSetter(testApp.ParamsKeeper)))
+			return wasmkeeper.NewLimitSimulationGasDecorator(&simLimit, antedecorators.GetGasMeterSetter(testApp.ParamsKeeper))
 		}(),
-		sdk.DefaultWrappedAnteDecorator(PriorityCaptureDecorator{captured: &seenAfterLimit}),
-		sdk.DefaultWrappedAnteDecorator(authante.NewRejectExtensionOptionsDecorator()),
-		sdk.DefaultWrappedAnteDecorator(PriorityCaptureDecorator{captured: &seenAfterReject}),
+		PriorityCaptureDecorator{captured: &seenAfterLimit},
+		authante.NewRejectExtensionOptionsDecorator(),
+		PriorityCaptureDecorator{captured: &seenAfterReject},
 		oracle.NewSpammingPreventionDecorator(testApp.OracleKeeper),
-		sdk.DefaultWrappedAnteDecorator(PriorityCaptureDecorator{captured: &seenAfterSpamming}),
-		sdk.DefaultWrappedAnteDecorator(antedecorators.NewPriorityDecorator()),
-		sdk.DefaultWrappedAnteDecorator(PriorityCaptureDecorator{captured: &seenAfterPriority}),
+		PriorityCaptureDecorator{captured: &seenAfterSpamming},
+		antedecorators.NewPriorityDecorator(),
+		PriorityCaptureDecorator{captured: &seenAfterPriority},
 	}
-	handler, _ := sdk.ChainAnteDecorators(decorators...)
+	handler := sdk.ChainAnteDecorators(decorators...)
 
 	from, _ := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
 	to, _ := sdk.AccAddressFromBech32("sei1jdppe6fnj2q7hjsepty5crxtrryzhuqsjrj95y")
