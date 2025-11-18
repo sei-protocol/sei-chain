@@ -1,0 +1,33 @@
+name: Tests
+on:
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for describe/tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'   # ok; upstream may still be 1.21–1.22, but this compiles fine
+
+      - name: Go mod download (clean)
+        run: |
+          go env
+          go mod download
+
+      - name: Test group 03
+        env:
+          NUM_SPLIT: 20
+        run: |
+          make test-group-03 NUM_SPLIT=${NUM_SPLIT}
+
+      - name: Test occ_tests (serial, no race)
+        run: |
+          make test-occ
