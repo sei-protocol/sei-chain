@@ -954,8 +954,26 @@ func (app *App) HandlePreCommit(ctx sdk.Context) error {
 
 // Close closes all items that needs closing (called by baseapp)
 func (app *App) HandleClose() error {
+	var errs []error
+
+	// Close receipt store
 	if app.receiptStore != nil {
-		return app.receiptStore.Close()
+		if err := app.receiptStore.Close(); err != nil {
+			app.Logger().Error("failed to close receipt store", "error", err)
+			errs = append(errs, fmt.Errorf("failed to close receipt store: %w", err))
+		}
+	}
+
+	// Close state store (SeiDB) - critical for cleaning up background goroutines
+	if app.stateStore != nil {
+		if err := app.stateStore.Close(); err != nil {
+			app.Logger().Error("failed to close state store", "error", err)
+			errs = append(errs, fmt.Errorf("failed to close state store: %w", err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("errors during close: %v", errs)
 	}
 	return nil
 }

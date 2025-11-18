@@ -2,8 +2,10 @@ package memiavl
 
 import (
 	"errors"
-	"github.com/sei-protocol/sei-db/common/logger"
 	"runtime"
+	"time"
+
+	"github.com/sei-protocol/sei-db/common/logger"
 
 	"github.com/sei-protocol/sei-db/config"
 )
@@ -42,6 +44,10 @@ type Options struct {
 	// Prefetch the snapshot file if amount of file in cache is below the threshold
 	// Setting to <=0 means disable prefetching
 	PrefetchThreshold float64
+
+	// Minimum time interval between snapshots
+	// This prevents excessive snapshot creation during catch-up. Default is 1 hour.
+	SnapshotMinTimeInterval time.Duration
 }
 
 func (opts Options) Validate() error {
@@ -63,6 +69,10 @@ func (opts *Options) FillDefaults() {
 
 	if opts.SnapshotWriterLimit <= 0 {
 		opts.SnapshotWriterLimit = runtime.NumCPU()
+	}
+
+	if opts.SnapshotMinTimeInterval <= 0 {
+		opts.SnapshotMinTimeInterval = 1 * time.Hour
 	}
 
 	opts.PrefetchThreshold = 0.8
