@@ -98,8 +98,8 @@ func (txs Txs) ToSliceOfBytes() [][]byte {
 // These indexes are useful for validating and working with a list of TxRecords
 // from the PrepareProposal response.
 //
-// Only one copy of the original data is referenced by all of the indexes but a
-// transaction may appear in multiple indexes.
+	// Only one copy of the original data is referenced by all of the indexes but a
+	// transaction may appear in multiple indexes.
 type TxRecordSet struct {
 	// all holds the complete list of all transactions from the original list of
 	// TxRecords.
@@ -111,7 +111,7 @@ type TxRecordSet struct {
 	// in the list of TxRecords.
 	included Txs
 
-	// added, unmodified, removed, and unknown are indexes for each of the actions
+	// added, unmodified, removed, unknown, and generated are indexes for each of the actions
 	// that may be supplied with a transaction.
 	//
 	// Because each transaction only has one action, it can be referenced by
@@ -121,6 +121,7 @@ type TxRecordSet struct {
 	unmodified Txs
 	removed    Txs
 	unknown    Txs
+	generated  Txs
 }
 
 // NewTxRecordSet constructs a new set from the given transaction records.
@@ -139,6 +140,10 @@ func NewTxRecordSet(trs []*abci.TxRecord) TxRecordSet {
 		switch tr.GetAction() {
 		case abci.TxRecord_UNMODIFIED:
 			txrSet.unmodified = append(txrSet.unmodified, txrSet.all[i])
+			txrSet.included = append(txrSet.included, txrSet.all[i])
+		case abci.TxRecord_GENERATED:
+			// GENERATED transactions are included but bypass validation
+			txrSet.generated = append(txrSet.generated, txrSet.all[i])
 			txrSet.included = append(txrSet.included, txrSet.all[i])
 		}
 	}
@@ -193,9 +198,10 @@ func (t TxRecordSet) Validate(maxSizeBytes int64, otxs Txs) error {
 	addedCopy := sortedCopy(t.added)
 	removedCopy := sortedCopy(t.removed)
 	unmodifiedCopy := sortedCopy(t.unmodified)
+	generatedCopy := sortedCopy(t.generated)
 
 	var size int64
-	for _, cur := range append(unmodifiedCopy, addedCopy...) {
+	for _, cur := range append(unmodifiedCopy, append(addedCopy, generatedCopy...)...) {
 		size += int64(len(cur))
 		if size > maxSizeBytes {
 			return fmt.Errorf("transaction data size exceeds maximum %d", maxSizeBytes)
@@ -206,8 +212,12 @@ func (t TxRecordSet) Validate(maxSizeBytes int64, otxs Txs) error {
 	// the caller's data is not altered.
 	otxsCopy := sortedCopy(otxs)
 
-	if ix, ok := containsAll(otxsCopy, unmodifiedCopy); !ok {
-		return fmt.Errorf("new transaction incorrectly marked as removed, transaction hash: %x", unmodifiedCopy[ix].Hash())
+	// Skip validation checks for GENERATED transactions (used in benchmark mode)
+	// Only validate UNMODIFIED transactions against original transactions
+	if len(unmodifiedCopy) > 0 {
+		if ix, ok := containsAll(otxsCopy, unmodifiedCopy); !ok {
+			return fmt.Errorf("new transaction incorrectly marked as removed, transaction hash: %x", unmodifiedCopy[ix].Hash())
+		}
 	}
 
 	if ix, ok := containsAll(otxsCopy, removedCopy); !ok {
