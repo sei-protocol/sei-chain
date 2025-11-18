@@ -23,7 +23,6 @@ import (
 	"github.com/tendermint/tendermint/crypto"
 	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
 	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/jsontypes"
 	"github.com/tendermint/tendermint/internal/libs/autofile"
 	sm "github.com/tendermint/tendermint/internal/state"
 	tmevents "github.com/tendermint/tendermint/libs/events"
@@ -59,34 +58,6 @@ type msgInfo struct {
 	ReceiveTime time.Time
 }
 
-func (msgInfo) TypeTag() string { return "tendermint/wal/MsgInfo" }
-
-type msgInfoJSON struct {
-	Msg         json.RawMessage `json:"msg"`
-	PeerID      types.NodeID    `json:"peer_key"`
-	ReceiveTime time.Time       `json:"receive_time"`
-}
-
-func (m msgInfo) MarshalJSON() ([]byte, error) {
-	msg, err := jsontypes.Marshal(m.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(msgInfoJSON{Msg: msg, PeerID: m.PeerID, ReceiveTime: m.ReceiveTime})
-}
-
-func (m *msgInfo) UnmarshalJSON(data []byte) error {
-	var msg msgInfoJSON
-	if err := json.Unmarshal(data, &msg); err != nil {
-		return err
-	}
-	if err := jsontypes.Unmarshal(msg.Msg, &m.Msg); err != nil {
-		return err
-	}
-	m.PeerID = msg.PeerID
-	return nil
-}
-
 // internally generated messages which may update the state
 type timeoutInfo struct {
 	Duration time.Duration         `json:"duration,string"`
@@ -108,8 +79,6 @@ func (ti *timeoutInfo) Less(b *timeoutInfo) bool {
 	// TODO(gprusak): Figure out why we special case step 0 and fix it.
 	return ti.Step <= 0 || ti.Step < b.Step
 }
-
-func (timeoutInfo) TypeTag() string { return "tendermint/wal/TimeoutInfo" }
 
 func (ti *timeoutInfo) String() string {
 	return fmt.Sprintf("%v ; %d/%d %v", ti.Duration, ti.Height, ti.Round, ti.Step)
@@ -719,7 +688,6 @@ func (cs *State) reconstructLastCommit(state sm.State) {
 		panic(fmt.Sprintf("failed to reconstruct last commit; %s", err))
 	}
 	cs.roundState.SetLastCommit(votes)
-	return
 }
 
 func (cs *State) votesFromSeenCommit(state sm.State) (*types.VoteSet, error) {
