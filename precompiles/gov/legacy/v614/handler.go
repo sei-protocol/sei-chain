@@ -6,8 +6,6 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types/proposal"
@@ -236,52 +234,6 @@ func (h CommunityPoolSpendProposalHandler) Type() string {
 	return distrtypes.ProposalTypeCommunityPoolSpend
 }
 
-type UpdateResourceDependencyMappingProposalHandler struct {
-	evmKeeper EVMKeeper
-}
-
-func (h UpdateResourceDependencyMappingProposalHandler) HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
-	if proposal.ResourceMapping == nil {
-		return nil, errors.New("resource mapping must be specified")
-	}
-
-	mapping := proposal.ResourceMapping
-
-	// Validate required fields
-	if mapping.Resource == "" {
-		return nil, errors.New("resource must be specified")
-	}
-	if len(mapping.Dependencies) == 0 {
-		return nil, errors.New("at least one dependency must be specified")
-	}
-	if len(mapping.AccessOps) == 0 {
-		return nil, errors.New("at least one access operation must be specified")
-	}
-
-	// Validate that the last access operation is COMMIT
-	lastOp := mapping.AccessOps[len(mapping.AccessOps)-1]
-	if lastOp.AccessType != "COMMIT" {
-		return nil, errors.New("last access operation must be COMMIT")
-	}
-
-	// Build MessageDependencyMappings for each dependency
-	mappings := make([]accesscontrol.MessageDependencyMapping, len(mapping.Dependencies))
-	for i, dep := range mapping.Dependencies {
-		// For now, use synchronous access ops as a default
-		mappings[i] = acltypes.SynchronousMessageDependencyMapping(acltypes.MessageKey(dep))
-	}
-
-	return acltypes.NewMsgUpdateResourceDependencyMappingProposal(
-		proposal.Title,
-		proposal.Description,
-		mappings,
-	), nil
-}
-
-func (h UpdateResourceDependencyMappingProposalHandler) Type() string {
-	return acltypes.ProposalUpdateResourceDependencyMapping
-}
-
 // RegisterProposalHandlers registers all available proposal handlers
 func RegisterProposalHandlers(evmKeeper EVMKeeper) map[string]ProposalHandler {
 	proposalHandlers := make(map[string]ProposalHandler)
@@ -307,10 +259,6 @@ func RegisterProposalHandlers(evmKeeper EVMKeeper) map[string]ProposalHandler {
 	// Register the CommunityPoolSpendProposalHandler
 	communityPoolSpendHandler := CommunityPoolSpendProposalHandler{evmKeeper: evmKeeper}
 	proposalHandlers[communityPoolSpendHandler.Type()] = communityPoolSpendHandler
-
-	// Register the UpdateResourceDependencyMappingProposalHandler
-	resourceDependencyHandler := UpdateResourceDependencyMappingProposalHandler{evmKeeper: evmKeeper}
-	proposalHandlers[resourceDependencyHandler.Type()] = resourceDependencyHandler
 
 	return proposalHandlers
 }
