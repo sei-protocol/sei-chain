@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
 	"github.com/cosmos/cosmos-sdk/testutil/network"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -17,6 +16,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
 	stakingcli "github.com/cosmos/cosmos-sdk/x/staking/client/cli"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 type IntegrationTestSuite struct {
@@ -104,7 +104,7 @@ func (s *IntegrationTestSuite) TestGenTxCmd() {
 
 		s.Run(tc.name, func() {
 			cmd := cli.GenTxCmd(
-				simapp.ModuleBasics,
+				seiapp.ModuleBasics,
 				val.ClientCtx.TxConfig,
 				banktypes.GenesisBalancesIterator{},
 				val.ClientCtx.HomeDir)

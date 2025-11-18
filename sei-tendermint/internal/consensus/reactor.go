@@ -89,9 +89,6 @@ const (
 
 	maxMsgSize = 4194304 // 4MB; NOTE: keep larger than types.PartSet sizes.
 
-	blocksToContributeToBecomeGoodPeer = 10000
-	votesToContributeToBecomeGoodPeer  = 10000
-
 	listenerIDConsensus = "consensus-reactor"
 )
 
@@ -1003,16 +1000,16 @@ func (r *Reactor) recoverToErr(err *error) {
 // the reactor is stopped, we will catch the signal and close the p2p Channel
 // gracefully.
 func (r *Reactor) processStateCh(ctx context.Context) error {
-	for {
+	for ctx.Err() == nil {
 		m, err := r.channels.state.Recv(ctx)
 		if err != nil {
 			return err
 		}
-		if err := r.handleStateMessage(m); err != nil {
-			r.logger.Error("failed to process stateCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+		if err := r.handleStateMessage(m); err != nil && ctx.Err() == nil {
+			r.router.Evict(m.From, fmt.Errorf("consensus.state: %w", err))
 		}
 	}
+	return ctx.Err()
 }
 
 // processDataCh initiates a blocking process where we listen for and handle
@@ -1021,16 +1018,16 @@ func (r *Reactor) processStateCh(ctx context.Context) error {
 // the reactor is stopped, we will catch the signal and close the p2p Channel
 // gracefully.
 func (r *Reactor) processDataCh(ctx context.Context) error {
-	for {
+	for ctx.Err() == nil {
 		m, err := r.channels.data.Recv(ctx)
 		if err != nil {
 			return err
 		}
-		if err := r.handleDataMessage(ctx, m); err != nil {
-			r.logger.Error("failed to process dataCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+		if err := r.handleDataMessage(ctx, m); err != nil && ctx.Err() == nil {
+			r.router.Evict(m.From, fmt.Errorf("consensus.data: %w", err))
 		}
 	}
+	return ctx.Err() 
 }
 
 // processVoteCh initiates a blocking process where we listen for and handle
@@ -1039,19 +1036,16 @@ func (r *Reactor) processDataCh(ctx context.Context) error {
 // the reactor is stopped, we will catch the signal and close the p2p Channel
 // gracefully.
 func (r *Reactor) processVoteCh(ctx context.Context) error {
-	for {
+	for ctx.Err() == nil {
 		m, err := r.channels.vote.Recv(ctx)
 		if err != nil {
 			return err
 		}
-		if err := r.handleVoteMessage(ctx, m); err != nil {
-			r.logger.Error("failed to process voteCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{
-				NodeID: m.From,
-				Err:    err,
-			})
+		if err := r.handleVoteMessage(ctx, m); err != nil && ctx.Err() == nil {
+			r.router.Evict(m.From, fmt.Errorf("consensus.vote: %w", err))
 		}
 	}
+	return ctx.Err()
 }
 
 // processVoteCh initiates a blocking process where we listen for and handle
@@ -1060,16 +1054,16 @@ func (r *Reactor) processVoteCh(ctx context.Context) error {
 // When the reactor is stopped, we will catch the signal and close the p2p
 // Channel gracefully.
 func (r *Reactor) processVoteSetBitsCh(ctx context.Context) error {
-	for {
+	for ctx.Err() == nil {
 		m, err := r.channels.votSet.Recv(ctx)
 		if err != nil {
 			return err
 		}
-		if err := r.handleVoteSetBitsMessage(m); err != nil {
-			r.logger.Error("failed to process voteSetCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+		if err := r.handleVoteSetBitsMessage(m); err != nil && ctx.Err() == nil {
+			r.router.Evict(m.From, fmt.Errorf("consensus.voteSet: %w", err))
 		}
 	}
+	return ctx.Err()
 }
 
 // processPeerUpdates initiates a blocking process where we listen for and handle
@@ -1080,45 +1074,51 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 		return err
 	}
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		process := func(peerUpdate p2p.PeerUpdate) {
-			switch peerUpdate.Status {
-			case p2p.PeerStatusUp:
-				for peers := range r.peers.Lock() {
-					if _, ok := peers[peerUpdate.NodeID]; ok {
-						return
-					}
-					ps := NewPeerState(r.logger, peerUpdate.NodeID)
-					peerCtx, cancel := context.WithCancel(ctx)
-					ps.cancel = cancel
-					peers[peerUpdate.NodeID] = ps
-					// We intentionally spawn per-peer routines with a cancellable context,
-					// so that it can be canceled from outside when the peer goes down.
-					s.Spawn(func() error { return utils.IgnoreCancel(r.gossipDataRoutine(peerCtx, ps)) })
-					s.Spawn(func() error { return utils.IgnoreCancel(r.gossipVotesRoutine(peerCtx, ps)) })
-					s.Spawn(func() error { return utils.IgnoreCancel(r.queryMaj23Routine(peerCtx, ps)) })
-					s.Spawn(func() error { <-peerCtx.Done(); cancel(); return nil })
-					r.sendNewRoundStepMessage(ps.peerID)
-				}
-			case p2p.PeerStatusDown:
-				for peers := range r.peers.Lock() {
-					if ps, ok := peers[peerUpdate.NodeID]; ok {
-						ps.cancel()
-						delete(peers, peerUpdate.NodeID)
-					}
-				}
-			}
-		}
-		peerUpdates := r.router.PeerManager().Subscribe(ctx)
-		for _, update := range peerUpdates.PreexistingPeers() {
-			process(update)
-		}
-		for {
-			update, err := utils.Recv(ctx, peerUpdates.Updates())
+		recv := r.router.Subscribe()
+		for ctx.Err()==nil {
+			update, err := recv.Recv(ctx)
 			if err != nil {
 				return err
 			}
-			process(update)
+			switch update.Status {
+			case p2p.PeerStatusUp:
+				for peers := range r.peers.Lock() {
+					if _, ok := peers[update.NodeID]; ok {
+						continue
+					}
+					ps := NewPeerState(r.logger, update.NodeID)
+					peerCtx, cancel := context.WithCancel(ctx)
+					ps.cancel = cancel
+					peers[update.NodeID] = ps
+					s.Spawn(func() error {
+						defer cancel()
+						// Only ctx.Canceled is expected and only once peerCtx is done.
+						if err:=r.runPeer(peerCtx, ps); utils.IgnoreCancel(err)!=nil || peerCtx.Err()==nil {
+							return err
+						}
+						return nil
+					})	
+				}
+			case p2p.PeerStatusDown:
+				for peers := range r.peers.Lock() {
+					if ps, ok := peers[update.NodeID]; ok {
+						ps.cancel()
+						delete(peers, update.NodeID)
+					}
+				}
+			}
 		}
+		return ctx.Err()
+	})
+}
+
+func (r *Reactor) runPeer(ctx context.Context, ps *PeerState) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error { return r.gossipDataRoutine(ctx, ps) })
+		s.Spawn(func() error { return r.gossipVotesRoutine(ctx, ps) })
+		s.Spawn(func() error { return r.queryMaj23Routine(ctx, ps) })
+		r.sendNewRoundStepMessage(ps.peerID)
+		return nil
 	})
 }
 
@@ -1136,20 +1136,9 @@ func (r *Reactor) peerStatsRoutine(ctx context.Context) error {
 
 		switch msg.Msg.(type) {
 		case *VoteMessage:
-			if numVotes := ps.RecordVote(); numVotes%votesToContributeToBecomeGoodPeer == 0 {
-				r.router.PeerManager().SendUpdate(p2p.PeerUpdate{
-					NodeID: msg.PeerID,
-					Status: p2p.PeerStatusGood,
-				})
-			}
-
+			ps.RecordVote()
 		case *BlockPartMessage:
-			if numParts := ps.RecordBlockPart(); numParts%blocksToContributeToBecomeGoodPeer == 0 {
-				r.router.PeerManager().SendUpdate(p2p.PeerUpdate{
-					NodeID: msg.PeerID,
-					Status: p2p.PeerStatusGood,
-				})
-			}
+			ps.RecordBlockPart()
 		}
 	}
 }

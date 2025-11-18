@@ -659,10 +659,8 @@ func (cs *State) sendInternalMessage(ctx context.Context, mi msgInfo) {
 	}
 }
 
-// Reconstruct the LastCommit from either SeenCommit or the ExtendedCommit. SeenCommit
-// and ExtendedCommit are saved along with the block. If VoteExtensions are required
-// the method will panic on an absent ExtendedCommit or an ExtendedCommit without
-// extension data.
+// Reconstruct the LastCommit from the SeenCommit. SeenCommit
+// is saved along with the block.
 func (cs *State) reconstructLastCommit(state sm.State) {
 	votes, err := cs.votesFromSeenCommit(state)
 	if err != nil {

@@ -302,25 +302,20 @@ func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash commo
 func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_getTransactionCount", t.connectionType, startTime, returnErr)
-	sdkCtx := t.ctxProvider(LatestCtxHeight)
 
 	var pending bool
 	if blockNrOrHash.BlockHash == nil && *blockNrOrHash.BlockNumber == rpc.PendingBlockNumber {
 		pending = true
 	}
 
-	blkNr, err := GetBlockNumberByNrOrHash(ctx, t.tmClient, blockNrOrHash)
+	height, err := t.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
 	}
-
-	if blkNr != nil {
-		sdkCtx = t.ctxProvider(*blkNr)
-		if err := CheckVersion(sdkCtx, t.keeper); err != nil {
-			return nil, err
-		}
+	sdkCtx := t.ctxProvider(height)
+	if err := CheckVersion(sdkCtx, t.keeper); err != nil {
+		return nil, err
 	}
-
 	nonce := t.keeper.CalculateNextNonce(sdkCtx, address, pending)
 	return (*hexutil.Uint64)(&nonce), nil
 }

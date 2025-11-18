@@ -20,12 +20,6 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Name:      "peers",
 			Help:      "Number of peers.",
 		}, labels).With(labelsAndValues...),
-		PeerScore: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "peer_score",
-			Help:      "Score for each peer",
-		}, append(labels, "peer_id")).With(labelsAndValues...),
 		PeerReceiveBytesTotal: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
@@ -80,7 +74,6 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 func NopMetrics() *Metrics {
 	return &Metrics{
 		Peers:                  discard.NewGauge(),
-		PeerScore:              discard.NewGauge(),
 		PeerReceiveBytesTotal:  discard.NewCounter(),
 		PeerSendBytesTotal:     discard.NewCounter(),
 		PeerPendingSendBytes:   discard.NewGauge(),

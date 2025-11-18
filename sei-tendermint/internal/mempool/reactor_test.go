@@ -91,11 +91,6 @@ func setupReactors(ctx context.Context, t *testing.T, logger log.Logger, numNode
 func (rts *reactorTestSuite) start(t *testing.T) {
 	t.Helper()
 	rts.network.Start(t)
-
-	require.Len(t,
-		rts.network.RandomNode().Router.PeerManager().Peers(),
-		len(rts.nodes)-1,
-		"network does not have expected number of nodes")
 }
 
 func (rts *reactorTestSuite) waitForTxns(t *testing.T, txs []types.Tx, ids ...types.NodeID) {
@@ -195,7 +190,6 @@ func TestReactorBroadcastTxs(t *testing.T) {
 
 // regression test for https://github.com/tendermint/tendermint/issues/5408
 func TestReactorConcurrency(t *testing.T) {
-	t.Skip("See: https://linear.app/seilabs/issue/CON-105/testreactorconcurrency-flakes")
 	numTxs := 10
 	numNodes := 2
 
@@ -380,8 +374,7 @@ func TestBroadcastTxForPeerStopsWhenPeerStops(t *testing.T) {
 	rts.start(t)
 
 	// disconnect peer
-	rts.network.Node(secondary).Router.Stop()
-	rts.network.Node(primary).WaitUntilDisconnected(ctx, secondary)
+	rts.network.Remove(t, secondary)
 
 	txs := checkTxs(ctx, t, rts.reactors[primary].mempool, 4, UnknownPeerID)
 	require.Equal(t, 4, len(txs))

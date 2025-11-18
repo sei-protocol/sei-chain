@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/testutil"
+	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
 
 	bam "github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -19,15 +20,25 @@ import (
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/simapp/helpers"
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/errors"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
+	"github.com/cosmos/cosmos-sdk/x/capability"
+	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
+	"github.com/cosmos/cosmos-sdk/x/distribution"
+	distrkeeper "github.com/cosmos/cosmos-sdk/x/distribution/keeper"
+	"github.com/cosmos/cosmos-sdk/x/evidence"
+	evidencekeeper "github.com/cosmos/cosmos-sdk/x/evidence/keeper"
+	"github.com/cosmos/cosmos-sdk/x/slashing"
+	slashingkeeper "github.com/cosmos/cosmos-sdk/x/slashing/keeper"
+	"github.com/cosmos/cosmos-sdk/x/staking"
+	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	ibcclient "github.com/cosmos/ibc-go/v3/modules/core/02-client"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
@@ -36,6 +47,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 // DefaultConsensusParams defines the default Tendermint consensus params used in
@@ -303,7 +315,7 @@ func SignCheckDeliver(
 	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp, header tmproto.Header, msgs []sdk.Msg,
 	chainID string, accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
 ) (sdk.GasInfo, *sdk.Result, error) {
-	tx, err := helpers.GenTx(
+	tx, err := seiapp.GenTx(
 		txCfg,
 		msgs,
 		sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, 0)},
@@ -329,7 +341,6 @@ func SignCheckDeliver(
 	}
 
 	// Simulate a sending a transaction and committing a block
-	app.BeginBlock(app.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: header})
 	gInfo, res, err := app.Deliver(txCfg.TxEncoder(), tx)
 
 	if expPass {
@@ -350,10 +361,11 @@ func SignCheckDeliver(
 // SignAndDeliver signs and delivers a transaction. No simulation occurs as the
 // ibc testing package causes checkState and deliverState to diverge in block time.
 func SignAndDeliver(
-	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp, header tmproto.Header, msgs []sdk.Msg,
+	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp,
+	ibcKeeper *ibckeeper.Keeper, stakingKeeper stakingkeeper.Keeper, capabilityKeeper *capabilitykeeper.Keeper, distrKeeper *distrkeeper.Keeper, slashingKeeper *slashingkeeper.Keeper, evidenceKeeper *evidencekeeper.Keeper, header tmproto.Header, msgs []sdk.Msg,
 	chainID string, accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
 ) (sdk.GasInfo, *sdk.Result, error) {
-	tx, err := helpers.GenTx(
+	tx, err := seiapp.GenTx(
 		txCfg,
 		msgs,
 		sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, 0)},
@@ -366,7 +378,13 @@ func SignAndDeliver(
 	require.NoError(t, err)
 
 	// Simulate a sending a transaction and committing a block
-	app.BeginBlock(app.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: header})
+	ctx := app.GetContextForDeliverTx([]byte{}).WithBlockHeader(header)
+	capability.BeginBlocker(ctx, *capabilityKeeper)
+	distribution.BeginBlocker(ctx, []abci.VoteInfo{}, *distrKeeper)
+	slashing.BeginBlocker(ctx, []abci.VoteInfo{}, *slashingKeeper)
+	evidence.BeginBlocker(ctx, []abci.Misbehavior{}, *evidenceKeeper)
+	staking.BeginBlocker(ctx, stakingKeeper)
+	ibcclient.BeginBlocker(ctx, ibcKeeper.ClientKeeper)
 	gInfo, res, err := app.Deliver(txCfg.TxEncoder(), tx)
 
 	if expPass {
@@ -391,11 +409,11 @@ func GenSequenceOfTxs(txGen client.TxConfig, msgs []sdk.Msg, accNums []uint64, i
 	txs := make([]sdk.Tx, numToGenerate)
 	var err error
 	for i := 0; i < numToGenerate; i++ {
-		txs[i], err = helpers.GenTx(
+		txs[i], err = seiapp.GenTx(
 			txGen,
 			msgs,
 			sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, 0)},
-			helpers.DefaultGenTxGas,
+			seiapp.DefaultGenTxGas,
 			"",
 			accNums,
 			initSeqNums,

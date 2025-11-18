@@ -3,7 +3,6 @@ package wasm
 import (
 	"context"
 	"encoding/json"
-	"math/rand"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -12,8 +11,6 @@ import (
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
-	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	simKeeper "github.com/cosmos/cosmos-sdk/x/simulation"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cast"
@@ -23,7 +20,6 @@ import (
 	"github.com/CosmWasm/wasmd/x/wasm/client/cli"
 	"github.com/CosmWasm/wasmd/x/wasm/client/rest"
 	"github.com/CosmWasm/wasmd/x/wasm/keeper"
-	"github.com/CosmWasm/wasmd/x/wasm/simulation"
 	"github.com/CosmWasm/wasmd/x/wasm/types"
 )
 
@@ -34,9 +30,8 @@ var (
 
 // Module init related flags
 const (
-	flagWasmMemoryCacheSize    = "wasm.memory_cache_size"
-	flagWasmQueryGasLimit      = "wasm.query_gas_limit"
-	flagWasmSimulationGasLimit = "wasm.simulation_gas_limit"
+	flagWasmMemoryCacheSize = "wasm.memory_cache_size"
+	flagWasmQueryGasLimit   = "wasm.query_gas_limit"
 )
 
 // AppModuleBasic defines the basic application module used by the wasm module.
@@ -130,7 +125,6 @@ type AppModule struct {
 	keeper             *Keeper
 	validatorSetSource keeper.ValidatorSetSource
 	accountKeeper      types.AccountKeeper // for simulation
-	bankKeeper         simKeeper.BankKeeper
 }
 
 // ConsensusVersion is a sequence number for state-breaking change of the
@@ -145,7 +139,6 @@ func NewAppModule(
 	keeper *Keeper,
 	validatorSetSource keeper.ValidatorSetSource,
 	ak types.AccountKeeper,
-	bk simKeeper.BankKeeper,
 ) AppModule {
 	return AppModule{
 		AppModuleBasic:     AppModuleBasic{},
@@ -153,7 +146,6 @@ func NewAppModule(
 		keeper:             keeper,
 		validatorSetSource: validatorSetSource,
 		accountKeeper:      ak,
-		bankKeeper:         bk,
 	}
 }
 
@@ -211,41 +203,10 @@ func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-
 	return chRaw
 }
 
-// BeginBlock returns the begin blocker for the wasm module.
-func (am AppModule) BeginBlock(_ sdk.Context, _ abci.RequestBeginBlock) {}
-
 // EndBlock returns the end blocker for the wasm module. It returns no validator
 // updates.
 func (AppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
 	return []abci.ValidatorUpdate{}
-}
-
-// ____________________________________________________________________________
-
-// AppModuleSimulation functions
-
-// GenerateGenesisState creates a randomized GenState of the bank module.
-func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
-	simulation.RandomizedGenState(simState)
-}
-
-// ProposalContents doesn't return any content functions for governance proposals.
-func (AppModule) ProposalContents(simState module.SimulationState) []simtypes.WeightedProposalContent {
-	return nil
-}
-
-// RandomizedParams creates randomized bank param changes for the simulator.
-func (am AppModule) RandomizedParams(r *rand.Rand) []simtypes.ParamChange {
-	return simulation.ParamChanges(r, am.cdc)
-}
-
-// RegisterStoreDecoder registers a decoder for supply module's types
-func (am AppModule) RegisterStoreDecoder(sdr sdk.StoreDecoderRegistry) {
-}
-
-// WeightedOperations returns the all the gov module operations with their respective weights.
-func (am AppModule) WeightedOperations(simState module.SimulationState) []simtypes.WeightedOperation {
-	return simulation.WeightedOperations(&simState, am.accountKeeper, am.bankKeeper, am.keeper)
 }
 
 // ____________________________________________________________________________
@@ -255,7 +216,6 @@ func AddModuleInitFlags(startCmd *cobra.Command) {
 	defaults := DefaultWasmConfig()
 	startCmd.Flags().Uint32(flagWasmMemoryCacheSize, defaults.MemoryCacheSize, "Sets the size in MiB (NOT bytes) of an in-memory cache for Wasm modules. Set to 0 to disable.")
 	startCmd.Flags().Uint64(flagWasmQueryGasLimit, defaults.SmartQueryGasLimit, "Set the max gas that can be spent on executing a query with a Wasm contract")
-	startCmd.Flags().String(flagWasmSimulationGasLimit, "", "Set the max gas that can be spent when executing a simulation TX")
 }
 
 // ReadWasmConfig reads the wasm specifig configuration
@@ -270,15 +230,6 @@ func ReadWasmConfig(opts servertypes.AppOptions) (types.WasmConfig, error) {
 	if v := opts.Get(flagWasmQueryGasLimit); v != nil {
 		if cfg.SmartQueryGasLimit, err = cast.ToUint64E(v); err != nil {
 			return cfg, err
-		}
-	}
-	if v := opts.Get(flagWasmSimulationGasLimit); v != nil {
-		if raw, ok := v.(string); ok && raw != "" {
-			limit, err := cast.ToUint64E(v) // non empty string set
-			if err != nil {
-				return cfg, err
-			}
-			cfg.SimulationGasLimit = &limit
 		}
 	}
 	// attach contract debugging to global "trace" flag

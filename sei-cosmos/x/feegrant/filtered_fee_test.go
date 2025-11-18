@@ -9,14 +9,14 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/feegrant"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 func TestFilteredFeeValidAllow(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{
 		Time: time.Now(),
 	})
@@ -28,8 +28,8 @@ func TestFilteredFeeValidAllow(t *testing.T) {
 	leftAtom := bigAtom.Sub(smallAtom)
 	now := ctx.BlockTime()
 	oneHour := now.Add(1 * time.Hour)
-	from := sdk.MustAccAddressFromBech32("cosmos18cgkqduwuh253twzmhedesw3l7v3fm37sppt58")
-	to := sdk.MustAccAddressFromBech32("cosmos1yq8lgssgxlx9smjhes6ryjasmqmd3ts2559g0t")
+	from := sdk.MustAccAddressFromBech32("sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz")
+	to := sdk.MustAccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")
 
 	// small fee without expire
 	msgType := "/cosmos.bank.v1beta1.MsgSend"
@@ -215,7 +215,7 @@ func TestFilteredFeeValidAllow(t *testing.T) {
 }
 
 func TestFilteredFeeValidAllowance(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 
 	smallAtom := sdk.NewCoins(sdk.NewInt64Coin("atom", 488))
 	bigAtom := sdk.NewCoins(sdk.NewInt64Coin("atom", 1000))

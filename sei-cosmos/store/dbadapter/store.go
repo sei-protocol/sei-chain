@@ -6,7 +6,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/listenkv"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
 )
@@ -88,11 +87,6 @@ func (dsa Store) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
 // CacheWrapWithTrace implements KVStore.
 func (dsa Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc types.TraceContext) types.CacheWrap {
 	return cachekv.NewStore(tracekv.NewStore(dsa, w, tc), storeKey, types.DefaultCacheSizeLimit)
-}
-
-// CacheWrapWithListeners implements the CacheWrapper interface.
-func (dsa Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types.WriteListener) types.CacheWrap {
-	return cachekv.NewStore(listenkv.NewStore(dsa, storeKey, listeners), storeKey, types.DefaultCacheSizeLimit)
 }
 
 func (dsa Store) VersionExists(version int64) bool {

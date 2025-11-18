@@ -70,7 +70,7 @@ func CodeFixture(mutators ...func(*Code)) Code {
 func CodeInfoFixture(mutators ...func(*CodeInfo)) CodeInfo {
 	wasmCode := bytes.Repeat([]byte{0x1}, 10)
 	codeHash := sha256.Sum256(wasmCode)
-	const anyAddress = "cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4"
+	const anyAddress = "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz"
 	fixture := CodeInfo{
 		CodeHash:          codeHash[:],
 		Creator:           anyAddress,
@@ -83,7 +83,7 @@ func CodeInfoFixture(mutators ...func(*CodeInfo)) CodeInfo {
 }
 
 func ContractFixture(mutators ...func(*Contract)) Contract {
-	const anyAddress = "cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4"
+	const anyAddress = "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz"
 
 	fixture := Contract{
 		ContractAddress: anyAddress,
@@ -102,7 +102,7 @@ func OnlyGenesisFields(info *ContractInfo) {
 }
 
 func ContractInfoFixture(mutators ...func(*ContractInfo)) ContractInfo {
-	const anyAddress = "cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4"
+	const anyAddress = "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz"
 
 	fixture := ContractInfo{
 		CodeID:  1,
@@ -126,7 +126,7 @@ func WithSHA256CodeHash(wasmCode []byte) func(info *CodeInfo) {
 
 func MsgStoreCodeFixture(mutators ...func(*MsgStoreCode)) *MsgStoreCode {
 	wasmIdent := []byte("\x00\x61\x73\x6D")
-	const anyAddress = "cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4"
+	const anyAddress = "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz"
 	r := &MsgStoreCode{
 		Sender:                anyAddress,
 		WASMByteCode:          wasmIdent,
@@ -139,7 +139,7 @@ func MsgStoreCodeFixture(mutators ...func(*MsgStoreCode)) *MsgStoreCode {
 }
 
 func MsgInstantiateContractFixture(mutators ...func(*MsgInstantiateContract)) *MsgInstantiateContract {
-	const anyAddress = "cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4"
+	const anyAddress = "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz"
 	r := &MsgInstantiateContract{
 		Sender: anyAddress,
 		Admin:  anyAddress,
@@ -159,8 +159,8 @@ func MsgInstantiateContractFixture(mutators ...func(*MsgInstantiateContract)) *M
 
 func MsgExecuteContractFixture(mutators ...func(*MsgExecuteContract)) *MsgExecuteContract {
 	const (
-		anyAddress           = "cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4"
-		firstContractAddress = "cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr"
+		anyAddress           = "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz"
+		firstContractAddress = "sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl"
 	)
 	r := &MsgExecuteContract{
 		Sender:   anyAddress,
@@ -178,7 +178,7 @@ func MsgExecuteContractFixture(mutators ...func(*MsgExecuteContract)) *MsgExecut
 }
 
 func StoreCodeProposalFixture(mutators ...func(*StoreCodeProposal)) *StoreCodeProposal {
-	const anyAddress = "cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4"
+	const anyAddress = "sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl"
 	p := &StoreCodeProposal{
 		Title:        "Foo",
 		Description:  "Bar",
@@ -203,7 +203,7 @@ func InstantiateContractProposalFixture(mutators ...func(p *InstantiateContractP
 			Beneficiary: anyValidAddress,
 		}
 	)
-	const anyAddress = "cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4"
+	const anyAddress = "sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl"
 
 	initMsgBz, err := json.Marshal(initMsg)
 	if err != nil {
@@ -240,8 +240,8 @@ func MigrateContractProposalFixture(mutators ...func(p *MigrateContractProposal)
 		panic(err)
 	}
 	const (
-		contractAddr = "cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr"
-		anyAddress   = "cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4"
+		contractAddr = "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz"
+		anyAddress   = "sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl"
 	)
 	p := &MigrateContractProposal{
 		Title:       "Foo",
@@ -259,7 +259,7 @@ func MigrateContractProposalFixture(mutators ...func(p *MigrateContractProposal)
 
 func SudoContractProposalFixture(mutators ...func(p *SudoContractProposal)) *SudoContractProposal {
 	const (
-		contractAddr = "cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr"
+		contractAddr = "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz"
 	)
 
 	p := &SudoContractProposal{
@@ -277,8 +277,8 @@ func SudoContractProposalFixture(mutators ...func(p *SudoContractProposal)) *Sud
 
 func ExecuteContractProposalFixture(mutators ...func(p *ExecuteContractProposal)) *ExecuteContractProposal {
 	const (
-		contractAddr = "cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr"
-		anyAddress   = "cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4"
+		contractAddr = "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz"
+		anyAddress   = "sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl"
 	)
 
 	p := &ExecuteContractProposal{
@@ -301,8 +301,8 @@ func ExecuteContractProposalFixture(mutators ...func(p *ExecuteContractProposal)
 
 func UpdateAdminProposalFixture(mutators ...func(p *UpdateAdminProposal)) *UpdateAdminProposal {
 	const (
-		contractAddr = "cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr"
-		anyAddress   = "cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4"
+		contractAddr = "sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl"
+		anyAddress   = "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz"
 	)
 
 	p := &UpdateAdminProposal{
@@ -318,7 +318,7 @@ func UpdateAdminProposalFixture(mutators ...func(p *UpdateAdminProposal)) *Updat
 }
 
 func ClearAdminProposalFixture(mutators ...func(p *ClearAdminProposal)) *ClearAdminProposal {
-	const contractAddr = "cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr"
+	const contractAddr = "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz"
 	p := &ClearAdminProposal{
 		Title:       "Foo",
 		Description: "Bar",

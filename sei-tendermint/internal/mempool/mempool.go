@@ -18,6 +18,7 @@ import (
 	"github.com/tendermint/tendermint/internal/libs/reservoir"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -72,7 +73,7 @@ type TxMempool struct {
 
 	// A TTL cache which keeps all txs that we have seen before over the TTL window.
 	// Currently, this can be used for tracking whether checkTx is always serving the same tx or not.
-	duplicateTxsCache TxCacheWithTTL
+	duplicateTxsCache utils.Option[*DuplicateTxCache]
 
 	// txStore defines the main storage of valid transactions. Indexes are built
 	// on top of this store.
@@ -121,7 +122,7 @@ type TxMempool struct {
 	failedCheckTxCounts    map[types.NodeID]uint64
 	mtxFailedCheckTxCounts sync.RWMutex
 
-	peerManager       PeerEvictor
+	router            router
 	priorityReservoir *reservoir.Sampler[int64]
 }
 
@@ -129,7 +130,7 @@ func NewTxMempool(
 	logger log.Logger,
 	cfg *config.MempoolConfig,
 	proxyAppConn abciclient.Client,
-	peerManager PeerEvictor,
+	router router,
 	options ...TxMempoolOption,
 ) *TxMempool {
 
@@ -139,7 +140,6 @@ func NewTxMempool(
 		proxyAppConn:        proxyAppConn,
 		height:              -1,
 		cache:               NopTxCache{},
-		duplicateTxsCache:   NopTxCacheWithTTL{}, // Default to NOP implementation
 		metrics:             NopMetrics(),
 		txStore:             NewTxStore(),
 		gossipIndex:         clist.New(),
@@ -148,7 +148,7 @@ func NewTxMempool(
 		pendingTxs:          NewPendingTxs(cfg),
 		totalCheckTxCount:   atomic.Uint64{},
 		failedCheckTxCounts: map[types.NodeID]uint64{},
-		peerManager:         peerManager,
+		router:              router,
 		priorityReservoir:   reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
 	}
 
@@ -161,7 +161,7 @@ func NewTxMempool(
 	}
 
 	if cfg.DuplicateTxsCacheSize > 0 {
-		txmp.duplicateTxsCache = NewDuplicateTxCache(cfg.DuplicateTxsCacheSize, 1*time.Minute, 1*time.Minute, maxCacheKeySize)
+		txmp.duplicateTxsCache = utils.Some(NewDuplicateTxCache(cfg.DuplicateTxsCacheSize, 1*time.Minute, maxCacheKeySize))
 	}
 
 	return txmp
@@ -321,7 +321,7 @@ func (txmp *TxMempool) CheckTx(
 	if txmp.config.DropUtilisationThreshold > 0 && txmp.utilisation() >= txmp.config.DropUtilisationThreshold {
 		txmp.metrics.CheckTxMetDropUtilisationThreshold.Add(1)
 
-		hint, err := txmp.proxyAppConn.GetTxPriorityHint(ctx, &abci.RequestGetTxPriorityHint{Tx: tx})
+		hint, err := txmp.proxyAppConn.GetTxPriorityHint(ctx, &abci.RequestGetTxPriorityHintV2{Tx: tx})
 		if err != nil {
 			txmp.metrics.observeCheckTxPriorityDistribution(0, true, txInfo.SenderNodeID, err)
 			txmp.logger.Error("failed to get tx priority hint", "err", err)
@@ -359,11 +359,11 @@ func (txmp *TxMempool) CheckTx(
 
 	// Check TTL cache to see if we've recently processed this transaction
 	// Only execute TTL cache logic if we're using a real TTL cache (not NOP)
-	if txmp.config.DuplicateTxsCacheSize > 0 {
-		txmp.duplicateTxsCache.Increment(txHash)
+	if c, ok := txmp.duplicateTxsCache.Get(); ok {
+		c.Increment(txHash)
 	}
 
-	res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTx{Tx: tx})
+	res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	txmp.totalCheckTxCount.Add(1)
 	if err != nil {
 		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
@@ -438,6 +438,10 @@ func (txmp *TxMempool) CheckTx(
 			if err := txmp.pendingTxs.Insert(wtx, res, txInfo); err != nil {
 				return err
 			}
+		}
+
+		if res.CheckTxCallback != nil {
+			res.CheckTxCallback(res.Priority)
 		}
 	}
 
@@ -746,8 +750,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 			defer txmp.mtxFailedCheckTxCounts.Unlock()
 			txmp.failedCheckTxCounts[txInfo.SenderNodeID]++
 			if txmp.config.CheckTxErrorBlacklistEnabled && txmp.failedCheckTxCounts[txInfo.SenderNodeID] > uint64(txmp.config.CheckTxErrorThreshold) {
-				// evict peer
-				txmp.peerManager.Errored(txInfo.SenderNodeID, errors.New("checkTx error exceeded threshold"))
+				txmp.router.Evict(txInfo.SenderNodeID, errors.New("mempool: checkTx error exceeded threshold"))
 			}
 		}
 		return err
@@ -956,9 +959,9 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 		// Only execute CheckTx if the transaction is not marked as removed which
 		// could happen if the transaction was evicted.
 		if !txmp.txStore.IsTxRemoved(wtx) {
-			res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTx{
+			res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTxV2{
 				Tx:   wtx.tx,
-				Type: abci.CheckTxType_Recheck,
+				Type: abci.CheckTxTypeV2Recheck,
 			})
 			if err != nil {
 				// no need in retrying since the tx will be rechecked after the next block
@@ -1193,23 +1196,23 @@ func (txmp *TxMempool) handlePendingTransactions() {
 
 // Run executes mempool background tasks.
 func (txmp *TxMempool) Run(ctx context.Context) error {
-	return txmp.runDuplicateTxMetrics(ctx)
-}
-
-func (txmp *TxMempool) runDuplicateTxMetrics(ctx context.Context) error {
-	if txmp.duplicateTxsCache == nil {
+	c, ok := txmp.duplicateTxsCache.Get()
+	if !ok {
 		return nil
 	}
-	for {
-		if err := utils.Sleep(ctx, 10*time.Second); err != nil {
-			return err
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error { return c.Run(ctx, time.Minute) })
+		for {
+			if err := utils.Sleep(ctx, 10*time.Second); err != nil {
+				return err
+			}
+			// TODO(gprusak): instead of actively updating stats,
+			// TxMempool should implement prometheus.Collector.
+			maxOccurrence, totalOccurrence, duplicateCount, nonDuplicateCount := c.GetForMetrics()
+			txmp.metrics.DuplicateTxMaxOccurrences.Set(float64(maxOccurrence))
+			txmp.metrics.DuplicateTxTotalOccurrences.Set(float64(totalOccurrence))
+			txmp.metrics.NumberOfDuplicateTxs.Set(float64(duplicateCount))
+			txmp.metrics.NumberOfNonDuplicateTxs.Set(float64(nonDuplicateCount))
 		}
-		// TODO(gprusak): instead of actively updating stats,
-		// TxMempool should implement prometheus.Collector.
-		maxOccurrence, totalOccurrence, duplicateCount, nonDuplicateCount := txmp.duplicateTxsCache.GetForMetrics()
-		txmp.metrics.DuplicateTxMaxOccurrences.Set(float64(maxOccurrence))
-		txmp.metrics.DuplicateTxTotalOccurrences.Set(float64(totalOccurrence))
-		txmp.metrics.NumberOfDuplicateTxs.Set(float64(duplicateCount))
-		txmp.metrics.NumberOfNonDuplicateTxs.Set(float64(nonDuplicateCount))
-	}
+	})
 }

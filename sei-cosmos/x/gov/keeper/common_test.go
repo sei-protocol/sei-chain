@@ -5,12 +5,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/gov/types"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 var (
@@ -18,11 +18,11 @@ var (
 	TestExpeditedProposal = types.NewTextProposal("Test", "description", true)
 )
 
-func createValidators(t *testing.T, ctx sdk.Context, app *simapp.SimApp, powers []int64) ([]sdk.AccAddress, []sdk.ValAddress) {
-	addrs := simapp.AddTestAddrsIncremental(app, ctx, 5, sdk.NewInt(30000000))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrs)
-	pks := simapp.CreateTestPubKeys(5)
-	cdc := simapp.MakeTestEncodingConfig().Marshaler
+func createValidators(t *testing.T, ctx sdk.Context, app *seiapp.App, powers []int64) ([]sdk.AccAddress, []sdk.ValAddress) {
+	addrs := seiapp.AddTestAddrsIncremental(app, ctx, 5, sdk.NewInt(30000000))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrs)
+	pks := seiapp.CreateTestPubKeys(5)
+	cdc := seiapp.MakeEncodingConfig().Marshaler
 
 	app.StakingKeeper = stakingkeeper.NewKeeper(
 		cdc,

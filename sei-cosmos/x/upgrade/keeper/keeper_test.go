@@ -9,25 +9,25 @@ import (
 	"github.com/stretchr/testify/suite"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	store "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 type KeeperTestSuite struct {
 	suite.Suite
 
 	homeDir string
-	app     *simapp.SimApp
+	app     *seiapp.App
 	ctx     sdk.Context
 }
 
 func (s *KeeperTestSuite) SetupTest() {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(s.T(), false, false, false)
 	homeDir := filepath.Join(s.T().TempDir(), "x_upgrade_keeper_test")
 	app.UpgradeKeeper = keeper.NewKeeper( // recreate keeper in order to use a custom home path
 		make(map[int64]bool), app.GetKey(types.StoreKey), app.AppCodec(), homeDir, app.BaseApp,

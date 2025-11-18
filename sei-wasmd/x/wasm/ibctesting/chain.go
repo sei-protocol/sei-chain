@@ -293,6 +293,12 @@ func (chain *TestChain) SendMsgs(msgs ...sdk.Msg) (*sdk.Result, error) {
 		chain.t,
 		chain.TxConfig,
 		chain.App.GetBaseApp(),
+		chain.App.GetIBCKeeper(),
+		chain.App.GetStakingKeeper(),
+		chain.App.(*TestingAppDecorator).GetCapabilityKeeper(),
+		chain.App.(*TestingAppDecorator).GetDistrKeeper(),
+		chain.App.(*TestingAppDecorator).GetSlashingKeeper(),
+		chain.App.(*TestingAppDecorator).GetEvidenceKeeper(),
 		chain.GetContext().BlockHeader(),
 		msgs,
 		chain.ChainID,
@@ -548,6 +554,7 @@ func CreateSortedSignerArray(altPrivVal, suitePrivVal tmtypes.PrivValidator,
 // NOTE: only creation of a capbility for a transfer or mock port is supported
 // Other applications must bind to the port in InitGenesis or modify this code.
 func (chain *TestChain) CreatePortCapability(scopedKeeper capabilitykeeper.ScopedKeeper, portID string) {
+	// ensure the chain has the latest time
 	// check if the portId is already binded, if not bind it
 	_, ok := chain.App.GetScopedIBCKeeper().GetCapability(chain.GetContext(), host.PortPath(portID))
 	if !ok {
@@ -580,6 +587,7 @@ func (chain *TestChain) GetPortCapability(portID string) *capabilitytypes.Capabi
 // if it does not already exist. This function will fail testing on any resulting error. The
 // scoped keeper passed in will claim the new capability.
 func (chain *TestChain) CreateChannelCapability(scopedKeeper capabilitykeeper.ScopedKeeper, portID, channelID string) {
+	// ensure the chain has the latest time
 	capName := host.ChannelCapabilityPath(portID, channelID)
 	// check if the portId is already binded, if not bind it
 	_, ok := chain.App.GetScopedIBCKeeper().GetCapability(chain.GetContext(), capName)

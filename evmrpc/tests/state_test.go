@@ -9,7 +9,7 @@ import (
 
 func TestGetBalance(t *testing.T) {
 	txBz := signAndEncodeTx(send(0), mnemonic1)
-	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getBalance", getAddrWithMnemonic(mnemonic1).Hex(), "0x1")
 			balance := res["result"].(string)

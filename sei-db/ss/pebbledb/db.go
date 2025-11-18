@@ -620,9 +620,6 @@ func (db *Database) writeAsyncInBackground() {
 		if err := db.ApplyChangesetSync(version, nextChange.Changesets); err != nil {
 			panic(err)
 		}
-		if err := db.SetLatestVersion(nextChange.Version); err != nil {
-			panic(err)
-		}
 	}
 }
 

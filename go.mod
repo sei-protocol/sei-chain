@@ -81,6 +81,7 @@ require (
 	github.com/alitto/pond v1.8.3 // indirect
 	github.com/ashanbrown/forbidigo v1.3.0 // indirect
 	github.com/ashanbrown/makezero v1.1.1 // indirect
+	github.com/benbjohnson/immutable v0.4.3 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bgentry/speakeasy v0.1.0 // indirect
 	github.com/bits-and-blooms/bitset v1.17.0 // indirect
@@ -351,7 +352,7 @@ replace (
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
 	github.com/cosmos/cosmos-sdk => ./sei-cosmos
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.2.0
-	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.6
+	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.7
 	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.15.7-sei-7.0.20250929182230-93350978bb7c
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/sei-protocol/sei-db => ./sei-db

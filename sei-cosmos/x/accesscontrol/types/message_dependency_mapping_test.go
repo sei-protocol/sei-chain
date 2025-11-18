@@ -3,9 +3,9 @@ package types_test
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/app"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
@@ -71,10 +71,10 @@ func TestWasmDependencyDeprecatedSelectors(t *testing.T) {
 }
 
 func TestWasmDependencyDuplicateMessageNameInContractReference(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(t, false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	wasmDependencyMapping := acltypes.WasmDependencyMapping{
 		BaseAccessOps: []*acltypes.WasmAccessOperation{

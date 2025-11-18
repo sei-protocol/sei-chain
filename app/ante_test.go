@@ -10,7 +10,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -65,7 +64,7 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 	suite.Ctx = suite.Ctx.WithMsgValidator(msgValidator)
 
 	// Set up TxConfig.
-	encodingConfig := simapp.MakeTestEncodingConfig()
+	encodingConfig := app.MakeEncodingConfig()
 	// We're using TestMsg encoding in some tests, so register it here.
 	encodingConfig.Amino.RegisterConcrete(&testdata.TestMsg{}, "testdata.TestMsg", nil)
 	testdata.RegisterInterfaces(encodingConfig.InterfaceRegistry)
@@ -248,7 +247,7 @@ func TestEvmAnteErrorHandler(t *testing.T) {
 
 	addr, _ := testkeeper.PrivateKeyToAddresses(privKey)
 	testkeeper.EVMTestApp.BankKeeper.AddCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000000000))), true)
-	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: encodedTx}, txToSend, sha256.Sum256(encodedTx))
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: encodedTx}, txToSend, sha256.Sum256(encodedTx))
 	require.NotEqual(t, 0, res.Code)
 	testkeeper.EVMTestApp.EvmKeeper.SetTxResults([]*abci.ExecTxResult{{
 		Code: res.Code,
