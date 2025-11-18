@@ -12,13 +12,7 @@ import (
 // TestInitApp makes sure we can initialize this thing without an error
 func TestInitApp(t *testing.T) {
 	// set up an app
-	app, closer, err := SetupApp()
-
-	// closer may need to be run, even when error in later stage
-	if closer != nil {
-		defer closer()
-	}
-	require.NoError(t, err)
+	app := SetupApp(t)
 
 	// initialize it future-way
 	appState, err := AppGenState(nil, types.GenesisDoc{}, nil)
@@ -44,12 +38,7 @@ func TestInitApp(t *testing.T) {
 // TextDeliverTx ensures we can write a tx
 func TestDeliverTx(t *testing.T) {
 	// set up an app
-	app, closer, err := SetupApp()
-	// closer may need to be run, even when error in later stage
-	if closer != nil {
-		defer closer()
-	}
-	require.NoError(t, err)
+	app := SetupApp(t)
 
 	key := "my-special-key"
 	value := "top-secret-data!!"
