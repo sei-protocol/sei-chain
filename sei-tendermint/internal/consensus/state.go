@@ -299,18 +299,17 @@ func (cs *State) GetLastHeight() int64 {
 
 // GetRoundState returns a shallow copy of the internal consensus state.
 func (cs *State) GetRoundState() *cstypes.RoundState {
-	rs := cs.roundState.CopyInternal()
-	return rs
+	return cs.roundState.CopyInternal()
 }
 
-// GetRoundStateJSON returns a json of RoundState.
+// GetRoundStateJSON returns a json of RoundState. UNSTABLE.
 func (cs *State) GetRoundStateJSON() ([]byte, error) {
-	return json.Marshal(*cs.roundState.CopyInternal())
+	return json.Marshal(*cs.GetRoundState())
 }
 
 // GetRoundStateSimpleJSON returns a json of RoundStateSimple. UNSTABLE.
 func (cs *State) GetRoundStateSimpleJSON() ([]byte, error) {
-	return json.Marshal(cs.roundState.CopyInternal().RoundStateSimple())
+	return json.Marshal(cs.GetRoundState().RoundStateSimple())
 }
 
 // GetValidators returns a copy of the current validators.
@@ -1106,7 +1105,6 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 			"err", err,
 		)
 	}
-	return
 }
 
 func (cs *State) handleTimeout(
@@ -1161,8 +1159,6 @@ func (cs *State) handleTimeout(
 	default:
 		panic(fmt.Sprintf("invalid timeout step: %v", ti.Step))
 	}
-
-	return
 }
 
 func (cs *State) handleTxsAvailable(ctx context.Context) {
@@ -1188,7 +1184,6 @@ func (cs *State) handleTxsAvailable(ctx context.Context) {
 	case cstypes.RoundStepNewRound: // after timeoutCommit
 		cs.enterPropose(ctx, cs.roundState.Height(), 0, "post-timeout-commit")
 	}
-	return
 }
 
 func (cs *State) getTracingCtx(defaultCtx context.Context) context.Context {
@@ -1295,8 +1290,6 @@ func (cs *State) enterNewRound(ctx context.Context, height int64, round int32, e
 
 	span.End()
 	cs.enterPropose(ctx, height, round, "enterNewRound")
-
-	return
 }
 
 // needProofBlock returns true on the first height (so the genesis app hash is signed right away)

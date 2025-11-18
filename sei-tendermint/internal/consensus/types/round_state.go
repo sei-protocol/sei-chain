@@ -379,14 +379,12 @@ type RoundState struct {
 	//   * has nothing to do with whether the Application returned "Accept" in its
 	//     response to `ProcessProposal`, or "Reject"
 
-	// Last known round with POL for non-nil valid block.
-	ValidRound int32        
+	ValidRound int32 // Last known round with POL for non-nil valid block.
 	ValidBlock *types.Block  // Last known block of POL mentioned above.
+	ValidBlockParts           *types.PartSet // Last known block parts of POL mentioned above.
 
-	// Last known block parts of POL mentioned above.
-	ValidBlockParts           *types.PartSet      
 	Votes                     *HeightVoteSet      
-	CommitRound               int32                //
+	CommitRound               int32                
 	LastCommit                *types.VoteSet       // Last precommits at Height-1
 	LastValidators            *types.ValidatorSet 
 	TriggeredTimeoutPrecommit bool                
