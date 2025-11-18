@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net"
 	"net/http"
@@ -56,7 +57,7 @@ const MockHeight103 = 103
 const MockHeight101 = 101
 const MockHeight100 = 100
 
-var DebugTraceHashHex = "0x1234567890123456789023456789012345678901234567890123456789000004"
+var DebugTraceHashHex = "0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32"
 var DebugTraceBlockHash = "0xBE17E0261E539CB7E9A91E123A6D794E0163D656FCF9B8EAC07823F7ED28512B"
 var DebugTracePanicBlockHash = "0x0000000000000000000000000000000000000000000000000000000000000003"
 var MultiTxBlockHash = "0x0000000000000000000000000000000000000000000000000000000000000002"
@@ -115,6 +116,11 @@ var NewHeadsCalled = make(chan struct{}, 1)
 
 type MockClient struct {
 	mock.Client
+	latestOverride int64
+}
+
+func NewMockClientWithLatest(latest int64) *MockClient {
+	return &MockClient{latestOverride: latest}
 }
 
 func mustHexToBytes(h string) []byte {
@@ -333,6 +339,9 @@ func (c *MockClient) BlockByHash(_ context.Context, hash bytes.HexBytes) (*coret
 	if hash.String() == MultiTxBlockHash[2:] {
 		return c.mockBlock(MockHeight2), nil
 	}
+	if strings.ToLower(hash.String()) == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+		return nil, errors.New("not found")
+	}
 	return c.mockBlock(MockHeight8), nil
 }
 
@@ -395,6 +404,22 @@ func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.
 				MaxBytes: 100000000,
 				MaxGas:   200000000,
 			},
+		},
+	}, nil
+}
+
+func (c *MockClient) Status(context.Context) (*coretypes.ResultStatus, error) {
+	latest := c.latestOverride
+	if latest <= 0 {
+		latest = MockHeight103
+	}
+	if latest < 1 {
+		latest = 1
+	}
+	return &coretypes.ResultStatus{
+		SyncInfo: coretypes.SyncInfo{
+			LatestBlockHeight:   latest,
+			EarliestBlockHeight: 1,
 		},
 	}, nil
 }
@@ -527,8 +552,9 @@ var MultiTxCtx sdk.Context
 
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
-	testApp := app.Setup(false, false, false)
+	testApp := app.SetupWithDefaultHome(false, false, false)
 	Ctx = testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
+	baseCtx := Ctx
 	MultiTxCtx, _ = Ctx.CacheContext()
 	EVMKeeper = &testApp.EvmKeeper
 	EVMKeeper.InitGenesis(Ctx, *types.DefaultGenesis())
@@ -545,9 +571,19 @@ func init() {
 		panic(err)
 	}
 	testApp.Commit(context.Background())
+	if store := EVMKeeper.ReceiptStore(); store != nil {
+		latest := int64(math.MaxInt64)
+		if err := store.SetLatestVersion(latest); err != nil {
+			panic(err)
+		}
+		_ = store.SetEarliestVersion(1, true)
+	}
 	ctxProvider := func(height int64) sdk.Context {
 		if height == MockHeight2 {
 			return MultiTxCtx.WithIsTracing(true)
+		}
+		if height == evmrpc.LatestCtxHeight {
+			return baseCtx.WithIsTracing(true)
 		}
 		return Ctx.WithIsTracing(true)
 	}
@@ -562,7 +598,7 @@ func init() {
 		panic(err)
 	}
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
-	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", isPanicTxFunc)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore(), isPanicTxFunc)
 	if err != nil {
 		panic(err)
 	}
@@ -574,7 +610,7 @@ func init() {
 	badConfig := evmrpc.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore(), nil)
 	if err != nil {
 		panic(err)
 	}
@@ -593,11 +629,13 @@ func init() {
 		strictConfig,
 		&MockClient{},
 		EVMKeeper,
+		testApp.BeginBlockKeepers,
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		ctxProvider,
 		txConfigProvider,
 		"",
+		testApp.GetStateStore(),
 		isPanicTxFunc,
 	)
 	if err != nil {
@@ -617,11 +655,13 @@ func init() {
 		archiveConfig,
 		&MockClient{},
 		EVMKeeper,
+		testApp.BeginBlockKeepers,
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		ctxProvider,
 		txConfigProvider,
 		"",
+		testApp.GetStateStore(),
 		isPanicTxFunc,
 	)
 	if err != nil {
@@ -632,7 +672,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "")
+	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore())
 	if err != nil {
 		panic(err)
 	}
@@ -1008,9 +1048,9 @@ func setupLogs() {
 		TransactionIndex: 2,
 		TxHashHex:        TestSyntheticTxHash,
 	})
-	CtxDebugTrace := Ctx.WithBlockHeight(MockHeight101)
+	CtxDebugTrace := Ctx.WithBlockHeight(MockHeight8)
 	EVMKeeper.MockReceipt(CtxDebugTrace, common.HexToHash(DebugTraceHashHex), &types.Receipt{
-		BlockNumber:      MockHeight101,
+		BlockNumber:      MockHeight8,
 		TransactionIndex: 0,
 		TxHashHex:        DebugTraceHashHex,
 	})
@@ -1054,6 +1094,13 @@ func setupLogs() {
 	}}})
 	EVMKeeper.SetBlockBloom(Ctx, []ethtypes.Bloom{bloomSynth, bloom4, bloomTx1})
 	EVMKeeper.SetEvmOnlyBlockBloom(Ctx, []ethtypes.Bloom{bloom4, bloomTx1})
+
+	if store := EVMKeeper.ReceiptStore(); store != nil {
+		if err := store.SetLatestVersion(MockHeight103); err != nil {
+			panic(err)
+		}
+		_ = store.SetEarliestVersion(1, true)
+	}
 
 }
 
@@ -1105,17 +1152,17 @@ func sendRequestWithNamespace(t *testing.T, namespace string, port int, method s
 	if len(params) > 0 {
 		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")
 	}
-	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_%s\",\"params\":[%s],\"id\":\"test\"}", namespace, method, paramsFormatted)
+	body := fmt.Sprintf(`{"jsonrpc": "2.0","method": "%s_%s","params":[%s],"id":"test"}`, namespace, method, paramsFormatted)
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, port), strings.NewReader(body))
-	require.Nil(t, err)
+	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	res, err := http.DefaultClient.Do(req)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	defer res.Body.Close()
 	resBody, err := io.ReadAll(res.Body)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	resObj := map[string]interface{}{}
-	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	require.NoError(t, json.Unmarshal(resBody, &resObj))
 	return resObj
 }
 

@@ -9,6 +9,14 @@ import (
 	"github.com/gogo/protobuf/proto"
 )
 
+func ErrorAs[T error](err error) Option[T] {
+	var target T
+	if errors.As(err, &target) {
+		return Some(target)
+	}
+	return None[T]()
+}
+
 // Int is a type constraint for integer types.
 type Int interface {
 	~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uint |

@@ -14,6 +14,8 @@ import (
 	"github.com/tendermint/tendermint/types"
 )
 
+const defaultPort uint16 = 26657
+
 var (
 	// stringHasScheme tries to detect URLs with schemes. It looks for a : before a / (if any).
 	stringHasScheme = func(str string) bool {
@@ -64,14 +66,18 @@ func ParseNodeAddress(urlString string) (NodeAddress, error) {
 		address.NodeID = types.NodeID(strings.ToLower(url.User.Username()))
 	}
 
-	address.Hostname = strings.ToLower(url.Hostname())
+	address.Hostname = url.Hostname()
 
 	if portString := url.Port(); portString != "" {
 		port64, err := strconv.ParseUint(portString, 10, 16)
 		if err != nil {
-			return NodeAddress{}, fmt.Errorf("invalid port %q: %w", portString, err)
+			return NodeAddress{}, fmt.Errorf("invalid port %q: %w", url.Port(), err)
 		}
 		address.Port = uint16(port64)
+	}
+	// For some reasons, missing or 0 port on parsing is interpretented as the default port.
+	if address.Port == 0 {
+		address.Port = uint16(defaultPort)
 	}
 	return address, address.Validate()
 }
@@ -79,6 +85,7 @@ func ParseNodeAddress(urlString string) (NodeAddress, error) {
 // Resolve resolves a NodeAddress into a set of Endpoints, by expanding
 // out a DNS hostname to IP addresses.
 func (a NodeAddress) Resolve(ctx context.Context) ([]Endpoint, error) {
+	// LookIP for some reason returns IPv6-embedded addresses.
 	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", a.Hostname)
 	if err != nil {
 		return nil, err
@@ -89,7 +96,7 @@ func (a NodeAddress) Resolve(ctx context.Context) ([]Endpoint, error) {
 		if !ok {
 			return nil, fmt.Errorf("LookupIP returned invalid IP %q", ip)
 		}
-		endpoints[i] = Endpoint{netip.AddrPortFrom(ip, a.Port)}
+		endpoints[i] = Endpoint{netip.AddrPortFrom(ip.Unmap(), a.Port)}
 	}
 	return endpoints, nil
 }
@@ -112,11 +119,15 @@ func (a NodeAddress) String() string {
 func (a NodeAddress) Validate() error {
 	if a.NodeID == "" {
 		return errors.New("no peer ID")
-	} else if err := a.NodeID.Validate(); err != nil {
+	}
+	if err := a.NodeID.Validate(); err != nil {
 		return fmt.Errorf("invalid peer ID: %w", err)
 	}
-	if a.Port > 0 && a.Hostname == "" {
-		return errors.New("cannot specify port without hostname")
+	if a.Port == 0 {
+		return errors.New("missing port")
+	}
+	if a.Hostname == "" {
+		return errors.New("missing hostname")
 	}
 	return nil
 }

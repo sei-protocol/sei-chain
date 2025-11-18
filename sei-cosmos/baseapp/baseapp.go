@@ -1,7 +1,6 @@
 package baseapp
 
 import (
-	"context"
 	"fmt"
 	"reflect"
 	"strings"
@@ -156,11 +155,7 @@ type BaseApp struct { //nolint: maligned
 
 	// indexEvents defines the set of events in the form {eventType}.{attributeKey},
 	// which informs Tendermint what to index. If empty, all events will be indexed.
-	indexEvents map[string]struct{}
-
-	// abciListeners for hooking into the ABCI message processing of the BaseApp
-	// and exposing the requests and responses to external consumers
-	abciListeners []ABCIListener
+	IndexEvents map[string]struct{}
 
 	ChainID string
 
@@ -172,8 +167,7 @@ type BaseApp struct { //nolint: maligned
 
 	TmConfig *tmcfg.Config
 
-	TracingInfo    *tracing.Info
-	TracingEnabled bool
+	TracingInfo *tracing.Info
 
 	concurrencyWorkers int
 	occEnabled         bool
@@ -202,10 +196,9 @@ type moduleRouter struct {
 }
 
 type abciData struct {
-	initChainer  sdk.InitChainer  // initialize state with validators and state blob
-	beginBlocker sdk.BeginBlocker // logic to run before any txs
-	midBlocker   sdk.MidBlocker   // logic to run after all txs, and to determine valset changes
-	endBlocker   sdk.EndBlocker   // logic to run after all txs, and to determine valset changes
+	initChainer sdk.InitChainer // initialize state with validators and state blob
+	midBlocker  sdk.MidBlocker  // logic to run after all txs, and to determine valset changes
+	endBlocker  sdk.EndBlocker  // logic to run after all txs, and to determine valset changes
 
 	// absent validators from begin block
 	voteInfos []abci.VoteInfo
@@ -281,18 +274,13 @@ func NewBaseApp(
 			grpcQueryRouter:  NewGRPCQueryRouter(),
 			msgServiceRouter: NewMsgServiceRouter(),
 		},
-		txDecoder:      txDecoder,
-		TmConfig:       tmConfig,
-		TracingEnabled: tracingEnabled,
-		TracingInfo: &tracing.Info{
-			Tracer: &tr,
-		},
+		txDecoder:        txDecoder,
+		TmConfig:         tmConfig,
+		TracingInfo:      tracing.NewTracingInfo(tr, tracingEnabled),
 		commitLock:       &sync.Mutex{},
 		checkTxStateLock: &sync.RWMutex{},
 		deliverTxHooks:   []DeliverTxHook{},
 	}
-
-	app.TracingInfo.SetContext(context.Background())
 
 	for _, option := range options {
 		option(app)
@@ -527,10 +515,10 @@ func (app *BaseApp) setTrace(trace bool) {
 }
 
 func (app *BaseApp) setIndexEvents(ie []string) {
-	app.indexEvents = make(map[string]struct{})
+	app.IndexEvents = make(map[string]struct{})
 
 	for _, e := range ie {
-		app.indexEvents[e] = struct{}{}
+		app.IndexEvents[e] = struct{}{}
 	}
 }
 
@@ -759,9 +747,9 @@ func (app *BaseApp) StoreConsensusParams(ctx sdk.Context, cp *tmproto.ConsensusP
 	app.paramStore.Set(ctx, ParamStoreKeyABCIParams, cp.Abci)
 }
 
-func (app *BaseApp) validateHeight(req abci.RequestBeginBlock) error {
-	if req.Header.Height < 1 {
-		return fmt.Errorf("invalid height: %d", req.Header.Height)
+func (app *BaseApp) ValidateHeight(height int64) error {
+	if height < 1 {
+		return fmt.Errorf("invalid height: %d", height)
 	}
 
 	// expectedHeight holds the expected height to validate.
@@ -779,8 +767,8 @@ func (app *BaseApp) validateHeight(req abci.RequestBeginBlock) error {
 		expectedHeight = app.LastBlockHeight() + 1
 	}
 
-	if req.Header.Height != expectedHeight {
-		return fmt.Errorf("invalid height: %d; expected: %d", req.Header.Height, expectedHeight)
+	if height != expectedHeight {
+		return fmt.Errorf("invalid height: %d; expected: %d", height, expectedHeight)
 	}
 
 	return nil
@@ -866,6 +854,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	priority int64,
 	pendingTxChecker abci.PendingTxChecker,
 	expireHandler abci.ExpireTxHandler,
+	checkTxCallback func(int64),
 	txCtx sdk.Context,
 	err error,
 ) {
@@ -887,13 +876,11 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	// resources are acceessed by the ante handlers and message handlers.
 	defer acltypes.SendAllSignalsForTx(ctx.TxCompletionChannels())
 	acltypes.WaitForAllSignalsForTx(ctx.TxBlockingChannels())
-	if app.TracingEnabled {
-		// check for existing parent tracer, and if applicable, use it
-		spanCtx, span := app.TracingInfo.StartWithContext("RunTx", ctx.TraceSpanContext())
-		defer span.End()
-		ctx = ctx.WithTraceSpanContext(spanCtx)
-		span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", checksum)))
-	}
+	// check for existing parent tracer, and if applicable, use it
+	spanCtx, span := app.TracingInfo.StartWithContext("RunTx", ctx.TraceSpanContext())
+	defer span.End()
+	ctx = ctx.WithTraceSpanContext(spanCtx)
+	span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", checksum)))
 
 	// NOTE: GasWanted should be returned by the AnteHandler. GasUsed is
 	// determined by the GasMeter. We need access to the context to get the gas
@@ -917,22 +904,20 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	}()
 
 	if tx == nil {
-		return sdk.GasInfo{}, nil, nil, 0, nil, nil, ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "tx decode error")
+		return sdk.GasInfo{}, nil, nil, 0, nil, nil, nil, ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "tx decode error")
 	}
 
 	msgs := tx.GetMsgs()
 
 	if err := validateBasicTxMsgs(msgs); err != nil {
-		return sdk.GasInfo{}, nil, nil, 0, nil, nil, ctx, err
+		return sdk.GasInfo{}, nil, nil, 0, nil, nil, nil, ctx, err
 	}
 
 	if app.anteHandler != nil {
 		var anteSpan trace.Span
-		if app.TracingEnabled {
-			// trace AnteHandler
-			_, anteSpan = app.TracingInfo.StartWithContext("AnteHandler", ctx.TraceSpanContext())
-			defer anteSpan.End()
-		}
+		// trace AnteHandler
+		_, anteSpan = app.TracingInfo.StartWithContext("AnteHandler", ctx.TraceSpanContext())
+		defer anteSpan.End()
 		var (
 			anteCtx sdk.Context
 			msCache sdk.CacheMultiStore
@@ -971,7 +956,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		events := ctx.EventManager().Events()
 
 		if err != nil {
-			return gInfo, nil, nil, 0, nil, nil, ctx, err
+			return gInfo, nil, nil, 0, nil, nil, nil, ctx, err
 		}
 		// GasMeter expected to be set in AnteHandler
 		gasWanted = ctx.GasMeter().Limit()
@@ -990,7 +975,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 					op.EmitValidationFailMetrics()
 				}
 				errMessage := fmt.Sprintf("Invalid Concurrent Execution antehandler missing %d access operations", len(missingAccessOps))
-				return gInfo, nil, nil, 0, nil, nil, ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidConcurrencyExecution, errMessage)
+				return gInfo, nil, nil, 0, nil, nil, nil, ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidConcurrencyExecution, errMessage)
 			}
 		}
 
@@ -999,9 +984,8 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		expireHandler = ctx.ExpireTxHandler()
 		msCache.Write()
 		anteEvents = events.ToABCIEvents()
-		if app.TracingEnabled {
-			anteSpan.End()
-		}
+		anteSpan.End()
+		checkTxCallback = ctx.CheckTxCallback()
 	}
 
 	// Create a new Context based off of the existing Context with a MultiStore branch
@@ -1022,9 +1006,6 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		// append the events in the order of occurrence
 		result.Events = append(anteEvents, result.Events...)
 	}
-	if ctx.CheckTxCallback() != nil {
-		ctx.CheckTxCallback()(ctx, err)
-	}
 	// only apply hooks if no error
 	if err == nil && (!ctx.IsEVM() || result.EvmError == "") {
 		var evmTxInfo *abci.EvmTxInfo
@@ -1038,7 +1019,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		}
 		var events []abci.Event = []abci.Event{}
 		if result != nil {
-			events = sdk.MarkEventsToIndex(result.Events, app.indexEvents)
+			events = sdk.MarkEventsToIndex(result.Events, app.IndexEvents)
 		}
 		for _, hook := range app.deliverTxHooks {
 			hook(ctx, tx, checksum, sdk.DeliverTxHookInput{
@@ -1047,7 +1028,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 			})
 		}
 	}
-	return gInfo, result, anteEvents, priority, pendingTxChecker, expireHandler, ctx, err
+	return gInfo, result, anteEvents, priority, pendingTxChecker, expireHandler, checkTxCallback, ctx, err
 }
 
 // runMsgs iterates through a list of messages and executes them with the provided
@@ -1071,11 +1052,9 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 			panic(err)
 		}
 	}()
-	if app.TracingEnabled {
-		spanCtx, span := app.TracingInfo.StartWithContext("RunMsgs", ctx.TraceSpanContext())
-		defer span.End()
-		ctx = ctx.WithTraceSpanContext(spanCtx)
-	}
+	spanCtx, span := app.TracingInfo.StartWithContext("RunMsgs", ctx.TraceSpanContext())
+	defer span.End()
+	ctx = ctx.WithTraceSpanContext(spanCtx)
 	msgLogs := make(sdk.ABCIMessageLogs, 0, len(msgs))
 	events := sdk.EmptyEvents()
 	txMsgData := &sdk.TxMsgData{

@@ -1,13 +1,15 @@
 package crisis_test
 
 import (
+	"testing"
+
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/crisis/types"
 	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 var (
@@ -16,8 +18,8 @@ var (
 	dummyRouteWhichFails  = types.NewInvarRoute(testModuleName, "which-fails", func(_ sdk.Context) (string, bool) { return "whoops", true })
 )
 
-func createTestApp() (*simapp.SimApp, sdk.Context, []sdk.AccAddress) {
-	app := simapp.Setup(false)
+func createTestApp(t *testing.T) (*seiapp.App, sdk.Context, []sdk.AccAddress) {
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.NewContext(false, tmproto.Header{})
 
 	constantFee := sdk.NewInt64Coin(sdk.DefaultBondDenom, 10)
@@ -31,7 +33,7 @@ func createTestApp() (*simapp.SimApp, sdk.Context, []sdk.AccAddress) {
 	feePool.CommunityPool = sdk.NewDecCoinsFromCoins(sdk.NewCoins(constantFee)...)
 	app.DistrKeeper.SetFeePool(ctx, feePool)
 
-	addrs := simapp.AddTestAddrs(app, ctx, 1, sdk.NewInt(10000))
+	addrs := seiapp.AddTestAddrs(app, ctx, 1, sdk.NewInt(10000))
 
 	return app, ctx, addrs
 }

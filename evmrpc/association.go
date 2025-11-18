@@ -27,10 +27,27 @@ type AssociationAPI struct {
 	txConfigProvider func(int64) client.TxConfig
 	sendAPI          *SendAPI
 	connectionType   ConnectionType
+	watermarks       *WatermarkManager
 }
 
-func NewAssociationAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, sendAPI *SendAPI, connectionType ConnectionType) *AssociationAPI {
-	return &AssociationAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, sendAPI: sendAPI, connectionType: connectionType}
+func NewAssociationAPI(
+	tmClient rpcclient.Client,
+	k *keeper.Keeper,
+	ctxProvider func(int64) sdk.Context,
+	txConfigProvider func(int64) client.TxConfig,
+	sendAPI *SendAPI,
+	connectionType ConnectionType,
+	watermarks *WatermarkManager,
+) *AssociationAPI {
+	return &AssociationAPI{
+		tmClient:         tmClient,
+		keeper:           k,
+		ctxProvider:      ctxProvider,
+		txConfigProvider: txConfigProvider,
+		sendAPI:          sendAPI,
+		connectionType:   connectionType,
+		watermarks:       watermarks,
+	}
 }
 
 type AssociateRequest struct {
@@ -138,7 +155,7 @@ func (t *AssociationAPI) GetCosmosTx(ctx context.Context, ethHash common.Hash) (
 	if err != nil {
 		return "", err
 	}
-	block, err := blockByNumberWithRetry(ctx, t.tmClient, numberPtr, 1)
+	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, numberPtr, 1)
 	if err != nil {
 		return "", err
 	}

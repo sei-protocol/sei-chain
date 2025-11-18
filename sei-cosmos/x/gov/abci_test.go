@@ -10,17 +10,18 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/gov"
 	"github.com/cosmos/cosmos-sdk/x/gov/types"
 	"github.com/cosmos/cosmos-sdk/x/staking"
+	seiapp "github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 )
 
 func TestTickExpiredDepositPeriod(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	addrs := simapp.AddTestAddrs(app, ctx, 10, valTokens)
+	addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
@@ -69,9 +70,9 @@ func TestTickExpiredDepositPeriod(t *testing.T) {
 }
 
 func TestTickMultipleExpiredDepositPeriod(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	addrs := simapp.AddTestAddrs(app, ctx, 10, valTokens)
+	addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
@@ -145,9 +146,9 @@ func TestTickMultipleExpiredDepositPeriod(t *testing.T) {
 }
 
 func TestTickPassedDepositPeriod(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	addrs := simapp.AddTestAddrs(app, ctx, 10, valTokens)
+	addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
@@ -201,9 +202,9 @@ func TestTickPassedDepositPeriod(t *testing.T) {
 }
 
 func TestTickPassedVotingPeriod(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	addrs := simapp.AddTestAddrs(app, ctx, 10, valTokens)
+	addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 
 	SortAddresses(addrs)
 
@@ -289,9 +290,9 @@ func TestProposalPassedEndblocker(t *testing.T) {
 
 					depositMultiplier := getDepositMultiplier(tc.isExpedited)
 
-					app := simapp.Setup(false)
+					app := seiapp.Setup(t, false, false, false)
 					ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-					addrs := simapp.AddTestAddrs(app, ctx, 10, valTokens.Mul(sdk.NewInt(depositMultiplier)))
+					addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens.Mul(sdk.NewInt(depositMultiplier)))
 					params := app.StakingKeeper.GetParams(ctx)
 					params.MinCommissionRate = sdk.NewDec(0)
 					app.StakingKeeper.SetParams(ctx, params)
@@ -301,7 +302,7 @@ func TestProposalPassedEndblocker(t *testing.T) {
 					stakingHandler := staking.NewHandler(app.StakingKeeper)
 
 					header := tmproto.Header{Height: app.LastBlockHeight() + 1}
-					app.BeginBlock(ctx, abci.RequestBeginBlock{Header: header})
+					legacyabci.BeginBlock(ctx, header.Height, []abci.VoteInfo{}, []abci.Misbehavior{}, app.BeginBlockKeepers)
 
 					valAddr := sdk.ValAddress(addrs[0])
 
@@ -374,15 +375,15 @@ func TestExpeditedProposalPassAndConvertToRegular(t *testing.T) {
 			isExpedited := true
 			testProposal := types.NewTextProposal("TestTitle", "description", isExpedited)
 
-			app := simapp.Setup(false)
+			app := seiapp.Setup(t, false, false, false)
 			ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-			addrs := simapp.AddTestAddrs(app, ctx, 10, valTokens)
+			addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 			params := app.StakingKeeper.GetParams(ctx)
 			params.MinCommissionRate = sdk.NewDec(0)
 			app.StakingKeeper.SetParams(ctx, params)
 			SortAddresses(addrs)
 			header := tmproto.Header{Height: app.LastBlockHeight() + 1}
-			app.BeginBlock(ctx, abci.RequestBeginBlock{Header: header})
+			legacyabci.BeginBlock(ctx, header.Height, []abci.VoteInfo{}, []abci.Misbehavior{}, app.BeginBlockKeepers)
 
 			valAddr := sdk.ValAddress(addrs[0])
 
@@ -562,9 +563,9 @@ func TestExpeditedProposalPassAndConvertToRegular(t *testing.T) {
 }
 
 func TestEndBlockerProposalHandlerFailed(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	addrs := simapp.AddTestAddrs(app, ctx, 1, valTokens)
+	addrs := seiapp.AddTestAddrs(app, ctx, 1, valTokens)
 	params := app.StakingKeeper.GetParams(ctx)
 	params.MinCommissionRate = sdk.NewDec(0)
 	app.StakingKeeper.SetParams(ctx, params)

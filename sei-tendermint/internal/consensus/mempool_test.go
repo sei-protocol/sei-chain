@@ -121,7 +121,7 @@ func TestMempoolProgressInHigherRound(t *testing.T) {
 
 	ensureNewRound(t, newRoundCh, height, round) // first round at next height
 	checkTxsRange(ctx, t, cs, 0, 1)              // we deliver txs, but don't set a proposal so we get the next round
-	ensureNewTimeout(t, timeoutCh, height, round, cs.state.ConsensusParams.Timeout.ProposeTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutCh, height, round)
 	round++                                      // moving to the next round
 	ensureNewRound(t, newRoundCh, height, round) // wait for the next round
 	ensureNewEventOnChannel(t, newBlockCh)       // now we can commit the block
@@ -167,7 +167,7 @@ func TestMempoolTxConcurrentWithCommit(t *testing.T) {
 	// Send transactions SEQUENTIALLY to avoid race conditions
 	// The CounterApplication requires strict sequential ordering (0, 1, 2, 3...)
 	// Sending them concurrently causes race conditions where transactions arrive out of order
-	for i := 0; i < int(numTxs); i++ {
+	for i := range int(numTxs) {
 		txBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(txBytes, uint64(i))
 		var rCode uint32
@@ -314,7 +314,7 @@ func (app *CounterApplication) FinalizeBlock(_ context.Context, req *abci.Reques
 	return res, nil
 }
 
-func (app *CounterApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, error) {
+func (app *CounterApplication) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
 	app.mu.Lock()
 	defer app.mu.Unlock()
 

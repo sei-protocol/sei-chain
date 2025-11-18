@@ -4,44 +4,68 @@ import (
 	"context"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	abci "github.com/tendermint/tendermint/abci/types"
-	"go.opentelemetry.io/otel/attribute"
 )
 
-func (app *App) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res abci.ResponseBeginBlock) {
-	tracectx, topSpan := app.GetBaseApp().TracingInfo.Start("Block")
-	topSpan.SetAttributes(attribute.Int64("height", req.Header.Height))
-	app.GetBaseApp().TracingInfo.BlockSpan = &topSpan
-	app.GetBaseApp().TracingInfo.SetContext(tracectx)
-	_, beginBlockSpan := (*app.GetBaseApp().TracingInfo.Tracer).Start(app.GetBaseApp().TracingInfo.GetContext(), "BeginBlock")
+func (app *App) BeginBlock(
+	ctx sdk.Context,
+	height int64,
+	votes []abci.VoteInfo,
+	byzantineValidators []abci.Misbehavior,
+	checkHeight bool,
+) (res abci.ResponseBeginBlock) {
+	spanCtx, beginBlockSpan := app.GetBaseApp().TracingInfo.StartWithContext("BeginBlock", ctx.TraceSpanContext())
 	defer beginBlockSpan.End()
-	return app.BaseApp.BeginBlock(ctx, req)
+	ctx = ctx.WithTraceSpanContext(spanCtx)
+	ctx = ctx.WithEventManager(sdk.NewEventManager())
+	defer telemetry.MeasureSince(time.Now(), "abci", "begin_block")
+	// inline begin block
+	if checkHeight {
+		if err := app.ValidateHeight(height); err != nil {
+			panic(err)
+		}
+	}
+	metrics.GaugeSeidVersionAndCommit(app.versionInfo.Version, app.versionInfo.GitCommit)
+	// check if we've reached a target height, if so, execute any applicable handlers
+	if app.forkInitializer != nil {
+		app.forkInitializer(ctx)
+		app.forkInitializer = nil
+	}
+	if app.HardForkManager.TargetHeightReached(ctx) {
+		app.HardForkManager.ExecuteForTargetHeight(ctx)
+	}
+	legacyabci.BeginBlock(ctx, height, votes, byzantineValidators, app.BeginBlockKeepers)
+	return abci.ResponseBeginBlock{
+		Events: sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents),
+	}
 }
 
 func (app *App) MidBlock(ctx sdk.Context, height int64) []abci.Event {
-	_, span := app.GetBaseApp().TracingInfo.Start("MidBlock")
+	_, span := app.GetBaseApp().TracingInfo.StartWithContext("MidBlock", ctx.TraceSpanContext())
 	defer span.End()
 	return app.BaseApp.MidBlock(ctx, height)
 }
 
 func (app *App) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abci.ResponseEndBlock) {
-	_, span := app.GetBaseApp().TracingInfo.Start("EndBlock")
+	spanCtx, span := app.GetBaseApp().TracingInfo.StartWithContext("EndBlock", ctx.TraceSpanContext())
 	defer span.End()
+	ctx = ctx.WithTraceSpanContext(spanCtx)
 	return app.BaseApp.EndBlock(ctx, req)
 }
 
-func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, error) {
-	_, span := app.GetBaseApp().TracingInfo.Start("CheckTx")
+func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
+	_, span := app.GetBaseApp().TracingInfo.StartWithContext("CheckTx", ctx)
 	defer span.End()
 	return app.BaseApp.CheckTx(ctx, req)
 }
 
-func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
+func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
 	defer metrics.MeasureDeliverTxDuration(time.Now())
 	// ensure we carry the initial context from tracer here
-	ctx = ctx.WithTraceSpanContext(app.GetBaseApp().TracingInfo.GetContext())
 	spanCtx, span := app.GetBaseApp().TracingInfo.StartWithContext("DeliverTx", ctx.TraceSpanContext())
 	defer span.End()
 	// update context with trace span new context
@@ -52,8 +76,6 @@ func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk.Tx,
 // DeliverTxBatch is not part of the ABCI specification, but this is here for code convention
 func (app *App) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchRequest) (res sdk.DeliverTxBatchResponse) {
 	defer metrics.MeasureDeliverBatchTxDuration(time.Now())
-	// ensure we carry the initial context from tracer here
-	ctx = ctx.WithTraceSpanContext(app.GetBaseApp().TracingInfo.GetContext())
 	spanCtx, span := app.GetBaseApp().TracingInfo.StartWithContext("DeliverTxBatch", ctx.TraceSpanContext())
 	defer span.End()
 	// update context with trace span new context
@@ -62,21 +84,7 @@ func (app *App) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchRequest) (
 }
 
 func (app *App) Commit(ctx context.Context) (res *abci.ResponseCommit, err error) {
-	if app.GetBaseApp().TracingInfo.BlockSpan != nil {
-		defer (*app.GetBaseApp().TracingInfo.BlockSpan).End()
-	}
-	_, span := app.GetBaseApp().TracingInfo.Start("Commit")
+	_, span := app.GetBaseApp().TracingInfo.StartWithContext("Commit", ctx)
 	defer span.End()
-	app.GetBaseApp().TracingInfo.SetContext(context.Background())
-	app.GetBaseApp().TracingInfo.BlockSpan = nil
 	return app.BaseApp.Commit(ctx)
-}
-
-func (app *App) LoadLatest(ctx context.Context, req *abci.RequestLoadLatest) (*abci.ResponseLoadLatest, error) {
-	err := app.ReloadDB()
-	if err != nil {
-		return nil, err
-	}
-	app.mounter()
-	return app.BaseApp.LoadLatest(ctx, req)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -16,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -38,8 +40,22 @@ type SendConfig struct {
 	slow bool
 }
 
-func NewSendAPI(tmClient rpcclient.Client, txConfigProvider func(int64) client.TxConfig, sendConfig *SendConfig, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, homeDir string, simulateConfig *SimulateConfig, app *baseapp.BaseApp,
-	antehandler sdk.AnteHandler, connectionType ConnectionType) *SendAPI {
+func NewSendAPI(
+	tmClient rpcclient.Client,
+	txConfigProvider func(int64) client.TxConfig,
+	sendConfig *SendConfig,
+	k *keeper.Keeper,
+	beginBlockKeepers legacyabci.BeginBlockKeepers,
+	ctxProvider func(int64) sdk.Context,
+	homeDir string,
+	simulateConfig *SimulateConfig,
+	app *baseapp.BaseApp,
+	antehandler sdk.AnteHandler,
+	connectionType ConnectionType,
+	globalBlockCache BlockCache,
+	cacheCreationMutex *sync.Mutex,
+	watermarks *WatermarkManager,
+) *SendAPI {
 	return &SendAPI{
 		tmClient:         tmClient,
 		txConfigProvider: txConfigProvider,
@@ -47,7 +63,7 @@ func NewSendAPI(tmClient rpcclient.Client, txConfigProvider func(int64) client.T
 		keeper:           k,
 		ctxProvider:      ctxProvider,
 		homeDir:          homeDir,
-		backend:          NewBackend(ctxProvider, k, txConfigProvider, tmClient, simulateConfig, app, antehandler),
+		backend:          NewBackend(ctxProvider, k, beginBlockKeepers, txConfigProvider, tmClient, simulateConfig, app, antehandler, globalBlockCache, cacheCreationMutex, watermarks),
 		connectionType:   connectionType,
 	}
 }

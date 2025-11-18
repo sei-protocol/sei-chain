@@ -3,7 +3,6 @@ package authz
 import (
 	"context"
 	"encoding/json"
-	"math/rand"
 
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
@@ -16,17 +15,14 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/module"
-	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/cosmos/cosmos-sdk/x/authz"
 	"github.com/cosmos/cosmos-sdk/x/authz/client/cli"
 	"github.com/cosmos/cosmos-sdk/x/authz/keeper"
-	"github.com/cosmos/cosmos-sdk/x/authz/simulation"
 )
 
 var (
-	_ module.AppModule           = AppModule{}
-	_ module.AppModuleBasic      = AppModuleBasic{}
-	_ module.AppModuleSimulation = AppModule{}
+	_ module.AppModule      = AppModule{}
+	_ module.AppModuleBasic = AppModuleBasic{}
 )
 
 // AppModuleBasic defines the basic application module used by the authz module.
@@ -171,38 +167,3 @@ func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-
 
 // ConsensusVersion implements AppModule/ConsensusVersion.
 func (AppModule) ConsensusVersion() uint64 { return 1 }
-
-func (am AppModule) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) {}
-
-// ____________________________________________________________________________
-
-// AppModuleSimulation functions
-
-// GenerateGenesisState creates a randomized GenState of the authz module.
-func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
-	simulation.RandomizedGenState(simState)
-}
-
-// ProposalContents returns all the authz content functions used to
-// simulate governance proposals.
-func (am AppModule) ProposalContents(simState module.SimulationState) []simtypes.WeightedProposalContent {
-	return nil
-}
-
-// RandomizedParams creates randomized authz param changes for the simulator.
-func (AppModule) RandomizedParams(r *rand.Rand) []simtypes.ParamChange {
-	return nil
-}
-
-// RegisterStoreDecoder registers a decoder for authz module's types
-func (am AppModule) RegisterStoreDecoder(sdr sdk.StoreDecoderRegistry) {
-	sdr[keeper.StoreKey] = simulation.NewDecodeStore(am.cdc)
-}
-
-// WeightedOperations returns the all the gov module operations with their respective weights.
-func (am AppModule) WeightedOperations(simState module.SimulationState) []simtypes.WeightedOperation {
-	return simulation.WeightedOperations(
-		simState.AppParams, simState.Cdc,
-		am.accountKeeper, am.bankKeeper, am.keeper, am.cdc,
-	)
-}

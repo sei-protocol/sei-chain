@@ -3,6 +3,7 @@ package keeper
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
@@ -59,10 +60,7 @@ func (k *Keeper) DeleteTransientReceipt(ctx sdk.Context, txHash common.Hash, txI
 // by EVM transaction hash (not Sei transaction hash) to function properly.
 func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	// receipts are immutable, use latest version
-	lv, err := k.receiptStore.GetLatestVersion()
-	if err != nil {
-		return nil, err
-	}
+	lv := k.receiptStore.GetLatestVersion()
 
 	// try persistent store
 	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
@@ -89,10 +87,7 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 // Only used for testing
 func (k *Keeper) GetReceiptFromReceiptStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	// receipts are immutable, use latest version
-	lv, err := k.receiptStore.GetLatestVersion()
-	if err != nil {
-		return nil, err
-	}
+	lv := k.receiptStore.GetLatestVersion()
 
 	// try persistent store
 	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
@@ -140,15 +135,29 @@ func (k *Keeper) MockReceipt(ctx sdk.Context, txHash common.Hash, receipt *types
 	if err := k.SetTransientReceipt(ctx, txHash, receipt); err != nil {
 		return err
 	}
-	return k.FlushTransientReceiptsSync(ctx)
+	if err := k.FlushTransientReceipts(ctx); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := k.GetReceipt(ctx, txHash); err == nil {
+			return nil
+		} else if err != nil && err.Error() != "not found" {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return errors.New("receipt not found after async flush")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
-func (k *Keeper) FlushTransientReceiptsSync(ctx sdk.Context) error {
-	return k.flushTransientReceipts(ctx, true)
+func (k *Keeper) FlushTransientReceipts(ctx sdk.Context) error {
+	return k.flushTransientReceipts(ctx)
 }
 
 func (k *Keeper) FlushTransientReceiptsAsync(ctx sdk.Context) error {
-	return k.flushTransientReceipts(ctx, false)
+	return k.flushTransientReceipts(ctx)
 }
 
 func isLegacyReceipt(ctx sdk.Context, receipt *types.Receipt) bool {
@@ -164,7 +173,7 @@ func isLegacyReceipt(ctx sdk.Context, receipt *types.Receipt) bool {
 	return false
 }
 
-func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
+func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
 	transientReceiptStore := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix)
 	iter := transientReceiptStore.Iterator(nil, nil)
 	defer func() { _ = iter.Close() }()
@@ -194,21 +203,28 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 		kvPair := &iavl.KVPair{Key: types.ReceiptKey(types.TransientReceiptKey(iter.Key()).TransactionHash()), Value: marshalledReceipt}
 		pairs = append(pairs, kvPair)
 	}
-	if len(pairs) == 0 {
-		return nil
-	}
 	ncs := &proto.NamedChangeSet{
 		Name:      types.ReceiptStoreKey,
 		Changeset: iavl.ChangeSet{Pairs: pairs},
 	}
 
-	if sync {
-		return k.receiptStore.ApplyChangeset(ctx.BlockHeight(), ncs)
-	} else {
-		var changesets []*proto.NamedChangeSet
-		changesets = append(changesets, ncs)
-		return k.receiptStore.ApplyChangesetAsync(ctx.BlockHeight(), changesets)
+	var changesets []*proto.NamedChangeSet
+	changesets = append(changesets, ncs)
+	// Genesis and some unit tests execute at block height 0. Async writes
+	// rely on a positive version to avoid regressions in the underlying
+	// state store metadata, so fall back to a synchronous apply in that case.
+	if ctx.BlockHeight() == 0 {
+		return k.receiptStore.ApplyChangesetSync(ctx.BlockHeight(), changesets)
 	}
+	err := k.receiptStore.ApplyChangesetAsync(ctx.BlockHeight(), changesets)
+	if err != nil {
+		if !strings.Contains(err.Error(), "not implemented") { // for tests
+			return err
+		}
+		// fallback to synchronous apply for stores that do not support async writes
+		return k.receiptStore.ApplyChangesetSync(ctx.BlockHeight(), []*proto.NamedChangeSet{ncs})
+	}
+	return nil
 }
 
 // MigrateLegacyReceiptsBatch moves up to batchSize receipts from the legacy KV store

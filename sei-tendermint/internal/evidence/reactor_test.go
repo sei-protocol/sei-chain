@@ -3,7 +3,6 @@ package evidence_test
 import (
 	"context"
 	"encoding/hex"
-	"math/rand"
 	"sync"
 	"testing"
 	"time"
@@ -20,7 +19,6 @@ import (
 	"github.com/tendermint/tendermint/internal/evidence"
 	"github.com/tendermint/tendermint/internal/evidence/mocks"
 	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/p2p/p2ptest"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -29,52 +27,30 @@ import (
 
 var (
 	numEvidence = 10
-
-	rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
 
 type reactorTestSuite struct {
-	network          *p2ptest.Network
-	logger           log.Logger
-	reactors         map[types.NodeID]*evidence.Reactor
-	pools            map[types.NodeID]*evidence.Pool
-	evidenceChannels map[types.NodeID]*p2p.Channel
-	peerUpdates      map[types.NodeID]*p2p.PeerUpdates
-	peerChans        map[types.NodeID]chan p2p.PeerUpdate
-	nodes            []*p2ptest.Node
-	numStateStores   int
+	network        *p2p.TestNetwork
+	logger         log.Logger
+	reactors       map[types.NodeID]*evidence.Reactor
+	pools          map[types.NodeID]*evidence.Pool
+	nodes          []*p2p.TestNode
+	numStateStores int
 }
 
 func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTestSuite {
 	t.Helper()
-
-	pID := make([]byte, 16)
-	_, err := rng.Read(pID)
-	require.NoError(t, err)
-
 	numStateStores := len(stateStores)
 	rts := &reactorTestSuite{
 		numStateStores: numStateStores,
 		logger:         log.NewNopLogger().With("testCase", t.Name()),
-		network:        p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: numStateStores}),
+		network:        p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numStateStores}),
 		reactors:       make(map[types.NodeID]*evidence.Reactor, numStateStores),
 		pools:          make(map[types.NodeID]*evidence.Pool, numStateStores),
-		peerUpdates:    make(map[types.NodeID]*p2p.PeerUpdates, numStateStores),
-		peerChans:      make(map[types.NodeID]chan p2p.PeerUpdate, numStateStores),
 	}
-
-	chDesc := &p2p.ChannelDescriptor{
-		ID:                 evidence.EvidenceChannel,
-		MessageType:        new(tmproto.Evidence),
-		RecvBufferCapacity: 10,
-	}
-	rts.evidenceChannels = rts.network.MakeChannelsNoCleanup(t, chDesc)
-	require.Len(t, rts.network.RandomNode().PeerManager.Peers(), 0)
-
-	idx := 0
 	evidenceTime := time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	for _, node := range rts.network.Nodes() {
+	for idx, node := range rts.network.Nodes() {
 		nodeID := node.NodeID
 		logger := rts.logger.With("validator", idx)
 		evidenceDB := dbm.NewMemDB()
@@ -87,30 +63,21 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 			return nil
 		})
 		eventBus := eventbus.NewDefault(logger)
-		err = eventBus.Start(ctx)
+		err := eventBus.Start(ctx)
 		require.NoError(t, err)
 
 		rts.pools[nodeID] = evidence.NewPool(logger, evidenceDB, stateStores[idx], blockStore, evidence.NopMetrics(), eventBus)
 		startPool(t, rts.pools[nodeID], stateStores[idx])
-
-		require.NoError(t, err)
-
-		rts.peerChans[nodeID] = make(chan p2p.PeerUpdate)
-		pu := p2p.NewPeerUpdates(rts.peerChans[nodeID], 1)
-		rts.peerUpdates[nodeID] = pu
-		node.PeerManager.Register(ctx, pu)
 		rts.nodes = append(rts.nodes, node)
 
-		rts.reactors[nodeID] = evidence.NewReactor(
-			logger,
-			func(ctx context.Context) *p2p.PeerUpdates { return pu },
-			rts.pools[nodeID])
+		reactor, err := evidence.NewReactor(logger, node.Router, rts.pools[nodeID])
+		if err != nil {
+			t.Fatalf("evidence.NewReactor(): %v", err)
+		}
+		rts.reactors[nodeID] = reactor
 
-		rts.reactors[nodeID].SetChannel(rts.evidenceChannels[nodeID])
 		require.NoError(t, rts.reactors[nodeID].Start(ctx))
 		require.True(t, rts.reactors[nodeID].IsRunning())
-
-		idx++
 	}
 
 	t.Cleanup(func() {
@@ -130,10 +97,6 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 
 func (rts *reactorTestSuite) start(t *testing.T) {
 	rts.network.Start(t)
-	require.Len(t,
-		rts.network.RandomNode().PeerManager.Peers(),
-		rts.numStateStores-1,
-		"network does not have expected number of nodes")
 }
 
 func (rts *reactorTestSuite) waitForEvidence(t *testing.T, evList types.EvidenceList, ids ...types.NodeID) {
@@ -191,7 +154,7 @@ func (rts *reactorTestSuite) waitForEvidence(t *testing.T, evList types.Evidence
 	wg := sync.WaitGroup{}
 
 	for id := range rts.pools {
-		if len(ids) > 0 && !p2ptest.NodeInSlice(id, ids) {
+		if len(ids) > 0 && !p2p.NodeInSlice(id, ids) {
 			// if an ID list is specified, then we only
 			// want to wait for those pools that are
 			// specified in the list, otherwise, wait for
@@ -235,40 +198,6 @@ func createEvidenceList(
 	return evList
 }
 
-func TestReactorMultiDisconnect(t *testing.T) {
-	ctx := t.Context()
-
-	val := types.NewMockPV()
-	height := int64(numEvidence) + 10
-
-	stateDB1 := initializeValidatorState(ctx, t, val, height)
-	stateDB2 := initializeValidatorState(ctx, t, val, height)
-
-	rts := setup(ctx, t, []sm.Store{stateDB1, stateDB2})
-	primary := rts.nodes[0]
-	secondary := rts.nodes[1]
-
-	_ = createEvidenceList(ctx, t, rts.pools[primary.NodeID], val, numEvidence)
-
-	require.Equal(t, primary.PeerManager.Status(secondary.NodeID), p2p.PeerStatusDown)
-
-	rts.start(t)
-
-	require.Equal(t, primary.PeerManager.Status(secondary.NodeID), p2p.PeerStatusUp)
-	// Ensure "disconnecting" the secondary peer from the primary more than once
-	// is handled gracefully.
-
-	primary.PeerManager.Disconnected(ctx, secondary.NodeID)
-	require.Equal(t, primary.PeerManager.Status(secondary.NodeID), p2p.PeerStatusDown)
-	_, err := primary.PeerManager.TryEvictNext()
-	require.NoError(t, err)
-	primary.PeerManager.Disconnected(ctx, secondary.NodeID)
-
-	require.Equal(t, primary.PeerManager.Status(secondary.NodeID), p2p.PeerStatusDown)
-	require.Equal(t, secondary.PeerManager.Status(primary.NodeID), p2p.PeerStatusUp)
-
-}
-
 // TestReactorBroadcastEvidence creates an environment of multiple peers that
 // are all at the same height. One peer, designated as a primary, gossips all
 // evidence to the remaining peers.
@@ -289,7 +218,6 @@ func TestReactorBroadcastEvidence(t *testing.T) {
 	}
 
 	rts := setup(ctx, t, stateDBs)
-
 	rts.start(t)
 
 	// Create a series of fixtures where each suite contains a reactor and
@@ -298,7 +226,7 @@ func TestReactorBroadcastEvidence(t *testing.T) {
 	// primary. As a result, the primary will gossip all evidence to each secondary.
 
 	primary := rts.network.RandomNode()
-	secondaries := make([]*p2ptest.Node, 0, len(rts.network.NodeIDs())-1)
+	secondaries := make([]*p2p.TestNode, 0, len(rts.network.NodeIDs())-1)
 	secondaryIDs := make([]types.NodeID, 0, cap(secondaries))
 	for _, node := range rts.network.Nodes() {
 		if node.NodeID == primary.NodeID {
@@ -311,15 +239,6 @@ func TestReactorBroadcastEvidence(t *testing.T) {
 
 	evList := createEvidenceList(ctx, t, rts.pools[primary.NodeID], val, numEvidence)
 
-	// Add each secondary suite (node) as a peer to the primary suite (node). This
-	// will cause the primary to gossip all evidence to the secondaries.
-	for _, suite := range secondaries {
-		rts.peerChans[primary.NodeID] <- p2p.PeerUpdate{
-			Status: p2p.PeerStatusUp,
-			NodeID: suite.NodeID,
-		}
-	}
-
 	// Wait till all secondary suites (reactor) received all evidence from the
 	// primary suite (node).
 	rts.waitForEvidence(t, evList, secondaryIDs...)
@@ -327,7 +246,6 @@ func TestReactorBroadcastEvidence(t *testing.T) {
 	for _, pool := range rts.pools {
 		require.Equal(t, numEvidence, int(pool.Size()))
 	}
-
 }
 
 // TestReactorSelectiveBroadcast tests a context where we have two reactors
@@ -354,13 +272,6 @@ func TestReactorBroadcastEvidence_Lagging(t *testing.T) {
 	// Send a list of valid evidence to the first reactor's, the one that is ahead,
 	// evidence pool.
 	evList := createEvidenceList(ctx, t, rts.pools[primary.NodeID], val, numEvidence)
-
-	// Add each secondary suite (node) as a peer to the primary suite (node). This
-	// will cause the primary to gossip all evidence to the secondaries.
-	rts.peerChans[primary.NodeID] <- p2p.PeerUpdate{
-		Status: p2p.PeerStatusUp,
-		NodeID: secondary.NodeID,
-	}
 
 	// only ones less than the peers height should make it through
 	rts.waitForEvidence(t, evList[:height2], secondary.NodeID)
@@ -480,18 +391,6 @@ func TestReactorBroadcastEvidence_FullyConnected(t *testing.T) {
 	rts.start(t)
 
 	evList := createEvidenceList(ctx, t, rts.pools[rts.network.RandomNode().NodeID], val, numEvidence)
-
-	// every suite (reactor) connects to every other suite (reactor)
-	for outerID, outerChan := range rts.peerChans {
-		for innerID := range rts.peerChans {
-			if outerID != innerID {
-				outerChan <- p2p.PeerUpdate{
-					Status: p2p.PeerStatusUp,
-					NodeID: innerID,
-				}
-			}
-		}
-	}
 
 	// wait till all suites (reactors) received all evidence from other suites (reactors)
 	rts.waitForEvidence(t, evList)

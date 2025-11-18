@@ -212,7 +212,7 @@ func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
 				batch = indexer.NewBatch(e.NumTxs)
 
 				for i := range b.Data.Txs {
-					tr := abcitypes.TxResult{
+					tr := abcitypes.TxResultV2{
 						Height: b.Height,
 						Index:  uint32(i),
 						Tx:     b.Data.Txs[i],

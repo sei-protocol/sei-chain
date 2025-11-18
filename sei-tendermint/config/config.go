@@ -73,7 +73,6 @@ type Config struct {
 	Instrumentation *InstrumentationConfig `mapstructure:"instrumentation"`
 	PrivValidator   *PrivValidatorConfig   `mapstructure:"priv-validator"`
 	SelfRemediation *SelfRemediationConfig `mapstructure:"self-remediation"`
-	DBSync          *DBSyncConfig          `mapstructure:"db-sync"`
 }
 
 // DefaultConfig returns a default configuration for a Tendermint node
@@ -89,7 +88,6 @@ func DefaultConfig() *Config {
 		Instrumentation: DefaultInstrumentationConfig(),
 		PrivValidator:   DefaultPrivValidatorConfig(),
 		SelfRemediation: DefaultSelfRemediationConfig(),
-		DBSync:          DefaultDBSyncConfig(),
 	}
 }
 
@@ -97,7 +95,7 @@ func DefaultConfig() *Config {
 func DefaultValidatorConfig() *Config {
 	cfg := DefaultConfig()
 	cfg.Mode = ModeValidator
-	cfg.TxIndex.Indexer = []string{"null"}
+	cfg.TxIndex.Indexer = []string{"null"} // validators should not build the kv index
 	return cfg
 }
 
@@ -114,7 +112,6 @@ func TestConfig() *Config {
 		Instrumentation: TestInstrumentationConfig(),
 		PrivValidator:   DefaultPrivValidatorConfig(),
 		SelfRemediation: DefaultSelfRemediationConfig(),
-		DBSync:          DefaultDBSyncConfig(),
 	}
 }
 
@@ -646,7 +643,7 @@ type P2PConfig struct { //nolint: maligned
 	// Comma separated list of nodes for block sync only
 	BlockSyncPeers string `mapstructure:"blocksync-peers"`
 
-	// UPNP port forwarding
+	// UPNP port forwarding. UNUSED
 	UPNP bool `mapstructure:"upnp"`
 
 	// MaxConnections defines the maximum number of connected peers (inbound and
@@ -664,7 +661,7 @@ type P2PConfig struct { //nolint: maligned
 	// other peers)
 	PrivatePeerIDs string `mapstructure:"private-peer-ids"`
 
-	// Toggle to disable guard against peers connecting from the same ip.
+	// Toggle to disable guard against peers connecting from the same ip. UNUSED
 	AllowDuplicateIP bool `mapstructure:"allow-duplicate-ip"`
 
 	// Time to wait before flushing messages out on the connection
@@ -875,9 +872,9 @@ func DefaultMempoolConfig() *MempoolConfig {
 		MaxTxsBytes:                  1024 * 1024 * 1024, // 1GB
 		CacheSize:                    10000,
 		DuplicateTxsCacheSize:        100000,
-		MaxTxBytes:                   1024 * 1024, // 1MB
-		TTLDuration:                  0 * time.Second,
-		TTLNumBlocks:                 0,
+		MaxTxBytes:                   1024 * 1024,     // 1MB
+		TTLDuration:                  5 * time.Second, // prevent stale txs from filling mempool
+		TTLNumBlocks:                 10,              // remove txs after 10 blocks
 		TxNotifyThreshold:            0,
 		CheckTxErrorBlacklistEnabled: false,
 		CheckTxErrorThreshold:        0,
@@ -999,6 +996,10 @@ type StateSyncConfig struct {
 	// If this is true, then state sync will look for existing snapshots
 	// which are located in the snapshot-dir configured in app.toml (default to [home-dir]/data/snapshots)
 	UseLocalSnapshot bool `mapstructure:"use-local-snapshot"`
+
+	// LightBlockResponseTimeout is how long the dispatcher waits for a peer to
+	// return a light block.
+	LightBlockResponseTimeout time.Duration `mapstructure:"light-block-response-timeout"`
 }
 
 func (cfg *StateSyncConfig) TrustHashBytes() []byte {
@@ -1013,14 +1014,15 @@ func (cfg *StateSyncConfig) TrustHashBytes() []byte {
 // DefaultStateSyncConfig returns a default configuration for the state sync service
 func DefaultStateSyncConfig() *StateSyncConfig {
 	return &StateSyncConfig{
-		TrustPeriod:             168 * time.Hour,
-		DiscoveryTime:           15 * time.Second,
-		ChunkRequestTimeout:     15 * time.Second,
-		Fetchers:                2,
-		BackfillBlocks:          0,
-		BackfillDuration:        0 * time.Second,
-		VerifyLightBlockTimeout: 60 * time.Second,
-		BlacklistTTL:            5 * time.Minute,
+		TrustPeriod:               168 * time.Hour,
+		DiscoveryTime:             15 * time.Second,
+		ChunkRequestTimeout:       15 * time.Second,
+		Fetchers:                  2,
+		BackfillBlocks:            0,
+		BackfillDuration:          0 * time.Second,
+		VerifyLightBlockTimeout:   60 * time.Second,
+		BlacklistTTL:              5 * time.Minute,
+		LightBlockResponseTimeout: 10 * time.Second,
 	}
 }
 
@@ -1358,56 +1360,6 @@ func (cfg *InstrumentationConfig) ValidateBasic() error {
 		return errors.New("max-open-connections can't be negative")
 	}
 	return nil
-}
-
-type DBSyncConfig struct {
-	// When true, the node will try to import DB files that overwrite its
-	// application DB. Note that it will NOT automatically detect whether
-	// the application DB is good-to-go or not upon start, and will always
-	// perform the import, so if the import is complete, this flag should
-	// be turned off the next time the chain restarts.
-	Enable bool `mapstructure:"db-sync-enable"`
-	// This is NOT currently used but reserved for future implementation
-	// of snapshotting logics that don't require chain halts.
-	SnapshotInterval        int           `mapstructure:"snapshot-interval"`
-	SnapshotDirectory       string        `mapstructure:"snapshot-directory"`
-	SnapshotWorkerCount     int           `mapstructure:"snapshot-worker-count"`
-	TimeoutInSeconds        int           `mapstructure:"timeout-in-seconds"`
-	NoFileSleepInSeconds    int           `mapstructure:"no-file-sleep-in-seconds"`
-	FileWorkerCount         int           `mapstructure:"file-worker-count"`
-	FileWorkerTimeout       int           `mapstructure:"file-worker-timeout"`
-	TrustHeight             int64         `mapstructure:"trust-height"`
-	TrustHash               string        `mapstructure:"trust-hash"`
-	TrustPeriod             time.Duration `mapstructure:"trust-period"`
-	VerifyLightBlockTimeout time.Duration `mapstructure:"verify-light-block-timeout"`
-	BlacklistTTL            time.Duration `mapstructure:"blacklist-ttl"`
-}
-
-func DefaultDBSyncConfig() *DBSyncConfig {
-	return &DBSyncConfig{
-		Enable:                  false,
-		SnapshotInterval:        0,
-		SnapshotDirectory:       "",
-		SnapshotWorkerCount:     16,
-		TimeoutInSeconds:        1200,
-		NoFileSleepInSeconds:    1,
-		FileWorkerCount:         32,
-		FileWorkerTimeout:       30,
-		TrustHeight:             0,
-		TrustHash:               "",
-		TrustPeriod:             86400 * time.Second,
-		VerifyLightBlockTimeout: 60 * time.Second,
-		BlacklistTTL:            5 * time.Minute,
-	}
-}
-
-func (cfg *DBSyncConfig) TrustHashBytes() []byte {
-	// validated in ValidateBasic, so we can safely panic here
-	bytes, err := hex.DecodeString(cfg.TrustHash)
-	if err != nil {
-		panic(err)
-	}
-	return bytes
 }
 
 //-----------------------------------------------------------------------------

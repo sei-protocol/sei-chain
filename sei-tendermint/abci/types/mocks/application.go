@@ -45,7 +45,7 @@ func (_m *Application) ApplySnapshotChunk(_a0 context.Context, _a1 *types.Reques
 }
 
 // CheckTx provides a mock function with given fields: _a0, _a1
-func (_m *Application) CheckTx(_a0 context.Context, _a1 *types.RequestCheckTx) (*types.ResponseCheckTxV2, error) {
+func (_m *Application) CheckTx(_a0 context.Context, _a1 *types.RequestCheckTxV2) (*types.ResponseCheckTxV2, error) {
 	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
@@ -54,10 +54,10 @@ func (_m *Application) CheckTx(_a0 context.Context, _a1 *types.RequestCheckTx) (
 
 	var r0 *types.ResponseCheckTxV2
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestCheckTx) (*types.ResponseCheckTxV2, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestCheckTxV2) (*types.ResponseCheckTxV2, error)); ok {
 		return rf(_a0, _a1)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestCheckTx) *types.ResponseCheckTxV2); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestCheckTxV2) *types.ResponseCheckTxV2); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
@@ -65,7 +65,7 @@ func (_m *Application) CheckTx(_a0 context.Context, _a1 *types.RequestCheckTx) (
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *types.RequestCheckTx) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *types.RequestCheckTxV2) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
 		r1 = ret.Error(1)
@@ -104,36 +104,6 @@ func (_m *Application) Commit(_a0 context.Context) (*types.ResponseCommit, error
 	return r0, r1
 }
 
-// ExtendVote provides a mock function with given fields: _a0, _a1
-func (_m *Application) ExtendVote(_a0 context.Context, _a1 *types.RequestExtendVote) (*types.ResponseExtendVote, error) {
-	ret := _m.Called(_a0, _a1)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ExtendVote")
-	}
-
-	var r0 *types.ResponseExtendVote
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestExtendVote) (*types.ResponseExtendVote, error)); ok {
-		return rf(_a0, _a1)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestExtendVote) *types.ResponseExtendVote); ok {
-		r0 = rf(_a0, _a1)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*types.ResponseExtendVote)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, *types.RequestExtendVote) error); ok {
-		r1 = rf(_a0, _a1)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
 // FinalizeBlock provides a mock function with given fields: _a0, _a1
 func (_m *Application) FinalizeBlock(_a0 context.Context, _a1 *types.RequestFinalizeBlock) (*types.ResponseFinalizeBlock, error) {
 	ret := _m.Called(_a0, _a1)
@@ -165,7 +135,7 @@ func (_m *Application) FinalizeBlock(_a0 context.Context, _a1 *types.RequestFina
 }
 
 // GetTxPriorityHint provides a mock function with given fields: _a0, _a1
-func (_m *Application) GetTxPriorityHint(_a0 context.Context, _a1 *types.RequestGetTxPriorityHint) (*types.ResponseGetTxPriorityHint, error) {
+func (_m *Application) GetTxPriorityHint(_a0 context.Context, _a1 *types.RequestGetTxPriorityHintV2) (*types.ResponseGetTxPriorityHint, error) {
 	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
@@ -174,10 +144,10 @@ func (_m *Application) GetTxPriorityHint(_a0 context.Context, _a1 *types.Request
 
 	var r0 *types.ResponseGetTxPriorityHint
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestGetTxPriorityHint) (*types.ResponseGetTxPriorityHint, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestGetTxPriorityHintV2) (*types.ResponseGetTxPriorityHint, error)); ok {
 		return rf(_a0, _a1)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestGetTxPriorityHint) *types.ResponseGetTxPriorityHint); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestGetTxPriorityHintV2) *types.ResponseGetTxPriorityHint); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
@@ -185,7 +155,7 @@ func (_m *Application) GetTxPriorityHint(_a0 context.Context, _a1 *types.Request
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *types.RequestGetTxPriorityHint) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *types.RequestGetTxPriorityHintV2) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
 		r1 = ret.Error(1)
@@ -456,36 +426,6 @@ func (_m *Application) Query(_a0 context.Context, _a1 *types.RequestQuery) (*typ
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, *types.RequestQuery) error); ok {
-		r1 = rf(_a0, _a1)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// VerifyVoteExtension provides a mock function with given fields: _a0, _a1
-func (_m *Application) VerifyVoteExtension(_a0 context.Context, _a1 *types.RequestVerifyVoteExtension) (*types.ResponseVerifyVoteExtension, error) {
-	ret := _m.Called(_a0, _a1)
-
-	if len(ret) == 0 {
-		panic("no return value specified for VerifyVoteExtension")
-	}
-
-	var r0 *types.ResponseVerifyVoteExtension
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestVerifyVoteExtension) (*types.ResponseVerifyVoteExtension, error)); ok {
-		return rf(_a0, _a1)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestVerifyVoteExtension) *types.ResponseVerifyVoteExtension); ok {
-		r0 = rf(_a0, _a1)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*types.ResponseVerifyVoteExtension)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, *types.RequestVerifyVoteExtension) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
 		r1 = ret.Error(1)

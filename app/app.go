@@ -28,7 +28,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/server/api"
 	"github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -45,7 +44,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	authrest "github.com/cosmos/cosmos-sdk/x/auth/client/rest"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	authsims "github.com/cosmos/cosmos-sdk/x/auth/simulation"
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
@@ -110,6 +108,7 @@ import (
 	"github.com/sei-protocol/sei-chain/aclmapping"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
@@ -148,6 +147,7 @@ import (
 	tmos "github.com/tendermint/tendermint/libs/os"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
+	"go.opentelemetry.io/otel/attribute"
 
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
@@ -267,7 +267,6 @@ var (
 
 var (
 	_ servertypes.Application = (*App)(nil)
-	_ simapp.App              = (*App)(nil)
 )
 
 const (
@@ -353,11 +352,10 @@ type App struct {
 
 	TokenFactoryKeeper tokenfactorykeeper.Keeper
 
+	BeginBlockKeepers legacyabci.BeginBlockKeepers
+
 	// mm is the module manager
 	mm *module.Manager
-
-	// sm is the simulation manager
-	sm *module.SimulationManager
 
 	configurator module.Configurator
 
@@ -623,7 +621,6 @@ func New(
 
 	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
 	ssConfig := ssconfig.DefaultStateStoreConfig()
-	ssConfig.DedicatedChangelog = true
 	ssConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
 	ssConfig.DBDirectory = receiptStorePath
 	ssConfig.KeepLastVersion = false
@@ -743,7 +740,7 @@ func New(
 			encodingConfig.TxConfig,
 		),
 		aclmodule.NewAppModule(appCodec, app.AccessControlKeeper),
-		auth.NewAppModule(appCodec, app.AccountKeeper, nil),
+		auth.NewAppModule(appCodec, app.AccountKeeper),
 		vesting.NewAppModule(app.AccountKeeper, app.BankKeeper),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
 		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
@@ -759,7 +756,7 @@ func New(
 		ibc.NewAppModule(app.IBCKeeper),
 		params.NewAppModule(app.ParamsKeeper),
 		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
-		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
+		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper),
 		evm.NewAppModule(appCodec, &app.EvmKeeper),
 		transferModule,
 		epochModule,
@@ -768,36 +765,17 @@ func New(
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 
-	// During begin block slashing happens after distr.BeginBlocker so that
-	// there is nothing left over in the validator fee pool, so as to keep the
-	// CanWithdrawInvariant invariant.
-	// NOTE: staking module is required if HistoricalEntries param > 0
-	app.mm.SetOrderBeginBlockers(
-		epochmoduletypes.ModuleName,
-		upgradetypes.ModuleName,
-		capabilitytypes.ModuleName,
-		minttypes.ModuleName,
-		distrtypes.ModuleName,
-		slashingtypes.ModuleName,
-		evidencetypes.ModuleName,
-		stakingtypes.ModuleName,
-		authtypes.ModuleName,
-		banktypes.ModuleName,
-		govtypes.ModuleName,
-		crisistypes.ModuleName,
-		genutiltypes.ModuleName,
-		authz.ModuleName,
-		feegrant.ModuleName,
-		paramstypes.ModuleName,
-		vestingtypes.ModuleName,
-		ibchost.ModuleName,
-		ibctransfertypes.ModuleName,
-		oracletypes.ModuleName,
-		evmtypes.ModuleName,
-		wasm.ModuleName,
-		tokenfactorytypes.ModuleName,
-		acltypes.ModuleName,
-	)
+	app.BeginBlockKeepers = legacyabci.BeginBlockKeepers{
+		EpochKeeper:      &app.EpochKeeper,
+		UpgradeKeeper:    &app.UpgradeKeeper,
+		CapabilityKeeper: app.CapabilityKeeper,
+		DistrKeeper:      &app.DistrKeeper,
+		SlashingKeeper:   &app.SlashingKeeper,
+		EvidenceKeeper:   &app.EvidenceKeeper,
+		StakingKeeper:    &app.StakingKeeper,
+		IBCKeeper:        app.IBCKeeper,
+		EvmKeeper:        &app.EvmKeeper,
+	}
 
 	app.mm.SetOrderMidBlockers(
 		oracletypes.ModuleName,
@@ -868,29 +846,6 @@ func New(
 	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter())
 	app.mm.RegisterServices(app.configurator)
 
-	// create the simulation manager and define the order of the modules for deterministic simulations
-	app.sm = module.NewSimulationManager(
-		auth.NewAppModule(appCodec, app.AccountKeeper, authsims.RandomGenesisAccounts),
-		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
-		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
-		feegrantmodule.NewAppModule(appCodec, app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, app.interfaceRegistry),
-		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
-		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
-		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
-		distr.NewAppModule(appCodec, app.DistrKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
-		slashing.NewAppModule(appCodec, app.SlashingKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
-		params.NewAppModule(app.ParamsKeeper),
-		evidence.NewAppModule(app.EvidenceKeeper),
-		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
-		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
-		ibc.NewAppModule(app.IBCKeeper),
-		transferModule,
-		epochModule,
-		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
-		// this line is used by starport scaffolding # stargate/app/appModule
-	)
-	app.sm.RegisterStoreDecoders()
-
 	app.RegisterUpgradeHandlers()
 	app.SetStoreUpgradeHandlers()
 
@@ -904,7 +859,6 @@ func New(
 
 	// initialize BaseApp
 	app.SetInitChainer(app.InitChainer)
-	app.SetBeginBlocker(app.BeginBlocker)
 
 	signModeHandler := encodingConfig.TxConfig.SignModeHandler()
 	// app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
@@ -971,12 +925,8 @@ func New(
 		return nil
 	}
 
-	if app.LastCommitID().Version > 0 || app.TmConfig == nil || !app.TmConfig.DBSync.Enable {
-		if err := loadVersionHandler(); err != nil {
-			panic(err)
-		}
-	} else {
-		app.SetLoadVersionHandler(loadVersionHandler)
+	if err := loadVersionHandler(); err != nil {
+		panic(err)
 	}
 
 	app.ScopedIBCKeeper = scopedIBCKeeper
@@ -999,12 +949,7 @@ func New(
 
 // HandlePreCommit happens right before the block is committed
 func (app *App) HandlePreCommit(ctx sdk.Context) error {
-	if app.evmRPCConfig.FlushReceiptSync {
-		return app.EvmKeeper.FlushTransientReceiptsSync(ctx)
-	} else {
-		return app.EvmKeeper.FlushTransientReceiptsAsync(ctx)
-	}
-
+	return app.EvmKeeper.FlushTransientReceipts(ctx)
 }
 
 // Close closes all items that needs closing (called by baseapp)
@@ -1093,20 +1038,6 @@ func (app *App) GetBaseApp() *baseapp.BaseApp { return app.BaseApp }
 
 // GetStateStore returns the state store of the application
 func (app *App) GetStateStore() seidb.StateStore { return app.stateStore }
-
-// BeginBlocker application updates every begin block
-func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
-	metrics.GaugeSeidVersionAndCommit(app.versionInfo.Version, app.versionInfo.GitCommit)
-	// check if we've reached a target height, if so, execute any applicable handlers
-	if app.forkInitializer != nil {
-		app.forkInitializer(ctx)
-		app.forkInitializer = nil
-	}
-	if app.HardForkManager.TargetHeightReached(ctx) {
-		app.HardForkManager.ExecuteForTargetHeight(ctx)
-	}
-	return app.mm.BeginBlock(ctx, req)
-}
 
 // MidBlocker application updates every mid block
 func (app *App) MidBlocker(ctx sdk.Context, height int64) []abci.Event {
@@ -1278,7 +1209,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 }
 
 func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) *abci.ExecTxResult {
-	deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
+	deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTxV2{
 		Tx: tx,
 	}, typedTx, sha256.Sum256(tx))
 
@@ -1545,7 +1476,7 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs [
 
 func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex int, bz []byte, tx sdk.Tx) (res *sdk.DeliverTxEntry) {
 	res = &sdk.DeliverTxEntry{
-		Request:       abci.RequestDeliverTx{Tx: bz},
+		Request:       abci.RequestDeliverTxV2{Tx: bz},
 		SdkTx:         tx,
 		Checksum:      sha256.Sum256(bz),
 		AbsoluteIndex: absoluateIndex,
@@ -1654,30 +1585,13 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	}()
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
+	blockSpanCtx, blockSpan := app.GetBaseApp().TracingInfo.Start("Block")
+	defer blockSpan.End()
+	blockSpan.SetAttributes(attribute.Int64("height", req.GetHeight()))
+	ctx = ctx.WithTraceSpanContext(blockSpanCtx)
+
 	events = []abci.Event{}
-	beginBlockReq := abci.RequestBeginBlock{
-		Hash: req.GetHash(),
-		ByzantineValidators: utils.Map(req.GetByzantineValidators(), func(mis abci.Misbehavior) abci.Evidence {
-			return abci.Evidence(mis)
-		}),
-		LastCommitInfo: abci.LastCommitInfo{
-			Round: lastCommit.Round,
-			Votes: utils.Map(lastCommit.Votes, func(vote abci.VoteInfo) abci.VoteInfo {
-				return abci.VoteInfo{
-					Validator:       vote.Validator,
-					SignedLastBlock: vote.SignedLastBlock,
-				}
-			}),
-		},
-		Header: tmproto.Header{
-			ChainID:         app.ChainID,
-			Height:          req.GetHeight(),
-			Time:            req.GetTime(),
-			ProposerAddress: ctx.BlockHeader().ProposerAddress,
-		},
-		Simulate: simulate,
-	}
-	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
+	beginBlockResp := app.BeginBlock(ctx, req.GetHeight(), lastCommit.Votes, req.GetByzantineValidators(), true)
 	events = append(events, beginBlockResp.Events...)
 
 	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs)) // nil for non-EVM txs
@@ -1961,7 +1875,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), nil)
 		if err != nil {
 			panic(err)
 		}
@@ -1974,7 +1888,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore())
 		if err != nil {
 			panic(err)
 		}
@@ -2162,11 +2076,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
 
 	return paramsKeeper
-}
-
-// SimulationManager implements the SimulationApp interface
-func (app *App) SimulationManager() *module.SimulationManager {
-	return app.sm
 }
 
 func (app *App) BlacklistedAccAddrs() map[string]bool {

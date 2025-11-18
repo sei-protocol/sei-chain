@@ -45,12 +45,6 @@ func ToRequestInfo(req *RequestInfo) *Request {
 	}
 }
 
-func ToRequestCheckTx(req *RequestCheckTx) *Request {
-	return &Request{
-		Value: &Request_CheckTx{req},
-	}
-}
-
 func ToRequestCommit() *Request {
 	return &Request{
 		Value: &Request_Commit{&RequestCommit{}},
@@ -93,18 +87,6 @@ func ToRequestApplySnapshotChunk(req *RequestApplySnapshotChunk) *Request {
 	}
 }
 
-func ToRequestExtendVote(req *RequestExtendVote) *Request {
-	return &Request{
-		Value: &Request_ExtendVote{req},
-	}
-}
-
-func ToRequestVerifyVoteExtension(req *RequestVerifyVoteExtension) *Request {
-	return &Request{
-		Value: &Request_VerifyVoteExtension{req},
-	}
-}
-
 func ToRequestPrepareProposal(req *RequestPrepareProposal) *Request {
 	return &Request{
 		Value: &Request_PrepareProposal{req},
@@ -126,12 +108,6 @@ func ToRequestFinalizeBlock(req *RequestFinalizeBlock) *Request {
 func ToRequestLoadLatest(req *RequestLoadLatest) *Request {
 	return &Request{
 		Value: &Request_LoadLatest{req},
-	}
-}
-
-func ToRequestGetTxPriorityHint(req *RequestGetTxPriorityHint) *Request {
-	return &Request{
-		Value: &Request_GetTxPriorityHint{req},
 	}
 }
 
@@ -206,18 +182,6 @@ func ToResponseLoadSnapshotChunk(res *ResponseLoadSnapshotChunk) *Response {
 func ToResponseApplySnapshotChunk(res *ResponseApplySnapshotChunk) *Response {
 	return &Response{
 		Value: &Response_ApplySnapshotChunk{res},
-	}
-}
-
-func ToResponseExtendVote(res *ResponseExtendVote) *Response {
-	return &Response{
-		Value: &Response_ExtendVote{res},
-	}
-}
-
-func ToResponseVerifyVoteExtension(res *ResponseVerifyVoteExtension) *Response {
-	return &Response{
-		Value: &Response_VerifyVoteExtension{res},
 	}
 }
 

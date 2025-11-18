@@ -28,7 +28,7 @@ func (env *Environment) NetInfo(ctx context.Context) (*coretypes.ResultNetInfo, 
 		peerConnections = append(peerConnections, coretypes.PeerConnection{
 			ID:    peer,
 			State: env.PeerManager.State(peer),
-			Score: env.PeerManager.Score(peer),
+			Score: 100,
 		})
 	}
 

@@ -20,7 +20,7 @@ func TestBalanceValidate(t *testing.T) {
 		{
 			"valid balance",
 			bank.Balance{
-				Address: "cosmos1yq8lgssgxlx9smjhes6ryjasmqmd3ts2559g0t",
+				Address: "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz",
 				Coins:   sdk.Coins{sdk.NewInt64Coin("uatom", 1)},
 			},
 			false,
@@ -29,14 +29,14 @@ func TestBalanceValidate(t *testing.T) {
 		{
 			"nil balance coins",
 			bank.Balance{
-				Address: "cosmos1yq8lgssgxlx9smjhes6ryjasmqmd3ts2559g0t",
+				Address: "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz",
 			},
 			false,
 		},
 		{
 			"dup coins",
 			bank.Balance{
-				Address: "cosmos1yq8lgssgxlx9smjhes6ryjasmqmd3ts2559g0t",
+				Address: "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz",
 				Coins: sdk.Coins{
 					sdk.NewInt64Coin("uatom", 1),
 					sdk.NewInt64Coin("uatom", 1),
@@ -47,7 +47,7 @@ func TestBalanceValidate(t *testing.T) {
 		{
 			"invalid coin denom",
 			bank.Balance{
-				Address: "cosmos1yq8lgssgxlx9smjhes6ryjasmqmd3ts2559g0t",
+				Address: "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz",
 				Coins: sdk.Coins{
 					sdk.Coin{Denom: "", Amount: sdk.OneInt()},
 				},
@@ -57,7 +57,7 @@ func TestBalanceValidate(t *testing.T) {
 		{
 			"negative coin",
 			bank.Balance{
-				Address: "cosmos1yq8lgssgxlx9smjhes6ryjasmqmd3ts2559g0t",
+				Address: "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz",
 				Coins: sdk.Coins{
 					sdk.Coin{Denom: "uatom", Amount: sdk.NewInt(-1)},
 				},
@@ -67,7 +67,7 @@ func TestBalanceValidate(t *testing.T) {
 		{
 			"0 value coin",
 			bank.Balance{
-				Address: "cosmos1yq8lgssgxlx9smjhes6ryjasmqmd3ts2559g0t",
+				Address: "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz",
 				Coins: sdk.Coins{
 					sdk.NewInt64Coin("atom", 0),
 					sdk.NewInt64Coin("zatom", 2),
@@ -78,7 +78,7 @@ func TestBalanceValidate(t *testing.T) {
 		{
 			"unsorted coins",
 			bank.Balance{
-				Address: "cosmos1yq8lgssgxlx9smjhes6ryjasmqmd3ts2559g0t",
+				Address: "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz",
 				Coins: sdk.Coins{
 					sdk.NewInt64Coin("atom", 2),
 					sdk.NewInt64Coin("zatom", 2),
@@ -90,7 +90,7 @@ func TestBalanceValidate(t *testing.T) {
 		{
 			"valid sorted coins",
 			bank.Balance{
-				Address: "cosmos1yq8lgssgxlx9smjhes6ryjasmqmd3ts2559g0t",
+				Address: "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz",
 				Coins: sdk.Coins{
 					sdk.NewInt64Coin("atom", 2),
 					sdk.NewInt64Coin("batom", 12),
@@ -124,7 +124,7 @@ func TestBalance_GetAddress(t *testing.T) {
 	}{
 		{"empty address", "", true},
 		{"malformed address", "invalid", true},
-		{"valid address", "cosmos1vy0ga0klndqy92ceqehfkvgmn4t94eteq4hmqv", false},
+		{"valid address", "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz", false},
 	}
 	for _, tt := range tests {
 		tt := tt

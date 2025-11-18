@@ -32,10 +32,11 @@ type InfoAPI struct {
 	connectionType   ConnectionType
 	maxBlocks        int64
 	txDecoder        sdk.TxDecoder
+	watermarks       *WatermarkManager
 }
 
-func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, maxBlocks int64, connectionType ConnectionType, txDecoder sdk.TxDecoder) *InfoAPI {
-	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType, maxBlocks: maxBlocks, txDecoder: txDecoder}
+func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, maxBlocks int64, connectionType ConnectionType, txDecoder sdk.TxDecoder, watermarks *WatermarkManager) *InfoAPI {
+	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType, maxBlocks: maxBlocks, txDecoder: txDecoder, watermarks: watermarks}
 }
 
 type FeeHistoryResult struct {
@@ -48,7 +49,11 @@ type FeeHistoryResult struct {
 func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
 	startTime := time.Now()
 	defer recordMetrics("eth_BlockNumber", i.connectionType, startTime)
-	return hexutil.Uint64(i.ctxProvider(LatestCtxHeight).BlockHeight()) //nolint:gosec
+	height, err := i.latestHeight(context.Background())
+	if err != nil {
+		height = i.ctxProvider(LatestCtxHeight).BlockHeight()
+	}
+	return hexutil.Uint64(height) //nolint:gosec
 }
 
 //nolint:revive
@@ -149,24 +154,35 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 		return nil, err
 	}
 	genesisHeight := genesis.Genesis.InitialHeight
-	currentHeight := i.ctxProvider(LatestCtxHeight).BlockHeight()
+	latestHeight, err := i.latestHeight(ctx)
+	if err != nil {
+		return nil, err
+	}
+	earliestHeight, err := i.earliestHeight(ctx)
+	if err != nil {
+		// fall back to genesis height if earliest watermark unavailable
+		earliestHeight = genesisHeight
+	}
+	if earliestHeight < genesisHeight {
+		earliestHeight = genesisHeight
+	}
 	switch lastBlock {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
-		lastBlockNumber = currentHeight
+		lastBlockNumber = latestHeight
 	case rpc.EarliestBlockNumber:
-		lastBlockNumber = genesisHeight
+		lastBlockNumber = earliestHeight
 	default:
-		if lastBlockNumber > currentHeight {
-			lastBlockNumber = currentHeight
+		if lastBlockNumber > latestHeight {
+			return nil, fmt.Errorf("requested last block %d is not yet available; safe latest is %d", lastBlockNumber, latestHeight)
 		}
 	}
 
-	if lastBlockNumber < genesisHeight {
-		return nil, errors.New("requested last block is before genesis height")
+	if lastBlockNumber < earliestHeight {
+		return nil, errors.New("requested last block is before earliest available height")
 	}
 
-	if uint64(lastBlockNumber-genesisHeight) < uint64(blockCount) { //nolint:gosec
-		result.OldestBlock = (*hexutil.Big)(big.NewInt(genesisHeight))
+	if uint64(lastBlockNumber-earliestHeight) < uint64(blockCount) { //nolint:gosec
+		result.OldestBlock = (*hexutil.Big)(big.NewInt(earliestHeight))
 	} else {
 		result.OldestBlock = (*hexutil.Big)(big.NewInt(lastBlockNumber - int64(blockCount) + 1)) //nolint:gosec
 	}
@@ -207,7 +223,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 		}
 		result.BaseFee = append(result.BaseFee, (*hexutil.Big)(baseFee))
 		height := blockNum
-		block, err := blockByNumber(ctx, i.tmClient, &height)
+		block, err := blockByNumberRespectingWatermarks(ctx, i.tmClient, i.watermarks, &height, 1)
 		if err != nil {
 			// block pruned from tendermint store. Skipping
 			continue
@@ -295,7 +311,7 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 }
 
 func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGasUsed uint64, err error) {
-	block, err := blockByNumber(ctx, i.tmClient, height)
+	block, err := blockByNumberRespectingWatermarks(ctx, i.tmClient, i.watermarks, height, 1)
 	if err != nil {
 		// block pruned from tendermint store. Skipping
 		return 0, err
@@ -324,7 +340,7 @@ func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGa
 
 // CalculateGasUsedRatio calculates the actual gas used ratio for a specific block
 func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) (float64, error) {
-	block, err := blockByNumber(ctx, i.tmClient, &blockHeight)
+	block, err := blockByNumberRespectingWatermarks(ctx, i.tmClient, i.watermarks, &blockHeight, 1)
 	if err != nil {
 		return 0, err
 	}
@@ -375,6 +391,14 @@ func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) 
 	ratioInt := (totalEVMGasUsed * 10000) / gasLimit
 	ratio := float64(ratioInt) / 10000.0
 	return ratio, nil
+}
+
+func (i *InfoAPI) latestHeight(ctx context.Context) (int64, error) {
+	return i.watermarks.LatestHeight(ctx)
+}
+
+func (i *InfoAPI) earliestHeight(ctx context.Context) (int64, error) {
+	return i.watermarks.EarliestHeight(ctx)
 }
 
 // Following go-ethereum implementation

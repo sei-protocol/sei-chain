@@ -188,9 +188,8 @@ type State struct {
 	nSteps int
 
 	// some functions can be overwritten for testing
-	decideProposal func(ctx context.Context, height int64, round int32)
-	doPrevote      func(ctx context.Context, height int64, round int32)
-	setProposal    func(proposal *types.Proposal, t time.Time) error
+	doPrevote   func(ctx context.Context, height int64, round int32)
+	setProposal func(proposal *types.Proposal, t time.Time) error
 
 	// synchronous pubsub between consensus state and reactor.
 	// state only emits EventNewRoundStep, EventValidBlock, and EventVote
@@ -252,7 +251,6 @@ func NewState(
 	}
 
 	// set function defaults (may be overwritten before calling Start)
-	cs.decideProposal = cs.defaultDecideProposal
 	cs.doPrevote = cs.defaultDoPrevote
 	cs.setProposal = cs.defaultSetProposal
 
@@ -431,10 +429,7 @@ func (cs *State) OnStart(ctx context.Context) error {
 
 	// we need the timeoutRoutine for replay so
 	// we don't block on the tick chan.
-	// NOTE: we will get a build up of garbage go routines
-	// firing on the tockChan until the receiveRoutine is started
-	// to deal with them (by that point, at most one will be valid)
-	cs.Spawn("timeoutTicker", cs.timeoutTicker.Run)
+	cs.SpawnCritical("timeoutTicker", cs.timeoutTicker.Run)
 
 	// We may have lost some votes if the process crashed reload from consensus
 	// log to catchup.
@@ -716,10 +711,8 @@ func (cs *State) sendInternalMessage(ctx context.Context, mi msgInfo) {
 	}
 }
 
-// Reconstruct the LastCommit from either SeenCommit or the ExtendedCommit. SeenCommit
-// and ExtendedCommit are saved along with the block. If VoteExtensions are required
-// the method will panic on an absent ExtendedCommit or an ExtendedCommit without
-// extension data.
+// Reconstruct the LastCommit from the SeenCommit. SeenCommit
+// is saved along with the block.
 func (cs *State) reconstructLastCommit(state sm.State) {
 	votes, err := cs.votesFromSeenCommit(state)
 	if err != nil {
@@ -1448,7 +1441,7 @@ func (cs *State) isProposer(address []byte) bool {
 	return bytes.Equal(cs.roundState.Validators().GetProposer().Address, address)
 }
 
-func (cs *State) defaultDecideProposal(ctx context.Context, height int64, round int32) {
+func (cs *State) decideProposal(ctx context.Context, height int64, round int32) {
 	_, span := cs.tracer.Start(ctx, "cs.state.decideProposal")
 	span.SetAttributes(attribute.Int("round", int(round)))
 	defer span.End()

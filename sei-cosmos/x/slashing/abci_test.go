@@ -8,7 +8,6 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/slashing"
 	"github.com/cosmos/cosmos-sdk/x/slashing/testslashing"
@@ -16,14 +15,15 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 func TestBeginBlocker(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	pks := simapp.CreateTestPubKeys(5)
-	simapp.AddTestAddrsFromPubKeys(app, ctx, pks, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	pks := seiapp.CreateTestPubKeys(5)
+	seiapp.AddTestAddrsFromPubKeys(app, ctx, pks, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
 	trueVotes := []abci.VoteInfo{}
@@ -65,7 +65,7 @@ func TestBeginBlocker(t *testing.T) {
 			Votes: trueVotes,
 		},
 	}
-	slashing.BeginBlocker(ctx, req, app.SlashingKeeper)
+	slashing.BeginBlocker(ctx, req.LastCommitInfo.Votes, app.SlashingKeeper)
 
 	for i := 0; i < 5; i++ {
 		info, found := app.SlashingKeeper.GetValidatorSigningInfo(ctx, sdk.ConsAddress(pks[i].Address()))
@@ -86,7 +86,7 @@ func TestBeginBlocker(t *testing.T) {
 			},
 		}
 
-		slashing.BeginBlocker(ctx, req, app.SlashingKeeper)
+		slashing.BeginBlocker(ctx, req.LastCommitInfo.Votes, app.SlashingKeeper)
 	}
 
 	// for 5000 blocks, mark the validator as having not signed
@@ -98,7 +98,7 @@ func TestBeginBlocker(t *testing.T) {
 			},
 		}
 
-		slashing.BeginBlocker(ctx, req, app.SlashingKeeper)
+		slashing.BeginBlocker(ctx, req.LastCommitInfo.Votes, app.SlashingKeeper)
 	}
 
 	// end block
@@ -117,13 +117,13 @@ func TestBeginBlocker(t *testing.T) {
 }
 
 func TestResizeTrimResetValidatorMissedBlocksArray(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 
-	pks := simapp.CreateTestPubKeys(1)
+	pks := seiapp.CreateTestPubKeys(1)
 
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
@@ -160,7 +160,7 @@ func TestResizeTrimResetValidatorMissedBlocksArray(t *testing.T) {
 	app.SlashingKeeper.SetParams(ctx, params)
 
 	ctx = ctx.WithBlockHeight(18)
-	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true), app.SlashingKeeper)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true).LastCommitInfo.Votes, app.SlashingKeeper)
 
 	bitGroup = uint64(0)
 	missedInfo, found := app.SlashingKeeper.GetValidatorMissedBlocks(ctx, consAddr)
@@ -177,13 +177,13 @@ func TestResizeTrimResetValidatorMissedBlocksArray(t *testing.T) {
 }
 
 func TestResizeExpandValidatorMissedBlocksArray(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 
-	pks := simapp.CreateTestPubKeys(1)
+	pks := seiapp.CreateTestPubKeys(1)
 
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
@@ -219,7 +219,7 @@ func TestResizeExpandValidatorMissedBlocksArray(t *testing.T) {
 	app.SlashingKeeper.SetValidatorMissedBlocks(ctx, consAddr, tooSmallArray)
 
 	ctx = ctx.WithBlockHeight(39)
-	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true), app.SlashingKeeper)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true).LastCommitInfo.Votes, app.SlashingKeeper)
 
 	bitGroup = uint64(0)
 	bitGroup |= 1 << 1
@@ -237,13 +237,13 @@ func TestResizeExpandValidatorMissedBlocksArray(t *testing.T) {
 }
 
 func TestResizeExpandShiftValidatorMissedBlocksArrayMultipleBitGroups(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 
-	pks := simapp.CreateTestPubKeys(1)
+	pks := seiapp.CreateTestPubKeys(1)
 
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
@@ -281,7 +281,7 @@ func TestResizeExpandShiftValidatorMissedBlocksArrayMultipleBitGroups(t *testing
 	app.SlashingKeeper.SetValidatorMissedBlocks(ctx, consAddr, tooSmallArray)
 
 	ctx = ctx.WithBlockHeight(2053)
-	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true), app.SlashingKeeper)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true).LastCommitInfo.Votes, app.SlashingKeeper)
 
 	bg0 = uint64(0)
 	bg0 |= 1 << 0
@@ -302,13 +302,13 @@ func TestResizeExpandShiftValidatorMissedBlocksArrayMultipleBitGroups(t *testing
 }
 
 func TestResizeExpandShiftValidatorMissedBlocksArrayMultipleBitGroupsBeforeAndAfter(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 
-	pks := simapp.CreateTestPubKeys(1)
+	pks := seiapp.CreateTestPubKeys(1)
 
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
@@ -350,7 +350,7 @@ func TestResizeExpandShiftValidatorMissedBlocksArrayMultipleBitGroupsBeforeAndAf
 	app.SlashingKeeper.SetValidatorMissedBlocks(ctx, consAddr, tooSmallArray)
 
 	ctx = ctx.WithBlockHeight(509)
-	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true), app.SlashingKeeper)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true).LastCommitInfo.Votes, app.SlashingKeeper)
 
 	bg0 = uint64(0)
 	bg0 |= 1 << 0
@@ -374,13 +374,13 @@ func TestResizeExpandShiftValidatorMissedBlocksArrayMultipleBitGroupsBeforeAndAf
 }
 
 func TestResizeTrimValidatorMissedBlocksArrayMultipleBitGroups(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 
-	pks := simapp.CreateTestPubKeys(1)
+	pks := seiapp.CreateTestPubKeys(1)
 
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
@@ -423,7 +423,7 @@ func TestResizeTrimValidatorMissedBlocksArrayMultipleBitGroups(t *testing.T) {
 	app.SlashingKeeper.SetValidatorMissedBlocks(ctx, consAddr, tooSmallArray)
 
 	ctx = ctx.WithBlockHeight(509)
-	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, false), app.SlashingKeeper)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, false).LastCommitInfo.Votes, app.SlashingKeeper)
 
 	missedInfo, found := app.SlashingKeeper.GetValidatorMissedBlocks(ctx, consAddr)
 	require.True(t, found)
@@ -438,13 +438,13 @@ func TestResizeTrimValidatorMissedBlocksArrayMultipleBitGroups(t *testing.T) {
 }
 
 func TestResizeTrimValidatorMissedBlocksArrayEliminateBitGroup(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 
-	pks := simapp.CreateTestPubKeys(1)
+	pks := seiapp.CreateTestPubKeys(1)
 
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
@@ -486,7 +486,7 @@ func TestResizeTrimValidatorMissedBlocksArrayEliminateBitGroup(t *testing.T) {
 	app.SlashingKeeper.SetValidatorMissedBlocks(ctx, consAddr, tooSmallArray)
 
 	ctx = ctx.WithBlockHeight(509)
-	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true), app.SlashingKeeper)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true).LastCommitInfo.Votes, app.SlashingKeeper)
 
 	missedInfo, found := app.SlashingKeeper.GetValidatorMissedBlocks(ctx, consAddr)
 	require.True(t, found)

@@ -3,6 +3,7 @@ package evmrpc_test
 import (
 	"crypto/sha256"
 	"math/big"
+	"sync"
 	"testing"
 	"time"
 
@@ -49,7 +50,7 @@ func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
 	}
 
 	// Call EncodeTmBlock with empty transactions
-	result, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, block, blockRes, k, true, false, false, nil)
+	result, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, block, blockRes, k, true, false, false, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
 
 	// Assert txHash is equal to ethtypes.EmptyTxsHash
@@ -95,7 +96,7 @@ func TestEncodeBankMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, false, false, nil)
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, false, false, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 0, len(txs))
@@ -103,7 +104,7 @@ func TestEncodeBankMsg(t *testing.T) {
 
 func TestEncodeWasmExecuteMsg(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).WithBlockHeight(MockHeight8)
 	fromSeiAddr, fromEvmAddr := testkeeper.MockAddressPair()
 	toSeiAddr, _ := testkeeper.MockAddressPair()
 	b := TxConfig.NewTxBuilder()
@@ -114,10 +115,15 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 	})
 	tx := b.GetTx()
 	bz, _ := Encoder(tx)
-	k.MockReceipt(ctx, sha256.Sum256(bz), &types.Receipt{
+	txHash := sha256.Sum256(bz)
+	hash := common.BytesToHash(txHash[:])
+	testkeeper.MustMockReceipt(t, k, ctx, hash, &types.Receipt{
 		TransactionIndex: 1,
 		From:             fromEvmAddr.Hex(),
+		TxHashHex:        hash.Hex(),
 	})
+	receipt := testkeeper.WaitForReceipt(t, k, ctx, hash)
+	require.Equal(t, hash.Hex(), receipt.TxHashHex)
 	resBlock := coretypes.ResultBlock{
 		BlockID: MockBlockID,
 		Block: &tmtypes.Block{
@@ -143,7 +149,7 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, false, true, nil)
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, false, true, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 1, len(txs))
@@ -204,7 +210,7 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, true, false, nil)
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, true, false, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 1, len(txs))

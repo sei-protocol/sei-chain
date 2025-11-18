@@ -21,28 +21,22 @@ import (
 	"github.com/tendermint/tendermint/internal/eventbus"
 	mpmocks "github.com/tendermint/tendermint/internal/mempool/mocks"
 	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/p2p/p2ptest"
 	"github.com/tendermint/tendermint/internal/proxy"
 	sm "github.com/tendermint/tendermint/internal/state"
 	sf "github.com/tendermint/tendermint/internal/state/test/factory"
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/internal/test/factory"
 	"github.com/tendermint/tendermint/libs/log"
-	bcproto "github.com/tendermint/tendermint/proto/tendermint/blocksync"
 	"github.com/tendermint/tendermint/types"
 )
 
 type reactorTestSuite struct {
-	network *p2ptest.Network
+	network *p2p.TestNetwork
 	logger  log.Logger
 	nodes   []types.NodeID
 
 	reactors map[types.NodeID]*Reactor
 	app      map[types.NodeID]abciclient.Client
-
-	blockSyncChannels map[types.NodeID]*p2p.Channel
-	peerChans         map[types.NodeID]chan p2p.PeerUpdate
-	peerUpdates       map[types.NodeID]*p2p.PeerUpdates
 }
 
 func setup(
@@ -63,28 +57,15 @@ func setup(
 
 	logger, _ := log.NewDefaultLogger("plain", "info")
 	rts := &reactorTestSuite{
-		logger:            logger.With("module", "block_sync", "testCase", t.Name()),
-		network:           p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: numNodes}),
-		nodes:             make([]types.NodeID, 0, numNodes),
-		reactors:          make(map[types.NodeID]*Reactor, numNodes),
-		app:               make(map[types.NodeID]abciclient.Client, numNodes),
-		blockSyncChannels: make(map[types.NodeID]*p2p.Channel, numNodes),
-		peerChans:         make(map[types.NodeID]chan p2p.PeerUpdate, numNodes),
-		peerUpdates:       make(map[types.NodeID]*p2p.PeerUpdates, numNodes),
+		logger:   logger.With("module", "block_sync", "testCase", t.Name()),
+		network:  p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numNodes}),
+		nodes:    make([]types.NodeID, 0, numNodes),
+		reactors: make(map[types.NodeID]*Reactor, numNodes),
+		app:      make(map[types.NodeID]abciclient.Client, numNodes),
 	}
 
-	chDesc := &p2p.ChannelDescriptor{
-		ID:                 BlockSyncChannel,
-		MessageType:        new(bcproto.Message),
-		RecvBufferCapacity: 32,
-	}
-	rts.blockSyncChannels = rts.network.MakeChannelsNoCleanup(t, chDesc)
-
-	i := 0
-	for _, nodeID := range rts.network.NodeIDs() {
+	for i, nodeID := range rts.network.NodeIDs() {
 		rts.addNode(ctx, t, nodeID, genDoc, privVal, maxBlockHeights[i])
-		rts.reactors[nodeID].SetChannel(rts.blockSyncChannels[nodeID])
-		i++
 	}
 
 	t.Cleanup(func() {
@@ -107,8 +88,7 @@ func makeReactor(
 	ctx context.Context,
 	t *testing.T,
 	genDoc *types.GenesisDoc,
-	peerEvents p2p.PeerEventSubscriber,
-	peerManager *p2p.PeerManager,
+	router *p2p.Router,
 	restartChan chan struct{},
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) *Reactor {
@@ -154,20 +134,23 @@ func makeReactor(
 		sm.NopMetrics(),
 	)
 
-	return NewReactor(
+	r, err := NewReactor(
 		logger,
 		stateStore,
 		blockExec,
 		blockStore,
 		nil,
-		peerEvents,
-		peerManager,
+		router,
 		true,
 		consensus.NopMetrics(),
 		nil, // eventbus, can be nil
 		restartChan,
 		selfRemediationConfig,
 	)
+	if err != nil {
+		t.Fatalf("NewReactor(): %v", err)
+	}
+	return r
 }
 
 func (rts *reactorTestSuite) addNode(
@@ -186,11 +169,6 @@ func (rts *reactorTestSuite) addNode(
 	rts.app[nodeID] = proxy.New(abciclient.NewLocalClient(logger, &abci.BaseApplication{}), logger, proxy.NopMetrics())
 	require.NoError(t, rts.app[nodeID].Start(ctx))
 
-	rts.peerChans[nodeID] = make(chan p2p.PeerUpdate)
-	rts.peerUpdates[nodeID] = p2p.NewPeerUpdates(rts.peerChans[nodeID], 1)
-	rts.network.Node(nodeID).PeerManager.Register(ctx, rts.peerUpdates[nodeID])
-
-	peerEvents := func(ctx context.Context) *p2p.PeerUpdates { return rts.peerUpdates[nodeID] }
 	restartChan := make(chan struct{})
 	remediationConfig := config.DefaultSelfRemediationConfig()
 	remediationConfig.BlocksBehindThreshold = 1000
@@ -199,13 +177,10 @@ func (rts *reactorTestSuite) addNode(
 		ctx,
 		t,
 		genDoc,
-		peerEvents,
-		rts.network.Node(nodeID).PeerManager,
+		rts.network.Node(nodeID).Router,
 		restartChan,
 		config.DefaultSelfRemediationConfig(),
 	)
-
-	reactor.SetChannel(rts.blockSyncChannels[nodeID])
 	lastCommit := &types.Commit{}
 
 	state, err := reactor.stateStore.Load()
@@ -261,10 +236,6 @@ func makeNextBlock(ctx context.Context,
 func (rts *reactorTestSuite) start(t *testing.T) {
 	t.Helper()
 	rts.network.Start(t)
-	require.Len(t,
-		rts.network.RandomNode().PeerManager.Peers(),
-		len(rts.nodes)-1,
-		"network does not have expected number of nodes")
 }
 
 func TestReactor_AbruptDisconnect(t *testing.T) {
@@ -274,7 +245,7 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(cfg.RootDir)
 
-	valSet, privVals := factory.ValidatorSet(ctx, t, 1, 30)
+	valSet, privVals := factory.ValidatorSet(ctx, 1, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
 	maxBlockHeight := int64(64)
 
@@ -290,7 +261,7 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 		t,
 		func() bool {
 			height, _, _ := secondaryPool.GetStatus()
-			return secondaryPool.MaxPeerHeight() > 0 && height > 0 && height < 10
+			return secondaryPool.MaxPeerHeight() == maxBlockHeight && height > 0 && height <= maxBlockHeight
 		},
 		10*time.Second,
 		10*time.Millisecond,
@@ -299,11 +270,7 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 
 	// Remove synced node from the syncing node which should not result in any
 	// deadlocks or race conditions within the context of poolRoutine.
-	rts.peerChans[rts.nodes[1]] <- p2p.PeerUpdate{
-		Status: p2p.PeerStatusDown,
-		NodeID: rts.nodes[0],
-	}
-	rts.network.Node(rts.nodes[1]).PeerManager.Disconnected(ctx, rts.nodes[0])
+	rts.network.Remove(t, rts.nodes[0])
 }
 
 func TestReactor_SyncTime(t *testing.T) {
@@ -313,7 +280,7 @@ func TestReactor_SyncTime(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(cfg.RootDir)
 
-	valSet, privVals := factory.ValidatorSet(ctx, t, 1, 30)
+	valSet, privVals := factory.ValidatorSet(ctx, 1, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
 	maxBlockHeight := int64(101)
 

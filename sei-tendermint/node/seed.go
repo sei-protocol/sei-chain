@@ -34,7 +34,6 @@ type seedNodeImpl struct {
 	nodeInfo types.NodeInfo
 
 	// network
-	peerManager *p2p.PeerManager
 	router      *p2p.Router
 	nodeKey     types.NodeKey // our node privkey
 	isListening bool
@@ -79,15 +78,7 @@ func makeSeedNode(
 		return nil, err
 	}
 
-	// Setup Transport and Switch.
-	peerManager, peerCloser, err := createPeerManager(logger, cfg, dbProvider, nodeKey.ID, nodeMetrics.p2p)
-	if err != nil {
-		return nil, combineCloseError(
-			fmt.Errorf("failed to create peer manager: %w", err),
-			peerCloser)
-	}
-
-	router, err := createRouter(logger, nodeMetrics.p2p, func() *types.NodeInfo { return &nodeInfo }, nodeKey, peerManager, cfg, nil)
+	router, peerCloser, err := createRouter(logger, nodeMetrics.p2p, func() *types.NodeInfo { return &nodeInfo }, nodeKey, cfg, nil, dbProvider)
 	if err != nil {
 		return nil, combineCloseError(
 			fmt.Errorf("failed to create router: %w", err),
@@ -95,28 +86,22 @@ func makeSeedNode(
 	}
 	// Register a listener to restart router if signalled to do so
 	go func() {
-		for {
-			select {
-			case <-restartCh:
-				logger.Info("Received signal to restart router, restarting...")
-				router.OnStop()
-				router.Wait()
-				logger.Info("Router successfully stopped. Restarting...")
-				// Start the transport.
-				if err := router.Start(ctx); err != nil {
-					logger.Error("Unable to start router, retrying...", err)
-				}
+		for range restartCh {
+			logger.Info("Received signal to restart router, restarting...")
+			router.OnStop()
+			router.Wait()
+			logger.Info("Router successfully stopped. Restarting...")
+			// Start the transport.
+			if err := router.Start(ctx); err != nil {
+				logger.Error("Unable to start router, retrying...", err)
 			}
 		}
 	}()
 
-	pexReactor := pex.NewReactor(
-		logger,
-		peerManager,
-		peerManager.Subscribe,
-		restartCh,
-		cfg.SelfRemediation,
-	)
+	pexReactor, err := pex.NewReactor(logger, router, pex.DefaultSendInterval)
+	if err != nil {
+		return nil, fmt.Errorf("pex.NewReactor(): %w", err)
+	}
 
 	proxyApp := proxy.New(client, logger.With("module", "proxy"), nodeMetrics.proxy)
 
@@ -140,9 +125,8 @@ func makeSeedNode(
 		logger:     logger,
 		genesisDoc: genDoc,
 
-		nodeKey:     nodeKey,
-		peerManager: peerManager,
-		router:      router,
+		nodeKey: nodeKey,
+		router:  router,
 
 		shutdownOps: peerCloser,
 
@@ -153,7 +137,7 @@ func makeSeedNode(
 			StateStore: stateStore,
 			BlockStore: blockStore,
 
-			PeerManager: peerManager,
+			PeerManager: router,
 
 			GenDoc:     genDoc,
 			EventSinks: eventSinks,
@@ -163,7 +147,6 @@ func makeSeedNode(
 		},
 		nodeInfo: nodeInfo,
 	}
-	node.router.AddChDescToBeAdded(pex.ChannelDescriptor(), pexReactor.SetChannel)
 	node.BaseService = *service.NewBaseService(logger, "SeedNode", node)
 
 	return node, nil

@@ -62,21 +62,6 @@ func (r ResponseProcessProposal) IsStatusUnknown() bool {
 	return r.Status == ResponseProcessProposal_UNKNOWN
 }
 
-// IsStatusUnknown returns true if Code is Unknown
-func (r ResponseVerifyVoteExtension) IsStatusUnknown() bool {
-	return r.Status == ResponseVerifyVoteExtension_UNKNOWN
-}
-
-// IsOK returns true if Code is OK
-func (r ResponseVerifyVoteExtension) IsOK() bool {
-	return r.Status == ResponseVerifyVoteExtension_ACCEPT
-}
-
-// IsErr returns true if Code is something other than OK.
-func (r ResponseVerifyVoteExtension) IsErr() bool {
-	return r.Status != ResponseVerifyVoteExtension_ACCEPT
-}
-
 //---------------------------------------------------------------------------
 // override JSON marshaling so we emit defaults (ie. disable omitempty)
 
@@ -200,16 +185,6 @@ var _ jsonRoundTripper = (*EventAttribute)(nil)
 // -----------------------------------------------
 // construct Result data
 
-func RespondVerifyVoteExtension(ok bool) ResponseVerifyVoteExtension {
-	status := ResponseVerifyVoteExtension_REJECT
-	if ok {
-		status = ResponseVerifyVoteExtension_ACCEPT
-	}
-	return ResponseVerifyVoteExtension{
-		Status: status,
-	}
-}
-
 // deterministicExecTxResult constructs a copy of response that omits
 // non-deterministic fields. The input response is not modified.
 func deterministicExecTxResult(response *ExecTxResult) *ExecTxResult {
@@ -256,9 +231,39 @@ type ResponseCheckTxV2 struct {
 	IsPendingTransaction bool
 	Checker              PendingTxChecker // must not be nil if IsPendingTransaction is true
 	ExpireTxHandler      ExpireTxHandler
+	CheckTxCallback      func(int64)
 
 	// helper properties for prioritization in mempool
 	EVMNonce         uint64
 	EVMSenderAddress string
 	IsEVM            bool
+	Priority         int64
+}
+
+type CheckTxTypeV2 int32
+
+const (
+	CheckTxTypeV2New CheckTxTypeV2 = iota
+	CheckTxTypeV2Recheck
+)
+
+type RequestCheckTxV2 struct {
+	Tx   []byte
+	Type CheckTxTypeV2
+}
+
+type RequestDeliverTxV2 struct {
+	Tx          []byte
+	SigVerified bool
+}
+
+type RequestGetTxPriorityHintV2 struct {
+	Tx []byte
+}
+
+type TxResultV2 struct {
+	Height int64
+	Index  uint32
+	Tx     []byte
+	Result ExecTxResult
 }

@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"testing"
 
+	seiapp "github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/apptesting"
 	"github.com/stretchr/testify/suite"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
@@ -21,7 +22,7 @@ import (
 type KeeperTestSuite struct {
 	suite.Suite
 
-	app         *simapp.SimApp
+	app         *seiapp.App
 	ctx         sdk.Context
 	queryClient types.QueryClient
 	addrs       []sdk.AccAddress
@@ -29,7 +30,7 @@ type KeeperTestSuite struct {
 }
 
 func (suite *KeeperTestSuite) SetupTest() {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(suite.T(), false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	queryHelper := baseapp.NewQueryServerTestHelper(ctx, app.InterfaceRegistry())
@@ -40,8 +41,8 @@ func (suite *KeeperTestSuite) SetupTest() {
 	suite.ctx = ctx
 	suite.queryClient = queryClient
 
-	suite.addrs = simapp.AddTestAddrs(app, ctx, 2, sdk.NewInt(1000000000))
-	suite.valAddrs = simapp.ConvertAddrsToValAddrs(suite.addrs)
+	suite.addrs = seiapp.AddTestAddrs(app, ctx, 2, sdk.NewInt(1000000000))
+	suite.valAddrs = seiapp.ConvertAddrsToValAddrs(suite.addrs)
 }
 
 func (suite *KeeperTestSuite) TestGRPCParams() {
@@ -63,6 +64,7 @@ func (suite *KeeperTestSuite) TestGRPCParams() {
 			func() {
 				req = &types.QueryParamsRequest{}
 				expParams = types.DefaultParams()
+				expParams.WithdrawAddrEnabled = false
 			},
 			true,
 		},
@@ -553,49 +555,10 @@ func (suite *KeeperTestSuite) TestGRPCDelegationRewards() {
 }
 
 func (suite *KeeperTestSuite) TestGRPCDelegatorWithdrawAddress() {
-	app, ctx, queryClient, addrs := suite.app, suite.ctx, suite.queryClient, suite.addrs
+	app, ctx, _, addrs := suite.app, suite.ctx, suite.queryClient, suite.addrs
 
 	err := app.DistrKeeper.SetWithdrawAddr(ctx, addrs[0], addrs[1])
-	suite.Require().Nil(err)
-
-	var req *types.QueryDelegatorWithdrawAddressRequest
-
-	testCases := []struct {
-		msg      string
-		malleate func()
-		expPass  bool
-	}{
-		{
-			"empty request",
-			func() {
-				req = &types.QueryDelegatorWithdrawAddressRequest{}
-			},
-			false,
-		},
-		{
-			"valid request",
-			func() {
-				req = &types.QueryDelegatorWithdrawAddressRequest{DelegatorAddress: addrs[0].String()}
-			},
-			true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		suite.Run(fmt.Sprintf("Case %s", testCase.msg), func() {
-			testCase.malleate()
-
-			withdrawAddress, err := queryClient.DelegatorWithdrawAddress(gocontext.Background(), req)
-
-			if testCase.expPass {
-				suite.Require().NoError(err)
-				suite.Require().Equal(withdrawAddress.WithdrawAddress, addrs[1].String())
-			} else {
-				suite.Require().Error(err)
-				suite.Require().Nil(withdrawAddress)
-			}
-		})
-	}
+	suite.Require().Error(err, "set withdraw address disabled")
 }
 
 func (suite *KeeperTestSuite) TestGRPCCommunityPool() {
@@ -623,7 +586,7 @@ func (suite *KeeperTestSuite) TestGRPCCommunityPool() {
 			"valid request",
 			func() {
 				amount := sdk.NewCoins(sdk.NewInt64Coin("usei", 100))
-				suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addrs[0], amount))
+				suite.Require().NoError(apptesting.FundAccount(app.BankKeeper, ctx, addrs[0], amount))
 
 				err := app.DistrKeeper.FundCommunityPool(ctx, amount, addrs[0])
 				suite.Require().Nil(err)

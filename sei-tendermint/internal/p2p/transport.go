@@ -2,242 +2,91 @@ package p2p
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"math"
-	"net"
-	"net/netip"
-	"sync"
-	"sync/atomic"
-
-	"golang.org/x/net/netutil"
-
-	"github.com/tendermint/tendermint/crypto"
+	"github.com/gogo/protobuf/proto"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
-	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
+	"math"
+	"net"
+	"net/netip"
+	"sync/atomic"
+	"time"
+
 	p2pproto "github.com/tendermint/tendermint/proto/tendermint/p2p"
 	"github.com/tendermint/tendermint/types"
 )
 
-// TransportOptions sets options for Transport.
-type TransportOptions struct {
-	// MaxAcceptedConnections is the maximum number of simultaneous accepted
-	// (incoming) connections. Beyond this, new connections will block until
-	// a slot is free. 0 means unlimited.
-	//
-	// FIXME: We may want to replace this with connection accounting in the
-	// Router, since it will need to do e.g. rate limiting and such as well.
-	// But it might also make sense to have per-transport limits.
-	MaxAcceptedConnections uint32
-}
-
-// TestTransport creates a new Transport for tests.
-func TestTransport(logger log.Logger, nodeID types.NodeID, descs ...*ChannelDescriptor) *Transport {
-	return NewTransport(
-		logger.With("local", nodeID),
-		Endpoint{tcp.TestReserveAddr()},
-		conn.DefaultMConnConfig(),
-		descs,
-		TransportOptions{},
-	)
-}
-
-// Transport is a Transport implementation using the current multiplexed
-// Tendermint protocol ("MConn").
-type Transport struct {
-	logger       log.Logger
-	endpoint     Endpoint
-	options      TransportOptions
-	mConnConfig  conn.MConnConfig
-	channelDescs utils.Mutex[*[]*ChannelDescriptor]
-	started      chan struct{}
-	listener     chan *mConnConnection
-}
-
-// NewTransport sets up a new MConnection transport. This uses the
-// proprietary Tendermint MConnection protocol, which is implemented as
-// conn.MConnection.
-func NewTransport(
-	logger log.Logger,
-	endpoint Endpoint,
-	mConnConfig conn.MConnConfig,
-	channelDescs []*ChannelDescriptor,
-	options TransportOptions,
-) *Transport {
-	return &Transport{
-		logger:       logger,
-		endpoint:     endpoint,
-		options:      options,
-		mConnConfig:  mConnConfig,
-		channelDescs: utils.NewMutex(&channelDescs),
-		// This is rendezvous channel, so that no unclosed connections get stuck inside
-		// when transport is closing.
-		started:  make(chan struct{}),
-		listener: make(chan *mConnConnection),
-	}
-}
-
-// WaitForStart waits until transport starts listening for incoming connections.
-func (m *Transport) WaitForStart(ctx context.Context) error {
-	_, _, err := utils.RecvOrClosed(ctx, m.started)
-	return err
-}
-
-func (m *Transport) Endpoint() Endpoint {
-	return m.endpoint
-}
-
-func (m *Transport) Run(ctx context.Context) error {
-	if err := m.endpoint.Validate(); err != nil {
-		return err
-	}
-	listener, err := tcp.Listen(m.endpoint.AddrPort)
-	if err != nil {
-		return fmt.Errorf("net.Listen(): %w", err)
-	}
-	close(m.started) // signal that we are listening
-	if m.options.MaxAcceptedConnections > 0 {
-		// FIXME: This will establish the inbound connection but simply hang it
-		// until another connection is released. It would probably be better to
-		// return an error to the remote peer or close the connection. This is
-		// also a DoS vector since the connection will take up kernel resources.
-		// This was just carried over from the legacy P2P stack.
-		listener = netutil.LimitListener(listener, int(m.options.MaxAcceptedConnections))
-	}
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.Spawn(func() error {
-			<-ctx.Done()
-			listener.Close()
-			return nil
-		})
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				if errors.Is(err, net.ErrClosed) {
-					return nil
-				}
-				return err
-			}
-			descs := m.getChannelDescs()
-			mconn := newMConnConnection(m.logger, conn, m.mConnConfig, descs)
-			if err := utils.Send(ctx, m.listener, mconn); err != nil {
-				mconn.Close()
-				return err
-			}
-		}
-	})
-}
-
-// String implements Transport.
-func (m *Transport) String() string {
-	return "transport"
-}
-
-// Accept implements Transport.
-func (m *Transport) Accept(ctx context.Context) (Connection, error) {
-	return utils.Recv(ctx, m.listener)
-}
-
-// Dial implements Transport.
-func (m *Transport) Dial(ctx context.Context, endpoint Endpoint) (Connection, error) {
-	if err := endpoint.Validate(); err != nil {
-		return nil, err
-	}
-	if endpoint.Port() == 0 {
-		endpoint.AddrPort = netip.AddrPortFrom(endpoint.Addr(), 26657)
-	}
-	dialer := net.Dialer{}
-	tcpConn, err := dialer.DialContext(ctx, "tcp", endpoint.String())
-	if err != nil {
-		return nil, fmt.Errorf("dialer.DialContext(%v): %w", endpoint, err)
-	}
-	descs := m.getChannelDescs()
-	return newMConnConnection(m.logger, tcpConn, m.mConnConfig, descs), nil
-}
-
-// SetChannels sets the channel descriptors to be used when
-// establishing a connection.
-//
-// FIXME: To be removed when the legacy p2p stack is removed. Channel
-// descriptors should be managed by the router. The underlying transport and
-// connections should be agnostic to everything but the channel ID's which are
-// initialized in the handshake.
-func (m *Transport) AddChannelDescriptors(channelDesc []*ChannelDescriptor) {
-	for descs := range m.channelDescs.Lock() {
-		*descs = append(*descs, channelDesc...)
-	}
-}
-
-func (m *Transport) getChannelDescs() []*ChannelDescriptor {
-	var descs []*ChannelDescriptor
-	for d := range m.channelDescs.Lock() {
-		descs = make([]*ChannelDescriptor, len(*d))
-		copy(descs, *d)
-	}
-	return descs
-}
+const queueBufferDefault = 1024
 
 type InvalidEndpointErr struct{ error }
 
-// mConnConnection implements Connection for Transport.
-type mConnConnection struct {
-	logger       log.Logger
-	conn         net.Conn
-	mConnConfig  conn.MConnConfig
-	channelDescs []*ChannelDescriptor
-	errorCh      chan error
-	doneCh       chan struct{}
-	closeOnce    sync.Once
-
-	mconn *conn.MConnection // set during Handshake()
+func toChannelIDs(bytes []byte) ChannelIDSet {
+	c := make(map[ChannelID]struct{}, len(bytes))
+	for _, b := range bytes {
+		c[ChannelID(b)] = struct{}{}
+	}
+	return c
 }
 
-// newMConnConnection creates a new mConnConnection.
-func newMConnConnection(
-	logger log.Logger,
-	conn net.Conn,
-	mConnConfig conn.MConnConfig,
-	channelDescs []*ChannelDescriptor,
-) *mConnConnection {
-	return &mConnConnection{
-		logger:       logger,
-		conn:         conn,
-		mConnConfig:  mConnConfig,
-		channelDescs: channelDescs,
-		errorCh:      make(chan error, 1), // buffered to avoid onError leak
-		doneCh:       make(chan struct{}),
+type ChannelIDSet map[ChannelID]struct{}
+
+func (cs ChannelIDSet) Contains(id ChannelID) bool {
+	_, ok := cs[id]
+	return ok
+}
+
+// Connection implements Connection for Transport.
+type Connection struct {
+	dialAddr     utils.Option[NodeAddress]
+	conn         *net.TCPConn
+	peerChannels ChannelIDSet
+	peerInfo     types.NodeInfo
+	sendQueue    *Queue[sendMsg]
+	mconn        *conn.MConnection
+}
+
+func (c *Connection) Info() peerConnInfo {
+	return peerConnInfo{
+		ID:       c.peerInfo.NodeID,
+		Channels: c.peerChannels,
+		DialAddr: c.dialAddr,
 	}
 }
 
-// Handshake implements Connection.
-func (c *mConnConnection) Handshake(
-	ctx context.Context,
-	nodeInfo types.NodeInfo,
-	privKey crypto.PrivKey,
-) (types.NodeInfo, error) {
-	if c.mconn != nil {
-		return types.NodeInfo{}, errors.New("connection is already handshaked")
+// handshake handshakes with a peer, validating the peer's information. If
+// dialAddr is given, we check that the peer's info matches it.
+// Closes the tcpConn if case of any error.
+func (r *Router) handshake(ctx context.Context, tcpConn *net.TCPConn, dialAddr utils.Option[NodeAddress]) (c *Connection, err error) {
+	if d, ok := r.options.HandshakeTimeout.Get(); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d)
+		defer cancel()
 	}
-	var peerInfo types.NodeInfo
-	var secretConn *conn.SecretConnection
-	var ok atomic.Bool
-	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	defer func() {
+		// Late error check. Close conn to avoid leaking it.
+		if err != nil {
+			tcpConn.Close()
+		}
+	}()
+	nodeInfo := r.nodeInfoProducer()
+	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*Connection, error) {
+		var ok atomic.Bool
 		s.SpawnBg(func() error {
+			// Early error check. Close conn to terminate tasks which do not respect ctx.
 			<-ctx.Done()
-			// Close the connection if handshake did not complete.
 			if !ok.Load() {
-				c.conn.Close()
+				s.Cancel(ctx.Err())
+				tcpConn.Close()
 			}
 			return nil
 		})
 		var err error
-		secretConn, err = conn.MakeSecretConnection(c.conn, privKey)
+		secretConn, err := conn.MakeSecretConnection(tcpConn, r.privKey)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		s.Spawn(func() error {
 			_, err := protoio.NewDelimitedWriter(secretConn).WriteMsg(nodeInfo.ToProto())
@@ -245,119 +94,151 @@ func (c *mConnConnection) Handshake(
 		})
 		var pbPeerInfo p2pproto.NodeInfo
 		if _, err := protoio.NewDelimitedReader(secretConn, types.MaxNodeInfoSize()).ReadMsg(&pbPeerInfo); err != nil {
-			return err
+			return nil, err
 		}
-		peerInfo, err = types.NodeInfoFromProto(&pbPeerInfo)
+		peerInfo, err := types.NodeInfoFromProto(&pbPeerInfo)
 		if err != nil {
-			return fmt.Errorf("error reading NodeInfo: %w", err)
+			return nil, fmt.Errorf("error reading NodeInfo: %w", err)
 		}
 		// Authenticate the peer first.
 		peerID := types.NodeIDFromPubKey(secretConn.RemotePubKey())
 		if peerID != peerInfo.NodeID {
-			return fmt.Errorf("peer's public key did not match its node ID %q (expected %q)",
+			return nil, fmt.Errorf("peer's public key did not match its node ID %q (expected %q)",
 				peerInfo.NodeID, peerID)
 		}
+		// Validate the received info.
 		if err := peerInfo.Validate(); err != nil {
-			return fmt.Errorf("invalid handshake NodeInfo: %w", err)
+			return nil, fmt.Errorf("invalid handshake NodeInfo: %w", err)
+		}
+		nodeInfo := r.nodeInfoProducer()
+		if peerInfo.Network != nodeInfo.Network {
+			return nil, errBadNetwork{fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)}
+		}
+		if want, ok := dialAddr.Get(); ok && want.NodeID != peerInfo.NodeID {
+			return nil, fmt.Errorf("expected to connect with peer %q, got %q",
+				want.NodeID, peerInfo.NodeID)
+		}
+		if err := nodeInfo.CompatibleWith(peerInfo); err != nil {
+			return nil, ErrRejected{
+				err:            err,
+				id:             peerInfo.ID(),
+				isIncompatible: true,
+			}
 		}
 		ok.Store(true)
+		return &Connection{
+			dialAddr:     dialAddr,
+			conn:         tcpConn,
+			sendQueue:    NewQueue[sendMsg](queueBufferDefault),
+			peerInfo:     peerInfo,
+			peerChannels: toChannelIDs(peerInfo.Channels),
+			mconn: conn.NewMConnection(
+				r.logger.With("peer", Endpoint{tcp.RemoteAddr(tcpConn)}.NodeAddress(peerInfo.NodeID)),
+				secretConn,
+				r.getChannelDescs(),
+				r.options.Connection,
+			),
+		}, nil
+	})
+}
+
+func (r *Router) connSendRoutine(ctx context.Context, conn *Connection) error {
+	for {
+		start := time.Now().UTC()
+		m, err := conn.sendQueue.Recv(ctx)
+		if err != nil {
+			return err
+		}
+		r.metrics.RouterPeerQueueRecv.Observe(time.Since(start).Seconds())
+		bz, err := proto.Marshal(m.Message)
+		if err != nil {
+			panic(fmt.Sprintf("proto.Marshal(): %v", err))
+		}
+		if m.ChannelID > math.MaxUint8 {
+			return fmt.Errorf("MConnection only supports 1-byte channel IDs (got %v)", m.ChannelID)
+		}
+		if err := conn.mconn.Send(ctx, m.ChannelID, bz); err != nil {
+			return err
+		}
+		r.logger.Debug("sent message", "peer", conn.peerInfo.NodeID, "message", m.Message)
+	}
+}
+
+// receivePeer receives inbound messages from a peer, deserializes them and
+// passes them on to the appropriate channel.
+func (r *Router) connRecvRoutine(ctx context.Context, conn *Connection) error {
+	for {
+		chID, bz, err := conn.mconn.Recv(ctx)
+		if err != nil {
+			return err
+		}
+		for chs := range r.channels.RLock() {
+			ch, ok := chs[chID]
+			if !ok {
+				// TODO(gprusak): verify if this is a misbehavior, and drop the peer if it is.
+				r.logger.Debug("dropping message for unknown channel", "peer", conn.peerInfo.NodeID, "channel", chID)
+				continue
+			}
+
+			msg := proto.Clone(ch.desc.MessageType)
+			if err := proto.Unmarshal(bz, msg); err != nil {
+				return fmt.Errorf("message decoding failed, dropping message: [peer=%v] %w", conn.peerInfo.NodeID, err)
+			}
+			if wrapper, ok := msg.(Wrapper); ok {
+				var err error
+				if msg, err = wrapper.Unwrap(); err != nil {
+					return fmt.Errorf("failed to unwrap message: %w", err)
+				}
+			}
+			// Priority is not used since all messages in this queue are from the same channel.
+			if _, ok := ch.recvQueue.Send(RecvMsg{From: conn.peerInfo.NodeID, Message: msg}, proto.Size(msg), 0).Get(); ok {
+				r.metrics.QueueDroppedMsgs.With("ch_id", fmt.Sprint(chID), "direction", "in").Add(float64(1))
+			}
+			r.metrics.PeerReceiveBytesTotal.With(
+				"chID", fmt.Sprint(chID),
+				"peer_id", string(conn.peerInfo.NodeID),
+				"message_type", r.lc.ValueToMetricLabel(msg)).Add(float64(proto.Size(msg)))
+			r.logger.Debug("received message", "peer", conn.peerInfo.NodeID, "message", msg)
+		}
+	}
+}
+
+func (r *Router) runConn(ctx context.Context, conn *Connection) error {
+	if err := r.peerManager.Connected(conn); err != nil {
+		return fmt.Errorf("r.peerManager.Connected(): %w", err)
+	}
+	defer r.peerManager.Disconnected(conn)
+	r.logger.Info("peer connected", "peer", conn.PeerInfo().NodeID, "endpoint", conn)
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnNamed("mconn.Run", func() error { return conn.mconn.Run(ctx) })
+		s.SpawnNamed("connSendRoutine", func() error { return r.connSendRoutine(ctx, conn) })
+		s.SpawnNamed("connRecvRoutine", func() error { return r.connRecvRoutine(ctx, conn) })
 		return nil
 	})
-	if err != nil {
-		return types.NodeInfo{}, err
-	}
-	// mconn takes ownership of conn.
-	c.mconn = conn.SpawnMConnection(
-		c.logger.With("peer", c.RemoteEndpoint().NodeAddress(peerInfo.NodeID)),
-		secretConn,
-		c.channelDescs,
-		c.mConnConfig,
-	)
-	return peerInfo, nil
 }
 
 // String displays connection information.
-func (c *mConnConnection) String() string {
+func (c *Connection) String() string {
 	return c.RemoteEndpoint().String()
 }
 
-// SendMessage implements Connection.
-func (c *mConnConnection) SendMessage(ctx context.Context, chID ChannelID, msg []byte) error {
-	if chID > math.MaxUint8 {
-		return fmt.Errorf("MConnection only supports 1-byte channel IDs (got %v)", chID)
-	}
-	return c.mconn.Send(ctx, chID, msg)
-}
-
-// ReceiveMessage implements Connection.
-func (c *mConnConnection) ReceiveMessage(ctx context.Context) (ChannelID, []byte, error) {
-	return c.mconn.Recv(ctx)
+func (c *Connection) PeerInfo() types.NodeInfo {
+	return c.peerInfo
 }
 
 // LocalEndpoint implements Connection.
-func (c *mConnConnection) LocalEndpoint() Endpoint {
-	return Endpoint{c.conn.LocalAddr().(*net.TCPAddr).AddrPort()}
+func (c *Connection) LocalEndpoint() Endpoint {
+	return Endpoint{tcp.LocalAddr(c.conn)}
 }
 
-// RemoteEndpoint implements Connection.
-func (c *mConnConnection) RemoteEndpoint() Endpoint {
-	return Endpoint{c.conn.RemoteAddr().(*net.TCPAddr).AddrPort()}
+// RemoteEndpoint.
+func (c *Connection) RemoteEndpoint() Endpoint {
+	return Endpoint{tcp.RemoteAddr(c.conn)}
 }
 
-// Close implements Connection.
-func (c *mConnConnection) Close() error {
-	if c.mconn == nil {
-		return c.conn.Close()
-	}
-	return c.mconn.Close()
-}
-
-// Connection represents an established connection between two endpoints.
-//
-// FIXME: This is a temporary interface for backwards-compatibility with the
-// current MConnection-protocol, which is message-oriented. It should be
-// migrated to a byte-oriented multi-stream interface instead, which would allow
-// e.g. adopting QUIC and making message framing, traffic scheduling, and node
-// handshakes a Router concern shared across all transports. However, this
-// requires MConnection protocol changes or a shim. For details, see:
-// https://github.com/tendermint/spec/pull/227
-//
-// FIXME: The interface is currently very broad in order to accommodate
-// MConnection behavior that the legacy P2P stack relies on. It should be
-// cleaned up when the legacy stack is removed.
-type Connection interface {
-	// Handshake executes a node handshake with the remote peer. It must be
-	// called immediately after the connection is established, and returns the
-	// remote peer's node info and public key. The caller is responsible for
-	// validation.
-	//
-	// FIXME: The handshake should really be the Router's responsibility, but
-	// that requires the connection interface to be byte-oriented rather than
-	// message-oriented (see comment above).
-	Handshake(context.Context, types.NodeInfo, crypto.PrivKey) (types.NodeInfo, error)
-
-	// ReceiveMessage returns the next message received on the connection,
-	// blocking until one is available. Returns io.EOF if closed.
-	ReceiveMessage(context.Context) (ChannelID, []byte, error)
-
-	// SendMessage sends a message on the connection. Returns io.EOF if closed.
-	SendMessage(context.Context, ChannelID, []byte) error
-
-	// LocalEndpoint returns the local endpoint for the connection.
-	LocalEndpoint() Endpoint
-
-	// RemoteEndpoint returns the remote endpoint for the connection.
-	RemoteEndpoint() Endpoint
-
-	// Close closes the connection.
-	Close() error
-
-	// Stringer is used to display the connection, e.g. in logs.
-	//
-	// Without this, the logger may use reflection to access and display
-	// internal fields. These can be written to concurrently, which can trigger
-	// the race detector or even cause a panic.
-	fmt.Stringer
+// Close.
+func (c *Connection) Close() {
+	c.conn.Close()
 }
 
 // Endpoint represents a transport connection endpoint, either local or remote.
@@ -365,8 +246,8 @@ type Connection interface {
 type Endpoint struct{ netip.AddrPort }
 
 // NewEndpoint constructs an Endpoint from a types.NetAddress structure.
-func NewEndpoint(addr string) (Endpoint, error) {
-	e, err := types.ParseAddressString(addr)
+func ResolveEndpoint(addr string) (Endpoint, error) {
+	e, err := types.ResolveAddressString(addr)
 	return Endpoint{e}, err
 }
 

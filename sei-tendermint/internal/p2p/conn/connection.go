@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"reflect"
@@ -20,6 +21,10 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/proto/tendermint/p2p"
 )
+
+func IsDisconnect(err error) bool {
+	return errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) || utils.ErrorAs[*net.OpError](err).IsPresent()
+}
 
 // ChannelID is an arbitrary channel ID.
 type ChannelID uint16
@@ -86,10 +91,9 @@ type MConnection struct {
 
 	conn      net.Conn
 	sendQueue utils.Watch[*sendQueue]
-	recvPong  utils.AtomicWatch[bool]
+	recvPong  utils.Mutex[*utils.AtomicSend[bool]]
 	recvCh    chan mConnMessage
 	config    MConnConfig
-	handle    *scope.GlobalHandle[error]
 }
 
 // MConnConfig is a MConnection configuration.
@@ -160,41 +164,37 @@ func (q *sendQueue) setFlush(t time.Time) {
 }
 
 // NewMConnection wraps net.Conn and creates multiplex connection with a config
-func SpawnMConnection(
+func NewMConnection(
 	logger log.Logger,
 	conn net.Conn,
 	chDescs []*ChannelDescriptor,
 	config MConnConfig,
 ) *MConnection {
-	c := &MConnection{
+	return &MConnection{
 		logger:    logger,
 		conn:      conn,
 		sendQueue: utils.NewWatch(newSendQueue(chDescs)),
 		recvCh:    make(chan mConnMessage),
-		recvPong:  utils.NewAtomicWatch(false),
+		recvPong:  utils.NewMutex(utils.Alloc(utils.NewAtomicSend(false))),
 		config:    config,
 	}
-	c.handle = scope.SpawnGlobal(func(ctx context.Context) error {
-		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			s.SpawnNamed("pingRoutine", func() error { return c.pingRoutine(ctx) })
-			s.SpawnNamed("sendRoutine", func() error { return c.sendRoutine(ctx) })
-			s.SpawnNamed("recvRoutine", func() error { return c.recvRoutine(ctx) })
-			s.SpawnNamed("statsRoutine", func() error { return c.statsRoutine(ctx) })
-			<-ctx.Done()
-			// Unfortunately golang std IO operations do not support cancellation via context.
-			// Instead, we trigger cancellation by closing the underlying connection.
-			// Alternatively, we could utilise net.Conn.Set[Read|Write]Deadline() methods
-			// for precise cancellation, but we don't have a need for that here.
-			c.conn.Close()
-			return ctx.Err()
-		})
-	})
-	return c
 }
 
-// Close closes the connection and awaits for background tasks to complete.
-func (c *MConnection) Close() error {
-	return c.handle.Terminate()
+func (c *MConnection) Run(ctx context.Context) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnNamed("pingRoutine", func() error { return c.pingRoutine(ctx) })
+		s.SpawnNamed("sendRoutine", func() error { return c.sendRoutine(ctx) })
+		s.SpawnNamed("recvRoutine", func() error { return c.recvRoutine(ctx) })
+		s.SpawnNamed("statsRoutine", func() error { return c.statsRoutine(ctx) })
+		// Unfortunately golang std IO operations do not support cancellation via context.
+		// Instead, we trigger cancellation by closing the underlying connection.
+		// Alternatively, we could utilise net.Conn.Set[Read|Write]Deadline() methods
+		// for precise cancellation, but we don't have a need for that here.
+		<-ctx.Done()
+		s.Cancel(ctx.Err())
+		c.conn.Close()
+		return nil
+	})
 }
 
 func (c *MConnection) String() string {
@@ -205,27 +205,32 @@ func (c *MConnection) String() string {
 // WARNING: takes ownership of msgBytes
 // TODO(gprusak): fix the ownership
 func (c *MConnection) Send(ctx context.Context, chID ChannelID, msgBytes []byte) error {
-	return c.handle.WhileRunning(ctx, func(ctx context.Context) error {
-		c.logger.Debug("Send", "channel", chID, "conn", c, "msgBytes", msgBytes)
-		for q, ctrl := range c.sendQueue.Lock() {
-			ch, ok := q.channels[chID]
-			if !ok {
-				return errBadChannel{fmt.Errorf("unknown channel %X", chID)}
-			}
-			if err := ctrl.WaitUntil(ctx, func() bool { return !ch.queue.Full() }); err != nil {
-				return err
-			}
-			ch.queue.PushBack(&msgBytes)
-			ctrl.Updated()
+	c.logger.Debug("Send", "channel", chID, "conn", c, "msgBytes", msgBytes)
+	for q, ctrl := range c.sendQueue.Lock() {
+		ch, ok := q.channels[chID]
+		if !ok {
+			return errBadChannel{fmt.Errorf("unknown channel %X", chID)}
 		}
-		return nil
-	})
+		if err := ctrl.WaitUntil(ctx, func() bool { return !ch.queue.Full() }); err != nil {
+			return err
+		}
+		ch.queue.PushBack(&msgBytes)
+		ctrl.Updated()
+	}
+	return nil
 }
 
 // Recv .
 func (c *MConnection) Recv(ctx context.Context) (ChannelID, []byte, error) {
-	m, err := scope.WhileRunning1(ctx, c.handle, func(ctx context.Context) (mConnMessage, error) { return utils.Recv(ctx, c.recvCh) })
+	m, err := utils.Recv(ctx, c.recvCh)
 	return m.channelID, m.payload, err
+}
+
+func (c *MConnection) recvPongSubscribe() utils.AtomicRecv[bool] {
+	for recvPong := range c.recvPong.Lock() {
+		return recvPong.Subscribe()
+	}
+	panic("unreachable")
 }
 
 func (c *MConnection) pingRoutine(ctx context.Context) error {
@@ -237,7 +242,7 @@ func (c *MConnection) pingRoutine(ctx context.Context) error {
 		}
 		// Wait for pong.
 		if err := utils.WithTimeout(ctx, c.config.PongTimeout, func(ctx context.Context) error {
-			_, err := c.recvPong.Wait(ctx, func(gotPong bool) bool { return gotPong })
+			_, err := c.recvPongSubscribe().Wait(ctx, func(gotPong bool) bool { return gotPong })
 			return err
 		}); err != nil {
 			if ctx.Err() != nil {
@@ -245,7 +250,9 @@ func (c *MConnection) pingRoutine(ctx context.Context) error {
 			}
 			return errPongTimeout
 		}
-		c.recvPong.Store(false)
+		for recvPong := range c.recvPong.Lock() {
+			recvPong.Store(false)
+		}
 		// Sleep.
 		if err := utils.Sleep(ctx, c.config.PingInterval); err != nil {
 			return err
@@ -348,12 +355,7 @@ func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 		if msg != nil {
 			n, err := protoWriter.WriteMsg(msg)
 			if err != nil {
-				// WriteMsg doesn't respect context, so in case of context cancellation
-				// ignore the writing error.
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				return fmt.Errorf("protoWriter.Write(): %w", err)
+				return fmt.Errorf("protoWriter.WriteMsg(): %w", err)
 			}
 			if err := limiter.WaitN(ctx, n); err != nil {
 				return err
@@ -386,12 +388,10 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 		packet := &p2p.Packet{}
 		n, err := protoReader.ReadMsg(packet)
 		if err != nil {
-			// ReadMsg doesn't respect context, so in case of context cancellation
-			// ignore the writing error.
-			if ctx.Err() != nil {
-				return ctx.Err()
+			if !IsDisconnect(err) {
+				err = errBadEncoding{err}
 			}
-			return errBadEncoding{fmt.Errorf("protoReader.ReadMsg(): %w", err)}
+			return fmt.Errorf("protoReader.ReadMsg(): %w", err)
 		}
 		if err := limiter.WaitN(ctx, n); err != nil {
 			return err
@@ -403,7 +403,9 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 				ctrl.Updated()
 			}
 		case *p2p.Packet_PacketPong:
-			c.recvPong.Store(true)
+			for recvPong := range c.recvPong.Lock() {
+				recvPong.Store(true)
+			}
 		case *p2p.Packet_PacketMsg:
 			channelID, castOk := utils.SafeCast[ChannelID](p.PacketMsg.ChannelID)
 			ch, ok := channels[channelID]
