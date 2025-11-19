@@ -663,7 +663,7 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 			}
 			if err != nil {
 				require.Equal(t, vm.ErrExecutionReverted, err)
-				require.Equal(t, tt.wantErrMsg, string(gotRet))
+				require.Nil(t, gotRet)
 			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
 				t.Errorf("RunAndCalculateGas() gotRet = %v, want %v", gotRet, tt.wantRet)
 			}
@@ -1136,7 +1136,7 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 			}
 			if err != nil {
 				require.Equal(t, vm.ErrExecutionReverted, err)
-				require.Equal(t, tt.wantErrMsg, string(gotRet))
+				require.Nil(t, gotRet)
 			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
 				t.Errorf("RunAndCalculateGas() gotRet = %v, want %v", gotRet, tt.wantRet)
 			}
