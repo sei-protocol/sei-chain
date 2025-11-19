@@ -14,7 +14,6 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/crypto/types/multisig"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
@@ -328,25 +327,6 @@ func NewIncrementSequenceDecorator(ak AccountKeeper) IncrementSequenceDecorator 
 	return IncrementSequenceDecorator{
 		ak: ak,
 	}
-}
-
-func (isd IncrementSequenceDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
-	sigTx, _ := tx.(authsigning.SigVerifiableTx)
-	deps := []sdkacltypes.AccessOperation{}
-
-	// Add all signers as dependencies
-	for _, addr := range sigTx.GetSigners() {
-		if addr == nil {
-			continue
-		}
-		deps = append(deps, sdkacltypes.AccessOperation{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate: hex.EncodeToString(types.AddressStoreKey(addr)),
-		})
-	}
-
-	return next(append(txDeps, deps...), tx, txIndex)
 }
 
 func (isd IncrementSequenceDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {

@@ -12,16 +12,13 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
-	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	xauthsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	app "github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -37,12 +34,11 @@ import (
 type AnteTestSuite struct {
 	apptesting.KeeperTestHelper
 
-	anteHandler      sdk.AnteHandler
-	anteDepGenerator sdk.AnteDepGenerator
-	clientCtx        client.Context
-	txBuilder        client.TxBuilder
-	testAcc          sdk.AccAddress
-	testAccPriv      cryptotypes.PrivKey
+	anteHandler sdk.AnteHandler
+	clientCtx   client.Context
+	txBuilder   client.TxBuilder
+	testAcc     sdk.AccAddress
+	testAccPriv cryptotypes.PrivKey
 }
 
 func TestKeeperTestSuite(t *testing.T) {
@@ -60,9 +56,6 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 
 	suite.Ctx = suite.Ctx.WithBlockHeight(1)
 
-	msgValidator := sdkacltypes.NewMsgValidator(aclutils.StoreKeyToResourceTypePrefixMap)
-	suite.Ctx = suite.Ctx.WithMsgValidator(msgValidator)
-
 	// Set up TxConfig.
 	encodingConfig := app.MakeEncodingConfig()
 	// We're using TestMsg encoding in some tests, so register it here.
@@ -78,7 +71,7 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 	tr := defaultTracer.Tracer("component-main")
 
 	tracingInfo := tracing.NewTracingInfo(tr, true)
-	antehandler, _, anteDepGenerator, err := app.NewAnteHandlerAndDepGenerator(
+	antehandler, _, err := app.NewAnteHandler(
 		app.HandlerOptions{
 			HandlerOptions: ante.HandlerOptions{
 				AccountKeeper:   suite.App.AccountKeeper,
@@ -89,30 +82,18 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 				// BatchVerifier:   app.batchVerifier,
 			},
-			IBCKeeper:           suite.App.IBCKeeper,
-			WasmConfig:          &wasmConfig,
-			WasmKeeper:          &suite.App.WasmKeeper,
-			OracleKeeper:        &suite.App.OracleKeeper,
-			AccessControlKeeper: &suite.App.AccessControlKeeper,
-			TracingInfo:         tracingInfo,
-			EVMKeeper:           &suite.App.EvmKeeper,
-			LatestCtxGetter:     func() sdk.Context { return suite.Ctx },
+			IBCKeeper:       suite.App.IBCKeeper,
+			WasmConfig:      &wasmConfig,
+			WasmKeeper:      &suite.App.WasmKeeper,
+			OracleKeeper:    &suite.App.OracleKeeper,
+			TracingInfo:     tracingInfo,
+			EVMKeeper:       &suite.App.EvmKeeper,
+			LatestCtxGetter: func() sdk.Context { return suite.Ctx },
 		},
 	)
 
 	suite.Require().NoError(err)
 	suite.anteHandler = antehandler
-	suite.anteDepGenerator = anteDepGenerator
-}
-
-func (suite *AnteTestSuite) AnteHandlerValidateAccessOp(acessOps []sdkacltypes.AccessOperation) error {
-	for _, accessOp := range acessOps {
-		err := acltypes.ValidateAccessOp(accessOp)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // CreateTestTx is a helper function to create a tx given multiple inputs.
@@ -160,59 +141,6 @@ func (suite *AnteTestSuite) CreateTestTx(privs []cryptotypes.PrivKey, accNums []
 	}
 
 	return suite.txBuilder.GetTx(), nil
-}
-
-func (suite *AnteTestSuite) TestValidateDepedencies() {
-	suite.SetupTest(true) // setup
-	suite.txBuilder = suite.clientCtx.TxConfig.NewTxBuilder()
-
-	// msg and signatures
-	msg := testdata.NewTestMsg(suite.testAcc)
-	feeAmount := testdata.NewTestFeeAmount()
-	gasLimit := testdata.NewTestGasLimit()
-	suite.Require().NoError(suite.txBuilder.SetMsgs(msg))
-	suite.txBuilder.SetFeeAmount(feeAmount)
-	suite.txBuilder.SetGasLimit(gasLimit)
-
-	privs, accNums, accSeqs := []cryptotypes.PrivKey{}, []uint64{}, []uint64{}
-	invalidTx, err := suite.CreateTestTx(privs, accNums, accSeqs, suite.Ctx.ChainID())
-	suite.Require().NoError(err)
-
-	_, err = suite.anteHandler(suite.Ctx, invalidTx, false)
-
-	suite.Require().NotNil(err, "Did not error on invalid tx")
-
-	privs, accNums, accSeqs = []cryptotypes.PrivKey{suite.testAccPriv}, []uint64{8}, []uint64{0}
-
-	handlerCtx, cms := aclutils.CacheTxContext(suite.Ctx)
-	validTx, err := suite.CreateTestTx(privs, accNums, accSeqs, suite.Ctx.ChainID())
-
-	suite.Require().NoError(err)
-	depdenencies, _ := suite.anteDepGenerator([]sdkacltypes.AccessOperation{}, validTx, 0)
-	_, err = suite.anteHandler(handlerCtx, validTx, false)
-	suite.Require().Nil(err, "ValidateBasicDecorator returned error on valid tx. err: %v", err)
-	err = suite.AnteHandlerValidateAccessOp(depdenencies)
-
-	require.NoError(suite.T(), err)
-
-	missing := handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
-	suite.Require().Empty(missing)
-
-	// test decorator skips on recheck
-	suite.Ctx = suite.Ctx.WithIsReCheckTx(true)
-
-	// decorator should skip processing invalidTx on recheck and thus return nil-error
-	handlerCtx, cms = aclutils.CacheTxContext(suite.Ctx)
-	depdenencies, _ = suite.anteDepGenerator([]sdkacltypes.AccessOperation{}, invalidTx, 0)
-	_, err = suite.anteHandler(handlerCtx, invalidTx, false)
-	missing = handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
-
-	err = suite.AnteHandlerValidateAccessOp(depdenencies)
-	require.NoError(suite.T(), err)
-
-	suite.Require().Empty(missing)
-
-	suite.Require().Nil(err, "ValidateBasicDecorator ran on ReCheck")
 }
 
 func TestEvmAnteErrorHandler(t *testing.T) {

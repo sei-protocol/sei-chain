@@ -6,12 +6,8 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	acltestutil "github.com/cosmos/cosmos-sdk/x/accesscontrol/testutil"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
-	"github.com/cosmos/cosmos-sdk/x/feegrant"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 )
@@ -20,10 +16,6 @@ type BadAnteDecoratorOne struct{}
 
 func (ad BadAnteDecoratorOne) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	return ctx, fmt.Errorf("some error")
-}
-
-func (ad BadAnteDecoratorOne) AnteDeps(txDeps []accesscontrol.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []accesscontrol.AccessOperation, err error) {
-	return next(txDeps, tx, txIndex)
 }
 
 func (suite *AnteTestSuite) TestEnsureMempoolFees() {
@@ -38,7 +30,7 @@ func (suite *AnteTestSuite) TestEnsureMempoolFees() {
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, feeParam)
 
 	mfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, suite.app.FeeGrantKeeper, suite.app.ParamsKeeper, nil)
-	antehandler, _ := sdk.ChainAnteDecorators(sdk.DefaultWrappedAnteDecorator(mfd))
+	antehandler := sdk.ChainAnteDecorators(mfd)
 
 	// keys and addresses
 	priv1, _, addr1 := testdata.KeyTestPubAddr()
@@ -119,7 +111,7 @@ func (suite *AnteTestSuite) TestDeductFees() {
 	suite.Require().NoError(err)
 
 	dfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, nil, suite.app.ParamsKeeper, nil)
-	antehandler, _ := sdk.ChainAnteDecorators(sdk.DefaultWrappedAnteDecorator(dfd))
+	antehandler := sdk.ChainAnteDecorators(dfd)
 
 	_, err = antehandler(suite.ctx, tx, false)
 
@@ -164,7 +156,7 @@ func (suite *AnteTestSuite) TestLazySendToModuleAccount() {
 	expectedFeeCollectorBalance := suite.app.BankKeeper.GetBalance(suite.ctx, feeCollectorAcc.GetAddress(), "usei")
 
 	dfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, nil, suite.app.ParamsKeeper, nil)
-	antehandler, _ := sdk.ChainAnteDecorators(dfd)
+	antehandler := sdk.ChainAnteDecorators(dfd)
 
 	// Set account with sufficient funds
 	antehandler(suite.ctx, tx, false)
@@ -209,7 +201,7 @@ func (suite *AnteTestSuite) TestGlobalMinimumFees() {
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, paramstypes.DefaultGenesis().GetFeesParams())
 
 	mfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, suite.app.FeeGrantKeeper, suite.app.ParamsKeeper, nil)
-	antehandler, _ := sdk.ChainAnteDecorators(sdk.DefaultWrappedAnteDecorator(mfd))
+	antehandler := sdk.ChainAnteDecorators(mfd)
 
 	// keys and addresses
 	priv1, _, addr1 := testdata.KeyTestPubAddr()
@@ -285,71 +277,13 @@ func (suite *AnteTestSuite) TestGlobalMinimumFees() {
 	suite.Require().Nil(err, "Decorator should not have errored on equal fee for global gasPrice")
 }
 
-func (suite *AnteTestSuite) TestDeductFeeDependency() {
-	suite.SetupTest(false) // setup
-	suite.txBuilder = suite.clientCtx.TxConfig.NewTxBuilder()
-
-	// keys and addresses
-	priv1, _, addr1 := testdata.KeyTestPubAddr()
-	_, _, addr2 := testdata.KeyTestPubAddr()
-
-	// msg and signatures
-	msg := testdata.NewTestMsg(addr1)
-	feeAmount := testdata.NewTestFeeAmount()
-	gasLimit := testdata.NewTestGasLimit()
-	suite.Require().NoError(suite.txBuilder.SetMsgs(msg))
-	suite.txBuilder.SetFeeGranter(addr2)
-	suite.txBuilder.SetFeeAmount(feeAmount)
-	suite.txBuilder.SetGasLimit(gasLimit)
-
-	privs, accNums, accSeqs := []cryptotypes.PrivKey{priv1}, []uint64{0}, []uint64{0}
-	tx, err := suite.CreateTestTx(privs, accNums, accSeqs, suite.ctx.ChainID())
-	suite.Require().NoError(err)
-
-	dfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, suite.app.FeeGrantKeeper, suite.app.ParamsKeeper, nil)
-
-	antehandler, decorator := sdk.ChainAnteDecorators(dfd)
-
-	// Set account with sufficient funds
-	acc := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr1)
-	suite.app.AccountKeeper.SetAccount(suite.ctx, acc)
-	err = apptesting.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(200))))
-	suite.Require().NoError(err)
-
-	acc2 := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr2)
-	suite.app.AccountKeeper.SetAccount(suite.ctx, acc2)
-	err = apptesting.FundAccount(suite.app.BankKeeper, suite.ctx, addr2, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(200))))
-	suite.Require().NoError(err)
-	// create fee grant
-	err = suite.app.FeeGrantKeeper.GrantAllowance(suite.ctx, addr2, addr1, &feegrant.BasicAllowance{})
-	suite.Require().NoError(err)
-
-	msgValidator := sdkacltypes.NewMsgValidator(acltestutil.TestingStoreKeyToResourceTypePrefixMap)
-	suite.ctx = suite.ctx.WithMsgValidator(msgValidator)
-	suite.ctx = suite.ctx.WithTxIndex(1)
-	ms := suite.ctx.MultiStore()
-	msCache := ms.CacheMultiStore()
-	suite.ctx = suite.ctx.WithMultiStore(msCache)
-
-	_, err = antehandler(suite.ctx, tx, false)
-	suite.Require().Nil(err, "Tx errored after account has been set with sufficient funds")
-
-	newDeps, err := decorator([]sdkacltypes.AccessOperation{}, tx, 1)
-	suite.Require().NoError(err)
-
-	storeAccessOpEvents := msCache.GetEvents()
-
-	missingAccessOps := suite.ctx.MsgValidator().ValidateAccessOperations(newDeps, storeAccessOpEvents)
-	suite.Require().Equal(0, len(missingAccessOps))
-}
-
 func (suite *AnteTestSuite) TestMultipleGlobalMinimumFees() {
 	suite.SetupTest(true) // setup
 	suite.txBuilder = suite.clientCtx.TxConfig.NewTxBuilder()
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, paramstypes.DefaultGenesis().GetFeesParams())
 
 	mfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, suite.app.FeeGrantKeeper, suite.app.ParamsKeeper, nil)
-	antehandler, _ := sdk.ChainAnteDecorators(sdk.DefaultWrappedAnteDecorator(mfd))
+	antehandler := sdk.ChainAnteDecorators(mfd)
 
 	// keys and addresses
 	priv1, _, addr1 := testdata.KeyTestPubAddr()
