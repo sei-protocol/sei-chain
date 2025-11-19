@@ -187,7 +187,7 @@ func (v *Validator) ToProto() (*tmproto.Validator, error) {
 		PubKey:           pk,
 		VotingPower:      v.VotingPower,
 		ProposerPriority: v.ProposerPriority,
-	},nil
+	}, nil
 }
 
 // FromProto sets a protobuf Validator to the given pointer.

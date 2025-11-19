@@ -497,7 +497,7 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 	for i := range 10 {
 		nodeIdx := rng.Intn(nPeers)
 		t.Logf("nodeIdx = %v", nodeIdx)
-		pv,_ := states[nodeIdx].privValidator.Get()
+		pv, _ := states[nodeIdx].privValidator.Get()
 		key, err := pv.GetPubKey(ctx)
 		require.NoError(t, err)
 		keyProto, err := encoding.PubKeyToProto(key)

@@ -54,7 +54,7 @@ func NewPeerState(logger log.Logger, peerID types.NodeID) *PeerState {
 		peerID: peerID,
 		logger: logger,
 		PRS: cstypes.PeerRoundState{
-			HRS: cstypes.HRS { Round: -1 },
+			HRS:                cstypes.HRS{Round: -1},
 			ProposalPOLRound:   -1,
 			LastCommitRound:    -1,
 			CatchupCommitRound: -1,

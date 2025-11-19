@@ -102,8 +102,8 @@ type State struct {
 	logger log.Logger
 
 	// config details
-	config            *config.ConsensusConfig
-	privValidator     utils.Option[types.PrivValidator] // for signing votes
+	config        *config.ConsensusConfig
+	privValidator utils.Option[types.PrivValidator] // for signing votes
 	// privValidator pubkey, memoized for the duration of one block
 	// to avoid extra requests to HSM
 	privValidatorPubKey utils.Option[crypto.PubKey]
@@ -933,7 +933,7 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 		// will not cause transition.
 		// once proposal is set, we can receive block parts
 		if err = cs.setProposal(msg.Proposal, mi.ReceiveTime); err == nil {
-			if key,ok := cs.privValidatorPubKey.Get(); ok && cs.config.GossipTransactionKeyOnly {
+			if key, ok := cs.privValidatorPubKey.Get(); ok && cs.config.GossipTransactionKeyOnly {
 				if !cs.isProposer(key.Address()) && cs.roundState.ProposalBlock() == nil {
 					created := cs.tryCreateProposalBlock(spanCtx, msg.Proposal.Height, msg.Proposal.Round, msg.Proposal.Header, msg.Proposal.LastCommit, msg.Proposal.Evidence, msg.Proposal.ProposerAddress)
 					if created {
@@ -975,7 +975,7 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 			cs.fsyncAndCompleteProposal(ctx, fsyncUponCompletion, msg.Height, span, false)
 		}
 		if added {
-			if err:=utils.Send(ctx, cs.statsMsgQueue, mi); err != nil {
+			if err := utils.Send(ctx, cs.statsMsgQueue, mi); err != nil {
 				return
 			}
 		}
@@ -1001,7 +1001,7 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 		// if the vote gives us a 2/3-any or 2/3-one, we transition
 		added, err = cs.tryAddVote(ctx, msg.Vote, peerID, span)
 		if added {
-			if err:=utils.Send(ctx, cs.statsMsgQueue, mi); err != nil {
+			if err := utils.Send(ctx, cs.statsMsgQueue, mi); err != nil {
 				return
 			}
 		}
@@ -1260,7 +1260,7 @@ func (cs *State) enterPropose(ctx context.Context, height int64, round int32, en
 
 	// If this validator is the proposer of this round, and the previous block time is later than
 	// our local clock time, wait to propose until our local clock time has passed the block time.
-	if key,ok := cs.privValidatorPubKey.Get(); ok && cs.isProposer(key.Address()) {
+	if key, ok := cs.privValidatorPubKey.Get(); ok && cs.isProposer(key.Address()) {
 		proposerWaitTime := proposerWaitTime(tmtime.DefaultSource{}, cs.state.LastBlockTime)
 		if proposerWaitTime > 0 {
 			cs.scheduleTimeout(proposerWaitTime, height, round, cstypes.RoundStepNewRound)
@@ -1289,13 +1289,13 @@ func (cs *State) enterPropose(ctx context.Context, height int64, round int32, en
 	cs.scheduleTimeout(cs.proposeTimeout(round), height, round, cstypes.RoundStepPropose)
 
 	// Nothing more to do if we're not a validator
-	privValidator,ok := cs.privValidator.Get()
+	privValidator, ok := cs.privValidator.Get()
 	if !ok {
 		logger.Debug("propose step; not proposing since node is not a validator")
 		return
 	}
 
-	privValidatorPubKey,ok := cs.privValidatorPubKey.Get()
+	privValidatorPubKey, ok := cs.privValidatorPubKey.Get()
 	if !ok {
 		// If this node is a validator & proposer in the current round, it will
 		// miss the opportunity to create a block.
@@ -1447,7 +1447,7 @@ func (cs *State) createProposalBlock(ctx context.Context) (block *types.Block, e
 		return nil, nil
 	}
 
-	privValidatorPubKey,ok := cs.privValidatorPubKey.Get()
+	privValidatorPubKey, ok := cs.privValidatorPubKey.Get()
 	if !ok {
 		// If this node is a validator & proposer in the current round, it will
 		// miss the opportunity to create a block.
@@ -2139,7 +2139,7 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 		}
 
 		if cs.privValidator.IsPresent() {
-			if key,ok := cs.privValidatorPubKey.Get(); !ok {
+			if key, ok := cs.privValidatorPubKey.Get(); !ok {
 				// Metrics won't be updated, but it's not critical.
 				cs.logger.Error("recordMetrics", "err", errPubKeyIsNotSet)
 			} else {
@@ -2461,7 +2461,7 @@ func (cs *State) tryAddVote(ctx context.Context, vote *types.Vote, peerID types.
 		// If it's otherwise invalid, punish peer.
 		//nolint: gocritic
 		if voteErr, ok := err.(*types.ErrVoteConflictingVotes); ok {
-			privValidatorPubKey,ok := cs.privValidatorPubKey.Get()
+			privValidatorPubKey, ok := cs.privValidatorPubKey.Get()
 			if !ok {
 				return false, errPubKeyIsNotSet
 			}
@@ -2688,7 +2688,7 @@ func (cs *State) signVote(
 		return nil, err
 	}
 
-	privValidatorPubKey,ok := cs.privValidatorPubKey.Get()
+	privValidatorPubKey, ok := cs.privValidatorPubKey.Get()
 	if !ok {
 		return nil, errPubKeyIsNotSet
 	}
@@ -2737,7 +2737,7 @@ func (cs *State) signAddVote(
 		return nil
 	}
 
-	privValidatorPubKey,ok := cs.privValidatorPubKey.Get()
+	privValidatorPubKey, ok := cs.privValidatorPubKey.Get()
 	if !ok {
 		// Vote won't be signed, but it's not critical.
 		cs.logger.Error("signAddVote", "err", errPubKeyIsNotSet)
@@ -2764,8 +2764,10 @@ func (cs *State) signAddVote(
 // memoizes it. This func returns an error if the private validator is not
 // responding or responds with an error.
 func (cs *State) updatePrivValidatorPubKey(ctx context.Context) error {
-	privValidator,ok := cs.privValidator.Get()
-	if !ok { return nil }
+	privValidator, ok := cs.privValidator.Get()
+	if !ok {
+		return nil
+	}
 	timeout := cs.voteTimeout(cs.roundState.Round())
 
 	// set context timeout depending on the configuration and the State step,
@@ -2782,7 +2784,7 @@ func (cs *State) updatePrivValidatorPubKey(ctx context.Context) error {
 
 // look back to check existence of the node's consensus votes before joining consensus
 func (cs *State) checkDoubleSigningRisk(height int64) error {
-	if key,ok:=cs.privValidatorPubKey.Get(); ok && cs.privValidator.IsPresent() && cs.config.DoubleSignCheckHeight > 0 && height > 0 {
+	if key, ok := cs.privValidatorPubKey.Get(); ok && cs.privValidator.IsPresent() && cs.config.DoubleSignCheckHeight > 0 && height > 0 {
 		valAddr := key.Address()
 		doubleSignCheckHeight := min(cs.config.DoubleSignCheckHeight, height)
 
@@ -2890,7 +2892,7 @@ func (cs *State) voteTimeout(round int32) time.Duration {
 	if cs.config.UnsafeVoteTimeoutDeltaOverride != 0 {
 		vd = cs.config.UnsafeVoteTimeoutDeltaOverride
 	}
-	return v+vd*time.Duration(round)
+	return v + vd*time.Duration(round)
 }
 
 func (cs *State) commitTime(t time.Time) time.Time {

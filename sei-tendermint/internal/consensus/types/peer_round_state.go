@@ -1,8 +1,8 @@
 package types
 
 import (
-	"time"
 	"cmp"
+	"time"
 
 	"github.com/tendermint/tendermint/libs/bits"
 	"github.com/tendermint/tendermint/types"
@@ -11,16 +11,16 @@ import (
 //-----------------------------------------------------------------------------
 
 type HRS struct {
-	Height int64          // Height peer is at
-	Round  int32          // Round peer is at, -1 if unknown.
-	Step   RoundStepType  // Step peer is at
+	Height int64         // Height peer is at
+	Round  int32         // Round peer is at, -1 if unknown.
+	Step   RoundStepType // Step peer is at
 }
 
 func (a HRS) Cmp(b HRS) int {
 	return cmp.Or(
-		cmp.Compare(a.Height,b.Height),
-		cmp.Compare(a.Round,b.Round),
-		cmp.Compare(a.Step,b.Step),
+		cmp.Compare(a.Height, b.Height),
+		cmp.Compare(a.Round, b.Round),
+		cmp.Compare(a.Step, b.Step),
 	)
 }
 
@@ -28,7 +28,6 @@ func (a HRS) Cmp(b HRS) int {
 // NOTE: Read-only when returned by PeerState.GetRoundState().
 type PeerRoundState struct {
 	HRS
-
 
 	StartTime time.Time // Estimated start of round 0 at this height
 

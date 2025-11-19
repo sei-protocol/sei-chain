@@ -13,9 +13,9 @@ import (
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/bytes"
-	"github.com/tendermint/tendermint/libs/utils"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
@@ -58,8 +58,10 @@ func TestReactorInvalidPrecommit(t *testing.T) {
 	// Update the doPrevote function to just send a valid precommit for a random
 	// block and otherwise disable the priv validator.
 	byzState.mtx.Lock()
-	privVal,ok := byzState.privValidator.Get()
-	if !ok { t.Fatal("privValidator not found") }
+	privVal, ok := byzState.privValidator.Get()
+	if !ok {
+		t.Fatal("privValidator not found")
+	}
 	byzState.doPrevote = func(ctx context.Context, height int64, round int32) {
 		defer close(signal)
 		invalidDoPrevoteFunc(ctx, t, byzState, byzReactor, rts.voteChannels[node.NodeID], privVal)

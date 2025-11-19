@@ -23,9 +23,9 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
-	"github.com/tendermint/tendermint/libs/utils"
 )
 
 /*
@@ -98,7 +98,7 @@ func TestStateProposerSelection0(t *testing.T) {
 
 	// Commit a block and ensure proposer for the next height is correct.
 	prop := cs1.GetRoundState().Validators.GetProposer()
-	pv,_ := cs1.privValidator.Get()
+	pv, _ := cs1.privValidator.Get()
 	key, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
 	address := key.Address()
@@ -650,7 +650,7 @@ func TestStateLock_POLUpdateLock(t *testing.T) {
 
 	timeoutWaitCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutWait)
 	proposalCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryCompleteProposal)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 	lockCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryLock)
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
@@ -751,7 +751,7 @@ func TestStateLock_POLRelock(t *testing.T) {
 
 	timeoutWaitCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutWait)
 	proposalCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryCompleteProposal)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 	lockCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryLock)
 	relockCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryRelock)
@@ -847,7 +847,7 @@ func TestStateLock_PrevoteNilWhenLockedAndMissProposal(t *testing.T) {
 
 	timeoutWaitCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutWait)
 	proposalCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryCompleteProposal)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 	lockCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryLock)
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
@@ -931,7 +931,7 @@ func TestStateLock_PrevoteNilWhenLockedAndDifferentProposal(t *testing.T) {
 
 	timeoutWaitCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutWait)
 	proposalCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryCompleteProposal)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 	lockCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryLock)
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
@@ -1030,7 +1030,7 @@ func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 	timeoutWaitCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutWait)
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
 	lockCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryLock)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 
 	/*
@@ -1159,7 +1159,7 @@ func TestStateLock_MissingProposalWhenPOLSeenDoesNotUpdateLock(t *testing.T) {
 	timeoutWaitCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutWait)
 	proposalCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryCompleteProposal)
 
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
 	/*
@@ -1241,7 +1241,7 @@ func TestStateLock_DoesNotLockOnOldProposal(t *testing.T) {
 
 	timeoutWaitCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutWait)
 	proposalCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryCompleteProposal)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
 	/*
@@ -1318,7 +1318,7 @@ func TestStateLock_POLSafety1(t *testing.T) {
 	timeoutProposeCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutPropose)
 	timeoutWaitCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutWait)
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 
 	// start round and wait for propose and prevote
@@ -1430,7 +1430,7 @@ func TestStateLock_POLSafety2(t *testing.T) {
 	proposalCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryCompleteProposal)
 	timeoutWaitCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutWait)
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 
 	// the block for R0: gets polkad but we miss it
@@ -1524,7 +1524,7 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 
 	timeoutWaitCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutWait)
 	proposalCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryCompleteProposal)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 	lockCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryLock)
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
@@ -1667,7 +1667,7 @@ func TestProposeValidBlock(t *testing.T) {
 	timeoutWaitCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutWait)
 	timeoutProposeCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutPropose)
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 
 	// start round and wait for propose and prevote
@@ -1756,7 +1756,7 @@ func TestSetValidBlockOnDelayedPrevote(t *testing.T) {
 	timeoutWaitCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutWait)
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
 	validBlockCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryValidBlock)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 
 	// start round and wait for propose and prevote
@@ -1822,7 +1822,7 @@ func TestSetValidBlockOnDelayedProposal(t *testing.T) {
 	timeoutProposeCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutPropose)
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
 	validBlockCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryValidBlock)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 	proposalCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryCompleteProposal)
 
@@ -1900,7 +1900,7 @@ func TestProcessProposalAccept(t *testing.T) {
 
 			proposalCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryCompleteProposal)
 			newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
-			addr := getAddr(ctx,cs1)
+			addr := getAddr(ctx, cs1)
 			voteCh := subscribeToVoter(ctx, t, cs1, addr)
 
 			startTestRound(ctx, cs1, cs1.roundState.Height(), round)
@@ -1952,7 +1952,7 @@ func TestFinalizeBlockCalled(t *testing.T) {
 
 			proposalCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryCompleteProposal)
 			newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
-			addr := getAddr(ctx,cs1)
+			addr := getAddr(ctx, cs1)
 			voteCh := subscribeToVoter(ctx, t, cs1, addr)
 
 			startTestRound(ctx, cs1, cs1.roundState.Height(), round)
@@ -2003,7 +2003,7 @@ func TestWaitingTimeoutProposeOnNewRound(t *testing.T) {
 
 	timeoutWaitCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutPropose)
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 
 	// start round
@@ -2038,7 +2038,7 @@ func TestRoundSkipOnNilPolkaFromHigherRound(t *testing.T) {
 
 	timeoutWaitCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutWait)
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 
 	// start round
@@ -2075,7 +2075,7 @@ func TestWaitTimeoutProposeOnNilPolkaForTheCurrentRound(t *testing.T) {
 
 	timeoutProposeCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutPropose)
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 
 	// start round in which PO is not proposer
@@ -2210,7 +2210,7 @@ func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
 
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
 	newBlockHeader := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewBlockHeader)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 
 	// start round and wait for propose and prevote
@@ -2272,7 +2272,7 @@ func TestResetTimeoutPrecommitUponNewHeight(t *testing.T) {
 
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
 	newBlockHeader := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewBlockHeader)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 
 	// start round and wait for propose and prevote
@@ -2336,7 +2336,7 @@ func TestStateHalt1(t *testing.T) {
 	timeoutWaitCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutWait)
 	newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
 	newBlockCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewBlock)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 
 	// start round and wait for propose and prevote
@@ -2570,7 +2570,7 @@ func TestStateTimestamp_ProposalNotMatch(t *testing.T) {
 	vs2, vs3, vs4 := vss[1], vss[2], vss[3]
 
 	proposalCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryCompleteProposal)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 
 	propBlock, err := cs1.createProposalBlock(ctx)
@@ -2617,7 +2617,7 @@ func TestStateTimestamp_ProposalMatch(t *testing.T) {
 	vs2, vs3, vs4 := vss[1], vss[2], vss[3]
 
 	proposalCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryCompleteProposal)
-	addr := getAddr(ctx,cs1)
+	addr := getAddr(ctx, cs1)
 	voteCh := subscribeToVoter(ctx, t, cs1, addr)
 
 	propBlock, err := cs1.createProposalBlock(ctx)

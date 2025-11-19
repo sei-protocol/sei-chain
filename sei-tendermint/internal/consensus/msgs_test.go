@@ -90,10 +90,10 @@ func TestMsgToProto(t *testing.T) {
 		wantErr  bool
 	}{
 		{"successful NewRoundStepMessage", &NewRoundStepMessage{
-			HRS: cstypes.HRS {
-				Height:                2,
-				Round:                 1,
-				Step:                  1,
+			HRS: cstypes.HRS{
+				Height: 2,
+				Round:  1,
+				Step:   1,
 			},
 			SecondsSinceStartTime: 1,
 			LastCommitRound:       2,
@@ -544,10 +544,10 @@ func TestNewRoundStepMessageValidateBasic(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(t *testing.T) {
 			message := NewRoundStepMessage{
-				HRS: cstypes.HRS {
-					Height:          tc.messageHeight,
-					Round:           tc.messageRound,
-					Step:            tc.messageStep,
+				HRS: cstypes.HRS{
+					Height: tc.messageHeight,
+					Round:  tc.messageRound,
+					Step:   tc.messageStep,
 				},
 				LastCommitRound: tc.messageLastCommitRound,
 			}
@@ -580,10 +580,10 @@ func TestNewRoundStepMessageValidateHeight(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(t *testing.T) {
 			message := NewRoundStepMessage{
-				HRS: cstypes.HRS {
-					Height:          tc.messageHeight,
-					Round:           0,
-					Step:            cstypes.RoundStepNewHeight,
+				HRS: cstypes.HRS{
+					Height: tc.messageHeight,
+					Round:  0,
+					Step:   cstypes.RoundStepNewHeight,
 				},
 				LastCommitRound: tc.messageLastCommitRound,
 			}

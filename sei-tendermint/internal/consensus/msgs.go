@@ -443,10 +443,10 @@ func MsgFromProto(msg *tmcons.Message) (Message, error) {
 			return nil, fmt.Errorf("denying message due to possible overflow: %w", err)
 		}
 		pb = &NewRoundStepMessage{
-			HRS: cstypes.HRS {
-				Height:                msg.NewRoundStep.Height,
-				Round:                 msg.NewRoundStep.Round,
-				Step:                  cstypes.RoundStepType(rs),
+			HRS: cstypes.HRS{
+				Height: msg.NewRoundStep.Height,
+				Round:  msg.NewRoundStep.Round,
+				Step:   cstypes.RoundStepType(rs),
 			},
 			SecondsSinceStartTime: msg.NewRoundStep.SecondsSinceStartTime,
 			LastCommitRound:       msg.NewRoundStep.LastCommitRound,

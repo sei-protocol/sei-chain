@@ -48,12 +48,16 @@ return MAX + a<0
 */
 
 func SaturatingAdd[T UnsignedInt](a, b T) T {
-	if ^a < b { return ^T(0) }
+	if ^a < b {
+		return ^T(0)
+	}
 	return a + b
 }
 
 func SaturatingSub[T UnsignedInt](a, b T) T {
-	if a < b { return 0 }
+	if a < b {
+		return 0
+	}
 	return a - b
 }
 

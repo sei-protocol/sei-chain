@@ -1027,7 +1027,7 @@ func (r *Reactor) processDataCh(ctx context.Context) error {
 			r.router.Evict(m.From, fmt.Errorf("consensus.data: %w", err))
 		}
 	}
-	return ctx.Err() 
+	return ctx.Err()
 }
 
 // processVoteCh initiates a blocking process where we listen for and handle
@@ -1075,7 +1075,7 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 	}
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		recv := r.router.Subscribe()
-		for ctx.Err()==nil {
+		for ctx.Err() == nil {
 			update, err := recv.Recv(ctx)
 			if err != nil {
 				return err
@@ -1093,11 +1093,11 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 					s.Spawn(func() error {
 						defer cancel()
 						// Only ctx.Canceled is expected and only once peerCtx is done.
-						if err:=r.runPeer(peerCtx, ps); utils.IgnoreCancel(err)!=nil || peerCtx.Err()==nil {
+						if err := r.runPeer(peerCtx, ps); utils.IgnoreCancel(err) != nil || peerCtx.Err() == nil {
 							return err
 						}
 						return nil
-					})	
+					})
 				}
 			case p2p.PeerStatusDown:
 				for peers := range r.peers.Lock() {
