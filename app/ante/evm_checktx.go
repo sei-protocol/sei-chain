@@ -10,8 +10,6 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
@@ -74,9 +72,7 @@ func EvmCheckTxAnte(
 }
 
 func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
-	txBody, ok := tx.(interface {
-		GetBody() *txtypes.TxBody
-	})
+	txBody, ok := tx.(TxBody)
 	if ok {
 		body := txBody.GetBody()
 		if body.Memo != "" {
@@ -90,9 +86,7 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 		}
 	}
 
-	txAuth, ok := tx.(interface {
-		GetAuthInfo() *txtypes.AuthInfo
-	})
+	txAuth, ok := tx.(TxAuthInfo)
 	if ok {
 		authInfo := txAuth.GetAuthInfo()
 		if len(authInfo.SignerInfos) > 0 {
@@ -108,9 +102,7 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 		}
 	}
 
-	txSig, ok := tx.(interface {
-		GetSignaturesV2() ([]signing.SignatureV2, error)
-	})
+	txSig, ok := tx.(TxSignaturesV2)
 	if ok {
 		sigs, err := txSig.GetSignaturesV2()
 		if err != nil {

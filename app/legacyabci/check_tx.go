@@ -66,7 +66,7 @@ func CheckTx(
 		time.Now(),
 	)
 	defer ctx.MultiStore().ResetEvents()
-	spanCtx, span := tracingInfo.StartWithContext("RunTx", ctx.TraceSpanContext())
+	spanCtx, span := tracingInfo.StartWithContext("CheckTx", ctx.TraceSpanContext())
 	defer span.End()
 	ctx = ctx.WithTraceSpanContext(spanCtx)
 	span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", checksum)))
@@ -76,7 +76,6 @@ func CheckTx(
 	defer func() {
 		if r := recover(); r != nil {
 			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, defaultRecoveryMiddleware)
-			recoveryMW = newOCCAbortRecoveryMiddleware(recoveryMW) // TODO: do we have to wrap with occ enabled check?
 			err, result = processRecovery(r, recoveryMW), nil
 			ctx.MultiStore().ResetEvents()
 		}
