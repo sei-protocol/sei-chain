@@ -32,7 +32,7 @@ func (k Keeper) InitGenesis(ctx sdk.Context, data types.GenesisState) {
 	k.SetPreviousProposerConsAddr(ctx, previousProposer)
 
 	for _, rew := range data.OutstandingRewards {
-		valAddr, err := sdk.ValAddressFromBech32(rew.ValidatorAddress)
+		valAddr, err := seitypes.ValAddressFromBech32(rew.ValidatorAddress)
 		if err != nil {
 			panic(err)
 		}
@@ -40,28 +40,28 @@ func (k Keeper) InitGenesis(ctx sdk.Context, data types.GenesisState) {
 		moduleHoldings = moduleHoldings.Add(rew.OutstandingRewards...)
 	}
 	for _, acc := range data.ValidatorAccumulatedCommissions {
-		valAddr, err := sdk.ValAddressFromBech32(acc.ValidatorAddress)
+		valAddr, err := seitypes.ValAddressFromBech32(acc.ValidatorAddress)
 		if err != nil {
 			panic(err)
 		}
 		k.SetValidatorAccumulatedCommission(ctx, valAddr, acc.Accumulated)
 	}
 	for _, his := range data.ValidatorHistoricalRewards {
-		valAddr, err := sdk.ValAddressFromBech32(his.ValidatorAddress)
+		valAddr, err := seitypes.ValAddressFromBech32(his.ValidatorAddress)
 		if err != nil {
 			panic(err)
 		}
 		k.SetValidatorHistoricalRewards(ctx, valAddr, his.Period, his.Rewards)
 	}
 	for _, cur := range data.ValidatorCurrentRewards {
-		valAddr, err := sdk.ValAddressFromBech32(cur.ValidatorAddress)
+		valAddr, err := seitypes.ValAddressFromBech32(cur.ValidatorAddress)
 		if err != nil {
 			panic(err)
 		}
 		k.SetValidatorCurrentRewards(ctx, valAddr, cur.Rewards)
 	}
 	for _, del := range data.DelegatorStartingInfos {
-		valAddr, err := sdk.ValAddressFromBech32(del.ValidatorAddress)
+		valAddr, err := seitypes.ValAddressFromBech32(del.ValidatorAddress)
 		if err != nil {
 			panic(err)
 		}
@@ -70,7 +70,7 @@ func (k Keeper) InitGenesis(ctx sdk.Context, data types.GenesisState) {
 		k.SetDelegatorStartingInfo(ctx, valAddr, delegatorAddress, del.StartingInfo)
 	}
 	for _, evt := range data.ValidatorSlashEvents {
-		valAddr, err := sdk.ValAddressFromBech32(evt.ValidatorAddress)
+		valAddr, err := seitypes.ValAddressFromBech32(evt.ValidatorAddress)
 		if err != nil {
 			panic(err)
 		}

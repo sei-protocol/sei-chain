@@ -57,7 +57,7 @@ func (msg MsgAggregateExchangeRateVote) ValidateBasic() error {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid feeder address (%s)", err)
 	}
 
-	_, err = sdk.ValAddressFromBech32(msg.Validator)
+	_, err = seitypes.ValAddressFromBech32(msg.Validator)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid operator address (%s)", err)
 	}
@@ -103,7 +103,7 @@ func (msg MsgDelegateFeedConsent) GetSignBytes() []byte {
 
 // GetSigners implements seitypes.Msg
 func (msg MsgDelegateFeedConsent) GetSigners() []seitypes.AccAddress {
-	operator, err := sdk.ValAddressFromBech32(msg.Operator)
+	operator, err := seitypes.ValAddressFromBech32(msg.Operator)
 	if err != nil {
 		panic(err)
 	}
@@ -113,7 +113,7 @@ func (msg MsgDelegateFeedConsent) GetSigners() []seitypes.AccAddress {
 
 // ValidateBasic implements seitypes.Msg
 func (msg MsgDelegateFeedConsent) ValidateBasic() error {
-	_, err := sdk.ValAddressFromBech32(msg.Operator)
+	_, err := seitypes.ValAddressFromBech32(msg.Operator)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid operator address (%s)", err)
 	}

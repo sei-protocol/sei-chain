@@ -6,9 +6,9 @@ import (
 	"net/http"
 
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/rest"
 	"github.com/cosmos/cosmos-sdk/x/genutil/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // QueryGenesisTxs writes the genesis transactions to the response if no error

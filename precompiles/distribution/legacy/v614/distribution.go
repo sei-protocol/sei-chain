@@ -191,7 +191,7 @@ func (p PrecompileExecutor) validateInput(value *big.Int, args []interface{}, ex
 }
 
 func (p PrecompileExecutor) withdraw(ctx sdk.Context, delegator seitypes.AccAddress, validatorAddress string) (sdk.Coins, error) {
-	validator, err := sdk.ValAddressFromBech32(validatorAddress)
+	validator, err := seitypes.ValAddressFromBech32(validatorAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +376,7 @@ func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method 
 
 func (p PrecompileExecutor) getValidatorFromArg(ctx sdk.Context, arg interface{}) (seitypes.ValAddress, error) {
 	validatorAddress := arg.(string)
-	validator, err := sdk.ValAddressFromBech32(validatorAddress)
+	validator, err := seitypes.ValAddressFromBech32(validatorAddress)
 	if err != nil {
 		return nil, err
 	}

@@ -14,9 +14,9 @@ import (
 
 type config struct {
 	handler     signing.SignModeHandler
-	decoder     sdk.TxDecoder
+	decoder     seitypes.TxDecoder
 	encoder     seitypes.TxEncoder
-	jsonDecoder sdk.TxDecoder
+	jsonDecoder seitypes.TxDecoder
 	jsonEncoder seitypes.TxEncoder
 	protoCodec  codec.ProtoCodecMarshaler
 }
@@ -63,7 +63,7 @@ func (g config) TxEncoder() seitypes.TxEncoder {
 	return g.encoder
 }
 
-func (g config) TxDecoder() sdk.TxDecoder {
+func (g config) TxDecoder() seitypes.TxDecoder {
 	return g.decoder
 }
 
@@ -71,6 +71,6 @@ func (g config) TxJSONEncoder() seitypes.TxEncoder {
 	return g.jsonEncoder
 }
 
-func (g config) TxJSONDecoder() sdk.TxDecoder {
+func (g config) TxJSONDecoder() seitypes.TxDecoder {
 	return g.jsonDecoder
 }

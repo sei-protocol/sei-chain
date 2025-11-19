@@ -14,7 +14,7 @@ import (
 func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState) {
 	keeper.SetParams(ctx, data.Params)
 	for _, d := range data.FeederDelegations {
-		voter, err := sdk.ValAddressFromBech32(d.ValidatorAddress)
+		voter, err := seitypes.ValAddressFromBech32(d.ValidatorAddress)
 		if err != nil {
 			panic(err)
 		}
@@ -32,7 +32,7 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState
 	}
 
 	for _, pc := range data.PenaltyCounters {
-		operator, err := sdk.ValAddressFromBech32(pc.ValidatorAddress)
+		operator, err := seitypes.ValAddressFromBech32(pc.ValidatorAddress)
 		if err != nil {
 			panic(err)
 		}
@@ -41,7 +41,7 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState
 	}
 
 	for _, av := range data.AggregateExchangeRateVotes {
-		valAddr, err := sdk.ValAddressFromBech32(av.Voter)
+		valAddr, err := seitypes.ValAddressFromBech32(av.Voter)
 		if err != nil {
 			panic(err)
 		}

@@ -35,7 +35,7 @@ func (k Keeper) BlockValidatorUpdates(ctx sdk.Context) []abci.ValidatorUpdate {
 	// Remove all mature unbonding delegations from the ubd queue.
 	matureUnbonds := k.DequeueAllMatureUBDQueue(ctx, ctx.BlockHeader().Time)
 	for _, dvPair := range matureUnbonds {
-		addr, err := sdk.ValAddressFromBech32(dvPair.ValidatorAddress)
+		addr, err := seitypes.ValAddressFromBech32(dvPair.ValidatorAddress)
 		if err != nil {
 			panic(err)
 		}
@@ -59,11 +59,11 @@ func (k Keeper) BlockValidatorUpdates(ctx sdk.Context) []abci.ValidatorUpdate {
 	// Remove all mature redelegations from the red queue.
 	matureRedelegations := k.DequeueAllMatureRedelegationQueue(ctx, ctx.BlockHeader().Time)
 	for _, dvvTriplet := range matureRedelegations {
-		valSrcAddr, err := sdk.ValAddressFromBech32(dvvTriplet.ValidatorSrcAddress)
+		valSrcAddr, err := seitypes.ValAddressFromBech32(dvvTriplet.ValidatorSrcAddress)
 		if err != nil {
 			panic(err)
 		}
-		valDstAddr, err := sdk.ValAddressFromBech32(dvvTriplet.ValidatorDstAddress)
+		valDstAddr, err := seitypes.ValAddressFromBech32(dvvTriplet.ValidatorDstAddress)
 		if err != nil {
 			panic(err)
 		}
@@ -380,7 +380,7 @@ func sortNoLongerBonded(last validatorsByAddr) ([][]byte, error) {
 	index := 0
 
 	for valAddrStr := range last {
-		valAddrBytes, err := sdk.ValAddressFromBech32(valAddrStr)
+		valAddrBytes, err := seitypes.ValAddressFromBech32(valAddrStr)
 		if err != nil {
 			return nil, err
 		}

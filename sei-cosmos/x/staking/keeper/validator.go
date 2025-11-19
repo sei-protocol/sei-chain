@@ -5,6 +5,7 @@ import (
 	"time"
 
 	gogotypes "github.com/gogo/protobuf/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -425,7 +426,7 @@ func (k Keeper) UnbondAllMatureValidators(ctx sdk.Context) {
 			k.cdc.MustUnmarshal(unbondingValIterator.Value(), &addrs)
 
 			for _, valAddr := range addrs.Addresses {
-				addr, err := sdk.ValAddressFromBech32(valAddr)
+				addr, err := seitypes.ValAddressFromBech32(valAddr)
 				if err != nil {
 					panic(err)
 				}

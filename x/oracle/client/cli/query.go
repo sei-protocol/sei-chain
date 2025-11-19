@@ -233,7 +233,7 @@ $ seid query oracle feeder terravaloper...
 			queryClient := types.NewQueryClient(clientCtx)
 
 			valString := args[0]
-			validator, err := sdk.ValAddressFromBech32(valString)
+			validator, err := seitypes.ValAddressFromBech32(valString)
 			if err != nil {
 				return err
 			}
@@ -273,7 +273,7 @@ $ seid query oracle miss seivaloper...
 			queryClient := types.NewQueryClient(clientCtx)
 
 			valString := args[0]
-			validator, err := sdk.ValAddressFromBech32(valString)
+			validator, err := seitypes.ValAddressFromBech32(valString)
 			if err != nil {
 				return err
 			}

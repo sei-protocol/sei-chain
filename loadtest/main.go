@@ -385,7 +385,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		adminKey := c.SignerClient.GetAdminKey()
 		delegatorAddr := seitypes.AccAddress(adminKey.PubKey().Address())
 		operatorAddress := c.Validators[r.Intn(len(c.Validators))].OperatorAddress
-		randomValidatorAddr, err := sdk.ValAddressFromBech32(operatorAddress)
+		randomValidatorAddr, err := seitypes.ValAddressFromBech32(operatorAddress)
 		if err != nil {
 			panic(err.Error())
 		}

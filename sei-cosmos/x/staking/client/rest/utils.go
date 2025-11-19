@@ -47,7 +47,7 @@ func queryBonds(clientCtx client.Context, endpoint string) http.HandlerFunc {
 			return
 		}
 
-		validatorAddr, err := sdk.ValAddressFromBech32(bech32validator)
+		validatorAddr, err := seitypes.ValAddressFromBech32(bech32validator)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -116,7 +116,7 @@ func queryValidator(clientCtx client.Context, endpoint string) http.HandlerFunc 
 			return
 		}
 
-		validatorAddr, err := sdk.ValAddressFromBech32(bech32validatorAddr)
+		validatorAddr, err := seitypes.ValAddressFromBech32(bech32validatorAddr)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}

@@ -673,7 +673,7 @@ func (o *Oracle) tick(
 		return nil
 	}
 
-	valAddr, err := sdk.ValAddressFromBech32(o.oracleClient.ValidatorAddrString)
+	valAddr, err := seitypes.ValAddressFromBech32(o.oracleClient.ValidatorAddrString)
 	if err != nil {
 		return err
 	}

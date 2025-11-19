@@ -49,7 +49,7 @@ func (spd SpammingPreventionDecorator) CheckOracleSpamming(ctx sdk.Context, msgs
 				return err
 			}
 
-			valAddr, err := sdk.ValAddressFromBech32(msg.Validator)
+			valAddr, err := seitypes.ValAddressFromBech32(msg.Validator)
 			if err != nil {
 				return err
 			}

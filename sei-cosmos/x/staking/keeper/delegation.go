@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // GetDelegation returns a specific delegation.
@@ -215,7 +216,7 @@ func (k Keeper) GetDelegatorBonded(ctx sdk.Context, delegator seitypes.AccAddres
 	bonded := sdk.ZeroDec()
 
 	k.IterateDelegatorDelegations(ctx, delegator, func(delegation types.Delegation) bool {
-		validatorAddr, err := sdk.ValAddressFromBech32(delegation.ValidatorAddress)
+		validatorAddr, err := seitypes.ValAddressFromBech32(delegation.ValidatorAddress)
 		if err != nil {
 			panic(err) // shouldn't happen
 		}
@@ -279,7 +280,7 @@ func (k Keeper) SetUnbondingDelegation(ctx sdk.Context, ubd types.UnbondingDeleg
 
 	store := ctx.KVStore(k.storeKey)
 	bz := types.MustMarshalUBD(k.cdc, ubd)
-	addr, err := sdk.ValAddressFromBech32(ubd.ValidatorAddress)
+	addr, err := seitypes.ValAddressFromBech32(ubd.ValidatorAddress)
 	if err != nil {
 		panic(err)
 	}
@@ -293,7 +294,7 @@ func (k Keeper) RemoveUnbondingDelegation(ctx sdk.Context, ubd types.UnbondingDe
 	delegatorAddress := seitypes.MustAccAddressFromBech32(ubd.DelegatorAddress)
 
 	store := ctx.KVStore(k.storeKey)
-	addr, err := sdk.ValAddressFromBech32(ubd.ValidatorAddress)
+	addr, err := seitypes.ValAddressFromBech32(ubd.ValidatorAddress)
 	if err != nil {
 		panic(err)
 	}
@@ -480,11 +481,11 @@ func (k Keeper) SetRedelegation(ctx sdk.Context, red types.Redelegation) {
 
 	store := ctx.KVStore(k.storeKey)
 	bz := types.MustMarshalRED(k.cdc, red)
-	valSrcAddr, err := sdk.ValAddressFromBech32(red.ValidatorSrcAddress)
+	valSrcAddr, err := seitypes.ValAddressFromBech32(red.ValidatorSrcAddress)
 	if err != nil {
 		panic(err)
 	}
-	valDestAddr, err := sdk.ValAddressFromBech32(red.ValidatorDstAddress)
+	valDestAddr, err := seitypes.ValAddressFromBech32(red.ValidatorDstAddress)
 	if err != nil {
 		panic(err)
 	}
@@ -536,11 +537,11 @@ func (k Keeper) RemoveRedelegation(ctx sdk.Context, red types.Redelegation) {
 	delegatorAddress := seitypes.MustAccAddressFromBech32(red.DelegatorAddress)
 
 	store := ctx.KVStore(k.storeKey)
-	valSrcAddr, err := sdk.ValAddressFromBech32(red.ValidatorSrcAddress)
+	valSrcAddr, err := seitypes.ValAddressFromBech32(red.ValidatorSrcAddress)
 	if err != nil {
 		panic(err)
 	}
-	valDestAddr, err := sdk.ValAddressFromBech32(red.ValidatorDstAddress)
+	valDestAddr, err := seitypes.ValAddressFromBech32(red.ValidatorDstAddress)
 	if err != nil {
 		panic(err)
 	}

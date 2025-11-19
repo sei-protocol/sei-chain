@@ -25,7 +25,7 @@ var _ types.MsgServer = msgServer{}
 func (k msgServer) Unjail(goCtx context.Context, msg *types.MsgUnjail) (*types.MsgUnjailResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	valAddr, valErr := sdk.ValAddressFromBech32(msg.ValidatorAddr)
+	valAddr, valErr := seitypes.ValAddressFromBech32(msg.ValidatorAddr)
 	if valErr != nil {
 		return nil, valErr
 	}

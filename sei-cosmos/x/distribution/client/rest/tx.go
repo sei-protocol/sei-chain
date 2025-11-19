@@ -213,7 +213,7 @@ func checkDelegatorAddressVar(w http.ResponseWriter, r *http.Request) (seitypes.
 }
 
 func checkValidatorAddressVar(w http.ResponseWriter, r *http.Request) (seitypes.ValAddress, bool) {
-	addr, err := sdk.ValAddressFromBech32(mux.Vars(r)["validatorAddr"])
+	addr, err := seitypes.ValAddressFromBech32(mux.Vars(r)["validatorAddr"])
 	if rest.CheckBadRequestError(w, err) {
 		return nil, false
 	}

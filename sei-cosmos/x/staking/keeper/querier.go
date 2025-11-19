@@ -264,7 +264,7 @@ func queryDelegatorValidator(ctx sdk.Context, req abci.RequestQuery, k Keeper, l
 		return nil, err
 	}
 
-	valAddr, err := sdk.ValAddressFromBech32(params.ValidatorAddr)
+	valAddr, err := seitypes.ValAddressFromBech32(params.ValidatorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +295,7 @@ func queryDelegation(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQue
 		return nil, err
 	}
 
-	valAddr, err := sdk.ValAddressFromBech32(params.ValidatorAddr)
+	valAddr, err := seitypes.ValAddressFromBech32(params.ValidatorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -331,7 +331,7 @@ func queryUnbondingDelegation(ctx sdk.Context, req abci.RequestQuery, k Keeper, 
 		return nil, err
 	}
 
-	valAddr, err := sdk.ValAddressFromBech32(params.ValidatorAddr)
+	valAddr, err := seitypes.ValAddressFromBech32(params.ValidatorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -488,11 +488,11 @@ func RedelegationsToRedelegationResponses(
 	resp := make(types.RedelegationResponses, len(redels))
 
 	for i, redel := range redels {
-		valSrcAddr, err := sdk.ValAddressFromBech32(redel.ValidatorSrcAddress)
+		valSrcAddr, err := seitypes.ValAddressFromBech32(redel.ValidatorSrcAddress)
 		if err != nil {
 			panic(err)
 		}
-		valDstAddr, err := sdk.ValAddressFromBech32(redel.ValidatorDstAddress)
+		valDstAddr, err := seitypes.ValAddressFromBech32(redel.ValidatorDstAddress)
 		if err != nil {
 			panic(err)
 		}

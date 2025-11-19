@@ -99,7 +99,7 @@ $ %s tx distribution withdraw-rewards %s1gghjut3ccd8ay0zduzj64hwre2fxs9ldmqhffj 
 				return err
 			}
 			delAddr := clientCtx.GetFromAddress()
-			valAddr, err := sdk.ValAddressFromBech32(args[0])
+			valAddr, err := seitypes.ValAddressFromBech32(args[0])
 			if err != nil {
 				return err
 			}
@@ -164,7 +164,7 @@ $ %[1]s tx distribution withdraw-all-rewards --from mykey
 			// build multi-message transaction
 			msgs := make([]seitypes.Msg, 0, len(validators))
 			for _, valAddr := range validators {
-				val, err := sdk.ValAddressFromBech32(valAddr)
+				val, err := seitypes.ValAddressFromBech32(valAddr)
 				if err != nil {
 					return err
 				}

@@ -1345,7 +1345,7 @@ func (msg msgKeyValue) ValidateBasic() error {
 }
 
 // amino decode
-func testTxDecoder(cdc *codec.LegacyAmino) sdk.TxDecoder {
+func testTxDecoder(cdc *codec.LegacyAmino) seitypes.TxDecoder {
 	return func(txBytes []byte) (seitypes.Tx, error) {
 		var tx txTest
 		if len(txBytes) == 0 {

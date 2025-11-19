@@ -128,7 +128,7 @@ func InitGenesis(
 	// don't need to run Tendermint updates if we exported
 	if data.Exported {
 		for _, lv := range data.LastValidatorPowers {
-			valAddr, err := sdk.ValAddressFromBech32(lv.Address)
+			valAddr, err := seitypes.ValAddressFromBech32(lv.Address)
 			if err != nil {
 				panic(err)
 			}

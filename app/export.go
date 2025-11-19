@@ -103,7 +103,7 @@ func (app *App) prepForZeroHeightGenesis(ctx sdk.Context, jailAllowedAddrs []str
 	allowedAddrsMap := make(map[string]bool)
 
 	for _, addr := range jailAllowedAddrs {
-		_, err := sdk.ValAddressFromBech32(addr)
+		_, err := seitypes.ValAddressFromBech32(addr)
 		if err != nil {
 			log.Fatal(err)
 		}

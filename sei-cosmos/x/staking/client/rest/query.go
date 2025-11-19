@@ -222,7 +222,7 @@ func redelegationsHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		if len(bechSrcValidatorAddr) != 0 {
-			srcValidatorAddr, err := sdk.ValAddressFromBech32(bechSrcValidatorAddr)
+			srcValidatorAddr, err := seitypes.ValAddressFromBech32(bechSrcValidatorAddr)
 			if rest.CheckBadRequestError(w, err) {
 				return
 			}
@@ -231,7 +231,7 @@ func redelegationsHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		if len(bechDstValidatorAddr) != 0 {
-			dstValidatorAddr, err := sdk.ValAddressFromBech32(bechDstValidatorAddr)
+			dstValidatorAddr, err := seitypes.ValAddressFromBech32(bechDstValidatorAddr)
 			if rest.CheckBadRequestError(w, err) {
 				return
 			}

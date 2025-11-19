@@ -71,7 +71,7 @@ func (k Querier) Validator(c context.Context, req *types.QueryValidatorRequest) 
 		return nil, status.Error(codes.InvalidArgument, "validator address cannot be empty")
 	}
 
-	valAddr, err := sdk.ValAddressFromBech32(req.ValidatorAddr)
+	valAddr, err := seitypes.ValAddressFromBech32(req.ValidatorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func (k Querier) ValidatorDelegations(c context.Context, req *types.QueryValidat
 			return false, err
 		}
 
-		valAddr, err := sdk.ValAddressFromBech32(req.ValidatorAddr)
+		valAddr, err := seitypes.ValAddressFromBech32(req.ValidatorAddr)
 		if err != nil {
 			return false, err
 		}
@@ -146,7 +146,7 @@ func (k Querier) ValidatorUnbondingDelegations(c context.Context, req *types.Que
 
 	store := ctx.KVStore(k.storeKey)
 
-	valAddr, err := sdk.ValAddressFromBech32(req.ValidatorAddr)
+	valAddr, err := seitypes.ValAddressFromBech32(req.ValidatorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +193,7 @@ func (k Querier) Delegation(c context.Context, req *types.QueryDelegationRequest
 		return nil, err
 	}
 
-	valAddr, err := sdk.ValAddressFromBech32(req.ValidatorAddr)
+	valAddr, err := seitypes.ValAddressFromBech32(req.ValidatorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +234,7 @@ func (k Querier) UnbondingDelegation(c context.Context, req *types.QueryUnbondin
 		return nil, err
 	}
 
-	valAddr, err := sdk.ValAddressFromBech32(req.ValidatorAddr)
+	valAddr, err := seitypes.ValAddressFromBech32(req.ValidatorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -309,7 +309,7 @@ func (k Querier) DelegatorValidator(c context.Context, req *types.QueryDelegator
 		return nil, err
 	}
 
-	valAddr, err := sdk.ValAddressFromBech32(req.ValidatorAddr)
+	valAddr, err := seitypes.ValAddressFromBech32(req.ValidatorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -477,12 +477,12 @@ func queryRedelegation(ctx sdk.Context, k Querier, req *types.QueryRedelegations
 		return nil, err
 	}
 
-	srcValAddr, err := sdk.ValAddressFromBech32(req.SrcValidatorAddr)
+	srcValAddr, err := seitypes.ValAddressFromBech32(req.SrcValidatorAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	dstValAddr, err := sdk.ValAddressFromBech32(req.DstValidatorAddr)
+	dstValAddr, err := seitypes.ValAddressFromBech32(req.DstValidatorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -500,7 +500,7 @@ func queryRedelegation(ctx sdk.Context, k Querier, req *types.QueryRedelegations
 }
 
 func queryRedelegationsFromSrcValidator(store sdk.KVStore, k Querier, req *types.QueryRedelegationsRequest) (redels types.Redelegations, res *query.PageResponse, err error) {
-	valAddr, err := sdk.ValAddressFromBech32(req.SrcValidatorAddr)
+	valAddr, err := seitypes.ValAddressFromBech32(req.SrcValidatorAddr)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -59,7 +59,7 @@ func (app *WasmApp) prepForZeroHeightGenesis(ctx sdk.Context, jailAllowedAddrs [
 	allowedAddrsMap := make(map[string]bool)
 
 	for _, addr := range jailAllowedAddrs {
-		_, err := sdk.ValAddressFromBech32(addr)
+		_, err := seitypes.ValAddressFromBech32(addr)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -80,7 +80,7 @@ func (app *WasmApp) prepForZeroHeightGenesis(ctx sdk.Context, jailAllowedAddrs [
 	// withdraw all delegator rewards
 	dels := app.stakingKeeper.GetAllDelegations(ctx)
 	for _, delegation := range dels {
-		valAddr, err := sdk.ValAddressFromBech32(delegation.ValidatorAddress)
+		valAddr, err := seitypes.ValAddressFromBech32(delegation.ValidatorAddress)
 		if err != nil {
 			panic(err)
 		}
@@ -116,7 +116,7 @@ func (app *WasmApp) prepForZeroHeightGenesis(ctx sdk.Context, jailAllowedAddrs [
 
 	// reinitialize all delegations
 	for _, del := range dels {
-		valAddr, err := sdk.ValAddressFromBech32(del.ValidatorAddress)
+		valAddr, err := seitypes.ValAddressFromBech32(del.ValidatorAddress)
 		if err != nil {
 			panic(err)
 		}

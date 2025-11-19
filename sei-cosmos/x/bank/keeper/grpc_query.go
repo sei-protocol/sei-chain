@@ -10,6 +10,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 var _ types.QueryServer = BaseKeeper{}

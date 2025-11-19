@@ -119,7 +119,7 @@ $ seid tx oracle aggregate-vote 1234 8888.0ukrw,1.243uusd,0.99usdr seivaloper1..
 
 			// Override validator if validator is given
 			if len(args) == 2 {
-				parsedVal, err := sdk.ValAddressFromBech32(args[1])
+				parsedVal, err := seitypes.ValAddressFromBech32(args[1])
 				if err != nil {
 					return errors.Wrap(err, "validator address is invalid")
 				}

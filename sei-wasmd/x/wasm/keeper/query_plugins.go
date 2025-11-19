@@ -303,7 +303,7 @@ func StakingQuerier(keeper types.StakingKeeper, distKeeper types.DistributionKee
 			return json.Marshal(res)
 		}
 		if request.Validator != nil {
-			valAddr, err := sdk.ValAddressFromBech32(request.Validator.Address)
+			valAddr, err := seitypes.ValAddressFromBech32(request.Validator.Address)
 			if err != nil {
 				return nil, err
 			}
@@ -339,7 +339,7 @@ func StakingQuerier(keeper types.StakingKeeper, distKeeper types.DistributionKee
 			if err != nil {
 				return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, request.Delegation.Delegator)
 			}
-			validator, err := sdk.ValAddressFromBech32(request.Delegation.Validator)
+			validator, err := seitypes.ValAddressFromBech32(request.Delegation.Validator)
 			if err != nil {
 				return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, request.Delegation.Validator)
 			}
@@ -359,7 +359,7 @@ func StakingQuerier(keeper types.StakingKeeper, distKeeper types.DistributionKee
 			if err != nil {
 				return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, request.UnbondingDelegation.Delegator)
 			}
-			validator, err := sdk.ValAddressFromBech32(request.UnbondingDelegation.Validator)
+			validator, err := seitypes.ValAddressFromBech32(request.UnbondingDelegation.Validator)
 			if err != nil {
 				return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, request.UnbondingDelegation.Validator)
 			}
@@ -413,7 +413,7 @@ func sdkToDelegations(ctx sdk.Context, keeper types.StakingKeeper, delegations [
 		if err != nil {
 			return nil, sdkerrors.Wrap(err, "delegator address")
 		}
-		valAddr, err := sdk.ValAddressFromBech32(d.ValidatorAddress)
+		valAddr, err := seitypes.ValAddressFromBech32(d.ValidatorAddress)
 		if err != nil {
 			return nil, sdkerrors.Wrap(err, "validator address")
 		}
@@ -440,7 +440,7 @@ func sdkToFullDelegation(ctx sdk.Context, keeper types.StakingKeeper, distKeeper
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "delegator address")
 	}
-	valAddr, err := sdk.ValAddressFromBech32(delegation.ValidatorAddress)
+	valAddr, err := seitypes.ValAddressFromBech32(delegation.ValidatorAddress)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "validator address")
 	}

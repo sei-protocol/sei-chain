@@ -385,7 +385,7 @@ func (t *TransactionAPI) getFilteredMsgs(block *coretypes.ResultBlock) []indexed
 	return filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, t.includeSynthetic, false, t.cacheCreationMutex, t.globalBlockCache)
 }
 
-func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction {
+func getEthTxForTxBz(tx tmtypes.Tx, decoder seitypes.TxDecoder) *ethtypes.Transaction {
 	decoded, err := decoder(tx)
 	if err != nil {
 		return nil

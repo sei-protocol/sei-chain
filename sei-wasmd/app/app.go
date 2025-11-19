@@ -269,7 +269,7 @@ type WasmApp struct {
 	// module configurator
 	configurator module.Configurator
 
-	txDecoder sdk.TxDecoder
+	txDecoder seitypes.TxDecoder
 }
 
 // NewWasmApp returns a reference to an initialized WasmApp.

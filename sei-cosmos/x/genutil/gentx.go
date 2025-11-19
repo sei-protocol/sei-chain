@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 
 	"github.com/cosmos/cosmos-sdk/client"

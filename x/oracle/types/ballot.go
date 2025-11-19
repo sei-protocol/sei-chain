@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // NOTE: we don't need to implement proto interface on this file

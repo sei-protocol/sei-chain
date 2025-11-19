@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	"github.com/gogo/protobuf/proto"
-    seitypes "github.com/sei-protocol/sei-chain/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 
-    "github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/evidence/exported"
@@ -18,7 +18,7 @@ const (
 )
 
 var (
-	_ seitypes.Msg                       = &MsgSubmitEvidence{}
+	_ seitypes.Msg                  = &MsgSubmitEvidence{}
 	_ types.UnpackInterfacesMessage = MsgSubmitEvidence{}
 	_ exported.MsgSubmitEvidenceI   = &MsgSubmitEvidence{}
 )
@@ -68,7 +68,7 @@ func (m MsgSubmitEvidence) GetSignBytes() []byte {
 }
 
 // GetSigners returns the single expected signer for a MsgSubmitEvidence.
-func (m MsgSubmitEvidence) GetSigners() [ seitypes.AccAddress {
+func (m MsgSubmitEvidence) GetSigners() []seitypes.AccAddress {
 	accAddr, err := seitypes.AccAddressFromBech32(m.Submitter)
 	if err != nil {
 		return nil

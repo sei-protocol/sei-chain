@@ -347,7 +347,7 @@ type App struct {
 	optimisticProcessingInfoMutex sync.RWMutex
 
 	// batchVerifier *ante.SR25519BatchVerifier
-	txDecoder         sdk.TxDecoder
+	txDecoder         seitypes.TxDecoder
 	AnteHandler       sdk.AnteHandler
 	TracerAnteHandler sdk.AnteHandler
 
@@ -1878,7 +1878,7 @@ func (app *App) GetPrecompileKeepers() putils.Keepers {
 }
 
 // test-only
-func (app *App) SetTxDecoder(txDecoder sdk.TxDecoder) {
+func (app *App) SetTxDecoder(txDecoder seitypes.TxDecoder) {
 	app.txDecoder = txDecoder
 }
 

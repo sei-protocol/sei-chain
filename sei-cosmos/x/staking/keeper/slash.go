@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	types "github.com/cosmos/cosmos-sdk/x/staking/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // Slash a validator for an infraction committed at a known height
@@ -252,7 +253,7 @@ func (k Keeper) SlashRedelegation(ctx sdk.Context, srcValidator types.Validator,
 			continue
 		}
 
-		valDstAddr, err := sdk.ValAddressFromBech32(redelegation.ValidatorDstAddress)
+		valDstAddr, err := seitypes.ValAddressFromBech32(redelegation.ValidatorDstAddress)
 		if err != nil {
 			panic(err)
 		}

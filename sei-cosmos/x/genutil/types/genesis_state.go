@@ -10,7 +10,6 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
@@ -97,7 +96,7 @@ func GenesisStateFromGenFile(genFile string) (genesisState map[string]json.RawMe
 }
 
 // ValidateGenesis validates GenTx transactions
-func ValidateGenesis(genesisState *GenesisState, txJSONDecoder sdk.TxDecoder) error {
+func ValidateGenesis(genesisState *GenesisState, txJSONDecoder seitypes.TxDecoder) error {
 	for i, genTx := range genesisState.GenTxs {
 		var tx seitypes.Tx
 		tx, err := txJSONDecoder(genTx)

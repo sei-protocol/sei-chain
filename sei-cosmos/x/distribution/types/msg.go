@@ -100,7 +100,7 @@ func (msg MsgWithdrawValidatorCommission) Type() string  { return TypeMsgWithdra
 
 // Return address that must sign over msg.GetSignBytes()
 func (msg MsgWithdrawValidatorCommission) GetSigners() []seitypes.AccAddress {
-	valAddr, err := sdk.ValAddressFromBech32(msg.ValidatorAddress)
+	valAddr, err := seitypes.ValAddressFromBech32(msg.ValidatorAddress)
 	if err != nil {
 		panic(err)
 	}

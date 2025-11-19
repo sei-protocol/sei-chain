@@ -106,7 +106,7 @@ func oracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.
 		return false, err
 	}
 
-	valAddr, err := sdk.ValAddressFromBech32(msg.Validator)
+	valAddr, err := seitypes.ValAddressFromBech32(msg.Validator)
 	if err != nil {
 		return false, err
 	}

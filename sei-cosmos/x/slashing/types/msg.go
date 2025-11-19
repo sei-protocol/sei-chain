@@ -2,6 +2,7 @@ package types
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // slashing message types
@@ -24,7 +25,7 @@ func NewMsgUnjail(validatorAddr seitypes.ValAddress) *MsgUnjail {
 func (msg MsgUnjail) Route() string { return RouterKey }
 func (msg MsgUnjail) Type() string  { return TypeMsgUnjail }
 func (msg MsgUnjail) GetSigners() []seitypes.AccAddress {
-	valAddr, err := sdk.ValAddressFromBech32(msg.ValidatorAddr)
+	valAddr, err := seitypes.ValAddressFromBech32(msg.ValidatorAddr)
 	if err != nil {
 		panic(err)
 	}

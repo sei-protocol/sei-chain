@@ -23,7 +23,7 @@ func NewMsgServerImpl(keeper Keeper) types.MsgServer {
 func (ms msgServer) AggregateExchangeRateVote(goCtx context.Context, msg *types.MsgAggregateExchangeRateVote) (*types.MsgAggregateExchangeRateVoteResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	valAddr, err := sdk.ValAddressFromBech32(msg.Validator)
+	valAddr, err := seitypes.ValAddressFromBech32(msg.Validator)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func (ms msgServer) AggregateExchangeRateVote(goCtx context.Context, msg *types.
 func (ms msgServer) DelegateFeedConsent(goCtx context.Context, msg *types.MsgDelegateFeedConsent) (*types.MsgDelegateFeedConsentResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	operatorAddr, err := sdk.ValAddressFromBech32(msg.Operator)
+	operatorAddr, err := seitypes.ValAddressFromBech32(msg.Operator)
 	if err != nil {
 		return nil, err
 	}

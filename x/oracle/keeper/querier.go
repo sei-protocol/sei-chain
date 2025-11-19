@@ -113,7 +113,7 @@ func (q querier) FeederDelegation(c context.Context, req *types.QueryFeederDeleg
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	valAddr, err := sdk.ValAddressFromBech32(req.ValidatorAddr)
+	valAddr, err := seitypes.ValAddressFromBech32(req.ValidatorAddr)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -130,7 +130,7 @@ func (q querier) VotePenaltyCounter(c context.Context, req *types.QueryVotePenal
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	valAddr, err := sdk.ValAddressFromBech32(req.ValidatorAddr)
+	valAddr, err := seitypes.ValAddressFromBech32(req.ValidatorAddr)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}

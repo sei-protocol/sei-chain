@@ -164,7 +164,7 @@ func (p Precompile) withdrawDelegationRewards(ctx sdk.Context, method *abi.Metho
 	if !found {
 		return nil, fmt.Errorf("delegator %s is not associated", caller.Hex())
 	}
-	validator, err := sdk.ValAddressFromBech32(args[0].(string))
+	validator, err := seitypes.ValAddressFromBech32(args[0].(string))
 	if err != nil {
 		return nil, err
 	}

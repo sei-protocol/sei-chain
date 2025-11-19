@@ -31,11 +31,11 @@ type InfoAPI struct {
 	homeDir          string
 	connectionType   ConnectionType
 	maxBlocks        int64
-	txDecoder        sdk.TxDecoder
+	txDecoder        seitypes.TxDecoder
 	watermarks       *WatermarkManager
 }
 
-func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, maxBlocks int64, connectionType ConnectionType, txDecoder sdk.TxDecoder, watermarks *WatermarkManager) *InfoAPI {
+func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, maxBlocks int64, connectionType ConnectionType, txDecoder seitypes.TxDecoder, watermarks *WatermarkManager) *InfoAPI {
 	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType, maxBlocks: maxBlocks, txDecoder: txDecoder, watermarks: watermarks}
 }
 

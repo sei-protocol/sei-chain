@@ -30,7 +30,7 @@ var _ types.MsgServer = msgServer{}
 func (k msgServer) CreateValidator(goCtx context.Context, msg *types.MsgCreateValidator) (*types.MsgCreateValidatorResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	valAddr, err := sdk.ValAddressFromBech32(msg.ValidatorAddress)
+	valAddr, err := seitypes.ValAddressFromBech32(msg.ValidatorAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func (k msgServer) CreateValidator(goCtx context.Context, msg *types.MsgCreateVa
 // EditValidator defines a method for editing an existing validator
 func (k msgServer) EditValidator(goCtx context.Context, msg *types.MsgEditValidator) (*types.MsgEditValidatorResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	valAddr, err := sdk.ValAddressFromBech32(msg.ValidatorAddress)
+	valAddr, err := seitypes.ValAddressFromBech32(msg.ValidatorAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +192,7 @@ func (k msgServer) EditValidator(goCtx context.Context, msg *types.MsgEditValida
 // Delegate defines a method for performing a delegation of coins from a delegator to a validator
 func (k msgServer) Delegate(goCtx context.Context, msg *types.MsgDelegate) (*types.MsgDelegateResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	valAddr, valErr := sdk.ValAddressFromBech32(msg.ValidatorAddress)
+	valAddr, valErr := seitypes.ValAddressFromBech32(msg.ValidatorAddress)
 	if valErr != nil {
 		return nil, valErr
 	}
@@ -251,7 +251,7 @@ func (k msgServer) Delegate(goCtx context.Context, msg *types.MsgDelegate) (*typ
 // BeginRedelegate defines a method for performing a redelegation of coins from a delegator and source validator to a destination validator
 func (k msgServer) BeginRedelegate(goCtx context.Context, msg *types.MsgBeginRedelegate) (*types.MsgBeginRedelegateResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	valSrcAddr, err := sdk.ValAddressFromBech32(msg.ValidatorSrcAddress)
+	valSrcAddr, err := seitypes.ValAddressFromBech32(msg.ValidatorSrcAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +273,7 @@ func (k msgServer) BeginRedelegate(goCtx context.Context, msg *types.MsgBeginRed
 		)
 	}
 
-	valDstAddr, err := sdk.ValAddressFromBech32(msg.ValidatorDstAddress)
+	valDstAddr, err := seitypes.ValAddressFromBech32(msg.ValidatorDstAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +320,7 @@ func (k msgServer) BeginRedelegate(goCtx context.Context, msg *types.MsgBeginRed
 func (k msgServer) Undelegate(goCtx context.Context, msg *types.MsgUndelegate) (*types.MsgUndelegateResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	addr, err := sdk.ValAddressFromBech32(msg.ValidatorAddress)
+	addr, err := seitypes.ValAddressFromBech32(msg.ValidatorAddress)
 	if err != nil {
 		return nil, err
 	}

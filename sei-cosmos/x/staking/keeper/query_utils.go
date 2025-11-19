@@ -3,6 +3,7 @@ package keeper
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // Return all validators that a delegator is bonded to. If maxRetrieve is supplied, the respective amount will be returned.
@@ -107,11 +108,11 @@ func (k Keeper) GetAllRedelegations(
 
 	for ; iterator.Valid(); iterator.Next() {
 		redelegation := types.MustUnmarshalRED(k.cdc, iterator.Value())
-		valSrcAddr, err := sdk.ValAddressFromBech32(redelegation.ValidatorSrcAddress)
+		valSrcAddr, err := seitypes.ValAddressFromBech32(redelegation.ValidatorSrcAddress)
 		if err != nil {
 			panic(err)
 		}
-		valDstAddr, err := sdk.ValAddressFromBech32(redelegation.ValidatorDstAddress)
+		valDstAddr, err := seitypes.ValAddressFromBech32(redelegation.ValidatorDstAddress)
 		if err != nil {
 			panic(err)
 		}

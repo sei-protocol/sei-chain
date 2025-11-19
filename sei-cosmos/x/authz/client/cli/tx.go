@@ -253,7 +253,7 @@ Example:
 func bech32toValidatorAddresses(validators []string) ([]seitypes.ValAddress, error) {
 	vals := make([]seitypes.ValAddress, len(validators))
 	for i, validator := range validators {
-		addr, err := sdk.ValAddressFromBech32(validator)
+		addr, err := seitypes.ValAddressFromBech32(validator)
 		if err != nil {
 			return nil, err
 		}

@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	cfg "github.com/tendermint/tendermint/config"
 	tmtypes "github.com/tendermint/tendermint/types"
 
@@ -69,7 +70,7 @@ func GenAppStateFromConfig(cdc codec.JSONCodec, txEncodingConfig client.TxEncodi
 
 // CollectTxs processes and validates application's genesis Txs and returns
 // the list of appGenTxs, and persistent peers required to generate genesis.json.
-func CollectTxs(cdc codec.JSONCodec, txJSONDecoder sdk.TxDecoder, moniker, genTxsDir string,
+func CollectTxs(cdc codec.JSONCodec, txJSONDecoder seitypes.TxDecoder, moniker, genTxsDir string,
 	genDoc tmtypes.GenesisDoc, genBalIterator types.GenesisBalancesIterator,
 ) (appGenTxs []seitypes.Tx, persistentPeers string, err error) {
 	// prepare a map of all balances in genesis state to then validate
@@ -140,7 +141,7 @@ func CollectTxs(cdc codec.JSONCodec, txJSONDecoder sdk.TxDecoder, moniker, genTx
 
 		// validate delegator and validator addresses and funds against the accounts in the state
 		delAddr := msg.DelegatorAddress
-		valAddr, err := sdk.ValAddressFromBech32(msg.ValidatorAddress)
+		valAddr, err := seitypes.ValAddressFromBech32(msg.ValidatorAddress)
 		if err != nil {
 			return appGenTxs, persistentPeers, err
 		}

@@ -104,7 +104,7 @@ type ToSDKConverter interface {
 type converter struct {
 	newTxBuilder    func() sdkclient.TxBuilder
 	txBuilderFromTx func(tx seitypes.Tx) (sdkclient.TxBuilder, error)
-	txDecode        sdk.TxDecoder
+	txDecode        seitypes.TxDecoder
 	txEncode        seitypes.TxEncoder
 	bytesToSign     func(tx authsigning.Tx, signerData authsigning.SignerData) (b []byte, err error)
 	ir              codectypes.InterfaceRegistry

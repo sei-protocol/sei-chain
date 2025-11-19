@@ -6,6 +6,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // InitGenesis initializes the bank module's state from a given genesis state.

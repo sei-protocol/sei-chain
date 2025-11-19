@@ -198,7 +198,7 @@ func TestUpdateBondedValidatorsDecreaseCliff(t *testing.T) {
 	// require all the validators have their respective statuses
 	for valIdx, status := range expectedValStatus {
 		valAddr := validators[valIdx].OperatorAddress
-		addr, err := sdk.ValAddressFromBech32(valAddr)
+		addr, err := seitypes.ValAddressFromBech32(valAddr)
 		assert.NoError(t, err)
 		val, _ := app.StakingKeeper.GetValidator(ctx, addr)
 

@@ -114,7 +114,7 @@ func panicIfErr(err error) {
 func addressToValAddress(addr seitypes.AccAddress) seitypes.ValAddress {
 	bech, err := sdk.Bech32ifyAddressBytes(seitypes.GetConfig().GetBech32ValidatorAddrPrefix(), addr.Bytes())
 	panicIfErr(err)
-	valAddr, err := sdk.ValAddressFromBech32(bech)
+	valAddr, err := seitypes.ValAddressFromBech32(bech)
 	panicIfErr(err)
 	return valAddr
 }

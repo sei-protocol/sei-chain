@@ -44,7 +44,7 @@ func NewUnjailRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			return
 		}
 
-		valAddr, err := sdk.ValAddressFromBech32(bech32Validator)
+		valAddr, err := seitypes.ValAddressFromBech32(bech32Validator)
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}
