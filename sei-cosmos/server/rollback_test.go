@@ -584,3 +584,47 @@ func TestRollbackErrorCases(t *testing.T) {
 		require.Contains(t, err.Error(), "cannot rollback below 0")
 	})
 }
+
+// TestRollbackWithNumBlocks tests rolling back multiple blocks using the --num-blocks flag
+func TestRollbackWithNumBlocks(t *testing.T) {
+	initialHeight := int64(10)
+	numBlocks := int64(3)
+	targetHeight := initialHeight - numBlocks
+
+	// Setup app at height 10
+	app, tempDir := setupTestApp(t, initialHeight)
+
+	// Setup tendermint state at height 10
+	cfg := setupTendermintStateDB(t, tempDir, initialHeight)
+
+	// Create app creator
+	appCreator := func(log.Logger, dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
+		return app
+	}
+
+	// Create rollback command
+	cmd := NewRollbackCmd(appCreator, tempDir)
+	// Pass the num-blocks flag
+	cmd.SetArgs([]string{"--num-blocks", fmt.Sprintf("%d", numBlocks)})
+
+	// Set up server context
+	ctx := &Context{
+		Config: cfg,
+		Logger: log.NewNopLogger(),
+		Viper:  nil,
+	}
+	cmdCtx := context.WithValue(context.Background(), ServerContextKey, ctx)
+
+	// Execute rollback
+	err := cmd.ExecuteContext(cmdCtx)
+	require.NoError(t, err)
+
+	// Verify app state was rolled back
+	appCommit := app.CommitMultiStore().LastCommitID()
+	require.Equal(t, targetHeight, appCommit.GetVersion())
+
+	// Verify tendermint state was rolled back
+	tmHeight, err := getTendermintStateHeight(cfg)
+	require.NoError(t, err)
+	require.Equal(t, targetHeight, tmHeight)
+}

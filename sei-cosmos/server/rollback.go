@@ -116,7 +116,8 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 				}
 
 				if string(appHash) != string(tmHash) {
-					fmt.Printf("WARNING: Application state hash (%X) does not match the tendermint state hash (%X)\n",
+					fmt.Printf("WARNING: Application state hash (%X) does not match the tendermint state hash (%X). "+
+						"Please consider to rollback more blocks.\n",
 						appHash, tmHash)
 				}
 			} else if appHeight < tmHeight {
