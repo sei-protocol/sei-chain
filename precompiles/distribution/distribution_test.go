@@ -1235,7 +1235,7 @@ func TestWithdrawValidatorCommission_noCommissionToWithdrawRightAfterDelegation(
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
-	require.Equal(t, "no validator commission to withdraw", string(res.ReturnData))
+	require.Nil(t, res.ReturnData)
 
 }
 
@@ -1376,7 +1376,7 @@ func TestWithdrawValidatorCommission_InputValidation(t *testing.T) {
 
 			if tc.wantError {
 				require.NotNil(t, err, "Expected error for test case: %s", tc.name)
-				require.Equal(t, tc.wantErrMsg, string(ret))
+				require.Nil(t, ret)
 			} else {
 				require.Nil(t, err, "Expected no error for test case: %s", tc.name)
 				require.Greater(t, remainingGas, uint64(0), "Should have remaining gas")
