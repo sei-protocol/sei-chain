@@ -97,7 +97,7 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 				}
 
 				// Rollback tendermint state
-				newTmHeight, tmHash, err := rollbackTendermintState(ctx.Config, targetHeight)
+				newTmHeight, stateHash, err := rollbackTendermintState(ctx.Config, targetHeight)
 				if err != nil {
 					return err
 				}
@@ -106,11 +106,13 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 				if app.CommitMultiStore().LastCommitID().Version != newTmHeight {
 					panic("Application state height does not match the tendermint state height")
 				}
+				fmt.Printf("Rollback complete target height %d. App hash %X, state hash %X\n", appHeight, appHash, stateHash)
+
 			} else if appHeight < tmHeight {
 				// Scenario 2: App is behind tendermint - rollback tendermint only
 				fmt.Printf("App is at height %d, tendermint is at height %d. Rolling back tendermint to target height %d\n", appHeight, tmHeight, appHeight)
 
-				newTmHeight, _, err := rollbackTendermintState(ctx.Config, appHeight)
+				newTmHeight, stateHash, err := rollbackTendermintState(ctx.Config, appHeight)
 				if err != nil {
 					return err
 				}
@@ -120,13 +122,13 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 					fmt.Printf("WARNING: After rollback, app height (%d) still doesn't match tendermint height (%d). You may need to run rollback again.\n",
 						appHeight, newTmHeight)
 				} else {
-					fmt.Printf("Rollback complete. Both app and tendermint are now at height %d\n", appHeight)
+					fmt.Printf("Rollback complete to target height %d. App hash %X, state hash %X\n", appHeight, lastCommit.Hash, stateHash)
 				}
 			} else {
 				// Scenario 3: App is ahead of tendermint - rollback app only
 				fmt.Printf("App is at height %d, tendermint is at height %d. Rolling back app to target height %d\n", appHeight, tmHeight, tmHeight)
 
-				_, err := rollbackAppState(app, tmHeight)
+				appHash, err := rollbackAppState(app, tmHeight)
 				if err != nil {
 					return err
 				}
@@ -137,7 +139,7 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 						tmHeight, app.CommitMultiStore().LastCommitID().Version)
 				}
 
-				fmt.Printf("Rollback complete. Both app and tendermint are now at height %d\n", tmHeight)
+				fmt.Printf("Rollback complete to target height %d. App hash %X, state hash %X\n", tmHeight, appHash, tmState.AppHash)
 			}
 
 			return nil
