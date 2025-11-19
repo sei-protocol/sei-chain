@@ -1,7 +1,6 @@
 package util
 
 var Modules = []string{
-	"aclaccesscontrol",
 	"authz",
 	"acc",
 	"bank",

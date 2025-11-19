@@ -7,7 +7,6 @@ parent:
 
 Here are some production-grade modules that can be used in Cosmos SDK applications, along with their respective documentation:
 
-- [Accesscontrol] - Resource dependency access control module used for managing concurrent read/write access to resources.
 - [Auth](auth/spec/README.md) - Authentication of accounts and transactions for Cosmos SDK application.
 - [Authz](authz/spec/README.md) - Authorization for accounts to perform actions on behalf of other accounts.
 - [Bank](bank/spec/README.md) - Token transfer functionalities.
@@ -33,7 +32,7 @@ The IBC module for the SDK has moved to its [own repository](https://github.com/
 To query for current fee params:
 
 ```bash
-seid q params feesparams 
+seid q params feesparams
 ```
 
 To update the feesparams, use a governance proposal like such:

@@ -139,12 +139,6 @@ type MultiStore interface {
 
 	GetWorkingHash() ([]byte, error)
 
-	// Returns Events Emitted from the internal event manager
-	GetEvents() []abci.Event
-
-	// Resets the tracked event list
-	ResetEvents()
-
 	// SetKVStores is a generalized wrapper method
 	SetKVStores(handler func(key StoreKey, s KVStore) CacheWrap) MultiStore
 
@@ -273,12 +267,6 @@ type CacheKVStore interface {
 
 	// Writes operations to underlying KVStore
 	Write()
-
-	// Returns Events Emitted from the internal event manager
-	GetEvents() []abci.Event
-
-	// Resets the tracked event list
-	ResetEvents()
 }
 
 // CommitKVStore is an interface for MultiStore.
@@ -297,11 +285,6 @@ type CommitKVStore interface {
 type CacheWrap interface {
 	// Write syncs with the underlying store.
 	Write()
-
-	GetEvents() []abci.Event
-
-	// Resets the tracked event list
-	ResetEvents()
 
 	// CacheWrap recursively wraps again.
 	CacheWrap(storeKey StoreKey) CacheWrap

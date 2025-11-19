@@ -354,21 +354,21 @@ func (s *SafeRoundState) CompleteProposalEvent() types.EventDataCompleteProposal
 // NOTE: Not thread safe. Should only be manipulated by functions downstream
 // of the cs.receiveRoutine
 type RoundState struct {
-	Height    int64         `json:"height,string"` // Height we are working on
-	Round     int32         `json:"round"`
-	Step      RoundStepType `json:"step"`
-	StartTime time.Time     `json:"start_time"`
+	Height    int64 // Height we are working on
+	Round     int32
+	Step      RoundStepType
+	StartTime time.Time
 
 	// Subjective time when +2/3 precommits for Block at Round were found
-	CommitTime          time.Time           `json:"commit_time"`
-	Validators          *types.ValidatorSet `json:"validators"`
-	Proposal            *types.Proposal     `json:"proposal"`
-	ProposalReceiveTime time.Time           `json:"proposal_receive_time"`
-	ProposalBlock       *types.Block        `json:"proposal_block"`
-	ProposalBlockParts  *types.PartSet      `json:"proposal_block_parts"`
-	LockedRound         int32               `json:"locked_round"`
-	LockedBlock         *types.Block        `json:"locked_block"`
-	LockedBlockParts    *types.PartSet      `json:"locked_block_parts"`
+	CommitTime          time.Time
+	Validators          *types.ValidatorSet
+	Proposal            *types.Proposal
+	ProposalReceiveTime time.Time
+	ProposalBlock       *types.Block
+	ProposalBlockParts  *types.PartSet
+	LockedRound         int32
+	LockedBlock         *types.Block
+	LockedBlockParts    *types.PartSet
 
 	// The variables below starting with "Valid..." derive their name from
 	// the algorithm presented in this paper:
@@ -379,20 +379,19 @@ type RoundState struct {
 	//   * has nothing to do with whether the Application returned "Accept" in its
 	//     response to `ProcessProposal`, or "Reject"
 
-	// Last known round with POL for non-nil valid block.
-	ValidRound int32        `json:"valid_round"`
-	ValidBlock *types.Block `json:"valid_block"` // Last known block of POL mentioned above.
+	ValidRound      int32          // Last known round with POL for non-nil valid block.
+	ValidBlock      *types.Block   // Last known block of POL mentioned above.
+	ValidBlockParts *types.PartSet // Last known block parts of POL mentioned above.
 
-	// Last known block parts of POL mentioned above.
-	ValidBlockParts           *types.PartSet      `json:"valid_block_parts"`
-	Votes                     *HeightVoteSet      `json:"votes"`
-	CommitRound               int32               `json:"commit_round"` //
-	LastCommit                *types.VoteSet      `json:"last_commit"`  // Last precommits at Height-1
-	LastValidators            *types.ValidatorSet `json:"last_validators"`
-	TriggeredTimeoutPrecommit bool                `json:"triggered_timeout_precommit"`
+	Votes                     *HeightVoteSet
+	CommitRound               int32
+	LastCommit                *types.VoteSet // Last precommits at Height-1
+	LastValidators            *types.ValidatorSet
+	TriggeredTimeoutPrecommit bool
 }
 
-// Compressed version of the RoundState for use in RPC
+// Compressed version of the RoundState for use in RPC.
+// Used only for JSON representation.
 type RoundStateSimple struct {
 	HeightRoundStep   string              `json:"height/round/step"`
 	StartTime         time.Time           `json:"start_time"`

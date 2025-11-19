@@ -28,29 +28,22 @@ func (a HRS) Cmp(b HRS) int {
 // NOTE: Read-only when returned by PeerState.GetRoundState().
 type PeerRoundState struct {
 	HRS
-	
-	// Estimated start of round 0 at this height
-	StartTime time.Time
 
-	// True if peer has proposal for this round
-	Proposal                   bool                
-	ProposalBlockPartSetHeader types.PartSetHeader 
-	ProposalBlockParts         *bits.BitArray     
-	// Proposal's POL round. -1 if none.
-	ProposalPOLRound int32
 
-	// nil until ProposalPOLMessage received.
-	ProposalPOL     *bits.BitArray
-	Prevotes        *bits.BitArray          // All votes peer has for this round
-	Precommits      *bits.BitArray        // All precommits peer has for this round
-	LastCommitRound int32           // Round of commit for last height. -1 if none.
-	LastCommit      *bits.BitArray        // All commit precommits of commit for last height.
+	StartTime time.Time // Estimated start of round 0 at this height
 
-	// Round that we have commit for. Not necessarily unique. -1 if none.
-	CatchupCommitRound int32 
+	Proposal                   bool // True if peer has proposal for this round
+	ProposalBlockPartSetHeader types.PartSetHeader
+	ProposalBlockParts         *bits.BitArray
+	ProposalPOLRound           int32          // Proposal's POL round. -1 if none.
+	ProposalPOL                *bits.BitArray // nil until ProposalPOLMessage received.
+	Prevotes                   *bits.BitArray // All votes peer has for this round
+	Precommits                 *bits.BitArray // All precommits peer has for this round
+	LastCommitRound            int32          // Round of commit for last height. -1 if none.
+	LastCommit                 *bits.BitArray // All commit precommits of commit for last height.
 
-	// All commit precommits peer has for this height & CatchupCommitRound
-	CatchupCommit *bits.BitArray 
+	CatchupCommitRound int32          // Round that we have commit for. Not necessarily unique. -1 if none.
+	CatchupCommit      *bits.BitArray // All commit precommits peer has for this height & CatchupCommitRound
 }
 
 // Copy provides a deep copy operation. Because many of the fields in
