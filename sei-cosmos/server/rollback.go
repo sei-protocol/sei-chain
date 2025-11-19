@@ -21,8 +21,8 @@ func getTendermintStateHeight(cfg *tmcfg.Config) (int64, error) {
 
 // rollbackTendermintState rolls back the tendermint state by one height.
 // Returns the new height and app hash.
-func rollbackTendermintState(cfg *tmcfg.Config) (int64, []byte, error) {
-	tmHeight, hash, err := tmcmd.RollbackState(cfg, true)
+func rollbackTendermintState(cfg *tmcfg.Config, targetHeight int64) (int64, []byte, error) {
+	tmHeight, hash, err := tmcmd.RollbackStateToTargetHeight(cfg, true, targetHeight)
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to rollback tendermint state: %w", err)
 	}
@@ -91,12 +91,12 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 			// Handle different scenarios based on height comparison
 			if appHeight == tmHeight {
 				// Scenario 1: Both at same height - normal rollback
-				fmt.Printf("Both app and tendermint are at height %d, performing normal rollback\n", appHeight)
-
-				targetHeight := appHeight - 1
+				numBlocks, _ := cmd.Flags().GetInt64("num-blocks")
+				targetHeight := appHeight - numBlocks
 				if targetHeight < 0 {
 					return fmt.Errorf("cannot rollback: current height is %d, cannot rollback below 0", appHeight)
 				}
+				fmt.Printf("Both app and tendermint are at height %d, performing normal rollback to target height %d\n", appHeight, targetHeight)
 
 				// Rollback app state first
 				appHash, err := rollbackAppState(app, targetHeight)
@@ -105,7 +105,7 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 				}
 
 				// Rollback tendermint state
-				newTmHeight, tmHash, err := rollbackTendermintState(ctx.Config)
+				newTmHeight, tmHash, err := rollbackTendermintState(ctx.Config, targetHeight)
 				if err != nil {
 					return err
 				}
@@ -119,12 +119,11 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 					fmt.Printf("WARNING: Application state hash (%X) does not match the tendermint state hash (%X)\n",
 						appHash, tmHash)
 				}
-
 			} else if appHeight < tmHeight {
 				// Scenario 2: App is behind tendermint - rollback tendermint only
-				fmt.Printf("App is at height %d, tendermint is at height %d. Rolling back tendermint only.\n", appHeight, tmHeight)
+				fmt.Printf("App is at height %d, tendermint is at height %d. Rolling back tendermint to target height %d\n", appHeight, tmHeight, appHeight)
 
-				newTmHeight, _, err := rollbackTendermintState(ctx.Config)
+				newTmHeight, _, err := rollbackTendermintState(ctx.Config, appHeight)
 				if err != nil {
 					return err
 				}
@@ -136,10 +135,9 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 				} else {
 					fmt.Printf("Rollback complete. Both app and tendermint are now at height %d\n", appHeight)
 				}
-
 			} else {
 				// Scenario 3: App is ahead of tendermint - rollback app only
-				fmt.Printf("App is at height %d, tendermint is at height %d. Rolling back app only.\n", appHeight, tmHeight)
+				fmt.Printf("App is at height %d, tendermint is at height %d. Rolling back app to target height %d\n", appHeight, tmHeight, tmHeight)
 
 				_, err := rollbackAppState(app, tmHeight)
 				if err != nil {
@@ -159,6 +157,7 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 		},
 	}
 
+	cmd.Flags().Int64("num-blocks", 1, "number of blocks to rollback")
 	cmd.Flags().String(flags.FlagChainID, "sei-chain", "genesis file chain-id, if left blank will use sei")
 	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The application home directory")
 	return cmd
