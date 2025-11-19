@@ -86,7 +86,7 @@ func TestPrecompileRun(t *testing.T) {
 	stateDB.WithCtx(ctx.WithEventManager(sdk.NewEventManager()))
 	precompile = common.NewPrecompile(newAbi, &MockPrecompileExecutor{throw: true}, ethcommon.Address{}, "test")
 	res, err = precompile.Run(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, big.NewInt(0), false, false, nil)
-	require.NotNil(t, res)
+	require.Nil(t, res)
 	require.NotNil(t, err)
 	// should not emit any event
 	require.Empty(t, stateDB.Ctx().EventManager().Events())
