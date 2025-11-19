@@ -42,6 +42,26 @@ application.
 	return cmd
 }
 
+// LoadTendermintState loads the tendermint state from the database.
+// Returns the state, or an error if loading fails.
+func LoadTendermintState(config *config.Config) (state.State, error) {
+	blockStore, stateStore, err := loadStateAndBlockStore(config)
+	if err != nil {
+		return state.State{}, err
+	}
+	defer func() {
+		_ = blockStore.Close()
+		_ = stateStore.Close()
+	}()
+
+	tmState, err := stateStore.Load()
+	if err != nil {
+		return state.State{}, fmt.Errorf("failed to load state: %w", err)
+	}
+
+	return tmState, nil
+}
+
 // RollbackState takes the state at the current height n and overwrites it with the state
 // at height n - 1. Note state here refers to tendermint state not application state.
 // Returns the latest state height and app hash alongside an error if there was one.

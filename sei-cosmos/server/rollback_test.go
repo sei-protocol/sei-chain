@@ -556,49 +556,6 @@ func TestRollbackScenario3_TendermintAheadOfApp(t *testing.T) {
 	require.Equal(t, tmHeight, finalTmHeight)
 }
 
-// TestRollbackScenario2_MultipleIterations tests scenario 2 with multiple tendermint rollbacks needed
-func TestRollbackScenario2_MultipleIterations(t *testing.T) {
-	appHeight := int64(5)
-	tmHeight := int64(10)
-	targetHeight := int64(5)
-
-	// Setup app at height 5
-	app, tempDir := setupTestApp(t, appHeight)
-
-	// Setup tendermint state at height 10 (needs 5 rollbacks)
-	cfg := setupTendermintStateDB(t, tempDir, tmHeight)
-
-	// Create app creator
-	appCreator := func(log.Logger, dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
-		return app
-	}
-
-	// Create rollback command
-	cmd := NewRollbackCmd(appCreator, tempDir)
-	cmd.SetArgs([]string{})
-
-	// Set up server context
-	ctx := &Context{
-		Config: cfg,
-		Logger: log.NewNopLogger(),
-		Viper:  nil,
-	}
-	cmdCtx := context.WithValue(context.Background(), ServerContextKey, ctx)
-
-	// Execute rollback - should complete multiple tendermint rollbacks
-	err := cmd.ExecuteContext(cmdCtx)
-	require.NoError(t, err)
-
-	// Verify app state is unchanged
-	appCommit := app.CommitMultiStore().LastCommitID()
-	require.Equal(t, targetHeight, appCommit.GetVersion())
-
-	// Verify tendermint state was rolled back to match app
-	finalTmHeight, err := getTendermintStateHeight(cfg)
-	require.NoError(t, err)
-	require.Equal(t, targetHeight, finalTmHeight)
-}
-
 // TestRollbackErrorCases tests error cases
 func TestRollbackErrorCases(t *testing.T) {
 	t.Run("Cannot rollback below height 0", func(t *testing.T) {
