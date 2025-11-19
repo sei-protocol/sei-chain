@@ -10,15 +10,6 @@ import (
 	tmcfg "github.com/tendermint/tendermint/config"
 )
 
-// getTendermintStateHeight gets the current tendermint state height.
-func getTendermintStateHeight(cfg *tmcfg.Config) (int64, error) {
-	tmState, err := tmcmd.LoadTendermintState(cfg)
-	if err != nil {
-		return 0, fmt.Errorf("failed to load tendermint state: %w", err)
-	}
-	return tmState.LastBlockHeight, nil
-}
-
 // rollbackTendermintState rolls back the tendermint state by one height.
 // Returns the new height and app hash.
 func rollbackTendermintState(cfg *tmcfg.Config, targetHeight int64) (int64, []byte, error) {
@@ -82,7 +73,8 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 			fmt.Printf("Initial App state height=%d and hash=%X\n", appHeight, lastCommit.GetHash())
 
 			// Get tendermint state height
-			tmHeight, err := getTendermintStateHeight(ctx.Config)
+			tmState, err := tmcmd.LoadTendermintState(ctx.Config)
+			tmHeight := tmState.LastBlockHeight
 			if err != nil {
 				return err
 			}
@@ -110,15 +102,9 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 					return err
 				}
 
-				// Verify consistency
+				// Verify state height
 				if app.CommitMultiStore().LastCommitID().Version != newTmHeight {
 					panic("Application state height does not match the tendermint state height")
-				}
-
-				if string(appHash) != string(tmHash) {
-					fmt.Printf("WARNING: Application state hash (%X) does not match the tendermint state hash (%X). "+
-						"Please consider to rollback more blocks.\n",
-						appHash, tmHash)
 				}
 			} else if appHeight < tmHeight {
 				// Scenario 2: App is behind tendermint - rollback tendermint only
