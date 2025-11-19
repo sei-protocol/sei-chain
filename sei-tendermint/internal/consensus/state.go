@@ -276,6 +276,7 @@ func (cs *State) String() string {
 }
 
 // GetState returns a copy of the chain state.
+// TESTONLY.
 func (cs *State) GetState() sm.State {
 	cs.mtx.RLock()
 	defer cs.mtx.RUnlock()
@@ -654,6 +655,8 @@ func (cs *State) votesFromSeenCommit(state sm.State) (*types.VoteSet, error) {
 // Updates State and increments height to match that of state.
 // The round becomes 0 and cs.Step becomes cstypes.RoundStepNewHeight.
 func (cs *State) updateToState(state sm.State) {
+	cs.mtx.Lock()
+	defer cs.mtx.Unlock()
 	if cs.roundState.CommitRound() > -1 && 0 < cs.roundState.Height() && cs.roundState.Height() != state.LastBlockHeight {
 		panic(fmt.Sprintf(
 			"updateToState() expected state height of %v but found %v",
