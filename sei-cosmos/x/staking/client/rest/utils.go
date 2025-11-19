@@ -11,6 +11,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/rest"
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // contains checks if the a given query contains one of the tx types

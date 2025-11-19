@@ -5,6 +5,7 @@ import (
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // UseiToSweiMultiplier Fields that were denominated in usei will be converted to swei (1usei = 10^12swei)

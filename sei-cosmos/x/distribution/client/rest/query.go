@@ -12,6 +12,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/rest"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 func registerQueryRoutes(clientCtx client.Context, r *mux.Router) {
@@ -145,7 +146,7 @@ func delegatorWithdrawalAddrHandlerFn(clientCtx client.Context) http.HandlerFunc
 // ValidatorDistInfo defines the properties of
 // validator distribution information response.
 type ValidatorDistInfo struct {
-	OperatorAddress     seitypes.AccAddress                       `json:"operator_address" yaml:"operator_address"`
+	OperatorAddress     seitypes.AccAddress                  `json:"operator_address" yaml:"operator_address"`
 	SelfBondRewards     sdk.DecCoins                         `json:"self_bond_rewards" yaml:"self_bond_rewards"`
 	ValidatorCommission types.ValidatorAccumulatedCommission `json:"val_commission" yaml:"val_commission"`
 }

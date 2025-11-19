@@ -9,6 +9,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	ethutils "github.com/ethereum/go-ethereum/trie/utils"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/sei-protocol/sei-chain/utils"
 )
 

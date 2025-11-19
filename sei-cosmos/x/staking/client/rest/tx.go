@@ -11,6 +11,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/rest"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 func registerTxHandlers(clientCtx client.Context, r *mux.Router) {
@@ -31,27 +32,27 @@ func registerTxHandlers(clientCtx client.Context, r *mux.Router) {
 type (
 	// DelegateRequest defines the properties of a delegation request's body.
 	DelegateRequest struct {
-		BaseReq          rest.BaseReq   `json:"base_req" yaml:"base_req"`
+		BaseReq          rest.BaseReq        `json:"base_req" yaml:"base_req"`
 		DelegatorAddress seitypes.AccAddress `json:"delegator_address" yaml:"delegator_address"` // in bech32
 		ValidatorAddress seitypes.ValAddress `json:"validator_address" yaml:"validator_address"` // in bech32
-		Amount           sdk.Coin       `json:"amount" yaml:"amount"`
+		Amount           sdk.Coin            `json:"amount" yaml:"amount"`
 	}
 
 	// RedelegateRequest defines the properties of a redelegate request's body.
 	RedelegateRequest struct {
-		BaseReq             rest.BaseReq   `json:"base_req" yaml:"base_req"`
+		BaseReq             rest.BaseReq        `json:"base_req" yaml:"base_req"`
 		DelegatorAddress    seitypes.AccAddress `json:"delegator_address" yaml:"delegator_address"`         // in bech32
 		ValidatorSrcAddress seitypes.ValAddress `json:"validator_src_address" yaml:"validator_src_address"` // in bech32
 		ValidatorDstAddress seitypes.ValAddress `json:"validator_dst_address" yaml:"validator_dst_address"` // in bech32
-		Amount              sdk.Coin       `json:"amount" yaml:"amount"`
+		Amount              sdk.Coin            `json:"amount" yaml:"amount"`
 	}
 
 	// UndelegateRequest defines the properties of a undelegate request's body.
 	UndelegateRequest struct {
-		BaseReq          rest.BaseReq   `json:"base_req" yaml:"base_req"`
+		BaseReq          rest.BaseReq        `json:"base_req" yaml:"base_req"`
 		DelegatorAddress seitypes.AccAddress `json:"delegator_address" yaml:"delegator_address"` // in bech32
 		ValidatorAddress seitypes.ValAddress `json:"validator_address" yaml:"validator_address"` // in bech32
-		Amount           sdk.Coin       `json:"amount" yaml:"amount"`
+		Amount           sdk.Coin            `json:"amount" yaml:"amount"`
 	}
 )
 

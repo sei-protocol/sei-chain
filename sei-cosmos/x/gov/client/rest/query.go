@@ -8,10 +8,10 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/rest"
 	gcutils "github.com/cosmos/cosmos-sdk/x/gov/client/utils"
 	"github.com/cosmos/cosmos-sdk/x/gov/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 func registerQueryRoutes(clientCtx client.Context, r *mux.Router) {

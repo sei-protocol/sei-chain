@@ -6,6 +6,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/distribution/keeper"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 func NewHandler(k keeper.Keeper) sdk.Handler {

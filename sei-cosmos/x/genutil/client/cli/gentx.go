@@ -27,6 +27,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/genutil"
 	"github.com/cosmos/cosmos-sdk/x/genutil/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/client/cli"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // GenTxCmd builds the application's gentx command.

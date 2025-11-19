@@ -9,6 +9,7 @@ import (
 	clientrest "github.com/cosmos/cosmos-sdk/client/rest"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/rest"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // REST Variable names
@@ -36,25 +37,25 @@ func RegisterHandlers(clientCtx client.Context, rtr *mux.Router, phs []ProposalR
 
 // PostProposalReq defines the properties of a proposal request's body.
 type PostProposalReq struct {
-	BaseReq        rest.BaseReq   `json:"base_req" yaml:"base_req"`
-	Title          string         `json:"title" yaml:"title"`                     // Title of the proposal
-	Description    string         `json:"description" yaml:"description"`         // Description of the proposal
-	ProposalType   string         `json:"proposal_type" yaml:"proposal_type"`     // Type of proposal. Initial set {PlainTextProposal }
-	IsExpedited    bool           `json:"is_expedited" yaml:"is_expedited"`       // Expedited proposal or not
+	BaseReq        rest.BaseReq        `json:"base_req" yaml:"base_req"`
+	Title          string              `json:"title" yaml:"title"`                     // Title of the proposal
+	Description    string              `json:"description" yaml:"description"`         // Description of the proposal
+	ProposalType   string              `json:"proposal_type" yaml:"proposal_type"`     // Type of proposal. Initial set {PlainTextProposal }
+	IsExpedited    bool                `json:"is_expedited" yaml:"is_expedited"`       // Expedited proposal or not
 	Proposer       seitypes.AccAddress `json:"proposer" yaml:"proposer"`               // Address of the proposer
-	InitialDeposit sdk.Coins      `json:"initial_deposit" yaml:"initial_deposit"` // Coins to add to the proposal's deposit
+	InitialDeposit sdk.Coins           `json:"initial_deposit" yaml:"initial_deposit"` // Coins to add to the proposal's deposit
 }
 
 // DepositReq defines the properties of a deposit request's body.
 type DepositReq struct {
-	BaseReq   rest.BaseReq   `json:"base_req" yaml:"base_req"`
+	BaseReq   rest.BaseReq        `json:"base_req" yaml:"base_req"`
 	Depositor seitypes.AccAddress `json:"depositor" yaml:"depositor"` // Address of the depositor
-	Amount    sdk.Coins      `json:"amount" yaml:"amount"`       // Coins to add to the proposal's deposit
+	Amount    sdk.Coins           `json:"amount" yaml:"amount"`       // Coins to add to the proposal's deposit
 }
 
 // VoteReq defines the properties of a vote request's body.
 type VoteReq struct {
-	BaseReq rest.BaseReq   `json:"base_req" yaml:"base_req"`
+	BaseReq rest.BaseReq        `json:"base_req" yaml:"base_req"`
 	Voter   seitypes.AccAddress `json:"voter" yaml:"voter"`   // address of the voter
-	Option  string         `json:"option" yaml:"option"` // option from OptionSet chosen by the voter
+	Option  string              `json:"option" yaml:"option"` // option from OptionSet chosen by the voter
 }

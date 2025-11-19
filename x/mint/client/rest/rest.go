@@ -13,6 +13,7 @@ import (
 	clientrest "github.com/cosmos/cosmos-sdk/client/rest"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	typesrest "github.com/cosmos/cosmos-sdk/types/rest"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // RegisterRoutes registers minting module REST handlers on the provided router.

@@ -30,6 +30,7 @@ import (
 	auth "github.com/cosmos/cosmos-sdk/x/auth/types"
 	bank "github.com/cosmos/cosmos-sdk/x/bank/types"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	tmrpc "github.com/tendermint/tendermint/rpc/client"
 )
 

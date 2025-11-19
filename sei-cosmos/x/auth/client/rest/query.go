@@ -16,6 +16,7 @@ import (
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	genutilrest "github.com/cosmos/cosmos-sdk/x/genutil/client/rest"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // QueryAccountRequestHandlerFn is the query accountREST Handler.

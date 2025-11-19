@@ -14,6 +14,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/rest"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 func registerTxHandlers(

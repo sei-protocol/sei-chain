@@ -5,6 +5,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/gov/keeper"
 	"github.com/cosmos/cosmos-sdk/x/gov/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // NewHandler creates an sdk.Handler for all the gov type messages

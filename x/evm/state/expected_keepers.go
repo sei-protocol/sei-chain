@@ -8,6 +8,7 @@ import (
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	"github.com/ethereum/go-ethereum/common"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 type EVMKeeper interface {

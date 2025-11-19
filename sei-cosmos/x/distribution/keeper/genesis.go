@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // InitGenesis sets distribution information for genesis
@@ -23,7 +24,7 @@ func (k Keeper) InitGenesis(ctx sdk.Context, data types.GenesisState) {
 	var previousProposer seitypes.ConsAddress
 	if data.PreviousProposer != "" {
 		var err error
-		previousProposer, err = sdk.ConsAddressFromBech32(data.PreviousProposer)
+		previousProposer, err = seitypes.ConsAddressFromBech32(data.PreviousProposer)
 		if err != nil {
 			panic(err)
 		}

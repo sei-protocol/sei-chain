@@ -11,6 +11,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/rest"
 	"github.com/cosmos/cosmos-sdk/x/distribution/client/common"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 type (
@@ -19,7 +20,7 @@ type (
 	}
 
 	setWithdrawalAddrReq struct {
-		BaseReq         rest.BaseReq   `json:"base_req" yaml:"base_req"`
+		BaseReq         rest.BaseReq        `json:"base_req" yaml:"base_req"`
 		WithdrawAddress seitypes.AccAddress `json:"withdraw_address" yaml:"withdraw_address"`
 	}
 
