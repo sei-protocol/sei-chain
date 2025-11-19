@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/spf13/cobra"
@@ -17,7 +16,6 @@ func rollbackTendermintState(cfg *tmcfg.Config, targetHeight int64) (int64, []by
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to rollback tendermint state: %w", err)
 	}
-	fmt.Printf("Rolled back tendermint state to height %d and hash %X\n", tmHeight, hash)
 	return tmHeight, hash, nil
 }
 
@@ -106,7 +104,7 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 				if app.CommitMultiStore().LastCommitID().Version != newTmHeight {
 					panic("Application state height does not match the tendermint state height")
 				}
-				fmt.Printf("Rollback complete target height %d. App hash %X, state hash %X\n", appHeight, appHash, stateHash)
+				fmt.Printf("Rollback complete target height %d. App hash %X, state hash %X\n", newTmHeight, appHash, stateHash)
 
 			} else if appHeight < tmHeight {
 				// Scenario 2: App is behind tendermint - rollback tendermint only
@@ -122,7 +120,7 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 					fmt.Printf("WARNING: After rollback, app height (%d) still doesn't match tendermint height (%d). You may need to run rollback again.\n",
 						appHeight, newTmHeight)
 				} else {
-					fmt.Printf("Rollback complete to target height %d. App hash %X, state hash %X\n", appHeight, lastCommit.Hash, stateHash)
+					fmt.Printf("Rollback complete to target height %d. App hash %X, state hash %X\n", newTmHeight, lastCommit.Hash, stateHash)
 				}
 			} else {
 				// Scenario 3: App is ahead of tendermint - rollback app only
@@ -146,7 +144,7 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 		},
 	}
 
-	cmd.Flags().Int64("num-blocks", 1, "number of blocks to rollback")
+	cmd.Flags().Int64P("num-blocks", "n", 1, "number of blocks to rollback")
 	cmd.Flags().String(flags.FlagChainID, "sei-chain", "genesis file chain-id, if left blank will use sei")
 	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The application home directory")
 	return cmd
