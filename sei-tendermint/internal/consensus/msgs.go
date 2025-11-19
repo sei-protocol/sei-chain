@@ -23,7 +23,7 @@ type Message interface {
 // For every height/round/step transition
 type NewRoundStepMessage struct {
 	cstypes.HRS
-	SecondsSinceStartTime int64 `json:",string"`
+	SecondsSinceStartTime int64
 	LastCommitRound       int32
 }
 
@@ -78,7 +78,7 @@ func (m *NewRoundStepMessage) String() string {
 // i.e., there is a Proposal for block B and 2/3+ prevotes for the block B in the round r.
 // In case the block is also committed, then IsCommit flag is set to true.
 type NewValidBlockMessage struct {
-	Height             int64 `json:",string"`
+	Height             int64
 	Round              int32
 	BlockPartSetHeader types.PartSetHeader
 	BlockParts         *bits.BitArray
@@ -133,7 +133,7 @@ func (m *ProposalMessage) String() string {
 
 // ProposalPOLMessage is sent when a previous proposal is re-proposed.
 type ProposalPOLMessage struct {
-	Height           int64 `json:",string"`
+	Height           int64
 	ProposalPOLRound int32
 	ProposalPOL      *bits.BitArray
 }
@@ -162,7 +162,7 @@ func (m *ProposalPOLMessage) String() string {
 
 // BlockPartMessage is sent when gossipping a piece of the proposed block.
 type BlockPartMessage struct {
-	Height int64 `json:",string"`
+	Height int64
 	Round  int32
 	Part   *types.Part
 }
@@ -203,7 +203,7 @@ func (m *VoteMessage) String() string {
 
 // HasVoteMessage is sent to indicate that a particular vote has been received.
 type HasVoteMessage struct {
-	Height int64 `json:",string"`
+	Height int64
 	Round  int32
 	Type   tmproto.SignedMsgType
 	Index  int32
@@ -233,7 +233,7 @@ func (m *HasVoteMessage) String() string {
 
 // VoteSetMaj23Message is sent to indicate that a given BlockID has seen +2/3 votes.
 type VoteSetMaj23Message struct {
-	Height  int64 `json:",string"`
+	Height  int64
 	Round   int32
 	Type    tmproto.SignedMsgType
 	BlockID types.BlockID
@@ -265,7 +265,7 @@ func (m *VoteSetMaj23Message) String() string {
 // VoteSetBitsMessage is sent to communicate the bit-array of votes seen for the
 // BlockID.
 type VoteSetBitsMessage struct {
-	Height  int64 `json:",string"`
+	Height  int64
 	Round   int32
 	Type    tmproto.SignedMsgType
 	BlockID types.BlockID

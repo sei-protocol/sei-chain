@@ -58,9 +58,6 @@ import (
 func startNewStateAndWaitForBlock(
 	ctx context.Context,
 	consensusReplayConfig *config.Config,
-	lastBlockHeight int64,
-	blockDB dbm.DB,
-	stateStore sm.Store,
 ) {
 	logger := log.NewNopLogger()
 	state, err := sm.MakeGenesisStateFromFile(consensusReplayConfig.GenesisFile())
@@ -158,7 +155,6 @@ func crashWALandCheckLiveness(
 		logger := log.NewNopLogger()
 		blockDB := dbm.NewMemDB()
 		stateDB := dbm.NewMemDB()
-		stateStore := sm.NewStore(stateDB)
 		blockStore := store.NewBlockStore(blockDB)
 		state, err := sm.MakeGenesisStateFromFile(consensusReplayConfig.GenesisFile())
 		require.NoError(t, err)
@@ -198,7 +194,7 @@ func crashWALandCheckLiveness(
 				panic("context canceled before test completed")
 			case err := <-walPanicked:
 				// make sure we can make blocks after a crash
-				startNewStateAndWaitForBlock(ctx, consensusReplayConfig, cs.roundState.Height(), blockDB, stateStore)
+				startNewStateAndWaitForBlock(ctx, consensusReplayConfig)
 				// if we reached the required height, exit
 				if _, ok := err.(ReachedHeightToStopError); ok {
 					done = true
