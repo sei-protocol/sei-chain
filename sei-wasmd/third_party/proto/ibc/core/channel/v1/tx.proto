@@ -54,7 +54,7 @@ enum ResponseResultType {
   RESPONSE_RESULT_SUCCESS = 2 [(gogoproto.enumvalue_customname) = "SUCCESS"];
 }
 
-// MsgChannelOpenInit defines an sdk.Msg to initialize a channel handshake. It
+// MsgChannelOpenInit defines an seitypes.Msg to initialize a channel handshake. It
 // is called by a relayer on Chain A.
 message MsgChannelOpenInit {
   option (gogoproto.equal) = false;

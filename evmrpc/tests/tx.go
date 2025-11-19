@@ -102,7 +102,7 @@ func registerCW20Pointer(nonce uint64, cw20Addr string) ethtypes.TxData {
 	}
 }
 
-func transferCW20Msg(mnemonic string, cw20Addr string) sdk.Msg {
+func transferCW20Msg(mnemonic string, cw20Addr string) seitypes.Msg {
 	recipient, _ := testkeeper.MockAddressPair()
 	return &wasmtypes.MsgExecuteContract{
 		Sender:   getSeiAddrWithMnemonic(mnemonic).String(),
@@ -111,7 +111,7 @@ func transferCW20Msg(mnemonic string, cw20Addr string) sdk.Msg {
 	}
 }
 
-func transferCW20MsgTo(mnemonic string, cw20Addr string, recipient sdk.AccAddress) sdk.Msg {
+func transferCW20MsgTo(mnemonic string, cw20Addr string, recipient seitypes.AccAddress) seitypes.Msg {
 	return &wasmtypes.MsgExecuteContract{
 		Sender:   getSeiAddrWithMnemonic(mnemonic).String(),
 		Contract: cw20Addr,
@@ -143,7 +143,7 @@ func jsonExtractAsBytesFromArray(nonce uint64) ethtypes.TxData {
 	}
 }
 
-func bankSendMsg(mnemonic string) sdk.Msg {
+func bankSendMsg(mnemonic string) seitypes.Msg {
 	recipient, _ := testkeeper.MockAddressPair()
 	return &banktypes.MsgSend{
 		FromAddress: getSeiAddrWithMnemonic(mnemonic).String(),

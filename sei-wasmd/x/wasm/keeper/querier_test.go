@@ -122,7 +122,7 @@ func TestQuerySmartContractState(t *testing.T) {
 
 	q := Querier(keeper)
 	specs := map[string]struct {
-		srcAddr  sdk.AccAddress
+		srcAddr  seitypes.AccAddress
 		srcQuery *types.QuerySmartContractStateRequest
 		expResp  string
 		expErr   error
@@ -435,7 +435,7 @@ func TestQueryContractHistory(t *testing.T) {
 		t.Run(msg, func(t *testing.T) {
 			xCtx, _ := ctx.CacheContext()
 
-			cAddr, _ := sdk.AccAddressFromBech32(myContractBech32Addr)
+			cAddr, _ := seitypes.AccAddressFromBech32(myContractBech32Addr)
 			keeper.appendToContractHistory(xCtx, cAddr, spec.srcHistory...)
 
 			// when
@@ -662,7 +662,7 @@ func TestQueryCodeInfo(t *testing.T) {
 	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
 	keeper := keepers.WasmKeeper
 
-	anyAddress, err := sdk.AccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")
+	anyAddress, err := seitypes.AccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")
 	require.NoError(t, err)
 	specs := map[string]struct {
 		codeId       uint64
@@ -717,7 +717,7 @@ func TestQueryCodeInfoList(t *testing.T) {
 	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
 	keeper := keepers.WasmKeeper
 
-	anyAddress, err := sdk.AccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")
+	anyAddress, err := seitypes.AccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")
 	require.NoError(t, err)
 	codeInfoWithConfig := func(accessConfig types.AccessConfig) types.CodeInfo {
 		codeInfo := types.CodeInfoFixture(types.WithSHA256CodeHash(wasmCode))

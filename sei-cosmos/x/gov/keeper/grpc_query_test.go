@@ -398,8 +398,8 @@ func (suite *KeeperTestSuite) TestGRPCQueryVotes() {
 					{ProposalId: proposal.ProposalId, Voter: addrs[0].String(), Option: types.OptionAbstain, Options: types.NewNonSplitVoteOption(types.OptionAbstain)},
 					{ProposalId: proposal.ProposalId, Voter: addrs[1].String(), Option: types.OptionYes, Options: types.NewNonSplitVoteOption(types.OptionYes)},
 				}
-				accAddr1, err1 := sdk.AccAddressFromBech32(votes[0].Voter)
-				accAddr2, err2 := sdk.AccAddressFromBech32(votes[1].Voter)
+				accAddr1, err1 := seitypes.AccAddressFromBech32(votes[0].Voter)
+				accAddr2, err2 := seitypes.AccAddressFromBech32(votes[1].Voter)
 				suite.Require().NoError(err1)
 				suite.Require().NoError(err2)
 				suite.Require().NoError(app.GovKeeper.AddVote(ctx, proposal.ProposalId, accAddr1, votes[0].Options))

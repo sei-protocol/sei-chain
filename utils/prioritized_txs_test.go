@@ -15,17 +15,17 @@ import (
 func TestIsTxPrioritized(t *testing.T) {
 	tests := []struct {
 		name     string
-		tx       sdk.Tx
+		tx       seitypes.Tx
 		expected bool
 	}{
 		{
 			name:     "Empty transaction",
-			tx:       createTestTx([]sdk.Msg{}),
+			tx:       createTestTx([]seitypes.Msg{}),
 			expected: true,
 		},
 		{
 			name: "Oracle aggregate vote message",
-			tx: createTestTx([]sdk.Msg{
+			tx: createTestTx([]seitypes.Msg{
 				&oracletypes.MsgAggregateExchangeRateVote{
 					ExchangeRates: "1.0usei,2.0uusd",
 					Feeder:        "sei1abc123",
@@ -36,7 +36,7 @@ func TestIsTxPrioritized(t *testing.T) {
 		},
 		{
 			name: "Oracle delegate feed consent message",
-			tx: createTestTx([]sdk.Msg{
+			tx: createTestTx([]seitypes.Msg{
 				&oracletypes.MsgDelegateFeedConsent{
 					Operator: "seivaloper1abc123",
 					Delegate: "sei1abc123",
@@ -46,7 +46,7 @@ func TestIsTxPrioritized(t *testing.T) {
 		},
 		{
 			name: "Multiple oracle messages",
-			tx: createTestTx([]sdk.Msg{
+			tx: createTestTx([]seitypes.Msg{
 				&oracletypes.MsgAggregateExchangeRateVote{
 					ExchangeRates: "1.0usei",
 					Feeder:        "sei1abc123",
@@ -61,7 +61,7 @@ func TestIsTxPrioritized(t *testing.T) {
 		},
 		{
 			name: "Bank send message (not prioritized)",
-			tx: createTestTx([]sdk.Msg{
+			tx: createTestTx([]seitypes.Msg{
 				&banktypes.MsgSend{
 					FromAddress: "sei1abc123",
 					ToAddress:   "sei1def456",
@@ -72,7 +72,7 @@ func TestIsTxPrioritized(t *testing.T) {
 		},
 		{
 			name: "Mixed messages (oracle + bank)",
-			tx: createTestTx([]sdk.Msg{
+			tx: createTestTx([]seitypes.Msg{
 				&oracletypes.MsgAggregateExchangeRateVote{
 					ExchangeRates: "1.0usei",
 					Feeder:        "sei1abc123",
@@ -98,21 +98,21 @@ func TestIsTxPrioritized(t *testing.T) {
 
 func TestIsTxPrioritizedEdgeCases(t *testing.T) {
 	// Test with transaction containing no messages
-	emptyTx := createTestTx([]sdk.Msg{})
+	emptyTx := createTestTx([]seitypes.Msg{})
 	require.True(t, IsTxPrioritized(emptyTx))
 }
 
 // Helper function to create a test transaction with given messages
-func createTestTx(msgs []sdk.Msg) sdk.Tx {
+func createTestTx(msgs []seitypes.Msg) seitypes.Tx {
 	return &TestTx{msgs: msgs}
 }
 
-// TestTx is a simple implementation of sdk.Tx for testing
+// TestTx is a simple implementation of seitypes.Tx for testing
 type TestTx struct {
-	msgs []sdk.Msg
+	msgs []seitypes.Msg
 }
 
-func (tx *TestTx) GetMsgs() []sdk.Msg {
+func (tx *TestTx) GetMsgs() []seitypes.Msg {
 	return tx.msgs
 }
 
@@ -120,7 +120,7 @@ func (tx *TestTx) ValidateBasic() error {
 	return nil
 }
 
-func (tx *TestTx) GetSigners() []sdk.AccAddress {
+func (tx *TestTx) GetSigners() []seitypes.AccAddress {
 	return nil
 }
 

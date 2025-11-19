@@ -9,7 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/slashing/types"
 )
 
-func (k Keeper) AfterValidatorBonded(ctx sdk.Context, address sdk.ConsAddress, _ sdk.ValAddress) {
+func (k Keeper) AfterValidatorBonded(ctx sdk.Context, address seitypes.ConsAddress, _ seitypes.ValAddress) {
 	// Update the signing info start height or create a new signing info
 	_, found := k.GetValidatorSigningInfo(ctx, address)
 	if !found {
@@ -26,7 +26,7 @@ func (k Keeper) AfterValidatorBonded(ctx sdk.Context, address sdk.ConsAddress, _
 }
 
 // AfterValidatorCreated adds the address-pubkey relation when a validator is created.
-func (k Keeper) AfterValidatorCreated(ctx sdk.Context, valAddr sdk.ValAddress) error {
+func (k Keeper) AfterValidatorCreated(ctx sdk.Context, valAddr seitypes.ValAddress) error {
 	validator := k.sk.Validator(ctx, valAddr)
 	consPk, err := validator.ConsPubKey()
 	if err != nil {
@@ -38,7 +38,7 @@ func (k Keeper) AfterValidatorCreated(ctx sdk.Context, valAddr sdk.ValAddress) e
 }
 
 // AfterValidatorRemoved deletes the address-pubkey relation when a validator is removed,
-func (k Keeper) AfterValidatorRemoved(ctx sdk.Context, address sdk.ConsAddress) {
+func (k Keeper) AfterValidatorRemoved(ctx sdk.Context, address seitypes.ConsAddress) {
 	k.deleteAddrPubkeyRelation(ctx, crypto.Address(address))
 }
 
@@ -55,24 +55,24 @@ func (k Keeper) Hooks() Hooks {
 }
 
 // Implements sdk.ValidatorHooks
-func (h Hooks) AfterValidatorBonded(ctx sdk.Context, consAddr sdk.ConsAddress, valAddr sdk.ValAddress) {
+func (h Hooks) AfterValidatorBonded(ctx sdk.Context, consAddr seitypes.ConsAddress, valAddr seitypes.ValAddress) {
 	h.k.AfterValidatorBonded(ctx, consAddr, valAddr)
 }
 
 // Implements sdk.ValidatorHooks
-func (h Hooks) AfterValidatorRemoved(ctx sdk.Context, consAddr sdk.ConsAddress, _ sdk.ValAddress) {
+func (h Hooks) AfterValidatorRemoved(ctx sdk.Context, consAddr seitypes.ConsAddress, _ seitypes.ValAddress) {
 	h.k.AfterValidatorRemoved(ctx, consAddr)
 }
 
 // Implements sdk.ValidatorHooks
-func (h Hooks) AfterValidatorCreated(ctx sdk.Context, valAddr sdk.ValAddress) {
+func (h Hooks) AfterValidatorCreated(ctx sdk.Context, valAddr seitypes.ValAddress) {
 	h.k.AfterValidatorCreated(ctx, valAddr)
 }
 
-func (h Hooks) AfterValidatorBeginUnbonding(_ sdk.Context, _ sdk.ConsAddress, _ sdk.ValAddress)  {}
-func (h Hooks) BeforeValidatorModified(_ sdk.Context, _ sdk.ValAddress)                          {}
-func (h Hooks) BeforeDelegationCreated(_ sdk.Context, _ sdk.AccAddress, _ sdk.ValAddress)        {}
-func (h Hooks) BeforeDelegationSharesModified(_ sdk.Context, _ sdk.AccAddress, _ sdk.ValAddress) {}
-func (h Hooks) BeforeDelegationRemoved(_ sdk.Context, _ sdk.AccAddress, _ sdk.ValAddress)        {}
-func (h Hooks) AfterDelegationModified(_ sdk.Context, _ sdk.AccAddress, _ sdk.ValAddress)        {}
-func (h Hooks) BeforeValidatorSlashed(_ sdk.Context, _ sdk.ValAddress, _ sdk.Dec)                {}
+func (h Hooks) AfterValidatorBeginUnbonding(_ sdk.Context, _ seitypes.ConsAddress, _ seitypes.ValAddress)  {}
+func (h Hooks) BeforeValidatorModified(_ sdk.Context, _ seitypes.ValAddress)                          {}
+func (h Hooks) BeforeDelegationCreated(_ sdk.Context, _ seitypes.AccAddress, _ seitypes.ValAddress)        {}
+func (h Hooks) BeforeDelegationSharesModified(_ sdk.Context, _ seitypes.AccAddress, _ seitypes.ValAddress) {}
+func (h Hooks) BeforeDelegationRemoved(_ sdk.Context, _ seitypes.AccAddress, _ seitypes.ValAddress)        {}
+func (h Hooks) AfterDelegationModified(_ sdk.Context, _ seitypes.AccAddress, _ seitypes.ValAddress)        {}
+func (h Hooks) BeforeValidatorSlashed(_ sdk.Context, _ seitypes.ValAddress, _ sdk.Dec)                {}

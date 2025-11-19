@@ -70,7 +70,7 @@ func TestABCI(t *testing.T) {
 	_, evmAddr2 := testkeeper.MockAddressPair()
 	amt := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, amt)
-	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, sdk.AccAddress(evmAddr1[:]), amt)
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seitypes.AccAddress(evmAddr1[:]), amt)
 	m := evm.NewAppModule(nil, k)
 	// first block
 	k.BeginBlock(ctx)
@@ -133,7 +133,7 @@ func TestABCI(t *testing.T) {
 	coinbase := state.GetCoinbaseAddress(2)
 	vms := vesting.NewMsgServerImpl(*k.AccountKeeper(), k.BankKeeper())
 	_, err = vms.CreateVestingAccount(sdk.WrapSDKContext(ctx), &vestingtypes.MsgCreateVestingAccount{
-		FromAddress: sdk.AccAddress(evmAddr1[:]).String(),
+		FromAddress: seitypes.AccAddress(evmAddr1[:]).String(),
 		ToAddress:   coinbase.String(),
 		Amount:      sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())),
 		EndTime:     math.MaxInt64,

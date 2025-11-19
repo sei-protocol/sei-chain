@@ -4,8 +4,8 @@ import (
 	"github.com/gogo/protobuf/proto"
 
 	"github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 var (
@@ -15,7 +15,7 @@ var (
 // NewGrant creates a new FeeAllowanceGrant.
 //
 //nolint:interfacer
-func NewGrant(granter, grantee sdk.AccAddress, feeAllowance FeeAllowanceI) (Grant, error) {
+func NewGrant(granter, grantee seitypes.AccAddress, feeAllowance FeeAllowanceI) (Grant, error) {
 	msg, ok := feeAllowance.(proto.Message)
 	if !ok {
 		return Grant{}, sdkerrors.Wrapf(sdkerrors.ErrPackAny, "cannot proto marshal %T", feeAllowance)

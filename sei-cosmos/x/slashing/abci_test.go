@@ -30,13 +30,13 @@ func TestBeginBlocker(t *testing.T) {
 	falseVotes := []abci.VoteInfo{}
 
 	for i := 0; i < 5; i++ {
-		addr, pk := sdk.ValAddress(pks[i].Address()), pks[i]
+		addr, pk := seitypes.ValAddress(pks[i].Address()), pks[i]
 		// bond the validator
 		power := int64(100)
 		amt := tstaking.CreateValidatorWithValPower(addr, pk, power, true)
 		staking.EndBlocker(ctx, app.StakingKeeper)
 		require.Equal(
-			t, app.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr)),
+			t, app.BankKeeper.GetAllBalances(ctx, seitypes.AccAddress(addr)),
 			sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.GetParams(ctx).BondDenom, InitTokens.Sub(amt))),
 		)
 		require.Equal(t, amt, app.StakingKeeper.Validator(ctx, addr).GetBondedTokens())
@@ -68,7 +68,7 @@ func TestBeginBlocker(t *testing.T) {
 	slashing.BeginBlocker(ctx, req.LastCommitInfo.Votes, app.SlashingKeeper)
 
 	for i := 0; i < 5; i++ {
-		info, found := app.SlashingKeeper.GetValidatorSigningInfo(ctx, sdk.ConsAddress(pks[i].Address()))
+		info, found := app.SlashingKeeper.GetValidatorSigningInfo(ctx, seitypes.ConsAddress(pks[i].Address()))
 		require.True(t, found)
 		require.Equal(t, ctx.BlockHeight(), info.StartHeight)
 		require.Equal(t, time.Unix(0, 0).UTC(), info.JailedUntil)

@@ -60,8 +60,8 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 
 	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 
-	account := sdk.AccAddress(valPub.Address()).String()
-	validator := sdk.ValAddress(valPub.Address()).String()
+	account := seitypes.AccAddress(valPub.Address()).String()
+	validator := seitypes.ValAddress(valPub.Address()).String()
 
 	oracleMsg := &oracletypes.MsgAggregateExchangeRateVote{
 		ExchangeRates: "1.2uatom",
@@ -91,7 +91,7 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 	require.NoError(t, err)
 
 	// this should be treated as non-oracle vote
-	err = mixedTxBuilder.SetMsgs([]sdk.Msg{oracleMsg, otherMsg}...)
+	err = mixedTxBuilder.SetMsgs([]seitypes.Msg{oracleMsg, otherMsg}...)
 	require.NoError(t, err)
 	mixedTx, err := txEncoder(mixedTxBuilder.GetTx())
 	require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 		otherTx,
 		mixedTx,
 	}
-	typedTxs := []sdk.Tx{
+	typedTxs := []seitypes.Tx{
 		oracleTxBuilder.GetTx(),
 		otherTxBuilder.GetTx(),
 		mixedTxBuilder.GetTx(),
@@ -120,7 +120,7 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 		oracleTx,
 		mixedTx,
 	}
-	differOrderTypedTxs := []sdk.Tx{
+	differOrderTypedTxs := []seitypes.Tx{
 		otherTxBuilder.GetTx(),
 		oracleTxBuilder.GetTx(),
 		mixedTxBuilder.GetTx(),
@@ -142,9 +142,9 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 
 	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 
-	account := sdk.AccAddress(valPub.Address()).String()
-	account2 := sdk.AccAddress(secondAcc.Address()).String()
-	validator := sdk.ValAddress(valPub.Address()).String()
+	account := seitypes.AccAddress(valPub.Address()).String()
+	account2 := seitypes.AccAddress(secondAcc.Address()).String()
+	validator := seitypes.ValAddress(valPub.Address()).String()
 
 	oracleMsg := &oracletypes.MsgAggregateExchangeRateVote{
 		ExchangeRates: "1.2uatom",
@@ -489,7 +489,7 @@ func TestDecodeTransactionsConcurrently(t *testing.T) {
 	require.NotNil(t, typedTxs[2])
 
 	// test panic handling
-	testWrapper.App.SetTxDecoder(func(txBytes []byte) (sdk.Tx, error) { panic("test") })
+	testWrapper.App.SetTxDecoder(func(txBytes []byte) (seitypes.Tx, error) { panic("test") })
 	typedTxs = testWrapper.App.DecodeTransactionsConcurrently(testWrapper.Ctx, [][]byte{evmtxbz, invalidbz, banktxbz})
 	require.Nil(t, typedTxs[0])
 	require.Nil(t, typedTxs[1])
@@ -613,7 +613,7 @@ func TestGaslessTransactionExtremeGasValue(t *testing.T) {
 	sei := app.Setup(t, false, false, false)
 	ctx := sei.BaseApp.NewContext(false, types.Header{})
 
-	testAddr := sdk.AccAddress([]byte("test_address_1234567"))
+	testAddr := seitypes.AccAddress([]byte("test_address_1234567"))
 
 	// Create a potentially gasless transaction with extreme gas value
 	attackMsg := &evmtypes.MsgAssociate{

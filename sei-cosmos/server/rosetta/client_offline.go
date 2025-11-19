@@ -130,6 +130,6 @@ func (c *Client) AccountIdentifierFromPublicKey(pubKey *types.PublicKey) (*types
 	}
 
 	return &types.AccountIdentifier{
-		Address: sdk.AccAddress(pk.Address()).String(),
+		Address: seitypes.AccAddress(pk.Address()).String(),
 	}, nil
 }

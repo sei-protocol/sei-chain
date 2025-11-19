@@ -26,7 +26,7 @@ func (k BaseKeeper) InitGenesis(ctx sdk.Context, genState *types.GenesisState) {
 		totalSupply = totalSupply.Add(coins...)
 	}
 	for _, weiBalance := range genState.WeiBalances {
-		addr := sdk.MustAccAddressFromBech32(weiBalance.Address)
+		addr := seitypes.MustAccAddressFromBech32(weiBalance.Address)
 		if err := k.AddWei(ctx, addr, weiBalance.Amount); err != nil {
 			panic(fmt.Errorf("error on setting wei balance %w", err))
 		}
@@ -65,7 +65,7 @@ func (k BaseKeeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
 		panic(fmt.Errorf("unable to fetch total supply %v", err))
 	}
 	weiBalances := []types.WeiBalance{}
-	k.IterateAllWeiBalances(ctx, func(aa sdk.AccAddress, i sdk.Int) bool {
+	k.IterateAllWeiBalances(ctx, func(aa seitypes.AccAddress, i sdk.Int) bool {
 		weiBalances = append(weiBalances, types.WeiBalance{Address: aa.String(), Amount: i})
 		return false
 	})

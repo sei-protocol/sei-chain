@@ -9,7 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-func (a *App) NewContract(admin sdk.AccAddress, source string) sdk.AccAddress {
+func (a *App) NewContract(admin seitypes.AccAddress, source string) seitypes.AccAddress {
 	source = filepath.Clean(source)
 	wasm, err := os.ReadFile(source)
 	if err != nil {

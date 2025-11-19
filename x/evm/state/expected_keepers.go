@@ -13,11 +13,11 @@ import (
 type EVMKeeper interface {
 	PrefixStore(sdk.Context, []byte) sdk.KVStore
 	PurgePrefix(sdk.Context, []byte)
-	GetSeiAddress(sdk.Context, common.Address) (sdk.AccAddress, bool)
-	GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress
+	GetSeiAddress(sdk.Context, common.Address) (seitypes.AccAddress, bool)
+	GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) seitypes.AccAddress
 	BankKeeper() bankkeeper.Keeper
 	GetBaseDenom(sdk.Context) string
-	DeleteAddressMapping(sdk.Context, sdk.AccAddress, common.Address)
+	DeleteAddressMapping(sdk.Context, seitypes.AccAddress, common.Address)
 	GetCode(sdk.Context, common.Address) []byte
 	SetCode(sdk.Context, common.Address, []byte)
 	GetCodeHash(sdk.Context, common.Address) common.Hash
@@ -29,6 +29,6 @@ type EVMKeeper interface {
 	GetNonce(sdk.Context, common.Address) uint64
 	SetNonce(sdk.Context, common.Address, uint64)
 	PrepareReplayedAddr(ctx sdk.Context, addr common.Address)
-	GetBalance(ctx sdk.Context, addr sdk.AccAddress) *big.Int
+	GetBalance(ctx sdk.Context, addr seitypes.AccAddress) *big.Int
 	UpgradeKeeper() *upgradekeeper.Keeper
 }

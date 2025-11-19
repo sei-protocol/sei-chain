@@ -13,20 +13,20 @@ import (
 var (
 	pk1   = ed25519.GenPrivKey().PubKey()
 	pk2   = ed25519.GenPrivKey().PubKey()
-	addr1 = sdk.ValAddress(pk1.Address())
-	addr2 = sdk.ValAddress(pk2.Address())
+	addr1 = seitypes.ValAddress(pk1.Address())
+	addr2 = seitypes.ValAddress(pk2.Address())
 )
 
 // require invalid vesting account fails validation
 func TestValidateGenesisInvalidAccounts(t *testing.T) {
-	acc1 := authtypes.NewBaseAccountWithAddress(sdk.AccAddress(addr1))
+	acc1 := authtypes.NewBaseAccountWithAddress(seitypes.AccAddress(addr1))
 	acc1Balance := sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 150))
 	baseVestingAcc := NewBaseVestingAccount(acc1, acc1Balance, 1548775410, nil)
 
 	// invalid delegated vesting
 	baseVestingAcc.DelegatedVesting = acc1Balance.Add(acc1Balance...)
 
-	acc2 := authtypes.NewBaseAccountWithAddress(sdk.AccAddress(addr2))
+	acc2 := authtypes.NewBaseAccountWithAddress(seitypes.AccAddress(addr2))
 	// acc2Balance := sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 150))
 
 	genAccs := make([]authtypes.GenesisAccount, 2)

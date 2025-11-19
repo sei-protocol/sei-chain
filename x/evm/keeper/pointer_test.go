@@ -22,7 +22,7 @@ type handlers struct {
 	evmGetter  func(ctx types.Context, token string) (addr common.Address, version uint16, exists bool)
 	evmDeleter func(ctx types.Context, token string, version uint16)
 	cwSetter   func(ctx types.Context, erc20Address common.Address, addr string) error
-	cwGetter   func(ctx types.Context, erc20Address common.Address) (addr types.AccAddress, version uint16, exists bool)
+	cwGetter   func(ctx types.Context, erc20Address common.Address) (addr seitypes.AccAddress, version uint16, exists bool)
 	cwDeleter  func(ctx types.Context, erc20Address common.Address, version uint16)
 }
 

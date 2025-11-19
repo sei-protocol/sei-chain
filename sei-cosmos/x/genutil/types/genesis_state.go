@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	tmos "github.com/tendermint/tendermint/libs/os"
 	tmtypes "github.com/tendermint/tendermint/types"
 
@@ -33,7 +34,7 @@ func DefaultGenesisState() *GenesisState {
 
 // NewGenesisStateFromTx creates a new GenesisState object
 // from auth transactions
-func NewGenesisStateFromTx(txJSONEncoder sdk.TxEncoder, genTxs []sdk.Tx) *GenesisState {
+func NewGenesisStateFromTx(txJSONEncoder seitypes.TxEncoder, genTxs []seitypes.Tx) *GenesisState {
 	genTxsBz := make([]json.RawMessage, len(genTxs))
 	for i, genTx := range genTxs {
 		var err error
@@ -98,7 +99,7 @@ func GenesisStateFromGenFile(genFile string) (genesisState map[string]json.RawMe
 // ValidateGenesis validates GenTx transactions
 func ValidateGenesis(genesisState *GenesisState, txJSONDecoder sdk.TxDecoder) error {
 	for i, genTx := range genesisState.GenTxs {
-		var tx sdk.Tx
+		var tx seitypes.Tx
 		tx, err := txJSONDecoder(genTx)
 		if err != nil {
 			return err

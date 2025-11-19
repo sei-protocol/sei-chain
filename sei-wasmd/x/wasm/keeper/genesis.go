@@ -37,7 +37,7 @@ func InitGenesis(ctx sdk.Context, keeper *Keeper, data types.GenesisState, staki
 
 	var maxContractID int
 	for i, contract := range data.Contracts {
-		contractAddr, err := sdk.AccAddressFromBech32(contract.ContractAddress)
+		contractAddr, err := seitypes.AccAddressFromBech32(contract.ContractAddress)
 		if err != nil {
 			return nil, sdkerrors.Wrapf(err, "address in contract number %d", i)
 		}
@@ -101,7 +101,7 @@ func ExportGenesis(ctx sdk.Context, keeper *Keeper) *types.GenesisState {
 		return false
 	})
 
-	keeper.IterateContractInfo(ctx, func(addr sdk.AccAddress, contract types.ContractInfo) bool {
+	keeper.IterateContractInfo(ctx, func(addr seitypes.AccAddress, contract types.ContractInfo) bool {
 		var state []types.Model
 		keeper.IterateContractState(ctx, addr, func(key, value []byte) bool {
 			state = append(state, types.Model{Key: key, Value: value})
@@ -164,7 +164,7 @@ func ExportGenesisStream(ctx sdk.Context, keeper *Keeper) <-chan *types.GenesisS
 			return false
 		})
 
-		keeper.IterateContractInfo(ctx, func(addr sdk.AccAddress, contract types.ContractInfo) bool {
+		keeper.IterateContractInfo(ctx, func(addr seitypes.AccAddress, contract types.ContractInfo) bool {
 			// redact contract info
 			contract.Created = nil
 			var state []types.Model

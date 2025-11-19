@@ -4,24 +4,24 @@ import (
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // GenerateCoinKey generates a new key mnemonic along with its addrress.
-func GenerateCoinKey(algo keyring.SignatureAlgo) (sdk.AccAddress, string, error) {
+func GenerateCoinKey(algo keyring.SignatureAlgo) (seitypes.AccAddress, string, error) {
 	// generate a private key, with mnemonic
 	info, secret, err := keyring.NewInMemory().NewMnemonic(
 		"name",
 		keyring.English,
-		sdk.GetConfig().GetFullBIP44Path(),
+		seitypes.GetConfig().GetFullBIP44Path(),
 		keyring.DefaultBIP39Passphrase,
 		algo,
 	)
 	if err != nil {
-		return sdk.AccAddress{}, "", err
+		return seitypes.AccAddress{}, "", err
 	}
 
-	return sdk.AccAddress(info.GetPubKey().Address()), secret, nil
+	return seitypes.AccAddress(info.GetPubKey().Address()), secret, nil
 }
 
 // GenerateSaveCoinKey generates a new key mnemonic with its addrress.
@@ -33,7 +33,7 @@ func GenerateSaveCoinKey(
 	keyName, mnemonic string,
 	overwrite bool,
 	algo keyring.SignatureAlgo,
-) (sdk.AccAddress, string, error) {
+) (seitypes.AccAddress, string, error) {
 	exists := false
 	_, err := keybase.Key(keyName)
 	if err == nil {
@@ -42,12 +42,12 @@ func GenerateSaveCoinKey(
 
 	// ensure no overwrite
 	if !overwrite && exists {
-		return sdk.AccAddress{}, "", fmt.Errorf("key already exists, overwrite is disabled")
+		return seitypes.AccAddress{}, "", fmt.Errorf("key already exists, overwrite is disabled")
 	}
 
 	if exists {
 		if err := keybase.Delete(keyName); err != nil {
-			return sdk.AccAddress{}, "", fmt.Errorf("failed to overwrite key")
+			return seitypes.AccAddress{}, "", fmt.Errorf("failed to overwrite key")
 		}
 	}
 
@@ -62,21 +62,21 @@ func GenerateSaveCoinKey(
 			keyName,
 			mnemonic,
 			keyring.DefaultBIP39Passphrase,
-			sdk.GetConfig().GetFullBIP44Path(),
+			seitypes.GetConfig().GetFullBIP44Path(),
 			algo,
 		)
 	} else {
 		info, secret, err = keybase.NewMnemonic(
 			keyName,
 			keyring.English,
-			sdk.GetConfig().GetFullBIP44Path(),
+			seitypes.GetConfig().GetFullBIP44Path(),
 			keyring.DefaultBIP39Passphrase,
 			algo,
 		)
 	}
 	if err != nil {
-		return sdk.AccAddress{}, "", err
+		return seitypes.AccAddress{}, "", err
 	}
 
-	return sdk.AccAddress(info.GetAddress()), secret, nil
+	return seitypes.AccAddress(info.GetAddress()), secret, nil
 }

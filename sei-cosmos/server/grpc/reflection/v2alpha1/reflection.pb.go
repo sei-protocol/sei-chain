@@ -126,7 +126,7 @@ type TxDescriptor struct {
 	// it is not meant to support polymorphism of transaction types, it is supposed to be used by
 	// reflection clients to understand if they can handle a specific transaction type in an application.
 	Fullname string `protobuf:"bytes,1,opt,name=fullname,proto3" json:"fullname,omitempty"`
-	// msgs lists the accepted application messages (sdk.Msg)
+	// msgs lists the accepted application messages (seitypes.Msg)
 	Msgs []*MsgDescriptor `protobuf:"bytes,2,rep,name=msgs,proto3" json:"msgs,omitempty"`
 }
 
@@ -613,7 +613,7 @@ func (m *ConfigurationDescriptor) GetBech32AccountAddressPrefix() string {
 
 // MsgDescriptor describes a cosmos-sdk message that can be delivered with a transaction
 type MsgDescriptor struct {
-	// msg_type_url contains the TypeURL of a sdk.Msg.
+	// msg_type_url contains the TypeURL of a seitypes.Msg.
 	MsgTypeUrl string `protobuf:"bytes,1,opt,name=msg_type_url,json=msgTypeUrl,proto3" json:"msg_type_url,omitempty"`
 }
 

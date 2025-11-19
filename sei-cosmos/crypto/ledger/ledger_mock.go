@@ -42,7 +42,7 @@ func (mock LedgerSECP256K1Mock) GetPublicKeySECP256K1(derivationPath []uint32) (
 		return nil, errors.New("Invalid derivation path")
 	}
 
-	if derivationPath[1] != sdk.GetConfig().GetCoinType() {
+	if derivationPath[1] != seitypes.GetConfig().GetCoinType() {
 		return nil, errors.New("Invalid derivation path")
 	}
 
@@ -84,7 +84,7 @@ func (mock LedgerSECP256K1Mock) GetAddressPubKeySECP256K1(derivationPath []uint3
 
 	// Generate the bech32 addr using existing tmcrypto/etc.
 	pub := &csecp256k1.PubKey{Key: compressedPublicKey}
-	addr := sdk.AccAddress(pub.Address()).String()
+	addr := seitypes.AccAddress(pub.Address()).String()
 	return pk, addr, err
 }
 

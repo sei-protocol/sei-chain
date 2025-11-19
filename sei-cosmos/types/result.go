@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gogo/protobuf/proto"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	ctypes "github.com/tendermint/tendermint/rpc/coretypes"
 
@@ -213,15 +214,15 @@ func (s SearchTxsResult) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error
 // UnpackInterfaces implements UnpackInterfacesMessage.UnpackInterfaces
 func (r TxResponse) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
 	if r.Tx != nil {
-		var tx Tx
+		var tx seitypes.Tx
 		return unpacker.UnpackAny(r.Tx, &tx)
 	}
 	return nil
 }
 
 // GetTx unpacks the Tx from within a TxResponse and returns it
-func (r TxResponse) GetTx() Tx {
-	if tx, ok := r.Tx.GetCachedValue().(Tx); ok {
+func (r TxResponse) GetTx() seitypes.Tx {
+	if tx, ok := r.Tx.GetCachedValue().(seitypes.Tx); ok {
 		return tx
 	}
 	return nil

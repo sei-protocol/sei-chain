@@ -769,7 +769,7 @@ func (suite *KeeperTestSuite) TestGRPCQueryValidatorUnbondingDelegations() {
 	}
 }
 
-func createValidators(t *testing.T, ctx sdk.Context, app *seiapp.App, powers []int64) ([]sdk.AccAddress, []sdk.ValAddress, []types.Validator) {
+func createValidators(t *testing.T, ctx sdk.Context, app *seiapp.App, powers []int64) ([]seitypes.AccAddress, []seitypes.ValAddress, []types.Validator) {
 	addrs := seiapp.AddTestAddrsIncremental(app, ctx, 5, app.StakingKeeper.TokensFromConsensusPower(ctx, 300))
 	valAddrs := seiapp.ConvertAddrsToValAddrs(addrs)
 	pks := seiapp.CreateTestPubKeys(5)

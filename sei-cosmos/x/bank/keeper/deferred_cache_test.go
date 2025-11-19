@@ -15,7 +15,7 @@ func (suite *IntegrationTestSuite) TestDeferredCacheUpsertBalances() {
 	app := suite.app
 	app.BankKeeper = keeper
 
-	addr1 := sdk.AccAddress("addr1_______________")
+	addr1 := seitypes.AccAddress("addr1_______________")
 	acc1 := authKeeper.NewAccountWithAddress(ctx, addr1)
 	authKeeper.SetAccount(ctx, acc1)
 
@@ -56,7 +56,7 @@ func (suite *IntegrationTestSuite) TestDeferredCacheUpsertBalances() {
 
 	count := 0
 	// iterate and count entries
-	deferredCache.IterateDeferredBalances(ctx, func(moduleAddr sdk.AccAddress, balance sdk.Coin) bool {
+	deferredCache.IterateDeferredBalances(ctx, func(moduleAddr seitypes.AccAddress, balance sdk.Coin) bool {
 		count += 1
 		return false
 	})
@@ -67,7 +67,7 @@ func (suite *IntegrationTestSuite) TestDeferredCacheUpsertBalances() {
 
 	count = 0
 	// iterate and count should have no entries after writing balances (since it clears)
-	deferredCache.IterateDeferredBalances(ctx, func(moduleAddr sdk.AccAddress, balance sdk.Coin) bool {
+	deferredCache.IterateDeferredBalances(ctx, func(moduleAddr seitypes.AccAddress, balance sdk.Coin) bool {
 		count += 1
 		return false
 	})

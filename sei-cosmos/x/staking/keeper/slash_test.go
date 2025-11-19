@@ -17,7 +17,7 @@ import (
 )
 
 // bootstrapSlashTest creates 3 validators and bootstrap the app.
-func bootstrapSlashTest(t *testing.T, power int64) (*seiapp.App, sdk.Context, []sdk.AccAddress, []sdk.ValAddress) {
+func bootstrapSlashTest(t *testing.T, power int64) (*seiapp.App, sdk.Context, []seitypes.AccAddress, []seitypes.ValAddress) {
 	_, app, ctx := createTestInput(t)
 
 	addrDels, addrVals := generateAddresses(app, ctx, 100)
@@ -52,7 +52,7 @@ func bootstrapSlashTest(t *testing.T, power int64) (*seiapp.App, sdk.Context, []
 func TestRevocation(t *testing.T) {
 	app, ctx, _, addrVals := bootstrapSlashTest(t, 5)
 
-	consAddr := sdk.ConsAddress(PKs[0].Address())
+	consAddr := seitypes.ConsAddress(PKs[0].Address())
 
 	// initial state
 	val, found := app.StakingKeeper.GetValidator(ctx, addrVals[0])
@@ -187,7 +187,7 @@ func TestSlashRedelegation(t *testing.T) {
 func TestSlashAtFutureHeight(t *testing.T) {
 	app, ctx, _, _ := bootstrapSlashTest(t, 10)
 
-	consAddr := sdk.ConsAddress(PKs[0].Address())
+	consAddr := seitypes.ConsAddress(PKs[0].Address())
 	fraction := sdk.NewDecWithPrec(5, 1)
 	require.Panics(t, func() { app.StakingKeeper.Slash(ctx, consAddr, 1, 10, fraction) })
 }
@@ -196,7 +196,7 @@ func TestSlashAtFutureHeight(t *testing.T) {
 // this just represents pre-genesis and should have the same effect as slashing at height 0
 func TestSlashAtNegativeHeight(t *testing.T) {
 	app, ctx, _, _ := bootstrapSlashTest(t, 10)
-	consAddr := sdk.ConsAddress(PKs[0].Address())
+	consAddr := seitypes.ConsAddress(PKs[0].Address())
 	fraction := sdk.NewDecWithPrec(5, 1)
 
 	bondedPool := app.StakingKeeper.GetBondedPool(ctx)
@@ -227,7 +227,7 @@ func TestSlashAtNegativeHeight(t *testing.T) {
 // tests Slash at the current height
 func TestSlashValidatorAtCurrentHeight(t *testing.T) {
 	app, ctx, _, _ := bootstrapSlashTest(t, 10)
-	consAddr := sdk.ConsAddress(PKs[0].Address())
+	consAddr := seitypes.ConsAddress(PKs[0].Address())
 	fraction := sdk.NewDecWithPrec(5, 1)
 
 	bondedPool := app.StakingKeeper.GetBondedPool(ctx)
@@ -259,7 +259,7 @@ func TestSlashValidatorAtCurrentHeight(t *testing.T) {
 func TestSlashWithUnbondingDelegation(t *testing.T) {
 	app, ctx, addrDels, addrVals := bootstrapSlashTest(t, 10)
 
-	consAddr := sdk.ConsAddress(PKs[0].Address())
+	consAddr := seitypes.ConsAddress(PKs[0].Address())
 	fraction := sdk.NewDecWithPrec(5, 1)
 
 	// set an unbonding delegation with expiration timestamp beyond which the
@@ -384,7 +384,7 @@ func TestSlashWithUnbondingDelegation(t *testing.T) {
 // tests Slash at a previous height with a redelegation
 func TestSlashWithRedelegation(t *testing.T) {
 	app, ctx, addrDels, addrVals := bootstrapSlashTest(t, 10)
-	consAddr := sdk.ConsAddress(PKs[0].Address())
+	consAddr := seitypes.ConsAddress(PKs[0].Address())
 	fraction := sdk.NewDecWithPrec(5, 1)
 	bondDenom := app.StakingKeeper.BondDenom(ctx)
 
@@ -578,7 +578,7 @@ func TestSlashBoth(t *testing.T) {
 	ctx = ctx.WithBlockHeight(12)
 	validator, found := app.StakingKeeper.GetValidatorByConsAddr(ctx, sdk.GetConsAddress(PKs[0]))
 	require.True(t, found)
-	consAddr0 := sdk.ConsAddress(PKs[0].Address())
+	consAddr0 := seitypes.ConsAddress(PKs[0].Address())
 	app.StakingKeeper.Slash(ctx, consAddr0, 10, 10, fraction)
 
 	burnedNotBondedAmount := fraction.MulInt(ubdATokens).TruncateInt()

@@ -50,13 +50,13 @@ message MsgExec {
   // Authorization Msg requests to execute. Each msg must implement Authorization interface
   // The x/authz will try to find a grant matching (msg.signers[0], grantee, MsgTypeURL(msg))
   // triple and validate it.
-  repeated google.protobuf.Any msgs = 2 [(cosmos_proto.accepts_interface) = "sdk.Msg, authz.Authorization"];
+  repeated google.protobuf.Any msgs = 2 [(cosmos_proto.accepts_interface) = "seitypes.Msg, authz.Authorization"];
 }
 
 // MsgGrantResponse defines the Msg/MsgGrant response type.
 message MsgGrantResponse {}
 
-// MsgRevoke revokes any authorization with the provided sdk.Msg type on the
+// MsgRevoke revokes any authorization with the provided seitypes.Msg type on the
 // granter's account with that has been granted to the grantee.
 message MsgRevoke {
   string granter = 1;

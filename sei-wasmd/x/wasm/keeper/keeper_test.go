@@ -94,7 +94,7 @@ func TestCreateInvalidWasmCode(t *testing.T) {
 func TestCreateStoresInstantiatePermission(t *testing.T) {
 	var (
 		deposit                = sdk.NewCoins(sdk.NewInt64Coin("denom", 100000))
-		myAddr  sdk.AccAddress = bytes.Repeat([]byte{1}, types.SDKAddrLen)
+		myAddr  seitypes.AccAddress = bytes.Repeat([]byte{1}, types.SDKAddrLen)
 	)
 
 	specs := map[string]struct {
@@ -430,7 +430,7 @@ func TestInstantiateWithDeposit(t *testing.T) {
 	require.NoError(t, err)
 
 	specs := map[string]struct {
-		srcActor sdk.AccAddress
+		srcActor seitypes.AccAddress
 		expError bool
 		fundAddr bool
 	}{
@@ -490,7 +490,7 @@ func TestInstantiateWithPermissions(t *testing.T) {
 
 	specs := map[string]struct {
 		srcPermission types.AccessConfig
-		srcActor      sdk.AccAddress
+		srcActor      seitypes.AccAddress
 		expError      *sdkerrors.Error
 	}{
 		"default": {
@@ -653,8 +653,8 @@ func TestExecuteWithDeposit(t *testing.T) {
 	)
 
 	specs := map[string]struct {
-		srcActor      sdk.AccAddress
-		beneficiary   sdk.AccAddress
+		srcActor      seitypes.AccAddress
+		beneficiary   seitypes.AccAddress
 		newBankParams *banktypes.Params
 		expError      bool
 		fundAddr      bool
@@ -882,20 +882,20 @@ func TestMigrate(t *testing.T) {
 	}.GetBytes(t)
 
 	migMsg := struct {
-		Verifier sdk.AccAddress `json:"verifier"`
+		Verifier seitypes.AccAddress `json:"verifier"`
 	}{Verifier: newVerifierAddr}
 	migMsgBz, err := json.Marshal(migMsg)
 	require.NoError(t, err)
 
 	specs := map[string]struct {
-		admin                sdk.AccAddress
-		overrideContractAddr sdk.AccAddress
-		caller               sdk.AccAddress
+		admin                seitypes.AccAddress
+		overrideContractAddr seitypes.AccAddress
+		caller               seitypes.AccAddress
 		fromCodeID           uint64
 		toCodeID             uint64
 		migrateMsg           []byte
 		expErr               *sdkerrors.Error
-		expVerifier          sdk.AccAddress
+		expVerifier          seitypes.AccAddress
 		expIBCPort           bool
 		initMsg              []byte
 	}{
@@ -1175,15 +1175,15 @@ func TestIterateContractsByCode(t *testing.T) {
 	require.NoError(t, err)
 	specs := map[string]struct {
 		codeID uint64
-		exp    []sdk.AccAddress
+		exp    []seitypes.AccAddress
 	}{
 		"multiple results": {
 			codeID: example1.CodeID,
-			exp:    []sdk.AccAddress{example1.Contract, contractAddr3},
+			exp:    []seitypes.AccAddress{example1.Contract, contractAddr3},
 		},
 		"single results": {
 			codeID: example2.CodeID,
-			exp:    []sdk.AccAddress{example2.Contract},
+			exp:    []seitypes.AccAddress{example2.Contract},
 		},
 		"empty results": {
 			codeID: 99999,
@@ -1191,8 +1191,8 @@ func TestIterateContractsByCode(t *testing.T) {
 	}
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {
-			var gotAddr []sdk.AccAddress
-			k.IterateContractsByCode(ctx, spec.codeID, func(address sdk.AccAddress) bool {
+			var gotAddr []seitypes.AccAddress
+			k.IterateContractsByCode(ctx, spec.codeID, func(address seitypes.AccAddress) bool {
 				gotAddr = append(gotAddr, address)
 				return false
 			})
@@ -1217,14 +1217,14 @@ func TestIterateContractsByCodeWithMigration(t *testing.T) {
 	require.NoError(t, err)
 
 	// when
-	var gotAddr []sdk.AccAddress
-	k.IterateContractsByCode(ctx, example2.CodeID, func(address sdk.AccAddress) bool {
+	var gotAddr []seitypes.AccAddress
+	k.IterateContractsByCode(ctx, example2.CodeID, func(address seitypes.AccAddress) bool {
 		gotAddr = append(gotAddr, address)
 		return false
 	})
 
 	// then
-	exp := []sdk.AccAddress{example2.Contract, example1.Contract}
+	exp := []seitypes.AccAddress{example2.Contract, example1.Contract}
 	assert.Equal(t, exp, gotAddr)
 }
 
@@ -1348,10 +1348,10 @@ func TestUpdateContractAdmin(t *testing.T) {
 	initMsgBz, err := json.Marshal(initMsg)
 	require.NoError(t, err)
 	specs := map[string]struct {
-		instAdmin            sdk.AccAddress
-		newAdmin             sdk.AccAddress
-		overrideContractAddr sdk.AccAddress
-		caller               sdk.AccAddress
+		instAdmin            seitypes.AccAddress
+		newAdmin             seitypes.AccAddress
+		overrideContractAddr seitypes.AccAddress
+		caller               seitypes.AccAddress
 		expErr               *sdkerrors.Error
 	}{
 		"all good with admin set": {
@@ -1416,9 +1416,9 @@ func TestClearContractAdmin(t *testing.T) {
 	initMsgBz, err := json.Marshal(initMsg)
 	require.NoError(t, err)
 	specs := map[string]struct {
-		instAdmin            sdk.AccAddress
-		overrideContractAddr sdk.AccAddress
-		caller               sdk.AccAddress
+		instAdmin            seitypes.AccAddress
+		overrideContractAddr seitypes.AccAddress
+		caller               seitypes.AccAddress
 		expErr               *sdkerrors.Error
 	}{
 		"all good when called by proper admin": {
@@ -1607,7 +1607,7 @@ func TestNewDefaultWasmVMContractResponseHandler(t *testing.T) {
 		"submessage overwrites result when set": {
 			srcData: []byte("otherData"),
 			setup: func(m *wasmtesting.MockMsgDispatcher) {
-				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
+				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr seitypes.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
 					return []byte("mySubMsgData"), nil
 				}
 			},
@@ -1618,7 +1618,7 @@ func TestNewDefaultWasmVMContractResponseHandler(t *testing.T) {
 		"submessage overwrites result when empty": {
 			srcData: []byte("otherData"),
 			setup: func(m *wasmtesting.MockMsgDispatcher) {
-				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
+				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr seitypes.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
 					return []byte(""), nil
 				}
 			},
@@ -1629,7 +1629,7 @@ func TestNewDefaultWasmVMContractResponseHandler(t *testing.T) {
 		"submessage do not overwrite result when nil": {
 			srcData: []byte("otherData"),
 			setup: func(m *wasmtesting.MockMsgDispatcher) {
-				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
+				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr seitypes.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
 					return nil, nil
 				}
 			},
@@ -1639,7 +1639,7 @@ func TestNewDefaultWasmVMContractResponseHandler(t *testing.T) {
 		},
 		"submessage error aborts process": {
 			setup: func(m *wasmtesting.MockMsgDispatcher) {
-				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
+				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr seitypes.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
 					return nil, errors.New("test - ignore")
 				}
 			},
@@ -1647,7 +1647,7 @@ func TestNewDefaultWasmVMContractResponseHandler(t *testing.T) {
 		},
 		"message emit non message events": {
 			setup: func(m *wasmtesting.MockMsgDispatcher) {
-				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
+				m.DispatchSubmessagesFn = func(ctx sdk.Context, contractAddr seitypes.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]byte, error) {
 					ctx.EventManager().EmitEvent(sdk.NewEvent("myEvent"))
 					return nil, nil
 				}
@@ -1752,7 +1752,7 @@ func TestQueryIsolation(t *testing.T) {
 	wasmtesting.MakeInstantiable(&mock)
 	example := SeedNewContractInstance(t, ctx, keepers, &mock)
 	WithQueryHandlerDecorator(func(other WasmVMQueryHandler) WasmVMQueryHandler {
-		return WasmVMQueryHandlerFn(func(ctx sdk.Context, caller sdk.AccAddress, request wasmvmtypes.QueryRequest) ([]byte, error) {
+		return WasmVMQueryHandlerFn(func(ctx sdk.Context, caller seitypes.AccAddress, request wasmvmtypes.QueryRequest) ([]byte, error) {
 			if request.Custom == nil {
 				return other.HandleQuery(ctx, caller, request)
 			}

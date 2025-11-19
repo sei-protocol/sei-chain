@@ -26,7 +26,7 @@ func (s *handlerTestSuite) TestChainAnteDecorators() {
 	// test panic
 	s.Require().Nil(sdk.ChainAnteDecorators([]sdk.AnteDecorator{}...))
 
-	ctx, tx := sdk.Context{}, sdk.Tx(nil)
+	ctx, tx := sdk.Context{}, seitypes.Tx(nil)
 	mockCtrl := gomock.NewController(s.T())
 	mockAnteDecorator1 := mocks.NewMockAnteDecorator(mockCtrl)
 	mockAnteDecorator1.EXPECT().AnteHandle(gomock.Eq(ctx), gomock.Eq(tx), true, gomock.Any()).Times(1)

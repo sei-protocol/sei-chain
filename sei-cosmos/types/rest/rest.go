@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/tendermint/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -124,7 +125,7 @@ func (br BaseReq) ValidateBasic(w http.ResponseWriter) bool {
 		}
 	}
 
-	if _, err := sdk.AccAddressFromBech32(br.From); err != nil || len(br.From) == 0 {
+	if _, err := seitypes.AccAddressFromBech32(br.From); err != nil || len(br.From) == 0 {
 		WriteErrorResponse(w, http.StatusUnauthorized, fmt.Sprintf("invalid from address: %s", br.From))
 		return false
 	}

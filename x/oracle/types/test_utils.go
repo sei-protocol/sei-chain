@@ -18,8 +18,8 @@ const OracleDecPrecision = 8
 
 // GenerateRandomTestCase nolint
 // nolint:staticcheck
-func GenerateRandomTestCase() (rates []float64, valValAddrs []sdk.ValAddress, stakingKeeper DummyStakingKeeper) {
-	valValAddrs = []sdk.ValAddress{}
+func GenerateRandomTestCase() (rates []float64, valValAddrs []seitypes.ValAddress, stakingKeeper DummyStakingKeeper) {
+	valValAddrs = []seitypes.ValAddress{}
 	mockValidators := []MockValidator{}
 
 	base := math.Pow10(OracleDecPrecision)
@@ -31,7 +31,7 @@ func GenerateRandomTestCase() (rates []float64, valValAddrs []sdk.ValAddress, st
 		rates = append(rates, rate)
 
 		pubKey := secp256k1.GenPrivKey().PubKey()
-		valValAddr := sdk.ValAddress(pubKey.Address())
+		valValAddr := seitypes.ValAddress(pubKey.Address())
 		valValAddrs = append(valValAddrs, valValAddr)
 
 		power := r.Int63()%1000 + 1
@@ -64,7 +64,7 @@ func (sk DummyStakingKeeper) Validators() []MockValidator {
 }
 
 // Validator nolint
-func (sk DummyStakingKeeper) Validator(_ sdk.Context, address sdk.ValAddress) stakingtypes.ValidatorI {
+func (sk DummyStakingKeeper) Validator(_ sdk.Context, address seitypes.ValAddress) stakingtypes.ValidatorI {
 	for _, validator := range sk.validators {
 		if validator.GetOperator().Equals(address) {
 			return validator
@@ -80,7 +80,7 @@ func (DummyStakingKeeper) TotalBondedTokens(_ sdk.Context) sdk.Int {
 }
 
 // Slash nolint
-func (DummyStakingKeeper) Slash(sdk.Context, sdk.ConsAddress, int64, int64, sdk.Dec) {}
+func (DummyStakingKeeper) Slash(sdk.Context, seitypes.ConsAddress, int64, int64, sdk.Dec) {}
 
 // ValidatorsPowerStoreIterator
 func (DummyStakingKeeper) ValidatorsPowerStoreIterator(_ sdk.Context) sdk.Iterator {
@@ -88,11 +88,11 @@ func (DummyStakingKeeper) ValidatorsPowerStoreIterator(_ sdk.Context) sdk.Iterat
 }
 
 // Jail
-func (DummyStakingKeeper) Jail(sdk.Context, sdk.ConsAddress) {
+func (DummyStakingKeeper) Jail(sdk.Context, seitypes.ConsAddress) {
 }
 
 // GetLastValidatorPower
-func (sk DummyStakingKeeper) GetLastValidatorPower(ctx sdk.Context, operator sdk.ValAddress) (power int64) {
+func (sk DummyStakingKeeper) GetLastValidatorPower(ctx sdk.Context, operator seitypes.ValAddress) (power int64) {
 	return sk.Validator(ctx, operator).GetConsensusPower(sdk.DefaultPowerReduction)
 }
 
@@ -110,7 +110,7 @@ func (DummyStakingKeeper) PowerReduction(_ sdk.Context) (res sdk.Int) {
 // MockValidator
 type MockValidator struct {
 	power    int64
-	operator sdk.ValAddress
+	operator seitypes.ValAddress
 }
 
 var _ stakingtypes.ValidatorI = MockValidator{}
@@ -121,12 +121,12 @@ func (MockValidator) GetStatus() stakingtypes.BondStatus      { return stakingty
 func (MockValidator) IsBonded() bool                          { return true }
 func (MockValidator) IsUnbonded() bool                        { return false }
 func (MockValidator) IsUnbonding() bool                       { return false }
-func (v MockValidator) GetOperator() sdk.ValAddress           { return v.operator }
+func (v MockValidator) GetOperator() seitypes.ValAddress           { return v.operator }
 func (MockValidator) ConsPubKey() (cryptotypes.PubKey, error) { return nil, nil }
 func (MockValidator) TmConsPublicKey() (tmprotocrypto.PublicKey, error) {
 	return tmprotocrypto.PublicKey{}, nil
 }
-func (MockValidator) GetConsAddr() (sdk.ConsAddress, error) { return nil, nil }
+func (MockValidator) GetConsAddr() (seitypes.ConsAddress, error) { return nil, nil }
 func (v MockValidator) GetTokens() sdk.Int {
 	return sdk.TokensFromConsensusPower(v.power, sdk.DefaultPowerReduction)
 }
@@ -147,7 +147,7 @@ func (v MockValidator) SharesFromTokensTruncated(_ sdk.Int) (sdk.Dec, error) {
 	return sdk.ZeroDec(), nil
 }
 
-func NewMockValidator(valAddr sdk.ValAddress, power int64) MockValidator {
+func NewMockValidator(valAddr seitypes.ValAddress, power int64) MockValidator {
 	return MockValidator{
 		power:    power,
 		operator: valAddr,

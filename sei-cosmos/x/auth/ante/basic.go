@@ -21,7 +21,7 @@ func NewValidateBasicDecorator() ValidateBasicDecorator {
 	return ValidateBasicDecorator{}
 }
 
-func (vbd ValidateBasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (vbd ValidateBasicDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	// no need to validate basic on recheck tx, call next antehandler
 	if ctx.IsReCheckTx() {
 		return next(ctx, tx, simulate)
@@ -47,7 +47,7 @@ func NewValidateMemoDecorator(ak AccountKeeper) ValidateMemoDecorator {
 	}
 }
 
-func (vmd ValidateMemoDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (vmd ValidateMemoDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	memoTx, ok := tx.(sdk.TxWithMemo)
 	if !ok {
 		return ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "invalid transaction type")
@@ -83,7 +83,7 @@ func NewConsumeGasForTxSizeDecorator(ak AccountKeeper) ConsumeTxSizeGasDecorator
 	return ConsumeTxSizeGasDecorator{ak: ak}
 }
 
-func (cgts ConsumeTxSizeGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (cgts ConsumeTxSizeGasDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	sigTx, ok := tx.(authsigning.SigVerifiableTx)
 	if !ok {
 		return ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "invalid tx type")
@@ -171,7 +171,7 @@ type (
 	// TxWithTimeoutHeight defines the interface a tx must implement in order for
 	// TxHeightTimeoutDecorator to process the tx.
 	TxWithTimeoutHeight interface {
-		sdk.Tx
+		seitypes.Tx
 
 		GetTimeoutHeight() uint64
 	}
@@ -187,7 +187,7 @@ func NewTxTimeoutHeightDecorator() TxTimeoutHeightDecorator {
 // type where the current block height is checked against the tx's height timeout.
 // If a height timeout is provided (non-zero) and is less than the current block
 // height, then an error is returned.
-func (txh TxTimeoutHeightDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (txh TxTimeoutHeightDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	timeoutTx, ok := tx.(TxWithTimeoutHeight)
 	if !ok {
 		return ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "expected tx to implement TxWithTimeoutHeight")

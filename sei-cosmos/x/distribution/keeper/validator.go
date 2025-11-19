@@ -64,7 +64,7 @@ func (k Keeper) IncrementValidatorPeriod(ctx sdk.Context, val stakingtypes.Valid
 }
 
 // increment the reference count for a historical rewards value
-func (k Keeper) incrementReferenceCount(ctx sdk.Context, valAddr sdk.ValAddress, period uint64) {
+func (k Keeper) incrementReferenceCount(ctx sdk.Context, valAddr seitypes.ValAddress, period uint64) {
 	historical := k.GetValidatorHistoricalRewards(ctx, valAddr, period)
 	if historical.ReferenceCount > 2 {
 		panic("reference count should never exceed 2")
@@ -74,7 +74,7 @@ func (k Keeper) incrementReferenceCount(ctx sdk.Context, valAddr sdk.ValAddress,
 }
 
 // decrement the reference count for a historical rewards value, and delete if zero references remain
-func (k Keeper) decrementReferenceCount(ctx sdk.Context, valAddr sdk.ValAddress, period uint64) {
+func (k Keeper) decrementReferenceCount(ctx sdk.Context, valAddr seitypes.ValAddress, period uint64) {
 	historical := k.GetValidatorHistoricalRewards(ctx, valAddr, period)
 	if historical.ReferenceCount == 0 {
 		panic("cannot set negative reference count")
@@ -87,7 +87,7 @@ func (k Keeper) decrementReferenceCount(ctx sdk.Context, valAddr sdk.ValAddress,
 	}
 }
 
-func (k Keeper) updateValidatorSlashFraction(ctx sdk.Context, valAddr sdk.ValAddress, fraction sdk.Dec) {
+func (k Keeper) updateValidatorSlashFraction(ctx sdk.Context, valAddr seitypes.ValAddress, fraction sdk.Dec) {
 	if fraction.GT(sdk.OneDec()) || fraction.IsNegative() {
 		panic(fmt.Sprintf("fraction must be >=0 and <=1, current fraction: %v", fraction))
 	}

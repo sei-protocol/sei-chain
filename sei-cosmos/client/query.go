@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -14,7 +15,6 @@ import (
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
@@ -58,12 +58,12 @@ func (ctx Context) QueryABCI(req abci.RequestQuery) (abci.ResponseQuery, error) 
 }
 
 // GetFromAddress returns the from address from the context's name.
-func (ctx Context) GetFromAddress() sdk.AccAddress {
+func (ctx Context) GetFromAddress() seitypes.AccAddress {
 	return ctx.FromAddress
 }
 
 // GetFeeGranterAddress returns the fee granter address from the context
-func (ctx Context) GetFeeGranterAddress() sdk.AccAddress {
+func (ctx Context) GetFeeGranterAddress() seitypes.AccAddress {
 	return ctx.FeeGranter
 }
 

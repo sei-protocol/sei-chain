@@ -9,7 +9,7 @@ import (
 
 func RegisterInterfaces(registry types.InterfaceRegistry) {
 	registry.RegisterImplementations(
-		(*sdk.Msg)(nil),
+		(*seitypes.Msg)(nil),
 		&MsgCounter{},
 		&MsgCounter2{},
 		&MsgKeyValue{},
@@ -19,9 +19,9 @@ func RegisterInterfaces(registry types.InterfaceRegistry) {
 	msgservice.RegisterMsgServiceDesc(registry, &_KeyValue_serviceDesc)
 }
 
-var _ sdk.Msg = &MsgCounter{}
+var _ seitypes.Msg = &MsgCounter{}
 
-func (msg *MsgCounter) GetSigners() []sdk.AccAddress { return []sdk.AccAddress{} }
+func (msg *MsgCounter) GetSigners() []seitypes.AccAddress { return []seitypes.AccAddress{} }
 func (msg *MsgCounter) ValidateBasic() error {
 	if msg.Counter >= 0 {
 		return nil
@@ -29,9 +29,9 @@ func (msg *MsgCounter) ValidateBasic() error {
 	return sdkerrors.Wrap(sdkerrors.ErrInvalidSequence, "counter should be a non-negative integer")
 }
 
-var _ sdk.Msg = &MsgCounter2{}
+var _ seitypes.Msg = &MsgCounter2{}
 
-func (msg *MsgCounter2) GetSigners() []sdk.AccAddress { return []sdk.AccAddress{} }
+func (msg *MsgCounter2) GetSigners() []seitypes.AccAddress { return []seitypes.AccAddress{} }
 func (msg *MsgCounter2) ValidateBasic() error {
 	if msg.Counter >= 0 {
 		return nil
@@ -39,14 +39,14 @@ func (msg *MsgCounter2) ValidateBasic() error {
 	return sdkerrors.Wrap(sdkerrors.ErrInvalidSequence, "counter should be a non-negative integer")
 }
 
-var _ sdk.Msg = &MsgKeyValue{}
+var _ seitypes.Msg = &MsgKeyValue{}
 
-func (msg *MsgKeyValue) GetSigners() []sdk.AccAddress {
+func (msg *MsgKeyValue) GetSigners() []seitypes.AccAddress {
 	if msg.Signer == "" {
-		return []sdk.AccAddress{}
+		return []seitypes.AccAddress{}
 	}
 
-	return []sdk.AccAddress{sdk.MustAccAddressFromBech32(msg.Signer)}
+	return []seitypes.AccAddress{seitypes.MustAccAddressFromBech32(msg.Signer)}
 }
 
 func (msg *MsgKeyValue) ValidateBasic() error {

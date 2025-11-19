@@ -12,8 +12,8 @@ import (
 	"github.com/hashicorp/golang-lru/v2/simplelru"
 	"gopkg.in/yaml.v2"
 
+	"github.com/cosmos/cosmos-sdk/conv"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/internal/conv"
 	"github.com/cosmos/cosmos-sdk/types/address"
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -24,7 +24,7 @@ const (
 	// You can use the specific values for your project.
 	// Add the follow lines to the `main()` of your server.
 	//
-	//	config := sdk.GetConfig()
+	//	config := seitypes.GetConfig()
 	//	config.SetBech32PrefixForAccount(yourBech32PrefixAccAddr, yourBech32PrefixAccPub)
 	//	config.SetBech32PrefixForValidator(yourBech32PrefixValAddr, yourBech32PrefixValPub)
 	//	config.SetBech32PrefixForConsensusNode(yourBech32PrefixConsAddr, yourBech32PrefixConsPub)

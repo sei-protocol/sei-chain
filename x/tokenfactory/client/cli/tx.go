@@ -346,7 +346,7 @@ func ParseAllowListJSON(allowListFile string, queryClient evmtypes.QueryClient) 
 			uniqueAddresses = append(uniqueAddresses, res.SeiAddress)
 			continue
 		}
-		if _, err := sdk.AccAddressFromBech32(addr); err != nil {
+		if _, err := seitypes.AccAddressFromBech32(addr); err != nil {
 			return allowList, fmt.Errorf("invalid address %s: %w", addr, err)
 		}
 		uniqueAddresses = append(uniqueAddresses, addr)

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/spf13/cobra"
 	tmtypes "github.com/tendermint/tendermint/types"
 
@@ -15,7 +16,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/rest"
 )
 
@@ -68,10 +68,10 @@ func ValidatorCommand() *cobra.Command {
 
 // Validator output
 type ValidatorOutput struct {
-	Address          sdk.ConsAddress    `json:"address"`
-	PubKey           cryptotypes.PubKey `json:"pub_key"`
-	ProposerPriority int64              `json:"proposer_priority"`
-	VotingPower      int64              `json:"voting_power"`
+	Address          seitypes.ConsAddress `json:"address"`
+	PubKey           cryptotypes.PubKey   `json:"pub_key"`
+	ProposerPriority int64                `json:"proposer_priority"`
+	VotingPower      int64                `json:"voting_power"`
 }
 
 // Validators at a certain height output in bech32 format
@@ -110,7 +110,7 @@ func validatorOutput(validator *tmtypes.Validator) (ValidatorOutput, error) {
 	}
 
 	return ValidatorOutput{
-		Address:          sdk.ConsAddress(validator.Address),
+		Address:          seitypes.ConsAddress(validator.Address),
 		PubKey:           pk,
 		ProposerPriority: validator.ProposerPriority,
 		VotingPower:      validator.VotingPower,

@@ -309,8 +309,8 @@ func (c *LoadTestClient) getRandomMessageType(messageTypes []string) string {
 	return messageType
 }
 
-func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string) ([]sdk.Msg, bool, cryptotypes.PrivKey, uint64, int64) {
-	var msgs []sdk.Msg
+func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string) ([]seitypes.Msg, bool, cryptotypes.PrivKey, uint64, int64) {
+	var msgs []seitypes.Msg
 	config := c.LoadTestConfig
 	msgPerTx := config.MsgsPerTx
 	signer := key
@@ -337,15 +337,15 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		if err != nil {
 			panic(err)
 		}
-		msgs = []sdk.Msg{&wasmtypes.MsgExecuteContract{
-			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
+		msgs = []seitypes.Msg{&wasmtypes.MsgExecuteContract{
+			Sender:   seitypes.AccAddress(key.PubKey().Address()).String(),
 			Contract: contract,
 			Msg:      wasmtypes.RawContractMessage([]byte("{\"mint\":{\"owner\": \"sei1a27kj2j27c6uz58rn9zmhcjee9s3h3nhyhtvjj\"}}")),
 			Funds:    amount,
 		}}
 	case WasmInstantiate:
-		msgs = []sdk.Msg{&wasmtypes.MsgInstantiateContract{
-			Sender: sdk.AccAddress(key.PubKey().Address()).String(),
+		msgs = []seitypes.Msg{&wasmtypes.MsgInstantiateContract{
+			Sender: seitypes.AccAddress(key.PubKey().Address()).String(),
 			CodeID: config.WasmMsgTypes.Instantiate.CodeID,
 			Label:  "test",
 			Msg:    wasmtypes.RawContractMessage([]byte(config.WasmMsgTypes.Instantiate.Payload)),
@@ -355,12 +355,12 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 			}), // maybe make this configurable as well in the future
 		}}
 	case Bank:
-		msgs = []sdk.Msg{}
+		msgs = []seitypes.Msg{}
 		for i := 0; i < int(msgPerTx); i++ { //nolint:gosec
 
 			msgs = append(msgs, &banktypes.MsgSend{
-				FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
-				ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
+				FromAddress: seitypes.AccAddress(key.PubKey().Address()).String(),
+				ToAddress:   seitypes.AccAddress(key.PubKey().Address()).String(),
 				Amount: sdk.NewCoins(sdk.Coin{
 					Denom:  "usei",
 					Amount: sdk.NewInt(1),
@@ -369,9 +369,9 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		}
 	case DistributeRewards:
 		adminKey := c.SignerClient.GetAdminKey()
-		msgs = []sdk.Msg{&banktypes.MsgSend{
-			FromAddress: sdk.AccAddress(adminKey.PubKey().Address()).String(),
-			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
+		msgs = []seitypes.Msg{&banktypes.MsgSend{
+			FromAddress: seitypes.AccAddress(adminKey.PubKey().Address()).String(),
+			ToAddress:   seitypes.AccAddress(key.PubKey().Address()).String(),
 			Amount: sdk.NewCoins(sdk.Coin{
 				Denom:  "usei",
 				Amount: sdk.NewInt(10000000),
@@ -380,16 +380,16 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		signer = adminKey
 		gas = 10000000
 		fee = 1000000
-		fmt.Printf("Distribute rewards to %s \n", sdk.AccAddress(key.PubKey().Address()).String())
+		fmt.Printf("Distribute rewards to %s \n", seitypes.AccAddress(key.PubKey().Address()).String())
 	case CollectRewards:
 		adminKey := c.SignerClient.GetAdminKey()
-		delegatorAddr := sdk.AccAddress(adminKey.PubKey().Address())
+		delegatorAddr := seitypes.AccAddress(adminKey.PubKey().Address())
 		operatorAddress := c.Validators[r.Intn(len(c.Validators))].OperatorAddress
 		randomValidatorAddr, err := sdk.ValAddressFromBech32(operatorAddress)
 		if err != nil {
 			panic(err.Error())
 		}
-		msgs = []sdk.Msg{distributiontypes.NewMsgWithdrawDelegatorReward(
+		msgs = []seitypes.Msg{distributiontypes.NewMsgWithdrawDelegatorReward(
 			delegatorAddr,
 			randomValidatorAddr,
 		)}
@@ -398,7 +398,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		gas = 10000000
 		fee = 1000000
 	case Staking:
-		delegatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
+		delegatorAddr := seitypes.AccAddress(key.PubKey().Address()).String()
 		chosenValidator := c.Validators[r.Intn(len(c.Validators))].OperatorAddress
 		// Randomly pick someone to redelegate / unbond from
 		srcAddr := ""
@@ -411,9 +411,9 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 			break
 		}
 		c.mtx.RUnlock()
-		msgs = []sdk.Msg{c.generateStakingMsg(delegatorAddr, chosenValidator, srcAddr)}
+		msgs = []seitypes.Msg{c.generateStakingMsg(delegatorAddr, chosenValidator, srcAddr)}
 	case Tokenfactory:
-		denomCreatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
+		denomCreatorAddr := seitypes.AccAddress(key.PubKey().Address()).String()
 		// No denoms, let's mint
 		randNum := r.Float64()
 		denom, ok := c.TokenFactoryDenomOwner[denomCreatorAddr]
@@ -421,18 +421,18 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		case !ok || randNum <= 0.33:
 			subDenom := fmt.Sprintf("tokenfactory-created-denom-%d", time.Now().UnixMilli())
 			denom = fmt.Sprintf("factory/%s/%s", denomCreatorAddr, subDenom)
-			msgs = []sdk.Msg{&tokenfactorytypes.MsgCreateDenom{
+			msgs = []seitypes.Msg{&tokenfactorytypes.MsgCreateDenom{
 				Sender:   denomCreatorAddr,
 				Subdenom: subDenom,
 			}}
 			c.TokenFactoryDenomOwner[denomCreatorAddr] = denom
 		case randNum <= 0.66:
-			msgs = []sdk.Msg{&tokenfactorytypes.MsgMint{
+			msgs = []seitypes.Msg{&tokenfactorytypes.MsgMint{
 				Sender: denomCreatorAddr,
 				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(10)},
 			}}
 		default:
-			msgs = []sdk.Msg{&tokenfactorytypes.MsgBurn{
+			msgs = []seitypes.Msg{&tokenfactorytypes.MsgBurn{
 				Sender: denomCreatorAddr,
 				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(1)},
 			}}
@@ -444,9 +444,9 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		} else {
 			denom = "other"
 		}
-		msgs = []sdk.Msg{&banktypes.MsgSend{
-			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
-			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
+		msgs = []seitypes.Msg{&banktypes.MsgSend{
+			FromAddress: seitypes.AccAddress(key.PubKey().Address()).String(),
+			ToAddress:   seitypes.AccAddress(key.PubKey().Address()).String(),
 			Amount: sdk.NewCoins(sdk.Coin{
 				Denom:  denom,
 				Amount: sdk.NewInt(1),
@@ -455,9 +455,9 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 	case FailureBankInvalid:
 		var amountUsei int64
 		amountUsei = 1000000000000000000
-		msgs = []sdk.Msg{&banktypes.MsgSend{
-			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
-			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
+		msgs = []seitypes.Msg{&banktypes.MsgSend{
+			FromAddress: seitypes.AccAddress(key.PubKey().Address()).String(),
+			ToAddress:   seitypes.AccAddress(key.PubKey().Address()).String(),
 			Amount: sdk.NewCoins(sdk.Coin{
 				Denom:  "usei",
 				Amount: sdk.NewInt(amountUsei),
@@ -485,8 +485,8 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		if err != nil {
 			panic(err)
 		}
-		msgs = []sdk.Msg{&wasmtypes.MsgExecuteContract{
-			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
+		msgs = []seitypes.Msg{&wasmtypes.MsgExecuteContract{
+			Sender:   seitypes.AccAddress(key.PubKey().Address()).String(),
 			Contract: contract,
 			Msg:      wasmtypes.RawContractMessage([]byte(fmt.Sprintf("{\"test_occ_iterator_write\":%s}", jsonData))),
 		}}
@@ -497,8 +497,8 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		if start > end {
 			start, end = end, start
 		}
-		msgs = []sdk.Msg{&wasmtypes.MsgExecuteContract{
-			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
+		msgs = []seitypes.Msg{&wasmtypes.MsgExecuteContract{
+			Sender:   seitypes.AccAddress(key.PubKey().Address()).String(),
 			Contract: contract,
 			Msg:      wasmtypes.RawContractMessage([]byte(fmt.Sprintf("{\"test_occ_iterator_range\":{\"start\": %d, \"end\": %d}}", start, end))),
 		}}
@@ -506,8 +506,8 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		contract := config.SeiTesterAddress
 		// generate random value
 		value := rand.Uint64()
-		msgs = []sdk.Msg{&wasmtypes.MsgExecuteContract{
-			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
+		msgs = []seitypes.Msg{&wasmtypes.MsgExecuteContract{
+			Sender:   seitypes.AccAddress(key.PubKey().Address()).String(),
 			Contract: contract,
 			Msg:      wasmtypes.RawContractMessage([]byte(fmt.Sprintf("{\"test_occ_parallelism\":{\"value\": %d}}", value))),
 		}}
@@ -521,12 +521,12 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 	return msgs, false, signer, gas, int64(fee) // nolint:gosec
 }
 
-func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr string) sdk.Msg {
+func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr string) seitypes.Msg {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 	// Randomly unbond, redelegate or delegate
 	// However, if there are no delegations, do so first
-	var msg sdk.Msg
+	var msg seitypes.Msg
 	msgType := c.LoadTestConfig.MsgTypeDistr.SampleStakingMsgs()
 	if _, ok := c.DelegationMap[delegatorAddr]; !ok || msgType == "delegate" || srcAddr == "" {
 		msg = &stakingtypes.MsgDelegate{

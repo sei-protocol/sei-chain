@@ -163,7 +163,7 @@ func AssociateContractAddressCmd() *cobra.Command {
 				return err
 			}
 
-			addr, err := sdk.AccAddressFromBech32(args[0])
+			addr, err := seitypes.AccAddressFromBech32(args[0])
 			if err != nil {
 				return err
 			}
@@ -243,7 +243,7 @@ func PrintClaimTxBySenderPayloadCmd() *cobra.Command {
 				return err
 			}
 
-			msg := types.NewMsgClaim(sdk.MustAccAddressFromBech32(args[1]), common.HexToAddress(args[0]))
+			msg := types.NewMsgClaim(seitypes.MustAccAddressFromBech32(args[1]), common.HexToAddress(args[0]))
 			if err := msg.ValidateBasic(); err != nil {
 				return err
 			}

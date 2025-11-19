@@ -14,6 +14,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/occ"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/tendermint/tendermint/abci/types"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -50,7 +51,7 @@ type deliverTxTask struct {
 	Abort         *occ.Abort
 	Incarnation   int
 	Request       types.RequestDeliverTxV2
-	SdkTx         sdk.Tx
+	SdkTx         seitypes.Tx
 	Checksum      [32]byte
 	AbsoluteIndex int
 	Response      *types.ResponseDeliverTx
@@ -101,7 +102,7 @@ type Scheduler interface {
 }
 
 type scheduler struct {
-	deliverTx          func(ctx sdk.Context, req types.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx)
+	deliverTx          func(ctx sdk.Context, req types.RequestDeliverTxV2, tx seitypes.Tx, checksum [32]byte) (res types.ResponseDeliverTx)
 	workers            int
 	multiVersionStores map[sdk.StoreKey]multiversion.MultiVersionStore
 	tracingInfo        *tracing.Info
@@ -115,7 +116,7 @@ type scheduler struct {
 }
 
 // NewScheduler creates a new scheduler
-func NewScheduler(workers int, tracingInfo *tracing.Info, deliverTxFunc func(ctx sdk.Context, req types.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx)) Scheduler {
+func NewScheduler(workers int, tracingInfo *tracing.Info, deliverTxFunc func(ctx sdk.Context, req types.RequestDeliverTxV2, tx seitypes.Tx, checksum [32]byte) (res types.ResponseDeliverTx)) Scheduler {
 	return &scheduler{
 		workers:     workers,
 		deliverTx:   deliverTxFunc,

@@ -50,7 +50,7 @@ func (msg MsgStoreCode) Type() string {
 }
 
 func (msg MsgStoreCode) ValidateBasic() error {
-	if _, err := sdk.AccAddressFromBech32(msg.Sender); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(msg.Sender); err != nil {
 		return err
 	}
 
@@ -70,12 +70,12 @@ func (msg MsgStoreCode) GetSignBytes() []byte {
 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&msg))
 }
 
-func (msg MsgStoreCode) GetSigners() []sdk.AccAddress {
-	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
+func (msg MsgStoreCode) GetSigners() []seitypes.AccAddress {
+	senderAddr, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil { // should never happen as valid basic rejects invalid addresses
 		panic(err.Error())
 	}
-	return []sdk.AccAddress{senderAddr}
+	return []seitypes.AccAddress{senderAddr}
 }
 
 func (msg MsgInstantiateContract) Route() string {
@@ -87,7 +87,7 @@ func (msg MsgInstantiateContract) Type() string {
 }
 
 func (msg MsgInstantiateContract) ValidateBasic() error {
-	if _, err := sdk.AccAddressFromBech32(msg.Sender); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(msg.Sender); err != nil {
 		return sdkerrors.Wrap(err, "sender")
 	}
 
@@ -104,7 +104,7 @@ func (msg MsgInstantiateContract) ValidateBasic() error {
 	}
 
 	if len(msg.Admin) != 0 {
-		if _, err := sdk.AccAddressFromBech32(msg.Admin); err != nil {
+		if _, err := seitypes.AccAddressFromBech32(msg.Admin); err != nil {
 			return sdkerrors.Wrap(err, "admin")
 		}
 	}
@@ -118,12 +118,12 @@ func (msg MsgInstantiateContract) GetSignBytes() []byte {
 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&msg))
 }
 
-func (msg MsgInstantiateContract) GetSigners() []sdk.AccAddress {
-	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
+func (msg MsgInstantiateContract) GetSigners() []seitypes.AccAddress {
+	senderAddr, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil { // should never happen as valid basic rejects invalid addresses
 		panic(err.Error())
 	}
-	return []sdk.AccAddress{senderAddr}
+	return []seitypes.AccAddress{senderAddr}
 }
 
 func (msg MsgExecuteContract) Route() string {
@@ -135,10 +135,10 @@ func (msg MsgExecuteContract) Type() string {
 }
 
 func (msg MsgExecuteContract) ValidateBasic() error {
-	if _, err := sdk.AccAddressFromBech32(msg.Sender); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(msg.Sender); err != nil {
 		return sdkerrors.Wrap(err, "sender")
 	}
-	if _, err := sdk.AccAddressFromBech32(msg.Contract); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(msg.Contract); err != nil {
 		return sdkerrors.Wrap(err, "contract")
 	}
 
@@ -155,12 +155,12 @@ func (msg MsgExecuteContract) GetSignBytes() []byte {
 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&msg))
 }
 
-func (msg MsgExecuteContract) GetSigners() []sdk.AccAddress {
-	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
+func (msg MsgExecuteContract) GetSigners() []seitypes.AccAddress {
+	senderAddr, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil { // should never happen as valid basic rejects invalid addresses
 		panic(err.Error())
 	}
-	return []sdk.AccAddress{senderAddr}
+	return []seitypes.AccAddress{senderAddr}
 }
 
 func (msg MsgMigrateContract) Route() string {
@@ -175,10 +175,10 @@ func (msg MsgMigrateContract) ValidateBasic() error {
 	if msg.CodeID == 0 {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "code id is required")
 	}
-	if _, err := sdk.AccAddressFromBech32(msg.Sender); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(msg.Sender); err != nil {
 		return sdkerrors.Wrap(err, "sender")
 	}
-	if _, err := sdk.AccAddressFromBech32(msg.Contract); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(msg.Contract); err != nil {
 		return sdkerrors.Wrap(err, "contract")
 	}
 
@@ -193,12 +193,12 @@ func (msg MsgMigrateContract) GetSignBytes() []byte {
 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&msg))
 }
 
-func (msg MsgMigrateContract) GetSigners() []sdk.AccAddress {
-	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
+func (msg MsgMigrateContract) GetSigners() []seitypes.AccAddress {
+	senderAddr, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil { // should never happen as valid basic rejects invalid addresses
 		panic(err.Error())
 	}
-	return []sdk.AccAddress{senderAddr}
+	return []seitypes.AccAddress{senderAddr}
 }
 
 func (msg MsgUpdateAdmin) Route() string {
@@ -210,13 +210,13 @@ func (msg MsgUpdateAdmin) Type() string {
 }
 
 func (msg MsgUpdateAdmin) ValidateBasic() error {
-	if _, err := sdk.AccAddressFromBech32(msg.Sender); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(msg.Sender); err != nil {
 		return sdkerrors.Wrap(err, "sender")
 	}
-	if _, err := sdk.AccAddressFromBech32(msg.Contract); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(msg.Contract); err != nil {
 		return sdkerrors.Wrap(err, "contract")
 	}
-	if _, err := sdk.AccAddressFromBech32(msg.NewAdmin); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(msg.NewAdmin); err != nil {
 		return sdkerrors.Wrap(err, "new admin")
 	}
 	if strings.EqualFold(msg.Sender, msg.NewAdmin) {
@@ -229,12 +229,12 @@ func (msg MsgUpdateAdmin) GetSignBytes() []byte {
 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&msg))
 }
 
-func (msg MsgUpdateAdmin) GetSigners() []sdk.AccAddress {
-	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
+func (msg MsgUpdateAdmin) GetSigners() []seitypes.AccAddress {
+	senderAddr, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil { // should never happen as valid basic rejects invalid addresses
 		panic(err.Error())
 	}
-	return []sdk.AccAddress{senderAddr}
+	return []seitypes.AccAddress{senderAddr}
 }
 
 func (msg MsgClearAdmin) Route() string {
@@ -246,10 +246,10 @@ func (msg MsgClearAdmin) Type() string {
 }
 
 func (msg MsgClearAdmin) ValidateBasic() error {
-	if _, err := sdk.AccAddressFromBech32(msg.Sender); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(msg.Sender); err != nil {
 		return sdkerrors.Wrap(err, "sender")
 	}
-	if _, err := sdk.AccAddressFromBech32(msg.Contract); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(msg.Contract); err != nil {
 		return sdkerrors.Wrap(err, "contract")
 	}
 	return nil
@@ -259,12 +259,12 @@ func (msg MsgClearAdmin) GetSignBytes() []byte {
 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&msg))
 }
 
-func (msg MsgClearAdmin) GetSigners() []sdk.AccAddress {
-	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
+func (msg MsgClearAdmin) GetSigners() []seitypes.AccAddress {
+	senderAddr, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil { // should never happen as valid basic rejects invalid addresses
 		panic(err.Error())
 	}
-	return []sdk.AccAddress{senderAddr}
+	return []seitypes.AccAddress{senderAddr}
 }
 
 func (msg MsgIBCSend) Route() string {
@@ -283,7 +283,7 @@ func (msg MsgIBCSend) GetSignBytes() []byte {
 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&msg))
 }
 
-func (msg MsgIBCSend) GetSigners() []sdk.AccAddress {
+func (msg MsgIBCSend) GetSigners() []seitypes.AccAddress {
 	return nil
 }
 
@@ -303,6 +303,6 @@ func (msg MsgIBCCloseChannel) GetSignBytes() []byte {
 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&msg))
 }
 
-func (msg MsgIBCCloseChannel) GetSigners() []sdk.AccAddress {
+func (msg MsgIBCCloseChannel) GetSigners() []seitypes.AccAddress {
 	return nil
 }

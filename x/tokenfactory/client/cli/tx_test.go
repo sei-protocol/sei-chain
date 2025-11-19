@@ -83,8 +83,8 @@ func (m *MockErrorQueryClient) SeiAddressByEVMAddress(ctx context.Context, in *e
 func Test_ParseAllowListJSON(t *testing.T) {
 	mockQueryClient := &MockQueryClient{}
 
-	seiAddr1 := sdk.AccAddress("sei1_______________").String()
-	seiAddr2 := sdk.AccAddress("sei2_______________").String()
+	seiAddr1 := seitypes.AccAddress("sei1_______________").String()
+	seiAddr2 := seitypes.AccAddress("sei2_______________").String()
 	evmAddr := "0x5c71b5577B9223d39ae0B7Dcb3f1BC8e1aC81f3e"
 	notAssociatedEvmAddr := "0x0CF3Bb7Da9fea6a881987A5018740500C7d4BAaE"
 	convertedSeiAddr := "sei1u8j4gaxyzhg39dk848q5w9h53tgggpcx74m762"

@@ -132,8 +132,8 @@ Which relies on the following types:
 
 ```go
 type Account interface {
-  GetAddress() sdk.AccAddress
-  SetAddress(sdk.AccAddress) error
+  GetAddress() seitypes.AccAddress
+  SetAddress(seitypes.AccAddress) error
   GetPubKey() crypto.PubKey
   SetPubKey(crypto.PubKey) error
   GetAccountNumber() uint64

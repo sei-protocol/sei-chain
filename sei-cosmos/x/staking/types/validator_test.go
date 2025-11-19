@@ -251,7 +251,7 @@ func TestValidatorsSortDeterminism(t *testing.T) {
 	// Create random validator slice
 	for i := range vals {
 		pk := ed25519.GenPrivKey().PubKey()
-		vals[i] = newValidator(t, sdk.ValAddress(pk.Address()), pk)
+		vals[i] = newValidator(t, seitypes.ValAddress(pk.Address()), pk)
 	}
 
 	// Save sorted copy
@@ -278,7 +278,7 @@ func TestValidatorsSortTendermint(t *testing.T) {
 	for i := range vals {
 		pk := ed25519.GenPrivKey().PubKey()
 		pk2 := ed25519.GenPrivKey().PubKey()
-		vals[i] = newValidator(t, sdk.ValAddress(pk2.Address()), pk)
+		vals[i] = newValidator(t, seitypes.ValAddress(pk2.Address()), pk)
 		vals[i].Status = types.Bonded
 		vals[i].Tokens = sdk.NewInt(rand.Int63())
 	}
@@ -310,7 +310,7 @@ func TestValidatorToTm(t *testing.T) {
 
 	for i := range vals {
 		pk := ed25519.GenPrivKey().PubKey()
-		val := newValidator(t, sdk.ValAddress(pk.Address()), pk)
+		val := newValidator(t, seitypes.ValAddress(pk.Address()), pk)
 		val.Status = types.Bonded
 		val.Tokens = sdk.NewInt(rand.Int63())
 		vals[i] = val
@@ -345,7 +345,7 @@ func mkValidator(tokens int64, shares sdk.Dec) types.Validator {
 }
 
 // Creates a new validators and asserts the error check.
-func newValidator(t *testing.T, operator sdk.ValAddress, pubKey cryptotypes.PubKey) types.Validator {
+func newValidator(t *testing.T, operator seitypes.ValAddress, pubKey cryptotypes.PubKey) types.Validator {
 	v, err := types.NewValidator(operator, pubKey, types.Description{})
 	require.NoError(t, err)
 	return v

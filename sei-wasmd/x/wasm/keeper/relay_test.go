@@ -25,7 +25,7 @@ func TestOnOpenChannel(t *testing.T) {
 	const myContractGas = 40
 
 	specs := map[string]struct {
-		contractAddr sdk.AccAddress
+		contractAddr seitypes.AccAddress
 		contractGas  sdk.Gas
 		contractErr  error
 		expGas       uint64
@@ -91,7 +91,7 @@ func TestOnConnectChannel(t *testing.T) {
 	const myContractGas = 40
 
 	specs := map[string]struct {
-		contractAddr       sdk.AccAddress
+		contractAddr       seitypes.AccAddress
 		contractResp       *wasmvmtypes.IBCBasicResponse
 		contractErr        error
 		overwriteMessenger *wasmtesting.MockMessageHandler
@@ -198,7 +198,7 @@ func TestOnCloseChannel(t *testing.T) {
 	const myContractGas = 40
 
 	specs := map[string]struct {
-		contractAddr       sdk.AccAddress
+		contractAddr       seitypes.AccAddress
 		contractResp       *wasmvmtypes.IBCBasicResponse
 		contractErr        error
 		overwriteMessenger *wasmtesting.MockMessageHandler
@@ -305,7 +305,7 @@ func TestOnRecvPacket(t *testing.T) {
 	const storageCosts = sdk.Gas(2903)
 
 	specs := map[string]struct {
-		contractAddr       sdk.AccAddress
+		contractAddr       seitypes.AccAddress
 		contractResp       *wasmvmtypes.IBCReceiveResponse
 		contractErr        error
 		overwriteMessenger *wasmtesting.MockMessageHandler
@@ -462,7 +462,7 @@ func TestOnAckPacket(t *testing.T) {
 	const myContractGas = 40
 
 	specs := map[string]struct {
-		contractAddr       sdk.AccAddress
+		contractAddr       seitypes.AccAddress
 		contractResp       *wasmvmtypes.IBCBasicResponse
 		contractErr        error
 		overwriteMessenger *wasmtesting.MockMessageHandler
@@ -563,7 +563,7 @@ func TestOnTimeoutPacket(t *testing.T) {
 	const myContractGas = 40
 
 	specs := map[string]struct {
-		contractAddr       sdk.AccAddress
+		contractAddr       seitypes.AccAddress
 		contractResp       *wasmvmtypes.IBCBasicResponse
 		contractErr        error
 		overwriteMessenger *wasmtesting.MockMessageHandler

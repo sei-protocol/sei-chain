@@ -9,18 +9,18 @@ import (
 const TypeMsgRegisterPointer = "evm_register_pointer"
 
 var (
-	_ sdk.Msg = &MsgRegisterPointer{}
+	_ seitypes.Msg = &MsgRegisterPointer{}
 )
 
-func NewMsgRegisterERC20Pointer(sender sdk.AccAddress, ercAddress common.Address) *MsgRegisterPointer {
+func NewMsgRegisterERC20Pointer(sender seitypes.AccAddress, ercAddress common.Address) *MsgRegisterPointer {
 	return &MsgRegisterPointer{Sender: sender.String(), ErcAddress: ercAddress.Hex(), PointerType: PointerType_ERC20}
 }
 
-func NewMsgRegisterERC721Pointer(sender sdk.AccAddress, ercAddress common.Address) *MsgRegisterPointer {
+func NewMsgRegisterERC721Pointer(sender seitypes.AccAddress, ercAddress common.Address) *MsgRegisterPointer {
 	return &MsgRegisterPointer{Sender: sender.String(), ErcAddress: ercAddress.Hex(), PointerType: PointerType_ERC721}
 }
 
-func NewMsgRegisterERC1155Pointer(sender sdk.AccAddress, ercAddress common.Address) *MsgRegisterPointer {
+func NewMsgRegisterERC1155Pointer(sender seitypes.AccAddress, ercAddress common.Address) *MsgRegisterPointer {
 	return &MsgRegisterPointer{Sender: sender.String(), ErcAddress: ercAddress.Hex(), PointerType: PointerType_ERC1155}
 }
 
@@ -32,12 +32,12 @@ func (msg *MsgRegisterPointer) Type() string {
 	return TypeMsgRegisterPointer
 }
 
-func (msg *MsgRegisterPointer) GetSigners() []sdk.AccAddress {
-	from, err := sdk.AccAddressFromBech32(msg.Sender)
+func (msg *MsgRegisterPointer) GetSigners() []seitypes.AccAddress {
+	from, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{from}
+	return []seitypes.AccAddress{from}
 }
 
 func (msg *MsgRegisterPointer) GetSignBytes() []byte {
@@ -45,7 +45,7 @@ func (msg *MsgRegisterPointer) GetSignBytes() []byte {
 }
 
 func (msg *MsgRegisterPointer) ValidateBasic() error {
-	_, err := sdk.AccAddressFromBech32(msg.Sender)
+	_, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
 	}

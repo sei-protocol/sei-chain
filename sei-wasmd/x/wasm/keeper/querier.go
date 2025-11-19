@@ -36,7 +36,7 @@ func (q grpcQuerier) ContractInfo(c context.Context, req *types.QueryContractInf
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "empty request")
 	}
-	contractAddr, err := sdk.AccAddressFromBech32(req.Address)
+	contractAddr, err := seitypes.AccAddressFromBech32(req.Address)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func (q grpcQuerier) ContractHistory(c context.Context, req *types.QueryContract
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "empty request")
 	}
-	contractAddr, err := sdk.AccAddressFromBech32(req.Address)
+	contractAddr, err := seitypes.AccAddressFromBech32(req.Address)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func (q grpcQuerier) ContractsByCode(c context.Context, req *types.QueryContract
 	prefixStore := prefix.NewStore(ctx.KVStore(q.storeKey), types.GetContractByCodeIDSecondaryIndexPrefix(req.CodeId))
 	pageRes, err := query.FilteredPaginate(prefixStore, req.Pagination, func(key []byte, value []byte, accumulate bool) (bool, error) {
 		if accumulate {
-			var contractAddr sdk.AccAddress = key[types.AbsoluteTxPositionLen:]
+			var contractAddr seitypes.AccAddress = key[types.AbsoluteTxPositionLen:]
 			r = append(r, contractAddr.String())
 		}
 		return true, nil
@@ -115,7 +115,7 @@ func (q grpcQuerier) AllContractState(c context.Context, req *types.QueryAllCont
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "empty request")
 	}
-	contractAddr, err := sdk.AccAddressFromBech32(req.Address)
+	contractAddr, err := seitypes.AccAddressFromBech32(req.Address)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func (q grpcQuerier) RawContractState(c context.Context, req *types.QueryRawCont
 	}
 	ctx := sdk.UnwrapSDKContext(c)
 
-	contractAddr, err := sdk.AccAddressFromBech32(req.Address)
+	contractAddr, err := seitypes.AccAddressFromBech32(req.Address)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func (q grpcQuerier) SmartContractState(c context.Context, req *types.QuerySmart
 	if err := req.QueryData.ValidateBasic(); err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid query data")
 	}
-	contractAddr, err := sdk.AccAddressFromBech32(req.Address)
+	contractAddr, err := seitypes.AccAddressFromBech32(req.Address)
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +257,7 @@ func (q grpcQuerier) Codes(c context.Context, req *types.QueryCodesRequest) (*ty
 	return &types.QueryCodesResponse{CodeInfos: r, Pagination: pageRes}, nil
 }
 
-func queryContractInfo(ctx sdk.Context, addr sdk.AccAddress, keeper types.ViewKeeper) (*types.QueryContractInfoResponse, error) {
+func queryContractInfo(ctx sdk.Context, addr seitypes.AccAddress, keeper types.ViewKeeper) (*types.QueryContractInfoResponse, error) {
 	info := keeper.GetContractInfo(ctx, addr)
 	if info == nil {
 		return nil, types.ErrNotFound

@@ -291,7 +291,7 @@ func (qp QueryPlugin) HandleStakingExtQuery(ctx sdk.Context, queryData json.RawM
 	switch queryType {
 	case UnbondingDelegationsType:
 		c := parsedQuery.UnbondingDelegations
-		delegator, err := sdk.AccAddressFromBech32(c.Delegator)
+		delegator, err := seitypes.AccAddressFromBech32(c.Delegator)
 		if err != nil {
 			return nil, fmt.Errorf("invalid delegator string: %s", c.Delegator)
 		}

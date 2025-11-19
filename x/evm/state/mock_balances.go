@@ -187,14 +187,14 @@ func (s *DBImpl) SetBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	}
 }
 
-func (s *DBImpl) getSeiAddress(evmAddr common.Address) sdk.AccAddress {
+func (s *DBImpl) getSeiAddress(evmAddr common.Address) seitypes.AccAddress {
 	if s.coinbaseEvmAddress.Cmp(evmAddr) == 0 {
 		return s.coinbaseAddress
 	}
 	return s.k.GetSeiAddressOrDefault(s.ctx, evmAddr)
 }
 
-func (s *DBImpl) send(from sdk.AccAddress, to sdk.AccAddress, amt *big.Int) {
+func (s *DBImpl) send(from seitypes.AccAddress, to seitypes.AccAddress, amt *big.Int) {
 	usei, wei := SplitUseiWeiAmount(amt)
 	err := s.k.BankKeeper().SendCoinsAndWei(s.ctx, from, to, usei, wei)
 	if err != nil {

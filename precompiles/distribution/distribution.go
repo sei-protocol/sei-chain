@@ -193,7 +193,7 @@ func (p PrecompileExecutor) validateInput(value *big.Int, args []interface{}, ex
 	return nil
 }
 
-func (p PrecompileExecutor) withdraw(ctx sdk.Context, delegator sdk.AccAddress, validatorAddress string) (sdk.Coins, error) {
+func (p PrecompileExecutor) withdraw(ctx sdk.Context, delegator seitypes.AccAddress, validatorAddress string) (sdk.Coins, error) {
 	validator, err := sdk.ValAddressFromBech32(validatorAddress)
 	if err != nil {
 		return nil, err
@@ -201,7 +201,7 @@ func (p PrecompileExecutor) withdraw(ctx sdk.Context, delegator sdk.AccAddress, 
 	return p.distrKeeper.WithdrawDelegationRewards(ctx, delegator, validator)
 }
 
-func (p PrecompileExecutor) getDelegator(ctx sdk.Context, caller common.Address) (sdk.AccAddress, error) {
+func (p PrecompileExecutor) getDelegator(ctx sdk.Context, caller common.Address) (seitypes.AccAddress, error) {
 	delegator, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
 		return nil, types.NewAssociationMissingErr(caller.Hex())
@@ -244,7 +244,7 @@ func (p PrecompileExecutor) withdrawMultipleDelegationRewards(ctx sdk.Context, m
 	return
 }
 
-func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, error) {
+func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) (seitypes.AccAddress, error) {
 	addr := arg.(common.Address)
 	if addr == (common.Address{}) {
 		return nil, errors.New("invalid addr")
@@ -358,7 +358,7 @@ func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method 
 		return
 	}
 
-	validatorAddr := sdk.ValAddress(validatorSeiAddr)
+	validatorAddr := seitypes.ValAddress(validatorSeiAddr)
 
 	validator, err := sdk.ValAddressFromBech32(validatorAddr.String())
 	if err != nil {

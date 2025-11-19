@@ -11,14 +11,14 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func EncodeCallEVM(rawMsg json.RawMessage, sender sdk.AccAddress, info wasmvmtypes.MessageInfo) ([]sdk.Msg, error) {
+func EncodeCallEVM(rawMsg json.RawMessage, sender seitypes.AccAddress, info wasmvmtypes.MessageInfo) ([]seitypes.Msg, error) {
 	encodedCallEVM := bindings.CallEVM{}
 	if err := json.Unmarshal(rawMsg, &encodedCallEVM); err != nil {
-		return []sdk.Msg{}, err
+		return []seitypes.Msg{}, err
 	}
 	decodedData, err := base64.StdEncoding.DecodeString(encodedCallEVM.Data)
 	if err != nil {
-		return []sdk.Msg{}, err
+		return []seitypes.Msg{}, err
 	}
 	internalCallEVMMsg := types.MsgInternalEVMCall{
 		Sender: sender.String(),
@@ -26,20 +26,20 @@ func EncodeCallEVM(rawMsg json.RawMessage, sender sdk.AccAddress, info wasmvmtyp
 		Value:  encodedCallEVM.Value,
 		Data:   decodedData,
 	}
-	return []sdk.Msg{&internalCallEVMMsg}, nil
+	return []seitypes.Msg{&internalCallEVMMsg}, nil
 }
 
-func EncodeDelegateCallEVM(rawMsg json.RawMessage, sender sdk.AccAddress, info wasmvmtypes.MessageInfo, codeInfo wasmtypes.CodeInfo) ([]sdk.Msg, error) {
+func EncodeDelegateCallEVM(rawMsg json.RawMessage, sender seitypes.AccAddress, info wasmvmtypes.MessageInfo, codeInfo wasmtypes.CodeInfo) ([]seitypes.Msg, error) {
 	encodedCallEVM := bindings.DelegateCallEVM{}
 	if err := json.Unmarshal(rawMsg, &encodedCallEVM); err != nil {
-		return []sdk.Msg{}, err
+		return []seitypes.Msg{}, err
 	}
 	decodedData, err := base64.StdEncoding.DecodeString(encodedCallEVM.Data)
 	if err != nil {
-		return []sdk.Msg{}, err
+		return []seitypes.Msg{}, err
 	}
 	s := sender
-	if origSender, err := sdk.AccAddressFromBech32(info.Sender); err == nil {
+	if origSender, err := seitypes.AccAddressFromBech32(info.Sender); err == nil {
 		s = origSender
 	}
 	internalCallEVMMsg := types.MsgInternalEVMDelegateCall{
@@ -49,5 +49,5 @@ func EncodeDelegateCallEVM(rawMsg json.RawMessage, sender sdk.AccAddress, info w
 		Data:         decodedData,
 		FromContract: sender.String(),
 	}
-	return []sdk.Msg{&internalCallEVMMsg}, nil
+	return []seitypes.Msg{&internalCallEVMMsg}, nil
 }

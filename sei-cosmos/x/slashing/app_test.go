@@ -21,20 +21,20 @@ import (
 
 var (
 	priv1 = secp256k1.GenPrivKey()
-	addr1 = sdk.AccAddress(priv1.PubKey().Address())
+	addr1 = seitypes.AccAddress(priv1.PubKey().Address())
 
 	valKey  = ed25519.GenPrivKey()
-	valAddr = sdk.AccAddress(valKey.PubKey().Address())
+	valAddr = seitypes.AccAddress(valKey.PubKey().Address())
 )
 
-func checkValidator(t *testing.T, app *seiapp.App, _ sdk.AccAddress, expFound bool) stakingtypes.Validator {
+func checkValidator(t *testing.T, app *seiapp.App, _ seitypes.AccAddress, expFound bool) stakingtypes.Validator {
 	ctxCheck := app.BaseApp.NewContext(true, tmproto.Header{})
-	validator, found := app.StakingKeeper.GetValidator(ctxCheck, sdk.ValAddress(addr1))
+	validator, found := app.StakingKeeper.GetValidator(ctxCheck, seitypes.ValAddress(addr1))
 	require.Equal(t, expFound, found)
 	return validator
 }
 
-func checkValidatorSigningInfo(t *testing.T, app *seiapp.App, addr sdk.ConsAddress, expFound bool) types.ValidatorSigningInfo {
+func checkValidatorSigningInfo(t *testing.T, app *seiapp.App, addr seitypes.ConsAddress, expFound bool) types.ValidatorSigningInfo {
 	ctxCheck := app.BaseApp.NewContext(true, tmproto.Header{})
 	signingInfo, found := app.SlashingKeeper.GetValidatorSigningInfo(ctxCheck, addr)
 	require.Equal(t, expFound, found)
@@ -65,13 +65,13 @@ func TestSlashingMsgs(t *testing.T) {
 	commission := stakingtypes.NewCommissionRates(sdk.NewDecWithPrec(5, 2), sdk.NewDecWithPrec(5, 2), sdk.ZeroDec())
 
 	createValidatorMsg, err := stakingtypes.NewMsgCreateValidator(
-		sdk.ValAddress(addr1), valKey.PubKey(), bondCoin, description, commission, sdk.OneInt(),
+		seitypes.ValAddress(addr1), valKey.PubKey(), bondCoin, description, commission, sdk.OneInt(),
 	)
 	require.NoError(t, err)
 
 	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
 	txGen := seiapp.MakeEncodingConfig().TxConfig
-	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{createValidatorMsg}, "", []uint64{0}, []uint64{0}, true, true, priv1)
+	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []seitypes.Msg{createValidatorMsg}, "", []uint64{0}, []uint64{0}, true, true, priv1)
 	require.NoError(t, err)
 	seiapp.CheckBalance(t, app, addr1, sdk.Coins{genCoin.Sub(bondCoin)})
 
@@ -79,16 +79,16 @@ func TestSlashingMsgs(t *testing.T) {
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
 	validator := checkValidator(t, app, addr1, true)
-	require.Equal(t, sdk.ValAddress(addr1).String(), validator.OperatorAddress)
+	require.Equal(t, seitypes.ValAddress(addr1).String(), validator.OperatorAddress)
 	require.Equal(t, stakingtypes.Bonded, validator.Status)
 	require.True(sdk.IntEq(t, bondTokens, validator.BondedTokens()))
-	unjailMsg := &types.MsgUnjail{ValidatorAddr: sdk.ValAddress(addr1).String()}
+	unjailMsg := &types.MsgUnjail{ValidatorAddr: seitypes.ValAddress(addr1).String()}
 
-	checkValidatorSigningInfo(t, app, sdk.ConsAddress(valAddr), true)
+	checkValidatorSigningInfo(t, app, seitypes.ConsAddress(valAddr), true)
 
 	// unjail should fail with unknown validator
 	header = tmproto.Header{Height: app.LastBlockHeight() + 1}
-	_, res, err := seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{unjailMsg}, "", []uint64{0}, []uint64{1}, false, false, priv1)
+	_, res, err := seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []seitypes.Msg{unjailMsg}, "", []uint64{0}, []uint64{1}, false, false, priv1)
 	require.Error(t, err)
 	require.Nil(t, res)
 	require.True(t, errors.Is(types.ErrValidatorNotJailed, err))

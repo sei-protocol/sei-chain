@@ -16,14 +16,14 @@ import (
 
 // BankViewKeeper defines a subset of methods implemented by the cosmos-sdk bank keeper
 type BankViewKeeper interface {
-	GetAllBalances(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
-	GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin
+	GetAllBalances(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins
+	GetBalance(ctx sdk.Context, addr seitypes.AccAddress, denom string) sdk.Coin
 }
 
 // Burner is a subset of the sdk bank keeper methods
 type Burner interface {
 	BurnCoins(ctx sdk.Context, moduleName string, amt sdk.Coins) error
-	SendCoinsFromAccountToModule(ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
+	SendCoinsFromAccountToModule(ctx sdk.Context, senderAddr seitypes.AccAddress, recipientModule string, amt sdk.Coins) error
 }
 
 // BankKeeper defines a subset of methods implemented by the cosmos-sdk bank keeper
@@ -31,16 +31,16 @@ type BankKeeper interface {
 	BankViewKeeper
 	Burner
 	IsSendEnabledCoins(ctx sdk.Context, coins ...sdk.Coin) error
-	BlockedAddr(addr sdk.AccAddress) bool
-	SendCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error
+	BlockedAddr(addr seitypes.AccAddress) bool
+	SendCoins(ctx sdk.Context, fromAddr seitypes.AccAddress, toAddr seitypes.AccAddress, amt sdk.Coins) error
 }
 
 // AccountKeeper defines a subset of methods implemented by the cosmos-sdk account keeper
 type AccountKeeper interface {
 	// Return a new account with the next account number and the specified address. Does not save the new account to the store.
-	NewAccountWithAddress(ctx sdk.Context, addr sdk.AccAddress) authtypes.AccountI
+	NewAccountWithAddress(ctx sdk.Context, addr seitypes.AccAddress) authtypes.AccountI
 	// Retrieve an account from the store.
-	GetAccount(ctx sdk.Context, addr sdk.AccAddress) authtypes.AccountI
+	GetAccount(ctx sdk.Context, addr seitypes.AccAddress) authtypes.AccountI
 	// Set an account in the store.
 	SetAccount(ctx sdk.Context, acc authtypes.AccountI)
 }
@@ -55,19 +55,19 @@ type StakingKeeper interface {
 	// BondDenom - Bondable coin denomination
 	BondDenom(ctx sdk.Context) (res string)
 	// GetValidator get a single validator
-	GetValidator(ctx sdk.Context, addr sdk.ValAddress) (validator stakingtypes.Validator, found bool)
+	GetValidator(ctx sdk.Context, addr seitypes.ValAddress) (validator stakingtypes.Validator, found bool)
 	// GetBondedValidatorsByPower get the current group of bonded validators sorted by power-rank
 	GetBondedValidatorsByPower(ctx sdk.Context) []stakingtypes.Validator
 	// GetAllDelegatorDelegations return all delegations for a delegator
-	GetAllDelegatorDelegations(ctx sdk.Context, delegator sdk.AccAddress) []stakingtypes.Delegation
+	GetAllDelegatorDelegations(ctx sdk.Context, delegator seitypes.AccAddress) []stakingtypes.Delegation
 	// GetDelegation return a specific delegation
 	GetDelegation(ctx sdk.Context,
-		delAddr sdk.AccAddress, valAddr sdk.ValAddress) (delegation stakingtypes.Delegation, found bool)
+		delAddr seitypes.AccAddress, valAddr seitypes.ValAddress) (delegation stakingtypes.Delegation, found bool)
 	// HasReceivingRedelegation check if validator is receiving a redelegation
 	HasReceivingRedelegation(ctx sdk.Context,
-		delAddr sdk.AccAddress, valDstAddr sdk.ValAddress) bool
-	GetUnbondingDelegation(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) (stakingtypes.UnbondingDelegation, bool)
-	GetUnbondingDelegations(ctx sdk.Context, delegator sdk.AccAddress, maxRetrieve uint16) []stakingtypes.UnbondingDelegation
+		delAddr seitypes.AccAddress, valDstAddr seitypes.ValAddress) bool
+	GetUnbondingDelegation(ctx sdk.Context, delAddr seitypes.AccAddress, valAddr seitypes.ValAddress) (stakingtypes.UnbondingDelegation, bool)
+	GetUnbondingDelegations(ctx sdk.Context, delegator seitypes.AccAddress, maxRetrieve uint16) []stakingtypes.UnbondingDelegation
 }
 
 // ChannelKeeper defines the expected IBC channel keeper

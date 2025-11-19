@@ -196,7 +196,7 @@ kept.
 For the purpose of tracking progress of unbonding validators the validator
 queue is kept.
 
-- ValidatorQueueTime: `0x43 | format(time) -> []sdk.ValAddress`
+- ValidatorQueueTime: `0x43 | format(time) -> []seitypes.ValAddress`
 
 The stored object as each key is an array of validator operator addresses from
 which the validator object can be accessed. Typically it is expected that only

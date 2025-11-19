@@ -32,7 +32,7 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-// MsgSubmitProposal defines an sdk.Msg type that supports submitting arbitrary
+// MsgSubmitProposal defines an seitypes.Msg type that supports submitting arbitrary
 // proposal Content.
 type MsgSubmitProposal struct {
 	Content        *types.Any                               `protobuf:"bytes,1,opt,name=content,proto3" json:"content,omitempty"`

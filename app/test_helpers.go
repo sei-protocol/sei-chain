@@ -53,14 +53,14 @@ const TestContract = "TEST"
 const TestUser = "sei1jdppe6fnj2q7hjsepty5crxtrryzhuqsjrj95y"
 
 type TestTx struct {
-	msgs []sdk.Msg
+	msgs []seitypes.Msg
 }
 
-func NewTestTx(msgs []sdk.Msg) TestTx {
+func NewTestTx(msgs []seitypes.Msg) TestTx {
 	return TestTx{msgs: msgs}
 }
 
-func (t TestTx) GetMsgs() []sdk.Msg {
+func (t TestTx) GetMsgs() []seitypes.Msg {
 	return t.msgs
 }
 
@@ -129,7 +129,7 @@ func newTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enabl
 	return wrapper
 }
 
-func (s *TestWrapper) FundAcc(acc sdk.AccAddress, amounts sdk.Coins) {
+func (s *TestWrapper) FundAcc(acc seitypes.AccAddress, amounts sdk.Coins) {
 	err := s.App.BankKeeper.MintCoins(s.Ctx, minttypes.ModuleName, amounts)
 	s.Require().NoError(err)
 
@@ -137,12 +137,12 @@ func (s *TestWrapper) FundAcc(acc sdk.AccAddress, amounts sdk.Coins) {
 	s.Require().NoError(err)
 }
 
-func (s *TestWrapper) setupValidator(bondStatus stakingtypes.BondStatus, valPub cryptotypes.PubKey) sdk.ValAddress {
-	valAddr := sdk.ValAddress(valPub.Address())
+func (s *TestWrapper) setupValidator(bondStatus stakingtypes.BondStatus, valPub cryptotypes.PubKey) seitypes.ValAddress {
+	valAddr := seitypes.ValAddress(valPub.Address())
 	bondDenom := s.App.StakingKeeper.GetParams(s.Ctx).BondDenom
 	selfBond := sdk.NewCoins(sdk.Coin{Amount: sdk.NewInt(100), Denom: bondDenom})
 
-	s.FundAcc(sdk.AccAddress(valAddr), selfBond)
+	s.FundAcc(seitypes.AccAddress(valAddr), selfBond)
 
 	sh := teststaking.NewHelper(s.T(), s.Ctx, s.App.StakingKeeper)
 	msg := sh.CreateValidatorMsg(valAddr, valPub, selfBond[0].Amount)
@@ -171,7 +171,7 @@ func (s *TestWrapper) setupValidator(bondStatus stakingtypes.BondStatus, valPub 
 }
 
 func (s *TestWrapper) BeginBlock() {
-	var proposer sdk.ValAddress
+	var proposer seitypes.ValAddress
 
 	validators := s.App.StakingKeeper.GetAllValidators(s.Ctx)
 	s.Require().Equal(1, len(validators))
@@ -542,7 +542,7 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 		pkAny, err := codectypes.NewAnyWithValue(pk)
 		require.NoError(t, err)
 		validator := stakingtypes.Validator{
-			OperatorAddress:   sdk.ValAddress(val.Address).String(),
+			OperatorAddress:   seitypes.ValAddress(val.Address).String(),
 			ConsensusPubkey:   pkAny,
 			Jailed:            false,
 			Status:            stakingtypes.Bonded,
@@ -635,22 +635,22 @@ func SetupWithGenesisAccounts(t *testing.T, genAccs []authtypes.GenesisAccount, 
 	return app
 }
 
-type GenerateAccountStrategy func(int) []sdk.AccAddress
+type GenerateAccountStrategy func(int) []seitypes.AccAddress
 
 // createRandomAccounts is a strategy used by addTestAddrs() in order to generated addresses in random order.
-func createRandomAccounts(accNum int) []sdk.AccAddress {
-	testAddrs := make([]sdk.AccAddress, accNum)
+func createRandomAccounts(accNum int) []seitypes.AccAddress {
+	testAddrs := make([]seitypes.AccAddress, accNum)
 	for i := 0; i < accNum; i++ {
 		pk := ed25519.GenPrivKey().PubKey()
-		testAddrs[i] = sdk.AccAddress(pk.Address())
+		testAddrs[i] = seitypes.AccAddress(pk.Address())
 	}
 
 	return testAddrs
 }
 
 // createIncrementalAccounts is a strategy used by addTestAddrs() in order to generated addresses in ascending order.
-func createIncrementalAccounts(accNum int) []sdk.AccAddress {
-	var addresses []sdk.AccAddress
+func createIncrementalAccounts(accNum int) []seitypes.AccAddress {
+	var addresses []seitypes.AccAddress
 	var buffer bytes.Buffer
 
 	// start at 100 so we can make up to 999 test addresses with valid test addresses
@@ -675,23 +675,23 @@ func AddTestAddrsFromPubKeys(app *App, ctx sdk.Context, pubKeys []cryptotypes.Pu
 	initCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), accAmt))
 
 	for _, pk := range pubKeys {
-		initAccountWithCoins(app, ctx, sdk.AccAddress(pk.Address()), initCoins)
+		initAccountWithCoins(app, ctx, seitypes.AccAddress(pk.Address()), initCoins)
 	}
 }
 
 // AddTestAddrs constructs and returns accNum amount of accounts with an
 // initial balance of accAmt in random order
-func AddTestAddrs(app *App, ctx sdk.Context, accNum int, accAmt sdk.Int) []sdk.AccAddress {
+func AddTestAddrs(app *App, ctx sdk.Context, accNum int, accAmt sdk.Int) []seitypes.AccAddress {
 	return addTestAddrs(app, ctx, accNum, accAmt, createRandomAccounts)
 }
 
 // AddTestAddrs constructs and returns accNum amount of accounts with an
 // initial balance of accAmt in random order
-func AddTestAddrsIncremental(app *App, ctx sdk.Context, accNum int, accAmt sdk.Int) []sdk.AccAddress {
+func AddTestAddrsIncremental(app *App, ctx sdk.Context, accNum int, accAmt sdk.Int) []seitypes.AccAddress {
 	return addTestAddrs(app, ctx, accNum, accAmt, createIncrementalAccounts)
 }
 
-func addTestAddrs(app *App, ctx sdk.Context, accNum int, accAmt sdk.Int, strategy GenerateAccountStrategy) []sdk.AccAddress {
+func addTestAddrs(app *App, ctx sdk.Context, accNum int, accAmt sdk.Int, strategy GenerateAccountStrategy) []seitypes.AccAddress {
 	testAddrs := strategy(accNum)
 
 	initCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), accAmt))
@@ -703,7 +703,7 @@ func addTestAddrs(app *App, ctx sdk.Context, accNum int, accAmt sdk.Int, strateg
 	return testAddrs
 }
 
-func initAccountWithCoins(app *App, ctx sdk.Context, addr sdk.AccAddress, coins sdk.Coins) {
+func initAccountWithCoins(app *App, ctx sdk.Context, addr seitypes.AccAddress, coins sdk.Coins) {
 	err := app.BankKeeper.MintCoins(ctx, minttypes.ModuleName, coins)
 	if err != nil {
 		panic(err)
@@ -716,17 +716,17 @@ func initAccountWithCoins(app *App, ctx sdk.Context, addr sdk.AccAddress, coins 
 }
 
 // ConvertAddrsToValAddrs converts the provided addresses to ValAddress.
-func ConvertAddrsToValAddrs(addrs []sdk.AccAddress) []sdk.ValAddress {
-	valAddrs := make([]sdk.ValAddress, len(addrs))
+func ConvertAddrsToValAddrs(addrs []seitypes.AccAddress) []seitypes.ValAddress {
+	valAddrs := make([]seitypes.ValAddress, len(addrs))
 
 	for i, addr := range addrs {
-		valAddrs[i] = sdk.ValAddress(addr)
+		valAddrs[i] = seitypes.ValAddress(addr)
 	}
 
 	return valAddrs
 }
 
-func TestAddr(addr string, bech string) (sdk.AccAddress, error) {
+func TestAddr(addr string, bech string) (seitypes.AccAddress, error) {
 	res, err := sdk.AccAddressFromHex(addr)
 	if err != nil {
 		return nil, err
@@ -736,7 +736,7 @@ func TestAddr(addr string, bech string) (sdk.AccAddress, error) {
 		return nil, fmt.Errorf("bech encoding doesn't match reference")
 	}
 
-	bechres, err := sdk.AccAddressFromBech32(bech)
+	bechres, err := seitypes.AccAddressFromBech32(bech)
 	if err != nil {
 		return nil, err
 	}
@@ -747,7 +747,7 @@ func TestAddr(addr string, bech string) (sdk.AccAddress, error) {
 	return res, nil
 }
 
-func GenTx(gen client.TxConfig, msgs []sdk.Msg, feeAmt sdk.Coins, gas uint64, chainID string, accNums, accSeqs []uint64, priv ...cryptotypes.PrivKey) (sdk.Tx, error) {
+func GenTx(gen client.TxConfig, msgs []seitypes.Msg, feeAmt sdk.Coins, gas uint64, chainID string, accNums, accSeqs []uint64, priv ...cryptotypes.PrivKey) (seitypes.Tx, error) {
 	sigs := make([]signing.SignatureV2, len(priv))
 
 	// create a random length memo
@@ -808,7 +808,7 @@ func GenTx(gen client.TxConfig, msgs []sdk.Msg, feeAmt sdk.Coins, gas uint64, ch
 }
 
 func SignCheckDeliver(
-	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp, header tmproto.Header, msgs []sdk.Msg,
+	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp, header tmproto.Header, msgs []seitypes.Msg,
 	chainID string, accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
 ) (sdk.GasInfo, *sdk.Result, error) {
 
@@ -855,8 +855,8 @@ func SignCheckDeliver(
 	return gInfo, res, err
 }
 
-func GenSequenceOfTxs(txGen client.TxConfig, msgs []sdk.Msg, accNums []uint64, initSeqNums []uint64, numToGenerate int, priv ...cryptotypes.PrivKey) ([]sdk.Tx, error) {
-	txs := make([]sdk.Tx, numToGenerate)
+func GenSequenceOfTxs(txGen client.TxConfig, msgs []seitypes.Msg, accNums []uint64, initSeqNums []uint64, numToGenerate int, priv ...cryptotypes.PrivKey) ([]seitypes.Tx, error) {
+	txs := make([]seitypes.Tx, numToGenerate)
 	var err error
 	for i := 0; i < numToGenerate; i++ {
 		txs[i], err = GenTx(
@@ -885,7 +885,7 @@ func incrementAllSequenceNumbers(initSeqNums []uint64) {
 }
 
 // CheckBalance checks the balance of an account.
-func CheckBalance(t *testing.T, app *App, addr sdk.AccAddress, balances sdk.Coins) {
+func CheckBalance(t *testing.T, app *App, addr seitypes.AccAddress, balances sdk.Coins) {
 	ctxCheck := app.NewContext(true, tmproto.Header{})
 	require.True(t, balances.IsEqual(app.BankKeeper.GetAllBalances(ctxCheck, addr)))
 }

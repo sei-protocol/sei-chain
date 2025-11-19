@@ -175,7 +175,7 @@ func (p Precompile) withdrawDelegationRewards(ctx sdk.Context, method *abi.Metho
 	return method.Outputs.Pack(true)
 }
 
-func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, error) {
+func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (seitypes.AccAddress, error) {
 	addr := arg.(common.Address)
 	if addr == (common.Address{}) {
 		return nil, errors.New("invalid addr")

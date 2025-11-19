@@ -13,7 +13,7 @@ import (
 
 func TestValidateParams(t *testing.T) {
 	var (
-		anyAddress     sdk.AccAddress = make([]byte, ContractAddrLen)
+		anyAddress     seitypes.AccAddress = make([]byte, ContractAddrLen)
 		invalidAddress                = "invalid address"
 	)
 

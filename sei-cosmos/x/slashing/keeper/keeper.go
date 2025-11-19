@@ -57,7 +57,7 @@ func (k Keeper) GetPubkey(ctx sdk.Context, a cryptotypes.Address) (cryptotypes.P
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.AddrPubkeyRelationKey(a))
 	if bz == nil {
-		return nil, fmt.Errorf("address %s not found", sdk.ConsAddress(a))
+		return nil, fmt.Errorf("address %s not found", seitypes.ConsAddress(a))
 	}
 	var pk cryptotypes.PubKey
 	return pk, k.cdc.UnmarshalInterface(bz, &pk)
@@ -65,7 +65,7 @@ func (k Keeper) GetPubkey(ctx sdk.Context, a cryptotypes.Address) (cryptotypes.P
 
 // Slash attempts to slash a validator. The slash is delegated to the staking
 // module to make the necessary validator changes.
-func (k Keeper) Slash(ctx sdk.Context, consAddr sdk.ConsAddress, fraction sdk.Dec, power, distributionHeight int64) {
+func (k Keeper) Slash(ctx sdk.Context, consAddr seitypes.ConsAddress, fraction sdk.Dec, power, distributionHeight int64) {
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			types.EventTypeSlash,
@@ -80,7 +80,7 @@ func (k Keeper) Slash(ctx sdk.Context, consAddr sdk.ConsAddress, fraction sdk.De
 
 // Jail attempts to jail a validator. The slash is delegated to the staking module
 // to make the necessary validator changes.
-func (k Keeper) Jail(ctx sdk.Context, consAddr sdk.ConsAddress) {
+func (k Keeper) Jail(ctx sdk.Context, consAddr seitypes.ConsAddress) {
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			types.EventTypeSlash,

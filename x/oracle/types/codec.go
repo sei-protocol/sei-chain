@@ -13,10 +13,10 @@ func RegisterCodec(cdc *codec.LegacyAmino) {
 }
 
 func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
-	registry.RegisterImplementations((*sdk.Msg)(nil),
+	registry.RegisterImplementations((*seitypes.Msg)(nil),
 		&MsgAggregateExchangeRateVote{},
 	)
-	registry.RegisterImplementations((*sdk.Msg)(nil),
+	registry.RegisterImplementations((*seitypes.Msg)(nil),
 		&MsgDelegateFeedConsent{},
 	)
 

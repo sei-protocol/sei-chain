@@ -10,8 +10,8 @@ import (
 )
 
 func TestMsgSendRoute(t *testing.T) {
-	addr1 := sdk.AccAddress([]byte("from"))
-	addr2 := sdk.AccAddress([]byte("to"))
+	addr1 := seitypes.AccAddress([]byte("from"))
+	addr2 := seitypes.AccAddress([]byte("to"))
 	coins := sdk.NewCoins(sdk.NewInt64Coin("atom", 10))
 	var msg = NewMsgSend(addr1, addr2, coins)
 
@@ -20,10 +20,10 @@ func TestMsgSendRoute(t *testing.T) {
 }
 
 func TestMsgSendValidation(t *testing.T) {
-	addr1 := sdk.AccAddress([]byte("from________________"))
-	addr2 := sdk.AccAddress([]byte("to__________________"))
-	addrEmpty := sdk.AccAddress([]byte(""))
-	addrLong := sdk.AccAddress([]byte("Purposefully long address"))
+	addr1 := seitypes.AccAddress([]byte("from________________"))
+	addr2 := seitypes.AccAddress([]byte("to__________________"))
+	addrEmpty := seitypes.AccAddress([]byte(""))
+	addrLong := seitypes.AccAddress([]byte("Purposefully long address"))
 
 	atom123 := sdk.NewCoins(sdk.NewInt64Coin("atom", 123))
 	atom0 := sdk.NewCoins(sdk.NewInt64Coin("atom", 0))
@@ -55,8 +55,8 @@ func TestMsgSendValidation(t *testing.T) {
 }
 
 func TestMsgSendGetSignBytes(t *testing.T) {
-	addr1 := sdk.AccAddress([]byte("input"))
-	addr2 := sdk.AccAddress([]byte("output"))
+	addr1 := seitypes.AccAddress([]byte("input"))
+	addr2 := seitypes.AccAddress([]byte("output"))
 	coins := sdk.NewCoins(sdk.NewInt64Coin("atom", 10))
 	var msg = NewMsgSend(addr1, addr2, coins)
 	res := msg.GetSignBytes()
@@ -66,7 +66,7 @@ func TestMsgSendGetSignBytes(t *testing.T) {
 }
 
 func TestMsgSendGetSigners(t *testing.T) {
-	var msg = NewMsgSend(sdk.AccAddress([]byte("input111111111111111")), sdk.AccAddress{}, sdk.NewCoins())
+	var msg = NewMsgSend(seitypes.AccAddress([]byte("input111111111111111")), seitypes.AccAddress{}, sdk.NewCoins())
 	res := msg.GetSigners()
 	// TODO: fix this !
 	require.Equal(t, fmt.Sprintf("%v", res), "[696E707574313131313131313131313131313131]")
@@ -74,8 +74,8 @@ func TestMsgSendGetSigners(t *testing.T) {
 
 func TestMsgMultiSendRoute(t *testing.T) {
 	// Construct a MsgSend
-	addr1 := sdk.AccAddress([]byte("input"))
-	addr2 := sdk.AccAddress([]byte("output"))
+	addr1 := seitypes.AccAddress([]byte("input"))
+	addr2 := seitypes.AccAddress([]byte("output"))
 	coins := sdk.NewCoins(sdk.NewInt64Coin("atom", 10))
 	var msg = MsgMultiSend{
 		Inputs:  []Input{NewInput(addr1, coins)},
@@ -88,10 +88,10 @@ func TestMsgMultiSendRoute(t *testing.T) {
 }
 
 func TestInputValidation(t *testing.T) {
-	addr1 := sdk.AccAddress([]byte("_______alice________"))
-	addr2 := sdk.AccAddress([]byte("________bob_________"))
-	addrEmpty := sdk.AccAddress([]byte(""))
-	addrLong := sdk.AccAddress([]byte("Purposefully long address"))
+	addr1 := seitypes.AccAddress([]byte("_______alice________"))
+	addr2 := seitypes.AccAddress([]byte("________bob_________"))
+	addrEmpty := seitypes.AccAddress([]byte(""))
+	addrLong := seitypes.AccAddress([]byte("Purposefully long address"))
 
 	someCoins := sdk.NewCoins(sdk.NewInt64Coin("atom", 123))
 	multiCoins := sdk.NewCoins(sdk.NewInt64Coin("atom", 123), sdk.NewInt64Coin("eth", 20))
@@ -129,10 +129,10 @@ func TestInputValidation(t *testing.T) {
 }
 
 func TestOutputValidation(t *testing.T) {
-	addr1 := sdk.AccAddress([]byte("_______alice________"))
-	addr2 := sdk.AccAddress([]byte("________bob_________"))
-	addrEmpty := sdk.AccAddress([]byte(""))
-	addrLong := sdk.AccAddress([]byte("Purposefully long address"))
+	addr1 := seitypes.AccAddress([]byte("_______alice________"))
+	addr2 := seitypes.AccAddress([]byte("________bob_________"))
+	addrEmpty := seitypes.AccAddress([]byte(""))
+	addrLong := seitypes.AccAddress([]byte("Purposefully long address"))
 
 	someCoins := sdk.NewCoins(sdk.NewInt64Coin("atom", 123))
 	multiCoins := sdk.NewCoins(sdk.NewInt64Coin("atom", 123), sdk.NewInt64Coin("eth", 20))
@@ -170,8 +170,8 @@ func TestOutputValidation(t *testing.T) {
 }
 
 func TestMsgMultiSendValidation(t *testing.T) {
-	addr1 := sdk.AccAddress([]byte("_______alice________"))
-	addr2 := sdk.AccAddress([]byte("________bob_________"))
+	addr1 := seitypes.AccAddress([]byte("_______alice________"))
+	addr2 := seitypes.AccAddress([]byte("________bob_________"))
 	atom123 := sdk.NewCoins(sdk.NewInt64Coin("atom", 123))
 	atom124 := sdk.NewCoins(sdk.NewInt64Coin("atom", 124))
 	eth123 := sdk.NewCoins(sdk.NewInt64Coin("eth", 123))
@@ -183,7 +183,7 @@ func TestMsgMultiSendValidation(t *testing.T) {
 	output2 := NewOutput(addr2, atom124)
 	outputMulti := NewOutput(addr2, atom123eth123)
 
-	var emptyAddr sdk.AccAddress
+	var emptyAddr seitypes.AccAddress
 
 	cases := []struct {
 		valid bool
@@ -224,8 +224,8 @@ func TestMsgMultiSendValidation(t *testing.T) {
 }
 
 func TestMsgMultiSendGetSignBytes(t *testing.T) {
-	addr1 := sdk.AccAddress([]byte("input"))
-	addr2 := sdk.AccAddress([]byte("output"))
+	addr1 := seitypes.AccAddress([]byte("input"))
+	addr2 := seitypes.AccAddress([]byte("output"))
 	coins := sdk.NewCoins(sdk.NewInt64Coin("atom", 10))
 	var msg = MsgMultiSend{
 		Inputs:  []Input{NewInput(addr1, coins)},
@@ -240,9 +240,9 @@ func TestMsgMultiSendGetSignBytes(t *testing.T) {
 func TestMsgMultiSendGetSigners(t *testing.T) {
 	var msg = MsgMultiSend{
 		Inputs: []Input{
-			NewInput(sdk.AccAddress([]byte("input111111111111111")), nil),
-			NewInput(sdk.AccAddress([]byte("input222222222222222")), nil),
-			NewInput(sdk.AccAddress([]byte("input333333333333333")), nil),
+			NewInput(seitypes.AccAddress([]byte("input111111111111111")), nil),
+			NewInput(seitypes.AccAddress([]byte("input222222222222222")), nil),
+			NewInput(seitypes.AccAddress([]byte("input333333333333333")), nil),
 		},
 	}
 
@@ -252,10 +252,10 @@ func TestMsgMultiSendGetSigners(t *testing.T) {
 }
 
 func TestMsgSendSigners(t *testing.T) {
-	signers := []sdk.AccAddress{
-		sdk.MustAccAddressFromBech32("sei10xwrnrezdg227cgt82az7f7j47q3zklvu5ax6k"),
-		sdk.MustAccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl"),
-		sdk.MustAccAddressFromBech32("sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz"),
+	signers := []seitypes.AccAddress{
+		seitypes.MustAccAddressFromBech32("sei10xwrnrezdg227cgt82az7f7j47q3zklvu5ax6k"),
+		seitypes.MustAccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl"),
+		seitypes.MustAccAddressFromBech32("sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz"),
 	}
 
 	someCoins := sdk.NewCoins(sdk.NewInt64Coin("atom", 123))

@@ -10,13 +10,13 @@ import (
 	"os"
 
 	gogogrpc "github.com/gogo/protobuf/grpc"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/spf13/pflag"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/input"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/rest"
 	"github.com/cosmos/cosmos-sdk/types/tx"
@@ -26,14 +26,14 @@ import (
 
 // GenerateOrBroadcastTxCLI will either generate and print and unsigned transaction
 // or sign it and broadcast it returning an error upon failure.
-func GenerateOrBroadcastTxCLI(clientCtx client.Context, flagSet *pflag.FlagSet, msgs ...sdk.Msg) error {
+func GenerateOrBroadcastTxCLI(clientCtx client.Context, flagSet *pflag.FlagSet, msgs ...seitypes.Msg) error {
 	txf := NewFactoryCLI(clientCtx, flagSet)
 	return GenerateOrBroadcastTxWithFactory(clientCtx, txf, msgs...)
 }
 
 // GenerateOrBroadcastTxWithFactory will either generate and print and unsigned transaction
 // or sign it and broadcast it returning an error upon failure.
-func GenerateOrBroadcastTxWithFactory(clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
+func GenerateOrBroadcastTxWithFactory(clientCtx client.Context, txf Factory, msgs ...seitypes.Msg) error {
 	// Validate all msgs before generating or broadcasting the tx.
 	// We were calling ValidateBasic separately in each CLI handler before.
 	// Right now, we're factorizing that call inside this function.
@@ -55,7 +55,7 @@ func GenerateOrBroadcastTxWithFactory(clientCtx client.Context, txf Factory, msg
 // specified by ctx.Output. If simulation was requested, the gas will be
 // simulated and also printed to the same writer before the transaction is
 // printed.
-func GenerateTx(clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
+func GenerateTx(clientCtx client.Context, txf Factory, msgs ...seitypes.Msg) error {
 	if txf.SimulateAndExecute() {
 		if clientCtx.Offline {
 			return errors.New("cannot estimate gas in offline mode")
@@ -86,7 +86,7 @@ func GenerateTx(clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
 // BroadcastTx attempts to generate, sign and broadcast a transaction with the
 // given set of messages. It will also simulate gas requirements if necessary.
 // It will return an error upon failure.
-func BroadcastTx(clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
+func BroadcastTx(clientCtx client.Context, txf Factory, msgs ...seitypes.Msg) error {
 	txf, err := prepareFactory(clientCtx, txf)
 	if err != nil {
 		return err
@@ -160,7 +160,7 @@ func BroadcastTx(clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
 // with legacy clients.
 // Deprecated: We are removing Amino soon.
 func WriteGeneratedTxResponse(
-	clientCtx client.Context, w http.ResponseWriter, br rest.BaseReq, msgs ...sdk.Msg,
+	clientCtx client.Context, w http.ResponseWriter, br rest.BaseReq, msgs ...seitypes.Msg,
 ) {
 	gasAdj, ok := rest.ParseFloat64OrReturnBadRequest(w, br.GasAdjustment, flags.DefaultGasAdjustment)
 	if !ok {
@@ -225,21 +225,21 @@ func WriteGeneratedTxResponse(
 // BuildUnsignedTx builds a transaction to be signed given a set of messages. The
 // transaction is initially created via the provided factory's generator. Once
 // created, the fee, memo, and messages are set.
-func BuildUnsignedTx(txf Factory, msgs ...sdk.Msg) (client.TxBuilder, error) {
+func BuildUnsignedTx(txf Factory, msgs ...seitypes.Msg) (client.TxBuilder, error) {
 	return txf.BuildUnsignedTx(msgs...)
 }
 
 // BuildSimTx creates an unsigned tx with an empty single signature and returns
 // the encoded transaction or an error if the unsigned transaction cannot be
 // built.
-func BuildSimTx(txf Factory, msgs ...sdk.Msg) ([]byte, error) {
+func BuildSimTx(txf Factory, msgs ...seitypes.Msg) ([]byte, error) {
 	return txf.BuildSimTx(msgs...)
 }
 
 // CalculateGas simulates the execution of a transaction and returns the
 // simulation response obtained by the query and the adjusted gas amount.
 func CalculateGas(
-	clientCtx gogogrpc.ClientConn, txf Factory, msgs ...sdk.Msg,
+	clientCtx gogogrpc.ClientConn, txf Factory, msgs ...seitypes.Msg,
 ) (*tx.SimulateResponse, uint64, error) {
 	txBytes, err := BuildSimTx(txf, msgs...)
 	if err != nil {

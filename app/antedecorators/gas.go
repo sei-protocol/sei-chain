@@ -6,8 +6,8 @@ import (
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 )
 
-func GetGasMeterSetter(pk paramskeeper.Keeper) func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context {
-	return func(simulate bool, ctx sdk.Context, gasLimit uint64, tx sdk.Tx) sdk.Context {
+func GetGasMeterSetter(pk paramskeeper.Keeper) func(bool, sdk.Context, uint64, seitypes.Tx) sdk.Context {
+	return func(simulate bool, ctx sdk.Context, gasLimit uint64, tx seitypes.Tx) sdk.Context {
 		cosmosGasParams := pk.GetCosmosGasParams(ctx)
 
 		// In simulation, still use multiplier but with infinite gas limit

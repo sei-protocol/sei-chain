@@ -81,7 +81,7 @@ func (c Code) ValidateBasic() error {
 }
 
 func (c Contract) ValidateBasic() error {
-	if _, err := sdk.AccAddressFromBech32(c.ContractAddress); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(c.ContractAddress); err != nil {
 		return sdkerrors.Wrap(err, "contract address")
 	}
 	if err := c.ContractInfo.ValidateBasic(); err != nil {
@@ -100,7 +100,7 @@ func (c Contract) ValidateBasic() error {
 }
 
 // AsMsg returns the underlying cosmos-sdk message instance. Null when can not be mapped to a known type.
-func (m GenesisState_GenMsgs) AsMsg() sdk.Msg {
+func (m GenesisState_GenMsgs) AsMsg() seitypes.Msg {
 	if msg := m.GetStoreCode(); msg != nil {
 		return msg
 	}

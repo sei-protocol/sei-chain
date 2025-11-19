@@ -96,7 +96,7 @@ func MockEVMKeeperPrecompiles(t *testing.T) (*evmkeeper.Keeper, sdk.Context) {
 	return &k, ctx
 }
 
-func MockAddressPair() (sdk.AccAddress, common.Address) {
+func MockAddressPair() (seitypes.AccAddress, common.Address) {
 	return PrivateKeyToAddresses(MockPrivateKey())
 }
 
@@ -109,7 +109,7 @@ func MockPrivateKey() cryptotypes.PrivKey {
 	return algo.Generate()(derivedPriv)
 }
 
-func PrivateKeyToAddresses(privKey cryptotypes.PrivKey) (sdk.AccAddress, common.Address) {
+func PrivateKeyToAddresses(privKey cryptotypes.PrivKey) (seitypes.AccAddress, common.Address) {
 	// Encode the private key to hex (i.e. what wallets do behind the scene when users reveal private keys)
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 
@@ -122,7 +122,7 @@ func PrivateKeyToAddresses(privKey cryptotypes.PrivKey) (sdk.AccAddress, common.
 	recoveredPub, _ := crypto.Ecrecover(msg, sig)
 	pubKey, _ := crypto.UnmarshalPubkey(recoveredPub)
 
-	return sdk.AccAddress(privKey.PubKey().Address()), crypto.PubkeyToAddress(*pubKey)
+	return seitypes.AccAddress(privKey.PubKey().Address()), crypto.PubkeyToAddress(*pubKey)
 }
 
 func UseiCoins(amount int64) sdk.Coins {

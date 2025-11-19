@@ -83,7 +83,7 @@ func TestBaseAccountMarshal(t *testing.T) {
 
 func TestGenesisAccountValidate(t *testing.T) {
 	pubkey := secp256k1.GenPrivKey().PubKey()
-	addr := sdk.AccAddress(pubkey.Address())
+	addr := seitypes.AccAddress(pubkey.Address())
 	baseAcc := types.NewBaseAccount(addr, pubkey, 0, 0)
 
 	tests := []struct {
@@ -146,7 +146,7 @@ func TestHasPermissions(t *testing.T) {
 }
 
 func TestValidate(t *testing.T) {
-	addr := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	addr := seitypes.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
 	baseAcc := types.NewBaseAccount(addr, nil, 0, 0)
 	tests := []struct {
 		name   string
@@ -180,7 +180,7 @@ func TestValidate(t *testing.T) {
 
 func TestModuleAccountJSON(t *testing.T) {
 	pubkey := secp256k1.GenPrivKey().PubKey()
-	addr := sdk.AccAddress(pubkey.Address())
+	addr := seitypes.AccAddress(pubkey.Address())
 	baseAcc := types.NewBaseAccount(addr, nil, 10, 50)
 	acc := types.NewModuleAccount(baseAcc, "test", "burner")
 
@@ -198,7 +198,7 @@ func TestModuleAccountJSON(t *testing.T) {
 
 func TestGenesisAccountsContains(t *testing.T) {
 	pubkey := secp256k1.GenPrivKey().PubKey()
-	addr := sdk.AccAddress(pubkey.Address())
+	addr := seitypes.AccAddress(pubkey.Address())
 	acc := types.NewBaseAccount(addr, secp256k1.GenPrivKey().PubKey(), 0, 0)
 
 	genAccounts := types.GenesisAccounts{}

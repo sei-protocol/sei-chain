@@ -13,6 +13,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/cosmos-sdk/x/feegrant"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // flag for feegrant module
@@ -70,7 +71,7 @@ Examples:
 				return err
 			}
 
-			grantee, err := sdk.AccAddressFromBech32(args[1])
+			grantee, err := seitypes.AccAddressFromBech32(args[1])
 			if err != nil {
 				return err
 			}
@@ -201,7 +202,7 @@ Example:
 				return err
 			}
 
-			grantee, err := sdk.AccAddressFromBech32(args[1])
+			grantee, err := seitypes.AccAddressFromBech32(args[1])
 			if err != nil {
 				return err
 			}

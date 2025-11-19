@@ -47,7 +47,7 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) (data *types.GenesisSt
 	params := keeper.GetParams(ctx)
 	signingInfos := make([]types.SigningInfo, 0)
 	missedBlocks := make([]types.ValidatorMissedBlockArray, 0)
-	keeper.IterateValidatorSigningInfos(ctx, func(address sdk.ConsAddress, info types.ValidatorSigningInfo) (stop bool) {
+	keeper.IterateValidatorSigningInfos(ctx, func(address seitypes.ConsAddress, info types.ValidatorSigningInfo) (stop bool) {
 		bechAddr := address.String()
 		signingInfos = append(signingInfos, types.SigningInfo{
 			Address:              bechAddr,

@@ -21,7 +21,7 @@ func TestMultiplierGasSetter(t *testing.T) {
 		Contract: "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
 		Msg:      []byte("{\"xyz\":{}}"),
 	}
-	testTx := app.NewTestTx([]sdk.Msg{&testMsg})
+	testTx := app.NewTestTx([]seitypes.Msg{&testMsg})
 
 	// Test with 1/2 cosmos gas multiplier
 	testApp.ParamsKeeper.SetCosmosGasParams(ctx, paramtypes.CosmosGasParams{CosmosGasMultiplierNumerator: 1, CosmosGasMultiplierDenominator: 2})

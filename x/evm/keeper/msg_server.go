@@ -270,7 +270,7 @@ func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgReg
 	if server.GetRegisterPointerDisabled(ctx) {
 		return nil, fmt.Errorf("registering CW->ERC pointers has been disabled")
 	}
-	var existingPointer sdk.AccAddress
+	var existingPointer seitypes.AccAddress
 	var existingVersion uint16
 	var currentVersion uint16
 	var exists bool
@@ -304,7 +304,7 @@ func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgReg
 	codeID := server.GetStoredPointerCodeID(ctx, msg.PointerType)
 	moduleAcct := server.accountKeeper.GetModuleAddress(types.ModuleName)
 	var err error
-	var pointerAddr sdk.AccAddress
+	var pointerAddr seitypes.AccAddress
 	if exists {
 		bz, _ := json.Marshal(map[string]interface{}{})
 		pointerAddr = existingPointer
@@ -346,7 +346,7 @@ func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgReg
 
 func (server msgServer) AssociateContractAddress(goCtx context.Context, msg *types.MsgAssociateContractAddress) (*types.MsgAssociateContractAddressResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	addr := sdk.MustAccAddressFromBech32(msg.Address) // already validated
+	addr := seitypes.MustAccAddressFromBech32(msg.Address) // already validated
 	// check if address is for a contract
 	if server.wasmViewKeeper.GetContractInfo(ctx, addr) == nil {
 		return nil, errors.New("no wasm contract found at the given address")

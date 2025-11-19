@@ -20,7 +20,7 @@ func TestBasicDecorator(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	a := ante.NewBasicDecorator(k)
 	msg, _ := types.NewMsgEVMTransaction(&ethtx.LegacyTx{})
-	ctx, err := a.AnteHandle(ctx, &mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err := a.AnteHandle(ctx, &mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NotNil(t, err) // expect out of gas err
@@ -29,14 +29,14 @@ func TestBasicDecorator(t *testing.T) {
 		dataTooLarge[i] = 1
 	}
 	msg, _ = types.NewMsgEVMTransaction(&ethtx.LegacyTx{Data: dataTooLarge})
-	ctx, err = a.AnteHandle(ctx, &mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = a.AnteHandle(ctx, &mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)
 	require.Contains(t, err.Error(), "code size")
 	negAmount := sdk.NewInt(-1)
 	msg, _ = types.NewMsgEVMTransaction(&ethtx.LegacyTx{Amount: &negAmount})
-	ctx, err = a.AnteHandle(ctx, &mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = a.AnteHandle(ctx, &mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Equal(t, sdkerrors.ErrInvalidCoins, err)
@@ -45,13 +45,13 @@ func TestBasicDecorator(t *testing.T) {
 		dataTooLarge[i] = 1
 	}
 	msg, _ = types.NewMsgEVMTransaction(&ethtx.LegacyTx{Data: data})
-	ctx, err = a.AnteHandle(ctx, &mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = a.AnteHandle(ctx, &mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Equal(t, ethcore.ErrIntrinsicGas, err)
 
 	msg, _ = types.NewMsgEVMTransaction(&ethtx.BlobTx{GasLimit: 21000})
-	ctx, err = a.AnteHandle(ctx, &mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = a.AnteHandle(ctx, &mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)

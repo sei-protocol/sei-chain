@@ -13,6 +13,7 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmprotocrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"
 	"gopkg.in/yaml.v2"
@@ -39,7 +40,7 @@ var _ ValidatorI = Validator{}
 // NewValidator constructs a new Validator
 //
 //nolint:interfacer
-func NewValidator(operator sdk.ValAddress, pubKey cryptotypes.PubKey, description Description) (Validator, error) {
+func NewValidator(operator seitypes.ValAddress, pubKey cryptotypes.PubKey, description Description) (Validator, error) {
 	pkAny, err := codectypes.NewAnyWithValue(pubKey)
 	if err != nil {
 		return Validator{}, err
@@ -457,11 +458,11 @@ func (v *Validator) Equal(v2 *Validator) bool {
 func (v Validator) IsJailed() bool        { return v.Jailed }
 func (v Validator) GetMoniker() string    { return v.Description.Moniker }
 func (v Validator) GetStatus() BondStatus { return v.Status }
-func (v Validator) GetOperator() sdk.ValAddress {
+func (v Validator) GetOperator() seitypes.ValAddress {
 	if v.OperatorAddress == "" {
 		return nil
 	}
-	addr, err := sdk.ValAddressFromBech32(v.OperatorAddress)
+	addr, err := seitypes.ValAddressFromBech32(v.OperatorAddress)
 	if err != nil {
 		panic(err)
 	}
@@ -495,12 +496,12 @@ func (v Validator) TmConsPublicKey() (tmprotocrypto.PublicKey, error) {
 }
 
 // GetConsAddr extracts Consensus key address
-func (v Validator) GetConsAddr() (sdk.ConsAddress, error) {
+func (v Validator) GetConsAddr() (seitypes.ConsAddress, error) {
 	pk, ok := v.ConsensusPubkey.GetCachedValue().(cryptotypes.PubKey)
 	if !ok {
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidType, "expecting cryptotypes.PubKey, got %T", pk)
 	}
-	return sdk.ConsAddress(pk.Address()), nil
+	return seitypes.ConsAddress(pk.Address()), nil
 }
 
 func (v Validator) GetTokens() sdk.Int       { return v.Tokens }

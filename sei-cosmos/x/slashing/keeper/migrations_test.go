@@ -38,12 +38,12 @@ func TestMigrate2to3(t *testing.T) {
 
 	staking.EndBlocker(ctx, app.StakingKeeper)
 	require.Equal(
-		t, app.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr)),
+		t, app.BankKeeper.GetAllBalances(ctx, seitypes.AccAddress(addr)),
 		sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.GetParams(ctx).BondDenom, InitTokens.Sub(amt))),
 	)
 	require.Equal(t, amt, app.StakingKeeper.Validator(ctx, addr).GetBondedTokens())
 	require.Equal(
-		t, app.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr2)),
+		t, app.BankKeeper.GetAllBalances(ctx, seitypes.AccAddress(addr2)),
 		sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.GetParams(ctx).BondDenom, InitTokens.Sub(amt))),
 	)
 	require.Equal(t, amt2, app.StakingKeeper.Validator(ctx, addr2).GetBondedTokens())
@@ -155,12 +155,12 @@ func TestMigrate2to4(t *testing.T) {
 
 	staking.EndBlocker(ctx, app.StakingKeeper)
 	require.Equal(
-		t, app.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr)),
+		t, app.BankKeeper.GetAllBalances(ctx, seitypes.AccAddress(addr)),
 		sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.GetParams(ctx).BondDenom, InitTokens.Sub(amt))),
 	)
 	require.Equal(t, amt, app.StakingKeeper.Validator(ctx, addr).GetBondedTokens())
 	require.Equal(
-		t, app.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr2)),
+		t, app.BankKeeper.GetAllBalances(ctx, seitypes.AccAddress(addr2)),
 		sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.GetParams(ctx).BondDenom, InitTokens.Sub(amt))),
 	)
 	require.Equal(t, amt2, app.StakingKeeper.Validator(ctx, addr2).GetBondedTokens())
@@ -306,12 +306,12 @@ func TestMigrate3to4(t *testing.T) {
 
 	staking.EndBlocker(ctx, app.StakingKeeper)
 	require.Equal(
-		t, app.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr)),
+		t, app.BankKeeper.GetAllBalances(ctx, seitypes.AccAddress(addr)),
 		sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.GetParams(ctx).BondDenom, InitTokens.Sub(amt))),
 	)
 	require.Equal(t, amt, app.StakingKeeper.Validator(ctx, addr).GetBondedTokens())
 	require.Equal(
-		t, app.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr2)),
+		t, app.BankKeeper.GetAllBalances(ctx, seitypes.AccAddress(addr2)),
 		sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.GetParams(ctx).BondDenom, InitTokens.Sub(amt))),
 	)
 	require.Equal(t, amt2, app.StakingKeeper.Validator(ctx, addr2).GetBondedTokens())

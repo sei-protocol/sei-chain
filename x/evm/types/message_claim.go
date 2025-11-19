@@ -9,10 +9,10 @@ import (
 const TypeMsgClaim = "evm_claim"
 
 var (
-	_ sdk.Msg = &MsgClaim{}
+	_ seitypes.Msg = &MsgClaim{}
 )
 
-func NewMsgClaim(sender sdk.AccAddress, claimer common.Address) *MsgClaim {
+func NewMsgClaim(sender seitypes.AccAddress, claimer common.Address) *MsgClaim {
 	return &MsgClaim{Sender: sender.String(), Claimer: claimer.Hex()}
 }
 
@@ -24,12 +24,12 @@ func (msg *MsgClaim) Type() string {
 	return TypeMsgClaim
 }
 
-func (msg *MsgClaim) GetSigners() []sdk.AccAddress {
-	from, err := sdk.AccAddressFromBech32(msg.Sender)
+func (msg *MsgClaim) GetSigners() []seitypes.AccAddress {
+	from, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{from}
+	return []seitypes.AccAddress{from}
 }
 
 func (msg *MsgClaim) GetSignBytes() []byte {
@@ -37,7 +37,7 @@ func (msg *MsgClaim) GetSignBytes() []byte {
 }
 
 func (msg *MsgClaim) ValidateBasic() error {
-	_, err := sdk.AccAddressFromBech32(msg.Sender)
+	_, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
 	}

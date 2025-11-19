@@ -61,7 +61,7 @@ func getQueriedParams(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, que
 
 func getQueriedProposals(
 	t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, querier sdk.Querier,
-	depositor, voter sdk.AccAddress, status types.ProposalStatus, page, limit int,
+	depositor, voter seitypes.AccAddress, status types.ProposalStatus, page, limit int,
 ) []types.Proposal {
 
 	query := abci.RequestQuery{
@@ -79,7 +79,7 @@ func getQueriedProposals(
 	return proposals
 }
 
-func getQueriedDeposit(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, querier sdk.Querier, proposalID uint64, depositor sdk.AccAddress) types.Deposit {
+func getQueriedDeposit(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, querier sdk.Querier, proposalID uint64, depositor seitypes.AccAddress) types.Deposit {
 	query := abci.RequestQuery{
 		Path: strings.Join([]string{custom, types.QuerierRoute, types.QueryDeposit}, "/"),
 		Data: cdc.MustMarshalJSON(types.NewQueryDepositParams(proposalID, depositor)),
@@ -111,7 +111,7 @@ func getQueriedDeposits(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, q
 	return deposits
 }
 
-func getQueriedVote(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, querier sdk.Querier, proposalID uint64, voter sdk.AccAddress) types.Vote {
+func getQueriedVote(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, querier sdk.Querier, proposalID uint64, voter seitypes.AccAddress) types.Vote {
 	query := abci.RequestQuery{
 		Path: strings.Join([]string{custom, types.QuerierRoute, types.QueryVote}, "/"),
 		Data: cdc.MustMarshalJSON(types.NewQueryVoteParams(proposalID, voter)),
@@ -163,7 +163,7 @@ func TestQueries(t *testing.T) {
 	proposal1, err := app.GovKeeper.SubmitProposal(ctx, tp)
 	require.NoError(t, err)
 	deposit1 := types.NewDeposit(proposal1.ProposalId, TestAddrs[0], oneCoins)
-	depositer1, err := sdk.AccAddressFromBech32(deposit1.Depositor)
+	depositer1, err := seitypes.AccAddressFromBech32(deposit1.Depositor)
 	require.NoError(t, err)
 	_, err = app.GovKeeper.AddDeposit(ctx, deposit1.ProposalId, depositer1, deposit1.Amount)
 	require.NoError(t, err)
@@ -173,7 +173,7 @@ func TestQueries(t *testing.T) {
 	proposal2, err := app.GovKeeper.SubmitProposal(ctx, tp)
 	require.NoError(t, err)
 	deposit2 := types.NewDeposit(proposal2.ProposalId, TestAddrs[0], consCoins)
-	depositer2, err := sdk.AccAddressFromBech32(deposit2.Depositor)
+	depositer2, err := seitypes.AccAddressFromBech32(deposit2.Depositor)
 	require.NoError(t, err)
 	_, err = app.GovKeeper.AddDeposit(ctx, deposit2.ProposalId, depositer2, deposit2.Amount)
 	require.NoError(t, err)
@@ -184,7 +184,7 @@ func TestQueries(t *testing.T) {
 	proposal3, err := app.GovKeeper.SubmitProposal(ctx, tp)
 	require.NoError(t, err)
 	deposit3 := types.NewDeposit(proposal3.ProposalId, TestAddrs[1], oneCoins)
-	depositer3, err := sdk.AccAddressFromBech32(deposit3.Depositor)
+	depositer3, err := seitypes.AccAddressFromBech32(deposit3.Depositor)
 	require.NoError(t, err)
 
 	_, err = app.GovKeeper.AddDeposit(ctx, deposit3.ProposalId, depositer3, deposit3.Amount)
@@ -194,7 +194,7 @@ func TestQueries(t *testing.T) {
 
 	// TestAddrs[1] deposits on proposals #2 & #3
 	deposit4 := types.NewDeposit(proposal2.ProposalId, TestAddrs[1], depositParams.MinDeposit)
-	depositer4, err := sdk.AccAddressFromBech32(deposit4.Depositor)
+	depositer4, err := seitypes.AccAddressFromBech32(deposit4.Depositor)
 	require.NoError(t, err)
 	_, err = app.GovKeeper.AddDeposit(ctx, deposit4.ProposalId, depositer4, deposit4.Amount)
 	require.NoError(t, err)
@@ -204,7 +204,7 @@ func TestQueries(t *testing.T) {
 	proposal2.VotingEndTime = proposal2.VotingEndTime.Add(types.DefaultPeriod)
 
 	deposit5 := types.NewDeposit(proposal3.ProposalId, TestAddrs[1], depositParams.MinDeposit)
-	depositer5, err := sdk.AccAddressFromBech32(deposit5.Depositor)
+	depositer5, err := seitypes.AccAddressFromBech32(deposit5.Depositor)
 	require.NoError(t, err)
 	_, err = app.GovKeeper.AddDeposit(ctx, deposit5.ProposalId, depositer5, deposit5.Amount)
 	require.NoError(t, err)
@@ -319,7 +319,7 @@ func TestPaginatedVotesQuery(t *testing.T) {
 	random := rand.New(rand.NewSource(time.Now().UnixNano()))
 	addrMap := make(map[string]struct{})
 	genAddr := func() string {
-		addr := make(sdk.AccAddress, 20)
+		addr := make(seitypes.AccAddress, 20)
 		for {
 			random.Read(addr)
 			addrStr := addr.String()

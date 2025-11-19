@@ -5,9 +5,9 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/rest"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
 )
@@ -21,7 +21,7 @@ func QueryBalancesRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		vars := mux.Vars(r)
 		bech32addr := vars["address"]
 
-		addr, err := sdk.AccAddressFromBech32(bech32addr)
+		addr, err := seitypes.AccAddressFromBech32(bech32addr)
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}

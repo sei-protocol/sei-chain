@@ -39,7 +39,7 @@ message MsgCreateClient {
 // MsgCreateClientResponse defines the Msg/CreateClient response type.
 message MsgCreateClientResponse {}
 
-// MsgUpdateClient defines an sdk.Msg to update a IBC client state using
+// MsgUpdateClient defines an seitypes.Msg to update a IBC client state using
 // the given header.
 message MsgUpdateClient {
   option (gogoproto.equal) = false;
@@ -56,7 +56,7 @@ message MsgUpdateClient {
 // MsgUpdateClientResponse defines the Msg/UpdateClient response type.
 message MsgUpdateClientResponse {}
 
-// MsgUpgradeClient defines an sdk.Msg to upgrade an IBC client to a new client
+// MsgUpgradeClient defines an seitypes.Msg to upgrade an IBC client to a new client
 // state
 message MsgUpgradeClient {
   option (gogoproto.equal) = false;
@@ -80,7 +80,7 @@ message MsgUpgradeClient {
 // MsgUpgradeClientResponse defines the Msg/UpgradeClient response type.
 message MsgUpgradeClientResponse {}
 
-// MsgSubmitMisbehaviour defines an sdk.Msg type that submits Evidence for
+// MsgSubmitMisbehaviour defines an seitypes.Msg type that submits Evidence for
 // light client misbehaviour.
 message MsgSubmitMisbehaviour {
   option (gogoproto.equal) = false;

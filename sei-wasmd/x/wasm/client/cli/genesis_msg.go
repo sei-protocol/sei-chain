@@ -276,7 +276,7 @@ func GetAllCodes(state *types.GenesisState) ([]CodeMeta, error) {
 				accessConfig = *msg.InstantiatePermission
 			} else {
 				// default
-				creator, err := sdk.AccAddressFromBech32(msg.Sender)
+				creator, err := seitypes.AccAddressFromBech32(msg.Sender)
 				if err != nil {
 					return nil, fmt.Errorf("sender: %s", err)
 				}
@@ -329,7 +329,7 @@ func GetAllContracts(state *types.GenesisState) []ContractMeta {
 	return all
 }
 
-func hasAccountBalance(cmd *cobra.Command, appState map[string]json.RawMessage, sender sdk.AccAddress, coins sdk.Coins) (bool, error) {
+func hasAccountBalance(cmd *cobra.Command, appState map[string]json.RawMessage, sender seitypes.AccAddress, coins sdk.Coins) (bool, error) {
 	// no coins needed, no account needed
 	if coins.IsZero() {
 		return true, nil
@@ -481,7 +481,7 @@ func codeSeqValue(state *types.GenesisState) uint64 {
 // getActorAddress returns the account address for the `--run-as` flag.
 // The flag value can either be an address already or a key name where the
 // address is read from the keyring instead.
-func getActorAddress(cmd *cobra.Command) (sdk.AccAddress, error) {
+func getActorAddress(cmd *cobra.Command) (seitypes.AccAddress, error) {
 	actorArg, err := cmd.Flags().GetString(flagRunAs)
 	if err != nil {
 		return nil, fmt.Errorf("run-as: %s", err.Error())
@@ -490,7 +490,7 @@ func getActorAddress(cmd *cobra.Command) (sdk.AccAddress, error) {
 		return nil, errors.New("run-as address is required")
 	}
 
-	actorAddr, err := sdk.AccAddressFromBech32(actorArg)
+	actorAddr, err := seitypes.AccAddressFromBech32(actorArg)
 	if err == nil {
 		return actorAddr, nil
 	}

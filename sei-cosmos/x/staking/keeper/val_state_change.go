@@ -39,7 +39,7 @@ func (k Keeper) BlockValidatorUpdates(ctx sdk.Context) []abci.ValidatorUpdate {
 		if err != nil {
 			panic(err)
 		}
-		delegatorAddress := sdk.MustAccAddressFromBech32(dvPair.DelegatorAddress)
+		delegatorAddress := seitypes.MustAccAddressFromBech32(dvPair.DelegatorAddress)
 
 		balances, err := k.CompleteUnbonding(ctx, delegatorAddress, addr)
 		if err != nil {
@@ -67,7 +67,7 @@ func (k Keeper) BlockValidatorUpdates(ctx sdk.Context) []abci.ValidatorUpdate {
 		if err != nil {
 			panic(err)
 		}
-		delegatorAddress := sdk.MustAccAddressFromBech32(dvvTriplet.DelegatorAddress)
+		delegatorAddress := seitypes.MustAccAddressFromBech32(dvvTriplet.DelegatorAddress)
 
 		balances, err := k.CompleteRedelegation(
 			ctx,
@@ -127,7 +127,7 @@ func (k Keeper) ApplyAndReturnValidatorSetUpdates(ctx sdk.Context) (updates []ab
 	for count := 0; iterator.Valid() && count < int(maxValidators); iterator.Next() {
 		// everything that is iterated in this loop is becoming or already a
 		// part of the bonded validator set
-		valAddr := sdk.ValAddress(iterator.Value())
+		valAddr := seitypes.ValAddress(iterator.Value())
 		validator := k.mustGetValidator(ctx, valAddr)
 
 		if validator.Jailed {
@@ -161,7 +161,7 @@ func (k Keeper) ApplyAndReturnValidatorSetUpdates(ctx sdk.Context) (updates []ab
 		}
 
 		// fetch the old power bytes
-		valAddrStr, err := sdk.Bech32ifyAddressBytes(sdk.GetConfig().GetBech32ValidatorAddrPrefix(), valAddr)
+		valAddrStr, err := sdk.Bech32ifyAddressBytes(seitypes.GetConfig().GetBech32ValidatorAddrPrefix(), valAddr)
 		if err != nil {
 			return nil, err
 		}
@@ -188,7 +188,7 @@ func (k Keeper) ApplyAndReturnValidatorSetUpdates(ctx sdk.Context) (updates []ab
 	}
 
 	for _, valAddrBytes := range noLongerBonded {
-		validator := k.mustGetValidator(ctx, sdk.ValAddress(valAddrBytes))
+		validator := k.mustGetValidator(ctx, seitypes.ValAddress(valAddrBytes))
 		validator, err = k.bondedToUnbonding(ctx, validator)
 		if err != nil {
 			return
@@ -359,7 +359,7 @@ func (k Keeper) getLastValidatorsByAddr(ctx sdk.Context) (validatorsByAddr, erro
 	for ; iterator.Valid(); iterator.Next() {
 		// extract the validator address from the key (prefix is 1-byte, addrLen is 1-byte)
 		valAddr := types.AddressFromLastValidatorPowerKey(iterator.Key())
-		valAddrStr, err := sdk.Bech32ifyAddressBytes(sdk.GetConfig().GetBech32ValidatorAddrPrefix(), valAddr)
+		valAddrStr, err := sdk.Bech32ifyAddressBytes(seitypes.GetConfig().GetBech32ValidatorAddrPrefix(), valAddr)
 		if err != nil {
 			return nil, err
 		}

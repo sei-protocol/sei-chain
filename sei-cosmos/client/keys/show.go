@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/spf13/cobra"
 	"github.com/tendermint/tendermint/libs/cli"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
 	"github.com/cosmos/cosmos-sdk/crypto/ledger"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerr "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
@@ -43,7 +43,7 @@ consisting of all the keys provided by name and multisig threshold.`,
 		RunE: runShowCmd,
 	}
 	f := cmd.Flags()
-	f.String(FlagBechPrefix, sdk.PrefixAccount, "The Bech32 prefix encoding for a key (acc|val|cons)")
+	f.String(FlagBechPrefix, seitypes.PrefixAccount, "The Bech32 prefix encoding for a key (acc|val|cons)")
 	f.BoolP(FlagAddress, "a", false, "Output the address only (overrides --output)")
 	f.BoolP(FlagPublicKey, "p", false, "Output the public key only (overrides --output)")
 	f.BoolP(FlagDevice, "d", false, "Output the address in a ledger device")
@@ -149,7 +149,7 @@ func runShowCmd(cmd *cobra.Command, args []string) (err error) {
 			return nil
 		}
 
-		return ledger.ShowAddress(*hdpath, info.GetPubKey(), sdk.GetConfig().GetBech32AccountAddrPrefix())
+		return ledger.ShowAddress(*hdpath, info.GetPubKey(), seitypes.GetConfig().GetBech32AccountAddrPrefix())
 	}
 
 	return nil
@@ -163,7 +163,7 @@ func fetchKey(kb keyring.Keyring, keyref string) (keyring.Info, error) {
 	if err == nil || !sdkerr.IsOf(err, sdkerr.ErrIO, sdkerr.ErrKeyNotFound) {
 		return info, err
 	}
-	accAddr, err := sdk.AccAddressFromBech32(keyref)
+	accAddr, err := seitypes.AccAddressFromBech32(keyref)
 	if err != nil {
 		return info, err
 	}
@@ -185,11 +185,11 @@ func validateMultisigThreshold(k, nKeys int) error {
 
 func getBechKeyOut(bechPrefix string) (bechKeyOutFn, error) {
 	switch bechPrefix {
-	case sdk.PrefixAccount:
+	case seitypes.PrefixAccount:
 		return keyring.MkAccKeyOutput, nil
-	case sdk.PrefixValidator:
+	case seitypes.PrefixValidator:
 		return keyring.MkValKeyOutput, nil
-	case sdk.PrefixConsensus:
+	case seitypes.PrefixConsensus:
 		return keyring.MkConsKeyOutput, nil
 	}
 

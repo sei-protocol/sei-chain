@@ -28,12 +28,12 @@ func TestCountTxDecorator(t *testing.T) {
 	specs := map[string]struct {
 		setupDB        func(t *testing.T, ctx sdk.Context)
 		simulate       bool
-		nextAssertAnte func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error)
+		nextAssertAnte func(ctx sdk.Context, tx seitypes.Tx, simulate bool) (sdk.Context, error)
 		expErr         bool
 	}{
 		"no initial counter set": {
 			setupDB: func(t *testing.T, ctx sdk.Context) {},
-			nextAssertAnte: func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+			nextAssertAnte: func(ctx sdk.Context, tx seitypes.Tx, simulate bool) (sdk.Context, error) {
 				gotCounter, ok := types.TXCounter(ctx)
 				require.True(t, ok)
 				assert.Equal(t, uint32(0), gotCounter)
@@ -48,7 +48,7 @@ func TestCountTxDecorator(t *testing.T) {
 				bz := []byte{0, 0, 0, 0, 0, 0, 0, myCurrentBlockHeight, 1, 0, 0, 2}
 				ctx.MultiStore().GetKVStore(keyWasm).Set(types.TXCounterPrefix, bz)
 			},
-			nextAssertAnte: func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+			nextAssertAnte: func(ctx sdk.Context, tx seitypes.Tx, simulate bool) (sdk.Context, error) {
 				gotCounter, ok := types.TXCounter(ctx)
 				require.True(t, ok)
 				assert.Equal(t, uint32(1<<24+2), gotCounter)
@@ -64,7 +64,7 @@ func TestCountTxDecorator(t *testing.T) {
 				bz := []byte{0, 0, 0, 0, 0, 0, 0, previousHeight, 0, 0, 0, 1}
 				ctx.MultiStore().GetKVStore(keyWasm).Set(types.TXCounterPrefix, bz)
 			},
-			nextAssertAnte: func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+			nextAssertAnte: func(ctx sdk.Context, tx seitypes.Tx, simulate bool) (sdk.Context, error) {
 				gotCounter, ok := types.TXCounter(ctx)
 				require.True(t, ok)
 				assert.Equal(t, uint32(0), gotCounter)
@@ -78,7 +78,7 @@ func TestCountTxDecorator(t *testing.T) {
 			setupDB: func(t *testing.T, ctx sdk.Context) {
 			},
 			simulate: true,
-			nextAssertAnte: func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+			nextAssertAnte: func(ctx sdk.Context, tx seitypes.Tx, simulate bool) (sdk.Context, error) {
 				_, ok := types.TXCounter(ctx)
 				assert.False(t, ok)
 				require.True(t, simulate)
@@ -96,7 +96,7 @@ func TestCountTxDecorator(t *testing.T) {
 			}, false, log.NewNopLogger())
 
 			spec.setupDB(t, ctx)
-			var anyTx sdk.Tx
+			var anyTx seitypes.Tx
 
 			// when
 			ante := keeper.NewCountTXDecorator(keyWasm)
@@ -180,7 +180,7 @@ func TestLimitSimulationGasDecorator(t *testing.T) {
 }
 
 func consumeGasAnteHandler(gasToConsume sdk.Gas) sdk.AnteHandler {
-	return func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+	return func(ctx sdk.Context, tx seitypes.Tx, simulate bool) (sdk.Context, error) {
 		ctx.GasMeter().ConsumeGas(gasToConsume, "testing")
 		return ctx, nil
 	}

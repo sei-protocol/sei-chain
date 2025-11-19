@@ -311,7 +311,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 	if newBaseFee != nil {
 		metrics.GaugeEvmBlockBaseFee(newBaseFee.TruncateInt().BigInt(), req.Height)
 	}
-	var coinbase sdk.AccAddress
+	var coinbase seitypes.AccAddress
 	if am.keeper.EthBlockTestConfig.Enabled {
 		blocks := am.keeper.BlockTest.Json.Blocks
 		block, err := blocks[ctx.BlockHeight()-1].Decode()

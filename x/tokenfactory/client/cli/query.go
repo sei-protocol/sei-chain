@@ -101,7 +101,7 @@ func GetCmdDenomsFromCreator() *cobra.Command {
 			}
 			queryClient := types.NewQueryClient(clientCtx)
 
-			if _, err := sdk.AccAddressFromBech32(args[0]); err != nil {
+			if _, err := seitypes.AccAddressFromBech32(args[0]); err != nil {
 				return err
 			}
 

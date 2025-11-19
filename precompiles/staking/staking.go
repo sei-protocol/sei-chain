@@ -370,7 +370,7 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 	description := stakingtypes.NewDescription(moniker, "", "", "", "")
 
 	msg, err := stakingtypes.NewMsgCreateValidator(
-		sdk.ValAddress(valAddress),
+		seitypes.ValAddress(valAddress),
 		pubKey,
 		coin,
 		description,
@@ -391,7 +391,7 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 	}
 
 	// Emit EVM event
-	if emitErr := pcommon.EmitValidatorCreatedEvent(evm, p.address, caller, sdk.ValAddress(valAddress).String(), moniker); emitErr != nil {
+	if emitErr := pcommon.EmitValidatorCreatedEvent(evm, p.address, caller, seitypes.ValAddress(valAddress).String(), moniker); emitErr != nil {
 		// Log error but don't fail the transaction
 		ctx.Logger().Error("Failed to emit EVM validator created event", "error", emitErr)
 	}
@@ -445,7 +445,7 @@ func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, c
 	)
 
 	msg := stakingtypes.NewMsgEditValidator(
-		sdk.ValAddress(valAddress),
+		seitypes.ValAddress(valAddress),
 		description,
 		commissionRate,
 		minSelfDelegationInt,
@@ -461,7 +461,7 @@ func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, c
 	}
 
 	// Emit EVM event
-	if emitErr := pcommon.EmitValidatorEditedEvent(evm, p.address, caller, sdk.ValAddress(valAddress).String(), moniker); emitErr != nil {
+	if emitErr := pcommon.EmitValidatorEditedEvent(evm, p.address, caller, seitypes.ValAddress(valAddress).String(), moniker); emitErr != nil {
 		// Log error but don't fail the transaction
 		ctx.Logger().Error("Failed to emit EVM validator edited event", "error", emitErr)
 	}

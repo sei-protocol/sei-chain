@@ -4,6 +4,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/authz"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // TODO: Revisit this once we have propoer gas fee framework.
@@ -16,7 +17,7 @@ var (
 )
 
 // NewStakeAuthorization creates a new StakeAuthorization object.
-func NewStakeAuthorization(allowed []sdk.ValAddress, denied []sdk.ValAddress, authzType AuthorizationType, amount *sdk.Coin) (*StakeAuthorization, error) {
+func NewStakeAuthorization(allowed []seitypes.ValAddress, denied []seitypes.ValAddress, authzType AuthorizationType, amount *sdk.Coin) (*StakeAuthorization, error) {
 	allowedValidators, deniedValidators, err := validateAndBech32fy(allowed, denied)
 	if err != nil {
 		return nil, err
@@ -58,7 +59,7 @@ func (a StakeAuthorization) ValidateBasic() error {
 }
 
 // Accept implements Authorization.Accept.
-func (a StakeAuthorization) Accept(ctx sdk.Context, msg sdk.Msg) (authz.AcceptResponse, error) {
+func (a StakeAuthorization) Accept(ctx sdk.Context, msg seitypes.Msg) (authz.AcceptResponse, error) {
 	var validatorAddress string
 	var amount sdk.Coin
 
@@ -111,7 +112,7 @@ func (a StakeAuthorization) Accept(ctx sdk.Context, msg sdk.Msg) (authz.AcceptRe
 		Updated: &StakeAuthorization{Validators: a.GetValidators(), AuthorizationType: a.GetAuthorizationType(), MaxTokens: &limitLeft}}, nil
 }
 
-func validateAndBech32fy(allowed []sdk.ValAddress, denied []sdk.ValAddress) ([]string, []string, error) {
+func validateAndBech32fy(allowed []seitypes.ValAddress, denied []seitypes.ValAddress) ([]string, []string, error) {
 	if len(allowed) == 0 && len(denied) == 0 {
 		return nil, nil, sdkerrors.ErrInvalidRequest.Wrap("both allowed & deny list cannot be empty")
 	}

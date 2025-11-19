@@ -9,10 +9,10 @@ import (
 const TypeMsgSend = "evm_send"
 
 var (
-	_ sdk.Msg = &MsgSend{}
+	_ seitypes.Msg = &MsgSend{}
 )
 
-func NewMsgSend(fromAddr sdk.AccAddress, toAddress common.Address, amount sdk.Coins) *MsgSend {
+func NewMsgSend(fromAddr seitypes.AccAddress, toAddress common.Address, amount sdk.Coins) *MsgSend {
 	return &MsgSend{FromAddress: fromAddr.String(), ToAddress: toAddress.Hex(), Amount: amount}
 }
 
@@ -24,12 +24,12 @@ func (msg *MsgSend) Type() string {
 	return TypeMsgSend
 }
 
-func (msg *MsgSend) GetSigners() []sdk.AccAddress {
-	from, err := sdk.AccAddressFromBech32(msg.FromAddress)
+func (msg *MsgSend) GetSigners() []seitypes.AccAddress {
+	from, err := seitypes.AccAddressFromBech32(msg.FromAddress)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{from}
+	return []seitypes.AccAddress{from}
 }
 
 func (msg *MsgSend) GetSignBytes() []byte {
@@ -37,7 +37,7 @@ func (msg *MsgSend) GetSignBytes() []byte {
 }
 
 func (msg *MsgSend) ValidateBasic() error {
-	_, err := sdk.AccAddressFromBech32(msg.FromAddress)
+	_, err := seitypes.AccAddressFromBech32(msg.FromAddress)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
 	}

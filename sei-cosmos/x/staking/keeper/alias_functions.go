@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // Validator Set
@@ -76,7 +77,7 @@ func (k Keeper) IterateLastValidators(ctx sdk.Context, fn func(index int64, vali
 }
 
 // Validator gets the Validator interface for a particular address
-func (k Keeper) Validator(ctx sdk.Context, address sdk.ValAddress) types.ValidatorI {
+func (k Keeper) Validator(ctx sdk.Context, address seitypes.ValAddress) types.ValidatorI {
 	val, found := k.GetValidator(ctx, address)
 	if !found {
 		return nil
@@ -86,7 +87,7 @@ func (k Keeper) Validator(ctx sdk.Context, address sdk.ValAddress) types.Validat
 }
 
 // ValidatorByConsAddr gets the validator interface for a particular pubkey
-func (k Keeper) ValidatorByConsAddr(ctx sdk.Context, addr sdk.ConsAddress) types.ValidatorI {
+func (k Keeper) ValidatorByConsAddr(ctx sdk.Context, addr seitypes.ConsAddress) types.ValidatorI {
 	val, found := k.GetValidatorByConsAddr(ctx, addr)
 	if !found {
 		return nil
@@ -103,7 +104,7 @@ func (k Keeper) GetValidatorSet() types.ValidatorSet {
 }
 
 // Delegation get the delegation interface for a particular set of delegator and validator addresses
-func (k Keeper) Delegation(ctx sdk.Context, addrDel sdk.AccAddress, addrVal sdk.ValAddress) types.DelegationI {
+func (k Keeper) Delegation(ctx sdk.Context, addrDel seitypes.AccAddress, addrVal seitypes.ValAddress) types.DelegationI {
 	bond, ok := k.GetDelegation(ctx, addrDel, addrVal)
 	if !ok {
 		return nil
@@ -113,7 +114,7 @@ func (k Keeper) Delegation(ctx sdk.Context, addrDel sdk.AccAddress, addrVal sdk.
 }
 
 // iterate through all of the delegations from a delegator
-func (k Keeper) IterateDelegations(ctx sdk.Context, delAddr sdk.AccAddress,
+func (k Keeper) IterateDelegations(ctx sdk.Context, delAddr seitypes.AccAddress,
 	fn func(index int64, del types.DelegationI) (stop bool)) {
 	store := ctx.KVStore(k.storeKey)
 	delegatorPrefixKey := types.GetDelegationsKey(delAddr)

@@ -45,7 +45,7 @@ func (s *IntegrationTestSuite) TestGRPCQueries() {
 	val := s.network.Validators[0]
 	baseURL := val.APIAddress
 
-	consAddr := sdk.ConsAddress(val.PubKey.Address()).String()
+	consAddr := seitypes.ConsAddress(val.PubKey.Address()).String()
 
 	testCases := []struct {
 		name     string
@@ -66,7 +66,7 @@ func (s *IntegrationTestSuite) TestGRPCQueries() {
 			&types.QuerySigningInfosResponse{
 				Info: []types.ValidatorSigningInfo{
 					{
-						Address:     sdk.ConsAddress(val.PubKey.Address()).String(),
+						Address:     seitypes.ConsAddress(val.PubKey.Address()).String(),
 						JailedUntil: time.Unix(0, 0),
 					},
 				},
@@ -85,7 +85,7 @@ func (s *IntegrationTestSuite) TestGRPCQueries() {
 			&types.QuerySigningInfoResponse{},
 			&types.QuerySigningInfoResponse{
 				ValSigningInfo: types.ValidatorSigningInfo{
-					Address:     sdk.ConsAddress(val.PubKey.Address()).String(),
+					Address:     seitypes.ConsAddress(val.PubKey.Address()).String(),
 					JailedUntil: time.Unix(0, 0),
 				},
 			},

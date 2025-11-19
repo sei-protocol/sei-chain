@@ -16,7 +16,7 @@ Response:
 +++ https://github.com/cosmos/cosmos-sdk/blob/v0.42.4/proto/cosmos/distribution/v1beta1/tx.proto#L29-L37
 
 ```go
-func (k Keeper) SetWithdrawAddr(ctx sdk.Context, delegatorAddr sdk.AccAddress, withdrawAddr sdk.AccAddress) error
+func (k Keeper) SetWithdrawAddr(ctx sdk.Context, delegatorAddr seitypes.AccAddress, withdrawAddr seitypes.AccAddress) error
 	if k.blockedAddrs[withdrawAddr.String()] {
 		fail with "`{withdrawAddr}` is not allowed to receive external funds"
 	}
@@ -79,7 +79,7 @@ This message sends coins directly from the sender to the community pool.
 The transaction fails if the amount cannot be transferred from the sender to the distribution module account.
 
 ```go
-func (k Keeper) FundCommunityPool(ctx sdk.Context, amount sdk.Coins, sender sdk.AccAddress) error {
+func (k Keeper) FundCommunityPool(ctx sdk.Context, amount sdk.Coins, sender seitypes.AccAddress) error {
     if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, sender, types.ModuleName, amount); err != nil {
         return err
     }
@@ -103,7 +103,7 @@ Initializing a delegation increments the validator period and keeps track of the
 
 ```go
 // initialize starting info for a new delegation
-func (k Keeper) initializeDelegation(ctx sdk.Context, val sdk.ValAddress, del sdk.AccAddress) {
+func (k Keeper) initializeDelegation(ctx sdk.Context, val seitypes.ValAddress, del seitypes.AccAddress) {
     // period has already been incremented - we want to store the period ended by this delegation action
     previousPeriod := k.GetValidatorCurrentRewards(ctx, val).Period - 1
 

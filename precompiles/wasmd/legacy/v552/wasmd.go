@@ -196,10 +196,10 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 		rerr = fmt.Errorf("creator %s is not associated", caller.Hex())
 		return
 	}
-	var adminAddr sdk.AccAddress
+	var adminAddr seitypes.AccAddress
 	adminAddrStr := args[1].(string)
 	if len(adminAddrStr) > 0 {
-		adminAddrDecoded, err := sdk.AccAddressFromBech32(adminAddrStr)
+		adminAddrDecoded, err := seitypes.AccAddressFromBech32(adminAddrStr)
 		if err != nil {
 			rerr = err
 			return
@@ -318,7 +318,7 @@ func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller com
 			}
 		}
 
-		contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
+		contractAddr, err := seitypes.AccAddressFromBech32(contractAddrStr)
 		if err != nil {
 			rerr = err
 			return
@@ -411,7 +411,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 		}
 	}
 	// addresses will be sent in Sei format
-	contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
+	contractAddr, err := seitypes.AccAddressFromBech32(contractAddrStr)
 	if err != nil {
 		rerr = err
 		return
@@ -492,7 +492,7 @@ func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{
 
 	contractAddrStr := args[0].(string)
 	// addresses will be sent in Sei format
-	contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
+	contractAddr, err := seitypes.AccAddressFromBech32(contractAddrStr)
 	if err != nil {
 		rerr = err
 		return

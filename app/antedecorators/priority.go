@@ -28,7 +28,7 @@ func intMin(a, b int64) int64 {
 }
 
 // Assigns higher priority to certain types of transactions including oracle
-func (pd PriorityDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (pd PriorityDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	// Cap priority
 	// Use higher priorities for tiers including oracle tx's
 	priority := intMin(ctx.Priority(), MaxPriority)
@@ -42,7 +42,7 @@ func (pd PriorityDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 	return next(newCtx, tx, simulate)
 }
 
-func isOracleTx(tx sdk.Tx) bool {
+func isOracleTx(tx seitypes.Tx) bool {
 	if len(tx.GetMsgs()) == 0 {
 		// empty TX isn't oracle
 		return false

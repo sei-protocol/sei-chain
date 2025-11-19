@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strconv"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	grpc "google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	grpctypes "github.com/cosmos/cosmos-sdk/types/grpc"
 )
 
@@ -24,7 +24,7 @@ type AccountRetriever struct{}
 
 // GetAccount queries for an account given an address and a block height. An
 // error is returned if the query or decoding fails.
-func (ar AccountRetriever) GetAccount(clientCtx client.Context, addr sdk.AccAddress) (client.Account, error) {
+func (ar AccountRetriever) GetAccount(clientCtx client.Context, addr seitypes.AccAddress) (client.Account, error) {
 	account, _, err := ar.GetAccountWithHeight(clientCtx, addr)
 	return account, err
 }
@@ -32,7 +32,7 @@ func (ar AccountRetriever) GetAccount(clientCtx client.Context, addr sdk.AccAddr
 // GetAccountWithHeight queries for an account given an address. Returns the
 // height of the query with the account. An error is returned if the query
 // or decoding fails.
-func (ar AccountRetriever) GetAccountWithHeight(clientCtx client.Context, addr sdk.AccAddress) (client.Account, int64, error) {
+func (ar AccountRetriever) GetAccountWithHeight(clientCtx client.Context, addr seitypes.AccAddress) (client.Account, int64, error) {
 	var header metadata.MD
 
 	queryClient := NewQueryClient(clientCtx)
@@ -60,7 +60,7 @@ func (ar AccountRetriever) GetAccountWithHeight(clientCtx client.Context, addr s
 }
 
 // EnsureExists returns an error if no account exists for the given address else nil.
-func (ar AccountRetriever) EnsureExists(clientCtx client.Context, addr sdk.AccAddress) error {
+func (ar AccountRetriever) EnsureExists(clientCtx client.Context, addr seitypes.AccAddress) error {
 	if _, err := ar.GetAccount(clientCtx, addr); err != nil {
 		return err
 	}
@@ -70,7 +70,7 @@ func (ar AccountRetriever) EnsureExists(clientCtx client.Context, addr sdk.AccAd
 
 // GetAccountNumberSequence returns sequence and account number for the given address.
 // It returns an error if the account couldn't be retrieved from the state.
-func (ar AccountRetriever) GetAccountNumberSequence(clientCtx client.Context, addr sdk.AccAddress) (uint64, uint64, error) {
+func (ar AccountRetriever) GetAccountNumberSequence(clientCtx client.Context, addr seitypes.AccAddress) (uint64, uint64, error) {
 	acc, err := ar.GetAccount(clientCtx, addr)
 	if err != nil {
 		return 0, 0, err

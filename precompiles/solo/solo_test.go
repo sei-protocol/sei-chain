@@ -240,7 +240,7 @@ func TestClaimSpecificNative(t *testing.T) {
 	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetBalance(ctx, claimee, "foo").Amount)
 }
 
-func signClaimMsg(t *testing.T, msg sdk.Msg, claimee sdk.AccAddress, claimer common.Address, acc authtypes.AccountI, signingKey cryptotypes.PrivKey) []byte {
+func signClaimMsg(t *testing.T, msg seitypes.Msg, claimee seitypes.AccAddress, claimer common.Address, acc authtypes.AccountI, signingKey cryptotypes.PrivKey) []byte {
 	tb := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
 	tb.SetMsgs(msg)
 	tb.SetSignatures(signing.SignatureV2{
@@ -276,7 +276,7 @@ func signClaimMsg(t *testing.T, msg sdk.Msg, claimee sdk.AccAddress, claimer com
 	return txbz
 }
 
-func setupCW20Contract(ctx sdk.Context, creatorKey cryptotypes.PrivKey, wKeeper wasmkeeper.PermissionedKeeper) sdk.AccAddress {
+func setupCW20Contract(ctx sdk.Context, creatorKey cryptotypes.PrivKey, wKeeper wasmkeeper.PermissionedKeeper) seitypes.AccAddress {
 	code, err := os.ReadFile("../../contracts/wasm/cw20_base.wasm")
 	if err != nil {
 		panic(err)
@@ -293,7 +293,7 @@ func setupCW20Contract(ctx sdk.Context, creatorKey cryptotypes.PrivKey, wKeeper 
 	return contractAddr
 }
 
-func queryCW20Balance(ctx sdk.Context, wKeeper wasmkeeper.Keeper, contractAddr sdk.AccAddress, addr sdk.AccAddress) sdk.Int {
+func queryCW20Balance(ctx sdk.Context, wKeeper wasmkeeper.Keeper, contractAddr seitypes.AccAddress, addr seitypes.AccAddress) sdk.Int {
 	bz, err := wKeeper.QuerySmart(ctx, contractAddr, solo.CW20BalanceQueryPayload(addr))
 	if err != nil {
 		panic(bz)
@@ -305,7 +305,7 @@ func queryCW20Balance(ctx sdk.Context, wKeeper wasmkeeper.Keeper, contractAddr s
 	return res
 }
 
-func setupCW721Contract(ctx sdk.Context, creatorKey cryptotypes.PrivKey, wKeeper wasmkeeper.PermissionedKeeper) sdk.AccAddress {
+func setupCW721Contract(ctx sdk.Context, creatorKey cryptotypes.PrivKey, wKeeper wasmkeeper.PermissionedKeeper) seitypes.AccAddress {
 	code, err := os.ReadFile("../../contracts/wasm/cw721_base.wasm")
 	if err != nil {
 		panic(err)
@@ -337,7 +337,7 @@ func setupCW721Contract(ctx sdk.Context, creatorKey cryptotypes.PrivKey, wKeeper
 	return contractAddr
 }
 
-func queryCW721Owner(ctx sdk.Context, wKeeper wasmkeeper.Keeper, contractAddr sdk.AccAddress, token string) string {
+func queryCW721Owner(ctx sdk.Context, wKeeper wasmkeeper.Keeper, contractAddr seitypes.AccAddress, token string) string {
 	bz, err := wKeeper.QuerySmart(ctx, contractAddr, CW721OwnerOfQueryPayload(token))
 	if err != nil {
 		panic(bz)

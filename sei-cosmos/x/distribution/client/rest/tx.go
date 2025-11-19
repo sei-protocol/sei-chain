@@ -20,7 +20,7 @@ type (
 
 	setWithdrawalAddrReq struct {
 		BaseReq         rest.BaseReq   `json:"base_req" yaml:"base_req"`
-		WithdrawAddress sdk.AccAddress `json:"withdraw_address" yaml:"withdraw_address"`
+		WithdrawAddress seitypes.AccAddress `json:"withdraw_address" yaml:"withdraw_address"`
 	}
 
 	fundCommunityPoolReq struct {
@@ -187,7 +187,7 @@ func newFundCommunityPoolHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			return
 		}
 
-		fromAddr, err := sdk.AccAddressFromBech32(req.BaseReq.From)
+		fromAddr, err := seitypes.AccAddressFromBech32(req.BaseReq.From)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -203,8 +203,8 @@ func newFundCommunityPoolHandlerFn(clientCtx client.Context) http.HandlerFunc {
 
 // Auxiliary
 
-func checkDelegatorAddressVar(w http.ResponseWriter, r *http.Request) (sdk.AccAddress, bool) {
-	addr, err := sdk.AccAddressFromBech32(mux.Vars(r)["delegatorAddr"])
+func checkDelegatorAddressVar(w http.ResponseWriter, r *http.Request) (seitypes.AccAddress, bool) {
+	addr, err := seitypes.AccAddressFromBech32(mux.Vars(r)["delegatorAddr"])
 	if rest.CheckBadRequestError(w, err) {
 		return nil, false
 	}
@@ -212,7 +212,7 @@ func checkDelegatorAddressVar(w http.ResponseWriter, r *http.Request) (sdk.AccAd
 	return addr, true
 }
 
-func checkValidatorAddressVar(w http.ResponseWriter, r *http.Request) (sdk.ValAddress, bool) {
+func checkValidatorAddressVar(w http.ResponseWriter, r *http.Request) (seitypes.ValAddress, bool) {
 	addr, err := sdk.ValAddressFromBech32(mux.Vars(r)["validatorAddr"])
 	if rest.CheckBadRequestError(w, err) {
 		return nil, false

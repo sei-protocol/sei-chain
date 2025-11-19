@@ -9,7 +9,7 @@ import (
 )
 
 // AddVote adds a vote on a specific proposal
-func (keeper Keeper) AddVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.AccAddress, options types.WeightedVoteOptions) error {
+func (keeper Keeper) AddVote(ctx sdk.Context, proposalID uint64, voterAddr seitypes.AccAddress, options types.WeightedVoteOptions) error {
 	proposal, ok := keeper.GetProposal(ctx, proposalID)
 	if !ok {
 		return sdkerrors.Wrapf(types.ErrUnknownProposal, "%d", proposalID)
@@ -62,7 +62,7 @@ func (keeper Keeper) GetVotes(ctx sdk.Context, proposalID uint64) (votes types.V
 }
 
 // GetVote gets the vote from an address on a specific proposal
-func (keeper Keeper) GetVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.AccAddress) (vote types.Vote, found bool) {
+func (keeper Keeper) GetVote(ctx sdk.Context, proposalID uint64, voterAddr seitypes.AccAddress) (vote types.Vote, found bool) {
 	store := ctx.KVStore(keeper.storeKey)
 	bz := store.Get(types.VoteKey(proposalID, voterAddr))
 	if bz == nil {
@@ -84,7 +84,7 @@ func (keeper Keeper) SetVote(ctx sdk.Context, vote types.Vote) {
 
 	store := ctx.KVStore(keeper.storeKey)
 	bz := keeper.cdc.MustMarshal(&vote)
-	addr := sdk.MustAccAddressFromBech32(vote.Voter)
+	addr := seitypes.MustAccAddressFromBech32(vote.Voter)
 
 	store.Set(types.VoteKey(vote.ProposalId, addr), bz)
 }
@@ -124,7 +124,7 @@ func (keeper Keeper) IterateVotes(ctx sdk.Context, proposalID uint64, cb func(vo
 }
 
 // deleteVote deletes a vote from a given proposalID and voter from the store
-func (keeper Keeper) deleteVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.AccAddress) {
+func (keeper Keeper) deleteVote(ctx sdk.Context, proposalID uint64, voterAddr seitypes.AccAddress) {
 	store := ctx.KVStore(keeper.storeKey)
 	store.Delete(types.VoteKey(proposalID, voterAddr))
 }

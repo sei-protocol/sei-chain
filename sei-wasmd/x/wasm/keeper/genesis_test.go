@@ -65,7 +65,7 @@ func TestGenesisExportImport(t *testing.T) {
 		f.Fuzz(&pinned)
 		f.Fuzz(&contractExtension)
 
-		creatorAddr, err := sdk.AccAddressFromBech32(codeInfo.Creator)
+		creatorAddr, err := seitypes.AccAddressFromBech32(codeInfo.Creator)
 		require.NoError(t, err)
 		codeID, err := contractKeeper.Create(srcCtx, creatorAddr, wasmCode, &codeInfo.InstantiateConfig)
 		require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestGenesisExportImport(t *testing.T) {
 	dstKeeper, dstCtx, dstStoreKeys := setupKeeper(t)
 
 	// reset contract code index in source DB for comparison with dest DB
-	wasmKeeper.IterateContractInfo(srcCtx, func(address sdk.AccAddress, info wasmTypes.ContractInfo) bool {
+	wasmKeeper.IterateContractInfo(srcCtx, func(address seitypes.AccAddress, info wasmTypes.ContractInfo) bool {
 		wasmKeeper.removeFromContractCodeSecondaryIndex(srcCtx, address, wasmKeeper.getLastContractHistoryEntry(srcCtx, address))
 		prefixStore := prefix.NewStore(srcCtx.KVStore(wasmKeeper.storeKey), types.GetContractCodeHistoryElementPrefix(address))
 		iter := prefixStore.Iterator(nil, nil)
@@ -537,7 +537,7 @@ func TestImportContractWithCodeHistoryReset(t *testing.T) {
 	assert.Equal(t, expCodeInfo, *gotCodeInfo)
 
 	// verify contract
-	contractAddr, _ := sdk.AccAddressFromBech32("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
+	contractAddr, _ := seitypes.AccAddressFromBech32("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
 	gotContractInfo := keeper.GetContractInfo(ctx, contractAddr)
 	require.NotNil(t, gotContractInfo)
 	contractCreatorAddr := "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz"
@@ -568,9 +568,9 @@ func TestSupportedGenMsgTypes(t *testing.T) {
 	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 	var (
-		myAddress          sdk.AccAddress = bytes.Repeat([]byte{1}, types.ContractAddrLen)
-		verifierAddress    sdk.AccAddress = bytes.Repeat([]byte{2}, types.ContractAddrLen)
-		beneficiaryAddress sdk.AccAddress = bytes.Repeat([]byte{3}, types.ContractAddrLen)
+		myAddress          seitypes.AccAddress = bytes.Repeat([]byte{1}, types.ContractAddrLen)
+		verifierAddress    seitypes.AccAddress = bytes.Repeat([]byte{2}, types.ContractAddrLen)
+		beneficiaryAddress seitypes.AccAddress = bytes.Repeat([]byte{3}, types.ContractAddrLen)
 	)
 	const denom = "stake"
 	importState := types.GenesisState{
@@ -695,11 +695,11 @@ type MockMsgHandler struct {
 	err      error
 	expCalls int
 	gotCalls int
-	expMsg   sdk.Msg
-	gotMsg   sdk.Msg
+	expMsg   seitypes.Msg
+	gotMsg   seitypes.Msg
 }
 
-func (m *MockMsgHandler) Handle(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
+func (m *MockMsgHandler) Handle(ctx sdk.Context, msg seitypes.Msg) (*sdk.Result, error) {
 	m.gotCalls++
 	m.gotMsg = msg
 	return m.result, m.err

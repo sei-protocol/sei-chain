@@ -24,7 +24,7 @@ var (
 )
 
 // SortAddresses - Sorts Addresses
-func SortAddresses(addrs []sdk.AccAddress) {
+func SortAddresses(addrs []seitypes.AccAddress) {
 	byteAddrs := make([][]byte, len(addrs))
 
 	for i, addr := range addrs {
@@ -79,7 +79,7 @@ var (
 	}
 )
 
-func createValidators(t *testing.T, stakingHandler sdk.Handler, ctx sdk.Context, addrs []sdk.ValAddress, powerAmt []int64) {
+func createValidators(t *testing.T, stakingHandler sdk.Handler, ctx sdk.Context, addrs []seitypes.ValAddress, powerAmt []int64) {
 	require.True(t, len(addrs) <= len(pubkeys), "Not enough pubkeys specified at top of file.")
 
 	for i := 0; i < len(addrs); i++ {
@@ -93,7 +93,7 @@ func createValidators(t *testing.T, stakingHandler sdk.Handler, ctx sdk.Context,
 	}
 }
 
-func handleAndCheck(t *testing.T, h sdk.Handler, ctx sdk.Context, msg sdk.Msg) {
+func handleAndCheck(t *testing.T, h sdk.Handler, ctx sdk.Context, msg seitypes.Msg) {
 	res, err := h(ctx, msg)
 	require.NoError(t, err)
 	require.NotNil(t, res)

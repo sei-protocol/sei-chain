@@ -26,8 +26,8 @@ type (
 		seitypes.Tx
 		GetGas() uint64
 		GetFee() Coins
-		FeePayer() AccAddress
-		FeeGranter() AccAddress
+		FeePayer() seitypes.AccAddress
+		FeeGranter() seitypes.AccAddress
 	}
 
 	// Tx must have GetMemo() method to use ValidateMemoDecorator
@@ -45,7 +45,7 @@ type (
 	}
 )
 
-// MsgTypeURL returns the TypeURL of a `sdk.Msg`.
+// MsgTypeURL returns the TypeURL of a `seitypes.Msg`.
 func MsgTypeURL(msg seitypes.Msg) string {
 	return "/" + proto.MessageName(msg)
 }

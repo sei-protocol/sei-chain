@@ -2,6 +2,7 @@ package types
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // bank module event types
@@ -30,7 +31,7 @@ const (
 
 // NewCoinSpentEvent constructs a new coin spent sdk.Event
 // nolint: interfacer
-func NewCoinSpentEvent(spender sdk.AccAddress, amount sdk.Coins) sdk.Event {
+func NewCoinSpentEvent(spender seitypes.AccAddress, amount sdk.Coins) sdk.Event {
 	return sdk.NewEvent(
 		EventTypeCoinSpent,
 		sdk.NewAttribute(AttributeKeySpender, spender.String()),
@@ -40,7 +41,7 @@ func NewCoinSpentEvent(spender sdk.AccAddress, amount sdk.Coins) sdk.Event {
 
 // NewCoinReceivedEvent constructs a new coin received sdk.Event
 // nolint: interfacer
-func NewCoinReceivedEvent(receiver sdk.AccAddress, amount sdk.Coins) sdk.Event {
+func NewCoinReceivedEvent(receiver seitypes.AccAddress, amount sdk.Coins) sdk.Event {
 	return sdk.NewEvent(
 		EventTypeCoinReceived,
 		sdk.NewAttribute(AttributeKeyReceiver, receiver.String()),
@@ -50,7 +51,7 @@ func NewCoinReceivedEvent(receiver sdk.AccAddress, amount sdk.Coins) sdk.Event {
 
 // NewWeiSpentEvent constructs a new wei spent sdk.Event
 // nolint: interfacer
-func NewWeiSpentEvent(spender sdk.AccAddress, amount sdk.Int) sdk.Event {
+func NewWeiSpentEvent(spender seitypes.AccAddress, amount sdk.Int) sdk.Event {
 	return sdk.NewEvent(
 		EventTypeWeiSpent,
 		sdk.NewAttribute(AttributeKeySpender, spender.String()),
@@ -60,7 +61,7 @@ func NewWeiSpentEvent(spender sdk.AccAddress, amount sdk.Int) sdk.Event {
 
 // NewWeiReceivedEvent constructs a new wei received sdk.Event
 // nolint: interfacer
-func NewWeiReceivedEvent(receiver sdk.AccAddress, amount sdk.Int) sdk.Event {
+func NewWeiReceivedEvent(receiver seitypes.AccAddress, amount sdk.Int) sdk.Event {
 	return sdk.NewEvent(
 		EventTypeWeiReceived,
 		sdk.NewAttribute(AttributeKeyReceiver, receiver.String()),
@@ -70,7 +71,7 @@ func NewWeiReceivedEvent(receiver sdk.AccAddress, amount sdk.Int) sdk.Event {
 
 // NewCoinMintEvent construct a new coin minted sdk.Event
 // nolint: interfacer
-func NewCoinMintEvent(minter sdk.AccAddress, amount sdk.Coins) sdk.Event {
+func NewCoinMintEvent(minter seitypes.AccAddress, amount sdk.Coins) sdk.Event {
 	return sdk.NewEvent(
 		EventTypeCoinMint,
 		sdk.NewAttribute(AttributeKeyMinter, minter.String()),
@@ -80,7 +81,7 @@ func NewCoinMintEvent(minter sdk.AccAddress, amount sdk.Coins) sdk.Event {
 
 // NewCoinBurnEvent constructs a new coin burned sdk.Event
 // nolint: interfacer
-func NewCoinBurnEvent(burner sdk.AccAddress, amount sdk.Coins) sdk.Event {
+func NewCoinBurnEvent(burner seitypes.AccAddress, amount sdk.Coins) sdk.Event {
 	return sdk.NewEvent(
 		EventTypeCoinBurn,
 		sdk.NewAttribute(AttributeKeyBurner, burner.String()),

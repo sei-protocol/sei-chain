@@ -6,7 +6,7 @@ import (
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
-func IsTxPrioritized(tx sdk.Tx) bool {
+func IsTxPrioritized(tx seitypes.Tx) bool {
 	for _, msg := range tx.GetMsgs() {
 		switch msg.(type) {
 		case *oracletypes.MsgAggregateExchangeRateVote:

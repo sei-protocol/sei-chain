@@ -24,7 +24,7 @@ func QueryAccountRequestHandlerFn(storeName string, clientCtx client.Context) ht
 		vars := mux.Vars(r)
 		bech32addr := vars["address"]
 
-		addr, err := sdk.AccAddressFromBech32(bech32addr)
+		addr, err := seitypes.AccAddressFromBech32(bech32addr)
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}

@@ -23,7 +23,7 @@ type TestSuite struct {
 
 	app         *app.App
 	ctx         sdk.Context
-	addrs       []sdk.AccAddress
+	addrs       []seitypes.AccAddress
 	queryClient authz.QueryClient
 }
 
@@ -116,7 +116,7 @@ func (s *TestSuite) TestKeeperIter() {
 	authorization, _ = app.AuthzKeeper.GetCleanAuthorization(ctx, granteeAddr, granterAddr, "abcd")
 	s.Require().Nil(authorization)
 
-	app.AuthzKeeper.IterateGrants(ctx, func(granter, grantee sdk.AccAddress, grant authz.Grant) bool {
+	app.AuthzKeeper.IterateGrants(ctx, func(granter, grantee seitypes.AccAddress, grant authz.Grant) bool {
 		s.Require().Equal(granter, granterAddr)
 		s.Require().Equal(grantee, granteeAddr)
 		return true
@@ -137,7 +137,7 @@ func (s *TestSuite) TestKeeperFees() {
 	smallCoin := sdk.NewCoins(sdk.NewInt64Coin("steak", 20))
 	someCoin := sdk.NewCoins(sdk.NewInt64Coin("steak", 123))
 
-	msgs := authz.NewMsgExec(granteeAddr, []sdk.Msg{
+	msgs := authz.NewMsgExec(granteeAddr, []seitypes.Msg{
 		&banktypes.MsgSend{
 			Amount:      sdk.NewCoins(sdk.NewInt64Coin("steak", 2)),
 			FromAddress: granterAddr.String(),
@@ -177,7 +177,7 @@ func (s *TestSuite) TestKeeperFees() {
 	s.T().Log("verify dispatch fails with overlimit")
 	// grant authorization
 
-	msgs = authz.NewMsgExec(granteeAddr, []sdk.Msg{
+	msgs = authz.NewMsgExec(granteeAddr, []seitypes.Msg{
 		&banktypes.MsgSend{
 			Amount:      someCoin,
 			FromAddress: granterAddr.String(),
@@ -210,7 +210,7 @@ func (s *TestSuite) TestDispatchedEvents() {
 	require.NotNil(now)
 
 	smallCoin := sdk.NewCoins(sdk.NewInt64Coin("steak", 20))
-	msgs := authz.NewMsgExec(granteeAddr, []sdk.Msg{
+	msgs := authz.NewMsgExec(granteeAddr, []seitypes.Msg{
 		&banktypes.MsgSend{
 			Amount:      sdk.NewCoins(sdk.NewInt64Coin("steak", 2)),
 			FromAddress: granterAddr.String(),

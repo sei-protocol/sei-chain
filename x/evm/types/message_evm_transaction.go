@@ -12,7 +12,7 @@ import (
 const TypeMsgEVMTransaction = "evm_transaction"
 
 var (
-	_ sdk.Msg                            = &MsgEVMTransaction{}
+	_ seitypes.Msg                            = &MsgEVMTransaction{}
 	_ codectypes.UnpackInterfacesMessage = &MsgEVMTransaction{}
 	_ sdk.ResultDecorator                = &MsgEVMTransactionResponse{}
 )
@@ -33,7 +33,7 @@ func (msg *MsgEVMTransaction) Type() string {
 	return TypeMsgEVMTransaction
 }
 
-func (msg *MsgEVMTransaction) GetSigners() []sdk.AccAddress {
+func (msg *MsgEVMTransaction) GetSigners() []seitypes.AccAddress {
 	panic("signer should be accessed on EVM transaction level")
 }
 
@@ -78,7 +78,7 @@ func (msg *MsgEVMTransaction) GetAssociateTx() (*ethtx.AssociateTx, bool) {
 	return amsg, ok
 }
 
-func MustGetEVMTransactionMessage(tx sdk.Tx) *MsgEVMTransaction {
+func MustGetEVMTransactionMessage(tx seitypes.Tx) *MsgEVMTransaction {
 	if len(tx.GetMsgs()) != 1 {
 		panic("EVM transaction must have exactly 1 message")
 	}
@@ -89,7 +89,7 @@ func MustGetEVMTransactionMessage(tx sdk.Tx) *MsgEVMTransaction {
 	return msg
 }
 
-func GetEVMTransactionMessage(tx sdk.Tx) *MsgEVMTransaction {
+func GetEVMTransactionMessage(tx seitypes.Tx) *MsgEVMTransaction {
 	if len(tx.GetMsgs()) != 1 {
 		return nil
 	}

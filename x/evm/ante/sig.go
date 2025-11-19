@@ -26,7 +26,7 @@ func NewEVMSigVerifyDecorator(evmKeeper *evmkeeper.Keeper, latestCtxGetter func(
 	}
 }
 
-func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	ethTx, _ := types.MustGetEVMTransactionMessage(tx).AsTransaction()
 
 	evmAddr := types.MustGetEVMTransactionMessage(tx).Derived.SenderEVMAddr

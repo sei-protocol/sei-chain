@@ -1,6 +1,7 @@
 package types
 
 import (
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	tmprotocrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
@@ -9,9 +10,9 @@ import (
 
 // DelegationI delegation bond for a delegated proof of stake system
 type DelegationI interface {
-	GetDelegatorAddr() sdk.AccAddress // delegator sdk.AccAddress for the bond
-	GetValidatorAddr() sdk.ValAddress // validator operator address
-	GetShares() sdk.Dec               // amount of validator's shares held in this delegation
+	GetDelegatorAddr() seitypes.AccAddress // delegator seitypes.AccAddress for the bond
+	GetValidatorAddr() seitypes.ValAddress // validator operator address
+	GetShares() sdk.Dec                    // amount of validator's shares held in this delegation
 }
 
 // ValidatorI expected validator functions
@@ -22,10 +23,10 @@ type ValidatorI interface {
 	IsBonded() bool                                         // check if has a bonded status
 	IsUnbonded() bool                                       // check if has status unbonded
 	IsUnbonding() bool                                      // check if has status unbonding
-	GetOperator() sdk.ValAddress                            // operator address to receive/return validators coins
+	GetOperator() seitypes.ValAddress                       // operator address to receive/return validators coins
 	ConsPubKey() (cryptotypes.PubKey, error)                // validation consensus pubkey (cryptotypes.PubKey)
 	TmConsPublicKey() (tmprotocrypto.PublicKey, error)      // validation consensus pubkey (Tendermint)
-	GetConsAddr() (sdk.ConsAddress, error)                  // validation consensus address
+	GetConsAddr() (seitypes.ConsAddress, error)             // validation consensus address
 	GetTokens() sdk.Int                                     // validation tokens
 	GetBondedTokens() sdk.Int                               // validator bonded tokens
 	GetConsensusPower(sdk.Int) int64                        // validation power in tendermint

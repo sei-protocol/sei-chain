@@ -124,7 +124,7 @@ func GetAccountCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			key, err := sdk.AccAddressFromBech32(args[0])
+			key, err := seitypes.AccAddressFromBech32(args[0])
 			if err != nil {
 				return err
 			}

@@ -27,12 +27,12 @@ var _ feegrant.MsgServer = msgServer{}
 func (k msgServer) GrantAllowance(goCtx context.Context, msg *feegrant.MsgGrantAllowance) (*feegrant.MsgGrantAllowanceResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	grantee, err := sdk.AccAddressFromBech32(msg.Grantee)
+	grantee, err := seitypes.AccAddressFromBech32(msg.Grantee)
 	if err != nil {
 		return nil, err
 	}
 
-	granter, err := sdk.AccAddressFromBech32(msg.Granter)
+	granter, err := seitypes.AccAddressFromBech32(msg.Granter)
 	if err != nil {
 		return nil, err
 	}
@@ -59,12 +59,12 @@ func (k msgServer) GrantAllowance(goCtx context.Context, msg *feegrant.MsgGrantA
 func (k msgServer) RevokeAllowance(goCtx context.Context, msg *feegrant.MsgRevokeAllowance) (*feegrant.MsgRevokeAllowanceResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	grantee, err := sdk.AccAddressFromBech32(msg.Grantee)
+	grantee, err := seitypes.AccAddressFromBech32(msg.Grantee)
 	if err != nil {
 		return nil, err
 	}
 
-	granter, err := sdk.AccAddressFromBech32(msg.Granter)
+	granter, err := seitypes.AccAddressFromBech32(msg.Granter)
 	if err != nil {
 		return nil, err
 	}

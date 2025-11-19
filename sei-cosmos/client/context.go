@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/spf13/viper"
 
 	"gopkg.in/yaml.v2"
@@ -17,13 +18,12 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 // Context implements a typical context created in SDK modules for transaction
 // handling and queries.
 type Context struct {
-	FromAddress sdk.AccAddress
+	FromAddress seitypes.AccAddress
 	Client      rpcclient.Client
 	ChainID     string
 	// Deprecated: Codec codec will be changed to Codec: codec.Codec
@@ -51,7 +51,7 @@ type Context struct {
 	TxConfig          TxConfig
 	AccountRetriever  AccountRetriever
 	NodeURI           string
-	FeeGranter        sdk.AccAddress
+	FeeGranter        seitypes.AccAddress
 	Viper             *viper.Viper
 
 	// TODO: Deprecated (remove).
@@ -193,14 +193,14 @@ func (ctx Context) WithFromName(name string) Context {
 
 // WithFromAddress returns a copy of the context with an updated from account
 // address.
-func (ctx Context) WithFromAddress(addr sdk.AccAddress) Context {
+func (ctx Context) WithFromAddress(addr seitypes.AccAddress) Context {
 	ctx.FromAddress = addr
 	return ctx
 }
 
 // WithFeeGranterAddress returns a copy of the context with an updated fee granter account
 // address.
-func (ctx Context) WithFeeGranterAddress(addr sdk.AccAddress) Context {
+func (ctx Context) WithFeeGranterAddress(addr seitypes.AccAddress) Context {
 	ctx.FeeGranter = addr
 	return ctx
 }
@@ -334,12 +334,12 @@ func (ctx Context) printOutput(out []byte) error {
 // GetFromFields returns a from account address, account name and keyring type, given either an address or key name.
 // If clientCtx.Simulate is true the keystore is not accessed and a valid address must be provided
 // If clientCtx.GenerateOnly is true the keystore is only accessed if a key name is provided
-func GetFromFields(clientCtx Context, kr keyring.Keyring, from string) (sdk.AccAddress, string, keyring.KeyType, error) {
+func GetFromFields(clientCtx Context, kr keyring.Keyring, from string) (seitypes.AccAddress, string, keyring.KeyType, error) {
 	if from == "" {
 		return nil, "", 0, nil
 	}
 
-	addr, err := sdk.AccAddressFromBech32(from)
+	addr, err := seitypes.AccAddressFromBech32(from)
 	switch {
 	case clientCtx.Simulate:
 		if err != nil {
@@ -373,8 +373,8 @@ func GetFromFields(clientCtx Context, kr keyring.Keyring, from string) (sdk.AccA
 // NewKeyringFromBackend gets a Keyring object from a backend
 func NewKeyringFromBackend(ctx Context, backend string) (keyring.Keyring, error) {
 	if ctx.Simulate {
-		return keyring.New(sdk.KeyringServiceName(), keyring.BackendMemory, ctx.KeyringDir, ctx.Input, ctx.KeyringOptions...)
+		return keyring.New(seitypes.KeyringServiceName(), keyring.BackendMemory, ctx.KeyringDir, ctx.Input, ctx.KeyringOptions...)
 	}
 
-	return keyring.New(sdk.KeyringServiceName(), backend, ctx.KeyringDir, ctx.Input, ctx.KeyringOptions...)
+	return keyring.New(seitypes.KeyringServiceName(), backend, ctx.KeyringDir, ctx.Input, ctx.KeyringOptions...)
 }

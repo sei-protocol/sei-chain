@@ -304,9 +304,9 @@ func TestProposalPassedEndblocker(t *testing.T) {
 					header := tmproto.Header{Height: app.LastBlockHeight() + 1}
 					legacyabci.BeginBlock(ctx, header.Height, []abci.VoteInfo{}, []abci.Misbehavior{}, app.BeginBlockKeepers)
 
-					valAddr := sdk.ValAddress(addrs[0])
+					valAddr := seitypes.ValAddress(addrs[0])
 
-					createValidators(t, stakingHandler, ctx, []sdk.ValAddress{valAddr}, []int64{10})
+					createValidators(t, stakingHandler, ctx, []seitypes.ValAddress{valAddr}, []int64{10})
 					staking.EndBlocker(ctx, app.StakingKeeper)
 
 					macc := app.GovKeeper.GetGovernanceAccount(ctx)
@@ -385,13 +385,13 @@ func TestExpeditedProposalPassAndConvertToRegular(t *testing.T) {
 			header := tmproto.Header{Height: app.LastBlockHeight() + 1}
 			legacyabci.BeginBlock(ctx, header.Height, []abci.VoteInfo{}, []abci.Misbehavior{}, app.BeginBlockKeepers)
 
-			valAddr := sdk.ValAddress(addrs[0])
+			valAddr := seitypes.ValAddress(addrs[0])
 
 			stakingHandler := staking.NewHandler(app.StakingKeeper)
 			govHandler := gov.NewHandler(app.GovKeeper)
 
 			// Create a validator so that able to vote on proposal.
-			createValidators(t, stakingHandler, ctx, []sdk.ValAddress{valAddr}, []int64{10})
+			createValidators(t, stakingHandler, ctx, []seitypes.ValAddress{valAddr}, []int64{10})
 			staking.EndBlocker(ctx, app.StakingKeeper)
 
 			inactiveQueue := app.GovKeeper.InactiveProposalQueueIterator(ctx, ctx.BlockHeader().Time)
@@ -575,9 +575,9 @@ func TestEndBlockerProposalHandlerFailed(t *testing.T) {
 	stakingHandler := staking.NewHandler(app.StakingKeeper)
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
-	valAddr := sdk.ValAddress(addrs[0])
+	valAddr := seitypes.ValAddress(addrs[0])
 
-	createValidators(t, stakingHandler, ctx, []sdk.ValAddress{valAddr}, []int64{10})
+	createValidators(t, stakingHandler, ctx, []seitypes.ValAddress{valAddr}, []int64{10})
 	staking.EndBlocker(ctx, app.StakingKeeper)
 
 	// Create a proposal where the handler will pass for the test proposal

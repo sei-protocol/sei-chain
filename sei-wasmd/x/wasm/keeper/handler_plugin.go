@@ -18,12 +18,12 @@ import (
 // msgEncoder is an extension point to customize encodings
 type msgEncoder interface {
 	// Encode converts wasmvm message to n cosmos message types
-	Encode(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]sdk.Msg, error)
+	Encode(ctx sdk.Context, contractAddr seitypes.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]seitypes.Msg, error)
 }
 
 // MessageRouter ADR 031 request type routing
 type MessageRouter interface {
-	Handler(msg sdk.Msg) baseapp.MsgServiceHandler
+	Handler(msg seitypes.Msg) baseapp.MsgServiceHandler
 }
 
 // SDKMessageHandler can handles messages that can be encoded into sdk.Message types and routed.
@@ -59,7 +59,7 @@ func NewSDKMessageHandler(router MessageRouter, encoders msgEncoder) SDKMessageH
 	}
 }
 
-func (h SDKMessageHandler) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
+func (h SDKMessageHandler) DispatchMsg(ctx sdk.Context, contractAddr seitypes.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 	sdkMsgs, err := h.encoders.Encode(ctx, contractAddr, contractIBCPortID, msg, info, codeInfo)
 	if err != nil {
 		return nil, nil, err
@@ -81,7 +81,7 @@ func (h SDKMessageHandler) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAddr
 	return
 }
 
-func (h SDKMessageHandler) handleSdkMessage(ctx sdk.Context, contractAddr sdk.Address, msg sdk.Msg) (*sdk.Result, error) {
+func (h SDKMessageHandler) handleSdkMessage(ctx sdk.Context, contractAddr seitypes.Address, msg seitypes.Msg) (*sdk.Result, error) {
 	if err := msg.ValidateBasic(); err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func (h SDKMessageHandler) handleSdkMessage(ctx sdk.Context, contractAddr sdk.Ad
 		msgResult, err := handler(ctx, msg)
 		return msgResult, err
 	}
-	// legacy sdk.Msg routing
+	// legacy seitypes.Msg routing
 	// Assuming that the app developer has migrated all their Msgs to
 	// proto messages and has registered all `Msg services`, then this
 	// path should never be called, because all those Msgs should be
@@ -112,7 +112,7 @@ type callDepthMessageHandler struct {
 	MaxCallDepth uint32
 }
 
-func (h callDepthMessageHandler) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
+func (h callDepthMessageHandler) DispatchMsg(ctx sdk.Context, contractAddr seitypes.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 	ctx, err = checkAndIncreaseCallDepth(ctx, h.MaxCallDepth)
 	if err != nil {
 		return nil, nil, sdkerrors.Wrap(err, "dispatch")
@@ -140,7 +140,7 @@ func NewMessageHandlerChain(first Messenger, others ...Messenger) *MessageHandle
 // order to find the right one to process given message. If a handler cannot
 // process given message (returns ErrUnknownMsg), its result is ignored and the
 // next handler is executed.
-func (m MessageHandlerChain) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]sdk.Event, [][]byte, error) {
+func (m MessageHandlerChain) DispatchMsg(ctx sdk.Context, contractAddr seitypes.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]sdk.Event, [][]byte, error) {
 	for _, h := range m.handlers {
 		events, data, err := h.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg, info, codeInfo)
 		switch {
@@ -166,7 +166,7 @@ func NewIBCRawPacketHandler(chk types.ChannelKeeper, cak types.CapabilityKeeper)
 }
 
 // DispatchMsg publishes a raw IBC packet onto the channel.
-func (h IBCRawPacketHandler) DispatchMsg(ctx sdk.Context, _ sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, _ wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
+func (h IBCRawPacketHandler) DispatchMsg(ctx sdk.Context, _ seitypes.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, _ wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 	if msg.IBC == nil || msg.IBC.SendPacket == nil {
 		return nil, nil, types.ErrUnknownMsg
 	}
@@ -209,16 +209,16 @@ func (h IBCRawPacketHandler) DispatchMsg(ctx sdk.Context, _ sdk.AccAddress, cont
 var _ Messenger = MessageHandlerFunc(nil)
 
 // MessageHandlerFunc is a helper to construct a function based message handler.
-type MessageHandlerFunc func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error)
+type MessageHandlerFunc func(ctx sdk.Context, contractAddr seitypes.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error)
 
 // DispatchMsg delegates dispatching of provided message into the MessageHandlerFunc.
-func (m MessageHandlerFunc) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
+func (m MessageHandlerFunc) DispatchMsg(ctx sdk.Context, contractAddr seitypes.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 	return m(ctx, contractAddr, contractIBCPortID, msg, info, codeInfo)
 }
 
 // NewBurnCoinMessageHandler handles wasmvm.BurnMsg messages
 func NewBurnCoinMessageHandler(burner types.Burner) MessageHandlerFunc {
-	return func(ctx sdk.Context, contractAddr sdk.AccAddress, _ string, msg wasmvmtypes.CosmosMsg, _ wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
+	return func(ctx sdk.Context, contractAddr seitypes.AccAddress, _ string, msg wasmvmtypes.CosmosMsg, _ wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 		if msg.Bank != nil && msg.Bank.Burn != nil {
 			coins, err := ConvertWasmCoinsToSdkCoins(msg.Bank.Burn.Amount)
 			if err != nil {

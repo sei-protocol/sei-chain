@@ -84,7 +84,7 @@ func TestIBCQuerier(t *testing.T) {
 				PortID: &wasmvmtypes.PortIDQuery{},
 			},
 			wasmKeeper: &mockWasmQueryKeeper{
-				GetContractInfoFn: func(ctx sdk.Context, contractAddress sdk.AccAddress) *types.ContractInfo {
+				GetContractInfoFn: func(ctx sdk.Context, contractAddress seitypes.AccAddress) *types.ContractInfo {
 					return &types.ContractInfo{IBCPortID: "myIBCPortID"}
 				},
 			},
@@ -211,7 +211,7 @@ func TestIBCQuerier(t *testing.T) {
 				},
 			},
 			wasmKeeper: &mockWasmQueryKeeper{
-				GetContractInfoFn: func(ctx sdk.Context, contractAddress sdk.AccAddress) *types.ContractInfo {
+				GetContractInfoFn: func(ctx sdk.Context, contractAddress seitypes.AccAddress) *types.ContractInfo {
 					return &types.ContractInfo{IBCPortID: "myLoadedPortID"}
 				},
 			},
@@ -319,7 +319,7 @@ func TestIBCQuerier(t *testing.T) {
 }
 
 func TestBankQuerierBalance(t *testing.T) {
-	mock := bankKeeperMock{GetBalanceFn: func(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin {
+	mock := bankKeeperMock{GetBalanceFn: func(ctx sdk.Context, addr seitypes.AccAddress, denom string) sdk.Coin {
 		return sdk.NewCoin(denom, sdk.NewInt(1))
 	}}
 
@@ -360,7 +360,7 @@ func TestContractInfoWasmQuerier(t *testing.T) {
 				ContractInfo: &wasmvmtypes.ContractInfoQuery{ContractAddr: myValidContractAddr},
 			},
 			mock: mockWasmQueryKeeper{
-				GetContractInfoFn: func(ctx sdk.Context, contractAddress sdk.AccAddress) *types.ContractInfo {
+				GetContractInfoFn: func(ctx sdk.Context, contractAddress seitypes.AccAddress) *types.ContractInfo {
 					val := types.ContractInfoFixture(func(i *types.ContractInfo) {
 						i.Admin, i.Creator, i.IBCPortID = myAdminAddr, myCreatorAddr, "myIBCPort"
 					})
@@ -386,7 +386,7 @@ func TestContractInfoWasmQuerier(t *testing.T) {
 			req: &wasmvmtypes.WasmQuery{
 				ContractInfo: &wasmvmtypes.ContractInfoQuery{ContractAddr: myValidContractAddr},
 			},
-			mock: mockWasmQueryKeeper{GetContractInfoFn: func(ctx sdk.Context, contractAddress sdk.AccAddress) *types.ContractInfo {
+			mock: mockWasmQueryKeeper{GetContractInfoFn: func(ctx sdk.Context, contractAddress seitypes.AccAddress) *types.ContractInfo {
 				return nil
 			}},
 			expErr: true,
@@ -396,7 +396,7 @@ func TestContractInfoWasmQuerier(t *testing.T) {
 				ContractInfo: &wasmvmtypes.ContractInfoQuery{ContractAddr: myValidContractAddr},
 			},
 			mock: mockWasmQueryKeeper{
-				GetContractInfoFn: func(ctx sdk.Context, contractAddress sdk.AccAddress) *types.ContractInfo {
+				GetContractInfoFn: func(ctx sdk.Context, contractAddress seitypes.AccAddress) *types.ContractInfo {
 					val := types.ContractInfoFixture(func(i *types.ContractInfo) {
 						i.Admin, i.Creator = myAdminAddr, myCreatorAddr
 					})
@@ -416,7 +416,7 @@ func TestContractInfoWasmQuerier(t *testing.T) {
 				ContractInfo: &wasmvmtypes.ContractInfoQuery{ContractAddr: myValidContractAddr},
 			},
 			mock: mockWasmQueryKeeper{
-				GetContractInfoFn: func(ctx sdk.Context, contractAddress sdk.AccAddress) *types.ContractInfo {
+				GetContractInfoFn: func(ctx sdk.Context, contractAddress seitypes.AccAddress) *types.ContractInfo {
 					val := types.ContractInfoFixture(func(i *types.ContractInfo) {
 						i.Creator = myCreatorAddr
 					})
@@ -464,11 +464,11 @@ func TestQueryErrors(t *testing.T) {
 	}
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {
-			mock := WasmVMQueryHandlerFn(func(ctx sdk.Context, caller sdk.AccAddress, request wasmvmtypes.QueryRequest) ([]byte, error) {
+			mock := WasmVMQueryHandlerFn(func(ctx sdk.Context, caller seitypes.AccAddress, request wasmvmtypes.QueryRequest) ([]byte, error) {
 				return nil, spec.src
 			})
 			ctx := sdk.Context{}.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)).WithMultiStore(store.NewCommitMultiStore(dbm.NewMemDB()))
-			q := NewQueryHandler(ctx, mock, sdk.AccAddress{}, NewDefaultWasmGasRegister())
+			q := NewQueryHandler(ctx, mock, seitypes.AccAddress{}, NewDefaultWasmGasRegister())
 			_, gotErr := q.Query(wasmvmtypes.QueryRequest{}, 1)
 			assert.Equal(t, spec.expErr, gotErr)
 		})
@@ -476,27 +476,27 @@ func TestQueryErrors(t *testing.T) {
 }
 
 type mockWasmQueryKeeper struct {
-	GetContractInfoFn func(ctx sdk.Context, contractAddress sdk.AccAddress) *types.ContractInfo
-	QueryRawFn        func(ctx sdk.Context, contractAddress sdk.AccAddress, key []byte) []byte
-	QuerySmartFn      func(ctx sdk.Context, contractAddr sdk.AccAddress, req types.RawContractMessage) ([]byte, error)
+	GetContractInfoFn func(ctx sdk.Context, contractAddress seitypes.AccAddress) *types.ContractInfo
+	QueryRawFn        func(ctx sdk.Context, contractAddress seitypes.AccAddress, key []byte) []byte
+	QuerySmartFn      func(ctx sdk.Context, contractAddr seitypes.AccAddress, req types.RawContractMessage) ([]byte, error)
 	IsPinnedCodeFn    func(ctx sdk.Context, codeID uint64) bool
 }
 
-func (m mockWasmQueryKeeper) GetContractInfo(ctx sdk.Context, contractAddress sdk.AccAddress) *types.ContractInfo {
+func (m mockWasmQueryKeeper) GetContractInfo(ctx sdk.Context, contractAddress seitypes.AccAddress) *types.ContractInfo {
 	if m.GetContractInfoFn == nil {
 		panic("not expected to be called")
 	}
 	return m.GetContractInfoFn(ctx, contractAddress)
 }
 
-func (m mockWasmQueryKeeper) QueryRaw(ctx sdk.Context, contractAddress sdk.AccAddress, key []byte) []byte {
+func (m mockWasmQueryKeeper) QueryRaw(ctx sdk.Context, contractAddress seitypes.AccAddress, key []byte) []byte {
 	if m.QueryRawFn == nil {
 		panic("not expected to be called")
 	}
 	return m.QueryRawFn(ctx, contractAddress, key)
 }
 
-func (m mockWasmQueryKeeper) QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error) {
+func (m mockWasmQueryKeeper) QuerySmart(ctx sdk.Context, contractAddr seitypes.AccAddress, req []byte) ([]byte, error) {
 	if m.QuerySmartFn == nil {
 		panic("not expected to be called")
 	}
@@ -511,18 +511,18 @@ func (m mockWasmQueryKeeper) IsPinnedCode(ctx sdk.Context, codeID uint64) bool {
 }
 
 type bankKeeperMock struct {
-	GetBalanceFn     func(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin
-	GetAllBalancesFn func(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
+	GetBalanceFn     func(ctx sdk.Context, addr seitypes.AccAddress, denom string) sdk.Coin
+	GetAllBalancesFn func(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins
 }
 
-func (m bankKeeperMock) GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin {
+func (m bankKeeperMock) GetBalance(ctx sdk.Context, addr seitypes.AccAddress, denom string) sdk.Coin {
 	if m.GetBalanceFn == nil {
 		panic("not expected to be called")
 	}
 	return m.GetBalanceFn(ctx, addr, denom)
 }
 
-func (m bankKeeperMock) GetAllBalances(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins {
+func (m bankKeeperMock) GetAllBalances(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins {
 	if m.GetAllBalancesFn == nil {
 		panic("not expected to be called")
 	}

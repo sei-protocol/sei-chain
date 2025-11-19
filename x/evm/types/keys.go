@@ -78,7 +78,7 @@ func EVMAddressToSeiAddressKey(evmAddress common.Address) []byte {
 	return append(EVMAddressToSeiAddressKeyPrefix, evmAddress[:]...)
 }
 
-func SeiAddressToEVMAddressKey(seiAddress sdk.AccAddress) []byte {
+func SeiAddressToEVMAddressKey(seiAddress seitypes.AccAddress) []byte {
 	return append(SeiAddressToEVMAddressKeyPrefix, seiAddress...)
 }
 

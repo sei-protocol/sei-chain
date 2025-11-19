@@ -371,7 +371,7 @@ func EncodeTmBlock(
 				if exists {
 					to = ercAddress
 				} else {
-					to = k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
+					to = k.GetEVMAddressOrDefault(ctx, seitypes.MustAccAddressFromBech32(m.Contract))
 				}
 				transactions = append(transactions, &export.RPCTransaction{
 					BlockHash:        &blockhash,
@@ -399,9 +399,9 @@ func EncodeTmBlock(
 					BlockNumber: (*hexutil.Big)(number),
 					Hash:        th,
 				}
-				senderSeiAddr, _ := sdk.AccAddressFromBech32(m.FromAddress)
+				senderSeiAddr, _ := seitypes.AccAddressFromBech32(m.FromAddress)
 				rpcTx.From = k.GetEVMAddressOrDefault(ctx, senderSeiAddr)
-				recipientSeiAddr, _ := sdk.AccAddressFromBech32(m.ToAddress)
+				recipientSeiAddr, _ := seitypes.AccAddressFromBech32(m.ToAddress)
 				recipientEvmAddr := k.GetEVMAddressOrDefault(ctx, recipientSeiAddr)
 				rpcTx.To = &recipientEvmAddr
 				amt := m.Amount.AmountOf("usei").Mul(state.SdkUseiToSweiMultiplier)

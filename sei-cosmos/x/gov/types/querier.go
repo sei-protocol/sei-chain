@@ -56,11 +56,11 @@ func NewQueryProposalVotesParams(proposalID uint64, page, limit int) QueryPropos
 // QueryDepositParams params for query 'custom/gov/deposit'
 type QueryDepositParams struct {
 	ProposalID uint64
-	Depositor  sdk.AccAddress
+	Depositor  seitypes.AccAddress
 }
 
 // NewQueryDepositParams creates a new instance of QueryDepositParams
-func NewQueryDepositParams(proposalID uint64, depositor sdk.AccAddress) QueryDepositParams {
+func NewQueryDepositParams(proposalID uint64, depositor seitypes.AccAddress) QueryDepositParams {
 	return QueryDepositParams{
 		ProposalID: proposalID,
 		Depositor:  depositor,
@@ -70,11 +70,11 @@ func NewQueryDepositParams(proposalID uint64, depositor sdk.AccAddress) QueryDep
 // QueryVoteParams Params for query 'custom/gov/vote'
 type QueryVoteParams struct {
 	ProposalID uint64
-	Voter      sdk.AccAddress
+	Voter      seitypes.AccAddress
 }
 
 // NewQueryVoteParams creates a new instance of QueryVoteParams
-func NewQueryVoteParams(proposalID uint64, voter sdk.AccAddress) QueryVoteParams {
+func NewQueryVoteParams(proposalID uint64, voter seitypes.AccAddress) QueryVoteParams {
 	return QueryVoteParams{
 		ProposalID: proposalID,
 		Voter:      voter,
@@ -85,13 +85,13 @@ func NewQueryVoteParams(proposalID uint64, voter sdk.AccAddress) QueryVoteParams
 type QueryProposalsParams struct {
 	Page           int
 	Limit          int
-	Voter          sdk.AccAddress
-	Depositor      sdk.AccAddress
+	Voter          seitypes.AccAddress
+	Depositor      seitypes.AccAddress
 	ProposalStatus ProposalStatus
 }
 
 // NewQueryProposalsParams creates a new instance of QueryProposalsParams
-func NewQueryProposalsParams(page, limit int, status ProposalStatus, voter, depositor sdk.AccAddress) QueryProposalsParams {
+func NewQueryProposalsParams(page, limit int, status ProposalStatus, voter, depositor seitypes.AccAddress) QueryProposalsParams {
 	return QueryProposalsParams{
 		Page:           page,
 		Limit:          limit,

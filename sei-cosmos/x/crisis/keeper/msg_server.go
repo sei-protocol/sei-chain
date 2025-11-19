@@ -16,7 +16,7 @@ func (k Keeper) VerifyInvariant(goCtx context.Context, msg *types.MsgVerifyInvar
 	// ctx := sdk.UnwrapSDKContext(goCtx)
 	// constantFee := sdk.NewCoins(k.GetConstantFee(ctx))
 
-	// sender, err := sdk.AccAddressFromBech32(msg.Sender)
+	// sender, err := seitypes.AccAddressFromBech32(msg.Sender)
 	// if err != nil {
 	// 	return nil, err
 	// }

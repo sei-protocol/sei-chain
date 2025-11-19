@@ -29,14 +29,14 @@ func NewSR25519BatchVerifier(ak AccountKeeper, signModeHandler authsigning.SignM
 	}
 }
 
-func (v *SR25519BatchVerifier) VerifyTxs(ctx sdk.Context, txs []sdk.Tx) {
+func (v *SR25519BatchVerifier) VerifyTxs(ctx sdk.Context, txs []seitypes.Tx) {
 	if ctx.BlockHeight() == 0 || ctx.IsReCheckTx() {
 		return
 	}
 	v.errors = make([]error, len(txs))
 	sigTxs := make([]authsigning.SigVerifiableTx, len(txs))
 	sigsList := make([][]signing.SignatureV2, len(txs))
-	signerAddressesList := make([][]sdk.AccAddress, len(txs))
+	signerAddressesList := make([][]seitypes.AccAddress, len(txs))
 	for i, tx := range txs {
 		if tx == nil {
 			v.errors[i] = sdkerrors.Wrap(sdkerrors.ErrTxDecode, "nil transaction")
@@ -202,7 +202,7 @@ func NewBatchSigVerificationDecorator(verifier *SR25519BatchVerifier, sigVerifyD
 	}
 }
 
-func (svd BatchSigVerificationDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (svd BatchSigVerificationDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	var txIdx int
 	if val := ctx.Context().Value(ContextKeyTxIndexKey); val != nil {
 		idx, ok := val.(int)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/spf13/pflag"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -200,7 +201,7 @@ func (f Factory) WithTimeoutHeight(height uint64) Factory {
 
 // BuildUnsignedTx builds a transaction to be signed given a set of messages.
 // Once created, the fee, memo, and messages are set.
-func (f Factory) BuildUnsignedTx(msgs ...sdk.Msg) (client.TxBuilder, error) {
+func (f Factory) BuildUnsignedTx(msgs ...seitypes.Msg) (client.TxBuilder, error) {
 	if f.chainID == "" {
 		return nil, fmt.Errorf("chain ID required but not specified")
 	}
@@ -242,7 +243,7 @@ func (f Factory) BuildUnsignedTx(msgs ...sdk.Msg) (client.TxBuilder, error) {
 // specified by ctx.Output. If simulation was requested, the gas will be
 // simulated and also printed to the same writer before the transaction is
 // printed.
-func (f Factory) PrintUnsignedTx(clientCtx client.Context, msgs ...sdk.Msg) error {
+func (f Factory) PrintUnsignedTx(clientCtx client.Context, msgs ...seitypes.Msg) error {
 	if f.SimulateAndExecute() {
 		if clientCtx.Offline {
 			return errors.New("cannot estimate gas in offline mode")
@@ -273,7 +274,7 @@ func (f Factory) PrintUnsignedTx(clientCtx client.Context, msgs ...sdk.Msg) erro
 // BuildSimTx creates an unsigned tx with an empty single signature and returns
 // the encoded transaction or an error if the unsigned transaction cannot be
 // built.
-func (f Factory) BuildSimTx(msgs ...sdk.Msg) ([]byte, error) {
+func (f Factory) BuildSimTx(msgs ...seitypes.Msg) ([]byte, error) {
 	txb, err := f.BuildUnsignedTx(msgs...)
 	if err != nil {
 		return nil, err

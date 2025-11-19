@@ -42,7 +42,7 @@ func TestMsgDecode(t *testing.T) {
 	msgSerialized, err := cdc.MarshalInterface(msg)
 	require.NoError(t, err)
 
-	var msgUnmarshaled sdk.Msg
+	var msgUnmarshaled seitypes.Msg
 	err = cdc.UnmarshalInterface(msgSerialized, &msgUnmarshaled)
 	require.NoError(t, err)
 	msg2, ok := msgUnmarshaled.(*types.MsgCreateValidator)
@@ -60,7 +60,7 @@ func TestMsgCreateValidator(t *testing.T) {
 		name, moniker, identity, website, securityContact, details string
 		CommissionRates                                            types.CommissionRates
 		minSelfDelegation                                          sdk.Int
-		validatorAddr                                              sdk.ValAddress
+		validatorAddr                                              seitypes.ValAddress
 		pubkey                                                     cryptotypes.PubKey
 		bond                                                       sdk.Coin
 		expectPass                                                 bool
@@ -93,7 +93,7 @@ func TestMsgCreateValidator(t *testing.T) {
 func TestMsgEditValidator(t *testing.T) {
 	tests := []struct {
 		name, moniker, identity, website, securityContact, details string
-		validatorAddr                                              sdk.ValAddress
+		validatorAddr                                              seitypes.ValAddress
 		expectPass                                                 bool
 		minSelfDelegation                                          sdk.Int
 	}{
@@ -121,17 +121,17 @@ func TestMsgEditValidator(t *testing.T) {
 func TestMsgDelegate(t *testing.T) {
 	tests := []struct {
 		name          string
-		delegatorAddr sdk.AccAddress
-		validatorAddr sdk.ValAddress
+		delegatorAddr seitypes.AccAddress
+		validatorAddr seitypes.ValAddress
 		bond          sdk.Coin
 		expectPass    bool
 	}{
-		{"basic good", sdk.AccAddress(valAddr1), valAddr2, coinPos, true},
-		{"self bond", sdk.AccAddress(valAddr1), valAddr1, coinPos, true},
-		{"empty delegator", sdk.AccAddress(emptyAddr), valAddr1, coinPos, false},
-		{"empty validator", sdk.AccAddress(valAddr1), emptyAddr, coinPos, false},
-		{"empty bond", sdk.AccAddress(valAddr1), valAddr2, coinZero, false},
-		{"nil bold", sdk.AccAddress(valAddr1), valAddr2, sdk.Coin{}, false},
+		{"basic good", seitypes.AccAddress(valAddr1), valAddr2, coinPos, true},
+		{"self bond", seitypes.AccAddress(valAddr1), valAddr1, coinPos, true},
+		{"empty delegator", seitypes.AccAddress(emptyAddr), valAddr1, coinPos, false},
+		{"empty validator", seitypes.AccAddress(valAddr1), emptyAddr, coinPos, false},
+		{"empty bond", seitypes.AccAddress(valAddr1), valAddr2, coinZero, false},
+		{"nil bold", seitypes.AccAddress(valAddr1), valAddr2, sdk.Coin{}, false},
 	}
 
 	for _, tc := range tests {
@@ -148,18 +148,18 @@ func TestMsgDelegate(t *testing.T) {
 func TestMsgBeginRedelegate(t *testing.T) {
 	tests := []struct {
 		name             string
-		delegatorAddr    sdk.AccAddress
-		validatorSrcAddr sdk.ValAddress
-		validatorDstAddr sdk.ValAddress
+		delegatorAddr    seitypes.AccAddress
+		validatorSrcAddr seitypes.ValAddress
+		validatorDstAddr seitypes.ValAddress
 		amount           sdk.Coin
 		expectPass       bool
 	}{
-		{"regular", sdk.AccAddress(valAddr1), valAddr2, valAddr3, sdk.NewInt64Coin(sdk.DefaultBondDenom, 1), true},
-		{"zero amount", sdk.AccAddress(valAddr1), valAddr2, valAddr3, sdk.NewInt64Coin(sdk.DefaultBondDenom, 0), false},
-		{"nil amount", sdk.AccAddress(valAddr1), valAddr2, valAddr3, sdk.Coin{}, false},
-		{"empty delegator", sdk.AccAddress(emptyAddr), valAddr1, valAddr3, sdk.NewInt64Coin(sdk.DefaultBondDenom, 1), false},
-		{"empty source validator", sdk.AccAddress(valAddr1), emptyAddr, valAddr3, sdk.NewInt64Coin(sdk.DefaultBondDenom, 1), false},
-		{"empty destination validator", sdk.AccAddress(valAddr1), valAddr2, emptyAddr, sdk.NewInt64Coin(sdk.DefaultBondDenom, 1), false},
+		{"regular", seitypes.AccAddress(valAddr1), valAddr2, valAddr3, sdk.NewInt64Coin(sdk.DefaultBondDenom, 1), true},
+		{"zero amount", seitypes.AccAddress(valAddr1), valAddr2, valAddr3, sdk.NewInt64Coin(sdk.DefaultBondDenom, 0), false},
+		{"nil amount", seitypes.AccAddress(valAddr1), valAddr2, valAddr3, sdk.Coin{}, false},
+		{"empty delegator", seitypes.AccAddress(emptyAddr), valAddr1, valAddr3, sdk.NewInt64Coin(sdk.DefaultBondDenom, 1), false},
+		{"empty source validator", seitypes.AccAddress(valAddr1), emptyAddr, valAddr3, sdk.NewInt64Coin(sdk.DefaultBondDenom, 1), false},
+		{"empty destination validator", seitypes.AccAddress(valAddr1), valAddr2, emptyAddr, sdk.NewInt64Coin(sdk.DefaultBondDenom, 1), false},
 	}
 
 	for _, tc := range tests {
@@ -176,16 +176,16 @@ func TestMsgBeginRedelegate(t *testing.T) {
 func TestMsgUndelegate(t *testing.T) {
 	tests := []struct {
 		name          string
-		delegatorAddr sdk.AccAddress
-		validatorAddr sdk.ValAddress
+		delegatorAddr seitypes.AccAddress
+		validatorAddr seitypes.ValAddress
 		amount        sdk.Coin
 		expectPass    bool
 	}{
-		{"regular", sdk.AccAddress(valAddr1), valAddr2, sdk.NewInt64Coin(sdk.DefaultBondDenom, 1), true},
-		{"zero amount", sdk.AccAddress(valAddr1), valAddr2, sdk.NewInt64Coin(sdk.DefaultBondDenom, 0), false},
-		{"nil amount", sdk.AccAddress(valAddr1), valAddr2, sdk.Coin{}, false},
-		{"empty delegator", sdk.AccAddress(emptyAddr), valAddr1, sdk.NewInt64Coin(sdk.DefaultBondDenom, 1), false},
-		{"empty validator", sdk.AccAddress(valAddr1), emptyAddr, sdk.NewInt64Coin(sdk.DefaultBondDenom, 1), false},
+		{"regular", seitypes.AccAddress(valAddr1), valAddr2, sdk.NewInt64Coin(sdk.DefaultBondDenom, 1), true},
+		{"zero amount", seitypes.AccAddress(valAddr1), valAddr2, sdk.NewInt64Coin(sdk.DefaultBondDenom, 0), false},
+		{"nil amount", seitypes.AccAddress(valAddr1), valAddr2, sdk.Coin{}, false},
+		{"empty delegator", seitypes.AccAddress(emptyAddr), valAddr1, sdk.NewInt64Coin(sdk.DefaultBondDenom, 1), false},
+		{"empty validator", seitypes.AccAddress(valAddr1), emptyAddr, sdk.NewInt64Coin(sdk.DefaultBondDenom, 1), false},
 	}
 
 	for _, tc := range tests {

@@ -16,12 +16,12 @@ import (
 type VoteForTally struct {
 	Denom        string
 	ExchangeRate sdk.Dec
-	Voter        sdk.ValAddress
+	Voter        seitypes.ValAddress
 	Power        int64
 }
 
 // NewVoteForTally returns a new VoteForTally instance
-func NewVoteForTally(rate sdk.Dec, denom string, voter sdk.ValAddress, power int64) VoteForTally {
+func NewVoteForTally(rate sdk.Dec, denom string, voter seitypes.ValAddress, power int64) VoteForTally {
 	return VoteForTally{
 		ExchangeRate: rate,
 		Denom:        denom,
@@ -180,11 +180,11 @@ type Claim struct {
 	Weight    int64
 	WinCount  int64
 	DidVote   bool
-	Recipient sdk.ValAddress
+	Recipient seitypes.ValAddress
 }
 
 // NewClaim generates a Claim instance.
-func NewClaim(power, weight, winCount int64, recipient sdk.ValAddress, didVote bool) Claim {
+func NewClaim(power, weight, winCount int64, recipient seitypes.ValAddress, didVote bool) Claim {
 	return Claim{
 		Power:     power,
 		Weight:    weight,

@@ -34,7 +34,7 @@ type ValidatorEvidence interface {
 	Evidence
 
 	// The consensus address of the malicious validator at time of infraction
-	GetConsensusAddress() sdk.ConsAddress
+	GetConsensusAddress() seitypes.ConsAddress
 
 	// The total power of the malicious validator at time of infraction
 	GetValidatorPower() int64

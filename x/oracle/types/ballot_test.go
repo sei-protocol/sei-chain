@@ -24,7 +24,7 @@ func TestToMap(t *testing.T) {
 	}{
 		[]VoteForTally{
 			{
-				Voter:        sdk.ValAddress(secp256k1.GenPrivKey().PubKey().Address()),
+				Voter:        seitypes.ValAddress(secp256k1.GenPrivKey().PubKey().Address()),
 				Denom:        utils.MicroAtomDenom,
 				ExchangeRate: sdk.NewDec(1600),
 				Power:        100,
@@ -73,7 +73,7 @@ func TestToCrossRate(t *testing.T) {
 	pbQuote := ExchangeRateBallot{}
 	cb := ExchangeRateBallot{}
 	for _, data := range data {
-		valAddr := sdk.ValAddress(secp256k1.GenPrivKey().PubKey().Address())
+		valAddr := seitypes.ValAddress(secp256k1.GenPrivKey().PubKey().Address())
 		if !data.base.IsZero() {
 			pbBase = append(pbBase, NewVoteForTally(data.base, utils.MicroAtomDenom, valAddr, 100))
 		}
@@ -131,7 +131,7 @@ func TestPBPower(t *testing.T) {
 
 	// Mix in a fake validator, the total power should not have changed.
 	pubKey := secp256k1.GenPrivKey().PubKey()
-	faceValAddr := sdk.ValAddress(pubKey.Address())
+	faceValAddr := seitypes.ValAddress(pubKey.Address())
 	fakeVote := NewVoteForTally(
 		sdk.OneDec(),
 		utils.MicroAtomDenom,
@@ -183,7 +183,7 @@ func TestPBWeightedMedian(t *testing.T) {
 	for _, tc := range tests {
 		pb := ExchangeRateBallot{}
 		for i, input := range tc.inputs {
-			valAddr := sdk.ValAddress(secp256k1.GenPrivKey().PubKey().Address())
+			valAddr := seitypes.ValAddress(secp256k1.GenPrivKey().PubKey().Address())
 
 			power := tc.weights[i]
 			if !tc.isValidator[i] {
@@ -245,7 +245,7 @@ func TestPBStandardDeviation(t *testing.T) {
 	for _, tc := range tests {
 		pb := ExchangeRateBallot{}
 		for i, input := range tc.inputs {
-			valAddr := sdk.ValAddress(secp256k1.GenPrivKey().PubKey().Address())
+			valAddr := seitypes.ValAddress(secp256k1.GenPrivKey().PubKey().Address())
 
 			power := tc.weights[i]
 			if !tc.isValidator[i] {
@@ -267,7 +267,7 @@ func TestPBStandardDeviation(t *testing.T) {
 }
 
 func TestPBStandardDeviationOverflow(t *testing.T) {
-	valAddr := sdk.ValAddress(secp256k1.GenPrivKey().PubKey().Address())
+	valAddr := seitypes.ValAddress(secp256k1.GenPrivKey().PubKey().Address())
 	exchangeRate, err := sdk.NewDecFromStr("100000000000000000000000000000000000000000000000000000000.0")
 	require.NoError(t, err)
 

@@ -67,8 +67,8 @@ func (suite *AnteTestSuite) TestDeductFeesNoDelegation() {
 
 	cases := map[string]struct {
 		signerKey  cryptotypes.PrivKey
-		signer     sdk.AccAddress
-		feeAccount sdk.AccAddress
+		signer     seitypes.AccAddress
+		feeAccount seitypes.AccAddress
 		fee        int64
 		valid      bool
 	}{
@@ -136,7 +136,7 @@ func (suite *AnteTestSuite) TestDeductFeesNoDelegation() {
 		tc := stc // to make scopelint happy
 		suite.T().Run(name, func(t *testing.T) {
 			fee := sdk.NewCoins(sdk.NewInt64Coin("usei", tc.fee))
-			msgs := []sdk.Msg{testdata.NewTestMsg(tc.signer)}
+			msgs := []seitypes.Msg{testdata.NewTestMsg(tc.signer)}
 
 			acc := app.AccountKeeper.GetAccount(ctx, tc.signer)
 			privs, accNums, seqs := []cryptotypes.PrivKey{tc.signerKey}, []uint64{0}, []uint64{0}
@@ -168,8 +168,8 @@ func SigGasNoConsumer(meter sdk.GasMeter, sig []byte, pubkey crypto.PubKey, para
 	return nil
 }
 
-func genTxWithFeeGranter(gen client.TxConfig, msgs []sdk.Msg, feeAmt sdk.Coins, gas uint64, chainID string, accNums,
-	accSeqs []uint64, feeGranter sdk.AccAddress, priv ...cryptotypes.PrivKey) (sdk.Tx, error) {
+func genTxWithFeeGranter(gen client.TxConfig, msgs []seitypes.Msg, feeAmt sdk.Coins, gas uint64, chainID string, accNums,
+	accSeqs []uint64, feeGranter seitypes.AccAddress, priv ...cryptotypes.PrivKey) (seitypes.Tx, error) {
 	sigs := make([]signing.SignatureV2, len(priv))
 
 	// create a random length memo

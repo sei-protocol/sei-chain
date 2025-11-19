@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gogo/protobuf/proto"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -52,7 +53,7 @@ func GetQueryCmd() *cobra.Command {
 
 // GetCmdQueryValidator implements the validator query command.
 func GetCmdQueryValidator() *cobra.Command {
-	bech32PrefixValAddr := sdk.GetConfig().GetBech32ValidatorAddrPrefix()
+	bech32PrefixValAddr := seitypes.GetConfig().GetBech32ValidatorAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "validator [validator-addr]",
@@ -178,7 +179,7 @@ $ %s query staking hex-address A0F18FCE3DA235FE18845CDD50302A44A5CD9A3C
 
 			for _, val := range result.Validators {
 				pk := val.ConsensusPubkey
-				var valConsAddr sdk.ConsAddress
+				var valConsAddr seitypes.ConsAddress
 				// Based on type URL, do different decoding
 				scp256r1Type, _ := secp256r1.GenPrivKey()
 
@@ -186,19 +187,19 @@ $ %s query staking hex-address A0F18FCE3DA235FE18845CDD50302A44A5CD9A3C
 				case strings.Contains(pk.TypeUrl, ed25519.GenPrivKey().PubKey().Type()):
 					actualPk := &ed25519.PubKey{}
 					proto.Unmarshal(pk.Value, actualPk)
-					valConsAddr = sdk.ConsAddress(actualPk.Address())
+					valConsAddr = seitypes.ConsAddress(actualPk.Address())
 				case strings.Contains(pk.TypeUrl, sr25519.GenPrivKey().PubKey().Type()):
 					actualPk := &sr25519.PubKey{}
 					proto.Unmarshal(pk.Value, actualPk)
-					valConsAddr = sdk.ConsAddress(actualPk.Address())
+					valConsAddr = seitypes.ConsAddress(actualPk.Address())
 				case strings.Contains(pk.TypeUrl, secp256k1.GenPrivKey().PubKey().Type()):
 					actualPk := &secp256k1.PubKey{}
 					proto.Unmarshal(pk.Value, actualPk)
-					valConsAddr = sdk.ConsAddress(actualPk.Address())
+					valConsAddr = seitypes.ConsAddress(actualPk.Address())
 				case strings.Contains(pk.TypeUrl, scp256r1Type.PubKey().Type()):
 					actualPk := &secp256r1.PubKey{}
 					proto.Unmarshal(pk.Value, actualPk)
-					valConsAddr = sdk.ConsAddress(actualPk.Address())
+					valConsAddr = seitypes.ConsAddress(actualPk.Address())
 				default:
 					return fmt.Errorf("invalid key type found=%s", pk.TypeUrl)
 				}
@@ -222,7 +223,7 @@ $ %s query staking hex-address A0F18FCE3DA235FE18845CDD50302A44A5CD9A3C
 
 // GetCmdQueryValidatorUnbondingDelegations implements the query all unbonding delegatations from a validator command.
 func GetCmdQueryValidatorUnbondingDelegations() *cobra.Command {
-	bech32PrefixValAddr := sdk.GetConfig().GetBech32ValidatorAddrPrefix()
+	bech32PrefixValAddr := seitypes.GetConfig().GetBech32ValidatorAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "unbonding-delegations-from [validator-addr]",
@@ -277,7 +278,7 @@ $ %s query staking unbonding-delegations-from %s1gghjut3ccd8ay0zduzj64hwre2fxs9l
 // GetCmdQueryValidatorRedelegations implements the query all redelegatations
 // from a validator command.
 func GetCmdQueryValidatorRedelegations() *cobra.Command {
-	bech32PrefixValAddr := sdk.GetConfig().GetBech32ValidatorAddrPrefix()
+	bech32PrefixValAddr := seitypes.GetConfig().GetBech32ValidatorAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "redelegations-from [validator-addr]",
@@ -331,8 +332,8 @@ $ %s query staking redelegations-from %s1gghjut3ccd8ay0zduzj64hwre2fxs9ldmqhffj
 
 // GetCmdQueryDelegation the query delegation command.
 func GetCmdQueryDelegation() *cobra.Command {
-	bech32PrefixAccAddr := sdk.GetConfig().GetBech32AccountAddrPrefix()
-	bech32PrefixValAddr := sdk.GetConfig().GetBech32ValidatorAddrPrefix()
+	bech32PrefixAccAddr := seitypes.GetConfig().GetBech32AccountAddrPrefix()
+	bech32PrefixValAddr := seitypes.GetConfig().GetBech32ValidatorAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "delegation [delegator-addr] [validator-addr]",
@@ -354,7 +355,7 @@ $ %s query staking delegation %s1gghjut3ccd8ay0zduzj64hwre2fxs9ld75ru9p %s1gghju
 			}
 			queryClient := types.NewQueryClient(clientCtx)
 
-			delAddr, err := sdk.AccAddressFromBech32(args[0])
+			delAddr, err := seitypes.AccAddressFromBech32(args[0])
 			if err != nil {
 				return err
 			}
@@ -386,7 +387,7 @@ $ %s query staking delegation %s1gghjut3ccd8ay0zduzj64hwre2fxs9ld75ru9p %s1gghju
 // GetCmdQueryDelegations implements the command to query all the delegations
 // made from one delegator.
 func GetCmdQueryDelegations() *cobra.Command {
-	bech32PrefixAccAddr := sdk.GetConfig().GetBech32AccountAddrPrefix()
+	bech32PrefixAccAddr := seitypes.GetConfig().GetBech32AccountAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "delegations [delegator-addr]",
@@ -408,7 +409,7 @@ $ %s query staking delegations %s1gghjut3ccd8ay0zduzj64hwre2fxs9ld75ru9p
 			}
 			queryClient := types.NewQueryClient(clientCtx)
 
-			delAddr, err := sdk.AccAddressFromBech32(args[0])
+			delAddr, err := seitypes.AccAddressFromBech32(args[0])
 			if err != nil {
 				return err
 			}
@@ -441,7 +442,7 @@ $ %s query staking delegations %s1gghjut3ccd8ay0zduzj64hwre2fxs9ld75ru9p
 // GetCmdQueryValidatorDelegations implements the command to query all the
 // delegations to a specific validator.
 func GetCmdQueryValidatorDelegations() *cobra.Command {
-	bech32PrefixValAddr := sdk.GetConfig().GetBech32ValidatorAddrPrefix()
+	bech32PrefixValAddr := seitypes.GetConfig().GetBech32ValidatorAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "delegations-to [validator-addr]",
@@ -496,8 +497,8 @@ $ %s query staking delegations-to %s1gghjut3ccd8ay0zduzj64hwre2fxs9ldmqhffj
 // GetCmdQueryUnbondingDelegation implements the command to query a single
 // unbonding-delegation record.
 func GetCmdQueryUnbondingDelegation() *cobra.Command {
-	bech32PrefixAccAddr := sdk.GetConfig().GetBech32AccountAddrPrefix()
-	bech32PrefixValAddr := sdk.GetConfig().GetBech32ValidatorAddrPrefix()
+	bech32PrefixAccAddr := seitypes.GetConfig().GetBech32AccountAddrPrefix()
+	bech32PrefixValAddr := seitypes.GetConfig().GetBech32ValidatorAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "unbonding-delegation [delegator-addr] [validator-addr]",
@@ -524,7 +525,7 @@ $ %s query staking unbonding-delegation %s1gghjut3ccd8ay0zduzj64hwre2fxs9ld75ru9
 				return err
 			}
 
-			delAddr, err := sdk.AccAddressFromBech32(args[0])
+			delAddr, err := seitypes.AccAddressFromBech32(args[0])
 			if err != nil {
 				return err
 			}
@@ -551,7 +552,7 @@ $ %s query staking unbonding-delegation %s1gghjut3ccd8ay0zduzj64hwre2fxs9ld75ru9
 // GetCmdQueryUnbondingDelegations implements the command to query all the
 // unbonding-delegation records for a delegator.
 func GetCmdQueryUnbondingDelegations() *cobra.Command {
-	bech32PrefixAccAddr := sdk.GetConfig().GetBech32AccountAddrPrefix()
+	bech32PrefixAccAddr := seitypes.GetConfig().GetBech32AccountAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "unbonding-delegations [delegator-addr]",
@@ -573,7 +574,7 @@ $ %s query staking unbonding-delegations %s1gghjut3ccd8ay0zduzj64hwre2fxs9ld75ru
 			}
 			queryClient := types.NewQueryClient(clientCtx)
 
-			delegatorAddr, err := sdk.AccAddressFromBech32(args[0])
+			delegatorAddr, err := seitypes.AccAddressFromBech32(args[0])
 			if err != nil {
 				return err
 			}
@@ -606,8 +607,8 @@ $ %s query staking unbonding-delegations %s1gghjut3ccd8ay0zduzj64hwre2fxs9ld75ru
 // GetCmdQueryRedelegation implements the command to query a single
 // redelegation record.
 func GetCmdQueryRedelegation() *cobra.Command {
-	bech32PrefixAccAddr := sdk.GetConfig().GetBech32AccountAddrPrefix()
-	bech32PrefixValAddr := sdk.GetConfig().GetBech32ValidatorAddrPrefix()
+	bech32PrefixAccAddr := seitypes.GetConfig().GetBech32AccountAddrPrefix()
+	bech32PrefixValAddr := seitypes.GetConfig().GetBech32ValidatorAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "redelegation [delegator-addr] [src-validator-addr] [dst-validator-addr]",
@@ -629,7 +630,7 @@ $ %s query staking redelegation %s1gghjut3ccd8ay0zduzj64hwre2fxs9ld75ru9p %s1l2r
 			}
 			queryClient := types.NewQueryClient(clientCtx)
 
-			delAddr, err := sdk.AccAddressFromBech32(args[0])
+			delAddr, err := seitypes.AccAddressFromBech32(args[0])
 			if err != nil {
 				return err
 			}
@@ -667,7 +668,7 @@ $ %s query staking redelegation %s1gghjut3ccd8ay0zduzj64hwre2fxs9ld75ru9p %s1l2r
 // GetCmdQueryRedelegations implements the command to query all the
 // redelegation records for a delegator.
 func GetCmdQueryRedelegations() *cobra.Command {
-	bech32PrefixAccAddr := sdk.GetConfig().GetBech32AccountAddrPrefix()
+	bech32PrefixAccAddr := seitypes.GetConfig().GetBech32AccountAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "redelegations [delegator-addr]",
@@ -689,7 +690,7 @@ $ %s query staking redelegation %s1gghjut3ccd8ay0zduzj64hwre2fxs9ld75ru9p
 			}
 			queryClient := types.NewQueryClient(clientCtx)
 
-			delAddr, err := sdk.AccAddressFromBech32(args[0])
+			delAddr, err := seitypes.AccAddressFromBech32(args[0])
 			if err != nil {
 				return err
 			}

@@ -19,7 +19,7 @@ func TestCode(t *testing.T) {
 	require.Equal(t, common.Hash{}, k.GetCodeHash(ctx, addr))
 
 	k.BankKeeper().MintCoins(ctx, "evm", sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())))
-	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, "evm", sdk.AccAddress(addr[:]), sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())))
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, "evm", seitypes.AccAddress(addr[:]), sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())))
 	require.Equal(t, ethtypes.EmptyCodeHash, k.GetCodeHash(ctx, addr))
 	require.Nil(t, k.GetCode(ctx, addr))
 	require.Equal(t, 0, k.GetCodeSize(ctx, addr))
@@ -29,7 +29,7 @@ func TestCode(t *testing.T) {
 	require.Equal(t, crypto.Keccak256Hash(code), k.GetCodeHash(ctx, addr))
 	require.Equal(t, code, k.GetCode(ctx, addr))
 	require.Equal(t, 5, k.GetCodeSize(ctx, addr))
-	require.Equal(t, sdk.AccAddress(addr[:]), k.AccountKeeper().GetAccount(ctx, k.GetSeiAddressOrDefault(ctx, addr)).GetAddress())
+	require.Equal(t, seitypes.AccAddress(addr[:]), k.AccountKeeper().GetAccount(ctx, k.GetSeiAddressOrDefault(ctx, addr)).GetAddress())
 }
 
 func TestNilCode(t *testing.T) {

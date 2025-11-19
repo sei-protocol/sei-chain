@@ -188,7 +188,7 @@ func (k Querier) Delegation(c context.Context, req *types.QueryDelegationRequest
 	}
 
 	ctx := sdk.UnwrapSDKContext(c)
-	delAddr, err := sdk.AccAddressFromBech32(req.DelegatorAddr)
+	delAddr, err := seitypes.AccAddressFromBech32(req.DelegatorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +229,7 @@ func (k Querier) UnbondingDelegation(c context.Context, req *types.QueryUnbondin
 
 	ctx := sdk.UnwrapSDKContext(c)
 
-	delAddr, err := sdk.AccAddressFromBech32(req.DelegatorAddr)
+	delAddr, err := seitypes.AccAddressFromBech32(req.DelegatorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +262,7 @@ func (k Querier) DelegatorDelegations(c context.Context, req *types.QueryDelegat
 	var delegations types.Delegations
 	ctx := sdk.UnwrapSDKContext(c)
 
-	delAddr, err := sdk.AccAddressFromBech32(req.DelegatorAddr)
+	delAddr, err := seitypes.AccAddressFromBech32(req.DelegatorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +304,7 @@ func (k Querier) DelegatorValidator(c context.Context, req *types.QueryDelegator
 	}
 
 	ctx := sdk.UnwrapSDKContext(c)
-	delAddr, err := sdk.AccAddressFromBech32(req.DelegatorAddr)
+	delAddr, err := seitypes.AccAddressFromBech32(req.DelegatorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -335,7 +335,7 @@ func (k Querier) DelegatorUnbondingDelegations(c context.Context, req *types.Que
 	ctx := sdk.UnwrapSDKContext(c)
 
 	store := ctx.KVStore(k.storeKey)
-	delAddr, err := sdk.AccAddressFromBech32(req.DelegatorAddr)
+	delAddr, err := seitypes.AccAddressFromBech32(req.DelegatorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -419,7 +419,7 @@ func (k Querier) DelegatorValidators(c context.Context, req *types.QueryDelegato
 	ctx := sdk.UnwrapSDKContext(c)
 
 	store := ctx.KVStore(k.storeKey)
-	delAddr, err := sdk.AccAddressFromBech32(req.DelegatorAddr)
+	delAddr, err := seitypes.AccAddressFromBech32(req.DelegatorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -472,7 +472,7 @@ func (k Querier) Params(c context.Context, _ *types.QueryParamsRequest) (*types.
 
 func queryRedelegation(ctx sdk.Context, k Querier, req *types.QueryRedelegationsRequest) (redels types.Redelegations, err error) {
 
-	delAddr, err := sdk.AccAddressFromBech32(req.DelegatorAddr)
+	delAddr, err := seitypes.AccAddressFromBech32(req.DelegatorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -522,7 +522,7 @@ func queryRedelegationsFromSrcValidator(store sdk.KVStore, k Querier, req *types
 }
 
 func queryAllRedelegations(store sdk.KVStore, k Querier, req *types.QueryRedelegationsRequest) (redels types.Redelegations, res *query.PageResponse, err error) {
-	delAddr, err := sdk.AccAddressFromBech32(req.DelegatorAddr)
+	delAddr, err := seitypes.AccAddressFromBech32(req.DelegatorAddr)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -491,13 +491,13 @@ func TestGetAddress(t *testing.T) {
 }
 
 type mockTx struct {
-	msgs    []sdk.Msg
-	signers []sdk.AccAddress
+	msgs    []seitypes.Msg
+	signers []seitypes.AccAddress
 }
 
-func (tx mockTx) GetMsgs() []sdk.Msg                              { return tx.msgs }
+func (tx mockTx) GetMsgs() []seitypes.Msg                              { return tx.msgs }
 func (tx mockTx) ValidateBasic() error                            { return nil }
-func (tx mockTx) GetSigners() []sdk.AccAddress                    { return tx.signers }
+func (tx mockTx) GetSigners() []seitypes.AccAddress                    { return tx.signers }
 func (tx mockTx) GetPubKeys() ([]cryptotypes.PubKey, error)       { return nil, nil }
 func (tx mockTx) GetSignaturesV2() ([]signing.SignatureV2, error) { return nil, nil }
 func (tx mockTx) GetGasEstimate() uint64                          { return 0 }
@@ -538,7 +538,7 @@ func deployContract(t *testing.T, ctx sdk.Context, k *keeper.Keeper, path string
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{req}}, false, func(sdk.Context, seitypes.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -600,7 +600,7 @@ func TestHandleStaticCall(t *testing.T) {
 	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{req}}, false, func(sdk.Context, seitypes.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -615,7 +615,7 @@ func TestHandleStaticCall(t *testing.T) {
 	require.Nil(t, err)
 	input, err := parsedABI.Pack("get")
 	require.Nil(t, err)
-	output, err := wasm.NewEVMQueryHandler(k).HandleStaticCall(ctx, sdk.AccAddress(evmAddr[:]).String(), contractAddr.Hex(), input)
+	output, err := wasm.NewEVMQueryHandler(k).HandleStaticCall(ctx, seitypes.AccAddress(evmAddr[:]).String(), contractAddr.Hex(), input)
 	require.Nil(t, err)
 	unmarshaledOutput := &bindings.StaticCallResponse{}
 	require.Nil(t, json.Unmarshal(output, unmarshaledOutput))

@@ -30,11 +30,11 @@ func (k msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSe
 		return nil, err
 	}
 
-	from, err := sdk.AccAddressFromBech32(msg.FromAddress)
+	from, err := seitypes.AccAddressFromBech32(msg.FromAddress)
 	if err != nil {
 		return nil, err
 	}
-	to, err := sdk.AccAddressFromBech32(msg.ToAddress)
+	to, err := seitypes.AccAddressFromBech32(msg.ToAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -83,14 +83,14 @@ func (k msgServer) MultiSend(goCtx context.Context, msg *types.MsgMultiSend) (*t
 		if err := k.IsSendEnabledCoins(ctx, in.Coins...); err != nil {
 			return nil, err
 		}
-		accAddr := sdk.MustAccAddressFromBech32(in.Address)
+		accAddr := seitypes.MustAccAddressFromBech32(in.Address)
 		if !k.IsInDenomAllowList(ctx, accAddr, in.Coins, denomToAllowListCache) {
 			return nil, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to send funds", accAddr)
 		}
 	}
 
 	for _, out := range msg.Outputs {
-		accAddr := sdk.MustAccAddressFromBech32(out.Address)
+		accAddr := seitypes.MustAccAddressFromBech32(out.Address)
 
 		if k.BlockedAddr(accAddr) || !k.IsInDenomAllowList(ctx, accAddr, out.Coins, denomToAllowListCache) {
 			return nil, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to receive funds", out.Address)

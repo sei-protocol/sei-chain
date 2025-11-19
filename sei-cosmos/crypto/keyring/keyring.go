@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"encoding/hex"
 	"fmt"
+
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	seitypes "github.com/sei-protocol/sei-chain/types"
+
 	"io"
 	"io/ioutil"
 	"os"
@@ -25,7 +28,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/sr25519"
 	"github.com/cosmos/cosmos-sdk/crypto/ledger"
 	"github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
@@ -60,11 +62,11 @@ type Keyring interface {
 
 	// Key and KeyByAddress return keys by uid and address respectively.
 	Key(uid string) (Info, error)
-	KeyByAddress(address sdk.Address) (Info, error)
+	KeyByAddress(address seitypes.Address) (Info, error)
 
 	// Delete and DeleteByAddress remove keys from the keyring.
 	Delete(uid string) error
-	DeleteByAddress(address sdk.Address) error
+	DeleteByAddress(address seitypes.Address) error
 
 	// NewMnemonic generates a new mnemonic, derives a hierarchical deterministic key from it, and
 	// persists the key to storage. Returns the generated mnemonic and the key Info.
@@ -106,7 +108,7 @@ type Signer interface {
 	Sign(uid string, msg []byte) ([]byte, types.PubKey, error)
 
 	// SignByAddress sign byte messages with a user key providing the address.
-	SignByAddress(address sdk.Address, msg []byte) ([]byte, types.PubKey, error)
+	SignByAddress(address seitypes.Address, msg []byte) ([]byte, types.PubKey, error)
 }
 
 // Importer is implemented by key stores that support import of public and private keys.
@@ -121,7 +123,7 @@ type Exporter interface {
 	// ExportPrivKeyArmor returns a private key in ASCII armored format.
 	// It returns an error if the key does not exist or a wrong encryption passphrase is supplied.
 	ExportPrivKeyArmor(uid, encryptPassphrase string) (armor string, err error)
-	ExportPrivKeyArmorByAddress(address sdk.Address, encryptPassphrase string) (armor string, err error)
+	ExportPrivKeyArmorByAddress(address seitypes.Address, encryptPassphrase string) (armor string, err error)
 }
 
 // UnsafeExporter is implemented by key stores that support unsafe export
@@ -260,7 +262,7 @@ func (ks keystore) ExportPrivateKeyObject(uid string) ([]byte, error) {
 	return priv, nil
 }
 
-func (ks keystore) ExportPrivKeyArmorByAddress(address sdk.Address, encryptPassphrase string) (armor string, err error) {
+func (ks keystore) ExportPrivKeyArmorByAddress(address seitypes.Address, encryptPassphrase string) (armor string, err error) {
 	byAddress, err := ks.KeyByAddress(address)
 	if err != nil {
 		return "", err
@@ -344,7 +346,7 @@ func (ks keystore) Sign(uid string, msg []byte) ([]byte, types.PubKey, error) {
 	return sig, priv.PubKey(), nil
 }
 
-func (ks keystore) SignByAddress(address sdk.Address, msg []byte) ([]byte, types.PubKey, error) {
+func (ks keystore) SignByAddress(address seitypes.Address, msg []byte) ([]byte, types.PubKey, error) {
 	key, err := ks.KeyByAddress(address)
 	if err != nil {
 		return nil, nil, err
@@ -388,7 +390,7 @@ func (ks keystore) SavePubKey(uid string, pubkey types.PubKey, algo hd.PubKeyTyp
 	return ks.writeOfflineKey(uid, pubkey, algo)
 }
 
-func (ks keystore) DeleteByAddress(address sdk.Address) error {
+func (ks keystore) DeleteByAddress(address seitypes.Address) error {
 	info, err := ks.KeyByAddress(address)
 	if err != nil {
 		return err
@@ -421,7 +423,7 @@ func (ks keystore) Delete(uid string) error {
 	return nil
 }
 
-func (ks keystore) KeyByAddress(address sdk.Address) (Info, error) {
+func (ks keystore) KeyByAddress(address seitypes.Address) (Info, error) {
 	ik, err := ks.db.Get(addrHexKeyAsString(address))
 	if err != nil {
 		return nil, wrapKeyNotFound(err, fmt.Sprint("key with address", address, "not found"))
@@ -540,7 +542,7 @@ func (ks keystore) NewAccount(name string, mnemonic string, bip39Passphrase stri
 
 	// check if the a key already exists with the same address and return an error
 	// if found
-	address := sdk.AccAddress(privKey.PubKey().Address())
+	address := seitypes.AccAddress(privKey.PubKey().Address())
 	if _, err := ks.KeyByAddress(address); err == nil {
 		return nil, fmt.Errorf("account with address %s already exists in keyring, delete the key first if you want to recreate it", address)
 	}
@@ -851,6 +853,6 @@ func (ks unsafeKeystore) UnsafeExportPrivKeyHex(uid string) (privkey string, err
 	return hex.EncodeToString(priv), nil
 }
 
-func addrHexKeyAsString(address sdk.Address) string {
+func addrHexKeyAsString(address seitypes.Address) string {
 	return fmt.Sprintf("%s.%s", hex.EncodeToString(address.Bytes()), addressSuffix)
 }

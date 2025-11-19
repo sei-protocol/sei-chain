@@ -16,12 +16,12 @@ import (
 
 var (
 	delPk1   = ed25519.GenPrivKey().PubKey()
-	delAddr1 = sdk.AccAddress(delPk1.Address())
+	delAddr1 = seitypes.AccAddress(delPk1.Address())
 
 	amount = sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewInt(1)))
 )
 
-func testProposal(recipient sdk.AccAddress, amount sdk.Coins) *types.CommunityPoolSpendProposal {
+func testProposal(recipient seitypes.AccAddress, amount sdk.Coins) *types.CommunityPoolSpendProposal {
 	return types.NewCommunityPoolSpendProposal("Test", "description", recipient, amount)
 }
 

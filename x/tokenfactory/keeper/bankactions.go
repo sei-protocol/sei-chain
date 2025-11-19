@@ -21,7 +21,7 @@ func (k Keeper) mintTo(ctx sdk.Context, amount sdk.Coin, mintTo string) error {
 		return err
 	}
 
-	addr, err := sdk.AccAddressFromBech32(mintTo)
+	addr, err := seitypes.AccAddressFromBech32(mintTo)
 	if err != nil {
 		return err
 	}
@@ -39,7 +39,7 @@ func (k Keeper) burnFrom(ctx sdk.Context, amount sdk.Coin, burnFrom string) erro
 		return err
 	}
 
-	addr, err := sdk.AccAddressFromBech32(burnFrom)
+	addr, err := seitypes.AccAddressFromBech32(burnFrom)
 	if err != nil {
 		return err
 	}

@@ -20,7 +20,7 @@ type KeeperTestSuite struct {
 
 	app         *seiapp.App
 	ctx         sdk.Context
-	addrs       []sdk.AccAddress
+	addrs       []seitypes.AccAddress
 	vals        []types.Validator
 	queryClient types.QueryClient
 }

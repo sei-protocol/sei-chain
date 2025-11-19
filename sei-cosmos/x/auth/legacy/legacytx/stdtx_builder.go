@@ -9,6 +9,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // StdTxBuilder wraps StdTx to implement to the context.TxBuilder interface.
@@ -28,7 +29,7 @@ func (s *StdTxBuilder) GetTx() authsigning.Tx {
 }
 
 // SetMsgs implements TxBuilder.SetMsgs
-func (s *StdTxBuilder) SetMsgs(msgs ...sdk.Msg) error {
+func (s *StdTxBuilder) SetMsgs(msgs ...seitypes.Msg) error {
 	s.Msgs = msgs
 	return nil
 }
@@ -71,7 +72,7 @@ func (s *StdTxBuilder) SetTimeoutHeight(height uint64) {
 }
 
 // SetFeeGranter does nothing for stdtx
-func (s *StdTxBuilder) SetFeeGranter(_ sdk.AccAddress) {}
+func (s *StdTxBuilder) SetFeeGranter(_ seitypes.AccAddress) {}
 
 // StdTxConfig is a context.TxConfig for StdTx
 type StdTxConfig struct {
@@ -89,7 +90,7 @@ func (s StdTxConfig) NewTxBuilder() client.TxBuilder {
 }
 
 // WrapTxBuilder returns a StdTxBuilder from provided transaction
-func (s StdTxConfig) WrapTxBuilder(newTx sdk.Tx) (client.TxBuilder, error) {
+func (s StdTxConfig) WrapTxBuilder(newTx seitypes.Tx) (client.TxBuilder, error) {
 	stdTx, ok := newTx.(StdTx)
 	if !ok {
 		return nil, fmt.Errorf("wrong type, expected %T, got %T", stdTx, newTx)
@@ -98,21 +99,21 @@ func (s StdTxConfig) WrapTxBuilder(newTx sdk.Tx) (client.TxBuilder, error) {
 }
 
 // MarshalTx implements TxConfig.MarshalTx
-func (s StdTxConfig) TxEncoder() sdk.TxEncoder {
+func (s StdTxConfig) TxEncoder() seitypes.TxEncoder {
 	return DefaultTxEncoder(s.Cdc)
 }
 
-func (s StdTxConfig) TxDecoder() sdk.TxDecoder {
+func (s StdTxConfig) TxDecoder() seitypes.TxDecoder {
 	return mkDecoder(s.Cdc.Unmarshal)
 }
 
-func (s StdTxConfig) TxJSONEncoder() sdk.TxEncoder {
-	return func(tx sdk.Tx) ([]byte, error) {
+func (s StdTxConfig) TxJSONEncoder() seitypes.TxEncoder {
+	return func(tx seitypes.Tx) ([]byte, error) {
 		return s.Cdc.MarshalJSON(tx)
 	}
 }
 
-func (s StdTxConfig) TxJSONDecoder() sdk.TxDecoder {
+func (s StdTxConfig) TxJSONDecoder() seitypes.TxDecoder {
 	return mkDecoder(s.Cdc.UnmarshalJSON)
 }
 
@@ -176,8 +177,8 @@ func SignatureV2ToStdSignature(cdc *codec.LegacyAmino, sig signing.SignatureV2) 
 // Unmarshaler is a generic type for Unmarshal functions
 type Unmarshaler func(bytes []byte, ptr interface{}) error
 
-func mkDecoder(unmarshaler Unmarshaler) sdk.TxDecoder {
-	return func(txBytes []byte) (sdk.Tx, error) {
+func mkDecoder(unmarshaler Unmarshaler) seitypes.TxDecoder {
+	return func(txBytes []byte) (seitypes.Tx, error) {
 		if len(txBytes) == 0 {
 			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "tx bytes are empty")
 		}
@@ -193,8 +194,8 @@ func mkDecoder(unmarshaler Unmarshaler) sdk.TxDecoder {
 }
 
 // DefaultTxEncoder logic for standard transaction encoding
-func DefaultTxEncoder(cdc *codec.LegacyAmino) sdk.TxEncoder {
-	return func(tx sdk.Tx) ([]byte, error) {
+func DefaultTxEncoder(cdc *codec.LegacyAmino) seitypes.TxEncoder {
+	return func(tx seitypes.Tx) ([]byte, error) {
 		return cdc.Marshal(tx)
 	}
 }

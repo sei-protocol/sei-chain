@@ -33,7 +33,7 @@ func (c CodeInfo) ValidateBasic() error {
 	if len(c.CodeHash) == 0 {
 		return sdkerrors.Wrap(ErrEmpty, "code hash")
 	}
-	if _, err := sdk.AccAddressFromBech32(c.Creator); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(c.Creator); err != nil {
 		return sdkerrors.Wrap(err, "creator")
 	}
 	if err := c.InstantiateConfig.ValidateBasic(); err != nil {
@@ -43,7 +43,7 @@ func (c CodeInfo) ValidateBasic() error {
 }
 
 // NewCodeInfo fills a new CodeInfo struct
-func NewCodeInfo(codeHash []byte, creator sdk.AccAddress, instantiatePermission AccessConfig) CodeInfo {
+func NewCodeInfo(codeHash []byte, creator seitypes.AccAddress, instantiatePermission AccessConfig) CodeInfo {
 	return CodeInfo{
 		CodeHash:          codeHash,
 		Creator:           creator.String(),
@@ -54,7 +54,7 @@ func NewCodeInfo(codeHash []byte, creator sdk.AccAddress, instantiatePermission 
 var AllCodeHistoryTypes = []ContractCodeHistoryOperationType{ContractCodeHistoryOperationTypeGenesis, ContractCodeHistoryOperationTypeInit, ContractCodeHistoryOperationTypeMigrate}
 
 // NewContractInfo creates a new instance of a given WASM contract info
-func NewContractInfo(codeID uint64, creator, admin sdk.AccAddress, label string, createdAt *AbsoluteTxPosition) ContractInfo {
+func NewContractInfo(codeID uint64, creator, admin seitypes.AccAddress, label string, createdAt *AbsoluteTxPosition) ContractInfo {
 	var adminAddr string
 	if !admin.Empty() {
 		adminAddr = admin.String()
@@ -80,11 +80,11 @@ func (c *ContractInfo) ValidateBasic() error {
 	if c.CodeID == 0 {
 		return sdkerrors.Wrap(ErrEmpty, "code id")
 	}
-	if _, err := sdk.AccAddressFromBech32(c.Creator); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(c.Creator); err != nil {
 		return sdkerrors.Wrap(err, "creator")
 	}
 	if len(c.Admin) != 0 {
-		if _, err := sdk.AccAddressFromBech32(c.Admin); err != nil {
+		if _, err := seitypes.AccAddressFromBech32(c.Admin); err != nil {
 			return sdkerrors.Wrap(err, "admin")
 		}
 	}
@@ -181,12 +181,12 @@ func (c *ContractInfo) ResetFromGenesis(ctx sdk.Context) ContractCodeHistoryEntr
 	}
 }
 
-// AdminAddr convert into sdk.AccAddress or nil when not set
-func (c *ContractInfo) AdminAddr() sdk.AccAddress {
+// AdminAddr convert into seitypes.AccAddress or nil when not set
+func (c *ContractInfo) AdminAddr() seitypes.AccAddress {
 	if c.Admin == "" {
 		return nil
 	}
-	admin, err := sdk.AccAddressFromBech32(c.Admin)
+	admin, err := seitypes.AccAddressFromBech32(c.Admin)
 	if err != nil { // should never happen
 		panic(err.Error())
 	}
@@ -250,7 +250,7 @@ func (a *AbsoluteTxPosition) Bytes() []byte {
 }
 
 // NewEnv initializes the environment for a contract instance
-func NewEnv(ctx sdk.Context, contractAddr sdk.AccAddress) wasmvmtypes.Env {
+func NewEnv(ctx sdk.Context, contractAddr seitypes.AccAddress) wasmvmtypes.Env {
 	// safety checks before casting below
 	if ctx.BlockHeight() < 0 {
 		panic("Block height must never be negative")
@@ -277,7 +277,7 @@ func NewEnv(ctx sdk.Context, contractAddr sdk.AccAddress) wasmvmtypes.Env {
 }
 
 // NewInfo initializes the MessageInfo for a contract instance
-func NewInfo(creator sdk.AccAddress, deposit sdk.Coins) wasmvmtypes.MessageInfo {
+func NewInfo(creator seitypes.AccAddress, deposit sdk.Coins) wasmvmtypes.MessageInfo {
 	return wasmvmtypes.MessageInfo{
 		Sender: creator.String(),
 		Funds:  NewWasmCoins(deposit),

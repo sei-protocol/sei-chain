@@ -13,9 +13,9 @@ var (
 	coinsPos   = sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 1000))
 	coinsZero  = sdk.NewCoins()
 	coinsMulti = sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 1000), sdk.NewInt64Coin("foo", 10000))
-	addrs      = []sdk.AccAddress{
-		sdk.AccAddress("test1"),
-		sdk.AccAddress("test2"),
+	addrs      = []seitypes.AccAddress{
+		seitypes.AccAddress("test1"),
+		seitypes.AccAddress("test2"),
 	}
 )
 
@@ -28,14 +28,14 @@ func TestMsgSubmitProposal(t *testing.T) {
 	tests := []struct {
 		title, description string
 		proposalType       string
-		proposerAddr       sdk.AccAddress
+		proposerAddr       seitypes.AccAddress
 		initialDeposit     sdk.Coins
 		expectPass         bool
 	}{
 		{"Test Proposal", "the purpose of this proposal is to test", ProposalTypeText, addrs[0], coinsPos, true},
 		{"", "the purpose of this proposal is to test", ProposalTypeText, addrs[0], coinsPos, false},
 		{"Test Proposal", "", ProposalTypeText, addrs[0], coinsPos, false},
-		{"Test Proposal", "the purpose of this proposal is to test", ProposalTypeText, sdk.AccAddress{}, coinsPos, false},
+		{"Test Proposal", "the purpose of this proposal is to test", ProposalTypeText, seitypes.AccAddress{}, coinsPos, false},
 		{"Test Proposal", "the purpose of this proposal is to test", ProposalTypeText, addrs[0], coinsZero, true},
 		{"Test Proposal", "the purpose of this proposal is to test", ProposalTypeText, addrs[0], coinsMulti, true},
 		{strings.Repeat("#", MaxTitleLength*2), "the purpose of this proposal is to test", ProposalTypeText, addrs[0], coinsMulti, false},
@@ -60,7 +60,7 @@ func TestMsgSubmitProposal(t *testing.T) {
 }
 
 func TestMsgDepositGetSignBytes(t *testing.T) {
-	addr := sdk.AccAddress("addr1")
+	addr := seitypes.AccAddress("addr1")
 	msg := NewMsgDeposit(addr, 0, coinsPos)
 	res := msg.GetSignBytes()
 
@@ -72,12 +72,12 @@ func TestMsgDepositGetSignBytes(t *testing.T) {
 func TestMsgDeposit(t *testing.T) {
 	tests := []struct {
 		proposalID    uint64
-		depositorAddr sdk.AccAddress
+		depositorAddr seitypes.AccAddress
 		depositAmount sdk.Coins
 		expectPass    bool
 	}{
 		{0, addrs[0], coinsPos, true},
-		{1, sdk.AccAddress{}, coinsPos, false},
+		{1, seitypes.AccAddress{}, coinsPos, false},
 		{1, addrs[0], coinsZero, true},
 		{1, addrs[0], coinsMulti, true},
 	}
@@ -96,12 +96,12 @@ func TestMsgDeposit(t *testing.T) {
 func TestMsgVote(t *testing.T) {
 	tests := []struct {
 		proposalID uint64
-		voterAddr  sdk.AccAddress
+		voterAddr  seitypes.AccAddress
 		option     VoteOption
 		expectPass bool
 	}{
 		{0, addrs[0], OptionYes, true},
-		{0, sdk.AccAddress{}, OptionYes, false},
+		{0, seitypes.AccAddress{}, OptionYes, false},
 		{0, addrs[0], OptionNo, true},
 		{0, addrs[0], OptionNoWithVeto, true},
 		{0, addrs[0], OptionAbstain, true},
@@ -122,12 +122,12 @@ func TestMsgVote(t *testing.T) {
 func TestMsgVoteWeighted(t *testing.T) {
 	tests := []struct {
 		proposalID uint64
-		voterAddr  sdk.AccAddress
+		voterAddr  seitypes.AccAddress
 		options    WeightedVoteOptions
 		expectPass bool
 	}{
 		{0, addrs[0], NewNonSplitVoteOption(OptionYes), true},
-		{0, sdk.AccAddress{}, NewNonSplitVoteOption(OptionYes), false},
+		{0, seitypes.AccAddress{}, NewNonSplitVoteOption(OptionYes), false},
 		{0, addrs[0], NewNonSplitVoteOption(OptionNo), true},
 		{0, addrs[0], NewNonSplitVoteOption(OptionNoWithVeto), true},
 		{0, addrs[0], NewNonSplitVoteOption(OptionAbstain), true},
@@ -164,7 +164,7 @@ func TestMsgVoteWeighted(t *testing.T) {
 
 // this tests that Amino JSON MsgSubmitProposal.GetSignBytes() still works with Content as Any using the ModuleCdc
 func TestMsgSubmitProposal_GetSignBytes(t *testing.T) {
-	msg, err := NewMsgSubmitProposal(NewTextProposal("test", "abcd", false), sdk.NewCoins(), sdk.AccAddress{})
+	msg, err := NewMsgSubmitProposal(NewTextProposal("test", "abcd", false), sdk.NewCoins(), seitypes.AccAddress{})
 	require.NoError(t, err)
 	var bz []byte
 	require.NotPanics(t, func() {

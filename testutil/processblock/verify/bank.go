@@ -41,7 +41,7 @@ func Balance(t *testing.T, app *processblock.App, f BlockRunnable, txs []signing
 		for denom, changes := range expectedChanges {
 			expectedBalances[denom] = map[string]int64{}
 			for account, delta := range changes {
-				balance := app.BankKeeper.GetBalance(app.Ctx(), sdk.MustAccAddressFromBech32(account), denom)
+				balance := app.BankKeeper.GetBalance(app.Ctx(), seitypes.MustAccAddressFromBech32(account), denom)
 				expectedBalances[denom][account] = balance.Amount.Int64() + delta
 			}
 		}
@@ -50,7 +50,7 @@ func Balance(t *testing.T, app *processblock.App, f BlockRunnable, txs []signing
 
 		for denom, expectedBalances := range expectedBalances {
 			for account, expectedBalance := range expectedBalances {
-				actualBalance := app.BankKeeper.GetBalance(app.Ctx(), sdk.MustAccAddressFromBech32(account), denom)
+				actualBalance := app.BankKeeper.GetBalance(app.Ctx(), seitypes.MustAccAddressFromBech32(account), denom)
 				require.Equal(t, expectedBalance, actualBalance.Amount.Int64())
 			}
 		}

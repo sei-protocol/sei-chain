@@ -40,7 +40,7 @@ $ <appd> tx slashing unjail --from mykey
 			}
 			valAddr := clientCtx.GetFromAddress()
 
-			msg := types.NewMsgUnjail(sdk.ValAddress(valAddr))
+			msg := types.NewMsgUnjail(seitypes.ValAddress(valAddr))
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},

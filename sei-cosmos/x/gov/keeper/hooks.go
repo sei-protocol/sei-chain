@@ -16,14 +16,14 @@ func (keeper Keeper) AfterProposalSubmission(ctx sdk.Context, proposalID uint64)
 }
 
 // AfterProposalDeposit - call hook if registered
-func (keeper Keeper) AfterProposalDeposit(ctx sdk.Context, proposalID uint64, depositorAddr sdk.AccAddress) {
+func (keeper Keeper) AfterProposalDeposit(ctx sdk.Context, proposalID uint64, depositorAddr seitypes.AccAddress) {
 	if keeper.hooks != nil {
 		keeper.hooks.AfterProposalDeposit(ctx, proposalID, depositorAddr)
 	}
 }
 
 // AfterProposalVote - call hook if registered
-func (keeper Keeper) AfterProposalVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.AccAddress) {
+func (keeper Keeper) AfterProposalVote(ctx sdk.Context, proposalID uint64, voterAddr seitypes.AccAddress) {
 	if keeper.hooks != nil {
 		keeper.hooks.AfterProposalVote(ctx, proposalID, voterAddr)
 	}

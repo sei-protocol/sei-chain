@@ -32,7 +32,7 @@ type ReflectHandleMsg struct {
 }
 
 type ownerPayload struct {
-	Owner sdk.Address `json:"owner"`
+	Owner seitypes.Address `json:"owner"`
 }
 
 type reflectPayload struct {
@@ -233,7 +233,7 @@ func TestReflectCustomMsg(t *testing.T) {
 	checkAccount(t, ctx, accKeeper, bankKeeper, bob, deposit)
 
 	// construct an opaque message
-	var sdkSendMsg sdk.Msg = &banktypes.MsgSend{
+	var sdkSendMsg seitypes.Msg = &banktypes.MsgSend{
 		FromAddress: contractAddr.String(),
 		ToAddress:   fred.String(),
 		Amount:      sdk.NewCoins(sdk.NewInt64Coin("denom", 23000)),
@@ -552,7 +552,7 @@ func TestWasmRawQueryWithNil(t *testing.T) {
 	require.Equal(t, []byte{}, reflectRawRes.Data)
 }
 
-func checkAccount(t *testing.T, ctx sdk.Context, accKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, addr sdk.AccAddress, expected sdk.Coins) {
+func checkAccount(t *testing.T, ctx sdk.Context, accKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, addr seitypes.AccAddress, expected sdk.Coins) {
 	acct := accKeeper.GetAccount(ctx, addr)
 	if expected == nil {
 		assert.Nil(t, acct)
@@ -576,7 +576,7 @@ type reflectCustomMsg struct {
 
 // toReflectRawMsg encodes an sdk msg using any type with json encoding.
 // Then wraps it as an opaque message
-func toReflectRawMsg(cdc codec.Codec, msg sdk.Msg) (wasmvmtypes.CosmosMsg, error) {
+func toReflectRawMsg(cdc codec.Codec, msg seitypes.Msg) (wasmvmtypes.CosmosMsg, error) {
 	any, err := codectypes.NewAnyWithValue(msg)
 	if err != nil {
 		return wasmvmtypes.CosmosMsg{}, err
@@ -601,10 +601,10 @@ func reflectEncoders(cdc codec.Codec) *MessageEncoders {
 	}
 }
 
-// fromReflectRawMsg decodes msg.Data to an sdk.Msg using proto Any and json encoding.
+// fromReflectRawMsg decodes msg.Data to an seitypes.Msg using proto Any and json encoding.
 // this needs to be registered on the Encoders
 func fromReflectRawMsg(cdc codec.Codec) CustomEncoder {
-	return func(_sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]sdk.Msg, error) {
+	return func(_sender seitypes.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]seitypes.Msg, error) {
 		var custom reflectCustomMsg
 		err := json.Unmarshal(msg, &custom)
 		if err != nil {
@@ -615,11 +615,11 @@ func fromReflectRawMsg(cdc codec.Codec) CustomEncoder {
 			if err := cdc.UnmarshalJSON(custom.Raw, &any); err != nil {
 				return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 			}
-			var msg sdk.Msg
+			var msg seitypes.Msg
 			if err := cdc.UnpackAny(&any, &msg); err != nil {
 				return nil, err
 			}
-			return []sdk.Msg{msg}, nil
+			return []seitypes.Msg{msg}, nil
 		}
 		if custom.Debug != "" {
 			return nil, sdkerrors.Wrapf(types.ErrInvalidMsg, "Custom Debug: %s", custom.Debug)

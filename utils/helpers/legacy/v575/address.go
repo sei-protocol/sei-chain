@@ -13,18 +13,18 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-func GetAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
+func GetAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.Address, seitypes.AccAddress, cryptotypes.PubKey, error) {
 	pubkey, err := RecoverPubkey(data, R, S, V, true)
 	if err != nil {
-		return common.Address{}, sdk.AccAddress{}, nil, err
+		return common.Address{}, seitypes.AccAddress{}, nil, err
 	}
 
 	evmAddr, err := PubkeyToEVMAddress(pubkey)
 	if err != nil {
-		return common.Address{}, sdk.AccAddress{}, nil, err
+		return common.Address{}, seitypes.AccAddress{}, nil, err
 	}
 	seiPubkey := PubkeyBytesToSeiPubKey(pubkey)
-	seiAddr := sdk.AccAddress(seiPubkey.Address())
+	seiAddr := seitypes.AccAddress(seiPubkey.Address())
 	return evmAddr, seiAddr, &seiPubkey, nil
 }
 

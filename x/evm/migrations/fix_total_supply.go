@@ -16,7 +16,7 @@ func FixTotalSupply(ctx sdk.Context, k *keeper.Keeper) error {
 		correctSupply = correctSupply.Add(balance.Coins.AmountOf(sdk.MustGetBaseDenom()))
 	}
 	totalWeiBalance := sdk.ZeroInt()
-	k.BankKeeper().IterateAllWeiBalances(ctx, func(aa sdk.AccAddress, i sdk.Int) bool {
+	k.BankKeeper().IterateAllWeiBalances(ctx, func(aa seitypes.AccAddress, i sdk.Int) bool {
 		totalWeiBalance = totalWeiBalance.Add(i)
 		return false
 	})

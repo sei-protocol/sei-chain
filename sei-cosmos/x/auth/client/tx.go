@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gogo/protobuf/jsonpb"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/tx"
@@ -31,7 +32,7 @@ func (gr GasEstimateResponse) String() string {
 }
 
 // PrintUnsignedStdTx builds an unsigned StdTx and prints it to os.Stdout.
-func PrintUnsignedStdTx(txBldr tx.Factory, clientCtx client.Context, msgs []sdk.Msg) error {
+func PrintUnsignedStdTx(txBldr tx.Factory, clientCtx client.Context, msgs []seitypes.Msg) error {
 	err := tx.GenerateTx(clientCtx, txBldr, msgs...)
 	return err
 }
@@ -51,7 +52,7 @@ func SignTx(txFactory tx.Factory, clientCtx client.Context, name string, txBuild
 		txFactory = txFactory.WithSignMode(signing.SignMode_SIGN_MODE_LEGACY_AMINO_JSON)
 	}
 
-	addr := sdk.AccAddress(info.GetPubKey().Address())
+	addr := seitypes.AccAddress(info.GetPubKey().Address())
 	if !isTxSigner(addr, txBuilder.GetTx().GetSigners()) {
 		return fmt.Errorf("%s: %s", sdkerrors.ErrorInvalidSigner, name)
 	}
@@ -70,7 +71,7 @@ func SignTx(txFactory tx.Factory, clientCtx client.Context, name string, txBuild
 // populate account and sequence numbers from a foreign account.
 // This function should only be used when signing with a multisig. For
 // normal keys, please use SignTx directly.
-func SignTxWithSignerAddress(txFactory tx.Factory, clientCtx client.Context, addr sdk.AccAddress,
+func SignTxWithSignerAddress(txFactory tx.Factory, clientCtx client.Context, addr seitypes.AccAddress,
 	name string, txBuilder client.TxBuilder, offline, overwrite bool) (err error) {
 	// Multisigs only support LEGACY_AMINO_JSON signing.
 	if txFactory.SignMode() == signing.SignMode_SIGN_MODE_UNSPECIFIED {
@@ -93,7 +94,7 @@ func SignTxWithSignerAddress(txFactory tx.Factory, clientCtx client.Context, add
 }
 
 // Read and decode a StdTx from the given filename.  Can pass "-" to read from stdin.
-func ReadTxFromFile(ctx client.Context, filename string) (tx sdk.Tx, err error) {
+func ReadTxFromFile(ctx client.Context, filename string) (tx seitypes.Tx, err error) {
 	var bytes []byte
 
 	if filename == "-" {
@@ -118,13 +119,13 @@ func NewBatchScanner(cfg client.TxConfig, r io.Reader) *BatchScanner {
 // of newline-delimited JSON encoded StdTx.
 type BatchScanner struct {
 	*bufio.Scanner
-	theTx        sdk.Tx
+	theTx        seitypes.Tx
 	cfg          client.TxConfig
 	unmarshalErr error
 }
 
 // Tx returns the most recent Tx unmarshalled by a call to Scan.
-func (bs BatchScanner) Tx() sdk.Tx { return bs.theTx }
+func (bs BatchScanner) Tx() seitypes.Tx { return bs.theTx }
 
 // UnmarshalErr returns the first unmarshalling error that was encountered by the scanner.
 func (bs BatchScanner) UnmarshalErr() error { return bs.unmarshalErr }
@@ -146,7 +147,7 @@ func (bs *BatchScanner) Scan() bool {
 }
 
 func populateAccountFromState(
-	txBldr tx.Factory, clientCtx client.Context, addr sdk.AccAddress,
+	txBldr tx.Factory, clientCtx client.Context, addr seitypes.AccAddress,
 ) (tx.Factory, error) {
 
 	num, seq, err := clientCtx.AccountRetriever.GetAccountNumberSequence(clientCtx, addr)
@@ -159,8 +160,8 @@ func populateAccountFromState(
 
 // GetTxEncoder return tx encoder from global sdk configuration if ones is defined.
 // Otherwise returns encoder with default logic.
-func GetTxEncoder(cdc *codec.LegacyAmino) (encoder sdk.TxEncoder) {
-	encoder = sdk.GetConfig().GetTxEncoder()
+func GetTxEncoder(cdc *codec.LegacyAmino) (encoder seitypes.TxEncoder) {
+	encoder = seitypes.GetConfig().GetTxEncoder()
 	if encoder == nil {
 		encoder = legacytx.DefaultTxEncoder(cdc)
 	}
@@ -177,7 +178,7 @@ func ParseQueryResponse(bz []byte) (sdk.SimulationResponse, error) {
 	return simRes, nil
 }
 
-func isTxSigner(user sdk.AccAddress, signers []sdk.AccAddress) bool {
+func isTxSigner(user seitypes.AccAddress, signers []seitypes.AccAddress) bool {
 	for _, s := range signers {
 		if bytes.Equal(user.Bytes(), s.Bytes()) {
 			return true

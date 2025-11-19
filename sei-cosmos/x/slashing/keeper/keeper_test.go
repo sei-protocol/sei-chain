@@ -56,7 +56,7 @@ func TestUnJailNotBonded(t *testing.T) {
 
 	// unbond below minimum self-delegation
 	require.Equal(t, p.BondDenom, tstaking.Denom)
-	tstaking.Undelegate(sdk.AccAddress(addr), addr, app.StakingKeeper.TokensFromConsensusPower(ctx, 1), true)
+	tstaking.Undelegate(seitypes.AccAddress(addr), addr, app.StakingKeeper.TokensFromConsensusPower(ctx, 1), true)
 
 	staking.EndBlocker(ctx, app.StakingKeeper)
 	ctx = ctx.WithBlockHeight(ctx.BlockHeight() + 1)
@@ -70,7 +70,7 @@ func TestUnJailNotBonded(t *testing.T) {
 	staking.EndBlocker(ctx, app.StakingKeeper)
 	ctx = ctx.WithBlockHeight(ctx.BlockHeight() + 1)
 	// bond to meet minimum self-delegation
-	tstaking.DelegateWithPower(sdk.AccAddress(addr), addr, 1)
+	tstaking.DelegateWithPower(seitypes.AccAddress(addr), addr, 1)
 
 	staking.EndBlocker(ctx, app.StakingKeeper)
 	ctx = ctx.WithBlockHeight(ctx.BlockHeight() + 1)
@@ -100,7 +100,7 @@ func TestHandleNewValidator(t *testing.T) {
 
 	staking.EndBlocker(ctx, app.StakingKeeper)
 	require.Equal(
-		t, app.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr)),
+		t, app.BankKeeper.GetAllBalances(ctx, seitypes.AccAddress(addr)),
 		sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.GetParams(ctx).BondDenom, InitTokens.Sub(amt))),
 	)
 	require.Equal(t, amt, app.StakingKeeper.Validator(ctx, addr).GetBondedTokens())
@@ -110,7 +110,7 @@ func TestHandleNewValidator(t *testing.T) {
 	ctx = ctx.WithBlockHeight(app.SlashingKeeper.SignedBlocksWindow(ctx) + 2)
 	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 100, false).LastCommitInfo.Votes, app.SlashingKeeper)
 
-	info, found := app.SlashingKeeper.GetValidatorSigningInfo(ctx, sdk.ConsAddress(val.Address()))
+	info, found := app.SlashingKeeper.GetValidatorSigningInfo(ctx, seitypes.ConsAddress(val.Address()))
 	require.True(t, found)
 	require.Equal(t, app.SlashingKeeper.SignedBlocksWindow(ctx)+1, info.StartHeight)
 	require.Equal(t, int64(1), info.MissedBlocksCounter)
@@ -204,9 +204,9 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 	seiapp.AddTestAddrsFromPubKeys(app, ctx, pks, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 
 	addr, val := pks[0].Address(), pks[0]
-	consAddr := sdk.ConsAddress(addr)
+	consAddr := seitypes.ConsAddress(addr)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
-	valAddr := sdk.ValAddress(addr)
+	valAddr := seitypes.ValAddress(addr)
 
 	tstaking.CreateValidatorWithValPower(valAddr, val, power, true)
 	staking.EndBlocker(ctx, app.StakingKeeper)
@@ -219,7 +219,7 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 	}
 
 	// kick first validator out of validator set
-	tstaking.CreateValidatorWithValPower(sdk.ValAddress(pks[1].Address()), pks[1], 101, true)
+	tstaking.CreateValidatorWithValPower(seitypes.ValAddress(pks[1].Address()), pks[1], 101, true)
 	validatorUpdates := staking.EndBlocker(ctx, app.StakingKeeper)
 	require.Equal(t, 2, len(validatorUpdates))
 	tstaking.CheckValidator(valAddr, stakingtypes.Unbonding, false)
@@ -229,7 +229,7 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 	ctx = ctx.WithBlockHeight(height)
 
 	// validator added back in
-	tstaking.DelegateWithPower(sdk.AccAddress(pks[2].Address()), sdk.ValAddress(pks[0].Address()), 50)
+	tstaking.DelegateWithPower(seitypes.AccAddress(pks[2].Address()), seitypes.ValAddress(pks[0].Address()), 50)
 
 	validatorUpdates = staking.EndBlocker(ctx, app.StakingKeeper)
 	require.Equal(t, 2, len(validatorUpdates))
@@ -295,7 +295,7 @@ func TestSlash(t *testing.T) {
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 6, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 	keeper := app.SlashingKeeper
 
-	consAddr := sdk.ConsAddress(addrDels[0])
+	consAddr := seitypes.ConsAddress(addrDels[0])
 	fraction := sdk.NewDec(5)
 	power := int64(100)
 	distributionHeight := int64(200)

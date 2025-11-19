@@ -95,7 +95,7 @@ func TestValidateProposalCommons(t *testing.T) {
 
 func TestValidateStoreCodeProposal(t *testing.T) {
 	var (
-		anyAddress     sdk.AccAddress = bytes.Repeat([]byte{0x0}, ContractAddrLen)
+		anyAddress     seitypes.AccAddress = bytes.Repeat([]byte{0x0}, ContractAddrLen)
 		invalidAddress                = "invalid address"
 	)
 

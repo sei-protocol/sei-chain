@@ -61,7 +61,7 @@ func (k msgServer) SubmitProposal(goCtx context.Context, msg *types.MsgSubmitPro
 
 func (k msgServer) Vote(goCtx context.Context, msg *types.MsgVote) (*types.MsgVoteResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	accAddr, err := sdk.AccAddressFromBech32(msg.Voter)
+	accAddr, err := seitypes.AccAddressFromBech32(msg.Voter)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func (k msgServer) Vote(goCtx context.Context, msg *types.MsgVote) (*types.MsgVo
 
 func (k msgServer) VoteWeighted(goCtx context.Context, msg *types.MsgVoteWeighted) (*types.MsgVoteWeightedResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	accAddr, accErr := sdk.AccAddressFromBech32(msg.Voter)
+	accAddr, accErr := seitypes.AccAddressFromBech32(msg.Voter)
 	if accErr != nil {
 		return nil, accErr
 	}
@@ -122,7 +122,7 @@ func (k msgServer) VoteWeighted(goCtx context.Context, msg *types.MsgVoteWeighte
 
 func (k msgServer) Deposit(goCtx context.Context, msg *types.MsgDeposit) (*types.MsgDepositResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	accAddr, err := sdk.AccAddressFromBech32(msg.Depositor)
+	accAddr, err := seitypes.AccAddressFromBech32(msg.Depositor)
 	if err != nil {
 		return nil, err
 	}

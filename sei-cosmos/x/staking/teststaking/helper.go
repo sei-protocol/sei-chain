@@ -32,14 +32,14 @@ func NewHelper(t *testing.T, ctx sdk.Context, k keeper.Keeper) *Helper {
 }
 
 // CreateValidator calls handler to create a new staking validator
-func (sh *Helper) CreateValidator(addr sdk.ValAddress, pk cryptotypes.PubKey, stakeAmount sdk.Int, ok bool) {
+func (sh *Helper) CreateValidator(addr seitypes.ValAddress, pk cryptotypes.PubKey, stakeAmount sdk.Int, ok bool) {
 	coin := sdk.NewCoin(sh.Denom, stakeAmount)
 	sh.createValidator(addr, pk, coin, ok)
 }
 
 // CreateValidatorWithValPower calls handler to create a new staking validator with zero
 // commission
-func (sh *Helper) CreateValidatorWithValPower(addr sdk.ValAddress, pk cryptotypes.PubKey, valPower int64, ok bool) sdk.Int {
+func (sh *Helper) CreateValidatorWithValPower(addr seitypes.ValAddress, pk cryptotypes.PubKey, valPower int64, ok bool) sdk.Int {
 	amount := sh.k.TokensFromConsensusPower(sh.Ctx, valPower)
 	coin := sdk.NewCoin(sh.Denom, amount)
 	sh.createValidator(addr, pk, coin, ok)
@@ -47,42 +47,42 @@ func (sh *Helper) CreateValidatorWithValPower(addr sdk.ValAddress, pk cryptotype
 }
 
 // CreateValidatorMsg returns a message used to create validator in this service.
-func (sh *Helper) CreateValidatorMsg(addr sdk.ValAddress, pk cryptotypes.PubKey, stakeAmount sdk.Int) *stakingtypes.MsgCreateValidator {
+func (sh *Helper) CreateValidatorMsg(addr seitypes.ValAddress, pk cryptotypes.PubKey, stakeAmount sdk.Int) *stakingtypes.MsgCreateValidator {
 	coin := sdk.NewCoin(sh.Denom, stakeAmount)
 	msg, err := stakingtypes.NewMsgCreateValidator(addr, pk, coin, stakingtypes.Description{}, sh.Commission, sdk.OneInt())
 	require.NoError(sh.t, err)
 	return msg
 }
 
-func (sh *Helper) createValidator(addr sdk.ValAddress, pk cryptotypes.PubKey, coin sdk.Coin, ok bool) {
+func (sh *Helper) createValidator(addr seitypes.ValAddress, pk cryptotypes.PubKey, coin sdk.Coin, ok bool) {
 	msg, err := stakingtypes.NewMsgCreateValidator(addr, pk, coin, stakingtypes.Description{}, sh.Commission, sdk.OneInt())
 	require.NoError(sh.t, err)
 	sh.Handle(msg, ok)
 }
 
 // Delegate calls handler to delegate stake for a validator
-func (sh *Helper) Delegate(delegator sdk.AccAddress, val sdk.ValAddress, amount sdk.Int) {
+func (sh *Helper) Delegate(delegator seitypes.AccAddress, val seitypes.ValAddress, amount sdk.Int) {
 	coin := sdk.NewCoin(sh.Denom, amount)
 	msg := stakingtypes.NewMsgDelegate(delegator, val, coin)
 	sh.Handle(msg, true)
 }
 
 // DelegateWithPower calls handler to delegate stake for a validator
-func (sh *Helper) DelegateWithPower(delegator sdk.AccAddress, val sdk.ValAddress, power int64) {
+func (sh *Helper) DelegateWithPower(delegator seitypes.AccAddress, val seitypes.ValAddress, power int64) {
 	coin := sdk.NewCoin(sh.Denom, sh.k.TokensFromConsensusPower(sh.Ctx, power))
 	msg := stakingtypes.NewMsgDelegate(delegator, val, coin)
 	sh.Handle(msg, true)
 }
 
 // Undelegate calls handler to unbound some stake from a validator.
-func (sh *Helper) Undelegate(delegator sdk.AccAddress, val sdk.ValAddress, amount sdk.Int, ok bool) *sdk.Result {
+func (sh *Helper) Undelegate(delegator seitypes.AccAddress, val seitypes.ValAddress, amount sdk.Int, ok bool) *sdk.Result {
 	unbondAmt := sdk.NewCoin(sh.Denom, amount)
 	msg := stakingtypes.NewMsgUndelegate(delegator, val, unbondAmt)
 	return sh.Handle(msg, ok)
 }
 
 // Handle calls staking handler on a given message
-func (sh *Helper) Handle(msg sdk.Msg, ok bool) *sdk.Result {
+func (sh *Helper) Handle(msg seitypes.Msg, ok bool) *sdk.Result {
 	res, err := sh.h(sh.Ctx, msg)
 	if ok {
 		require.NoError(sh.t, err)
@@ -96,7 +96,7 @@ func (sh *Helper) Handle(msg sdk.Msg, ok bool) *sdk.Result {
 
 // CheckValidator asserts that a validor exists and has a given status (if status!="")
 // and if has a right jailed flag.
-func (sh *Helper) CheckValidator(addr sdk.ValAddress, status stakingtypes.BondStatus, jailed bool) stakingtypes.Validator {
+func (sh *Helper) CheckValidator(addr seitypes.ValAddress, status stakingtypes.BondStatus, jailed bool) stakingtypes.Validator {
 	v, ok := sh.k.GetValidator(sh.Ctx, addr)
 	require.True(sh.t, ok)
 	require.Equal(sh.t, jailed, v.Jailed, "wrong Jalied status")
@@ -107,7 +107,7 @@ func (sh *Helper) CheckValidator(addr sdk.ValAddress, status stakingtypes.BondSt
 }
 
 // CheckDelegator asserts that a delegator exists
-func (sh *Helper) CheckDelegator(delegator sdk.AccAddress, val sdk.ValAddress, found bool) {
+func (sh *Helper) CheckDelegator(delegator seitypes.AccAddress, val seitypes.ValAddress, found bool) {
 	_, ok := sh.k.GetDelegation(sh.Ctx, delegator, val)
 	require.Equal(sh.t, ok, found)
 }

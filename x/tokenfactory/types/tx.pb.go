@@ -146,7 +146,7 @@ func (m *MsgCreateDenomResponse) GetNewTokenDenom() string {
 	return ""
 }
 
-// MsgMint is the sdk.Msg type for allowing an admin account to mint
+// MsgMint is the seitypes.Msg type for allowing an admin account to mint
 // more of a token.  For now, we only support minting to the sender account
 type MsgMint struct {
 	Sender string      `protobuf:"bytes,1,opt,name=sender,proto3" json:"sender,omitempty" yaml:"sender"`
@@ -236,7 +236,7 @@ func (m *MsgMintResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_MsgMintResponse proto.InternalMessageInfo
 
-// MsgBurn is the sdk.Msg type for allowing an admin account to burn
+// MsgBurn is the seitypes.Msg type for allowing an admin account to burn
 // a token.  For now, we only support burning from the sender account.
 type MsgBurn struct {
 	Sender string      `protobuf:"bytes,1,opt,name=sender,proto3" json:"sender,omitempty" yaml:"sender"`
@@ -326,7 +326,7 @@ func (m *MsgBurnResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_MsgBurnResponse proto.InternalMessageInfo
 
-// MsgChangeAdmin is the sdk.Msg type for allowing an admin account to reassign
+// MsgChangeAdmin is the seitypes.Msg type for allowing an admin account to reassign
 // adminship of a denom to a new account
 type MsgChangeAdmin struct {
 	Sender   string `protobuf:"bytes,1,opt,name=sender,proto3" json:"sender,omitempty" yaml:"sender"`
@@ -426,7 +426,7 @@ func (m *MsgChangeAdminResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_MsgChangeAdminResponse proto.InternalMessageInfo
 
-// MsgSetDenomMetadata is the sdk.Msg type for allowing an admin account to set
+// MsgSetDenomMetadata is the seitypes.Msg type for allowing an admin account to set
 // the denom's bank metadata
 type MsgSetDenomMetadata struct {
 	Sender   string         `protobuf:"bytes,1,opt,name=sender,proto3" json:"sender,omitempty" yaml:"sender"`
@@ -518,7 +518,7 @@ func (m *MsgSetDenomMetadataResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_MsgSetDenomMetadataResponse proto.InternalMessageInfo
 
-// MsgUpdateDenom is the sdk.Msg allowing an admin to update the denom
+// MsgUpdateDenom is the seitypes.Msg allowing an admin to update the denom
 type MsgUpdateDenom struct {
 	Sender    string           `protobuf:"bytes,1,opt,name=sender,proto3" json:"sender,omitempty" yaml:"sender"`
 	Denom     string           `protobuf:"bytes,2,opt,name=denom,proto3" json:"denom,omitempty" yaml:"denom"`

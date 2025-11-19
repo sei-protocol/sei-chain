@@ -32,7 +32,7 @@ func NewEVMFeeCheckDecorator(evmKeeper *evmkeeper.Keeper, upgradeKeeper *upgrade
 	}
 }
 
-func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	if simulate {
 		return next(ctx, tx, simulate)
 	}

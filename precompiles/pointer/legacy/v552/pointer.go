@@ -205,7 +205,7 @@ func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller commo
 	if exists {
 		return nil, 0, fmt.Errorf("pointer at %s with version %d exists when trying to set pointer for version %d", existingAddr.Hex(), existingVersion, cw20.CurrentVersion(ctx))
 	}
-	cwAddress, err := sdk.AccAddressFromBech32(cwAddr)
+	cwAddress, err := seitypes.AccAddressFromBech32(cwAddr)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -260,7 +260,7 @@ func (p Precompile) AddCW721(ctx sdk.Context, method *ethabi.Method, caller comm
 	if exists && existingVersion >= 4 {
 		return nil, 0, fmt.Errorf("pointer at %s with version %d exists when trying to set pointer for version %d", existingAddr.Hex(), existingVersion, cw721.CurrentVersion)
 	}
-	cwAddress, err := sdk.AccAddressFromBech32(cwAddr)
+	cwAddress, err := seitypes.AccAddressFromBech32(cwAddr)
 	if err != nil {
 		return nil, 0, err
 	}

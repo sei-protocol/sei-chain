@@ -7,35 +7,35 @@ import (
 )
 
 type AuthorizationPolicy interface {
-	CanCreateCode(c types.AccessConfig, creator sdk.AccAddress) bool
-	CanInstantiateContract(c types.AccessConfig, actor sdk.AccAddress) bool
-	CanModifyContract(admin, actor sdk.AccAddress) bool
+	CanCreateCode(c types.AccessConfig, creator seitypes.AccAddress) bool
+	CanInstantiateContract(c types.AccessConfig, actor seitypes.AccAddress) bool
+	CanModifyContract(admin, actor seitypes.AccAddress) bool
 }
 
 type DefaultAuthorizationPolicy struct{}
 
-func (p DefaultAuthorizationPolicy) CanCreateCode(config types.AccessConfig, actor sdk.AccAddress) bool {
+func (p DefaultAuthorizationPolicy) CanCreateCode(config types.AccessConfig, actor seitypes.AccAddress) bool {
 	return config.Allowed(actor)
 }
 
-func (p DefaultAuthorizationPolicy) CanInstantiateContract(config types.AccessConfig, actor sdk.AccAddress) bool {
+func (p DefaultAuthorizationPolicy) CanInstantiateContract(config types.AccessConfig, actor seitypes.AccAddress) bool {
 	return config.Allowed(actor)
 }
 
-func (p DefaultAuthorizationPolicy) CanModifyContract(admin, actor sdk.AccAddress) bool {
+func (p DefaultAuthorizationPolicy) CanModifyContract(admin, actor seitypes.AccAddress) bool {
 	return admin != nil && admin.Equals(actor)
 }
 
 type GovAuthorizationPolicy struct{}
 
-func (p GovAuthorizationPolicy) CanCreateCode(types.AccessConfig, sdk.AccAddress) bool {
+func (p GovAuthorizationPolicy) CanCreateCode(types.AccessConfig, seitypes.AccAddress) bool {
 	return true
 }
 
-func (p GovAuthorizationPolicy) CanInstantiateContract(types.AccessConfig, sdk.AccAddress) bool {
+func (p GovAuthorizationPolicy) CanInstantiateContract(types.AccessConfig, seitypes.AccAddress) bool {
 	return true
 }
 
-func (p GovAuthorizationPolicy) CanModifyContract(sdk.AccAddress, sdk.AccAddress) bool {
+func (p GovAuthorizationPolicy) CanModifyContract(seitypes.AccAddress, seitypes.AccAddress) bool {
 	return true
 }

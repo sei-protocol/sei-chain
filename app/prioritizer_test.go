@@ -34,51 +34,51 @@ func (s *PrioritizerTestSuite) SetupTest() {
 
 var (
 	_ sdk.FeeTx = (*mockFeeTx)(nil)
-	_ sdk.Tx    = (*mockTx)(nil)
+	_ seitypes.Tx    = (*mockTx)(nil)
 )
 
 type mockFeeTx struct {
-	sdk.Tx
+	seitypes.Tx
 	fees sdk.Coins
 	gas  uint64
-	msgs []sdk.Msg
+	msgs []seitypes.Msg
 }
 
-func (tx *mockFeeTx) FeePayer() sdk.AccAddress   { return nil }
-func (tx *mockFeeTx) FeeGranter() sdk.AccAddress { return nil }
+func (tx *mockFeeTx) FeePayer() seitypes.AccAddress   { return nil }
+func (tx *mockFeeTx) FeeGranter() seitypes.AccAddress { return nil }
 func (tx *mockFeeTx) GetFee() sdk.Coins          { return tx.fees }
 func (tx *mockFeeTx) GetGas() uint64             { return tx.gas }
-func (tx *mockFeeTx) GetMsgs() []sdk.Msg         { return tx.msgs }
+func (tx *mockFeeTx) GetMsgs() []seitypes.Msg         { return tx.msgs }
 
 type mockTx struct {
-	msgs        []sdk.Msg
+	msgs        []seitypes.Msg
 	gasEstimate uint64
 }
 
 func (tx *mockTx) GetGasEstimate() uint64    { return tx.gasEstimate }
-func (tx *mockTx) GetMsgs() []sdk.Msg        { return tx.msgs }
+func (tx *mockTx) GetMsgs() []seitypes.Msg        { return tx.msgs }
 func (*mockTx) ValidateBasic() error         { return nil }
-func (*mockTx) GetSigners() []sdk.AccAddress { return nil }
+func (*mockTx) GetSigners() []seitypes.AccAddress { return nil }
 
 func (s *PrioritizerTestSuite) TestGetTxPriority() {
 	var (
-		zeroValueTx    = func(*PrioritizerTestSuite) sdk.Tx { return &mockTx{} }
-		zeroValueFeeTx = func(*PrioritizerTestSuite) sdk.Tx { return &mockFeeTx{} }
-		zeroGasFeeTx   = func(*PrioritizerTestSuite) sdk.Tx {
+		zeroValueTx    = func(*PrioritizerTestSuite) seitypes.Tx { return &mockTx{} }
+		zeroValueFeeTx = func(*PrioritizerTestSuite) seitypes.Tx { return &mockFeeTx{} }
+		zeroGasFeeTx   = func(*PrioritizerTestSuite) seitypes.Tx {
 			return &mockFeeTx{
 				gas: 0,
 			}
 		}
-		oracleVoteTx = func(s *PrioritizerTestSuite) sdk.Tx {
+		oracleVoteTx = func(s *PrioritizerTestSuite) seitypes.Tx {
 			return &mockFeeTx{
-				msgs: []sdk.Msg{&oracletypes.MsgAggregateExchangeRateVote{}},
+				msgs: []seitypes.Msg{&oracletypes.MsgAggregateExchangeRateVote{}},
 			}
 		}
 	)
 
 	for _, tc := range []struct {
 		name          string
-		givenTx       func(s *PrioritizerTestSuite) sdk.Tx
+		givenTx       func(s *PrioritizerTestSuite) seitypes.Tx
 		givenContext  func(sdk.Context) sdk.Context
 		wantPriority  int64
 		wantErr       string
@@ -109,7 +109,7 @@ func (s *PrioritizerTestSuite) TestGetTxPriority() {
 		},
 		{
 			name: "cosmos tx with denominators is has priority of smallest demon multiplier",
-			givenTx: func(s *PrioritizerTestSuite) sdk.Tx {
+			givenTx: func(s *PrioritizerTestSuite) seitypes.Tx {
 				s.App.ParamsKeeper.SetFeesParams(s.Ctx, xparamtypes.FeesParams{
 					AllowedFeeDenoms: []string{"fish", "lobster"},
 				})

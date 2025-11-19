@@ -18,14 +18,14 @@ import (
 func TestDirectModeHandler(t *testing.T) {
 	privKey, pubkey, addr := testdata.KeyTestPubAddr()
 	interfaceRegistry := codectypes.NewInterfaceRegistry()
-	interfaceRegistry.RegisterImplementations((*sdk.Msg)(nil), &testdata.TestMsg{})
+	interfaceRegistry.RegisterImplementations((*seitypes.Msg)(nil), &testdata.TestMsg{})
 	marshaler := codec.NewProtoCodec(interfaceRegistry)
 
 	txConfig := NewTxConfig(marshaler, []signingtypes.SignMode{signingtypes.SignMode_SIGN_MODE_DIRECT})
 	txBuilder := txConfig.NewTxBuilder()
 
 	memo := "sometestmemo"
-	msgs := []sdk.Msg{testdata.NewTestMsg(addr)}
+	msgs := []seitypes.Msg{testdata.NewTestMsg(addr)}
 	accSeq := uint64(2) // Arbitrary account sequence
 	any, err := codectypes.NewAnyWithValue(pubkey)
 	require.NoError(t, err)
@@ -149,11 +149,11 @@ func TestDirectModeHandler_nonDIRECT_MODE(t *testing.T) {
 
 type nonProtoTx int
 
-func (npt *nonProtoTx) GetMsgs() []sdk.Msg     { return nil }
+func (npt *nonProtoTx) GetMsgs() []seitypes.Msg     { return nil }
 func (npt *nonProtoTx) ValidateBasic() error   { return nil }
 func (npt *nonProtoTx) GetGasEstimate() uint64 { return 0 }
 
-var _ sdk.Tx = (*nonProtoTx)(nil)
+var _ seitypes.Tx = (*nonProtoTx)(nil)
 
 func TestDirectModeHandler_nonProtoTx(t *testing.T) {
 	var dh signModeDirectHandler

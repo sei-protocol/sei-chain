@@ -22,12 +22,12 @@ func init() {
 // nolint:deadcode,unused,varcheck
 var (
 	priv1 = secp256k1.GenPrivKey()
-	addr1 = sdk.AccAddress(priv1.PubKey().Address())
+	addr1 = seitypes.AccAddress(priv1.PubKey().Address())
 	priv2 = secp256k1.GenPrivKey()
-	addr2 = sdk.AccAddress(priv2.PubKey().Address())
+	addr2 = seitypes.AccAddress(priv2.PubKey().Address())
 
 	valKey  = ed25519.GenPrivKey()
-	valAddr = sdk.AccAddress(valKey.PubKey().Address())
+	valAddr = seitypes.AccAddress(valKey.PubKey().Address())
 
 	commissionRates = types.NewCommissionRates(sdk.NewDecWithPrec(5, 2), sdk.NewDecWithPrec(5, 2), sdk.ZeroDec())
 
@@ -55,7 +55,7 @@ func getBaseSimappWithCustomKeeper(t *testing.T) (*codec.LegacyAmino, *seiapp.Ap
 }
 
 // generateAddresses generates numAddrs of normal AccAddrs and ValAddrs
-func generateAddresses(app *seiapp.App, ctx sdk.Context, numAddrs int, accAmount sdk.Int) ([]sdk.AccAddress, []sdk.ValAddress) {
+func generateAddresses(app *seiapp.App, ctx sdk.Context, numAddrs int, accAmount sdk.Int) ([]seitypes.AccAddress, []seitypes.ValAddress) {
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, numAddrs, accAmount)
 	addrVals := seiapp.ConvertAddrsToValAddrs(addrDels)
 

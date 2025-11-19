@@ -4,8 +4,7 @@ import (
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
-
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // SignModeHandlerMap is SignModeHandler that aggregates multiple SignModeHandler's into
@@ -51,7 +50,7 @@ func (h SignModeHandlerMap) Modes() []signing.SignMode {
 }
 
 // DefaultMode implements SignModeHandler.GetSignBytes
-func (h SignModeHandlerMap) GetSignBytes(mode signing.SignMode, data SignerData, tx sdk.Tx) ([]byte, error) {
+func (h SignModeHandlerMap) GetSignBytes(mode signing.SignMode, data SignerData, tx seitypes.Tx) ([]byte, error) {
 	handler, found := h.signModeHandlers[mode]
 	if !found {
 		return nil, fmt.Errorf("can't verify sign mode %s", mode.String())

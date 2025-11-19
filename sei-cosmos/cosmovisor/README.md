@@ -195,7 +195,7 @@ After that line, add the following:
 ```go
 app.UpgradeKeeper.SetUpgradeHandler("test1", func(ctx sdk.Context, plan upgradetypes.Plan) {
 	// Add some coins to a random account
-	addr, err := sdk.AccAddressFromBech32("cosmos18cgkqduwuh253twzmhedesw3l7v3fm37sppt58")
+	addr, err := seitypes.AccAddressFromBech32("cosmos18cgkqduwuh253twzmhedesw3l7v3fm37sppt58")
 	if err != nil {
 		panic(err)
 	}

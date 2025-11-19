@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"gopkg.in/yaml.v2"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -20,7 +21,7 @@ import (
 // Amino signing method and legacy router info.
 // Deprecated: Please use `Msg` instead.
 type LegacyMsg interface {
-	sdk.Msg
+	seitypes.Msg
 
 	// Get the canonical byte representation of the Msg.
 	GetSignBytes() []byte
@@ -50,7 +51,7 @@ type StdSignDoc struct {
 }
 
 // StdSignBytes returns the bytes to sign for a transaction.
-func StdSignBytes(chainID string, accnum, sequence, timeout uint64, fee StdFee, msgs []sdk.Msg, memo string) []byte {
+func StdSignBytes(chainID string, accnum, sequence, timeout uint64, fee StdFee, msgs []seitypes.Msg, memo string) []byte {
 	msgsBytes := make([]json.RawMessage, 0, len(msgs))
 	for _, msg := range msgs {
 		legacyMsg, ok := msg.(LegacyMsg)

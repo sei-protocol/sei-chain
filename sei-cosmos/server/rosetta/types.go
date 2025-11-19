@@ -25,7 +25,7 @@ const (
 
 const (
 	// BurnerAddressIdentifier mocks the account identifier of a burner address
-	// all coins burned in the sdk will be sent to this identifier, which per sdk.AccAddress
+	// all coins burned in the sdk will be sent to this identifier, which per seitypes.AccAddress
 	// design we will never be able to query (as of now).
 	// Rosetta does not understand supply contraction.
 	BurnerAddressIdentifier = "burner"

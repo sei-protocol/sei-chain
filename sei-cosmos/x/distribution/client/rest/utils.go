@@ -12,9 +12,9 @@ type (
 
 		Title       string         `json:"title" yaml:"title"`
 		Description string         `json:"description" yaml:"description"`
-		Recipient   sdk.AccAddress `json:"recipient" yaml:"recipient"`
+		Recipient   seitypes.AccAddress `json:"recipient" yaml:"recipient"`
 		Amount      sdk.Coins      `json:"amount" yaml:"amount"`
-		Proposer    sdk.AccAddress `json:"proposer" yaml:"proposer"`
+		Proposer    seitypes.AccAddress `json:"proposer" yaml:"proposer"`
 		Deposit     sdk.Coins      `json:"deposit" yaml:"deposit"`
 	}
 )

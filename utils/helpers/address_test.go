@@ -199,12 +199,12 @@ func TestGetAddressesFromPubkeyBytes(t *testing.T) {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errorMsg)
 				require.Equal(t, common.Address{}, evmAddr)
-				require.Equal(t, sdk.AccAddress{}, seiAddr)
+				require.Equal(t, seitypes.AccAddress{}, seiAddr)
 				require.Nil(t, seiPubkey)
 			} else {
 				require.NoError(t, err)
 				require.NotEqual(t, common.Address{}, evmAddr)
-				require.NotEqual(t, sdk.AccAddress{}, seiAddr)
+				require.NotEqual(t, seitypes.AccAddress{}, seiAddr)
 				require.NotNil(t, seiPubkey)
 
 				// Verify the addresses are derived correctly
@@ -214,7 +214,7 @@ func TestGetAddressesFromPubkeyBytes(t *testing.T) {
 
 				expectedSeiPubkey := PubkeyBytesToSeiPubKey(tt.pubkey)
 				require.Equal(t, &expectedSeiPubkey, seiPubkey)
-				require.Equal(t, sdk.AccAddress(expectedSeiPubkey.Address()), seiAddr)
+				require.Equal(t, seitypes.AccAddress(expectedSeiPubkey.Address()), seiAddr)
 			}
 		})
 	}
@@ -271,12 +271,12 @@ func TestGetAddresses(t *testing.T) {
 			if tt.expectError {
 				require.Error(t, err)
 				require.Equal(t, common.Address{}, evmAddr)
-				require.Equal(t, sdk.AccAddress{}, seiAddr)
+				require.Equal(t, seitypes.AccAddress{}, seiAddr)
 				require.Nil(t, seiPubkey)
 			} else {
 				require.NoError(t, err)
 				require.NotEqual(t, common.Address{}, evmAddr)
-				require.NotEqual(t, sdk.AccAddress{}, seiAddr)
+				require.NotEqual(t, seitypes.AccAddress{}, seiAddr)
 				require.NotNil(t, seiPubkey)
 
 				// Verify the addresses match what we'd expect from the original key

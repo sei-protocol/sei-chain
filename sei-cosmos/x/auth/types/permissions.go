@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // permissions
@@ -17,7 +17,7 @@ const (
 // PermissionsForAddress defines all the registered permissions for an address
 type PermissionsForAddress struct {
 	permissions []string
-	address     sdk.AccAddress
+	address     seitypes.AccAddress
 }
 
 // NewPermissionsForAddress creates a new PermissionsForAddress object
@@ -39,7 +39,7 @@ func (pa PermissionsForAddress) HasPermission(permission string) bool {
 }
 
 // GetAddress returns the address of the PermissionsForAddress object
-func (pa PermissionsForAddress) GetAddress() sdk.AccAddress {
+func (pa PermissionsForAddress) GetAddress() seitypes.AccAddress {
 	return pa.address
 }
 

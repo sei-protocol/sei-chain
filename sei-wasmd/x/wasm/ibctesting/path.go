@@ -81,7 +81,7 @@ func (path *Path) RelayPacket(packet channeltypes.Packet, ack []byte) error {
 
 // SendMsg delivers the provided messages to the chain. The counterparty
 // client is updated with the new source consensus state.
-func (path *Path) SendMsg(msgs ...sdk.Msg) error {
+func (path *Path) SendMsg(msgs ...seitypes.Msg) error {
 	if err := path.EndpointA.Chain.sendMsgs(msgs...); err != nil {
 		return err
 	}

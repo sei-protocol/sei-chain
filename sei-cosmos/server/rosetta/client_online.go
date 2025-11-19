@@ -72,7 +72,7 @@ func NewClient(cfg *Config) (*Client, error) {
 			continue
 		}
 
-		if _, ok := resolvedMsg.(sdk.Msg); ok {
+		if _, ok := resolvedMsg.(seitypes.Msg); ok {
 			supportedOperations = append(supportedOperations, ii)
 		}
 	}

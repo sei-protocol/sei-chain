@@ -22,7 +22,7 @@ func NewCountTXDecorator(storeKey sdk.StoreKey) *CountTXDecorator {
 // global rollback behavior instead of keeping state in the handler itself.
 // The ante handler passes the counter value via sdk.Context upstream. See `types.TXCounter(ctx)` to read the value.
 // Simulations don't get a tx counter value assigned.
-func (a CountTXDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (a CountTXDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	if simulate {
 		return next(ctx, tx, simulate)
 	}
@@ -58,19 +58,19 @@ func decodeHeightCounter(bz []byte) (int64, uint32) {
 type LimitSimulationGasDecorator struct {
 	gasLimit *sdk.Gas
 	// inputs: simulate, ctx, gas limit, tx
-	gasMeterSetter func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context
+	gasMeterSetter func(bool, sdk.Context, uint64, seitypes.Tx) sdk.Context
 }
 
 // NewLimitSimulationGasDecorator constructor accepts nil value to fallback to block gas limit.
-func NewLimitSimulationGasDecorator(gasLimit *sdk.Gas, gasMeterSetter func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context) *LimitSimulationGasDecorator {
+func NewLimitSimulationGasDecorator(gasLimit *sdk.Gas, gasMeterSetter func(bool, sdk.Context, uint64, seitypes.Tx) sdk.Context) *LimitSimulationGasDecorator {
 	if gasLimit != nil && *gasLimit == 0 {
 		panic("gas limit must not be zero")
 	}
 	return &LimitSimulationGasDecorator{gasLimit, gasMeterSetter}
 }
 
-func DefaultGasMeterSetter() func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context {
-	return func(simulate bool, ctx sdk.Context, gasLimit uint64, tx sdk.Tx) sdk.Context {
+func DefaultGasMeterSetter() func(bool, sdk.Context, uint64, seitypes.Tx) sdk.Context {
+	return func(simulate bool, ctx sdk.Context, gasLimit uint64, tx seitypes.Tx) sdk.Context {
 		return ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
 	}
 }
@@ -82,7 +82,7 @@ func DefaultGasMeterSetter() func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context
 // simulations but may have effect on client user experience.
 //
 // When no custom value is set then the max block gas is used as default limit.
-func (d LimitSimulationGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (d LimitSimulationGasDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	if !simulate {
 		// Wasm code is not executed in checkTX so that we don't need to limit it further.
 		// Tendermint rejects the TX afterwards when the tx.gas > max block gas.

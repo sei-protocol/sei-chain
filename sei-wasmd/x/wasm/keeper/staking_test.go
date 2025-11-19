@@ -27,7 +27,7 @@ type StakingInitMsg struct {
 	Name      string         `json:"name"`
 	Symbol    string         `json:"symbol"`
 	Decimals  uint8          `json:"decimals"`
-	Validator sdk.ValAddress `json:"validator"`
+	Validator seitypes.ValAddress `json:"validator"`
 	ExitTax   sdk.Dec        `json:"exit_tax"`
 	// MinWithdrawal is uint128 encoded as a string (use sdk.Int?)
 	MinWithdrawl string `json:"min_withdrawal"`
@@ -44,7 +44,7 @@ type StakingHandleMsg struct {
 }
 
 type transferPayload struct {
-	Recipient sdk.Address `json:"recipient"`
+	Recipient seitypes.Address `json:"recipient"`
 	// uint128 encoded as string
 	Amount string `json:"amount"`
 }
@@ -63,7 +63,7 @@ type StakingQueryMsg struct {
 }
 
 type addressQuery struct {
-	Address sdk.AccAddress `json:"address"`
+	Address seitypes.AccAddress `json:"address"`
 }
 
 type BalanceResponse struct {
@@ -84,8 +84,8 @@ type InvestmentResponse struct {
 	TokenSupply  string         `json:"token_supply"`
 	StakedTokens sdk.Coin       `json:"staked_tokens"`
 	NominalValue sdk.Dec        `json:"nominal_value"`
-	Owner        sdk.AccAddress `json:"owner"`
-	Validator    sdk.ValAddress `json:"validator"`
+	Owner        seitypes.AccAddress `json:"owner"`
+	Validator    seitypes.ValAddress `json:"validator"`
 	ExitTax      sdk.Dec        `json:"exit_tax"`
 	// MinWithdrawl is uint128 encoded as a string (use sdk.Int?)
 	MinWithdrawl string `json:"min_withdrawal"`
@@ -136,7 +136,7 @@ func TestInitializeStaking(t *testing.T) {
 		Name:         "Missing Validator",
 		Symbol:       "MISS",
 		Decimals:     0,
-		Validator:    sdk.ValAddress(bob),
+		Validator:    seitypes.ValAddress(bob),
 		ExitTax:      sdk.MustNewDecFromStr("0.10"),
 		MinWithdrawl: "100",
 	}
@@ -152,9 +152,9 @@ func TestInitializeStaking(t *testing.T) {
 }
 
 type initInfo struct {
-	valAddr      sdk.ValAddress
-	creator      sdk.AccAddress
-	contractAddr sdk.AccAddress
+	valAddr      seitypes.ValAddress
+	creator      seitypes.AccAddress
+	contractAddr seitypes.AccAddress
 
 	ctx            sdk.Context
 	accKeeper      authkeeper.AccountKeeper
@@ -513,7 +513,7 @@ func TestQueryStakingInfo(t *testing.T) {
 	require.Contains(t, valInfo.MaxChangeRate, "0.010")
 
 	// missing validator
-	noVal := sdk.ValAddress(secp256k1.GenPrivKey().PubKey().Address())
+	noVal := seitypes.ValAddress(secp256k1.GenPrivKey().PubKey().Address())
 	reflectNoValidatorQuery := ReflectQueryMsg{Chain: &ChainQuery{Request: &wasmvmtypes.QueryRequest{Staking: &wasmvmtypes.StakingQuery{
 		Validator: &wasmvmtypes.ValidatorQuery{
 			Address: noVal.String(),
@@ -652,12 +652,12 @@ func TestQueryStakingPlugin(t *testing.T) {
 }
 
 // adds a few validators and returns a list of validators that are registered
-func addValidator(t *testing.T, ctx sdk.Context, stakingKeeper stakingkeeper.Keeper, faucet *TestFaucet, value sdk.Coin) sdk.ValAddress {
+func addValidator(t *testing.T, ctx sdk.Context, stakingKeeper stakingkeeper.Keeper, faucet *TestFaucet, value sdk.Coin) seitypes.ValAddress {
 	owner := faucet.NewFundedAccount(ctx, value)
 
 	privKey := secp256k1.GenPrivKey()
 	pubKey := privKey.PubKey()
-	addr := sdk.ValAddress(pubKey.Address())
+	addr := seitypes.ValAddress(pubKey.Address())
 
 	pkAny, err := codectypes.NewAnyWithValue(pubKey)
 	require.NoError(t, err)
@@ -692,7 +692,7 @@ func nextBlock(ctx sdk.Context, stakingKeeper stakingkeeper.Keeper) sdk.Context 
 	return ctx
 }
 
-func setValidatorRewards(ctx sdk.Context, stakingKeeper stakingkeeper.Keeper, distKeeper distributionkeeper.Keeper, valAddr sdk.ValAddress, reward string) {
+func setValidatorRewards(ctx sdk.Context, stakingKeeper stakingkeeper.Keeper, distKeeper distributionkeeper.Keeper, valAddr seitypes.ValAddress, reward string) {
 	// allocate some rewards
 	vali := stakingKeeper.Validator(ctx, valAddr)
 	amount, err := sdk.NewDecFromStr(reward)
@@ -703,7 +703,7 @@ func setValidatorRewards(ctx sdk.Context, stakingKeeper stakingkeeper.Keeper, di
 	distKeeper.AllocateTokensToValidator(ctx, vali, payout)
 }
 
-func assertBalance(t *testing.T, ctx sdk.Context, keeper Keeper, contract sdk.AccAddress, addr sdk.AccAddress, expected string) {
+func assertBalance(t *testing.T, ctx sdk.Context, keeper Keeper, contract seitypes.AccAddress, addr seitypes.AccAddress, expected string) {
 	query := StakingQueryMsg{
 		Balance: &addressQuery{
 			Address: addr,
@@ -719,7 +719,7 @@ func assertBalance(t *testing.T, ctx sdk.Context, keeper Keeper, contract sdk.Ac
 	assert.Equal(t, expected, balance.Balance)
 }
 
-func assertClaims(t *testing.T, ctx sdk.Context, keeper Keeper, contract sdk.AccAddress, addr sdk.AccAddress, expected string) {
+func assertClaims(t *testing.T, ctx sdk.Context, keeper Keeper, contract seitypes.AccAddress, addr seitypes.AccAddress, expected string) {
 	query := StakingQueryMsg{
 		Claims: &addressQuery{
 			Address: addr,
@@ -735,7 +735,7 @@ func assertClaims(t *testing.T, ctx sdk.Context, keeper Keeper, contract sdk.Acc
 	assert.Equal(t, expected, claims.Claims)
 }
 
-func assertSupply(t *testing.T, ctx sdk.Context, keeper Keeper, contract sdk.AccAddress, expectedIssued string, expectedBonded sdk.Coin) {
+func assertSupply(t *testing.T, ctx sdk.Context, keeper Keeper, contract seitypes.AccAddress, expectedIssued string, expectedBonded sdk.Coin) {
 	query := StakingQueryMsg{Investment: &struct{}{}}
 	queryBz, err := json.Marshal(query)
 	require.NoError(t, err)

@@ -56,7 +56,7 @@ func DeconstructDenom(denom string) (creator string, subdenom string, err error)
 	}
 
 	creator = strParts[1]
-	_, err = sdk.AccAddressFromBech32(creator)
+	_, err = seitypes.AccAddressFromBech32(creator)
 	if err != nil {
 		return "", "", sdkerrors.Wrapf(ErrInvalidDenom, "Invalid creator address (%s)", err)
 	}

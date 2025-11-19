@@ -73,7 +73,7 @@ func TestMustGetEVMTransactionMessage(t *testing.T) {
 		Data:    nil,
 		Derived: nil,
 	}
-	testTx := app.NewTestTx([]sdk.Msg{&testMsg})
+	testTx := app.NewTestTx([]seitypes.Msg{&testMsg})
 
 	types.MustGetEVMTransactionMessage(testTx)
 }
@@ -85,7 +85,7 @@ func TestMustGetEVMTransactionMessageWrongType(t *testing.T) {
 		Contract: "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
 		Msg:      []byte("{\"xyz\":{}}"),
 	}
-	testTx := app.NewTestTx([]sdk.Msg{&testMsg})
+	testTx := app.NewTestTx([]seitypes.Msg{&testMsg})
 
 	defer func() { recover() }()
 	types.MustGetEVMTransactionMessage(testTx)
@@ -97,7 +97,7 @@ func TestMustGetEVMTransactionMessageMultipleMsgs(t *testing.T) {
 		Data:    nil,
 		Derived: nil,
 	}
-	testTx := app.NewTestTx([]sdk.Msg{&testMsg, &testMsg})
+	testTx := app.NewTestTx([]seitypes.Msg{&testMsg, &testMsg})
 
 	defer func() { recover() }()
 	types.MustGetEVMTransactionMessage(testTx)

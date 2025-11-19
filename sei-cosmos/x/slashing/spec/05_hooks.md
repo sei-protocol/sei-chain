@@ -22,7 +22,7 @@ Upon successful first-time bonding of a new validator, we create a new `Validato
 now-bonded validator, which `StartHeight` of the current block.
 
 ```
-onValidatorBonded(address sdk.ValAddress)
+onValidatorBonded(address seitypes.ValAddress)
 
   signingInfo, found = GetValidatorSigningInfo(address)
   if !found {

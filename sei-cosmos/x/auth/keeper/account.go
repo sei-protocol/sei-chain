@@ -3,10 +3,11 @@ package keeper
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // NewAccountWithAddress implements AccountKeeperI.
-func (ak AccountKeeper) NewAccountWithAddress(ctx sdk.Context, addr sdk.AccAddress) types.AccountI {
+func (ak AccountKeeper) NewAccountWithAddress(ctx sdk.Context, addr seitypes.AccAddress) types.AccountI {
 	acc := ak.proto()
 	err := acc.SetAddress(addr)
 	if err != nil {
@@ -26,13 +27,13 @@ func (ak AccountKeeper) NewAccount(ctx sdk.Context, acc types.AccountI) types.Ac
 }
 
 // HasAccount implements AccountKeeperI.
-func (ak AccountKeeper) HasAccount(ctx sdk.Context, addr sdk.AccAddress) bool {
+func (ak AccountKeeper) HasAccount(ctx sdk.Context, addr seitypes.AccAddress) bool {
 	store := ctx.KVStore(ak.key)
 	return store.Has(types.AddressStoreKey(addr))
 }
 
 // GetAccount implements AccountKeeperI.
-func (ak AccountKeeper) GetAccount(ctx sdk.Context, addr sdk.AccAddress) types.AccountI {
+func (ak AccountKeeper) GetAccount(ctx sdk.Context, addr seitypes.AccAddress) types.AccountI {
 	store := ctx.KVStore(ak.key)
 	bz := store.Get(types.AddressStoreKey(addr))
 	if bz == nil {

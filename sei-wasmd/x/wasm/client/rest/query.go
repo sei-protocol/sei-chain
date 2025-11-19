@@ -101,7 +101,7 @@ func listContractsByCodeHandlerFn(cliCtx client.Context) http.HandlerFunc {
 
 func queryContractHandlerFn(cliCtx client.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		addr, err := sdk.AccAddressFromBech32(mux.Vars(r)["contractAddr"])
+		addr, err := seitypes.AccAddressFromBech32(mux.Vars(r)["contractAddr"])
 		if err != nil {
 			rest.WriteErrorResponse(w, http.StatusInternalServerError, err.Error())
 			return
@@ -125,7 +125,7 @@ func queryContractHandlerFn(cliCtx client.Context) http.HandlerFunc {
 
 func queryContractStateAllHandlerFn(cliCtx client.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		addr, err := sdk.AccAddressFromBech32(mux.Vars(r)["contractAddr"])
+		addr, err := seitypes.AccAddressFromBech32(mux.Vars(r)["contractAddr"])
 		if err != nil {
 			rest.WriteErrorResponse(w, http.StatusInternalServerError, err.Error())
 			return
@@ -158,7 +158,7 @@ func queryContractStateAllHandlerFn(cliCtx client.Context) http.HandlerFunc {
 func queryContractStateRawHandlerFn(cliCtx client.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		decoder := newArgDecoder(hex.DecodeString)
-		addr, err := sdk.AccAddressFromBech32(mux.Vars(r)["contractAddr"])
+		addr, err := seitypes.AccAddressFromBech32(mux.Vars(r)["contractAddr"])
 		if err != nil {
 			rest.WriteErrorResponse(w, http.StatusInternalServerError, err.Error())
 			return
@@ -194,7 +194,7 @@ type smartResponse struct {
 func queryContractStateSmartHandlerFn(cliCtx client.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		decoder := newArgDecoder(hex.DecodeString)
-		addr, err := sdk.AccAddressFromBech32(mux.Vars(r)["contractAddr"])
+		addr, err := seitypes.AccAddressFromBech32(mux.Vars(r)["contractAddr"])
 		if err != nil {
 			rest.WriteErrorResponse(w, http.StatusInternalServerError, err.Error())
 			return
@@ -227,7 +227,7 @@ func queryContractStateSmartHandlerFn(cliCtx client.Context) http.HandlerFunc {
 
 func queryContractHistoryFn(cliCtx client.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		addr, err := sdk.AccAddressFromBech32(mux.Vars(r)["contractAddr"])
+		addr, err := seitypes.AccAddressFromBech32(mux.Vars(r)["contractAddr"])
 		if err != nil {
 			rest.WriteErrorResponse(w, http.StatusInternalServerError, err.Error())
 			return

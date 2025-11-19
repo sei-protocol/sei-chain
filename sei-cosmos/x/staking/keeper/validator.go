@@ -11,7 +11,7 @@ import (
 )
 
 // get a single validator
-func (k Keeper) GetValidator(ctx sdk.Context, addr sdk.ValAddress) (validator types.Validator, found bool) {
+func (k Keeper) GetValidator(ctx sdk.Context, addr seitypes.ValAddress) (validator types.Validator, found bool) {
 	store := ctx.KVStore(k.storeKey)
 
 	value := store.Get(types.GetValidatorKey(addr))
@@ -23,7 +23,7 @@ func (k Keeper) GetValidator(ctx sdk.Context, addr sdk.ValAddress) (validator ty
 	return validator, true
 }
 
-func (k Keeper) mustGetValidator(ctx sdk.Context, addr sdk.ValAddress) types.Validator {
+func (k Keeper) mustGetValidator(ctx sdk.Context, addr seitypes.ValAddress) types.Validator {
 	validator, found := k.GetValidator(ctx, addr)
 	if !found {
 		panic(fmt.Sprintf("validator record not found for address: %X\n", addr))
@@ -33,7 +33,7 @@ func (k Keeper) mustGetValidator(ctx sdk.Context, addr sdk.ValAddress) types.Val
 }
 
 // get a single validator by consensus address
-func (k Keeper) GetValidatorByConsAddr(ctx sdk.Context, consAddr sdk.ConsAddress) (validator types.Validator, found bool) {
+func (k Keeper) GetValidatorByConsAddr(ctx sdk.Context, consAddr seitypes.ConsAddress) (validator types.Validator, found bool) {
 	store := ctx.KVStore(k.storeKey)
 
 	opAddr := store.Get(types.GetValidatorByConsAddrKey(consAddr))
@@ -44,7 +44,7 @@ func (k Keeper) GetValidatorByConsAddr(ctx sdk.Context, consAddr sdk.ConsAddress
 	return k.GetValidator(ctx, opAddr)
 }
 
-func (k Keeper) mustGetValidatorByConsAddr(ctx sdk.Context, consAddr sdk.ConsAddress) types.Validator {
+func (k Keeper) mustGetValidatorByConsAddr(ctx sdk.Context, consAddr seitypes.ConsAddress) types.Validator {
 	validator, found := k.GetValidatorByConsAddr(ctx, consAddr)
 	if !found {
 		panic(fmt.Errorf("validator with consensus-Address %s not found", consAddr))
@@ -150,7 +150,7 @@ func (k Keeper) UpdateValidatorCommission(ctx sdk.Context,
 // remove the validator record and associated indexes
 // except for the bonded validator index which is only handled in ApplyAndReturnTendermintUpdates
 // TODO, this function panics, and it's not good.
-func (k Keeper) RemoveValidator(ctx sdk.Context, address sdk.ValAddress) {
+func (k Keeper) RemoveValidator(ctx sdk.Context, address seitypes.ValAddress) {
 	// first retrieve the old validator record
 	validator, found := k.GetValidator(ctx, address)
 	if !found {
@@ -247,7 +247,7 @@ func (k Keeper) ValidatorsPowerStoreIterator(ctx sdk.Context) sdk.Iterator {
 
 // Load the last validator power.
 // Returns zero if the operator was not a validator last block.
-func (k Keeper) GetLastValidatorPower(ctx sdk.Context, operator sdk.ValAddress) (power int64) {
+func (k Keeper) GetLastValidatorPower(ctx sdk.Context, operator seitypes.ValAddress) (power int64) {
 	store := ctx.KVStore(k.storeKey)
 
 	bz := store.Get(types.GetLastValidatorPowerKey(operator))
@@ -262,14 +262,14 @@ func (k Keeper) GetLastValidatorPower(ctx sdk.Context, operator sdk.ValAddress) 
 }
 
 // Set the last validator power.
-func (k Keeper) SetLastValidatorPower(ctx sdk.Context, operator sdk.ValAddress, power int64) {
+func (k Keeper) SetLastValidatorPower(ctx sdk.Context, operator seitypes.ValAddress, power int64) {
 	store := ctx.KVStore(k.storeKey)
 	bz := k.cdc.MustMarshal(&gogotypes.Int64Value{Value: power})
 	store.Set(types.GetLastValidatorPowerKey(operator), bz)
 }
 
 // Delete the last validator power.
-func (k Keeper) DeleteLastValidatorPower(ctx sdk.Context, operator sdk.ValAddress) {
+func (k Keeper) DeleteLastValidatorPower(ctx sdk.Context, operator seitypes.ValAddress) {
 	store := ctx.KVStore(k.storeKey)
 	store.Delete(types.GetLastValidatorPowerKey(operator))
 }
@@ -283,14 +283,14 @@ func (k Keeper) LastValidatorsIterator(ctx sdk.Context) (iterator sdk.Iterator) 
 }
 
 // Iterate over last validator powers.
-func (k Keeper) IterateLastValidatorPowers(ctx sdk.Context, handler func(operator sdk.ValAddress, power int64) (stop bool)) {
+func (k Keeper) IterateLastValidatorPowers(ctx sdk.Context, handler func(operator seitypes.ValAddress, power int64) (stop bool)) {
 	store := ctx.KVStore(k.storeKey)
 
 	iter := sdk.KVStorePrefixIterator(store, types.LastValidatorPowerKey)
 	defer iter.Close()
 
 	for ; iter.Valid(); iter.Next() {
-		addr := sdk.ValAddress(types.AddressFromLastValidatorPowerKey(iter.Key()))
+		addr := seitypes.ValAddress(types.AddressFromLastValidatorPowerKey(iter.Key()))
 		intV := &gogotypes.Int64Value{}
 
 		k.cdc.MustUnmarshal(iter.Value(), intV)

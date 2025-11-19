@@ -15,7 +15,7 @@ import (
 )
 
 func anteHandler(capKey sdk.StoreKey, storeKey []byte) sdk.AnteHandler {
-	return func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+	return func(ctx sdk.Context, tx seitypes.Tx, simulate bool) (sdk.Context, error) {
 		store := ctx.KVStore(capKey)
 		txTest := tx.(txTest)
 
@@ -35,7 +35,7 @@ func anteHandler(capKey sdk.StoreKey, storeKey []byte) sdk.AnteHandler {
 }
 
 func handlerKVStore(capKey sdk.StoreKey) sdk.Handler {
-	return func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
+	return func(ctx sdk.Context, msg seitypes.Msg) (*sdk.Result, error) {
 		ctx = ctx.WithEventManager(sdk.NewEventManager())
 		res := &sdk.Result{}
 

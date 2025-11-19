@@ -194,7 +194,7 @@ func TestPeriodicFeeValidAllow(t *testing.T) {
 
 			ctx := app.BaseApp.NewContext(false, tmproto.Header{}).WithBlockTime(tc.blockTime)
 			// now try to deduct
-			remove, err := tc.allow.Accept(ctx, tc.fee, []sdk.Msg{})
+			remove, err := tc.allow.Accept(ctx, tc.fee, []seitypes.Msg{})
 			if !tc.accept {
 				require.Error(t, err)
 				return

@@ -35,11 +35,11 @@ type (
 		KeyringPass         string
 		TMRPC               string
 		RPCTimeout          time.Duration
-		OracleAddr          sdk.AccAddress
+		OracleAddr          seitypes.AccAddress
 		OracleAddrString    string
-		ValidatorAddr       sdk.ValAddress
+		ValidatorAddr       seitypes.ValAddress
 		ValidatorAddrString string
-		FeeGranterAddr      sdk.AccAddress
+		FeeGranterAddr      seitypes.AccAddress
 		Encoding            appparams.EncodingConfig
 		GasPrices           string
 		GasAdjustment       float64
@@ -48,7 +48,7 @@ type (
 		BlockHeightEvents   chan int64
 
 		// MockBroadcastTx allows for a basic mock without refactoring this to an interface
-		MockBroadcastTx func(clientCtx client.Context, msgs ...sdk.Msg) (*sdk.TxResponse, error)
+		MockBroadcastTx func(clientCtx client.Context, msgs ...seitypes.Msg) (*sdk.TxResponse, error)
 	}
 
 	passReader struct {
@@ -73,12 +73,12 @@ func NewOracleClient(
 	gasAdjustment float64,
 	gasPrices string,
 ) (OracleClient, error) {
-	oracleAddr, err := sdk.AccAddressFromBech32(oracleAddrString)
+	oracleAddr, err := seitypes.AccAddressFromBech32(oracleAddrString)
 	if err != nil {
 		return OracleClient{}, err
 	}
 
-	feegrantAddrErr, _ := sdk.AccAddressFromBech32(feeGranterAddrString)
+	feegrantAddrErr, _ := seitypes.AccAddressFromBech32(feeGranterAddrString)
 
 	oracleClient := OracleClient{
 		Logger:              logger.With().Str("module", "oracle_client").Logger(),
@@ -90,7 +90,7 @@ func NewOracleClient(
 		RPCTimeout:          rpcTimeout,
 		OracleAddr:          oracleAddr,
 		OracleAddrString:    oracleAddrString,
-		ValidatorAddr:       sdk.ValAddress(validatorAddrString),
+		ValidatorAddr:       seitypes.ValAddress(validatorAddrString),
 		ValidatorAddrString: validatorAddrString,
 		FeeGranterAddr:      feegrantAddrErr,
 		Encoding:            app.MakeEncodingConfig(),
@@ -152,7 +152,7 @@ func (r *passReader) Read(p []byte) (n int, err error) {
 // and we manually increment the sequence number by 1 if the previous broadcastTx succeed.
 func (oc OracleClient) BroadcastTx(
 	clientCtx client.Context,
-	msgs ...sdk.Msg) (*sdk.TxResponse, error) {
+	msgs ...seitypes.Msg) (*sdk.TxResponse, error) {
 
 	// this allows for basic mocking without refactoring this to an interface (much larger change)
 	if oc.MockBroadcastTx != nil {

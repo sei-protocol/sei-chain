@@ -9,19 +9,19 @@ import (
 )
 
 func TestMsgFeederDelegation(t *testing.T) {
-	addrs := []sdk.AccAddress{
-		sdk.AccAddress([]byte("addr1_______________")),
-		sdk.AccAddress([]byte("addr2_______________")),
+	addrs := []seitypes.AccAddress{
+		seitypes.AccAddress([]byte("addr1_______________")),
+		seitypes.AccAddress([]byte("addr2_______________")),
 	}
 
 	tests := []struct {
-		delegator  sdk.ValAddress
-		delegate   sdk.AccAddress
+		delegator  seitypes.ValAddress
+		delegate   seitypes.AccAddress
 		expectPass bool
 	}{
-		{sdk.ValAddress(addrs[0]), addrs[1], true},
-		{sdk.ValAddress{}, addrs[1], false},
-		{sdk.ValAddress(addrs[0]), sdk.AccAddress{}, false},
+		{seitypes.ValAddress(addrs[0]), addrs[1], true},
+		{seitypes.ValAddress{}, addrs[1], false},
+		{seitypes.ValAddress(addrs[0]), seitypes.AccAddress{}, false},
 		{nil, nil, false},
 	}
 
@@ -36,8 +36,8 @@ func TestMsgFeederDelegation(t *testing.T) {
 }
 
 func TestMsgAggregateExchangeRateVote(t *testing.T) {
-	addrs := []sdk.AccAddress{
-		sdk.AccAddress([]byte("addr1_______________")),
+	addrs := []seitypes.AccAddress{
+		seitypes.AccAddress([]byte("addr1_______________")),
 	}
 
 	invalidExchangeRates := "a,b"
@@ -46,7 +46,7 @@ func TestMsgAggregateExchangeRateVote(t *testing.T) {
 	overFlowExchangeRates := "1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000.0foo,1232.132bar"
 
 	tests := []struct {
-		voter         sdk.AccAddress
+		voter         seitypes.AccAddress
 		exchangeRates string
 		expectPass    bool
 	}{
@@ -54,11 +54,11 @@ func TestMsgAggregateExchangeRateVote(t *testing.T) {
 		{addrs[0], invalidExchangeRates, false},
 		{addrs[0], abstainExchangeRates, true},
 		{addrs[0], overFlowExchangeRates, false},
-		{sdk.AccAddress{}, exchangeRates, false},
+		{seitypes.AccAddress{}, exchangeRates, false},
 	}
 
 	for i, tc := range tests {
-		msg := NewMsgAggregateExchangeRateVote(tc.exchangeRates, tc.voter, sdk.ValAddress(tc.voter))
+		msg := NewMsgAggregateExchangeRateVote(tc.exchangeRates, tc.voter, seitypes.ValAddress(tc.voter))
 		if tc.expectPass {
 			require.Nil(t, msg.ValidateBasic(), "test: %v", i)
 		} else {

@@ -156,33 +156,33 @@ func (k Keeper) RemoveExcessFeeds(ctx sdk.Context) {
 // Oracle delegation logic
 
 // GetFeederDelegation gets the account address that the validator operator delegated oracle vote rights to
-func (k Keeper) GetFeederDelegation(ctx sdk.Context, operator sdk.ValAddress) sdk.AccAddress {
+func (k Keeper) GetFeederDelegation(ctx sdk.Context, operator seitypes.ValAddress) seitypes.AccAddress {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.GetFeederDelegationKey(operator))
 	if bz == nil {
 		// By default the right is delegated to the validator itself
-		return sdk.AccAddress(operator)
+		return seitypes.AccAddress(operator)
 	}
 
-	return sdk.AccAddress(bz)
+	return seitypes.AccAddress(bz)
 }
 
 // SetFeederDelegation sets the account address that the validator operator delegated oracle vote rights to
-func (k Keeper) SetFeederDelegation(ctx sdk.Context, operator sdk.ValAddress, delegatedFeeder sdk.AccAddress) {
+func (k Keeper) SetFeederDelegation(ctx sdk.Context, operator seitypes.ValAddress, delegatedFeeder seitypes.AccAddress) {
 	store := ctx.KVStore(k.storeKey)
 	store.Set(types.GetFeederDelegationKey(operator), delegatedFeeder.Bytes())
 }
 
 // IterateFeederDelegations iterates over the feed delegates and performs a callback function.
 func (k Keeper) IterateFeederDelegations(ctx sdk.Context,
-	handler func(delegator sdk.ValAddress, delegate sdk.AccAddress) (stop bool),
+	handler func(delegator seitypes.ValAddress, delegate seitypes.AccAddress) (stop bool),
 ) {
 	store := ctx.KVStore(k.storeKey)
 	iter := sdk.KVStorePrefixIterator(store, types.FeederDelegationKey)
 	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
-		delegator := sdk.ValAddress(iter.Key()[2:])
-		delegate := sdk.AccAddress(iter.Value())
+		delegator := seitypes.ValAddress(iter.Key()[2:])
+		delegate := seitypes.AccAddress(iter.Value())
 
 		if handler(delegator, delegate) {
 			break
@@ -194,7 +194,7 @@ func (k Keeper) IterateFeederDelegations(ctx sdk.Context,
 // Miss counter logic
 
 // GetVotePenaltyCounter retrieves the # of vote periods missed and abstained in this oracle slash window
-func (k Keeper) GetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress) types.VotePenaltyCounter {
+func (k Keeper) GetVotePenaltyCounter(ctx sdk.Context, operator seitypes.ValAddress) types.VotePenaltyCounter {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.GetVotePenaltyCounterKey(operator))
 	if bz == nil {
@@ -208,7 +208,7 @@ func (k Keeper) GetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress) 
 }
 
 // SetVotePenaltyCounter updates the # of vote periods missed in this oracle slash window
-func (k Keeper) SetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress, missCount, abstainCount, successCount uint64) {
+func (k Keeper) SetVotePenaltyCounter(ctx sdk.Context, operator seitypes.ValAddress, missCount, abstainCount, successCount uint64) {
 	defer metrics.SetOracleVotePenaltyCount(missCount, operator.String(), "miss")
 	defer metrics.SetOracleVotePenaltyCount(abstainCount, operator.String(), "abstain")
 	defer metrics.SetOracleVotePenaltyCount(successCount, operator.String(), "success")
@@ -218,38 +218,38 @@ func (k Keeper) SetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress, 
 	store.Set(types.GetVotePenaltyCounterKey(operator), bz)
 }
 
-func (k Keeper) IncrementMissCount(ctx sdk.Context, operator sdk.ValAddress) {
+func (k Keeper) IncrementMissCount(ctx sdk.Context, operator seitypes.ValAddress) {
 	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
 	k.SetVotePenaltyCounter(ctx, operator, votePenaltyCounter.MissCount+1, votePenaltyCounter.AbstainCount, votePenaltyCounter.SuccessCount)
 }
 
-func (k Keeper) IncrementAbstainCount(ctx sdk.Context, operator sdk.ValAddress) {
+func (k Keeper) IncrementAbstainCount(ctx sdk.Context, operator seitypes.ValAddress) {
 	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
 	k.SetVotePenaltyCounter(ctx, operator, votePenaltyCounter.MissCount, votePenaltyCounter.AbstainCount+1, votePenaltyCounter.SuccessCount)
 }
 
-func (k Keeper) IncrementSuccessCount(ctx sdk.Context, operator sdk.ValAddress) {
+func (k Keeper) IncrementSuccessCount(ctx sdk.Context, operator seitypes.ValAddress) {
 	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
 	k.SetVotePenaltyCounter(ctx, operator, votePenaltyCounter.MissCount, votePenaltyCounter.AbstainCount, votePenaltyCounter.SuccessCount+1)
 }
 
-func (k Keeper) GetMissCount(ctx sdk.Context, operator sdk.ValAddress) uint64 {
+func (k Keeper) GetMissCount(ctx sdk.Context, operator seitypes.ValAddress) uint64 {
 	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
 	return votePenaltyCounter.MissCount
 }
 
-func (k Keeper) GetAbstainCount(ctx sdk.Context, operator sdk.ValAddress) uint64 {
+func (k Keeper) GetAbstainCount(ctx sdk.Context, operator seitypes.ValAddress) uint64 {
 	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
 	return votePenaltyCounter.AbstainCount
 }
 
-func (k Keeper) GetSuccessCount(ctx sdk.Context, operator sdk.ValAddress) uint64 {
+func (k Keeper) GetSuccessCount(ctx sdk.Context, operator seitypes.ValAddress) uint64 {
 	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
 	return votePenaltyCounter.SuccessCount
 }
 
 // DeleteVotePenaltyCounter removes miss counter for the validator
-func (k Keeper) DeleteVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress) {
+func (k Keeper) DeleteVotePenaltyCounter(ctx sdk.Context, operator seitypes.ValAddress) {
 	defer metrics.SetOracleVotePenaltyCount(0, operator.String(), "miss")
 	defer metrics.SetOracleVotePenaltyCount(0, operator.String(), "abstain")
 	defer metrics.SetOracleVotePenaltyCount(0, operator.String(), "success")
@@ -260,13 +260,13 @@ func (k Keeper) DeleteVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddres
 
 // IterateVotePenaltyCounters iterates over the miss counters and performs a callback function.
 func (k Keeper) IterateVotePenaltyCounters(ctx sdk.Context,
-	handler func(operator sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool),
+	handler func(operator seitypes.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool),
 ) {
 	store := ctx.KVStore(k.storeKey)
 	iter := sdk.KVStorePrefixIterator(store, types.VotePenaltyCounterKey)
 	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
-		operator := sdk.ValAddress(iter.Key()[2:])
+		operator := seitypes.ValAddress(iter.Key()[2:])
 
 		var votePenaltyCounter types.VotePenaltyCounter
 		k.cdc.MustUnmarshal(iter.Value(), &votePenaltyCounter)
@@ -281,7 +281,7 @@ func (k Keeper) IterateVotePenaltyCounters(ctx sdk.Context,
 // AggregateExchangeRateVote logic
 
 // GetAggregateExchangeRateVote retrieves an oracle vote from the store
-func (k Keeper) GetAggregateExchangeRateVote(ctx sdk.Context, voter sdk.ValAddress) (aggregateVote types.AggregateExchangeRateVote, err error) {
+func (k Keeper) GetAggregateExchangeRateVote(ctx sdk.Context, voter seitypes.ValAddress) (aggregateVote types.AggregateExchangeRateVote, err error) {
 	store := ctx.KVStore(k.storeKey)
 	b := store.Get(types.GetAggregateExchangeRateVoteKey(voter))
 	if b == nil {
@@ -293,25 +293,25 @@ func (k Keeper) GetAggregateExchangeRateVote(ctx sdk.Context, voter sdk.ValAddre
 }
 
 // SetAggregateExchangeRateVote adds an oracle aggregate vote to the store
-func (k Keeper) SetAggregateExchangeRateVote(ctx sdk.Context, voter sdk.ValAddress, vote types.AggregateExchangeRateVote) {
+func (k Keeper) SetAggregateExchangeRateVote(ctx sdk.Context, voter seitypes.ValAddress, vote types.AggregateExchangeRateVote) {
 	store := ctx.KVStore(k.storeKey)
 	bz := k.cdc.MustMarshal(&vote)
 	store.Set(types.GetAggregateExchangeRateVoteKey(voter), bz)
 }
 
 // DeleteAggregateExchangeRateVote deletes an oracle vote from the store
-func (k Keeper) DeleteAggregateExchangeRateVote(ctx sdk.Context, voter sdk.ValAddress) {
+func (k Keeper) DeleteAggregateExchangeRateVote(ctx sdk.Context, voter seitypes.ValAddress) {
 	store := ctx.KVStore(k.storeKey)
 	store.Delete(types.GetAggregateExchangeRateVoteKey(voter))
 }
 
 // IterateAggregateExchangeRateVotes iterates rate over votes in the store
-func (k Keeper) IterateAggregateExchangeRateVotes(ctx sdk.Context, handler func(voterAddr sdk.ValAddress, aggregateVote types.AggregateExchangeRateVote) (stop bool)) {
+func (k Keeper) IterateAggregateExchangeRateVotes(ctx sdk.Context, handler func(voterAddr seitypes.ValAddress, aggregateVote types.AggregateExchangeRateVote) (stop bool)) {
 	store := ctx.KVStore(k.storeKey)
 	iter := sdk.KVStorePrefixIterator(store, types.AggregateExchangeRateVoteKey)
 	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
-		voterAddr := sdk.ValAddress(iter.Key()[2:])
+		voterAddr := seitypes.ValAddress(iter.Key()[2:])
 
 		var aggregateVote types.AggregateExchangeRateVote
 		k.cdc.MustUnmarshal(iter.Value(), &aggregateVote)
@@ -374,7 +374,7 @@ func (k Keeper) getAllKeysForPrefix(store sdk.KVStore, prefix []byte) [][]byte {
 }
 
 // ValidateFeeder return the given feeder is allowed to feed the message or not
-func (k Keeper) ValidateFeeder(ctx sdk.Context, feederAddr sdk.AccAddress, validatorAddr sdk.ValAddress) error {
+func (k Keeper) ValidateFeeder(ctx sdk.Context, feederAddr seitypes.AccAddress, validatorAddr seitypes.ValAddress) error {
 	if !feederAddr.Equals(validatorAddr) {
 		delegate := k.GetFeederDelegation(ctx, validatorAddr)
 		if !delegate.Equals(feederAddr) {
@@ -581,7 +581,7 @@ func (k Keeper) ValidateLookbackSeconds(ctx sdk.Context, lookbackSeconds uint64)
 	return nil
 }
 
-func (k Keeper) CheckAndSetSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValAddress) error {
+func (k Keeper) CheckAndSetSpamPreventionCounter(ctx sdk.Context, validatorAddr seitypes.ValAddress) error {
 	mtx, _ := k.spamPreventionCounterMtxMap.LoadOrStore(validatorAddr.String(), &sync.Mutex{})
 	mtx.Lock()
 	defer mtx.Unlock()
@@ -592,7 +592,7 @@ func (k Keeper) CheckAndSetSpamPreventionCounter(ctx sdk.Context, validatorAddr 
 	return nil
 }
 
-func (k Keeper) getSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValAddress) int64 {
+func (k Keeper) getSpamPreventionCounter(ctx sdk.Context, validatorAddr seitypes.ValAddress) int64 {
 	store := ctx.KVStore(k.memKey)
 	bz := store.Get(types.GetSpamPreventionCounterKey(validatorAddr))
 	if bz == nil {
@@ -602,7 +602,7 @@ func (k Keeper) getSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValA
 	return int64(sdk.BigEndianToUint64(bz)) //nolint:gosec
 }
 
-func (k Keeper) setSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValAddress) {
+func (k Keeper) setSpamPreventionCounter(ctx sdk.Context, validatorAddr seitypes.ValAddress) {
 	store := ctx.KVStore(k.memKey)
 
 	height := ctx.BlockHeight()

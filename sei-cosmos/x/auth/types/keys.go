@@ -1,7 +1,7 @@
 package types
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 const (
@@ -27,12 +27,12 @@ var (
 )
 
 // AddressStoreKey turn an address to key used to get it from the account store
-func AddressStoreKey(addr sdk.AccAddress) []byte {
+func AddressStoreKey(addr seitypes.AccAddress) []byte {
 	return append(AddressStoreKeyPrefix, addr.Bytes()...)
 }
 
 func CreateAddressStoreKeyFromBech32(addr string) []byte {
-	accAdrr, _ := sdk.AccAddressFromBech32(addr)
+	accAdrr, _ := seitypes.AccAddressFromBech32(addr)
 	accAdrrWithPrefix := AddressStoreKey(accAdrr)
 	return accAdrrWithPrefix
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // TODO: Revisit this once we have propoer gas fee framework.
@@ -62,7 +63,7 @@ func (a *AllowedMsgAllowance) SetAllowance(allowance FeeAllowanceI) error {
 }
 
 // Accept method checks for the filtered messages has valid expiry
-func (a *AllowedMsgAllowance) Accept(ctx sdk.Context, fee sdk.Coins, msgs []sdk.Msg) (bool, error) {
+func (a *AllowedMsgAllowance) Accept(ctx sdk.Context, fee sdk.Coins, msgs []seitypes.Msg) (bool, error) {
 	if !a.allMsgTypesAllowed(ctx, msgs) {
 		return false, sdkerrors.Wrap(ErrMessageNotAllowed, "message does not exist in allowed messages")
 	}
@@ -95,7 +96,7 @@ func (a *AllowedMsgAllowance) allowedMsgsToMap(ctx sdk.Context) map[string]bool 
 	return msgsMap
 }
 
-func (a *AllowedMsgAllowance) allMsgTypesAllowed(ctx sdk.Context, msgs []sdk.Msg) bool {
+func (a *AllowedMsgAllowance) allMsgTypesAllowed(ctx sdk.Context, msgs []seitypes.Msg) bool {
 	msgsMap := a.allowedMsgsToMap(ctx)
 
 	for _, msg := range msgs {

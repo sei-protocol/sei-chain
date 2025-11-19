@@ -39,7 +39,7 @@ func getOwnerEventKey(contractAddr string, tokenID string) string {
 	return fmt.Sprintf("%s-%s", contractAddr, tokenID)
 }
 
-func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.Tx, checksum [32]byte, response sdk.DeliverTxHookInput) {
+func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx seitypes.Tx, checksum [32]byte, response sdk.DeliverTxHookInput) {
 	// hooks will only be called if DeliverTx is successful
 	wasmEvents := GetEventsOfType(response, wasmtypes.WasmModuleEventType)
 	if len(wasmEvents) == 0 {
@@ -174,7 +174,7 @@ func (app *App) translateCW20Event(ctx sdk.Context, wasmEvent abci.Event, pointe
 			}
 			ret, err := app.WasmKeeper.QuerySmart(
 				ctx,
-				sdk.MustAccAddressFromBech32(contractAddr),
+				seitypes.MustAccAddressFromBech32(contractAddr),
 				[]byte(fmt.Sprintf(
 					"{\"allowance\":{\"owner\":\"%s\",\"spender\":\"%s\"}}",
 					app.EvmKeeper.GetSeiAddressOrDefault(ctx, common.BytesToAddress(action.Owner[:])).String(),
@@ -215,7 +215,7 @@ func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, point
 			if ownerEvents, ok := ownerEventsMap[ownerEventKey]; ok {
 				if len(ownerEvents) > currentCounter {
 					ownerSeiAddrStr := string(ownerEvents[currentCounter].Attributes[2].Value)
-					if ownerSeiAddr, err := sdk.AccAddressFromBech32(ownerSeiAddrStr); err == nil {
+					if ownerSeiAddr, err := seitypes.AccAddressFromBech32(ownerSeiAddrStr); err == nil {
 						ownerEvmAddr := app.EvmKeeper.GetEVMAddressOrDefault(ctx, ownerSeiAddr)
 						sender = common.BytesToHash(ownerEvmAddr[:])
 					} else {
@@ -391,7 +391,7 @@ func (app *App) translateCW1155Event(ctx sdk.Context, wasmEvent abci.Event, poin
 }
 
 func (app *App) GetEvmAddressHash(ctx sdk.Context, addrStr string) common.Hash {
-	seiAddr, err := sdk.AccAddressFromBech32(addrStr)
+	seiAddr, err := seitypes.AccAddressFromBech32(addrStr)
 	if err == nil {
 		evmAddr := app.EvmKeeper.GetEVMAddressOrDefault(ctx, seiAddr)
 		evmAddrHash := common.BytesToHash(evmAddr[:])

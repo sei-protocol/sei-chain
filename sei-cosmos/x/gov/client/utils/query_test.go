@@ -80,18 +80,18 @@ func TestGetPaginatedVotes(t *testing.T) {
 	type testCase struct {
 		description string
 		page, limit int
-		msgs        [][]sdk.Msg
+		msgs        [][]seitypes.Msg
 		votes       []types.Vote
 	}
-	acc1 := make(sdk.AccAddress, 20)
+	acc1 := make(seitypes.AccAddress, 20)
 	acc1[0] = 1
-	acc2 := make(sdk.AccAddress, 20)
+	acc2 := make(seitypes.AccAddress, 20)
 	acc2[0] = 2
-	acc1Msgs := []sdk.Msg{
+	acc1Msgs := []seitypes.Msg{
 		types.NewMsgVote(acc1, 0, types.OptionYes),
 		types.NewMsgVote(acc1, 0, types.OptionYes),
 	}
-	acc2Msgs := []sdk.Msg{
+	acc2Msgs := []seitypes.Msg{
 		types.NewMsgVote(acc2, 0, types.OptionYes),
 		types.NewMsgVoteWeighted(acc2, 0, types.NewNonSplitVoteOption(types.OptionYes)),
 	}
@@ -100,7 +100,7 @@ func TestGetPaginatedVotes(t *testing.T) {
 			description: "1MsgPerTxAll",
 			page:        1,
 			limit:       2,
-			msgs: [][]sdk.Msg{
+			msgs: [][]seitypes.Msg{
 				acc1Msgs[:1],
 				acc2Msgs[:1],
 			},
@@ -112,7 +112,7 @@ func TestGetPaginatedVotes(t *testing.T) {
 			description: "2MsgPerTx1Chunk",
 			page:        1,
 			limit:       2,
-			msgs: [][]sdk.Msg{
+			msgs: [][]seitypes.Msg{
 				acc1Msgs,
 				acc2Msgs,
 			},
@@ -125,7 +125,7 @@ func TestGetPaginatedVotes(t *testing.T) {
 			description: "2MsgPerTx2Chunk",
 			page:        2,
 			limit:       2,
-			msgs: [][]sdk.Msg{
+			msgs: [][]seitypes.Msg{
 				acc1Msgs,
 				acc2Msgs,
 			},
@@ -138,7 +138,7 @@ func TestGetPaginatedVotes(t *testing.T) {
 			description: "IncompleteSearchTx",
 			page:        1,
 			limit:       2,
-			msgs: [][]sdk.Msg{
+			msgs: [][]seitypes.Msg{
 				acc1Msgs[:1],
 			},
 			votes: []types.Vote{types.NewVote(0, acc1, types.NewNonSplitVoteOption(types.OptionYes))},
@@ -146,7 +146,7 @@ func TestGetPaginatedVotes(t *testing.T) {
 		{
 			description: "InvalidPage",
 			page:        -1,
-			msgs: [][]sdk.Msg{
+			msgs: [][]seitypes.Msg{
 				acc1Msgs[:1],
 			},
 		},
@@ -154,7 +154,7 @@ func TestGetPaginatedVotes(t *testing.T) {
 			description: "OutOfBounds",
 			page:        2,
 			limit:       10,
-			msgs: [][]sdk.Msg{
+			msgs: [][]seitypes.Msg{
 				acc1Msgs[:1],
 			},
 		},

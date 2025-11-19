@@ -14,7 +14,7 @@ var (
 
 // GasTx defines a Tx with a GetGas() method which is needed to use SetUpContextDecorator
 type GasTx interface {
-	sdk.Tx
+	seitypes.Tx
 	GetGas() uint64
 }
 
@@ -24,7 +24,7 @@ type GasTx interface {
 // CONTRACT: Must be first decorator in the chain
 // CONTRACT: Tx must implement GasTx interface
 type SetUpContextDecorator struct {
-	gasMeterSetter func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context
+	gasMeterSetter func(bool, sdk.Context, uint64, seitypes.Tx) sdk.Context
 }
 
 func NewDefaultSetUpContextDecorator() SetUpContextDecorator {
@@ -33,13 +33,13 @@ func NewDefaultSetUpContextDecorator() SetUpContextDecorator {
 	}
 }
 
-func NewSetUpContextDecorator(gasMeterSetter func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context) SetUpContextDecorator {
+func NewSetUpContextDecorator(gasMeterSetter func(bool, sdk.Context, uint64, seitypes.Tx) sdk.Context) SetUpContextDecorator {
 	return SetUpContextDecorator{
 		gasMeterSetter: gasMeterSetter,
 	}
 }
 
-func (sud SetUpContextDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (sud SetUpContextDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	// all transactions must implement GasTx
 	gasTx, ok := tx.(GasTx)
 	if !ok {
@@ -82,7 +82,7 @@ func (sud SetUpContextDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 }
 
 // SetGasMeter returns a new context with a gas meter set from a given context.
-func SetGasMeter(simulate bool, ctx sdk.Context, gasLimit uint64, _ sdk.Tx) sdk.Context {
+func SetGasMeter(simulate bool, ctx sdk.Context, gasLimit uint64, _ seitypes.Tx) sdk.Context {
 	// In various cases such as simulation and during the genesis block, we do not
 	// meter any gas utilization.
 

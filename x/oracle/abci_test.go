@@ -113,7 +113,7 @@ func TestOracleTally(t *testing.T) {
 		decExchangeRate := sdk.NewDecWithPrec(int64(rate*math.Pow10(testutils.OracleDecPrecision)), int64(testutils.OracleDecPrecision))
 		exchangeRateStr := decExchangeRate.String() + utils.MicroAtomDenom
 
-		voteMsg := types.NewMsgAggregateExchangeRateVote(exchangeRateStr, sdk.AccAddress(valAddrs[i]), valAddrs[i])
+		voteMsg := types.NewMsgAggregateExchangeRateVote(exchangeRateStr, seitypes.AccAddress(valAddrs[i]), valAddrs[i])
 
 		_, err := h(input.Ctx.WithBlockHeight(1), voteMsg)
 		require.NoError(t, err)

@@ -198,7 +198,7 @@ func ValidateNonPayable(value *big.Int) error {
 	return nil
 }
 
-func HandlePaymentUsei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper putils.BankKeeper, evmKeeper putils.EVMKeeper, hooks *tracing.Hooks, depth int) (sdk.Coin, error) {
+func HandlePaymentUsei(ctx sdk.Context, precompileAddr seitypes.AccAddress, payer seitypes.AccAddress, value *big.Int, bankKeeper putils.BankKeeper, evmKeeper putils.EVMKeeper, hooks *tracing.Hooks, depth int) (sdk.Coin, error) {
 	usei, wei := state.SplitUseiWeiAmount(value)
 	if !wei.IsZero() {
 		return sdk.Coin{}, fmt.Errorf("selected precompile function does not allow payment with non-zero wei remainder: received %s", value)
@@ -221,7 +221,7 @@ func HandlePaymentUsei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk
 	return coin, nil
 }
 
-func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper putils.BankKeeper, evmKeeper putils.EVMKeeper, hooks *tracing.Hooks, depth int) (sdk.Int, sdk.Int, error) {
+func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr seitypes.AccAddress, payer seitypes.AccAddress, value *big.Int, bankKeeper putils.BankKeeper, evmKeeper putils.EVMKeeper, hooks *tracing.Hooks, depth int) (sdk.Int, sdk.Int, error) {
 	usei, wei := state.SplitUseiWeiAmount(value)
 	// refund payer because the following precompile logic will debit the payments from payer's account
 	// this creates a new event manager to avoid surfacing these as cosmos events
@@ -278,7 +278,7 @@ func MustGetABI(f embed.FS, filename string) abi.ABI {
 	return newAbi
 }
 
-func GetSeiAddressByEvmAddress(ctx sdk.Context, evmAddress common.Address, evmKeeper putils.EVMKeeper) (sdk.AccAddress, error) {
+func GetSeiAddressByEvmAddress(ctx sdk.Context, evmAddress common.Address, evmKeeper putils.EVMKeeper) (seitypes.AccAddress, error) {
 	seiAddr, associated := evmKeeper.GetSeiAddress(ctx, evmAddress)
 	if !associated {
 		return nil, types.NewAssociationMissingErr(evmAddress.Hex())
@@ -286,7 +286,7 @@ func GetSeiAddressByEvmAddress(ctx sdk.Context, evmAddress common.Address, evmKe
 	return seiAddr, nil
 }
 
-func GetSeiAddressFromArg(ctx sdk.Context, arg interface{}, evmKeeper putils.EVMKeeper) (sdk.AccAddress, error) {
+func GetSeiAddressFromArg(ctx sdk.Context, arg interface{}, evmKeeper putils.EVMKeeper) (seitypes.AccAddress, error) {
 	addr := arg.(common.Address)
 	if addr == (common.Address{}) {
 		return nil, errors.New("invalid addr")

@@ -44,7 +44,7 @@ func TestContractFromPortID(t *testing.T) {
 	contractAddr := BuildContractAddress(1, 100)
 	specs := map[string]struct {
 		srcPort string
-		expAddr sdk.AccAddress
+		expAddr seitypes.AccAddress
 		expErr  bool
 	}{
 		"all good": {

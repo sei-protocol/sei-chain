@@ -168,7 +168,7 @@ func MigrateCWERC20Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 			continue
 		}
 		seen[evmAddr] = struct{}{}
-		addr, err := sdk.AccAddressFromBech32(string(iter.Value()))
+		addr, err := seitypes.AccAddressFromBech32(string(iter.Value()))
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("error parsing cw-erc20 pointer %s address %s", string(iter.Value()), err))
 			return err
@@ -195,7 +195,7 @@ func MigrateCWERC721Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 			continue
 		}
 		seen[evmAddr] = struct{}{}
-		addr, err := sdk.AccAddressFromBech32(string(iter.Value()))
+		addr, err := seitypes.AccAddressFromBech32(string(iter.Value()))
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("error parsing cw-erc721 pointer %s address %s", string(iter.Value()), err))
 			return err
@@ -222,7 +222,7 @@ func MigrateCWERC1155Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 			continue
 		}
 		seen[evmAddr] = struct{}{}
-		addr, err := sdk.AccAddressFromBech32(string(iter.Value()))
+		addr, err := seitypes.AccAddressFromBech32(string(iter.Value()))
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("error parsing cw-erc1155 pointer %s address %s", string(iter.Value()), err))
 			return err

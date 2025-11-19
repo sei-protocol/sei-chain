@@ -145,13 +145,13 @@ func delegatorWithdrawalAddrHandlerFn(clientCtx client.Context) http.HandlerFunc
 // ValidatorDistInfo defines the properties of
 // validator distribution information response.
 type ValidatorDistInfo struct {
-	OperatorAddress     sdk.AccAddress                       `json:"operator_address" yaml:"operator_address"`
+	OperatorAddress     seitypes.AccAddress                       `json:"operator_address" yaml:"operator_address"`
 	SelfBondRewards     sdk.DecCoins                         `json:"self_bond_rewards" yaml:"self_bond_rewards"`
 	ValidatorCommission types.ValidatorAccumulatedCommission `json:"val_commission" yaml:"val_commission"`
 }
 
 // NewValidatorDistInfo creates a new instance of ValidatorDistInfo.
-func NewValidatorDistInfo(operatorAddr sdk.AccAddress, rewards sdk.DecCoins,
+func NewValidatorDistInfo(operatorAddr seitypes.AccAddress, rewards sdk.DecCoins,
 	commission types.ValidatorAccumulatedCommission) ValidatorDistInfo {
 	return ValidatorDistInfo{
 		OperatorAddress:     operatorAddr,
@@ -185,7 +185,7 @@ func validatorInfoHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		// self bond rewards
-		delAddr := sdk.AccAddress(valAddr)
+		delAddr := seitypes.AccAddress(valAddr)
 		bz, height, ok := checkResponseQueryDelegationRewards(w, clientCtx, delAddr.String(), valAddr.String())
 		if !ok {
 			return
@@ -220,7 +220,7 @@ func validatorRewardsHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			return
 		}
 
-		delAddr := sdk.AccAddress(validatorAddr).String()
+		delAddr := seitypes.AccAddress(validatorAddr).String()
 		bz, height, ok := checkResponseQueryDelegationRewards(w, clientCtx, delAddr, valAddr)
 		if !ok {
 			return

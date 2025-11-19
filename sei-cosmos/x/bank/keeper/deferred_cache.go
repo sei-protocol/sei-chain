@@ -6,6 +6,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 type DeferredCache struct {
@@ -20,14 +21,14 @@ func NewDeferredCache(cdc codec.BinaryCodec, storeKey sdk.StoreKey) *DeferredCac
 	}
 }
 
-func (d *DeferredCache) getModuleTxIndexedStore(ctx sdk.Context, moduleAddr sdk.AccAddress, txIndex uint64) prefix.Store {
+func (d *DeferredCache) getModuleTxIndexedStore(ctx sdk.Context, moduleAddr seitypes.AccAddress, txIndex uint64) prefix.Store {
 	store := ctx.KVStore(d.storeKey)
 
 	return prefix.NewStore(store, types.CreateDeferredCacheModuleTxIndexedPrefix(moduleAddr, txIndex))
 }
 
 // GetBalance returns the balance of a specific denomination for a given module address and transaction index
-func (d *DeferredCache) GetBalance(ctx sdk.Context, moduleAddr sdk.AccAddress, txIndex uint64, denom string) sdk.Coin {
+func (d *DeferredCache) GetBalance(ctx sdk.Context, moduleAddr seitypes.AccAddress, txIndex uint64, denom string) sdk.Coin {
 	deferredStore := d.getModuleTxIndexedStore(ctx, moduleAddr, txIndex)
 
 	bz := deferredStore.Get([]byte(denom))
@@ -42,7 +43,7 @@ func (d *DeferredCache) GetBalance(ctx sdk.Context, moduleAddr sdk.AccAddress, t
 }
 
 // setBalance sets the coin balance for a module and tx Index.
-func (d *DeferredCache) setBalance(ctx sdk.Context, moduleAddr sdk.AccAddress, txIndex uint64, balance sdk.Coin) error {
+func (d *DeferredCache) setBalance(ctx sdk.Context, moduleAddr seitypes.AccAddress, txIndex uint64, balance sdk.Coin) error {
 	if !balance.IsValid() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, balance.String())
 	}
@@ -59,7 +60,7 @@ func (d *DeferredCache) setBalance(ctx sdk.Context, moduleAddr sdk.AccAddress, t
 }
 
 // upsertBalance updates or sets the coin balance for a module and tx combination keyed on balance denom.
-func (d *DeferredCache) upsertBalance(ctx sdk.Context, moduleAddr sdk.AccAddress, txIndex uint64, balance sdk.Coin) error {
+func (d *DeferredCache) upsertBalance(ctx sdk.Context, moduleAddr seitypes.AccAddress, txIndex uint64, balance sdk.Coin) error {
 	if !balance.IsValid() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, balance.String())
 	}
@@ -71,7 +72,7 @@ func (d *DeferredCache) upsertBalance(ctx sdk.Context, moduleAddr sdk.AccAddress
 }
 
 // UpsertBalances updates or sets the coin balances for a module and tx combination with the given coins.
-func (d *DeferredCache) UpsertBalances(ctx sdk.Context, moduleAddr sdk.AccAddress, txIndex uint64, balances sdk.Coins) error {
+func (d *DeferredCache) UpsertBalances(ctx sdk.Context, moduleAddr seitypes.AccAddress, txIndex uint64, balances sdk.Coins) error {
 	if !balances.IsValid() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, balances.String())
 	}
@@ -92,7 +93,7 @@ func (d *DeferredCache) UpsertBalances(ctx sdk.Context, moduleAddr sdk.AccAddres
 // there can be multiple occurrences of the same denom in `balance`.
 // If true is returned from the
 // callback, iteration is halted.
-func (d *DeferredCache) IterateDeferredBalances(ctx sdk.Context, cb func(moduleAddr sdk.AccAddress, balance sdk.Coin) bool) {
+func (d *DeferredCache) IterateDeferredBalances(ctx sdk.Context, cb func(moduleAddr seitypes.AccAddress, balance sdk.Coin) bool) {
 	deferredStore := prefix.NewStore(ctx.KVStore(d.storeKey), types.DeferredCachePrefix)
 
 	iterator := deferredStore.Iterator(nil, nil)

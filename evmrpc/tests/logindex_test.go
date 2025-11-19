@@ -12,7 +12,7 @@ import (
 // Test the scenario where a transaction contains both synthetic and non-synthetic logs.
 func TestGetTransactionReceiptWithMixedLogs(t *testing.T) {
 	cw20 := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
-	testerSeiAddress := sdk.AccAddress(mixedLogTesterAddr.Bytes())
+	testerSeiAddress := seitypes.AccAddress(mixedLogTesterAddr.Bytes())
 	tx0 := signAndEncodeCosmosTx(transferCW20MsgTo(mnemonic1, cw20, testerSeiAddress), mnemonic1, 9, 0)
 	txData := mixedLogTesterTransfer(0, getAddrWithMnemonic(mnemonic1))
 	signedTx := signTxWithMnemonic(txData, mnemonic1)

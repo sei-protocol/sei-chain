@@ -13,10 +13,10 @@ import (
 )
 
 type Preset struct {
-	Admin            sdk.AccAddress // a signable account that's not supposed to run out of tokens
-	SignableAccounts []sdk.AccAddress
-	AllAccounts      []sdk.AccAddress
-	AllValidators    []sdk.ValAddress
+	Admin            seitypes.AccAddress // a signable account that's not supposed to run out of tokens
+	SignableAccounts []seitypes.AccAddress
+	AllAccounts      []seitypes.AccAddress
+	AllValidators    []seitypes.ValAddress
 }
 
 // 3 unsignable accounts
@@ -40,16 +40,16 @@ func CommonPreset(app *App) *Preset {
 	}
 	for i := 0; i < 3; i++ {
 		val := app.NewValidator()
-		app.FundAccount(sdk.AccAddress(val), 10000000)
-		app.NewDelegation(sdk.AccAddress(val), val, 7000000)
-		p.AllAccounts = append(p.AllAccounts, sdk.AccAddress(val))
+		app.FundAccount(seitypes.AccAddress(val), 10000000)
+		app.NewDelegation(seitypes.AccAddress(val), val, 7000000)
+		p.AllAccounts = append(p.AllAccounts, seitypes.AccAddress(val))
 		p.AllValidators = append(p.AllValidators, val)
-		fmt.Printf("CommonPreset val: %s\n", sdk.AccAddress(val).String())
+		fmt.Printf("CommonPreset val: %s\n", seitypes.AccAddress(val).String())
 	}
 	return p
 }
 
 // always with enough fee
-func (p *Preset) AdminSign(app *App, msgs ...sdk.Msg) signing.Tx {
+func (p *Preset) AdminSign(app *App, msgs ...seitypes.Msg) signing.Tx {
 	return app.Sign(p.Admin, 10000000, msgs...)
 }

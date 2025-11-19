@@ -21,39 +21,39 @@ var gasless = true
 
 type FakeAnteDecoratorOne struct{}
 
-func (ad FakeAnteDecoratorOne) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (ad FakeAnteDecoratorOne) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	output = fmt.Sprintf("%sone", output)
 	return next(ctx, tx, simulate)
 }
 
 type FakeAnteDecoratorTwo struct{}
 
-func (ad FakeAnteDecoratorTwo) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (ad FakeAnteDecoratorTwo) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	output = fmt.Sprintf("%stwo", output)
 	return next(ctx, tx, simulate)
 }
 
 type FakeAnteDecoratorThree struct{}
 
-func (ad FakeAnteDecoratorThree) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (ad FakeAnteDecoratorThree) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	output = fmt.Sprintf("%sthree", output)
 	return next(ctx, tx, simulate)
 }
 
 type FakeAnteDecoratorGasReqd struct{}
 
-func (ad FakeAnteDecoratorGasReqd) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (ad FakeAnteDecoratorGasReqd) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	gasless = false
 	return next(ctx, tx, simulate)
 }
 
 type FakeTx struct {
 	sdk.FeeTx
-	FakeMsgs []sdk.Msg
+	FakeMsgs []seitypes.Msg
 	Gas      uint64
 }
 
-func (tx FakeTx) GetMsgs() []sdk.Msg {
+func (tx FakeTx) GetMsgs() []seitypes.Msg {
 	return tx.FakeMsgs
 }
 
@@ -67,21 +67,21 @@ func (t FakeTx) GetGas() uint64 {
 func (t FakeTx) GetFee() sdk.Coins {
 	return sdk.NewCoins(sdk.NewCoin("usei", sdk.ZeroInt()))
 }
-func (t FakeTx) FeePayer() sdk.AccAddress {
+func (t FakeTx) FeePayer() seitypes.AccAddress {
 	return nil
 }
 
-func (t FakeTx) FeeGranter() sdk.AccAddress {
+func (t FakeTx) FeeGranter() seitypes.AccAddress {
 	return nil
 }
 
-func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg sdk.Msg, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) error {
+func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg seitypes.Msg, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) error {
 	anteDecorators := []sdk.AnteDecorator{
 		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{FakeAnteDecoratorGasReqd{}}, oracleKeeper, evmKeeper),
 	}
 	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 	fakeTx := FakeTx{
-		FakeMsgs: []sdk.Msg{
+		FakeMsgs: []seitypes.Msg{
 			msg,
 		},
 	}

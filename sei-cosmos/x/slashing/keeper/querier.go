@@ -48,7 +48,7 @@ func querySigningInfo(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQu
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
 
-	signingInfo, found := k.GetValidatorSigningInfo(ctx, sdk.ConsAddress(params.ConsAddress))
+	signingInfo, found := k.GetValidatorSigningInfo(ctx, seitypes.ConsAddress(params.ConsAddress))
 	if !found {
 		return nil, sdkerrors.Wrap(types.ErrNoSigningInfoFound, params.ConsAddress)
 	}
@@ -71,7 +71,7 @@ func querySigningInfos(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQ
 
 	var signingInfos []types.ValidatorSigningInfo
 
-	k.IterateValidatorSigningInfos(ctx, func(consAddr sdk.ConsAddress, info types.ValidatorSigningInfo) (stop bool) {
+	k.IterateValidatorSigningInfos(ctx, func(consAddr seitypes.ConsAddress, info types.ValidatorSigningInfo) (stop bool) {
 		signingInfos = append(signingInfos, info)
 		return false
 	})

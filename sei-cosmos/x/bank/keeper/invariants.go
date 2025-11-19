@@ -29,7 +29,7 @@ func NonnegativeBalanceInvariant(k ViewKeeper) sdk.Invariant {
 			count int
 		)
 
-		k.IterateAllBalances(ctx, func(addr sdk.AccAddress, balance sdk.Coin) bool {
+		k.IterateAllBalances(ctx, func(addr seitypes.AccAddress, balance sdk.Coin) bool {
 			if balance.IsNegative() {
 				count++
 				msg += fmt.Sprintf("\t%s has a negative balance of %s\n", addr, balance)
@@ -37,7 +37,7 @@ func NonnegativeBalanceInvariant(k ViewKeeper) sdk.Invariant {
 
 			return false
 		})
-		k.IterateAllWeiBalances(ctx, func(addr sdk.AccAddress, balance sdk.Int) bool {
+		k.IterateAllWeiBalances(ctx, func(addr seitypes.AccAddress, balance sdk.Int) bool {
 			if balance.IsNegative() {
 				count++
 				msg += fmt.Sprintf("\t%s has a negative wei balance of %s\n", addr, balance)
@@ -67,16 +67,16 @@ func TotalSupply(k Keeper) sdk.Invariant {
 				fmt.Sprintf("error querying total supply %v", err)), false
 		}
 
-		k.IterateAllBalances(ctx, func(_ sdk.AccAddress, balance sdk.Coin) bool {
+		k.IterateAllBalances(ctx, func(_ seitypes.AccAddress, balance sdk.Coin) bool {
 			expectedTotal = expectedTotal.Add(balance)
 			return false
 		})
 		// also iterate over deferred balances
-		k.IterateDeferredBalances(ctx, func(addr sdk.AccAddress, coin sdk.Coin) bool {
+		k.IterateDeferredBalances(ctx, func(addr seitypes.AccAddress, coin sdk.Coin) bool {
 			expectedTotal = expectedTotal.Add(coin)
 			return false
 		})
-		k.IterateAllWeiBalances(ctx, func(addr sdk.AccAddress, balance sdk.Int) bool {
+		k.IterateAllWeiBalances(ctx, func(addr seitypes.AccAddress, balance sdk.Int) bool {
 			weiTotal = weiTotal.Add(balance)
 			return false
 		})

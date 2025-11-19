@@ -46,11 +46,11 @@ func benchmarkValidateGenesis(b *testing.B, n int) {
 	}
 }
 
-func makeRandomAddressesAndPublicKeys(n int) (accL []sdk.ValAddress, pkL []*ed25519.PubKey) {
+func makeRandomAddressesAndPublicKeys(n int) (accL []seitypes.ValAddress, pkL []*ed25519.PubKey) {
 	for i := 0; i < n; i++ {
 		pk := ed25519.GenPrivKey().PubKey().(*ed25519.PubKey)
 		pkL = append(pkL, pk)
-		accL = append(accL, sdk.ValAddress(pk.Address()))
+		accL = append(accL, seitypes.ValAddress(pk.Address()))
 	}
 	return accL, pkL
 }

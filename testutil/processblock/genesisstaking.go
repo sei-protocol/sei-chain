@@ -9,12 +9,12 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
-func (a *App) NewValidator() sdk.ValAddress {
+func (a *App) NewValidator() seitypes.ValAddress {
 	ctx := a.Ctx()
 	key := GenerateRandomPubKey()
 	address := key.Address()
-	a.AccountKeeper.SetAccount(ctx, a.AccountKeeper.NewAccountWithAddress(ctx, sdk.AccAddress(address)))
-	valAddress := sdk.ValAddress(address)
+	a.AccountKeeper.SetAccount(ctx, a.AccountKeeper.NewAccountWithAddress(ctx, seitypes.AccAddress(address)))
+	valAddress := seitypes.ValAddress(address)
 	validator, err := stakingtypes.NewValidator(valAddress, key, stakingtypes.NewDescription(
 		generateRandomStringOfLength(4),
 		generateRandomStringOfLength(4),
@@ -32,18 +32,18 @@ func (a *App) NewValidator() sdk.ValAddress {
 	a.StakingKeeper.SetNewValidatorByPowerIndex(ctx, validator)
 	a.StakingKeeper.AfterValidatorCreated(ctx, validator.GetOperator())
 	signingInfo := slashingtypes.NewValidatorSigningInfo(
-		sdk.ConsAddress(address),
+		seitypes.ConsAddress(address),
 		0,
 		0,
 		time.Unix(0, 0),
 		false,
 		0,
 	)
-	a.SlashingKeeper.SetValidatorSigningInfo(ctx, sdk.ConsAddress(address), signingInfo)
+	a.SlashingKeeper.SetValidatorSigningInfo(ctx, seitypes.ConsAddress(address), signingInfo)
 	return valAddress
 }
 
-func (a *App) NewDelegation(delegator sdk.AccAddress, validator sdk.ValAddress, amount int64) {
+func (a *App) NewDelegation(delegator seitypes.AccAddress, validator seitypes.ValAddress, amount int64) {
 	ctx := a.Ctx()
 	val, found := a.StakingKeeper.GetValidator(ctx, validator)
 	if !found {

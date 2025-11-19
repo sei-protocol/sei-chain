@@ -45,7 +45,7 @@ var ignoredStoreKeys = map[string]struct{}{
 }
 
 type TestMessage struct {
-	Msg       sdk.Msg
+	Msg       seitypes.Msg
 	Type      string
 	EVMSigner TestAcct
 	IsEVM     bool
@@ -63,8 +63,8 @@ type TestContext struct {
 }
 
 type TestAcct struct {
-	ValidatorAddress sdk.ValAddress
-	AccountAddress   sdk.AccAddress
+	ValidatorAddress seitypes.ValAddress
+	AccountAddress   seitypes.AccAddress
 	PrivateKey       cryptotypes.PrivKey
 	PublicKey        cryptotypes.PubKey
 	EvmAddress       common.Address
@@ -111,8 +111,8 @@ func panicIfErr(err error) {
 	}
 }
 
-func addressToValAddress(addr sdk.AccAddress) sdk.ValAddress {
-	bech, err := sdk.Bech32ifyAddressBytes(sdk.GetConfig().GetBech32ValidatorAddrPrefix(), addr.Bytes())
+func addressToValAddress(addr seitypes.AccAddress) seitypes.ValAddress {
+	bech, err := sdk.Bech32ifyAddressBytes(seitypes.GetConfig().GetBech32ValidatorAddrPrefix(), addr.Bytes())
 	panicIfErr(err)
 	valAddr, err := sdk.ValAddressFromBech32(bech)
 	panicIfErr(err)

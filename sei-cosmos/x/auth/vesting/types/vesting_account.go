@@ -12,6 +12,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	vestexported "github.com/cosmos/cosmos-sdk/x/auth/vesting/exported"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // Compile-time type assertions
@@ -27,7 +28,7 @@ var (
 // NewBaseVestingAccount creates a new BaseVestingAccount object. It is the
 // callers responsibility to ensure the base account has sufficient funds with
 // regards to the original vesting amount.
-func NewBaseVestingAccount(baseAccount *authtypes.BaseAccount, originalVesting sdk.Coins, endTime int64, admin sdk.AccAddress) *BaseVestingAccount {
+func NewBaseVestingAccount(baseAccount *authtypes.BaseAccount, originalVesting sdk.Coins, endTime int64, admin seitypes.AccAddress) *BaseVestingAccount {
 	return &BaseVestingAccount{
 		BaseAccount:      baseAccount,
 		OriginalVesting:  originalVesting,
@@ -155,15 +156,15 @@ func (bva BaseVestingAccount) Validate() error {
 }
 
 type vestingAccountYAML struct {
-	Address          sdk.AccAddress `json:"address" yaml:"address"`
-	PubKey           string         `json:"public_key" yaml:"public_key"`
-	AccountNumber    uint64         `json:"account_number" yaml:"account_number"`
-	Sequence         uint64         `json:"sequence" yaml:"sequence"`
-	OriginalVesting  sdk.Coins      `json:"original_vesting" yaml:"original_vesting"`
-	DelegatedFree    sdk.Coins      `json:"delegated_free" yaml:"delegated_free"`
-	DelegatedVesting sdk.Coins      `json:"delegated_vesting" yaml:"delegated_vesting"`
-	EndTime          int64          `json:"end_time" yaml:"end_time"`
-	Admin            string         `json:"admin" yaml:"admin"`
+	Address          seitypes.AccAddress `json:"address" yaml:"address"`
+	PubKey           string              `json:"public_key" yaml:"public_key"`
+	AccountNumber    uint64              `json:"account_number" yaml:"account_number"`
+	Sequence         uint64              `json:"sequence" yaml:"sequence"`
+	OriginalVesting  sdk.Coins           `json:"original_vesting" yaml:"original_vesting"`
+	DelegatedFree    sdk.Coins           `json:"delegated_free" yaml:"delegated_free"`
+	DelegatedVesting sdk.Coins           `json:"delegated_vesting" yaml:"delegated_vesting"`
+	EndTime          int64               `json:"end_time" yaml:"end_time"`
+	Admin            string              `json:"admin" yaml:"admin"`
 
 	// custom fields based on concrete vesting type which can be omitted
 	StartTime      int64   `json:"start_time,omitempty" yaml:"start_time,omitempty"`
@@ -177,7 +178,7 @@ func (bva BaseVestingAccount) String() string {
 
 // MarshalYAML returns the YAML representation of a BaseVestingAccount.
 func (bva BaseVestingAccount) MarshalYAML() (interface{}, error) {
-	accAddr, err := sdk.AccAddressFromBech32(bva.Address)
+	accAddr, err := seitypes.AccAddressFromBech32(bva.Address)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +210,7 @@ func NewContinuousVestingAccountRaw(bva *BaseVestingAccount, startTime int64) *C
 }
 
 // NewContinuousVestingAccount returns a new ContinuousVestingAccount
-func NewContinuousVestingAccount(baseAcc *authtypes.BaseAccount, originalVesting sdk.Coins, startTime, endTime int64, admin sdk.AccAddress) *ContinuousVestingAccount {
+func NewContinuousVestingAccount(baseAcc *authtypes.BaseAccount, originalVesting sdk.Coins, startTime, endTime int64, admin seitypes.AccAddress) *ContinuousVestingAccount {
 	baseVestingAcc := &BaseVestingAccount{
 		BaseAccount:     baseAcc,
 		OriginalVesting: originalVesting,
@@ -291,7 +292,7 @@ func (cva ContinuousVestingAccount) String() string {
 
 // MarshalYAML returns the YAML representation of a ContinuousVestingAccount.
 func (cva ContinuousVestingAccount) MarshalYAML() (interface{}, error) {
-	accAddr, err := sdk.AccAddressFromBech32(cva.Address)
+	accAddr, err := seitypes.AccAddressFromBech32(cva.Address)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +326,7 @@ func NewPeriodicVestingAccountRaw(bva *BaseVestingAccount, startTime int64, peri
 }
 
 // NewPeriodicVestingAccount returns a new PeriodicVestingAccount
-func NewPeriodicVestingAccount(baseAcc *authtypes.BaseAccount, originalVesting sdk.Coins, startTime int64, periods Periods, admin sdk.AccAddress) *PeriodicVestingAccount {
+func NewPeriodicVestingAccount(baseAcc *authtypes.BaseAccount, originalVesting sdk.Coins, startTime int64, periods Periods, admin seitypes.AccAddress) *PeriodicVestingAccount {
 	endTime := startTime
 	for _, p := range periods {
 		endTime += p.Length
@@ -449,7 +450,7 @@ func (pva PeriodicVestingAccount) String() string {
 
 // MarshalYAML returns the YAML representation of a PeriodicVestingAccount.
 func (pva PeriodicVestingAccount) MarshalYAML() (interface{}, error) {
-	accAddr, err := sdk.AccAddressFromBech32(pva.Address)
+	accAddr, err := seitypes.AccAddressFromBech32(pva.Address)
 	if err != nil {
 		return nil, err
 	}
@@ -482,7 +483,7 @@ func NewDelayedVestingAccountRaw(bva *BaseVestingAccount) *DelayedVestingAccount
 }
 
 // NewDelayedVestingAccount returns a DelayedVestingAccount
-func NewDelayedVestingAccount(baseAcc *authtypes.BaseAccount, originalVesting sdk.Coins, endTime int64, admin sdk.AccAddress) *DelayedVestingAccount {
+func NewDelayedVestingAccount(baseAcc *authtypes.BaseAccount, originalVesting sdk.Coins, endTime int64, admin seitypes.AccAddress) *DelayedVestingAccount {
 	baseVestingAcc := &BaseVestingAccount{
 		BaseAccount:     baseAcc,
 		OriginalVesting: originalVesting,
@@ -544,7 +545,7 @@ var _ vestexported.VestingAccount = (*PermanentLockedAccount)(nil)
 var _ authtypes.GenesisAccount = (*PermanentLockedAccount)(nil)
 
 // NewPermanentLockedAccount returns a PermanentLockedAccount
-func NewPermanentLockedAccount(baseAcc *authtypes.BaseAccount, coins sdk.Coins, admin sdk.AccAddress) *PermanentLockedAccount {
+func NewPermanentLockedAccount(baseAcc *authtypes.BaseAccount, coins sdk.Coins, admin seitypes.AccAddress) *PermanentLockedAccount {
 	baseVestingAcc := &BaseVestingAccount{
 		BaseAccount:     baseAcc,
 		OriginalVesting: coins,

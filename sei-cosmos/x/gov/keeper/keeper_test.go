@@ -19,7 +19,7 @@ type KeeperTestSuite struct {
 	app         *seiapp.App
 	ctx         sdk.Context
 	queryClient types.QueryClient
-	addrs       []sdk.AccAddress
+	addrs       []seitypes.AccAddress
 }
 
 func (suite *KeeperTestSuite) SetupTest() {

@@ -120,7 +120,7 @@ func (sc *SignerClient) GetKey(accountID, backend, accountKeyFilePath string) cr
 	keyringAlgos, _ := kr.SupportedAlgorithms()
 	algoStr := string(hd.Secp256k1Type)
 	algo, _ := keyring.NewSigningAlgoFromString(algoStr, keyringAlgos)
-	hdpath := hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String()
+	hdpath := hd.CreateHDPath(seitypes.GetConfig().GetCoinType(), 0, 0).String()
 	derivedPriv, _ := algo.Derive()(accountInfo.Mnemonic, "", hdpath)
 	privKey := algo.Generate()(derivedPriv)
 

@@ -136,10 +136,10 @@ func (p PrecompileExecutor) instantiate(ctx sdk.Context, method *abi.Method, cal
 		rerr = types.NewAssociationMissingErr(caller.Hex())
 		return
 	}
-	var adminAddr sdk.AccAddress
+	var adminAddr seitypes.AccAddress
 	adminAddrStr := args[1].(string)
 	if len(adminAddrStr) > 0 {
-		adminAddrDecoded, err := sdk.AccAddressFromBech32(adminAddrStr)
+		adminAddrDecoded, err := seitypes.AccAddressFromBech32(adminAddrStr)
 		if err != nil {
 			rerr = err
 			return
@@ -266,7 +266,7 @@ func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, ca
 			}
 		}
 
-		contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
+		contractAddr, err := seitypes.AccAddressFromBech32(contractAddrStr)
 		if err != nil {
 			rerr = err
 			return
@@ -360,7 +360,7 @@ func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller 
 		}
 	}
 	// addresses will be sent in Sei format
-	contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
+	contractAddr, err := seitypes.AccAddressFromBech32(contractAddrStr)
 	if err != nil {
 		rerr = err
 		return
@@ -441,7 +441,7 @@ func (p PrecompileExecutor) query(ctx sdk.Context, method *abi.Method, args []in
 
 	contractAddrStr := args[0].(string)
 	// addresses will be sent in Sei format
-	contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
+	contractAddr, err := seitypes.AccAddressFromBech32(contractAddrStr)
 	if err != nil {
 		rerr = err
 		return

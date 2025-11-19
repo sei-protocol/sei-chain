@@ -163,7 +163,7 @@ func TestWithdrawMultipleDelegationRewards(t *testing.T) {
 	distrParams.WithdrawAddrEnabled = true
 	testApp.DistrKeeper.SetParams(ctx, distrParams)
 	k := &testApp.EvmKeeper
-	validators := []sdk.ValAddress{
+	validators := []seitypes.ValAddress{
 		getValidator(t, ctx, testApp),
 		getValidator(t, ctx, testApp),
 		getValidator(t, ctx, testApp)}
@@ -195,7 +195,7 @@ func delegate(ctx sdk.Context,
 	abi abitypes.ABI,
 	addr common.Address,
 	k *keeper.Keeper,
-	val sdk.ValAddress,
+	val seitypes.ValAddress,
 	testApp *app.App,
 	privKey crptotypes.PrivKey,
 	signer ethtypes.Signer,
@@ -239,7 +239,7 @@ func setWithdrawAddressAndWithdraw(
 	ctx sdk.Context,
 	t *testing.T,
 	addr common.Address,
-	vals []sdk.ValAddress,
+	vals []seitypes.ValAddress,
 	k *keeper.Keeper,
 	testApp *app.App,
 	privKey crptotypes.PrivKey,
@@ -311,19 +311,19 @@ func setWithdrawAddressAndWithdraw(
 	}
 }
 
-func getValidator(t *testing.T, ctx sdk.Context, testApp *app.App) sdk.ValAddress {
+func getValidator(t *testing.T, ctx sdk.Context, testApp *app.App) seitypes.ValAddress {
 	return setupValidator(t, ctx, testApp, stakingtypes.Unbonded, secp256k1.GenPrivKey().PubKey())
 }
 
-func setupValidator(t *testing.T, ctx sdk.Context, a *app.App, bondStatus stakingtypes.BondStatus, valPub crptotypes.PubKey) sdk.ValAddress {
-	valAddr := sdk.ValAddress(valPub.Address())
+func setupValidator(t *testing.T, ctx sdk.Context, a *app.App, bondStatus stakingtypes.BondStatus, valPub crptotypes.PubKey) seitypes.ValAddress {
+	valAddr := seitypes.ValAddress(valPub.Address())
 	bondDenom := a.StakingKeeper.GetParams(ctx).BondDenom
 	selfBond := sdk.NewCoins(sdk.Coin{Amount: sdk.NewInt(100), Denom: bondDenom})
 
 	err := a.BankKeeper.MintCoins(ctx, minttypes.ModuleName, selfBond)
 	require.NoError(t, err)
 
-	err = a.BankKeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, sdk.AccAddress(valAddr), selfBond)
+	err = a.BankKeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, seitypes.AccAddress(valAddr), selfBond)
 	require.NoError(t, err)
 
 	sh := teststaking.NewHelper(t, ctx, a.StakingKeeper)
@@ -851,21 +851,21 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 }
 
 type TestDistributionKeeper struct {
-	seiValAddr sdk.AccAddress
+	seiValAddr seitypes.AccAddress
 	t          *testing.T
 }
 
-func (tk *TestDistributionKeeper) SetWithdrawAddr(ctx sdk.Context, delegatorAddr sdk.AccAddress, withdrawAddr sdk.AccAddress) error {
+func (tk *TestDistributionKeeper) SetWithdrawAddr(ctx sdk.Context, delegatorAddr seitypes.AccAddress, withdrawAddr seitypes.AccAddress) error {
 	return nil
 }
 
-func (tk *TestDistributionKeeper) WithdrawDelegationRewards(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) (sdk.Coins, error) {
+func (tk *TestDistributionKeeper) WithdrawDelegationRewards(ctx sdk.Context, delAddr seitypes.AccAddress, valAddr seitypes.ValAddress) (sdk.Coins, error) {
 	return sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000))), nil
 }
 
-func (tk *TestDistributionKeeper) WithdrawValidatorCommission(ctx sdk.Context, valAddr sdk.ValAddress) (sdk.Coins, error) {
+func (tk *TestDistributionKeeper) WithdrawValidatorCommission(ctx sdk.Context, valAddr seitypes.ValAddress) (sdk.Coins, error) {
 	if tk.seiValAddr != nil && tk.t != nil {
-		require.Equal(tk.t, sdk.ValAddress(tk.seiValAddr), valAddr)
+		require.Equal(tk.t, seitypes.ValAddress(tk.seiValAddr), valAddr)
 	}
 
 	return sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(50000))), nil
@@ -897,15 +897,15 @@ func (tk *TestDistributionKeeper) DelegationTotalRewards(ctx context.Context, re
 
 type TestEmptyRewardsDistributionKeeper struct{}
 
-func (tk *TestEmptyRewardsDistributionKeeper) SetWithdrawAddr(ctx sdk.Context, delegatorAddr sdk.AccAddress, withdrawAddr sdk.AccAddress) error {
+func (tk *TestEmptyRewardsDistributionKeeper) SetWithdrawAddr(ctx sdk.Context, delegatorAddr seitypes.AccAddress, withdrawAddr seitypes.AccAddress) error {
 	return nil
 }
 
-func (tk *TestEmptyRewardsDistributionKeeper) WithdrawDelegationRewards(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) (sdk.Coins, error) {
+func (tk *TestEmptyRewardsDistributionKeeper) WithdrawDelegationRewards(ctx sdk.Context, delAddr seitypes.AccAddress, valAddr seitypes.ValAddress) (sdk.Coins, error) {
 	return sdk.NewCoins(), nil
 }
 
-func (tk *TestEmptyRewardsDistributionKeeper) WithdrawValidatorCommission(ctx sdk.Context, valAddr sdk.ValAddress) (sdk.Coins, error) {
+func (tk *TestEmptyRewardsDistributionKeeper) WithdrawValidatorCommission(ctx sdk.Context, valAddr seitypes.ValAddress) (sdk.Coins, error) {
 	return sdk.NewCoins(), nil
 }
 

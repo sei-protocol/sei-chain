@@ -5,10 +5,11 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
-func (app *BaseApp) Check(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *sdk.Result, error) {
+func (app *BaseApp) Check(txEncoder seitypes.TxEncoder, tx seitypes.Tx) (sdk.GasInfo, *sdk.Result, error) {
 	// runTx expects tx bytes as argument, so we encode the tx argument into
 	// bytes. Note that runTx will actually decode those bytes again. But since
 	// this helper is only used in tests/simulation, it's fine.
@@ -32,7 +33,7 @@ func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
 	return gasInfo, result, err
 }
 
-func (app *BaseApp) Deliver(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *sdk.Result, error) {
+func (app *BaseApp) Deliver(txEncoder seitypes.TxEncoder, tx seitypes.Tx) (sdk.GasInfo, *sdk.Result, error) {
 	// See comment for Check().
 	bz, err := txEncoder(tx)
 	if err != nil {

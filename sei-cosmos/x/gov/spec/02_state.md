@@ -152,7 +152,7 @@ And the pseudocode for the `ProposalProcessingQueue`:
       proposal = load(Governance, <proposalID|'proposal'>) // proposal is a const key
 
       validators = Keeper.getAllValidators()
-      tmpValMap := map(sdk.AccAddress)ValidatorGovInfo
+      tmpValMap := map(seitypes.AccAddress)ValidatorGovInfo
 
       // Initiate mapping at 0. This is the amount of shares of the validator's vote that will be overridden by their delegator's votes
       for each validator in validators

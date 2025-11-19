@@ -5,6 +5,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	"github.com/cosmos/cosmos-sdk/types/query"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -55,7 +56,7 @@ func (ak AccountKeeper) Account(c context.Context, req *types.QueryAccountReques
 	}
 
 	ctx := sdk.UnwrapSDKContext(c)
-	addr, err := sdk.AccAddressFromBech32(req.Address)
+	addr, err := seitypes.AccAddressFromBech32(req.Address)
 
 	if err != nil {
 		return nil, err

@@ -62,7 +62,7 @@ func (e *Equivocation) ValidateBasic() error {
 
 // GetConsensusAddress returns the validator's consensus address at time of the
 // Equivocation infraction.
-func (e Equivocation) GetConsensusAddress() sdk.ConsAddress {
+func (e Equivocation) GetConsensusAddress() seitypes.ConsAddress {
 	addr, _ := sdk.ConsAddressFromBech32(e.ConsensusAddress)
 	return addr
 }
@@ -89,7 +89,7 @@ func (e Equivocation) GetTotalPower() int64 { return 0 }
 // FromABCIEvidence converts a Tendermint concrete Evidence type to
 // SDK Evidence using Equivocation as the concrete type.
 func FromABCIEvidence(e abci.Evidence) exported.Evidence {
-	bech32PrefixConsAddr := sdk.GetConfig().GetBech32ConsensusAddrPrefix()
+	bech32PrefixConsAddr := seitypes.GetConfig().GetBech32ConsensusAddrPrefix()
 	consAddr, err := sdk.Bech32ifyAddressBytes(bech32PrefixConsAddr, e.Validator.Address)
 	if err != nil {
 		panic(err)

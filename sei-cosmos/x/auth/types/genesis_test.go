@@ -14,12 +14,12 @@ import (
 )
 
 func TestSanitize(t *testing.T) {
-	addr1 := sdk.AccAddress(ed25519.GenPrivKey().PubKey().Address())
+	addr1 := seitypes.AccAddress(ed25519.GenPrivKey().PubKey().Address())
 	authAcc1 := types.NewBaseAccountWithAddress(addr1)
 	err := authAcc1.SetAccountNumber(1)
 	require.NoError(t, err)
 
-	addr2 := sdk.AccAddress(ed25519.GenPrivKey().PubKey().Address())
+	addr2 := seitypes.AccAddress(ed25519.GenPrivKey().PubKey().Address())
 	authAcc2 := types.NewBaseAccountWithAddress(addr2)
 
 	genAccs := types.GenesisAccounts{authAcc1, authAcc2}
@@ -35,13 +35,13 @@ func TestSanitize(t *testing.T) {
 var (
 	pk1   = ed25519.GenPrivKey().PubKey()
 	pk2   = ed25519.GenPrivKey().PubKey()
-	addr1 = sdk.ValAddress(pk1.Address())
-	addr2 = sdk.ValAddress(pk2.Address())
+	addr1 = seitypes.ValAddress(pk1.Address())
+	addr2 = seitypes.ValAddress(pk2.Address())
 )
 
 // require duplicate accounts fails validation
 func TestValidateGenesisDuplicateAccounts(t *testing.T) {
-	acc1 := types.NewBaseAccountWithAddress(sdk.AccAddress(addr1))
+	acc1 := types.NewBaseAccountWithAddress(seitypes.AccAddress(addr1))
 
 	genAccs := make(types.GenesisAccounts, 2)
 	genAccs[0] = acc1
@@ -51,8 +51,8 @@ func TestValidateGenesisDuplicateAccounts(t *testing.T) {
 }
 
 func TestGenesisAccountIterator(t *testing.T) {
-	acc1 := types.NewBaseAccountWithAddress(sdk.AccAddress(addr1))
-	acc2 := types.NewBaseAccountWithAddress(sdk.AccAddress(addr2))
+	acc1 := types.NewBaseAccountWithAddress(seitypes.AccAddress(addr1))
+	acc2 := types.NewBaseAccountWithAddress(seitypes.AccAddress(addr2))
 
 	genAccounts := types.GenesisAccounts{acc1, acc2}
 
@@ -67,7 +67,7 @@ func TestGenesisAccountIterator(t *testing.T) {
 
 	appGenesis[types.ModuleName] = authGenStateBz
 
-	var addresses []sdk.AccAddress
+	var addresses []seitypes.AccAddress
 	types.GenesisAccountIterator{}.IterateGenesisAccounts(
 		appCodec, appGenesis, func(acc types.AccountI) (stop bool) {
 			addresses = append(addresses, acc.GetAddress())

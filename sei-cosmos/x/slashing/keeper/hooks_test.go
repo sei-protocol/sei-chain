@@ -15,7 +15,7 @@ func TestAfterValidatorBonded(t *testing.T) {
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 6, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 	keeper := app.SlashingKeeper
-	consAddr := sdk.ConsAddress(addrDels[0])
+	consAddr := seitypes.ConsAddress(addrDels[0])
 
 	keeper.AfterValidatorBonded(ctx, consAddr, valAddrs[0])
 

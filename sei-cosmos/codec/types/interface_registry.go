@@ -28,7 +28,7 @@ type AnyUnpacker interface {
 	// iface. Note that the type in any must have been registered in the
 	// underlying whitelist registry as a concrete type for that interface
 	// Ex:
-	//    var msg sdk.Msg
+	//    var msg seitypes.Msg
 	//    err := cdc.UnpackAny(any, &msg)
 	//    ...
 	UnpackAny(any *Any, iface interface{}) error
@@ -48,14 +48,14 @@ type InterfaceRegistry interface {
 	// as implementations of iface.
 	//
 	// Ex:
-	//   registry.RegisterInterface("cosmos.base.v1beta1.Msg", (*sdk.Msg)(nil))
+	//   registry.RegisterInterface("cosmos.base.v1beta1.Msg", (*seitypes.Msg)(nil))
 	RegisterInterface(protoName string, iface interface{}, impls ...proto.Message)
 
 	// RegisterImplementations registers impls as concrete implementations of
 	// the interface iface.
 	//
 	// Ex:
-	//  registry.RegisterImplementations((*sdk.Msg)(nil), &MsgSend{}, &MsgMultiSend{})
+	//  registry.RegisterImplementations((*seitypes.Msg)(nil), &MsgSend{}, &MsgMultiSend{})
 	RegisterImplementations(iface interface{}, impls ...proto.Message)
 
 	// ListAllInterfaces list the type URLs of all registered interfaces.

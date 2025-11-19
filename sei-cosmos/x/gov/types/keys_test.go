@@ -10,7 +10,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-var addr = sdk.AccAddress(ed25519.GenPrivKey().PubKey().Address())
+var addr = seitypes.AccAddress(ed25519.GenPrivKey().PubKey().Address())
 
 func TestProposalKeys(t *testing.T) {
 	// key proposal

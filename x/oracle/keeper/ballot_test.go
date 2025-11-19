@@ -118,7 +118,7 @@ func TestClearBallots(t *testing.T) {
 	input.OracleKeeper.ClearBallots(input.Ctx, 5)
 
 	voteCounter := 0
-	input.OracleKeeper.IterateAggregateExchangeRateVotes(input.Ctx, func(_ sdk.ValAddress, _ types.AggregateExchangeRateVote) bool {
+	input.OracleKeeper.IterateAggregateExchangeRateVotes(input.Ctx, func(_ seitypes.ValAddress, _ types.AggregateExchangeRateVote) bool {
 		voteCounter++
 		return false
 	})

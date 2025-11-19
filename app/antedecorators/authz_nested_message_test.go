@@ -15,7 +15,7 @@ import (
 
 func TestAuthzNestedEvmMessage(t *testing.T) {
 	priv1 := secp256k1.GenPrivKey()
-	addr1 := sdk.AccAddress(priv1.PubKey().Address())
+	addr1 := seitypes.AccAddress(priv1.PubKey().Address())
 	output = ""
 	anteDecorators := []sdk.AnteDecorator{
 		antedecorators.NewAuthzNestedMessageDecorator(),
@@ -23,34 +23,34 @@ func TestAuthzNestedEvmMessage(t *testing.T) {
 	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
 	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 
-	nestedEvmMessage := authz.NewMsgExec(addr1, []sdk.Msg{&evmtypes.MsgEVMTransaction{}})
+	nestedEvmMessage := authz.NewMsgExec(addr1, []seitypes.Msg{&evmtypes.MsgEVMTransaction{}})
 	// test with nested evm message
 	_, err := chainedHandler(
 		ctx.WithPriority(0),
 		FakeTx{
-			FakeMsgs: []sdk.Msg{&nestedEvmMessage},
+			FakeMsgs: []seitypes.Msg{&nestedEvmMessage},
 		},
 		false,
 	)
 	require.NotNil(t, err)
 
 	// Multiple nested layers to evm message
-	doubleNestedEvmMessage := authz.NewMsgExec(addr1, []sdk.Msg{&nestedEvmMessage})
+	doubleNestedEvmMessage := authz.NewMsgExec(addr1, []seitypes.Msg{&nestedEvmMessage})
 	_, err = chainedHandler(
 		ctx.WithPriority(0),
 		FakeTx{
-			FakeMsgs: []sdk.Msg{&doubleNestedEvmMessage},
+			FakeMsgs: []seitypes.Msg{&doubleNestedEvmMessage},
 		},
 		false,
 	)
 	require.NotNil(t, err)
 
 	// No error
-	nestedMessage := authz.NewMsgExec(addr1, []sdk.Msg{&banktypes.MsgSend{}})
+	nestedMessage := authz.NewMsgExec(addr1, []seitypes.Msg{&banktypes.MsgSend{}})
 	_, err = chainedHandler(
 		ctx.WithPriority(0),
 		FakeTx{
-			FakeMsgs: []sdk.Msg{&nestedMessage},
+			FakeMsgs: []seitypes.Msg{&nestedMessage},
 		},
 		false,
 	)

@@ -2,8 +2,8 @@ package derived
 
 import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 type SignerVersion int
@@ -16,7 +16,7 @@ const (
 
 type Derived struct {
 	SenderEVMAddr common.Address
-	SenderSeiAddr sdk.AccAddress
+	SenderSeiAddr seitypes.AccAddress
 	PubKey        *secp256k1.PubKey
 	IsAssociate   bool
 	Version       SignerVersion

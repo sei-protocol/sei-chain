@@ -204,7 +204,7 @@ func queryDelegatorValidators(ctx sdk.Context, _ []string, req abci.RequestQuery
 	// branch the context to isolate state changes
 	ctx, _ = ctx.CacheContext()
 
-	var validators []sdk.ValAddress
+	var validators []seitypes.ValAddress
 
 	k.stakingKeeper.IterateDelegations(
 		ctx, params.DelegatorAddress,

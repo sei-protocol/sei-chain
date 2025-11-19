@@ -71,7 +71,7 @@ func GenAppStateFromConfig(cdc codec.JSONCodec, txEncodingConfig client.TxEncodi
 // the list of appGenTxs, and persistent peers required to generate genesis.json.
 func CollectTxs(cdc codec.JSONCodec, txJSONDecoder sdk.TxDecoder, moniker, genTxsDir string,
 	genDoc tmtypes.GenesisDoc, genBalIterator types.GenesisBalancesIterator,
-) (appGenTxs []sdk.Tx, persistentPeers string, err error) {
+) (appGenTxs []seitypes.Tx, persistentPeers string, err error) {
 	// prepare a map of all balances in genesis state to then validate
 	// against the validators addresses
 	var appState map[string]json.RawMessage
@@ -112,7 +112,7 @@ func CollectTxs(cdc codec.JSONCodec, txJSONDecoder sdk.TxDecoder, moniker, genTx
 			return appGenTxs, persistentPeers, err
 		}
 
-		var genTx sdk.Tx
+		var genTx seitypes.Tx
 		if genTx, err = txJSONDecoder(jsonRawTx); err != nil {
 			return appGenTxs, persistentPeers, err
 		}
@@ -155,11 +155,11 @@ func CollectTxs(cdc codec.JSONCodec, txJSONDecoder sdk.TxDecoder, moniker, genTx
 			return appGenTxs, persistentPeers, fmt.Errorf("account %s balance not in genesis state: %+v", delAddr, balancesMap)
 		}
 
-		_, valOk := balancesMap[sdk.AccAddress(valAddr).String()]
+		_, valOk := balancesMap[seitypes.AccAddress(valAddr).String()]
 		if !valOk {
 			_, file, no, ok := runtime.Caller(1)
 			if ok {
-				fmt.Printf("CollectTxs-2, called from %s#%d - %s\n", file, no, sdk.AccAddress(msg.ValidatorAddress).String())
+				fmt.Printf("CollectTxs-2, called from %s#%d - %s\n", file, no, seitypes.AccAddress(msg.ValidatorAddress).String())
 			}
 			return appGenTxs, persistentPeers, fmt.Errorf("account %s balance not in genesis state: %+v", valAddr, balancesMap)
 		}

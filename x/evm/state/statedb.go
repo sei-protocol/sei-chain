@@ -30,7 +30,7 @@ type DBImpl struct {
 	// a temporary address that collects fees for this particular transaction so that there is
 	// no single bottleneck for fee collection. Its account state and balance will be deleted
 	// before the block commits
-	coinbaseAddress    sdk.AccAddress
+	coinbaseAddress    seitypes.AccAddress
 	coinbaseEvmAddress common.Address
 
 	k          EVMKeeper

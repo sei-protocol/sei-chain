@@ -10,7 +10,7 @@ import (
 )
 
 func TestMsgClaim(t *testing.T) {
-	sender := sdk.AccAddress("acc_________________")
+	sender := seitypes.AccAddress("acc_________________")
 	claimer := common.HexToAddress("0x0123456789abcdef012345abcdef12345678")
 	msg := types.NewMsgClaim(sender, claimer)
 	require.Equal(t, "evm", msg.Route())

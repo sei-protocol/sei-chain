@@ -19,12 +19,12 @@ type SlashInfo struct {
 
 // This performs similar logic to the above HandleValidatorSignature, but only performs READs such that it can be performed in parallel for all validators.
 // Instead of updating appropriate validator bit arrays / signing infos, this will return the pending values to be written in a consistent order
-func (k Keeper) HandleValidatorSignatureConcurrent(ctx sdk.Context, addr cryptotypes.Address, power int64, signed bool) (consAddr sdk.ConsAddress, missedInfo types.ValidatorMissedBlockArray, signInfo types.ValidatorSigningInfo, shouldSlash bool, slashInfo SlashInfo) {
+func (k Keeper) HandleValidatorSignatureConcurrent(ctx sdk.Context, addr cryptotypes.Address, power int64, signed bool) (consAddr seitypes.ConsAddress, missedInfo types.ValidatorMissedBlockArray, signInfo types.ValidatorSigningInfo, shouldSlash bool, slashInfo SlashInfo) {
 	logger := k.Logger(ctx)
 	height := ctx.BlockHeight()
 
 	// fetch the validator public key
-	consAddr = sdk.ConsAddress(addr)
+	consAddr = seitypes.ConsAddress(addr)
 	if _, err := k.GetPubkey(ctx, addr); err != nil {
 		panic(fmt.Sprintf("Validator consensus-address %s not found", consAddr))
 	}
@@ -123,7 +123,7 @@ func (k Keeper) HandleValidatorSignatureConcurrent(ctx sdk.Context, addr cryptot
 	return
 }
 
-func (k Keeper) SlashJailAndUpdateSigningInfo(ctx sdk.Context, consAddr sdk.ConsAddress, slashInfo SlashInfo, signInfo types.ValidatorSigningInfo) types.ValidatorSigningInfo {
+func (k Keeper) SlashJailAndUpdateSigningInfo(ctx sdk.Context, consAddr seitypes.ConsAddress, slashInfo SlashInfo, signInfo types.ValidatorSigningInfo) types.ValidatorSigningInfo {
 	logger := k.Logger(ctx)
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(

@@ -13,7 +13,7 @@ import (
 
 func TestEquivocation_Valid(t *testing.T) {
 	n, _ := time.Parse(time.RFC3339, "2006-01-02T15:04:05Z")
-	addr := sdk.ConsAddress("foo_________________")
+	addr := seitypes.ConsAddress("foo_________________")
 
 	e := types.Equivocation{
 		Height:           100,
@@ -36,7 +36,7 @@ func TestEquivocation_Valid(t *testing.T) {
 
 func TestEquivocationValidateBasic(t *testing.T) {
 	var zeroTime time.Time
-	addr := sdk.ConsAddress("foo_________________")
+	addr := seitypes.ConsAddress("foo_________________")
 
 	n, _ := time.Parse(time.RFC3339, "2006-01-02T15:04:05Z")
 	testCases := []struct {
@@ -60,7 +60,7 @@ func TestEquivocationValidateBasic(t *testing.T) {
 }
 
 func TestEvidenceAddressConversion(t *testing.T) {
-	sdk.GetConfig().SetBech32PrefixForConsensusNode("testcnclcons", "testcnclconspub")
+	seitypes.GetConfig().SetBech32PrefixForConsensusNode("testcnclcons", "testcnclconspub")
 	tmEvidence := abci.Evidence{
 		Type: abci.MisbehaviorType_DUPLICATE_VOTE,
 		Validator: abci.Validator{
@@ -75,5 +75,5 @@ func TestEvidenceAddressConversion(t *testing.T) {
 	consAddr := evidence.GetConsensusAddress()
 	// Check the address is the same after conversion
 	require.Equal(t, tmEvidence.Validator.Address, consAddr.Bytes())
-	sdk.GetConfig().SetBech32PrefixForConsensusNode(sdk.Bech32PrefixConsAddr, sdk.Bech32PrefixConsPub)
+	seitypes.GetConfig().SetBech32PrefixForConsensusNode(sdk.Bech32PrefixConsAddr, sdk.Bech32PrefixConsPub)
 }

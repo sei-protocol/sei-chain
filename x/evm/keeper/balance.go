@@ -7,7 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
-func (k *Keeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress) *big.Int {
+func (k *Keeper) GetBalance(ctx sdk.Context, addr seitypes.AccAddress) *big.Int {
 	denom := k.GetBaseDenom(ctx)
 	allUsei := k.BankKeeper().GetBalance(ctx, addr, denom).Amount
 	lockedUsei := k.BankKeeper().LockedCoins(ctx, addr).AmountOf(denom) // LockedCoins doesn't use iterators

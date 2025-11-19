@@ -92,7 +92,7 @@ func (a *AccessOp) GetResourceIdentifier(args []any) string {
     return fmt.Sprintf(a.IdentifierTemplate, args...)
 }
 ```
-Two new interface methods will be added to `sdk.Msg` which each message type would need to implement:
+Two new interface methods will be added to `seitypes.Msg` which each message type would need to implement:
 ```go
 GetAccessMappingKey() string
 GetAccessMappingValueArgs() [][]any

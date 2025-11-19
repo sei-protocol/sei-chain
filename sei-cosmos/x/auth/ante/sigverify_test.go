@@ -30,10 +30,10 @@ func (suite *AnteTestSuite) TestSetPubKey() {
 	priv2, pub2, addr2 := testdata.KeyTestPubAddr()
 	priv3, pub3, addr3 := testdata.KeyTestPubAddrSecp256R1(require)
 
-	addrs := []sdk.AccAddress{addr1, addr2, addr3}
+	addrs := []seitypes.AccAddress{addr1, addr2, addr3}
 	pubs := []cryptotypes.PubKey{pub1, pub2, pub3}
 
-	msgs := make([]sdk.Msg, len(addrs))
+	msgs := make([]seitypes.Msg, len(addrs))
 	// set accounts and create msg for each address
 	for i, addr := range addrs {
 		acc := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr)
@@ -130,9 +130,9 @@ func (suite *AnteTestSuite) TestSigVerification() {
 	priv2, _, addr2 := testdata.KeyTestPubAddr()
 	priv3, _, addr3 := testdata.KeyTestPubAddr()
 
-	addrs := []sdk.AccAddress{addr1, addr2, addr3}
+	addrs := []seitypes.AccAddress{addr1, addr2, addr3}
 
-	msgs := make([]sdk.Msg, len(addrs))
+	msgs := make([]seitypes.Msg, len(addrs))
 	// set accounts and create msg for each address
 	for i, addr := range addrs {
 		acc := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr)
@@ -243,9 +243,9 @@ func (suite *AnteTestSuite) TestSigVerification_ExplicitAmino() {
 	priv2, _, addr2 := testdata.KeyTestPubAddr()
 	priv3, _, addr3 := testdata.KeyTestPubAddr()
 
-	addrs := []sdk.AccAddress{addr1, addr2, addr3}
+	addrs := []seitypes.AccAddress{addr1, addr2, addr3}
 
-	msgs := make([]sdk.Msg, len(addrs))
+	msgs := make([]seitypes.Msg, len(addrs))
 	// set accounts and create msg for each address
 	for i, addr := range addrs {
 		acc := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr)
@@ -326,12 +326,12 @@ func (suite *AnteTestSuite) runSigDecorators(params types.Params, _ bool, privs 
 	suite.ctx = suite.ctx.WithBlockHeight(1)
 	suite.app.AccountKeeper.SetParams(suite.ctx, params)
 
-	msgs := make([]sdk.Msg, len(privs))
+	msgs := make([]seitypes.Msg, len(privs))
 	accNums := make([]uint64, len(privs))
 	accSeqs := make([]uint64, len(privs))
 	// set accounts and create msg for each address
 	for i, priv := range privs {
-		addr := sdk.AccAddress(priv.PubKey().Address())
+		addr := seitypes.AccAddress(priv.PubKey().Address())
 		acc := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr)
 		suite.Require().NoError(acc.SetAccountNumber(uint64(i)))
 		suite.app.AccountKeeper.SetAccount(suite.ctx, acc)
@@ -371,7 +371,7 @@ func (suite *AnteTestSuite) TestIncrementSequenceDecorator() {
 	suite.Require().NoError(acc.SetAccountNumber(uint64(50)))
 	suite.app.AccountKeeper.SetAccount(suite.ctx, acc)
 
-	msgs := []sdk.Msg{testdata.NewTestMsg(addr)}
+	msgs := []seitypes.Msg{testdata.NewTestMsg(addr)}
 	suite.Require().NoError(suite.txBuilder.SetMsgs(msgs...))
 	privs := []cryptotypes.PrivKey{priv}
 	accNums := []uint64{suite.app.AccountKeeper.GetAccount(suite.ctx, addr).GetAccountNumber()}

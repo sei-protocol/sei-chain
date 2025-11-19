@@ -14,9 +14,9 @@ import (
 func TestLightInvarianceChecks(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
-	accounts := []sdk.AccAddress{
-		sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()),
-		sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()),
+	accounts := []seitypes.AccAddress{
+		seitypes.AccAddress(secp256k1.GenPrivKey().PubKey().Address()),
+		seitypes.AccAddress(secp256k1.GenPrivKey().PubKey().Address()),
 	}
 	useiCoin := func(i int64) sdk.Coin { return sdk.NewCoin("usei", sdk.NewInt(i)) }
 	useiCoins := func(i int64) sdk.Coins { return sdk.NewCoins(useiCoin(i)) }

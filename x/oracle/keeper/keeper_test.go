@@ -196,9 +196,9 @@ func TestIterateFeederDelegations(t *testing.T) {
 
 	input.OracleKeeper.SetFeederDelegation(input.Ctx, testutils.ValAddrs[0], testutils.Addrs[1])
 
-	var delegators []sdk.ValAddress
-	var delegates []sdk.AccAddress
-	input.OracleKeeper.IterateFeederDelegations(input.Ctx, func(delegator sdk.ValAddress, delegate sdk.AccAddress) (stop bool) {
+	var delegators []seitypes.ValAddress
+	var delegates []seitypes.AccAddress
+	input.OracleKeeper.IterateFeederDelegations(input.Ctx, func(delegator seitypes.ValAddress, delegate seitypes.AccAddress) (stop bool) {
 		delegators = append(delegators, delegator)
 		delegates = append(delegates, delegate)
 		return false
@@ -273,9 +273,9 @@ func TestIterateMissCounters(t *testing.T) {
 	missCounter := uint64(10)
 	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[1], missCounter, missCounter, 0)
 
-	var operators []sdk.ValAddress
+	var operators []seitypes.ValAddress
 	var votePenaltyCounters types.VotePenaltyCounters
-	input.OracleKeeper.IterateVotePenaltyCounters(input.Ctx, func(delegator sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool) {
+	input.OracleKeeper.IterateVotePenaltyCounters(input.Ctx, func(delegator seitypes.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool) {
 		operators = append(operators, delegator)
 		votePenaltyCounters = append(votePenaltyCounters, votePenaltyCounter)
 		return false
@@ -294,15 +294,15 @@ func TestAggregateVoteAddDelete(t *testing.T) {
 		{Denom: "foo", ExchangeRate: sdk.NewDec(-1)},
 		{Denom: "foo", ExchangeRate: sdk.NewDec(0)},
 		{Denom: "foo", ExchangeRate: sdk.NewDec(1)},
-	}, sdk.ValAddress(testutils.Addrs[0]))
-	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(testutils.Addrs[0]), aggregateVote)
+	}, seitypes.ValAddress(testutils.Addrs[0]))
+	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, seitypes.ValAddress(testutils.Addrs[0]), aggregateVote)
 
-	KVote, err := input.OracleKeeper.GetAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(testutils.Addrs[0]))
+	KVote, err := input.OracleKeeper.GetAggregateExchangeRateVote(input.Ctx, seitypes.ValAddress(testutils.Addrs[0]))
 	require.NoError(t, err)
 	require.Equal(t, aggregateVote, KVote)
 
-	input.OracleKeeper.DeleteAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(testutils.Addrs[0]))
-	_, err = input.OracleKeeper.GetAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(testutils.Addrs[0]))
+	input.OracleKeeper.DeleteAggregateExchangeRateVote(input.Ctx, seitypes.ValAddress(testutils.Addrs[0]))
+	_, err = input.OracleKeeper.GetAggregateExchangeRateVote(input.Ctx, seitypes.ValAddress(testutils.Addrs[0]))
 	require.Error(t, err)
 }
 
@@ -313,19 +313,19 @@ func TestAggregateVoteIterate(t *testing.T) {
 		{Denom: "foo", ExchangeRate: sdk.NewDec(-1)},
 		{Denom: "foo", ExchangeRate: sdk.NewDec(0)},
 		{Denom: "foo", ExchangeRate: sdk.NewDec(1)},
-	}, sdk.ValAddress(testutils.Addrs[0]))
-	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(testutils.Addrs[0]), aggregateVote1)
+	}, seitypes.ValAddress(testutils.Addrs[0]))
+	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, seitypes.ValAddress(testutils.Addrs[0]), aggregateVote1)
 
 	aggregateVote2 := types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{
 		{Denom: "foo", ExchangeRate: sdk.NewDec(-1)},
 		{Denom: "foo", ExchangeRate: sdk.NewDec(0)},
 		{Denom: "foo", ExchangeRate: sdk.NewDec(1)},
-	}, sdk.ValAddress(testutils.Addrs[1]))
-	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(testutils.Addrs[1]), aggregateVote2)
+	}, seitypes.ValAddress(testutils.Addrs[1]))
+	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, seitypes.ValAddress(testutils.Addrs[1]), aggregateVote2)
 
 	i := 0
 	bigger := bytes.Compare(address.MustLengthPrefix(testutils.Addrs[0]), address.MustLengthPrefix(testutils.Addrs[1]))
-	input.OracleKeeper.IterateAggregateExchangeRateVotes(input.Ctx, func(voter sdk.ValAddress, p types.AggregateExchangeRateVote) (stop bool) {
+	input.OracleKeeper.IterateAggregateExchangeRateVotes(input.Ctx, func(voter seitypes.ValAddress, p types.AggregateExchangeRateVote) (stop bool) {
 		if (i == 0 && bigger == -1) || (i == 1 && bigger == 1) {
 			require.Equal(t, aggregateVote1, p)
 			require.Equal(t, voter.String(), p.Voter)
@@ -380,30 +380,30 @@ func TestValidateFeeder(t *testing.T) {
 	staking.EndBlocker(ctx, input.StakingKeeper)
 
 	require.Equal(
-		t, input.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr)),
+		t, input.BankKeeper.GetAllBalances(ctx, seitypes.AccAddress(addr)),
 		sdk.NewCoins(sdk.NewCoin(input.StakingKeeper.GetParams(ctx).BondDenom, testutils.InitTokens.Sub(amt))),
 	)
 	require.Equal(t, amt, input.StakingKeeper.Validator(ctx, addr).GetBondedTokens())
 	require.Equal(
-		t, input.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr1)),
+		t, input.BankKeeper.GetAllBalances(ctx, seitypes.AccAddress(addr1)),
 		sdk.NewCoins(sdk.NewCoin(input.StakingKeeper.GetParams(ctx).BondDenom, testutils.InitTokens.Sub(amt))),
 	)
 	require.Equal(t, amt, input.StakingKeeper.Validator(ctx, addr1).GetBondedTokens())
 
-	require.NoError(t, input.OracleKeeper.ValidateFeeder(input.Ctx, sdk.AccAddress(addr), sdk.ValAddress(addr)))
-	require.NoError(t, input.OracleKeeper.ValidateFeeder(input.Ctx, sdk.AccAddress(addr1), sdk.ValAddress(addr1)))
+	require.NoError(t, input.OracleKeeper.ValidateFeeder(input.Ctx, seitypes.AccAddress(addr), seitypes.ValAddress(addr)))
+	require.NoError(t, input.OracleKeeper.ValidateFeeder(input.Ctx, seitypes.AccAddress(addr1), seitypes.ValAddress(addr1)))
 
 	// delegate works
-	input.OracleKeeper.SetFeederDelegation(input.Ctx, sdk.ValAddress(addr), sdk.AccAddress(addr1))
-	require.NoError(t, input.OracleKeeper.ValidateFeeder(input.Ctx, sdk.AccAddress(addr1), sdk.ValAddress(addr)))
-	require.Error(t, input.OracleKeeper.ValidateFeeder(input.Ctx, sdk.AccAddress(testutils.Addrs[2]), sdk.ValAddress(addr)))
+	input.OracleKeeper.SetFeederDelegation(input.Ctx, seitypes.ValAddress(addr), seitypes.AccAddress(addr1))
+	require.NoError(t, input.OracleKeeper.ValidateFeeder(input.Ctx, seitypes.AccAddress(addr1), seitypes.ValAddress(addr)))
+	require.Error(t, input.OracleKeeper.ValidateFeeder(input.Ctx, seitypes.AccAddress(testutils.Addrs[2]), seitypes.ValAddress(addr)))
 
 	// only active validators can do oracle votes
-	validator, found := input.StakingKeeper.GetValidator(input.Ctx, sdk.ValAddress(addr))
+	validator, found := input.StakingKeeper.GetValidator(input.Ctx, seitypes.ValAddress(addr))
 	require.True(t, found)
 	validator.Status = stakingtypes.Unbonded
 	input.StakingKeeper.SetValidator(input.Ctx, validator)
-	require.Error(t, input.OracleKeeper.ValidateFeeder(input.Ctx, sdk.AccAddress(addr1), sdk.ValAddress(addr)))
+	require.Error(t, input.OracleKeeper.ValidateFeeder(input.Ctx, seitypes.AccAddress(addr1), seitypes.ValAddress(addr)))
 }
 
 func TestPriceSnapshotGetSet(t *testing.T) {
@@ -819,11 +819,11 @@ func TestCalculateTwapsWithUnsupportedDenom(t *testing.T) {
 func TestSpamPreventionCounter(t *testing.T) {
 	input := testutils.CreateTestInput(t)
 
-	require.NoError(t, input.OracleKeeper.CheckAndSetSpamPreventionCounter(input.Ctx, sdk.ValAddress(testutils.Addrs[0])))
-	require.Error(t, input.OracleKeeper.CheckAndSetSpamPreventionCounter(input.Ctx, sdk.ValAddress(testutils.Addrs[0])))
+	require.NoError(t, input.OracleKeeper.CheckAndSetSpamPreventionCounter(input.Ctx, seitypes.ValAddress(testutils.Addrs[0])))
+	require.Error(t, input.OracleKeeper.CheckAndSetSpamPreventionCounter(input.Ctx, seitypes.ValAddress(testutils.Addrs[0])))
 
 	input.Ctx = input.Ctx.WithBlockHeight(3)
 
-	require.NoError(t, input.OracleKeeper.CheckAndSetSpamPreventionCounter(input.Ctx, sdk.ValAddress(testutils.Addrs[0])))
-	require.NoError(t, input.OracleKeeper.CheckAndSetSpamPreventionCounter(input.Ctx, sdk.ValAddress(testutils.Addrs[1])))
+	require.NoError(t, input.OracleKeeper.CheckAndSetSpamPreventionCounter(input.Ctx, seitypes.ValAddress(testutils.Addrs[0])))
+	require.NoError(t, input.OracleKeeper.CheckAndSetSpamPreventionCounter(input.Ctx, seitypes.ValAddress(testutils.Addrs[1])))
 }

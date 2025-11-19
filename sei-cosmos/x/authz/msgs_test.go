@@ -14,20 +14,20 @@ import (
 
 var (
 	coinsPos = sdk.NewCoins(sdk.NewInt64Coin("steak", 100))
-	granter  = sdk.AccAddress("_______granter______")
-	grantee  = sdk.AccAddress("_______grantee______")
+	granter  = seitypes.AccAddress("_______granter______")
+	grantee  = seitypes.AccAddress("_______grantee______")
 )
 
 func TestMsgExecAuthorized(t *testing.T) {
 	tests := []struct {
 		title      string
-		grantee    sdk.AccAddress
-		msgs       []sdk.Msg
+		grantee    seitypes.AccAddress
+		msgs       []seitypes.Msg
 		expectPass bool
 	}{
-		{"nil grantee address", nil, []sdk.Msg{}, false},
-		{"zero-messages test: should fail", grantee, []sdk.Msg{}, false},
-		{"valid test: msg type", grantee, []sdk.Msg{
+		{"nil grantee address", nil, []seitypes.Msg{}, false},
+		{"zero-messages test: should fail", grantee, []seitypes.Msg{}, false},
+		{"valid test: msg type", grantee, []seitypes.Msg{
 			&banktypes.MsgSend{
 				Amount:      sdk.NewCoins(sdk.NewInt64Coin("steak", 2)),
 				FromAddress: granter.String(),
@@ -47,7 +47,7 @@ func TestMsgExecAuthorized(t *testing.T) {
 func TestMsgRevokeAuthorization(t *testing.T) {
 	tests := []struct {
 		title            string
-		granter, grantee sdk.AccAddress
+		granter, grantee seitypes.AccAddress
 		msgType          string
 		expectPass       bool
 	}{
@@ -69,7 +69,7 @@ func TestMsgRevokeAuthorization(t *testing.T) {
 func TestMsgGrantAuthorization(t *testing.T) {
 	tests := []struct {
 		title            string
-		granter, grantee sdk.AccAddress
+		granter, grantee seitypes.AccAddress
 		authorization    authz.Authorization
 		expiration       time.Time
 		expectErr        bool

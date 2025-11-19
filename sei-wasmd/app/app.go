@@ -729,7 +729,7 @@ func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBl
 	ibcclient.BeginBlocker(ctx, app.ibcKeeper.ClientKeeper)
 	events := []abci.Event{}
 
-	typedTxs := []sdk.Tx{}
+	typedTxs := []seitypes.Tx{}
 	for _, tx := range req.Txs {
 		typedTx, err := app.txDecoder(tx)
 		if err != nil {

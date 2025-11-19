@@ -64,7 +64,7 @@ func (s *TxConfigTestSuite) TestTxBuilderSetMsgs() {
 	_, _, addr2 := testdata.KeyTestPubAddr()
 	msg1 := testdata.NewTestMsg(addr1)
 	msg2 := testdata.NewTestMsg(addr2)
-	msgs := []sdk.Msg{msg1, msg2}
+	msgs := []seitypes.Msg{msg1, msg2}
 
 	txBuilder := s.TxConfig.NewTxBuilder()
 
@@ -72,7 +72,7 @@ func (s *TxConfigTestSuite) TestTxBuilderSetMsgs() {
 	s.Require().NoError(err)
 	tx := txBuilder.GetTx()
 	s.Require().Equal(msgs, tx.GetMsgs())
-	s.Require().Equal([]sdk.AccAddress{addr1, addr2}, tx.GetSigners())
+	s.Require().Equal([]seitypes.AccAddress{addr1, addr2}, tx.GetSigners())
 	s.Require().Equal(addr1, tx.FeePayer())
 	s.Require().Error(tx.ValidateBasic()) // should fail because of no signatures
 }
@@ -86,7 +86,7 @@ func (s *TxConfigTestSuite) TestTxBuilderSetSignatures() {
 
 	// set test msg
 	msg := testdata.NewTestMsg(addr)
-	msigAddr := sdk.AccAddress(multisigPk.Address())
+	msigAddr := seitypes.AccAddress(multisigPk.Address())
 	msg2 := testdata.NewTestMsg(msigAddr)
 	err := txBuilder.SetMsgs(msg, msg2)
 	s.Require().NoError(err)
@@ -122,7 +122,7 @@ func (s *TxConfigTestSuite) TestTxBuilderSetSignatures() {
 	s.Require().Len(sigsV2, 2)
 	s.Require().True(sigEquals(sig1, sigsV2[0]))
 	s.Require().True(sigEquals(msig, sigsV2[1]))
-	s.Require().Equal([]sdk.AccAddress{addr, msigAddr}, sigTx.GetSigners())
+	s.Require().Equal([]seitypes.AccAddress{addr, msigAddr}, sigTx.GetSigners())
 	s.Require().NoError(sigTx.ValidateBasic())
 
 	// sign transaction
@@ -165,7 +165,7 @@ func (s *TxConfigTestSuite) TestTxBuilderSetSignatures() {
 	s.Require().Len(sigsV2, 2)
 	s.Require().True(sigEquals(sig1, sigsV2[0]))
 	s.Require().True(sigEquals(msig, sigsV2[1]))
-	s.Require().Equal([]sdk.AccAddress{addr, msigAddr}, sigTx.GetSigners())
+	s.Require().Equal([]seitypes.AccAddress{addr, msigAddr}, sigTx.GetSigners())
 	s.Require().NoError(sigTx.ValidateBasic())
 }
 
@@ -251,7 +251,7 @@ func (s *TxConfigTestSuite) TestTxEncodeDecode() {
 	s.Require().NoError(err)
 	tx3, ok := tx2.(signing.Tx)
 	s.Require().True(ok)
-	s.Require().Equal([]sdk.Msg{msg}, tx3.GetMsgs())
+	s.Require().Equal([]seitypes.Msg{msg}, tx3.GetMsgs())
 	s.Require().Equal(feeAmount, tx3.GetFee())
 	s.Require().Equal(gasLimit, tx3.GetGas())
 	s.Require().Equal(memo, tx3.GetMemo())
@@ -272,7 +272,7 @@ func (s *TxConfigTestSuite) TestTxEncodeDecode() {
 	s.Require().NoError(err)
 	tx3, ok = tx2.(signing.Tx)
 	s.Require().True(ok)
-	s.Require().Equal([]sdk.Msg{msg}, tx3.GetMsgs())
+	s.Require().Equal([]seitypes.Msg{msg}, tx3.GetMsgs())
 	s.Require().Equal(feeAmount, tx3.GetFee())
 	s.Require().Equal(gasLimit, tx3.GetGas())
 	s.Require().Equal(memo, tx3.GetMemo())

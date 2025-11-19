@@ -1201,7 +1201,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	return &resp, nil
 }
 
-func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) *abci.ExecTxResult {
+func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx seitypes.Tx) *abci.ExecTxResult {
 	deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTxV2{
 		Tx: tx,
 	}, typedTx, sha256.Sum256(tx))
@@ -1241,7 +1241,7 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 	}
 }
 
-func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
+func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte, typedTxs []seitypes.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
 
 	txResults := []*abci.ExecTxResult{}
@@ -1267,9 +1267,9 @@ func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore)
 	return ctx.WithMultiStore(msCache), msCache
 }
 
-func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []sdk.Tx) (
+func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []seitypes.Tx) (
 	prioritizedTxs, otherTxs [][]byte,
-	prioritizedTypedTxs, otherTypedTxs []sdk.Tx,
+	prioritizedTypedTxs, otherTypedTxs []seitypes.Tx,
 	prioritizedIndices, otherIndices []int,
 ) {
 	for idx, tx := range txs {
@@ -1295,7 +1295,7 @@ func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []
 }
 
 // ExecuteTxsConcurrently calls the appropriate function for processing transacitons
-func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []seitypes.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	// TODO after OCC release, remove this check and call ProcessTXsWithOCC directly
 	if ctx.IsOCCEnabled() {
 		return app.ProcessTXsWithOCC(ctx, txs, typedTxs, absoluteTxIndices)
@@ -1304,7 +1304,7 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs [
 	return results, ctx
 }
 
-func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex int, bz []byte, tx sdk.Tx) (res *sdk.DeliverTxEntry) {
+func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex int, bz []byte, tx seitypes.Tx) (res *sdk.DeliverTxEntry) {
 	res = &sdk.DeliverTxEntry{
 		Request:       abci.RequestDeliverTxV2{Tx: bz},
 		SdkTx:         tx,
@@ -1315,7 +1315,7 @@ func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex i
 }
 
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
-func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []seitypes.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
 	for txIndex, tx := range txs {
 		entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
@@ -1452,7 +1452,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	return events, txResults, endBlockResp, nil
 }
 
-func (app *App) GetEVMMsg(tx sdk.Tx) (res *evmtypes.MsgEVMTransaction) {
+func (app *App) GetEVMMsg(tx seitypes.Tx) (res *evmtypes.MsgEVMTransaction) {
 	defer func() {
 		if err := recover(); err != nil {
 			res = nil
@@ -1467,8 +1467,8 @@ func (app *App) GetEVMMsg(tx sdk.Tx) (res *evmtypes.MsgEVMTransaction) {
 	}
 }
 
-func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []sdk.Tx {
-	typedTxs := make([]sdk.Tx, len(txs))
+func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []seitypes.Tx {
+	typedTxs := make([]seitypes.Tx, len(txs))
 	wg := sync.WaitGroup{}
 	for i, tx := range txs {
 		wg.Add(1)
@@ -1800,7 +1800,7 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) 
 // Returns true if the transaction COULD be gasless (needs expensive check).
 // Returns false only if DEFINITELY not gasless.
 // False negatives are unacceptable as they cause incorrect gas metrics.
-func (app *App) couldBeGaslessTransaction(tx sdk.Tx) bool {
+func (app *App) couldBeGaslessTransaction(tx seitypes.Tx) bool {
 	msgs := tx.GetMsgs()
 	if len(msgs) == 0 {
 		// Empty transactions are definitely not gasless
@@ -1885,16 +1885,16 @@ func (app *App) SetTxDecoder(txDecoder sdk.TxDecoder) {
 func (app *App) inplacetestnetInitializer(pk cryptotypes.PubKey) error {
 	app.forkInitializer = func(ctx sdk.Context) {
 		val, _ := stakingtypes.NewValidator(
-			sdk.ValAddress(pk.Address()), pk, stakingtypes.NewDescription("test", "test", "test", "test", "test"))
+			seitypes.ValAddress(pk.Address()), pk, stakingtypes.NewDescription("test", "test", "test", "test", "test"))
 		app.StakingKeeper.SetValidator(ctx, val)
 		_ = app.StakingKeeper.SetValidatorByConsAddr(ctx, val)
 		app.StakingKeeper.SetValidatorByPowerIndex(ctx, val)
 		_ = app.SlashingKeeper.AddPubkey(ctx, pk)
 		app.SlashingKeeper.SetValidatorSigningInfo(
 			ctx,
-			sdk.ConsAddress(pk.Address()),
+			seitypes.ConsAddress(pk.Address()),
 			slashingtypes.NewValidatorSigningInfo(
-				sdk.ConsAddress(pk.Address()), 0, 0, time.Unix(0, 0), false, 0,
+				seitypes.ConsAddress(pk.Address()), 0, 0, time.Unix(0, 0), false, 0,
 			),
 		)
 	}

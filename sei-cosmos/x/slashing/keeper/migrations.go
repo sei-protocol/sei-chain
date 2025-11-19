@@ -80,7 +80,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 		key := iter.Key()
 		consAddrBytes, indexBytes := key[2:len(key)-8], key[len(key)-8:]
 
-		consAddr := sdk.ConsAddress(consAddrBytes)
+		consAddr := seitypes.ConsAddress(consAddrBytes)
 		index := int64(binary.LittleEndian.Uint64(indexBytes))
 		// load legacy signing info type
 		var signInfo types.ValidatorSigningInfoLegacyMissedHeights
@@ -196,7 +196,7 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 		key := iter.Key()
 		consAddrBytes := key[2:]
 
-		consAddr := sdk.ConsAddress(consAddrBytes)
+		consAddr := seitypes.ConsAddress(consAddrBytes)
 		ctx.Logger().Info(fmt.Sprintf("Migrating for next validator with consAddr: %s\n", consAddr.String()))
 
 		newBoolArray := make([]bool, window)

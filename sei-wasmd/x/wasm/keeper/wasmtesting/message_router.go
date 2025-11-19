@@ -7,11 +7,11 @@ import (
 
 // MockMessageRouter mock for testing
 type MockMessageRouter struct {
-	HandlerFn func(msg sdk.Msg) baseapp.MsgServiceHandler
+	HandlerFn func(msg seitypes.Msg) baseapp.MsgServiceHandler
 }
 
 // Handler is the entry point
-func (m MockMessageRouter) Handler(msg sdk.Msg) baseapp.MsgServiceHandler {
+func (m MockMessageRouter) Handler(msg seitypes.Msg) baseapp.MsgServiceHandler {
 	if m.HandlerFn == nil {
 		panic("not expected to be called")
 	}
@@ -19,9 +19,9 @@ func (m MockMessageRouter) Handler(msg sdk.Msg) baseapp.MsgServiceHandler {
 }
 
 // MessageRouterFunc convenient type to match the keeper.MessageRouter interface
-type MessageRouterFunc func(msg sdk.Msg) baseapp.MsgServiceHandler
+type MessageRouterFunc func(msg seitypes.Msg) baseapp.MsgServiceHandler
 
 // Handler is the entry point
-func (m MessageRouterFunc) Handler(msg sdk.Msg) baseapp.MsgServiceHandler {
+func (m MessageRouterFunc) Handler(msg seitypes.Msg) baseapp.MsgServiceHandler {
 	return m(msg)
 }

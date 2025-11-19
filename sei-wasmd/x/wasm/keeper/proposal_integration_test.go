@@ -77,8 +77,8 @@ func TestInstantiateProposal(t *testing.T) {
 	)
 
 	var (
-		oneAddress   sdk.AccAddress = bytes.Repeat([]byte{0x1}, types.ContractAddrLen)
-		otherAddress sdk.AccAddress = bytes.Repeat([]byte{0x2}, types.ContractAddrLen)
+		oneAddress   seitypes.AccAddress = bytes.Repeat([]byte{0x1}, types.ContractAddrLen)
+		otherAddress seitypes.AccAddress = bytes.Repeat([]byte{0x2}, types.ContractAddrLen)
 	)
 	src := types.InstantiateContractProposalFixture(func(p *types.InstantiateContractProposal) {
 		p.CodeID = firstCodeID
@@ -98,7 +98,7 @@ func TestInstantiateProposal(t *testing.T) {
 	require.NoError(t, err)
 
 	// then
-	contractAddr, err := sdk.AccAddressFromBech32("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
+	contractAddr, err := seitypes.AccAddressFromBech32("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
 	require.NoError(t, err)
 
 	cInfo := wasmKeeper.GetContractInfo(ctx, contractAddr)
@@ -139,7 +139,7 @@ func TestInstantiateProposal_NoAdmin(t *testing.T) {
 		wasmCode),
 	)
 
-	var oneAddress sdk.AccAddress = bytes.Repeat([]byte{0x1}, types.ContractAddrLen)
+	var oneAddress seitypes.AccAddress = bytes.Repeat([]byte{0x1}, types.ContractAddrLen)
 
 	// test invalid admin address
 	src := types.InstantiateContractProposalFixture(func(p *types.InstantiateContractProposal) {
@@ -174,7 +174,7 @@ func TestInstantiateProposal_NoAdmin(t *testing.T) {
 	require.NoError(t, err)
 
 	// then
-	contractAddr, err := sdk.AccAddressFromBech32("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
+	contractAddr, err := seitypes.AccAddressFromBech32("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
 	require.NoError(t, err)
 
 	cInfo := wasmKeeper.GetContractInfo(ctx, contractAddr)
@@ -215,8 +215,8 @@ func TestMigrateProposal(t *testing.T) {
 	require.NoError(t, wasmKeeper.ImportCode(ctx, 2, codeInfoFixture, wasmCode))
 
 	var (
-		anyAddress   sdk.AccAddress = bytes.Repeat([]byte{0x1}, types.ContractAddrLen)
-		otherAddress sdk.AccAddress = bytes.Repeat([]byte{0x2}, types.ContractAddrLen)
+		anyAddress   seitypes.AccAddress = bytes.Repeat([]byte{0x1}, types.ContractAddrLen)
+		otherAddress seitypes.AccAddress = bytes.Repeat([]byte{0x2}, types.ContractAddrLen)
 		contractAddr                = BuildContractAddress(1, 1)
 	)
 
@@ -230,7 +230,7 @@ func TestMigrateProposal(t *testing.T) {
 	require.NoError(t, wasmKeeper.importContract(ctx, contractAddr, &contractInfoFixture, []types.Model{m}))
 
 	migMsg := struct {
-		Verifier sdk.AccAddress `json:"verifier"`
+		Verifier seitypes.AccAddress `json:"verifier"`
 	}{Verifier: otherAddress}
 	migMsgBz, err := json.Marshal(migMsg)
 	require.NoError(t, err)
@@ -399,7 +399,7 @@ func TestSudoProposal(t *testing.T) {
 
 func TestAdminProposals(t *testing.T) {
 	var (
-		otherAddress sdk.AccAddress = bytes.Repeat([]byte{0x2}, types.ContractAddrLen)
+		otherAddress seitypes.AccAddress = bytes.Repeat([]byte{0x2}, types.ContractAddrLen)
 		contractAddr                = BuildContractAddress(1, 1)
 	)
 	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
@@ -408,7 +408,7 @@ func TestAdminProposals(t *testing.T) {
 	specs := map[string]struct {
 		state       types.ContractInfo
 		srcProposal govtypes.Content
-		expAdmin    sdk.AccAddress
+		expAdmin    seitypes.AccAddress
 	}{
 		"update with different admin": {
 			state: types.ContractInfoFixture(),
@@ -489,7 +489,7 @@ func TestUpdateParamsProposal(t *testing.T) {
 
 	var (
 		legacyAmino                           = keepers.EncodingConfig.Amino
-		myAddress              sdk.AccAddress = make([]byte, types.ContractAddrLen)
+		myAddress              seitypes.AccAddress = make([]byte, types.ContractAddrLen)
 		oneAddressAccessConfig                = types.AccessTypeOnlyAddress.With(myAddress)
 	)
 
@@ -764,7 +764,7 @@ func TestUpdateInstantiateConfigProposal(t *testing.T) {
 		CreateFn:      wasmtesting.NoOpCreateFn,
 		AnalyzeCodeFn: wasmtesting.WithoutIBCAnalyzeFn,
 	}
-	anyAddress, err := sdk.AccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")
+	anyAddress, err := seitypes.AccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")
 	require.NoError(t, err)
 
 	withAddressAccessConfig := types.AccessTypeOnlyAddress.With(anyAddress)

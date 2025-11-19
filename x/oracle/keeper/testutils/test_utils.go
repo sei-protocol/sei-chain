@@ -99,24 +99,24 @@ var (
 		secp256k1.GenPrivKey().PubKey(),
 	}
 
-	Addrs = []sdk.AccAddress{
-		sdk.AccAddress(pubKeys[0].Address()),
-		sdk.AccAddress(pubKeys[1].Address()),
-		sdk.AccAddress(pubKeys[2].Address()),
-		sdk.AccAddress(pubKeys[3].Address()),
-		sdk.AccAddress(pubKeys[4].Address()),
-		sdk.AccAddress(pubKeys[5].Address()),
-		sdk.AccAddress(pubKeys[6].Address()),
+	Addrs = []seitypes.AccAddress{
+		seitypes.AccAddress(pubKeys[0].Address()),
+		seitypes.AccAddress(pubKeys[1].Address()),
+		seitypes.AccAddress(pubKeys[2].Address()),
+		seitypes.AccAddress(pubKeys[3].Address()),
+		seitypes.AccAddress(pubKeys[4].Address()),
+		seitypes.AccAddress(pubKeys[5].Address()),
+		seitypes.AccAddress(pubKeys[6].Address()),
 	}
 
-	ValAddrs = []sdk.ValAddress{
-		sdk.ValAddress(pubKeys[0].Address()),
-		sdk.ValAddress(pubKeys[1].Address()),
-		sdk.ValAddress(pubKeys[2].Address()),
-		sdk.ValAddress(pubKeys[3].Address()),
-		sdk.ValAddress(pubKeys[4].Address()),
-		sdk.ValAddress(pubKeys[5].Address()),
-		sdk.ValAddress(pubKeys[6].Address()),
+	ValAddrs = []seitypes.ValAddress{
+		seitypes.ValAddress(pubKeys[0].Address()),
+		seitypes.ValAddress(pubKeys[1].Address()),
+		seitypes.ValAddress(pubKeys[2].Address()),
+		seitypes.ValAddress(pubKeys[3].Address()),
+		seitypes.ValAddress(pubKeys[4].Address()),
+		seitypes.ValAddress(pubKeys[5].Address()),
+		seitypes.ValAddress(pubKeys[6].Address()),
 	}
 
 	InitTokens = sdk.TokensFromConsensusPower(200, sdk.DefaultPowerReduction)
@@ -257,7 +257,7 @@ func CreateTestInput(t *testing.T) TestInput {
 }
 
 // NewTestMsgCreateValidator test msg creator
-func NewTestMsgCreateValidator(address sdk.ValAddress, pubKey cryptotypes.PubKey, amt sdk.Int) *stakingtypes.MsgCreateValidator {
+func NewTestMsgCreateValidator(address seitypes.ValAddress, pubKey cryptotypes.PubKey, amt sdk.Int) *stakingtypes.MsgCreateValidator {
 	commission := stakingtypes.NewCommissionRates(sdk.NewDecWithPrec(5, 2), sdk.NewDecWithPrec(5, 2), sdk.NewDecWithPrec(5, 2))
 	msg, _ := stakingtypes.NewMsgCreateValidator(
 		address, pubKey, sdk.NewCoin(utils.MicroSeiDenom, amt),
@@ -270,7 +270,7 @@ func NewTestMsgCreateValidator(address sdk.ValAddress, pubKey cryptotypes.PubKey
 // FundAccount is a utility function that funds an account by minting and
 // sending the coins to the address. This should be used for testing purposes
 // only!
-func FundAccount(input TestInput, addr sdk.AccAddress, amounts sdk.Coins) error {
+func FundAccount(input TestInput, addr seitypes.AccAddress, amounts sdk.Coins) error {
 	if err := input.BankKeeper.MintCoins(input.Ctx, faucetAccountName, amounts); err != nil {
 		return err
 	}

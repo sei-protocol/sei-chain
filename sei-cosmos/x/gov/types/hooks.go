@@ -19,13 +19,13 @@ func (h MultiGovHooks) AfterProposalSubmission(ctx sdk.Context, proposalID uint6
 	}
 }
 
-func (h MultiGovHooks) AfterProposalDeposit(ctx sdk.Context, proposalID uint64, depositorAddr sdk.AccAddress) {
+func (h MultiGovHooks) AfterProposalDeposit(ctx sdk.Context, proposalID uint64, depositorAddr seitypes.AccAddress) {
 	for i := range h {
 		h[i].AfterProposalDeposit(ctx, proposalID, depositorAddr)
 	}
 }
 
-func (h MultiGovHooks) AfterProposalVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.AccAddress) {
+func (h MultiGovHooks) AfterProposalVote(ctx sdk.Context, proposalID uint64, voterAddr seitypes.AccAddress) {
 	for i := range h {
 		h[i].AfterProposalVote(ctx, proposalID, voterAddr)
 	}

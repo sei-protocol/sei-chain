@@ -45,7 +45,7 @@ func TestVerifySignature(t *testing.T) {
 	acc, err := ante.GetSignerAcc(ctx, app.AccountKeeper, addr)
 	require.NoError(t, apptesting.FundAccount(app.BankKeeper, ctx, addr, balances))
 
-	msgs := []sdk.Msg{testdata.NewTestMsg(addr)}
+	msgs := []seitypes.Msg{testdata.NewTestMsg(addr)}
 	fee := legacytx.NewStdFee(50000, sdk.Coins{sdk.NewInt64Coin("atom", 150)})
 	signerData := signing.SignerData{
 		ChainID:       chainId,
@@ -69,7 +69,7 @@ func TestVerifySignature(t *testing.T) {
 	pkSet := []cryptotypes.PubKey{pubKey, pubKey1}
 	multisigKey := kmultisig.NewLegacyAminoPubKey(2, pkSet)
 	multisignature := multisig.NewMultisig(2)
-	msgs = []sdk.Msg{testdata.NewTestMsg(addr, addr1)}
+	msgs = []seitypes.Msg{testdata.NewTestMsg(addr, addr1)}
 	multiSignBytes := legacytx.StdSignBytes(signerData.ChainID, signerData.AccountNumber, signerData.Sequence, 10, fee, msgs, memo)
 
 	sig1, err := priv.Sign(multiSignBytes)

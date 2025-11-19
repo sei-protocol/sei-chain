@@ -43,7 +43,7 @@ func ValEq(t *testing.T, exp, got types.Validator) (*testing.T, bool, string, ty
 }
 
 // generateAddresses generates numAddrs of normal AccAddrs and ValAddrs
-func generateAddresses(app *seiapp.App, ctx sdk.Context, numAddrs int) ([]sdk.AccAddress, []sdk.ValAddress) {
+func generateAddresses(app *seiapp.App, ctx sdk.Context, numAddrs int) ([]seitypes.AccAddress, []seitypes.ValAddress) {
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, numAddrs, sdk.NewInt(10000))
 	addrVals := seiapp.ConvertAddrsToValAddrs(addrDels)
 

@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 var (
@@ -14,13 +14,13 @@ var (
 
 // TestAccount represents a client Account that can be used in unit tests
 type TestAccount struct {
-	Address sdk.AccAddress
+	Address seitypes.AccAddress
 	Num     uint64
 	Seq     uint64
 }
 
 // GetAddress implements client Account.GetAddress
-func (t TestAccount) GetAddress() sdk.AccAddress {
+func (t TestAccount) GetAddress() seitypes.AccAddress {
 	return t.Address
 }
 
@@ -45,7 +45,7 @@ type TestAccountRetriever struct {
 }
 
 // GetAccount implements AccountRetriever.GetAccount
-func (t TestAccountRetriever) GetAccount(_ Context, addr sdk.AccAddress) (Account, error) {
+func (t TestAccountRetriever) GetAccount(_ Context, addr seitypes.AccAddress) (Account, error) {
 	acc, ok := t.Accounts[addr.String()]
 	if !ok {
 		return nil, fmt.Errorf("account %s not found", addr)
@@ -55,7 +55,7 @@ func (t TestAccountRetriever) GetAccount(_ Context, addr sdk.AccAddress) (Accoun
 }
 
 // GetAccountWithHeight implements AccountRetriever.GetAccountWithHeight
-func (t TestAccountRetriever) GetAccountWithHeight(clientCtx Context, addr sdk.AccAddress) (Account, int64, error) {
+func (t TestAccountRetriever) GetAccountWithHeight(clientCtx Context, addr seitypes.AccAddress) (Account, int64, error) {
 	acc, err := t.GetAccount(clientCtx, addr)
 	if err != nil {
 		return nil, 0, err
@@ -65,7 +65,7 @@ func (t TestAccountRetriever) GetAccountWithHeight(clientCtx Context, addr sdk.A
 }
 
 // EnsureExists implements AccountRetriever.EnsureExists
-func (t TestAccountRetriever) EnsureExists(_ Context, addr sdk.AccAddress) error {
+func (t TestAccountRetriever) EnsureExists(_ Context, addr seitypes.AccAddress) error {
 	_, ok := t.Accounts[addr.String()]
 	if !ok {
 		return fmt.Errorf("account %s not found", addr)
@@ -74,7 +74,7 @@ func (t TestAccountRetriever) EnsureExists(_ Context, addr sdk.AccAddress) error
 }
 
 // GetAccountNumberSequence implements AccountRetriever.GetAccountNumberSequence
-func (t TestAccountRetriever) GetAccountNumberSequence(_ Context, addr sdk.AccAddress) (accNum uint64, accSeq uint64, err error) {
+func (t TestAccountRetriever) GetAccountNumberSequence(_ Context, addr seitypes.AccAddress) (accNum uint64, accSeq uint64, err error) {
 	acc, ok := t.Accounts[addr.String()]
 	if !ok {
 		return 0, 0, fmt.Errorf("account %s not found", addr)

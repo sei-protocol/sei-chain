@@ -21,10 +21,10 @@ type SeiWasmMessage struct {
 	DelegateCallEVM json.RawMessage `json:"delegate_call_evm,omitempty"`
 }
 
-func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, codeInfo wasmtypes.CodeInfo) ([]sdk.Msg, error) {
+func CustomEncoder(sender seitypes.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, codeInfo wasmtypes.CodeInfo) ([]seitypes.Msg, error) {
 	var parsedMessage SeiWasmMessage
 	if err := json.Unmarshal(msg, &parsedMessage); err != nil {
-		return []sdk.Msg{}, sdkerrors.Wrap(err, "Error parsing Sei Wasm Message")
+		return []seitypes.Msg{}, sdkerrors.Wrap(err, "Error parsing Sei Wasm Message")
 	}
 	switch {
 	case parsedMessage.CreateDenom != nil:
@@ -42,6 +42,6 @@ func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.
 	case parsedMessage.DelegateCallEVM != nil:
 		return evmwasm.EncodeDelegateCallEVM(parsedMessage.DelegateCallEVM, sender, info, codeInfo)
 	default:
-		return []sdk.Msg{}, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Wasm Message"}
+		return []seitypes.Msg{}, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Wasm Message"}
 	}
 }

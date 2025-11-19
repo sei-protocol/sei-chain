@@ -29,9 +29,9 @@ func TestEncoding(t *testing.T) {
 		addr3       = RandomAccountAddress(t)
 		invalidAddr = "xrnd1d02kd90n38qvr3qb9qof83fn2d2"
 	)
-	valAddr := make(sdk.ValAddress, types.SDKAddrLen)
+	valAddr := make(seitypes.ValAddress, types.SDKAddrLen)
 	valAddr[0] = 12
-	valAddr2 := make(sdk.ValAddress, types.SDKAddrLen)
+	valAddr2 := make(seitypes.ValAddress, types.SDKAddrLen)
 	valAddr2[1] = 123
 
 	jsonMsg := types.RawContractMessage(`{"foo": 123}`)
@@ -59,12 +59,12 @@ func TestEncoding(t *testing.T) {
 	require.NoError(t, err)
 
 	cases := map[string]struct {
-		sender             sdk.AccAddress
+		sender             seitypes.AccAddress
 		srcMsg             wasmvmtypes.CosmosMsg
 		srcContractIBCPort string
 		transferPortSource types.ICS20TransferPortSource
 		// set if valid
-		output []sdk.Msg
+		output []seitypes.Msg
 		// set if invalid
 		isError bool
 	}{
@@ -87,7 +87,7 @@ func TestEncoding(t *testing.T) {
 					},
 				},
 			},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&banktypes.MsgSend{
 					FromAddress: addr1.String(),
 					ToAddress:   addr2.String(),
@@ -131,7 +131,7 @@ func TestEncoding(t *testing.T) {
 				},
 			},
 			isError: false, // addresses are checked in the handler
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&banktypes.MsgSend{
 					FromAddress: addr1.String(),
 					ToAddress:   invalidAddr,
@@ -154,7 +154,7 @@ func TestEncoding(t *testing.T) {
 					},
 				},
 			},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&types.MsgExecuteContract{
 					Sender:   addr1.String(),
 					Contract: addr2.String(),
@@ -178,7 +178,7 @@ func TestEncoding(t *testing.T) {
 					},
 				},
 			},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&types.MsgInstantiateContract{
 					Sender: addr1.String(),
 					CodeID: 7,
@@ -200,7 +200,7 @@ func TestEncoding(t *testing.T) {
 					},
 				},
 			},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&types.MsgMigrateContract{
 					Sender:   addr2.String(),
 					Contract: addr1.String(),
@@ -219,7 +219,7 @@ func TestEncoding(t *testing.T) {
 					},
 				},
 			},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&types.MsgUpdateAdmin{
 					Sender:   addr2.String(),
 					Contract: addr1.String(),
@@ -236,7 +236,7 @@ func TestEncoding(t *testing.T) {
 					},
 				},
 			},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&types.MsgClearAdmin{
 					Sender:   addr2.String(),
 					Contract: addr1.String(),
@@ -253,7 +253,7 @@ func TestEncoding(t *testing.T) {
 					},
 				},
 			},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&stakingtypes.MsgDelegate{
 					DelegatorAddress: addr1.String(),
 					ValidatorAddress: valAddr.String(),
@@ -272,7 +272,7 @@ func TestEncoding(t *testing.T) {
 				},
 			},
 			isError: false, // fails in the handler
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&stakingtypes.MsgDelegate{
 					DelegatorAddress: addr1.String(),
 					ValidatorAddress: addr2.String(),
@@ -290,7 +290,7 @@ func TestEncoding(t *testing.T) {
 					},
 				},
 			},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&stakingtypes.MsgUndelegate{
 					DelegatorAddress: addr1.String(),
 					ValidatorAddress: valAddr.String(),
@@ -309,7 +309,7 @@ func TestEncoding(t *testing.T) {
 					},
 				},
 			},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&stakingtypes.MsgBeginRedelegate{
 					DelegatorAddress:    addr1.String(),
 					ValidatorSrcAddress: valAddr.String(),
@@ -327,7 +327,7 @@ func TestEncoding(t *testing.T) {
 					},
 				},
 			},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&distributiontypes.MsgWithdrawDelegatorReward{
 					DelegatorAddress: addr1.String(),
 					ValidatorAddress: valAddr2.String(),
@@ -343,7 +343,7 @@ func TestEncoding(t *testing.T) {
 					},
 				},
 			},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&distributiontypes.MsgSetWithdrawAddress{
 					DelegatorAddress: addr1.String(),
 					WithdrawAddress:  addr2.String(),
@@ -358,7 +358,7 @@ func TestEncoding(t *testing.T) {
 					Value:   bankMsgBin,
 				},
 			},
-			output: []sdk.Msg{bankMsg},
+			output: []seitypes.Msg{bankMsg},
 		},
 		"stargate encoded msg with any type": {
 			sender: addr2,
@@ -368,7 +368,7 @@ func TestEncoding(t *testing.T) {
 					Value:   proposalMsgBin,
 				},
 			},
-			output: []sdk.Msg{proposalMsg},
+			output: []seitypes.Msg{proposalMsg},
 		},
 		"stargate encoded invalid typeUrl": {
 			sender: addr2,
@@ -401,7 +401,7 @@ func TestEncoding(t *testing.T) {
 			transferPortSource: wasmtesting.MockIBCTransferKeeper{GetPortFn: func(ctx sdk.Context) string {
 				return "myTransferPort"
 			}},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&ibctransfertypes.MsgTransfer{
 					SourcePort:    "myTransferPort",
 					SourceChannel: "myChanID",
@@ -434,7 +434,7 @@ func TestEncoding(t *testing.T) {
 			transferPortSource: wasmtesting.MockIBCTransferKeeper{GetPortFn: func(ctx sdk.Context) string {
 				return "transfer"
 			}},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&ibctransfertypes.MsgTransfer{
 					SourcePort:    "transfer",
 					SourceChannel: "myChanID",
@@ -467,7 +467,7 @@ func TestEncoding(t *testing.T) {
 			transferPortSource: wasmtesting.MockIBCTransferKeeper{GetPortFn: func(ctx sdk.Context) string {
 				return "transfer"
 			}},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&ibctransfertypes.MsgTransfer{
 					SourcePort:    "transfer",
 					SourceChannel: "myChanID",
@@ -492,7 +492,7 @@ func TestEncoding(t *testing.T) {
 					},
 				},
 			},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&channeltypes.MsgChannelCloseInit{
 					PortId:    "wasm." + addr1.String(),
 					ChannelId: "channel-1",
@@ -508,7 +508,7 @@ func TestEncoding(t *testing.T) {
 					Vote: &wasmvmtypes.VoteMsg{ProposalId: 1, Vote: wasmvmtypes.Yes},
 				},
 			},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&govtypes.MsgVote{
 					ProposalId: 1,
 					Voter:      addr1.String(),
@@ -524,7 +524,7 @@ func TestEncoding(t *testing.T) {
 					Vote: &wasmvmtypes.VoteMsg{ProposalId: 1, Vote: wasmvmtypes.No},
 				},
 			},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&govtypes.MsgVote{
 					ProposalId: 1,
 					Voter:      addr1.String(),
@@ -540,7 +540,7 @@ func TestEncoding(t *testing.T) {
 					Vote: &wasmvmtypes.VoteMsg{ProposalId: 10, Vote: wasmvmtypes.Abstain},
 				},
 			},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&govtypes.MsgVote{
 					ProposalId: 10,
 					Voter:      addr1.String(),
@@ -556,7 +556,7 @@ func TestEncoding(t *testing.T) {
 					Vote: &wasmvmtypes.VoteMsg{ProposalId: 1, Vote: wasmvmtypes.NoWithVeto},
 				},
 			},
-			output: []sdk.Msg{
+			output: []seitypes.Msg{
 				&govtypes.MsgVote{
 					ProposalId: 1,
 					Voter:      addr1.String(),

@@ -296,7 +296,7 @@ type WasmMsg struct {
 // Since a contract is immutable once it is deployed, we don't need to transform this.
 // If it was properly coded and worked once, it will continue to work throughout upgrades.
 type ExecuteMsg struct {
-	// ContractAddr is the sdk.AccAddress of the contract, which uniquely defines
+	// ContractAddr is the seitypes.AccAddress of the contract, which uniquely defines
 	// the contract ID and instance ID. The sdk module should maintain a reverse lookup table.
 	ContractAddr string `json:"contract_addr"`
 	// Msg is assumed to be a json-encoded message, which will be passed directly
@@ -343,7 +343,7 @@ type Instantiate2Msg struct {
 // to another previously uploaded wasm code. It requires the calling contract to be
 // listed as "admin" of the contract to be migrated.
 type MigrateMsg struct {
-	// ContractAddr is the sdk.AccAddress of the target contract, to migrate.
+	// ContractAddr is the seitypes.AccAddress of the target contract, to migrate.
 	ContractAddr string `json:"contract_addr"`
 	// NewCodeID is the reference to the wasm byte code for the new logic to migrate to
 	NewCodeID uint64 `json:"new_code_id"`
@@ -355,15 +355,15 @@ type MigrateMsg struct {
 // UpdateAdminMsg is the Go counterpart of WasmMsg::UpdateAdmin
 // (https://github.com/CosmWasm/cosmwasm/blob/v0.14.0-beta5/packages/std/src/results/cosmos_msg.rs#L158-L160).
 type UpdateAdminMsg struct {
-	// ContractAddr is the sdk.AccAddress of the target contract.
+	// ContractAddr is the seitypes.AccAddress of the target contract.
 	ContractAddr string `json:"contract_addr"`
-	// Admin is the sdk.AccAddress of the new admin.
+	// Admin is the seitypes.AccAddress of the new admin.
 	Admin string `json:"admin"`
 }
 
 // ClearAdminMsg is the Go counterpart of WasmMsg::ClearAdmin
 // (https://github.com/CosmWasm/cosmwasm/blob/v0.14.0-beta5/packages/std/src/results/cosmos_msg.rs#L158-L160).
 type ClearAdminMsg struct {
-	// ContractAddr is the sdk.AccAddress of the target contract.
+	// ContractAddr is the seitypes.AccAddress of the target contract.
 	ContractAddr string `json:"contract_addr"`
 }

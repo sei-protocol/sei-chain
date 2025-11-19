@@ -22,7 +22,7 @@ import (
 
 var (
 	priv = ed25519.GenPrivKey()
-	addr = sdk.AccAddress(priv.PubKey().Address())
+	addr = seitypes.AccAddress(priv.PubKey().Address())
 )
 
 func init() {
@@ -38,7 +38,7 @@ func NewTestStdFee() StdFee {
 }
 
 // Deprecated, use TxBuilder.
-func NewTestTx(ctx sdk.Context, msgs []sdk.Msg, privs []cryptotypes.PrivKey, accNums []uint64, seqs []uint64, timeout uint64, fee StdFee) sdk.Tx {
+func NewTestTx(ctx sdk.Context, msgs []seitypes.Msg, privs []cryptotypes.PrivKey, accNums []uint64, seqs []uint64, timeout uint64, fee StdFee) seitypes.Tx {
 	sigs := make([]StdSignature, len(privs))
 	for i, priv := range privs {
 		signBytes := StdSignBytes(ctx.ChainID(), accNums[i], seqs[i], timeout, fee, msgs, "")
@@ -56,7 +56,7 @@ func NewTestTx(ctx sdk.Context, msgs []sdk.Msg, privs []cryptotypes.PrivKey, acc
 }
 
 func TestStdTx(t *testing.T) {
-	msgs := []sdk.Msg{testdata.NewTestMsg(addr)}
+	msgs := []seitypes.Msg{testdata.NewTestMsg(addr)}
 	fee := NewTestStdFee()
 	sigs := []StdSignature{}
 
@@ -78,7 +78,7 @@ func TestStdSignBytes(t *testing.T) {
 		sequence      uint64
 		timeoutHeight uint64
 		fee           StdFee
-		msgs          []sdk.Msg
+		msgs          []seitypes.Msg
 		memo          string
 	}
 	defaultFee := NewTestStdFee()
@@ -87,11 +87,11 @@ func TestStdSignBytes(t *testing.T) {
 		want string
 	}{
 		{
-			args{"1234", 3, 6, 10, defaultFee, []sdk.Msg{testdata.NewTestMsg(addr)}, "memo"},
+			args{"1234", 3, 6, 10, defaultFee, []seitypes.Msg{testdata.NewTestMsg(addr)}, "memo"},
 			fmt.Sprintf("{\"account_number\":\"3\",\"chain_id\":\"1234\",\"fee\":{\"amount\":[{\"amount\":\"150\",\"denom\":\"atom\"}],\"gas\":\"100000\"},\"memo\":\"memo\",\"msgs\":[[\"%s\"]],\"sequence\":\"6\",\"timeout_height\":\"10\"}", addr),
 		},
 		{
-			args{"1234", 3, 6, 0, defaultFee, []sdk.Msg{testdata.NewTestMsg(addr)}, "memo"},
+			args{"1234", 3, 6, 0, defaultFee, []seitypes.Msg{testdata.NewTestMsg(addr)}, "memo"},
 			fmt.Sprintf("{\"account_number\":\"3\",\"chain_id\":\"1234\",\"fee\":{\"amount\":[{\"amount\":\"150\",\"denom\":\"atom\"}],\"gas\":\"100000\"},\"memo\":\"memo\",\"msgs\":[[\"%s\"]],\"sequence\":\"6\"}", addr),
 		},
 	}
@@ -112,7 +112,7 @@ func TestTxValidateBasic(t *testing.T) {
 	msg1 := testdata.NewTestMsg(addr1, addr2)
 	fee := NewTestStdFee()
 
-	msgs := []sdk.Msg{msg1}
+	msgs := []seitypes.Msg{msg1}
 
 	// require to fail validation upon invalid fee
 	badFee := NewTestStdFee()
@@ -166,7 +166,7 @@ func TestDefaultTxEncoder(t *testing.T) {
 	cdc.RegisterConcrete(testdata.TestMsg{}, "cosmos-sdk/Test", nil)
 	encoder := DefaultTxEncoder(cdc)
 
-	msgs := []sdk.Msg{testdata.NewTestMsg(addr)}
+	msgs := []seitypes.Msg{testdata.NewTestMsg(addr)}
 	fee := NewTestStdFee()
 	sigs := []StdSignature{}
 
@@ -245,7 +245,7 @@ func TestGetSignaturesV2(t *testing.T) {
 
 	fee := NewStdFee(50000, sdk.Coins{sdk.NewInt64Coin("atom", 150)})
 	sig := StdSignature{PubKey: pubKey, Signature: dummy}
-	stdTx := NewStdTx([]sdk.Msg{testdata.NewTestMsg()}, fee, []StdSignature{sig}, "testsigs")
+	stdTx := NewStdTx([]seitypes.Msg{testdata.NewTestMsg()}, fee, []StdSignature{sig}, "testsigs")
 
 	sigs, err := stdTx.GetSignaturesV2()
 	require.Nil(t, err)

@@ -216,7 +216,7 @@ func (s *IntegrationTestSuite) TestCLISignAminoJSON() {
 	/****  try to overwrite the previously signed transaction  ****/
 
 	// We can't sign with other address, because the bank send message supports only one signer for a simple
-	// account. Changing the file is too much hacking, because TxDecoder returns sdk.Tx, which doesn't
+	// account. Changing the file is too much hacking, because TxDecoder returns seitypes.Tx, which doesn't
 	// provide functionality to check / manage `auth_info`.
 	// Cases with different keys are are covered in unit tests of `tx.Sign`.
 	res, err = TxSignExec(val1.ClientCtx, val1.Address, filenameSigned, chainFlag,
@@ -838,7 +838,7 @@ func (s *IntegrationTestSuite) TestSignWithMultisig() {
 
 	// Create an address that is not in the keyring, will be used to simulate `--multisig`
 	multisig := "cosmos1hd6fsrvnz6qkp87s3u86ludegq97agxsdkwzyh"
-	multisigAddr, err := sdk.AccAddressFromBech32(multisig)
+	multisigAddr, err := seitypes.AccAddressFromBech32(multisig)
 	s.Require().NoError(err)
 
 	// Generate a transaction for testing --multisig with an address not in the keyring.
@@ -1100,7 +1100,7 @@ func (s *IntegrationTestSuite) TestGetAccountCmd() {
 
 	testCases := []struct {
 		name      string
-		address   sdk.AccAddress
+		address   seitypes.AccAddress
 		expectErr bool
 	}{
 		{
@@ -1169,9 +1169,9 @@ func TestGetBroadcastCommandWithoutOfflineFlag(t *testing.T) {
 	// Create new file with tx
 	builder := txCfg.NewTxBuilder()
 	builder.SetGasLimit(200000)
-	from, err := sdk.AccAddressFromBech32("cosmos1cxlt8kznps92fwu3j6npahx4mjfutydyene2qw")
+	from, err := seitypes.AccAddressFromBech32("cosmos1cxlt8kznps92fwu3j6npahx4mjfutydyene2qw")
 	require.NoError(t, err)
-	to, err := sdk.AccAddressFromBech32("cosmos1cxlt8kznps92fwu3j6npahx4mjfutydyene2qw")
+	to, err := seitypes.AccAddressFromBech32("cosmos1cxlt8kznps92fwu3j6npahx4mjfutydyene2qw")
 	require.NoError(t, err)
 	err = builder.SetMsgs(banktypes.NewMsgSend(from, to, sdk.Coins{sdk.NewInt64Coin("usei", 10000)}))
 	require.NoError(t, err)
@@ -1306,7 +1306,7 @@ func (s *IntegrationTestSuite) TestSignWithMultiSignersAminoJSON() {
 	)
 	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(10))))
 	txBuilder.SetGasLimit(testdata.NewTestGasLimit()) // min required is 101892
-	require.Equal([]sdk.AccAddress{val0.Address, val1.Address}, txBuilder.GetTx().GetSigners())
+	require.Equal([]seitypes.AccAddress{val0.Address, val1.Address}, txBuilder.GetTx().GetSigners())
 
 	// Write the unsigned tx into a file.
 	txJSON, err := val0.ClientCtx.TxConfig.TxJSONEncoder()(txBuilder.GetTx())
@@ -1349,7 +1349,7 @@ func (s *IntegrationTestSuite) TestSignWithMultiSignersAminoJSON() {
 	require.Equal(sdk.NewCoins(val0Coin, val1Coin), queryRes.Balances)
 }
 
-func (s *IntegrationTestSuite) createBankMsg(val *network.Validator, toAddr sdk.AccAddress, amount sdk.Coins, extraFlags ...string) (testutil.BufferWriter, error) {
+func (s *IntegrationTestSuite) createBankMsg(val *network.Validator, toAddr seitypes.AccAddress, amount sdk.Coins, extraFlags ...string) (testutil.BufferWriter, error) {
 	flags := []string{fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 		fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
 		fmt.Sprintf("--%s=%s", flags.FlagFees,

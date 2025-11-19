@@ -37,7 +37,7 @@ type AnteTestSuite struct {
 	anteHandler sdk.AnteHandler
 	clientCtx   client.Context
 	txBuilder   client.TxBuilder
-	testAcc     sdk.AccAddress
+	testAcc     seitypes.AccAddress
 	testAccPriv cryptotypes.PrivKey
 }
 

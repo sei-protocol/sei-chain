@@ -4,6 +4,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // Authorization represents the interface of various Authorization types implemented
@@ -15,9 +16,9 @@ type Authorization interface {
 	// which will process and accept or reject a request.
 	MsgTypeURL() string
 
-	// Accept determines whether this grant permits the provided sdk.Msg to be performed,
+	// Accept determines whether this grant permits the provided seitypes.Msg to be performed,
 	// and if so provides an upgraded authorization instance.
-	Accept(ctx sdk.Context, msg sdk.Msg) (AcceptResponse, error)
+	Accept(ctx sdk.Context, msg seitypes.Msg) (AcceptResponse, error)
 
 	// ValidateBasic does a simple validation check that
 	// doesn't require access to any other information.

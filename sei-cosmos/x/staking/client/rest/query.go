@@ -125,7 +125,7 @@ func delegatorTxsHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		vars := mux.Vars(r)
 		delegatorAddr := vars["delegatorAddr"]
 
-		if _, err := sdk.AccAddressFromBech32(delegatorAddr); rest.CheckBadRequestError(w, err) {
+		if _, err := seitypes.AccAddressFromBech32(delegatorAddr); rest.CheckBadRequestError(w, err) {
 			return
 		}
 
@@ -213,7 +213,7 @@ func redelegationsHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		bechDstValidatorAddr := r.URL.Query().Get("validator_to")
 
 		if len(bechDelegatorAddr) != 0 {
-			delegatorAddr, err := sdk.AccAddressFromBech32(bechDelegatorAddr)
+			delegatorAddr, err := seitypes.AccAddressFromBech32(bechDelegatorAddr)
 			if rest.CheckBadRequestError(w, err) {
 				return
 			}

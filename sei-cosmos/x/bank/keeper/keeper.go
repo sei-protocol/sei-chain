@@ -14,6 +14,7 @@ import (
 	vestexported "github.com/cosmos/cosmos-sdk/x/auth/vesting/exported"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
 
@@ -36,21 +37,21 @@ type Keeper interface {
 	SetDenomMetaData(ctx sdk.Context, denomMetaData types.Metadata)
 	IterateAllDenomMetaData(ctx sdk.Context, cb func(types.Metadata) bool)
 
-	SendCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
+	SendCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr seitypes.AccAddress, amt sdk.Coins) error
 	SendCoinsFromModuleToModule(ctx sdk.Context, senderModule, recipientModule string, amt sdk.Coins) error
-	SendCoinsFromAccountToModule(ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
-	DelegateCoinsFromAccountToModule(ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
-	UndelegateCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
+	SendCoinsFromAccountToModule(ctx sdk.Context, senderAddr seitypes.AccAddress, recipientModule string, amt sdk.Coins) error
+	DelegateCoinsFromAccountToModule(ctx sdk.Context, senderAddr seitypes.AccAddress, recipientModule string, amt sdk.Coins) error
+	UndelegateCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr seitypes.AccAddress, amt sdk.Coins) error
 
 	MintCoins(ctx sdk.Context, moduleName string, amt sdk.Coins) error
 	BurnCoins(ctx sdk.Context, moduleName string, amt sdk.Coins) error
 
-	DeferredSendCoinsFromAccountToModule(ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
+	DeferredSendCoinsFromAccountToModule(ctx sdk.Context, senderAddr seitypes.AccAddress, recipientModule string, amt sdk.Coins) error
 	WriteDeferredBalances(ctx sdk.Context) []abci.Event
-	IterateDeferredBalances(ctx sdk.Context, cb func(addr sdk.AccAddress, coin sdk.Coin) bool)
+	IterateDeferredBalances(ctx sdk.Context, cb func(addr seitypes.AccAddress, coin sdk.Coin) bool)
 
-	DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAccAddr sdk.AccAddress, amt sdk.Coins) error
-	UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAddr sdk.AccAddress, amt sdk.Coins) error
+	DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAccAddr seitypes.AccAddress, amt sdk.Coins) error
+	UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAddr seitypes.AccAddress, amt sdk.Coins) error
 
 	GetStoreKey() sdk.StoreKey
 	GetCdc() codec.BinaryCodec
@@ -181,7 +182,7 @@ func (k BaseKeeper) WithMintCoinsRestriction(check MintingRestrictionFn) BaseKee
 // vesting and vested coins. The coins are then transferred from the delegator
 // address to a ModuleAccount address. If any of the delegation amounts are negative,
 // an error is returned.
-func (k BaseKeeper) DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAccAddr sdk.AccAddress, amt sdk.Coins) error {
+func (k BaseKeeper) DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAccAddr seitypes.AccAddress, amt sdk.Coins) error {
 	moduleAcc := k.ak.GetAccount(ctx, moduleAccAddr)
 	if moduleAcc == nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrUnknownAddress, "module account %s does not exist", moduleAccAddr)
@@ -229,7 +230,7 @@ func (k BaseKeeper) DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAccAddr 
 // vesting and vested coins. The coins are then transferred from a ModuleAccount
 // address to the delegator address. If any of the undelegation amounts are
 // negative, an error is returned.
-func (k BaseKeeper) UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAddr sdk.AccAddress, amt sdk.Coins) error {
+func (k BaseKeeper) UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAddr seitypes.AccAddress, amt sdk.Coins) error {
 	moduleAcc := k.ak.GetAccount(ctx, moduleAccAddr)
 	if moduleAcc == nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrUnknownAddress, "module account %s does not exist", moduleAccAddr)
@@ -349,7 +350,7 @@ func (k BaseKeeper) SetDenomMetaData(ctx sdk.Context, denomMetaData types.Metada
 // It will panic if the module account does not exist. An error is returned if
 // the recipient address is black-listed or if sending the tokens fails.
 func (k BaseKeeper) SendCoinsFromModuleToAccount(
-	ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins,
+	ctx sdk.Context, senderModule string, recipientAddr seitypes.AccAddress, amt sdk.Coins,
 ) error {
 
 	senderAddr := k.ak.GetModuleAddress(senderModule)
@@ -391,7 +392,7 @@ func (k BaseKeeper) SendCoinsFromModuleToModule(
 // SendCoinsFromAccountToModule transfers coins from an AccAddress to a ModuleAccount.
 // It will panic if the module account does not exist.
 func (k BaseKeeper) SendCoinsFromAccountToModule(
-	ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins,
+	ctx sdk.Context, senderAddr seitypes.AccAddress, recipientModule string, amt sdk.Coins,
 ) error {
 	recipientAcc := k.ak.GetModuleAccount(ctx, recipientModule)
 	if recipientAcc == nil {
@@ -406,7 +407,7 @@ func (k BaseKeeper) SendCoinsFromAccountToModule(
 // In the EndBlocker, it will then perform one deposit for each module account.
 // It will panic if the module account does not exist.
 func (k BaseKeeper) DeferredSendCoinsFromAccountToModule(
-	ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amount sdk.Coins,
+	ctx sdk.Context, senderAddr seitypes.AccAddress, recipientModule string, amount sdk.Coins,
 ) error {
 	if k.deferredCache == nil {
 		panic("bank keeper created without deferred cache")
@@ -444,7 +445,7 @@ func (k BaseKeeper) WriteDeferredBalances(ctx sdk.Context) []abci.Event {
 	moduleList := []string{}
 
 	// iterate over deferred cache and accumulate totals per module
-	k.deferredCache.IterateDeferredBalances(ctx, func(moduleAddr sdk.AccAddress, amount sdk.Coin) bool {
+	k.deferredCache.IterateDeferredBalances(ctx, func(moduleAddr seitypes.AccAddress, amount sdk.Coin) bool {
 		currCoins, ok := moduleAddrBalanceMap[moduleAddr.String()]
 		if !ok {
 			// add to list of modules
@@ -470,7 +471,7 @@ func (k BaseKeeper) WriteDeferredBalances(ctx sdk.Context) []abci.Event {
 			ctx.Logger().Error(err.Error())
 			panic(err)
 		}
-		err := k.AddCoins(ctx, sdk.MustAccAddressFromBech32(moduleBech32Addr), amount, true)
+		err := k.AddCoins(ctx, seitypes.MustAccAddressFromBech32(moduleBech32Addr), amount, true)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("Failed to add coin=%s to module address=%s, error is: %s", amount, moduleBech32Addr, err))
 			panic(err)
@@ -482,7 +483,7 @@ func (k BaseKeeper) WriteDeferredBalances(ctx sdk.Context) []abci.Event {
 	return ctx.EventManager().ABCIEvents()
 }
 
-func (k BaseKeeper) IterateDeferredBalances(ctx sdk.Context, cb func(addr sdk.AccAddress, coin sdk.Coin) bool) {
+func (k BaseKeeper) IterateDeferredBalances(ctx sdk.Context, cb func(addr seitypes.AccAddress, coin sdk.Coin) bool) {
 	if k.deferredCache == nil {
 		panic("bank keeper created without deferred cache")
 	}
@@ -494,7 +495,7 @@ func (k BaseKeeper) IterateDeferredBalances(ctx sdk.Context, cb func(addr sdk.Ac
 // delegator account to a module account. It will panic if the module account
 // does not exist or is unauthorized.
 func (k BaseKeeper) DelegateCoinsFromAccountToModule(
-	ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins,
+	ctx sdk.Context, senderAddr seitypes.AccAddress, recipientModule string, amt sdk.Coins,
 ) error {
 
 	recipientAcc := k.ak.GetModuleAccount(ctx, recipientModule)
@@ -513,7 +514,7 @@ func (k BaseKeeper) DelegateCoinsFromAccountToModule(
 // them from a module account to the delegator account. It will panic if the
 // module account does not exist or is unauthorized.
 func (k BaseKeeper) UndelegateCoinsFromModuleToAccount(
-	ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins,
+	ctx sdk.Context, senderModule string, recipientAddr seitypes.AccAddress, amt sdk.Coins,
 ) error {
 
 	acc := k.ak.GetModuleAccount(ctx, senderModule)
@@ -648,7 +649,7 @@ func (k BaseKeeper) SetSupply(ctx sdk.Context, coin sdk.Coin) {
 }
 
 // trackDelegation tracks the delegation of the given account if it is a vesting account
-func (k BaseKeeper) trackDelegation(ctx sdk.Context, addr sdk.AccAddress, balance, amt sdk.Coins) error {
+func (k BaseKeeper) trackDelegation(ctx sdk.Context, addr seitypes.AccAddress, balance, amt sdk.Coins) error {
 	acc := k.ak.GetAccount(ctx, addr)
 	if acc == nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrUnknownAddress, "account %s does not exist", addr)
@@ -665,7 +666,7 @@ func (k BaseKeeper) trackDelegation(ctx sdk.Context, addr sdk.AccAddress, balanc
 }
 
 // trackUndelegation trakcs undelegation of the given account if it is a vesting account
-func (k BaseKeeper) trackUndelegation(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coins) error {
+func (k BaseKeeper) trackUndelegation(ctx sdk.Context, addr seitypes.AccAddress, amt sdk.Coins) error {
 	acc := k.ak.GetAccount(ctx, addr)
 	if acc == nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrUnknownAddress, "account %s does not exist", addr)

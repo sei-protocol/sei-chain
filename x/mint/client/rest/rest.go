@@ -50,7 +50,7 @@ func newUpdateMinterPostHandler(clientCtx client.Context) http.HandlerFunc {
 			return
 		}
 
-		fromAddr, err := sdk.AccAddressFromBech32(req.BaseReq.From)
+		fromAddr, err := seitypes.AccAddressFromBech32(req.BaseReq.From)
 		if typesrest.CheckBadRequestError(w, err) {
 			return
 		}

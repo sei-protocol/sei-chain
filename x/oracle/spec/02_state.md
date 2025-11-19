@@ -14,7 +14,7 @@ order: 2
 type ExchangeRateVote struct {
 	ExchangeRate sdk.Dec        // ExchangeRate of Sei in target fiat currency
 	Denom        string         // Ticker name of target fiat currency
-	Voter        sdk.ValAddress // voter val address of validator
+	Voter        seitypes.ValAddress // voter val address of validator
 }
 ```
 
@@ -28,9 +28,9 @@ You can get the active list of denoms trading against `Sei` (denominations with 
 
 ## FeederDelegation
 
-An `sdk.AccAddress` (`terra-` account) address of `operator`'s delegated price feeder.
+An `seitypes.AccAddress` (`terra-` account) address of `operator`'s delegated price feeder.
 
-- FeederDelegation: `0x04<valAddress_Bytes> -> amino(sdk.AccAddress)`
+- FeederDelegation: `0x04<valAddress_Bytes> -> amino(seitypes.AccAddress)`
 
 ## MissCounter
 
@@ -54,6 +54,6 @@ type ExchangeRateTuples []ExchangeRateTuple
 
 type AggregateExchangeRateVote struct {
 	ExchangeRateTuples ExchangeRateTuples // ExchangeRates of Sei in target fiat currencies
-	Voter              sdk.ValAddress     // voter val address of validator
+	Voter              seitypes.ValAddress     // voter val address of validator
 }
 ```

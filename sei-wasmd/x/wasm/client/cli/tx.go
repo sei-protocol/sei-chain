@@ -80,7 +80,7 @@ func StoreCodeCmd() *cobra.Command {
 	return cmd
 }
 
-func parseStoreCodeArgs(file string, sender sdk.AccAddress, flags *flag.FlagSet) (types.MsgStoreCode, error) {
+func parseStoreCodeArgs(file string, sender seitypes.AccAddress, flags *flag.FlagSet) (types.MsgStoreCode, error) {
 	wasm, err := ioutil.ReadFile(file)
 	if err != nil {
 		return types.MsgStoreCode{}, err
@@ -103,7 +103,7 @@ func parseStoreCodeArgs(file string, sender sdk.AccAddress, flags *flag.FlagSet)
 		return types.MsgStoreCode{}, fmt.Errorf("instantiate by address: %s", err)
 	}
 	if onlyAddrStr != "" {
-		allowedAddr, err := sdk.AccAddressFromBech32(onlyAddrStr)
+		allowedAddr, err := seitypes.AccAddressFromBech32(onlyAddrStr)
 		if err != nil {
 			return types.MsgStoreCode{}, sdkerrors.Wrap(err, flagInstantiateByAddress)
 		}
@@ -180,7 +180,7 @@ func InstantiateContractCmd() *cobra.Command {
 	return cmd
 }
 
-func parseInstantiateArgs(rawCodeID, initMsg string, sender sdk.AccAddress, flags *flag.FlagSet) (types.MsgInstantiateContract, error) {
+func parseInstantiateArgs(rawCodeID, initMsg string, sender seitypes.AccAddress, flags *flag.FlagSet) (types.MsgInstantiateContract, error) {
 	// get the id of the code to instantiate
 	codeID, err := strconv.ParseUint(rawCodeID, 10, 64)
 	if err != nil {
@@ -260,7 +260,7 @@ func ExecuteContractCmd() *cobra.Command {
 	return cmd
 }
 
-func parseExecuteArgs(contractAddr string, execMsg string, sender sdk.AccAddress, flags *flag.FlagSet) (types.MsgExecuteContract, error) {
+func parseExecuteArgs(contractAddr string, execMsg string, sender seitypes.AccAddress, flags *flag.FlagSet) (types.MsgExecuteContract, error) {
 	amountStr, err := flags.GetString(flagAmount)
 	if err != nil {
 		return types.MsgExecuteContract{}, fmt.Errorf("amount: %s", err)

@@ -263,7 +263,7 @@ func (p PrecompileExecutor) transferWithDefaultTimeout(ctx sdk.Context, method *
 	return
 }
 
-func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, error) {
+func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) (seitypes.AccAddress, error) {
 	addr := arg.(common.Address)
 	if addr == (common.Address{}) {
 		return nil, errors.New("invalid addr")
@@ -337,7 +337,7 @@ func (p PrecompileExecutor) GetAdjustedTimestamp(ctx sdk.Context, clientId strin
 }
 
 type ValidatedArgs struct {
-	senderSeiAddr         sdk.AccAddress
+	senderSeiAddr         seitypes.AccAddress
 	receiverAddressString string
 	port                  string
 	channelID             string

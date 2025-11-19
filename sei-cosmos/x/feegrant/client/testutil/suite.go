@@ -35,8 +35,8 @@ type IntegrationTestSuite struct {
 
 	cfg          network.Config
 	network      *network.Network
-	addedGranter sdk.AccAddress
-	addedGrantee sdk.AccAddress
+	addedGranter seitypes.AccAddress
+	addedGrantee seitypes.AccAddress
 	addedGrant   feegrant.Grant
 }
 
@@ -73,7 +73,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 }
 
 // createGrant creates a new basic allowance fee grant from granter to grantee.
-func (s *IntegrationTestSuite) createGrant(granter, grantee sdk.Address) {
+func (s *IntegrationTestSuite) createGrant(granter, grantee seitypes.Address) {
 	val := s.network.Validators[0]
 
 	clientCtx := val.ClientCtx
@@ -615,7 +615,7 @@ func (s *IntegrationTestSuite) TestNewCmdRevokeFeegrant() {
 	}
 
 	// Create new fee grant specifically to test amino.
-	aminoGrantee, err := sdk.AccAddressFromBech32("cosmos16ydaqh0fcnh4qt7a3jme4mmztm2qel5axcpw00")
+	aminoGrantee, err := seitypes.AccAddressFromBech32("cosmos16ydaqh0fcnh4qt7a3jme4mmztm2qel5axcpw00")
 	s.Require().NoError(err)
 	s.createGrant(granter, aminoGrantee)
 
@@ -717,7 +717,7 @@ func (s *IntegrationTestSuite) TestTxWithFeeGrant() {
 	// creating an account manually (This account won't be exist in state)
 	info, _, err := val.ClientCtx.Keyring.NewMnemonic("grantee", keyring.English, sdk.FullFundraiserPath, keyring.DefaultBIP39Passphrase, hd.Secp256k1)
 	s.Require().NoError(err)
-	grantee := sdk.AccAddress(info.GetPubKey().Address())
+	grantee := seitypes.AccAddress(info.GetPubKey().Address())
 
 	commonFlags := []string{
 		fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -764,7 +764,7 @@ func (s *IntegrationTestSuite) TestFilteredFeeAllowance() {
 	granter := val.Address
 	info, _, err := val.ClientCtx.Keyring.NewMnemonic("grantee1", keyring.English, sdk.FullFundraiserPath, keyring.DefaultBIP39Passphrase, hd.Secp256k1)
 	s.Require().NoError(err)
-	grantee := sdk.AccAddress(info.GetPubKey().Address())
+	grantee := seitypes.AccAddress(info.GetPubKey().Address())
 
 	clientCtx := val.ClientCtx
 

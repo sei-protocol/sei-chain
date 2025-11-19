@@ -31,7 +31,7 @@ func (k *Keeper) HandleInternalEVMCall(ctx sdk.Context, req *types.MsgInternalEV
 		addr := common.HexToAddress(req.To)
 		to = &addr
 	}
-	senderAddr, err := sdk.AccAddressFromBech32(req.Sender)
+	senderAddr, err := seitypes.AccAddressFromBech32(req.Sender)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +55,7 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 		return nil, errors.New("only pointer contract can make delegatecalls")
 	}
 	zeroInt := sdk.ZeroInt()
-	senderAddr, err := sdk.AccAddressFromBech32(req.Sender)
+	senderAddr, err := seitypes.AccAddressFromBech32(req.Sender)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	return res.ReturnData, nil
 }
 
-func (k *Keeper) StaticCallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Address, data []byte) ([]byte, error) {
+func (k *Keeper) StaticCallEVM(ctx sdk.Context, from seitypes.AccAddress, to *common.Address, data []byte) ([]byte, error) {
 	evm, err := k.createReadOnlyEVM(ctx, from)
 	if err != nil {
 		return nil, err
@@ -175,7 +175,7 @@ func (k *Keeper) callEVM(ctx sdk.Context, from common.Address, to *common.Addres
 }
 
 // only used for StaticCalls
-func (k *Keeper) createReadOnlyEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EVM, error) {
+func (k *Keeper) createReadOnlyEVM(ctx sdk.Context, from seitypes.AccAddress) (*vm.EVM, error) {
 	executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	stateDB := state.NewDBImpl(executionCtx, k, true)
 	gp := k.GetGasPool()

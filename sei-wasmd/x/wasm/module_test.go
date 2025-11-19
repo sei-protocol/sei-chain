@@ -47,10 +47,10 @@ func setupTest(t *testing.T) testData {
 	return data
 }
 
-func keyPubAddr() (crypto.PrivKey, crypto.PubKey, sdk.AccAddress) {
+func keyPubAddr() (crypto.PrivKey, crypto.PubKey, seitypes.AccAddress) {
 	key := ed25519.GenPrivKey()
 	pub := key.PubKey()
-	addr := sdk.AccAddress(pub.Address())
+	addr := seitypes.AccAddress(pub.Address())
 	return key, pub, addr
 }
 
@@ -72,7 +72,7 @@ var (
 
 func TestHandleCreate(t *testing.T) {
 	cases := map[string]struct {
-		msg     sdk.Msg
+		msg     seitypes.Msg
 		isValid bool
 	}{
 		"empty": {
@@ -131,8 +131,8 @@ func TestHandleCreate(t *testing.T) {
 }
 
 type initMsg struct {
-	Verifier    sdk.AccAddress `json:"verifier"`
-	Beneficiary sdk.AccAddress `json:"beneficiary"`
+	Verifier    seitypes.AccAddress `json:"verifier"`
+	Beneficiary seitypes.AccAddress `json:"beneficiary"`
 }
 
 type state struct {
@@ -259,7 +259,7 @@ func TestHandleExecute(t *testing.T) {
 	assert.Equal(t, deposit, data.bankKeeper.GetAllBalances(data.ctx, creatorAcct.GetAddress()))
 
 	// ensure contract has updated balance
-	contractAddr, _ := sdk.AccAddressFromBech32(contractBech32Addr)
+	contractAddr, _ := seitypes.AccAddressFromBech32(contractBech32Addr)
 	contractAcct := data.acctKeeper.GetAccount(data.ctx, contractAddr)
 	require.NotNil(t, contractAcct)
 	assert.Equal(t, deposit, data.bankKeeper.GetAllBalances(data.ctx, contractAcct.GetAddress()))
@@ -394,7 +394,7 @@ func TestHandleExecuteEscrow(t *testing.T) {
 	assert.Equal(t, deposit.Add(topUp...), balance)
 
 	// ensure contract has updated balance
-	contractAddr, _ := sdk.AccAddressFromBech32(contractBech32Addr)
+	contractAddr, _ := seitypes.AccAddressFromBech32(contractBech32Addr)
 	contractAcct := data.acctKeeper.GetAccount(data.ctx, contractAddr)
 	require.NotNil(t, contractAcct)
 	assert.Equal(t, sdk.Coins{}, data.bankKeeper.GetAllBalances(data.ctx, contractAcct.GetAddress()))
@@ -565,7 +565,7 @@ func assertContractState(t *testing.T, q sdk.Querier, ctx sdk.Context, contractB
 	assert.Equal(t, expectedBz, res[0].Value)
 }
 
-func assertContractInfo(t *testing.T, q sdk.Querier, ctx sdk.Context, contractBech32Addr string, codeID uint64, creator sdk.AccAddress) {
+func assertContractInfo(t *testing.T, q sdk.Querier, ctx sdk.Context, contractBech32Addr string, codeID uint64, creator seitypes.AccAddress) {
 	t.Helper()
 	path := []string{QueryGetContract, contractBech32Addr}
 	bz, sdkerr := q(ctx, path, abci.RequestQuery{})

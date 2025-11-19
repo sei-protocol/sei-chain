@@ -83,7 +83,7 @@ func ShowAddressCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			valConsAddr := (sdk.ConsAddress)(privValidator.GetAddress())
+			valConsAddr := (seitypes.ConsAddress)(privValidator.GetAddress())
 			fmt.Println(valConsAddr.String())
 			return nil
 		},

@@ -242,7 +242,7 @@ func checkLookbackSecondsVar(r *http.Request) (int64, bool) {
 	return lookbackSeconds, true
 }
 
-func checkVoterAddressVar(w http.ResponseWriter, r *http.Request) (sdk.ValAddress, bool) {
+func checkVoterAddressVar(w http.ResponseWriter, r *http.Request) (seitypes.ValAddress, bool) {
 	addr, err := sdk.ValAddressFromBech32(mux.Vars(r)[RestVoter])
 	if rest.CheckBadRequestError(w, err) {
 		return nil, false

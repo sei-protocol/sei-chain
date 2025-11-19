@@ -10,6 +10,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // Transaction command flags
@@ -52,7 +53,7 @@ timestamp. You can also optionally configure the 'admin' field using the flag '-
 			if err != nil {
 				return err
 			}
-			toAddr, err := sdk.AccAddressFromBech32(args[0])
+			toAddr, err := seitypes.AccAddressFromBech32(args[0])
 			if err != nil {
 				return err
 			}
@@ -69,10 +70,10 @@ timestamp. You can also optionally configure the 'admin' field using the flag '-
 
 			delayed, _ := cmd.Flags().GetBool(FlagDelayed)
 
-			var adminAddr sdk.AccAddress
+			var adminAddr seitypes.AccAddress
 			admin, _ := cmd.Flags().GetString(FlagAdmin)
 			if len(admin) > 0 {
-				adminAddr, err = sdk.AccAddressFromBech32(admin)
+				adminAddr, err = seitypes.AccAddressFromBech32(admin)
 				if err != nil {
 					return err
 				}

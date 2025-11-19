@@ -21,7 +21,7 @@ import (
 func BenchmarkTxSending(b *testing.B) {
 	cases := map[string]struct {
 		db          func(*testing.B) dbm.DB
-		txBuilder   func(*testing.B, *AppInfo) []sdk.Tx
+		txBuilder   func(*testing.B, *AppInfo) []seitypes.Tx
 		blockSize   int
 		numAccounts int
 	}{
@@ -123,16 +123,16 @@ func BenchmarkTxSending(b *testing.B) {
 	}
 }
 
-func bankSendMsg(info *AppInfo) ([]sdk.Msg, error) {
+func bankSendMsg(info *AppInfo) ([]seitypes.Msg, error) {
 	// Precompute all txs
-	rcpt := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	rcpt := seitypes.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
 	coins := sdk.Coins{sdk.NewInt64Coin(info.Denom, 100)}
 	sendMsg := banktypes.NewMsgSend(info.MinterAddr, rcpt, coins)
-	return []sdk.Msg{sendMsg}, nil
+	return []seitypes.Msg{sendMsg}, nil
 }
 
-func cw20TransferMsg(info *AppInfo) ([]sdk.Msg, error) {
-	rcpt := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+func cw20TransferMsg(info *AppInfo) ([]seitypes.Msg, error) {
+	rcpt := seitypes.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
 	transfer := cw20ExecMsg{Transfer: &transferMsg{
 		Recipient: rcpt.String(),
 		Amount:    765,
@@ -147,11 +147,11 @@ func cw20TransferMsg(info *AppInfo) ([]sdk.Msg, error) {
 		Contract: info.ContractAddr,
 		Msg:      transferBz,
 	}
-	return []sdk.Msg{sendMsg}, nil
+	return []seitypes.Msg{sendMsg}, nil
 }
 
-func buildTxFromMsg(builder func(info *AppInfo) ([]sdk.Msg, error)) func(b *testing.B, info *AppInfo) []sdk.Tx {
-	return func(b *testing.B, info *AppInfo) []sdk.Tx {
+func buildTxFromMsg(builder func(info *AppInfo) ([]seitypes.Msg, error)) func(b *testing.B, info *AppInfo) []seitypes.Tx {
+	return func(b *testing.B, info *AppInfo) []seitypes.Tx {
 		return GenSequenceOfTxs(b, info, builder, b.N)
 	}
 }

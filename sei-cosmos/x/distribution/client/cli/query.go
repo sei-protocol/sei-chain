@@ -65,7 +65,7 @@ func GetCmdQueryParams() *cobra.Command {
 // GetCmdQueryValidatorOutstandingRewards implements the query validator
 // outstanding rewards command.
 func GetCmdQueryValidatorOutstandingRewards() *cobra.Command {
-	bech32PrefixValAddr := sdk.GetConfig().GetBech32ValidatorAddrPrefix()
+	bech32PrefixValAddr := seitypes.GetConfig().GetBech32ValidatorAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "validator-outstanding-rewards [validator]",
@@ -110,7 +110,7 @@ $ %s query distribution validator-outstanding-rewards %s1lwjmdnks33xwnmfayc64ycp
 
 // GetCmdQueryValidatorCommission implements the query validator commission command.
 func GetCmdQueryValidatorCommission() *cobra.Command {
-	bech32PrefixValAddr := sdk.GetConfig().GetBech32ValidatorAddrPrefix()
+	bech32PrefixValAddr := seitypes.GetConfig().GetBech32ValidatorAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "commission [validator]",
@@ -155,7 +155,7 @@ $ %s query distribution commission %s1gghjut3ccd8ay0zduzj64hwre2fxs9ldmqhffj
 
 // GetCmdQueryValidatorSlashes implements the query validator slashes command.
 func GetCmdQueryValidatorSlashes() *cobra.Command {
-	bech32PrefixValAddr := sdk.GetConfig().GetBech32ValidatorAddrPrefix()
+	bech32PrefixValAddr := seitypes.GetConfig().GetBech32ValidatorAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "slashes [validator] [start-height] [end-height]",
@@ -221,8 +221,8 @@ $ %s query distribution slashes %svaloper1gghjut3ccd8ay0zduzj64hwre2fxs9ldmqhffj
 
 // GetCmdQueryDelegatorRewards implements the query delegator rewards command.
 func GetCmdQueryDelegatorRewards() *cobra.Command {
-	bech32PrefixAccAddr := sdk.GetConfig().GetBech32AccountAddrPrefix()
-	bech32PrefixValAddr := sdk.GetConfig().GetBech32ValidatorAddrPrefix()
+	bech32PrefixAccAddr := seitypes.GetConfig().GetBech32AccountAddrPrefix()
+	bech32PrefixValAddr := seitypes.GetConfig().GetBech32ValidatorAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "rewards [delegator-addr] [validator-addr]",
@@ -245,7 +245,7 @@ $ %s query distribution rewards %s1gghjut3ccd8ay0zduzj64hwre2fxs9ld75ru9p %s1ggh
 			}
 			queryClient := types.NewQueryClient(clientCtx)
 
-			delegatorAddr, err := sdk.AccAddressFromBech32(args[0])
+			delegatorAddr, err := seitypes.AccAddressFromBech32(args[0])
 			if err != nil {
 				return err
 			}

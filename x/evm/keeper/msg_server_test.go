@@ -35,13 +35,13 @@ import (
 )
 
 type mockTx struct {
-	msgs    []sdk.Msg
-	signers []sdk.AccAddress
+	msgs    []seitypes.Msg
+	signers []seitypes.AccAddress
 }
 
-func (tx mockTx) GetMsgs() []sdk.Msg                              { return tx.msgs }
+func (tx mockTx) GetMsgs() []seitypes.Msg                              { return tx.msgs }
 func (tx mockTx) ValidateBasic() error                            { return nil }
-func (tx mockTx) GetSigners() []sdk.AccAddress                    { return tx.signers }
+func (tx mockTx) GetSigners() []seitypes.AccAddress                    { return tx.signers }
 func (tx mockTx) GetPubKeys() ([]cryptotypes.PubKey, error)       { return nil, nil }
 func (tx mockTx) GetSignaturesV2() ([]signing.SignatureV2, error) { return nil, nil }
 func (tx mockTx) GetGasEstimate() uint64                          { return 0 }
@@ -84,7 +84,7 @@ func TestEVMTransaction(t *testing.T) {
 
 	// Deploy Simple Storage contract
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{req}}, false, func(sdk.Context, seitypes.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -94,7 +94,7 @@ func TestEVMTransaction(t *testing.T) {
 	require.Empty(t, res.VmError)
 	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
-	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
+	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, seitypes.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
 	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx.TxIndex()), k.GetBaseDenom(ctx)).Amount.Uint64())
 	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt := testkeeper.WaitForReceipt(t, k, ctx, common.HexToHash(res.Hash))
@@ -122,7 +122,7 @@ func TestEVMTransaction(t *testing.T) {
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{req}}, false, func(sdk.Context, seitypes.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -173,7 +173,7 @@ func TestEVMTransactionError(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{req}}, false, func(sdk.Context, seitypes.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -181,7 +181,7 @@ func TestEVMTransactionError(t *testing.T) {
 	require.Nil(t, err) // there should only be VM error, no msg-level error
 	require.NotEmpty(t, res.VmError)
 	// gas should be charged and receipt should be created
-	require.Equal(t, uint64(800000), k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
+	require.Equal(t, uint64(800000), k.BankKeeper().GetBalance(ctx, seitypes.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
 	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt := testkeeper.WaitForReceipt(t, k, ctx, common.HexToHash(res.Hash))
 	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status)
@@ -228,7 +228,7 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 
 	// Deploy Simple Storage contract with insufficient gas
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{req}}, false, func(sdk.Context, seitypes.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -276,7 +276,7 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 
 	// Deploy Simple Storage contract
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{req}}, false, func(sdk.Context, seitypes.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -287,7 +287,7 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
 	maxUseiBalanceChange := (200000 * 1000000000) / 1000000000000000000 // 200000 gas * 1 gwei / 1 usei per wei
-	require.LessOrEqual(t, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64(), uint64(1000000)-uint64(maxUseiBalanceChange))
+	require.LessOrEqual(t, k.BankKeeper().GetBalance(ctx, seitypes.AccAddress(evmAddr[:]), "usei").Amount.Uint64(), uint64(1000000)-uint64(maxUseiBalanceChange))
 	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt := testkeeper.WaitForReceipt(t, k, ctx, common.HexToHash(res.Hash))
 	require.NotNil(t, receipt)
@@ -334,7 +334,7 @@ func TestEVMPrecompiles(t *testing.T) {
 
 	// Deploy SendAll contract
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{req}}, false, func(sdk.Context, seitypes.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -345,7 +345,7 @@ func TestEVMPrecompiles(t *testing.T) {
 	require.Empty(t, res.VmError)
 	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
-	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), k.GetBaseDenom(ctx)).Amount.Uint64())
+	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, seitypes.AccAddress(evmAddr[:]), k.GetBaseDenom(ctx)).Amount.Uint64())
 	coinbaseBalanceAfter := k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx.TxIndex()), k.GetBaseDenom(ctx)).Amount.Uint64()
 	diff := coinbaseBalanceAfter - coinbaseBalanceBefore
 	require.Equal(t, res.GasUsed, diff)
@@ -384,7 +384,7 @@ func TestEVMPrecompiles(t *testing.T) {
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{req}}, false, func(sdk.Context, seitypes.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -452,7 +452,7 @@ func TestEVMBlockEnv(t *testing.T) {
 
 	// Deploy Simple Storage contract
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{req}}, false, func(sdk.Context, seitypes.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -462,8 +462,8 @@ func TestEVMBlockEnv(t *testing.T) {
 	require.Empty(t, res.VmError)
 	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
-	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
-	fmt.Println("all balances sender = ", k.BankKeeper().GetAllBalances(ctx, sdk.AccAddress(evmAddr[:])))
+	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, seitypes.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
+	fmt.Println("all balances sender = ", k.BankKeeper().GetAllBalances(ctx, seitypes.AccAddress(evmAddr[:])))
 	fmt.Println("all balances coinbase = ", k.BankKeeper().GetAllBalances(ctx, state.GetCoinbaseAddress(ctx.TxIndex())))
 	fmt.Println("wei = ", k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx.TxIndex()), "wei").Amount.Uint64())
 	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx.TxIndex()), "usei").Amount.Uint64())
@@ -494,7 +494,7 @@ func TestEVMBlockEnv(t *testing.T) {
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{req}}, false, func(sdk.Context, seitypes.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -791,9 +791,9 @@ func TestAssociateContractAddress(t *testing.T) {
 		Address: res.PointerAddress,
 	})
 	require.Nil(t, err)
-	associatedEvmAddr, found := k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(res.PointerAddress))
+	associatedEvmAddr, found := k.GetEVMAddress(ctx, seitypes.MustAccAddressFromBech32(res.PointerAddress))
 	require.True(t, found)
-	require.Equal(t, common.BytesToAddress(sdk.MustAccAddressFromBech32(res.PointerAddress)), associatedEvmAddr)
+	require.Equal(t, common.BytesToAddress(seitypes.MustAccAddressFromBech32(res.PointerAddress)), associatedEvmAddr)
 	associatedSeiAddr, found := k.GetSeiAddress(ctx, associatedEvmAddr)
 	require.True(t, found)
 	require.Equal(t, res.PointerAddress, associatedSeiAddr.String())
@@ -856,7 +856,7 @@ func TestAssociate(t *testing.T) {
 	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, sdktx, sha256.Sum256(txbz))
 	require.NotEqual(t, uint32(0), res.Code) // not enough balance
 
-	require.Nil(t, testkeeper.EVMTestApp.BankKeeper.AddWei(ctx, sdk.AccAddress(evmAddr[:]), sdk.OneInt()))
+	require.Nil(t, testkeeper.EVMTestApp.BankKeeper.AddWei(ctx, seitypes.AccAddress(evmAddr[:]), sdk.OneInt()))
 
 	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, sdktx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)

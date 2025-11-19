@@ -22,7 +22,7 @@ func registerTxHandlers(cliCtx client.Context, rtr *mux.Router) {
 type (
 	delegateReq struct {
 		BaseReq rest.BaseReq   `json:"base_req" yaml:"base_req"`
-		Feeder  sdk.AccAddress `json:"feeder" yaml:"feeder"`
+		Feeder  seitypes.AccAddress `json:"feeder" yaml:"feeder"`
 	}
 
 	aggregateVoteReq struct {
@@ -71,7 +71,7 @@ func newAggregateVoteHandlerFunction(clientCtx client.Context) http.HandlerFunc 
 			return
 		}
 
-		feederAddr, err := sdk.AccAddressFromBech32(req.BaseReq.From)
+		feederAddr, err := seitypes.AccAddressFromBech32(req.BaseReq.From)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}

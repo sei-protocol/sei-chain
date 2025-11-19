@@ -8,7 +8,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // Info is the publicly exposed information about a keypair
@@ -20,7 +20,7 @@ type Info interface {
 	// Public key
 	GetPubKey() cryptotypes.PubKey
 	// Address
-	GetAddress() types.AccAddress
+	GetAddress() seitypes.AccAddress
 	// Bip44 Path
 	GetPath() (*hd.BIP44Params, error)
 	// Algo
@@ -68,7 +68,7 @@ func (i LocalInfo) GetPubKey() cryptotypes.PubKey {
 }
 
 // GetType implements Info interface
-func (i LocalInfo) GetAddress() types.AccAddress {
+func (i LocalInfo) GetAddress() seitypes.AccAddress {
 	return i.PubKey.Address().Bytes()
 }
 
@@ -116,7 +116,7 @@ func (i ledgerInfo) GetPubKey() cryptotypes.PubKey {
 }
 
 // GetAddress implements Info interface
-func (i ledgerInfo) GetAddress() types.AccAddress {
+func (i ledgerInfo) GetAddress() seitypes.AccAddress {
 	return i.PubKey.Address().Bytes()
 }
 
@@ -168,7 +168,7 @@ func (i offlineInfo) GetAlgo() hd.PubKeyType {
 }
 
 // GetAddress implements Info interface
-func (i offlineInfo) GetAddress() types.AccAddress {
+func (i offlineInfo) GetAddress() seitypes.AccAddress {
 	return i.PubKey.Address().Bytes()
 }
 
@@ -221,7 +221,7 @@ func (i multiInfo) GetPubKey() cryptotypes.PubKey {
 }
 
 // GetAddress implements Info interface
-func (i multiInfo) GetAddress() types.AccAddress {
+func (i multiInfo) GetAddress() seitypes.AccAddress {
 	return i.PubKey.Address().Bytes()
 }
 

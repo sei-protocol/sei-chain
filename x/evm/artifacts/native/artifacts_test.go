@@ -80,7 +80,7 @@ func TestSimple(t *testing.T) {
 	// send transaction to the contract
 	contractAddr := common.HexToAddress(receipt.ContractAddress)
 	to := common.HexToAddress("0x34b575c2eaae50b81375f077517e6490adbd9735")
-	k.SetAddressMapping(ctx, sdk.AccAddress(to[:]), to)
+	k.SetAddressMapping(ctx, seitypes.AccAddress(to[:]), to)
 	data, err := abi.Pack("transfer", to, big.NewInt(1))
 	require.Nil(t, err)
 	txData = ethtypes.LegacyTx{

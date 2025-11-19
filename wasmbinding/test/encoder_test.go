@@ -17,7 +17,7 @@ const (
 )
 
 func TestEncodeCreateDenom(t *testing.T) {
-	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	contractAddr, err := seitypes.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
 	require.NoError(t, err)
 	msg := bindings.CreateDenom{
 		Subdenom: "subdenom",
@@ -37,7 +37,7 @@ func TestEncodeCreateDenom(t *testing.T) {
 }
 
 func TestEncodeMint(t *testing.T) {
-	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	contractAddr, err := seitypes.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
 	require.NoError(t, err)
 	msg := bindings.MintTokens{
 		Amount: sdk.Coin{Amount: sdk.NewInt(100), Denom: "subdenom"},
@@ -57,7 +57,7 @@ func TestEncodeMint(t *testing.T) {
 }
 
 func TestEncodeBurn(t *testing.T) {
-	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	contractAddr, err := seitypes.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
 	require.NoError(t, err)
 	msg := bindings.BurnTokens{
 		Amount: sdk.Coin{Amount: sdk.NewInt(10), Denom: "subdenom"},
@@ -77,7 +77,7 @@ func TestEncodeBurn(t *testing.T) {
 }
 
 func TestEncodeChangeAdmin(t *testing.T) {
-	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	contractAddr, err := seitypes.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
 	require.NoError(t, err)
 	msg := bindings.ChangeAdmin{
 		Denom:           "factory/sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw/subdenom",

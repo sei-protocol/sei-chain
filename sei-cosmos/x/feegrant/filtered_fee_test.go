@@ -28,8 +28,8 @@ func TestFilteredFeeValidAllow(t *testing.T) {
 	leftAtom := bigAtom.Sub(smallAtom)
 	now := ctx.BlockTime()
 	oneHour := now.Add(1 * time.Hour)
-	from := sdk.MustAccAddressFromBech32("sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz")
-	to := sdk.MustAccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")
+	from := seitypes.MustAccAddressFromBech32("sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz")
+	to := seitypes.MustAccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")
 
 	// small fee without expire
 	msgType := "/cosmos.bank.v1beta1.MsgSend"
@@ -82,7 +82,7 @@ func TestFilteredFeeValidAllow(t *testing.T) {
 
 	cases := map[string]struct {
 		allowance *feegrant.AllowedMsgAllowance
-		msgs      []sdk.Msg
+		msgs      []seitypes.Msg
 		fee       sdk.Coins
 		blockTime time.Time
 		valid     bool
@@ -95,7 +95,7 @@ func TestFilteredFeeValidAllow(t *testing.T) {
 				Allowance:       any,
 				AllowedMessages: []string{msgType},
 			},
-			msgs: []sdk.Msg{&banktypes.MsgSend{
+			msgs: []seitypes.Msg{&banktypes.MsgSend{
 				FromAddress: from.String(),
 				ToAddress:   to.String(),
 				Amount:      bigAtom,
@@ -180,7 +180,7 @@ func TestFilteredFeeValidAllow(t *testing.T) {
 				Allowance:       any9,
 				AllowedMessages: []string{msgType2},
 			},
-			msgs: []sdk.Msg{&banktypes.MsgSend{
+			msgs: []seitypes.Msg{&banktypes.MsgSend{
 				FromAddress: from.String(),
 				ToAddress:   to.String(),
 				Amount:      bigAtom,
@@ -256,7 +256,7 @@ func TestFilteredFeeValidAllowance(t *testing.T) {
 			ctx := app.BaseApp.NewContext(false, tmproto.Header{}).WithBlockTime(tc.blockTime)
 
 			// now try to deduct
-			removed, err := tc.allowance.Accept(ctx, tc.fee, []sdk.Msg{
+			removed, err := tc.allowance.Accept(ctx, tc.fee, []seitypes.Msg{
 				&banktypes.MsgSend{
 					FromAddress: "gm",
 					ToAddress:   "gn",

@@ -35,21 +35,21 @@ var (
 )
 
 // ValidatorSigningInfoKey - stored by *Consensus* address (not operator address)
-func ValidatorSigningInfoKey(v sdk.ConsAddress) []byte {
+func ValidatorSigningInfoKey(v seitypes.ConsAddress) []byte {
 	return append(ValidatorSigningInfoKeyPrefix, address.MustLengthPrefix(v.Bytes())...)
 }
 
 // ValidatorSigningInfoAddress - extract the address from a validator signing info key
-func ValidatorSigningInfoAddress(key []byte) (v sdk.ConsAddress) {
+func ValidatorSigningInfoAddress(key []byte) (v seitypes.ConsAddress) {
 	// Remove prefix and address length.
 	kv.AssertKeyAtLeastLength(key, 3)
 	addr := key[2:]
 
-	return sdk.ConsAddress(addr)
+	return seitypes.ConsAddress(addr)
 }
 
 // ValidatorMissedBlockBitArrayKey - stored by *Consensus* address (not operator address)
-func ValidatorMissedBlockBitArrayKey(v sdk.ConsAddress) []byte {
+func ValidatorMissedBlockBitArrayKey(v seitypes.ConsAddress) []byte {
 	return append(ValidatorMissedBlockBitArrayKeyPrefix, address.MustLengthPrefix(v.Bytes())...)
 }
 

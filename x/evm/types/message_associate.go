@@ -8,10 +8,10 @@ import (
 const TypeMsgAssociate = "evm_associate"
 
 var (
-	_ sdk.Msg = &MsgAssociate{}
+	_ seitypes.Msg = &MsgAssociate{}
 )
 
-func NewMsgAssociate(sender sdk.AccAddress, customMsg string) *MsgAssociate {
+func NewMsgAssociate(sender seitypes.AccAddress, customMsg string) *MsgAssociate {
 	return &MsgAssociate{Sender: sender.String(), CustomMessage: customMsg}
 }
 
@@ -23,12 +23,12 @@ func (msg *MsgAssociate) Type() string {
 	return TypeMsgAssociate
 }
 
-func (msg *MsgAssociate) GetSigners() []sdk.AccAddress {
-	from, err := sdk.AccAddressFromBech32(msg.Sender)
+func (msg *MsgAssociate) GetSigners() []seitypes.AccAddress {
+	from, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{from}
+	return []seitypes.AccAddress{from}
 }
 
 func (msg *MsgAssociate) GetSignBytes() []byte {
@@ -36,7 +36,7 @@ func (msg *MsgAssociate) GetSignBytes() []byte {
 }
 
 func (msg *MsgAssociate) ValidateBasic() error {
-	_, err := sdk.AccAddressFromBech32(msg.Sender)
+	_, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
 	}
@@ -47,7 +47,7 @@ func (msg *MsgAssociate) ValidateBasic() error {
 	return nil
 }
 
-func IsTxMsgAssociate(tx sdk.Tx) bool {
+func IsTxMsgAssociate(tx seitypes.Tx) bool {
 	msgs := tx.GetMsgs()
 	if len(msgs) != 1 {
 		return false

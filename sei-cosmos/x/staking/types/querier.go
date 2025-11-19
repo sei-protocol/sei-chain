@@ -1,7 +1,7 @@
 package types
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // query endpoints supported by the staking Querier
@@ -28,10 +28,10 @@ const (
 // - 'custom/staking/delegatorUnbondingDelegations'
 // - 'custom/staking/delegatorValidators'
 type QueryDelegatorParams struct {
-	DelegatorAddr sdk.AccAddress
+	DelegatorAddr seitypes.AccAddress
 }
 
-func NewQueryDelegatorParams(delegatorAddr sdk.AccAddress) QueryDelegatorParams {
+func NewQueryDelegatorParams(delegatorAddr seitypes.AccAddress) QueryDelegatorParams {
 	return QueryDelegatorParams{
 		DelegatorAddr: delegatorAddr,
 	}
@@ -42,11 +42,11 @@ func NewQueryDelegatorParams(delegatorAddr sdk.AccAddress) QueryDelegatorParams 
 // - 'custom/staking/validatorDelegations'
 // - 'custom/staking/validatorUnbondingDelegations'
 type QueryValidatorParams struct {
-	ValidatorAddr sdk.ValAddress
+	ValidatorAddr seitypes.ValAddress
 	Page, Limit   int
 }
 
-func NewQueryValidatorParams(validatorAddr sdk.ValAddress, page, limit int) QueryValidatorParams {
+func NewQueryValidatorParams(validatorAddr seitypes.ValAddress, page, limit int) QueryValidatorParams {
 	return QueryValidatorParams{
 		ValidatorAddr: validatorAddr,
 		Page:          page,
@@ -57,12 +57,12 @@ func NewQueryValidatorParams(validatorAddr sdk.ValAddress, page, limit int) Quer
 // defines the params for the following queries:
 // - 'custom/staking/redelegation'
 type QueryRedelegationParams struct {
-	DelegatorAddr    sdk.AccAddress
-	SrcValidatorAddr sdk.ValAddress
-	DstValidatorAddr sdk.ValAddress
+	DelegatorAddr    seitypes.AccAddress
+	SrcValidatorAddr seitypes.ValAddress
+	DstValidatorAddr seitypes.ValAddress
 }
 
-func NewQueryRedelegationParams(delegatorAddr sdk.AccAddress, srcValidatorAddr, dstValidatorAddr sdk.ValAddress) QueryRedelegationParams {
+func NewQueryRedelegationParams(delegatorAddr seitypes.AccAddress, srcValidatorAddr, dstValidatorAddr seitypes.ValAddress) QueryRedelegationParams {
 	return QueryRedelegationParams{
 		DelegatorAddr:    delegatorAddr,
 		SrcValidatorAddr: srcValidatorAddr,

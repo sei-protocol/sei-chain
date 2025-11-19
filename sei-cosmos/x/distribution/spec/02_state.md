@@ -42,7 +42,7 @@ Validator distribution information for the relevant validator is updated each ti
 
 ```go
 type ValidatorDistInfo struct {
-    OperatorAddress     sdk.AccAddress
+    OperatorAddress     seitypes.AccAddress
     SelfBondRewards     sdk.DecCoins
     ValidatorCommission types.ValidatorAccumulatedCommission
 }

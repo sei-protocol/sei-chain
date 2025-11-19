@@ -20,12 +20,12 @@ import (
 )
 
 type MockAccountMigrationKeeper struct {
-	ModuleAddress sdk.AccAddress
+	ModuleAddress seitypes.AccAddress
 	ModuleAccount authtypes.ModuleAccountI
 }
 
-func (m MockAccountMigrationKeeper) GetModuleAddress(name string) sdk.AccAddress {
-	address, _ := sdk.AccAddressFromBech32("sei1t4xhq2pnhnf223zr4z5lw02vsrxwf74z604kja")
+func (m MockAccountMigrationKeeper) GetModuleAddress(name string) seitypes.AccAddress {
+	address, _ := seitypes.AccAddressFromBech32("sei1t4xhq2pnhnf223zr4z5lw02vsrxwf74z604kja")
 	return address
 }
 

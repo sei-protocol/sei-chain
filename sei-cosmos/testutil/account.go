@@ -4,16 +4,16 @@ import (
 	"fmt"
 	"testing"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	"github.com/cosmos/cosmos-sdk/types"
 )
 
 type TestAccount struct {
 	Name    string
-	Address types.AccAddress
+	Address seitypes.AccAddress
 }
 
 func CreateKeyringAccounts(t *testing.T, kr keyring.Keyring, num int) []TestAccount {
@@ -22,7 +22,7 @@ func CreateKeyringAccounts(t *testing.T, kr keyring.Keyring, num int) []TestAcco
 		record, _, err := kr.NewMnemonic(
 			fmt.Sprintf("key-%d", i),
 			keyring.English,
-			types.FullFundraiserPath,
+			seitypes.FullFundraiserPath,
 			keyring.DefaultBIP39Passphrase,
 			hd.Secp256k1)
 		assert.NoError(t, err)

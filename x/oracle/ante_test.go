@@ -26,11 +26,11 @@ func TestOracleVoteAloneAnteHandler(t *testing.T) {
 	testCases := []struct {
 		name   string
 		expErr bool
-		tx     sdk.Tx
+		tx     seitypes.Tx
 	}{
-		{"only oracle vote", false, app.NewTestTx([]sdk.Msg{&testOracleMsg})},
-		{"only non-oracle msgs", false, app.NewTestTx([]sdk.Msg{&testNonOracleMsg, &testNonOracleMsg2})},
-		{"mixed messages", true, app.NewTestTx([]sdk.Msg{&testNonOracleMsg, &testOracleMsg, &testNonOracleMsg2})},
+		{"only oracle vote", false, app.NewTestTx([]seitypes.Msg{&testOracleMsg})},
+		{"only non-oracle msgs", false, app.NewTestTx([]seitypes.Msg{&testNonOracleMsg, &testNonOracleMsg2})},
+		{"mixed messages", true, app.NewTestTx([]seitypes.Msg{&testNonOracleMsg, &testOracleMsg, &testNonOracleMsg2})},
 	}
 
 	for _, tc := range testCases {
@@ -57,32 +57,32 @@ func TestSpammingPreventionAnteHandler(t *testing.T) {
 	anteHandler := sdk.ChainAnteDecorators(spd)
 
 	recheckCtx := input.Ctx.WithIsReCheckTx(true)
-	_, err := anteHandler(recheckCtx, app.NewTestTx([]sdk.Msg{voteMsg}), false) // should skip the SPD
+	_, err := anteHandler(recheckCtx, app.NewTestTx([]seitypes.Msg{voteMsg}), false) // should skip the SPD
 	require.NoError(t, err)
 
 	ctx := input.Ctx.WithIsCheckTx(true)
-	_, err = anteHandler(ctx, app.NewTestTx([]sdk.Msg{voteMsg}), false)
+	_, err = anteHandler(ctx, app.NewTestTx([]seitypes.Msg{voteMsg}), false)
 	require.NoError(t, err)
 
 	// invalid because bad feeder val combo
-	_, err = anteHandler(ctx, app.NewTestTx([]sdk.Msg{invalidVoteMsg}), false)
+	_, err = anteHandler(ctx, app.NewTestTx([]seitypes.Msg{invalidVoteMsg}), false)
 	require.Error(t, err)
 
 	// malform feeder
 	malformedVote := voteMsg
 	malformedVote.Feeder = "seifoobar"
-	_, err = anteHandler(ctx, app.NewTestTx([]sdk.Msg{malformedVote}), false)
+	_, err = anteHandler(ctx, app.NewTestTx([]seitypes.Msg{malformedVote}), false)
 	require.Error(t, err)
 
 	// malform val
 	malformedVote = voteMsg
 	malformedVote.Validator = "seivaloperfoobar"
-	_, err = anteHandler(ctx, app.NewTestTx([]sdk.Msg{malformedVote}), false)
+	_, err = anteHandler(ctx, app.NewTestTx([]seitypes.Msg{malformedVote}), false)
 	require.Error(t, err)
 
 	// set aggregate vote for val 0
 	input.OracleKeeper.SetAggregateExchangeRateVote(ctx, testutils.ValAddrs[0], types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{}, testutils.ValAddrs[0]))
 	// now should fail
-	_, err = anteHandler(ctx, app.NewTestTx([]sdk.Msg{voteMsg}), false)
+	_, err = anteHandler(ctx, app.NewTestTx([]seitypes.Msg{voteMsg}), false)
 	require.Error(t, err)
 }

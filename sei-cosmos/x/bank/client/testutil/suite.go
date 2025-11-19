@@ -383,7 +383,7 @@ func (s *IntegrationTestSuite) TestNewSendTxCmdGenOnly() {
 	s.Require().NoError(err)
 	tx, err := s.cfg.TxConfig.TxJSONDecoder()(bz.Bytes())
 	s.Require().NoError(err)
-	s.Require().Equal([]sdk.Msg{types.NewMsgSend(from, to, amount)}, tx.GetMsgs())
+	s.Require().Equal([]seitypes.Msg{types.NewMsgSend(from, to, amount)}, tx.GetMsgs())
 }
 
 func (s *IntegrationTestSuite) TestNewSendTxCmd() {
@@ -391,7 +391,7 @@ func (s *IntegrationTestSuite) TestNewSendTxCmd() {
 
 	testCases := []struct {
 		name         string
-		from, to     sdk.AccAddress
+		from, to     seitypes.AccAddress
 		amount       sdk.Coins
 		args         []string
 		expectErr    bool

@@ -120,7 +120,7 @@ func TestSign(t *testing.T) {
 	algos, _ := kb.SupportedAlgorithms()
 	algo, err := keyring.NewSigningAlgoFromString(string(hd.Secp256k1Type), algos)
 	require.Nil(t, err)
-	_, err = kb.NewAccount("test", mnemonic, "", hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String(), algo)
+	_, err = kb.NewAccount("test", mnemonic, "", hd.CreateHDPath(seitypes.GetConfig().GetCoinType(), 0, 0).String(), algo)
 	require.Nil(t, err)
 	accounts, _ := infoApi.Accounts()
 	account := accounts[0]

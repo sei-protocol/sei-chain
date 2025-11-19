@@ -545,13 +545,13 @@ func denomList(names ...string) oracletypes.DenomList {
 func generateValidatorAddr() string {
 	privKey := ed25519.GenPrivKey()
 	pubKey := privKey.PubKey()
-	return sdk.ValAddress(pubKey.Address().Bytes()).String()
+	return seitypes.ValAddress(pubKey.Address().Bytes()).String()
 }
 
 func generateAcctAddr() string {
 	privKey := ed25519.GenPrivKey()
 	pubKey := privKey.PubKey()
-	return sdk.AccAddress(pubKey.Address().Bytes()).String()
+	return seitypes.AccAddress(pubKey.Address().Bytes()).String()
 }
 
 func TestTickScenarios(t *testing.T) {
@@ -696,7 +696,7 @@ func TestTickScenarios(t *testing.T) {
 				oracleClient: client.OracleClient{
 					OracleAddrString:    feederAddr,
 					ValidatorAddrString: validatorAddr,
-					MockBroadcastTx: func(ctx sdkclient.Context, msgs ...sdk.Msg) (*sdk.TxResponse, error) {
+					MockBroadcastTx: func(ctx sdkclient.Context, msgs ...seitypes.Msg) (*sdk.TxResponse, error) {
 						// Assert that there's only one message
 						require.Equal(t, 1, len(msgs))
 
@@ -1207,7 +1207,7 @@ func TestOracle_Start(t *testing.T) {
 				closer: pfsync.NewCloser(),
 				oracleClient: client.OracleClient{
 					BlockHeightEvents: blockHeightChan,
-					MockBroadcastTx: func(ctx sdkclient.Context, msgs ...sdk.Msg) (*sdk.TxResponse, error) {
+					MockBroadcastTx: func(ctx sdkclient.Context, msgs ...seitypes.Msg) (*sdk.TxResponse, error) {
 						return &sdk.TxResponse{TxHash: "0xhash", Code: 0}, nil
 					},
 				},

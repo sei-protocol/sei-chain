@@ -2,13 +2,14 @@ package keyring
 
 import (
 	"encoding/hex"
+
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
@@ -27,7 +28,7 @@ type KeyOutput struct {
 }
 
 // NewKeyOutput creates a default KeyOutput instance without Mnemonic, Threshold and PubKeys
-func NewKeyOutput(name string, keyType KeyType, a sdk.Address, pk cryptotypes.PubKey) (KeyOutput, error) { // nolint:interfacer
+func NewKeyOutput(name string, keyType KeyType, a seitypes.Address, pk cryptotypes.PubKey) (KeyOutput, error) { // nolint:interfacer
 	apk, err := codectypes.NewAnyWithValue(pk)
 	if err != nil {
 		return KeyOutput{}, err
@@ -47,14 +48,14 @@ func NewKeyOutput(name string, keyType KeyType, a sdk.Address, pk cryptotypes.Pu
 // MkConsKeyOutput create a KeyOutput in with "cons" Bech32 prefixes.
 func MkConsKeyOutput(keyInfo Info) (KeyOutput, error) {
 	pk := keyInfo.GetPubKey()
-	addr := sdk.ConsAddress(pk.Address())
+	addr := seitypes.ConsAddress(pk.Address())
 	return NewKeyOutput(keyInfo.GetName(), keyInfo.GetType(), addr, pk)
 }
 
 // MkValKeyOutput create a KeyOutput in with "val" Bech32 prefixes.
 func MkValKeyOutput(keyInfo Info) (KeyOutput, error) {
 	pk := keyInfo.GetPubKey()
-	addr := sdk.ValAddress(pk.Address())
+	addr := seitypes.ValAddress(pk.Address())
 	return NewKeyOutput(keyInfo.GetName(), keyInfo.GetType(), addr, pk)
 }
 
@@ -63,7 +64,7 @@ func MkValKeyOutput(keyInfo Info) (KeyOutput, error) {
 // public keys will be added.
 func MkAccKeyOutput(keyInfo Info) (KeyOutput, error) {
 	pk := keyInfo.GetPubKey()
-	addr := sdk.AccAddress(pk.Address())
+	addr := seitypes.AccAddress(pk.Address())
 	return NewKeyOutput(keyInfo.GetName(), keyInfo.GetType(), addr, pk)
 }
 

@@ -56,7 +56,7 @@ func newBuilder() *wrapper {
 	}
 }
 
-func (w *wrapper) GetMsgs() []sdk.Msg {
+func (w *wrapper) GetMsgs() []seitypes.Msg {
 	return w.tx.GetMsgs()
 }
 
@@ -100,7 +100,7 @@ func (w *wrapper) getAuthInfoBytes() []byte {
 	return w.authInfoBz
 }
 
-func (w *wrapper) GetSigners() []sdk.AccAddress {
+func (w *wrapper) GetSigners() []seitypes.AccAddress {
 	return w.tx.GetSigners()
 }
 
@@ -135,19 +135,19 @@ func (w *wrapper) GetFee() sdk.Coins {
 	return w.tx.AuthInfo.Fee.Amount
 }
 
-func (w *wrapper) FeePayer() sdk.AccAddress {
+func (w *wrapper) FeePayer() seitypes.AccAddress {
 	feePayer := w.tx.AuthInfo.Fee.Payer
 	if feePayer != "" {
-		return sdk.MustAccAddressFromBech32(feePayer)
+		return seitypes.MustAccAddressFromBech32(feePayer)
 	}
 	// use first signer as default if no payer specified
 	return w.GetSigners()[0]
 }
 
-func (w *wrapper) FeeGranter() sdk.AccAddress {
+func (w *wrapper) FeeGranter() seitypes.AccAddress {
 	feePayer := w.tx.AuthInfo.Fee.Granter
 	if feePayer != "" {
-		return sdk.MustAccAddressFromBech32(feePayer)
+		return seitypes.MustAccAddressFromBech32(feePayer)
 	}
 	return nil
 }
@@ -195,7 +195,7 @@ func (w *wrapper) GetSignaturesV2() ([]signing.SignatureV2, error) {
 	return res, nil
 }
 
-func (w *wrapper) SetMsgs(msgs ...sdk.Msg) error {
+func (w *wrapper) SetMsgs(msgs ...seitypes.Msg) error {
 	anys := make([]*codectypes.Any, len(msgs))
 
 	for i, msg := range msgs {
@@ -259,7 +259,7 @@ func (w *wrapper) SetFeeAmount(coins sdk.Coins) {
 	w.authInfoBz = nil
 }
 
-func (w *wrapper) SetFeePayer(feePayer sdk.AccAddress) {
+func (w *wrapper) SetFeePayer(feePayer seitypes.AccAddress) {
 	if w.tx.AuthInfo.Fee == nil {
 		w.tx.AuthInfo.Fee = &tx.Fee{}
 	}
@@ -270,7 +270,7 @@ func (w *wrapper) SetFeePayer(feePayer sdk.AccAddress) {
 	w.authInfoBz = nil
 }
 
-func (w *wrapper) SetFeeGranter(feeGranter sdk.AccAddress) {
+func (w *wrapper) SetFeeGranter(feeGranter seitypes.AccAddress) {
 	if w.tx.AuthInfo.Fee == nil {
 		w.tx.AuthInfo.Fee = &tx.Fee{}
 	}

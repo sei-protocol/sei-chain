@@ -104,8 +104,8 @@ destination account.
 
 ```go
 type MsgSend struct {
-  FromAddress sdk.AccAddress `json:"from_address" yaml:"from_address"`
-  ToAddress   sdk.AccAddress `json:"to_address" yaml:"to_address"`
+  FromAddress seitypes.AccAddress `json:"from_address" yaml:"from_address"`
+  ToAddress   seitypes.AccAddress `json:"to_address" yaml:"to_address"`
   Amount      sdk.Coins      `json:"amount" yaml:"amount"`
 }
 ```
@@ -117,12 +117,12 @@ inputs must be equivalent to the sum of all outputs.
 
 ```go
 type Input struct {
-  Address sdk.AccAddress `json:"address" yaml:"address"`
+  Address seitypes.AccAddress `json:"address" yaml:"address"`
   Coins   sdk.Coins      `json:"coins" yaml:"coins"`
 }
 
 type Output struct {
-  Address sdk.AccAddress `json:"address" yaml:"address"`
+  Address seitypes.AccAddress `json:"address" yaml:"address"`
   Coins   sdk.Coins      `json:"coins" yaml:"coins"`
 }
 

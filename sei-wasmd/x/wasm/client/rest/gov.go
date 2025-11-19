@@ -501,7 +501,7 @@ type wasmProposalData interface {
 }
 
 func toStdTxResponse(cliCtx client.Context, w http.ResponseWriter, data wasmProposalData) {
-	proposerAddr, err := sdk.AccAddressFromBech32(data.GetProposer())
+	proposerAddr, err := seitypes.AccAddressFromBech32(data.GetProposer())
 	if err != nil {
 		rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
 		return

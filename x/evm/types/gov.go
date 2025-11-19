@@ -89,7 +89,7 @@ func (p *AddERCCW20PointerProposal) ProposalType() string {
 }
 
 func (p *AddERCCW20PointerProposal) ValidateBasic() error {
-	if _, err := sdk.AccAddressFromBech32(p.Pointee); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(p.Pointee); err != nil {
 		return err
 	}
 
@@ -127,7 +127,7 @@ func (p *AddERCCW721PointerProposal) ProposalType() string {
 }
 
 func (p *AddERCCW721PointerProposal) ValidateBasic() error {
-	if _, err := sdk.AccAddressFromBech32(p.Pointee); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(p.Pointee); err != nil {
 		return err
 	}
 
@@ -165,7 +165,7 @@ func (p *AddERCCW1155PointerProposal) ProposalType() string {
 }
 
 func (p *AddERCCW1155PointerProposal) ValidateBasic() error {
-	if _, err := sdk.AccAddressFromBech32(p.Pointee); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(p.Pointee); err != nil {
 		return err
 	}
 
@@ -204,7 +204,7 @@ func (p *AddCWERC20PointerProposal) ProposalType() string {
 
 func (p *AddCWERC20PointerProposal) ValidateBasic() error {
 	if p.Pointer != "" {
-		if _, err := sdk.AccAddressFromBech32(p.Pointer); err != nil {
+		if _, err := seitypes.AccAddressFromBech32(p.Pointer); err != nil {
 			return err
 		}
 	}
@@ -243,7 +243,7 @@ func (p *AddCWERC721PointerProposal) ProposalType() string {
 
 func (p *AddCWERC721PointerProposal) ValidateBasic() error {
 	if p.Pointer != "" {
-		if _, err := sdk.AccAddressFromBech32(p.Pointer); err != nil {
+		if _, err := seitypes.AccAddressFromBech32(p.Pointer); err != nil {
 			return err
 		}
 	}
@@ -282,7 +282,7 @@ func (p *AddCWERC1155PointerProposal) ProposalType() string {
 
 func (p *AddCWERC1155PointerProposal) ValidateBasic() error {
 	if p.Pointer != "" {
-		if _, err := sdk.AccAddressFromBech32(p.Pointer); err != nil {
+		if _, err := seitypes.AccAddressFromBech32(p.Pointer); err != nil {
 			return err
 		}
 	}

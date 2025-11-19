@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -75,7 +76,7 @@ type (
 	// (or removed a substore) between two versions of the software.
 	StoreLoader func(ms sdk.CommitMultiStore) error
 
-	DeliverTxHook func(sdk.Context, sdk.Tx, [32]byte, sdk.DeliverTxHookInput)
+	DeliverTxHook func(sdk.Context, seitypes.Tx, [32]byte, sdk.DeliverTxHookInput)
 )
 
 // BaseApp reflects the ABCI application implementation.
@@ -84,7 +85,7 @@ type BaseApp struct { //nolint: maligned
 	logger            log.Logger
 	name              string // application name from abci.Info
 	interfaceRegistry types.InterfaceRegistry
-	txDecoder         sdk.TxDecoder // unmarshal []byte into sdk.Tx
+	txDecoder         seitypes.TxDecoder // unmarshal []byte into seitypes.Tx
 
 	prepareProposalHandler    sdk.PrepareProposalHandler
 	processProposalHandler    sdk.ProcessProposalHandler
@@ -227,7 +228,7 @@ type snapshotData struct {
 //
 // NOTE: The db is used to store the version number for now.
 func NewBaseApp(
-	name string, logger log.Logger, db dbm.DB, txDecoder sdk.TxDecoder, tmConfig *tmcfg.Config, appOpts servertypes.AppOptions, options ...func(*BaseApp),
+	name string, logger log.Logger, db dbm.DB, txDecoder seitypes.TxDecoder, tmConfig *tmcfg.Config, appOpts servertypes.AppOptions, options ...func(*BaseApp),
 ) *BaseApp {
 	cms := store.NewCommitMultiStore(db)
 	archivalVersion := cast.ToInt64(appOpts.Get(FlagArchivalVersion))
@@ -773,7 +774,7 @@ func (app *BaseApp) ValidateHeight(height int64) error {
 }
 
 // validateBasicTxMsgs executes basic validator calls for messages.
-func validateBasicTxMsgs(msgs []sdk.Msg) error {
+func validateBasicTxMsgs(msgs []seitypes.Msg) error {
 	if len(msgs) == 0 {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "must contain at least one message")
 	}
@@ -845,7 +846,7 @@ func (app *BaseApp) cacheTxContext(ctx sdk.Context, checksum [32]byte) (sdk.Cont
 // Note, gas execution info is always returned. A reference to a Result is
 // returned if the tx does not run out of gas and if all the messages are valid
 // and execute successfully. An error is returned otherwise.
-func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [32]byte) (
+func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx seitypes.Tx, checksum [32]byte) (
 	gInfo sdk.GasInfo,
 	result *sdk.Result,
 	anteEvents []abci.Event,
@@ -1003,7 +1004,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 // and DeliverTx. An error is returned if any single message fails or if a
 // Handler does not exist for a given message route. Otherwise, a reference to a
 // Result is returned. The caller must not commit state if an error is returned.
-func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*sdk.Result, error) {
+func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []seitypes.Msg, mode runTxMode) (*sdk.Result, error) {
 
 	defer telemetry.MeasureThroughputSinceWithLabels(
 		telemetry.MessageCount,
@@ -1055,7 +1056,7 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 				[]metrics.Label{{Name: "type", Value: eventMsgName}},
 			)
 		} else if legacyMsg, ok := msg.(legacytx.LegacyMsg); ok {
-			// legacy sdk.Msg routing
+			// legacy seitypes.Msg routing
 			// Assuming that the app developer has migrated all their Msgs to
 			// proto messages and has registered all `Msg services`, then this
 			// path should never be called, because all those Msgs should be

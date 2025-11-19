@@ -52,13 +52,13 @@ func TestEVMFeeCheckDecorator(t *testing.T) {
 	require.Nil(t, err)
 
 	preprocessor := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
-	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
 
 	// should return error because gas fee cap is too low
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)
@@ -72,11 +72,11 @@ func TestEVMFeeCheckDecorator(t *testing.T) {
 	require.Nil(t, err)
 
 	// should return error because the sender does not have enough funds
-	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)
@@ -84,15 +84,15 @@ func TestEVMFeeCheckDecorator(t *testing.T) {
 	amt := typedTx.Cost()
 	coinsAmt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amt).Quo(sdk.NewIntFromBigInt(state.UseiToSweiMultiplier)).Add(sdk.OneInt())))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, coinsAmt)
-	seiAddr := sdk.AccAddress(msg.Derived.SenderSeiAddr)
+	seiAddr := seitypes.AccAddress(msg.Derived.SenderSeiAddr)
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, coinsAmt)
 
 	// should succeed now that the sender has enough funds
-	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -105,11 +105,11 @@ func TestEVMFeeCheckDecorator(t *testing.T) {
 	require.Nil(t, err)
 	msg, err = types.NewMsgEVMTransaction(typedTx)
 	require.Nil(t, err)
-	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)
@@ -122,11 +122,11 @@ func TestEVMFeeCheckDecorator(t *testing.T) {
 	typedTx = newDynamicFeeTxWithoutValidation(tx)
 	msg, err = types.NewMsgEVMTransaction(typedTx)
 	require.Nil(t, err)
-	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)

@@ -46,11 +46,11 @@ func NewTxCmd() *cobra.Command {
 	return distTxCmd
 }
 
-type newGenerateOrBroadcastFunc func(client.Context, *pflag.FlagSet, ...sdk.Msg) error
+type newGenerateOrBroadcastFunc func(client.Context, *pflag.FlagSet, ...seitypes.Msg) error
 
 func NewSplitAndApply(
 	genOrBroadcastFn newGenerateOrBroadcastFunc, clientCtx client.Context,
-	fs *pflag.FlagSet, msgs []sdk.Msg, chunkSize int,
+	fs *pflag.FlagSet, msgs []seitypes.Msg, chunkSize int,
 ) error {
 
 	if chunkSize == 0 {
@@ -76,7 +76,7 @@ func NewSplitAndApply(
 }
 
 func NewWithdrawRewardsCmd() *cobra.Command {
-	bech32PrefixValAddr := sdk.GetConfig().GetBech32ValidatorAddrPrefix()
+	bech32PrefixValAddr := seitypes.GetConfig().GetBech32ValidatorAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "withdraw-rewards [validator-addr]",
@@ -104,7 +104,7 @@ $ %s tx distribution withdraw-rewards %s1gghjut3ccd8ay0zduzj64hwre2fxs9ldmqhffj 
 				return err
 			}
 
-			msgs := []sdk.Msg{types.NewMsgWithdrawDelegatorReward(delAddr, valAddr)}
+			msgs := []seitypes.Msg{types.NewMsgWithdrawDelegatorReward(delAddr, valAddr)}
 
 			if commission, _ := cmd.Flags().GetBool(FlagCommission); commission {
 				msgs = append(msgs, types.NewMsgWithdrawValidatorCommission(valAddr))
@@ -162,7 +162,7 @@ $ %[1]s tx distribution withdraw-all-rewards --from mykey
 
 			validators := delValsRes.Validators
 			// build multi-message transaction
-			msgs := make([]sdk.Msg, 0, len(validators))
+			msgs := make([]seitypes.Msg, 0, len(validators))
 			for _, valAddr := range validators {
 				val, err := sdk.ValAddressFromBech32(valAddr)
 				if err != nil {
@@ -193,7 +193,7 @@ $ %[1]s tx distribution withdraw-all-rewards --from mykey
 }
 
 func NewSetWithdrawAddrCmd() *cobra.Command {
-	bech32PrefixAccAddr := sdk.GetConfig().GetBech32AccountAddrPrefix()
+	bech32PrefixAccAddr := seitypes.GetConfig().GetBech32AccountAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "set-withdraw-addr [withdraw-addr]",
@@ -214,7 +214,7 @@ $ %s tx distribution set-withdraw-addr %s1gghjut3ccd8ay0zduzj64hwre2fxs9ld75ru9p
 				return err
 			}
 			delAddr := clientCtx.GetFromAddress()
-			withdrawAddr, err := sdk.AccAddressFromBech32(args[0])
+			withdrawAddr, err := seitypes.AccAddressFromBech32(args[0])
 			if err != nil {
 				return err
 			}
@@ -268,7 +268,7 @@ $ %s tx distribution fund-community-pool 100uatom --from mykey
 
 // GetCmdSubmitProposal implements the command to submit a community-pool-spend proposal
 func GetCmdSubmitProposal() *cobra.Command {
-	bech32PrefixAccAddr := sdk.GetConfig().GetBech32AccountAddrPrefix()
+	bech32PrefixAccAddr := seitypes.GetConfig().GetBech32AccountAddrPrefix()
 
 	cmd := &cobra.Command{
 		Use:   "community-pool-spend [proposal-file]",
@@ -315,7 +315,7 @@ Where proposal.json contains:
 			}
 
 			from := clientCtx.GetFromAddress()
-			recpAddr, err := sdk.AccAddressFromBech32(proposal.Recipient)
+			recpAddr, err := seitypes.AccAddressFromBech32(proposal.Recipient)
 			if err != nil {
 				return err
 			}

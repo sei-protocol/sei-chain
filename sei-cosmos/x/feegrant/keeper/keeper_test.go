@@ -18,7 +18,7 @@ type KeeperTestSuite struct {
 
 	app     *seiapp.App
 	sdkCtx  sdk.Context
-	addrs   []sdk.AccAddress
+	addrs   []seitypes.AccAddress
 	msgSrvr feegrant.MsgServer
 	ctx     context.Context
 	atom    sdk.Coins
@@ -95,8 +95,8 @@ func (suite *KeeperTestSuite) TestKeeperCrud() {
 
 	// then lots of queries
 	cases := map[string]struct {
-		grantee   sdk.AccAddress
-		granter   sdk.AccAddress
+		grantee   seitypes.AccAddress
+		granter   seitypes.AccAddress
 		allowance feegrant.FeeAllowanceI
 	}{
 		"addr revoked": {
@@ -132,7 +132,7 @@ func (suite *KeeperTestSuite) TestKeeperCrud() {
 			suite.Equal(tc.allowance, allow)
 		})
 	}
-	accAddr, err := sdk.AccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")
+	accAddr, err := seitypes.AccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")
 	suite.Require().NoError(err)
 
 	// let's grant and revoke authorization to non existing account
@@ -167,8 +167,8 @@ func (suite *KeeperTestSuite) TestUseGrantedFee() {
 
 	// then lots of queries
 	cases := map[string]struct {
-		grantee sdk.AccAddress
-		granter sdk.AccAddress
+		grantee seitypes.AccAddress
+		granter seitypes.AccAddress
 		fee     sdk.Coins
 		allowed bool
 		final   feegrant.FeeAllowanceI
@@ -202,7 +202,7 @@ func (suite *KeeperTestSuite) TestUseGrantedFee() {
 			err := suite.keeper.GrantAllowance(suite.sdkCtx, suite.addrs[0], suite.addrs[1], future)
 			suite.Require().NoError(err)
 
-			err = suite.keeper.UseGrantedFees(suite.sdkCtx, tc.granter, tc.grantee, tc.fee, []sdk.Msg{})
+			err = suite.keeper.UseGrantedFees(suite.sdkCtx, tc.granter, tc.grantee, tc.fee, []seitypes.Msg{})
 			if tc.allowed {
 				suite.NoError(err)
 			} else {
@@ -224,7 +224,7 @@ func (suite *KeeperTestSuite) TestUseGrantedFee() {
 	suite.Require().NoError(err)
 
 	// expect error: feegrant expired
-	err = suite.keeper.UseGrantedFees(ctx, suite.addrs[0], suite.addrs[2], eth, []sdk.Msg{})
+	err = suite.keeper.UseGrantedFees(ctx, suite.addrs[0], suite.addrs[2], eth, []seitypes.Msg{})
 	suite.Error(err)
 	suite.Contains(err.Error(), "fee allowance expired")
 

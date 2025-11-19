@@ -10,12 +10,13 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 var (
-	_ sdk.Msg = &MsgGrant{}
-	_ sdk.Msg = &MsgRevoke{}
-	_ sdk.Msg = &MsgExec{}
+	_ seitypes.Msg = &MsgGrant{}
+	_ seitypes.Msg = &MsgRevoke{}
+	_ seitypes.Msg = &MsgExec{}
 
 	// For amino support.
 	_ legacytx.LegacyMsg = &MsgGrant{}
@@ -29,7 +30,7 @@ var (
 // NewMsgGrant creates a new MsgGrant
 //
 //nolint:interfacer
-func NewMsgGrant(granter sdk.AccAddress, grantee sdk.AccAddress, a Authorization, expiration time.Time) (*MsgGrant, error) {
+func NewMsgGrant(granter seitypes.AccAddress, grantee seitypes.AccAddress, a Authorization, expiration time.Time) (*MsgGrant, error) {
 	m := &MsgGrant{
 		Granter: granter.String(),
 		Grantee: grantee.String(),
@@ -43,21 +44,21 @@ func NewMsgGrant(granter sdk.AccAddress, grantee sdk.AccAddress, a Authorization
 }
 
 // GetSigners implements Msg
-func (msg MsgGrant) GetSigners() []sdk.AccAddress {
-	granter, err := sdk.AccAddressFromBech32(msg.Granter)
+func (msg MsgGrant) GetSigners() []seitypes.AccAddress {
+	granter, err := seitypes.AccAddressFromBech32(msg.Granter)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{granter}
+	return []seitypes.AccAddress{granter}
 }
 
 // ValidateBasic implements Msg
 func (msg MsgGrant) ValidateBasic() error {
-	granter, err := sdk.AccAddressFromBech32(msg.Granter)
+	granter, err := seitypes.AccAddressFromBech32(msg.Granter)
 	if err != nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, "invalid granter address")
 	}
-	grantee, err := sdk.AccAddressFromBech32(msg.Grantee)
+	grantee, err := seitypes.AccAddressFromBech32(msg.Grantee)
 	if err != nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, "invalid granter address")
 	}
@@ -105,7 +106,7 @@ func (msg *MsgGrant) SetAuthorization(a Authorization) error {
 // UnpackInterfaces implements UnpackInterfacesMessage.UnpackInterfaces
 func (msg MsgExec) UnpackInterfaces(unpacker cdctypes.AnyUnpacker) error {
 	for _, x := range msg.Msgs {
-		var msgExecAuthorized sdk.Msg
+		var msgExecAuthorized seitypes.Msg
 		err := unpacker.UnpackAny(x, &msgExecAuthorized)
 		if err != nil {
 			return err
@@ -123,7 +124,7 @@ func (msg MsgGrant) UnpackInterfaces(unpacker cdctypes.AnyUnpacker) error {
 // NewMsgRevoke creates a new MsgRevoke
 //
 //nolint:interfacer
-func NewMsgRevoke(granter sdk.AccAddress, grantee sdk.AccAddress, msgTypeURL string) MsgRevoke {
+func NewMsgRevoke(granter seitypes.AccAddress, grantee seitypes.AccAddress, msgTypeURL string) MsgRevoke {
 	return MsgRevoke{
 		Granter:    granter.String(),
 		Grantee:    grantee.String(),
@@ -132,21 +133,21 @@ func NewMsgRevoke(granter sdk.AccAddress, grantee sdk.AccAddress, msgTypeURL str
 }
 
 // GetSigners implements Msg
-func (msg MsgRevoke) GetSigners() []sdk.AccAddress {
-	granter, err := sdk.AccAddressFromBech32(msg.Granter)
+func (msg MsgRevoke) GetSigners() []seitypes.AccAddress {
+	granter, err := seitypes.AccAddressFromBech32(msg.Granter)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{granter}
+	return []seitypes.AccAddress{granter}
 }
 
 // ValidateBasic implements MsgRequest.ValidateBasic
 func (msg MsgRevoke) ValidateBasic() error {
-	granter, err := sdk.AccAddressFromBech32(msg.Granter)
+	granter, err := seitypes.AccAddressFromBech32(msg.Granter)
 	if err != nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, "invalid granter address")
 	}
-	grantee, err := sdk.AccAddressFromBech32(msg.Grantee)
+	grantee, err := seitypes.AccAddressFromBech32(msg.Grantee)
 	if err != nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, "invalid grantee address")
 	}
@@ -180,7 +181,7 @@ func (msg MsgRevoke) GetSignBytes() []byte {
 // NewMsgExec creates a new MsgExecAuthorized
 //
 //nolint:interfacer
-func NewMsgExec(grantee sdk.AccAddress, msgs []sdk.Msg) MsgExec {
+func NewMsgExec(grantee seitypes.AccAddress, msgs []seitypes.Msg) MsgExec {
 	msgsAny := make([]*cdctypes.Any, len(msgs))
 	for i, msg := range msgs {
 		any, err := cdctypes.NewAnyWithValue(msg)
@@ -198,10 +199,10 @@ func NewMsgExec(grantee sdk.AccAddress, msgs []sdk.Msg) MsgExec {
 }
 
 // GetMessages returns the cache values from the MsgExecAuthorized.Msgs if present.
-func (msg MsgExec) GetMessages() ([]sdk.Msg, error) {
-	msgs := make([]sdk.Msg, len(msg.Msgs))
+func (msg MsgExec) GetMessages() ([]seitypes.Msg, error) {
+	msgs := make([]seitypes.Msg, len(msg.Msgs))
 	for i, msgAny := range msg.Msgs {
-		msg, ok := msgAny.GetCachedValue().(sdk.Msg)
+		msg, ok := msgAny.GetCachedValue().(seitypes.Msg)
 		if !ok {
 			return nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "messages contains %T which is not a sdk.MsgRequest", msgAny)
 		}
@@ -212,17 +213,17 @@ func (msg MsgExec) GetMessages() ([]sdk.Msg, error) {
 }
 
 // GetSigners implements Msg
-func (msg MsgExec) GetSigners() []sdk.AccAddress {
-	grantee, err := sdk.AccAddressFromBech32(msg.Grantee)
+func (msg MsgExec) GetSigners() []seitypes.AccAddress {
+	grantee, err := seitypes.AccAddressFromBech32(msg.Grantee)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{grantee}
+	return []seitypes.AccAddress{grantee}
 }
 
 // ValidateBasic implements Msg
 func (msg MsgExec) ValidateBasic() error {
-	_, err := sdk.AccAddressFromBech32(msg.Grantee)
+	_, err := seitypes.AccAddressFromBech32(msg.Grantee)
 	if err != nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, "invalid grantee address")
 	}

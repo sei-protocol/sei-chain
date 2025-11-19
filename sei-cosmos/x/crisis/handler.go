@@ -4,13 +4,14 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/crisis/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // RouterKey
 const RouterKey = types.ModuleName
 
 func NewHandler(k types.MsgServer) sdk.Handler {
-	return func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
+	return func(ctx sdk.Context, msg seitypes.Msg) (*sdk.Result, error) {
 		ctx = ctx.WithEventManager(sdk.NewEventManager())
 
 		switch msg := msg.(type) {

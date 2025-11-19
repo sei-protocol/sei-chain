@@ -359,11 +359,11 @@ func TestDispatchSubMsgErrorHandling(t *testing.T) {
 	}
 }
 
-// Test an error case, where the Encoded doesn't return any sdk.Msg and we trigger(ed) a null pointer exception.
+// Test an error case, where the Encoded doesn't return any seitypes.Msg and we trigger(ed) a null pointer exception.
 // This occurs with the IBC encoder. Test this.
 func TestDispatchSubMsgEncodeToNoSdkMsg(t *testing.T) {
 	// fake out the bank handle to return success with no data
-	nilEncoder := func(sender sdk.AccAddress, msg *wasmvmtypes.BankMsg) ([]sdk.Msg, error) {
+	nilEncoder := func(sender seitypes.AccAddress, msg *wasmvmtypes.BankMsg) ([]seitypes.Msg, error) {
 		return nil, nil
 	}
 	customEncoders := &MessageEncoders{

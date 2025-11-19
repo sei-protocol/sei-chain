@@ -339,7 +339,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
 	msgs := filterTransactions(b.keeper, b.ctxProvider, b.txConfigProvider, tmBlock, false, false, b.cacheCreationMutex, b.globalBlockCache)
-	idxToMsgs := make(map[int]sdk.Msg, len(msgs))
+	idxToMsgs := make(map[int]seitypes.Msg, len(msgs))
 	for _, msg := range msgs {
 		idxToMsgs[msg.index] = msg.msg
 	}

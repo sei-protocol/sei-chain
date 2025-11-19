@@ -11,6 +11,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 const (
@@ -25,13 +26,13 @@ type SendKeeper interface {
 	ViewKeeper
 
 	InputOutputCoins(ctx sdk.Context, inputs []types.Input, outputs []types.Output) error
-	SendCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error
-	SendCoinsWithoutAccCreation(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error
-	SendCoinsAndWei(ctx sdk.Context, from sdk.AccAddress, to sdk.AccAddress, amt sdk.Int, wei sdk.Int) error
-	SubUnlockedCoins(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coins, checkNeg bool) error
-	AddCoins(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coins, checkNeg bool) error
-	SubWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int) error
-	AddWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int) error
+	SendCoins(ctx sdk.Context, fromAddr seitypes.AccAddress, toAddr seitypes.AccAddress, amt sdk.Coins) error
+	SendCoinsWithoutAccCreation(ctx sdk.Context, fromAddr seitypes.AccAddress, toAddr seitypes.AccAddress, amt sdk.Coins) error
+	SendCoinsAndWei(ctx sdk.Context, from seitypes.AccAddress, to seitypes.AccAddress, amt sdk.Int, wei sdk.Int) error
+	SubUnlockedCoins(ctx sdk.Context, addr seitypes.AccAddress, amt sdk.Coins, checkNeg bool) error
+	AddCoins(ctx sdk.Context, addr seitypes.AccAddress, amt sdk.Coins, checkNeg bool) error
+	SubWei(ctx sdk.Context, addr seitypes.AccAddress, amt sdk.Int) error
+	AddWei(ctx sdk.Context, addr seitypes.AccAddress, amt sdk.Int) error
 
 	GetParams(ctx sdk.Context) types.Params
 	SetParams(ctx sdk.Context, params types.Params)
@@ -40,13 +41,13 @@ type SendKeeper interface {
 	IsSendEnabledCoins(ctx sdk.Context, coins ...sdk.Coin) error
 	SetDenomAllowList(ctx sdk.Context, denom string, allowList types.AllowList)
 	GetDenomAllowList(ctx sdk.Context, denom string) types.AllowList
-	IsInDenomAllowList(ctx sdk.Context, addr sdk.AccAddress, coins sdk.Coins, cache map[string]AllowedAddresses) bool
+	IsInDenomAllowList(ctx sdk.Context, addr seitypes.AccAddress, coins sdk.Coins, cache map[string]AllowedAddresses) bool
 
-	BlockedAddr(addr sdk.AccAddress) bool
+	BlockedAddr(addr seitypes.AccAddress) bool
 	RegisterRecipientChecker(RecipientChecker)
 }
 
-type RecipientChecker = func(ctx sdk.Context, recipient sdk.AccAddress) bool
+type RecipientChecker = func(ctx sdk.Context, recipient seitypes.AccAddress) bool
 
 var _ SendKeeper = (*BaseSendKeeper)(nil)
 var OneUseiInWei sdk.Int = sdk.NewInt(1_000_000_000_000)
@@ -102,7 +103,7 @@ func (k BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.Input, 
 		return err
 	}
 	for _, in := range inputs {
-		inAddress, err := sdk.AccAddressFromBech32(in.Address)
+		inAddress, err := seitypes.AccAddressFromBech32(in.Address)
 		if err != nil {
 			return err
 		}
@@ -121,7 +122,7 @@ func (k BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.Input, 
 	}
 
 	for _, out := range outputs {
-		outAddress, err := sdk.AccAddressFromBech32(out.Address)
+		outAddress, err := seitypes.AccAddressFromBech32(out.Address)
 		if err != nil {
 			return err
 		}
@@ -154,7 +155,7 @@ func (k BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.Input, 
 
 // SendCoins transfers amt coins from a sending account to a receiving account.
 // An error is returned upon failure.
-func (k BaseSendKeeper) SendCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error {
+func (k BaseSendKeeper) SendCoins(ctx sdk.Context, fromAddr seitypes.AccAddress, toAddr seitypes.AccAddress, amt sdk.Coins) error {
 	if err := k.SendCoinsWithoutAccCreation(ctx, fromAddr, toAddr, amt); err != nil {
 		return err
 	}
@@ -172,11 +173,11 @@ func (k BaseSendKeeper) SendCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAd
 	return nil
 }
 
-func (k BaseSendKeeper) SendCoinsWithoutAccCreation(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error {
+func (k BaseSendKeeper) SendCoinsWithoutAccCreation(ctx sdk.Context, fromAddr seitypes.AccAddress, toAddr seitypes.AccAddress, amt sdk.Coins) error {
 	return k.sendCoinsWithoutAccCreation(ctx, fromAddr, toAddr, amt, true)
 }
 
-func (k BaseSendKeeper) sendCoinsWithoutAccCreation(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins, checkNeg bool) error {
+func (k BaseSendKeeper) sendCoinsWithoutAccCreation(ctx sdk.Context, fromAddr seitypes.AccAddress, toAddr seitypes.AccAddress, amt sdk.Coins, checkNeg bool) error {
 	err := k.SubUnlockedCoins(ctx, fromAddr, amt, checkNeg)
 	if err != nil {
 		return err
@@ -206,7 +207,7 @@ func (k BaseSendKeeper) sendCoinsWithoutAccCreation(ctx sdk.Context, fromAddr sd
 // SubUnlockedCoins removes the unlocked amt coins of the given account. An error is
 // returned if the resulting balance is negative or the initial amount is invalid.
 // A coin_spent event is emitted after.
-func (k BaseSendKeeper) SubUnlockedCoins(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coins, checkNeg bool) error {
+func (k BaseSendKeeper) SubUnlockedCoins(ctx sdk.Context, addr seitypes.AccAddress, amt sdk.Coins, checkNeg bool) error {
 	if !amt.IsValid() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, amt.String())
 	}
@@ -247,7 +248,7 @@ func (k BaseSendKeeper) SubUnlockedCoins(ctx sdk.Context, addr sdk.AccAddress, a
 
 // AddCoins increase the addr balance by the given amt. Fails if the provided amt is invalid.
 // It emits a coin received event.
-func (k BaseSendKeeper) AddCoins(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coins, checkNeg bool) error {
+func (k BaseSendKeeper) AddCoins(ctx sdk.Context, addr seitypes.AccAddress, amt sdk.Coins, checkNeg bool) error {
 	if !k.CanSendTo(ctx, addr) {
 		return sdkerrors.ErrInvalidRecipient
 	}
@@ -275,7 +276,7 @@ func (k BaseSendKeeper) AddCoins(ctx sdk.Context, addr sdk.AccAddress, amt sdk.C
 
 // initBalances sets the balance (multiple coins) for an account by address.
 // An error is returned upon failure.
-func (k BaseSendKeeper) initBalances(ctx sdk.Context, addr sdk.AccAddress, balances sdk.Coins) error {
+func (k BaseSendKeeper) initBalances(ctx sdk.Context, addr seitypes.AccAddress, balances sdk.Coins) error {
 	accountStore := k.getAccountStore(ctx, addr)
 	for i := range balances {
 		balance := balances[i]
@@ -294,7 +295,7 @@ func (k BaseSendKeeper) initBalances(ctx sdk.Context, addr sdk.AccAddress, balan
 }
 
 // setBalance sets the coin balance for an account by address.
-func (k BaseSendKeeper) setBalance(ctx sdk.Context, addr sdk.AccAddress, balance sdk.Coin, checkNeg bool) error {
+func (k BaseSendKeeper) setBalance(ctx sdk.Context, addr seitypes.AccAddress, balance sdk.Coin, checkNeg bool) error {
 	if checkNeg && !balance.IsValid() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, balance.String())
 	}
@@ -312,7 +313,7 @@ func (k BaseSendKeeper) setBalance(ctx sdk.Context, addr sdk.AccAddress, balance
 	return nil
 }
 
-func (k BaseSendKeeper) setWeiBalance(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int) error {
+func (k BaseSendKeeper) setWeiBalance(ctx sdk.Context, addr seitypes.AccAddress, amt sdk.Int) error {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.WeiBalancesPrefix)
 	if amt.IsZero() {
 		store.Delete(addr)
@@ -345,7 +346,7 @@ func (k BaseSendKeeper) IsSendEnabledCoin(ctx sdk.Context, coin sdk.Coin) bool {
 
 // BlockedAddr checks if a given address is restricted from
 // receiving funds.
-func (k BaseSendKeeper) BlockedAddr(addr sdk.AccAddress) bool {
+func (k BaseSendKeeper) BlockedAddr(addr seitypes.AccAddress) bool {
 	if len(addr) == len(CoinbaseAddressPrefix)+8 {
 		if bytes.Equal(CoinbaseAddressPrefix, addr[:len(CoinbaseAddressPrefix)]) {
 			return true
@@ -354,7 +355,7 @@ func (k BaseSendKeeper) BlockedAddr(addr sdk.AccAddress) bool {
 	return k.blockedAddrs[addr.String()]
 }
 
-func (k BaseSendKeeper) SubWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int) (err error) {
+func (k BaseSendKeeper) SubWei(ctx sdk.Context, addr seitypes.AccAddress, amt sdk.Int) (err error) {
 	if amt.Equal(sdk.ZeroInt()) {
 		return nil
 	}
@@ -383,7 +384,7 @@ func (k BaseSendKeeper) SubWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int
 	return k.setWeiBalance(ctx, addr, weiBalance)
 }
 
-func (k BaseSendKeeper) AddWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int) (err error) {
+func (k BaseSendKeeper) AddWei(ctx sdk.Context, addr seitypes.AccAddress, amt sdk.Int) (err error) {
 	if !k.CanSendTo(ctx, addr) {
 		return sdkerrors.ErrInvalidRecipient
 	}
@@ -411,7 +412,7 @@ func (k BaseSendKeeper) AddWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int
 	return k.setWeiBalance(ctx, addr, weiBalance)
 }
 
-func (k BaseSendKeeper) SendCoinsAndWei(ctx sdk.Context, from sdk.AccAddress, to sdk.AccAddress, amt sdk.Int, wei sdk.Int) error {
+func (k BaseSendKeeper) SendCoinsAndWei(ctx sdk.Context, from seitypes.AccAddress, to seitypes.AccAddress, amt sdk.Int, wei sdk.Int) error {
 	if err := k.SubWei(ctx, from, wei); err != nil {
 		return err
 	}
@@ -436,7 +437,7 @@ func (k BaseSendKeeper) RegisterRecipientChecker(rc RecipientChecker) {
 	*k.recipientCheckers = append(*k.recipientCheckers, rc)
 }
 
-func (k BaseSendKeeper) CanSendTo(ctx sdk.Context, recipient sdk.AccAddress) bool {
+func (k BaseSendKeeper) CanSendTo(ctx sdk.Context, recipient seitypes.AccAddress) bool {
 	for _, rc := range *k.recipientCheckers {
 		if !rc(ctx, recipient) {
 			return false
@@ -477,7 +478,7 @@ func (k BaseSendKeeper) GetDenomAllowList(ctx sdk.Context, denom string) types.A
 // it checks if there is allow list for the given denom. If there is no allow list,
 // the address is allowed to send the coins. If there is an allow list, the address is
 // allowed to send the coins only if it is in the allow list.
-func (k BaseSendKeeper) IsInDenomAllowList(ctx sdk.Context, addr sdk.AccAddress, coins sdk.Coins, cache map[string]AllowedAddresses) bool {
+func (k BaseSendKeeper) IsInDenomAllowList(ctx sdk.Context, addr seitypes.AccAddress, coins sdk.Coins, cache map[string]AllowedAddresses) bool {
 	for _, coin := range coins {
 		// Skip if denom does not contain the token factory prefix
 		if !strings.HasPrefix(coin.Denom, TokenFactoryPrefix) {
@@ -512,7 +513,7 @@ type AllowedAddresses struct {
 	set map[string]struct{}
 }
 
-func (a AllowedAddresses) contains(address sdk.AccAddress) bool {
+func (a AllowedAddresses) contains(address seitypes.AccAddress) bool {
 	_, exists := a.set[address.String()]
 	return exists
 }

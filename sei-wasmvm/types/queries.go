@@ -481,20 +481,20 @@ type WasmQuery struct {
 
 // SmartQuery response is raw bytes ([]byte)
 type SmartQuery struct {
-	// Bech32 encoded sdk.AccAddress of the contract
+	// Bech32 encoded seitypes.AccAddress of the contract
 	ContractAddr string `json:"contract_addr"`
 	Msg          []byte `json:"msg"`
 }
 
 // RawQuery response is raw bytes ([]byte)
 type RawQuery struct {
-	// Bech32 encoded sdk.AccAddress of the contract
+	// Bech32 encoded seitypes.AccAddress of the contract
 	ContractAddr string `json:"contract_addr"`
 	Key          []byte `json:"key"`
 }
 
 type ContractInfoQuery struct {
-	// Bech32 encoded sdk.AccAddress of the contract
+	// Bech32 encoded seitypes.AccAddress of the contract
 	ContractAddr string `json:"contract_addr"`
 }
 

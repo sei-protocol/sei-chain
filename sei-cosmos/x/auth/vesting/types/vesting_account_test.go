@@ -662,7 +662,7 @@ func TestTrackUndelegationPermLockedVestingAcc(t *testing.T) {
 func TestGenesisAccountValidate(t *testing.T) {
 	t.Parallel()
 	pubkey := secp256k1.GenPrivKey().PubKey()
-	addr := sdk.AccAddress(pubkey.Address())
+	addr := seitypes.AccAddress(pubkey.Address())
 	baseAcc := authtypes.NewBaseAccount(addr, pubkey, 0, 0)
 	initialVesting := sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 50))
 	baseVestingWithCoins := types.NewBaseVestingAccount(baseAcc, initialVesting, 100, nil)
@@ -777,9 +777,9 @@ func TestGenesisAccountValidate(t *testing.T) {
 
 func TestCreateBaseVestingWithAdmin(t *testing.T) {
 	pubkey := secp256k1.GenPrivKey().PubKey()
-	addr := sdk.AccAddress(pubkey.Address())
+	addr := seitypes.AccAddress(pubkey.Address())
 	adminPubkey := secp256k1.GenPrivKey().PubKey()
-	adminAddr := sdk.AccAddress(adminPubkey.Address())
+	adminAddr := seitypes.AccAddress(adminPubkey.Address())
 	baseAcc := authtypes.NewBaseAccount(addr, pubkey, 0, 0)
 	initialVesting := sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 50))
 	baseVestingWithAdmin := types.NewBaseVestingAccount(baseAcc, initialVesting, 100, adminAddr)

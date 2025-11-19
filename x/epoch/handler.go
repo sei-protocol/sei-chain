@@ -10,7 +10,7 @@ import (
 )
 
 func NewHandler(_ keeper.Keeper) sdk.Handler {
-	return func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
+	return func(ctx sdk.Context, msg seitypes.Msg) (*sdk.Result, error) {
 		_ = ctx.WithEventManager(sdk.NewEventManager())
 		errMsg := fmt.Sprintf("unrecognized %s message type: %T", types.ModuleName, msg)
 		return nil, sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, errMsg)

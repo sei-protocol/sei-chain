@@ -44,44 +44,44 @@ func NewQueryTwapsParams(lookbackSeconds int64) QueryTwapsParams {
 // QueryVotesParams defines the params for the following queries:
 // - 'custom/oracle/votes'
 type QueryVotesParams struct {
-	Voter sdk.ValAddress
+	Voter seitypes.ValAddress
 	Denom string
 }
 
 // NewQueryVotesParams returns params for exchange_rate votes query
-func NewQueryVotesParams(voter sdk.ValAddress, denom string) QueryVotesParams {
+func NewQueryVotesParams(voter seitypes.ValAddress, denom string) QueryVotesParams {
 	return QueryVotesParams{voter, denom}
 }
 
 // QueryFeederDelegationParams defeins the params for the following queries:
 // - 'custom/oracle/feederDelegation'
 type QueryFeederDelegationParams struct {
-	Validator sdk.ValAddress
+	Validator seitypes.ValAddress
 }
 
 // NewQueryFeederDelegationParams returns params for feeder delegation query
-func NewQueryFeederDelegationParams(validator sdk.ValAddress) QueryFeederDelegationParams {
+func NewQueryFeederDelegationParams(validator seitypes.ValAddress) QueryFeederDelegationParams {
 	return QueryFeederDelegationParams{validator}
 }
 
 // QueryMissCounterParams defines the params for the following queries:
 // - 'custom/oracle/missCounter'
 type QueryVotePenaltyCounterParams struct {
-	Validator sdk.ValAddress
+	Validator seitypes.ValAddress
 }
 
 // NewQueryVotePenaltyCounterParams returns params for feeder delegation query
-func NewQueryVotePenaltyCounterParams(validator sdk.ValAddress) QueryVotePenaltyCounterParams {
+func NewQueryVotePenaltyCounterParams(validator seitypes.ValAddress) QueryVotePenaltyCounterParams {
 	return QueryVotePenaltyCounterParams{validator}
 }
 
 // QueryAggregateVoteParams defines the params for the following queries:
 // - 'custom/oracle/aggregateVote'
 type QueryAggregateVoteParams struct {
-	Validator sdk.ValAddress
+	Validator seitypes.ValAddress
 }
 
 // NewQueryAggregateVoteParams returns params for feeder delegation query
-func NewQueryAggregateVoteParams(validator sdk.ValAddress) QueryAggregateVoteParams {
+func NewQueryAggregateVoteParams(validator seitypes.ValAddress) QueryAggregateVoteParams {
 	return QueryAggregateVoteParams{validator}
 }

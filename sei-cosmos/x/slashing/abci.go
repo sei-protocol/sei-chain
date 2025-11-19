@@ -12,7 +12,7 @@ import (
 )
 
 type SlashingWriteInfo struct {
-	ConsAddr    sdk.ConsAddress
+	ConsAddr    seitypes.ConsAddress
 	MissedInfo  types.ValidatorMissedBlockArray
 	SigningInfo types.ValidatorSigningInfo
 	ShouldSlash bool

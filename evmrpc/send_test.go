@@ -16,7 +16,7 @@ import (
 
 func TestMnemonicToPrivateKey(t *testing.T) {
 	mnemonic := "mushroom lamp kingdom obscure sun advice puzzle ancient crystal service beef have zone true chimney act situate laundry guess vacuum razor virus wink enforce"
-	hdp := hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String()
+	hdp := hd.CreateHDPath(seitypes.GetConfig().GetCoinType(), 0, 0).String()
 	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", hdp)
 	privKey := hd.Secp256k1.Generate()(derivedPriv)
 	testPrivHex := hex.EncodeToString(privKey.Bytes())

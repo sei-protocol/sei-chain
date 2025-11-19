@@ -33,7 +33,7 @@ func (suite *KeeperTestSuite) TestHandleDoubleSign() {
 	// execute end-blocker and verify validator attributes
 	staking.EndBlocker(ctx, suite.app.StakingKeeper)
 	suite.Equal(
-		suite.app.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(operatorAddr)).String(),
+		suite.app.BankKeeper.GetAllBalances(ctx, seitypes.AccAddress(operatorAddr)).String(),
 		sdk.NewCoins(sdk.NewCoin(stakingParams.BondDenom, initAmt.Sub(selfDelegation))).String(),
 	)
 	suite.Equal(selfDelegation, suite.app.StakingKeeper.Validator(ctx, operatorAddr).GetBondedTokens())
@@ -60,13 +60,13 @@ func (suite *KeeperTestSuite) TestHandleDoubleSign() {
 		Height:           0,
 		Time:             time.Unix(0, 0),
 		Power:            power,
-		ConsensusAddress: sdk.ConsAddress(val.Address()).String(),
+		ConsensusAddress: seitypes.ConsAddress(val.Address()).String(),
 	}
 	suite.app.EvidenceKeeper.HandleEquivocationEvidence(ctx, evidence)
 
 	// should be jailed and tombstoned
 	suite.True(suite.app.StakingKeeper.Validator(ctx, operatorAddr).IsJailed())
-	suite.True(suite.app.SlashingKeeper.IsTombstoned(ctx, sdk.ConsAddress(val.Address())))
+	suite.True(suite.app.SlashingKeeper.IsTombstoned(ctx, seitypes.ConsAddress(val.Address())))
 
 	// tokens should be decreased
 	newTokens := suite.app.StakingKeeper.Validator(ctx, operatorAddr).GetTokens()
@@ -86,12 +86,12 @@ func (suite *KeeperTestSuite) TestHandleDoubleSign() {
 
 	// require we be able to unbond now
 	ctx = ctx.WithBlockHeight(ctx.BlockHeight() + 1)
-	del, _ := suite.app.StakingKeeper.GetDelegation(ctx, sdk.AccAddress(operatorAddr), operatorAddr)
+	del, _ := suite.app.StakingKeeper.GetDelegation(ctx, seitypes.AccAddress(operatorAddr), operatorAddr)
 	validator, _ := suite.app.StakingKeeper.GetValidator(ctx, operatorAddr)
 	totalBond := validator.TokensFromShares(del.GetShares()).TruncateInt()
 	tstaking.Ctx = ctx
 	tstaking.Denom = stakingParams.BondDenom
-	tstaking.Undelegate(sdk.AccAddress(operatorAddr), operatorAddr, totalBond, true)
+	tstaking.Undelegate(seitypes.AccAddress(operatorAddr), operatorAddr, totalBond, true)
 
 	// query evidence from store
 	evidences := suite.app.EvidenceKeeper.GetAllEvidence(ctx)
@@ -115,7 +115,7 @@ func (suite *KeeperTestSuite) TestHandleDoubleSign_TooOld() {
 	// execute end-blocker and verify validator attributes
 	staking.EndBlocker(ctx, suite.app.StakingKeeper)
 	suite.Equal(
-		suite.app.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(operatorAddr)),
+		suite.app.BankKeeper.GetAllBalances(ctx, seitypes.AccAddress(operatorAddr)),
 		sdk.NewCoins(sdk.NewCoin(stakingParams.BondDenom, initAmt.Sub(amt))),
 	)
 	suite.Equal(amt, suite.app.StakingKeeper.Validator(ctx, operatorAddr).GetBondedTokens())
@@ -124,7 +124,7 @@ func (suite *KeeperTestSuite) TestHandleDoubleSign_TooOld() {
 		Height:           0,
 		Time:             ctx.BlockTime(),
 		Power:            power,
-		ConsensusAddress: sdk.ConsAddress(val.Address()).String(),
+		ConsensusAddress: seitypes.ConsAddress(val.Address()).String(),
 	}
 
 	cp := suite.app.BaseApp.GetConsensusParams(ctx)
@@ -135,5 +135,5 @@ func (suite *KeeperTestSuite) TestHandleDoubleSign_TooOld() {
 	suite.app.EvidenceKeeper.HandleEquivocationEvidence(ctx, evidence)
 
 	suite.False(suite.app.StakingKeeper.Validator(ctx, operatorAddr).IsJailed())
-	suite.False(suite.app.SlashingKeeper.IsTombstoned(ctx, sdk.ConsAddress(val.Address())))
+	suite.False(suite.app.SlashingKeeper.IsTombstoned(ctx, seitypes.ConsAddress(val.Address())))
 }

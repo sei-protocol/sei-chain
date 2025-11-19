@@ -12,8 +12,8 @@ import (
 	bank "github.com/cosmos/cosmos-sdk/x/bank/types"
 )
 
-var granter = sdk.AccAddress(ed25519.GenPrivKey().PubKey().Address())
-var grantee = sdk.AccAddress(ed25519.GenPrivKey().PubKey().Address())
+var granter = seitypes.AccAddress(ed25519.GenPrivKey().PubKey().Address())
+var grantee = seitypes.AccAddress(ed25519.GenPrivKey().PubKey().Address())
 var msgType = bank.SendAuthorization{}.MsgTypeURL()
 
 func TestGrantkey(t *testing.T) {
@@ -28,8 +28,8 @@ func TestGrantkey(t *testing.T) {
 	require.Equal(grantee, grantee1)
 
 	// Test addresses with special / non-standard lengths
-	specialGranter := sdk.AccAddress("granter")
-	specialGrantee := sdk.AccAddress("granteeeee")
+	specialGranter := seitypes.AccAddress("granter")
+	specialGrantee := seitypes.AccAddress("granteeeee")
 	key = grantStoreKey(specialGrantee, specialGranter, msgType)
 	require.Len(key, len(GrantKey)+len(address.MustLengthPrefix(specialGrantee))+len(address.MustLengthPrefix(specialGranter))+len([]byte(msgType)))
 	granter1, grantee1 = addressesFromGrantStoreKey(grantStoreKey(specialGrantee, specialGranter, msgType))

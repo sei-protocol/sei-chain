@@ -18,7 +18,7 @@ var (
 	dummyRouteWhichFails  = types.NewInvarRoute(testModuleName, "which-fails", func(_ sdk.Context) (string, bool) { return "whoops", true })
 )
 
-func createTestApp(t *testing.T) (*seiapp.App, sdk.Context, []sdk.AccAddress) {
+func createTestApp(t *testing.T) (*seiapp.App, sdk.Context, []seitypes.AccAddress) {
 	app := seiapp.Setup(t, false, false, false)
 	ctx := app.NewContext(false, tmproto.Header{})
 
@@ -44,7 +44,7 @@ func createTestApp(t *testing.T) (*seiapp.App, sdk.Context, []sdk.AccAddress) {
 
 // 	cases := []struct {
 // 		name           string
-// 		msg            sdk.Msg
+// 		msg            seitypes.Msg
 // 		expectedResult string
 // 	}{
 // 		{"bad invariant route", types.NewMsgVerifyInvariant(sender, testModuleName, "route-that-doesnt-exist"), "fail"},

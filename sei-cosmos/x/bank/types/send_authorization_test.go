@@ -14,8 +14,8 @@ import (
 var (
 	coins1000 = sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000)))
 	coins500  = sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(500)))
-	fromAddr  = sdk.AccAddress("_____from _____")
-	toAddr    = sdk.AccAddress("_______to________")
+	fromAddr  = seitypes.AccAddress("_____from _____")
+	toAddr    = seitypes.AccAddress("_______to________")
 )
 
 func TestSendAuthorization(t *testing.T) {

@@ -87,14 +87,14 @@ type BlockInfo struct {
 }
 
 type MessageInfo struct {
-	// binary encoding of sdk.AccAddress executing the contract
+	// binary encoding of seitypes.AccAddress executing the contract
 	Sender HumanAddress `json:"sender"`
 	// amount of funds send to the contract along with this message
 	Funds Coins `json:"funds"`
 }
 
 type ContractInfo struct {
-    // sdk.AccAddress of the contract, to be used when sending messages
+    // seitypes.AccAddress of the contract, to be used when sending messages
     Address string       `json:"address"`
     // current balance of the account controlled by the contract
 	Balance []Coin `json:"send_amount"`
@@ -159,7 +159,7 @@ type SendMsg struct {
 // Since a contract is immutable once it is deployed, we don't need to transform this.
 // If it was properly coded and worked once, it will continue to work throughout upgrades.
 type ContractMsg struct {
-    // ContractAddr is the sdk.AccAddress of the contract, which uniquely defines
+    // ContractAddr is the seitypes.AccAddress of the contract, which uniquely defines
     // the contract ID and instance ID. The sdk module should maintain a reverse lookup table.
     ContractAddr string `json:"contract_addr"`
     // Msg is assumed to be a json-encoded message, which will be passed directly
@@ -179,7 +179,7 @@ type ContractMsg struct {
 // contract itself, we don't need to worry about upgrading.
 type OpaqueMsg struct {
 	// Data is a custom msg that the sdk knows.
-	// Generally the base64-encoded of go-amino binary encoding of an sdk.Msg implementation.
+	// Generally the base64-encoded of go-amino binary encoding of an seitypes.Msg implementation.
 	// This should never be created by the contract, but allows for blindly passing through
 	// temporary data.
 	Data string `json:"data"`

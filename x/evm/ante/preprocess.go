@@ -53,7 +53,7 @@ func NewEVMPreprocessDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accou
 }
 
 //nolint:revive
-func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
 	if err := Preprocess(ctx, msg, p.evmKeeper.ChainID(ctx), p.evmKeeper.EthBlockTestConfig.Enabled); err != nil {
 		return ctx, err
@@ -100,18 +100,18 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	return next(ctx, tx, simulate)
 }
 
-func (p *EVMPreprocessDecorator) IsAccountBalancePositive(ctx sdk.Context, seiAddr sdk.AccAddress, evmAddr common.Address) bool {
+func (p *EVMPreprocessDecorator) IsAccountBalancePositive(ctx sdk.Context, seiAddr seitypes.AccAddress, evmAddr common.Address) bool {
 	baseDenom := p.evmKeeper.GetBaseDenom(ctx)
 	if amt := p.evmKeeper.BankKeeper().GetBalance(ctx, seiAddr, baseDenom).Amount; amt.IsPositive() {
 		return true
 	}
-	if amt := p.evmKeeper.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), baseDenom).Amount; amt.IsPositive() {
+	if amt := p.evmKeeper.BankKeeper().GetBalance(ctx, seitypes.AccAddress(evmAddr[:]), baseDenom).Amount; amt.IsPositive() {
 		return true
 	}
 	if amt := p.evmKeeper.BankKeeper().GetWeiBalance(ctx, seiAddr); amt.IsPositive() {
 		return true
 	}
-	return p.evmKeeper.BankKeeper().GetWeiBalance(ctx, sdk.AccAddress(evmAddr[:])).IsPositive()
+	return p.evmKeeper.BankKeeper().GetWeiBalance(ctx, seitypes.AccAddress(evmAddr[:])).IsPositive()
 }
 
 // stateless
@@ -242,7 +242,7 @@ func NewEVMAddressDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accountk
 }
 
 //nolint:revive
-func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	sigTx, ok := tx.(authsigning.SigVerifiableTx)
 	if !ok {
 		return ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "invalid tx type")

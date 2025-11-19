@@ -3,6 +3,7 @@ package keeper
 import (
 	"fmt"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/tendermint/tendermint/libs/log"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -18,19 +19,19 @@ var _ ViewKeeper = (*BaseViewKeeper)(nil)
 // ViewKeeper defines a module interface that facilitates read only access to
 // account balances.
 type ViewKeeper interface {
-	ValidateBalance(ctx sdk.Context, addr sdk.AccAddress) error
-	HasBalance(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coin) bool
+	ValidateBalance(ctx sdk.Context, addr seitypes.AccAddress) error
+	HasBalance(ctx sdk.Context, addr seitypes.AccAddress, amt sdk.Coin) bool
 
-	GetAllBalances(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
+	GetAllBalances(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins
 	GetAccountsBalances(ctx sdk.Context) []types.Balance
-	GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin
-	LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
-	SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
-	GetWeiBalance(ctx sdk.Context, addr sdk.AccAddress) sdk.Int
+	GetBalance(ctx sdk.Context, addr seitypes.AccAddress, denom string) sdk.Coin
+	LockedCoins(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins
+	SpendableCoins(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins
+	GetWeiBalance(ctx sdk.Context, addr seitypes.AccAddress) sdk.Int
 
-	IterateAccountBalances(ctx sdk.Context, addr sdk.AccAddress, cb func(coin sdk.Coin) (stop bool))
-	IterateAllBalances(ctx sdk.Context, cb func(address sdk.AccAddress, coin sdk.Coin) (stop bool))
-	IterateAllWeiBalances(ctx sdk.Context, cb func(sdk.AccAddress, sdk.Int) bool)
+	IterateAccountBalances(ctx sdk.Context, addr seitypes.AccAddress, cb func(coin sdk.Coin) (stop bool))
+	IterateAllBalances(ctx sdk.Context, cb func(address seitypes.AccAddress, coin sdk.Coin) (stop bool))
+	IterateAllWeiBalances(ctx sdk.Context, cb func(seitypes.AccAddress, sdk.Int) bool)
 }
 
 // BaseViewKeeper implements a read only keeper implementation of ViewKeeper.
@@ -56,12 +57,12 @@ func (k BaseViewKeeper) Logger(ctx sdk.Context) log.Logger {
 }
 
 // HasBalance returns whether or not an account has at least amt balance.
-func (k BaseViewKeeper) HasBalance(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coin) bool {
+func (k BaseViewKeeper) HasBalance(ctx sdk.Context, addr seitypes.AccAddress, amt sdk.Coin) bool {
 	return k.GetBalance(ctx, addr, amt.Denom).IsGTE(amt)
 }
 
 // GetAllBalances returns all the account balances for the given account address.
-func (k BaseViewKeeper) GetAllBalances(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins {
+func (k BaseViewKeeper) GetAllBalances(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins {
 	balances := sdk.NewCoins()
 	k.IterateAccountBalances(ctx, addr, func(balance sdk.Coin) bool {
 		balances = append(balances, balance)
@@ -76,7 +77,7 @@ func (k BaseViewKeeper) GetAccountsBalances(ctx sdk.Context) []types.Balance {
 	balances := make([]types.Balance, 0)
 	mapAddressToBalancesIdx := make(map[string]int)
 
-	k.IterateAllBalances(ctx, func(addr sdk.AccAddress, balance sdk.Coin) bool {
+	k.IterateAllBalances(ctx, func(addr seitypes.AccAddress, balance sdk.Coin) bool {
 		idx, ok := mapAddressToBalancesIdx[addr.String()]
 		if ok {
 			// address is already on the set of accounts balances
@@ -99,7 +100,7 @@ func (k BaseViewKeeper) GetAccountsBalances(ctx sdk.Context) []types.Balance {
 
 // GetBalance returns the balance of a specific denomination for a given account
 // by address.
-func (k BaseViewKeeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin {
+func (k BaseViewKeeper) GetBalance(ctx sdk.Context, addr seitypes.AccAddress, denom string) sdk.Coin {
 	accountStore := k.getAccountStore(ctx, addr)
 
 	bz := accountStore.Get([]byte(denom))
@@ -116,7 +117,7 @@ func (k BaseViewKeeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom s
 // IterateAccountBalances iterates over the balances of a single account and
 // provides the token balance to a callback. If true is returned from the
 // callback, iteration is halted.
-func (k BaseViewKeeper) IterateAccountBalances(ctx sdk.Context, addr sdk.AccAddress, cb func(sdk.Coin) bool) {
+func (k BaseViewKeeper) IterateAccountBalances(ctx sdk.Context, addr seitypes.AccAddress, cb func(sdk.Coin) bool) {
 	accountStore := k.getAccountStore(ctx, addr)
 
 	iterator := accountStore.Iterator(nil, nil)
@@ -135,7 +136,7 @@ func (k BaseViewKeeper) IterateAccountBalances(ctx sdk.Context, addr sdk.AccAddr
 // IterateAllBalances iterates over all the balances of all accounts and
 // denominations that are provided to a callback. If true is returned from the
 // callback, iteration is halted.
-func (k BaseViewKeeper) IterateAllBalances(ctx sdk.Context, cb func(sdk.AccAddress, sdk.Coin) bool) {
+func (k BaseViewKeeper) IterateAllBalances(ctx sdk.Context, cb func(seitypes.AccAddress, sdk.Coin) bool) {
 	store := ctx.KVStore(k.storeKey)
 	balancesStore := prefix.NewStore(store, types.BalancesPrefix)
 
@@ -164,7 +165,7 @@ func (k BaseViewKeeper) IterateAllBalances(ctx sdk.Context, cb func(sdk.AccAddre
 // account by address. For standard accounts, the result will always be no coins.
 // For vesting accounts, LockedCoins is delegated to the concrete vesting account
 // type.
-func (k BaseViewKeeper) LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins {
+func (k BaseViewKeeper) LockedCoins(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins {
 	acc := k.ak.GetAccount(ctx, addr)
 	if acc != nil {
 		vacc, ok := acc.(vestexported.VestingAccount)
@@ -179,14 +180,14 @@ func (k BaseViewKeeper) LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Co
 // SpendableCoins returns the total balances of spendable coins for an account
 // by address. If the account has no spendable coins, an empty Coins slice is
 // returned.
-func (k BaseViewKeeper) SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins {
+func (k BaseViewKeeper) SpendableCoins(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins {
 	spendable, _ := k.spendableCoins(ctx, addr)
 	return spendable
 }
 
 // spendableCoins returns the coins the given address can spend alongside the total amount of coins it holds.
 // It exists for gas efficiency, in order to avoid to have to get balance multiple times.
-func (k BaseViewKeeper) spendableCoins(ctx sdk.Context, addr sdk.AccAddress) (spendable, total sdk.Coins) {
+func (k BaseViewKeeper) spendableCoins(ctx sdk.Context, addr seitypes.AccAddress) (spendable, total sdk.Coins) {
 	total = k.GetAllBalances(ctx, addr)
 	locked := k.LockedCoins(ctx, addr)
 
@@ -206,7 +207,7 @@ func (k BaseViewKeeper) spendableCoins(ctx sdk.Context, addr sdk.AccAddress) (sp
 // CONTRACT: ValidateBalance should only be called upon genesis state. In the
 // case of vesting accounts, balances may change in a valid manner that would
 // otherwise yield an error from this call.
-func (k BaseViewKeeper) ValidateBalance(ctx sdk.Context, addr sdk.AccAddress) error {
+func (k BaseViewKeeper) ValidateBalance(ctx sdk.Context, addr seitypes.AccAddress) error {
 	acc := k.ak.GetAccount(ctx, addr)
 	if acc == nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrUnknownAddress, "account %s does not exist", addr)
@@ -229,13 +230,13 @@ func (k BaseViewKeeper) ValidateBalance(ctx sdk.Context, addr sdk.AccAddress) er
 }
 
 // getAccountStore gets the account store of the given address.
-func (k BaseViewKeeper) getAccountStore(ctx sdk.Context, addr sdk.AccAddress) prefix.Store {
+func (k BaseViewKeeper) getAccountStore(ctx sdk.Context, addr seitypes.AccAddress) prefix.Store {
 	store := ctx.KVStore(k.storeKey)
 
 	return prefix.NewStore(store, types.CreateAccountBalancesPrefix(addr))
 }
 
-func (k BaseViewKeeper) GetWeiBalance(ctx sdk.Context, addr sdk.AccAddress) sdk.Int {
+func (k BaseViewKeeper) GetWeiBalance(ctx sdk.Context, addr seitypes.AccAddress) sdk.Int {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.WeiBalancesPrefix)
 	val := store.Get(addr)
 	if val == nil {
@@ -249,7 +250,7 @@ func (k BaseViewKeeper) GetWeiBalance(ctx sdk.Context, addr sdk.AccAddress) sdk.
 	return *res
 }
 
-func (k BaseViewKeeper) IterateAllWeiBalances(ctx sdk.Context, cb func(sdk.AccAddress, sdk.Int) bool) {
+func (k BaseViewKeeper) IterateAllWeiBalances(ctx sdk.Context, cb func(seitypes.AccAddress, sdk.Int) bool) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.WeiBalancesPrefix)
 
 	iterator := store.Iterator(nil, nil)

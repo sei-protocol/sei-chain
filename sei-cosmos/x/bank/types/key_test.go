@@ -20,7 +20,7 @@ func cloneAppend(bz []byte, tail []byte) (res []byte) {
 }
 
 func TestAddressFromBalancesStore(t *testing.T) {
-	addr, err := sdk.AccAddressFromBech32("sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz")
+	addr, err := seitypes.AccAddressFromBech32("sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz")
 	require.NoError(t, err)
 	addrLen := len(addr)
 	require.Equal(t, 20, addrLen)
@@ -30,7 +30,7 @@ func TestAddressFromBalancesStore(t *testing.T) {
 		name        string
 		key         []byte
 		wantErr     bool
-		expectedKey sdk.AccAddress
+		expectedKey seitypes.AccAddress
 	}{
 		{"valid", key, false, addr},
 		{"#9111", []byte("\xff000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"), false, nil},

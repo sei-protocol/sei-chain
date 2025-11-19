@@ -16,14 +16,14 @@ type CustomRouter struct {
 	evmKeeper *evmkeeper.Keeper
 }
 
-func (r *CustomRouter) Handler(msg sdk.Msg) baseapp.MsgServiceHandler {
+func (r *CustomRouter) Handler(msg seitypes.Msg) baseapp.MsgServiceHandler {
 	switch m := msg.(type) {
 	case *evmtypes.MsgInternalEVMCall:
-		return func(ctx sdk.Context, _ sdk.Msg) (*sdk.Result, error) {
+		return func(ctx sdk.Context, _ seitypes.Msg) (*sdk.Result, error) {
 			return r.evmKeeper.HandleInternalEVMCall(ctx, m)
 		}
 	case *evmtypes.MsgInternalEVMDelegateCall:
-		return func(ctx sdk.Context, _ sdk.Msg) (*sdk.Result, error) {
+		return func(ctx sdk.Context, _ seitypes.Msg) (*sdk.Result, error) {
 			return r.evmKeeper.HandleInternalEVMDelegateCall(ctx, m)
 		}
 	default:

@@ -3,17 +3,18 @@ package types
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // TypeMsgCreateVestingAccount defines the type value for a MsgCreateVestingAccount.
 const TypeMsgCreateVestingAccount = "msg_create_vesting_account"
 
-var _ sdk.Msg = &MsgCreateVestingAccount{}
+var _ seitypes.Msg = &MsgCreateVestingAccount{}
 
 // NewMsgCreateVestingAccount returns a reference to a new MsgCreateVestingAccount.
 //
 //nolint:interfacer
-func NewMsgCreateVestingAccount(fromAddr, toAddr sdk.AccAddress, amount sdk.Coins, endTime int64, delayed bool, admin sdk.AccAddress) *MsgCreateVestingAccount {
+func NewMsgCreateVestingAccount(fromAddr, toAddr seitypes.AccAddress, amount sdk.Coins, endTime int64, delayed bool, admin seitypes.AccAddress) *MsgCreateVestingAccount {
 	return &MsgCreateVestingAccount{
 		FromAddress: fromAddr.String(),
 		ToAddress:   toAddr.String(),
@@ -32,19 +33,19 @@ func (msg MsgCreateVestingAccount) Type() string { return TypeMsgCreateVestingAc
 
 // ValidateBasic Implements Msg.
 func (msg MsgCreateVestingAccount) ValidateBasic() error {
-	from, err := sdk.AccAddressFromBech32(msg.FromAddress)
+	from, err := seitypes.AccAddressFromBech32(msg.FromAddress)
 	if err != nil {
 		return err
 	}
-	to, err := sdk.AccAddressFromBech32(msg.ToAddress)
+	to, err := seitypes.AccAddressFromBech32(msg.ToAddress)
 	if err != nil {
 		return err
 	}
-	if err := sdk.VerifyAddressFormat(from); err != nil {
+	if err := seitypes.VerifyAddressFormat(from); err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid sender address: %s", err)
 	}
 
-	if err := sdk.VerifyAddressFormat(to); err != nil {
+	if err := seitypes.VerifyAddressFormat(to); err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid recipient address: %s", err)
 	}
 
@@ -70,10 +71,10 @@ func (msg MsgCreateVestingAccount) GetSignBytes() []byte {
 }
 
 // GetSigners returns the expected signers for a MsgCreateVestingAccount.
-func (msg MsgCreateVestingAccount) GetSigners() []sdk.AccAddress {
-	from, err := sdk.AccAddressFromBech32(msg.FromAddress)
+func (msg MsgCreateVestingAccount) GetSigners() []seitypes.AccAddress {
+	from, err := seitypes.AccAddressFromBech32(msg.FromAddress)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{from}
+	return []seitypes.AccAddress{from}
 }

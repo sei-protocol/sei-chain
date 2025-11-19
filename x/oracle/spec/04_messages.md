@@ -25,8 +25,8 @@ The exchange rate used in the hash must be the open market exchange rate of Sei,
 type MsgExchangeRatePrevote struct {
 	Hash      VoteHash
 	Denom     string
-	Feeder    sdk.AccAddress
-	Validator sdk.ValAddress
+	Feeder    seitypes.AccAddress
+	Validator seitypes.ValAddress
 }
 ```
 
@@ -43,8 +43,8 @@ type MsgExchangeRateVote struct {
 	ExchangeRate sdk.Dec        // the effective rate of Sei in {Denom}
 	Salt         string
 	Denom        string
-	Feeder       sdk.AccAddress
-	Validator    sdk.ValAddress
+	Feeder       seitypes.AccAddress
+	Validator    seitypes.ValAddress
 }
 ```
 
@@ -59,8 +59,8 @@ The `Operator` field contains the operator address of the validator (prefixed `t
 ```go
 // MsgDelegateFeedConsent - struct for delegating oracle voting rights to another address.
 type MsgDelegateFeedConsent struct {
-	Operator sdk.ValAddress
-	Delegate sdk.AccAddress
+	Operator seitypes.ValAddress
+	Delegate seitypes.AccAddress
 }
 ```
 
@@ -74,8 +74,8 @@ type MsgDelegateFeedConsent struct {
 // which is formatted as hex string in SHA256("{salt}:{exchange rate}{denom},...,{exchange rate}{denom}:{voter}")
 type MsgAggregateExchangeRatePrevote struct {
 	Hash      AggregateVoteHash
-	Feeder    sdk.AccAddress
-	Validator sdk.ValAddress
+	Feeder    seitypes.AccAddress
+	Validator seitypes.ValAddress
 }
 ```
 
@@ -88,7 +88,7 @@ The `MsgAggregateExchangeRateVote` contains the actual exchange rates vote. The 
 type MsgAggregateExchangeRateVote struct {
 	Salt          string
 	ExchangeRates string
-	Feeder        sdk.AccAddress
-	Validator     sdk.ValAddress
+	Feeder        seitypes.AccAddress
+	Validator     seitypes.ValAddress
 }
 ```

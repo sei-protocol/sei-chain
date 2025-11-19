@@ -78,7 +78,7 @@ func NewApp(rootDir string, logger log.Logger) (abci.Application, error) {
 // KVStoreHandler is a simple handler that takes kvstoreTx and writes
 // them to the db
 func KVStoreHandler(storeKey sdk.StoreKey) sdk.Handler {
-	return func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
+	return func(ctx sdk.Context, msg seitypes.Msg) (*sdk.Result, error) {
 		dTx, ok := msg.(kvstoreTx)
 		if !ok {
 			return nil, errors.New("KVStoreHandler should only receive kvstoreTx")

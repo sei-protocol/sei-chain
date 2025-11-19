@@ -28,12 +28,12 @@ func TestSlashAndResetMissCounters(t *testing.T) {
 	staking.EndBlocker(ctx, input.StakingKeeper)
 
 	require.Equal(
-		t, input.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr)),
+		t, input.BankKeeper.GetAllBalances(ctx, seitypes.AccAddress(addr)),
 		sdk.NewCoins(sdk.NewCoin(input.StakingKeeper.GetParams(ctx).BondDenom, testutils.InitTokens.Sub(amt))),
 	)
 	require.Equal(t, amt, input.StakingKeeper.Validator(ctx, addr).GetBondedTokens())
 	require.Equal(
-		t, input.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr1)),
+		t, input.BankKeeper.GetAllBalances(ctx, seitypes.AccAddress(addr1)),
 		sdk.NewCoins(sdk.NewCoin(input.StakingKeeper.GetParams(ctx).BondDenom, testutils.InitTokens.Sub(amt))),
 	)
 	require.Equal(t, amt, input.StakingKeeper.Validator(ctx, addr1).GetBondedTokens())

@@ -453,6 +453,6 @@ func TestProtoMarshalJSON(t *testing.T) {
 	require.NoError(err)
 	ko, err := keyring.MkAccKeyOutput(info)
 	require.NoError(err)
-	require.Equal(ko.Address, sdk.AccAddress(pk2.Address()).String())
+	require.Equal(ko.Address, seitypes.AccAddress(pk2.Address()).String())
 	require.Equal(ko.PubKey, string(bz))
 }

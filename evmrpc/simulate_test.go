@@ -74,7 +74,7 @@ func TestEstimateGas(t *testing.T) {
 	}
 	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(20)))
 	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, amts)
-	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(from[:]), amts)
+	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, seitypes.AccAddress(from[:]), amts)
 	resObj := sendRequestGood(t, "estimateGas", txArgs, nil, map[string]interface{}{})
 	result := resObj["result"].(string)
 	require.Equal(t, "0x5208", result) // 21000
@@ -171,7 +171,7 @@ func TestEstimateGasAfterCalls(t *testing.T) {
 	_, from := testkeeper.MockAddressPair()
 	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(20)))
 	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, amts)
-	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(from[:]), amts)
+	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, seitypes.AccAddress(from[:]), amts)
 	_, contractAddr := testkeeper.MockAddressPair()
 	code, err := os.ReadFile("../example/contracts/simplestorage/SimpleStorage.bin")
 	require.Nil(t, err)
@@ -231,7 +231,7 @@ func TestCreateAccessList(t *testing.T) {
 	}
 	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(2000000)))
 	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, amts)
-	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(from[:]), amts)
+	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, seitypes.AccAddress(from[:]), amts)
 	resObj := sendRequestGood(t, "createAccessList", txArgs, "latest")
 	result := resObj["result"].(map[string]interface{})
 	require.Equal(t, []interface{}{}, result["accessList"]) // the code uses MSTORE which does not trace access list

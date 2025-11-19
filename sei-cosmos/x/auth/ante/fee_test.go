@@ -14,7 +14,7 @@ import (
 
 type BadAnteDecoratorOne struct{}
 
-func (ad BadAnteDecoratorOne) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (ad BadAnteDecoratorOne) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	return ctx, fmt.Errorf("some error")
 }
 
@@ -185,7 +185,7 @@ func (suite *AnteTestSuite) TestLazySendToModuleAccount() {
 	)
 }
 
-func (suite *AnteTestSuite) createTestTxWithGas(msg *testdata.TestMsg, fee, gasLimit uint64, priv cryptotypes.PrivKey, denom string) (sdk.Tx, error) {
+func (suite *AnteTestSuite) createTestTxWithGas(msg *testdata.TestMsg, fee, gasLimit uint64, priv cryptotypes.PrivKey, denom string) (seitypes.Tx, error) {
 	feeAmount := sdk.NewCoins(sdk.NewInt64Coin(denom, int64(fee)))
 	suite.Require().NoError(suite.txBuilder.SetMsgs(msg))
 	suite.txBuilder.SetFeeAmount(feeAmount)

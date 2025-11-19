@@ -6,6 +6,7 @@ import (
 
 	gogogrpc "github.com/gogo/protobuf/grpc"
 	"github.com/gogo/protobuf/proto"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"google.golang.org/grpc"
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -29,10 +30,10 @@ func NewMsgServiceRouter() *MsgServiceRouter {
 }
 
 // MsgServiceHandler defines a function type which handles Msg service message.
-type MsgServiceHandler = func(ctx sdk.Context, req sdk.Msg) (*sdk.Result, error)
+type MsgServiceHandler = func(ctx sdk.Context, req seitypes.Msg) (*sdk.Result, error)
 
 // Handler returns the MsgServiceHandler for a given msg or nil if not found.
-func (msr *MsgServiceRouter) Handler(msg sdk.Msg) MsgServiceHandler {
+func (msr *MsgServiceRouter) Handler(msg seitypes.Msg) MsgServiceHandler {
 	return msr.routes[sdk.MsgTypeURL(msg)]
 }
 
@@ -61,7 +62,7 @@ func (msr *MsgServiceRouter) RegisterService(sd *grpc.ServiceDesc, handler inter
 		// This approach is maybe a bit hacky, but less hacky than reflecting on the handler object itself.
 		// We use a no-op interceptor to avoid actually calling into the handler itself.
 		_, _ = methodHandler(nil, context.Background(), func(i interface{}) error {
-			msg, ok := i.(sdk.Msg)
+			msg, ok := i.(seitypes.Msg)
 			if !ok {
 				// We panic here because there is no other alternative and the app cannot be initialized correctly
 				// this should only happen if there is a problem with code generation in which case the app won't
@@ -106,7 +107,7 @@ func (msr *MsgServiceRouter) RegisterService(sd *grpc.ServiceDesc, handler inter
 			)
 		}
 
-		msr.routes[requestTypeName] = func(ctx sdk.Context, req sdk.Msg) (*sdk.Result, error) {
+		msr.routes[requestTypeName] = func(ctx sdk.Context, req seitypes.Msg) (*sdk.Result, error) {
 			ctx = ctx.WithEventManager(sdk.NewEventManager())
 			interceptor := func(goCtx context.Context, _ interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 				goCtx = context.WithValue(goCtx, sdk.SdkContextKey, ctx)

@@ -18,7 +18,7 @@ func RegisterLegacyAminoCodec(cdc *codec.LegacyAmino) {
 }
 
 func RegisterInterfaces(registry types.InterfaceRegistry) {
-	registry.RegisterImplementations((*sdk.Msg)(nil), &MsgSubmitEvidence{})
+	registry.RegisterImplementations((*seitypes.Msg)(nil), &MsgSubmitEvidence{})
 	registry.RegisterInterface(
 		"cosmos.evidence.v1beta1.Evidence",
 		(*exported.Evidence)(nil),

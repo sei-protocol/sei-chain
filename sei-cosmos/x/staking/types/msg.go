@@ -7,6 +7,7 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // staking message types
@@ -19,19 +20,19 @@ const (
 )
 
 var (
-	_ sdk.Msg                            = &MsgCreateValidator{}
+	_ seitypes.Msg                       = &MsgCreateValidator{}
 	_ codectypes.UnpackInterfacesMessage = (*MsgCreateValidator)(nil)
-	_ sdk.Msg                            = &MsgCreateValidator{}
-	_ sdk.Msg                            = &MsgEditValidator{}
-	_ sdk.Msg                            = &MsgDelegate{}
-	_ sdk.Msg                            = &MsgUndelegate{}
-	_ sdk.Msg                            = &MsgBeginRedelegate{}
+	_ seitypes.Msg                       = &MsgCreateValidator{}
+	_ seitypes.Msg                       = &MsgEditValidator{}
+	_ seitypes.Msg                       = &MsgDelegate{}
+	_ seitypes.Msg                       = &MsgUndelegate{}
+	_ seitypes.Msg                       = &MsgBeginRedelegate{}
 )
 
 // NewMsgCreateValidator creates a new MsgCreateValidator instance.
 // Delegator address and validator address are the same.
 func NewMsgCreateValidator(
-	valAddr sdk.ValAddress, pubKey cryptotypes.PubKey, //nolint:interfacer
+	valAddr seitypes.ValAddress, pubKey cryptotypes.PubKey, //nolint:interfacer
 	selfDelegation sdk.Coin, description Description, commission CommissionRates, minSelfDelegation sdk.Int,
 ) (*MsgCreateValidator, error) {
 	var pkAny *codectypes.Any
@@ -43,7 +44,7 @@ func NewMsgCreateValidator(
 	}
 	return &MsgCreateValidator{
 		Description:       description,
-		DelegatorAddress:  sdk.AccAddress(valAddr).String(),
+		DelegatorAddress:  seitypes.AccAddress(valAddr).String(),
 		ValidatorAddress:  valAddr.String(),
 		Pubkey:            pkAny,
 		Value:             selfDelegation,
@@ -52,29 +53,29 @@ func NewMsgCreateValidator(
 	}, nil
 }
 
-// Route implements the sdk.Msg interface.
+// Route implements the seitypes.Msg interface.
 func (msg MsgCreateValidator) Route() string { return RouterKey }
 
-// Type implements the sdk.Msg interface.
+// Type implements the seitypes.Msg interface.
 func (msg MsgCreateValidator) Type() string { return TypeMsgCreateValidator }
 
-// GetSigners implements the sdk.Msg interface. It returns the address(es) that
+// GetSigners implements the seitypes.Msg interface. It returns the address(es) that
 // must sign over msg.GetSignBytes().
 // If the validator address is not same as delegator's, then the validator must
 // sign the msg as well.
-func (msg MsgCreateValidator) GetSigners() []sdk.AccAddress {
+func (msg MsgCreateValidator) GetSigners() []seitypes.AccAddress {
 	// delegator is first signer so delegator pays fees
-	delAddr, err := sdk.AccAddressFromBech32(msg.DelegatorAddress)
+	delAddr, err := seitypes.AccAddressFromBech32(msg.DelegatorAddress)
 	if err != nil {
 		panic(err)
 	}
-	addrs := []sdk.AccAddress{delAddr}
-	addr, err := sdk.ValAddressFromBech32(msg.ValidatorAddress)
+	addrs := []seitypes.AccAddress{delAddr}
+	addr, err := seitypes.ValAddressFromBech32(msg.ValidatorAddress)
 	if err != nil {
 		panic(err)
 	}
 	if !bytes.Equal(delAddr.Bytes(), addr.Bytes()) {
-		addrs = append(addrs, sdk.AccAddress(addr))
+		addrs = append(addrs, seitypes.AccAddress(addr))
 	}
 
 	return addrs
@@ -86,10 +87,10 @@ func (msg MsgCreateValidator) GetSignBytes() []byte {
 	return sdk.MustSortJSON(bz)
 }
 
-// ValidateBasic implements the sdk.Msg interface.
+// ValidateBasic implements the seitypes.Msg interface.
 func (msg MsgCreateValidator) ValidateBasic() error {
 	// note that unmarshaling from bech32 ensures either empty or valid
-	delAddr, err := sdk.AccAddressFromBech32(msg.DelegatorAddress)
+	delAddr, err := seitypes.AccAddressFromBech32(msg.DelegatorAddress)
 	if err != nil {
 		return err
 	}
@@ -101,11 +102,11 @@ func (msg MsgCreateValidator) ValidateBasic() error {
 		return ErrEmptyValidatorAddr
 	}
 
-	valAddr, err := sdk.ValAddressFromBech32(msg.ValidatorAddress)
+	valAddr, err := seitypes.ValAddressFromBech32(msg.ValidatorAddress)
 	if err != nil {
 		return err
 	}
-	if !sdk.AccAddress(valAddr).Equals(delAddr) {
+	if !seitypes.AccAddress(valAddr).Equals(delAddr) {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "validator address is invalid")
 	}
 
@@ -152,7 +153,7 @@ func (msg MsgCreateValidator) UnpackInterfaces(unpacker codectypes.AnyUnpacker) 
 // NewMsgEditValidator creates a new MsgEditValidator instance
 //
 //nolint:interfacer
-func NewMsgEditValidator(valAddr sdk.ValAddress, description Description, newRate *sdk.Dec, newMinSelfDelegation *sdk.Int) *MsgEditValidator {
+func NewMsgEditValidator(valAddr seitypes.ValAddress, description Description, newRate *sdk.Dec, newMinSelfDelegation *sdk.Int) *MsgEditValidator {
 	return &MsgEditValidator{
 		Description:       description,
 		CommissionRate:    newRate,
@@ -161,28 +162,28 @@ func NewMsgEditValidator(valAddr sdk.ValAddress, description Description, newRat
 	}
 }
 
-// Route implements the sdk.Msg interface.
+// Route implements the seitypes.Msg interface.
 func (msg MsgEditValidator) Route() string { return RouterKey }
 
-// Type implements the sdk.Msg interface.
+// Type implements the seitypes.Msg interface.
 func (msg MsgEditValidator) Type() string { return TypeMsgEditValidator }
 
-// GetSigners implements the sdk.Msg interface.
-func (msg MsgEditValidator) GetSigners() []sdk.AccAddress {
-	valAddr, err := sdk.ValAddressFromBech32(msg.ValidatorAddress)
+// GetSigners implements the seitypes.Msg interface.
+func (msg MsgEditValidator) GetSigners() []seitypes.AccAddress {
+	valAddr, err := seitypes.ValAddressFromBech32(msg.ValidatorAddress)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{valAddr.Bytes()}
+	return []seitypes.AccAddress{valAddr.Bytes()}
 }
 
-// GetSignBytes implements the sdk.Msg interface.
+// GetSignBytes implements the seitypes.Msg interface.
 func (msg MsgEditValidator) GetSignBytes() []byte {
 	bz := ModuleCdc.MustMarshalJSON(&msg)
 	return sdk.MustSortJSON(bz)
 }
 
-// ValidateBasic implements the sdk.Msg interface.
+// ValidateBasic implements the seitypes.Msg interface.
 func (msg MsgEditValidator) ValidateBasic() error {
 	if msg.ValidatorAddress == "" {
 		return ErrEmptyValidatorAddr
@@ -211,7 +212,7 @@ func (msg MsgEditValidator) ValidateBasic() error {
 // NewMsgDelegate creates a new MsgDelegate instance.
 //
 //nolint:interfacer
-func NewMsgDelegate(delAddr sdk.AccAddress, valAddr sdk.ValAddress, amount sdk.Coin) *MsgDelegate {
+func NewMsgDelegate(delAddr seitypes.AccAddress, valAddr seitypes.ValAddress, amount sdk.Coin) *MsgDelegate {
 	return &MsgDelegate{
 		DelegatorAddress: delAddr.String(),
 		ValidatorAddress: valAddr.String(),
@@ -219,28 +220,28 @@ func NewMsgDelegate(delAddr sdk.AccAddress, valAddr sdk.ValAddress, amount sdk.C
 	}
 }
 
-// Route implements the sdk.Msg interface.
+// Route implements the seitypes.Msg interface.
 func (msg MsgDelegate) Route() string { return RouterKey }
 
-// Type implements the sdk.Msg interface.
+// Type implements the seitypes.Msg interface.
 func (msg MsgDelegate) Type() string { return TypeMsgDelegate }
 
-// GetSigners implements the sdk.Msg interface.
-func (msg MsgDelegate) GetSigners() []sdk.AccAddress {
-	delAddr, err := sdk.AccAddressFromBech32(msg.DelegatorAddress)
+// GetSigners implements the seitypes.Msg interface.
+func (msg MsgDelegate) GetSigners() []seitypes.AccAddress {
+	delAddr, err := seitypes.AccAddressFromBech32(msg.DelegatorAddress)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{delAddr}
+	return []seitypes.AccAddress{delAddr}
 }
 
-// GetSignBytes implements the sdk.Msg interface.
+// GetSignBytes implements the seitypes.Msg interface.
 func (msg MsgDelegate) GetSignBytes() []byte {
 	bz := ModuleCdc.MustMarshalJSON(&msg)
 	return sdk.MustSortJSON(bz)
 }
 
-// ValidateBasic implements the sdk.Msg interface.
+// ValidateBasic implements the seitypes.Msg interface.
 func (msg MsgDelegate) ValidateBasic() error {
 	if msg.DelegatorAddress == "" {
 		return ErrEmptyDelegatorAddr
@@ -264,7 +265,7 @@ func (msg MsgDelegate) ValidateBasic() error {
 //
 //nolint:interfacer
 func NewMsgBeginRedelegate(
-	delAddr sdk.AccAddress, valSrcAddr, valDstAddr sdk.ValAddress, amount sdk.Coin,
+	delAddr seitypes.AccAddress, valSrcAddr, valDstAddr seitypes.ValAddress, amount sdk.Coin,
 ) *MsgBeginRedelegate {
 	return &MsgBeginRedelegate{
 		DelegatorAddress:    delAddr.String(),
@@ -274,28 +275,28 @@ func NewMsgBeginRedelegate(
 	}
 }
 
-// Route implements the sdk.Msg interface.
+// Route implements the seitypes.Msg interface.
 func (msg MsgBeginRedelegate) Route() string { return RouterKey }
 
-// Type implements the sdk.Msg interface
+// Type implements the seitypes.Msg interface
 func (msg MsgBeginRedelegate) Type() string { return TypeMsgBeginRedelegate }
 
-// GetSigners implements the sdk.Msg interface
-func (msg MsgBeginRedelegate) GetSigners() []sdk.AccAddress {
-	delAddr, err := sdk.AccAddressFromBech32(msg.DelegatorAddress)
+// GetSigners implements the seitypes.Msg interface
+func (msg MsgBeginRedelegate) GetSigners() []seitypes.AccAddress {
+	delAddr, err := seitypes.AccAddressFromBech32(msg.DelegatorAddress)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{delAddr}
+	return []seitypes.AccAddress{delAddr}
 }
 
-// GetSignBytes implements the sdk.Msg interface.
+// GetSignBytes implements the seitypes.Msg interface.
 func (msg MsgBeginRedelegate) GetSignBytes() []byte {
 	bz := ModuleCdc.MustMarshalJSON(&msg)
 	return sdk.MustSortJSON(bz)
 }
 
-// ValidateBasic implements the sdk.Msg interface.
+// ValidateBasic implements the seitypes.Msg interface.
 func (msg MsgBeginRedelegate) ValidateBasic() error {
 	if msg.DelegatorAddress == "" {
 		return ErrEmptyDelegatorAddr
@@ -322,7 +323,7 @@ func (msg MsgBeginRedelegate) ValidateBasic() error {
 // NewMsgUndelegate creates a new MsgUndelegate instance.
 //
 //nolint:interfacer
-func NewMsgUndelegate(delAddr sdk.AccAddress, valAddr sdk.ValAddress, amount sdk.Coin) *MsgUndelegate {
+func NewMsgUndelegate(delAddr seitypes.AccAddress, valAddr seitypes.ValAddress, amount sdk.Coin) *MsgUndelegate {
 	return &MsgUndelegate{
 		DelegatorAddress: delAddr.String(),
 		ValidatorAddress: valAddr.String(),
@@ -330,28 +331,28 @@ func NewMsgUndelegate(delAddr sdk.AccAddress, valAddr sdk.ValAddress, amount sdk
 	}
 }
 
-// Route implements the sdk.Msg interface.
+// Route implements the seitypes.Msg interface.
 func (msg MsgUndelegate) Route() string { return RouterKey }
 
-// Type implements the sdk.Msg interface.
+// Type implements the seitypes.Msg interface.
 func (msg MsgUndelegate) Type() string { return TypeMsgUndelegate }
 
-// GetSigners implements the sdk.Msg interface.
-func (msg MsgUndelegate) GetSigners() []sdk.AccAddress {
-	delAddr, err := sdk.AccAddressFromBech32(msg.DelegatorAddress)
+// GetSigners implements the seitypes.Msg interface.
+func (msg MsgUndelegate) GetSigners() []seitypes.AccAddress {
+	delAddr, err := seitypes.AccAddressFromBech32(msg.DelegatorAddress)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{delAddr}
+	return []seitypes.AccAddress{delAddr}
 }
 
-// GetSignBytes implements the sdk.Msg interface.
+// GetSignBytes implements the seitypes.Msg interface.
 func (msg MsgUndelegate) GetSignBytes() []byte {
 	bz := ModuleCdc.MustMarshalJSON(&msg)
 	return sdk.MustSortJSON(bz)
 }
 
-// ValidateBasic implements the sdk.Msg interface.
+// ValidateBasic implements the seitypes.Msg interface.
 func (msg MsgUndelegate) ValidateBasic() error {
 	if msg.DelegatorAddress == "" {
 		return ErrEmptyDelegatorAddr

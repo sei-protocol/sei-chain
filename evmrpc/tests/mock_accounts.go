@@ -36,7 +36,7 @@ func signTxWithMnemonic(txData ethtypes.TxData, mnemonic string) *ethtypes.Trans
 	return tx
 }
 
-func signCosmosTxWithMnemonic(msg sdk.Msg, mnemonic string, accountNumber uint64, sequenceNumber uint64) sdk.Tx {
+func signCosmosTxWithMnemonic(msg seitypes.Msg, mnemonic string, accountNumber uint64, sequenceNumber uint64) seitypes.Tx {
 	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
 	privKey := hd.Secp256k1.Generate()(derivedPriv)
 	txBuilder := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
@@ -80,7 +80,7 @@ func getAddrWithMnemonic(mnemonic string) common.Address {
 	return evmAddr
 }
 
-func getSeiAddrWithMnemonic(mnemonic string) sdk.AccAddress {
+func getSeiAddrWithMnemonic(mnemonic string) seitypes.AccAddress {
 	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
 	privKey := hd.Secp256k1.Generate()(derivedPriv)
 	seiAddr, _ := testkeeper.PrivateKeyToAddresses(privKey)
@@ -96,7 +96,7 @@ func mnemonicInitializer(mnemonic string) func(ctx sdk.Context, a *app.App) {
 	}
 }
 
-func fundSeiAddr(ctx sdk.Context, a *app.App, addr sdk.AccAddress) {
+func fundSeiAddr(ctx sdk.Context, a *app.App, addr seitypes.AccAddress) {
 	amt := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000)))
 	_ = a.BankKeeper.MintCoins(ctx, types.ModuleName, amt)
 	_ = a.BankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, addr, amt)

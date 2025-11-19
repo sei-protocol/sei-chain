@@ -9,7 +9,7 @@ import (
 )
 
 // GetDeposit gets the deposit of a specific depositor on a specific proposal
-func (keeper Keeper) GetDeposit(ctx sdk.Context, proposalID uint64, depositorAddr sdk.AccAddress) (deposit types.Deposit, found bool) {
+func (keeper Keeper) GetDeposit(ctx sdk.Context, proposalID uint64, depositorAddr seitypes.AccAddress) (deposit types.Deposit, found bool) {
 	store := ctx.KVStore(keeper.storeKey)
 	bz := store.Get(types.DepositKey(proposalID, depositorAddr))
 	if bz == nil {
@@ -25,7 +25,7 @@ func (keeper Keeper) GetDeposit(ctx sdk.Context, proposalID uint64, depositorAdd
 func (keeper Keeper) SetDeposit(ctx sdk.Context, deposit types.Deposit) {
 	store := ctx.KVStore(keeper.storeKey)
 	bz := keeper.cdc.MustMarshal(&deposit)
-	depositor := sdk.MustAccAddressFromBech32(deposit.Depositor)
+	depositor := seitypes.MustAccAddressFromBech32(deposit.Depositor)
 
 	store.Set(types.DepositKey(deposit.ProposalId, depositor), bz)
 }
@@ -60,7 +60,7 @@ func (keeper Keeper) DeleteDeposits(ctx sdk.Context, proposalID uint64) {
 			panic(err)
 		}
 
-		depositor := sdk.MustAccAddressFromBech32(deposit.Depositor)
+		depositor := seitypes.MustAccAddressFromBech32(deposit.Depositor)
 
 		store.Delete(types.DepositKey(proposalID, depositor))
 		return false
@@ -105,7 +105,7 @@ func (keeper Keeper) IterateDeposits(ctx sdk.Context, proposalID uint64, cb func
 
 // AddDeposit adds or updates a deposit of a specific depositor on a specific proposal
 // Activates voting period when appropriate
-func (keeper Keeper) AddDeposit(ctx sdk.Context, proposalID uint64, depositorAddr sdk.AccAddress, depositAmount sdk.Coins) (bool, error) {
+func (keeper Keeper) AddDeposit(ctx sdk.Context, proposalID uint64, depositorAddr seitypes.AccAddress, depositAmount sdk.Coins) (bool, error) {
 	// Checks to see if proposal exists
 	proposal, ok := keeper.GetProposal(ctx, proposalID)
 	if !ok {
@@ -166,7 +166,7 @@ func (keeper Keeper) RefundDeposits(ctx sdk.Context, proposalID uint64) {
 	store := ctx.KVStore(keeper.storeKey)
 
 	keeper.IterateDeposits(ctx, proposalID, func(deposit types.Deposit) bool {
-		depositor := sdk.MustAccAddressFromBech32(deposit.Depositor)
+		depositor := seitypes.MustAccAddressFromBech32(deposit.Depositor)
 
 		err := keeper.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, depositor, deposit.Amount)
 		if err != nil {

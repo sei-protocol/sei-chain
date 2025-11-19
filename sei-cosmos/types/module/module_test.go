@@ -149,7 +149,7 @@ func TestManager_RegisterRoutes(t *testing.T) {
 	require.Equal(t, 2, len(mm.Modules))
 
 	router := mocks.NewMockRouter(mockCtrl)
-	noopHandler := sdk.Handler(func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) { return nil, nil })
+	noopHandler := sdk.Handler(func(ctx sdk.Context, msg seitypes.Msg) (*sdk.Result, error) { return nil, nil })
 	route1 := sdk.NewRoute("route1", noopHandler)
 	route2 := sdk.NewRoute("", noopHandler)
 	mockAppModule1.EXPECT().Route().Times(1).Return(route1)

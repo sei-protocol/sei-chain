@@ -21,7 +21,7 @@ func TestBech32KeysOutput(t *testing.T) {
 
 	info, err := NewMultiInfo("multisig", multisigPk)
 	require.NoError(t, err)
-	accAddr := sdk.AccAddress(info.GetPubKey().Address())
+	accAddr := seitypes.AccAddress(info.GetPubKey().Address())
 	expectedOutput, err := NewKeyOutput(info.GetName(), info.GetType(), accAddr, multisigPk)
 	require.NoError(t, err)
 
@@ -38,7 +38,7 @@ func TestMkAccKeyOutputForSr25519(t *testing.T) {
 
 	info, err := NewMultiInfo("multisig", multisigPk)
 	require.NoError(t, err)
-	accAddr := sdk.AccAddress(info.GetPubKey().Address())
+	accAddr := seitypes.AccAddress(info.GetPubKey().Address())
 	expectedOutput, err := NewKeyOutput(info.GetName(), info.GetType(), accAddr, multisigPk)
 	require.NoError(t, err)
 

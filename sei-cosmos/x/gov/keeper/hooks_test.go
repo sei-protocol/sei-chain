@@ -29,11 +29,11 @@ func (h *MockGovHooksReceiver) AfterProposalSubmission(ctx sdk.Context, proposal
 	h.AfterProposalSubmissionValid = true
 }
 
-func (h *MockGovHooksReceiver) AfterProposalDeposit(ctx sdk.Context, proposalID uint64, depositorAddr sdk.AccAddress) {
+func (h *MockGovHooksReceiver) AfterProposalDeposit(ctx sdk.Context, proposalID uint64, depositorAddr seitypes.AccAddress) {
 	h.AfterProposalDepositValid = true
 }
 
-func (h *MockGovHooksReceiver) AfterProposalVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.AccAddress) {
+func (h *MockGovHooksReceiver) AfterProposalVote(ctx sdk.Context, proposalID uint64, voterAddr seitypes.AccAddress) {
 	h.AfterProposalVoteValid = true
 }
 func (h *MockGovHooksReceiver) AfterProposalFailedMinDeposit(ctx sdk.Context, proposalID uint64) {

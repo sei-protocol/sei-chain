@@ -11,7 +11,7 @@ import (
 // QueryDelegationRewards queries a delegation rewards between a delegator and a
 // validator.
 func QueryDelegationRewards(clientCtx client.Context, delAddr, valAddr string) ([]byte, int64, error) {
-	delegatorAddr, err := sdk.AccAddressFromBech32(delAddr)
+	delegatorAddr, err := seitypes.AccAddressFromBech32(delAddr)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -33,7 +33,7 @@ func QueryDelegationRewards(clientCtx client.Context, delAddr, valAddr string) (
 
 // QueryDelegatorValidators returns delegator's list of validators
 // it submitted delegations to.
-func QueryDelegatorValidators(clientCtx client.Context, delegatorAddr sdk.AccAddress) ([]byte, error) {
+func QueryDelegatorValidators(clientCtx client.Context, delegatorAddr seitypes.AccAddress) ([]byte, error) {
 	res, _, err := clientCtx.QueryWithData(
 		fmt.Sprintf("custom/%s/%s", types.QuerierRoute, types.QueryDelegatorValidators),
 		clientCtx.LegacyAmino.MustMarshalJSON(types.NewQueryDelegatorParams(delegatorAddr)),
@@ -42,7 +42,7 @@ func QueryDelegatorValidators(clientCtx client.Context, delegatorAddr sdk.AccAdd
 }
 
 // QueryValidatorCommission returns a validator's commission.
-func QueryValidatorCommission(clientCtx client.Context, validatorAddr sdk.ValAddress) ([]byte, error) {
+func QueryValidatorCommission(clientCtx client.Context, validatorAddr seitypes.ValAddress) ([]byte, error) {
 	res, _, err := clientCtx.QueryWithData(
 		fmt.Sprintf("custom/%s/%s", types.QuerierRoute, types.QueryValidatorCommission),
 		clientCtx.LegacyAmino.MustMarshalJSON(types.NewQueryValidatorCommissionParams(validatorAddr)),
@@ -52,7 +52,7 @@ func QueryValidatorCommission(clientCtx client.Context, validatorAddr sdk.ValAdd
 
 // WithdrawAllDelegatorRewards builds a multi-message slice to be used
 // to withdraw all delegations rewards for the given delegator.
-func WithdrawAllDelegatorRewards(clientCtx client.Context, delegatorAddr sdk.AccAddress) ([]sdk.Msg, error) {
+func WithdrawAllDelegatorRewards(clientCtx client.Context, delegatorAddr seitypes.AccAddress) ([]seitypes.Msg, error) {
 	// retrieve the comprehensive list of all validators which the
 	// delegator had submitted delegations to
 	bz, err := QueryDelegatorValidators(clientCtx, delegatorAddr)
@@ -60,13 +60,13 @@ func WithdrawAllDelegatorRewards(clientCtx client.Context, delegatorAddr sdk.Acc
 		return nil, err
 	}
 
-	var validators []sdk.ValAddress
+	var validators []seitypes.ValAddress
 	if err := clientCtx.LegacyAmino.UnmarshalJSON(bz, &validators); err != nil {
 		return nil, err
 	}
 
 	// build multi-message transaction
-	msgs := make([]sdk.Msg, 0, len(validators))
+	msgs := make([]seitypes.Msg, 0, len(validators))
 	for _, valAddr := range validators {
 		msg := types.NewMsgWithdrawDelegatorReward(delegatorAddr, valAddr)
 		if err := msg.ValidateBasic(); err != nil {
@@ -80,17 +80,17 @@ func WithdrawAllDelegatorRewards(clientCtx client.Context, delegatorAddr sdk.Acc
 
 // WithdrawValidatorRewardsAndCommission builds a two-message message slice to be
 // used to withdraw both validation's commission and self-delegation reward.
-func WithdrawValidatorRewardsAndCommission(validatorAddr sdk.ValAddress) ([]sdk.Msg, error) {
+func WithdrawValidatorRewardsAndCommission(validatorAddr seitypes.ValAddress) ([]seitypes.Msg, error) {
 	commissionMsg := types.NewMsgWithdrawValidatorCommission(validatorAddr)
 	if err := commissionMsg.ValidateBasic(); err != nil {
 		return nil, err
 	}
 
 	// build and validate MsgWithdrawDelegatorReward
-	rewardMsg := types.NewMsgWithdrawDelegatorReward(sdk.AccAddress(validatorAddr.Bytes()), validatorAddr)
+	rewardMsg := types.NewMsgWithdrawDelegatorReward(seitypes.AccAddress(validatorAddr.Bytes()), validatorAddr)
 	if err := rewardMsg.ValidateBasic(); err != nil {
 		return nil, err
 	}
 
-	return []sdk.Msg{commissionMsg, rewardMsg}, nil
+	return []seitypes.Msg{commissionMsg, rewardMsg}, nil
 }

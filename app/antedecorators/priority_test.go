@@ -47,7 +47,7 @@ func TestPriorityAnteDecoratorTooHighPriority(t *testing.T) {
 	newCtx, err := chainedHandler(
 		ctx.WithPriority(math.MaxInt64-50),
 		FakeTx{
-			FakeMsgs: []sdk.Msg{
+			FakeMsgs: []seitypes.Msg{
 				&oracletypes.MsgDelegateFeedConsent{},
 			},
 		},
@@ -68,7 +68,7 @@ func TestPriorityAnteDecoratorOracleMsg(t *testing.T) {
 	newCtx, err := chainedHandler(
 		ctx.WithPriority(0),
 		FakeTx{
-			FakeMsgs: []sdk.Msg{
+			FakeMsgs: []seitypes.Msg{
 				&oracletypes.MsgAggregateExchangeRateVote{},
 			},
 		},
@@ -81,7 +81,7 @@ func TestPriorityAnteDecoratorOracleMsg(t *testing.T) {
 // PriorityCaptureDecorator captures ctx.Priority seen by the next decorator in the chain
 type PriorityCaptureDecorator struct{ captured *int64 }
 
-func (d PriorityCaptureDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (d PriorityCaptureDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	if d.captured != nil {
 		*d.captured = ctx.Priority()
 	}
@@ -116,8 +116,8 @@ func TestPriorityWithExactAnteChain_BankSend(t *testing.T) {
 	}
 	handler := sdk.ChainAnteDecorators(decorators...)
 
-	from, _ := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
-	to, _ := sdk.AccAddressFromBech32("sei1jdppe6fnj2q7hjsepty5crxtrryzhuqsjrj95y")
+	from, _ := seitypes.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	to, _ := seitypes.AccAddressFromBech32("sei1jdppe6fnj2q7hjsepty5crxtrryzhuqsjrj95y")
 	msg := &banktypes.MsgSend{FromAddress: from.String(), ToAddress: to.String(), Amount: sdk.NewCoins(sdk.NewInt64Coin("usei", 1))}
 
 	// fund the sender to cover fees
@@ -150,7 +150,7 @@ func TestPriorityWithExactAnteChain_BankSend(t *testing.T) {
 // PriorityCaptureDecorator captures ctx.Priority seen by the next decorator in the chain
 type PrioritySetterDecorator struct{ priority int64 }
 
-func (d PrioritySetterDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (d PrioritySetterDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	newCtx := ctx.WithPriority(d.priority)
 	return next(newCtx, tx, simulate)
 }
@@ -186,8 +186,8 @@ func TestPrioritySetterWithAnteHandlers(t *testing.T) {
 	}
 	handler := sdk.ChainAnteDecorators(decorators...)
 
-	from, _ := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
-	to, _ := sdk.AccAddressFromBech32("sei1jdppe6fnj2q7hjsepty5crxtrryzhuqsjrj95y")
+	from, _ := seitypes.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	to, _ := seitypes.AccAddressFromBech32("sei1jdppe6fnj2q7hjsepty5crxtrryzhuqsjrj95y")
 	msg := &banktypes.MsgSend{FromAddress: from.String(), ToAddress: to.String(), Amount: sdk.NewCoins(sdk.NewInt64Coin("usei", 1))}
 
 	// fund the sender to cover fees

@@ -224,15 +224,15 @@ func TestStakingError(t *testing.T) {
 	require.NotEmpty(t, res.VmError)
 }
 
-func setupValidator(t *testing.T, ctx sdk.Context, a *app.App, bondStatus stakingtypes.BondStatus, valPub crptotypes.PubKey) sdk.ValAddress {
-	valAddr := sdk.ValAddress(valPub.Address())
+func setupValidator(t *testing.T, ctx sdk.Context, a *app.App, bondStatus stakingtypes.BondStatus, valPub crptotypes.PubKey) seitypes.ValAddress {
+	valAddr := seitypes.ValAddress(valPub.Address())
 	bondDenom := a.StakingKeeper.GetParams(ctx).BondDenom
 	selfBond := sdk.NewCoins(sdk.Coin{Amount: sdk.NewInt(100), Denom: bondDenom})
 
 	err := a.BankKeeper.MintCoins(ctx, minttypes.ModuleName, selfBond)
 	require.NoError(t, err)
 
-	err = a.BankKeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, sdk.AccAddress(valAddr), selfBond)
+	err = a.BankKeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, seitypes.AccAddress(valAddr), selfBond)
 	require.NoError(t, err)
 
 	sh := teststaking.NewHelper(t, ctx, a.StakingKeeper)
@@ -696,7 +696,7 @@ func TestCreateValidator(t *testing.T) {
 				require.Empty(t, res.VmError, "Unexpected error: %s", res.VmError)
 				// Additional validation for successful cases
 				seiAddr, _ := testkeeper.PrivateKeyToAddresses(setup.testPrivKey)
-				valAddr := sdk.ValAddress(seiAddr)
+				valAddr := seitypes.ValAddress(seiAddr)
 				validator, found := setup.testApp.StakingKeeper.GetValidator(setup.ctx, valAddr)
 				require.True(t, found, "Validator should be created")
 				require.Equal(t, tt.args.moniker, validator.Description.Moniker)
@@ -876,7 +876,7 @@ func TestEditValidator(t *testing.T) {
 	require.Empty(t, createRes.VmError, "Validator creation should succeed: %s", createRes.VmError)
 
 	// Verify validator was created
-	valAddr := sdk.ValAddress(seiAddr)
+	valAddr := seitypes.ValAddress(seiAddr)
 	validator, found := testApp.StakingKeeper.GetValidator(ctx, valAddr)
 	require.True(t, found, "Validator should exist after creation")
 	require.Equal(t, "original-validator", validator.Description.Moniker)

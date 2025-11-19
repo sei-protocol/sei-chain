@@ -624,7 +624,7 @@ func parseAccessConfig(config string) (types.AccessConfig, error) {
 	case "everybody":
 		return types.AllowEverybody, nil
 	default:
-		address, err := sdk.AccAddressFromBech32(config)
+		address, err := seitypes.AccAddressFromBech32(config)
 		if err != nil {
 			return types.AccessConfig{}, fmt.Errorf("unable to parse address %s", config)
 		}
@@ -660,7 +660,7 @@ func parseAccessConfigUpdates(args []string) ([]types.AccessConfigUpdate, error)
 }
 
 func ProposalUpdateInstantiateConfigCmd() *cobra.Command {
-	bech32Prefix := sdk.GetConfig().GetBech32AccountAddrPrefix()
+	bech32Prefix := seitypes.GetConfig().GetBech32AccountAddrPrefix()
 	cmd := &cobra.Command{
 		Use:   "update-instantiate-config [code-id,permission]...",
 		Short: "Submit an update instantiate config proposal.",

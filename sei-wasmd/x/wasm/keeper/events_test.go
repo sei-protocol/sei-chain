@@ -276,7 +276,7 @@ func TestNewWasmModuleEvent(t *testing.T) {
 }
 
 // returns true when a wasm module event was emitted for this contract already
-func hasWasmModuleEvent(ctx sdk.Context, contractAddr sdk.AccAddress) bool {
+func hasWasmModuleEvent(ctx sdk.Context, contractAddr seitypes.AccAddress) bool {
 	for _, e := range ctx.EventManager().Events() {
 		if e.Type == types.WasmModuleEventType {
 			for _, a := range e.Attributes {

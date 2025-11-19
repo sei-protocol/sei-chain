@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	bip39 "github.com/cosmos/go-bip39"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -17,7 +18,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 const (
@@ -73,7 +73,7 @@ Example:
 	f.Bool(flagNoBackup, false, "Don't print out seed phrase (if others are watching the terminal)")
 	f.Bool(flags.FlagDryRun, false, "Perform action, but don't add key to local keystore")
 	f.String(flagHDPath, "", "Manual HD Path derivation (overrides BIP44 config)")
-	f.Uint32(flagCoinType, sdk.GetConfig().GetCoinType(), "coin type number for HD derivation")
+	f.Uint32(flagCoinType, seitypes.GetConfig().GetCoinType(), "coin type number for HD derivation")
 	f.Uint32(flagAccount, 0, "Account number for HD derivation")
 	f.Uint32(flagIndex, 0, "Address index number for HD derivation")
 	f.String(flags.FlagKeyAlgorithm, string(hd.Secp256k1Type), "Key signing algorithm to generate keys for")
@@ -203,7 +203,7 @@ func runAddCmd(ctx client.Context, cmd *cobra.Command, args []string, inBuf *buf
 
 	// If we're using ledger, only thing we need is the path and the bech32 prefix.
 	if useLedger {
-		bech32PrefixAccAddr := sdk.GetConfig().GetBech32AccountAddrPrefix()
+		bech32PrefixAccAddr := seitypes.GetConfig().GetBech32AccountAddrPrefix()
 
 		info, err := kb.SaveLedgerKey(name, algo, bech32PrefixAccAddr, coinType, account, index)
 		if err != nil {

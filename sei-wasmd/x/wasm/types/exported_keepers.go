@@ -8,14 +8,14 @@ import (
 
 // ViewKeeper provides read only operations
 type ViewKeeper interface {
-	GetContractHistory(ctx sdk.Context, contractAddr sdk.AccAddress) []ContractCodeHistoryEntry
-	QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error)
-	QueryRaw(ctx sdk.Context, contractAddress sdk.AccAddress, key []byte) []byte
-	HasContractInfo(ctx sdk.Context, contractAddress sdk.AccAddress) bool
-	GetContractInfo(ctx sdk.Context, contractAddress sdk.AccAddress) *ContractInfo
-	IterateContractInfo(ctx sdk.Context, cb func(sdk.AccAddress, ContractInfo) bool)
-	IterateContractsByCode(ctx sdk.Context, codeID uint64, cb func(address sdk.AccAddress) bool)
-	IterateContractState(ctx sdk.Context, contractAddress sdk.AccAddress, cb func(key, value []byte) bool)
+	GetContractHistory(ctx sdk.Context, contractAddr seitypes.AccAddress) []ContractCodeHistoryEntry
+	QuerySmart(ctx sdk.Context, contractAddr seitypes.AccAddress, req []byte) ([]byte, error)
+	QueryRaw(ctx sdk.Context, contractAddress seitypes.AccAddress, key []byte) []byte
+	HasContractInfo(ctx sdk.Context, contractAddress seitypes.AccAddress) bool
+	GetContractInfo(ctx sdk.Context, contractAddress seitypes.AccAddress) *ContractInfo
+	IterateContractInfo(ctx sdk.Context, cb func(seitypes.AccAddress, ContractInfo) bool)
+	IterateContractsByCode(ctx sdk.Context, codeID uint64, cb func(address seitypes.AccAddress) bool)
+	IterateContractState(ctx sdk.Context, contractAddress seitypes.AccAddress, cb func(key, value []byte) bool)
 	GetCodeInfo(ctx sdk.Context, codeID uint64) *CodeInfo
 	IterateCodeInfos(ctx sdk.Context, cb func(uint64, CodeInfo) bool)
 	GetByteCode(ctx sdk.Context, codeID uint64) ([]byte, error)
@@ -25,25 +25,25 @@ type ViewKeeper interface {
 // ContractOpsKeeper contains mutable operations on a contract.
 type ContractOpsKeeper interface {
 	// Create uploads and compiles a WASM contract, returning a short identifier for the contract
-	Create(ctx sdk.Context, creator sdk.AccAddress, wasmCode []byte, instantiateAccess *AccessConfig) (codeID uint64, err error)
+	Create(ctx sdk.Context, creator seitypes.AccAddress, wasmCode []byte, instantiateAccess *AccessConfig) (codeID uint64, err error)
 
 	// Instantiate creates an instance of a WASM contract
-	Instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.AccAddress, initMsg []byte, label string, deposit sdk.Coins) (sdk.AccAddress, []byte, error)
+	Instantiate(ctx sdk.Context, codeID uint64, creator, admin seitypes.AccAddress, initMsg []byte, label string, deposit sdk.Coins) (seitypes.AccAddress, []byte, error)
 
 	// Execute executes the contract instance
-	Execute(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, msg []byte, coins sdk.Coins) ([]byte, error)
+	Execute(ctx sdk.Context, contractAddress seitypes.AccAddress, caller seitypes.AccAddress, msg []byte, coins sdk.Coins) ([]byte, error)
 
 	// Migrate allows to upgrade a contract to a new code with data migration.
-	Migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, newCodeID uint64, msg []byte) ([]byte, error)
+	Migrate(ctx sdk.Context, contractAddress seitypes.AccAddress, caller seitypes.AccAddress, newCodeID uint64, msg []byte) ([]byte, error)
 
 	// Sudo allows to call privileged entry point of a contract.
-	Sudo(ctx sdk.Context, contractAddress sdk.AccAddress, msg []byte) ([]byte, error)
+	Sudo(ctx sdk.Context, contractAddress seitypes.AccAddress, msg []byte) ([]byte, error)
 
 	// UpdateContractAdmin sets the admin value on the ContractInfo. It must be a valid address (use ClearContractAdmin to remove it)
-	UpdateContractAdmin(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, newAdmin sdk.AccAddress) error
+	UpdateContractAdmin(ctx sdk.Context, contractAddress seitypes.AccAddress, caller seitypes.AccAddress, newAdmin seitypes.AccAddress) error
 
 	// ClearContractAdmin sets the admin value on the ContractInfo to nil, to disable further migrations/ updates.
-	ClearContractAdmin(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress) error
+	ClearContractAdmin(ctx sdk.Context, contractAddress seitypes.AccAddress, caller seitypes.AccAddress) error
 
 	// PinCode pins the wasm contract in wasmvm cache
 	PinCode(ctx sdk.Context, codeID uint64) error
@@ -52,7 +52,7 @@ type ContractOpsKeeper interface {
 	UnpinCode(ctx sdk.Context, codeID uint64) error
 
 	// SetContractInfoExtension updates the extension point data that is stored with the contract info
-	SetContractInfoExtension(ctx sdk.Context, contract sdk.AccAddress, extra ContractInfoExtension) error
+	SetContractInfoExtension(ctx sdk.Context, contract seitypes.AccAddress, extra ContractInfoExtension) error
 
 	// SetAccessConfig updates the access config of a code id.
 	SetAccessConfig(ctx sdk.Context, codeID uint64, config AccessConfig) error
@@ -62,32 +62,32 @@ type ContractOpsKeeper interface {
 type IBCContractKeeper interface {
 	OnOpenChannel(
 		ctx sdk.Context,
-		contractAddr sdk.AccAddress,
+		contractAddr seitypes.AccAddress,
 		msg wasmvmtypes.IBCChannelOpenMsg,
 	) (string, error)
 	OnConnectChannel(
 		ctx sdk.Context,
-		contractAddr sdk.AccAddress,
+		contractAddr seitypes.AccAddress,
 		msg wasmvmtypes.IBCChannelConnectMsg,
 	) error
 	OnCloseChannel(
 		ctx sdk.Context,
-		contractAddr sdk.AccAddress,
+		contractAddr seitypes.AccAddress,
 		msg wasmvmtypes.IBCChannelCloseMsg,
 	) error
 	OnRecvPacket(
 		ctx sdk.Context,
-		contractAddr sdk.AccAddress,
+		contractAddr seitypes.AccAddress,
 		msg wasmvmtypes.IBCPacketReceiveMsg,
 	) ([]byte, error)
 	OnAckPacket(
 		ctx sdk.Context,
-		contractAddr sdk.AccAddress,
+		contractAddr seitypes.AccAddress,
 		acknowledgement wasmvmtypes.IBCPacketAckMsg,
 	) error
 	OnTimeoutPacket(
 		ctx sdk.Context,
-		contractAddr sdk.AccAddress,
+		contractAddr seitypes.AccAddress,
 		msg wasmvmtypes.IBCPacketTimeoutMsg,
 	) error
 	// ClaimCapability allows the transfer module to claim a capability

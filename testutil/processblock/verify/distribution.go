@@ -24,7 +24,7 @@ func Allocation(t *testing.T, app *processblock.App, f BlockRunnable, _ []signin
 		feesCollectedInt := app.BankKeeper.GetBalance(app.Ctx(), feeCollector.GetAddress(), "usei")
 		feesCollected := sdk.NewDecCoinFromCoin(feesCollectedInt)
 
-		prevProposer := sdk.ValAddress(app.DistrKeeper.GetPreviousProposerConsAddr(app.Ctx())).String()
+		prevProposer := seitypes.ValAddress(app.DistrKeeper.GetPreviousProposerConsAddr(app.Ctx())).String()
 		votedValidators := utils.Map(app.GetAllValidators(), func(v stakingtypes.Validator) string {
 			return v.GetOperator().String()
 		})
@@ -71,7 +71,7 @@ func getOutstandingRewards(app *processblock.App) map[string]sdk.DecCoin {
 	}
 	app.DistrKeeper.IterateValidatorOutstandingRewards(
 		app.Ctx(),
-		func(val sdk.ValAddress, rewards types.ValidatorOutstandingRewards) (stop bool) {
+		func(val seitypes.ValAddress, rewards types.ValidatorOutstandingRewards) (stop bool) {
 			if len(rewards.Rewards) == 0 {
 				return false
 			}

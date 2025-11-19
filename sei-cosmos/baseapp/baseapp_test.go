@@ -49,7 +49,7 @@ func registerTestCodec(cdc *codec.LegacyAmino) {
 }
 
 // aminoTxEncoder creates a amino TxEncoder for testing purposes.
-func aminoTxEncoder() sdk.TxEncoder {
+func aminoTxEncoder() seitypes.TxEncoder {
 	cdc := codec.NewLegacyAmino()
 	registerTestCodec(cdc)
 

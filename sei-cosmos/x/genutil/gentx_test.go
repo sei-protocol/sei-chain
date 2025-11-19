@@ -25,8 +25,8 @@ var (
 	priv2 = secp256k1.GenPrivKey()
 	pk1   = priv1.PubKey()
 	pk2   = priv2.PubKey()
-	addr1 = sdk.AccAddress(pk1.Address())
-	addr2 = sdk.AccAddress(pk2.Address())
+	addr1 = seitypes.AccAddress(pk1.Address())
+	addr2 = seitypes.AccAddress(pk2.Address())
 	desc  = stakingtypes.NewDescription("testname", "", "", "", "")
 	comm  = stakingtypes.CommissionRates{}
 )
@@ -53,14 +53,14 @@ func (suite *GenTxTestSuite) SetupTest() {
 	amount := sdk.NewInt64Coin(sdk.DefaultBondDenom, 50)
 	one := sdk.OneInt()
 	suite.msg1, err = stakingtypes.NewMsgCreateValidator(
-		sdk.ValAddress(pk1.Address()), pk1, amount, desc, comm, one)
+		seitypes.ValAddress(pk1.Address()), pk1, amount, desc, comm, one)
 	suite.NoError(err)
 	suite.msg2, err = stakingtypes.NewMsgCreateValidator(
-		sdk.ValAddress(pk2.Address()), pk1, amount, desc, comm, one)
+		seitypes.ValAddress(pk2.Address()), pk1, amount, desc, comm, one)
 	suite.NoError(err)
 }
 
-func (suite *GenTxTestSuite) setAccountBalance(addr sdk.AccAddress, amount int64) json.RawMessage {
+func (suite *GenTxTestSuite) setAccountBalance(addr seitypes.AccAddress, amount int64) json.RawMessage {
 	acc := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr)
 	suite.app.AccountKeeper.SetAccount(suite.ctx, acc)
 
@@ -77,7 +77,7 @@ func (suite *GenTxTestSuite) setAccountBalance(addr sdk.AccAddress, amount int64
 func (suite *GenTxTestSuite) TestSetGenTxsInAppGenesisState() {
 	var (
 		txBuilder = suite.encodingConfig.TxConfig.NewTxBuilder()
-		genTxs    []sdk.Tx
+		genTxs    []seitypes.Tx
 	)
 
 	testCases := []struct {
@@ -91,7 +91,7 @@ func (suite *GenTxTestSuite) TestSetGenTxsInAppGenesisState() {
 				err := txBuilder.SetMsgs(suite.msg1)
 				suite.Require().NoError(err)
 				tx := txBuilder.GetTx()
-				genTxs = []sdk.Tx{tx}
+				genTxs = []seitypes.Tx{tx}
 			},
 			true,
 		},
@@ -101,7 +101,7 @@ func (suite *GenTxTestSuite) TestSetGenTxsInAppGenesisState() {
 				err := txBuilder.SetMsgs(suite.msg1, suite.msg2)
 				suite.Require().NoError(err)
 				tx := txBuilder.GetTx()
-				genTxs = []sdk.Tx{tx}
+				genTxs = []seitypes.Tx{tx}
 			},
 			true,
 		},
@@ -235,7 +235,7 @@ func (suite *GenTxTestSuite) TestDeliverGenTxs() {
 				msg := banktypes.NewMsgSend(addr1, addr2, sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, 1)})
 				tx, err := seiapp.GenTx(
 					suite.encodingConfig.TxConfig,
-					[]sdk.Msg{msg},
+					[]seitypes.Msg{msg},
 					sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, 10)},
 					seiapp.DefaultGenTxGas,
 					suite.ctx.ChainID(),

@@ -106,7 +106,7 @@ func (k Keeper) validateAllowList(ctx sdk.Context, allowList *banktypes.AllowLis
 
 	// validate all addresses in the allow list are bech32
 	for _, addr := range allowList.Addresses {
-		if _, err = sdk.AccAddressFromBech32(addr); err != nil {
+		if _, err = seitypes.AccAddressFromBech32(addr); err != nil {
 			return fmt.Errorf("invalid address %s: %w", addr, err)
 		}
 	}

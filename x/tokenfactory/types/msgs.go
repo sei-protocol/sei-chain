@@ -16,7 +16,7 @@ const (
 	TypeMsgSetDenomMetadata = "set_denom_metadata"
 )
 
-var _ sdk.Msg = &MsgCreateDenom{}
+var _ seitypes.Msg = &MsgCreateDenom{}
 
 // NewMsgCreateDenom creates a msg to create a new denom
 func NewMsgCreateDenom(sender, subdenom string) *MsgCreateDenom {
@@ -29,7 +29,7 @@ func NewMsgCreateDenom(sender, subdenom string) *MsgCreateDenom {
 func (m MsgCreateDenom) Route() string { return RouterKey }
 func (m MsgCreateDenom) Type() string  { return TypeMsgCreateDenom }
 func (m MsgCreateDenom) ValidateBasic() error {
-	_, err := sdk.AccAddressFromBech32(m.Sender)
+	_, err := seitypes.AccAddressFromBech32(m.Sender)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
 	}
@@ -46,12 +46,12 @@ func (m MsgCreateDenom) GetSignBytes() []byte {
 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&m))
 }
 
-func (m MsgCreateDenom) GetSigners() []sdk.AccAddress {
-	sender, _ := sdk.AccAddressFromBech32(m.Sender)
-	return []sdk.AccAddress{sender}
+func (m MsgCreateDenom) GetSigners() []seitypes.AccAddress {
+	sender, _ := seitypes.AccAddressFromBech32(m.Sender)
+	return []seitypes.AccAddress{sender}
 }
 
-var _ sdk.Msg = &MsgUpdateDenom{}
+var _ seitypes.Msg = &MsgUpdateDenom{}
 
 // NewMsgUpdateDenom creates a msg to update denom
 func NewMsgUpdateDenom(sender, denom string, allowList *banktypes.AllowList) *MsgUpdateDenom {
@@ -65,7 +65,7 @@ func NewMsgUpdateDenom(sender, denom string, allowList *banktypes.AllowList) *Ms
 func (m MsgUpdateDenom) Route() string { return RouterKey }
 func (m MsgUpdateDenom) Type() string  { return TypeMsgUpdateDenom }
 func (m MsgUpdateDenom) ValidateBasic() error {
-	_, err := sdk.AccAddressFromBech32(m.Sender)
+	_, err := seitypes.AccAddressFromBech32(m.Sender)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
 	}
@@ -82,12 +82,12 @@ func (m MsgUpdateDenom) GetSignBytes() []byte {
 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&m))
 }
 
-func (m MsgUpdateDenom) GetSigners() []sdk.AccAddress {
-	sender, _ := sdk.AccAddressFromBech32(m.Sender)
-	return []sdk.AccAddress{sender}
+func (m MsgUpdateDenom) GetSigners() []seitypes.AccAddress {
+	sender, _ := seitypes.AccAddressFromBech32(m.Sender)
+	return []seitypes.AccAddress{sender}
 }
 
-var _ sdk.Msg = &MsgMint{}
+var _ seitypes.Msg = &MsgMint{}
 
 // NewMsgMint creates a message to mint tokens
 func NewMsgMint(sender string, amount sdk.Coin) *MsgMint {
@@ -100,7 +100,7 @@ func NewMsgMint(sender string, amount sdk.Coin) *MsgMint {
 func (m MsgMint) Route() string { return RouterKey }
 func (m MsgMint) Type() string  { return TypeMsgMint }
 func (m MsgMint) ValidateBasic() error {
-	_, err := sdk.AccAddressFromBech32(m.Sender)
+	_, err := seitypes.AccAddressFromBech32(m.Sender)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
 	}
@@ -116,12 +116,12 @@ func (m MsgMint) GetSignBytes() []byte {
 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&m))
 }
 
-func (m MsgMint) GetSigners() []sdk.AccAddress {
-	sender, _ := sdk.AccAddressFromBech32(m.Sender)
-	return []sdk.AccAddress{sender}
+func (m MsgMint) GetSigners() []seitypes.AccAddress {
+	sender, _ := seitypes.AccAddressFromBech32(m.Sender)
+	return []seitypes.AccAddress{sender}
 }
 
-var _ sdk.Msg = &MsgBurn{}
+var _ seitypes.Msg = &MsgBurn{}
 
 // NewMsgBurn creates a message to burn tokens
 func NewMsgBurn(sender string, amount sdk.Coin) *MsgBurn {
@@ -134,7 +134,7 @@ func NewMsgBurn(sender string, amount sdk.Coin) *MsgBurn {
 func (m MsgBurn) Route() string { return RouterKey }
 func (m MsgBurn) Type() string  { return TypeMsgBurn }
 func (m MsgBurn) ValidateBasic() error {
-	_, err := sdk.AccAddressFromBech32(m.Sender)
+	_, err := seitypes.AccAddressFromBech32(m.Sender)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
 	}
@@ -150,12 +150,12 @@ func (m MsgBurn) GetSignBytes() []byte {
 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&m))
 }
 
-func (m MsgBurn) GetSigners() []sdk.AccAddress {
-	sender, _ := sdk.AccAddressFromBech32(m.Sender)
-	return []sdk.AccAddress{sender}
+func (m MsgBurn) GetSigners() []seitypes.AccAddress {
+	sender, _ := seitypes.AccAddressFromBech32(m.Sender)
+	return []seitypes.AccAddress{sender}
 }
 
-var _ sdk.Msg = &MsgChangeAdmin{}
+var _ seitypes.Msg = &MsgChangeAdmin{}
 
 // NewMsgChangeAdmin creates a message to change admin for a denom
 func NewMsgChangeAdmin(sender, denom, newAdmin string) *MsgChangeAdmin {
@@ -169,12 +169,12 @@ func NewMsgChangeAdmin(sender, denom, newAdmin string) *MsgChangeAdmin {
 func (m MsgChangeAdmin) Route() string { return RouterKey }
 func (m MsgChangeAdmin) Type() string  { return TypeMsgChangeAdmin }
 func (m MsgChangeAdmin) ValidateBasic() error {
-	_, err := sdk.AccAddressFromBech32(m.Sender)
+	_, err := seitypes.AccAddressFromBech32(m.Sender)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
 	}
 
-	_, err = sdk.AccAddressFromBech32(m.NewAdmin)
+	_, err = seitypes.AccAddressFromBech32(m.NewAdmin)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid address (%s)", err)
 	}
@@ -191,12 +191,12 @@ func (m MsgChangeAdmin) GetSignBytes() []byte {
 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&m))
 }
 
-func (m MsgChangeAdmin) GetSigners() []sdk.AccAddress {
-	sender, _ := sdk.AccAddressFromBech32(m.Sender)
-	return []sdk.AccAddress{sender}
+func (m MsgChangeAdmin) GetSigners() []seitypes.AccAddress {
+	sender, _ := seitypes.AccAddressFromBech32(m.Sender)
+	return []seitypes.AccAddress{sender}
 }
 
-var _ sdk.Msg = &MsgSetDenomMetadata{}
+var _ seitypes.Msg = &MsgSetDenomMetadata{}
 
 // NewMsgChangeAdmin creates a message to burn tokens
 func NewMsgSetDenomMetadata(sender string, metadata banktypes.Metadata) *MsgSetDenomMetadata {
@@ -209,7 +209,7 @@ func NewMsgSetDenomMetadata(sender string, metadata banktypes.Metadata) *MsgSetD
 func (m MsgSetDenomMetadata) Route() string { return RouterKey }
 func (m MsgSetDenomMetadata) Type() string  { return TypeMsgSetDenomMetadata }
 func (m MsgSetDenomMetadata) ValidateBasic() error {
-	_, err := sdk.AccAddressFromBech32(m.Sender)
+	_, err := seitypes.AccAddressFromBech32(m.Sender)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
 	}
@@ -231,7 +231,7 @@ func (m MsgSetDenomMetadata) GetSignBytes() []byte {
 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&m))
 }
 
-func (m MsgSetDenomMetadata) GetSigners() []sdk.AccAddress {
-	sender, _ := sdk.AccAddressFromBech32(m.Sender)
-	return []sdk.AccAddress{sender}
+func (m MsgSetDenomMetadata) GetSigners() []seitypes.AccAddress {
+	sender, _ := seitypes.AccAddressFromBech32(m.Sender)
+	return []seitypes.AccAddress{sender}
 }

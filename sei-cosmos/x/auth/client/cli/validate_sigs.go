@@ -59,7 +59,7 @@ func makeValidateSignaturesCmd() func(cmd *cobra.Command, args []string) error {
 // expected signers. In addition, if offline has not been supplied, the signature is
 // verified over the transaction sign bytes. Returns false if the validation fails.
 func printAndValidateSigs(
-	cmd *cobra.Command, clientCtx client.Context, chainID string, tx sdk.Tx, offline bool,
+	cmd *cobra.Command, clientCtx client.Context, chainID string, tx seitypes.Tx, offline bool,
 ) bool {
 	sigTx := tx.(authsigning.SigVerifiableTx)
 	signModeHandler := clientCtx.TxConfig.SignModeHandler()
@@ -87,7 +87,7 @@ func printAndValidateSigs(
 			pubKey         = sig.PubKey
 			multiSigHeader string
 			multiSigMsg    string
-			sigAddr        = sdk.AccAddress(pubKey.Address())
+			sigAddr        = seitypes.AccAddress(pubKey.Address())
 			sigSanity      = "OK"
 		)
 
@@ -124,7 +124,7 @@ func printAndValidateSigs(
 	return success
 }
 
-func readTxAndInitContexts(clientCtx client.Context, cmd *cobra.Command, filename string) (client.Context, tx.Factory, sdk.Tx, error) {
+func readTxAndInitContexts(clientCtx client.Context, cmd *cobra.Command, filename string) (client.Context, tx.Factory, seitypes.Tx, error) {
 	stdTx, err := authclient.ReadTxFromFile(clientCtx, filename)
 	if err != nil {
 		return clientCtx, tx.Factory{}, nil, err

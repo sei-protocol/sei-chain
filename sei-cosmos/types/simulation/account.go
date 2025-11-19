@@ -8,6 +8,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // Account contains a privkey, pubkey, address tuple
@@ -16,7 +17,7 @@ import (
 type Account struct {
 	PrivKey cryptotypes.PrivKey
 	PubKey  cryptotypes.PubKey
-	Address sdk.AccAddress
+	Address seitypes.AccAddress
 	ConsKey cryptotypes.PrivKey
 }
 
@@ -43,7 +44,7 @@ func RandomAccounts(r *rand.Rand, n int) []Account {
 
 		accs[i].PrivKey = secp256k1.GenPrivKeyFromSecret(privkeySeed)
 		accs[i].PubKey = accs[i].PrivKey.PubKey()
-		accs[i].Address = sdk.AccAddress(accs[i].PubKey.Address())
+		accs[i].Address = seitypes.AccAddress(accs[i].PubKey.Address())
 
 		accs[i].ConsKey = ed25519.GenPrivKeyFromSecret(privkeySeed)
 	}
@@ -53,7 +54,7 @@ func RandomAccounts(r *rand.Rand, n int) []Account {
 
 // FindAccount iterates over all the simulation accounts to find the one that matches
 // the given address
-func FindAccount(accs []Account, address sdk.Address) (Account, bool) {
+func FindAccount(accs []Account, address seitypes.Address) (Account, bool) {
 	for _, acc := range accs {
 		if acc.Address.Equals(address) {
 			return acc, true

@@ -9,7 +9,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
-// An sdk.Tx which is its own sdk.Msg.
+// An seitypes.Tx which is its own seitypes.Msg.
 type kvstoreTx struct {
 	key   []byte
 	value []byte
@@ -21,8 +21,8 @@ func (msg kvstoreTx) Reset()         {}
 func (msg kvstoreTx) String() string { return "TODO" }
 func (msg kvstoreTx) ProtoMessage()  {}
 
-var _ sdk.Tx = kvstoreTx{}
-var _ sdk.Msg = kvstoreTx{}
+var _ seitypes.Tx = kvstoreTx{}
+var _ seitypes.Msg = kvstoreTx{}
 
 func NewTx(key, value string) kvstoreTx {
 	bytes := fmt.Sprintf("%s=%s", key, value)
@@ -41,8 +41,8 @@ func (tx kvstoreTx) Type() string {
 	return "kvstore_tx"
 }
 
-func (tx kvstoreTx) GetMsgs() []sdk.Msg {
-	return []sdk.Msg{tx}
+func (tx kvstoreTx) GetMsgs() []seitypes.Msg {
+	return []seitypes.Msg{tx}
 }
 
 func (tx kvstoreTx) GetMemo() string {
@@ -58,7 +58,7 @@ func (tx kvstoreTx) ValidateBasic() error {
 	return nil
 }
 
-func (tx kvstoreTx) GetSigners() []sdk.AccAddress {
+func (tx kvstoreTx) GetSigners() []seitypes.AccAddress {
 	return nil
 }
 
@@ -66,10 +66,10 @@ func (tx kvstoreTx) GetGasEstimate() uint64 {
 	return 0
 }
 
-// takes raw transaction bytes and decodes them into an sdk.Tx. An sdk.Tx has
+// takes raw transaction bytes and decodes them into an seitypes.Tx. An seitypes.Tx has
 // all the signatures and can be used to authenticate.
-func decodeTx(txBytes []byte) (sdk.Tx, error) {
-	var tx sdk.Tx
+func decodeTx(txBytes []byte) (seitypes.Tx, error) {
+	var tx seitypes.Tx
 
 	split := bytes.Split(txBytes, []byte("="))
 	if len(split) == 1 {

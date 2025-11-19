@@ -13,7 +13,7 @@ import (
 
 // newWasmModuleEvent creates with wasm module event for interacting with the given contract. Adds custom attributes
 // to this event.
-func newWasmModuleEvent(customAttributes []wasmvmtypes.EventAttribute, contractAddr sdk.AccAddress) (sdk.Events, error) {
+func newWasmModuleEvent(customAttributes []wasmvmtypes.EventAttribute, contractAddr seitypes.AccAddress) (sdk.Events, error) {
 	attrs, err := contractSDKEventAttributes(customAttributes, contractAddr)
 	if err != nil {
 		return nil, err
@@ -26,7 +26,7 @@ func newWasmModuleEvent(customAttributes []wasmvmtypes.EventAttribute, contractA
 const eventTypeMinLength = 2
 
 // newCustomEvents converts wasmvm events from a contract response to sdk type events
-func newCustomEvents(evts wasmvmtypes.Events, contractAddr sdk.AccAddress) (sdk.Events, error) {
+func newCustomEvents(evts wasmvmtypes.Events, contractAddr seitypes.AccAddress) (sdk.Events, error) {
 	events := make(sdk.Events, 0, len(evts))
 	for _, e := range evts {
 		typ := strings.TrimSpace(e.Type)
@@ -43,7 +43,7 @@ func newCustomEvents(evts wasmvmtypes.Events, contractAddr sdk.AccAddress) (sdk.
 }
 
 // convert and add contract address issuing this event
-func contractSDKEventAttributes(customAttributes []wasmvmtypes.EventAttribute, contractAddr sdk.AccAddress) ([]sdk.Attribute, error) {
+func contractSDKEventAttributes(customAttributes []wasmvmtypes.EventAttribute, contractAddr seitypes.AccAddress) ([]sdk.Attribute, error) {
 	attrs := []sdk.Attribute{sdk.NewAttribute(types.AttributeKeyContractAddr, contractAddr.String())}
 	// append attributes from wasm to the sdk.Event
 	for _, l := range customAttributes {

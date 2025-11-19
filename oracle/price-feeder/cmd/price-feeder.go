@@ -111,7 +111,7 @@ func priceFeederCmdHandler(cmd *cobra.Command, args []string) error {
 	consNodePubKeyPrefix := cfg.Account.Prefix + "valconspub"
 
 	// Set and seal config
-	sdkConfig := sdk.GetConfig()
+	sdkConfig := seitypes.GetConfig()
 	sdkConfig.SetBech32PrefixForAccount(cfg.Account.Prefix, accountPubKeyPrefix)
 	sdkConfig.SetBech32PrefixForValidator(validatorAddressPrefix, validatorPubKeyPrefix)
 	sdkConfig.SetBech32PrefixForConsensusNode(consNodeAddressPrefix, consNodePubKeyPrefix)

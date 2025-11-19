@@ -175,7 +175,7 @@ func (p PrecompileExecutor) ClaimSpecific(ctx sdk.Context, caller common.Address
 			}
 			continue
 		}
-		contractAddr, err := sdk.AccAddressFromBech32(asset.GetContractAddress())
+		contractAddr, err := seitypes.AccAddressFromBech32(asset.GetContractAddress())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to parse contract address %s: %w", asset.GetContractAddress(), err)
 		}
@@ -227,7 +227,7 @@ func (p PrecompileExecutor) ClaimSpecific(ctx sdk.Context, caller common.Address
 	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
 }
 
-func (p PrecompileExecutor) validate(ctx sdk.Context, caller common.Address, args []interface{}, readOnly bool) (claimMsg, sdk.AccAddress, error) {
+func (p PrecompileExecutor) validate(ctx sdk.Context, caller common.Address, args []interface{}, readOnly bool) (claimMsg, seitypes.AccAddress, error) {
 	if readOnly {
 		return nil, nil, errors.New("cannot call send from staticcall")
 	}
@@ -248,7 +248,7 @@ func (p PrecompileExecutor) validate(ctx sdk.Context, caller common.Address, arg
 	if common.HexToAddress(claimMsg.GetClaimer()).Cmp(caller) != 0 {
 		return nil, nil, fmt.Errorf("claim tx is meant for %s but was sent by %s", claimMsg.GetClaimer(), caller.Hex())
 	}
-	sender, err := sdk.AccAddressFromBech32(claimMsg.GetSender())
+	sender, err := seitypes.AccAddressFromBech32(claimMsg.GetSender())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse claim tx sender due to %s", err)
 	}
@@ -258,7 +258,7 @@ func (p PrecompileExecutor) validate(ctx sdk.Context, caller common.Address, arg
 	return claimMsg, sender, nil
 }
 
-func (p PrecompileExecutor) sigverify(ctx sdk.Context, tx sdk.Tx, claimMsg claimMsg, sender sdk.AccAddress) error {
+func (p PrecompileExecutor) sigverify(ctx sdk.Context, tx seitypes.Tx, claimMsg claimMsg, sender seitypes.AccAddress) error {
 	sigTx, ok := tx.(authsigning.SigVerifiableTx)
 	if !ok {
 		return errors.New("claim tx must be a SigVerifiableTx")
@@ -281,7 +281,7 @@ func (p PrecompileExecutor) sigverify(ctx sdk.Context, tx sdk.Tx, claimMsg claim
 			return errors.New("must provide pubkey from accounts that have never sent transactions")
 		}
 	}
-	pubkeyAddr := sdk.AccAddress(pubkey.Address())
+	pubkeyAddr := seitypes.AccAddress(pubkey.Address())
 	if !bytes.Equal(pubkeyAddr, sender) {
 		return fmt.Errorf("claim message is for %s but was signed by %s", sender.String(), pubkeyAddr.String())
 	}
@@ -313,7 +313,7 @@ func (p PrecompileExecutor) sigverify(ctx sdk.Context, tx sdk.Tx, claimMsg claim
 	return nil
 }
 
-func CW20BalanceQueryPayload(addr sdk.AccAddress) []byte {
+func CW20BalanceQueryPayload(addr seitypes.AccAddress) []byte {
 	raw := map[string]interface{}{"address": addr.String()}
 	bz, err := json.Marshal(map[string]interface{}{"balance": raw})
 	if err != nil {
@@ -334,7 +334,7 @@ func ParseCW20BalanceQueryResponse(res []byte) (sdk.Int, error) {
 	return typed.Balance, nil
 }
 
-func CW20TransferPayload(recipient sdk.AccAddress, amount sdk.Int) []byte {
+func CW20TransferPayload(recipient seitypes.AccAddress, amount sdk.Int) []byte {
 	type request struct {
 		Recipient string  `json:"recipient"`
 		Amount    sdk.Int `json:"amount"`
@@ -348,7 +348,7 @@ func CW20TransferPayload(recipient sdk.AccAddress, amount sdk.Int) []byte {
 	return bz
 }
 
-func CW721TokensQueryPayload(addr sdk.AccAddress, startAfter string) []byte {
+func CW721TokensQueryPayload(addr seitypes.AccAddress, startAfter string) []byte {
 	raw := map[string]interface{}{"owner": addr.String()}
 	if startAfter != "" {
 		raw["start_after"] = startAfter
@@ -372,7 +372,7 @@ func ParseCW721TokensQueryResponse(res []byte) ([]string, error) {
 	return typed.Tokens, nil
 }
 
-func CW721TransferPayload(recipient sdk.AccAddress, token string) []byte {
+func CW721TransferPayload(recipient seitypes.AccAddress, token string) []byte {
 	type request struct {
 		Recipient string `json:"recipient"`
 		Token     string `json:"token_id"`

@@ -17,7 +17,7 @@ func TestGasLimitDecorator(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	a := ante.NewGasDecorator(k)
 	limitMsg, _ := types.NewMsgEVMTransaction(&ethtx.LegacyTx{GasLimit: 100})
-	ctx, err := a.AnteHandle(ctx, &mockTx{msgs: []sdk.Msg{limitMsg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err := a.AnteHandle(ctx, &mockTx{msgs: []seitypes.Msg{limitMsg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)

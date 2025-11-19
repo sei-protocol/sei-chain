@@ -6,11 +6,11 @@ import (
 	"strconv"
 	"strings"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/version"
 )
 
@@ -79,10 +79,10 @@ $ %s debug addr cosmos1e0jnq2sun3dzjh8p2xq95kk0expwmd7shwjpfg
 			addr, err = hex.DecodeString(addrString)
 			if err != nil {
 				var err2 error
-				addr, err2 = sdk.AccAddressFromBech32(addrString)
+				addr, err2 = seitypes.AccAddressFromBech32(addrString)
 				if err2 != nil {
 					var err3 error
-					addr, err3 = sdk.ValAddressFromBech32(addrString)
+					addr, err3 = seitypes.ValAddressFromBech32(addrString)
 
 					if err3 != nil {
 						return fmt.Errorf("expected hex or bech32. Got errors: hex: %v, bech32 acc: %v, bech32 val: %v", err, err2, err3)
@@ -93,8 +93,8 @@ $ %s debug addr cosmos1e0jnq2sun3dzjh8p2xq95kk0expwmd7shwjpfg
 
 			cmd.Println("Address:", addr)
 			cmd.Printf("Address (hex): %X\n", addr)
-			cmd.Printf("Bech32 Acc: %s\n", sdk.AccAddress(addr))
-			cmd.Printf("Bech32 Val: %s\n", sdk.ValAddress(addr))
+			cmd.Printf("Bech32 Acc: %s\n", seitypes.AccAddress(addr))
+			cmd.Printf("Bech32 Val: %s\n", seitypes.ValAddress(addr))
 			return nil
 		},
 	}

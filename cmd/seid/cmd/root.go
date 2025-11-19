@@ -111,7 +111,7 @@ func initRootCmd(
 	rootCmd *cobra.Command,
 	encodingConfig params.EncodingConfig,
 ) {
-	cfg := sdk.GetConfig()
+	cfg := seitypes.GetConfig()
 	cfg.Seal()
 
 	// extend debug command

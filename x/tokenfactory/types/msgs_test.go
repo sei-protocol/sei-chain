@@ -17,7 +17,7 @@ import (
 func TestMsgCreateDenom(t *testing.T) {
 	// generate a private/public key pair and get the respective address
 	pk1 := ed25519.GenPrivKey().PubKey()
-	addr1 := sdk.AccAddress(pk1.Address())
+	addr1 := seitypes.AccAddress(pk1.Address())
 
 	// make a proper createDenom message
 	createMsg := func(after func(msg types.MsgCreateDenom) types.MsgCreateDenom) types.MsgCreateDenom {
@@ -81,7 +81,7 @@ func TestMsgCreateDenom(t *testing.T) {
 func TestMsgUpdateDenom(t *testing.T) {
 	// generate a private/public key pair and get the respective address
 	pk1 := ed25519.GenPrivKey().PubKey()
-	addr1 := sdk.AccAddress(pk1.Address())
+	addr1 := seitypes.AccAddress(pk1.Address())
 
 	// make a proper createDenom message
 	updateMsg := func(after func(msg types.MsgUpdateDenom) types.MsgUpdateDenom) types.MsgUpdateDenom {
@@ -147,7 +147,7 @@ func TestMsgUpdateDenom(t *testing.T) {
 func TestMsgMint(t *testing.T) {
 	// generate a private/public key pair and get the respective address
 	pk1 := ed25519.GenPrivKey().PubKey()
-	addr1 := sdk.AccAddress(pk1.Address())
+	addr1 := seitypes.AccAddress(pk1.Address())
 
 	// make a proper mint message
 	createMsg := func(after func(msg types.MsgMint) types.MsgMint) types.MsgMint {
@@ -220,7 +220,7 @@ func TestMsgMint(t *testing.T) {
 func TestMsgBurn(t *testing.T) {
 	// generate a private/public key pair and get the respective address
 	pk1 := ed25519.GenPrivKey().PubKey()
-	addr1 := sdk.AccAddress(pk1.Address())
+	addr1 := seitypes.AccAddress(pk1.Address())
 
 	// make a proper burn message
 	baseMsg := types.NewMsgBurn(
@@ -290,9 +290,9 @@ func TestMsgBurn(t *testing.T) {
 func TestMsgChangeAdmin(t *testing.T) {
 	// generate a private/public key pair and get the respective address
 	pk1 := ed25519.GenPrivKey().PubKey()
-	addr1 := sdk.AccAddress(pk1.Address())
+	addr1 := seitypes.AccAddress(pk1.Address())
 	pk2 := ed25519.GenPrivKey().PubKey()
-	addr2 := sdk.AccAddress(pk2.Address())
+	addr2 := seitypes.AccAddress(pk2.Address())
 	tokenFactoryDenom := fmt.Sprintf("factory/%s/bitcoin", addr1.String())
 
 	// make a proper changeAdmin message

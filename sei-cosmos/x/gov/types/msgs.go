@@ -21,17 +21,17 @@ const (
 )
 
 var (
-	_, _, _, _ sdk.Msg                       = &MsgSubmitProposal{}, &MsgDeposit{}, &MsgVote{}, &MsgVoteWeighted{}
+	_, _, _, _ seitypes.Msg                       = &MsgSubmitProposal{}, &MsgDeposit{}, &MsgVote{}, &MsgVoteWeighted{}
 	_          types.UnpackInterfacesMessage = &MsgSubmitProposal{}
 )
 
 // NewMsgSubmitProposal creates a new MsgSubmitProposal.
-func NewMsgSubmitProposal(content Content, initialDeposit sdk.Coins, proposer sdk.AccAddress) (*MsgSubmitProposal, error) {
+func NewMsgSubmitProposal(content Content, initialDeposit sdk.Coins, proposer seitypes.AccAddress) (*MsgSubmitProposal, error) {
 	return NewMsgSubmitProposalWithExpedite(content, initialDeposit, proposer, false)
 }
 
 // NewMsgSubmitProposalWithExpedite creates a new MsgSubmitProposal with expedited or not.
-func NewMsgSubmitProposalWithExpedite(content Content, initialDeposit sdk.Coins, proposer sdk.AccAddress, isExpedited bool) (*MsgSubmitProposal, error) {
+func NewMsgSubmitProposalWithExpedite(content Content, initialDeposit sdk.Coins, proposer seitypes.AccAddress, isExpedited bool) (*MsgSubmitProposal, error) {
 	m := &MsgSubmitProposal{
 		InitialDeposit: initialDeposit,
 		Proposer:       proposer.String(),
@@ -46,8 +46,8 @@ func NewMsgSubmitProposalWithExpedite(content Content, initialDeposit sdk.Coins,
 
 func (m *MsgSubmitProposal) GetInitialDeposit() sdk.Coins { return m.InitialDeposit }
 
-func (m *MsgSubmitProposal) GetProposer() sdk.AccAddress {
-	proposer, _ := sdk.AccAddressFromBech32(m.Proposer)
+func (m *MsgSubmitProposal) GetProposer() seitypes.AccAddress {
+	proposer, _ := seitypes.AccAddressFromBech32(m.Proposer)
 	return proposer
 }
 
@@ -119,9 +119,9 @@ func (m MsgSubmitProposal) GetSignBytes() []byte {
 }
 
 // GetSigners implements Msg
-func (m MsgSubmitProposal) GetSigners() []sdk.AccAddress {
-	proposer, _ := sdk.AccAddressFromBech32(m.Proposer)
-	return []sdk.AccAddress{proposer}
+func (m MsgSubmitProposal) GetSigners() []seitypes.AccAddress {
+	proposer, _ := seitypes.AccAddressFromBech32(m.Proposer)
+	return []seitypes.AccAddress{proposer}
 }
 
 // String implements the Stringer interface
@@ -139,7 +139,7 @@ func (m MsgSubmitProposal) UnpackInterfaces(unpacker types.AnyUnpacker) error {
 // NewMsgDeposit creates a new MsgDeposit instance
 //
 //nolint:interfacer
-func NewMsgDeposit(depositor sdk.AccAddress, proposalID uint64, amount sdk.Coins) *MsgDeposit {
+func NewMsgDeposit(depositor seitypes.AccAddress, proposalID uint64, amount sdk.Coins) *MsgDeposit {
 	return &MsgDeposit{proposalID, depositor.String(), amount}
 }
 
@@ -177,15 +177,15 @@ func (msg MsgDeposit) GetSignBytes() []byte {
 }
 
 // GetSigners implements Msg
-func (msg MsgDeposit) GetSigners() []sdk.AccAddress {
-	depositor, _ := sdk.AccAddressFromBech32(msg.Depositor)
-	return []sdk.AccAddress{depositor}
+func (msg MsgDeposit) GetSigners() []seitypes.AccAddress {
+	depositor, _ := seitypes.AccAddressFromBech32(msg.Depositor)
+	return []seitypes.AccAddress{depositor}
 }
 
 // NewMsgVote creates a message to cast a vote on an active proposal
 //
 //nolint:interfacer
-func NewMsgVote(voter sdk.AccAddress, proposalID uint64, option VoteOption) *MsgVote {
+func NewMsgVote(voter seitypes.AccAddress, proposalID uint64, option VoteOption) *MsgVote {
 	return &MsgVote{proposalID, voter.String(), option}
 }
 
@@ -221,15 +221,15 @@ func (msg MsgVote) GetSignBytes() []byte {
 }
 
 // GetSigners implements Msg
-func (msg MsgVote) GetSigners() []sdk.AccAddress {
-	voter, _ := sdk.AccAddressFromBech32(msg.Voter)
-	return []sdk.AccAddress{voter}
+func (msg MsgVote) GetSigners() []seitypes.AccAddress {
+	voter, _ := seitypes.AccAddressFromBech32(msg.Voter)
+	return []seitypes.AccAddress{voter}
 }
 
 // NewMsgVoteWeighted creates a message to cast a vote on an active proposal
 //
 //nolint:interfacer
-func NewMsgVoteWeighted(voter sdk.AccAddress, proposalID uint64, options WeightedVoteOptions) *MsgVoteWeighted {
+func NewMsgVoteWeighted(voter seitypes.AccAddress, proposalID uint64, options WeightedVoteOptions) *MsgVoteWeighted {
 	return &MsgVoteWeighted{proposalID, voter.String(), options}
 }
 
@@ -286,7 +286,7 @@ func (msg MsgVoteWeighted) GetSignBytes() []byte {
 }
 
 // GetSigners implements Msg
-func (msg MsgVoteWeighted) GetSigners() []sdk.AccAddress {
-	voter, _ := sdk.AccAddressFromBech32(msg.Voter)
-	return []sdk.AccAddress{voter}
+func (msg MsgVoteWeighted) GetSigners() []seitypes.AccAddress {
+	voter, _ := seitypes.AccAddressFromBech32(msg.Voter)
+	return []seitypes.AccAddress{voter}
 }

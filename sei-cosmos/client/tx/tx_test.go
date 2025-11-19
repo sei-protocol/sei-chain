@@ -115,7 +115,7 @@ func TestBuildSimTx(t *testing.T) {
 		WithSignMode(txCfg.SignModeHandler().DefaultMode()).
 		WithKeybase(kb)
 
-	msg := banktypes.NewMsgSend(sdk.AccAddress("from"), sdk.AccAddress("to"), nil)
+	msg := banktypes.NewMsgSend(seitypes.AccAddress("from"), seitypes.AccAddress("to"), nil)
 	bz, err := tx.BuildSimTx(txf, msg)
 	require.NoError(t, err)
 	require.NotNil(t, bz)
@@ -138,7 +138,7 @@ func TestBuildUnsignedTx(t *testing.T) {
 		WithMemo("memo").
 		WithChainID("test-chain")
 
-	msg := banktypes.NewMsgSend(sdk.AccAddress("from"), sdk.AccAddress("to"), nil)
+	msg := banktypes.NewMsgSend(seitypes.AccAddress("from"), seitypes.AccAddress("to"), nil)
 	tx, err := tx.BuildUnsignedTx(txf, msg)
 	require.NoError(t, err)
 	require.NotNil(t, tx)
@@ -184,8 +184,8 @@ func TestSign(t *testing.T) {
 		WithSignMode(signingtypes.SignMode_SIGN_MODE_DIRECT)
 	txfAmino := txfDirect.
 		WithSignMode(signingtypes.SignMode_SIGN_MODE_LEGACY_AMINO_JSON)
-	msg1 := banktypes.NewMsgSend(info1.GetAddress(), sdk.AccAddress("to"), nil)
-	msg2 := banktypes.NewMsgSend(info2.GetAddress(), sdk.AccAddress("to"), nil)
+	msg1 := banktypes.NewMsgSend(info1.GetAddress(), seitypes.AccAddress("to"), nil)
+	msg2 := banktypes.NewMsgSend(info2.GetAddress(), seitypes.AccAddress("to"), nil)
 
 	txb, err := tx.BuildUnsignedTx(txfNoKeybase, msg1, msg2)
 	requireT.NoError(err)

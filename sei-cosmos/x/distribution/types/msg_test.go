@@ -11,8 +11,8 @@ import (
 // test ValidateBasic for MsgSetWithdrawAddress
 func TestMsgSetWithdrawAddress(t *testing.T) {
 	tests := []struct {
-		delegatorAddr sdk.AccAddress
-		withdrawAddr  sdk.AccAddress
+		delegatorAddr seitypes.AccAddress
+		withdrawAddr  seitypes.AccAddress
 		expectPass    bool
 	}{
 		{delAddr1, delAddr2, true},
@@ -35,8 +35,8 @@ func TestMsgSetWithdrawAddress(t *testing.T) {
 // test ValidateBasic for MsgWithdrawDelegatorReward
 func TestMsgWithdrawDelegatorReward(t *testing.T) {
 	tests := []struct {
-		delegatorAddr sdk.AccAddress
-		validatorAddr sdk.ValAddress
+		delegatorAddr seitypes.AccAddress
+		validatorAddr seitypes.ValAddress
 		expectPass    bool
 	}{
 		{delAddr1, valAddr1, true},
@@ -57,7 +57,7 @@ func TestMsgWithdrawDelegatorReward(t *testing.T) {
 // test ValidateBasic for MsgWithdrawValidatorCommission
 func TestMsgWithdrawValidatorCommission(t *testing.T) {
 	tests := []struct {
-		validatorAddr sdk.ValAddress
+		validatorAddr seitypes.ValAddress
 		expectPass    bool
 	}{
 		{valAddr1, true},
@@ -77,10 +77,10 @@ func TestMsgWithdrawValidatorCommission(t *testing.T) {
 func TestMsgDepositIntoCommunityPool(t *testing.T) {
 	tests := []struct {
 		amount     sdk.Coins
-		depositor  sdk.AccAddress
+		depositor  seitypes.AccAddress
 		expectPass bool
 	}{
-		{sdk.NewCoins(sdk.NewInt64Coin("uatom", 10000)), sdk.AccAddress{}, false},
+		{sdk.NewCoins(sdk.NewInt64Coin("uatom", 10000)), seitypes.AccAddress{}, false},
 		{sdk.Coins{sdk.NewInt64Coin("uatom", 10), sdk.NewInt64Coin("uatom", 10)}, delAddr1, false},
 		{sdk.NewCoins(sdk.NewInt64Coin("uatom", 1000)), delAddr1, true},
 	}

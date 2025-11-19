@@ -17,7 +17,7 @@ import (
 type Recurse struct {
 	Depth    uint32         `json:"depth"`
 	Work     uint32         `json:"work"`
-	Contract sdk.AccAddress `json:"contract"`
+	Contract seitypes.AccAddress `json:"contract"`
 }
 
 type recurseWrapper struct {
@@ -38,9 +38,9 @@ type recurseResponse struct {
 // number os wasm queries called from a contract
 var totalWasmQueryCounter int
 
-func initRecurseContract(t *testing.T) (contract sdk.AccAddress, creator sdk.AccAddress, ctx sdk.Context, keeper *Keeper) {
+func initRecurseContract(t *testing.T) (contract seitypes.AccAddress, creator seitypes.AccAddress, ctx sdk.Context, keeper *Keeper) {
 	countingQuerierDec := func(realWasmQuerier WasmVMQueryHandler) WasmVMQueryHandler {
-		return WasmVMQueryHandlerFn(func(ctx sdk.Context, caller sdk.AccAddress, request wasmvmtypes.QueryRequest) ([]byte, error) {
+		return WasmVMQueryHandlerFn(func(ctx sdk.Context, caller seitypes.AccAddress, request wasmvmtypes.QueryRequest) ([]byte, error) {
 			totalWasmQueryCounter++
 			return realWasmQuerier.HandleQuery(ctx, caller, request)
 		})

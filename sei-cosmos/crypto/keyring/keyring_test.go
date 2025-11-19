@@ -79,7 +79,7 @@ func TestKeyManagementKeyRing(t *testing.T) {
 	require.NotNil(t, err)
 	_, err = kb.KeyByAddress(accAddr(i2))
 	require.NoError(t, err)
-	addr, err := sdk.AccAddressFromBech32("sei10xwrnrezdg227cgt82az7f7j47q3zklvu5ax6k")
+	addr, err := seitypes.AccAddressFromBech32("sei10xwrnrezdg227cgt82az7f7j47q3zklvu5ax6k")
 	require.NoError(t, err)
 	_, err = kb.KeyByAddress(addr)
 	require.NotNil(t, err)
@@ -375,7 +375,7 @@ func TestInMemoryKeyManagement(t *testing.T) {
 	require.NotNil(t, err)
 	_, err = cstore.KeyByAddress(accAddr(i2))
 	require.NoError(t, err)
-	addr, err := sdk.AccAddressFromBech32("sei10xwrnrezdg227cgt82az7f7j47q3zklvu5ax6k")
+	addr, err := seitypes.AccAddressFromBech32("sei10xwrnrezdg227cgt82az7f7j47q3zklvu5ax6k")
 	require.NoError(t, err)
 	_, err = cstore.KeyByAddress(addr)
 	require.NotNil(t, err)
@@ -950,4 +950,4 @@ func requireEqualInfo(t *testing.T, key Info, mnemonic Info) {
 	require.Equal(t, key.GetType(), mnemonic.GetType())
 }
 
-func accAddr(info Info) sdk.AccAddress { return info.GetAddress() }
+func accAddr(info Info) seitypes.AccAddress { return info.GetAddress() }

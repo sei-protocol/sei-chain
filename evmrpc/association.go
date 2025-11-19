@@ -119,7 +119,7 @@ func (t *AssociationAPI) GetSeiAddress(_ context.Context, ethAddress common.Addr
 func (t *AssociationAPI) GetEVMAddress(_ context.Context, seiAddress string) (result string, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("sei_getEVMAddress", t.connectionType, startTime, returnErr)
-	seiAddr, err := sdk.AccAddressFromBech32(seiAddress)
+	seiAddr, err := seitypes.AccAddressFromBech32(seiAddress)
 	if err != nil {
 		return "", err
 	}

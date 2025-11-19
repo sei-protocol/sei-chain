@@ -7,7 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func (k *Keeper) SetAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, evmAddress common.Address) {
+func (k *Keeper) SetAddressMapping(ctx sdk.Context, seiAddress seitypes.AccAddress, evmAddress common.Address) {
 	store := ctx.KVStore(k.storeKey)
 	store.Set(types.EVMAddressToSeiAddressKey(evmAddress), seiAddress)
 	store.Set(types.SeiAddressToEVMAddressKey(seiAddress), evmAddress[:])
@@ -21,13 +21,13 @@ func (k *Keeper) SetAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, e
 	))
 }
 
-func (k *Keeper) DeleteAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, evmAddress common.Address) {
+func (k *Keeper) DeleteAddressMapping(ctx sdk.Context, seiAddress seitypes.AccAddress, evmAddress common.Address) {
 	store := ctx.KVStore(k.storeKey)
 	store.Delete(types.EVMAddressToSeiAddressKey(evmAddress))
 	store.Delete(types.SeiAddressToEVMAddressKey(seiAddress))
 }
 
-func (k *Keeper) GetEVMAddress(ctx sdk.Context, seiAddress sdk.AccAddress) (common.Address, bool) {
+func (k *Keeper) GetEVMAddress(ctx sdk.Context, seiAddress seitypes.AccAddress) (common.Address, bool) {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.SeiAddressToEVMAddressKey(seiAddress))
 	addr := common.Address{}
@@ -38,7 +38,7 @@ func (k *Keeper) GetEVMAddress(ctx sdk.Context, seiAddress sdk.AccAddress) (comm
 	return addr, true
 }
 
-func (k *Keeper) GetEVMAddressOrDefault(ctx sdk.Context, seiAddress sdk.AccAddress) common.Address {
+func (k *Keeper) GetEVMAddressOrDefault(ctx sdk.Context, seiAddress seitypes.AccAddress) common.Address {
 	addr, ok := k.GetEVMAddress(ctx, seiAddress)
 	if ok {
 		return addr
@@ -46,7 +46,7 @@ func (k *Keeper) GetEVMAddressOrDefault(ctx sdk.Context, seiAddress sdk.AccAddre
 	return common.BytesToAddress(seiAddress)
 }
 
-func (k *Keeper) GetSeiAddress(ctx sdk.Context, evmAddress common.Address) (sdk.AccAddress, bool) {
+func (k *Keeper) GetSeiAddress(ctx sdk.Context, evmAddress common.Address) (seitypes.AccAddress, bool) {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.EVMAddressToSeiAddressKey(evmAddress))
 	if bz == nil {
@@ -55,30 +55,30 @@ func (k *Keeper) GetSeiAddress(ctx sdk.Context, evmAddress common.Address) (sdk.
 	return bz, true
 }
 
-func (k *Keeper) GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress {
+func (k *Keeper) GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) seitypes.AccAddress {
 	addr, ok := k.GetSeiAddress(ctx, evmAddress)
 	if ok {
 		return addr
 	}
-	return sdk.AccAddress(evmAddress[:])
+	return seitypes.AccAddress(evmAddress[:])
 }
 
-func (k *Keeper) IterateSeiAddressMapping(ctx sdk.Context, cb func(evmAddr common.Address, seiAddr sdk.AccAddress) bool) {
+func (k *Keeper) IterateSeiAddressMapping(ctx sdk.Context, cb func(evmAddr common.Address, seiAddr seitypes.AccAddress) bool) {
 	iter := prefix.NewStore(ctx.KVStore(k.storeKey), types.EVMAddressToSeiAddressKeyPrefix).Iterator(nil, nil)
 	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		evmAddr := common.BytesToAddress(iter.Key())
-		seiAddr := sdk.AccAddress(iter.Value())
+		seiAddr := seitypes.AccAddress(iter.Value())
 		if cb(evmAddr, seiAddr) {
 			break
 		}
 	}
 }
 
-// A sdk.AccAddress may not receive funds from bank if it's the result of direct-casting
+// A seitypes.AccAddress may not receive funds from bank if it's the result of direct-casting
 // from an EVM address AND the originating EVM address has already been associated with
-// a true (i.e. derived from the same pubkey) sdk.AccAddress.
-func (k *Keeper) CanAddressReceive(ctx sdk.Context, addr sdk.AccAddress) bool {
+// a true (i.e. derived from the same pubkey) seitypes.AccAddress.
+func (k *Keeper) CanAddressReceive(ctx sdk.Context, addr seitypes.AccAddress) bool {
 	directCast := common.BytesToAddress(addr) // casting goes both directions since both address formats have 20 bytes
 	associatedAddr, isAssociated := k.GetSeiAddress(ctx, directCast)
 	// if the associated address is the cast address itself, allow the address to receive (e.g. EVM contract addresses)
@@ -93,12 +93,12 @@ func NewEvmAddressHandler(evmKeeper *Keeper) EvmAddressHandler {
 	return EvmAddressHandler{evmKeeper: evmKeeper}
 }
 
-func (h EvmAddressHandler) GetSeiAddressFromString(ctx sdk.Context, address string) (sdk.AccAddress, error) {
+func (h EvmAddressHandler) GetSeiAddressFromString(ctx sdk.Context, address string) (seitypes.AccAddress, error) {
 	if common.IsHexAddress(address) {
 		parsedAddress := common.HexToAddress(address)
 		return h.evmKeeper.GetSeiAddressOrDefault(ctx, parsedAddress), nil
 	}
-	parsedAddress, err := sdk.AccAddressFromBech32(address)
+	parsedAddress, err := seitypes.AccAddressFromBech32(address)
 	if err != nil {
 		return nil, err
 	}

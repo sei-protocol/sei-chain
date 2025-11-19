@@ -8,7 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-var testHandler = func(_ sdk.Context, _ sdk.Msg) (*sdk.Result, error) {
+var testHandler = func(_ sdk.Context, _ seitypes.Msg) (*sdk.Result, error) {
 	return &sdk.Result{}, nil
 }
 

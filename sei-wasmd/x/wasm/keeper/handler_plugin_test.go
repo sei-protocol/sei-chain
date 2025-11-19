@@ -25,13 +25,13 @@ func TestMessageHandlerChainDispatch(t *testing.T) {
 	capturingHandler, gotMsgs := wasmtesting.NewCapturingMessageHandler()
 
 	alwaysUnknownMsgHandler := &wasmtesting.MockMessageHandler{
-		DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
+		DispatchMsgFn: func(ctx sdk.Context, contractAddr seitypes.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 			return nil, nil, types.ErrUnknownMsg
 		},
 	}
 
 	assertNotCalledHandler := &wasmtesting.MockMessageHandler{
-		DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
+		DispatchMsgFn: func(ctx sdk.Context, contractAddr seitypes.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 			t.Fatal("not expected to be called")
 			return
 		},
@@ -54,7 +54,7 @@ func TestMessageHandlerChainDispatch(t *testing.T) {
 		},
 		"stops iteration on handler error": {
 			handlers: []Messenger{&wasmtesting.MockMessageHandler{
-				DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
+				DispatchMsgFn: func(ctx sdk.Context, contractAddr seitypes.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 					return nil, nil, types.ErrInvalidMsg
 				},
 			}, assertNotCalledHandler},
@@ -63,7 +63,7 @@ func TestMessageHandlerChainDispatch(t *testing.T) {
 		"return events when handle": {
 			handlers: []Messenger{
 				&wasmtesting.MockMessageHandler{
-					DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
+					DispatchMsgFn: func(ctx sdk.Context, contractAddr seitypes.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 						_, data, _ = capturingHandler.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg, info, codeInfo)
 						return []sdk.Event{sdk.NewEvent("myEvent", sdk.NewAttribute("foo", "bar"))}, data, nil
 					},
@@ -104,14 +104,14 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 		Events: sdk.Events{myEvent}.ToABCIEvents(),
 	}
 
-	var gotMsg []sdk.Msg
-	capturingMessageRouter := wasmtesting.MessageRouterFunc(func(msg sdk.Msg) baseapp.MsgServiceHandler {
-		return func(ctx sdk.Context, req sdk.Msg) (*sdk.Result, error) {
+	var gotMsg []seitypes.Msg
+	capturingMessageRouter := wasmtesting.MessageRouterFunc(func(msg seitypes.Msg) baseapp.MsgServiceHandler {
+		return func(ctx sdk.Context, req seitypes.Msg) (*sdk.Result, error) {
 			gotMsg = append(gotMsg, msg)
 			return &myRouterResult, nil
 		}
 	})
-	noRouteMessageRouter := wasmtesting.MessageRouterFunc(func(msg sdk.Msg) baseapp.MsgServiceHandler {
+	noRouteMessageRouter := wasmtesting.MessageRouterFunc(func(msg seitypes.Msg) baseapp.MsgServiceHandler {
 		return nil
 	})
 	myContractAddr := RandomAccountAddress(t)
@@ -125,19 +125,19 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 	}{
 		"all good": {
 			srcRoute: capturingMessageRouter,
-			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]sdk.Msg, error) {
+			srcEncoder: func(sender seitypes.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]seitypes.Msg, error) {
 				myMsg := types.MsgExecuteContract{
 					Sender:   myContractAddr.String(),
 					Contract: RandomBech32AccountAddress(t),
 					Msg:      []byte("{}"),
 				}
-				return []sdk.Msg{&myMsg}, nil
+				return []seitypes.Msg{&myMsg}, nil
 			},
 			expMsgDispatched: 1,
 		},
 		"multiple output msgs": {
 			srcRoute: capturingMessageRouter,
-			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]sdk.Msg, error) {
+			srcEncoder: func(sender seitypes.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]seitypes.Msg, error) {
 				first := &types.MsgExecuteContract{
 					Sender:   myContractAddr.String(),
 					Contract: RandomBech32AccountAddress(t),
@@ -148,49 +148,49 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 					Contract: RandomBech32AccountAddress(t),
 					Msg:      []byte("{}"),
 				}
-				return []sdk.Msg{first, second}, nil
+				return []seitypes.Msg{first, second}, nil
 			},
 			expMsgDispatched: 2,
 		},
 		"invalid sdk message rejected": {
 			srcRoute: capturingMessageRouter,
-			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]sdk.Msg, error) {
+			srcEncoder: func(sender seitypes.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]seitypes.Msg, error) {
 				invalidMsg := types.MsgExecuteContract{
 					Sender:   myContractAddr.String(),
 					Contract: RandomBech32AccountAddress(t),
 					Msg:      []byte("INVALID_JSON"),
 				}
-				return []sdk.Msg{&invalidMsg}, nil
+				return []seitypes.Msg{&invalidMsg}, nil
 			},
 			expErr: types.ErrInvalid,
 		},
 		"invalid sender rejected": {
 			srcRoute: capturingMessageRouter,
-			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]sdk.Msg, error) {
+			srcEncoder: func(sender seitypes.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]seitypes.Msg, error) {
 				invalidMsg := types.MsgExecuteContract{
 					Sender:   RandomBech32AccountAddress(t),
 					Contract: RandomBech32AccountAddress(t),
 					Msg:      []byte("{}"),
 				}
-				return []sdk.Msg{&invalidMsg}, nil
+				return []seitypes.Msg{&invalidMsg}, nil
 			},
 			expErr: sdkerrors.ErrUnauthorized,
 		},
 		"unroutable message rejected": {
 			srcRoute: noRouteMessageRouter,
-			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]sdk.Msg, error) {
+			srcEncoder: func(sender seitypes.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]seitypes.Msg, error) {
 				myMsg := types.MsgExecuteContract{
 					Sender:   myContractAddr.String(),
 					Contract: RandomBech32AccountAddress(t),
 					Msg:      []byte("{}"),
 				}
-				return []sdk.Msg{&myMsg}, nil
+				return []seitypes.Msg{&myMsg}, nil
 			},
 			expErr: sdkerrors.ErrUnknownRequest,
 		},
 		"encoding error passed": {
 			srcRoute: capturingMessageRouter,
-			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]sdk.Msg, error) {
+			srcEncoder: func(sender seitypes.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]seitypes.Msg, error) {
 				myErr := types.ErrUnpinContractFailed // any error that is not used
 				return nil, myErr
 			},
@@ -199,7 +199,7 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 	}
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {
-			gotMsg = make([]sdk.Msg, 0)
+			gotMsg = make([]seitypes.Msg, 0)
 
 			// when
 			ctx := sdk.Context{}

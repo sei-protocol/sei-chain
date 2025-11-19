@@ -61,12 +61,12 @@ type ToRosettaConverter interface {
 	EndBlockTxHash(blockHash []byte) string
 	// Amounts converts sdk.Coins to rosetta.Amounts
 	Amounts(ownedCoins []sdk.Coin, availableCoins sdk.Coins) []*rosettatypes.Amount
-	// Ops converts an sdk.Msg to rosetta operations
-	Ops(status string, msg sdk.Msg) ([]*rosettatypes.Operation, error)
+	// Ops converts an seitypes.Msg to rosetta operations
+	Ops(status string, msg seitypes.Msg) ([]*rosettatypes.Operation, error)
 	// OpsAndSigners takes raw transaction bytes and returns rosetta operations and the expected signers
 	OpsAndSigners(txBytes []byte) (ops []*rosettatypes.Operation, signers []*rosettatypes.AccountIdentifier, err error)
-	// Meta converts an sdk.Msg to rosetta metadata
-	Meta(msg sdk.Msg) (meta map[string]interface{}, err error)
+	// Meta converts an seitypes.Msg to rosetta metadata
+	Meta(msg seitypes.Msg) (meta map[string]interface{}, err error)
 	// SignerData returns account signing data from a queried any account
 	SignerData(anyAccount *codectypes.Any) (*SignerData, error)
 	// SigningComponents returns rosetta's components required to build a signable transaction
@@ -93,7 +93,7 @@ type ToSDKConverter interface {
 	// and returns the signed tx bytes
 	SignedTx(txBytes []byte, signatures []*rosettatypes.Signature) (signedTxBytes []byte, err error)
 	// Msg converts metadata to an sdk message
-	Msg(meta map[string]interface{}, msg sdk.Msg) (err error)
+	Msg(meta map[string]interface{}, msg seitypes.Msg) (err error)
 	// HashToTxType returns the transaction type (end block, begin block or deliver tx)
 	// and the real hash to query in order to get information
 	HashToTxType(hashBytes []byte) (txType TransactionType, realHash []byte)
@@ -103,9 +103,9 @@ type ToSDKConverter interface {
 
 type converter struct {
 	newTxBuilder    func() sdkclient.TxBuilder
-	txBuilderFromTx func(tx sdk.Tx) (sdkclient.TxBuilder, error)
+	txBuilderFromTx func(tx seitypes.Tx) (sdkclient.TxBuilder, error)
 	txDecode        sdk.TxDecoder
-	txEncode        sdk.TxEncoder
+	txEncode        seitypes.TxEncoder
 	bytesToSign     func(tx authsigning.Tx, signerData authsigning.SignerData) (b []byte, err error)
 	ir              codectypes.InterfaceRegistry
 	cdc             *codec.ProtoCodec
@@ -142,7 +142,7 @@ func (c converter) ToRosetta() ToRosettaConverter {
 func (c converter) UnsignedTx(ops []*rosettatypes.Operation) (tx authsigning.Tx, err error) {
 	builder := c.newTxBuilder()
 
-	var msgs []sdk.Msg
+	var msgs []seitypes.Msg
 
 	for i := 0; i < len(ops); i++ {
 		op := ops[i]
@@ -152,9 +152,9 @@ func (c converter) UnsignedTx(ops []*rosettatypes.Operation) (tx authsigning.Tx,
 			return nil, crgerrs.WrapError(crgerrs.ErrBadArgument, "operation not found: "+op.Type)
 		}
 
-		msg, ok := protoMessage.(sdk.Msg)
+		msg, ok := protoMessage.(seitypes.Msg)
 		if !ok {
-			return nil, crgerrs.WrapError(crgerrs.ErrBadArgument, "operation is not a valid supported sdk.Msg: "+op.Type)
+			return nil, crgerrs.WrapError(crgerrs.ErrBadArgument, "operation is not a valid supported seitypes.Msg: "+op.Type)
 		}
 
 		err = c.Msg(op.Metadata, msg)
@@ -213,8 +213,8 @@ func (c converter) UnsignedTx(ops []*rosettatypes.Operation) (tx authsigning.Tx,
 	return builder.GetTx(), nil
 }
 
-// Msg unmarshals the rosetta metadata to the given sdk.Msg
-func (c converter) Msg(meta map[string]interface{}, msg sdk.Msg) error {
+// Msg unmarshals the rosetta metadata to the given seitypes.Msg
+func (c converter) Msg(meta map[string]interface{}, msg seitypes.Msg) error {
 	metaBytes, err := json.Marshal(meta)
 	if err != nil {
 		return err
@@ -222,7 +222,7 @@ func (c converter) Msg(meta map[string]interface{}, msg sdk.Msg) error {
 	return c.cdc.UnmarshalJSON(metaBytes, msg)
 }
 
-func (c converter) Meta(msg sdk.Msg) (meta map[string]interface{}, err error) {
+func (c converter) Meta(msg seitypes.Msg) (meta map[string]interface{}, err error) {
 	b, err := c.cdc.MarshalJSON(msg)
 	if err != nil {
 		return nil, crgerrs.WrapError(crgerrs.ErrCodec, err.Error())
@@ -239,7 +239,7 @@ func (c converter) Meta(msg sdk.Msg) (meta map[string]interface{}, err error) {
 // Ops will create an operation for each msg signer
 // with the message proto name as type, and the raw fields
 // as metadata
-func (c converter) Ops(status string, msg sdk.Msg) ([]*rosettatypes.Operation, error) {
+func (c converter) Ops(status string, msg seitypes.Msg) ([]*rosettatypes.Operation, error) {
 	opName := sdk.MsgTypeURL(msg)
 
 	meta, err := c.Meta(msg)
@@ -342,7 +342,7 @@ func sdkEventToBalanceOperations(status string, event abci.Event) (operations []
 	default:
 		return nil, false
 	case banktypes.EventTypeCoinSpent:
-		spender := sdk.MustAccAddressFromBech32((string)(event.Attributes[0].Value))
+		spender := seitypes.MustAccAddressFromBech32((string)(event.Attributes[0].Value))
 		coins, err := sdk.ParseCoinsNormalized((string)(event.Attributes[1].Value))
 		if err != nil {
 			panic(err)
@@ -353,7 +353,7 @@ func sdkEventToBalanceOperations(status string, event abci.Event) (operations []
 		accountIdentifier = spender.String()
 
 	case banktypes.EventTypeCoinReceived:
-		receiver := sdk.MustAccAddressFromBech32((string)(event.Attributes[0].Value))
+		receiver := seitypes.MustAccAddressFromBech32((string)(event.Attributes[0].Value))
 		coins, err := sdk.ParseCoinsNormalized((string)(event.Attributes[1].Value))
 		if err != nil {
 			panic(err)

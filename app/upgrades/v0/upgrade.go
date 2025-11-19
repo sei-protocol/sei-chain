@@ -50,7 +50,7 @@ func (h HardForkUpgradeHandler) ExecuteHandler(ctx sdk.Context) error {
 
 func (h HardForkUpgradeHandler) migrateGringotts(ctx sdk.Context, govKeeper *wasmkeeper.PermissionedKeeper) error {
 	var (
-		contractAddr sdk.AccAddress
+		contractAddr seitypes.AccAddress
 		newCodeID    uint64
 		msg          []byte
 	)
@@ -65,7 +65,7 @@ func (h HardForkUpgradeHandler) migrateGringotts(ctx sdk.Context, govKeeper *was
 
 	// Note: Since we're using a GovPermissionKeeper, the caller is not used/required,
 	// since the authz policy will automatically allow the migration.
-	_, err := govKeeper.Migrate(ctx, contractAddr, sdk.AccAddress{}, newCodeID, msg)
+	_, err := govKeeper.Migrate(ctx, contractAddr, seitypes.AccAddress{}, newCodeID, msg)
 	if err != nil {
 		return fmt.Errorf("failed to execute wasm migration: %w", err)
 	}

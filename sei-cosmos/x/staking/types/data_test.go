@@ -17,11 +17,11 @@ var (
 	addr1, _ = sdk.Bech32ifyAddressBytes(sdk.Bech32PrefixAccAddr, pk1.Address().Bytes())
 	addr2, _ = sdk.Bech32ifyAddressBytes(sdk.Bech32PrefixAccAddr, pk2.Address().Bytes())
 	addr3, _ = sdk.Bech32ifyAddressBytes(sdk.Bech32PrefixAccAddr, pk3.Address().Bytes())
-	valAddr1 = sdk.ValAddress(pk1.Address())
-	valAddr2 = sdk.ValAddress(pk2.Address())
-	valAddr3 = sdk.ValAddress(pk3.Address())
+	valAddr1 = seitypes.ValAddress(pk1.Address())
+	valAddr2 = seitypes.ValAddress(pk2.Address())
+	valAddr3 = seitypes.ValAddress(pk3.Address())
 
-	emptyAddr   sdk.ValAddress
+	emptyAddr   seitypes.ValAddress
 	emptyPubkey cryptotypes.PubKey
 )
 

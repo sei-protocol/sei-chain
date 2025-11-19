@@ -32,7 +32,7 @@ func RegisterLegacyAminoCodec(cdc *codec.LegacyAmino) { //nolint:staticcheck
 
 func RegisterInterfaces(registry types.InterfaceRegistry) {
 	registry.RegisterImplementations(
-		(*sdk.Msg)(nil),
+		(*seitypes.Msg)(nil),
 		&MsgStoreCode{},
 		&MsgInstantiateContract{},
 		&MsgExecuteContract{},

@@ -42,7 +42,7 @@ func TestAddressConversions(t *testing.T) {
 		require.NotNil(t, seiPubkey)
 
 		// Verify the sei address is derived from the pubkey
-		expectedSeiAddr := sdk.AccAddress(seiPubkey.Address())
+		expectedSeiAddr := seitypes.AccAddress(seiPubkey.Address())
 		require.Equal(t, expectedSeiAddr, seiAddr)
 	})
 }
@@ -128,7 +128,7 @@ func TestKeyConversionConsistency(t *testing.T) {
 	require.Equal(t, seiPubkey, *returnedSeiPubkey.(*secp256k1.PubKey))
 
 	// The sei address should be derived from the pubkey
-	expectedSeiAddr := sdk.AccAddress(seiPubkey.Address())
+	expectedSeiAddr := seitypes.AccAddress(seiPubkey.Address())
 	require.Equal(t, expectedSeiAddr, seiAddr)
 }
 

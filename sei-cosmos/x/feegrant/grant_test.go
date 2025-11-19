@@ -14,9 +14,9 @@ import (
 
 func TestGrant(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	addr, err := sdk.AccAddressFromBech32("sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz")
+	addr, err := seitypes.AccAddressFromBech32("sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz")
 	require.NoError(t, err)
-	addr2, err := sdk.AccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")
+	addr2, err := seitypes.AccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")
 	require.NoError(t, err)
 	atom := sdk.NewCoins(sdk.NewInt64Coin("atom", 555))
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{
@@ -29,8 +29,8 @@ func TestGrant(t *testing.T) {
 	cdc := app.AppCodec()
 
 	cases := map[string]struct {
-		granter sdk.AccAddress
-		grantee sdk.AccAddress
+		granter seitypes.AccAddress
+		grantee seitypes.AccAddress
 		limit   sdk.Coins
 		expires time.Time
 		valid   bool

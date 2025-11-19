@@ -7,6 +7,7 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // MaxGasWanted defines the max gas allowed.
@@ -15,28 +16,28 @@ const MaxGasWanted = uint64((1 << 63) - 1)
 // Interface implementation checks.
 var (
 	_, _, _, _ codectypes.UnpackInterfacesMessage = &Tx{}, &TxBody{}, &AuthInfo{}, &SignerInfo{}
-	_          sdk.Tx                             = &Tx{}
+	_          seitypes.Tx                        = &Tx{}
 )
 
-// GetMsgs implements the GetMsgs method on sdk.Tx.
-func (t *Tx) GetMsgs() []sdk.Msg {
+// GetMsgs implements the GetMsgs method on seitypes.Tx.
+func (t *Tx) GetMsgs() []seitypes.Msg {
 	if t == nil || t.Body == nil {
 		return nil
 	}
 
 	anys := t.Body.Messages
-	res := make([]sdk.Msg, len(anys))
+	res := make([]seitypes.Msg, len(anys))
 	for i, any := range anys {
 		cached := any.GetCachedValue()
 		if cached == nil {
 			panic("Any cached value is nil. Transaction messages must be correctly packed Any values.")
 		}
-		res[i] = cached.(sdk.Msg)
+		res[i] = cached.(seitypes.Msg)
 	}
 	return res
 }
 
-// ValidateBasic implements the ValidateBasic method on sdk.Tx.
+// ValidateBasic implements the ValidateBasic method on seitypes.Tx.
 func (t *Tx) ValidateBasic() error {
 	if t == nil {
 		return fmt.Errorf("bad Tx")
@@ -79,7 +80,7 @@ func (t *Tx) ValidateBasic() error {
 	}
 
 	if fee.Payer != "" {
-		_, err := sdk.AccAddressFromBech32(fee.Payer)
+		_, err := seitypes.AccAddressFromBech32(fee.Payer)
 		if err != nil {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid fee payer address (%s)", err)
 		}
@@ -108,8 +109,8 @@ func (t *Tx) GetGasEstimate() uint64 {
 // GetSigners retrieves all the signers of a tx.
 // This includes all unique signers of the messages (in order),
 // as well as the FeePayer (if specified and not already included).
-func (t *Tx) GetSigners() []sdk.AccAddress {
-	var signers []sdk.AccAddress
+func (t *Tx) GetSigners() []seitypes.AccAddress {
+	var signers []seitypes.AccAddress
 	seen := map[string]bool{}
 
 	for _, msg := range t.GetMsgs() {
@@ -124,7 +125,7 @@ func (t *Tx) GetSigners() []sdk.AccAddress {
 	// ensure any specified fee payer is included in the required signers (at the end)
 	feePayer := t.AuthInfo.Fee.Payer
 	if feePayer != "" && !seen[feePayer] {
-		payerAddr := sdk.MustAccAddressFromBech32(feePayer)
+		payerAddr := seitypes.MustAccAddressFromBech32(feePayer)
 		signers = append(signers, payerAddr)
 	}
 
@@ -137,19 +138,19 @@ func (t *Tx) GetGas() uint64 {
 func (t *Tx) GetFee() sdk.Coins {
 	return t.AuthInfo.Fee.Amount
 }
-func (t *Tx) FeePayer() sdk.AccAddress {
+func (t *Tx) FeePayer() seitypes.AccAddress {
 	feePayer := t.AuthInfo.Fee.Payer
 	if feePayer != "" {
-		return sdk.MustAccAddressFromBech32(feePayer)
+		return seitypes.MustAccAddressFromBech32(feePayer)
 	}
 	// use first signer as default if no payer specified
 	return t.GetSigners()[0]
 }
 
-func (t *Tx) FeeGranter() sdk.AccAddress {
+func (t *Tx) FeeGranter() seitypes.AccAddress {
 	feePayer := t.AuthInfo.Fee.Granter
 	if feePayer != "" {
-		return sdk.MustAccAddressFromBech32(feePayer)
+		return seitypes.MustAccAddressFromBech32(feePayer)
 	}
 	return nil
 }
@@ -172,7 +173,7 @@ func (t *Tx) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
 // UnpackInterfaces implements the UnpackInterfaceMessages.UnpackInterfaces method
 func (m *TxBody) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
 	for _, any := range m.Messages {
-		var msg sdk.Msg
+		var msg seitypes.Msg
 		err := unpacker.UnpackAny(any, &msg)
 		if err != nil {
 			return err
@@ -198,8 +199,8 @@ func (m *SignerInfo) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
 	return unpacker.UnpackAny(m.PublicKey, new(cryptotypes.PubKey))
 }
 
-// RegisterInterfaces registers the sdk.Tx interface.
+// RegisterInterfaces registers the seitypes.Tx interface.
 func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
-	registry.RegisterInterface("cosmos.tx.v1beta1.Tx", (*sdk.Tx)(nil))
-	registry.RegisterImplementations((*sdk.Tx)(nil), &Tx{})
+	registry.RegisterInterface("cosmos.tx.v1beta1.Tx", (*seitypes.Tx)(nil))
+	registry.RegisterImplementations((*seitypes.Tx)(nil), &Tx{})
 }

@@ -9,7 +9,7 @@ import (
 )
 
 // initialize starting info for a new delegation
-func (k Keeper) initializeDelegation(ctx sdk.Context, val sdk.ValAddress, del sdk.AccAddress) {
+func (k Keeper) initializeDelegation(ctx sdk.Context, val seitypes.ValAddress, del seitypes.AccAddress) {
 	// period has already been incremented - we want to store the period ended by this delegation action
 	previousPeriod := k.GetValidatorCurrentRewards(ctx, val).Period - 1
 

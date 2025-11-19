@@ -60,7 +60,7 @@ func handleStoreCodeProposal(ctx sdk.Context, k types.ContractOpsKeeper, p types
 		return err
 	}
 
-	runAsAddr, err := sdk.AccAddressFromBech32(p.RunAs)
+	runAsAddr, err := seitypes.AccAddressFromBech32(p.RunAs)
 	if err != nil {
 		return sdkerrors.Wrap(err, "run as address")
 	}
@@ -75,13 +75,13 @@ func handleInstantiateProposal(ctx sdk.Context, k types.ContractOpsKeeper, p typ
 	if err := p.ValidateBasic(); err != nil {
 		return err
 	}
-	runAsAddr, err := sdk.AccAddressFromBech32(p.RunAs)
+	runAsAddr, err := seitypes.AccAddressFromBech32(p.RunAs)
 	if err != nil {
 		return sdkerrors.Wrap(err, "run as address")
 	}
-	var adminAddr sdk.AccAddress
+	var adminAddr seitypes.AccAddress
 	if p.Admin != "" {
-		if adminAddr, err = sdk.AccAddressFromBech32(p.Admin); err != nil {
+		if adminAddr, err = seitypes.AccAddressFromBech32(p.Admin); err != nil {
 			return sdkerrors.Wrap(err, "admin")
 		}
 	}
@@ -103,7 +103,7 @@ func handleMigrateProposal(ctx sdk.Context, k types.ContractOpsKeeper, p types.M
 		return err
 	}
 
-	contractAddr, err := sdk.AccAddressFromBech32(p.Contract)
+	contractAddr, err := seitypes.AccAddressFromBech32(p.Contract)
 	if err != nil {
 		return sdkerrors.Wrap(err, "contract")
 	}
@@ -128,7 +128,7 @@ func handleSudoProposal(ctx sdk.Context, k types.ContractOpsKeeper, p types.Sudo
 		return err
 	}
 
-	contractAddr, err := sdk.AccAddressFromBech32(p.Contract)
+	contractAddr, err := seitypes.AccAddressFromBech32(p.Contract)
 	if err != nil {
 		return sdkerrors.Wrap(err, "contract")
 	}
@@ -149,11 +149,11 @@ func handleExecuteProposal(ctx sdk.Context, k types.ContractOpsKeeper, p types.E
 		return err
 	}
 
-	contractAddr, err := sdk.AccAddressFromBech32(p.Contract)
+	contractAddr, err := seitypes.AccAddressFromBech32(p.Contract)
 	if err != nil {
 		return sdkerrors.Wrap(err, "contract")
 	}
-	runAsAddr, err := sdk.AccAddressFromBech32(p.RunAs)
+	runAsAddr, err := seitypes.AccAddressFromBech32(p.RunAs)
 	if err != nil {
 		return sdkerrors.Wrap(err, "run as address")
 	}
@@ -173,11 +173,11 @@ func handleUpdateAdminProposal(ctx sdk.Context, k types.ContractOpsKeeper, p typ
 	if err := p.ValidateBasic(); err != nil {
 		return err
 	}
-	contractAddr, err := sdk.AccAddressFromBech32(p.Contract)
+	contractAddr, err := seitypes.AccAddressFromBech32(p.Contract)
 	if err != nil {
 		return sdkerrors.Wrap(err, "contract")
 	}
-	newAdminAddr, err := sdk.AccAddressFromBech32(p.NewAdmin)
+	newAdminAddr, err := seitypes.AccAddressFromBech32(p.NewAdmin)
 	if err != nil {
 		return sdkerrors.Wrap(err, "run as address")
 	}
@@ -190,7 +190,7 @@ func handleClearAdminProposal(ctx sdk.Context, k types.ContractOpsKeeper, p type
 		return err
 	}
 
-	contractAddr, err := sdk.AccAddressFromBech32(p.Contract)
+	contractAddr, err := seitypes.AccAddressFromBech32(p.Contract)
 	if err != nil {
 		return sdkerrors.Wrap(err, "contract")
 	}

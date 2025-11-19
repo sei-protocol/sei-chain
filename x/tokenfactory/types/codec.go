@@ -19,22 +19,22 @@ func RegisterCodec(cdc *codec.LegacyAmino) {
 }
 
 func RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
-	registry.RegisterImplementations((*sdk.Msg)(nil),
+	registry.RegisterImplementations((*seitypes.Msg)(nil),
 		&MsgCreateDenom{},
 	)
-	registry.RegisterImplementations((*sdk.Msg)(nil),
+	registry.RegisterImplementations((*seitypes.Msg)(nil),
 		&MsgUpdateDenom{},
 	)
-	registry.RegisterImplementations((*sdk.Msg)(nil),
+	registry.RegisterImplementations((*seitypes.Msg)(nil),
 		&MsgMint{},
 	)
-	registry.RegisterImplementations((*sdk.Msg)(nil),
+	registry.RegisterImplementations((*seitypes.Msg)(nil),
 		&MsgBurn{},
 	)
-	registry.RegisterImplementations((*sdk.Msg)(nil),
+	registry.RegisterImplementations((*seitypes.Msg)(nil),
 		&MsgChangeAdmin{},
 	)
-	registry.RegisterImplementations((*sdk.Msg)(nil),
+	registry.RegisterImplementations((*seitypes.Msg)(nil),
 		&MsgSetDenomMetadata{},
 	)
 

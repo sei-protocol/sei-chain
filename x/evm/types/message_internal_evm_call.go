@@ -5,10 +5,10 @@ import (
 )
 
 var (
-	_ sdk.Msg = &MsgInternalEVMCall{}
+	_ seitypes.Msg = &MsgInternalEVMCall{}
 )
 
-func NewMessageInternalEVMCall(from sdk.AccAddress, to string, value *sdk.Int, data []byte) *MsgInternalEVMCall {
+func NewMessageInternalEVMCall(from seitypes.AccAddress, to string, value *sdk.Int, data []byte) *MsgInternalEVMCall {
 	return &MsgInternalEVMCall{
 		Sender: from.String(),
 		To:     to,
@@ -17,12 +17,12 @@ func NewMessageInternalEVMCall(from sdk.AccAddress, to string, value *sdk.Int, d
 	}
 }
 
-func (msg *MsgInternalEVMCall) GetSigners() []sdk.AccAddress {
-	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
+func (msg *MsgInternalEVMCall) GetSigners() []seitypes.AccAddress {
+	senderAddr, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil {
-		return []sdk.AccAddress{}
+		return []seitypes.AccAddress{}
 	}
-	return []sdk.AccAddress{senderAddr}
+	return []seitypes.AccAddress{senderAddr}
 }
 
 func (msg *MsgInternalEVMCall) ValidateBasic() error {

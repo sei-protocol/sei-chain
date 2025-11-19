@@ -63,7 +63,7 @@ The association between the sei address and the eth address will also be created
 				return err
 			}
 
-			addr, err := sdk.AccAddressFromBech32(args[0])
+			addr, err := seitypes.AccAddressFromBech32(args[0])
 			if err != nil {
 				// this args[0] is for the key name so "admin"
 				info, err := kb.Key(args[0])
@@ -209,7 +209,7 @@ The association between the sei address and the eth address will also be created
 	return cmd
 }
 
-func getPrivateKeyOfAddr(kb keyring.Keyring, addr sdk.Address) (*ecdsa.PrivateKey, error) {
+func getPrivateKeyOfAddr(kb keyring.Keyring, addr seitypes.Address) (*ecdsa.PrivateKey, error) {
 	keys, err := kb.List()
 	if err != nil {
 		return nil, err

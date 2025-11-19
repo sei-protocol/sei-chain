@@ -11,6 +11,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/cosmos/cosmos-sdk/x/authz"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 var _ authz.QueryServer = Keeper{}
@@ -21,12 +22,12 @@ func (k Keeper) Grants(c context.Context, req *authz.QueryGrantsRequest) (*authz
 		return nil, status.Errorf(codes.InvalidArgument, "empty request")
 	}
 
-	granter, err := sdk.AccAddressFromBech32(req.Granter)
+	granter, err := seitypes.AccAddressFromBech32(req.Granter)
 	if err != nil {
 		return nil, err
 	}
 
-	grantee, err := sdk.AccAddressFromBech32(req.Grantee)
+	grantee, err := seitypes.AccAddressFromBech32(req.Grantee)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +87,7 @@ func (k Keeper) GranterGrants(c context.Context, req *authz.QueryGranterGrantsRe
 		return nil, status.Errorf(codes.InvalidArgument, "empty request")
 	}
 
-	granter, err := sdk.AccAddressFromBech32(req.Granter)
+	granter, err := seitypes.AccAddressFromBech32(req.Granter)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +135,7 @@ func (k Keeper) GranteeGrants(c context.Context, req *authz.QueryGranteeGrantsRe
 		return nil, status.Errorf(codes.InvalidArgument, "empty request")
 	}
 
-	grantee, err := sdk.AccAddressFromBech32(req.Grantee)
+	grantee, err := seitypes.AccAddressFromBech32(req.Grantee)
 	if err != nil {
 		return nil, err
 	}

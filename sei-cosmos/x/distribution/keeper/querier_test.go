@@ -31,7 +31,7 @@ func getQueriedParams(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, que
 	return params
 }
 
-func getQueriedValidatorOutstandingRewards(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, querier sdk.Querier, validatorAddr sdk.ValAddress) sdk.DecCoins {
+func getQueriedValidatorOutstandingRewards(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, querier sdk.Querier, validatorAddr seitypes.ValAddress) sdk.DecCoins {
 	query := abci.RequestQuery{
 		Path: strings.Join([]string{custom, types.QuerierRoute, types.QueryValidatorOutstandingRewards}, "/"),
 		Data: cdc.MustMarshalJSON(types.NewQueryValidatorOutstandingRewardsParams(validatorAddr)),
@@ -45,7 +45,7 @@ func getQueriedValidatorOutstandingRewards(t *testing.T, ctx sdk.Context, cdc *c
 	return outstandingRewards.GetRewards()
 }
 
-func getQueriedValidatorCommission(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, querier sdk.Querier, validatorAddr sdk.ValAddress) sdk.DecCoins {
+func getQueriedValidatorCommission(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, querier sdk.Querier, validatorAddr seitypes.ValAddress) sdk.DecCoins {
 	query := abci.RequestQuery{
 		Path: strings.Join([]string{custom, types.QuerierRoute, types.QueryValidatorCommission}, "/"),
 		Data: cdc.MustMarshalJSON(types.NewQueryValidatorCommissionParams(validatorAddr)),
@@ -59,7 +59,7 @@ func getQueriedValidatorCommission(t *testing.T, ctx sdk.Context, cdc *codec.Leg
 	return validatorCommission.GetCommission()
 }
 
-func getQueriedValidatorSlashes(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, querier sdk.Querier, validatorAddr sdk.ValAddress, startHeight uint64, endHeight uint64) (slashes []types.ValidatorSlashEvent) {
+func getQueriedValidatorSlashes(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, querier sdk.Querier, validatorAddr seitypes.ValAddress, startHeight uint64, endHeight uint64) (slashes []types.ValidatorSlashEvent) {
 	query := abci.RequestQuery{
 		Path: strings.Join([]string{custom, types.QuerierRoute, types.QueryValidatorSlashes}, "/"),
 		Data: cdc.MustMarshalJSON(types.NewQueryValidatorSlashesParams(validatorAddr, startHeight, endHeight)),
@@ -72,7 +72,7 @@ func getQueriedValidatorSlashes(t *testing.T, ctx sdk.Context, cdc *codec.Legacy
 	return
 }
 
-func getQueriedDelegationRewards(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, querier sdk.Querier, delegatorAddr sdk.AccAddress, validatorAddr sdk.ValAddress) (rewards sdk.DecCoins) {
+func getQueriedDelegationRewards(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, querier sdk.Querier, delegatorAddr seitypes.AccAddress, validatorAddr seitypes.ValAddress) (rewards sdk.DecCoins) {
 	query := abci.RequestQuery{
 		Path: strings.Join([]string{custom, types.QuerierRoute, types.QueryDelegationRewards}, "/"),
 		Data: cdc.MustMarshalJSON(types.NewQueryDelegationRewardsParams(delegatorAddr, validatorAddr)),
@@ -85,7 +85,7 @@ func getQueriedDelegationRewards(t *testing.T, ctx sdk.Context, cdc *codec.Legac
 	return
 }
 
-func getQueriedDelegatorTotalRewards(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, querier sdk.Querier, delegatorAddr sdk.AccAddress) (response types.QueryDelegatorTotalRewardsResponse) {
+func getQueriedDelegatorTotalRewards(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, querier sdk.Querier, delegatorAddr seitypes.AccAddress) (response types.QueryDelegatorTotalRewardsResponse) {
 	query := abci.RequestQuery{
 		Path: strings.Join([]string{custom, types.QuerierRoute, types.QueryDelegatorTotalRewards}, "/"),
 		Data: cdc.MustMarshalJSON(types.NewQueryDelegatorParams(delegatorAddr)),
@@ -154,7 +154,7 @@ func TestQueries(t *testing.T) {
 	require.Equal(t, commission, retCommission)
 
 	// test delegator's total rewards query
-	delRewards := getQueriedDelegatorTotalRewards(t, ctx, cdc, querier, sdk.AccAddress(valOpAddr1))
+	delRewards := getQueriedDelegatorTotalRewards(t, ctx, cdc, querier, seitypes.AccAddress(valOpAddr1))
 	require.Equal(t, types.QueryDelegatorTotalRewardsResponse{}, delRewards)
 
 	// test validator slashes query with height range
@@ -177,17 +177,17 @@ func TestQueries(t *testing.T) {
 	staking.EndBlocker(ctx, app.StakingKeeper)
 
 	val := app.StakingKeeper.Validator(ctx, valOpAddr1)
-	rewards := getQueriedDelegationRewards(t, ctx, cdc, querier, sdk.AccAddress(valOpAddr1), valOpAddr1)
+	rewards := getQueriedDelegationRewards(t, ctx, cdc, querier, seitypes.AccAddress(valOpAddr1), valOpAddr1)
 	require.True(t, rewards.IsZero())
 	initial := int64(10)
 	ctx = ctx.WithBlockHeight(ctx.BlockHeight() + 1)
 	tokens := sdk.DecCoins{{Denom: sdk.DefaultBondDenom, Amount: sdk.NewDec(initial)}}
 	app.DistrKeeper.AllocateTokensToValidator(ctx, val, tokens)
-	rewards = getQueriedDelegationRewards(t, ctx, cdc, querier, sdk.AccAddress(valOpAddr1), valOpAddr1)
+	rewards = getQueriedDelegationRewards(t, ctx, cdc, querier, seitypes.AccAddress(valOpAddr1), valOpAddr1)
 	require.Equal(t, sdk.DecCoins{{Denom: sdk.DefaultBondDenom, Amount: sdk.NewDec(initial / 2)}}, rewards)
 
 	// test delegator's total rewards query
-	delRewards = getQueriedDelegatorTotalRewards(t, ctx, cdc, querier, sdk.AccAddress(valOpAddr1))
+	delRewards = getQueriedDelegatorTotalRewards(t, ctx, cdc, querier, seitypes.AccAddress(valOpAddr1))
 	expectedDelReward := types.NewDelegationDelegatorReward(valOpAddr1,
 		sdk.DecCoins{sdk.NewInt64DecCoin("usei", 5)})
 	wantDelRewards := types.NewQueryDelegatorTotalRewardsResponse(

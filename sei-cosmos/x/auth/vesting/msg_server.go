@@ -12,6 +12,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 type msgServer struct {
@@ -36,11 +37,11 @@ func (s msgServer) CreateVestingAccount(goCtx context.Context, msg *types.MsgCre
 		return nil, err
 	}
 
-	from, err := sdk.AccAddressFromBech32(msg.FromAddress)
+	from, err := seitypes.AccAddressFromBech32(msg.FromAddress)
 	if err != nil {
 		return nil, err
 	}
-	to, err := sdk.AccAddressFromBech32(msg.ToAddress)
+	to, err := seitypes.AccAddressFromBech32(msg.ToAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -58,9 +59,9 @@ func (s msgServer) CreateVestingAccount(goCtx context.Context, msg *types.MsgCre
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid account type; expected: BaseAccount, got: %T", baseAccount)
 	}
 
-	var admin sdk.AccAddress
+	var admin seitypes.AccAddress
 	if len(msg.Admin) > 0 {
-		admin, err = sdk.AccAddressFromBech32(msg.Admin)
+		admin, err = seitypes.AccAddressFromBech32(msg.Admin)
 		if err != nil {
 			return nil, err
 		}

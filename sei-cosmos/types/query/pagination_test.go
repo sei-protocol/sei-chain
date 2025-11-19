@@ -72,7 +72,7 @@ func (s *paginationTestSuite) TestPagination() {
 	}
 
 	balances = balances.Sort()
-	addr1 := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	addr1 := seitypes.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
 	acc1 := app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
 	app.AccountKeeper.SetAccount(ctx, acc1)
 	s.Require().NoError(apptesting.FundAccount(app.BankKeeper, ctx, addr1, balances))
@@ -181,7 +181,7 @@ func (s *paginationTestSuite) TestReversePagination() {
 	}
 
 	balances = balances.Sort()
-	addr1 := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	addr1 := seitypes.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
 	acc1 := app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
 	app.AccountKeeper.SetAccount(ctx, acc1)
 	s.Require().NoError(apptesting.FundAccount(app.BankKeeper, ctx, addr1, balances))

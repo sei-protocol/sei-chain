@@ -55,7 +55,7 @@ func TestLegacyAminoJSONHandler_GetSignBytes(t *testing.T) {
 	expectedSignBz := legacytx.StdSignBytes(chainId, accNum, seqNum, timeout, legacytx.StdFee{
 		Amount: coins,
 		Gas:    gas,
-	}, []sdk.Msg{msg}, memo)
+	}, []seitypes.Msg{msg}, memo)
 
 	require.Equal(t, expectedSignBz, signBz)
 

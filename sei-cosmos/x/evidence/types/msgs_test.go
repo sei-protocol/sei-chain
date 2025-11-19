@@ -12,7 +12,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/evidence/types"
 )
 
-func testMsgSubmitEvidence(t *testing.T, e exported.Evidence, s sdk.AccAddress) exported.MsgSubmitEvidenceI {
+func testMsgSubmitEvidence(t *testing.T, e exported.Evidence, s seitypes.AccAddress) exported.MsgSubmitEvidenceI {
 	msg, err := types.NewMsgSubmitEvidence(s, e)
 	require.NoError(t, err)
 	return msg
@@ -20,11 +20,11 @@ func testMsgSubmitEvidence(t *testing.T, e exported.Evidence, s sdk.AccAddress) 
 
 func TestMsgSubmitEvidence(t *testing.T) {
 	pk := ed25519.GenPrivKey()
-	submitter := sdk.AccAddress("test________________")
+	submitter := seitypes.AccAddress("test________________")
 
 	testCases := []struct {
-		msg       sdk.Msg
-		submitter sdk.AccAddress
+		msg       seitypes.Msg
+		submitter seitypes.AccAddress
 		expectErr bool
 	}{
 		{
@@ -54,7 +54,7 @@ func TestMsgSubmitEvidence(t *testing.T) {
 		require.Equal(t, tc.expectErr, tc.msg.ValidateBasic() != nil, "unexpected result for tc #%d", i)
 
 		if !tc.expectErr {
-			require.Equal(t, tc.msg.GetSigners(), []sdk.AccAddress{tc.submitter}, "unexpected result for tc #%d", i)
+			require.Equal(t, tc.msg.GetSigners(), []seitypes.AccAddress{tc.submitter}, "unexpected result for tc #%d", i)
 		}
 	}
 }

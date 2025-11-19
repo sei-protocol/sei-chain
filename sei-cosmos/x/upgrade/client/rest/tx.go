@@ -71,7 +71,7 @@ func newPostPlanHandler(clientCtx client.Context) http.HandlerFunc {
 			return
 		}
 
-		fromAddr, err := sdk.AccAddressFromBech32(req.BaseReq.From)
+		fromAddr, err := seitypes.AccAddressFromBech32(req.BaseReq.From)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -103,7 +103,7 @@ func newCancelPlanHandler(clientCtx client.Context) http.HandlerFunc {
 			return
 		}
 
-		fromAddr, err := sdk.AccAddressFromBech32(req.BaseReq.From)
+		fromAddr, err := seitypes.AccAddressFromBech32(req.BaseReq.From)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}

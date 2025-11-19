@@ -139,7 +139,7 @@ func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, call
 		return nil, 0, err
 	}
 	cwAddr := args[0].(string)
-	cwAddress, err := sdk.AccAddressFromBech32(cwAddr)
+	cwAddress, err := seitypes.AccAddressFromBech32(cwAddr)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -171,7 +171,7 @@ func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, cal
 		return nil, 0, err
 	}
 	cwAddr := args[0].(string)
-	cwAddress, err := sdk.AccAddressFromBech32(cwAddr)
+	cwAddress, err := seitypes.AccAddressFromBech32(cwAddr)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -203,7 +203,7 @@ func (p PrecompileExecutor) AddCW1155(ctx sdk.Context, method *ethabi.Method, ca
 		return nil, 0, err
 	}
 	cwAddr := args[0].(string)
-	cwAddress, err := sdk.AccAddressFromBech32(cwAddr)
+	cwAddress, err := seitypes.AccAddressFromBech32(cwAddr)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -25,7 +25,7 @@ func addressStringCaller(require *require.Assertions, prefix byte, max uint32, c
 			return
 		default:
 			binary.BigEndian.PutUint32(bz[1:], i)
-			str := types.AccAddress(bz).String()
+			str := seitypes.AccAddress(bz).String()
 			require.True(str != "")
 		}
 

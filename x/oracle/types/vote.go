@@ -10,7 +10,7 @@ import (
 )
 
 // NewAggregateExchangeRateVote creates a AggregateExchangeRateVote instance
-func NewAggregateExchangeRateVote(exchangeRateTuples ExchangeRateTuples, voter sdk.ValAddress) AggregateExchangeRateVote {
+func NewAggregateExchangeRateVote(exchangeRateTuples ExchangeRateTuples, voter seitypes.ValAddress) AggregateExchangeRateVote {
 	return AggregateExchangeRateVote{
 		ExchangeRateTuples: exchangeRateTuples,
 		Voter:              voter.String(),

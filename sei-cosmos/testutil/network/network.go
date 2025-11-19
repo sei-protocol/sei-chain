@@ -146,8 +146,8 @@ type (
 		APIAddress string
 		RPCAddress string
 		P2PAddress string
-		Address    sdk.AccAddress
-		ValAddress sdk.ValAddress
+		Address    seitypes.AccAddress
+		ValAddress seitypes.ValAddress
 		RPCClient  tmclient.Client
 		GoCtx      context.Context
 
@@ -304,7 +304,7 @@ func New(t *testing.T, cfg Config) *Network {
 		require.NoError(t, err)
 
 		createValMsg, err := stakingtypes.NewMsgCreateValidator(
-			sdk.ValAddress(addr),
+			seitypes.ValAddress(addr),
 			valPubKeys[i],
 			sdk.NewCoin(cfg.BondDenom, cfg.BondedTokens),
 			stakingtypes.NewDescription(nodeDirName, "", "", "", ""),
@@ -364,7 +364,7 @@ func New(t *testing.T, cfg Config) *Network {
 			P2PAddress: tmCfg.P2P.ListenAddress,
 			APIAddress: apiAddr,
 			Address:    addr,
-			ValAddress: sdk.ValAddress(addr),
+			ValAddress: seitypes.ValAddress(addr),
 			GoCtx:      goCtx,
 			cancelFn:   cancelFn,
 		}

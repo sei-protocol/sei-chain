@@ -2,6 +2,7 @@ package authz
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 var (
@@ -21,7 +22,7 @@ func (a GenericAuthorization) MsgTypeURL() string {
 }
 
 // Accept implements Authorization.Accept.
-func (a GenericAuthorization) Accept(ctx sdk.Context, msg sdk.Msg) (AcceptResponse, error) {
+func (a GenericAuthorization) Accept(ctx sdk.Context, msg seitypes.Msg) (AcceptResponse, error) {
 	return AcceptResponse{Accept: true}, nil
 }
 

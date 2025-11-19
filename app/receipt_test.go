@@ -939,7 +939,7 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, expectedData, receipt.Logs[0].Data)
 }
 
-func signTx(txBuilder client.TxBuilder, privKey cryptotypes.PrivKey, acc authtypes.AccountI) sdk.Tx {
+func signTx(txBuilder client.TxBuilder, privKey cryptotypes.PrivKey, acc authtypes.AccountI) seitypes.Tx {
 	var sigsV2 []signing.SignatureV2
 	sigV2 := signing.SignatureV2{
 		PubKey: privKey.PubKey(),
@@ -970,7 +970,7 @@ func signTx(txBuilder client.TxBuilder, privKey cryptotypes.PrivKey, acc authtyp
 	return txBuilder.GetTx()
 }
 
-func signTxMultiple(txBuilder client.TxBuilder, privKeys []cryptotypes.PrivKey, accs []authtypes.AccountI) sdk.Tx {
+func signTxMultiple(txBuilder client.TxBuilder, privKeys []cryptotypes.PrivKey, accs []authtypes.AccountI) seitypes.Tx {
 	var sigsV2 []signing.SignatureV2
 	for i, privKey := range privKeys {
 		sigsV2 = append(sigsV2, signing.SignatureV2{

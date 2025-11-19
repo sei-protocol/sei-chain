@@ -88,7 +88,7 @@ func TestMigrate3to4(t *testing.T) {
 	input.OracleKeeper.DeleteVotePenaltyCounter(input.Ctx, addr)
 
 	numPenaltyCounters := 0
-	handler := func(operators sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool) {
+	handler := func(operators seitypes.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool) {
 		numPenaltyCounters++
 		return false
 	}
@@ -104,7 +104,7 @@ func TestMigrate4to5(t *testing.T) {
 
 	missCounter := uint64(12)
 	oldPrevoteKey := []byte{0x04}
-	genPrevoteKey := func(v sdk.ValAddress) []byte {
+	genPrevoteKey := func(v seitypes.ValAddress) []byte {
 		return append(oldPrevoteKey, address.MustLengthPrefix(v)...)
 	}
 

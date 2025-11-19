@@ -10,15 +10,15 @@ var _ types.ContractOpsKeeper = PermissionedKeeper{}
 
 // decoratedKeeper contains a subset of the wasm keeper that are already or can be guarded by an authorization policy in the future
 type decoratedKeeper interface {
-	create(ctx sdk.Context, creator sdk.AccAddress, wasmCode []byte, instantiateAccess *types.AccessConfig, authZ AuthorizationPolicy) (codeID uint64, err error)
-	instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.AccAddress, initMsg []byte, label string, deposit sdk.Coins, authZ AuthorizationPolicy) (sdk.AccAddress, []byte, error)
-	migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, newCodeID uint64, msg []byte, authZ AuthorizationPolicy) ([]byte, error)
-	setContractAdmin(ctx sdk.Context, contractAddress, caller, newAdmin sdk.AccAddress, authZ AuthorizationPolicy) error
+	create(ctx sdk.Context, creator seitypes.AccAddress, wasmCode []byte, instantiateAccess *types.AccessConfig, authZ AuthorizationPolicy) (codeID uint64, err error)
+	instantiate(ctx sdk.Context, codeID uint64, creator, admin seitypes.AccAddress, initMsg []byte, label string, deposit sdk.Coins, authZ AuthorizationPolicy) (seitypes.AccAddress, []byte, error)
+	migrate(ctx sdk.Context, contractAddress seitypes.AccAddress, caller seitypes.AccAddress, newCodeID uint64, msg []byte, authZ AuthorizationPolicy) ([]byte, error)
+	setContractAdmin(ctx sdk.Context, contractAddress, caller, newAdmin seitypes.AccAddress, authZ AuthorizationPolicy) error
 	pinCode(ctx sdk.Context, codeID uint64) error
 	unpinCode(ctx sdk.Context, codeID uint64) error
-	execute(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, msg []byte, coins sdk.Coins) ([]byte, error)
-	Sudo(ctx sdk.Context, contractAddress sdk.AccAddress, msg []byte) ([]byte, error)
-	setContractInfoExtension(ctx sdk.Context, contract sdk.AccAddress, extra types.ContractInfoExtension) error
+	execute(ctx sdk.Context, contractAddress seitypes.AccAddress, caller seitypes.AccAddress, msg []byte, coins sdk.Coins) ([]byte, error)
+	Sudo(ctx sdk.Context, contractAddress seitypes.AccAddress, msg []byte) ([]byte, error)
+	setContractInfoExtension(ctx sdk.Context, contract seitypes.AccAddress, extra types.ContractInfoExtension) error
 	setAccessConfig(ctx sdk.Context, codeID uint64, config types.AccessConfig) error
 }
 
@@ -39,31 +39,31 @@ func NewDefaultPermissionKeeper(nested decoratedKeeper) *PermissionedKeeper {
 	return NewPermissionedKeeper(nested, DefaultAuthorizationPolicy{})
 }
 
-func (p PermissionedKeeper) Create(ctx sdk.Context, creator sdk.AccAddress, wasmCode []byte, instantiateAccess *types.AccessConfig) (codeID uint64, err error) {
+func (p PermissionedKeeper) Create(ctx sdk.Context, creator seitypes.AccAddress, wasmCode []byte, instantiateAccess *types.AccessConfig) (codeID uint64, err error) {
 	return p.nested.create(ctx, creator, wasmCode, instantiateAccess, p.authZPolicy)
 }
 
-func (p PermissionedKeeper) Instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.AccAddress, initMsg []byte, label string, deposit sdk.Coins) (sdk.AccAddress, []byte, error) {
+func (p PermissionedKeeper) Instantiate(ctx sdk.Context, codeID uint64, creator, admin seitypes.AccAddress, initMsg []byte, label string, deposit sdk.Coins) (seitypes.AccAddress, []byte, error) {
 	return p.nested.instantiate(ctx, codeID, creator, admin, initMsg, label, deposit, p.authZPolicy)
 }
 
-func (p PermissionedKeeper) Execute(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, msg []byte, coins sdk.Coins) ([]byte, error) {
+func (p PermissionedKeeper) Execute(ctx sdk.Context, contractAddress seitypes.AccAddress, caller seitypes.AccAddress, msg []byte, coins sdk.Coins) ([]byte, error) {
 	return p.nested.execute(ctx, contractAddress, caller, msg, coins)
 }
 
-func (p PermissionedKeeper) Migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, newCodeID uint64, msg []byte) ([]byte, error) {
+func (p PermissionedKeeper) Migrate(ctx sdk.Context, contractAddress seitypes.AccAddress, caller seitypes.AccAddress, newCodeID uint64, msg []byte) ([]byte, error) {
 	return p.nested.migrate(ctx, contractAddress, caller, newCodeID, msg, p.authZPolicy)
 }
 
-func (p PermissionedKeeper) Sudo(ctx sdk.Context, contractAddress sdk.AccAddress, msg []byte) ([]byte, error) {
+func (p PermissionedKeeper) Sudo(ctx sdk.Context, contractAddress seitypes.AccAddress, msg []byte) ([]byte, error) {
 	return p.nested.Sudo(ctx, contractAddress, msg)
 }
 
-func (p PermissionedKeeper) UpdateContractAdmin(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, newAdmin sdk.AccAddress) error {
+func (p PermissionedKeeper) UpdateContractAdmin(ctx sdk.Context, contractAddress seitypes.AccAddress, caller seitypes.AccAddress, newAdmin seitypes.AccAddress) error {
 	return p.nested.setContractAdmin(ctx, contractAddress, caller, newAdmin, p.authZPolicy)
 }
 
-func (p PermissionedKeeper) ClearContractAdmin(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress) error {
+func (p PermissionedKeeper) ClearContractAdmin(ctx sdk.Context, contractAddress seitypes.AccAddress, caller seitypes.AccAddress) error {
 	return p.nested.setContractAdmin(ctx, contractAddress, caller, nil, p.authZPolicy)
 }
 
@@ -76,7 +76,7 @@ func (p PermissionedKeeper) UnpinCode(ctx sdk.Context, codeID uint64) error {
 }
 
 // SetExtraContractAttributes updates the extra attributes that can be stored with the contract info
-func (p PermissionedKeeper) SetContractInfoExtension(ctx sdk.Context, contract sdk.AccAddress, extra types.ContractInfoExtension) error {
+func (p PermissionedKeeper) SetContractInfoExtension(ctx sdk.Context, contract seitypes.AccAddress, extra types.ContractInfoExtension) error {
 	return p.nested.setContractInfoExtension(ctx, contract, extra)
 }
 

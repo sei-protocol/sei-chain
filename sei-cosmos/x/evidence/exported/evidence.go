@@ -2,9 +2,8 @@ package exported
 
 import (
 	"github.com/gogo/protobuf/proto"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
-
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 // Evidence defines the contract which concrete evidence types of misbehavior
@@ -28,7 +27,7 @@ type ValidatorEvidence interface {
 	Evidence
 
 	// The consensus address of the malicious validator at time of infraction
-	GetConsensusAddress() sdk.ConsAddress
+	GetConsensusAddress() seitypes.ConsAddress
 
 	// The total power of the malicious validator at time of infraction
 	GetValidatorPower() int64
@@ -41,8 +40,8 @@ type ValidatorEvidence interface {
 // implement in order to process submitted evidence. The concrete MsgSubmitEvidence
 // must be defined at the application-level.
 type MsgSubmitEvidenceI interface {
-	sdk.Msg
+	seitypes.Msg
 
 	GetEvidence() Evidence
-	GetSubmitter() sdk.AccAddress
+	GetSubmitter() seitypes.AccAddress
 }

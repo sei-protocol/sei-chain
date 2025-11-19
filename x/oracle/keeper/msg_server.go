@@ -28,7 +28,7 @@ func (ms msgServer) AggregateExchangeRateVote(goCtx context.Context, msg *types.
 		return nil, err
 	}
 
-	feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
+	feederAddr, err := seitypes.AccAddressFromBech32(msg.Feeder)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (ms msgServer) DelegateFeedConsent(goCtx context.Context, msg *types.MsgDel
 		return nil, err
 	}
 
-	delegateAddr, err := sdk.AccAddressFromBech32(msg.Delegate)
+	delegateAddr, err := seitypes.AccAddressFromBech32(msg.Delegate)
 	if err != nil {
 		return nil, err
 	}

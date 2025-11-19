@@ -25,7 +25,7 @@ type HandlerTestSuite struct {
 	app     *seiapp.App
 }
 
-func testMsgSubmitEvidence(r *require.Assertions, e exported.Evidence, s sdk.AccAddress) exported.MsgSubmitEvidenceI {
+func testMsgSubmitEvidence(r *require.Assertions, e exported.Evidence, s seitypes.AccAddress) exported.MsgSubmitEvidenceI {
 	msg, err := types.NewMsgSubmitEvidence(s, e)
 	r.NoError(err)
 	return msg
@@ -69,10 +69,10 @@ func (suite *HandlerTestSuite) SetupTest() {
 
 func (suite *HandlerTestSuite) TestMsgSubmitEvidence() {
 	pk := ed25519.GenPrivKey()
-	s := sdk.AccAddress("test________________")
+	s := seitypes.AccAddress("test________________")
 
 	testCases := []struct {
-		msg       sdk.Msg
+		msg       seitypes.Msg
 		expectErr bool
 	}{
 		{

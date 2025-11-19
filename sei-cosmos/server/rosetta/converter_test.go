@@ -60,8 +60,8 @@ func (s *ConverterTestSuite) SetupTest() {
 }
 
 func (s *ConverterTestSuite) TestFromRosettaOpsToTxSuccess() {
-	addr1 := sdk.AccAddress("address1").String()
-	addr2 := sdk.AccAddress("address2").String()
+	addr1 := seitypes.AccAddress("address1").String()
+	addr2 := seitypes.AccAddress("address2").String()
 
 	msg1 := &bank.MsgSend{
 		FromAddress: addr1,
@@ -106,7 +106,7 @@ func (s *ConverterTestSuite) TestFromRosettaOpsToTxErrors() {
 		s.Require().ErrorIs(err, crgerrs.ErrBadArgument)
 	})
 
-	s.Run("codec type but not sdk.Msg", func() {
+	s.Run("codec type but not seitypes.Msg", func() {
 		op := &rosettatypes.Operation{
 			Type: "cosmos.crypto.ed25519.PubKey",
 		}
@@ -161,8 +161,8 @@ func (s *ConverterTestSuite) TestSignedTx() {
 
 func (s *ConverterTestSuite) TestOpsAndSigners() {
 	s.Run("success", func() {
-		addr1 := sdk.AccAddress("address1").String()
-		addr2 := sdk.AccAddress("address2").String()
+		addr1 := seitypes.AccAddress("address1").String()
+		addr2 := seitypes.AccAddress("address2").String()
 
 		msg := &bank.MsgSend{
 			FromAddress: addr1,
@@ -306,12 +306,12 @@ func (s *ConverterTestSuite) TestBalanceOps() {
 
 	s.Run("multiple balance ops from 2 multicoins event", func() {
 		subBalanceOp := bank.NewCoinSpentEvent(
-			sdk.AccAddress("test"),
+			seitypes.AccAddress("test"),
 			sdk.NewCoins(sdk.NewInt64Coin("test", 10), sdk.NewInt64Coin("utxo", 10)),
 		)
 
 		addBalanceOp := bank.NewCoinReceivedEvent(
-			sdk.AccAddress("test"),
+			seitypes.AccAddress("test"),
 			sdk.NewCoins(sdk.NewInt64Coin("test", 10), sdk.NewInt64Coin("utxo", 10)),
 		)
 

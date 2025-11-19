@@ -23,7 +23,7 @@ func NewMsgServerImpl(k types.ContractOpsKeeper) types.MsgServer {
 
 func (m msgServer) StoreCode(goCtx context.Context, msg *types.MsgStoreCode) (*types.MsgStoreCodeResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
+	senderAddr, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "sender")
 	}
@@ -47,13 +47,13 @@ func (m msgServer) StoreCode(goCtx context.Context, msg *types.MsgStoreCode) (*t
 func (m msgServer) InstantiateContract(goCtx context.Context, msg *types.MsgInstantiateContract) (*types.MsgInstantiateContractResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
+	senderAddr, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "sender")
 	}
-	var adminAddr sdk.AccAddress
+	var adminAddr seitypes.AccAddress
 	if msg.Admin != "" {
-		if adminAddr, err = sdk.AccAddressFromBech32(msg.Admin); err != nil {
+		if adminAddr, err = seitypes.AccAddressFromBech32(msg.Admin); err != nil {
 			return nil, sdkerrors.Wrap(err, "admin")
 		}
 	}
@@ -77,11 +77,11 @@ func (m msgServer) InstantiateContract(goCtx context.Context, msg *types.MsgInst
 
 func (m msgServer) ExecuteContract(goCtx context.Context, msg *types.MsgExecuteContract) (*types.MsgExecuteContractResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
+	senderAddr, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "sender")
 	}
-	contractAddr, err := sdk.AccAddressFromBech32(msg.Contract)
+	contractAddr, err := seitypes.AccAddressFromBech32(msg.Contract)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "contract")
 	}
@@ -109,11 +109,11 @@ func (m msgServer) ExecuteContract(goCtx context.Context, msg *types.MsgExecuteC
 
 func (m msgServer) MigrateContract(goCtx context.Context, msg *types.MsgMigrateContract) (*types.MsgMigrateContractResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
+	senderAddr, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "sender")
 	}
-	contractAddr, err := sdk.AccAddressFromBech32(msg.Contract)
+	contractAddr, err := seitypes.AccAddressFromBech32(msg.Contract)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "contract")
 	}
@@ -136,15 +136,15 @@ func (m msgServer) MigrateContract(goCtx context.Context, msg *types.MsgMigrateC
 
 func (m msgServer) UpdateAdmin(goCtx context.Context, msg *types.MsgUpdateAdmin) (*types.MsgUpdateAdminResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
+	senderAddr, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "sender")
 	}
-	contractAddr, err := sdk.AccAddressFromBech32(msg.Contract)
+	contractAddr, err := seitypes.AccAddressFromBech32(msg.Contract)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "contract")
 	}
-	newAdminAddr, err := sdk.AccAddressFromBech32(msg.NewAdmin)
+	newAdminAddr, err := seitypes.AccAddressFromBech32(msg.NewAdmin)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "new admin")
 	}
@@ -164,11 +164,11 @@ func (m msgServer) UpdateAdmin(goCtx context.Context, msg *types.MsgUpdateAdmin)
 
 func (m msgServer) ClearAdmin(goCtx context.Context, msg *types.MsgClearAdmin) (*types.MsgClearAdminResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
+	senderAddr, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "sender")
 	}
-	contractAddr, err := sdk.AccAddressFromBech32(msg.Contract)
+	contractAddr, err := seitypes.AccAddressFromBech32(msg.Contract)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "contract")
 	}

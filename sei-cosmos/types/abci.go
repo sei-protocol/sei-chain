@@ -2,6 +2,7 @@ package types
 
 import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
 
@@ -32,4 +33,4 @@ type PreCommitHandler func(ctx Context) error
 type CloseHandler func() error
 type InplaceTestnetInitializer func(cryptotypes.PubKey) error
 
-type TxPrioritizer func(Context, Tx) (int64, error)
+type TxPrioritizer func(Context, seitypes.Tx) (int64, error)

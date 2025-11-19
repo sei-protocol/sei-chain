@@ -91,7 +91,7 @@ func Test_runExportCmd(t *testing.T) {
 				kb.Delete("keyname1") // nolint:errcheck
 			})
 
-			path := sdk.GetConfig().GetFullBIP44Path()
+			path := seitypes.GetConfig().GetFullBIP44Path()
 			_, err = kb.NewAccount("keyname1", testdata.TestMnemonic, "", path, hd.Sr25519)
 			require.NoError(t, err)
 

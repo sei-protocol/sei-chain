@@ -3,6 +3,7 @@ package feegrant
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 var _ FeeAllowanceI = (*BasicAllowance)(nil)
@@ -17,7 +18,7 @@ var _ FeeAllowanceI = (*BasicAllowance)(nil)
 //
 // If remove is true (regardless of the error), the FeeAllowance will be deleted from storage
 // (eg. when it is used up). (See call to RevokeAllowance in Keeper.UseGrantedFees)
-func (a *BasicAllowance) Accept(ctx sdk.Context, fee sdk.Coins, _ []sdk.Msg) (bool, error) {
+func (a *BasicAllowance) Accept(ctx sdk.Context, fee sdk.Coins, _ []seitypes.Msg) (bool, error) {
 	if a.Expiration != nil && a.Expiration.Before(ctx.BlockTime()) {
 		return true, sdkerrors.Wrap(ErrFeeLimitExpired, "basic allowance")
 	}

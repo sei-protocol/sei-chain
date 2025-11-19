@@ -23,7 +23,7 @@ func (k Keeper) bindIbcPort(ctx sdk.Context, portID string) error {
 // before calling register, so this is safe to call multiple times.
 // Returns success if we already registered or just registered and error if we cannot
 // (lack of permissions or someone else has it)
-func (k Keeper) ensureIbcPort(ctx sdk.Context, contractAddr sdk.AccAddress) (string, error) {
+func (k Keeper) ensureIbcPort(ctx sdk.Context, contractAddr seitypes.AccAddress) (string, error) {
 	portID := PortIDForContract(contractAddr)
 	if _, ok := k.capabilityKeeper.GetCapability(ctx, host.PortPath(portID)); ok {
 		return portID, nil
@@ -33,15 +33,15 @@ func (k Keeper) ensureIbcPort(ctx sdk.Context, contractAddr sdk.AccAddress) (str
 
 const portIDPrefix = "wasm."
 
-func PortIDForContract(addr sdk.AccAddress) string {
+func PortIDForContract(addr seitypes.AccAddress) string {
 	return portIDPrefix + addr.String()
 }
 
-func ContractFromPortID(portID string) (sdk.AccAddress, error) {
+func ContractFromPortID(portID string) (seitypes.AccAddress, error) {
 	if !strings.HasPrefix(portID, portIDPrefix) {
 		return nil, sdkerrors.Wrapf(types.ErrInvalid, "without prefix")
 	}
-	return sdk.AccAddressFromBech32(portID[len(portIDPrefix):])
+	return seitypes.AccAddressFromBech32(portID[len(portIDPrefix):])
 }
 
 // AuthenticateCapability wraps the scopedKeeper's AuthenticateCapability function

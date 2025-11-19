@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/tx"
@@ -25,7 +26,7 @@ func NewSendRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		vars := mux.Vars(r)
 		bech32Addr := vars["address"]
 
-		toAddr, err := sdk.AccAddressFromBech32(bech32Addr)
+		toAddr, err := seitypes.AccAddressFromBech32(bech32Addr)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -40,7 +41,7 @@ func NewSendRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			return
 		}
 
-		fromAddr, err := sdk.AccAddressFromBech32(req.BaseReq.From)
+		fromAddr, err := seitypes.AccAddressFromBech32(req.BaseReq.From)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}

@@ -10,14 +10,14 @@ import (
 // Interface provides support to use non-sdk AccountKeeper for AnteHandler's decorators.
 type AccountKeeper interface {
 	GetParams(ctx sdk.Context) (params types.Params)
-	GetAccount(ctx sdk.Context, addr sdk.AccAddress) types.AccountI
+	GetAccount(ctx sdk.Context, addr seitypes.AccAddress) types.AccountI
 	SetAccount(ctx sdk.Context, acc types.AccountI)
-	GetModuleAddress(moduleName string) sdk.AccAddress
+	GetModuleAddress(moduleName string) seitypes.AccAddress
 }
 
 // FeegrantKeeper defines the expected feegrant keeper.
 type FeegrantKeeper interface {
-	UseGrantedFees(ctx sdk.Context, granter, grantee sdk.AccAddress, fee sdk.Coins, msgs []sdk.Msg) error
+	UseGrantedFees(ctx sdk.Context, granter, grantee seitypes.AccAddress, fee sdk.Coins, msgs []seitypes.Msg) error
 }
 
 // ParamKeeper defines the expected param keeper.

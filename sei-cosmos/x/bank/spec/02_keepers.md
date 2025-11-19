@@ -72,16 +72,16 @@ type Keeper interface {
     SetDenomMetaData(ctx sdk.Context, denomMetaData types.Metadata)
     IterateAllDenomMetaData(ctx sdk.Context, cb func(types.Metadata) bool)
 
-    SendCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
+    SendCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr seitypes.AccAddress, amt sdk.Coins) error
     SendCoinsFromModuleToModule(ctx sdk.Context, senderModule, recipientModule string, amt sdk.Coins) error
-    SendCoinsFromAccountToModule(ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
-    DelegateCoinsFromAccountToModule(ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
-    UndelegateCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
+    SendCoinsFromAccountToModule(ctx sdk.Context, senderAddr seitypes.AccAddress, recipientModule string, amt sdk.Coins) error
+    DelegateCoinsFromAccountToModule(ctx sdk.Context, senderAddr seitypes.AccAddress, recipientModule string, amt sdk.Coins) error
+    UndelegateCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr seitypes.AccAddress, amt sdk.Coins) error
     MintCoins(ctx sdk.Context, moduleName string, amt sdk.Coins) error
     BurnCoins(ctx sdk.Context, moduleName string, amt sdk.Coins) error
 
-    DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAccAddr sdk.AccAddress, amt sdk.Coins) error
-    UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAddr sdk.AccAddress, amt sdk.Coins) error
+    DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAccAddr seitypes.AccAddress, amt sdk.Coins) error
+    UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAddr seitypes.AccAddress, amt sdk.Coins) error
 
     types.QueryServer
 }
@@ -99,7 +99,7 @@ type SendKeeper interface {
     ViewKeeper
 
     InputOutputCoins(ctx sdk.Context, inputs []types.Input, outputs []types.Output) error
-    SendCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error
+    SendCoins(ctx sdk.Context, fromAddr seitypes.AccAddress, toAddr seitypes.AccAddress, amt sdk.Coins) error
 
     GetParams(ctx sdk.Context) types.Params
     SetParams(ctx sdk.Context, params types.Params)
@@ -107,7 +107,7 @@ type SendKeeper interface {
     IsSendEnabledCoin(ctx sdk.Context, coin sdk.Coin) bool
     IsSendEnabledCoins(ctx sdk.Context, coins ...sdk.Coin) error
 
-    BlockedAddr(addr sdk.AccAddress) bool
+    BlockedAddr(addr seitypes.AccAddress) bool
 }
 ```
 
@@ -119,16 +119,16 @@ The view keeper provides read-only access to account balances. The view keeper d
 // ViewKeeper defines a module interface that facilitates read only access to
 // account balances.
 type ViewKeeper interface {
-    ValidateBalance(ctx sdk.Context, addr sdk.AccAddress) error
-    HasBalance(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coin) bool
+    ValidateBalance(ctx sdk.Context, addr seitypes.AccAddress) error
+    HasBalance(ctx sdk.Context, addr seitypes.AccAddress, amt sdk.Coin) bool
 
-    GetAllBalances(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
+    GetAllBalances(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins
     GetAccountsBalances(ctx sdk.Context) []types.Balance
-    GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin
-    LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
-    SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
+    GetBalance(ctx sdk.Context, addr seitypes.AccAddress, denom string) sdk.Coin
+    LockedCoins(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins
+    SpendableCoins(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins
 
-    IterateAccountBalances(ctx sdk.Context, addr sdk.AccAddress, cb func(coin sdk.Coin) (stop bool))
-    IterateAllBalances(ctx sdk.Context, cb func(address sdk.AccAddress, coin sdk.Coin) (stop bool))
+    IterateAccountBalances(ctx sdk.Context, addr seitypes.AccAddress, cb func(coin sdk.Coin) (stop bool))
+    IterateAllBalances(ctx sdk.Context, cb func(address seitypes.AccAddress, coin sdk.Coin) (stop bool))
 }
 ```

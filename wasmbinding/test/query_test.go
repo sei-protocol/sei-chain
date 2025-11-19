@@ -278,7 +278,7 @@ func TestWasmGetDenomsFromCreator(t *testing.T) {
 func MockQueryPlugins() wasmkeeper.QueryPlugins {
 	return wasmkeeper.QueryPlugins{
 		Bank: func(ctx sdk.Context, request *wasmvmtypes.BankQuery) ([]byte, error) { return []byte{}, nil },
-		IBC: func(ctx sdk.Context, caller sdk.AccAddress, request *wasmvmtypes.IBCQuery) ([]byte, error) {
+		IBC: func(ctx sdk.Context, caller seitypes.AccAddress, request *wasmvmtypes.IBCQuery) ([]byte, error) {
 			return []byte{}, nil
 		},
 		Custom: func(ctx sdk.Context, request json.RawMessage) ([]byte, error) {

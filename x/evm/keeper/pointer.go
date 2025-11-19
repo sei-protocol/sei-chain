@@ -182,10 +182,10 @@ func (k *Keeper) SetCW20ERC20PointerWithVersion(ctx sdk.Context, erc20Address co
 }
 
 // CW20 -> ERC20
-func (k *Keeper) GetCW20ERC20Pointer(ctx sdk.Context, erc20Address common.Address) (addr sdk.AccAddress, version uint16, exists bool) {
+func (k *Keeper) GetCW20ERC20Pointer(ctx sdk.Context, erc20Address common.Address) (addr seitypes.AccAddress, version uint16, exists bool) {
 	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerCW20ERC20Key(erc20Address), erc20.CurrentVersion)
 	if exists {
-		addr = sdk.MustAccAddressFromBech32(string(addrBz))
+		addr = seitypes.MustAccAddressFromBech32(string(addrBz))
 	}
 	return
 }
@@ -227,10 +227,10 @@ func (k *Keeper) SetCW721ERC721PointerWithVersion(ctx sdk.Context, erc721Address
 }
 
 // CW721 -> ERC721
-func (k *Keeper) GetCW721ERC721Pointer(ctx sdk.Context, erc721Address common.Address) (addr sdk.AccAddress, version uint16, exists bool) {
+func (k *Keeper) GetCW721ERC721Pointer(ctx sdk.Context, erc721Address common.Address) (addr seitypes.AccAddress, version uint16, exists bool) {
 	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerCW721ERC721Key(erc721Address), erc721.CurrentVersion)
 	if exists {
-		addr = sdk.MustAccAddressFromBech32(string(addrBz))
+		addr = seitypes.MustAccAddressFromBech32(string(addrBz))
 	}
 	return
 }
@@ -262,10 +262,10 @@ func (k *Keeper) SetCW1155ERC1155PointerWithVersion(ctx sdk.Context, erc1155Addr
 }
 
 // CW1155 -> ERC1155
-func (k *Keeper) GetCW1155ERC1155Pointer(ctx sdk.Context, erc1155Address common.Address) (addr sdk.AccAddress, version uint16, exists bool) {
+func (k *Keeper) GetCW1155ERC1155Pointer(ctx sdk.Context, erc1155Address common.Address) (addr seitypes.AccAddress, version uint16, exists bool) {
 	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerCW1155ERC1155Key(erc1155Address), erc1155.CurrentVersion)
 	if exists {
-		addr = sdk.MustAccAddressFromBech32(string(addrBz))
+		addr = seitypes.MustAccAddressFromBech32(string(addrBz))
 	}
 	return
 }

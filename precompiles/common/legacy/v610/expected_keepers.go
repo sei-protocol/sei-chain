@@ -22,15 +22,15 @@ import (
 )
 
 type BankKeeper interface {
-	SendCoins(sdk.Context, sdk.AccAddress, sdk.AccAddress, sdk.Coins) error
-	SendCoinsAndWei(ctx sdk.Context, from sdk.AccAddress, to sdk.AccAddress, amt sdk.Int, wei sdk.Int) error
-	GetBalance(sdk.Context, sdk.AccAddress, string) sdk.Coin
-	GetAllBalances(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
-	GetWeiBalance(ctx sdk.Context, addr sdk.AccAddress) sdk.Int
+	SendCoins(sdk.Context, seitypes.AccAddress, seitypes.AccAddress, sdk.Coins) error
+	SendCoinsAndWei(ctx sdk.Context, from seitypes.AccAddress, to seitypes.AccAddress, amt sdk.Int, wei sdk.Int) error
+	GetBalance(sdk.Context, seitypes.AccAddress, string) sdk.Coin
+	GetAllBalances(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins
+	GetWeiBalance(ctx sdk.Context, addr seitypes.AccAddress) sdk.Int
 	GetDenomMetaData(ctx sdk.Context, denom string) (banktypes.Metadata, bool)
 	GetSupply(ctx sdk.Context, denom string) sdk.Coin
-	LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
-	SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
+	LockedCoins(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins
+	SpendableCoins(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins
 }
 
 type BankMsgServer interface {
@@ -38,17 +38,17 @@ type BankMsgServer interface {
 }
 
 type EVMKeeper interface {
-	GetSeiAddress(sdk.Context, common.Address) (sdk.AccAddress, bool)
-	GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress // only used for getting precompile Sei addresses
-	GetEVMAddress(sdk.Context, sdk.AccAddress) (common.Address, bool)
-	GetEVMAddressOrDefault(sdk.Context, sdk.AccAddress) common.Address
-	SetAddressMapping(sdk.Context, sdk.AccAddress, common.Address)
+	GetSeiAddress(sdk.Context, common.Address) (seitypes.AccAddress, bool)
+	GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) seitypes.AccAddress // only used for getting precompile Sei addresses
+	GetEVMAddress(sdk.Context, seitypes.AccAddress) (common.Address, bool)
+	GetEVMAddressOrDefault(sdk.Context, seitypes.AccAddress) common.Address
+	SetAddressMapping(sdk.Context, seitypes.AccAddress, common.Address)
 	GetCodeHash(sdk.Context, common.Address) common.Hash
 	GetCode(ctx sdk.Context, addr common.Address) []byte
 	GetPriorityNormalizer(ctx sdk.Context) sdk.Dec
 	GetPriorityNormalizerPre580(ctx sdk.Context) sdk.Dec
 	GetBaseDenom(ctx sdk.Context) string
-	GetBalance(ctx sdk.Context, addr sdk.AccAddress) *big.Int
+	GetBalance(ctx sdk.Context, addr seitypes.AccAddress) *big.Int
 	SetERC20NativePointer(ctx sdk.Context, token string, addr common.Address) error
 	GetERC20NativePointer(ctx sdk.Context, token string) (addr common.Address, version uint16, exists bool)
 	SetERC20CW20Pointer(ctx sdk.Context, cw20Address string, addr common.Address) error
@@ -75,11 +75,11 @@ type EVMKeeper interface {
 }
 
 type AccountKeeper interface {
-	GetAccount(ctx sdk.Context, addr sdk.AccAddress) authtypes.AccountI
-	HasAccount(ctx sdk.Context, addr sdk.AccAddress) bool
+	GetAccount(ctx sdk.Context, addr seitypes.AccAddress) authtypes.AccountI
+	HasAccount(ctx sdk.Context, addr seitypes.AccAddress) bool
 	SetAccount(ctx sdk.Context, acc authtypes.AccountI)
 	RemoveAccount(ctx sdk.Context, acc authtypes.AccountI)
-	NewAccountWithAddress(ctx sdk.Context, addr sdk.AccAddress) authtypes.AccountI
+	NewAccountWithAddress(ctx sdk.Context, addr seitypes.AccAddress) authtypes.AccountI
 	GetParams(ctx sdk.Context) (params authtypes.Params)
 }
 
@@ -89,12 +89,12 @@ type OracleKeeper interface {
 }
 
 type WasmdKeeper interface {
-	Instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.AccAddress, initMsg []byte, label string, deposit sdk.Coins) (sdk.AccAddress, []byte, error)
-	Execute(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, msg []byte, coins sdk.Coins) ([]byte, error)
+	Instantiate(ctx sdk.Context, codeID uint64, creator, admin seitypes.AccAddress, initMsg []byte, label string, deposit sdk.Coins) (seitypes.AccAddress, []byte, error)
+	Execute(ctx sdk.Context, contractAddress seitypes.AccAddress, caller seitypes.AccAddress, msg []byte, coins sdk.Coins) ([]byte, error)
 }
 
 type WasmdViewKeeper interface {
-	QuerySmartSafe(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error)
+	QuerySmartSafe(ctx sdk.Context, contractAddr seitypes.AccAddress, req []byte) ([]byte, error)
 }
 
 type StakingKeeper interface {
@@ -108,13 +108,13 @@ type StakingQuerier interface {
 }
 
 type GovKeeper interface {
-	AddVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.AccAddress, options govtypes.WeightedVoteOptions) error
-	AddDeposit(ctx sdk.Context, proposalID uint64, depositorAddr sdk.AccAddress, depositAmount sdk.Coins) (bool, error)
+	AddVote(ctx sdk.Context, proposalID uint64, voterAddr seitypes.AccAddress, options govtypes.WeightedVoteOptions) error
+	AddDeposit(ctx sdk.Context, proposalID uint64, depositorAddr seitypes.AccAddress, depositAmount sdk.Coins) (bool, error)
 }
 
 type DistributionKeeper interface {
-	SetWithdrawAddr(ctx sdk.Context, delegatorAddr sdk.AccAddress, withdrawAddr sdk.AccAddress) error
-	WithdrawDelegationRewards(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) (sdk.Coins, error)
+	SetWithdrawAddr(ctx sdk.Context, delegatorAddr seitypes.AccAddress, withdrawAddr seitypes.AccAddress) error
+	WithdrawDelegationRewards(ctx sdk.Context, delAddr seitypes.AccAddress, valAddr seitypes.ValAddress) (sdk.Coins, error)
 	DelegationTotalRewards(c context.Context, req *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error)
 }
 

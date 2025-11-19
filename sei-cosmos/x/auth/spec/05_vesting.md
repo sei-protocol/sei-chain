@@ -125,10 +125,10 @@ type ViewKeeper interface {
   // ...
 
   // Calculates the total locked account balance.
-  LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
+  LockedCoins(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins
 
   // Calculates the total spendable balance that can be sent to other accounts.
-  SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
+  SpendableCoins(ctx sdk.Context, addr seitypes.AccAddress) sdk.Coins
 }
 ```
 

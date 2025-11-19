@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/gogo/protobuf/proto"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"google.golang.org/grpc"
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -15,7 +16,7 @@ import (
 type Config struct {
 	SigningModes      map[string]int32
 	ChainID           string
-	SdkConfig         *sdk.Config
+	SdkConfig         *seitypes.Config
 	InterfaceRegistry codectypes.InterfaceRegistry
 }
 
@@ -173,7 +174,7 @@ func newTxDescriptor(ir codectypes.InterfaceRegistry) (*TxDescriptor, error) {
 
 	msgsDesc := make([]*MsgDescriptor, 0, len(sdkMsgImplementers))
 
-	// process sdk.Msg
+	// process seitypes.Msg
 	for _, msgTypeURL := range sdkMsgImplementers {
 		msgsDesc = append(msgsDesc, &MsgDescriptor{
 			MsgTypeUrl: msgTypeURL,

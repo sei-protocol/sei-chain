@@ -22,7 +22,7 @@ func TestTxBuilder(t *testing.T) {
 	txBuilder := newBuilder()
 
 	memo := "sometestmemo"
-	msgs := []sdk.Msg{testdata.NewTestMsg(addr)}
+	msgs := []seitypes.Msg{testdata.NewTestMsg(addr)}
 	accSeq := uint64(2) // Arbitrary account sequence
 	any, err := codectypes.NewAnyWithValue(pubkey)
 	require.NoError(t, err)
@@ -131,7 +131,7 @@ func TestBuilderValidateBasic(t *testing.T) {
 	// msg and signatures
 	msg1 := testdata.NewTestMsg(addr1, addr2)
 	feeAmount := testdata.NewTestFeeAmount()
-	msgs := []sdk.Msg{msg1}
+	msgs := []seitypes.Msg{msg1}
 
 	// require to fail validation upon invalid fee
 	badFeeAmount := testdata.NewTestFeeAmount()
@@ -251,25 +251,25 @@ func TestBuilderFeePayer(t *testing.T) {
 	// msg and signatures
 	msg1 := testdata.NewTestMsg(addr1, addr2)
 	feeAmount := testdata.NewTestFeeAmount()
-	msgs := []sdk.Msg{msg1}
+	msgs := []seitypes.Msg{msg1}
 
 	cases := map[string]struct {
-		txFeePayer      sdk.AccAddress
-		expectedSigners []sdk.AccAddress
-		expectedPayer   sdk.AccAddress
+		txFeePayer      seitypes.AccAddress
+		expectedSigners []seitypes.AccAddress
+		expectedPayer   seitypes.AccAddress
 	}{
 		"no fee payer specified": {
-			expectedSigners: []sdk.AccAddress{addr1, addr2},
+			expectedSigners: []seitypes.AccAddress{addr1, addr2},
 			expectedPayer:   addr1,
 		},
 		"secondary signer set as fee payer": {
 			txFeePayer:      addr2,
-			expectedSigners: []sdk.AccAddress{addr1, addr2},
+			expectedSigners: []seitypes.AccAddress{addr1, addr2},
 			expectedPayer:   addr2,
 		},
 		"outside signer set as fee payer": {
 			txFeePayer:      addr3,
-			expectedSigners: []sdk.AccAddress{addr1, addr2, addr3},
+			expectedSigners: []seitypes.AccAddress{addr1, addr2, addr3},
 			expectedPayer:   addr3,
 		},
 	}
@@ -299,7 +299,7 @@ func TestBuilderFeeGranter(t *testing.T) {
 	// msg and signatures
 	msg1 := testdata.NewTestMsg(addr1, addr2)
 	feeAmount := testdata.NewTestFeeAmount()
-	msgs := []sdk.Msg{msg1}
+	msgs := []seitypes.Msg{msg1}
 
 	txBuilder := newBuilder()
 	err := txBuilder.SetMsgs(msgs...)

@@ -1,8 +1,8 @@
 package signing
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // SignModeHandler defines a interface to be implemented by types which will handle
@@ -17,7 +17,7 @@ type SignModeHandler interface {
 
 	// GetSignBytes returns the sign bytes for the provided SignMode, SignerData and Tx,
 	// or an error
-	GetSignBytes(mode signing.SignMode, data SignerData, tx sdk.Tx) ([]byte, error)
+	GetSignBytes(mode signing.SignMode, data SignerData, tx seitypes.Tx) ([]byte, error)
 }
 
 // SignerData is the specific information needed to sign a transaction that generally

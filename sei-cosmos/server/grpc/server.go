@@ -5,13 +5,13 @@ import (
 	"net"
 	"time"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"google.golang.org/grpc"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/server/grpc/gogoreflection"
 	reflection "github.com/cosmos/cosmos-sdk/server/grpc/reflection/v2alpha1"
 	"github.com/cosmos/cosmos-sdk/server/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 // StartGRPCServer starts a gRPC server on the given address.
@@ -29,7 +29,7 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, address st
 			return modes
 		}(),
 		ChainID:           clientCtx.ChainID,
-		SdkConfig:         sdk.GetConfig(),
+		SdkConfig:         seitypes.GetConfig(),
 		InterfaceRegistry: clientCtx.InterfaceRegistry,
 	})
 	if err != nil {

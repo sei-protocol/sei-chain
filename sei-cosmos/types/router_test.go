@@ -38,14 +38,14 @@ func (s *routeTestSuite) TestNilRoute() {
 		},
 		{
 			name: "only handler",
-			route: sdk.NewRoute("", func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
+			route: sdk.NewRoute("", func(ctx sdk.Context, msg seitypes.Msg) (*sdk.Result, error) {
 				return nil, nil
 			}),
 			expected: true,
 		},
 		{
 			name: "correct route",
-			route: sdk.NewRoute("some", func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
+			route: sdk.NewRoute("some", func(ctx sdk.Context, msg seitypes.Msg) (*sdk.Result, error) {
 				return nil, nil
 			}),
 			expected: false,

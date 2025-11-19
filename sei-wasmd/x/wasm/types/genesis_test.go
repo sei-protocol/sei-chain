@@ -180,8 +180,8 @@ func TestContractValidateBasic(t *testing.T) {
 }
 
 func TestGenesisContractInfoMarshalUnmarshal(t *testing.T) {
-	var myAddr sdk.AccAddress = rand.Bytes(ContractAddrLen)
-	var myOtherAddr sdk.AccAddress = rand.Bytes(ContractAddrLen)
+	var myAddr seitypes.AccAddress = rand.Bytes(ContractAddrLen)
+	var myOtherAddr seitypes.AccAddress = rand.Bytes(ContractAddrLen)
 	anyPos := AbsoluteTxPosition{BlockHeight: 1, TxIndex: 2}
 
 	anyTime := time.Now().UTC()

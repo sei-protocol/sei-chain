@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -70,7 +71,7 @@ Examples:
 				return err
 			}
 
-			grantee, err := sdk.AccAddressFromBech32(args[0])
+			grantee, err := seitypes.AccAddressFromBech32(args[0])
 			if err != nil {
 				return err
 			}
@@ -194,7 +195,7 @@ Example:
 				return err
 			}
 
-			grantee, err := sdk.AccAddressFromBech32(args[0])
+			grantee, err := seitypes.AccAddressFromBech32(args[0])
 			if err != nil {
 				return err
 			}
@@ -249,8 +250,8 @@ Example:
 	return cmd
 }
 
-func bech32toValidatorAddresses(validators []string) ([]sdk.ValAddress, error) {
-	vals := make([]sdk.ValAddress, len(validators))
+func bech32toValidatorAddresses(validators []string) ([]seitypes.ValAddress, error) {
+	vals := make([]seitypes.ValAddress, len(validators))
 	for i, validator := range validators {
 		addr, err := sdk.ValAddressFromBech32(validator)
 		if err != nil {

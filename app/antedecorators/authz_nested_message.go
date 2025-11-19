@@ -17,7 +17,7 @@ func NewAuthzNestedMessageDecorator() AuthzNestedMessageDecorator {
 	return AuthzNestedMessageDecorator{}
 }
 
-func (ad AuthzNestedMessageDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (ad AuthzNestedMessageDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	for _, msg := range tx.GetMsgs() {
 		switch m := msg.(type) {
 		case *authz.MsgExec:

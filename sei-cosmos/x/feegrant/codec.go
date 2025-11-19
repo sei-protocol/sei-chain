@@ -2,13 +2,13 @@ package feegrant
 
 import (
 	"github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/msgservice"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // RegisterInterfaces registers the interfaces types with the interface registry
 func RegisterInterfaces(registry types.InterfaceRegistry) {
-	registry.RegisterImplementations((*sdk.Msg)(nil),
+	registry.RegisterImplementations((*seitypes.Msg)(nil),
 		&MsgGrantAllowance{},
 		&MsgRevokeAllowance{},
 	)

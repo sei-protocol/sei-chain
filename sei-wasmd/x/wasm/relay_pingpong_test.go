@@ -134,7 +134,7 @@ var _ wasmtesting.IBCContractCallbacks = &player{}
 type player struct {
 	t            *testing.T
 	chain        *wasmibctesting.TestChain
-	contractAddr sdk.AccAddress
+	contractAddr seitypes.AccAddress
 	actor        string // either ping or pong
 	execCalls    int    // number of calls to Execute method (checkTx + deliverTx)
 }

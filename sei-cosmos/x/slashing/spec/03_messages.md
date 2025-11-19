@@ -12,7 +12,7 @@ If a validator was automatically unbonded due to downtime and wishes to come bac
 possibly rejoin the bonded set, it must send `MsgUnjail`:
 
 ```protobuf
-// MsgUnjail is an sdk.Msg used for unjailing a jailed validator, thus returning
+// MsgUnjail is an seitypes.Msg used for unjailing a jailed validator, thus returning
 // them into the bonded validator set, so they can begin receiving provisions
 // and rewards again.
 message MsgUnjail {

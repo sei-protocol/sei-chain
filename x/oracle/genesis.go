@@ -19,7 +19,7 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState
 			panic(err)
 		}
 
-		feeder, err := sdk.AccAddressFromBech32(d.FeederAddress)
+		feeder, err := seitypes.AccAddressFromBech32(d.FeederAddress)
 		if err != nil {
 			panic(err)
 		}
@@ -66,7 +66,7 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState
 func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 	params := keeper.GetParams(ctx)
 	feederDelegations := []types.FeederDelegation{}
-	keeper.IterateFeederDelegations(ctx, func(valAddr sdk.ValAddress, feederAddr sdk.AccAddress) (stop bool) {
+	keeper.IterateFeederDelegations(ctx, func(valAddr seitypes.ValAddress, feederAddr seitypes.AccAddress) (stop bool) {
 		feederDelegations = append(feederDelegations, types.FeederDelegation{
 			FeederAddress:    feederAddr.String(),
 			ValidatorAddress: valAddr.String(),
@@ -81,7 +81,7 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 	})
 
 	penaltyCounters := []types.PenaltyCounter{}
-	keeper.IterateVotePenaltyCounters(ctx, func(operator sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool) {
+	keeper.IterateVotePenaltyCounters(ctx, func(operator seitypes.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool) {
 		penaltyCounters = append(penaltyCounters, types.PenaltyCounter{
 			ValidatorAddress:   operator.String(),
 			VotePenaltyCounter: &votePenaltyCounter,
@@ -90,7 +90,7 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 	})
 
 	aggregateExchangeRateVotes := []types.AggregateExchangeRateVote{}
-	keeper.IterateAggregateExchangeRateVotes(ctx, func(_ sdk.ValAddress, aggregateVote types.AggregateExchangeRateVote) bool {
+	keeper.IterateAggregateExchangeRateVotes(ctx, func(_ seitypes.ValAddress, aggregateVote types.AggregateExchangeRateVote) bool {
 		aggregateExchangeRateVotes = append(aggregateExchangeRateVotes, aggregateVote)
 		return false
 	})

@@ -190,7 +190,7 @@ func (m *MsgGrantResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_MsgGrantResponse proto.InternalMessageInfo
 
-// MsgRevoke revokes any authorization with the provided sdk.Msg type on the
+// MsgRevoke revokes any authorization with the provided seitypes.Msg type on the
 // granter's account with that has been granted to the grantee.
 type MsgRevoke struct {
 	Granter    string `protobuf:"bytes,1,opt,name=granter,proto3" json:"granter,omitempty"`

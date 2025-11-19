@@ -33,13 +33,13 @@ import (
 var f embed.FS
 
 type mockTx struct {
-	msgs    []sdk.Msg
-	signers []sdk.AccAddress
+	msgs    []seitypes.Msg
+	signers []seitypes.AccAddress
 }
 
-func (tx mockTx) GetMsgs() []sdk.Msg                              { return tx.msgs }
+func (tx mockTx) GetMsgs() []seitypes.Msg                              { return tx.msgs }
 func (tx mockTx) ValidateBasic() error                            { return nil }
-func (tx mockTx) GetSigners() []sdk.AccAddress                    { return tx.signers }
+func (tx mockTx) GetSigners() []seitypes.AccAddress                    { return tx.signers }
 func (tx mockTx) GetPubKeys() ([]cryptotypes.PubKey, error)       { return nil, nil }
 func (tx mockTx) GetSignaturesV2() ([]signing.SignatureV2, error) { return nil, nil }
 func (tx mockTx) GetGasEstimate() uint64                          { return 0 }
@@ -149,7 +149,7 @@ func TestRun(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, upgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, upgradeKeeper).AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{req}}, false, func(sdk.Context, seitypes.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -195,7 +195,7 @@ func TestRun(t *testing.T) {
 		// gas refund to the sender
 		banktypes.NewCoinReceivedEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(132401)))),
 		// tip is paid to the validator
-		banktypes.NewCoinReceivedEvent(sdk.MustAccAddressFromBech32("sei1v4mx6hmrda5kucnpwdjsqqqqqqqqqqqqlve8dv"), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(67599)))),
+		banktypes.NewCoinReceivedEvent(seitypes.MustAccAddressFromBech32("sei1v4mx6hmrda5kucnpwdjsqqqqqqqqqqqqlve8dv"), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(67599)))),
 	}
 	require.EqualValues(t, expectedEvts.ToABCIEvents(), evts)
 

@@ -116,7 +116,7 @@ func (suite *KeeperTestSuite) TestGetProposalsFiltered() {
 	proposalID := uint64(1)
 	status := []types.ProposalStatus{types.StatusDepositPeriod, types.StatusVotingPeriod}
 
-	addr1 := sdk.AccAddress("foo_________________")
+	addr1 := seitypes.AccAddress("foo_________________")
 
 	for _, s := range status {
 		for i := 0; i < 50; i++ {

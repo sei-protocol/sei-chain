@@ -23,7 +23,7 @@ var AllAccessTypes = []AccessType{
 	AccessTypeEverybody,
 }
 
-func (a AccessType) With(addr sdk.AccAddress) AccessConfig {
+func (a AccessType) With(addr seitypes.AccAddress) AccessConfig {
 	switch a {
 	case AccessTypeNobody:
 		return AllowNobody
@@ -157,13 +157,13 @@ func (a AccessConfig) ValidateBasic() error {
 		}
 		return nil
 	case AccessTypeOnlyAddress:
-		_, err := sdk.AccAddressFromBech32(a.Address)
+		_, err := seitypes.AccAddressFromBech32(a.Address)
 		return err
 	}
 	return sdkerrors.Wrapf(ErrInvalid, "unknown type: %q", a.Permission)
 }
 
-func (a AccessConfig) Allowed(actor sdk.AccAddress) bool {
+func (a AccessConfig) Allowed(actor seitypes.AccAddress) bool {
 	switch a.Permission {
 	case AccessTypeNobody:
 		return false

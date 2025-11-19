@@ -5,8 +5,8 @@ package legacybech32
 import (
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/bech32"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // TODO: when removing this package remove:
@@ -41,7 +41,7 @@ func MustMarshalPubKey(pkt Bech32PubKeyType, pubkey cryptotypes.PubKey) string {
 }
 
 func getPrefix(pkt Bech32PubKeyType) string {
-	cfg := sdk.GetConfig()
+	cfg := seitypes.GetConfig()
 	switch pkt {
 	case AccPK:
 		return cfg.GetBech32AccountPubPrefix()
@@ -60,7 +60,7 @@ func getPrefix(pkt Bech32PubKeyType) string {
 func UnmarshalPubKey(pkt Bech32PubKeyType, pubkeyStr string) (cryptotypes.PubKey, error) {
 	bech32Prefix := getPrefix(pkt)
 
-	bz, err := sdk.GetFromBech32(pubkeyStr, bech32Prefix)
+	bz, err := seitypes.GetFromBech32(pubkeyStr, bech32Prefix)
 	if err != nil {
 		return nil, err
 	}

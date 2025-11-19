@@ -27,7 +27,7 @@ type IntegrationTestSuite struct {
 	suite.Suite
 	cfg     network.Config
 	network *network.Network
-	grantee sdk.AccAddress
+	grantee seitypes.AccAddress
 }
 
 var typeMsgSend = banktypes.SendAuthorization{}.MsgTypeURL()
@@ -46,7 +46,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 	// Create new account in the keyring.
 	info, _, err := val.ClientCtx.Keyring.NewMnemonic("grantee", keyring.English, sdk.FullFundraiserPath, keyring.DefaultBIP39Passphrase, hd.Secp256k1)
 	s.Require().NoError(err)
-	newAddr := sdk.AccAddress(info.GetPubKey().Address())
+	newAddr := seitypes.AccAddress(info.GetPubKey().Address())
 
 	// Send some funds to the new account.
 	out, err := banktestutil.MsgSendExec(

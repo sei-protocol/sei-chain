@@ -34,8 +34,8 @@ need to be used.
 type AccountI interface {
 	proto.Message
 
-	GetAddress() sdk.AccAddress
-	SetAddress(sdk.AccAddress) error // errors if already set.
+	GetAddress() seitypes.AccAddress
+	SetAddress(seitypes.AccAddress) error // errors if already set.
 
 	GetPubKey() crypto.PubKey // can return nil.
 	SetPubKey(crypto.PubKey) error

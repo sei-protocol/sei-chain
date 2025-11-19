@@ -5,13 +5,14 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // NewHandler returns a handler for x/auth message types.
 func NewHandler(ak keeper.AccountKeeper, bk types.BankKeeper) sdk.Handler {
 	msgServer := NewMsgServerImpl(ak, bk)
 
-	return func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
+	return func(ctx sdk.Context, msg seitypes.Msg) (*sdk.Result, error) {
 		ctx = ctx.WithEventManager(sdk.NewEventManager())
 
 		switch msg := msg.(type) {

@@ -180,7 +180,7 @@ func TestProcessPostResponse(t *testing.T) {
 
 	t.Parallel()
 	type mockAccount struct {
-		Address       types.AccAddress   `json:"address"`
+		Address       seitypes.AccAddress   `json:"address"`
 		Coins         types.Coins        `json:"coins"`
 		PubKey        cryptotypes.PubKey `json:"public_key"`
 		AccountNumber uint64             `json:"account_number"`
@@ -194,7 +194,7 @@ func TestProcessPostResponse(t *testing.T) {
 
 	privKey := secp256k1.GenPrivKey()
 	pubKey := privKey.PubKey()
-	addr := types.AccAddress(pubKey.Address())
+	addr := seitypes.AccAddress(pubKey.Address())
 	coins := types.NewCoins(types.NewCoin("atom", types.NewInt(100)), types.NewCoin("tree", types.NewInt(125)))
 	accNumber := uint64(104)
 	sequence := uint64(32)

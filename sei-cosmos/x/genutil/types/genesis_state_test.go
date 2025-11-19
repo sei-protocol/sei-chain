@@ -37,11 +37,11 @@ func TestValidateGenesisMultipleMessages(t *testing.T) {
 	desc := stakingtypes.NewDescription("testname", "", "", "", "")
 	comm := stakingtypes.CommissionRates{}
 
-	msg1, err := stakingtypes.NewMsgCreateValidator(sdk.ValAddress(pk1.Address()), pk1,
+	msg1, err := stakingtypes.NewMsgCreateValidator(seitypes.ValAddress(pk1.Address()), pk1,
 		sdk.NewInt64Coin(sdk.DefaultBondDenom, 50), desc, comm, sdk.OneInt())
 	require.NoError(t, err)
 
-	msg2, err := stakingtypes.NewMsgCreateValidator(sdk.ValAddress(pk2.Address()), pk2,
+	msg2, err := stakingtypes.NewMsgCreateValidator(seitypes.ValAddress(pk2.Address()), pk2,
 		sdk.NewInt64Coin(sdk.DefaultBondDenom, 50), desc, comm, sdk.OneInt())
 	require.NoError(t, err)
 
@@ -50,7 +50,7 @@ func TestValidateGenesisMultipleMessages(t *testing.T) {
 	require.NoError(t, txBuilder.SetMsgs(msg1, msg2))
 
 	tx := txBuilder.GetTx()
-	genesisState := types.NewGenesisStateFromTx(txGen.TxJSONEncoder(), []sdk.Tx{tx})
+	genesisState := types.NewGenesisStateFromTx(txGen.TxJSONEncoder(), []seitypes.Tx{tx})
 
 	err = types.ValidateGenesis(genesisState, seiapp.MakeEncodingConfig().TxConfig.TxJSONDecoder())
 	require.Error(t, err)
@@ -59,7 +59,7 @@ func TestValidateGenesisMultipleMessages(t *testing.T) {
 func TestValidateGenesisBadMessage(t *testing.T) {
 	desc := stakingtypes.NewDescription("testname", "", "", "", "")
 
-	msg1 := stakingtypes.NewMsgEditValidator(sdk.ValAddress(pk1.Address()), desc, nil, nil)
+	msg1 := stakingtypes.NewMsgEditValidator(seitypes.ValAddress(pk1.Address()), desc, nil, nil)
 
 	txGen := seiapp.MakeEncodingConfig().TxConfig
 	txBuilder := txGen.NewTxBuilder()
@@ -67,7 +67,7 @@ func TestValidateGenesisBadMessage(t *testing.T) {
 	require.NoError(t, err)
 
 	tx := txBuilder.GetTx()
-	genesisState := types.NewGenesisStateFromTx(txGen.TxJSONEncoder(), []sdk.Tx{tx})
+	genesisState := types.NewGenesisStateFromTx(txGen.TxJSONEncoder(), []seitypes.Tx{tx})
 
 	err = types.ValidateGenesis(genesisState, seiapp.MakeEncodingConfig().TxConfig.TxJSONDecoder())
 	require.Error(t, err)

@@ -51,8 +51,8 @@ func TestGovPrecompile(t *testing.T) {
 	tests := []struct {
 		name                string
 		args                args
-		setup               func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr sdk.AccAddress)
-		verify              func(t *testing.T, ctx sdk.Context, seiAddr sdk.AccAddress, proposalID uint64)
+		setup               func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr seitypes.AccAddress)
+		verify              func(t *testing.T, ctx sdk.Context, seiAddr seitypes.AccAddress, proposalID uint64)
 		wantErr             bool
 		wantErrMsgToContain string
 		avoidAssociate      bool
@@ -64,12 +64,12 @@ func TestGovPrecompile(t *testing.T) {
 				proposal: proposal.ProposalId,
 				value:    new(big.Int).Mul(big.NewInt(10000000), big.NewInt(1_000_000_000_000)),
 			},
-			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr sdk.AccAddress) {
+			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr seitypes.AccAddress) {
 				amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(20000000000000000))) // Adjusted for large deposit
 				require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
 				require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
 			},
-			verify: func(t *testing.T, ctx sdk.Context, seiAddr sdk.AccAddress, proposalID uint64) {
+			verify: func(t *testing.T, ctx sdk.Context, seiAddr seitypes.AccAddress, proposalID uint64) {
 				proposal, _ := testApp.GovKeeper.GetProposal(ctx, proposalID)
 				require.Equal(t, govtypes.StatusVotingPeriod, proposal.Status)
 			},
@@ -83,12 +83,12 @@ func TestGovPrecompile(t *testing.T) {
 				option:   govtypes.OptionYes,
 				value:    big.NewInt(0),
 			},
-			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr sdk.AccAddress) {
+			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr seitypes.AccAddress) {
 				amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
 				require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
 				require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
 			},
-			verify: func(t *testing.T, ctx sdk.Context, seiAddr sdk.AccAddress, proposalID uint64) {
+			verify: func(t *testing.T, ctx sdk.Context, seiAddr seitypes.AccAddress, proposalID uint64) {
 				v, found := testApp.GovKeeper.GetVote(ctx, proposalID, seiAddr)
 				require.True(t, found)
 				require.Equal(t, 1, len(v.Options))
@@ -104,12 +104,12 @@ func TestGovPrecompile(t *testing.T) {
 				proposal: proposal.ProposalId,
 				value:    big.NewInt(0),
 			},
-			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr sdk.AccAddress) {
+			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr seitypes.AccAddress) {
 				amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
 				require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
 				require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
 			},
-			verify: func(t *testing.T, ctx sdk.Context, seiAddr sdk.AccAddress, proposalID uint64) {
+			verify: func(t *testing.T, ctx sdk.Context, seiAddr seitypes.AccAddress, proposalID uint64) {
 				v, found := testApp.GovKeeper.GetVote(ctx, proposalID, seiAddr)
 				require.True(t, found)
 				require.Equal(t, 2, len(v.Options))
@@ -128,12 +128,12 @@ func TestGovPrecompile(t *testing.T) {
 				proposal: proposal.ProposalId,
 				value:    big.NewInt(0),
 			},
-			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr sdk.AccAddress) {
+			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr seitypes.AccAddress) {
 				amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
 				require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
 				require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
 			},
-			verify: func(t *testing.T, ctx sdk.Context, seiAddr sdk.AccAddress, proposalID uint64) {
+			verify: func(t *testing.T, ctx sdk.Context, seiAddr seitypes.AccAddress, proposalID uint64) {
 				// No verification needed as we expect an error
 			},
 			wantErr:             true,
@@ -146,12 +146,12 @@ func TestGovPrecompile(t *testing.T) {
 				proposal: proposal.ProposalId,
 				value:    big.NewInt(0),
 			},
-			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr sdk.AccAddress) {
+			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr seitypes.AccAddress) {
 				amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
 				require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
 				require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
 			},
-			verify: func(t *testing.T, ctx sdk.Context, seiAddr sdk.AccAddress, proposalID uint64) {
+			verify: func(t *testing.T, ctx sdk.Context, seiAddr seitypes.AccAddress, proposalID uint64) {
 				v, found := testApp.GovKeeper.GetVote(ctx, proposalID, seiAddr)
 				require.True(t, found)
 				require.Equal(t, 4, len(v.Options))
@@ -170,12 +170,12 @@ func TestGovPrecompile(t *testing.T) {
 				proposal: proposal.ProposalId,
 				value:    big.NewInt(0),
 			},
-			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr sdk.AccAddress) {
+			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr seitypes.AccAddress) {
 				amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
 				require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
 				require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
 			},
-			verify: func(t *testing.T, ctx sdk.Context, seiAddr sdk.AccAddress, proposalID uint64) {
+			verify: func(t *testing.T, ctx sdk.Context, seiAddr seitypes.AccAddress, proposalID uint64) {
 				// No verification needed as we expect an error
 			},
 			wantErr:             true,
@@ -189,8 +189,8 @@ func TestGovPrecompile(t *testing.T) {
 				option:   govtypes.OptionNo,
 				value:    big.NewInt(0),
 			},
-			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr sdk.AccAddress) {},
-			verify: func(t *testing.T, ctx sdk.Context, seiAddr sdk.AccAddress, proposalID uint64) {
+			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr seitypes.AccAddress) {},
+			verify: func(t *testing.T, ctx sdk.Context, seiAddr seitypes.AccAddress, proposalID uint64) {
 				_, found := testApp.GovKeeper.GetVote(ctx, proposalID, seiAddr)
 				require.False(t, found)
 			},
@@ -205,7 +205,7 @@ func TestGovPrecompile(t *testing.T) {
 				proposal: proposal2.ProposalId,
 				value:    new(big.Int).Mul(big.NewInt(10000000), big.NewInt(1_000_000_000_000)),
 			},
-			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr sdk.AccAddress) {
+			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr seitypes.AccAddress) {
 				amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(20000000000000000))) // Adjusted for large deposit
 				require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
 				require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
@@ -214,7 +214,7 @@ func TestGovPrecompile(t *testing.T) {
 				require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
 				require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, evmAddr.Bytes(), amt))
 			},
-			verify: func(t *testing.T, ctx sdk.Context, seiAddr sdk.AccAddress, proposalID uint64) {
+			verify: func(t *testing.T, ctx sdk.Context, seiAddr seitypes.AccAddress, proposalID uint64) {
 				proposal, _ := testApp.GovKeeper.GetProposal(ctx, proposalID)
 				require.Len(t, proposal.TotalDeposit, 0)
 			},
@@ -330,7 +330,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 
 	type args struct {
 		caller           common.Address
-		callerSeiAddress sdk.AccAddress
+		callerSeiAddress seitypes.AccAddress
 		proposal         string
 		value            *big.Int
 	}

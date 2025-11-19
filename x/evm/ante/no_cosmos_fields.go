@@ -14,7 +14,7 @@ func NewEVMNoCosmosFieldsDecorator() EVMNoCosmosFieldsDecorator {
 	return EVMNoCosmosFieldsDecorator{}
 }
 
-func (d EVMNoCosmosFieldsDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (d EVMNoCosmosFieldsDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	txBody, ok := tx.(interface {
 		GetBody() *txtypes.TxBody
 	})

@@ -15,9 +15,9 @@ import (
 type config struct {
 	handler     signing.SignModeHandler
 	decoder     sdk.TxDecoder
-	encoder     sdk.TxEncoder
+	encoder     seitypes.TxEncoder
 	jsonDecoder sdk.TxDecoder
-	jsonEncoder sdk.TxEncoder
+	jsonEncoder seitypes.TxEncoder
 	protoCodec  codec.ProtoCodecMarshaler
 }
 
@@ -46,7 +46,7 @@ func (g config) NewTxBuilder() client.TxBuilder {
 }
 
 // WrapTxBuilder returns a builder from provided transaction
-func (g config) WrapTxBuilder(newTx sdk.Tx) (client.TxBuilder, error) {
+func (g config) WrapTxBuilder(newTx seitypes.Tx) (client.TxBuilder, error) {
 	newBuilder, ok := newTx.(*wrapper)
 	if !ok {
 		return nil, fmt.Errorf("expected %T, got %T", &wrapper{}, newTx)
@@ -59,7 +59,7 @@ func (g config) SignModeHandler() signing.SignModeHandler {
 	return g.handler
 }
 
-func (g config) TxEncoder() sdk.TxEncoder {
+func (g config) TxEncoder() seitypes.TxEncoder {
 	return g.encoder
 }
 
@@ -67,7 +67,7 @@ func (g config) TxDecoder() sdk.TxDecoder {
 	return g.decoder
 }
 
-func (g config) TxJSONEncoder() sdk.TxEncoder {
+func (g config) TxJSONEncoder() seitypes.TxEncoder {
 	return g.jsonEncoder
 }
 

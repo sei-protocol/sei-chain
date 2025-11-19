@@ -8,11 +8,12 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // Interface implementation checks
 var (
-	_ sdk.Tx                             = (*StdTx)(nil)
+	_ seitypes.Tx                        = (*StdTx)(nil)
 	_ sdk.TxWithMemo                     = (*StdTx)(nil)
 	_ sdk.FeeTx                          = (*StdTx)(nil)
 	_ codectypes.UnpackInterfacesMessage = (*StdTx)(nil)
@@ -75,7 +76,7 @@ func (fee StdFee) GasPrices() sdk.DecCoins {
 // NOTE: the first signature is the fee payer (Signatures must not be nil).
 // Deprecated
 type StdTx struct {
-	Msgs          []sdk.Msg      `json:"msg" yaml:"msg"`
+	Msgs          []seitypes.Msg `json:"msg" yaml:"msg"`
 	Fee           StdFee         `json:"fee" yaml:"fee"`
 	Signatures    []StdSignature `json:"signatures" yaml:"signatures"`
 	Memo          string         `json:"memo" yaml:"memo"`
@@ -84,7 +85,7 @@ type StdTx struct {
 }
 
 // Deprecated
-func NewStdTx(msgs []sdk.Msg, fee StdFee, sigs []StdSignature, memo string) StdTx {
+func NewStdTx(msgs []seitypes.Msg, fee StdFee, sigs []StdSignature, memo string) StdTx {
 	return StdTx{
 		Msgs:       msgs,
 		Fee:        fee,
@@ -94,7 +95,7 @@ func NewStdTx(msgs []sdk.Msg, fee StdFee, sigs []StdSignature, memo string) StdT
 }
 
 // GetMsgs returns the all the transaction's messages.
-func (tx StdTx) GetMsgs() []sdk.Msg { return tx.Msgs }
+func (tx StdTx) GetMsgs() []seitypes.Msg { return tx.Msgs }
 
 // ValidateBasic does a simple and lightweight validation check that doesn't
 // require access to any other information.
@@ -142,8 +143,8 @@ func (tx *StdTx) AsAny() *codectypes.Any {
 // They are accumulated from the GetSigners method for each Msg
 // in the order they appear in tx.GetMsgs().
 // Duplicate addresses will be omitted.
-func (tx StdTx) GetSigners() []sdk.AccAddress {
-	var signers []sdk.AccAddress
+func (tx StdTx) GetSigners() []seitypes.AccAddress {
+	var signers []seitypes.AccAddress
 	seen := map[string]bool{}
 
 	for _, msg := range tx.GetMsgs() {
@@ -217,15 +218,15 @@ func (tx StdTx) GetFee() sdk.Coins { return tx.Fee.Amount }
 // FeePayer returns the address that is responsible for paying fee
 // StdTx returns the first signer as the fee payer
 // If no signers for tx, return empty address
-func (tx StdTx) FeePayer() sdk.AccAddress {
+func (tx StdTx) FeePayer() seitypes.AccAddress {
 	if tx.GetSigners() != nil {
 		return tx.GetSigners()[0]
 	}
-	return sdk.AccAddress{}
+	return seitypes.AccAddress{}
 }
 
 // FeeGranter always returns nil for StdTx
-func (tx StdTx) FeeGranter() sdk.AccAddress {
+func (tx StdTx) FeeGranter() seitypes.AccAddress {
 	return nil
 }
 

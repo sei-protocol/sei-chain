@@ -143,7 +143,7 @@ func (p PrecompileExecutor) getEvmAddr(ctx sdk.Context, method *abi.Method, args
 		return nil, 0, err
 	}
 
-	seiAddr, err := sdk.AccAddressFromBech32(args[0].(string))
+	seiAddr, err := seitypes.AccAddressFromBech32(args[0].(string))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -236,7 +236,7 @@ func (p PrecompileExecutor) associatePublicKey(ctx sdk.Context, method *abi.Meth
 	return p.associateAddresses(ctx, method, evmAddr, seiAddr, pubkey)
 }
 
-func (p PrecompileExecutor) associateAddresses(ctx sdk.Context, method *abi.Method, evmAddr common.Address, seiAddr sdk.AccAddress, pubkey cryptotypes.PubKey) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) associateAddresses(ctx sdk.Context, method *abi.Method, evmAddr common.Address, seiAddr seitypes.AccAddress, pubkey cryptotypes.PubKey) (ret []byte, remainingGas uint64, err error) {
 	// Check that address is not already associated
 	_, found := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
 	if found {

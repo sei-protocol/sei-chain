@@ -33,7 +33,7 @@ func TestInvalidMsg(t *testing.T) {
 // A module account cannot be the recipient of bank sends unless it has been marked as such
 func TestSendToModuleAccount(t *testing.T) {
 	priv1 := secp256k1.GenPrivKey()
-	addr1 := sdk.AccAddress(priv1.PubKey().Address())
+	addr1 := seitypes.AccAddress(priv1.PubKey().Address())
 	moduleAccAddr := authtypes.NewModuleAddress(stakingtypes.BondedPoolName)
 	coins := sdk.Coins{sdk.NewInt64Coin("foocoin", 10)}
 

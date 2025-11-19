@@ -12,7 +12,7 @@ var BaseDenomGasPriceAmplfier = sdk.NewInt(1_000_000_000_000)
 
 // checkTxFeeWithValidatorMinGasPrices implements the default fee logic, where the minimum price per
 // unit of gas is fixed and set by each validator, can the tx priority is computed from the gas price.
-func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.Tx, simulate bool, paramsKeeper paramskeeper.Keeper) (sdk.Coins, int64, error) {
+func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx seitypes.Tx, simulate bool, paramsKeeper paramskeeper.Keeper) (sdk.Coins, int64, error) {
 	feeTx, ok := tx.(sdk.FeeTx)
 	if !ok {
 		return nil, 0, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")

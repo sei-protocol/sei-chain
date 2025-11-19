@@ -33,8 +33,8 @@ func TestPreprocessAnteHandler(t *testing.T) {
 	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
 	privKey := testkeeper.MockPrivateKey()
 	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	require.Nil(t, k.BankKeeper().AddCoins(ctx, sdk.AccAddress(evmAddr[:]), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100))), true))
-	require.Nil(t, k.BankKeeper().AddWei(ctx, sdk.AccAddress(evmAddr[:]), sdk.NewInt(10)))
+	require.Nil(t, k.BankKeeper().AddCoins(ctx, seitypes.AccAddress(evmAddr[:]), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100))), true))
+	require.Nil(t, k.BankKeeper().AddWei(ctx, seitypes.AccAddress(evmAddr[:]), sdk.NewInt(10)))
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	to := new(common.Address)
@@ -58,15 +58,15 @@ func TestPreprocessAnteHandler(t *testing.T) {
 	require.Nil(t, err)
 	msg, err := types.NewMsgEVMTransaction(typedTx)
 	require.Nil(t, err)
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
-	require.Equal(t, sdk.AccAddress(privKey.PubKey().Address()), sdk.AccAddress(msg.Derived.SenderSeiAddr))
+	require.Equal(t, seitypes.AccAddress(privKey.PubKey().Address()), seitypes.AccAddress(msg.Derived.SenderSeiAddr))
 	require.Equal(t, sdk.NewInt(100), k.BankKeeper().GetBalance(ctx, seiAddr, "usei").Amount)
 	require.Equal(t, sdk.NewInt(10), k.BankKeeper().GetWeiBalance(ctx, seiAddr))
-	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount)
-	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetWeiBalance(ctx, sdk.AccAddress(evmAddr[:])))
+	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetBalance(ctx, seitypes.AccAddress(evmAddr[:]), "usei").Amount)
+	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetWeiBalance(ctx, seitypes.AccAddress(evmAddr[:])))
 }
 
 func TestPreprocessAnteHandlerUnprotectedShouldFail(t *testing.T) {
@@ -91,7 +91,7 @@ func TestPreprocessAnteHandlerUnprotectedShouldFail(t *testing.T) {
 	}
 	msg, err := types.NewMsgEVMTransaction(&txData)
 	require.Nil(t, err)
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)
@@ -117,17 +117,17 @@ func TestPreprocessAssociateTx(t *testing.T) {
 	txData := ethtx.AssociateTx{V: V.Bytes(), R: R.Bytes(), S: S.Bytes(), CustomMessage: prefixedMessage}
 	msg, err := types.NewMsgEVMTransaction(&txData)
 	require.Nil(t, err)
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		panic("should not be called")
 	})
 	// not enough balance
 	require.NotNil(t, err)
-	seiAddr := sdk.AccAddress(privKey.PubKey().Address())
+	seiAddr := seitypes.AccAddress(privKey.PubKey().Address())
 	evmAddr := crypto.PubkeyToAddress(key.PublicKey)
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(int64(ante.BalanceThreshold))))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, amt)
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, amt)
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		panic("should not be called")
 	})
 	require.Nil(t, err)
@@ -135,7 +135,7 @@ func TestPreprocessAssociateTx(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, evmAddr, associated)
 
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		panic("should not be called")
 	})
 	// already associated
@@ -161,14 +161,14 @@ func TestPreprocessAssociateTxWithWeiBalance(t *testing.T) {
 	txData := ethtx.AssociateTx{V: V.Bytes(), R: R.Bytes(), S: S.Bytes(), CustomMessage: prefixedMessage}
 	msg, err := types.NewMsgEVMTransaction(&txData)
 	require.Nil(t, err)
-	seiAddr := sdk.AccAddress(privKey.PubKey().Address())
+	seiAddr := seitypes.AccAddress(privKey.PubKey().Address())
 	evmAddr := crypto.PubkeyToAddress(key.PublicKey)
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		panic("should not be called")
 	})
 	require.NotNil(t, err)
 	k.BankKeeper().AddWei(ctx, seiAddr, sdk.OneInt())
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		panic("should not be called")
 	})
 	require.Nil(t, err)
@@ -199,7 +199,7 @@ func TestEVMAddressDecorator(t *testing.T) {
 	handler := ante.NewEVMAddressDecorator(k, k.AccountKeeper())
 	msg := banktypes.NewMsgSend(sender, recipient, sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())))
 	k.AccountKeeper().SetAccount(ctx, authtypes.NewBaseAccount(sender, privKey.PubKey(), 1, 1))
-	ctx, err := handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err := handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}, signers: []seitypes.AccAddress{sender}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -217,9 +217,9 @@ func TestIsAccountBalancePositive(t *testing.T) {
 	s4, e4 := testkeeper.MockAddressPair()
 	s5, e5 := testkeeper.MockAddressPair()
 	require.Nil(t, k.BankKeeper().AddCoins(ctx, s1, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.OneInt())), true))
-	require.Nil(t, k.BankKeeper().AddCoins(ctx, sdk.AccAddress(e2[:]), sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.OneInt())), true))
+	require.Nil(t, k.BankKeeper().AddCoins(ctx, seitypes.AccAddress(e2[:]), sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.OneInt())), true))
 	require.Nil(t, k.BankKeeper().AddWei(ctx, s3, sdk.OneInt()))
-	require.Nil(t, k.BankKeeper().AddWei(ctx, sdk.AccAddress(e4[:]), sdk.OneInt()))
+	require.Nil(t, k.BankKeeper().AddWei(ctx, seitypes.AccAddress(e4[:]), sdk.OneInt()))
 	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
 	require.True(t, handler.IsAccountBalancePositive(ctx, s1, e1))
 	require.True(t, handler.IsAccountBalancePositive(ctx, s2, e2))
@@ -228,12 +228,12 @@ func TestIsAccountBalancePositive(t *testing.T) {
 	require.False(t, handler.IsAccountBalancePositive(ctx, s5, e5))
 }
 
-// MockTxNotSigVerifiable is a simple mock transaction type that implements sdk.Tx but not SigVerifiableTx
+// MockTxNotSigVerifiable is a simple mock transaction type that implements seitypes.Tx but not SigVerifiableTx
 type MockTxIncompatible struct {
-	msgs []sdk.Msg
+	msgs []seitypes.Msg
 }
 
-func (m MockTxIncompatible) GetMsgs() []sdk.Msg {
+func (m MockTxIncompatible) GetMsgs() []seitypes.Msg {
 	return m.msgs
 }
 
@@ -250,7 +250,7 @@ func TestEVMAddressDecoratorContinueDespiteErrors(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	handler := ante.NewEVMAddressDecorator(k, k.AccountKeeper())
 
-	_, err := handler.AnteHandle(ctx, MockTxIncompatible{}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err := handler.AnteHandle(ctx, MockTxIncompatible{}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)
@@ -261,7 +261,7 @@ func TestEVMAddressDecoratorContinueDespiteErrors(t *testing.T) {
 	sender, _ := testkeeper.PrivateKeyToAddresses(privKey)
 	k.AccountKeeper().SetAccount(ctx, authtypes.NewBaseAccount(sender, &secp256k1.PubKey{}, 1, 1)) // deliberately no pubkey set
 	msg := banktypes.NewMsgSend(sender, sender, sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())))   // to self to simplify
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}, signers: []seitypes.AccAddress{sender}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	// Since the handler logs the error but does not stop processing, we expect no error returned
@@ -269,7 +269,7 @@ func TestEVMAddressDecoratorContinueDespiteErrors(t *testing.T) {
 
 	k.AccountKeeper().SetAccount(ctx, authtypes.NewBaseAccount(sender, nil, 1, 1))              // deliberately no pubkey set
 	msg = banktypes.NewMsgSend(sender, sender, sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt()))) // to self to simplify
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}, signers: []seitypes.AccAddress{sender}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 
@@ -279,7 +279,7 @@ func TestEVMAddressDecoratorContinueDespiteErrors(t *testing.T) {
 	// Prepare a SigVerifiableTx with a pubkey that fails to parse
 	brokenPubKey := &secp256k1.PubKey{Key: []byte{1, 2, 3}} // deliberately too short to be valid
 	k.AccountKeeper().SetAccount(ctx, authtypes.NewBaseAccount(sender, brokenPubKey, 1, 1))
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}, signers: []seitypes.AccAddress{sender}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 
@@ -292,17 +292,17 @@ func TestMigrateBalance(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	admin, _ := testkeeper.MockAddressPair()
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
-	k.BankKeeper().AddCoins(ctx, sdk.AccAddress(evmAddr[:]), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(2))), false)
+	k.BankKeeper().AddCoins(ctx, seitypes.AccAddress(evmAddr[:]), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(2))), false)
 	// set a vesting account of 1
 	k.AccountKeeper().SetAccount(ctx, vestingtypes.NewDelayedVestingAccountRaw(
 		vestingtypes.NewBaseVestingAccount(
-			k.AccountKeeper().NewAccountWithAddress(ctx, sdk.AccAddress(evmAddr[:])).(*authtypes.BaseAccount),
+			k.AccountKeeper().NewAccountWithAddress(ctx, seitypes.AccAddress(evmAddr[:])).(*authtypes.BaseAccount),
 			sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))), math.MaxInt64, admin),
 	))
 	associateHelper := helpers.NewAssociationHelper(k, k.BankKeeper(), k.AccountKeeper())
 	require.Nil(t, associateHelper.MigrateBalance(ctx, evmAddr, seiAddr))
 	require.Equal(t, int64(1), k.BankKeeper().SpendableCoins(ctx, seiAddr).AmountOf("usei").Int64())
 	require.Equal(t, int64(0), k.BankKeeper().LockedCoins(ctx, seiAddr).AmountOf("usei").Int64())
-	require.Equal(t, int64(0), k.BankKeeper().SpendableCoins(ctx, sdk.AccAddress(evmAddr[:])).AmountOf("usei").Int64())
-	require.Equal(t, int64(1), k.BankKeeper().LockedCoins(ctx, sdk.AccAddress(evmAddr[:])).AmountOf("usei").Int64())
+	require.Equal(t, int64(0), k.BankKeeper().SpendableCoins(ctx, seitypes.AccAddress(evmAddr[:])).AmountOf("usei").Int64())
+	require.Equal(t, int64(1), k.BankKeeper().LockedCoins(ctx, seitypes.AccAddress(evmAddr[:])).AmountOf("usei").Int64())
 }

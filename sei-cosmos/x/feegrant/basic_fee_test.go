@@ -134,7 +134,7 @@ func TestBasicFeeValidAllow(t *testing.T) {
 			ctx := app.BaseApp.NewContext(false, tmproto.Header{}).WithBlockTime(tc.blockTime)
 
 			// now try to deduct
-			removed, err := tc.allowance.Accept(ctx, tc.fee, []sdk.Msg{})
+			removed, err := tc.allowance.Accept(ctx, tc.fee, []seitypes.Msg{})
 			if !tc.accept {
 				require.Error(t, err)
 				return

@@ -22,7 +22,7 @@ func TestEVMNoCosmosFieldsDecorator(t *testing.T) {
 		authInfo:  &txtypes.AuthInfo{Fee: &txtypes.Fee{}},
 		signature: nil,
 	}
-	_, err := decorator.AnteHandle(ctx, tx, false, func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+	_, err := decorator.AnteHandle(ctx, tx, false, func(ctx sdk.Context, tx seitypes.Tx, simulate bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NoError(t, err)

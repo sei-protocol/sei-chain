@@ -1,15 +1,17 @@
 package types
 
+import seitypes "github.com/sei-protocol/sei-chain/types"
+
 // Handler defines the core of the state transition function of an application.
-type Handler func(ctx Context, msg Msg) (*Result, error)
+type Handler func(ctx Context, msg seitypes.Msg) (*Result, error)
 
 // AnteHandler authenticates transactions, before their internal messages are handled.
 // If newCtx.IsZero(), ctx is used instead.
-type AnteHandler func(ctx Context, tx Tx, simulate bool) (newCtx Context, err error)
+type AnteHandler func(ctx Context, tx seitypes.Tx, simulate bool) (newCtx Context, err error)
 
 // AnteDecorator wraps the next AnteHandler to perform custom pre- and post-processing.
 type AnteDecorator interface {
-	AnteHandle(ctx Context, tx Tx, simulate bool, next AnteHandler) (newCtx Context, err error)
+	AnteHandle(ctx Context, tx seitypes.Tx, simulate bool, next AnteHandler) (newCtx Context, err error)
 }
 
 func ChainAnteDecorators(chain ...AnteDecorator) AnteHandler {
@@ -41,7 +43,7 @@ func chainAnteDecoratorHandlers(chain ...AnteDecorator) AnteHandler {
 		chain = append(chain, Terminator{})
 	}
 
-	return func(ctx Context, tx Tx, simulate bool) (Context, error) {
+	return func(ctx Context, tx seitypes.Tx, simulate bool) (Context, error) {
 		return chain[0].AnteHandle(ctx, tx, simulate, chainAnteDecoratorHandlers(chain[1:]...))
 	}
 }
@@ -67,6 +69,6 @@ func chainAnteDecoratorHandlers(chain ...AnteDecorator) AnteHandler {
 type Terminator struct{}
 
 // Simply return provided Context and nil error
-func (t Terminator) AnteHandle(ctx Context, _ Tx, _ bool, _ AnteHandler) (Context, error) {
+func (t Terminator) AnteHandle(ctx Context, _ seitypes.Tx, _ bool, _ AnteHandler) (Context, error) {
 	return ctx, nil
 }

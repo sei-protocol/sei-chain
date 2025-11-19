@@ -25,7 +25,7 @@ message InterchainAccountPacketData {
   string memo = 3;
 }
 
-// CosmosTx contains a list of sdk.Msg's. It should be used when sending transactions to an SDK host chain.
+// CosmosTx contains a list of seitypes.Msg's. It should be used when sending transactions to an SDK host chain.
 message CosmosTx {
   repeated google.protobuf.Any messages = 1;
 }

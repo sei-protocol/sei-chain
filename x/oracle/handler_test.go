@@ -31,7 +31,7 @@ func TestOracleFilters(t *testing.T) {
 	// Case 3: a non-validator sending an oracle message fails
 	nonValidatorPub := secp256k1.GenPrivKey().PubKey()
 	nonValidatorAddr := nonValidatorPub.Address()
-	voteMsg = types.NewMsgAggregateExchangeRateVote(randomExchangeRate.String()+utils.MicroAtomDenom, sdk.AccAddress(nonValidatorAddr), sdk.ValAddress(nonValidatorAddr))
+	voteMsg = types.NewMsgAggregateExchangeRateVote(randomExchangeRate.String()+utils.MicroAtomDenom, seitypes.AccAddress(nonValidatorAddr), seitypes.ValAddress(nonValidatorAddr))
 	_, err = h(input.Ctx, voteMsg)
 	require.Error(t, err)
 }

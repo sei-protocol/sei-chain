@@ -125,7 +125,7 @@ func (a *App) GetProposer() stakingtypes.Validator {
 	return a.GetAllValidators()[a.proposer]
 }
 
-func (a *App) GenerateSignableKey(_ string) (addr sdk.AccAddress) {
+func (a *App) GenerateSignableKey(_ string) (addr seitypes.AccAddress) {
 	entropySeed, err := bip39.NewEntropy(256)
 	if err != nil {
 		panic(err)
@@ -134,10 +134,10 @@ func (a *App) GenerateSignableKey(_ string) (addr sdk.AccAddress) {
 	if err != nil {
 		panic(err)
 	}
-	hdPath := hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String()
+	hdPath := hd.CreateHDPath(seitypes.GetConfig().GetCoinType(), 0, 0).String()
 	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", hdPath)
 	privKey := hd.Secp256k1.Generate()(derivedPriv)
-	addr = sdk.AccAddress(privKey.PubKey().Address())
+	addr = seitypes.AccAddress(privKey.PubKey().Address())
 	a.accToMnemonic[addr.String()] = mnemonic
 	return
 }
@@ -164,5 +164,5 @@ func getValAddress(v stakingtypes.Validator) []byte {
 	if err := pub.Unmarshal(v.ConsensusPubkey.Value); err != nil {
 		panic(err)
 	}
-	return sdk.AccAddress(pub.Address())
+	return seitypes.AccAddress(pub.Address())
 }

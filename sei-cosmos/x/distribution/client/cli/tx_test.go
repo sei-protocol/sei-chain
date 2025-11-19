@@ -29,10 +29,10 @@ func Test_splitAndCall_NoMessages(t *testing.T) {
 func Test_splitAndCall_Splitting(t *testing.T) {
 	clientCtx := client.Context{}
 
-	addr := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	addr := seitypes.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
 
 	// Add five messages
-	msgs := []sdk.Msg{
+	msgs := []seitypes.Msg{
 		testdata.NewTestMsg(addr),
 		testdata.NewTestMsg(addr),
 		testdata.NewTestMsg(addr),
@@ -45,7 +45,7 @@ func Test_splitAndCall_Splitting(t *testing.T) {
 
 	callCount := 0
 	err := cli.NewSplitAndApply(
-		func(clientCtx client.Context, fs *pflag.FlagSet, msgs ...sdk.Msg) error {
+		func(clientCtx client.Context, fs *pflag.FlagSet, msgs ...seitypes.Msg) error {
 			callCount++
 
 			assert.NotNil(t, clientCtx)

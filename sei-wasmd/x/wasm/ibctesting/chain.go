@@ -277,7 +277,7 @@ func (chain *TestChain) NextBlock() {
 }
 
 // sendMsgs delivers a transaction through the application without returning the result.
-func (chain *TestChain) sendMsgs(msgs ...sdk.Msg) error {
+func (chain *TestChain) sendMsgs(msgs ...seitypes.Msg) error {
 	_, err := chain.SendMsgs(msgs...)
 	return err
 }
@@ -285,7 +285,7 @@ func (chain *TestChain) sendMsgs(msgs ...sdk.Msg) error {
 // SendMsgs delivers a transaction through the application. It updates the senders sequence
 // number and updates the TestChain's headers. It returns the result and error if one
 // occurred.
-func (chain *TestChain) SendMsgs(msgs ...sdk.Msg) (*sdk.Result, error) {
+func (chain *TestChain) SendMsgs(msgs ...seitypes.Msg) (*sdk.Result, error) {
 	// ensure the chain has the latest time
 	chain.Coordinator.UpdateTimeForChain(chain)
 
@@ -614,11 +614,11 @@ func (chain *TestChain) GetChannelCapability(portID, channelID string) *capabili
 	return cap
 }
 
-func (chain *TestChain) Balance(acc sdk.AccAddress, denom string) sdk.Coin {
+func (chain *TestChain) Balance(acc seitypes.AccAddress, denom string) sdk.Coin {
 	return chain.GetTestSupport().BankKeeper().GetBalance(chain.GetContext(), acc, denom)
 }
 
-func (chain *TestChain) AllBalances(acc sdk.AccAddress) sdk.Coins {
+func (chain *TestChain) AllBalances(acc seitypes.AccAddress) sdk.Coins {
 	return chain.GetTestSupport().BankKeeper().GetAllBalances(chain.GetContext(), acc)
 }
 

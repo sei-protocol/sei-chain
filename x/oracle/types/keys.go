@@ -56,22 +56,22 @@ func GetExchangeRateKey(denom string) []byte {
 }
 
 // GetFeederDelegationKey - stored by *Validator* address
-func GetFeederDelegationKey(v sdk.ValAddress) []byte {
+func GetFeederDelegationKey(v seitypes.ValAddress) []byte {
 	return append(FeederDelegationKey, address.MustLengthPrefix(v)...)
 }
 
 // GetVotePenaltyCounterKey - stored by *Validator* address
-func GetVotePenaltyCounterKey(v sdk.ValAddress) []byte {
+func GetVotePenaltyCounterKey(v seitypes.ValAddress) []byte {
 	return append(VotePenaltyCounterKey, address.MustLengthPrefix(v)...)
 }
 
 // GetAggregateExchangeRateVoteKey - stored by *Validator* address
-func GetAggregateExchangeRateVoteKey(v sdk.ValAddress) []byte {
+func GetAggregateExchangeRateVoteKey(v seitypes.ValAddress) []byte {
 	return append(AggregateExchangeRateVoteKey, address.MustLengthPrefix(v)...)
 }
 
 // GetSpamPreventionCounterKey - stored by *Validator* address
-func GetSpamPreventionCounterKey(v sdk.ValAddress) []byte {
+func GetSpamPreventionCounterKey(v seitypes.ValAddress) []byte {
 	return append(SpamPreventionCounter, address.MustLengthPrefix(v)...)
 }
 

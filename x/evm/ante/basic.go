@@ -22,7 +22,7 @@ func NewBasicDecorator(k *keeper.Keeper) *BasicDecorator {
 }
 
 // cherrypicked from go-ethereum:txpool:ValidateTransaction
-func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
 	etx, _ := msg.AsTransaction()
 

@@ -229,7 +229,7 @@ func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []inter
 		return nil, errors.New("invalid addr")
 	}
 
-	receiverSeiAddr, err := sdk.AccAddressFromBech32(receiverAddr)
+	receiverSeiAddr, err := seitypes.AccAddressFromBech32(receiverAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -366,7 +366,7 @@ func (p Precompile) totalSupply(ctx sdk.Context, method *abi.Method, args []inte
 	return method.Outputs.Pack(coin.Amount.BigInt())
 }
 
-func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, error) {
+func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (seitypes.AccAddress, error) {
 	addr := arg.(common.Address)
 	if addr == (common.Address{}) {
 		return nil, errors.New("invalid addr")
@@ -374,7 +374,7 @@ func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.Acc
 	seiAddr, found := p.evmKeeper.GetSeiAddress(ctx, addr)
 	if !found {
 		// return the casted version instead
-		return sdk.AccAddress(addr[:]), nil
+		return seitypes.AccAddress(addr[:]), nil
 	}
 	return seiAddr, nil
 }

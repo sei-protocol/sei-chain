@@ -10,12 +10,12 @@ const (
 )
 
 // verify interface at compile time
-var _ sdk.Msg = &MsgUnjail{}
+var _ seitypes.Msg = &MsgUnjail{}
 
 // NewMsgUnjail creates a new MsgUnjail instance
 //
 //nolint:interfacer
-func NewMsgUnjail(validatorAddr sdk.ValAddress) *MsgUnjail {
+func NewMsgUnjail(validatorAddr seitypes.ValAddress) *MsgUnjail {
 	return &MsgUnjail{
 		ValidatorAddr: validatorAddr.String(),
 	}
@@ -23,12 +23,12 @@ func NewMsgUnjail(validatorAddr sdk.ValAddress) *MsgUnjail {
 
 func (msg MsgUnjail) Route() string { return RouterKey }
 func (msg MsgUnjail) Type() string  { return TypeMsgUnjail }
-func (msg MsgUnjail) GetSigners() []sdk.AccAddress {
+func (msg MsgUnjail) GetSigners() []seitypes.AccAddress {
 	valAddr, err := sdk.ValAddressFromBech32(msg.ValidatorAddr)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{valAddr.Bytes()}
+	return []seitypes.AccAddress{valAddr.Bytes()}
 }
 
 // GetSignBytes gets the bytes for the message signer to sign on

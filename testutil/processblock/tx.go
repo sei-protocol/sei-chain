@@ -15,7 +15,7 @@ var InterfaceReg = types.NewInterfaceRegistry()
 var Marshaler = codec.NewProtoCodec(InterfaceReg)
 var TxConfig = tx.NewTxConfig(Marshaler, tx.DefaultSignModes)
 
-func (a *App) Sign(account sdk.AccAddress, fee int64, msgs ...sdk.Msg) xauthsigning.Tx {
+func (a *App) Sign(account seitypes.AccAddress, fee int64, msgs ...seitypes.Msg) xauthsigning.Tx {
 	txBuilder := TxConfig.NewTxBuilder()
 	if err := txBuilder.SetMsgs(msgs...); err != nil {
 		panic(err)
@@ -81,7 +81,7 @@ func (a *App) Sign(account sdk.AccAddress, fee int64, msgs ...sdk.Msg) xauthsign
 
 func GetKey(mnemonic string) cryptotypes.PrivKey {
 	algo := hd.Secp256k1
-	hdpath := hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String()
+	hdpath := hd.CreateHDPath(seitypes.GetConfig().GetCoinType(), 0, 0).String()
 	derivedPriv, _ := algo.Derive()(mnemonic, "", hdpath)
 	privKey := algo.Generate()(derivedPriv)
 

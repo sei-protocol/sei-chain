@@ -134,7 +134,7 @@ func (p Precompile) getEvmAddr(ctx sdk.Context, method *abi.Method, args []inter
 		return nil, err
 	}
 
-	seiAddr, err := sdk.AccAddressFromBech32(args[0].(string))
+	seiAddr, err := seitypes.AccAddressFromBech32(args[0].(string))
 	if err != nil {
 		return nil, err
 	}

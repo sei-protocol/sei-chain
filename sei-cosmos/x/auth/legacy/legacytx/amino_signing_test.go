@@ -14,9 +14,9 @@ import (
 
 func TestLegacyAminoJSONHandler_GetSignBytes(t *testing.T) {
 	priv1 := secp256k1.GenPrivKey()
-	addr1 := sdk.AccAddress(priv1.PubKey().Address())
+	addr1 := seitypes.AccAddress(priv1.PubKey().Address())
 	priv2 := secp256k1.GenPrivKey()
-	addr2 := sdk.AccAddress(priv2.PubKey().Address())
+	addr2 := seitypes.AccAddress(priv2.PubKey().Address())
 
 	coins := sdk.Coins{sdk.NewInt64Coin("foocoin", 10)}
 
@@ -25,7 +25,7 @@ func TestLegacyAminoJSONHandler_GetSignBytes(t *testing.T) {
 		Gas:    10000,
 	}
 	memo := "foo"
-	msgs := []sdk.Msg{
+	msgs := []seitypes.Msg{
 		testdata.NewTestMsg(addr1, addr2),
 	}
 

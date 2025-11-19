@@ -53,7 +53,7 @@ func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 		&AddERCNativePointerProposalV2{},
 	)
 	registry.RegisterImplementations(
-		(*sdk.Msg)(nil),
+		(*seitypes.Msg)(nil),
 		&MsgEVMTransaction{},
 		&MsgSend{},
 		&MsgRegisterPointer{},

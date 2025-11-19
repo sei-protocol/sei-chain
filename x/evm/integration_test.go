@@ -235,7 +235,7 @@ func TestCW721RoyaltiesPointerToERC721Royalties(t *testing.T) {
 		},
 	})
 	require.Nil(t, err)
-	ret, err := testkeeper.EVMTestApp.WasmKeeper.QuerySmart(ctx, sdk.MustAccAddressFromBech32(res2.PointerAddress), query)
+	ret, err := testkeeper.EVMTestApp.WasmKeeper.QuerySmart(ctx, seitypes.MustAccAddressFromBech32(res2.PointerAddress), query)
 	require.Nil(t, err)
 	require.Equal(t, "{\"royalty_payments\":true}", string(ret))
 	query, err = json.Marshal(map[string]interface{}{
@@ -249,7 +249,7 @@ func TestCW721RoyaltiesPointerToERC721Royalties(t *testing.T) {
 		},
 	})
 	require.Nil(t, err)
-	ret, err = testkeeper.EVMTestApp.WasmKeeper.QuerySmart(ctx, sdk.MustAccAddressFromBech32(res2.PointerAddress), query)
+	ret, err = testkeeper.EVMTestApp.WasmKeeper.QuerySmart(ctx, seitypes.MustAccAddressFromBech32(res2.PointerAddress), query)
 	require.Nil(t, err)
 	require.Equal(t, fmt.Sprintf("{\"address\":\"%s\",\"royalty_amount\":\"1000\"}", seiAddr.String()), string(ret))
 }
@@ -456,7 +456,7 @@ func TestCW1155RoyaltiesPointerToERC1155Royalties(t *testing.T) {
 		},
 	})
 	require.Nil(t, err)
-	ret, err := testkeeper.EVMTestApp.WasmKeeper.QuerySmart(ctx, sdk.MustAccAddressFromBech32(res2.PointerAddress), query)
+	ret, err := testkeeper.EVMTestApp.WasmKeeper.QuerySmart(ctx, seitypes.MustAccAddressFromBech32(res2.PointerAddress), query)
 	require.Nil(t, err)
 	require.Equal(t, "{\"royalty_payments\":true}", string(ret))
 	query, err = json.Marshal(map[string]interface{}{
@@ -470,7 +470,7 @@ func TestCW1155RoyaltiesPointerToERC1155Royalties(t *testing.T) {
 		},
 	})
 	require.Nil(t, err)
-	ret, err = testkeeper.EVMTestApp.WasmKeeper.QuerySmart(ctx, sdk.MustAccAddressFromBech32(res2.PointerAddress), query)
+	ret, err = testkeeper.EVMTestApp.WasmKeeper.QuerySmart(ctx, seitypes.MustAccAddressFromBech32(res2.PointerAddress), query)
 	require.Nil(t, err)
 	require.Equal(t, fmt.Sprintf("{\"address\":\"%s\",\"royalty_amount\":\"50\"}", seiAddr.String()), string(ret))
 }
@@ -565,7 +565,7 @@ func TestInvalidAssociateMsg(t *testing.T) {
 		Sender: seiAddr.String(), CustomMessage: "",
 	}
 	txBuilder = testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
-	msgs := []sdk.Msg{}
+	msgs := []seitypes.Msg{}
 	for i := 1; i <= 1000; i++ {
 		msgs = append(msgs, amsg)
 	}
@@ -577,7 +577,7 @@ func TestInvalidAssociateMsg(t *testing.T) {
 	require.Equal(t, uint32(11), res.Code) // out of gas
 }
 
-func signTx(txBuilder client.TxBuilder, privKey cryptotypes.PrivKey, acc authtypes.AccountI) sdk.Tx {
+func signTx(txBuilder client.TxBuilder, privKey cryptotypes.PrivKey, acc authtypes.AccountI) seitypes.Tx {
 	var sigsV2 []signing.SignatureV2
 	sigV2 := signing.SignatureV2{
 		PubKey: privKey.PubKey(),

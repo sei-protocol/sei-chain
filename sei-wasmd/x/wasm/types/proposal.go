@@ -100,7 +100,7 @@ func (p StoreCodeProposal) ValidateBasic() error {
 	if err := validateProposalCommons(p.Title, p.Description); err != nil {
 		return err
 	}
-	if _, err := sdk.AccAddressFromBech32(p.RunAs); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(p.RunAs); err != nil {
 		return sdkerrors.Wrap(err, "run as")
 	}
 
@@ -162,7 +162,7 @@ func (p InstantiateContractProposal) ValidateBasic() error {
 	if err := validateProposalCommons(p.Title, p.Description); err != nil {
 		return err
 	}
-	if _, err := sdk.AccAddressFromBech32(p.RunAs); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(p.RunAs); err != nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "run as")
 	}
 
@@ -179,7 +179,7 @@ func (p InstantiateContractProposal) ValidateBasic() error {
 	}
 
 	if len(p.Admin) != 0 {
-		if _, err := sdk.AccAddressFromBech32(p.Admin); err != nil {
+		if _, err := seitypes.AccAddressFromBech32(p.Admin); err != nil {
 			return err
 		}
 	}
@@ -246,7 +246,7 @@ func (p MigrateContractProposal) ValidateBasic() error {
 	if p.CodeID == 0 {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "code_id is required")
 	}
-	if _, err := sdk.AccAddressFromBech32(p.Contract); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(p.Contract); err != nil {
 		return sdkerrors.Wrap(err, "contract")
 	}
 	if err := p.Msg.ValidateBasic(); err != nil {
@@ -300,7 +300,7 @@ func (p SudoContractProposal) ValidateBasic() error {
 	if err := validateProposalCommons(p.Title, p.Description); err != nil {
 		return err
 	}
-	if _, err := sdk.AccAddressFromBech32(p.Contract); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(p.Contract); err != nil {
 		return sdkerrors.Wrap(err, "contract")
 	}
 	if err := p.Msg.ValidateBasic(); err != nil {
@@ -351,10 +351,10 @@ func (p ExecuteContractProposal) ValidateBasic() error {
 	if err := validateProposalCommons(p.Title, p.Description); err != nil {
 		return err
 	}
-	if _, err := sdk.AccAddressFromBech32(p.Contract); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(p.Contract); err != nil {
 		return sdkerrors.Wrap(err, "contract")
 	}
-	if _, err := sdk.AccAddressFromBech32(p.RunAs); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(p.RunAs); err != nil {
 		return sdkerrors.Wrap(err, "run as")
 	}
 	if !p.Funds.IsValid() {
@@ -414,10 +414,10 @@ func (p UpdateAdminProposal) ValidateBasic() error {
 	if err := validateProposalCommons(p.Title, p.Description); err != nil {
 		return err
 	}
-	if _, err := sdk.AccAddressFromBech32(p.Contract); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(p.Contract); err != nil {
 		return sdkerrors.Wrap(err, "contract")
 	}
-	if _, err := sdk.AccAddressFromBech32(p.NewAdmin); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(p.NewAdmin); err != nil {
 		return sdkerrors.Wrap(err, "new admin")
 	}
 	return nil
@@ -450,7 +450,7 @@ func (p ClearAdminProposal) ValidateBasic() error {
 	if err := validateProposalCommons(p.Title, p.Description); err != nil {
 		return err
 	}
-	if _, err := sdk.AccAddressFromBech32(p.Contract); err != nil {
+	if _, err := seitypes.AccAddressFromBech32(p.Contract); err != nil {
 		return sdkerrors.Wrap(err, "contract")
 	}
 	return nil

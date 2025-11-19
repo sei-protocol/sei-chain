@@ -4,6 +4,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/address"
 	"github.com/cosmos/cosmos-sdk/types/kv"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 const (
@@ -52,7 +53,7 @@ func DenomAllowListKey(denom string) []byte {
 // iterator discards the actual prefix.
 //
 // If invalid key is passed, AddressFromBalancesStore returns ErrInvalidKey.
-func AddressFromBalancesStore(key []byte) (sdk.AccAddress, error) {
+func AddressFromBalancesStore(key []byte) (seitypes.AccAddress, error) {
 	if len(key) == 0 {
 		return nil, ErrInvalidKey
 	}
@@ -71,7 +72,7 @@ func CreateAccountBalancesPrefix(addr []byte) []byte {
 }
 
 func CreateAccountBalancesPrefixFromBech32(addr string) []byte {
-	accAdrr, _ := sdk.AccAddressFromBech32(addr)
+	accAdrr, _ := seitypes.AccAddressFromBech32(addr)
 	accAdrrPrefix := CreateAccountBalancesPrefix(accAdrr)
 	return accAdrrPrefix
 }
@@ -97,7 +98,7 @@ func CreateDeferredCacheModuleTxIndexedPrefix(moduleAddr []byte, index uint64) [
 // iterator discards the actual prefix.
 //
 // If invalid key is passed, AddressFromBalancesStore returns ErrInvalidKey.
-func AddressFromDeferredCacheStore(key []byte) (sdk.AccAddress, error) {
+func AddressFromDeferredCacheStore(key []byte) (seitypes.AccAddress, error) {
 	if len(key) == 0 {
 		return nil, ErrInvalidKey
 	}

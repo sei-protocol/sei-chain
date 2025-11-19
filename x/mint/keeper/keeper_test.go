@@ -17,14 +17,14 @@ import (
 )
 
 type MockAccountKeeper struct {
-	ModuleAddress       sdk.AccAddress
+	ModuleAddress       seitypes.AccAddress
 	ModuleAccount       authtypes.ModuleAccountI
 	moduleNameToAddress map[string]string
 }
 
-func (m MockAccountKeeper) GetModuleAddress(name string) sdk.AccAddress {
+func (m MockAccountKeeper) GetModuleAddress(name string) seitypes.AccAddress {
 	if addrStr, ok := m.moduleNameToAddress[name]; ok {
-		addr, _ := sdk.AccAddressFromBech32(addrStr)
+		addr, _ := seitypes.AccAddressFromBech32(addrStr)
 		return addr
 	}
 	return nil

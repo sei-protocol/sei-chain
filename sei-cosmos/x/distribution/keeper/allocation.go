@@ -14,7 +14,7 @@ import (
 // validators in the bonded set.
 func (k Keeper) AllocateTokens(
 	ctx sdk.Context, sumPreviousPrecommitPower, totalPreviousPower int64,
-	previousProposer sdk.ConsAddress, bondedVotes []abci.VoteInfo,
+	previousProposer seitypes.ConsAddress, bondedVotes []abci.VoteInfo,
 ) {
 
 	logger := k.Logger(ctx)

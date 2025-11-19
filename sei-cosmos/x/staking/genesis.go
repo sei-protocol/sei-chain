@@ -64,7 +64,7 @@ func InitGenesis(
 	}
 
 	for _, delegation := range data.Delegations {
-		delegatorAddress := sdk.MustAccAddressFromBech32(delegation.DelegatorAddress)
+		delegatorAddress := seitypes.MustAccAddressFromBech32(delegation.DelegatorAddress)
 
 		// Call the before-creation hook if not exported
 		if !data.Exported {
@@ -183,7 +183,7 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 
 	var lastValidatorPowers []types.LastValidatorPower
 
-	keeper.IterateLastValidatorPowers(ctx, func(addr sdk.ValAddress, power int64) (stop bool) {
+	keeper.IterateLastValidatorPowers(ctx, func(addr seitypes.ValAddress, power int64) (stop bool) {
 		lastValidatorPowers = append(lastValidatorPowers, types.LastValidatorPower{Address: addr.String(), Power: power})
 		return false
 	})
@@ -213,7 +213,7 @@ func WriteValidators(ctx sdk.Context, keeper keeper.Keeper) (vals []tmtypes.Gene
 		}
 
 		vals = append(vals, tmtypes.GenesisValidator{
-			Address: sdk.ConsAddress(tmPk.Address()).Bytes(),
+			Address: seitypes.ConsAddress(tmPk.Address()).Bytes(),
 			PubKey:  tmPk,
 			Power:   validator.GetConsensusPower(keeper.PowerReduction(ctx)),
 			Name:    validator.GetMoniker(),

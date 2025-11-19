@@ -34,7 +34,7 @@ type KeeperTestHelper struct {
 	App         *app.App
 	Ctx         sdk.Context
 	QueryHelper *baseapp.QueryServiceTestHelper
-	TestAccs    []sdk.AccAddress
+	TestAccs    []seitypes.AccAddress
 }
 
 // Setup sets up basic environment for suite (App, Ctx, and test accounts)
@@ -73,19 +73,19 @@ func (s *KeeperTestHelper) Commit() {
 }
 
 // FundAcc funds target address with specified amount.
-func (s *KeeperTestHelper) FundAcc(acc sdk.AccAddress, amounts sdk.Coins) {
+func (s *KeeperTestHelper) FundAcc(acc seitypes.AccAddress, amounts sdk.Coins) {
 	err := FundAccount(s.App.BankKeeper, s.Ctx, acc, amounts)
 	s.Require().NoError(err)
 }
 
 // SetupValidator sets up a validator and returns the ValAddress.
-func (s *KeeperTestHelper) SetupValidator(bondStatus stakingtypes.BondStatus) sdk.ValAddress {
+func (s *KeeperTestHelper) SetupValidator(bondStatus stakingtypes.BondStatus) seitypes.ValAddress {
 	valPub := secp256k1.GenPrivKey().PubKey()
-	valAddr := sdk.ValAddress(valPub.Address())
+	valAddr := seitypes.ValAddress(valPub.Address())
 	bondDenom := s.App.StakingKeeper.GetParams(s.Ctx).BondDenom
 	selfBond := sdk.NewCoins(sdk.Coin{Amount: sdk.NewInt(100), Denom: bondDenom})
 
-	s.FundAcc(sdk.AccAddress(valAddr), selfBond)
+	s.FundAcc(seitypes.AccAddress(valAddr), selfBond)
 
 	sh := teststaking.NewHelper(s.T(), s.Ctx, s.App.StakingKeeper)
 	msg := sh.CreateValidatorMsg(valAddr, valPub, selfBond[0].Amount)
@@ -125,7 +125,7 @@ func (s *KeeperTestHelper) EndBlock() {
 }
 
 // AllocateRewardsToValidator allocates reward tokens to a distribution module then allocates rewards to the validator address.
-func (s *KeeperTestHelper) AllocateRewardsToValidator(valAddr sdk.ValAddress, rewardAmt sdk.Int) {
+func (s *KeeperTestHelper) AllocateRewardsToValidator(valAddr seitypes.ValAddress, rewardAmt sdk.Int) {
 	validator, found := s.App.StakingKeeper.GetValidator(s.Ctx, valAddr)
 	s.Require().True(found)
 
@@ -143,7 +143,7 @@ func (s *KeeperTestHelper) AllocateRewardsToValidator(valAddr sdk.ValAddress, re
 // BuildTx builds a transaction.
 func (s *KeeperTestHelper) BuildTx(
 	txBuilder client.TxBuilder,
-	msgs []sdk.Msg,
+	msgs []seitypes.Msg,
 	sigV2 signing.SignatureV2,
 	memo string,
 	txFee sdk.Coins,
@@ -163,11 +163,11 @@ func (s *KeeperTestHelper) BuildTx(
 }
 
 // CreateRandomAccounts is a function return a list of randomly generated AccAddresses
-func CreateRandomAccounts(numAccts int) []sdk.AccAddress {
-	testAddrs := make([]sdk.AccAddress, numAccts)
+func CreateRandomAccounts(numAccts int) []seitypes.AccAddress {
+	testAddrs := make([]seitypes.AccAddress, numAccts)
 	for i := 0; i < numAccts; i++ {
 		pk := ed25519.GenPrivKey().PubKey()
-		testAddrs[i] = sdk.AccAddress(pk.Address())
+		testAddrs[i] = seitypes.AccAddress(pk.Address())
 	}
 
 	return testAddrs
@@ -175,12 +175,12 @@ func CreateRandomAccounts(numAccts int) []sdk.AccAddress {
 
 func GenerateTestAddrs() (string, string) {
 	pk1 := ed25519.GenPrivKey().PubKey()
-	validAddr := sdk.AccAddress(pk1.Address()).String()
-	invalidAddr := sdk.AccAddress("invalid").String()
+	validAddr := seitypes.AccAddress(pk1.Address()).String()
+	invalidAddr := seitypes.AccAddress("invalid").String()
 	return validAddr, invalidAddr
 }
 
-func FundAccount(bankKeeper bankkeeper.Keeper, ctx sdk.Context, addr sdk.AccAddress, amounts sdk.Coins) error {
+func FundAccount(bankKeeper bankkeeper.Keeper, ctx sdk.Context, addr seitypes.AccAddress, amounts sdk.Coins) error {
 	if err := bankKeeper.MintCoins(ctx, minttypes.ModuleName, amounts); err != nil {
 		return err
 	}

@@ -93,7 +93,7 @@ func DepositsKey(proposalID uint64) []byte {
 }
 
 // DepositKey key of a specific deposit from the store
-func DepositKey(proposalID uint64, depositorAddr sdk.AccAddress) []byte {
+func DepositKey(proposalID uint64, depositorAddr seitypes.AccAddress) []byte {
 	return append(DepositsKey(proposalID), address.MustLengthPrefix(depositorAddr.Bytes())...)
 }
 
@@ -103,7 +103,7 @@ func VotesKey(proposalID uint64) []byte {
 }
 
 // VoteKey key of a specific vote from the store
-func VoteKey(proposalID uint64, voterAddr sdk.AccAddress) []byte {
+func VoteKey(proposalID uint64, voterAddr seitypes.AccAddress) []byte {
 	return append(VotesKey(proposalID), address.MustLengthPrefix(voterAddr.Bytes())...)
 }
 
@@ -127,12 +127,12 @@ func SplitInactiveProposalQueueKey(key []byte) (proposalID uint64, endTime time.
 }
 
 // SplitKeyDeposit split the deposits key and returns the proposal id and depositor address
-func SplitKeyDeposit(key []byte) (proposalID uint64, depositorAddr sdk.AccAddress) {
+func SplitKeyDeposit(key []byte) (proposalID uint64, depositorAddr seitypes.AccAddress) {
 	return splitKeyWithAddress(key)
 }
 
 // SplitKeyVote split the votes key and returns the proposal id and voter address
-func SplitKeyVote(key []byte) (proposalID uint64, voterAddr sdk.AccAddress) {
+func SplitKeyVote(key []byte) (proposalID uint64, voterAddr seitypes.AccAddress) {
 	return splitKeyWithAddress(key)
 }
 
@@ -150,12 +150,12 @@ func splitKeyWithTime(key []byte) (proposalID uint64, endTime time.Time) {
 	return
 }
 
-func splitKeyWithAddress(key []byte) (proposalID uint64, addr sdk.AccAddress) {
+func splitKeyWithAddress(key []byte) (proposalID uint64, addr seitypes.AccAddress) {
 	// Both Vote and Deposit store keys are of format:
 	// <prefix (1 Byte)><proposalID (8 bytes)><addrLen (1 Byte)><addr_Bytes>
 	kv.AssertKeyAtLeastLength(key, 10)
 	proposalID = GetProposalIDFromBytes(key[1:9])
 	kv.AssertKeyAtLeastLength(key, 11)
-	addr = sdk.AccAddress(key[10:])
+	addr = seitypes.AccAddress(key[10:])
 	return
 }

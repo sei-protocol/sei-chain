@@ -8,10 +8,11 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 var (
-	_, _ sdk.Msg            = &MsgGrantAllowance{}, &MsgRevokeAllowance{}
+	_, _ seitypes.Msg       = &MsgGrantAllowance{}, &MsgRevokeAllowance{}
 	_, _ legacytx.LegacyMsg = &MsgGrantAllowance{}, &MsgRevokeAllowance{} // For amino support.
 
 	_ types.UnpackInterfacesMessage = &MsgGrantAllowance{}
@@ -20,7 +21,7 @@ var (
 // NewMsgGrantAllowance creates a new MsgGrantAllowance.
 //
 //nolint:interfacer
-func NewMsgGrantAllowance(feeAllowance FeeAllowanceI, granter, grantee sdk.AccAddress) (*MsgGrantAllowance, error) {
+func NewMsgGrantAllowance(feeAllowance FeeAllowanceI, granter, grantee seitypes.AccAddress) (*MsgGrantAllowance, error) {
 	msg, ok := feeAllowance.(proto.Message)
 	if !ok {
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrPackAny, "cannot proto marshal %T", msg)
@@ -37,7 +38,7 @@ func NewMsgGrantAllowance(feeAllowance FeeAllowanceI, granter, grantee sdk.AccAd
 	}, nil
 }
 
-// ValidateBasic implements the sdk.Msg interface.
+// ValidateBasic implements the seitypes.Msg interface.
 func (msg MsgGrantAllowance) ValidateBasic() error {
 	if msg.Granter == "" {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, "missing granter address")
@@ -58,12 +59,12 @@ func (msg MsgGrantAllowance) ValidateBasic() error {
 }
 
 // GetSigners gets the granter account associated with an allowance
-func (msg MsgGrantAllowance) GetSigners() []sdk.AccAddress {
-	granter, err := sdk.AccAddressFromBech32(msg.Granter)
+func (msg MsgGrantAllowance) GetSigners() []seitypes.AccAddress {
+	granter, err := seitypes.AccAddressFromBech32(msg.Granter)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{granter}
+	return []seitypes.AccAddress{granter}
 }
 
 // Type implements the LegacyMsg.Type method.
@@ -101,11 +102,11 @@ func (msg MsgGrantAllowance) UnpackInterfaces(unpacker types.AnyUnpacker) error 
 // granter and grantee
 //
 //nolint:interfacer
-func NewMsgRevokeAllowance(granter sdk.AccAddress, grantee sdk.AccAddress) MsgRevokeAllowance {
+func NewMsgRevokeAllowance(granter seitypes.AccAddress, grantee seitypes.AccAddress) MsgRevokeAllowance {
 	return MsgRevokeAllowance{Granter: granter.String(), Grantee: grantee.String()}
 }
 
-// ValidateBasic implements the sdk.Msg interface.
+// ValidateBasic implements the seitypes.Msg interface.
 func (msg MsgRevokeAllowance) ValidateBasic() error {
 	if msg.Granter == "" {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, "missing granter address")
@@ -122,12 +123,12 @@ func (msg MsgRevokeAllowance) ValidateBasic() error {
 
 // GetSigners gets the granter address associated with an Allowance
 // to revoke.
-func (msg MsgRevokeAllowance) GetSigners() []sdk.AccAddress {
-	granter, err := sdk.AccAddressFromBech32(msg.Granter)
+func (msg MsgRevokeAllowance) GetSigners() []seitypes.AccAddress {
+	granter, err := seitypes.AccAddressFromBech32(msg.Granter)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{granter}
+	return []seitypes.AccAddress{granter}
 }
 
 // Type implements the LegacyMsg.Type method.

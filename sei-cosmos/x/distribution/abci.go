@@ -32,6 +32,6 @@ func BeginBlocker(ctx sdk.Context, votes []abci.VoteInfo, k keeper.Keeper) {
 	}
 
 	// record the proposer for when we payout on the next block
-	consAddr := sdk.ConsAddress(ctx.BlockHeader().ProposerAddress)
+	consAddr := seitypes.ConsAddress(ctx.BlockHeader().ProposerAddress)
 	k.SetPreviousProposerConsAddr(ctx, consAddr)
 }

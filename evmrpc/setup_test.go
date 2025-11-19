@@ -74,12 +74,12 @@ var EncodingConfig = app.MakeEncodingConfig()
 var TxConfig = EncodingConfig.TxConfig
 var Encoder = TxConfig.TxEncoder()
 var Decoder = TxConfig.TxDecoder()
-var Tx1 sdk.Tx
-var MultiTxBlockTx1 sdk.Tx
-var MultiTxBlockTx2 sdk.Tx
-var MultiTxBlockTx3 sdk.Tx
-var MultiTxBlockTx4 sdk.Tx
-var MultiTxBlockSynthTx sdk.Tx
+var Tx1 seitypes.Tx
+var MultiTxBlockTx1 seitypes.Tx
+var MultiTxBlockTx2 seitypes.Tx
+var MultiTxBlockTx3 seitypes.Tx
+var MultiTxBlockTx4 seitypes.Tx
+var MultiTxBlockSynthTx seitypes.Tx
 var tx1 *ethtypes.Transaction
 var multiTxBlockTx1 *ethtypes.Transaction
 var multiTxBlockTx2 *ethtypes.Transaction
@@ -88,16 +88,16 @@ var multiTxBlockTx4 *ethtypes.Transaction
 var multiTxBlockSynthTx *ethtypes.Transaction
 
 // Additional normal EVM tx used specifically for block 100 tests
-var Block100NormalTx sdk.Tx
+var Block100NormalTx seitypes.Tx
 var block100NormalTx *ethtypes.Transaction
 
-var DebugTraceTx sdk.Tx
-var DebugTracePanicTx sdk.Tx
-var DebugTraceNonPanicTx sdk.Tx
-var DebugTraceSyntheticTx sdk.Tx
-var TxNonEvm sdk.Tx
-var TxNonEvmWithSyntheticLog sdk.Tx
-var UnconfirmedTx sdk.Tx
+var DebugTraceTx seitypes.Tx
+var DebugTracePanicTx seitypes.Tx
+var DebugTraceNonPanicTx seitypes.Tx
+var DebugTraceSyntheticTx seitypes.Tx
+var TxNonEvm seitypes.Tx
+var TxNonEvmWithSyntheticLog seitypes.Tx
+var UnconfirmedTx seitypes.Tx
 
 var SConfig = evmrpc.SimulateConfig{GasCap: 10000000}
 
@@ -854,8 +854,8 @@ func generateTxData() {
 	debugTraceAmts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(100000)))
 
 	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, amts)
-	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(unassociatedAddr[:]), balanceAmts)
-	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(debugTraceAddr[:]), debugTraceAmts)
+	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, seitypes.AccAddress(unassociatedAddr[:]), balanceAmts)
+	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, seitypes.AccAddress(debugTraceAddr[:]), debugTraceAmts)
 	EVMKeeper.SetCode(Ctx, common.HexToAddress("0x1234567890123456789023456789012345678901"), []byte("abc"))
 	EVMKeeper.SetState(
 		Ctx,
@@ -865,7 +865,7 @@ func generateTxData() {
 	)
 	EVMKeeper.SetAddressMapping(
 		Ctx,
-		sdk.MustAccAddressFromBech32("sei1mf0llhmqane5w2y8uynmghmk2w4mh0xll9seym"),
+		seitypes.MustAccAddressFromBech32("sei1mf0llhmqane5w2y8uynmghmk2w4mh0xll9seym"),
 		common.HexToAddress("0x1df809C639027b465B931BD63Ce71c8E5834D9d6"),
 	)
 	EVMKeeper.SetNonce(Ctx, common.HexToAddress("0x1234567890123456789012345678901234567890"), 1)
@@ -881,7 +881,7 @@ func generateTxData() {
 	UnconfirmedTx = unconfirmedTxBuilder.GetTx()
 
 	tracerTestTxFrom := common.HexToAddress("0x5b4eba929f3811980f5ae0c5d04fa200f837df4e")
-	EVMKeeper.SetAddressMapping(Ctx, sdk.AccAddress(tracerTestTxFrom[:]), tracerTestTxFrom)
+	EVMKeeper.SetAddressMapping(Ctx, seitypes.AccAddress(tracerTestTxFrom[:]), tracerTestTxFrom)
 }
 
 func buildTx(txData ethtypes.DynamicFeeTx) (client.TxBuilder, *ethtypes.Transaction) {
@@ -891,7 +891,7 @@ func buildTx(txData ethtypes.DynamicFeeTx) (client.TxBuilder, *ethtypes.Transact
 	privKey := hd.Secp256k1.Generate()(derivedPriv)
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	EVMKeeper.BankKeeper().AddCoins(Ctx, sdk.AccAddress(evmAddr[:]), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000))), false)
+	EVMKeeper.BankKeeper().AddCoins(Ctx, seitypes.AccAddress(evmAddr[:]), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000))), false)
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	ethCfg := types.DefaultChainConfig().EthereumConfig(chainId)
 	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(Ctx.BlockHeight()), uint64(Ctx.BlockTime().Unix()))

@@ -10,10 +10,10 @@ import (
 const TypeMsgClaimSpecific = "evm_claim_specific"
 
 var (
-	_ sdk.Msg = &MsgClaimSpecific{}
+	_ seitypes.Msg = &MsgClaimSpecific{}
 )
 
-func NewMsgClaimSpecific(sender sdk.AccAddress, claimer common.Address, assets ...*Asset) *MsgClaimSpecific {
+func NewMsgClaimSpecific(sender seitypes.AccAddress, claimer common.Address, assets ...*Asset) *MsgClaimSpecific {
 	return &MsgClaimSpecific{Sender: sender.String(), Claimer: claimer.Hex(), Assets: assets}
 }
 
@@ -25,12 +25,12 @@ func (msg *MsgClaimSpecific) Type() string {
 	return TypeMsgClaimSpecific
 }
 
-func (msg *MsgClaimSpecific) GetSigners() []sdk.AccAddress {
-	from, err := sdk.AccAddressFromBech32(msg.Sender)
+func (msg *MsgClaimSpecific) GetSigners() []seitypes.AccAddress {
+	from, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{from}
+	return []seitypes.AccAddress{from}
 }
 
 func (msg *MsgClaimSpecific) GetSignBytes() []byte {
@@ -38,12 +38,12 @@ func (msg *MsgClaimSpecific) GetSignBytes() []byte {
 }
 
 func (msg *MsgClaimSpecific) ValidateBasic() error {
-	_, err := sdk.AccAddressFromBech32(msg.Sender)
+	_, err := seitypes.AccAddressFromBech32(msg.Sender)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
 	}
 	for _, asset := range msg.Assets {
-		_, err = sdk.AccAddressFromBech32(asset.ContractAddress)
+		_, err = seitypes.AccAddressFromBech32(asset.ContractAddress)
 		if err != nil {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid contract address (%s)", err)
 		}

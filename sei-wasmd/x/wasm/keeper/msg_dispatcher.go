@@ -14,12 +14,12 @@ import (
 // Messenger is an extension point for custom wasmd message handling
 type Messenger interface {
 	// DispatchMsg encodes the wasmVM message and dispatches it.
-	DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error)
+	DispatchMsg(ctx sdk.Context, contractAddr seitypes.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error)
 }
 
 // replyer is a subset of keeper that can handle replies to submessages
 type replyer interface {
-	reply(ctx sdk.Context, contractAddress sdk.AccAddress, reply wasmvmtypes.Reply) ([]byte, error)
+	reply(ctx sdk.Context, contractAddress seitypes.AccAddress, reply wasmvmtypes.Reply) ([]byte, error)
 }
 
 // MessageDispatcher coordinates message sending and submessage reply/ state commits
@@ -34,7 +34,7 @@ func NewMessageDispatcher(messenger Messenger, keeper replyer) *MessageDispatche
 }
 
 // DispatchMessages sends all messages.
-func (d MessageDispatcher) DispatchMessages(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msgs []wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) error {
+func (d MessageDispatcher) DispatchMessages(ctx sdk.Context, contractAddr seitypes.AccAddress, ibcPort string, msgs []wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) error {
 	for _, msg := range msgs {
 		events, _, err := d.messenger.DispatchMsg(ctx, contractAddr, ibcPort, msg, info, codeInfo)
 		if err != nil {
@@ -47,7 +47,7 @@ func (d MessageDispatcher) DispatchMessages(ctx sdk.Context, contractAddr sdk.Ac
 }
 
 // dispatchMsgWithGasLimit sends a message with gas limit applied
-func (d MessageDispatcher) dispatchMsgWithGasLimit(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msg wasmvmtypes.CosmosMsg, gasLimit uint64, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
+func (d MessageDispatcher) dispatchMsgWithGasLimit(ctx sdk.Context, contractAddr seitypes.AccAddress, ibcPort string, msg wasmvmtypes.CosmosMsg, gasLimit uint64, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 	limitedMeter := sdk.NewGasMeterWithMultiplier(ctx, gasLimit)
 	subCtx := ctx.WithGasMeter(limitedMeter)
 
@@ -75,7 +75,7 @@ func (d MessageDispatcher) dispatchMsgWithGasLimit(ctx sdk.Context, contractAddr
 
 // DispatchSubmessages builds a sandbox to execute these messages and returns the execution result to the contract
 // that dispatched them, both on success as well as failure
-func (d MessageDispatcher) DispatchSubmessages(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]byte, error) {
+func (d MessageDispatcher) DispatchSubmessages(ctx sdk.Context, contractAddr seitypes.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]byte, error) {
 	var rsp []byte
 	for _, msg := range msgs {
 		switch msg.ReplyOn {

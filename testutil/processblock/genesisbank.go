@@ -6,7 +6,7 @@ import (
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
-func (a *App) FundAccount(acc sdk.AccAddress, amount int64) {
+func (a *App) FundAccount(acc seitypes.AccAddress, amount int64) {
 	a.FundAccountWithDenom(acc, amount, "usei")
 }
 
@@ -14,7 +14,7 @@ func (a *App) FundModule(moduleName string, amount int64) {
 	a.FundModuleWithDenom(moduleName, amount, "usei")
 }
 
-func (a *App) FundAccountWithDenom(acc sdk.AccAddress, amount int64, denom string) {
+func (a *App) FundAccountWithDenom(acc seitypes.AccAddress, amount int64, denom string) {
 	ctx := a.Ctx()
 	amounts := sdk.NewCoins(sdk.NewCoin(denom, sdk.NewInt(amount)))
 	if err := a.BankKeeper.MintCoins(ctx, minttypes.ModuleName, amounts); err != nil {

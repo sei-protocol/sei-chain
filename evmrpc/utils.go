@@ -204,7 +204,7 @@ func ValidateEVMBlockHeight(chainID string, blockHeight int64) error {
 }
 
 type indexedMsg struct {
-	msg   sdk.Msg
+	msg   seitypes.Msg
 	index int
 }
 

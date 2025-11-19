@@ -22,7 +22,7 @@ import (
 
 var (
 	priv = ed25519.GenPrivKey()
-	addr = sdk.AccAddress(priv.PubKey().Address())
+	addr = seitypes.AccAddress(priv.PubKey().Address())
 )
 
 func TestParseQueryResponse(t *testing.T) {
@@ -137,8 +137,8 @@ func TestBatchScanner_Scan(t *testing.T) {
 	}
 }
 
-func compareEncoders(t *testing.T, expected sdk.TxEncoder, actual sdk.TxEncoder) {
-	msgs := []sdk.Msg{testdata.NewTestMsg(addr)}
+func compareEncoders(t *testing.T, expected seitypes.TxEncoder, actual seitypes.TxEncoder) {
+	msgs := []seitypes.Msg{testdata.NewTestMsg(addr)}
 	tx := legacytx.NewStdTx(msgs, legacytx.StdFee{}, []legacytx.StdSignature{}, "")
 
 	defaultEncoderBytes, err := expected(tx)

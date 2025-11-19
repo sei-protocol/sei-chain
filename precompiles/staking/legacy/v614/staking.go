@@ -344,7 +344,7 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 		Moniker: moniker,
 	}
 
-	msg, err := stakingtypes.NewMsgCreateValidator(sdk.ValAddress(valAddress), pubKey, coin, description, commission, sdk.NewIntFromBigInt(minSelfDelegation))
+	msg, err := stakingtypes.NewMsgCreateValidator(seitypes.ValAddress(valAddress), pubKey, coin, description, commission, sdk.NewIntFromBigInt(minSelfDelegation))
 	if err != nil {
 		return nil, err
 	}
@@ -406,7 +406,7 @@ func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, c
 	}
 
 	msg := stakingtypes.NewMsgEditValidator(
-		sdk.ValAddress(valAddress),
+		seitypes.ValAddress(valAddress),
 		description,
 		commissionRate,
 		minSelfDelegationPtr,

@@ -8,13 +8,13 @@ import (
 	"strings"
 
 	"github.com/gogo/protobuf/proto"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/tendermint/tendermint/crypto"
 	"gopkg.in/yaml.v2"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 var (
@@ -28,7 +28,7 @@ var (
 // NewBaseAccount creates a new BaseAccount object
 //
 //nolint:interfacer
-func NewBaseAccount(address sdk.AccAddress, pubKey cryptotypes.PubKey, accountNumber, sequence uint64) *BaseAccount {
+func NewBaseAccount(address seitypes.AccAddress, pubKey cryptotypes.PubKey, accountNumber, sequence uint64) *BaseAccount {
 	acc := &BaseAccount{
 		Address:       address.String(),
 		AccountNumber: accountNumber,
@@ -50,20 +50,20 @@ func ProtoBaseAccount() AccountI {
 
 // NewBaseAccountWithAddress - returns a new base account with a given address
 // leaving AccountNumber and Sequence to zero.
-func NewBaseAccountWithAddress(addr sdk.AccAddress) *BaseAccount {
+func NewBaseAccountWithAddress(addr seitypes.AccAddress) *BaseAccount {
 	return &BaseAccount{
 		Address: addr.String(),
 	}
 }
 
 // GetAddress - Implements sdk.AccountI.
-func (acc BaseAccount) GetAddress() sdk.AccAddress {
-	addr, _ := sdk.AccAddressFromBech32(acc.Address)
+func (acc BaseAccount) GetAddress() seitypes.AccAddress {
+	addr, _ := seitypes.AccAddressFromBech32(acc.Address)
 	return addr
 }
 
 // SetAddress - Implements sdk.AccountI.
-func (acc *BaseAccount) SetAddress(addr sdk.AccAddress) error {
+func (acc *BaseAccount) SetAddress(addr seitypes.AccAddress) error {
 	if len(acc.Address) != 0 {
 		return errors.New("cannot override BaseAccount address")
 	}
@@ -125,7 +125,7 @@ func (acc BaseAccount) Validate() error {
 		return nil
 	}
 
-	accAddr, err := sdk.AccAddressFromBech32(acc.Address)
+	accAddr, err := seitypes.AccAddressFromBech32(acc.Address)
 	if err != nil {
 		return err
 	}
@@ -161,8 +161,8 @@ func (acc BaseAccount) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
 }
 
 // NewModuleAddress creates an AccAddress from the hash of the module's name
-func NewModuleAddress(name string) sdk.AccAddress {
-	return sdk.AccAddress(crypto.AddressHash([]byte(name)))
+func NewModuleAddress(name string) seitypes.AccAddress {
+	return seitypes.AccAddress(crypto.AddressHash([]byte(name)))
 }
 
 // NewEmptyModuleAccount creates a empty ModuleAccount from a string
@@ -225,7 +225,7 @@ func (ma ModuleAccount) Validate() error {
 		return errors.New("module account name cannot be blank")
 	}
 
-	if ma.Address != sdk.AccAddress(crypto.AddressHash([]byte(ma.Name))).String() {
+	if ma.Address != seitypes.AccAddress(crypto.AddressHash([]byte(ma.Name))).String() {
 		return fmt.Errorf("address %s cannot be derived from the module name '%s'", ma.Address, ma.Name)
 	}
 
@@ -233,12 +233,12 @@ func (ma ModuleAccount) Validate() error {
 }
 
 type moduleAccountPretty struct {
-	Address       sdk.AccAddress `json:"address" yaml:"address"`
-	PubKey        string         `json:"public_key" yaml:"public_key"`
-	AccountNumber uint64         `json:"account_number" yaml:"account_number"`
-	Sequence      uint64         `json:"sequence" yaml:"sequence"`
-	Name          string         `json:"name" yaml:"name"`
-	Permissions   []string       `json:"permissions" yaml:"permissions"`
+	Address       seitypes.AccAddress `json:"address" yaml:"address"`
+	PubKey        string              `json:"public_key" yaml:"public_key"`
+	AccountNumber uint64              `json:"account_number" yaml:"account_number"`
+	Sequence      uint64              `json:"sequence" yaml:"sequence"`
+	Name          string              `json:"name" yaml:"name"`
+	Permissions   []string            `json:"permissions" yaml:"permissions"`
 }
 
 func (ma ModuleAccount) String() string {
@@ -248,7 +248,7 @@ func (ma ModuleAccount) String() string {
 
 // MarshalYAML returns the YAML representation of a ModuleAccount.
 func (ma ModuleAccount) MarshalYAML() (interface{}, error) {
-	accAddr, err := sdk.AccAddressFromBech32(ma.Address)
+	accAddr, err := seitypes.AccAddressFromBech32(ma.Address)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +270,7 @@ func (ma ModuleAccount) MarshalYAML() (interface{}, error) {
 
 // MarshalJSON returns the JSON representation of a ModuleAccount.
 func (ma ModuleAccount) MarshalJSON() ([]byte, error) {
-	accAddr, err := sdk.AccAddressFromBech32(ma.Address)
+	accAddr, err := seitypes.AccAddressFromBech32(ma.Address)
 	if err != nil {
 		return nil, err
 	}
@@ -308,8 +308,8 @@ func (ma *ModuleAccount) UnmarshalJSON(bz []byte) error {
 type AccountI interface {
 	proto.Message
 
-	GetAddress() sdk.AccAddress
-	SetAddress(sdk.AccAddress) error // errors if already set.
+	GetAddress() seitypes.AccAddress
+	SetAddress(seitypes.AccAddress) error // errors if already set.
 
 	GetPubKey() cryptotypes.PubKey // can return nil.
 	SetPubKey(cryptotypes.PubKey) error
@@ -339,7 +339,7 @@ type GenesisAccounts []GenesisAccount
 
 // Contains returns true if the given address exists in a slice of GenesisAccount
 // objects.
-func (ga GenesisAccounts) Contains(addr sdk.Address) bool {
+func (ga GenesisAccounts) Contains(addr seitypes.Address) bool {
 	for _, acc := range ga {
 		if acc.GetAddress().Equals(addr) {
 			return true

@@ -6,7 +6,7 @@ import (
 
 func (metadata DenomAuthorityMetadata) Validate() error {
 	if metadata.Admin != "" {
-		_, err := sdk.AccAddressFromBech32(metadata.Admin)
+		_, err := seitypes.AccAddressFromBech32(metadata.Admin)
 		if err != nil {
 			return err
 		}

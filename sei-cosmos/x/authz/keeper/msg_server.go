@@ -6,6 +6,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/authz"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 var _ authz.MsgServer = Keeper{}
@@ -13,12 +14,12 @@ var _ authz.MsgServer = Keeper{}
 // GrantAuthorization implements the MsgServer.Grant method to create a new grant.
 func (k Keeper) Grant(goCtx context.Context, msg *authz.MsgGrant) (*authz.MsgGrantResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	grantee, err := sdk.AccAddressFromBech32(msg.Grantee)
+	grantee, err := seitypes.AccAddressFromBech32(msg.Grantee)
 	if err != nil {
 		return nil, err
 	}
 
-	granter, err := sdk.AccAddressFromBech32(msg.Granter)
+	granter, err := seitypes.AccAddressFromBech32(msg.Granter)
 	if err != nil {
 		return nil, err
 	}
@@ -44,11 +45,11 @@ func (k Keeper) Grant(goCtx context.Context, msg *authz.MsgGrant) (*authz.MsgGra
 // RevokeAuthorization implements the MsgServer.Revoke method.
 func (k Keeper) Revoke(goCtx context.Context, msg *authz.MsgRevoke) (*authz.MsgRevokeResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	grantee, err := sdk.AccAddressFromBech32(msg.Grantee)
+	grantee, err := seitypes.AccAddressFromBech32(msg.Grantee)
 	if err != nil {
 		return nil, err
 	}
-	granter, err := sdk.AccAddressFromBech32(msg.Granter)
+	granter, err := seitypes.AccAddressFromBech32(msg.Granter)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +65,7 @@ func (k Keeper) Revoke(goCtx context.Context, msg *authz.MsgRevoke) (*authz.MsgR
 // Exec implements the MsgServer.Exec method.
 func (k Keeper) Exec(goCtx context.Context, msg *authz.MsgExec) (*authz.MsgExecResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	grantee, err := sdk.AccAddressFromBech32(msg.Grantee)
+	grantee, err := seitypes.AccAddressFromBech32(msg.Grantee)
 	if err != nil {
 		return nil, err
 	}

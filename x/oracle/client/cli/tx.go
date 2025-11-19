@@ -59,15 +59,15 @@ where "terra1..." is the address you want to delegate your voting rights to.
 			voter := clientCtx.GetFromAddress()
 
 			// The address the right is being delegated from
-			validator := sdk.ValAddress(voter)
+			validator := seitypes.ValAddress(voter)
 
 			feederStr := args[0]
-			feeder, err := sdk.AccAddressFromBech32(feederStr)
+			feeder, err := seitypes.AccAddressFromBech32(feederStr)
 			if err != nil {
 				return err
 			}
 
-			msgs := []sdk.Msg{types.NewMsgDelegateFeedConsent(validator, feeder)}
+			msgs := []seitypes.Msg{types.NewMsgDelegateFeedConsent(validator, feeder)}
 			for _, msg := range msgs {
 				if err := msg.ValidateBasic(); err != nil {
 					return err
@@ -115,7 +115,7 @@ $ seid tx oracle aggregate-vote 1234 8888.0ukrw,1.243uusd,0.99usdr seivaloper1..
 			voter := clientCtx.GetFromAddress()
 
 			// By default the voter is voting on behalf of itself
-			validator := sdk.ValAddress(voter)
+			validator := seitypes.ValAddress(voter)
 
 			// Override validator if validator is given
 			if len(args) == 2 {
@@ -126,7 +126,7 @@ $ seid tx oracle aggregate-vote 1234 8888.0ukrw,1.243uusd,0.99usdr seivaloper1..
 				validator = parsedVal
 			}
 
-			msgs := []sdk.Msg{types.NewMsgAggregateExchangeRateVote(exchangeRatesStr, voter, validator)}
+			msgs := []seitypes.Msg{types.NewMsgAggregateExchangeRateVote(exchangeRatesStr, voter, validator)}
 			for _, msg := range msgs {
 				if err := msg.ValidateBasic(); err != nil {
 					return err

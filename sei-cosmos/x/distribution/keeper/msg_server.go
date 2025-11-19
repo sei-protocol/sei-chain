@@ -25,11 +25,11 @@ var _ types.MsgServer = msgServer{}
 func (k msgServer) SetWithdrawAddress(goCtx context.Context, msg *types.MsgSetWithdrawAddress) (*types.MsgSetWithdrawAddressResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	delegatorAddress, err := sdk.AccAddressFromBech32(msg.DelegatorAddress)
+	delegatorAddress, err := seitypes.AccAddressFromBech32(msg.DelegatorAddress)
 	if err != nil {
 		return nil, err
 	}
-	withdrawAddress, err := sdk.AccAddressFromBech32(msg.WithdrawAddress)
+	withdrawAddress, err := seitypes.AccAddressFromBech32(msg.WithdrawAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (k msgServer) WithdrawDelegatorReward(goCtx context.Context, msg *types.Msg
 	if err != nil {
 		return nil, err
 	}
-	delegatorAddress, err := sdk.AccAddressFromBech32(msg.DelegatorAddress)
+	delegatorAddress, err := seitypes.AccAddressFromBech32(msg.DelegatorAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +125,7 @@ func (k msgServer) WithdrawValidatorCommission(goCtx context.Context, msg *types
 func (k msgServer) FundCommunityPool(goCtx context.Context, msg *types.MsgFundCommunityPool) (*types.MsgFundCommunityPoolResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	depositer, err := sdk.AccAddressFromBech32(msg.Depositor)
+	depositer, err := seitypes.AccAddressFromBech32(msg.Depositor)
 	if err != nil {
 		return nil, err
 	}

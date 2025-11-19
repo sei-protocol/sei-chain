@@ -72,7 +72,7 @@ func SetupWithGenesisAccounts(b testing.TB, db dbm.DB, genAccs []authtypes.Genes
 type AppInfo struct {
 	App          *seiapp.App
 	MinterKey    *secp256k1.PrivKey
-	MinterAddr   sdk.AccAddress
+	MinterAddr   seitypes.AccAddress
 	ContractAddr string
 	Denom        string
 	AccNum       uint64
@@ -83,7 +83,7 @@ type AppInfo struct {
 func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 	// constants
 	minter := secp256k1.GenPrivKey()
-	addr := sdk.AccAddress(minter.PubKey().Address())
+	addr := seitypes.AccAddress(minter.PubKey().Address())
 	denom := "uatom"
 
 	// genesis setup (with a bunch of random accounts)
@@ -97,7 +97,7 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 		Coins:   sdk.NewCoins(sdk.NewInt64Coin(denom, 100000000000)),
 	}
 	for i := 0; i <= numAccounts; i++ {
-		acct := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()).String()
+		acct := seitypes.AccAddress(secp256k1.GenPrivKey().PubKey().Address()).String()
 		if i == 0 {
 			acct = addr.String()
 		}
@@ -123,7 +123,7 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 		Sender:       addr.String(),
 		WASMByteCode: cw20Code,
 	}
-	storeTx, err := seiapp.GenTx(txGen, []sdk.Msg{&storeMsg}, nil, 55123123, "", []uint64{0}, []uint64{0}, minter)
+	storeTx, err := seiapp.GenTx(txGen, []seitypes.Msg{&storeMsg}, nil, 55123123, "", []uint64{0}, []uint64{0}, minter)
 	require.NoError(b, err)
 	_, res, err := wasmApp.Deliver(txGen.TxEncoder(), storeTx)
 	require.NoError(b, err)
@@ -132,7 +132,7 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 	// instantiate the contract
 	initialBalances := make([]balance, numAccounts+1)
 	for i := 0; i <= numAccounts; i++ {
-		acct := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()).String()
+		acct := seitypes.AccAddress(secp256k1.GenPrivKey().PubKey().Address()).String()
 		if i == 0 {
 			acct = addr.String()
 		}
@@ -157,7 +157,7 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 		Msg:    initBz,
 	}
 	gasWanted := 500000 + 10000*uint64(numAccounts)
-	initTx, err := seiapp.GenTx(txGen, []sdk.Msg{&initMsg}, nil, gasWanted, "", []uint64{0}, []uint64{1}, minter)
+	initTx, err := seiapp.GenTx(txGen, []seitypes.Msg{&initMsg}, nil, gasWanted, "", []uint64{0}, []uint64{1}, minter)
 	require.NoError(b, err)
 	_, res, err = wasmApp.Deliver(txGen.TxEncoder(), initTx)
 	require.NoError(b, err)
@@ -183,9 +183,9 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 	}
 }
 
-func GenSequenceOfTxs(b testing.TB, info *AppInfo, msgGen func(*AppInfo) ([]sdk.Msg, error), numToGenerate int) []sdk.Tx {
+func GenSequenceOfTxs(b testing.TB, info *AppInfo, msgGen func(*AppInfo) ([]seitypes.Msg, error), numToGenerate int) []seitypes.Tx {
 	fees := sdk.Coins{sdk.NewInt64Coin(info.Denom, 0)}
-	txs := make([]sdk.Tx, numToGenerate)
+	txs := make([]seitypes.Tx, numToGenerate)
 
 	for i := 0; i < numToGenerate; i++ {
 		msgs, err := msgGen(info)

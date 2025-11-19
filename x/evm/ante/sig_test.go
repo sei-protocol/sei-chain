@@ -50,13 +50,13 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 	require.Nil(t, err)
 
 	preprocessor := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
-	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
 
 	// should return error because nonce is incorrect
-	resCtx, err := handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	resCtx, err := handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)
@@ -76,7 +76,7 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 	require.Nil(t, err)
 
 	require.Panics(t, func() {
-		handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 			return ctx, nil
 		})
 	})
@@ -90,11 +90,11 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 	msg, err = types.NewMsgEVMTransaction(typedTx)
 	require.Nil(t, err)
 
-	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -132,13 +132,13 @@ func TestSigVerifyPendingTransaction(t *testing.T) {
 	require.Nil(t, err)
 
 	preprocessor := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
-	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
 
 	// should not return error but include pending tx checker
-	newCtx, err := handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	newCtx, err := handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -164,7 +164,7 @@ func TestSigVerifyPendingTransaction(t *testing.T) {
 	require.Equal(t, abci.Rejected, newCtx.PendingTxChecker()())
 
 	// should return error because current nonce is larger than tx nonce
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []seitypes.Msg{msg}}, false, func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)

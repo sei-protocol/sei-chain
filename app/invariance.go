@@ -58,7 +58,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 	}
 	balanceChangePairs := ckv.GetChangedPairs(banktypes.BalancesPrefix)
 	useiPostTotal := sdk.ZeroInt()
-	useiChangedAddr := []sdk.AccAddress{}
+	useiChangedAddr := []seitypes.AccAddress{}
 	for _, p := range balanceChangePairs {
 		if len(p.Key) < 2 {
 			// invalid key; ignore
@@ -104,7 +104,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 				continue
 			}
 			if balance.Amount.IsNegative() {
-				panic(fmt.Sprintf("negative balance found for addr %s: %s", sdk.AccAddress(addr).String(), balance.String()))
+				panic(fmt.Sprintf("negative balance found for addr %s: %s", seitypes.AccAddress(addr).String(), balance.String()))
 			}
 			useiPostTotal = useiPostTotal.Add(balance.Amount)
 		}
@@ -135,7 +135,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 	}
 	weiChangePairs := ckv.GetChangedPairs(banktypes.WeiBalancesPrefix)
 	weiPostTotal := sdk.ZeroInt()
-	weiChangedAddrs := []sdk.AccAddress{}
+	weiChangedAddrs := []seitypes.AccAddress{}
 	for _, p := range weiChangePairs {
 		var amt sdk.Int
 		if len(p.Key) < 1 {
@@ -164,7 +164,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 			}
 			weiPostTotal = weiPostTotal.Add(amt)
 			if amt.IsNegative() {
-				panic(fmt.Sprintf("negative wei balance found for addr %s: %s", sdk.AccAddress(p.Key[1:]).String(), amt.String()))
+				panic(fmt.Sprintf("negative wei balance found for addr %s: %s", seitypes.AccAddress(p.Key[1:]).String(), amt.String()))
 			}
 		}
 		weiChangedAddrs = append(weiChangedAddrs, p.Key[1:])

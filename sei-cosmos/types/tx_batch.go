@@ -1,6 +1,7 @@
 package types
 
 import (
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
 
@@ -8,7 +9,7 @@ import (
 // This can be extended to include tx-level metadata
 type DeliverTxEntry struct {
 	Request       abci.RequestDeliverTxV2
-	SdkTx         Tx
+	SdkTx         seitypes.Tx
 	Checksum      [32]byte
 	AbsoluteIndex int
 	TxTracer      TxTracer

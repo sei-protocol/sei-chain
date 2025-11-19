@@ -39,7 +39,7 @@ func NewSeiTxPrioritizer(logger log.Logger, ek *evmkeeper.Keeper, uk *upgradekee
 	}
 }
 
-func (s *SeiTxPrioritizer) GetTxPriorityHint(ctx sdk.Context, tx sdk.Tx) (_priorityHint int64, _err error) {
+func (s *SeiTxPrioritizer) GetTxPriorityHint(ctx sdk.Context, tx seitypes.Tx) (_priorityHint int64, _err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			// Fall back to no-op priority if we panic for any reason. This is to avoid DoS

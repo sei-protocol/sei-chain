@@ -40,7 +40,7 @@ In addition to handlers events, the bank keeper will produce events when the fol
   "attributes": [
     {
       "key": "minter",
-      "value": "{{sdk.AccAddress of the module minting coins}}",
+      "value": "{{seitypes.AccAddress of the module minting coins}}",
       "index": true
     },
     {
@@ -58,7 +58,7 @@ In addition to handlers events, the bank keeper will produce events when the fol
   "attributes": [
     {
       "key": "receiver",
-      "value": "{{sdk.AccAddress of the module minting coins}}",
+      "value": "{{seitypes.AccAddress of the module minting coins}}",
       "index": true
     },
     {
@@ -78,7 +78,7 @@ In addition to handlers events, the bank keeper will produce events when the fol
   "attributes": [
     {
       "key": "burner",
-      "value": "{{sdk.AccAddress of the module burning coins}}",
+      "value": "{{seitypes.AccAddress of the module burning coins}}",
       "index": true
     },
     {
@@ -96,7 +96,7 @@ In addition to handlers events, the bank keeper will produce events when the fol
   "attributes": [
     {
       "key": "spender",
-      "value": "{{sdk.AccAddress of the module burning coins}}",
+      "value": "{{seitypes.AccAddress of the module burning coins}}",
       "index": true
     },
     {
@@ -116,7 +116,7 @@ In addition to handlers events, the bank keeper will produce events when the fol
   "attributes": [
     {
       "key": "receiver",
-      "value": "{{sdk.AccAddress of the address beneficiary of the coins}}",
+      "value": "{{seitypes.AccAddress of the address beneficiary of the coins}}",
       "index": true
     },
     {
@@ -136,7 +136,7 @@ In addition to handlers events, the bank keeper will produce events when the fol
   "attributes": [
     {
       "key": "spender",
-      "value": "{{sdk.AccAddress of the address which is spending coins}}",
+      "value": "{{seitypes.AccAddress of the address which is spending coins}}",
       "index": true
     },
     {

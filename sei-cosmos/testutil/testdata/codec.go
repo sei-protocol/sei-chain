@@ -1,10 +1,10 @@
 package testdata
 
 import (
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	amino "github.com/tendermint/go-amino"
 
 	"github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/msgservice"
 )
 
@@ -15,7 +15,7 @@ func NewTestInterfaceRegistry() types.InterfaceRegistry {
 }
 
 func RegisterInterfaces(registry types.InterfaceRegistry) {
-	registry.RegisterImplementations((*sdk.Msg)(nil), &TestMsg{})
+	registry.RegisterImplementations((*seitypes.Msg)(nil), &TestMsg{})
 
 	registry.RegisterInterface("Animal", (*Animal)(nil))
 	registry.RegisterImplementations(

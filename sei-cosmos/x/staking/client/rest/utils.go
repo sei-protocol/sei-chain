@@ -42,7 +42,7 @@ func queryBonds(clientCtx client.Context, endpoint string) http.HandlerFunc {
 		bech32delegator := vars["delegatorAddr"]
 		bech32validator := vars["validatorAddr"]
 
-		delegatorAddr, err := sdk.AccAddressFromBech32(bech32delegator)
+		delegatorAddr, err := seitypes.AccAddressFromBech32(bech32delegator)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -79,7 +79,7 @@ func queryDelegator(clientCtx client.Context, endpoint string) http.HandlerFunc 
 		vars := mux.Vars(r)
 		bech32delegator := vars["delegatorAddr"]
 
-		delegatorAddr, err := sdk.AccAddressFromBech32(bech32delegator)
+		delegatorAddr, err := seitypes.AccAddressFromBech32(bech32delegator)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}

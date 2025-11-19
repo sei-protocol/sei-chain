@@ -60,7 +60,7 @@ func TestSendingToCastAddress(t *testing.T) {
 	a := keeper.EVMTestApp
 	ctx := a.GetContextForDeliverTx([]byte{})
 	seiAddr, evmAddr := keeper.MockAddressPair()
-	castAddr := sdk.AccAddress(evmAddr[:])
+	castAddr := seitypes.AccAddress(evmAddr[:])
 	sourceAddr, _ := keeper.MockAddressPair()
 	require.Nil(t, a.BankKeeper.MintCoins(ctx, "evm", sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))))
 	require.Nil(t, a.BankKeeper.SendCoinsFromModuleToAccount(ctx, "evm", sourceAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(5)))))
@@ -82,7 +82,7 @@ func TestEvmAddressHandler_GetSeiAddressFromString(t *testing.T) {
 	a.EvmKeeper.SetAddressMapping(ctx, seiAddr, evmAddr)
 
 	_, notAssociatedEvmAddr := keeper.MockAddressPair()
-	castAddr := sdk.AccAddress(notAssociatedEvmAddr[:])
+	castAddr := seitypes.AccAddress(notAssociatedEvmAddr[:])
 
 	type args struct {
 		ctx     sdk.Context
@@ -91,7 +91,7 @@ func TestEvmAddressHandler_GetSeiAddressFromString(t *testing.T) {
 	tests := []struct {
 		name       string
 		args       args
-		want       sdk.AccAddress
+		want       seitypes.AccAddress
 		wantErr    bool
 		wantErrMsg string
 	}{

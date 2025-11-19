@@ -22,7 +22,7 @@ func NewGaslessDecorator(wrapped []sdk.AnteDecorator, oracleKeeper oraclekeeper.
 	return GaslessDecorator{wrapped: wrapped, oracleKeeper: oracleKeeper, evmKeeper: evmKeeper}
 }
 
-func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	originalGasMeter := ctx.GasMeter()
 	// eagerly set infinite gas meter so that queries performed by IsTxGasless will not incur gas cost
 	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
@@ -50,9 +50,9 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	return next(ctx, tx, simulate)
 }
 
-func (gd GaslessDecorator) handleWrapped(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (gd GaslessDecorator) handleWrapped(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	// AnteHandle always takes a `next` so we need a no-op to execute only one handler at a time
-	terminatorHandler := func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	terminatorHandler := func(ctx sdk.Context, _ seitypes.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	}
 	// iterating instead of recursing the handler for readability
@@ -67,7 +67,7 @@ func (gd GaslessDecorator) handleWrapped(ctx sdk.Context, tx sdk.Tx, simulate bo
 	return next(ctx, tx, simulate)
 }
 
-func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) (isGasless bool, err error) {
+func IsTxGasless(tx seitypes.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) (isGasless bool, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			ctx.Logger().Error("panic recovered in IsTxGasless", "panic", r)
@@ -101,7 +101,7 @@ func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, e
 }
 
 func oracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.Context, keeper oraclekeeper.Keeper) (bool, error) {
-	feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
+	feederAddr, err := seitypes.AccAddressFromBech32(msg.Feeder)
 	if err != nil {
 		return false, err
 	}
@@ -130,7 +130,7 @@ func oracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.
 
 func evmAssociateIsGasless(msg *evmtypes.MsgAssociate, ctx sdk.Context, keeper *evmkeeper.Keeper) bool {
 	// not gasless if already associated
-	seiAddr := sdk.MustAccAddressFromBech32(msg.Sender)
+	seiAddr := seitypes.MustAccAddressFromBech32(msg.Sender)
 	_, associated := keeper.GetEVMAddress(ctx, seiAddr)
 	return !associated
 }

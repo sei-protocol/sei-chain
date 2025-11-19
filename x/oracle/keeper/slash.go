@@ -17,7 +17,7 @@ func (k Keeper) SlashAndResetCounters(ctx sdk.Context) {
 	slashFraction := k.SlashFraction(ctx)
 	powerReduction := k.StakingKeeper.PowerReduction(ctx)
 
-	k.IterateVotePenaltyCounters(ctx, func(operator sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) bool {
+	k.IterateVotePenaltyCounters(ctx, func(operator seitypes.ValAddress, votePenaltyCounter types.VotePenaltyCounter) bool {
 		// Calculate valid vote rate; (totalVotes - (MissCounter + AbstainCounter))/totalVotes
 		// this accounts for changes in vote period within a window, and will take the overall success rate
 		// as opposed to the one expected based on the number of vote period expected based on the ending slash window or vote period

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/tendermint/tendermint/libs/log"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -94,6 +95,6 @@ func (k Keeper) AssertInvariants(ctx sdk.Context) {
 func (k Keeper) InvCheckPeriod() uint { return k.invCheckPeriod }
 
 // SendCoinsFromAccountToFeeCollector transfers amt to the fee collector account.
-func (k Keeper) SendCoinsFromAccountToFeeCollector(ctx sdk.Context, senderAddr sdk.AccAddress, amt sdk.Coins) error {
+func (k Keeper) SendCoinsFromAccountToFeeCollector(ctx sdk.Context, senderAddr seitypes.AccAddress, amt sdk.Coins) error {
 	return k.supplyKeeper.SendCoinsFromAccountToModule(ctx, senderAddr, k.feeCollectorName, amt)
 }

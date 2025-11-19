@@ -22,7 +22,7 @@ func NewSpammingPreventionDecorator(oracleKeeper keeper.Keeper) SpammingPreventi
 }
 
 // AnteHandle handles msg tax fee checking
-func (spd SpammingPreventionDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (spd SpammingPreventionDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	if ctx.IsReCheckTx() {
 		return next(ctx, tx, simulate)
 	}
@@ -40,11 +40,11 @@ func (spd SpammingPreventionDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, si
 }
 
 // CheckOracleSpamming check whether the msgs are spamming purpose or not
-func (spd SpammingPreventionDecorator) CheckOracleSpamming(ctx sdk.Context, msgs []sdk.Msg) error {
+func (spd SpammingPreventionDecorator) CheckOracleSpamming(ctx sdk.Context, msgs []seitypes.Msg) error {
 	for _, msg := range msgs {
 		switch msg := msg.(type) {
 		case *types.MsgAggregateExchangeRateVote:
-			feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
+			feederAddr, err := seitypes.AccAddressFromBech32(msg.Feeder)
 			if err != nil {
 				return err
 			}
@@ -78,7 +78,7 @@ func NewOracleVoteAloneDecorator() VoteAloneDecorator {
 }
 
 // AnteHandle handles msg tax fee checking
-func (VoteAloneDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (VoteAloneDecorator) AnteHandle(ctx sdk.Context, tx seitypes.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	oracleVote := false
 	otherMsg := false
 	for _, msg := range tx.GetMsgs() {

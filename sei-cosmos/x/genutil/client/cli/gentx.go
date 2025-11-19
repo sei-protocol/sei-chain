@@ -155,7 +155,7 @@ $ %s gentx my-key-name 1000000stake --home=/path/to/home/dir --keyring-backend=o
 
 			if key.GetType() == keyring.TypeOffline || key.GetType() == keyring.TypeMulti {
 				cmd.PrintErrln("Offline key passed in. Use `tx sign` command to sign.")
-				return authclient.PrintUnsignedStdTx(txBldr, clientCtx, []sdk.Msg{msg})
+				return authclient.PrintUnsignedStdTx(txBldr, clientCtx, []seitypes.Msg{msg})
 			}
 
 			// write the unsigned transaction to the buffer
@@ -166,7 +166,7 @@ $ %s gentx my-key-name 1000000stake --home=/path/to/home/dir --keyring-backend=o
 				return err
 			}
 
-			if err = authclient.PrintUnsignedStdTx(txBldr, clientCtx, []sdk.Msg{msg}); err != nil {
+			if err = authclient.PrintUnsignedStdTx(txBldr, clientCtx, []seitypes.Msg{msg}); err != nil {
 				return errors.Wrap(err, "failed to print unsigned std tx")
 			}
 
@@ -222,7 +222,7 @@ func makeOutputFilepath(rootDir, nodeID string) (string, error) {
 	return filepath.Join(writePath, fmt.Sprintf("gentx-%v.json", nodeID)), nil
 }
 
-func readUnsignedGenTxFile(clientCtx client.Context, r io.Reader) (sdk.Tx, error) {
+func readUnsignedGenTxFile(clientCtx client.Context, r io.Reader) (seitypes.Tx, error) {
 	bz, err := ioutil.ReadAll(r)
 	if err != nil {
 		return nil, err
@@ -236,7 +236,7 @@ func readUnsignedGenTxFile(clientCtx client.Context, r io.Reader) (sdk.Tx, error
 	return aTx, err
 }
 
-func writeSignedGenTx(clientCtx client.Context, outputDocument string, tx sdk.Tx) error {
+func writeSignedGenTx(clientCtx client.Context, outputDocument string, tx seitypes.Tx) error {
 	outputFile, err := os.OpenFile(outputDocument, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	if err != nil {
 		return err

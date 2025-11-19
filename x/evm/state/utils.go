@@ -14,7 +14,7 @@ var SdkUseiToSweiMultiplier = sdk.NewIntFromBigInt(UseiToSweiMultiplier)
 
 var CoinbaseAddressPrefix = []byte("evm_coinbase")
 
-func GetCoinbaseAddress(txIdx int) sdk.AccAddress {
+func GetCoinbaseAddress(txIdx int) seitypes.AccAddress {
 	txIndexBz := make([]byte, 8)
 	binary.BigEndian.PutUint64(txIndexBz, uint64(txIdx)) //nolint:gosec
 	return append(CoinbaseAddressPrefix, txIndexBz...)

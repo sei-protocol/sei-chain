@@ -4,16 +4,17 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	signingtypes "github.com/cosmos/cosmos-sdk/types/tx/signing"
 	"github.com/cosmos/cosmos-sdk/x/auth/signing"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 type (
 	// TxEncodingConfig defines an interface that contains transaction
 	// encoders and decoders
 	TxEncodingConfig interface {
-		TxEncoder() sdk.TxEncoder
-		TxDecoder() sdk.TxDecoder
-		TxJSONEncoder() sdk.TxEncoder
-		TxJSONDecoder() sdk.TxDecoder
+		TxEncoder() seitypes.TxEncoder
+		TxDecoder() seitypes.TxDecoder
+		TxJSONEncoder() seitypes.TxEncoder
+		TxJSONDecoder() seitypes.TxDecoder
 		MarshalSignatureJSON([]signingtypes.SignatureV2) ([]byte, error)
 		UnmarshalSignatureJSON([]byte) ([]signingtypes.SignatureV2, error)
 	}
@@ -25,7 +26,7 @@ type (
 		TxEncodingConfig
 
 		NewTxBuilder() TxBuilder
-		WrapTxBuilder(sdk.Tx) (TxBuilder, error)
+		WrapTxBuilder(seitypes.Tx) (TxBuilder, error)
 		SignModeHandler() signing.SignModeHandler
 	}
 
@@ -36,13 +37,13 @@ type (
 	TxBuilder interface {
 		GetTx() signing.Tx
 
-		SetMsgs(msgs ...sdk.Msg) error
+		SetMsgs(msgs ...seitypes.Msg) error
 		SetSignatures(signatures ...signingtypes.SignatureV2) error
 		SetMemo(memo string)
 		SetFeeAmount(amount sdk.Coins)
 		SetGasLimit(limit uint64)
 		SetGasEstimate(estimate uint64)
 		SetTimeoutHeight(height uint64)
-		SetFeeGranter(feeGranter sdk.AccAddress)
+		SetFeeGranter(feeGranter seitypes.AccAddress)
 	}
 )

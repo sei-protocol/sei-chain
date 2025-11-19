@@ -15,7 +15,7 @@ import (
 
 // EVMKeeper defines the interface for EVM keeper operations
 type EVMKeeper interface {
-	GetSeiAddress(ctx sdk.Context, evmAddr common.Address) (sdk.AccAddress, bool)
+	GetSeiAddress(ctx sdk.Context, evmAddr common.Address) (seitypes.AccAddress, bool)
 }
 
 // The Proposal represents the structure for proposal JSON input

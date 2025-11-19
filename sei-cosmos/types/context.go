@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gogo/protobuf/proto"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	"github.com/tendermint/tendermint/libs/log"
@@ -300,7 +301,7 @@ func (c Context) WithBlockTime(newTime time.Time) Context {
 }
 
 // WithProposer returns a Context with an updated proposer consensus address.
-func (c Context) WithProposer(addr ConsAddress) Context {
+func (c Context) WithProposer(addr seitypes.ConsAddress) Context {
 	newHeader := c.BlockHeader()
 	newHeader.ProposerAddress = addr.Bytes()
 	return c.WithBlockHeader(newHeader)

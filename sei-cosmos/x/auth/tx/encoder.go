@@ -11,8 +11,8 @@ import (
 )
 
 // DefaultTxEncoder returns a default protobuf TxEncoder using the provided Marshaler
-func DefaultTxEncoder() sdk.TxEncoder {
-	return func(tx sdk.Tx) ([]byte, error) {
+func DefaultTxEncoder() seitypes.TxEncoder {
+	return func(tx seitypes.Tx) ([]byte, error) {
 		txWrapper, ok := tx.(*wrapper)
 		if !ok {
 			return nil, fmt.Errorf("expected %T, got %T", &wrapper{}, tx)
@@ -29,8 +29,8 @@ func DefaultTxEncoder() sdk.TxEncoder {
 }
 
 // DefaultJSONTxEncoder returns a default protobuf JSON TxEncoder using the provided Marshaler.
-func DefaultJSONTxEncoder(cdc codec.ProtoCodecMarshaler) sdk.TxEncoder {
-	return func(tx sdk.Tx) ([]byte, error) {
+func DefaultJSONTxEncoder(cdc codec.ProtoCodecMarshaler) seitypes.TxEncoder {
+	return func(tx seitypes.Tx) ([]byte, error) {
 		txWrapper, ok := tx.(*wrapper)
 		if ok {
 			return cdc.MarshalJSON(txWrapper.tx)

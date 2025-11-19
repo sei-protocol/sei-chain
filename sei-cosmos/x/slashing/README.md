@@ -21,7 +21,7 @@ Information about validator's liveness activity is tracked through ValidatorSign
 // ValidatorSigningInfo defines the signing info for a validator
 type ValidatorSigningInfo struct {
     // validator consensus address
-    Address             sdk.ConsAddress `json:"address" yaml:"address"`
+    Address             seitypes.ConsAddress `json:"address" yaml:"address"`
     // height at which validator was first a candidate OR was unjailed
     StartHeight         int64           `json:"start_height" yaml:"start_height"`   
     // index offset into signed block bit array
