@@ -4,6 +4,7 @@ import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 type HasExtensionOptionsTx interface {
@@ -25,7 +26,7 @@ func NewRejectExtensionOptionsDecorator() RejectExtensionOptionsDecorator {
 var _ types.AnteDecorator = RejectExtensionOptionsDecorator{}
 
 // AnteHandle implements the AnteDecorator.AnteHandle method
-func (r RejectExtensionOptionsDecorator) AnteHandle(ctx types.Context, tx types.Tx, simulate bool, next types.AnteHandler) (newCtx types.Context, err error) {
+func (r RejectExtensionOptionsDecorator) AnteHandle(ctx types.Context, tx seitypes.Tx, simulate bool, next types.AnteHandler) (newCtx types.Context, err error) {
 	if hasExtOptsTx, ok := tx.(HasExtensionOptionsTx); ok {
 		if len(hasExtOptsTx.GetExtensionOptions()) != 0 {
 			return ctx, sdkerrors.ErrUnknownExtensionOptions

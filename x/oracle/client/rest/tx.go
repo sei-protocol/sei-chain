@@ -8,8 +8,8 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/tx"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/rest"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 
 	"github.com/gorilla/mux"
 )
@@ -21,7 +21,7 @@ func registerTxHandlers(cliCtx client.Context, rtr *mux.Router) {
 
 type (
 	delegateReq struct {
-		BaseReq rest.BaseReq   `json:"base_req" yaml:"base_req"`
+		BaseReq rest.BaseReq        `json:"base_req" yaml:"base_req"`
 		Feeder  seitypes.AccAddress `json:"feeder" yaml:"feeder"`
 	}
 

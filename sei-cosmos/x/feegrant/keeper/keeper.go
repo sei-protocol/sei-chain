@@ -10,6 +10,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	"github.com/cosmos/cosmos-sdk/x/feegrant"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // Keeper manages state of all fee grants, as well as calculating approval.

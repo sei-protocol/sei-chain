@@ -4,6 +4,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // AccountKeeper defines the expected account keeper used for simulations (noalias)
@@ -69,7 +70,7 @@ type StakingKeeper interface {
 
 // StakingHooks event hooks for staking validator object (noalias)
 type StakingHooks interface {
-	AfterValidatorCreated(ctx sdk.Context, valAddr seitypes.ValAddress)                           // Must be called when a validator is created
+	AfterValidatorCreated(ctx sdk.Context, valAddr seitypes.ValAddress)                                // Must be called when a validator is created
 	AfterValidatorRemoved(ctx sdk.Context, consAddr seitypes.ConsAddress, valAddr seitypes.ValAddress) // Must be called when a validator is deleted
 
 	BeforeDelegationCreated(ctx sdk.Context, delAddr seitypes.AccAddress, valAddr seitypes.ValAddress)        // Must be called when a delegation is created

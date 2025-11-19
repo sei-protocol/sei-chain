@@ -9,6 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // ValidateBasicDecorator will call tx.ValidateBasic and return any non-nil error.

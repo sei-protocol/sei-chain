@@ -14,6 +14,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // Transaction flags for the x/distribution module

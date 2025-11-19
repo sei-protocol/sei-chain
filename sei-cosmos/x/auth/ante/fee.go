@@ -7,6 +7,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // TxFeeChecker check if the provided fee is enough and returns the effective fee and tx priority,

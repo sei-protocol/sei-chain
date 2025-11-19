@@ -4,6 +4,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // Wrapper struct
@@ -101,7 +102,8 @@ func (h Hooks) BeforeValidatorSlashed(ctx sdk.Context, valAddr seitypes.ValAddre
 	h.k.updateValidatorSlashFraction(ctx, valAddr, fraction)
 }
 
-func (h Hooks) BeforeValidatorModified(_ sdk.Context, _ seitypes.ValAddress)                         {}
-func (h Hooks) AfterValidatorBonded(_ sdk.Context, _ seitypes.ConsAddress, _ seitypes.ValAddress)         {}
-func (h Hooks) AfterValidatorBeginUnbonding(_ sdk.Context, _ seitypes.ConsAddress, _ seitypes.ValAddress) {}
-func (h Hooks) BeforeDelegationRemoved(_ sdk.Context, _ seitypes.AccAddress, _ seitypes.ValAddress)       {}
+func (h Hooks) BeforeValidatorModified(_ sdk.Context, _ seitypes.ValAddress)                      {}
+func (h Hooks) AfterValidatorBonded(_ sdk.Context, _ seitypes.ConsAddress, _ seitypes.ValAddress) {}
+func (h Hooks) AfterValidatorBeginUnbonding(_ sdk.Context, _ seitypes.ConsAddress, _ seitypes.ValAddress) {
+}
+func (h Hooks) BeforeDelegationRemoved(_ sdk.Context, _ seitypes.AccAddress, _ seitypes.ValAddress) {}

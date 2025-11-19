@@ -7,6 +7,7 @@ import (
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/feegrant"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 type msgServer struct {

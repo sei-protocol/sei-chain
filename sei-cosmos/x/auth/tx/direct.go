@@ -5,9 +5,9 @@ import (
 
 	signingtypes "github.com/cosmos/cosmos-sdk/types/tx/signing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	types "github.com/cosmos/cosmos-sdk/types/tx"
 	"github.com/cosmos/cosmos-sdk/x/auth/signing"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // signModeDirectHandler defines the SIGN_MODE_DIRECT SignModeHandler

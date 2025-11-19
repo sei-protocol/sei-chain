@@ -7,6 +7,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // NewAggregateExchangeRateVote creates a AggregateExchangeRateVote instance

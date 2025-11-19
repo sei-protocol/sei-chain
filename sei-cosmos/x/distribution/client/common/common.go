@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // QueryDelegationRewards queries a delegation rewards between a delegator and a

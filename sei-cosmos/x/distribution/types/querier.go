@@ -1,7 +1,7 @@
 package types
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // querier keys
@@ -44,8 +44,8 @@ func NewQueryValidatorCommissionParams(validatorAddr seitypes.ValAddress) QueryV
 // params for query 'custom/distr/validator_slashes'
 type QueryValidatorSlashesParams struct {
 	ValidatorAddress seitypes.ValAddress `json:"validator_address" yaml:"validator_address"`
-	StartingHeight   uint64         `json:"starting_height" yaml:"starting_height"`
-	EndingHeight     uint64         `json:"ending_height" yaml:"ending_height"`
+	StartingHeight   uint64              `json:"starting_height" yaml:"starting_height"`
+	EndingHeight     uint64              `json:"ending_height" yaml:"ending_height"`
 }
 
 // creates a new instance of QueryValidatorSlashesParams

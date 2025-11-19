@@ -7,6 +7,7 @@ import (
 
 	// this line is used by starport scaffolding # 1
 	"github.com/cosmos/cosmos-sdk/types/msgservice"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 func RegisterCodec(cdc *codec.LegacyAmino) {

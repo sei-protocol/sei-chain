@@ -3,8 +3,8 @@ package types
 import (
 	"encoding/binary"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/address"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 const (

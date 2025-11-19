@@ -10,6 +10,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // BlockValidatorUpdates calculates the ValidatorUpdates for the current block
@@ -161,7 +162,7 @@ func (k Keeper) ApplyAndReturnValidatorSetUpdates(ctx sdk.Context) (updates []ab
 		}
 
 		// fetch the old power bytes
-		valAddrStr, err := sdk.Bech32ifyAddressBytes(seitypes.GetConfig().GetBech32ValidatorAddrPrefix(), valAddr)
+		valAddrStr, err := seitypes.Bech32ifyAddressBytes(seitypes.GetConfig().GetBech32ValidatorAddrPrefix(), valAddr)
 		if err != nil {
 			return nil, err
 		}
@@ -359,7 +360,7 @@ func (k Keeper) getLastValidatorsByAddr(ctx sdk.Context) (validatorsByAddr, erro
 	for ; iterator.Valid(); iterator.Next() {
 		// extract the validator address from the key (prefix is 1-byte, addrLen is 1-byte)
 		valAddr := types.AddressFromLastValidatorPowerKey(iterator.Key())
-		valAddrStr, err := sdk.Bech32ifyAddressBytes(seitypes.GetConfig().GetBech32ValidatorAddrPrefix(), valAddr)
+		valAddrStr, err := seitypes.Bech32ifyAddressBytes(seitypes.GetConfig().GetBech32ValidatorAddrPrefix(), valAddr)
 		if err != nil {
 			return nil, err
 		}

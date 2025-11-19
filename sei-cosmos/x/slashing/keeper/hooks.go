@@ -7,6 +7,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/slashing/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 func (k Keeper) AfterValidatorBonded(ctx sdk.Context, address seitypes.ConsAddress, _ seitypes.ValAddress) {
@@ -69,10 +70,12 @@ func (h Hooks) AfterValidatorCreated(ctx sdk.Context, valAddr seitypes.ValAddres
 	h.k.AfterValidatorCreated(ctx, valAddr)
 }
 
-func (h Hooks) AfterValidatorBeginUnbonding(_ sdk.Context, _ seitypes.ConsAddress, _ seitypes.ValAddress)  {}
-func (h Hooks) BeforeValidatorModified(_ sdk.Context, _ seitypes.ValAddress)                          {}
-func (h Hooks) BeforeDelegationCreated(_ sdk.Context, _ seitypes.AccAddress, _ seitypes.ValAddress)        {}
-func (h Hooks) BeforeDelegationSharesModified(_ sdk.Context, _ seitypes.AccAddress, _ seitypes.ValAddress) {}
-func (h Hooks) BeforeDelegationRemoved(_ sdk.Context, _ seitypes.AccAddress, _ seitypes.ValAddress)        {}
-func (h Hooks) AfterDelegationModified(_ sdk.Context, _ seitypes.AccAddress, _ seitypes.ValAddress)        {}
-func (h Hooks) BeforeValidatorSlashed(_ sdk.Context, _ seitypes.ValAddress, _ sdk.Dec)                {}
+func (h Hooks) AfterValidatorBeginUnbonding(_ sdk.Context, _ seitypes.ConsAddress, _ seitypes.ValAddress) {
+}
+func (h Hooks) BeforeValidatorModified(_ sdk.Context, _ seitypes.ValAddress)                        {}
+func (h Hooks) BeforeDelegationCreated(_ sdk.Context, _ seitypes.AccAddress, _ seitypes.ValAddress) {}
+func (h Hooks) BeforeDelegationSharesModified(_ sdk.Context, _ seitypes.AccAddress, _ seitypes.ValAddress) {
+}
+func (h Hooks) BeforeDelegationRemoved(_ sdk.Context, _ seitypes.AccAddress, _ seitypes.ValAddress) {}
+func (h Hooks) AfterDelegationModified(_ sdk.Context, _ seitypes.AccAddress, _ seitypes.ValAddress) {}
+func (h Hooks) BeforeValidatorSlashed(_ sdk.Context, _ seitypes.ValAddress, _ sdk.Dec)              {}

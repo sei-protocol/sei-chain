@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 

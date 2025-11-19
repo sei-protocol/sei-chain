@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/rest"
 	"github.com/cosmos/cosmos-sdk/x/params/types/proposal"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 type (
@@ -37,12 +38,12 @@ type (
 	ParamChangeProposalReq struct {
 		BaseReq rest.BaseReq `json:"base_req" yaml:"base_req"`
 
-		Title       string           `json:"title" yaml:"title"`
-		Description string           `json:"description" yaml:"description"`
-		IsExpedited bool             `json:"is_expedited" yaml:"is_expedited"`
-		Changes     ParamChangesJSON `json:"changes" yaml:"changes"`
-		Proposer    seitypes.AccAddress   `json:"proposer" yaml:"proposer"`
-		Deposit     sdk.Coins        `json:"deposit" yaml:"deposit"`
+		Title       string              `json:"title" yaml:"title"`
+		Description string              `json:"description" yaml:"description"`
+		IsExpedited bool                `json:"is_expedited" yaml:"is_expedited"`
+		Changes     ParamChangesJSON    `json:"changes" yaml:"changes"`
+		Proposer    seitypes.AccAddress `json:"proposer" yaml:"proposer"`
+		Deposit     sdk.Coins           `json:"deposit" yaml:"deposit"`
 	}
 )
 

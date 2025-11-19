@@ -12,6 +12,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/rest"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 func registerQueryRoutes(cliCtx client.Context, rtr *mux.Router) {

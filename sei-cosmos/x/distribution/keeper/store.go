@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // get the delegator withdraw address, defaulting to the delegator address

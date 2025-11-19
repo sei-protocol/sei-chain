@@ -6,9 +6,9 @@ import (
 	"math"
 	"strings"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	"github.com/ethereum/go-ethereum/common"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 const (

@@ -9,6 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/tendermint/tendermint/crypto/secp256k1"
 	tmprotocrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"
 )
@@ -121,7 +122,7 @@ func (MockValidator) GetStatus() stakingtypes.BondStatus      { return stakingty
 func (MockValidator) IsBonded() bool                          { return true }
 func (MockValidator) IsUnbonded() bool                        { return false }
 func (MockValidator) IsUnbonding() bool                       { return false }
-func (v MockValidator) GetOperator() seitypes.ValAddress           { return v.operator }
+func (v MockValidator) GetOperator() seitypes.ValAddress      { return v.operator }
 func (MockValidator) ConsPubKey() (cryptotypes.PubKey, error) { return nil, nil }
 func (MockValidator) TmConsPublicKey() (tmprotocrypto.PublicKey, error) {
 	return tmprotocrypto.PublicKey{}, nil

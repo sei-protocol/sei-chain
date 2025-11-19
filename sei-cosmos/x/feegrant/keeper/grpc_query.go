@@ -12,6 +12,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/cosmos/cosmos-sdk/x/feegrant"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 var _ feegrant.QueryServer = Keeper{}

@@ -6,13 +6,14 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/gogo/protobuf/proto"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
 const TypeMsgEVMTransaction = "evm_transaction"
 
 var (
-	_ seitypes.Msg                            = &MsgEVMTransaction{}
+	_ seitypes.Msg                       = &MsgEVMTransaction{}
 	_ codectypes.UnpackInterfacesMessage = &MsgEVMTransaction{}
 	_ sdk.ResultDecorator                = &MsgEVMTransactionResponse{}
 )

@@ -6,6 +6,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 var BaseDenomGasPriceAmplfier = sdk.NewInt(1_000_000_000_000)

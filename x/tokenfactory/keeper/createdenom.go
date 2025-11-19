@@ -6,6 +6,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 

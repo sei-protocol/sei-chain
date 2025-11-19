@@ -4,6 +4,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/common"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 const TypeMsgRegisterPointer = "evm_register_pointer"

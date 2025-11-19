@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 
 	"github.com/cosmos/cosmos-sdk/x/slashing/types"
 
@@ -131,7 +132,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	sort.Strings(valKeys)
 	for _, key := range valKeys {
 		missedBlockArray := valMissedMap[key]
-		consAddrKey, err := sdk.ConsAddressFromBech32(key)
+		consAddrKey, err := seitypes.ConsAddressFromBech32(key)
 		ctx.Logger().Info(fmt.Sprintf("Writing missed heights for validator: %s\n", consAddrKey.String()))
 		if err != nil {
 			return err
@@ -225,7 +226,7 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 	sort.Strings(valKeys)
 	for _, key := range valKeys {
 		missedBlockArray := valMissedMap[key]
-		consAddr, err := sdk.ConsAddressFromBech32(key)
+		consAddr, err := seitypes.ConsAddressFromBech32(key)
 		ctx.Logger().Info(fmt.Sprintf("Writing missed heights for validator: %s\n", consAddr.String()))
 		if err != nil {
 			return err

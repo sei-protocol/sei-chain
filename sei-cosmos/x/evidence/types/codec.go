@@ -6,6 +6,7 @@ import (
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	"github.com/cosmos/cosmos-sdk/types/msgservice"
 	"github.com/cosmos/cosmos-sdk/x/evidence/exported"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // RegisterLegacyAminoCodec registers all the necessary types and interfaces for the

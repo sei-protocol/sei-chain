@@ -1,6 +1,7 @@
 package types
 
 import (
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	yaml "gopkg.in/yaml.v2"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -8,7 +9,7 @@ import (
 
 // ValidatorGovInfo used for tallying
 type ValidatorGovInfo struct {
-	Address             seitypes.ValAddress      // address of the validator operator
+	Address             seitypes.ValAddress // address of the validator operator
 	BondedTokens        sdk.Int             // Power of a Validator
 	DelegatorShares     sdk.Dec             // Total outstanding delegator shares
 	DelegatorDeductions sdk.Dec             // Delegator deductions from validator's delegators voting independently

@@ -9,9 +9,9 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // GetQueryCmd returns the cli query commands for this module

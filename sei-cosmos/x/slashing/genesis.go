@@ -5,6 +5,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/slashing/keeper"
 	"github.com/cosmos/cosmos-sdk/x/slashing/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 // InitGenesis initialize default parameters
@@ -22,7 +23,7 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, stakingKeeper types.Stak
 	)
 
 	for _, info := range data.SigningInfos {
-		address, err := sdk.ConsAddressFromBech32(info.Address)
+		address, err := seitypes.ConsAddressFromBech32(info.Address)
 		if err != nil {
 			panic(err)
 		}
@@ -30,7 +31,7 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, stakingKeeper types.Stak
 	}
 
 	for _, array := range data.MissedBlocks {
-		address, err := sdk.ConsAddressFromBech32(array.Address)
+		address, err := seitypes.ConsAddressFromBech32(array.Address)
 		if err != nil {
 			panic(err)
 		}

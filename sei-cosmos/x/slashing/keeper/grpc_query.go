@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	seitypes "github.com/sei-protocol/sei-chain/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -34,7 +35,7 @@ func (k Keeper) SigningInfo(c context.Context, req *types.QuerySigningInfoReques
 		return nil, status.Errorf(codes.InvalidArgument, "invalid request")
 	}
 
-	consAddr, err := sdk.ConsAddressFromBech32(req.ConsAddress)
+	consAddr, err := seitypes.ConsAddressFromBech32(req.ConsAddress)
 	if err != nil {
 		return nil, err
 	}

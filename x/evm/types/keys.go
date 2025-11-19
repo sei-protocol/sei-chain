@@ -5,8 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	seitypes "github.com/sei-protocol/sei-chain/types"
 )
 
 const (
