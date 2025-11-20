@@ -2,7 +2,6 @@ package ibctesting
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -158,7 +157,7 @@ func NewTestChain(t *testing.T, coord *Coordinator, chainID string) *TestChain {
 
 	for i := 0; i < validatorsPerChain; i++ {
 		privVal := mock.NewPV()
-		pubKey, err := privVal.GetPubKey(context.Background())
+		pubKey, err := privVal.GetPubKey(t.Context())
 		require.NoError(t, err)
 		validators = append(validators, tmtypes.NewValidator(pubKey, 1))
 		signersByAddress[pubKey.Address().String()] = privVal
@@ -202,7 +201,7 @@ func (chain *TestChain) QueryProof(key []byte) ([]byte, clienttypes.Height) {
 // QueryProof performs an abci query with the given key and returns the proto encoded merkle proof
 // for the query and the height at which the proof will succeed on a tendermint verifier.
 func (chain *TestChain) QueryProofAtHeight(key []byte, height int64) ([]byte, clienttypes.Height) {
-	res, _ := chain.App.Query(context.Background(), &abci.RequestQuery{
+	res, _ := chain.App.Query(chain.T.Context(), &abci.RequestQuery{
 		Path:   fmt.Sprintf("store/%s/key", host.StoreKey),
 		Height: height - 1,
 		Data:   key,
@@ -226,7 +225,7 @@ func (chain *TestChain) QueryProofAtHeight(key []byte, height int64) ([]byte, cl
 // QueryUpgradeProof performs an abci query with the given key and returns the proto encoded merkle proof
 // for the query and the height at which the proof will succeed on a tendermint verifier.
 func (chain *TestChain) QueryUpgradeProof(key []byte, height uint64) ([]byte, clienttypes.Height) {
-	res, _ := chain.App.Query(context.Background(), &abci.RequestQuery{
+	res, _ := chain.App.Query(chain.T.Context(), &abci.RequestQuery{
 		Path:   "store/upgrade/key",
 		Height: int64(height - 1),
 		Data:   key,
@@ -280,7 +279,7 @@ func (chain *TestChain) NextBlock() {
 		NextValidatorsHash: chain.Vals.Hash(),
 	}
 
-	chain.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+	chain.App.FinalizeBlock(chain.T.Context(), &abci.RequestFinalizeBlock{
 		Height:  chain.App.LastBlockHeight() + 1,
 		Time:    chain.CurrentHeader.Time,
 		AppHash: chain.CurrentHeader.AppHash,
@@ -477,7 +476,7 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 			ValidatorIndex:   int32(i),
 		}
 		v := vote.ToProto()
-		err := privVal.SignVote(context.Background(), chainID, v)
+		err := privVal.SignVote(chain.T.Context(), chainID, v)
 		require.NoError(chain.T, err)
 		vote.Signature = v.Signature
 		voteSet.AddVote(vote)
@@ -559,7 +558,7 @@ func (chain *TestChain) CreatePortCapability(scopedKeeper capabilitykeeper.Scope
 		require.NoError(chain.T, err)
 	}
 
-	chain.App.Commit(context.Background())
+	chain.App.Commit(chain.T.Context())
 
 	chain.NextBlock()
 }
@@ -587,7 +586,7 @@ func (chain *TestChain) CreateChannelCapability(scopedKeeper capabilitykeeper.Sc
 		require.NoError(chain.T, err)
 	}
 
-	chain.App.Commit(context.Background())
+	chain.App.Commit(chain.T.Context())
 
 	chain.NextBlock()
 }

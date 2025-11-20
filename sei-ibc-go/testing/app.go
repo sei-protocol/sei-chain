@@ -1,7 +1,6 @@
 package ibctesting
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -120,7 +119,7 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 
 	// init chain will set the validator set and initialize the genesis accounts
 	app.InitChain(
-		context.Background(),
+		t.Context(),
 		&abci.RequestInitChain{
 			ChainId:         chainID,
 			Validators:      []abci.ValidatorUpdate{},
@@ -136,8 +135,8 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	app.GetBaseApp().SetProcessProposalStateToCommit()
 
 	// commit genesis changes
-	app.Commit(context.Background())
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	app.Commit(t.Context())
+	app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
 	return app
 }

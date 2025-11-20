@@ -1,7 +1,6 @@
 package types_test
 
 import (
-	"context"
 	"time"
 
 	"github.com/tendermint/tendermint/crypto/tmhash"
@@ -31,7 +30,7 @@ func (suite *TendermintTestSuite) TestMisbehaviour() {
 
 func (suite *TendermintTestSuite) TestMisbehaviourValidateBasic() {
 	altPrivVal := ibctestingmock.NewPV()
-	altPubKey, err := altPrivVal.GetPubKey(context.Background())
+	altPubKey, err := altPrivVal.GetPubKey(suite.T().Context())
 	suite.Require().NoError(err)
 
 	revisionHeight := int64(height.RevisionHeight)

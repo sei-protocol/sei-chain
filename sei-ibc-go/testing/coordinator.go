@@ -1,7 +1,6 @@
 package ibctesting
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"testing"
@@ -69,7 +68,7 @@ func (coord *Coordinator) UpdateTime() {
 func (coord *Coordinator) UpdateTimeForChain(chain *TestChain) {
 	chain.CurrentHeader.Time = coord.CurrentTime.UTC()
 	chain.App.FinalizeBlock(
-		context.Background(),
+		chain.T.Context(),
 		&abci.RequestFinalizeBlock{
 			Height:             chain.App.LastBlockHeight() + 1,
 			Time:               chain.CurrentHeader.Time,
@@ -192,7 +191,7 @@ func GetChainID(index int) string {
 func (coord *Coordinator) CommitBlock(chains ...*TestChain) {
 	for _, chain := range chains {
 		chain.App.GetBaseApp().SetDeliverStateToCommit()
-		chain.App.Commit(context.Background())
+		chain.App.Commit(coord.T.Context())
 		chain.NextBlock()
 	}
 	coord.IncrementTime()
@@ -201,7 +200,7 @@ func (coord *Coordinator) CommitBlock(chains ...*TestChain) {
 // CommitNBlocks commits n blocks to state and updates the block height by 1 for each commit.
 func (coord *Coordinator) CommitNBlocks(chain *TestChain, n uint64) {
 	for i := uint64(0); i < n; i++ {
-		chain.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		chain.App.FinalizeBlock(coord.T.Context(), &abci.RequestFinalizeBlock{
 			Height:  chain.App.LastBlockHeight() + 1,
 			Time:    chain.CurrentHeader.Time,
 			AppHash: chain.CurrentHeader.AppHash,
@@ -210,7 +209,7 @@ func (coord *Coordinator) CommitNBlocks(chain *TestChain, n uint64) {
 			NextValidatorsHash: chain.Vals.Hash(),
 		})
 		chain.App.GetBaseApp().SetDeliverStateToCommit()
-		chain.App.Commit(context.Background())
+		chain.App.Commit(coord.T.Context())
 		chain.NextBlock()
 		coord.IncrementTime()
 	}

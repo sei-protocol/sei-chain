@@ -1,7 +1,6 @@
 package types_test
 
 import (
-	context "context"
 	"time"
 
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -48,7 +47,7 @@ func (suite *TypesTestSuite) TestMarshalGenesisState() {
 
 func (suite *TypesTestSuite) TestValidateGenesis() {
 	privVal := ibctestingmock.NewPV()
-	pubKey, err := privVal.GetPubKey(context.Background())
+	pubKey, err := privVal.GetPubKey(suite.T().Context())
 	suite.Require().NoError(err)
 
 	now := time.Now().UTC()

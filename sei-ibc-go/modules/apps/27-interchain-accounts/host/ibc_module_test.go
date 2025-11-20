@@ -1,7 +1,6 @@
 package host_test
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -85,7 +84,7 @@ func RegisterInterchainAccount(endpoint *ibctesting.Endpoint, owner string) erro
 	}
 
 	// commit state changes for proof verification
-	endpoint.Chain.App.Commit(context.Background())
+	endpoint.Chain.App.Commit(endpoint.Chain.T.Context())
 	endpoint.Chain.NextBlock()
 
 	// update port/channel ids
@@ -252,7 +251,7 @@ func (suite *InterchainAccountsTestSuite) TestChanOpenAck() {
 	suite.chainA.GetSimApp().GetIBCKeeper().ChannelKeeper.SetChannel(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, channel)
 
 	// commit state changes so proof can be created
-	suite.chainA.App.Commit(context.Background())
+	suite.chainA.App.Commit(suite.T().Context())
 	suite.chainA.NextBlock()
 
 	path.EndpointB.UpdateClient()

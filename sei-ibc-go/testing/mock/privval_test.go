@@ -1,7 +1,6 @@
 package mock_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -15,17 +14,17 @@ const chainID = "testChain"
 
 func TestGetPubKey(t *testing.T) {
 	pv := mock.NewPV()
-	pk, err := pv.GetPubKey(context.Background())
+	pk, err := pv.GetPubKey(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, "ed25519", pk.Type())
 }
 
 func TestSignVote(t *testing.T) {
 	pv := mock.NewPV()
-	pk, _ := pv.GetPubKey(context.Background())
+	pk, _ := pv.GetPubKey(t.Context())
 
 	vote := &tmproto.Vote{Height: 2}
-	pv.SignVote(context.Background(), chainID, vote)
+	pv.SignVote(t.Context(), chainID, vote)
 
 	msg := tmtypes.VoteSignBytes(chainID, vote)
 	ok := pk.VerifySignature(msg, vote.Signature)
@@ -34,10 +33,10 @@ func TestSignVote(t *testing.T) {
 
 func TestSignProposal(t *testing.T) {
 	pv := mock.NewPV()
-	pk, _ := pv.GetPubKey(context.Background())
+	pk, _ := pv.GetPubKey(t.Context())
 
 	proposal := &tmproto.Proposal{Round: 2}
-	pv.SignProposal(context.Background(), chainID, proposal)
+	pv.SignProposal(t.Context(), chainID, proposal)
 
 	msg := tmtypes.ProposalSignBytes(chainID, proposal)
 	ok := pk.VerifySignature(msg, proposal.Signature)

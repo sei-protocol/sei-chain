@@ -1,7 +1,6 @@
 package types_test
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -29,7 +28,7 @@ func (suite *TendermintTestSuite) TestCheckHeaderAndUpdateState() {
 
 	// Setup different validators and signers for testing different types of updates
 	altPrivVal := ibctestingmock.NewPV()
-	altPubKey, err := altPrivVal.GetPubKey(context.Background())
+	altPubKey, err := altPrivVal.GetPubKey(suite.T().Context())
 	suite.Require().NoError(err)
 
 	revisionHeight := int64(height.RevisionHeight)
