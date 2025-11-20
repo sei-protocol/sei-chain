@@ -152,10 +152,10 @@ type State struct {
 	setProposal func(proposal *types.Proposal, t time.Time) error
 
 	// synchronous pubsub between consensus state and reactor.
-	eventValidBlock func(state *cstypes.RoundState)
+	eventValidBlock   func(state *cstypes.RoundState)
 	eventNewRoundStep func(state *cstypes.RoundState)
-	eventVote func(vote *types.Vote)
-	eventMsg func(msgInfo)
+	eventVote         func(vote *types.Vote)
+	eventMsg          func(msgInfo)
 
 	// for reporting metrics
 	metrics *Metrics
@@ -204,11 +204,11 @@ func NewState(
 		wal:              nilWAL{},
 		evpool:           evpool,
 		metrics:          NopMetrics(),
-	
-		eventValidBlock: func(*cstypes.RoundState){},
-		eventNewRoundStep: func(*cstypes.RoundState){},
-		eventVote: func(*types.Vote){},
-		eventMsg: func(msgInfo){},
+
+		eventValidBlock:   func(*cstypes.RoundState) {},
+		eventNewRoundStep: func(*cstypes.RoundState) {},
+		eventVote:         func(*types.Vote) {},
+		eventMsg:          func(msgInfo) {},
 	}
 
 	// set function defaults (may be overwritten before calling Start)
