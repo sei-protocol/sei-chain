@@ -22,6 +22,7 @@ import (
 	"github.com/google/orderedcode"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
+	tmcmd "github.com/tendermint/tendermint/cmd/tendermint/commands"
 	tmconfig "github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
@@ -464,10 +465,10 @@ func TestRollbackScenario1_BothAtSameHeight(t *testing.T) {
 	appCommit := app.CommitMultiStore().LastCommitID()
 	require.Equal(t, targetHeight, appCommit.GetVersion())
 
-	// Verify tendermint state was rolled back
-	tmHeight, err := getTendermintStateHeight(cfg)
+	// Verify tendermint state was rolled back to match app
+	tmState, err := tmcmd.LoadTendermintState(cfg)
 	require.NoError(t, err)
-	require.Equal(t, targetHeight, tmHeight)
+	require.Equal(t, targetHeight, tmState.LastBlockHeight)
 }
 
 // TestRollbackScenario2_AppAheadOfTendermint tests scenario 2: app already rolled back, tendermint not
@@ -508,9 +509,9 @@ func TestRollbackScenario2_AppAheadOfTendermint(t *testing.T) {
 	require.Equal(t, targetHeight, appCommit.GetVersion())
 
 	// Verify tendermint state was rolled back to match app
-	finalTmHeight, err := getTendermintStateHeight(cfg)
+	tmState, err := tmcmd.LoadTendermintState(cfg)
 	require.NoError(t, err)
-	require.Equal(t, targetHeight, finalTmHeight)
+	require.Equal(t, targetHeight, tmState.LastBlockHeight)
 }
 
 // TestRollbackScenario3_TendermintAheadOfApp tests scenario 3: app ahead of tendermint
@@ -550,10 +551,10 @@ func TestRollbackScenario3_TendermintAheadOfApp(t *testing.T) {
 	appCommit := app.CommitMultiStore().LastCommitID()
 	require.Equal(t, targetHeight, appCommit.GetVersion())
 
-	// Verify tendermint state is unchanged
-	finalTmHeight, err := getTendermintStateHeight(cfg)
+	// Verify tendermint state was rolled back to match app
+	tmState, err := tmcmd.LoadTendermintState(cfg)
 	require.NoError(t, err)
-	require.Equal(t, tmHeight, finalTmHeight)
+	require.Equal(t, targetHeight, tmState.LastBlockHeight)
 }
 
 // TestRollbackErrorCases tests error cases
@@ -623,8 +624,8 @@ func TestRollbackWithNumBlocks(t *testing.T) {
 	appCommit := app.CommitMultiStore().LastCommitID()
 	require.Equal(t, targetHeight, appCommit.GetVersion())
 
-	// Verify tendermint state was rolled back
-	tmHeight, err := getTendermintStateHeight(cfg)
+	// Verify tendermint state was rolled back to match app
+	tmState, err := tmcmd.LoadTendermintState(cfg)
 	require.NoError(t, err)
-	require.Equal(t, targetHeight, tmHeight)
+	require.Equal(t, targetHeight, tmState.LastBlockHeight)
 }
