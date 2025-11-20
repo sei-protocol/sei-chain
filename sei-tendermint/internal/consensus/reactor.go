@@ -14,7 +14,6 @@ import (
 	"github.com/tendermint/tendermint/internal/p2p"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/libs/bits"
-	tmevents "github.com/tendermint/tendermint/libs/events"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
 	tmtime "github.com/tendermint/tendermint/libs/time"
@@ -88,8 +87,6 @@ const (
 	VoteSetBitsChannel = p2p.ChannelID(0x23)
 
 	maxMsgSize = 4194304 // 4MB; NOTE: keep larger than types.PartSet sizes.
-
-	listenerIDConsensus = "consensus-reactor"
 )
 
 // Reactor defines a reactor for the consensus service.
@@ -156,6 +153,10 @@ func NewReactor(
 		},
 		cfg: cfg,
 	}
+	cs.eventNewRoundStep = r.broadcastNewRoundStepMessage
+	cs.eventValidBlock = r.broadcastNewValidBlockMessage
+	cs.eventVote = r.broadcastHasVoteMessage
+	cs.eventMsg = r.recordPeerMsg
 	r.BaseService = *service.NewBaseService(logger, "Consensus", r)
 	if !waitSync {
 		close(r.readySignal)
@@ -177,12 +178,10 @@ type channelBundle struct {
 // OnStop to ensure the outbound p2p Channels are closed.
 func (r *Reactor) OnStart(ctx context.Context) error {
 	r.logger.Debug("consensus wait sync", "wait_sync", r.WaitSync())
-	r.subscribeToBroadcastEvents(ctx)
 
 	if err := r.state.updateStateFromStore(); err != nil {
 		return err
 	}
-	r.SpawnCritical("peerStatsRoutine", r.peerStatsRoutine)
 	r.SpawnCritical("updateRoundStateRoutine", r.updateRoundStateRoutine)
 	// All of the channel processing routines are noops until readySignal,
 	// but they are spawned immediately so that they keep the channels empty until then.
@@ -257,13 +256,13 @@ func (r *Reactor) GetPeerState(peerID types.NodeID) (*PeerState, bool) {
 	panic("unreachable")
 }
 
-func (r *Reactor) broadcastNewRoundStepMessage(rs *cstypes.RoundState, stateCh *p2p.Channel) {
-	stateCh.Broadcast(makeRoundStepMessage(rs))
+func (r *Reactor) broadcastNewRoundStepMessage(rs *cstypes.RoundState) {
+	r.channels.state.Broadcast(makeRoundStepMessage(rs))
 }
 
-func (r *Reactor) broadcastNewValidBlockMessage(rs *cstypes.RoundState, stateCh *p2p.Channel) {
+func (r *Reactor) broadcastNewValidBlockMessage(rs *cstypes.RoundState) {
 	psHeader := rs.ProposalBlockParts.Header()
-	stateCh.Broadcast(&tmcons.NewValidBlock{
+	r.channels.state.Broadcast(&tmcons.NewValidBlock{
 		Height:             rs.Height,
 		Round:              rs.Round,
 		BlockPartSetHeader: psHeader.ToProto(),
@@ -272,55 +271,13 @@ func (r *Reactor) broadcastNewValidBlockMessage(rs *cstypes.RoundState, stateCh 
 	})
 }
 
-func (r *Reactor) broadcastHasVoteMessage(vote *types.Vote, stateCh *p2p.Channel) {
-	stateCh.Broadcast(&tmcons.HasVote{
+func (r *Reactor) broadcastHasVoteMessage(vote *types.Vote) {
+	r.channels.state.Broadcast(&tmcons.HasVote{
 		Height: vote.Height,
 		Round:  vote.Round,
 		Type:   vote.Type,
 		Index:  vote.ValidatorIndex,
 	})
-}
-
-// subscribeToBroadcastEvents subscribes for new round steps and votes using the
-// internal pubsub defined in the consensus state to broadcast them to peers
-// upon receiving.
-func (r *Reactor) subscribeToBroadcastEvents(ctx context.Context) {
-	stateCh := r.channels.state
-	err := r.state.evsw.AddListenerForEvent(
-		listenerIDConsensus,
-		types.EventNewRoundStepValue,
-		func(data tmevents.EventData) error {
-			r.broadcastNewRoundStepMessage(data.(*cstypes.RoundState), stateCh)
-			return ctx.Err()
-		},
-	)
-	if err != nil {
-		r.logger.Error("failed to add listener for events", "err", err)
-	}
-
-	err = r.state.evsw.AddListenerForEvent(
-		listenerIDConsensus,
-		types.EventValidBlockValue,
-		func(data tmevents.EventData) error {
-			r.broadcastNewValidBlockMessage(data.(*cstypes.RoundState), stateCh)
-			return nil
-		},
-	)
-	if err != nil {
-		r.logger.Error("failed to add listener for events", "err", err)
-	}
-
-	err = r.state.evsw.AddListenerForEvent(
-		listenerIDConsensus,
-		types.EventVoteValue,
-		func(data tmevents.EventData) error {
-			r.broadcastHasVoteMessage(data.(*types.Vote), stateCh)
-			return nil
-		},
-	)
-	if err != nil {
-		r.logger.Error("failed to add listener for events", "err", err)
-	}
 }
 
 func makeRoundStepMessage(rs *cstypes.RoundState) *tmcons.NewRoundStep {
@@ -1103,18 +1060,8 @@ func (r *Reactor) runPeer(ctx context.Context, ps *PeerState) error {
 	})
 }
 
-func (r *Reactor) peerStatsRoutine(ctx context.Context) error {
-	for {
-		msg, err := utils.Recv(ctx, r.state.statsMsgQueue)
-		if err != nil {
-			return err
-		}
-		ps, ok := r.GetPeerState(msg.PeerID)
-		if !ok {
-			r.logger.Debug("attempt to update stats for non-existent peer", "peer", msg.PeerID)
-			continue
-		}
-
+func (r *Reactor) recordPeerMsg(msg msgInfo) {
+	if ps, ok := r.GetPeerState(msg.PeerID); ok {
 		switch msg.Msg.(type) {
 		case *VoteMessage:
 			ps.RecordVote()

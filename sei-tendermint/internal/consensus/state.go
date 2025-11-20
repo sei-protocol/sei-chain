@@ -25,7 +25,6 @@ import (
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/libs/autofile"
 	sm "github.com/tendermint/tendermint/internal/state"
-	tmevents "github.com/tendermint/tendermint/libs/events"
 	"github.com/tendermint/tendermint/libs/log"
 	tmmath "github.com/tendermint/tendermint/libs/math"
 	tmos "github.com/tendermint/tendermint/libs/os"
@@ -135,10 +134,6 @@ type State struct {
 	internalMsgQueue chan msgInfo
 	timeoutTicker    TimeoutTicker
 
-	// information about about added votes and block parts are written on this channel
-	// so statistics can be computed by reactor
-	statsMsgQueue chan msgInfo
-
 	// we use eventBus to trigger msg broadcasts in the reactor,
 	// and to notify external subscribers, eg. through a websocket
 	eventBus *eventbus.EventBus
@@ -157,8 +152,10 @@ type State struct {
 	setProposal func(proposal *types.Proposal, t time.Time) error
 
 	// synchronous pubsub between consensus state and reactor.
-	// state only emits EventNewRoundStep, EventValidBlock, and EventVote
-	evsw tmevents.EventSwitch
+	eventValidBlock func(state *cstypes.RoundState)
+	eventNewRoundStep func(state *cstypes.RoundState)
+	eventVote func(vote *types.Vote)
+	eventMsg func(msgInfo)
 
 	// for reporting metrics
 	metrics *Metrics
@@ -203,12 +200,15 @@ func NewState(
 		peerMsgQueue:     make(chan msgInfo, msgQueueSize),
 		internalMsgQueue: make(chan msgInfo, msgQueueSize),
 		timeoutTicker:    NewTimeoutTicker(logger),
-		statsMsgQueue:    make(chan msgInfo, msgQueueSize),
 		doWALCatchup:     true,
 		wal:              nilWAL{},
 		evpool:           evpool,
-		evsw:             tmevents.NewEventSwitch(),
 		metrics:          NopMetrics(),
+	
+		eventValidBlock: func(*cstypes.RoundState){},
+		eventNewRoundStep: func(*cstypes.RoundState){},
+		eventVote: func(*types.Vote){},
+		eventMsg: func(msgInfo){},
 	}
 
 	// set function defaults (may be overwritten before calling Start)
@@ -779,7 +779,7 @@ func (cs *State) newStep() {
 		}
 
 		roundState := cs.roundState.CopyInternal()
-		cs.evsw.FireEvent(types.EventNewRoundStepValue, roundState)
+		cs.eventNewRoundStep(roundState)
 	}
 }
 
@@ -789,7 +789,7 @@ func (cs *State) heartbeater(ctx context.Context) error {
 			return err
 		}
 		roundState := cs.roundState.CopyInternal()
-		cs.evsw.FireEvent(types.EventNewRoundStepValue, roundState)
+		cs.eventNewRoundStep(roundState)
 	}
 }
 
@@ -978,9 +978,7 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 			cs.fsyncAndCompleteProposal(ctx, fsyncUponCompletion, msg.Height, span, false)
 		}
 		if added {
-			if err := utils.Send(ctx, cs.statsMsgQueue, mi); err != nil {
-				return
-			}
+			cs.eventMsg(mi)
 		}
 
 		if err != nil && msg.Round != cs.roundState.Round() {
@@ -1004,9 +1002,7 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 		// if the vote gives us a 2/3-any or 2/3-one, we transition
 		added, err = cs.tryAddVote(ctx, msg.Vote, peerID, span)
 		if added {
-			if err := utils.Send(ctx, cs.statsMsgQueue, mi); err != nil {
-				return
-			}
+			cs.eventMsg(mi)
 		}
 
 		// TODO: punish peer
@@ -1957,8 +1953,7 @@ func (cs *State) enterCommit(ctx context.Context, height int64, commitRound int3
 				logger.Error("failed publishing valid block", "err", err)
 			}
 
-			roundState := cs.roundState.CopyInternal()
-			cs.evsw.FireEvent(types.EventValidBlockValue, roundState)
+			cs.eventValidBlock(cs.roundState.CopyInternal())
 		}
 	}
 }
@@ -2541,7 +2536,7 @@ func (cs *State) addVote(
 			return added, err
 		}
 
-		cs.evsw.FireEvent(types.EventVoteValue, vote)
+		cs.eventVote(vote)
 
 		handleVoteMsgSpan.End()
 		// if we can skip timeoutCommit and have all the votes now,
@@ -2576,7 +2571,7 @@ func (cs *State) addVote(
 	if err := cs.eventBus.PublishEventVote(types.EventDataVote{Vote: vote}); err != nil {
 		return added, err
 	}
-	cs.evsw.FireEvent(types.EventVoteValue, vote)
+	cs.eventVote(vote)
 
 	switch vote.Type {
 	case tmproto.PrevoteType:
@@ -2612,7 +2607,7 @@ func (cs *State) addVote(
 				}
 
 				roundState := cs.roundState.CopyInternal()
-				cs.evsw.FireEvent(types.EventValidBlockValue, roundState)
+				cs.eventValidBlock(roundState)
 				if err := cs.eventBus.PublishEventValidBlock(cs.roundState.RoundStateEvent()); err != nil {
 					return added, err
 				}
