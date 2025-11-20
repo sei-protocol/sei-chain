@@ -162,6 +162,10 @@ func (state State) IsEmpty() bool {
 
 // ToProto takes the local state type and returns the equivalent proto type
 func (state *State) ToProto() (*tmstate.State, error) {
+	if state == nil {
+		return nil, errors.New("state is nil")
+	}
+
 	sm := new(tmstate.State)
 
 	sm.Version = state.Version.ToProto()
