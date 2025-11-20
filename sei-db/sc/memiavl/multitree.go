@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -455,17 +456,32 @@ func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp
 		t.logger.Info("writing remaining trees", "phase", "2/2", "count", len(otherTrees))
 		phase2Start := time.Now()
 
-		group, _ := wp.GroupContext(ctx)
+		// NOTE: We use explicit WaitGroup instead of pond.GroupContext because
+		// GroupContext.Wait() returns immediately on context cancellation without
+		// waiting for workers to finish. This causes data races when DB.Close()
+		// destroys mmap resources that background writers are still accessing.
+		// The WaitGroup ensures all goroutines fully exit before we return.
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var errs []error
 
 		for _, entry := range otherTrees {
-			tree, name := entry.Tree, entry.Name
-			group.Submit(func() error {
-				return tree.WriteSnapshot(ctx, filepath.Join(dir, name))
+			// Capture loop variables for goroutine closure to avoid data race
+			entry := entry // Create new variable for closure capture
+			wg.Add(1)
+			wp.Submit(func() {
+				defer wg.Done()
+				if err := entry.Tree.WriteSnapshot(ctx, filepath.Join(dir, entry.Name)); err != nil {
+					mu.Lock()
+					errs = append(errs, fmt.Errorf("tree %s: %w", entry.Name, err))
+					mu.Unlock()
+				}
 			})
 		}
 
-		if err := group.Wait(); err != nil {
-			return err
+		wg.Wait()
+		if len(errs) > 0 {
+			return errors.Join(errs...)
 		}
 
 		phase2Elapsed := time.Since(phase2Start).Seconds()
