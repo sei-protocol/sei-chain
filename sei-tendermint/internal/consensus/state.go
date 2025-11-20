@@ -237,6 +237,8 @@ func NewState(
 }
 
 func (cs *State) updateStateFromStore() error {
+	cs.mtx.Lock()
+	defer cs.mtx.Unlock()
 	state, err := cs.stateStore.Load()
 	if err != nil {
 		return fmt.Errorf("loading state: %w", err)
@@ -655,8 +657,6 @@ func (cs *State) votesFromSeenCommit(state sm.State) (*types.VoteSet, error) {
 // Updates State and increments height to match that of state.
 // The round becomes 0 and cs.Step becomes cstypes.RoundStepNewHeight.
 func (cs *State) updateToState(state sm.State) {
-	cs.mtx.Lock()
-	defer cs.mtx.Unlock()
 	if cs.roundState.CommitRound() > -1 && 0 < cs.roundState.Height() && cs.roundState.Height() != state.LastBlockHeight {
 		panic(fmt.Sprintf(
 			"updateToState() expected state height of %v but found %v",
