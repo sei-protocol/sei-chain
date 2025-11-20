@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"math/rand"
 	"testing"
 	"time"
@@ -87,7 +88,7 @@ func (suite *KeeperTestSuite) SetupTest() {
 	suite.keeper = &app.IBCKeeper.ClientKeeper
 	suite.privVal = ibctestingmock.NewPV()
 
-	pubKey, err := suite.privVal.GetPubKey()
+	pubKey, err := suite.privVal.GetPubKey(context.Background())
 	suite.Require().NoError(err)
 
 	testClientHeightMinus1 := types.NewHeight(0, height-1)
@@ -101,7 +102,7 @@ func (suite *KeeperTestSuite) SetupTest() {
 	var validators stakingtypes.Validators
 	for i := 1; i < 11; i++ {
 		privVal := ibctestingmock.NewPV()
-		tmPk, err := privVal.GetPubKey()
+		tmPk, err := privVal.GetPubKey(context.Background())
 		suite.Require().NoError(err)
 		pk, err := cryptocodec.FromTmPubKeyInterface(tmPk)
 		suite.Require().NoError(err)

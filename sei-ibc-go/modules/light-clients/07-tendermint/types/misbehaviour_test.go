@@ -1,6 +1,7 @@
 package types_test
 
 import (
+	"context"
 	"time"
 
 	"github.com/tendermint/tendermint/crypto/tmhash"
@@ -30,7 +31,7 @@ func (suite *TendermintTestSuite) TestMisbehaviour() {
 
 func (suite *TendermintTestSuite) TestMisbehaviourValidateBasic() {
 	altPrivVal := ibctestingmock.NewPV()
-	altPubKey, err := altPrivVal.GetPubKey()
+	altPubKey, err := altPrivVal.GetPubKey(context.Background())
 	suite.Require().NoError(err)
 
 	revisionHeight := int64(height.RevisionHeight)
@@ -48,7 +49,7 @@ func (suite *TendermintTestSuite) TestMisbehaviourValidateBasic() {
 	_, suiteVal := suite.valSet.GetByIndex(0)
 	bothSigners := ibctesting.CreateSortedSignerArray(altPrivVal, suite.privVal, altVal, suiteVal)
 
-	altSigners := []tmtypes.PrivValidator{altPrivVal}
+	// altSigners := []tmtypes.PrivValidator{altPrivVal}
 
 	heightMinus1 := clienttypes.NewHeight(0, height.RevisionHeight-1)
 
@@ -180,13 +181,31 @@ func (suite *TendermintTestSuite) TestMisbehaviourValidateBasic() {
 			func(misbehaviour *types.Misbehaviour) error {
 				// voteSet contains only altVal which is less than 2/3 of total power (height/1height)
 				wrongVoteSet := tmtypes.NewVoteSet(chainID, int64(misbehaviour.Header1.GetHeight().GetRevisionHeight()), 1, tmproto.PrecommitType, altValSet)
-				blockID, err := tmtypes.BlockIDFromProto(&misbehaviour.Header1.Commit.BlockID)
-				if err != nil {
-					return err
-				}
+				// blockID, err := tmtypes.BlockIDFromProto(&misbehaviour.Header1.Commit.BlockID)
+				// if err != nil {
+				// 	return err
+				// }
+				// TODO(udpatil): do we need this step
+				// for i, val := range tmValSet.Validators {
+				// 	privVal := signers[i]
+				// 	vote := &tmtypes.Vote{
+				// 		Type:             tmproto.PrecommitType,
+				// 		Height:           blockHeight,
+				// 		Round:            1,
+				// 		BlockID:          blockID,
+				// 		Timestamp:        timestamp,
+				// 		ValidatorAddress: val.Address,
+				// 		ValidatorIndex:   int32(i),
+				// 	}
+				// 	v := vote.ToProto()
+				// 	err := privVal.SignVote(context.Background(), chainID, v)
+				// 	require.NoError(chain.T, err)
+				// 	vote.Signature = v.Signature
+				// 	voteSet.AddVote(vote)
+				// }
 
-				tmCommit, err := tmtypes.MakeCommit(*blockID, int64(misbehaviour.Header2.GetHeight().GetRevisionHeight()), misbehaviour.Header1.Commit.Round, wrongVoteSet, altSigners, suite.now)
-				misbehaviour.Header1.Commit = tmCommit.ToProto()
+				tmCommit := wrongVoteSet.MakeExtendedCommit()
+				misbehaviour.Header1.Commit = tmCommit.ToCommit().ToProto()
 				return err
 			},
 			false,
@@ -201,13 +220,14 @@ func (suite *TendermintTestSuite) TestMisbehaviourValidateBasic() {
 			func(misbehaviour *types.Misbehaviour) error {
 				// voteSet contains only altVal which is less than 2/3 of total power (height/1height)
 				wrongVoteSet := tmtypes.NewVoteSet(chainID, int64(misbehaviour.Header2.GetHeight().GetRevisionHeight()), 1, tmproto.PrecommitType, altValSet)
-				blockID, err := tmtypes.BlockIDFromProto(&misbehaviour.Header2.Commit.BlockID)
-				if err != nil {
-					return err
-				}
+				// blockID, err := tmtypes.BlockIDFromProto(&misbehaviour.Header2.Commit.BlockID)
+				// if err != nil {
+				// 	return err
+				// }
+				// TODO(udpatil): determine same as above
 
-				tmCommit, err := tmtypes.MakeCommit(*blockID, int64(misbehaviour.Header2.GetHeight().GetRevisionHeight()), misbehaviour.Header2.Commit.Round, wrongVoteSet, altSigners, suite.now)
-				misbehaviour.Header2.Commit = tmCommit.ToProto()
+				tmCommit := wrongVoteSet.MakeExtendedCommit()
+				misbehaviour.Header2.Commit = tmCommit.ToCommit().ToProto()
 				return err
 			},
 			false,

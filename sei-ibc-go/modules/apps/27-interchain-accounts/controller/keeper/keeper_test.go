@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -92,7 +93,7 @@ func RegisterInterchainAccount(endpoint *ibctesting.Endpoint, owner string) erro
 	}
 
 	// commit state changes for proof verification
-	endpoint.Chain.App.Commit()
+	endpoint.Chain.App.Commit(context.Background())
 	endpoint.Chain.NextBlock()
 
 	// update port/channel ids

@@ -2,6 +2,7 @@ package ibctesting
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -22,7 +23,6 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto/tmhash"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	tmprotoversion "github.com/tendermint/tendermint/proto/tendermint/version"
 	tmtypes "github.com/tendermint/tendermint/types"
 	tmversion "github.com/tendermint/tendermint/version"
 
@@ -158,7 +158,7 @@ func NewTestChain(t *testing.T, coord *Coordinator, chainID string) *TestChain {
 
 	for i := 0; i < validatorsPerChain; i++ {
 		privVal := mock.NewPV()
-		pubKey, err := privVal.GetPubKey()
+		pubKey, err := privVal.GetPubKey(context.Background())
 		require.NoError(t, err)
 		validators = append(validators, tmtypes.NewValidator(pubKey, 1))
 		signersByAddress[pubKey.Address().String()] = privVal
@@ -202,7 +202,7 @@ func (chain *TestChain) QueryProof(key []byte) ([]byte, clienttypes.Height) {
 // QueryProof performs an abci query with the given key and returns the proto encoded merkle proof
 // for the query and the height at which the proof will succeed on a tendermint verifier.
 func (chain *TestChain) QueryProofAtHeight(key []byte, height int64) ([]byte, clienttypes.Height) {
-	res := chain.App.Query(abci.RequestQuery{
+	res, _ := chain.App.Query(context.Background(), &abci.RequestQuery{
 		Path:   fmt.Sprintf("store/%s/key", host.StoreKey),
 		Height: height - 1,
 		Data:   key,
@@ -226,7 +226,7 @@ func (chain *TestChain) QueryProofAtHeight(key []byte, height int64) ([]byte, cl
 // QueryUpgradeProof performs an abci query with the given key and returns the proto encoded merkle proof
 // for the query and the height at which the proof will succeed on a tendermint verifier.
 func (chain *TestChain) QueryUpgradeProof(key []byte, height uint64) ([]byte, clienttypes.Height) {
-	res := chain.App.Query(abci.RequestQuery{
+	res, _ := chain.App.Query(context.Background(), &abci.RequestQuery{
 		Path:   "store/upgrade/key",
 		Height: int64(height - 1),
 		Data:   key,
@@ -280,7 +280,14 @@ func (chain *TestChain) NextBlock() {
 		NextValidatorsHash: chain.Vals.Hash(),
 	}
 
-	chain.App.BeginBlock(abci.RequestBeginBlock{Header: chain.CurrentHeader})
+	chain.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Height:  chain.App.LastBlockHeight() + 1,
+		Time:    chain.CurrentHeader.Time,
+		AppHash: chain.CurrentHeader.AppHash,
+
+		ValidatorsHash:     chain.Vals.Hash(),
+		NextValidatorsHash: chain.Vals.Hash(),
+	})
 }
 
 // sendMsgs delivers a transaction through the application without returning the result.
@@ -438,7 +445,7 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 	vsetHash := tmValSet.Hash()
 
 	tmHeader := tmtypes.Header{
-		Version:            tmprotoversion.Consensus{Block: tmversion.BlockProtocol, App: 2},
+		Version:            tmversion.Consensus{Block: tmversion.BlockProtocol, App: 2},
 		ChainID:            chainID,
 		Height:             blockHeight,
 		Time:               timestamp,
@@ -458,14 +465,32 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 	blockID := MakeBlockID(hhash, 3, tmhash.Sum([]byte("part_set")))
 	voteSet := tmtypes.NewVoteSet(chainID, blockHeight, 1, tmproto.PrecommitType, tmValSet)
 
-	commit, err := tmtypes.MakeCommit(blockID, blockHeight, 1, voteSet, signers, timestamp)
-	require.NoError(chain.T, err)
+	for i, val := range tmValSet.Validators {
+		privVal := signers[i]
+		vote := &tmtypes.Vote{
+			Type:             tmproto.PrecommitType,
+			Height:           blockHeight,
+			Round:            1,
+			BlockID:          blockID,
+			Timestamp:        timestamp,
+			ValidatorAddress: val.Address,
+			ValidatorIndex:   int32(i),
+		}
+		v := vote.ToProto()
+		err := privVal.SignVote(context.Background(), chainID, v)
+		require.NoError(chain.T, err)
+		vote.Signature = v.Signature
+		voteSet.AddVote(vote)
+	}
+
+	commit := voteSet.MakeExtendedCommit()
 
 	signedHeader := &tmproto.SignedHeader{
 		Header: tmHeader.ToProto(),
-		Commit: commit.ToProto(),
+		Commit: commit.ToCommit().ToProto(),
 	}
 
+	var err error
 	if tmValSet != nil {
 		valSet, err = tmValSet.ToProto()
 		require.NoError(chain.T, err)
@@ -534,7 +559,7 @@ func (chain *TestChain) CreatePortCapability(scopedKeeper capabilitykeeper.Scope
 		require.NoError(chain.T, err)
 	}
 
-	chain.App.Commit()
+	chain.App.Commit(context.Background())
 
 	chain.NextBlock()
 }
@@ -562,7 +587,7 @@ func (chain *TestChain) CreateChannelCapability(scopedKeeper capabilitykeeper.Sc
 		require.NoError(chain.T, err)
 	}
 
-	chain.App.Commit()
+	chain.App.Commit(context.Background())
 
 	chain.NextBlock()
 }

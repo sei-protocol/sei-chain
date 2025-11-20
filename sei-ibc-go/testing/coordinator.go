@@ -1,6 +1,7 @@
 package ibctesting
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"testing"
@@ -67,7 +68,16 @@ func (coord *Coordinator) UpdateTime() {
 // UpdateTimeForChain updates the clock for a specific chain.
 func (coord *Coordinator) UpdateTimeForChain(chain *TestChain) {
 	chain.CurrentHeader.Time = coord.CurrentTime.UTC()
-	chain.App.BeginBlock(abci.RequestBeginBlock{Header: chain.CurrentHeader})
+	chain.App.FinalizeBlock(
+		context.Background(),
+		&abci.RequestFinalizeBlock{
+			Height:             chain.App.LastBlockHeight() + 1,
+			Time:               chain.CurrentHeader.Time,
+			AppHash:            chain.CurrentHeader.AppHash,
+			ValidatorsHash:     chain.Vals.Hash(),
+			NextValidatorsHash: chain.Vals.Hash(),
+		},
+	)
 }
 
 // Setup constructs a TM client, connection, and channel on both chains provided. It will
@@ -181,7 +191,8 @@ func GetChainID(index int) string {
 // CONTRACT: the passed in list of indexes must not contain duplicates
 func (coord *Coordinator) CommitBlock(chains ...*TestChain) {
 	for _, chain := range chains {
-		chain.App.Commit()
+		chain.App.GetBaseApp().SetDeliverStateToCommit()
+		chain.App.Commit(context.Background())
 		chain.NextBlock()
 	}
 	coord.IncrementTime()
@@ -190,8 +201,16 @@ func (coord *Coordinator) CommitBlock(chains ...*TestChain) {
 // CommitNBlocks commits n blocks to state and updates the block height by 1 for each commit.
 func (coord *Coordinator) CommitNBlocks(chain *TestChain, n uint64) {
 	for i := uint64(0); i < n; i++ {
-		chain.App.BeginBlock(abci.RequestBeginBlock{Header: chain.CurrentHeader})
-		chain.App.Commit()
+		chain.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+			Height:  chain.App.LastBlockHeight() + 1,
+			Time:    chain.CurrentHeader.Time,
+			AppHash: chain.CurrentHeader.AppHash,
+
+			ValidatorsHash:     chain.Vals.Hash(),
+			NextValidatorsHash: chain.Vals.Hash(),
+		})
+		chain.App.GetBaseApp().SetDeliverStateToCommit()
+		chain.App.Commit(context.Background())
 		chain.NextBlock()
 		coord.IncrementTime()
 	}
