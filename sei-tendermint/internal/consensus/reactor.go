@@ -106,7 +106,6 @@ type Reactor struct {
 
 	peers       utils.RWMutex[map[types.NodeID]*PeerState]
 	mtx         sync.RWMutex
-	waitSync    bool
 	rs          *cstypes.RoundState
 	readySignal chan struct{} // closed when the node is ready to start consensus
 }
@@ -143,7 +142,6 @@ func NewReactor(
 	r := &Reactor{
 		logger:      logger,
 		state:       cs,
-		waitSync:    waitSync,
 		rs:          cs.GetRoundState(),
 		peers:       utils.NewRWMutex(map[types.NodeID]*PeerState{}),
 		eventBus:    eventBus,
@@ -159,7 +157,7 @@ func NewReactor(
 		cfg: cfg,
 	}
 	r.BaseService = *service.NewBaseService(logger, "Consensus", r)
-	if !r.waitSync {
+	if !waitSync {
 		close(r.readySignal)
 	}
 
@@ -179,47 +177,42 @@ type channelBundle struct {
 // OnStop to ensure the outbound p2p Channels are closed.
 func (r *Reactor) OnStart(ctx context.Context) error {
 	r.logger.Debug("consensus wait sync", "wait_sync", r.WaitSync())
-
-	// start routine that computes peer statistics for evaluating peer quality
-	//
-	// TODO: Evaluate if we need this to be synchronized via WaitGroup as to not
-	// leak the goroutine when stopping the reactor.
-	r.SpawnCritical("peerStatsRoutine", r.peerStatsRoutine)
-
 	r.subscribeToBroadcastEvents(ctx)
 
-	if !r.WaitSync() {
-		r.SpawnCritical("state.Run", r.state.Run)
-	} else if err := r.state.updateStateFromStore(); err != nil {
+	if err := r.state.updateStateFromStore(); err != nil {
 		return err
 	}
-
+	r.SpawnCritical("peerStatsRoutine", r.peerStatsRoutine)
 	r.SpawnCritical("updateRoundStateRoutine", r.updateRoundStateRoutine)
+	// All of the channel processing routines are noops until readySignal,
+	// but they are spawned immediately so that they keep the channels empty until then.
 	r.SpawnCritical("processStateCh", r.processStateCh)
 	r.SpawnCritical("processDataCh", r.processDataCh)
 	r.SpawnCritical("processVoteCh", r.processVoteCh)
 	r.SpawnCritical("processVoteSetBitsCh", r.processVoteSetBitsCh)
-	r.SpawnCritical("processPeerUpdates", r.processPeerUpdates)
+	r.SpawnCritical("state.Run", func(ctx context.Context) error {
+		if _, _, err := utils.RecvOrClosed(ctx, r.readySignal); err != nil {
+			return err
+		}
+		r.SpawnCritical("processPeerUpdates", r.processPeerUpdates)
+		return r.state.Run(ctx)
+	})
 	return nil
 }
 
 // OnStop stops the reactor by signaling to all spawned goroutines to exit and
 // blocking until they all exit, as well as unsubscribing from events and stopping
 // state.
-func (r *Reactor) OnStop() {
-}
+func (r *Reactor) OnStop() {}
 
 // WaitSync returns whether the consensus reactor is waiting for state/block sync.
 func (r *Reactor) WaitSync() bool {
-	r.mtx.RLock()
-	defer r.mtx.RUnlock()
-	return r.waitSync
-}
-
-func (r *Reactor) StopWaitSync() {
-	r.mtx.Lock()
-	r.waitSync = false
-	r.mtx.Unlock()
+	select {
+	case <-r.readySignal:
+		return false
+	default:
+		return true
+	}
 }
 
 // SwitchToConsensus switches from block-sync mode to consensus mode. It resets
@@ -227,40 +220,30 @@ func (r *Reactor) StopWaitSync() {
 func (r *Reactor) SwitchToConsensus(ctx context.Context, state sm.State, skipWAL bool) {
 	r.logger.Info("switching to consensus")
 
-	// we have no votes, so reconstruct LastCommit from SeenCommit
-	if state.LastBlockHeight > 0 {
-		r.state.reconstructLastCommit(state)
-	}
-
-	// NOTE: The line below causes broadcastNewRoundStepRoutine() to broadcast a
-	// NewRoundStepMessage.
-	r.state.updateToState(state)
-	r.SpawnCritical("state.Run", r.state.Run)
-
-	r.mtx.Lock()
-	r.waitSync = false
-	close(r.readySignal)
-	r.mtx.Unlock()
-
-	r.Metrics.BlockSyncing.Set(0)
-	r.Metrics.StateSyncing.Set(0)
-
-	if skipWAL {
-		r.state.doWALCatchup = false
-	}
-
 	d := types.EventDataBlockSyncStatus{Complete: true, Height: state.LastBlockHeight}
 	if err := r.eventBus.PublishEventBlockSyncStatus(d); err != nil {
 		r.logger.Error("failed to emit the blocksync complete event", "err", err)
 	}
+	r.Metrics.BlockSyncing.Set(0)
+	r.Metrics.StateSyncing.Set(0)
+
+	// we have no votes, so reconstruct LastCommit from SeenCommit
+	r.state.mtx.Lock()
+	if state.LastBlockHeight > 0 {
+		r.state.reconstructLastCommit(state)
+	}
+	r.state.updateToState(state)
+	if skipWAL {
+		r.state.doWALCatchup = false
+	}
+	r.state.mtx.Unlock()
+
+	r.mtx.Lock()
+	close(r.readySignal)
+	r.mtx.Unlock()
 }
 
 // String returns a string representation of the Reactor.
-//
-// NOTE: For now, it is just a hard-coded string to avoid accessing unprotected
-// shared variables.
-//
-// TODO: improve!
 func (r *Reactor) String() string {
 	return "ConsensusReactor"
 }
@@ -751,16 +734,17 @@ func (r *Reactor) queryMaj23Routine(ctx context.Context, ps *PeerState) error {
 // removed.
 func (r *Reactor) handleStateMessage(m p2p.RecvMsg) (err error) {
 	defer r.recoverToErr(&err)
+	ps, ok := r.GetPeerState(m.From)
+	if !ok {
+		r.logger.Debug("failed to find peer state", "peer", m.From, "ch_id", "StateChannel")
+		return nil
+	}
+
 	msgI, err := WrapAndParse(m.Message)
 	if err != nil {
 		return err
 	}
 	voteSetCh := r.channels.votSet
-	ps, ok := r.GetPeerState(m.From)
-	if !ok || ps == nil {
-		r.logger.Debug("failed to find peer state", "peer", m.From, "ch_id", "StateChannel")
-		return nil
-	}
 
 	switch msg := m.Message.(type) {
 	case *tmcons.NewRoundStep:
@@ -1070,9 +1054,6 @@ func (r *Reactor) processVoteSetBitsCh(ctx context.Context) error {
 // PeerUpdate messages. When the reactor is stopped, we will catch the signal and
 // close the p2p PeerUpdatesCh gracefully.
 func (r *Reactor) processPeerUpdates(ctx context.Context) error {
-	if _, _, err := utils.RecvOrClosed(ctx, r.readySignal); err != nil {
-		return err
-	}
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		recv := r.router.Subscribe()
 		for ctx.Err() == nil {
