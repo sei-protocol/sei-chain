@@ -129,6 +129,12 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 		},
 	)
 
+	// This line is necessary due to the capability module which has a map as well as store usages,
+	// and because the initChain runs 3 times (deliver, prepare, process proposal),
+	// we need to make sure to first commit the last one so the proper values are persisted from the
+	// memory map into the store.
+	app.GetBaseApp().SetProcessProposalStateToCommit()
+
 	// commit genesis changes
 	app.Commit(context.Background())
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
