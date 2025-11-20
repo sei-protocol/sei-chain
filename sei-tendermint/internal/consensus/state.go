@@ -23,7 +23,6 @@ import (
 	"github.com/tendermint/tendermint/crypto"
 	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
 	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/jsontypes"
 	"github.com/tendermint/tendermint/internal/libs/autofile"
 	sm "github.com/tendermint/tendermint/internal/state"
 	tmevents "github.com/tendermint/tendermint/libs/events"
@@ -59,34 +58,6 @@ type msgInfo struct {
 	ReceiveTime time.Time
 }
 
-func (msgInfo) TypeTag() string { return "tendermint/wal/MsgInfo" }
-
-type msgInfoJSON struct {
-	Msg         json.RawMessage `json:"msg"`
-	PeerID      types.NodeID    `json:"peer_key"`
-	ReceiveTime time.Time       `json:"receive_time"`
-}
-
-func (m msgInfo) MarshalJSON() ([]byte, error) {
-	msg, err := jsontypes.Marshal(m.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(msgInfoJSON{Msg: msg, PeerID: m.PeerID, ReceiveTime: m.ReceiveTime})
-}
-
-func (m *msgInfo) UnmarshalJSON(data []byte) error {
-	var msg msgInfoJSON
-	if err := json.Unmarshal(data, &msg); err != nil {
-		return err
-	}
-	if err := jsontypes.Unmarshal(msg.Msg, &m.Msg); err != nil {
-		return err
-	}
-	m.PeerID = msg.PeerID
-	return nil
-}
-
 // internally generated messages which may update the state
 type timeoutInfo struct {
 	Duration time.Duration         `json:"duration,string"`
@@ -108,8 +79,6 @@ func (ti *timeoutInfo) Less(b *timeoutInfo) bool {
 	// TODO(gprusak): Figure out why we special case step 0 and fix it.
 	return ti.Step <= 0 || ti.Step < b.Step
 }
-
-func (timeoutInfo) TypeTag() string { return "tendermint/wal/TimeoutInfo" }
 
 func (ti *timeoutInfo) String() string {
 	return fmt.Sprintf("%v ; %d/%d %v", ti.Duration, ti.Height, ti.Round, ti.Step)
@@ -330,19 +299,17 @@ func (cs *State) GetLastHeight() int64 {
 
 // GetRoundState returns a shallow copy of the internal consensus state.
 func (cs *State) GetRoundState() *cstypes.RoundState {
-	rs := cs.roundState.CopyInternal()
-	return rs
+	return cs.roundState.CopyInternal()
 }
 
-// GetRoundStateJSON returns a json of RoundState.
+// GetRoundStateJSON returns a json of RoundState. UNSTABLE.
 func (cs *State) GetRoundStateJSON() ([]byte, error) {
-	return json.Marshal(*cs.roundState.CopyInternal())
+	return json.Marshal(*cs.GetRoundState())
 }
 
-// GetRoundStateSimpleJSON returns a json of RoundStateSimple
+// GetRoundStateSimpleJSON returns a json of RoundStateSimple. UNSTABLE.
 func (cs *State) GetRoundStateSimpleJSON() ([]byte, error) {
-	copy := cs.roundState.CopyInternal()
-	return json.Marshal(copy.RoundStateSimple())
+	return json.Marshal(cs.GetRoundState().RoundStateSimple())
 }
 
 // GetValidators returns a copy of the current validators.
@@ -719,7 +686,6 @@ func (cs *State) reconstructLastCommit(state sm.State) {
 		panic(fmt.Sprintf("failed to reconstruct last commit; %s", err))
 	}
 	cs.roundState.SetLastCommit(votes)
-	return
 }
 
 func (cs *State) votesFromSeenCommit(state sm.State) (*types.VoteSet, error) {
@@ -1139,7 +1105,6 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 			"err", err,
 		)
 	}
-	return
 }
 
 func (cs *State) handleTimeout(
@@ -1194,8 +1159,6 @@ func (cs *State) handleTimeout(
 	default:
 		panic(fmt.Sprintf("invalid timeout step: %v", ti.Step))
 	}
-
-	return
 }
 
 func (cs *State) handleTxsAvailable(ctx context.Context) {
@@ -1221,7 +1184,6 @@ func (cs *State) handleTxsAvailable(ctx context.Context) {
 	case cstypes.RoundStepNewRound: // after timeoutCommit
 		cs.enterPropose(ctx, cs.roundState.Height(), 0, "post-timeout-commit")
 	}
-	return
 }
 
 func (cs *State) getTracingCtx(defaultCtx context.Context) context.Context {
@@ -1328,8 +1290,6 @@ func (cs *State) enterNewRound(ctx context.Context, height int64, round int32, e
 
 	span.End()
 	cs.enterPropose(ctx, height, round, "enterNewRound")
-
-	return
 }
 
 // needProofBlock returns true on the first height (so the genesis app hash is signed right away)

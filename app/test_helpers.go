@@ -271,7 +271,6 @@ func SetupWithDefaultHome(isCheckTx bool, enableEVMCustomPrecompiles bool, overr
 		wasm.EnableAllProposals,
 		TestAppOpts{},
 		wasmOpts,
-		EmptyACLOpts,
 		options,
 		baseAppOptions...,
 	)
@@ -342,7 +341,6 @@ func SetupWithDB(t *testing.T, db dbm.DB, isCheckTx bool, enableEVMCustomPrecomp
 		wasm.EnableAllProposals,
 		TestAppOpts{},
 		wasmOpts,
-		EmptyACLOpts,
 		options,
 		baseAppOptions...,
 	)
@@ -397,7 +395,6 @@ func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, 
 		wasm.EnableAllProposals,
 		TestAppOpts{true},
 		EmptyWasmOpts,
-		EmptyACLOpts,
 		options,
 		baseAppOptions...,
 	)
@@ -448,7 +445,6 @@ func SetupTestingAppWithLevelDb(t *testing.T, isCheckTx bool, enableEVMCustomPre
 		wasm.EnableAllProposals,
 		TestAppOpts{},
 		EmptyWasmOpts,
-		EmptyACLOpts,
 		nil,
 	)
 	if !isCheckTx {
@@ -517,7 +513,6 @@ func setup(t *testing.T, withGenesis bool, invCheckPeriod uint) (*App, GenesisSt
 		wasm.EnableAllProposals,
 		TestAppOpts{},
 		EmptyWasmOpts,
-		EmptyACLOpts,
 		[]AppOption{},
 	)
 	if withGenesis {

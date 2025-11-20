@@ -18,7 +18,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/server"
 	"github.com/cosmos/cosmos-sdk/store"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	ethtests "github.com/ethereum/go-ethereum/tests"
 	"github.com/sei-protocol/sei-chain/app"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -79,7 +78,6 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 						),
 					),
 				},
-				[]aclkeeper.Option{},
 				app.EmptyAppOptions,
 				baseapp.SetPruning(storetypes.PruneEverything),
 				baseapp.SetMinGasPrices(cast.ToString(serverCtx.Viper.Get(server.FlagMinGasPrices))),
