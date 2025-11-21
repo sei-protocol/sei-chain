@@ -1,4 +1,4 @@
-package light
+package statesync 
 
 import (
 	"bytes"
@@ -16,6 +16,7 @@ import (
 	"github.com/tendermint/tendermint/internal/p2p"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/light"
 	lightprovider "github.com/tendermint/tendermint/light/provider"
 	lighthttp "github.com/tendermint/tendermint/light/provider/http"
 	lightrpc "github.com/tendermint/tendermint/light/rpc"
@@ -45,7 +46,7 @@ type StateProvider interface {
 
 type stateProviderRPC struct {
 	sync.Mutex              // light.Client is not concurrency-safe
-	lc                      *Client
+	lc                      *light.Client
 	initialHeight           int64
 	providers               map[lightprovider.Provider]string
 	verifyLightBlockTimeout time.Duration
@@ -59,7 +60,7 @@ func NewRPCStateProvider(
 	initialHeight int64,
 	verifyLightBlockTimeout time.Duration,
 	servers []string,
-	trustOptions TrustOptions,
+	trustOptions light.TrustOptions,
 	logger log.Logger,
 	blacklistTTL time.Duration,
 ) (StateProvider, error) {
@@ -81,8 +82,8 @@ func NewRPCStateProvider(
 		providerRemotes[provider] = server
 	}
 
-	lc, err := NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
-		lightdb.New(dbm.NewMemDB()), blacklistTTL, Logger(logger))
+	lc, err := light.NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
+		lightdb.New(dbm.NewMemDB()), blacklistTTL, light.Logger(logger))
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +215,7 @@ func rpcClient(server string) (*rpchttp.HTTP, error) {
 
 type StateProviderP2P struct {
 	sync.Mutex              // light.Client is not concurrency-safe
-	lc                      *Client
+	lc                      *light.Client
 	initialHeight           int64
 	paramsSendCh            *p2p.Channel[*pb.Message]
 	paramsRecvCh            chan types.ConsensusParams
@@ -230,7 +231,7 @@ func NewP2PStateProvider(
 	initialHeight int64,
 	verifyLightBlockTimeout time.Duration,
 	providers []lightprovider.Provider,
-	trustOptions TrustOptions,
+	trustOptions light.TrustOptions,
 	paramsSendCh *p2p.Channel,
 	logger log.Logger,
 	blacklistTTL time.Duration,
@@ -240,8 +241,8 @@ func NewP2PStateProvider(
 		return nil, fmt.Errorf("at least 2 peers are required, got %d", len(providers))
 	}
 
-	lc, err := NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
-		lightdb.New(dbm.NewMemDB()), blacklistTTL, Logger(logger))
+	lc, err := light.NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
+		lightdb.New(dbm.NewMemDB()), blacklistTTL, light.Logger(logger))
 	if err != nil {
 		return nil, err
 	}

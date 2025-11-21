@@ -1,4 +1,4 @@
-package light
+package statesync
 
 import (
 	"context"
@@ -23,25 +23,13 @@ import (
 	"github.com/tendermint/tendermint/types"
 )
 
-func GetLightBlockChannelDescriptor() p2p.ChannelDescriptor {
-	return p2p.ChannelDescriptor{
-		ID:                  0x17,
-		MessageType:         new(ssproto.Message),
-		Priority:            5,
-		SendQueueCapacity:   10,
-		RecvMessageCapacity: 10000,
-		RecvBufferCapacity:  128,
-		Name:                "light-block",
-	}
-}
-
 type testSuite struct {
 	network    *p2p.TestNetwork
 	node       *p2p.TestNode
 	dispatcher *Dispatcher
 }
 
-func setup(t *testing.T) *testSuite {
+func dispatcherSetup(t *testing.T) *testSuite {
 	t.Helper()
 
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{
@@ -52,7 +40,7 @@ func setup(t *testing.T) *testSuite {
 		},
 	})
 	n := network.Nodes()[0]
-	ch, err := n.Router.OpenChannel(GetLightBlockChannelDescriptor())
+	ch, err := p2p.OpenChannel(n.Router, GetLightBlockChannelDescriptor())
 	if err != nil {
 		panic(err)
 	}
@@ -62,11 +50,7 @@ func setup(t *testing.T) *testSuite {
 	return &testSuite{
 		network: network,
 		node:    n,
-		dispatcher: NewDispatcher(ch, func(height uint64) proto.Message {
-			return &ssproto.LightBlockRequest{
-				Height: height,
-			}
-		}),
+		dispatcher: NewDispatcher(ch),
 	}
 }
 

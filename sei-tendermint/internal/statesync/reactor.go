@@ -152,8 +152,8 @@ type Reactor struct {
 
 	// Dispatcher is used to multiplex light block requests and responses over multiple
 	// peers used by the p2p state provider and in reverse sync.
-	dispatcher *light.Dispatcher
-	peers      *light.PeerList
+	dispatcher *Dispatcher
+	peers      *PeerList
 
 	// These will only be set when a state sync is in progress. It is used to feed
 	// received snapshots and chunks into the syncer and manage incoming and outgoing
@@ -162,7 +162,7 @@ type Reactor struct {
 	initSyncer        func() *syncer
 	requestSnaphot    func() error
 	syncer            *syncer
-	providers         map[types.NodeID]*light.BlockProvider
+	providers         map[types.NodeID]*BlockProvider
 	initStateProvider func(ctx context.Context, chainID string, initialHeight int64) error
 	stateProvider     light.StateProvider
 
@@ -237,8 +237,8 @@ func NewReactor(
 		tempDir:                       tempDir,
 		stateStore:                    stateStore,
 		blockStore:                    blockStore,
-		peers:                         light.NewPeerList(),
-		providers:                     make(map[types.NodeID]*light.BlockProvider),
+		peers:                         NewPeerList(),
+		providers:                     make(map[types.NodeID]*BlockProvider),
 		metrics:                       ssMetrics,
 		eventBus:                      eventBus,
 		postSyncHook:                  postSyncHook,
@@ -281,9 +281,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 			useLocalSnapshot: r.cfg.UseLocalSnapshot,
 		}
 	}
-	r.dispatcher = light.NewDispatcher(r.lightBlockChannel, func(height uint64) *ssproto.Message {
-		return wrap(&ssproto.LightBlockRequest{Height: height})
-	})
+	r.dispatcher = NewDispatcher(r.lightBlockChannel)
 	r.requestSnaphot = func() error {
 		// request snapshots from all currently connected peers
 		if !r.cfg.UseLocalSnapshot {
@@ -311,7 +309,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 			peers := r.peers.All()
 			providers := make([]provider.Provider, len(peers))
 			for idx, p := range peers {
-				providers[idx] = light.NewBlockProvider(p, chainID, r.dispatcher)
+				providers[idx] = NewBlockProvider(p, chainID, r.dispatcher)
 			}
 
 			stateProvider, err := light.NewP2PStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, providers, to, r.paramsChannel, r.logger.With("module", "stateprovider"), r.cfg.BlacklistTTL, func(height uint64) proto.Message {
@@ -531,7 +529,7 @@ func (r *Reactor) backfill(
 					}
 					if err != nil {
 						queue.retry(height)
-						if errors.Is(err, light.ErrNoConnectedPeers) {
+						if errors.Is(err, ErrNoConnectedPeers) {
 							r.logger.Info("backfill: no connected peers to fetch light blocks from; sleeping...",
 								"sleepTime", sleepTime)
 							time.Sleep(sleepTime)
@@ -1003,7 +1001,7 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 
 	switch peerUpdate.Status {
 	case p2p.PeerStatusUp:
-		newProvider := light.NewBlockProvider(peerUpdate.NodeID, r.chainID, r.dispatcher)
+		newProvider := NewBlockProvider(peerUpdate.NodeID, r.chainID, r.dispatcher)
 
 		r.providers[peerUpdate.NodeID] = newProvider
 		r.syncer.AddPeer(peerUpdate.NodeID)

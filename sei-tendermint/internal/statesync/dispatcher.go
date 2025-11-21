@@ -1,4 +1,4 @@
-package light
+package statesync 
 
 import (
 	"context"
@@ -35,11 +35,10 @@ type Dispatcher struct {
 	lightBlockMsgCreator func(uint64) *pb.Message
 }
 
-func NewDispatcher(requestChannel *p2p.Channel[*pb.Message], lightBlockMsgCreator func(uint64) *pb.Message) *Dispatcher {
+func NewDispatcher(requestChannel *p2p.Channel[*pb.Message]) *Dispatcher {
 	return &Dispatcher{
 		requestCh:            requestChannel,
-		calls:                make(map[types.NodeID]chan *types.LightBlock),
-		lightBlockMsgCreator: lightBlockMsgCreator,
+		calls:                map[types.NodeID]chan *types.LightBlock{},
 	}
 }
 
@@ -94,7 +93,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, peer types.NodeID, height int
 	d.calls[peer] = ch
 
 	// send request
-	d.requestCh.Send(d.lightBlockMsgCreator(uint64(height)), peer)
+	d.requestCh.Send(wrap(&pb.LightBlockRequest{Height: uint64(height)}), peer)
 	return ch, nil
 }
 
