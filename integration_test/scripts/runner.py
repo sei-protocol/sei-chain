@@ -49,9 +49,10 @@ class TestRunner:
             for i in range(len(elems)):
                 if elems[i] in env_map:
                     variable = env_map[elems[i]]
-                    if str(variable).isnumeric():
+                    try:
+                        float(str(variable))
                         expr = expr + f' {variable}'
-                    else:
+                    except:
                         expr = expr + f' "{variable}"'
                 else:
                     expr += f' {elems[i]}'

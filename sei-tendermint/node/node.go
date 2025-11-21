@@ -425,7 +425,7 @@ func makeNode(
 
 	if cfg.Mode == config.ModeValidator {
 		if privValidator != nil {
-			csState.SetPrivValidator(ctx, privValidator)
+			csState.SetPrivValidator(ctx, utils.Some(privValidator))
 		}
 	}
 	node.rpcEnv.PubKey = pubKey

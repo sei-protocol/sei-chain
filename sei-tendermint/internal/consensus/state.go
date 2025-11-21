@@ -25,14 +25,12 @@ import (
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/libs/autofile"
 	sm "github.com/tendermint/tendermint/internal/state"
-	tmevents "github.com/tendermint/tendermint/libs/events"
 	"github.com/tendermint/tendermint/libs/log"
 	tmmath "github.com/tendermint/tendermint/libs/math"
 	tmos "github.com/tendermint/tendermint/libs/os"
-	"github.com/tendermint/tendermint/libs/service"
 	tmtime "github.com/tendermint/tendermint/libs/time"
-	"github.com/tendermint/tendermint/privval"
-	tmgrpc "github.com/tendermint/tendermint/privval/grpc"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -49,7 +47,7 @@ var (
 )
 
 var msgQueueSize = 1000
-var heartbeatIntervalInSecs = 10
+var heartbeatInterval = 10 * time.Second
 
 // msgs from the reactor which may update the state
 type msgInfo struct {
@@ -100,14 +98,14 @@ type evidencePool interface {
 // commits blocks to the chain and executes them against the application.
 // The internal state machine receives input from peers, the internal validator, and from a timer.
 type State struct {
-	service.BaseService
 	logger log.Logger
 
 	// config details
-	config            *config.ConsensusConfig
-	mempoolConfig     *config.MempoolConfig
-	privValidator     types.PrivValidator // for signing votes
-	privValidatorType types.PrivValidatorType
+	config        *config.ConsensusConfig
+	privValidator utils.Option[types.PrivValidator] // for signing votes
+	// privValidator pubkey, memoized for the duration of one block
+	// to avoid extra requests to HSM
+	privValidatorPubKey utils.Option[crypto.PubKey]
 
 	// store blocks and commits
 	blockStore sm.BlockStore
@@ -129,19 +127,12 @@ type State struct {
 	mtx        sync.RWMutex
 	roundState cstypes.SafeRoundState
 	state      sm.State // State until height-1.
-	// privValidator pubkey, memoized for the duration of one block
-	// to avoid extra requests to HSM
-	privValidatorPubKey crypto.PubKey
 
 	// state changes may be triggered by: msgs from peers,
 	// msgs from ourself, or by timeouts
 	peerMsgQueue     chan msgInfo
 	internalMsgQueue chan msgInfo
 	timeoutTicker    TimeoutTicker
-
-	// information about about added votes and block parts are written on this channel
-	// so statistics can be computed by reactor
-	statsMsgQueue chan msgInfo
 
 	// we use eventBus to trigger msg broadcasts in the reactor,
 	// and to notify external subscribers, eg. through a websocket
@@ -161,14 +152,13 @@ type State struct {
 	setProposal func(proposal *types.Proposal, t time.Time) error
 
 	// synchronous pubsub between consensus state and reactor.
-	// state only emits EventNewRoundStep, EventValidBlock, and EventVote
-	evsw tmevents.EventSwitch
+	eventValidBlock   func(state *cstypes.RoundState)
+	eventNewRoundStep func(state *cstypes.RoundState)
+	eventVote         func(vote *types.Vote)
+	eventMsg          func(msgInfo)
 
 	// for reporting metrics
 	metrics *Metrics
-
-	// wait the channel event happening for shutting down the state gracefully
-	onStopCh chan *cstypes.RoundState
 
 	tracer                otrace.Tracer
 	tracerProviderOptions []trace.TracerProviderOption
@@ -210,13 +200,15 @@ func NewState(
 		peerMsgQueue:     make(chan msgInfo, msgQueueSize),
 		internalMsgQueue: make(chan msgInfo, msgQueueSize),
 		timeoutTicker:    NewTimeoutTicker(logger),
-		statsMsgQueue:    make(chan msgInfo, msgQueueSize),
 		doWALCatchup:     true,
 		wal:              nilWAL{},
 		evpool:           evpool,
-		evsw:             tmevents.NewEventSwitch(),
 		metrics:          NopMetrics(),
-		onStopCh:         make(chan *cstypes.RoundState),
+
+		eventValidBlock:   func(*cstypes.RoundState) {},
+		eventNewRoundStep: func(*cstypes.RoundState) {},
+		eventVote:         func(*types.Vote) {},
+		eventMsg:          func(msgInfo) {},
 	}
 
 	// set function defaults (may be overwritten before calling Start)
@@ -224,7 +216,6 @@ func NewState(
 	cs.setProposal = cs.defaultSetProposal
 
 	// NOTE: we do not call scheduleRound0 yet, we do that upon Start()
-	cs.BaseService = *service.NewBaseService(logger, "State", cs)
 	for _, option := range options {
 		option(cs)
 	}
@@ -246,6 +237,8 @@ func NewState(
 }
 
 func (cs *State) updateStateFromStore() error {
+	cs.mtx.Lock()
+	defer cs.mtx.Unlock()
 	state, err := cs.stateStore.Load()
 	if err != nil {
 		return fmt.Errorf("loading state: %w", err)
@@ -285,6 +278,7 @@ func (cs *State) String() string {
 }
 
 // GetState returns a copy of the chain state.
+// TESTONLY.
 func (cs *State) GetState() sm.State {
 	cs.mtx.RLock()
 	defer cs.mtx.RUnlock()
@@ -321,32 +315,11 @@ func (cs *State) GetValidators() (int64, []*types.Validator) {
 
 // SetPrivValidator sets the private validator account for signing votes. It
 // immediately requests pubkey and caches it.
-func (cs *State) SetPrivValidator(ctx context.Context, priv types.PrivValidator) {
+func (cs *State) SetPrivValidator(ctx context.Context, priv utils.Option[types.PrivValidator]) {
 	cs.mtx.Lock()
 	defer cs.mtx.Unlock()
 
 	cs.privValidator = priv
-
-	if priv != nil {
-		switch t := priv.(type) {
-		case *privval.RetrySignerClient:
-			cs.privValidatorType = types.RetrySignerClient
-		case *privval.FilePV:
-			cs.privValidatorType = types.FileSignerClient
-		case *privval.SignerClient:
-			cs.privValidatorType = types.SignerSocketClient
-		case *tmgrpc.SignerClient:
-			cs.privValidatorType = types.SignerGRPCClient
-		case types.MockPV:
-			cs.privValidatorType = types.MockSignerClient
-		case *types.ErroringMockPV:
-			cs.privValidatorType = types.ErrorMockSignerClient
-		default:
-			cs.logger.Error("unsupported priv validator type", "err",
-				fmt.Errorf("error privValidatorType %s", t))
-		}
-	}
-
 	if err := cs.updatePrivValidatorPubKey(ctx); err != nil {
 		cs.logger.Error("failed to get private validator pubkey", "err", err)
 	}
@@ -379,9 +352,9 @@ func (cs *State) LoadCommit(height int64) *types.Commit {
 	return cs.blockStore.LoadBlockCommit(height)
 }
 
-// OnStart loads the latest state via the WAL, and starts the timeout and
+// Run loads the latest state via the WAL, and starts the timeout and
 // receive routines.
-func (cs *State) OnStart(ctx context.Context) error {
+func (cs *State) Run(ctx context.Context) error {
 	if err := cs.updateStateFromStore(); err != nil {
 		return err
 	}
@@ -394,75 +367,75 @@ func (cs *State) OnStart(ctx context.Context) error {
 		}
 	}
 
-	// we need the timeoutRoutine for replay so
-	// we don't block on the tick chan.
-	cs.SpawnCritical("timeoutTicker", cs.timeoutTicker.Run)
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		// we need the timeoutRoutine for replay so
+		// we don't block on the tick chan.
+		s.SpawnNamed("timeoutTicker", func() error { return cs.timeoutTicker.Run(ctx) })
 
-	// We may have lost some votes if the process crashed reload from consensus
-	// log to catchup.
-	if cs.doWALCatchup {
-		repairAttempted := false
+		// We may have lost some votes if the process crashed reload from consensus
+		// log to catchup.
+		if cs.doWALCatchup {
+			repairAttempted := false
 
-	LOOP:
-		for {
-			err := cs.catchupReplay(ctx, cs.roundState.Height())
-			switch {
-			case err == nil:
-				break LOOP
+		LOOP:
+			for {
+				err := cs.catchupReplay(ctx, cs.roundState.Height())
+				switch {
+				case err == nil:
+					break LOOP
 
-			case !IsDataCorruptionError(err):
-				cs.logger.Error("error on catchup replay; proceeding to start state anyway", "err", err)
-				break LOOP
+				case !IsDataCorruptionError(err):
+					cs.logger.Error("error on catchup replay; proceeding to start state anyway", "err", err)
+					break LOOP
 
-			case repairAttempted:
-				return err
-			}
+				case repairAttempted:
+					return err
+				}
 
-			cs.logger.Error("the WAL file is corrupted; attempting repair", "err", err)
+				cs.logger.Error("the WAL file is corrupted; attempting repair", "err", err)
 
-			// 1) prep work
-			cs.wal.Stop()
+				// 1) prep work
+				cs.wal.Stop()
 
-			repairAttempted = true
+				repairAttempted = true
 
-			// 2) backup original WAL file
-			corruptedFile := fmt.Sprintf("%s.CORRUPTED", cs.config.WalFile())
-			if err := tmos.CopyFile(cs.config.WalFile(), corruptedFile); err != nil {
-				return err
-			}
+				// 2) backup original WAL file
+				corruptedFile := fmt.Sprintf("%s.CORRUPTED", cs.config.WalFile())
+				if err := tmos.CopyFile(cs.config.WalFile(), corruptedFile); err != nil {
+					return err
+				}
 
-			cs.logger.Debug("backed up WAL file", "src", cs.config.WalFile(), "dst", corruptedFile)
+				cs.logger.Debug("backed up WAL file", "src", cs.config.WalFile(), "dst", corruptedFile)
 
-			// 3) try to repair (WAL file will be overwritten!)
-			if err := repairWalFile(corruptedFile, cs.config.WalFile()); err != nil {
-				cs.logger.Error("the WAL repair failed", "err", err)
-				return err
-			}
+				// 3) try to repair (WAL file will be overwritten!)
+				if err := repairWalFile(corruptedFile, cs.config.WalFile()); err != nil {
+					cs.logger.Error("the WAL repair failed", "err", err)
+					return err
+				}
 
-			cs.logger.Info("successful WAL repair")
+				cs.logger.Info("successful WAL repair")
 
-			// reload WAL file
-			if err := cs.loadWalFile(ctx); err != nil {
-				return err
+				// reload WAL file
+				if err := cs.loadWalFile(ctx); err != nil {
+					return err
+				}
 			}
 		}
-	}
 
-	// Double Signing Risk Reduction
-	if err := cs.checkDoubleSigningRisk(cs.roundState.Height()); err != nil {
-		return err
-	}
+		// Double Signing Risk Reduction
+		if err := cs.checkDoubleSigningRisk(cs.roundState.Height()); err != nil {
+			return err
+		}
 
-	// now start the receiveRoutine
-	go cs.receiveRoutine(ctx, 0)
-	// start heartbeater
-	go cs.heartbeater(ctx)
+		// now start the receiveRoutine
+		s.SpawnNamed("receivedRoutine", func() error { return cs.receiveRoutine(ctx, 0) })
+		s.SpawnNamed("heartbeater", func() error { return cs.heartbeater(ctx) })
 
-	// schedule the first round!
-	// use GetRoundState so we don't race the receiveRoutine for access
-	cs.scheduleRound0(cs.GetRoundState())
-
-	return nil
+		// schedule the first round!
+		// use GetRoundState so we don't race the receiveRoutine for access
+		cs.scheduleRound0(cs.GetRoundState())
+		return nil
+	})
 }
 
 // timeoutRoutine: receive requests for timeouts on tickChan and fire timeouts on tockChan
@@ -488,29 +461,6 @@ func (cs *State) loadWalFile(ctx context.Context) error {
 
 	cs.wal = wal
 	return nil
-}
-
-func (cs *State) getOnStopCh() chan *cstypes.RoundState {
-	cs.mtx.RLock()
-	defer cs.mtx.RUnlock()
-
-	return cs.onStopCh
-}
-
-// OnStop implements service.Service.
-func (cs *State) OnStop() {
-	// If the node is committing a new block, wait until it is finished!
-	if cs.GetRoundState().Step == cstypes.RoundStepCommit {
-		cs.mtx.RLock()
-		commitTimeout := cs.state.ConsensusParams.Timeout.Commit
-		cs.mtx.RUnlock()
-		select {
-		case <-cs.getOnStopCh():
-		case <-time.After(commitTimeout):
-			cs.logger.Error("OnStop: timeout waiting for commit to finish", "time", commitTimeout)
-		}
-	}
-	// WAL is stopped in receiveRoutine.
 }
 
 // OpenWAL opens a file to log all consensus messages and timeouts for
@@ -829,24 +779,18 @@ func (cs *State) newStep() {
 		}
 
 		roundState := cs.roundState.CopyInternal()
-		cs.evsw.FireEvent(types.EventNewRoundStepValue, roundState)
+		cs.eventNewRoundStep(roundState)
 	}
 }
 
-func (cs *State) heartbeater(ctx context.Context) {
+func (cs *State) heartbeater(ctx context.Context) error {
 	for {
-		select {
-		case <-time.After(time.Duration(heartbeatIntervalInSecs) * time.Second):
-			cs.fireHeartbeatEvent()
-		case <-ctx.Done():
-			return
+		if err := utils.Sleep(ctx, heartbeatInterval); err != nil {
+			return err
 		}
+		roundState := cs.roundState.CopyInternal()
+		cs.eventNewRoundStep(roundState)
 	}
-}
-
-func (cs *State) fireHeartbeatEvent() {
-	roundState := cs.roundState.CopyInternal()
-	cs.evsw.FireEvent(types.EventNewRoundStepValue, roundState)
 }
 
 //-----------------------------------------
@@ -857,7 +801,7 @@ func (cs *State) fireHeartbeatEvent() {
 // It keeps the RoundState and is the only thing that updates it.
 // Updates (state transitions) happen on timeouts, complete proposals, and 2/3 majorities.
 // State must be locked before any internal state is updated.
-func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) {
+func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 	onExit := func(cs *State) {
 		// NOTE: the internalMsgQueue may have signed messages from our
 		// priv_val that haven't hit the WAL, but its ok because
@@ -901,7 +845,6 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) {
 				// error and we're already trying to shut down
 				if ctx.Err() != nil {
 					return
-
 				}
 			}
 
@@ -916,7 +859,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) {
 			if cs.nSteps >= maxSteps {
 				cs.logger.Debug("reached max steps; exiting receive routine")
 				cs.nSteps = 0
-				return
+				return nil
 			}
 		}
 
@@ -935,10 +878,10 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) {
 		case mi := <-cs.internalMsgQueue:
 			err := cs.wal.Write(mi)
 			if err != nil {
-				panic(fmt.Errorf(
+				return fmt.Errorf(
 					"failed to write %v msg to consensus WAL due to %w; check your file system and restart the node",
 					mi, err,
-				))
+				)
 			}
 
 			// handles proposals, block parts, votes
@@ -955,8 +898,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) {
 
 		case <-ctx.Done():
 			onExit(cs)
-			return
-
+			return ctx.Err()
 		}
 		// TODO should we handle context cancels here?
 	}
@@ -970,11 +912,6 @@ func (cs *State) fsyncAndCompleteProposal(ctx context.Context, fsyncUponCompleti
 	}
 	cs.metrics.MarkCompleteProposalTime(time.Since(cs.roundState.ProposalReceiveTime()))
 	cs.handleCompleteProposal(ctx, height, span)
-}
-
-// We only used tx key based dissemination if configured to do so and we are a validator
-func (cs *State) gossipTransactionKeyOnly() bool {
-	return cs.config.GossipTransactionKeyOnly && cs.privValidatorPubKey != nil
 }
 
 // state transitions on complete-proposal, 2/3-any, 2/3-one
@@ -999,9 +936,8 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 		// will not cause transition.
 		// once proposal is set, we can receive block parts
 		if err = cs.setProposal(msg.Proposal, mi.ReceiveTime); err == nil {
-			if cs.gossipTransactionKeyOnly() {
-				isProposer := cs.isProposer(cs.privValidatorPubKey.Address())
-				if !isProposer && cs.roundState.ProposalBlock() == nil {
+			if key, ok := cs.privValidatorPubKey.Get(); ok && cs.config.GossipTransactionKeyOnly {
+				if !cs.isProposer(key.Address()) && cs.roundState.ProposalBlock() == nil {
 					created := cs.tryCreateProposalBlock(spanCtx, msg.Proposal.Height, msg.Proposal.Round, msg.Proposal.Header, msg.Proposal.LastCommit, msg.Proposal.Evidence, msg.Proposal.ProposerAddress)
 					if created {
 						cs.fsyncAndCompleteProposal(ctx, fsyncUponCompletion, msg.Proposal.Height, span, true)
@@ -1042,11 +978,7 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 			cs.fsyncAndCompleteProposal(ctx, fsyncUponCompletion, msg.Height, span, false)
 		}
 		if added {
-			select {
-			case cs.statsMsgQueue <- mi:
-			case <-ctx.Done():
-				return
-			}
+			cs.eventMsg(mi)
 		}
 
 		if err != nil && msg.Round != cs.roundState.Round() {
@@ -1070,11 +1002,7 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 		// if the vote gives us a 2/3-any or 2/3-one, we transition
 		added, err = cs.tryAddVote(ctx, msg.Vote, peerID, span)
 		if added {
-			select {
-			case cs.statsMsgQueue <- mi:
-			case <-ctx.Done():
-				return
-			}
+			cs.eventMsg(mi)
 		}
 
 		// TODO: punish peer
@@ -1331,7 +1259,7 @@ func (cs *State) enterPropose(ctx context.Context, height int64, round int32, en
 
 	// If this validator is the proposer of this round, and the previous block time is later than
 	// our local clock time, wait to propose until our local clock time has passed the block time.
-	if cs.privValidatorPubKey != nil && cs.isProposer(cs.privValidatorPubKey.Address()) {
+	if key, ok := cs.privValidatorPubKey.Get(); ok && cs.isProposer(key.Address()) {
 		proposerWaitTime := proposerWaitTime(tmtime.DefaultSource{}, cs.state.LastBlockTime)
 		if proposerWaitTime > 0 {
 			cs.scheduleTimeout(proposerWaitTime, height, round, cstypes.RoundStepNewRound)
@@ -1360,19 +1288,21 @@ func (cs *State) enterPropose(ctx context.Context, height int64, round int32, en
 	cs.scheduleTimeout(cs.proposeTimeout(round), height, round, cstypes.RoundStepPropose)
 
 	// Nothing more to do if we're not a validator
-	if cs.privValidator == nil {
+	privValidator, ok := cs.privValidator.Get()
+	if !ok {
 		logger.Debug("propose step; not proposing since node is not a validator")
 		return
 	}
 
-	if cs.privValidatorPubKey == nil {
+	privValidatorPubKey, ok := cs.privValidatorPubKey.Get()
+	if !ok {
 		// If this node is a validator & proposer in the current round, it will
 		// miss the opportunity to create a block.
 		logger.Error("propose step; empty priv validator public key", "err", errPubKeyIsNotSet)
 		return
 	}
 
-	addr := cs.privValidatorPubKey.Address()
+	addr := privValidatorPubKey.Address()
 
 	// if not a validator, we're done
 	if !cs.roundState.Validators().HasAddress(addr) {
@@ -1388,7 +1318,7 @@ func (cs *State) enterPropose(ctx context.Context, height int64, round int32, en
 			"proposer", addr,
 		)
 
-		cs.decideProposal(spanCtx, height, round)
+		cs.decideProposal(spanCtx, height, round, privValidator, privValidatorPubKey)
 	} else {
 		logger.Debug(
 			"propose step; not our turn to propose",
@@ -1401,7 +1331,7 @@ func (cs *State) isProposer(address []byte) bool {
 	return bytes.Equal(cs.roundState.Validators().GetProposer().Address, address)
 }
 
-func (cs *State) decideProposal(ctx context.Context, height int64, round int32) {
+func (cs *State) decideProposal(ctx context.Context, height int64, round int32, privValidator types.PrivValidator, privValidatorPubKey crypto.PubKey) {
 	_, span := cs.tracer.Start(ctx, "cs.state.decideProposal")
 	span.SetAttributes(attribute.Int("round", int(round)))
 	defer span.End()
@@ -1439,13 +1369,13 @@ func (cs *State) decideProposal(ctx context.Context, height int64, round int32) 
 
 	// Make proposal
 	propBlockID := types.BlockID{Hash: block.Hash(), PartSetHeader: blockParts.Header()}
-	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), propBlockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, cs.privValidatorPubKey.Address())
+	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), propBlockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, privValidatorPubKey.Address())
 	p := proposal.ToProto()
 
 	// wait the max amount we would wait for a proposal
 	ctxto, cancel := context.WithTimeout(ctx, cs.state.ConsensusParams.Timeout.Propose)
 	defer cancel()
-	if err := cs.privValidator.SignProposal(ctxto, cs.state.ChainID, p); err == nil {
+	if err := privValidator.SignProposal(ctxto, cs.state.ChainID, p); err == nil {
 		proposal.Signature = p.Signature
 
 		// send proposal and block parts on internal msg queue
@@ -1495,7 +1425,7 @@ func (cs *State) createProposalBlock(ctx context.Context) (block *types.Block, e
 		}
 	}()
 
-	if cs.privValidator == nil {
+	if !cs.privValidator.IsPresent() {
 		return nil, errors.New("entered createProposalBlock with privValidator being nil")
 	}
 
@@ -1516,14 +1446,15 @@ func (cs *State) createProposalBlock(ctx context.Context) (block *types.Block, e
 		return nil, nil
 	}
 
-	if cs.privValidatorPubKey == nil {
+	privValidatorPubKey, ok := cs.privValidatorPubKey.Get()
+	if !ok {
 		// If this node is a validator & proposer in the current round, it will
 		// miss the opportunity to create a block.
 		cs.logger.Error("propose step; empty priv validator public key", "err", errPubKeyIsNotSet)
 		return nil, nil
 	}
 
-	proposerAddr := cs.privValidatorPubKey.Address()
+	proposerAddr := privValidatorPubKey.Address()
 
 	block, err = cs.blockExec.CreateProposalBlock(ctx, cs.roundState.Height(), cs.state, lastCommit, proposerAddr)
 	if err != nil {
@@ -2022,8 +1953,7 @@ func (cs *State) enterCommit(ctx context.Context, height int64, commitRound int3
 				logger.Error("failed publishing valid block", "err", err)
 			}
 
-			roundState := cs.roundState.CopyInternal()
-			cs.evsw.FireEvent(types.EventValidBlockValue, roundState)
+			cs.eventValidBlock(cs.roundState.CopyInternal())
 		}
 	}
 }
@@ -2206,12 +2136,12 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 			return
 		}
 
-		if cs.privValidator != nil {
-			if cs.privValidatorPubKey == nil {
+		if cs.privValidator.IsPresent() {
+			if key, ok := cs.privValidatorPubKey.Get(); !ok {
 				// Metrics won't be updated, but it's not critical.
 				cs.logger.Error("recordMetrics", "err", errPubKeyIsNotSet)
 			} else {
-				address = cs.privValidatorPubKey.Address()
+				address = key.Address()
 			}
 		}
 
@@ -2279,7 +2209,7 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 		for roundId := 0; int32(roundId) <= roundState.ValidRound; roundId++ {
 			preVotes := roundState.Votes.Prevotes(int32(roundId))
 			pl := preVotes.List()
-			if pl == nil || len(pl) == 0 {
+			if len(pl) == 0 {
 				cs.logger.Info("no prevotes to emit latency metrics for", "height", height, "round", roundId)
 				continue
 			}
@@ -2529,11 +2459,12 @@ func (cs *State) tryAddVote(ctx context.Context, vote *types.Vote, peerID types.
 		// If it's otherwise invalid, punish peer.
 		//nolint: gocritic
 		if voteErr, ok := err.(*types.ErrVoteConflictingVotes); ok {
-			if cs.privValidatorPubKey == nil {
+			privValidatorPubKey, ok := cs.privValidatorPubKey.Get()
+			if !ok {
 				return false, errPubKeyIsNotSet
 			}
 
-			if bytes.Equal(vote.ValidatorAddress, cs.privValidatorPubKey.Address()) {
+			if bytes.Equal(vote.ValidatorAddress, privValidatorPubKey.Address()) {
 				cs.logger.Error(
 					"found conflicting vote from ourselves; did you unsafe_reset a validator?",
 					"height", vote.Height,
@@ -2605,7 +2536,7 @@ func (cs *State) addVote(
 			return added, err
 		}
 
-		cs.evsw.FireEvent(types.EventVoteValue, vote)
+		cs.eventVote(vote)
 
 		handleVoteMsgSpan.End()
 		// if we can skip timeoutCommit and have all the votes now,
@@ -2640,7 +2571,7 @@ func (cs *State) addVote(
 	if err := cs.eventBus.PublishEventVote(types.EventDataVote{Vote: vote}); err != nil {
 		return added, err
 	}
-	cs.evsw.FireEvent(types.EventVoteValue, vote)
+	cs.eventVote(vote)
 
 	switch vote.Type {
 	case tmproto.PrevoteType:
@@ -2676,7 +2607,7 @@ func (cs *State) addVote(
 				}
 
 				roundState := cs.roundState.CopyInternal()
-				cs.evsw.FireEvent(types.EventValidBlockValue, roundState)
+				cs.eventValidBlock(roundState)
 				if err := cs.eventBus.PublishEventValidBlock(cs.roundState.RoundStateEvent()); err != nil {
 					return added, err
 				}
@@ -2744,6 +2675,7 @@ func (cs *State) addVote(
 // CONTRACT: cs.privValidator is not nil.
 func (cs *State) signVote(
 	ctx context.Context,
+	privValidator types.PrivValidator,
 	msgType tmproto.SignedMsgType,
 	hash []byte,
 	header types.PartSetHeader,
@@ -2754,11 +2686,12 @@ func (cs *State) signVote(
 		return nil, err
 	}
 
-	if cs.privValidatorPubKey == nil {
+	privValidatorPubKey, ok := cs.privValidatorPubKey.Get()
+	if !ok {
 		return nil, errPubKeyIsNotSet
 	}
 
-	addr := cs.privValidatorPubKey.Address()
+	addr := privValidatorPubKey.Address()
 	valIdx, _ := cs.roundState.Validators().GetByAddress(addr)
 
 	vote := &types.Vote{
@@ -2783,7 +2716,7 @@ func (cs *State) signVote(
 	ctxto, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	err := cs.privValidator.SignVote(ctxto, cs.state.ChainID, v)
+	err := privValidator.SignVote(ctxto, cs.state.ChainID, v)
 	vote.Signature = v.Signature
 	vote.Timestamp = v.Timestamp
 
@@ -2797,23 +2730,25 @@ func (cs *State) signAddVote(
 	hash []byte,
 	header types.PartSetHeader,
 ) *types.Vote {
-	if cs.privValidator == nil { // the node does not have a key
+	privValidator, ok := cs.privValidator.Get()
+	if !ok { // the node does not have a key
 		return nil
 	}
 
-	if cs.privValidatorPubKey == nil {
+	privValidatorPubKey, ok := cs.privValidatorPubKey.Get()
+	if !ok {
 		// Vote won't be signed, but it's not critical.
 		cs.logger.Error("signAddVote", "err", errPubKeyIsNotSet)
 		return nil
 	}
 
 	// If the node not in the validator set, do nothing.
-	if !cs.roundState.Validators().HasAddress(cs.privValidatorPubKey.Address()) {
+	if !cs.roundState.Validators().HasAddress(privValidatorPubKey.Address()) {
 		return nil
 	}
 
 	// TODO: pass pubKey to signVote
-	vote, err := cs.signVote(ctx, msgType, hash, header)
+	vote, err := cs.signVote(ctx, privValidator, msgType, hash, header)
 	if err != nil {
 		cs.logger.Error("failed signing vote", "height", cs.roundState.Height(), "round", cs.roundState.Round(), "vote", vote, "err", err)
 		return nil
@@ -2826,38 +2761,30 @@ func (cs *State) signAddVote(
 // updatePrivValidatorPubKey get's the private validator public key and
 // memoizes it. This func returns an error if the private validator is not
 // responding or responds with an error.
-func (cs *State) updatePrivValidatorPubKey(rctx context.Context) error {
-	if cs.privValidator == nil {
+func (cs *State) updatePrivValidatorPubKey(ctx context.Context) error {
+	privValidator, ok := cs.privValidator.Get()
+	if !ok {
 		return nil
 	}
-
 	timeout := cs.voteTimeout(cs.roundState.Round())
-
-	// no GetPubKey retry beyond the proposal/voting in RetrySignerClient
-	if cs.roundState.Step() >= cstypes.RoundStepPrecommit && cs.privValidatorType == types.RetrySignerClient {
-		timeout = 0
-	}
 
 	// set context timeout depending on the configuration and the State step,
 	// this helps in avoiding blocking of the remote signer connection.
-	ctxto, cancel := context.WithTimeout(rctx, timeout)
+	ctxto, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	pubKey, err := cs.privValidator.GetPubKey(ctxto)
+	pubKey, err := privValidator.GetPubKey(ctxto)
 	if err != nil {
-		return err
+		return fmt.Errorf("privValidator.GetPubKey(): %w", err)
 	}
-	cs.privValidatorPubKey = pubKey
+	cs.privValidatorPubKey = utils.Some(pubKey)
 	return nil
 }
 
 // look back to check existence of the node's consensus votes before joining consensus
 func (cs *State) checkDoubleSigningRisk(height int64) error {
-	if cs.privValidator != nil && cs.privValidatorPubKey != nil && cs.config.DoubleSignCheckHeight > 0 && height > 0 {
-		valAddr := cs.privValidatorPubKey.Address()
-		doubleSignCheckHeight := cs.config.DoubleSignCheckHeight
-		if doubleSignCheckHeight > height {
-			doubleSignCheckHeight = height
-		}
+	if key, ok := cs.privValidatorPubKey.Get(); ok && cs.privValidator.IsPresent() && cs.config.DoubleSignCheckHeight > 0 && height > 0 {
+		valAddr := key.Address()
+		doubleSignCheckHeight := min(cs.config.DoubleSignCheckHeight, height)
 
 		for i := int64(1); i < doubleSignCheckHeight; i++ {
 			lastCommit := cs.LoadCommit(height - i)
@@ -2901,25 +2828,6 @@ func (cs *State) calculatePrevoteMessageDelayMetrics() {
 }
 
 //---------------------------------------------------------
-
-func CompareHRS(h1 int64, r1 int32, s1 cstypes.RoundStepType, h2 int64, r2 int32, s2 cstypes.RoundStepType) int {
-	if h1 < h2 {
-		return -1
-	} else if h1 > h2 {
-		return 1
-	}
-	if r1 < r2 {
-		return -1
-	} else if r1 > r2 {
-		return 1
-	}
-	if s1 < s2 {
-		return -1
-	} else if s1 > s2 {
-		return 1
-	}
-	return 0
-}
 
 // repairWalFile decodes messages from src (until the decoder errors) and
 // writes them to dst.
@@ -2982,9 +2890,7 @@ func (cs *State) voteTimeout(round int32) time.Duration {
 	if cs.config.UnsafeVoteTimeoutDeltaOverride != 0 {
 		vd = cs.config.UnsafeVoteTimeoutDeltaOverride
 	}
-	return time.Duration(
-		v.Nanoseconds()+vd.Nanoseconds()*int64(round),
-	) * time.Nanosecond
+	return v + vd*time.Duration(round)
 }
 
 func (cs *State) commitTime(t time.Time) time.Time {
