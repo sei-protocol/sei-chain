@@ -112,7 +112,7 @@ func invalidDoPrevoteFunc(
 	t *testing.T,
 	cs *State,
 	r *Reactor,
-	voteCh *p2p.Channel,
+	voteCh *p2p.Channel[*tmcons.Message],
 	pv types.PrivValidator,
 ) {
 	// routine to:
@@ -162,7 +162,7 @@ func invalidDoPrevoteFunc(
 		count := 0
 		for _, peerID := range ids {
 			count++
-			voteCh.Send(&tmcons.Vote{Vote: precommit.ToProto()}, peerID)
+			voteCh.Send(MsgToProto(&VoteMessage{Vote: precommit}), peerID)
 			// we want to have sent some of these votes,
 			// but if the test completes without erroring
 			// or not sending any messages, then we should

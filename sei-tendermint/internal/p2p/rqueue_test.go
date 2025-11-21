@@ -51,7 +51,7 @@ func TestQueuePruning(t *testing.T) {
 // Test that receivers are notified when a message is available.
 func TestQueueConcurrency(t *testing.T) {
 	ctx := t.Context()
-	q1, q2 := NewQueue[RecvMsg](1), NewQueue[RecvMsg](1)
+	q1, q2 := NewQueue[RecvMsg[*TestMessage]](1), NewQueue[RecvMsg[*TestMessage]](1)
 
 	if err := utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
@@ -66,7 +66,7 @@ func TestQueueConcurrency(t *testing.T) {
 		})
 		// Send and receive a bunch of messages.
 		for range 100 {
-			q1.Send(RecvMsg{From: "merlin"}, 12, 0)
+			q1.Send(RecvMsg[*TestMessage]{From: "merlin", Message: &TestMessage{}}, 12, 0)
 			if _, err := q2.Recv(ctx); err != nil {
 				return err
 			}

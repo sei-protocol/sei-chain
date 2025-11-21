@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/fortytw2/leaktest"
 	"github.com/gogo/protobuf/proto"
-	gogotypes "github.com/gogo/protobuf/types"
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 	"io"
@@ -34,8 +33,8 @@ func mayDisconnectAfterDone(ctx context.Context, err error) error {
 	return nil
 }
 
-func makeChDesc(id ChannelID) ChannelDescriptor {
-	return ChannelDescriptor{
+func makeChDesc(id ChannelID) ChannelDescriptor[*TestMessage] {
+	return ChannelDescriptor[*TestMessage]{
 		ID:                  id,
 		MessageType:         &TestMessage{},
 		Priority:            5,
@@ -44,7 +43,7 @@ func makeChDesc(id ChannelID) ChannelDescriptor {
 	}
 }
 
-func echoReactor(ctx context.Context, channel *Channel) {
+func echoReactor(ctx context.Context, channel *Channel[*TestMessage]) {
 	for {
 		m, err := channel.Recv(ctx)
 		if err != nil {
@@ -64,7 +63,7 @@ func TestRouter_Network(t *testing.T) {
 	local := network.RandomNode()
 	peers := network.Peers(local.NodeID)
 	chDesc := makeChDesc(5)
-	channels := network.MakeChannels(t, chDesc)
+	channels := TestMakeChannels(t, network, chDesc)
 
 	network.Start(t)
 
@@ -77,14 +76,14 @@ func TestRouter_Network(t *testing.T) {
 	for _, peer := range peers {
 		msg := &TestMessage{Value: "foo"}
 		channel.Send(msg, peer.NodeID)
-		RequireReceive(t, channel, RecvMsg{From: peer.NodeID, Message: msg})
+		RequireReceive(t, channel, RecvMsg[*TestMessage]{From: peer.NodeID, Message: msg})
 	}
 
 	t.Logf("Sending a broadcast should return back a message from all peers.")
 	channel.Broadcast(&TestMessage{Value: "bar"})
-	want := []RecvMsg{}
+	want := []RecvMsg[*TestMessage]{}
 	for _, peer := range peers {
-		want = append(want, RecvMsg{
+		want = append(want, RecvMsg[*TestMessage]{
 			From:    peer.NodeID,
 			Message: &TestMessage{Value: "bar"},
 		})
@@ -110,17 +109,17 @@ func TestRouter_Channel_Basic(t *testing.T) {
 	t.Cleanup(router.Wait)
 
 	t.Logf("Opening a channel should work.")
-	channel, err := router.OpenChannel(chDesc)
+	channel, err := OpenChannel(router, chDesc)
 	require.NoError(t, err)
 	require.NotNil(t, channel)
 
 	t.Logf("Opening the same channel again should fail.")
-	_, err = router.OpenChannel(chDesc)
+	_, err = OpenChannel(router, chDesc)
 	require.Error(t, err)
 
 	t.Logf("Opening a different channel should work.")
-	chDesc2 := ChannelDescriptor{ID: 2, MessageType: &TestMessage{}}
-	_, err = router.OpenChannel(chDesc2)
+	chDesc2 := ChannelDescriptor[*TestMessage]{ID: 2, MessageType: &TestMessage{}}
+	_, err = OpenChannel(router, chDesc2)
 	require.NoError(t, err)
 
 	t.Logf("We should be able to send on the channel, even though there are no peers.")
@@ -140,19 +139,15 @@ func TestRouter_SendReceive(t *testing.T) {
 
 	ids := network.NodeIDs()
 	aID, bID, cID := ids[0], ids[1], ids[2]
-	channels := network.MakeChannels(t, chDesc)
+	channels := TestMakeChannels(t, network, chDesc)
 	a, b, c := channels[aID], channels[bID], channels[cID]
-	otherChannels := network.MakeChannels(t, MakeTestChannelDesc(9))
+	otherChannels := TestMakeChannels(t, network, MakeTestChannelDesc(9))
 
 	network.Start(t)
 
 	t.Logf("Sending a message a->b should work, and not send anything further to a, b, or c.")
 	a.Send(&TestMessage{Value: "foo"}, bID)
-	RequireReceive(t, b, RecvMsg{From: aID, Message: &TestMessage{Value: "foo"}})
-	RequireEmpty(t, a, b, c)
-
-	t.Logf("Sending a different message type should be dropped.")
-	a.Send(&gogotypes.BoolValue{Value: true}, bID)
+	RequireReceive(t, b, RecvMsg[*TestMessage]{From: aID, Message: &TestMessage{Value: "foo"}})
 	RequireEmpty(t, a, b, c)
 
 	t.Logf("Sending to an unknown peer should be dropped.")
@@ -170,7 +165,7 @@ func TestRouter_SendReceive(t *testing.T) {
 
 	t.Logf("After all this, sending a message c->a should work.")
 	c.Send(&TestMessage{Value: "bar"}, aID)
-	RequireReceive(t, a, RecvMsg{From: cID, Message: &TestMessage{Value: "bar"}})
+	RequireReceive(t, a, RecvMsg[*TestMessage]{From: cID, Message: &TestMessage{Value: "bar"}})
 	RequireEmpty(t, a, b, c)
 
 	t.Logf("None of these messages should have made it onto the other channels.")
@@ -188,7 +183,7 @@ func TestRouter_Channel_Broadcast(t *testing.T) {
 
 	ids := network.NodeIDs()
 	aID, bID, cID, dID := ids[0], ids[1], ids[2], ids[3]
-	channels := network.MakeChannels(t, chDesc)
+	channels := TestMakeChannels(t, network, chDesc)
 	a, b, c, d := channels[aID], channels[bID], channels[cID], channels[dID]
 
 	network.Start(t)
@@ -196,7 +191,7 @@ func TestRouter_Channel_Broadcast(t *testing.T) {
 	t.Logf("Sending a broadcast from b should work.")
 	b.Broadcast(&TestMessage{Value: "foo"})
 	for _, ch := range utils.Slice(a, c, d) {
-		RequireReceive(t, ch, RecvMsg{From: bID, Message: &TestMessage{Value: "foo"}})
+		RequireReceive(t, ch, RecvMsg[*TestMessage]{From: bID, Message: &TestMessage{Value: "foo"}})
 	}
 	RequireEmpty(t, a, b, c, d)
 
@@ -204,72 +199,9 @@ func TestRouter_Channel_Broadcast(t *testing.T) {
 	network.Remove(t, dID)
 	a.Broadcast(&TestMessage{Value: "bar"})
 	for _, ch := range utils.Slice(b, c) {
-		RequireReceive(t, ch, RecvMsg{From: aID, Message: &TestMessage{Value: "bar"}})
+		RequireReceive(t, ch, RecvMsg[*TestMessage]{From: aID, Message: &TestMessage{Value: "bar"}})
 	}
 	RequireEmpty(t, a, b, c, d)
-}
-
-func TestRouter_Channel_Wrapper(t *testing.T) {
-	t.Cleanup(leaktest.Check(t))
-	t.Logf("Create a test network and open a channel on all nodes.")
-	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 2})
-
-	ids := network.NodeIDs()
-	aID, bID := ids[0], ids[1]
-	chDesc := ChannelDescriptor{
-		ID:                  17,
-		MessageType:         &wrapperMessage{},
-		Priority:            5,
-		SendQueueCapacity:   10,
-		RecvBufferCapacity:  10,
-		RecvMessageCapacity: 10,
-	}
-
-	channels := network.MakeChannels(t, chDesc)
-	a, b := channels[aID], channels[bID]
-
-	network.Start(t)
-
-	// Since wrapperMessage implements Wrapper and handles Message, it
-	// should automatically wrap and unwrap sent messages -- we prepend the
-	// wrapper actions to the message value to signal this.
-	a.Send(&TestMessage{Value: "foo"}, bID)
-	RequireReceive(t, b, RecvMsg{From: aID, Message: &TestMessage{Value: "unwrap:wrap:foo"}})
-
-	// If we send a different message that can't be wrapped, it should be dropped.
-	a.Send(&gogotypes.BoolValue{Value: true}, bID)
-	RequireEmpty(t, b)
-
-	// If we send the wrapper message itself, it should also be passed through
-	// since WrapperMessage supports it, and should only be unwrapped at the receiver.
-	a.Send(&wrapperMessage{TestMessage: TestMessage{Value: "foo"}}, bID)
-	RequireReceive(t, b, RecvMsg{
-		From:    aID,
-		Message: &TestMessage{Value: "unwrap:foo"},
-	})
-}
-
-// WrapperMessage prepends the value with "wrap:" and "unwrap:" to test it.
-type wrapperMessage struct {
-	TestMessage
-}
-
-var _ Wrapper = (*wrapperMessage)(nil)
-
-func (w *wrapperMessage) Wrap(inner proto.Message) error {
-	switch inner := inner.(type) {
-	case *TestMessage:
-		w.TestMessage.Value = fmt.Sprintf("wrap:%v", inner.Value)
-	case *wrapperMessage:
-		*w = *inner
-	default:
-		return fmt.Errorf("invalid message type %T", inner)
-	}
-	return nil
-}
-
-func (w *wrapperMessage) Unwrap() (proto.Message, error) {
-	return &TestMessage{Value: fmt.Sprintf("unwrap:%v", w.Value)}, nil
 }
 
 func TestRouter_SendError(t *testing.T) {
@@ -728,19 +660,19 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 		sub := r.peerManager.Subscribe()
 
 		desc1 := makeChDesc(1)
-		r1, err := r.OpenChannel(desc1)
+		r1, err := OpenChannel(r, desc1)
 		if err != nil {
 			return fmt.Errorf("r.OpenChannel(1): %w", err)
 		}
 
 		desc2 := makeChDesc(2)
-		r2, err := r.OpenChannel(desc2)
+		r2, err := OpenChannel(r, desc2)
 		if err != nil {
 			return fmt.Errorf("r.OpenChannel(2): %w", err)
 		}
 
 		x := makeRouter(logger, rng)
-		x1, err := x.OpenChannel(desc1)
+		x1, err := OpenChannel(x, desc1)
 		if err != nil {
 			return fmt.Errorf("x.OpenChannel(1): %w", err)
 		}

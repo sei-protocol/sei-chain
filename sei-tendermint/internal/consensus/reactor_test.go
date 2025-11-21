@@ -31,6 +31,7 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
+	tmcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -45,10 +46,10 @@ type reactorTestSuite struct {
 	reactors            map[types.NodeID]*Reactor
 	subs                map[types.NodeID]eventbus.Subscription
 	blocksyncSubs       map[types.NodeID]eventbus.Subscription
-	stateChannels       map[types.NodeID]*p2p.Channel
-	dataChannels        map[types.NodeID]*p2p.Channel
-	voteChannels        map[types.NodeID]*p2p.Channel
-	voteSetBitsChannels map[types.NodeID]*p2p.Channel
+	stateChannels       map[types.NodeID]*p2p.Channel[*tmcons.Message]
+	dataChannels        map[types.NodeID]*p2p.Channel[*tmcons.Message]
+	voteChannels        map[types.NodeID]*p2p.Channel[*tmcons.Message]
+	voteSetBitsChannels map[types.NodeID]*p2p.Channel[*tmcons.Message]
 }
 
 func setup(
