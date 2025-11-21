@@ -96,9 +96,9 @@ func WALGenerateNBlocks(ctx context.Context, t *testing.T, logger log.Logger, wr
 
 	// set consensus wal to buffered WAL, which will write all incoming msgs to buffer
 	numBlocksWritten := make(chan struct{})
-	wal := newByteBufferWAL(logger, NewWALEncoder(wr), int64(numBlocks), numBlocksWritten)
+	wal := newByteBufferWAL(logger, wr, int64(numBlocks), numBlocksWritten)
 	// see wal.go#103
-	if err := wal.Write(EndHeightMessage{0}); err != nil {
+	if err := wal.Write(NewWALMessage(EndHeightMessage{0})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -155,7 +155,7 @@ func getConfig(t *testing.T) *config.Config {
 // when the heightToStop is reached. Client will be notified via
 // signalWhenStopsTo channel.
 type byteBufferWAL struct {
-	enc               *WALEncoder
+	wr                io.Writer
 	stopped           bool
 	heightToStop      int64
 	signalWhenStopsTo chan<- struct{}
@@ -166,9 +166,9 @@ type byteBufferWAL struct {
 // needed for determinism
 var fixedTime, _ = time.Parse(time.RFC3339, "2017-01-02T15:04:05Z")
 
-func newByteBufferWAL(logger log.Logger, enc *WALEncoder, nBlocks int64, signalStop chan<- struct{}) *byteBufferWAL {
+func newByteBufferWAL(logger log.Logger, wr io.Writer, nBlocks int64, signalStop chan<- struct{}) *byteBufferWAL {
 	return &byteBufferWAL{
-		enc:               enc,
+		wr:                wr,
 		heightToStop:      nBlocks,
 		signalWhenStopsTo: signalStop,
 		logger:            logger,
@@ -184,7 +184,7 @@ func (w *byteBufferWAL) Write(m WALMessage) error {
 		return nil
 	}
 
-	if endMsg, ok := m.(EndHeightMessage); ok {
+	if endMsg, ok := m.any.(EndHeightMessage); ok {
 		w.logger.Debug("WAL write end height message", "height", endMsg.Height, "stopHeight", w.heightToStop)
 		if endMsg.Height == w.heightToStop {
 			w.logger.Debug("Stopping WAL at height", "height", endMsg.Height)
@@ -195,11 +195,13 @@ func (w *byteBufferWAL) Write(m WALMessage) error {
 	}
 
 	w.logger.Debug("WAL Write Message", "msg", m)
-	err := w.enc.Encode(&TimedWALMessage{fixedTime, m})
+	bytes, err := encode(&TimedWALMessage{fixedTime, m})
 	if err != nil {
-		panic(fmt.Sprintf("failed to encode the msg %v", m))
+		panic(fmt.Errorf("failed to encode the msg %v: %w", m, err))
 	}
-
+	if _, err := w.wr.Write(bytes); err != nil {
+		panic(fmt.Errorf("wr.Write(): %w", err))
+	}
 	return nil
 }
 

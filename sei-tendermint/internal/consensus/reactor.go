@@ -353,14 +353,7 @@ func (r *Reactor) gossipDataForCatchup(rs *cstypes.RoundState, prs *cstypes.Peer
 			return
 		}
 
-		partProto, err := part.ToProto()
-		if err != nil {
-			logger.Error("failed to convert block part to proto", "err", err)
-
-			time.Sleep(r.state.config.PeerGossipSleepDuration)
-			return
-		}
-
+		partProto := part.ToProto()
 		logger.Debug("sending block part for catchup", "round", prs.Round, "index", index)
 		dataCh.Send(&tmcons.BlockPart{
 			Height: prs.Height, // not our height, so it does not matter.
@@ -393,11 +386,7 @@ OUTER_LOOP:
 		// Send proposal Block parts?
 		if rs.ProposalBlockParts.HasHeader(prs.ProposalBlockPartSetHeader) {
 			if index, ok := rs.ProposalBlockParts.BitArray().Sub(prs.ProposalBlockParts.Copy()).PickRandom(); ok {
-				part := rs.ProposalBlockParts.GetPart(index)
-				partProto, err := part.ToProto()
-				if err != nil {
-					panic(fmt.Errorf("part.ToProto(): %w", err))
-				}
+				partProto := rs.ProposalBlockParts.GetPart(index).ToProto()
 
 				logger.Debug("sending block part", "height", prs.Height, "round", prs.Round)
 				dataCh.Send(&tmcons.BlockPart{

@@ -525,10 +525,7 @@ func (bs *BlockStore) saveBlockToBatch(batch dbm.Batch, block *types.Block, bloc
 }
 
 func (bs *BlockStore) saveBlockPart(height int64, index int, part *types.Part, batch dbm.Batch) {
-	pbp, err := part.ToProto()
-	if err != nil {
-		panic(fmt.Errorf("unable to make part into proto: %w", err))
-	}
+	pbp := part.ToProto()
 	partBytes := mustEncode(pbp)
 	if err := batch.Set(blockPartKey(height, index), partBytes); err != nil {
 		panic(err)
