@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/gogo/protobuf/proto"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/light/provider"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
+	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
 )
 
 var (
@@ -26,16 +26,16 @@ var (
 // NOTE: It is not the responsibility of the dispatcher to verify the light blocks.
 type Dispatcher struct {
 	// the channel with which to send light block requests on
-	requestCh *p2p.Channel
+	requestCh *p2p.Channel[*pb.Message]
 
 	mtx sync.Mutex
 	// all pending calls that have been dispatched and are awaiting an answer
 	calls map[types.NodeID]chan *types.LightBlock
 
-	lightBlockMsgCreator func(uint64) proto.Message
+	lightBlockMsgCreator func(uint64) *pb.Message
 }
 
-func NewDispatcher(requestChannel *p2p.Channel, lightBlockMsgCreator func(uint64) proto.Message) *Dispatcher {
+func NewDispatcher(requestChannel *p2p.Channel[*pb.Message], lightBlockMsgCreator func(uint64) *pb.Message) *Dispatcher {
 	return &Dispatcher{
 		requestCh:            requestChannel,
 		calls:                make(map[types.NodeID]chan *types.LightBlock),

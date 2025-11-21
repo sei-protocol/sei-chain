@@ -12,6 +12,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	dbm "github.com/tendermint/tm-db"
 
+	pb "github.com/tendermint/tendermint/proto/tendermint/blocksync"
 	"github.com/tendermint/tendermint/internal/p2p"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/libs/log"
@@ -215,7 +216,7 @@ type StateProviderP2P struct {
 	sync.Mutex              // light.Client is not concurrency-safe
 	lc                      *Client
 	initialHeight           int64
-	paramsSendCh            *p2p.Channel
+	paramsSendCh            *p2p.Channel[*pb.Message]
 	paramsRecvCh            chan types.ConsensusParams
 	paramsReqCreator        func(uint64) proto.Message
 	verifyLightBlockTimeout time.Duration

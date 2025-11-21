@@ -28,8 +28,11 @@ import (
 
 var (
 	_ service.Service = (*Reactor)(nil)
-	_ p2p.Wrapper     = (*ssproto.Message)(nil)
 )
+
+func wrap[T proto.Message](msg T) *ssproto.Message {
+	panic("TODO")
+}
 
 const (
 	// SnapshotChannel exchanges snapshot metadata
@@ -64,8 +67,8 @@ const (
 	maxLightBlockRequestRetries = 20
 )
 
-func GetSnapshotChannelDescriptor() p2p.ChannelDescriptor {
-	return p2p.ChannelDescriptor{
+func GetSnapshotChannelDescriptor() p2p.ChannelDescriptor[*ssproto.Message] {
+	return p2p.ChannelDescriptor[*ssproto.Message]{
 		ID:                  SnapshotChannel,
 		MessageType:         new(ssproto.Message),
 		Priority:            6,
@@ -76,8 +79,8 @@ func GetSnapshotChannelDescriptor() p2p.ChannelDescriptor {
 	}
 }
 
-func GetChunkChannelDescriptor() p2p.ChannelDescriptor {
-	return p2p.ChannelDescriptor{
+func GetChunkChannelDescriptor() p2p.ChannelDescriptor[*ssproto.Message] {
+	return p2p.ChannelDescriptor[*ssproto.Message]{
 		ID:                  ChunkChannel,
 		Priority:            3,
 		MessageType:         new(ssproto.Message),
@@ -88,8 +91,8 @@ func GetChunkChannelDescriptor() p2p.ChannelDescriptor {
 	}
 }
 
-func GetLightBlockChannelDescriptor() p2p.ChannelDescriptor {
-	return p2p.ChannelDescriptor{
+func GetLightBlockChannelDescriptor() p2p.ChannelDescriptor[*ssproto.Message] {
+	return p2p.ChannelDescriptor[*ssproto.Message]{
 		ID:                  LightBlockChannel,
 		MessageType:         new(ssproto.Message),
 		Priority:            5,
@@ -100,8 +103,8 @@ func GetLightBlockChannelDescriptor() p2p.ChannelDescriptor {
 	}
 }
 
-func GetParamsChannelDescriptor() p2p.ChannelDescriptor {
-	return p2p.ChannelDescriptor{
+func GetParamsChannelDescriptor() p2p.ChannelDescriptor[*ssproto.Message] {
+	return p2p.ChannelDescriptor[*ssproto.Message]{
 		ID:                  ParamsChannel,
 		MessageType:         new(ssproto.Message),
 		Priority:            2,
@@ -173,10 +176,10 @@ type Reactor struct {
 	// behavior we use a mutex to ensure only one message is processed at a time across all channels.
 	// TODO(gprusak): verify that the message handlers can be executed concurrenty and remove this mutex.
 	processChGuard    sync.Mutex
-	snapshotChannel   *p2p.Channel
-	chunkChannel      *p2p.Channel
-	lightBlockChannel *p2p.Channel
-	paramsChannel     *p2p.Channel
+	snapshotChannel   *p2p.Channel[*ssproto.Message]
+	chunkChannel      *p2p.Channel[*ssproto.Message]
+	lightBlockChannel *p2p.Channel[*ssproto.Message]
+	paramsChannel     *p2p.Channel[*ssproto.Message]
 
 	// keep track of the last time we saw no available peers, so we can restart if it's been too long
 	lastNoAvailablePeers time.Time
@@ -208,19 +211,19 @@ func NewReactor(
 	restartCh chan struct{},
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) (*Reactor, error) {
-	snapshotChannel, err := router.OpenChannel(GetSnapshotChannelDescriptor())
+	snapshotChannel, err := p2p.OpenChannel(router, GetSnapshotChannelDescriptor())
 	if err != nil {
 		return nil, fmt.Errorf("open snapshot channel: %w", err)
 	}
-	chunkChannel, err := router.OpenChannel(GetChunkChannelDescriptor())
+	chunkChannel, err := p2p.OpenChannel(router, GetChunkChannelDescriptor())
 	if err != nil {
 		return nil, fmt.Errorf("open chunk channel: %w", err)
 	}
-	lightBlockChannel, err := router.OpenChannel(GetLightBlockChannelDescriptor())
+	lightBlockChannel, err := p2p.OpenChannel(router, GetLightBlockChannelDescriptor())
 	if err != nil {
 		return nil, fmt.Errorf("open light block channel: %w", err)
 	}
-	paramsChannel, err := router.OpenChannel(GetParamsChannelDescriptor())
+	paramsChannel, err := p2p.OpenChannel(router,GetParamsChannelDescriptor())
 	if err != nil {
 		return nil, fmt.Errorf("open params channel: %w", err)
 	}
@@ -278,15 +281,13 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 			useLocalSnapshot: r.cfg.UseLocalSnapshot,
 		}
 	}
-	r.dispatcher = light.NewDispatcher(r.lightBlockChannel, func(height uint64) proto.Message {
-		return &ssproto.LightBlockRequest{
-			Height: height,
-		}
+	r.dispatcher = light.NewDispatcher(r.lightBlockChannel, func(height uint64) *ssproto.Message {
+		return wrap(&ssproto.LightBlockRequest{Height: height})
 	})
 	r.requestSnaphot = func() error {
 		// request snapshots from all currently connected peers
 		if !r.cfg.UseLocalSnapshot {
-			r.snapshotChannel.Broadcast(&ssproto.SnapshotsRequest{})
+			r.snapshotChannel.Broadcast(wrap(&ssproto.SnapshotsRequest{}))
 		}
 		return nil
 	}
@@ -645,13 +646,13 @@ func (r *Reactor) backfill(
 // handleSnapshotMessage handles ms sent from peers on the
 // SnapshotChannel. It returns an error only if the Envelope.Message is unknown
 // for this channel. This should never be called outside of handleMessage.
-func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg) (err error) {
+func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg[*ssproto.Message]) (err error) {
 	defer r.recoverToErr(&err)
 	logger := r.logger.With("peer", m.From)
 	snapshotCh := r.snapshotChannel
 
-	switch msg := m.Message.(type) {
-	case *ssproto.SnapshotsRequest:
+	switch msg := m.Message.Sum.(type) {
+	case *ssproto.Message_SnapshotsRequest:
 		snapshots, err := r.recentSnapshots(ctx, recentSnapshots)
 		if err != nil {
 			logger.Error("failed to fetch snapshots", "err", err)
@@ -666,16 +667,17 @@ func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg) (err
 				"peer", m.From,
 			)
 
-			snapshotCh.Send(&ssproto.SnapshotsResponse{
+			snapshotCh.Send(wrap(&ssproto.SnapshotsResponse{
 				Height:   snapshot.Height,
 				Format:   snapshot.Format,
 				Chunks:   snapshot.Chunks,
 				Hash:     snapshot.Hash,
 				Metadata: snapshot.Metadata,
-			}, m.From)
+			}), m.From)
 		}
 
-	case *ssproto.SnapshotsResponse:
+	case *ssproto.Message_SnapshotsResponse:
+		resp := msg.SnapshotsResponse
 		r.mtx.RLock()
 		defer r.mtx.RUnlock()
 
@@ -684,24 +686,24 @@ func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg) (err
 			return nil
 		}
 
-		logger.Info("received snapshot", "height", msg.Height, "format", msg.Format)
+		logger.Info("received snapshot", "height", resp.GetHeight(), "format", resp.GetFormat())
 		_, err := r.syncer.AddSnapshot(m.From, &snapshot{
-			Height:   msg.Height,
-			Format:   msg.Format,
-			Chunks:   msg.Chunks,
-			Hash:     msg.Hash,
-			Metadata: msg.Metadata,
+			Height:   resp.GetHeight(),
+			Format:  	resp.GetFormat(),
+			Chunks:   resp.GetChunks(),
+			Hash:     resp.GetHash(),
+			Metadata: resp.GetMetadata(),
 		})
 		if err != nil {
 			logger.Error(
 				"failed to add snapshot",
-				"height", msg.Height,
-				"format", msg.Format,
+				"height", resp.GetHeight(),
+				"format", resp.GetFormat(),
 				"err", err,
 			)
 			return nil
 		}
-		logger.Info("added snapshot", "height", msg.Height, "format", msg.Format)
+		logger.Info("added snapshot", "height", resp.GetHeight(), "format", resp.GetFormat())
 
 	default:
 		return fmt.Errorf("received unknown message: %T", msg)
@@ -713,29 +715,30 @@ func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg) (err
 // handleChunkMessage handles ms sent from peers on the ChunkChannel.
 // It returns an error only if the Envelope.Message is unknown for this channel.
 // This should never be called outside of handleMessage.
-func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg) (err error) {
+func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg[*ssproto.Message]) (err error) {
 	chunkCh := r.chunkChannel
 	defer r.recoverToErr(&err)
-	switch msg := m.Message.(type) {
-	case *ssproto.ChunkRequest:
+	switch msg := m.Message.Sum.(type) {
+	case *ssproto.Message_ChunkRequest:
+		req := msg.ChunkRequest
 		r.logger.Debug(
 			"received chunk request",
-			"height", msg.Height,
-			"format", msg.Format,
-			"chunk", msg.Index,
+			"height", req.GetHeight(),
+			"format", req.GetFormat(),
+			"chunk", req.GetIndex(),
 			"peer", m.From,
 		)
 		resp, err := r.conn.LoadSnapshotChunk(ctx, &abci.RequestLoadSnapshotChunk{
-			Height: msg.Height,
-			Format: msg.Format,
-			Chunk:  msg.Index,
+			Height: req.GetHeight(),
+			Format: req.GetFormat(),
+			Chunk:  req.GetIndex(),
 		})
 		if err != nil {
 			r.logger.Error(
 				"failed to load chunk",
-				"height", msg.Height,
-				"format", msg.Format,
-				"chunk", msg.Index,
+				"height", req.GetHeight(),
+				"format", req.GetFormat(),
+				"chunk", req.GetIndex(),
 				"err", err,
 				"peer", m.From,
 			)
@@ -744,20 +747,21 @@ func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg) (err er
 
 		r.logger.Debug(
 			"sending chunk",
-			"height", msg.Height,
-			"format", msg.Format,
-			"chunk", msg.Index,
+			"height", req.GetHeight(),
+			"format", req.GetFormat(),
+			"chunk", req.GetIndex(),
 			"peer", m.From,
 		)
-		chunkCh.Send(&ssproto.ChunkResponse{
-			Height:  msg.Height,
-			Format:  msg.Format,
-			Index:   msg.Index,
+		chunkCh.Send(wrap(&ssproto.ChunkResponse{
+			Height:  req.GetHeight(),
+			Format:  req.GetFormat(),
+			Index:   req.GetIndex(),
 			Chunk:   resp.Chunk,
 			Missing: resp.Chunk == nil,
-		}, m.From)
+		}), m.From)
 
-	case *ssproto.ChunkResponse:
+	case *ssproto.Message_ChunkResponse:
+		resp := msg.ChunkResponse
 		r.mtx.RLock()
 		defer r.mtx.RUnlock()
 
@@ -768,24 +772,24 @@ func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg) (err er
 
 		r.logger.Debug(
 			"received chunk; adding to sync",
-			"height", msg.Height,
-			"format", msg.Format,
-			"chunk", msg.Index,
+			"height", resp.GetHeight(),
+			"format", resp.GetFormat(),
+			"chunk", resp.GetIndex(),
 			"peer", m.From,
 		)
 		_, err := r.syncer.AddChunk(&chunk{
-			Height: msg.Height,
-			Format: msg.Format,
-			Index:  msg.Index,
-			Chunk:  msg.Chunk,
+			Height: resp.GetHeight(),
+			Format: resp.GetFormat(),
+			Index:  resp.GetIndex(),
+			Chunk:  resp.GetChunk(),
 			Sender: m.From,
 		})
 		if err != nil {
 			r.logger.Error(
 				"failed to add chunk",
-				"height", msg.Height,
-				"format", msg.Format,
-				"chunk", msg.Index,
+				"height", resp.GetHeight(),
+				"format", resp.GetFormat(),
+				"chunk", resp.GetIndex(),
 				"err", err,
 				"peer", m.From,
 			)
@@ -799,19 +803,20 @@ func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg) (err er
 	return nil
 }
 
-func (r *Reactor) handleLightBlockMessage(ctx context.Context, m p2p.RecvMsg) (err error) {
+func (r *Reactor) handleLightBlockMessage(ctx context.Context, m p2p.RecvMsg[*ssproto.Message]) (err error) {
 	blockCh := r.lightBlockChannel
 	defer r.recoverToErr(&err)
-	switch msg := m.Message.(type) {
-	case *ssproto.LightBlockRequest:
-		r.logger.Info("received light block request", "height", msg.Height)
-		lb, err := r.fetchLightBlock(msg.Height)
+	switch msg := m.Message.Sum.(type) {
+	case *ssproto.Message_LightBlockRequest:
+		req := msg.LightBlockRequest
+		r.logger.Info("received light block request", "height", req.GetHeight())
+		lb, err := r.fetchLightBlock(req.GetHeight())
 		if err != nil {
-			r.logger.Error("failed to retrieve light block", "err", err, "height", msg.Height)
+			r.logger.Error("failed to retrieve light block", "err", err, "height", req.GetHeight())
 			return err
 		}
 		if lb == nil {
-			blockCh.Send(&ssproto.LightBlockResponse{LightBlock: nil}, m.From)
+			blockCh.Send(wrap(&ssproto.LightBlockResponse{LightBlock: nil}), m.From)
 			return nil
 		}
 
@@ -823,14 +828,15 @@ func (r *Reactor) handleLightBlockMessage(ctx context.Context, m p2p.RecvMsg) (e
 
 		// NOTE: If we don't have the light block we will send a nil light block
 		// back to the requested node, indicating that we don't have it.
-		blockCh.Send(&ssproto.LightBlockResponse{LightBlock: lbproto}, m.From)
-	case *ssproto.LightBlockResponse:
+		blockCh.Send(wrap(&ssproto.LightBlockResponse{LightBlock: lbproto}), m.From)
+	case *ssproto.Message_LightBlockResponse:
+		resp := msg.LightBlockResponse
 		var height int64
-		if msg.LightBlock != nil {
-			height = msg.LightBlock.SignedHeader.Header.Height
+		if resp.LightBlock != nil {
+			height = resp.LightBlock.GetSignedHeader().GetHeader().GetHeight()
 		}
 		r.logger.Info("received light block response", "peer", m.From, "height", height)
-		if err := r.dispatcher.Respond(ctx, msg.LightBlock, m.From); err != nil {
+		if err := r.dispatcher.Respond(ctx, resp.LightBlock, m.From); err != nil {
 			if errors.Is(err, context.Canceled) {
 				return err
 			}
@@ -844,28 +850,30 @@ func (r *Reactor) handleLightBlockMessage(ctx context.Context, m p2p.RecvMsg) (e
 	return nil
 }
 
-func (r *Reactor) handleParamsMessage(ctx context.Context, m p2p.RecvMsg, paramsCh *p2p.Channel) (err error) {
+func (r *Reactor) handleParamsMessage(ctx context.Context, m p2p.RecvMsg[*ssproto.Message]) (err error) {
 	defer r.recoverToErr(&err)
-	switch msg := m.Message.(type) {
-	case *ssproto.ParamsRequest:
-		r.logger.Debug("received consensus params request", "height", msg.Height)
-		cp, err := r.stateStore.LoadConsensusParams(int64(msg.Height))
+	switch msg := m.Message.Sum.(type) {
+	case *ssproto.Message_ParamsRequest:
+		req := msg.ParamsRequest
+		r.logger.Debug("received consensus params request", "height", req.GetHeight())
+		cp, err := r.stateStore.LoadConsensusParams(int64(req.GetHeight()))
 		if err != nil {
-			r.logger.Error("failed to fetch requested consensus params", "err", err, "height", msg.Height)
+			r.logger.Error("failed to fetch requested consensus params", "err", err, "height", req.GetHeight())
 			return nil
 		}
 
 		cpproto := cp.ToProto()
-		paramsCh.Send(&ssproto.ParamsResponse{
-			Height:          msg.Height,
+		r.paramsChannel.Send(wrap(&ssproto.ParamsResponse{
+			Height:          req.GetHeight(),
 			ConsensusParams: cpproto,
-		}, m.From)
-	case *ssproto.ParamsResponse:
+		}), m.From)
+	case *ssproto.Message_ParamsResponse:
+		resp := msg.ParamsResponse
 		r.mtx.RLock()
 		defer r.mtx.RUnlock()
-		r.logger.Debug("received consensus params response", "height", msg.Height)
+		r.logger.Debug("received consensus params response", "height", resp.GetHeight())
 
-		cp := types.ConsensusParamsFromProto(msg.ConsensusParams)
+		cp := types.ConsensusParamsFromProto(resp.GetConsensusParams())
 
 		if sp, ok := r.stateProvider.(*light.StateProviderP2P); ok {
 			select {
@@ -946,7 +954,7 @@ func (r *Reactor) processParamsCh(ctx context.Context) {
 			return
 		}
 		r.processChGuard.Lock()
-		if err := r.handleParamsMessage(ctx, m, r.paramsChannel); err != nil && ctx.Err() == nil {
+		if err := r.handleParamsMessage(ctx, m); err != nil && ctx.Err() == nil {
 			r.router.Evict(m.From, fmt.Errorf("statesync.params: %w", err))
 		}
 		r.processChGuard.Unlock()
