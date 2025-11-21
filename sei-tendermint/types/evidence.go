@@ -656,7 +656,7 @@ func (evl *EvidenceList) FromProto(eviList *tmproto.EvidenceList) error {
 		eviBzs[i] = evi
 	}
 	*evl = eviBzs
-	return nil
+	return evl.ValidateBasic()
 }
 
 // ToProto converts EvidenceList to protobuf
@@ -743,6 +743,18 @@ func (evl EvidenceList) ToABCI() []abci.Misbehavior {
 		el = append(el, e.ABCI()...)
 	}
 	return el
+}
+
+func (evl EvidenceList) ValidateBasic() error {
+	for at, evidence := range evl {
+		if evidence == nil {
+			return fmt.Errorf("nil evidence in evidence list at index %d", at)
+		}
+		if err := evidence.ValidateBasic(); err != nil {
+			return fmt.Errorf("invalid evidence at index %d: %w", at, err)
+		}
+	}
+	return nil
 }
 
 //------------------------------------------ PROTO --------------------------------------
