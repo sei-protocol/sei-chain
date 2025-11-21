@@ -703,9 +703,9 @@ func testHandshakeReplay(
 		testConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%v_s", t.Name(), mode))
 		require.NoError(t, err)
 		defer func() { _ = os.RemoveAll(testConfig.RootDir) }()
-		walBody, err := WALWithNBlocks(ctx, t, logger, numBlocks)
-		require.NoError(t, err)
-		walFile := tempWALWithData(t, walBody)
+		var walBody bytes.Buffer
+		WALGenerateNBlocks(t, logger, &walBody, numBlocks)
+		walFile := tempWALWithData(t, walBody.Bytes())
 		cfg.Consensus.SetWalFile(walFile)
 
 		privVal, err := privval.LoadFilePV(cfg.PrivValidator.KeyFile(), cfg.PrivValidator.StateFile())

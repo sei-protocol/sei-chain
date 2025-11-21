@@ -45,7 +45,7 @@ func TestWALTruncate(t *testing.T) {
 	// 60 block's size nearly 70K, greater than group's headBuf size(4096 * 10),
 	// when headBuf is full, truncate content will Flush to the file. at this
 	// time, RotateFile is called, truncate content exist in each file.
-	WALGenerateNBlocks(ctx, t, logger, wal.Group(), 60)
+	WALGenerateNBlocks(t, logger, wal.Group(), 60)
 
 	// put the leakcheck here so it runs after other cleanup
 	// functions.
@@ -129,11 +129,9 @@ func TestWALSearchForEndHeight(t *testing.T) {
 
 	logger := log.NewNopLogger()
 
-	walBody, err := WALWithNBlocks(ctx, t, logger, 6)
-	if err != nil {
-		t.Fatal(err)
-	}
-	walFile := tempWALWithData(t, walBody)
+	var walBody bytes.Buffer
+	WALGenerateNBlocks(t, logger, &walBody, 6)
+	walFile := tempWALWithData(t, walBody.Bytes())
 
 	wal, err := NewWAL(ctx, logger, walFile)
 	require.NoError(t, err)
@@ -168,7 +166,7 @@ func TestWALPeriodicSync(t *testing.T) {
 	logger := log.NewNopLogger()
 
 	// Generate some data
-	WALGenerateNBlocks(ctx, t, logger, wal.Group(), 5)
+	WALGenerateNBlocks(t, logger, wal.Group(), 5)
 
 	// We should have data in the buffer now
 	assert.NotZero(t, wal.Group().Buffered())
