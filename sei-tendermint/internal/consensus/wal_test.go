@@ -64,10 +64,9 @@ func TestWALTruncate(t *testing.T) {
 	assert.NotNil(t, gr)
 	t.Cleanup(func() { _ = gr.Close() })
 
-	dec := NewWALDecoder(gr)
-	msg, err := dec.Decode()
+	msg, err := decode(gr)
 	assert.NoError(t, err, "expected to decode a message")
-	rs, ok := msg.Msg.(tmtypes.EventDataRoundState)
+	rs, ok := msg.Msg.any.(tmtypes.EventDataRoundState)
 	assert.True(t, ok, "expected message of type EventDataRoundState")
 	assert.Equal(t, rs.Height, h+1, "wrong height")
 }
@@ -75,24 +74,17 @@ func TestWALTruncate(t *testing.T) {
 func TestWALEncoderDecoder(t *testing.T) {
 	now := tmtime.Now()
 	msgs := []TimedWALMessage{
-		{Time: now, Msg: EndHeightMessage{0}},
-		{Time: now, Msg: timeoutInfo{Duration: time.Second, Height: 1, Round: 1, Step: types.RoundStepPropose}},
-		{Time: now, Msg: tmtypes.EventDataRoundState{Height: 1, Round: 1, Step: ""}},
+		{Time: now, Msg: NewWALMessage(EndHeightMessage{0})},
+		{Time: now, Msg: NewWALMessage(timeoutInfo{Duration: time.Second, Height: 1, Round: 1, Step: types.RoundStepPropose})},
+		{Time: now, Msg: NewWALMessage(tmtypes.EventDataRoundState{Height: 1, Round: 1, Step: ""})},
 	}
-
-	b := new(bytes.Buffer)
-
 	for _, msg := range msgs {
-		msg := msg
-
-		b.Reset()
-
-		enc := NewWALEncoder(b)
-		err := enc.Encode(&msg)
+		b := new(bytes.Buffer)
+		bytes, err := encode(&msg)
 		require.NoError(t, err)
-
-		dec := NewWALDecoder(b)
-		decoded, err := dec.Decode()
+		_, err = b.Write(bytes)
+		require.NoError(t, err)
+		decoded, err := decode(b)
 		require.NoError(t, err)
 		assert.Equal(t, msg.Time.UTC(), decoded.Time)
 		assert.Equal(t, msg.Msg, decoded.Msg)
@@ -126,9 +118,7 @@ func TestWALWrite(t *testing.T) {
 		},
 	}
 
-	err = wal.Write(msgInfo{
-		Msg: msg,
-	})
+	err = wal.Write(NewWALMessage(msgInfo{Msg: msg}))
 	if assert.Error(t, err) {
 		assert.Contains(t, err.Error(), "msg is too big")
 	}
@@ -155,10 +145,9 @@ func TestWALSearchForEndHeight(t *testing.T) {
 	assert.NotNil(t, gr)
 	t.Cleanup(func() { _ = gr.Close() })
 
-	dec := NewWALDecoder(gr)
-	msg, err := dec.Decode()
+	msg, err := decode(gr)
 	assert.NoError(t, err, "expected to decode a message")
-	rs, ok := msg.Msg.(tmtypes.EventDataRoundState)
+	rs, ok := msg.Msg.any.(tmtypes.EventDataRoundState)
 	assert.True(t, ok, "expected message of type EventDataRoundState")
 	assert.Equal(t, rs.Height, h+1, "wrong height")
 
