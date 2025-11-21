@@ -2,13 +2,13 @@ syntax = "proto3";
 
 package ibc.core.client.v1;
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/core/02-client/types";
-
 import "cosmos/base/query/v1beta1/pagination.proto";
-import "ibc/core/client/v1/client.proto";
-import "google/protobuf/any.proto";
-import "google/api/annotations.proto";
 import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "google/protobuf/any.proto";
+import "ibc/core/client/v1/client.proto";
+
+option go_package = "github.com/cosmos/ibc-go/v3/modules/core/02-client/types";
 
 // Query provides defines the gRPC querier service
 service Query {
@@ -25,9 +25,10 @@ service Query {
   // ConsensusState queries a consensus state associated with a client state at
   // a given height.
   rpc ConsensusState(QueryConsensusStateRequest) returns (QueryConsensusStateResponse) {
-    option (google.api.http).get = "/ibc/core/client/v1/consensus_states/"
-                                   "{client_id}/revision/{revision_number}/"
-                                   "height/{revision_height}";
+    option (google.api.http).get =
+      "/ibc/core/client/v1/consensus_states/"
+      "{client_id}/revision/{revision_number}/"
+      "height/{revision_height}";
   }
 
   // ConsensusStates queries all the consensus state associated with a given
@@ -92,8 +93,10 @@ message QueryClientStatesRequest {
 // method.
 message QueryClientStatesResponse {
   // list of stored ClientStates of the chain.
-  repeated IdentifiedClientState client_states = 1
-      [(gogoproto.nullable) = false, (gogoproto.castrepeated) = "IdentifiedClientStates"];
+  repeated IdentifiedClientState client_states = 1 [
+    (gogoproto.nullable) = false,
+    (gogoproto.castrepeated) = "IdentifiedClientStates"
+  ];
   // pagination response
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
