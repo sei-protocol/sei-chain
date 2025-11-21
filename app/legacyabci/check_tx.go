@@ -65,7 +65,6 @@ func CheckTx(
 		},
 		time.Now(),
 	)
-	defer ctx.MultiStore().ResetEvents()
 	spanCtx, span := tracingInfo.StartWithContext("CheckTx", ctx.TraceSpanContext())
 	defer span.End()
 	ctx = ctx.WithTraceSpanContext(spanCtx)
@@ -77,7 +76,6 @@ func CheckTx(
 		if r := recover(); r != nil {
 			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, defaultRecoveryMiddleware)
 			err, result = processRecovery(r, recoveryMW), nil
-			ctx.MultiStore().ResetEvents()
 		}
 		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed(), GasEstimate: gasEstimate}
 	}()
