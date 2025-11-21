@@ -4,7 +4,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/server/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/module"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
 
@@ -19,10 +18,10 @@ type App interface {
 	LegacyAmino() *codec.LegacyAmino
 
 	// Application updates every begin block.
-	BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock
+	BeginBlocker(ctx sdk.Context)
 
 	// Application updates every end block.
-	EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock
+	EndBlocker(ctx sdk.Context) []abci.ValidatorUpdate
 
 	// Application update at chain (i.e app) initialization.
 	InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.ResponseInitChain
@@ -37,7 +36,4 @@ type App interface {
 
 	// All the registered module account addreses.
 	ModuleAccountAddrs() map[string]bool
-
-	// Helper for the simulation framework.
-	SimulationManager() *module.SimulationManager
 }

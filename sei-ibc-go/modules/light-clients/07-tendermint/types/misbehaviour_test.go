@@ -1,19 +1,16 @@
 package types_test
 
 import (
-	"context"
-	"fmt"
 	"time"
-
-	"github.com/tendermint/tendermint/crypto/tmhash"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	tmtypes "github.com/tendermint/tendermint/types"
 
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 	"github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types"
 	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 	ibctestingmock "github.com/cosmos/ibc-go/v3/testing/mock"
+	"github.com/tendermint/tendermint/crypto/tmhash"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 func (suite *TendermintTestSuite) TestMisbehaviour() {
@@ -28,47 +25,6 @@ func (suite *TendermintTestSuite) TestMisbehaviour() {
 
 	suite.Require().Equal(exported.Tendermint, misbehaviour.ClientType())
 	suite.Require().Equal(clientID, misbehaviour.GetClientID())
-}
-
-// TODO: remove when integrating into monorepo, this is testing tooling that is currently private to the module and not worth bumping tm version for
-func makeExtCommit(ctx context.Context, blockID tmtypes.BlockID, height int64, round int32,
-	voteSet *tmtypes.VoteSet, validators []tmtypes.PrivValidator, now time.Time) (*tmtypes.ExtendedCommit, error) {
-
-	// all sign
-	for i := 0; i < len(validators); i++ {
-		pubKey, err := validators[i].GetPubKey(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("can't get pubkey: %w", err)
-		}
-		vote := &tmtypes.Vote{
-			ValidatorAddress: pubKey.Address(),
-			ValidatorIndex:   int32(i),
-			Height:           height,
-			Round:            round,
-			Type:             tmproto.PrecommitType,
-			BlockID:          blockID,
-			Timestamp:        now,
-		}
-
-		_, err = signAddVote(ctx, validators[i], vote, voteSet)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return voteSet.MakeExtendedCommit(), nil
-}
-
-// TODO: remove this when integrating into monorepo
-func signAddVote(ctx context.Context, privVal tmtypes.PrivValidator, vote *tmtypes.Vote, voteSet *tmtypes.VoteSet) (signed bool, err error) {
-	v := vote.ToProto()
-	err = privVal.SignVote(ctx, voteSet.ChainID(), v)
-	if err != nil {
-		return false, err
-	}
-	vote.Signature = v.Signature
-	vote.ExtensionSignature = v.ExtensionSignature
-	return voteSet.AddVote(vote)
 }
 
 func (suite *TendermintTestSuite) TestMisbehaviourValidateBasic() {
@@ -228,8 +184,8 @@ func (suite *TendermintTestSuite) TestMisbehaviourValidateBasic() {
 					return err
 				}
 
-				tmCommit, err := makeExtCommit(suite.T().Context(), *blockID, int64(misbehaviour.Header2.GetHeight().GetRevisionHeight()), misbehaviour.Header1.Commit.Round, wrongVoteSet, altSigners, suite.now)
-				misbehaviour.Header1.Commit = tmCommit.ToCommit().ToProto()
+				tmCommit, err := tmtypes.MakeCommit(suite.T().Context(), *blockID, int64(misbehaviour.Header2.GetHeight().GetRevisionHeight()), misbehaviour.Header1.Commit.Round, wrongVoteSet, altSigners, suite.now)
+				misbehaviour.Header1.Commit = tmCommit.ToProto()
 
 				return err
 			},
@@ -250,8 +206,8 @@ func (suite *TendermintTestSuite) TestMisbehaviourValidateBasic() {
 					return err
 				}
 
-				tmCommit, err := makeExtCommit(suite.T().Context(), *blockID, int64(misbehaviour.Header2.GetHeight().GetRevisionHeight()), misbehaviour.Header2.Commit.Round, wrongVoteSet, altSigners, suite.now)
-				misbehaviour.Header2.Commit = tmCommit.ToCommit().ToProto()
+				tmCommit, err := tmtypes.MakeCommit(suite.T().Context(), *blockID, int64(misbehaviour.Header2.GetHeight().GetRevisionHeight()), misbehaviour.Header2.Commit.Round, wrongVoteSet, altSigners, suite.now)
+				misbehaviour.Header2.Commit = tmCommit.ToProto()
 				return err
 			},
 			false,

@@ -31,6 +31,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/genesis"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/cosmos/cosmos-sdk/version"
@@ -212,9 +213,6 @@ type SimApp struct {
 
 	// the module manager
 	mm *module.Manager
-
-	// simulation manager
-	sm *module.SimulationManager
 
 	// the configurator
 	configurator module.Configurator
@@ -402,7 +400,7 @@ func NewSimApp(
 			app.AccountKeeper, app.StakingKeeper, app.BaseApp.DeliverTx,
 			encodingConfig.TxConfig,
 		),
-		auth.NewAppModule(appCodec, app.AccountKeeper, nil),
+		auth.NewAppModule(appCodec, app.AccountKeeper),
 		vesting.NewAppModule(app.AccountKeeper, app.BankKeeper),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
 		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
@@ -420,24 +418,6 @@ func NewSimApp(
 		transferModule,
 		icaModule,
 		mockModule,
-	)
-
-	// During begin block slashing happens after distr.BeginBlocker so that
-	// there is nothing left over in the validator fee pool, so as to keep the
-	// CanWithdrawInvariant invariant.
-	// NOTE: staking module is required if HistoricalEntries param > 0
-	// NOTE: capability module's beginblocker must come before any modules using capabilities (e.g. IBC)
-	app.mm.SetOrderBeginBlockers(
-		upgradetypes.ModuleName, capabilitytypes.ModuleName, distrtypes.ModuleName, slashingtypes.ModuleName,
-		evidencetypes.ModuleName, stakingtypes.ModuleName, ibchost.ModuleName, ibctransfertypes.ModuleName, authtypes.ModuleName,
-		banktypes.ModuleName, govtypes.ModuleName, crisistypes.ModuleName, genutiltypes.ModuleName, authz.ModuleName, feegrant.ModuleName,
-		paramstypes.ModuleName, vestingtypes.ModuleName, icatypes.ModuleName, ibcmock.ModuleName,
-	)
-	app.mm.SetOrderEndBlockers(
-		crisistypes.ModuleName, govtypes.ModuleName, stakingtypes.ModuleName, ibchost.ModuleName, ibctransfertypes.ModuleName,
-		capabilitytypes.ModuleName, authtypes.ModuleName, banktypes.ModuleName, distrtypes.ModuleName, slashingtypes.ModuleName,
-		genutiltypes.ModuleName, evidencetypes.ModuleName, authz.ModuleName, feegrant.ModuleName, paramstypes.ModuleName,
-		upgradetypes.ModuleName, vestingtypes.ModuleName, icatypes.ModuleName, ibcmock.ModuleName,
 	)
 
 	// NOTE: The genutils module must occur after staking so that pools are
@@ -460,26 +440,6 @@ func NewSimApp(
 	// add test gRPC service for testing gRPC queries in isolation
 	testdata.RegisterQueryServer(app.GRPCQueryRouter(), testdata.QueryImpl{})
 
-	// create the simulation manager and define the order of the modules for deterministic simulations
-	//
-	// NOTE: this is not required apps that don't use the simulator for fuzz testing
-	// transactions
-	app.sm = module.NewSimulationManager(
-		auth.NewAppModule(appCodec, app.AccountKeeper, nil),
-		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
-		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
-		feegrantmodule.NewAppModule(appCodec, app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, app.interfaceRegistry),
-		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
-		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
-		distr.NewAppModule(appCodec, app.DistrKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
-		slashing.NewAppModule(appCodec, app.SlashingKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
-		params.NewAppModule(app.ParamsKeeper),
-		evidence.NewAppModule(app.EvidenceKeeper),
-		authzmodule.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
-	)
-
-	app.sm.RegisterStoreDecoders()
-
 	// initialize stores
 	app.MountKVStores(keys)
 	app.MountTransientStores(tkeys)
@@ -487,7 +447,6 @@ func NewSimApp(
 
 	// initialize BaseApp
 	app.SetInitChainer(app.InitChainer)
-	app.SetBeginBlocker(app.BeginBlocker)
 	anteHandler, err := NewAnteHandler(
 		HandlerOptions{
 			HandlerOptions: ante.HandlerOptions{
@@ -508,7 +467,6 @@ func NewSimApp(
 
 	app.SetAnteHandler(anteHandler)
 
-	app.SetEndBlocker(app.EndBlocker)
 	app.SetFinalizeBlocker(app.FinalizeBlocker)
 
 	if loadLatest {
@@ -535,34 +493,7 @@ func (app *SimApp) Name() string { return app.BaseApp.Name() }
 
 func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	events := []abci.Event{}
-	beginBlockResp := app.BeginBlock(ctx, abci.RequestBeginBlock{
-		Hash: req.Hash,
-		ByzantineValidators: utils.Map(req.ByzantineValidators, func(mis abci.Misbehavior) abci.Evidence {
-			return abci.Evidence{
-				Type:             abci.MisbehaviorType(mis.Type),
-				Validator:        abci.Validator(mis.Validator),
-				Height:           mis.Height,
-				Time:             mis.Time,
-				TotalVotingPower: mis.TotalVotingPower,
-			}
-		}),
-		LastCommitInfo: abci.LastCommitInfo{
-			Round: req.DecidedLastCommit.Round,
-			Votes: utils.Map(req.DecidedLastCommit.Votes, func(vote abci.VoteInfo) abci.VoteInfo {
-				return abci.VoteInfo{
-					Validator:       abci.Validator(vote.Validator),
-					SignedLastBlock: vote.SignedLastBlock,
-				}
-			}),
-		},
-		Header: tmproto.Header{
-			ChainID:         app.ChainID,
-			Height:          req.Height,
-			Time:            req.Time,
-			ProposerAddress: ctx.BlockHeader().ProposerAddress,
-		},
-	})
-	events = append(events, beginBlockResp.Events...)
+	app.BeginBlocker(ctx)
 
 	typedTxs := []sdk.Tx{}
 	for _, tx := range req.Txs {
@@ -577,7 +508,7 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 	txResults := []*abci.ExecTxResult{}
 	for i, tx := range req.Txs {
 		ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
-		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
+		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTxV2{
 			Tx: tx,
 		}, typedTxs[i], sha256.Sum256(tx))
 		txResults = append(txResults, &abci.ExecTxResult{
@@ -591,10 +522,9 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 			Codespace: deliverTxResp.Codespace,
 		})
 	}
-	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
-		Height: req.Height,
-	})
-	events = append(events, endBlockResp.Events...)
+	vals := app.EndBlocker(ctx)
+	events = append(events, sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents)...)
+	cpUpdates := legacytm.ABCIToLegacyConsensusParams(app.GetConsensusParams(ctx))
 
 	app.SetDeliverStateToCommit()
 	app.WriteState()
@@ -602,7 +532,7 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 	return &abci.ResponseFinalizeBlock{
 		Events:    events,
 		TxResults: txResults,
-		ValidatorUpdates: utils.Map(endBlockResp.ValidatorUpdates, func(v abci.ValidatorUpdate) abci.ValidatorUpdate {
+		ValidatorUpdates: utils.Map(vals, func(v abci.ValidatorUpdate) abci.ValidatorUpdate {
 			return abci.ValidatorUpdate{
 				PubKey: v.PubKey,
 				Power:  v.Power,
@@ -610,19 +540,19 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 		}),
 		ConsensusParamUpdates: &tmproto.ConsensusParams{
 			Block: &tmproto.BlockParams{
-				MaxBytes: endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
-				MaxGas:   endBlockResp.ConsensusParamUpdates.Block.MaxGas,
+				MaxBytes: cpUpdates.Block.MaxBytes,
+				MaxGas:   cpUpdates.Block.MaxGas,
 			},
 			Evidence: &tmproto.EvidenceParams{
-				MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,
-				MaxAgeDuration:  endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeDuration,
-				MaxBytes:        endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
+				MaxAgeNumBlocks: cpUpdates.Evidence.MaxAgeNumBlocks,
+				MaxAgeDuration:  cpUpdates.Evidence.MaxAgeDuration,
+				MaxBytes:        cpUpdates.Evidence.MaxBytes,
 			},
 			Validator: &tmproto.ValidatorParams{
-				PubKeyTypes: endBlockResp.ConsensusParamUpdates.Validator.PubKeyTypes,
+				PubKeyTypes: cpUpdates.Validator.PubKeyTypes,
 			},
 			Version: &tmproto.VersionParams{
-				AppVersion: endBlockResp.ConsensusParamUpdates.Version.AppVersion,
+				AppVersion: cpUpdates.Version.AppVersion,
 			},
 		},
 		AppHash: appHash,
@@ -630,13 +560,20 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 }
 
 // BeginBlocker application updates every begin block
-func (app *SimApp) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
-	return app.mm.BeginBlock(ctx, req)
+func (app *SimApp) BeginBlocker(ctx sdk.Context) {
+	capability.BeginBlocker(ctx, *app.CapabilityKeeper)
+	distr.BeginBlocker(ctx, []abci.VoteInfo{}, app.DistrKeeper)
+	slashing.BeginBlocker(ctx, []abci.VoteInfo{}, app.SlashingKeeper)
+	evidence.BeginBlocker(ctx, []abci.Misbehavior{}, app.EvidenceKeeper)
+	staking.BeginBlocker(ctx, app.StakingKeeper)
+	ibcclient.BeginBlocker(ctx, app.IBCKeeper.ClientKeeper)
 }
 
 // EndBlocker application updates every end block
-func (app *SimApp) EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock {
-	return app.mm.EndBlock(ctx, req)
+func (app *SimApp) EndBlocker(ctx sdk.Context) []abci.ValidatorUpdate {
+	crisis.EndBlocker(ctx, app.CrisisKeeper)
+	gov.EndBlocker(ctx, app.GovKeeper)
+	return staking.EndBlocker(ctx, app.StakingKeeper)
 }
 
 // InitChainer application update at chain initialization
@@ -745,11 +682,6 @@ func (app *SimApp) GetScopedIBCKeeper() capabilitykeeper.ScopedKeeper {
 // GetTxConfig implements the TestingApp interface.
 func (app *SimApp) GetTxConfig() client.TxConfig {
 	return MakeTestEncodingConfig().TxConfig
-}
-
-// SimulationManager implements the SimulationApp interface
-func (app *SimApp) SimulationManager() *module.SimulationManager {
-	return app.sm
 }
 
 // RegisterAPIRoutes registers all application module routes with the provided

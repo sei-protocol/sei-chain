@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
@@ -16,8 +17,13 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+	distrkeeper "github.com/cosmos/cosmos-sdk/x/distribution/keeper"
+	evidencekeeper "github.com/cosmos/cosmos-sdk/x/evidence/keeper"
+	slashingkeeper "github.com/cosmos/cosmos-sdk/x/slashing/keeper"
+	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto/tmhash"
@@ -112,7 +118,7 @@ func NewTestChainWithValSet(t *testing.T, coord *Coordinator, chainID string, va
 		senderAccs = append(senderAccs, senderAcc)
 	}
 
-	app := SetupWithGenesisValSet(t, valSet, genAccs, chainID, sdk.DefaultPowerReduction, genBals...)
+	app := NewTestingAppDecorator(t, simapp.SetupWithGenesisValSet(t, valSet, genAccs, chainID, sdk.DefaultPowerReduction, genBals...))
 
 	// create current header and call begin block
 	header := tmproto.Header{
@@ -186,10 +192,10 @@ func (chain *TestChain) GetContext() sdk.Context {
 // CONTRACT: This function should not be called by third parties implementing
 // their own SimApp.
 func (chain *TestChain) GetSimApp() *simapp.SimApp {
-	app, ok := chain.App.(*simapp.SimApp)
+	app, ok := chain.App.(*TestingAppDecorator)
 	require.True(chain.T, ok)
 
-	return app
+	return app.SimApp
 }
 
 // QueryProof performs an abci query with the given key and returns the proto encoded merkle proof
@@ -306,6 +312,12 @@ func (chain *TestChain) SendMsgs(msgs ...sdk.Msg) (*sdk.Result, error) {
 		chain.T,
 		chain.TxConfig,
 		chain.App.GetBaseApp(),
+		chain.App.GetIBCKeeper(),
+		chain.App.GetStakingKeeper(),
+		chain.App.(*TestingAppDecorator).GetCapabilityKeeper(),
+		chain.App.(*TestingAppDecorator).GetDistrKeeper(),
+		chain.App.(*TestingAppDecorator).GetSlashingKeeper(),
+		chain.App.(*TestingAppDecorator).GetEvidenceKeeper(),
 		chain.GetContext().BlockHeader(),
 		msgs,
 		chain.ChainID,
@@ -482,11 +494,11 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 		voteSet.AddVote(vote)
 	}
 
-	commit := voteSet.MakeExtendedCommit()
+	commit := voteSet.MakeCommit()
 
 	signedHeader := &tmproto.SignedHeader{
 		Header: tmHeader.ToProto(),
-		Commit: commit.ToCommit().ToProto(),
+		Commit: commit.ToProto(),
 	}
 
 	var err error
@@ -604,4 +616,51 @@ func (chain *TestChain) GetChannelCapability(portID, channelID string) *capabili
 // to be used for testing. It returns the current IBC height + 100 blocks
 func (chain *TestChain) GetTimeoutHeight() clienttypes.Height {
 	return clienttypes.NewHeight(clienttypes.ParseChainID(chain.ChainID), uint64(chain.GetContext().BlockHeight())+100)
+}
+
+var _ TestingApp = TestingAppDecorator{}
+
+type TestingAppDecorator struct {
+	*simapp.SimApp
+	t *testing.T
+}
+
+func NewTestingAppDecorator(t *testing.T, app *simapp.SimApp) *TestingAppDecorator {
+	return &TestingAppDecorator{SimApp: app, t: t}
+}
+
+func (a TestingAppDecorator) GetBaseApp() *baseapp.BaseApp {
+	return a.TestSupport().GetBaseApp()
+}
+
+func (a TestingAppDecorator) GetStakingKeeper() stakingkeeper.Keeper {
+	return a.TestSupport().StakingKeeper()
+}
+
+func (a TestingAppDecorator) GetIBCKeeper() *ibckeeper.Keeper {
+	return a.TestSupport().IBCKeeper()
+}
+
+func (a TestingAppDecorator) GetTxConfig() client.TxConfig {
+	return a.TestSupport().GetTxConfig()
+}
+
+func (a TestingAppDecorator) GetCapabilityKeeper() *capabilitykeeper.Keeper {
+	return a.TestSupport().CapabilityKeeper()
+}
+
+func (a TestingAppDecorator) GetDistrKeeper() *distrkeeper.Keeper {
+	return a.TestSupport().DistrKeeper()
+}
+
+func (a TestingAppDecorator) GetSlashingKeeper() *slashingkeeper.Keeper {
+	return a.TestSupport().SlashingKeeper()
+}
+
+func (a TestingAppDecorator) GetEvidenceKeeper() *evidencekeeper.Keeper {
+	return a.TestSupport().EvidenceKeeper()
+}
+
+func (a TestingAppDecorator) TestSupport() *simapp.TestSupport {
+	return simapp.NewTestSupport(a.t, a.SimApp)
 }

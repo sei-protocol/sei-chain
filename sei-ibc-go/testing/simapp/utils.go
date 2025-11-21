@@ -3,14 +3,13 @@ package simapp
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/cosmos/cosmos-sdk/codec"
+	"io/ioutil"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/kv"
-	"github.com/cosmos/cosmos-sdk/types/module"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
-	"io/ioutil"
 
 	"github.com/cosmos/ibc-go/v3/testing/simapp/helpers"
 )
@@ -44,31 +43,6 @@ func SetupSimulation(dirPrefix, dbName string) (simtypes.Config, dbm.DB, string,
 	}
 
 	return config, db, dir, logger, false, nil
-}
-
-// SimulationOperations retrieves the simulation params from the provided file path
-// and returns all the modules weighted operations
-func SimulationOperations(app App, cdc codec.JSONCodec, config simtypes.Config) []simtypes.WeightedOperation {
-	simState := module.SimulationState{
-		AppParams: make(simtypes.AppParams),
-		Cdc:       cdc,
-	}
-
-	if config.ParamsFile != "" {
-		bz, err := ioutil.ReadFile(config.ParamsFile)
-		if err != nil {
-			panic(err)
-		}
-
-		err = json.Unmarshal(bz, &simState.AppParams)
-		if err != nil {
-			panic(err)
-		}
-	}
-
-	simState.ParamChanges = app.SimulationManager().GenerateParamChanges(config.Seed)
-	simState.Contents = app.SimulationManager().GetProposalContents(simState)
-	return app.SimulationManager().WeightedOperations(simState)
 }
 
 // CheckExportSimulation exports the app state and simulation parameters to JSON
