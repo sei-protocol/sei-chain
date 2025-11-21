@@ -55,8 +55,6 @@ func (app *App) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) (res
 	spanCtx, span := app.GetBaseApp().TracingInfo.StartWithContext("EndBlock", ctx.TraceSpanContext())
 	defer span.End()
 	ctx = ctx.WithTraceSpanContext(spanCtx)
-	// Clear DeliverTx Events
-	ctx.MultiStore().ResetEvents()
 	defer telemetry.MeasureSince(time.Now(), "abci", "end_block")
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 	defer telemetry.MeasureSince(time.Now(), "module", "total_end_block")
