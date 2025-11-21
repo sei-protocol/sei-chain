@@ -67,6 +67,16 @@ func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, config client.TxEncod
 	return gs.Validate()
 }
 
+func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config client.TxEncodingConfig, genesisCh <-chan json.RawMessage) error {
+	for genesis := range genesisCh {
+		err := am.ValidateGenesis(cdc, config, genesis)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // RegisterRESTRoutes implements AppModuleBasic interface
 func (AppModuleBasic) RegisterRESTRoutes(ctx client.Context, rtr *mux.Router) {
 }
@@ -196,6 +206,15 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 	gs := types.NewGenesisState(controllerGenesisState, hostGenesisState)
 
 	return cdc.MustMarshalJSON(gs)
+}
+
+func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
+	ch := make(chan json.RawMessage)
+	go func() {
+		ch <- am.ExportGenesis(ctx, cdc)
+		close(ch)
+	}()
+	return ch
 }
 
 // ConsensusVersion implements AppModule/ConsensusVersion.

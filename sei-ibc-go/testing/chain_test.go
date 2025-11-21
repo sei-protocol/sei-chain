@@ -12,11 +12,11 @@ import (
 
 func TestCreateSortedSignerArray(t *testing.T) {
 	privVal1 := mock.NewPV()
-	pubKey1, err := privVal1.GetPubKey()
+	pubKey1, err := privVal1.GetPubKey(t.Context())
 	require.NoError(t, err)
 
 	privVal2 := mock.NewPV()
-	pubKey2, err := privVal2.GetPubKey()
+	pubKey2, err := privVal2.GetPubKey(t.Context())
 	require.NoError(t, err)
 
 	validator1 := tmtypes.NewValidator(pubKey1, 1)

@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
@@ -50,7 +49,7 @@ type TestingApp interface {
 func SetupTestingApp() (TestingApp, map[string]json.RawMessage) {
 	db := dbm.NewMemDB()
 	encCdc := simapp.MakeTestEncodingConfig()
-	app := simapp.NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 5, encCdc, simapp.EmptyAppOptions{})
+	app := simapp.NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 5, nil, encCdc, simapp.EmptyAppOptions{})
 	return app, simapp.NewDefaultGenesisState(encCdc.Marshaler)
 }
 
@@ -112,7 +111,7 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	genesisState[stakingtypes.ModuleName] = app.AppCodec().MustMarshalJSON(&stakingGenesis)
 
 	// update total supply
-	bankGenesis := banktypes.NewGenesisState(banktypes.DefaultGenesisState().Params, balances, totalSupply, []banktypes.Metadata{})
+	bankGenesis := banktypes.NewGenesisState(banktypes.DefaultGenesisState().Params, balances, totalSupply, []banktypes.Metadata{}, []banktypes.WeiBalance{})
 	genesisState[banktypes.ModuleName] = app.AppCodec().MustMarshalJSON(bankGenesis)
 
 	stateBytes, err := json.MarshalIndent(genesisState, "", " ")
@@ -120,7 +119,8 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 
 	// init chain will set the validator set and initialize the genesis accounts
 	app.InitChain(
-		abci.RequestInitChain{
+		t.Context(),
+		&abci.RequestInitChain{
 			ChainId:         chainID,
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: simapp.DefaultConsensusParams,
@@ -128,19 +128,15 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 		},
 	)
 
+	// This line is necessary due to the capability module which has a map as well as store usages,
+	// and because the initChain runs 3 times (deliver, prepare, process proposal),
+	// we need to make sure to first commit the last one so the proper values are persisted from the
+	// memory map into the store.
+	app.GetBaseApp().SetProcessProposalStateToCommit()
+
 	// commit genesis changes
-	app.Commit()
-	app.BeginBlock(
-		abci.RequestBeginBlock{
-			Header: tmproto.Header{
-				ChainID:            chainID,
-				Height:             app.LastBlockHeight() + 1,
-				AppHash:            app.LastCommitID().Hash,
-				ValidatorsHash:     valSet.Hash(),
-				NextValidatorsHash: valSet.Hash(),
-			},
-		},
-	)
+	app.Commit(t.Context())
+	app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
 	return app
 }

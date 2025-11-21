@@ -1,6 +1,8 @@
 package simapp
 
 import (
+	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -11,8 +13,10 @@ import (
 	"github.com/rakyll/statik/fs"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
+	tmcfg "github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/libs/log"
 	tmos "github.com/tendermint/tendermint/libs/os"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -26,7 +30,9 @@ import (
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/genesis"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/cosmos-sdk/x/auth"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
@@ -212,6 +218,8 @@ type SimApp struct {
 
 	// the configurator
 	configurator module.Configurator
+
+	txDecoder sdk.TxDecoder
 }
 
 func init() {
@@ -226,14 +234,14 @@ func init() {
 // NewSimApp returns a reference to an initialized SimApp.
 func NewSimApp(
 	logger log.Logger, db dbm.DB, traceStore io.Writer, loadLatest bool, skipUpgradeHeights map[int64]bool,
-	homePath string, invCheckPeriod uint, encodingConfig simappparams.EncodingConfig,
+	homePath string, invCheckPeriod uint, tmConfig *tmcfg.Config, encodingConfig simappparams.EncodingConfig,
 	appOpts servertypes.AppOptions, baseAppOptions ...func(*baseapp.BaseApp),
 ) *SimApp {
 	appCodec := encodingConfig.Marshaler
 	legacyAmino := encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
-	bApp := baseapp.NewBaseApp(appName, logger, db, encodingConfig.TxConfig.TxDecoder(), baseAppOptions...)
+	bApp := baseapp.NewBaseApp(appName, logger, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, baseAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetVersion(version.Version)
 	bApp.SetInterfaceRegistry(interfaceRegistry)
@@ -246,7 +254,7 @@ func NewSimApp(
 		authzkeeper.StoreKey,
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
-	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey)
+	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, banktypes.DeferredCacheStoreKey)
 
 	app := &SimApp{
 		BaseApp:           bApp,
@@ -257,6 +265,7 @@ func NewSimApp(
 		keys:              keys,
 		tkeys:             tkeys,
 		memKeys:           memKeys,
+		txDecoder:         encodingConfig.TxConfig.TxDecoder(),
 	}
 
 	app.ParamsKeeper = initParamsKeeper(appCodec, legacyAmino, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
@@ -283,8 +292,8 @@ func NewSimApp(
 	app.AccountKeeper = authkeeper.NewAccountKeeper(
 		appCodec, keys[authtypes.StoreKey], app.GetSubspace(authtypes.ModuleName), authtypes.ProtoBaseAccount, maccPerms,
 	)
-	app.BankKeeper = bankkeeper.NewBaseKeeper(
-		appCodec, keys[banktypes.StoreKey], app.AccountKeeper, app.GetSubspace(banktypes.ModuleName), app.ModuleAccountAddrs(),
+	app.BankKeeper = bankkeeper.NewBaseKeeperWithDeferredCache(
+		appCodec, keys[banktypes.StoreKey], app.AccountKeeper, app.GetSubspace(banktypes.ModuleName), app.ModuleAccountAddrs(), memKeys[banktypes.DeferredCacheStoreKey],
 	)
 	stakingKeeper := stakingkeeper.NewKeeper(
 		appCodec, keys[stakingtypes.StoreKey], app.AccountKeeper, app.BankKeeper, app.GetSubspace(stakingtypes.ModuleName),
@@ -325,7 +334,7 @@ func NewSimApp(
 		AddRoute(ibcclienttypes.RouterKey, ibcclient.NewClientProposalHandler(app.IBCKeeper.ClientKeeper))
 	app.GovKeeper = govkeeper.NewKeeper(
 		appCodec, keys[govtypes.StoreKey], app.GetSubspace(govtypes.ModuleName), app.AccountKeeper, app.BankKeeper,
-		&stakingKeeper, govRouter,
+		&stakingKeeper, app.ParamsKeeper, govRouter,
 	)
 
 	// Create Transfer Keepers
@@ -487,6 +496,8 @@ func NewSimApp(
 				SignModeHandler: encodingConfig.TxConfig.SignModeHandler(),
 				FeegrantKeeper:  app.FeeGrantKeeper,
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
+				ParamsKeeper:    app.ParamsKeeper,
+				TxFeeChecker:    ante.CheckTxFeeWithValidatorMinGasPrices,
 			},
 			IBCKeeper: app.IBCKeeper,
 		},
@@ -498,6 +509,7 @@ func NewSimApp(
 	app.SetAnteHandler(anteHandler)
 
 	app.SetEndBlocker(app.EndBlocker)
+	app.SetFinalizeBlocker(app.FinalizeBlocker)
 
 	if loadLatest {
 		if err := app.LoadLatestVersion(); err != nil {
@@ -521,6 +533,102 @@ func NewSimApp(
 // Name returns the name of the App
 func (app *SimApp) Name() string { return app.BaseApp.Name() }
 
+func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	events := []abci.Event{}
+	beginBlockResp := app.BeginBlock(ctx, abci.RequestBeginBlock{
+		Hash: req.Hash,
+		ByzantineValidators: utils.Map(req.ByzantineValidators, func(mis abci.Misbehavior) abci.Evidence {
+			return abci.Evidence{
+				Type:             abci.MisbehaviorType(mis.Type),
+				Validator:        abci.Validator(mis.Validator),
+				Height:           mis.Height,
+				Time:             mis.Time,
+				TotalVotingPower: mis.TotalVotingPower,
+			}
+		}),
+		LastCommitInfo: abci.LastCommitInfo{
+			Round: req.DecidedLastCommit.Round,
+			Votes: utils.Map(req.DecidedLastCommit.Votes, func(vote abci.VoteInfo) abci.VoteInfo {
+				return abci.VoteInfo{
+					Validator:       abci.Validator(vote.Validator),
+					SignedLastBlock: vote.SignedLastBlock,
+				}
+			}),
+		},
+		Header: tmproto.Header{
+			ChainID:         app.ChainID,
+			Height:          req.Height,
+			Time:            req.Time,
+			ProposerAddress: ctx.BlockHeader().ProposerAddress,
+		},
+	})
+	events = append(events, beginBlockResp.Events...)
+
+	typedTxs := []sdk.Tx{}
+	for _, tx := range req.Txs {
+		typedTx, err := app.txDecoder(tx)
+		if err != nil {
+			typedTxs = append(typedTxs, nil)
+		} else {
+			typedTxs = append(typedTxs, typedTx)
+		}
+	}
+
+	txResults := []*abci.ExecTxResult{}
+	for i, tx := range req.Txs {
+		ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
+		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
+			Tx: tx,
+		}, typedTxs[i], sha256.Sum256(tx))
+		txResults = append(txResults, &abci.ExecTxResult{
+			Code:      deliverTxResp.Code,
+			Data:      deliverTxResp.Data,
+			Log:       deliverTxResp.Log,
+			Info:      deliverTxResp.Info,
+			GasWanted: deliverTxResp.GasWanted,
+			GasUsed:   deliverTxResp.GasUsed,
+			Events:    deliverTxResp.Events,
+			Codespace: deliverTxResp.Codespace,
+		})
+	}
+	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
+		Height: req.Height,
+	})
+	events = append(events, endBlockResp.Events...)
+
+	app.SetDeliverStateToCommit()
+	app.WriteState()
+	appHash := app.GetWorkingHash()
+	return &abci.ResponseFinalizeBlock{
+		Events:    events,
+		TxResults: txResults,
+		ValidatorUpdates: utils.Map(endBlockResp.ValidatorUpdates, func(v abci.ValidatorUpdate) abci.ValidatorUpdate {
+			return abci.ValidatorUpdate{
+				PubKey: v.PubKey,
+				Power:  v.Power,
+			}
+		}),
+		ConsensusParamUpdates: &tmproto.ConsensusParams{
+			Block: &tmproto.BlockParams{
+				MaxBytes: endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
+				MaxGas:   endBlockResp.ConsensusParamUpdates.Block.MaxGas,
+			},
+			Evidence: &tmproto.EvidenceParams{
+				MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,
+				MaxAgeDuration:  endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeDuration,
+				MaxBytes:        endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
+			},
+			Validator: &tmproto.ValidatorParams{
+				PubKeyTypes: endBlockResp.ConsensusParamUpdates.Validator.PubKeyTypes,
+			},
+			Version: &tmproto.VersionParams{
+				AppVersion: endBlockResp.ConsensusParamUpdates.Version.AppVersion,
+			},
+		},
+		AppHash: appHash,
+	}, nil
+}
+
 // BeginBlocker application updates every begin block
 func (app *SimApp) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
 	return app.mm.BeginBlock(ctx, req)
@@ -538,7 +646,7 @@ func (app *SimApp) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.
 		panic(err)
 	}
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
-	return app.mm.InitGenesis(ctx, app.appCodec, genesisState)
+	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, genesis.GenesisImportConfig{})
 }
 
 // LoadHeight loads a particular height

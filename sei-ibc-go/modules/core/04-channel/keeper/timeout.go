@@ -118,7 +118,7 @@ func (k Keeper) TimeoutPacket(
 			packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence(),
 		)
 	default:
-		panic(sdkerrors.Wrapf(types.ErrInvalidChannelOrdering, channel.Ordering.String()))
+		panic(sdkerrors.Wrapf(types.ErrInvalidChannelOrdering, "channel ordering: %s", channel.Ordering.String()))
 	}
 
 	if err != nil {
@@ -274,7 +274,7 @@ func (k Keeper) TimeoutOnClose(
 			packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence(),
 		)
 	default:
-		panic(sdkerrors.Wrapf(types.ErrInvalidChannelOrdering, channel.Ordering.String()))
+		panic(sdkerrors.Wrapf(types.ErrInvalidChannelOrdering, "channel ordering: %s", channel.Ordering.String()))
 	}
 
 	if err != nil {

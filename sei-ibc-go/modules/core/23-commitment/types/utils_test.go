@@ -12,7 +12,7 @@ import (
 
 func (suite *MerkleTestSuite) TestConvertProofs() {
 	suite.iavlStore.Set([]byte("MYKEY"), []byte("MYVALUE"))
-	cid := suite.store.Commit()
+	cid := suite.store.Commit(true)
 
 	root := types.NewMerkleRoot(cid.Hash)
 	existsPath := types.NewMerklePath(suite.storeKey.Name(), "MYKEY")

@@ -86,7 +86,7 @@ func (suite *TypesTestSuite) SetupTest() {
 	iavlStore := store.GetCommitStore(storeKey).(*iavl.Store)
 
 	iavlStore.Set([]byte("KEY"), []byte("VALUE"))
-	_ = store.Commit()
+	_ = store.Commit(true)
 
 	res := store.Query(abci.RequestQuery{
 		Path:  fmt.Sprintf("/%s/key", storeKey.Name()), // required path to get key/value+proof

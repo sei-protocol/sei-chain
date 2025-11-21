@@ -45,7 +45,7 @@ func TestAddGenesisAccountCmd(t *testing.T) {
 		{
 			name:      "multiple denoms",
 			addr:      addr1.String(),
-			denom:     "1000atom, 2000stake",
+			denom:     "1000atom, 2000usei",
 			expectErr: false,
 		},
 	}
@@ -65,7 +65,7 @@ func TestAddGenesisAccountCmd(t *testing.T) {
 			serverCtx := server.NewContext(viper.New(), cfg, logger)
 			clientCtx := client.Context{}.WithJSONCodec(appCodec).WithHomeDir(home)
 
-			ctx := context.Background()
+			ctx := t.Context()
 			ctx = context.WithValue(ctx, client.ClientContextKey, &clientCtx)
 			ctx = context.WithValue(ctx, server.ServerContextKey, serverCtx)
 

@@ -2,6 +2,7 @@ package simapp
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -29,8 +30,8 @@ import (
 
 // DefaultConsensusParams defines the default Tendermint consensus params used in
 // SimApp testing.
-var DefaultConsensusParams = &abci.ConsensusParams{
-	Block: &abci.BlockParams{
+var DefaultConsensusParams = &tmproto.ConsensusParams{
+	Block: &tmproto.BlockParams{
 		MaxBytes: 200000,
 		MaxGas:   2000000,
 	},
@@ -49,7 +50,7 @@ var DefaultConsensusParams = &abci.ConsensusParams{
 func setup(withGenesis bool, invCheckPeriod uint) (*SimApp, GenesisState) {
 	db := dbm.NewMemDB()
 	encCdc := MakeTestEncodingConfig()
-	app := NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, DefaultNodeHome, invCheckPeriod, encCdc, EmptyAppOptions{})
+	app := NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, DefaultNodeHome, invCheckPeriod, nil, encCdc, EmptyAppOptions{})
 	if withGenesis {
 		return app, NewDefaultGenesisState(encCdc.Marshaler)
 	}
@@ -68,7 +69,8 @@ func Setup(isCheckTx bool) *SimApp {
 
 		// Initialize the chain
 		app.InitChain(
-			abci.RequestInitChain{
+			context.Background(),
+			&abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
 				AppStateBytes:   stateBytes,
@@ -91,7 +93,7 @@ func SetupWithGenesisAccounts(genAccs []authtypes.GenesisAccount, balances ...ba
 		totalSupply = totalSupply.Add(b.Coins...)
 	}
 
-	bankGenesis := banktypes.NewGenesisState(banktypes.DefaultGenesisState().Params, balances, totalSupply, []banktypes.Metadata{})
+	bankGenesis := banktypes.NewGenesisState(banktypes.DefaultGenesisState().Params, balances, totalSupply, []banktypes.Metadata{}, []banktypes.WeiBalance{})
 	genesisState[banktypes.ModuleName] = app.AppCodec().MustMarshalJSON(bankGenesis)
 
 	stateBytes, err := json.MarshalIndent(genesisState, "", " ")
@@ -100,15 +102,16 @@ func SetupWithGenesisAccounts(genAccs []authtypes.GenesisAccount, balances ...ba
 	}
 
 	app.InitChain(
-		abci.RequestInitChain{
+		context.Background(),
+		&abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
 			AppStateBytes:   stateBytes,
 		},
 	)
 
-	app.Commit()
-	app.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: app.LastBlockHeight() + 1}})
+	app.Commit(context.Background())
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
 	return app
 }
@@ -250,7 +253,7 @@ func SignAndDeliver(
 	require.NoError(t, err)
 
 	// Simulate a sending a transaction and committing a block
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
+	app.BeginBlock(app.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: header})
 	gInfo, res, err := app.Deliver(txCfg.TxEncoder(), tx)
 
 	if expPass {
@@ -261,8 +264,9 @@ func SignAndDeliver(
 		require.Nil(t, res)
 	}
 
-	app.EndBlock(abci.RequestEndBlock{})
-	app.Commit()
+	app.EndBlock(app.GetContextForDeliverTx([]byte{}), abci.RequestEndBlock{})
+	app.SetDeliverStateToCommit()
+	app.Commit(context.Background())
 
 	return gInfo, res, err
 }
@@ -333,6 +337,9 @@ type EmptyAppOptions struct{}
 
 // Get implements AppOptions
 func (ao EmptyAppOptions) Get(o string) interface{} {
+	if o == "chain-id" {
+		return "test-chain"
+	}
 	return nil
 }
 

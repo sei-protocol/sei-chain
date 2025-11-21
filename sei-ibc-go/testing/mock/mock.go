@@ -70,6 +70,17 @@ func (AppModuleBasic) ValidateGenesis(codec.JSONCodec, client.TxEncodingConfig, 
 	return nil
 }
 
+// ValidateGenesisStream implements the AppModuleBasic interface.
+func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config client.TxEncodingConfig, genesisCh <-chan json.RawMessage) error {
+	for genesis := range genesisCh {
+		err := am.ValidateGenesis(cdc, config, genesis)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // RegisterRESTRoutes implements AppModuleBasic interface.
 func (AppModuleBasic) RegisterRESTRoutes(clientCtx client.Context, rtr *mux.Router) {}
 
@@ -136,6 +147,11 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, data json.
 
 // ExportGenesis implements the AppModule interface.
 func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.RawMessage {
+	return nil
+}
+
+// ExportGenesisStream implements the AppModule interface.
+func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
 	return nil
 }
 

@@ -83,7 +83,7 @@ func (suite *ClientTestSuite) TestBeginBlockerConsensusState() {
 	suite.Require().NoError(err)
 
 	req := abci.RequestBeginBlock{Header: newCtx.BlockHeader()}
-	suite.chainA.App.BeginBlock(req)
+	suite.chainA.GetSimApp().BeginBlock(newCtx, req)
 
 	// plan Height is at ctx.BlockHeight+1
 	consState, found := suite.chainA.GetSimApp().UpgradeKeeper.GetUpgradedConsensusState(newCtx, plan.Height)
