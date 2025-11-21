@@ -158,11 +158,11 @@ replace (
 	// dragonberry replace for ics23
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
 
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.66
+	github.com/cosmos/cosmos-sdk => ../sei-cosmos
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.2.0
 
 	// protocol buffers replace
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
-	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.6.7
+	github.com/tendermint/tendermint => ../sei-tendermint
 	github.com/tendermint/tm-db => github.com/sei-protocol/tm-db v0.0.4
 )
