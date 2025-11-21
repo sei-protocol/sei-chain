@@ -338,6 +338,7 @@ type App struct {
 
 	BeginBlockKeepers legacyabci.BeginBlockKeepers
 	EndBlockKeepers   legacyabci.EndBlockKeepers
+	CheckTxKeepers    legacyabci.CheckTxKeepers
 
 	// mm is the module manager
 	mm *module.Manager
@@ -751,6 +752,16 @@ func New(
 		StakingKeeper: &app.StakingKeeper,
 		OracleKeeper:  &app.OracleKeeper,
 		EvmKeeper:     &app.EvmKeeper,
+	}
+	app.CheckTxKeepers = legacyabci.CheckTxKeepers{
+		AccountKeeper:  app.AccountKeeper,
+		BankKeeper:     app.BankKeeper,
+		FeeGrantKeeper: &app.FeeGrantKeeper,
+		IBCKeeper:      app.IBCKeeper,
+		OracleKeeper:   app.OracleKeeper,
+		EvmKeeper:      &app.EvmKeeper,
+		ParamsKeeper:   app.ParamsKeeper,
+		UpgradeKeeper:  &app.UpgradeKeeper,
 	}
 
 	app.mm.SetOrderMidBlockers(
