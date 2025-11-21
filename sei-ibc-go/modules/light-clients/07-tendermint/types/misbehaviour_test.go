@@ -1,6 +1,8 @@
 package types_test
 
 import (
+	"context"
+	"fmt"
 	"time"
 
 	"github.com/tendermint/tendermint/crypto/tmhash"
@@ -28,6 +30,47 @@ func (suite *TendermintTestSuite) TestMisbehaviour() {
 	suite.Require().Equal(clientID, misbehaviour.GetClientID())
 }
 
+// TODO: remove when integrating into monorepo, this is testing tooling that is currently private to the module and not worth bumping tm version for
+func makeExtCommit(ctx context.Context, blockID tmtypes.BlockID, height int64, round int32,
+	voteSet *tmtypes.VoteSet, validators []tmtypes.PrivValidator, now time.Time) (*tmtypes.ExtendedCommit, error) {
+
+	// all sign
+	for i := 0; i < len(validators); i++ {
+		pubKey, err := validators[i].GetPubKey(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("can't get pubkey: %w", err)
+		}
+		vote := &tmtypes.Vote{
+			ValidatorAddress: pubKey.Address(),
+			ValidatorIndex:   int32(i),
+			Height:           height,
+			Round:            round,
+			Type:             tmproto.PrecommitType,
+			BlockID:          blockID,
+			Timestamp:        now,
+		}
+
+		_, err = signAddVote(ctx, validators[i], vote, voteSet)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return voteSet.MakeExtendedCommit(), nil
+}
+
+// TODO: remove this when integrating into monorepo
+func signAddVote(ctx context.Context, privVal tmtypes.PrivValidator, vote *tmtypes.Vote, voteSet *tmtypes.VoteSet) (signed bool, err error) {
+	v := vote.ToProto()
+	err = privVal.SignVote(ctx, voteSet.ChainID(), v)
+	if err != nil {
+		return false, err
+	}
+	vote.Signature = v.Signature
+	vote.ExtensionSignature = v.ExtensionSignature
+	return voteSet.AddVote(vote)
+}
+
 func (suite *TendermintTestSuite) TestMisbehaviourValidateBasic() {
 	altPrivVal := ibctestingmock.NewPV()
 	altPubKey, err := altPrivVal.GetPubKey(suite.T().Context())
@@ -48,7 +91,7 @@ func (suite *TendermintTestSuite) TestMisbehaviourValidateBasic() {
 	_, suiteVal := suite.valSet.GetByIndex(0)
 	bothSigners := ibctesting.CreateSortedSignerArray(altPrivVal, suite.privVal, altVal, suiteVal)
 
-	// altSigners := []tmtypes.PrivValidator{altPrivVal}
+	altSigners := []tmtypes.PrivValidator{altPrivVal}
 
 	heightMinus1 := clienttypes.NewHeight(0, height.RevisionHeight-1)
 
@@ -180,31 +223,14 @@ func (suite *TendermintTestSuite) TestMisbehaviourValidateBasic() {
 			func(misbehaviour *types.Misbehaviour) error {
 				// voteSet contains only altVal which is less than 2/3 of total power (height/1height)
 				wrongVoteSet := tmtypes.NewVoteSet(chainID, int64(misbehaviour.Header1.GetHeight().GetRevisionHeight()), 1, tmproto.PrecommitType, altValSet)
-				// blockID, err := tmtypes.BlockIDFromProto(&misbehaviour.Header1.Commit.BlockID)
-				// if err != nil {
-				// 	return err
-				// }
-				// TODO(udpatil): do we need this step
-				// for i, val := range tmValSet.Validators {
-				// 	privVal := signers[i]
-				// 	vote := &tmtypes.Vote{
-				// 		Type:             tmproto.PrecommitType,
-				// 		Height:           blockHeight,
-				// 		Round:            1,
-				// 		BlockID:          blockID,
-				// 		Timestamp:        timestamp,
-				// 		ValidatorAddress: val.Address,
-				// 		ValidatorIndex:   int32(i),
-				// 	}
-				// 	v := vote.ToProto()
-				// 	err := privVal.SignVote(context.Background(), chainID, v)
-				// 	require.NoError(chain.T, err)
-				// 	vote.Signature = v.Signature
-				// 	voteSet.AddVote(vote)
-				// }
+				blockID, err := tmtypes.BlockIDFromProto(&misbehaviour.Header1.Commit.BlockID)
+				if err != nil {
+					return err
+				}
 
-				tmCommit := wrongVoteSet.MakeExtendedCommit()
+				tmCommit, err := makeExtCommit(suite.T().Context(), *blockID, int64(misbehaviour.Header2.GetHeight().GetRevisionHeight()), misbehaviour.Header1.Commit.Round, wrongVoteSet, altSigners, suite.now)
 				misbehaviour.Header1.Commit = tmCommit.ToCommit().ToProto()
+
 				return err
 			},
 			false,
@@ -219,13 +245,12 @@ func (suite *TendermintTestSuite) TestMisbehaviourValidateBasic() {
 			func(misbehaviour *types.Misbehaviour) error {
 				// voteSet contains only altVal which is less than 2/3 of total power (height/1height)
 				wrongVoteSet := tmtypes.NewVoteSet(chainID, int64(misbehaviour.Header2.GetHeight().GetRevisionHeight()), 1, tmproto.PrecommitType, altValSet)
-				// blockID, err := tmtypes.BlockIDFromProto(&misbehaviour.Header2.Commit.BlockID)
-				// if err != nil {
-				// 	return err
-				// }
-				// TODO(udpatil): determine same as above
+				blockID, err := tmtypes.BlockIDFromProto(&misbehaviour.Header2.Commit.BlockID)
+				if err != nil {
+					return err
+				}
 
-				tmCommit := wrongVoteSet.MakeExtendedCommit()
+				tmCommit, err := makeExtCommit(suite.T().Context(), *blockID, int64(misbehaviour.Header2.GetHeight().GetRevisionHeight()), misbehaviour.Header2.Commit.Round, wrongVoteSet, altSigners, suite.now)
 				misbehaviour.Header2.Commit = tmCommit.ToCommit().ToProto()
 				return err
 			},
