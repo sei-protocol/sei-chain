@@ -1005,7 +1005,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
 
-	if (upgradeInfo.Name == "vTODO") && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+	if (upgradeInfo.Name == "v6.3.0") && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
 			Deleted: []string{accesscontrolStoreKeyName},
 		}
