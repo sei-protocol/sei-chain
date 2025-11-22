@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alitto/pond"
@@ -20,7 +22,12 @@ import (
 	"github.com/sei-protocol/sei-db/stream/types"
 )
 
-const MetadataFileName = "__metadata"
+const (
+	MetadataFileName = "__metadata"
+
+	// Load time threshold for performance warning (300 seconds)
+	slowLoadThreshold = 5 * time.Minute
+)
 
 type NamedTree struct {
 	*Tree
@@ -45,7 +52,8 @@ type MultiTree struct {
 	// if the tree is start from genesis, it's the initial version of the chain,
 	// if the tree is imported from snapshot, it's the imported version plus one,
 	// it always corresponds to the rlog entry with index 1.
-	initialVersion uint32
+	// Use atomic for concurrent read/write safety
+	initialVersion atomic.Uint32
 
 	zeroCopy bool
 	logger   logger.Logger
@@ -59,12 +67,13 @@ type MultiTree struct {
 }
 
 func NewEmptyMultiTree(initialVersion uint32) *MultiTree {
-	return &MultiTree{
-		initialVersion: initialVersion,
-		treesByName:    make(map[string]int),
-		zeroCopy:       true,
-		logger:         logger.NewNopLogger(),
+	mt := &MultiTree{
+		treesByName: make(map[string]int),
+		zeroCopy:    true,
+		logger:      logger.NewNopLogger(),
 	}
+	mt.initialVersion.Store(initialVersion)
+	return mt
 }
 
 func LoadMultiTree(dir string, opts Options) (*MultiTree, error) {
@@ -94,10 +103,11 @@ func LoadMultiTree(dir string, opts Options) (*MultiTree, error) {
 		}
 		treeMap[name] = NewFromSnapshot(snapshot, opts)
 	}
-	timeElapsed := time.Since(startTime).Seconds()
-	log.Info(fmt.Sprintf("All %d memIAVL trees loaded in %.1fs\n", len(treeNames), timeElapsed))
-	if timeElapsed > 300 {
-		log.Info("Loading MemIAVL tree from disk is too slow! Consider increasing the disk bandwidth to speed up the tree loading time within 300 seconds.\n")
+	elapsed := time.Since(startTime)
+	log.Info(fmt.Sprintf("All %d memIAVL trees loaded in %.1fs\n", len(treeNames), elapsed.Seconds()))
+
+	if elapsed > slowLoadThreshold {
+		log.Info("Loading MemIAVL tree from disk is too slow! Consider increasing the disk bandwidth to speed up the tree loading time within 300 seconds.")
 	}
 	slices.Sort(treeNames)
 
@@ -159,9 +169,9 @@ func (t *MultiTree) setInitialVersion(initialVersion int64) {
 		panic(fmt.Sprintf("initial version %d is out of range", initialVersion))
 	}
 	iv := uint32(initialVersion)
-	t.initialVersion = iv
+	t.initialVersion.Store(iv)
 	for _, entry := range t.trees {
-		entry.initialVersion = t.initialVersion
+		entry.initialVersion = iv
 	}
 }
 
@@ -239,7 +249,7 @@ func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 			t.trees[i].Name = upgrade.Name
 		default:
 			// add tree
-			v := utils.NextVersion(t.Version(), t.initialVersion)
+			v := utils.NextVersion(t.Version(), t.initialVersion.Load())
 			if v < 0 || v > math.MaxUint32 {
 				return fmt.Errorf("version overflows uint32: %d", v)
 			}
@@ -286,13 +296,13 @@ func (t *MultiTree) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error {
 
 // WorkingCommitInfo returns the commit info for the working tree
 func (t *MultiTree) WorkingCommitInfo() *proto.CommitInfo {
-	version := utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion)
+	version := utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion.Load())
 	return t.buildCommitInfo(version)
 }
 
 // SaveVersion bumps the versions of all the stores and optionally returns the new app hash
 func (t *MultiTree) SaveVersion(updateCommitInfo bool) (int64, error) {
-	t.lastCommitInfo.Version = utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion)
+	t.lastCommitInfo.Version = utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion.Load())
 	for _, entry := range t.trees {
 		if _, _, err := entry.SaveVersion(updateCommitInfo); err != nil {
 			return 0, err
@@ -341,7 +351,8 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 		return fmt.Errorf("read rlog last index failed, %w", err)
 	}
 
-	firstIndex := utils.VersionToIndex(utils.NextVersion(t.Version(), t.initialVersion), t.initialVersion)
+	iv := t.initialVersion.Load()
+	firstIndex := utils.VersionToIndex(utils.NextVersion(t.Version(), iv), iv)
 	if firstIndex > lastIndex {
 		// already up-to-date
 		return nil
@@ -349,7 +360,7 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 
 	endIndex := lastIndex
 	if endVersion != 0 {
-		endIndex = utils.VersionToIndex(endVersion, t.initialVersion)
+		endIndex = utils.VersionToIndex(endVersion, iv)
 	}
 
 	if endIndex < firstIndex {
@@ -376,7 +387,7 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 				tree.ApplyChangeSetAsync(iavl.ChangeSet{})
 			}
 		}
-		t.lastCommitInfo.Version = utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion)
+		t.lastCommitInfo.Version = utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion.Load())
 		t.lastCommitInfo.StoreInfos = []proto.StoreInfo{}
 		replayCount++
 		if replayCount%1000 == 0 {
@@ -401,28 +412,89 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 }
 
 func (t *MultiTree) WriteSnapshot(ctx context.Context, dir string, wp *pond.WorkerPool) error {
+	t.logger.Info("starting snapshot write", "trees", len(t.trees))
+
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil { //nolint:gosec
 		return err
 	}
 
-	// write the snapshots in parallel and wait all jobs done
-	group, _ := wp.GroupContext(ctx)
+	// Write EVM first to avoid disk I/O contention, then parallel
+	return t.writeSnapshotPriorityEVM(ctx, dir, wp)
+}
+
+// writeSnapshotPriorityEVM writes EVM tree first, then others in parallel
+// Best strategy: reduces disk I/O contention for the largest tree
+func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp *pond.WorkerPool) error {
+	startTime := time.Now()
+
+	// Phase 1: Write EVM tree first (if it exists)
+	var evmTree *Tree
+	var evmName string
+	otherTrees := make([]NamedTree, 0, len(t.trees))
 
 	for _, entry := range t.trees {
-		tree, name := entry.Tree, entry.Name
-		group.Submit(func() error {
-			return tree.WriteSnapshot(ctx, filepath.Join(dir, name))
-		})
+		if entry.Name == "evm" {
+			evmTree = entry.Tree
+			evmName = entry.Name
+		} else {
+			otherTrees = append(otherTrees, entry)
+		}
 	}
 
-	if err := group.Wait(); err != nil {
-		return err
+	if evmTree != nil {
+		t.logger.Info("writing evm tree", "phase", "1/2")
+		evmStart := time.Now()
+		if err := evmTree.WriteSnapshot(ctx, filepath.Join(dir, evmName)); err != nil {
+			return err
+		}
+		evmElapsed := time.Since(evmStart).Seconds()
+		t.logger.Info("evm tree completed", "duration_sec", evmElapsed)
 	}
+
+	// Phase 2: Write all other trees in parallel
+	if len(otherTrees) > 0 {
+		t.logger.Info("writing remaining trees", "phase", "2/2", "count", len(otherTrees))
+		phase2Start := time.Now()
+
+		// NOTE: We use explicit WaitGroup instead of pond.GroupContext because
+		// GroupContext.Wait() returns immediately on context cancellation without
+		// waiting for workers to finish. This causes data races when DB.Close()
+		// destroys mmap resources that background writers are still accessing.
+		// The WaitGroup ensures all goroutines fully exit before we return.
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var errs []error
+
+		for _, entry := range otherTrees {
+			// Capture loop variables for goroutine closure to avoid data race
+			entry := entry // Create new variable for closure capture
+			wg.Add(1)
+			wp.Submit(func() {
+				defer wg.Done()
+				if err := entry.Tree.WriteSnapshot(ctx, filepath.Join(dir, entry.Name)); err != nil {
+					mu.Lock()
+					errs = append(errs, fmt.Errorf("tree %s: %w", entry.Name, err))
+					mu.Unlock()
+				}
+			})
+		}
+
+		wg.Wait()
+		if len(errs) > 0 {
+			return errors.Join(errs...)
+		}
+
+		phase2Elapsed := time.Since(phase2Start).Seconds()
+		t.logger.Info("remaining trees completed", "duration_sec", phase2Elapsed, "count", len(otherTrees))
+	}
+
+	elapsed := time.Since(startTime).Seconds()
+	t.logger.Info("all trees completed", "duration_sec", elapsed, "trees", len(t.trees))
 
 	// write commit info
 	metadata := proto.MultiTreeMetadata{
 		CommitInfo:     &t.lastCommitInfo,
-		InitialVersion: int64(t.initialVersion),
+		InitialVersion: int64(t.initialVersion.Load()),
 	}
 	bz, err := metadata.Marshal()
 	if err != nil {

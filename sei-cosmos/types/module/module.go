@@ -258,11 +258,6 @@ func (gam GenesisOnlyAppModule) RegisterServices(Configurator) {}
 // ConsensusVersion implements AppModule/ConsensusVersion.
 func (gam GenesisOnlyAppModule) ConsensusVersion() uint64 { return 1 }
 
-// EndBlock returns an empty module end-block
-func (GenesisOnlyAppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
-	return []abci.ValidatorUpdate{}
-}
-
 // Manager defines a module manager that provides the high level utility for managing and executing
 // operations for a group of modules
 type Manager struct {
@@ -270,7 +265,6 @@ type Manager struct {
 	OrderInitGenesis   []string
 	OrderExportGenesis []string
 	OrderMidBlockers   []string
-	OrderEndBlockers   []string
 	OrderMigrations    []string
 }
 
@@ -288,7 +282,6 @@ func NewManager(modules ...AppModule) *Manager {
 		Modules:            moduleMap,
 		OrderInitGenesis:   modulesStr,
 		OrderExportGenesis: modulesStr,
-		OrderEndBlockers:   modulesStr,
 	}
 }
 
@@ -307,12 +300,6 @@ func (m *Manager) SetOrderExportGenesis(moduleNames ...string) {
 // SetOrderMidBlockers sets the order of set mid-blocker calls
 func (m *Manager) SetOrderMidBlockers(moduleNames ...string) {
 	m.OrderMidBlockers = moduleNames
-}
-
-// SetOrderEndBlockers sets the order of set end-blocker calls
-func (m *Manager) SetOrderEndBlockers(moduleNames ...string) {
-	m.assertNoForgottenModules("SetOrderEndBlockers", moduleNames)
-	m.OrderEndBlockers = moduleNames
 }
 
 // SetOrderMigrations sets the order of migrations to be run. If not set
@@ -602,39 +589,6 @@ func (m *Manager) MidBlock(ctx sdk.Context, height int64) []abci.Event {
 	}
 
 	return ctx.EventManager().ABCIEvents()
-}
-
-// EndBlock performs end block functionality for all modules. It creates a
-// child context with an event manager to aggregate events emitted from all
-// modules.
-func (m *Manager) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock {
-	ctx = ctx.WithEventManager(sdk.NewEventManager())
-	validatorUpdates := []abci.ValidatorUpdate{}
-	defer telemetry.MeasureSince(time.Now(), "module", "total_end_block")
-	for _, moduleName := range m.OrderEndBlockers {
-		module, ok := m.Modules[moduleName].(EndBlockAppModule)
-		if !ok {
-			continue
-		}
-		moduleStartTime := time.Now()
-		moduleValUpdates := module.EndBlock(ctx, req)
-		telemetry.ModuleMeasureSince(moduleName, moduleStartTime, "module", "end_block")
-		// use these validator updates if provided, the module manager assumes
-		// only one module will update the validator set
-		if len(moduleValUpdates) > 0 {
-			if len(validatorUpdates) > 0 {
-				panic("validator EndBlock updates already set by a previous module")
-			}
-
-			validatorUpdates = moduleValUpdates
-		}
-
-	}
-
-	return abci.ResponseEndBlock{
-		ValidatorUpdates: validatorUpdates,
-		Events:           ctx.EventManager().ABCIEvents(),
-	}
 }
 
 // GetVersionMap gets consensus version from all modules

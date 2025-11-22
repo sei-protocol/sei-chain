@@ -2,7 +2,6 @@ package app
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -30,16 +29,9 @@ import (
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/version"
-	aclmodule "github.com/cosmos/cosmos-sdk/x/accesscontrol"
-	aclclient "github.com/cosmos/cosmos-sdk/x/accesscontrol/client"
-	aclconstants "github.com/cosmos/cosmos-sdk/x/accesscontrol/constants"
-	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
-	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	"github.com/cosmos/cosmos-sdk/x/auth"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	authrest "github.com/cosmos/cosmos-sdk/x/auth/client/rest"
@@ -105,8 +97,6 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
-	"github.com/sei-protocol/sei-chain/aclmapping"
-	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
@@ -169,7 +159,6 @@ func getGovProposalHandlers() []govclient.ProposalHandler {
 		upgradeclient.CancelProposalHandler,
 		ibcclientclient.UpdateClientProposalHandler,
 		ibcclientclient.UpgradeProposalHandler,
-		aclclient.ResourceDependencyProposalHandler,
 		mintclient.UpdateMinterHandler,
 		// this line is used by starport scaffolding # stargate/app/govProposalHandler
 	)
@@ -192,7 +181,6 @@ var (
 	// non-dependant module elements, such as codec registration
 	// and genesis verification.
 	ModuleBasics = module.NewBasicManager(
-		aclmodule.AppModuleBasic{},
 		auth.AppModuleBasic{},
 		authzmodule.AppModuleBasic{},
 		genutil.AppModuleBasic{},
@@ -221,7 +209,6 @@ var (
 
 	// module account permissions
 	maccPerms = map[string][]string{
-		acltypes.ModuleName:            nil,
 		authtypes.FeeCollectorName:     nil,
 		distrtypes.ModuleName:          nil,
 		minttypes.ModuleName:           {authtypes.Minter},
@@ -258,8 +245,6 @@ var (
 
 	// Boolean to only emit seid version and git commit metric once per chain initialization
 	EmittedSeidVersionMetric = false
-	// EmptyAclmOpts defines a type alias for a list of wasm options.
-	EmptyACLOpts []aclkeeper.Option
 	// EnableOCC allows tests to override default OCC enablement behavior
 	EnableOCC       = true
 	EmptyAppOptions []AppOption
@@ -322,26 +307,25 @@ type App struct {
 	memKeys map[string]*sdk.MemoryStoreKey
 
 	// keepers
-	AccessControlKeeper aclkeeper.Keeper
-	AccountKeeper       authkeeper.AccountKeeper
-	AuthzKeeper         authzkeeper.Keeper
-	BankKeeper          bankkeeper.Keeper
-	CapabilityKeeper    *capabilitykeeper.Keeper
-	StakingKeeper       stakingkeeper.Keeper
-	SlashingKeeper      slashingkeeper.Keeper
-	MintKeeper          mintkeeper.Keeper
-	DistrKeeper         distrkeeper.Keeper
-	GovKeeper           govkeeper.Keeper
-	CrisisKeeper        crisiskeeper.Keeper
-	UpgradeKeeper       upgradekeeper.Keeper
-	ParamsKeeper        paramskeeper.Keeper
-	IBCKeeper           *ibckeeper.Keeper // IBC Keeper must be a pointer in the app, so we can SetRouter on it correctly
-	EvidenceKeeper      evidencekeeper.Keeper
-	TransferKeeper      ibctransferkeeper.Keeper
-	FeeGrantKeeper      feegrantkeeper.Keeper
-	WasmKeeper          wasm.Keeper
-	OracleKeeper        oraclekeeper.Keeper
-	EvmKeeper           evmkeeper.Keeper
+	AccountKeeper    authkeeper.AccountKeeper
+	AuthzKeeper      authzkeeper.Keeper
+	BankKeeper       bankkeeper.Keeper
+	CapabilityKeeper *capabilitykeeper.Keeper
+	StakingKeeper    stakingkeeper.Keeper
+	SlashingKeeper   slashingkeeper.Keeper
+	MintKeeper       mintkeeper.Keeper
+	DistrKeeper      distrkeeper.Keeper
+	GovKeeper        govkeeper.Keeper
+	CrisisKeeper     crisiskeeper.Keeper
+	UpgradeKeeper    upgradekeeper.Keeper
+	ParamsKeeper     paramskeeper.Keeper
+	IBCKeeper        *ibckeeper.Keeper // IBC Keeper must be a pointer in the app, so we can SetRouter on it correctly
+	EvidenceKeeper   evidencekeeper.Keeper
+	TransferKeeper   ibctransferkeeper.Keeper
+	FeeGrantKeeper   feegrantkeeper.Keeper
+	WasmKeeper       wasm.Keeper
+	OracleKeeper     oraclekeeper.Keeper
+	EvmKeeper        evmkeeper.Keeper
 
 	// make scoped keepers public for test purposes
 	ScopedIBCKeeper      capabilitykeeper.ScopedKeeper
@@ -353,6 +337,8 @@ type App struct {
 	TokenFactoryKeeper tokenfactorykeeper.Keeper
 
 	BeginBlockKeepers legacyabci.BeginBlockKeepers
+	EndBlockKeepers   legacyabci.EndBlockKeepers
+	CheckTxKeepers    legacyabci.CheckTxKeepers
 
 	// mm is the module manager
 	mm *module.Manager
@@ -413,7 +399,6 @@ func New(
 	enabledProposals []wasm.ProposalType,
 	appOpts servertypes.AppOptions,
 	wasmOpts []wasm.Option,
-	aclOpts []aclkeeper.Option,
 	appOptions []AppOption,
 	baseAppOptions ...func(*baseapp.BaseApp),
 ) *App {
@@ -434,7 +419,7 @@ func New(
 	}
 
 	keys := sdk.NewKVStoreKeys(
-		acltypes.StoreKey, authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
+		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
 		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
@@ -591,7 +576,6 @@ func New(
 			app.BankKeeper,
 			appCodec,
 			app.TransferKeeper,
-			app.AccessControlKeeper,
 			&app.EvmKeeper,
 			app.StakingKeeper,
 		),
@@ -677,18 +661,6 @@ func New(
 	}
 	app.genesisImportConfig = genesisImportConfig
 
-	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
-	aclOpts = append(aclOpts, aclkeeper.WithResourceTypeToStoreKeyMap(aclutils.ResourceTypeToStoreKeyMap))
-	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators(app.EvmKeeper)))
-	app.AccessControlKeeper = aclkeeper.NewKeeper(
-		appCodec,
-		app.keys[acltypes.StoreKey],
-		app.GetSubspace(acltypes.ModuleName),
-		app.AccountKeeper,
-		app.StakingKeeper,
-		aclOpts...,
-	)
-
 	epochModule := epochmodule.NewAppModule(appCodec, app.EpochKeeper, app.AccountKeeper, app.BankKeeper)
 
 	// register the proposal types
@@ -700,7 +672,6 @@ func New(
 		AddRoute(ibcclienttypes.RouterKey, ibcclient.NewClientProposalHandler(app.IBCKeeper.ClientKeeper)).
 		AddRoute(minttypes.RouterKey, mint.NewProposalHandler(app.MintKeeper)).
 		AddRoute(tokenfactorytypes.RouterKey, tokenfactorymodule.NewProposalHandler(app.TokenFactoryKeeper)).
-		AddRoute(acltypes.ModuleName, aclmodule.NewProposalHandler(app.AccessControlKeeper)).
 		AddRoute(evmtypes.RouterKey, evm.NewProposalHandler(app.EvmKeeper))
 	if len(enabledProposals) != 0 {
 		govRouter.AddRoute(wasm.RouterKey, wasm.NewWasmProposalHandler(app.WasmKeeper, enabledProposals))
@@ -739,7 +710,6 @@ func New(
 			app.AccountKeeper, app.StakingKeeper, app.BaseApp.DeliverTx,
 			encodingConfig.TxConfig,
 		),
-		aclmodule.NewAppModule(appCodec, app.AccessControlKeeper),
 		auth.NewAppModule(appCodec, app.AccountKeeper),
 		vesting.NewAppModule(app.AccountKeeper, app.BankKeeper),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
@@ -776,36 +746,26 @@ func New(
 		IBCKeeper:        app.IBCKeeper,
 		EvmKeeper:        &app.EvmKeeper,
 	}
+	app.EndBlockKeepers = legacyabci.EndBlockKeepers{
+		CrisisKeeper:  &app.CrisisKeeper,
+		GovKeeper:     &app.GovKeeper,
+		StakingKeeper: &app.StakingKeeper,
+		OracleKeeper:  &app.OracleKeeper,
+		EvmKeeper:     &app.EvmKeeper,
+	}
+	app.CheckTxKeepers = legacyabci.CheckTxKeepers{
+		AccountKeeper:  app.AccountKeeper,
+		BankKeeper:     app.BankKeeper,
+		FeeGrantKeeper: &app.FeeGrantKeeper,
+		IBCKeeper:      app.IBCKeeper,
+		OracleKeeper:   app.OracleKeeper,
+		EvmKeeper:      &app.EvmKeeper,
+		ParamsKeeper:   app.ParamsKeeper,
+		UpgradeKeeper:  &app.UpgradeKeeper,
+	}
 
 	app.mm.SetOrderMidBlockers(
 		oracletypes.ModuleName,
-	)
-
-	app.mm.SetOrderEndBlockers(
-		crisistypes.ModuleName,
-		govtypes.ModuleName,
-		stakingtypes.ModuleName,
-		capabilitytypes.ModuleName,
-		authtypes.ModuleName,
-		banktypes.ModuleName,
-		distrtypes.ModuleName,
-		slashingtypes.ModuleName,
-		minttypes.ModuleName,
-		genutiltypes.ModuleName,
-		evidencetypes.ModuleName,
-		authz.ModuleName,
-		feegrant.ModuleName,
-		paramstypes.ModuleName,
-		upgradetypes.ModuleName,
-		vestingtypes.ModuleName,
-		ibchost.ModuleName,
-		ibctransfertypes.ModuleName,
-		oracletypes.ModuleName,
-		epochmoduletypes.ModuleName,
-		evmtypes.ModuleName,
-		wasm.ModuleName,
-		tokenfactorytypes.ModuleName,
-		acltypes.ModuleName,
 	)
 
 	// NOTE: The genutils module must occur after staking so that pools are
@@ -837,7 +797,6 @@ func New(
 		epochmoduletypes.ModuleName,
 		wasm.ModuleName,
 		evmtypes.ModuleName,
-		acltypes.ModuleName,
 		// this line is used by starport scaffolding # stargate/app/initGenesis
 	)
 
@@ -863,7 +822,7 @@ func New(
 	signModeHandler := encodingConfig.TxConfig.SignModeHandler()
 	// app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
 
-	anteHandler, tracerAnteHandler, anteDepGenerator, err := NewAnteHandlerAndDepGenerator(
+	anteHandler, tracerAnteHandler, err := NewAnteHandler(
 		HandlerOptions{
 			HandlerOptions: ante.HandlerOptions{
 				AccountKeeper:   app.AccountKeeper,
@@ -874,15 +833,14 @@ func New(
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 				// BatchVerifier:   app.batchVerifier,
 			},
-			IBCKeeper:           app.IBCKeeper,
-			TXCounterStoreKey:   keys[wasm.StoreKey],
-			WasmConfig:          &wasmConfig,
-			WasmKeeper:          &app.WasmKeeper,
-			OracleKeeper:        &app.OracleKeeper,
-			EVMKeeper:           &app.EvmKeeper,
-			UpgradeKeeper:       &app.UpgradeKeeper,
-			TracingInfo:         app.GetBaseApp().TracingInfo,
-			AccessControlKeeper: &app.AccessControlKeeper,
+			IBCKeeper:         app.IBCKeeper,
+			TXCounterStoreKey: keys[wasm.StoreKey],
+			WasmConfig:        &wasmConfig,
+			WasmKeeper:        &app.WasmKeeper,
+			OracleKeeper:      &app.OracleKeeper,
+			EVMKeeper:         &app.EvmKeeper,
+			UpgradeKeeper:     &app.UpgradeKeeper,
+			TracingInfo:       app.GetBaseApp().TracingInfo,
 			LatestCtxGetter: func() sdk.Context {
 				return app.GetCheckCtx()
 			},
@@ -895,9 +853,7 @@ func New(
 	app.TracerAnteHandler = tracerAnteHandler
 
 	app.SetAnteHandler(anteHandler)
-	app.SetAnteDepGenerator(anteDepGenerator)
 	app.SetMidBlocker(app.MidBlocker)
-	app.SetEndBlocker(app.EndBlocker)
 	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
 	app.SetFinalizeBlocker(app.FinalizeBlocker)
@@ -954,8 +910,26 @@ func (app *App) HandlePreCommit(ctx sdk.Context) error {
 
 // Close closes all items that needs closing (called by baseapp)
 func (app *App) HandleClose() error {
+	var errs []error
+
+	// Close receipt store
 	if app.receiptStore != nil {
-		return app.receiptStore.Close()
+		if err := app.receiptStore.Close(); err != nil {
+			app.Logger().Error("failed to close receipt store", "error", err)
+			errs = append(errs, fmt.Errorf("failed to close receipt store: %w", err))
+		}
+	}
+
+	// Close state store (SeiDB) - critical for cleaning up background goroutines
+	if app.stateStore != nil {
+		if err := app.stateStore.Close(); err != nil {
+			app.Logger().Error("failed to close state store", "error", err)
+			errs = append(errs, fmt.Errorf("failed to close state store: %w", err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("errors during close: %v", errs)
 	}
 	return nil
 }
@@ -966,6 +940,8 @@ func (app *App) SetStoreUpgradeHandlers() {
 	if err != nil {
 		panic(err)
 	}
+
+	accesscontrolStoreKeyName := "aclaccesscontrol"
 
 	if upgradeInfo.Name == "1.0.4beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
@@ -994,7 +970,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 
 	if upgradeInfo.Name == "2.0.0beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
-			Added: []string{acltypes.StoreKey},
+			Added: []string{accesscontrolStoreKeyName},
 		}
 
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
@@ -1028,6 +1004,15 @@ func (app *App) SetStoreUpgradeHandlers() {
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
+
+	if (upgradeInfo.Name == "v6.3.0") && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+		storeUpgrades := storetypes.StoreUpgrades{
+			Deleted: []string{accesscontrolStoreKeyName},
+		}
+
+		// configure store loader that checks if version == upgradeHeight and applies store upgrades
+		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
+	}
 }
 
 // AppName returns the name of the App
@@ -1042,11 +1027,6 @@ func (app *App) GetStateStore() seidb.StateStore { return app.stateStore }
 // MidBlocker application updates every mid block
 func (app *App) MidBlocker(ctx sdk.Context, height int64) []abci.Event {
 	return app.mm.MidBlock(ctx, height)
-}
-
-// EndBlocker application updates every end block
-func (app *App) EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock {
-	return app.mm.EndBlock(ctx, req)
 }
 
 // InitChainer application update at chain initialization
@@ -1261,22 +1241,6 @@ func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte, typedTxs 
 	return txResults
 }
 
-// Returns a mapping of the accessOperation to the channels
-func GetChannelsFromSignalMapping(signalMapping acltypes.MessageCompletionSignalMapping) sdkacltypes.MessageAccessOpsChannelMapping {
-	channelsMapping := make(sdkacltypes.MessageAccessOpsChannelMapping)
-	for messageIndex, accessOperationsToSignal := range signalMapping {
-		channelsMapping[messageIndex] = make(sdkacltypes.AccessOpsChannelMapping)
-		for accessOperation, completionSignals := range accessOperationsToSignal {
-			var channels []chan interface{}
-			for _, completionSignal := range completionSignals {
-				channels = append(channels, completionSignal.Channel)
-			}
-			channelsMapping[messageIndex][accessOperation] = channels
-		}
-	}
-	return channelsMapping
-}
-
 type ChannelResult struct {
 	txIndex int
 	result  *abci.ExecTxResult
@@ -1288,153 +1252,6 @@ func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore)
 	ms := ctx.MultiStore()
 	msCache := ms.CacheMultiStore()
 	return ctx.WithMultiStore(msCache), msCache
-}
-
-// TODO: (occ) this is the roughly analogous to the execution + validation tasks for OCC, but this one performs validation in isolation
-// rather than comparing against a multi-version store
-// The validation happens immediately after execution all part of DeliverTx (which is a path that goes through sei-cosmos to runTx eventually)
-func (app *App) ProcessTxConcurrent(
-	ctx sdk.Context,
-	txIndex int,
-	absoluateTxIndex int,
-	txBytes []byte,
-	typedTx sdk.Tx,
-	wg *sync.WaitGroup,
-	resultChan chan<- ChannelResult,
-	txCompletionSignalingMap acltypes.MessageCompletionSignalMapping,
-	txBlockingSignalsMap acltypes.MessageCompletionSignalMapping,
-	txMsgAccessOpMapping acltypes.MsgIndexToAccessOpMapping,
-) {
-	defer wg.Done()
-	// Store the Channels in the Context Object for each transaction
-	ctx = ctx.WithTxCompletionChannels(GetChannelsFromSignalMapping(txCompletionSignalingMap))
-	ctx = ctx.WithTxBlockingChannels(GetChannelsFromSignalMapping(txBlockingSignalsMap))
-	ctx = ctx.WithTxMsgAccessOps(txMsgAccessOpMapping)
-	ctx = ctx.WithMsgValidator(
-		sdkacltypes.NewMsgValidator(aclutils.StoreKeyToResourceTypePrefixMap),
-	)
-	ctx = ctx.WithTxIndex(absoluateTxIndex)
-
-	// Deliver the transaction and store the result in the channel
-	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes, typedTx)}
-	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
-}
-
-type ProcessBlockConcurrentFunction func(
-	ctx sdk.Context,
-	txs [][]byte,
-	typedTxs []sdk.Tx,
-	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
-	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
-	txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
-	absoluteTxIndices []int,
-) ([]*abci.ExecTxResult, bool)
-
-func (app *App) ProcessBlockConcurrent(
-	ctx sdk.Context,
-	txs [][]byte,
-	typedTxs []sdk.Tx,
-	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
-	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
-	txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
-	absoluteTxIndices []int,
-) ([]*abci.ExecTxResult, bool) {
-	defer metrics.BlockProcessLatency(time.Now(), metrics.CONCURRENT)
-
-	txResults := []*abci.ExecTxResult{}
-	// If there's no transactions then return empty results
-	if len(txs) == 0 {
-		return txResults, true
-	}
-
-	var waitGroup sync.WaitGroup
-	resultChan := make(chan ChannelResult, len(txs))
-	// For each transaction, start goroutine and deliver TX
-	for txIndex, txBytes := range txs {
-		waitGroup.Add(1)
-		go app.ProcessTxConcurrent(
-			ctx,
-			txIndex,
-			absoluteTxIndices[txIndex],
-			txBytes,
-			typedTxs[txIndex],
-			&waitGroup,
-			resultChan,
-			completionSignalingMap[txIndex],
-			blockingSignalsMap[txIndex],
-			txMsgAccessOpMapping[txIndex],
-		)
-	}
-
-	// Do not call waitGroup.Wait() synchronously as it blocks on channel reads
-	// until all the messages are read. This closes the channel once
-	// results are all read and prevent any further writes.
-	go func() {
-		waitGroup.Wait()
-		close(resultChan)
-	}()
-
-	// Gather Results and store it based on txIndex and read results from channel
-	// Concurrent results may be in different order than the original txIndex
-	txResultsMap := map[int]*abci.ExecTxResult{}
-	for result := range resultChan {
-		txResultsMap[result.txIndex] = result.result
-	}
-
-	// Gather Results and store in array based on txIndex to preserve ordering
-	for txIndex := range txs {
-		txResults = append(txResults, txResultsMap[txIndex])
-	}
-
-	ok := true
-	for i, result := range txResults {
-		if result.GetCode() == sdkerrors.ErrInvalidConcurrencyExecution.ABCICode() {
-			ctx.Logger().Error(fmt.Sprintf("Invalid concurrent execution of deliverTx index=%d", i))
-			metrics.IncrFailedConcurrentDeliverTxCounter()
-			ok = false
-		}
-	}
-
-	return txResults, ok
-}
-
-func (app *App) ProcessTxs(
-	ctx sdk.Context,
-	txs [][]byte,
-	typedTxs []sdk.Tx,
-	dependencyDag *acltypes.Dag,
-	processBlockConcurrentFunction ProcessBlockConcurrentFunction,
-	absoluteTxIndices []int,
-) ([]*abci.ExecTxResult, sdk.Context) {
-	// Only run concurrently if no error
-	// Branch off the current context and pass a cached context to the concurrent delivered TXs that are shared.
-	// runTx will write to this ephermeral CacheMultiStore, after the process block is done, Write() is called on this
-	// CacheMultiStore where it writes the data to the parent store (DeliverState) in sorted Key order to maintain
-	// deterministic ordering between validators in the case of concurrent deliverTXs
-	processBlockCtx, processBlockCache := app.CacheContext(ctx)
-	// TODO: (occ) replaced with scheduler sending tasks to workers such as execution and validation
-	concurrentResults, ok := processBlockConcurrentFunction(
-		processBlockCtx,
-		txs,
-		typedTxs,
-		dependencyDag.CompletionSignalingMap,
-		dependencyDag.BlockingSignalsMap,
-		dependencyDag.TxMsgAccessOpMapping,
-		absoluteTxIndices,
-	)
-	if ok {
-		// Write the results back to the concurrent contexts - if concurrent execution fails,
-		// this should not be called and the state is rolled back and retried with synchronous execution
-		processBlockCache.Write()
-		return concurrentResults, ctx
-	}
-	// we need to add the wasm dependencies before we process synchronous otherwise it never gets included
-	ctx = app.addBadWasmDependenciesToContext(ctx, concurrentResults)
-	ctx.Logger().Error("Concurrent Execution failed, retrying with Synchronous")
-
-	txResults := app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
-	processBlockCache.Write()
-	return txResults, ctx
 }
 
 func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []sdk.Tx) (
@@ -1535,27 +1352,6 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 	return execResults, ctx
 }
 
-// BuildDependenciesAndRunTxs deprecated, use ProcessTXsWithOCC instead
-// Deprecated: this will be removed after OCC releases
-func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
-	// dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.GetAnteDepGenerator(), typedTxs)
-
-	// switch err {
-	// case nil:
-	// 	txResults, ctx = app.ProcessTxs(ctx, txs, typedTxs, dependencyDag, app.ProcessBlockConcurrent, absoluteTxIndices)
-	// case acltypes.ErrGovMsgInBlock:
-	// 	ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
-	// 	txResults = app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
-	// 	metrics.IncrDagBuildErrorCounter(metrics.GovMsgInBlock)
-	// default:
-	// 	ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
-	// 	txResults = app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
-	// 	metrics.IncrDagBuildErrorCounter(metrics.FailedToBuild)
-	// }
-
-	return app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices), ctx
-}
-
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -1634,10 +1430,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		}
 	}
 
-	endBlockResp = app.EndBlock(ctx, abci.RequestEndBlock{
-		Height:       req.GetHeight(),
-		BlockGasUsed: evmTotalGasUsed,
-	})
+	endBlockResp = app.EndBlock(ctx, req.GetHeight(), evmTotalGasUsed)
 
 	events = append(events, endBlockResp.Events...)
 	return events, txResults, endBlockResp, nil
@@ -1691,28 +1484,6 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 	}
 	wg.Wait()
 	return typedTxs
-}
-
-func (app *App) addBadWasmDependenciesToContext(ctx sdk.Context, txResults []*abci.ExecTxResult) sdk.Context {
-	wasmContractsWithIncorrectDependencies := []sdk.AccAddress{}
-	for _, txResult := range txResults {
-		// we need to iterate in reverse and pick the first one
-		if txResult.Codespace == sdkerrors.RootCodespace && txResult.Code == sdkerrors.ErrInvalidConcurrencyExecution.ABCICode() {
-			for _, event := range txResult.Events {
-				if event.Type == wasmtypes.EventTypeExecute {
-					for _, attr := range event.Attributes {
-						if string(attr.Key) == wasmtypes.AttributeKeyContractAddr {
-							addr, err := sdk.AccAddressFromBech32(string(attr.Value))
-							if err == nil {
-								wasmContractsWithIncorrectDependencies = append(wasmContractsWithIncorrectDependencies, addr)
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	return ctx.WithContext(context.WithValue(ctx.Context(), aclconstants.BadWasmDependencyAddressesKey, wasmContractsWithIncorrectDependencies))
 }
 
 func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock) abci.ResponseFinalizeBlock {
@@ -2057,7 +1828,6 @@ func GetMaccPerms() map[string][]string {
 func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key, tkey sdk.StoreKey) paramskeeper.Keeper {
 	paramsKeeper := paramskeeper.NewKeeper(appCodec, legacyAmino, key, tkey)
 
-	paramsKeeper.Subspace(acltypes.ModuleName)
 	paramsKeeper.Subspace(authtypes.ModuleName)
 	paramsKeeper.Subspace(banktypes.ModuleName)
 	paramsKeeper.Subspace(stakingtypes.ModuleName)

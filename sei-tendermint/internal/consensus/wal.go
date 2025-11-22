@@ -12,7 +12,6 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 
-	"github.com/tendermint/tendermint/internal/jsontypes"
 	auto "github.com/tendermint/tendermint/internal/libs/autofile"
 	"github.com/tendermint/tendermint/libs/log"
 	tmos "github.com/tendermint/tendermint/libs/os"
@@ -44,15 +43,7 @@ type EndHeightMessage struct {
 	Height int64 `json:"height,string"`
 }
 
-func (EndHeightMessage) TypeTag() string { return "tendermint/wal/EndHeightMessage" }
-
-type WALMessage interface{}
-
-func init() {
-	jsontypes.MustRegister(msgInfo{})
-	jsontypes.MustRegister(timeoutInfo{})
-	jsontypes.MustRegister(EndHeightMessage{})
-}
+type WALMessage any
 
 //--------------------------------------------------------
 // Simple write-ahead logger
