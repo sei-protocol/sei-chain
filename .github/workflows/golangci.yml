@@ -1,4 +1,5 @@
 name: golangci-lint
+
 on:
   push:
     tags:
@@ -8,20 +9,28 @@ on:
       - main
       - seiv2
   pull_request:
+
 permissions:
   contents: read
-  # Optional: allow read access to pull request. Use with `only-new-issues` option.
+  # Uncomment if you want inline PR annotations or only-new-issues support
   # pull-requests: read
+
 jobs:
   golangci:
-    name: lint
+    name: Lint
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/setup-go@v3
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.24
-      - uses: actions/checkout@v3
-      - name: golangci-lint
+          go-version: '1.24'
+          cache: true
+
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
           version: v2.4.0

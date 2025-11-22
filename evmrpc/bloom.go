@@ -1,6 +1,10 @@
 package evmrpc
 
 import (
+	"runtime"
+	"sync"
+	"sync/atomic"
+
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -61,14 +65,50 @@ func EncodeFilters(addresses []common.Address, topics [][]common.Hash) (res [][]
 	return
 }
 
-// TODO: parallelize if filters too large
+// MatchFilters checks whether all the supplied filter rules match the bloom
+// filter. For large input slices the work is split into chunks and evaluated in
+// parallel to speed up matching. The final result is deterministic regardless of
+// execution order.
 func MatchFilters(bloom ethtypes.Bloom, filters [][]bloomIndexes) bool {
-	for _, filter := range filters {
-		if !matchFilter(bloom, filter) {
-			return false
+	// For small filter sets, run sequentially to avoid goroutine overhead.
+	numCPU := runtime.NumCPU()
+	if len(filters) <= numCPU {
+		for _, filter := range filters {
+			if !matchFilter(bloom, filter) {
+				return false
+			}
 		}
+		return true
 	}
-	return true
+
+	// Split filters into chunks and evaluate concurrently.
+	chunkSize := (len(filters) + numCPU - 1) / numCPU
+	var ok atomic.Bool
+	ok.Store(true)
+
+	var wg sync.WaitGroup
+	for i := 0; i < len(filters); i += chunkSize {
+		end := i + chunkSize
+		if end > len(filters) {
+			end = len(filters)
+		}
+		wg.Add(1)
+		go func(sub [][]bloomIndexes) {
+			defer wg.Done()
+			for _, f := range sub {
+				if !ok.Load() {
+					return
+				}
+				if !matchFilter(bloom, f) {
+					ok.Store(false)
+					return
+				}
+			}
+		}(filters[i:end])
+	}
+
+	wg.Wait()
+	return ok.Load()
 }
 
 func matchFilter(bloom ethtypes.Bloom, filter []bloomIndexes) bool {
