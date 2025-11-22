@@ -1,4 +1,7 @@
 {
+  "@type": "/cosmos.params.v1beta1.ParameterChangeProposal",
+  "title": "Raise EVM gas target and minimum fee",
+  "description": "Increase target gas used per block to 2,000,000 and minimum fee per gas to 10 gwei.",
   "changes": [
     {
       "subspace": "evm",
@@ -10,6 +13,5 @@
       "key": "KeyMinFeePerGas",
       "value": "10000000000.000000000000000000"
     }
-  ],
-  "@type": "/cosmos.params.v1beta1.ParameterChangeProposal"
+  ]
 }
