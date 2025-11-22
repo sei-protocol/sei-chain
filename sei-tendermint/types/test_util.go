@@ -8,7 +8,7 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
-func makeCommit(ctx context.Context, blockID BlockID, height int64, round int32,
+func MakeCommit(ctx context.Context, blockID BlockID, height int64, round int32,
 	voteSet *VoteSet, validators []PrivValidator, now time.Time) (*Commit, error) {
 
 	// all sign
