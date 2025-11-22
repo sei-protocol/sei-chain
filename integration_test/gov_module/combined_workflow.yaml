@@ -1,0 +1,70 @@
+- name: Test rewards and governance proposals
+  inputs:
+    # 1. Create test accounts
+    - cmd: seid keys add --keyring-backend test distribution-test
+    - cmd: printf "12345678\n" | seid keys show -a node_admin
+      env: NODE_ADMIN_ACC
+    - cmd: seid keys show -a distribution-test --keyring-backend test
+      env: DISTRIBUTION_TEST_ACC
+
+    # 2. Get initial rewards
+    - cmd: seid q distribution rewards $NODE_ADMIN_ACC -o json | jq -r "(.total[0].amount // 0) | tonumber"
+      env: REWARDS_START
+
+    # 3. Send 1 SEI to increase rewards
+    - cmd: printf "12345678\n" | seid tx bank send $NODE_ADMIN_ACC $DISTRIBUTION_TEST_ACC 1sei -b block --fees 2000usei --chain-id sei -y
+    - cmd: sleep 1
+
+    # 4. Get rewards after transaction
+    - cmd: seid q distribution rewards $NODE_ADMIN_ACC -o json | jq -r "(.total[0].amount // 0) | tonumber"
+      env: REWARDS_AFTER_TX
+
+    # 5. Withdraw all rewards
+    - cmd: printf "12345678\n" | seid tx distribution withdraw-all-rewards -b block --fees 2000usei --chain-id sei -y --from node_admin
+
+    # 6. Get rewards after withdraw
+    - cmd: seid q distribution rewards $NODE_ADMIN_ACC -o json | jq -r "(.total[0].amount // 0) | tonumber"
+      env: REWARDS_AFTER_WITHDRAW
+
+    # 7. Submit a param change proposal
+    - cmd: printf "12345678\n" | seid tx gov submit-proposal param-change ./integration_test/gov_module/proposal/param_change_proposal.json --from admin --chain-id sei --fees 2000usei -b block -y --output json | jq -M -r ".logs[].events[].attributes[0] | select(.key==\"proposal_id\").value"
+      env: PROPOSAL_ID
+
+    # 8. Query proposal status
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+      env: PROPOSAL_STATUS
+
+    # 9. Make a deposit
+    - cmd: printf "12345678\n" | seid tx gov deposit $PROPOSAL_ID 10000000usei --from admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+
+    # 10. Cast votes (adjust for quorum)
+    - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+      node: sei-node-0
+    - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+      node: sei-node-1
+
+    # 11. Wait for proposal to pass
+    - cmd: sleep 35
+
+    # 12. Get final proposal status
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+      env: PROPOSAL_STATUS
+
+    # 13. Get updated tally params
+    - cmd: seid q gov params --output json | jq -r .tally_params.quorum
+      env: NEW_TALLY_PARAM
+    - cmd: seid q params subspace baseapp ABCIParams --output json | jq -r .value | jq .recheck_tx
+      env: NEW_ABCI_PARAM
+
+  verifiers:
+    # Verify rewards increased and then decreased after withdraw
+    - type: eval
+      expr: REWARDS_AFTER_TX > REWARDS_START
+    - type: eval
+      expr: REWARDS_AFTER_WITHDRAW < REWARDS_AFTER_TX
+
+    # Verify proposal changed params correctly
+    - type: eval
+      expr: NEW_TALLY_PARAM == 0.450000000000000000
+    - type: eval
+      expr: NEW_ABCI_PARAM == "true"
