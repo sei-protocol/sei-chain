@@ -51,9 +51,8 @@ func Rollback(bs BlockStore, ss Store, removeBlock bool, privValidatorConfig *co
 		return latestState.LastBlockHeight, latestState.AppHash, nil
 	}
 
-	// If the state store isn't one below nor equal to the blockstore height than this violates the
-	// invariant
-	if latestBlockHeight != latestState.LastBlockHeight {
+	// If the state store isn't one below nor equal to the blockstore height than this violates the invariant
+	if latestBlockHeight != latestStateHeight {
 		return -1, nil, fmt.Errorf("statestore height (%d) is not one below or equal to blockstore height (%d)",
 			latestState.LastBlockHeight, latestBlockHeight)
 	}

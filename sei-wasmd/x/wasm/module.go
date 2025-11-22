@@ -203,12 +203,6 @@ func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-
 	return chRaw
 }
 
-// EndBlock returns the end blocker for the wasm module. It returns no validator
-// updates.
-func (AppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
-	return []abci.ValidatorUpdate{}
-}
-
 // ____________________________________________________________________________
 
 // AddModuleInitFlags implements servertypes.ModuleInitFlags interface.
