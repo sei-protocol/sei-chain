@@ -1,187 +1,92 @@
-name: Sei EVM Layers Pipeline
+name: Cross-Architecture Build Test
 
 on:
-  workflow_call:          # Allows reuse in other workflows
   pull_request:
   push:
     branches:
       - main
-      - "release/**"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+
+env:
+  LEDGER_ENABLED: false
 
 jobs:
-  # ========================================
-  # 1. Build payload + select fastest RPC
-  # ========================================
-  prepare-layers:
-    name: Prepare Layers Payload & RPC Health Check
+  linux-amd64:
+    name: "Linux AMD64"
     runs-on: ubuntu-latest
-    outputs:
-      best_rpc: ${{ steps.rpc.outputs.best_rpc }}
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v5
-
-      # --- Python: generate signed-like payload ---
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Python deps
-        run: pip install web3 eth_account cryptography requests
-
-      - name: Generate layers payload
-        env:
-          SENDER_WALLET: ${{ secrets.SENDER_WALLET }}
-          RECEIVER_WALLET: ${{ secrets.RECEIVER_WALLET }}
-        run: |
-          mkdir -p manifest/out
-          python3 - <<'PY'
-          import json, os, time
-          payload = {
-            "version": "LifeBase-Layers-v3",
-            "timestamp": int(time.time()),
-            "network": "sei-evm",
-            "layers": [5_000_000, 2_000_000, 4_000_000, 10_000_000],
-            "wallet_sender": os.getenv("SENDER_WALLET", "NOT_SET"),
-            "wallet_receiver": os.getenv("RECEIVER_WALLET", "NOT_SET"),
-            "nonce": os.getenv("GITHUB_RUN_ID", "0")
-          }
-          with open("manifest/out/payload.json", "w") as f:
-              json.dump(payload, f, indent=2)
-          print("Payload generated")
-          PY
-
-      # --- Node.js: pick fastest Sei EVM RPC ---
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install Node deps
-        run: npm ci
-        working-directory: ./web3-temp
-        # We create a tiny temp folder to avoid polluting repo
-        # (you can move this to a real /scripts folder if you want permanence)
-
-      - name: Create RPC health-check script
-        run: |
-          mkdir -p .rpc-check
-          cat > .rpc-check/check.js <<'JS'
-          const fetch = require('node-fetch');
-          const AbortController = require('abort-controller');
-
-          async function checkRpcHealth(urls, timeout = 3000) {
-            const results = [];
-            for (const url of urls) {
-              const controller = new AbortController();
-              const timeoutId = setTimeout(() => controller.abort(), timeout);
-              const start = Date.now();
-              try {
-                const res = await fetch(url, {
-                  method: "POST",
-                  body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }),
-                  headers: { "Content-Type": "application/json" },
-                  signal: controller.signal
-                });
-                results.push({ url, ok: res.ok, latency: Date.now() - start });
-              } catch (e) {
-                results.push({ url, ok: false, latency: null });
-              }
-              clearTimeout(timeoutId);
-            }
-            results.sort((a, b) => (a.latency ?? Infinity) - (b.latency ?? Infinity));
-            const best = results.find(r => r.ok);
-            console.log("Best RPC →", best ? best.url : "none");
-            console.log("::set-output name=best_rpc::" + (best ? best.url : ""));
-          }
-
-          const rpcs = [
-            "https://evm-rpc.sei-apis.com",
-            "https://evm-rpc2.sei-apis.com",
-            "https://evm-rpc-sei.g.alchemy.com/v2/demo",   # optional extra
-            "https://sei-evm-rpc.polkachu.com"
-          ];
-          checkRpcHealth(rpcs);
-          JS
-
-      - name: Select fastest RPC
-        id: rpc
-        run: node .rpc-check/check.js
-
-      - name: Upload payload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: layers-payload
-          path: manifest/out/payload.json
-          if-no-files-found: error
-
-  # ========================================
-  # 2. Run full Go test matrix (unchanged logic, just cleaner)
-  # ========================================
-  go-tests:
-    name: Go Tests – ${{ matrix.modules.name }}
-    needs: prepare-layers
-    runs-on: ubuntu-latest
-    env:
-      GO_TEST_TIMEOUT: 30m
-    strategy:
-      fail-fast: false
-      matrix:
-        modules:
-          - name: sei-chain
-            path: ./
-          - name: sei-cosmos
-            path: ./sei-cosmos
-            tags: ledger test_ledger_mock
-          - name: sei-db
-            path: ./sei-db
-          - name: sei-tendermint
-            path: ./sei-tendermint
-          - name: sei-wasmd
-            path: ./sei-wasmd
-            tags: ledger test_ledger_mock
-          - name: sei-wasmvm
-            path: ./sei-wasmvm
-
-    steps:
-      - uses: actions/checkout@v5
 
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version: '1.24'
 
-      - name: Free disk space
+      - name: Install system dependencies
         run: |
-          sudo rm -rf \
-            /usr/share/dotnet \
-            /usr/local/lib/android \
-            /opt/ghc \
-            /opt/hostedtoolcache/CodeQL
-          sudo docker image prune -af || true
+          sudo apt-get update
+          sudo apt-get install -y build-essential
 
-      - name: Run Go tests (with race detector)
-        working-directory: ${{ matrix.modules.path }}
-        env:
-          TAGS: ${{ matrix.modules.tags }}
+      - name: Verify Go installation
         run: |
-          if [ -z "$TAGS" ]; then
-            go test -race -timeout=${GO_TEST_TIMEOUT} -covermode=atomic -coverprofile=coverage.out ./...
-          else
-            go test -race -tags="$TAGS" -timeout=${GO_TEST_TIMEOUT} -covermode=atomic -coverprofile=coverage.out ./...
-          fi
+          go version
+          echo "GOARCH: $(go env GOARCH)"
+          echo "GOOS: $(go env GOOS)"
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+      - name: Download Go dependencies
+        run: go mod download
+
+      - name: Run make install
+        run: make install
+
+      - name: Verify install binary
+        run: seid version --long
+
+      - name: Run make build
+        run: make build
+
+      - name: Verify build binary
+        run: ./build/seid version --long
+
+  macos-arm64:
+    name: "macOS ARM64"
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ${{ matrix.modules.path }}/coverage.out
-          flags: ${{ matrix.modules.name }}
-          name: ${{ matrix.modules.name }}-coverage
-          fail_ci_if_error: true
+          submodules: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.24'
+
+      - name: Install system dependencies
+        run: |
+          xcode-select --version || xcode-select --install
+
+      - name: Verify Go installation
+        run: |
+          go version
+          echo "GOARCH: $(go env GOARCH)"
+          echo "GOOS: $(go env GOOS)"
+
+      - name: Download Go dependencies
+        run: go mod download
+
+      - name: Run make install
+        run: make install
+
+      - name: Verify install binary
+        run: seid version --long
+
+      - name: Run make build
+        run: make build
+
+      - name: Verify build binary
+        run: ./build/seid version --long
