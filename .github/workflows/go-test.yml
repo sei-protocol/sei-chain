@@ -1,4 +1,4 @@
-name: Cross-Architecture Build Test
+name: Sei Cross-Architecture Build Test
 
 on:
   pull_request:
@@ -7,53 +7,59 @@ on:
       - main
 
 concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
 
 env:
   LEDGER_ENABLED: false
+  GO_VERSION: '1.24'  # Centralized for easy updates
+
+defaults:
+  run:
+    shell: bash  # Ensures consistent shell across runners
 
 jobs:
+  # ========================================
+  # Linux AMD64 Build & Verify
+  # ========================================
   linux-amd64:
-    name: "Linux AMD64"
+    name: "Linux AMD64 Build"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          submodules: true  # Enable if Makefile depends on them (added for consistency)
 
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: ${{ env.GO_VERSION }}
+          cache: true  # Cache Go modules for speed
 
-      - name: Install system dependencies
+      - name: Install system deps & verify env
         run: |
-          sudo apt-get update
+          sudo apt-get update -qq
           sudo apt-get install -y build-essential
-
-      - name: Verify Go installation
-        run: |
           go version
-          echo "GOARCH: $(go env GOARCH)"
-          echo "GOOS: $(go env GOOS)"
+          echo "GOOS: $(go env GOOS) | GOARCH: $(go env GOARCH)"
 
-      - name: Download Go dependencies
-        run: go mod download
+      - name: Download deps & build
+        run: |
+          go mod download
+          make install
+          make build
 
-      - name: Run make install
-        run: make install
+      - name: Verify binaries
+        run: |
+          seid version --long || { echo "Install failed"; exit 1; }
+          ./build/seid version --long || { echo "Build failed"; exit 1; }
 
-      - name: Verify install binary
-        run: seid version --long
-
-      - name: Run make build
-        run: make build
-
-      - name: Verify build binary
-        run: ./build/seid version --long
-
+  # ========================================
+  # macOS ARM64 Build & Verify
+  # ========================================
   macos-arm64:
-    name: "macOS ARM64"
+    name: "macOS ARM64 Build"
     runs-on: macos-latest
     steps:
       - name: Checkout code
@@ -64,29 +70,22 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
 
-      - name: Install system dependencies
+      - name: Install system deps & verify env
         run: |
-          xcode-select --version || xcode-select --install
-
-      - name: Verify Go installation
-        run: |
+          xcode-select --print-path || xcode-select --install --verbose
           go version
-          echo "GOARCH: $(go env GOARCH)"
-          echo "GOOS: $(go env GOOS)"
+          echo "GOOS: $(go env GOOS) | GOARCH: $(go env GOARCH)"
 
-      - name: Download Go dependencies
-        run: go mod download
+      - name: Download deps & build
+        run: |
+          go mod download
+          make install
+          make build
 
-      - name: Run make install
-        run: make install
-
-      - name: Verify install binary
-        run: seid version --long
-
-      - name: Run make build
-        run: make build
-
-      - name: Verify build binary
-        run: ./build/seid version --long
+      - name: Verify binaries
+        run: |
+          seid version --long || { echo "Install failed"; exit 1; }
+          ./build/seid version --long || { echo "Build failed"; exit 1; }
