@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -103,15 +104,24 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 
 	// spin up goroutine to keep querying the tree
 	stopCh := make(chan struct{})
-	defer close(stopCh) // Ensure goroutine cleanup even if test fails early
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		ticker := time.NewTicker(5 * time.Millisecond)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				value := db.TreeByName("test").Get([]byte("hello1"))
-				require.True(t, value == nil || string(value) == "world1")
+				tree := db.TreeByName("test")
+				if tree == nil {
+					return
+				}
+				value := tree.Get([]byte("hello1"))
+				// check value only if we got valid result (snapshot might be swapping)
+				if value != nil {
+					require.Equal(t, "world1", string(value))
+				}
 			case <-stopCh:
 				return
 			}
@@ -139,6 +149,10 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 		_ = db.checkAsyncTasks()
 		return db.snapshotRewriteChan == nil
 	}, 3*time.Second, 50*time.Millisecond, "all snapshot rewrites should complete")
+
+	close(stopCh)
+	wg.Wait()
+
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
 

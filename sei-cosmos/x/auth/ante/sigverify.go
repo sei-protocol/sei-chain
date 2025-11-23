@@ -111,7 +111,7 @@ func (spkd SetPubKeyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 			sdk.NewAttribute(sdk.AttributeKeyAccountSequence, fmt.Sprintf("%s/%d", signers[i], sig.Sequence)),
 		))
 
-		sigBzs, err := signatureDataToBz(sig.Data)
+		sigBzs, err := SignatureDataToBz(sig.Data)
 		if err != nil {
 			return ctx, err
 		}
@@ -475,11 +475,11 @@ func CountSubKeys(pub cryptotypes.PubKey) int {
 	return numKeys
 }
 
-// signatureDataToBz converts a SignatureData into raw bytes signature.
+// SignatureDataToBz converts a SignatureData into raw bytes signature.
 // For SingleSignatureData, it returns the signature raw bytes.
 // For MultiSignatureData, it returns an array of all individual signatures,
 // as well as the aggregated signature.
-func signatureDataToBz(data signing.SignatureData) ([][]byte, error) {
+func SignatureDataToBz(data signing.SignatureData) ([][]byte, error) {
 	if data == nil {
 		return nil, fmt.Errorf("got empty SignatureData")
 	}
@@ -492,7 +492,7 @@ func signatureDataToBz(data signing.SignatureData) ([][]byte, error) {
 		var err error
 
 		for _, d := range data.Signatures {
-			nestedSigs, err := signatureDataToBz(d)
+			nestedSigs, err := SignatureDataToBz(d)
 			if err != nil {
 				return nil, err
 			}

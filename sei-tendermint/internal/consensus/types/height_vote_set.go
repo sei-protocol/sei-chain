@@ -260,6 +260,7 @@ func (hvs *HeightVoteSet) toAllRoundVotes() []roundVotes {
 	return allVotes
 }
 
+// JSON write-only representation of HeightVotesSet.
 type roundVotes struct {
 	Round              int32    `json:"round"`
 	Prevotes           []string `json:"prevotes"`
