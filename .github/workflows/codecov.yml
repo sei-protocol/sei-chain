@@ -1,0 +1,81 @@
+coverage:
+  precision: 2
+  round: down
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 0.1% # allow this much decrease on project
+      sei-chain:
+        target: 40%
+        paths:
+          - "!sei-cosmos/**"
+          - "!sei-db/**"
+          - "!sei-tendermint/**"
+          - "!sei-wasmd/**"
+          - "!sei-wasmvm/**"
+        flags:
+          - sei-chain
+      sei-cosmos:
+        target: 40%
+        paths:
+          - "sei-cosmos/**"
+        flags:
+          - sei-cosmos
+      sei-tendermint:
+        target: 40%
+        paths:
+          - "sei-tendermint/**"
+        flags:
+          - sei-tendermint
+      sei-wasmd:
+        target: 40%
+        paths:
+          - "sei-wasmd/**"
+        flags:
+          - sei-wasmd
+      sei-db:
+        target: 30%
+        paths:
+          - "sei-db/**"
+        flags:
+          - sei-db
+    patch:
+      default:
+        target: 70%
+
+comment:
+  layout: "reach,diff,flags,tree,betaprofiling"
+  behavior: default # update if exists else create new
+  require_changes: true
+
+ignore:
+  # Common documentation and metadata
+  - "**/docs/**/*"
+  - "**/*.md"
+  - "**/*.rst"
+  - "**/example/**/*"
+  - "**/benchmark/**/*"
+
+  # Generated protobuf files
+
+  - "**/*.pb.go"
+  - "**/*.pb.gw.go"
+
+  # Tests and test utilities
+
+
+  - "**/integration_test/**/*"
+  - "**/testutil/**/*"
+  - "**/x/**/test_common.go"
+  - "**/x/**/testdata/**/*"
+
+  # Scripts, tooling, and contribution helpers
+  - "**/scripts/**/*"
+  - "**/contrib/**/*"
+  - "**/docker/**/*"
+
+
+  # Project-specific exclusions
+  - "precompiles/**/legacy/**/*"
+  - "**/cli/**/*"
