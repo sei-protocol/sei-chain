@@ -673,73 +673,59 @@ func (r *Reactor) handleStateMessage(m p2p.RecvMsg[*tmcons.Message]) (err error)
 		return nil
 	}
 
-	switch msg := m.Message.Sum.(type) {
-	case *tmcons.Message_NewRoundStep:
-		msgI, err := newRoundStepMessageFromProto(msg.NewRoundStep)
-		if err != nil {
-			return err
-		}
-
+	msg, err := MsgFromProto(m.Message)
+	if err != nil {
+		return err
+	}
+	switch msg := msg.(type) {
+	case *NewRoundStepMessage:
 		r.state.mtx.RLock()
 		initialHeight := r.state.state.InitialHeight
 		r.state.mtx.RUnlock()
 
-		if err := msgI.ValidateHeight(initialHeight); err != nil {
+		if err := msg.ValidateHeight(initialHeight); err != nil {
 			return err
 		}
-		ps.ApplyNewRoundStepMessage(msgI)
+		ps.ApplyNewRoundStepMessage(msg)
 
-	case *tmcons.Message_NewValidBlock:
-		msgI, err := newValidBlockMessageFromProto(msg.NewValidBlock)
-		if err != nil {
-			return err
-		}
-		ps.ApplyNewValidBlockMessage(msgI)
+	case *NewValidBlockMessage:
+		ps.ApplyNewValidBlockMessage(msg)
 
-	case *tmcons.Message_HasVote:
-		msgI, err := hasVoteMessageFromProto(msg.HasVote)
-		if err != nil {
-			return err
-		}
-		if err := ps.ApplyHasVoteMessage(msgI); err != nil {
+	case *HasVoteMessage:
+		if err := ps.ApplyHasVoteMessage(msg); err != nil {
 			return fmt.Errorf("ps.ApplyHasVoteMessage(): %w", err)
 		}
-	case *tmcons.Message_VoteSetMaj23:
-		vsmMsg, err := voteSetMaj23MessageFromProto(msg.VoteSetMaj23)
-		if err != nil {
-			return err
-		}
-
+	case *VoteSetMaj23Message:
 		r.state.mtx.RLock()
 		height := r.state.roundState.Height()
 		votes := r.state.roundState.Votes()
 		r.state.mtx.RUnlock()
 
-		if height != vsmMsg.Height {
+		if height != msg.Height {
 			return nil
 		}
 
 		// peer claims to have a maj23 for some BlockID at <H,R,S>
-		if err := votes.SetPeerMaj23(vsmMsg.Round, vsmMsg.Type, ps.peerID, vsmMsg.BlockID); err != nil {
+		if err := votes.SetPeerMaj23(msg.Round, msg.Type, ps.peerID, msg.BlockID); err != nil {
 			return err
 		}
 
 		// Respond with a VoteSetBitsMessage showing which votes we have and
 		// consequently shows which we don't have.
 		var ourVotes *bits.BitArray
-		switch vsmMsg.Type {
+		switch msg.Type {
 		case tmproto.PrevoteType:
-			ourVotes = votes.Prevotes(vsmMsg.Round).BitArrayByBlockID(vsmMsg.BlockID)
+			ourVotes = votes.Prevotes(msg.Round).BitArrayByBlockID(msg.BlockID)
 		case tmproto.PrecommitType:
-			ourVotes = votes.Precommits(vsmMsg.Round).BitArrayByBlockID(vsmMsg.BlockID)
+			ourVotes = votes.Precommits(msg.Round).BitArrayByBlockID(msg.BlockID)
 		default:
 			panic("bad VoteSetBitsMessage field type; forgot to add a check in ValidateBasic?")
 		}
 		r.channels.votSet.Send(MsgToProto(&VoteSetBitsMessage{
-			Height:  vsmMsg.Height,
-			Round:   vsmMsg.Round,
-			Type:    vsmMsg.Type,
-			BlockID: vsmMsg.BlockID,
+			Height:  msg.Height,
+			Round:   msg.Round,
+			Type:    msg.Type,
+			BlockID: msg.BlockID,
 			Votes:   ourVotes,
 		}), m.From)
 	default:
@@ -768,29 +754,21 @@ func (r *Reactor) handleDataMessage(ctx context.Context, m p2p.RecvMsg[*tmcons.M
 		return nil
 	}
 
-	switch msg := m.Message.Sum.(type) {
-	case *tmcons.Message_Proposal:
-		pMsg, err := proposalMessageFromProto(msg.Proposal)
-		if err != nil {
-			return err
-		}
-		ps.SetHasProposal(pMsg.Proposal)
-		return utils.Send(ctx, r.state.peerMsgQueue, msgInfo{pMsg, m.From, tmtime.Now()})
-	case *tmcons.Message_ProposalPol:
-		msgI, err := proposalPOLMessageFromProto(msg.ProposalPol)
-		if err != nil {
-			return err
-		}
-		ps.ApplyProposalPOLMessage(msgI)
+	msg, err := MsgFromProto(m.Message)
+	if err != nil {
+		return err
+	}
+	switch msg := msg.(type) {
+	case *ProposalMessage:
+		ps.SetHasProposal(msg.Proposal)
+		return utils.Send(ctx, r.state.peerMsgQueue, msgInfo{msg, m.From, tmtime.Now()})
+	case *ProposalPOLMessage:
+		ps.ApplyProposalPOLMessage(msg)
 		return nil
-	case *tmcons.Message_BlockPart:
-		bpMsg, err := blockPartMessageFromProto(msg.BlockPart)
-		if err != nil {
-			return err
-		}
-		ps.SetHasProposalBlockPart(bpMsg.Height, bpMsg.Round, int(bpMsg.Part.Index))
+	case *BlockPartMessage:
+		ps.SetHasProposalBlockPart(msg.Height, msg.Round, int(msg.Part.Index))
 		r.Metrics.BlockParts.With("peer_id", string(m.From)).Add(1)
-		return utils.Send(ctx, r.state.peerMsgQueue, msgInfo{bpMsg, m.From, tmtime.Now()})
+		return utils.Send(ctx, r.state.peerMsgQueue, msgInfo{msg, m.From, tmtime.Now()})
 	default:
 		return fmt.Errorf("received unknown message on DataChannel: %T", msg)
 	}
@@ -815,13 +793,13 @@ func (r *Reactor) handleVoteMessage(ctx context.Context, m p2p.RecvMsg[*tmcons.M
 		return nil
 	}
 
-	switch msg := m.Message.Sum.(type) {
-	case *tmcons.Message_Vote:
-		vMsg, err := voteMessageFromProto(msg.Vote)
-		if err != nil {
-			return err
-		}
+	msg, err := MsgFromProto(m.Message)
+	if err != nil {
+		return err
+	}
 
+	switch msg := msg.(type) {
+	case *VoteMessage:
 		r.state.mtx.RLock()
 		height := r.state.roundState.Height()
 		valSize := r.state.roundState.Validators().Size()
@@ -830,10 +808,10 @@ func (r *Reactor) handleVoteMessage(ctx context.Context, m p2p.RecvMsg[*tmcons.M
 
 		ps.EnsureVoteBitArrays(height, valSize)
 		ps.EnsureVoteBitArrays(height-1, lastCommitSize)
-		if err := ps.SetHasVote(vMsg.Vote); err != nil {
+		if err := ps.SetHasVote(msg.Vote); err != nil {
 			return err
 		}
-		return utils.Send(ctx, r.state.peerMsgQueue, msgInfo{vMsg, m.From, tmtime.Now()})
+		return utils.Send(ctx, r.state.peerMsgQueue, msgInfo{msg, m.From, tmtime.Now()})
 	default:
 		return fmt.Errorf("received unknown message on VoteChannel: %T", msg)
 	}
@@ -858,33 +836,32 @@ func (r *Reactor) handleVoteSetBitsMessage(m p2p.RecvMsg[*tmcons.Message]) (err 
 		return nil
 	}
 
-	switch msg := m.Message.Sum.(type) {
-	case *tmcons.Message_VoteSetBits:
-		vsbMsg, err := voteSetBitsMessageFromProto(msg.VoteSetBits)
-		if err != nil {
-			return err
-		}
-
+	msg, err := MsgFromProto(m.Message)
+	if err != nil {
+		return err
+	}
+	switch msg := msg.(type) {
+	case *VoteSetBitsMessage:
 		r.state.mtx.RLock()
 		height := r.state.roundState.Height()
 		votes := r.state.roundState.Votes()
 		r.state.mtx.RUnlock()
 
-		if height == vsbMsg.Height {
+		if height == msg.Height {
 			var ourVotes *bits.BitArray
 
-			switch vsbMsg.Type {
+			switch msg.Type {
 			case tmproto.PrevoteType:
-				ourVotes = votes.Prevotes(vsbMsg.Round).BitArrayByBlockID(vsbMsg.BlockID)
+				ourVotes = votes.Prevotes(msg.Round).BitArrayByBlockID(msg.BlockID)
 			case tmproto.PrecommitType:
-				ourVotes = votes.Precommits(vsbMsg.Round).BitArrayByBlockID(vsbMsg.BlockID)
+				ourVotes = votes.Precommits(msg.Round).BitArrayByBlockID(msg.BlockID)
 			default:
 				panic("bad VoteSetBitsMessage field type; forgot to add a check in ValidateBasic?")
 			}
 
-			ps.ApplyVoteSetBitsMessage(vsbMsg, ourVotes)
+			ps.ApplyVoteSetBitsMessage(msg, ourVotes)
 		} else {
-			ps.ApplyVoteSetBitsMessage(vsbMsg, nil)
+			ps.ApplyVoteSetBitsMessage(msg, nil)
 		}
 		return nil
 	default:
