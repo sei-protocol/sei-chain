@@ -31,26 +31,35 @@ var (
 
 type isPBMessage interface {
 	*pb.SnapshotsRequest |
-	*pb.SnapshotsResponse |
-	*pb.ChunkRequest |
-	*pb.ChunkResponse |
-	*pb.LightBlockRequest |
-	*pb.LightBlockResponse | 
-	*pb.ParamsRequest |
-	*pb.ParamsResponse
+		*pb.SnapshotsResponse |
+		*pb.ChunkRequest |
+		*pb.ChunkResponse |
+		*pb.LightBlockRequest |
+		*pb.LightBlockResponse |
+		*pb.ParamsRequest |
+		*pb.ParamsResponse
 }
 
 func wrap[T isPBMessage](msg T) *pb.Message {
 	switch msg := any(msg).(type) {
-	case *pb.SnapshotsRequest: return &pb.Message{ Sum: &pb.Message_SnapshotsRequest { SnapshotsRequest: msg } }
-	case *pb.SnapshotsResponse: return &pb.Message{ Sum: &pb.Message_SnapshotsResponse { SnapshotsResponse: msg } }
-	case *pb.ChunkRequest: return &pb.Message{ Sum: &pb.Message_ChunkRequest { ChunkRequest: msg } }
-	case *pb.ChunkResponse: return &pb.Message{ Sum: &pb.Message_ChunkResponse { ChunkResponse: msg } }
-	case *pb.LightBlockRequest: return &pb.Message{ Sum: &pb.Message_LightBlockRequest { LightBlockRequest: msg } }
-	case *pb.LightBlockResponse: return &pb.Message{ Sum: &pb.Message_LightBlockResponse { LightBlockResponse: msg } }
-	case *pb.ParamsRequest: return &pb.Message{ Sum: &pb.Message_ParamsRequest { ParamsRequest: msg } }
-	case *pb.ParamsResponse: return &pb.Message{ Sum: &pb.Message_ParamsResponse { ParamsResponse: msg } }
-	default: panic("unreachable")
+	case *pb.SnapshotsRequest:
+		return &pb.Message{Sum: &pb.Message_SnapshotsRequest{SnapshotsRequest: msg}}
+	case *pb.SnapshotsResponse:
+		return &pb.Message{Sum: &pb.Message_SnapshotsResponse{SnapshotsResponse: msg}}
+	case *pb.ChunkRequest:
+		return &pb.Message{Sum: &pb.Message_ChunkRequest{ChunkRequest: msg}}
+	case *pb.ChunkResponse:
+		return &pb.Message{Sum: &pb.Message_ChunkResponse{ChunkResponse: msg}}
+	case *pb.LightBlockRequest:
+		return &pb.Message{Sum: &pb.Message_LightBlockRequest{LightBlockRequest: msg}}
+	case *pb.LightBlockResponse:
+		return &pb.Message{Sum: &pb.Message_LightBlockResponse{LightBlockResponse: msg}}
+	case *pb.ParamsRequest:
+		return &pb.Message{Sum: &pb.Message_ParamsRequest{ParamsRequest: msg}}
+	case *pb.ParamsResponse:
+		return &pb.Message{Sum: &pb.Message_ParamsResponse{ParamsResponse: msg}}
+	default:
+		panic("unreachable")
 	}
 }
 
@@ -178,13 +187,12 @@ type Reactor struct {
 	// These will only be set when a state sync is in progress. It is used to feed
 	// received snapshots and chunks into the syncer and manage incoming and outgoing
 	// providers.
-	mtx               sync.RWMutex
-	initSyncer        func() *syncer
-	requestSnaphot    func() error
-	syncer            *syncer
-	providers         map[types.NodeID]*BlockProvider
-	initStateProvider func(ctx context.Context, chainID string, initialHeight int64) error
-	stateProvider     StateProvider
+	mtx            sync.RWMutex
+	initSyncer     func() *syncer
+	requestSnaphot func() error
+	syncer         *syncer
+	providers      map[types.NodeID]*BlockProvider
+	stateProvider  StateProvider
 
 	eventBus           *eventbus.EventBus
 	metrics            *Metrics
@@ -243,7 +251,7 @@ func NewReactor(
 	if err != nil {
 		return nil, fmt.Errorf("open light block channel: %w", err)
 	}
-	paramsChannel, err := p2p.OpenChannel(router,GetParamsChannelDescriptor())
+	paramsChannel, err := p2p.OpenChannel(router, GetParamsChannelDescriptor())
 	if err != nil {
 		return nil, fmt.Errorf("open params channel: %w", err)
 	}
@@ -274,6 +282,43 @@ func NewReactor(
 
 	r.BaseService = *service.NewBaseService(logger, "StateSync", r)
 	return r, nil
+}
+
+func (r *Reactor) initStateProvider(ctx context.Context, chainID string, initialHeight int64) error {
+	to := light.TrustOptions{
+		Period: r.cfg.TrustPeriod,
+		Height: r.cfg.TrustHeight,
+		Hash:   r.cfg.TrustHashBytes(),
+	}
+	spLogger := r.logger.With("module", "stateprovider")
+	spLogger.Info("initializing state provider", "trustPeriod", to.Period,
+		"trustHeight", to.Height, "useP2P", r.cfg.UseP2P)
+
+	if r.cfg.UseP2P {
+		if err := r.waitForEnoughPeers(ctx, 2); err != nil {
+			return err
+		}
+
+		peers := r.peers.All()
+		providers := make([]provider.Provider, len(peers))
+		for idx, p := range peers {
+			providers[idx] = NewBlockProvider(p, chainID, r.dispatcher)
+		}
+
+		stateProvider, err := NewP2PStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, providers, to, r.paramsChannel, r.logger.With("module", "stateprovider"), r.cfg.BlacklistTTL)
+		if err != nil {
+			return fmt.Errorf("failed to initialize P2P state provider: %w", err)
+		}
+		r.stateProvider = stateProvider
+		return nil
+	}
+
+	stateProvider, err := NewRPCStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, r.cfg.RPCServers, to, spLogger, r.cfg.BlacklistTTL)
+	if err != nil {
+		return fmt.Errorf("failed to initialize RPC state provider: %w", err)
+	}
+	r.stateProvider = stateProvider
+	return nil
 }
 
 // OnStart starts separate go routines for each p2p Channel and listens for
@@ -310,45 +355,6 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		return nil
 	}
 	r.evict = r.router.Evict
-
-	r.initStateProvider = func(ctx context.Context, chainID string, initialHeight int64) error {
-		to := light.TrustOptions{
-			Period: r.cfg.TrustPeriod,
-			Height: r.cfg.TrustHeight,
-			Hash:   r.cfg.TrustHashBytes(),
-		}
-		spLogger := r.logger.With("module", "stateprovider")
-		spLogger.Info("initializing state provider", "trustPeriod", to.Period,
-			"trustHeight", to.Height, "useP2P", r.cfg.UseP2P)
-
-		if r.cfg.UseP2P {
-			if err := r.waitForEnoughPeers(ctx, 2); err != nil {
-				return err
-			}
-
-			peers := r.peers.All()
-			providers := make([]provider.Provider, len(peers))
-			for idx, p := range peers {
-				providers[idx] = NewBlockProvider(p, chainID, r.dispatcher)
-			}
-
-			stateProvider, err := NewP2PStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, providers, to, r.paramsChannel, r.logger.With("module", "stateprovider"), r.cfg.BlacklistTTL, func(height uint64) *pb.Message {
-				return wrap(&pb.ParamsRequest{Height: height})
-			})
-			if err != nil {
-				return fmt.Errorf("failed to initialize P2P state provider: %w", err)
-			}
-			r.stateProvider = stateProvider
-			return nil
-		}
-
-		stateProvider, err := NewRPCStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, r.cfg.RPCServers, to, spLogger, r.cfg.BlacklistTTL)
-		if err != nil {
-			return fmt.Errorf("failed to initialize RPC state provider: %w", err)
-		}
-		r.stateProvider = stateProvider
-		return nil
-	}
 
 	go r.processSnapshotCh(ctx)
 	go r.processChunkCh(ctx)
@@ -705,7 +711,7 @@ func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg[*pb.M
 		logger.Info("received snapshot", "height", resp.GetHeight(), "format", resp.GetFormat())
 		_, err := r.syncer.AddSnapshot(m.From, &snapshot{
 			Height:   resp.GetHeight(),
-			Format:  	resp.GetFormat(),
+			Format:   resp.GetFormat(),
 			Chunks:   resp.GetChunks(),
 			Hash:     resp.GetHash(),
 			Metadata: resp.GetMetadata(),

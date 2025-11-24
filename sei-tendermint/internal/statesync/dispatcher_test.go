@@ -22,13 +22,13 @@ import (
 	"github.com/tendermint/tendermint/types"
 )
 
-type testSuite struct {
+type dispatcherTestSuite struct {
 	network    *p2p.TestNetwork
 	node       *p2p.TestNode
 	dispatcher *Dispatcher
 }
 
-func dispatcherSetup(t *testing.T) *testSuite {
+func dispatcherSetup(t *testing.T) *dispatcherTestSuite {
 	t.Helper()
 
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{
@@ -46,9 +46,9 @@ func dispatcherSetup(t *testing.T) *testSuite {
 	network.Start(t)
 	t.Cleanup(leaktest.Check(t))
 
-	return &testSuite{
-		network: network,
-		node:    n,
+	return &dispatcherTestSuite{
+		network:    network,
+		node:       n,
 		dispatcher: NewDispatcher(ch),
 	}
 }
@@ -58,12 +58,12 @@ type DispatcherNode struct {
 	blockCh *p2p.Channel[*pb.Message]
 }
 
-func (ts *testSuite) AddPeer(t *testing.T) *DispatcherNode {
+func (ts *dispatcherTestSuite) AddPeer(t *testing.T) *DispatcherNode {
 	testNode := ts.network.MakeNode(t, p2p.TestNodeOptions{
 		MaxPeers:     utils.Some(1),
 		MaxConnected: utils.Some(1),
 	})
-	blockCh, err := p2p.OpenChannel(testNode.Router,GetLightBlockChannelDescriptor())
+	blockCh, err := p2p.OpenChannel(testNode.Router, GetLightBlockChannelDescriptor())
 	if err != nil {
 		panic(err)
 	}
@@ -77,7 +77,7 @@ func (ts *testSuite) AddPeer(t *testing.T) *DispatcherNode {
 
 // handleRequests is a helper function usually run in a separate go routine to
 // imitate the expected responses of the reactor wired to the dispatcher
-func (n *Node) handleRequests(ctx context.Context, d *Dispatcher) error {
+func (n *DispatcherNode) handleRequests(ctx context.Context, d *Dispatcher) error {
 	for {
 		req, err := n.blockCh.Recv(ctx)
 		if err != nil {
@@ -95,10 +95,10 @@ func (n *Node) handleRequests(ctx context.Context, d *Dispatcher) error {
 func TestDispatcherBasic(t *testing.T) {
 	const numPeers = 5
 	ctx := t.Context()
-	ts := setup(t)
+	ts := dispatcherSetup(t)
 
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		var peers []*Node
+		var peers []*DispatcherNode
 		for range numPeers {
 			n := ts.AddPeer(t)
 			s.SpawnBg(func() error { return n.handleRequests(ctx, ts.dispatcher) })
@@ -126,11 +126,13 @@ func TestDispatcherBasic(t *testing.T) {
 		t.Fatal(err)
 	}
 	// assert that all calls were responded to
-	assert.Empty(t, ts.dispatcher.calls)
+	for calls := range ts.dispatcher.calls.Lock() {
+		assert.Empty(t, calls)
+	}
 }
 
 func TestDispatcherReturnsNoBlock(t *testing.T) {
-	ts := setup(t)
+	ts := dispatcherSetup(t)
 	peer := ts.AddPeer(t)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
@@ -159,7 +161,7 @@ func TestDispatcherReturnsNoBlock(t *testing.T) {
 }
 
 func TestDispatcherTimeOutWaitingOnLightBlock(t *testing.T) {
-	ts := setup(t)
+	ts := dispatcherSetup(t)
 	peer := factory.NodeID(t, "a")
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -172,8 +174,8 @@ func TestDispatcherTimeOutWaitingOnLightBlock(t *testing.T) {
 
 func TestDispatcherProviders(t *testing.T) {
 	ctx := t.Context()
-	ts := setup(t)
-	var peers []*Node
+	ts := dispatcherSetup(t)
+	var peers []*DispatcherNode
 	for range 5 {
 		n := ts.AddPeer(t)
 		go n.handleRequests(ctx, ts.dispatcher)
@@ -354,11 +356,6 @@ func createPeerSet(num int) []types.NodeID {
 }
 
 const testAppVersion = 9
-
-type lightBlockResponse struct {
-	block *types.LightBlock
-	peer  types.NodeID
-}
 
 func mockLBResp(ctx context.Context, peer types.NodeID, height int64, time time.Time) lightBlockResponse {
 	vals, pv := factory.ValidatorSet(ctx, 3, 10)

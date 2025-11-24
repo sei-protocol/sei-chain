@@ -1,4 +1,4 @@
-package statesync 
+package statesync
 
 import (
 	"bytes"
@@ -11,15 +11,16 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
-	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
 	"github.com/tendermint/tendermint/internal/p2p"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/light"
 	lightprovider "github.com/tendermint/tendermint/light/provider"
 	lighthttp "github.com/tendermint/tendermint/light/provider/http"
 	lightrpc "github.com/tendermint/tendermint/light/rpc"
 	lightdb "github.com/tendermint/tendermint/light/store/db"
+	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
 	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
 	"github.com/tendermint/tendermint/types"
 	"github.com/tendermint/tendermint/version"
@@ -218,7 +219,6 @@ type StateProviderP2P struct {
 	initialHeight           int64
 	paramsSendCh            *p2p.Channel[*pb.Message]
 	paramsRecvCh            chan types.ConsensusParams
-	paramsReqCreator        func(uint64) *pb.Message
 	verifyLightBlockTimeout time.Duration
 }
 
@@ -234,7 +234,6 @@ func NewP2PStateProvider(
 	paramsSendCh *p2p.Channel[*pb.Message],
 	logger log.Logger,
 	blacklistTTL time.Duration,
-	paramsReqCreator func(uint64) *pb.Message,
 ) (StateProvider, error) {
 	if len(providers) < 2 {
 		return nil, fmt.Errorf("at least 2 peers are required, got %d", len(providers))
@@ -251,7 +250,6 @@ func NewP2PStateProvider(
 		initialHeight:           initialHeight,
 		paramsSendCh:            paramsSendCh,
 		paramsRecvCh:            make(chan types.ConsensusParams),
-		paramsReqCreator:        paramsReqCreator,
 		verifyLightBlockTimeout: verifyLightBlockTimeout,
 	}, nil
 }
@@ -393,7 +391,7 @@ func (s *StateProviderP2P) consensusParams(ctx context.Context, height int64) (t
 
 	out := make(chan types.ConsensusParams)
 
-	retryAll := func(childCtx context.Context) error {
+	retryAll := func(ctx context.Context) error {
 		for _, provider := range s.lc.Witnesses() {
 			p, ok := provider.(*BlockProvider)
 			if !ok {
@@ -405,24 +403,14 @@ func (s *StateProviderP2P) consensusParams(ctx context.Context, height int64) (t
 				return fmt.Errorf("invalid provider (%s) node id: %w", p.String(), err)
 			}
 
-			go func(peer types.NodeID) {
-				s.paramsSendCh.Send(s.paramsReqCreator(uint64(height)), peer)
-
-				select {
-				case <-childCtx.Done():
+			go func() {
+				s.paramsSendCh.Send(wrap(&pb.ParamsRequest{Height: uint64(height)}), peer)
+				params, err := utils.Recv(ctx, s.paramsRecvCh)
+				if err != nil {
 					return
-				case params, ok := <-s.paramsRecvCh:
-					if !ok {
-						return
-					}
-					select {
-					case <-childCtx.Done():
-						return
-					case out <- params:
-						return
-					}
 				}
-			}(peer)
+				_ = utils.Send(ctx, out, params)
+			}()
 		}
 		return nil
 	}

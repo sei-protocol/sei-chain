@@ -136,10 +136,10 @@ func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
 	})
 	n := &Node{
 		TestNode:   testNode,
-		snapshotCh: orPanic(p2p.OpenChannel(testNode.Router,GetSnapshotChannelDescriptor())),
-		chunkCh:    orPanic(p2p.OpenChannel(testNode.Router,GetChunkChannelDescriptor())),
-		blockCh:    orPanic(p2p.OpenChannel(testNode.Router,GetLightBlockChannelDescriptor())),
-		paramsCh:   orPanic(p2p.OpenChannel(testNode.Router,GetParamsChannelDescriptor())),
+		snapshotCh: orPanic(p2p.OpenChannel(testNode.Router, GetSnapshotChannelDescriptor())),
+		chunkCh:    orPanic(p2p.OpenChannel(testNode.Router, GetChunkChannelDescriptor())),
+		blockCh:    orPanic(p2p.OpenChannel(testNode.Router, GetLightBlockChannelDescriptor())),
+		paramsCh:   orPanic(p2p.OpenChannel(testNode.Router, GetParamsChannelDescriptor())),
 	}
 	rts.node.Connect(t.Context(), testNode)
 	return n

@@ -41,12 +41,18 @@ const (
 // TODO(gprusak): that's not sufficient - parsing proto requires checking nils everywhere.
 func wrap[T *pb.BlockRequest | *pb.NoBlockResponse | *pb.BlockResponse | *pb.StatusRequest | *pb.StatusResponse](msg T) *pb.Message {
 	switch msg := any(msg).(type) {
-	case *pb.BlockRequest: return &pb.Message { Sum: &pb.Message_BlockRequest { BlockRequest: msg } }
-	case *pb.NoBlockResponse: return &pb.Message { Sum: &pb.Message_NoBlockResponse { NoBlockResponse: msg } }
-	case *pb.BlockResponse: return &pb.Message { Sum: &pb.Message_BlockResponse { BlockResponse: msg } }
-	case *pb.StatusRequest: return &pb.Message { Sum: &pb.Message_StatusRequest { StatusRequest: msg } } 
-	case *pb.StatusResponse: return &pb.Message { Sum: &pb.Message_StatusResponse { StatusResponse: msg } }
-	default: panic("unreachable")	
+	case *pb.BlockRequest:
+		return &pb.Message{Sum: &pb.Message_BlockRequest{BlockRequest: msg}}
+	case *pb.NoBlockResponse:
+		return &pb.Message{Sum: &pb.Message_NoBlockResponse{NoBlockResponse: msg}}
+	case *pb.BlockResponse:
+		return &pb.Message{Sum: &pb.Message_BlockResponse{BlockResponse: msg}}
+	case *pb.StatusRequest:
+		return &pb.Message{Sum: &pb.Message_StatusRequest{StatusRequest: msg}}
+	case *pb.StatusResponse:
+		return &pb.Message{Sum: &pb.Message_StatusResponse{StatusResponse: msg}}
+	default:
+		panic("unreachable")
 	}
 }
 
