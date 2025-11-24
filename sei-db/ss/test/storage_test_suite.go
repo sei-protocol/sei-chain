@@ -622,6 +622,49 @@ func (s *StorageTestSuite) TestDatabaseBugInitialReverseIterationHigher() {
 	s.Require().Equal(0, count)
 }
 
+// TestIteratorNoMatchingVersions tests that iterators handle the case where all keys
+// have versions higher than the requested version. This is a regression test for a bug
+// where SeekLT returning false would leave the iterator invalid, but the code would
+// still try to access Key()/Value() on the invalid iterator, causing a panic with
+// "invalid PebbleDB MVCC value" due to garbage data.
+func (s *StorageTestSuite) TestIteratorNoMatchingVersions() {
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
+	s.Require().NoError(err)
+	defer func() { _ = db.Close() }()
+
+	// Write multiple keys, ALL at versions higher than what we'll query
+	// This ensures SeekLT will fail to find any valid key at the requested version
+	s.Require().NoError(DBApplyChangeset(db, 100, storeKey1, [][]byte{[]byte("key1")}, [][]byte{[]byte("value1")}))
+	s.Require().NoError(DBApplyChangeset(db, 101, storeKey1, [][]byte{[]byte("key2")}, [][]byte{[]byte("value2")}))
+	s.Require().NoError(DBApplyChangeset(db, 102, storeKey1, [][]byte{[]byte("key3")}, [][]byte{[]byte("value3")}))
+
+	// Test forward iterator at version 50 (all keys are at version >= 100)
+	// This should return 0 results without panicking
+	fwdItr, err := db.Iterator(storeKey1, 50, nil, nil)
+	s.Require().NoError(err)
+	defer func() { _ = fwdItr.Close() }()
+
+	fwdCount := 0
+	for ; fwdItr.Valid(); fwdItr.Next() {
+		fwdCount++
+	}
+	s.Require().Equal(0, fwdCount, "forward iterator should return 0 results when all keys have higher versions")
+	s.Require().NoError(fwdItr.Error())
+
+	// Test reverse iterator at version 50 (all keys are at version >= 100)
+	// This should also return 0 results without panicking
+	revItr, err := db.ReverseIterator(storeKey1, 50, nil, nil)
+	s.Require().NoError(err)
+	defer func() { _ = revItr.Close() }()
+
+	revCount := 0
+	for ; revItr.Valid(); revItr.Next() {
+		revCount++
+	}
+	s.Require().Equal(0, revCount, "reverse iterator should return 0 results when all keys have higher versions")
+	s.Require().NoError(revItr.Error())
+}
+
 func (s *StorageTestSuite) TestDatabaseIteratorNoDomain() {
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
