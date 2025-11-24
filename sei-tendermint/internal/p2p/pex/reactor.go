@@ -122,26 +122,21 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 // OnStop implements service.Service.
 func (r *Reactor) OnStop() {}
 
-func makePexRequest() *pb.PexMessage {
-	return &pb.PexMessage{
-		Sum: &pb.PexMessage_PexRequest{
-			PexRequest: &pb.PexRequest{},
-		},
-	}
-}
-
-func makePexResponse(addrs []pb.PexAddress) *pb.PexMessage {
-	return &pb.PexMessage{
-		Sum: &pb.PexMessage_PexResponse{
-			PexResponse: &pb.PexResponse{Addresses: addrs},
-		},
+func wrap[T *pb.PexRequest | *pb.PexResponse](msg T) *pb.PexMessage {
+	switch msg := any(msg).(type) {
+	case *pb.PexRequest:
+		return &pb.PexMessage{Sum: &pb.PexMessage_PexRequest{PexRequest: msg}}
+	case *pb.PexResponse:
+		return &pb.PexMessage{Sum: &pb.PexMessage_PexResponse{PexResponse: msg}}
+	default:
+		panic("unreachable")
 	}
 }
 
 func (r *Reactor) sendRoutine(ctx context.Context) error {
 	for {
 		r.logger.Info("PEX broadcast")
-		r.channel.Broadcast(makePexRequest())
+		r.channel.Broadcast(wrap(&pb.PexRequest{}))
 		if err := utils.Sleep(ctx, r.sendInterval); err != nil {
 			return err
 		}
@@ -203,7 +198,7 @@ func (r *Reactor) handlePexMessage(m p2p.RecvMsg[*pb.PexMessage]) error {
 		for idx, addr := range nodeAddresses {
 			pexAddresses[idx] = pb.PexAddress{URL: addr.String()}
 		}
-		r.channel.Send(makePexResponse(pexAddresses), m.From)
+		r.channel.Send(wrap(&pb.PexResponse{Addresses: pexAddresses}), m.From)
 		return nil
 
 	case *pb.PexMessage_PexResponse:
