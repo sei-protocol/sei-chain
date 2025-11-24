@@ -2,6 +2,7 @@ package ante
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 
@@ -99,11 +100,11 @@ func CosmosCheckTxAnte(
 		return ctx, err
 	}
 
-	if err := CheckSignatures(ctx, txConfig, tx, signerAccounts, authParams); err != nil {
+	if _, err := CheckSignatures(ctx, txConfig, tx, signerAccounts, authParams); err != nil {
 		return ctx, err
 	}
 
-	if err := UpdateSigners(ctx, tx, accountKeeper, ek); err != nil {
+	if _, err := UpdateSigners(ctx, tx, accountKeeper, ek); err != nil {
 		return ctx, err
 	}
 
@@ -284,6 +285,18 @@ func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.Acc
 		return priority, fmt.Errorf("fee collector module account (%s) has not been set", authtypes.FeeCollectorName)
 	}
 
+	if _, err := chargeFees(ctx, tx, feeCoins, accountKeeper, bankKeeper, feegrantKeeper); err != nil {
+		return priority, err
+	}
+	return priority, nil
+}
+
+func chargeFees(ctx sdk.Context, tx sdk.Tx, feeCoins sdk.Coins, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, feegrantKeeper *feegrantkeeper.Keeper) (sdk.AccAddress, error) {
+	if addr := accountKeeper.GetModuleAddress(authtypes.FeeCollectorName); addr == nil {
+		return nil, fmt.Errorf("fee collector module account (%s) has not been set", authtypes.FeeCollectorName)
+	}
+
+	feeTx := tx.(sdk.FeeTx)
 	feePayer := feeTx.FeePayer()
 	feeGranter := feeTx.FeeGranter()
 	deductFeesFrom := feePayer
@@ -292,11 +305,11 @@ func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.Acc
 	// this works with only when feegrant enabled.
 	if feeGranter != nil {
 		if feegrantKeeper == nil {
-			return priority, sdkerrors.ErrInvalidRequest.Wrap("fee grants are not enabled")
+			return nil, sdkerrors.ErrInvalidRequest.Wrap("fee grants are not enabled")
 		} else if !feeGranter.Equals(feePayer) {
 			err := feegrantKeeper.UseGrantedFees(ctx, feeGranter, feePayer, feeCoins, tx.GetMsgs())
 			if err != nil {
-				return priority, sdkerrors.Wrapf(err, "%s does not not allow to pay fees for %s", feeGranter, feePayer)
+				return nil, sdkerrors.Wrapf(err, "%s does not not allow to pay fees for %s", feeGranter, feePayer)
 			}
 		}
 
@@ -305,22 +318,22 @@ func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.Acc
 
 	deductFeesFromAcc := accountKeeper.GetAccount(ctx, deductFeesFrom)
 	if deductFeesFromAcc == nil {
-		return priority, sdkerrors.ErrUnknownAddress.Wrapf("fee payer address: %s does not exist", deductFeesFrom)
+		return nil, sdkerrors.ErrUnknownAddress.Wrapf("fee payer address: %s does not exist", deductFeesFrom)
 	}
 
 	// deduct the fees
 	if !feeCoins.IsZero() {
 		if !feeCoins.IsValid() {
-			return priority, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFee, "invalid fee amount: %s", feeCoins)
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFee, "invalid fee amount: %s", feeCoins)
 		}
 
 		err := bankKeeper.DeferredSendCoinsFromAccountToModule(ctx, deductFeesFromAcc.GetAddress(), authtypes.FeeCollectorName, feeCoins)
 		if err != nil {
-			return priority, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "%s", err.Error())
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "%s", err.Error())
 		}
 	}
 
-	return
+	return deductFeesFrom, nil
 }
 
 func DecoratePriority(ctx sdk.Context, priority int64, oracleVote bool) sdk.Context {
@@ -376,11 +389,11 @@ func CheckPubKeys(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKe
 	return signerAcounts, nil
 }
 
-func CheckSignatures(ctx sdk.Context, txConfig client.TxConfig, tx sdk.Tx, signerAccounts []authtypes.AccountI, authParams authtypes.Params) error {
+func CheckSignatures(ctx sdk.Context, txConfig client.TxConfig, tx sdk.Tx, signerAccounts []authtypes.AccountI, authParams authtypes.Params) (sdk.Events, error) {
 	sigTx := tx.(authsigning.SigVerifiableTx)
 	sigs, err := sigTx.GetSignaturesV2()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// stdSigs contains the sequence number, account number, and signatures.
@@ -388,12 +401,21 @@ func CheckSignatures(ctx sdk.Context, txConfig client.TxConfig, tx sdk.Tx, signe
 	signerAddrs := sigTx.GetSigners()
 	// check that signer length and signature length are the same
 	if len(sigs) != len(signerAddrs) {
-		return sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "invalid number of signer;  expected: %d, got %d", len(signerAddrs), len(sigs))
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "invalid number of signer;  expected: %d, got %d", len(signerAddrs), len(sigs))
 	}
+	var events sdk.Events
 	for i, sig := range sigs {
-
-		if _, err := authante.SignatureDataToBz(sig.Data); err != nil {
-			return err
+		events = append(events, sdk.NewEvent(sdk.EventTypeTx,
+			sdk.NewAttribute(sdk.AttributeKeyAccountSequence, fmt.Sprintf("%s/%d", signerAccounts[i], sig.Sequence)),
+		))
+		if sigBzs, err := authante.SignatureDataToBz(sig.Data); err != nil {
+			return nil, err
+		} else {
+			for _, sigBz := range sigBzs {
+				events = append(events, sdk.NewEvent(sdk.EventTypeTx,
+					sdk.NewAttribute(sdk.AttributeKeySignature, base64.StdEncoding.EncodeToString(sigBz)),
+				))
+			}
 		}
 
 		signerAcc := signerAccounts[i]
@@ -409,13 +431,13 @@ func CheckSignatures(ctx sdk.Context, txConfig client.TxConfig, tx sdk.Tx, signe
 
 		err = authante.DefaultSigVerificationGasConsumer(ctx.GasMeter(), sig, authParams)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		// Check account sequence number.
 		if sig.Sequence != signerAcc.GetSequence() {
 			if !authParams.GetDisableSeqnoCheck() {
-				return sdkerrors.Wrapf(
+				return nil, sdkerrors.Wrapf(
 					sdkerrors.ErrWrongSequence,
 					"account sequence mismatch, expected %d, got %d", signerAcc.GetSequence(), sig.Sequence,
 				)
@@ -449,15 +471,16 @@ func CheckSignatures(ctx sdk.Context, txConfig client.TxConfig, tx sdk.Tx, signe
 			} else {
 				errMsg = fmt.Sprintf("signature verification failed; please verify account number (%d) and chain-id (%s)", accNum, chainID)
 			}
-			return sdkerrors.Wrap(sdkerrors.ErrUnauthorized, errMsg)
+			return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, errMsg)
 
 		}
 	}
-	return nil
+	return events, nil
 }
 
-func UpdateSigners(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, evmKeeper *evmkeeper.Keeper) error {
+func UpdateSigners(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, evmKeeper *evmkeeper.Keeper) (sdk.Events, error) {
 	signers := tx.(authsigning.SigVerifiableTx).GetSigners()
+	var events sdk.Events
 	for _, signer := range signers {
 		acc := accountKeeper.GetAccount(ctx, signer)
 		if err := acc.SetSequence(acc.GetSequence() + 1); err != nil {
@@ -465,37 +488,49 @@ func UpdateSigners(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountK
 		}
 
 		accountKeeper.SetAccount(ctx, acc)
-		if _, associated := evmKeeper.GetEVMAddress(ctx, signer); associated {
+		if evmAddr, associated := evmKeeper.GetEVMAddress(ctx, signer); associated {
+			events = append(events, sdk.NewEvent(evmtypes.EventTypeSigner,
+				sdk.NewAttribute(evmtypes.AttributeKeyEvmAddress, evmAddr.Hex()),
+				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		if acc.GetPubKey() == nil {
 			ctx.Logger().Error(fmt.Sprintf("missing pubkey for %s", signer.String()))
+			events = append(events, sdk.NewEvent(evmtypes.EventTypeSigner,
+				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		pk, err := btcec.ParsePubKey(acc.GetPubKey().Bytes())
 		if err != nil {
 			ctx.Logger().Debug(fmt.Sprintf("failed to parse pubkey for %s, likely due to the fact that it isn't on secp256k1 curve", acc.GetPubKey()), "err", err)
+			events = append(events, sdk.NewEvent(evmtypes.EventTypeSigner,
+				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		evmAddr, err := helpers.PubkeyToEVMAddress(pk.SerializeUncompressed())
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to get EVM address from pubkey due to %s", err))
+			events = append(events, sdk.NewEvent(evmtypes.EventTypeSigner,
+				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
+		events = append(events, sdk.NewEvent(evmtypes.EventTypeSigner,
+			sdk.NewAttribute(evmtypes.AttributeKeyEvmAddress, evmAddr.Hex()),
+			sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 		evmKeeper.SetAddressMapping(ctx, signer, evmAddr)
 		associationHelper := helpers.NewAssociationHelper(evmKeeper, evmKeeper.BankKeeper(), accountKeeper)
 		if err := associationHelper.MigrateBalance(ctx, evmAddr, signer); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to migrate EVM address balance (%s) %s", evmAddr.Hex(), err))
-			return err
+			return nil, err
 		}
 		if evmtypes.IsTxMsgAssociate(tx) {
 			// check if there is non-zero balance
 			if !evmKeeper.BankKeeper().GetBalance(ctx, signer, sdk.MustGetBaseDenom()).IsPositive() && !evmKeeper.BankKeeper().GetWeiBalance(ctx, signer).IsPositive() {
-				return sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1 wei to force association")
+				return nil, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1 wei to force association")
 			}
 		}
 	}
-	return nil
+	return events, nil
 }
 
 func CheckMessage(ctx sdk.Context, tx sdk.Tx, ibcKeeper *ibckeeper.Keeper, oracleKeeper oraclekeeper.Keeper) error {
