@@ -4,6 +4,7 @@ use (
 	.
 	./sei-cosmos
 	./sei-db
+	./sei-ibc-go
 	./sei-tendermint
 	./sei-wasmd
 	./sei-wasmvm
