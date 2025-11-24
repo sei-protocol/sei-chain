@@ -156,6 +156,6 @@ func PostCheckMaxGas(maxGas int64) PostCheckFunc {
 	}
 }
 
-type PeerEvictor interface {
-	Errored(types.NodeID, error)
+type router interface {
+	Evict(types.NodeID, error)
 }

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -34,8 +33,7 @@ import (
 )
 
 func TestLoadSnapshotChunk(t *testing.T) {
-	app, teardown := setupBaseAppWithSnapshots(t, 2, 5)
-	defer teardown()
+	app := setupBaseAppWithSnapshots(t, 2, 5)
 
 	testcases := map[string]struct {
 		height      uint64
@@ -70,8 +68,7 @@ func TestLoadSnapshotChunk(t *testing.T) {
 
 func TestOfferSnapshot_Errors(t *testing.T) {
 	// Set up app before test cases, since it's fairly expensive.
-	app, teardown := setupBaseAppWithSnapshots(t, 0, 0)
-	defer teardown()
+	app := setupBaseAppWithSnapshots(t, 0, 0)
 
 	m := snapshottypes.Metadata{ChunkHashes: [][]byte{{1}, {2}, {3}}}
 	metadata, err := m.Marshal()
@@ -125,11 +122,9 @@ func TestOfferSnapshot_Errors(t *testing.T) {
 }
 
 func TestApplySnapshotChunk(t *testing.T) {
-	source, teardown := setupBaseAppWithSnapshots(t, 4, 10)
-	defer teardown()
+	source := setupBaseAppWithSnapshots(t, 4, 10)
 
-	target, teardown := setupBaseAppWithSnapshots(t, 0, 0)
-	defer teardown()
+	target := setupBaseAppWithSnapshots(t, 0, 0)
 
 	// Fetch latest snapshot to restore
 	respList, _ := source.ListSnapshots(context.Background(), &abci.RequestListSnapshots{})
@@ -269,8 +264,6 @@ func TestBaseApp_EndBlock(t *testing.T) {
 
 	app.setDeliverState(tmproto.Header{})
 	res := app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
-	require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
-
 	require.Len(t, res.GetValidatorUpdates(), 1)
 	require.Equal(t, int64(100), res.GetValidatorUpdates()[0].Power)
 	require.Equal(t, cp.Block.MaxGas, res.ConsensusParamUpdates.Block.MaxGas)
@@ -547,7 +540,6 @@ func TestSimulateTx(t *testing.T) {
 		require.True(t, bytes.Equal(result.Data, simRes.Result.Data))
 
 		app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
-		require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
 
 		app.SetDeliverStateToCommit()
 		app.Commit(context.Background())
@@ -971,7 +963,6 @@ func TestBaseAppAnteHandler(t *testing.T) {
 
 	// commit
 	app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
-	require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
 
 	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
@@ -1060,7 +1051,6 @@ func TestPrecommitHandlerPanic(t *testing.T) {
 
 	// commit
 	app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
-	require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
 
 	app.SetDeliverStateToCommit()
 
@@ -1460,75 +1450,6 @@ func incrementingCounter(t *testing.T, store sdk.KVStore, counterKey []byte, cou
 	return &sdk.Result{}, nil
 }
 
-//---------------------------------------------------------------------
-// Tx processing - CheckTx, DeliverTx, SimulateTx.
-// These tests use the serialized tx as input, while most others will use the
-// Check(), Deliver(), Simulate() methods directly.
-// Ensure that Check/Deliver/Simulate work as expected with the store.
-
-// Test that successive CheckTx can see each others' effects
-// on the store within a block, and that the CheckTx state
-// gets reset to the latest committed state during Commit
-func TestCheckTx(t *testing.T) {
-	// This ante handler reads the key and checks that the value matches the current counter.
-	// This ensures changes to the kvstore persist across successive CheckTx.
-	counterKey := []byte("counter-key")
-
-	anteOpt := func(bapp *BaseApp) { bapp.SetAnteHandler(anteHandlerTxTest(t, capKey1, counterKey)) }
-	routerOpt := func(bapp *BaseApp) {
-		// TODO: can remove this once CheckTx doesnt process msgs.
-		bapp.Router().AddRoute(sdk.NewRoute(routeMsgCounter, func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
-			return &sdk.Result{}, nil
-		}))
-	}
-
-	pchOpt := func(bapp *BaseApp) {
-		bapp.SetPreCommitHandler(func(ctx sdk.Context) error {
-			return nil
-		})
-	}
-
-	app := setupBaseApp(t, anteOpt, routerOpt, pchOpt)
-
-	nTxs := int64(5)
-	app.InitChain(context.Background(), &abci.RequestInitChain{})
-
-	// Create same codec used in txDecoder
-	codec := codec.NewLegacyAmino()
-	registerTestCodec(codec)
-
-	for i := int64(0); i < nTxs; i++ {
-		tx := newTxCounter(i, 0) // no messages
-		txBytes, err := codec.Marshal(tx)
-		require.NoError(t, err)
-		r, _ := app.CheckTx(context.Background(), &abci.RequestCheckTxV2{Tx: txBytes})
-		require.True(t, r.IsOK(), fmt.Sprintf("%v", r))
-	}
-
-	checkStateStore := app.checkState.ctx.KVStore(capKey1)
-	storedCounter := getIntFromStore(checkStateStore, counterKey)
-
-	// Ensure AnteHandler ran
-	require.Equal(t, nTxs, storedCounter)
-
-	// If a block is committed, CheckTx state should be reset.
-	header := tmproto.Header{Height: 1}
-	app.setDeliverState(header)
-	app.checkState.ctx = app.checkState.ctx.WithHeaderHash([]byte("hash"))
-
-	require.NotEmpty(t, app.checkState.ctx.HeaderHash())
-
-	app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
-	require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
-
-	app.SetDeliverStateToCommit()
-	app.Commit(context.Background())
-
-	checkStateStore = app.checkState.ctx.KVStore(capKey1)
-	storedBytes := checkStateStore.Get(counterKey)
-	require.Nil(t, storedBytes)
-}
-
 // Test that successive DeliverTx can see each others' effects
 // on the store, both within and across blocks.
 func TestDeliverTx(t *testing.T) {
@@ -1594,7 +1515,6 @@ func TestDeliverTx(t *testing.T) {
 		}
 
 		app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
-		require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
 		app.SetDeliverStateToCommit()
 		app.Commit(context.Background())
 	}
@@ -1785,7 +1705,7 @@ func TestLoadVersionInvalid(t *testing.T) {
 }
 
 // simple one store baseapp with data and snapshots. Each tx is 1 MB in size (uncompressed).
-func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options ...func(*BaseApp)) (*BaseApp, func()) {
+func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options ...func(*BaseApp)) *BaseApp {
 	codec := codec.NewLegacyAmino()
 	registerTestCodec(codec)
 	routerOpt := func(bapp *BaseApp) {
@@ -1798,13 +1718,8 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 
 	snapshotInterval := uint64(2)
 	snapshotTimeout := 1 * time.Minute
-	snapshotDir, err := os.MkdirTemp("", "baseapp")
+	snapshotStore, err := snapshots.NewStore(dbm.NewMemDB(), t.TempDir())
 	require.NoError(t, err)
-	snapshotStore, err := snapshots.NewStore(dbm.NewMemDB(), snapshotDir)
-	require.NoError(t, err)
-	teardown := func() {
-		os.RemoveAll(snapshotDir)
-	}
 
 	app := setupBaseApp(t, append(options,
 		SetSnapshotStore(snapshotStore),
@@ -1834,7 +1749,6 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 			require.True(t, resp.IsOK(), "%v", resp.String())
 		}
 		app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{Height: height})
-		require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
 
 		app.SetDeliverStateToCommit()
 		app.Commit(context.Background())
@@ -1856,7 +1770,7 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 		}
 	}
 
-	return app, teardown
+	return app
 }
 
 func TestMountStores(t *testing.T) {

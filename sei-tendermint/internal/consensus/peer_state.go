@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -9,7 +10,6 @@ import (
 
 	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
 	"github.com/tendermint/tendermint/libs/bits"
-	tmjson "github.com/tendermint/tendermint/libs/json"
 	"github.com/tendermint/tendermint/libs/log"
 	tmtime "github.com/tendermint/tendermint/libs/time"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -25,8 +25,8 @@ var (
 
 // peerStateStats holds internal statistics for a peer.
 type peerStateStats struct {
-	Votes      int `json:"votes,string"`
-	BlockParts int `json:"block_parts,string"`
+	Votes      int
+	BlockParts int
 }
 
 func (pss peerStateStats) String() string {
@@ -45,8 +45,8 @@ type PeerState struct {
 	mtx     sync.RWMutex
 	cancel  context.CancelFunc
 	running bool
-	PRS     cstypes.PeerRoundState `json:"round_state"`
-	Stats   *peerStateStats        `json:"stats"`
+	PRS     cstypes.PeerRoundState
+	Stats   *peerStateStats
 }
 
 // NewPeerState returns a new PeerState for the given node ID.
@@ -91,11 +91,11 @@ func (ps *PeerState) GetRoundState() *cstypes.PeerRoundState {
 	return &prs
 }
 
-// ToJSON returns a json of PeerState.
+// ToJSON returns a json of PeerState. UNSTABLE.
 func (ps *PeerState) ToJSON() ([]byte, error) {
 	ps.mtx.Lock()
 	defer ps.mtx.Unlock()
-	return tmjson.Marshal(ps)
+	return json.Marshal(ps)
 }
 
 // GetHeight returns an atomic snapshot of the PeerRoundState's height used by
@@ -142,8 +142,6 @@ func (ps *PeerState) SetHasProposal(proposal *types.Proposal) {
 	ps.PRS.ProposalBlockParts = bits.NewBitArray(int(proposal.BlockID.PartSetHeader.Total))
 	ps.PRS.ProposalPOLRound = proposal.POLRound
 	ps.PRS.ProposalPOL = nil // Nil until ProposalPOLMessage received.
-
-	return
 }
 
 // InitProposalBlockParts initializes the peer's proposal block parts header

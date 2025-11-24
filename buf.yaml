@@ -5,9 +5,10 @@ modules:
     name: buf.build/sei-protocol/sei-chain
   - path: sei-cosmos/proto
   - path: sei-cosmos/third_party/proto
+  - path: sei-ibc-go/proto
+  - path: sei-ibc-go/third_party/proto
   - path: sei-tendermint/proto
   - path: sei-wasmd/proto
-  - path: sei-wasmd/third_party/proto
 
 lint:
   use:
@@ -28,3 +29,4 @@ breaking:
   use:
     - WIRE
     - WIRE_JSON
+    

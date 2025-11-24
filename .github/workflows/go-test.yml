@@ -28,6 +28,8 @@ jobs:
             tags: ledger test_ledger_mock
           - name: sei-db
             path: ./sei-db
+          - name: sei-ibc-go
+            path: ./sei-ibc-go
           - name: sei-tendermint
             path: ./sei-tendermint
           - name: sei-wasmd
@@ -40,6 +42,15 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.24'
+      - name: Remove unnecessary tooling
+        run: |
+          # Remove unrelated tooling to open up more space. Without doing 
+          # this ~80% of the available 15GiB space is already occupied.
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
       - name: Go test with race detector
         working-directory: '${{ matrix.modules.path }}'
         run: go test -race -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out ./...

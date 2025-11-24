@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
-	"github.com/tendermint/tendermint/internal/jsontypes"
 	"github.com/tendermint/tendermint/libs/bits"
 	tmmath "github.com/tendermint/tendermint/libs/math"
 	tmcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
@@ -18,20 +17,6 @@ import (
 // converted to a Message via MsgFromProto.
 type Message interface {
 	ValidateBasic() error
-
-	jsontypes.Tagged
-}
-
-func init() {
-	jsontypes.MustRegister(&NewRoundStepMessage{})
-	jsontypes.MustRegister(&NewValidBlockMessage{})
-	jsontypes.MustRegister(&ProposalMessage{})
-	jsontypes.MustRegister(&ProposalPOLMessage{})
-	jsontypes.MustRegister(&BlockPartMessage{})
-	jsontypes.MustRegister(&VoteMessage{})
-	jsontypes.MustRegister(&HasVoteMessage{})
-	jsontypes.MustRegister(&VoteSetMaj23Message{})
-	jsontypes.MustRegister(&VoteSetBitsMessage{})
 }
 
 // NewRoundStepMessage is sent for every step taken in the ConsensusState.
@@ -43,8 +28,6 @@ type NewRoundStepMessage struct {
 	SecondsSinceStartTime int64 `json:",string"`
 	LastCommitRound       int32
 }
-
-func (*NewRoundStepMessage) TypeTag() string { return "tendermint/NewRoundStepMessage" }
 
 // ValidateBasic performs basic validation.
 func (m *NewRoundStepMessage) ValidateBasic() error {
@@ -104,8 +87,6 @@ type NewValidBlockMessage struct {
 	IsCommit           bool
 }
 
-func (*NewValidBlockMessage) TypeTag() string { return "tendermint/NewValidBlockMessage" }
-
 // ValidateBasic performs basic validation.
 func (m *NewValidBlockMessage) ValidateBasic() error {
 	if m.Height < 0 {
@@ -142,8 +123,6 @@ type ProposalMessage struct {
 	Proposal *types.Proposal
 }
 
-func (*ProposalMessage) TypeTag() string { return "tendermint/Proposal" }
-
 // ValidateBasic performs basic validation.
 func (m *ProposalMessage) ValidateBasic() error {
 	return m.Proposal.ValidateBasic()
@@ -160,8 +139,6 @@ type ProposalPOLMessage struct {
 	ProposalPOLRound int32
 	ProposalPOL      *bits.BitArray
 }
-
-func (*ProposalPOLMessage) TypeTag() string { return "tendermint/ProposalPOL" }
 
 // ValidateBasic performs basic validation.
 func (m *ProposalPOLMessage) ValidateBasic() error {
@@ -192,8 +169,6 @@ type BlockPartMessage struct {
 	Part   *types.Part
 }
 
-func (*BlockPartMessage) TypeTag() string { return "tendermint/BlockPart" }
-
 // ValidateBasic performs basic validation.
 func (m *BlockPartMessage) ValidateBasic() error {
 	if m.Height < 0 {
@@ -218,8 +193,6 @@ type VoteMessage struct {
 	Vote *types.Vote
 }
 
-func (*VoteMessage) TypeTag() string { return "tendermint/Vote" }
-
 // ValidateBasic checks whether the vote within the message is well-formed.
 func (m *VoteMessage) ValidateBasic() error {
 	return m.Vote.ValidateBasic()
@@ -237,8 +210,6 @@ type HasVoteMessage struct {
 	Type   tmproto.SignedMsgType
 	Index  int32
 }
-
-func (*HasVoteMessage) TypeTag() string { return "tendermint/HasVote" }
 
 // ValidateBasic performs basic validation.
 func (m *HasVoteMessage) ValidateBasic() error {
@@ -269,8 +240,6 @@ type VoteSetMaj23Message struct {
 	Type    tmproto.SignedMsgType
 	BlockID types.BlockID
 }
-
-func (*VoteSetMaj23Message) TypeTag() string { return "tendermint/VoteSetMaj23" }
 
 // ValidateBasic performs basic validation.
 func (m *VoteSetMaj23Message) ValidateBasic() error {
@@ -304,8 +273,6 @@ type VoteSetBitsMessage struct {
 	BlockID types.BlockID
 	Votes   *bits.BitArray
 }
-
-func (*VoteSetBitsMessage) TypeTag() string { return "tendermint/VoteSetBits" }
 
 // ValidateBasic performs basic validation.
 func (m *VoteSetBitsMessage) ValidateBasic() error {

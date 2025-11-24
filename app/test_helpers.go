@@ -83,6 +83,11 @@ func (t TestAppOpts) Get(s string) interface{} {
 	if s == FlagSCEnable {
 		return t.useSc
 	}
+	// Disable snapshot creation in tests to avoid background goroutines
+	// that are not relevant to the test logic
+	if s == FlagSCSnapshotInterval {
+		return uint32(0) // 0 = disabled
+	}
 	return nil
 }
 
@@ -200,8 +205,7 @@ func (s *TestWrapper) BeginBlock() {
 }
 
 func (s *TestWrapper) EndBlock() {
-	reqEndBlock := abci.RequestEndBlock{Height: s.Ctx.BlockHeight()}
-	s.App.EndBlocker(s.Ctx, reqEndBlock)
+	legacyabci.EndBlock(s.Ctx, s.Ctx.BlockHeight(), 0, s.App.EndBlockKeepers)
 }
 
 func setupReceiptStore() (seidbtypes.StateStore, error) {
@@ -266,7 +270,6 @@ func SetupWithDefaultHome(isCheckTx bool, enableEVMCustomPrecompiles bool, overr
 		wasm.EnableAllProposals,
 		TestAppOpts{},
 		wasmOpts,
-		EmptyACLOpts,
 		options,
 		baseAppOptions...,
 	)
@@ -337,7 +340,6 @@ func SetupWithDB(t *testing.T, db dbm.DB, isCheckTx bool, enableEVMCustomPrecomp
 		wasm.EnableAllProposals,
 		TestAppOpts{},
 		wasmOpts,
-		EmptyACLOpts,
 		options,
 		baseAppOptions...,
 	)
@@ -392,7 +394,6 @@ func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, 
 		wasm.EnableAllProposals,
 		TestAppOpts{true},
 		EmptyWasmOpts,
-		EmptyACLOpts,
 		options,
 		baseAppOptions...,
 	)
@@ -443,7 +444,6 @@ func SetupTestingAppWithLevelDb(t *testing.T, isCheckTx bool, enableEVMCustomPre
 		wasm.EnableAllProposals,
 		TestAppOpts{},
 		EmptyWasmOpts,
-		EmptyACLOpts,
 		nil,
 	)
 	if !isCheckTx {
@@ -512,7 +512,6 @@ func setup(t *testing.T, withGenesis bool, invCheckPeriod uint) (*App, GenesisSt
 		wasm.EnableAllProposals,
 		TestAppOpts{},
 		EmptyWasmOpts,
-		EmptyACLOpts,
 		[]AppOption{},
 	)
 	if withGenesis {

@@ -75,7 +75,7 @@ func Marshal(v Tagged) ([]byte, error) {
 // the data do not encode a valid wrapper object, if the wrapper's type tag is
 // not registered with jsontypes, or if the resulting value is not compatible
 // with the type of v.
-func Unmarshal(data []byte, v interface{}) error {
+func Unmarshal(data []byte, v any) error {
 	// Verify that the target is some kind of pointer.
 	target := reflect.ValueOf(v)
 	if target.Kind() != reflect.Ptr {

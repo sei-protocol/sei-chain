@@ -14,7 +14,6 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/crypto/types/multisig"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
@@ -112,7 +111,7 @@ func (spkd SetPubKeyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 			sdk.NewAttribute(sdk.AttributeKeyAccountSequence, fmt.Sprintf("%s/%d", signers[i], sig.Sequence)),
 		))
 
-		sigBzs, err := signatureDataToBz(sig.Data)
+		sigBzs, err := SignatureDataToBz(sig.Data)
 		if err != nil {
 			return ctx, err
 		}
@@ -330,25 +329,6 @@ func NewIncrementSequenceDecorator(ak AccountKeeper) IncrementSequenceDecorator 
 	}
 }
 
-func (isd IncrementSequenceDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
-	sigTx, _ := tx.(authsigning.SigVerifiableTx)
-	deps := []sdkacltypes.AccessOperation{}
-
-	// Add all signers as dependencies
-	for _, addr := range sigTx.GetSigners() {
-		if addr == nil {
-			continue
-		}
-		deps = append(deps, sdkacltypes.AccessOperation{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate: hex.EncodeToString(types.AddressStoreKey(addr)),
-		})
-	}
-
-	return next(append(txDeps, deps...), tx, txIndex)
-}
-
 func (isd IncrementSequenceDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	sigTx, ok := tx.(authsigning.SigVerifiableTx)
 	if !ok {
@@ -495,11 +475,11 @@ func CountSubKeys(pub cryptotypes.PubKey) int {
 	return numKeys
 }
 
-// signatureDataToBz converts a SignatureData into raw bytes signature.
+// SignatureDataToBz converts a SignatureData into raw bytes signature.
 // For SingleSignatureData, it returns the signature raw bytes.
 // For MultiSignatureData, it returns an array of all individual signatures,
 // as well as the aggregated signature.
-func signatureDataToBz(data signing.SignatureData) ([][]byte, error) {
+func SignatureDataToBz(data signing.SignatureData) ([][]byte, error) {
 	if data == nil {
 		return nil, fmt.Errorf("got empty SignatureData")
 	}
@@ -512,7 +492,7 @@ func signatureDataToBz(data signing.SignatureData) ([][]byte, error) {
 		var err error
 
 		for _, d := range data.Signatures {
-			nestedSigs, err := signatureDataToBz(d)
+			nestedSigs, err := SignatureDataToBz(d)
 			if err != nil {
 				return nil, err
 			}

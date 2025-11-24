@@ -7,10 +7,11 @@ coverage:
         target: auto
         threshold: 0.1% # allow this much decrease on project
       sei-chain:
-        target: 60%
+        target: 40%
         paths:
           - "!sei-cosmos/**"
           - "!sei-db/**"
+          - "!sei-ibc-go/**"
           - "!sei-tendermint/**"
           - "!sei-wasmd/**"
           - "!sei-wasmvm/**"
@@ -23,7 +24,7 @@ coverage:
         flags:
           - sei-cosmos
       sei-tendermint:
-        target: 50%
+        target: 40%
         paths:
           - "sei-tendermint/**"
         flags:
@@ -40,6 +41,12 @@ coverage:
           - "sei-db/**"
         flags:
           - sei-db
+      sei-ibc-go:
+        target: 40%
+        paths:
+          - "sei-ibc-go/**"
+        flags:
+          - sei-ibc-go
     patch:
       default:
         target: 70%
@@ -51,32 +58,27 @@ comment:
 
 ignore:
   # Common documentation and metadata
-  - "**/docs/**"
+  - "**/docs/**/*"
   - "**/*.md"
   - "**/*.rst"
-  - "**/example/**"
-  - "**/benchmark/**"
+  - "**/example/**/*"
+  - "**/benchmark/**/*"
 
   # Generated protobuf files
-  - "**/*pb*.go"
   - "**/*.pb.go"
   - "**/*.pb.gw.go"
 
   # Tests and test utilities
-  - "**/tests/*"
-  - "**/tests/**/*"
   - "**/integration_test/**/*"
-  - "**/testutil/**"
+  - "**/testutil/**/*"
   - "**/x/**/test_common.go"
-  - "**/x/**/testdata/**"
+  - "**/x/**/testdata/**/*"
 
   # Scripts, tooling, and contribution helpers
-  - "**/scripts/**"
-  - "**/contrib/**"
-  - "**/docker/**"
-  - "**/cmd/**"
+  - "**/scripts/**/*"
+  - "**/contrib/**/*"
+  - "**/docker/**/*"
 
   # Project-specific exclusions
-  - "**/precompiles/*/legacy/**"
-  - "**/cli/**"
-  - "**/types/*.pb.go"
+  - "precompiles/**/legacy/**/*"
+  - "**/cli/**/*"

@@ -143,9 +143,6 @@ func (app *BaseApp) MidBlock(ctx sdk.Context, height int64) (events []abci.Event
 
 // EndBlock implements the ABCI interface.
 func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abci.ResponseEndBlock) {
-	// Clear DeliverTx Events
-	ctx.MultiStore().ResetEvents()
-
 	defer telemetry.MeasureSince(time.Now(), "abci", "end_block")
 
 	if app.endBlocker != nil {
@@ -167,53 +164,7 @@ func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abc
 // will contain releveant error information. Regardless of tx execution outcome,
 // the ResponseCheckTx will contain relevant gas execution context.
 func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
-	defer telemetry.MeasureSince(time.Now(), "abci", "check_tx")
-
-	var mode runTxMode
-
-	switch {
-	case req.Type == abci.CheckTxTypeV2New:
-		mode = runTxModeCheck
-
-	case req.Type == abci.CheckTxTypeV2Recheck:
-		mode = runTxModeReCheck
-
-	default:
-		panic(fmt.Sprintf("unknown RequestCheckTx type: %d", req.Type))
-	}
-
-	sdkCtx := app.getContextForTx(mode, req.Tx)
-	tx, err := app.txDecoder(req.Tx)
-	if err != nil {
-		res := sdkerrors.ResponseCheckTx(err, 0, 0, app.trace)
-		return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, err
-	}
-	gInfo, result, _, priority, pendingTxChecker, expireTxHandler, checkTxCallback, txCtx, err := app.runTx(sdkCtx, mode, tx, sha256.Sum256(req.Tx))
-	if err != nil {
-		res := sdkerrors.ResponseCheckTx(err, gInfo.GasWanted, gInfo.GasUsed, app.trace)
-		return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, err
-	}
-
-	res := &abci.ResponseCheckTxV2{
-		ResponseCheckTx: &abci.ResponseCheckTx{
-			GasWanted:    int64(gInfo.GasWanted), // TODO: Should type accept unsigned ints?
-			Data:         result.Data,
-			Priority:     priority,
-			GasEstimated: int64(gInfo.GasEstimate),
-		},
-		ExpireTxHandler:  expireTxHandler,
-		CheckTxCallback:  checkTxCallback,
-		EVMNonce:         txCtx.EVMNonce(),
-		EVMSenderAddress: txCtx.EVMSenderAddress(),
-		IsEVM:            txCtx.IsEVM(),
-		Priority:         txCtx.Priority(),
-	}
-	if pendingTxChecker != nil {
-		res.IsPendingTransaction = true
-		res.Checker = pendingTxChecker
-	}
-
-	return res, nil
+	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{}}, nil
 }
 
 // DeliverTxBatch executes multiple txs
@@ -1152,14 +1103,6 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 	} else {
 		return nil, errors.New("finalize block handler not set")
 	}
-}
-
-func (app *BaseApp) LoadLatest(ctx context.Context, req *abci.RequestLoadLatest) (*abci.ResponseLoadLatest, error) {
-	if err := app.LoadLatestVersion(); err != nil {
-		return nil, err
-	}
-	app.initialHeight = app.cms.LastCommitID().Version
-	return &abci.ResponseLoadLatest{}, nil
 }
 
 func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxPriorityHintV2) (_resp *abci.ResponseGetTxPriorityHint, _err error) {

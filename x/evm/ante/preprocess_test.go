@@ -12,7 +12,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	vestingtypes "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -189,22 +188,6 @@ func TestGetVersion(t *testing.T) {
 
 	ethCfg.CancunTime = nil
 	require.Equal(t, derived.London, ante.GetVersion(ctx, ethCfg))
-}
-
-func TestAnteDeps(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
-	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
-	msg, _ := types.NewMsgEVMTransaction(&ethtx.LegacyTx{GasLimit: 100})
-	msg.Derived = &derived.Derived{
-		SenderEVMAddr: common.BytesToAddress([]byte("senderevm")),
-		SenderSeiAddr: []byte("sendersei"),
-		PubKey:        &secp256k1.PubKey{Key: []byte("pubkey")},
-	}
-	deps, err := handler.AnteDeps(nil, mockTx{msgs: []sdk.Msg{msg}}, 0, func(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int) ([]sdkacltypes.AccessOperation, error) {
-		return txDeps, nil
-	})
-	require.Nil(t, err)
-	require.Equal(t, 12, len(deps))
 }
 
 func TestEVMAddressDecorator(t *testing.T) {

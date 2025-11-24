@@ -2,10 +2,13 @@ package testutil
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -64,11 +67,13 @@ func WriteToNewTempFile(t testing.TB, s string) *os.File {
 	return fp
 }
 
+var tmpFileCounter atomic.Int32
+
 // TempFile returns a writable temporary file for the test to use.
 func TempFile(t testing.TB) *os.File {
 	t.Helper()
 
-	fp, err := ioutil.TempFile(t.TempDir(), "")
+	fp, err := os.Create(filepath.Join(t.TempDir(), fmt.Sprintf("tmpfile-%d", tmpFileCounter.Add(1))))
 	require.NoError(t, err)
 
 	return fp
