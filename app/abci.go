@@ -116,7 +116,52 @@ func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.T
 	defer span.End()
 	// update context with trace span new context
 	ctx = ctx.WithTraceSpanContext(spanCtx)
-	return app.BaseApp.DeliverTx(ctx, req, tx, checksum)
+	defer telemetry.MeasureSince(time.Now(), "abci", "deliver_tx")
+
+	gInfo := sdk.GasInfo{}
+	resultStr := "successful"
+
+	defer func() {
+		telemetry.IncrCounter(1, "tx", "count")
+		telemetry.IncrCounter(1, "tx", resultStr)
+		telemetry.SetGauge(float32(gInfo.GasUsed), "tx", "gas", "used")
+		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
+	}()
+	gInfo, result, anteEvents, resCtx, err := legacyabci.DeliverTx(ctx, tx, app.GetTxConfig(), &app.DeliverTxKeepers, checksum, func(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
+		return app.CacheTxContext(ctx, checksum)
+	}, app.RunMsgs, app.TracingInfo, app.AddCosmosEventsToEVMReceiptIfApplicable)
+	if err != nil {
+		resultStr = "failed"
+		// if we have a result, use those events instead of just the anteEvents
+		if result != nil {
+			return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(result.Events, app.IndexEvents), false)
+		}
+		return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(anteEvents, app.IndexEvents), false)
+	}
+
+	res := abci.ResponseDeliverTx{
+		GasWanted: int64(gInfo.GasWanted), // TODO: Should type accept unsigned ints?
+		GasUsed:   int64(gInfo.GasUsed),   // TODO: Should type accept unsigned ints?
+		Log:       result.Log,
+		Data:      result.Data,
+		Events:    sdk.MarkEventsToIndex(result.Events, app.IndexEvents),
+	}
+	if resCtx.IsEVM() {
+		res.EvmTxInfo = &abci.EvmTxInfo{
+			SenderAddress: resCtx.EVMSenderAddress(),
+			Nonce:         resCtx.EVMNonce(),
+			TxHash:        resCtx.EVMTxHash(),
+			VmError:       result.EvmError,
+		}
+		// TODO: populate error data for EVM err
+		if result.EvmError != "" {
+			evmErr := sdkerrors.Wrap(sdkerrors.ErrEVMVMError, result.EvmError)
+			res.Codespace, res.Code, res.Log = sdkerrors.ABCIInfo(evmErr, false)
+			resultStr = "failed"
+			return res
+		}
+	}
+	return res
 }
 
 // DeliverTxBatch is not part of the ABCI specification, but this is here for code convention

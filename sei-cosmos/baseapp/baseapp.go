@@ -975,9 +975,9 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	runMsgCtx, msCache := app.CacheTxContext(ctx, checksum)
 
 	// Attempt to execute all messages and only update state if all messages pass
-	// and we're in DeliverTx. Note, runMsgs will never return a reference to a
+	// and we're in DeliverTx. Note, RunMsgs will never return a reference to a
 	// Result if any single message fails or does not have a registered Handler.
-	result, err = app.runMsgs(runMsgCtx, msgs, mode)
+	result, err = app.RunMsgs(runMsgCtx, msgs)
 
 	if err == nil {
 		msCache.Write()
@@ -1012,17 +1012,17 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	return gInfo, result, anteEvents, priority, pendingTxChecker, expireHandler, checkTxCallback, ctx, err
 }
 
-// runMsgs iterates through a list of messages and executes them with the provided
+// RunMsgs iterates through a list of messages and executes them with the provided
 // Context and execution mode. Messages will only be executed during simulation
 // and DeliverTx. An error is returned if any single message fails or if a
 // Handler does not exist for a given message route. Otherwise, a reference to a
 // Result is returned. The caller must not commit state if an error is returned.
-func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*sdk.Result, error) {
+func (app *BaseApp) RunMsgs(ctx sdk.Context, msgs []sdk.Msg) (*sdk.Result, error) {
 
 	defer telemetry.MeasureThroughputSinceWithLabels(
 		telemetry.MessageCount,
 		[]metrics.Label{
-			telemetry.NewLabel("mode", modeKeyToString[mode]),
+			telemetry.NewLabel("mode", "deliver"),
 		},
 		time.Now(),
 	)
