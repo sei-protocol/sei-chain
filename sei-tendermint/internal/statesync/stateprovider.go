@@ -15,6 +15,7 @@ import (
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/light"
 	lightprovider "github.com/tendermint/tendermint/light/provider"
 	lighthttp "github.com/tendermint/tendermint/light/provider/http"
@@ -386,63 +387,29 @@ func (s *StateProviderP2P) ParamsRecvCh() chan types.ConsensusParams {
 // if no response is obtained, with increasing intervals. It returns the
 // consensus parameters upon receiving a response, or an error if the context is canceled.
 func (s *StateProviderP2P) consensusParams(ctx context.Context, height int64) (types.ConsensusParams, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	return scope.Run1(ctx, func(ctx context.Context, scope scope.Scope) (types.ConsensusParams, error) {
+		scope.SpawnBg(func() error {
+			for iterCount := int64(1); ; iterCount++ {
+				for _, provider := range s.lc.Witnesses() {
+					p, ok := provider.(*BlockProvider)
+					if !ok {
+						return fmt.Errorf("witness is not BlockProvider [%T]", provider)
+					}
 
-	out := make(chan types.ConsensusParams)
-
-	retryAll := func(ctx context.Context) error {
-		for _, provider := range s.lc.Witnesses() {
-			p, ok := provider.(*BlockProvider)
-			if !ok {
-				return fmt.Errorf("witness is not BlockProvider [%T]", provider)
-			}
-
-			peer, err := types.NewNodeID(p.String())
-			if err != nil {
-				return fmt.Errorf("invalid provider (%s) node id: %w", p.String(), err)
-			}
-
-			go func() {
-				s.paramsSendCh.Send(wrap(&pb.ParamsRequest{Height: uint64(height)}), peer)
-				params, err := utils.Recv(ctx, s.paramsRecvCh)
-				if err != nil {
-					return
+					peer, err := types.NewNodeID(p.String())
+					if err != nil {
+						return fmt.Errorf("invalid provider (%v) node id: %w", p, err)
+					}
+					s.paramsSendCh.Send(wrap(&pb.ParamsRequest{Height: uint64(height)}), peer)
 				}
-				_ = utils.Send(ctx, out, params)
-			}()
-		}
-		return nil
-	}
-
-	timer := time.NewTimer(0)
-	defer timer.Stop()
-
-	var iterCount int64
-	for {
-		iterCount++
-
-		childCtx, childCancel := context.WithCancel(ctx)
-
-		err := retryAll(childCtx)
-		if err != nil {
-			childCancel()
-			return types.ConsensusParams{}, err
-		}
-
-		// jitter+backoff the retry loop
-		timer.Reset(time.Duration(iterCount)*consensusParamsResponseTimeout +
-			time.Duration(100*rand.Int63n(iterCount))*time.Millisecond) // nolint:gosec
-
-		select {
-		case param := <-out:
-			childCancel()
-			return param, nil
-		case <-ctx.Done():
-			childCancel()
-			return types.ConsensusParams{}, ctx.Err()
-		case <-timer.C:
-			childCancel()
-		}
-	}
+				// jitter+backoff the retry loop
+				timeout := time.Duration(iterCount)*consensusParamsResponseTimeout +
+					time.Duration(100*rand.Int63n(iterCount))*time.Millisecond // nolint:gosec
+				if err := utils.Sleep(ctx, timeout); err != nil {
+					return nil
+				}
+			}
+		})
+		return utils.Recv(ctx, s.paramsRecvCh)
+	})
 }
