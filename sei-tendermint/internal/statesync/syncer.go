@@ -15,7 +15,7 @@ import (
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/light"
-	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
+	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -53,11 +53,11 @@ var (
 // snapshot. Snapshots and chunks are fed via AddSnapshot() and AddChunk() as appropriate.
 type syncer struct {
 	logger        log.Logger
-	stateProvider light.StateProvider
+	stateProvider StateProvider
 	conn          abciclient.Client
 	snapshots     *snapshotPool
-	snapshotCh    *p2p.Channel
-	chunkCh       *p2p.Channel
+	snapshotCh    *p2p.Channel[*pb.Message]
+	chunkCh       *p2p.Channel[*pb.Message]
 	tempDir       string
 	fetchers      int32
 	retryTimeout  time.Duration
@@ -113,7 +113,7 @@ func (s *syncer) AddSnapshot(peerID types.NodeID, snapshot *snapshot) (bool, err
 // single request to discover snapshots, later we may want to do retries and stuff.
 func (s *syncer) AddPeer(peerID types.NodeID) {
 	s.logger.Info("Requesting snapshots from peer", "peer", peerID)
-	s.snapshotCh.Send(&ssproto.SnapshotsRequest{}, peerID)
+	s.snapshotCh.Send(wrap(&pb.SnapshotsRequest{}), peerID)
 }
 
 // RemovePeer removes a peer from the pool.
@@ -550,12 +550,12 @@ func (s *syncer) requestChunk(snapshot *snapshot, chunk uint32) {
 		"peer", peer,
 	)
 
-	msg := &ssproto.ChunkRequest{
+	msg := &pb.ChunkRequest{
 		Height: snapshot.Height,
 		Format: snapshot.Format,
 		Index:  chunk,
 	}
-	s.chunkCh.Send(msg, peer)
+	s.chunkCh.Send(wrap(msg), peer)
 }
 
 // verifyApp verifies the sync, checking the app hash, last block height and app version

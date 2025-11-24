@@ -9,10 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
 	dbm "github.com/tendermint/tm-db"
 
-	pb "github.com/tendermint/tendermint/proto/tendermint/blocksync"
+	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
 	"github.com/tendermint/tendermint/internal/p2p"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/libs/log"
@@ -219,7 +218,7 @@ type StateProviderP2P struct {
 	initialHeight           int64
 	paramsSendCh            *p2p.Channel[*pb.Message]
 	paramsRecvCh            chan types.ConsensusParams
-	paramsReqCreator        func(uint64) proto.Message
+	paramsReqCreator        func(uint64) *pb.Message
 	verifyLightBlockTimeout time.Duration
 }
 
@@ -232,10 +231,10 @@ func NewP2PStateProvider(
 	verifyLightBlockTimeout time.Duration,
 	providers []lightprovider.Provider,
 	trustOptions light.TrustOptions,
-	paramsSendCh *p2p.Channel,
+	paramsSendCh *p2p.Channel[*pb.Message],
 	logger log.Logger,
 	blacklistTTL time.Duration,
-	paramsReqCreator func(uint64) proto.Message,
+	paramsReqCreator func(uint64) *pb.Message,
 ) (StateProvider, error) {
 	if len(providers) < 2 {
 		return nil, fmt.Errorf("at least 2 peers are required, got %d", len(providers))

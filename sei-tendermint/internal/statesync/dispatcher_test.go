@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/fortytw2/leaktest"
-	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/tendermint/tendermint/internal/p2p"
@@ -18,7 +17,7 @@ import (
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/libs/utils/scope"
-	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
+	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -54,21 +53,21 @@ func dispatcherSetup(t *testing.T) *testSuite {
 	}
 }
 
-type Node struct {
+type DispatcherNode struct {
 	*p2p.TestNode
-	blockCh *p2p.Channel
+	blockCh *p2p.Channel[*pb.Message]
 }
 
-func (ts *testSuite) AddPeer(t *testing.T) *Node {
+func (ts *testSuite) AddPeer(t *testing.T) *DispatcherNode {
 	testNode := ts.network.MakeNode(t, p2p.TestNodeOptions{
 		MaxPeers:     utils.Some(1),
 		MaxConnected: utils.Some(1),
 	})
-	blockCh, err := testNode.Router.OpenChannel(GetLightBlockChannelDescriptor())
+	blockCh, err := p2p.OpenChannel(testNode.Router,GetLightBlockChannelDescriptor())
 	if err != nil {
 		panic(err)
 	}
-	n := &Node{
+	n := &DispatcherNode{
 		TestNode: testNode,
 		blockCh:  blockCh,
 	}
@@ -84,7 +83,7 @@ func (n *Node) handleRequests(ctx context.Context, d *Dispatcher) error {
 		if err != nil {
 			return nil
 		}
-		height := req.Message.(*ssproto.LightBlockRequest).Height
+		height := req.Message.Sum.(*pb.Message_LightBlockRequest).LightBlockRequest.Height
 		resp := mockLBResp(ctx, n.NodeID, int64(height), time.Now())
 		block, _ := resp.block.ToProto()
 		if err := d.Respond(ctx, block, n.NodeID); err != nil {

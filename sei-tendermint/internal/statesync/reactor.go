@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
@@ -22,7 +21,7 @@ import (
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/light"
 	"github.com/tendermint/tendermint/light/provider"
-	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
+	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -30,8 +29,29 @@ var (
 	_ service.Service = (*Reactor)(nil)
 )
 
-func wrap[T proto.Message](msg T) *ssproto.Message {
-	panic("TODO")
+type isPBMessage interface {
+	*pb.SnapshotsRequest |
+	*pb.SnapshotsResponse |
+	*pb.ChunkRequest |
+	*pb.ChunkResponse |
+	*pb.LightBlockRequest |
+	*pb.LightBlockResponse | 
+	*pb.ParamsRequest |
+	*pb.ParamsResponse
+}
+
+func wrap[T isPBMessage](msg T) *pb.Message {
+	switch msg := any(msg).(type) {
+	case *pb.SnapshotsRequest: return &pb.Message{ Sum: &pb.Message_SnapshotsRequest { SnapshotsRequest: msg } }
+	case *pb.SnapshotsResponse: return &pb.Message{ Sum: &pb.Message_SnapshotsResponse { SnapshotsResponse: msg } }
+	case *pb.ChunkRequest: return &pb.Message{ Sum: &pb.Message_ChunkRequest { ChunkRequest: msg } }
+	case *pb.ChunkResponse: return &pb.Message{ Sum: &pb.Message_ChunkResponse { ChunkResponse: msg } }
+	case *pb.LightBlockRequest: return &pb.Message{ Sum: &pb.Message_LightBlockRequest { LightBlockRequest: msg } }
+	case *pb.LightBlockResponse: return &pb.Message{ Sum: &pb.Message_LightBlockResponse { LightBlockResponse: msg } }
+	case *pb.ParamsRequest: return &pb.Message{ Sum: &pb.Message_ParamsRequest { ParamsRequest: msg } }
+	case *pb.ParamsResponse: return &pb.Message{ Sum: &pb.Message_ParamsResponse { ParamsResponse: msg } }
+	default: panic("unreachable")
+	}
 }
 
 const (
@@ -67,10 +87,10 @@ const (
 	maxLightBlockRequestRetries = 20
 )
 
-func GetSnapshotChannelDescriptor() p2p.ChannelDescriptor[*ssproto.Message] {
-	return p2p.ChannelDescriptor[*ssproto.Message]{
+func GetSnapshotChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
+	return p2p.ChannelDescriptor[*pb.Message]{
 		ID:                  SnapshotChannel,
-		MessageType:         new(ssproto.Message),
+		MessageType:         new(pb.Message),
 		Priority:            6,
 		SendQueueCapacity:   10,
 		RecvMessageCapacity: snapshotMsgSize,
@@ -79,11 +99,11 @@ func GetSnapshotChannelDescriptor() p2p.ChannelDescriptor[*ssproto.Message] {
 	}
 }
 
-func GetChunkChannelDescriptor() p2p.ChannelDescriptor[*ssproto.Message] {
-	return p2p.ChannelDescriptor[*ssproto.Message]{
+func GetChunkChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
+	return p2p.ChannelDescriptor[*pb.Message]{
 		ID:                  ChunkChannel,
 		Priority:            3,
-		MessageType:         new(ssproto.Message),
+		MessageType:         new(pb.Message),
 		SendQueueCapacity:   4,
 		RecvMessageCapacity: chunkMsgSize,
 		RecvBufferCapacity:  128,
@@ -91,10 +111,10 @@ func GetChunkChannelDescriptor() p2p.ChannelDescriptor[*ssproto.Message] {
 	}
 }
 
-func GetLightBlockChannelDescriptor() p2p.ChannelDescriptor[*ssproto.Message] {
-	return p2p.ChannelDescriptor[*ssproto.Message]{
+func GetLightBlockChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
+	return p2p.ChannelDescriptor[*pb.Message]{
 		ID:                  LightBlockChannel,
-		MessageType:         new(ssproto.Message),
+		MessageType:         new(pb.Message),
 		Priority:            5,
 		SendQueueCapacity:   10,
 		RecvMessageCapacity: lightBlockMsgSize,
@@ -103,10 +123,10 @@ func GetLightBlockChannelDescriptor() p2p.ChannelDescriptor[*ssproto.Message] {
 	}
 }
 
-func GetParamsChannelDescriptor() p2p.ChannelDescriptor[*ssproto.Message] {
-	return p2p.ChannelDescriptor[*ssproto.Message]{
+func GetParamsChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
+	return p2p.ChannelDescriptor[*pb.Message]{
 		ID:                  ParamsChannel,
-		MessageType:         new(ssproto.Message),
+		MessageType:         new(pb.Message),
 		Priority:            2,
 		SendQueueCapacity:   10,
 		RecvMessageCapacity: paramMsgSize,
@@ -164,7 +184,7 @@ type Reactor struct {
 	syncer            *syncer
 	providers         map[types.NodeID]*BlockProvider
 	initStateProvider func(ctx context.Context, chainID string, initialHeight int64) error
-	stateProvider     light.StateProvider
+	stateProvider     StateProvider
 
 	eventBus           *eventbus.EventBus
 	metrics            *Metrics
@@ -176,10 +196,10 @@ type Reactor struct {
 	// behavior we use a mutex to ensure only one message is processed at a time across all channels.
 	// TODO(gprusak): verify that the message handlers can be executed concurrenty and remove this mutex.
 	processChGuard    sync.Mutex
-	snapshotChannel   *p2p.Channel[*ssproto.Message]
-	chunkChannel      *p2p.Channel[*ssproto.Message]
-	lightBlockChannel *p2p.Channel[*ssproto.Message]
-	paramsChannel     *p2p.Channel[*ssproto.Message]
+	snapshotChannel   *p2p.Channel[*pb.Message]
+	chunkChannel      *p2p.Channel[*pb.Message]
+	lightBlockChannel *p2p.Channel[*pb.Message]
+	paramsChannel     *p2p.Channel[*pb.Message]
 
 	// keep track of the last time we saw no available peers, so we can restart if it's been too long
 	lastNoAvailablePeers time.Time
@@ -285,7 +305,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	r.requestSnaphot = func() error {
 		// request snapshots from all currently connected peers
 		if !r.cfg.UseLocalSnapshot {
-			r.snapshotChannel.Broadcast(wrap(&ssproto.SnapshotsRequest{}))
+			r.snapshotChannel.Broadcast(wrap(&pb.SnapshotsRequest{}))
 		}
 		return nil
 	}
@@ -312,10 +332,8 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 				providers[idx] = NewBlockProvider(p, chainID, r.dispatcher)
 			}
 
-			stateProvider, err := light.NewP2PStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, providers, to, r.paramsChannel, r.logger.With("module", "stateprovider"), r.cfg.BlacklistTTL, func(height uint64) proto.Message {
-				return &ssproto.ParamsRequest{
-					Height: height,
-				}
+			stateProvider, err := NewP2PStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, providers, to, r.paramsChannel, r.logger.With("module", "stateprovider"), r.cfg.BlacklistTTL, func(height uint64) *pb.Message {
+				return wrap(&pb.ParamsRequest{Height: height})
 			})
 			if err != nil {
 				return fmt.Errorf("failed to initialize P2P state provider: %w", err)
@@ -324,7 +342,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 			return nil
 		}
 
-		stateProvider, err := light.NewRPCStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, r.cfg.RPCServers, to, spLogger, r.cfg.BlacklistTTL)
+		stateProvider, err := NewRPCStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, r.cfg.RPCServers, to, spLogger, r.cfg.BlacklistTTL)
 		if err != nil {
 			return fmt.Errorf("failed to initialize RPC state provider: %w", err)
 		}
@@ -644,13 +662,13 @@ func (r *Reactor) backfill(
 // handleSnapshotMessage handles ms sent from peers on the
 // SnapshotChannel. It returns an error only if the Envelope.Message is unknown
 // for this channel. This should never be called outside of handleMessage.
-func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg[*ssproto.Message]) (err error) {
+func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message]) (err error) {
 	defer r.recoverToErr(&err)
 	logger := r.logger.With("peer", m.From)
 	snapshotCh := r.snapshotChannel
 
 	switch msg := m.Message.Sum.(type) {
-	case *ssproto.Message_SnapshotsRequest:
+	case *pb.Message_SnapshotsRequest:
 		snapshots, err := r.recentSnapshots(ctx, recentSnapshots)
 		if err != nil {
 			logger.Error("failed to fetch snapshots", "err", err)
@@ -665,7 +683,7 @@ func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg[*sspr
 				"peer", m.From,
 			)
 
-			snapshotCh.Send(wrap(&ssproto.SnapshotsResponse{
+			snapshotCh.Send(wrap(&pb.SnapshotsResponse{
 				Height:   snapshot.Height,
 				Format:   snapshot.Format,
 				Chunks:   snapshot.Chunks,
@@ -674,7 +692,7 @@ func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg[*sspr
 			}), m.From)
 		}
 
-	case *ssproto.Message_SnapshotsResponse:
+	case *pb.Message_SnapshotsResponse:
 		resp := msg.SnapshotsResponse
 		r.mtx.RLock()
 		defer r.mtx.RUnlock()
@@ -713,11 +731,11 @@ func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg[*sspr
 // handleChunkMessage handles ms sent from peers on the ChunkChannel.
 // It returns an error only if the Envelope.Message is unknown for this channel.
 // This should never be called outside of handleMessage.
-func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg[*ssproto.Message]) (err error) {
+func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message]) (err error) {
 	chunkCh := r.chunkChannel
 	defer r.recoverToErr(&err)
 	switch msg := m.Message.Sum.(type) {
-	case *ssproto.Message_ChunkRequest:
+	case *pb.Message_ChunkRequest:
 		req := msg.ChunkRequest
 		r.logger.Debug(
 			"received chunk request",
@@ -750,7 +768,7 @@ func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg[*ssproto
 			"chunk", req.GetIndex(),
 			"peer", m.From,
 		)
-		chunkCh.Send(wrap(&ssproto.ChunkResponse{
+		chunkCh.Send(wrap(&pb.ChunkResponse{
 			Height:  req.GetHeight(),
 			Format:  req.GetFormat(),
 			Index:   req.GetIndex(),
@@ -758,7 +776,7 @@ func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg[*ssproto
 			Missing: resp.Chunk == nil,
 		}), m.From)
 
-	case *ssproto.Message_ChunkResponse:
+	case *pb.Message_ChunkResponse:
 		resp := msg.ChunkResponse
 		r.mtx.RLock()
 		defer r.mtx.RUnlock()
@@ -801,11 +819,11 @@ func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg[*ssproto
 	return nil
 }
 
-func (r *Reactor) handleLightBlockMessage(ctx context.Context, m p2p.RecvMsg[*ssproto.Message]) (err error) {
+func (r *Reactor) handleLightBlockMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message]) (err error) {
 	blockCh := r.lightBlockChannel
 	defer r.recoverToErr(&err)
 	switch msg := m.Message.Sum.(type) {
-	case *ssproto.Message_LightBlockRequest:
+	case *pb.Message_LightBlockRequest:
 		req := msg.LightBlockRequest
 		r.logger.Info("received light block request", "height", req.GetHeight())
 		lb, err := r.fetchLightBlock(req.GetHeight())
@@ -814,7 +832,7 @@ func (r *Reactor) handleLightBlockMessage(ctx context.Context, m p2p.RecvMsg[*ss
 			return err
 		}
 		if lb == nil {
-			blockCh.Send(wrap(&ssproto.LightBlockResponse{LightBlock: nil}), m.From)
+			blockCh.Send(wrap(&pb.LightBlockResponse{LightBlock: nil}), m.From)
 			return nil
 		}
 
@@ -826,8 +844,8 @@ func (r *Reactor) handleLightBlockMessage(ctx context.Context, m p2p.RecvMsg[*ss
 
 		// NOTE: If we don't have the light block we will send a nil light block
 		// back to the requested node, indicating that we don't have it.
-		blockCh.Send(wrap(&ssproto.LightBlockResponse{LightBlock: lbproto}), m.From)
-	case *ssproto.Message_LightBlockResponse:
+		blockCh.Send(wrap(&pb.LightBlockResponse{LightBlock: lbproto}), m.From)
+	case *pb.Message_LightBlockResponse:
 		resp := msg.LightBlockResponse
 		var height int64
 		if resp.LightBlock != nil {
@@ -848,10 +866,10 @@ func (r *Reactor) handleLightBlockMessage(ctx context.Context, m p2p.RecvMsg[*ss
 	return nil
 }
 
-func (r *Reactor) handleParamsMessage(ctx context.Context, m p2p.RecvMsg[*ssproto.Message]) (err error) {
+func (r *Reactor) handleParamsMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message]) (err error) {
 	defer r.recoverToErr(&err)
 	switch msg := m.Message.Sum.(type) {
-	case *ssproto.Message_ParamsRequest:
+	case *pb.Message_ParamsRequest:
 		req := msg.ParamsRequest
 		r.logger.Debug("received consensus params request", "height", req.GetHeight())
 		cp, err := r.stateStore.LoadConsensusParams(int64(req.GetHeight()))
@@ -861,11 +879,11 @@ func (r *Reactor) handleParamsMessage(ctx context.Context, m p2p.RecvMsg[*ssprot
 		}
 
 		cpproto := cp.ToProto()
-		r.paramsChannel.Send(wrap(&ssproto.ParamsResponse{
+		r.paramsChannel.Send(wrap(&pb.ParamsResponse{
 			Height:          req.GetHeight(),
 			ConsensusParams: cpproto,
 		}), m.From)
-	case *ssproto.Message_ParamsResponse:
+	case *pb.Message_ParamsResponse:
 		resp := msg.ParamsResponse
 		r.mtx.RLock()
 		defer r.mtx.RUnlock()
@@ -873,7 +891,7 @@ func (r *Reactor) handleParamsMessage(ctx context.Context, m p2p.RecvMsg[*ssprot
 
 		cp := types.ConsensusParamsFromProto(resp.GetConsensusParams())
 
-		if sp, ok := r.stateProvider.(*light.StateProviderP2P); ok {
+		if sp, ok := r.stateProvider.(*StateProviderP2P); ok {
 			select {
 			case sp.ParamsRecvCh() <- cp:
 			case <-ctx.Done():
@@ -1005,7 +1023,7 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 
 		r.providers[peerUpdate.NodeID] = newProvider
 		r.syncer.AddPeer(peerUpdate.NodeID)
-		if sp, ok := r.stateProvider.(*light.StateProviderP2P); ok {
+		if sp, ok := r.stateProvider.(*StateProviderP2P); ok {
 			// we do this in a separate routine to not block whilst waiting for the light client to finish
 			// whatever call it's currently executing
 			go sp.AddProvider(newProvider)
@@ -1014,7 +1032,7 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 	case p2p.PeerStatusDown:
 		delete(r.providers, peerUpdate.NodeID)
 		r.syncer.RemovePeer(peerUpdate.NodeID)
-		if sp, ok := r.stateProvider.(*light.StateProviderP2P); ok {
+		if sp, ok := r.stateProvider.(*StateProviderP2P); ok {
 			if err := sp.RemoveProviderByID(peerUpdate.NodeID); err != nil {
 				r.logger.Error("failed to remove peer witness", "peer", peerUpdate.NodeID, "error", err)
 			}

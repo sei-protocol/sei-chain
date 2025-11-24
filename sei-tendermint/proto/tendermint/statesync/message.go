@@ -3,8 +3,6 @@ package statesync
 import (
 	"errors"
 	"fmt"
-
-	"github.com/gogo/protobuf/proto"
 )
 
 // Validate validates the message returning an error upon failure.
