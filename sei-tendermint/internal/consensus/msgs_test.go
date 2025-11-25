@@ -90,9 +90,11 @@ func TestMsgToProto(t *testing.T) {
 		wantErr  bool
 	}{
 		{"successful NewRoundStepMessage", &NewRoundStepMessage{
-			Height:                2,
-			Round:                 1,
-			Step:                  1,
+			HRS: cstypes.HRS{
+				Height: 2,
+				Round:  1,
+				Step:   1,
+			},
 			SecondsSinceStartTime: 1,
 			LastCommitRound:       2,
 		}, &tmcons.Message{
@@ -202,7 +204,6 @@ func TestMsgToProto(t *testing.T) {
 		{"failure", nil, &tmcons.Message{}, true},
 	}
 	for _, tt := range testsCases {
-		tt := tt
 		t.Run(tt.testName, func(t *testing.T) {
 			pb, err := MsgToProto(tt.msg)
 			if tt.wantErr == true {
@@ -308,7 +309,6 @@ func TestWALMsgProto(t *testing.T) {
 		{"failure", nil, &tmcons.WALMessage{}, true},
 	}
 	for _, tt := range testsCases {
-		tt := tt
 		t.Run(tt.testName, func(t *testing.T) {
 			pb, err := WALToProto(tt.msg)
 			if tt.wantErr == true {
@@ -544,9 +544,11 @@ func TestNewRoundStepMessageValidateBasic(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(t *testing.T) {
 			message := NewRoundStepMessage{
-				Height:          tc.messageHeight,
-				Round:           tc.messageRound,
-				Step:            tc.messageStep,
+				HRS: cstypes.HRS{
+					Height: tc.messageHeight,
+					Round:  tc.messageRound,
+					Step:   tc.messageStep,
+				},
 				LastCommitRound: tc.messageLastCommitRound,
 			}
 
@@ -578,9 +580,11 @@ func TestNewRoundStepMessageValidateHeight(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(t *testing.T) {
 			message := NewRoundStepMessage{
-				Height:          tc.messageHeight,
-				Round:           0,
-				Step:            cstypes.RoundStepNewHeight,
+				HRS: cstypes.HRS{
+					Height: tc.messageHeight,
+					Round:  0,
+					Step:   cstypes.RoundStepNewHeight,
+				},
 				LastCommitRound: tc.messageLastCommitRound,
 			}
 
