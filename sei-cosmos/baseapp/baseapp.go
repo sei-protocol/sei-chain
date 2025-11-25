@@ -819,9 +819,23 @@ func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context 
 	return ctx
 }
 
-// cacheTxContext returns a new context based off of the provided context with
+func (app *BaseApp) GetCheckTxContext(txBytes []byte, recheck bool) sdk.Context {
+	app.votesInfoLock.RLock()
+	defer app.votesInfoLock.RUnlock()
+	mode := runTxModeCheck
+	if recheck {
+		mode = runTxModeReCheck
+	}
+	ctx := app.getState(mode).Context().
+		WithTxBytes(txBytes).
+		WithVoteInfos(app.voteInfos)
+
+	return ctx.WithConsensusParams(app.GetConsensusParams(ctx))
+}
+
+// CacheTxContext returns a new context based off of the provided context with
 // a branched multi-store.
-func (app *BaseApp) cacheTxContext(ctx sdk.Context, checksum [32]byte) (sdk.Context, sdk.CacheMultiStore) {
+func (app *BaseApp) CacheTxContext(ctx sdk.Context, checksum [32]byte) (sdk.Context, sdk.CacheMultiStore) {
 	ms := ctx.MultiStore()
 	// TODO: https://github.com/cosmos/cosmos-sdk/issues/2824
 	msCache := ms.CacheMultiStore()
@@ -913,7 +927,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		// NOTE: Alternatively, we could require that AnteHandler ensures that
 		// writes do not happen if aborted/failed.  This may have some
 		// performance benefits, but it'll be more difficult to get right.
-		anteCtx, msCache = app.cacheTxContext(ctx, checksum)
+		anteCtx, msCache = app.CacheTxContext(ctx, checksum)
 		anteCtx = anteCtx.WithEventManager(sdk.NewEventManager())
 		newCtx, err := app.anteHandler(anteCtx, tx, mode == runTxModeSimulate)
 
@@ -958,14 +972,14 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	// Create a new Context based off of the existing Context with a MultiStore branch
 	// in case message processing fails. At this point, the MultiStore
 	// is a branch of a branch.
-	runMsgCtx, msCache := app.cacheTxContext(ctx, checksum)
+	runMsgCtx, msCache := app.CacheTxContext(ctx, checksum)
 
 	// Attempt to execute all messages and only update state if all messages pass
 	// and we're in DeliverTx. Note, runMsgs will never return a reference to a
 	// Result if any single message fails or does not have a registered Handler.
 	result, err = app.runMsgs(runMsgCtx, msgs, mode)
 
-	if err == nil && mode == runTxModeDeliver {
+	if err == nil {
 		msCache.Write()
 	}
 	// we do this since we will only be looking at result in DeliverTx
@@ -1031,17 +1045,13 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 
 	// NOTE: GasWanted is determined by the AnteHandler and GasUsed by the GasMeter.
 	for i, msg := range msgs {
-		// skip actual execution for (Re)CheckTx mode
-		if mode == runTxModeCheck || mode == runTxModeReCheck {
-			break
-		}
 		var (
 			msgResult    *sdk.Result
 			eventMsgName string // name to use as value in event `message.action`
 			err          error
 		)
 
-		msgCtx, msgMsCache := app.cacheTxContext(ctx, [32]byte{})
+		msgCtx, msgMsCache := app.CacheTxContext(ctx, [32]byte{})
 		msgCtx = msgCtx.WithMessageIndex(i)
 
 		startTime := time.Now()

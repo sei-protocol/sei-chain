@@ -5,9 +5,10 @@ modules:
     name: buf.build/sei-protocol/sei-chain
   - path: sei-cosmos/proto
   - path: sei-cosmos/third_party/proto
+  - path: sei-ibc-go/proto
+  - path: sei-ibc-go/third_party/proto
   - path: sei-tendermint/proto
   - path: sei-wasmd/proto
-  - path: sei-wasmd/third_party/proto
 
 lint:
   use:
@@ -28,9 +29,4 @@ breaking:
   use:
     - WIRE
     - WIRE_JSON
-  ignore:
-    # Access Control is an unused feature that has been removed and no longer offered by Sei.
-    # See: https://github.com/sei-protocol/sei-chain/pull/2504
-    # TODO: Remove this ignore section after some grace period, or once the above PR lands.
-    - ./sei-cosmos/proto/cosmos/accesscontrol
-    - ./sei-cosmos/proto/cosmos/accesscontrol_x
+    

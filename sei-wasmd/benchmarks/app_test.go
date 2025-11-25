@@ -167,7 +167,7 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 	attr := evt.Attributes[0]
 	contractAddr := string(attr.Value)
 
-	wasmApp.EndBlock(wasmApp.GetContextForDeliverTx([]byte{}), abci.RequestEndBlock{Height: height})
+	wasmApp.EndBlock(wasmApp.GetContextForDeliverTx([]byte{}), height, 0)
 	wasmApp.SetDeliverStateToCommit()
 	wasmApp.Commit(context.Background())
 
