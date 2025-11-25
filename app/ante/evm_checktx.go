@@ -52,14 +52,14 @@ func EvmCheckTxAnte(
 		return HandleAssociateTx(ctx, ek, atx, true)
 	}
 	etx := ethtypes.NewTx(txData.AsEthereumData())
-	evmAddr, seiAddr, seiPubkey, version, err := CheckAndDecodeSignature(ctx, txData, chainID)
+	evmAddr, seiAddr, seiPubkey, version, err := CheckAndDecodeSignature(ctx, txData, chainID, false)
 	if err != nil {
 		return ctx, err
 	}
 	if err := AssociateAddress(ctx, ek, evmAddr, seiAddr, seiPubkey); err != nil {
 		return ctx, err
 	}
-	if _, _, err := EvmCheckAndChargeFees(ctx, evmAddr, ek, upgradeKeeper, txData, etx, msg, version); err != nil {
+	if _, err := EvmCheckAndChargeFees(ctx, evmAddr, ek, upgradeKeeper, txData, etx, msg, version, false); err != nil {
 		return ctx, err
 	}
 
@@ -121,7 +121,11 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "not EVM message")
 	}
 	if err := msg.ValidateBasic(); err != nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
+		return err
+	}
+	if msg.Derived != nil && msg.Derived.PubKey == nil {
+		// this means the message has `Derived` set from the outside, in which case we should reject
+		return sdkerrors.ErrInvalidPubKey
 	}
 	txData, err := evmtypes.UnpackTxData(msg.Data)
 	if err != nil {
@@ -231,7 +235,7 @@ func HandleAssociateTx(ctx sdk.Context, ek *evmkeeper.Keeper, atx *ethtx.Associa
 	return ctx.WithPriority(antedecorators.EVMAssociatePriority), nil
 }
 
-func CheckAndDecodeSignature(ctx sdk.Context, txData ethtx.TxData, chainID *big.Int) (common.Address, sdk.AccAddress, cryptotypes.PubKey, derived.SignerVersion, error) {
+func CheckAndDecodeSignature(ctx sdk.Context, txData ethtx.TxData, chainID *big.Int, isBlockTest bool) (common.Address, sdk.AccAddress, cryptotypes.PubKey, derived.SignerVersion, error) {
 	ethTx := ethtypes.NewTx(txData.AsEthereumData())
 	if ethTx.Type() != ethtypes.LegacyTxType {
 		chainID = ethTx.ChainId()
@@ -250,7 +254,13 @@ func CheckAndDecodeSignature(ctx sdk.Context, txData ethtx.TxData, chainID *big.
 		V = evmante.AdjustV(V, ethTx.Type(), ethCfg.ChainID)
 		txHash = signer.Hash(ethTx)
 	} else {
-		return common.Address{}, sdk.AccAddress{}, nil, 0, errors.New("unsupported tx type: unsafe legacy tx")
+		if isBlockTest {
+			// need to allow unprotected legacy txs in blocktest
+			// to not lose coverage for other parts of the code
+			txHash = ethtypes.FrontierSigner{}.Hash(ethTx)
+		} else {
+			return common.Address{}, sdk.AccAddress{}, nil, 0, errors.New("unsupported tx type: unsafe legacy tx")
+		}
 	}
 	evmAddr, seiAddr, seiPubkey, err := helpers.GetAddresses(V, R, S, txHash)
 	if err != nil {
@@ -270,19 +280,19 @@ func AssociateAddress(ctx sdk.Context, ek *evmkeeper.Keeper, evmAddr common.Addr
 	return nil
 }
 
-func EvmCheckAndChargeFees(ctx sdk.Context, sender common.Address, ek *evmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper, txData ethtx.TxData, etx *ethtypes.Transaction, msg *evmtypes.MsgEVMTransaction, version derived.SignerVersion) (*state.DBImpl, *core.StateTransition, error) {
+func EvmCheckAndChargeFees(ctx sdk.Context, sender common.Address, ek *evmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper, txData ethtx.TxData, etx *ethtypes.Transaction, msg *evmtypes.MsgEVMTransaction, version derived.SignerVersion, statelessChecks bool) (*state.DBImpl, error) {
 	if txData.GetGasFeeCap().Cmp(GetBaseFee(ctx, ek, upgradeKeeper)) < 0 {
-		return nil, nil, sdkerrors.ErrInsufficientFee
+		return nil, sdkerrors.ErrInsufficientFee
 	}
 	if txData.GetGasFeeCap().Cmp(GetMinimumFee(ctx, ek)) < 0 {
-		return nil, nil, sdkerrors.ErrInsufficientFee
+		return nil, sdkerrors.ErrInsufficientFee
 	}
 	if version >= derived.Cancun && len(txData.GetBlobHashes()) > 0 {
 		// For now we are simply assuming excessive blob gas is 0. In the future we might change it to be
 		// dynamic based on prior block usage.
 		chainConfig := evmtypes.DefaultChainConfig().EthereumConfig(ek.ChainID(ctx))
 		if txData.GetBlobFeeCap().Cmp(eip4844.CalcBlobFee(chainConfig, &ethtypes.Header{Time: uint64(ctx.BlockTime().Unix())})) < 0 { // nolint:gosec
-			return nil, nil, sdkerrors.ErrInsufficientFee
+			return nil, sdkerrors.ErrInsufficientFee
 		}
 	}
 	emsg := ek.GetEVMMessage(ctx, etx, sender)
@@ -290,17 +300,22 @@ func EvmCheckAndChargeFees(ctx sdk.Context, sender common.Address, ek *evmkeeper
 	gp := ek.GetGasPool()
 	blockCtx, err := ek.GetVMBlockContext(ctx, gp)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	cfg := evmtypes.DefaultChainConfig().EthereumConfig(ek.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(emsg)
 	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, ek.CustomPrecompiles(ctx))
 	evmInstance.SetTxContext(txCtx)
 	st := core.NewStateTransition(evmInstance, emsg, &gp, true, false)
-	if err := st.BuyGas(); err != nil {
-		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, err.Error())
+	if statelessChecks {
+		if err := st.StatelessChecks(); err != nil {
+			return nil, sdkerrors.Wrap(sdkerrors.ErrWrongSequence, err.Error())
+		}
 	}
-	return stateDB, st, nil
+	if err := st.BuyGas(); err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, err.Error())
+	}
+	return stateDB, nil
 }
 
 func CheckNonce(ctx sdk.Context, latestCtxGetter func() sdk.Context, ek *evmkeeper.Keeper, etx *ethtypes.Transaction, evmAddr common.Address, seiAddr sdk.AccAddress) (sdk.Context, error) {

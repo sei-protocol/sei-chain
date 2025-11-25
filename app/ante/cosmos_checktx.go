@@ -406,7 +406,7 @@ func CheckSignatures(ctx sdk.Context, txConfig client.TxConfig, tx sdk.Tx, signe
 	var events sdk.Events
 	for i, sig := range sigs {
 		events = append(events, sdk.NewEvent(sdk.EventTypeTx,
-			sdk.NewAttribute(sdk.AttributeKeyAccountSequence, fmt.Sprintf("%s/%d", signerAccounts[i], sig.Sequence)),
+			sdk.NewAttribute(sdk.AttributeKeyAccountSequence, fmt.Sprintf("%s/%d", signerAddrs[i], sig.Sequence)),
 		))
 		if sigBzs, err := authante.SignatureDataToBz(sig.Data); err != nil {
 			return nil, err

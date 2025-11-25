@@ -22,6 +22,7 @@ func EvmDeliverTxAnte(
 	upgradeKeeper *upgradekeeper.Keeper,
 	ek *evmkeeper.Keeper,
 ) (returnCtx sdk.Context, returnErr error) {
+	ctx = ctx.WithDeliverTxCallback(func(sdk.Context) {})
 	chainID := ek.ChainID(ctx)
 	if err := EvmStatelessChecks(ctx, tx, chainID); err != nil {
 		return ctx, err
@@ -45,12 +46,15 @@ func EvmDeliverTxAnte(
 }
 
 func EvmDeliverHandleSignatures(ctx sdk.Context, ek *evmkeeper.Keeper, txData ethtx.TxData, chainID *big.Int, msg *evmtypes.MsgEVMTransaction) (common.Address, derived.SignerVersion, error) {
-	evmAddr, seiAddr, seiPubkey, version, err := CheckAndDecodeSignature(ctx, txData, chainID)
+	evmAddr, seiAddr, seiPubkey, version, err := CheckAndDecodeSignature(ctx, txData, chainID, ek.EthBlockTestConfig.Enabled)
 	if err != nil {
 		return evmAddr, version, err
 	}
 	if err := AssociateAddress(ctx, ek, evmAddr, seiAddr, seiPubkey); err != nil {
 		return evmAddr, version, err
+	}
+	if ek.EthReplayConfig.Enabled {
+		ek.PrepareReplayedAddr(ctx, evmAddr)
 	}
 	msg.Derived = &derived.Derived{
 		SenderEVMAddr: evmAddr,
@@ -63,11 +67,8 @@ func EvmDeliverHandleSignatures(ctx sdk.Context, ek *evmkeeper.Keeper, txData et
 }
 
 func EvmDeliverChargeFees(ctx sdk.Context, ek *evmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper, txData ethtx.TxData, etx *ethtypes.Transaction, msg *evmtypes.MsgEVMTransaction, version derived.SignerVersion, evmAddr common.Address) error {
-	stateDB, st, err := EvmCheckAndChargeFees(ctx, evmAddr, ek, upgradeKeeper, txData, etx, msg, version)
+	stateDB, err := EvmCheckAndChargeFees(ctx, evmAddr, ek, upgradeKeeper, txData, etx, msg, version, true)
 	if err != nil {
-		return err
-	}
-	if err := st.StatelessChecks(); err != nil {
 		return err
 	}
 	surplus, err := stateDB.Finalize()
@@ -78,7 +79,13 @@ func EvmDeliverChargeFees(ctx sdk.Context, ek *evmkeeper.Keeper, upgradeKeeper *
 }
 
 func DecorateNonceCallback(ctx sdk.Context, ek *evmkeeper.Keeper, evmAddr common.Address, txNonce uint64) sdk.Context {
+	if ek.EthReplayConfig.Enabled || ek.EthBlockTestConfig.Enabled {
+		return ctx
+	}
 	startingNonce := ek.GetNonce(ctx, evmAddr)
+	if startingNonce != txNonce {
+		return ctx
+	}
 	return ctx.WithDeliverTxCallback(func(callCtx sdk.Context) {
 		// bump nonce if it is for some reason not incremented (e.g. ante failure)
 		if ek.GetNonce(callCtx, evmAddr) == startingNonce {

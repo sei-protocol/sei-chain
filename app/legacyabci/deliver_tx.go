@@ -92,7 +92,9 @@ func DeliverTx(
 		err = evmerr
 	} else if isEVM {
 		newCtx, err = ante.EvmDeliverTxAnte(anteCtx, txConfig, tx, keepers.UpgradeKeeper, keepers.EvmKeeper)
-		newCtx.DeliverTxCallback()(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)))
+		defer func() {
+			newCtx.DeliverTxCallback()(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)))
+		}()
 	} else {
 		newCtx, err = ante.CosmosDeliverTxAnte(anteCtx, txConfig, tx, keepers.ParamsKeeper, keepers.OracleKeeper, keepers.EvmKeeper, keepers.AccountKeeper, keepers.BankKeeper, keepers.FeeGrantKeeper)
 	}
