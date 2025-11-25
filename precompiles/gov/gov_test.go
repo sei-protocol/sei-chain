@@ -312,7 +312,7 @@ func TestGovPrecompile(t *testing.T) {
 			res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 			if tt.wantErr {
 				require.NotEmpty(t, res.VmError)
-				require.Contains(t, string(res.ReturnData), tt.wantErrMsgToContain)
+				require.Nil(t, res.ReturnData)
 			} else {
 				require.Nil(t, err)
 				require.Empty(t, res.VmError)
@@ -751,7 +751,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 
 			if tt.wantErr {
 				require.NotEmpty(t, gotRet.VmError)
-				require.Equal(t, string(gotRet.ReturnData), tt.wantErrMsg)
+				require.Nil(t, gotRet.ReturnData)
 			} else {
 				require.Empty(t, gotRet.VmError)
 				require.Nil(t, err)
