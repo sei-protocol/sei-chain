@@ -15,15 +15,27 @@ import (
 	"time"
 
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/service"
 )
 
 const (
-	defaultGroupCheckDuration = 5000 * time.Millisecond
-	defaultHeadSizeLimit      = 10 * 1024 * 1024       // 10MB
-	defaultTotalSizeLimit     = 1 * 1024 * 1024 * 1024 // 1GB
 	maxFilesToRemove          = 4                      // needs to be greater than 1
 )
+
+type Config struct {
+	HeadSizeLimit      int64
+	TotalSizeLimit     int64
+	GroupCheckDuration time.Duration
+}
+
+func DefaultConfig() *Config {
+	return &Config {
+		HeadSizeLimit:       10 * 1024 * 1024,       // 10MB
+		TotalSizeLimit:      1 * 1024 * 1024 * 1024, // 1GB
+		GroupCheckDuration:  5000 * time.Millisecond,
+	}
+}
 
 /*
 You can open a Group to keep restrictions on an AutoFile, like
@@ -54,18 +66,11 @@ The Group can also be used to binary-search for some line,
 assuming that marker lines are written occasionally.
 */
 type Group struct {
-	service.BaseService
 	logger log.Logger
-
-	ID                 string
-	Head               *AutoFile // The head AutoFile to write to
-	headBuf            *bufio.Writer
-	Dir                string // Directory that contains .Head
-	ticker             *time.Ticker
-	mtx                sync.Mutex
-	headSizeLimit      int64
-	totalSizeLimit     int64
-	groupCheckDuration time.Duration
+	config *Config
+	headPath string
+	
+	mtx                sync.Mutex	
 	minIndex           int // Includes head
 	maxIndex           int // Includes head, where Head will move to
 
@@ -75,102 +80,57 @@ type Group struct {
 
 // OpenGroup creates a new Group with head at headPath. It returns an error if
 // it fails to open head file.
-func OpenGroup(ctx context.Context, logger log.Logger, headPath string, groupOptions ...func(*Group)) (*Group, error) {
-	dir, err := filepath.Abs(filepath.Dir(headPath))
-	if err != nil {
-		return nil, err
-	}
-	head, err := OpenAutoFile(ctx, headPath)
-	if err != nil {
-		return nil, err
-	}
-
+func OpenGroup(ctx context.Context, logger log.Logger, headPath string, config *Config) (*Group, error) {
 	g := &Group{
+		headPath: headPath,
 		logger:             logger,
-		ID:                 "group:" + head.ID,
-		Head:               head,
-		headBuf:            bufio.NewWriterSize(head, 4096*10),
-		Dir:                dir,
-		headSizeLimit:      defaultHeadSizeLimit,
-		totalSizeLimit:     defaultTotalSizeLimit,
-		groupCheckDuration: defaultGroupCheckDuration,
+		config: config,	
 		minIndex:           0,
 		maxIndex:           0,
 	}
-
-	for _, option := range groupOptions {
-		option(g)
-	}
-
-	g.BaseService = *service.NewBaseService(logger, "Group", g)
-
 	gInfo := g.readGroupInfo()
 	g.minIndex = gInfo.MinIndex
 	g.maxIndex = gInfo.MaxIndex
 	return g, nil
 }
 
-// GroupCheckDuration allows you to overwrite default groupCheckDuration.
-func GroupCheckDuration(duration time.Duration) func(*Group) {
-	return func(g *Group) {
-		g.groupCheckDuration = duration
-	}
-}
-
-// GroupHeadSizeLimit allows you to overwrite default head size limit - 10MB.
-func GroupHeadSizeLimit(limit int64) func(*Group) {
-	return func(g *Group) {
-		g.headSizeLimit = limit
-	}
-}
-
-// GroupTotalSizeLimit allows you to overwrite default total size limit of the group - 1GB.
-func GroupTotalSizeLimit(limit int64) func(*Group) {
-	return func(g *Group) {
-		g.totalSizeLimit = limit
-	}
-}
-
 // OnStart implements service.Service by starting the goroutine that checks file
 // and group limits.
-func (g *Group) OnStart(ctx context.Context) error {
-	g.ticker = time.NewTicker(g.groupCheckDuration)
-	go g.processTicks(ctx)
-	return nil
-}
-
-// OnStop implements service.Service by stopping the goroutine described above.
-// NOTE: g.Head must be closed separately using Close.
-func (g *Group) OnStop() {
-	g.ticker.Stop()
-	if err := g.FlushAndSync(); err != nil {
-		g.logger.Error("error flushing to disk", "err", err)
+func (g *Group) Run(ctx context.Context) error {
+	dir, err := filepath.Abs(filepath.Dir(g.headPath))
+	if err != nil {
+		return err
 	}
-}
-
-// Close closes the head file. The group must be stopped by this moment.
-func (g *Group) Close() {
-	if err := g.FlushAndSync(); err != nil {
-		g.logger.Error("error flushing to disk", "err", err)
+	head, err := OpenAutoFile(ctx, g.headPath)
+	if err != nil {
+		return err
 	}
+	headBuf := bufio.NewWriterSize(head, 4096*10)
+	ticker := time.NewTicker(g.config.GroupCheckDuration)
 
-	g.mtx.Lock()
-	_ = g.Head.Close()
-	g.mtx.Unlock()
-}
-
-// HeadSizeLimit returns the current head size limit.
-func (g *Group) HeadSizeLimit() int64 {
-	g.mtx.Lock()
-	defer g.mtx.Unlock()
-	return g.headSizeLimit
-}
-
-// TotalSizeLimit returns total size limit of the group.
-func (g *Group) TotalSizeLimit() int64 {
-	g.mtx.Lock()
-	defer g.mtx.Unlock()
-	return g.totalSizeLimit
+	for {
+		if len(cmd.data)>0 {
+			if _,err := headBuf.Write(cmd.Data); err!=nil {
+				return err
+			}
+		}
+		if done,ok := cmd.sync.Get(); ok {
+			if err := headBuf.Flush(); err!=nil {
+				return err
+			}
+			if err := head.Sync(); err!=nil {
+				return err
+			}
+			close(done)
+		}
+	}
+	for {
+		if _,err := utils.Recv(ctx,ticker.C); err!=nil {
+			return err
+		}
+		g.checkHeadSizeLimit(ctx)
+		g.checkTotalSizeLimit(ctx)
+	}
 }
 
 // MaxIndex returns index of the last file in the group.
@@ -192,56 +152,22 @@ func (g *Group) MinIndex() int {
 // error explaining why the write is short.
 // NOTE: Writes are buffered so they don't write synchronously
 // TODO: Make it halt if space is unavailable
-func (g *Group) Write(p []byte) (nn int, err error) {
-	g.mtx.Lock()
-	defer g.mtx.Unlock()
-	return g.headBuf.Write(p)
-}
-
-// WriteLine writes line into the current head of the group. It also appends "\n".
-// NOTE: Writes are buffered so they don't write synchronously
-// TODO: Make it halt if space is unavailable
-func (g *Group) WriteLine(line string) error {
-	g.mtx.Lock()
-	defer g.mtx.Unlock()
-	_, err := g.headBuf.Write([]byte(line + "\n"))
-	return err
-}
-
-// Buffered returns the size of the currently buffered data.
-func (g *Group) Buffered() int {
-	g.mtx.Lock()
-	defer g.mtx.Unlock()
-	return g.headBuf.Buffered()
+func (g *Group) Write(ctx context.Context, p []byte) error {
+	return utils.Send(ctx,g.cmds,cmd{data:p})
 }
 
 // FlushAndSync writes any buffered data to the underlying file and commits the
 // current content of the file to stable storage (fsync).
-func (g *Group) FlushAndSync() error {
-	g.mtx.Lock()
-	defer g.mtx.Unlock()
-	err := g.headBuf.Flush()
-	if err == nil {
-		err = g.Head.Sync()
-	}
+func (g *Group) Sync() error {
+	done := make(chan struct{})
+	if err:=utils.Send(ctx,g.cmds,cmd{sync:done}); err!=nil { return err }
+	_,err :=utils.RecvOrClosed(ctx,done)
 	return err
-}
-
-func (g *Group) processTicks(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-g.ticker.C:
-			g.checkHeadSizeLimit(ctx)
-			g.checkTotalSizeLimit(ctx)
-		}
-	}
 }
 
 // NOTE: this function is called manually in tests.
 func (g *Group) checkHeadSizeLimit(ctx context.Context) {
-	limit := g.HeadSizeLimit()
+	limit := g.config.HeadSizeLimit
 	if limit == 0 {
 		return
 	}

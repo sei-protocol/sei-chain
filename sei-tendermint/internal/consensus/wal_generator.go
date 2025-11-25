@@ -170,11 +170,7 @@ func (w *byteBufferWAL) Write(m WALMessage) error {
 	return nil
 }
 
-func (w *byteBufferWAL) WriteSync(m WALMessage) error {
-	return w.Write(m)
-}
-
-func (w *byteBufferWAL) FlushAndSync() error { return nil }
+func (w *byteBufferWAL) Sync() error { return nil }
 
 func (w *byteBufferWAL) SearchForEndHeight(
 	height int64,

@@ -427,7 +427,7 @@ func (cs *State) Run(ctx context.Context) error {
 		}
 
 		// now start the receiveRoutine
-		s.SpawnNamed("receivedRoutine", func() error { return cs.receiveRoutine(ctx, 0) })
+		s.SpawnNamed("receiveRoutine", func() error { return cs.receiveRoutine(ctx, 0) })
 		s.SpawnNamed("heartbeater", func() error { return cs.heartbeater(ctx) })
 
 		// schedule the first round!
@@ -766,7 +766,7 @@ func (cs *State) updateToState(state sm.State) {
 func (cs *State) newStep() {
 	rs := cs.roundState.RoundStateEvent()
 	if err := cs.wal.Write(NewWALMessage(rs)); err != nil {
-		cs.logger.Error("failed writing to WAL", "err", err)
+		panic(fmt.Errorf("failed writing to WAL: %w", err))
 	}
 
 	cs.nSteps++
@@ -875,8 +875,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 			cs.handleMsg(ctx, mi, false)
 
 		case mi := <-cs.internalMsgQueue:
-			err := cs.wal.Write(NewWALMessage(mi))
-			if err != nil {
+			if err := cs.wal.Write(NewWALMessage(mi)); err != nil {
 				return fmt.Errorf(
 					"failed to write %v msg to consensus WAL due to %w; check your file system and restart the node",
 					mi, err,
@@ -888,7 +887,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 
 		case ti := <-cs.timeoutTicker.Chan(): // tockChan:
 			if err := cs.wal.Write(NewWALMessage(ti)); err != nil {
-				cs.logger.Error("failed writing to WAL", "err", err)
+				return fmt.Errorf("failed writing to WAL: %w", err)
 			}
 
 			// if the timeout is relevant to the rs
@@ -905,7 +904,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 func (cs *State) fsyncAndCompleteProposal(ctx context.Context, fsyncUponCompletion bool, height int64, span otrace.Span, onPropose bool) {
 	cs.metrics.ProposalBlockCreatedOnPropose.With("success", strconv.FormatBool(onPropose)).Add(1)
 	if fsyncUponCompletion {
-		if err := cs.wal.FlushAndSync(); err != nil { // fsync
+		if err := cs.wal.Sync(); err != nil { // fsync
 			cs.logger.Error("Error flushing wal after receiving all block parts", "error", err)
 		}
 	}
@@ -1362,7 +1361,7 @@ func (cs *State) decideProposal(ctx context.Context, height int64, round int32, 
 
 	// Flush the WAL. Otherwise, we may not recompute the same proposal to sign,
 	// and the privValidator will refuse to sign anything.
-	if err := cs.wal.FlushAndSync(); err != nil {
+	if err := cs.wal.Sync(); err != nil {
 		cs.logger.Error("failed flushing WAL to disk")
 	}
 
@@ -2060,11 +2059,14 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 	endMsg := EndHeightMessage{height}
 	_, fsyncSpan := cs.tracer.Start(spanCtx, "cs.state.finalizeCommit.fsync")
 	defer fsyncSpan.End()
-	if err := cs.wal.WriteSync(NewWALMessage(endMsg)); err != nil { // NOTE: fsync
+	if err := cs.wal.Write(NewWALMessage(endMsg)); err != nil { // NOTE: fsync
 		panic(fmt.Errorf(
 			"failed to write %v msg to consensus WAL due to %w; check your file system and restart the node",
 			endMsg, err,
 		))
+	}
+	if err := cs.wal.Sync(); err!=nil {
+		panic(fmt.Errorf("cs.wal.Sync(): %w",err))
 	}
 	fsyncSpan.End()
 
@@ -2681,7 +2683,7 @@ func (cs *State) signVote(
 ) (*types.Vote, error) {
 	// Flush the WAL. Otherwise, we may not recompute the same vote to sign,
 	// and the privValidator will refuse to sign anything.
-	if err := cs.wal.FlushAndSync(); err != nil {
+	if err := cs.wal.Sync(); err != nil {
 		return nil, err
 	}
 

@@ -150,9 +150,7 @@ func (msg WALMessage) toProto() *tmcons.WALMessage {
 				},
 			},
 		}
-
-	default:
-		panic(fmt.Errorf("to proto: wal message not recognized: %T", msg))
+	default: panic("unreachable")
 	}
 }
 
@@ -205,8 +203,7 @@ func walFromProto(msg *tmcons.WALMessage) (WALMessage, error) {
 // WAL is an interface for any write-ahead logger.
 type WAL interface {
 	Write(WALMessage) error
-	WriteSync(WALMessage) error
-	FlushAndSync() error
+	Sync() error
 
 	SearchForEndHeight(height int64, options *WALSearchOptions) (rd io.ReadCloser, found bool, err error)
 
@@ -266,13 +263,16 @@ func (wal *BaseWAL) OnStart(ctx context.Context) error {
 	size, err := wal.group.Head.Size()
 	if err != nil {
 		return err
-	} else if size == 0 {
-		if err := wal.WriteSync(NewWALMessage(EndHeightMessage{0})); err != nil {
+	}
+	if size == 0 {
+		if err := wal.Write(NewWALMessage(EndHeightMessage{0})); err != nil {
+			return err
+		}
+		if err := wal.Sync(); err!=nil {
 			return err
 		}
 	}
-	err = wal.group.Start(ctx)
-	if err != nil {
+	if err := wal.group.Start(ctx);err != nil {
 		return err
 	}
 	wal.flushTicker = time.NewTicker(wal.flushInterval)
@@ -284,7 +284,7 @@ func (wal *BaseWAL) processFlushTicks(ctx context.Context) {
 	for {
 		select {
 		case <-wal.flushTicker.C:
-			if err := wal.FlushAndSync(); err != nil {
+			if err := wal.Sync(); err != nil {
 				wal.logger.Error("Periodic WAL flush failed", "err", err)
 			}
 		case <-ctx.Done():
@@ -295,7 +295,7 @@ func (wal *BaseWAL) processFlushTicks(ctx context.Context) {
 
 // FlushAndSync flushes and fsync's the underlying group's data to disk.
 // See auto#FlushAndSync
-func (wal *BaseWAL) FlushAndSync() error {
+func (wal *BaseWAL) Sync() error {
 	return wal.group.FlushAndSync()
 }
 
@@ -304,7 +304,7 @@ func (wal *BaseWAL) FlushAndSync() error {
 // before cleaning up files.
 func (wal *BaseWAL) OnStop() {
 	wal.flushTicker.Stop()
-	if err := wal.FlushAndSync(); err != nil {
+	if err := wal.Sync(); err != nil {
 		wal.logger.Error("error on flush data to disk", "error", err)
 	}
 	wal.group.Stop()
@@ -335,20 +335,6 @@ func (wal *BaseWAL) Write(msg WALMessage) error {
 	// but multiple bad writes can make it permanently corrupted.
 	if _, err := wal.group.Write(bytes); err != nil {
 		return fmt.Errorf("wal.group.Write(): %w", err)
-	}
-	return nil
-}
-
-// WriteSync is called when we receive a msg from ourselves
-// so that we write to disk before sending signed messages.
-// NOTE: calls fsync()
-func (wal *BaseWAL) WriteSync(msg WALMessage) error {
-	if err := wal.Write(msg); err != nil {
-		return err
-	}
-	if err := wal.FlushAndSync(); err != nil {
-		return fmt.Errorf(`WriteSync failed to flush consensus wal.
-		WARNING: may result in creating alternative proposals / votes for the current height iff the node restarted: %w`, err)
 	}
 	return nil
 }
@@ -542,8 +528,7 @@ type nilWAL struct{}
 var _ WAL = nilWAL{}
 
 func (nilWAL) Write(m WALMessage) error     { return nil }
-func (nilWAL) WriteSync(m WALMessage) error { return nil }
-func (nilWAL) FlushAndSync() error          { return nil }
+func (nilWAL) Sync() error          { return nil }
 func (nilWAL) SearchForEndHeight(height int64, options *WALSearchOptions) (rd io.ReadCloser, found bool, err error) {
 	return nil, false, nil
 }
