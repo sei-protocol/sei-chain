@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"runtime/debug"
 	"sort"
 	"strconv"
@@ -384,7 +383,7 @@ func (cs *State) Run(ctx context.Context) error {
 				case err == nil:
 					break LOOP
 
-				case !IsDataCorruptionError(err):
+				case !utils.ErrorAs[DataCorruptionError](err).IsPresent():
 					cs.logger.Error("error on catchup replay; proceeding to start state anyway", "err", err)
 					break LOOP
 
@@ -766,7 +765,7 @@ func (cs *State) updateToState(state sm.State) {
 
 func (cs *State) newStep() {
 	rs := cs.roundState.RoundStateEvent()
-	if err := cs.wal.Write(rs); err != nil {
+	if err := cs.wal.Write(NewWALMessage(rs)); err != nil {
 		cs.logger.Error("failed writing to WAL", "err", err)
 	}
 
@@ -868,7 +867,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 			cs.handleTxsAvailable(ctx)
 
 		case mi := <-cs.peerMsgQueue:
-			if err := cs.wal.Write(mi); err != nil {
+			if err := cs.wal.Write(NewWALMessage(mi)); err != nil {
 				cs.logger.Error("failed writing to WAL", "err", err)
 			}
 			// handles proposals, block parts, votes
@@ -876,7 +875,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 			cs.handleMsg(ctx, mi, false)
 
 		case mi := <-cs.internalMsgQueue:
-			err := cs.wal.Write(mi)
+			err := cs.wal.Write(NewWALMessage(mi))
 			if err != nil {
 				return fmt.Errorf(
 					"failed to write %v msg to consensus WAL due to %w; check your file system and restart the node",
@@ -888,7 +887,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 			cs.handleMsg(ctx, mi, true)
 
 		case ti := <-cs.timeoutTicker.Chan(): // tockChan:
-			if err := cs.wal.Write(ti); err != nil {
+			if err := cs.wal.Write(NewWALMessage(ti)); err != nil {
 				cs.logger.Error("failed writing to WAL", "err", err)
 			}
 
@@ -2061,7 +2060,7 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 	endMsg := EndHeightMessage{height}
 	_, fsyncSpan := cs.tracer.Start(spanCtx, "cs.state.finalizeCommit.fsync")
 	defer fsyncSpan.End()
-	if err := cs.wal.WriteSync(endMsg); err != nil { // NOTE: fsync
+	if err := cs.wal.WriteSync(NewWALMessage(endMsg)); err != nil { // NOTE: fsync
 		panic(fmt.Errorf(
 			"failed to write %v msg to consensus WAL due to %w; check your file system and restart the node",
 			endMsg, err,
@@ -2828,42 +2827,6 @@ func (cs *State) calculatePrevoteMessageDelayMetrics() {
 }
 
 //---------------------------------------------------------
-
-// repairWalFile decodes messages from src (until the decoder errors) and
-// writes them to dst.
-func repairWalFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	var (
-		dec = NewWALDecoder(in)
-		enc = NewWALEncoder(out)
-	)
-
-	// best-case repair (until first error is encountered)
-	for {
-		msg, err := dec.Decode()
-		if err != nil {
-			break
-		}
-
-		err = enc.Encode(msg)
-		if err != nil {
-			return fmt.Errorf("failed to encode msg: %w", err)
-		}
-	}
-
-	return nil
-}
 
 func (cs *State) proposeTimeout(round int32) time.Duration {
 	tp := cs.state.ConsensusParams.Timeout.TimeoutParamsOrDefaults()

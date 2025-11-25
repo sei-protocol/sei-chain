@@ -269,7 +269,7 @@ func (g *Group) checkTotalSizeLimit(ctx context.Context) {
 
 	gInfo := g.readGroupInfo()
 	totalSize := gInfo.TotalSize
-	for i := 0; i < maxFilesToRemove; i++ {
+	for i := range maxFilesToRemove {
 		index := gInfo.MinIndex + i
 		if totalSize < g.totalSizeLimit {
 			return

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
@@ -80,12 +79,12 @@ func TestSyncer_SyncAny(t *testing.T) {
 	rts.reactor.syncer.AddPeer(peerA.NodeID)
 	m, err := peerA.snapshotCh.Recv(ctx)
 	require.NoError(t, err)
-	require.Equal[proto.Message](t, &ssproto.SnapshotsRequest{}, m.Message)
+	require.Equal(t, wrap(&ssproto.SnapshotsRequest{}), m.Message)
 
 	rts.reactor.syncer.AddPeer(peerB.NodeID)
 	m, err = peerB.snapshotCh.Recv(ctx)
 	require.NoError(t, err)
-	require.Equal[proto.Message](t, &ssproto.SnapshotsRequest{}, m.Message)
+	require.Equal(t, wrap(&ssproto.SnapshotsRequest{}), m.Message)
 
 	// Both peers report back with snapshots. One of them also returns a snapshot we don't want, in
 	// format 2, which will be rejected by the ABCI application.
@@ -139,7 +138,7 @@ func TestSyncer_SyncAny(t *testing.T) {
 					if err != nil {
 						return nil
 					}
-					req := m.Message.(*ssproto.ChunkRequest)
+					req := m.Message.Sum.(*ssproto.Message_ChunkRequest).ChunkRequest
 					if req.Height != 1 {
 						return fmt.Errorf("expected height 1, got %d", req.Height)
 					}

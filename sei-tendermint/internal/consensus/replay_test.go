@@ -21,7 +21,6 @@ import (
 	"github.com/tendermint/tendermint/abci/example/kvstore"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/mempool"
@@ -246,7 +245,7 @@ func (e ReachedHeightToStopError) Error() string {
 // Write simulate WAL's crashing by sending an error to the panicCh and then
 // exiting the cs.receiveRoutine.
 func (w *crashingWAL) Write(m WALMessage) error {
-	if endMsg, ok := m.(EndHeightMessage); ok {
+	if endMsg, ok := m.any.(EndHeightMessage); ok {
 		if endMsg.Height == w.heightToStop {
 			w.panicCh <- ReachedHeightToStopError{endMsg.Height}
 			runtime.Goexit()
@@ -343,7 +342,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	proposalCh := subscribe(ctx, t, css[0].eventBus, types.EventQueryCompleteProposal)
 
 	vss := make([]*validatorStub, nPeers)
-	for i := 0; i < nPeers; i++ {
+	for i := range nPeers {
 		pv, _ := css[i].privValidator.Get()
 		vss[i] = newValidatorStub(pv, int32(i))
 	}
@@ -704,9 +703,9 @@ func testHandshakeReplay(
 		testConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%v_s", t.Name(), mode))
 		require.NoError(t, err)
 		defer func() { _ = os.RemoveAll(testConfig.RootDir) }()
-		walBody, err := WALWithNBlocks(ctx, t, logger, numBlocks)
-		require.NoError(t, err)
-		walFile := tempWALWithData(t, walBody)
+		var walBody bytes.Buffer
+		WALGenerateNBlocks(t, logger, &walBody, numBlocks)
+		walFile := tempWALWithData(t, walBody.Bytes())
 		cfg.Consensus.SetWalFile(walFile)
 
 		privVal, err := privval.LoadFilePV(cfg.PrivValidator.KeyFile(), cfg.PrivValidator.StateFile())
@@ -718,9 +717,9 @@ func testHandshakeReplay(
 		require.NoError(t, err)
 		t.Cleanup(func() { cancel(); wal.Wait() })
 		chain, commits = makeBlockchainFromWAL(t, wal)
-		pubKey, err := privVal.GetPubKey(ctx)
+		_, err = privVal.GetPubKey(ctx)
 		require.NoError(t, err)
-		stateDB, genesisState, store = stateAndStore(t, cfg, pubKey, kvstore.ProtocolVersion)
+		stateDB, genesisState, store = stateAndStore(t, cfg, kvstore.ProtocolVersion)
 
 	}
 	stateStore := sm.NewStore(stateDB)
@@ -732,14 +731,12 @@ func testHandshakeReplay(
 	state = buildTMStateFromChain(
 		ctx,
 		t,
-		cfg,
 		logger,
 		sim.Mempool,
 		sim.Evpool,
 		stateStore,
 		state,
 		chain,
-		nBlocks,
 		mode,
 		store,
 	)
@@ -864,7 +861,7 @@ func buildAppStateFromChain(
 
 	switch mode {
 	case 0:
-		for i := 0; i < nBlocks; i++ {
+		for i := range nBlocks {
 			block := chain[i]
 			state = applyBlock(ctx, t, stateStore, mempool, evpool, state, block, appClient, blockStore, eventBus)
 		}
@@ -888,14 +885,12 @@ func buildAppStateFromChain(
 func buildTMStateFromChain(
 	ctx context.Context,
 	t *testing.T,
-	cfg *config.Config,
 	logger log.Logger,
 	mempool mempool.Mempool,
 	evpool sm.EvidencePool,
 	stateStore sm.Store,
 	state sm.State,
 	chain []*types.Block,
-	nBlocks int,
 	mode uint,
 	blockStore *mockBlockStore,
 ) sm.State {
@@ -957,9 +952,9 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 	privVal, err := privval.LoadFilePV(cfg.PrivValidator.KeyFile(), cfg.PrivValidator.StateFile())
 	require.NoError(t, err)
 	const appVersion = 0x0
-	pubKey, err := privVal.GetPubKey(ctx)
+	_, err = privVal.GetPubKey(ctx)
 	require.NoError(t, err)
-	stateDB, state, store := stateAndStore(t, cfg, pubKey, appVersion)
+	stateDB, state, store := stateAndStore(t, cfg, appVersion)
 	stateStore := sm.NewStore(stateDB)
 	genDoc, err := sm.MakeGenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
@@ -1051,9 +1046,8 @@ func makeBlockchainFromWAL(t *testing.T, wal WAL) ([]*types.Block, []*types.Comm
 		thisBlockCommit *types.Commit
 	)
 
-	dec := NewWALDecoder(gr)
 	for {
-		msg, err := dec.Decode()
+		msg, err := decode(gr)
 		if err == io.EOF {
 			break
 		}
@@ -1123,9 +1117,9 @@ func makeBlockchainFromWAL(t *testing.T, wal WAL) ([]*types.Block, []*types.Comm
 	return blocks, commits
 }
 
-func readPieceFromWAL(msg *TimedWALMessage) interface{} {
+func readPieceFromWAL(msg *TimedWALMessage) any {
 	// for logging
-	switch m := msg.Msg.(type) {
+	switch m := msg.Msg.any.(type) {
 	case msgInfo:
 		switch msg := m.Msg.(type) {
 		case *ProposalMessage:
@@ -1146,7 +1140,6 @@ func readPieceFromWAL(msg *TimedWALMessage) interface{} {
 func stateAndStore(
 	t *testing.T,
 	cfg *config.Config,
-	pubKey crypto.PubKey,
 	appVersion uint64,
 ) (dbm.DB, sm.State, *mockBlockStore) {
 	stateDB := dbm.NewMemDB()
@@ -1249,9 +1242,9 @@ func TestHandshakeUpdatesValidators(t *testing.T) {
 
 	privVal, err := privval.LoadFilePV(cfg.PrivValidator.KeyFile(), cfg.PrivValidator.StateFile())
 	require.NoError(t, err)
-	pubKey, err := privVal.GetPubKey(ctx)
+	_, err = privVal.GetPubKey(ctx)
 	require.NoError(t, err)
-	stateDB, state, store := stateAndStore(t, cfg, pubKey, 0x0)
+	stateDB, state, store := stateAndStore(t, cfg, 0x0)
 	stateStore := sm.NewStore(stateDB)
 
 	oldValAddr := state.Validators.Validators[0].Address
