@@ -167,7 +167,7 @@ func PreprocessUnpacked(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTrans
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	version := GetVersion(ctx, ethCfg)
 	signer := SignerMap[version](chainID)
-	if !isTxTypeAllowed(version, ethTx.Type()) {
+	if !IsTxTypeAllowed(version, ethTx.Type()) {
 		return ethtypes.ErrInvalidChainId
 	}
 
@@ -199,7 +199,7 @@ func PreprocessUnpacked(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTrans
 	return nil
 }
 
-func isTxTypeAllowed(version derived.SignerVersion, txType uint8) bool {
+func IsTxTypeAllowed(version derived.SignerVersion, txType uint8) bool {
 	for _, t := range AllowedTxTypes[version] {
 		if t == txType {
 			return true

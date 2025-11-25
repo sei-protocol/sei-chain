@@ -28,6 +28,8 @@ jobs:
             tags: ledger test_ledger_mock
           - name: sei-db
             path: ./sei-db
+          - name: sei-ibc-go
+            path: ./sei-ibc-go
           - name: sei-tendermint
             path: ./sei-tendermint
           - name: sei-wasmd

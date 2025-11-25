@@ -11,6 +11,7 @@ coverage:
         paths:
           - "!sei-cosmos/**"
           - "!sei-db/**"
+          - "!sei-ibc-go/**"
           - "!sei-tendermint/**"
           - "!sei-wasmd/**"
           - "!sei-wasmvm/**"
@@ -40,6 +41,12 @@ coverage:
           - "sei-db/**"
         flags:
           - sei-db
+      sei-ibc-go:
+        target: 40%
+        paths:
+          - "sei-ibc-go/**"
+        flags:
+          - sei-ibc-go
     patch:
       default:
         target: 70%

@@ -21,6 +21,7 @@ import (
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/genesis"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/cosmos/cosmos-sdk/x/auth"
@@ -574,30 +575,6 @@ func NewWasmApp(
 		crisis.NewAppModule(&app.crisisKeeper, skipGenesisInvariants), // always be last to make sure that it checks for all invariants and not only part of them
 	)
 
-	app.mm.SetOrderEndBlockers(
-		crisistypes.ModuleName,
-		govtypes.ModuleName,
-		stakingtypes.ModuleName,
-		capabilitytypes.ModuleName,
-		authtypes.ModuleName,
-		banktypes.ModuleName,
-		distrtypes.ModuleName,
-		slashingtypes.ModuleName,
-		minttypes.ModuleName,
-		genutiltypes.ModuleName,
-		evidencetypes.ModuleName,
-		authz.ModuleName,
-		feegrant.ModuleName,
-		paramstypes.ModuleName,
-		upgradetypes.ModuleName,
-		vestingtypes.ModuleName,
-		// additional non simd modules
-		ibctransfertypes.ModuleName,
-		ibchost.ModuleName,
-		icatypes.ModuleName,
-		wasm.ModuleName,
-	)
-
 	// NOTE: The genutils module must occur after staking so that pools are
 	// properly initialized with tokens from genesis accounts.
 	// NOTE: Capability module must occur first so that it can initialize any capabilities
@@ -665,7 +642,6 @@ func NewWasmApp(
 
 	app.SetAnteHandler(anteHandler)
 	app.SetInitChainer(app.InitChainer)
-	app.SetEndBlocker(app.EndBlocker)
 	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
 	app.SetFinalizeBlocker(app.FinalizeBlocker)
@@ -723,8 +699,8 @@ func (app *WasmApp) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestPro
 func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	capability.BeginBlocker(ctx, *app.capabilityKeeper)
 	distr.BeginBlocker(ctx, []abci.VoteInfo{}, app.distrKeeper)
-	slashing.BeginBlocker(ctx, []abci.VoteInfo{}, *&app.slashingKeeper)
-	evidence.BeginBlocker(ctx, []abci.Misbehavior{}, *&app.evidenceKeeper)
+	slashing.BeginBlocker(ctx, []abci.VoteInfo{}, app.slashingKeeper)
+	evidence.BeginBlocker(ctx, []abci.Misbehavior{}, app.evidenceKeeper)
 	staking.BeginBlocker(ctx, app.stakingKeeper)
 	ibcclient.BeginBlocker(ctx, app.ibcKeeper.ClientKeeper)
 	events := []abci.Event{}
@@ -756,10 +732,9 @@ func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBl
 			Codespace: deliverTxResp.Codespace,
 		})
 	}
-	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
-		Height: req.Height,
-	})
-	events = append(events, endBlockResp.Events...)
+	vals := app.EndBlocker(ctx)
+	events = append(events, sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents)...)
+	cpUpdates := legacytm.ABCIToLegacyConsensusParams(app.GetConsensusParams(ctx))
 
 	app.SetDeliverStateToCommit()
 	app.WriteState()
@@ -767,7 +742,7 @@ func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBl
 	return &abci.ResponseFinalizeBlock{
 		Events:    events,
 		TxResults: txResults,
-		ValidatorUpdates: utils.Map(endBlockResp.ValidatorUpdates, func(v abci.ValidatorUpdate) abci.ValidatorUpdate {
+		ValidatorUpdates: utils.Map(vals, func(v abci.ValidatorUpdate) abci.ValidatorUpdate {
 			return abci.ValidatorUpdate{
 				PubKey: v.PubKey,
 				Power:  v.Power,
@@ -775,28 +750,23 @@ func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBl
 		}),
 		ConsensusParamUpdates: &tmproto.ConsensusParams{
 			Block: &tmproto.BlockParams{
-				MaxBytes: endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
-				MaxGas:   endBlockResp.ConsensusParamUpdates.Block.MaxGas,
+				MaxBytes: cpUpdates.Block.MaxBytes,
+				MaxGas:   cpUpdates.Block.MaxGas,
 			},
 			Evidence: &tmproto.EvidenceParams{
-				MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,
-				MaxAgeDuration:  endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeDuration,
-				MaxBytes:        endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
+				MaxAgeNumBlocks: cpUpdates.Evidence.MaxAgeNumBlocks,
+				MaxAgeDuration:  cpUpdates.Evidence.MaxAgeDuration,
+				MaxBytes:        cpUpdates.Evidence.MaxBytes,
 			},
 			Validator: &tmproto.ValidatorParams{
-				PubKeyTypes: endBlockResp.ConsensusParamUpdates.Validator.PubKeyTypes,
+				PubKeyTypes: cpUpdates.Validator.PubKeyTypes,
 			},
 			Version: &tmproto.VersionParams{
-				AppVersion: endBlockResp.ConsensusParamUpdates.Version.AppVersion,
+				AppVersion: cpUpdates.Version.AppVersion,
 			},
 		},
 		AppHash: appHash,
 	}, nil
-}
-
-// EndBlocker application updates every end block
-func (app *WasmApp) EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock {
-	return app.mm.EndBlock(ctx, req)
 }
 
 // InitChainer application update at chain initialization
@@ -809,6 +779,12 @@ func (app *WasmApp) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci
 	app.upgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
 
 	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, genesis.GenesisImportConfig{})
+}
+
+func (app *WasmApp) EndBlocker(ctx sdk.Context) []abci.ValidatorUpdate {
+	crisis.EndBlocker(ctx, app.crisisKeeper)
+	gov.EndBlocker(ctx, app.govKeeper)
+	return staking.EndBlocker(ctx, app.stakingKeeper)
 }
 
 // LoadHeight loads a particular height
