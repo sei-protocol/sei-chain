@@ -2,10 +2,13 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -50,17 +53,60 @@ func (app *App) MidBlock(ctx sdk.Context, height int64) []abci.Event {
 	return app.BaseApp.MidBlock(ctx, height)
 }
 
-func (app *App) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abci.ResponseEndBlock) {
+func (app *App) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) (res abci.ResponseEndBlock) {
 	spanCtx, span := app.GetBaseApp().TracingInfo.StartWithContext("EndBlock", ctx.TraceSpanContext())
 	defer span.End()
 	ctx = ctx.WithTraceSpanContext(spanCtx)
-	return app.BaseApp.EndBlock(ctx, req)
+	defer telemetry.MeasureSince(time.Now(), "abci", "end_block")
+	ctx = ctx.WithEventManager(sdk.NewEventManager())
+	defer telemetry.MeasureSince(time.Now(), "module", "total_end_block")
+	res.ValidatorUpdates = legacyabci.EndBlock(ctx, height, blockGasUsed, app.EndBlockKeepers)
+	res.Events = sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents)
+	if cp := app.GetConsensusParams(ctx); cp != nil {
+		res.ConsensusParamUpdates = legacytm.ABCIToLegacyConsensusParams(cp)
+	}
+	return res
 }
 
 func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
 	_, span := app.GetBaseApp().TracingInfo.StartWithContext("CheckTx", ctx)
 	defer span.End()
-	return app.BaseApp.CheckTx(ctx, req)
+	defer telemetry.MeasureSince(time.Now(), "abci", "check_tx")
+	sdkCtx := app.GetCheckTxContext(req.Tx, req.Type == abci.CheckTxTypeV2Recheck)
+	tx, err := app.txDecoder(req.Tx)
+	if err != nil {
+		res := sdkerrors.ResponseCheckTx(err, 0, 0, false)
+		return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, err
+	}
+	checksum := sha256.Sum256(req.Tx)
+	gInfo, result, txCtx, err := legacyabci.CheckTx(sdkCtx, tx, app.GetTxConfig(), &app.CheckTxKeepers, checksum, func(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
+		return app.CacheTxContext(ctx, checksum)
+	}, app.GetCheckCtx, app.TracingInfo)
+	if err != nil {
+		res := sdkerrors.ResponseCheckTx(err, gInfo.GasWanted, gInfo.GasUsed, false)
+		return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, err
+	}
+
+	res := &abci.ResponseCheckTxV2{
+		ResponseCheckTx: &abci.ResponseCheckTx{
+			GasWanted:    int64(gInfo.GasWanted), //nolint:gosec
+			Data:         result.Data,
+			Priority:     txCtx.Priority(),
+			GasEstimated: int64(gInfo.GasEstimate), //nolint:gosec
+		},
+		ExpireTxHandler:  txCtx.ExpireTxHandler(),
+		CheckTxCallback:  txCtx.CheckTxCallback(),
+		EVMNonce:         txCtx.EVMNonce(),
+		EVMSenderAddress: txCtx.EVMSenderAddress(),
+		IsEVM:            txCtx.IsEVM(),
+		Priority:         txCtx.Priority(),
+	}
+	if txCtx.PendingTxChecker() != nil {
+		res.IsPendingTransaction = true
+		res.Checker = txCtx.PendingTxChecker()
+	}
+
+	return res, nil
 }
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
