@@ -143,7 +143,7 @@ jobs:
           go-version: 1.24
 
       - name: Start 4 node docker cluster
-        run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start &
+        run: make clean && DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start
 
       - name: Wait for docker cluster to start
         run: |

@@ -262,14 +262,26 @@ docker-cluster-start: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
 	@mkdir -p $(shell go env GOPATH)/pkg/mod
 	@mkdir -p $(shell go env GOCACHE)
-	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} docker compose up
+	@cd docker && \
+		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
+			DETACH_FLAG="-d"; \
+		else \
+			DETACH_FLAG=""; \
+		fi; \
+		USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} docker compose up $$DETACH_FLAG
 
 .PHONY: localnet-start
 
 # Use this to skip the seid build process
 docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
-	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 SKIP_BUILD=true docker compose up
+	@cd docker && \
+		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
+			DETACH_FLAG="-d"; \
+		else \
+			DETACH_FLAG=""; \
+		fi; \
+		USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 SKIP_BUILD=true docker compose up $$DETACH_FLAG
 .PHONY: localnet-start
 
 # Stop 4-node docker containers
