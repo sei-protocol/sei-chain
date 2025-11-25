@@ -658,6 +658,10 @@ func (app *BaseApp) setVotesInfo(votes []abci.VoteInfo) {
 	app.voteInfos = votes
 }
 
+func (app *BaseApp) UnsafeGetVoteInfos() []abci.VoteInfo {
+	return app.voteInfos
+}
+
 // GetConsensusParams returns the current consensus parameters from the BaseApp's
 // ParamStore. If the BaseApp has no ParamStore defined, nil is returned.
 func (app *BaseApp) GetConsensusParams(ctx sdk.Context) *tmproto.ConsensusParams {
