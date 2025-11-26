@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -24,10 +25,6 @@ func TestSetHasVote(t *testing.T) {
 	ps := peerStateSetup(1, 1, 1)
 	pva := ps.PRS.Prevotes.Copy()
 
-	// nil vote should return ErrPeerStateNilVote
-	err := ps.SetHasVote(nil)
-	require.Equal(t, ErrPeerStateSetNilVote, err)
-
 	// the peer giving an invalid index should returns ErrPeerStateInvalidVoteIndex
 	v0 := &types.Vote{
 		Height:         1,
@@ -36,8 +33,9 @@ func TestSetHasVote(t *testing.T) {
 		Type:           tmproto.PrevoteType,
 	}
 
-	err = ps.SetHasVote(v0)
-	require.Equal(t, ErrPeerStateInvalidVoteIndex, err)
+	if err := ps.SetHasVote(v0); !errors.Is(err, ErrPeerStateInvalidVoteIndex) {
+		t.Fatalf("expected ErrPeerStateInvalidVoteIndex, got %v", err)
+	}
 
 	// the peer giving an invalid index should returns ErrPeerStateInvalidVoteIndex
 	v1 := &types.Vote{
@@ -47,8 +45,9 @@ func TestSetHasVote(t *testing.T) {
 		Type:           tmproto.PrevoteType,
 	}
 
-	err = ps.SetHasVote(v1)
-	require.Equal(t, ErrPeerStateInvalidVoteIndex, err)
+	if err := ps.SetHasVote(v1); !errors.Is(err, ErrPeerStateInvalidVoteIndex) {
+		t.Fatalf("expected ErrPeerStateInvalidVoteIndex, got %v", err)
+	}
 
 	// the peer giving a correct index should return nil (vote has been set)
 	v2 := &types.Vote{

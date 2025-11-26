@@ -346,10 +346,7 @@ func saveBlockToDB(t *testing.T, db dbm.DB, block *tmtypes.Block, partSet *tmtyp
 
 	// Save block parts
 	for i := 0; i < int(partSet.Total()); i++ {
-		part := partSet.GetPart(i)
-		partProto, err := part.ToProto()
-		require.NoError(t, err)
-		partBytes, err := proto.Marshal(partProto)
+		partBytes, err := proto.Marshal(partSet.GetPart(i).ToProto())
 		require.NoError(t, err)
 
 		// blockPartKey: prefixBlockPart (2) + height + index
@@ -403,29 +400,6 @@ func saveBlockToDB(t *testing.T, db dbm.DB, block *tmtypes.Block, partSet *tmtyp
 	require.NoError(t, err)
 
 	err = batch.WriteSync()
-	require.NoError(t, err)
-}
-
-// updateTendermintStateHeight updates the tendermint state height in the database
-func updateTendermintStateHeight(t *testing.T, cfg *tmconfig.Config, height int64) {
-	stateDB, err := dbm.NewDB("state", dbm.BackendType(cfg.DBBackend), cfg.DBDir())
-	require.NoError(t, err)
-	defer stateDB.Close()
-
-	prefixState := int64(8)
-	stateKey, err := orderedcode.Append(nil, prefixState)
-	require.NoError(t, err)
-
-	tmState := &tmstate.State{
-		LastBlockHeight: height,
-		ChainID:         "test-chain",
-		InitialHeight:   1,
-	}
-
-	stateBytes, err := proto.Marshal(tmState)
-	require.NoError(t, err)
-
-	err = stateDB.Set(stateKey, stateBytes)
 	require.NoError(t, err)
 }
 

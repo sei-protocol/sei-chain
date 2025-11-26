@@ -15,6 +15,7 @@ import (
 	"github.com/tendermint/tendermint/libs/bytes"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
@@ -57,7 +58,10 @@ func TestReactorInvalidPrecommit(t *testing.T) {
 	// Update the doPrevote function to just send a valid precommit for a random
 	// block and otherwise disable the priv validator.
 	byzState.mtx.Lock()
-	privVal := byzState.privValidator
+	privVal, ok := byzState.privValidator.Get()
+	if !ok {
+		t.Fatal("privValidator not found")
+	}
 	byzState.doPrevote = func(ctx context.Context, height int64, round int32) {
 		defer close(signal)
 		invalidDoPrevoteFunc(ctx, t, byzState, byzReactor, rts.voteChannels[node.NodeID], privVal)
@@ -108,7 +112,7 @@ func invalidDoPrevoteFunc(
 	t *testing.T,
 	cs *State,
 	r *Reactor,
-	voteCh *p2p.Channel,
+	voteCh *p2p.Channel[*tmcons.Message],
 	pv types.PrivValidator,
 ) {
 	// routine to:
@@ -117,9 +121,9 @@ func invalidDoPrevoteFunc(
 	// - disable privValidator (so we don't do normal precommits)
 	go func() {
 		cs.mtx.Lock()
-		cs.privValidator = pv
+		cs.privValidator = utils.Some(pv)
 
-		pubKey, err := cs.privValidator.GetPubKey(ctx)
+		pubKey, err := pv.GetPubKey(ctx)
 		require.NoError(t, err)
 
 		addr := pubKey.Address()
@@ -141,24 +145,24 @@ func invalidDoPrevoteFunc(
 		}
 
 		p := precommit.ToProto()
-		err = cs.privValidator.SignVote(ctx, cs.state.ChainID, p)
-		require.NoError(t, err)
+		require.NoError(t, pv.SignVote(ctx, cs.state.ChainID, p))
 
 		precommit.Signature = p.Signature
-		cs.privValidator = nil // disable priv val so we don't do normal votes
+		t.Logf("disable priv val so we don't do normal votes")
+		cs.privValidator = utils.None[types.PrivValidator]()
 		cs.mtx.Unlock()
 
-		r.mtx.Lock()
-		ids := make([]types.NodeID, 0, len(r.peers))
-		for _, ps := range r.peers {
-			ids = append(ids, ps.peerID)
+		var ids []types.NodeID
+		for peers := range r.peers.RLock() {
+			for _, ps := range peers {
+				ids = append(ids, ps.peerID)
+			}
 		}
-		r.mtx.Unlock()
 
 		count := 0
 		for _, peerID := range ids {
 			count++
-			voteCh.Send(&tmcons.Vote{Vote: precommit.ToProto()}, peerID)
+			voteCh.Send(MsgToProto(&VoteMessage{Vote: precommit}), peerID)
 			// we want to have sent some of these votes,
 			// but if the test completes without erroring
 			// or not sending any messages, then we should

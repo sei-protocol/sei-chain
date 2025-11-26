@@ -17,6 +17,7 @@ import (
 	"github.com/tendermint/tendermint/internal/proxy"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -41,12 +42,12 @@ var crc32c = crc32.MakeTable(crc32.Castagnoli)
 // NOTE: receiveRoutine should not be running.
 func (cs *State) readReplayMessage(ctx context.Context, msg *TimedWALMessage, newStepSub eventbus.Subscription) error {
 	// Skip meta messages which exist for demarcating boundaries.
-	if _, ok := msg.Msg.(EndHeightMessage); ok {
+	if _, ok := msg.Msg.any.(EndHeightMessage); ok {
 		return nil
 	}
 
 	// for logging
-	switch m := msg.Msg.(type) {
+	switch m := msg.Msg.any.(type) {
 	case types.EventDataRoundState:
 		cs.logger.Info("Replay: New Step", "height", m.Height, "round", m.Round, "step", m.Step)
 		// these are playback checks
@@ -144,15 +145,14 @@ func (cs *State) catchupReplay(ctx context.Context, csHeight int64) error {
 	cs.logger.Info("Catchup by replaying consensus messages", "height", csHeight)
 
 	var msg *TimedWALMessage
-	dec := WALDecoder{gr}
 
 LOOP:
 	for {
-		msg, err = dec.Decode()
+		msg, err = decode(gr)
 		switch {
-		case err == io.EOF:
+		case errors.Is(err, io.EOF):
 			break LOOP
-		case IsDataCorruptionError(err):
+		case utils.ErrorAs[DataCorruptionError](err).IsPresent():
 			cs.logger.Error("data has been corrupted in last height of consensus WAL", "err", err, "height", csHeight)
 			return err
 		case err != nil:

@@ -6,34 +6,24 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 
-	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/types"
 )
 
+type ChannelID = conn.ChannelID
+
+type ChannelDescriptor[T proto.Message] = conn.ChannelDescriptorT[T]
+
 // sendMsg is a message to be sent to a peer.
 type sendMsg struct {
-	Message   proto.Message // WRAPPED message payload
+	Message   proto.Message // message payload
 	ChannelID ChannelID     // channel id
 }
 
 // RecvMsg is a message received from a peer.
-type RecvMsg struct {
-	Message proto.Message // UNWRAPPED message payload
-	From    types.NodeID  // sender
-}
-
-// Wrapper is a Protobuf message that can contain a variety of inner messages
-// (e.g. via oneof fields). If a Channel's message type implements Wrapper, the
-// Router will automatically wrap outbound messages and unwrap inbound messages,
-// such that reactors do not have to do this themselves.
-type Wrapper interface {
-	proto.Message
-
-	// Wrap will take a message and wrap it in this one if possible.
-	Wrap(proto.Message) error
-
-	// Unwrap will unwrap the inner message contained in this message.
-	Unwrap() (proto.Message, error)
+type RecvMsg[T proto.Message] struct {
+	Message T            // message payload
+	From    types.NodeID // sender
 }
 
 // PeerError is a peer error reported via Channel.Error.
@@ -57,36 +47,27 @@ func (pe PeerError) Unwrap() error { return pe.Err }
 
 // channel is a bidirectional channel to exchange Protobuf messages with peers.
 type channel struct {
-	desc      ChannelDescriptor
-	recvQueue *Queue[RecvMsg] // inbound messages (peers to reactors)
+	desc      conn.ChannelDescriptor
+	recvQueue *Queue[RecvMsg[proto.Message]] // inbound messages (peers to reactors)
 }
 
-type Channel struct {
+type Channel[T proto.Message] struct {
 	*channel
 	router *Router
 }
 
 // NewChannel creates a new channel. It is primarily for internal and test
 // use, reactors should use Router.OpenChannel().
-func newChannel(desc ChannelDescriptor) *channel {
+func newChannel(desc conn.ChannelDescriptor) *channel {
 	return &channel{
 		desc: desc,
 		// TODO(gprusak): get rid of this random cap*cap value once we understand
 		// what the sizes per channel really should be.
-		recvQueue: NewQueue[RecvMsg](desc.RecvBufferCapacity * desc.RecvBufferCapacity),
+		recvQueue: NewQueue[RecvMsg[proto.Message]](desc.RecvBufferCapacity * desc.RecvBufferCapacity),
 	}
 }
 
-func (ch *Channel) send(msg proto.Message, queues ...*Queue[sendMsg]) {
-	// wrap the message if needed
-	if wrapper, ok := ch.desc.MessageType.(Wrapper); ok {
-		wrapper := utils.ProtoClone(wrapper)
-		if err := wrapper.Wrap(msg); err != nil {
-			ch.router.logger.Error("failed to wrap message", "channel", ch.desc.ID, "err", err)
-			return
-		}
-		msg = wrapper
-	}
+func (ch *Channel[T]) send(msg T, queues ...*Queue[sendMsg]) {
 	m := sendMsg{msg, ch.desc.ID}
 	size := proto.Size(msg)
 	for _, q := range queues {
@@ -96,7 +77,7 @@ func (ch *Channel) send(msg proto.Message, queues ...*Queue[sendMsg]) {
 	}
 }
 
-func (ch *Channel) Send(msg proto.Message, to types.NodeID) {
+func (ch *Channel[T]) Send(msg T, to types.NodeID) {
 	c, ok := ch.router.peerManager.Conns().Get(to)
 	if !ok {
 		ch.router.logger.Debug("dropping message for unconnected peer", "peer", to, "channel", ch.desc.ID)
@@ -113,7 +94,7 @@ func (ch *Channel) Send(msg proto.Message, to types.NodeID) {
 }
 
 // Broadcasts msg to all peers on the channel.
-func (ch *Channel) Broadcast(msg proto.Message) {
+func (ch *Channel[T]) Broadcast(msg T) {
 	var queues []*Queue[sendMsg]
 	for _, c := range ch.router.peerManager.Conns().All() {
 		if _, ok := c.peerChannels[ch.desc.ID]; ok {
@@ -123,13 +104,17 @@ func (ch *Channel) Broadcast(msg proto.Message) {
 	ch.send(msg, queues...)
 }
 
-func (ch *Channel) String() string {
+func (ch *Channel[T]) String() string {
 	return fmt.Sprintf("p2p.Channel<%d:%s>", ch.desc.ID, ch.desc.Name)
 }
 
-func (ch *Channel) ReceiveLen() int { return ch.recvQueue.Len() }
+func (ch *Channel[T]) ReceiveLen() int { return ch.recvQueue.Len() }
 
 // Recv Receives the next message from the channel.
-func (ch *Channel) Recv(ctx context.Context) (RecvMsg, error) {
-	return ch.recvQueue.Recv(ctx)
+func (ch *Channel[T]) Recv(ctx context.Context) (RecvMsg[T], error) {
+	recv, err := ch.recvQueue.Recv(ctx)
+	if err != nil {
+		return RecvMsg[T]{}, err
+	}
+	return RecvMsg[T]{Message: recv.Message.(T), From: recv.From}, nil
 }

@@ -354,9 +354,7 @@ func (s *SafeRoundState) CompleteProposalEvent() types.EventDataCompleteProposal
 // NOTE: Not thread safe. Should only be manipulated by functions downstream
 // of the cs.receiveRoutine
 type RoundState struct {
-	Height    int64 // Height we are working on
-	Round     int32
-	Step      RoundStepType
+	HRS
 	StartTime time.Time
 
 	// Subjective time when +2/3 precommits for Block at Round were found
