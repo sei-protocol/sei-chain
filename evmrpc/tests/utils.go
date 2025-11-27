@@ -19,6 +19,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	seiutils "github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -137,7 +138,7 @@ func setupTestServer(
 	mockClient *MockClient,
 ) TestServer {
 	port := int(portProvider.Add(1))
-	cfg := evmrpc.DefaultConfig
+	cfg := evmrpcconfig.DefaultConfig
 	cfg.HTTPEnabled = true
 	cfg.HTTPPort = port
 	s, err := evmrpc.NewEVMHTTPServer(

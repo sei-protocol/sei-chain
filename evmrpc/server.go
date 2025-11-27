@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/evmrpc/stats"
 	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -34,7 +35,7 @@ type EVMServer interface {
 
 func NewEVMHTTPServer(
 	logger log.Logger,
-	config Config,
+	config evmrpcconfig.Config,
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
 	beginBlockKeepers legacyabci.BeginBlockKeepers,
@@ -211,7 +212,7 @@ func NewEVMHTTPServer(
 
 func NewEVMWebSocketServer(
 	logger log.Logger,
-	config Config,
+	config evmrpcconfig.Config,
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
 	beginBlockKeepers legacyabci.BeginBlockKeepers,

@@ -3,7 +3,7 @@ package params
 import (
 	srvconfig "github.com/cosmos/cosmos-sdk/server/config"
 	"github.com/cosmos/cosmos-sdk/types/address"
-	"github.com/sei-protocol/sei-chain/evmrpc"
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	tmcfg "github.com/tendermint/tendermint/config"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -195,7 +195,7 @@ func SetAppConfigByMode(config *srvconfig.Config, mode NodeMode) {
 
 // SetEVMConfigByMode sets EVM config based on node mode
 // Validators and seeds have EVM disabled, full nodes and archives have it enabled
-func SetEVMConfigByMode(config *evmrpc.Config, mode NodeMode) {
+func SetEVMConfigByMode(config *evmrpcconfig.Config, mode NodeMode) {
 	evmEnabled := mode.IsFullnodeType()
 	config.HTTPEnabled = evmEnabled
 	config.WSEnabled = evmEnabled
