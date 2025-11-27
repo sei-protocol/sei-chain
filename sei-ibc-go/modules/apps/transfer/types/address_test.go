@@ -1,9 +1,11 @@
 package types
 
 import (
-	"github.com/cosmos/cosmos-sdk/types"
-	"github.com/stretchr/testify/require"
 	"testing"
+
+	"github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSeiAddressHandler_GetSeiAddressFromString(t *testing.T) {
@@ -20,9 +22,9 @@ func TestSeiAddressHandler_GetSeiAddressFromString(t *testing.T) {
 		{
 			name: "returns address if address is valid",
 			args: args{
-				address: types.AccAddress("address").String(),
+				address: sdk.MustAccAddressFromBech32("sei1k73v0ec39mxdgr3wnayy3x4t5w7pdncanxk9sr").String(),
 			},
-			want: types.AccAddress("address"),
+			want: sdk.MustAccAddressFromBech32("sei1k73v0ec39mxdgr3wnayy3x4t5w7pdncanxk9sr"),
 		},
 		{
 			name: "returns error if address is invalid",

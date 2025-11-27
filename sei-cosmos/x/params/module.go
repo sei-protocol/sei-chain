@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 
@@ -16,15 +17,18 @@ import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/cosmos/cosmos-sdk/x/params/client/cli"
 	"github.com/cosmos/cosmos-sdk/x/params/keeper"
+	"github.com/cosmos/cosmos-sdk/x/params/simulation"
 	"github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/cosmos/cosmos-sdk/x/params/types/proposal"
 )
 
 var (
-	_ module.AppModule      = AppModule{}
-	_ module.AppModuleBasic = AppModuleBasic{}
+	_ module.AppModule           = AppModule{}
+	_ module.AppModuleBasic      = AppModuleBasic{}
+	_ module.AppModuleSimulation = AppModule{}
 )
 
 // AppModuleBasic defines the basic application module used by the params module.
@@ -145,3 +149,25 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 
 // ConsensusVersion implements AppModule/ConsensusVersion.
 func (AppModule) ConsensusVersion() uint64 { return 2 }
+
+// ProposalContents returns all the params content functions used to
+// simulate governance proposals.
+func (am AppModule) ProposalContents(simState module.SimulationState) []simtypes.WeightedProposalContent {
+	return simulation.ProposalContents(simState.ParamChanges)
+}
+
+// RandomizedParams creates randomized distribution param changes for the simulator.
+func (AppModule) RandomizedParams(r *rand.Rand) []simtypes.ParamChange {
+	return nil
+}
+
+// RegisterStoreDecoder doesn't register any type.
+func (AppModule) RegisterStoreDecoder(sdr sdk.StoreDecoderRegistry) {}
+
+// WeightedOperations returns the all the gov module operations with their respective weights.
+func (am AppModule) WeightedOperations(_ module.SimulationState) []simtypes.WeightedOperation {
+	return nil
+}
+
+// GenerateGenesisState performs a no-op.
+func (AppModule) GenerateGenesisState(simState *module.SimulationState) {}
