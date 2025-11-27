@@ -1,99 +1,146 @@
 package autofile
 
 import (
+	"bufio"
 	"errors"
+	"hash/crc32"
+	"encoding/binary"
 	"os"
-	"path/filepath"
-	"sync"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
+	"fmt"
 )
 
-const (
-	autoFilePerms       = os.FileMode(0600)
-)
+var errEOF = errors.New("EOF")
+var errTruncated = errors.New("file truncated")
+var errCorrupted = errors.New("file corrupted")
 
-// ErrAutoFileClosed is reported when operations attempt to use an autofile
-// after it has been closed.
-var ErrAutoFileClosed = errors.New("autofile is closed")
+var crc32c = crc32.MakeTable(crc32.Castagnoli)
 
-// AutoFile automatically closes and re-opens file for writing. The file is
-// automatically setup to close itself every 1s and upon receiving SIGHUP.
-//
-// This is useful for using a log file with the logrotate tool.
-type AutoFile struct {
-	ID   string
-	Path string
-
-	mtx    sync.Mutex // guards the fields below
-	file   *os.File   // the underlying file (may be nil)
+type fileWriter struct {
+	err error
+	file *os.File
+	buf *bufio.Writer
+	bytesSize int64
 }
 
-// OpenAutoFile creates an AutoFile in the path (with random ID). If there is
-// an error, it will be of type *PathError or *ErrPermissionsChanged (if file's
-// permissions got changed (should be 0600)).
-func OpenAutoFile(path string) (*AutoFile, error) {
-	path, err := filepath.Abs(path)
-	if err != nil {
-		return nil, err
+func verifyFile(path string) (int64,error) {
+	r,err := newFileReader(path)
+	if err!=nil { return 0,err }
+	defer r.Close()
+	totalSize := r.bytesLeft
+	realSize := int64(0) 
+	for {
+		if _,err := r.Read(); err!=nil {
+			if errors.Is(err,errEOF) || errors.Is(err,errTruncated) {
+				 return realSize,nil
+			}
+			return 0,err
+		}
+		realSize = totalSize-r.bytesLeft
 	}
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, autoFilePerms)
-	if err != nil {
-		return nil, err
+}
+
+func newFileWriter(path string) (res *fileWriter, resErr error) {
+	// Read the whole file and if the last entry is truncated, remove it.
+	realSize,err := verifyFile(path)
+	if err!=nil { return nil,err }
+	f,err := os.OpenFile(path,os.O_WRONLY,filePerms)
+	if err!=nil { return nil,err }
+	defer func() { if resErr!=nil { f.Close() } }()
+	if err:=f.Truncate(realSize); err!=nil {
+		return nil,fmt.Errorf("f.Truncate(): %w",err)
 	}
-	return &AutoFile{
-		ID:          tmrand.Str(12) + ":" + path,
-		Path:        path,
-		file: file,
+	if err!=nil { return nil,err }
+	return &fileWriter {
+		file: f,
+		buf: bufio.NewWriterSize(f, 4096*10),
+		bytesSize: realSize,
 	},nil
 }
 
-// Close shuts down the service goroutine and marks af as invalid.  Operations
-// on af after Close will report an error.
-func (af *AutoFile) Close() error {
-	return af.withLock(func() error {
-		if af.file==nil { return nil }
-		af.file.Close()
-		af.file = nil
-		return nil
-	})
-}
-
-// withLock runs f while holding af.mtx, and reports any error it returns.
-func (af *AutoFile) withLock(f func() error) error {
-	af.mtx.Lock()
-	defer af.mtx.Unlock()
-	return f()
-}
-
-// Write writes len(b) bytes to the AutoFile. It returns the number of bytes
-// written and an error, if any. Write returns a non-nil error when n !=
-// len(b).
-// Opens AutoFile if needed.
-func (af *AutoFile) Write(b []byte) (int, error) {
-	af.mtx.Lock()
-	defer af.mtx.Unlock()
-	return af.file.Write(b)
-}
-
-// Sync commits the current contents of the file to stable storage. Typically,
-// this means flushing the file system's in-memory copy of recently written
-// data to disk.
-func (af *AutoFile) Sync() error {
-	return af.withLock(func() error {
-		return af.file.Sync()
-	})
-}
-
-// Size returns the size of the AutoFile. It returns -1 and an error if fails
-// get stats or open file.
-// Opens AutoFile if needed.
-func (af *AutoFile) Size() (int64, error) {
-	af.mtx.Lock()
-	defer af.mtx.Unlock()
-	if af.file==nil { return 0,ErrAutoFileClosed }
-	stat, err := af.file.Stat()
-	if err != nil {
-		return 0, err
+func (w *fileWriter) Write(data []byte) (err error) {
+	if w.err!=nil { return err }
+	defer func() { if err!=nil { w.err = err } }()
+	var header [8]byte
+	binary.BigEndian.PutUint32(header[0:4], crc32.Checksum(data, crc32c))
+	binary.BigEndian.PutUint32(header[4:8], uint32(len(data)))
+	if _,err := w.buf.Write(header[:]); err!=nil {
+		return err
 	}
-	return stat.Size(), nil
+	if _,err := w.buf.Write(data); err!=nil {
+		return err
+	}
+	return nil
 }
+
+func (w *fileWriter) Sync() (err error) {
+	if w.err!=nil { return err }
+	defer func() { if err!=nil { w.err = err } }()
+	if err:=w.buf.Flush(); err!=nil { return err }
+	return w.file.Sync()
+}
+
+func (w *fileWriter) Close() {
+	w.file.Close()
+}
+
+type fileReader struct {
+	err error
+	file *os.File
+	buf *bufio.Reader
+	bytesLeft int64
+}
+
+func newFileReader(path string) (*fileReader,error) {
+	f,err := os.OpenFile(path,os.O_CREATE|os.O_RDONLY,filePerms)
+	if err!=nil { return nil,err }
+	info,err := f.Stat()
+	if err!=nil {
+		f.Close()
+		return nil,err
+	}
+	return &fileReader {
+		file: f,
+		buf: bufio.NewReader(f),
+		bytesLeft: info.Size(),
+	},nil
+}
+
+func (r *fileReader) read(n int64) ([]byte,error) {
+	if r.bytesLeft < n {
+		return nil,errTruncated
+	}
+	data := make([]byte,n)
+	if _, err := r.buf.Read(data); err!=nil {
+		return nil,err
+	}
+	r.bytesLeft -= n 
+	return data,nil
+}
+
+func (r *fileReader) Read() (data []byte, err error) {
+	// Cache the last error to prevent reading from a broken file.
+	if r.err!=nil { return nil,r.err }
+	defer func(){ if err!=nil { r.err = err } }()
+	// Locking files on filesystem level is not really supported.
+	// Therefore it is always possible that the file gets modified while we read it.
+	// Hence we return a custom EOF error, so that it is distinguishable from EOF
+	// returned by the file system.
+	if r.bytesLeft == 0 {
+		return nil,errEOF
+	}
+	header,err := r.read(8)
+	if err!=nil { return nil,err }
+	wantCRC := binary.BigEndian.Uint32(header[:4])
+	data,err = r.read(int64(binary.BigEndian.Uint32(header[4:])))
+	if err!=nil { return nil,err }
+	if gotCRC := crc32.Checksum(data, crc32c); gotCRC!=wantCRC {
+		return nil,errCorrupted
+	}
+	return data,nil
+}
+
+func (r *fileReader) Close() {
+	_ = r.file.Close()
+}
+
+

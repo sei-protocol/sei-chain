@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"io"
 	"reflect"
 	"time"
@@ -20,8 +19,6 @@ import (
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
 )
-
-var crc32c = crc32.MakeTable(crc32.Castagnoli)
 
 // Functionality to replay blocks and messages on recovery from a crash.
 // There are two general failure scenarios:

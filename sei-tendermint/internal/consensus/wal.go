@@ -2,25 +2,18 @@ package consensus
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"io"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
 	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
 	"github.com/tendermint/tendermint/types"
 
-	auto "github.com/tendermint/tendermint/internal/libs/autofile"
-	"github.com/tendermint/tendermint/libs/log"
-	tmos "github.com/tendermint/tendermint/libs/os"
-	"github.com/tendermint/tendermint/libs/service"
-	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/internal/libs/autofile"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	tmcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
@@ -198,340 +191,134 @@ func walFromProto(msg *tmcons.WALMessage) (WALMessage, error) {
 }
 
 //--------------------------------------------------------
-// Simple write-ahead logger
-
-// WAL is an interface for any write-ahead logger.
-type WAL interface {
-	Write(WALMessage) error
-	Sync() error
-
-	SearchForEndHeight(height int64, options *WALSearchOptions) (rd io.ReadCloser, found bool, err error)
-
-	// service methods
-	Start(context.Context) error
-	Stop()
-	Wait()
-}
 
 // Write ahead logger writes msgs to disk before they are processed.
 // Can be used for crash-recovery and deterministic replay.
-// TODO: currently the wal is overwritten during replay catchup, give it a mode
-// so it's either reading or appending - must read to end to start appending
-// again.
-type BaseWAL struct {
-	service.BaseService
-	logger log.Logger
-
-	group         *auto.Group
-	flushTicker   *time.Ticker
-	flushInterval time.Duration
+type WALWriter struct {
+	writer *autofile.LogWriter
 }
-
-var _ WAL = &BaseWAL{}
 
 // NewWAL returns a new write-ahead logger based on `baseWAL`, which implements
 // WAL. It's flushed and synced to disk every 2s and once when stopped.
-func NewWAL(ctx context.Context, logger log.Logger, walFile string, groupOptions ...func(*auto.Group)) (*BaseWAL, error) {
-	err := tmos.EnsureDir(filepath.Dir(walFile), 0700)
-	if err != nil {
-		return nil, fmt.Errorf("failed to ensure WAL directory is in place: %w", err)
-	}
-
-	group, err := auto.OpenGroup(ctx, logger, walFile, groupOptions...)
-	if err != nil {
-		return nil, err
-	}
-	wal := &BaseWAL{
-		logger:        logger,
-		group:         group,
-		flushInterval: walDefaultFlushInterval,
-	}
-	wal.BaseService = *service.NewBaseService(logger, "baseWAL", wal)
-	return wal, nil
+func NewWALWriter(walFile string, cfg *autofile.Config) *WALWriter {
+	return &WALWriter{autofile.NewLogWriter(walFile, cfg)}
 }
 
-// SetFlushInterval allows us to override the periodic flush interval for the WAL.
-func (wal *BaseWAL) SetFlushInterval(i time.Duration) {
-	wal.flushInterval = i
-}
-
-func (wal *BaseWAL) Group() *auto.Group {
-	return wal.group
-}
-
-func (wal *BaseWAL) OnStart(ctx context.Context) error {
-	size, err := wal.group.Head.Size()
-	if err != nil {
-		return err
-	}
-	if size == 0 {
-		if err := wal.Write(NewWALMessage(EndHeightMessage{0})); err != nil {
-			return err
-		}
-		if err := wal.Sync(); err!=nil {
-			return err
-		}
-	}
-	if err := wal.group.Start(ctx);err != nil {
-		return err
-	}
-	wal.flushTicker = time.NewTicker(wal.flushInterval)
-	go wal.processFlushTicks(ctx)
-	return nil
-}
-
-func (wal *BaseWAL) processFlushTicks(ctx context.Context) {
-	for {
-		select {
-		case <-wal.flushTicker.C:
-			if err := wal.Sync(); err != nil {
-				wal.logger.Error("Periodic WAL flush failed", "err", err)
+func (w *WALWriter) Run(ctx context.Context, syncInterval time.Duration) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error {
+			for {
+				if err:=utils.Sleep(ctx,syncInterval); err!=nil {
+					return err
+				}
+				if err:=w.Sync(ctx); err!=nil {
+					return err
+				}
 			}
-		case <-ctx.Done():
-			return
-		}
-	}
+		})
+		return w.writer.Run(ctx)
+	})
 }
 
 // FlushAndSync flushes and fsync's the underlying group's data to disk.
 // See auto#FlushAndSync
-func (wal *BaseWAL) Sync() error {
-	return wal.group.FlushAndSync()
-}
-
-// Stop the underlying autofile group.
-// Use Wait() to ensure it's finished shutting down
-// before cleaning up files.
-func (wal *BaseWAL) OnStop() {
-	wal.flushTicker.Stop()
-	if err := wal.Sync(); err != nil {
-		wal.logger.Error("error on flush data to disk", "error", err)
-	}
-	wal.group.Stop()
-	wal.group.Close()
-}
-
-// Wait for the underlying autofile group to finish shutting down
-// so it's safe to cleanup files.
-func (wal *BaseWAL) Wait() {
-	if wal.IsRunning() {
-		wal.BaseService.Wait()
-	}
-	if wal.group.IsRunning() {
-		wal.group.Wait()
-	}
+func (w *WALWriter) Sync(ctx context.Context) error {
+	return w.writer.Sync(ctx)
 }
 
 // Write is called in newStep and for each receive on the
 // peerMsgQueue and the timeoutTicker.
 // NOTE: does not call fsync()
-func (wal *BaseWAL) Write(msg WALMessage) error {
-	bytes, err := encode(&TimedWALMessage{tmtime.Now(), msg})
+func (wal *WALWriter) Write(ctx context.Context, msg WALMessage) error {
+	if wal.writer.TotalSize()== 0 {
+		if err := wal.Write(NewWALMessage(EndHeightMessage{0})); err != nil {
+			return nil,err
+		}
+	}
+	data, err := proto.Marshal(&tmcons.TimedWALMessage{Time: time.Now(), Msg: msg.toProto()})
 	if err != nil {
-		return fmt.Errorf("encode(): %w", err)
+		panic(fmt.Errorf("proto.Marshal(): %w", err))
 	}
-	// TODO(gprusak): mark wal as broken after write failure.
-	// A single bad write can be effectively reverted,
-	// but multiple bad writes can make it permanently corrupted.
-	if _, err := wal.group.Write(bytes); err != nil {
-		return fmt.Errorf("wal.group.Write(): %w", err)
+	if len(data) > maxMsgSizeBytes {
+		return fmt.Errorf("msg is too big: %d bytes, max: %d bytes", len(data), maxMsgSizeBytes)
 	}
-	return nil
+	return wal.writer.Write(ctx,data)
 }
 
-// WALSearchOptions are optional arguments to SearchForEndHeight.
-type WALSearchOptions struct {
-	// IgnoreDataCorruptionErrors set to true will result in skipping data corruption errors.
-	IgnoreDataCorruptionErrors bool
+type WALReader struct {
+	reader *autofile.LogReader
 }
+
+func (r *WALReader) Close() {
+	r.reader.Close()
+}
+
+func (r *WALReader) Read() (WALMessage,error) {
+	data,err := r.reader.Read()
+	if err!=nil { return WALMessage{},err }
+	var msgPB tmcons.TimedWALMessage
+	if err := proto.Unmarshal(data, &msgPB); err != nil {
+		return WALMessage{}, fmt.Errorf("proto.Unmarshal(): %w",err)
+	}
+	return walFromProto(msgPB.Msg)
+}
+
+func (r *WALReader) readEndHeight() (EndHeightMessage,error) {
+	for {
+		msg,err:=r.Read()
+		if err!=nil { return EndHeightMessage{},err }
+		if msg,ok:=msg.any.(EndHeightMessage); ok {
+			return msg,nil
+		}
+	}
+}
+
+var errNotFound = errors.New("not found")
 
 // SearchForEndHeight searches for the EndHeightMessage with the given height
 // and returns an auto.GroupReader, whenever it was found or not and an error.
 // Group reader will be nil if found equals false.
 //
 // CONTRACT: caller must close group reader.
-func (wal *BaseWAL) SearchForEndHeight(height int64, options *WALSearchOptions) (rd io.ReadCloser, found bool, err error) {
-	lastHeightFound := int64(-1)
-
-	// NOTE: starting from the last file in the group because we're usually
-	// searching for the last height. See replay.go
-	min, max := wal.group.MinIndex(), wal.group.MaxIndex()
-	wal.logger.Info("Searching for height", "height", height, "min", min, "max", max)
-	for index := max; index >= min; index-- {
-		gr, err := wal.group.NewReader(index)
-		if err != nil {
-			return nil, false, err
+func OpenReaderAfterHeight(walFile string, height int64) (*WALReader, error) {
+	for offset:=0;; offset-- {
+		logReader,err := autofile.NewLogReader(walFile,offset)
+		if err!=nil {
+			if utils.ErrorAs[autofile.ErrInvalidOffset](err).IsPresent() {
+				return nil,errNotFound
+			}
+			return nil,err
 		}
-
-		for {
-			msg, err := decode(gr)
-			if err == io.EOF {
-				// OPTIMISATION: no need to look for height in older files if we've seen h < height
-				if lastHeightFound > 0 && lastHeightFound < height {
-					gr.Close()
-					return nil, false, nil
-				}
-				// check next file
-				break
+		r := &WALReader{reader:logReader}
+		found,err := func() (bool,error) {
+			// find the first marker
+			msg,err := r.readEndHeight()
+			if err!=nil { 
+				if errors.Is(err,io.EOF) { return false,nil }
+				return false,err 
 			}
-			if options.IgnoreDataCorruptionErrors && utils.ErrorAs[DataCorruptionError](err).IsPresent() {
-				wal.logger.Error("Corrupted entry. Skipping...", "err", err)
-				// do nothing
-				continue
-			} else if err != nil {
-				gr.Close()
-				return nil, false, err
+			if msg.Height>height {
+				// first marker is too high, we need to check older files.
+				return false,nil
 			}
-
-			if m, ok := msg.Msg.any.(EndHeightMessage); ok {
-				lastHeightFound = m.Height
-				if m.Height == height { // found
-					wal.logger.Info("Found", "height", height, "index", index)
-					return gr, true, nil
+			// We have found the file which should contain the desired marker.
+			for msg.Height<height {
+				if msg,err = r.readEndHeight(); err!=nil {
+					return false, err
 				}
 			}
+			if msg.Height!=height {
+				// The desired height marker is missing.
+				return false,errNotFound
+			}
+			return true,nil
+		}()
+		if err==nil && found {
+			return r,nil
 		}
-		gr.Close()
-	}
-
-	return nil, false, nil
-}
-
-// A WALEncoder writes custom-encoded WAL messages to an output stream.
-//
-// Format: 4 bytes CRC sum + 4 bytes length + arbitrary-length value
-// Encode writes the custom encoding of v to the stream. It returns an error if
-// the encoded size of v is greater than 4MB. Any error encountered
-// during the write is also returned.
-func encode(v *TimedWALMessage) ([]byte, error) {
-	pbMsg := &tmcons.TimedWALMessage{Time: v.Time, Msg: v.Msg.toProto()}
-	data, err := proto.Marshal(pbMsg)
-	if err != nil {
-		panic(fmt.Errorf("encode timed wall message failure: %w", err))
-	}
-
-	crc := crc32.Checksum(data, crc32c)
-	length := uint32(len(data))
-	if length > maxMsgSizeBytes {
-		return nil, fmt.Errorf("msg is too big: %d bytes, max: %d bytes", length, maxMsgSizeBytes)
-	}
-	totalLength := 8 + int(length)
-
-	msg := make([]byte, totalLength)
-	binary.BigEndian.PutUint32(msg[0:4], crc)
-	binary.BigEndian.PutUint32(msg[4:8], length)
-	copy(msg[8:], data)
-	return msg, nil
-}
-
-// DataCorruptionError is an error that occures if data on disk was corrupted.
-type DataCorruptionError struct{ error }
-
-// A WALDecoder reads and decodes custom-encoded WAL messages from an input
-// stream. See WALEncoder for the format used.
-//
-// It will also compare the checksums and make sure data size is equal to the
-// length from the header. If that is not the case, error will be returned.
-// Decode reads the next custom-encoded value from its reader and returns it.
-func decode(rd io.Reader) (*TimedWALMessage, error) {
-	b := make([]byte, 4)
-
-	_, err := rd.Read(b)
-	if errors.Is(err, io.EOF) {
-		return nil, err
-	}
-	if err != nil {
-		return nil, DataCorruptionError{fmt.Errorf("failed to read checksum: %w", err)}
-	}
-	crc := binary.BigEndian.Uint32(b)
-
-	b = make([]byte, 4)
-	_, err = rd.Read(b)
-	if err != nil {
-		return nil, DataCorruptionError{fmt.Errorf("failed to read length: %w", err)}
-	}
-	length := binary.BigEndian.Uint32(b)
-
-	if length > maxMsgSizeBytes {
-		return nil, DataCorruptionError{fmt.Errorf(
-			"length %d exceeded maximum possible value of %d bytes",
-			length,
-			maxMsgSizeBytes)}
-	}
-
-	data := make([]byte, length)
-	n, err := rd.Read(data)
-	if err != nil {
-		return nil, DataCorruptionError{fmt.Errorf("failed to read data: %v (read: %d, wanted: %d)", err, n, length)}
-	}
-
-	// check checksum before decoding data
-	actualCRC := crc32.Checksum(data, crc32c)
-	if actualCRC != crc {
-		return nil, DataCorruptionError{fmt.Errorf("checksums do not match: read: %v, actual: %v", crc, actualCRC)}
-	}
-
-	var res = new(tmcons.TimedWALMessage)
-	err = proto.Unmarshal(data, res)
-	if err != nil {
-		return nil, DataCorruptionError{fmt.Errorf("failed to decode data: %w", err)}
-	}
-
-	walMsg, err := walFromProto(res.Msg)
-	if err != nil {
-		return nil, DataCorruptionError{fmt.Errorf("failed to convert from proto: %w", err)}
-	}
-	tMsgWal := &TimedWALMessage{
-		Time: res.Time,
-		Msg:  walMsg,
-	}
-
-	return tMsgWal, err
-}
-
-// repairWalFile decodes messages from src (until the decoder errors) and
-// writes them to dst.
-func repairWalFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	// best-case repair (until first error is encountered)
-	for {
-		msg, err := decode(in)
-		if err != nil {
-			break
-		}
-
-		bytes, err := encode(msg)
-		if err != nil {
-			return fmt.Errorf("encode(): %w", err)
-		}
-		if _, err := out.Write(bytes); err != nil {
-			return fmt.Errorf("out.Write(): %w", err)
+		r.Close()
+		if err!=nil {
+			return nil,err
 		}
 	}
-
-	return nil
 }
-
-type nilWAL struct{}
-
-var _ WAL = nilWAL{}
-
-func (nilWAL) Write(m WALMessage) error     { return nil }
-func (nilWAL) Sync() error          { return nil }
-func (nilWAL) SearchForEndHeight(height int64, options *WALSearchOptions) (rd io.ReadCloser, found bool, err error) {
-	return nil, false, nil
-}
-func (nilWAL) Start(context.Context) error { return nil }
-func (nilWAL) Stop()                       {}
-func (nilWAL) Wait()                       {}
