@@ -2,7 +2,6 @@ package wal
 
 import (
 	"math"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,17 +10,6 @@ import (
 )
 
 type ErrBadOffset struct {error}
-
-func fileSize(path string) (int64,error) {
-	fi,err:=os.Stat(path)
-	if err!=nil {
-		if errors.Is(err,os.ErrNotExist) {
-			return 0,nil
-		}
-		return 0,fmt.Errorf("os.Stat(%q): %w",path,err)
-	}
-	return fi.Size(),nil
-}
 
 type logView struct {
 	headPath string
@@ -77,9 +65,9 @@ func loadLogView(headPath string) (*logView,error) {
 func (v *logView) TailSize() (int64,error) {
 	total := int64(0)
 	for i:=v.firstIdx; i<v.nextIdx; i++ {
-		fs,err := fileSize(v.tailPath(v.firstIdx+i))
+		fi,err := os.Stat(v.tailPath(v.firstIdx+i))
 		if err!=nil { return 0,err }
-		total += fs
+		total += fi.Size()
 	}
 	return total,nil
 }
@@ -94,20 +82,17 @@ func (v *logView) Rotate(cfg *Config) error {
 	if cfg.TotalSizeLimit<=0 {
 		return nil
 	}
-	sizes := make([]int64,v.nextIdx-v.firstIdx)
-	total := int64(0)
-	for i := range sizes {
-		size,err := fileSize(v.tailPath(v.firstIdx+i))
+	tail,err := v.TailSize()
+	if err!=nil { return err }
+	for tail>cfg.TotalSizeLimit {
+		path := v.tailPath(v.firstIdx)
+		fi,err := os.Stat(path)
 		if err!=nil { return err }
-		sizes[i] = size
-		total += size
-	}
-	for i:=0; i<len(sizes) && total>cfg.TotalSizeLimit; i++ {
-		if err:=os.Remove(v.tailPath(v.firstIdx)); err!=nil {
+		if err:=os.Remove(path); err!=nil {
 			return err
 		}
 		v.firstIdx += 1
-		total -= sizes[i]
+		tail -= fi.Size() 
 	}
 	return nil
 }

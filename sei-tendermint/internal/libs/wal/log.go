@@ -1,30 +1,16 @@
 /*
-You can open a Group to keep restrictions on an AutoFile, like
-the maximum size of each chunk, and/or the total amount of bytes
-stored in the group.
-
-The first file to be written in the Group.Dir is the head file.
-
-	Dir/
-	- <HeadPath>
-
-Once the Head file reaches the size limit, it will be rotated.
-
-	Dir/
-	- <HeadPath>.000   // First rolled file
-	- <HeadPath>       // New head path, starts empty.
-										 // The implicit index is 001.
-
-As more files are written, the index numbers grow...
+	Write-ahead log using files of bounded size for storage.
+  It appends entries to the <headPath> file until it reaches the limit size.
+	Then it renames it to <headPath>.<sequential number> (a tail file) and creates new empty <headPath> file.
+	It uses flock on an empty <HeadPath>.lock file to ensure exclusive access to the log files.
 
 	Dir/
 	- <HeadPath>.000   // First rolled file
 	- <HeadPath>.001   // Second rolled file
 	- ...
-	- <HeadPath>       // New head path
+	- <HeadPath>       // Head file.
+	- <HeadPath>.lock  // File used as a mutex.
 
-The Group can also be used to binary-search for some line,
-assuming that marker lines are written occasionally.
 */
 package wal 
 
@@ -109,14 +95,21 @@ func (i *logInner) Read() (res []byte, err error) {
 }
 
 func (i *logInner) Append(entry []byte) (err error) {
-	if writer,ok := i.writer.Get(); ok {
-		if err:=writer.AppendEntry(entry); err!=nil {
-			i.Reset()
+	writer,ok := i.writer.Get()
+	if !ok {
+		return fmt.Errorf("not opened for append")
+	}
+	defer func() { if err!=nil { i.Reset() } }()
+	if writer.bytesSize >= i.cfg.FileSizeLimit {
+		if err:=writer.Sync(); err!=nil {
 			return err
 		}
-		return nil
+		i.Reset()
+		if err := i.view.Rotate(i.cfg); err!=nil {
+			return fmt.Errorf("i.view.Rotate(): %w", err)
+		}
 	}
-	return fmt.Errorf("not opened for append")
+	return writer.AppendEntry(entry)
 }
 
 func (i *logInner) Sync() error {
@@ -136,15 +129,22 @@ func (i *logInner) Size() (int64,error) {
 	if writer,ok := i.writer.Get(); ok {
 		size += writer.bytesSize
 	} else {
-		hs,err := fileSize(i.view.headPath)
-		if err!=nil { return 0,err }
-		size += hs
+		// Head file does not have to exist.
+		if fi,err:=os.Stat(i.view.headPath); err==nil {
+			size += fi.Size()
+		} else if !errors.Is(err,os.ErrNotExist) {
+			return 0,fmt.Errorf("os.Stat(%q): %w",i.view.headPath,err)
+		}
 	}
 	return size,nil
 }
 
 // Close releases all resources unconditionally.
 func (i *logInner) Close() {
+	if writer,ok := i.writer.Get(); ok {
+		// Best effort syncing at close. No guarantees.
+		_ = writer.Sync()
+	}
 	i.Reset()	
 	i.lockFile.Close()
 }

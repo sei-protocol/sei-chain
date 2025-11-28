@@ -194,21 +194,20 @@ func walFromProto(msg *tmcons.WALMessage) (WALMessage, error) {
 // Can be used for crash-recovery and deterministic replay.
 type WAL struct { inner *wal.Log }
 
-// NewWAL returns a new write-ahead logger based on `baseWAL`, which implements
-// WAL. It's flushed and synced to disk every 2s and once when stopped.
+// openWAL opens WAL in append mode. 
 func openWAL(walFile string) (res *WAL, resErr error) {
 	inner,err := wal.NewLog(walFile, wal.DefaultConfig())
 	if err!=nil { return nil,err }
 	defer func(){ if resErr!=nil { inner.Close() } }()
+	wal := &WAL{inner}
+	if err := wal.OpenForAppend(); err!=nil {
+		return nil, fmt.Errorf("OpenForAppend(): %w",err)
+	}
 	size,err := inner.Size()
 	if err!=nil {
 		return nil,fmt.Errorf("inner.Size(): %w",err)
 	}
-	wal := &WAL{inner}
 	if size==0 {
-		if err := wal.OpenForAppend(); err!=nil {
-			return nil, fmt.Errorf("OpenForAppend(): %w",err)
-		}
 		if err := wal.Append(NewWALMessage(EndHeightMessage{0})); err != nil {
 			return nil, fmt.Errorf("Append(): %w",err)
 		}
