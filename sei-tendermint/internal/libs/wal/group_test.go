@@ -1,4 +1,4 @@
-package autofile
+package wal 
 
 import (
 	"context"
