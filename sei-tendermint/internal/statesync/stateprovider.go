@@ -1,4 +1,4 @@
-package light
+package statesync
 
 import (
 	"bytes"
@@ -9,16 +9,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/tendermint/tendermint/internal/p2p"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/light"
 	lightprovider "github.com/tendermint/tendermint/light/provider"
 	lighthttp "github.com/tendermint/tendermint/light/provider/http"
 	lightrpc "github.com/tendermint/tendermint/light/rpc"
 	lightdb "github.com/tendermint/tendermint/light/store/db"
+	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
 	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
 	"github.com/tendermint/tendermint/types"
 	"github.com/tendermint/tendermint/version"
@@ -44,7 +47,7 @@ type StateProvider interface {
 
 type stateProviderRPC struct {
 	sync.Mutex              // light.Client is not concurrency-safe
-	lc                      *Client
+	lc                      *light.Client
 	initialHeight           int64
 	providers               map[lightprovider.Provider]string
 	verifyLightBlockTimeout time.Duration
@@ -58,7 +61,7 @@ func NewRPCStateProvider(
 	initialHeight int64,
 	verifyLightBlockTimeout time.Duration,
 	servers []string,
-	trustOptions TrustOptions,
+	trustOptions light.TrustOptions,
 	logger log.Logger,
 	blacklistTTL time.Duration,
 ) (StateProvider, error) {
@@ -80,8 +83,8 @@ func NewRPCStateProvider(
 		providerRemotes[provider] = server
 	}
 
-	lc, err := NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
-		lightdb.New(dbm.NewMemDB()), blacklistTTL, Logger(logger))
+	lc, err := light.NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
+		lightdb.New(dbm.NewMemDB()), blacklistTTL, light.Logger(logger))
 	if err != nil {
 		return nil, err
 	}
@@ -213,11 +216,10 @@ func rpcClient(server string) (*rpchttp.HTTP, error) {
 
 type StateProviderP2P struct {
 	sync.Mutex              // light.Client is not concurrency-safe
-	lc                      *Client
+	lc                      *light.Client
 	initialHeight           int64
-	paramsSendCh            *p2p.Channel
+	paramsSendCh            *p2p.Channel[*pb.Message]
 	paramsRecvCh            chan types.ConsensusParams
-	paramsReqCreator        func(uint64) proto.Message
 	verifyLightBlockTimeout time.Duration
 }
 
@@ -229,18 +231,17 @@ func NewP2PStateProvider(
 	initialHeight int64,
 	verifyLightBlockTimeout time.Duration,
 	providers []lightprovider.Provider,
-	trustOptions TrustOptions,
-	paramsSendCh *p2p.Channel,
+	trustOptions light.TrustOptions,
+	paramsSendCh *p2p.Channel[*pb.Message],
 	logger log.Logger,
 	blacklistTTL time.Duration,
-	paramsReqCreator func(uint64) proto.Message,
 ) (StateProvider, error) {
 	if len(providers) < 2 {
 		return nil, fmt.Errorf("at least 2 peers are required, got %d", len(providers))
 	}
 
-	lc, err := NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
-		lightdb.New(dbm.NewMemDB()), blacklistTTL, Logger(logger))
+	lc, err := light.NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
+		lightdb.New(dbm.NewMemDB()), blacklistTTL, light.Logger(logger))
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +251,6 @@ func NewP2PStateProvider(
 		initialHeight:           initialHeight,
 		paramsSendCh:            paramsSendCh,
 		paramsRecvCh:            make(chan types.ConsensusParams),
-		paramsReqCreator:        paramsReqCreator,
 		verifyLightBlockTimeout: verifyLightBlockTimeout,
 	}, nil
 }
@@ -387,73 +387,29 @@ func (s *StateProviderP2P) ParamsRecvCh() chan types.ConsensusParams {
 // if no response is obtained, with increasing intervals. It returns the
 // consensus parameters upon receiving a response, or an error if the context is canceled.
 func (s *StateProviderP2P) consensusParams(ctx context.Context, height int64) (types.ConsensusParams, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	out := make(chan types.ConsensusParams)
-
-	retryAll := func(childCtx context.Context) error {
-		for _, provider := range s.lc.Witnesses() {
-			p, ok := provider.(*BlockProvider)
-			if !ok {
-				return fmt.Errorf("witness is not BlockProvider [%T]", provider)
-			}
-
-			peer, err := types.NewNodeID(p.String())
-			if err != nil {
-				return fmt.Errorf("invalid provider (%s) node id: %w", p.String(), err)
-			}
-
-			go func(peer types.NodeID) {
-				s.paramsSendCh.Send(s.paramsReqCreator(uint64(height)), peer)
-
-				select {
-				case <-childCtx.Done():
-					return
-				case params, ok := <-s.paramsRecvCh:
+	return scope.Run1(ctx, func(ctx context.Context, scope scope.Scope) (types.ConsensusParams, error) {
+		scope.SpawnBg(func() error {
+			for iterCount := int64(1); ; iterCount++ {
+				for _, provider := range s.lc.Witnesses() {
+					p, ok := provider.(*BlockProvider)
 					if !ok {
-						return
+						return fmt.Errorf("witness is not BlockProvider [%T]", provider)
 					}
-					select {
-					case <-childCtx.Done():
-						return
-					case out <- params:
-						return
+
+					peer, err := types.NewNodeID(p.String())
+					if err != nil {
+						return fmt.Errorf("invalid provider (%v) node id: %w", p, err)
 					}
+					s.paramsSendCh.Send(wrap(&pb.ParamsRequest{Height: uint64(height)}), peer)
 				}
-			}(peer)
-		}
-		return nil
-	}
-
-	timer := time.NewTimer(0)
-	defer timer.Stop()
-
-	var iterCount int64
-	for {
-		iterCount++
-
-		childCtx, childCancel := context.WithCancel(ctx)
-
-		err := retryAll(childCtx)
-		if err != nil {
-			childCancel()
-			return types.ConsensusParams{}, err
-		}
-
-		// jitter+backoff the retry loop
-		timer.Reset(time.Duration(iterCount)*consensusParamsResponseTimeout +
-			time.Duration(100*rand.Int63n(iterCount))*time.Millisecond) // nolint:gosec
-
-		select {
-		case param := <-out:
-			childCancel()
-			return param, nil
-		case <-ctx.Done():
-			childCancel()
-			return types.ConsensusParams{}, ctx.Err()
-		case <-timer.C:
-			childCancel()
-		}
-	}
+				// jitter+backoff the retry loop
+				timeout := time.Duration(iterCount)*consensusParamsResponseTimeout +
+					time.Duration(100*rand.Int63n(iterCount))*time.Millisecond // nolint:gosec
+				if err := utils.Sleep(ctx, timeout); err != nil {
+					return nil
+				}
+			}
+		})
+		return utils.Recv(ctx, s.paramsRecvCh)
+	})
 }

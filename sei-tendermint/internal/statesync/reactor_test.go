@@ -25,16 +25,12 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/require"
-	"github.com/tendermint/tendermint/light"
 	"github.com/tendermint/tendermint/light/provider"
-	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
 	"github.com/tendermint/tendermint/types"
 )
 
 var m = PrometheusMetrics(config.TestConfig().Instrumentation.Namespace)
-
-const testAppVersion = 9
 
 type reactorTestSuite struct {
 	network *p2p.TestNetwork
@@ -140,10 +136,10 @@ func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
 	})
 	n := &Node{
 		TestNode:   testNode,
-		snapshotCh: orPanic(testNode.Router.OpenChannel(GetSnapshotChannelDescriptor())),
-		chunkCh:    orPanic(testNode.Router.OpenChannel(GetChunkChannelDescriptor())),
-		blockCh:    orPanic(testNode.Router.OpenChannel(GetLightBlockChannelDescriptor())),
-		paramsCh:   orPanic(testNode.Router.OpenChannel(GetParamsChannelDescriptor())),
+		snapshotCh: orPanic(p2p.OpenChannel(testNode.Router, GetSnapshotChannelDescriptor())),
+		chunkCh:    orPanic(p2p.OpenChannel(testNode.Router, GetChunkChannelDescriptor())),
+		blockCh:    orPanic(p2p.OpenChannel(testNode.Router, GetLightBlockChannelDescriptor())),
+		paramsCh:   orPanic(p2p.OpenChannel(testNode.Router, GetParamsChannelDescriptor())),
 	}
 	rts.node.Connect(t.Context(), testNode)
 	return n
@@ -209,29 +205,29 @@ func TestReactor_Sync(t *testing.T) {
 
 func TestReactor_ChunkRequest(t *testing.T) {
 	testcases := map[string]struct {
-		request        *ssproto.ChunkRequest
+		request        *pb.ChunkRequest
 		chunk          []byte
-		expectResponse *ssproto.ChunkResponse
+		expectResponse *pb.ChunkResponse
 	}{
 		"chunk is returned": {
-			&ssproto.ChunkRequest{Height: 1, Format: 1, Index: 1},
+			&pb.ChunkRequest{Height: 1, Format: 1, Index: 1},
 			[]byte{1, 2, 3},
-			&ssproto.ChunkResponse{Height: 1, Format: 1, Index: 1, Chunk: []byte{1, 2, 3}},
+			&pb.ChunkResponse{Height: 1, Format: 1, Index: 1, Chunk: []byte{1, 2, 3}},
 		},
 		"empty chunk is returned, as empty": {
-			&ssproto.ChunkRequest{Height: 1, Format: 1, Index: 1},
+			&pb.ChunkRequest{Height: 1, Format: 1, Index: 1},
 			[]byte{},
-			&ssproto.ChunkResponse{Height: 1, Format: 1, Index: 1, Chunk: []byte{}},
+			&pb.ChunkResponse{Height: 1, Format: 1, Index: 1, Chunk: []byte{}},
 		},
 		"nil (missing) chunk is returned as missing": {
-			&ssproto.ChunkRequest{Height: 1, Format: 1, Index: 1},
+			&pb.ChunkRequest{Height: 1, Format: 1, Index: 1},
 			nil,
-			&ssproto.ChunkResponse{Height: 1, Format: 1, Index: 1, Missing: true},
+			&pb.ChunkResponse{Height: 1, Format: 1, Index: 1, Missing: true},
 		},
 		"invalid request": {
-			&ssproto.ChunkRequest{Height: 1, Format: 1, Index: 1},
+			&pb.ChunkRequest{Height: 1, Format: 1, Index: 1},
 			nil,
-			&ssproto.ChunkResponse{Height: 1, Format: 1, Index: 1, Missing: true},
+			&pb.ChunkResponse{Height: 1, Format: 1, Index: 1, Missing: true},
 		},
 	}
 
@@ -250,10 +246,11 @@ func TestReactor_ChunkRequest(t *testing.T) {
 			rts := setup(t, conn, nil, false)
 			n := rts.AddPeer(t)
 			// Send the actual message.
-			n.chunkCh.Broadcast(tc.request)
+			n.chunkCh.Broadcast(wrap(tc.request))
 			m, err := n.chunkCh.Recv(ctx)
 			require.NoError(t, err)
-			if err := utils.TestDiff(tc.expectResponse, m.Message.(*ssproto.ChunkResponse)); err != nil {
+			got := m.Message.Sum.(*pb.Message_ChunkResponse).ChunkResponse
+			if err := utils.TestDiff(tc.expectResponse, got); err != nil {
 				t.Fatal(err)
 			}
 			conn.AssertExpectations(t)
@@ -261,8 +258,8 @@ func TestReactor_ChunkRequest(t *testing.T) {
 	}
 }
 
-func abciToSSProtoSnapshot(snapshot *abci.Snapshot) *ssproto.SnapshotsResponse {
-	return &ssproto.SnapshotsResponse{
+func abciToSSProtoSnapshot(snapshot *abci.Snapshot) *pb.SnapshotsResponse {
+	return &pb.SnapshotsResponse{
 		Height:   snapshot.Height,
 		Format:   snapshot.Format,
 		Chunks:   snapshot.Chunks,
@@ -306,14 +303,14 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 			rts := setup(t, conn, nil, false)
 			n := rts.AddPeer(t)
 			// Send the actual message.
-			n.snapshotCh.Broadcast(&ssproto.SnapshotsRequest{})
+			n.snapshotCh.Broadcast(wrap(&pb.SnapshotsRequest{}))
 
 			// Compute the expected answer.
-			want := make([]*ssproto.SnapshotsResponse, len(tc.snapshots))
+			want := make([]*pb.SnapshotsResponse, len(tc.snapshots))
 			for i, snapshot := range tc.snapshots {
 				want[i] = abciToSSProtoSnapshot(snapshot)
 			}
-			less := func(a, b *ssproto.SnapshotsResponse) int {
+			less := func(a, b *pb.SnapshotsResponse) int {
 				return cmp.Or(
 					cmp.Compare(b.Height, a.Height),
 					cmp.Compare(b.Format, a.Format),
@@ -325,11 +322,11 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 			}
 
 			// Receive the actual answer.
-			got := make([]*ssproto.SnapshotsResponse, len(want))
+			got := make([]*pb.SnapshotsResponse, len(want))
 			for i := range want {
 				m, err := n.snapshotCh.Recv(ctx)
 				require.NoError(t, err)
-				got[i] = m.Message.(*ssproto.SnapshotsResponse)
+				got[i] = m.Message.Sum.(*pb.Message_SnapshotsResponse).SnapshotsResponse
 			}
 
 			slices.SortFunc(got, less)
@@ -375,10 +372,10 @@ func TestReactor_LightBlockResponse(t *testing.T) {
 
 	rts.stateStore.On("LoadValidators", height).Return(vals, nil)
 	n := rts.AddPeer(t)
-	n.blockCh.Broadcast(&ssproto.LightBlockRequest{Height: 10})
+	n.blockCh.Broadcast(wrap(&pb.LightBlockRequest{Height: 10}))
 	m, err := n.blockCh.Recv(ctx)
 	require.NoError(t, err)
-	res := m.Message.(*ssproto.LightBlockResponse)
+	res := m.Message.Sum.(*pb.Message_LightBlockResponse).LightBlockResponse
 	receivedLB, err := types.LightBlockFromProto(res.LightBlock)
 	require.NoError(t, err)
 	require.Equal(t, lb, receivedLB)
@@ -401,7 +398,7 @@ func TestReactor_BlockProviders(t *testing.T) {
 
 	providers := make([]provider.Provider, len(peers))
 	for idx, peer := range peers {
-		providers[idx] = light.NewBlockProvider(peer, factory.DefaultTestChainID, rts.reactor.dispatcher)
+		providers[idx] = NewBlockProvider(peer, factory.DefaultTestChainID, rts.reactor.dispatcher)
 	}
 
 	wg := sync.WaitGroup{}
@@ -488,7 +485,7 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 	require.True(t, added)
 
 	// verify that the state provider is a p2p provider
-	sp := rts.reactor.stateProvider.(*light.StateProviderP2P)
+	sp := rts.reactor.stateProvider.(*StateProviderP2P)
 
 	// This is not really a list of providers, but rather list of witnesses,
 	// which excludes the first provider (which is primary)
@@ -574,47 +571,19 @@ func buildLightBlockChain(ctx context.Context, t *testing.T, fromHeight, toHeigh
 	blockTime := startTime.Add(time.Duration(fromHeight-toHeight) * time.Minute)
 	vals, pv := factory.ValidatorSet(ctx, 3, 10)
 	for height := fromHeight; height < toHeight; height++ {
-		vals, pv, chain[height] = mockLB(ctx, t, height, blockTime, lastBlockID, vals, pv)
+		vals, pv, chain[height] = mockLB(ctx, height, blockTime, lastBlockID, vals, pv)
 		lastBlockID = factory.MakeBlockIDWithHash(chain[height].Header.Hash())
 		blockTime = blockTime.Add(1 * time.Minute)
 	}
 	return chain
 }
 
-func mockLB(ctx context.Context, t *testing.T, height int64, time time.Time, lastBlockID types.BlockID,
-	currentVals *types.ValidatorSet, currentPrivVals []types.PrivValidator,
-) (*types.ValidatorSet, []types.PrivValidator, *types.LightBlock) {
-	t.Helper()
-	header := factory.MakeHeader(&types.Header{
-		Height:      height,
-		LastBlockID: lastBlockID,
-		Time:        time,
-	})
-	header.Version.App = testAppVersion
-
-	nextVals, nextPrivVals := factory.ValidatorSet(ctx, 3, 10)
-	header.ValidatorsHash = currentVals.Hash()
-	header.NextValidatorsHash = nextVals.Hash()
-	header.ConsensusHash = types.DefaultConsensusParams().HashConsensusParams()
-	lastBlockID = factory.MakeBlockIDWithHash(header.Hash())
-	voteSet := types.NewVoteSet(factory.DefaultTestChainID, height, 0, tmproto.PrecommitType, currentVals)
-	commit, err := factory.MakeCommit(ctx, lastBlockID, height, 0, voteSet, currentPrivVals, time)
-	require.NoError(t, err)
-	return nextVals, nextPrivVals, &types.LightBlock{
-		SignedHeader: &types.SignedHeader{
-			Header: header,
-			Commit: commit,
-		},
-		ValidatorSet: currentVals,
-	}
-}
-
 type Node struct {
 	*p2p.TestNode
-	snapshotCh *p2p.Channel
-	chunkCh    *p2p.Channel
-	blockCh    *p2p.Channel
-	paramsCh   *p2p.Channel
+	snapshotCh *p2p.Channel[*pb.Message]
+	chunkCh    *p2p.Channel[*pb.Message]
+	blockCh    *p2p.Channel[*pb.Message]
+	paramsCh   *p2p.Channel[*pb.Message]
 }
 
 func (n *Node) handleLightBlockRequests(
@@ -629,26 +598,27 @@ func (n *Node) handleLightBlockRequests(
 		if err != nil {
 			return
 		}
-		msg, ok := m.Message.(*ssproto.LightBlockRequest)
+		wmsg, ok := m.Message.Sum.(*pb.Message_LightBlockRequest)
 		if !ok {
 			continue
 		}
+		msg := wmsg.LightBlockRequest
 		if !shouldFail {
 			lb, err := chain[int64(msg.Height)].ToProto()
 			require.NoError(t, err)
-			n.blockCh.Send(&ssproto.LightBlockResponse{LightBlock: lb}, m.From)
+			n.blockCh.Send(wrap(&pb.LightBlockResponse{LightBlock: lb}), m.From)
 		} else {
 			switch errorCount % 3 {
 			case 0: // send a different block
 				vals, pv := factory.ValidatorSet(ctx, 3, 10)
-				_, _, lb := mockLB(ctx, t, int64(msg.Height), factory.DefaultTestTime, factory.MakeBlockID(), vals, pv)
+				_, _, lb := mockLB(ctx, int64(msg.Height), factory.DefaultTestTime, factory.MakeBlockID(), vals, pv)
 				differntLB, err := lb.ToProto()
 				if err != nil {
 					panic(err)
 				}
-				n.blockCh.Send(&ssproto.LightBlockResponse{LightBlock: differntLB}, m.From)
+				n.blockCh.Send(wrap(&pb.LightBlockResponse{LightBlock: differntLB}), m.From)
 			case 1: // send nil block i.e. pretend we don't have it
-				n.blockCh.Send(&ssproto.LightBlockResponse{LightBlock: nil}, m.From)
+				n.blockCh.Send(wrap(&pb.LightBlockResponse{LightBlock: nil}), m.From)
 			case 2: // don't do anything
 			}
 			errorCount++
@@ -666,11 +636,11 @@ func (n *Node) handleConsensusParamsRequest(t *testing.T) {
 		if err != nil {
 			return
 		}
-		msg := m.Message.(*ssproto.ParamsRequest)
-		n.paramsCh.Send(&ssproto.ParamsResponse{
+		msg := m.Message.Sum.(*pb.Message_ParamsRequest).ParamsRequest
+		n.paramsCh.Send(wrap(&pb.ParamsResponse{
 			Height:          msg.Height,
 			ConsensusParams: paramsProto,
-		}, m.From)
+		}), m.From)
 	}
 }
 
@@ -682,15 +652,15 @@ func (n *Node) handleSnapshotRequests(t *testing.T, snapshots []snapshot) {
 		if err != nil {
 			return
 		}
-		_ = m.Message.(*ssproto.SnapshotsRequest)
+		_ = m.Message.Sum.(*pb.Message_SnapshotsRequest)
 		for _, snapshot := range snapshots {
-			n.snapshotCh.Send(&ssproto.SnapshotsResponse{
+			n.snapshotCh.Send(wrap(&pb.SnapshotsResponse{
 				Height:   snapshot.Height,
 				Format:   snapshot.Format,
 				Chunks:   snapshot.Chunks,
 				Hash:     snapshot.Hash,
 				Metadata: snapshot.Metadata,
-			}, m.From)
+			}), m.From)
 		}
 	}
 }
@@ -703,13 +673,13 @@ func (n *Node) handleChunkRequests(t *testing.T, chunk []byte) {
 		if err != nil {
 			return
 		}
-		msg := m.Message.(*ssproto.ChunkRequest)
-		n.chunkCh.Send(&ssproto.ChunkResponse{
+		msg := m.Message.Sum.(*pb.Message_ChunkRequest).ChunkRequest
+		n.chunkCh.Send(wrap(&pb.ChunkResponse{
 			Height:  msg.Height,
 			Format:  msg.Format,
 			Index:   msg.Index,
 			Chunk:   chunk,
 			Missing: false,
-		}, m.From)
+		}), m.From)
 	}
 }

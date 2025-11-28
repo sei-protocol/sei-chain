@@ -12,13 +12,12 @@ import (
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
-	protomem "github.com/tendermint/tendermint/proto/tendermint/mempool"
+	pb "github.com/tendermint/tendermint/proto/tendermint/mempool"
 	"github.com/tendermint/tendermint/types"
 )
 
 var (
 	_ service.Service = (*Reactor)(nil)
-	_ p2p.Wrapper     = (*protomem.Message)(nil)
 )
 
 // Reactor implements a service that contains mempool of txs that are broadcasted
@@ -41,7 +40,7 @@ type Reactor struct {
 	mtx          sync.Mutex
 	peerRoutines map[types.NodeID]context.CancelFunc
 
-	channel      *p2p.Channel
+	channel      *p2p.Channel[*pb.Message]
 	readyToStart chan struct{}
 }
 
@@ -52,7 +51,7 @@ func NewReactor(
 	txmp *TxMempool,
 	router *p2p.Router,
 ) (*Reactor, error) {
-	channel, err := router.OpenChannel(GetChannelDescriptor(cfg))
+	channel, err := p2p.OpenChannel(router, GetChannelDescriptor(cfg))
 	if err != nil {
 		return nil, fmt.Errorf("router.OpenChannel(): %w", err)
 	}
@@ -80,17 +79,17 @@ func defaultObservePanic(r any) {}
 
 // getChannelDescriptor produces an instance of a descriptor for this
 // package's required channels.
-func GetChannelDescriptor(cfg *config.MempoolConfig) p2p.ChannelDescriptor {
+func GetChannelDescriptor(cfg *config.MempoolConfig) p2p.ChannelDescriptor[*pb.Message] {
 	largestTx := make([]byte, cfg.MaxTxBytes)
-	batchMsg := protomem.Message{
-		Sum: &protomem.Message_Txs{
-			Txs: &protomem.Txs{Txs: [][]byte{largestTx}},
+	batchMsg := &pb.Message{
+		Sum: &pb.Message_Txs{
+			Txs: &pb.Txs{Txs: [][]byte{largestTx}},
 		},
 	}
 
-	return p2p.ChannelDescriptor{
+	return p2p.ChannelDescriptor[*pb.Message]{
 		ID:                  MempoolChannel,
-		MessageType:         new(protomem.Message),
+		MessageType:         new(pb.Message),
 		Priority:            5,
 		RecvMessageCapacity: batchMsg.Size(),
 		RecvBufferCapacity:  128,
@@ -124,15 +123,15 @@ func (r *Reactor) OnStop() {}
 // For every tx in the message, we execute CheckTx. It returns an error if an
 // empty set of txs are sent in an envelope or if we receive an unexpected
 // message type.
-func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg) error {
+func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message]) error {
 	logger := r.logger.With("peer", m.From)
 
-	switch msg := m.Message.(type) {
-	case *protomem.Txs:
-		if err := msg.Validate(); err != nil {
+	switch msg := m.Message.Sum.(type) {
+	case *pb.Message_Txs:
+		if err := msg.Txs.Validate(); err != nil {
 			return err
 		}
-		protoTxs := msg.GetTxs()
+		protoTxs := msg.Txs.GetTxs()
 
 		txInfo := TxInfo{SenderID: r.ids.GetForPeer(m.From)}
 		if len(m.From) != 0 {
@@ -175,7 +174,7 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg) error
 // handleMessage handles an Envelope sent from a peer on a specific p2p Channel.
 // It will handle errors and any possible panics gracefully. A caller can handle
 // any error returned by sending a PeerError on the respective channel.
-func (r *Reactor) handleMessage(ctx context.Context, m p2p.RecvMsg) (err error) {
+func (r *Reactor) handleMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message]) (err error) {
 	defer func() {
 		if e := recover(); e != nil {
 			r.observePanic(e)
@@ -195,10 +194,9 @@ func (r *Reactor) handleMessage(ctx context.Context, m p2p.RecvMsg) (err error) 
 // processMempoolCh implements a blocking event loop where we listen for p2p
 // Envelope messages from the mempoolCh.
 func (r *Reactor) processMempoolCh(ctx context.Context) {
-	mempoolCh := r.channel
 	<-r.readyToStart
 	for {
-		m, err := mempoolCh.Recv(ctx)
+		m, err := r.channel.Recv(ctx)
 		if err != nil {
 			return
 		}
@@ -214,7 +212,6 @@ func (r *Reactor) processMempoolCh(ctx context.Context) {
 // removed peers, we remove the peer from the mempool peer ID set and signal to
 // stop the tx broadcasting goroutine.
 func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpdate) {
-	mempoolCh := r.channel
 	r.logger.Debug("received peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
 
 	r.mtx.Lock()
@@ -242,7 +239,7 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 				r.ids.ReserveForPeer(peerUpdate.NodeID)
 
 				// start a broadcast routine ensuring all txs are forwarded to the peer
-				go r.broadcastTxRoutine(pctx, peerUpdate.NodeID, mempoolCh)
+				go r.broadcastTxRoutine(pctx, peerUpdate.NodeID)
 			}
 		}
 
@@ -274,7 +271,7 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) {
 	}
 }
 
-func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID, mempoolCh *p2p.Channel) {
+func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 	peerMempoolID := r.ids.GetForPeer(peerID)
 	var nextGossipTx *clist.CElement
 
@@ -320,7 +317,7 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID, m
 		if ok := r.mempool.txStore.TxHasPeer(memTx.hash, peerMempoolID); !ok {
 			// Send the mempool tx to the corresponding peer. Note, the peer may be
 			// behind and thus would not be able to process the mempool tx correctly.
-			mempoolCh.Send(&protomem.Txs{Txs: [][]byte{memTx.tx}}, peerID)
+			r.channel.Send(&pb.Message{Sum: &pb.Message_Txs{Txs: &pb.Txs{Txs: [][]byte{memTx.tx}}}}, peerID)
 			r.logger.Debug(
 				"gossiped tx to peer",
 				"tx", fmt.Sprintf("%X", memTx.tx.Hash()),

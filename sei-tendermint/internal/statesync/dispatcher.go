@@ -1,4 +1,4 @@
-package light
+package statesync
 
 import (
 	"context"
@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/gogo/protobuf/proto"
 	"github.com/tendermint/tendermint/internal/p2p"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/light/provider"
+	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -26,20 +27,16 @@ var (
 // NOTE: It is not the responsibility of the dispatcher to verify the light blocks.
 type Dispatcher struct {
 	// the channel with which to send light block requests on
-	requestCh *p2p.Channel
+	requestCh *p2p.Channel[*pb.Message]
 
-	mtx sync.Mutex
 	// all pending calls that have been dispatched and are awaiting an answer
-	calls map[types.NodeID]chan *types.LightBlock
-
-	lightBlockMsgCreator func(uint64) proto.Message
+	calls utils.Mutex[map[types.NodeID]chan *types.LightBlock]
 }
 
-func NewDispatcher(requestChannel *p2p.Channel, lightBlockMsgCreator func(uint64) proto.Message) *Dispatcher {
+func NewDispatcher(requestChannel *p2p.Channel[*pb.Message]) *Dispatcher {
 	return &Dispatcher{
-		requestCh:            requestChannel,
-		calls:                make(map[types.NodeID]chan *types.LightBlock),
-		lightBlockMsgCreator: lightBlockMsgCreator,
+		requestCh: requestChannel,
+		calls:     utils.NewMutex(map[types.NodeID]chan *types.LightBlock{}),
 	}
 }
 
@@ -55,11 +52,11 @@ func (d *Dispatcher) LightBlock(ctx context.Context, height int64, peer types.No
 
 	// clean up the call after a response is returned
 	defer func() {
-		d.mtx.Lock()
-		defer d.mtx.Unlock()
-		if call, ok := d.calls[peer]; ok {
-			delete(d.calls, peer)
-			close(call)
+		for calls := range d.calls.Lock() {
+			if call, ok := calls[peer]; ok {
+				delete(calls, peer)
+				close(call)
+			}
 		}
 	}()
 
@@ -76,76 +73,64 @@ func (d *Dispatcher) LightBlock(ctx context.Context, height int64, peer types.No
 // dispatch takes a peer and allocates it a channel so long as it's not already
 // busy and the receiving channel is still running. It then dispatches the message
 func (d *Dispatcher) dispatch(ctx context.Context, peer types.NodeID, height int64) (chan *types.LightBlock, error) {
-	d.mtx.Lock()
-	defer d.mtx.Unlock()
-	select {
-	case <-ctx.Done():
-		return nil, ErrDisconnected
-	default:
+	for calls := range d.calls.Lock() {
+		if ctx.Err() != nil {
+			return nil, ErrDisconnected
+		}
+		ch := make(chan *types.LightBlock, 1)
+
+		// check if a request for the same peer has already been made
+		if _, ok := calls[peer]; ok {
+			close(ch)
+			return ch, ErrPeerAlreadyBusy
+		}
+		calls[peer] = ch
+
+		// send request
+		d.requestCh.Send(wrap(&pb.LightBlockRequest{Height: uint64(height)}), peer)
+		return ch, nil
 	}
-
-	ch := make(chan *types.LightBlock, 1)
-
-	// check if a request for the same peer has already been made
-	if _, ok := d.calls[peer]; ok {
-		close(ch)
-		return ch, ErrPeerAlreadyBusy
-	}
-	d.calls[peer] = ch
-
-	// send request
-	d.requestCh.Send(d.lightBlockMsgCreator(uint64(height)), peer)
-	return ch, nil
+	panic("unreachable")
 }
 
 // Respond allows the underlying process which receives requests on the
 // requestCh to respond with the respective light block. A nil response is used to
 // represent that the receiver of the request does not have a light block at that height.
 func (d *Dispatcher) Respond(ctx context.Context, lb *tmproto.LightBlock, peer types.NodeID) error {
-	d.mtx.Lock()
-	defer d.mtx.Unlock()
-
-	// check that the response came from a request
-	answerCh, ok := d.calls[peer]
-	if !ok {
-		// this can also happen if the response came in after the timeout
-		return ErrUnsolicitedResponse
-	}
-
-	// If lb is nil we take that to mean that the peer didn't have the requested light
-	// block and thus pass on the nil to the caller.
-	if lb == nil {
-		select {
-		case answerCh <- nil:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
+	for calls := range d.calls.Lock() {
+		// check that the response came from a request
+		answerCh, ok := calls[peer]
+		if !ok {
+			// this can also happen if the response came in after the timeout
+			return ErrUnsolicitedResponse
 		}
-	}
 
-	block, err := types.LightBlockFromProto(lb)
-	if err != nil {
-		return err
-	}
+		// If lb is nil we take that to mean that the peer didn't have the requested light
+		// block and thus pass on the nil to the caller.
+		if lb == nil {
+			return utils.Send(ctx, answerCh, nil)
+		}
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case answerCh <- block:
-		return nil
+		block, err := types.LightBlockFromProto(lb)
+		if err != nil {
+			return err
+		}
+
+		return utils.Send(ctx, answerCh, block)
 	}
+	panic("unreachable")
 }
 
 // Close shuts down the dispatcher and cancels any pending calls awaiting responses.
 // Peers awaiting responses that have not arrived are delivered a nil block.
 func (d *Dispatcher) Close() {
-	d.mtx.Lock()
-	defer d.mtx.Unlock()
-	for peer := range d.calls {
-		delete(d.calls, peer)
-		// don't close the channel here as it's closed in
-		// other handlers, and would otherwise get garbage
-		// collected.
+	for calls := range d.calls.Lock() {
+		for peer := range calls {
+			delete(calls, peer)
+			// don't close the channel here as it's closed in
+			// other handlers, and would otherwise get garbage
+			// collected.
+		}
 	}
 }
 
