@@ -1,10 +1,10 @@
-package evmrpc_test
+package config_test
 
 import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -168,108 +168,108 @@ func getDefaultOpts() opts {
 
 func TestReadConfig(t *testing.T) {
 	goodOpts := getDefaultOpts()
-	_, err := evmrpc.ReadConfig(&goodOpts)
+	_, err := config.ReadConfig(&goodOpts)
 	require.Nil(t, err)
 	badOpts := goodOpts
 	badOpts.httpEnabled = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.httpPort = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.wsEnabled = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.wsPort = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.readTimeout = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.readHeaderTimeout = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.writeTimeout = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.idleTimeout = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.filterTimeout = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.simulationGasLimit = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.simulationEVMTimeout = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.corsOrigins = map[string]interface{}{}
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.wsOrigins = map[string]interface{}{}
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.checkTxTimeout = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.maxTxPoolTxs = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.slow = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.denyList = map[string]interface{}{}
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
 	// Test bad types for new trace config options
 	badOpts = goodOpts
 	badOpts.maxConcurrentTraceCalls = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
 	// Test bad types for new trace config options
 	badOpts = goodOpts
 	badOpts.maxConcurrentSimulationCalls = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
 	badOpts = goodOpts
 	badOpts.maxTraceLookbackBlocks = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
 	badOpts = goodOpts
 	badOpts.traceTimeout = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
 	// Test bad types for worker pool config
 	badOpts = goodOpts
 	badOpts.workerPoolSize = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
 	badOpts = goodOpts
 	badOpts.workerQueueSize = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
+	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 }
 
@@ -319,7 +319,7 @@ func TestReadConfigWorkerPool(t *testing.T) {
 			opts.workerPoolSize = tt.workerPoolSize
 			opts.workerQueueSize = tt.workerQueueSize
 
-			cfg, err := evmrpc.ReadConfig(&opts)
+			cfg, err := config.ReadConfig(&opts)
 			require.Nil(t, err)
 
 			require.Equal(t, tt.expectedWorkers, cfg.WorkerPoolSize,

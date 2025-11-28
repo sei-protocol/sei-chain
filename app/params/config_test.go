@@ -3,7 +3,7 @@ package params
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/evmrpc"
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,7 +43,7 @@ func TestSetEVMConfigByMode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create default EVM config
-			evmConfig := evmrpc.DefaultConfig
+			evmConfig := evmrpcconfig.DefaultConfig
 
 			// Set EVM config based on mode
 			SetEVMConfigByMode(&evmConfig, tt.mode)
