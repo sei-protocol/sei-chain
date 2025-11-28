@@ -1,7 +1,6 @@
 package consensus
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -11,9 +10,8 @@ import (
 	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
 	"github.com/tendermint/tendermint/types"
 
-	"github.com/tendermint/tendermint/internal/libs/autofile"
+	"github.com/tendermint/tendermint/internal/libs/wal"
 	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
 	tmcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
@@ -194,78 +192,69 @@ func walFromProto(msg *tmcons.WALMessage) (WALMessage, error) {
 
 // Write ahead logger writes msgs to disk before they are processed.
 // Can be used for crash-recovery and deterministic replay.
-type WALWriter struct {
-	writer *autofile.LogWriter
-}
+type WAL struct { inner *wal.Log }
 
 // NewWAL returns a new write-ahead logger based on `baseWAL`, which implements
 // WAL. It's flushed and synced to disk every 2s and once when stopped.
-func NewWALWriter(walFile string, cfg *autofile.Config) *WALWriter {
-	return &WALWriter{autofile.NewLogWriter(walFile, cfg)}
-}
-
-func (w *WALWriter) Run(ctx context.Context, syncInterval time.Duration) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.Spawn(func() error {
-			for {
-				if err:=utils.Sleep(ctx,syncInterval); err!=nil {
-					return err
-				}
-				if err:=w.Sync(ctx); err!=nil {
-					return err
-				}
-			}
-		})
-		return w.writer.Run(ctx)
-	})
-}
-
-// FlushAndSync flushes and fsync's the underlying group's data to disk.
-// See auto#FlushAndSync
-func (w *WALWriter) Sync(ctx context.Context) error {
-	return w.writer.Sync(ctx)
-}
-
-// Write is called in newStep and for each receive on the
-// peerMsgQueue and the timeoutTicker.
-// NOTE: does not call fsync()
-func (wal *WALWriter) Write(ctx context.Context, msg WALMessage) error {
-	if wal.writer.TotalSize()== 0 {
-		if err := wal.Write(NewWALMessage(EndHeightMessage{0})); err != nil {
-			return nil,err
+func openWAL(walFile string) (res *WAL, resErr error) {
+	inner,err := wal.NewLog(walFile, wal.DefaultConfig())
+	if err!=nil { return nil,err }
+	defer func(){ if resErr!=nil { inner.Close() } }()
+	size,err := inner.Size()
+	if err!=nil {
+		return nil,fmt.Errorf("inner.Size(): %w",err)
+	}
+	wal := &WAL{inner}
+	if size==0 {
+		if err := wal.OpenForAppend(); err!=nil {
+			return nil, fmt.Errorf("OpenForAppend(): %w",err)
+		}
+		if err := wal.Append(NewWALMessage(EndHeightMessage{0})); err != nil {
+			return nil, fmt.Errorf("Append(): %w",err)
 		}
 	}
-	data, err := proto.Marshal(&tmcons.TimedWALMessage{Time: time.Now(), Msg: msg.toProto()})
+	return wal,nil
+}
+
+// Sync flushes and fsync's the buffered entries to underlying files. 
+func (w *WAL) Sync() error { return w.inner.Sync() }
+
+// OpenForAppend opens WAL for appending.
+func (w *WAL) OpenForAppend() error { return w.inner.OpenForAppend() }
+
+// Close releases all underlying resources unconditionally.
+// Other methods will return an error after calling Close.
+func (w *WAL) Close() { w.inner.Close() }
+
+// Append appends an entry to the WAL.
+// Remember to call OpenForAppend before Append.
+// You need to call Sync afterwards to ensure entry is persisted on disk.
+func (w *WAL) Append(msg WALMessage) error {
+	entry, err := proto.Marshal(&tmcons.TimedWALMessage{Time: time.Now(), Msg: msg.toProto()})
 	if err != nil {
 		panic(fmt.Errorf("proto.Marshal(): %w", err))
 	}
-	if len(data) > maxMsgSizeBytes {
-		return fmt.Errorf("msg is too big: %d bytes, max: %d bytes", len(data), maxMsgSizeBytes)
+	if len(entry) > maxMsgSizeBytes {
+		return fmt.Errorf("msg is too big: %d bytes, max: %d bytes", len(entry), maxMsgSizeBytes)
 	}
-	return wal.writer.Write(ctx,data)
+	return w.inner.Append(entry)
 }
 
-type WALReader struct {
-	reader *autofile.LogReader
-}
-
-func (r *WALReader) Close() {
-	r.reader.Close()
-}
-
-func (r *WALReader) Read() (WALMessage,error) {
-	data,err := r.reader.Read()
+// Read reads an entry from the WAL.
+// Remember to call SeekEndHeight before Read.
+func (w *WAL) Read() (WALMessage,error) {
+	entry,err := w.inner.Read()
 	if err!=nil { return WALMessage{},err }
 	var msgPB tmcons.TimedWALMessage
-	if err := proto.Unmarshal(data, &msgPB); err != nil {
+	if err := proto.Unmarshal(entry, &msgPB); err != nil {
 		return WALMessage{}, fmt.Errorf("proto.Unmarshal(): %w",err)
 	}
 	return walFromProto(msgPB.Msg)
 }
 
-func (r *WALReader) readEndHeight() (EndHeightMessage,error) {
+func (w *WAL) readEndHeight() (EndHeightMessage,error) {
 	for {
-		msg,err:=r.Read()
+		msg,err:=w.Read()
 		if err!=nil { return EndHeightMessage{},err }
 		if msg,ok:=msg.any.(EndHeightMessage); ok {
 			return msg,nil
@@ -275,50 +264,37 @@ func (r *WALReader) readEndHeight() (EndHeightMessage,error) {
 
 var errNotFound = errors.New("not found")
 
-// SearchForEndHeight searches for the EndHeightMessage with the given height
-// and returns an auto.GroupReader, whenever it was found or not and an error.
-// Group reader will be nil if found equals false.
-//
-// CONTRACT: caller must close group reader.
-func OpenReaderAfterHeight(walFile string, height int64) (*WALReader, error) {
+// SeekEndHeight opens WAL for reading at position AFTER EndHeightMessage{height}.
+func (w *WAL) SeekEndHeight(height int64) error {
+	// iterate over WAL checkpoints from the newest, assuming
+	// that height is recent.
 	for offset:=0;; offset-- {
-		logReader,err := autofile.NewLogReader(walFile,offset)
-		if err!=nil {
-			if utils.ErrorAs[autofile.ErrInvalidOffset](err).IsPresent() {
-				return nil,errNotFound
+		if err := w.inner.OpenForRead(offset); err!=nil {
+			if utils.ErrorAs[wal.ErrBadOffset](err).IsPresent() {
+				return errNotFound
 			}
-			return nil,err
+			return err
 		}
-		r := &WALReader{reader:logReader}
-		found,err := func() (bool,error) {
-			// find the first marker
-			msg,err := r.readEndHeight()
-			if err!=nil { 
-				if errors.Is(err,io.EOF) { return false,nil }
-				return false,err 
-			}
-			if msg.Height>height {
-				// first marker is too high, we need to check older files.
-				return false,nil
-			}
-			// We have found the file which should contain the desired marker.
+		// find the first marker
+		msg,err := w.readEndHeight()
+		if err!=nil {
+			// No markers at all, try older checkpoint.
+			if errors.Is(err,io.EOF) { continue }
+			return err 
+		}
+		if msg.Height<=height {
+			// We have found a lower marker. It is enough to seek forward now. 
 			for msg.Height<height {
-				if msg,err = r.readEndHeight(); err!=nil {
-					return false, err
+				if msg,err = w.readEndHeight(); err!=nil {
+					if errors.Is(err,io.EOF) { return errNotFound }
+					return err
 				}
 			}
 			if msg.Height!=height {
-				// The desired height marker is missing.
-				return false,errNotFound
+				return errNotFound
 			}
-			return true,nil
-		}()
-		if err==nil && found {
-			return r,nil
+			return nil
 		}
-		r.Close()
-		if err!=nil {
-			return nil,err
-		}
+		// Try older checkpoint.
 	}
 }

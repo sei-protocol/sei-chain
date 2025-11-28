@@ -74,6 +74,16 @@ func loadLogView(headPath string) (*logView,error) {
 	return v,nil
 }
 
+func (v *logView) TailSize() (int64,error) {
+	total := int64(0)
+	for i:=v.firstIdx; i<v.nextIdx; i++ {
+		fs,err := fileSize(v.tailPath(v.firstIdx+i))
+		if err!=nil { return 0,err }
+		total += fs
+	}
+	return total,nil
+}
+
 func (v *logView) Rotate(cfg *Config) error {
 	// Move head to tail.
 	if err:=os.Rename(v.headPath,v.tailPath(v.nextIdx)); err!=nil {

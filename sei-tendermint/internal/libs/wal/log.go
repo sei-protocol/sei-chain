@@ -130,6 +130,19 @@ func (i *logInner) Sync() error {
 	return fmt.Errorf("not opened for append")
 }
 
+func (i *logInner) Size() (int64,error) {
+	size,err := i.view.TailSize()
+	if err!=nil { return 0,err }
+	if writer,ok := i.writer.Get(); ok {
+		size += writer.bytesSize
+	} else {
+		hs,err := fileSize(i.view.headPath)
+		if err!=nil { return 0,err }
+		size += hs
+	}
+	return size,nil
+}
+
 // Close releases all resources unconditionally.
 func (i *logInner) Close() {
 	i.Reset()	
@@ -238,6 +251,15 @@ func (l *Log) Sync() error {
 		}
 	}
 	return ErrClosed
+}
+
+func (l *Log) Size() (int64,error) {
+	for inner := range l.inner.Lock() {
+		if inner,ok := inner.Get(); ok {
+			return inner.Size()
+		}
+	}
+	return 0,ErrClosed
 }
 
 // Close releases all resources unconditionally.
