@@ -173,6 +173,10 @@ func (itr *iterator) nextForward() {
 		// Move the iterator to the closest version to the desired version, so we
 		// append the current iterator key to the prefix and seek to that key.
 		itr.valid = itr.source.SeekLT(MVCCEncode(nextKey, itr.version+1))
+		if !itr.valid {
+			// SeekLT failed to find a key, iterator is now invalid
+			return
+		}
 
 		tmpKey, tmpKeyVersion, ok := SplitMVCCKey(itr.source.Key())
 		if !ok {
@@ -187,6 +191,10 @@ func (itr *iterator) nextForward() {
 		if bytes.Equal(tmpKey, currKey) {
 			if itr.source.NextPrefix() {
 				itr.nextForward()
+				if !itr.valid {
+					// Recursive call invalidated the iterator
+					return
+				}
 
 				_, tmpKeyVersion, ok = SplitMVCCKey(itr.source.Key())
 				if !ok {
@@ -262,6 +270,10 @@ func (itr *iterator) nextReverse() {
 		// Move the iterator to the closest version to the desired version, so we
 		// append the current iterator key to the prefix and seek to that key.
 		itr.valid = itr.source.SeekLT(MVCCEncode(nextKey, itr.version+1))
+		if !itr.valid {
+			// SeekLT failed to find a key, iterator is now invalid
+			return
+		}
 
 		_, tmpKeyVersion, ok := SplitMVCCKey(itr.source.Key())
 		if !ok {
