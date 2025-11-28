@@ -40,6 +40,8 @@ import (
 
 const filePerms = os.FileMode(0600)
 
+var ErrClosed error = errors.New("WAL closed")
+
 type Config struct {
 	FileSizeLimit      int64
 	TotalSizeLimit     int64
@@ -69,7 +71,6 @@ func openLockFile(headPath string) (*os.File,error) {
 }
 
 type logInner struct {
-	err error
 	cfg *Config
 	lockFile *os.File
 	view *logView
@@ -80,7 +81,8 @@ type logInner struct {
 
 // Read reads the next entry from the log.
 // Returns io.EOF when the end of the log is reached.
-func (i *logInner) Read() ([]byte,error) {
+func (i *logInner) Read() (res []byte, err error) {
+	defer func(){ if err!=nil { i.Reset() } }()
 	for {
 		reader,ok := i.reader.Get()
 		if !ok { return nil, fmt.Errorf("not opened for read") }
@@ -108,46 +110,45 @@ func (i *logInner) Read() ([]byte,error) {
 
 func (i *logInner) Append(entry []byte) (err error) {
 	if writer,ok := i.writer.Get(); ok {
-		return writer.AppendEntry(entry)
+		if err:=writer.AppendEntry(entry); err!=nil {
+			i.Reset()
+			return err
+		}
+		return nil
 	}
 	return fmt.Errorf("not opened for append")
 }
 
 func (i *logInner) Sync() error {
 	if writer,ok := i.writer.Get(); ok {
-		return writer.Sync()
+		if err:=writer.Sync(); err!=nil {
+			i.Reset()
+			return err
+		}
+		return nil
 	}
 	return fmt.Errorf("not opened for append")
 }
 
 // Close releases all resources unconditionally.
 func (i *logInner) Close() {
-	if reader,ok := i.reader.Get(); ok {
-		reader.Close()
-	}
-	if writer,ok := i.writer.Get(); ok {
-		writer.Close()
-	}
+	i.Reset()	
 	i.lockFile.Close()
 }
 
-func (i *logInner) Reset() error {
+func (i *logInner) Reset() {
 	if reader,ok := i.reader.Get(); ok {
 		reader.Close()
 		i.reader = utils.None[*logReader]()
 	}
 	if writer,ok := i.writer.Get(); ok {
-		if err:=writer.Sync(); err!=nil {
-			return err
-		}
 		writer.Close()
 		i.writer = utils.None[*logWriter]()
 	}
-	return nil
 }
 
 func (i *logInner) OpenForAppend() error {
-	if err:=i.Reset(); err!=nil { return err }
+	i.Reset()
 	w,err := openLogWriter(i.view.headPath)
 	if err!=nil { return err }
 	i.fileOffset = 0
@@ -156,9 +157,9 @@ func (i *logInner) OpenForAppend() error {
 }
 
 func (i *logInner) OpenForRead(fileOffset int) error {
+	i.Reset()
 	path,err := i.view.PathByOffset(fileOffset)
 	if err!=nil { return err }
-	if err:=i.Reset(); err!=nil { return err }
 	r,err := openLogReader(path)
 	if err!=nil { return err }
 	i.fileOffset = fileOffset
@@ -166,63 +167,85 @@ func (i *logInner) OpenForRead(fileOffset int) error {
 	return nil
 }
 
-// Thread-safe log
+// Thread-safe WAL
 type Log struct {
-	inner utils.Mutex[*logInner]
+	inner utils.Mutex[*utils.Option[*logInner]]
 }
 
-func (l *Log) OpenForRead(offset int) error {
-	for inner := range l.inner.Lock() {
-		if inner.err!=nil { return inner.err }
-		inner.err = inner.OpenForRead(offset)
-		return inner.err
+func NewLog(headPath string, cfg *Config) (*Log,error) {
+	lockFile,err := openLockFile(headPath)
+	if err!=nil { return nil,fmt.Errorf("openLockFile(): %w",err) }
+	view,err := loadLogView(headPath)
+	if err!=nil {
+		lockFile.Close()
+		return nil,fmt.Errorf("loadLogView(): %w",err)
 	}
-	panic("unreachable")
+	return &Log {
+		inner: utils.NewMutex(utils.Alloc(utils.Some(&logInner {
+			cfg: cfg,
+			lockFile: lockFile,
+			view: view,
+		}))),
+	},nil
+}
+
+// Opens the WAL for reading at a given offset (in files from the END of the log)
+// Available offsets are in range [-n,0], where n is the number of fails in tail.
+// Returns ErrBadOffset if fileOffset is outside of that range.
+func (l *Log) OpenForRead(fileOffset int) error {
+	for inner := range l.inner.Lock() {
+		if inner,ok := inner.Get(); ok {
+			return inner.OpenForRead(fileOffset)
+		}
+	}
+	return ErrClosed
 }
 
 func (l *Log) Read() ([]byte,error) {
 	for inner := range l.inner.Lock() {
-		if inner.err!=nil { return nil, inner.err }
-		res,err := inner.Read()
-		inner.err = err
-		return res,err
+		if inner,ok := inner.Get(); ok {
+			return inner.Read()
+		}
 	}
-	panic("unreachable")
+	return nil, ErrClosed
 }
 
 func (l *Log) OpenForAppend() error {
 	for inner := range l.inner.Lock() {
-		if inner.err!=nil { return inner.err }
-		inner.err = inner.OpenForAppend()
-		return inner.err
+		if inner,ok := inner.Get(); ok {
+			return inner.OpenForAppend()
+		}
 	}
-	panic("unreachable")
+	return ErrClosed
 }
 
 // Write writes entry to the log atomically. You need to call Sync afterwards
 // to ensure that the write is persisted.
 func (l *Log) Append(entry []byte) error {
 	for inner := range l.inner.Lock() {
-		if inner.err!=nil { return inner.err }
-		inner.err = inner.Append(entry)
-		return inner.err
+		if inner,ok := inner.Get(); ok {
+			return inner.Append(entry)
+		}
 	}
-	panic("unreachable")
+	return ErrClosed
 }
 
 // Sync writes all buffered data to disk and calls fsync to ensure persistence.
 func (l *Log) Sync() error {
 	for inner := range l.inner.Lock() {
-		if inner.err!=nil { return inner.err }
-		inner.err = inner.Sync()
-		return inner.err
+		if inner,ok := inner.Get(); ok {
+			return inner.Sync()
+		}
 	}
-	panic("unreachable")
+	return ErrClosed
 }
 
 // Close releases all resources unconditionally.
 func (l *Log) Close() {
 	for inner := range l.inner.Lock() {
-		inner.Close()
+		if i,ok := inner.Get(); ok {
+			i.Close()
+			*inner = utils.None[*logInner]()
+		}
 	}
 }
