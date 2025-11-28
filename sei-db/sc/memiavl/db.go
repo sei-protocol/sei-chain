@@ -776,6 +776,9 @@ func (db *DB) rewriteSnapshotBackground() error {
 	db.lastSnapshotTime = time.Now()
 
 	cloned := db.copy()
+	// Capture streamHandler before goroutine to avoid race condition with Close()
+	// which can set db.streamHandler to nil concurrently
+	streamHandler := db.streamHandler
 	go func() {
 		defer close(ch)
 		startTime := time.Now()
@@ -797,7 +800,8 @@ func (db *DB) rewriteSnapshotBackground() error {
 		// checks mmap pages (not file cache) and reports low residency because mmap hasn't
 		// been accessed yet. Prefetch causes unnecessary I/O that competes with ongoing
 		// commits and evicts hot pages from the active snapshot still being used by main chain.
-		loadOpts := db.opts
+		// Use cloned.opts instead of db.opts to avoid race condition with Close()
+		loadOpts := cloned.opts
 		loadOpts.PrefetchThreshold = 0
 
 		mtree, err := LoadMultiTree(currentPath(cloned.dir), loadOpts)
@@ -810,7 +814,7 @@ func (db *DB) rewriteSnapshotBackground() error {
 
 		// do a best effort catch-up, will do another final catch-up in main thread.
 		catchupStart := time.Now()
-		if err := mtree.Catchup(db.streamHandler, 0); err != nil {
+		if err := mtree.Catchup(streamHandler, 0); err != nil {
 			cloned.logger.Error("failed to catchup after snapshot", "error", err)
 			ch <- snapshotResult{err: err}
 			return
@@ -836,15 +840,9 @@ func (db *DB) Close() error {
 	errs := []error{}
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
-	// Close stream handler
-	db.logger.Info("Closing stream handler...")
-	if db.streamHandler != nil {
-		err := db.streamHandler.Close()
-		errs = append(errs, err)
-		db.streamHandler = nil
-	}
 
-	// Close rewrite channel
+	// Close rewrite channel first - must wait for background goroutine before closing streamHandler
+	// because the goroutine may still be using streamHandler
 	db.logger.Info("Closing rewrite channel...")
 	if db.snapshotRewriteChan != nil {
 		db.snapshotRewriteCancelFunc()
@@ -853,12 +851,33 @@ func (db *DB) Close() error {
 			if result.err != nil {
 				db.logger.Error("snapshot rewrite failed during close", "error", result.err)
 			}
+			// Close the returned mtree to avoid resource leak
+			if result.mtree != nil {
+				if err := result.mtree.Close(); err != nil {
+					db.logger.Error("failed to close mtree from snapshot rewrite", "error", err)
+					errs = append(errs, err)
+				}
+			}
 		}
 		db.snapshotRewriteChan = nil
 		db.snapshotRewriteCancelFunc = nil
 	}
 
+	// Close stream handler after background goroutine has finished
+	db.logger.Info("Closing stream handler...")
+	if db.streamHandler != nil {
+		err := db.streamHandler.Close()
+		errs = append(errs, err)
+		db.streamHandler = nil
+	}
+
 	errs = append(errs, db.MultiTree.Close())
+
+	// Stop the snapshot writer pool
+	if db.snapshotWriterPool != nil {
+		db.snapshotWriterPool.StopAndWait()
+		db.snapshotWriterPool = nil
+	}
 
 	// Close file lock
 	db.logger.Info("Closing file lock...")
