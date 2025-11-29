@@ -189,7 +189,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 	}
 
 	path := filepath.Join(opts.Dir, snapshot)
-	mtree, err := LoadMultiTree(path, opts)
+	mtree, err := LoadMultiTree(context.Background(), path, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +211,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 
 	if targetVersion == 0 || targetVersion > mtree.Version() {
 		logger.Info("Start catching up and replaying the MemIAVL changelog file")
-		if err := mtree.Catchup(streamHandler, targetVersion); err != nil {
+		if err := mtree.Catchup(context.Background(), streamHandler, targetVersion); err != nil {
 			return nil, errorutils.Join(err, streamHandler.Close())
 		}
 		logger.Info(fmt.Sprintf("Finished the replay and caught up to version %d", targetVersion))
@@ -469,7 +469,7 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		}
 
 		// catchup the remaining entries in rlog
-		if err := result.mtree.Catchup(db.streamHandler, 0); err != nil {
+		if err := result.mtree.Catchup(context.Background(), db.streamHandler, 0); err != nil {
 			return fmt.Errorf("catchup failed: %w", err)
 		}
 
@@ -689,7 +689,7 @@ func (db *DB) Reload() error {
 }
 
 func (db *DB) reload() error {
-	mtree, err := LoadMultiTree(currentPath(db.dir), db.opts)
+	mtree, err := LoadMultiTree(context.Background(), currentPath(db.dir), db.opts)
 	if err != nil {
 		return err
 	}
@@ -776,9 +776,6 @@ func (db *DB) rewriteSnapshotBackground() error {
 	db.lastSnapshotTime = time.Now()
 
 	cloned := db.copy()
-	// Capture streamHandler before goroutine to avoid race condition with Close()
-	// which can set db.streamHandler to nil concurrently
-	streamHandler := db.streamHandler
 	go func() {
 		defer close(ch)
 		startTime := time.Now()
@@ -804,7 +801,7 @@ func (db *DB) rewriteSnapshotBackground() error {
 		loadOpts := cloned.opts
 		loadOpts.PrefetchThreshold = 0
 
-		mtree, err := LoadMultiTree(currentPath(cloned.dir), loadOpts)
+		mtree, err := LoadMultiTree(ctx, currentPath(cloned.dir), loadOpts)
 		if err != nil {
 			cloned.logger.Error("failed to load multitree after snapshot", "error", err)
 			ch <- snapshotResult{err: err}
@@ -814,7 +811,7 @@ func (db *DB) rewriteSnapshotBackground() error {
 
 		// do a best effort catch-up, will do another final catch-up in main thread.
 		catchupStart := time.Now()
-		if err := mtree.Catchup(streamHandler, 0); err != nil {
+		if err := mtree.Catchup(ctx, db.streamHandler, 0); err != nil {
 			cloned.logger.Error("failed to catchup after snapshot", "error", err)
 			ch <- snapshotResult{err: err}
 			return
