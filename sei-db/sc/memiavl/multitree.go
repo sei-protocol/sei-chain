@@ -76,7 +76,7 @@ func NewEmptyMultiTree(initialVersion uint32) *MultiTree {
 	return mt
 }
 
-func LoadMultiTree(dir string, opts Options) (*MultiTree, error) {
+func LoadMultiTree(ctx context.Context, dir string, opts Options) (*MultiTree, error) {
 	startTime := time.Now()
 	log := opts.Logger
 	metadata, err := readMetadata(dir)
@@ -92,6 +92,12 @@ func LoadMultiTree(dir string, opts Options) (*MultiTree, error) {
 	treeMap := make(map[string]*Tree, len(entries))
 	treeNames := make([]string, 0, len(entries))
 	for _, e := range entries {
+		// Check for cancellation
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
 		if !e.IsDir() {
 			continue
 		}
@@ -344,7 +350,7 @@ func (t *MultiTree) UpdateCommitInfo() {
 }
 
 // Catchup replay the new entries in the Rlog file on the tree to catch up to the target or latest version.
-func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersion int64) error {
+func (t *MultiTree) Catchup(ctx context.Context, stream types.Stream[proto.ChangelogEntry], endVersion int64) error {
 	startTime := time.Now()
 	lastIndex, err := stream.LastOffset()
 	if err != nil {
@@ -373,6 +379,12 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 
 	var replayCount = 0
 	err = stream.Replay(firstIndex, endIndex, func(index uint64, entry proto.ChangelogEntry) error {
+		// Check for cancellation
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		if err := t.ApplyUpgrades(entry.Upgrades); err != nil {
 			return err
 		}
