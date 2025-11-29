@@ -226,9 +226,9 @@ func TestRouter_SendReceive_Random(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 5})
-	channels := map[ChannelID]map[types.NodeID]*Channel{}
+	channels := map[ChannelID]map[types.NodeID]*Channel[*TestMessage]{}
 	for id := range ChannelID(4) {
-		channels[id] = network.MakeChannels(t, makeChDesc(id))
+		channels[id] = TestMakeChannels(t, network, makeChDesc(id))
 	}
 	nodes := network.NodeIDs()
 	network.Start(t)

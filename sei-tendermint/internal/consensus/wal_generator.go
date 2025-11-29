@@ -1,8 +1,6 @@
 package consensus
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -22,6 +20,8 @@ import (
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/privval"
 	"github.com/tendermint/tendermint/types"
 )
@@ -31,8 +31,9 @@ import (
 // consensus state) with a kvstore application and special consensus
 // wal instance (byteBufferWAL) and waits until numBlocks are created.
 // If the node fails to produce given numBlocks, it fails the test.
-func WALGenerateNBlocks(ctx context.Context, t *testing.T, logger log.Logger, wr io.Writer, numBlocks int) {
+func WALGenerateNBlocks(t *testing.T, logger log.Logger, wr io.Writer, numBlocks int) {
 	t.Helper()
+	ctx := t.Context()
 
 	cfg := getConfig(t)
 
@@ -43,90 +44,49 @@ func WALGenerateNBlocks(ctx context.Context, t *testing.T, logger log.Logger, wr
 	// COPY PASTE FROM node.go WITH A FEW MODIFICATIONS
 	// NOTE: we can't import node package because of circular dependency.
 	// NOTE: we don't do handshake so need to set state.Version.Consensus.App directly.
-	privValidatorKeyFile := cfg.PrivValidator.KeyFile()
-	privValidatorStateFile := cfg.PrivValidator.StateFile()
-	privValidator, err := privval.LoadOrGenFilePV(privValidatorKeyFile, privValidatorStateFile)
-	if err != nil {
-		t.Fatal(err)
-	}
 	genDoc, err := types.GenesisDocFromFile(cfg.GenesisFile())
-	if err != nil {
-		t.Fatal(fmt.Errorf("failed to read genesis file: %w", err))
-	}
+	require.NoError(t, err)
 	blockStoreDB := dbm.NewMemDB()
 	stateDB := blockStoreDB
 	stateStore := sm.NewStore(stateDB)
 	state, err := sm.MakeGenesisState(genDoc)
-	if err != nil {
-		t.Fatal(fmt.Errorf("failed to make genesis state: %w", err))
-	}
+	require.NoError(t, err)
 	state.Version.Consensus.App = kvstore.ProtocolVersion
-	if err = stateStore.Save(state); err != nil {
-		t.Fatal(err)
-	}
-
+	require.NoError(t, stateStore.Save(state))
 	blockStore := store.NewBlockStore(blockStoreDB)
-	proxyLogger := logger.With("module", "proxy")
-	proxyApp := proxy.New(abciclient.NewLocalClient(logger, app), proxyLogger, proxy.NopMetrics())
-	if err := proxyApp.Start(ctx); err != nil {
-		t.Fatal(fmt.Errorf("failed to start proxy app connections: %w", err))
-	}
+	proxyApp := proxy.New(abciclient.NewLocalClient(logger, app), logger, proxy.NopMetrics())
+	require.NoError(t, proxyApp.Start(ctx))
 	t.Cleanup(proxyApp.Wait)
-
 	eventBus := eventbus.NewDefault(logger.With("module", "events"))
-	if err := eventBus.Start(ctx); err != nil {
-		t.Fatal(fmt.Errorf("failed to start event bus: %w", err))
-	}
+	require.NoError(t, eventBus.Start(ctx))
 	t.Cleanup(func() { eventBus.Stop(); eventBus.Wait() })
-
 	mempool := emptyMempool{}
 	evpool := sm.EmptyEvidencePool{}
 	blockExec := sm.NewBlockExecutor(stateStore, log.NewNopLogger(), proxyApp, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
 	consensusState, err := NewState(logger, cfg.Consensus, stateStore, blockExec, blockStore, mempool, evpool, eventBus, []trace.TracerProviderOption{})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if privValidator != nil && privValidator != (*privval.FilePV)(nil) {
-		consensusState.SetPrivValidator(ctx, privValidator)
+	require.NoError(t, err)
+	privValidatorKeyFile := cfg.PrivValidator.KeyFile()
+	privValidatorStateFile := cfg.PrivValidator.StateFile()
+	privValidator, err := privval.LoadOrGenFilePV(privValidatorKeyFile, privValidatorStateFile)
+	require.NoError(t, err)
+	if privValidator != nil {
+		consensusState.SetPrivValidator(ctx, utils.Some[types.PrivValidator](privValidator))
 	}
 	// END OF COPY PASTE
 
 	// set consensus wal to buffered WAL, which will write all incoming msgs to buffer
 	numBlocksWritten := make(chan struct{})
-	wal := newByteBufferWAL(logger, NewWALEncoder(wr), int64(numBlocks), numBlocksWritten)
-	// see wal.go#103
-	if err := wal.Write(EndHeightMessage{0}); err != nil {
+	wal := newByteBufferWAL(logger, wr, int64(numBlocks), numBlocksWritten)
+	require.NoError(t, wal.Write(NewWALMessage(EndHeightMessage{0})))
+	consensusState.wal = wal
+	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(consensusState.Run(ctx)) })
+		_, _, err := utils.RecvOrClosed(ctx, numBlocksWritten)
+		return err
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	consensusState.wal = wal
-
-	if err := consensusState.Start(ctx); err != nil {
-		t.Fatal(fmt.Errorf("failed to start consensus state: %w", err))
-	}
-	t.Cleanup(consensusState.Wait)
-
-	defer consensusState.Stop()
-	timer := time.NewTimer(time.Minute)
-	defer timer.Stop()
-
-	select {
-	case <-numBlocksWritten:
-	case <-timer.C:
-		t.Fatal(fmt.Errorf("waited too long for tendermint to produce %d blocks (grep logs for `wal_generator`)", numBlocks))
-	}
-}
-
-// WALWithNBlocks returns a WAL content with numBlocks.
-func WALWithNBlocks(ctx context.Context, t *testing.T, logger log.Logger, numBlocks int) (data []byte, err error) {
-	var b bytes.Buffer
-	wr := bufio.NewWriter(&b)
-
-	WALGenerateNBlocks(ctx, t, logger, wr, numBlocks)
-
-	wr.Flush()
-	return b.Bytes(), nil
 }
 
 func randPort() int {
@@ -160,7 +120,7 @@ func getConfig(t *testing.T) *config.Config {
 // when the heightToStop is reached. Client will be notified via
 // signalWhenStopsTo channel.
 type byteBufferWAL struct {
-	enc               *WALEncoder
+	wr                io.Writer
 	stopped           bool
 	heightToStop      int64
 	signalWhenStopsTo chan<- struct{}
@@ -171,9 +131,9 @@ type byteBufferWAL struct {
 // needed for determinism
 var fixedTime, _ = time.Parse(time.RFC3339, "2017-01-02T15:04:05Z")
 
-func newByteBufferWAL(logger log.Logger, enc *WALEncoder, nBlocks int64, signalStop chan<- struct{}) *byteBufferWAL {
+func newByteBufferWAL(logger log.Logger, wr io.Writer, nBlocks int64, signalStop chan<- struct{}) *byteBufferWAL {
 	return &byteBufferWAL{
-		enc:               enc,
+		wr:                wr,
 		heightToStop:      nBlocks,
 		signalWhenStopsTo: signalStop,
 		logger:            logger,
@@ -189,7 +149,7 @@ func (w *byteBufferWAL) Write(m WALMessage) error {
 		return nil
 	}
 
-	if endMsg, ok := m.(EndHeightMessage); ok {
+	if endMsg, ok := m.any.(EndHeightMessage); ok {
 		w.logger.Debug("WAL write end height message", "height", endMsg.Height, "stopHeight", w.heightToStop)
 		if endMsg.Height == w.heightToStop {
 			w.logger.Debug("Stopping WAL at height", "height", endMsg.Height)
@@ -200,11 +160,13 @@ func (w *byteBufferWAL) Write(m WALMessage) error {
 	}
 
 	w.logger.Debug("WAL Write Message", "msg", m)
-	err := w.enc.Encode(&TimedWALMessage{fixedTime, m})
+	bytes, err := encode(&TimedWALMessage{fixedTime, m})
 	if err != nil {
-		panic(fmt.Sprintf("failed to encode the msg %v", m))
+		panic(fmt.Errorf("failed to encode the msg %v: %w", m, err))
 	}
-
+	if _, err := w.wr.Write(bytes); err != nil {
+		panic(fmt.Errorf("wr.Write(): %w", err))
+	}
 	return nil
 }
 

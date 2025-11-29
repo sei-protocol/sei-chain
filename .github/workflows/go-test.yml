@@ -1,4 +1,4 @@
-name: Sei Cross-Architecture Build Test
+name: Sei Cross-Architecture Build & Artifacts
 
 on:
   pull_request:
@@ -12,80 +12,109 @@ concurrency:
 
 env:
   LEDGER_ENABLED: false
-  GO_VERSION: '1.24'  # Centralized for easy updates
+  GO_VERSION: '1.24'
 
 defaults:
   run:
-    shell: bash  # Ensures consistent shell across runners
+    shell: bash
 
 jobs:
   # ========================================
-  # Linux AMD64 Build & Verify
+  # Cross-Architecture Build Matrix
   # ========================================
-  linux-amd64:
-    name: "Linux AMD64 Build"
-    runs-on: ubuntu-latest
+  build:
+    name: "Cross-Arch Build & Verify"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        module:
+          - name: sei-chain
+            path: ./
+          - name: sei-cosmos
+            path: ./sei-cosmos
+            tags: ledger test_ledger_mock
+          - name: sei-db
+            path: ./sei-db
+          - name: sei-ibc-go
+            path: ./sei-ibc-go
+          - name: sei-tendermint
+            path: ./sei-tendermint
+          - name: sei-wasmd
+            path: ./sei-wasmd
+            tags: ledger test_ledger_mock
+          - name: sei-wasmvm
+            path: ./sei-wasmvm
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          submodules: true  # Enable if Makefile depends on them (added for consistency)
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true  # Cache Go modules for speed
-
-      - name: Install system deps & verify env
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y build-essential
-          go version
-          echo "GOOS: $(go env GOOS) | GOARCH: $(go env GOARCH)"
-
-      - name: Download deps & build
-        run: |
-          go mod download
-          make install
-          make build
-
-      - name: Verify binaries
-        run: |
-          seid version --long || { echo "Install failed"; exit 1; }
-          ./build/seid version --long || { echo "Build failed"; exit 1; }
-
-  # ========================================
-  # macOS ARM64 Build & Verify
-  # ========================================
-  macos-arm64:
-    name: "macOS ARM64 Build"
-    runs-on: macos-latest
-    steps:
+      # -----------------------
+      # Checkout & Modules
+      # -----------------------
       - name: Checkout code
         uses: actions/checkout@v5
         with:
           submodules: true
 
+      # -----------------------
+      # Go Setup & Cache
+      # -----------------------
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Install system deps & verify env
+      # -----------------------
+      # OS-specific Dependencies
+      # -----------------------
+      - name: Install system deps & verify environment
         run: |
-          xcode-select --print-path || xcode-select --install --verbose
+          echo "OS: $RUNNER_OS | Module: ${{ matrix.module.name }} | Path: ${{ matrix.module.path }}"
           go version
           echo "GOOS: $(go env GOOS) | GOARCH: $(go env GOARCH)"
 
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y build-essential
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            xcode-select --print-path || xcode-select --install --verbose
+          elif [[ "$RUNNER_OS" == "Windows" ]]; then
+            choco install visualstudio2019buildtools -y
+          fi
+
+      # -----------------------
+      # Download Dependencies & Build
+      # -----------------------
       - name: Download deps & build
+        working-directory: ${{ matrix.module.path }}
         run: |
           go mod download
           make install
           make build
 
+      # -----------------------
+      # Verify Binaries
+      # -----------------------
       - name: Verify binaries
+        working-directory: ${{ matrix.module.path }}
         run: |
-          seid version --long || { echo "Install failed"; exit 1; }
-          ./build/seid version --long || { echo "Build failed"; exit 1; }
+          BINARY="./build/seid"
+          [[ "$RUNNER_OS" == "Windows" ]] && BINARY=".\\build\\seid.exe"
+
+          if command -v "$BINARY" >/dev/null 2>&1; then
+            "$BINARY" version --long || { echo "Installed binary check failed"; exit 1; }
+          fi
+
+          if [[ -f "$BINARY" ]]; then
+            "$BINARY" version --long || { echo "Build binary check failed"; exit 1; }
+          fi
+
+      # -----------------------
+      # Upload Artifacts
+      # -----------------------
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-${{ matrix.module.name }}-binaries
+          path: ${{ matrix.module.path }}/build

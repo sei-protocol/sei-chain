@@ -339,10 +339,7 @@ func TestLoadBlockPart(t *testing.T) {
 	require.NoError(t, err)
 	part1 := partSet.GetPart(0)
 
-	pb1, err := part1.ToProto()
-	require.NoError(t, err)
-	err = db.Set(blockPartKey(height, index), mustEncode(pb1))
-	require.NoError(t, err)
+	require.NoError(t, db.Set(blockPartKey(height, index), mustEncode(part1.ToProto())))
 	gotPart, _, panicErr := doFn(loadPart)
 	require.Nil(t, panicErr, "an existent and proper block should not panic")
 	require.Nil(t, res, "a properly saved block should return a proper block")

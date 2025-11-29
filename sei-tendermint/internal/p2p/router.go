@@ -8,7 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/libs/utils"
@@ -47,9 +49,9 @@ type Router struct {
 	started chan struct{}
 }
 
-func (r *Router) getChannelDescs() []*ChannelDescriptor {
+func (r *Router) getChannelDescs() []*conn.ChannelDescriptor {
 	for channels := range r.channels.RLock() {
-		descs := make([]*ChannelDescriptor, 0, len(channels))
+		descs := make([]*conn.ChannelDescriptor, 0, len(channels))
 		for _, ch := range channels {
 			descs = append(descs, &ch.desc)
 		}
@@ -140,16 +142,16 @@ func (r *Router) Advertise(maxAddrs int) []NodeAddress {
 }
 
 // OpenChannel opens a new channel for the given message type.
-func (r *Router) OpenChannel(chDesc ChannelDescriptor) (*Channel, error) {
+func OpenChannel[T proto.Message](r *Router, chDesc ChannelDescriptor[T]) (*Channel[T], error) {
 	for channels := range r.channels.Lock() {
 		id := chDesc.ID
 		if _, ok := channels[id]; ok {
 			return nil, fmt.Errorf("channel %v already exists", id)
 		}
-		channels[id] = newChannel(chDesc)
+		channels[id] = newChannel(chDesc.ToGeneric())
 		// add the channel to the nodeInfo if it's not already there.
 		r.nodeInfoProducer().AddChannel(uint16(chDesc.ID))
-		return &Channel{
+		return &Channel[T]{
 			router:  r,
 			channel: channels[id],
 		}, nil
