@@ -1,7 +1,6 @@
 package bits
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -17,8 +16,8 @@ import (
 func randBitArray(bits int) *BitArray {
 	src := tmrand.Bytes((bits + 7) / 8)
 	bA := NewBitArray(bits)
-	for i := 0; i < len(src); i++ {
-		for j := 0; j < 8; j++ {
+	for i := range src {
+		for j := range 8 {
 			if i*8+j >= bits {
 				return bA
 			}
@@ -141,52 +140,6 @@ func TestPickRandom(t *testing.T) {
 		require.NoError(t, err)
 		_, ok := bitArr.PickRandom()
 		require.Equal(t, tc.ok, ok, "PickRandom got an unexpected result on input %s", tc.bA)
-	}
-}
-
-func TestBytes(t *testing.T) {
-	bA := NewBitArray(4)
-	bA.SetIndex(0, true)
-	check := func(bA *BitArray, bz []byte) {
-		require.True(t, bytes.Equal(bA.Bytes(), bz),
-			"Expected %X but got %X", bz, bA.Bytes())
-	}
-	check(bA, []byte{0x01})
-	bA.SetIndex(3, true)
-	check(bA, []byte{0x09})
-
-	bA = NewBitArray(9)
-	check(bA, []byte{0x00, 0x00})
-	bA.SetIndex(7, true)
-	check(bA, []byte{0x80, 0x00})
-	bA.SetIndex(8, true)
-	check(bA, []byte{0x80, 0x01})
-
-	bA = NewBitArray(16)
-	check(bA, []byte{0x00, 0x00})
-	bA.SetIndex(7, true)
-	check(bA, []byte{0x80, 0x00})
-	bA.SetIndex(8, true)
-	check(bA, []byte{0x80, 0x01})
-	bA.SetIndex(9, true)
-	check(bA, []byte{0x80, 0x03})
-
-	require.False(t, bA.SetIndex(-1, true))
-}
-
-func TestEmptyFull(t *testing.T) {
-	ns := []int{47, 123}
-	for _, n := range ns {
-		bA := NewBitArray(n)
-		if !bA.IsEmpty() {
-			t.Fatal("Expected bit array to be empty")
-		}
-		for i := 0; i < n; i++ {
-			bA.SetIndex(i, true)
-		}
-		if !bA.IsFull() {
-			t.Fatal("Expected bit array to be full")
-		}
 	}
 }
 

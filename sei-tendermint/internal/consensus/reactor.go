@@ -598,12 +598,7 @@ func (r *Reactor) gossipVotesRoutine(ctx context.Context, ps *PeerState) error {
 // into play for liveness when there's a signature DDoS attack happening.
 func (r *Reactor) queryMaj23Routine(ctx context.Context, ps *PeerState) error {
 	stateCh := r.channels.state
-	timer := time.NewTimer(0)
 	for {
-		if _, err := utils.Recv(ctx, timer.C); err != nil {
-			return err
-		}
-
 		// TODO create more reliable copies of these
 		// structures so the following go routines don't race
 		rs := r.getRoundState()
@@ -656,6 +651,9 @@ func (r *Reactor) queryMaj23Routine(ctx context.Context, ps *PeerState) error {
 					}), ps.peerID)
 				}
 			}
+		}
+		if err := utils.Sleep(ctx, r.state.config.PeerQueryMaj23SleepDuration); err != nil {
+			return err
 		}
 	}
 }
