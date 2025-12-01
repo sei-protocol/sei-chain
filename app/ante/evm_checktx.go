@@ -92,8 +92,11 @@ func EvmCheckTxAnte(
 		return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
 	}
 
-	etx, txData := msg.AsTransaction()
-	// need to check for error here - previously
+	etx, txData, err := msg.AsTransaction()
+	if err != nil {
+		return ctx, err
+	}
+
 	if atx, ok := txData.(*ethtx.AssociateTx); ok {
 		return HandleAssociateTx(ctx, ek, atx)
 	}
