@@ -1744,7 +1744,10 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) 
 			if msg.IsAssociateTx() {
 				continue
 			}
-			etx, _ := msg.AsTransaction()
+			etx, _, err := msg.AsTransaction()
+			if err != nil {
+				continue
+			}
 			gasWanted = etx.Gas()
 		} else {
 			feeTx, ok := decodedTx.(sdk.FeeTx)
