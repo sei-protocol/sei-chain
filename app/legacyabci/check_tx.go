@@ -94,7 +94,7 @@ func CheckTx(
 	if isEVM, evmerr := evmante.IsEVMMessage(tx); evmerr != nil {
 		err = evmerr
 	} else if isEVM {
-		newCtx, err = ante.EvmCheckTxAnte(anteCtx, txConfig, tx, keepers.UpgradeKeeper, keepers.EvmKeeper, latestCtxGetter)
+		newCtx, err = ante.EvmCheckTxAnte(anteCtx, tx, keepers.UpgradeKeeper, keepers.EvmKeeper, latestCtxGetter)
 	} else {
 		newCtx, err = ante.CosmosCheckTxAnte(anteCtx, txConfig, tx, keepers.ParamsKeeper, keepers.OracleKeeper, keepers.EvmKeeper, keepers.AccountKeeper, keepers.BankKeeper, keepers.FeeGrantKeeper, keepers.IBCKeeper)
 	}

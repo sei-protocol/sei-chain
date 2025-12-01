@@ -6,7 +6,6 @@ import (
 	"math"
 	"math/big"
 
-	"github.com/cosmos/cosmos-sdk/client"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -34,24 +33,77 @@ import (
 
 func EvmCheckTxAnte(
 	ctx sdk.Context,
-	txConfig client.TxConfig,
 	tx sdk.Tx,
 	upgradeKeeper *upgradekeeper.Keeper,
 	ek *evmkeeper.Keeper,
 	latestCtxGetter func() sdk.Context,
 ) (returnCtx sdk.Context, returnErr error) {
-	chainID := ek.ChainID(ctx)
-	if err := EvmStatelessChecks(ctx, tx, chainID); err != nil {
-		return ctx, err
+	txBody, ok := tx.(TxBody)
+	if ok {
+		body := txBody.GetBody()
+		if body.Memo != "" {
+			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "memo must be empty for EVM txs")
+		}
+		if body.TimeoutHeight != 0 {
+			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "timeout_height must be zero for EVM txs")
+		}
+		if len(body.ExtensionOptions) > 0 || len(body.NonCriticalExtensionOptions) > 0 {
+			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "extension options must be empty for EVM txs")
+		}
 	}
-	msg := tx.GetMsgs()[0].(*evmtypes.MsgEVMTransaction)
 
-	txData, _ := evmtypes.UnpackTxData(msg.Data) // cached and validated
-	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+	txAuth, ok := tx.(TxAuthInfo)
+	if ok {
+		authInfo := txAuth.GetAuthInfo()
+		if len(authInfo.SignerInfos) > 0 {
+			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "signer_infos must be empty for EVM txs")
+		}
+		if authInfo.Fee != nil {
+			if len(authInfo.Fee.Amount) > 0 {
+				return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee amount must be empty for EVM txs")
+			}
+			if authInfo.Fee.Payer != "" || authInfo.Fee.Granter != "" {
+				return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee payer and granter must be empty for EVM txs")
+			}
+		}
+	}
+
+	txSig, ok := tx.(TxSignaturesV2)
+	if ok {
+		sigs, err := txSig.GetSignaturesV2()
+		if err != nil {
+			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "could not get signatures")
+		}
+		if len(sigs) > 0 {
+			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "signatures must be empty for EVM txs")
+		}
+	}
+
+	if len(tx.GetMsgs()) != 1 {
+		return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "EVM transaction must have exactly 1 message")
+	}
+
+	msg, ok := tx.GetMsgs()[0].(*evmtypes.MsgEVMTransaction)
+	if !ok {
+		return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "not EVM message")
+	}
+
+	if err := msg.ValidateBasic(); err != nil {
+		return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
+	}
+
+	etx, txData := msg.AsTransaction()
+	// need to check for error here - previously
 	if atx, ok := txData.(*ethtx.AssociateTx); ok {
 		return HandleAssociateTx(ctx, ek, atx)
 	}
-	etx := ethtypes.NewTx(txData.AsEthereumData())
+
+	chainID := ek.ChainID(ctx)
+	if err := EvmStatelessChecks(ctx, etx, txData, chainID); err != nil {
+		return ctx, err
+	}
+
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	evmAddr, seiAddr, seiPubkey, version, err := CheckAndDecodeSignature(ctx, txData, chainID)
 	if err != nil {
 		return ctx, err
@@ -71,70 +123,7 @@ func EvmCheckTxAnte(
 	return DecorateContext(ctx, ek, tx, txData, etx, evmAddr), nil
 }
 
-func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
-	txBody, ok := tx.(TxBody)
-	if ok {
-		body := txBody.GetBody()
-		if body.Memo != "" {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "memo must be empty for EVM txs")
-		}
-		if body.TimeoutHeight != 0 {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "timeout_height must be zero for EVM txs")
-		}
-		if len(body.ExtensionOptions) > 0 || len(body.NonCriticalExtensionOptions) > 0 {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "extension options must be empty for EVM txs")
-		}
-	}
-
-	txAuth, ok := tx.(TxAuthInfo)
-	if ok {
-		authInfo := txAuth.GetAuthInfo()
-		if len(authInfo.SignerInfos) > 0 {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "signer_infos must be empty for EVM txs")
-		}
-		if authInfo.Fee != nil {
-			if len(authInfo.Fee.Amount) > 0 {
-				return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee amount must be empty for EVM txs")
-			}
-			if authInfo.Fee.Payer != "" || authInfo.Fee.Granter != "" {
-				return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee payer and granter must be empty for EVM txs")
-			}
-		}
-	}
-
-	txSig, ok := tx.(TxSignaturesV2)
-	if ok {
-		sigs, err := txSig.GetSignaturesV2()
-		if err != nil {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "could not get signatures")
-		}
-		if len(sigs) > 0 {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "signatures must be empty for EVM txs")
-		}
-	}
-
-	if len(tx.GetMsgs()) != 1 {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "EVM transaction must have exactly 1 message")
-	}
-	msg, ok := tx.GetMsgs()[0].(*evmtypes.MsgEVMTransaction)
-	if !ok {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "not EVM message")
-	}
-	if err := msg.ValidateBasic(); err != nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
-	}
-	txData, err := evmtypes.UnpackTxData(msg.Data)
-	if err != nil {
-		return err
-	}
-	if _, ok := txData.(*ethtx.AssociateTx); ok {
-		return nil
-	}
-	etx, _, err := msg.AsTransaction()
-	if err != nil {
-		return err
-	}
-
+func EvmStatelessChecks(ctx sdk.Context, etx *ethtypes.Transaction, txData ethtx.TxData, chainID *big.Int) error {
 	if etx.To() == nil && len(etx.Data()) > params.MaxInitCodeSize {
 		return fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(etx.Data()), params.MaxInitCodeSize)
 	}
