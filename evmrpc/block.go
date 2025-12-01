@@ -340,7 +340,10 @@ func EncodeTmBlock(
 	for _, msg := range msgs {
 		switch m := msg.msg.(type) {
 		case *types.MsgEVMTransaction:
-			ethtx, _ := m.AsTransaction()
+			ethtx, _, err := m.AsTransaction()
+			if err != nil {
+				return nil, err
+			}
 			hash := ethtx.Hash()
 			receipt, _ := k.GetReceipt(latestCtx, hash)
 			if !fullTx {

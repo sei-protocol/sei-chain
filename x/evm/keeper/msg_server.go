@@ -66,7 +66,10 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		return &types.MsgEVMTransactionResponse{}, nil
 	}
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	tx, _ := msg.AsTransaction()
+	tx, _, err := msg.AsTransaction()
+	if err != nil {
+		return nil, err
+	}
 	ctx, originalGasMeter := server.PrepareCtxForEVMTransaction(ctx, tx)
 
 	stateDB := state.NewDBImpl(ctx, &server, false)

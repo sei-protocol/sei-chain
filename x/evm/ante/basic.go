@@ -24,7 +24,10 @@ func NewBasicDecorator(k *keeper.Keeper) *BasicDecorator {
 // cherrypicked from go-ethereum:txpool:ValidateTransaction
 func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
-	etx, _ := msg.AsTransaction()
+	etx, _, err := msg.AsTransaction()
+	if err != nil {
+		return ctx, err
+	}
 
 	if msg.Derived != nil && !gl.k.EthReplayConfig.Enabled && !gl.k.EthBlockTestConfig.Enabled {
 		startingNonce := gl.k.GetNonce(ctx, msg.Derived.SenderEVMAddr)

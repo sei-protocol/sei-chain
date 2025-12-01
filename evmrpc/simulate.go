@@ -359,8 +359,8 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 				if m.IsAssociateTx() {
 					continue
 				}
-				ethtx, _ := m.AsTransaction()
-				if ethtx == nil {
+				ethtx, _, err := m.AsTransaction()
+				if err != nil {
 					// AsTransaction may return nil if it fails to unpack the tx data.
 					continue
 				}
@@ -470,7 +470,10 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 	} else {
 		evmMsg = msg
 	}
-	ethTx, _ := evmMsg.AsTransaction()
+	ethTx, _, err := evmMsg.AsTransaction()
+	if err != nil {
+		return nil, vm.BlockContext{}, nil, emptyRelease, err
+	}
 	return ethTx, *blockContext, stateDB, emptyRelease, nil
 }
 

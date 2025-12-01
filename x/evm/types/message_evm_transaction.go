@@ -49,13 +49,13 @@ func (msg *MsgEVMTransaction) ValidateBasic() error {
 	return nil
 }
 
-func (msg *MsgEVMTransaction) AsTransaction() (*ethtypes.Transaction, ethtx.TxData) {
+func (msg *MsgEVMTransaction) AsTransaction() (*ethtypes.Transaction, ethtx.TxData, error) {
 	txData, err := UnpackTxData(msg.Data)
 	if err != nil {
-		return nil, nil
+		return nil, nil, err
 	}
 
-	return ethtypes.NewTx(txData.AsEthereumData()), txData
+	return ethtypes.NewTx(txData.AsEthereumData()), txData, nil
 }
 
 // UnpackInterfaces implements UnpackInterfacesMesssage.UnpackInterfaces

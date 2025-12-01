@@ -130,7 +130,11 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 	if _, ok := txData.(*ethtx.AssociateTx); ok {
 		return nil
 	}
-	etx, _ := msg.AsTransaction()
+	etx, _, err := msg.AsTransaction()
+	if err != nil {
+		return err
+	}
+
 	if etx.To() == nil && len(etx.Data()) > params.MaxInitCodeSize {
 		return fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(etx.Data()), params.MaxInitCodeSize)
 	}

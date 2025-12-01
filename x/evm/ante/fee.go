@@ -67,7 +67,10 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	}
 
 	// check if the sender has enough balance to cover fees
-	etx, _ := msg.AsTransaction()
+	etx, _, err := msg.AsTransaction()
+	if err != nil {
+		return ctx, err
+	}
 	emsg := fc.evmKeeper.GetEVMMessage(ctx, etx, msg.Derived.SenderEVMAddr)
 	stateDB := state.NewDBImpl(ctx, fc.evmKeeper, false)
 	gp := fc.evmKeeper.GetGasPool()
