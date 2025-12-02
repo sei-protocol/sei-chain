@@ -185,7 +185,13 @@ func (s *DBImpl) SetTxContext(common.Hash, int) {
 
 func (s *DBImpl) AccessEvents() *vm.AccessEvents { return nil }
 
-func (s *DBImpl) CreateContract(common.Address) {}
+// CreateContract marks the account as created for EIP-6780 purposes.
+// This is called regardless of whether the account previously existed
+// (e.g., prefunded addresses), ensuring that contracts created and
+// self-destructed in the same transaction are properly destroyed.
+func (s *DBImpl) CreateContract(acc common.Address) {
+	s.MarkAccount(acc, AccountCreated)
+}
 
 func (s *DBImpl) PointCache() *ethutils.PointCache {
 	return nil
