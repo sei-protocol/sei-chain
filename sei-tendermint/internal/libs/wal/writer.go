@@ -56,7 +56,7 @@ func openLogWriter(path string) (res *logWriter, resErr error) {
 }
 
 func (w *logWriter) AppendEntry(entry []byte) (err error) {
-	var header [8]byte
+	var header [headerSize]byte
 	binary.BigEndian.PutUint32(header[0:4], crc32.Checksum(entry, crc32c))
 	binary.BigEndian.PutUint32(header[4:8], uint32(len(entry)))
 	if _,err := w.buf.Write(header[:]); err!=nil {

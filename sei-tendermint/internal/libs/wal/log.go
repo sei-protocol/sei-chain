@@ -16,13 +16,14 @@ package wal
 
 import (
 	"fmt"
-	"io"
 	"errors"
 	"os"
 	"golang.org/x/sys/unix"
 
 	"github.com/tendermint/tendermint/libs/utils"
 )
+
+const headerSize int64 = 8
 
 const filePerms = os.FileMode(0600)
 
@@ -67,34 +68,32 @@ type logInner struct {
 
 // Read reads the next entry from the log.
 // Returns io.EOF when the end of the log is reached.
-func (i *logInner) Read() (res []byte, err error) {
-	defer func(){ if err!=nil { i.Reset() } }()
+func (i *logInner) Read() (res []byte, ok bool, err error) {
 	for {
 		reader,ok := i.reader.Get()
-		if !ok { return nil, fmt.Errorf("not opened for read") }
+		if !ok { return nil, false, fmt.Errorf("not opened for read") }
 		data,err := reader.ReadEntry()
 		if err==nil {
-			return data,nil
+			return data,true,nil
 		}
 		if i.fileOffset==0 {
 			// Last entry of the last file may be truncated because file writes are not atomic.
 			if errors.Is(err,errEOF) || errors.Is(err,errTruncated) {
-				return nil,io.EOF 
+				return nil,false,nil 
 			}
-			return nil,err
+			return nil,false,err
 		} 
 		if !errors.Is(err,errEOF) {
-			return nil,err
+			return nil,false,err
 		}
 		// Open the next file and retry.
 		if err:=i.OpenForRead(i.fileOffset+1); err!=nil {
-			return nil,err
+			return nil,false,err
 		}
 	}	
 }
 
 func (i *logInner) Append(entry []byte) (err error) {
-	defer func() { if err!=nil { i.Reset() } }()
 	for {
 		writer,ok := i.writer.Get()
 		if !ok {
@@ -122,7 +121,6 @@ func (i *logInner) Append(entry []byte) (err error) {
 func (i *logInner) Sync() error {
 	if writer,ok := i.writer.Get(); ok {
 		if err:=writer.Sync(); err!=nil {
-			i.Reset()
 			return err
 		}
 		return nil
@@ -187,12 +185,14 @@ func (i *logInner) OpenForRead(fileOffset int) error {
 	return nil
 }
 
-// Thread-safe WAL
+// Thread-safe WAL.
+// Automatically closes the WAL if any operation returns an error.
+// Holds a mutex on the WAL files while opened.
 type Log struct {
 	inner utils.Mutex[*utils.Option[*logInner]]
 }
 
-func NewLog(headPath string, cfg *Config) (*Log,error) {
+func OpenLog(headPath string, cfg *Config) (*Log,error) {
 	lockFile,err := openLockFile(headPath)
 	if err!=nil { return nil,fmt.Errorf("openLockFile(): %w",err) }
 	view,err := loadLogView(headPath)
@@ -209,10 +209,20 @@ func NewLog(headPath string, cfg *Config) (*Log,error) {
 	},nil
 }
 
+func (l *Log) MinOffset() int {
+	for inner := range l.inner.Lock() {
+		if inner,ok := inner.Get(); ok {
+			return inner.view.firstIdx-inner.view.nextIdx
+		}
+	}
+	return 0
+}
+
 // Opens the WAL for reading at a given offset (in files from the END of the log)
 // Available offsets are in range [-n,0], where n is the number of fails in tail.
 // Returns ErrBadOffset if fileOffset is outside of that range.
-func (l *Log) OpenForRead(fileOffset int) error {
+func (l *Log) OpenForRead(fileOffset int) (err error) {
+	defer l.closeOnErr(&err)
 	for inner := range l.inner.Lock() {
 		if inner,ok := inner.Get(); ok {
 			return inner.OpenForRead(fileOffset)
@@ -221,16 +231,19 @@ func (l *Log) OpenForRead(fileOffset int) error {
 	return ErrClosed
 }
 
-func (l *Log) Read() ([]byte,error) {
+func (l *Log) Read() (res []byte, ok bool, err error) {
+	defer l.closeOnErr(&err)
 	for inner := range l.inner.Lock() {
 		if inner,ok := inner.Get(); ok {
 			return inner.Read()
 		}
 	}
-	return nil, ErrClosed
+	return nil, false, ErrClosed
 }
 
-func (l *Log) OpenForAppend() error {
+// Opens WAL for appending. 
+func (l *Log) OpenForAppend() (err error) {
+	defer l.closeOnErr(&err)
 	for inner := range l.inner.Lock() {
 		if inner,ok := inner.Get(); ok {
 			return inner.OpenForAppend()
@@ -241,7 +254,8 @@ func (l *Log) OpenForAppend() error {
 
 // Write writes entry to the log atomically. You need to call Sync afterwards
 // to ensure that the write is persisted.
-func (l *Log) Append(entry []byte) error {
+func (l *Log) Append(entry []byte) (err error) {
+	defer l.closeOnErr(&err)
 	for inner := range l.inner.Lock() {
 		if inner,ok := inner.Get(); ok {
 			return inner.Append(entry)
@@ -260,7 +274,9 @@ func (l *Log) Sync() error {
 	return ErrClosed
 }
 
-func (l *Log) Size() (int64,error) {
+// Returns the total size of the log in bytes.
+func (l *Log) Size() (res int64,err error) {
+	defer l.closeOnErr(&err)
 	for inner := range l.inner.Lock() {
 		if inner,ok := inner.Get(); ok {
 			return inner.Size()
@@ -276,5 +292,12 @@ func (l *Log) Close() {
 			i.Close()
 			*inner = utils.None[*logInner]()
 		}
+	}
+}
+
+// Closes Log iff *err!=nil.
+func (l *Log) closeOnErr(err *error) {
+	if *err!=nil {
+		l.Close()
 	}
 }

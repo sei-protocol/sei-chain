@@ -56,10 +56,10 @@ func (r *logReader) ReadEntry() (data []byte, err error) {
 	if r.bytesLeft == 0 {
 		return nil,errEOF
 	}
-	header,err := r.read(8)
+	header,err := r.read(headerSize)
 	if err!=nil { return nil,err }
-	wantCRC := binary.BigEndian.Uint32(header[:4])
-	data,err = r.read(int64(binary.BigEndian.Uint32(header[4:])))
+	wantCRC := binary.BigEndian.Uint32(header[0:4])
+	data,err = r.read(int64(binary.BigEndian.Uint32(header[4:8])))
 	if err!=nil { return nil,err }
 	if gotCRC := crc32.Checksum(data, crc32c); gotCRC!=wantCRC {
 		return nil,errCorrupted

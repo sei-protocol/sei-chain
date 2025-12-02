@@ -102,12 +102,13 @@ func (cs *State) catchupReplay(ctx context.Context, csHeight int64) error {
 	// NOTE: This is just a sanity check. As far as we know things work fine
 	// without it, and Handshake could reuse State if it weren't for
 	// this check (since we can crash after writing #ENDHEIGHT).
-	if err := cs.wal.SeekEndHeight(csHeight); err==nil {
-		return fmt.Errorf("wal should not contain #ENDHEIGHT %d", csHeight)
-	} else if !errors.Is(err,errNotFound) {
+	found,err := cs.wal.SeekEndHeight(csHeight)
+	if err!=nil {
 		return fmt.Errorf("cs.wal.SeekEndHeight(): %w",err)
 	}
-
+	if found {
+		return fmt.Errorf("wal should not contain #ENDHEIGHT %d", csHeight)
+	}
 	// Search for last height marker.
 	//
 	// Ignore data corruption errors in previous heights because we only care about last height
@@ -118,8 +119,12 @@ func (cs *State) catchupReplay(ctx context.Context, csHeight int64) error {
 	if csHeight == cs.state.InitialHeight {
 		endHeight = 0
 	}
-	if err := cs.wal.SeekEndHeight(endHeight); err!=nil {
+	found,err = cs.wal.SeekEndHeight(endHeight)
+	if err!=nil {
 		return fmt.Errorf("cs.wal.SeekEndHeight(): %w",err)
+	}
+	if !found {
+		return fmt.Errorf("EndHeightMsg{%v} not found",endHeight)
 	}
 	cs.logger.Info("Catchup by replaying consensus messages", "height", csHeight)
 

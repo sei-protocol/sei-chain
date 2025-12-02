@@ -64,8 +64,8 @@ func loadLogView(headPath string) (*logView,error) {
 
 func (v *logView) TailSize() (int64,error) {
 	total := int64(0)
-	for i:=v.firstIdx; i<v.nextIdx; i++ {
-		fi,err := os.Stat(v.tailPath(v.firstIdx+i))
+	for idx:=v.firstIdx; idx<v.nextIdx; idx++ {
+		fi,err := os.Stat(v.tailPath(idx))
 		if err!=nil { return 0,err }
 		total += fi.Size()
 	}
@@ -84,7 +84,7 @@ func (v *logView) Rotate(cfg *Config) error {
 	}
 	// There is no head, so just fetch tail size.
 	tail,err := v.TailSize()
-	if err!=nil { return err }
+	if err!=nil { return fmt.Errorf("v.TailSize(): %w",err) }
 	for tail>cfg.TotalSizeLimit {
 		path := v.tailPath(v.firstIdx)
 		fi,err := os.Stat(path)
