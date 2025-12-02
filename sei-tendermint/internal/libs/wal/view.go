@@ -78,10 +78,11 @@ func (v *logView) Rotate(cfg *Config) error {
 		return fmt.Errorf("os.Rename(): %w",err)
 	}
 	v.nextIdx++
-	// truncate tail to acceptable size.
+	// truncate to acceptable size.
 	if cfg.TotalSizeLimit<=0 {
 		return nil
 	}
+	// There is no head, so just fetch tail size.
 	tail,err := v.TailSize()
 	if err!=nil { return err }
 	for tail>cfg.TotalSizeLimit {

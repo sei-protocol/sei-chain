@@ -1,6 +1,7 @@
 package wal 
 
 import (
+	"io"
 	"bufio"
 	"errors"
 	"hash/crc32"
@@ -40,7 +41,7 @@ func (r *logReader) read(n int64) ([]byte,error) {
 		return nil,errTruncated
 	}
 	data := make([]byte,n)
-	if _, err := r.buf.Read(data); err!=nil {
+	if _, err := io.ReadFull(r.buf,data); err!=nil {
 		return nil,err
 	}
 	r.bytesLeft -= n 

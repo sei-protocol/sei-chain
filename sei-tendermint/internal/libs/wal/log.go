@@ -49,7 +49,7 @@ func openLockFile(headPath string) (*os.File,error) {
 	if err!=nil {
 		return nil,err
 	}
-	if err:=unix.Flock(int(guard.Fd()),unix.LOCK_EX); err!=nil {
+	if err:=unix.Flock(int(guard.Fd()),unix.LOCK_EX|unix.LOCK_NB); err!=nil {
 		guard.Close()
 		return nil, fmt.Errorf("unix.Flock(): %w",err)
 	}
@@ -78,7 +78,6 @@ func (i *logInner) Read() (res []byte, err error) {
 		}
 		if i.fileOffset==0 {
 			// Last entry of the last file may be truncated because file writes are not atomic.
-			// TODO(gprusak): they COULD be atomic, if we used O_APPEND when writing AND used custom buffering.
 			if errors.Is(err,errEOF) || errors.Is(err,errTruncated) {
 				return nil,io.EOF 
 			}
@@ -95,21 +94,29 @@ func (i *logInner) Read() (res []byte, err error) {
 }
 
 func (i *logInner) Append(entry []byte) (err error) {
-	writer,ok := i.writer.Get()
-	if !ok {
-		return fmt.Errorf("not opened for append")
-	}
 	defer func() { if err!=nil { i.Reset() } }()
-	if writer.bytesSize >= i.cfg.FileSizeLimit {
-		if err:=writer.Sync(); err!=nil {
-			return err
+	for {
+		writer,ok := i.writer.Get()
+		if !ok {
+			return fmt.Errorf("not opened for append")
 		}
-		i.Reset()
-		if err := i.view.Rotate(i.cfg); err!=nil {
-			return fmt.Errorf("i.view.Rotate(): %w", err)
+		if writer.bytesSize >= i.cfg.FileSizeLimit {
+			if err:=writer.Sync(); err!=nil {
+				return err
+			}
+			i.Reset()
+			// Move head to tail.
+			if err := i.view.Rotate(i.cfg); err!=nil {
+				return fmt.Errorf("i.view.Rotate(): %w", err)
+			}
+			// Reopen for append.
+			if err:=i.OpenForAppend(); err!=nil {
+				return fmt.Errorf("i.OpenForAppend(): %w",err)
+			}
+			continue
 		}
+		return writer.AppendEntry(entry)
 	}
-	return writer.AppendEntry(entry)
 }
 
 func (i *logInner) Sync() error {

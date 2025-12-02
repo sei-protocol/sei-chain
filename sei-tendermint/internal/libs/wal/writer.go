@@ -5,6 +5,7 @@ import (
 	"errors"
 	"hash/crc32"
 	"encoding/binary"
+	"io"
 	"os"
 	"fmt"
 )
@@ -44,7 +45,9 @@ func openLogWriter(path string) (res *logWriter, resErr error) {
 	if err:=f.Truncate(realSize); err!=nil {
 		return nil,fmt.Errorf("f.Truncate(): %w",err)
 	}
-	if err!=nil { return nil,err }
+	if _,err:=f.Seek(0,io.SeekEnd); err!=nil {
+		return nil,fmt.Errorf("f.SeekEnd(): %w",err)
+	}
 	return &logWriter {
 		file: f,
 		buf: bufio.NewWriterSize(f, 4096*10),
