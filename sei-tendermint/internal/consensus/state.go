@@ -188,24 +188,28 @@ func NewState(
 ) (res *State, resErr error) {
 	wal, err := openWAL(cfg.WalFile())
 	if err != nil {
-		return nil,fmt.Errorf("openWal(): %w",err)
+		return nil, fmt.Errorf("openWal(): %w", err)
 	}
-	defer func(){ if resErr!=nil { wal.Close() } }()
+	defer func() {
+		if resErr != nil {
+			wal.Close()
+		}
+	}()
 	cs := &State{
-		eventBus:         eventBus,
-		logger:           logger,
-		config:           cfg,
-		blockExec:        blockExec,
-		blockStore:       blockStore,
-		stateStore:       store,
-		txNotifier:       txNotifier,
-		peerMsgQueue:     make(chan msgInfo, msgQueueSize),
-		internalMsgQueue: make(chan msgInfo, msgQueueSize),
-		timeoutTicker:    NewTimeoutTicker(logger),
-		doWALCatchup:     true,
-		evpool:           evpool,
-		metrics:          NopMetrics(),
-		wal: wal,
+		eventBus:          eventBus,
+		logger:            logger,
+		config:            cfg,
+		blockExec:         blockExec,
+		blockStore:        blockStore,
+		stateStore:        store,
+		txNotifier:        txNotifier,
+		peerMsgQueue:      make(chan msgInfo, msgQueueSize),
+		internalMsgQueue:  make(chan msgInfo, msgQueueSize),
+		timeoutTicker:     NewTimeoutTicker(logger),
+		doWALCatchup:      true,
+		evpool:            evpool,
+		metrics:           NopMetrics(),
+		wal:               wal,
 		eventValidBlock:   func(*cstypes.RoundState) {},
 		eventNewRoundStep: func(*cstypes.RoundState) {},
 		eventVote:         func(*types.Vote) {},
@@ -367,12 +371,12 @@ func (cs *State) Run(ctx context.Context) error {
 		// We may have lost some votes if the process crashed reload from consensus
 		// log to catchup.
 		if cs.doWALCatchup {
-			if err := cs.catchupReplay(ctx, cs.roundState.Height()); err!=nil {
-				return fmt.Errorf("cs.catchupReplay(): %w",err)
+			if err := cs.catchupReplay(ctx, cs.roundState.Height()); err != nil {
+				return fmt.Errorf("cs.catchupReplay(): %w", err)
 			}
 		}
-		if err:=cs.wal.OpenForAppend(); err!=nil {
-			return fmt.Errorf("cs.wal.OpenForAppend(): %w",err)
+		if err := cs.wal.OpenForAppend(); err != nil {
+			return fmt.Errorf("cs.wal.OpenForAppend(): %w", err)
 		}
 
 		// Double Signing Risk Reduction
@@ -1960,8 +1964,8 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 			endMsg, err,
 		))
 	}
-	if err := cs.wal.Sync(); err!=nil {
-		panic(fmt.Errorf("cs.wal.Sync(): %w",err))
+	if err := cs.wal.Sync(); err != nil {
+		panic(fmt.Errorf("cs.wal.Sync(): %w", err))
 	}
 	fsyncSpan.End()
 

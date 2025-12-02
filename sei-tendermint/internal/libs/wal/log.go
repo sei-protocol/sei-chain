@@ -1,24 +1,23 @@
 /*
-	Write-ahead log using files of bounded size for storage.
-  It appends entries to the <headPath> file until it reaches the limit size.
-	Then it renames it to <headPath>.<sequential number> (a tail file) and creates new empty <headPath> file.
-	It uses flock on an empty <HeadPath>.lock file to ensure exclusive access to the log files.
+		Write-ahead log using files of bounded size for storage.
+	  It appends entries to the <headPath> file until it reaches the limit size.
+		Then it renames it to <headPath>.<sequential number> (a tail file) and creates new empty <headPath> file.
+		It uses flock on an empty <HeadPath>.lock file to ensure exclusive access to the log files.
 
-	Dir/
-	- <HeadPath>.000   // First rolled file
-	- <HeadPath>.001   // Second rolled file
-	- ...
-	- <HeadPath>       // Head file.
-	- <HeadPath>.lock  // File used as a mutex.
-
+		Dir/
+		- <HeadPath>.000   // First rolled file
+		- <HeadPath>.001   // Second rolled file
+		- ...
+		- <HeadPath>       // Head file.
+		- <HeadPath>.lock  // File used as a mutex.
 */
-package wal 
+package wal
 
 import (
-	"fmt"
 	"errors"
-	"os"
+	"fmt"
 	"golang.org/x/sys/unix"
+	"os"
 
 	"github.com/tendermint/tendermint/libs/utils"
 )
@@ -30,87 +29,89 @@ const filePerms = os.FileMode(0600)
 var ErrClosed error = errors.New("WAL closed")
 
 type Config struct {
-	FileSizeLimit      int64
-	TotalSizeLimit     int64
+	FileSizeLimit  int64
+	TotalSizeLimit int64
 }
 
 func DefaultConfig() *Config {
-	return &Config {
-		FileSizeLimit:       10 * 1024 * 1024,       // 10MB
-		TotalSizeLimit:      1 * 1024 * 1024 * 1024, // 1GB
+	return &Config{
+		FileSizeLimit:  10 * 1024 * 1024,       // 10MB
+		TotalSizeLimit: 1 * 1024 * 1024 * 1024, // 1GB
 	}
 }
 
 func lockPath(headPath string) string {
-	return fmt.Sprintf("%s.lock",headPath)
+	return fmt.Sprintf("%s.lock", headPath)
 }
 
-func openLockFile(headPath string) (*os.File,error) {
-	guard,err := os.OpenFile(lockPath(headPath),os.O_CREATE|os.O_RDONLY,filePerms)
-	if err!=nil {
-		return nil,err
+func openLockFile(headPath string) (*os.File, error) {
+	guard, err := os.OpenFile(lockPath(headPath), os.O_CREATE|os.O_RDONLY, filePerms)
+	if err != nil {
+		return nil, err
 	}
-	if err:=unix.Flock(int(guard.Fd()),unix.LOCK_EX|unix.LOCK_NB); err!=nil {
+	if err := unix.Flock(int(guard.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		guard.Close()
-		return nil, fmt.Errorf("unix.Flock(): %w",err)
+		return nil, fmt.Errorf("unix.Flock(): %w", err)
 	}
-	return guard,nil
+	return guard, nil
 }
 
 type logInner struct {
-	cfg *Config
-	lockFile *os.File
-	view *logView
+	cfg        *Config
+	lockFile   *os.File
+	view       *logView
 	fileOffset int
-	reader utils.Option[*logReader]
-	writer utils.Option[*logWriter]
+	reader     utils.Option[*logReader]
+	writer     utils.Option[*logWriter]
 }
 
 // Read reads the next entry from the log.
 // Returns io.EOF when the end of the log is reached.
 func (i *logInner) Read() (res []byte, ok bool, err error) {
 	for {
-		reader,ok := i.reader.Get()
-		if !ok { return nil, false, fmt.Errorf("not opened for read") }
-		data,err := reader.ReadEntry()
-		if err==nil {
-			return data,true,nil
+		reader, ok := i.reader.Get()
+		if !ok {
+			return nil, false, fmt.Errorf("not opened for read")
 		}
-		if i.fileOffset==0 {
+		data, err := reader.ReadEntry()
+		if err == nil {
+			return data, true, nil
+		}
+		if i.fileOffset == 0 {
 			// Last entry of the last file may be truncated because file writes are not atomic.
-			if errors.Is(err,errEOF) || errors.Is(err,errTruncated) {
-				return nil,false,nil 
+			if errors.Is(err, errEOF) || errors.Is(err, errTruncated) {
+				return nil, false, nil
 			}
-			return nil,false,err
-		} 
-		if !errors.Is(err,errEOF) {
-			return nil,false,err
+			return nil, false, err
+		}
+		if !errors.Is(err, errEOF) {
+			return nil, false, err
 		}
 		// Open the next file and retry.
-		if err:=i.OpenForRead(i.fileOffset+1); err!=nil {
-			return nil,false,err
+		if err := i.OpenForRead(i.fileOffset + 1); err != nil {
+			return nil, false, err
 		}
-	}	
+	}
 }
 
 func (i *logInner) Append(entry []byte) (err error) {
 	for {
-		writer,ok := i.writer.Get()
+		writer, ok := i.writer.Get()
 		if !ok {
 			return fmt.Errorf("not opened for append")
 		}
-		if writer.bytesSize >= i.cfg.FileSizeLimit {
-			if err:=writer.Sync(); err!=nil {
+		if limit := i.cfg.FileSizeLimit; limit > 0 && writer.bytesSize >= limit {
+			if err := writer.Sync(); err != nil {
 				return err
 			}
 			i.Reset()
 			// Move head to tail.
-			if err := i.view.Rotate(i.cfg); err!=nil {
+			if err := i.view.Rotate(i.cfg); err != nil {
 				return fmt.Errorf("i.view.Rotate(): %w", err)
 			}
 			// Reopen for append.
-			if err:=i.OpenForAppend(); err!=nil {
-				return fmt.Errorf("i.OpenForAppend(): %w",err)
+			if err := i.OpenForAppend(); err != nil {
+				return fmt.Errorf("i.OpenForAppend(): %w", err)
 			}
 			continue
 		}
@@ -119,8 +120,8 @@ func (i *logInner) Append(entry []byte) (err error) {
 }
 
 func (i *logInner) Sync() error {
-	if writer,ok := i.writer.Get(); ok {
-		if err:=writer.Sync(); err!=nil {
+	if writer, ok := i.writer.Get(); ok {
+		if err := writer.Sync(); err != nil {
 			return err
 		}
 		return nil
@@ -128,38 +129,40 @@ func (i *logInner) Sync() error {
 	return fmt.Errorf("not opened for append")
 }
 
-func (i *logInner) Size() (int64,error) {
-	size,err := i.view.TailSize()
-	if err!=nil { return 0,err }
-	if writer,ok := i.writer.Get(); ok {
+func (i *logInner) Size() (int64, error) {
+	size, err := i.view.TailSize()
+	if err != nil {
+		return 0, err
+	}
+	if writer, ok := i.writer.Get(); ok {
 		size += writer.bytesSize
 	} else {
 		// Head file does not have to exist.
-		if fi,err:=os.Stat(i.view.headPath); err==nil {
+		if fi, err := os.Stat(i.view.headPath); err == nil {
 			size += fi.Size()
-		} else if !errors.Is(err,os.ErrNotExist) {
-			return 0,fmt.Errorf("os.Stat(%q): %w",i.view.headPath,err)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return 0, fmt.Errorf("os.Stat(%q): %w", i.view.headPath, err)
 		}
 	}
-	return size,nil
+	return size, nil
 }
 
 // Close releases all resources unconditionally.
 func (i *logInner) Close() {
-	if writer,ok := i.writer.Get(); ok {
+	if writer, ok := i.writer.Get(); ok {
 		// Best effort syncing at close. No guarantees.
 		_ = writer.Sync()
 	}
-	i.Reset()	
+	i.Reset()
 	i.lockFile.Close()
 }
 
 func (i *logInner) Reset() {
-	if reader,ok := i.reader.Get(); ok {
+	if reader, ok := i.reader.Get(); ok {
 		reader.Close()
 		i.reader = utils.None[*logReader]()
 	}
-	if writer,ok := i.writer.Get(); ok {
+	if writer, ok := i.writer.Get(); ok {
 		writer.Close()
 		i.writer = utils.None[*logWriter]()
 	}
@@ -167,8 +170,10 @@ func (i *logInner) Reset() {
 
 func (i *logInner) OpenForAppend() error {
 	i.Reset()
-	w,err := openLogWriter(i.view.headPath)
-	if err!=nil { return err }
+	w, err := openLogWriter(i.view.headPath)
+	if err != nil {
+		return err
+	}
 	i.fileOffset = 0
 	i.writer = utils.Some(w)
 	return nil
@@ -176,10 +181,14 @@ func (i *logInner) OpenForAppend() error {
 
 func (i *logInner) OpenForRead(fileOffset int) error {
 	i.Reset()
-	path,err := i.view.PathByOffset(fileOffset)
-	if err!=nil { return err }
-	r,err := openLogReader(path)
-	if err!=nil { return err }
+	path, err := i.view.PathByOffset(fileOffset)
+	if err != nil {
+		return err
+	}
+	r, err := openLogReader(path)
+	if err != nil {
+		return err
+	}
 	i.fileOffset = fileOffset
 	i.reader = utils.Some(r)
 	return nil
@@ -192,27 +201,29 @@ type Log struct {
 	inner utils.Mutex[*utils.Option[*logInner]]
 }
 
-func OpenLog(headPath string, cfg *Config) (*Log,error) {
-	lockFile,err := openLockFile(headPath)
-	if err!=nil { return nil,fmt.Errorf("openLockFile(): %w",err) }
-	view,err := loadLogView(headPath)
-	if err!=nil {
-		lockFile.Close()
-		return nil,fmt.Errorf("loadLogView(): %w",err)
+func OpenLog(headPath string, cfg *Config) (*Log, error) {
+	lockFile, err := openLockFile(headPath)
+	if err != nil {
+		return nil, fmt.Errorf("openLockFile(): %w", err)
 	}
-	return &Log {
-		inner: utils.NewMutex(utils.Alloc(utils.Some(&logInner {
-			cfg: cfg,
+	view, err := loadLogView(headPath)
+	if err != nil {
+		lockFile.Close()
+		return nil, fmt.Errorf("loadLogView(): %w", err)
+	}
+	return &Log{
+		inner: utils.NewMutex(utils.Alloc(utils.Some(&logInner{
+			cfg:      cfg,
 			lockFile: lockFile,
-			view: view,
+			view:     view,
 		}))),
-	},nil
+	}, nil
 }
 
 func (l *Log) MinOffset() int {
 	for inner := range l.inner.Lock() {
-		if inner,ok := inner.Get(); ok {
-			return inner.view.firstIdx-inner.view.nextIdx
+		if inner, ok := inner.Get(); ok {
+			return inner.view.firstIdx - inner.view.nextIdx
 		}
 	}
 	return 0
@@ -224,7 +235,7 @@ func (l *Log) MinOffset() int {
 func (l *Log) OpenForRead(fileOffset int) (err error) {
 	defer l.closeOnErr(&err)
 	for inner := range l.inner.Lock() {
-		if inner,ok := inner.Get(); ok {
+		if inner, ok := inner.Get(); ok {
 			return inner.OpenForRead(fileOffset)
 		}
 	}
@@ -234,30 +245,30 @@ func (l *Log) OpenForRead(fileOffset int) (err error) {
 func (l *Log) Read() (res []byte, ok bool, err error) {
 	defer l.closeOnErr(&err)
 	for inner := range l.inner.Lock() {
-		if inner,ok := inner.Get(); ok {
+		if inner, ok := inner.Get(); ok {
 			return inner.Read()
 		}
 	}
 	return nil, false, ErrClosed
 }
 
-// Opens WAL for appending. 
+// Opens WAL for appending.
 func (l *Log) OpenForAppend() (err error) {
 	defer l.closeOnErr(&err)
 	for inner := range l.inner.Lock() {
-		if inner,ok := inner.Get(); ok {
+		if inner, ok := inner.Get(); ok {
 			return inner.OpenForAppend()
 		}
 	}
 	return ErrClosed
 }
 
-// Write writes entry to the log atomically. You need to call Sync afterwards
-// to ensure that the write is persisted.
+// Append appends entry to the log atomically.
+// You need to call Sync afterwards to ensure that the entry is persisted.
 func (l *Log) Append(entry []byte) (err error) {
 	defer l.closeOnErr(&err)
 	for inner := range l.inner.Lock() {
-		if inner,ok := inner.Get(); ok {
+		if inner, ok := inner.Get(); ok {
 			return inner.Append(entry)
 		}
 	}
@@ -267,7 +278,7 @@ func (l *Log) Append(entry []byte) (err error) {
 // Sync writes all buffered data to disk and calls fsync to ensure persistence.
 func (l *Log) Sync() error {
 	for inner := range l.inner.Lock() {
-		if inner,ok := inner.Get(); ok {
+		if inner, ok := inner.Get(); ok {
 			return inner.Sync()
 		}
 	}
@@ -275,20 +286,20 @@ func (l *Log) Sync() error {
 }
 
 // Returns the total size of the log in bytes.
-func (l *Log) Size() (res int64,err error) {
+func (l *Log) Size() (res int64, err error) {
 	defer l.closeOnErr(&err)
 	for inner := range l.inner.Lock() {
-		if inner,ok := inner.Get(); ok {
+		if inner, ok := inner.Get(); ok {
 			return inner.Size()
 		}
 	}
-	return 0,ErrClosed
+	return 0, ErrClosed
 }
 
 // Close releases all resources unconditionally.
 func (l *Log) Close() {
 	for inner := range l.inner.Lock() {
-		if i,ok := inner.Get(); ok {
+		if i, ok := inner.Get(); ok {
 			i.Close()
 			*inner = utils.None[*logInner]()
 		}
@@ -297,7 +308,7 @@ func (l *Log) Close() {
 
 // Closes Log iff *err!=nil.
 func (l *Log) closeOnErr(err *error) {
-	if *err!=nil {
+	if *err != nil {
 		l.Close()
 	}
 }

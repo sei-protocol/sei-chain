@@ -102,9 +102,9 @@ func (cs *State) catchupReplay(ctx context.Context, csHeight int64) error {
 	// NOTE: This is just a sanity check. As far as we know things work fine
 	// without it, and Handshake could reuse State if it weren't for
 	// this check (since we can crash after writing #ENDHEIGHT).
-	found,err := cs.wal.SeekEndHeight(csHeight)
-	if err!=nil {
-		return fmt.Errorf("cs.wal.SeekEndHeight(): %w",err)
+	found, err := cs.wal.SeekEndHeight(csHeight)
+	if err != nil {
+		return fmt.Errorf("cs.wal.SeekEndHeight(): %w", err)
 	}
 	if found {
 		return fmt.Errorf("wal should not contain #ENDHEIGHT %d", csHeight)
@@ -119,22 +119,22 @@ func (cs *State) catchupReplay(ctx context.Context, csHeight int64) error {
 	if csHeight == cs.state.InitialHeight {
 		endHeight = 0
 	}
-	found,err = cs.wal.SeekEndHeight(endHeight)
-	if err!=nil {
-		return fmt.Errorf("cs.wal.SeekEndHeight(): %w",err)
+	found, err = cs.wal.SeekEndHeight(endHeight)
+	if err != nil {
+		return fmt.Errorf("cs.wal.SeekEndHeight(): %w", err)
 	}
 	if !found {
-		return fmt.Errorf("EndHeightMsg{%v} not found",endHeight)
+		return fmt.Errorf("EndHeightMsg{%v} not found", endHeight)
 	}
 	cs.logger.Info("Catchup by replaying consensus messages", "height", csHeight)
 
 	for {
 		msg, err := cs.wal.Read()
-		if err!=nil {
+		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return fmt.Errorf("cs.wal.Read(): %w",err)
+			return fmt.Errorf("cs.wal.Read(): %w", err)
 		}
 		// NOTE: since the priv key is set when the msgs are received
 		// it will attempt to eg double sign but we can just ignore it

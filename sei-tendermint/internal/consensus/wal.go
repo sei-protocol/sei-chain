@@ -141,7 +141,8 @@ func (msg WALMessage) toProto() *tmcons.WALMessage {
 				},
 			},
 		}
-	default: panic("unreachable")
+	default:
+		panic("unreachable")
 	}
 }
 
@@ -192,30 +193,36 @@ func walFromProto(msg *tmcons.WALMessage) (WALMessage, error) {
 
 // Write ahead logger writes msgs to disk before they are processed.
 // Can be used for crash-recovery and deterministic replay.
-type WAL struct { inner *wal.Log }
+type WAL struct{ inner *wal.Log }
 
-// openWAL opens WAL in append mode. 
+// openWAL opens WAL in append mode.
 func openWAL(walFile string) (res *WAL, resErr error) {
-	inner,err := wal.OpenLog(walFile, wal.DefaultConfig())
-	if err!=nil { return nil,err }
-	defer func(){ if resErr!=nil { inner.Close() } }()
+	inner, err := wal.OpenLog(walFile, wal.DefaultConfig())
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if resErr != nil {
+			inner.Close()
+		}
+	}()
 	wal := &WAL{inner}
-	if err := wal.OpenForAppend(); err!=nil {
-		return nil, fmt.Errorf("OpenForAppend(): %w",err)
+	if err := wal.OpenForAppend(); err != nil {
+		return nil, fmt.Errorf("OpenForAppend(): %w", err)
 	}
-	size,err := inner.Size()
-	if err!=nil {
-		return nil,fmt.Errorf("inner.Size(): %w",err)
+	size, err := inner.Size()
+	if err != nil {
+		return nil, fmt.Errorf("inner.Size(): %w", err)
 	}
-	if size==0 {
+	if size == 0 {
 		if err := wal.Append(NewWALMessage(EndHeightMessage{0})); err != nil {
-			return nil, fmt.Errorf("Append(): %w",err)
+			return nil, fmt.Errorf("Append(): %w", err)
 		}
 	}
-	return wal,nil
+	return wal, nil
 }
 
-// Sync flushes and fsync's the buffered entries to underlying files. 
+// Sync flushes and fsync's the buffered entries to underlying files.
 func (w *WAL) Sync() error { return w.inner.Sync() }
 
 // OpenForAppend opens WAL for appending.
@@ -241,23 +248,29 @@ func (w *WAL) Append(msg WALMessage) error {
 
 // Read reads an entry from the WAL.
 // Remember to call SeekEndHeight before Read.
-func (w *WAL) Read() (WALMessage,error) {
-	entry,ok,err := w.inner.Read()
-	if err!=nil { return WALMessage{},err }
-	if !ok { return WALMessage{},io.EOF }
+func (w *WAL) Read() (WALMessage, error) {
+	entry, ok, err := w.inner.Read()
+	if err != nil {
+		return WALMessage{}, err
+	}
+	if !ok {
+		return WALMessage{}, io.EOF
+	}
 	var msgPB tmcons.TimedWALMessage
 	if err := proto.Unmarshal(entry, &msgPB); err != nil {
-		return WALMessage{}, fmt.Errorf("proto.Unmarshal(): %w",err)
+		return WALMessage{}, fmt.Errorf("proto.Unmarshal(): %w", err)
 	}
 	return walFromProto(msgPB.Msg)
 }
 
-func (w *WAL) readEndHeight() (EndHeightMessage,error) {
+func (w *WAL) readEndHeight() (EndHeightMessage, error) {
 	for {
-		msg,err:=w.Read()
-		if err!=nil { return EndHeightMessage{}, fmt.Errorf("w.Read(): %w", err) }
-		if msg,ok:=msg.any.(EndHeightMessage); ok {
-			return msg,nil
+		msg, err := w.Read()
+		if err != nil {
+			return EndHeightMessage{}, fmt.Errorf("w.Read(): %w", err)
+		}
+		if msg, ok := msg.any.(EndHeightMessage); ok {
+			return msg, nil
 		}
 	}
 }
@@ -269,26 +282,30 @@ func (w *WAL) SeekEndHeight(height int64) (bool, error) {
 	// iterate over WAL checkpoints from the newest
 	// We assume that height is recent.
 	minOffset := w.inner.MinOffset()
-	for offset:=0; offset>=minOffset; offset-- {
-		if err := w.inner.OpenForRead(offset); err!=nil {
-			return false,fmt.Errorf("w.inner.OpenForRead(): %w",err)
+	for offset := 0; offset >= minOffset; offset-- {
+		if err := w.inner.OpenForRead(offset); err != nil {
+			return false, fmt.Errorf("w.inner.OpenForRead(): %w", err)
 		}
 		// find the first marker
-		msg,err := w.readEndHeight()
-		if err!=nil {
+		msg, err := w.readEndHeight()
+		if err != nil {
 			// No markers at all, try older checkpoint.
-			if errors.Is(err,io.EOF) { continue }
+			if errors.Is(err, io.EOF) {
+				continue
+			}
 			return false, err
 		}
-		if msg.Height<=height {
-			// We have found a lower marker. It is enough to seek forward now. 
-			for msg.Height<height {
-				if msg,err = w.readEndHeight(); err!=nil {
-					if errors.Is(err,io.EOF) { return false,nil }
+		if msg.Height <= height {
+			// We have found a lower marker. It is enough to seek forward now.
+			for msg.Height < height {
+				if msg, err = w.readEndHeight(); err != nil {
+					if errors.Is(err, io.EOF) {
+						return false, nil
+					}
 					return false, err
 				}
 			}
-			return msg.Height==height, nil
+			return msg.Height == height, nil
 		}
 		// Try older checkpoint.
 	}
