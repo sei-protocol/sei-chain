@@ -12,7 +12,7 @@ import (
 )
 
 func TestMultiVersionStore(t *testing.T) {
-	store := multiversion.NewMultiVersionStore(nil)
+	store := multiversion.NewMultiVersionStore(nil, nil)
 
 	// Test Set and GetLatest
 	store.SetWriteset(1, 1, map[string][]byte{
@@ -54,7 +54,7 @@ func TestMultiVersionStore(t *testing.T) {
 }
 
 func TestMultiVersionStoreHasLaterValue(t *testing.T) {
-	store := multiversion.NewMultiVersionStore(nil)
+	store := multiversion.NewMultiVersionStore(nil, nil)
 
 	store.SetWriteset(5, 1, map[string][]byte{
 		"key1": []byte("value2"),
@@ -65,7 +65,7 @@ func TestMultiVersionStoreHasLaterValue(t *testing.T) {
 }
 
 func TestMultiVersionStoreKeyDNE(t *testing.T) {
-	store := multiversion.NewMultiVersionStore(nil)
+	store := multiversion.NewMultiVersionStore(nil, nil)
 
 	require.Nil(t, store.GetLatest([]byte("key1")))
 	require.Nil(t, store.GetLatestBeforeIndex(0, []byte("key1")))
@@ -75,7 +75,7 @@ func TestMultiVersionStoreKeyDNE(t *testing.T) {
 func TestMultiVersionStoreWriteToParent(t *testing.T) {
 	// initialize cachekv store
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key4"), []byte("value4"))
@@ -112,7 +112,7 @@ func TestMultiVersionStoreWriteToParent(t *testing.T) {
 }
 
 func TestMultiVersionStoreWritesetSetAndInvalidate(t *testing.T) {
-	mvs := multiversion.NewMultiVersionStore(nil)
+	mvs := multiversion.NewMultiVersionStore(nil, nil)
 
 	writeset := make(map[string][]byte)
 	writeset["key1"] = []byte("value1")
@@ -171,7 +171,7 @@ func TestMultiVersionStoreWritesetSetAndInvalidate(t *testing.T) {
 
 func TestMultiVersionStoreValidateState(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key3"), []byte("value3"))
@@ -235,7 +235,7 @@ func TestMultiVersionStoreValidateState(t *testing.T) {
 
 func TestMultiVersionStoreParentValidationMismatch(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key3"), []byte("value3"))
@@ -280,7 +280,7 @@ func TestMultiVersionStoreParentValidationMismatch(t *testing.T) {
 
 func TestMultiVersionStoreMultipleReadsetValueValidationFailure(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key3"), []byte("value3"))
@@ -309,7 +309,7 @@ func TestMultiVersionStoreMultipleReadsetValueValidationFailure(t *testing.T) {
 
 func TestMVSValidationWithOnlyEstimate(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key3"), []byte("value3"))
@@ -343,8 +343,8 @@ func TestMVSValidationWithOnlyEstimate(t *testing.T) {
 
 func TestMVSIteratorValidation(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1))
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1), nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key3"), []byte("value3"))
@@ -374,8 +374,8 @@ func TestMVSIteratorValidation(t *testing.T) {
 
 func TestMVSIteratorValidationWithEstimate(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1))
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1), nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key3"), []byte("value3"))
@@ -408,8 +408,8 @@ func TestMVSIteratorValidationWithEstimate(t *testing.T) {
 
 func TestMVSIteratorValidationWithKeySwitch(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1))
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1), nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key3"), []byte("value3"))
@@ -444,8 +444,8 @@ func TestMVSIteratorValidationWithKeySwitch(t *testing.T) {
 
 func TestMVSIteratorValidationWithKeyAdded(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1))
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1), nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key3"), []byte("value3"))
@@ -479,8 +479,8 @@ func TestMVSIteratorValidationWithKeyAdded(t *testing.T) {
 
 func TestMVSIteratorValidationWithWritesetValues(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1))
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1), nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key3"), []byte("value3"))
@@ -510,8 +510,8 @@ func TestMVSIteratorValidationWithWritesetValues(t *testing.T) {
 
 func TestMVSIteratorValidationWithWritesetValuesSetAfterIteration(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1))
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1), nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key3"), []byte("value3"))
@@ -550,8 +550,8 @@ func TestMVSIteratorValidationWithWritesetValuesSetAfterIteration(t *testing.T) 
 
 func TestMVSIteratorValidationReverse(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1))
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1), nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key3"), []byte("value3"))
@@ -589,8 +589,8 @@ func TestMVSIteratorValidationReverse(t *testing.T) {
 
 func TestMVSIteratorValidationEarlyStop(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1))
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1), nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key3"), []byte("value3"))
@@ -633,8 +633,8 @@ func TestMVSIteratorValidationEarlyStop(t *testing.T) {
 
 func TestMVSIteratorValidationEarlyStopEarlierKeyRemoved(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1))
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1), nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key3"), []byte("value3"))
@@ -678,8 +678,8 @@ func TestMVSIteratorValidationEarlyStopEarlierKeyRemoved(t *testing.T) {
 
 func TestMVSIteratorValidationEarlyStopEarlierKeyRemovedAndOtherReplaced(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1))
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1), nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key3"), []byte("value3"))
@@ -725,8 +725,8 @@ func TestMVSIteratorValidationEarlyStopEarlierKeyRemovedAndOtherReplaced(t *test
 // TODO: what about early stop with a new key added in the range? - especially if its the last key that we stopped at?
 func TestMVSIteratorValidationEarlyStopAtEndOfRange(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1))
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1), nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key3"), []byte("value3"))
@@ -763,8 +763,8 @@ func TestMVSIteratorValidationEarlyStopAtEndOfRange(t *testing.T) {
 
 func TestMVSIteratorValidationWithKeyAddedForgetToClose(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1))
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1), nil)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key3"), []byte("value3"))
@@ -798,8 +798,8 @@ func TestMVSIteratorValidationWithKeyAddedForgetToClose(t *testing.T) {
 
 func TestMVSIteratorValidationEarlyStopIncludedInIterateset(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 1, make(chan occ.Abort, 1))
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 1, make(chan occ.Abort, 1), nil)
 
 	parentKVStore.Set([]byte("key1"), []byte("value1"))
 	parentKVStore.Set([]byte("key2"), []byte("value2"))

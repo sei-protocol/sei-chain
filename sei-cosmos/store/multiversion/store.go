@@ -47,21 +47,28 @@ type Store struct {
 	txIterateSets  *sync.Map // map of tx index -> iterateset Iterateset
 
 	parentStore types.KVStore
+	storeKey    types.StoreKey // for granular logging
 }
 
-func NewMultiVersionStore(parentStore types.KVStore) *Store {
+func NewMultiVersionStore(parentStore types.KVStore, storeKey types.StoreKey) *Store {
 	return &Store{
 		multiVersionMap: &sync.Map{},
 		txWritesetKeys:  &sync.Map{},
 		txReadSets:      &sync.Map{},
 		txIterateSets:   &sync.Map{},
 		parentStore:     parentStore,
+		storeKey:        storeKey,
 	}
+}
+
+// StoreKey returns the store key for logging purposes
+func (s *Store) StoreKey() types.StoreKey {
+	return s.storeKey
 }
 
 // VersionedIndexedStore creates a new versioned index store for a given incarnation and transaction index
 func (s *Store) VersionedIndexedStore(index int, incarnation int, abortChannel chan occ.Abort) *VersionIndexedStore {
-	return NewVersionIndexedStore(s.parentStore, s, index, incarnation, abortChannel)
+	return NewVersionIndexedStore(s.parentStore, s, index, incarnation, abortChannel, s.storeKey)
 }
 
 // GetLatest implements MultiVersionStore.

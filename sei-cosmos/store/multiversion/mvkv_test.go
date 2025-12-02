@@ -15,9 +15,9 @@ import (
 func TestVersionIndexedStoreGetters(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
 	// initialize a new VersionIndexedStore
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort, 1))
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort, 1), nil)
 
 	// mock a value in the parent store
 	parentKVStore.Set([]byte("key1"), []byte("value1"))
@@ -68,7 +68,7 @@ func TestVersionIndexedStoreGetters(t *testing.T) {
 	require.True(t, vis.Has([]byte("key3")))
 
 	// try a read that falls through to MVS with a later tx index
-	vis2 := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 3, 2, make(chan scheduler.Abort, 1))
+	vis2 := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 3, 2, make(chan scheduler.Abort, 1), nil)
 	val5 := vis2.Get([]byte("key3"))
 	// should equal value3 because value4 is later than the key in question
 	require.Equal(t, []byte("value4"), val5)
@@ -76,7 +76,7 @@ func TestVersionIndexedStoreGetters(t *testing.T) {
 
 	// test estimate values writing to abortChannel
 	abortChannel := make(chan scheduler.Abort, 1)
-	vis3 := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 6, 2, abortChannel)
+	vis3 := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 6, 2, abortChannel, nil)
 	require.Panics(t, func() {
 		vis3.Get([]byte("key3"))
 	})
@@ -98,9 +98,9 @@ func TestVersionIndexedStoreGetters(t *testing.T) {
 func TestVersionIndexedStoreSetters(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
 	// initialize a new VersionIndexedStore
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort, 1))
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort, 1), nil)
 
 	// test simple set
 	vis.Set([]byte("key1"), []byte("value1"))
@@ -123,9 +123,9 @@ func TestVersionIndexedStoreSetters(t *testing.T) {
 func TestVersionIndexedStoreBoilerplateFunctions(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
 	// initialize a new VersionIndexedStore
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort, 1))
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort, 1), nil)
 
 	// asserts panics where appropriate
 	require.Panics(t, func() { vis.CacheWrap(types.NewKVStoreKey("mock")) })
@@ -139,9 +139,9 @@ func TestVersionIndexedStoreBoilerplateFunctions(t *testing.T) {
 func TestVersionIndexedStoreWrite(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
 	// initialize a new VersionIndexedStore
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort, 1))
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort, 1), nil)
 
 	mvs.SetWriteset(0, 1, map[string][]byte{
 		"key3": []byte("value3"),
@@ -166,9 +166,9 @@ func TestVersionIndexedStoreWrite(t *testing.T) {
 func TestVersionIndexedStoreWriteEstimates(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
 	// initialize a new VersionIndexedStore
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort, 1))
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort, 1), nil)
 
 	mvs.SetWriteset(0, 1, map[string][]byte{
 		"key3": []byte("value3"),
@@ -193,10 +193,10 @@ func TestVersionIndexedStoreWriteEstimates(t *testing.T) {
 func TestVersionIndexedStoreValidation(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
 	// initialize a new VersionIndexedStore
 	abortC := make(chan scheduler.Abort, 1)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 2, abortC)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 2, abortC, nil)
 	// set some initial values
 	parentKVStore.Set([]byte("key4"), []byte("value4"))
 	parentKVStore.Set([]byte("key5"), []byte("value5"))
@@ -299,10 +299,10 @@ func TestVersionIndexedStoreValidation(t *testing.T) {
 func TestIterator(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
 	// initialize a new VersionIndexedStore
 	abortC := make(chan scheduler.Abort, 1)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 2, abortC)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 2, abortC, nil)
 
 	// set some initial values
 	parentKVStore.Set([]byte("key4"), []byte("value4"))
@@ -376,7 +376,7 @@ func TestIterator(t *testing.T) {
 	})
 	// need to reset readset
 	abortC2 := make(chan scheduler.Abort, 1)
-	visNew := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 3, abortC2)
+	visNew := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 3, abortC2, nil)
 	require.Panics(t, func() {
 		iter5 := visNew.Iterator([]byte("000"), []byte("key5"))
 		defer iter5.Close()
@@ -391,10 +391,10 @@ func TestIterator(t *testing.T) {
 func TestIteratorReadsetRace(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
 	// initialize a new VersionIndexedStore
 	abortC := make(chan scheduler.Abort, 1)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 2, abortC)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 2, abortC, nil)
 
 	// set some initial values
 	parentKVStore.Set([]byte("key4"), []byte("value4"))
@@ -439,8 +439,8 @@ func TestIteratorReadsetRace(t *testing.T) {
 
 func TestRemoveLastEntry(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 1, make(chan scheduler.Abort, 1))
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 1, make(chan scheduler.Abort, 1), nil)
 
 	parentKVStore.Set([]byte("key1"), []byte("value1"))
 	parentKVStore.Set([]byte("key2"), []byte("value2"))
@@ -477,9 +477,9 @@ func TestRemoveLastEntry(t *testing.T) {
 func TestVersionIndexedStoreGetAllKeyStrsInRange(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
 	// initialize a new VersionIndexedStore
-	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort, 1))
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort, 1), nil)
 
 	parentKVStore.Set([]byte("key1"), []byte("value1")) // unchanged
 	parentKVStore.Set([]byte("key2"), []byte("value2")) // updated by index 0 incar 1
@@ -502,10 +502,10 @@ func TestVersionIndexedStoreGetAllKeyStrsInRange(t *testing.T) {
 func TestVersionIndexedStoreGetAllKeyStrsInRangeError(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
-	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore, nil)
 	// initialize a new VersionIndexedStore
-	vis2 := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 1, make(chan scheduler.Abort, 1))
-	vis3 := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 3, 1, make(chan scheduler.Abort, 1))
+	vis2 := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 1, make(chan scheduler.Abort, 1), nil)
+	vis3 := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 3, 1, make(chan scheduler.Abort, 1), nil)
 
 	parentKVStore.Set([]byte("key1"), []byte("value1"))
 	parentKVStore.Set([]byte("key2"), []byte("value2"))
