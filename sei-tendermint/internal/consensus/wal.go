@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"time"
+	"path/filepath"
 
+	tmos "github.com/tendermint/tendermint/libs/os"
 	"github.com/gogo/protobuf/proto"
 	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
 	"github.com/tendermint/tendermint/types"
@@ -19,9 +21,6 @@ import (
 const (
 	// time.Time + max consensus msg size
 	maxMsgSizeBytes = maxMsgSize + 24
-
-	// how often the WAL should be sync'd during period sync'ing
-	walDefaultFlushInterval = 2 * time.Second
 )
 
 type ErrBadSize struct { error }
@@ -199,6 +198,9 @@ type WAL struct{ inner *wal.Log }
 
 // openWAL opens WAL in append mode.
 func openWAL(walFile string) (res *WAL, resErr error) {
+	if err := tmos.EnsureDir(filepath.Dir(walFile), 0700); err!=nil {
+		return nil, err
+	}
 	inner, err := wal.OpenLog(walFile, wal.DefaultConfig())
 	if err != nil {
 		return nil, err
@@ -277,14 +279,13 @@ func (w *WAL) readEndHeight() (EndHeightMessage, error) {
 	}
 }
 
-var errNotFound = errors.New("not found")
-
 // SeekEndHeight opens WAL for reading at position AFTER EndHeightMessage{height}.
 func (w *WAL) SeekEndHeight(height int64) (bool, error) {
 	// iterate over WAL checkpoints from the newest
 	// We assume that height is recent.
 	minOffset := w.inner.MinOffset()
 	for offset := 0; offset >= minOffset; offset-- {
+		fmt.Printf("height=%v, offset = %v\n",height,offset)
 		if err := w.inner.OpenForRead(offset); err != nil {
 			return false, fmt.Errorf("w.inner.OpenForRead(): %w", err)
 		}

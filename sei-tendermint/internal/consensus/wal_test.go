@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/crypto/merkle"
 	"github.com/tendermint/tendermint/internal/consensus/types"
 	"github.com/tendermint/tendermint/libs/utils"
@@ -61,31 +62,17 @@ func TestWAL_ErrBadSize(t *testing.T) {
 	}
 }
 
-/*
-func TestWALSeekEndHeight(t *testing.T) {
-	ctx := t.Context()
-
-	logger := log.NewNopLogger()
-
-	var walBody bytes.Buffer
-	WALGenerateNBlocks(t, logger, &walBody, 6)
-	walFile := tempWALWithData(t, walBody.Bytes())
-
-	wal, err := NewWAL(ctx, logger, walFile)
-	require.NoError(t, err)
+func TestWAL_SeekEndHeight(t *testing.T) {
+	wal := WALGenerateNBlocks(t, log.NewNopLogger(), 6)
 
 	h := int64(3)
-	gr, found, err := wal.SearchForEndHeight(h, &WALSearchOptions{})
-	assert.NoError(t, err, "expected not to err on height %d", h)
-	assert.True(t, found, "expected to find end height for %d", h)
-	assert.NotNil(t, gr)
-	t.Cleanup(func() { _ = gr.Close() })
+	found, err := wal.SeekEndHeight(h)
+	require.NoError(t,err)
+	require.True(t,found)
 
-	msg, err := decode(gr)
-	assert.NoError(t, err, "expected to decode a message")
-	rs, ok := msg.Msg.any.(tmtypes.EventDataRoundState)
-	assert.True(t, ok, "expected message of type EventDataRoundState")
-	assert.Equal(t, rs.Height, h+1, "wrong height")
-
-	t.Cleanup(leaktest.Check(t))
-}*/
+	msg, err := wal.Read()
+	require.NoError(t, err, "expected to decode a message")
+	rs, ok := msg.any.(tmtypes.EventDataRoundState)
+	require.True(t, ok, "expected message of type EventDataRoundState")
+	require.Equal(t, rs.Height, h+1, "wrong height")
+}

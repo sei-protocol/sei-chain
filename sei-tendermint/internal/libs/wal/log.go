@@ -56,6 +56,9 @@ func openLockFile(headPath string) (*os.File, error) {
 	return guard, nil
 }
 
+// logInner is a non-threadsafe inner implementation of Log.
+// It is invalidated whenever ANY of the method call returns an error.
+// Log protects access to the invalidated logInner to avoid misuse.
 type logInner struct {
 	cfg        *Config
 	lockFile   *os.File
@@ -101,10 +104,9 @@ func (i *logInner) Append(entry []byte) (err error) {
 			return fmt.Errorf("not opened for append")
 		}
 		if limit := i.cfg.FileSizeLimit; limit > 0 && writer.bytesSize >= limit {
-			if err := writer.Sync(); err != nil {
+			if err := i.SyncAndReset(); err != nil {
 				return err
 			}
-			i.Reset()
 			// Move head to tail.
 			if err := i.view.Rotate(i.cfg); err != nil {
 				return fmt.Errorf("i.view.Rotate(): %w", err)
@@ -148,28 +150,38 @@ func (i *logInner) Size() (int64, error) {
 }
 
 // Close releases all resources unconditionally.
+// It invalidates logInner object.
 func (i *logInner) Close() {
+	if reader, ok := i.reader.Get(); ok {
+		reader.Close()
+	}
 	if writer, ok := i.writer.Get(); ok {
 		// Best effort syncing at close. No guarantees.
 		_ = writer.Sync()
+		writer.Close()
 	}
-	i.Reset()
 	i.lockFile.Close()
 }
 
-func (i *logInner) Reset() {
+func (i *logInner) SyncAndReset() error {
 	if reader, ok := i.reader.Get(); ok {
 		reader.Close()
 		i.reader = utils.None[*logReader]()
 	}
 	if writer, ok := i.writer.Get(); ok {
+		if err:=writer.Sync(); err!=nil {
+			return err
+		}
 		writer.Close()
 		i.writer = utils.None[*logWriter]()
 	}
+	return nil
 }
 
 func (i *logInner) OpenForAppend() error {
-	i.Reset()
+	if err:=i.SyncAndReset(); err!=nil {
+		return err
+	}
 	w, err := openLogWriter(i.view.headPath)
 	if err != nil {
 		return err
@@ -180,7 +192,9 @@ func (i *logInner) OpenForAppend() error {
 }
 
 func (i *logInner) OpenForRead(fileOffset int) error {
-	i.Reset()
+	if err:=i.SyncAndReset(); err!=nil {
+		return err
+	}
 	path, err := i.view.PathByOffset(fileOffset)
 	if err != nil {
 		return err
@@ -232,6 +246,7 @@ func (l *Log) MinOffset() int {
 // Opens the WAL for reading at a given offset (in files from the END of the log)
 // Available offsets are in range [-n,0], where n is the number of fails in tail.
 // Returns ErrBadOffset if fileOffset is outside of that range.
+// If the log was opened for append, the log is synced before opening for read.
 func (l *Log) OpenForRead(fileOffset int) (err error) {
 	defer l.closeOnErr(&err)
 	for inner := range l.inner.Lock() {

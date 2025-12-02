@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"errors"
 	"math/rand"
 	"os"
 	"runtime"
@@ -177,7 +178,7 @@ func crashWALandCheckLiveness(
 			os.Remove(walFile)
 
 			// set crashing WAL
-			csWal, err := cs.OpenWAL(ctx, walFile)
+			csWal, err := openWAL(walFile)
 			require.NoError(t, err)
 			crashingWal.next = csWal
 
@@ -706,16 +707,13 @@ func testHandshakeReplay(
 		var walBody bytes.Buffer
 		WALGenerateNBlocks(t, logger, &walBody, numBlocks)
 		walFile := tempWALWithData(t, walBody.Bytes())
-		cfg.Consensus.SetWalFile(walFile)
+		cfg.Consensus.WalPath = walFile
 
 		privVal, err := privval.LoadFilePV(cfg.PrivValidator.KeyFile(), cfg.PrivValidator.StateFile())
 		require.NoError(t, err)
 
-		wal, err := NewWAL(ctx, logger, walFile)
+		wal, err := openWAL(ctx, logger, walFile)
 		require.NoError(t, err)
-		err = wal.Start(ctx)
-		require.NoError(t, err)
-		t.Cleanup(func() { cancel(); wal.Wait() })
 		chain, commits = makeBlockchainFromWAL(t, wal)
 		_, err = privVal.GetPubKey(ctx)
 		require.NoError(t, err)
@@ -1027,36 +1025,26 @@ func (app *badApp) FinalizeBlock(_ context.Context, _ *abci.RequestFinalizeBlock
 //--------------------------
 // utils for making blocks
 
-func makeBlockchainFromWAL(t *testing.T, wal WAL) ([]*types.Block, []*types.Commit) {
+func makeBlockchainFromWAL(t *testing.T, wal *WAL) ([]*types.Block, []*types.Commit) {
 	t.Helper()
-	var height int64
-
+	
 	// Search for height marker
-	gr, found, err := wal.SearchForEndHeight(height, &WALSearchOptions{})
+	height := int64(0)
+	found, err := wal.SeekEndHeight(height)
 	require.NoError(t, err)
-	require.True(t, found, "wal does not contain height %d", height)
-	defer gr.Close()
+	require.True(t, found)
 
-	// log.Notice("Build a blockchain by reading from the WAL")
-
-	var (
-		blocks          []*types.Block
-		commits         []*types.Commit
-		thisBlockParts  *types.PartSet
-		thisBlockCommit *types.Commit
-	)
+	var blocks          []*types.Block
+	var commits         []*types.Commit
+	var thisBlockParts  *types.PartSet
+	var thisBlockCommit *types.Commit
 
 	for {
-		msg, err := decode(gr)
-		if err == io.EOF {
-			break
-		}
-		require.NoError(t, err)
-
+		msg,err := wal.Read()
+		if errors.Is(err,io.EOF) { break }
+		require.NoError(t,err)
 		piece := readPieceFromWAL(msg)
-		if piece == nil {
-			continue
-		}
+		if piece == nil { continue }
 
 		switch p := piece.(type) {
 		case EndHeightMessage:
@@ -1117,9 +1105,9 @@ func makeBlockchainFromWAL(t *testing.T, wal WAL) ([]*types.Block, []*types.Comm
 	return blocks, commits
 }
 
-func readPieceFromWAL(msg *TimedWALMessage) any {
+func readPieceFromWAL(msg WALMessage) any {
 	// for logging
-	switch m := msg.Msg.any.(type) {
+	switch m := msg.any.(type) {
 	case msgInfo:
 		switch msg := m.Msg.(type) {
 		case *ProposalMessage:

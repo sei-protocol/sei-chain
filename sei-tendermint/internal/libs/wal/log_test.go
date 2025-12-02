@@ -24,7 +24,24 @@ func OrPanic1[T any](v T, err error) T {
 	return v
 }
 
-func TestReadWrite(t *testing.T) {
+func TestOpenForRead(t *testing.T) {
+	headPath := path.Join(t.TempDir(), "testlog")
+	cfg := &Config{}
+	entry := []byte{25}
+	l := OrPanic1(OpenLog(headPath, cfg))
+	defer l.Close()
+	// Append minimal amount of data.
+	require.NoError(t,l.OpenForAppend())
+	require.NoError(t,l.Append(entry))
+	// Switch to reading - the written entry should already be there.
+	require.NoError(t,l.OpenForRead(l.MinOffset()))
+	got,ok,err := l.Read()
+	require.NoError(t,err)
+	require.True(t,ok)
+	require.NoError(t,utils.TestDiff(entry,got))
+}
+
+func TestAppendRead(t *testing.T) {
 	for _, reopen := range utils.Slice(true, false) {
 		t.Run(fmt.Sprintf("reopen=%v", reopen), func(t *testing.T) {
 			rng := utils.TestRng()

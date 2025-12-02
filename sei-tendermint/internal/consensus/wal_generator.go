@@ -3,7 +3,7 @@ package consensus
 import (
 	"context"
 	"fmt"
-	"io"
+	"time"
 	mrand "math/rand"
 	"testing"
 
@@ -30,8 +30,7 @@ import (
 // consensus state) with a kvstore application and special consensus
 // wal instance (byteBufferWAL) and waits until numBlocks are created.
 // If the node fails to produce given numBlocks, it fails the test.
-func WALGenerateNBlocks(t *testing.T, logger log.Logger, wr io.Writer, numBlocks int) {
-	t.Helper()
+func WALGenerateNBlocks(t *testing.T, logger log.Logger, numBlocks int64) *WAL {
 	ctx := t.Context()
 
 	cfg := getConfig(t)
@@ -74,12 +73,27 @@ func WALGenerateNBlocks(t *testing.T, logger log.Logger, wr io.Writer, numBlocks
 	// END OF COPY PASTE
 	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return utils.IgnoreCancel(consensusState.Run(ctx)) })
-		_, _, err := utils.RecvOrClosed(ctx, numBlocksWritten)
-		return err
+		for {
+			rs := consensusState.GetRoundState()
+			if rs.Height>numBlocks {
+				return nil
+			}
+			// TODO(gprusak): remove active polling once consensus state code is reasonable cleaned up. 
+			if err:=utils.Sleep(ctx,100 *time.Millisecond); err!=nil {
+				return err
+			}
+		}
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	consensusState.wal.Close()
+	wal,err := openWAL(cfg.Consensus.WalFile())
+	if err!=nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(wal.Close)
+	return wal
 }
 
 func randPort() int {
