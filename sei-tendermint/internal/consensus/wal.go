@@ -24,6 +24,8 @@ const (
 	walDefaultFlushInterval = 2 * time.Second
 )
 
+type ErrBadSize struct { error }
+
 //--------------------------------------------------------
 // types and functions for savings consensus messages
 
@@ -241,7 +243,7 @@ func (w *WAL) Append(msg WALMessage) error {
 		panic(fmt.Errorf("proto.Marshal(): %w", err))
 	}
 	if len(entry) > maxMsgSizeBytes {
-		return fmt.Errorf("msg is too big: %d bytes, max: %d bytes", len(entry), maxMsgSizeBytes)
+		return ErrBadSize{fmt.Errorf("msg is too big: %d bytes, max: %d bytes", len(entry), maxMsgSizeBytes)}
 	}
 	return w.inner.Append(entry)
 }
