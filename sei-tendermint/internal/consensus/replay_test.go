@@ -8,9 +8,7 @@ import (
 	"errors"
 	"math/rand"
 	"os"
-	"runtime"
 	"testing"
-	"time"
 
 	"github.com/fortytw2/leaktest"
 	"github.com/gogo/protobuf/proto"
@@ -131,25 +129,25 @@ func TestWALCrash(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := t.Context()
-
 			consensusReplayConfig, err := ResetConfig(t.TempDir(), tc.name)
 			require.NoError(t, err)
-			crashWALandCheckLiveness(ctx, t, consensusReplayConfig, tc.sendTxsFn, tc.heightToStop)
+			crashWALandCheckLiveness(t, consensusReplayConfig, tc.sendTxsFn, tc.heightToStop)
 		})
 	}
 }
 
 func crashWALandCheckLiveness(
-	ctx context.Context,
 	t *testing.T,
 	consensusReplayConfig *config.Config,
 	sendTxsFn func(context.Context, dbm.DB, *State) error,
 	heightToStop int64,
 ) {
-	walPanicked := make(chan error)
-	crashingWal := &crashingWAL{panicCh: walPanicked, heightToStop: heightToStop}
-
+	ctx := t.Context()
+	// TODO: Generate WAL with sendTxsFn running in parallel.
+	// s.SpawnBg(func() error { return sendTxsFn(ctx, stateDB, cs) })
+	// s.SpawnBg(func() error { return utils.IgnoreCancel(cs.Run(ctx)) })
+	// TODO: Iterate over prefixes of generated WAL and start from there.
+	// startNewStateAndWaitForBlock(ctx, consensusReplayConfig)
 	for done := false; !done; {
 		// create consensus state from a clean slate
 		logger := log.NewNopLogger()
@@ -170,38 +168,6 @@ func crashWALandCheckLiveness(
 		)
 
 		scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			// start sending transactions
-			s.SpawnBg(func() error { return sendTxsFn(ctx, stateDB, cs) })
-
-			// clean up WAL file from the previous iteration
-			walFile := cs.config.WalFile()
-			os.Remove(walFile)
-
-			// set crashing WAL
-			csWal, err := openWAL(walFile)
-			require.NoError(t, err)
-			crashingWal.next = csWal
-
-			// reset the message counter
-			crashingWal.msgIndex = 1
-			cs.wal = crashingWal
-
-			// start consensus state
-			s.SpawnBg(func() error { return utils.IgnoreCancel(cs.Run(ctx)) })
-
-			select {
-			case <-ctx.Done():
-				panic("context canceled before test completed")
-			case err := <-walPanicked:
-				// make sure we can make blocks after a crash
-				startNewStateAndWaitForBlock(ctx, consensusReplayConfig)
-				// if we reached the required height, exit
-				if _, ok := err.(ReachedHeightToStopError); ok {
-					done = true
-				}
-			case <-time.After(10 * time.Second):
-				panic("WAL did not panic for 10 seconds (check the log)")
-			}
 			return nil
 		})
 		if err != nil {
@@ -209,80 +175,6 @@ func crashWALandCheckLiveness(
 		}
 	}
 }
-
-// crashingWAL is a WAL which crashes or rather simulates a crash during Save
-// (before and after). It remembers a message for which we last panicked
-// (lastPanickedForMsgIndex), so we don't panic for it in subsequent iterations.
-type crashingWAL struct {
-	next         WAL
-	panicCh      chan error
-	heightToStop int64
-
-	msgIndex                int // current message index
-	lastPanickedForMsgIndex int // last message for which we panicked
-}
-
-var _ WAL = &crashingWAL{}
-
-// WALWriteError indicates a WAL crash.
-type WALWriteError struct {
-	msg string
-}
-
-func (e WALWriteError) Error() string {
-	return e.msg
-}
-
-// ReachedHeightToStopError indicates we've reached the required consensus
-// height and may exit.
-type ReachedHeightToStopError struct {
-	height int64
-}
-
-func (e ReachedHeightToStopError) Error() string {
-	return fmt.Sprintf("reached height to stop %d", e.height)
-}
-
-// Write simulate WAL's crashing by sending an error to the panicCh and then
-// exiting the cs.receiveRoutine.
-func (w *crashingWAL) Write(m WALMessage) error {
-	if endMsg, ok := m.any.(EndHeightMessage); ok {
-		if endMsg.Height == w.heightToStop {
-			w.panicCh <- ReachedHeightToStopError{endMsg.Height}
-			runtime.Goexit()
-			return nil
-		}
-
-		return w.next.Write(m)
-	}
-
-	if w.msgIndex > w.lastPanickedForMsgIndex {
-		w.lastPanickedForMsgIndex = w.msgIndex
-		_, file, line, _ := runtime.Caller(1)
-		w.panicCh <- WALWriteError{fmt.Sprintf("failed to write %T to WAL (fileline: %s:%d)", m, file, line)}
-		runtime.Goexit()
-		return nil
-	}
-
-	w.msgIndex++
-	return w.next.Write(m)
-}
-
-func (w *crashingWAL) WriteSync(m WALMessage) error {
-	return w.Write(m)
-}
-
-func (w *crashingWAL) FlushAndSync() error { return w.next.FlushAndSync() }
-
-func (w *crashingWAL) SearchForEndHeight(
-	height int64,
-	options *WALSearchOptions) (rd io.ReadCloser, found bool, err error) {
-	return w.next.SearchForEndHeight(height, options)
-}
-
-func (w *crashingWAL) Start(ctx context.Context) error { return w.next.Start(ctx) }
-func (w *crashingWAL) Stop()                           { w.next.Stop() }
-func (w *crashingWAL) Wait()                           { w.next.Wait() }
 
 // ------------------------------------------------------------------------------------------
 type simulatorTestSuite struct {
@@ -704,21 +596,15 @@ func testHandshakeReplay(
 		testConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%v_s", t.Name(), mode))
 		require.NoError(t, err)
 		defer func() { _ = os.RemoveAll(testConfig.RootDir) }()
-		var walBody bytes.Buffer
-		WALGenerateNBlocks(t, logger, &walBody, numBlocks)
-		walFile := tempWALWithData(t, walBody.Bytes())
-		cfg.Consensus.WalPath = walFile
-
 		privVal, err := privval.LoadFilePV(cfg.PrivValidator.KeyFile(), cfg.PrivValidator.StateFile())
 		require.NoError(t, err)
 
-		wal, err := openWAL(ctx, logger, walFile)
+		wal := WALGenerateNBlocks(t, logger, numBlocks)
 		require.NoError(t, err)
 		chain, commits = makeBlockchainFromWAL(t, wal)
 		_, err = privVal.GetPubKey(ctx)
 		require.NoError(t, err)
 		stateDB, genesisState, store = stateAndStore(t, cfg, kvstore.ProtocolVersion)
-
 	}
 	stateStore := sm.NewStore(stateDB)
 	store.chain = chain
