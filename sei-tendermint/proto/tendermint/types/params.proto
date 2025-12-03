@@ -152,4 +152,9 @@ message ABCIParams {
   // Indicates if CheckTx should be called on all the transactions
   // remaining in the mempool after a block is executed.
   bool recheck_tx = 2;
+
+  // decouple_delay configures how many consensus heights execution may lag behind.
+  // Setting this to a positive value relaxes Tendermint's traditional requirement
+  // that application execution completes synchronously with the commit step.
+  int64 decouple_delay = 3;
 }
