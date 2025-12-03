@@ -836,15 +836,9 @@ func (db *DB) Close() error {
 	errs := []error{}
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
-	// Close stream handler
-	db.logger.Info("Closing stream handler...")
-	if db.streamHandler != nil {
-		err := db.streamHandler.Close()
-		errs = append(errs, err)
-		db.streamHandler = nil
-	}
 
-	// Close rewrite channel
+	// Close rewrite channel FIRST - must wait for background goroutine to finish
+	// before closing streamHandler, as the goroutine uses db.streamHandler
 	db.logger.Info("Closing rewrite channel...")
 	if db.snapshotRewriteChan != nil {
 		db.snapshotRewriteCancelFunc()
@@ -854,8 +848,12 @@ func (db *DB) Close() error {
 				db.logger.Error("snapshot rewrite failed during close", "error", result.err)
 			}
 		}
-		db.snapshotRewriteChan = nil
-		db.snapshotRewriteCancelFunc = nil
+	}
+
+	// Close stream handler AFTER background goroutine finishes
+	db.logger.Info("Closing stream handler...")
+	if db.streamHandler != nil {
+		errs = append(errs, db.streamHandler.Close())
 	}
 
 	errs = append(errs, db.MultiTree.Close())
@@ -865,8 +863,13 @@ func (db *DB) Close() error {
 	if db.fileLock != nil {
 		errs = append(errs, db.fileLock.Unlock())
 		errs = append(errs, db.fileLock.Destroy())
-		db.fileLock = nil
 	}
+
+	// Nil out references as the last step
+	db.snapshotRewriteChan = nil
+	db.snapshotRewriteCancelFunc = nil
+	db.streamHandler = nil
+	db.fileLock = nil
 	db.logger.Info("Closed memiavl db.")
 	return errorutils.Join(errs...)
 }
