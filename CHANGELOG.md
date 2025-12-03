@@ -29,8 +29,28 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.3
 sei-chain (Note: major repos have been merged into sei-chain)
+[#2580](https://github.com/sei-protocol/sei-chain/pull/2580) Fix: enforce EIP-6780 selfdestruct for prefunded addresses
+* [#2572](https://github.com/sei-protocol/sei-chain/pull/2572) Extra checks in BitArray methods
+* [#2570](https://github.com/sei-protocol/sei-chain/pull/2570) Strongly typed p2p channels
+* [#2567](https://github.com/sei-protocol/sei-chain/pull/2567) Migrate sei-ibc-go into sei-chain as monorepo
+* [#2563](https://github.com/sei-protocol/sei-chain/pull/2563) Do not return error string on precompile error
+* [#2561](https://github.com/sei-protocol/sei-chain/pull/2561) Make seid rollback idempotent and remove --hard
+* [#2560](https://github.com/sei-protocol/sei-chain/pull/2560) Fix: Resolve data race in parallel snapshot writing
+* [#2558](https://github.com/sei-protocol/sei-chain/pull/2559) Remove custom json encoding of consensus internals and replay command
+* [#2558](https://github.com/sei-protocol/sei-chain/pull/2558) Refactor of consensus reactor task management
+* [#2553](https://github.com/sei-protocol/sei-chain/pull/2553) Refactor CheckTx
+* [#2547](https://github.com/sei-protocol/sei-chain/pull/2547) Deprecate and clean up dbsync code reference
+* [#2543](https://github.com/sei-protocol/sei-chain/pull/2543) Add a benchmark mode
+* [#2542](https://github.com/sei-protocol/sei-chain/pull/2542) Config: Make worker pool configurable and increase default queue size
+* [#2540](https://github.com/sei-protocol/sei-chain/pull/2540) Streamline EndBlock
+* [#2539](https://github.com/sei-protocol/sei-chain/pull/2539) PeerManager rewrite
+* [#2537](https://github.com/sei-protocol/sei-chain/pull/2537) Optimzation: Reduce snapshot creation time
+* [#2534](https://github.com/sei-protocol/sei-chain/pull/2534) Remove ABCI socket/grpc functionality
+* [#2533](https://github.com/sei-protocol/sei-chain/pull/2533) Migrate transaction embedding proto types to Go types
+* [#2528](https://github.com/sei-protocol/sei-chain/pull/2528) Watermark fixes
 * [#2527](https://github.com/sei-protocol/sei-chain/pull/2527) Darwin build fix
 * [#2525](https://github.com/sei-protocol/sei-chain/pull/2525) Deprecate store streaming and listeners
+* [#2522](https://github.com/sei-protocol/sei-chain/pull/2522) Flatten BeginBlock and remove nested logic
 * [#2521](https://github.com/sei-protocol/sei-chain/pull/2521) Fix base field parsing for sei-cosmos toml
 * [#2520](https://github.com/sei-protocol/sei-chain/pull/2520) Minor refactor to tracing
 * [#2519](https://github.com/sei-protocol/sei-chain/pull/2519) Include price-feeder in seid container
@@ -44,6 +64,7 @@ sei-chain (Note: major repos have been merged into sei-chain)
 * [#2509](https://github.com/sei-protocol/sei-chain/pull/2509) Address comments for tendermint p2p
 * [#2507](https://github.com/sei-protocol/sei-chain/pull/2507) Remove SimApp and Cosmos simulation logic
 * [#2506](https://github.com/sei-protocol/sei-chain/pull/2506) Fix: Set MinRetainBlocks=0 for archive node
+* [#2504](https://github.com/sei-protocol/sei-chain/pull/2504) Remove aclaccesscontrol module and usages
 * [#2503](https://github.com/sei-protocol/sei-chain/pull/2503) Fix sei-db race conditions
 * [#2497](https://github.com/sei-protocol/sei-chain/pull/2497) Feat: optimize memIAVL cold-start with sequential snapshot prefetch
 * [#2494](https://github.com/sei-protocol/sei-chain/pull/2494) Fix bloom fallback behavior
@@ -93,11 +114,11 @@ sei-chain (Note: major repos have been merged into sei-chain)
 * [#2399](https://github.com/sei-protocol/sei-chain/pull/2399) Fix cosmos priority and add unit test
 * [#2397](https://github.com/sei-protocol/sei-chain/pull/2397) Update error msg for v2 upgrade
 * [#2389](https://github.com/sei-protocol/sei-chain/pull/2389) Parameterize SSTORE
-* [#2345](https://github.com/sei-protocol/sei-chain/pull/2345) Fix: Add panic recovery to ProcessProposalHandler goroutine
-* [#2320](https://github.com/sei-protocol/sei-chain/pull/2320) Implement standalone transaction prioritizer
 * [#2388](https://github.com/sei-protocol/sei-chain/pull/2388) Cherrypick RPC fixes from v6.1.11
 * [#2377](https://github.com/sei-protocol/sei-chain/pull/2377) Fix block gas used
 * [#2374](https://github.com/sei-protocol/sei-chain/pull/2374) Estimate gas fix
+* [#2345](https://github.com/sei-protocol/sei-chain/pull/2345) Fix: Add panic recovery to ProcessProposalHandler goroutine
+* [#2320](https://github.com/sei-protocol/sei-chain/pull/2320) Implement standalone transaction prioritizer
 
 Other fixes included that were squashed by monorepo work
 * [Add otel metrics for seidb](https://github.com/sei-protocol/sei-chain/commit/c0e868d45adc00c0e27c932546c678a069b3d544)
