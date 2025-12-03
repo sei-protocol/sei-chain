@@ -281,7 +281,7 @@ func TestPrecompileExecutor_extractAsBytesFromArray(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
-				require.Equal(t, tt.wantErrMsg, string(res))
+				require.Nil(t, res)
 				return
 			} else {
 				output, err := method.Outputs.Unpack(res)

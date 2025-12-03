@@ -473,7 +473,7 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 			}
 			if err != nil {
 				require.Equal(t, vm.ErrExecutionReverted, err)
-				require.Equal(t, tt.wantErrMsg, string(gotRet))
+				require.Nil(t, gotRet)
 			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
 				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
 			}
@@ -691,7 +691,7 @@ func TestCreateValidator(t *testing.T) {
 
 			if tt.wantErr {
 				require.NotEmpty(t, res.VmError, "Expected error but transaction succeeded")
-				require.Equal(t, tt.wantErrMsg, string(res.ReturnData), "Expected error: %s", res.VmError)
+				require.Nil(t, res.ReturnData)
 			} else {
 				require.Empty(t, res.VmError, "Unexpected error: %s", res.VmError)
 				// Additional validation for successful cases
@@ -752,7 +752,7 @@ func TestCreateValidator_UnassociatedAddress(t *testing.T) {
 	res, err := setup.msgServer.EVMTransaction(sdk.WrapSDKContext(setup.ctx), req)
 	require.NoError(t, err)
 	require.NotEmpty(t, res.VmError, "Should fail with unassociated address")
-	require.Equal(t, "address "+unassociatedEvmAddr.String()+" is not linked", string(res.ReturnData), "Should fail with unassociated address")
+	require.Nil(t, res.ReturnData)
 }
 
 func TestEditValidator_ErorrIfDoesNotExist(t *testing.T) {
@@ -809,7 +809,7 @@ func TestEditValidator_ErorrIfDoesNotExist(t *testing.T) {
 	require.NoError(t, err)
 	// Should fail because validator doesn't exist
 	require.NotEmpty(t, res.VmError, "Should fail because validator doesn't exist")
-	require.Contains(t, string(res.ReturnData), "validator does not exist")
+	require.Nil(t, res.ReturnData)
 }
 
 func TestEditValidator(t *testing.T) {
