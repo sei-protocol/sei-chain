@@ -31,6 +31,7 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
+	tmcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -45,10 +46,10 @@ type reactorTestSuite struct {
 	reactors            map[types.NodeID]*Reactor
 	subs                map[types.NodeID]eventbus.Subscription
 	blocksyncSubs       map[types.NodeID]eventbus.Subscription
-	stateChannels       map[types.NodeID]*p2p.Channel
-	dataChannels        map[types.NodeID]*p2p.Channel
-	voteChannels        map[types.NodeID]*p2p.Channel
-	voteSetBitsChannels map[types.NodeID]*p2p.Channel
+	stateChannels       map[types.NodeID]*p2p.Channel[*tmcons.Message]
+	dataChannels        map[types.NodeID]*p2p.Channel[*tmcons.Message]
+	voteChannels        map[types.NodeID]*p2p.Channel[*tmcons.Message]
+	voteSetBitsChannels map[types.NodeID]*p2p.Channel[*tmcons.Message]
 }
 
 func setup(
@@ -293,7 +294,7 @@ func TestReactorWithEvidence(t *testing.T) {
 		ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, 1, defaultTestTime, privVals[vIdx], cfg.ChainID())
 		require.NoError(t, err)
 		evpool := &statemocks.EvidencePool{}
-		evpool.On("CheckEvidence", ctx, mock.AnythingOfType("types.EvidenceList")).Return(nil)
+		evpool.On("CheckEvidence", mock.Anything, mock.AnythingOfType("types.EvidenceList")).Return(nil)
 		evpool.On("PendingEvidence", mock.AnythingOfType("int64")).Return([]types.Evidence{
 			ev}, int64(len(ev.Bytes())))
 		evpool.On("Update", mock.MatchedBy(func(ctx context.Context) bool { return true }), mock.AnythingOfType("state.State"), mock.AnythingOfType("types.EvidenceList")).Return()
@@ -307,7 +308,7 @@ func TestReactorWithEvidence(t *testing.T) {
 		cs, err := NewState(logger.With("validator", i, "module", "consensus"),
 			thisConfig.Consensus, stateStore, blockExec, blockStore, mempool, evpool2, eventBus, []trace.TracerProviderOption{})
 		require.NoError(t, err)
-		cs.SetPrivValidator(ctx, pv)
+		cs.SetPrivValidator(ctx, utils.Some(pv))
 
 		cs.SetTimeoutTicker(tickerFunc())
 
@@ -438,9 +439,11 @@ func TestReactorRecordsVotesAndBlockParts(t *testing.T) {
 		t,
 		func() bool {
 			for _, reactor := range rts.reactors {
-				for _, ps := range reactor.peers {
-					if ps.BlockPartsSent() > 0 {
-						return true
+				for peers := range reactor.peers.Lock() {
+					for _, ps := range peers {
+						if ps.BlockPartsSent() > 0 {
+							return true
+						}
 					}
 				}
 			}
@@ -495,7 +498,8 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 	for i := range 10 {
 		nodeIdx := rng.Intn(nPeers)
 		t.Logf("nodeIdx = %v", nodeIdx)
-		key, err := states[nodeIdx].privValidator.GetPubKey(ctx)
+		pv, _ := states[nodeIdx].privValidator.Get()
+		key, err := pv.GetPubKey(ctx)
 		require.NoError(t, err)
 		keyProto, err := encoding.PubKeyToProto(key)
 		require.NoError(t, err)

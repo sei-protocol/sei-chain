@@ -59,18 +59,12 @@ func (part *Part) StringIndented(indent string) string {
 		indent)
 }
 
-func (part *Part) ToProto() (*tmproto.Part, error) {
-	if part == nil {
-		return nil, errors.New("nil part")
+func (part *Part) ToProto() *tmproto.Part {
+	return &tmproto.Part{
+		Index: part.Index,
+		Bytes: part.Bytes,
+		Proof: *part.Proof.ToProto(),
 	}
-	pb := new(tmproto.Part)
-	proof := part.Proof.ToProto()
-
-	pb.Index = part.Index
-	pb.Bytes = part.Bytes
-	pb.Proof = *proof
-
-	return pb, nil
 }
 
 func PartFromProto(pb *tmproto.Part) (*Part, error) {

@@ -11,7 +11,7 @@ import (
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	pb "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -31,10 +31,10 @@ const (
 
 // GetChannelDescriptor produces an instance of a descriptor for this
 // package's required channels.
-func GetChannelDescriptor() p2p.ChannelDescriptor {
-	return p2p.ChannelDescriptor{
+func GetChannelDescriptor() p2p.ChannelDescriptor[*pb.Evidence] {
+	return p2p.ChannelDescriptor[*pb.Evidence]{
 		ID:                  EvidenceChannel,
-		MessageType:         new(tmproto.Evidence),
+		MessageType:         new(pb.Evidence),
 		Priority:            6,
 		RecvMessageCapacity: maxMsgSize,
 		RecvBufferCapacity:  32,
@@ -53,7 +53,7 @@ type Reactor struct {
 	mtx sync.Mutex
 
 	peerRoutines map[types.NodeID]context.CancelFunc
-	channel      *p2p.Channel
+	channel      *p2p.Channel[*pb.Evidence]
 }
 
 // NewReactor returns a reference to a new evidence reactor, which implements the
@@ -64,7 +64,7 @@ func NewReactor(
 	router *p2p.Router,
 	evpool *Pool,
 ) (*Reactor, error) {
-	channel, err := router.OpenChannel(GetChannelDescriptor())
+	channel, err := p2p.OpenChannel(router, GetChannelDescriptor())
 	if err != nil {
 		return nil, fmt.Errorf("router.OpenChannel(): %w", err)
 	}
@@ -99,7 +99,7 @@ func (r *Reactor) OnStop() { r.evpool.Close() }
 // It returns an error only if the Envelope.Message is unknown for this channel
 // or if the given evidence is invalid. This should never be called outside of
 // handleMessage.
-func (r *Reactor) handleEvidenceMessage(ctx context.Context, m p2p.RecvMsg) (err error) {
+func (r *Reactor) handleEvidenceMessage(ctx context.Context, m p2p.RecvMsg[*pb.Evidence]) (err error) {
 	defer func() {
 		if e := recover(); e != nil {
 			err = fmt.Errorf("panic in processing message: %v", e)
@@ -110,27 +110,19 @@ func (r *Reactor) handleEvidenceMessage(ctx context.Context, m p2p.RecvMsg) (err
 			)
 		}
 	}()
-	switch msg := m.Message.(type) {
-	case *tmproto.Evidence:
-		// Process the evidence received from a peer
-		// Evidence is sent and received one by one
-		ev, err := types.EvidenceFromProto(msg)
-		if err != nil {
-			return fmt.Errorf("types.EvidenceFromProto(): %w", err)
-		}
-		if err := r.evpool.AddEvidence(ctx, ev); err != nil {
-			// If we're given invalid evidence by the peer, notify the router that
-			// we should remove this peer by returning an error.
-			if _, ok := err.(*types.ErrInvalidEvidence); ok {
-				return err
-			}
-
-		}
-
-	default:
-		return fmt.Errorf("received unknown message: %T", msg)
+	// Process the evidence received from a peer
+	// Evidence is sent and received one by one
+	ev, err := types.EvidenceFromProto(m.Message)
+	if err != nil {
+		return fmt.Errorf("types.EvidenceFromProto(): %w", err)
 	}
-
+	if err := r.evpool.AddEvidence(ctx, ev); err != nil {
+		// If we're given invalid evidence by the peer, notify the router that
+		// we should remove this peer by returning an error.
+		if _, ok := err.(*types.ErrInvalidEvidence); ok {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -224,7 +216,7 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 // that the peer has already received or may not be ready for.
 //
 // REF: https://github.com/tendermint/tendermint/issues/4727
-func (r *Reactor) broadcastEvidenceLoop(ctx context.Context, peerID types.NodeID, evidenceCh *p2p.Channel) {
+func (r *Reactor) broadcastEvidenceLoop(ctx context.Context, peerID types.NodeID, evidenceCh *p2p.Channel[*pb.Evidence]) {
 	var next *clist.CElement
 
 	defer func() {

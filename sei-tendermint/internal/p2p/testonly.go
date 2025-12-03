@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"net/netip"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/gogo/protobuf/proto"
 	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
@@ -146,14 +148,15 @@ func (n *TestNetwork) NodeIDs() []types.NodeID {
 
 // MakeChannels makes a channel on all nodes and returns them, automatically
 // doing error checks and cleanups.
-func (n *TestNetwork) MakeChannels(
+func TestMakeChannels[T proto.Message](
 	t *testing.T,
-	chDesc ChannelDescriptor,
-) map[types.NodeID]*Channel {
-	channels := map[types.NodeID]*Channel{}
+	n *TestNetwork,
+	chDesc ChannelDescriptor[T],
+) map[types.NodeID]*Channel[T] {
+	channels := map[types.NodeID]*Channel[T]{}
 	for nodes := range n.nodes.Lock() {
 		for id, n := range nodes {
-			channels[id] = n.MakeChannel(t, chDesc)
+			channels[id] = TestMakeChannel(t, n, chDesc)
 		}
 	}
 	return channels
@@ -162,14 +165,15 @@ func (n *TestNetwork) MakeChannels(
 // MakeChannelsNoCleanup makes a channel on all nodes and returns them,
 // automatically doing error checks. The caller must ensure proper cleanup of
 // all the channels.
-func (n *TestNetwork) MakeChannelsNoCleanup(
+func TestMakeChannelsNoCleanup[T proto.Message](
 	t *testing.T,
-	chDesc ChannelDescriptor,
-) map[types.NodeID]*Channel {
-	channels := map[types.NodeID]*Channel{}
+	n *TestNetwork,
+	chDesc ChannelDescriptor[T],
+) map[types.NodeID]*Channel[T] {
+	channels := map[types.NodeID]*Channel[T]{}
 	for nodes := range n.nodes.Lock() {
 		for _, node := range nodes {
-			channels[node.NodeID] = node.MakeChannelNoCleanup(t, chDesc)
+			channels[node.NodeID] = TestMakeChannelNoCleanup(t, node, chDesc)
 		}
 	}
 	return channels
@@ -327,11 +331,12 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 // MakeChannel opens a channel, with automatic error handling and cleanup. On
 // test cleanup, it also checks that the channel is empty, to make sure
 // all expected messages have been asserted.
-func (n *TestNode) MakeChannel(
+func TestMakeChannel[T proto.Message](
 	t *testing.T,
-	chDesc ChannelDescriptor,
-) *Channel {
-	ch, err := n.Router.OpenChannel(chDesc)
+	n *TestNode,
+	chDesc ChannelDescriptor[T],
+) *Channel[T] {
+	ch, err := OpenChannel(n.Router, chDesc)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		RequireEmpty(t, ch)
@@ -341,8 +346,8 @@ func (n *TestNode) MakeChannel(
 
 // MakeChannelNoCleanup opens a channel, with automatic error handling. The
 // caller must ensure proper cleanup of the channel.
-func (n *TestNode) MakeChannelNoCleanup(t *testing.T, chDesc ChannelDescriptor) *Channel {
-	ch, err := n.Router.OpenChannel(chDesc)
+func TestMakeChannelNoCleanup[T proto.Message](t *testing.T, n *TestNode, chDesc ChannelDescriptor[T]) *Channel[T] {
+	ch, err := OpenChannel(n.Router, chDesc)
 	require.NoError(t, err)
 	return ch
 }
@@ -353,8 +358,8 @@ func (n *TestNode) MakePeerUpdates() *PeerUpdatesRecv {
 	return n.Router.peerManager.Subscribe()
 }
 
-func MakeTestChannelDesc(chID ChannelID) ChannelDescriptor {
-	return ChannelDescriptor{
+func MakeTestChannelDesc(chID ChannelID) ChannelDescriptor[*TestMessage] {
+	return ChannelDescriptor[*TestMessage]{
 		ID:                  chID,
 		MessageType:         &TestMessage{},
 		Priority:            5,
@@ -364,27 +369,26 @@ func MakeTestChannelDesc(chID ChannelID) ChannelDescriptor {
 }
 
 // RequireEmpty requires that the given channel is empty.
-func RequireEmpty(t *testing.T, channels ...*Channel) {
-	t.Helper()
+func RequireEmpty[T proto.Message](t *testing.T, channels ...*Channel[T]) {
 	for _, ch := range channels {
 		if ch.ReceiveLen() != 0 {
-			t.Errorf("nonempty channel %v", ch)
+			panic(fmt.Errorf("nonempty channel %T", ch))
 		}
 	}
 }
 
 // RequireReceive requires that the given envelope is received on the channel.
-func RequireReceive(t *testing.T, channel *Channel, want RecvMsg) {
+func RequireReceive[T proto.Message](t *testing.T, channel *Channel[T], want RecvMsg[T]) {
 	t.Helper()
 	RequireReceiveUnordered(t, channel, utils.Slice(want))
 }
 
 // RequireReceiveUnordered requires that the given envelopes are all received on
 // the channel, ignoring order.
-func RequireReceiveUnordered(t *testing.T, channel *Channel, want []RecvMsg) {
+func RequireReceiveUnordered[T proto.Message](t *testing.T, channel *Channel[T], want []RecvMsg[T]) {
 	t.Helper()
 	t.Logf("awaiting %d messages", len(want))
-	var got []RecvMsg
+	var got []RecvMsg[T]
 	for len(got) < len(want) {
 		m, err := channel.Recv(t.Context())
 		if err != nil {

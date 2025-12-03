@@ -29,11 +29,13 @@ func IsDisconnect(err error) bool {
 // ChannelID is an arbitrary channel ID.
 type ChannelID uint16
 
-type ChannelDescriptor struct {
+type ChannelDescriptor = ChannelDescriptorT[proto.Message]
+
+type ChannelDescriptorT[T proto.Message] struct {
 	ID       ChannelID
 	Priority int
 
-	MessageType proto.Message
+	MessageType T
 
 	// TODO: Remove once p2p refactor is complete.
 	SendQueueCapacity   int
@@ -48,7 +50,19 @@ type ChannelDescriptor struct {
 	Name string
 }
 
-func (chDesc ChannelDescriptor) withDefaults() ChannelDescriptor {
+func (chDesc ChannelDescriptorT[T]) ToGeneric() ChannelDescriptor {
+	return ChannelDescriptor{
+		ID:                  chDesc.ID,
+		Priority:            chDesc.Priority,
+		MessageType:         chDesc.MessageType,
+		SendQueueCapacity:   chDesc.SendQueueCapacity,
+		RecvMessageCapacity: chDesc.RecvMessageCapacity,
+		RecvBufferCapacity:  chDesc.RecvBufferCapacity,
+		Name:                chDesc.Name,
+	}
+}
+
+func (chDesc ChannelDescriptorT[T]) withDefaults() ChannelDescriptorT[T] {
 	if chDesc.Priority <= 0 {
 		chDesc.Priority = 1
 	}
