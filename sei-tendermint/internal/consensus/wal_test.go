@@ -8,7 +8,6 @@ import (
 
 	"github.com/tendermint/tendermint/crypto/merkle"
 	"github.com/tendermint/tendermint/internal/consensus/types"
-	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/require"
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -63,7 +62,13 @@ func TestWAL_ErrBadSize(t *testing.T) {
 }
 
 func TestWAL_SeekEndHeight(t *testing.T) {
-	wal := WALGenerateNBlocks(t, log.NewNopLogger(), 6)
+	cfg := getConfig(t)
+	runStateUntilBlock(t, cfg, 6)
+	wal, err := openWAL(cfg.Consensus.WalFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wal.Close()
 
 	h := int64(3)
 	found, err := wal.SeekEndHeight(h)

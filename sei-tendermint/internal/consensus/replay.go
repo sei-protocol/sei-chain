@@ -37,14 +37,13 @@ import (
 // received in receiveRoutine.  Lines that start with "#" are ignored.
 // NOTE: receiveRoutine should not be running.
 func (cs *State) readReplayMessage(ctx context.Context, msg WALMessage, newStepSub eventbus.Subscription) error {
-	// Skip meta messages which exist for demarcating boundaries.
-	if _, ok := msg.any.(EndHeightMessage); ok {
-		return nil
-	}
-
-	// for logging
 	switch m := msg.any.(type) {
+	case EndHeightMessage:
+		// Skip meta messages which exist for demarcating boundaries.
+		fmt.Printf("REPLAY EndHeightMessage %v\n",m)
+		return nil
 	case types.EventDataRoundState:
+		fmt.Printf("REPLAY EventDataRoundState %+v\n",m)
 		cs.logger.Info("Replay: New Step", "height", m.Height, "round", m.Round, "step", m.Step)
 		// these are playback checks
 		if newStepSub != nil {
@@ -62,6 +61,7 @@ func (cs *State) readReplayMessage(ctx context.Context, msg WALMessage, newStepS
 			}
 		}
 	case msgInfo:
+		fmt.Printf("REPLAY msgInfo %v\n",m)
 		peerID := m.PeerID
 		if peerID == "" {
 			peerID = "local"
@@ -93,7 +93,7 @@ func (cs *State) readReplayMessage(ctx context.Context, msg WALMessage, newStepS
 // Replay only those messages since the last block.  `timeoutRoutine` should
 // run concurrently to read off tickChan.
 func (cs *State) catchupReplay(ctx context.Context, csHeight int64) error {
-
+	fmt.Printf("REPLAY csHeight = %v\n",csHeight)
 	// Set replayMode to true so we don't log signing errors.
 	cs.replayMode = true
 	defer func() { cs.replayMode = false }()

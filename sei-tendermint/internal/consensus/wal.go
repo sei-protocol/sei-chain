@@ -279,15 +279,15 @@ func (w *WAL) readEndHeight() (EndHeightMessage, error) {
 	}
 }
 
-// SeekEndHeight opens WAL for reading at position AFTER EndHeightMessage{height}.
-func (w *WAL) SeekEndHeight(height int64) (bool, error) {
+// SeekEndHeight opens WAL for reading at position after last EndHeightMessage{height}.
+// 
+func (w *WAL) LastHeightMsgs() (int64,[]WALMessage,error) {
 	// iterate over WAL checkpoints from the newest
 	// We assume that height is recent.
 	minOffset := w.inner.MinOffset()
 	for offset := 0; offset >= minOffset; offset-- {
-		fmt.Printf("height=%v, offset = %v\n", height, offset)
-		if err := w.inner.OpenForRead(offset); err != nil {
-			return false, fmt.Errorf("w.inner.OpenForRead(): %w", err)
+		if err := w.inner.ReadFile(offset); err != nil {
+			return 0, nil, fmt.Errorf("w.inner.OpenForRead(): %w", err)
 		}
 		// find the first marker
 		msg, err := w.readEndHeight()

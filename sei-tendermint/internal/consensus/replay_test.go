@@ -8,6 +8,8 @@ import (
 	"io"
 	"math/rand"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fortytw2/leaktest"
@@ -49,52 +51,71 @@ import (
 //------------------------------------------------------------------------------------------
 // WAL Tests
 
-// TODO: It would be better to verify explicitly which states we can recover from without the wal
-// and which ones we need the wal for - then we'd also be able to only flush the
-// wal writer when we need to, instead of with every message.
+func randPort() int {
+	// returns between base and base + spread
+	base, spread := 20000, 20000
+	// nolint:gosec // G404: Use of weak random number generator
+	return base + rand.Intn(spread)
+}
 
-func startNewStateAndWaitForBlock(
-	ctx context.Context,
-	consensusReplayConfig *config.Config,
-) {
-	logger := log.NewNopLogger()
-	state, err := sm.MakeGenesisStateFromFile(consensusReplayConfig.GenesisFile())
-	if err != nil {
-		panic(fmt.Errorf("sm.MakeGenesisStateFromFile(): %w", err))
-	}
-	privValidator := loadPrivValidator(consensusReplayConfig)
-	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	cs := newStateWithConfigAndBlockStore(
-		ctx,
-		logger,
-		consensusReplayConfig,
-		state,
-		privValidator,
-		kvstore.NewApplication(),
-		blockStore,
-	)
+// makeAddrs constructs local TCP addresses for node services.
+// It uses consecutive ports from a random starting point, so that concurrent
+// instances are less likely to collide.
+func makeAddrs() (p2pAddr, rpcAddr string) {
+	const addrTemplate = "tcp://127.0.0.1:%d"
+	start := randPort()
+	return fmt.Sprintf(addrTemplate, start), fmt.Sprintf(addrTemplate, start+1)
+}
 
-	if _, err := os.ReadFile(cs.config.WalFile()); err != nil {
-		panic(fmt.Errorf("os.ReadFile(%q): %w", cs.config.WalFile(), err))
-	}
+// getConfig returns a config for test cases
+func getConfig(t *testing.T) *config.Config {
+	c, err := config.ResetTestRoot(t.TempDir(), t.Name())
+	require.NoError(t, err)
 
-	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBg(func() error { return utils.IgnoreCancel(cs.Run(ctx)) })
-		// This is just a signal that we haven't halted; its not something contained
-		// in the WAL itself. Assuming the consensus state is running, replay of any
-		// WAL, including the empty one, should eventually be followed by a new
-		// block, or else something is wrong.
-		newBlockSub, err := cs.eventBus.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
-			ClientID: testSubscriber,
-			Query:    types.EventQueryNewBlock,
-		})
-		if err != nil {
-			return fmt.Errorf("cs.eventBus.SubscribeWithArgs(): %w", err)
-		}
-		_, err = newBlockSub.Next(ctx)
-		return err
+	p2pAddr, rpcAddr := makeAddrs()
+	c.P2P.ListenAddress = p2pAddr
+	c.RPC.ListenAddress = rpcAddr
+	return c
+}
+
+func waitForBlock(ctx context.Context, cs *State, lastBlock int64) error {
+	newBlockSub, err := cs.eventBus.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
+		ClientID: testSubscriber,
+		Query:    types.EventQueryNewBlock,
 	})
 	if err != nil {
+		return fmt.Errorf("cs.eventBus.SubscribeWithArgs(): %w", err)
+	}
+	for {
+		msg, err := newBlockSub.Next(ctx)
+		if err!=nil {
+			return fmt.Errorf("newBlockSub.Next(): %w",err)
+		}
+		if msg.Data().(types.EventDataNewBlock).Block.Header.Height >= lastBlock {
+			return nil
+		}
+	}
+}
+
+// runStateUntilBlock runs consensus state until block lastBlock is produced.
+func runStateUntilBlock(t *testing.T, cfg *config.Config, lastBlock int64) {
+	ctx := t.Context()
+	state, err := sm.MakeGenesisStateFromFile(cfg.GenesisFile())
+	require.NoError(t,err)
+	cs := newStateWithConfigAndBlockStore(
+		ctx,
+		log.NewNopLogger(),
+		cfg,
+		state,
+		loadPrivValidator(cfg),
+		kvstore.NewApplication(),
+		store.NewBlockStore(dbm.NewMemDB()),
+	)
+	defer cs.wal.Close()
+	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(cs.Run(ctx)) })
+		return waitForBlock(ctx,cs,lastBlock)	
+	}); err!=nil {
 		panic(err)
 	}
 }
@@ -136,43 +157,82 @@ func TestWALCrash(t *testing.T) {
 	}
 }
 
+func dumpWAL(t *testing.T, walPath string) []WALMessage {
+	t.Helper()
+	wal,err := openWAL(walPath)
+	require.NoError(t,err)
+	defer wal.Close()
+	found,err:=wal.SeekEndHeight(0)
+	require.NoError(t,err)
+	require.True(t,found)
+	var msgs []WALMessage
+	for {
+		msg,err := wal.Read()
+		if errors.Is(io.EOF,err) {
+			break
+		}
+		require.NoError(t,err)
+		msgs = append(msgs,msg)
+	}
+	return msgs
+}
+
+func resetWAL(t *testing.T, walPath string, msgs []WALMessage) {
+	t.Helper()
+	dirPath := filepath.Dir(walPath)
+	entries,err := os.ReadDir(dirPath)
+	require.NoError(t,err)
+	for _,e := range entries {
+		if strings.HasPrefix(e.Name(),filepath.Base(walPath)) {
+			require.NoError(t,os.Remove(filepath.Join(dirPath,e.Name())))
+		}
+	}
+	wal,err := openWAL(walPath)
+	require.NoError(t,err)
+	defer wal.Close()
+	require.NoError(t,wal.OpenForAppend())
+	for _,msg := range msgs {
+		require.NoError(t,wal.Append(msg))
+	}
+	require.NoError(t,wal.Sync())
+}
+
 func crashWALandCheckLiveness(
 	t *testing.T,
-	consensusReplayConfig *config.Config,
+	cfg *config.Config,
 	sendTxsFn func(context.Context, dbm.DB, *State) error,
 	heightToStop int64,
 ) {
-	ctx := t.Context()
-	// TODO: Generate WAL with sendTxsFn running in parallel.
-	// s.SpawnBg(func() error { return sendTxsFn(ctx, stateDB, cs) })
-	// s.SpawnBg(func() error { return utils.IgnoreCancel(cs.Run(ctx)) })
-	// TODO: Iterate over prefixes of generated WAL and start from there.
-	// startNewStateAndWaitForBlock(ctx, consensusReplayConfig)
-	for done := false; !done; {
-		// create consensus state from a clean slate
-		logger := log.NewNopLogger()
-		blockDB := dbm.NewMemDB()
-		stateDB := dbm.NewMemDB()
-		blockStore := store.NewBlockStore(blockDB)
-		state, err := sm.MakeGenesisStateFromFile(consensusReplayConfig.GenesisFile())
-		require.NoError(t, err)
-		privValidator := loadPrivValidator(consensusReplayConfig)
-		cs := newStateWithConfigAndBlockStore(
-			ctx,
-			logger,
-			consensusReplayConfig,
-			state,
-			privValidator,
-			kvstore.NewApplication(),
-			blockStore,
-		)
-
-		scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			return nil
+	t.Helper()
+	ctx := t.Context()	
+	t.Logf("Generate WAL with sendTxsFn running in parallel.")
+	state, err := sm.MakeGenesisStateFromFile(cfg.GenesisFile())
+	require.NoError(t,err)
+	cs := newStateWithConfigAndBlockStore(
+		ctx,
+		log.NewNopLogger(),
+		cfg,
+		state,
+		loadPrivValidator(cfg),
+		kvstore.NewApplication(),
+		store.NewBlockStore(dbm.NewMemDB()),
+	)
+	defer cs.wal.Close()
+	require.NoError(t,scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return sendTxsFn(ctx, dbm.NewMemDB(), cs) })
+		s.SpawnBg(func() error { return utils.IgnoreCancel(cs.Run(ctx)) })
+		return waitForBlock(ctx,cs,heightToStop)	
+	}))
+	cs.wal.Close()
+	msgs := dumpWAL(t,cfg.Consensus.WalFile())
+	t.Logf("Iterate over prefixes of generated WAL and start from there.")
+	for i := range msgs {
+		t.Run(fmt.Sprintf("%v",len(msgs)), func(t *testing.T) {
+			// WARNING: when bootstaping, WAL is initialized with EndHeight{0} marker,
+			// so we skip it to avoid inserting it twice.
+			resetWAL(t,cfg.Consensus.WalFile(),msgs[1:i+1])
+			runStateUntilBlock(t,cfg,heightToStop+1)
 		})
-		if err != nil {
-			panic(err)
-		}
 	}
 }
 
@@ -545,20 +605,6 @@ func TestHandshakeReplayNone(t *testing.T) {
 	}
 }
 
-func tempWALWithData(t *testing.T, data []byte) string {
-	t.Helper()
-
-	walFile, err := os.CreateTemp(t.TempDir(), "wal")
-	require.NoError(t, err, "failed to create temp WAL file")
-	t.Cleanup(func() { _ = os.RemoveAll(walFile.Name()) })
-
-	_, err = walFile.Write(data)
-	require.NoError(t, err, "failed to  write to temp WAL file")
-
-	require.NoError(t, walFile.Close(), "failed to close temp WAL file")
-	return walFile.Name()
-}
-
 // Make some blocks. Start a fresh app and apply nBlocks blocks.
 // Then restart the app and sync it up with the remaining blocks
 func testHandshakeReplay(
@@ -599,8 +645,11 @@ func testHandshakeReplay(
 		privVal, err := privval.LoadFilePV(cfg.PrivValidator.KeyFile(), cfg.PrivValidator.StateFile())
 		require.NoError(t, err)
 
-		wal := WALGenerateNBlocks(t, logger, numBlocks)
-		require.NoError(t, err)
+		tmpCfg := getConfig(t)
+		runStateUntilBlock(t, tmpCfg, numBlocks)
+		wal,err := openWAL(tmpCfg.Consensus.WalFile())
+		require.NoError(t,err)
+		defer wal.Close()
 		chain, commits = makeBlockchainFromWAL(t, wal)
 		_, err = privVal.GetPubKey(ctx)
 		require.NoError(t, err)
