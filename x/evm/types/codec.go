@@ -37,6 +37,8 @@ func RegisterCodec(cdc *codec.LegacyAmino) {
 	cdc.RegisterConcrete(&MsgSend{}, "evm/MsgSend", nil)
 	cdc.RegisterConcrete(&MsgRegisterPointer{}, "evm/MsgRegisterPointer", nil)
 	cdc.RegisterConcrete(&MsgAssociateContractAddress{}, "evm/MsgAssociateContractAddress", nil)
+	cdc.RegisterConcrete(&MsgClaim{}, "evm/MsgClaim", nil)
+	cdc.RegisterConcrete(&MsgClaimSpecific{}, "evm/MsgClaimSpecific", nil)
 }
 
 func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
@@ -44,8 +46,10 @@ func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 		&AddERCNativePointerProposal{},
 		&AddERCCW20PointerProposal{},
 		&AddERCCW721PointerProposal{},
+		&AddERCCW1155PointerProposal{},
 		&AddCWERC20PointerProposal{},
 		&AddCWERC721PointerProposal{},
+		&AddCWERC1155PointerProposal{},
 		&AddERCNativePointerProposalV2{},
 	)
 	registry.RegisterImplementations(
@@ -54,6 +58,9 @@ func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 		&MsgSend{},
 		&MsgRegisterPointer{},
 		&MsgAssociateContractAddress{},
+		&MsgClaim{},
+		&MsgClaimSpecific{},
+		&MsgAssociate{},
 	)
 	registry.RegisterInterface(
 		"seiprotocol.seichain.evm.TxData",
@@ -63,6 +70,7 @@ func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 		&ethtx.LegacyTx{},
 		&ethtx.BlobTx{},
 		&ethtx.AssociateTx{},
+		&ethtx.SetCodeTx{},
 	)
 
 	msgservice.RegisterMsgServiceDesc(registry, &_Msg_serviceDesc)
@@ -113,6 +121,11 @@ func UnpackTxData(any *codectypes.Any) (ethtx.TxData, error) {
 		if proto.Unmarshal(any.Value, &astx) == nil {
 			// value is an associate tx
 			return &astx, nil
+		}
+		stx := ethtx.SetCodeTx{}
+		if proto.Unmarshal(any.Value, &stx) == nil {
+			// value is a set code tx
+			return &stx, nil
 		}
 		return nil, fmt.Errorf("cannot unpack Any into TxData %T", any)
 	}

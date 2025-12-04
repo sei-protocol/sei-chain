@@ -14,13 +14,14 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 
+	"github.com/sei-protocol/sei-chain/precompiles/solo"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-type EVMCallFunc func(caller vm.ContractRef, addr *common.Address, input []byte, gas uint64, value *big.Int) (ret []byte, leftOverGas uint64, err error)
+type EVMCallFunc func(caller common.Address, addr *common.Address, input []byte, gas uint64, value *big.Int) (ret []byte, leftOverGas uint64, err error)
 
 var MaxUint64BigInt = new(big.Int).SetUint64(math.MaxUint64)
 
@@ -49,7 +50,7 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 	} else {
 		return nil, errors.New("cannot use a CosmWasm contract to delegate-create an EVM contract")
 	}
-	addr, _, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(req.FromContract))))
+	addr, _, exists := k.GetAnyPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(req.FromContract))))
 	if !exists || common.BytesToAddress(addr).Cmp(*to) != 0 {
 		return nil, errors.New("only pointer contract can make delegatecalls")
 	}
@@ -80,6 +81,9 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	if to == nil && len(data) > params.MaxInitCodeSize {
 		return nil, fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(data), params.MaxInitCodeSize)
 	}
+	if to != nil && to.Cmp(common.HexToAddress(solo.SoloAddress)) == 0 {
+		return nil, errors.New("cannot call Solo precompile via CosmWasm")
+	}
 	value := utils.Big0
 	if val != nil {
 		if val.IsNegative() {
@@ -92,18 +96,18 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	stateDB := state.NewDBImpl(executionCtx, k, false)
 	gp := k.GetGasPool()
 	evmMsg := &core.Message{
-		Nonce:             stateDB.GetNonce(from), // replay attack is prevented by the AccountSequence number set on the CW transaction that triggered this call
-		GasLimit:          k.getEvmGasLimitFromCtx(ctx),
-		GasPrice:          utils.Big0, // fees are already paid on the CW transaction
-		GasFeeCap:         utils.Big0,
-		GasTipCap:         utils.Big0,
-		To:                to,
-		Value:             value,
-		Data:              data,
-		SkipAccountChecks: false,
-		From:              from,
+		Nonce:     stateDB.GetNonce(from), // replay attack is prevented by the AccountSequence number set on the CW transaction that triggered this call
+		GasLimit:  k.getEvmGasLimitFromCtx(ctx),
+		GasPrice:  utils.Big0, // fees are already paid on the CW transaction
+		GasFeeCap: utils.Big0,
+		GasTipCap: utils.Big0,
+		To:        to,
+		Value:     value,
+		Data:      data,
+		From:      from,
 	}
-	res, err := k.applyEVMMessage(ctx, evmMsg, stateDB, gp)
+	// should not increment nonce since this isn't a transaction
+	res, err := k.applyEVMMessage(ctx, evmMsg, stateDB, gp, false)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +123,7 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	if res.Err != nil {
 		vmErr = res.Err.Error()
 	}
-	existingReceipt, err := k.GetTransientReceipt(ctx, ctx.TxSum())
+	existingReceipt, err := k.GetTransientReceipt(ctx, ctx.TxSum(), uint64(ctx.TxIndex())) //nolint:gosec
 	if err == nil {
 		for _, l := range existingReceipt.Logs {
 			stateDB.AddLog(&ethtypes.Log{
@@ -151,7 +155,7 @@ func (k *Keeper) StaticCallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.
 	if err != nil {
 		return nil, err
 	}
-	return k.callEVM(ctx, k.GetEVMAddressOrDefault(ctx, from), to, nil, data, func(caller vm.ContractRef, addr *common.Address, input []byte, gas uint64, _ *big.Int) ([]byte, uint64, error) {
+	return k.callEVM(ctx, k.GetEVMAddressOrDefault(ctx, from), to, nil, data, func(caller common.Address, addr *common.Address, input []byte, gas uint64, _ *big.Int) ([]byte, uint64, error) {
 		return evm.StaticCall(caller, *addr, input, gas)
 	})
 }
@@ -162,7 +166,7 @@ func (k *Keeper) callEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	if val != nil {
 		value = val.BigInt()
 	}
-	ret, leftoverGas, err := f(vm.AccountRef(from), to, data, evmGasLimit, value)
+	ret, leftoverGas, err := f(from, to, data, evmGasLimit, value)
 	k.consumeEvmGas(ctx, evmGasLimit-leftoverGas)
 	if err != nil {
 		return nil, err
@@ -179,15 +183,21 @@ func (k *Keeper) createReadOnlyEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EV
 	if err != nil {
 		return nil, err
 	}
-	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
+	sstore := k.GetParams(ctx).SeiSstoreSetGasEip2200
+	cfg := types.DefaultChainConfig().EthereumConfigWithSstore(k.ChainID(ctx), &sstore)
 	txCtx := vm.TxContext{Origin: k.GetEVMAddressOrDefault(ctx, from)}
-	return vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}), nil
+	evm := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
+	evm.SetTxContext(txCtx)
+	return evm, nil
 }
 
 func (k *Keeper) getEvmGasLimitFromCtx(ctx sdk.Context) uint64 {
 	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
 	if ctx.GasMeter().Limit() <= 0 {
 		return math.MaxUint64
+	}
+	if ctx.ChainID() != Pacific1ChainID || ctx.BlockHeight() >= 119821526 {
+		ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	}
 	evmGasBig := sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Quo(k.GetPriorityNormalizer(ctx)).TruncateInt().BigInt()
 	if evmGasBig.Cmp(MaxUint64BigInt) > 0 {

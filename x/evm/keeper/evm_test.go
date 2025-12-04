@@ -39,15 +39,15 @@ func TestInternalCallCreateContract(t *testing.T) {
 	_, err = k.HandleInternalEVMCall(ctx, req)
 	require.Equal(t, "sei does not support EVM->CW->EVM call pattern", err.Error())
 	ctx = ctx.WithIsEVM(false)
-	oldBaseFee := k.GetDynamicBaseFeePerGas(ctx)
-	k.SetDynamicBaseFeePerGas(ctx, sdk.ZeroDec())
+	oldBaseFee := k.GetNextBaseFeePerGas(ctx)
+	k.SetNextBaseFeePerGas(ctx, sdk.ZeroDec())
 	_, err = k.HandleInternalEVMCall(ctx, req)
 	require.Nil(t, err)
-	receipt, err := k.GetTransientReceipt(ctx, [32]byte{1, 2, 3})
+	receipt, err := k.GetTransientReceipt(ctx, [32]byte{1, 2, 3}, 0)
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
 	// reset base fee
-	k.SetDynamicBaseFeePerGas(ctx, oldBaseFee)
+	k.SetNextBaseFeePerGas(ctx, oldBaseFee)
 }
 
 func TestInternalCall(t *testing.T) {
@@ -87,6 +87,7 @@ func TestInternalCall(t *testing.T) {
 	require.Nil(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("test", sdk.NewInt(200000000)))))
 	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, testAddr, sdk.NewCoins(sdk.NewCoin("test", sdk.NewInt(200000000)))))
 	val := sdk.NewInt(0)
+	oldNonce := k.GetNonce(ctx, k.GetEVMAddressOrDefault(ctx, testAddr))
 	req = &types.MsgInternalEVMCall{
 		Sender: testAddr.String(),
 		To:     contractAddr.Hex(),
@@ -96,6 +97,8 @@ func TestInternalCall(t *testing.T) {
 	_, err = k.HandleInternalEVMCall(ctx, req)
 	require.Nil(t, err)
 	require.Equal(t, int64(1000), testkeeper.EVMTestApp.BankKeeper.GetBalance(ctx, receiverAddr, "test").Amount.Int64())
+	// nonce should not change
+	require.Equal(t, oldNonce, k.GetNonce(ctx, k.GetEVMAddressOrDefault(ctx, testAddr)))
 }
 
 func TestStaticCall(t *testing.T) {
@@ -197,7 +200,7 @@ func TestHandleInternalEVMDelegateCall_AssociationError(t *testing.T) {
 	k.SetCode(ctx, contractAddr, []byte("code"))
 	require.NoError(t, k.SetERC20CW20Pointer(ctx, string(castedAddr.Bytes()), contractAddr))
 
-	addr, _, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(contractAddr))
+	addr, _, exists := k.GetAnyPointerInfo(ctx, types.PointerReverseRegistryKey(contractAddr))
 	require.True(t, exists)
 	require.Equal(t, castedAddr.Bytes(), addr)
 

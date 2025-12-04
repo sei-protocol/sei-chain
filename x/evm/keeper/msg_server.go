@@ -17,13 +17,14 @@ import (
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
-	cmath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/utils"
+	seimetrics "github.com/sei-protocol/sei-chain/utils/metrics"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -42,13 +43,7 @@ func NewMsgServerImpl(keeper *Keeper) types.MsgServer {
 
 var _ types.MsgServer = msgServer{}
 
-func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMTransaction) (serverRes *types.MsgEVMTransactionResponse, err error) {
-	if msg.IsAssociateTx() {
-		// no-op in msg server for associate tx; all the work have been done in ante handler
-		return &types.MsgEVMTransactionResponse{}, nil
-	}
-	ctx := sdk.UnwrapSDKContext(goCtx)
-	tx, _ := msg.AsTransaction()
+func (k *Keeper) PrepareCtxForEVMTransaction(ctx sdk.Context, tx *ethtypes.Transaction) (sdk.Context, sdk.GasMeter) {
 	isWasmdPrecompileCall := wasmd.IsWasmdCall(tx.To())
 	if isWasmdPrecompileCall {
 		ctx = ctx.WithEVMEntryViaWasmdPrecompile(true)
@@ -62,6 +57,17 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	// 	4. At the end of message server, gas consumed by EVM is adjusted to Sei's unit and counted in the original gas meter, because that original gas meter will be used to count towards block gas after message server returns
 	originalGasMeter := ctx.GasMeter()
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+	return ctx, originalGasMeter
+}
+
+func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMTransaction) (serverRes *types.MsgEVMTransactionResponse, err error) {
+	if msg.IsAssociateTx() {
+		// no-op in msg server for associate tx; all the work have been done in ante handler
+		return &types.MsgEVMTransactionResponse{}, nil
+	}
+	ctx := sdk.UnwrapSDKContext(goCtx)
+	tx, _ := msg.AsTransaction()
+	ctx, originalGasMeter := server.PrepareCtxForEVMTransaction(ctx, tx)
 
 	stateDB := state.NewDBImpl(ctx, &server, false)
 	emsg := server.GetEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
@@ -73,14 +79,14 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			if !strings.Contains(fmt.Sprintf("%s", pe), occtypes.ErrReadEstimate.Error()) {
 				debug.PrintStack()
 				ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
-				telemetry.IncrCounter(1, types.ModuleName, "panics")
+				seimetrics.SafeTelemetryIncrCounter(1, types.ModuleName, "panics")
 			}
 			panic(pe)
 		}
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("Got EVM state transition error (not VM error): %s", err))
 
-			telemetry.IncrCounterWithLabels(
+			seimetrics.SafeTelemetryIncrCounterWithLabels(
 				[]string{types.ModuleName, "errors", "state_transition"},
 				1,
 				[]metrics.Label{
@@ -95,7 +101,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			err = ferr
 			ctx.Logger().Error(fmt.Sprintf("failed to finalize EVM stateDB: %s", err))
 
-			telemetry.IncrCounterWithLabels(
+			seimetrics.SafeTelemetryIncrCounterWithLabels(
 				[]string{types.ModuleName, "errors", "stateDB_finalize"},
 				1,
 				[]metrics.Label{
@@ -104,8 +110,8 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			)
 			return
 		}
-		if isWasmdPrecompileCall {
-			syntheticReceipt, err := server.GetTransientReceipt(ctx, ctx.TxSum())
+		if ctx.EVMEntryViaWasmdPrecompile() {
+			syntheticReceipt, err := server.GetTransientReceipt(ctx, ctx.TxSum(), uint64(ctx.TxIndex())) //nolint:gosec
 			if err == nil {
 				for _, l := range syntheticReceipt.Logs {
 					stateDB.AddLog(&ethtypes.Log{
@@ -117,7 +123,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 				if syntheticReceipt.VmError != "" {
 					serverRes.VmError = fmt.Sprintf("%s\n%s\n", serverRes.VmError, syntheticReceipt.VmError)
 				}
-				server.DeleteTransientReceipt(ctx, ctx.TxSum())
+				server.DeleteTransientReceipt(ctx, ctx.TxSum(), uint64(ctx.TxIndex())) //nolint:gosec
 			}
 			syntheticDeferredInfo, found := server.GetEVMTxDeferredInfo(ctx)
 			if found {
@@ -129,7 +135,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			err = rerr
 			ctx.Logger().Error(fmt.Sprintf("failed to write EVM receipt: %s", err))
 
-			telemetry.IncrCounterWithLabels(
+			seimetrics.SafeTelemetryIncrCounterWithLabels(
 				[]string{types.ModuleName, "errors", "write_receipt"},
 				1,
 				[]metrics.Label{
@@ -141,9 +147,9 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 
 		// Add metrics for receipt status
 		if receipt.Status == uint32(ethtypes.ReceiptStatusFailed) {
-			telemetry.IncrCounter(1, "receipt", "status", "failed")
+			seimetrics.SafeTelemetryIncrCounter(1, "receipt", "status", "failed")
 		} else {
-			telemetry.IncrCounter(1, "receipt", "status", "success")
+			seimetrics.SafeTelemetryIncrCounter(1, "receipt", "status", "success")
 		}
 
 		surplus = surplus.Add(extraSurplus)
@@ -156,11 +162,11 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		// transactions' priority, which is based on gas limit in EVM unit,
 		// to Sei transactions' priority, which is based on gas limit in
 		// Sei unit, so we use the same coefficient to convert gas unit here.
-		adjustedGasUsed := server.GetPriorityNormalizer(ctx).MulInt64(int64(serverRes.GasUsed))
+		adjustedGasUsed := server.GetPriorityNormalizer(ctx).MulInt64(int64(serverRes.GasUsed)) //nolint:gosec
 		originalGasMeter.ConsumeGas(adjustedGasUsed.TruncateInt().Uint64(), "evm transaction")
 	}()
 
-	res, applyErr := server.applyEVMMessage(ctx, emsg, stateDB, gp)
+	res, applyErr := server.applyEVMMessage(ctx, emsg, stateDB, gp, true)
 	serverRes = &types.MsgEVMTransactionResponse{
 		Hash: tx.Hash().Hex(),
 	}
@@ -169,7 +175,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		// be checked in CheckTx first
 		err = applyErr
 
-		telemetry.IncrCounterWithLabels(
+		seimetrics.SafeTelemetryIncrCounterWithLabels(
 			[]string{types.ModuleName, "errors", "apply_message"},
 			1,
 			[]metrics.Label{
@@ -184,7 +190,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	if res.Err != nil {
 		serverRes.VmError = res.Err.Error()
 
-		telemetry.IncrCounterWithLabels(
+		seimetrics.SafeTelemetryIncrCounterWithLabels(
 			[]string{types.ModuleName, "errors", "vm_execution"},
 			1,
 			[]metrics.Label{
@@ -206,38 +212,43 @@ func (k *Keeper) GetGasPool() core.GasPool {
 
 func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender common.Address) *core.Message {
 	msg := &core.Message{
-		Nonce:             tx.Nonce(),
-		GasLimit:          tx.Gas(),
-		GasPrice:          new(big.Int).Set(tx.GasPrice()),
-		GasFeeCap:         new(big.Int).Set(tx.GasFeeCap()),
-		GasTipCap:         new(big.Int).Set(tx.GasTipCap()),
-		To:                tx.To(),
-		Value:             tx.Value(),
-		Data:              tx.Data(),
-		AccessList:        tx.AccessList(),
-		SkipAccountChecks: false,
-		BlobHashes:        tx.BlobHashes(),
-		BlobGasFeeCap:     tx.BlobGasFeeCap(),
-		From:              sender,
+		Nonce:                 tx.Nonce(),
+		GasLimit:              tx.Gas(),
+		GasPrice:              new(big.Int).Set(tx.GasPrice()),
+		GasFeeCap:             new(big.Int).Set(tx.GasFeeCap()),
+		GasTipCap:             new(big.Int).Set(tx.GasTipCap()),
+		To:                    tx.To(),
+		Value:                 tx.Value(),
+		Data:                  tx.Data(),
+		AccessList:            tx.AccessList(),
+		BlobHashes:            tx.BlobHashes(),
+		BlobGasFeeCap:         tx.BlobGasFeeCap(),
+		SetCodeAuthorizations: tx.SetCodeAuthorizations(),
+		From:                  sender,
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	baseFee := k.GetBaseFee(ctx)
 	if baseFee != nil {
-		msg.GasPrice = cmath.BigMin(msg.GasPrice.Add(msg.GasTipCap, baseFee), msg.GasFeeCap)
+		msg.GasPrice = msg.GasPrice.Add(msg.GasTipCap, baseFee)
+		if msg.GasPrice.Cmp(msg.GasFeeCap) > 0 {
+			msg.GasPrice = msg.GasFeeCap
+		}
 	}
 	return msg
 }
 
-func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*core.ExecutionResult, error) {
+func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool, shouldIncrementNonce bool) (*core.ExecutionResult, error) {
 	blockCtx, err := k.GetVMBlockContext(ctx, gp)
 	if err != nil {
 		return nil, err
 	}
-	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
+	sstore := k.GetParams(ctx).SeiSstoreSetGasEip2200
+	cfg := types.DefaultChainConfig().EthereumConfigWithSstore(k.ChainID(ctx), &sstore)
 	txCtx := core.NewEVMTxContext(msg)
-	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
-	st := core.NewStateTransition(evmInstance, msg, &gp, true) // fee already charged in ante handler
-	return st.TransitionDb()
+	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
+	evmInstance.SetTxContext(txCtx)
+	st := core.NewStateTransition(evmInstance, msg, &gp, true, shouldIncrementNonce) // fee already charged in ante handler
+	return st.Execute()
 }
 
 func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSendResponse, error) {
@@ -256,6 +267,9 @@ func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.
 
 func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgRegisterPointer) (*types.MsgRegisterPointerResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+	if server.GetRegisterPointerDisabled(ctx) {
+		return nil, fmt.Errorf("registering CW->ERC pointers has been disabled")
+	}
 	var existingPointer sdk.AccAddress
 	var existingVersion uint16
 	var currentVersion uint16
@@ -267,6 +281,9 @@ func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgReg
 	case types.PointerType_ERC721:
 		currentVersion = erc721.CurrentVersion
 		existingPointer, existingVersion, exists = server.GetCW721ERC721Pointer(ctx, common.HexToAddress(msg.ErcAddress))
+	case types.PointerType_ERC1155:
+		currentVersion = erc1155.CurrentVersion
+		existingPointer, existingVersion, exists = server.GetCW1155ERC1155Pointer(ctx, common.HexToAddress(msg.ErcAddress))
 	default:
 		panic("unknown pointer type")
 	}
@@ -279,6 +296,8 @@ func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgReg
 		payload["erc20_address"] = msg.ErcAddress
 	case types.PointerType_ERC721:
 		payload["erc721_address"] = msg.ErcAddress
+	case types.PointerType_ERC1155:
+		payload["erc1155_address"] = msg.ErcAddress
 	default:
 		panic("unknown pointer type")
 	}
@@ -313,6 +332,12 @@ func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgReg
 			types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "erc721"),
 			sdk.NewAttribute(types.AttributeKeyPointerAddress, pointerAddr.String()), sdk.NewAttribute(types.AttributeKeyPointee, msg.ErcAddress),
 			sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", erc721.CurrentVersion))))
+	case types.PointerType_ERC1155:
+		err = server.SetCW1155ERC1155Pointer(ctx, common.HexToAddress(msg.ErcAddress), pointerAddr.String())
+		ctx.EventManager().EmitEvent(sdk.NewEvent(
+			types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "erc1155"),
+			sdk.NewAttribute(types.AttributeKeyPointerAddress, pointerAddr.String()), sdk.NewAttribute(types.AttributeKeyPointee, msg.ErcAddress),
+			sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", erc1155.CurrentVersion))))
 	default:
 		panic("unknown pointer type")
 	}

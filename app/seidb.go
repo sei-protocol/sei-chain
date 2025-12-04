@@ -7,20 +7,24 @@ import (
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/storev2/rootmulti"
 	"github.com/sei-protocol/sei-db/config"
+	seidb "github.com/sei-protocol/sei-db/ss/types"
 	"github.com/spf13/cast"
 	"github.com/tendermint/tendermint/libs/log"
 )
 
 const (
 	// SC Store configs
-	FlagSCEnable              = "state-commit.sc-enable"
-	FlagSCDirectory           = "state-commit.sc-directory"
-	FlagSCAsyncCommitBuffer   = "state-commit.sc-async-commit-buffer"
-	FlagSCZeroCopy            = "state-commit.sc-zero-copy"
-	FlagSCSnapshotKeepRecent  = "state-commit.sc-keep-recent"
-	FlagSCSnapshotInterval    = "state-commit.sc-snapshot-interval"
-	FlagSCSnapshotWriterLimit = "state-commit.sc-snapshot-writer-limit"
-	FlagSCCacheSize           = "state-commit.sc-cache-size"
+	FlagSCEnable                           = "state-commit.sc-enable"
+	FlagSCDirectory                        = "state-commit.sc-directory"
+	FlagSCAsyncCommitBuffer                = "state-commit.sc-async-commit-buffer"
+	FlagSCZeroCopy                         = "state-commit.sc-zero-copy"
+	FlagSCSnapshotKeepRecent               = "state-commit.sc-keep-recent"
+	FlagSCSnapshotInterval                 = "state-commit.sc-snapshot-interval"
+	FlagSCSnapshotMinTimeInterval          = "state-commit.sc-snapshot-min-time-interval"
+	FlagSCSnapshotWriterLimit              = "state-commit.sc-snapshot-writer-limit"
+	FlagSCSnapshotPrefetchThreshold        = "state-commit.sc-snapshot-prefetch-threshold"
+	FlagSCCacheSize                        = "state-commit.sc-cache-size"
+	FlagSCOnlyAllowExportOnSnapshotVersion = "state-commit.sc-only-allow-export-on-snapshot-version"
 
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
@@ -33,6 +37,8 @@ const (
 
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
+	FlagMigrateIAVL      = "migrate-iavl"
+	FlagMigrateHeight    = "migrate-height"
 )
 
 func SetupSeiDB(
@@ -40,11 +46,11 @@ func SetupSeiDB(
 	homePath string,
 	appOpts servertypes.AppOptions,
 	baseAppOptions []func(*baseapp.BaseApp),
-) []func(*baseapp.BaseApp) {
+) ([]func(*baseapp.BaseApp), seidb.StateStore) {
 	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
 	if !scEnabled {
 		logger.Info("SeiDB is disabled, falling back to IAVL")
-		return baseAppOptions
+		return baseAppOptions, nil
 	}
 	logger.Info("SeiDB SC is enabled, running node with StoreV2 commit store")
 	scConfig := parseSCConfigs(appOpts)
@@ -56,14 +62,21 @@ func SetupSeiDB(
 
 	// cms must be overridden before the other options, because they may use the cms,
 	// make sure the cms aren't be overridden by the other options later on.
-	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig)
+	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig, cast.ToBool(appOpts.Get("migrate-iavl")))
+	migrationEnabled := cast.ToBool(appOpts.Get(FlagMigrateIAVL))
+	migrationHeight := cast.ToInt64(appOpts.Get(FlagMigrateHeight))
 	baseAppOptions = append([]func(*baseapp.BaseApp){
 		func(baseApp *baseapp.BaseApp) {
+			if migrationEnabled || migrationHeight > 0 {
+				originalCMS := baseApp.CommitMultiStore()
+				baseApp.SetQueryMultiStore(originalCMS)
+				baseApp.SetMigrationHeight(migrationHeight)
+			}
 			baseApp.SetCMS(cms)
 		},
 	}, baseAppOptions...)
 
-	return baseAppOptions
+	return baseAppOptions, cms.GetStateStore()
 }
 
 func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
@@ -74,7 +87,10 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.AsyncCommitBuffer = cast.ToInt(appOpts.Get(FlagSCAsyncCommitBuffer))
 	scConfig.SnapshotKeepRecent = cast.ToUint32(appOpts.Get(FlagSCSnapshotKeepRecent))
 	scConfig.SnapshotInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotInterval))
+	scConfig.SnapshotMinTimeInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotMinTimeInterval))
 	scConfig.SnapshotWriterLimit = cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit))
+	scConfig.SnapshotPrefetchThreshold = cast.ToFloat64(appOpts.Get(FlagSCSnapshotPrefetchThreshold))
+	scConfig.OnlyAllowExportOnSnapshotVersion = cast.ToBool(appOpts.Get(FlagSCOnlyAllowExportOnSnapshotVersion))
 	return scConfig
 }
 

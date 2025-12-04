@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -24,9 +25,13 @@ type Contexter interface {
 	Ctx() sdk.Context
 }
 
+type StateEVMKeeperGetter interface {
+	EVMKeeper() state.EVMKeeper
+}
+
 type PrecompileExecutor interface {
 	RequiredGas([]byte, *abi.Method) uint64
-	Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) ([]byte, error)
+	Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, hooks *tracing.Hooks) ([]byte, error)
 }
 
 type Precompile struct {
@@ -48,7 +53,7 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 		return UnknownMethodCallGas
 	}
 
-	method, err := p.ABI.MethodById(methodID)
+	method, err := p.MethodById(methodID)
 	if err != nil {
 		// This should never happen since this method is going to fail during Run
 		return UnknownMethodCallGas
@@ -56,12 +61,11 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 	return p.executor.RequiredGas(input[4:], method)
 }
 
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool, isFromDelegateCall bool) (bz []byte, err error) {
+func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool, isFromDelegateCall bool, hooks *tracing.Hooks) (bz []byte, err error) {
 	operation := fmt.Sprintf("%s_unknown", p.name)
 	defer func() {
 		HandlePrecompileError(err, evm, operation)
 		if err != nil {
-			bz = []byte(err.Error())
 			err = vm.ErrExecutionReverted
 		}
 	}()
@@ -74,7 +78,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 	em := ctx.EventManager()
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 	ctx = ctx.WithEVMPrecompileCalledFromDelegateCall(isFromDelegateCall)
-	bz, err = p.executor.Execute(ctx, method, caller, callingContract, args, value, readOnly, evm)
+	bz, err = p.executor.Execute(ctx, method, caller, callingContract, args, value, readOnly, evm, hooks)
 	if err != nil {
 		return bz, err
 	}
@@ -87,21 +91,23 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 
 func HandlePrecompileError(err error, evm *vm.EVM, operation string) {
 	if err != nil {
-		evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+		if sdb := state.GetDBImpl(evm.StateDB); sdb != nil {
+			sdb.SetPrecompileError(err)
+		}
 		metrics.IncrementErrorMetrics(operation, err)
 	}
 }
 
 func (p Precompile) Prepare(evm *vm.EVM, input []byte) (sdk.Context, *abi.Method, []interface{}, error) {
-	ctxer, ok := evm.StateDB.(Contexter)
-	if !ok {
+	ctxer := state.GetDBImpl(evm.StateDB)
+	if ctxer == nil {
 		return sdk.Context{}, nil, nil, errors.New("cannot get context from EVM")
 	}
 	methodID, err := ExtractMethodID(input)
 	if err != nil {
 		return sdk.Context{}, nil, nil, err
 	}
-	method, err := p.ABI.MethodById(methodID)
+	method, err := p.MethodById(methodID)
 	if err != nil {
 		return sdk.Context{}, nil, nil, err
 	}
@@ -132,8 +138,8 @@ func (p Precompile) GetExecutor() PrecompileExecutor {
 }
 
 type DynamicGasPrecompileExecutor interface {
-	Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error)
-	EVMKeeper() EVMKeeper
+	Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error)
+	EVMKeeper() putils.EVMKeeper
 }
 
 type DynamicGasPrecompile struct {
@@ -152,7 +158,7 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	defer func() {
 		HandlePrecompileError(err, evm, operation)
 		if err != nil {
-			ret = []byte(err.Error())
+			fmt.Printf("precompile %s encountered error: %v\n", d.name, err)
 			err = vm.ErrExecutionReverted
 		}
 	}()
@@ -160,13 +166,13 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	if err != nil {
 		return nil, 0, err
 	}
-	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, d.executor.EVMKeeper().GetCosmosGasLimitFromEVMGas(ctx, suppliedGas)))
-
+	gasLimit := d.executor.EVMKeeper().GetCosmosGasLimitFromEVMGas(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), suppliedGas)
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
 	operation = method.Name
 	em := ctx.EventManager()
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 	ctx = ctx.WithEVMPrecompileCalledFromDelegateCall(isFromDelegateCall)
-	ret, remainingGas, err = d.executor.Execute(ctx, method, caller, callingContract, args, value, readOnly, evm, suppliedGas)
+	ret, remainingGas, err = d.executor.Execute(ctx, method, caller, callingContract, args, value, readOnly, evm, suppliedGas, hooks)
 	if err != nil {
 		return ret, remainingGas, err
 	}
@@ -197,7 +203,7 @@ func ValidateNonPayable(value *big.Int) error {
 	return nil
 }
 
-func HandlePaymentUsei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper BankKeeper) (sdk.Coin, error) {
+func HandlePaymentUsei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper putils.BankKeeper, evmKeeper putils.EVMKeeper, hooks *tracing.Hooks, depth int) (sdk.Coin, error) {
 	usei, wei := state.SplitUseiWeiAmount(value)
 	if !wei.IsZero() {
 		return sdk.Coin{}, fmt.Errorf("selected precompile function does not allow payment with non-zero wei remainder: received %s", value)
@@ -208,15 +214,33 @@ func HandlePaymentUsei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk
 	if err := bankKeeper.SendCoins(ctx.WithEventManager(sdk.NewEventManager()), precompileAddr, payer, sdk.NewCoins(coin)); err != nil {
 		return sdk.Coin{}, err
 	}
+	if hooks != nil {
+		newCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+		if hooks.OnEnter != nil {
+			hooks.OnEnter(depth+1, byte(vm.CALL), evmKeeper.GetEVMAddressOrDefault(newCtx, precompileAddr), evmKeeper.GetEVMAddressOrDefault(newCtx, payer), []byte{}, GetRemainingGas(newCtx, evmKeeper), value)
+		}
+		if hooks.OnExit != nil {
+			hooks.OnExit(depth+1, []byte{}, 0, nil, false)
+		}
+	}
 	return coin, nil
 }
 
-func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper BankKeeper) (sdk.Int, sdk.Int, error) {
+func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper putils.BankKeeper, evmKeeper putils.EVMKeeper, hooks *tracing.Hooks, depth int) (sdk.Int, sdk.Int, error) {
 	usei, wei := state.SplitUseiWeiAmount(value)
 	// refund payer because the following precompile logic will debit the payments from payer's account
 	// this creates a new event manager to avoid surfacing these as cosmos events
 	if err := bankKeeper.SendCoinsAndWei(ctx.WithEventManager(sdk.NewEventManager()), precompileAddr, payer, usei, wei); err != nil {
 		return sdk.Int{}, sdk.Int{}, err
+	}
+	if hooks != nil {
+		newCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+		if hooks.OnEnter != nil {
+			hooks.OnEnter(depth+1, byte(vm.CALL), evmKeeper.GetEVMAddressOrDefault(newCtx, precompileAddr), evmKeeper.GetEVMAddressOrDefault(newCtx, payer), []byte{}, GetRemainingGas(newCtx, evmKeeper), value)
+		}
+		if hooks.OnExit != nil {
+			hooks.OnExit(depth+1, []byte{}, 0, nil, false)
+		}
 	}
 	return usei, wei, nil
 }
@@ -226,7 +250,7 @@ func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer 
 sei gas = evm gas * multiplier
 sei gas price = fee / sei gas = fee / (evm gas * multiplier) = evm gas / multiplier
 */
-func GetRemainingGas(ctx sdk.Context, evmKeeper EVMKeeper) uint64 {
+func GetRemainingGas(ctx sdk.Context, evmKeeper putils.EVMKeeper) uint64 {
 	return evmKeeper.GetEVMGasLimitFromCtx(ctx)
 }
 
@@ -259,7 +283,7 @@ func MustGetABI(f embed.FS, filename string) abi.ABI {
 	return newAbi
 }
 
-func GetSeiAddressByEvmAddress(ctx sdk.Context, evmAddress common.Address, evmKeeper EVMKeeper) (sdk.AccAddress, error) {
+func GetSeiAddressByEvmAddress(ctx sdk.Context, evmAddress common.Address, evmKeeper putils.EVMKeeper) (sdk.AccAddress, error) {
 	seiAddr, associated := evmKeeper.GetSeiAddress(ctx, evmAddress)
 	if !associated {
 		return nil, types.NewAssociationMissingErr(evmAddress.Hex())
@@ -267,7 +291,7 @@ func GetSeiAddressByEvmAddress(ctx sdk.Context, evmAddress common.Address, evmKe
 	return seiAddr, nil
 }
 
-func GetSeiAddressFromArg(ctx sdk.Context, arg interface{}, evmKeeper EVMKeeper) (sdk.AccAddress, error) {
+func GetSeiAddressFromArg(ctx sdk.Context, arg interface{}, evmKeeper putils.EVMKeeper) (sdk.AccAddress, error) {
 	addr := arg.(common.Address)
 	if addr == (common.Address{}) {
 		return nil, errors.New("invalid addr")

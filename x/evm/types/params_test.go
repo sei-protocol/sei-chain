@@ -14,11 +14,13 @@ func TestDefaultParams(t *testing.T) {
 		PriorityNormalizer:                     types.DefaultPriorityNormalizer,
 		BaseFeePerGas:                          types.DefaultBaseFeePerGas,
 		MinimumFeePerGas:                       types.DefaultMinFeePerGas,
+		MaximumFeePerGas:                       types.DefaultMaxFeePerGas,
 		DeliverTxHookWasmGasLimit:              types.DefaultDeliverTxHookWasmGasLimit,
 		WhitelistedCwCodeHashesForDelegateCall: types.DefaultWhitelistedCwCodeHashesForDelegateCall,
 		MaxDynamicBaseFeeUpwardAdjustment:      types.DefaultMaxDynamicBaseFeeUpwardAdjustment,
 		MaxDynamicBaseFeeDownwardAdjustment:    types.DefaultMaxDynamicBaseFeeDownwardAdjustment,
 		TargetGasUsedPerBlock:                  types.DefaultTargetGasUsedPerBlock,
+		SeiSstoreSetGasEip2200:                 types.DefaultSeiSstoreSetGasEIP2200,
 	}, types.DefaultParams())
 	require.Nil(t, types.DefaultParams().Validate())
 }
@@ -87,6 +89,15 @@ func TestValidateParamsInvalidDeliverTxHookWasmGasLimit(t *testing.T) {
 	require.Contains(t, err.Error(), "invalid deliver_tx_hook_wasm_gas_limit: must be greater than 0")
 }
 
+func TestValidateParamsInvalidMaxFeePerGas(t *testing.T) {
+	params := types.DefaultParams()
+	params.MaximumFeePerGas = sdk.NewDec(-1) // Set to invalid negative value
+
+	err := params.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "negative max fee per gas")
+}
+
 func TestValidateParamsValidDeliverTxHookWasmGasLimit(t *testing.T) {
 	params := types.DefaultParams()
 
@@ -96,4 +107,13 @@ func TestValidateParamsValidDeliverTxHookWasmGasLimit(t *testing.T) {
 
 	err := params.Validate()
 	require.NoError(t, err)
+}
+
+func TestValidateParamsInvalidSeiSstoreSetGasEip2200(t *testing.T) {
+	params := types.DefaultParams()
+	params.SeiSstoreSetGasEip2200 = 0 // Set to invalid value (0)
+
+	err := params.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid sei sstore set gas eip2200: must be greater than 0")
 }

@@ -58,6 +58,7 @@ type RPCEndpointConfig struct {
 	JwtSecret              []byte // optional JWT secret
 	batchItemLimit         int
 	batchResponseSizeLimit int
+	readLimit              int64
 }
 
 type rpcHandler struct {
@@ -118,7 +119,7 @@ func (h *HTTPServer) SetListenAddr(host string, port int) error {
 	return nil
 }
 
-// listenAddr returns the listening address of the server.
+// ListenAddr returns the listening address of the server.
 func (h *HTTPServer) ListenAddr() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -129,7 +130,7 @@ func (h *HTTPServer) ListenAddr() string {
 	return h.endpoint
 }
 
-// start starts the HTTP server if it is enabled and not already running.
+// Start starts the HTTP server if it is enabled and not already running.
 func (h *HTTPServer) Start() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -241,7 +242,7 @@ func CheckPath(r *http.Request, path string) bool {
 	return len(r.URL.Path) >= len(path) && r.URL.Path[:len(path)] == path
 }
 
-// stop shuts down the HTTP server.
+// Stop shuts down the HTTP server.
 func (h *HTTPServer) Stop() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -272,10 +273,10 @@ func (h *HTTPServer) doStop() {
 	err := h.server.Shutdown(ctx)
 	if err != nil && err == ctx.Err() {
 		h.log.Error("HTTP server graceful shutdown timed out")
-		h.server.Close()
+		_ = h.server.Close()
 	}
 
-	h.listener.Close()
+	_ = h.listener.Close()
 	h.log.Info("HTTP server stopped", "endpoint", h.listener.Addr())
 
 	// Clear out everything to allow re-configuring it later.
@@ -299,6 +300,7 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	if err := RegisterApis(h.log, apis, config.Modules, srv); err != nil {
 		return err
 	}
+	h.log.Info(fmt.Sprintf("[Debug] Registering deny list for evm rpc:%v", config.DenyList))
 	for _, method := range config.DenyList {
 		srv.RegisterDenyList(method)
 	}
@@ -331,6 +333,7 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
+	srv.SetReadLimits(config.readLimit)
 	h.log.Info("Registering apis for evm websocket")
 	if err := RegisterApis(h.log, apis, config.Modules, srv); err != nil {
 		return err
@@ -375,7 +378,7 @@ func (h *HTTPServer) wsAllowed() bool {
 	return h.wsHandler.Load().(*rpcHandler) != nil
 }
 
-// NewHTTPHandlerStack returns wrapped http-related handlers
+// NewHTTPHandlerStack returns wrapped http-related handlers.
 func NewHTTPHandlerStack(srv http.Handler, cors []string, vhosts []string, JwtSecret []byte) http.Handler {
 	// Wrap the CORS-handler within a host-handler
 	handler := newCorsHandler(srv, cors)
@@ -388,10 +391,11 @@ func NewHTTPHandlerStack(srv http.Handler, cors []string, vhosts []string, JwtSe
 
 // NewWSHandlerStack returns a wrapped ws-related handler.
 func NewWSHandlerStack(srv http.Handler, JwtSecret []byte) http.Handler {
+	handler := srv
 	if len(JwtSecret) != 0 {
-		return NewWSConnectionHandler(newJWTHandler(JwtSecret, srv))
+		handler = newJWTHandler(JwtSecret, handler)
 	}
-	return NewWSConnectionHandler(srv)
+	return NewWSConnectionHandler(handler)
 }
 
 func newCorsHandler(srv http.Handler, allowedOrigins []string) http.Handler {
@@ -524,7 +528,7 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 	}
 
 	n, err := w.gz.Write(b)
-	w.written += uint64(n)
+	w.written += uint64(n) //nolint:gosec
 	if w.hasLength && w.written >= w.contentLength {
 		// The HTTP handler has finished writing the entire uncompressed response. Close
 		// the gzip stream to ensure the footer will be seen by the client in case the
@@ -536,7 +540,7 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 
 func (w *gzipResponseWriter) Flush() {
 	if w.gz != nil {
-		w.gz.Flush()
+		_ = w.gz.Flush()
 	}
 	if f, ok := w.resp.(http.Flusher); ok {
 		f.Flush()
@@ -547,7 +551,7 @@ func (w *gzipResponseWriter) close() {
 	if w.gz == nil {
 		return
 	}
-	w.gz.Close()
+	_ = w.gz.Close()
 	gzPool.Put(w.gz)
 	w.gz = nil
 }

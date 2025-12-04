@@ -2,6 +2,8 @@
 # require success for commands
 set -e
 
+# Parse command line arguments
+MOCK_BALANCES=${MOCK_BALANCES:-false}
 
 # Use python3 as default, but fall back to python if python3 doesn't exist
 PYTHON_CMD=python3
@@ -30,8 +32,14 @@ keyname=admin
 # clean up old sei directory
 rm -rf ~/.sei
 echo "Building..."
-#install seid
-make install
+# install seid -- conditionally build with mock balance function
+if [ "$MOCK_BALANCES" = true ]; then
+    echo "Building with mock balances enabled..."
+    make install-mock-balances
+else
+    echo "Building with standard configuration..."
+    make install
+fi
 # initialize chain with chain ID and add the first key
 ~/go/bin/seid init demo --chain-id sei-chain
 ~/go/bin/seid keys add $keyname --keyring-backend test
@@ -59,6 +67,8 @@ cat ~/.sei/config/genesis.json | jq '.app_state["oracle"]["params"]["vote_period
 cat ~/.sei/config/genesis.json | jq '.app_state["oracle"]["params"]["whitelist"]=[{"name": "ueth"},{"name": "ubtc"},{"name": "uusdc"},{"name": "uusdt"},{"name": "uosmo"},{"name": "uatom"},{"name": "usei"}]' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["distribution"]["params"]["community_tax"]="0.000000000000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["max_gas"]="35000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["min_txs_in_block"]="2"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["max_gas_wanted"]="50000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["staking"]["params"]["max_voting_power_ratio"]="1.000000000000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["bank"]["denom_metadata"]=[{"denom_units":[{"denom":"usei","exponent":0,"aliases":["USEI"]}],"base":"usei","display":"usei","name":"USEI","symbol":"USEI"}]' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 
@@ -80,7 +90,6 @@ sed -i.bak -e 's/# concurrency-workers = .*/concurrency-workers = 500/' $APP_TOM
 sed -i.bak -e 's/occ-enabled = .*/occ-enabled = true/' $APP_TOML_PATH
 sed -i.bak -e 's/sc-enable = .*/sc-enable = true/' $APP_TOML_PATH
 sed -i.bak -e 's/ss-enable = .*/ss-enable = true/' $APP_TOML_PATH
-
 
 # set block time to 2s
 if [ ! -z "$1" ]; then

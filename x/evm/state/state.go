@@ -7,6 +7,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -14,7 +15,11 @@ import (
 func (s *DBImpl) CreateAccount(acc common.Address) {
 	s.k.PrepareReplayedAddr(s.ctx, acc)
 	// clear any existing state but keep balance untouched
-	s.clearAccountState(acc)
+	if !s.ctx.IsTracing() {
+		// too slow on historical DB so not doing it for tracing for now.
+		// could cause tracing to be incorrect in theory.
+		s.clearAccountState(acc)
+	}
 	s.MarkAccount(acc, AccountCreated)
 }
 
@@ -31,14 +36,16 @@ func (s *DBImpl) getState(ctx sdk.Context, addr common.Address, hash common.Hash
 	return s.k.GetState(ctx, addr, hash)
 }
 
-func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) {
+func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) common.Hash {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
 
+	old := s.GetState(addr, key)
 	if s.logger != nil && s.logger.OnStorageChange != nil {
-		s.logger.OnStorageChange(addr, key, s.GetState(addr, key), val)
+		s.logger.OnStorageChange(addr, key, old, val)
 	}
 
 	s.k.SetState(s.ctx, addr, key, val)
+	return old
 }
 
 func (s *DBImpl) GetTransientState(addr common.Address, key common.Hash) common.Hash {
@@ -50,36 +57,43 @@ func (s *DBImpl) GetTransientState(addr common.Address, key common.Hash) common.
 }
 
 func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
-	st, ok := s.tempStateCurrent.transientStates[addr.Hex()]
+	st, ok := s.tempState.transientStates[addr.Hex()]
 	if !ok {
 		st = make(map[string]common.Hash)
-		s.tempStateCurrent.transientStates[addr.Hex()] = st
+		s.tempState.transientStates[addr.Hex()] = st
+	}
+	prev, ok := st[key.Hex()]
+	if !ok {
+		prev = common.Hash{}
 	}
 	st[key.Hex()] = val
+	s.journal = append(s.journal, &transientStorageChange{account: addr, key: key, prevalue: prev})
 }
 
 // debits account's balance. The corresponding credit happens here:
 // https://github.com/sei-protocol/go-ethereum/blob/master/core/vm/instructions.go#L825
 // clear account's state except the transient state (in Ethereum transient states are
 // still available even after self destruction in the same tx)
-func (s *DBImpl) SelfDestruct(acc common.Address) {
+func (s *DBImpl) SelfDestruct(acc common.Address) uint256.Int {
 	s.k.PrepareReplayedAddr(s.ctx, acc)
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok {
 		// remove the association
 		s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
 	}
-
-	s.SubBalance(acc, s.GetBalance(acc), tracing.BalanceDecreaseSelfdestruct)
+	b := s.GetBalance(acc)
+	s.SubBalance(acc, b, tracing.BalanceDecreaseSelfdestruct)
 
 	// mark account as self-destructed
 	s.MarkAccount(acc, AccountDeleted)
+	return *b
 }
 
-func (s *DBImpl) Selfdestruct6780(acc common.Address) {
+func (s *DBImpl) SelfDestruct6780(acc common.Address) (uint256.Int, bool) {
 	// only self-destruct if acc is newly created in the same block
 	if s.Created(acc) {
-		s.SelfDestruct(acc)
+		return s.SelfDestruct(acc), true
 	}
+	return *uint256.NewInt(0), false
 }
 
 // the Ethereum semantics of HasSelfDestructed checks if the account is self destructed in the
@@ -96,17 +110,35 @@ func (s *DBImpl) Snapshot() int {
 	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
 	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
 	s.ctx = newCtx
-	s.tempStatesHist = append(s.tempStatesHist, s.tempStateCurrent)
-	s.tempStateCurrent = NewTemporaryState()
+	version := len(s.snapshottedCtxs) - 1
+	s.journal = append(s.journal, &watermark{version: version})
 	return len(s.snapshottedCtxs) - 1
 }
 
 func (s *DBImpl) RevertToSnapshot(rev int) {
+	// Add bounds checking
+	if rev < 0 || rev >= len(s.snapshottedCtxs) {
+		panic("invalid revision number")
+	}
+
 	s.ctx = s.snapshottedCtxs[rev]
 	s.snapshottedCtxs = s.snapshottedCtxs[:rev]
-	s.tempStateCurrent = s.tempStatesHist[rev]
-	s.tempStatesHist = s.tempStatesHist[:rev]
-	s.Snapshot()
+
+	// Find the watermark index to truncate the journal
+	watermarkIndex := -1
+	for i := len(s.journal) - 1; i >= 0; i-- {
+		entry := s.journal[i]
+		entry.revert(s)
+		if wm, ok := entry.(*watermark); ok && wm.version == rev {
+			watermarkIndex = i
+			break
+		}
+	}
+
+	// Truncate the journal to remove reverted entries
+	if watermarkIndex >= 0 {
+		s.journal = s.journal[:watermarkIndex]
+	}
 }
 
 func (s *DBImpl) handleResidualFundsInDestructedAccounts(st *TemporaryState) {
@@ -116,7 +148,7 @@ func (s *DBImpl) handleResidualFundsInDestructedAccounts(st *TemporaryState) {
 		}
 		acc := common.HexToAddress(a)
 		residual := s.GetBalance(acc)
-		if residual.Cmp(utils.Big0) == 0 {
+		if residual.ToBig().Cmp(utils.Big0) == 0 {
 			continue
 		}
 		s.SubBalance(acc, residual, tracing.BalanceDecreaseSelfdestructBurn)
@@ -137,16 +169,21 @@ func (s *DBImpl) clearAccountStateIfDestructed(st *TemporaryState) {
 
 func (s *DBImpl) clearAccountState(acc common.Address) {
 	s.k.PrepareReplayedAddr(s.ctx, acc)
-	s.k.PurgePrefix(s.ctx, types.StateKey(acc))
-	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), acc[:])
-	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), acc[:])
-	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:])
-	deleteIfExists(s.k.PrefixStore(s.ctx, types.NonceKeyPrefix), acc[:])
+	if deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:]) {
+		s.k.PurgePrefix(s.ctx, types.StateKey(acc))
+		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), acc[:])
+		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), acc[:])
+		deleteIfExists(s.k.PrefixStore(s.ctx, types.NonceKeyPrefix), acc[:])
+	}
 }
 
 func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {
-	// val being nil means it's deleted
-	s.tempStateCurrent.transientAccounts[acc.Hex()] = status
+	prev, ok := s.tempState.transientAccounts[acc.Hex()]
+	if !ok {
+		prev = nil
+	}
+	s.tempState.transientAccounts[acc.Hex()] = status
+	s.journal = append(s.journal, &accountStatusChange{account: acc, prev: prev})
 }
 
 func (s *DBImpl) Created(acc common.Address) bool {
@@ -165,38 +202,28 @@ func (s *DBImpl) SetStorage(addr common.Address, states map[common.Hash]common.H
 }
 
 func (s *DBImpl) getTransientAccount(acc common.Address) ([]byte, bool) {
-	val, found := s.tempStateCurrent.transientAccounts[acc.Hex()]
-	for i := len(s.tempStatesHist) - 1; !found && i >= 0; i-- {
-		val, found = s.tempStatesHist[i].transientAccounts[acc.Hex()]
-	}
+	val, found := s.tempState.transientAccounts[acc.Hex()]
 	return val, found
 }
 
 func (s *DBImpl) getTransientModule(key []byte) ([]byte, bool) {
-	val, found := s.tempStateCurrent.transientModuleStates[string(key)]
-	for i := len(s.tempStatesHist) - 1; !found && i >= 0; i-- {
-		val, found = s.tempStatesHist[i].transientModuleStates[string(key)]
-	}
+	val, found := s.tempState.transientModuleStates[string(key)]
 	return val, found
 }
 
 func (s *DBImpl) getTransientState(acc common.Address, key common.Hash) (common.Hash, bool) {
 	var val common.Hash
-	m, found := s.tempStateCurrent.transientStates[acc.Hex()]
+	m, found := s.tempState.transientStates[acc.Hex()]
 	if found {
 		val, found = m[key.Hex()]
-	}
-	for i := len(s.tempStatesHist) - 1; !found && i >= 0; i-- {
-		m, found = s.tempStatesHist[i].transientStates[acc.Hex()]
-		if found {
-			val, found = m[key.Hex()]
-		}
 	}
 	return val, found
 }
 
-func deleteIfExists(store storetypes.KVStore, key []byte) {
+func deleteIfExists(store storetypes.KVStore, key []byte) bool {
 	if store.Has(key) {
 		store.Delete(key)
+		return true
 	}
+	return false
 }

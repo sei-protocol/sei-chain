@@ -11,9 +11,11 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -21,6 +23,7 @@ const (
 	SetWithdrawAddressMethod                = "setWithdrawAddress"
 	WithdrawDelegationRewardsMethod         = "withdrawDelegationRewards"
 	WithdrawMultipleDelegationRewardsMethod = "withdrawMultipleDelegationRewards"
+	WithdrawValidatorCommissionMethod       = "withdrawValidatorCommission"
 	RewardsMethod                           = "rewards"
 )
 
@@ -34,22 +37,23 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	distrKeeper pcommon.DistributionKeeper
-	evmKeeper   pcommon.EVMKeeper
+	distrKeeper utils.DistributionKeeper
+	evmKeeper   utils.EVMKeeper
 	address     common.Address
 
 	SetWithdrawAddrID                   []byte
 	WithdrawDelegationRewardsID         []byte
 	WithdrawMultipleDelegationRewardsID []byte
+	WithdrawValidatorCommissionID       []byte
 	RewardsID                           []byte
 }
 
-func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		distrKeeper: distrKeeper,
-		evmKeeper:   evmKeeper,
+		distrKeeper: keepers.DistributionK(),
+		evmKeeper:   keepers.EVMK(),
 		address:     common.HexToAddress(DistrAddress),
 	}
 
@@ -61,6 +65,8 @@ func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVM
 			p.WithdrawDelegationRewardsID = m.ID
 		case WithdrawMultipleDelegationRewardsMethod:
 			p.WithdrawMultipleDelegationRewardsID = m.ID
+		case WithdrawValidatorCommissionMethod:
+			p.WithdrawValidatorCommissionID = m.ID
 		case RewardsMethod:
 			p.RewardsID = m.ID
 		}
@@ -69,7 +75,7 @@ func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVM
 	return pcommon.NewDynamicGasPrecompile(newAbi, p, p.address, "distribution"), nil
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if ctx.EVMPrecompileCalledFromDelegateCall() {
 		return nil, 0, errors.New("cannot delegatecall distr")
 	}
@@ -89,13 +95,21 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			return nil, 0, errors.New("cannot call distr precompile from staticcall")
 		}
 		return p.withdrawMultipleDelegationRewards(ctx, method, caller, args, value)
+	case WithdrawValidatorCommissionMethod:
+		if err = pcommon.ValidateNonPayable(value); err != nil {
+			return nil, 0, err
+		}
+		if readOnly {
+			return nil, 0, errors.New("cannot call distr precompile from staticcall")
+		}
+		return p.withdrawValidatorCommission(ctx, method, caller)
 	case RewardsMethod:
 		return p.rewards(ctx, method, args)
 	}
 	return
 }
 
-func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 	return p.evmKeeper
 }
 
@@ -326,4 +340,40 @@ func getResponseOutput(response *distrtypes.QueryDelegationTotalRewardsResponse)
 		Rewards: rewards,
 		Total:   totalCoins,
 	}
+}
+
+func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method *abi.Method, caller common.Address) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	validatorSeiAddr, found := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !found {
+		rerr = types.NewAssociationMissingErr(caller.Hex())
+		return
+	}
+
+	validatorAddr := sdk.ValAddress(validatorSeiAddr)
+
+	validator, err := sdk.ValAddressFromBech32(validatorAddr.String())
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	// Call the distribution keeper to withdraw validator commission
+	_, err = p.distrKeeper.WithdrawValidatorCommission(ctx, validator)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	ret, rerr = method.Outputs.Pack(true)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
 }

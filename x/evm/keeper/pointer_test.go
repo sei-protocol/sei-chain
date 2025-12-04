@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
@@ -62,6 +63,19 @@ func TestEVMtoCWPointers(t *testing.T) {
 			version: native.CurrentVersion,
 		},
 		{
+			name: "ERC20NativePointer prevents pointer to cw1155 pointer",
+			getHandlers: func(k *evmkeeper.Keeper) *handlers {
+				return &handlers{
+					evmSetter:  k.SetERC20NativePointer,
+					evmGetter:  k.GetERC20NativePointer,
+					evmDeleter: k.DeleteERC20NativePointer,
+					cwSetter:   k.SetCW1155ERC1155Pointer,
+					cwGetter:   k.GetCW1155ERC1155Pointer,
+				}
+			},
+			version: native.CurrentVersion,
+		},
+		{
 			name: "ERC20CW20Pointer prevents pointer to cw721 pointer",
 			getHandlers: func(k *evmkeeper.Keeper) *handlers {
 				return &handlers{
@@ -70,6 +84,19 @@ func TestEVMtoCWPointers(t *testing.T) {
 					evmDeleter: k.DeleteERC20CW20Pointer,
 					cwSetter:   k.SetCW721ERC721Pointer,
 					cwGetter:   k.GetCW721ERC721Pointer,
+				}
+			},
+			version: cw20.CurrentVersion(ctx),
+		},
+		{
+			name: "ERC20CW20Pointer prevents pointer to cw1155 pointer",
+			getHandlers: func(k *evmkeeper.Keeper) *handlers {
+				return &handlers{
+					evmSetter:  k.SetERC20CW20Pointer,
+					evmGetter:  k.GetERC20CW20Pointer,
+					evmDeleter: k.DeleteERC20CW20Pointer,
+					cwSetter:   k.SetCW1155ERC1155Pointer,
+					cwGetter:   k.GetCW1155ERC1155Pointer,
 				}
 			},
 			version: cw20.CurrentVersion(ctx),
@@ -101,6 +128,19 @@ func TestEVMtoCWPointers(t *testing.T) {
 			version: cw721.CurrentVersion,
 		},
 		{
+			name: "ERC721CW721Pointer prevents pointer to cw1155 pointer",
+			getHandlers: func(k *evmkeeper.Keeper) *handlers {
+				return &handlers{
+					evmSetter:  k.SetERC721CW721Pointer,
+					evmGetter:  k.GetERC721CW721Pointer,
+					evmDeleter: k.DeleteERC721CW721Pointer,
+					cwSetter:   k.SetCW1155ERC1155Pointer,
+					cwGetter:   k.GetCW1155ERC1155Pointer,
+				}
+			},
+			version: cw721.CurrentVersion,
+		},
+		{
 			name: "ERC721CW721Pointer prevents pointer to cw20 pointer",
 			getHandlers: func(k *evmkeeper.Keeper) *handlers {
 				return &handlers{
@@ -112,6 +152,45 @@ func TestEVMtoCWPointers(t *testing.T) {
 				}
 			},
 			version: cw721.CurrentVersion,
+		},
+		{
+			name: "ERC1155CW1155Pointer prevents pointer to cw721 pointer",
+			getHandlers: func(k *evmkeeper.Keeper) *handlers {
+				return &handlers{
+					evmSetter:  k.SetERC1155CW1155Pointer,
+					evmGetter:  k.GetERC1155CW1155Pointer,
+					evmDeleter: k.DeleteERC1155CW1155Pointer,
+					cwSetter:   k.SetCW721ERC721Pointer,
+					cwGetter:   k.GetCW721ERC721Pointer,
+				}
+			},
+			version: cw1155.CurrentVersion,
+		},
+		{
+			name: "ERC1155CW1155Pointer prevents pointer to cw1155 pointer",
+			getHandlers: func(k *evmkeeper.Keeper) *handlers {
+				return &handlers{
+					evmSetter:  k.SetERC1155CW1155Pointer,
+					evmGetter:  k.GetERC1155CW1155Pointer,
+					evmDeleter: k.DeleteERC1155CW1155Pointer,
+					cwSetter:   k.SetCW1155ERC1155Pointer,
+					cwGetter:   k.GetCW1155ERC1155Pointer,
+				}
+			},
+			version: cw1155.CurrentVersion,
+		},
+		{
+			name: "ERC1155CW1155Pointer prevents pointer to cw20 pointer",
+			getHandlers: func(k *evmkeeper.Keeper) *handlers {
+				return &handlers{
+					evmSetter:  k.SetERC1155CW1155Pointer,
+					evmGetter:  k.GetERC1155CW1155Pointer,
+					evmDeleter: k.DeleteERC1155CW1155Pointer,
+					cwSetter:   k.SetCW20ERC20Pointer,
+					cwGetter:   k.GetCW20ERC20Pointer,
+				}
+			},
+			version: cw1155.CurrentVersion,
 		},
 	}
 	for _, test := range tests {
@@ -186,6 +265,17 @@ func TestCWtoEVMPointers(t *testing.T) {
 			},
 		},
 		{
+			name: "CW20ERC20Pointer prevents pointer to erc1155 pointer",
+			getHandlers: func(k *evmkeeper.Keeper) *handlers {
+				return &handlers{
+					cwSetter:  k.SetCW20ERC20Pointer,
+					cwGetter:  k.GetCW20ERC20Pointer,
+					evmSetter: k.SetERC1155CW1155Pointer,
+					evmGetter: k.GetERC1155CW1155Pointer,
+				}
+			},
+		},
+		{
 			name: "CW721ERC721Pointer prevents pointer to native pointer",
 			getHandlers: func(k *evmkeeper.Keeper) *handlers {
 				return &handlers{
@@ -218,6 +308,61 @@ func TestCWtoEVMPointers(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "CW721ERC721Pointer prevents pointer to erc1155 pointer",
+			getHandlers: func(k *evmkeeper.Keeper) *handlers {
+				return &handlers{
+					cwSetter:  k.SetCW721ERC721Pointer,
+					cwGetter:  k.GetCW721ERC721Pointer,
+					evmSetter: k.SetERC1155CW1155Pointer,
+					evmGetter: k.GetERC1155CW1155Pointer,
+				}
+			},
+		},
+		{
+			name: "CW1155ERC1155Pointer prevents pointer to native pointer",
+			getHandlers: func(k *evmkeeper.Keeper) *handlers {
+				return &handlers{
+					cwSetter:  k.SetCW1155ERC1155Pointer,
+					cwGetter:  k.GetCW1155ERC1155Pointer,
+					evmSetter: k.SetERC20NativePointer,
+					evmGetter: k.GetERC20NativePointer,
+				}
+			},
+		},
+		{
+			name: "CW1155ERC1155Pointer prevents pointer to erc721 pointer",
+			getHandlers: func(k *evmkeeper.Keeper) *handlers {
+				return &handlers{
+					cwSetter:  k.SetCW1155ERC1155Pointer,
+					cwGetter:  k.GetCW1155ERC1155Pointer,
+					evmSetter: k.SetERC721CW721Pointer,
+					evmGetter: k.GetERC721CW721Pointer,
+				}
+			},
+		},
+		{
+			name: "CW1155ERC1155Pointer prevents pointer to erc20 pointer",
+			getHandlers: func(k *evmkeeper.Keeper) *handlers {
+				return &handlers{
+					cwSetter:  k.SetCW1155ERC1155Pointer,
+					cwGetter:  k.GetCW1155ERC1155Pointer,
+					evmSetter: k.SetERC20CW20Pointer,
+					evmGetter: k.GetERC20CW20Pointer,
+				}
+			},
+		},
+		{
+			name: "CW1155ERC1155Pointer prevents pointer to erc1155 pointer",
+			getHandlers: func(k *evmkeeper.Keeper) *handlers {
+				return &handlers{
+					cwSetter:  k.SetCW1155ERC1155Pointer,
+					cwGetter:  k.GetCW1155ERC1155Pointer,
+					evmSetter: k.SetERC1155CW1155Pointer,
+					evmGetter: k.GetERC1155CW1155Pointer,
+				}
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -246,4 +391,60 @@ func TestCWtoEVMPointers(t *testing.T) {
 			require.Error(t, handlers.cwSetter(ctx, evmAddress2, cwAddress2.String()), evmkeeper.ErrorPointerToPointerNotAllowed)
 		})
 	}
+}
+
+func TestGetAnyPointeeInfo(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	cwAddress, evmAddress := testkeeper.MockAddressPair()
+
+	// Test case 1: No pointers exist
+	addr, version, exists := k.GetAnyPointeeInfo(ctx, cwAddress.String())
+	require.Equal(t, common.Address{}, addr)
+	require.Equal(t, uint16(0), version)
+	require.False(t, exists)
+
+	// Test case 2: ERC20CW20 pointer exists
+	require.Nil(t, k.SetERC20CW20Pointer(ctx, cwAddress.String(), evmAddress))
+	addr, version, exists = k.GetAnyPointeeInfo(ctx, cwAddress.String())
+	require.Equal(t, evmAddress, addr)
+	require.Equal(t, cw20.CurrentVersion(ctx), version)
+	require.True(t, exists)
+
+	// Clean up
+	k.DeleteERC20CW20Pointer(ctx, cwAddress.String(), cw20.CurrentVersion(ctx))
+
+	// Test case 3: ERC721CW721 pointer exists
+	require.Nil(t, k.SetERC721CW721Pointer(ctx, cwAddress.String(), evmAddress))
+	addr, version, exists = k.GetAnyPointeeInfo(ctx, cwAddress.String())
+	require.Equal(t, evmAddress, addr)
+	require.Equal(t, cw721.CurrentVersion, version)
+	require.True(t, exists)
+
+	// Clean up
+	k.DeleteERC721CW721Pointer(ctx, cwAddress.String(), cw721.CurrentVersion)
+
+	// Test case 4: ERC1155CW1155 pointer exists
+	require.Nil(t, k.SetERC1155CW1155Pointer(ctx, cwAddress.String(), evmAddress))
+	addr, version, exists = k.GetAnyPointeeInfo(ctx, cwAddress.String())
+	require.Equal(t, evmAddress, addr)
+	require.Equal(t, cw1155.CurrentVersion, version)
+	require.True(t, exists)
+
+	// Clean up
+	k.DeleteERC1155CW1155Pointer(ctx, cwAddress.String(), cw1155.CurrentVersion)
+
+	// Test case 5: Multiple pointers exist - should return first match (ERC20CW20)
+	require.Nil(t, k.SetERC20CW20Pointer(ctx, cwAddress.String(), evmAddress))
+	require.Nil(t, k.SetERC721CW721Pointer(ctx, cwAddress.String(), evmAddress))
+	require.Nil(t, k.SetERC1155CW1155Pointer(ctx, cwAddress.String(), evmAddress))
+	addr, version, exists = k.GetAnyPointeeInfo(ctx, cwAddress.String())
+	require.Equal(t, evmAddress, addr)
+	require.Equal(t, cw20.CurrentVersion(ctx), version)
+	require.True(t, exists)
+
+	// Clean up all pointers
+	k.DeleteERC20CW20Pointer(ctx, cwAddress.String(), cw20.CurrentVersion(ctx))
+	k.DeleteERC721CW721Pointer(ctx, cwAddress.String(), cw721.CurrentVersion)
+	k.DeleteERC1155CW1155Pointer(ctx, cwAddress.String(), cw1155.CurrentVersion)
 }

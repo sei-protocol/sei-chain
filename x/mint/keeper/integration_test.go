@@ -1,6 +1,8 @@
 package keeper_test
 
 import (
+	"testing"
+
 	"github.com/sei-protocol/sei-chain/app"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
@@ -9,8 +11,8 @@ import (
 )
 
 // returns context and an app with updated mint keeper
-func createTestApp(isCheckTx bool) (*app.App, sdk.Context) {
-	app := app.Setup(isCheckTx, false)
+func createTestApp(t *testing.T, isCheckTx bool) (*app.App, sdk.Context) {
+	app := app.Setup(t, isCheckTx, false, false)
 
 	ctx := app.BaseApp.NewContext(isCheckTx, tmproto.Header{})
 	app.MintKeeper.SetParams(ctx, types.DefaultParams())

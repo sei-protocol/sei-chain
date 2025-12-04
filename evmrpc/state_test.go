@@ -206,17 +206,32 @@ func TestGetStorageAt(t *testing.T) {
 }
 
 func TestGetProof(t *testing.T) {
-	testApp := app.Setup(false, false)
+	testApp := app.Setup(t, false, false, false)
 	_, evmAddr := testkeeper.MockAddressPair()
 	key, val := []byte("test"), []byte("abc")
 	testApp.EvmKeeper.SetState(testApp.GetContextForDeliverTx([]byte{}), evmAddr, common.BytesToHash(key), common.BytesToHash(val))
-	for i := 0; i < MockHeight; i++ {
+	for i := 0; i < MockHeight8; i++ {
 		testApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: int64(i + 1)})
 		testApp.SetDeliverStateToCommit()
 		_, err := testApp.Commit(context.Background())
 		require.Nil(t, err)
 	}
-	stateAPI := evmrpc.NewStateAPI(&MockClient{}, &testApp.EvmKeeper, func(int64) sdk.Context { return testApp.GetCheckCtx() }, evmrpc.ConnectionTypeHTTP)
+	if store := testApp.EvmKeeper.ReceiptStore(); store != nil {
+		require.NoError(t, store.SetLatestVersion(MockHeight8))
+		require.NoError(t, store.SetEarliestVersion(1, true))
+	}
+	client := &MockClient{}
+	ctxProvider := func(height int64) sdk.Context {
+		ctx := testApp.GetCheckCtx()
+		switch {
+		case height == evmrpc.LatestCtxHeight || height <= 0:
+			return ctx.WithBlockHeight(MockHeight8)
+		default:
+			return ctx.WithBlockHeight(height)
+		}
+	}
+	watermarks := evmrpc.NewWatermarkManager(client, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+	stateAPI := evmrpc.NewStateAPI(client, &testApp.EvmKeeper, ctxProvider, evmrpc.ConnectionTypeHTTP, watermarks)
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000616263", testApp.EvmKeeper.GetState(testApp.GetCheckCtx(), evmAddr, common.BytesToHash(key)).Hex())
 	tests := []struct {
 		key         string

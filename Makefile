@@ -52,6 +52,12 @@ ldflags = -X github.com/cosmos/cosmos-sdk/version.Name=sei \
 			-X github.com/cosmos/cosmos-sdk/version.Commit=$(COMMIT) \
 			-X "github.com/cosmos/cosmos-sdk/version.BuildTags=$(build_tags_comma_sep)"
 
+# go 1.23+ needs a workaround to link memsize (see https://github.com/fjl/memsize).
+# NOTE: this is a terribly ugly and unstable way of comparing version numbers,
+# but that's what you get when you do anything nontrivial in a Makefile.
+ifeq ($(firstword $(sort go1.23 $(shell go env GOVERSION))), go1.23)
+	ldflags += -checklinkname=0
+endif
 ifeq ($(LINK_STATICALLY),true)
 	ldflags += -linkmode=external -extldflags "-Wl,-z,muldefs -static"
 endif
@@ -60,6 +66,8 @@ ldflags := $(strip $(ldflags))
 
 # BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)' -race
 BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)'
+BUILD_FLAGS_MOCK_BALANCES := -tags "$(build_tags) mock_balances" -ldflags '$(ldflags)'
+BUILD_FLAGS_BENCHMARK := -tags "$(build_tags) benchmark mock_balances" -ldflags '$(ldflags)'
 
 #### Command List ####
 
@@ -68,11 +76,75 @@ all: lint install
 install: go.sum
 		go install $(BUILD_FLAGS) ./cmd/seid
 
+install-mock-balances: go.sum
+		go install $(BUILD_FLAGS_MOCK_BALANCES) ./cmd/seid
+
+install-bench: go.sum
+		go install $(BUILD_FLAGS_BENCHMARK) ./cmd/seid
+
 install-with-race-detector: go.sum
 		go install -race $(BUILD_FLAGS) ./cmd/seid
 
 install-price-feeder: go.sum
 		go install $(BUILD_FLAGS) ./oracle/price-feeder
+
+###############################################################################
+###                       RocksDB Backend Support                           ###
+###############################################################################
+# Prerequisites:
+# - build-essential (gcc, g++, make)
+# - pkg-config
+# - cmake
+# - git
+# - zlib development headers
+# - bzip2 development headers
+# - snappy development headers
+# - lz4 development headers
+# - zstd development headers
+# - jemalloc development headers
+# - gflags development headers
+# - liburing development headers
+#
+# Installation on Ubuntu/Debian:
+# sudo apt-get update
+# sudo apt-get install -y build-essential pkg-config cmake git zlib1g-dev \
+#     libbz2-dev libsnappy-dev liblz4-dev libzstd-dev libjemalloc-dev \
+#     libgflags-dev liburing-dev
+#
+# Usage:
+# 1. Build RocksDB (one time): make build-rocksdb
+# 2. Install seid with RocksDB: make install-rocksdb
+###############################################################################
+
+# Build and install RocksDB from source (one time setup)
+build-rocksdb:
+	@echo "Building RocksDB v8.9.1..."
+	@if [ -d "rocksdb" ]; then \
+		echo "rocksdb directory already exists, removing..."; \
+		rm -rf rocksdb; \
+	fi
+	git clone https://github.com/facebook/rocksdb.git
+	cd rocksdb && \
+		git checkout v8.9.1 && \
+		make clean && \
+		CXXFLAGS='-march=native -DNDEBUG' make -j"$$(nproc)" shared_lib && \
+		sudo make install-shared
+	@echo '/usr/local/lib' | sudo tee /etc/ld.so.conf.d/rocksdb.conf
+	@sudo ldconfig
+	@echo "RocksDB installation complete!"
+
+# Install seid with RocksDB backend support
+install-rocksdb: go.sum
+	@echo "Checking for RocksDB installation..."
+	@if ! ldconfig -p | grep -q librocksdb; then \
+		echo "Error: RocksDB not found. Please run 'make build-rocksdb' first."; \
+		exit 1; \
+	fi
+	@echo "RocksDB found, proceeding with installation..."
+	CGO_CFLAGS="-I/usr/local/include" \
+	CGO_LDFLAGS="-L/usr/local/lib -lrocksdb -lz -lbz2 -lsnappy -llz4 -lzstd -ljemalloc" \
+	go install $(BUILD_FLAGS) -tags "$(build_tags) rocksdbBackend" ./cmd/seid
+	@echo "seid installed with RocksDB backend support!"
 
 loadtest: go.sum
 		go build $(BUILD_FLAGS) -o ./build/loadtest ./loadtest/
@@ -91,6 +163,9 @@ lint:
 
 build:
 	go build $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
+
+build-verbose:
+	go build -x -v $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
 
 build-price-feeder:
 	go build $(BUILD_FLAGS) -o ./build/price-feeder ./oracle/price-feeder
@@ -191,14 +266,26 @@ docker-cluster-start: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
 	@mkdir -p $(shell go env GOPATH)/pkg/mod
 	@mkdir -p $(shell go env GOCACHE)
-	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} docker compose up
+	@cd docker && \
+		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
+			DETACH_FLAG="-d"; \
+		else \
+			DETACH_FLAG=""; \
+		fi; \
+		USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} docker compose up $$DETACH_FLAG
 
 .PHONY: localnet-start
 
 # Use this to skip the seid build process
 docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
-	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 SKIP_BUILD=true docker compose up
+	@cd docker && \
+		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
+			DETACH_FLAG="-d"; \
+		else \
+			DETACH_FLAG=""; \
+		fi; \
+		USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 SKIP_BUILD=true docker compose up $$DETACH_FLAG
 .PHONY: localnet-start
 
 # Stop 4-node docker containers
@@ -224,7 +311,17 @@ $(BUILDDIR):
 $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
 	go list -f "{{ if (or .TestGoFiles .XTestGoFiles) }}{{ .ImportPath }}{{ end }}" ./... | sort > $@
 
+TARGET_PACKAGE := github.com/sei-protocol/sei-chain/occ_tests
+
 split-test-packages:$(BUILDDIR)/packages.txt
 	split -d -n l/$(NUM_SPLIT) $< $<.
 test-group-%:split-test-packages
-	cat $(BUILDDIR)/packages.txt.$* | xargs go test -parallel 4 -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic
+	@echo "🔍 Checking for special package: $(TARGET_PACKAGE)"
+	@if grep -q "$(TARGET_PACKAGE)" $(BUILDDIR)/packages.txt.$*; then \
+		echo "🔒 Found $(TARGET_PACKAGE), running with -parallel=1"; \
+		PARALLEL="-parallel=1"; \
+	else \
+		echo "⚡ Not found, running with -parallel=4"; \
+		PARALLEL="-parallel=4"; \
+	fi; \
+	cat $(BUILDDIR)/packages.txt.$* | xargs go test $$PARALLEL -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic -coverpkg=./...

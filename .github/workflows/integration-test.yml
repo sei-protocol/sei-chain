@@ -21,7 +21,7 @@ defaults:
 jobs:
   integration-tests:
     name: Integration Test (${{ matrix.test.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-large
     timeout-minutes: 30
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -103,14 +103,6 @@ jobs:
             ],
           },
           {
-            name: "SeiDB State Store",
-            scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
-              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
-            ]
-          },
-          {
             name: "EVM Module",
             scripts: [
               "./integration_test/evm_module/scripts/evm_tests.sh",
@@ -148,10 +140,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.21
+          go-version: 1.24
 
       - name: Start 4 node docker cluster
-        run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start &
+        run: make clean && DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start
 
       - name: Wait for docker cluster to start
         run: |
@@ -178,6 +170,36 @@ jobs:
           done
           unset IFS  # revert the internal field separator back to default
 
+      - name: Prepare log artifact name
+        if: ${{ always() }}
+        id: log_artifact_meta
+        run: |
+          raw="${{ matrix.test.name }}"
+          safe=$(echo "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g' | sed -E 's/^-+|-+$//g')
+          if [ -z "$safe" ]; then
+            safe="logs"
+          fi
+          echo "artifact_name=$safe" >> $GITHUB_OUTPUT
+
+      - name: Collect logs directory
+        if: ${{ always() }}
+        run: |
+          LOG_ROOT="artifacts/sei-${{ steps.log_artifact_meta.outputs.artifact_name }}"
+          mkdir -p "$LOG_ROOT"
+          if [ -d build/generated/logs ]; then
+            cp -r build/generated/logs "$LOG_ROOT/"
+          else
+            echo "No logs directory found"
+          fi
+
+      - name: Upload logs directory
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs-${{ steps.log_artifact_meta.outputs.artifact_name }}
+          path: artifacts/sei-${{ steps.log_artifact_meta.outputs.artifact_name }}
+          if-no-files-found: warn
+
   integration-test-check:
     name: Integration Test Check
     runs-on: ubuntu-latest
@@ -200,6 +222,10 @@ jobs:
                 echo "Status: $status"
                 if [[ "$status" == "failure" ]]; then
                   echo "Some or all tests have failed!"
+                  exit 1
+                fi
+                if [[ "$status" == "cancelled" ]]; then
+                  echo "Some or all tests have been cancelled!"
                   exit 1
                 fi
               done

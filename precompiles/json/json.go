@@ -11,15 +11,18 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
 const (
-	ExtractAsBytesMethod     = "extractAsBytes"
-	ExtractAsBytesListMethod = "extractAsBytesList"
-	ExtractAsUint256Method   = "extractAsUint256"
+	ExtractAsBytesMethod          = "extractAsBytes"
+	ExtractAsBytesListMethod      = "extractAsBytesList"
+	ExtractAsUint256Method        = "extractAsUint256"
+	ExtractAsBytesFromArrayMethod = "extractAsBytesFromArray"
 )
 
 const JSONAddress = "0x0000000000000000000000000000000000001003"
@@ -31,12 +34,13 @@ const GasCostPerByte = 100 // TODO: parameterize
 var f embed.FS
 
 type PrecompileExecutor struct {
-	ExtractAsBytesID     []byte
-	ExtractAsBytesListID []byte
-	ExtractAsUint256ID   []byte
+	ExtractAsBytesID          []byte
+	ExtractAsBytesListID      []byte
+	ExtractAsUint256ID        []byte
+	ExtractAsBytesFromArrayID []byte
 }
 
-func NewPrecompile() (*pcommon.Precompile, error) {
+func NewPrecompile(keepers putils.Keepers) (*pcommon.Precompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{}
@@ -49,6 +53,8 @@ func NewPrecompile() (*pcommon.Precompile, error) {
 			p.ExtractAsBytesListID = m.ID
 		case ExtractAsUint256Method:
 			p.ExtractAsUint256ID = m.ID
+		case ExtractAsBytesFromArrayMethod:
+			p.ExtractAsBytesFromArrayID = m.ID
 		}
 	}
 
@@ -57,10 +63,10 @@ func NewPrecompile() (*pcommon.Precompile, error) {
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64 {
-	return uint64(GasCostPerByte * len(input))
+	return uint64(GasCostPerByte * len(input)) //nolint:gosec
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (bz []byte, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, hooks *tracing.Hooks) (bz []byte, err error) {
 	switch method.Name {
 	case ExtractAsBytesMethod:
 		return p.extractAsBytes(ctx, method, args, value)
@@ -79,6 +85,8 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 
 		uint_.FillBytes(byteArr)
 		return byteArr, nil
+	case ExtractAsBytesFromArrayMethod:
+		return p.extractAsBytesFromArray(ctx, method, args, value)
 	}
 	return
 }
@@ -171,4 +179,39 @@ func (p PrecompileExecutor) ExtractAsUint256(_ sdk.Context, _ *abi.Method, args 
 	}
 
 	return value, nil
+}
+
+func (p PrecompileExecutor) extractAsBytesFromArray(_ sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		return nil, err
+	}
+
+	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
+	bz := args[0].([]byte)
+	var decoded []gjson.RawMessage
+	if err := gjson.Unmarshal(bz, &decoded); err != nil {
+		return nil, err
+	}
+	if len(decoded) > 1<<16 {
+		return nil, errors.New("input array is larger than 2^16")
+	}
+	index, ok := args[1].(uint16)
+	if !ok {
+		return nil, errors.New("index must be uint16")
+	}
+	if int(index) >= len(decoded) {
+		return nil, fmt.Errorf("index %d is out of bounds", index)
+	}
+	result := decoded[index]
+
+	// in the case of a string value, remove the quotes
+	if len(result) >= 2 && result[0] == '"' && result[len(result)-1] == '"' {
+		result = result[1 : len(result)-1]
+	}
+
+	return method.Outputs.Pack([]byte(result))
 }

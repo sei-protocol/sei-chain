@@ -25,7 +25,7 @@ func NewMigrator(keeper Keeper) Migrator {
 // Migrate2to3 migrates from version 2 to 3.
 func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	// Reset params after removing the denom creation fee param
-	defaultParams := types.DefaultParams()
+	defaultParams := types.Params{}
 	m.keeper.paramSpace.SetParamSet(ctx, &defaultParams)
 
 	// We remove the denom creation fee whitelist in this migration
@@ -34,7 +34,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 
 	oldCreateDenomFeeWhitelistPrefix := []byte(strings.Join([]string{oldCreateDenomFeeWhitelistKey, ""}, KeySeparator))
 	iter := sdk.KVStorePrefixIterator(store, oldCreateDenomFeeWhitelistPrefix)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		store.Delete(iter.Key())
 	}
@@ -44,7 +44,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 	// Set denom metadata for all denoms
 	iter := m.keeper.GetAllDenomsIterator(ctx)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		denom := string(iter.Value())
 		denomMetadata, found := m.keeper.bankKeeper.GetDenomMetaData(ctx, denom)
@@ -55,6 +55,13 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 		m.SetMetadata(&denomMetadata)
 		m.keeper.bankKeeper.SetDenomMetaData(ctx, denomMetadata)
 	}
+	return nil
+}
+
+func (m Migrator) Migrate4to5(ctx sdk.Context) error {
+	// Add new params and set all to defaults
+	defaultParams := types.DefaultParams()
+	m.keeper.SetParams(ctx, defaultParams)
 	return nil
 }
 

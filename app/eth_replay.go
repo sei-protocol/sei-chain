@@ -17,6 +17,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 	ethtests "github.com/ethereum/go-ethereum/tests"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -50,7 +51,7 @@ func Replay(a *App) {
 		if err != nil {
 			panic(err)
 		}
-		if latestBlock < uint64(h+initHeight) {
+		if latestBlock < uint64(h+initHeight) { //nolint:gosec
 			a.Logger().Info(fmt.Sprintf("Latest block is %d. Sleeping for a minute", latestBlock))
 			time.Sleep(1 * time.Minute)
 			continue
@@ -69,7 +70,7 @@ func Replay(a *App) {
 		}
 		a.EvmKeeper.ReplayBlock = b
 		hash := make([]byte, 8)
-		binary.BigEndian.PutUint64(hash, uint64(h))
+		binary.BigEndian.PutUint64(hash, uint64(h)) //nolint:gosec
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 			Txs:               utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) }),
 			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
@@ -85,7 +86,7 @@ func Replay(a *App) {
 		for _, w := range b.Withdrawals() {
 			amount := new(big.Int).SetUint64(w.Amount)
 			amount = amount.Mul(amount, big.NewInt(params.GWei))
-			s.AddBalance(w.Address, amount, tracing.BalanceIncreaseWithdrawal)
+			s.AddBalance(w.Address, uint256.MustFromBig(amount), tracing.BalanceIncreaseWithdrawal)
 		}
 		_, _ = s.Finalize()
 		for _, tx := range b.Txs {
@@ -123,6 +124,19 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		panic(err)
 	}
 
+	ethblocks := make([]*ethtypes.Block, len(bt.Json.Blocks))
+	for i, btBlock := range bt.Json.Blocks {
+		b, err := btBlock.Decode()
+		if err != nil {
+			panic(err)
+		}
+		ethblocks[i] = b
+	}
+	if bf := ethblocks[0].BaseFee(); bf != nil {
+		a.EvmKeeper.SetCurrBaseFeePerGas(a.GetContextForDeliverTx([]byte{}), sdk.NewDecFromBigInt(bf))
+	} else {
+		a.EvmKeeper.SetCurrBaseFeePerGas(a.GetContextForDeliverTx([]byte{}), sdk.ZeroDec())
+	}
 	for addr, genesisAccount := range a.EvmKeeper.BlockTest.Json.Pre {
 		usei, wei := state.SplitUseiWeiAmount(genesisAccount.Balance)
 		seiAddr := a.EvmKeeper.GetSeiAddressOrDefault(a.GetContextForDeliverTx([]byte{}), addr)
@@ -141,7 +155,6 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		}
 		params := a.EvmKeeper.GetParams(a.GetContextForDeliverTx([]byte{}))
 		params.MinimumFeePerGas = sdk.NewDecFromInt(sdk.NewInt(0))
-		// params.BaseFeePerGas = sdk.NewDecFromInt(sdk.NewInt(0))
 		a.EvmKeeper.SetParams(a.GetContextForDeliverTx([]byte{}), params)
 	}
 
@@ -149,26 +162,33 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		panic("no blocks found")
 	}
 
-	ethblocks := make([]*ethtypes.Block, 0)
 	for i, btBlock := range bt.Json.Blocks {
 		h := int64(i + 1)
 		b, err := btBlock.Decode()
 		if err != nil {
 			panic(err)
 		}
-		ethblocks = append(ethblocks, b)
-		hash := make([]byte, 8)
-		binary.BigEndian.PutUint64(hash, uint64(h))
+		blockHash := b.Hash()
+		parentHash := b.ParentHash()
+		txs := utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) })
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-			Txs:               utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) }),
+			Txs:               txs,
 			ProposerAddress:   a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), b.Coinbase()),
 			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
 			Height:            h,
-			Hash:              hash,
+			Hash:              blockHash[:],
+			LastBlockHash:     parentHash[:],
 			Time:              time.Now(),
 		})
 		if err != nil {
 			panic(err)
+		}
+		if i+1 < len(ethblocks) {
+			if bf := ethblocks[i+1].BaseFee(); bf != nil {
+				a.EvmKeeper.SetCurrBaseFeePerGas(a.GetContextForDeliverTx([]byte{}), sdk.NewDecFromBigInt(bf))
+			} else {
+				a.EvmKeeper.SetCurrBaseFeePerGas(a.GetContextForDeliverTx([]byte{}), sdk.ZeroDec())
+			}
 		}
 		_, err = a.Commit(context.Background())
 		if err != nil {
@@ -184,7 +204,7 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 			continue
 		}
 		// Not checking compliance with EIP-4788
-		if addr == params.BeaconRootsStorageAddress {
+		if addr == params.BeaconRootsAddress {
 			fmt.Println("Skipping beacon roots storage address: ", addr)
 			continue
 		}

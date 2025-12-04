@@ -28,43 +28,38 @@ type StateAPI struct {
 	keeper         *keeper.Keeper
 	ctxProvider    func(int64) sdk.Context
 	connectionType ConnectionType
+	watermarks     *WatermarkManager
 }
 
-func NewStateAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, connectionType ConnectionType) *StateAPI {
-	return &StateAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, connectionType: connectionType}
+func NewStateAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, connectionType ConnectionType, watermarks *WatermarkManager) *StateAPI {
+	return &StateAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, connectionType: connectionType, watermarks: watermarks}
 }
 
 func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getBalance", a.connectionType, startTime, returnErr == nil)
-	block, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
+	defer recordMetricsWithError("eth_getBalance", a.connectionType, startTime, returnErr)
+	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
 	}
-	sdkCtx := a.ctxProvider(LatestCtxHeight)
-	if block != nil {
-		sdkCtx = a.ctxProvider(*block)
-		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
-			return nil, err
-		}
+	sdkCtx := a.ctxProvider(height)
+	if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+		return nil, err
 	}
 	statedb := state.NewDBImpl(sdkCtx, a.keeper, true)
-	return (*hexutil.Big)(statedb.GetBalance(address)), nil
+	return (*hexutil.Big)(statedb.GetBalance(address).ToBig()), nil
 }
 
 func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getCode", a.connectionType, startTime, returnErr == nil)
-	block, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
+	defer recordMetricsWithError("eth_getCode", a.connectionType, startTime, returnErr)
+	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
 	}
-	sdkCtx := a.ctxProvider(LatestCtxHeight)
-	if block != nil {
-		sdkCtx = a.ctxProvider(*block)
-		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
-			return nil, err
-		}
+	sdkCtx := a.ctxProvider(height)
+	if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+		return nil, err
 	}
 	code := a.keeper.GetCode(sdkCtx, address)
 	return code, nil
@@ -72,17 +67,14 @@ func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrO
 
 func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hexKey string, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getStorageAt", a.connectionType, startTime, returnErr == nil)
-	block, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
+	defer recordMetricsWithError("eth_getStorageAt", a.connectionType, startTime, returnErr)
+	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
 	}
-	sdkCtx := a.ctxProvider(LatestCtxHeight)
-	if block != nil {
-		sdkCtx = a.ctxProvider(*block)
-		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
-			return nil, err
-		}
+	sdkCtx := a.ctxProvider(height)
+	if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+		return nil, err
 	}
 	key, _, err := decodeHash(hexKey)
 	if err != nil {
@@ -104,7 +96,7 @@ type ProofResult struct {
 
 func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storageKeys []string, blockNrOrHash rpc.BlockNumberOrHash) (result *ProofResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getProof", a.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError("eth_getProof", a.connectionType, startTime, returnErr)
 	var block *coretypes.ResultBlock
 	var err error
 	if blockNr, ok := blockNrOrHash.Number(); ok {
@@ -112,9 +104,9 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 		if blockNumErr != nil {
 			return nil, blockNumErr
 		}
-		block, err = blockByNumber(ctx, a.tmClient, blockNumber)
+		block, err = blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockNumber, 1)
 	} else {
-		block, err = blockByHash(ctx, a.tmClient, blockNrOrHash.BlockHash[:])
+		block, err = blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockNrOrHash.BlockHash[:], 1)
 	}
 	if err != nil {
 		return nil, err
@@ -159,7 +151,7 @@ OUTER:
 
 func (a *StateAPI) GetNonce(_ context.Context, address common.Address) uint64 {
 	startTime := time.Now()
-	defer recordMetrics("eth_getNonce", a.connectionType, startTime, true)
+	defer recordMetrics("eth_getNonce", a.connectionType, startTime)
 	return a.keeper.GetNonce(a.ctxProvider(LatestCtxHeight), address)
 }
 

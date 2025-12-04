@@ -13,6 +13,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/x/oracle"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
+	"github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 )
@@ -23,7 +24,7 @@ func TestOracleThreshold(t *testing.T) {
 
 	// Case 1.
 	// Less than the threshold signs, exchange rate consensus fails
-	voteMsg := types.NewMsgAggregateExchangeRateVote(exchangeRateStr, keeper.Addrs[0], keeper.ValAddrs[0])
+	voteMsg := types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[0], testutils.ValAddrs[0])
 
 	_, err := h(input.Ctx.WithBlockHeight(1), voteMsg)
 	require.NoError(t, err)
@@ -36,17 +37,17 @@ func TestOracleThreshold(t *testing.T) {
 
 	// Case 2.
 	// More than the threshold signs, exchange rate consensus succeeds
-	voteMsg = types.NewMsgAggregateExchangeRateVote(exchangeRateStr, keeper.Addrs[0], keeper.ValAddrs[0])
+	voteMsg = types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[0], testutils.ValAddrs[0])
 
 	_, err = h(input.Ctx.WithBlockHeight(1), voteMsg)
 	require.NoError(t, err)
 
-	voteMsg = types.NewMsgAggregateExchangeRateVote(exchangeRateStr, keeper.Addrs[1], keeper.ValAddrs[1])
+	voteMsg = types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[1], testutils.ValAddrs[1])
 
 	_, err = h(input.Ctx.WithBlockHeight(1), voteMsg)
 	require.NoError(t, err)
 
-	voteMsg = types.NewMsgAggregateExchangeRateVote(exchangeRateStr, keeper.Addrs[2], keeper.ValAddrs[2])
+	voteMsg = types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[2], testutils.ValAddrs[2])
 	_, err = h(input.Ctx.WithBlockHeight(1), voteMsg)
 	require.NoError(t, err)
 
@@ -60,14 +61,14 @@ func TestOracleThreshold(t *testing.T) {
 
 	// Case 3.
 	// Increase voting power of absent validator, exchange rate consensus fails
-	val, _ := input.StakingKeeper.GetValidator(input.Ctx, keeper.ValAddrs[2])
-	input.StakingKeeper.Delegate(input.Ctx.WithBlockHeight(0), keeper.Addrs[2], stakingAmt.MulRaw(3), stakingtypes.Unbonded, val, false)
+	val, _ := input.StakingKeeper.GetValidator(input.Ctx, testutils.ValAddrs[2])
+	input.StakingKeeper.Delegate(input.Ctx.WithBlockHeight(0), testutils.Addrs[2], stakingAmt.MulRaw(3), stakingtypes.Unbonded, val, false)
 
-	voteMsg = types.NewMsgAggregateExchangeRateVote(exchangeRateStr, keeper.Addrs[0], keeper.ValAddrs[0])
+	voteMsg = types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[0], testutils.ValAddrs[0])
 	_, err = h(input.Ctx.WithBlockHeight(1), voteMsg)
 	require.NoError(t, err)
 
-	voteMsg = types.NewMsgAggregateExchangeRateVote(exchangeRateStr, keeper.Addrs[1], keeper.ValAddrs[1])
+	voteMsg = types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[1], testutils.ValAddrs[1])
 	_, err = h(input.Ctx.WithBlockHeight(3), voteMsg)
 	require.NoError(t, err)
 
@@ -109,7 +110,7 @@ func TestOracleTally(t *testing.T) {
 	h := oracle.NewHandler(input.OracleKeeper)
 	for i, rate := range rates {
 
-		decExchangeRate := sdk.NewDecWithPrec(int64(rate*math.Pow10(keeper.OracleDecPrecision)), int64(keeper.OracleDecPrecision))
+		decExchangeRate := sdk.NewDecWithPrec(int64(rate*math.Pow10(testutils.OracleDecPrecision)), int64(testutils.OracleDecPrecision))
 		exchangeRateStr := decExchangeRate.String() + utils.MicroAtomDenom
 
 		voteMsg := types.NewMsgAggregateExchangeRateVote(exchangeRateStr, sdk.AccAddress(valAddrs[i]), valAddrs[i])
@@ -179,11 +180,54 @@ func TestOracleTally(t *testing.T) {
 	require.Equal(t, tallyMedian.MulInt64(100).TruncateInt(), weightedMedian.MulInt64(100).TruncateInt())
 }
 
+func TestOracleUpdateDidVote(t *testing.T) {
+	input, _ := setup(t)
+
+	// set up a ballot where only one of 3 validators voted, and the other two didn't make any votes
+
+	params := input.OracleKeeper.GetParams(input.Ctx)
+	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}}
+	input.OracleKeeper.SetParams(input.Ctx, params)
+
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
+
+	votingVal := testutils.ValAddrs[0]
+
+	input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
+
+	ballot := types.ExchangeRateBallot{}
+
+	vote := types.NewVoteForTally(randomExchangeRate, utils.MicroAtomDenom, votingVal, 1)
+	ballot = append(ballot, vote)
+
+	validatorClaimMap := make(map[string]types.Claim)
+	for _, valAddr := range testutils.ValAddrs {
+		validatorClaimMap[valAddr.String()] = types.Claim{
+			Power:     1,
+			Weight:    int64(0),
+			WinCount:  int64(0),
+			Recipient: valAddr,
+		}
+	}
+
+	oracle.UpdateDidVote(input.Ctx, ballot, validatorClaimMap)
+
+	require.Equal(t, validatorClaimMap[votingVal.String()].WinCount, int64(1))
+	require.Equal(t, validatorClaimMap[testutils.ValAddrs[1].String()].WinCount, int64(0))
+	require.Equal(t, validatorClaimMap[testutils.ValAddrs[2].String()].WinCount, int64(0))
+
+	// check didVote as well
+	require.Equal(t, validatorClaimMap[votingVal.String()].DidVote, true)
+	require.Equal(t, validatorClaimMap[testutils.ValAddrs[1].String()].DidVote, false)
+	require.Equal(t, validatorClaimMap[testutils.ValAddrs[2].String()].DidVote, false)
+}
+
 func TestOracleTallyTiming(t *testing.T) {
 	input, h := setup(t)
 
-	// all the keeper.Addrs vote for the block ... not last period block yet, so tally fails
-	for i := range keeper.Addrs[:2] {
+	// all the testutils.Addrs vote for the block ... not last period block yet, so tally fails
+	for i := range testutils.Addrs[:2] {
 		makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, i)
 	}
 
@@ -230,14 +274,14 @@ func TestInvalidVotesSlashing(t *testing.T) {
 
 		oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 		oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-		require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[1]))
-		require.Equal(t, i+1, input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
+		require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[1]))
+		require.Equal(t, i+1, input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[1]))
 	}
 
-	validator := input.StakingKeeper.Validator(input.Ctx, keeper.ValAddrs[1])
+	validator := input.StakingKeeper.Validator(input.Ctx, testutils.ValAddrs[1])
 	require.Equal(t, stakingAmt, validator.GetBondedTokens())
 
-	// one more miss vote will inccur keeper.ValAddrs[1] slashing
+	// one more miss vote will inccur testutils.ValAddrs[1] slashing
 	// Account 1, KRW
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
 
@@ -250,7 +294,7 @@ func TestInvalidVotesSlashing(t *testing.T) {
 	input.Ctx = input.Ctx.WithBlockHeight(votePeriodsPerWindow - 1)
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-	validator = input.StakingKeeper.Validator(input.Ctx, keeper.ValAddrs[1])
+	validator = input.StakingKeeper.Validator(input.Ctx, testutils.ValAddrs[1])
 	require.Equal(t, sdk.OneDec().Sub(slashFraction).MulInt(stakingAmt).TruncateInt(), validator.GetBondedTokens())
 }
 
@@ -270,11 +314,11 @@ func TestWhitelistSlashing(t *testing.T) {
 
 		oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 		oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-		require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
-		require.Equal(t, i+1, input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[0]))
+		require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[0]))
+		require.Equal(t, i+1, input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[0]))
 	}
 
-	validator := input.StakingKeeper.Validator(input.Ctx, keeper.ValAddrs[0])
+	validator := input.StakingKeeper.Validator(input.Ctx, testutils.ValAddrs[0])
 	require.Equal(t, stakingAmt, validator.GetBondedTokens())
 
 	// one more miss vote will incur in slashing because of abstaining
@@ -287,7 +331,7 @@ func TestWhitelistSlashing(t *testing.T) {
 	input.Ctx = input.Ctx.WithBlockHeight(votePeriodsPerWindow - 1)
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-	validator = input.StakingKeeper.Validator(input.Ctx, keeper.ValAddrs[0])
+	validator = input.StakingKeeper.Validator(input.Ctx, testutils.ValAddrs[0])
 
 	slashFraction := input.OracleKeeper.SlashFraction(input.Ctx)
 	require.Equal(t, sdk.OneDec().Sub(slashFraction).MulInt(stakingAmt).TruncateInt(), validator.GetBondedTokens())
@@ -309,13 +353,13 @@ func TestNotPassedBallotSlashing(t *testing.T) {
 
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[2]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[1]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[2]))
 
-	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[0]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[1]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[2]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[0]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[1]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[2]))
 }
 
 func TestNotPassedBallotSlashingInvalidVotes(t *testing.T) {
@@ -340,22 +384,21 @@ func TestNotPassedBallotSlashingInvalidVotes(t *testing.T) {
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 
 	// 4-7 should be counted as abstained due to not voting
-	// 3 should be missed due to out of bounds
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[2]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[3]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[4]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[5]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[6]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetSuccessCount(input.Ctx, testutils.ValAddrs[0]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetSuccessCount(input.Ctx, testutils.ValAddrs[1]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetSuccessCount(input.Ctx, testutils.ValAddrs[2]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetSuccessCount(input.Ctx, testutils.ValAddrs[3]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetSuccessCount(input.Ctx, testutils.ValAddrs[4]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetSuccessCount(input.Ctx, testutils.ValAddrs[5]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetSuccessCount(input.Ctx, testutils.ValAddrs[6]))
 
-	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[0]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[1]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[2]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[3]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[4]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[5]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[6]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[1]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[2]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[3]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[4]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[5]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[6]))
 }
 
 func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
@@ -388,13 +431,13 @@ func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
 	endBlockerHeight := input.Ctx.BlockHeight()
 
 	// 6 and 7 should be missed due to not voting on second asset
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[2]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[3]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[4]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[5]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[6]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[1]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[2]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[3]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[4]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[5]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[6]))
 
 	input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
 
@@ -428,14 +471,13 @@ func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
 	newEndBlockerHeight := input.Ctx.BlockHeight()
 
 	// 4-7 should be missed due to not voting on second asset
-	// 3 should have missed due to out of bounds value even though it didnt meet voting threshold
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[2]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[3]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[4]))
-	require.Equal(t, uint64(2), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[5]))
-	require.Equal(t, uint64(2), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[6]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[1]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[2]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[3]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[4]))
+	require.Equal(t, uint64(2), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[5]))
+	require.Equal(t, uint64(2), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[6]))
 
 	input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
 
@@ -480,14 +522,14 @@ func TestAbstainSlashing(t *testing.T) {
 
 		oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 		oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-		require.Equal(t, uint64(i+1%limit), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
-		require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[1]))
+		require.Equal(t, uint64(i+1%limit), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[1]))
+		require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[1]))
 	}
 
 	input.Ctx = input.Ctx.WithBlockHeight(votePeriodsPerWindow - 1)
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-	validator := input.StakingKeeper.Validator(input.Ctx, keeper.ValAddrs[1])
+	validator := input.StakingKeeper.Validator(input.Ctx, testutils.ValAddrs[1])
 	// validator got slashed and jailed
 	require.Equal(t, sdk.OneDec().Sub(slashFraction).MulInt(stakingAmt).TruncateInt(), validator.GetBondedTokens())
 	require.True(t, validator.IsJailed())
@@ -511,9 +553,9 @@ func TestVoteTargets(t *testing.T) {
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 
 	// no missing current
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[2]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[1]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[2]))
 
 	// vote targets are {KRW, SDR}
 	require.Equal(t, []string{utils.MicroAtomDenom}, input.OracleKeeper.GetVoteTargets(input.Ctx))
@@ -533,9 +575,9 @@ func TestVoteTargets(t *testing.T) {
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[2]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[1]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[2]))
 
 	// SDR must be deleted
 	require.Equal(t, []string{utils.MicroAtomDenom}, input.OracleKeeper.GetVoteTargets(input.Ctx))
@@ -554,9 +596,9 @@ func TestVoteTargets(t *testing.T) {
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[2]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[1]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[2]))
 
 	_, err = input.OracleKeeper.GetVoteTarget(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
@@ -634,8 +676,8 @@ func TestOraclePriceSnapshot(t *testing.T) {
 	require.Equal(t, expected2, input.OracleKeeper.GetPriceSnapshot(input.Ctx, 200))
 }
 
-func makeAggregateVote(t *testing.T, input keeper.TestInput, h sdk.Handler, height int64, rates sdk.DecCoins, idx int) {
-	voteMsg := types.NewMsgAggregateExchangeRateVote(rates.String(), keeper.Addrs[idx], keeper.ValAddrs[idx])
+func makeAggregateVote(t *testing.T, input testutils.TestInput, h sdk.Handler, height int64, rates sdk.DecCoins, idx int) {
+	voteMsg := types.NewMsgAggregateExchangeRateVote(rates.String(), testutils.Addrs[idx], testutils.ValAddrs[idx])
 	_, err := h(input.Ctx.WithBlockHeight(height), voteMsg)
 	require.NoError(t, err)
 }
@@ -671,4 +713,88 @@ func TestEndWindowClearExcessFeeds(t *testing.T) {
 	response2, err := querier.Actives(ctx, &types.QueryActivesRequest{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(response2.Actives))
+}
+
+func TestOverflowAndDivByZero(t *testing.T) {
+	input, h := setup(t)
+	params := input.OracleKeeper.GetParams(input.Ctx)
+	params.Whitelist = types.DenomList{
+		{Name: utils.MicroAtomDenom},
+		{Name: utils.MicroEthDenom},
+	}
+	input.OracleKeeper.SetParams(input.Ctx, params)
+
+	// Set vote targets
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroEthDenom)
+
+	// Test overflow case
+	overflowRate := sdk.MustNewDecFromStr("7896044618658097711785492504343953926634992332820282019728792003956564819967.999999999999999999")
+	smallRate := sdk.MustNewDecFromStr("0.000000000000000001")
+	overflowVote := sdk.DecCoins{
+		sdk.NewDecCoinFromDec(utils.MicroAtomDenom, overflowRate),
+		sdk.NewDecCoinFromDec(utils.MicroEthDenom, smallRate),
+	}
+	makeAggregateVote(t, input, h, 0, overflowVote, 0)
+	makeAggregateVote(t, input, h, 0, overflowVote, 1)
+	makeAggregateVote(t, input, h, 0, overflowVote, 2)
+
+	// This should not panic
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
+	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
+
+	// Verify no exchange rates were set for overflowed one
+	rate, _, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	require.NoError(t, err)
+	require.Equal(t, overflowRate, rate)
+	_, _, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
+	require.Error(t, err)
+
+	input.Ctx = input.Ctx.WithBlockHeight(1)
+
+	// Test divide by zero case
+	zeroVote := sdk.DecCoins{
+		sdk.NewDecCoinFromDec(utils.MicroAtomDenom, smallRate),
+		sdk.NewDecCoinFromDec(utils.MicroEthDenom, overflowRate),
+	}
+	makeAggregateVote(t, input, h, 1, zeroVote, 0)
+	makeAggregateVote(t, input, h, 1, zeroVote, 1)
+	makeAggregateVote(t, input, h, 1, zeroVote, 2)
+
+	// This should not panic
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
+	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
+
+	// Verify no exchange rates were set for either case
+	rate, height, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	require.NoError(t, err)
+	require.Equal(t, smallRate, rate)
+	require.Equal(t, int64(1), height.Int64())
+	_, _, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
+	require.Error(t, err)
+}
+
+func TestTallyOverflow(t *testing.T) {
+	input, h := setup(t)
+	params := input.OracleKeeper.GetParams(input.Ctx)
+	params.Whitelist = types.DenomList{
+		{Name: utils.MicroAtomDenom},
+	}
+	input.OracleKeeper.SetParams(input.Ctx, params)
+
+	// Set vote targets
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
+
+	// Test overflow case
+	overflowRate := sdk.MustNewDecFromStr("66749594872528440074844428317798503581334516323645399060845050244444366430645")
+	overflowVote := sdk.DecCoins{
+		sdk.NewDecCoinFromDec(utils.MicroAtomDenom, overflowRate),
+	}
+	makeAggregateVote(t, input, h, 0, overflowVote, 0)
+
+	// This should not panic
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
+	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 }

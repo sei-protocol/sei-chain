@@ -38,3 +38,9 @@ func Filter[T any](slice []T, lambda func(t T) bool) []T {
 	}
 	return res
 }
+
+func Copy[T any](slice []T) []T {
+	cpy := make([]T, len(slice))
+	copy(cpy, slice)
+	return cpy
+}

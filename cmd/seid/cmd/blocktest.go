@@ -3,7 +3,10 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	_ "net/http/pprof" //nolint:gosec
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
@@ -15,17 +18,12 @@ import (
 	"github.com/cosmos/cosmos-sdk/server"
 	"github.com/cosmos/cosmos-sdk/store"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	ethtests "github.com/ethereum/go-ethereum/tests"
 	"github.com/sei-protocol/sei-chain/app"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/tendermint/tendermint/libs/log"
-
-	//nolint:gosec,G108
-	_ "net/http/pprof"
 )
 
-//nolint:gosec
 func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "blocktest",
@@ -80,7 +78,6 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 						),
 					),
 				},
-				[]aclkeeper.Option{},
 				app.EmptyAppOptions,
 				baseapp.SetPruning(storetypes.PruneEverything),
 				baseapp.SetMinGasPrices(cast.ToString(serverCtx.Viper.Get(server.FlagMinGasPrices))),
@@ -102,7 +99,7 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 }
 
 func testIngester(testFilePath string, testName string) *ethtests.BlockTest {
-	file, err := os.Open(testFilePath)
+	file, err := os.Open(filepath.Clean(testFilePath))
 	if err != nil {
 		panic(err)
 	}
@@ -113,9 +110,13 @@ func testIngester(testFilePath string, testName string) *ethtests.BlockTest {
 		panic(err)
 	}
 
-	res, ok := tests[testName]
+	fullTestname := fmt.Sprintf(
+		"%s::%s",
+		strings.TrimPrefix(testFilePath, "./ethtests/"), testName,
+	)
+	res, ok := tests[fullTestname]
 	if !ok {
-		panic(fmt.Sprintf("Unable to find test name %v at test file path %v", testName, testFilePath))
+		panic(fmt.Sprintf("Unable to find test name %v at test file path %v", fullTestname, testFilePath))
 	}
 
 	return &res

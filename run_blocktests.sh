@@ -39,18 +39,75 @@ declare -a test_name_skip_list=(
     "tips" # failing after turning on eip-1559 and not burning base fee
     "burnVerify" # failing after turning on eip-1559 and not burning base fee
     "emptyPostTransfer" # failing after turning on eip-1559 and not burning base fee
-    "multimpleBalanceInstruction" # failing from 150% max gas refund change
-    "burnVerify" # failing from 150% max gas refund change
-    "refundReset" # failing from 150% max gas refund change
+    "highDemand" # failing after increasing SSTORE gas limit to 72k
+    "randomStatetest319BC" # failing after increasing SSTORE gas limit to 72k
+    "refundReset" # failing after increasing SSTORE gas limit to 72k
+    "wallet2outOf3txs" # failing after increasing SSTORE gas limit to 72k
+    "wallet2outOf3txs2" # failing after increasing SSTORE gas limit to 72k
+    "wallet2outOf3txsRevoke" # failing after increasing SSTORE gas limit to 72k
+    "wallet2outOf3txsRevokeAndConfirmAgain" # failing after increasing SSTORE gas limit to 72k
+    "walletReorganizeOwners" # failing after increasing SSTORE gas limit to 72k
+    "eip2930" # failing after increasing SSTORE gas limit to 72k
+    "medDemand" # failing after increasing SSTORE gas limit to 72k
 
     # invalid block tests - state tests
     "gasLimitTooHigh" # block header gas limit doesn't apply to us
     "transactionFromSelfDestructedContract" # failing
+    "callcodeOutput2" # failing after increasing SSTORE gas limit to 72k
+    "createNameRegistratorPerTxsNotEnoughGasAfter" # failing after increasing SSTORE gas limit to 72k
+    "createNameRegistratorPerTxsNotEnoughGasAt" # failing after increasing SSTORE gas limit to 72k
+    "createNameRegistratorPerTxsNotEnoughGasBefore" # failing after increasing SSTORE gas limit to 72k
+    "createRevert" # failing after increasing SSTORE gas limit to 72k
+    "CreateTransactionReverted" # failing after increasing SSTORE gas limit to 72k
+    "dataTx" # failing after increasing SSTORE gas limit to 72k
 
     # InvaldBlockTests/bcEIP1559
+    "badBlocks" # failing after increasing SSTORE gas limit to 72k
     "badUncles" # reorgs don't apply to us
     "checkGasLimit" # not sure what issue is
+    "baseFee" # failing after increasing SSTORE gas limit to 72k
+    "feeCap" # failing after increasing SSTORE gas limit to 72k
+    "transFail" # failing after increasing SSTORE gas limit to 72k
+    "valCausesOOF" # failing after increasing SSTORE gas limit to 72k
+    "gasLimit40m" # failing after increasing SSTORE gas limit to 72k
+    "gasLimit20m" # failing after increasing SSTORE gas limit to 72k
 )
+
+# Skip based on explicit relative paths when name filtering is insufficient
+declare -a test_path_skip_list=(
+    "./ethtests/BlockchainTests/ValidBlocks/bcStateTests/refundReset.json"
+)
+
+seid_wrapper_dir=$(mktemp -d)
+cleanup_wrapper() {
+    rm -rf "$seid_wrapper_dir"
+}
+trap cleanup_wrapper EXIT
+
+cat > "$seid_wrapper_dir/seid" <<'EOF'
+#!/bin/bash
+target_seid="$HOME/go/bin/seid"
+cmd="$1"
+if [ "$cmd" = "gentx" ]; then
+    shift
+    has_ip=false
+    for arg in "$@"; do
+        if [ "$arg" = "--ip" ]; then
+            has_ip=true
+            break
+        fi
+    done
+    if [ "$has_ip" = false ]; then
+        set -- "$@" --ip 127.0.0.1
+    fi
+    exec "$target_seid" gentx "$@"
+else
+    shift
+    exec "$target_seid" "$cmd" "$@"
+fi
+EOF
+chmod +x "$seid_wrapper_dir/seid"
+export PATH="$seid_wrapper_dir:$PATH"
 
 # list out all paths to json files starting from the block_tests_dir
 block_tests=$(find "$block_tests_path" -name "*.json" | sort)
@@ -84,9 +141,14 @@ for test_path in $block_tests; do
         continue
     fi
 
-    # Check if "${test_name}_Cancun" is not in the test file
-    if ! grep -q "${test_name}_Cancun" "$test_path"; then
-        echo "Skipping test due to missing Cancun tag: $test_path"
+    if printf '%s\n' "${test_path_skip_list[@]}" | grep -qx "$test_path"; then
+        echo "Skipping test in skip list: $test_path"
+        continue
+    fi
+
+    # Check if "${test_name}_Prague" is not in the test file
+    if ! grep -q "${test_name}_Prague" "$test_path"; then
+        echo "Skipping test due to missing Prague tag: $test_path"
         continue
     fi
 
@@ -101,9 +163,9 @@ for test_path in $block_tests; do
 
     echo -e "\n*********************************************************\n"
     echo "Running block test: $test_path"
-    echo "test name: ${test_name}_Cancun"
+    echo "test name: ${test_name}_Prague"
     echo -e "\n*********************************************************\n"
-    rm -r ~/.sei || true
+    rm -rf ~/.sei || true
     NO_RUN=1 ./scripts/initialize_local_chain.sh
-    seid blocktest --block-test $test_path --test-name "${test_name}_Cancun"
+    seid blocktest --block-test $test_path --test-name "${test_name}_Prague"
 done

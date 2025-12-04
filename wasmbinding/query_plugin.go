@@ -13,6 +13,7 @@ const (
 	EpochRoute        = "epoch"
 	TokenFactoryRoute = "tokenfactory"
 	EVMRoute          = "evm"
+	StakingExtRoute   = "stakingext"
 )
 
 type SeiQueryWrapper struct {
@@ -37,6 +38,8 @@ func CustomQuerier(qp *QueryPlugin) func(ctx sdk.Context, request json.RawMessag
 			return qp.HandleTokenFactoryQuery(ctx, contractQuery.QueryData)
 		case EVMRoute:
 			return qp.HandleEVMQuery(ctx, contractQuery.QueryData)
+		case StakingExtRoute:
+			return qp.HandleStakingExtQuery(ctx, contractQuery.QueryData)
 		default:
 			return nil, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Query Route"}
 		}

@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/big"
 	"reflect"
+	"regexp"
 	"testing"
 	"time"
 
@@ -18,14 +19,11 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/k0kubun/pp/v3"
 	"github.com/sei-protocol/sei-chain/app"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
@@ -54,71 +52,6 @@ func TestEmptyBlockIdempotency(t *testing.T) {
 	for _, data := range commitData[1:] {
 		require.Equal(t, len(referenceData), len(data))
 	}
-}
-
-func TestGetChannelsFromSignalMapping(t *testing.T) {
-	dag := acltypes.NewDag()
-	commit := *acltypes.CommitAccessOp()
-	writeA := sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_WRITE,
-		ResourceType:       sdkacltypes.ResourceType_KV,
-		IdentifierTemplate: "ResourceA",
-	}
-	readA := sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_READ,
-		ResourceType:       sdkacltypes.ResourceType_KV,
-		IdentifierTemplate: "ResourceA",
-	}
-	readAll := sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_READ,
-		ResourceType:       sdkacltypes.ResourceType_ANY,
-		IdentifierTemplate: "*",
-	}
-
-	dag.AddNodeBuildDependency(0, 0, writeA)
-	dag.AddNodeBuildDependency(0, 0, commit)
-	dag.AddNodeBuildDependency(1, 0, readAll)
-	dag.AddNodeBuildDependency(1, 0, commit)
-	dag.AddNodeBuildDependency(2, 0, writeA)
-	dag.AddNodeBuildDependency(2, 0, commit)
-	dag.AddNodeBuildDependency(3, 0, writeA)
-	dag.AddNodeBuildDependency(3, 0, commit)
-
-	dag.AddNodeBuildDependency(0, 1, writeA)
-	dag.AddNodeBuildDependency(0, 1, commit)
-	dag.AddNodeBuildDependency(1, 1, readA)
-	dag.AddNodeBuildDependency(1, 1, commit)
-
-	completionSignalsMap, blockingSignalsMap := dag.CompletionSignalingMap, dag.BlockingSignalsMap
-
-	pp.Default.SetColoringEnabled(false)
-
-	resultCompletionSignalsMap := app.GetChannelsFromSignalMapping(completionSignalsMap[0])
-	resultBlockingSignalsMap := app.GetChannelsFromSignalMapping(blockingSignalsMap[1])
-
-	require.True(t, len(resultCompletionSignalsMap) > 1)
-	require.True(t, len(resultBlockingSignalsMap) > 1)
-}
-
-// Mock method to fail
-func MockProcessBlockConcurrentFunctionFail(
-	ctx sdk.Context,
-	txs [][]byte,
-	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
-	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
-	txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
-) ([]*abci.ExecTxResult, bool) {
-	return []*abci.ExecTxResult{}, false
-}
-
-func MockProcessBlockConcurrentFunctionSuccess(
-	ctx sdk.Context,
-	txs [][]byte,
-	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
-	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
-	txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
-) ([]*abci.ExecTxResult, bool) {
-	return []*abci.ExecTxResult{}, true
 }
 
 func TestPartitionPrioritizedTxs(t *testing.T) {
@@ -258,12 +191,13 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 		txs,
 		req,
 		req.DecidedLastCommit,
+		false,
 	)
 	fmt.Println("txResults1", txResults)
 
 	require.Equal(t, 2, len(txResults))
-	require.Equal(t, uint32(3), txResults[0].Code)
-	require.Equal(t, uint32(5), txResults[1].Code)
+	require.Equal(t, uint32(15), txResults[0].Code)
+	require.Equal(t, uint32(15), txResults[1].Code)
 
 	diffOrderTxs := [][]byte{
 		otherTx,
@@ -280,13 +214,14 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 		diffOrderTxs,
 		req,
 		req.DecidedLastCommit,
+		false,
 	)
 	fmt.Println("txResults2", txResults2)
 
 	require.Equal(t, 2, len(txResults2))
 	// opposite ordering due to true index ordering
-	require.Equal(t, uint32(5), txResults2[0].Code)
-	require.Equal(t, uint32(3), txResults2[1].Code)
+	require.Equal(t, uint32(15), txResults2[0].Code)
+	require.Equal(t, uint32(15), txResults2[1].Code)
 }
 
 func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
@@ -310,6 +245,169 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 	res, err := ap.ProcessProposalHandler(ctx, &badProposal)
 	require.Nil(t, err)
 	require.Equal(t, abci.ResponseProcessProposal_REJECT, res.Status)
+}
+
+func TestInvalidProposalWithExcessiveGasEstimates(t *testing.T) {
+	type TxType struct {
+		isEVM       bool
+		gasEstimate uint64
+		gasWanted   uint64
+	}
+	tests := []struct {
+		name              string
+		maxBlockGas       int64
+		maxBlockGasWanted int64
+		txs               []TxType
+		expectedStatus    abci.ResponseProcessProposal_ProposalStatus
+	}{
+		{
+			name:              "reject when total cosmos tx gas estimates exceed block gas limit",
+			maxBlockGas:       20000,
+			maxBlockGasWanted: math.MaxInt64,
+			txs:               []TxType{{isEVM: false, gasEstimate: 0, gasWanted: 30000}},
+			expectedStatus:    abci.ResponseProcessProposal_REJECT,
+		},
+		{
+			name:              "reject when total evm tx gas estimates exceed block gas limit",
+			maxBlockGas:       20000,
+			maxBlockGasWanted: math.MaxInt64,
+			txs:               []TxType{{isEVM: true, gasEstimate: 30000, gasWanted: 30000}},
+			expectedStatus:    abci.ResponseProcessProposal_REJECT,
+		},
+		{
+			name:              "single tx: ignore evm gas estimate above maxBlockGas and use gasWanted (accept)",
+			maxBlockGas:       20000,
+			maxBlockGasWanted: math.MaxInt64,
+			txs:               []TxType{{isEVM: true, gasEstimate: 30000, gasWanted: 15000}},
+			expectedStatus:    abci.ResponseProcessProposal_ACCEPT,
+		},
+		{
+			name:              "accept when total cosmos tx gas limit is below block gas limit",
+			maxBlockGas:       20000,
+			maxBlockGasWanted: math.MaxInt64,
+			txs:               []TxType{{isEVM: false, gasEstimate: 0, gasWanted: 10000}},
+			expectedStatus:    abci.ResponseProcessProposal_ACCEPT,
+		},
+		{
+			name:              "single tx: accept when total evm tx gas estimate is below block gas limit but gas wanted above block gas limit",
+			maxBlockGas:       35000,
+			maxBlockGasWanted: math.MaxInt64,
+			txs:               []TxType{{isEVM: true, gasEstimate: 30000, gasWanted: 100000}},
+			expectedStatus:    abci.ResponseProcessProposal_ACCEPT,
+		},
+		{
+			name:              "multiple txs: accept when total evm tx gas estimate is below block gas limit but gas wanted is above block gas limit",
+			maxBlockGas:       60000,
+			maxBlockGasWanted: math.MaxInt64,
+			txs: []TxType{
+				{isEVM: true, gasEstimate: 30000, gasWanted: 100000},
+				{isEVM: true, gasEstimate: 30000, gasWanted: 100000},
+			},
+			expectedStatus: abci.ResponseProcessProposal_ACCEPT,
+		},
+		{
+			name:              "multiple txs: accept when mix of cosmos txs and evm txs",
+			maxBlockGas:       100000,
+			maxBlockGasWanted: math.MaxInt64,
+			txs: []TxType{
+				{isEVM: false, gasEstimate: 0, gasWanted: 50000},
+				{isEVM: true, gasEstimate: 50000, gasWanted: 100000},
+			},
+			expectedStatus: abci.ResponseProcessProposal_ACCEPT,
+		},
+		{
+			name:              "multiple txs: reject when mix of cosmos txs and evm txs",
+			maxBlockGas:       100000,
+			maxBlockGasWanted: math.MaxInt64,
+			txs: []TxType{
+				{isEVM: false, gasEstimate: 0, gasWanted: 51000},
+				{isEVM: true, gasEstimate: 50000, gasWanted: 100000},
+			},
+			expectedStatus: abci.ResponseProcessProposal_REJECT,
+		},
+		{
+			name:              "single tx: reject when gas wanted is above maxBlockGasWanted",
+			maxBlockGas:       math.MaxInt64,
+			maxBlockGasWanted: 10,
+			txs: []TxType{
+				{isEVM: false, gasEstimate: 0, gasWanted: 11}, // exceed max block gas wanted
+			},
+			expectedStatus: abci.ResponseProcessProposal_REJECT,
+		},
+		{
+			name:              "multiple txs: reject when gas wanted is above maxBlockGasWanted",
+			maxBlockGas:       math.MaxInt64,
+			maxBlockGasWanted: 10,
+			txs: []TxType{
+				// gasWanted combined should exceed maxBlockGasWanted
+				{isEVM: false, gasEstimate: 0, gasWanted: 9},
+				{isEVM: true, gasEstimate: 0, gasWanted: 9},
+			},
+			expectedStatus: abci.ResponseProcessProposal_REJECT,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tm := time.Now().UTC()
+			valPub := secp256k1.GenPrivKey().PubKey()
+
+			testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+			ap := testWrapper.App
+			ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
+				Block: &types.BlockParams{
+					MaxGas:       tc.maxBlockGas,
+					MaxGasWanted: tc.maxBlockGasWanted,
+				},
+			})
+
+			var txs [][]byte
+			for _, tx := range tc.txs {
+				if tx.isEVM {
+					// Create EVM transaction
+					privKey := testkeeper.MockPrivateKey()
+					key, _ := crypto.HexToECDSA(hex.EncodeToString(privKey.Bytes()))
+					txData := ethtypes.LegacyTx{
+						Nonce:    1,
+						GasPrice: big.NewInt(10),
+						Gas:      tx.gasWanted,
+					}
+					chainCfg := evmtypes.DefaultChainConfig()
+					ethCfg := chainCfg.EthereumConfig(big.NewInt(config.DefaultChainID))
+					signer := ethtypes.MakeSigner(ethCfg, big.NewInt(1), uint64(123))
+					signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+					require.Nil(t, err)
+					ethtxdata, err := ethtx.NewTxDataFromTx(signedTx)
+					require.Nil(t, err)
+					msg, err := evmtypes.NewMsgEVMTransaction(ethtxdata)
+					require.Nil(t, err)
+					txBuilder := ap.GetTxConfig().NewTxBuilder()
+					txBuilder.SetMsgs(msg)
+					txBuilder.SetGasEstimate(tx.gasEstimate)
+					txbz, _ := ap.GetTxConfig().TxEncoder()(txBuilder.GetTx())
+					// Create two transactions to exceed the block gas limit
+					txs = append(txs, txbz)
+				} else {
+					// Create Cosmos transaction
+					cosmosTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+					cosmosTxBuilder.SetMsgs(&banktypes.MsgSend{}) // Using a dummy msg since msg is undefined
+					cosmosTxBuilder.SetGasEstimate(tx.gasEstimate)
+					cosmosTxBuilder.SetGasLimit(tx.gasWanted)
+					emptyTx, _ := ap.GetTxConfig().TxEncoder()(cosmosTxBuilder.GetTx())
+					// Create two transactions to exceed the block gas limit
+					txs = append(txs, emptyTx)
+				}
+			}
+
+			proposal := abci.RequestProcessProposal{
+				Txs:    txs,
+				Height: 1,
+			}
+			res, err := ap.ProcessProposalHandler(ctx, &proposal)
+			require.Nil(t, err)
+			require.Equal(t, tc.expectedStatus, res.Status)
+		})
+	}
 }
 
 func TestOverflowGas(t *testing.T) {
@@ -509,4 +607,193 @@ func isSwaggerRouteAdded(router *mux.Router) bool {
 		return false
 	}
 	return isAdded
+}
+
+func TestGaslessTransactionExtremeGasValue(t *testing.T) {
+	sei := app.Setup(t, false, false, false)
+	ctx := sei.BaseApp.NewContext(false, types.Header{})
+
+	testAddr := sdk.AccAddress([]byte("test_address_1234567"))
+
+	// Create a potentially gasless transaction with extreme gas value
+	attackMsg := &evmtypes.MsgAssociate{
+		Sender:        testAddr.String(),
+		CustomMessage: "overflow_attack",
+	}
+
+	attackTxBuilder := sei.GetTxConfig().NewTxBuilder()
+	attackTxBuilder.SetMsgs(attackMsg)
+	attackTxBuilder.SetGasLimit(uint64(9223372036854775807)) // 2^63-1, extreme value
+	attackTx := attackTxBuilder.GetTx()
+
+	// Encode the transaction
+	attackTxBytes, err := sei.GetTxConfig().TxEncoder()(attackTx)
+	require.NoError(t, err)
+
+	// Gasless transactions skip metrics recording
+	// Non-gasless transactions have overflow protection in IncrGasCounter
+	require.NotPanics(t, func() {
+		result := sei.DeliverTxWithResult(ctx, attackTxBytes, attackTx)
+		require.NotNil(t, result)
+	}, "Extreme gas values should never cause panic due to overflow protection")
+}
+
+// TestProcessProposalHandlerPanicRecovery tests the panic recovery mechanism in ProcessProposalHandler.
+func TestProcessProposalHandlerPanicRecovery(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+	appInstance := testWrapper.App
+	ctx := testWrapper.Ctx
+
+	// malicious tx with MsgAggregateExchangeRateVote with invalid feeder address
+	maliciousTx := []byte{
+		0x0a, 0x90, 0x01, 0x0a, 0x2f, 0x2f, 0x6f, 0x72, 0x61, 0x63, 0x6c, 0x65, 0x2e, 0x76, 0x31, 0x62, 0x65, 0x74, 0x61, 0x31, 0x2e, 0x4d, 0x73, 0x67, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x45, 0x78, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x52, 0x61, 0x74, 0x65, 0x56, 0x6f, 0x74, 0x65, 0x12, 0x5d, 0x0a, 0x16, 0x31, 0x30, 0x30, 0x30, 0x30, 0x75, 0x73, 0x65, 0x69, 0x3a, 0x31, 0x30, 0x30, 0x30, 0x30, 0x75, 0x61, 0x74, 0x6f, 0x6d, 0x12, 0x04, 0x31, 0x2e, 0x30, 0x30, 0x1a, 0x28, 0x73, 0x65, 0x69, 0x31, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x71, 0x22, 0x13, 0x69, 0x6e, 0x76, 0x61, 0x6c, 0x69, 0x64, 0x2d, 0x66, 0x65, 0x65, 0x64, 0x65, 0x72, 0x2d, 0x61, 0x64, 0x64, 0x72,
+	}
+
+	req := &abci.RequestProcessProposal{
+		Height: ctx.BlockHeight(),
+		Hash:   []byte("panic-test"),
+		Txs:    [][]byte{maliciousTx}, // Include the malicious transaction
+	}
+
+	// Clear any existing optimistic processing state
+	appInstance.ClearOptimisticProcessingInfo()
+
+	resp, err := appInstance.ProcessProposalHandler(ctx, req)
+	require.NoError(t, err)
+
+	if resp.Status == abci.ResponseProcessProposal_REJECT {
+		t.Log("SECURITY TEST: Precheck caught potential issue and rejected proposal")
+	} else {
+		t.Log("SECURITY TEST: Proposal accepted - no panic detected (expected with current protections)")
+
+		// If accepted, wait for optimistic processing to complete
+		info := appInstance.GetOptimisticProcessingInfo()
+		if info.Completion != nil {
+			select {
+			case <-info.Completion:
+				finalInfo := appInstance.GetOptimisticProcessingInfo()
+				if finalInfo.Aborted {
+					t.Log("Backup panic recovery worked correctly")
+				} else {
+					t.Log("Optimistic processing completed normally")
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("Timeout waiting for completion signal")
+			}
+		}
+	}
+}
+
+// TestProcessBlockUpgradePanicLogic tests the upgrade panic detection logic
+// Since ProcessBlock has multiple panic recovery layers, we test the logic directly
+func TestProcessBlockUpgradePanicLogic(t *testing.T) {
+	// This tests the exact same logic used in ProcessBlock's defer function
+	// We extract and test the core logic to ensure it works correctly
+	testUpgradePanicDetection := func(panicMsg string) (shouldRepanic bool, shouldRecover bool) {
+		// This uses the same regex pattern as ProcessBlock for consistency with Cosmovisor
+		// Matches multiple upgrade-related panic patterns from sei-cosmos
+		upgradeRe := regexp.MustCompile(`^(UPGRADE "[^"]+" NEEDED at height:?\s*\d+|Wrong app version \d+, upgrade handler is missing for .+ upgrade plan|BINARY UPDATED BEFORE TRIGGER! UPGRADE "[^"]+")`)
+		if upgradeRe.MatchString(panicMsg) {
+			return true, false // Should re-panic
+		}
+		return false, true // Should recover
+	}
+
+	testCases := []struct {
+		name          string
+		panicMsg      string
+		shouldRepanic bool
+		shouldRecover bool
+		description   string
+	}{
+		{
+			name:          "legitimate_upgrade_panic",
+			panicMsg:      `UPGRADE "test-version" NEEDED at height: 100: test upgrade`,
+			shouldRepanic: true,
+			shouldRecover: false,
+			description:   "Legitimate upgrade panic should be re-panicked",
+		},
+		{
+			name:          "malicious_upgrade_in_middle",
+			panicMsg:      `malicious attack UPGRADE "fake" NEEDED at height: 100`,
+			shouldRepanic: false,
+			shouldRecover: true,
+			description:   "Malicious message with UPGRADE in middle should be recovered",
+		},
+		{
+			name:          "normal_panic",
+			panicMsg:      "runtime error: index out of range",
+			shouldRepanic: false,
+			shouldRecover: true,
+			description:   "Normal panic should be recovered",
+		},
+		{
+			name:          "upgrade_prefix_wrong_format",
+			panicMsg:      `UPGRADE "fake" but wrong format`,
+			shouldRepanic: false,
+			shouldRecover: true,
+			description:   "UPGRADE prefix but missing 'NEEDED at height' should be recovered",
+		},
+		{
+			name:          "case_sensitive_test",
+			panicMsg:      `upgrade "fake" NEEDED at height: 100`,
+			shouldRepanic: false,
+			shouldRecover: true,
+			description:   "Lowercase 'upgrade' should be recovered (case sensitive)",
+		},
+		{
+			name:          "different_upgrade_format",
+			panicMsg:      `UPGRADE "mainnet-v2" NEEDED at height: 200000: major upgrade`,
+			shouldRepanic: true,
+			shouldRecover: false,
+			description:   "Different upgrade version format should still work",
+		},
+		{
+			name:          "wrong_app_version_panic",
+			panicMsg:      `Wrong app version 5, upgrade handler is missing for v5.9.0 upgrade plan`,
+			shouldRepanic: true,
+			shouldRecover: false,
+			description:   "Wrong app version panic should be re-panicked",
+		},
+		{
+			name:          "binary_updated_early_panic",
+			panicMsg:      `BINARY UPDATED BEFORE TRIGGER! UPGRADE "v6.0.0" - in binary but not executed on chain`,
+			shouldRepanic: true,
+			shouldRecover: false,
+			description:   "Binary updated too early panic should be re-panicked",
+		},
+		{
+			name:          "malicious_wrong_version_format",
+			panicMsg:      `malicious Wrong app version attack`,
+			shouldRepanic: false,
+			shouldRecover: true,
+			description:   "Malicious message mimicking wrong version should be recovered",
+		},
+		{
+			name:          "malicious_binary_updated_format",
+			panicMsg:      `attack BINARY UPDATED BEFORE TRIGGER! fake message`,
+			shouldRepanic: false,
+			shouldRecover: true,
+			description:   "Malicious message mimicking binary update should be recovered",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			shouldRepanic, shouldRecover := testUpgradePanicDetection(tc.panicMsg)
+
+			if tc.shouldRepanic {
+				require.True(t, shouldRepanic, "Expected panic to be re-panicked: %s", tc.description)
+				require.False(t, shouldRecover, "Expected panic NOT to be recovered: %s", tc.description)
+			}
+
+			if tc.shouldRecover {
+				require.False(t, shouldRepanic, "Expected panic NOT to be re-panicked: %s", tc.description)
+				require.True(t, shouldRecover, "Expected panic to be recovered: %s", tc.description)
+			}
+		})
+	}
 }

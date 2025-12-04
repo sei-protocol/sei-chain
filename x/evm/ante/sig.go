@@ -9,6 +9,7 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -42,6 +43,11 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	chainID := svd.evmKeeper.ChainID(ctx)
 	txChainID := ethTx.ChainId()
 
+	fee := new(big.Int).Mul(ethTx.GasPrice(), new(big.Int).SetUint64(ethTx.Gas()))
+	if ethTx.Value() != nil {
+		fee = new(big.Int).Add(fee, ethTx.Value())
+	}
+
 	// validate chain ID on the transaction
 	switch ethTx.Type() {
 	case ethtypes.LegacyTxType:
@@ -62,18 +68,17 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 		if txNonce < nextNonce {
 			return ctx, sdkerrors.ErrWrongSequence
 		}
-		ctx = ctx.WithCheckTxCallback(func(thenCtx sdk.Context, e error) {
-			if e != nil {
-				return
-			}
+		ctx = ctx.WithCheckTxCallback(func(priority int64) {
 			txKey := tmtypes.Tx(ctx.TxBytes()).Key()
-			svd.evmKeeper.AddPendingNonce(txKey, evmAddr, txNonce, thenCtx.Priority())
+			svd.evmKeeper.AddPendingNonce(txKey, evmAddr, txNonce, priority)
+			metrics.IncrementPendingNonce("added")
 		})
 
 		// if the mempool expires a transaction, this handler is invoked
 		ctx = ctx.WithExpireTxHandler(func() {
 			txKey := tmtypes.Tx(ctx.TxBytes()).Key()
 			svd.evmKeeper.RemovePendingNonce(txKey)
+			metrics.IncrementPendingNonce("expired")
 		})
 
 		if txNonce > nextNonce {
@@ -92,17 +97,26 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 
 				if txNonce < nextNonceToBeMined {
 					// this nonce has already been mined, we cannot accept it again
+					metrics.IncrementPendingNonce("rejected")
 					return abci.Rejected
 				} else if txNonce < nextPendingNonce {
+					// check if the sender still has enough funds to pay for gas
+					balance := svd.evmKeeper.GetBalance(latestCtx, types.MustGetEVMTransactionMessage(tx).Derived.SenderSeiAddr)
+					if balance.Cmp(fee) < 0 {
+						// not enough funds. Go back to pending as it may obtain sufficient funds later.
+						return abci.Pending
+					}
 					// this nonce is allowed to process as it is part of the
 					// consecutive nonces from nextNonceToBeMined to nextPendingNonce
 					// This logic allows multiple nonces from an account to be processed in a block.
+					metrics.IncrementPendingNonce("accepted")
 					return abci.Accepted
 				}
 				return abci.Pending
 			})
 		}
 	} else if txNonce != nextNonce {
+		metrics.IncrementNonceMismatch(txNonce > nextNonce)
 		return ctx, sdkerrors.ErrWrongSequence
 	}
 

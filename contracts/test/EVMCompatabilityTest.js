@@ -1,9 +1,10 @@
 const { expect } = require("chai");
 const {isBigNumber} = require("hardhat/common");
 const {uniq, shuffle} = require("lodash");
-const { ethers, upgrades } = require('hardhat');
+const hre = require('hardhat');
+const { ethers, upgrades } = hre;
 const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
-const { deployEvmContract, setupSigners, fundAddress, getCosmosTx, getEvmTx} = require("./lib")
+const { deployEvmContract, setupSigners, fundAddress, getCosmosTx, getEvmTx, waitForBaseFeeToEq, waitForBaseFeeToBeGt} = require("./lib")
 const axios = require("axios");
 const { default: BigNumber } = require("bignumber.js");
 
@@ -73,6 +74,8 @@ describe("EVM Test", function () {
     let owner;
     let evmAddr;
     let firstNonce;
+    let loadSigners = [];
+    let loadContracts = [];
 
     // The first contract address deployed from 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52
     // should always be 0xbD5d765B226CaEA8507EE030565618dAFFD806e2 when sent with nonce=0
@@ -85,6 +88,7 @@ describe("EVM Test", function () {
       }
       const accounts = await setupSigners(await ethers.getSigners())
       owner = accounts[0].signer;
+      loadSigners = accounts.map((acct) => acct.signer);
       debug(`OWNER = ${owner.address}`)
 
       firstNonce = await ethers.provider.getTransactionCount(owner.address)
@@ -99,6 +103,8 @@ describe("EVM Test", function () {
 
       let tokenAddr = await testToken.getAddress()
       evmAddr = await evmTester.getAddress()
+
+      loadContracts = loadSigners.map((signer) => evmTester.connect(signer));
 
       debug(`Token: ${tokenAddr}, EvmAddr: ${evmAddr}`);
     });
@@ -209,6 +215,100 @@ describe("EVM Test", function () {
         const result2 = await ethers.provider.call(tx);
         expect(result).to.equal(result2)
       });
+
+      it("Should return correct gas limit via GASLIMIT opcode", async function () {
+         // First call setGasLimit() to capture the gas limit during transaction execution
+         const setGasLimitTx = await evmTester.setGasLimit({ gasPrice: ethers.parseUnits('100', 'gwei') });
+         await setGasLimitTx.wait();
+
+         // Now read the captured gas limit
+         const contractGasLimit = await evmTester.getGasLimit();
+
+         // Get the current block and its gas limit
+         const currentBlock = await ethers.provider.getBlock("latest");
+         const blockGasLimit = currentBlock.gasLimit;
+
+         // The gas limit returned by the contract should match the block's gas limit
+         expect(contractGasLimit).to.equal(blockGasLimit);
+         
+         // Gas limit should be a reasonable value (greater than 0)
+         expect(contractGasLimit).to.be.greaterThan(0);
+         
+         debug(`Contract gas limit: ${contractGasLimit}`);
+         debug(`Block gas limit: ${blockGasLimit}`);
+       });
+
+      it("Should return consistent gas limit across multiple calls", async function () {
+        // Set gas limit multiple times and verify consistency
+        const setTx1 = await evmTester.setGasLimit({ gasPrice: ethers.parseUnits('100', 'gwei') });
+        await setTx1.wait();
+        const gasLimit1 = await evmTester.getGasLimit();
+
+        const setTx2 = await evmTester.setGasLimit({ gasPrice: ethers.parseUnits('100', 'gwei') });
+        await setTx2.wait();
+        const gasLimit2 = await evmTester.getGasLimit();
+
+        const setTx3 = await evmTester.setGasLimit({ gasPrice: ethers.parseUnits('100', 'gwei') });
+        await setTx3.wait();
+        const gasLimit3 = await evmTester.getGasLimit();
+
+        // All calls should return the same gas limit
+        expect(gasLimit1).to.equal(gasLimit2);
+        expect(gasLimit2).to.equal(gasLimit3);
+      });
+
+      it("Should access gas limit directly via inline assembly", async function () {
+        // First capture the gas limit using setGasLimit() in a transaction context
+        const setGasLimitTx = await evmTester.setGasLimit({ gasPrice: ethers.parseUnits('100', 'gwei') });
+        await setGasLimitTx.wait();
+
+        // Read the captured gas limit
+        const gasLimitFromAssembly = await evmTester.getGasLimit();
+        
+        // Also get it from getBlockProperties for comparison
+        const blockProperties = await evmTester.getBlockProperties();
+        const gasLimitFromBlockProperties = blockProperties.gaslimit;
+
+        // Both methods should return the same value
+        expect(gasLimitFromAssembly).to.equal(gasLimitFromBlockProperties);
+
+        // Get the current block and verify against its gas limit
+        const currentBlock = await ethers.provider.getBlock("latest");
+        const blockGasLimit = currentBlock.gasLimit;
+        expect(gasLimitFromAssembly).to.equal(blockGasLimit);
+
+        // Verify it's a valid gas limit value
+        expect(gasLimitFromAssembly).to.be.greaterThan(0);
+        
+        // Gas limit should be within reasonable bounds (not too small, not too large)
+        expect(gasLimitFromAssembly).to.be.greaterThan(21000); // Minimum for a simple transaction
+        expect(gasLimitFromAssembly).to.be.lessThan(100_000_000); // 100M gas seems reasonable as upper bound
+        
+        debug(`Gas limit from assembly: ${gasLimitFromAssembly}`);
+      });
+
+      it("Should access gas limit correctly within a state-changing transaction", async function () {
+        // Call setGasLimit() to capture the gas limit during transaction execution
+        const setGasLimitTx = await evmTester.setGasLimit({ gasPrice: ethers.parseUnits('100', 'gwei') });
+        const receipt = await setGasLimitTx.wait();
+
+        // Get the gas limit from the contract after the transaction
+        const gasLimitFromContract = await evmTester.getGasLimit();
+        
+        // Get the block that contains our transaction
+        const transactionBlock = await ethers.provider.getBlock(receipt.blockNumber);
+        const blockGasLimit = transactionBlock.gasLimit;
+
+        // The gas limit should match the block's gas limit
+        expect(gasLimitFromContract).to.equal(blockGasLimit);
+        
+        // Verify the transaction was successful and gas limit is reasonable
+        expect(receipt.status).to.equal(1);
+        expect(gasLimitFromContract).to.be.greaterThan(receipt.gasUsed);
+        
+        debug(`Transaction gas used: ${receipt.gasUsed}`);
+        debug(`Block gas limit: ${gasLimitFromContract}`);
+      });
     });
 
     describe("Variable Types", function () {
@@ -242,7 +342,7 @@ describe("EVM Test", function () {
         // Call setBoolVar
         await delay()
         const txResponse = await evmTester.setUint256Var(12345, { gasPrice: ethers.parseUnits('100', 'gwei') });
-        await txResponse.wait();  // Wait for the transaction to be mined
+        const receipt = await txResponse.wait();  // Wait for the transaction to be mined
 
         debug(JSON.stringify(txResponse))
 
@@ -252,6 +352,12 @@ describe("EVM Test", function () {
 
         // Verify that addr is set correctly
         expect(await evmTester.uint256Var()).to.equal(12345);
+
+        // Calculate total gas cost
+        const totalGasCost = receipt.gasUsed * receipt.gasPrice;
+        console.log("totalGasCost", totalGasCost);
+        console.log("receipt", receipt);
+        debug(`Total gas cost: ${ethers.formatEther(totalGasCost)} ETH`);
       });
 
       // this uses a newer version of ethers to attempt a blob transaction (different signer wallet)
@@ -277,8 +383,92 @@ describe("EVM Test", function () {
         await expect(signer.sendTransaction(tx)).to.be.rejectedWith("unsupported transaction type");
       })
 
+      it("trace balance diff matches up with actual balance change", async function() {
+        const testCases = [
+          {
+            maxPriorityFeePerGas: ethers.parseUnits('1', 'gwei'),
+            maxFeePerGas: ethers.parseUnits('10', 'gwei')
+          },
+          {
+            maxPriorityFeePerGas: ethers.parseUnits('0', 'gwei'), 
+            maxFeePerGas: ethers.parseUnits('10', 'gwei')
+          },
+          {
+            maxPriorityFeePerGas: ethers.parseUnits('10', 'gwei'),
+            maxFeePerGas: ethers.parseUnits('10', 'gwei') 
+          }
+        ];
+
+        for (const testCase of testCases) {
+          // send a tx with a gas to elevate the base fee
+          const heavyTxResponse = await evmTester.useGas(9500000, { 
+            maxPriorityFeePerGas: ethers.parseUnits('10', 'gwei'),
+            maxFeePerGas: ethers.parseUnits('10', 'gwei'),
+            type: 2
+          });
+          await heavyTxResponse.wait();
+          await waitForBaseFeeToBeGt(ethers.parseUnits('1', 'gwei'))
+
+          const txResponse = await owner.sendTransaction({
+            to: owner.address,
+            value: ethers.parseUnits('0', 'ether'),
+            maxPriorityFeePerGas: testCase.maxPriorityFeePerGas,
+            maxFeePerGas: testCase.maxFeePerGas,
+            type: 2
+          });
+          const receipt = await txResponse.wait();
+
+          const trace = await hre.network.provider.request({
+            method: "debug_traceTransaction",
+            params: [receipt.hash, {
+              tracer: "prestateTracer",
+              tracerConfig: {
+                diffMode: true
+              }
+            }],
+          });
+
+          const block_ = await ethers.provider.getBlock(receipt.blockNumber)
+          const baseFeePerGas = block_.baseFeePerGas
+
+          const lowerCaseAddress = owner.address.toLowerCase()
+          const preBalance = BigInt(trace.pre[lowerCaseAddress].balance);
+          const postBalance = BigInt(trace.post[lowerCaseAddress].balance);
+          const balanceDiffTrace = preBalance - postBalance;
+
+          const expectedGasPrice = baseFeePerGas + testCase.maxPriorityFeePerGas <= testCase.maxFeePerGas ?
+            baseFeePerGas + testCase.maxPriorityFeePerGas :
+            testCase.maxFeePerGas
+          const gotGasPrice = Number(receipt.gasPrice)
+          const preBalanceBlock = await ethers.provider.getBalance(owner.address, receipt.blockNumber - 1)
+          const postBalanceBlock = await ethers.provider.getBalance(owner.address, receipt.blockNumber)
+          const balanceDiffBlock = preBalanceBlock - postBalanceBlock;
+          expect(gotGasPrice).to.equal(expectedGasPrice)
+          expect(balanceDiffTrace).to.equal(balanceDiffBlock);
+        }
+      });
+
+      it("Simple debug_call should work", async function () {
+        const trace = await hre.network.provider.request({
+          method: "debug_traceCall",
+          params: [{
+            from: owner.address,
+            to: owner.address,
+            value: "0x1"
+          }, "latest"],
+          id: 1,
+          jsonrpc: "2.0"
+        });
+        expect(trace).to.not.be.null;
+        expect(trace.gas).to.equal(21000);
+        expect(trace.failed).to.be.false;
+        expect(trace.returnValue).to.equal('0x');
+        expect(trace.structLogs).to.deep.equal([]);
+      })
+
       it("Should trace a call with timestamp", async function () {
         await delay()
+        await sleep(1000) // make sure test is run in isolation
         const txResponse = await evmTester.setTimestamp({ gasPrice: ethers.parseUnits('100', 'gwei') });
         const receipt = await txResponse.wait();  // Wait for the transaction to be mined
 
@@ -311,7 +501,6 @@ describe("EVM Test", function () {
         }
         expect(found).to.be.true;
       });
-
 
       it("Should set the string correctly and emit an event", async function () {
         await delay()
@@ -484,12 +673,12 @@ describe("EVM Test", function () {
           gasPrice: higherGasPrice,
           type: 1,
         });
-        const receipt = await txResponse.wait();
+        await txResponse.wait();
 
         const balanceAfter = await ethers.provider.getBalance(owner);
 
         const diff = balanceBefore - balanceAfter;
-        expect(diff).to.equal(21000 * higherGasPrice);
+        expect(diff).to.be.greaterThan(21000 * gasPrice);
 
         const success = await sendTransactionAndCheckGas(owner, owner, 0)
         expect(success).to.be.true
@@ -499,12 +688,52 @@ describe("EVM Test", function () {
         const zero = ethers.parseUnits('0', 'ether')
         const highgp = ethers.parseUnits("400", "gwei");
         const gp = ethers.parseUnits("100", "gwei");
+        const oneGwei = ethers.parseUnits("1", "gwei");
 
         const testCases = [
           ["No truncation from max priority fee", gp, gp],
           ["With truncation from max priority fee", gp, highgp],
           ["With complete truncation from max priority fee", zero, highgp]
         ];
+
+        it("Check base fee on the right block", async function () {
+          await delay()
+          // check if base fee is 1gwei, otherwise wait
+          let iterations = 0
+          while (true) {
+            const block = await ethers.provider.getBlock("latest");
+            const baseFee = Number(block.baseFeePerGas);
+            if (baseFee === Number(oneGwei)) {
+              break;
+            }
+            iterations += 1
+            if(iterations > 10) {
+              throw new Error("base fee hasn't dropped to 1gwei in 10 iterations")
+            }
+            await sleep(1000);
+          }
+          // use at least 1000000 gas to increase base fee
+          const txResponse = await evmTester.useGas(1000000, { gasPrice: ethers.parseUnits('100', 'gwei') });
+          const receipt = await txResponse.wait();
+          const blockHeight = receipt.blockNumber;
+
+          // make sure block base fee is 1gwei and the block after
+          // has a base fee higher than 1gwei
+          const block = await ethers.provider.getBlock(blockHeight);
+          const baseFee = Number(block.baseFeePerGas);
+          expect(baseFee).to.equal(oneGwei);
+          // wait for the next block
+          while (true) {
+            const bn = await ethers.provider.getBlockNumber();
+            if(bn !== blockHeight){
+              break
+            }
+            await sleep(500)
+          }
+          const nextBlock = await ethers.provider.getBlock(blockHeight + 1);
+          const nextBaseFee = Number(nextBlock.baseFeePerGas);
+          expect(nextBaseFee).to.be.greaterThan(oneGwei);
+        });
 
         it("Should be able to send many EIP-1559 txs", async function () {
           const gp = ethers.parseUnits("100", "gwei");
@@ -534,20 +763,16 @@ describe("EVM Test", function () {
                 type: 2
               });
               const receipt = await txResponse.wait();
+              // pull base fee from the block of the tx using the receipt
               expect(receipt).to.not.be.null;
               expect(receipt.status).to.equal(1);
-              const gasPrice = Number(receipt.gasPrice);
-
+              const block = await ethers.provider.getBlock(receipt.blockNumber);
+              const baseFee = Number(block.baseFeePerGas);
+              const expectedEffectiveGasPrice = BigInt(baseFee) + maxPriorityFeePerGas > maxFeePerGas ? maxFeePerGas : BigInt(baseFee) + maxPriorityFeePerGas;
               const balanceAfter = await ethers.provider.getBalance(owner);
 
-              const tip = Math.min(
-                Number(maxFeePerGas) - gasPrice,
-                Number(maxPriorityFeePerGas)
-              );
-              const effectiveGasPrice = tip + gasPrice;
-
               const diff = balanceBefore - balanceAfter;
-              expect(diff).to.equal(21000 * effectiveGasPrice);
+              expect(diff).to.equal(21000 * Number(expectedEffectiveGasPrice));
             });
           }
         });
@@ -777,7 +1002,7 @@ describe("EVM Test", function () {
       it("Should fetch past logs", async function () {
         const contractAddress = await evmTester.getAddress()
         const filter = {
-          fromBlock: 0,
+          fromBlock: 1,
           toBlock: 'latest',
           address: contractAddress
         };
@@ -1144,7 +1369,7 @@ describe("EVM Validations ", function() {
       expect(response.data.error.message).to.include("invalid chain-id")
     });
 
-    it("should allow empty chainId for legacy txs", async function() {
+    it("should not allow empty chainId for legacy txs", async function() {
       const nonce = await ethers.provider.getTransactionCount(signer, "pending")
 
       // const accounts = await setupSigners(await hre.ethers.getSigners())
@@ -1164,11 +1389,8 @@ describe("EVM Validations ", function() {
         jsonrpc: "2.0"
       })
 
-      expect(response.data.result).to.match(/0x.*/)
+      expect(response.data.result).not.to.match(/0x.*/)
     });
-
-
-
   })
 
 })

@@ -19,20 +19,20 @@ import (
 )
 
 func TestAddress(t *testing.T) {
-	testApp := app.Setup(false, false)
-	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper), testApp.WasmKeeper, testApp.BankKeeper)
+	testApp := app.Setup(t, false, false, false)
+	p, err := wasmd.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	require.Equal(t, "0x0000000000000000000000000000000000001002", p.Address().Hex())
 }
 
 func TestInstantiate(t *testing.T) {
-	testApp := app.Setup(false, false)
+	testApp := app.Setup(t, false, false, false)
 	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	ctx = ctx.WithIsEVM(true)
 	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
-	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)
+	p, err := wasmd.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	code, err := os.ReadFile("../../example/cosmwasm/echo/artifacts/echo.wasm")
 	require.Nil(t, err)
@@ -66,7 +66,7 @@ func TestInstantiate(t *testing.T) {
 	outputs, err := instantiateMethod.Outputs.Unpack(res)
 	require.Nil(t, err)
 	require.Equal(t, 2, len(outputs))
-	require.Equal(t, "sei1hrpna9v7vs3stzyd4z3xf00676kf78zpe2u5ksvljswn2vnjp3yslucc3n", outputs[0].(string))
+	require.Equal(t, "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau", outputs[0].(string))
 	require.Empty(t, outputs[1].([]byte))
 	require.NotZero(t, g)
 
@@ -89,7 +89,7 @@ func TestInstantiate(t *testing.T) {
 	outputs, err = instantiateMethod.Outputs.Unpack(res)
 	require.Nil(t, err)
 	require.Equal(t, 2, len(outputs))
-	require.Equal(t, "sei1hrpna9v7vs3stzyd4z3xf00676kf78zpe2u5ksvljswn2vnjp3yslucc3n", outputs[0].(string))
+	require.Equal(t, "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau", outputs[0].(string))
 	require.Empty(t, outputs[1].([]byte))
 	require.NotZero(t, g)
 
@@ -120,13 +120,13 @@ func TestInstantiate(t *testing.T) {
 }
 
 func TestExecute(t *testing.T) {
-	testApp := app.Setup(false, false)
+	testApp := app.Setup(t, false, false, false)
 	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	ctx = ctx.WithIsEVM(true)
 	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
-	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)
+	p, err := wasmd.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	code, err := os.ReadFile("../../example/cosmwasm/echo/artifacts/echo.wasm")
 	require.Nil(t, err)
@@ -156,7 +156,7 @@ func TestExecute(t *testing.T) {
 	statedb.WithCtx(statedb.Ctx().WithIsEVM(false))
 	testApp.EvmKeeper.SetCode(statedb.Ctx(), mockEVMAddr, []byte{1, 2, 3})
 	res, _, err := p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false, false)
-	require.Equal(t, "sei does not support CW->EVM->CW call pattern", string(res))
+	require.Nil(t, res)
 	require.Equal(t, vm.ErrExecutionReverted, err)
 	statedb.WithCtx(statedb.Ctx().WithIsEVM(true))
 	res, g, err := p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false, false)
@@ -224,13 +224,13 @@ func TestExecute(t *testing.T) {
 }
 
 func TestQuery(t *testing.T) {
-	testApp := app.Setup(false, false)
+	testApp := app.Setup(t, false, false, false)
 	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	ctx = ctx.WithIsEVM(true)
 	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
-	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)
+	p, err := wasmd.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	code, err := os.ReadFile("../../example/cosmwasm/echo/artifacts/echo.wasm")
 	require.Nil(t, err)
@@ -274,13 +274,13 @@ func TestQuery(t *testing.T) {
 }
 
 func TestExecuteBatchOneMessage(t *testing.T) {
-	testApp := app.Setup(false, false)
+	testApp := app.Setup(t, false, false, false)
 	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	ctx = ctx.WithIsEVM(true)
 	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
-	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)
+	p, err := wasmd.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	code, err := os.ReadFile("../../example/cosmwasm/echo/artifacts/echo.wasm")
 	require.Nil(t, err)
@@ -376,13 +376,13 @@ func TestExecuteBatchOneMessage(t *testing.T) {
 }
 
 func TestExecuteBatchValueImmutability(t *testing.T) {
-	testApp := app.Setup(false, false)
+	testApp := app.Setup(t, false, false, false)
 	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	ctx = ctx.WithIsEVM(true)
 	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
-	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)
+	p, err := wasmd.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	code, err := os.ReadFile("../../example/cosmwasm/echo/artifacts/echo.wasm")
 	require.Nil(t, err)
@@ -421,13 +421,13 @@ func TestExecuteBatchValueImmutability(t *testing.T) {
 }
 
 func TestExecuteBatchMultipleMessages(t *testing.T) {
-	testApp := app.Setup(false, false)
+	testApp := app.Setup(t, false, false, false)
 	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	ctx = ctx.WithIsEVM(true)
 	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
-	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)
+	p, err := wasmd.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	code, err := os.ReadFile("../../example/cosmwasm/echo/artifacts/echo.wasm")
 	require.Nil(t, err)

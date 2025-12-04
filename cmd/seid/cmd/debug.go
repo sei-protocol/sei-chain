@@ -26,7 +26,7 @@ const (
 )
 
 var modules = []string{
-	"wasm", "aclaccesscontrol", "oracle", "epoch", "mint", "acc", "bank", "crisis", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
+	"wasm", "oracle", "epoch", "mint", "acc", "bank", "crisis", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
 }
 
 func DumpIavlCmd() *cobra.Command {
@@ -226,7 +226,7 @@ func PrintKeys(tree *iavl.MutableTree, moduleParser ModuleParser) []byte {
 		fmt.Println("Parsing module with human readable keys")
 	}
 	lines := []byte{}
-	tree.Iterate(func(key []byte, value []byte) bool { //nolint:errcheck
+	_, _ = tree.Iterate(func(key []byte, value []byte) bool {
 		printKey := parseWeaveKey(key)
 		// parse key if we have a parser
 		if moduleParser != nil {

@@ -1,7 +1,6 @@
 package app_test
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"math/big"
@@ -11,23 +10,18 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
-	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	xauthsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	app "github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
@@ -40,12 +34,11 @@ import (
 type AnteTestSuite struct {
 	apptesting.KeeperTestHelper
 
-	anteHandler      sdk.AnteHandler
-	anteDepGenerator sdk.AnteDepGenerator
-	clientCtx        client.Context
-	txBuilder        client.TxBuilder
-	testAcc          sdk.AccAddress
-	testAccPriv      cryptotypes.PrivKey
+	anteHandler sdk.AnteHandler
+	clientCtx   client.Context
+	txBuilder   client.TxBuilder
+	testAcc     sdk.AccAddress
+	testAccPriv cryptotypes.PrivKey
 }
 
 func TestKeeperTestSuite(t *testing.T) {
@@ -58,16 +51,13 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 
 	// keys and addresses
 	suite.testAccPriv, _, suite.testAcc = testdata.KeyTestPubAddr()
-	initalBalance := sdk.Coins{sdk.NewInt64Coin("atom", 100000000000)}
+	initalBalance := sdk.Coins{sdk.NewInt64Coin("usei", 100000000000)}
 	suite.FundAcc(suite.testAcc, initalBalance)
 
 	suite.Ctx = suite.Ctx.WithBlockHeight(1)
 
-	msgValidator := sdkacltypes.NewMsgValidator(aclutils.StoreKeyToResourceTypePrefixMap)
-	suite.Ctx = suite.Ctx.WithMsgValidator(msgValidator)
-
 	// Set up TxConfig.
-	encodingConfig := simapp.MakeTestEncodingConfig()
+	encodingConfig := app.MakeEncodingConfig()
 	// We're using TestMsg encoding in some tests, so register it here.
 	encodingConfig.Amino.RegisterConcrete(&testdata.TestMsg{}, "testdata.TestMsg", nil)
 	testdata.RegisterInterfaces(encodingConfig.InterfaceRegistry)
@@ -80,11 +70,8 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 	otel.SetTracerProvider(defaultTracer)
 	tr := defaultTracer.Tracer("component-main")
 
-	tracingInfo := &tracing.Info{
-		Tracer: &tr,
-	}
-	tracingInfo.SetContext(context.Background())
-	antehandler, anteDepGenerator, err := app.NewAnteHandlerAndDepGenerator(
+	tracingInfo := tracing.NewTracingInfo(tr, true)
+	antehandler, _, err := app.NewAnteHandler(
 		app.HandlerOptions{
 			HandlerOptions: ante.HandlerOptions{
 				AccountKeeper:   suite.App.AccountKeeper,
@@ -95,30 +82,18 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 				// BatchVerifier:   app.batchVerifier,
 			},
-			IBCKeeper:           suite.App.IBCKeeper,
-			WasmConfig:          &wasmConfig,
-			WasmKeeper:          &suite.App.WasmKeeper,
-			OracleKeeper:        &suite.App.OracleKeeper,
-			AccessControlKeeper: &suite.App.AccessControlKeeper,
-			TracingInfo:         tracingInfo,
-			EVMKeeper:           &suite.App.EvmKeeper,
-			LatestCtxGetter:     func() sdk.Context { return suite.Ctx },
+			IBCKeeper:       suite.App.IBCKeeper,
+			WasmConfig:      &wasmConfig,
+			WasmKeeper:      &suite.App.WasmKeeper,
+			OracleKeeper:    &suite.App.OracleKeeper,
+			TracingInfo:     tracingInfo,
+			EVMKeeper:       &suite.App.EvmKeeper,
+			LatestCtxGetter: func() sdk.Context { return suite.Ctx },
 		},
 	)
 
 	suite.Require().NoError(err)
 	suite.anteHandler = antehandler
-	suite.anteDepGenerator = anteDepGenerator
-}
-
-func (suite *AnteTestSuite) AnteHandlerValidateAccessOp(acessOps []sdkacltypes.AccessOperation) error {
-	for _, accessOp := range acessOps {
-		err := acltypes.ValidateAccessOp(accessOp)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // CreateTestTx is a helper function to create a tx given multiple inputs.
@@ -168,59 +143,6 @@ func (suite *AnteTestSuite) CreateTestTx(privs []cryptotypes.PrivKey, accNums []
 	return suite.txBuilder.GetTx(), nil
 }
 
-func (suite *AnteTestSuite) TestValidateDepedencies() {
-	suite.SetupTest(true) // setup
-	suite.txBuilder = suite.clientCtx.TxConfig.NewTxBuilder()
-
-	// msg and signatures
-	msg := testdata.NewTestMsg(suite.testAcc)
-	feeAmount := testdata.NewTestFeeAmount()
-	gasLimit := testdata.NewTestGasLimit()
-	suite.Require().NoError(suite.txBuilder.SetMsgs(msg))
-	suite.txBuilder.SetFeeAmount(feeAmount)
-	suite.txBuilder.SetGasLimit(gasLimit)
-
-	privs, accNums, accSeqs := []cryptotypes.PrivKey{}, []uint64{}, []uint64{}
-	invalidTx, err := suite.CreateTestTx(privs, accNums, accSeqs, suite.Ctx.ChainID())
-	suite.Require().NoError(err)
-
-	_, err = suite.anteHandler(suite.Ctx, invalidTx, false)
-
-	suite.Require().NotNil(err, "Did not error on invalid tx")
-
-	privs, accNums, accSeqs = []cryptotypes.PrivKey{suite.testAccPriv}, []uint64{8}, []uint64{0}
-
-	handlerCtx, cms := aclutils.CacheTxContext(suite.Ctx)
-	validTx, err := suite.CreateTestTx(privs, accNums, accSeqs, suite.Ctx.ChainID())
-
-	suite.Require().NoError(err)
-	depdenencies, _ := suite.anteDepGenerator([]sdkacltypes.AccessOperation{}, validTx, 0)
-	_, err = suite.anteHandler(handlerCtx, validTx, false)
-	suite.Require().Nil(err, "ValidateBasicDecorator returned error on valid tx. err: %v", err)
-	err = suite.AnteHandlerValidateAccessOp(depdenencies)
-
-	require.NoError(suite.T(), err)
-
-	missing := handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
-	suite.Require().Empty(missing)
-
-	// test decorator skips on recheck
-	suite.Ctx = suite.Ctx.WithIsReCheckTx(true)
-
-	// decorator should skip processing invalidTx on recheck and thus return nil-error
-	handlerCtx, cms = aclutils.CacheTxContext(suite.Ctx)
-	depdenencies, _ = suite.anteDepGenerator([]sdkacltypes.AccessOperation{}, invalidTx, 0)
-	_, err = suite.anteHandler(handlerCtx, invalidTx, false)
-	missing = handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
-
-	err = suite.AnteHandlerValidateAccessOp(depdenencies)
-	require.NoError(suite.T(), err)
-
-	suite.Require().Empty(missing)
-
-	suite.Require().Nil(err, "ValidateBasicDecorator ran on ReCheck")
-}
-
 func TestEvmAnteErrorHandler(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	privKey := testkeeper.MockPrivateKey()
@@ -243,7 +165,7 @@ func TestEvmAnteErrorHandler(t *testing.T) {
 	require.Nil(t, err)
 	txwrapper, err := ethtx.NewLegacyTx(tx)
 	require.Nil(t, err)
-	req, err := types.NewMsgEVMTransaction(txwrapper)
+	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 	builder := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
 	builder.SetMsgs(req)
@@ -253,7 +175,7 @@ func TestEvmAnteErrorHandler(t *testing.T) {
 
 	addr, _ := testkeeper.PrivateKeyToAddresses(privKey)
 	testkeeper.EVMTestApp.BankKeeper.AddCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000000000))), true)
-	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: encodedTx}, txToSend, sha256.Sum256(encodedTx))
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: encodedTx}, txToSend, sha256.Sum256(encodedTx))
 	require.NotEqual(t, 0, res.Code)
 	testkeeper.EVMTestApp.EvmKeeper.SetTxResults([]*abci.ExecTxResult{{
 		Code: res.Code,

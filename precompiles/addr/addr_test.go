@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/precompiles/addr"
@@ -22,7 +21,7 @@ func TestAssociatePubKey(t *testing.T) {
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
-	pre, _ := addr.NewPrecompile(k, k.BankKeeper(), k.AccountKeeper())
+	pre, _ := addr.NewPrecompile(testApp.GetPrecompileKeepers())
 	associatePubKey, err := pre.ABI.MethodById(pre.GetExecutor().(*addr.PrecompileExecutor).AssociatePubKeyID)
 
 	// Target refers to the address that the caller is trying to associate.
@@ -45,11 +44,12 @@ func TestAssociatePubKey(t *testing.T) {
 	happyPathOutput, _ := associatePubKey.Outputs.Pack(targetSeiAddress.String(), targetEvmAddress)
 
 	type args struct {
-		evm      *vm.EVM
-		caller   common.Address
-		pubKey   string
-		value    *big.Int
-		readOnly bool
+		evm         *vm.EVM
+		caller      common.Address
+		pubKey      string
+		value       *big.Int
+		readOnly    bool
+		suppliedGas uint64
 	}
 	tests := []struct {
 		name       string
@@ -117,6 +117,21 @@ func TestAssociatePubKey(t *testing.T) {
 			wantErrMsg: fmt.Sprintf("address %s is already associated with evm address %s", callerSeiAddress, callerEvmAddress),
 		},
 		{
+			name: "fails if insufficient gas provided",
+			args: args{
+				evm: &vm.EVM{
+					StateDB:   state.NewDBImpl(ctx, k, true),
+					TxContext: vm.TxContext{Origin: callerEvmAddress},
+				},
+				caller:      callerEvmAddress,
+				pubKey:      targetPubKeyHex,
+				value:       big.NewInt(0),
+				suppliedGas: 1,
+			},
+			wantErr:    true,
+			wantErrMsg: "execution reverted: {ReadFlat}",
+		},
+		{
 			name: "happy path - associates addresses if signature is correct",
 			args: args{
 				evm: &vm.EVM{
@@ -135,20 +150,24 @@ func TestAssociatePubKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create the precompile and inputs
-			p, _ := addr.NewPrecompile(k, k.BankKeeper(), k.AccountKeeper())
+			p, _ := addr.NewPrecompile(testApp.GetPrecompileKeepers())
 			require.Nil(t, err)
 			inputs, err := associatePubKey.Inputs.Pack(tt.args.pubKey)
 			require.Nil(t, err)
 
 			// Make the call to associate.
-			ret, err := p.Run(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociatePubKeyID, inputs...), tt.args.value, tt.args.readOnly, false)
+			suppliedGas := uint64(40000)
+			if tt.args.suppliedGas != 0 {
+				suppliedGas = tt.args.suppliedGas
+			}
+			ret, _, err := p.RunAndCalculateGas(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociatePubKeyID, inputs...), suppliedGas, tt.args.value, nil, tt.args.readOnly, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v %v", err, tt.wantErr, string(ret))
 				return
 			}
 			if err != nil {
 				require.Equal(t, vm.ErrExecutionReverted, err)
-				require.Equal(t, tt.wantErrMsg, string(ret))
+				require.Nil(t, ret)
 			} else if tt.wrongRet {
 				// tt.wrongRet is set if we expect a return value that's different from the happy path. This means that the wrong addresses were associated.
 				require.NotEqual(t, tt.wantRet, ret)
@@ -164,8 +183,9 @@ func TestAssociate(t *testing.T) {
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
-	pre, _ := addr.NewPrecompile(k, k.BankKeeper(), k.AccountKeeper())
+	pre, _ := addr.NewPrecompile(testApp.GetPrecompileKeepers())
 	associate, err := pre.ABI.MethodById(pre.GetExecutor().(*addr.PrecompileExecutor).AssociateID)
+	require.Nil(t, err)
 
 	// Target refers to the address that the caller is trying to associate.
 	targetPrivKey := testkeeper.MockPrivateKey()
@@ -325,20 +345,20 @@ func TestAssociate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create the precompile and inputs
-			p, _ := addr.NewPrecompile(k, k.BankKeeper(), k.AccountKeeper())
+			p, _ := addr.NewPrecompile(testApp.GetPrecompileKeepers())
 			require.Nil(t, err)
 			inputs, err := associate.Inputs.Pack(tt.args.v, tt.args.r, tt.args.s, tt.args.msg)
 			require.Nil(t, err)
 
 			// Make the call to associate.
-			ret, err := p.Run(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociateID, inputs...), tt.args.value, tt.args.readOnly, false)
+			ret, _, err := p.RunAndCalculateGas(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociateID, inputs...), 40000, tt.args.value, nil, tt.args.readOnly, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v %v", err, tt.wantErr, string(ret))
 				return
 			}
 			if err != nil {
 				require.Equal(t, vm.ErrExecutionReverted, err)
-				require.Equal(t, tt.wantErrMsg, string(ret))
+				require.Nil(t, ret)
 			} else if tt.wrongRet {
 				// tt.wrongRet is set if we expect a return value that's different from the happy path. This means that the wrong addresses were associated.
 				require.NotEqual(t, tt.wantRet, ret)
@@ -347,4 +367,40 @@ func TestAssociate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetAddr(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	pre, _ := addr.NewPrecompile(testApp.GetPrecompileKeepers())
+	getSeiAddr, err := pre.ABI.MethodById(pre.GetExecutor().(*addr.PrecompileExecutor).GetSeiAddressID)
+	require.Nil(t, err)
+	getEvmAddr, err := pre.ABI.MethodById(pre.GetExecutor().(*addr.PrecompileExecutor).GetEvmAddressID)
+	require.Nil(t, err)
+
+	seiAddr, evmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+
+	stateDB := &state.DBImpl{}
+	stateDB.WithCtx(ctx)
+
+	getSeiAddrBz, err := getSeiAddr.Inputs.Pack(evmAddr)
+	require.Nil(t, err)
+	res, _, err := pre.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, evmAddr, evmAddr, append(getSeiAddr.ID, getSeiAddrBz...), 20000, common.Big0, nil, true, false)
+	require.Nil(t, err)
+	unpacked, err := getSeiAddr.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(unpacked))
+	require.Equal(t, seiAddr.String(), unpacked[0].(string))
+
+	getEvmAddrBz, err := getEvmAddr.Inputs.Pack(seiAddr.String())
+	require.Nil(t, err)
+	res, _, err = pre.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, evmAddr, evmAddr, append(getEvmAddr.ID, getEvmAddrBz...), 20000, common.Big0, nil, true, false)
+	require.Nil(t, err)
+	unpacked, err = getEvmAddr.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(unpacked))
+	require.Equal(t, evmAddr, unpacked[0].(common.Address))
 }

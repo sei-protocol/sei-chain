@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"testing"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -31,9 +32,9 @@ type App struct {
 	lastCtx       sdk.Context
 }
 
-func NewTestApp() *App {
+func NewTestApp(t *testing.T) *App {
 	a := &App{
-		App:           app.Setup(false, false),
+		App:           app.Setup(t, false, false, false),
 		height:        1,
 		accToMnemonic: map[string]string{},
 		accToSeqDelta: map[string]uint64{},

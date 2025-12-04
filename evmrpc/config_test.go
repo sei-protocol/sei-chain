@@ -9,27 +9,35 @@ import (
 )
 
 type opts struct {
-	httpEnabled             interface{}
-	httpPort                interface{}
-	wsEnabled               interface{}
-	wsPort                  interface{}
-	readTimeout             interface{}
-	readHeaderTimeout       interface{}
-	writeTimeout            interface{}
-	idleTimeout             interface{}
-	simulationGasLimit      interface{}
-	simulationEVMTimeout    interface{}
-	corsOrigins             interface{}
-	wsOrigins               interface{}
-	filterTimeout           interface{}
-	checkTxTimeout          interface{}
-	maxTxPoolTxs            interface{}
-	slow                    interface{}
-	denyList                interface{}
-	maxLogNoBlock           interface{}
-	maxBlocksForLog         interface{}
-	maxSubscriptionsNewHead interface{}
-	enableTestAPI           interface{}
+	httpEnabled                  interface{}
+	httpPort                     interface{}
+	wsEnabled                    interface{}
+	wsPort                       interface{}
+	readTimeout                  interface{}
+	readHeaderTimeout            interface{}
+	writeTimeout                 interface{}
+	idleTimeout                  interface{}
+	simulationGasLimit           interface{}
+	simulationEVMTimeout         interface{}
+	corsOrigins                  interface{}
+	wsOrigins                    interface{}
+	filterTimeout                interface{}
+	checkTxTimeout               interface{}
+	maxTxPoolTxs                 interface{}
+	slow                         interface{}
+	disableWatermark             interface{}
+	denyList                     interface{}
+	maxLogNoBlock                interface{}
+	maxBlocksForLog              interface{}
+	maxSubscriptionsNewHead      interface{}
+	enableTestAPI                interface{}
+	maxConcurrentTraceCalls      interface{}
+	maxConcurrentSimulationCalls interface{}
+	maxTraceLookbackBlocks       interface{}
+	traceTimeout                 interface{}
+	rpcStatsInterval             interface{}
+	workerPoolSize               interface{}
+	workerQueueSize              interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -81,6 +89,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.slow" {
 		return o.slow
 	}
+	if k == "evm.disable_watermark" {
+		return o.disableWatermark
+	}
 	if k == "evm.deny_list" {
 		return o.denyList
 	}
@@ -96,11 +107,33 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.enable_test_api" {
 		return o.enableTestAPI
 	}
+	if k == "evm.max_concurrent_trace_calls" {
+		return o.maxConcurrentTraceCalls
+	}
+	if k == "evm.max_concurrent_simulation_calls" {
+		return o.maxConcurrentSimulationCalls
+	}
+	if k == "evm.max_trace_lookback_blocks" {
+		return o.maxTraceLookbackBlocks
+	}
+	if k == "evm.trace_timeout" {
+		return o.traceTimeout
+	}
+	if k == "evm.rpc_stats_interval" {
+		return o.rpcStatsInterval
+	}
+	if k == "evm.worker_pool_size" {
+		return o.workerPoolSize
+	}
+	if k == "evm.worker_queue_size" {
+		return o.workerQueueSize
+	}
 	panic("unknown key")
 }
 
-func TestReadConfig(t *testing.T) {
-	goodOpts := opts{
+// getDefaultOpts returns a valid opts struct with all required fields set
+func getDefaultOpts() opts {
+	return opts{
 		true,
 		1,
 		true,
@@ -117,12 +150,24 @@ func TestReadConfig(t *testing.T) {
 		time.Duration(5),
 		1000,
 		false,
+		false,
 		make([]string, 0),
 		20000,
 		1000,
 		10000,
 		false,
+		uint64(10),
+		uint64(10),
+		int64(100),
+		30 * time.Second,
+		10 * time.Second,
+		32,
+		1000,
 	}
+}
+
+func TestReadConfig(t *testing.T) {
+	goodOpts := getDefaultOpts()
 	_, err := evmrpc.ReadConfig(&goodOpts)
 	require.Nil(t, err)
 	badOpts := goodOpts
@@ -193,4 +238,94 @@ func TestReadConfig(t *testing.T) {
 	badOpts.denyList = map[string]interface{}{}
 	_, err = evmrpc.ReadConfig(&badOpts)
 	require.NotNil(t, err)
+
+	// Test bad types for new trace config options
+	badOpts = goodOpts
+	badOpts.maxConcurrentTraceCalls = "bad"
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	// Test bad types for new trace config options
+	badOpts = goodOpts
+	badOpts.maxConcurrentSimulationCalls = "bad"
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.maxTraceLookbackBlocks = "bad"
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.traceTimeout = "bad"
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	// Test bad types for worker pool config
+	badOpts = goodOpts
+	badOpts.workerPoolSize = "bad"
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.workerQueueSize = "bad"
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+}
+
+// Test worker pool configuration values
+func TestReadConfigWorkerPool(t *testing.T) {
+	tests := []struct {
+		name            string
+		workerPoolSize  interface{}
+		workerQueueSize interface{}
+		expectedWorkers int
+		expectedQueue   int
+	}{
+		{
+			name:            "custom values",
+			workerPoolSize:  32,
+			workerQueueSize: 1000,
+			expectedWorkers: 32,
+			expectedQueue:   1000,
+		},
+		{
+			name:            "zero values (use defaults)",
+			workerPoolSize:  0,
+			workerQueueSize: 0,
+			expectedWorkers: 0,
+			expectedQueue:   0,
+		},
+		{
+			name:            "only worker size",
+			workerPoolSize:  48,
+			workerQueueSize: 0,
+			expectedWorkers: 48,
+			expectedQueue:   0,
+		},
+		{
+			name:            "only queue size",
+			workerPoolSize:  0,
+			workerQueueSize: 2000,
+			expectedWorkers: 0,
+			expectedQueue:   2000,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := getDefaultOpts()
+			// Only set the fields we're testing
+			opts.workerPoolSize = tt.workerPoolSize
+			opts.workerQueueSize = tt.workerQueueSize
+
+			cfg, err := evmrpc.ReadConfig(&opts)
+			require.Nil(t, err)
+
+			require.Equal(t, tt.expectedWorkers, cfg.WorkerPoolSize,
+				"WorkerPoolSize mismatch")
+			require.Equal(t, tt.expectedQueue, cfg.WorkerQueueSize,
+				"WorkerQueueSize mismatch")
+		})
+	}
 }

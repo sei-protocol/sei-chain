@@ -2,6 +2,7 @@ version: v1
 name: buf.build/sei-protocol/sei-chain
 deps:
   - buf.build/sei-protocol/cosmos-sdk
+  - buf.build/sei-protocol/third-party
 breaking:
   use:
     - FILE

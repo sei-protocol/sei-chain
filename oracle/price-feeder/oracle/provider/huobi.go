@@ -16,8 +16,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 )
@@ -118,7 +118,7 @@ func NewHuobiProvider(
 	wsConn, response, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
 	defer func() {
 		if response != nil {
-			response.Body.Close()
+			_ = response.Body.Close()
 		}
 	}()
 	if err != nil {
@@ -187,7 +187,7 @@ func (p *HuobiProvider) SubscribeCurrencyPairs(cps ...types.CurrencyPair) error 
 	}
 
 	p.setSubscribedPairs(cps...)
-	telemetry.IncrCounter(
+	metrics.SafeTelemetryIncrCounter(
 		float32(len(cps)),
 		"websocket",
 		"subscribe",
@@ -302,7 +302,7 @@ func (p *HuobiProvider) messageReceived(messageType int, bz []byte, reconnectTic
 	tickerErr = json.Unmarshal(bz, &tickerResp)
 	if tickerResp.Tick.LastPrice != 0 {
 		p.setTickerPair(tickerResp)
-		telemetry.IncrCounter(
+		metrics.SafeTelemetryIncrCounter(
 			1,
 			"websocket",
 			"message",
@@ -317,7 +317,7 @@ func (p *HuobiProvider) messageReceived(messageType int, bz []byte, reconnectTic
 	candleErr = json.Unmarshal(bz, &candleResp)
 	if candleResp.Tick.Close != 0 {
 		p.setCandlePair(candleResp)
-		telemetry.IncrCounter(
+		metrics.SafeTelemetryIncrCounter(
 			1,
 			"websocket",
 			"message",
@@ -390,13 +390,13 @@ func (p *HuobiProvider) setCandlePair(candle HuobiCandle) {
 
 // reconnect closes the last WS connection and create a new one.
 func (p *HuobiProvider) reconnect() error {
-	p.wsClient.Close()
+	_ = p.wsClient.Close()
 
 	p.logger.Debug().Msg("reconnecting websocket")
 	wsConn, response, err := websocket.DefaultDialer.Dial(p.wsURL.String(), nil)
 	defer func() {
 		if response != nil {
-			response.Body.Close()
+			_ = response.Body.Close()
 		}
 	}()
 	if err != nil {
@@ -406,7 +406,7 @@ func (p *HuobiProvider) reconnect() error {
 
 	currencyPairs := p.subscribedPairsToSlice()
 
-	telemetry.IncrCounter(
+	metrics.SafeTelemetryIncrCounter(
 		1,
 		"websocket",
 		"reconnect",
@@ -476,7 +476,7 @@ func (p *HuobiProvider) GetAvailablePairs() (map[string]struct{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var pairsSummary HuobiPairsSummary
 	if err := json.NewDecoder(resp.Body).Decode(&pairsSummary); err != nil {

@@ -1,7 +1,9 @@
 package types
 
 import (
+	"bytes"
 	"encoding/binary"
+	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -38,7 +40,7 @@ var (
 	ReceiptKeyPrefix                           = []byte{0x0b}
 	WhitelistedCodeHashesForBankSendPrefix     = []byte{0x0c}
 	BlockBloomPrefix                           = []byte{0x0d}
-	TxHashesPrefix                             = []byte{0x0e}
+	TxHashesPrefix                             = []byte{0x0e} // deprecated
 	WhitelistedCodeHashesForDelegateCallPrefix = []byte{0x0f}
 
 	// TxHashPrefix  = []byte{0x10}
@@ -57,14 +59,19 @@ var (
 
 	LegacyBlockBloomCutoffHeightKey = []byte{0x1a}
 	BaseFeePerGasPrefix             = []byte{0x1b}
+	NextBaseFeePerGasPrefix         = []byte{0x1c}
+	EvmOnlyBlockBloomPrefix         = []byte{0x1d}
+	ZeroStorageCleanupCheckpointKey = []byte{0x1e}
 )
 
 var (
-	PointerERC20NativePrefix = []byte{0x0}
-	PointerERC20CW20Prefix   = []byte{0x1}
-	PointerERC721CW721Prefix = []byte{0x2}
-	PointerCW20ERC20Prefix   = []byte{0x3}
-	PointerCW721ERC721Prefix = []byte{0x4}
+	PointerERC20NativePrefix   = []byte{0x0}
+	PointerERC20CW20Prefix     = []byte{0x1}
+	PointerERC721CW721Prefix   = []byte{0x2}
+	PointerCW20ERC20Prefix     = []byte{0x3}
+	PointerCW721ERC721Prefix   = []byte{0x4}
+	PointerERC1155CW1155Prefix = []byte{0x5}
+	PointerCW1155ERC1155Prefix = []byte{0x6}
 )
 
 func EVMAddressToSeiAddressKey(evmAddress common.Address) []byte {
@@ -83,15 +90,28 @@ func ReceiptKey(txHash common.Hash) []byte {
 	return append(ReceiptKeyPrefix, txHash[:]...)
 }
 
+type TransientReceiptKey []byte
+
+func NewTransientReceiptKey(txIndex uint64, txHash common.Hash) TransientReceiptKey {
+	return append(ReceiptKeyPrefix, fmt.Sprintf("%020d:%s", txIndex, txHash.String())[:]...)
+}
+
+func (trk TransientReceiptKey) TransactionHash() common.Hash {
+	if i := bytes.LastIndexByte(trk, ':'); i != -1 {
+		return common.HexToHash(string(trk[i+1:]))
+	}
+	return common.Hash{}
+}
+
 func BlockBloomKey(height int64) []byte {
 	bz := make([]byte, 8)
-	binary.BigEndian.PutUint64(bz, uint64(height))
+	binary.BigEndian.PutUint64(bz, uint64(height)) //nolint:gosec
 	return append(BlockBloomPrefix, bz...)
 }
 
 func TxHashesKey(height int64) []byte {
 	bz := make([]byte, 8)
-	binary.BigEndian.PutUint64(bz, uint64(height))
+	binary.BigEndian.PutUint64(bz, uint64(height)) //nolint:gosec
 	return append(TxHashesPrefix, bz...)
 }
 
@@ -116,6 +136,13 @@ func PointerERC721CW721Key(cw721Address string) []byte {
 	)
 }
 
+func PointerERC1155CW1155Key(cw1155Address string) []byte {
+	return append(
+		append(PointerRegistryPrefix, PointerERC1155CW1155Prefix...),
+		[]byte(cw1155Address)...,
+	)
+}
+
 func PointerCW20ERC20Key(erc20Addr common.Address) []byte {
 	return append(
 		append(PointerRegistryPrefix, PointerCW20ERC20Prefix...),
@@ -127,6 +154,13 @@ func PointerCW721ERC721Key(erc721Addr common.Address) []byte {
 	return append(
 		append(PointerRegistryPrefix, PointerCW721ERC721Prefix...),
 		erc721Addr[:]...,
+	)
+}
+
+func PointerCW1155ERC1155Key(erc1155Addr common.Address) []byte {
+	return append(
+		append(PointerRegistryPrefix, PointerCW1155ERC1155Prefix...),
+		erc1155Addr[:]...,
 	)
 }
 

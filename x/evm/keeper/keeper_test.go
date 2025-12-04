@@ -3,8 +3,12 @@ package keeper_test
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"math/big"
+	"os"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 
@@ -16,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/testutil/keeper"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -27,7 +32,7 @@ import (
 )
 
 func TestPurgePrefixNotHang(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeper(t)
 	_, evmAddr := keeper.MockAddressPair()
 	for i := 0; i < 50; i++ {
 		ctx = ctx.WithMultiStore(ctx.MultiStore().CacheMultiStore())
@@ -38,7 +43,7 @@ func TestPurgePrefixNotHang(t *testing.T) {
 }
 
 func TestGetChainID(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeper(t)
 	require.Equal(t, config.DefaultChainID, k.ChainID(ctx).Int64())
 
 	ctx = ctx.WithChainID("pacific-1")
@@ -52,7 +57,7 @@ func TestGetChainID(t *testing.T) {
 }
 
 func TestGetVMBlockContext(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeper(t)
 	moduleAddr := k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)
 	evmAddr, _ := k.GetEVMAddress(ctx, moduleAddr)
 	k.DeleteAddressMapping(ctx, moduleAddr, evmAddr)
@@ -61,7 +66,7 @@ func TestGetVMBlockContext(t *testing.T) {
 }
 
 func TestGetHashFn(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeper(t)
 	f := k.GetHashFn(ctx)
 	require.Equal(t, common.Hash{}, f(math.MaxInt64+1))
 	require.Equal(t, common.BytesToHash(ctx.HeaderHash()), f(uint64(ctx.BlockHeight())))
@@ -194,7 +199,7 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			k, ctx := keeper.MockEVMKeeper()
+			k, ctx := keeper.MockEVMKeeper(t)
 			if test.setup != nil {
 				test.setup(ctx, k)
 			}
@@ -205,7 +210,7 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 }
 
 func TestDeferredInfo(t *testing.T) {
-	a := app.Setup(false, false)
+	a := app.Setup(t, false, false, false)
 	k := a.EvmKeeper
 	ctx := a.GetContextForDeliverTx([]byte{})
 	ctx = ctx.WithTxIndex(1)
@@ -240,7 +245,7 @@ func TestDeferredInfo(t *testing.T) {
 }
 
 func TestAddPendingNonce(t *testing.T) {
-	k, _ := keeper.MockEVMKeeper()
+	k, _ := keeper.MockEVMKeeper(t)
 	k.AddPendingNonce(tmtypes.TxKey{1}, common.HexToAddress("123"), 1, 1)
 	k.AddPendingNonce(tmtypes.TxKey{2}, common.HexToAddress("123"), 2, 1)
 	k.AddPendingNonce(tmtypes.TxKey{3}, common.HexToAddress("123"), 2, 2) // should replace the one above
@@ -260,8 +265,73 @@ func TestAddPendingNonce(t *testing.T) {
 	require.NotContains(t, keyToNonce, tmtypes.TxKey{2})
 }
 
+func TestGetCustomPrecompiles(t *testing.T) {
+	// Read all version files from precompiles subfolders
+	tagSet := make(map[string]bool)
+
+	// Define the precompiles directories to scan
+	precompileDirs := []string{
+		"addr", "bank", "distribution", "gov", "ibc", "json",
+		"oracle", "p256", "pointer", "pointerview", "solo", "staking", "wasmd",
+	}
+	precompileTags := map[string][]string{}
+
+	// Read versions from each precompile directory
+	for _, dir := range precompileDirs {
+		versionFile := fmt.Sprintf("../../../precompiles/%s/versions", dir)
+		content, err := os.ReadFile(versionFile)
+		if err != nil {
+			t.Logf("Warning: Could not read %s: %v", versionFile, err)
+			continue
+		}
+
+		// Parse each line as a tag
+		precompileTags[dir] = utils.Map(strings.Split(string(content), "\n"), strings.TrimSpace)
+		for _, line := range precompileTags[dir] {
+			if line != "" {
+				tagSet[line] = true
+			}
+		}
+	}
+
+	// Convert to slice and sort
+	var tags []string
+	for tag := range tagSet {
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+
+	// Verify we have tags
+	require.Greater(t, len(tags), 0, "Should have found at least one tag")
+
+	// Setup keeper and context
+	k, ctx := keeper.MockEVMKeeperPrecompiles(t)
+
+	// Set up upgrade heights with increment of 10
+	baseHeight := 1000000
+	tagToHeight := map[string]int64{}
+	for i, tag := range tags {
+		height := baseHeight + (i * 10)
+		k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(int64(height)), tag)
+		t.Logf("Set upgrade height %d for tag %s", height, tag)
+		tagToHeight[tag] = int64(height)
+	}
+
+	for precompile, tags := range precompileTags {
+		for _, tag := range tags {
+			ps := k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(tagToHeight[tag] + 1))
+			for p, rtag := range ps {
+				if p.Hex() != precompile {
+					continue
+				}
+				require.Equal(t, tag, rtag)
+			}
+		}
+	}
+}
+
 func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper(t)
 	chainID := k.ChainID(ctx)
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
@@ -286,4 +356,34 @@ func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {
 	msg, err := types.NewMsgEVMTransaction(typedTx)
 	require.Nil(t, err)
 	return msg
+}
+
+func TestGetBaseFeeBeforeV620(t *testing.T) {
+	// Set up a test app and context
+	testApp := app.Setup(t, false, false, false)
+	testHeight := int64(1000)
+	testCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(testHeight)
+
+	// Set chain ID to pacific-1
+	testCtx = testCtx.WithChainID("pacific-1")
+
+	// Set the v6.2.0 upgrade height to a value higher than our test height
+	v620UpgradeHeight := int64(2000)
+	testApp.UpgradeKeeper.SetDone(testCtx.WithBlockHeight(v620UpgradeHeight), "6.2.0")
+
+	keeper := &testApp.EvmKeeper
+
+	// Before upgrade: should be nil
+	baseFee := keeper.GetBaseFee(testCtx)
+	require.Nil(t, baseFee, "Base fee should be nil for pacific-1 before v6.2.0 upgrade")
+
+	// After upgrade: should not be nil
+	ctxAfterUpgrade := testCtx.WithBlockHeight(2500)
+	baseFeeAfter := keeper.GetBaseFee(ctxAfterUpgrade)
+	require.NotNil(t, baseFeeAfter, "Base fee should not be nil for pacific-1 after v6.2.0 upgrade")
+
+	// Non-pacific-1 chain: should not be nil
+	ctxOtherChain := testCtx.WithChainID("test-chain")
+	baseFeeOther := keeper.GetBaseFee(ctxOtherChain)
+	require.NotNil(t, baseFeeOther, "Base fee should not be nil for non-pacific-1 chains")
 }

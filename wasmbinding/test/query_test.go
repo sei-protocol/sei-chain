@@ -36,7 +36,7 @@ func SetupWasmbindingTest(t *testing.T) (*app.TestWrapper, func(ctx sdk.Context,
 	eh := epochwasm.NewEpochWasmQueryHandler(&testWrapper.App.EpochKeeper)
 	th := tokenfactorywasm.NewTokenFactoryWasmQueryHandler(&testWrapper.App.TokenFactoryKeeper)
 	evmh := evmwasm.NewEVMQueryHandler(&testWrapper.App.EvmKeeper)
-	qp := wasmbinding.NewQueryPlugin(oh, eh, th, evmh)
+	qp := wasmbinding.NewQueryPlugin(oh, eh, th, evmh, testWrapper.App.StakingKeeper)
 	return testWrapper, wasmbinding.CustomQuerier(qp)
 }
 

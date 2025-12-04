@@ -47,12 +47,12 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 		return ctx, sdkerrors.ErrInvalidCoins
 	}
 
-	intrGas, err := core.IntrinsicGas(etx.Data(), etx.AccessList(), etx.To() == nil, true, true, true)
+	intrGas, err := core.IntrinsicGas(etx.Data(), etx.AccessList(), etx.SetCodeAuthorizations(), etx.To() == nil, true, true, true)
 	if err != nil {
 		return ctx, err
 	}
 	if etx.Gas() < intrGas {
-		return ctx, sdkerrors.ErrOutOfGas
+		return ctx, core.ErrIntrinsicGas
 	}
 
 	if etx.Type() == ethtypes.BlobTxType {
@@ -63,7 +63,7 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
 		// If there exists a maximum block gas limit, we must ensure that the tx
 		// does not exceed it.
-		if cp.Block.MaxGas > 0 && etx.Gas() > uint64(cp.Block.MaxGas) {
+		if cp.Block.MaxGas > 0 && etx.Gas() > uint64(cp.Block.MaxGas) { //nolint:gosec
 			return ctx, sdkerrors.Wrapf(sdkerrors.ErrOutOfGas, "tx gas limit %d exceeds block max gas %d", etx.Gas(), cp.Block.MaxGas)
 		}
 	}
@@ -88,7 +88,6 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 	//		return ctx, err
 	//	}
 	//}
-
 	return next(ctx, tx, simulate)
 }
 

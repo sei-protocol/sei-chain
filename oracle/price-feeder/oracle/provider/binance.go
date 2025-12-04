@@ -12,8 +12,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 )
@@ -106,7 +106,7 @@ func NewBinanceProvider(
 	wsConn, response, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
 	defer func() {
 		if response != nil {
-			response.Body.Close()
+			_ = response.Body.Close()
 		}
 	}()
 	if err != nil {
@@ -266,7 +266,7 @@ func (p *BinanceProvider) messageReceived(messageType int, bz []byte) {
 	tickerErr = json.Unmarshal(bz, &tickerResp)
 	if len(tickerResp.LastPrice) != 0 {
 		p.setTickerPair(tickerResp)
-		telemetry.IncrCounter(
+		metrics.SafeTelemetryIncrCounter(
 			1,
 			"websocket",
 			"message",
@@ -281,7 +281,7 @@ func (p *BinanceProvider) messageReceived(messageType int, bz []byte) {
 	candleErr = json.Unmarshal(bz, &candleResp)
 	if len(candleResp.Metadata.Close) != 0 {
 		p.setCandlePair(candleResp)
-		telemetry.IncrCounter(
+		metrics.SafeTelemetryIncrCounter(
 			1,
 			"websocket",
 			"message",
@@ -368,13 +368,13 @@ func (p *BinanceProvider) handleWebSocketMsgs(ctx context.Context) {
 // the websocket server does not receive a pong frame back from the connection
 // within a 10 minute period, the connection will be disconnected.
 func (p *BinanceProvider) reconnect() error {
-	p.wsClient.Close()
+	_ = p.wsClient.Close()
 
 	p.logger.Debug().Msg("reconnecting websocket")
 	wsConn, response, err := websocket.DefaultDialer.Dial(p.wsURL.String(), nil)
 	defer func() {
 		if response != nil {
-			response.Body.Close()
+			_ = response.Body.Close()
 		}
 	}()
 	if err != nil {
@@ -384,7 +384,7 @@ func (p *BinanceProvider) reconnect() error {
 
 	currencyPairs := p.subscribedPairsToSlice()
 
-	telemetry.IncrCounter(
+	metrics.SafeTelemetryIncrCounter(
 		1,
 		"websocket",
 		"reconnect",
@@ -437,7 +437,7 @@ func (p *BinanceProvider) GetAvailablePairs() (map[string]struct{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var pairsSummary []BinancePairSummary
 	if err := json.NewDecoder(resp.Body).Decode(&pairsSummary); err != nil {

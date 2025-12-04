@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"net/http"
+	//nolint:gosec
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 
@@ -15,14 +18,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/store"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
-
-	"net/http"
-	//nolint:gosec,G108
-	_ "net/http/pprof"
 )
 
 //nolint:gosec
@@ -75,7 +73,6 @@ func ReplayCmd(defaultNodeHome string) *cobra.Command {
 						),
 					),
 				},
-				[]aclkeeper.Option{},
 				app.EmptyAppOptions,
 				baseapp.SetPruning(storetypes.PruneEverything),
 				baseapp.SetMinGasPrices(cast.ToString(serverCtx.Viper.Get(server.FlagMinGasPrices))),

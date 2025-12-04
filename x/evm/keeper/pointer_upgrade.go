@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -24,9 +25,11 @@ func (k *Keeper) RunWithOneOffEVMInstance(
 		logger("get block context", err.Error())
 		return err
 	}
-	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
+	sstore := k.GetParams(ctx).SeiSstoreSetGasEip2200
+	cfg := types.DefaultChainConfig().EthereumConfigWithSstore(k.ChainID(ctx), &sstore)
 	txCtx := core.NewEVMTxContext(&core.Message{From: evmModuleAddress, GasPrice: utils.Big0})
-	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
+	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
+	evmInstance.SetTxContext(txCtx)
 	err = runner(evmInstance)
 	if err != nil {
 		logger("upserting pointer", err.Error())
@@ -73,6 +76,16 @@ func (k *Keeper) UpsertERCCW721Pointer(
 	)
 }
 
+func (k *Keeper) UpsertERCCW1155Pointer(
+	ctx sdk.Context, evm *vm.EVM, cw1155Addr string, metadata utils.ERCMetadata,
+) (contractAddr common.Address, err error) {
+	return k.UpsertERCPointer(
+		ctx, evm, "cw1155", []interface{}{
+			cw1155Addr, metadata.Name, metadata.Symbol,
+		}, k.GetERC1155CW1155Pointer, k.SetERC1155CW1155Pointer,
+	)
+}
+
 func (k *Keeper) UpsertERCPointer(
 	ctx sdk.Context, evm *vm.EVM, typ string, args []interface{}, getter PointerGetter, setter PointerSetter,
 ) (contractAddr common.Address, err error) {
@@ -91,10 +104,10 @@ func (k *Keeper) UpsertERCPointer(
 	if exists {
 		var ret []byte
 		contractAddr = existingAddr
-		ret, remainingGas, err = evm.GetDeploymentCode(vm.AccountRef(evmModuleAddress), bin, suppliedGas, utils.Big0, existingAddr)
+		ret, remainingGas, err = evm.GetDeploymentCode(evmModuleAddress, bin, suppliedGas, utils.Big0, existingAddr)
 		k.SetCode(ctx, contractAddr, ret)
 	} else {
-		_, contractAddr, remainingGas, err = evm.Create(vm.AccountRef(evmModuleAddress), bin, suppliedGas, utils.Big0)
+		_, contractAddr, remainingGas, err = evm.Create(evmModuleAddress, bin, suppliedGas, uint256.NewInt(0))
 	}
 	if err != nil {
 		return

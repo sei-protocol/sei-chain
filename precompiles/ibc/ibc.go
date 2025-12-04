@@ -7,15 +7,16 @@ import (
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/bech32"
 	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -34,30 +35,25 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	transferKeeper   pcommon.TransferKeeper
-	evmKeeper        pcommon.EVMKeeper
-	clientKeeper     pcommon.ClientKeeper
-	connectionKeeper pcommon.ConnectionKeeper
-	channelKeeper    pcommon.ChannelKeeper
+	transferKeeper   utils.TransferKeeper
+	evmKeeper        utils.EVMKeeper
+	clientKeeper     utils.ClientKeeper
+	connectionKeeper utils.ConnectionKeeper
+	channelKeeper    utils.ChannelKeeper
 
 	TransferID                   []byte
 	TransferWithDefaultTimeoutID []byte
 }
 
-func NewPrecompile(
-	transferKeeper pcommon.TransferKeeper,
-	evmKeeper pcommon.EVMKeeper,
-	clientKeeper pcommon.ClientKeeper,
-	connectionKeeper pcommon.ConnectionKeeper,
-	channelKeeper pcommon.ChannelKeeper) (*pcommon.DynamicGasPrecompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		transferKeeper:   transferKeeper,
-		evmKeeper:        evmKeeper,
-		clientKeeper:     clientKeeper,
-		connectionKeeper: connectionKeeper,
-		channelKeeper:    channelKeeper,
+		transferKeeper:   keepers.TransferK(),
+		evmKeeper:        keepers.EVMK(),
+		clientKeeper:     keepers.ClientK(),
+		connectionKeeper: keepers.ConnectionK(),
+		channelKeeper:    keepers.ChannelK(),
 	}
 
 	for name, m := range newAbi.Methods {
@@ -72,7 +68,11 @@ func NewPrecompile(
 	return pcommon.NewDynamicGasPrecompile(newAbi, p, common.HexToAddress(IBCAddress), "ibc"), nil
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, _ *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
+	if err = pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+
 	if readOnly {
 		return nil, 0, errors.New("cannot call IBC precompile from staticcall")
 	}
@@ -89,7 +89,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	return
 }
 
-func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 	return p.evmKeeper
 }
 
@@ -352,16 +352,8 @@ func (p PrecompileExecutor) validateCommonArgs(ctx sdk.Context, args []interface
 	}
 
 	receiverAddressString, ok := args[0].(string)
-	if !ok {
-		return nil, errors.New("receiverAddress is not a string")
-	}
-	_, bz, err := bech32.DecodeAndConvert(receiverAddressString)
-	if err != nil {
-		return nil, err
-	}
-	err = sdk.VerifyAddressFormat(bz)
-	if err != nil {
-		return nil, err
+	if !ok || receiverAddressString == "" {
+		return nil, errors.New("receiverAddress is not a string or empty")
 	}
 
 	port, ok := args[1].(string)

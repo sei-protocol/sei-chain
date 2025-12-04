@@ -13,8 +13,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	ethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
 )
@@ -58,7 +60,7 @@ func (e *MockPrecompileExecutor) RequiredGas([]byte, *abi.Method) uint64 {
 	return 0
 }
 
-func (e *MockPrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller ethcommon.Address, callingContract ethcommon.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) ([]byte, error) {
+func (e *MockPrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller ethcommon.Address, callingContract ethcommon.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, _ *tracing.Hooks) ([]byte, error) {
 	ctx.EventManager().EmitEvent(sdk.NewEvent("test"))
 	if e.throw {
 		return nil, errors.New("test")
@@ -77,14 +79,14 @@ func TestPrecompileRun(t *testing.T) {
 	require.Nil(t, err)
 	precompile := common.NewPrecompile(newAbi, &MockPrecompileExecutor{throw: false}, ethcommon.Address{}, "test")
 	stateDB := state.NewDBImpl(ctx, k, false)
-	res, err := precompile.Run(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, big.NewInt(0), false, false)
+	res, err := precompile.Run(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, big.NewInt(0), false, false, nil)
 	require.Equal(t, []byte("success"), res)
 	require.Nil(t, err)
 	require.NotEmpty(t, stateDB.Ctx().EventManager().Events())
 	stateDB.WithCtx(ctx.WithEventManager(sdk.NewEventManager()))
 	precompile = common.NewPrecompile(newAbi, &MockPrecompileExecutor{throw: true}, ethcommon.Address{}, "test")
-	res, err = precompile.Run(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, big.NewInt(0), false, false)
-	require.NotNil(t, res)
+	res, err = precompile.Run(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, big.NewInt(0), false, false, nil)
+	require.Nil(t, res)
 	require.NotNil(t, err)
 	// should not emit any event
 	require.Empty(t, stateDB.Ctx().EventManager().Events())
@@ -92,10 +94,10 @@ func TestPrecompileRun(t *testing.T) {
 
 type MockDynamicGasPrecompileExecutor struct {
 	throw     bool
-	evmKeeper common.EVMKeeper
+	evmKeeper utils.EVMKeeper
 }
 
-func (e *MockDynamicGasPrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller ethcommon.Address, callingContract ethcommon.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (e *MockDynamicGasPrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller ethcommon.Address, callingContract ethcommon.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, _ *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	ctx.EventManager().EmitEvent(sdk.NewEvent("test"))
 	if e.throw {
 		return nil, 0, errors.New("test")
@@ -103,7 +105,7 @@ func (e *MockDynamicGasPrecompileExecutor) Execute(ctx sdk.Context, method *abi.
 	return []byte("success"), 0, nil
 }
 
-func (e *MockDynamicGasPrecompileExecutor) EVMKeeper() common.EVMKeeper {
+func (e *MockDynamicGasPrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 	return e.evmKeeper
 }
 
@@ -125,7 +127,7 @@ func TestDynamicGasPrecompileRun(t *testing.T) {
 	stateDB.WithCtx(ctx.WithEventManager(sdk.NewEventManager()))
 	precompile = common.NewDynamicGasPrecompile(newAbi, &MockDynamicGasPrecompileExecutor{throw: true, evmKeeper: k}, ethcommon.Address{}, "test")
 	res, _, err = precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 0, big.NewInt(0), nil, false, false)
-	require.NotNil(t, res)
+	require.Nil(t, res)
 	require.NotNil(t, err)
 	// should not emit any event
 	require.Empty(t, stateDB.Ctx().EventManager().Events())

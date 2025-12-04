@@ -28,7 +28,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/store"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
-	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	authcmd "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -38,9 +37,8 @@ import (
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/tools"
-	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
-	"github.com/sei-protocol/sei-chain/x/evm/querier"
-	"github.com/sei-protocol/sei-chain/x/evm/replay"
+	"github.com/sei-protocol/sei-chain/tools/migration/ss"
+	seidbconfig "github.com/sei-protocol/sei-db/config"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -139,6 +137,7 @@ func initRootCmd(
 		pruning.PruningCmd(newApp),
 		CompactCmd(app.DefaultNodeHome),
 		tools.ToolCmd(),
+		SnapshotCmd(),
 	)
 
 	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
@@ -220,6 +219,8 @@ func txCommand() *cobra.Command {
 
 func addModuleInitFlags(startCmd *cobra.Command) {
 	crisis.AddModuleInitFlags(startCmd)
+	startCmd.Flags().Bool("migrate-iavl", false, "Run migration of IAVL data store to SeiDB State Store")
+	startCmd.Flags().Int64("migrate-height", 0, "Height at which to start the migration")
 }
 
 // newApp creates a new Cosmos SDK app
@@ -266,7 +267,7 @@ func newApp(
 	// This makes it such that the wasm VM gas converts to sdk gas at a 6.66x rate vs that of the previous multiplier
 	wasmGasRegisterConfig.GasMultiplier = 21_000_000
 
-	return app.New(
+	app := app.New(
 		logger,
 		db,
 		traceStore,
@@ -286,7 +287,6 @@ func newApp(
 				),
 			),
 		},
-		[]aclkeeper.Option{},
 		app.EmptyAppOptions,
 		baseapp.SetPruning(pruningOpts),
 		baseapp.SetMinGasPrices(cast.ToString(appOpts.Get(server.FlagMinGasPrices))),
@@ -302,6 +302,21 @@ func newApp(
 		baseapp.SetSnapshotDirectory(cast.ToString(appOpts.Get(server.FlagStateSyncSnapshotDir))),
 		baseapp.SetOccEnabled(cast.ToBool(appOpts.Get(baseapp.FlagOccEnabled))),
 	)
+
+	// Start migration if --migrate flag is set
+	if cast.ToBool(appOpts.Get("migrate-iavl")) {
+		go func() {
+			homeDir := cast.ToString(appOpts.Get(flags.FlagHome))
+			stateStore := app.GetStateStore()
+			migrationHeight := cast.ToInt64(appOpts.Get("migrate-height"))
+			migrator := ss.NewMigrator(db, stateStore)
+			if err := migrator.Migrate(migrationHeight, homeDir); err != nil {
+				panic(err)
+			}
+		}()
+	}
+
+	return app
 }
 
 // appExport creates a new simapp (optionally at a given height)
@@ -351,12 +366,12 @@ func getExportableApp(
 	}
 
 	if height != -1 {
-		exportableApp = app.New(logger, db, traceStore, false, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyACLOpts, app.EmptyAppOptions)
+		exportableApp = app.New(logger, db, traceStore, false, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyAppOptions)
 		if err := exportableApp.LoadHeight(height); err != nil {
 			return nil, err
 		}
 	} else {
-		exportableApp = app.New(logger, db, traceStore, true, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyACLOpts, app.EmptyAppOptions)
+		exportableApp = app.New(logger, db, traceStore, true, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyAppOptions)
 	}
 	return exportableApp, nil
 
@@ -385,33 +400,6 @@ func getPrimeNums(lo int, hi int) []int {
 // return "", nil if no custom configuration is required for the application.
 // nolint: staticcheck
 func initAppConfig() (string, interface{}) {
-	// The following code snippet is just for reference.
-
-	// WASMConfig defines configuration for the wasm module.
-	type WASMConfig struct {
-		// This is the maximum sdk gas (wasm and storage) that we allow for any x/wasm "smart" queries
-		QueryGasLimit uint64 `mapstructure:"query_gas_limit"`
-
-		// Address defines the gRPC-web server to listen on
-		LruSize uint64 `mapstructure:"lru_size"`
-	}
-
-	type CustomAppConfig struct {
-		serverconfig.Config
-
-		WASM WASMConfig `mapstructure:"wasm"`
-
-		EVM evmrpc.Config `mapstructure:"evm"`
-
-		ETHReplay replay.Config `mapstructure:"eth_replay"`
-
-		ETHBlockTest blocktest.Config `mapstructure:"eth_block_test"`
-
-		EvmQuery querier.Config `mapstructure:"evm_query"`
-
-		LightInvariance app.LightInvarianceConfig `mapstructure:"light_invariance"`
-	}
-
 	// Optionally allow the chain developer to overwrite the SDK's default
 	// server config.
 	srvCfg := serverconfig.DefaultConfig()
@@ -427,7 +415,7 @@ func initAppConfig() (string, interface{}) {
 	//   own app.toml to override, or use this default value.
 	//
 	// In simapp, we set the min gas prices to 0.
-	srvCfg.MinGasPrices = "0.02usei"
+	srvCfg.MinGasPrices = "0.01usei"
 	srvCfg.API.Enable = true
 
 	// Pruning configs
@@ -443,20 +431,19 @@ func initAppConfig() (string, interface{}) {
 	// Metrics
 	srvCfg.Telemetry.Enabled = true
 	srvCfg.Telemetry.PrometheusRetentionTime = 60
-	customAppConfig := CustomAppConfig{
-		Config: *srvCfg,
-		WASM: WASMConfig{
-			LruSize:       1,
-			QueryGasLimit: 300000,
-		},
-		EVM:             evmrpc.DefaultConfig,
-		ETHReplay:       replay.DefaultConfig,
-		ETHBlockTest:    blocktest.DefaultConfig,
-		EvmQuery:        querier.DefaultConfig,
-		LightInvariance: app.DefaultLightInvarianceConfig,
-	}
 
-	customAppTemplate := serverconfig.DefaultConfigTemplate + `
+	// Use shared CustomAppConfig from app_config.go
+	customAppConfig := NewCustomAppConfig(srvCfg, evmrpc.DefaultConfig)
+
+	customAppTemplate := serverconfig.ManualConfigTemplate +
+		seidbconfig.StateCommitConfigTemplate +
+		seidbconfig.StateStoreConfigTemplate +
+		evmrpc.ConfigTemplate +
+		serverconfig.AutoManagedConfigTemplate + `
+###############################################################################
+###                        WASM Configuration (Auto-managed)                ###
+###############################################################################
+
 [wasm]
 # This is the maximum sdk gas (wasm and storage) that we allow for any x/wasm "smart" queries
 query_gas_limit = 300000
@@ -464,75 +451,9 @@ query_gas_limit = 300000
 # Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
 lru_size = 0
 
-[evm]
-# controls whether an HTTP EVM server is enabled
-http_enabled = {{ .EVM.HTTPEnabled }}
-http_port = {{ .EVM.HTTPPort }}
-
-# controls whether a websocket server is enabled
-ws_enabled = {{ .EVM.WSEnabled }}
-ws_port = {{ .EVM.WSPort }}
-
-# ReadTimeout is the maximum duration for reading the entire
-# request, including the body.
-# Because ReadTimeout does not let Handlers make per-request
-# decisions on each request body's acceptable deadline or
-# upload rate, most users will prefer to use
-# ReadHeaderTimeout. It is valid to use them both.
-read_timeout = "{{ .EVM.ReadTimeout }}"
-
-# ReadHeaderTimeout is the amount of time allowed to read
-# request headers. The connection's read deadline is reset
-# after reading the headers and the Handler can decide what
-# is considered too slow for the body. If ReadHeaderTimeout
-# is zero, the value of ReadTimeout is used. If both are
-# zero, there is no timeout.
-read_header_timeout = "{{ .EVM.ReadHeaderTimeout }}"
-
-# WriteTimeout is the maximum duration before timing out
-# writes of the response. It is reset whenever a new
-# request's header is read. Like ReadTimeout, it does not
-# let Handlers make decisions on a per-request basis.
-write_timeout = "{{ .EVM.WriteTimeout }}"
-
-# IdleTimeout is the maximum amount of time to wait for the
-# next request when keep-alives are enabled. If IdleTimeout
-# is zero, the value of ReadTimeout is used. If both are
-# zero, ReadHeaderTimeout is used.
-idle_timeout = "{{ .EVM.IdleTimeout }}"
-
-# Maximum gas limit for simulation
-simulation_gas_limit = {{ .EVM.SimulationGasLimit }}
-
-# Timeout for EVM call in simulation
-simulation_evm_timeout = "{{ .EVM.SimulationEVMTimeout }}"
-
-# list of CORS allowed origins, separated by comma
-cors_origins = "{{ .EVM.CORSOrigins }}"
-
-# list of WS origins, separated by comma
-ws_origins = "{{ .EVM.WSOrigins }}"
-
-# timeout for filters
-filter_timeout = "{{ .EVM.FilterTimeout }}"
-
-# checkTx timeout for sig verify
-checktx_timeout = "{{ .EVM.CheckTxTimeout }}"
-
-# controls whether to have txns go through one by one
-slow = {{ .EVM.Slow }}
-
-# Deny list defines list of methods that EVM RPC should fail fast
-deny_list = {{ .EVM.DenyList }}
-
-# max number of logs returned if block range is open-ended
-max_log_no_block = {{ .EVM.MaxLogNoBlock }}
-
-# max number of blocks to query logs for
-max_blocks_for_log = {{ .EVM.MaxBlocksForLog }}
-
-# max number of concurrent NewHead subscriptions
-max_subscriptions_new_head = {{ .EVM.MaxSubscriptionsNewHead }}
+###############################################################################
+###                     ETH Replay Configuration (Auto-managed)             ###
+###############################################################################
 
 [eth_replay]
 eth_replay_enabled = {{ .ETHReplay.Enabled }}
@@ -540,12 +461,24 @@ eth_rpc = "{{ .ETHReplay.EthRPC }}"
 eth_data_dir = "{{ .ETHReplay.EthDataDir }}"
 eth_replay_contract_state_checks = {{ .ETHReplay.ContractStateChecks }}
 
+###############################################################################
+###                   ETH Block Test Configuration (Auto-managed)           ###
+###############################################################################
+
 [eth_blocktest]
 eth_blocktest_enabled = {{ .ETHBlockTest.Enabled }}
 eth_blocktest_test_data_path = "{{ .ETHBlockTest.TestDataPath }}"
 
+###############################################################################
+###                    EVM Query Configuration (Auto-managed)               ###
+###############################################################################
+
 [evm_query]
 evm_query_gas_limit = {{ .EvmQuery.GasLimit }}
+
+###############################################################################
+###                 Light Invariance Configuration (Auto-managed)           ###
+###############################################################################
 
 [light_invariance]
 supply_enabled = {{ .LightInvariance.SupplyEnabled }}

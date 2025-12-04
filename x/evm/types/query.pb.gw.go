@@ -558,17 +558,17 @@ func RegisterQueryHandlerClient(ctx context.Context, mux *runtime.ServeMux, clie
 }
 
 var (
-	pattern_Query_SeiAddressByEVMAddress_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sei-protocol", "seichain", "evm", "sei_address"}, "", runtime.AssumeColonVerbOpt(true)))
+	pattern_Query_SeiAddressByEVMAddress_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sei-protocol", "seichain", "evm", "sei_address"}, "", runtime.AssumeColonVerbOpt(false)))
 
-	pattern_Query_EVMAddressBySeiAddress_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sei-protocol", "seichain", "evm", "evm_address"}, "", runtime.AssumeColonVerbOpt(true)))
+	pattern_Query_EVMAddressBySeiAddress_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sei-protocol", "seichain", "evm", "evm_address"}, "", runtime.AssumeColonVerbOpt(false)))
 
-	pattern_Query_StaticCall_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sei-protocol", "seichain", "evm", "static_call"}, "", runtime.AssumeColonVerbOpt(true)))
+	pattern_Query_StaticCall_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sei-protocol", "seichain", "evm", "static_call"}, "", runtime.AssumeColonVerbOpt(false)))
 
-	pattern_Query_Pointer_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sei-protocol", "seichain", "evm", "pointer"}, "", runtime.AssumeColonVerbOpt(true)))
+	pattern_Query_Pointer_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sei-protocol", "seichain", "evm", "pointer"}, "", runtime.AssumeColonVerbOpt(false)))
 
-	pattern_Query_PointerVersion_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sei-protocol", "seichain", "evm", "pointer_version"}, "", runtime.AssumeColonVerbOpt(true)))
+	pattern_Query_PointerVersion_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sei-protocol", "seichain", "evm", "pointer_version"}, "", runtime.AssumeColonVerbOpt(false)))
 
-	pattern_Query_Pointee_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sei-protocol", "seichain", "evm", "pointee"}, "", runtime.AssumeColonVerbOpt(true)))
+	pattern_Query_Pointee_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sei-protocol", "seichain", "evm", "pointee"}, "", runtime.AssumeColonVerbOpt(false)))
 )
 
 var (

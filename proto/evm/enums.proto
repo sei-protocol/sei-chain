@@ -4,9 +4,18 @@ package seiprotocol.seichain.evm;
 option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
 
 enum PointerType {
-    ERC20 = 0;
-    ERC721 = 1;
-    NATIVE = 2;
-    CW20 = 3;
-    CW721 = 4;
-  }
+  ERC20 = 0;
+  ERC721 = 1;
+  NATIVE = 2;
+  CW20 = 3;
+  CW721 = 4;
+  ERC1155 = 5;
+  CW1155 = 6;
+}
+
+enum AssetType {
+  TYPEUNKNOWN = 0;
+  TYPECW20 = 1;
+  TYPECW721 = 2;
+  TYPENATIVE = 3;
+}

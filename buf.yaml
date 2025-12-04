@@ -1,0 +1,32 @@
+# For details on buf.yaml configuration, visit https://buf.build/docs/configuration/v2/buf-yaml
+version: v2
+modules:
+  - path: proto
+    name: buf.build/sei-protocol/sei-chain
+  - path: sei-cosmos/proto
+  - path: sei-cosmos/third_party/proto
+  - path: sei-ibc-go/proto
+  - path: sei-ibc-go/third_party/proto
+  - path: sei-tendermint/proto
+  - path: sei-wasmd/proto
+
+lint:
+  use:
+    - BASIC
+    - FILE_LOWER_SNAKE_CASE
+    - UNARY_RPC
+  except:
+    - COMMENT_FIELD
+    - PACKAGE_VERSION_SUFFIX
+    - PACKAGE_SAME_DIRECTORY
+    - PACKAGE_DIRECTORY_MATCH
+    - PACKAGE_SAME_GO_PACKAGE
+  ignore:
+    - sei-wasmd/third_party/proto
+    - sei-cosmos/third_party/proto
+
+breaking:
+  use:
+    - WIRE
+    - WIRE_JSON
+    

@@ -18,6 +18,7 @@ import (
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
+	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	ibctransferkeeper "github.com/cosmos/ibc-go/v3/modules/apps/transfer/keeper"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -28,11 +29,14 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/tests"
+	"github.com/holiman/uint256"
 	seidbtypes "github.com/sei-protocol/sei-db/ss/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
@@ -40,6 +44,9 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
+
+const Pacific1ChainID = "pacific-1"
+const DefaultBlockGasLimit = 10000000
 
 type Keeper struct {
 	storeKey          sdk.StoreKey
@@ -56,6 +63,7 @@ type Keeper struct {
 	transferKeeper ibctransferkeeper.Keeper
 	wasmKeeper     *wasmkeeper.PermissionedKeeper
 	wasmViewKeeper *wasmkeeper.Keeper
+	upgradeKeeper  *upgradekeeper.Keeper
 
 	cachedFeeCollectorAddressMtx *sync.RWMutex
 	cachedFeeCollectorAddress    *common.Address
@@ -76,10 +84,15 @@ type Keeper struct {
 	// used for both ETH replay and block tests. Not used in chain critical path.
 	Trie        ethstate.Trie
 	DB          ethstate.Database
+	CachingDB   *ethstate.CachingDB
 	Root        common.Hash
 	ReplayBlock *ethtypes.Block
 
 	receiptStore seidbtypes.StateStore
+
+	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
+	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
+	latestUpgrade           string
 }
 
 type AddressNoncePair struct {
@@ -96,6 +109,8 @@ type PendingTx struct {
 // only used during ETH replay
 type ReplayChainContext struct {
 	ethClient *ethclient.Client
+	chainID   *big.Int
+	params    types.Params
 }
 
 func (ctx *ReplayChainContext) Engine() consensus.Engine {
@@ -103,17 +118,22 @@ func (ctx *ReplayChainContext) Engine() consensus.Engine {
 }
 
 func (ctx *ReplayChainContext) GetHeader(hash common.Hash, number uint64) *ethtypes.Header {
-	res, err := ctx.ethClient.BlockByNumber(context.Background(), big.NewInt(int64(number)))
+	res, err := ctx.ethClient.BlockByNumber(context.Background(), big.NewInt(int64(number))) //nolint:gosec
 	if err != nil || res.Header_.Hash() != hash {
 		return nil
 	}
 	return res.Header_
 }
 
+func (ctx *ReplayChainContext) Config() *params.ChainConfig {
+	return types.DefaultChainConfig().EthereumConfig(ctx.chainID)
+}
+
 func NewKeeper(
 	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStateStore seidbtypes.StateStore,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
-	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper) *Keeper {
+	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper) *Keeper {
+
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
@@ -127,6 +147,7 @@ func NewKeeper(
 		transferKeeper:               transferKeeper,
 		wasmKeeper:                   wasmKeeper,
 		wasmViewKeeper:               wasmViewKeeper,
+		upgradeKeeper:                upgradeKeeper,
 		pendingTxs:                   make(map[string][]*PendingTx),
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
@@ -134,6 +155,54 @@ func NewKeeper(
 		receiptStore:                 receiptStateStore,
 	}
 	return k
+}
+
+func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]putils.VersionedPrecompiles, latestUpgrade string) {
+	k.customPrecompiles = cp
+	k.latestUpgrade = latestUpgrade
+	k.latestCustomPrecompiles = make(map[common.Address]vm.PrecompiledContract, len(cp))
+	for addr, versioned := range cp {
+		k.latestCustomPrecompiles[addr] = versioned[latestUpgrade]
+	}
+}
+
+func (k *Keeper) CustomPrecompiles(ctx sdk.Context) map[common.Address]vm.PrecompiledContract {
+	if !ctx.IsTracing() {
+		return k.latestCustomPrecompiles
+	}
+	versions := k.GetCustomPrecompilesVersions(ctx)
+	cp := make(map[common.Address]vm.PrecompiledContract, len(k.customPrecompiles))
+	for addr, versioned := range k.customPrecompiles {
+		cp[addr] = versioned[versions[addr]]
+	}
+	return cp
+}
+
+func (k *Keeper) GetCustomPrecompilesVersions(ctx sdk.Context) map[common.Address]string {
+	height := ctx.BlockHeight()
+	cp := make(map[common.Address]string, len(k.customPrecompiles))
+	for addr, versioned := range k.customPrecompiles {
+		mostRecentUpgradeHeight := int64(0)
+		noForkHistory := true
+		for upgrade := range versioned {
+			upgradeHeight := k.upgradeKeeper.GetDoneHeight(ctx, upgrade)
+			if upgradeHeight != 0 {
+				noForkHistory = false
+			}
+			if height < upgradeHeight {
+				// requested height hasn't seen this upgrade version yet.
+				continue
+			}
+			if upgradeHeight > mostRecentUpgradeHeight {
+				mostRecentUpgradeHeight = upgradeHeight
+				cp[addr] = upgrade
+			}
+		}
+		if noForkHistory {
+			cp[addr] = k.latestUpgrade
+		}
+	}
+	return cp
 }
 
 func (k *Keeper) AccountKeeper() *authkeeper.AccountKeeper {
@@ -144,8 +213,16 @@ func (k *Keeper) BankKeeper() bankkeeper.Keeper {
 	return k.bankKeeper
 }
 
+func (k *Keeper) ReceiptStore() seidbtypes.StateStore {
+	return k.receiptStore
+}
+
 func (k *Keeper) WasmKeeper() *wasmkeeper.PermissionedKeeper {
 	return k.wasmKeeper
+}
+
+func (k *Keeper) UpgradeKeeper() *upgradekeeper.Keeper {
+	return k.upgradeKeeper
 }
 
 func (k *Keeper) GetStoreKey() sdk.StoreKey {
@@ -154,7 +231,7 @@ func (k *Keeper) GetStoreKey() sdk.StoreKey {
 
 func (k *Keeper) IterateAll(ctx sdk.Context, pref []byte, cb func(key, val []byte) bool) {
 	iter := k.PrefixStore(ctx, pref).Iterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		if cb(iter.Key(), iter.Value()) {
 			break
@@ -193,12 +270,18 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 	}
 	rh := crypto.Keccak256Hash(r)
 
-	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *big.Int) {
+	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *uint256.Int) {
 		if IsPayablePrecompile(&recipient) {
 			state.TransferWithoutEvents(db, sender, recipient, amount)
 		} else {
 			core.Transfer(db, sender, recipient, amount)
 		}
+	}
+	var baseFee *big.Int
+	if ctx.ChainID() == Pacific1ChainID && ctx.BlockHeight() < 114945913 {
+		baseFee = k.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
+	} else {
+		baseFee = k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
 	}
 
 	return &vm.BlockContext{
@@ -206,11 +289,16 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		Transfer:    txfer,
 		GetHash:     k.GetHashFn(ctx),
 		Coinbase:    coinbase,
-		GasLimit:    gp.Gas(),
+		GasLimit: func() uint64 {
+			if ctx.ConsensusParams() != nil && ctx.ConsensusParams().Block != nil {
+				return uint64(ctx.ConsensusParams().Block.MaxGas) //nolint:gosec
+			}
+			return DefaultBlockGasLimit
+		}(),
 		BlockNumber: big.NewInt(ctx.BlockHeight()),
-		Time:        uint64(ctx.BlockHeader().Time.Unix()),
-		Difficulty:  utils.Big0, // only needed for PoW
-		BaseFee:     k.GetDynamicBaseFeePerGas(ctx).TruncateInt().BigInt(),
+		Time:        uint64(ctx.BlockHeader().Time.Unix()), //nolint:gosec
+		Difficulty:  utils.Big0,                            // only needed for PoW
+		BaseFee:     baseFee,
 		BlobBaseFee: utils.Big1, // Cancun not enabled
 		Random:      &rh,
 	}, nil
@@ -386,8 +474,8 @@ func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
 		return
 	}
 	store.Set(addr[:], a.Root[:])
-	if a.Balance != nil && a.Balance.Cmp(utils.Big0) != 0 {
-		usei, wei := state.SplitUseiWeiAmount(a.Balance)
+	if a.Balance != nil && a.Balance.CmpBig(utils.Big0) != 0 {
+		usei, wei := state.SplitUseiWeiAmount(a.Balance.ToBig())
 		err = k.BankKeeper().AddCoins(ctx, k.GetSeiAddressOrDefault(ctx, addr), sdk.NewCoins(sdk.NewCoin("usei", usei)), true)
 		if err != nil {
 			panic(err)
@@ -400,10 +488,7 @@ func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
 	k.SetNonce(ctx, addr, a.Nonce)
 	if !bytes.Equal(a.CodeHash, ethtypes.EmptyCodeHash.Bytes()) {
 		k.PrefixStore(ctx, types.CodeHashKeyPrefix).Set(addr[:], a.CodeHash)
-		code, err := k.DB.ContractCode(addr, common.BytesToHash(a.CodeHash))
-		if err != nil {
-			panic(err)
-		}
+		code := k.CachingDB.ContractCodeWithPrefix(addr, common.BytesToHash(a.CodeHash))
 		if len(code) > 0 {
 			k.PrefixStore(ctx, types.CodeKeyPrefix).Set(addr[:], code)
 			length := make([]byte, 8)
@@ -425,7 +510,10 @@ func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
 		}
 		return b.Header_.BaseFee
 	}
-	return nil
+	if ctx.ChainID() == Pacific1ChainID && ctx.BlockHeight() < k.upgradeKeeper.GetDoneHeight(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "6.2.0") {
+		return nil
+	}
+	return k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
 }
 
 func (k *Keeper) GetReplayedHeight(ctx sdk.Context) int64 {
@@ -447,7 +535,7 @@ func (k *Keeper) SetReplayInitialHeight(ctx sdk.Context, h int64) {
 func (k *Keeper) setInt64State(ctx sdk.Context, key []byte, val int64) {
 	store := ctx.KVStore(k.storeKey)
 	bz := make([]byte, 8)
-	binary.BigEndian.PutUint64(bz, uint64(val))
+	binary.BigEndian.PutUint64(bz, uint64(val)) //nolint:gosec
 	store.Set(key, bz)
 }
 
@@ -457,7 +545,7 @@ func (k *Keeper) getInt64State(ctx sdk.Context, key []byte) int64 {
 	if bz == nil {
 		return 0
 	}
-	return int64(binary.BigEndian.Uint64(bz))
+	return int64(binary.BigEndian.Uint64(bz)) //nolint:gosec
 }
 
 func (k *Keeper) getBlockTestBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
@@ -484,11 +572,8 @@ func (k *Keeper) getBlockTestBlockCtx(ctx sdk.Context) (*vm.BlockContext, error)
 	if header.BaseFee != nil {
 		baseFee = new(big.Int).Set(header.BaseFee)
 	}
-	if header.ExcessBlobGas != nil {
-		blobBaseFee = eip4844.CalcBlobFee(*header.ExcessBlobGas)
-	} else {
-		blobBaseFee = eip4844.CalcBlobFee(0)
-	}
+	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
+	blobBaseFee = eip4844.CalcBlobFee(chainConfig, header)
 	if header.Difficulty.Cmp(common.Big0) == 0 {
 		random = &header.MixDigest
 	}
@@ -509,7 +594,8 @@ func (k *Keeper) getBlockTestBlockCtx(ctx sdk.Context) (*vm.BlockContext, error)
 
 func (k *Keeper) getReplayBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
 	header := k.ReplayBlock.Header_
-	getHash := core.GetHashFn(header, &ReplayChainContext{ethClient: k.EthClient})
+	replayCtx := &ReplayChainContext{ethClient: k.EthClient, chainID: k.ChainID(ctx), params: k.GetParams(ctx)}
+	getHash := core.GetHashFn(header, replayCtx)
 	var (
 		baseFee     *big.Int
 		blobBaseFee *big.Int
@@ -517,9 +603,13 @@ func (k *Keeper) getReplayBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
 	)
 	if header.BaseFee != nil {
 		baseFee = new(big.Int).Set(header.BaseFee)
+	} else {
+		baseFee = big.NewInt(0)
 	}
 	if header.ExcessBlobGas != nil {
-		blobBaseFee = eip4844.CalcBlobFee(*header.ExcessBlobGas)
+		blobBaseFee = eip4844.CalcBlobFee(replayCtx.Config(), header)
+	} else {
+		blobBaseFee = big.NewInt(0)
 	}
 	if header.Difficulty.Cmp(common.Big0) == 0 {
 		random = &header.MixDigest

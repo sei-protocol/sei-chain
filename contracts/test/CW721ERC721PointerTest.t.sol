@@ -216,6 +216,42 @@ contract CW721ERC721PointerTest is Test {
         assertEq(pointer.isApprovedForAll(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, 0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267), true);
     }
 
+    function testRoyaltyInfo() public {
+        vm.mockCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"extension\":{\"msg\":{\"check_royalties\":{}}}}")),
+            abi.encode("{\"royalty_payments\":true}")
+        );
+        vm.mockCall(
+            JSON_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("extractAsBytes(bytes,string)", bytes("{\"royalty_payments\":true}"), "royalty_payments"),
+            abi.encode("true")
+        );
+        vm.mockCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"extension\":{\"msg\":{\"royalty_info\":{\"token_id\":\"1\",\"sale_price\":\"1000\"}}}}")),
+            abi.encode("{\"address\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"royalty_amount\":\"10\"}")
+        );
+        vm.mockCall(
+            JSON_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("extractAsBytes(bytes,string)", bytes("{\"address\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"royalty_amount\":\"10\"}"), "address"),
+            abi.encode("sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw")
+        );
+        vm.mockCall(
+            JSON_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("extractAsUint256(bytes,string)", bytes("{\"address\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"royalty_amount\":\"10\"}"), "royalty_amount"),
+            abi.encode(10)
+        );
+        vm.mockCall(
+            ADDR_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("getEvmAddr(string)", "sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw"),
+            abi.encode(address(MockCallerEVMAddr))
+        );
+        (address recipient, uint256 royalties) = pointer.royaltyInfo(1, 1000);
+        assertEq(recipient, address(MockCallerEVMAddr));
+        assertEq(royalties, 10);
+    }
+
     function testTransferFrom() public {
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,

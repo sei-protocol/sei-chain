@@ -9,6 +9,7 @@ import (
 )
 
 var CancunTime int64 = 0
+var PragueTime int64 = 0
 
 /*
 *
@@ -21,35 +22,44 @@ config for backward compatibility with the official EVM lib.
 */
 func (cc ChainConfig) EthereumConfig(chainID *big.Int) *params.ChainConfig {
 	return &params.ChainConfig{
-		ChainID:             chainID,
-		HomesteadBlock:      utils.Big0,
-		DAOForkBlock:        utils.Big0,
-		DAOForkSupport:      false, // fork of Sei is supported outside EVM
-		EIP150Block:         utils.Big0,
-		EIP155Block:         utils.Big0,
-		EIP158Block:         utils.Big0,
-		ByzantiumBlock:      utils.Big0,
-		ConstantinopleBlock: utils.Big0,
-		PetersburgBlock:     utils.Big0,
-		IstanbulBlock:       utils.Big0,
-		MuirGlacierBlock:    utils.Big0,
-		BerlinBlock:         utils.Big0,
-		LondonBlock:         utils.Big0,
-		ArrowGlacierBlock:   utils.Big0,
-		GrayGlacierBlock:    utils.Big0,
-		MergeNetsplitBlock:  utils.Big0,
-		ShanghaiTime:        getUpgradeTimestamp(0),
-		CancunTime:          getUpgradeTimestamp(cc.CancunTime),
-		PragueTime:          getUpgradeTimestamp(cc.PragueTime),
-		VerkleTime:          getUpgradeTimestamp(cc.VerkleTime),
+		ChainID:                chainID,
+		SeiSstoreSetGasEIP2200: func() *uint64 { u := cc.SeiSstoreSetGasEip2200; return &u }(),
+		HomesteadBlock:         utils.Big0,
+		DAOForkBlock:           utils.Big0,
+		DAOForkSupport:         false, // fork of Sei is supported outside EVM
+		EIP150Block:            utils.Big0,
+		EIP155Block:            utils.Big0,
+		EIP158Block:            utils.Big0,
+		ByzantiumBlock:         utils.Big0,
+		ConstantinopleBlock:    utils.Big0,
+		PetersburgBlock:        utils.Big0,
+		IstanbulBlock:          utils.Big0,
+		MuirGlacierBlock:       utils.Big0,
+		BerlinBlock:            utils.Big0,
+		LondonBlock:            utils.Big0,
+		ArrowGlacierBlock:      utils.Big0,
+		GrayGlacierBlock:       utils.Big0,
+		MergeNetsplitBlock:     utils.Big0,
+		ShanghaiTime:           getUpgradeTimestamp(0),
+		CancunTime:             getUpgradeTimestamp(cc.CancunTime),
+		PragueTime:             getUpgradeTimestamp(cc.PragueTime),
+		VerkleTime:             getUpgradeTimestamp(cc.VerkleTime),
+		BlobScheduleConfig:     params.DefaultBlobSchedule,
 	}
+}
+
+func (cc ChainConfig) EthereumConfigWithSstore(chainID *big.Int, sstoreSetGasEIP2200 *uint64) *params.ChainConfig {
+	cfg := cc.EthereumConfig(chainID)
+	cfg.SeiSstoreSetGasEIP2200 = sstoreSetGasEIP2200
+	return cfg
 }
 
 func DefaultChainConfig() ChainConfig {
 	return ChainConfig{
-		CancunTime: CancunTime,
-		PragueTime: -1,
-		VerkleTime: -1,
+		CancunTime:             CancunTime,
+		PragueTime:             PragueTime,
+		VerkleTime:             -1,
+		SeiSstoreSetGasEip2200: DefaultSeiSstoreSetGasEIP2200,
 	}
 }
 

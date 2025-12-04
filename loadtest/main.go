@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -96,9 +97,10 @@ func deployEvmContract(scriptPath string, config *Config) (common.Address, error
 	if err != nil {
 		return common.Address{}, err
 	}
-	return common.HexToAddress(out.String()), nil
+	return common.HexToAddress(strings.TrimSpace(out.String())), nil
 }
 
+//nolint:gosec
 func deployEvmContracts(config *Config) {
 	config.EVMAddresses = &EVMAddresses{}
 	if config.ContainsAnyMessageTypes(ERC20) {
@@ -119,32 +121,25 @@ func deployEvmContracts(config *Config) {
 		}
 		config.EVMAddresses.ERC721 = erc721
 	}
-}
-
-//nolint:gosec
-func deployUniswapContracts(client *LoadTestClient, config *Config) {
-	config.EVMAddresses = &EVMAddresses{}
 	if config.ContainsAnyMessageTypes(UNIV2) {
+		//TODO: this really should use `deployEvmContract`
 		fmt.Println("Deploying Uniswap contracts")
 		cmd := exec.Command("loadtest/contracts/deploy_univ2.sh", config.EVMRpcEndpoint())
 		var out bytes.Buffer
 		cmd.Stdout = &out
 		err := cmd.Run()
-		fmt.Println("script output: ", out.String())
 		if err != nil {
 			panic("deploy_univ2.sh failed with error: " + err.Error())
 		}
 		UniV2SwapperRe := regexp.MustCompile(`Swapper Address: "(\w+)"`)
 		match := UniV2SwapperRe.FindStringSubmatch(out.String())
 		uniV2SwapperAddress := common.HexToAddress(match[1])
-		fmt.Println("Found UniV2Swapper Address: ", uniV2SwapperAddress.String())
-		for _, txClient := range client.EvmTxClients {
-			txClient.evmAddresses.UniV2Swapper = uniV2SwapperAddress
-		}
+		config.EVMAddresses.UniV2Swapper = uniV2SwapperAddress
 	}
 }
 
 func run(config *Config) {
+	config.EVMAddresses = &EVMAddresses{}
 	// Start metrics collector in another thread
 	metricsServer := MetricsServer{}
 	go metricsServer.StartMetricsClient(*config)
@@ -152,7 +147,12 @@ func run(config *Config) {
 	client := NewLoadTestClient(*config)
 	client.SetValidators()
 	deployEvmContracts(config)
-	deployUniswapContracts(client, config)
+
+	// initialize clients with addresses on clients
+	for _, txClient := range client.EvmTxClients {
+		txClient.evmAddresses = config.EVMAddresses
+	}
+
 	startLoadtestWorkers(client, *config)
 	runEvmQueries(*config)
 }
@@ -160,7 +160,6 @@ func run(config *Config) {
 // starts loadtest workers. If config.Constant is true, then we don't gather loadtest results and let producer/consumer
 // workers continue running. If config.Constant is false, then we will gather load test results in a file
 func startLoadtestWorkers(client *LoadTestClient, config Config) {
-	fmt.Printf("Starting loadtest workers\n")
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \n", string(configString))
 
@@ -180,8 +179,8 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 		txQueues[i] = make(chan SignedTx, 10)
 	}
 	done := make(chan struct{})
-	producerRateLimiter := rate.NewLimiter(rate.Limit(config.TargetTps), int(config.TargetTps))
-	consumerSemaphore := semaphore.NewWeighted(int64(config.TargetTps))
+	producerRateLimiter := rate.NewLimiter(rate.Limit(config.TargetTps), int(config.TargetTps)) //nolint:gosec
+	consumerSemaphore := semaphore.NewWeighted(int64(config.TargetTps))                         //nolint:gosec
 	var wg sync.WaitGroup
 	for i := 0; i < len(keys); i++ {
 		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, producedCountPerMsgType)
@@ -220,7 +219,7 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 					atomic.StoreInt64(prevSentCounterPerMsgType[msgType], count)
 				}
 				ticks++
-				if config.Ticks > 0 && ticks >= int(config.Ticks) {
+				if config.Ticks > 0 && ticks >= int(config.Ticks) { //nolint:gosec
 					close(done)
 				}
 			case <-done:
@@ -357,7 +356,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		}}
 	case Bank:
 		msgs = []sdk.Msg{}
-		for i := 0; i < int(msgPerTx); i++ {
+		for i := 0; i < int(msgPerTx); i++ { //nolint:gosec
 
 			msgs = append(msgs, &banktypes.MsgSend{
 				FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
@@ -476,7 +475,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		values := [][]uint64{}
 		num_values := rand.Int()%100 + 1
 		for x := 0; x < num_values; x++ {
-			values = append(values, []uint64{uint64(indices[x]), rand.Uint64() % 12345})
+			values = append(values, []uint64{uint64(indices[x]), rand.Uint64() % 12345}) //nolint:gosec
 		}
 		contract := config.SeiTesterAddress
 		msgData := WasmIteratorWriteMsg{
@@ -517,9 +516,9 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 	}
 
 	if strings.Contains(msgType, "failure") {
-		return msgs, true, signer, gas, int64(fee)
+		return msgs, true, signer, gas, int64(fee) // nolint:gosec
 	}
-	return msgs, false, signer, gas, int64(fee)
+	return msgs, false, signer, gas, int64(fee) // nolint:gosec
 }
 
 func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr string) sdk.Msg {
@@ -586,7 +585,7 @@ func getTxBlockInfo(blockchainEndpoint string, height string) (int, string, erro
 		fmt.Printf("Error query block data: %s\n", err)
 		return 0, "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -684,7 +683,7 @@ func GetDefaultConfigFilePath() string {
 
 func ReadConfig(path string) Config {
 	config := Config{}
-	file, _ := os.ReadFile(path)
+	file, _ := os.ReadFile(filepath.Clean(path))
 	if err := json.Unmarshal(file, &config); err != nil {
 		panic(err)
 	}

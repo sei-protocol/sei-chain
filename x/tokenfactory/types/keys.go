@@ -30,6 +30,7 @@ var (
 	CreatorPrefixKey           = "creator"
 	AdminPrefixKey             = "admin"
 	CreateDenomFeeWhitelistKey = "createdenomfeewhitelist"
+	DenomAllowListMaxSizeKey   = []byte("allowlistmaxsize")
 )
 
 // GetDenomPrefixStore returns the store prefix where all the data associated with a specific denom

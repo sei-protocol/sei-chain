@@ -5,11 +5,11 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
+	oracletestutils "github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -26,11 +26,6 @@ func (ad FakeAnteDecoratorOne) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	return next(ctx, tx, simulate)
 }
 
-func (ad FakeAnteDecoratorOne) AnteDeps(txDeps []accesscontrol.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []accesscontrol.AccessOperation, err error) {
-	outputDeps = fmt.Sprintf("%sone", outputDeps)
-	return next(txDeps, tx, txIndex)
-}
-
 type FakeAnteDecoratorTwo struct{}
 
 func (ad FakeAnteDecoratorTwo) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
@@ -38,21 +33,11 @@ func (ad FakeAnteDecoratorTwo) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	return next(ctx, tx, simulate)
 }
 
-func (ad FakeAnteDecoratorTwo) AnteDeps(txDeps []accesscontrol.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []accesscontrol.AccessOperation, err error) {
-	outputDeps = fmt.Sprintf("%stwo", outputDeps)
-	return next(txDeps, tx, txIndex)
-}
-
 type FakeAnteDecoratorThree struct{}
 
 func (ad FakeAnteDecoratorThree) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	output = fmt.Sprintf("%sthree", output)
 	return next(ctx, tx, simulate)
-}
-
-func (ad FakeAnteDecoratorThree) AnteDeps(txDeps []accesscontrol.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []accesscontrol.AccessOperation, err error) {
-	outputDeps = fmt.Sprintf("%sthree", outputDeps)
-	return next(txDeps, tx, txIndex)
 }
 
 type FakeAnteDecoratorGasReqd struct{}
@@ -91,10 +76,10 @@ func (t FakeTx) FeeGranter() sdk.AccAddress {
 }
 
 func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg sdk.Msg, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) error {
-	anteDecorators := []sdk.AnteFullDecorator{
-		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{sdk.DefaultWrappedAnteDecorator(FakeAnteDecoratorGasReqd{})}, oracleKeeper, evmKeeper),
+	anteDecorators := []sdk.AnteDecorator{
+		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{FakeAnteDecoratorGasReqd{}}, oracleKeeper, evmKeeper),
 	}
-	chainedHandler, depGen := sdk.ChainAnteDecorators(anteDecorators...)
+	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 	fakeTx := FakeTx{
 		FakeMsgs: []sdk.Msg{
 			msg,
@@ -104,25 +89,24 @@ func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg sdk.Msg, oracleKeeper orac
 	if err != nil {
 		return err
 	}
-	_, err = depGen([]accesscontrol.AccessOperation{}, fakeTx, 1)
 	return err
 }
 
 func TestOracleVoteGasless(t *testing.T) {
-	input := oraclekeeper.CreateTestInput(t)
+	input := oracletestutils.CreateTestInput(t)
 
-	addr := oraclekeeper.Addrs[0]
-	addr1 := oraclekeeper.Addrs[1]
-	valAddr, val := oraclekeeper.ValAddrs[0], oraclekeeper.ValPubKeys[0]
-	valAddr1, val1 := oraclekeeper.ValAddrs[1], oraclekeeper.ValPubKeys[1]
+	addr := oracletestutils.Addrs[0]
+	addr1 := oracletestutils.Addrs[1]
+	valAddr, val := oracletestutils.ValAddrs[0], oracletestutils.ValPubKeys[0]
+	valAddr1, val1 := oracletestutils.ValAddrs[1], oracletestutils.ValPubKeys[1]
 	amt := sdk.TokensFromConsensusPower(100, sdk.DefaultPowerReduction)
 	sh := staking.NewHandler(input.StakingKeeper)
 	ctx := input.Ctx.WithIsCheckTx(true)
 
 	// Validator created
-	_, err := sh(ctx, oraclekeeper.NewTestMsgCreateValidator(valAddr, val, amt))
+	_, err := sh(ctx, oracletestutils.NewTestMsgCreateValidator(valAddr, val, amt))
 	require.NoError(t, err)
-	_, err = sh(ctx, oraclekeeper.NewTestMsgCreateValidator(valAddr1, val1, amt))
+	_, err = sh(ctx, oracletestutils.NewTestMsgCreateValidator(valAddr1, val1, amt))
 	require.NoError(t, err)
 	staking.EndBlocker(ctx, input.StakingKeeper)
 

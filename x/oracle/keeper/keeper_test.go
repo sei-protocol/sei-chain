@@ -1,4 +1,4 @@
-package keeper
+package keeper_test
 
 import (
 	"bytes"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 
@@ -17,11 +18,11 @@ import (
 )
 
 func TestExchangeRate(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
-	cnyExchangeRate := sdk.NewDecWithPrec(839, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
-	gbpExchangeRate := sdk.NewDecWithPrec(4995, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
-	krwExchangeRate := sdk.NewDecWithPrec(2838, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
+	cnyExchangeRate := sdk.NewDecWithPrec(839, int64(types.OracleDecPrecision)).MulInt64(utils.MicroUnit)
+	gbpExchangeRate := sdk.NewDecWithPrec(4995, int64(types.OracleDecPrecision)).MulInt64(utils.MicroUnit)
+	krwExchangeRate := sdk.NewDecWithPrec(2838, int64(types.OracleDecPrecision)).MulInt64(utils.MicroUnit)
 
 	// Set & get rates
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom, cnyExchangeRate)
@@ -99,11 +100,11 @@ func TestExchangeRate(t *testing.T) {
 }
 
 func TestIterateSeiExchangeRates(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
-	cnyExchangeRate := sdk.NewDecWithPrec(839, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
-	gbpExchangeRate := sdk.NewDecWithPrec(4995, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
-	krwExchangeRate := sdk.NewDecWithPrec(2838, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
+	cnyExchangeRate := sdk.NewDecWithPrec(839, int64(types.OracleDecPrecision)).MulInt64(utils.MicroUnit)
+	gbpExchangeRate := sdk.NewDecWithPrec(4995, int64(types.OracleDecPrecision)).MulInt64(utils.MicroUnit)
+	krwExchangeRate := sdk.NewDecWithPrec(2838, int64(types.OracleDecPrecision)).MulInt64(utils.MicroUnit)
 
 	// Set & get rates
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom, cnyExchangeRate)
@@ -124,11 +125,11 @@ func TestIterateSeiExchangeRates(t *testing.T) {
 }
 
 func TestRewardPool(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	fees := sdk.NewCoins(sdk.NewCoin(utils.MicroEthDenom, sdk.NewInt(1000)))
 	acc := input.AccountKeeper.GetModuleAccount(input.Ctx, types.ModuleName)
-	err := FundAccount(input, acc.GetAddress(), fees)
+	err := testutils.FundAccount(input, acc.GetAddress(), fees)
 	if err != nil {
 		panic(err) // never occurs
 	}
@@ -138,7 +139,7 @@ func TestRewardPool(t *testing.T) {
 }
 
 func TestParams(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	// Test default params setting
 	input.OracleKeeper.SetParams(input.Ctx, types.DefaultParams())
@@ -175,25 +176,25 @@ func TestParams(t *testing.T) {
 }
 
 func TestFeederDelegation(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	// Test default getters and setters
-	delegate := input.OracleKeeper.GetFeederDelegation(input.Ctx, ValAddrs[0])
-	require.Equal(t, Addrs[0], delegate)
+	delegate := input.OracleKeeper.GetFeederDelegation(input.Ctx, testutils.ValAddrs[0])
+	require.Equal(t, testutils.Addrs[0], delegate)
 
-	input.OracleKeeper.SetFeederDelegation(input.Ctx, ValAddrs[0], Addrs[1])
-	delegate = input.OracleKeeper.GetFeederDelegation(input.Ctx, ValAddrs[0])
-	require.Equal(t, Addrs[1], delegate)
+	input.OracleKeeper.SetFeederDelegation(input.Ctx, testutils.ValAddrs[0], testutils.Addrs[1])
+	delegate = input.OracleKeeper.GetFeederDelegation(input.Ctx, testutils.ValAddrs[0])
+	require.Equal(t, testutils.Addrs[1], delegate)
 }
 
 func TestIterateFeederDelegations(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	// Test default getters and setters
-	delegate := input.OracleKeeper.GetFeederDelegation(input.Ctx, ValAddrs[0])
-	require.Equal(t, Addrs[0], delegate)
+	delegate := input.OracleKeeper.GetFeederDelegation(input.Ctx, testutils.ValAddrs[0])
+	require.Equal(t, testutils.Addrs[0], delegate)
 
-	input.OracleKeeper.SetFeederDelegation(input.Ctx, ValAddrs[0], Addrs[1])
+	input.OracleKeeper.SetFeederDelegation(input.Ctx, testutils.ValAddrs[0], testutils.Addrs[1])
 
 	var delegators []sdk.ValAddress
 	var delegates []sdk.AccAddress
@@ -205,72 +206,72 @@ func TestIterateFeederDelegations(t *testing.T) {
 
 	require.Equal(t, 1, len(delegators))
 	require.Equal(t, 1, len(delegates))
-	require.Equal(t, ValAddrs[0], delegators[0])
-	require.Equal(t, Addrs[1], delegates[0])
+	require.Equal(t, testutils.ValAddrs[0], delegators[0])
+	require.Equal(t, testutils.Addrs[1], delegates[0])
 }
 
 func TestVotePenaltyCounter(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	// Test default getters and setters
-	counter := input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	counter := input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[0])
 	require.Equal(t, uint64(0), counter.MissCount)
 	require.Equal(t, uint64(0), counter.AbstainCount)
 	require.Equal(t, uint64(0), counter.SuccessCount)
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[0]))
 
 	missCounter := uint64(10)
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], missCounter, 0, 0)
-	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[0], missCounter, 0, 0)
+	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[0])
 	require.Equal(t, missCounter, counter.MissCount)
 	require.Equal(t, uint64(0), counter.AbstainCount)
 	require.Equal(t, uint64(0), counter.SuccessCount)
-	require.Equal(t, missCounter, input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
+	require.Equal(t, missCounter, input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[0]))
 
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], missCounter, missCounter, missCounter)
-	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[0], missCounter, missCounter, missCounter)
+	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[0])
 	require.Equal(t, missCounter, counter.MissCount)
 	require.Equal(t, missCounter, counter.AbstainCount)
 	require.Equal(t, missCounter, counter.SuccessCount)
-	require.Equal(t, missCounter, input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
-	require.Equal(t, missCounter, input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
+	require.Equal(t, missCounter, input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[0]))
+	require.Equal(t, missCounter, input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[0]))
 
-	input.OracleKeeper.DeleteVotePenaltyCounter(input.Ctx, ValAddrs[0])
-	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	input.OracleKeeper.DeleteVotePenaltyCounter(input.Ctx, testutils.ValAddrs[0])
+	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[0])
 	require.Equal(t, uint64(0), counter.MissCount)
 	require.Equal(t, uint64(0), counter.AbstainCount)
 	require.Equal(t, uint64(0), counter.SuccessCount)
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[0]))
 
 	// test increments
-	input.OracleKeeper.IncrementSuccessCount(input.Ctx, ValAddrs[0])
-	input.OracleKeeper.IncrementMissCount(input.Ctx, ValAddrs[0])
-	input.OracleKeeper.IncrementMissCount(input.Ctx, ValAddrs[0])
-	input.OracleKeeper.IncrementAbstainCount(input.Ctx, ValAddrs[0])
-	input.OracleKeeper.IncrementAbstainCount(input.Ctx, ValAddrs[0])
-	input.OracleKeeper.IncrementAbstainCount(input.Ctx, ValAddrs[0])
-	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	input.OracleKeeper.IncrementSuccessCount(input.Ctx, testutils.ValAddrs[0])
+	input.OracleKeeper.IncrementMissCount(input.Ctx, testutils.ValAddrs[0])
+	input.OracleKeeper.IncrementMissCount(input.Ctx, testutils.ValAddrs[0])
+	input.OracleKeeper.IncrementAbstainCount(input.Ctx, testutils.ValAddrs[0])
+	input.OracleKeeper.IncrementAbstainCount(input.Ctx, testutils.ValAddrs[0])
+	input.OracleKeeper.IncrementAbstainCount(input.Ctx, testutils.ValAddrs[0])
+	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[0])
 	require.Equal(t, uint64(2), counter.MissCount)
 	require.Equal(t, uint64(3), counter.AbstainCount)
 	require.Equal(t, uint64(1), counter.SuccessCount)
-	require.Equal(t, uint64(2), input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
-	require.Equal(t, uint64(3), input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetSuccessCount(input.Ctx, ValAddrs[0]))
+	require.Equal(t, uint64(2), input.OracleKeeper.GetMissCount(input.Ctx, testutils.ValAddrs[0]))
+	require.Equal(t, uint64(3), input.OracleKeeper.GetAbstainCount(input.Ctx, testutils.ValAddrs[0]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetSuccessCount(input.Ctx, testutils.ValAddrs[0]))
 }
 
 func TestIterateMissCounters(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	// Test default getters and setters
-	counter := input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	counter := input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[0])
 	require.Equal(t, uint64(0), counter.MissCount)
 	require.Equal(t, uint64(0), counter.MissCount)
 
 	missCounter := uint64(10)
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[1], missCounter, missCounter, 0)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[1], missCounter, missCounter, 0)
 
 	var operators []sdk.ValAddress
 	var votePenaltyCounters types.VotePenaltyCounters
@@ -282,48 +283,48 @@ func TestIterateMissCounters(t *testing.T) {
 
 	require.Equal(t, 1, len(operators))
 	require.Equal(t, 1, len(votePenaltyCounters))
-	require.Equal(t, ValAddrs[1], operators[0])
+	require.Equal(t, testutils.ValAddrs[1], operators[0])
 	require.Equal(t, missCounter, votePenaltyCounters[0].MissCount)
 }
 
 func TestAggregateVoteAddDelete(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	aggregateVote := types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{
 		{Denom: "foo", ExchangeRate: sdk.NewDec(-1)},
 		{Denom: "foo", ExchangeRate: sdk.NewDec(0)},
 		{Denom: "foo", ExchangeRate: sdk.NewDec(1)},
-	}, sdk.ValAddress(Addrs[0]))
-	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(Addrs[0]), aggregateVote)
+	}, sdk.ValAddress(testutils.Addrs[0]))
+	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(testutils.Addrs[0]), aggregateVote)
 
-	KVote, err := input.OracleKeeper.GetAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(Addrs[0]))
+	KVote, err := input.OracleKeeper.GetAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(testutils.Addrs[0]))
 	require.NoError(t, err)
 	require.Equal(t, aggregateVote, KVote)
 
-	input.OracleKeeper.DeleteAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(Addrs[0]))
-	_, err = input.OracleKeeper.GetAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(Addrs[0]))
+	input.OracleKeeper.DeleteAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(testutils.Addrs[0]))
+	_, err = input.OracleKeeper.GetAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(testutils.Addrs[0]))
 	require.Error(t, err)
 }
 
 func TestAggregateVoteIterate(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	aggregateVote1 := types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{
 		{Denom: "foo", ExchangeRate: sdk.NewDec(-1)},
 		{Denom: "foo", ExchangeRate: sdk.NewDec(0)},
 		{Denom: "foo", ExchangeRate: sdk.NewDec(1)},
-	}, sdk.ValAddress(Addrs[0]))
-	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(Addrs[0]), aggregateVote1)
+	}, sdk.ValAddress(testutils.Addrs[0]))
+	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(testutils.Addrs[0]), aggregateVote1)
 
 	aggregateVote2 := types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{
 		{Denom: "foo", ExchangeRate: sdk.NewDec(-1)},
 		{Denom: "foo", ExchangeRate: sdk.NewDec(0)},
 		{Denom: "foo", ExchangeRate: sdk.NewDec(1)},
-	}, sdk.ValAddress(Addrs[1]))
-	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(Addrs[1]), aggregateVote2)
+	}, sdk.ValAddress(testutils.Addrs[1]))
+	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, sdk.ValAddress(testutils.Addrs[1]), aggregateVote2)
 
 	i := 0
-	bigger := bytes.Compare(address.MustLengthPrefix(Addrs[0]), address.MustLengthPrefix(Addrs[1]))
+	bigger := bytes.Compare(address.MustLengthPrefix(testutils.Addrs[0]), address.MustLengthPrefix(testutils.Addrs[1]))
 	input.OracleKeeper.IterateAggregateExchangeRateVotes(input.Ctx, func(voter sdk.ValAddress, p types.AggregateExchangeRateVote) (stop bool) {
 		if (i == 0 && bigger == -1) || (i == 1 && bigger == 1) {
 			require.Equal(t, aggregateVote1, p)
@@ -339,7 +340,7 @@ func TestAggregateVoteIterate(t *testing.T) {
 }
 
 func TestVoteTargetGetSet(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	voteTargets := map[string]types.Denom{
 		utils.MicroEthDenom:  {Name: utils.MicroEthDenom},
@@ -364,28 +365,28 @@ func TestVoteTargetGetSet(t *testing.T) {
 
 func TestValidateFeeder(t *testing.T) {
 	// initial setup
-	input := CreateTestInput(t)
-	addr, val := ValAddrs[0], ValPubKeys[0]
-	addr1, val1 := ValAddrs[1], ValPubKeys[1]
+	input := testutils.CreateTestInput(t)
+	addr, val := testutils.ValAddrs[0], testutils.ValPubKeys[0]
+	addr1, val1 := testutils.ValAddrs[1], testutils.ValPubKeys[1]
 	amt := sdk.TokensFromConsensusPower(100, sdk.DefaultPowerReduction)
 	sh := staking.NewHandler(input.StakingKeeper)
 	ctx := input.Ctx
 
 	// Validator created
-	_, err := sh(ctx, NewTestMsgCreateValidator(addr, val, amt))
+	_, err := sh(ctx, testutils.NewTestMsgCreateValidator(addr, val, amt))
 	require.NoError(t, err)
-	_, err = sh(ctx, NewTestMsgCreateValidator(addr1, val1, amt))
+	_, err = sh(ctx, testutils.NewTestMsgCreateValidator(addr1, val1, amt))
 	require.NoError(t, err)
 	staking.EndBlocker(ctx, input.StakingKeeper)
 
 	require.Equal(
 		t, input.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr)),
-		sdk.NewCoins(sdk.NewCoin(input.StakingKeeper.GetParams(ctx).BondDenom, InitTokens.Sub(amt))),
+		sdk.NewCoins(sdk.NewCoin(input.StakingKeeper.GetParams(ctx).BondDenom, testutils.InitTokens.Sub(amt))),
 	)
 	require.Equal(t, amt, input.StakingKeeper.Validator(ctx, addr).GetBondedTokens())
 	require.Equal(
 		t, input.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr1)),
-		sdk.NewCoins(sdk.NewCoin(input.StakingKeeper.GetParams(ctx).BondDenom, InitTokens.Sub(amt))),
+		sdk.NewCoins(sdk.NewCoin(input.StakingKeeper.GetParams(ctx).BondDenom, testutils.InitTokens.Sub(amt))),
 	)
 	require.Equal(t, amt, input.StakingKeeper.Validator(ctx, addr1).GetBondedTokens())
 
@@ -395,7 +396,7 @@ func TestValidateFeeder(t *testing.T) {
 	// delegate works
 	input.OracleKeeper.SetFeederDelegation(input.Ctx, sdk.ValAddress(addr), sdk.AccAddress(addr1))
 	require.NoError(t, input.OracleKeeper.ValidateFeeder(input.Ctx, sdk.AccAddress(addr1), sdk.ValAddress(addr)))
-	require.Error(t, input.OracleKeeper.ValidateFeeder(input.Ctx, sdk.AccAddress(Addrs[2]), sdk.ValAddress(addr)))
+	require.Error(t, input.OracleKeeper.ValidateFeeder(input.Ctx, sdk.AccAddress(testutils.Addrs[2]), sdk.ValAddress(addr)))
 
 	// only active validators can do oracle votes
 	validator, found := input.StakingKeeper.GetValidator(input.Ctx, sdk.ValAddress(addr))
@@ -406,7 +407,7 @@ func TestValidateFeeder(t *testing.T) {
 }
 
 func TestPriceSnapshotGetSet(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	priceSnapshots := types.PriceSnapshots{
 		types.NewPriceSnapshot(types.PriceSnapshotItems{
@@ -442,7 +443,7 @@ func TestPriceSnapshotGetSet(t *testing.T) {
 }
 
 func TestPriceSnapshotAdd(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	input.Ctx = input.Ctx.WithBlockTime(time.Unix(3500, 0))
 	priceSnapshots := types.PriceSnapshots{
@@ -521,7 +522,8 @@ func TestPriceSnapshotAdd(t *testing.T) {
 
 	// test iterate reverse
 	expectedTimestampsReverse := []int64{3660, 100, 50}
-	input.OracleKeeper.IteratePriceSnapshotsReverse(input.Ctx, func(snapshot types.PriceSnapshot) (stop bool) {
+	prefix := types.GetPriceSnapshotKeyForIteration(uint64(input.Ctx.BlockTime().Unix()), 0)
+	input.OracleKeeper.IteratePriceSnapshotsReverse(input.Ctx, prefix, func(snapshot types.PriceSnapshot) (stop bool) {
 		// assert that all the timestamps are correct
 		require.Equal(t, expectedTimestampsReverse[0], snapshot.SnapshotTimestamp)
 		expectedTimestampsReverse = expectedTimestampsReverse[1:]
@@ -561,7 +563,7 @@ func TestPriceSnapshotAdd(t *testing.T) {
 }
 
 func TestCalculateTwaps(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	_, err := input.OracleKeeper.CalculateTwaps(input.Ctx, 3600)
 	require.Error(t, err)
@@ -695,7 +697,7 @@ func TestCalculateTwaps(t *testing.T) {
 }
 
 func TestCalculateTwapsWithUnsupportedDenom(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	_, err := input.OracleKeeper.CalculateTwaps(input.Ctx, 3600)
 	require.Error(t, err)
@@ -815,16 +817,13 @@ func TestCalculateTwapsWithUnsupportedDenom(t *testing.T) {
 }
 
 func TestSpamPreventionCounter(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
-	// verify value == -1 when not set
-	require.Equal(t, int64(-1), input.OracleKeeper.GetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[0])))
+	require.NoError(t, input.OracleKeeper.CheckAndSetSpamPreventionCounter(input.Ctx, sdk.ValAddress(testutils.Addrs[0])))
+	require.Error(t, input.OracleKeeper.CheckAndSetSpamPreventionCounter(input.Ctx, sdk.ValAddress(testutils.Addrs[0])))
 
 	input.Ctx = input.Ctx.WithBlockHeight(3)
 
-	input.OracleKeeper.SetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[0]))
-	// verify counter value correct when set
-	require.Equal(t, int64(3), input.OracleKeeper.GetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[0])))
-	// verify value == -1 for a different address
-	require.Equal(t, int64(-1), input.OracleKeeper.GetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[1])))
+	require.NoError(t, input.OracleKeeper.CheckAndSetSpamPreventionCounter(input.Ctx, sdk.ValAddress(testutils.Addrs[0])))
+	require.NoError(t, input.OracleKeeper.CheckAndSetSpamPreventionCounter(input.Ctx, sdk.ValAddress(testutils.Addrs[1])))
 }

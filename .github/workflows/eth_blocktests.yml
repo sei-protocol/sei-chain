@@ -46,10 +46,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v2
         with:
-          go-version: 1.21
+          go-version: 1.24
 
       - name: Clone ETH Blocktests
-        run: git clone https://github.com/ethereum/tests.git ethtests
+        run: |
+          git clone https://github.com/ethereum/tests.git ethtests
+          cd ethtests
+          git checkout c67e485ff8b5be9abc8ad15345ec21aa22e290d9
 
       - name: "Run ETH Blocktest"
         run: ./run_blocktests.sh ./ethtests/BlockchainTests/ ${{ matrix.runner-index }} ${{ env.TOTAL_RUNNERS }}

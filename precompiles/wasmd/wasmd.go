@@ -11,9 +11,11 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -26,6 +28,7 @@ const (
 )
 
 const WasmdAddress = "0x0000000000000000000000000000000000001002"
+const PrecompileName = "wasmd"
 
 var Address = common.HexToAddress(WasmdAddress)
 
@@ -35,10 +38,10 @@ var Address = common.HexToAddress(WasmdAddress)
 var f embed.FS
 
 type PrecompileExecutor struct {
-	evmKeeper       pcommon.EVMKeeper
-	bankKeeper      pcommon.BankKeeper
-	wasmdKeeper     pcommon.WasmdKeeper
-	wasmdViewKeeper pcommon.WasmdViewKeeper
+	evmKeeper       utils.EVMKeeper
+	bankKeeper      utils.BankKeeper
+	wasmdKeeper     utils.WasmdKeeper
+	wasmdViewKeeper utils.WasmdViewKeeper
 	address         common.Address
 
 	InstantiateID  []byte
@@ -57,14 +60,14 @@ func GetABI() abi.ABI {
 	return pcommon.MustGetABI(f, "abi.json")
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper, wasmdViewKeeper pcommon.WasmdViewKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.DynamicGasPrecompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := GetABI()
 
 	executor := &PrecompileExecutor{
-		wasmdKeeper:     wasmdKeeper,
-		wasmdViewKeeper: wasmdViewKeeper,
-		evmKeeper:       evmKeeper,
-		bankKeeper:      bankKeeper,
+		wasmdKeeper:     keepers.WasmdK(),
+		wasmdViewKeeper: keepers.WasmdVK(),
+		evmKeeper:       keepers.EVMK(),
+		bankKeeper:      keepers.BankK(),
 		address:         Address,
 	}
 
@@ -80,31 +83,31 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper,
 			executor.QueryID = m.ID
 		}
 	}
-	return pcommon.NewDynamicGasPrecompile(newAbi, executor, Address, "wasmd"), nil
+	return pcommon.NewDynamicGasPrecompile(newAbi, executor, Address, PrecompileName), nil
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if method.Name != QueryMethod && !ctx.IsEVM() {
 		return nil, 0, errors.New("sei does not support CW->EVM->CW call pattern")
 	}
 	switch method.Name {
 	case InstantiateMethod:
-		return p.instantiate(ctx, method, caller, callingContract, args, value, readOnly)
+		return p.instantiate(ctx, method, caller, callingContract, args, value, readOnly, hooks, evm)
 	case ExecuteMethod:
-		return p.execute(ctx, method, caller, callingContract, args, value, readOnly)
+		return p.execute(ctx, method, caller, callingContract, args, value, readOnly, hooks, evm)
 	case ExecuteBatchMethod:
-		return p.executeBatch(ctx, method, caller, callingContract, args, value, readOnly)
+		return p.executeBatch(ctx, method, caller, callingContract, args, value, readOnly, hooks, evm)
 	case QueryMethod:
 		return p.query(ctx, method, args, value)
 	}
 	return
 }
 
-func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 	return p.evmKeeper
 }
 
-func (p PrecompileExecutor) instantiate(ctx sdk.Context, method *abi.Method, caller common.Address, _ common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) instantiate(ctx sdk.Context, method *abi.Method, caller common.Address, _ common.Address, args []interface{}, value *big.Int, readOnly bool, hooks *tracing.Hooks, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -175,7 +178,7 @@ func (p PrecompileExecutor) instantiate(ctx sdk.Context, method *abi.Method, cal
 	useiAmt := coins.AmountOf(sdk.MustGetBaseDenom())
 	if value != nil && !useiAmt.IsZero() {
 		useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
-		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), creatorAddr, useiAmtAsWei, p.bankKeeper)
+		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), creatorAddr, useiAmtAsWei, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 		if err != nil {
 			rerr = err
 			return
@@ -197,7 +200,7 @@ func (p PrecompileExecutor) instantiate(ctx sdk.Context, method *abi.Method, cal
 	return
 }
 
-func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, hooks *tracing.Hooks, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -257,7 +260,8 @@ func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, ca
 		if ctx.EVMPrecompileCalledFromDelegateCall() {
 			erc20pointer, _, erc20exists := p.evmKeeper.GetERC20CW20Pointer(ctx, contractAddrStr)
 			erc721pointer, _, erc721exists := p.evmKeeper.GetERC721CW721Pointer(ctx, contractAddrStr)
-			if (!erc20exists || erc20pointer.Cmp(callingContract) != 0) && (!erc721exists || erc721pointer.Cmp(callingContract) != 0) {
+			erc1155pointer, _, erc1155exists := p.evmKeeper.GetERC1155CW1155Pointer(ctx, contractAddrStr)
+			if (!erc20exists || erc20pointer.Cmp(callingContract) != 0) && (!erc721exists || erc721pointer.Cmp(callingContract) != 0) && (!erc1155exists || erc1155pointer.Cmp(callingContract) != 0) {
 				return nil, 0, fmt.Errorf("%s is not a pointer of %s", callingContract.Hex(), contractAddrStr)
 			}
 		}
@@ -283,7 +287,7 @@ func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, ca
 		if valueCopy != nil && !useiAmt.IsZero() {
 			// process coin amount from the value provided
 			useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
-			coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper)
+			coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 			if err != nil {
 				rerr = err
 				return
@@ -327,7 +331,7 @@ func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, ca
 	return
 }
 
-func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, hooks *tracing.Hooks, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -350,7 +354,8 @@ func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller 
 	if ctx.EVMPrecompileCalledFromDelegateCall() {
 		erc20pointer, _, erc20exists := p.evmKeeper.GetERC20CW20Pointer(ctx, contractAddrStr)
 		erc721pointer, _, erc721exists := p.evmKeeper.GetERC721CW721Pointer(ctx, contractAddrStr)
-		if (!erc20exists || erc20pointer.Cmp(callingContract) != 0) && (!erc721exists || erc721pointer.Cmp(callingContract) != 0) {
+		erc1155pointer, _, erc1155exists := p.evmKeeper.GetERC1155CW1155Pointer(ctx, contractAddrStr)
+		if (!erc20exists || erc20pointer.Cmp(callingContract) != 0) && (!erc721exists || erc721pointer.Cmp(callingContract) != 0) && (!erc1155exists || erc1155pointer.Cmp(callingContract) != 0) {
 			return nil, 0, fmt.Errorf("%s is not a pointer of %s", callingContract.Hex(), contractAddrStr)
 		}
 	}
@@ -394,7 +399,7 @@ func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller 
 	useiAmt := coins.AmountOf(sdk.MustGetBaseDenom())
 	if value != nil && !useiAmt.IsZero() {
 		useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
-		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper)
+		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 		if err != nil {
 			rerr = err
 			return
@@ -448,8 +453,7 @@ func (p PrecompileExecutor) query(ctx sdk.Context, method *abi.Method, args []in
 		rerr = err
 		return
 	}
-
-	res, err := p.wasmdViewKeeper.QuerySmart(ctx, contractAddr, req)
+	res, err := p.wasmdViewKeeper.QuerySmartSafe(ctx, contractAddr, req)
 	if err != nil {
 		rerr = err
 		return

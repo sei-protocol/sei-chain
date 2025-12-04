@@ -2,7 +2,6 @@ package keeper_test
 
 import (
 	"fmt"
-
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -51,6 +50,9 @@ func (suite *KeeperTestSuite) TestMsgCreateDenom() {
 }
 
 func (suite *KeeperTestSuite) TestCreateDenom() {
+	params, _ := suite.queryClient.Params(suite.Ctx.Context(), &types.QueryParamsRequest{})
+	allowListSize := params.Params.DenomAllowlistMaxSize
+	largeAllowList := make([]string, allowListSize+1)
 	for _, tc := range []struct {
 		desc      string
 		setup     func()
@@ -99,16 +101,10 @@ func (suite *KeeperTestSuite) TestCreateDenom() {
 			valid: false,
 		},
 		{
-			desc:     "list is too large",
-			subdenom: "test",
-			allowList: &banktypes.AllowList{
-				Addresses: []string{
-					suite.TestAccs[0].String(),
-					suite.TestAccs[1].String(),
-					suite.TestAccs[2].String(),
-					suite.TestAccs[2].String()},
-			},
-			valid: false,
+			desc:      "list is too large",
+			subdenom:  "test",
+			allowList: &banktypes.AllowList{Addresses: largeAllowList},
+			valid:     false,
 		},
 	} {
 		suite.Run(fmt.Sprintf("Case %s", tc.desc), func() {
@@ -158,6 +154,9 @@ func (suite *KeeperTestSuite) TestCreateDenom() {
 }
 
 func (suite *KeeperTestSuite) TestUpdateDenom() {
+	params, _ := suite.queryClient.Params(suite.Ctx.Context(), &types.QueryParamsRequest{})
+	allowListSize := params.Params.DenomAllowlistMaxSize
+	largeAllowList := make([]string, allowListSize+1)
 	for _, tc := range []struct {
 		desc      string
 		setup     func()
@@ -222,17 +221,10 @@ func (suite *KeeperTestSuite) TestUpdateDenom() {
 					types.NewMsgCreateDenom(suite.TestAccs[0].String(), "TLRG"))
 				suite.Require().NoError(err)
 			},
-			denom: fmt.Sprintf("factory/%s/TLRG", suite.TestAccs[0].String()),
-			allowList: &banktypes.AllowList{
-				Addresses: []string{
-					suite.TestAccs[0].String(),
-					suite.TestAccs[1].String(),
-					suite.TestAccs[2].String(),
-					suite.TestAccs[2].String(),
-				},
-			},
-			valid:  false,
-			errMsg: "allowlist too large",
+			denom:     fmt.Sprintf("factory/%s/TLRG", suite.TestAccs[0].String()),
+			allowList: &banktypes.AllowList{Addresses: largeAllowList},
+			valid:     false,
+			errMsg:    "allowlist too large",
 		},
 		{
 			desc:   "denom having invalid characters",

@@ -8,7 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -39,7 +39,7 @@ func (k *Keeper) VerifyTxResult(ctx sdk.Context, hash common.Hash) {
 	if err != nil {
 		panic(err)
 	}
-	if localReceipt.Status != uint32(remoteReceipt.Status) {
+	if localReceipt.Status != uint32(remoteReceipt.Status) { //nolint:gosec
 		panic(fmt.Sprintf("remote transaction has status %d while local has status %d", remoteReceipt.Status, localReceipt.Status))
 	}
 	if len(localReceipt.Logs) != len(remoteReceipt.Logs) {
@@ -65,7 +65,7 @@ func (k *Keeper) VerifyTxResult(ctx sdk.Context, hash common.Hash) {
 	}
 }
 
-func (k *Keeper) VerifyAccount(ctx sdk.Context, addr common.Address, accountData core.GenesisAccount) {
+func (k *Keeper) VerifyAccount(ctx sdk.Context, addr common.Address, accountData ethtypes.Account) {
 	// we no longer check eth balance due to limiting EVM max refund to 150% of used gas (https://github.com/sei-protocol/go-ethereum/pull/32)
 	code := accountData.Code
 	for key, expectedState := range accountData.Storage {
@@ -95,7 +95,7 @@ func contains(slice []common.Address, element common.Address) bool {
 func (k *Keeper) VerifyState(ctx sdk.Context, addr common.Address) {
 	store := k.PrefixStore(ctx, types.StateKey(addr))
 	iter := store.Iterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		key := common.BytesToHash(iter.Key())
 		ethVal, err := k.EthClient.StorageAt(ctx.Context(), addr, key, k.ReplayBlock.Number())

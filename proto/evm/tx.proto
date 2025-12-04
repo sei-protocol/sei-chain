@@ -1,11 +1,11 @@
 syntax = "proto3";
 package seiprotocol.seichain.evm;
 
-import "google/protobuf/any.proto";
-import "gogoproto/gogo.proto";
 import "cosmos/base/v1beta1/coin.proto";
 import "evm/enums.proto";
 import "evm/receipt.proto";
+import "gogoproto/gogo.proto";
+import "google/protobuf/any.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
 
@@ -32,9 +32,7 @@ message MsgEVMTransactionResponse {
 
 message MsgInternalEVMCall {
   string sender = 1;
-  string value = 2 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"
-  ];
+  string value = 2 [(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"];
   string to = 3;
   bytes data = 4;
 }
@@ -43,19 +41,23 @@ message MsgInternalEVMCallResponse {}
 
 message MsgInternalEVMDelegateCall {
   string sender = 1;
+  // buf:lint:ignore FIELD_LOWER_SNAKE_CASE We have caught this late; keeping to avoid breaking changes.
   bytes codeHash = 2;
   string to = 3;
   bytes data = 4;
+  // buf:lint:ignore FIELD_LOWER_SNAKE_CASE We have caught this late; keeping to avoid breaking changes.
   string fromContract = 5;
 }
 
 message MsgInternalEVMDelegateCallResponse {}
 
 message MsgSend {
-  string   from_address                    = 1;
-  string   to_address                      = 2;
-  repeated cosmos.base.v1beta1.Coin amount = 3
-      [(gogoproto.nullable) = false, (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"];
+  string from_address = 1;
+  string to_address = 2;
+  repeated cosmos.base.v1beta1.Coin amount = 3 [
+    (gogoproto.nullable) = false,
+    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
+  ];
 }
 
 message MsgSendResponse {}
@@ -83,3 +85,20 @@ message MsgAssociate {
 }
 
 message MsgAssociateResponse {}
+
+message MsgClaim {
+  string sender = 1;
+  string claimer = 2;
+}
+
+message Asset {
+  AssetType asset_type = 1;
+  string contract_address = 2;
+  string denom = 3;
+}
+
+message MsgClaimSpecific {
+  string sender = 1;
+  string claimer = 2;
+  repeated Asset assets = 3;
+}

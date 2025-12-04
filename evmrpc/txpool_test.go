@@ -1,13 +1,20 @@
 package evmrpc_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/cosmos/cosmos-sdk/client"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,7 +60,7 @@ func TestTxPoolContent(t *testing.T) {
 			requireNotZeroHex(t, tx["value"].(string))
 			// type -- can be 0
 			// acccesslist-- can be any array value
-			require.Equal(t, tx["chainId"], "0xae3f3") // 713715
+			require.Equal(t, tx["chainId"], "0xae3f2") // 713714
 			requireNotZeroHex(t, tx["v"].(string))
 			requireNotZeroHex(t, tx["r"].(string))
 			requireNotZeroHex(t, tx["s"].(string))
@@ -75,4 +82,49 @@ func requireNotZeroHex(t *testing.T, hexStr string) {
 		}
 	}
 	t.Errorf("requireNotZeroHex: %s is all zeros", hexStr)
+}
+
+func TestTxPoolContentSenderRecovery(t *testing.T) {
+	ctxProvider := func(int64) sdk.Context { return Ctx }
+	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
+
+	api := evmrpc.NewTxPoolAPI(
+		&MockClient{},
+		EVMKeeper,
+		ctxProvider,
+		txConfigProvider,
+		evmrpc.NewTxPoolConfig(10),
+		evmrpc.ConnectionTypeHTTP,
+	)
+
+	content, err := api.Content(context.Background())
+	require.NoError(t, err)
+
+	pending := content["pending"]
+	require.Len(t, pending, 1)
+	require.Empty(t, content["queued"])
+
+	ethMsg := evmtypes.MustGetEVMTransactionMessage(UnconfirmedTx)
+	ethTx, _ := ethMsg.AsTransaction()
+
+	expectedSender, err := rpcutils.RecoverEVMSenderWithContext(Ctx, ethTx)
+	require.NoError(t, err)
+
+	nonceStr := strconv.FormatUint(ethTx.Nonce(), 10)
+	senderTxs, ok := pending[expectedSender.Hex()]
+	if !ok {
+		for addr := range pending {
+			if strings.EqualFold(addr, expectedSender.Hex()) {
+				senderTxs = pending[addr]
+				ok = true
+				break
+			}
+		}
+	}
+	require.True(t, ok, "pending txs keyed by expected sender not found")
+
+	rpcTx, ok := senderTxs[nonceStr]
+	require.True(t, ok)
+	require.Equal(t, expectedSender, rpcTx.From)
+	require.Equal(t, ethTx.Hash(), rpcTx.Hash)
 }

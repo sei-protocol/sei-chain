@@ -17,7 +17,7 @@ mkdir -p $GOBIN
 # Step 0: Build on node 0
 if [ "$NODE_ID" = 0 ] && [ -z "$SKIP_BUILD" ]
 then
-  /usr/bin/build.sh
+  /usr/bin/build.sh $MOCK_BALANCES
 fi
 
 if ! [ "$SKIP_BUILD" ]
@@ -67,7 +67,10 @@ sleep 5
 echo "All $CLUSTER_SIZE Nodes started successfully, starting oracle price feeder..."
 
 # Step 6: Start oracle price feeder
-/usr/bin/start_price_feeder.sh
+if ! /usr/bin/start_price_feeder.sh; then
+  echo "Failed to start oracle price feeder on node $NODE_ID" >&2
+  exit 1
+fi
 echo "Oracle price feeder is started"
 
 tail -f /dev/null

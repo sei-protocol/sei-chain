@@ -92,7 +92,13 @@ func (wsc *WebsocketController) Start() {
 		go wsc.readWebSocket()
 		go wsc.pingLoop()
 
-		if err := wsc.subscribe(wsc.subscriptionMsgs); err != nil {
+		// Safely read subscriptionMsgs with mutex protection
+		wsc.mtx.Lock()
+		subscriptionMsgsCopy := make([]interface{}, len(wsc.subscriptionMsgs))
+		copy(subscriptionMsgsCopy, wsc.subscriptionMsgs)
+		wsc.mtx.Unlock()
+
+		if err := wsc.subscribe(subscriptionMsgsCopy); err != nil {
 			wsc.logger.Err(err).Send()
 			wsc.close()
 			continue
@@ -112,7 +118,7 @@ func (wsc *WebsocketController) connect() error {
 		return fmt.Errorf("failed to dial WS for %s: %w", wsc.providerName, err)
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	wsc.client = conn
 	wsc.websocketCtx, wsc.websocketCancelFunc = context.WithCancel(wsc.parentCtx)
@@ -147,7 +153,12 @@ func (wsc *WebsocketController) AddSubscriptionMsgs(msgs []interface{}) error {
 	if err != nil {
 		return err
 	}
+
+	// Safely write to subscriptionMsgs with mutex protection
+	wsc.mtx.Lock()
 	wsc.subscriptionMsgs = append(wsc.subscriptionMsgs, msgs...)
+	wsc.mtx.Unlock()
+
 	return nil
 }
 
@@ -203,7 +214,7 @@ func (wsc *WebsocketController) ping() error {
 		return fmt.Errorf("unable to ping closed connection")
 	}
 
-	err := wsc.client.WriteMessage(int(wsc.pingMessageType), ping)
+	err := wsc.client.WriteMessage(int(wsc.pingMessageType), ping) //nolint:gosec
 	if err != nil {
 		wsc.logger.Err(fmt.Errorf("failed to send WS message for %s: %w", wsc.providerName, err)).Send()
 	}

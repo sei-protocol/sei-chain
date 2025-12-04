@@ -51,7 +51,17 @@ func (pb ExchangeRateBallot) ToCrossRate(bases map[string]sdk.Dec) (cb ExchangeR
 		vote := pb[i]
 
 		if exchangeRateRT, ok := bases[string(vote.Voter)]; ok && vote.ExchangeRate.IsPositive() {
-			vote.ExchangeRate = exchangeRateRT.Quo(vote.ExchangeRate)
+			// Quo will panic on overflow, so we wrap it in a defer/recover
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						// if overflow, set exchange rate to 0 and power to 0
+						vote.ExchangeRate = sdk.ZeroDec()
+						vote.Power = 0
+					}
+				}()
+				vote.ExchangeRate = exchangeRateRT.Quo(vote.ExchangeRate)
+			}()
 		} else {
 			// If we can't get reference Sei exchange rate, we just convert the vote as abstain vote
 			vote.ExchangeRate = sdk.ZeroDec()

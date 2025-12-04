@@ -1,13 +1,20 @@
 package evmrpc
 
 import (
+	"context"
 	"strings"
+	"sync"
 
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
+	"github.com/sei-protocol/sei-chain/evmrpc/stats"
 	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	sstypes "github.com/sei-protocol/sei-db/ss/types"
 	"github.com/tendermint/tendermint/libs/log"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
@@ -18,9 +25,11 @@ var ConnectionTypeWS ConnectionType = "websocket"
 var ConnectionTypeHTTP ConnectionType = "http"
 
 const LocalAddress = "0.0.0.0"
+const DefaultWebsocketMaxMessageSize = 10 * 1024 * 1024
 
 type EVMServer interface {
 	Start() error
+	Stop()
 }
 
 func NewEVMHTTPServer(
@@ -28,10 +37,23 @@ func NewEVMHTTPServer(
 	config Config,
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
+	beginBlockKeepers legacyabci.BeginBlockKeepers,
+	app *baseapp.BaseApp,
+	antehandler sdk.AnteHandler,
 	ctxProvider func(int64) sdk.Context,
-	txConfig client.TxConfig,
+	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
+	stateStore sstypes.StateStore,
+	isPanicOrSyntheticTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // used in *ExcludeTraceFail endpoints
 ) (EVMServer, error) {
+	logger = logger.With("module", "evmrpc")
+
+	// Initialize global worker pool with configuration
+	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
+
+	// Initialize RPC tracker
+	stats.InitRPCTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
+
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
 		ReadHeaderTimeout: config.ReadHeaderTimeout,
@@ -41,13 +63,30 @@ func NewEVMHTTPServer(
 	if err := httpServer.SetListenAddr(LocalAddress, config.HTTPPort); err != nil {
 		return nil, err
 	}
-	simulateConfig := &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}
-	sendAPI := NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig, ConnectionTypeHTTP)
+	simulateConfig := &SimulateConfig{
+		GasCap:                       config.SimulationGasLimit,
+		EVMTimeout:                   config.SimulationEVMTimeout,
+		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
+	}
+	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
+
+	globalBlockCache := NewBlockCache(3000)
+	cacheCreationMutex := &sync.Mutex{}
+	sendAPI := NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP, globalBlockCache, cacheCreationMutex, watermarks)
+
 	ctx := ctxProvider(LatestCtxHeight)
+	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex)
+	debugAPI := NewDebugAPI(tmClient, k, beginBlockKeepers, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex, watermarks)
+	if isPanicOrSyntheticTxFunc == nil {
+		isPanicOrSyntheticTxFunc = func(ctx context.Context, hash common.Hash) (bool, error) {
+			return debugAPI.isPanicOrSyntheticTx(ctx, hash)
+		}
+	}
+	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex)
+	seiDebugAPI := NewSeiDebugAPI(tmClient, k, beginBlockKeepers, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex, watermarks)
 
-	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP)
-	// filterAPI := NewFilterAPI(tmClient, &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeHTTP)
-
+	dbReadSemaphore := make(chan struct{}, MaxDBReadConcurrency)
+	globalLogSlicePool := NewLogSlicePool()
 	apis := []rpc.API{
 		{
 			Namespace: "echo",
@@ -55,23 +94,31 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeHTTP, "eth"),
+			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "sei",
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeHTTP, "sei"),
+			Service:   NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex),
+		},
+		{
+			Namespace: "sei2",
+			Service:   NewSei2BlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "eth",
 			Service:   txAPI,
 		},
 		{
-			Namespace: "eth",
-			Service:   NewStateAPI(tmClient, k, ctxProvider, ConnectionTypeHTTP),
+			Namespace: "sei",
+			Service:   seiTxAPI,
 		},
 		{
 			Namespace: "eth",
-			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), homeDir, config.MaxBlocksForLog, ConnectionTypeHTTP),
+			Service:   NewStateAPI(tmClient, k, ctxProvider, ConnectionTypeHTTP, watermarks),
+		},
+		{
+			Namespace: "eth",
+			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, config.MaxBlocksForLog, ConnectionTypeHTTP, txConfigProvider(LatestCtxHeight).TxDecoder(), watermarks),
 		},
 		{
 			Namespace: "eth",
@@ -79,27 +126,53 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSimulationAPI(ctxProvider, k, txConfig.TxDecoder(), tmClient, simulateConfig, ConnectionTypeHTTP),
+			Service:   NewSimulationAPI(ctxProvider, k, beginBlockKeepers, txConfigProvider, tmClient, simulateConfig, app, antehandler, ConnectionTypeHTTP, globalBlockCache, cacheCreationMutex, watermarks),
 		},
 		{
 			Namespace: "net",
-			Service:   NewNetAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), ConnectionTypeHTTP),
+			Service:   NewNetAPI(tmClient, k, ctxProvider, ConnectionTypeHTTP),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewFilterAPI(tmClient, k, ctxProvider, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeHTTP, "eth"),
+			Service: NewFilterAPI(
+				tmClient,
+				k,
+				ctxProvider,
+				txConfigProvider,
+				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog},
+				ConnectionTypeHTTP,
+				"eth",
+				dbReadSemaphore,
+				globalBlockCache,
+				cacheCreationMutex,
+				globalLogSlicePool,
+				watermarks,
+			),
 		},
 		{
 			Namespace: "sei",
-			Service:   NewFilterAPI(tmClient, k, ctxProvider, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeHTTP, "sei"),
+			Service: NewFilterAPI(
+				tmClient,
+				k,
+				ctxProvider,
+				txConfigProvider,
+				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog},
+				ConnectionTypeHTTP,
+				"sei",
+				dbReadSemaphore,
+				globalBlockCache,
+				cacheCreationMutex,
+				globalLogSlicePool,
+				watermarks,
+			),
 		},
 		{
 			Namespace: "sei",
-			Service:   NewAssociationAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), sendAPI, ConnectionTypeHTTP),
+			Service:   NewAssociationAPI(tmClient, k, ctxProvider, txConfigProvider, sendAPI, ConnectionTypeHTTP, watermarks),
 		},
 		{
 			Namespace: "txpool",
-			Service:   NewTxPoolAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), &TxPoolConfig{maxNumTxs: int(config.MaxTxPoolTxs)}, ConnectionTypeHTTP),
+			Service:   NewTxPoolAPI(tmClient, k, ctxProvider, txConfigProvider, &TxPoolConfig{maxNumTxs: int(config.MaxTxPoolTxs)}, ConnectionTypeHTTP), //nolint:gosec
 		},
 		{
 			Namespace: "web3",
@@ -107,7 +180,11 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "debug",
-			Service:   NewDebugAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), simulateConfig, ConnectionTypeHTTP),
+			Service:   debugAPI,
+		},
+		{
+			Namespace: "sei",
+			Service:   seiDebugAPI,
 		},
 	}
 	// Test API can only exist on non-live chain IDs.  These APIs instrument certain overrides.
@@ -124,9 +201,11 @@ func NewEVMHTTPServer(
 	if err := httpServer.EnableRPC(apis, HTTPConfig{
 		CorsAllowedOrigins: strings.Split(config.CORSOrigins, ","),
 		Vhosts:             []string{"*"},
+		DenyList:           config.DenyList,
 	}); err != nil {
 		return nil, err
 	}
+
 	return httpServer, nil
 }
 
@@ -135,10 +214,22 @@ func NewEVMWebSocketServer(
 	config Config,
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
+	beginBlockKeepers legacyabci.BeginBlockKeepers,
+	app *baseapp.BaseApp,
+	antehandler sdk.AnteHandler,
 	ctxProvider func(int64) sdk.Context,
-	txConfig client.TxConfig,
+	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
+	stateStore sstypes.StateStore,
 ) (EVMServer, error) {
+	logger = logger.With("module", "evmrpc")
+
+	// Initialize global worker pool with configuration
+	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
+
+	// Initialize WebSocket tracker.
+	stats.InitWSTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
+
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
 		ReadHeaderTimeout: config.ReadHeaderTimeout,
@@ -148,7 +239,16 @@ func NewEVMWebSocketServer(
 	if err := httpServer.SetListenAddr(LocalAddress, config.WSPort); err != nil {
 		return nil, err
 	}
-	simulateConfig := &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}
+	simulateConfig := &SimulateConfig{
+		GasCap:                       config.SimulationGasLimit,
+		EVMTimeout:                   config.SimulationEVMTimeout,
+		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
+	}
+	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
+	dbReadSemaphore := make(chan struct{}, MaxDBReadConcurrency)
+	globalBlockCache := NewBlockCache(3000)
+	cacheCreationMutex := &sync.Mutex{}
+	globalLogSlicePool := NewLogSlicePool()
 	apis := []rpc.API{
 		{
 			Namespace: "echo",
@@ -156,43 +256,57 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeWS, "eth"),
+			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeWS, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeWS),
+			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeWS, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewStateAPI(tmClient, k, ctxProvider, ConnectionTypeWS),
+			Service:   NewStateAPI(tmClient, k, ctxProvider, ConnectionTypeWS, watermarks),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), homeDir, config.MaxBlocksForLog, ConnectionTypeWS),
+			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, config.MaxBlocksForLog, ConnectionTypeWS, txConfigProvider(LatestCtxHeight).TxDecoder(), watermarks),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig, ConnectionTypeWS),
+			Service:   NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeWS, globalBlockCache, cacheCreationMutex, watermarks),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSimulationAPI(ctxProvider, k, txConfig.TxDecoder(), tmClient, simulateConfig, ConnectionTypeWS),
+			Service:   NewSimulationAPI(ctxProvider, k, beginBlockKeepers, txConfigProvider, tmClient, simulateConfig, app, antehandler, ConnectionTypeWS, globalBlockCache, cacheCreationMutex, watermarks),
 		},
 		{
 			Namespace: "net",
-			Service:   NewNetAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), ConnectionTypeWS),
+			Service:   NewNetAPI(tmClient, k, ctxProvider, ConnectionTypeWS),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSubscriptionAPI(tmClient, &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS),
+			Service: NewSubscriptionAPI(tmClient, k, ctxProvider, &LogFetcher{
+				tmClient:           tmClient,
+				k:                  k,
+				ctxProvider:        ctxProvider,
+				txConfigProvider:   txConfigProvider,
+				dbReadSemaphore:    dbReadSemaphore,
+				globalBlockCache:   globalBlockCache,
+				cacheCreationMutex: cacheCreationMutex,
+				globalLogSlicePool: globalLogSlicePool,
+				watermarks:         watermarks,
+			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS),
 		},
 		{
 			Namespace: "web3",
 			Service:   &Web3API{},
 		},
 	}
-	if err := httpServer.EnableWS(apis, WsConfig{Origins: strings.Split(config.WSOrigins, ",")}); err != nil {
+
+	wsConfig := WsConfig{Origins: strings.Split(config.WSOrigins, ",")}
+	wsConfig.readLimit = DefaultWebsocketMaxMessageSize
+	if err := httpServer.EnableWS(apis, wsConfig); err != nil {
 		return nil, err
 	}
+
 	return httpServer, nil
 }

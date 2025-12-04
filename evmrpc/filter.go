@@ -1,26 +1,168 @@
 package evmrpc
 
 import (
+	"container/heap"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/hashicorp/golang-lru/v2/expirable"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
+	"golang.org/x/time/rate"
 )
 
 const TxSearchPerPage = 10
+
+const (
+	// DB Concurrency Read Limit
+	MaxDBReadConcurrency = 16
+
+	// Default request limits (used as fallback values)
+	DefaultMaxBlockRange = 2000
+	DefaultMaxLogLimit   = 10000
+
+	// global request rate limit, only applies to queries > RPSLimitThreshold
+	GlobalRPSLimit    = 30
+	RPSLimitThreshold = 100 // block range queries below this threshold bypass rate limiting
+)
+
+// BlockCacheEntry for sotring block, bloom, and receipts cache
+type BlockCacheEntry struct {
+	sync.RWMutex
+	Block    *coretypes.ResultBlock
+	Bloom    ethtypes.Bloom
+	Receipts map[common.Hash]*evmtypes.Receipt
+}
+
+type BlockCache = *expirable.LRU[int64, *BlockCacheEntry]
+
+// Factory function for creating block cache with 5-minute TTL
+func NewBlockCache(maxSize int) BlockCache {
+	return expirable.NewLRU[int64, *BlockCacheEntry](maxSize, nil, 5*time.Minute)
+}
+
+// Helper functions for cache access (fine-grained locking)
+func getCachedReceipt(globalBlockCache BlockCache, blockHeight int64, txHash common.Hash) (*evmtypes.Receipt, bool) {
+	if entry, found := globalBlockCache.Get(blockHeight); found {
+		entry.RLock()
+		defer entry.RUnlock()
+		if receipt, hasReceipt := entry.Receipts[txHash]; hasReceipt {
+			return receipt, true
+		}
+	}
+	return nil, false
+}
+
+func getOrSetCachedReceipt(cacheCreationMutex *sync.Mutex, globalBlockCache BlockCache, ctx sdk.Context, k *keeper.Keeper, block *coretypes.ResultBlock, txHash common.Hash) (*evmtypes.Receipt, bool) {
+	blockHeight := block.Block.Height
+	receipt, found := getCachedReceipt(globalBlockCache, blockHeight, txHash)
+	if found {
+		return receipt, true
+	}
+	receipt, err := k.GetReceipt(ctx, txHash)
+	if err != nil {
+		return nil, false
+	}
+	setCachedReceipt(cacheCreationMutex, globalBlockCache, blockHeight, block, txHash, receipt)
+	return receipt, true
+}
+
+// LoadOrStore ensures atomic cache entry creation (like sync.Map.LoadOrStore)
+func loadOrStoreCacheEntry(cacheCreationMutex *sync.Mutex, globalBlockCache BlockCache, blockHeight int64, block *coretypes.ResultBlock) *BlockCacheEntry {
+	// Fast path: try to get existing entry
+	if entry, found := globalBlockCache.Get(blockHeight); found {
+		// If we have a block and the entry's block is nil, fill it
+		if block != nil {
+			fillMissingFields(entry, block, ethtypes.Bloom{})
+		}
+		return entry
+	}
+
+	// Slow path: create new entry with mutex protection
+	cacheCreationMutex.Lock()
+	defer cacheCreationMutex.Unlock()
+
+	// Double-check after acquiring lock
+	if entry, found := globalBlockCache.Get(blockHeight); found {
+		// If we have a block and the entry's block is nil, fill it
+		if block != nil {
+			fillMissingFields(entry, block, ethtypes.Bloom{})
+		}
+		return entry
+	}
+
+	// Create and store new entry
+	entry := &BlockCacheEntry{
+		Block:    block,
+		Receipts: make(map[common.Hash]*evmtypes.Receipt),
+	}
+	globalBlockCache.Add(blockHeight, entry)
+	return entry
+}
+
+// fillMissingFields safely fills missing Block and Bloom fields
+func fillMissingFields(entry *BlockCacheEntry, block *coretypes.ResultBlock, bloom ethtypes.Bloom) {
+	entry.Lock()
+	defer entry.Unlock()
+
+	// Fill Block if missing
+	if entry.Block == nil && block != nil {
+		entry.Block = block
+	}
+
+	// Fill Bloom if missing and provided
+	if entry.Bloom == (ethtypes.Bloom{}) && bloom != (ethtypes.Bloom{}) {
+		entry.Bloom = bloom
+	}
+}
+
+func setCachedReceipt(cacheCreationMutex *sync.Mutex, globalBlockCache BlockCache, blockHeight int64, block *coretypes.ResultBlock, txHash common.Hash, receipt *evmtypes.Receipt) {
+	// Use LoadOrStore to get the entry atomically
+	entry := loadOrStoreCacheEntry(cacheCreationMutex, globalBlockCache, blockHeight, block)
+
+	// Now safely update the entry with fine-grained locking
+	entry.Lock()
+	entry.Receipts[txHash] = receipt
+	entry.Unlock()
+}
+
+// logCollector interface for different collection strategies
+type logCollector interface {
+	Append(*ethtypes.Log)
+}
+
+// sliceCollector for direct slice append
+type sliceCollector struct {
+	logs []*ethtypes.Log
+}
+
+func (c *sliceCollector) Append(log *ethtypes.Log) {
+	c.logs = append(c.logs, log)
+}
+
+// pooledCollector for reused slice
+type pooledCollector struct {
+	logs *[]*ethtypes.Log
+}
+
+func (c *pooledCollector) Append(log *ethtypes.Log) {
+	*c.logs = append(*c.logs, log)
+}
 
 type FilterType byte
 
@@ -31,9 +173,10 @@ const (
 )
 
 type filter struct {
-	typ      FilterType
-	fc       filters.FilterCriteria
-	deadline *time.Timer
+	typ        FilterType
+	fc         filters.FilterCriteria
+	cancelFunc context.CancelFunc
+	lastAccess time.Time
 
 	// BlocksSubscription
 	blockCursor string
@@ -42,14 +185,73 @@ type filter struct {
 	lastToHeight int64
 }
 
+// Log slice pool to reduce allocations in batch processing
+type LogSlicePool struct {
+	pool sync.Pool
+}
+
+func NewLogSlicePool() *LogSlicePool {
+	return &LogSlicePool{
+		pool: sync.Pool{
+			New: func() interface{} {
+				slice := make([]*ethtypes.Log, 0, 100) // Pre-allocate capacity of 100
+				return &slice
+			},
+		},
+	}
+}
+
+func (p *LogSlicePool) Get() []*ethtypes.Log {
+	slicePtr := p.pool.Get().(*[]*ethtypes.Log)
+	*slicePtr = (*slicePtr)[:0] // Reset length but keep capacity
+	return *slicePtr
+}
+
+func (p *LogSlicePool) Put(slice []*ethtypes.Log) {
+	if cap(slice) < 1000 { // Avoid storing overly large slices
+		p.pool.Put(&slice)
+	}
+}
+
+// kWayMergeItem is used in the heap for the k-way merge.
+type kWayMergeItem struct {
+	log      *ethtypes.Log
+	batchIdx int // Which batch this log came from
+	itemIdx  int // The index within that batch
+}
+
+// logMergeHeap is a min-heap of kWayMergeItem
+type logMergeHeap []*kWayMergeItem
+
+func (h logMergeHeap) Len() int { return len(h) }
+func (h logMergeHeap) Less(i, j int) bool {
+	if h[i].log.BlockNumber != h[j].log.BlockNumber {
+		return h[i].log.BlockNumber < h[j].log.BlockNumber
+	}
+	return h[i].log.Index < h[j].log.Index
+}
+func (h logMergeHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
+func (h *logMergeHeap) Push(x interface{}) { *h = append(*h, x.(*kWayMergeItem)) }
+func (h *logMergeHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[0 : n-1]
+	return x
+}
+
 type FilterAPI struct {
-	tmClient       rpcclient.Client
-	filtersMu      sync.Mutex
-	filters        map[ethrpc.ID]filter
-	filterConfig   *FilterConfig
-	logFetcher     *LogFetcher
-	connectionType ConnectionType
-	namespace      string
+	tmClient         rpcclient.Client
+	filtersMu        sync.RWMutex
+	filters          map[ethrpc.ID]filter
+	toDelete         chan ethrpc.ID
+	filterConfig     *FilterConfig
+	logFetcher       *LogFetcher
+	connectionType   ConnectionType
+	namespace        string
+	shutdownCtx      context.Context
+	shutdownCancel   context.CancelFunc
+	globalRPSLimiter *rate.Limiter
 }
 
 type FilterConfig struct {
@@ -63,69 +265,169 @@ type EventItemDataWrapper struct {
 	Value json.RawMessage `json:"value"`
 }
 
-func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, filterConfig *FilterConfig, connectionType ConnectionType, namespace string) *FilterAPI {
-	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, filterConfig: filterConfig, includeSyntheticReceipts: shouldIncludeSynthetic(namespace)}
-	filters := make(map[ethrpc.ID]filter)
-	api := &FilterAPI{
-		namespace:      namespace,
-		tmClient:       tmClient,
-		filtersMu:      sync.Mutex{},
-		filters:        filters,
-		filterConfig:   filterConfig,
-		logFetcher:     logFetcher,
-		connectionType: connectionType,
+func NewFilterAPI(
+	tmClient rpcclient.Client,
+	k *keeper.Keeper,
+	ctxProvider func(int64) sdk.Context,
+	txConfigProvider func(int64) client.TxConfig,
+	filterConfig *FilterConfig,
+	connectionType ConnectionType,
+	namespace string,
+	dbReadSemaphore chan struct{},
+	globalBlockCache BlockCache,
+	cacheCreationMutex *sync.Mutex,
+	globalLogSlicePool *LogSlicePool,
+	watermarks *WatermarkManager,
+) *FilterAPI {
+	if filterConfig.maxBlock <= 0 {
+		filterConfig.maxBlock = DefaultMaxBlockRange
+	}
+	if filterConfig.maxLog <= 0 {
+		filterConfig.maxLog = DefaultMaxLogLimit
 	}
 
-	go api.timeoutLoop(filterConfig.timeout)
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	logFetcher := &LogFetcher{
+		tmClient:                 tmClient,
+		k:                        k,
+		ctxProvider:              ctxProvider,
+		txConfigProvider:         txConfigProvider,
+		filterConfig:             filterConfig,
+		includeSyntheticReceipts: shouldIncludeSynthetic(namespace),
+		dbReadSemaphore:          dbReadSemaphore,
+		globalBlockCache:         globalBlockCache,
+		cacheCreationMutex:       cacheCreationMutex,
+		globalLogSlicePool:       globalLogSlicePool,
+		watermarks:               watermarks,
+	}
+	filters := make(map[ethrpc.ID]filter)
+	api := &FilterAPI{
+		namespace:        namespace,
+		tmClient:         tmClient,
+		filtersMu:        sync.RWMutex{},
+		filters:          filters,
+		toDelete:         make(chan ethrpc.ID, 1000),
+		filterConfig:     filterConfig,
+		logFetcher:       logFetcher,
+		connectionType:   connectionType,
+		shutdownCtx:      shutdownCtx,
+		shutdownCancel:   shutdownCancel,
+		globalRPSLimiter: rate.NewLimiter(rate.Limit(GlobalRPSLimit), GlobalRPSLimit),
+	}
 
+	go api.cleanupLoop(filterConfig.timeout)
 	return api
 }
 
-func (a *FilterAPI) timeoutLoop(timeout time.Duration) {
-	ticker := time.NewTicker(timeout)
-	defer ticker.Stop()
+// Unified cleanup loop that handles both timeout and manual deletion
+func (a *FilterAPI) cleanupLoop(timeout time.Duration) {
+	ticker := time.NewTicker(timeout / 2) // Check more frequently than timeout
+	defer func() {
+		ticker.Stop()
+		recoverAndLog()
+	}()
+
 	for {
-		<-ticker.C
+		select {
+		case <-a.shutdownCtx.Done():
+			return
+		case <-ticker.C:
+			// Clean up expired filters
+			a.cleanupExpiredFilters(timeout)
+		case filterID := <-a.toDelete:
+			// Handle manual filter deletion
+			a.removeFilter(filterID)
+		}
+	}
+}
+
+func (a *FilterAPI) cleanupExpiredFilters(timeout time.Duration) {
+	now := time.Now()
+	toRemove := make([]ethrpc.ID, 0)
+
+	// First pass: identify expired filters (read lock)
+	a.filtersMu.RLock()
+	for id, filter := range a.filters {
+		if now.Sub(filter.lastAccess) > timeout {
+			toRemove = append(toRemove, id)
+		}
+	}
+	a.filtersMu.RUnlock()
+
+	// Second pass: remove expired filters (write lock)
+	if len(toRemove) > 0 {
 		a.filtersMu.Lock()
-		for id, filter := range a.filters {
-			select {
-			case <-filter.deadline.C:
+		for _, id := range toRemove {
+			if filter, exists := a.filters[id]; exists {
 				delete(a.filters, id)
-			default:
-				continue
+				if filter.cancelFunc != nil {
+					filter.cancelFunc()
+				}
 			}
 		}
 		a.filtersMu.Unlock()
 	}
 }
 
-func (a *FilterAPI) NewFilter(
-	_ context.Context,
-	crit filters.FilterCriteria,
-) (id ethrpc.ID, err error) {
-	defer recordMetrics(fmt.Sprintf("%s_newFilter", a.namespace), a.connectionType, time.Now(), err == nil)
+func (a *FilterAPI) removeFilter(filterID ethrpc.ID) {
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
+
+	if filter, exists := a.filters[filterID]; exists {
+		delete(a.filters, filterID)
+		if filter.cancelFunc != nil {
+			filter.cancelFunc()
+		}
+	}
+}
+
+func (a *FilterAPI) updateFilterAccess(filterID ethrpc.ID) {
+	a.filtersMu.Lock()
+	defer a.filtersMu.Unlock()
+
+	if filter, exists := a.filters[filterID]; exists {
+		filter.lastAccess = time.Now()
+		a.filters[filterID] = filter
+	}
+}
+
+func (a *FilterAPI) NewFilter(
+	ctx context.Context,
+	crit filters.FilterCriteria,
+) (id ethrpc.ID, err error) {
+	defer recordMetricsWithError(fmt.Sprintf("%s_newFilter", a.namespace), a.connectionType, time.Now(), err)
+
+	_, cancel := context.WithCancel(a.shutdownCtx)
+
+	a.filtersMu.Lock()
+	defer a.filtersMu.Unlock()
+
 	curFilterID := ethrpc.NewID()
 	a.filters[curFilterID] = filter{
 		typ:          LogsSubscription,
 		fc:           crit,
-		deadline:     time.NewTimer(a.filterConfig.timeout),
+		cancelFunc:   cancel,
+		lastAccess:   time.Now(),
 		lastToHeight: 0,
 	}
 	return curFilterID, nil
 }
 
 func (a *FilterAPI) NewBlockFilter(
-	_ context.Context,
+	ctx context.Context,
 ) (id ethrpc.ID, err error) {
-	defer recordMetrics(fmt.Sprintf("%s_newBlockFilter", a.namespace), a.connectionType, time.Now(), err == nil)
+	defer recordMetricsWithError(fmt.Sprintf("%s_newBlockFilter", a.namespace), a.connectionType, time.Now(), err)
+
+	_, cancel := context.WithCancel(a.shutdownCtx)
+
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
+
 	curFilterID := ethrpc.NewID()
 	a.filters[curFilterID] = filter{
 		typ:         BlocksSubscription,
-		deadline:    time.NewTimer(a.filterConfig.timeout),
+		cancelFunc:  cancel,
+		lastAccess:  time.Now(),
 		blockCursor: "",
 	}
 	return curFilterID, nil
@@ -135,20 +437,19 @@ func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res interface{}, err error) {
-	defer recordMetrics(fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, time.Now(), err == nil)
-	a.filtersMu.Lock()
-	defer a.filtersMu.Unlock()
+	defer recordMetricsWithError(fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, time.Now(), err)
+
+	// Read filter with read lock
+	a.filtersMu.RLock()
 	filter, ok := a.filters[filterID]
+	a.filtersMu.RUnlock()
+
 	if !ok {
 		return nil, errors.New("filter does not exist")
 	}
 
-	if !filter.deadline.Stop() {
-		// timer expired but filter is not yet removed in timeout loop
-		// receive timer value and reset timer
-		<-filter.deadline.C
-	}
-	filter.deadline.Reset(a.filterConfig.timeout)
+	// Update access time
+	a.updateFilterAccess(filterID)
 
 	switch filter.typ {
 	case BlocksSubscription:
@@ -156,9 +457,15 @@ func (a *FilterAPI) GetFilterChanges(
 		if err != nil {
 			return nil, err
 		}
-		updatedFilter := a.filters[filterID]
-		updatedFilter.blockCursor = cursor
-		a.filters[filterID] = updatedFilter
+
+		// Update filter with write lock
+		a.filtersMu.Lock()
+		if updatedFilter, exists := a.filters[filterID]; exists {
+			updatedFilter.blockCursor = cursor
+			a.filters[filterID] = updatedFilter
+		}
+		a.filtersMu.Unlock()
+
 		return hashes, nil
 	case LogsSubscription:
 		// filter by hash would have no updates if it has previously queried for this crit
@@ -173,9 +480,15 @@ func (a *FilterAPI) GetFilterChanges(
 		if err != nil {
 			return nil, err
 		}
-		updatedFilter := a.filters[filterID]
-		updatedFilter.lastToHeight = lastToHeight + 1
-		a.filters[filterID] = updatedFilter
+
+		// Update filter with write lock
+		a.filtersMu.Lock()
+		if updatedFilter, exists := a.filters[filterID]; exists {
+			updatedFilter.lastToHeight = lastToHeight + 1
+			a.filters[filterID] = updatedFilter
+		}
+		a.filtersMu.Unlock()
+
 		return logs, nil
 	default:
 		return nil, errors.New("unknown filter type")
@@ -186,38 +499,76 @@ func (a *FilterAPI) GetFilterLogs(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res []*ethtypes.Log, err error) {
-	defer recordMetrics(fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, time.Now(), err == nil)
-	a.filtersMu.Lock()
-	defer a.filtersMu.Unlock()
+	defer recordMetricsWithError(fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, time.Now(), err)
+
+	// Read filter with read lock
+	a.filtersMu.RLock()
 	filter, ok := a.filters[filterID]
+	a.filtersMu.RUnlock()
+
 	if !ok {
 		return nil, errors.New("filter does not exist")
 	}
 
-	if !filter.deadline.Stop() {
-		// timer expired but filter is not yet removed in timeout loop
-		// receive timer value and reset timer
-		<-filter.deadline.C
-	}
-	filter.deadline.Reset(a.filterConfig.timeout)
+	// Update access time
+	a.updateFilterAccess(filterID)
 
 	logs, lastToHeight, err := a.logFetcher.GetLogsByFilters(ctx, filter.fc, 0)
 	if err != nil {
 		return nil, err
 	}
-	updatedFilter := a.filters[filterID]
-	updatedFilter.lastToHeight = lastToHeight
-	a.filters[filterID] = updatedFilter
+
+	// Update filter with write lock
+	a.filtersMu.Lock()
+	if updatedFilter, exists := a.filters[filterID]; exists {
+		updatedFilter.lastToHeight = lastToHeight
+		a.filters[filterID] = updatedFilter
+	}
+	a.filtersMu.Unlock()
+
 	return logs, nil
 }
 
-func (a *FilterAPI) GetLogs(
-	ctx context.Context,
-	crit filters.FilterCriteria,
-) (res []*ethtypes.Log, err error) {
-	defer recordMetrics(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now(), err == nil)
+func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (res []*ethtypes.Log, err error) {
+	defer recordMetricsWithError(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now(), err)
+
+	latest, err := a.logFetcher.latestHeight(ctx)
+	if err != nil {
+		return nil, err
+	}
+	earliest, err := a.logFetcher.earliestHeight(ctx)
+	if err != nil {
+		earliest = 0
+	}
+
+	begin, end, err := ComputeBlockBounds(latest, earliest, 0, crit)
+	if err != nil {
+		return nil, err
+	}
+
+	blockRange := end - begin + 1
+
+	// Use config value instead of hardcoded constant
+	if blockRange > a.filterConfig.maxBlock {
+		return nil, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, a.filterConfig.maxBlock)
+	}
+
+	// Only apply rate limiting for large queries (> RPSLimitThreshold blocks)
+	if blockRange > RPSLimitThreshold && !a.globalRPSLimiter.Allow() {
+		return nil, fmt.Errorf("log query rate limit exceeded for large queries, please try again later")
+	}
+
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
-	return logs, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Ensure we never return nil, always return an array (even if empty)
+	if logs == nil {
+		logs = []*ethtypes.Log{}
+	}
+
+	return logs, nil
 }
 
 // get block headers after a certain cursor. Can use an empty string cursor
@@ -262,121 +613,274 @@ func (a *FilterAPI) UninstallFilter(
 	_ context.Context,
 	filterID ethrpc.ID,
 ) (res bool) {
-	defer recordMetrics(fmt.Sprintf("%s_uninstallFilter", a.namespace), a.connectionType, time.Now(), res)
-	a.filtersMu.Lock()
-	defer a.filtersMu.Unlock()
+	defer recordMetrics(fmt.Sprintf("%s_uninstallFilter", a.namespace), a.connectionType, time.Now())
+
+	// Check if filter exists
+	a.filtersMu.RLock()
 	_, found := a.filters[filterID]
+	a.filtersMu.RUnlock()
+
 	if !found {
 		return false
 	}
-	delete(a.filters, filterID)
-	return true
+
+	// Queue for deletion in cleanup loop to avoid race conditions
+	select {
+	case a.toDelete <- filterID:
+		return true
+	default:
+		// Channel is full, fall back to direct deletion
+		a.removeFilter(filterID)
+		return true
+	}
+}
+
+// Cleanup method for graceful shutdown
+func (a *FilterAPI) Cleanup() {
+	a.shutdownCancel()
+
+	// Cancel all remaining filters
+	a.filtersMu.Lock()
+	for _, filter := range a.filters {
+		if filter.cancelFunc != nil {
+			filter.cancelFunc()
+		}
+	}
+	a.filters = make(map[ethrpc.ID]filter)
+	a.filtersMu.Unlock()
+
+	close(a.toDelete)
 }
 
 type LogFetcher struct {
 	tmClient                 rpcclient.Client
 	k                        *keeper.Keeper
+	txConfigProvider         func(int64) client.TxConfig
 	ctxProvider              func(int64) sdk.Context
 	filterConfig             *FilterConfig
 	includeSyntheticReceipts bool
+	dbReadSemaphore          chan struct{}
+	globalBlockCache         BlockCache
+	cacheCreationMutex       *sync.Mutex
+	globalLogSlicePool       *LogSlicePool
+	watermarks               *WatermarkManager
 }
 
-func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) ([]*ethtypes.Log, int64, error) {
-	bloomIndexes := EncodeFilters(crit.Addresses, crit.Topics)
-	if crit.BlockHash != nil {
-		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:], 1)
-		if err != nil {
-			return nil, 0, err
-		}
-		return f.GetLogsForBlock(ctx, block, crit, bloomIndexes), block.Block.Height, nil
-	}
-	applyOpenEndedLogLimit := f.filterConfig.maxLog > 0 && (crit.FromBlock == nil || crit.ToBlock == nil)
-	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
-	begin, end := latest, latest
+// ComputeBlockBounds validates that the requested block range lies within the
+// available bounds and returns the effective range, taking incremental
+// pagination into account. The function never widens the range – any request
+// that extends beyond the available history results in an error so we avoid
+// returning truncated data.
+func ComputeBlockBounds(latest, earliest, lastToHeight int64, crit filters.FilterCriteria) (int64, int64, error) {
+	begin := latest
+	end := latest
+
 	if crit.FromBlock != nil {
 		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
 	}
 	if crit.ToBlock != nil {
 		end = getHeightFromBigIntBlockNumber(latest, crit.ToBlock)
-		// only if fromBlock is not specified, default it to end block
 		if crit.FromBlock == nil && begin > end {
 			begin = end
 		}
 	}
+
+	if begin > end {
+		return 0, 0, fmt.Errorf("requested fromBlock %d is greater than toBlock %d", begin, end)
+	}
+	if begin < earliest {
+		return 0, 0, fmt.Errorf("requested fromBlock %d is before earliest available block %d", begin, earliest)
+	}
+	if end > latest {
+		return 0, 0, fmt.Errorf("requested toBlock %d is after latest available block %d", end, latest)
+	}
+	if begin > latest {
+		return 0, 0, fmt.Errorf("requested fromBlock %d is after latest available block %d", begin, latest)
+	}
+	if end < earliest {
+		return 0, 0, fmt.Errorf("requested toBlock %d is before earliest available block %d", end, earliest)
+	}
+
 	if lastToHeight > begin {
 		begin = lastToHeight
 	}
-	if !applyOpenEndedLogLimit && f.filterConfig.maxBlock > 0 && end >= (begin+f.filterConfig.maxBlock) {
-		end = begin + f.filterConfig.maxBlock - 1
+
+	return begin, end, nil
+}
+
+func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
+	latest, err := f.latestHeight(ctx)
+	if err != nil {
+		return nil, 0, err
 	}
-	// begin should always be <= end block at this point
+	earliest, err := f.earliestHeight(ctx)
+	if err != nil {
+		earliest = 0
+	}
+	begin, end, err := ComputeBlockBounds(latest, earliest, lastToHeight, crit)
+	if err != nil {
+		return nil, 0, err
+	}
 	if begin > end {
-		return nil, 0, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
+		return []*ethtypes.Log{}, end, nil
 	}
-	blockHeights := f.FindBlockesByBloom(begin, end, bloomIndexes)
-	res := []*ethtypes.Log{}
-	for _, height := range blockHeights {
-		h := height
-		block, err := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
-		if err != nil {
-			return nil, 0, err
+
+	blockRange := end - begin + 1
+
+	// Use config value instead of hardcoded constant
+	if blockRange > f.filterConfig.maxBlock {
+		return nil, 0, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, f.filterConfig.maxBlock)
+	}
+
+	bloomIndexes := EncodeFilters(crit.Addresses, crit.Topics)
+	blocks, end, applyOpenEndedLogLimit, err := f.fetchBlocksByCrit(ctx, crit, lastToHeight, bloomIndexes)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	runner := GetGlobalWorkerPool()
+	var resultsMutex sync.Mutex
+	sortedBatches := make([][]*ethtypes.Log, 0)
+	var wg sync.WaitGroup
+	var submitError error
+
+	processBatch := func(batch []*coretypes.ResultBlock) {
+		defer func() {
+			// Add metrics for log processing
+			metrics.IncrementRpcRequestCounter("num_blocks_fetched", "logs", true)
+			wg.Done()
+		}()
+		// Each worker gets a clean slice from the pool
+		localLogs := f.globalLogSlicePool.Get()
+
+		for _, block := range batch {
+			f.GetLogsForBlockPooled(block, crit, bloomIndexes, &localLogs)
 		}
-		res = append(res, f.GetLogsForBlock(ctx, block, crit, bloomIndexes)...)
-		if applyOpenEndedLogLimit && int64(len(res)) >= f.filterConfig.maxLog {
-			res = res[:int(f.filterConfig.maxLog)]
-			break
+
+		// Sort the local batch
+		sort.Slice(localLogs, func(i, j int) bool {
+			if localLogs[i].BlockNumber != localLogs[j].BlockNumber {
+				return localLogs[i].BlockNumber < localLogs[j].BlockNumber
+			}
+			return localLogs[i].Index < localLogs[j].Index
+		})
+
+		// Append the sorted (and now owned) slice to the shared list
+		resultsMutex.Lock()
+		sortedBatches = append(sortedBatches, localLogs)
+		resultsMutex.Unlock()
+	}
+
+	// Batch process with fail-fast
+	blockBatch := make([]*coretypes.ResultBlock, 0, WorkerBatchSize)
+	for block := range blocks {
+		blockBatch = append(blockBatch, block)
+
+		if len(blockBatch) >= WorkerBatchSize {
+			batch := blockBatch
+			wg.Add(1)
+
+			if err := runner.Submit(func() { processBatch(batch) }); err != nil {
+				wg.Done()
+				submitError = fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
+				break
+			}
+			blockBatch = make([]*coretypes.ResultBlock, 0, WorkerBatchSize)
 		}
 	}
 
-	return res, end, nil
+	if submitError != nil {
+		return nil, 0, submitError
+	}
+
+	// Process remaining blocks
+	if len(blockBatch) > 0 {
+		wg.Add(1)
+		if err := runner.Submit(func() { processBatch(blockBatch) }); err != nil {
+			wg.Done()
+			return nil, 0, fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
+		}
+	}
+
+	wg.Wait()
+
+	// Now that all workers are done, we put the slices back into the pool.
+	// This must be done after the merge is complete.
+	defer func() {
+		for _, batch := range sortedBatches {
+			f.globalLogSlicePool.Put(batch)
+		}
+	}()
+
+	res = f.mergeSortedLogs(sortedBatches)
+
+	// Apply rate limit
+	if applyOpenEndedLogLimit && int64(len(res)) >= f.filterConfig.maxLog {
+		res = res[:int(f.filterConfig.maxLog)]
+	}
+
+	// Ensure we never return nil, always return an array (even if empty)
+	if res == nil {
+		res = []*ethtypes.Log{}
+	}
+
+	return res, end, err
 }
 
-func (f *LogFetcher) GetLogsForBlock(ctx context.Context, block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes) []*ethtypes.Log {
-	possibleLogs := f.FindLogsByBloom(block.Block.Height, filters)
-	matchedLogs := utils.Filter(possibleLogs, func(l *ethtypes.Log) bool { return f.IsLogExactMatch(l, crit) })
-	for _, l := range matchedLogs {
-		l.BlockHash = common.Hash(block.BlockID.Hash)
+func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log) []*ethtypes.Log {
+	totalSize := 0
+	for _, b := range batches {
+		totalSize += len(b)
 	}
-	return matchedLogs
+	if totalSize == 0 {
+		return []*ethtypes.Log{}
+	}
+
+	res := make([]*ethtypes.Log, 0, totalSize)
+	h := &logMergeHeap{}
+
+	// Initialize the heap with the first element from each non-empty batch
+	for i, batch := range batches {
+		if len(batch) > 0 {
+			heap.Push(h, &kWayMergeItem{
+				log:      batch[0],
+				batchIdx: i,
+				itemIdx:  0,
+			})
+		}
+	}
+
+	// Process the heap until it's empty
+	for h.Len() > 0 {
+		item := heap.Pop(h).(*kWayMergeItem)
+		res = append(res, item.log)
+
+		// If there are more items in the batch the popped item came from, add the next one to the heap
+		nextItemIdx := item.itemIdx + 1
+		if nextItemIdx < len(batches[item.batchIdx]) {
+			heap.Push(h, &kWayMergeItem{
+				log:      batches[item.batchIdx][nextItemIdx],
+				batchIdx: item.batchIdx,
+				itemIdx:  nextItemIdx,
+			})
+		}
+	}
+
+	return res
 }
 
-func (f *LogFetcher) FindBlockesByBloom(begin, end int64, filters [][]bloomIndexes) (res []int64) {
-	//TODO: parallelize
-	for height := begin; height <= end; height++ {
-		if height == 0 {
-			// no block bloom on genesis height
-			continue
-		}
-		ctx := f.ctxProvider(height)
-		blockBloom := f.k.GetBlockBloom(ctx)
-		if MatchFilters(blockBloom, filters) {
-			res = append(res, height)
-		}
-	}
-	return
+func (f *LogFetcher) latestHeight(ctx context.Context) (int64, error) {
+	return f.watermarks.LatestHeight(ctx)
 }
 
-func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (res []*ethtypes.Log) {
-	ctx := f.ctxProvider(LatestCtxHeight)
-	txHashes := f.k.GetTxHashesOnHeight(ctx, height)
-	for _, hash := range txHashes {
-		receipt, err := f.k.GetReceipt(ctx, hash)
-		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
-			continue
-		}
-		// if includeShellReceipts is false, include receipts with synthetic logs but exclude shell tx receipts
-		if !f.includeSyntheticReceipts && receipt.TxType == ShellEVMTxType {
-			continue
-		}
-		if !f.includeSyntheticReceipts && receipt.EffectiveGasPrice == 0 {
-			return
-		}
-		if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
-			res = append(res, keeper.GetLogsForTx(receipt)...)
-		}
-	}
-	return
+func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
+	return f.watermarks.EarliestHeight(ctx)
+}
+
+// Pooled version that reuses slice allocation
+func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, result *[]*ethtypes.Log) {
+	collector := &pooledCollector{logs: result}
+	f.collectLogs(block, crit, filters, collector, true) // Apply exact matching
 }
 
 func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCriteria) bool {
@@ -388,6 +892,231 @@ func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCrite
 		}
 	}
 	return addrMatch && matchTopics(crit.Topics, log.Topics)
+}
+
+// Unified log collection logic
+func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, collector logCollector, applyExactMatch bool) {
+	ctx := f.ctxProvider(block.Block.Height)
+	totalLogs := uint(0)
+	evmTxIndex := 0
+
+	for _, hash := range getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache) {
+		receipt, found := getOrSetCachedReceipt(f.cacheCreationMutex, f.globalBlockCache, ctx, f.k, block, hash.hash)
+		if !found {
+			ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", hash.hash.Hex()))
+			continue
+		}
+
+		txLogs := keeper.GetLogsForTx(receipt, totalLogs)
+
+		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
+			if len(receipt.LogsBloom) == 0 || MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
+				if applyExactMatch {
+					for _, log := range txLogs {
+						log.TxIndex = uint(evmTxIndex)               //nolint:gosec
+						log.BlockNumber = uint64(block.Block.Height) //nolint:gosec
+						log.BlockHash = common.BytesToHash(block.BlockID.Hash)
+						if f.IsLogExactMatch(log, crit) {
+							collector.Append(log)
+						}
+					}
+				} else {
+					for _, log := range txLogs {
+						log.TxIndex = uint(evmTxIndex)               //nolint:gosec
+						log.BlockNumber = uint64(block.Block.Height) //nolint:gosec
+						log.BlockHash = common.BytesToHash(block.BlockID.Hash)
+						collector.Append(log)
+					}
+				}
+			}
+		} else {
+			for _, log := range txLogs {
+				log.TxIndex = uint(evmTxIndex)               //nolint:gosec
+				log.BlockNumber = uint64(block.Block.Height) //nolint:gosec
+				log.BlockHash = common.BytesToHash(block.BlockID.Hash)
+				collector.Append(log)
+			}
+		}
+
+		totalLogs += uint(len(txLogs))
+		evmTxIndex++
+	}
+}
+
+// Optimized fetchBlocksByCrit with batch processing
+func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]bloomIndexes) (chan *coretypes.ResultBlock, int64, bool, error) {
+	if crit.BlockHash != nil {
+		// Check for invalid zero hash
+		zeroHash := common.Hash{}
+		if *crit.BlockHash == zeroHash {
+			// For invalid hash, return empty channel instead of error
+			res := make(chan *coretypes.ResultBlock)
+			close(res)
+			return res, 0, false, nil
+		}
+
+		block, err := blockByHashRespectingWatermarks(ctx, f.tmClient, f.watermarks, crit.BlockHash[:], 1)
+		if err != nil {
+			// For non-existent blocks, return empty channel instead of error
+			res := make(chan *coretypes.ResultBlock)
+			close(res)
+			return res, 0, false, nil
+		}
+		res := make(chan *coretypes.ResultBlock, 1)
+		res <- block
+		close(res)
+		return res, 0, false, nil
+	}
+
+	applyOpenEndedLogLimit := f.filterConfig.maxLog > 0 && (crit.FromBlock == nil || crit.ToBlock == nil)
+	latest, err := f.watermarks.LatestHeight(ctx)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	earliest, err := f.watermarks.EarliestHeight(ctx)
+	if err != nil {
+		earliest = 0
+	}
+	begin, end, err := ComputeBlockBounds(latest, earliest, lastToHeight, crit)
+	if err != nil {
+		return nil, 0, false, err
+	}
+
+	blockRange := end - begin + 1
+	if applyOpenEndedLogLimit && blockRange > f.filterConfig.maxBlock {
+		begin = end - f.filterConfig.maxBlock + 1
+		if begin < earliest {
+			begin = earliest
+		}
+	} else if !applyOpenEndedLogLimit && f.filterConfig.maxBlock > 0 && blockRange > f.filterConfig.maxBlock {
+		// Use consistent error message format
+		return nil, 0, false, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, f.filterConfig.maxBlock)
+	}
+
+	if begin > end {
+		return nil, 0, false, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
+	}
+
+	res := make(chan *coretypes.ResultBlock, end-begin+1)
+	errChan := make(chan error, 1)
+	runner := GetGlobalWorkerPool()
+	var wg sync.WaitGroup
+
+	// Batch processing with fail-fast
+	for batchStart := begin; batchStart <= end; batchStart += int64(WorkerBatchSize) {
+		batchEnd := batchStart + int64(WorkerBatchSize) - 1
+		if batchEnd > end {
+			batchEnd = end
+		}
+
+		wg.Add(1)
+		if err := runner.Submit(func(start, endHeight int64) func() {
+			return func() {
+				defer wg.Done()
+				f.processBatch(ctx, start, endHeight, crit, bloomIndexes, res, errChan)
+			}
+		}(batchStart, batchEnd)); err != nil {
+			wg.Done()
+			return nil, 0, false, fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
+		}
+	}
+
+	go func() {
+		defer recoverAndLog()
+		wg.Wait()
+		close(res)
+		close(errChan)
+	}()
+
+	var firstErr error
+	for err := range errChan {
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	if firstErr != nil {
+		return nil, 0, false, firstErr
+	}
+
+	return res, end, applyOpenEndedLogLimit, nil
+}
+
+// Batch processing function for blocks
+func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]bloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
+	defer func() {
+		metrics.IncrementRpcRequestCounter("num_blocks_fetched", "blocks", true)
+	}()
+	for height := start; height <= end; height++ {
+		if height == 0 {
+			continue
+		}
+
+		// check cache first, without holding the semaphore
+		if cachedEntry, found := f.globalBlockCache.Get(height); found {
+			if cachedEntry.Block != nil {
+				if err := f.watermarks.EnsureBlockHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
+					continue
+				}
+			}
+			res <- cachedEntry.Block
+			continue
+		}
+
+		// Block cache miss, acquire semaphore for I/O operations
+		f.dbReadSemaphore <- struct{}{}
+
+		// Re-check cache after acquiring semaphore, in case another worker cached it.
+		if cachedEntry, found := f.globalBlockCache.Get(height); found {
+			<-f.dbReadSemaphore
+			if cachedEntry.Block != nil {
+				if err := f.watermarks.EnsureBlockHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
+					continue
+				}
+			}
+			res <- cachedEntry.Block
+			continue
+		}
+
+		// check bloom filter if cache miss AND we have filters
+		var blockBloom ethtypes.Bloom
+		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
+			// Bloom cache miss - read from database
+			providerCtx := f.ctxProvider(height)
+			if f.includeSyntheticReceipts {
+				blockBloom = f.k.GetBlockBloom(providerCtx)
+			} else {
+				blockBloom = f.k.GetEvmOnlyBlockBloom(providerCtx)
+			}
+
+			// When we cannot retrieve a bloom for the EVM-only view (all zeroes),
+			// skip the bloom pre-filter instead of short-circuiting the block.
+			if blockBloom != (ethtypes.Bloom{}) && !MatchFilters(blockBloom, bloomIndexes) {
+				<-f.dbReadSemaphore
+				continue // skip the block if bloom filter does not match
+			}
+		}
+
+		// fetch block from network
+		block, err := blockByNumberRespectingWatermarks(ctx, f.tmClient, f.watermarks, &height, 1)
+		if err != nil {
+			select {
+			case errChan <- fmt.Errorf("failed to fetch block at height %d: %w", height, err):
+			default:
+			}
+			<-f.dbReadSemaphore
+			continue
+		}
+
+		// Use LoadOrStore to create/get cache entry atomically
+		entry := loadOrStoreCacheEntry(f.cacheCreationMutex, f.globalBlockCache, height, block)
+		// Fill bloom if we have it and it's missing
+		if blockBloom != (ethtypes.Bloom{}) {
+			fillMissingFields(entry, block, blockBloom)
+		}
+		<-f.dbReadSemaphore
+		res <- block
+	}
 }
 
 func matchTopics(topics [][]common.Hash, eventTopics []common.Hash) bool {
