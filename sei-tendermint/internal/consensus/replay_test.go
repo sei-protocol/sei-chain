@@ -227,7 +227,7 @@ func crashWALandCheckLiveness(
 	t.Logf("Iterate over prefixes of generated WAL and start from there.")
 	for i := range msgs {
 		if ehm,ok := msgs[i].any.(EndHeightMessage); ok && ehm {
-			
+			// TODO: we need to replay only the messages from the current height.	
 		}
 		t.Logf("len(msgs) = %v",len(msgs[1:i+1]))
 		// WARNING: when bootstaping, WAL is initialized with EndHeight{0} marker,
