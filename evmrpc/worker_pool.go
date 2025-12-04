@@ -4,10 +4,21 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"time"
 )
 
 const (
+	// WorkerBatchSize is the number of blocks processed in each batch.
 	WorkerBatchSize = 100
+
+	// DefaultWorkerQueueSize is the default size of the task queue.
+	DefaultWorkerQueueSize = 1000
+
+	// MaxWorkerPoolSize caps the number of workers to prevent excessive
+	// goroutine creation on high-core machines.
+	MaxWorkerPoolSize = 64
+
+	// Legacy constant for backward compatibility
 	WorkerQueueSize = 200
 )
 
@@ -31,16 +42,33 @@ var (
 	poolOnce         sync.Once
 )
 
-// GetGlobalWorkerPool returns the singleton worker pool instance
-func GetGlobalWorkerPool() *WorkerPool {
+// InitGlobalWorkerPool initializes the global worker pool with the given configuration.
+// This should be called once during server initialization.
+// If workerPoolSize or workerQueueSize is <= 0, defaults are applied.
+func InitGlobalWorkerPool(workerPoolSize, workerQueueSize int) {
 	poolOnce.Do(func() {
+		workers := workerPoolSize
+		if workers <= 0 {
+			workers = min(MaxWorkerPoolSize, runtime.NumCPU()*2)
+		}
+		queueSize := workerQueueSize
+		if queueSize <= 0 {
+			queueSize = DefaultWorkerQueueSize
+		}
 		globalWorkerPool = &WorkerPool{
-			workers:   MaxNumOfWorkers,
-			taskQueue: make(chan func(), WorkerQueueSize),
+			workers:   workers,
+			taskQueue: make(chan func(), queueSize),
 			done:      make(chan struct{}),
 		}
 		globalWorkerPool.start()
 	})
+}
+
+// GetGlobalWorkerPool returns the singleton worker pool instance.
+// If not initialized, it creates one with default values.
+func GetGlobalWorkerPool() *WorkerPool {
+	// Ensure initialization with defaults if not called explicitly
+	InitGlobalWorkerPool(0, 0)
 	return globalWorkerPool
 }
 
@@ -72,20 +100,62 @@ func (wp *WorkerPool) start() {
 					}
 				}()
 				// The worker will exit gracefully when the taskQueue is closed and drained.
-				for task := range wp.taskQueue {
+				for wrappedTask := range wp.taskQueue {
 					func() {
 						defer func() {
 							if r := recover(); r != nil {
 								// Log the panic but continue processing other tasks
 								fmt.Printf("Task recovered from panic: %v\n", r)
+								GetGlobalMetrics().RecordTaskPanicked()
 							}
 						}()
-						task()
+						wrappedTask()
 					}()
 				}
 			}()
 		}
 	})
+}
+
+// taskWrapper wraps a task with metrics tracking
+type taskWrapper struct {
+	task     func()
+	queuedAt time.Time
+}
+
+// SubmitWithMetrics submits a task with full metrics tracking
+func (wp *WorkerPool) SubmitWithMetrics(task func()) error {
+	metrics := GetGlobalMetrics()
+
+	// Check if pool is closed first
+	wp.mu.RLock()
+	if wp.closed {
+		wp.mu.RUnlock()
+		return fmt.Errorf("worker pool is closing")
+	}
+	wp.mu.RUnlock()
+
+	queuedAt := time.Now()
+
+	// Wrap the task with metrics
+	wrappedTask := func() {
+		startedAt := time.Now()
+		metrics.RecordTaskStarted(queuedAt)
+		defer metrics.RecordTaskCompleted(startedAt)
+		task()
+	}
+
+	select {
+	case wp.taskQueue <- wrappedTask:
+		metrics.RecordTaskSubmitted()
+		return nil
+	case <-wp.done:
+		return fmt.Errorf("worker pool is closing")
+	default:
+		// Queue is full - fail fast
+		metrics.RecordTaskRejected()
+		return fmt.Errorf("worker pool queue is full")
+	}
 }
 
 // Submit submits a task to the worker pool with fail-fast behavior
@@ -133,4 +203,18 @@ func (wp *WorkerPool) WorkerCount() int {
 // QueueSize returns the capacity of the task queue
 func (wp *WorkerPool) QueueSize() int {
 	return cap(wp.taskQueue)
+}
+
+// QueueDepth returns the current number of tasks in the queue
+func (wp *WorkerPool) QueueDepth() int {
+	return len(wp.taskQueue)
+}
+
+// QueueUtilization returns the percentage of queue capacity in use
+func (wp *WorkerPool) QueueUtilization() float64 {
+	cap := cap(wp.taskQueue)
+	if cap == 0 {
+		return 0
+	}
+	return float64(len(wp.taskQueue)) / float64(cap) * 100
 }

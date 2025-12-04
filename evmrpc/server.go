@@ -2,8 +2,10 @@ package evmrpc
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -42,6 +44,26 @@ func NewEVMHTTPServer(
 	homeDir string,
 	isPanicOrSyntheticTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // used in *ExcludeTraceFail endpoints
 ) (EVMServer, error) {
+	logger = logger.With("module", "evmrpc")
+
+	// Initialize global worker pool with configuration
+	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
+
+	// Initialize global metrics with worker pool and DB semaphore configuration
+	workerCount := config.WorkerPoolSize
+	if workerCount <= 0 {
+		workerCount = min(MaxWorkerPoolSize, runtime.NumCPU()*2)
+	}
+	queueSize := config.WorkerQueueSize
+	if queueSize <= 0 {
+		queueSize = DefaultWorkerQueueSize
+	}
+	InitGlobalMetrics(workerCount, queueSize, MaxDBReadConcurrency)
+
+	// Start metrics printer (every 5 seconds)
+	StartMetricsPrinter(5 * time.Second)
+	logger.Info("Started EVM RPC metrics printer (interval: 5s)")
+
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
 		ReadHeaderTimeout: config.ReadHeaderTimeout,
@@ -181,6 +203,25 @@ func NewEVMWebSocketServer(
 	earliestVersion func() int64,
 	homeDir string,
 ) (EVMServer, error) {
+	logger = logger.With("module", "evmrpc")
+
+	// Initialize global worker pool with configuration
+	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
+
+	// Initialize global metrics (idempotent - only first call takes effect)
+	workerCountWS := config.WorkerPoolSize
+	if workerCountWS <= 0 {
+		workerCountWS = min(MaxWorkerPoolSize, runtime.NumCPU()*2)
+	}
+	queueSizeWS := config.WorkerQueueSize
+	if queueSizeWS <= 0 {
+		queueSizeWS = DefaultWorkerQueueSize
+	}
+	InitGlobalMetrics(workerCountWS, queueSizeWS, MaxDBReadConcurrency)
+
+	// Start metrics printer (idempotent - only first call starts printer)
+	StartMetricsPrinter(5 * time.Second)
+
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
 		ReadHeaderTimeout: config.ReadHeaderTimeout,

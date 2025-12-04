@@ -103,6 +103,14 @@ type Config struct {
 
 	// Timeout for each trace call
 	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
+
+	// WorkerPoolSize defines the number of workers in the worker pool.
+	// Set to 0 to use default: min(64, runtime.NumCPU() * 2)
+	WorkerPoolSize int `mapstructure:"worker_pool_size"`
+
+	// WorkerQueueSize defines the size of the task queue in the worker pool.
+	// Set to 0 to use default: 1000
+	WorkerQueueSize int `mapstructure:"worker_queue_size"`
 }
 
 var DefaultConfig = Config{
@@ -132,6 +140,8 @@ var DefaultConfig = Config{
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
 	MaxTraceLookbackBlocks:       10000,
 	TraceTimeout:                 30 * time.Second,
+	WorkerPoolSize:               min(MaxWorkerPoolSize, runtime.NumCPU()*2), // Default: min(64, CPU cores × 2)
+	WorkerQueueSize:              DefaultWorkerQueueSize,                     // Default: 1000 tasks
 }
 
 const (
@@ -161,6 +171,8 @@ const (
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
 	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
 	flagTraceTimeout                 = "evm.trace_timeout"
+	flagWorkerPoolSize               = "evm.worker_pool_size"
+	flagWorkerQueueSize              = "evm.worker_queue_size"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -293,6 +305,16 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagTraceTimeout); v != nil {
 		if cfg.TraceTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagWorkerPoolSize); v != nil {
+		if cfg.WorkerPoolSize, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagWorkerQueueSize); v != nil {
+		if cfg.WorkerQueueSize, err = cast.ToIntE(v); err != nil {
 			return cfg, err
 		}
 	}
