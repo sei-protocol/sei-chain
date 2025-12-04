@@ -370,6 +370,7 @@ func (cs *State) Run(ctx context.Context) error {
 		// we need the timeoutRoutine for replay so
 		// we don't block on the tick chan.
 		s.SpawnNamed("timeoutTicker", func() error { return cs.timeoutTicker.Run(ctx) })
+		s.SpawnNamed("finalizerRoutine", func() error { return cs.blockExec.StartFinalizer(ctx) })
 
 		// We may have lost some votes if the process crashed reload from consensus
 		// log to catchup.
@@ -696,7 +697,31 @@ func (cs *State) updateToState(state sm.State) {
 	}
 
 	// Reset fields based on state.
+	// Next desired block height
+	height := state.LastBlockHeight + 1
+	if height == 1 {
+		height = state.InitialHeight
+	}
+
+	// Apply decoupled delay: use validator set from height N-delay (floored at initial height)
+	// TODO: revisit how validator/evidence data should be cached once execution delay becomes dynamic.
 	validators := state.Validators
+	if sm.DecoupleDelay > 0 {
+		delayedHeight := height - int64(sm.DecoupleDelay)
+		if delayedHeight < state.InitialHeight {
+			delayedHeight = state.InitialHeight
+		}
+		// Only load from store if we have blocks saved (not at genesis)
+		if state.LastBlockHeight > 0 && delayedHeight >= state.InitialHeight {
+			delayedValidators, err := cs.stateStore.LoadValidators(delayedHeight)
+			if err != nil {
+				cs.logger.Error("failed to load delayed validators, using current", "delayedHeight", delayedHeight, "err", err)
+			} else {
+				cs.logger.Info("using decoupled validator set", "height", height, "validatorSetFromHeight", delayedHeight, "delay", sm.DecoupleDelay)
+				validators = delayedValidators
+			}
+		}
+	}
 
 	switch {
 	case state.LastBlockHeight == 0: // Very first commit should be empty.
@@ -718,12 +743,6 @@ func (cs *State) updateToState(state sm.State) {
 			"last commit cannot be empty after initial block (H:%d)",
 			state.LastBlockHeight+1,
 		))
-	}
-
-	// Next desired block height
-	height := state.LastBlockHeight + 1
-	if height == 1 {
-		height = state.InitialHeight
 	}
 
 	// RoundState fields
@@ -757,7 +776,7 @@ func (cs *State) updateToState(state sm.State) {
 	cs.roundState.SetLastValidators(state.LastValidators)
 	cs.roundState.SetTriggeredTimeoutPrecommit(false)
 
-	cs.state = state
+	cs.state = state // <-- this is the state that was applied
 
 	// Finally, broadcast RoundState
 	cs.newStep()
@@ -1438,7 +1457,7 @@ func (cs *State) createProposalBlock(ctx context.Context) (block *types.Block, e
 
 	case cs.roundState.LastCommit().HasTwoThirdsMajority():
 		// Make the commit from LastCommit
-		lastCommit = cs.roundState.LastCommit().MakeCommit()
+		lastCommit = cs.roundState.LastCommit().MakeCommit() // we make it from roundState -> so we still need to be updating the roundState at the end of voting despite the execution not yet being complete.
 
 	default: // This shouldn't happen.
 		cs.logger.Error("propose step; cannot propose anything without commit for the previous block")
@@ -2083,6 +2102,7 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 		block,
 		cs.tracer,
 	)
+	// we need to pull the side effects such as writing validators for a committed height out of the apply block function
 	cs.metrics.MarkApplyBlockLatency(time.Since(startTime))
 	if err != nil {
 		logger.Error("failed to apply block", "err", err)

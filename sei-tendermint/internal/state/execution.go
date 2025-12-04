@@ -15,6 +15,7 @@ import (
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/mempool"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 	otrace "go.opentelemetry.io/otel/trace"
@@ -49,7 +50,26 @@ type BlockExecutor struct {
 
 	// cache the verification results over a single height
 	cache map[string]struct{}
+
+	finalizeBlockChan chan *abci.RequestFinalizeBlock
+
+	finalizeBlockResults utils.Watch[map[int64]*finalizeResult]
+
+	lastAppliedHeight int64
 }
+
+// finalizeResult tracks finalize block output alongside the retain height
+// returned by the async commit. RetainHeight may be zero if unknown.
+type finalizeResult struct {
+	response     *abci.ResponseFinalizeBlock
+	retainHeight int64
+}
+
+// DecoupleDelay controls how many heights execution lags behind consensus.
+// This value relaxes Tendermint's historical expectation that execution
+// results are available immediately when the commit step finishes.
+// TODO: make this configurable through consensus/state config rather than a package global.
+var DecoupleDelay int = 5
 
 // NewBlockExecutor returns a new BlockExecutor with the passed-in EventBus.
 func NewBlockExecutor(
@@ -63,16 +83,97 @@ func NewBlockExecutor(
 	metrics *Metrics,
 ) *BlockExecutor {
 	return &BlockExecutor{
-		eventBus:   eventBus,
-		store:      stateStore,
-		appClient:  appClient,
-		mempool:    pool,
-		evpool:     evpool,
-		logger:     logger,
-		metrics:    metrics,
-		cache:      make(map[string]struct{}),
-		blockStore: blockStore,
+		eventBus:             eventBus,
+		store:                stateStore,
+		appClient:            appClient,
+		mempool:              pool,
+		evpool:               evpool,
+		logger:               logger,
+		metrics:              metrics,
+		cache:                make(map[string]struct{}),
+		blockStore:           blockStore,
+		finalizeBlockChan:    make(chan *abci.RequestFinalizeBlock, max(1, DecoupleDelay+1)),
+		finalizeBlockResults: utils.NewWatch(make(map[int64]*finalizeResult)),
 	}
+}
+
+// StartFinalizer listens for committed blocks and executes them asynchronously.
+// This separates consensus sequencing from application execution while keeping ordering.
+func (blockExec *BlockExecutor) StartFinalizer(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case req := <-blockExec.finalizeBlockChan:
+			if err := blockExec.handleFinalizeRequest(ctx, req); err != nil {
+				return err
+			}
+		}
+	}
+	panic("unreachable")
+}
+
+func (blockExec *BlockExecutor) handleFinalizeRequest(ctx context.Context, req *abci.RequestFinalizeBlock) error {
+	start := time.Now()
+	blockExec.logger.Info("finalizer: FinalizeBlock start", "height", req.Height)
+	resp, err := blockExec.appClient.FinalizeBlock(ctx, req)
+	if err != nil {
+		blockExec.logger.Error("error finalizing block", "height", req.Height, "err", err)
+		return err
+	}
+	blockExec.metrics.FinalizeBlockLatency.Observe(float64(time.Since(start).Milliseconds()))
+
+	commitResp, err := blockExec.commitApp(ctx, req.Height)
+	if err != nil {
+		return err
+	}
+	// TODO: persist the corresponding ResponseCommit so we can reuse retain height after restarts.
+
+	saveBlockResponseTime := time.Now()
+	if err := blockExec.store.SaveFinalizeBlockResponses(req.Height, resp); err != nil && !errors.Is(err, ErrNoFinalizeBlockResponsesForHeight{req.Height}) {
+		blockExec.logger.Error("failed saving finalize block responses", "height", req.Height, "err", err)
+		return err
+	}
+	blockExec.metrics.SaveBlockResponseLatency.Observe(float64(time.Since(saveBlockResponseTime).Milliseconds()))
+
+	for results, ctrl := range blockExec.finalizeBlockResults.Lock() {
+		results[req.Height] = &finalizeResult{
+			response:     resp,
+			retainHeight: commitResp.RetainHeight,
+		}
+		ctrl.Updated()
+	}
+
+	blockExec.logger.Info("finalizer: FinalizeBlock completed", "height", req.Height,
+		"retain_height", commitResp.RetainHeight, "latency_ms", time.Since(start).Milliseconds())
+	return nil
+}
+
+func (blockExec *BlockExecutor) commitApp(ctx context.Context, height int64) (*abci.ResponseCommit, error) {
+	blockExec.mempool.Lock()
+	defer blockExec.mempool.Unlock()
+
+	start := time.Now()
+	if err := blockExec.mempool.FlushAppConn(ctx); err != nil {
+		blockExec.logger.Error("client error during mempool.FlushAppConn", "height", height, "err", err)
+		return nil, err
+	}
+	blockExec.metrics.FlushAppConnectionTime.Observe(float64(time.Since(start)))
+
+	start = time.Now()
+	res, err := blockExec.appClient.Commit(ctx)
+	if err != nil {
+		blockExec.logger.Error("client error during proxyAppConn.Commit", "height", height, "err", err)
+		return nil, err
+	}
+	blockExec.metrics.ApplicationCommitTime.Observe(float64(time.Since(start)))
+
+	blockExec.logger.Info(
+		"finalizer: committed state",
+		"height", height,
+		"retain_height", res.RetainHeight,
+	)
+	return res, nil
 }
 
 func (blockExec *BlockExecutor) Store() Store {
@@ -226,6 +327,31 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 	return nil
 }
 
+func (blockExec *BlockExecutor) WaitForFinalizeBlockResults(ctx context.Context, height int64) (*finalizeResult, error) {
+	for results, ctrl := range blockExec.finalizeBlockResults.Lock() {
+		for {
+			// Because consensus is now ahead of execution, we may revisit the same height while
+			// previous requests are still pending. Ensure we only consume each result once.
+			if res, ok := results[height]; ok {
+				delete(results, height)
+				return res, nil
+			}
+			resp, err := blockExec.store.LoadFinalizeBlockResponses(height)
+			if err == nil {
+				return &finalizeResult{response: resp}, nil
+			}
+			var nfErr ErrNoFinalizeBlockResponsesForHeight
+			if !errors.As(err, &nfErr) {
+				return nil, err
+			}
+			if err := ctrl.Wait(ctx); err != nil {
+				return nil, err
+			}
+		}
+	}
+	panic("unreachable")
+}
+
 // ApplyBlock validates the block against the state, executes it against the app,
 // fires the relevant events, commits the app, and saves the new state and responses.
 // It returns the new state.
@@ -255,64 +381,75 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		defer finalizeBlockSpan.End()
 	}
 	txs := block.Data.Txs.ToSliceOfBytes()
-	finalizeBlockStartTime := time.Now()
-	fBlockRes, err := blockExec.appClient.FinalizeBlock(
-		ctx,
-		&abci.RequestFinalizeBlock{
-			Hash:                  block.Hash(),
-			Height:                block.Header.Height,
-			Time:                  block.Header.Time,
-			Txs:                   txs,
-			DecidedLastCommit:     buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
-			ByzantineValidators:   block.Evidence.ToABCI(),
-			ProposerAddress:       block.ProposerAddress,
-			NextValidatorsHash:    block.NextValidatorsHash,
-			AppHash:               block.AppHash,
-			ValidatorsHash:        block.ValidatorsHash,
-			ConsensusHash:         block.ConsensusHash,
-			DataHash:              block.DataHash,
-			EvidenceHash:          block.EvidenceHash,
-			LastBlockHash:         block.LastBlockID.Hash,
-			LastBlockPartSetTotal: int64(block.LastBlockID.PartSetHeader.Total),
-			LastBlockPartSetHash:  block.LastBlockID.Hash,
-			LastCommitHash:        block.LastCommitHash,
-			LastResultsHash:       block.LastResultsHash,
-		},
-	)
-	blockExec.metrics.FinalizeBlockLatency.Observe(float64(time.Since(finalizeBlockStartTime).Milliseconds()))
+	var err error = nil
+	req := &abci.RequestFinalizeBlock{
+		Hash:                  block.Hash(),
+		Height:                block.Header.Height,
+		Time:                  block.Header.Time,
+		Txs:                   txs,
+		DecidedLastCommit:     buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
+		ByzantineValidators:   block.Evidence.ToABCI(),
+		ProposerAddress:       block.ProposerAddress,
+		NextValidatorsHash:    block.NextValidatorsHash,
+		AppHash:               block.AppHash,
+		ValidatorsHash:        block.ValidatorsHash,
+		ConsensusHash:         block.ConsensusHash,
+		DataHash:              block.DataHash,
+		EvidenceHash:          block.EvidenceHash,
+		LastBlockHash:         block.LastBlockID.Hash,
+		LastBlockPartSetTotal: int64(block.LastBlockID.PartSetHeader.Total),
+		LastBlockPartSetHash:  block.LastBlockID.Hash,
+		LastCommitHash:        block.LastCommitHash,
+		LastResultsHash:       block.LastResultsHash,
+	}
+
+	blockExec.finalizeBlockChan <- req
+
+	waitHeight := block.Height
+	if DecoupleDelay > 0 {
+		delayedHeight := block.Height - int64(DecoupleDelay)
+		if delayedHeight >= state.InitialHeight {
+			waitHeight = delayedHeight
+		}
+	}
+	minHeight := blockExec.lastAppliedHeight + 1
+	if waitHeight < minHeight {
+		waitHeight = minHeight
+	}
+	blockExec.logger.Info("waiting for finalize block results", "wait_height", waitHeight, "current_height", block.Height)
+	result, err := blockExec.WaitForFinalizeBlockResults(ctx, waitHeight)
 	if finalizeBlockSpan != nil {
 		finalizeBlockSpan.End()
 	}
 	if err != nil {
 		return state, ErrProxyAppConn(err)
 	}
+	fBlockRes := result.response
+	retainHeight := result.retainHeight
+
+	execBlock := block
+	execBlockID := blockID
+	if waitHeight != block.Height {
+		meta := blockExec.blockStore.LoadBlockMeta(waitHeight)
+		if meta == nil {
+			return state, fmt.Errorf("missing block meta for delayed height %d", waitHeight)
+		}
+		execBlock = blockExec.blockStore.LoadBlock(waitHeight)
+		if execBlock == nil {
+			return state, fmt.Errorf("missing block for delayed height %d", waitHeight)
+		}
+		execBlockID = meta.BlockID
+	}
 
 	blockExec.logger.Info(
-		"finalized block",
-		"height", block.Height,
-		"latency_ms", time.Now().Sub(startTime).Milliseconds(),
+		"finalized block asynchronously",
+		"applied_height", waitHeight,
+		"current_height", block.Height,
+		"latency_ms", time.Since(startTime).Milliseconds(),
 		"num_txs_res", len(fBlockRes.TxResults),
 		"num_val_updates", len(fBlockRes.ValidatorUpdates),
 		"block_app_hash", fmt.Sprintf("%X", fBlockRes.AppHash),
 	)
-	var saveBlockResponseSpan otrace.Span = nil
-	if tracer != nil {
-		_, saveBlockResponseSpan = tracer.Start(ctx, "cs.state.ApplyBlock.SaveBlockResponse")
-		defer saveBlockResponseSpan.End()
-	}
-	// Save the results before we commit.
-	saveBlockResponseTime := time.Now()
-	err = blockExec.store.SaveFinalizeBlockResponses(block.Height, fBlockRes)
-	blockExec.metrics.SaveBlockResponseLatency.Observe(float64(time.Since(saveBlockResponseTime).Milliseconds()))
-	if err != nil && !errors.Is(err, ErrNoFinalizeBlockResponsesForHeight{block.Height}) {
-		// It is correct to have an empty ResponseFinalizeBlock for ApplyBlock,
-		// but not for saving it to the state store
-		return state, err
-	}
-	if saveBlockResponseSpan != nil {
-		saveBlockResponseSpan.End()
-	}
-
 	// validate the validator updates and convert to tendermint types
 	err = validateValidatorUpdates(fBlockRes.ValidatorUpdates, state.ConsensusParams.Validator)
 	if err != nil {
@@ -342,29 +479,30 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		return state, fmt.Errorf("marshaling TxResults: %w", err)
 	}
 	h := merkle.HashFromByteSlices(rs)
-	state, err = state.Update(blockID, &block.Header, h, fBlockRes.ConsensusParamUpdates, validatorUpdates)
+	// Note: state is advanced using the delayed block/response, not the block currently in consensus.
+	state, err = state.Update(execBlockID, &execBlock.Header, h, fBlockRes.ConsensusParamUpdates, validatorUpdates)
 	if err != nil {
 		return state, fmt.Errorf("commit failed for application: %w", err)
 	}
 	if updateStateSpan != nil {
 		updateStateSpan.End()
 	}
-	var commitSpan otrace.Span = nil
+	var updateMempoolSpan otrace.Span = nil
 	if tracer != nil {
-		_, commitSpan = tracer.Start(ctx, "cs.state.ApplyBlock.Commit")
-		defer commitSpan.End()
+		_, updateMempoolSpan = tracer.Start(ctx, "cs.state.ApplyBlock.UpdateMempool")
+		defer updateMempoolSpan.End()
 	}
-	// Lock mempool, commit app state, update mempoool.
+	// Lock mempool and evict committed txs. Commit already happened asynchronously.
 	commitStart := time.Now()
-	retainHeight, err := blockExec.Commit(ctx, state, block, fBlockRes.TxResults)
-	if err != nil {
-		return state, fmt.Errorf("commit failed for application: %w", err)
+	// Safe because tx eviction order only depends on execution order which is deterministic.
+	if err := blockExec.UpdateMempool(ctx, state, execBlock, fBlockRes.TxResults); err != nil {
+		return state, fmt.Errorf("mempool update failed for application: %w", err)
 	}
-	if commitSpan != nil {
-		commitSpan.End()
+	if updateMempoolSpan != nil {
+		updateMempoolSpan.End()
 	}
 	if time.Since(commitStart) > 1000*time.Millisecond {
-		blockExec.logger.Info("commit in blockExec",
+		blockExec.logger.Info("mempool update in blockExec",
 			"duration", time.Since(commitStart),
 			"height", block.Height)
 	}
@@ -375,7 +513,8 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		_, updateEvpoolSpan = tracer.Start(ctx, "cs.state.ApplyBlock.UpdateEvpool")
 		defer updateEvpoolSpan.End()
 	}
-	blockExec.evpool.Update(ctx, state, block.Evidence)
+	// Evidence is also driven by the executed height; anything proposers gossip later will still be verified.
+	blockExec.evpool.Update(ctx, state, execBlock.Evidence)
 	if updateEvpoolSpan != nil {
 		updateEvpoolSpan.End()
 	}
@@ -425,60 +564,30 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		defer fireEventsSpan.End()
 	}
 	fireEventsStartTime := time.Now()
-	FireEvents(blockExec.logger, blockExec.eventBus, block, blockID, fBlockRes, validatorUpdates)
+	FireEvents(blockExec.logger, blockExec.eventBus, execBlock, execBlockID, fBlockRes, validatorUpdates)
 	blockExec.metrics.FireEventsLatency.Observe(float64(time.Since(fireEventsStartTime).Milliseconds()))
 	if fireEventsSpan != nil {
 		fireEventsSpan.End()
 	}
+
+	blockExec.lastAppliedHeight = execBlock.Height
+
 	return state, nil
 }
 
-// Commit locks the mempool, runs the ABCI Commit message, and updates the
-// mempool.
-// It returns the result of calling abci.Commit (the AppHash) and the height to retain (if any).
-// The Mempool must be locked during commit and update because state is
-// typically reset on Commit and old txs must be replayed against committed
-// state before new txs are run in the mempool, lest they be invalid.
-func (blockExec *BlockExecutor) Commit(
+// UpdateMempool locks the mempool and evicts transactions that were included in a block.
+// Commit is performed asynchronously by the finalizer before this is invoked.
+func (blockExec *BlockExecutor) UpdateMempool(
 	ctx context.Context,
 	state State,
 	block *types.Block,
 	txResults []*abci.ExecTxResult,
-) (int64, error) {
+) error {
 	blockExec.mempool.Lock()
 	defer blockExec.mempool.Unlock()
 
-	// while mempool is Locked, flush to ensure all async requests have completed
-	// in the ABCI app before Commit.
 	start := time.Now()
-	err := blockExec.mempool.FlushAppConn(ctx)
-	if err != nil {
-		blockExec.logger.Error("client error during mempool.FlushAppConn", "err", err)
-		return 0, err
-	}
-	blockExec.metrics.FlushAppConnectionTime.Observe(float64(time.Since(start)))
-
-	// Commit block, get hash back
-	start = time.Now()
-	res, err := blockExec.appClient.Commit(ctx)
-	if err != nil {
-		blockExec.logger.Error("client error during proxyAppConn.Commit", "err", err)
-		return 0, err
-	}
-	blockExec.metrics.ApplicationCommitTime.Observe(float64(time.Since(start)))
-
-	// ResponseCommit has no error code - just data
-	blockExec.logger.Info(
-		"committed state",
-		"height", block.Height,
-		"num_txs", len(block.Txs),
-		"block_app_hash", fmt.Sprintf("%X", block.AppHash),
-		"time", time.Now().UnixMilli(),
-	)
-
-	// Update mempool.
-	start = time.Now()
-	err = blockExec.mempool.Update(
+	err := blockExec.mempool.Update(
 		ctx,
 		block.Height,
 		block.Txs,
@@ -489,7 +598,13 @@ func (blockExec *BlockExecutor) Commit(
 	)
 	blockExec.metrics.UpdateMempoolTime.Observe(float64(time.Since(start)))
 
-	return res.RetainHeight, err
+	blockExec.logger.Info(
+		"updated mempool after commit",
+		"height", block.Height,
+		"num_txs", len(block.Txs),
+	)
+
+	return err
 }
 
 func (blockExec *BlockExecutor) GetMissingTxs(txKeys []types.TxKey) []types.TxKey {
