@@ -337,7 +337,7 @@ func TestPrecompile_Run(t *testing.T) {
 			}
 			if err != nil {
 				require.Equal(t, vm.ErrExecutionReverted, err)
-				require.Equal(t, tt.wantErrMsg, string(gotBz))
+				require.Nil(t, gotBz)
 			} else if !reflect.DeepEqual(gotBz, tt.wantBz) {
 				t.Errorf("Run() gotRet = %v, want %v", gotBz, tt.wantBz)
 			}
@@ -538,7 +538,7 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 			}
 			if err != nil {
 				require.Equal(t, vm.ErrExecutionReverted, err)
-				require.Equal(t, tt.wantErrMsg, string(gotBz))
+				require.Nil(t, gotBz)
 			} else if !reflect.DeepEqual(gotBz, tt.wantBz) {
 				t.Errorf("Run() gotRet = %v, want %v", gotBz, tt.wantBz)
 			}

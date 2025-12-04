@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -114,6 +115,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
+	evmconfig "github.com/sei-protocol/sei-chain/x/evm/config"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
@@ -339,6 +341,7 @@ type App struct {
 	BeginBlockKeepers legacyabci.BeginBlockKeepers
 	EndBlockKeepers   legacyabci.EndBlockKeepers
 	CheckTxKeepers    legacyabci.CheckTxKeepers
+	DeliverTxKeepers  legacyabci.DeliverTxKeepers
 
 	// mm is the module manager
 	mm *module.Manager
@@ -380,6 +383,9 @@ type App struct {
 	wsServerStartSignalSent   bool
 
 	txPrioritizer sdk.TxPrioritizer
+
+	benchmarkProposalCh <-chan *abci.ResponsePrepareProposal
+	benchmarkLogger     *benchmarkLogger
 }
 
 type AppOption func(*App)
@@ -763,6 +769,15 @@ func New(
 		ParamsKeeper:   app.ParamsKeeper,
 		UpgradeKeeper:  &app.UpgradeKeeper,
 	}
+	app.DeliverTxKeepers = legacyabci.DeliverTxKeepers{
+		AccountKeeper:  app.AccountKeeper,
+		BankKeeper:     app.BankKeeper,
+		FeeGrantKeeper: &app.FeeGrantKeeper,
+		OracleKeeper:   app.OracleKeeper,
+		EvmKeeper:      &app.EvmKeeper,
+		ParamsKeeper:   app.ParamsKeeper,
+		UpgradeKeeper:  &app.UpgradeKeeper,
+	}
 
 	app.mm.SetOrderMidBlockers(
 		oracletypes.ModuleName,
@@ -854,7 +869,16 @@ func New(
 
 	app.SetAnteHandler(anteHandler)
 	app.SetMidBlocker(app.MidBlocker)
-	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
+
+	// benchmarkEnabled is enabled via build flag (make install-bench)
+	if benchmarkEnabled {
+		evmChainID := evmconfig.GetEVMChainID(app.ChainID).Int64()
+		app.InitGenerator(context.Background(), app.ChainID, evmChainID, logger)
+		app.SetPrepareProposalHandler(app.PrepareProposalGeneratorHandler)
+	} else {
+		app.SetPrepareProposalHandler(app.PrepareProposalHandler)
+	}
+
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
 	app.SetFinalizeBlocker(app.FinalizeBlocker)
 	app.SetInplaceTestnetInitializer(app.inplacetestnetInitializer)
@@ -900,6 +924,7 @@ func New(
 
 	app.txPrioritizer = NewSeiTxPrioritizer(logger, &app.EvmKeeper, &app.UpgradeKeeper, &app.ParamsKeeper).GetTxPriorityHint
 	app.SetTxPrioritizer(app.txPrioritizer)
+
 	return app
 }
 
