@@ -20,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -69,7 +70,7 @@ func NewDebugAPI(
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
-	debugCfg Config,
+	debugCfg evmrpcconfig.Config,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 	watermarks *WatermarkManager,
@@ -109,7 +110,7 @@ func NewSeiDebugAPI(
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
-	debugCfg Config,
+	debugCfg evmrpcconfig.Config,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 	watermarks *WatermarkManager,

@@ -24,7 +24,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/x/genutil"
-	"github.com/sei-protocol/sei-chain/evmrpc"
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 )
 
 const (
@@ -189,7 +189,7 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			params.SetAppConfigByMode(appConfig, nodeMode)
 
 			// Configure EVM based on node mode
-			evmConfig := evmrpc.DefaultConfig
+			evmConfig := evmrpcconfig.DefaultConfig
 			params.SetEVMConfigByMode(&evmConfig, nodeMode)
 
 			appTomlPath := filepath.Join(configPath, "app.toml")

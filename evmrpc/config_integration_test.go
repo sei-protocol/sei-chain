@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 )
@@ -100,7 +101,7 @@ http_port = 8545
 			require.NoError(t, err, "Failed to read config file")
 
 			// Step 3: Read EVM config
-			cfg, err := evmrpc.ReadConfig(v)
+			cfg, err := evmrpcconfig.ReadConfig(v)
 			require.NoError(t, err, "Failed to read EVM config")
 
 			// Step 4: Create a new worker pool with the config (not global)
@@ -113,7 +114,7 @@ http_port = 8545
 				workerCount = runtime.NumCPU() * 2
 			}
 			if queueSize <= 0 {
-				queueSize = evmrpc.DefaultWorkerQueueSize
+				queueSize = evmrpcconfig.DefaultWorkerQueueSize
 			}
 
 			wp := evmrpc.NewWorkerPool(workerCount, queueSize)
@@ -210,7 +211,7 @@ simulation_gas_limit = 10000000
 		require.NoError(t, err)
 
 		// Should successfully read config with defaults
-		cfg, err := evmrpc.ReadConfig(v)
+		cfg, err := evmrpcconfig.ReadConfig(v)
 		require.NoError(t, err)
 
 		// Old config should use default calculated values: min(MaxWorkerPoolSize, runtime.NumCPU() * 2)
@@ -224,7 +225,7 @@ simulation_gas_limit = 10000000
 		}
 		queueSize := cfg.WorkerQueueSize
 		if queueSize <= 0 {
-			queueSize = evmrpc.DefaultWorkerQueueSize
+			queueSize = evmrpcconfig.DefaultWorkerQueueSize
 		}
 
 		wp := evmrpc.NewWorkerPool(workerCount, queueSize)
@@ -233,7 +234,7 @@ simulation_gas_limit = 10000000
 
 		// Verify defaults are applied
 		require.Greater(t, wp.WorkerCount(), 0, "Should apply default worker count")
-		require.Equal(t, evmrpc.DefaultWorkerQueueSize, wp.QueueSize(),
+		require.Equal(t, evmrpcconfig.DefaultWorkerQueueSize, wp.QueueSize(),
 			"Should apply default queue size")
 	})
 
@@ -262,7 +263,7 @@ worker_queue_size = 1000
 		err = v.ReadInConfig()
 		require.NoError(t, err)
 
-		cfg, err := evmrpc.ReadConfig(v)
+		cfg, err := evmrpcconfig.ReadConfig(v)
 		require.NoError(t, err)
 
 		// Should read custom values

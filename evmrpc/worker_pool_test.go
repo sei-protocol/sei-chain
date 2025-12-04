@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -259,12 +260,12 @@ func TestWorkerPoolPanicRecovery(t *testing.T) {
 }
 
 func TestWorkerPoolConstants(t *testing.T) {
-	require.Equal(t, 100, WorkerBatchSize)
-	require.Equal(t, 1000, DefaultWorkerQueueSize)
-	require.Equal(t, 64, MaxWorkerPoolSize)
+	require.Equal(t, 100, evmrpcconfig.WorkerBatchSize)
+	require.Equal(t, 1000, evmrpcconfig.DefaultWorkerQueueSize)
+	require.Equal(t, 64, evmrpcconfig.MaxWorkerPoolSize)
 
 	// Verify total capacity calculation
-	totalCapacity := DefaultWorkerQueueSize * WorkerBatchSize
+	totalCapacity := evmrpcconfig.DefaultWorkerQueueSize * evmrpcconfig.WorkerBatchSize
 	require.Equal(t, 100000, totalCapacity, "Total capacity should be 100,000 blocks")
 }
 
@@ -344,14 +345,14 @@ func TestInitGlobalWorkerPool(t *testing.T) {
 			workerPoolSize:    0,
 			workerQueueSize:   0,
 			expectedWorkers:   -1, // Will be runtime.NumCPU() * 2, check > 0
-			expectedQueueSize: DefaultWorkerQueueSize,
+			expectedQueueSize: evmrpcconfig.DefaultWorkerQueueSize,
 		},
 		{
 			name:              "only worker size specified",
 			workerPoolSize:    20,
 			workerQueueSize:   0,
 			expectedWorkers:   20,
-			expectedQueueSize: DefaultWorkerQueueSize,
+			expectedQueueSize: evmrpcconfig.DefaultWorkerQueueSize,
 		},
 		{
 			name:              "only queue size specified",
