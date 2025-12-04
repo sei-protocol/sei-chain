@@ -2,8 +2,10 @@ package evmrpc
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -47,8 +49,22 @@ func NewEVMHTTPServer(
 	// Initialize global worker pool with configuration
 	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
 
-	// Initialize RPC tracker (stats package not available in release branch)
-	// stats.InitRPCTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
+	// Initialize global metrics with worker pool and DB semaphore configuration
+	workerCount := config.WorkerPoolSize
+	if workerCount <= 0 {
+		workerCount = min(MaxWorkerPoolSize, runtime.NumCPU()*2)
+	}
+	queueSize := config.WorkerQueueSize
+	if queueSize <= 0 {
+		queueSize = DefaultWorkerQueueSize
+	}
+	// Align DB semaphore with worker count - each worker gets one I/O slot
+	dbSemaphoreSize := workerCount
+	InitGlobalMetrics(workerCount, queueSize, dbSemaphoreSize)
+
+	// Start metrics printer (every 5 seconds)
+	StartMetricsPrinter(5 * time.Second)
+	logger.Info("Started EVM RPC metrics printer (interval: 5s)", "workers", workerCount, "queue", queueSize, "db_semaphore", dbSemaphoreSize)
 
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
@@ -80,7 +96,8 @@ func NewEVMHTTPServer(
 	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, earliestVersion, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, globalBlockCache, cacheCreationMutex)
 	seiDebugAPI := NewSeiDebugAPI(tmClient, k, ctxProvider, txConfigProvider, earliestVersion, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex)
 
-	dbReadSemaphore := make(chan struct{}, MaxDBReadConcurrency)
+	// DB semaphore aligned with worker count
+	dbReadSemaphore := make(chan struct{}, dbSemaphoreSize)
 	globalLogSlicePool := NewLogSlicePool()
 	apis := []rpc.API{
 		{
@@ -194,8 +211,21 @@ func NewEVMWebSocketServer(
 	// Initialize global worker pool with configuration
 	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
 
-	// Initialize WebSocket tracker (stats package not available in release branch)
-	// stats.InitWSTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
+	// Initialize global metrics (idempotent - only first call takes effect)
+	workerCountWS := config.WorkerPoolSize
+	if workerCountWS <= 0 {
+		workerCountWS = min(MaxWorkerPoolSize, runtime.NumCPU()*2)
+	}
+	queueSizeWS := config.WorkerQueueSize
+	if queueSizeWS <= 0 {
+		queueSizeWS = DefaultWorkerQueueSize
+	}
+	// Align DB semaphore with worker count
+	dbSemaphoreSizeWS := workerCountWS
+	InitGlobalMetrics(workerCountWS, queueSizeWS, dbSemaphoreSizeWS)
+
+	// Start metrics printer (idempotent - only first call starts printer)
+	StartMetricsPrinter(5 * time.Second)
 
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
@@ -211,7 +241,8 @@ func NewEVMWebSocketServer(
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
 	}
-	dbReadSemaphore := make(chan struct{}, MaxDBReadConcurrency)
+	// DB semaphore aligned with worker count
+	dbReadSemaphore := make(chan struct{}, dbSemaphoreSizeWS)
 	globalBlockCache := NewBlockCache(3000)
 	cacheCreationMutex := &sync.Mutex{}
 	globalLogSlicePool := NewLogSlicePool()

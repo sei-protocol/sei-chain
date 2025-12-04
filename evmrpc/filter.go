@@ -530,7 +530,9 @@ func (a *FilterAPI) GetFilterLogs(
 }
 
 func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (res []*ethtypes.Log, err error) {
-	defer recordMetrics(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now())
+	startTime := time.Now()
+	defer recordMetrics(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, startTime)
+
 	// Calculate block range
 	latest := a.logFetcher.ctxProvider(LatestCtxHeight).BlockHeight()
 	begin, end := latest, latest
@@ -545,6 +547,11 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 	}
 
 	blockRange := end - begin + 1
+
+	// Record metrics for eth_getLogs
+	defer func() {
+		GetGlobalMetrics().RecordGetLogsRequest(blockRange, time.Since(startTime), startTime, err)
+	}()
 
 	// Use config value instead of hardcoded constant
 	if blockRange > a.filterConfig.maxBlock {
@@ -741,7 +748,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 			batch := blockBatch
 			wg.Add(1)
 
-			if err := runner.Submit(func() { processBatch(batch) }); err != nil {
+			if err := runner.SubmitWithMetrics(func() { processBatch(batch) }); err != nil {
 				wg.Done()
 				submitError = fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
 				break
@@ -757,7 +764,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	// Process remaining blocks
 	if len(blockBatch) > 0 {
 		wg.Add(1)
-		if err := runner.Submit(func() { processBatch(blockBatch) }); err != nil {
+		if err := runner.SubmitWithMetrics(func() { processBatch(blockBatch) }); err != nil {
 			wg.Done()
 			return nil, 0, fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
 		}
@@ -977,7 +984,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 		}
 
 		wg.Add(1)
-		if err := runner.Submit(func(start, endHeight int64) func() {
+		if err := runner.SubmitWithMetrics(func(start, endHeight int64) func() {
 			return func() {
 				defer wg.Done()
 				f.processBatch(ctx, start, endHeight, crit, bloomIndexes, res, errChan)
@@ -1014,6 +1021,9 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 	defer func() {
 		metrics.IncrementRpcRequestCounter("num_blocks_fetched", "blocks", true)
 	}()
+
+	wpMetrics := GetGlobalMetrics()
+
 	for height := start; height <= end; height++ {
 		if height == 0 {
 			continue
@@ -1026,11 +1036,15 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		}
 
 		// Block cache miss, acquire semaphore for I/O operations
+		semWaitStart := time.Now()
 		f.dbReadSemaphore <- struct{}{}
+		wpMetrics.RecordDBSemaphoreWait(time.Since(semWaitStart))
+		wpMetrics.RecordDBSemaphoreAcquire()
 
 		// Re-check cache after acquiring semaphore, in case another worker cached it.
 		if cachedEntry, found := f.globalBlockCache.Get(height); found {
 			<-f.dbReadSemaphore
+			wpMetrics.RecordDBSemaphoreRelease()
 			res <- cachedEntry.Block
 			continue
 		}
@@ -1046,6 +1060,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 			// skip the bloom pre-filter instead of short-circuiting the block.
 			if blockBloom != (ethtypes.Bloom{}) && !MatchFilters(blockBloom, bloomIndexes) {
 				<-f.dbReadSemaphore
+				wpMetrics.RecordDBSemaphoreRelease()
 				continue // skip the block if bloom filter does not match
 			}
 		}
@@ -1058,6 +1073,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 			default:
 			}
 			<-f.dbReadSemaphore
+			wpMetrics.RecordDBSemaphoreRelease()
 			continue
 		}
 
@@ -1068,6 +1084,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 			fillMissingFields(entry, block, blockBloom)
 		}
 		<-f.dbReadSemaphore
+		wpMetrics.RecordDBSemaphoreRelease()
 		res <- block
 	}
 }
