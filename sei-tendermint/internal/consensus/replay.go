@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"reflect"
 	"time"
 
@@ -102,40 +101,15 @@ func (cs *State) catchupReplay(ctx context.Context, csHeight int64) error {
 	// NOTE: This is just a sanity check. As far as we know things work fine
 	// without it, and Handshake could reuse State if it weren't for
 	// this check (since we can crash after writing #ENDHEIGHT).
-	found, err := cs.wal.SeekEndHeight(csHeight)
+	gotHeight, msgs, err := cs.wal.ReadLastHeightMsgs()
 	if err != nil {
-		return fmt.Errorf("cs.wal.SeekEndHeight(): %w", err)
+		return fmt.Errorf("cs.wal.ReadLastHeightMsgs(): %w", err)
 	}
-	if found {
-		return fmt.Errorf("wal should not contain #ENDHEIGHT %d", csHeight)
-	}
-	// Search for last height marker.
-	//
-	// Ignore data corruption errors in previous heights because we only care about last height
-	if csHeight < cs.state.InitialHeight {
-		return fmt.Errorf("cannot replay height %v, below initial height %v", csHeight, cs.state.InitialHeight)
-	}
-	endHeight := csHeight - 1
-	if csHeight == cs.state.InitialHeight {
-		endHeight = 0
-	}
-	found, err = cs.wal.SeekEndHeight(endHeight)
-	if err != nil {
-		return fmt.Errorf("cs.wal.SeekEndHeight(): %w", err)
-	}
-	if !found {
-		return fmt.Errorf("EndHeightMsg{%v} not found", endHeight)
+	if gotHeight!=csHeight {
+		return fmt.Errorf("last height in WAL is %v, want %v",gotHeight,csHeight)
 	}
 	cs.logger.Info("Catchup by replaying consensus messages", "height", csHeight)
-
-	for {
-		msg, err := cs.wal.Read()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return fmt.Errorf("cs.wal.Read(): %w", err)
-		}
+	for _,msg := range msgs {
 		// NOTE: since the priv key is set when the msgs are received
 		// it will attempt to eg double sign but we can just ignore it
 		// since the votes will be replayed and we'll get to the next step

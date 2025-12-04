@@ -375,10 +375,6 @@ func (cs *State) Run(ctx context.Context) error {
 				return fmt.Errorf("cs.catchupReplay(): %w", err)
 			}
 		}
-		if err := cs.wal.OpenForAppend(); err != nil {
-			return fmt.Errorf("cs.wal.OpenForAppend(): %w", err)
-		}
-
 		// Double Signing Risk Reduction
 		if err := cs.checkDoubleSigningRisk(cs.roundState.Height()); err != nil {
 			return err
@@ -694,10 +690,8 @@ func (cs *State) updateToState(state sm.State) {
 
 func (cs *State) newStep() {
 	rs := cs.roundState.RoundStateEvent()
-	if !cs.replayMode {
-		if err := cs.wal.Append(NewWALMessage(rs)); err != nil {
-			panic(fmt.Errorf("failed writing to WAL: %w", err))
-		}
+	if err := cs.wal.Append(NewWALMessage(rs)); err != nil {
+		panic(fmt.Errorf("failed writing to WAL: %w", err))
 	}
 
 	cs.nSteps++
@@ -769,33 +763,27 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 			cs.handleTxsAvailable(ctx)
 
 		case mi := <-cs.peerMsgQueue:
-			if !cs.replayMode {
-				if err := cs.wal.Append(NewWALMessage(mi)); err != nil {
-					cs.logger.Error("failed writing to WAL", "err", err)
-				}
+			if err := cs.wal.Append(NewWALMessage(mi)); err != nil {
+				cs.logger.Error("failed writing to WAL", "err", err)
 			}
 			// handles proposals, block parts, votes
 			// may generate internal events (votes, complete proposals, 2/3 majorities)
 			cs.handleMsg(ctx, mi, false)
 
 		case mi := <-cs.internalMsgQueue:
-			if !cs.replayMode {
-				if err := cs.wal.Append(NewWALMessage(mi)); err != nil {
-					return fmt.Errorf(
-						"failed to write %v msg to consensus WAL due to %w; check your file system and restart the node",
-						mi, err,
-					)
-				}
+			if err := cs.wal.Append(NewWALMessage(mi)); err != nil {
+				return fmt.Errorf(
+					"failed to write %v msg to consensus WAL due to %w; check your file system and restart the node",
+					mi, err,
+				)
 			}
 
 			// handles proposals, block parts, votes
 			cs.handleMsg(ctx, mi, true)
 
 		case ti := <-cs.timeoutTicker.Chan(): // tockChan:
-			if !cs.replayMode {
-				if err := cs.wal.Append(NewWALMessage(ti)); err != nil {
-					return fmt.Errorf("failed writing to WAL: %w", err)
-				}
+			if err := cs.wal.Append(NewWALMessage(ti)); err != nil {
+				return fmt.Errorf("failed writing to WAL: %w", err)
 			}
 
 			// if the timeout is relevant to the rs
@@ -1966,16 +1954,14 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 	endMsg := EndHeightMessage{height}
 	_, fsyncSpan := cs.tracer.Start(spanCtx, "cs.state.finalizeCommit.fsync")
 	defer fsyncSpan.End()
-	if !cs.replayMode {
-		if err := cs.wal.Append(NewWALMessage(endMsg)); err != nil {
-			panic(fmt.Errorf(
-				"failed to write %v msg to consensus WAL due to %w; check your file system and restart the node",
-				endMsg, err,
-			))
-		}
-		if err := cs.wal.Sync(); err != nil {
-			panic(fmt.Errorf("cs.wal.Sync(): %w", err))
-		}
+	if err := cs.wal.Append(NewWALMessage(endMsg)); err != nil {
+		panic(fmt.Errorf(
+			"failed to write %v msg to consensus WAL due to %w; check your file system and restart the node",
+			endMsg, err,
+		))
+	}
+	if err := cs.wal.Sync(); err != nil {
+		panic(fmt.Errorf("cs.wal.Sync(): %w", err))
 	}
 	fsyncSpan.End()
 

@@ -27,14 +27,8 @@ func TestWAL_AppendRead(t *testing.T) {
 		require.NoError(t, wal.Append(msg))
 	}
 	require.NoError(t, wal.Sync())
-	ok, err := wal.SeekEndHeight(0)
-	require.NoError(t, err)
-	require.True(t, ok)
-	for _, want := range msgs {
-		got, err := wal.Read()
-		require.NoError(t, err)
-		require.NoError(t, utils.TestDiff(want, got))
-	}
+	got := dumpWAL(t,wal)
+	require.NoError(t, utils.TestDiff(msgs, got[1:]))
 }
 
 func TestWAL_ErrBadSize(t *testing.T) {
@@ -61,23 +55,21 @@ func TestWAL_ErrBadSize(t *testing.T) {
 	}
 }
 
-func TestWAL_SeekEndHeight(t *testing.T) {
+func TestWAL_ReadLastMsgs(t *testing.T) {
 	cfg := getConfig(t)
-	runStateUntilBlock(t, cfg, 6)
+	runStateUntilBlock(t, cfg, 3)
 	wal, err := openWAL(cfg.Consensus.WalFile())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer wal.Close()
 
-	h := int64(3)
-	found, err := wal.SeekEndHeight(h)
+	gotHeight, msgs, err := wal.ReadLastHeightMsgs()
 	require.NoError(t, err)
-	require.True(t, found)
-
-	msg, err := wal.Read()
-	require.NoError(t, err, "expected to decode a message")
-	rs, ok := msg.any.(tmtypes.EventDataRoundState)
-	require.True(t, ok, "expected message of type EventDataRoundState")
-	require.Equal(t, rs.Height, h+1, "wrong height")
+	require.True(t, gotHeight>3)
+	if len(msgs)>0 {
+		rs, ok := msgs[0].any.(tmtypes.EventDataRoundState)
+		require.True(t, ok, "expected message of type EventDataRoundState")
+		require.Equal(t, rs.Height, gotHeight, "wrong height")
+	}
 }

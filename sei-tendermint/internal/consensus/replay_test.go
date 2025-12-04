@@ -3,7 +3,6 @@ package consensus
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -157,22 +156,19 @@ func TestWALCrash(t *testing.T) {
 	}
 }
 
-func dumpWAL(t *testing.T, walPath string) []WALMessage {
+func dumpWAL(t *testing.T, wal *WAL) []WALMessage {
 	t.Helper()
-	wal,err := openWAL(walPath)
-	require.NoError(t,err)
-	defer wal.Close()
-	found,err:=wal.SeekEndHeight(0)
-	require.NoError(t,err)
-	require.True(t,found)
 	var msgs []WALMessage
-	for {
-		msg,err := wal.Read()
-		if errors.Is(io.EOF,err) {
-			break
+	for inner := range wal.inner.Lock() {
+		for offset:=inner.MinOffset(); offset<=0; offset++ {
+			entries,err := inner.ReadFile(offset)
+			require.NoError(t,err)
+			for _,entry := range entries {
+				msg,err := walFromBytes(entry)
+				require.NoError(t,err)
+				msgs = append(msgs,msg)
+			}
 		}
-		require.NoError(t,err)
-		msgs = append(msgs,msg)
 	}
 	return msgs
 }
@@ -190,7 +186,6 @@ func resetWAL(t *testing.T, walPath string, msgs []WALMessage) {
 	wal,err := openWAL(walPath)
 	require.NoError(t,err)
 	defer wal.Close()
-	require.NoError(t,wal.OpenForAppend())
 	for _,msg := range msgs {
 		require.NoError(t,wal.Append(msg))
 	}
@@ -224,15 +219,21 @@ func crashWALandCheckLiveness(
 		return waitForBlock(ctx,cs,heightToStop)	
 	}))
 	cs.wal.Close()
-	msgs := dumpWAL(t,cfg.Consensus.WalFile())
+	wal,err := openWAL(cfg.Consensus.WalFile())
+	require.NoError(t,err)
+	defer wal.Close()
+	msgs := dumpWAL(t,wal)
+	wal.Close()
 	t.Logf("Iterate over prefixes of generated WAL and start from there.")
 	for i := range msgs {
-		t.Run(fmt.Sprintf("%v",len(msgs)), func(t *testing.T) {
-			// WARNING: when bootstaping, WAL is initialized with EndHeight{0} marker,
-			// so we skip it to avoid inserting it twice.
-			resetWAL(t,cfg.Consensus.WalFile(),msgs[1:i+1])
-			runStateUntilBlock(t,cfg,heightToStop+1)
-		})
+		if ehm,ok := msgs[i].any.(EndHeightMessage); ok && ehm {
+			
+		}
+		t.Logf("len(msgs) = %v",len(msgs[1:i+1]))
+		// WARNING: when bootstaping, WAL is initialized with EndHeight{0} marker,
+		// so we skip it to avoid inserting it twice.
+		resetWAL(t,cfg.Consensus.WalFile(),msgs[1:i+1])
+		runStateUntilBlock(t,cfg,heightToStop+1)
 	}
 }
 
@@ -964,22 +965,14 @@ func makeBlockchainFromWAL(t *testing.T, wal *WAL) ([]*types.Block, []*types.Com
 	t.Helper()
 
 	// Search for height marker
-	height := int64(0)
-	found, err := wal.SeekEndHeight(height)
-	require.NoError(t, err)
-	require.True(t, found)
-
+	msgs := dumpWAL(t,wal)
+	height := 0
 	var blocks []*types.Block
 	var commits []*types.Commit
 	var thisBlockParts *types.PartSet
 	var thisBlockCommit *types.Commit
 
-	for {
-		msg, err := wal.Read()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		require.NoError(t, err)
+	for _,msg := range msgs {
 		piece := readPieceFromWAL(msg)
 		if piece == nil {
 			continue
