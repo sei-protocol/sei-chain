@@ -3,9 +3,9 @@ package consensus
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"errors"
 	"math/rand"
 	"os"
 	"testing"
@@ -913,24 +913,28 @@ func (app *badApp) FinalizeBlock(_ context.Context, _ *abci.RequestFinalizeBlock
 
 func makeBlockchainFromWAL(t *testing.T, wal *WAL) ([]*types.Block, []*types.Commit) {
 	t.Helper()
-	
+
 	// Search for height marker
 	height := int64(0)
 	found, err := wal.SeekEndHeight(height)
 	require.NoError(t, err)
 	require.True(t, found)
 
-	var blocks          []*types.Block
-	var commits         []*types.Commit
-	var thisBlockParts  *types.PartSet
+	var blocks []*types.Block
+	var commits []*types.Commit
+	var thisBlockParts *types.PartSet
 	var thisBlockCommit *types.Commit
 
 	for {
-		msg,err := wal.Read()
-		if errors.Is(err,io.EOF) { break }
-		require.NoError(t,err)
+		msg, err := wal.Read()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		require.NoError(t, err)
 		piece := readPieceFromWAL(msg)
-		if piece == nil { continue }
+		if piece == nil {
+			continue
+		}
 
 		switch p := piece.(type) {
 		case EndHeightMessage:

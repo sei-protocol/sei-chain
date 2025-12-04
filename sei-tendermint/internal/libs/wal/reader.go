@@ -10,7 +10,6 @@ import (
 )
 
 var errEOF = errors.New("EOF")
-var errTruncated = errors.New("file truncated")
 var errCorrupted = errors.New("file corrupted")
 
 var crc32c = crc32.MakeTable(crc32.Castagnoli)
@@ -40,7 +39,7 @@ func openLogReader(path string) (*logReader, error) {
 
 func (r *logReader) read(n int64) ([]byte, error) {
 	if r.bytesLeft < n {
-		return nil, errTruncated
+		return nil, errCorrupted
 	}
 	data := make([]byte, n)
 	if _, err := io.ReadFull(r.buf, data); err != nil {

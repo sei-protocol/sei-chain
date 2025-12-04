@@ -81,8 +81,10 @@ func (i *logInner) Read() (res []byte, ok bool, err error) {
 			return data, true, nil
 		}
 		if i.fileOffset == 0 {
-			// Last entry of the last file may be truncated because file writes are not atomic.
-			if errors.Is(err, errEOF) || errors.Is(err, errTruncated) {
+			// Head file can be corrupted at arbitrary place after the most recent fsync,
+			// Since under POSIX it is possible that writes are synced to storage out of order.
+			// We treat first such place as EOF.
+			if errors.Is(err, errEOF) || errors.Is(err, errCorrupted) {
 				return nil, false, nil
 			}
 			return nil, false, err
@@ -169,7 +171,7 @@ func (i *logInner) SyncAndReset() error {
 		i.reader = utils.None[*logReader]()
 	}
 	if writer, ok := i.writer.Get(); ok {
-		if err:=writer.Sync(); err!=nil {
+		if err := writer.Sync(); err != nil {
 			return err
 		}
 		writer.Close()
@@ -179,7 +181,7 @@ func (i *logInner) SyncAndReset() error {
 }
 
 func (i *logInner) OpenForAppend() error {
-	if err:=i.SyncAndReset(); err!=nil {
+	if err := i.SyncAndReset(); err != nil {
 		return err
 	}
 	w, err := openLogWriter(i.view.headPath)
@@ -192,7 +194,7 @@ func (i *logInner) OpenForAppend() error {
 }
 
 func (i *logInner) OpenForRead(fileOffset int) error {
-	if err:=i.SyncAndReset(); err!=nil {
+	if err := i.SyncAndReset(); err != nil {
 		return err
 	}
 	path, err := i.view.PathByOffset(fileOffset)

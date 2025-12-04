@@ -4,12 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"time"
 	"path/filepath"
+	"time"
 
-	tmos "github.com/tendermint/tendermint/libs/os"
 	"github.com/gogo/protobuf/proto"
 	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
+	tmos "github.com/tendermint/tendermint/libs/os"
 	"github.com/tendermint/tendermint/types"
 
 	"github.com/tendermint/tendermint/internal/libs/wal"
@@ -23,7 +23,7 @@ const (
 	maxMsgSizeBytes = maxMsgSize + 24
 )
 
-type ErrBadSize struct { error }
+type ErrBadSize struct{ error }
 
 //--------------------------------------------------------
 // types and functions for savings consensus messages
@@ -198,7 +198,7 @@ type WAL struct{ inner *wal.Log }
 
 // openWAL opens WAL in append mode.
 func openWAL(walFile string) (res *WAL, resErr error) {
-	if err := tmos.EnsureDir(filepath.Dir(walFile), 0700); err!=nil {
+	if err := tmos.EnsureDir(filepath.Dir(walFile), 0700); err != nil {
 		return nil, err
 	}
 	inner, err := wal.OpenLog(walFile, wal.DefaultConfig())
@@ -285,7 +285,7 @@ func (w *WAL) SeekEndHeight(height int64) (bool, error) {
 	// We assume that height is recent.
 	minOffset := w.inner.MinOffset()
 	for offset := 0; offset >= minOffset; offset-- {
-		fmt.Printf("height=%v, offset = %v\n",height,offset)
+		fmt.Printf("height=%v, offset = %v\n", height, offset)
 		if err := w.inner.OpenForRead(offset); err != nil {
 			return false, fmt.Errorf("w.inner.OpenForRead(): %w", err)
 		}

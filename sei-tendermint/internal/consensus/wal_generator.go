@@ -3,9 +3,9 @@ package consensus
 import (
 	"context"
 	"fmt"
-	"time"
 	mrand "math/rand"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
@@ -75,11 +75,11 @@ func WALGenerateNBlocks(t *testing.T, logger log.Logger, numBlocks int64) *WAL {
 		s.SpawnBg(func() error { return utils.IgnoreCancel(consensusState.Run(ctx)) })
 		for {
 			rs := consensusState.GetRoundState()
-			if rs.Height>numBlocks {
+			if rs.Height > numBlocks {
 				return nil
 			}
-			// TODO(gprusak): remove active polling once consensus state code is reasonable cleaned up. 
-			if err:=utils.Sleep(ctx,100 *time.Millisecond); err!=nil {
+			// TODO(gprusak): remove active polling once consensus state code is reasonable cleaned up.
+			if err := utils.Sleep(ctx, 100*time.Millisecond); err != nil {
 				return err
 			}
 		}
@@ -88,8 +88,8 @@ func WALGenerateNBlocks(t *testing.T, logger log.Logger, numBlocks int64) *WAL {
 		t.Fatal(err)
 	}
 	consensusState.wal.Close()
-	wal,err := openWAL(cfg.Consensus.WalFile())
-	if err!=nil {
+	wal, err := openWAL(cfg.Consensus.WalFile())
+	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(wal.Close)

@@ -76,6 +76,9 @@ func (v *logView) TailSize() (int64, error) {
 
 func (v *logView) Rotate(cfg *Config) error {
 	// Move head to tail.
+	// WARNING: Rename is atomic, but not crash safe.
+	// We don't need to sync directory - it is ok if the rename gets
+	// reverted due to crash.
 	if err := os.Rename(v.headPath, v.tailPath(v.nextIdx)); err != nil {
 		return fmt.Errorf("os.Rename(): %w", err)
 	}
@@ -89,6 +92,7 @@ func (v *logView) Rotate(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("v.TailSize(): %w", err)
 	}
+	dir := filepath.Dir(v.headPath)
 	for tail > cfg.TotalSizeLimit {
 		path := v.tailPath(v.firstIdx)
 		fi, err := os.Stat(path)
@@ -96,6 +100,10 @@ func (v *logView) Rotate(cfg *Config) error {
 			return err
 		}
 		if err := os.Remove(path); err != nil {
+			return err
+		}
+		// Sync directory after each deletion to ensure that files are removed in order.
+		if err := sync(dir); err != nil {
 			return err
 		}
 		v.firstIdx += 1

@@ -31,14 +31,14 @@ func TestOpenForRead(t *testing.T) {
 	l := OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
 	// Append minimal amount of data.
-	require.NoError(t,l.OpenForAppend())
-	require.NoError(t,l.Append(entry))
+	require.NoError(t, l.OpenForAppend())
+	require.NoError(t, l.Append(entry))
 	// Switch to reading - the written entry should already be there.
-	require.NoError(t,l.OpenForRead(l.MinOffset()))
-	got,ok,err := l.Read()
-	require.NoError(t,err)
-	require.True(t,ok)
-	require.NoError(t,utils.TestDiff(entry,got))
+	require.NoError(t, l.OpenForRead(l.MinOffset()))
+	got, ok, err := l.Read()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, utils.TestDiff(entry, got))
 }
 
 func TestAppendRead(t *testing.T) {

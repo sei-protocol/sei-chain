@@ -8,6 +8,7 @@ import (
 	"hash/crc32"
 	"io"
 	"os"
+	"path/filepath"
 )
 
 type logWriter struct {
@@ -28,7 +29,7 @@ func realFileSize(path string) (int64, error) {
 	realSize := int64(0)
 	for {
 		if _, err := r.ReadEntry(); err != nil {
-			if errors.Is(err, errEOF) || errors.Is(err, errTruncated) {
+			if errors.Is(err, errEOF) || errors.Is(err, errCorrupted) {
 				return realSize, nil
 			}
 			return 0, err
@@ -37,11 +38,27 @@ func realFileSize(path string) (int64, error) {
 	}
 }
 
+func sync(path string) error {
+	dirFile, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer dirFile.Close()
+	return dirFile.Sync()
+}
+
 func openLogWriter(path string) (res *logWriter, resErr error) {
-	// Read the whole file and if the last entry is truncated, remove it.
+	// Read the whole file and find the non-corrupted prefix.
 	realSize, err := realFileSize(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("realFileSize(): %w", err)
+	}
+	// Sync the directory containing the file:
+	// realFileSize() may have created a file if it didn't exist.
+	// In that case we need the directory synced, so that file's inode
+	// is not lost in case of crash.
+	if err := sync(filepath.Dir(path)); err != nil {
+		return nil, fmt.Errorf("sync(directory): %w", err)
 	}
 	f, err := os.OpenFile(path, os.O_WRONLY, filePerms)
 	if err != nil {
@@ -52,8 +69,15 @@ func openLogWriter(path string) (res *logWriter, resErr error) {
 			f.Close()
 		}
 	}()
+	// Truncate the file to non-corrupted prefix and sync.
+	// It is still not 100% corruption-proof,
+	// but we would need a rolling checksums to fix that,
+	// which would require redesigning the WAL format.
 	if err := f.Truncate(realSize); err != nil {
 		return nil, fmt.Errorf("f.Truncate(): %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		return nil, fmt.Errorf("f.Sync(): %w", err)
 	}
 	if _, err := f.Seek(0, io.SeekEnd); err != nil {
 		return nil, fmt.Errorf("f.SeekEnd(): %w", err)
