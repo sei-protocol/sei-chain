@@ -24,6 +24,14 @@ func OrPanic1[T any](v T, err error) T {
 	return v
 }
 
+func dump(l *Log) [][]byte {
+	var entries [][]byte
+	for offset:=l.MinOffset(); offset<=0; offset++ {
+		entries = append(entries,OrPanic1(l.ReadFile(offset))...)
+	}
+	return entries
+}
+
 func TestOpenForRead(t *testing.T) {
 	headPath := path.Join(t.TempDir(), "testlog")
 	cfg := &Config{}
@@ -31,14 +39,9 @@ func TestOpenForRead(t *testing.T) {
 	l := OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
 	// Append minimal amount of data.
-	require.NoError(t, l.OpenForAppend())
 	require.NoError(t, l.Append(entry))
-	// Switch to reading - the written entry should already be there.
-	require.NoError(t, l.OpenForRead(l.MinOffset()))
-	got, ok, err := l.Read()
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.NoError(t, utils.TestDiff(entry, got))
+	// dump the log - the written entry should already be there.
+	require.NoError(t,utils.TestDiff(utils.Slice(entry), dump(l)))
 }
 
 func TestAppendRead(t *testing.T) {
@@ -63,7 +66,6 @@ func TestAppendRead(t *testing.T) {
 				_, err := OpenLog(headPath, cfg)
 				require.Error(t, err)
 				t.Logf("Append a bunch of random entries.")
-				require.NoError(t, l.OpenForAppend())
 				for range 400 {
 					entry := utils.GenBytes(rng, rng.Intn(50)+10)
 					want = append(want, entry)
@@ -77,16 +79,7 @@ func TestAppendRead(t *testing.T) {
 					l.Close()
 					l = OrPanic1(OpenLog(headPath, cfg))
 				}
-				require.NoError(t, l.OpenForRead(l.MinOffset()))
-				for _, wantE := range want {
-					gotE, ok, err := l.Read()
-					require.NoError(t, err)
-					require.Equal(t, true, ok, "unexpected EOF")
-					require.NoError(t, utils.TestDiff(wantE, gotE))
-				}
-				_, ok, err := l.Read()
-				require.NoError(t, err)
-				require.Equal(t, false, ok, "read succeeded, expected EOF")
+				require.NoError(t, utils.TestDiff(want, dump(l)))
 			}
 		})
 	}
@@ -99,7 +92,6 @@ func TestNoSync(t *testing.T) {
 
 	l := OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
-	require.NoError(t, l.OpenForAppend())
 	// Insert entries and sync in the middle.
 	var want [][]byte
 	syncEntries := 50
@@ -116,16 +108,9 @@ func TestNoSync(t *testing.T) {
 	// Read Entries - expect entries at least to the sync point.
 	l = OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
-	require.NoError(t, l.OpenForRead(l.MinOffset()))
-	for i := 0; ; i += 1 {
-		got, ok, err := l.Read()
-		require.NoError(t, err)
-		if !ok {
-			require.True(t, i >= syncEntries)
-			break
-		}
-		require.NoError(t, utils.TestDiff(want[i], got))
-	}
+	got := dump(l)
+	require.True(t,len(got)>=syncEntries)
+	require.NoError(t,utils.TestDiff(want[:len(got)],got))
 }
 
 func TestTruncation(t *testing.T) {
@@ -136,7 +121,6 @@ func TestTruncation(t *testing.T) {
 	// Insert entries.
 	l := OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
-	require.NoError(t, l.OpenForAppend())
 	var want [][]byte
 	for range 100 {
 		entry := utils.GenBytes(rng, rng.Intn(50)+10)
@@ -154,15 +138,8 @@ func TestTruncation(t *testing.T) {
 	// Read Entries - expect a prefix.
 	l = OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
-	require.NoError(t, l.OpenForRead(l.MinOffset()))
-	for i := 0; ; i += 1 {
-		got, ok, err := l.Read()
-		require.NoError(t, err)
-		if !ok {
-			break
-		} // EOF
-		require.NoError(t, utils.TestDiff(want[i], got))
-	}
+	got := dump(l)
+	require.NoError(t,utils.TestDiff(want[:len(got)],got))
 }
 
 func TestSizeLimitsAndOffsets(t *testing.T) {
@@ -175,7 +152,6 @@ func TestSizeLimitsAndOffsets(t *testing.T) {
 	// Populate the log.
 	l := OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
-	require.NoError(t, l.OpenForAppend())
 	minEntrySize := int64(10)
 	maxEntrySize := int64(20)
 	entryCount := int64(500)
@@ -208,24 +184,11 @@ func TestSizeLimitsAndOffsets(t *testing.T) {
 	require.True(t, total <= cfg.TotalSizeLimit+cfg.FileSizeLimit)
 	require.True(t, total >= cfg.TotalSizeLimit-cfg.FileSizeLimit-maxEntrySize-headerSize)
 
-	// Read the log at different suffixes, expect a suffix of entries.
-	for offset := l.MinOffset(); offset <= 0; offset++ {
-		l = OrPanic1(OpenLog(headPath, cfg))
-		require.NoError(t, l.OpenForRead(offset))
-		defer l.Close()
-		var got [][]byte
-		for {
-			gotE, ok, err := l.Read()
-			require.NoError(t, err)
-			if !ok {
-				break
-			}
-			got = append(got, gotE)
-		}
-		for i, gotE := range got {
-			require.NoError(t, utils.TestDiff(want[len(want)-len(got)+i], gotE))
-		}
-	}
+	// Read the log, expect a suffix of entries.
+	l = OrPanic1(OpenLog(headPath, cfg))
+	defer l.Close()
+	got := dump(l)
+	require.NoError(t,utils.TestDiff(want[len(want)-len(got):],got))
 }
 
 // WARNING: this benchmark is executed agains tmp dir anyway,
@@ -241,7 +204,6 @@ func BenchmarkAppendSync(b *testing.B) {
 	}
 	l := OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
-	require.NoError(b, l.OpenForAppend())
 	for i := 0; b.Loop(); i++ {
 		OrPanic(l.Append(entries[i%len(entries)]))
 		OrPanic(l.Sync())
