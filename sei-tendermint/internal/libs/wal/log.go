@@ -72,12 +72,15 @@ func (i *logInner) ReadFile(fileOffset int) ([][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := i.writer.Sync(); err != nil {
-		return nil, fmt.Errorf("i.Sync(): %w", err)
+	// If head is requested, we need first sync it do disk.
+	if fileOffset == 0 {
+		if err := i.writer.Sync(); err != nil {
+			return nil, fmt.Errorf("i.Sync(): %w", err)
+		}
 	}
 	r, err := openLogReader(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openLogReader(): %w", err)
 	}
 	var entries [][]byte
 	for {

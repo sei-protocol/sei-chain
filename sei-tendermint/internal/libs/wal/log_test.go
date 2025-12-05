@@ -32,7 +32,7 @@ func dump(l *Log) [][]byte {
 	return entries
 }
 
-func TestOpenForRead(t *testing.T) {
+func TestReadAfterAppend(t *testing.T) {
 	headPath := path.Join(t.TempDir(), "testlog")
 	cfg := &Config{}
 	entry := []byte{25}

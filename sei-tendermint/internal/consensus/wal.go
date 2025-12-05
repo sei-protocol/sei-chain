@@ -194,7 +194,7 @@ func walFromProto(msg *tmcons.WALMessage) (WALMessage, error) {
 // Can be used for crash-recovery and deterministic replay.
 type WAL struct{ inner utils.Mutex[*wal.Log] }
 
-// openWAL opens WAL in append mode.
+// openWAL opens WAL.
 func openWAL(walFile string) (res *WAL, resErr error) {
 	if err := tmos.EnsureDir(filepath.Dir(walFile), 0700); err != nil {
 		return nil, err
@@ -240,7 +240,6 @@ func (w *WAL) Close() {
 }
 
 // Append appends an entry to the WAL.
-// Remember to call OpenForAppend before Append.
 // You need to call Sync afterwards to ensure entry is persisted on disk.
 func (w *WAL) Append(msg WALMessage) error {
 	entry, err := proto.Marshal(&tmcons.TimedWALMessage{Time: time.Now(), Msg: msg.toProto()})
@@ -266,6 +265,7 @@ func walFromBytes(msgBytes []byte) (WALMessage, error) {
 
 // ReadLastHeightMsgs() - reads and returns all messages after the last EndHeightMessage marker.
 // Returns height the messages belong to (i.e. EndHeightMessage.Height + 1)
+// If WAL contains no marker, height 1 is assumed.
 func (w *WAL) ReadLastHeightMsgs() (int64, []WALMessage, error) {
 	var msgsRev []WALMessage
 	for inner := range w.inner.Lock() {
@@ -274,7 +274,7 @@ func (w *WAL) ReadLastHeightMsgs() (int64, []WALMessage, error) {
 		for offset := 0; offset >= minOffset; offset-- {
 			fileEntries, err := inner.ReadFile(offset)
 			if err != nil {
-				return 0, nil, fmt.Errorf("w.inner.OpenForRead(): %w", err)
+				return 0, nil, fmt.Errorf("w.inner.ReadFile(%v): %w", offset, err)
 			}
 			for i := len(fileEntries) - 1; i >= 0; i-- {
 				msg, err := walFromBytes(fileEntries[i])
