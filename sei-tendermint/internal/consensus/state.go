@@ -22,11 +22,9 @@ import (
 	"github.com/tendermint/tendermint/crypto"
 	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
 	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/libs/autofile"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/libs/log"
 	tmmath "github.com/tendermint/tendermint/libs/math"
-	tmos "github.com/tendermint/tendermint/libs/os"
 	tmtime "github.com/tendermint/tendermint/libs/time"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
@@ -139,7 +137,7 @@ type State struct {
 
 	// a Write-Ahead Log ensures we can recover from any kind of crash
 	// and helps us avoid signing conflicting votes
-	wal          WAL
+	wal          *WAL
 	replayMode   bool // so we don't log signing errors during replay
 	doWALCatchup bool // determines if we even try to do the catchup
 
@@ -187,23 +185,31 @@ func NewState(
 	eventBus *eventbus.EventBus,
 	traceProviderOps []trace.TracerProviderOption,
 	options ...StateOption,
-) (*State, error) {
+) (res *State, resErr error) {
+	wal, err := openWAL(cfg.WalFile())
+	if err != nil {
+		return nil, fmt.Errorf("openWal(): %w", err)
+	}
+	defer func() {
+		if resErr != nil {
+			wal.Close()
+		}
+	}()
 	cs := &State{
-		eventBus:         eventBus,
-		logger:           logger,
-		config:           cfg,
-		blockExec:        blockExec,
-		blockStore:       blockStore,
-		stateStore:       store,
-		txNotifier:       txNotifier,
-		peerMsgQueue:     make(chan msgInfo, msgQueueSize),
-		internalMsgQueue: make(chan msgInfo, msgQueueSize),
-		timeoutTicker:    NewTimeoutTicker(logger),
-		doWALCatchup:     true,
-		wal:              nilWAL{},
-		evpool:           evpool,
-		metrics:          NopMetrics(),
-
+		eventBus:          eventBus,
+		logger:            logger,
+		config:            cfg,
+		blockExec:         blockExec,
+		blockStore:        blockStore,
+		stateStore:        store,
+		txNotifier:        txNotifier,
+		peerMsgQueue:      make(chan msgInfo, msgQueueSize),
+		internalMsgQueue:  make(chan msgInfo, msgQueueSize),
+		timeoutTicker:     NewTimeoutTicker(logger),
+		doWALCatchup:      true,
+		evpool:            evpool,
+		metrics:           NopMetrics(),
+		wal:               wal,
 		eventValidBlock:   func(*cstypes.RoundState) {},
 		eventNewRoundStep: func(*cstypes.RoundState) {},
 		eventVote:         func(*types.Vote) {},
@@ -357,15 +363,6 @@ func (cs *State) Run(ctx context.Context) error {
 	if err := cs.updateStateFromStore(); err != nil {
 		return err
 	}
-
-	// We may set the WAL in testing before calling Start, so only OpenWAL if its
-	// still the nilWAL.
-	if _, ok := cs.wal.(nilWAL); ok {
-		if err := cs.loadWalFile(ctx); err != nil {
-			return err
-		}
-	}
-
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// we need the timeoutRoutine for replay so
 		// we don't block on the tick chan.
@@ -374,60 +371,17 @@ func (cs *State) Run(ctx context.Context) error {
 		// We may have lost some votes if the process crashed reload from consensus
 		// log to catchup.
 		if cs.doWALCatchup {
-			repairAttempted := false
-
-		LOOP:
-			for {
-				err := cs.catchupReplay(ctx, cs.roundState.Height())
-				switch {
-				case err == nil:
-					break LOOP
-
-				case !utils.ErrorAs[DataCorruptionError](err).IsPresent():
-					cs.logger.Error("error on catchup replay; proceeding to start state anyway", "err", err)
-					break LOOP
-
-				case repairAttempted:
-					return err
-				}
-
-				cs.logger.Error("the WAL file is corrupted; attempting repair", "err", err)
-
-				// 1) prep work
-				cs.wal.Stop()
-
-				repairAttempted = true
-
-				// 2) backup original WAL file
-				corruptedFile := fmt.Sprintf("%s.CORRUPTED", cs.config.WalFile())
-				if err := tmos.CopyFile(cs.config.WalFile(), corruptedFile); err != nil {
-					return err
-				}
-
-				cs.logger.Debug("backed up WAL file", "src", cs.config.WalFile(), "dst", corruptedFile)
-
-				// 3) try to repair (WAL file will be overwritten!)
-				if err := repairWalFile(corruptedFile, cs.config.WalFile()); err != nil {
-					cs.logger.Error("the WAL repair failed", "err", err)
-					return err
-				}
-
-				cs.logger.Info("successful WAL repair")
-
-				// reload WAL file
-				if err := cs.loadWalFile(ctx); err != nil {
-					return err
-				}
+			if err := cs.catchupReplay(ctx, cs.roundState.Height()); err != nil {
+				return fmt.Errorf("cs.catchupReplay(): %w", err)
 			}
 		}
-
 		// Double Signing Risk Reduction
 		if err := cs.checkDoubleSigningRisk(cs.roundState.Height()); err != nil {
 			return err
 		}
 
 		// now start the receiveRoutine
-		s.SpawnNamed("receivedRoutine", func() error { return cs.receiveRoutine(ctx, 0) })
+		s.SpawnNamed("receiveRoutine", func() error { return cs.receiveRoutine(ctx, 0) })
 		s.SpawnNamed("heartbeater", func() error { return cs.heartbeater(ctx) })
 
 		// schedule the first round!
@@ -448,35 +402,6 @@ func (cs *State) startRoutines(ctx context.Context, maxSteps int) {
 		}
 	}()
 	go cs.receiveRoutine(ctx, maxSteps)
-}
-
-// loadWalFile loads WAL data from file. It overwrites cs.wal.
-func (cs *State) loadWalFile(ctx context.Context) error {
-	wal, err := cs.OpenWAL(ctx, cs.config.WalFile())
-	if err != nil {
-		cs.logger.Error("failed to load state WAL", "err", err)
-		return err
-	}
-
-	cs.wal = wal
-	return nil
-}
-
-// OpenWAL opens a file to log all consensus messages and timeouts for
-// deterministic accountability.
-func (cs *State) OpenWAL(ctx context.Context, walFile string) (WAL, error) {
-	wal, err := NewWAL(ctx, cs.logger.With("wal", walFile), walFile)
-	if err != nil {
-		cs.logger.Error("failed to open WAL", "file", walFile, "err", err)
-		return nil, err
-	}
-
-	if err := wal.Start(ctx); err != nil {
-		cs.logger.Error("failed to start WAL", "err", err)
-		return nil, err
-	}
-
-	return wal, nil
 }
 
 //------------------------------------------------------------
@@ -597,7 +522,6 @@ func (cs *State) updateRoundStep(round int32, step cstypes.RoundStepType) {
 
 // enterNewRound(height, 0) at cs.StartTime.
 func (cs *State) scheduleRound0(rs *cstypes.RoundState) {
-	// cs.logger.Info("scheduleRound0", "now", tmtime.Now(), "startTime", cs.StartTime)
 	sleepDuration := rs.StartTime.Sub(tmtime.Now())
 	cs.scheduleTimeout(sleepDuration, rs.Height, 0, cstypes.RoundStepNewHeight)
 }
@@ -765,8 +689,8 @@ func (cs *State) updateToState(state sm.State) {
 
 func (cs *State) newStep() {
 	rs := cs.roundState.RoundStateEvent()
-	if err := cs.wal.Write(NewWALMessage(rs)); err != nil {
-		cs.logger.Error("failed writing to WAL", "err", err)
+	if err := cs.wal.Append(NewWALMessage(rs)); err != nil {
+		panic(fmt.Errorf("failed writing to WAL: %w", err))
 	}
 
 	cs.nSteps++
@@ -801,45 +725,16 @@ func (cs *State) heartbeater(ctx context.Context) error {
 // Updates (state transitions) happen on timeouts, complete proposals, and 2/3 majorities.
 // State must be locked before any internal state is updated.
 func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
-	onExit := func(cs *State) {
-		// NOTE: the internalMsgQueue may have signed messages from our
-		// priv_val that haven't hit the WAL, but its ok because
-		// priv_val tracks LastSig
-
-		// close wal now that we're done writing to it
-		cs.wal.Stop()
-		cs.wal.Wait()
-	}
-
 	defer func() {
 		if r := recover(); r != nil {
 			cs.logger.Error("CONSENSUS FAILURE!!!", "err", r, "stack", string(debug.Stack()))
-
-			// Make a best-effort attempt to close the WAL, but otherwise do not
-			// attempt to gracefully terminate. Once consensus has irrecoverably
-			// failed, any additional progress we permit the node to make may
-			// complicate diagnosing and recovering from the failure.
-			onExit(cs)
-
 			// There are a couple of cases where the we
 			// panic with an error from deeper within the
 			// state machine and in these cases, typically
 			// during a normal shutdown, we can continue
 			// with normal shutdown with safety. These
 			// cases are:
-			if err, ok := r.(error); ok {
-				// TODO(creachadair): In ordinary operation, the WAL autofile should
-				// never be closed. This only happens during shutdown and production
-				// nodes usually halt by panicking. Many existing tests, however,
-				// assume a clean shutdown is possible. Prior to #8111, we were
-				// swallowing the panic in receiveRoutine, making that appear to
-				// work. Filtering this specific error is slightly risky, but should
-				// affect only unit tests. In any case, not re-panicking here only
-				// preserves the pre-existing behavior for this one error type.
-				if errors.Is(err, autofile.ErrAutoFileClosed) {
-					return
-				}
-
+			if _, ok := r.(error); ok {
 				// don't re-panic if the panic is just an
 				// error and we're already trying to shut down
 				if ctx.Err() != nil {
@@ -867,7 +762,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 			cs.handleTxsAvailable(ctx)
 
 		case mi := <-cs.peerMsgQueue:
-			if err := cs.wal.Write(NewWALMessage(mi)); err != nil {
+			if err := cs.wal.Append(NewWALMessage(mi)); err != nil {
 				cs.logger.Error("failed writing to WAL", "err", err)
 			}
 			// handles proposals, block parts, votes
@@ -875,8 +770,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 			cs.handleMsg(ctx, mi, false)
 
 		case mi := <-cs.internalMsgQueue:
-			err := cs.wal.Write(NewWALMessage(mi))
-			if err != nil {
+			if err := cs.wal.Append(NewWALMessage(mi)); err != nil {
 				return fmt.Errorf(
 					"failed to write %v msg to consensus WAL due to %w; check your file system and restart the node",
 					mi, err,
@@ -887,8 +781,8 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 			cs.handleMsg(ctx, mi, true)
 
 		case ti := <-cs.timeoutTicker.Chan(): // tockChan:
-			if err := cs.wal.Write(NewWALMessage(ti)); err != nil {
-				cs.logger.Error("failed writing to WAL", "err", err)
+			if err := cs.wal.Append(NewWALMessage(ti)); err != nil {
+				return fmt.Errorf("failed writing to WAL: %w", err)
 			}
 
 			// if the timeout is relevant to the rs
@@ -896,7 +790,6 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 			cs.handleTimeout(ctx, ti, *cs.roundState.CopyInternal())
 
 		case <-ctx.Done():
-			onExit(cs)
 			return ctx.Err()
 		}
 		// TODO should we handle context cancels here?
@@ -905,7 +798,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 func (cs *State) fsyncAndCompleteProposal(ctx context.Context, fsyncUponCompletion bool, height int64, span otrace.Span, onPropose bool) {
 	cs.metrics.ProposalBlockCreatedOnPropose.With("success", strconv.FormatBool(onPropose)).Add(1)
 	if fsyncUponCompletion {
-		if err := cs.wal.FlushAndSync(); err != nil { // fsync
+		if err := cs.wal.Sync(); err != nil { // fsync
 			cs.logger.Error("Error flushing wal after receiving all block parts", "error", err)
 		}
 	}
@@ -1362,7 +1255,7 @@ func (cs *State) decideProposal(ctx context.Context, height int64, round int32, 
 
 	// Flush the WAL. Otherwise, we may not recompute the same proposal to sign,
 	// and the privValidator will refuse to sign anything.
-	if err := cs.wal.FlushAndSync(); err != nil {
+	if err := cs.wal.Sync(); err != nil {
 		cs.logger.Error("failed flushing WAL to disk")
 	}
 
@@ -2060,11 +1953,14 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 	endMsg := EndHeightMessage{height}
 	_, fsyncSpan := cs.tracer.Start(spanCtx, "cs.state.finalizeCommit.fsync")
 	defer fsyncSpan.End()
-	if err := cs.wal.WriteSync(NewWALMessage(endMsg)); err != nil { // NOTE: fsync
+	if err := cs.wal.Append(NewWALMessage(endMsg)); err != nil {
 		panic(fmt.Errorf(
 			"failed to write %v msg to consensus WAL due to %w; check your file system and restart the node",
 			endMsg, err,
 		))
+	}
+	if err := cs.wal.Sync(); err != nil {
+		panic(fmt.Errorf("cs.wal.Sync(): %w", err))
 	}
 	fsyncSpan.End()
 
@@ -2681,7 +2577,7 @@ func (cs *State) signVote(
 ) (*types.Vote, error) {
 	// Flush the WAL. Otherwise, we may not recompute the same vote to sign,
 	// and the privValidator will refuse to sign anything.
-	if err := cs.wal.FlushAndSync(); err != nil {
+	if err := cs.wal.Sync(); err != nil {
 		return nil, err
 	}
 
