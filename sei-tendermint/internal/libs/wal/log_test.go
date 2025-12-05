@@ -26,8 +26,8 @@ func OrPanic1[T any](v T, err error) T {
 
 func dump(l *Log) [][]byte {
 	var entries [][]byte
-	for offset:=l.MinOffset(); offset<=0; offset++ {
-		entries = append(entries,OrPanic1(l.ReadFile(offset))...)
+	for offset := l.MinOffset(); offset <= 0; offset++ {
+		entries = append(entries, OrPanic1(l.ReadFile(offset))...)
 	}
 	return entries
 }
@@ -41,7 +41,7 @@ func TestOpenForRead(t *testing.T) {
 	// Append minimal amount of data.
 	require.NoError(t, l.Append(entry))
 	// dump the log - the written entry should already be there.
-	require.NoError(t,utils.TestDiff(utils.Slice(entry), dump(l)))
+	require.NoError(t, utils.TestDiff(utils.Slice(entry), dump(l)))
 }
 
 func TestAppendRead(t *testing.T) {
@@ -109,8 +109,8 @@ func TestNoSync(t *testing.T) {
 	l = OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
 	got := dump(l)
-	require.True(t,len(got)>=syncEntries)
-	require.NoError(t,utils.TestDiff(want[:len(got)],got))
+	require.True(t, len(got) >= syncEntries)
+	require.NoError(t, utils.TestDiff(want[:len(got)], got))
 }
 
 func TestTruncation(t *testing.T) {
@@ -139,7 +139,7 @@ func TestTruncation(t *testing.T) {
 	l = OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
 	got := dump(l)
-	require.NoError(t,utils.TestDiff(want[:len(got)],got))
+	require.NoError(t, utils.TestDiff(want[:len(got)], got))
 }
 
 func TestSizeLimitsAndOffsets(t *testing.T) {
@@ -188,10 +188,10 @@ func TestSizeLimitsAndOffsets(t *testing.T) {
 	l = OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
 	got := dump(l)
-	require.NoError(t,utils.TestDiff(want[len(want)-len(got):],got))
+	require.NoError(t, utils.TestDiff(want[len(want)-len(got):], got))
 }
 
-// WARNING: this benchmark is executed agains tmp dir anyway,
+// WARNING: this benchmark is executed against tmp dir anyway,
 // so most likely in RAM FS.
 func BenchmarkAppendSync(b *testing.B) {
 	rng := utils.TestRng()

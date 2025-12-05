@@ -60,42 +60,42 @@ func openLockFile(headPath string) (*os.File, error) {
 // It is invalidated whenever ANY of the method call returns an error.
 // Log protects access to the invalidated logInner to avoid misuse.
 type logInner struct {
-	cfg        *Config
-	lockFile   *os.File
-	view       *logView
-	writer     *logWriter
+	cfg      *Config
+	lockFile *os.File
+	view     *logView
+	writer   *logWriter
 }
 
-// ReadFile reads the whole log file at a given offset. 
-func (i *logInner) ReadFile(fileOffset int) ([][]byte,error) {	
+// ReadFile reads the whole log file at a given offset.
+func (i *logInner) ReadFile(fileOffset int) ([][]byte, error) {
 	path, err := i.view.PathByOffset(fileOffset)
 	if err != nil {
-		return nil,err
+		return nil, err
 	}
-	if err:=i.writer.Sync(); err!=nil {
-		return nil,fmt.Errorf("i.Sync(): %w",err)
+	if err := i.writer.Sync(); err != nil {
+		return nil, fmt.Errorf("i.Sync(): %w", err)
 	}
 	r, err := openLogReader(path)
 	if err != nil {
-		return nil,err
+		return nil, err
 	}
 	var entries [][]byte
 	for {
 		entry, err := r.ReadEntry()
 		if err != nil {
 			if errors.Is(err, errEOF) {
-				return entries,nil
+				return entries, nil
 			}
-			return nil,fmt.Errorf("r.ReadEntry(): %w",err)
+			return nil, fmt.Errorf("r.ReadEntry(): %w", err)
 		}
-		entries = append(entries,entry)
+		entries = append(entries, entry)
 	}
 }
 
 func (i *logInner) Append(entry []byte) (err error) {
 	if limit := i.cfg.FileSizeLimit; limit > 0 && i.writer.bytesSize >= limit {
 		// Sync and close head.
-		if err:=i.writer.Sync(); err!=nil {
+		if err := i.writer.Sync(); err != nil {
 			return err
 		}
 		i.writer.Close()
@@ -105,8 +105,8 @@ func (i *logInner) Append(entry []byte) (err error) {
 		}
 		// Reopen head.
 		writer, err := openLogWriter(i.view.headPath)
-		if err!=nil {
-			return fmt.Errorf("openLogWriter(): %w",err)
+		if err != nil {
+			return fmt.Errorf("openLogWriter(): %w", err)
 		}
 		i.writer = writer
 	}
@@ -147,10 +147,10 @@ func OpenLog(headPath string, cfg *Config) (*Log, error) {
 		lockFile.Close()
 		return nil, fmt.Errorf("loadLogView(): %w", err)
 	}
-	writer,err := openLogWriter(headPath)
-	if err!=nil {
+	writer, err := openLogWriter(headPath)
+	if err != nil {
 		lockFile.Close()
-		return nil,fmt.Errorf("openLogWriter(): %w",err)
+		return nil, fmt.Errorf("openLogWriter(): %w", err)
 	}
 	return &Log{
 		inner: utils.Some(&logInner{
@@ -159,7 +159,7 @@ func OpenLog(headPath string, cfg *Config) (*Log, error) {
 			view:     view,
 			writer:   writer,
 		}),
-	},nil
+	}, nil
 }
 
 func (l *Log) MinOffset() int {
