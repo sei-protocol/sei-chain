@@ -3,10 +3,8 @@ package consensus
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"reflect"
-	"time"
 
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -35,32 +33,14 @@ import (
 // Unmarshal and apply a single message to the consensus state as if it were
 // received in receiveRoutine.  Lines that start with "#" are ignored.
 // NOTE: receiveRoutine should not be running.
-func (cs *State) readReplayMessage(ctx context.Context, msg WALMessage, newStepSub eventbus.Subscription) error {
+func (cs *State) readReplayMessage(ctx context.Context, msg WALMessage) error {
 	switch m := msg.any.(type) {
 	case EndHeightMessage:
 		// Skip meta messages which exist for demarcating boundaries.
-		fmt.Printf("REPLAY EndHeightMessage %v\n",m)
 		return nil
 	case types.EventDataRoundState:
-		fmt.Printf("REPLAY EventDataRoundState %+v\n",m)
 		cs.logger.Info("Replay: New Step", "height", m.Height, "round", m.Round, "step", m.Step)
-		// these are playback checks
-		if newStepSub != nil {
-			ctxto, cancel := context.WithTimeout(ctx, 2*time.Second)
-			defer cancel()
-			stepMsg, err := newStepSub.Next(ctxto)
-			if errors.Is(err, context.DeadlineExceeded) {
-				return fmt.Errorf("subscription timed out: %w", err)
-			} else if err != nil {
-				return fmt.Errorf("subscription canceled: %w", err)
-			}
-			m2 := stepMsg.Data().(types.EventDataRoundState)
-			if m.Height != m2.Height || m.Round != m2.Round || m.Step != m2.Step {
-				return fmt.Errorf("roundState mismatch. Got %v; Expected %v", m2, m)
-			}
-		}
 	case msgInfo:
-		fmt.Printf("REPLAY msgInfo %v\n",m)
 		peerID := m.PeerID
 		if peerID == "" {
 			peerID = "local"
@@ -92,28 +72,22 @@ func (cs *State) readReplayMessage(ctx context.Context, msg WALMessage, newStepS
 // Replay only those messages since the last block.  `timeoutRoutine` should
 // run concurrently to read off tickChan.
 func (cs *State) catchupReplay(ctx context.Context, csHeight int64) error {
-	fmt.Printf("REPLAY csHeight = %v\n",csHeight)
 	// Set replayMode to true so we don't log signing errors.
 	cs.replayMode = true
 	defer func() { cs.replayMode = false }()
-
-	// Ensure that #ENDHEIGHT for this height doesn't exist.
-	// NOTE: This is just a sanity check. As far as we know things work fine
-	// without it, and Handshake could reuse State if it weren't for
-	// this check (since we can crash after writing #ENDHEIGHT).
 	gotHeight, msgs, err := cs.wal.ReadLastHeightMsgs()
 	if err != nil {
 		return fmt.Errorf("cs.wal.ReadLastHeightMsgs(): %w", err)
 	}
-	if gotHeight!=csHeight {
-		return fmt.Errorf("last height in WAL is %v, want %v",gotHeight,csHeight)
+	if gotHeight != csHeight {
+		return fmt.Errorf("last height in WAL is %v, want %v", gotHeight, csHeight)
 	}
 	cs.logger.Info("Catchup by replaying consensus messages", "height", csHeight)
-	for _,msg := range msgs {
+	for _, msg := range msgs {
 		// NOTE: since the priv key is set when the msgs are received
 		// it will attempt to eg double sign but we can just ignore it
 		// since the votes will be replayed and we'll get to the next step
-		if err := cs.readReplayMessage(ctx, msg, nil); err != nil {
+		if err := cs.readReplayMessage(ctx, msg); err != nil {
 			return err
 		}
 	}

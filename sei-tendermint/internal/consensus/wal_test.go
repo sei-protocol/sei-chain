@@ -27,7 +27,7 @@ func TestWAL_AppendRead(t *testing.T) {
 		require.NoError(t, wal.Append(msg))
 	}
 	require.NoError(t, wal.Sync())
-	got := dumpWAL(t,wal)
+	got := dumpWAL(t, wal)
 	require.NoError(t, utils.TestDiff(msgs, got[1:]))
 }
 
@@ -66,8 +66,8 @@ func TestWAL_ReadLastMsgs(t *testing.T) {
 
 	gotHeight, msgs, err := wal.ReadLastHeightMsgs()
 	require.NoError(t, err)
-	require.True(t, gotHeight>3)
-	if len(msgs)>0 {
+	require.True(t, gotHeight > 3)
+	if len(msgs) > 0 {
 		rs, ok := msgs[0].any.(tmtypes.EventDataRoundState)
 		require.True(t, ok, "expected message of type EventDataRoundState")
 		require.Equal(t, rs.Height, gotHeight, "wrong height")

@@ -256,37 +256,39 @@ func (w *WAL) Append(msg WALMessage) error {
 	panic("unreachable")
 }
 
-func walFromBytes(msgBytes []byte) (WALMessage,error) {
+func walFromBytes(msgBytes []byte) (WALMessage, error) {
 	var msgPB tmcons.TimedWALMessage
 	if err := proto.Unmarshal(msgBytes, &msgPB); err != nil {
-		return WALMessage{},fmt.Errorf("proto.Unmarshal(): %w", err)
+		return WALMessage{}, fmt.Errorf("proto.Unmarshal(): %w", err)
 	}
 	return walFromProto(msgPB.Msg)
 }
 
 // ReadLastHeightMsgs() - reads and returns all messages after the last EndHeightMessage marker.
 // Returns height the messages belong to (i.e. EndHeightMessage.Height + 1)
-func (w *WAL) ReadLastHeightMsgs() (int64,[]WALMessage,error) {
+func (w *WAL) ReadLastHeightMsgs() (int64, []WALMessage, error) {
 	var msgsRev []WALMessage
 	for inner := range w.inner.Lock() {
-		// Read files from the last, looking for the first EndHeightMessage marker. 
+		// Read files from the last, looking for the first EndHeightMessage marker.
 		minOffset := inner.MinOffset()
 		for offset := 0; offset >= minOffset; offset-- {
-			fileEntries,err := inner.ReadFile(offset)
-			if err!=nil {
+			fileEntries, err := inner.ReadFile(offset)
+			if err != nil {
 				return 0, nil, fmt.Errorf("w.inner.OpenForRead(): %w", err)
 			}
-			for i:=len(fileEntries)-1; i>=0; i-- {
-				msg,err := walFromBytes(fileEntries[i])
-				if err!=nil { return 0,nil,fmt.Errorf("walFromBytes(): %w",err) }
-				if msg,ok := msg.any.(EndHeightMessage); ok {
-					slices.Reverse(msgsRev)
-					return msg.Height+1,msgsRev,nil
+			for i := len(fileEntries) - 1; i >= 0; i-- {
+				msg, err := walFromBytes(fileEntries[i])
+				if err != nil {
+					return 0, nil, fmt.Errorf("walFromBytes(): %w", err)
 				}
-				msgsRev = append(msgsRev,msg)
+				if msg, ok := msg.any.(EndHeightMessage); ok {
+					slices.Reverse(msgsRev)
+					return msg.Height + 1, msgsRev, nil
+				}
+				msgsRev = append(msgsRev, msg)
 			}
 		}
 	}
 	slices.Reverse(msgsRev)
-	return 1,msgsRev,nil
+	return 1, msgsRev, nil
 }

@@ -522,7 +522,6 @@ func (cs *State) updateRoundStep(round int32, step cstypes.RoundStepType) {
 
 // enterNewRound(height, 0) at cs.StartTime.
 func (cs *State) scheduleRound0(rs *cstypes.RoundState) {
-	// cs.logger.Info("scheduleRound0", "now", tmtime.Now(), "startTime", cs.StartTime)
 	sleepDuration := rs.StartTime.Sub(tmtime.Now())
 	cs.scheduleTimeout(sleepDuration, rs.Height, 0, cstypes.RoundStepNewHeight)
 }
