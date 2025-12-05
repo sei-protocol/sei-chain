@@ -14,8 +14,19 @@ func NewEVMNoCosmosFieldsDecorator() EVMNoCosmosFieldsDecorator {
 	return EVMNoCosmosFieldsDecorator{}
 }
 
+type protoTxProvider interface {
+	GetProtoTx() *txtypes.Tx
+}
+
 func (d EVMNoCosmosFieldsDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
-	txBody, ok := tx.(interface {
+	protoTx := tx
+	if txWrapper, ok := tx.(protoTxProvider); ok {
+		if inner := txWrapper.GetProtoTx(); inner != nil {
+			protoTx = inner
+		}
+	}
+
+	txBody, ok := protoTx.(interface {
 		GetBody() *txtypes.TxBody
 	})
 	if ok {
@@ -31,7 +42,7 @@ func (d EVMNoCosmosFieldsDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simul
 		}
 	}
 
-	txAuth, ok := tx.(interface {
+	txAuth, ok := protoTx.(interface {
 		GetAuthInfo() *txtypes.AuthInfo
 	})
 	if ok {
@@ -60,6 +71,10 @@ func (d EVMNoCosmosFieldsDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simul
 		if len(sigs) > 0 {
 			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "signatures must be empty for EVM txs")
 		}
+	} else if rawSigTx, ok := protoTx.(interface {
+		GetSignatures() [][]byte
+	}); ok && len(rawSigTx.GetSignatures()) > 0 {
+		return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "signatures must be empty for EVM txs")
 	}
 
 	return next(ctx, tx, simulate)
