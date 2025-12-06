@@ -29,7 +29,9 @@ import (
 const TxSearchPerPage = 10
 
 const (
-	// DB Concurrency Read Limit
+	// MaxDBReadConcurrency is the default DB read concurrency limit.
+	// In practice, this is aligned with WorkerPoolSize at runtime.
+	// This constant is only used as a fallback for metrics initialization.
 	MaxDBReadConcurrency = 16
 
 	// Default request limits (used as fallback values)
@@ -561,6 +563,23 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 	// Only apply rate limiting for large queries (> RPSLimitThreshold blocks)
 	if blockRange > RPSLimitThreshold && !a.globalRPSLimiter.Allow() {
 		return nil, fmt.Errorf("log query rate limit exceeded for large queries, please try again later")
+	}
+
+	// Backpressure: early rejection based on system load
+	m := GetGlobalMetrics()
+
+	// Check 1: Too many pending tasks (queue backlog)
+	pending := m.TasksSubmitted.Load() - m.TasksCompleted.Load()
+	maxPending := int64(float64(m.QueueCapacity) * 0.8) // 80% threshold
+	if pending > maxPending {
+		return nil, fmt.Errorf("server too busy, rejecting new request (pending: %d, threshold: %d)", pending, maxPending)
+	}
+
+	// Check 2: I/O saturated (semaphore exhausted)
+	semInUse := m.DBSemaphoreAcquired.Load()
+	semCapacity := m.DBSemaphoreCapacity
+	if semCapacity > 0 && float64(semInUse)/float64(semCapacity) >= 0.8 {
+		return nil, fmt.Errorf("server I/O saturated, rejecting new request (semaphore: %d/%d in use)", semInUse, semCapacity)
 	}
 
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
