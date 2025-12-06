@@ -72,7 +72,8 @@ func InitGlobalMetrics(workerCount, queueCapacity, dbSemaphoreCapacity int) *Wor
 func GetGlobalMetrics() *WorkerPoolMetrics {
 	if globalMetrics == nil {
 		// Initialize with defaults if not already done
-		InitGlobalMetrics(MaxWorkerPoolSize, DefaultWorkerQueueSize, MaxDBReadConcurrency)
+		// DB semaphore is aligned with worker count
+		InitGlobalMetrics(MaxWorkerPoolSize, DefaultWorkerQueueSize, MaxWorkerPoolSize)
 	}
 	return globalMetrics
 }
@@ -408,9 +409,6 @@ func (m *WorkerPoolMetrics) PrintMetrics() {
 	// Alert conditions
 	if s.QueueUtilization > 80 {
 		fmt.Printf("⚠️  WARNING: Queue utilization at %.1f%% - approaching saturation!\n", s.QueueUtilization)
-	}
-	if s.GetLogsErrorRate > 5 {
-		fmt.Printf("⚠️  WARNING: eth_getLogs error rate at %.1f%%!\n", s.GetLogsErrorRate)
 	}
 	if s.DBSemaphoreAvail == 0 {
 		fmt.Println("⚠️  WARNING: DB Semaphore exhausted - all slots in use!")
