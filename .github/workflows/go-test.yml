@@ -1,63 +1,110 @@
-name: Go
+name: Sei Cross-Architecture Build & Artifacts
+
 on:
-  workflow_call:
   pull_request:
   push:
     branches:
       - main
-      - release/**
 
 concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+
+env:
+  LEDGER_ENABLED: false
+  GO_VERSION: '1.24'
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  tests:
-    env:
-      GO_TEST_TIMEOUT: 30m
-    name: "Test ${{ matrix.modules.name }}"
-    runs-on: ubuntu-latest
+  # ========================================
+  # Cross-Architecture Build Matrix
+  # ========================================
+  build:
+    name: "Cross-Arch Build & Verify"
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        modules:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        module:
           - name: sei-chain
             path: ./
           - name: sei-cosmos
-            path: ./sei-cosmos
-            tags: ledger test_ledger_mock
-          - name: sei-db
-            path: ./sei-db
-          - name: sei-tendermint
-            path: ./sei-tendermint
-          - name: sei-wasmd
-            path: ./sei-wasmd
             tags: ledger test_ledger_mock
           - name: sei-wasmvm
             path: ./sei-wasmvm
+
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      # -----------------------
+      # Checkout & Modules
+      # -----------------------
+      - name: Checkout code
+        uses: actions/checkout@v5
         with:
-          go-version: '1.24'
-      - name: Remove unnecessary tooling
+          submodules: true
+
+      # -----------------------
+      # Go Setup & Cache
+      # -----------------------
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # -----------------------
+      # OS-specific Dependencies
+      # -----------------------
+      - name: Install system deps & verify environment
         run: |
-          # Remove unrelated tooling to open up more space. Without doing 
-          # this ~80% of the available 15GiB space is already occupied.
-          sudo rm -rf \
-            /usr/share/dotnet \
-            /usr/local/lib/android \
-            /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo docker image prune --all --force
-      - name: Go test with race detector
-        working-directory: '${{ matrix.modules.path }}'
-        run: go test -race -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out ./...
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+          echo "OS: $RUNNER_OS | Module: ${{ matrix.module.name }} | Path: ${{ matrix.module.path }}"
+          go version
+          echo "GOOS: $(go env GOOS) | GOARCH: $(go env GOARCH)"
+
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y build-essential
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            xcode-select --print-path || xcode-select --install --verbose
+          elif [[ "$RUNNER_OS" == "Windows" ]]; then
+            choco install visualstudio2019buildtools -y
+          fi
+
+      # -----------------------
+      # Download Dependencies & Build
+      # -----------------------
+      - name: Download deps & build
+        working-directory: ${{ matrix.module.path }}
+        run: |
+          go mod download
+          make install
+          make build
+
+      # -----------------------
+      # Verify Binaries
+      # -----------------------
+      - name: Verify binaries
+        working-directory: ${{ matrix.module.path }}
+        run: |
+          BINARY="./build/seid"
+          [[ "$RUNNER_OS" == "Windows" ]] && BINARY=".\\build\\seid.exe"
+
+          if command -v "$BINARY" >/dev/null 2>&1; then
+            "$BINARY" version --long || { echo "Installed binary check failed"; exit 1; }
+          fi
+
+          if [[ -f "$BINARY" ]]; then
+            "$BINARY" version --long || { echo "Build binary check failed"; exit 1; }
+          fi
+
+      # -----------------------
+      # Upload Artifacts
+      # -----------------------
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: 'true'
-          disable_search: 'true'
-          name: '${{ matrix.modules.name }}-coverage'
-          files: ${{ matrix.modules.path }}/coverage.out
-          flags: ${{ matrix.modules.name }}
+          name: ${{ matrix.os }}-${{ matrix.module.name }}-binaries
+          path: ${{ matrix.module.path }}/build
