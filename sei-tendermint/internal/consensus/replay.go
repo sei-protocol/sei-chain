@@ -31,7 +31,7 @@ import (
 //-----------------------------------------
 
 // Unmarshal and apply a single message to the consensus state as if it were
-// received in receiveRoutine.  Lines that start with "#" are ignored.
+// received in receiveRoutine.
 // NOTE: receiveRoutine should not be running.
 func (cs *State) readReplayMessage(ctx context.Context, msg WALMessage) error {
 	switch m := msg.any.(type) {
@@ -78,6 +78,11 @@ func (cs *State) catchupReplay(ctx context.Context, csHeight int64) error {
 	gotHeight, msgs, err := cs.wal.ReadLastHeightMsgs()
 	if err != nil {
 		return fmt.Errorf("cs.wal.ReadLastHeightMsgs(): %w", err)
+	}
+	if gotHeight < csHeight {
+		// This is expected in case of state/block sync - we have not participated in
+		// the recent heights at all.
+		return nil
 	}
 	if gotHeight != csHeight {
 		return fmt.Errorf("last height in WAL is %v, want %v", gotHeight, csHeight)
