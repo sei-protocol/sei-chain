@@ -2,10 +2,15 @@ syntax = "proto3";
 
 package tendermint.crypto;
 
+import "gogoproto/gogo.proto";
+
 option go_package = "github.com/tendermint/tendermint/proto/tendermint/crypto";
 
 // PublicKey defines the keys available for use with Tendermint Validators
 message PublicKey {
+  option (gogoproto.compare) = true;
+  option (gogoproto.equal) = true;
+
   oneof sum {
     bytes ed25519 = 1;
   }
