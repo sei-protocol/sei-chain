@@ -3,12 +3,8 @@ package consensus
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
-	"hash/crc32"
-	"io"
 	"reflect"
-	"time"
 
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -17,11 +13,8 @@ import (
 	"github.com/tendermint/tendermint/internal/proxy"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
 )
-
-var crc32c = crc32.MakeTable(crc32.Castagnoli)
 
 // Functionality to replay blocks and messages on recovery from a crash.
 // There are two general failure scenarios:
@@ -38,33 +31,15 @@ var crc32c = crc32.MakeTable(crc32.Castagnoli)
 //-----------------------------------------
 
 // Unmarshal and apply a single message to the consensus state as if it were
-// received in receiveRoutine.  Lines that start with "#" are ignored.
+// received in receiveRoutine.
 // NOTE: receiveRoutine should not be running.
-func (cs *State) readReplayMessage(ctx context.Context, msg *TimedWALMessage, newStepSub eventbus.Subscription) error {
-	// Skip meta messages which exist for demarcating boundaries.
-	if _, ok := msg.Msg.any.(EndHeightMessage); ok {
+func (cs *State) readReplayMessage(ctx context.Context, msg WALMessage) error {
+	switch m := msg.any.(type) {
+	case EndHeightMessage:
+		// Skip meta messages which exist for demarcating boundaries.
 		return nil
-	}
-
-	// for logging
-	switch m := msg.Msg.any.(type) {
 	case types.EventDataRoundState:
 		cs.logger.Info("Replay: New Step", "height", m.Height, "round", m.Round, "step", m.Step)
-		// these are playback checks
-		if newStepSub != nil {
-			ctxto, cancel := context.WithTimeout(ctx, 2*time.Second)
-			defer cancel()
-			stepMsg, err := newStepSub.Next(ctxto)
-			if errors.Is(err, context.DeadlineExceeded) {
-				return fmt.Errorf("subscription timed out: %w", err)
-			} else if err != nil {
-				return fmt.Errorf("subscription canceled: %w", err)
-			}
-			m2 := stepMsg.Data().(types.EventDataRoundState)
-			if m.Height != m2.Height || m.Round != m2.Round || m.Step != m2.Step {
-				return fmt.Errorf("roundState mismatch. Got %v; Expected %v", m2, m)
-			}
-		}
 	case msgInfo:
 		peerID := m.PeerID
 		if peerID == "" {
@@ -89,7 +64,7 @@ func (cs *State) readReplayMessage(ctx context.Context, msg *TimedWALMessage, ne
 		roundState := cs.roundState.CopyInternal()
 		cs.handleTimeout(ctx, m, *roundState)
 	default:
-		return fmt.Errorf("replay: Unknown TimedWALMessage type: %v", reflect.TypeOf(msg.Msg))
+		return fmt.Errorf("replay: Unknown TimedWALMessage type: %v", reflect.TypeOf(msg))
 	}
 	return nil
 }
@@ -97,72 +72,27 @@ func (cs *State) readReplayMessage(ctx context.Context, msg *TimedWALMessage, ne
 // Replay only those messages since the last block.  `timeoutRoutine` should
 // run concurrently to read off tickChan.
 func (cs *State) catchupReplay(ctx context.Context, csHeight int64) error {
-
 	// Set replayMode to true so we don't log signing errors.
 	cs.replayMode = true
 	defer func() { cs.replayMode = false }()
-
-	// Ensure that #ENDHEIGHT for this height doesn't exist.
-	// NOTE: This is just a sanity check. As far as we know things work fine
-	// without it, and Handshake could reuse State if it weren't for
-	// this check (since we can crash after writing #ENDHEIGHT).
-	//
-	// Ignore data corruption errors since this is a sanity check.
-	gr, found, err := cs.wal.SearchForEndHeight(csHeight, &WALSearchOptions{IgnoreDataCorruptionErrors: true})
+	gotHeight, msgs, err := cs.wal.ReadLastHeightMsgs()
 	if err != nil {
-		return err
+		return fmt.Errorf("cs.wal.ReadLastHeightMsgs(): %w", err)
 	}
-	if gr != nil {
-		if err := gr.Close(); err != nil {
-			return err
-		}
+	if gotHeight < csHeight {
+		// This is expected in case of state/block sync - we have not participated in
+		// the recent heights at all.
+		return nil
 	}
-	if found {
-		return fmt.Errorf("wal should not contain #ENDHEIGHT %d", csHeight)
+	if gotHeight != csHeight {
+		return fmt.Errorf("last height in WAL is %v, want %v", gotHeight, csHeight)
 	}
-
-	// Search for last height marker.
-	//
-	// Ignore data corruption errors in previous heights because we only care about last height
-	if csHeight < cs.state.InitialHeight {
-		return fmt.Errorf("cannot replay height %v, below initial height %v", csHeight, cs.state.InitialHeight)
-	}
-	endHeight := csHeight - 1
-	if csHeight == cs.state.InitialHeight {
-		endHeight = 0
-	}
-	gr, found, err = cs.wal.SearchForEndHeight(endHeight, &WALSearchOptions{IgnoreDataCorruptionErrors: true})
-	if err == io.EOF {
-		cs.logger.Error("Replay: wal.group.Search returned EOF", "#ENDHEIGHT", endHeight)
-	} else if err != nil {
-		return err
-	}
-	if !found {
-		return fmt.Errorf("cannot replay height %d. WAL does not contain #ENDHEIGHT for %d", csHeight, endHeight)
-	}
-	defer gr.Close()
-
 	cs.logger.Info("Catchup by replaying consensus messages", "height", csHeight)
-
-	var msg *TimedWALMessage
-
-LOOP:
-	for {
-		msg, err = decode(gr)
-		switch {
-		case errors.Is(err, io.EOF):
-			break LOOP
-		case utils.ErrorAs[DataCorruptionError](err).IsPresent():
-			cs.logger.Error("data has been corrupted in last height of consensus WAL", "err", err, "height", csHeight)
-			return err
-		case err != nil:
-			return err
-		}
-
+	for _, msg := range msgs {
 		// NOTE: since the priv key is set when the msgs are received
 		// it will attempt to eg double sign but we can just ignore it
 		// since the votes will be replayed and we'll get to the next step
-		if err := cs.readReplayMessage(ctx, msg, nil); err != nil {
+		if err := cs.readReplayMessage(ctx, msg); err != nil {
 			return err
 		}
 	}

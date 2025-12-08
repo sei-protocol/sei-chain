@@ -320,7 +320,7 @@ func MakeGenesisState(genDoc *types.GenesisDoc) (State, error) {
 	}
 
 	var validatorSet, nextValidatorSet *types.ValidatorSet
-	if genDoc.Validators == nil || len(genDoc.Validators) == 0 {
+	if len(genDoc.Validators) == 0 {
 		validatorSet = types.NewValidatorSet(nil)
 		nextValidatorSet = types.NewValidatorSet(nil)
 	} else {
