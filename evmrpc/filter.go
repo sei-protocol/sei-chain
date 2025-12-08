@@ -560,6 +560,12 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 		return nil, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, a.filterConfig.maxBlock)
 	}
 
+	// Early rejection for pruned blocks - avoid wasting resources on blocks that don't exist
+	earliest := a.logFetcher.earliestVersion()
+	if earliest > 0 && begin < earliest {
+		return nil, fmt.Errorf("requested block range [%d, %d] includes pruned blocks, earliest available block is %d", begin, end, earliest)
+	}
+
 	// Only apply rate limiting for large queries (> RPSLimitThreshold blocks)
 	if blockRange > RPSLimitThreshold && !a.globalRPSLimiter.Allow() {
 		return nil, fmt.Errorf("log query rate limit exceeded for large queries, please try again later")

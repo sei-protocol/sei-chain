@@ -313,7 +313,7 @@ func (m *WorkerPoolMetrics) categorizeError(err error) {
 		m.ErrBackpressure.Add(1)
 	case contains(errStr, "I/O saturated") || contains(errStr, "semaphore"):
 		m.ErrIOSaturated.Add(1)
-	case contains(errStr, "block not found") || contains(errStr, "height is not available"):
+	case contains(errStr, "block not found") || contains(errStr, "height is not available") || contains(errStr, "pruned blocks"):
 		m.ErrBlockNotFound.Add(1)
 	case contains(errStr, "queue is full") || contains(errStr, "system overloaded"):
 		m.ErrQueueFull.Add(1)
