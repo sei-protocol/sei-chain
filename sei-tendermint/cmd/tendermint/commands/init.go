@@ -35,7 +35,7 @@ func MakeInitFilesCommand(conf *config.Config, logger log.Logger) *cobra.Command
 	}
 
 	cmd.Flags().StringVar(&keyType, "key", types.ABCIPubKeyTypeEd25519,
-		"Key type to generate privval file with. Options: ed25519, secp256k1")
+		"Key type to generate privval file with (ed25519 only)")
 
 	return cmd
 }
@@ -91,11 +91,6 @@ func initFilesWithConfig(ctx context.Context, conf *config.Config, logger log.Lo
 			ChainID:         fmt.Sprintf("test-chain-%v", tmrand.Str(6)),
 			GenesisTime:     tmtime.Now(),
 			ConsensusParams: types.DefaultConsensusParams(),
-		}
-		if keyType == "secp256k1" {
-			genDoc.ConsensusParams.Validator = types.ValidatorParams{
-				PubKeyTypes: []string{types.ABCIPubKeyTypeSecp256k1},
-			}
 		}
 
 		ctx, cancel := context.WithTimeout(ctx, ctxTimeout)

@@ -210,7 +210,7 @@ func (s *TestWrapper) EndBlock() {
 
 func setupReceiptStore() (seidbtypes.StateStore, error) {
 	// Create a unique temporary directory per test process to avoid Pebble DB lock conflicts
-	baseDir := filepath.Join(DefaultNodeHome, "test", "sei-testing")
+	baseDir := filepath.Join(os.TempDir(), "sei-testing")
 	if err := os.MkdirAll(baseDir, 0o750); err != nil {
 		return nil, err
 	}

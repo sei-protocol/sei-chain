@@ -16,7 +16,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/sr25519"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
@@ -147,18 +146,12 @@ func (sc *SignerClient) GetValKeys() []cryptotypes.PrivKey {
 			panic(err)
 		}
 
-		var privKey cryptotypes.PrivKey
-		if algo == string(hd.Sr25519Type) {
-			typedKey := &sr25519.PrivKey{}
-			if err := typedKey.UnmarshalJSON(privKeyBytes); err != nil {
-				panic(err)
-			}
-			privKey = typedKey
-		} else {
-			privKey, err = legacy.PrivKeyFromBytes(privKeyBytes)
-			if err != nil {
-				panic(err)
-			}
+		if algo != string(hd.Secp256k1Type) {
+			panic("unsupported validator key type: " + algo)
+		}
+		privKey, err := legacy.PrivKeyFromBytes(privKeyBytes)
+		if err != nil {
+			panic(err)
 		}
 
 		valKeys = append(valKeys, privKey)
