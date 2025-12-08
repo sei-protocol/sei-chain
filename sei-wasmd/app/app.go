@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -717,7 +716,7 @@ func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBl
 
 	txResults := []*abci.ExecTxResult{}
 	for i, tx := range req.Txs {
-		ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
+		ctx = ctx.WithTxIndex(i)
 		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTxV2{
 			Tx: tx,
 		}, typedTxs[i], sha256.Sum256(tx))
