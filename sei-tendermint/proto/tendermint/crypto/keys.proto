@@ -14,6 +14,6 @@ message PublicKey {
   oneof sum {
     bytes ed25519 = 1;
   }
-  reserved 2,3;
+  reserved 2, 3;
   reserved "secp256k1", "sr25519";
 }
