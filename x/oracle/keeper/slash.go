@@ -31,7 +31,8 @@ func (k Keeper) SlashAndResetCounters(ctx sdk.Context) {
 			QuoInt64(int64(totalVotes))
 
 		// Penalize the validator whose the valid vote rate is smaller than min threshold
-		if validVoteRate.LT(minValidPerWindow) {
+		// Skip slashing for Arctic-1 block 129816000
+		if !(ctx.ChainID() == "arctic-1" && ctx.BlockHeight() == 129816000) && validVoteRate.LT(minValidPerWindow) {
 			validator := k.StakingKeeper.Validator(ctx, operator)
 			if validator.IsBonded() && !validator.IsJailed() {
 				consAddr, err := validator.GetConsAddr()
