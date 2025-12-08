@@ -135,6 +135,7 @@ func TestNodeSetAppVersion(t *testing.T) {
 	n := getTestNode(ctx, t, cfg, logger)
 
 	require.NoError(t, n.Start(ctx))
+	defer n.Stop()
 
 	// default config uses the kvstore app
 	appVersion := kvstore.ProtocolVersion
@@ -511,7 +512,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	state.Version.Consensus.Block = math.MaxInt64
 	state.Version.Consensus.App = math.MaxInt64
 	maxChainID := ""
-	for i := 0; i < types.MaxChainIDLen; i++ {
+	for range types.MaxChainIDLen {
 		maxChainID += "𠜎"
 	}
 	state.ChainID = maxChainID
