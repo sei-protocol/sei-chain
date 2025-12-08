@@ -116,6 +116,7 @@ func TestNodeDelayedStart(t *testing.T) {
 	n.GenesisDoc().GenesisTime = now.Add(2 * time.Second)
 
 	require.NoError(t, n.Start(ctx))
+	defer n.Stop()
 
 	startTime := tmtime.Now()
 	assert.Equal(t, true, startTime.After(n.GenesisDoc().GenesisTime))
