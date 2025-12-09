@@ -876,8 +876,8 @@ func DefaultMempoolConfig() *MempoolConfig {
 		TTLDuration:                  5 * time.Second, // prevent stale txs from filling mempool
 		TTLNumBlocks:                 10,              // remove txs after 10 blocks
 		TxNotifyThreshold:            0,
-		CheckTxErrorBlacklistEnabled: false,
-		CheckTxErrorThreshold:        0,
+		CheckTxErrorBlacklistEnabled: true,
+		CheckTxErrorThreshold:        50,
 		PendingSize:                  5000,
 		MaxPendingTxsBytes:           1024 * 1024 * 1024, // 1GB
 		PendingTTLDuration:           0 * time.Second,
