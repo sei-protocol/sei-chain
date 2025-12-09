@@ -1,4 +1,4 @@
-package internal 
+package internal
 
 import (
 	"crypto/rand"
@@ -29,9 +29,8 @@ type PrivKey struct {
 }
 
 // TypeTag satisfies the jsontypes.Tagged interface.
-func (PrivKey) TypeTag() string { return PrivKeyName }
+func (PrivKey) TypeTag() string      { return PrivKeyName }
 func (privKey PrivKey) Type() string { return KeyType }
-
 
 // Bytes returns the byte-encoded PrivKey.
 func (privKey PrivKey) Bytes() []byte {
@@ -84,7 +83,6 @@ func (privKey PrivKey) Equals(other PrivKey) bool {
 	return privKey.msk.Equal(&other.msk)
 }
 
-
 func (privKey PrivKey) MarshalJSON() ([]byte, error) {
 	var b []byte
 
@@ -122,7 +120,6 @@ func (privKey *PrivKey) UnmarshalJSON(data []byte) error {
 
 	return nil
 }
-
 
 // GenPrivKey generates a new sr25519 private key.
 // It uses OS randomness in conjunction with the current global random seed

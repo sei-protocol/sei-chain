@@ -1,8 +1,8 @@
 package sr25519
 
 import (
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/sr25519/internal"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 )
 
 const (
