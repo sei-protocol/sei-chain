@@ -1,29 +1,28 @@
 name: Sei Cross-Architecture Build & Artifacts
 
 on:
+  workflow_call:
   pull_request:
   push:
     branches:
       - main
+      - release/**
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.sha }}
   cancel-in-progress: true
 
 env:
-  LEDGER_ENABLED: false
   GO_VERSION: '1.24'
+  LEDGER_ENABLED: false
+  GO_TEST_TIMEOUT: 30m
 
 defaults:
   run:
     shell: bash
 
 jobs:
-  # ========================================
-  # Cross-Architecture Build Matrix
-  # ========================================
   build:
-    name: "Cross-Arch Build & Verify"
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -32,79 +31,94 @@ jobs:
         module:
           - name: sei-chain
             path: ./
+            tags: ""
           - name: sei-cosmos
-            tags: ledger test_ledger_mock
+            path: ./sei-cosmos
+            tags: "ledger test_ledger_mock"
+          - name: sei-db
+            path: ./sei-db
+            tags: ""
+          - name: sei-tendermint
+            path: ./sei-tendermint
+            tags: ""
+          - name: sei-wasmd
+            path: ./sei-wasmd
+            tags: "ledger test_ledger_mock"
           - name: sei-wasmvm
             path: ./sei-wasmvm
+            tags: ""
+
+    name: "Cross-Arch Build & Verify ${{ matrix.module.name }} on ${{ matrix.os }}"
 
     steps:
-      # -----------------------
-      # Checkout & Modules
-      # -----------------------
       - name: Checkout code
         uses: actions/checkout@v5
         with:
           submodules: true
 
-      # -----------------------
-      # Go Setup & Cache
-      # -----------------------
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
 
-      # -----------------------
-      # OS-specific Dependencies
-      # -----------------------
-      - name: Install system deps & verify environment
+      - name: Install OS-specific dependencies
         run: |
           echo "OS: $RUNNER_OS | Module: ${{ matrix.module.name }} | Path: ${{ matrix.module.path }}"
-          go version
-          echo "GOOS: $(go env GOOS) | GOARCH: $(go env GOARCH)"
-
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             sudo apt-get update -qq
-            sudo apt-get install -y build-essential
+            sudo apt-get install -y build-essential git curl
+            sudo docker image prune --all --force
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            xcode-select --print-path || xcode-select --install --verbose
+            xcode-select --print-path || xcode-select --install
           elif [[ "$RUNNER_OS" == "Windows" ]]; then
             choco install visualstudio2019buildtools -y
           fi
 
-      # -----------------------
-      # Download Dependencies & Build
-      # -----------------------
-      - name: Download deps & build
+      - name: Download dependencies
+        working-directory: ${{ matrix.module.path }}
+        run: go mod download
+
+      - name: Build module
         working-directory: ${{ matrix.module.path }}
         run: |
-          go mod download
           make install
           make build
 
-      # -----------------------
-      # Verify Binaries
-      # -----------------------
-      - name: Verify binaries
+      - name: Go test with race detector
         working-directory: ${{ matrix.module.path }}
         run: |
-          BINARY="./build/seid"
-          [[ "$RUNNER_OS" == "Windows" ]] && BINARY=".\\build\\seid.exe"
-
-          if command -v "$BINARY" >/dev/null 2>&1; then
-            "$BINARY" version --long || { echo "Installed binary check failed"; exit 1; }
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            go test -race -tags="${{ matrix.module.tags }}" -timeout="${{ env.GO_TEST_TIMEOUT }}" -covermode=atomic -coverprofile=coverage.out ./...
+          else
+            go test -race -tags="${{ matrix.module.tags }}" -timeout="${{ env.GO_TEST_TIMEOUT }}" -covermode=atomic -coverprofile=coverage.out ./...
           fi
 
-          if [[ -f "$BINARY" ]]; then
-            "$BINARY" version --long || { echo "Build binary check failed"; exit 1; }
+      - name: Verify binary
+        working-directory: ${{ matrix.module.path }}
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            BINARY=".\\build\\seid.exe"
+          else
+            BINARY="./build/seid"
           fi
+          if [[ ! -f "$BINARY" ]]; then
+            echo "ERROR: Binary $BINARY does not exist!"
+            ls -R ./build
+            exit 1
+          fi
+          "$BINARY" version --long
 
-      # -----------------------
-      # Upload Artifacts
-      # -----------------------
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          name: '${{ matrix.module.name }}-coverage'
+          files: ${{ matrix.module.path }}/coverage.out
+          fail_ci_if_error: true
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-${{ matrix.module.name }}-binaries
+          name: '${{ matrix.os }}-${{ matrix.module.name }}-binaries'
           path: ${{ matrix.module.path }}/build
+          fail_ci_if_error: true
