@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
 )
 

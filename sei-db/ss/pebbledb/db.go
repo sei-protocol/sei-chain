@@ -15,14 +15,14 @@ import (
 	"github.com/armon/go-metrics"
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
-	errorutils "github.com/sei-protocol/sei-db/common/errors"
-	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/common/utils"
-	"github.com/sei-protocol/sei-db/config"
-	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/ss/types"
-	"github.com/sei-protocol/sei-db/ss/util"
-	"github.com/sei-protocol/sei-db/stream/changelog"
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ss/util"
+	"github.com/sei-protocol/sei-chain/sei-db/stream/changelog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/exp/slices"
@@ -1214,20 +1214,20 @@ func (db *Database) collectAndRecordMetrics(ctx context.Context) {
 		levelAttr := attribute.Int("level", level)
 
 		otelMetrics.sstableCount.Record(ctx, levelMetrics.NumFiles, metric.WithAttributes(levelAttr))
-		otelMetrics.sstableTotalSize.Record(ctx, int64(levelMetrics.Size), metric.WithAttributes(levelAttr))
-		otelMetrics.compactionBytesRead.Add(ctx, int64(levelMetrics.BytesIn), metric.WithAttributes(levelAttr))
-		otelMetrics.compactionBytesWritten.Add(ctx, int64(levelMetrics.BytesCompacted), metric.WithAttributes(levelAttr))
+		otelMetrics.sstableTotalSize.Record(ctx, levelMetrics.Size, metric.WithAttributes(levelAttr))
+		otelMetrics.compactionBytesRead.Add(ctx, int64(levelMetrics.BytesIn), metric.WithAttributes(levelAttr))           //nolint:gosec
+		otelMetrics.compactionBytesWritten.Add(ctx, int64(levelMetrics.BytesCompacted), metric.WithAttributes(levelAttr)) //nolint:gosec
 	}
 
 	// Memtable metrics
-	otelMetrics.memtableCount.Record(ctx, int64(m.MemTable.Count))
-	otelMetrics.memtableTotalSize.Record(ctx, int64(m.MemTable.Size))
+	otelMetrics.memtableCount.Record(ctx, m.MemTable.Count)
+	otelMetrics.memtableTotalSize.Record(ctx, int64(m.MemTable.Size)) //nolint:gosec
 
 	// WAL metrics
-	otelMetrics.walSize.Record(ctx, int64(m.WAL.Size))
+	otelMetrics.walSize.Record(ctx, int64(m.WAL.Size)) //nolint:gosec
 
 	// Cache metrics - report raw counts
-	otelMetrics.cacheHits.Add(ctx, int64(m.BlockCache.Hits))
-	otelMetrics.cacheMisses.Add(ctx, int64(m.BlockCache.Misses))
-	otelMetrics.cacheSize.Record(ctx, int64(m.BlockCache.Size))
+	otelMetrics.cacheHits.Add(ctx, m.BlockCache.Hits)
+	otelMetrics.cacheMisses.Add(ctx, m.BlockCache.Misses)
+	otelMetrics.cacheSize.Record(ctx, m.BlockCache.Size)
 }

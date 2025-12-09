@@ -108,6 +108,8 @@ import (
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/ss"
+	seidb "github.com/sei-protocol/sei-chain/sei-db/ss/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
@@ -132,8 +134,6 @@ import (
 	tokenfactorymodule "github.com/sei-protocol/sei-chain/x/tokenfactory"
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
-	"github.com/sei-protocol/sei-db/ss"
-	seidb "github.com/sei-protocol/sei-db/ss/types"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -151,7 +151,7 @@ import (
 
 	// unnamed import of statik for openapi/swagger UI support
 	_ "github.com/sei-protocol/sei-chain/docs/swagger"
-	ssconfig "github.com/sei-protocol/sei-db/config"
+	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals

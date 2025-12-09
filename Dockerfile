@@ -13,7 +13,6 @@ COPY sei-wasmd/go.mod sei-wasmd/go.sum ./sei-wasmd/
 COPY sei-cosmos/go.mod sei-cosmos/go.sum ./sei-cosmos/
 COPY sei-tendermint/go.mod sei-tendermint/go.sum ./sei-tendermint/
 COPY sei-ibc-go/go.mod sei-ibc-go/go.sum ./sei-ibc-go/
-COPY sei-db/go.mod sei-db/go.sum ./sei-db/
 RUN go mod download
 
 # Copy source and build (CGO enabled for libwasmvm)

@@ -3,11 +3,11 @@ package operations
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 
-	"github.com/sei-protocol/sei-db/config"
-	"github.com/sei-protocol/sei-db/ss"
-	"github.com/sei-protocol/sei-db/tools/cmd/seidb/benchmark"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/ss"
+	"github.com/sei-protocol/sei-chain/sei-db/tools/cmd/seidb/benchmark"
 	"github.com/spf13/cobra"
 )
 

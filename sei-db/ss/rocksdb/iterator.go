@@ -7,7 +7,7 @@ import (
 	"bytes"
 
 	"github.com/linxGnu/grocksdb"
-	"github.com/sei-protocol/sei-db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ss/types"
 )
 
 var _ types.DBIterator = (*iterator)(nil)

@@ -24,14 +24,14 @@ func getMethodPayload(newAbi abi.ABI, args []string) ([]byte, error) {
 		switch input.Type.T {
 		case abi.IntTy:
 			if input.Type.Size > 64 {
-				bi, success := new(big.Int).SetString(args[idx], 10)
+				bi, success := new(big.Int).SetString(args[idx], 10) //nolint:gosec
 				if !success {
 					return nil, errors.New("invalid big.Int")
 				} else {
 					arg = bi
 				}
 			} else {
-				val, e := strconv.ParseInt(args[idx], 10, 64)
+				val, e := strconv.ParseInt(args[idx], 10, 64) //nolint:gosec
 				err = e
 				switch input.Type.Size {
 				case 8:
@@ -55,14 +55,14 @@ func getMethodPayload(newAbi abi.ABI, args []string) ([]byte, error) {
 			}
 		case abi.UintTy:
 			if input.Type.Size > 64 {
-				bi, success := new(big.Int).SetString(args[idx], 10)
+				bi, success := new(big.Int).SetString(args[idx], 10) //nolint:gosec
 				if !success {
 					return nil, errors.New("invalid big.Int")
 				} else {
 					arg = bi
 				}
 			} else {
-				val, e := strconv.ParseUint(args[idx], 10, 64)
+				val, e := strconv.ParseUint(args[idx], 10, 64) //nolint:gosec
 				err = e
 				switch input.Type.Size {
 				case 8:
@@ -85,15 +85,15 @@ func getMethodPayload(newAbi abi.ABI, args []string) ([]byte, error) {
 				}
 			}
 		case abi.BoolTy:
-			if args[idx] != TrueStr && args[idx] != FalseStr {
+			if args[idx] != TrueStr && args[idx] != FalseStr { //nolint:gosec
 				return nil, fmt.Errorf("boolean argument has to be either \"%s\" or \"%s\"", TrueStr, FalseStr)
 			} else {
 				arg = args[idx] == TrueStr
 			}
 		case abi.StringTy:
-			arg = args[idx]
+			arg = args[idx] //nolint:gosec
 		case abi.AddressTy:
-			arg = common.HexToAddress(args[idx])
+			arg = common.HexToAddress(args[idx]) //nolint:gosec
 		default:
 			return nil, errors.New("argument type not supported yet")
 		}

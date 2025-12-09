@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"runtime"
 
-	errorutils "github.com/sei-protocol/sei-db/common/errors"
-	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/sc/types"
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/sc/types"
 )
 
 // exportBufferSize is the number of nodes to buffer in the exporter. It improves throughput by

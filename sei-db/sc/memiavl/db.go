@@ -19,12 +19,12 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/cosmos/iavl"
-	errorutils "github.com/sei-protocol/sei-db/common/errors"
-	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/common/utils"
-	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/stream/changelog"
-	"github.com/sei-protocol/sei-db/stream/types"
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/stream/changelog"
+	"github.com/sei-protocol/sei-chain/sei-db/stream/types"
 )
 
 const LockFileName = "LOCK"
@@ -48,7 +48,7 @@ var errReadOnly = errors.New("db is read-only")
 // > rlog
 // ```
 type DB struct {
-	MultiTree
+	*MultiTree
 	dir      string
 	logger   logger.Logger
 	fileLock FileLock
@@ -263,7 +263,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 	lastSnapshotTime := getSnapshotModTime(logger, opts.Dir)
 
 	db := &DB{
-		MultiTree:               *mtree,
+		MultiTree:               mtree,
 		logger:                  logger,
 		dir:                     opts.Dir,
 		fileLock:                fileLock,
@@ -594,7 +594,7 @@ func (db *DB) copy() *DB {
 	mtree := db.MultiTree.Copy()
 
 	return &DB{
-		MultiTree:          *mtree,
+		MultiTree:          mtree,
 		logger:             db.logger,
 		dir:                db.dir,
 		snapshotWriterPool: db.snapshotWriterPool,
