@@ -4,29 +4,8 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
-)
 
-const (
-	// WorkerBatchSize is the number of blocks processed in each batch.
-	// Used in filter.go for batch processing of block queries.
-	WorkerBatchSize = 100
-
-	// DefaultWorkerQueueSize is the default size of the task queue.
-	// This represents the number of tasks (not blocks) that can be queued.
-	// Total capacity = DefaultWorkerQueueSize * WorkerBatchSize blocks
-	// Example: 1000 tasks * 100 blocks/task = 100,000 blocks can be buffered
-	//
-	// Memory footprint estimate:
-	// - Queue channel overhead: ~8KB (1000 * 8 bytes per channel slot)
-	// - Each task closure: ~24 bytes
-	// - Total queue memory: ~32KB (negligible)
-	// Note: Actual memory usage depends on block data processed by workers
-	DefaultWorkerQueueSize = 1000
-
-	// MaxWorkerPoolSize caps the number of workers to prevent excessive
-	// goroutine creation on high-core machines. Tasks are primarily I/O bound
-	// (fetching and processing block logs), so 2x CPU cores can be excessive.
-	MaxWorkerPoolSize = 64
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 )
 
 // WorkerPool manages a pool of goroutines for concurrent task execution
@@ -75,10 +54,10 @@ func GetGlobalWorkerPool() *WorkerPool {
 func NewWorkerPool(workers, queueSize int) *WorkerPool {
 	// Apply defaults if invalid
 	if workers <= 0 {
-		workers = min(MaxWorkerPoolSize, runtime.NumCPU()*2)
+		workers = min(evmrpcconfig.MaxWorkerPoolSize, runtime.NumCPU()*2)
 	}
 	if queueSize <= 0 {
-		queueSize = DefaultWorkerQueueSize
+		queueSize = evmrpcconfig.DefaultWorkerQueueSize
 	}
 
 	return &WorkerPool{

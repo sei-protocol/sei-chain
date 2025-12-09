@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/hashicorp/golang-lru/v2/expirable"
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -772,11 +773,11 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}
 
 	// Batch process with fail-fast
-	blockBatch := make([]*coretypes.ResultBlock, 0, WorkerBatchSize)
+	blockBatch := make([]*coretypes.ResultBlock, 0, evmrpcconfig.WorkerBatchSize)
 	for block := range blocks {
 		blockBatch = append(blockBatch, block)
 
-		if len(blockBatch) >= WorkerBatchSize {
+		if len(blockBatch) >= evmrpcconfig.WorkerBatchSize {
 			batch := blockBatch
 			wg.Add(1)
 
@@ -785,7 +786,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 				submitError = fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
 				break
 			}
-			blockBatch = make([]*coretypes.ResultBlock, 0, WorkerBatchSize)
+			blockBatch = make([]*coretypes.ResultBlock, 0, evmrpcconfig.WorkerBatchSize)
 		}
 	}
 
@@ -1003,8 +1004,8 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	var wg sync.WaitGroup
 
 	// Batch processing with fail-fast
-	for batchStart := begin; batchStart <= end; batchStart += int64(WorkerBatchSize) {
-		batchEnd := batchStart + int64(WorkerBatchSize) - 1
+	for batchStart := begin; batchStart <= end; batchStart += int64(evmrpcconfig.WorkerBatchSize) {
+		batchEnd := batchStart + int64(evmrpcconfig.WorkerBatchSize) - 1
 		if batchEnd > end {
 			batchEnd = end
 		}

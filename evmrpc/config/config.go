@@ -1,4 +1,4 @@
-package evmrpc
+package config
 
 import (
 	"runtime"
@@ -7,6 +7,29 @@ import (
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/spf13/cast"
+)
+
+const (
+	// WorkerBatchSize is the number of blocks processed in each batch.
+	// Used in filter.go for batch processing of block queries.
+	WorkerBatchSize = 100
+
+	// DefaultWorkerQueueSize is the default size of the task queue.
+	// This represents the number of tasks (not blocks) that can be queued.
+	// Total capacity = DefaultWorkerQueueSize * WorkerBatchSize blocks
+	// Example: 1000 tasks * 100 blocks/task = 100,000 blocks can be buffered
+	//
+	// Memory footprint estimate:
+	// - Queue channel overhead: ~8KB (1000 * 8 bytes per channel slot)
+	// - Each task closure: ~24 bytes
+	// - Total queue memory: ~32KB (negligible)
+	// Note: Actual memory usage depends on block data processed by workers
+	DefaultWorkerQueueSize = 1000
+
+	// MaxWorkerPoolSize caps the number of workers to prevent excessive
+	// goroutine creation on high-core machines. Tasks are primarily I/O bound
+	// (fetching and processing block logs), so 2x CPU cores can be excessive.
+	MaxWorkerPoolSize = 64
 )
 
 // EVMRPC Config defines configurations for EVM RPC server on this node
