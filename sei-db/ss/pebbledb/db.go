@@ -1214,20 +1214,20 @@ func (db *Database) collectAndRecordMetrics(ctx context.Context) {
 		levelAttr := attribute.Int("level", level)
 
 		otelMetrics.sstableCount.Record(ctx, levelMetrics.NumFiles, metric.WithAttributes(levelAttr))
-		otelMetrics.sstableTotalSize.Record(ctx, int64(levelMetrics.Size), metric.WithAttributes(levelAttr))
-		otelMetrics.compactionBytesRead.Add(ctx, int64(levelMetrics.BytesIn), metric.WithAttributes(levelAttr))
-		otelMetrics.compactionBytesWritten.Add(ctx, int64(levelMetrics.BytesCompacted), metric.WithAttributes(levelAttr))
+		otelMetrics.sstableTotalSize.Record(ctx, levelMetrics.Size, metric.WithAttributes(levelAttr))
+		otelMetrics.compactionBytesRead.Add(ctx, int64(levelMetrics.BytesIn), metric.WithAttributes(levelAttr))           //nolint:gosec
+		otelMetrics.compactionBytesWritten.Add(ctx, int64(levelMetrics.BytesCompacted), metric.WithAttributes(levelAttr)) //nolint:gosec
 	}
 
 	// Memtable metrics
-	otelMetrics.memtableCount.Record(ctx, int64(m.MemTable.Count))
-	otelMetrics.memtableTotalSize.Record(ctx, int64(m.MemTable.Size))
+	otelMetrics.memtableCount.Record(ctx, m.MemTable.Count)
+	otelMetrics.memtableTotalSize.Record(ctx, int64(m.MemTable.Size)) //nolint:gosec
 
 	// WAL metrics
-	otelMetrics.walSize.Record(ctx, int64(m.WAL.Size))
+	otelMetrics.walSize.Record(ctx, int64(m.WAL.Size)) //nolint:gosec
 
 	// Cache metrics - report raw counts
-	otelMetrics.cacheHits.Add(ctx, int64(m.BlockCache.Hits))
-	otelMetrics.cacheMisses.Add(ctx, int64(m.BlockCache.Misses))
-	otelMetrics.cacheSize.Record(ctx, int64(m.BlockCache.Size))
+	otelMetrics.cacheHits.Add(ctx, m.BlockCache.Hits)
+	otelMetrics.cacheMisses.Add(ctx, m.BlockCache.Misses)
+	otelMetrics.cacheSize.Record(ctx, m.BlockCache.Size)
 }

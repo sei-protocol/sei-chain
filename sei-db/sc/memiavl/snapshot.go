@@ -352,7 +352,7 @@ func (snapshot *Snapshot) export(callback func(*types.SnapshotNode) bool) {
 
 	var pendingTrees int
 	var i, j uint32
-	for ; i < uint32(snapshot.nodesLen()); i++ {
+	for ; i < uint32(snapshot.nodesLen()); i++ { //nolint:gosec
 		// pending branch node
 		node := snapshot.nodesLayout.Node(i)
 		for pendingTrees < int(node.PreTrees())+2 {
@@ -805,8 +805,8 @@ func (w *snapshotWriter) writeLeaf(version uint32, key, value, hash []byte) erro
 
 	// Calculate key offset BEFORE sending to KV channel
 	keyOffset := w.kvsOffset
-	keyLen := uint32(len(key))
-	valueLen := uint32(len(value))
+	keyLen := uint32(len(key))     //nolint:gosec
+	valueLen := uint32(len(value)) //nolint:gosec
 	w.kvsOffset += 4 + 4 + uint64(keyLen) + uint64(valueLen)
 
 	// Make copies since we're sending to another goroutine
@@ -1021,7 +1021,9 @@ func SequentialReadAndFillPageCache(log logger.Logger, filePath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close() // Ensure file handle is released for pruning
+	defer func() {
+		_ = f.Close() // Ensure file handle is released for pruning
+	}()
 
 	fileInfo, err := f.Stat()
 	if err != nil {
@@ -1152,9 +1154,10 @@ func residentRatio(data []byte) (float64, error) {
 	}
 	vec := make([]byte, numPages)
 
-	addr := uintptr(unsafe.Pointer(&data[0]))
+	addr := uintptr(unsafe.Pointer(&data[0])) //nolint:gosec
 	length := uintptr(len(data))
-	_, _, errno := unix.Syscall(unix.SYS_MINCORE, addr, length, uintptr(unsafe.Pointer(&vec[0])))
+
+	_, _, errno := unix.Syscall(unix.SYS_MINCORE, addr, length, uintptr(unsafe.Pointer(&vec[0]))) //nolint:staticcheck,gosec
 	if errno != 0 {
 		return 0, errno
 	}
