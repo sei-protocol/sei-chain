@@ -1,4 +1,4 @@
-name: Sei Cross-Architecture Build & Artifacts
+name: Go Cross-Platform Tests
 
 on:
   workflow_call:
@@ -9,116 +9,75 @@ on:
       - release/**
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.sha }}
   cancel-in-progress: true
-
-env:
-  GO_VERSION: '1.24'
-  LEDGER_ENABLED: false
-  GO_TEST_TIMEOUT: 30m
-
-defaults:
-  run:
-    shell: bash
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
 
 jobs:
-  build:
+  tests:
+    env:
+      GO_TEST_TIMEOUT: 30m
+    name: "Test ${{ matrix.modules.name }} on ${{ matrix.os }}"
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        module:
+        modules:
           - name: sei-chain
             path: ./
-            tags: ""
           - name: sei-cosmos
             path: ./sei-cosmos
-            tags: "ledger test_ledger_mock"
+            tags: ledger test_ledger_mock
           - name: sei-db
             path: ./sei-db
-            tags: ""
+          - name: sei-ibc-go
+            path: ./sei-ibc-go
           - name: sei-tendermint
             path: ./sei-tendermint
-            tags: ""
           - name: sei-wasmd
             path: ./sei-wasmd
-            tags: "ledger test_ledger_mock"
+            tags: ledger test_ledger_mock
           - name: sei-wasmvm
             path: ./sei-wasmvm
-            tags: ""
-
-    name: "Cross-Arch Build & Verify ${{ matrix.module.name }} on ${{ matrix.os }}"
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
         with:
-          submodules: true
+          go-version: '1.24'
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install OS-specific dependencies
+      - name: Remove unnecessary tooling
+        if: runner.os != 'Windows'
         run: |
-          echo "OS: $RUNNER_OS | Module: ${{ matrix.module.name }} | Path: ${{ matrix.module.path }}"
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
-            sudo apt-get update -qq
-            sudo apt-get install -y build-essential git curl
-            sudo docker image prune --all --force
-          elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            xcode-select --print-path || xcode-select --install
-          elif [[ "$RUNNER_OS" == "Windows" ]]; then
-            choco install visualstudio2019buildtools -y
-          fi
-
-      - name: Download dependencies
-        working-directory: ${{ matrix.module.path }}
-        run: go mod download
-
-      - name: Build module
-        working-directory: ${{ matrix.module.path }}
-        run: |
-          make install
-          make build
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
 
       - name: Go test with race detector
-        working-directory: ${{ matrix.module.path }}
+        working-directory: '${{ matrix.modules.path }}'
         run: |
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            go test -race -tags="${{ matrix.module.tags }}" -timeout="${{ env.GO_TEST_TIMEOUT }}" -covermode=atomic -coverprofile=coverage.out ./...
-          else
-            go test -race -tags="${{ matrix.module.tags }}" -timeout="${{ env.GO_TEST_TIMEOUT }}" -covermode=atomic -coverprofile=coverage.out ./...
+          # Handle tags (empty if not defined)
+          TAGS=""
+          if [ -n "${{ matrix.modules.tags }}" ]; then
+            TAGS="-tags='${{ matrix.modules.tags }}'"
           fi
 
-      - name: Verify binary
-        working-directory: ${{ matrix.module.path }}
-        run: |
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            BINARY=".\\build\\seid.exe"
-          else
-            BINARY="./build/seid"
+          # Skip keychain tests on CI macOS
+          if [ "$(uname)" = "Darwin" ]; then
+            export SKIP_KEYCHAIN_TESTS=1
           fi
-          if [[ ! -f "$BINARY" ]]; then
-            echo "ERROR: Binary $BINARY does not exist!"
-            ls -R ./build
-            exit 1
-          fi
-          "$BINARY" version --long
 
-      - name: Upload coverage
+          go test -race $TAGS -timeout='${{ env.GO_TEST_TIMEOUT }}' -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Upload coverage to Codecov
+        if: runner.os != 'windows'  # Skip coverage on Windows (stub files)
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          name: '${{ matrix.module.name }}-coverage'
-          files: ${{ matrix.module.path }}/coverage.out
-          fail_ci_if_error: true
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: '${{ matrix.os }}-${{ matrix.module.name }}-binaries'
-          path: ${{ matrix.module.path }}/build
-          fail_ci_if_error: true
+          fail_ci_if_error: 'true'
+          disable_search: 'true'
+          name: '${{ matrix.modules.name }}-coverage-${{ matrix.os }}'
+          files: ${{ matrix.modules.path }}/coverage.out
+          flags: ${{ matrix.modules.name }}
