@@ -1,81 +1,35 @@
-coverage:
-  precision: 2
-  round: down
-  status:
-    project:
-      default:
-        target: auto
-        threshold: 0.1% # allow this much decrease on project
-      sei-chain:
-        target: 40%
-        paths:
-          - "!sei-cosmos/**"
-          - "!sei-db/**"
-          - "!sei-tendermint/**"
-          - "!sei-wasmd/**"
-          - "!sei-wasmvm/**"
-        flags:
-          - sei-chain
-      sei-cosmos:
-        target: 40%
-        paths:
-          - "sei-cosmos/**"
-        flags:
-          - sei-cosmos
-      sei-tendermint:
-        target: 40%
-        paths:
-          - "sei-tendermint/**"
-        flags:
-          - sei-tendermint
-      sei-wasmd:
-        target: 40%
-        paths:
-          - "sei-wasmd/**"
-        flags:
-          - sei-wasmd
-      sei-db:
-        target: 30%
-        paths:
-          - "sei-db/**"
-        flags:
-          - sei-db
-    patch:
-      default:
-        target: 70%
+name: Codecov Upload
 
-comment:
-  layout: "reach,diff,flags,tree,betaprofiling"
-  behavior: default # update if exists else create new
-  require_changes: true
+on:
+  push:
+    branches:
+      - main
+      - release/**
+  pull_request:
 
-ignore:
-  # Common documentation and metadata
-  - "**/docs/**/*"
-  - "**/*.md"
-  - "**/*.rst"
-  - "**/example/**/*"
-  - "**/benchmark/**/*"
+jobs:
+  upload-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
 
-  # Generated protobuf files
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.24'
 
-  - "**/*.pb.go"
-  - "**/*.pb.gw.go"
+      - name: Install dependencies
+        run: go mod download
 
-  # Tests and test utilities
+      - name: Run tests with coverage
+        run: |
+          mkdir -p coverage
+          go test ./... -covermode=atomic -coverprofile=coverage/coverage.out
 
-
-  - "**/integration_test/**/*"
-  - "**/testutil/**/*"
-  - "**/x/**/test_common.go"
-  - "**/x/**/testdata/**/*"
-
-  # Scripts, tooling, and contribution helpers
-  - "**/scripts/**/*"
-  - "**/contrib/**/*"
-  - "**/docker/**/*"
-
-
-  # Project-specific exclusions
-  - "precompiles/**/legacy/**/*"
-  - "**/cli/**/*"
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage/coverage.out
+          fail_ci_if_error: true
+          disable_search: true
+          verbose: true
