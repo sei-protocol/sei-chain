@@ -356,7 +356,6 @@ type App struct {
 	optimisticProcessingInfo      OptimisticProcessingInfo
 	optimisticProcessingInfoMutex sync.RWMutex
 
-	// batchVerifier *ante.SR25519BatchVerifier
 	txDecoder         sdk.TxDecoder
 	AnteHandler       sdk.AnteHandler
 	TracerAnteHandler sdk.AnteHandler
@@ -863,7 +862,6 @@ func New(
 	app.SetInitChainer(app.InitChainer)
 
 	signModeHandler := encodingConfig.TxConfig.SignModeHandler()
-	// app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
 
 	anteHandler, tracerAnteHandler, err := NewAnteHandler(
 		HandlerOptions{

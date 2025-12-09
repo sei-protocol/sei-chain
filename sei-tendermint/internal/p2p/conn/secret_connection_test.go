@@ -18,9 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/crypto/sr25519"
 	"github.com/tendermint/tendermint/internal/libs/async"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 )
@@ -42,17 +40,6 @@ func (drw kvstoreConn) Close() (err error) {
 	}
 	return err1
 }
-
-type privKeyWithNilPubKey struct {
-	orig crypto.PrivKey
-}
-
-func (pk privKeyWithNilPubKey) Bytes() []byte                   { return pk.orig.Bytes() }
-func (pk privKeyWithNilPubKey) Sign(msg []byte) ([]byte, error) { return pk.orig.Sign(msg) }
-func (pk privKeyWithNilPubKey) PubKey() crypto.PubKey           { return nil }
-func (pk privKeyWithNilPubKey) Equals(pk2 crypto.PrivKey) bool  { return pk.orig.Equals(pk2) }
-func (pk privKeyWithNilPubKey) Type() string                    { return "privKeyWithNilPubKey" }
-func (privKeyWithNilPubKey) TypeTag() string                    { return "test/privKeyWithNilPubKey" }
 
 func TestSecretConnectionHandshake(t *testing.T) {
 	fooSecConn, barSecConn := makeSecretConnPair(t)
@@ -255,32 +242,6 @@ func TestDeriveSecretsAndChallengeGolden(t *testing.T) {
 		require.Equal(t, expectedRecvSecret, (*recvSecret)[:], "Recv Secrets aren't equal")
 		require.Equal(t, expectedSendSecret, (*sendSecret)[:], "Send Secrets aren't equal")
 	}
-}
-
-func TestNilPubkey(t *testing.T) {
-	var fooConn, barConn = makeKVStoreConnPair()
-	t.Cleanup(closeAll(t, fooConn, barConn))
-	var fooPrvKey = ed25519.GenPrivKey()
-	var barPrvKey = privKeyWithNilPubKey{ed25519.GenPrivKey()}
-
-	go MakeSecretConnection(fooConn, fooPrvKey) //nolint:errcheck // ignore for tests
-
-	_, err := MakeSecretConnection(barConn, barPrvKey)
-	require.Error(t, err)
-	assert.Equal(t, "toproto: key type <nil> is not supported", err.Error())
-}
-
-func TestNonEd25519Pubkey(t *testing.T) {
-	var fooConn, barConn = makeKVStoreConnPair()
-	t.Cleanup(closeAll(t, fooConn, barConn))
-
-	var fooPrvKey = ed25519.GenPrivKey()
-	var barPrvKey = sr25519.GenPrivKey()
-
-	go MakeSecretConnection(barConn, barPrvKey) //nolint:errcheck // ignore for tests
-
-	_, err := MakeSecretConnection(fooConn, fooPrvKey)
-	require.Error(t, err)
 }
 
 func writeLots(t *testing.T, wg *sync.WaitGroup, conn io.Writer, txt string, n int) {

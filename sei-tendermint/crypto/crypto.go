@@ -3,7 +3,7 @@ package crypto
 import (
 	"crypto/sha256"
 
-	"github.com/tendermint/tendermint/internal/jsontypes"
+	ed25519 "github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/libs/bytes"
 )
 
@@ -35,42 +35,10 @@ func Checksum(bz []byte) []byte {
 	return h[:]
 }
 
-type PubKey interface {
-	Address() Address
-	Bytes() []byte
-	VerifySignature(msg []byte, sig []byte) bool
-	Equals(PubKey) bool
-	Type() string
+type PubKey = ed25519.PubKey
+type PrivKey = ed25519.PrivKey
+type BatchVerifier = ed25519.BatchVerifier
 
-	// Implementations must support tagged encoding in JSON.
-	jsontypes.Tagged
-}
-
-type PrivKey interface {
-	Bytes() []byte
-	Sign(msg []byte) ([]byte, error)
-	PubKey() PubKey
-	Equals(PrivKey) bool
-	Type() string
-
-	// Implementations must support tagged encoding in JSON.
-	jsontypes.Tagged
-}
-
-type Symmetric interface {
-	Keygen() []byte
-	Encrypt(plaintext []byte, secret []byte) (ciphertext []byte)
-	Decrypt(ciphertext []byte, secret []byte) (plaintext []byte, err error)
-}
-
-// If a new key type implements batch verification,
-// the key type must be registered in github.com/tendermint/tendermint/crypto/batch
-type BatchVerifier interface {
-	// Add appends an entry into the BatchVerifier.
-	Add(key PubKey, message, signature []byte) error
-	// Verify verifies all the entries in the BatchVerifier, and returns
-	// if every signature in the batch is valid, and a vector of bools
-	// indicating the verification status of each signature (in the order
-	// that signatures were added to the batch).
-	Verify() (bool, []bool)
+func NewBatchVerifier() *BatchVerifier {
+	return ed25519.NewBatchVerifier()
 }

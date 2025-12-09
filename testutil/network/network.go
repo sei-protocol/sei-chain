@@ -27,7 +27,7 @@ type (
 
 type TestAppOptions struct{}
 
-func (t TestAppOptions) Get(s string) interface{} {
+func (t TestAppOptions) Get(s string) any {
 	if s == "chain-id" {
 		return "test-chain"
 	}
@@ -91,7 +91,7 @@ func DefaultConfig() network.Config {
 		BondedTokens:    sdk.TokensFromConsensusPower(100, sdk.DefaultPowerReduction),
 		PruningStrategy: storetypes.PruningOptionNothing,
 		CleanupDir:      true,
-		SigningAlgo:     string(hd.Secp256k1Type),
+		SigningAlgo:     string(hd.Ed25519Type),
 		KeyringOptions:  []keyring.Option{},
 	}
 }

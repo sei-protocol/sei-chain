@@ -9,7 +9,7 @@ import (
 
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
@@ -513,7 +513,7 @@ func TestQueryStakingInfo(t *testing.T) {
 	require.Contains(t, valInfo.MaxChangeRate, "0.010")
 
 	// missing validator
-	noVal := sdk.ValAddress(secp256k1.GenPrivKey().PubKey().Address())
+	noVal := sdk.ValAddress(ed25519.GenPrivKey().PubKey().Address())
 	reflectNoValidatorQuery := ReflectQueryMsg{Chain: &ChainQuery{Request: &wasmvmtypes.QueryRequest{Staking: &wasmvmtypes.StakingQuery{
 		Validator: &wasmvmtypes.ValidatorQuery{
 			Address: noVal.String(),
@@ -652,10 +652,11 @@ func TestQueryStakingPlugin(t *testing.T) {
 }
 
 // adds a few validators and returns a list of validators that are registered
+
 func addValidator(t *testing.T, ctx sdk.Context, stakingKeeper stakingkeeper.Keeper, faucet *TestFaucet, value sdk.Coin) sdk.ValAddress {
 	owner := faucet.NewFundedAccount(ctx, value)
 
-	privKey := secp256k1.GenPrivKey()
+	privKey := ed25519.GenPrivKey()
 	pubKey := privKey.PubKey()
 	addr := sdk.ValAddress(pubKey.Address())
 

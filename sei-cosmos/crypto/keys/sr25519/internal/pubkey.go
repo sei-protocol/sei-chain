@@ -1,4 +1,4 @@
-package sr25519
+package internal
 
 import (
 	"bytes"
@@ -8,8 +8,6 @@ import (
 
 	"github.com/tendermint/tendermint/crypto"
 )
-
-var _ crypto.PubKey = PubKey{}
 
 const (
 	// PubKeySize is the size of a sr25519 public key in bytes.
@@ -21,9 +19,6 @@ const (
 
 // PubKey implements crypto.PubKey.
 type PubKey []byte
-
-// TypeTag satisfies the jsontypes.Tagged interface.
-func (PubKey) TypeTag() string { return PubKeyName }
 
 // Address is the SHA256-20 of the raw pubkey bytes.
 func (pubKey PubKey) Address() crypto.Address {
@@ -38,12 +33,8 @@ func (pubKey PubKey) Bytes() []byte {
 	return []byte(pubKey)
 }
 
-func (pubKey PubKey) Equals(other crypto.PubKey) bool {
-	if otherSr, ok := other.(PubKey); ok {
-		return bytes.Equal(pubKey[:], otherSr[:])
-	}
-
-	return false
+func (pubKey PubKey) Equals(other PubKey) bool {
+	return bytes.Equal(pubKey[:], other[:])
 }
 
 func (pubKey PubKey) VerifySignature(msg []byte, sigBytes []byte) bool {
@@ -59,10 +50,6 @@ func (pubKey PubKey) VerifySignature(msg []byte, sigBytes []byte) bool {
 
 	st := signingCtx.NewTranscriptBytes(msg)
 	return srpk.Verify(st, &sig)
-}
-
-func (pubKey PubKey) Type() string {
-	return KeyType
 }
 
 func (pubKey PubKey) String() string {

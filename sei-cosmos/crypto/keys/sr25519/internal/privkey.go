@@ -1,4 +1,4 @@
-package sr25519
+package internal
 
 import (
 	"crypto/rand"
@@ -8,17 +8,14 @@ import (
 	"io"
 
 	"github.com/oasisprotocol/curve25519-voi/primitives/sr25519"
-
-	"github.com/tendermint/tendermint/crypto"
 )
 
 var (
-	_ crypto.PrivKey = PrivKey{}
-
 	signingCtx = sr25519.NewSigningContext([]byte{})
 )
 
 const (
+	PrivKeyName = "tendermint/PrivKeySr25519"
 	// PrivKeySize is the size of a sr25519 signature in bytes.
 	PrivKeySize = sr25519.MiniSecretKeySize
 
@@ -32,7 +29,8 @@ type PrivKey struct {
 }
 
 // TypeTag satisfies the jsontypes.Tagged interface.
-func (PrivKey) TypeTag() string { return PrivKeyName }
+func (PrivKey) TypeTag() string      { return PrivKeyName }
+func (privKey PrivKey) Type() string { return KeyType }
 
 // Bytes returns the byte-encoded PrivKey.
 func (privKey PrivKey) Bytes() []byte {
@@ -66,7 +64,7 @@ func (privKey PrivKey) Sign(msg []byte) ([]byte, error) {
 // PubKey gets the corresponding public key from the private key.
 //
 // Panics if the private key is not initialized.
-func (privKey PrivKey) PubKey() crypto.PubKey {
+func (privKey PrivKey) PubKey() PubKey {
 	if privKey.kp == nil {
 		panic("sr25519: uninitialized private key")
 	}
@@ -81,15 +79,8 @@ func (privKey PrivKey) PubKey() crypto.PubKey {
 
 // Equals - you probably don't need to use this.
 // Runs in constant time based on length of the keys.
-func (privKey PrivKey) Equals(other crypto.PrivKey) bool {
-	if otherSr, ok := other.(PrivKey); ok {
-		return privKey.msk.Equal(&otherSr.msk)
-	}
-	return false
-}
-
-func (privKey PrivKey) Type() string {
-	return KeyType
+func (privKey PrivKey) Equals(other PrivKey) bool {
+	return privKey.msk.Equal(&other.msk)
 }
 
 func (privKey PrivKey) MarshalJSON() ([]byte, error) {

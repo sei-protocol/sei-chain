@@ -489,12 +489,8 @@ Applications must ensure that a single set of validator updates does not contain
 a given public key can only appear once within a given update. If an update includes
 duplicates, the block execution will fail irrecoverably.
 
-Structure `ValidatorUpdate` contains a public key, which is used to identify the validator:
-The public key currently supports three types:
-
-* `ed25519`
-* `secp256k1`
-* `sr25519`
+Structure `ValidatorUpdate` contains a public key, which is used to identify the validator.
+Tendermint now only accepts Ed25519 consensus keys for validators.
 
 Structure `ValidatorUpdate` also contains an `ìnt64` field denoting the validator's new power.
 Applications must ensure that
