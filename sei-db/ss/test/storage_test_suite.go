@@ -5,9 +5,9 @@ import (
 	"sync"
 
 	"github.com/cosmos/iavl"
-	"github.com/sei-protocol/sei-db/config"
-	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/ss/types"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/exp/slices"
 )
@@ -15,6 +15,7 @@ import (
 const (
 	storeKey1 = "store1"
 	storeKey2 = "store2"
+	pebbledb  = "pebbledb"
 )
 
 // StorageTestSuite defines a reusable test suite for all storage backends.
@@ -663,7 +664,8 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 	// Write some metadata (hash keys) to verify they don't interfere with pruning
 	// These keys start with "s/_" and should be ignored during pruning
 	// Only test with pebbledb since rocksdb doesn't implement hash metadata yet
-	if s.Config.Backend == "pebbledb" {
+
+	if s.Config.Backend == pebbledb {
 		s.Require().NoError(db.WriteBlockRangeHash(storeKey1, 1, 10, []byte("hash1-10")))
 		s.Require().NoError(db.WriteBlockRangeHash(storeKey1, 11, 20, []byte("hash11-20")))
 		s.Require().NoError(db.WriteBlockRangeHash(storeKey2, 1, 25, []byte("hash1-25")))
@@ -809,7 +811,7 @@ func (s *StorageTestSuite) TestDatabasePruneKeepRecent() {
 func (s *StorageTestSuite) TestDatabasePruneKeepLastVersion() {
 	// Only test KeepLastVersion = false for pebbledb backend
 	// NOTE: KeepLastVersion is always true and will be removed in future
-	if s.Config.Backend == "pebbledb" {
+	if s.Config.Backend == pebbledb {
 		// Update config to set KeepLastVersion to false
 		stateStoreConfig := s.Config
 		stateStoreConfig.KeepLastVersion = false
@@ -1327,7 +1329,7 @@ func (s *StorageTestSuite) TestDatabaseImport() {
 func (s *StorageTestSuite) TestDatabaseRawImport() {
 	// RawImport is only useful for PebbleDB backend
 	// NOTE: Will be removed from interface soon
-	if s.Config.Backend != "pebbledb" {
+	if s.Config.Backend != pebbledb {
 		s.T().Skip("RawImport test only runs for pebbledb backend")
 	}
 

@@ -32,7 +32,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/tests"
 	"github.com/holiman/uint256"
-	seidbtypes "github.com/sei-protocol/sei-db/ss/types"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/ss/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 

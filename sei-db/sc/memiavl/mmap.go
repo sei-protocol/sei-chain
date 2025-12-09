@@ -7,7 +7,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/ledgerwatch/erigon-lib/mmap"
-	"github.com/sei-protocol/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 )
 
 // MmapFile manage the resources of a mmap-ed file

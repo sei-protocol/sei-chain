@@ -1,5 +1,4 @@
 //go:build nativebyteorder
-// +build nativebyteorder
 
 package memiavl
 

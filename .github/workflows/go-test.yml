@@ -26,8 +26,6 @@ jobs:
           - name: sei-cosmos
             path: ./sei-cosmos
             tags: ledger test_ledger_mock
-          - name: sei-db
-            path: ./sei-db
           - name: sei-ibc-go
             path: ./sei-ibc-go
           - name: sei-tendermint
