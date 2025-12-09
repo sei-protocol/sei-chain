@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,6 +21,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/sr25519"
 	"github.com/cosmos/cosmos-sdk/crypto/ledger"
 	"github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -151,7 +151,7 @@ func NewInMemory(opts ...Option) Keyring {
 // NewInMemoryWithKeyring returns an in memory keyring using the specified keyring.Keyring
 // as the backing keyring.
 func NewInMemoryWithKeyring(kr keyring.Keyring, opts ...Option) Keyring {
-	return newKeystore(kr, BackendMemory, opts...)
+	return newKeystore(kr, opts...)
 }
 
 // New creates a new instance of a keyring.
@@ -186,7 +186,7 @@ func New(
 		return nil, err
 	}
 
-	return newKeystore(db, backend, opts...), nil
+	return newKeystore(db, opts...), nil
 }
 
 type keystore struct {
@@ -194,11 +194,11 @@ type keystore struct {
 	options Options
 }
 
-func newKeystore(kr keyring.Keyring, backend string, opts ...Option) keystore {
+func newKeystore(kr keyring.Keyring, opts ...Option) keystore {
 	// Default options for keybase
 	options := Options{
-		SupportedAlgos:       SigningAlgoList{hd.Secp256k1},
-		SupportedAlgosLedger: SigningAlgoList{hd.Secp256k1},
+		SupportedAlgos:       SigningAlgoList{hd.Sr25519, hd.Secp256k1},
+		SupportedAlgosLedger: SigningAlgoList{hd.Sr25519, hd.Secp256k1},
 	}
 
 	for _, optionFn := range opts {
@@ -236,11 +236,21 @@ func (ks keystore) ExportPrivateKeyObject(uid string) ([]byte, error) {
 		if linfo.PrivKeyArmor == "" {
 			return nil, fmt.Errorf("private key not available")
 		}
-		privKeys, err := legacy.PrivKeyFromBytes([]byte(linfo.PrivKeyArmor))
-		if err != nil {
-			return nil, err
+
+		if linfo.Algo == hd.Sr25519Type {
+			typedPriv := &sr25519.PrivKey{}
+			if err := typedPriv.UnmarshalJSON([]byte(linfo.PrivKeyArmor)); err != nil {
+				return nil, err
+			}
+			priv = []byte(linfo.PrivKeyArmor)
+		} else {
+			privKeys, err := legacy.PrivKeyFromBytes([]byte(linfo.PrivKeyArmor))
+			if err != nil {
+				return nil, err
+			}
+			priv = privKeys.Bytes()
 		}
-		priv = privKeys.Bytes()
+
 	case ledgerInfo, offlineInfo, multiInfo:
 		return nil, errors.New("only works on local private keys")
 	}
@@ -267,11 +277,20 @@ func (ks keystore) ImportPrivKey(uid, armor, passphrase string) error {
 		return errors.Wrap(err, "failed to decrypt private key")
 	}
 
-	secpKey := &secp256k1.PrivKey{}
-	if err := secpKey.UnmarshalAmino(privKeyBytes); err != nil {
-		return err
+	var privKey types.PrivKey
+	if algo == string(hd.Sr25519Type) {
+		typedKey := &sr25519.PrivKey{}
+		if err := typedKey.UnmarshalJSON(privKeyBytes); err != nil {
+			return err
+		}
+		privKey = typedKey
+	} else {
+		secpKey := &secp256k1.PrivKey{}
+		if err := secpKey.UnmarshalAmino(privKeyBytes); err != nil {
+			return err
+		}
+		privKey = secpKey
 	}
-	privKey := types.PrivKey(secpKey)
 
 	_, err = ks.writeLocalKey(uid, privKey, hd.PubKeyType(algo))
 	if err != nil {
@@ -294,9 +313,18 @@ func (ks keystore) Sign(uid string, msg []byte) ([]byte, types.PubKey, error) {
 		if i.PrivKeyArmor == "" {
 			return nil, nil, fmt.Errorf("private key not available")
 		}
-		priv, err = legacy.PrivKeyFromBytes([]byte(i.PrivKeyArmor))
-		if err != nil {
-			return nil, nil, err
+
+		if i.Algo == hd.Sr25519Type {
+			typedPriv := &sr25519.PrivKey{}
+			if err := typedPriv.UnmarshalJSON([]byte(i.PrivKeyArmor)); err != nil {
+				return nil, nil, err
+			}
+			priv = typedPriv
+		} else {
+			priv, err = legacy.PrivKeyFromBytes([]byte(i.PrivKeyArmor))
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 
 	case ledgerInfo:
@@ -632,7 +660,7 @@ func newRealPrompt(dir string, buf io.Reader) func(string) (string, error) {
 
 		switch {
 		case err == nil:
-			keyhash, err = ioutil.ReadFile(keyhashFilePath)
+			keyhash, err = os.ReadFile(keyhashFilePath)
 			if err != nil {
 				return "", fmt.Errorf("failed to read %s: %v", keyhashFilePath, err)
 			}
@@ -696,7 +724,7 @@ func newRealPrompt(dir string, buf io.Reader) func(string) (string, error) {
 				continue
 			}
 
-			if err := ioutil.WriteFile(dir+"/keyhash", passwordHash, 0555); err != nil {
+			if err := os.WriteFile(dir+"/keyhash", passwordHash, 0555); err != nil {
 				return "", err
 			}
 
@@ -708,7 +736,17 @@ func newRealPrompt(dir string, buf io.Reader) func(string) (string, error) {
 func (ks keystore) writeLocalKey(name string, priv types.PrivKey, algo hd.PubKeyType) (Info, error) {
 	// encrypt private key using keyring
 	pub := priv.PubKey()
-	info := newLocalInfo(name, pub, string(legacy.Cdc.MustMarshal(priv)), algo)
+	var info Info
+	if algo == hd.Sr25519Type {
+		typedPriv := priv.(*sr25519.PrivKey)
+		jsonBytes, err := typedPriv.MarshalJSON()
+		if err != nil {
+			return nil, err
+		}
+		info = newLocalInfo(name, pub, string(jsonBytes), algo)
+	} else {
+		info = newLocalInfo(name, pub, string(legacy.Cdc.MustMarshal(priv)), algo)
+	}
 	if err := ks.writeInfo(info); err != nil {
 		return nil, err
 	}

@@ -174,3 +174,8 @@ func (p Params) Validate() error {
 
 	return nil
 }
+
+func (p *Params) GetSr25519VerifyCost() uint64 {
+	// TODO:: define param for sr25519 once its confirmed that it will be supported
+	return p.SigVerifyCostED25519
+}

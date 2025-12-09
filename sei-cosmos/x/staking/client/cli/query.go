@@ -13,6 +13,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256r1"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/sr25519"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -184,6 +185,10 @@ $ %s query staking hex-address A0F18FCE3DA235FE18845CDD50302A44A5CD9A3C
 				switch {
 				case strings.Contains(pk.TypeUrl, ed25519.GenPrivKey().PubKey().Type()):
 					actualPk := &ed25519.PubKey{}
+					proto.Unmarshal(pk.Value, actualPk)
+					valConsAddr = sdk.ConsAddress(actualPk.Address())
+				case strings.Contains(pk.TypeUrl, sr25519.GenPrivKey().PubKey().Type()):
+					actualPk := &sr25519.PubKey{}
 					proto.Unmarshal(pk.Value, actualPk)
 					valConsAddr = sdk.ConsAddress(actualPk.Address())
 				case strings.Contains(pk.TypeUrl, secp256k1.GenPrivKey().PubKey().Type()):
