@@ -5,9 +5,9 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/sei-protocol/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 
-	"github.com/sei-protocol/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
 type Options struct {

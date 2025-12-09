@@ -3,7 +3,7 @@ package types
 import (
 	"io"
 
-	"github.com/sei-protocol/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 type Committer interface {

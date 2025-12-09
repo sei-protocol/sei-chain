@@ -4,10 +4,10 @@ import (
 	srvconfig "github.com/cosmos/cosmos-sdk/server/config"
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
-	seidbconfig "github.com/sei-protocol/sei-db/config"
 )
 
 // WASMConfig defines configuration for the wasm module.

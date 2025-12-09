@@ -4,10 +4,10 @@
 package ss
 
 import (
-	"github.com/sei-protocol/sei-db/common/utils"
-	"github.com/sei-protocol/sei-db/config"
-	"github.com/sei-protocol/sei-db/ss/rocksdb"
-	"github.com/sei-protocol/sei-db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/ss/rocksdb"
+	"github.com/sei-protocol/sei-chain/sei-db/ss/types"
 )
 
 func init() {

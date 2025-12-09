@@ -5,9 +5,9 @@ import (
 	"sync"
 
 	"github.com/cosmos/iavl"
-	"github.com/sei-protocol/sei-db/config"
-	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/ss/types"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/exp/slices"
 )
