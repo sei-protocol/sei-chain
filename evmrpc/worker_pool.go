@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"time"
 
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 )
@@ -85,20 +86,56 @@ func (wp *WorkerPool) start() {
 					}
 				}()
 				// The worker will exit gracefully when the taskQueue is closed and drained.
-				for task := range wp.taskQueue {
+				for wrappedTask := range wp.taskQueue {
 					func() {
 						defer func() {
 							if r := recover(); r != nil {
 								// Log the panic but continue processing other tasks
 								fmt.Printf("Task recovered from panic: %v\n", r)
+								GetGlobalMetrics().RecordTaskPanicked()
 							}
 						}()
-						task()
+						wrappedTask()
 					}()
 				}
 			}()
 		}
 	})
+}
+
+// SubmitWithMetrics submits a task with full metrics tracking
+func (wp *WorkerPool) SubmitWithMetrics(task func()) error {
+	metrics := GetGlobalMetrics()
+
+	// Check if pool is closed first
+	wp.mu.RLock()
+	if wp.closed {
+		wp.mu.RUnlock()
+		return fmt.Errorf("worker pool is closing")
+	}
+	wp.mu.RUnlock()
+
+	queuedAt := time.Now()
+
+	// Wrap the task with metrics
+	wrappedTask := func() {
+		startedAt := time.Now()
+		metrics.RecordTaskStarted(queuedAt)
+		defer metrics.RecordTaskCompleted(startedAt)
+		task()
+	}
+
+	select {
+	case wp.taskQueue <- wrappedTask:
+		metrics.RecordTaskSubmitted()
+		return nil
+	case <-wp.done:
+		return fmt.Errorf("worker pool is closing")
+	default:
+		// Queue is full - fail fast
+		metrics.RecordTaskRejected()
+		return fmt.Errorf("worker pool queue is full")
+	}
 }
 
 // Submit submits a task to the worker pool with fail-fast behavior
@@ -146,4 +183,18 @@ func (wp *WorkerPool) WorkerCount() int {
 // QueueSize returns the capacity of the task queue
 func (wp *WorkerPool) QueueSize() int {
 	return cap(wp.taskQueue)
+}
+
+// QueueDepth returns the current number of tasks in the queue
+func (wp *WorkerPool) QueueDepth() int {
+	return len(wp.taskQueue)
+}
+
+// QueueUtilization returns the percentage of queue capacity in use
+func (wp *WorkerPool) QueueUtilization() float64 {
+	cap := cap(wp.taskQueue)
+	if cap == 0 {
+		return 0
+	}
+	return float64(len(wp.taskQueue)) / float64(cap) * 100
 }
