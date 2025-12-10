@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package tendermint.utils;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/tendermint/tendermint/proto/tendermint/utils";
+
+// can_hash marks messages whose fields participate in the custom hashing logic
+// enforced by the Sei buf plugin. When set to true, every message-typed field
+// (recursively) must also opt in.
+extend google.protobuf.MessageOptions {
+  bool can_hash = 51001;
+}
