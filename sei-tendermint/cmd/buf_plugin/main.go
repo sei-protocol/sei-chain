@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"iter"
+	"log"
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/proto"
@@ -68,7 +69,8 @@ func run(p *protogen.Plugin) error {
 	canHashName := protoreflect.FullName("tendermint.utils.can_hash")
 	canHashOpt,ok := getExtType(p,canHashName)
 	if !ok {
-		return fmt.Errorf("extension %q not found",canHashName)
+		// When the module being processed does not declare the extension we have nothing to validate.
+		return nil
 	}
 	descs := mds{}
 	for d := range allMDs(p) {
@@ -76,6 +78,7 @@ func run(p *protogen.Plugin) error {
 			descs[d.FullName()] = d
 		}
 	}
+	log.Printf("buf_plugin: found can_hash option; %d message type(s) marked with it", len(descs))
 	for _,d := range descs {
 		if d.Syntax()!=protoreflect.Proto3 {
 			return fmt.Errorf("%q: can_hash messages have to be in proto3 syntax",d.FullName())

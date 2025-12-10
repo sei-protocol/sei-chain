@@ -7,6 +7,13 @@ inputs:
   - directory: sei-wasmd/proto
 plugins:
   - local:
+      - go
+      - run
+      - ./sei-tendermint/cmd/buf_plugin
+    opt:
+      - Mgoogle/protobuf/any.proto=github.com/cosmos/cosmos-sdk/codec/types
+    out: ./build/proto/validation
+  - local:
       - ./build/proto/gocosmos/protoc-gen-gocosmos
     opt:
       - plugins=interfacetype+grpc
@@ -42,11 +49,3 @@ plugins:
       - Mgoogle/protobuf/timestamp.proto=github.com/gogo/protobuf/types
       - Mgoogle/protobuf/duration.proto=github.com/golang/protobuf/ptypes/duration
       - plugins=grpc
-  - local:
-      - go
-      - run
-      - ./cmd/protoc-gen-seiplugin
-    out: ./build/proto/sei-plugin
-    opt:
-      - annotation=sei.custom.plugin
-      - fail_on_deprecated=false
