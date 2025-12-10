@@ -124,12 +124,6 @@ func (wp *WorkerPool) start() {
 	})
 }
 
-// taskWrapper wraps a task with metrics tracking
-type taskWrapper struct {
-	task     func()
-	queuedAt time.Time
-}
-
 // SubmitWithMetrics submits a task with full metrics tracking
 func (wp *WorkerPool) SubmitWithMetrics(task func()) error {
 	metrics := GetGlobalMetrics()

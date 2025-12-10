@@ -669,14 +669,6 @@ func (m *WorkerPoolMetrics) PrintMetrics() {
 	}
 }
 
-// pct calculates percentage safely
-func pct(part, total int64) float64 {
-	if total == 0 {
-		return 0
-	}
-	return float64(part) / float64(total) * 100
-}
-
 // printRangeBucket prints a single range bucket with success rate
 func printRangeBucket(name string, total, success, totalRequests int64) {
 	if total == 0 {
