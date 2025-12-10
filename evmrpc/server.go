@@ -63,8 +63,13 @@ func NewEVMHTTPServer(
 	InitGlobalMetrics(workerCount, queueSize, dbSemaphoreSize)
 
 	// Start metrics printer (every 5 seconds)
+	// Prometheus metrics are always exported; stdout printing requires EVM_DEBUG_METRICS=true
 	StartMetricsPrinter(5 * time.Second)
-	logger.Info("Started EVM RPC metrics printer (interval: 5s)", "workers", workerCount, "queue", queueSize, "db_semaphore", dbSemaphoreSize)
+	debugEnabled := IsDebugMetricsEnabled()
+	logger.Info("Started EVM RPC metrics exporter (interval: 5s)", "workers", workerCount, "queue", queueSize, "db_semaphore", dbSemaphoreSize, "debug_stdout", debugEnabled)
+	if !debugEnabled {
+		logger.Info("To enable debug metrics output to stdout, set EVM_DEBUG_METRICS=true")
+	}
 
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,

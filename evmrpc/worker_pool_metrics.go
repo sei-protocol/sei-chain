@@ -2,6 +2,8 @@ package evmrpc
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -9,6 +11,16 @@ import (
 	gometrics "github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 )
+
+// Environment variable to enable debug metrics printing to stdout
+// Set EVM_DEBUG_METRICS=true to enable periodic metrics printing
+const EVMDebugMetricsEnvVar = "EVM_DEBUG_METRICS"
+
+// IsDebugMetricsEnabled checks if debug metrics printing is enabled via environment variable
+func IsDebugMetricsEnabled() bool {
+	val := os.Getenv(EVMDebugMetricsEnvVar)
+	return strings.ToLower(val) == "true" || val == "1"
+}
 
 // Error type constants for categorization
 const (
@@ -120,9 +132,12 @@ func GetGlobalMetrics() *WorkerPoolMetrics {
 
 // StartMetricsPrinter starts a background goroutine that prints metrics every interval
 // This is idempotent - only the first call will start the printer
+// Note: Printing to stdout is controlled by the EVM_DEBUG_METRICS environment variable
+// Set EVM_DEBUG_METRICS=true to enable debug output
 func StartMetricsPrinter(interval time.Duration) {
 	metricsPrinterOnce.Do(func() {
 		metricsStopChan = make(chan struct{})
+		debugEnabled := IsDebugMetricsEnabled()
 		go func() {
 			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
@@ -133,8 +148,10 @@ func StartMetricsPrinter(interval time.Duration) {
 					m := GetGlobalMetrics()
 					// Export to Prometheus (gauges need periodic update)
 					m.ExportPrometheusMetrics()
-					// Print to stdout
-					m.PrintMetrics()
+					// Print to stdout only if debug is enabled
+					if debugEnabled {
+						m.PrintMetrics()
+					}
 				case <-metricsStopChan:
 					return
 				}
