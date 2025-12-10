@@ -112,9 +112,9 @@ var (
 func InitGlobalMetrics(workerCount, queueCapacity, dbSemaphoreCapacity int) *WorkerPoolMetrics {
 	globalMetricsOnce.Do(func() {
 		globalMetrics = &WorkerPoolMetrics{
-			TotalWorkers:        int32(workerCount),
-			QueueCapacity:       int32(queueCapacity),
-			DBSemaphoreCapacity: int32(dbSemaphoreCapacity),
+			TotalWorkers:        int32(workerCount),         //nolint:gosec // G115: safe, max is 64
+			QueueCapacity:       int32(queueCapacity),       //nolint:gosec // G115: safe, max is 1000
+			DBSemaphoreCapacity: int32(dbSemaphoreCapacity), //nolint:gosec // G115: safe, max is 64
 			windowStart:         time.Now(),
 		}
 	})
