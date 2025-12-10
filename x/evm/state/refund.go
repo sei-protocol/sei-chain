@@ -7,8 +7,10 @@ import (
 
 func (s *DBImpl) AddRefund(gas uint64) {
 	bz := make([]byte, 8)
-	binary.BigEndian.PutUint64(bz, s.GetRefund()+gas)
-	s.tempStateCurrent.transientModuleStates[string(GasRefundKey)] = bz
+	prev := s.GetRefund()
+	binary.BigEndian.PutUint64(bz, prev+gas)
+	s.tempState.transientModuleStates[string(GasRefundKey)] = bz
+	s.journal = append(s.journal, &refundChange{prev: prev})
 }
 
 // Copied from go-ethereum as-is
@@ -21,7 +23,8 @@ func (s *DBImpl) SubRefund(gas uint64) {
 	}
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, refund-gas)
-	s.tempStateCurrent.transientModuleStates[string(GasRefundKey)] = bz
+	s.tempState.transientModuleStates[string(GasRefundKey)] = bz
+	s.journal = append(s.journal, &refundChange{prev: refund})
 }
 
 func (s *DBImpl) GetRefund() uint64 {
