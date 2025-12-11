@@ -38,5 +38,9 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: libwasmvm-${{ matrix.target }}-${{ github.sha }}
-          path: internal/api/libwasmvm*
+          path: |
+            internal/api/*.h
+            internal/api/*.so
+            internal/api/*.a
+            internal/api/*.dylib
           if-no-files-found: warn
