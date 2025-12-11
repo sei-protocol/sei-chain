@@ -80,8 +80,6 @@ func EVMTransferConflicting(tCtx *utils.TestContext, count int) []*utils.TestMes
 	return msgs
 }
 
-// EVMTransferNonConflicting generates a list of EVM transfer messages that do not conflict with each other
-// each message will have a brand new address
 func evmTransfer(testAcct utils.TestAcct, to common.Address, scenario string) *utils.TestMessage {
 	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
 		GasFeeCap: new(big.Int).SetUint64(100000000000),
