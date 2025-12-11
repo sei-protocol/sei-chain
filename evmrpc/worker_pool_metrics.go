@@ -37,9 +37,9 @@ const (
 // WorkerPoolMetrics tracks worker pool performance metrics
 type WorkerPoolMetrics struct {
 	// Worker pool stats
-	TotalWorkers    int32
+	TotalWorkers    atomic.Int32
 	ActiveWorkers   atomic.Int32
-	QueueCapacity   int32
+	QueueCapacity   atomic.Int32
 	QueueDepth      atomic.Int32
 	PeakQueueDepth  atomic.Int32
 	TasksSubmitted  atomic.Int64
@@ -50,7 +50,7 @@ type WorkerPoolMetrics struct {
 	TotalExecTimeNs atomic.Int64 // Total task execution time
 
 	// DB Semaphore stats
-	DBSemaphoreCapacity   int32
+	DBSemaphoreCapacity   atomic.Int32
 	DBSemaphoreAcquired   atomic.Int32
 	DBSemaphoreWaitTimeNs atomic.Int64
 	DBSemaphoreWaitCount  atomic.Int64
@@ -424,16 +424,20 @@ func (m *WorkerPoolMetrics) GetAverageLatency() time.Duration {
 
 // GetSnapshot returns a snapshot of current metrics
 func (m *WorkerPoolMetrics) GetSnapshot() MetricsSnapshot {
+	totalWorkers := m.TotalWorkers.Load()
+	queueCap := m.QueueCapacity.Load()
+	dbSemCap := m.DBSemaphoreCapacity.Load()
+
 	return MetricsSnapshot{
 		Timestamp: time.Now(),
 
 		// Worker pool
-		TotalWorkers:     m.TotalWorkers,
+		TotalWorkers:     totalWorkers,
 		ActiveWorkers:    m.ActiveWorkers.Load(),
-		IdleWorkers:      m.TotalWorkers - m.ActiveWorkers.Load(),
-		QueueCapacity:    m.QueueCapacity,
+		IdleWorkers:      totalWorkers - m.ActiveWorkers.Load(),
+		QueueCapacity:    queueCap,
 		QueueDepth:       m.QueueDepth.Load(),
-		QueueUtilization: float64(m.QueueDepth.Load()) / float64(m.QueueCapacity) * 100,
+		QueueUtilization: float64(m.QueueDepth.Load()) / float64(max(queueCap, 1)) * 100,
 		PeakQueueDepth:   m.PeakQueueDepth.Load(),
 		TasksSubmitted:   m.TasksSubmitted.Load(),
 		TasksCompleted:   m.TasksCompleted.Load(),
@@ -443,9 +447,9 @@ func (m *WorkerPoolMetrics) GetSnapshot() MetricsSnapshot {
 		AvgExecTime:      m.GetAverageExecTime(),
 
 		// DB Semaphore
-		DBSemaphoreCapacity: m.DBSemaphoreCapacity,
+		DBSemaphoreCapacity: dbSemCap,
 		DBSemaphoreInUse:    m.DBSemaphoreAcquired.Load(),
-		DBSemaphoreAvail:    m.DBSemaphoreCapacity - m.DBSemaphoreAcquired.Load(),
+		DBSemaphoreAvail:    dbSemCap - m.DBSemaphoreAcquired.Load(),
 		AvgDBWaitTime:       m.GetAverageDBWaitTime(),
 
 		// eth_getLogs
@@ -720,17 +724,21 @@ func (m *WorkerPoolMetrics) ResetMetrics() {
 // All metrics are exported as gauges for efficiency (batch export instead of per-operation)
 func (m *WorkerPoolMetrics) ExportPrometheusMetrics() {
 	// Worker Pool Gauges
-	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "workers", "total"}, float32(m.TotalWorkers))
+	totalWorkers := m.TotalWorkers.Load()
+	queueCap := m.QueueCapacity.Load()
+	dbSemCap := m.DBSemaphoreCapacity.Load()
+
+	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "workers", "total"}, float32(totalWorkers))
 	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "workers", "active"}, float32(m.ActiveWorkers.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "workers", "idle"}, float32(m.TotalWorkers-m.ActiveWorkers.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "queue", "capacity"}, float32(m.QueueCapacity))
+	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "workers", "idle"}, float32(totalWorkers-m.ActiveWorkers.Load()))
+	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "queue", "capacity"}, float32(queueCap))
 	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "queue", "depth"}, float32(m.QueueDepth.Load()))
 	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "queue", "peak"}, float32(m.PeakQueueDepth.Load()))
 
 	// Queue utilization percentage
 	utilization := float32(0)
-	if m.QueueCapacity > 0 {
-		utilization = float32(m.QueueDepth.Load()) / float32(m.QueueCapacity) * 100
+	if queueCap > 0 {
+		utilization = float32(m.QueueDepth.Load()) / float32(queueCap) * 100
 	}
 	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "queue", "utilization"}, utilization)
 
@@ -741,9 +749,9 @@ func (m *WorkerPoolMetrics) ExportPrometheusMetrics() {
 	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "tasks", "panicked", "total"}, float32(m.TasksPanicked.Load()))
 
 	// DB Semaphore Gauges
-	gometrics.SetGauge([]string{"sei", "evm", "db", "semaphore", "capacity"}, float32(m.DBSemaphoreCapacity))
+	gometrics.SetGauge([]string{"sei", "evm", "db", "semaphore", "capacity"}, float32(dbSemCap))
 	gometrics.SetGauge([]string{"sei", "evm", "db", "semaphore", "inuse"}, float32(m.DBSemaphoreAcquired.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "db", "semaphore", "available"}, float32(m.DBSemaphoreCapacity-m.DBSemaphoreAcquired.Load()))
+	gometrics.SetGauge([]string{"sei", "evm", "db", "semaphore", "available"}, float32(dbSemCap-m.DBSemaphoreAcquired.Load()))
 	gometrics.SetGauge([]string{"sei", "evm", "db", "semaphore", "wait", "count"}, float32(m.DBSemaphoreWaitCount.Load()))
 
 	// Subscriptions Gauge

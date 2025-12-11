@@ -64,16 +64,17 @@ func NewWorkerPool(workers, queueSize int) *WorkerPool {
 		queueSize = evmrpcconfig.DefaultWorkerQueueSize
 	}
 
-	return &WorkerPool{
+	wp := &WorkerPool{
 		workers:   workers,
 		taskQueue: make(chan func(), queueSize),
 		done:      make(chan struct{}),
 		Metrics: &WorkerPoolMetrics{
-			TotalWorkers:  int32(workers),   //nolint:gosec // G115: safe, max is 64
-			QueueCapacity: int32(queueSize), //nolint:gosec // G115: safe, max is 1000
-			windowStart:   time.Now(),
+			windowStart: time.Now(),
 		},
 	}
+	wp.Metrics.TotalWorkers.Store(int32(workers))    //nolint:gosec // G115: safe, max is 64
+	wp.Metrics.QueueCapacity.Store(int32(queueSize)) //nolint:gosec // G115: safe, max is 1000
+	return wp
 }
 
 // Start initializes and starts the worker goroutines

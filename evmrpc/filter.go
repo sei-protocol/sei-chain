@@ -575,14 +575,14 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 
 	// Check 1: Too many pending tasks (queue backlog)
 	pending := m.TasksSubmitted.Load() - m.TasksCompleted.Load()
-	maxPending := int64(float64(m.QueueCapacity) * 0.8) // 80% threshold
+	maxPending := int64(float64(m.QueueCapacity.Load()) * 0.8) // 80% threshold
 	if pending > maxPending {
 		return nil, fmt.Errorf("server too busy, rejecting new request (pending: %d, threshold: %d)", pending, maxPending)
 	}
 
 	// Check 2: I/O saturated (semaphore exhausted)
 	semInUse := m.DBSemaphoreAcquired.Load()
-	semCapacity := m.DBSemaphoreCapacity
+	semCapacity := m.DBSemaphoreCapacity.Load()
 	if semCapacity > 0 && float64(semInUse)/float64(semCapacity) >= 0.8 {
 		return nil, fmt.Errorf("server I/O saturated, rejecting new request (semaphore: %d/%d in use)", semInUse, semCapacity)
 	}

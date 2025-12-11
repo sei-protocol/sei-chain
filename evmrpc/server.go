@@ -59,7 +59,8 @@ func NewEVMHTTPServer(
 	queueSize := pool.QueueSize()
 
 	// Set DB semaphore capacity in metrics (aligned with worker count)
-	pool.Metrics.DBSemaphoreCapacity = int32(workerCount) //nolint:gosec // G115: safe, max is 64
+	// Only set once to avoid races when multiple test servers start in parallel.
+	pool.Metrics.DBSemaphoreCapacity.CompareAndSwap(0, int32(workerCount)) //nolint:gosec // G115: safe, max is 64
 
 	// Start metrics printer (every 5 seconds)
 	// Prometheus metrics are always exported; stdout printing requires EVM_DEBUG_METRICS=true
