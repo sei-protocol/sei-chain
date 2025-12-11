@@ -18,4 +18,5 @@ export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER="$qemu_aarch64"
 cargo build --release -j 1 --target aarch64-unknown-linux-gnu
 tree target
 mkdir -p artifacts
-cp target/aarch64-unknown-linux-gnu/release/libwasmvm.so artifacts/libwasmvm.aarch64.so
+ls -alh .
+cp target/aarch64-unknown-linux-gnu/release/libwasmvm.so artifacts/

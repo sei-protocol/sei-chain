@@ -12,4 +12,5 @@ export CXX=clang++
 cargo build --release -j 1 --target x86_64-unknown-linux-gnu
 tree target
 mkdir -p artifacts
-cp target/x86_64-unknown-linux-gnu/release/libwasmvm.so artifacts/libwasmvm.x86_64.so
+ls -alh .
+cp target/x86_64-unknown-linux-gnu/release/libwasmvm.so artifacts/
