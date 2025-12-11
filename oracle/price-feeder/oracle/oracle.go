@@ -223,8 +223,6 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 	if o.mockSetPrices != nil {
 		return o.mockSetPrices(ctx)
 	}
-	o.mtx.Lock()
-	defer o.mtx.Unlock()
 	g := new(errgroup.Group)
 	mtx := new(sync.Mutex)
 	providerPrices := make(provider.AggregatedProviderPrices)
@@ -332,8 +330,11 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 		}
 	}
 
+	o.mtx.Lock()
 	o.prices = computedPrices
 	o.lastPriceSyncTS = time.Now()
+	o.mtx.Unlock()
+
 	return nil
 }
 
