@@ -31,6 +31,7 @@ jobs:
           ref: ${{ github.sha }}
       - name: Build
         run: |
+          mkdir -p libwasmvm/artifacts
           make ${{ matrix.target }}
       - name: Upload libraries
         uses: actions/upload-artifact@v5
