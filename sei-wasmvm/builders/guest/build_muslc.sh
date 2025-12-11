@@ -14,6 +14,7 @@ unset CC
 echo "Starting x86_64-unknown-linux-musl build"
 cargo build --release --target x86_64-unknown-linux-musl --example wasmvmstatic
 
+tree target
 mkdir -p artifacts
 cp target/aarch64-unknown-linux-musl/release/examples/libwasmvmstatic.a artifacts/libwasmvm_muslc.aarch64.a
 cp target/x86_64-unknown-linux-musl/release/examples/libwasmvmstatic.a artifacts/libwasmvm_muslc.a

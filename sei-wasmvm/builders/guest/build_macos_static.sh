@@ -1,6 +1,8 @@
 #!/bin/bash
 set -o errexit -o nounset -o pipefail
 
+tree .
+
 export CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
 # ref: https://wapl.es/rust/2019/02/17/rust-cross-compile-linux-to-macos.html
