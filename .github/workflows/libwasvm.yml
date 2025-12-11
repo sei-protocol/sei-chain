@@ -39,8 +39,8 @@ jobs:
         with:
           name: libwasmvm-${{ matrix.target }}-${{ github.sha }}
           path: |
-            internal/api/*.h
-            internal/api/*.so
-            internal/api/*.a
-            internal/api/*.dylib
+            sei-wasmvm/internal/api/*.h
+            sei-wasmvm/internal/api/*.so
+            sei-wasmvm/internal/api/*.a
+            sei-wasmvm/internal/api/*.dylib
           if-no-files-found: warn
