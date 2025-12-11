@@ -429,3 +429,123 @@ func (k *Keeper) GetNativePointee(ctx sdk.Context, erc20Address string) (token s
 	}
 	return
 }
+
+// PointerType represents the type of pointer in the registry
+type PointerType string
+
+const (
+	PointerTypeERC20Native   PointerType = "ERC20Native"
+	PointerTypeERC20CW20     PointerType = "ERC20CW20"
+	PointerTypeERC721CW721   PointerType = "ERC721CW721"
+	PointerTypeCW20ERC20     PointerType = "CW20ERC20"
+	PointerTypeCW721ERC721   PointerType = "CW721ERC721"
+	PointerTypeERC1155CW1155 PointerType = "ERC1155CW1155"
+	PointerTypeCW1155ERC1155 PointerType = "CW1155ERC1155"
+	PointerTypeUnknown       PointerType = "Unknown"
+)
+
+// pointerTypeFromPrefix returns the PointerType based on the type prefix byte
+func pointerTypeFromPrefix(prefixByte byte) PointerType {
+	switch {
+	case prefixByte == types.PointerERC20NativePrefix[0]:
+		return PointerTypeERC20Native
+	case prefixByte == types.PointerERC20CW20Prefix[0]:
+		return PointerTypeERC20CW20
+	case prefixByte == types.PointerERC721CW721Prefix[0]:
+		return PointerTypeERC721CW721
+	case prefixByte == types.PointerCW20ERC20Prefix[0]:
+		return PointerTypeCW20ERC20
+	case prefixByte == types.PointerCW721ERC721Prefix[0]:
+		return PointerTypeCW721ERC721
+	case prefixByte == types.PointerERC1155CW1155Prefix[0]:
+		return PointerTypeERC1155CW1155
+	case prefixByte == types.PointerCW1155ERC1155Prefix[0]:
+		return PointerTypeCW1155ERC1155
+	default:
+		return PointerTypeUnknown
+	}
+}
+
+// PointerCallback is a callback function for iterating over pointers.
+// pointer: the EVM address that is the pointer
+// pointee: the original address/token that is being pointed to
+// pointerType: the type of pointer relationship
+// Return true to stop iteration, false to continue
+type PointerCallback func(pointer string, pointee string, pointerType PointerType) bool
+
+// IterateAllPointers iterates over all pointers in the registry and calls the callback for each.
+// The callback receives:
+// - pointer: the registry value (EVM address for ERC->CW pointers, CW address for CW->ERC pointers)
+// - pointee: the reverse registry value (the original address being pointed to)
+// - pointerType: the type of pointer (e.g., ERC20CW20, CW20ERC20, etc.)
+func (k *Keeper) IterateAllPointers(ctx sdk.Context, cb PointerCallback) {
+	store := ctx.KVStore(k.GetStoreKey())
+	prefixStore := prefix.NewStore(store, types.PointerRegistryPrefix)
+	iter := prefixStore.Iterator(nil, nil)
+	defer iter.Close()
+
+	for ; iter.Valid(); iter.Next() {
+		key := iter.Key()
+		if len(key) < 1 {
+			continue
+		}
+
+		// First byte after PointerRegistryPrefix is the type prefix
+		typePrefixByte := key[0]
+		pointerType := pointerTypeFromPrefix(typePrefixByte)
+
+		// The rest of the key (after type prefix) is the pointee identifier
+		// But the value stored needs version stripping - it's stored in a nested prefix store
+		// The actual structure is: PointerRegistryPrefix + TypePrefix + Pointee + Version -> PointerAddress
+		// Since we're iterating the prefix store with just PointerRegistryPrefix,
+		// we get keys of form: TypePrefix + Pointee + Version
+
+		// The value is the pointer address
+		pointerValue := iter.Value()
+
+		// For ERC->CW pointers (ERC20Native, ERC20CW20, ERC721CW721, ERC1155CW1155):
+		// - Key suffix (after type prefix) = CW address or token string + version
+		// - Value = EVM address bytes
+		// For CW->ERC pointers (CW20ERC20, CW721ERC721, CW1155ERC1155):
+		// - Key suffix (after type prefix) = EVM address bytes + version
+		// - Value = CW address string
+
+		var pointer string
+
+		switch pointerType {
+		case PointerTypeERC20Native, PointerTypeERC20CW20, PointerTypeERC721CW721, PointerTypeERC1155CW1155:
+			// ERC -> CW/Native pointers: value is EVM address
+			pointer = common.BytesToAddress(pointerValue).Hex()
+		case PointerTypeCW20ERC20, PointerTypeCW721ERC721, PointerTypeCW1155ERC1155:
+			// CW -> ERC pointers: value is CW address string
+			pointer = string(pointerValue)
+		default:
+			continue
+		}
+
+		// Look up reverse registry to get the pointee value
+		var reverseKey []byte
+		switch pointerType {
+		case PointerTypeERC20Native, PointerTypeERC20CW20, PointerTypeERC721CW721, PointerTypeERC1155CW1155:
+			// For ERC->CW pointers, reverse key uses the EVM pointer address
+			reverseKey = types.PointerReverseRegistryKey(common.BytesToAddress(pointerValue))
+		case PointerTypeCW20ERC20, PointerTypeCW721ERC721, PointerTypeCW1155ERC1155:
+			// For CW->ERC pointers, reverse key uses the CW address converted to address
+			reverseKey = types.PointerReverseRegistryKey(common.BytesToAddress(pointerValue))
+		}
+
+		reverseValue, _, reverseExists := k.GetAnyPointerInfo(ctx, reverseKey)
+		reversePointee := ""
+		if reverseExists {
+			reversePointee = string(reverseValue)
+			// For CW->ERC pointers, the reverse value is an EVM address
+			if pointerType == PointerTypeCW20ERC20 || pointerType == PointerTypeCW721ERC721 || pointerType == PointerTypeCW1155ERC1155 {
+				reversePointee = common.BytesToAddress(reverseValue).Hex()
+			}
+		}
+
+		if cb(pointer, reversePointee, pointerType) {
+			break
+		}
+	}
+}

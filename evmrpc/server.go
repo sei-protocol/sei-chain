@@ -147,6 +147,10 @@ func NewEVMHTTPServer(
 			Namespace: "sei",
 			Service:   seiDebugAPI,
 		},
+		{
+			Namespace: "sei",
+			Service:   NewPointersAPI(k, ctxProvider, ConnectionTypeHTTP),
+		},
 	}
 	// Test API can only exist on non-live chain IDs.  These APIs instrument certain overrides.
 	if config.EnableTestAPI && !evmCfg.IsLiveChainID(ctx) {
