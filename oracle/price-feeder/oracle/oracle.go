@@ -223,6 +223,8 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 	if o.mockSetPrices != nil {
 		return o.mockSetPrices(ctx)
 	}
+	o.mtx.Lock()
+	defer o.mtx.Unlock()
 	g := new(errgroup.Group)
 	mtx := new(sync.Mutex)
 	providerPrices := make(provider.AggregatedProviderPrices)
@@ -331,6 +333,7 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 	}
 
 	o.prices = computedPrices
+	o.lastPriceSyncTS = time.Now()
 	return nil
 }
 
@@ -650,7 +653,6 @@ func (o *Oracle) tick(
 	if err = o.SetPrices(ctx); err != nil {
 		return err
 	}
-	o.lastPriceSyncTS = time.Now()
 
 	// Get oracle vote period, next block height, current vote period, and index
 	// in the vote period.
