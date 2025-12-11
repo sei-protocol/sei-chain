@@ -18,6 +18,9 @@ type WorkerPool struct {
 	wg        sync.WaitGroup
 	closed    bool
 	mu        sync.RWMutex
+
+	// Embedded metrics for backpressure and observability
+	Metrics *WorkerPoolMetrics
 }
 
 var (
@@ -65,6 +68,11 @@ func NewWorkerPool(workers, queueSize int) *WorkerPool {
 		workers:   workers,
 		taskQueue: make(chan func(), queueSize),
 		done:      make(chan struct{}),
+		Metrics: &WorkerPoolMetrics{
+			TotalWorkers:  int32(workers),   //nolint:gosec // G115: safe, max is 64
+			QueueCapacity: int32(queueSize), //nolint:gosec // G115: safe, max is 1000
+			windowStart:   time.Now(),
+		},
 	}
 }
 
@@ -92,7 +100,7 @@ func (wp *WorkerPool) start() {
 							if r := recover(); r != nil {
 								// Log the panic but continue processing other tasks
 								fmt.Printf("Task recovered from panic: %v\n", r)
-								GetGlobalMetrics().RecordTaskPanicked()
+								wp.Metrics.RecordTaskPanicked()
 							}
 						}()
 						wrappedTask()
@@ -105,8 +113,6 @@ func (wp *WorkerPool) start() {
 
 // SubmitWithMetrics submits a task with full metrics tracking
 func (wp *WorkerPool) SubmitWithMetrics(task func()) error {
-	metrics := GetGlobalMetrics()
-
 	// Check if pool is closed first
 	wp.mu.RLock()
 	if wp.closed {
@@ -120,20 +126,20 @@ func (wp *WorkerPool) SubmitWithMetrics(task func()) error {
 	// Wrap the task with metrics
 	wrappedTask := func() {
 		startedAt := time.Now()
-		metrics.RecordTaskStarted(queuedAt)
-		defer metrics.RecordTaskCompleted(startedAt)
+		wp.Metrics.RecordTaskStarted(queuedAt)
+		defer wp.Metrics.RecordTaskCompleted(startedAt)
 		task()
 	}
 
 	select {
 	case wp.taskQueue <- wrappedTask:
-		metrics.RecordTaskSubmitted()
+		wp.Metrics.RecordTaskSubmitted()
 		return nil
 	case <-wp.done:
 		return fmt.Errorf("worker pool is closing")
 	default:
 		// Queue is full - fail fast
-		metrics.RecordTaskRejected()
+		wp.Metrics.RecordTaskRejected()
 		return fmt.Errorf("worker pool queue is full")
 	}
 }

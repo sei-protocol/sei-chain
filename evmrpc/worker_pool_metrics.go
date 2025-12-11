@@ -10,7 +10,6 @@ import (
 
 	gometrics "github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
-	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 )
 
 // Environment variable to enable debug metrics printing to stdout
@@ -102,33 +101,14 @@ type WorkerPoolMetrics struct {
 }
 
 var (
-	globalMetrics      *WorkerPoolMetrics
-	globalMetricsOnce  sync.Once
 	metricsPrinterOnce sync.Once
 	metricsStopChan    chan struct{}
 )
 
-// InitGlobalMetrics initializes the global metrics instance
-func InitGlobalMetrics(workerCount, queueCapacity, dbSemaphoreCapacity int) *WorkerPoolMetrics {
-	globalMetricsOnce.Do(func() {
-		globalMetrics = &WorkerPoolMetrics{
-			TotalWorkers:        int32(workerCount),         //nolint:gosec // G115: safe, max is 64
-			QueueCapacity:       int32(queueCapacity),       //nolint:gosec // G115: safe, max is 1000
-			DBSemaphoreCapacity: int32(dbSemaphoreCapacity), //nolint:gosec // G115: safe, max is 64
-			windowStart:         time.Now(),
-		}
-	})
-	return globalMetrics
-}
-
-// GetGlobalMetrics returns the global metrics instance
+// GetGlobalMetrics returns the metrics from the global worker pool
+// This is a convenience function for accessing metrics without importing worker pool
 func GetGlobalMetrics() *WorkerPoolMetrics {
-	if globalMetrics == nil {
-		// Initialize with defaults if not already done
-		// DB semaphore is aligned with worker count
-		InitGlobalMetrics(evmrpcconfig.MaxWorkerPoolSize, evmrpcconfig.DefaultWorkerQueueSize, evmrpcconfig.MaxWorkerPoolSize)
-	}
-	return globalMetrics
+	return GetGlobalWorkerPool().Metrics
 }
 
 // StartMetricsPrinter starts a background goroutine that prints metrics every interval

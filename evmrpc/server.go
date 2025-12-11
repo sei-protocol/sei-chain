@@ -2,7 +2,6 @@ package evmrpc
 
 import (
 	"context"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -51,27 +50,22 @@ func NewEVMHTTPServer(
 ) (EVMServer, error) {
 	logger = logger.With("module", "evmrpc")
 
-	// Initialize global worker pool with configuration
+	// Initialize global worker pool with configuration (metrics are embedded in pool)
 	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
 
-	// Initialize global metrics with worker pool and DB semaphore configuration
-	workerCount := config.WorkerPoolSize
-	if workerCount <= 0 {
-		workerCount = min(evmrpcconfig.MaxWorkerPoolSize, runtime.NumCPU()*2)
-	}
-	queueSize := config.WorkerQueueSize
-	if queueSize <= 0 {
-		queueSize = evmrpcconfig.DefaultWorkerQueueSize
-	}
-	// Align DB semaphore with worker count - each worker gets one I/O slot
-	dbSemaphoreSize := workerCount
-	InitGlobalMetrics(workerCount, queueSize, dbSemaphoreSize)
+	// Get pool for logging and DB semaphore setup
+	pool := GetGlobalWorkerPool()
+	workerCount := pool.WorkerCount()
+	queueSize := pool.QueueSize()
+
+	// Set DB semaphore capacity in metrics (aligned with worker count)
+	pool.Metrics.DBSemaphoreCapacity = int32(workerCount) //nolint:gosec // G115: safe, max is 64
 
 	// Start metrics printer (every 5 seconds)
 	// Prometheus metrics are always exported; stdout printing requires EVM_DEBUG_METRICS=true
 	StartMetricsPrinter(5 * time.Second)
 	debugEnabled := IsDebugMetricsEnabled()
-	logger.Info("Started EVM RPC metrics exporter (interval: 5s)", "workers", workerCount, "queue", queueSize, "db_semaphore", dbSemaphoreSize, "debug_stdout", debugEnabled)
+	logger.Info("Started EVM RPC metrics exporter (interval: 5s)", "workers", workerCount, "queue", queueSize, "db_semaphore", workerCount, "debug_stdout", debugEnabled)
 	if !debugEnabled {
 		logger.Info("To enable debug metrics output to stdout, set EVM_DEBUG_METRICS=true")
 	}
@@ -111,7 +105,7 @@ func NewEVMHTTPServer(
 	seiDebugAPI := NewSeiDebugAPI(tmClient, k, beginBlockKeepers, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex, watermarks)
 
 	// DB semaphore aligned with worker count
-	dbReadSemaphore := make(chan struct{}, dbSemaphoreSize)
+	dbReadSemaphore := make(chan struct{}, workerCount)
 	globalLogSlicePool := NewLogSlicePool()
 	apis := []rpc.API{
 		{
@@ -250,21 +244,9 @@ func NewEVMWebSocketServer(
 ) (EVMServer, error) {
 	logger = logger.With("module", "evmrpc")
 
-	// Initialize global worker pool with configuration
+	// Initialize global worker pool with configuration (metrics are embedded in pool)
+	// This is idempotent - if HTTP server already initialized it, this is a no-op
 	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
-
-	// Initialize global metrics (idempotent - only first call takes effect)
-	workerCountWS := config.WorkerPoolSize
-	if workerCountWS <= 0 {
-		workerCountWS = min(evmrpcconfig.MaxWorkerPoolSize, runtime.NumCPU()*2)
-	}
-	queueSizeWS := config.WorkerQueueSize
-	if queueSizeWS <= 0 {
-		queueSizeWS = evmrpcconfig.DefaultWorkerQueueSize
-	}
-	// Align DB semaphore with worker count
-	dbSemaphoreSizeWS := workerCountWS
-	InitGlobalMetrics(workerCountWS, queueSizeWS, dbSemaphoreSizeWS)
 
 	// Start metrics printer (idempotent - only first call starts printer)
 	StartMetricsPrinter(5 * time.Second)
@@ -288,7 +270,7 @@ func NewEVMWebSocketServer(
 	}
 	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
 	// DB semaphore aligned with worker count
-	dbReadSemaphore := make(chan struct{}, dbSemaphoreSizeWS)
+	dbReadSemaphore := make(chan struct{}, GetGlobalWorkerPool().WorkerCount())
 	globalBlockCache := NewBlockCache(3000)
 	cacheCreationMutex := &sync.Mutex{}
 	globalLogSlicePool := NewLogSlicePool()
