@@ -20,6 +20,10 @@ export CC=o64-clang
 export CXX=o64-clang++
 cargo build --release --target x86_64-apple-darwin
 
+tree target
+
+mkdir -p artifacts
+
 # Create a universal library with both archs
 lipo -output artifacts/libwasmvm.dylib -create \
   target/x86_64-apple-darwin/release/deps/libwasmvm.dylib \

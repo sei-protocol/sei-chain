@@ -28,7 +28,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Build
-        working-directory: sei-wasmvm
         run: |
           make ${{ matrix.target }}
       - name: Upload libraries
