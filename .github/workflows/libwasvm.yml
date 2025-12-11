@@ -33,6 +33,7 @@ jobs:
         run: |
           mkdir -p libwasmvm/artifacts
           make ${{ matrix.target }}
+          ls -alh internal/api
       - name: Upload libraries
         uses: actions/upload-artifact@v5
         with:
