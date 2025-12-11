@@ -18,15 +18,21 @@ defaults:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - release-build-alpine
+          - release-build-linux
+          - release-build-macos
     steps:
       - uses: actions/checkout@v6
       - name: Build
         working-directory: sei-wasmvm
         run: |
-          make release-build
+          make ${{ matrix.target }}
       - name: Upload libraries
         uses: actions/upload-artifact@v5
         with:
-          name: libwasmvm-${{ github.sha }}
+          name: libwasmvm-${{ matrix.target }}-${{ github.sha }}
           path: internal/api/libwasmvm*
           if-no-files-found: warn
