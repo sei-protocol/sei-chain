@@ -1,0 +1,32 @@
+name: libwasmvm
+on:
+  workflow_call:
+  pull_request:
+  push:
+    branches:
+      - main
+      - release/**
+
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+
+defaults:
+  run:
+    working-directory: sei-wasmvm
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build
+        working-directory: sei-wasmvm
+        run: |
+          make release-build
+      - name: Upload libraries
+        uses: actions/upload-artifact@v5
+        with:
+          name: libwasmvm-${{ github.sha }}
+          path: internal/api/libwasmvm*
+          if-no-files-found: warn
