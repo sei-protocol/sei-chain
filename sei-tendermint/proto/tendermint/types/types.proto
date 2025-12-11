@@ -7,6 +7,7 @@ import "google/protobuf/timestamp.proto";
 import "tendermint/crypto/proof.proto";
 import "tendermint/types/validator.proto";
 import "tendermint/version/types.proto";
+import "hashable.proto";
 
 option go_package = "github.com/tendermint/tendermint/proto/tendermint/types";
 
@@ -37,8 +38,9 @@ enum SignedMsgType {
 
 // PartsetHeader
 message PartSetHeader {
-  uint32 total = 1;
-  bytes hash = 2;
+  option (hashable.hashable) = true;
+  optional uint32 total = 1;
+  optional bytes hash = 2;
 }
 
 message Part {
@@ -49,8 +51,9 @@ message Part {
 
 // BlockID
 message BlockID {
-  bytes hash = 1;
-  PartSetHeader part_set_header = 2 [(gogoproto.nullable) = false];
+  option (hashable.hashable) = true;
+  optional bytes hash = 1;
+  optional PartSetHeader part_set_header = 2;
 }
 
 // --------------------------------
@@ -100,25 +103,19 @@ message TxKey {
 // Vote represents a prevote, precommit, or commit vote from validators for
 // consensus.
 message Vote {
-  SignedMsgType type = 1;
-  int64 height = 2;
-  int32 round = 3;
-  BlockID block_id = 4 [
-    (gogoproto.nullable) = false,
-    (gogoproto.customname) = "BlockID"
-  ]; // zero if vote is nil.
-  google.protobuf.Timestamp timestamp = 5 [
-    (gogoproto.nullable) = false,
-    (gogoproto.stdtime) = true
-  ];
-  bytes validator_address = 6;
-  int32 validator_index = 7;
+  option (hashable.hashable) = true;
+  optional SignedMsgType type = 1;
+  optional int64 height = 2;
+  optional int32 round = 3;
+  optional BlockID block_id = 4;
+  optional bytes validator_address = 6;
+  optional int32 validator_index = 7;
   // Vote signature by the validator if they participated in consensus for the
   // associated block.
-  bytes signature = 8;
+  optional bytes signature = 8;
 
-  bytes extension = 9 [deprecated = true];
-  bytes extension_signature = 10 [deprecated = true];
+  optional bytes extension = 9 [deprecated = true];
+  optional bytes extension_signature = 10 [deprecated = true];
 }
 
 // Commit contains the evidence that a block was committed by a set of

@@ -10,6 +10,7 @@ plugins:
       - go
       - run
       - ./sei-tendermint/cmd/buf_plugin
+    strategy: all
     opt:
       - Mgoogle/protobuf/any.proto=github.com/cosmos/cosmos-sdk/codec/types
     out: ./build/proto/validation

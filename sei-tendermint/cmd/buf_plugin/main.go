@@ -4,28 +4,25 @@ import (
 	"fmt"
 	"iter"
 	"log"
+	"errors"
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
+	"google.golang.org/protobuf/types/pluginpb"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoregistry"
 )
 
+func (d md) GetBoolOption(ext protoreflect.ExtensionTypeDescriptor) bool {
+	options := d.Options().(*descriptorpb.MessageOptions).ProtoReflect()
+	if !options.Has(ext) { return false }
+	return options.Get(ext).Bool()
+}
 type md struct{ protoreflect.MessageDescriptor }
 type mds = map[protoreflect.FullName]md
-
-func getExtType(p *protogen.Plugin, name protoreflect.FullName) (protoreflect.ExtensionType, bool) {
-	for _, file := range p.Files {
-		es := file.Desc.Extensions()
-		for i := range es.Len() {
-			if e := es.Get(i); e.FullName() == name {
-				return dynamicpb.NewExtensionType(e), true
-			}
-		}
-	}
-	return nil, false
-}
 
 func (d md) walk(yield func(md) bool) bool {
 	if !yield(d) {
@@ -40,10 +37,10 @@ func (d md) walk(yield func(md) bool) bool {
 	return true
 }
 
-func allMDs(plugin *protogen.Plugin) iter.Seq[md] {
+func allMDs(files *protoregistry.Files) iter.Seq[md] {
 	return func(yield func(md) bool) {
-		for _, file := range plugin.Files {
-			descs := file.Desc.Messages()
+		for file := range files.RangeFiles {
+			descs := file.Messages()
 			for i := range descs.Len() {
 				if !(md{descs.Get(i)}).walk(yield) {
 					return
@@ -53,50 +50,60 @@ func allMDs(plugin *protogen.Plugin) iter.Seq[md] {
 	}
 }
 
-func (d md) GetBoolOption(opt protoreflect.ExtensionType) bool {
-	options, ok := d.Options().(*descriptorpb.MessageOptions)
-	if !ok || !proto.HasExtension(options, opt) {
-		return false
-	}
-	has, ok := proto.GetExtension(options, opt).(bool)
-	return ok && has
+func OrPanic(err error) {
+	if err!=nil { panic(err) }
 }
 
-// run reads the proto descriptors and checks that the can_hash messages satisfy the following constraints:
-// * all can_hash messages have to use proto3 syntax
-// * message fields of can_hash messages have to be can_hash as well
-// * fields of can_hash messages have to be repeated/optional (explicit presence)
-// * fields of can_hash messages cannot be maps
+func OrPanic1[T any](v T, err error) T {
+	OrPanic(err)
+	return v
+}
+
+// run reads the proto descriptors and checks that the hashable messages satisfy the following constraints:
+// * all hashable messages have to use proto3 syntax
+// * message fields of hashable messages have to be hashable as well
+// * fields of hashable messages have to be repeated/optional (explicit presence)
+// * fields of hashable messages cannot be maps
 func run(p *protogen.Plugin) error {
-	canHashName := protoreflect.FullName("tendermint.utils.can_hash")
-	canHashOpt, ok := getExtType(p, canHashName)
-	if !ok {
-		// When the module being processed does not declare the extension we have nothing to validate.
-		return nil
+	p.SupportedFeatures = uint64(pluginpb.CodeGeneratorResponse_FEATURE_PROTO3_OPTIONAL)
+
+	fds := &descriptorpb.FileDescriptorSet{File: p.Request.ProtoFile}
+	// Re-unmarshal proto files, so that dynamic options are registered.
+	OrPanic(proto.UnmarshalOptions{
+		Resolver: dynamicpb.NewTypes(OrPanic1(protodesc.NewFiles(fds))),
+	}.Unmarshal(OrPanic1(proto.Marshal(fds)),fds))
+	files := OrPanic1(protodesc.NewFiles(fds))
+
+	hashableOpt,err := dynamicpb.NewTypes(files).FindExtensionByName("hashable.hashable")
+	if err!=nil {
+		if errors.Is(err,protoregistry.NotFound) {
+			return nil
+		}
+		panic(fmt.Errorf("files.FindExtensionByName(): %w",err))
 	}
 	descs := mds{}
-	for d := range allMDs(p) {
-		if d.GetBoolOption(canHashOpt) {
+	for d := range allMDs(files) {
+		if d.GetBoolOption(hashableOpt.TypeDescriptor()) {
 			descs[d.FullName()] = d
 		}
 	}
-	log.Printf("buf_plugin: found can_hash option; %d message type(s) marked with it", len(descs))
+	log.Printf("buf_plugin: found hashable option; %d message type(s) marked with it", len(descs))
 	for _, d := range descs {
 		if d.Syntax() != protoreflect.Proto3 {
-			return fmt.Errorf("%q: can_hash messages have to be in proto3 syntax", d.FullName())
+			return fmt.Errorf("%q: hashable messages have to be in proto3 syntax", d.FullName())
 		}
 		fields := d.Fields()
 		for i := 0; i < fields.Len(); i++ {
 			f := fields.Get(i)
 			if f.IsMap() {
-				return fmt.Errorf("%q: maps are not allowed in can_hash messages", f.FullName())
+				return fmt.Errorf("%q: maps are not allowed in hashable messages", f.FullName())
 			}
 			if !f.IsList() && !f.HasPresence() {
-				return fmt.Errorf("%q: all fields of can_hash messages should be optional or repeated", f.FullName())
+				return fmt.Errorf("%q: all fields of hashable messages should be optional or repeated", f.FullName())
 			}
 			if f.Kind() == protoreflect.MessageKind {
 				if _, ok := descs[f.Message().FullName()]; !ok {
-					return fmt.Errorf("%q: message fields of can_hash messages have to be can_hash", f.FullName())
+					return fmt.Errorf("%q: message fields of hashable messages have to be hashable", f.FullName())
 				}
 			}
 		}
