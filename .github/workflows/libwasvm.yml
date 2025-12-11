@@ -27,6 +27,8 @@ jobs:
           - release-build-macos
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
       - name: Build
         run: |
           make ${{ matrix.target }}
