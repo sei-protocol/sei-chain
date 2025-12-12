@@ -14,9 +14,10 @@ enum SampleEnum {
 
 message Nested {
   option (hashable.hashable) = true;
-
-  optional string note = 1;
-  optional uint32 value = 2;
+  oneof t {
+    string note = 1;
+    uint32 value = 2;
+  }
 }
 
 message AllKinds {
