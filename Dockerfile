@@ -27,6 +27,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY . .
 ENV CGO_ENABLED=1
+ARG SEI_CHAIN_REF=""
 ARG GO_BUILD_TAGS=""
 ARG GO_BUILD_ARGS=""
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -39,9 +40,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -X ${VERSION_PKG}.Version=$(git describe --tags || echo "${SEI_CHAIN_REF}") \
       -X ${VERSION_PKG}.Commit=$(git log -1 --format='%H') \
       -X '${VERSION_PKG}.BuildTags=${BUILD_TAGS}'" && \
-    GOFLAGS="-tags=${BUILD_TAGS} -ldflags=${LDFLAGS} ${GO_BUILD_ARGS}" && \
-    go build -o /go/bin/seid ./cmd/seid && \
-    go build -o /go/bin/price-feeder ./oracle/price-feeder
+    go build -tags "${BUILD_TAGS}" -ldflags "${LDFLAGS}" ${GO_BUILD_ARGS} -o /go/bin/seid ./cmd/seid && \
+    go build -tags "${BUILD_TAGS}" -ldflags "${LDFLAGS}" ${GO_BUILD_ARGS} -o /go/bin/price-feeder ./oracle/price-feeder
 
 FROM docker.io/ubuntu:24.04@sha256:104ae83764a5119017b8e8d6218fa0832b09df65aae7d5a6de29a85d813da2fb
 
