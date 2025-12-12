@@ -64,12 +64,11 @@ func (b builder) Message(msg protoreflect.Message) builder {
 }
 
 func (b builder) List(num protoreflect.FieldNumber, kind protoreflect.Kind, list protoreflect.List) builder {
-	size := list.Len()
-	if size == 0 {
+	if list.Len() == 0 {
 		return b
 	}
 	// We pack only lists longer than 1 for backward compatibility of optional -> repeated changes.
-	if isPackable(kind) && size > 1 {
+	if isPackable(kind) && list.Len() > 1 {
 		var packed builder
 		for i := range list.Len() {
 			packed = packed.Value(kind, list.Get(i))
@@ -77,7 +76,7 @@ func (b builder) List(num protoreflect.FieldNumber, kind protoreflect.Kind, list
 		return b.Tag(num, protowire.BytesType).Bytes(packed)
 	}
 
-	for i := range size {
+	for i := range list.Len() {
 		b = b.Singular(num, kind, list.Get(i))
 	}
 	return b
@@ -169,7 +168,7 @@ func isPackable(kind protoreflect.Kind) bool {
 
 func sortedFields(fields protoreflect.FieldDescriptors) []protoreflect.FieldDescriptor {
 	result := make([]protoreflect.FieldDescriptor, fields.Len())
-	for i := 0; i < fields.Len(); i++ {
+	for i := range fields.Len() {
 		result[i] = fields.Get(i)
 	}
 	slices.SortFunc(result, func(a, b protoreflect.FieldDescriptor) int {
