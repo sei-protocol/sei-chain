@@ -1,4 +1,14 @@
 build/
+.github
+assets
+docker
+**/*.md
+**/README*
+**/LICENSE*
+
+# Ignore all go test files as no tests are run during docker build.
+**/*_test.go
+
 # The .git folder must be transferred to Docker context since the Makefile
 # uses git commands to get the current commit hash and tag for versioning.
 # .git/
