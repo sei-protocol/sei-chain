@@ -142,7 +142,7 @@ func (b builder) Value(kind protoreflect.Kind, value protoreflect.Value) builder
 	case protoreflect.MessageKind:
 		return b.Bytes(builder{}.Message(value.Message()))
 	default:
-		panic(fmt.Errorf("kind %s is not packable", kind))
+		panic(fmt.Errorf("unsupported kind %s", kind))
 	}
 }
 
