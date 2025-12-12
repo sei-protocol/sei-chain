@@ -1,6 +1,7 @@
 package evmrpc
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -8,8 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	gometrics "github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // Environment variable to enable debug metrics printing to stdout
@@ -104,6 +106,194 @@ var (
 	metricsPrinterOnce sync.Once
 	metricsStopOnce    sync.Once
 	metricsStopChan    chan struct{}
+)
+
+var (
+	meter = otel.Meter("evmrpc_workerpool")
+
+	otelMetrics = struct {
+		workersTotal          metric.Int64Gauge
+		workersActive         metric.Int64Gauge
+		workersIdle           metric.Int64Gauge
+		queueCapacity         metric.Int64Gauge
+		queueDepth            metric.Int64Gauge
+		queuePeak             metric.Int64Gauge
+		queueUtilizationPct   metric.Float64Gauge
+		tasksSubmittedTotal   metric.Int64Gauge
+		tasksCompletedTotal   metric.Int64Gauge
+		tasksRejectedTotal    metric.Int64Gauge
+		tasksPanickedTotal    metric.Int64Gauge
+		dbSemaphoreCapacity   metric.Int64Gauge
+		dbSemaphoreInUse      metric.Int64Gauge
+		dbSemaphoreAvailable  metric.Int64Gauge
+		dbSemaphoreWaitCount  metric.Int64Gauge
+		subscriptionsActive   metric.Int64Gauge
+		getLogsRequestsTotal  metric.Int64Gauge
+		getLogsSuccessTotal   metric.Int64Gauge
+		getLogsErrorsTotal    metric.Int64Gauge
+		getLogsTPS            metric.Float64Gauge
+		getLogsAvgBlockRange  metric.Float64Gauge
+		getLogsPeakBlockRange metric.Int64Gauge
+		getLogsAvgLatencyMs   metric.Float64Gauge
+		getLogsMaxLatencyMs   metric.Float64Gauge
+		errRangeTooLarge      metric.Int64Gauge
+		errRateLimited        metric.Int64Gauge
+		errBackpressure       metric.Int64Gauge
+		avgQueueWaitMs        metric.Float64Gauge
+		avgExecTimeMs         metric.Float64Gauge
+		avgDBWaitMs           metric.Float64Gauge
+	}{
+		workersTotal: must(meter.Int64Gauge(
+			"evmrpc_workerpool_workers_total",
+			metric.WithDescription("Total worker count"),
+			metric.WithUnit("{count}"),
+		)),
+		workersActive: must(meter.Int64Gauge(
+			"evmrpc_workerpool_workers_active",
+			metric.WithDescription("Active worker count"),
+			metric.WithUnit("{count}"),
+		)),
+		workersIdle: must(meter.Int64Gauge(
+			"evmrpc_workerpool_workers_idle",
+			metric.WithDescription("Idle worker count"),
+			metric.WithUnit("{count}"),
+		)),
+		queueCapacity: must(meter.Int64Gauge(
+			"evmrpc_workerpool_queue_capacity",
+			metric.WithDescription("Task queue capacity"),
+			metric.WithUnit("{count}"),
+		)),
+		queueDepth: must(meter.Int64Gauge(
+			"evmrpc_workerpool_queue_depth",
+			metric.WithDescription("Current task queue depth"),
+			metric.WithUnit("{count}"),
+		)),
+		queuePeak: must(meter.Int64Gauge(
+			"evmrpc_workerpool_queue_peak",
+			metric.WithDescription("Peak queue depth observed"),
+			metric.WithUnit("{count}"),
+		)),
+		queueUtilizationPct: must(meter.Float64Gauge(
+			"evmrpc_workerpool_queue_utilization_pct",
+			metric.WithDescription("Queue utilization percentage"),
+			metric.WithUnit("1"),
+		)),
+		tasksSubmittedTotal: must(meter.Int64Gauge(
+			"evmrpc_workerpool_tasks_submitted_total",
+			metric.WithDescription("Tasks submitted"),
+			metric.WithUnit("{count}"),
+		)),
+		tasksCompletedTotal: must(meter.Int64Gauge(
+			"evmrpc_workerpool_tasks_completed_total",
+			metric.WithDescription("Tasks completed"),
+			metric.WithUnit("{count}"),
+		)),
+		tasksRejectedTotal: must(meter.Int64Gauge(
+			"evmrpc_workerpool_tasks_rejected_total",
+			metric.WithDescription("Tasks rejected due to full queue"),
+			metric.WithUnit("{count}"),
+		)),
+		tasksPanickedTotal: must(meter.Int64Gauge(
+			"evmrpc_workerpool_tasks_panicked_total",
+			metric.WithDescription("Tasks that panicked"),
+			metric.WithUnit("{count}"),
+		)),
+		dbSemaphoreCapacity: must(meter.Int64Gauge(
+			"evmrpc_db_semaphore_capacity",
+			metric.WithDescription("DB semaphore capacity"),
+			metric.WithUnit("{count}"),
+		)),
+		dbSemaphoreInUse: must(meter.Int64Gauge(
+			"evmrpc_db_semaphore_inuse",
+			metric.WithDescription("DB semaphore currently acquired"),
+			metric.WithUnit("{count}"),
+		)),
+		dbSemaphoreAvailable: must(meter.Int64Gauge(
+			"evmrpc_db_semaphore_available",
+			metric.WithDescription("DB semaphore available slots"),
+			metric.WithUnit("{count}"),
+		)),
+		dbSemaphoreWaitCount: must(meter.Int64Gauge(
+			"evmrpc_db_semaphore_wait_count",
+			metric.WithDescription("DB semaphore wait count"),
+			metric.WithUnit("{count}"),
+		)),
+		subscriptionsActive: must(meter.Int64Gauge(
+			"evmrpc_subscriptions_active",
+			metric.WithDescription("Active subscriptions"),
+			metric.WithUnit("{count}"),
+		)),
+		getLogsRequestsTotal: must(meter.Int64Gauge(
+			"evmrpc_getlogs_requests_total",
+			metric.WithDescription("Total eth_getLogs requests"),
+			metric.WithUnit("{count}"),
+		)),
+		getLogsSuccessTotal: must(meter.Int64Gauge(
+			"evmrpc_getlogs_success_total",
+			metric.WithDescription("Successful eth_getLogs requests"),
+			metric.WithUnit("{count}"),
+		)),
+		getLogsErrorsTotal: must(meter.Int64Gauge(
+			"evmrpc_getlogs_errors_total",
+			metric.WithDescription("Errored eth_getLogs requests"),
+			metric.WithUnit("{count}"),
+		)),
+		getLogsTPS: must(meter.Float64Gauge(
+			"evmrpc_getlogs_tps",
+			metric.WithDescription("eth_getLogs throughput (req/s)"),
+			metric.WithUnit("1/s"),
+		)),
+		getLogsAvgBlockRange: must(meter.Float64Gauge(
+			"evmrpc_getlogs_avg_blockrange",
+			metric.WithDescription("Average block range for eth_getLogs"),
+			metric.WithUnit("{blocks}"),
+		)),
+		getLogsPeakBlockRange: must(meter.Int64Gauge(
+			"evmrpc_getlogs_peak_blockrange",
+			metric.WithDescription("Peak block range for eth_getLogs"),
+			metric.WithUnit("{blocks}"),
+		)),
+		getLogsAvgLatencyMs: must(meter.Float64Gauge(
+			"evmrpc_getlogs_avg_latency_ms",
+			metric.WithDescription("Average eth_getLogs latency (ms)"),
+			metric.WithUnit("ms"),
+		)),
+		getLogsMaxLatencyMs: must(meter.Float64Gauge(
+			"evmrpc_getlogs_max_latency_ms",
+			metric.WithDescription("Max eth_getLogs latency (ms)"),
+			metric.WithUnit("ms"),
+		)),
+		errRangeTooLarge: must(meter.Int64Gauge(
+			"evmrpc_getlogs_errors_range_too_large",
+			metric.WithDescription("Errors due to block range too large"),
+			metric.WithUnit("{count}"),
+		)),
+		errRateLimited: must(meter.Int64Gauge(
+			"evmrpc_getlogs_errors_rate_limited",
+			metric.WithDescription("Errors due to rate limiting"),
+			metric.WithUnit("{count}"),
+		)),
+		errBackpressure: must(meter.Int64Gauge(
+			"evmrpc_getlogs_errors_backpressure",
+			metric.WithDescription("Errors due to backpressure"),
+			metric.WithUnit("{count}"),
+		)),
+		avgQueueWaitMs: must(meter.Float64Gauge(
+			"evmrpc_workerpool_avg_queue_wait_ms",
+			metric.WithDescription("Average queue wait time (ms)"),
+			metric.WithUnit("ms"),
+		)),
+		avgExecTimeMs: must(meter.Float64Gauge(
+			"evmrpc_workerpool_avg_exec_time_ms",
+			metric.WithDescription("Average execution time (ms)"),
+			metric.WithUnit("ms"),
+		)),
+		avgDBWaitMs: must(meter.Float64Gauge(
+			"evmrpc_db_semaphore_avg_wait_ms",
+			metric.WithDescription("Average DB semaphore wait (ms)"),
+			metric.WithUnit("ms"),
+		)),
+	}
 )
 
 // GetGlobalMetrics returns the metrics from the global worker pool
@@ -672,6 +862,13 @@ func repeatStr(s string, count int) string {
 	return result
 }
 
+func must[V any](v V, err error) V {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
 // ResetMetrics resets all metrics (useful for testing)
 func (m *WorkerPoolMetrics) ResetMetrics() {
 	m.ActiveWorkers.Store(0)
@@ -726,61 +923,62 @@ func (m *WorkerPoolMetrics) ResetMetrics() {
 // Prometheus Metrics Export Functions
 // ========================================
 
-// ExportPrometheusMetrics exports all metrics to Prometheus
+// ExportPrometheusMetrics exports all metrics to OTel
 // This should be called periodically (e.g., every 5 seconds)
 // All metrics are exported as gauges for efficiency (batch export instead of per-operation)
 func (m *WorkerPoolMetrics) ExportPrometheusMetrics() {
+	ctx := context.Background()
+
 	// Worker Pool Gauges
 	totalWorkers := m.TotalWorkers.Load()
 	queueCap := m.QueueCapacity.Load()
 	dbSemCap := m.DBSemaphoreCapacity.Load()
 
-	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "workers", "total"}, float32(totalWorkers))
-	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "workers", "active"}, float32(m.ActiveWorkers.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "workers", "idle"}, float32(totalWorkers-m.ActiveWorkers.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "queue", "capacity"}, float32(queueCap))
-	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "queue", "depth"}, float32(m.QueueDepth.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "queue", "peak"}, float32(m.PeakQueueDepth.Load()))
+	otelMetrics.workersTotal.Record(ctx, int64(totalWorkers))
+	otelMetrics.workersActive.Record(ctx, int64(m.ActiveWorkers.Load()))
+	otelMetrics.workersIdle.Record(ctx, int64(totalWorkers-m.ActiveWorkers.Load()))
+	otelMetrics.queueCapacity.Record(ctx, int64(queueCap))
+	otelMetrics.queueDepth.Record(ctx, int64(m.QueueDepth.Load()))
+	otelMetrics.queuePeak.Record(ctx, int64(m.PeakQueueDepth.Load()))
 
-	// Queue utilization percentage
-	utilization := float32(0)
+	utilization := float64(0)
 	if queueCap > 0 {
-		utilization = float32(m.QueueDepth.Load()) / float32(queueCap) * 100
+		utilization = float64(m.QueueDepth.Load()) / float64(queueCap) * 100
 	}
-	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "queue", "utilization"}, utilization)
+	otelMetrics.queueUtilizationPct.Record(ctx, utilization)
 
 	// Task counters (exported as gauges for batch efficiency)
-	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "tasks", "submitted", "total"}, float32(m.TasksSubmitted.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "tasks", "completed", "total"}, float32(m.TasksCompleted.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "tasks", "rejected", "total"}, float32(m.TasksRejected.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "tasks", "panicked", "total"}, float32(m.TasksPanicked.Load()))
+	otelMetrics.tasksSubmittedTotal.Record(ctx, m.TasksSubmitted.Load())
+	otelMetrics.tasksCompletedTotal.Record(ctx, m.TasksCompleted.Load())
+	otelMetrics.tasksRejectedTotal.Record(ctx, m.TasksRejected.Load())
+	otelMetrics.tasksPanickedTotal.Record(ctx, m.TasksPanicked.Load())
 
 	// DB Semaphore Gauges
-	gometrics.SetGauge([]string{"sei", "evm", "db", "semaphore", "capacity"}, float32(dbSemCap))
-	gometrics.SetGauge([]string{"sei", "evm", "db", "semaphore", "inuse"}, float32(m.DBSemaphoreAcquired.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "db", "semaphore", "available"}, float32(dbSemCap-m.DBSemaphoreAcquired.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "db", "semaphore", "wait", "count"}, float32(m.DBSemaphoreWaitCount.Load()))
+	otelMetrics.dbSemaphoreCapacity.Record(ctx, int64(dbSemCap))
+	otelMetrics.dbSemaphoreInUse.Record(ctx, int64(m.DBSemaphoreAcquired.Load()))
+	otelMetrics.dbSemaphoreAvailable.Record(ctx, int64(dbSemCap-m.DBSemaphoreAcquired.Load()))
+	otelMetrics.dbSemaphoreWaitCount.Record(ctx, m.DBSemaphoreWaitCount.Load())
 
 	// Subscriptions Gauge
-	gometrics.SetGauge([]string{"sei", "evm", "subscriptions", "active"}, float32(m.ActiveSubscriptions.Load()))
+	otelMetrics.subscriptionsActive.Record(ctx, int64(m.ActiveSubscriptions.Load()))
 
 	// eth_getLogs specific gauges
-	gometrics.SetGauge([]string{"sei", "evm", "getlogs", "requests", "total"}, float32(m.GetLogsRequests.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "getlogs", "success", "total"}, float32(m.GetLogsSuccess.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "getlogs", "errors", "total"}, float32(m.GetLogsErrors.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "getlogs", "tps"}, float32(m.GetTPS()))
-	gometrics.SetGauge([]string{"sei", "evm", "getlogs", "avg", "blockrange"}, float32(m.GetAverageBlockRange()))
-	gometrics.SetGauge([]string{"sei", "evm", "getlogs", "peak", "blockrange"}, float32(m.GetLogsPeakRange.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "getlogs", "avg", "latency", "ms"}, float32(m.GetAverageLatency().Milliseconds()))
-	gometrics.SetGauge([]string{"sei", "evm", "getlogs", "max", "latency", "ms"}, float32(m.GetLogsMaxLatencyNs.Load()/1e6))
+	otelMetrics.getLogsRequestsTotal.Record(ctx, m.GetLogsRequests.Load())
+	otelMetrics.getLogsSuccessTotal.Record(ctx, m.GetLogsSuccess.Load())
+	otelMetrics.getLogsErrorsTotal.Record(ctx, m.GetLogsErrors.Load())
+	otelMetrics.getLogsTPS.Record(ctx, m.GetTPS())
+	otelMetrics.getLogsAvgBlockRange.Record(ctx, m.GetAverageBlockRange())
+	otelMetrics.getLogsPeakBlockRange.Record(ctx, m.GetLogsPeakRange.Load())
+	otelMetrics.getLogsAvgLatencyMs.Record(ctx, float64(m.GetAverageLatency().Milliseconds()))
+	otelMetrics.getLogsMaxLatencyMs.Record(ctx, float64(m.GetLogsMaxLatencyNs.Load())/1e6)
 
 	// Error breakdown
-	gometrics.SetGauge([]string{"sei", "evm", "getlogs", "errors", "range_too_large"}, float32(m.ErrRangeTooLarge.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "getlogs", "errors", "rate_limited"}, float32(m.ErrRateLimited.Load()))
-	gometrics.SetGauge([]string{"sei", "evm", "getlogs", "errors", "backpressure"}, float32(m.ErrBackpressure.Load()))
+	otelMetrics.errRangeTooLarge.Record(ctx, m.ErrRangeTooLarge.Load())
+	otelMetrics.errRateLimited.Record(ctx, m.ErrRateLimited.Load())
+	otelMetrics.errBackpressure.Record(ctx, m.ErrBackpressure.Load())
 
 	// Average timings
-	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "avg", "queue", "wait", "ms"}, float32(m.GetAverageQueueWaitTime().Milliseconds()))
-	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "avg", "exec", "time", "ms"}, float32(m.GetAverageExecTime().Milliseconds()))
-	gometrics.SetGauge([]string{"sei", "evm", "db", "semaphore", "avg", "wait", "ms"}, float32(m.GetAverageDBWaitTime().Milliseconds()))
+	otelMetrics.avgQueueWaitMs.Record(ctx, float64(m.GetAverageQueueWaitTime().Milliseconds()))
+	otelMetrics.avgExecTimeMs.Record(ctx, float64(m.GetAverageExecTime().Milliseconds()))
+	otelMetrics.avgDBWaitMs.Record(ctx, float64(m.GetAverageDBWaitTime().Milliseconds()))
 }
