@@ -1,4 +1,4 @@
-package proto
+package utils 
 
 import (
 	"crypto/sha256"
@@ -11,10 +11,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/libs/utils"
 	testpb "github.com/tendermint/tendermint/proto_v2/test"
 )
 
+// Test checking that the canonical encoding is a valid proto encoding and that it is stable.
 func TestMarshalCanonicalRoundTrip(t *testing.T) {
 	// NOTE: math/rand.New uses the Go stdlib implementation, so hashes might change
 	// if that implementation ever changes. If that happens, switch to a hardcoded PRNG
@@ -24,16 +24,16 @@ func TestMarshalCanonicalRoundTrip(t *testing.T) {
 		seed     int64
 		wantHash string
 	}{
-		{name: "Seed0", seed: 0x79, wantHash: "18e941dacee4ed1f374c11b7572c08d717ab10f1d87a2996b3028b246aba5577"},
-		{name: "Seed1", seed: 0xca, wantHash: "445bfc4d0e8234bda1bb9235c5953adc9eb5854b9f33ac793eddfb5e19690c4d"},
-		{name: "Seed2", seed: 0x12f, wantHash: "ba93fb2883451328cd88f1f695b5d6d3c29e3d11281c534f7a162c96eac80437"},
-		{name: "Seed3", seed: 0x194, wantHash: "41a1af29fdbc352dc3e74c34a92f6052db5a3d95395eb95bdb4a2fc584d56ea4"},
-		{name: "Seed4", seed: 0x1f9, wantHash: "006a588ad882c03507f9c9a50911b3ddd49f091a772bd280fc372f9679fba1cd"},
-		{name: "Seed5", seed: 0x25e, wantHash: "dbaf9ad50c0a227af6067a86ef6dcb704cff08f7e96dd4f15554c1ea2b769f89"},
-		{name: "Seed6", seed: 0x2c3, wantHash: "003689d064ca46f46cb1ad709321c124e2b6f0bd8f311e16d3ca175ae8fa1e70"},
-		{name: "Seed7", seed: 0x328, wantHash: "2ee310817f095f168cdccb1ebd3c8cea3b119c59db73159e6293c8b5ec8e39ac"},
-		{name: "Seed8", seed: 0x38d, wantHash: "0f09c55353603a270f128036efadd6748a5e267025f8501be2b9b374b4a8f02a"},
-		{name: "Seed9", seed: 0x3f2, wantHash: "87e328d813903d83d4838578f9653072aee3aa17542fb949804e272b9a466f49"},
+		{name: "Seed0", seed: 0x79, wantHash: "4787b6b8c6807694bd979b56d1a86c8cbe37f3764fb787f653cfbd82d91ab116"},
+		{name: "Seed1", seed: 0xca, wantHash: "41f05a42ac8a1bd3fc5079202e516a93f0464e9d1bdd3a78c8e3d207ef9fa09d"},
+		{name: "Seed2", seed: 0x12f, wantHash: "8b003e47c39776e8db30bb6153ada73ee60cffb15091c0facb68f31a20f099a3"},
+		{name: "Seed3", seed: 0x194, wantHash: "b5ef94d6af6be1b2bc16fac8fefefad047f488798503bc4997bff63fbc1e6393"},
+		{name: "Seed4", seed: 0x1f9, wantHash: "c54b74a5de4883d7dbd8b8bc2be7147c99b62384de8241a880802ce0cf23bf81"},
+		{name: "Seed5", seed: 0x25e, wantHash: "ff465e5ecfc3446152f34fb3e48387b9316d49cc66876608c18d34d17bac072d"},
+		{name: "Seed6", seed: 0x2c3, wantHash: "bb65b0f1869173abdd618c18e2b91eae2dc1d647cf2d01d6e9ed1c97b90a3b65"},
+		{name: "Seed7", seed: 0x328, wantHash: "0ec51f6b630acdd89ffaa016850b88c2f9d278f5a464daa4a8ab95195b6c896d"},
+		{name: "Seed8", seed: 0x38d, wantHash: "1c615c400ebddf4846fdfd4cb478f9158faf8aaa52f5871028327e27f8c1dd59"},
+		{name: "Seed9", seed: 0x3f2, wantHash: "5a4bbc7725ed37b05c00d45a88a95e8918a97d17cfa86cd1f500fd8b2382a6f6"},
 	}
 
 	for _, tc := range testCases {
@@ -43,7 +43,7 @@ func TestMarshalCanonicalRoundTrip(t *testing.T) {
 			var decoded testpb.AllKinds
 			canonical := MarshalCanonical(msg)
 			require.NoError(t, proto.Unmarshal(canonical, &decoded))
-			require.NoError(t, utils.TestDiff(msg, &decoded))
+			require.NoError(t, TestDiff(msg, &decoded))
 
 			gotHash := sha256.Sum256(canonical)
 			require.Equal(t, tc.wantHash, hex.EncodeToString(gotHash[:]))
@@ -56,46 +56,46 @@ func msgFromSeed(seed int64) *testpb.AllKinds {
 	msg := &testpb.AllKinds{}
 
 	if r.Intn(2) == 0 {
-		msg.BoolValue = utils.Alloc(r.Intn(2) == 0)
+		msg.BoolValue = Alloc(r.Intn(2) == 0)
 	}
 	if r.Intn(2) == 0 {
-		msg.EnumValue = utils.Alloc(testpb.SampleEnum(r.Intn(3)))
+		msg.EnumValue = Alloc(testpb.SampleEnum(r.Intn(3)))
 	}
 	if r.Intn(2) == 0 {
-		msg.Int32Value = utils.Alloc(int32(r.Int63n(1 << 31)))
+		msg.Int32Value = Alloc(int32(r.Int63n(1 << 31)))
 	}
 	if r.Intn(2) == 0 {
-		msg.Int64Value = utils.Alloc(r.Int63())
+		msg.Int64Value = Alloc(r.Int63())
 	}
 	if r.Intn(2) == 0 {
-		msg.Sint32Value = utils.Alloc(int32(r.Intn(1<<15)) - 1<<14)
+		msg.Sint32Value = Alloc(int32(r.Intn(1<<15)) - 1<<14)
 	}
 	if r.Intn(2) == 0 {
-		msg.Sint64Value = utils.Alloc(r.Int63n(1<<40) - 1<<39)
+		msg.Sint64Value = Alloc(r.Int63n(1<<40) - 1<<39)
 	}
 	if r.Intn(2) == 0 {
-		msg.Uint32Value = utils.Alloc(uint32(r.Uint32()))
+		msg.Uint32Value = Alloc(uint32(r.Uint32()))
 	}
 	if r.Intn(2) == 0 {
-		msg.Uint64Value = utils.Alloc(r.Uint64())
+		msg.Uint64Value = Alloc(r.Uint64())
 	}
 	if r.Intn(2) == 0 {
-		msg.Fixed32Value = utils.Alloc(uint32(r.Uint32()))
+		msg.Fixed32Value = Alloc(uint32(r.Uint32()))
 	}
 	if r.Intn(2) == 0 {
-		msg.Fixed64Value = utils.Alloc(r.Uint64())
+		msg.Fixed64Value = Alloc(r.Uint64())
 	}
 	if r.Intn(2) == 0 {
-		msg.Sfixed32Value = utils.Alloc(int32(r.Int63n(1 << 31)))
+		msg.Sfixed32Value = Alloc(int32(r.Int63n(1 << 31)))
 	}
 	if r.Intn(2) == 0 {
-		msg.Sfixed64Value = utils.Alloc(r.Int63())
+		msg.Sfixed64Value = Alloc(r.Int63())
 	}
 	if r.Intn(2) == 0 {
 		msg.BytesValue = randomBytes(r)
 	}
 	if r.Intn(2) == 0 {
-		msg.StringValue = utils.Alloc(randomString(r))
+		msg.StringValue = Alloc(randomString(r))
 	}
 	if r.Intn(2) == 0 {
 		msg.MessageValue = randomNested(r)
@@ -107,7 +107,7 @@ func msgFromSeed(seed int64) *testpb.AllKinds {
 		msg.RepeatedString = randomSlice(r, randomString)
 	}
 	if r.Intn(2) == 0 {
-		msg.RepeatedMessage = randomSlice(r,randomNested)
+		msg.RepeatedMessage = randomSlice(r, randomNested)
 	}
 	if r.Intn(2) == 0 {
 		msg.OptionalMessage = randomNested(r)
@@ -130,14 +130,14 @@ func randomString(r *rand.Rand) string {
 }
 
 func randomBytes(r *rand.Rand) []byte {
-	n := r.Intn(5)+10
+	n := r.Intn(5) + 10
 	b := make([]byte, n)
 	_, _ = r.Read(b)
 	return b
 }
 
 func randomSlice[T any](r *rand.Rand, gen func(*rand.Rand) T) []T {
-	n := r.Intn(5)+3
+	n := r.Intn(5) + 3
 	out := make([]T, n)
 	for i := range out {
 		out[i] = gen(r)
@@ -148,9 +148,12 @@ func randomSlice[T any](r *rand.Rand, gen func(*rand.Rand) T) []T {
 func randomNested(r *rand.Rand) *testpb.Nested {
 	nested := &testpb.Nested{}
 	switch r.Intn(3) {
-	case 0: nested.Note = utils.Alloc(randomString(r))
-	case 1: nested.Value = utils.Alloc(uint32(r.Uint32()))
-	case 2: // empty oneof 
+	case 0:
+		nested.T = &testpb.Nested_Note{Note: randomString(r)}
+	case 1:
+		nested.T = &testpb.Nested_Value{Value: uint32(r.Uint32())}
+	default:
+		// leave oneof unset to test empty case
 	}
 	return nested
 }

@@ -1,9 +1,10 @@
-package proto
+package utils 
 
 import (
 	"cmp"
 	"fmt"
 	"slices"
+	"crypto/sha256"
 
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
@@ -13,6 +14,22 @@ import (
 type Hashable interface {
 	proto.Message
 	IsHashable()
+}
+
+// Hash is a SHA-256 hash.
+type Hash[T Hashable] [sha256.Size]byte
+
+// ParseHash parses a Hash from bytes.
+func ParseHash[T Hashable](raw []byte) (Hash[T], error) {
+	if got, want := len(raw), sha256.Size; got != want {
+		return Hash[T]{}, fmt.Errorf("hash size = %v, want %v", got, want)
+	}
+	return Hash[T](raw), nil
+}
+
+// ProtoHash hashes a Hashable proto object.
+func ProtoHash[T Hashable](a T) Hash[T] {
+	return sha256.Sum256(MarshalCanonical(a))
 }
 
 // MarshalCanonical returns the canonical protobuf encoding of msg according to
