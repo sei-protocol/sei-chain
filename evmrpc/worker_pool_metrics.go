@@ -359,7 +359,7 @@ func (m *WorkerPoolMetrics) RecordSubscriptionEnd() {
 func (m *WorkerPoolMetrics) RecordSubscriptionError() {
 	m.SubscriptionErrors.Add(1)
 	// Export to Prometheus
-	IncrPrometheusSubscriptionError()
+	telemetry.IncrCounter(1, "sei", "evm", "subscriptions", "errors")
 }
 
 // GetTPS calculates the current TPS based on time window
@@ -783,99 +783,4 @@ func (m *WorkerPoolMetrics) ExportPrometheusMetrics() {
 	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "avg", "queue", "wait", "ms"}, float32(m.GetAverageQueueWaitTime().Milliseconds()))
 	gometrics.SetGauge([]string{"sei", "evm", "workerpool", "avg", "exec", "time", "ms"}, float32(m.GetAverageExecTime().Milliseconds()))
 	gometrics.SetGauge([]string{"sei", "evm", "db", "semaphore", "avg", "wait", "ms"}, float32(m.GetAverageDBWaitTime().Milliseconds()))
-}
-
-// IncrTaskSubmitted increments task submitted counter in Prometheus
-func IncrPrometheusTaskSubmitted() {
-	telemetry.IncrCounter(1, "sei", "evm", "workerpool", "tasks", "submitted")
-}
-
-// IncrTaskCompleted increments task completed counter in Prometheus
-func IncrPrometheusTaskCompleted() {
-	telemetry.IncrCounter(1, "sei", "evm", "workerpool", "tasks", "completed")
-}
-
-// IncrTaskRejected increments task rejected counter in Prometheus
-func IncrPrometheusTaskRejected() {
-	telemetry.IncrCounterWithLabels(
-		[]string{"sei", "evm", "workerpool", "tasks", "rejected"},
-		1,
-		[]gometrics.Label{telemetry.NewLabel("reason", "queue_full")},
-	)
-}
-
-// IncrTaskPanicked increments task panicked counter in Prometheus
-func IncrPrometheusTaskPanicked() {
-	telemetry.IncrCounter(1, "sei", "evm", "workerpool", "tasks", "panicked")
-}
-
-// IncrGetLogsRequest increments eth_getLogs request counter with labels
-func IncrPrometheusGetLogsRequest(success bool, blockRange int64) {
-	rangeLabel := "small"
-	if blockRange > 100 {
-		rangeLabel = "medium"
-	}
-	if blockRange > 1000 {
-		rangeLabel = "large"
-	}
-
-	successStr := "true"
-	if !success {
-		successStr = "false"
-	}
-
-	telemetry.IncrCounterWithLabels(
-		[]string{"sei", "evm", "getlogs", "requests"},
-		1,
-		[]gometrics.Label{
-			telemetry.NewLabel("success", successStr),
-			telemetry.NewLabel("range", rangeLabel),
-		},
-	)
-}
-
-// MeasureGetLogsLatency records eth_getLogs latency
-func MeasurePrometheusGetLogsLatency(startTime time.Time, blockRange int64) {
-	rangeLabel := "small"
-	if blockRange > 100 {
-		rangeLabel = "medium"
-	}
-	if blockRange > 1000 {
-		rangeLabel = "large"
-	}
-
-	gometrics.MeasureSinceWithLabels(
-		[]string{"sei", "evm", "getlogs", "latency", "ms"},
-		startTime.UTC(),
-		[]gometrics.Label{telemetry.NewLabel("range", rangeLabel)},
-	)
-}
-
-// IncrSubscriptionError increments subscription error counter
-func IncrPrometheusSubscriptionError() {
-	telemetry.IncrCounter(1, "sei", "evm", "subscriptions", "errors")
-}
-
-// RecordDBSemaphoreWaitTime records DB semaphore wait time histogram
-func RecordPrometheusDBSemaphoreWait(waitTime time.Duration) {
-	gometrics.AddSample(
-		[]string{"sei", "evm", "db", "semaphore", "wait", "ms"},
-		float32(waitTime.Milliseconds()),
-	)
-}
-
-// RecordQueueWaitTime records queue wait time histogram
-func RecordPrometheusQueueWait(waitTime time.Duration) {
-	gometrics.AddSample(
-		[]string{"sei", "evm", "workerpool", "queue", "wait", "ms"},
-		float32(waitTime.Milliseconds()),
-	)
-}
-
-// RecordTaskExecTime records task execution time histogram
-func RecordPrometheusTaskExec(execTime time.Duration) {
-	gometrics.AddSample(
-		[]string{"sei", "evm", "workerpool", "task", "exec", "ms"},
-		float32(execTime.Milliseconds()),
-	)
 }
