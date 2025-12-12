@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package test;
+
+import "hashable/hashable.proto";
+
+option go_package = "github.com/tendermint/tendermint/proto_v2/test";
+
+message A {
+  option (hashable.hashable) = true;
+
+}
+
+message B {
+  option (hashable.hashable) = true;
+  repeated int32 dupa = 1;
+  optional A ww = 2;
+}

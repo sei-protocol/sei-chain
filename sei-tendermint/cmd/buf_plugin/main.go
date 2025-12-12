@@ -101,6 +101,9 @@ func run(p *protogen.Plugin) error {
 			if !f.IsList() && !f.HasPresence() {
 				return fmt.Errorf("%q: all fields of hashable messages should be optional or repeated", f.FullName())
 			}
+			if f.Kind() == protoreflect.FloatKind {
+				return fmt.Errorf("%q: float fields are not hashable",f.FullName())
+			}
 			if f.Kind() == protoreflect.MessageKind {
 				if _, ok := descs[f.Message().FullName()]; !ok {
 					return fmt.Errorf("%q: message fields of hashable messages have to be hashable", f.FullName())

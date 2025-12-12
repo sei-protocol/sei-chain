@@ -7,14 +7,6 @@ inputs:
   - directory: sei-wasmd/proto
 plugins:
   - local:
-      - go
-      - run
-      - ./sei-tendermint/cmd/buf_plugin
-    strategy: all
-    opt:
-      - Mgoogle/protobuf/any.proto=github.com/cosmos/cosmos-sdk/codec/types
-    out: ./build/proto/validation
-  - local:
       - ./build/proto/gocosmos/protoc-gen-gocosmos
     opt:
       - plugins=interfacetype+grpc
