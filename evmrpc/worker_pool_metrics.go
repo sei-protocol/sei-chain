@@ -102,6 +102,7 @@ type WorkerPoolMetrics struct {
 
 var (
 	metricsPrinterOnce sync.Once
+	metricsStopOnce    sync.Once
 	metricsStopChan    chan struct{}
 )
 
@@ -121,7 +122,10 @@ func StartMetricsPrinter(interval time.Duration) {
 		debugEnabled := IsDebugMetricsEnabled()
 		go func() {
 			ticker := time.NewTicker(interval)
-			defer ticker.Stop()
+			defer func() {
+				ticker.Stop()
+				metricsStopChan = nil
+			}()
 
 			for {
 				select {
@@ -137,15 +141,18 @@ func StartMetricsPrinter(interval time.Duration) {
 					return
 				}
 			}
+
 		}()
 	})
 }
 
-// StopMetricsPrinter stops the metrics printer
+// StopMetricsPrinter stops the metrics printer, idempotent.
 func StopMetricsPrinter() {
-	if metricsStopChan != nil {
-		close(metricsStopChan)
-	}
+	metricsStopOnce.Do(func() {
+		if metricsStopChan != nil {
+			close(metricsStopChan)
+		}
+	})
 }
 
 // RecordTaskSubmitted records a task submission

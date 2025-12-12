@@ -2,10 +2,6 @@ package evmrpc
 
 import (
 	"context"
-	"strings"
-	"sync"
-	"time"
-
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -19,6 +15,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/tendermint/tendermint/libs/log"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
+	"strings"
+	"sync"
 )
 
 type ConnectionType string
@@ -62,9 +60,6 @@ func NewEVMHTTPServer(
 	// Only set once to avoid races when multiple test servers start in parallel.
 	pool.Metrics.DBSemaphoreCapacity.CompareAndSwap(0, int32(workerCount)) //nolint:gosec // G115: safe, max is 64
 
-	// Start metrics printer (every 5 seconds)
-	// Prometheus metrics are always exported; stdout printing requires EVM_DEBUG_METRICS=true
-	StartMetricsPrinter(5 * time.Second)
 	debugEnabled := IsDebugMetricsEnabled()
 	logger.Info("Started EVM RPC metrics exporter (interval: 5s)", "workers", workerCount, "queue", queueSize, "db_semaphore", workerCount, "debug_stdout", debugEnabled)
 	if !debugEnabled {
@@ -248,9 +243,6 @@ func NewEVMWebSocketServer(
 	// Initialize global worker pool with configuration (metrics are embedded in pool)
 	// This is idempotent - if HTTP server already initialized it, this is a no-op
 	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
-
-	// Start metrics printer (idempotent - only first call starts printer)
-	StartMetricsPrinter(5 * time.Second)
 
 	// Initialize WebSocket tracker.
 	stats.InitWSTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
