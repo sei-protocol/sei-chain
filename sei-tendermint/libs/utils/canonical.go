@@ -1,10 +1,10 @@
-package utils 
+package utils
 
 import (
 	"cmp"
+	"crypto/sha256"
 	"fmt"
 	"slices"
-	"crypto/sha256"
 
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
