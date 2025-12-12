@@ -93,7 +93,7 @@ func run(p *protogen.Plugin) error {
 			descs[d.FullName()] = d
 		}
 	}
-	log.Printf("buf_plugin: found hashable option; %d message type(s) marked with it", len(descs))
+	log.Printf("found hashable option; %d message type(s) marked with it", len(descs))
 	if len(descs) == 0 {
 		return nil
 	}

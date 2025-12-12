@@ -8,6 +8,6 @@ plugins:
   - local:
       - go
       - run
-      - ./sei-tendermint/cmd/buf_plugin
+      - ./sei-tendermint/proto_plugins/hashable
     strategy: all
     out: ./sei-tendermint/proto_v2
