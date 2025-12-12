@@ -95,16 +95,21 @@ func run(p *protogen.Plugin) error {
 		fields := d.Fields()
 		for i := 0; i < fields.Len(); i++ {
 			f := fields.Get(i)
+			if f.IsExtension() {
+				return fmt.Errorf("%q: extension fields are not hashable", f.FullName())
+			}
 			if f.IsMap() {
-				return fmt.Errorf("%q: maps are not allowed in hashable messages", f.FullName())
+				return fmt.Errorf("%q: maps are not hashable", f.FullName())
 			}
 			if !f.IsList() && !f.HasPresence() {
 				return fmt.Errorf("%q: all fields of hashable messages should be optional or repeated", f.FullName())
 			}
-			if f.Kind() == protoreflect.FloatKind {
+			switch f.Kind() {
+			case protoreflect.FloatKind, protoreflect.DoubleKind:
 				return fmt.Errorf("%q: float fields are not hashable",f.FullName())
-			}
-			if f.Kind() == protoreflect.MessageKind {
+			case protoreflect.GroupKind:
+				return fmt.Errorf("%q: group field are not hashable",f.FullName())
+			case protoreflect.MessageKind:
 				if _, ok := descs[f.Message().FullName()]; !ok {
 					return fmt.Errorf("%q: message fields of hashable messages have to be hashable", f.FullName())
 				}
