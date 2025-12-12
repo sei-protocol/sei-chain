@@ -5,7 +5,6 @@ package tendermint.consensus;
 import "gogoproto/gogo.proto";
 import "tendermint/libs/bits/types.proto";
 import "tendermint/types/types.proto";
-import "hashable.proto";
 
 option go_package = "github.com/tendermint/tendermint/proto/tendermint/consensus";
 
@@ -53,7 +52,6 @@ message BlockPart {
 
 // Vote is sent when voting for a proposal (or lack thereof).
 message Vote {
-  option (hashable.hashable) = true;
   tendermint.types.Vote vote = 1;
 }
 
