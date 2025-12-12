@@ -1,12 +1,12 @@
 package proto
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
-	"cmp"
 
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -24,18 +24,20 @@ func MarshalCanonical[T Hashable](msg T) []byte {
 
 type builder []byte
 
-func (b builder) Tag(num protowire.Number, typ protowire.Type) builder { return protowire.AppendTag(b,num,typ) }
-func (b builder) Varint(v uint64) builder { return protowire.AppendVarint(b, v) }
-func (b builder) Fixed32(v uint32) builder { return protowire.AppendFixed32(b, v) }
-func (b builder) Fixed64(v uint64) builder { return protowire.AppendFixed64(b, v) }
-func (b builder) Bytes(bytes []byte) builder { return protowire.AppendBytes(b,bytes) }
-func (b builder) String(s string) builder { return protowire.AppendString(b,s) }
+func (b builder) Tag(num protowire.Number, typ protowire.Type) builder {
+	return protowire.AppendTag(b, num, typ)
+}
+func (b builder) Varint(v uint64) builder    { return protowire.AppendVarint(b, v) }
+func (b builder) Fixed32(v uint32) builder   { return protowire.AppendFixed32(b, v) }
+func (b builder) Fixed64(v uint64) builder   { return protowire.AppendFixed64(b, v) }
+func (b builder) Bytes(bytes []byte) builder { return protowire.AppendBytes(b, bytes) }
+func (b builder) String(s string) builder    { return protowire.AppendString(b, s) }
 
-func (b builder) Message(msg protoreflect.Message) builder {	
+func (b builder) Message(msg protoreflect.Message) builder {
 	// NOTE: we ignore unknown fields - we are unable to encode them canonically.
 	// NOTE: we can sort fields on init if needed (in the generated files).
 	for _, fd := range sortedFields(msg.Descriptor().Fields()) {
-		if fd.IsList() {	
+		if fd.IsList() {
 			b = b.List(fd.Number(), fd.Kind(), msg.Get(fd).List())
 		} else if msg.Has(fd) {
 			b = b.Singular(fd.Number(), fd.Kind(), msg.Get(fd))
@@ -49,7 +51,7 @@ func (b builder) List(num protoreflect.FieldNumber, kind protoreflect.Kind, list
 	if size == 0 {
 		return b
 	}
-	// We pack only lists longer than 1 for backward compatibility of optional -> repeated changes. 
+	// We pack only lists longer than 1 for backward compatibility of optional -> repeated changes.
 	if isPackable(kind) && size > 1 {
 		var packed builder
 		for i := range list.Len() {
@@ -75,7 +77,7 @@ func (b builder) Singular(num protoreflect.FieldNumber, kind protoreflect.Kind, 
 		protoreflect.Uint32Kind,
 		protoreflect.Uint64Kind:
 		b = b.Tag(num, protowire.VarintType)
-	case protoreflect.Fixed32Kind, protoreflect.Sfixed32Kind: 
+	case protoreflect.Fixed32Kind, protoreflect.Sfixed32Kind:
 		b = b.Tag(num, protowire.Fixed32Type)
 	case protoreflect.Fixed64Kind, protoreflect.Sfixed64Kind:
 		b = b.Tag(num, protowire.Fixed64Type)
@@ -95,21 +97,36 @@ func (b builder) Value(kind protoreflect.Kind, value protoreflect.Value) builder
 			v = 1
 		}
 		return b.Varint(v)
-	case protoreflect.EnumKind: return b.Varint(uint64(value.Enum()))
-	case protoreflect.Int32Kind: return b.Varint(uint64(uint32(value.Int())))
-	case protoreflect.Int64Kind: return b.Varint(uint64(value.Int()))
-	case protoreflect.Sint32Kind: return b.Varint(protowire.EncodeZigZag(int64(int32(value.Int()))))
-	case protoreflect.Sint64Kind: return b.Varint(protowire.EncodeZigZag(value.Int()))
-	case protoreflect.Uint32Kind: return b.Varint(uint64(uint32(value.Uint())))
-	case protoreflect.Uint64Kind: return b.Varint(value.Uint())
-	case protoreflect.Fixed32Kind: return b.Fixed32(uint32(value.Uint()))
-	case protoreflect.Fixed64Kind: return b.Fixed64(value.Uint())
-	case protoreflect.Sfixed32Kind: return b.Fixed32(uint32(int32(value.Int())))
-	case protoreflect.Sfixed64Kind: return b.Fixed64(uint64(value.Int()))
-	case protoreflect.BytesKind: return b.Bytes(value.Bytes())
-	case protoreflect.StringKind: return b.String(value.String())
-	case protoreflect.MessageKind: return b.Message(value.Message())
-	default: panic(fmt.Errorf("kind %s is not packable", kind))
+	case protoreflect.EnumKind:
+		return b.Varint(uint64(value.Enum()))
+	case protoreflect.Int32Kind:
+		return b.Varint(uint64(uint32(value.Int())))
+	case protoreflect.Int64Kind:
+		return b.Varint(uint64(value.Int()))
+	case protoreflect.Sint32Kind:
+		return b.Varint(protowire.EncodeZigZag(int64(int32(value.Int()))))
+	case protoreflect.Sint64Kind:
+		return b.Varint(protowire.EncodeZigZag(value.Int()))
+	case protoreflect.Uint32Kind:
+		return b.Varint(uint64(uint32(value.Uint())))
+	case protoreflect.Uint64Kind:
+		return b.Varint(value.Uint())
+	case protoreflect.Fixed32Kind:
+		return b.Fixed32(uint32(value.Uint()))
+	case protoreflect.Fixed64Kind:
+		return b.Fixed64(value.Uint())
+	case protoreflect.Sfixed32Kind:
+		return b.Fixed32(uint32(int32(value.Int())))
+	case protoreflect.Sfixed64Kind:
+		return b.Fixed64(uint64(value.Int()))
+	case protoreflect.BytesKind:
+		return b.Bytes(value.Bytes())
+	case protoreflect.StringKind:
+		return b.String(value.String())
+	case protoreflect.MessageKind:
+		return b.Bytes(builder{}.Message(value.Message()))
+	default:
+		panic(fmt.Errorf("kind %s is not packable", kind))
 	}
 }
 
@@ -138,8 +155,8 @@ func sortedFields(fields protoreflect.FieldDescriptors) []protoreflect.FieldDesc
 	for i := 0; i < fields.Len(); i++ {
 		result[i] = fields.Get(i)
 	}
-	slices.SortFunc(result,func(a,b protoreflect.FieldDescriptor) int {
-		return cmp.Compare(a.Number(),b.Number())
+	slices.SortFunc(result, func(a, b protoreflect.FieldDescriptor) int {
+		return cmp.Compare(a.Number(), b.Number())
 	})
 	return result
 }
