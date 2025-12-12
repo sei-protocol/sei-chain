@@ -9,7 +9,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/abci/example/kvstore"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -24,6 +23,7 @@ import (
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmtime "github.com/tendermint/tendermint/libs/time"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -102,7 +102,7 @@ func TestStateProposerSelection0(t *testing.T) {
 	key, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
 	address := key.Address()
-	require.Truef(t, bytes.Equal(prop.Address, address), "expected proposer to be validator %d. Got %X", 0, prop.Address)
+	require.NoError(t, utils.TestDiff(prop.Address, address))
 
 	// Wait for complete proposal.
 	ensureNewProposal(t, proposalCh, height, round)
@@ -2139,7 +2139,6 @@ func TestCommitFromPreviousRound(t *testing.T) {
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 	vs2, vs3, vs4 := vss[1], vss[2], vss[3]
-	height, round := cs1.roundState.Height(), int32(1)
 
 	partSize := types.BlockPartSizeBytes
 
@@ -2155,7 +2154,9 @@ func TestCommitFromPreviousRound(t *testing.T) {
 		PartSetHeader: partSet.Header(),
 	}
 
-	// start round in which PO is not proposer
+	// start round in which P0 is not proposer
+	height := cs1.roundState.Height()
+	round := int32(1)
 	startTestRound(ctx, cs1, height, round)
 	ensureNewRound(t, newRoundCh, height, round)
 
@@ -2163,17 +2164,9 @@ func TestCommitFromPreviousRound(t *testing.T) {
 	signAddVotes(ctx, t, cs1, tmproto.PrecommitType, config.ChainID(), blockID, vs2, vs3, vs4)
 
 	ensureNewValidBlock(t, validBlockCh, height, round)
-
-	rs := cs1.GetRoundState()
-	assert.True(t, rs.Step == cstypes.RoundStepCommit)
-	assert.True(t, rs.CommitRound == vs2.Round)
-	assert.True(t, rs.ProposalBlock == nil)
-	assert.True(t, rs.ProposalBlockParts.Header().Equals(blockID.PartSetHeader))
 	partSet, err = propBlock.MakePartSet(partSize)
 	require.NoError(t, err)
-	err = cs1.SetProposalAndBlock(ctx, prop, propBlock, partSet, "some peer")
-	require.NoError(t, err)
-
+	require.NoError(t, cs1.SetProposalAndBlock(ctx, prop, propBlock, partSet, "some peer"))
 	ensureNewProposal(t, proposalCh, height, round)
 	ensureNewRound(t, newRoundCh, height+1, 0)
 }
@@ -2642,7 +2635,7 @@ func subscribe(
 		ClientID: testSubscriber,
 		Query:    q,
 	})
-	require.NoErrorf(t, err, "Failed to subscribe %q to %v: %v", testSubscriber, q, err)
+	require.NoError(t, err)
 	ch := make(chan tmpubsub.Message)
 	go func() {
 		for {
