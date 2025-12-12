@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sync"
@@ -33,22 +32,6 @@ func SafeCast[To Int, From Int](v From) (x To, ok bool) {
 	return
 }
 
-// Hash is a SHA-256 hash.
-type Hash [sha256.Size]byte
-
-// GetHash computes a hash of the given data.
-func GetHash(data []byte) Hash {
-	return sha256.Sum256(data)
-}
-
-// ParseHash parses a Hash from bytes.
-func ParseHash(raw []byte) (Hash, error) {
-	if got, want := len(raw), sha256.Size; got != want {
-		return Hash{}, fmt.Errorf("hash size = %v, want %v", got, want)
-	}
-	return Hash(raw), nil
-}
-
 // ProtoClone clones a proto.Message object.
 func ProtoClone[T proto.Message](item T) T {
 	return proto.Clone(item).(T)
@@ -57,16 +40,6 @@ func ProtoClone[T proto.Message](item T) T {
 // ProtoEqual compares two proto.Message objects.
 func ProtoEqual[T proto.Message](a, b T) bool {
 	return proto.Equal(a, b)
-}
-
-// ProtoHash hashes a proto.Message object.
-// TODO(gprusak): make it deterministic.
-func ProtoHash(a proto.Message) Hash {
-	raw, err := proto.Marshal(a)
-	if err != nil {
-		panic(err)
-	}
-	return sha256.Sum256(raw)
 }
 
 // ProtoMessage is comparable proto.Message.
