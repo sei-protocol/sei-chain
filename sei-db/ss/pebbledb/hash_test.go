@@ -9,9 +9,9 @@ import (
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cosmos/iavl"
-	"github.com/sei-protocol/sei-db/config"
-	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/ss/util"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/ss/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

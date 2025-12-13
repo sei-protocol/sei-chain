@@ -16,7 +16,7 @@ The genesis file is the starting point of a chain. An application will populate 
         - `max_age_duration`: After this preset amount of time has passed a single piece of evidence is considered invalid.
         - `max_bytes`: The max amount of bytes of all evidence included in a block.
     - `validator`
-        - `pub_key_types`: Defines which curves are to be accepted as a valid validator consensus key. Tendermint supports ed25519, sr25519 and secp256k1.
+        - `pub_key_types`: Defines which curves are to be accepted as a valid validator consensus key. Tendermint now only supports ed25519 consensus keys.
     - `version`
         - `app_version`: The version of the application. This is set by the application and is used to identify which version of the app a user should be using in order to operate a node.
     - `synchrony`

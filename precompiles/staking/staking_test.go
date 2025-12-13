@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	crptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
@@ -45,8 +44,8 @@ func TestStaking(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
-	valPub1 := secp256k1.GenPrivKey().PubKey()
-	valPub2 := secp256k1.GenPrivKey().PubKey()
+	valPub1 := ed25519.GenPrivKey().PubKey()
+	valPub2 := ed25519.GenPrivKey().PubKey()
 	val := setupValidator(t, ctx, testApp, stakingtypes.Unbonded, valPub1)
 	val2 := setupValidator(t, ctx, testApp, stakingtypes.Unbonded, valPub2)
 
@@ -155,8 +154,8 @@ func TestStakingError(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
-	valPub1 := secp256k1.GenPrivKey().PubKey()
-	valPub2 := secp256k1.GenPrivKey().PubKey()
+	valPub1 := ed25519.GenPrivKey().PubKey()
+	valPub2 := ed25519.GenPrivKey().PubKey()
 	val := setupValidator(t, ctx, testApp, stakingtypes.Unbonded, valPub1)
 	val2 := setupValidator(t, ctx, testApp, stakingtypes.Unbonded, valPub2)
 
@@ -1168,7 +1167,7 @@ func TestStakingPrecompileStaticCallPrevention(t *testing.T) {
 		require.True(t, found)
 
 		// Create a validator
-		valPub := secp256k1.GenPrivKey().PubKey()
+		valPub := ed25519.GenPrivKey().PubKey()
 		val := setupValidator(t, ctx, testApp, stakingtypes.Bonded, valPub)
 
 		// Query arguments

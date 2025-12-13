@@ -5,12 +5,12 @@ import (
 	"math"
 	"time"
 
-	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/common/utils"
-	"github.com/sei-protocol/sei-db/config"
-	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/sc/memiavl"
-	"github.com/sei-protocol/sei-db/sc/types"
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/sc/memiavl"
+	"github.com/sei-protocol/sei-chain/sei-db/sc/types"
 )
 
 var _ types.Committer = (*CommitStore)(nil)

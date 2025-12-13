@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/cockroachdb/pebble"
-	"github.com/sei-protocol/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )

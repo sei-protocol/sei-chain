@@ -93,7 +93,7 @@ Example:
 	cmd.Flags().BoolVar(&randomMonikers, "random-monikers", false,
 		"randomize the moniker for each generated node")
 	cmd.Flags().StringVar(&keyType, "key", types.ABCIPubKeyTypeEd25519,
-		"Key type to generate privval file with. Options: ed25519, secp256k1")
+		"Key type to generate privval file with (ed25519 only)")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if len(hostnames) > 0 && len(hostnames) != (nValidators+nNonValidators) {
@@ -194,11 +194,6 @@ Example:
 			InitialHeight:   initialHeight,
 			Validators:      genVals,
 			ConsensusParams: types.DefaultConsensusParams(),
-		}
-		if keyType == "secp256k1" {
-			genDoc.ConsensusParams.Validator = types.ValidatorParams{
-				PubKeyTypes: []string{types.ABCIPubKeyTypeSecp256k1},
-			}
 		}
 
 		// Write genesis file.

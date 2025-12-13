@@ -330,7 +330,11 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 		}
 	}
 
+	o.mtx.Lock()
 	o.prices = computedPrices
+	o.lastPriceSyncTS = time.Now()
+	o.mtx.Unlock()
+
 	return nil
 }
 
@@ -650,7 +654,6 @@ func (o *Oracle) tick(
 	if err = o.SetPrices(ctx); err != nil {
 		return err
 	}
-	o.lastPriceSyncTS = time.Now()
 
 	// Get oracle vote period, next block height, current vote period, and index
 	// in the vote period.

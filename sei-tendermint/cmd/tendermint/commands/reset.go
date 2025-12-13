@@ -71,10 +71,10 @@ Only use in testing. This can cause the node to double sign`,
 	}
 
 	resetSignerCmd.Flags().StringVar(&keyType, "key", types.ABCIPubKeyTypeEd25519,
-		"Signer key type. Options: ed25519, secp256k1")
+		"Signer key type (ed25519 only)")
 
 	resetAllCmd.Flags().StringVar(&keyType, "key", types.ABCIPubKeyTypeEd25519,
-		"Signer key type. Options: ed25519, secp256k1")
+		"Signer key type (ed25519 only)")
 
 	resetCmd.AddCommand(resetBlocksCmd)
 	resetCmd.AddCommand(resetPeersCmd)
@@ -219,7 +219,7 @@ Only use in testing. This can cause the node to double sign`,
 	}
 
 	resetAllCmd.Flags().StringVar(&keyType, "key", types.ABCIPubKeyTypeEd25519,
-		"Signer key type. Options: ed25519, secp256k1")
+		"Signer key type (ed25519 only)")
 
 	return resetAllCmd
 }

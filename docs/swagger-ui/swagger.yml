@@ -6029,9 +6029,6 @@ paths:
                                                   secp256k1:
                                                     type: string
                                                     format: byte
-                                                  sr25519:
-                                                    type: string
-                                                    format: byte
                                                 title: >-
                                                   PublicKey defines the keys available for
                                                   use with Tendermint Validators
@@ -6054,9 +6051,6 @@ paths:
                                                   type: string
                                                   format: byte
                                                 secp256k1:
-                                                  type: string
-                                                  format: byte
-                                                sr25519:
                                                   type: string
                                                   format: byte
                                               title: >-
@@ -6089,9 +6083,6 @@ paths:
                                             type: string
                                             format: byte
                                           secp256k1:
-                                            type: string
-                                            format: byte
-                                          sr25519:
                                             type: string
                                             format: byte
                                         title: >-
@@ -6868,9 +6859,6 @@ paths:
                                                   secp256k1:
                                                     type: string
                                                     format: byte
-                                                  sr25519:
-                                                    type: string
-                                                    format: byte
                                                 title: >-
                                                   PublicKey defines the keys available for
                                                   use with Tendermint Validators
@@ -6893,9 +6881,6 @@ paths:
                                                   type: string
                                                   format: byte
                                                 secp256k1:
-                                                  type: string
-                                                  format: byte
-                                                sr25519:
                                                   type: string
                                                   format: byte
                                               title: >-
@@ -6928,9 +6913,6 @@ paths:
                                             type: string
                                             format: byte
                                           secp256k1:
-                                            type: string
-                                            format: byte
-                                          sr25519:
                                             type: string
                                             format: byte
                                         title: >-
@@ -43062,9 +43044,6 @@ definitions:
                                           secp256k1:
                                             type: string
                                             format: byte
-                                          sr25519:
-                                            type: string
-                                            format: byte
                                         title: >-
                                           PublicKey defines the keys available for
                                           use with Tendermint Validators
@@ -43087,9 +43066,6 @@ definitions:
                                           type: string
                                           format: byte
                                         secp256k1:
-                                          type: string
-                                          format: byte
-                                        sr25519:
                                           type: string
                                           format: byte
                                       title: >-
@@ -43122,9 +43098,6 @@ definitions:
                                     type: string
                                     format: byte
                                   secp256k1:
-                                    type: string
-                                    format: byte
-                                  sr25519:
                                     type: string
                                     format: byte
                                 title: >-
@@ -43698,9 +43671,6 @@ definitions:
                                           secp256k1:
                                             type: string
                                             format: byte
-                                          sr25519:
-                                            type: string
-                                            format: byte
                                         title: >-
                                           PublicKey defines the keys available for
                                           use with Tendermint Validators
@@ -43723,9 +43693,6 @@ definitions:
                                           type: string
                                           format: byte
                                         secp256k1:
-                                          type: string
-                                          format: byte
-                                        sr25519:
                                           type: string
                                           format: byte
                                       title: >-
@@ -43758,9 +43725,6 @@ definitions:
                                     type: string
                                     format: byte
                                   secp256k1:
-                                    type: string
-                                    format: byte
-                                  sr25519:
                                     type: string
                                     format: byte
                                 title: >-
@@ -44565,9 +44529,6 @@ definitions:
       secp256k1:
         type: string
         format: byte
-      sr25519:
-        type: string
-        format: byte
     title: PublicKey defines the keys available for use with Tendermint Validators
   tendermint.p2p.NodeInfo:
     type: object
@@ -45093,9 +45054,6 @@ definitions:
                                       secp256k1:
                                         type: string
                                         format: byte
-                                      sr25519:
-                                        type: string
-                                        format: byte
                                     title: >-
                                       PublicKey defines the keys available for
                                       use with Tendermint Validators
@@ -45118,9 +45076,6 @@ definitions:
                                       type: string
                                       format: byte
                                     secp256k1:
-                                      type: string
-                                      format: byte
-                                    sr25519:
                                       type: string
                                       format: byte
                                   title: >-
@@ -45153,9 +45108,6 @@ definitions:
                                 type: string
                                 format: byte
                               secp256k1:
-                                type: string
-                                format: byte
-                              sr25519:
                                 type: string
                                 format: byte
                             title: >-
@@ -45875,9 +45827,6 @@ definitions:
                             secp256k1:
                               type: string
                               format: byte
-                            sr25519:
-                              type: string
-                              format: byte
                           title: >-
                             PublicKey defines the keys available for use with
                             Tendermint Validators
@@ -45900,9 +45849,6 @@ definitions:
                             type: string
                             format: byte
                           secp256k1:
-                            type: string
-                            format: byte
-                          sr25519:
                             type: string
                             format: byte
                         title: >-
@@ -45935,9 +45881,6 @@ definitions:
                       type: string
                       format: byte
                     secp256k1:
-                      type: string
-                      format: byte
-                    sr25519:
                       type: string
                       format: byte
                   title: >-
@@ -46323,9 +46266,6 @@ definitions:
                                   secp256k1:
                                     type: string
                                     format: byte
-                                  sr25519:
-                                    type: string
-                                    format: byte
                                 title: >-
                                   PublicKey defines the keys available for use
                                   with Tendermint Validators
@@ -46348,9 +46288,6 @@ definitions:
                                   type: string
                                   format: byte
                                 secp256k1:
-                                  type: string
-                                  format: byte
-                                sr25519:
                                   type: string
                                   format: byte
                               title: >-
@@ -46383,9 +46320,6 @@ definitions:
                             type: string
                             format: byte
                           secp256k1:
-                            type: string
-                            format: byte
-                          sr25519:
                             type: string
                             format: byte
                         title: >-
@@ -46661,9 +46595,6 @@ definitions:
                     secp256k1:
                       type: string
                       format: byte
-                    sr25519:
-                      type: string
-                      format: byte
                   title: >-
                     PublicKey defines the keys available for use with Tendermint
                     Validators
@@ -46686,9 +46617,6 @@ definitions:
                     type: string
                     format: byte
                   secp256k1:
-                    type: string
-                    format: byte
-                  sr25519:
                     type: string
                     format: byte
                 title: >-
@@ -46877,9 +46805,6 @@ definitions:
                         secp256k1:
                           type: string
                           format: byte
-                        sr25519:
-                          type: string
-                          format: byte
                       title: >-
                         PublicKey defines the keys available for use with
                         Tendermint Validators
@@ -46902,9 +46827,6 @@ definitions:
                         type: string
                         format: byte
                       secp256k1:
-                        type: string
-                        format: byte
-                      sr25519:
                         type: string
                         format: byte
                     title: >-
@@ -46937,9 +46859,6 @@ definitions:
                   type: string
                   format: byte
                 secp256k1:
-                  type: string
-                  format: byte
-                sr25519:
                   type: string
                   format: byte
               title: >-
@@ -47142,9 +47061,6 @@ definitions:
           secp256k1:
             type: string
             format: byte
-          sr25519:
-            type: string
-            format: byte
         title: >-
           PublicKey defines the keys available for use with Tendermint
           Validators
@@ -47174,9 +47090,6 @@ definitions:
                 secp256k1:
                   type: string
                   format: byte
-                sr25519:
-                  type: string
-                  format: byte
               title: >-
                 PublicKey defines the keys available for use with Tendermint
                 Validators
@@ -47199,9 +47112,6 @@ definitions:
                 type: string
                 format: byte
               secp256k1:
-                type: string
-                format: byte
-              sr25519:
                 type: string
                 format: byte
             title: >-
@@ -53712,9 +53622,6 @@ definitions:
                                           secp256k1:
                                             type: string
                                             format: byte
-                                          sr25519:
-                                            type: string
-                                            format: byte
                                         title: >-
                                           PublicKey defines the keys available for
                                           use with Tendermint Validators
@@ -53737,9 +53644,6 @@ definitions:
                                           type: string
                                           format: byte
                                         secp256k1:
-                                          type: string
-                                          format: byte
-                                        sr25519:
                                           type: string
                                           format: byte
                                       title: >-
@@ -53772,9 +53676,6 @@ definitions:
                                     type: string
                                     format: byte
                                   secp256k1:
-                                    type: string
-                                    format: byte
-                                  sr25519:
                                     type: string
                                     format: byte
                                 title: >-

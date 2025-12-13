@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sei-protocol/sei-db/sc/types"
+	"github.com/sei-protocol/sei-chain/sei-db/sc/types"
 	"github.com/stretchr/testify/require"
 )
 

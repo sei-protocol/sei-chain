@@ -10,7 +10,6 @@ coverage:
         target: 40%
         paths:
           - "!sei-cosmos/**"
-          - "!sei-db/**"
           - "!sei-ibc-go/**"
           - "!sei-tendermint/**"
           - "!sei-wasmd/**"
@@ -35,12 +34,6 @@ coverage:
           - "sei-wasmd/**"
         flags:
           - sei-wasmd
-      sei-db:
-        target: 30%
-        paths:
-          - "sei-db/**"
-        flags:
-          - sei-db
       sei-ibc-go:
         target: 40%
         paths:

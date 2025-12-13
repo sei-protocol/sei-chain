@@ -12,16 +12,14 @@ import (
 	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519"
 	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519/extra/cache"
 
-	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/jsontypes"
+	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	tmjson "github.com/tendermint/tendermint/libs/json"
 )
 
 //-------------------------------------
 
 var (
-	_ crypto.PrivKey = PrivKey{}
-
 	// curve25519-voi's Ed25519 implementation supports configurable
 	// verification behavior, and tendermint uses the ZIP-215 verification
 	// semantics.
@@ -65,7 +63,6 @@ func init() {
 	jsontypes.MustRegister(PrivKey{})
 }
 
-// PrivKey implements crypto.PrivKey.
 type PrivKey []byte
 
 // TypeTag satisfies the jsontypes.Tagged interface.
@@ -91,7 +88,7 @@ func (privKey PrivKey) Sign(msg []byte) ([]byte, error) {
 // PubKey gets the corresponding public key from the private key.
 //
 // Panics if the private key is not initialized.
-func (privKey PrivKey) PubKey() crypto.PubKey {
+func (privKey PrivKey) PubKey() PubKey {
 	// If the latter 32 bytes of the privkey are all zero, privkey is not
 	// initialized.
 	initialized := false
@@ -113,12 +110,8 @@ func (privKey PrivKey) PubKey() crypto.PubKey {
 
 // Equals - you probably don't need to use this.
 // Runs in constant time based on length of the keys.
-func (privKey PrivKey) Equals(other crypto.PrivKey) bool {
-	if otherEd, ok := other.(PrivKey); ok {
-		return subtle.ConstantTimeCompare(privKey[:], otherEd[:]) == 1
-	}
-
-	return false
+func (privKey PrivKey) Equals(other PrivKey) bool {
+	return subtle.ConstantTimeCompare(privKey[:], other[:]) == 1
 }
 
 func (privKey PrivKey) Type() string {
@@ -153,20 +146,18 @@ func GenPrivKeyFromSecret(secret []byte) PrivKey {
 
 //-------------------------------------
 
-var _ crypto.PubKey = PubKey{}
-
-// PubKeyEd25519 implements crypto.PubKey for the Ed25519 signature scheme.
+// PubKeyEd25519 implements the Ed25519 signature scheme.
 type PubKey []byte
 
 // TypeTag satisfies the jsontypes.Tagged interface.
 func (PubKey) TypeTag() string { return PubKeyName }
 
 // Address is the SHA256-20 of the raw pubkey bytes.
-func (pubKey PubKey) Address() crypto.Address {
+func (pubKey PubKey) Address() tmbytes.HexBytes {
 	if len(pubKey) != PubKeySize {
 		panic("pubkey is incorrect size")
 	}
-	return crypto.AddressHash(pubKey)
+	return addressHash(pubKey)
 }
 
 // Bytes returns the PubKey byte format.
@@ -191,32 +182,21 @@ func (pubKey PubKey) Type() string {
 	return KeyType
 }
 
-func (pubKey PubKey) Equals(other crypto.PubKey) bool {
-	if otherEd, ok := other.(PubKey); ok {
-		return bytes.Equal(pubKey[:], otherEd[:])
-	}
-
-	return false
+func (pubKey PubKey) Equals(other PubKey) bool {
+	return bytes.Equal(pubKey[:], other[:])
 }
-
-var _ crypto.BatchVerifier = &BatchVerifier{}
 
 // BatchVerifier implements batch verification for ed25519.
 type BatchVerifier struct {
 	*ed25519.BatchVerifier
 }
 
-func NewBatchVerifier() crypto.BatchVerifier {
+func NewBatchVerifier() *BatchVerifier {
 	return &BatchVerifier{ed25519.NewBatchVerifier()}
 }
 
-func (b *BatchVerifier) Add(key crypto.PubKey, msg, signature []byte) error {
-	pkEd, ok := key.(PubKey)
-	if !ok {
-		return fmt.Errorf("pubkey is not Ed25519")
-	}
-
-	pkBytes := pkEd.Bytes()
+func (b *BatchVerifier) Add(key PubKey, msg, signature []byte) error {
+	pkBytes := key.Bytes()
 
 	if l := len(pkBytes); l != PubKeySize {
 		return fmt.Errorf("pubkey size is incorrect; expected: %d, got %d", PubKeySize, l)
@@ -234,4 +214,9 @@ func (b *BatchVerifier) Add(key crypto.PubKey, msg, signature []byte) error {
 
 func (b *BatchVerifier) Verify() (bool, []bool) {
 	return b.BatchVerifier.Verify(rand.Reader)
+}
+
+func addressHash(bz []byte) tmbytes.HexBytes {
+	h := sha256.Sum256(bz)
+	return tmbytes.HexBytes(h[:20])
 }

@@ -13,9 +13,7 @@ import (
 )
 
 var (
-	valEd25519   = []string{ABCIPubKeyTypeEd25519}
-	valSecp256k1 = []string{ABCIPubKeyTypeSecp256k1}
-	valSr25519   = []string{ABCIPubKeyTypeSr25519}
+	valEd25519 = []string{ABCIPubKeyTypeEd25519}
 )
 
 func TestConsensusParamsValidation(t *testing.T) {
@@ -341,53 +339,6 @@ func TestConsensusParamsUpdate(t *testing.T) {
 			}),
 		},
 		// fine updates
-		{
-			initialParams: makeParams(makeParamsArgs{blockBytes: 1, blockGas: 2, evidenceAge: 3}),
-			updates: &tmproto.ConsensusParams{
-				Block: &tmproto.BlockParams{
-					MaxBytes:     100,
-					MaxGas:       200,
-					MaxGasWanted: 200,
-				},
-				Evidence: &tmproto.EvidenceParams{
-					MaxAgeNumBlocks: 300,
-					MaxAgeDuration:  time.Duration(300),
-					MaxBytes:        50,
-				},
-				Validator: &tmproto.ValidatorParams{
-					PubKeyTypes: valSecp256k1,
-				},
-			},
-			updatedParams: makeParams(makeParamsArgs{
-				blockBytes: 100, blockGas: 200,
-				evidenceAge:      300,
-				maxEvidenceBytes: 50,
-				pubkeyTypes:      valSecp256k1}),
-		},
-		{
-			initialParams: makeParams(makeParamsArgs{blockBytes: 1, blockGas: 2, evidenceAge: 3}),
-			updates: &tmproto.ConsensusParams{
-				Block: &tmproto.BlockParams{
-					MaxBytes:     100,
-					MaxGas:       200,
-					MaxGasWanted: 200,
-				},
-				Evidence: &tmproto.EvidenceParams{
-					MaxAgeNumBlocks: 300,
-					MaxAgeDuration:  time.Duration(300),
-					MaxBytes:        50,
-				},
-				Validator: &tmproto.ValidatorParams{
-					PubKeyTypes: valSr25519,
-				},
-			},
-			updatedParams: makeParams(makeParamsArgs{
-				blockBytes:       100,
-				blockGas:         200,
-				evidenceAge:      300,
-				maxEvidenceBytes: 50,
-				pubkeyTypes:      valSr25519}),
-		},
 	}
 
 	for _, tc := range testCases {

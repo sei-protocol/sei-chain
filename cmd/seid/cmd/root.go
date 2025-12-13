@@ -35,10 +35,10 @@ import (
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/evmrpc"
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/tools"
 	"github.com/sei-protocol/sei-chain/tools/migration/ss"
-	seidbconfig "github.com/sei-protocol/sei-db/config"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -433,12 +433,12 @@ func initAppConfig() (string, interface{}) {
 	srvCfg.Telemetry.PrometheusRetentionTime = 60
 
 	// Use shared CustomAppConfig from app_config.go
-	customAppConfig := NewCustomAppConfig(srvCfg, evmrpc.DefaultConfig)
+	customAppConfig := NewCustomAppConfig(srvCfg, evmrpcconfig.DefaultConfig)
 
 	customAppTemplate := serverconfig.ManualConfigTemplate +
 		seidbconfig.StateCommitConfigTemplate +
 		seidbconfig.StateStoreConfigTemplate +
-		evmrpc.ConfigTemplate +
+		evmrpcconfig.ConfigTemplate +
 		serverconfig.AutoManagedConfigTemplate + `
 ###############################################################################
 ###                        WASM Configuration (Auto-managed)                ###

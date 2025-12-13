@@ -35,7 +35,7 @@ func MakeGenValidatorCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&keyType, "key", types.ABCIPubKeyTypeEd25519,
-		"Key type to generate privval file with. Options: ed25519, secp256k1")
+		"Key type to generate privval file with (ed25519 only)")
 
 	return cmd
 }

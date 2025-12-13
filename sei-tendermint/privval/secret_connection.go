@@ -22,11 +22,10 @@ import (
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/nacl/box"
 
-	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/internal/libs/async"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/crypto"
 	tmprivval "github.com/tendermint/tendermint/proto/tendermint/privval"
 )
 
@@ -70,7 +69,7 @@ type SecretConnection struct {
 	recvAead cipher.AEAD
 	sendAead cipher.AEAD
 
-	remPubKey crypto.PubKey
+	remPubKey ed25519.PubKey
 	conn      io.ReadWriteCloser
 
 	// net.Conn must be thread safe:
@@ -93,7 +92,7 @@ type SecretConnection struct {
 // Returns nil if there is an error in handshake.
 // Caller should call conn.Close()
 // See docs/sts-final.pdf for more information.
-func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey crypto.PrivKey) (*SecretConnection, error) {
+func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey ed25519.PrivKey) (*SecretConnection, error) {
 	var (
 		locPubKey = locPrivKey.PubKey()
 	)
@@ -175,9 +174,6 @@ func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey crypto.PrivKey) (*
 	}
 
 	remPubKey, remSignature := authSigMsg.Key, authSigMsg.Sig
-	if _, ok := remPubKey.(ed25519.PubKey); !ok {
-		return nil, fmt.Errorf("expected ed25519 pubkey, got %T", remPubKey)
-	}
 	if !remPubKey.VerifySignature(challenge[:], remSignature) {
 		return nil, errors.New("challenge verification failed")
 	}
@@ -188,7 +184,7 @@ func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey crypto.PrivKey) (*
 }
 
 // RemotePubKey returns authenticated remote pubkey
-func (sc *SecretConnection) RemotePubKey() crypto.PubKey {
+func (sc *SecretConnection) RemotePubKey() ed25519.PubKey {
 	return sc.remPubKey
 }
 
@@ -400,7 +396,7 @@ func sort32(foo, bar *[32]byte) (lo, hi *[32]byte) {
 	return
 }
 
-func signChallenge(challenge *[32]byte, locPrivKey crypto.PrivKey) ([]byte, error) {
+func signChallenge(challenge *[32]byte, locPrivKey ed25519.PrivKey) ([]byte, error) {
 	signature, err := locPrivKey.Sign(challenge[:])
 	if err != nil {
 		return nil, err
@@ -409,20 +405,17 @@ func signChallenge(challenge *[32]byte, locPrivKey crypto.PrivKey) ([]byte, erro
 }
 
 type authSigMessage struct {
-	Key crypto.PubKey
+	Key ed25519.PubKey
 	Sig []byte
 }
 
-func shareAuthSignature(sc io.ReadWriter, pubKey crypto.PubKey, signature []byte) (recvMsg authSigMessage, err error) {
+func shareAuthSignature(sc io.ReadWriter, pubKey ed25519.PubKey, signature []byte) (recvMsg authSigMessage, err error) {
 
 	// Send our info and receive theirs in tandem.
 	var trs, _ = async.Parallel(
 		func(_ int) (val interface{}, abort bool, err error) {
-			pbpk, err := encoding.PubKeyToProto(pubKey)
-			if err != nil {
-				return nil, true, err
-			}
-			_, err = protoio.NewDelimitedWriter(sc).WriteMsg(&tmprivval.AuthSigMessage{PubKey: pbpk, Sig: signature})
+			pk := tmproto.PublicKey{Sum: &tmproto.PublicKey_Ed25519{Ed25519: pubKey}}
+			_, err = protoio.NewDelimitedWriter(sc).WriteMsg(&tmprivval.AuthSigMessage{PubKey: pk, Sig: signature})
 			if err != nil {
 				return nil, true, err // abort
 			}
@@ -435,13 +428,13 @@ func shareAuthSignature(sc io.ReadWriter, pubKey crypto.PubKey, signature []byte
 				return nil, true, err // abort
 			}
 
-			pk, err := encoding.PubKeyFromProto(pba.PubKey)
-			if err != nil {
-				return nil, true, err // abort
+			pk := pba.PubKey.GetEd25519()
+			if len(pk) != ed25519.PubKeySize {
+				return nil, true, fmt.Errorf("invalid ed25519 key size")
 			}
 
 			_recvMsg := authSigMessage{
-				Key: pk,
+				Key: ed25519.PubKey(pk),
 				Sig: pba.Sig,
 			}
 			return _recvMsg, false, nil

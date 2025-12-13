@@ -8,6 +8,7 @@ import (
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	feegrantkeeper "github.com/cosmos/cosmos-sdk/x/feegrant/keeper"
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 )
@@ -24,7 +25,7 @@ func CosmosDeliverTxAnte(
 	feegrantKeeper *feegrantkeeper.Keeper,
 ) (returnCtx sdk.Context, returnErr error) {
 	if _, err := CosmosStatelessChecks(tx, ctx.BlockHeight(), ctx.ConsensusParams()); err != nil {
-		return ctx, err
+		return SetGasMeter(ctx, 0, pk), err
 	}
 
 	defer func() {
@@ -32,11 +33,14 @@ func CosmosDeliverTxAnte(
 			returnErr = HandleOutofGas(r, tx.(GasTx).GetGas(), ctx.GasMeter().GasConsumed())
 		}
 	}()
-	gasMeter, _, err := GetGasMeter(ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter()), tx, oraclek, ek, pk)
+	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
+	isGasless, err := antedecorators.IsTxGasless(tx, ctx, oraclek, ek)
 	if err != nil {
 		return ctx, err
 	}
-	ctx = ctx.WithGasMeter(gasMeter)
+	if !isGasless {
+		ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
+	}
 
 	authParams := accountKeeper.GetParams(ctx)
 

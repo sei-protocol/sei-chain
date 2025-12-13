@@ -6,26 +6,63 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/internal/benchmarking"
 )
 
+type zeroReader struct{}
+
+func (zeroReader) Read(buf []byte) (int, error) {
+	for i := range buf {
+		buf[i] = 0
+	}
+	return len(buf), nil
+}
+
+func benchmarkKeyGeneration(b *testing.B, generateKey func(reader io.Reader) PrivKey) {
+	var zero zeroReader
+	for i := 0; i < b.N; i++ {
+		generateKey(zero)
+	}
+}
+
+func benchmarkSigning(b *testing.B, priv PrivKey) {
+	message := []byte("Hello, world!")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := priv.Sign(message)
+		if err != nil {
+			b.FailNow()
+		}
+	}
+}
+
+func benchmarkVerification(b *testing.B, priv PrivKey) {
+	pub := priv.PubKey()
+	message := []byte("Hello, world!")
+	signature, err := priv.Sign(message)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		pub.VerifySignature(message, signature)
+	}
+}
+
 func BenchmarkKeyGeneration(b *testing.B) {
-	benchmarkKeygenWrapper := func(reader io.Reader) crypto.PrivKey {
+	benchmarkKeygenWrapper := func(reader io.Reader) PrivKey {
 		return genPrivKey(reader)
 	}
-	benchmarking.BenchmarkKeyGeneration(b, benchmarkKeygenWrapper)
+	benchmarkKeyGeneration(b, benchmarkKeygenWrapper)
 }
 
 func BenchmarkSigning(b *testing.B) {
 	priv := GenPrivKey()
-	benchmarking.BenchmarkSigning(b, priv)
+	benchmarkSigning(b, priv)
 }
 
 func BenchmarkVerification(b *testing.B) {
 	priv := GenPrivKey()
-	benchmarking.BenchmarkVerification(b, priv)
+	benchmarkVerification(b, priv)
 }
 
 func BenchmarkVerifyBatch(b *testing.B) {
@@ -36,12 +73,12 @@ func BenchmarkVerifyBatch(b *testing.B) {
 		b.Run(fmt.Sprintf("sig-count-%d", sigsCount), func(b *testing.B) {
 			// Pre-generate all of the keys, and signatures, but do not
 			// benchmark key-generation and signing.
-			pubs := make([]crypto.PubKey, 0, sigsCount)
+			pubs := make([]PubKey, 0, sigsCount)
 			sigs := make([][]byte, 0, sigsCount)
 			for i := 0; i < sigsCount; i++ {
 				priv := GenPrivKey()
 				sig, _ := priv.Sign(msg)
-				pubs = append(pubs, priv.PubKey().(PubKey))
+				pubs = append(pubs, priv.PubKey())
 				sigs = append(sigs, sig)
 			}
 			b.ResetTimer()

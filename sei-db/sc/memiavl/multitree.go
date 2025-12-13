@@ -15,11 +15,11 @@ import (
 	"golang.org/x/exp/slices"
 
 	"github.com/cosmos/iavl"
-	"github.com/sei-protocol/sei-db/common/errors"
-	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/common/utils"
-	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/stream/types"
+	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/stream/types"
 )
 
 const (
@@ -198,10 +198,16 @@ func (t *MultiTree) Copy() *MultiTree {
 		treesByName[entry.Name] = i
 	}
 
-	clone := *t
+	clone := MultiTree{
+		logger:         t.logger,
+		zeroCopy:       t.zeroCopy,
+		lastCommitInfo: t.lastCommitInfo,
+		metadata:       t.metadata,
+	}
+	clone.initialVersion.Store(t.initialVersion.Load())
 	clone.trees = trees
 	clone.treesByName = treesByName
-	clone.logger = t.logger
+
 	return &clone
 }
 
@@ -483,7 +489,7 @@ func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp
 			wg.Add(1)
 			wp.Submit(func() {
 				defer wg.Done()
-				if err := entry.Tree.WriteSnapshot(ctx, filepath.Join(dir, entry.Name)); err != nil {
+				if err := entry.WriteSnapshot(ctx, filepath.Join(dir, entry.Name)); err != nil {
 					mu.Lock()
 					errs = append(errs, fmt.Errorf("tree %s: %w", entry.Name, err))
 					mu.Unlock()

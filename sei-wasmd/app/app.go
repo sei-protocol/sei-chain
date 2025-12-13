@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -555,7 +554,7 @@ func NewWasmApp(
 			app.BaseApp.DeliverTx,
 			encodingConfig.TxConfig,
 		),
-		auth.NewAppModule(appCodec, app.accountKeeper),
+		auth.NewAppModule(appCodec, app.accountKeeper, nil),
 		vesting.NewAppModule(app.accountKeeper, app.bankKeeper),
 		bank.NewAppModule(appCodec, app.bankKeeper, app.accountKeeper),
 		capability.NewAppModule(appCodec, *app.capabilityKeeper),
@@ -565,7 +564,7 @@ func NewWasmApp(
 		distr.NewAppModule(appCodec, app.distrKeeper, app.accountKeeper, app.bankKeeper, app.stakingKeeper),
 		staking.NewAppModule(appCodec, app.stakingKeeper, app.accountKeeper, app.bankKeeper),
 		upgrade.NewAppModule(app.upgradeKeeper),
-		wasm.NewAppModule(appCodec, &app.wasmKeeper, app.stakingKeeper, app.accountKeeper),
+		wasm.NewAppModule(appCodec, &app.wasmKeeper, app.stakingKeeper, app.accountKeeper, app.bankKeeper),
 		evidence.NewAppModule(app.evidenceKeeper),
 		feegrantmodule.NewAppModule(appCodec, app.accountKeeper, app.bankKeeper, app.feeGrantKeeper, app.interfaceRegistry),
 		ibc.NewAppModule(app.ibcKeeper),
@@ -717,7 +716,7 @@ func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBl
 
 	txResults := []*abci.ExecTxResult{}
 	for i, tx := range req.Txs {
-		ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
+		ctx = ctx.WithTxIndex(i)
 		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTxV2{
 			Tx: tx,
 		}, typedTxs[i], sha256.Sum256(tx))

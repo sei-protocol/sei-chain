@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/hashicorp/golang-lru/v2/expirable"
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -530,7 +531,8 @@ func (a *FilterAPI) GetFilterLogs(
 }
 
 func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (res []*ethtypes.Log, err error) {
-	defer recordMetricsWithError(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now(), err)
+	startTime := time.Now()
+	defer recordMetricsWithError(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, startTime, err)
 
 	latest, err := a.logFetcher.latestHeight(ctx)
 	if err != nil {
@@ -548,14 +550,41 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 
 	blockRange := end - begin + 1
 
+	// Record metrics for eth_getLogs
+	defer func() {
+		GetGlobalMetrics().RecordGetLogsRequest(blockRange, time.Since(startTime), startTime, err)
+	}()
+
 	// Use config value instead of hardcoded constant
 	if blockRange > a.filterConfig.maxBlock {
 		return nil, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, a.filterConfig.maxBlock)
 	}
 
+	// Early rejection for pruned blocks - avoid wasting resources on blocks that don't exist
+	if earliest > 0 && begin < earliest {
+		return nil, fmt.Errorf("requested block range [%d, %d] includes pruned blocks, earliest available block is %d", begin, end, earliest)
+	}
+
 	// Only apply rate limiting for large queries (> RPSLimitThreshold blocks)
 	if blockRange > RPSLimitThreshold && !a.globalRPSLimiter.Allow() {
 		return nil, fmt.Errorf("log query rate limit exceeded for large queries, please try again later")
+	}
+
+	// Backpressure: early rejection based on system load
+	m := GetGlobalMetrics()
+
+	// Check 1: Too many pending tasks (queue backlog)
+	pending := m.TasksSubmitted.Load() - m.TasksCompleted.Load()
+	maxPending := int64(float64(m.QueueCapacity.Load()) * 0.8) // 80% threshold
+	if pending > maxPending {
+		return nil, fmt.Errorf("server too busy, rejecting new request (pending: %d, threshold: %d)", pending, maxPending)
+	}
+
+	// Check 2: I/O saturated (semaphore exhausted)
+	semInUse := m.DBSemaphoreAcquired.Load()
+	semCapacity := m.DBSemaphoreCapacity.Load()
+	if semCapacity > 0 && float64(semInUse)/float64(semCapacity) >= 0.8 {
+		return nil, fmt.Errorf("server I/O saturated, rejecting new request (semaphore: %d/%d in use)", semInUse, semCapacity)
 	}
 
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
@@ -772,20 +801,20 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}
 
 	// Batch process with fail-fast
-	blockBatch := make([]*coretypes.ResultBlock, 0, WorkerBatchSize)
+	blockBatch := make([]*coretypes.ResultBlock, 0, evmrpcconfig.WorkerBatchSize)
 	for block := range blocks {
 		blockBatch = append(blockBatch, block)
 
-		if len(blockBatch) >= WorkerBatchSize {
+		if len(blockBatch) >= evmrpcconfig.WorkerBatchSize {
 			batch := blockBatch
 			wg.Add(1)
 
-			if err := runner.Submit(func() { processBatch(batch) }); err != nil {
+			if err := runner.SubmitWithMetrics(func() { processBatch(batch) }); err != nil {
 				wg.Done()
 				submitError = fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
 				break
 			}
-			blockBatch = make([]*coretypes.ResultBlock, 0, WorkerBatchSize)
+			blockBatch = make([]*coretypes.ResultBlock, 0, evmrpcconfig.WorkerBatchSize)
 		}
 	}
 
@@ -796,7 +825,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	// Process remaining blocks
 	if len(blockBatch) > 0 {
 		wg.Add(1)
-		if err := runner.Submit(func() { processBatch(blockBatch) }); err != nil {
+		if err := runner.SubmitWithMetrics(func() { processBatch(blockBatch) }); err != nil {
 			wg.Done()
 			return nil, 0, fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
 		}
@@ -1003,14 +1032,14 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	var wg sync.WaitGroup
 
 	// Batch processing with fail-fast
-	for batchStart := begin; batchStart <= end; batchStart += int64(WorkerBatchSize) {
-		batchEnd := batchStart + int64(WorkerBatchSize) - 1
+	for batchStart := begin; batchStart <= end; batchStart += int64(evmrpcconfig.WorkerBatchSize) {
+		batchEnd := batchStart + int64(evmrpcconfig.WorkerBatchSize) - 1
 		if batchEnd > end {
 			batchEnd = end
 		}
 
 		wg.Add(1)
-		if err := runner.Submit(func(start, endHeight int64) func() {
+		if err := runner.SubmitWithMetrics(func(start, endHeight int64) func() {
 			return func() {
 				defer wg.Done()
 				f.processBatch(ctx, start, endHeight, crit, bloomIndexes, res, errChan)
@@ -1047,6 +1076,9 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 	defer func() {
 		metrics.IncrementRpcRequestCounter("num_blocks_fetched", "blocks", true)
 	}()
+
+	wpMetrics := GetGlobalMetrics()
+
 	for height := start; height <= end; height++ {
 		if height == 0 {
 			continue
@@ -1064,11 +1096,15 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		}
 
 		// Block cache miss, acquire semaphore for I/O operations
+		semWaitStart := time.Now()
 		f.dbReadSemaphore <- struct{}{}
+		wpMetrics.RecordDBSemaphoreWait(time.Since(semWaitStart))
+		wpMetrics.RecordDBSemaphoreAcquire()
 
 		// Re-check cache after acquiring semaphore, in case another worker cached it.
 		if cachedEntry, found := f.globalBlockCache.Get(height); found {
 			<-f.dbReadSemaphore
+			wpMetrics.RecordDBSemaphoreRelease()
 			if cachedEntry.Block != nil {
 				if err := f.watermarks.EnsureBlockHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
 					continue
@@ -1093,6 +1129,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 			// skip the bloom pre-filter instead of short-circuiting the block.
 			if blockBloom != (ethtypes.Bloom{}) && !MatchFilters(blockBloom, bloomIndexes) {
 				<-f.dbReadSemaphore
+				wpMetrics.RecordDBSemaphoreRelease()
 				continue // skip the block if bloom filter does not match
 			}
 		}
@@ -1105,6 +1142,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 			default:
 			}
 			<-f.dbReadSemaphore
+			wpMetrics.RecordDBSemaphoreRelease()
 			continue
 		}
 
@@ -1115,6 +1153,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 			fillMissingFields(entry, block, blockBloom)
 		}
 		<-f.dbReadSemaphore
+		wpMetrics.RecordDBSemaphoreRelease()
 		res <- block
 	}
 }

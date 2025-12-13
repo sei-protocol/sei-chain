@@ -3,11 +3,11 @@ package cmd
 import (
 	srvconfig "github.com/cosmos/cosmos-sdk/server/config"
 	seiapp "github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/evmrpc"
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
-	seidbconfig "github.com/sei-protocol/sei-db/config"
 )
 
 // WASMConfig defines configuration for the wasm module.
@@ -24,7 +24,7 @@ type CustomAppConfig struct {
 	StateCommit     seidbconfig.StateCommitConfig `mapstructure:"state-commit"`
 	StateStore      seidbconfig.StateStoreConfig  `mapstructure:"state-store"`
 	WASM            WASMConfig                    `mapstructure:"wasm"`
-	EVM             evmrpc.Config                 `mapstructure:"evm"`
+	EVM             evmrpcconfig.Config           `mapstructure:"evm"`
 	ETHReplay       replay.Config                 `mapstructure:"eth_replay"`
 	ETHBlockTest    blocktest.Config              `mapstructure:"eth_block_test"`
 	EvmQuery        querier.Config                `mapstructure:"evm_query"`
@@ -32,7 +32,7 @@ type CustomAppConfig struct {
 }
 
 // NewCustomAppConfig creates a CustomAppConfig with the given base config and EVM config
-func NewCustomAppConfig(baseConfig *srvconfig.Config, evmConfig evmrpc.Config) CustomAppConfig {
+func NewCustomAppConfig(baseConfig *srvconfig.Config, evmConfig evmrpcconfig.Config) CustomAppConfig {
 	return CustomAppConfig{
 		Config:      *baseConfig,
 		StateCommit: seidbconfig.DefaultStateCommitConfig(),

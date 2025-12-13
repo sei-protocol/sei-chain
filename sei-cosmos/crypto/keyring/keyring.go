@@ -4,9 +4,7 @@ import (
 	"bufio"
 	"encoding/hex"
 	"fmt"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,6 +20,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	"github.com/cosmos/cosmos-sdk/crypto"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/sr25519"
 	"github.com/cosmos/cosmos-sdk/crypto/ledger"
 	"github.com/cosmos/cosmos-sdk/crypto/types"
@@ -152,7 +151,7 @@ func NewInMemory(opts ...Option) Keyring {
 // NewInMemoryWithKeyring returns an in memory keyring using the specified keyring.Keyring
 // as the backing keyring.
 func NewInMemoryWithKeyring(kr keyring.Keyring, opts ...Option) Keyring {
-	return newKeystore(kr, BackendMemory, opts...)
+	return newKeystore(kr, opts...)
 }
 
 // New creates a new instance of a keyring.
@@ -187,7 +186,7 @@ func New(
 		return nil, err
 	}
 
-	return newKeystore(db, backend, opts...), nil
+	return newKeystore(db, opts...), nil
 }
 
 type keystore struct {
@@ -195,7 +194,7 @@ type keystore struct {
 	options Options
 }
 
-func newKeystore(kr keyring.Keyring, backend string, opts ...Option) keystore {
+func newKeystore(kr keyring.Keyring, opts ...Option) keystore {
 	// Default options for keybase
 	options := Options{
 		SupportedAlgos:       SigningAlgoList{hd.Sr25519, hd.Secp256k1},
@@ -235,8 +234,7 @@ func (ks keystore) ExportPrivateKeyObject(uid string) ([]byte, error) {
 	switch linfo := info.(type) {
 	case LocalInfo:
 		if linfo.PrivKeyArmor == "" {
-			err = fmt.Errorf("private key not available")
-			return nil, err
+			return nil, fmt.Errorf("private key not available")
 		}
 
 		if linfo.Algo == hd.Sr25519Type {
@@ -662,7 +660,7 @@ func newRealPrompt(dir string, buf io.Reader) func(string) (string, error) {
 
 		switch {
 		case err == nil:
-			keyhash, err = ioutil.ReadFile(keyhashFilePath)
+			keyhash, err = os.ReadFile(keyhashFilePath)
 			if err != nil {
 				return "", fmt.Errorf("failed to read %s: %v", keyhashFilePath, err)
 			}
@@ -726,7 +724,7 @@ func newRealPrompt(dir string, buf io.Reader) func(string) (string, error) {
 				continue
 			}
 
-			if err := ioutil.WriteFile(dir+"/keyhash", passwordHash, 0555); err != nil {
+			if err := os.WriteFile(dir+"/keyhash", passwordHash, 0555); err != nil {
 				return "", err
 			}
 

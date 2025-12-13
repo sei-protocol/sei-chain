@@ -6,9 +6,9 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-chain/sei-db/ss/types"
 	"github.com/sei-protocol/sei-chain/tools/hash_verification/hasher"
 	"github.com/sei-protocol/sei-chain/tools/utils"
-	"github.com/sei-protocol/sei-db/ss/types"
 	dbm "github.com/tendermint/tm-db"
 )
 

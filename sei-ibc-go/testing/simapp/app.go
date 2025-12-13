@@ -1,7 +1,6 @@
 package simapp
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"io"
@@ -400,7 +399,7 @@ func NewSimApp(
 			app.AccountKeeper, app.StakingKeeper, app.BaseApp.DeliverTx,
 			encodingConfig.TxConfig,
 		),
-		auth.NewAppModule(appCodec, app.AccountKeeper),
+		auth.NewAppModule(appCodec, app.AccountKeeper, nil),
 		vesting.NewAppModule(app.AccountKeeper, app.BankKeeper),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
 		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
@@ -507,7 +506,7 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 
 	txResults := []*abci.ExecTxResult{}
 	for i, tx := range req.Txs {
-		ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
+		ctx = ctx.WithTxIndex(i)
 		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTxV2{
 			Tx: tx,
 		}, typedTxs[i], sha256.Sum256(tx))

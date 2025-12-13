@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/sc/types"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/sc/types"
 )
 
 var (

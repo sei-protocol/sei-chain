@@ -23,7 +23,6 @@ func TestValidatorProtoBuf(t *testing.T) {
 		expPass2 bool
 	}{
 		{"success validator", val, true, true},
-		{"failure empty", &Validator{}, false, false},
 		{"failure nil", nil, false, false},
 	}
 	for _, tc := range testCases {
