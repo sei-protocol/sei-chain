@@ -1132,30 +1132,37 @@ func TestTxMempool_FailedCheckTxCount(t *testing.T) {
 		return nil
 	}
 	txmp := setup(t, client, 0, WithPostCheck(postCheckFn))
-	tx := []byte("bad tx")
+	badTx := make([]byte, txmp.config.MaxTxBytes+1)
 
 	callback := func(res *abci.ResponseCheckTx) {
-		require.Equal(t, nil, txmp.postCheck(tx, res))
+		require.Equal(t, nil, txmp.postCheck(badTx, res))
 	}
 	require.Equal(t, uint64(0), txmp.GetPeerFailedCheckTxCount("sender"))
-	// bad tx
-	require.NoError(t, txmp.CheckTx(ctx, tx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
+
+	txmp.config.CheckTxErrorBlacklistEnabled = false
+
+	// bad tx before enabling blacklisting does not increment the failed count
+	require.Error(t, txmp.CheckTx(ctx, badTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
+	require.Equal(t, uint64(0), txmp.GetPeerFailedCheckTxCount("sender"))
+
+	txmp.config.CheckTxErrorBlacklistEnabled = true
+	txmp.config.CheckTxErrorThreshold = 2
+
+	// first bad tx that should be tracked
+	require.Error(t, txmp.CheckTx(ctx, badTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
 	require.Equal(t, uint64(1), txmp.GetPeerFailedCheckTxCount("sender"))
 
-	// bad tx again
-	require.NoError(t, txmp.CheckTx(ctx, tx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
+	// second bad tx that should be tracked
+	require.Error(t, txmp.CheckTx(ctx, badTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
 	require.Equal(t, uint64(2), txmp.GetPeerFailedCheckTxCount("sender"))
 
-	tx = []byte("sender=key=1")
-	// good tx
-	require.NoError(t, txmp.CheckTx(ctx, tx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
+	goodTx := []byte("sender=key=1")
+	// good tx doesn't increase failedCount
+	require.NoError(t, txmp.CheckTx(ctx, goodTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
 	require.Equal(t, uint64(2), txmp.GetPeerFailedCheckTxCount("sender"))
 
-	// enable blacklisting
-	txmp.config.CheckTxErrorBlacklistEnabled = true
-	txmp.config.CheckTxErrorThreshold = 0
-	tx = []byte("bad tx")
-	require.NoError(t, txmp.CheckTx(ctx, tx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
+	// three strikes, you're out!
+	require.Error(t, txmp.CheckTx(ctx, badTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
 	require.True(t, txmp.router.(*TestPeerEvictor).IsEvicted("sender"))
 }
 
