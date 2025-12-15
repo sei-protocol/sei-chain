@@ -1,4 +1,4 @@
-package utils
+package hashable
 
 import (
 	"crypto/sha256"
@@ -9,9 +9,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/stretchr/testify/require"
-
-	testpb "github.com/tendermint/tendermint/proto_v2/test"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
+	"github.com/tendermint/tendermint/libs/hashable/pb"
 )
 
 // Test checking that the canonical encoding is a valid proto encoding and that it is stable.
@@ -40,10 +40,10 @@ func TestMarshalCanonicalRoundTrip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			msg := msgFromSeed(tc.seed)
 
-			var decoded testpb.AllKinds
+			var decoded pb.AllKinds
 			canonical := MarshalCanonical(msg)
 			require.NoError(t, proto.Unmarshal(canonical, &decoded))
-			require.NoError(t, TestDiff(msg, &decoded))
+			require.NoError(t, utils.TestDiff(msg, &decoded))
 
 			gotHash := sha256.Sum256(canonical)
 			require.Equal(t, tc.wantHash, hex.EncodeToString(gotHash[:]))
@@ -51,51 +51,51 @@ func TestMarshalCanonicalRoundTrip(t *testing.T) {
 	}
 }
 
-func msgFromSeed(seed int64) *testpb.AllKinds {
+func msgFromSeed(seed int64) *pb.AllKinds {
 	r := rand.New(rand.NewSource(seed))
-	msg := &testpb.AllKinds{}
+	msg := &pb.AllKinds{}
 
 	if r.Intn(2) == 0 {
-		msg.BoolValue = Alloc(r.Intn(2) == 0)
+		msg.BoolValue = utils.Alloc(r.Intn(2) == 0)
 	}
 	if r.Intn(2) == 0 {
-		msg.EnumValue = Alloc(testpb.SampleEnum(r.Intn(3)))
+		msg.EnumValue = utils.Alloc(pb.SampleEnum(r.Intn(3)))
 	}
 	if r.Intn(2) == 0 {
-		msg.Int32Value = Alloc(int32(r.Int63n(1 << 31)))
+		msg.Int32Value = utils.Alloc(int32(r.Int63n(1 << 31)))
 	}
 	if r.Intn(2) == 0 {
-		msg.Int64Value = Alloc(r.Int63())
+		msg.Int64Value = utils.Alloc(r.Int63())
 	}
 	if r.Intn(2) == 0 {
-		msg.Sint32Value = Alloc(int32(r.Intn(1<<15)) - 1<<14)
+		msg.Sint32Value = utils.Alloc(int32(r.Intn(1<<15)) - 1<<14)
 	}
 	if r.Intn(2) == 0 {
-		msg.Sint64Value = Alloc(r.Int63n(1<<40) - 1<<39)
+		msg.Sint64Value = utils.Alloc(r.Int63n(1<<40) - 1<<39)
 	}
 	if r.Intn(2) == 0 {
-		msg.Uint32Value = Alloc(uint32(r.Uint32()))
+		msg.Uint32Value = utils.Alloc(uint32(r.Uint32()))
 	}
 	if r.Intn(2) == 0 {
-		msg.Uint64Value = Alloc(r.Uint64())
+		msg.Uint64Value = utils.Alloc(r.Uint64())
 	}
 	if r.Intn(2) == 0 {
-		msg.Fixed32Value = Alloc(uint32(r.Uint32()))
+		msg.Fixed32Value = utils.Alloc(uint32(r.Uint32()))
 	}
 	if r.Intn(2) == 0 {
-		msg.Fixed64Value = Alloc(r.Uint64())
+		msg.Fixed64Value = utils.Alloc(r.Uint64())
 	}
 	if r.Intn(2) == 0 {
-		msg.Sfixed32Value = Alloc(int32(r.Int63n(1 << 31)))
+		msg.Sfixed32Value = utils.Alloc(int32(r.Int63n(1 << 31)))
 	}
 	if r.Intn(2) == 0 {
-		msg.Sfixed64Value = Alloc(r.Int63())
+		msg.Sfixed64Value = utils.Alloc(r.Int63())
 	}
 	if r.Intn(2) == 0 {
 		msg.BytesValue = randomBytes(r)
 	}
 	if r.Intn(2) == 0 {
-		msg.StringValue = Alloc(randomString(r))
+		msg.StringValue = utils.Alloc(randomString(r))
 	}
 	if r.Intn(2) == 0 {
 		msg.MessageValue = randomNested(r)
@@ -145,13 +145,13 @@ func randomSlice[T any](r *rand.Rand, gen func(*rand.Rand) T) []T {
 	return out
 }
 
-func randomNested(r *rand.Rand) *testpb.Nested {
-	nested := &testpb.Nested{}
+func randomNested(r *rand.Rand) *pb.Nested {
+	nested := &pb.Nested{}
 	switch r.Intn(3) {
 	case 0:
-		nested.T = &testpb.Nested_Note{Note: randomString(r)}
+		nested.T = &pb.Nested_Note{Note: randomString(r)}
 	case 1:
-		nested.T = &testpb.Nested_Value{Value: uint32(r.Uint32())}
+		nested.T = &pb.Nested_Value{Value: uint32(r.Uint32())}
 	default:
 		// leave oneof unset to test empty case
 	}

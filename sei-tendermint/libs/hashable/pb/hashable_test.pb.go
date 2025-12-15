@@ -2,12 +2,11 @@
 // versions:
 // 	protoc-gen-go v1.36.10
 // 	protoc        (unknown)
-// source: test/test.proto
+// source: hashable/hashable_test.proto
 
-package test
+package pb
 
 import (
-	_ "github.com/tendermint/tendermint/proto_v2/hashable"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -55,11 +54,11 @@ func (x SampleEnum) String() string {
 }
 
 func (SampleEnum) Descriptor() protoreflect.EnumDescriptor {
-	return file_test_test_proto_enumTypes[0].Descriptor()
+	return file_hashable_hashable_test_proto_enumTypes[0].Descriptor()
 }
 
 func (SampleEnum) Type() protoreflect.EnumType {
-	return &file_test_test_proto_enumTypes[0]
+	return &file_hashable_hashable_test_proto_enumTypes[0]
 }
 
 func (x SampleEnum) Number() protoreflect.EnumNumber {
@@ -68,7 +67,7 @@ func (x SampleEnum) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SampleEnum.Descriptor instead.
 func (SampleEnum) EnumDescriptor() ([]byte, []int) {
-	return file_test_test_proto_rawDescGZIP(), []int{0}
+	return file_hashable_hashable_test_proto_rawDescGZIP(), []int{0}
 }
 
 type Nested struct {
@@ -84,7 +83,7 @@ type Nested struct {
 
 func (x *Nested) Reset() {
 	*x = Nested{}
-	mi := &file_test_test_proto_msgTypes[0]
+	mi := &file_hashable_hashable_test_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -96,7 +95,7 @@ func (x *Nested) String() string {
 func (*Nested) ProtoMessage() {}
 
 func (x *Nested) ProtoReflect() protoreflect.Message {
-	mi := &file_test_test_proto_msgTypes[0]
+	mi := &file_hashable_hashable_test_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -109,7 +108,7 @@ func (x *Nested) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Nested.ProtoReflect.Descriptor instead.
 func (*Nested) Descriptor() ([]byte, []int) {
-	return file_test_test_proto_rawDescGZIP(), []int{0}
+	return file_hashable_hashable_test_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Nested) GetT() isNested_T {
@@ -183,7 +182,7 @@ type AllKinds struct {
 
 func (x *AllKinds) Reset() {
 	*x = AllKinds{}
-	mi := &file_test_test_proto_msgTypes[1]
+	mi := &file_hashable_hashable_test_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -195,7 +194,7 @@ func (x *AllKinds) String() string {
 func (*AllKinds) ProtoMessage() {}
 
 func (x *AllKinds) ProtoReflect() protoreflect.Message {
-	mi := &file_test_test_proto_msgTypes[1]
+	mi := &file_hashable_hashable_test_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -208,7 +207,7 @@ func (x *AllKinds) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AllKinds.ProtoReflect.Descriptor instead.
 func (*AllKinds) Descriptor() ([]byte, []int) {
-	return file_test_test_proto_rawDescGZIP(), []int{1}
+	return file_hashable_hashable_test_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *AllKinds) GetBoolValue() bool {
@@ -365,11 +364,11 @@ func (x *AllKinds) GetRepeatedPackableEmpty() []uint64 {
 	return nil
 }
 
-var File_test_test_proto protoreflect.FileDescriptor
+var File_hashable_hashable_test_proto protoreflect.FileDescriptor
 
-const file_test_test_proto_rawDesc = "" +
+const file_hashable_hashable_test_proto_rawDesc = "" +
 	"\n" +
-	"\x0ftest/test.proto\x12\x04test\x1a\x17hashable/hashable.proto\"C\n" +
+	"\x1chashable/hashable_test.proto\x12\x04test\x1a\x17hashable/hashable.proto\"C\n" +
 	"\x06Nested\x12\x14\n" +
 	"\x04note\x18\x01 \x01(\tH\x00R\x04note\x12\x16\n" +
 	"\x05value\x18\x02 \x01(\rH\x00R\x05value:\x06Ȉ\xe2\xab\f\x01B\x03\n" +
@@ -425,28 +424,28 @@ const file_test_test_proto_rawDesc = "" +
 	"SampleEnum\x12\x1b\n" +
 	"\x17SAMPLE_ENUM_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11SAMPLE_ENUM_ALPHA\x10\x01\x12\x14\n" +
-	"\x10SAMPLE_ENUM_BETA\x10\x02B0Z.github.com/tendermint/tendermint/proto_v2/testb\x06proto3"
+	"\x10SAMPLE_ENUM_BETA\x10\x02B3Z1github.com/tendermint/tendermint/libs/hashable/pbb\x06proto3"
 
 var (
-	file_test_test_proto_rawDescOnce sync.Once
-	file_test_test_proto_rawDescData []byte
+	file_hashable_hashable_test_proto_rawDescOnce sync.Once
+	file_hashable_hashable_test_proto_rawDescData []byte
 )
 
-func file_test_test_proto_rawDescGZIP() []byte {
-	file_test_test_proto_rawDescOnce.Do(func() {
-		file_test_test_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_test_test_proto_rawDesc), len(file_test_test_proto_rawDesc)))
+func file_hashable_hashable_test_proto_rawDescGZIP() []byte {
+	file_hashable_hashable_test_proto_rawDescOnce.Do(func() {
+		file_hashable_hashable_test_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_hashable_hashable_test_proto_rawDesc), len(file_hashable_hashable_test_proto_rawDesc)))
 	})
-	return file_test_test_proto_rawDescData
+	return file_hashable_hashable_test_proto_rawDescData
 }
 
-var file_test_test_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_test_test_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
-var file_test_test_proto_goTypes = []any{
+var file_hashable_hashable_test_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_hashable_hashable_test_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_hashable_hashable_test_proto_goTypes = []any{
 	(SampleEnum)(0),  // 0: test.SampleEnum
 	(*Nested)(nil),   // 1: test.Nested
 	(*AllKinds)(nil), // 2: test.AllKinds
 }
-var file_test_test_proto_depIdxs = []int32{
+var file_hashable_hashable_test_proto_depIdxs = []int32{
 	0, // 0: test.AllKinds.enum_value:type_name -> test.SampleEnum
 	1, // 1: test.AllKinds.message_value:type_name -> test.Nested
 	1, // 2: test.AllKinds.repeated_message:type_name -> test.Nested
@@ -458,32 +457,33 @@ var file_test_test_proto_depIdxs = []int32{
 	0, // [0:4] is the sub-list for field type_name
 }
 
-func init() { file_test_test_proto_init() }
-func file_test_test_proto_init() {
-	if File_test_test_proto != nil {
+func init() { file_hashable_hashable_test_proto_init() }
+func file_hashable_hashable_test_proto_init() {
+	if File_hashable_hashable_test_proto != nil {
 		return
 	}
-	file_test_test_proto_msgTypes[0].OneofWrappers = []any{
+	file_hashable_hashable_proto_init()
+	file_hashable_hashable_test_proto_msgTypes[0].OneofWrappers = []any{
 		(*Nested_Note)(nil),
 		(*Nested_Value)(nil),
 	}
-	file_test_test_proto_msgTypes[1].OneofWrappers = []any{}
+	file_hashable_hashable_test_proto_msgTypes[1].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_test_test_proto_rawDesc), len(file_test_test_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hashable_hashable_test_proto_rawDesc), len(file_hashable_hashable_test_proto_rawDesc)),
 			NumEnums:      1,
 			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_test_test_proto_goTypes,
-		DependencyIndexes: file_test_test_proto_depIdxs,
-		EnumInfos:         file_test_test_proto_enumTypes,
-		MessageInfos:      file_test_test_proto_msgTypes,
+		GoTypes:           file_hashable_hashable_test_proto_goTypes,
+		DependencyIndexes: file_hashable_hashable_test_proto_depIdxs,
+		EnumInfos:         file_hashable_hashable_test_proto_enumTypes,
+		MessageInfos:      file_hashable_hashable_test_proto_msgTypes,
 	}.Build()
-	File_test_test_proto = out.File
-	file_test_test_proto_goTypes = nil
-	file_test_test_proto_depIdxs = nil
+	File_hashable_hashable_test_proto = out.File
+	file_hashable_hashable_test_proto_goTypes = nil
+	file_hashable_hashable_test_proto_depIdxs = nil
 }

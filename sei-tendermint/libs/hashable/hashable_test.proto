@@ -4,7 +4,7 @@ package test;
 
 import "hashable/hashable.proto";
 
-option go_package = "github.com/tendermint/tendermint/proto_v2/test";
+option go_package = "github.com/tendermint/tendermint/libs/hashable/pb";
 
 enum SampleEnum {
   SAMPLE_ENUM_UNSPECIFIED = 0;

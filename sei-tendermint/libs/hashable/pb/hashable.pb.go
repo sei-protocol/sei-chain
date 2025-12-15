@@ -4,7 +4,7 @@
 // 	protoc        (unknown)
 // source: hashable/hashable.proto
 
-package hashable
+package pb
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -43,7 +43,7 @@ var File_hashable_hashable_proto protoreflect.FileDescriptor
 const file_hashable_hashable_proto_rawDesc = "" +
 	"\n" +
 	"\x17hashable/hashable.proto\x12\bhashable\x1a google/protobuf/descriptor.proto:?\n" +
-	"\bhashable\x12\x1f.google.protobuf.MessageOptions\x18\x89\xa1\xbc\xc5\x01 \x01(\bR\bhashableB4Z2github.com/tendermint/tendermint/proto_v2/hashableb\x06proto3"
+	"\bhashable\x12\x1f.google.protobuf.MessageOptions\x18\x89\xa1\xbc\xc5\x01 \x01(\bR\bhashableB3Z1github.com/tendermint/tendermint/libs/hashable/pbb\x06proto3"
 
 var file_hashable_hashable_proto_goTypes = []any{
 	(*descriptorpb.MessageOptions)(nil), // 0: google.protobuf.MessageOptions
