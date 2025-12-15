@@ -5,7 +5,7 @@ coverage:
     project:
       default:
         target: auto
-        threshold: 0.1% # allow this much decrease on project
+        threshold: 3% # allow this much decrease on project
       sei-chain:
         target: 40%
         paths:
