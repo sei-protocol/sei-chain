@@ -6,7 +6,7 @@ import (
 
 	"github.com/CosmWasm/wasmd/x/wasm/types"
 
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
+	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 

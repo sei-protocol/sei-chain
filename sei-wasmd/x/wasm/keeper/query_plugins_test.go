@@ -7,10 +7,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/store"
 	dbm "github.com/tendermint/tm-db"
 
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 

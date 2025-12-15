@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/CosmWasm/wasmvm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 
 // frame stores all Iterators for one contract call

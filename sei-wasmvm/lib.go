@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/CosmWasm/wasmvm/internal/api"
-	"github.com/CosmWasm/wasmvm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmvm/internal/api"
+	"github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 
 // VM is the main entry point to this library.
