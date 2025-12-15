@@ -168,11 +168,17 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 
 	rpcSub := notifier.CreateSubscription()
 
+	// Track subscription metrics
+	wpMetrics := GetGlobalMetrics()
+	wpMetrics.RecordSubscriptionStart()
+
 	if filter.BlockHash != nil {
 		go func() {
 			defer recoverAndLog()
+			defer wpMetrics.RecordSubscriptionEnd()
 			logs, _, err := a.logFetcher.GetLogsByFilters(ctx, *filter, 0)
 			if err != nil {
+				wpMetrics.RecordSubscriptionError()
 				_ = notifier.Notify(rpcSub.ID, err)
 				return
 			}
@@ -187,10 +193,12 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 
 	go func() {
 		defer recoverAndLog()
+		defer wpMetrics.RecordSubscriptionEnd()
 		begin := int64(0)
 		for {
 			logs, lastToHeight, err := a.logFetcher.GetLogsByFilters(ctx, *filter, begin)
 			if err != nil {
+				wpMetrics.RecordSubscriptionError()
 				_ = notifier.Notify(rpcSub.ID, err)
 				return
 			}
