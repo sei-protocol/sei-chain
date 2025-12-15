@@ -9,7 +9,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/tendermint/tendermint/libs/hashable/internal/pb"
+	"github.com/tendermint/tendermint/internal/hashable/internal/pb"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/require"
 )
