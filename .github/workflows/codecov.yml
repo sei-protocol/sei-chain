@@ -6,10 +6,22 @@ on:
       - main
       - release/**
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  upload-coverage:
+  e2e-matrix:
+    name: E2E Agents
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        agent: [1,2,3,4,5,6,7,8,9,10] # 10 parallel agents, scalable
     steps:
       - uses: actions/checkout@v5
 
@@ -21,10 +33,41 @@ jobs:
       - name: Install dependencies
         run: go mod download
 
-      - name: Run tests with coverage
+      - name: Run full-stack E2E tests per agent
         run: |
           mkdir -p coverage
-          go test ./... -covermode=atomic -coverprofile=coverage/coverage.out
+          ./run_blocktests.sh ./ethtests/BlockchainTests/ 0 5 \
+            -agent ${{ matrix.agent }} \
+            -output coverage/coverage-agent${{ matrix.agent }}.out
+
+      - name: Upload individual agent coverage artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-agent-${{ matrix.agent }}
+          path: coverage/coverage-agent${{ matrix.agent }}.out
+
+  merge-and-upload-coverage:
+    name: Merge Coverage & Upload
+    runs-on: ubuntu-latest
+    needs: e2e-matrix
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download all agent coverage artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: coverage-agent-1
+          path: coverage/
+      - uses: actions/download-artifact@v3
+        with:
+          name: coverage-agent-2
+          path: coverage/
+      # Repeat or use a loop for agents 3-10 if desired
+
+      - name: Merge coverage profiles
+        run: |
+          go install github.com/wadey/gocovmerge@latest
+          gocovmerge coverage/*.out > coverage/coverage.out
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
