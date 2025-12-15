@@ -254,8 +254,8 @@ dependencies = [
 
 [[package]]
 name = "cosmwasm-crypto"
-version = "1.5.7"
-source = "git+https://github.com/CosmWasm/cosmwasm.git?rev=v1.5.7#3d91925ee82c9d40c1368015fde436836089469e"
+version = "1.5.11"
+source = "git+https://github.com/CosmWasm/cosmwasm.git?rev=v1.5.11#c05011a7d0ed5e55dabeb16394a93a470e0490fb"
 dependencies = [
  "digest 0.10.7",
  "ed25519-zebra",
@@ -266,16 +266,16 @@ dependencies = [
 
 [[package]]
 name = "cosmwasm-derive"
-version = "1.5.7"
-source = "git+https://github.com/CosmWasm/cosmwasm.git?rev=v1.5.7#3d91925ee82c9d40c1368015fde436836089469e"
+version = "1.5.11"
+source = "git+https://github.com/CosmWasm/cosmwasm.git?rev=v1.5.11#c05011a7d0ed5e55dabeb16394a93a470e0490fb"
 dependencies = [
  "syn 1.0.109",
 ]
 
 [[package]]
 name = "cosmwasm-std"
-version = "1.5.7"
-source = "git+https://github.com/CosmWasm/cosmwasm.git?rev=v1.5.7#3d91925ee82c9d40c1368015fde436836089469e"
+version = "1.5.11"
+source = "git+https://github.com/CosmWasm/cosmwasm.git?rev=v1.5.11#c05011a7d0ed5e55dabeb16394a93a470e0490fb"
 dependencies = [
  "base64",
  "bech32",
@@ -295,8 +295,8 @@ dependencies = [
 
 [[package]]
 name = "cosmwasm-vm"
-version = "1.5.7"
-source = "git+https://github.com/CosmWasm/cosmwasm.git?rev=v1.5.7#3d91925ee82c9d40c1368015fde436836089469e"
+version = "1.5.11"
+source = "git+https://github.com/CosmWasm/cosmwasm.git?rev=v1.5.11#c05011a7d0ed5e55dabeb16394a93a470e0490fb"
 dependencies = [
  "bitflags",
  "bytecheck",
@@ -315,6 +315,7 @@ dependencies = [
  "thiserror",
  "wasmer",
  "wasmer-middlewares",
+ "wasmer-types",
 ]
 
 [[package]]
