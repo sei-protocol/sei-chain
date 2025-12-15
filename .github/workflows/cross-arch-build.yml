@@ -30,18 +30,22 @@ jobs:
         module:
           - name: sei-chain
             path: ./
+            tags: ""
           - name: sei-cosmos
             path: ./sei-cosmos
             tags: ledger test_ledger_mock
           - name: sei-ibc-go
             path: ./sei-ibc-go
+            tags: ""
           - name: sei-tendermint
             path: ./sei-tendermint
+            tags: ""
           - name: sei-wasmd
             path: ./sei-wasmd
             tags: ledger test_ledger_mock
           - name: sei-wasmvm
             path: ./sei-wasmvm
+            tags: ""
 
     steps:
       - name: 📥 Checkout Repository
@@ -91,9 +95,7 @@ jobs:
             TAGS_FLAG="-tags $BUILD_TAGS"
             echo "🏷️ Building with tags: $BUILD_TAGS"
           fi
-
           mkdir -p build
-
           if [[ -f Makefile ]]; then
             echo "🛠 Using Makefile build"
             make install TAGS="$BUILD_TAGS"
@@ -112,12 +114,10 @@ jobs:
         run: |
           BINARY="./build/seid"
           [[ "$RUNNER_OS" == "Windows" ]] && BINARY="./build/seid.exe"
-
           if [[ ! -f "$BINARY" ]]; then
             echo "❌ Binary not found: $BINARY"
             exit 1
           fi
-
           echo "✅ Binary exists: $BINARY"
           "$BINARY" version --long
           sha256sum "$BINARY" > "$BINARY.sha256"
@@ -171,7 +171,7 @@ jobs:
             build-${{ matrix.os }}-${{ matrix.module.name }}-
 
       - name: 🔐 Optional: Ledger Module Signing
-        if: matrix.module.tags && contains(matrix.module.tags, 'ledger')
+        if: ${{ matrix.module.tags != '' && contains(matrix.module.tags, 'ledger') }}
         working-directory: ${{ matrix.module.path }}
         run: |
           BINARY="./build/seid"
