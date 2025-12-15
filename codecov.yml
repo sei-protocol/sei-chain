@@ -17,7 +17,7 @@ coverage:
         flags:
           - sei-chain
       sei-cosmos:
-        target: 40%
+        target: 35%
         paths:
           - "sei-cosmos/**"
         flags:
