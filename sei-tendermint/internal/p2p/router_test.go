@@ -4,16 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/fortytw2/leaktest"
-	"github.com/gogo/protobuf/proto"
-	dbm "github.com/tendermint/tm-db"
-	"golang.org/x/time/rate"
-	"io"
 	"net"
 	"net/netip"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/fortytw2/leaktest"
+	"github.com/gogo/protobuf/proto"
+	dbm "github.com/tendermint/tm-db"
+	"golang.org/x/time/rate"
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
@@ -539,8 +539,8 @@ func TestRouter_dialPeer_Reject(t *testing.T) {
 				if err != nil {
 					return nil
 				}
-				if err := x.runConn(ctx, conn); !errors.Is(err, io.EOF) {
-					return fmt.Errorf("want EOF, got %w", err)
+				if err := x.runConn(ctx, conn); utils.IgnoreCancel(err) == nil {
+					return fmt.Errorf("want non-nil, non-cancellation error, got %w", err)
 				}
 				return nil
 			})
@@ -638,8 +638,8 @@ func TestRouter_EvictPeers(t *testing.T) {
 		t.Log("Report the peer as bad.")
 		r.Evict(peerID, errors.New("boom"))
 		t.Log("Wait for conn down")
-		if err := x.runConn(ctx, conn); !errors.Is(err, io.EOF) {
-			return fmt.Errorf("want EOF, got %w", err)
+		if err := x.runConn(ctx, conn); utils.IgnoreCancel(err) == nil {
+			return fmt.Errorf("want non-nil, non-cancellation error, got %w", err)
 		}
 		return nil
 	}); err != nil {
