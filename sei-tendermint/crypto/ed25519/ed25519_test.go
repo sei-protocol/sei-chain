@@ -16,17 +16,16 @@ func TestSignAndValidateEd25519(t *testing.T) {
 	pubKey := privKey.PubKey()
 
 	msg := crypto.CRandBytes(128)
-	sig, err := privKey.Sign(msg)
-	require.NoError(t, err)
+	sig := privKey.Sign(msg)
 
 	// Test the signature
-	assert.True(t, pubKey.VerifySignature(msg, sig))
+	assert.NoError(t, pubKey.Verify(msg, sig))
 
 	// Mutate the signature, just one bit.
 	// TODO: Replace this with a much better fuzzer, tendermint/ed25519/issues/10
 	sig[7] ^= byte(0x01)
 
-	assert.False(t, pubKey.VerifySignature(msg, sig))
+	assert.Error(t, pubKey.Verify(msg, sig))
 }
 
 func TestBatchSafe(t *testing.T) {
@@ -43,13 +42,8 @@ func TestBatchSafe(t *testing.T) {
 			msg = []byte("egg")
 		}
 
-		sig, err := priv.Sign(msg)
-		require.NoError(t, err)
-
-		err = v.Add(pub, msg, sig)
-		require.NoError(t, err)
+		v.Add(pub, msg, priv.Sign(msg))
 	}
 
-	ok, _ := v.Verify()
-	require.True(t, ok)
+	require.NoError(t,v.Verify())
 }

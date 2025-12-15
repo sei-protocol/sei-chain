@@ -27,6 +27,7 @@ func (o Option[T]) Get() (T, bool) {
 	return Zero[T](), false
 }
 
+
 // IsPresent checks if the Option contains a value.
 func (o Option[T]) IsPresent() bool {
 	return o.isPresent
@@ -38,6 +39,13 @@ func (o *Option[T]) Or(def T) T {
 		return o.value
 	}
 	return def
+}
+
+func (o Option[T]) OrPanic() T {
+	if o.isPresent {
+		return o.value
+	}
+	panic("value missing")
 }
 
 // MapOpt applies a function to the value if present, returning a new Option.

@@ -37,7 +37,13 @@ func Checksum(bz []byte) []byte {
 
 type PubKey = ed25519.PubKey
 type PrivKey = ed25519.PrivKey
+type Sig = ed25519.Sig
 type BatchVerifier = ed25519.BatchVerifier
+type ErrBadSig = ed25519.ErrBadSig
+
+func SigFromBytes(raw []byte) (Sig,error) {
+	return ed25519.SigFromBytes(raw)
+}
 
 func NewBatchVerifier() *BatchVerifier {
 	return ed25519.NewBatchVerifier()

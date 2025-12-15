@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmmath "github.com/tendermint/tendermint/libs/math"
 )
 
@@ -205,9 +206,11 @@ func verifyCommitBatch(
 		voteSignBytes := commit.VoteSignBytes(chainID, int32(idx))
 
 		// add the key, sig and message to the verifier
-		if err := bv.Add(val.PubKey, voteSignBytes, commitSig.Signature); err != nil {
-			return err
+		sig,err := crypto.SigFromBytes(commitSig.Signature)
+		if err!=nil {
+			return fmt.Errorf("crypto.SigFromBytes(): %w",err)
 		}
+		bv.Add(val.PubKey, voteSignBytes, sig)
 		batchSigIdxs = append(batchSigIdxs, idx)
 
 		// If this signature counts then add the voting power of the validator
@@ -230,28 +233,14 @@ func verifyCommitBatch(
 	}
 
 	// attempt to verify the batch.
-	ok, validSigs := bv.Verify()
-	if ok {
-		// success
-		return nil
+	if err := bv.Verify(); err!=nil {
+		err := utils.ErrorAs[crypto.ErrBadSig](err).OrPanic()
+		// go back from the batch index to the commit.Signatures index
+		idx := batchSigIdxs[err.Idx]
+		sig := commit.Signatures[idx]
+		return errBadSig{fmt.Errorf("wrong signature (#%d): %X", idx, sig)}
 	}
-
-	// one or more of the signatures is invalid, find and return the first
-	// invalid signature.
-	for i, ok := range validSigs {
-		if !ok {
-			// go back from the batch index to the commit.Signatures index
-			idx := batchSigIdxs[i]
-			sig := commit.Signatures[idx]
-			return errBadSig{fmt.Errorf("wrong signature (#%d): %X", idx, sig)}
-		}
-	}
-
-	// execution reaching here is a bug, and one of the following has
-	// happened:
-	//  * non-zero tallied voting power, empty batch (impossible?)
-	//  * bv.Verify() returned `false, []bool{true, ..., true}` (BUG)
-	return fmt.Errorf("BUG: batch verification failed with no invalid signatures")
+	return nil
 }
 
 // Single Verification
@@ -306,8 +295,11 @@ func verifyCommitSingle(
 		}
 
 		voteSignBytes = commit.VoteSignBytes(chainID, int32(idx))
-
-		if !val.PubKey.VerifySignature(voteSignBytes, commitSig.Signature) {
+		sig,err := crypto.SigFromBytes(commitSig.Signature)
+		if err!=nil {
+			return fmt.Errorf("crypto.SigFromBytes(): %w",err)
+		}
+		if err := val.PubKey.Verify(voteSignBytes, sig); err!=nil {
 			return errBadSig{fmt.Errorf("wrong signature (#%d): %X", idx, commitSig.Signature)}
 		}
 
