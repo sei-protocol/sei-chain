@@ -2,11 +2,12 @@
 // versions:
 // 	protoc-gen-go v1.36.10
 // 	protoc        (unknown)
-// source: hashable/hashable_test.proto
+// source: hashable/internal/testonly.proto
 
 package pb
 
 import (
+	_ "github.com/tendermint/tendermint/libs/hashable/pb"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -21,81 +22,81 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type SampleEnum int32
+type TestonlyEnum int32
 
 const (
-	SampleEnum_SAMPLE_ENUM_UNSPECIFIED SampleEnum = 0
-	SampleEnum_SAMPLE_ENUM_ALPHA       SampleEnum = 1
-	SampleEnum_SAMPLE_ENUM_BETA        SampleEnum = 2
+	TestonlyEnum_TESTONLY_ENUM_UNSPECIFIED TestonlyEnum = 0
+	TestonlyEnum_TESTONLY_ENUM_ALPHA       TestonlyEnum = 1
+	TestonlyEnum_TESTONLY_ENUM_BETA        TestonlyEnum = 2
 )
 
-// Enum value maps for SampleEnum.
+// Enum value maps for TestonlyEnum.
 var (
-	SampleEnum_name = map[int32]string{
-		0: "SAMPLE_ENUM_UNSPECIFIED",
-		1: "SAMPLE_ENUM_ALPHA",
-		2: "SAMPLE_ENUM_BETA",
+	TestonlyEnum_name = map[int32]string{
+		0: "TESTONLY_ENUM_UNSPECIFIED",
+		1: "TESTONLY_ENUM_ALPHA",
+		2: "TESTONLY_ENUM_BETA",
 	}
-	SampleEnum_value = map[string]int32{
-		"SAMPLE_ENUM_UNSPECIFIED": 0,
-		"SAMPLE_ENUM_ALPHA":       1,
-		"SAMPLE_ENUM_BETA":        2,
+	TestonlyEnum_value = map[string]int32{
+		"TESTONLY_ENUM_UNSPECIFIED": 0,
+		"TESTONLY_ENUM_ALPHA":       1,
+		"TESTONLY_ENUM_BETA":        2,
 	}
 )
 
-func (x SampleEnum) Enum() *SampleEnum {
-	p := new(SampleEnum)
+func (x TestonlyEnum) Enum() *TestonlyEnum {
+	p := new(TestonlyEnum)
 	*p = x
 	return p
 }
 
-func (x SampleEnum) String() string {
+func (x TestonlyEnum) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (SampleEnum) Descriptor() protoreflect.EnumDescriptor {
-	return file_hashable_hashable_test_proto_enumTypes[0].Descriptor()
+func (TestonlyEnum) Descriptor() protoreflect.EnumDescriptor {
+	return file_hashable_internal_testonly_proto_enumTypes[0].Descriptor()
 }
 
-func (SampleEnum) Type() protoreflect.EnumType {
-	return &file_hashable_hashable_test_proto_enumTypes[0]
+func (TestonlyEnum) Type() protoreflect.EnumType {
+	return &file_hashable_internal_testonly_proto_enumTypes[0]
 }
 
-func (x SampleEnum) Number() protoreflect.EnumNumber {
+func (x TestonlyEnum) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use SampleEnum.Descriptor instead.
-func (SampleEnum) EnumDescriptor() ([]byte, []int) {
-	return file_hashable_hashable_test_proto_rawDescGZIP(), []int{0}
+// Deprecated: Use TestonlyEnum.Descriptor instead.
+func (TestonlyEnum) EnumDescriptor() ([]byte, []int) {
+	return file_hashable_internal_testonly_proto_rawDescGZIP(), []int{0}
 }
 
-type Nested struct {
+type TestonlyNested struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to T:
 	//
-	//	*Nested_Note
-	//	*Nested_Value
-	T             isNested_T `protobuf_oneof:"t"`
+	//	*TestonlyNested_Note
+	//	*TestonlyNested_Value
+	T             isTestonlyNested_T `protobuf_oneof:"t"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Nested) Reset() {
-	*x = Nested{}
-	mi := &file_hashable_hashable_test_proto_msgTypes[0]
+func (x *TestonlyNested) Reset() {
+	*x = TestonlyNested{}
+	mi := &file_hashable_internal_testonly_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Nested) String() string {
+func (x *TestonlyNested) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Nested) ProtoMessage() {}
+func (*TestonlyNested) ProtoMessage() {}
 
-func (x *Nested) ProtoReflect() protoreflect.Message {
-	mi := &file_hashable_hashable_test_proto_msgTypes[0]
+func (x *TestonlyNested) ProtoReflect() protoreflect.Message {
+	mi := &file_hashable_internal_testonly_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -106,56 +107,56 @@ func (x *Nested) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Nested.ProtoReflect.Descriptor instead.
-func (*Nested) Descriptor() ([]byte, []int) {
-	return file_hashable_hashable_test_proto_rawDescGZIP(), []int{0}
+// Deprecated: Use TestonlyNested.ProtoReflect.Descriptor instead.
+func (*TestonlyNested) Descriptor() ([]byte, []int) {
+	return file_hashable_internal_testonly_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *Nested) GetT() isNested_T {
+func (x *TestonlyNested) GetT() isTestonlyNested_T {
 	if x != nil {
 		return x.T
 	}
 	return nil
 }
 
-func (x *Nested) GetNote() string {
+func (x *TestonlyNested) GetNote() string {
 	if x != nil {
-		if x, ok := x.T.(*Nested_Note); ok {
+		if x, ok := x.T.(*TestonlyNested_Note); ok {
 			return x.Note
 		}
 	}
 	return ""
 }
 
-func (x *Nested) GetValue() uint32 {
+func (x *TestonlyNested) GetValue() uint32 {
 	if x != nil {
-		if x, ok := x.T.(*Nested_Value); ok {
+		if x, ok := x.T.(*TestonlyNested_Value); ok {
 			return x.Value
 		}
 	}
 	return 0
 }
 
-type isNested_T interface {
-	isNested_T()
+type isTestonlyNested_T interface {
+	isTestonlyNested_T()
 }
 
-type Nested_Note struct {
+type TestonlyNested_Note struct {
 	Note string `protobuf:"bytes,1,opt,name=note,proto3,oneof"`
 }
 
-type Nested_Value struct {
+type TestonlyNested_Value struct {
 	Value uint32 `protobuf:"varint,2,opt,name=value,proto3,oneof"`
 }
 
-func (*Nested_Note) isNested_T() {}
+func (*TestonlyNested_Note) isTestonlyNested_T() {}
 
-func (*Nested_Value) isNested_T() {}
+func (*TestonlyNested_Value) isTestonlyNested_T() {}
 
-type AllKinds struct {
+type TestonlyMsg struct {
 	state                     protoimpl.MessageState `protogen:"open.v1"`
 	BoolValue                 *bool                  `protobuf:"varint,1,opt,name=bool_value,json=boolValue,proto3,oneof" json:"bool_value,omitempty"`
-	EnumValue                 *SampleEnum            `protobuf:"varint,2,opt,name=enum_value,json=enumValue,proto3,enum=test.SampleEnum,oneof" json:"enum_value,omitempty"`
+	EnumValue                 *TestonlyEnum          `protobuf:"varint,2,opt,name=enum_value,json=enumValue,proto3,enum=test.TestonlyEnum,oneof" json:"enum_value,omitempty"`
 	Int32Value                *int32                 `protobuf:"varint,3,opt,name=int32_value,json=int32Value,proto3,oneof" json:"int32_value,omitempty"`
 	Int64Value                *int64                 `protobuf:"varint,4,opt,name=int64_value,json=int64Value,proto3,oneof" json:"int64_value,omitempty"`
 	Sint32Value               *int32                 `protobuf:"zigzag32,5,opt,name=sint32_value,json=sint32Value,proto3,oneof" json:"sint32_value,omitempty"`
@@ -168,11 +169,11 @@ type AllKinds struct {
 	Sfixed64Value             *int64                 `protobuf:"fixed64,12,opt,name=sfixed64_value,json=sfixed64Value,proto3,oneof" json:"sfixed64_value,omitempty"`
 	BytesValue                []byte                 `protobuf:"bytes,13,opt,name=bytes_value,json=bytesValue,proto3,oneof" json:"bytes_value,omitempty"`
 	StringValue               *string                `protobuf:"bytes,14,opt,name=string_value,json=stringValue,proto3,oneof" json:"string_value,omitempty"`
-	MessageValue              *Nested                `protobuf:"bytes,15,opt,name=message_value,json=messageValue,proto3,oneof" json:"message_value,omitempty"`
+	MessageValue              *TestonlyNested        `protobuf:"bytes,15,opt,name=message_value,json=messageValue,proto3,oneof" json:"message_value,omitempty"`
 	RepeatedPackable          []int64                `protobuf:"zigzag64,16,rep,packed,name=repeated_packable,json=repeatedPackable,proto3" json:"repeated_packable,omitempty"`
 	RepeatedString            []string               `protobuf:"bytes,17,rep,name=repeated_string,json=repeatedString,proto3" json:"repeated_string,omitempty"`
-	RepeatedMessage           []*Nested              `protobuf:"bytes,18,rep,name=repeated_message,json=repeatedMessage,proto3" json:"repeated_message,omitempty"`
-	OptionalMessage           *Nested                `protobuf:"bytes,19,opt,name=optional_message,json=optionalMessage,proto3,oneof" json:"optional_message,omitempty"`
+	RepeatedMessage           []*TestonlyNested      `protobuf:"bytes,18,rep,name=repeated_message,json=repeatedMessage,proto3" json:"repeated_message,omitempty"`
+	OptionalMessage           *TestonlyNested        `protobuf:"bytes,19,opt,name=optional_message,json=optionalMessage,proto3,oneof" json:"optional_message,omitempty"`
 	RepeatedPackableSingleton []uint32               `protobuf:"fixed32,20,rep,packed,name=repeated_packable_singleton,json=repeatedPackableSingleton,proto3" json:"repeated_packable_singleton,omitempty"`
 	RepeatedBytes             [][]byte               `protobuf:"bytes,21,rep,name=repeated_bytes,json=repeatedBytes,proto3" json:"repeated_bytes,omitempty"`
 	RepeatedPackableEmpty     []uint64               `protobuf:"varint,22,rep,packed,name=repeated_packable_empty,json=repeatedPackableEmpty,proto3" json:"repeated_packable_empty,omitempty"`
@@ -180,21 +181,21 @@ type AllKinds struct {
 	sizeCache                 protoimpl.SizeCache
 }
 
-func (x *AllKinds) Reset() {
-	*x = AllKinds{}
-	mi := &file_hashable_hashable_test_proto_msgTypes[1]
+func (x *TestonlyMsg) Reset() {
+	*x = TestonlyMsg{}
+	mi := &file_hashable_internal_testonly_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AllKinds) String() string {
+func (x *TestonlyMsg) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AllKinds) ProtoMessage() {}
+func (*TestonlyMsg) ProtoMessage() {}
 
-func (x *AllKinds) ProtoReflect() protoreflect.Message {
-	mi := &file_hashable_hashable_test_proto_msgTypes[1]
+func (x *TestonlyMsg) ProtoReflect() protoreflect.Message {
+	mi := &file_hashable_internal_testonly_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -205,180 +206,180 @@ func (x *AllKinds) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AllKinds.ProtoReflect.Descriptor instead.
-func (*AllKinds) Descriptor() ([]byte, []int) {
-	return file_hashable_hashable_test_proto_rawDescGZIP(), []int{1}
+// Deprecated: Use TestonlyMsg.ProtoReflect.Descriptor instead.
+func (*TestonlyMsg) Descriptor() ([]byte, []int) {
+	return file_hashable_internal_testonly_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *AllKinds) GetBoolValue() bool {
+func (x *TestonlyMsg) GetBoolValue() bool {
 	if x != nil && x.BoolValue != nil {
 		return *x.BoolValue
 	}
 	return false
 }
 
-func (x *AllKinds) GetEnumValue() SampleEnum {
+func (x *TestonlyMsg) GetEnumValue() TestonlyEnum {
 	if x != nil && x.EnumValue != nil {
 		return *x.EnumValue
 	}
-	return SampleEnum_SAMPLE_ENUM_UNSPECIFIED
+	return TestonlyEnum_TESTONLY_ENUM_UNSPECIFIED
 }
 
-func (x *AllKinds) GetInt32Value() int32 {
+func (x *TestonlyMsg) GetInt32Value() int32 {
 	if x != nil && x.Int32Value != nil {
 		return *x.Int32Value
 	}
 	return 0
 }
 
-func (x *AllKinds) GetInt64Value() int64 {
+func (x *TestonlyMsg) GetInt64Value() int64 {
 	if x != nil && x.Int64Value != nil {
 		return *x.Int64Value
 	}
 	return 0
 }
 
-func (x *AllKinds) GetSint32Value() int32 {
+func (x *TestonlyMsg) GetSint32Value() int32 {
 	if x != nil && x.Sint32Value != nil {
 		return *x.Sint32Value
 	}
 	return 0
 }
 
-func (x *AllKinds) GetSint64Value() int64 {
+func (x *TestonlyMsg) GetSint64Value() int64 {
 	if x != nil && x.Sint64Value != nil {
 		return *x.Sint64Value
 	}
 	return 0
 }
 
-func (x *AllKinds) GetUint32Value() uint32 {
+func (x *TestonlyMsg) GetUint32Value() uint32 {
 	if x != nil && x.Uint32Value != nil {
 		return *x.Uint32Value
 	}
 	return 0
 }
 
-func (x *AllKinds) GetUint64Value() uint64 {
+func (x *TestonlyMsg) GetUint64Value() uint64 {
 	if x != nil && x.Uint64Value != nil {
 		return *x.Uint64Value
 	}
 	return 0
 }
 
-func (x *AllKinds) GetFixed32Value() uint32 {
+func (x *TestonlyMsg) GetFixed32Value() uint32 {
 	if x != nil && x.Fixed32Value != nil {
 		return *x.Fixed32Value
 	}
 	return 0
 }
 
-func (x *AllKinds) GetFixed64Value() uint64 {
+func (x *TestonlyMsg) GetFixed64Value() uint64 {
 	if x != nil && x.Fixed64Value != nil {
 		return *x.Fixed64Value
 	}
 	return 0
 }
 
-func (x *AllKinds) GetSfixed32Value() int32 {
+func (x *TestonlyMsg) GetSfixed32Value() int32 {
 	if x != nil && x.Sfixed32Value != nil {
 		return *x.Sfixed32Value
 	}
 	return 0
 }
 
-func (x *AllKinds) GetSfixed64Value() int64 {
+func (x *TestonlyMsg) GetSfixed64Value() int64 {
 	if x != nil && x.Sfixed64Value != nil {
 		return *x.Sfixed64Value
 	}
 	return 0
 }
 
-func (x *AllKinds) GetBytesValue() []byte {
+func (x *TestonlyMsg) GetBytesValue() []byte {
 	if x != nil {
 		return x.BytesValue
 	}
 	return nil
 }
 
-func (x *AllKinds) GetStringValue() string {
+func (x *TestonlyMsg) GetStringValue() string {
 	if x != nil && x.StringValue != nil {
 		return *x.StringValue
 	}
 	return ""
 }
 
-func (x *AllKinds) GetMessageValue() *Nested {
+func (x *TestonlyMsg) GetMessageValue() *TestonlyNested {
 	if x != nil {
 		return x.MessageValue
 	}
 	return nil
 }
 
-func (x *AllKinds) GetRepeatedPackable() []int64 {
+func (x *TestonlyMsg) GetRepeatedPackable() []int64 {
 	if x != nil {
 		return x.RepeatedPackable
 	}
 	return nil
 }
 
-func (x *AllKinds) GetRepeatedString() []string {
+func (x *TestonlyMsg) GetRepeatedString() []string {
 	if x != nil {
 		return x.RepeatedString
 	}
 	return nil
 }
 
-func (x *AllKinds) GetRepeatedMessage() []*Nested {
+func (x *TestonlyMsg) GetRepeatedMessage() []*TestonlyNested {
 	if x != nil {
 		return x.RepeatedMessage
 	}
 	return nil
 }
 
-func (x *AllKinds) GetOptionalMessage() *Nested {
+func (x *TestonlyMsg) GetOptionalMessage() *TestonlyNested {
 	if x != nil {
 		return x.OptionalMessage
 	}
 	return nil
 }
 
-func (x *AllKinds) GetRepeatedPackableSingleton() []uint32 {
+func (x *TestonlyMsg) GetRepeatedPackableSingleton() []uint32 {
 	if x != nil {
 		return x.RepeatedPackableSingleton
 	}
 	return nil
 }
 
-func (x *AllKinds) GetRepeatedBytes() [][]byte {
+func (x *TestonlyMsg) GetRepeatedBytes() [][]byte {
 	if x != nil {
 		return x.RepeatedBytes
 	}
 	return nil
 }
 
-func (x *AllKinds) GetRepeatedPackableEmpty() []uint64 {
+func (x *TestonlyMsg) GetRepeatedPackableEmpty() []uint64 {
 	if x != nil {
 		return x.RepeatedPackableEmpty
 	}
 	return nil
 }
 
-var File_hashable_hashable_test_proto protoreflect.FileDescriptor
+var File_hashable_internal_testonly_proto protoreflect.FileDescriptor
 
-const file_hashable_hashable_test_proto_rawDesc = "" +
+const file_hashable_internal_testonly_proto_rawDesc = "" +
 	"\n" +
-	"\x1chashable/hashable_test.proto\x12\x04test\x1a\x17hashable/hashable.proto\"C\n" +
-	"\x06Nested\x12\x14\n" +
+	" hashable/internal/testonly.proto\x12\x04test\x1a\x17hashable/hashable.proto\"K\n" +
+	"\x0eTestonlyNested\x12\x14\n" +
 	"\x04note\x18\x01 \x01(\tH\x00R\x04note\x12\x16\n" +
 	"\x05value\x18\x02 \x01(\rH\x00R\x05value:\x06Ȉ\xe2\xab\f\x01B\x03\n" +
-	"\x01t\"\x8a\n" +
+	"\x01t\"\xa7\n" +
 	"\n" +
-	"\bAllKinds\x12\"\n" +
+	"\vTestonlyMsg\x12\"\n" +
 	"\n" +
-	"bool_value\x18\x01 \x01(\bH\x00R\tboolValue\x88\x01\x01\x124\n" +
+	"bool_value\x18\x01 \x01(\bH\x00R\tboolValue\x88\x01\x01\x126\n" +
 	"\n" +
-	"enum_value\x18\x02 \x01(\x0e2\x10.test.SampleEnumH\x01R\tenumValue\x88\x01\x01\x12$\n" +
+	"enum_value\x18\x02 \x01(\x0e2\x12.test.TestonlyEnumH\x01R\tenumValue\x88\x01\x01\x12$\n" +
 	"\vint32_value\x18\x03 \x01(\x05H\x02R\n" +
 	"int32Value\x88\x01\x01\x12$\n" +
 	"\vint64_value\x18\x04 \x01(\x03H\x03R\n" +
@@ -395,12 +396,12 @@ const file_hashable_hashable_test_proto_rawDesc = "" +
 	"\x0esfixed64_value\x18\f \x01(\x10H\vR\rsfixed64Value\x88\x01\x01\x12$\n" +
 	"\vbytes_value\x18\r \x01(\fH\fR\n" +
 	"bytesValue\x88\x01\x01\x12&\n" +
-	"\fstring_value\x18\x0e \x01(\tH\rR\vstringValue\x88\x01\x01\x126\n" +
-	"\rmessage_value\x18\x0f \x01(\v2\f.test.NestedH\x0eR\fmessageValue\x88\x01\x01\x12+\n" +
+	"\fstring_value\x18\x0e \x01(\tH\rR\vstringValue\x88\x01\x01\x12>\n" +
+	"\rmessage_value\x18\x0f \x01(\v2\x14.test.TestonlyNestedH\x0eR\fmessageValue\x88\x01\x01\x12+\n" +
 	"\x11repeated_packable\x18\x10 \x03(\x12R\x10repeatedPackable\x12'\n" +
-	"\x0frepeated_string\x18\x11 \x03(\tR\x0erepeatedString\x127\n" +
-	"\x10repeated_message\x18\x12 \x03(\v2\f.test.NestedR\x0frepeatedMessage\x12<\n" +
-	"\x10optional_message\x18\x13 \x01(\v2\f.test.NestedH\x0fR\x0foptionalMessage\x88\x01\x01\x12>\n" +
+	"\x0frepeated_string\x18\x11 \x03(\tR\x0erepeatedString\x12?\n" +
+	"\x10repeated_message\x18\x12 \x03(\v2\x14.test.TestonlyNestedR\x0frepeatedMessage\x12D\n" +
+	"\x10optional_message\x18\x13 \x01(\v2\x14.test.TestonlyNestedH\x0fR\x0foptionalMessage\x88\x01\x01\x12>\n" +
 	"\x1brepeated_packable_singleton\x18\x14 \x03(\aR\x19repeatedPackableSingleton\x12%\n" +
 	"\x0erepeated_bytes\x18\x15 \x03(\fR\rrepeatedBytes\x126\n" +
 	"\x17repeated_packable_empty\x18\x16 \x03(\x04R\x15repeatedPackableEmpty:\x06Ȉ\xe2\xab\f\x01B\r\n" +
@@ -419,37 +420,36 @@ const file_hashable_hashable_test_proto_rawDesc = "" +
 	"\f_bytes_valueB\x0f\n" +
 	"\r_string_valueB\x10\n" +
 	"\x0e_message_valueB\x13\n" +
-	"\x11_optional_message*V\n" +
-	"\n" +
-	"SampleEnum\x12\x1b\n" +
-	"\x17SAMPLE_ENUM_UNSPECIFIED\x10\x00\x12\x15\n" +
-	"\x11SAMPLE_ENUM_ALPHA\x10\x01\x12\x14\n" +
-	"\x10SAMPLE_ENUM_BETA\x10\x02B3Z1github.com/tendermint/tendermint/libs/hashable/pbb\x06proto3"
+	"\x11_optional_message*^\n" +
+	"\fTestonlyEnum\x12\x1d\n" +
+	"\x19TESTONLY_ENUM_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13TESTONLY_ENUM_ALPHA\x10\x01\x12\x16\n" +
+	"\x12TESTONLY_ENUM_BETA\x10\x02B<Z:github.com/tendermint/tendermint/libs/hashable/internal/pbb\x06proto3"
 
 var (
-	file_hashable_hashable_test_proto_rawDescOnce sync.Once
-	file_hashable_hashable_test_proto_rawDescData []byte
+	file_hashable_internal_testonly_proto_rawDescOnce sync.Once
+	file_hashable_internal_testonly_proto_rawDescData []byte
 )
 
-func file_hashable_hashable_test_proto_rawDescGZIP() []byte {
-	file_hashable_hashable_test_proto_rawDescOnce.Do(func() {
-		file_hashable_hashable_test_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_hashable_hashable_test_proto_rawDesc), len(file_hashable_hashable_test_proto_rawDesc)))
+func file_hashable_internal_testonly_proto_rawDescGZIP() []byte {
+	file_hashable_internal_testonly_proto_rawDescOnce.Do(func() {
+		file_hashable_internal_testonly_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_hashable_internal_testonly_proto_rawDesc), len(file_hashable_internal_testonly_proto_rawDesc)))
 	})
-	return file_hashable_hashable_test_proto_rawDescData
+	return file_hashable_internal_testonly_proto_rawDescData
 }
 
-var file_hashable_hashable_test_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_hashable_hashable_test_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
-var file_hashable_hashable_test_proto_goTypes = []any{
-	(SampleEnum)(0),  // 0: test.SampleEnum
-	(*Nested)(nil),   // 1: test.Nested
-	(*AllKinds)(nil), // 2: test.AllKinds
+var file_hashable_internal_testonly_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_hashable_internal_testonly_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_hashable_internal_testonly_proto_goTypes = []any{
+	(TestonlyEnum)(0),      // 0: test.TestonlyEnum
+	(*TestonlyNested)(nil), // 1: test.TestonlyNested
+	(*TestonlyMsg)(nil),    // 2: test.TestonlyMsg
 }
-var file_hashable_hashable_test_proto_depIdxs = []int32{
-	0, // 0: test.AllKinds.enum_value:type_name -> test.SampleEnum
-	1, // 1: test.AllKinds.message_value:type_name -> test.Nested
-	1, // 2: test.AllKinds.repeated_message:type_name -> test.Nested
-	1, // 3: test.AllKinds.optional_message:type_name -> test.Nested
+var file_hashable_internal_testonly_proto_depIdxs = []int32{
+	0, // 0: test.TestonlyMsg.enum_value:type_name -> test.TestonlyEnum
+	1, // 1: test.TestonlyMsg.message_value:type_name -> test.TestonlyNested
+	1, // 2: test.TestonlyMsg.repeated_message:type_name -> test.TestonlyNested
+	1, // 3: test.TestonlyMsg.optional_message:type_name -> test.TestonlyNested
 	4, // [4:4] is the sub-list for method output_type
 	4, // [4:4] is the sub-list for method input_type
 	4, // [4:4] is the sub-list for extension type_name
@@ -457,33 +457,32 @@ var file_hashable_hashable_test_proto_depIdxs = []int32{
 	0, // [0:4] is the sub-list for field type_name
 }
 
-func init() { file_hashable_hashable_test_proto_init() }
-func file_hashable_hashable_test_proto_init() {
-	if File_hashable_hashable_test_proto != nil {
+func init() { file_hashable_internal_testonly_proto_init() }
+func file_hashable_internal_testonly_proto_init() {
+	if File_hashable_internal_testonly_proto != nil {
 		return
 	}
-	file_hashable_hashable_proto_init()
-	file_hashable_hashable_test_proto_msgTypes[0].OneofWrappers = []any{
-		(*Nested_Note)(nil),
-		(*Nested_Value)(nil),
+	file_hashable_internal_testonly_proto_msgTypes[0].OneofWrappers = []any{
+		(*TestonlyNested_Note)(nil),
+		(*TestonlyNested_Value)(nil),
 	}
-	file_hashable_hashable_test_proto_msgTypes[1].OneofWrappers = []any{}
+	file_hashable_internal_testonly_proto_msgTypes[1].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hashable_hashable_test_proto_rawDesc), len(file_hashable_hashable_test_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hashable_internal_testonly_proto_rawDesc), len(file_hashable_internal_testonly_proto_rawDesc)),
 			NumEnums:      1,
 			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_hashable_hashable_test_proto_goTypes,
-		DependencyIndexes: file_hashable_hashable_test_proto_depIdxs,
-		EnumInfos:         file_hashable_hashable_test_proto_enumTypes,
-		MessageInfos:      file_hashable_hashable_test_proto_msgTypes,
+		GoTypes:           file_hashable_internal_testonly_proto_goTypes,
+		DependencyIndexes: file_hashable_internal_testonly_proto_depIdxs,
+		EnumInfos:         file_hashable_internal_testonly_proto_enumTypes,
+		MessageInfos:      file_hashable_internal_testonly_proto_msgTypes,
 	}.Build()
-	File_hashable_hashable_test_proto = out.File
-	file_hashable_hashable_test_proto_goTypes = nil
-	file_hashable_hashable_test_proto_depIdxs = nil
+	File_hashable_internal_testonly_proto = out.File
+	file_hashable_internal_testonly_proto_goTypes = nil
+	file_hashable_internal_testonly_proto_depIdxs = nil
 }

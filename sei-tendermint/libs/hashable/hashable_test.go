@@ -11,7 +11,7 @@ import (
 
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/require"
-	"github.com/tendermint/tendermint/libs/hashable/pb"
+	"github.com/tendermint/tendermint/libs/hashable/internal/pb"
 )
 
 // Test checking that the canonical encoding is a valid proto encoding and that it is stable.
@@ -40,7 +40,7 @@ func TestMarshalCanonicalRoundTrip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			msg := msgFromSeed(tc.seed)
 
-			var decoded pb.AllKinds
+			var decoded pb.TestonlyMsg
 			canonical := MarshalCanonical(msg)
 			require.NoError(t, proto.Unmarshal(canonical, &decoded))
 			require.NoError(t, utils.TestDiff(msg, &decoded))
@@ -51,15 +51,15 @@ func TestMarshalCanonicalRoundTrip(t *testing.T) {
 	}
 }
 
-func msgFromSeed(seed int64) *pb.AllKinds {
+func msgFromSeed(seed int64) *pb.TestonlyMsg {
 	r := rand.New(rand.NewSource(seed))
-	msg := &pb.AllKinds{}
+	msg := &pb.TestonlyMsg{}
 
 	if r.Intn(2) == 0 {
 		msg.BoolValue = utils.Alloc(r.Intn(2) == 0)
 	}
 	if r.Intn(2) == 0 {
-		msg.EnumValue = utils.Alloc(pb.SampleEnum(r.Intn(3)))
+		msg.EnumValue = utils.Alloc(pb.TestonlyEnum(r.Intn(3)))
 	}
 	if r.Intn(2) == 0 {
 		msg.Int32Value = utils.Alloc(int32(r.Int63n(1 << 31)))
@@ -145,13 +145,13 @@ func randomSlice[T any](r *rand.Rand, gen func(*rand.Rand) T) []T {
 	return out
 }
 
-func randomNested(r *rand.Rand) *pb.Nested {
-	nested := &pb.Nested{}
+func randomNested(r *rand.Rand) *pb.TestonlyNested {
+	nested := &pb.TestonlyNested{}
 	switch r.Intn(3) {
 	case 0:
-		nested.T = &pb.Nested_Note{Note: randomString(r)}
+		nested.T = &pb.TestonlyNested_Note{Note: randomString(r)}
 	case 1:
-		nested.T = &pb.Nested_Value{Value: uint32(r.Uint32())}
+		nested.T = &pb.TestonlyNested_Value{Value: uint32(r.Uint32())}
 	default:
 		// leave oneof unset to test empty case
 	}

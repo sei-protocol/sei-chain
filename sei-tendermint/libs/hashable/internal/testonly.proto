@@ -4,15 +4,15 @@ package test;
 
 import "hashable/hashable.proto";
 
-option go_package = "github.com/tendermint/tendermint/libs/hashable/pb";
+option go_package = "github.com/tendermint/tendermint/libs/hashable/internal/pb";
 
-enum SampleEnum {
-  SAMPLE_ENUM_UNSPECIFIED = 0;
-  SAMPLE_ENUM_ALPHA = 1;
-  SAMPLE_ENUM_BETA = 2;
+enum TestonlyEnum {
+  TESTONLY_ENUM_UNSPECIFIED = 0;
+  TESTONLY_ENUM_ALPHA = 1;
+  TESTONLY_ENUM_BETA = 2;
 }
 
-message Nested {
+message TestonlyNested {
   option (hashable.hashable) = true;
   oneof t {
     string note = 1;
@@ -20,11 +20,11 @@ message Nested {
   }
 }
 
-message AllKinds {
+message TestonlyMsg {
   option (hashable.hashable) = true;
 
   optional bool bool_value = 1;
-  optional SampleEnum enum_value = 2;
+  optional TestonlyEnum enum_value = 2;
   optional int32 int32_value = 3;
   optional int64 int64_value = 4;
   optional sint32 sint32_value = 5;
@@ -37,11 +37,11 @@ message AllKinds {
   optional sfixed64 sfixed64_value = 12;
   optional bytes bytes_value = 13;
   optional string string_value = 14;
-  optional Nested message_value = 15;
+  optional TestonlyNested message_value = 15;
   repeated sint64 repeated_packable = 16;
   repeated string repeated_string = 17;
-  repeated Nested repeated_message = 18;
-  optional Nested optional_message = 19;
+  repeated TestonlyNested repeated_message = 18;
+  optional TestonlyNested optional_message = 19;
   repeated fixed32 repeated_packable_singleton = 20;
   repeated bytes repeated_bytes = 21;
   repeated uint64 repeated_packable_empty = 22;
