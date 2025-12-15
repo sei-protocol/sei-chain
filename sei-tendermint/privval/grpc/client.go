@@ -59,12 +59,12 @@ func (sc *SignerClient) GetPubKey(ctx context.Context) (crypto.PubKey, error) {
 	if err != nil {
 		errStatus, _ := status.FromError(err)
 		sc.logger.Error("SignerClient::GetPubKey", "err", errStatus.Message())
-		return nil, errStatus.Err()
+		return crypto.PubKey{}, errStatus.Err()
 	}
 
 	pk, err := encoding.PubKeyFromProto(resp.PubKey)
 	if err != nil {
-		return nil, err
+		return crypto.PubKey{}, err
 	}
 
 	return pk, nil

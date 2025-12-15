@@ -20,19 +20,13 @@ func (tm2pb) Validator(val *Validator) abci.Validator {
 	}
 }
 
-// XXX: panics on unknown pubkey type
 func (tm2pb) ValidatorUpdate(val *Validator) abci.ValidatorUpdate {
-	pk, err := encoding.PubKeyToProto(val.PubKey)
-	if err != nil {
-		panic(err)
-	}
 	return abci.ValidatorUpdate{
-		PubKey: pk,
+		PubKey: encoding.PubKeyToProto(val.PubKey),
 		Power:  val.VotingPower,
 	}
 }
 
-// XXX: panics on nil or unknown pubkey type
 func (tm2pb) ValidatorUpdates(vals *ValidatorSet) []abci.ValidatorUpdate {
 	validators := make([]abci.ValidatorUpdate, vals.Size())
 	for i, val := range vals.Validators {

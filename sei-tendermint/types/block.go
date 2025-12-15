@@ -643,7 +643,7 @@ type CommitSig struct {
 	BlockIDFlag      BlockIDFlag `json:"block_id_flag"`
 	ValidatorAddress Address     `json:"validator_address"`
 	Timestamp        time.Time   `json:"timestamp"`
-	Signature        []byte      `json:"signature"`
+	Signature        crypto.Sig  `json:"signature"`
 }
 
 func MaxCommitBytes(valCount int) int64 {
@@ -668,7 +668,7 @@ func NewCommitSigAbsent() CommitSig {
 // 4. timestamp
 func (cs CommitSig) String() string {
 	return fmt.Sprintf("CommitSig{%X by %X on %v @ %s}",
-		tmbytes.Fingerprint(cs.Signature),
+		tmbytes.Fingerprint(cs.Signature[:]),
 		tmbytes.Fingerprint(cs.ValidatorAddress),
 		cs.BlockIDFlag,
 		CanonicalTime(cs.Timestamp))
@@ -720,12 +720,6 @@ func (cs CommitSig) ValidateBasic() error {
 			)
 		}
 		// NOTE: Timestamp validation is subtle and handled elsewhere.
-		if len(cs.Signature) == 0 {
-			return errors.New("signature is missing")
-		}
-		if len(cs.Signature) > MaxSignatureSize {
-			return fmt.Errorf("signature is too big (max: %d)", MaxSignatureSize)
-		}
 	}
 
 	return nil
@@ -741,7 +735,7 @@ func (cs *CommitSig) ToProto() *tmproto.CommitSig {
 		BlockIdFlag:      tmproto.BlockIDFlag(cs.BlockIDFlag),
 		ValidatorAddress: cs.ValidatorAddress,
 		Timestamp:        cs.Timestamp,
-		Signature:        cs.Signature,
+		Signature:        cs.Signature[:],
 	}
 }
 
@@ -751,7 +745,11 @@ func (cs *CommitSig) FromProto(csp tmproto.CommitSig) error {
 	cs.BlockIDFlag = BlockIDFlag(csp.BlockIdFlag)
 	cs.ValidatorAddress = csp.ValidatorAddress
 	cs.Timestamp = csp.Timestamp
-	cs.Signature = csp.Signature
+	sig,err := crypto.SigFromBytes(csp.Signature)
+	if err!=nil {
+		return fmt.Errorf("Signature: %w",err)
+	}
+	cs.Signature = sig 
 
 	return cs.ValidateBasic()
 }

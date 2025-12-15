@@ -120,12 +120,12 @@ func logNodeStartupInfo(state sm.State, pubKey crypto.PubKey, logger log.Logger,
 		if state.Validators.HasAddress(addr) {
 			logger.Info("This node is a validator",
 				"addr", addr,
-				"pubKey", pubKey.Bytes(),
+				"pubKey", pubKey[:],
 			)
 		} else {
 			logger.Info("This node is a validator (NOT in the active validator set)",
 				"addr", addr,
-				"pubKey", pubKey.Bytes(),
+				"pubKey", pubKey[:],
 			)
 		}
 	}
@@ -136,7 +136,7 @@ func onlyValidatorIsUs(state sm.State, pubKey crypto.PubKey) bool {
 		return false
 	}
 	addr, _ := state.Validators.GetByIndex(0)
-	return pubKey != nil && bytes.Equal(pubKey.Address(), addr)
+	return bytes.Equal(pubKey.Address(), addr)
 }
 
 func createMempoolReactor(

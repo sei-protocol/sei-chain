@@ -481,16 +481,15 @@ func newKeyGenerator(seed int64) *keyGenerator {
 }
 
 func (g *keyGenerator) Generate(keyType string) crypto.PrivKey {
-	seed := make([]byte, ed25519.SeedSize)
-
-	_, err := io.ReadFull(g.random, seed)
+	var seed ed25519.Seed
+	_, err := io.ReadFull(g.random, seed[:])
 	if err != nil {
 		panic(err) // this shouldn't happen
 	}
 	if keyType != "" && keyType != "ed25519" {
 		panic("KeyType not supported")
 	}
-	return ed25519.GenPrivKeyFromSecret(seed)
+	return ed25519.PrivKeyFromSeed(seed)
 }
 
 // portGenerator generates local Docker proxy ports for each node.

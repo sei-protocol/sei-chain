@@ -90,11 +90,8 @@ func (pv MockPV) SignVote(ctx context.Context, chainID string, vote *tmproto.Vot
 	}
 
 	signBytes := VoteSignBytes(useChainID, vote)
-	sig, err := pv.PrivKey.Sign(signBytes)
-	if err != nil {
-		return err
-	}
-	vote.Signature = sig
+	sig := pv.PrivKey.Sign(signBytes)
+	vote.Signature = sig[:]
 	return nil
 }
 
@@ -106,11 +103,8 @@ func (pv MockPV) SignProposal(ctx context.Context, chainID string, proposal *tmp
 	}
 
 	signBytes := ProposalSignBytes(useChainID, proposal)
-	sig, err := pv.PrivKey.Sign(signBytes)
-	if err != nil {
-		return err
-	}
-	proposal.Signature = sig
+	sig := pv.PrivKey.Sign(signBytes)
+	proposal.Signature = sig[:]
 	return nil
 }
 
@@ -143,7 +137,7 @@ var ErroringMockPVErr = errors.New("erroringMockPV always returns an error")
 
 // Implements PrivValidator.
 func (pv *ErroringMockPV) GetPubKey(ctx context.Context) (crypto.PubKey, error) {
-	return nil, ErroringMockPVErr
+	return crypto.PubKey{}, ErroringMockPVErr
 }
 
 // Implements PrivValidator.

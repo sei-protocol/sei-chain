@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/tendermint/tendermint/internal/libs/protoio"
+	"github.com/tendermint/tendermint/crypto"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	tmtime "github.com/tendermint/tendermint/libs/time"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -30,7 +31,7 @@ type Proposal struct {
 	POLRound        int32     `json:"pol_round"` // -1 if null.
 	BlockID         BlockID   `json:"block_id"`
 	Timestamp       time.Time `json:"timestamp"`
-	Signature       []byte    `json:"signature"`
+	Signature       crypto.Sig    `json:"signature"`
 	TxKeys          []TxKey   `json:"tx_keys"`
 	Header          `json:"header"`
 	LastCommit      *Commit      `json:"last_commit"`
@@ -79,14 +80,6 @@ func (p *Proposal) ValidateBasic() error {
 	}
 
 	// NOTE: Timestamp validation is subtle and handled elsewhere.
-
-	if len(p.Signature) == 0 {
-		return errors.New("signature is missing")
-	}
-
-	if len(p.Signature) > MaxSignatureSize {
-		return fmt.Errorf("signature is too big (max: %d)", MaxSignatureSize)
-	}
 	return nil
 }
 
@@ -143,7 +136,7 @@ func (p *Proposal) String() string {
 		p.Round,
 		p.BlockID,
 		p.POLRound,
-		tmbytes.Fingerprint(p.Signature),
+		tmbytes.Fingerprint(p.Signature[:]),
 		CanonicalTime(p.Timestamp))
 }
 
@@ -178,7 +171,7 @@ func (p *Proposal) ToProto() *tmproto.Proposal {
 	pb.Round = p.Round
 	pb.PolRound = p.POLRound
 	pb.Timestamp = p.Timestamp
-	pb.Signature = p.Signature
+	pb.Signature = p.Signature[:]
 	txKeys := make([]*tmproto.TxKey, 0, len(p.TxKeys))
 	for _, txKey := range p.TxKeys {
 		txKeys = append(txKeys, txKey.ToProto())
@@ -216,7 +209,11 @@ func ProposalFromProto(pp *tmproto.Proposal) (*Proposal, error) {
 	p.Round = pp.Round
 	p.POLRound = pp.PolRound
 	p.Timestamp = pp.Timestamp
-	p.Signature = pp.Signature
+	sig,err := crypto.SigFromBytes(pp.Signature)
+	if err!=nil {
+		return nil, fmt.Errorf("Signature: %w",err)
+	}
+	p.Signature = sig
 	txKeys, err := TxKeysListFromProto(pp.TxKeys)
 	if err != nil {
 		return nil, err

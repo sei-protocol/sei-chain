@@ -51,13 +51,10 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 	if val := env.validatorAtHeight(env.latestUncommittedHeight()); val != nil {
 		votingPower = val.VotingPower
 	}
-	validatorInfo := coretypes.ValidatorInfo{}
-	if env.PubKey != nil {
-		validatorInfo = coretypes.ValidatorInfo{
-			Address:     env.PubKey.Address(),
-			PubKey:      env.PubKey,
-			VotingPower: votingPower,
-		}
+	validatorInfo := coretypes.ValidatorInfo{
+		Address:     env.PubKey.Address(),
+		PubKey:      env.PubKey,
+		VotingPower: votingPower,
 	}
 
 	var applicationInfo coretypes.ApplicationInfo
@@ -115,9 +112,6 @@ func (env *Environment) validatorAtHeight(h int64) *types.Validator {
 		return nil
 	}
 	if env.ConsensusState == nil {
-		return nil
-	}
-	if env.PubKey == nil {
 		return nil
 	}
 	privValAddress := env.PubKey.Address()

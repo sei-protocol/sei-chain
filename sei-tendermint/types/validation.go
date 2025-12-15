@@ -206,11 +206,7 @@ func verifyCommitBatch(
 		voteSignBytes := commit.VoteSignBytes(chainID, int32(idx))
 
 		// add the key, sig and message to the verifier
-		sig,err := crypto.SigFromBytes(commitSig.Signature)
-		if err!=nil {
-			return fmt.Errorf("crypto.SigFromBytes(): %w",err)
-		}
-		bv.Add(val.PubKey, voteSignBytes, sig)
+		bv.Add(val.PubKey, voteSignBytes, commitSig.Signature)
 		batchSigIdxs = append(batchSigIdxs, idx)
 
 		// If this signature counts then add the voting power of the validator
@@ -295,11 +291,7 @@ func verifyCommitSingle(
 		}
 
 		voteSignBytes = commit.VoteSignBytes(chainID, int32(idx))
-		sig,err := crypto.SigFromBytes(commitSig.Signature)
-		if err!=nil {
-			return fmt.Errorf("crypto.SigFromBytes(): %w",err)
-		}
-		if err := val.PubKey.Verify(voteSignBytes, sig); err!=nil {
+		if err := val.PubKey.Verify(voteSignBytes, commitSig.Signature); err!=nil {
 			return errBadSig{fmt.Errorf("wrong signature (#%d): %X", idx, commitSig.Signature)}
 		}
 

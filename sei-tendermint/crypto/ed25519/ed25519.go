@@ -38,6 +38,8 @@ func init() {
 	jsontypes.MustRegister(PubKey{})
 }
 
+type Seed [ed25519.SeedSize]byte
+
 type PrivKey struct {
 	raw ed25519.PrivateKey // ed25519.PrivateKey is a slice, therefore the secret will not be copied around. 
 }
@@ -68,7 +70,7 @@ func (k PrivKey) Type() string { return KeyType }
 
 // GenPrivKey generates a new ed25519 private key from OS entropy.
 func GenPrivKey() PrivKey {
-	var seed [ed25519.SeedSize]byte
+	var seed Seed
 	if _,err := io.ReadFull(rand.Reader,seed[:]); err != nil {
 		panic(err)
 	}
@@ -76,7 +78,7 @@ func GenPrivKey() PrivKey {
 }
 
 // PrivKeyFromSeed constructs a private key from seed.
-func PrivKeyFromSeed(seed [ed25519.SeedSize]byte) PrivKey {
+func PrivKeyFromSeed(seed Seed) PrivKey {
 	return PrivKey{ed25519.NewKeyFromSeed(seed[:])}
 }
 
@@ -84,6 +86,13 @@ func PrivKeyFromSeed(seed [ed25519.SeedSize]byte) PrivKey {
 
 // PubKey implements the Ed25519 signature scheme.
 type PubKey [ed25519.PublicKeySize]byte
+
+func PubKeyFromBytes(raw []byte) (PubKey,error) {
+	if len(raw)!=len(PubKey{}) {
+		return PubKey{},errors.New("invalid signature length")
+	}
+	return PubKey(raw),nil
+}
 
 // TypeTag satisfies the jsontypes.Tagged interface.
 func (PubKey) TypeTag() string { return PubKeyName }
@@ -93,9 +102,6 @@ func (k PubKey) Address() tmbytes.HexBytes {
 	h := sha256.Sum256(k[:])
 	return tmbytes.HexBytes(h[:20])
 }
-
-// Bytes returns the PubKey byte format.
-func (k PubKey) Bytes() []byte { return k[:] }
 
 func (k PubKey) Verify(msg []byte, sig Sig) error {
 	if !cachingVerifier.VerifyWithOptions(k[:], msg, sig[:], verifyOptions) {

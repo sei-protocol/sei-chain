@@ -332,7 +332,7 @@ func MakeValSetChangeTx(pubkey cryptoproto.PublicKey, power int64) []byte {
 	if err != nil {
 		panic(err)
 	}
-	pubStr := base64.StdEncoding.EncodeToString(pk.Bytes())
+	pubStr := base64.StdEncoding.EncodeToString(pk[:])
 	return []byte(fmt.Sprintf("val:%s!%d", pubStr, power))
 }
 
@@ -380,7 +380,7 @@ func (app *Application) updateValidator(v types.ValidatorUpdate) *types.ExecTxRe
 	if err != nil {
 		panic(fmt.Errorf("can't decode public key: %w", err))
 	}
-	key := []byte("val:" + string(pubkey.Bytes()))
+	key := []byte("val:" + string(pubkey[:]))
 
 	if v.Power == 0 {
 		// remove validator
@@ -389,7 +389,7 @@ func (app *Application) updateValidator(v types.ValidatorUpdate) *types.ExecTxRe
 			panic(err)
 		}
 		if !hasKey {
-			pubStr := base64.StdEncoding.EncodeToString(pubkey.Bytes())
+			pubStr := base64.StdEncoding.EncodeToString(pubkey[:])
 			return &types.ExecTxResult{
 				Code: code.CodeTypeUnauthorized,
 				Log:  fmt.Sprintf("Cannot remove non-existent validator %s", pubStr)}

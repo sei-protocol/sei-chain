@@ -396,14 +396,11 @@ func (pv *FilePV) signVote(chainID string, vote *tmproto.Vote) error {
 	}
 
 	// It passed the checks. Sign the vote
-	sig, err := pv.Key.PrivKey.Sign(signBytes)
-	if err != nil {
+	sig := pv.Key.PrivKey.Sign(signBytes)
+	if err := pv.saveSigned(height, round, step, signBytes, sig[:]); err != nil {
 		return err
 	}
-	if err := pv.saveSigned(height, round, step, signBytes, sig); err != nil {
-		return err
-	}
-	vote.Signature = sig
+	vote.Signature = sig[:]
 
 	return nil
 }
@@ -433,14 +430,11 @@ func (pv *FilePV) signProposal(chainID string, proposal *tmproto.Proposal) error
 	}
 
 	// It passed the checks. Sign the proposal
-	sig, err := pv.Key.PrivKey.Sign(signBytes)
-	if err != nil {
+	sig := pv.Key.PrivKey.Sign(signBytes)
+	if err := pv.saveSigned(height, round, step, signBytes, sig[:]); err != nil {
 		return err
 	}
-	if err := pv.saveSigned(height, round, step, signBytes, sig); err != nil {
-		return err
-	}
-	proposal.Signature = sig
+	proposal.Signature = sig[:]
 	return nil
 }
 

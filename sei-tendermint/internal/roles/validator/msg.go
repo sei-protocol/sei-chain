@@ -16,9 +16,7 @@ func (s *SessionID) Raw() [10]byte { return s.raw }
 
 func (s *SessionID) isMsg() {}
 
-type Sig struct {
-	ed25519.Signature
-}
+type Sig struct { inner ed25519.Sig }
 
 type Signed[M Msg] struct {
 	utils.ReadOnly

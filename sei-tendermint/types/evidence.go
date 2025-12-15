@@ -856,11 +856,15 @@ func NewMockDuplicateVoteEvidenceWithValidator(ctx context.Context, height int64
 	voteA := makeMockVote(height, 0, 0, pubKey.Address(), randBlockID(), time)
 	vA := voteA.ToProto()
 	_ = pv.SignVote(ctx, chainID, vA)
-	voteA.Signature = vA.Signature
+	if voteA.Signature,err = crypto.SigFromBytes(vA.Signature); err!=nil {
+		return nil,err
+	}
 	voteB := makeMockVote(height, 0, 0, pubKey.Address(), randBlockID(), time)
 	vB := voteB.ToProto()
 	_ = pv.SignVote(ctx, chainID, vB)
-	voteB.Signature = vB.Signature
+	if voteB.Signature,err = crypto.SigFromBytes(vB.Signature); err!=nil {
+		return nil, err
+	}
 	ev, err := NewDuplicateVoteEvidence(voteA, voteB, time, NewValidatorSet([]*Validator{val}))
 	if err != nil {
 		return nil, fmt.Errorf("constructing mock duplicate vote evidence: %w", err)

@@ -86,7 +86,9 @@ func makeVoteHR(
 	err = privVal.SignVote(ctx, chainID, v)
 	require.NoError(t, err, "Error signing vote")
 
-	vote.Signature = v.Signature
+	sig,err := crypto.SigFromBytes(v.Signature)
+	require.NoError(t,err)
+	vote.Signature = sig
 
 	return vote
 }

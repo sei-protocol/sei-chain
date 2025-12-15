@@ -388,7 +388,8 @@ func MakeAppConfig(node *e2e.Node) ([]byte, error) {
 		for height, validators := range node.Testnet.ValidatorUpdates {
 			updateVals := map[string]int64{}
 			for node, power := range validators {
-				updateVals[base64.StdEncoding.EncodeToString(node.PrivvalKey.PubKey().Bytes())] = power
+				key := node.PrivvalKey.PubKey()
+				updateVals[base64.StdEncoding.EncodeToString(key[:])] = power
 			}
 			validatorUpdates[fmt.Sprintf("%v", height)] = updateVals
 		}

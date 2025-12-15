@@ -152,10 +152,7 @@ func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey ed25519.PrivKey) (
 	}
 
 	// Sign the challenge bytes for authentication.
-	locSignature, err := signChallenge(&challenge, locPrivKey)
-	if err != nil {
-		return nil, err
-	}
+	locSignature := signChallenge(&challenge, locPrivKey)
 
 	// Share (in secret) each other's pubkey & challenge signature
 	authSigMsg, err := shareAuthSignature(sc, locPubKey, locSignature)
@@ -165,8 +162,8 @@ func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey ed25519.PrivKey) (
 
 	remPubKey, remSignature := authSigMsg.Key, authSigMsg.Sig
 
-	if !remPubKey.VerifySignature(challenge[:], remSignature) {
-		return nil, errors.New("challenge verification failed")
+	if err:=remPubKey.Verify(challenge[:], remSignature); err!=nil {
+		return nil, fmt.Errorf("challenge verification failed: %w",err)
 	}
 
 	// We've authorized.
@@ -297,7 +294,7 @@ func shareEphPubKey(conn io.ReadWriter, locEphPub *[32]byte) (remEphPub *[32]byt
 
 	// Send our pubkey and receive theirs in tandem.
 	var trs, _ = async.Parallel(
-		func(_ int) (val interface{}, abort bool, err error) {
+		func(_ int) (val any, abort bool, err error) {
 			lc := *locEphPub
 			_, err = protoio.NewDelimitedWriter(conn).WriteMsg(&gogotypes.BytesValue{Value: lc[:]})
 			if err != nil {
@@ -305,7 +302,7 @@ func shareEphPubKey(conn io.ReadWriter, locEphPub *[32]byte) (remEphPub *[32]byt
 			}
 			return nil, false, nil
 		},
-		func(_ int) (val interface{}, abort bool, err error) {
+		func(_ int) (val any, abort bool, err error) {
 			var bytes gogotypes.BytesValue
 			_, err = protoio.NewDelimitedReader(conn, 1024*1024).ReadMsg(&bytes)
 			if err != nil {
@@ -383,55 +380,45 @@ func sort32(foo, bar *[32]byte) (lo, hi *[32]byte) {
 	return
 }
 
-func signChallenge(challenge *[32]byte, locPrivKey ed25519.PrivKey) ([]byte, error) {
-	signature, err := locPrivKey.Sign(challenge[:])
-	if err != nil {
-		return nil, err
-	}
-	return signature, nil
+func signChallenge(challenge *[32]byte, locPrivKey ed25519.PrivKey) ed25519.Sig {
+	return locPrivKey.Sign(challenge[:])
 }
 
 type authSigMessage struct {
 	Key ed25519.PubKey
-	Sig []byte
+	Sig ed25519.Sig
 }
 
-func shareAuthSignature(sc io.ReadWriter, pubKey ed25519.PubKey, signature []byte) (recvMsg authSigMessage, err error) {
-
+func shareAuthSignature(sc io.ReadWriter, pubKey ed25519.PubKey, sig ed25519.Sig) (authSigMessage, error) {
 	// Send our info and receive theirs in tandem.
 	var trs, _ = async.Parallel(
-		func(_ int) (val interface{}, abort bool, err error) {
-			pk := tmproto.PublicKey{Sum: &tmproto.PublicKey_Ed25519{Ed25519: pubKey}}
-			_, err = protoio.NewDelimitedWriter(sc).WriteMsg(&tmp2p.AuthSigMessage{PubKey: pk, Sig: signature})
-			if err != nil {
-				return nil, true, err // abort
+		func(_ int) (val any, abort bool, err error) {
+			pk := tmproto.PublicKey{Sum: &tmproto.PublicKey_Ed25519{Ed25519: pubKey[:]}}
+			if _, err := protoio.NewDelimitedWriter(sc).WriteMsg(&tmp2p.AuthSigMessage{PubKey: pk, Sig: sig[:]}); err != nil {
+				return nil, true, err
 			}
 			return nil, false, nil
 		},
-		func(_ int) (val interface{}, abort bool, err error) {
+		func(_ int) (val any, abort bool, err error) {
 			var pba tmp2p.AuthSigMessage
-			_, err = protoio.NewDelimitedReader(sc, 1024*1024).ReadMsg(&pba)
-			if err != nil {
-				return nil, true, err // abort
+			if _, err := protoio.NewDelimitedReader(sc, 1024*1024).ReadMsg(&pba); err != nil {
+				return nil, true, err
 			}
-
-			pk := pba.PubKey.GetEd25519()
-			if len(pk) != ed25519.PubKeySize {
-				return nil, true, fmt.Errorf("invalid ed25519 key size")
+			key,err := ed25519.PubKeyFromBytes(pba.PubKey.GetEd25519())
+			if err!=nil { 
+				return nil, true, fmt.Errorf("ed25519.PubKeyFromBytes(): %w",err) 
 			}
-
-			_recvMsg := authSigMessage{
-				Key: ed25519.PubKey(pk),
-				Sig: pba.Sig,
+			sig,err := ed25519.SigFromBytes(pba.Sig)
+			if err!=nil {
+				return nil, true, fmt.Errorf("ed25519.SigFromBytes(): %w",err)
 			}
-			return _recvMsg, false, nil
+			return authSigMessage{Key: key, Sig: sig}, false, nil
 		},
 	)
 
 	// If error:
 	if trs.FirstError() != nil {
-		err = trs.FirstError()
-		return
+		return authSigMessage{},trs.FirstError()
 	}
 
 	var _recvMsg = trs.FirstValue().(authSigMessage)

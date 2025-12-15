@@ -8,15 +8,8 @@ import (
 )
 
 func Ed25519ValidatorUpdate(pk []byte, power int64) ValidatorUpdate {
-	pke := ed25519.PubKey(pk)
-
-	pkp, err := encoding.PubKeyToProto(pke)
-	if err != nil {
-		panic(err)
-	}
-
 	return ValidatorUpdate{
-		PubKey: pkp,
+		PubKey: encoding.PubKeyToProto(ed25519.PubKey(pk)),
 		Power:  power,
 	}
 }

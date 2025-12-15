@@ -3,14 +3,16 @@ package factory
 import (
 	"context"
 	"time"
+	"fmt"
 
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
+	"github.com/tendermint/tendermint/crypto"
 )
 
 func MakeCommit(ctx context.Context, blockID types.BlockID, height int64, round int32, voteSet *types.VoteSet, validators []types.PrivValidator, now time.Time) (*types.Commit, error) {
 	// all sign
-	for i := 0; i < len(validators); i++ {
+	for i := range validators {
 		pubKey, err := validators[i].GetPubKey(ctx)
 		if err != nil {
 			return nil, err
@@ -30,7 +32,9 @@ func MakeCommit(ctx context.Context, blockID types.BlockID, height int64, round 
 		if err := validators[i].SignVote(ctx, voteSet.ChainID(), v); err != nil {
 			return nil, err
 		}
-		vote.Signature = v.Signature
+		sig,err := crypto.SigFromBytes(v.Signature)
+		if err!=nil { return nil, fmt.Errorf("crypto.SigFromBytes(): %w",err) }
+		vote.Signature = sig 
 		if _, err := voteSet.AddVote(vote); err != nil {
 			return nil, err
 		}

@@ -17,7 +17,6 @@ import (
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/blocksync"
 	"github.com/tendermint/tendermint/internal/consensus"
 	"github.com/tendermint/tendermint/internal/eventbus"
@@ -205,19 +204,16 @@ func makeNode(
 		return nil, combineCloseError(err, makeCloser(closers))
 	}
 
-	var pubKey crypto.PubKey
-	pubKey, err = privValidator.GetPubKey(ctx)
+	pubKey, err := privValidator.GetPubKey(ctx)
 	if err != nil {
 		return nil, combineCloseError(fmt.Errorf("can't get pubkey: %w", err),
 			makeCloser(closers))
 	}
 
 	if cfg.Mode == config.ModeValidator {
-		if pubKey == nil {
-			return nil, combineCloseError(
-				errors.New("could not retrieve public key from private validator"),
-				makeCloser(closers))
-		}
+		return nil, combineCloseError(
+			errors.New("could not retrieve public key from private validator"),
+			makeCloser(closers))
 	}
 
 	// TODO construct node here:
