@@ -118,7 +118,6 @@ type TxMempool struct {
 	postCheck PostCheckFunc
 
 	// NodeID to count of transactions failing CheckTx
-	totalCheckTxCount      atomic.Uint64
 	failedCheckTxCounts    map[types.NodeID]uint64
 	mtxFailedCheckTxCounts sync.RWMutex
 
@@ -146,7 +145,6 @@ func NewTxMempool(
 		priorityIndex:       NewTxPriorityQueue(),
 		expirationIndex:     NewWrappedTxList(),
 		pendingTxs:          NewPendingTxs(cfg),
-		totalCheckTxCount:   atomic.Uint64{},
 		failedCheckTxCounts: map[types.NodeID]uint64{},
 		router:              router,
 		priorityReservoir:   reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
@@ -364,7 +362,6 @@ func (txmp *TxMempool) CheckTx(
 	}
 
 	res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTxV2{Tx: tx})
-	txmp.totalCheckTxCount.Add(1)
 	if err != nil {
 		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
 		txmp.metrics.observeCheckTxPriorityDistribution(0, false, txInfo.SenderNodeID, err)
