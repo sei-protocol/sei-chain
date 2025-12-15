@@ -369,7 +369,7 @@ func NewMockAPI() *types.GoAPI {
 }
 
 func TestMockApi(t *testing.T) {
-	human := "foobar"
+	const human = "foobar"
 	canon, cost, err := MockCanonicalAddress(human)
 	require.NoError(t, err)
 	assert.Equal(t, CanonicalLength, len(canon))
@@ -512,7 +512,7 @@ func (q ReflectCustom) Query(request json.RawMessage) ([]byte, error) {
 	} else if query.Capitalized != nil {
 		resp.Msg = strings.ToUpper(query.Capitalized.Text)
 	} else {
-		return nil, errors.New("Unsupported query")
+		return nil, errors.New("unsupported query")
 	}
 	return json.Marshal(resp)
 }
