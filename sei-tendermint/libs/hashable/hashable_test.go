@@ -9,9 +9,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/tendermint/tendermint/libs/hashable/internal/pb"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/require"
-	"github.com/tendermint/tendermint/libs/hashable/internal/pb"
 )
 
 // Test checking that the canonical encoding is a valid proto encoding and that it is stable.
