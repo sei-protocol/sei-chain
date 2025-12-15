@@ -13,6 +13,7 @@ import (
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/bytes"
+	"github.com/tendermint/tendermint/crypto"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmtime "github.com/tendermint/tendermint/libs/time"
 	"github.com/tendermint/tendermint/libs/utils"
@@ -147,7 +148,9 @@ func invalidDoPrevoteFunc(
 		p := precommit.ToProto()
 		require.NoError(t, pv.SignVote(ctx, cs.state.ChainID, p))
 
-		precommit.Signature = p.Signature
+		sig,err := crypto.SigFromBytes(p.Signature)
+		require.NoError(t,err)
+		precommit.Signature = sig 
 		t.Logf("disable priv val so we don't do normal votes")
 		cs.privValidator = utils.None[types.PrivValidator]()
 		cs.mtx.Unlock()

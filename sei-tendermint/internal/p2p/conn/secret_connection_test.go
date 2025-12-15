@@ -307,10 +307,10 @@ func makeSecretConnPair(tb testing.TB) (fooSecConn, barSecConn *SecretConnection
 				tb.Errorf("failed to establish SecretConnection for foo: %v", err)
 				return nil, true, err
 			}
-			remotePubBytes := fooSecConn.RemotePubKey()
-			if !remotePubBytes.Equals(barPubKey) {
+			remotePubKey := fooSecConn.RemotePubKey()
+			if remotePubKey != barPubKey {
 				err = fmt.Errorf("unexpected fooSecConn.RemotePubKey.  Expected %v, got %v",
-					barPubKey, fooSecConn.RemotePubKey())
+					barPubKey, remotePubKey)
 				tb.Error(err)
 				return nil, true, err
 			}
@@ -322,10 +322,10 @@ func makeSecretConnPair(tb testing.TB) (fooSecConn, barSecConn *SecretConnection
 				tb.Errorf("failed to establish SecretConnection for bar: %v", err)
 				return nil, true, err
 			}
-			remotePubBytes := barSecConn.RemotePubKey()
-			if !remotePubBytes.Equals(fooPubKey) {
+			remotePubKey := barSecConn.RemotePubKey()
+			if remotePubKey!=fooPubKey {
 				err = fmt.Errorf("unexpected barSecConn.RemotePubKey.  Expected %v, got %v",
-					fooPubKey, barSecConn.RemotePubKey())
+					fooPubKey, remotePubKey)
 				tb.Error(err)
 				return nil, true, err
 			}

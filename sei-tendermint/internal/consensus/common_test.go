@@ -21,6 +21,7 @@ import (
 	"github.com/tendermint/tendermint/abci/example/kvstore"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
+	"github.com/tendermint/tendermint/crypto"
 	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/mempool"
@@ -140,14 +141,15 @@ func (vs *validatorStub) signVote(
 
 	// ref: signVote in FilePV, the vote should use the previous vote info when the sign data is the same.
 	if signDataIsEqual(vs.lastVote, v) {
-		v.Signature = vs.lastVote.Signature
+		v.Signature = vs.lastVote.Signature[:]
 		v.Timestamp = vs.lastVote.Timestamp
 	}
-
-	vote.Signature = v.Signature
+	sig,err := crypto.SigFromBytes(v.Signature)
+	if err!=nil { return nil,err }
+	vote.Signature = sig
 	vote.Timestamp = v.Timestamp
 
-	return vote, err
+	return vote, nil
 }
 
 // Sign vote for type/hash/header
@@ -259,8 +261,9 @@ func decideProposal(
 	proposal = types.NewProposal(height, round, polRound, propBlockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, address)
 	p := proposal.ToProto()
 	require.NoError(t, vs.SignProposal(ctx, chainID, p))
-
-	proposal.Signature = p.Signature
+	sig,err := crypto.SigFromBytes(p.Signature)
+	require.NoError(t, err)
+	proposal.Signature = sig
 
 	return
 }

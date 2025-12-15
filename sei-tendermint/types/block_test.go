@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"math"
+	"io"
 	mrand "math/rand"
 	"os"
 	"reflect"
@@ -279,7 +280,7 @@ func TestCommitValidateBasic(t *testing.T) {
 		expectErr      bool
 	}{
 		{"Random Commit", func(com *Commit) {}, false},
-		{"Incorrect signature", func(com *Commit) { com.Signatures[0].Signature = []byte{0} }, false},
+		{"Incorrect signature", func(com *Commit) { com.Signatures[0].Signature = crypto.Sig{} }, false},
 		{"Incorrect height", func(com *Commit) { com.Height = int64(-100) }, true},
 		{"Incorrect round", func(com *Commit) { com.Round = -100 }, true},
 	}
@@ -300,11 +301,14 @@ func TestMaxCommitBytes(t *testing.T) {
 	// year int, month Month, day, hour, min, sec, nsec int, loc *Location
 	timestamp := time.Date(math.MaxInt64, 0, 0, 0, 0, 0, math.MaxInt64, time.UTC)
 
+	sig := crypto.Sig{}
+	_,err := io.ReadFull(rand.Reader,sig[:])
+	require.NoError(t,err)
 	cs := CommitSig{
 		BlockIDFlag:      BlockIDFlagNil,
 		ValidatorAddress: crypto.AddressHash([]byte("validator_address")),
 		Timestamp:        timestamp,
-		Signature:        crypto.CRandBytes(MaxSignatureSize),
+		Signature:        sig,
 	}
 
 	pbSig := cs.ToProto()
@@ -565,9 +569,10 @@ func TestVoteSetToCommit(t *testing.T) {
 			Timestamp:        time.Now(),
 		}
 		v := vote.ToProto()
-		err = vals[i].SignVote(ctx, voteSet.ChainID(), v)
+		require.NoError(t, vals[i].SignVote(ctx, voteSet.ChainID(), v))
+		sig,err := crypto.SigFromBytes(v.Signature)
 		require.NoError(t, err)
-		vote.Signature = v.Signature
+		vote.Signature = sig 
 		added, err := voteSet.AddVote(vote)
 		require.NoError(t, err)
 		require.True(t, added)
@@ -941,7 +946,7 @@ func TestCommitSig_ValidateBasic(t *testing.T) {
 		},
 		{
 			"BlockIDFlagAbsent signatures present",
-			CommitSig{BlockIDFlag: BlockIDFlagAbsent, Signature: []byte{0xAA}},
+			CommitSig{BlockIDFlag: BlockIDFlagAbsent, Signature: crypto.Sig{0xAA}},
 			true, "signature is present",
 		},
 		{
@@ -959,25 +964,16 @@ func TestCommitSig_ValidateBasic(t *testing.T) {
 			CommitSig{
 				BlockIDFlag:      BlockIDFlagCommit,
 				ValidatorAddress: make([]byte, crypto.AddressSize),
-				Signature:        make([]byte, 0),
+				Signature:        crypto.Sig{},
 			},
 			true, "signature is missing",
-		},
-		{
-			"non-BlockIDFlagAbsent invalid signature (too large)",
-			CommitSig{
-				BlockIDFlag:      BlockIDFlagCommit,
-				ValidatorAddress: make([]byte, crypto.AddressSize),
-				Signature:        make([]byte, MaxSignatureSize+1),
-			},
-			true, "signature is too big",
 		},
 		{
 			"non-BlockIDFlagAbsent valid",
 			CommitSig{
 				BlockIDFlag:      BlockIDFlagCommit,
 				ValidatorAddress: make([]byte, crypto.AddressSize),
-				Signature:        make([]byte, MaxSignatureSize),
+				Signature:        crypto.Sig{},
 			},
 			false, "",
 		},
@@ -1298,27 +1294,6 @@ func TestCommit_ValidateBasic(t *testing.T) {
 			true, "no signatures in commit",
 		},
 		{
-			"invalid signature",
-			&Commit{
-				Height: 1,
-				Round:  1,
-				BlockID: BlockID{
-					Hash: make([]byte, crypto.HashSize),
-					PartSetHeader: PartSetHeader{
-						Hash: make([]byte, crypto.HashSize),
-					},
-				},
-				Signatures: []CommitSig{
-					{
-						BlockIDFlag:      BlockIDFlagCommit,
-						ValidatorAddress: make([]byte, crypto.AddressSize),
-						Signature:        make([]byte, MaxSignatureSize+1),
-					},
-				},
-			},
-			true, "wrong CommitSig",
-		},
-		{
 			"valid commit",
 			&Commit{
 				Height: 1,
@@ -1333,7 +1308,7 @@ func TestCommit_ValidateBasic(t *testing.T) {
 					{
 						BlockIDFlag:      BlockIDFlagCommit,
 						ValidatorAddress: make([]byte, crypto.AddressSize),
-						Signature:        make([]byte, MaxSignatureSize),
+						Signature:        crypto.Sig{},
 					},
 				},
 			},
