@@ -62,7 +62,7 @@ func storeIterator(callID uint64, it types.Iterator, frameLenLimit int) (uint64,
 
 	old_frame_len := len(iteratorFrames[callID])
 	if old_frame_len >= frameLenLimit {
-		return 0, fmt.Errorf("Reached iterator limit (%d)", frameLenLimit)
+		return 0, fmt.Errorf("reached iterator limit (%d)", frameLenLimit)
 	}
 
 	// store at array position `old_frame_len`

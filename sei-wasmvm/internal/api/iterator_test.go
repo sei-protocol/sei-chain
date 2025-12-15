@@ -116,7 +116,7 @@ func TestStoreIteratorHitsLimit(t *testing.T) {
 
 	iter, _ = store.Iterator(nil, nil)
 	_, err = storeIterator(callID, iter, limit)
-	require.ErrorContains(t, err, "Reached iterator limit (2)")
+	require.ErrorContains(t, err, "reached iterator limit (2)")
 
 	endCall(callID)
 }
@@ -286,5 +286,5 @@ func TestQueueIteratorLimit(t *testing.T) {
 	query = []byte(`{"open_iterators":{"count":35000}}`)
 	env = MockEnvBin(t)
 	_, _, err = Query(cache, checksum, env, query, &igasMeter, store, api, &querier, gasLimit, TESTING_PRINT_DEBUG)
-	require.ErrorContains(t, err, "Reached iterator limit (32768)")
+	require.ErrorContains(t, err, "reached iterator limit (32768)")
 }
