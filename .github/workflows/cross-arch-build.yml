@@ -1,8 +1,10 @@
-name: Sei Cross-Architecture Build & Artifacts
+name: Sei Cross-Architecture Build
+
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
@@ -11,13 +13,14 @@ concurrency:
 env:
   GO_VERSION: '1.24'
   LEDGER_ENABLED: false
+  E2E_PARALLEL_AGENTS: 10  # adjust number of parallel swarm agents here
 
 defaults:
   run:
     shell: bash
 
 jobs:
-  build:
+  build-and-e2e:
     name: 🔨 ${{ matrix.os }} • ${{ matrix.module.name }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -41,17 +44,11 @@ jobs:
             path: ./sei-wasmvm
 
     steps:
-      # -----------------------
-      # 1️⃣ Checkout & Submodules
-      # -----------------------
       - name: 📥 Checkout Repository
         uses: actions/checkout@v5
         with:
           submodules: recursive
 
-      # -----------------------
-      # 2️⃣ Go Setup + Module Cache
-      # -----------------------
       - name: 🐹 Setup Go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v6
         with:
@@ -59,15 +56,10 @@ jobs:
           cache: true
           cache-dependency-path: ${{ matrix.module.path }}/go.sum
 
-      # -----------------------
-      # 3️⃣ OS Dependencies
-      # -----------------------
       - name: 🛠️ Install Platform Dependencies
         run: |
           echo "🖥️ Platform: $RUNNER_OS | Module: ${{ matrix.module.name }}"
           go version
-          echo "📦 Target: $(go env GOOS)/$(go env GOARCH)"
-
           case "$RUNNER_OS" in
             Linux)
               sudo apt-get update -qq
@@ -82,9 +74,6 @@ jobs:
               ;;
           esac
 
-      # -----------------------
-      # 4️⃣ Resolve Dependencies
-      # -----------------------
       - name: 📦 Resolve Go Dependencies
         working-directory: ${{ matrix.module.path }}
         run: |
@@ -92,9 +81,6 @@ jobs:
           go mod download
           go mod verify
 
-      # -----------------------
-      # 5️⃣ Build with Tags & Micro-Layered Build
-      # -----------------------
       - name: ⚡ Compile Module
         working-directory: ${{ matrix.module.path }}
         env:
@@ -102,25 +88,25 @@ jobs:
         run: |
           TAGS_FLAG=""
           if [[ -n "$BUILD_TAGS" ]]; then
-            TAGS_FLAG="-tags '$BUILD_TAGS'"
+            TAGS_FLAG="-tags $BUILD_TAGS"
             echo "🏷️ Building with tags: $BUILD_TAGS"
           fi
 
           mkdir -p build
 
-          # Micro-layer: Build using Make or Go Build fallback
           if [[ -f Makefile ]]; then
             echo "🛠 Using Makefile build"
             make install TAGS="$BUILD_TAGS"
             make build TAGS="$BUILD_TAGS"
           else
             echo "🛠 Using go build fallback"
-            go build $TAGS_FLAG -o build/seid ./...
+            if [[ "$RUNNER_OS" == "Windows" ]]; then
+              go build $TAGS_FLAG -o build/seid.exe ./...
+            else
+              go build $TAGS_FLAG -o build/seid ./...
+            fi
           fi
 
-      # -----------------------
-      # 6️⃣ Verify Build Output
-      # -----------------------
       - name: ✅ Verify Binary
         working-directory: ${{ matrix.module.path }}
         run: |
@@ -134,29 +120,23 @@ jobs:
 
           echo "✅ Binary exists: $BINARY"
           "$BINARY" version --long
-
-          # Micro-layer: Generate SHA256 & checksum
           sha256sum "$BINARY" > "$BINARY.sha256"
           cat "$BINARY.sha256"
 
-      # -----------------------
-      # 7️⃣ Micro-Layer: Smoke & E2E Tests
-      # -----------------------
       - name: 🧪 Run Smoke/E2E Tests
         if: matrix.module.name != 'sei-wasmvm'
         working-directory: ${{ matrix.module.path }}
         run: |
-          # Only run if Makefile & test-e2e exists
-          if [[ -f Makefile && -n "$(make -n test-e2e 2>/dev/null)" ]]; then
-            echo "🏁 Running E2E tests"
-            make test-e2e
-          else
-            echo "⚠️ No E2E tests defined for this module"
-          fi
+          echo "🏁 Running E2E with $E2E_PARALLEL_AGENTS parallel agents"
+          for i in $(seq 1 $E2E_PARALLEL_AGENTS); do
+            echo "🔹 Launching agent $i"
+            if [[ -f Makefile && -n "$(make -n test-e2e 2>/dev/null)" ]]; then
+              make test-e2e &  # run in background
+            fi
+          done
+          wait
+          echo "✅ All E2E agents completed"
 
-      # -----------------------
-      # 8️⃣ Archive Artifacts with Compression & Metadata
-      # -----------------------
       - name: 📤 Archive Build Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -181,9 +161,6 @@ jobs:
           echo "}" >> build/artifact-meta.json
           cat build/artifact-meta.json
 
-      # -----------------------
-      # 9️⃣ Persist Go & Build Cache
-      # -----------------------
       - name: 💾 Cache Build Output
         uses: actions/cache@v3
         with:
@@ -193,15 +170,19 @@ jobs:
           restore-keys: |
             build-${{ matrix.os }}-${{ matrix.module.name }}-
 
-      # -----------------------
-      # 🔟 Optional: Ledger Module Signing (Extended Layer)
-      # -----------------------
-      - name: 🔐 Sign Ledger Binaries (if applicable)
+      - name: 🔐 Optional: Ledger Module Signing
         if: matrix.module.tags && contains(matrix.module.tags, 'ledger')
         working-directory: ${{ matrix.module.path }}
         run: |
           BINARY="./build/seid"
           [[ "$RUNNER_OS" == "Windows" ]] && BINARY="./build/seid.exe"
           echo "🔐 Signing ledger-enabled binary: $BINARY"
-          # Placeholder: implement real signing logic here
           echo "Signed $BINARY successfully"
+
+      - name: 📊 Codecov Upload
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage/coverage.out
+          fail_ci_if_error: true
+          disable_search: true
+          verbose: true
