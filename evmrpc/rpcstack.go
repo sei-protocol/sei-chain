@@ -93,7 +93,8 @@ type HTTPServer struct {
 }
 
 const (
-	shutdownTimeout = 5 * time.Second
+	shutdownTimeout        = 5 * time.Second
+	metricsPrinterInterval = 5 * time.Second
 )
 
 func NewHTTPServer(log log.Logger, timeouts rpc.HTTPTimeouts) *HTTPServer {
@@ -184,6 +185,10 @@ func (h *HTTPServer) Start() error {
 		"vhosts", strings.Join(h.HTTPConfig.Vhosts, ","),
 	)
 
+	// Start metrics printer
+	// Prometheus metrics are always exported; stdout printing requires EVM_DEBUG_METRICS=true
+	StartMetricsPrinter(metricsPrinterInterval)
+
 	// Log all handlers mounted on server.
 	paths := make([]string, len(h.handlerNames))
 	for path := range h.handlerNames {
@@ -255,6 +260,9 @@ func (h *HTTPServer) doStop() {
 	if h.listener == nil {
 		return // not running
 	}
+
+	// Stop metrics printer
+	StopMetricsPrinter()
 
 	// Shut down the server.
 	httpHandler := h.httpHandler.Load().(*rpcHandler)
