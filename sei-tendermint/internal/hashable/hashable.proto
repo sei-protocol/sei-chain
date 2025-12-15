@@ -4,7 +4,7 @@ package hashable;
 
 import "google/protobuf/descriptor.proto";
 
-option go_package = "github.com/tendermint/tendermint/libs/hashable/pb";
+option go_package = "github.com/tendermint/tendermint/internal/hashable/pb";
 
 // hashable marks messages which support canonical protobuf serialization and therefore
 // are suitable for hashing.

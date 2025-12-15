@@ -1,10 +1,10 @@
 syntax = "proto3";
 
-package test;
+package internal;
 
 import "hashable/hashable.proto";
 
-option go_package = "github.com/tendermint/tendermint/libs/hashable/internal/pb";
+option go_package = "github.com/tendermint/tendermint/internal/hashable/internal/pb";
 
 enum TestonlyEnum {
   TESTONLY_ENUM_UNSPECIFIED = 0;

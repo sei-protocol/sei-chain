@@ -7,7 +7,7 @@
 package pb
 
 import (
-	_ "github.com/tendermint/tendermint/libs/hashable/pb"
+	_ "github.com/tendermint/tendermint/internal/hashable/pb"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -156,7 +156,7 @@ func (*TestonlyNested_Value) isTestonlyNested_T() {}
 type TestonlyMsg struct {
 	state                     protoimpl.MessageState `protogen:"open.v1"`
 	BoolValue                 *bool                  `protobuf:"varint,1,opt,name=bool_value,json=boolValue,proto3,oneof" json:"bool_value,omitempty"`
-	EnumValue                 *TestonlyEnum          `protobuf:"varint,2,opt,name=enum_value,json=enumValue,proto3,enum=test.TestonlyEnum,oneof" json:"enum_value,omitempty"`
+	EnumValue                 *TestonlyEnum          `protobuf:"varint,2,opt,name=enum_value,json=enumValue,proto3,enum=internal.TestonlyEnum,oneof" json:"enum_value,omitempty"`
 	Int32Value                *int32                 `protobuf:"varint,3,opt,name=int32_value,json=int32Value,proto3,oneof" json:"int32_value,omitempty"`
 	Int64Value                *int64                 `protobuf:"varint,4,opt,name=int64_value,json=int64Value,proto3,oneof" json:"int64_value,omitempty"`
 	Sint32Value               *int32                 `protobuf:"zigzag32,5,opt,name=sint32_value,json=sint32Value,proto3,oneof" json:"sint32_value,omitempty"`
@@ -369,17 +369,17 @@ var File_hashable_internal_testonly_proto protoreflect.FileDescriptor
 
 const file_hashable_internal_testonly_proto_rawDesc = "" +
 	"\n" +
-	" hashable/internal/testonly.proto\x12\x04test\x1a\x17hashable/hashable.proto\"K\n" +
+	" hashable/internal/testonly.proto\x12\binternal\x1a\x17hashable/hashable.proto\"K\n" +
 	"\x0eTestonlyNested\x12\x14\n" +
 	"\x04note\x18\x01 \x01(\tH\x00R\x04note\x12\x16\n" +
 	"\x05value\x18\x02 \x01(\rH\x00R\x05value:\x06Ȉ\xe2\xab\f\x01B\x03\n" +
-	"\x01t\"\xa7\n" +
+	"\x01t\"\xb7\n" +
 	"\n" +
 	"\vTestonlyMsg\x12\"\n" +
 	"\n" +
-	"bool_value\x18\x01 \x01(\bH\x00R\tboolValue\x88\x01\x01\x126\n" +
+	"bool_value\x18\x01 \x01(\bH\x00R\tboolValue\x88\x01\x01\x12:\n" +
 	"\n" +
-	"enum_value\x18\x02 \x01(\x0e2\x12.test.TestonlyEnumH\x01R\tenumValue\x88\x01\x01\x12$\n" +
+	"enum_value\x18\x02 \x01(\x0e2\x16.internal.TestonlyEnumH\x01R\tenumValue\x88\x01\x01\x12$\n" +
 	"\vint32_value\x18\x03 \x01(\x05H\x02R\n" +
 	"int32Value\x88\x01\x01\x12$\n" +
 	"\vint64_value\x18\x04 \x01(\x03H\x03R\n" +
@@ -396,12 +396,12 @@ const file_hashable_internal_testonly_proto_rawDesc = "" +
 	"\x0esfixed64_value\x18\f \x01(\x10H\vR\rsfixed64Value\x88\x01\x01\x12$\n" +
 	"\vbytes_value\x18\r \x01(\fH\fR\n" +
 	"bytesValue\x88\x01\x01\x12&\n" +
-	"\fstring_value\x18\x0e \x01(\tH\rR\vstringValue\x88\x01\x01\x12>\n" +
-	"\rmessage_value\x18\x0f \x01(\v2\x14.test.TestonlyNestedH\x0eR\fmessageValue\x88\x01\x01\x12+\n" +
+	"\fstring_value\x18\x0e \x01(\tH\rR\vstringValue\x88\x01\x01\x12B\n" +
+	"\rmessage_value\x18\x0f \x01(\v2\x18.internal.TestonlyNestedH\x0eR\fmessageValue\x88\x01\x01\x12+\n" +
 	"\x11repeated_packable\x18\x10 \x03(\x12R\x10repeatedPackable\x12'\n" +
-	"\x0frepeated_string\x18\x11 \x03(\tR\x0erepeatedString\x12?\n" +
-	"\x10repeated_message\x18\x12 \x03(\v2\x14.test.TestonlyNestedR\x0frepeatedMessage\x12D\n" +
-	"\x10optional_message\x18\x13 \x01(\v2\x14.test.TestonlyNestedH\x0fR\x0foptionalMessage\x88\x01\x01\x12>\n" +
+	"\x0frepeated_string\x18\x11 \x03(\tR\x0erepeatedString\x12C\n" +
+	"\x10repeated_message\x18\x12 \x03(\v2\x18.internal.TestonlyNestedR\x0frepeatedMessage\x12H\n" +
+	"\x10optional_message\x18\x13 \x01(\v2\x18.internal.TestonlyNestedH\x0fR\x0foptionalMessage\x88\x01\x01\x12>\n" +
 	"\x1brepeated_packable_singleton\x18\x14 \x03(\aR\x19repeatedPackableSingleton\x12%\n" +
 	"\x0erepeated_bytes\x18\x15 \x03(\fR\rrepeatedBytes\x126\n" +
 	"\x17repeated_packable_empty\x18\x16 \x03(\x04R\x15repeatedPackableEmpty:\x06Ȉ\xe2\xab\f\x01B\r\n" +
@@ -424,7 +424,7 @@ const file_hashable_internal_testonly_proto_rawDesc = "" +
 	"\fTestonlyEnum\x12\x1d\n" +
 	"\x19TESTONLY_ENUM_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13TESTONLY_ENUM_ALPHA\x10\x01\x12\x16\n" +
-	"\x12TESTONLY_ENUM_BETA\x10\x02B<Z:github.com/tendermint/tendermint/libs/hashable/internal/pbb\x06proto3"
+	"\x12TESTONLY_ENUM_BETA\x10\x02B@Z>github.com/tendermint/tendermint/internal/hashable/internal/pbb\x06proto3"
 
 var (
 	file_hashable_internal_testonly_proto_rawDescOnce sync.Once
@@ -441,15 +441,15 @@ func file_hashable_internal_testonly_proto_rawDescGZIP() []byte {
 var file_hashable_internal_testonly_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_hashable_internal_testonly_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_hashable_internal_testonly_proto_goTypes = []any{
-	(TestonlyEnum)(0),      // 0: test.TestonlyEnum
-	(*TestonlyNested)(nil), // 1: test.TestonlyNested
-	(*TestonlyMsg)(nil),    // 2: test.TestonlyMsg
+	(TestonlyEnum)(0),      // 0: internal.TestonlyEnum
+	(*TestonlyNested)(nil), // 1: internal.TestonlyNested
+	(*TestonlyMsg)(nil),    // 2: internal.TestonlyMsg
 }
 var file_hashable_internal_testonly_proto_depIdxs = []int32{
-	0, // 0: test.TestonlyMsg.enum_value:type_name -> test.TestonlyEnum
-	1, // 1: test.TestonlyMsg.message_value:type_name -> test.TestonlyNested
-	1, // 2: test.TestonlyMsg.repeated_message:type_name -> test.TestonlyNested
-	1, // 3: test.TestonlyMsg.optional_message:type_name -> test.TestonlyNested
+	0, // 0: internal.TestonlyMsg.enum_value:type_name -> internal.TestonlyEnum
+	1, // 1: internal.TestonlyMsg.message_value:type_name -> internal.TestonlyNested
+	1, // 2: internal.TestonlyMsg.repeated_message:type_name -> internal.TestonlyNested
+	1, // 3: internal.TestonlyMsg.optional_message:type_name -> internal.TestonlyNested
 	4, // [4:4] is the sub-list for method output_type
 	4, // [4:4] is the sub-list for method input_type
 	4, // [4:4] is the sub-list for extension type_name
