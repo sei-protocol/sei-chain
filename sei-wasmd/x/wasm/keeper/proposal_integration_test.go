@@ -10,7 +10,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/x/params/client/utils"
 
-	wasmvm "github.com/CosmWasm/wasmvm"
+	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
 
 	"github.com/CosmWasm/wasmd/x/wasm/keeper/wasmtesting"
 

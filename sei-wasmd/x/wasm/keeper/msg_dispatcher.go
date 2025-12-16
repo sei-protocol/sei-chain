@@ -3,9 +3,9 @@ package keeper
 import (
 	"fmt"
 
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 
 	"github.com/CosmWasm/wasmd/x/wasm/types"

@@ -39,7 +39,7 @@ func (c Coins) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON ensures that we get [] for empty arrays
 func (c *Coins) UnmarshalJSON(data []byte) error {
 	// make sure we deserialize [] back to null
-	if string(data) == "[]" || string(data) == "null" {
+	if isEmptyOrNull(data) {
 		return nil
 	}
 	var d []Coin
@@ -48,6 +48,10 @@ func (c *Coins) UnmarshalJSON(data []byte) error {
 	}
 	*c = d
 	return nil
+}
+
+func isEmptyOrNull(data []byte) bool {
+	return string(data) == "[]" || string(data) == "null"
 }
 
 // Replicating the cosmos-sdk bank module Metadata type
@@ -106,7 +110,7 @@ type DenomUnit struct {
 type DecCoin struct {
 	// An amount in the base denom of the distributed token.
 	//
-	// Some chains have choosen atto (10^-18) for their token's base denomination. If we used `Decimal` here, we could only store 340282366920938463463.374607431768211455atoken which is 340.28 TOKEN.
+	// Some chains have chosen atto (10^-18) for their token's base denomination. If we used `Decimal` here, we could only store 340282366920938463463.374607431768211455atoken which is 340.28 TOKEN.
 	Amount string `json:"amount"`
 	Denom  string `json:"denom"`
 }
