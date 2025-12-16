@@ -1,8 +1,8 @@
 package keeper
 
 import (
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	"github.com/prometheus/client_golang/prometheus"
+	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 
 const (

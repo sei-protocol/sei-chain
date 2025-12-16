@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
+	"path/filepath"
 
-	wasmvm "github.com/CosmWasm/wasmvm"
+	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
 )
 
 const (
@@ -28,14 +28,15 @@ func main() {
 		return
 	}
 
+	file = filepath.Clean(file)
 	fmt.Printf("Running %s...\n", file)
-	bz, err := ioutil.ReadFile(file)
+	bz, err := os.ReadFile(file)
 	if err != nil {
 		panic(err)
 	}
 	fmt.Println("Loaded!")
 
-	err = os.MkdirAll("tmp", 0o755)
+	err = os.MkdirAll("tmp", 0o750)
 	if err != nil {
 		panic(err)
 	}
