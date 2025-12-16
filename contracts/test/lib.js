@@ -263,6 +263,9 @@ async function storeWasm(path, from=adminKeyName) {
     const command = `seid tx wasm store ${path} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
     const output = await execute(command);
     const response = JSON.parse(output)
+    if (response.code !== 0) {
+        throw new Error(`storeWasm failed: ${response.raw_log}`)
+    }
     return getEventAttribute(response, "store_code", "code_id")
 }
 
@@ -376,6 +379,9 @@ async function instantiateWasm(codeId, adminAddr, label, args = {}, from=adminKe
     const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddr} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
     const output = await execute(command);
     const response = JSON.parse(output);
+    if (response.code !== 0) {
+        throw new Error(`instantiateWasm failed: ${response.raw_log}`)
+    }
     return getEventAttribute(response, "instantiate", "_contract_address");
 }
 
