@@ -3,8 +3,8 @@ package wasmtesting
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
-	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
-	ibcexported "github.com/cosmos/ibc-go/v3/modules/core/exported"
+	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
+	ibcexported "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 
 	"github.com/CosmWasm/wasmd/x/wasm/types"
 )

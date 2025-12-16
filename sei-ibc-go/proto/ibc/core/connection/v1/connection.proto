@@ -5,7 +5,7 @@ package ibc.core.connection.v1;
 import "gogoproto/gogo.proto";
 import "ibc/core/commitment/v1/commitment.proto";
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types";
 
 // ICS03 - Connection Data Structures as defined in
 // https://github.com/cosmos/ibc/blob/master/spec/core/ics-003-connection-semantics#data-structures

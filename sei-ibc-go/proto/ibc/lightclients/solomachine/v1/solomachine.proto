@@ -7,7 +7,7 @@ import "google/protobuf/any.proto";
 import "ibc/core/channel/v1/channel.proto";
 import "ibc/core/connection/v1/connection.proto";
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/core/02-client/legacy/v100";
+option go_package = "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/legacy/v100";
 
 // ClientState defines a solo machine client that tracks the current consensus
 // state and if the client is frozen.
