@@ -80,7 +80,10 @@ func RegisterInterchainAccount(endpoint *ibctesting.Endpoint, owner string) erro
 	}
 
 	// commit state changes for proof verification
-	endpoint.Chain.App.Commit(endpoint.chain.Context())
+	_, err = endpoint.Chain.App.Commit(endpoint.Chain.Context())
+	if err != nil {
+		return err
+	}
 	endpoint.Chain.NextBlock()
 
 	// update port/channel ids
@@ -125,23 +128,23 @@ func (suite *InterchainAccountsTestSuite) TestOnChanOpenInit() {
 		},
 		{
 			"controller submodule disabled", func() {
-				suite.chainA.GetSimApp().ICAControllerKeeper.SetParams(suite.chainA.GetContext(), types.NewParams(false))
-			}, false,
+			suite.chainA.GetSimApp().ICAControllerKeeper.SetParams(suite.chainA.GetContext(), types.NewParams(false))
+		}, false,
 		},
 		{
 			"ICA OnChanOpenInit fails - UNORDERED channel", func() {
-				channel.Ordering = channeltypes.UNORDERED
-			}, false,
+			channel.Ordering = channeltypes.UNORDERED
+		}, false,
 		},
 		{
 			"ICA auth module callback fails", func() {
-				suite.chainA.GetSimApp().ICAAuthModule.IBCApp.OnChanOpenInit = func(ctx sdk.Context, order channeltypes.Order, connectionHops []string,
-					portID, channelID string, chanCap *capabilitytypes.Capability,
-					counterparty channeltypes.Counterparty, version string,
-				) error {
-					return fmt.Errorf("mock ica auth fails")
-				}
-			}, false,
+			suite.chainA.GetSimApp().ICAAuthModule.IBCApp.OnChanOpenInit = func(ctx sdk.Context, order channeltypes.Order, connectionHops []string,
+				portID, channelID string, chanCap *capabilitytypes.Capability,
+				counterparty channeltypes.Counterparty, version string,
+			) error {
+				return fmt.Errorf("mock ica auth fails")
+			}
+		}, false,
 		},
 	}
 
@@ -263,22 +266,22 @@ func (suite *InterchainAccountsTestSuite) TestOnChanOpenAck() {
 		},
 		{
 			"controller submodule disabled", func() {
-				suite.chainA.GetSimApp().ICAControllerKeeper.SetParams(suite.chainA.GetContext(), types.NewParams(false))
-			}, false,
+			suite.chainA.GetSimApp().ICAControllerKeeper.SetParams(suite.chainA.GetContext(), types.NewParams(false))
+		}, false,
 		},
 		{
 			"ICA OnChanOpenACK fails - invalid version", func() {
-				path.EndpointB.ChannelConfig.Version = "invalid|version"
-			}, false,
+			path.EndpointB.ChannelConfig.Version = "invalid|version"
+		}, false,
 		},
 		{
 			"ICA auth module callback fails", func() {
-				suite.chainA.GetSimApp().ICAAuthModule.IBCApp.OnChanOpenAck = func(
-					ctx sdk.Context, portID, channelID string, counterpartyChannelID string, counterpartyVersion string,
-				) error {
-					return fmt.Errorf("mock ica auth fails")
-				}
-			}, false,
+			suite.chainA.GetSimApp().ICAAuthModule.IBCApp.OnChanOpenAck = func(
+				ctx sdk.Context, portID, channelID string, counterpartyChannelID string, counterpartyVersion string,
+			) error {
+				return fmt.Errorf("mock ica auth fails")
+			}
+		}, false,
 		},
 	}
 
@@ -492,17 +495,17 @@ func (suite *InterchainAccountsTestSuite) TestOnAcknowledgementPacket() {
 		},
 		{
 			"controller submodule disabled", func() {
-				suite.chainA.GetSimApp().ICAControllerKeeper.SetParams(suite.chainA.GetContext(), types.NewParams(false))
-			}, false,
+			suite.chainA.GetSimApp().ICAControllerKeeper.SetParams(suite.chainA.GetContext(), types.NewParams(false))
+		}, false,
 		},
 		{
 			"ICA auth module callback fails", func() {
-				suite.chainA.GetSimApp().ICAAuthModule.IBCApp.OnAcknowledgementPacket = func(
-					ctx sdk.Context, packet channeltypes.Packet, acknowledgement []byte, relayer sdk.AccAddress,
-				) error {
-					return fmt.Errorf("mock ica auth fails")
-				}
-			}, false,
+			suite.chainA.GetSimApp().ICAAuthModule.IBCApp.OnAcknowledgementPacket = func(
+				ctx sdk.Context, packet channeltypes.Packet, acknowledgement []byte, relayer sdk.AccAddress,
+			) error {
+				return fmt.Errorf("mock ica auth fails")
+			}
+		}, false,
 		},
 	}
 
@@ -561,17 +564,17 @@ func (suite *InterchainAccountsTestSuite) TestOnTimeoutPacket() {
 		},
 		{
 			"controller submodule disabled", func() {
-				suite.chainA.GetSimApp().ICAControllerKeeper.SetParams(suite.chainA.GetContext(), types.NewParams(false))
-			}, false,
+			suite.chainA.GetSimApp().ICAControllerKeeper.SetParams(suite.chainA.GetContext(), types.NewParams(false))
+		}, false,
 		},
 		{
 			"ICA auth module callback fails", func() {
-				suite.chainA.GetSimApp().ICAAuthModule.IBCApp.OnTimeoutPacket = func(
-					ctx sdk.Context, packet channeltypes.Packet, relayer sdk.AccAddress,
-				) error {
-					return fmt.Errorf("mock ica auth fails")
-				}
-			}, false,
+			suite.chainA.GetSimApp().ICAAuthModule.IBCApp.OnTimeoutPacket = func(
+				ctx sdk.Context, packet channeltypes.Packet, relayer sdk.AccAddress,
+			) error {
+				return fmt.Errorf("mock ica auth fails")
+			}
+		}, false,
 		},
 	}
 
