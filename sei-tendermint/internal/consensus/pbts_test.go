@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/abci/example/kvstore"
+	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	tmpubsub "github.com/tendermint/tendermint/internal/pubsub"
 	"github.com/tendermint/tendermint/internal/test/factory"
@@ -224,7 +225,7 @@ func (p *pbtsTestHarness) nextHeight(ctx context.Context, t *testing.T, proposer
 	}
 
 	time.Sleep(time.Until(deliverTime))
-	prop.Signature = tp.Signature
+	prop.Signature = crypto.Sig(tp.Signature)
 	if err := p.observedState.SetProposalAndBlock(ctx, prop, b, ps, "peerID"); err != nil {
 		t.Fatal(err)
 	}

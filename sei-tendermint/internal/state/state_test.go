@@ -117,12 +117,10 @@ func TestFinalizeBlockResponsesSaveLoad1(t *testing.T) {
 
 	finalizeBlockResponses.TxResults[0] = &abci.ExecTxResult{Data: []byte("foo"), Events: nil}
 	finalizeBlockResponses.TxResults[1] = &abci.ExecTxResult{Data: []byte("bar"), Log: "ok", Events: nil}
-	pbpk, err := encoding.PubKeyToProto(ed25519.GenPrivKey().PubKey())
-	require.NoError(t, err)
+	pbpk := encoding.PubKeyToProto(ed25519.GenPrivKey().PubKey())
 	finalizeBlockResponses.ValidatorUpdates = []abci.ValidatorUpdate{{PubKey: pbpk, Power: 10}}
 
-	err = stateStore.SaveFinalizeBlockResponses(block.Height, finalizeBlockResponses)
-	require.NoError(t, err)
+	require.NoError(t, stateStore.SaveFinalizeBlockResponses(block.Height, finalizeBlockResponses))
 	loadedFinalizeBlockResponses, err := stateStore.LoadFinalizeBlockResponses(block.Height)
 	require.NoError(t, err)
 	assert.Equal(t, finalizeBlockResponses, loadedFinalizeBlockResponses,
@@ -476,8 +474,7 @@ func TestProposerPriorityDoesNotGetResetToZero(t *testing.T) {
 	// add a validator
 	val2PubKey := ed25519.GenPrivKey().PubKey()
 	val2VotingPower := int64(100)
-	fvp, err := encoding.PubKeyToProto(val2PubKey)
-	require.NoError(t, err)
+	fvp := encoding.PubKeyToProto(val2PubKey)
 
 	updateAddVal := abci.ValidatorUpdate{PubKey: fvp, Power: val2VotingPower}
 	validatorUpdates, err = types.PB2TM.ValidatorUpdates([]abci.ValidatorUpdate{updateAddVal})
@@ -604,8 +601,7 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 
 	// add a validator with the same voting power as the first
 	val2PubKey := ed25519.GenPrivKey().PubKey()
-	fvp, err := encoding.PubKeyToProto(val2PubKey)
-	require.NoError(t, err)
+	fvp := encoding.PubKeyToProto(val2PubKey)
 	updateAddVal := abci.ValidatorUpdate{PubKey: fvp, Power: val1VotingPower}
 	validatorUpdates, err = types.PB2TM.ValidatorUpdates([]abci.ValidatorUpdate{updateAddVal})
 	assert.NoError(t, err)
@@ -804,8 +800,7 @@ func TestLargeGenesisValidator(t *testing.T) {
 	// see: https://github.com/tendermint/tendermint/issues/2960
 	firstAddedValPubKey := ed25519.GenPrivKey().PubKey()
 	firstAddedValVotingPower := int64(10)
-	fvp, err := encoding.PubKeyToProto(firstAddedValPubKey)
-	require.NoError(t, err)
+	fvp := encoding.PubKeyToProto(firstAddedValPubKey)
 	firstAddedVal := abci.ValidatorUpdate{PubKey: fvp, Power: firstAddedValVotingPower}
 	validatorUpdates, err := types.PB2TM.ValidatorUpdates([]abci.ValidatorUpdate{firstAddedVal})
 	assert.NoError(t, err)
@@ -863,8 +858,7 @@ func TestLargeGenesisValidator(t *testing.T) {
 	// add 10 validators with the same voting power as the one added directly after genesis:
 	for i := 0; i < 10; i++ {
 		addedPubKey := ed25519.GenPrivKey().PubKey()
-		ap, err := encoding.PubKeyToProto(addedPubKey)
-		require.NoError(t, err)
+		ap := encoding.PubKeyToProto(addedPubKey)
 		addedVal := abci.ValidatorUpdate{PubKey: ap, Power: firstAddedValVotingPower}
 		validatorUpdates, err := types.PB2TM.ValidatorUpdates([]abci.ValidatorUpdate{addedVal})
 		assert.NoError(t, err)
@@ -886,8 +880,7 @@ func TestLargeGenesisValidator(t *testing.T) {
 	require.Equal(t, 10+2, len(state.NextValidators.Validators))
 
 	// remove genesis validator:
-	gp, err := encoding.PubKeyToProto(genesisPubKey)
-	require.NoError(t, err)
+	gp := encoding.PubKeyToProto(genesisPubKey)
 	removeGenesisVal := abci.ValidatorUpdate{PubKey: gp, Power: 0}
 	fb = &abci.ResponseFinalizeBlock{
 		ValidatorUpdates: []abci.ValidatorUpdate{removeGenesisVal},

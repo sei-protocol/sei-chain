@@ -26,11 +26,9 @@ func newEvidence(t *testing.T, val *privval.FilePV,
 	v := vote.ToProto()
 	v2 := vote2.ToProto()
 
-	vote.Signature, err = val.Key.PrivKey.Sign(types.VoteSignBytes(chainID, v))
-	require.NoError(t, err)
+	vote.Signature = val.Key.PrivKey.Sign(types.VoteSignBytes(chainID, v))
 
-	vote2.Signature, err = val.Key.PrivKey.Sign(types.VoteSignBytes(chainID, v2))
-	require.NoError(t, err)
+	vote2.Signature = val.Key.PrivKey.Sign(types.VoteSignBytes(chainID, v2))
 
 	validator := types.NewValidator(val.Key.PubKey, 10)
 	valSet := types.NewValidatorSet([]*types.Validator{validator})

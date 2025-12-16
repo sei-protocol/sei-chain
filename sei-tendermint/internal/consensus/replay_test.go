@@ -37,6 +37,7 @@ import (
 	"github.com/tendermint/tendermint/privval"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
+	"github.com/tendermint/tendermint/crypto"
 )
 
 // These tests ensure we can always recover from failure at any part of the consensus process.
@@ -342,8 +343,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	pv, _ := css[nVals].privValidator.Get()
 	newValidatorPubKey1, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
-	valPubKey1ABCI, err := encoding.PubKeyToProto(newValidatorPubKey1)
-	require.NoError(t, err)
+	valPubKey1ABCI := encoding.PubKeyToProto(newValidatorPubKey1)
 	newValidatorTx1 := kvstore.MakeValSetChangeTx(valPubKey1ABCI, testMinPower)
 	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, newValidatorTx1, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
@@ -360,7 +360,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	if err := vss[1].SignProposal(ctx, cfg.ChainID(), p); err != nil {
 		t.Fatal("failed to sign bad proposal", err)
 	}
-	proposal.Signature = p.Signature
+	proposal.Signature = crypto.Sig(p.Signature)
 
 	// set the proposal block
 	if err := css[0].SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer"); err != nil {
@@ -379,8 +379,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	pv, _ = css[nVals].privValidator.Get()
 	updateValidatorPubKey1, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
-	updatePubKey1ABCI, err := encoding.PubKeyToProto(updateValidatorPubKey1)
-	require.NoError(t, err)
+	updatePubKey1ABCI := encoding.PubKeyToProto(updateValidatorPubKey1)
 	updateValidatorTx1 := kvstore.MakeValSetChangeTx(updatePubKey1ABCI, 25)
 	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, updateValidatorTx1, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
@@ -396,7 +395,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	if err := vss[2].SignProposal(ctx, cfg.ChainID(), p); err != nil {
 		t.Fatal("failed to sign bad proposal", err)
 	}
-	proposal.Signature = p.Signature
+	proposal.Signature = crypto.Sig(p.Signature)
 
 	// set the proposal block
 	if err := css[0].SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer"); err != nil {
@@ -415,16 +414,14 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	pv, _ = css[nVals+1].privValidator.Get()
 	newValidatorPubKey2, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
-	newVal2ABCI, err := encoding.PubKeyToProto(newValidatorPubKey2)
-	require.NoError(t, err)
+	newVal2ABCI := encoding.PubKeyToProto(newValidatorPubKey2)
 	newValidatorTx2 := kvstore.MakeValSetChangeTx(newVal2ABCI, testMinPower)
 	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, newValidatorTx2, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
 	pv, _ = css[nVals+2].privValidator.Get()
 	newValidatorPubKey3, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
-	newVal3ABCI, err := encoding.PubKeyToProto(newValidatorPubKey3)
-	require.NoError(t, err)
+	newVal3ABCI := encoding.PubKeyToProto(newValidatorPubKey3)
 	newValidatorTx3 := kvstore.MakeValSetChangeTx(newVal3ABCI, testMinPower)
 	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, newValidatorTx3, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
@@ -446,7 +443,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 			cssPubKey, err := pv.GetPubKey(ctx)
 			require.NoError(t, err)
 
-			if vsPubKey.Equals(cssPubKey) {
+			if vsPubKey==cssPubKey {
 				return i
 			}
 		}
@@ -463,7 +460,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	if err := vss[3].SignProposal(ctx, cfg.ChainID(), p); err != nil {
 		t.Fatal("failed to sign bad proposal", err)
 	}
-	proposal.Signature = p.Signature
+	proposal.Signature = crypto.Sig(p.Signature)
 
 	// set the proposal block
 	if err := css[0].SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer"); err != nil {
@@ -536,7 +533,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	if err := vss[1].SignProposal(ctx, cfg.ChainID(), p); err != nil {
 		t.Fatal("failed to sign bad proposal", err)
 	}
-	proposal.Signature = p.Signature
+	proposal.Signature = crypto.Sig(p.Signature)
 
 	// set the proposal block
 	if err := css[0].SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer"); err != nil {

@@ -19,8 +19,7 @@ func TestABCIPubKey(t *testing.T) {
 }
 
 func testABCIPubKey(t *testing.T, pk crypto.PubKey) error {
-	abciPubKey, err := encoding.PubKeyToProto(pk)
-	require.NoError(t, err)
+	abciPubKey := encoding.PubKeyToProto(pk)
 	pk2, err := encoding.PubKeyFromProto(abciPubKey)
 	require.NoError(t, err)
 	require.Equal(t, pk, pk2)

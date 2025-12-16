@@ -313,7 +313,7 @@ func makeVote(
 	err = val.SignVote(ctx, chainID, vpb)
 	require.NoError(t, err)
 
-	v.Signature = vpb.Signature
+	v.Signature = crypto.Sig(vpb.Signature)
 	return v
 }
 
@@ -383,7 +383,7 @@ func TestEvidenceVectors(t *testing.T) {
 
 	// Votes for duplicateEvidence
 	val := NewMockPV()
-	val.PrivKey = ed25519.GenPrivKeyFromSecret([]byte("it's a secret")) // deterministic key
+	val.PrivKey = ed25519.PrivKeyFromSeed(ed25519.Seed{1,2,3,4}) // deterministic key
 	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
 	blockID2 := makeBlockID(crypto.Checksum([]byte("blockhash2")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
 	const chainID = "mychain"

@@ -570,9 +570,7 @@ func TestVoteSetToCommit(t *testing.T) {
 		}
 		v := vote.ToProto()
 		require.NoError(t, vals[i].SignVote(ctx, voteSet.ChainID(), v))
-		sig,err := crypto.SigFromBytes(v.Signature)
-		require.NoError(t, err)
-		vote.Signature = sig 
+		vote.Signature = crypto.Sig(v.Signature)
 		added, err := voteSet.AddVote(vote)
 		require.NoError(t, err)
 		require.True(t, added)

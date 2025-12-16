@@ -113,11 +113,8 @@ func (c *evilConn) Read(data []byte) (n int, err error) {
 	case 1:
 		signature := c.signChallenge()
 		if !c.badAuthSignature {
-			pkpb, err := encoding.PubKeyToProto(c.privKey.PubKey())
-			if err != nil {
-				panic(err)
-			}
-			bz, err := protoio.MarshalDelimited(&tmp2p.AuthSigMessage{PubKey: pkpb, Sig: signature})
+			pkpb := encoding.PubKeyToProto(c.privKey.PubKey())
+			bz, err := protoio.MarshalDelimited(&tmp2p.AuthSigMessage{PubKey: pkpb, Sig: signature[:]})
 			if err != nil {
 				panic(err)
 			}
@@ -180,7 +177,7 @@ func (c *evilConn) Close() error {
 	return nil
 }
 
-func (c *evilConn) signChallenge() []byte {
+func (c *evilConn) signChallenge() ed25519.Sig {
 	// Sort by lexical order.
 	loEphPub, hiEphPub := sort32(c.locEphPub, c.remEphPub)
 
@@ -231,12 +228,7 @@ func (c *evilConn) signChallenge() []byte {
 	c.buffer = b
 
 	// Sign the challenge bytes for authentication.
-	locSignature, err := signChallenge(&challenge, c.privKey)
-	if err != nil {
-		panic(err)
-	}
-
-	return locSignature
+	return signChallenge(&challenge, c.privKey)
 }
 
 // TestMakeSecretConnection creates an evil connection and tests that

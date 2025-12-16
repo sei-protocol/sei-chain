@@ -11,23 +11,10 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/require"
 )
 
-func OrPanic(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
-
-func OrPanic1[T any](v T, err error) T {
-	if err != nil {
-		panic(err)
-	}
-	return v
-}
-
 func dump(l *Log) [][]byte {
 	var entries [][]byte
 	for offset := l.MinOffset(); offset <= 0; offset++ {
-		entries = append(entries, OrPanic1(l.ReadFile(offset))...)
+		entries = append(entries, utils.OrPanic1(l.ReadFile(offset))...)
 	}
 	return entries
 }
@@ -36,7 +23,7 @@ func TestReadAfterAppend(t *testing.T) {
 	headPath := path.Join(t.TempDir(), "testlog")
 	cfg := &Config{}
 	entry := []byte{25}
-	l := OrPanic1(OpenLog(headPath, cfg))
+	l := utils.OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
 	// Append minimal amount of data.
 	require.NoError(t, l.Append(entry))
@@ -52,7 +39,7 @@ func TestAppendRead(t *testing.T) {
 			cfg := &Config{FileSizeLimit: 1000}
 			var want [][]byte
 			t.Logf("Open a log")
-			l := OrPanic1(OpenLog(headPath, cfg))
+			l := utils.OrPanic1(OpenLog(headPath, cfg))
 			// Wrapped defer, since we assign to l multiple times.
 			defer func() { l.Close() }()
 
@@ -60,7 +47,7 @@ func TestAppendRead(t *testing.T) {
 				t.Logf("ITERATION %v", it)
 				if reopen {
 					l.Close()
-					l = OrPanic1(OpenLog(headPath, cfg))
+					l = utils.OrPanic1(OpenLog(headPath, cfg))
 				}
 				t.Logf("Opening a log again should fail - previous instance holds a lock on it.")
 				_, err := OpenLog(headPath, cfg)
@@ -77,7 +64,7 @@ func TestAppendRead(t *testing.T) {
 				t.Logf("Read entries.")
 				if reopen {
 					l.Close()
-					l = OrPanic1(OpenLog(headPath, cfg))
+					l = utils.OrPanic1(OpenLog(headPath, cfg))
 				}
 				require.NoError(t, utils.TestDiff(want, dump(l)))
 			}
@@ -90,7 +77,7 @@ func TestNoSync(t *testing.T) {
 	headPath := path.Join(t.TempDir(), "testlog")
 	cfg := &Config{FileSizeLimit: 1000}
 
-	l := OrPanic1(OpenLog(headPath, cfg))
+	l := utils.OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
 	// Insert entries and sync in the middle.
 	var want [][]byte
@@ -106,7 +93,7 @@ func TestNoSync(t *testing.T) {
 	l.Close()
 
 	// Read Entries - expect entries at least to the sync point.
-	l = OrPanic1(OpenLog(headPath, cfg))
+	l = utils.OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
 	got := dump(l)
 	require.True(t, len(got) >= syncEntries)
@@ -119,7 +106,7 @@ func TestTruncation(t *testing.T) {
 	cfg := &Config{FileSizeLimit: 1000}
 
 	// Insert entries.
-	l := OrPanic1(OpenLog(headPath, cfg))
+	l := utils.OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
 	var want [][]byte
 	for range 100 {
@@ -136,7 +123,7 @@ func TestTruncation(t *testing.T) {
 	require.NoError(t, os.Truncate(headPath, fi.Size()/2))
 
 	// Read Entries - expect a prefix.
-	l = OrPanic1(OpenLog(headPath, cfg))
+	l = utils.OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
 	got := dump(l)
 	require.NoError(t, utils.TestDiff(want[:len(got)], got))
@@ -150,7 +137,7 @@ func TestSizeLimitsAndOffsets(t *testing.T) {
 	cfg := &Config{FileSizeLimit: 100, TotalSizeLimit: 3000}
 
 	// Populate the log.
-	l := OrPanic1(OpenLog(headPath, cfg))
+	l := utils.OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
 	minEntrySize := int64(10)
 	maxEntrySize := int64(20)
@@ -185,7 +172,7 @@ func TestSizeLimitsAndOffsets(t *testing.T) {
 	require.True(t, total >= cfg.TotalSizeLimit-cfg.FileSizeLimit-maxEntrySize-headerSize)
 
 	// Read the log, expect a suffix of entries.
-	l = OrPanic1(OpenLog(headPath, cfg))
+	l = utils.OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
 	got := dump(l)
 	require.NoError(t, utils.TestDiff(want[len(want)-len(got):], got))
@@ -202,10 +189,10 @@ func BenchmarkAppendSync(b *testing.B) {
 	for range 10000 {
 		entries = append(entries, utils.GenBytes(rng, rng.Intn(100)+1000))
 	}
-	l := OrPanic1(OpenLog(headPath, cfg))
+	l := utils.OrPanic1(OpenLog(headPath, cfg))
 	defer l.Close()
 	for i := 0; b.Loop(); i++ {
-		OrPanic(l.Append(entries[i%len(entries)]))
-		OrPanic(l.Sync())
+		utils.OrPanic(l.Append(entries[i%len(entries)]))
+		utils.OrPanic(l.Sync())
 	}
 }

@@ -7,9 +7,10 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -159,25 +160,20 @@ func TestVoteVerifySignature(t *testing.T) {
 	signBytes := VoteSignBytes("test_chain_id", v)
 
 	// sign it
-	err = privVal.SignVote(ctx, "test_chain_id", v)
-	require.NoError(t, err)
+	require.NoError(t, privVal.SignVote(ctx, "test_chain_id", v))
 
 	// verify the same vote
-	valid := pubkey.VerifySignature(VoteSignBytes("test_chain_id", v), v.Signature)
-	require.True(t, valid)
+	require.NoError(t,pubkey.Verify(VoteSignBytes("test_chain_id", v), crypto.Sig(v.Signature)))
 
 	// serialize, deserialize and verify again....
 	precommit := new(tmproto.Vote)
-	bs, err := proto.Marshal(v)
-	require.NoError(t, err)
-	err = proto.Unmarshal(bs, precommit)
-	require.NoError(t, err)
+	bs := utils.OrPanic1(proto.Marshal(v))
+	require.NoError(t, proto.Unmarshal(bs, precommit))
 
 	// verify the transmitted vote
 	newSignBytes := VoteSignBytes("test_chain_id", precommit)
-	require.Equal(t, string(signBytes), string(newSignBytes))
-	valid = pubkey.VerifySignature(newSignBytes, precommit.Signature)
-	require.True(t, valid)
+	require.NoError(t, utils.TestDiff(signBytes, newSignBytes))
+	require.NoError(t, pubkey.Verify(newSignBytes, crypto.Sig(precommit.Signature)))
 }
 
 func TestIsVoteTypeValid(t *testing.T) {
@@ -233,7 +229,7 @@ func signVote(ctx context.Context, t *testing.T, pv PrivValidator, chainID strin
 
 	v := vote.ToProto()
 	require.NoError(t, pv.SignVote(ctx, chainID, v))
-	vote.Signature = v.Signature
+	vote.Signature = crypto.Sig(v.Signature)
 }
 
 func TestValidVotes(t *testing.T) {
@@ -268,8 +264,6 @@ func TestInvalidVotes(t *testing.T) {
 		{"invalid block ID", func(v *Vote) { v.BlockID = BlockID{[]byte{1, 2, 3}, PartSetHeader{111, []byte("blockparts")}} }},
 		{"invalid address", func(v *Vote) { v.ValidatorAddress = make([]byte, 1) }},
 		{"invalid validator index", func(v *Vote) { v.ValidatorIndex = -1 }},
-		{"invalid signature", func(v *Vote) { v.Signature = nil }},
-		{"oversized signature", func(v *Vote) { v.Signature = make([]byte, MaxSignatureSize+1) }},
 	}
 	for _, tc := range testCases {
 		prevote := examplePrevote(t)
@@ -290,9 +284,8 @@ func TestVoteProtobuf(t *testing.T) {
 	privVal := NewMockPV()
 	vote := examplePrecommit(t)
 	v := vote.ToProto()
-	err := privVal.SignVote(ctx, "test_chain_id", v)
-	vote.Signature = v.Signature
-	require.NoError(t, err)
+	require.NoError(t, privVal.SignVote(ctx, "test_chain_id", v))
+	vote.Signature = crypto.Sig(v.Signature)
 
 	testCases := []struct {
 		msg                 string

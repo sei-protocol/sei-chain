@@ -18,6 +18,12 @@ import (
 
 const ChainID = "123"
 
+func makeSig(data []byte) crypto.Sig {
+	var sig crypto.Sig
+	copy(sig[:], data)
+	return sig
+}
+
 func TestGetPubKey(t *testing.T) {
 
 	testCases := []struct {
@@ -43,7 +49,7 @@ func TestGetPubKey(t *testing.T) {
 			} else {
 				pk, err := tc.pv.GetPubKey(ctx)
 				require.NoError(t, err)
-				assert.Equal(t, resp.PubKey.GetEd25519(), pk.Bytes())
+				require.Equal(t, resp.PubKey, pk)
 			}
 		})
 	}
@@ -88,7 +94,7 @@ func TestSignVote(t *testing.T) {
 			Timestamp:        ts,
 			ValidatorAddress: valAddr,
 			ValidatorIndex:   1,
-			Signature:        []byte("signed"),
+			Signature:        makeSig([]byte("signed")),
 		}, want: &types.Vote{
 			Type:             tmproto.PrecommitType,
 			Height:           1,
@@ -97,7 +103,7 @@ func TestSignVote(t *testing.T) {
 			Timestamp:        ts,
 			ValidatorAddress: valAddr,
 			ValidatorIndex:   1,
-			Signature:        []byte("signed"),
+			Signature:        makeSig([]byte("signed")),
 		},
 			err: true},
 	}
@@ -158,7 +164,7 @@ func TestSignProposal(t *testing.T) {
 			POLRound:  2,
 			BlockID:   types.BlockID{Hash: hash, PartSetHeader: types.PartSetHeader{Hash: hash, Total: 2}},
 			Timestamp: ts,
-			Signature: []byte("signed"),
+			Signature: makeSig([]byte("signed")),
 		}, want: &types.Proposal{
 			Type:      tmproto.ProposalType,
 			Height:    1,
@@ -166,7 +172,7 @@ func TestSignProposal(t *testing.T) {
 			POLRound:  2,
 			BlockID:   types.BlockID{Hash: hash, PartSetHeader: types.PartSetHeader{Hash: hash, Total: 2}},
 			Timestamp: ts,
-			Signature: []byte("signed"),
+			Signature: makeSig([]byte("signed")),
 		},
 			err: true},
 	}

@@ -35,7 +35,9 @@ var cachingVerifier = cache.NewVerifier(cache.NewLRUCache(cacheSize))
 
 func init() {
 	tmjson.RegisterType(PubKey{}, PubKeyName)
+	tmjson.RegisterType(PrivKey{}, PubKeyName)
 	jsontypes.MustRegister(PubKey{})
+	jsontypes.MustRegister(PrivKey{})
 }
 
 type Seed [ed25519.SeedSize]byte
@@ -45,7 +47,7 @@ type PrivKey struct {
 }
 
 // TypeTag satisfies the jsontypes.Tagged interface.
-func (k PrivKey) TypeTag() string { return PrivKeyName }
+func (PrivKey) TypeTag() string { return PrivKeyName }
 
 // Bytes returns the privkey byte format.
 func (k PrivKey) SecretBytes() []byte { return k.raw }
@@ -64,7 +66,7 @@ func SigFromBytes(raw []byte) (Sig,error) {
 func (k PrivKey) Sign(msg []byte) Sig { return Sig(ed25519.Sign(k.raw, msg)) }
 
 // PubKey gets the corresponding public key from the private key.
-func (k PrivKey) PubKey() PubKey { return PubKey(k.raw.Public().([]byte)) }
+func (k PrivKey) PubKey() PubKey { return PubKey(k.raw.Public().(ed25519.PublicKey)) }
 
 func (k PrivKey) Type() string { return KeyType }
 
@@ -82,6 +84,14 @@ func PrivKeyFromSeed(seed Seed) PrivKey {
 	return PrivKey{ed25519.NewKeyFromSeed(seed[:])}
 }
 
+// GenPrivKeyFromSecret hashes the secret with SHA2, and uses
+// that 32 byte output to create the private key.
+// NOTE: secret should be the output of a KDF like bcrypt,
+// if it's derived from user input.
+func GenPrivKeyFromSecret(secret []byte) PrivKey {
+	return PrivKeyFromSeed(Seed(sha256.Sum256(secret)))
+}
+
 //-------------------------------------
 
 // PubKey implements the Ed25519 signature scheme.
@@ -89,7 +99,7 @@ type PubKey [ed25519.PublicKeySize]byte
 
 func PubKeyFromBytes(raw []byte) (PubKey,error) {
 	if len(raw)!=len(PubKey{}) {
-		return PubKey{},errors.New("invalid signature length")
+		return PubKey{},errors.New("invalid pubkey length")
 	}
 	return PubKey(raw),nil
 }
@@ -105,7 +115,7 @@ func (k PubKey) Address() tmbytes.HexBytes {
 
 func (k PubKey) Verify(msg []byte, sig Sig) error {
 	if !cachingVerifier.VerifyWithOptions(k[:], msg, sig[:], verifyOptions) {
-		return errors.New("invalid signature")	
+		return errors.New("invalid signature")
 	}
 	return nil
 }

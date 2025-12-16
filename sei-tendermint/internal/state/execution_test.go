@@ -207,7 +207,8 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 						BlockIDFlag:      types.BlockIDFlagNil,
 						ValidatorAddress: crypto.AddressHash([]byte("validator_address")),
 						Timestamp:        defaultEvidenceTime,
-						Signature:        crypto.CRandBytes(types.MaxSignatureSize)}},
+						Signature:        crypto.Sig(crypto.CRandBytes(len(crypto.Sig{}))),
+					}},
 				},
 			},
 			ValidatorSet: state.Validators,
@@ -373,10 +374,8 @@ func TestProcessProposal(t *testing.T) {
 func TestValidateValidatorUpdates(t *testing.T) {
 	pubkey1 := ed25519.GenPrivKey().PubKey()
 	pubkey2 := ed25519.GenPrivKey().PubKey()
-	pk1, err := encoding.PubKeyToProto(pubkey1)
-	assert.NoError(t, err)
-	pk2, err := encoding.PubKeyToProto(pubkey2)
-	assert.NoError(t, err)
+	pk1 := encoding.PubKeyToProto(pubkey1)
+	pk2 := encoding.PubKeyToProto(pubkey2)
 
 	defaultValidatorParams := types.ValidatorParams{PubKeyTypes: []string{types.ABCIPubKeyTypeEd25519}}
 
@@ -432,10 +431,8 @@ func TestUpdateValidators(t *testing.T) {
 	pubkey2 := ed25519.GenPrivKey().PubKey()
 	val2 := types.NewValidator(pubkey2, 20)
 
-	pk, err := encoding.PubKeyToProto(pubkey1)
-	require.NoError(t, err)
-	pk2, err := encoding.PubKeyToProto(pubkey2)
-	require.NoError(t, err)
+	pk := encoding.PubKeyToProto(pubkey1)
+	pk2 := encoding.PubKeyToProto(pubkey2)
 
 	testCases := []struct {
 		name string
@@ -553,8 +550,7 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 	blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: bps.Header()}
 
 	pubkey := ed25519.GenPrivKey().PubKey()
-	pk, err := encoding.PubKeyToProto(pubkey)
-	require.NoError(t, err)
+	pk := encoding.PubKeyToProto(pubkey)
 	app.ValidatorUpdates = []abci.ValidatorUpdate{
 		{PubKey: pk, Power: 10},
 	}
@@ -618,8 +614,7 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 	require.NoError(t, err)
 	blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: bps.Header()}
 
-	vp, err := encoding.PubKeyToProto(state.Validators.Validators[0].PubKey)
-	require.NoError(t, err)
+	vp := encoding.PubKeyToProto(state.Validators.Validators[0].PubKey)
 	// Remove the only validator
 	app.ValidatorUpdates = []abci.ValidatorUpdate{
 		{PubKey: vp, Power: 0},
@@ -997,4 +992,10 @@ func TestCreateProposalBlockPanicRecovery(t *testing.T) {
 
 	// Verify mock expectations
 	mp.AssertExpectations(t)
+}
+
+func makeStateSignature(data []byte) crypto.Sig {
+	var sig crypto.Sig
+	copy(sig[:], data)
+	return sig
 }

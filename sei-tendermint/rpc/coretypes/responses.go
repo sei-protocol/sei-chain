@@ -124,8 +124,7 @@ type ApplicationInfo struct {
 
 // Info about the node's validator
 type ValidatorInfo struct {
-	Address     bytes.HexBytes
-	PubKey      crypto.PubKey
+	PubKey      utils.Option[crypto.PubKey]
 	VotingPower int64
 }
 
@@ -136,24 +135,27 @@ type validatorInfoJSON struct {
 }
 
 func (v ValidatorInfo) MarshalJSON() ([]byte, error) {
-	pk, err := jsontypes.Marshal(v.PubKey)
-	if err != nil {
-		return nil, err
+	j := validatorInfoJSON{VotingPower: v.VotingPower}
+	if k,ok:=v.PubKey.Get(); ok {
+		pk, err := k.MarshalJSON()
+		if err != nil {
+			return nil, err
+		}
+		j.PubKey = pk
+		j.Address = k.Address()
 	}
-	return json.Marshal(validatorInfoJSON{
-		Address: v.Address, PubKey: pk, VotingPower: v.VotingPower,
-	})
+	return json.Marshal(j)
 }
 
 func (v *ValidatorInfo) UnmarshalJSON(data []byte) error {
 	var val validatorInfoJSON
-	if err := json.Unmarshal(data, &val); err != nil {
-		return err
+	if len(val.PubKey)!=0 {
+		var pk crypto.PubKey
+		if err := encoding.Unmarshal(val.PubKey, &pk); err != nil {
+			return err
+		}
+		val.PubKey = utils.Some(pk)
 	}
-	if err := jsontypes.Unmarshal(val.PubKey, &v.PubKey); err != nil {
-		return err
-	}
-	v.Address = val.Address
 	v.VotingPower = val.VotingPower
 	return nil
 }

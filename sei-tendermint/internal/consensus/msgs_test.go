@@ -69,7 +69,7 @@ func TestMsgToProto(t *testing.T) {
 		POLRound:        1,
 		BlockID:         bi,
 		Timestamp:       time.Now(),
-		Signature:       tmrand.Bytes(20),
+		Signature:       makeSig("test-sig"),
 		Header:          header,
 		Evidence:        types.EvidenceList{},
 		LastCommit:      &types.Commit{Signatures: []types.CommitSig{}},
@@ -339,7 +339,7 @@ func TestConsMsgsVectors(t *testing.T) {
 		POLRound:  1,
 		BlockID:   bi,
 		Timestamp: date,
-		Signature: []byte("add_more_exclamation"),
+		Signature: makeSig("add_more_exclamation"),
 	}
 	pbProposal := proposal.ToProto()
 

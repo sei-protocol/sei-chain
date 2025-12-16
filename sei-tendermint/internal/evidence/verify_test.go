@@ -421,8 +421,8 @@ func TestVerifyDuplicateVoteEvidence(t *testing.T) {
 	err = val2.SignVote(ctx, chainID, bv)
 	require.NoError(t, err)
 
-	vote1.Signature = v1.Signature
-	badVote.Signature = bv.Signature
+	vote1.Signature = crypto.Sig(v1.Signature)
+	badVote.Signature = crypto.Sig(bv.Signature)
 
 	cases := []voteData{
 		{vote1, makeVote(ctx, t, val, chainID, 0, 10, 2, 1, blockID2, defaultEvidenceTime), true}, // different block ids
@@ -605,7 +605,7 @@ func makeVote(
 	vpb := v.ToProto()
 	err = val.SignVote(ctx, chainID, vpb)
 	require.NoError(t, err)
-	v.Signature = vpb.Signature
+	v.Signature = crypto.Sig(vpb.Signature)
 	return v
 }
 

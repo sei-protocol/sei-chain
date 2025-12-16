@@ -33,7 +33,7 @@ func makeTestCommit(height int64, timestamp time.Time) *types.Commit {
 		BlockIDFlag:      types.BlockIDFlagCommit,
 		ValidatorAddress: tmrand.Bytes(crypto.AddressSize),
 		Timestamp:        timestamp,
-		Signature:        []byte("Signature"),
+		Signature:        makeStoreSignature([]byte("Signature")),
 	}}
 	return &types.Commit{
 		Height: height,
@@ -43,6 +43,12 @@ func makeTestCommit(height int64, timestamp time.Time) *types.Commit {
 		},
 		Signatures: commitSigs,
 	}
+}
+
+func makeStoreSignature(data []byte) crypto.Sig {
+	var sig crypto.Sig
+	copy(sig[:], data)
+	return sig
 }
 
 func makeStateAndBlockStore(dir string) (sm.State, *BlockStore, cleanupFunc, error) {

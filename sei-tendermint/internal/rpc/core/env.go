@@ -13,6 +13,7 @@ import (
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/blocksync"
 	"github.com/tendermint/tendermint/internal/consensus"
 	"github.com/tendermint/tendermint/internal/eventbus"
@@ -86,7 +87,7 @@ type Environment struct {
 	PeerManager peerManager
 
 	// objects
-	PubKey            crypto.PubKey
+	PubKey            utils.Option[crypto.PubKey]
 	GenDoc            *types.GenesisDoc // cache the genesis structure
 	EventSinks        []indexer.EventSink
 	EventBus          *eventbus.EventBus // thread safe

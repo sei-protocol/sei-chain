@@ -10,13 +10,13 @@ import (
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	"github.com/tendermint/tendermint/abci/types"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
+	"github.com/tendermint/tendermint/crypto"
 )
 
 func InitChain(ctx context.Context, client abciclient.Client) error {
-	total := 10
-	vals := make([]types.ValidatorUpdate, total)
-	for i := 0; i < total; i++ {
-		pubkey := tmrand.Bytes(33)
+	vals := make([]types.ValidatorUpdate, 10)
+	for i := range vals {
+		pubkey := crypto.PubKey(tmrand.Bytes(len(crypto.PubKey{})))
 		// nolint:gosec // G404: Use of weak random number generator
 		power := mrand.Int()
 		vals[i] = types.UpdateValidator(pubkey, int64(power), "")

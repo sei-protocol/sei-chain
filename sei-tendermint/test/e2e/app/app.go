@@ -17,6 +17,7 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/version"
+	"github.com/tendermint/tendermint/crypto"
 )
 
 // Application is an ABCI application for use by end-to-end tests. It is a
@@ -388,7 +389,7 @@ func (app *Application) validatorUpdates(height uint64) (abci.ValidatorUpdates, 
 		if err != nil {
 			return nil, fmt.Errorf("invalid base64 pubkey value %q: %w", keyString, err)
 		}
-		valUpdates = append(valUpdates, abci.UpdateValidator(keyBytes, int64(power), app.cfg.KeyType))
+		valUpdates = append(valUpdates, abci.UpdateValidator(crypto.PubKey(keyBytes), int64(power), app.cfg.KeyType))
 	}
 
 	// the validator updates could be returned in arbitrary order,

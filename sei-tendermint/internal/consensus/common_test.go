@@ -144,11 +144,8 @@ func (vs *validatorStub) signVote(
 		v.Signature = vs.lastVote.Signature[:]
 		v.Timestamp = vs.lastVote.Timestamp
 	}
-	sig,err := crypto.SigFromBytes(v.Signature)
-	if err!=nil { return nil,err }
-	vote.Signature = sig
+	vote.Signature = crypto.Sig(v.Signature)
 	vote.Timestamp = v.Timestamp
-
 	return vote, nil
 }
 
@@ -261,10 +258,7 @@ func decideProposal(
 	proposal = types.NewProposal(height, round, polRound, propBlockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, address)
 	p := proposal.ToProto()
 	require.NoError(t, vs.SignProposal(ctx, chainID, p))
-	sig,err := crypto.SigFromBytes(p.Signature)
-	require.NoError(t, err)
-	proposal.Signature = sig
-
+	proposal.Signature = crypto.Sig(p.Signature)
 	return
 }
 

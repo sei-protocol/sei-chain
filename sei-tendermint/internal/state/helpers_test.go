@@ -1,7 +1,6 @@
 package state_test
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"math/rand"
@@ -100,12 +99,17 @@ func makeValidCommit(
 	}, votes
 }
 
+func makePrivKey(i int) ed25519.PrivKey {
+	var seed ed25519.Seed
+	copy(seed[:],fmt.Sprintf("%d",i))
+	return ed25519.PrivKeyFromSeed(seed)
+}
+
 func makeState(t *testing.T, nVals, height int) (sm.State, dbm.DB, map[string]types.PrivValidator) {
 	vals := make([]types.GenesisValidator, nVals)
 	privVals := make(map[string]types.PrivValidator, nVals)
 	for i := 0; i < nVals; i++ {
-		secret := []byte(fmt.Sprintf("test%d", i))
-		pk := ed25519.GenPrivKeyFromSecret(secret)
+		pk := makePrivKey(i) 
 		valAddr := pk.PubKey().Address()
 		vals[i] = types.GenesisValidator{
 			Address: valAddr,
@@ -153,11 +157,9 @@ func makeHeaderPartsResponsesValPubKeyChange(
 	finalizeBlockResponses := &abci.ResponseFinalizeBlock{}
 	// If the pubkey is new, remove the old and add the new.
 	_, val := state.NextValidators.GetByIndex(0)
-	if !bytes.Equal(pubkey.Bytes(), val.PubKey.Bytes()) {
-		vPbPk, err := encoding.PubKeyToProto(val.PubKey)
-		require.NoError(t, err)
-		pbPk, err := encoding.PubKeyToProto(pubkey)
-		require.NoError(t, err)
+	if pubkey!=val.PubKey {
+		vPbPk := encoding.PubKeyToProto(val.PubKey)
+		pbPk := encoding.PubKeyToProto(pubkey)
 
 		finalizeBlockResponses.ValidatorUpdates = []abci.ValidatorUpdate{
 			{PubKey: vPbPk, Power: 0},
@@ -181,8 +183,7 @@ func makeHeaderPartsResponsesValPowerChange(
 	// If the pubkey is new, remove the old and add the new.
 	_, val := state.NextValidators.GetByIndex(0)
 	if val.VotingPower != power {
-		vPbPk, err := encoding.PubKeyToProto(val.PubKey)
-		require.NoError(t, err)
+		vPbPk := encoding.PubKeyToProto(val.PubKey)
 
 		finalizeBlockResponses.ValidatorUpdates = []abci.ValidatorUpdate{
 			{PubKey: vPbPk, Power: power},

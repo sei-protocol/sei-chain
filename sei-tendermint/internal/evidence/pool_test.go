@@ -11,6 +11,7 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/evidence"
 	"github.com/tendermint/tendermint/internal/evidence/mocks"
@@ -33,6 +34,12 @@ var (
 	defaultEvidenceTime           = time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC)
 	defaultEvidenceMaxBytes int64 = 1000
 )
+
+func makeEvidenceSignature(data []byte) crypto.Sig {
+	var sig crypto.Sig
+	copy(sig[:], data)
+	return sig
+}
 
 func startPool(t *testing.T, pool *evidence.Pool, store sm.Store) {
 	t.Helper()
@@ -582,7 +589,7 @@ func makeCommit(height int64, valAddr []byte) *types.Commit {
 			BlockIDFlag:      types.BlockIDFlagCommit,
 			ValidatorAddress: valAddr,
 			Timestamp:        defaultEvidenceTime,
-			Signature:        []byte("Signature"),
+			Signature:        makeEvidenceSignature([]byte("Signature")),
 		}},
 	}
 }

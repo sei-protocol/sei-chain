@@ -403,9 +403,7 @@ func newValidator(address []byte, power int64) *Validator {
 }
 
 func randPubKey() crypto.PubKey {
-	pubKey := make(ed25519.PubKey, ed25519.PubKeySize)
-	copy(pubKey, tmrand.Bytes(32))
-	return ed25519.PubKey(tmrand.Bytes(32))
+	return crypto.PubKey(tmrand.Bytes(len(crypto.PubKey{})))
 }
 
 func randModuloValidator(totalVotingPower int64) *Validator {
@@ -1636,7 +1634,7 @@ func deterministicValidatorSet(ctx context.Context, t *testing.T) (*ValidatorSet
 
 	for i := 0; i < 10; i++ {
 		// val, privValidator := DeterministicValidator(ed25519.PrivKey([]byte(deterministicKeys[i])))
-		val, privValidator := deterministicValidator(ctx, t, ed25519.GenPrivKeyFromSecret([]byte(fmt.Sprintf("key: %x", i))))
+		val, privValidator := deterministicValidator(ctx, t, ed25519.PrivKeyFromSeed(ed25519.Seed{byte(i)}))
 		valz[i] = val
 		privValidators[i] = privValidator
 	}

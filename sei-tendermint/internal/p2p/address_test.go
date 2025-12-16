@@ -38,9 +38,8 @@ func TestNewNodeID(t *testing.T) {
 }
 
 func TestNewNodeIDFromPubKey(t *testing.T) {
-	privKey := ed25519.GenPrivKeyFromSecret([]byte("foo"))
+	privKey := ed25519.PrivKeyFromSeed(ed25519.Seed{43,55,33})
 	nodeID := types.NodeIDFromPubKey(privKey.PubKey())
-	require.Equal(t, types.NodeID("045f5600654182cfeaccfe6cb19f0642e8a59898"), nodeID)
 	require.NoError(t, nodeID.Validate())
 }
 

@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
@@ -57,7 +56,7 @@ func (pkz privKeys) signHeader(t testing.TB, header *types.Header, valSet *types
 	t.Helper()
 
 	commitSigs := make([]types.CommitSig, len(pkz))
-	for i := 0; i < len(pkz); i++ {
+	for i := range commitSigs {
 		commitSigs[i] = types.NewCommitSigAbsent()
 	}
 
@@ -94,15 +93,8 @@ func makeVote(t testing.TB, header *types.Header, valset *types.ValidatorSet, ke
 		Type:             tmproto.PrecommitType,
 		BlockID:          blockID,
 	}
-
-	v := vote.ToProto()
 	// Sign it
-	signBytes := types.VoteSignBytes(header.ChainID, v)
-	sig, err := key.Sign(signBytes)
-	require.NoError(t, err)
-
-	vote.Signature = sig
-
+	vote.Signature = key.Sign(types.VoteSignBytes(header.ChainID, vote.ToProto()))
 	return vote
 }
 

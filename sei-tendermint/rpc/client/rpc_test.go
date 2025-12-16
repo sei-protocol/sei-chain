@@ -13,10 +13,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/internal/mempool"
 	rpccore "github.com/tendermint/tendermint/internal/rpc/core"
@@ -303,7 +303,7 @@ func TestClientMethodCalls(t *testing.T) {
 				res, err := c.ABCIQuery(ctx, "/key", k)
 				qres := res.Response
 				if assert.NoError(t, err) && assert.True(t, qres.IsOK()) {
-					assert.EqualValues(t, v, qres.Value)
+					assert.Equal(t, v, qres.Value)
 				}
 			})
 			t.Run("AppCalls", func(t *testing.T) {
@@ -336,21 +336,21 @@ func TestClientMethodCalls(t *testing.T) {
 				qres := _qres.Response
 				if assert.True(t, qres.IsOK()) {
 					assert.Equal(t, k, qres.Key)
-					assert.EqualValues(t, v, qres.Value)
+					assert.Equal(t, v, qres.Value)
 				}
 
 				// make sure we can lookup the tx with proof
 				ptx, err := c.Tx(ctx, bres.Hash, true)
 				require.NoError(t, err)
-				assert.EqualValues(t, txh, ptx.Height)
-				assert.EqualValues(t, tx, ptx.Tx)
+				assert.Equal(t, txh, ptx.Height)
+				assert.Equal(t, tx, ptx.Tx)
 
 				// and we can even check the block is added
 				block, err := c.Block(ctx, &apph)
 				require.NoError(t, err)
 				appHash := block.Block.Header.AppHash
 				assert.True(t, len(appHash) > 0)
-				assert.EqualValues(t, apph, block.Block.Header.Height)
+				assert.Equal(t, apph, block.Block.Header.Height)
 
 				blockByHash, err := c.BlockByHash(ctx, block.BlockID.Hash)
 				require.NoError(t, err)
@@ -371,7 +371,7 @@ func TestClientMethodCalls(t *testing.T) {
 				assert.Equal(t, txh, blockResults.Height)
 				if assert.Equal(t, 1, len(blockResults.TxsResults)) {
 					// check success code
-					assert.EqualValues(t, 0, blockResults.TxsResults[0].Code)
+					assert.Equal(t, 0, blockResults.TxsResults[0].Code)
 				}
 
 				// check blockchain info, now that we know there is info
@@ -380,7 +380,7 @@ func TestClientMethodCalls(t *testing.T) {
 				assert.True(t, info.LastHeight >= apph)
 				if assert.Equal(t, 1, len(info.BlockMetas)) {
 					lastMeta := info.BlockMetas[0]
-					assert.EqualValues(t, apph, lastMeta.Header.Height)
+					assert.Equal(t, apph, lastMeta.Header.Height)
 					blockData := block.Block
 					assert.Equal(t, blockData.Header.AppHash, lastMeta.Header.AppHash)
 					assert.Equal(t, block.BlockID, lastMeta.BlockID)
@@ -457,7 +457,7 @@ func TestClientMethodCalls(t *testing.T) {
 				require.Equal(t, initMempoolSize+1, pool.Size())
 
 				txs := pool.ReapMaxTxs(len(tx))
-				require.EqualValues(t, tx, txs[0])
+				require.Equal(t, tx, txs[0])
 				pool.Flush()
 			})
 			t.Run("CheckTx", func(t *testing.T) {
@@ -548,9 +548,7 @@ func TestClientMethodCalls(t *testing.T) {
 					err = client.WaitForHeight(ctx, c, status.SyncInfo.LatestBlockHeight+2, nil)
 					require.NoError(t, err)
 
-					ed25519pub := pv.Key.PubKey
-					rawpub := ed25519pub.Bytes()
-					result2, err := c.ABCIQuery(ctx, "/val", rawpub)
+					result2, err := c.ABCIQuery(ctx, "/val", pv.Key.PubKey[:])
 					require.NoError(t, err)
 					qres := result2.Response
 					require.True(t, qres.IsOK())
@@ -562,7 +560,7 @@ func TestClientMethodCalls(t *testing.T) {
 					pk, err := encoding.PubKeyFromProto(v.PubKey)
 					require.NoError(t, err)
 
-					require.EqualValues(t, rawpub, pk, "Stored PubKey not equal with expected, value %v", string(qres.Value))
+					require.Equal(t, pv.Key.PubKey, pk, "Stored PubKey not equal with expected, value %v", string(qres.Value))
 					require.Equal(t, int64(9), v.Power, "Stored Power not equal with expected, value %v", string(qres.Value))
 
 					for _, fake := range fakes {
@@ -716,15 +714,15 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 							require.Error(t, err)
 						} else {
 							require.NoError(t, err, "%+v", err)
-							assert.EqualValues(t, txHeight, ptx.Height)
-							assert.EqualValues(t, tx, ptx.Tx)
+							assert.Equal(t, txHeight, ptx.Height)
+							assert.Equal(t, tx, ptx.Tx)
 							assert.Zero(t, ptx.Index)
 							assert.True(t, ptx.TxResult.IsOK())
-							assert.EqualValues(t, txHash, ptx.Hash)
+							assert.Equal(t, txHash, ptx.Hash)
 
 							// time to verify the proof
 							proof := ptx.Proof
-							if tc.prove && assert.EqualValues(t, tx, proof.Data) {
+							if tc.prove && assert.Equal(t, tx, proof.Data) {
 								assert.NoError(t, proof.Proof.Verify(proof.RootHash, txHash))
 							}
 						}
@@ -779,14 +777,14 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 				require.Equal(t, find.Hash, result.Txs[0].Hash)
 
 				ptx := result.Txs[0]
-				assert.EqualValues(t, find.Height, ptx.Height)
-				assert.EqualValues(t, find.Tx, ptx.Tx)
+				assert.Equal(t, find.Height, ptx.Height)
+				assert.Equal(t, find.Tx, ptx.Tx)
 				assert.Zero(t, ptx.Index)
 				assert.True(t, ptx.TxResult.IsOK())
-				assert.EqualValues(t, find.Hash, ptx.Hash)
+				assert.Equal(t, find.Hash, ptx.Hash)
 
 				// time to verify the proof
-				if assert.EqualValues(t, find.Tx, ptx.Proof.Data) {
+				if assert.Equal(t, find.Tx, ptx.Proof.Data) {
 					assert.NoError(t, ptx.Proof.Proof.Verify(ptx.Proof.RootHash, find.Hash))
 				}
 

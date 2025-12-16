@@ -265,7 +265,7 @@ func TestValidateBlockCommit(t *testing.T) {
 		err = badPrivVal.SignVote(ctx, chainID, b)
 		require.NoError(t, err, "height %d", height)
 
-		goodVote.Signature, badVote.Signature = g.Signature, b.Signature
+		goodVote.Signature, badVote.Signature = crypto.Sig(g.Signature), crypto.Sig(b.Signature)
 
 		wrongSigsCommit = &types.Commit{
 			Height:     goodVote.Height,

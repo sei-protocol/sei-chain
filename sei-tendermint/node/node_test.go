@@ -468,10 +468,9 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	assert.NoError(t, err)
 	// now produce more txs than what a normal block can hold with 10 smaller txs
 	// At the end of the test, only the single big tx should be added
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		tx := tmrand.Bytes(10)
-		err = mp.CheckTx(ctx, tx, nil, mempool.TxInfo{})
-		assert.NoError(t, err)
+		assert.NoError(t, mp.CheckTx(ctx, tx, nil, mempool.TxInfo{}))
 	}
 
 	eventBus := eventbus.NewDefault(logger)
@@ -537,7 +536,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 		}
 		vpb := vote.ToProto()
 		require.NoError(t, privVals[i].SignVote(ctx, state.ChainID, vpb))
-		vote.Signature = vpb.Signature
+		vote.Signature = crypto.Sig(vpb.Signature)
 
 		added, err := voteSet.AddVote(vote)
 		require.NoError(t, err)

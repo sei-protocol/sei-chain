@@ -23,6 +23,7 @@ import (
 // is used to distinguish objects of that type.
 type Tagged interface {
 	TypeTag() string
+	Marshal() ([]byte,error)
 }
 
 // registry records the mapping from type tags to value types.

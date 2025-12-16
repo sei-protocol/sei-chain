@@ -62,6 +62,12 @@ func getSignerTestCases(ctx context.Context, t *testing.T, logger log.Logger) []
 	return testCases
 }
 
+func makeSig(data []byte) crypto.Sig {
+	var sig crypto.Sig
+	copy(sig[:], data)
+	return sig
+}
+
 func TestSignerClose(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 
@@ -329,7 +335,7 @@ func TestSignerSignProposalErrors(t *testing.T) {
 				POLRound:  2,
 				BlockID:   types.BlockID{Hash: hash, PartSetHeader: types.PartSetHeader{Hash: hash, Total: 2}},
 				Timestamp: ts,
-				Signature: []byte("signature"),
+				Signature: makeSig([]byte("signature")),
 			}
 
 			err := tc.signerClient.SignProposal(ctx, tc.chainID, proposal.ToProto())
@@ -368,7 +374,7 @@ func TestSignerSignVoteErrors(t *testing.T) {
 				Timestamp:        ts,
 				ValidatorAddress: valAddr,
 				ValidatorIndex:   1,
-				Signature:        []byte("signature"),
+				Signature:        makeSig([]byte("signature")),
 			}
 
 			// Replace signer service privval with one that always fails

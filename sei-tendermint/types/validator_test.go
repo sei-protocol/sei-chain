@@ -65,13 +65,6 @@ func TestValidatorValidateBasic(t *testing.T) {
 			msg: "nil validator",
 		},
 		{
-			val: &Validator{
-				PubKey: nil,
-			},
-			err: true,
-			msg: "validator does not have a public key",
-		},
-		{
 			val: NewValidator(pubKey, -1),
 			err: true,
 			msg: "validator has negative voting power",

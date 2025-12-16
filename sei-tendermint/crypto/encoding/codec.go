@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/jsontypes"
 	cryptoproto "github.com/tendermint/tendermint/proto/tendermint/crypto"
 )
@@ -22,10 +23,7 @@ func PubKeyToProto(k crypto.PubKey) cryptoproto.PublicKey {
 func PubKeyFromProto(k cryptoproto.PublicKey) (crypto.PubKey, error) {
 	switch k := k.Sum.(type) {
 	case *cryptoproto.PublicKey_Ed25519:
-		if got,want:=len(k.Ed25519),len(crypto.PubKey{}); got!=want {
-			return crypto.PubKey{}, fmt.Errorf("invalid size for PubKeyEd25519. Got %d, expected %d",got,want)
-		}
-		return crypto.PubKey(k.Ed25519), nil
+		return ed25519.PubKeyFromBytes(k.Ed25519)
 	default:
 		return crypto.PubKey{}, fmt.Errorf("fromproto: key type %v is not supported", k)
 	}
