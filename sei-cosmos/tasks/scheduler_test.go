@@ -21,12 +21,13 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
 	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
+	"github.com/cosmos/cosmos-sdk/store/multiversion"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/occ"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
 )
 
-type mockDeliverTxFunc func(ctx sdk.Context, req types.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx)
+type mockDeliverTxFunc func(task SchedulerTask[*types.ResponseDeliverTx]) *types.ResponseDeliverTx
 
 var testStoreKey = sdk.NewKVStoreKey("mock")
 var itemKey = []byte("key")
@@ -89,7 +90,7 @@ func TestProcessAll(t *testing.T) {
 		deliverTxFunc mockDeliverTxFunc
 		addStores     bool
 		expectedErr   error
-		assertions    func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx)
+		assertions    func(t *testing.T, ctx sdk.Context, res []*types.ResponseDeliverTx)
 	}{
 		{
 			name:      "Test zero txs does not hang",
@@ -97,10 +98,10 @@ func TestProcessAll(t *testing.T) {
 			runs:      10,
 			addStores: true,
 			requests:  requestList(0),
-			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx) {
+			deliverTxFunc: func(task SchedulerTask[*types.ResponseDeliverTx]) *types.ResponseDeliverTx {
 				panic("should not deliver")
 			},
-			assertions: func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx) {
+			assertions: func(t *testing.T, ctx sdk.Context, res []*types.ResponseDeliverTx) {
 				require.Len(t, res, 0)
 			},
 			expectedErr: nil,
@@ -118,31 +119,33 @@ func TestProcessAll(t *testing.T) {
 					kv.Set([]byte(fmt.Sprintf("%d", i)), []byte(fmt.Sprintf("%d", i)))
 				}
 			},
-			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx) {
-				defer abortRecoveryFunc(&res)
+			deliverTxFunc: func(t SchedulerTask[*types.ResponseDeliverTx]) (res *types.ResponseDeliverTx) {
+				defer abortRecoveryFunc(res)
+				task := t.(*DeliverTxTask)
+				ctx := task.Ctx
 				kv := ctx.MultiStore().GetKVStore(testStoreKey)
 				if ctx.TxIndex()%2 == 0 {
 					// For even-indexed transactions, write to the store
-					kv.Set(req.Tx, req.Tx)
-					return types.ResponseDeliverTx{
+					kv.Set(task.Tx(), task.Tx())
+					return &types.ResponseDeliverTx{
 						Info: "write",
 					}
 				} else {
 					// For odd-indexed transactions, iterate over the store
 
 					// just write so we have more writes going on
-					kv.Set(req.Tx, req.Tx)
+					kv.Set(task.Tx(), task.Tx())
 					iterator := kv.Iterator(nil, nil)
 					defer iterator.Close()
 					for ; iterator.Valid(); iterator.Next() {
 						// Do nothing, just iterate
 					}
-					return types.ResponseDeliverTx{
+					return &types.ResponseDeliverTx{
 						Info: "iterate",
 					}
 				}
 			},
-			assertions: func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx) {
+			assertions: func(t *testing.T, ctx sdk.Context, res []*types.ResponseDeliverTx) {
 				for idx, response := range res {
 					if idx%2 == 0 {
 						require.Equal(t, "write", response.Info)
@@ -159,21 +162,21 @@ func TestProcessAll(t *testing.T) {
 			runs:      10,
 			addStores: true,
 			requests:  requestList(1000),
-			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx) {
-				defer abortRecoveryFunc(&res)
+			deliverTxFunc: func(t SchedulerTask[*types.ResponseDeliverTx]) (res *types.ResponseDeliverTx) {
+				defer abortRecoveryFunc(res)
+				task := t.(*DeliverTxTask)
+				ctx := task.Ctx
 				// all txs read and write to the same key to maximize conflicts
 				kv := ctx.MultiStore().GetKVStore(testStoreKey)
-
-				// write to the store with this tx's index
-				kv.Set(req.Tx, req.Tx)
-				val := string(kv.Get(req.Tx))
+				kv.Set(task.Tx(), task.Tx())
+				val := string(kv.Get(task.Tx()))
 
 				// return what was read from the store (final attempt should be index-1)
-				return types.ResponseDeliverTx{
+				return &types.ResponseDeliverTx{
 					Info: val,
 				}
 			},
-			assertions: func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx) {
+			assertions: func(t *testing.T, ctx sdk.Context, res []*types.ResponseDeliverTx) {
 				for idx, response := range res {
 					require.Equal(t, fmt.Sprintf("%d", idx), response.Info)
 				}
@@ -191,21 +194,23 @@ func TestProcessAll(t *testing.T) {
 			runs:      5,
 			addStores: true,
 			requests:  requestList(1000),
-			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx) {
-				defer abortRecoveryFunc(&res)
+			deliverTxFunc: func(t SchedulerTask[*types.ResponseDeliverTx]) (res *types.ResponseDeliverTx) {
+				defer abortRecoveryFunc(res)
+				task := t.(*DeliverTxTask)
+				ctx := task.Ctx
 				// all txs read and write to the same key to maximize conflicts
 				kv := ctx.MultiStore().GetKVStore(testStoreKey)
 				val := string(kv.Get(itemKey))
 
 				// write to the store with this tx's index
-				kv.Set(itemKey, req.Tx)
+				kv.Set(itemKey, task.Tx())
 
 				// return what was read from the store (final attempt should be index-1)
-				return types.ResponseDeliverTx{
+				return &types.ResponseDeliverTx{
 					Info: val,
 				}
 			},
-			assertions: func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx) {
+			assertions: func(t *testing.T, ctx sdk.Context, res []*types.ResponseDeliverTx) {
 				for idx, response := range res {
 					if idx == 0 {
 						require.Equal(t, "", response.Info)
@@ -227,10 +232,12 @@ func TestProcessAll(t *testing.T) {
 			runs:      1,
 			addStores: true,
 			requests:  requestList(2000),
-			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx) {
-				defer abortRecoveryFunc(&res)
+			deliverTxFunc: func(t SchedulerTask[*types.ResponseDeliverTx]) (res *types.ResponseDeliverTx) {
+				task := t.(*DeliverTxTask)
+				ctx := task.Ctx
+				defer abortRecoveryFunc(res)
 				if ctx.TxIndex()%10 != 0 {
-					return types.ResponseDeliverTx{
+					return &types.ResponseDeliverTx{
 						Info: "none",
 					}
 				}
@@ -239,14 +246,14 @@ func TestProcessAll(t *testing.T) {
 				val := string(kv.Get(itemKey))
 
 				// write to the store with this tx's index
-				kv.Set(itemKey, req.Tx)
+				kv.Set(itemKey, task.Tx())
 
 				// return what was read from the store (final attempt should be index-1)
-				return types.ResponseDeliverTx{
+				return &types.ResponseDeliverTx{
 					Info: val,
 				}
 			},
-			assertions:  func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx) {},
+			assertions:  func(t *testing.T, ctx sdk.Context, res []*types.ResponseDeliverTx) {},
 			expectedErr: nil,
 		},
 		{
@@ -255,13 +262,15 @@ func TestProcessAll(t *testing.T) {
 			runs:      10,
 			addStores: false,
 			requests:  requestList(10),
-			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx) {
-				defer abortRecoveryFunc(&res)
-				return types.ResponseDeliverTx{
+			deliverTxFunc: func(t SchedulerTask[*types.ResponseDeliverTx]) (res *types.ResponseDeliverTx) {
+				defer abortRecoveryFunc(res)
+				task := t.(*DeliverTxTask)
+				ctx := task.Ctx
+				return &types.ResponseDeliverTx{
 					Info: fmt.Sprintf("%d", ctx.TxIndex()),
 				}
 			},
-			assertions: func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx) {
+			assertions: func(t *testing.T, ctx sdk.Context, res []*types.ResponseDeliverTx) {
 				for idx, response := range res {
 					require.Equal(t, fmt.Sprintf("%d", idx), response.Info)
 				}
@@ -274,8 +283,10 @@ func TestProcessAll(t *testing.T) {
 			runs:      1,
 			addStores: true,
 			requests:  requestList(1000),
-			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx) {
-				defer abortRecoveryFunc(&res)
+			deliverTxFunc: func(t SchedulerTask[*types.ResponseDeliverTx]) (res *types.ResponseDeliverTx) {
+				defer abortRecoveryFunc(res)
+				task := t.(*DeliverTxTask)
+				ctx := task.Ctx
 				wait := rand.Intn(10)
 				time.Sleep(time.Duration(wait) * time.Millisecond)
 				// all txs read and write to the same key to maximize conflicts
@@ -287,11 +298,11 @@ func TestProcessAll(t *testing.T) {
 				kv.Set(itemKey, []byte(newVal))
 
 				// return what was read from the store (final attempt should be index-1)
-				return types.ResponseDeliverTx{
+				return &types.ResponseDeliverTx{
 					Info: newVal,
 				}
 			},
-			assertions: func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx) {
+			assertions: func(t *testing.T, ctx sdk.Context, res []*types.ResponseDeliverTx) {
 				expected := ""
 				for idx, response := range res {
 					expected = expected + fmt.Sprintf("%d", idx)
@@ -309,8 +320,10 @@ func TestProcessAll(t *testing.T) {
 			runs:      1,
 			addStores: true,
 			requests:  addTxTracerToTxEntries(requestList(250)),
-			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx) {
-				defer abortRecoveryFunc(&res)
+			deliverTxFunc: func(t SchedulerTask[*types.ResponseDeliverTx]) (res *types.ResponseDeliverTx) {
+				defer abortRecoveryFunc(res)
+				task := t.(*DeliverTxTask)
+				ctx := task.Ctx
 				wait := rand.Intn(10)
 				time.Sleep(time.Duration(wait) * time.Millisecond)
 				// all txs read and write to the same key to maximize conflicts
@@ -326,11 +339,11 @@ func TestProcessAll(t *testing.T) {
 				}
 
 				// return what was read from the store (final attempt should be index-1)
-				return types.ResponseDeliverTx{
+				return &types.ResponseDeliverTx{
 					Info: newVal,
 				}
 			},
-			assertions: func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx) {
+			assertions: func(t *testing.T, ctx sdk.Context, res []*types.ResponseDeliverTx) {
 				expected := ""
 				for idx, response := range res {
 					expected = expected + fmt.Sprintf("%d", idx)
@@ -360,8 +373,9 @@ func TestProcessAll(t *testing.T) {
 					tt.before(ctx)
 				}
 
-				res, err := s.ProcessAll(ctx, tt.requests)
-				require.LessOrEqual(t, s.(*scheduler).maxIncarnation, maximumIterations)
+				tasks := TxEntriesToTasks(ctx, tt.requests)
+				res, stats, err := s.ProcessAll(ctx.Context(), tasks, GetMultiVersionStore(ctx))
+				require.LessOrEqual(t, stats[7], maximumIterations)
 				require.Len(t, res, len(tt.requests))
 
 				if !errors.Is(err, tt.expectedErr) {
@@ -380,6 +394,33 @@ func addTxTracerToTxEntries(txEntries []*sdk.DeliverTxEntry) []*sdk.DeliverTxEnt
 	}
 
 	return txEntries
+}
+
+func TxEntriesToTasks(ctx sdk.Context, entries []*sdk.DeliverTxEntry) []SchedulerTask[*types.ResponseDeliverTx] {
+	allTasks := make([]SchedulerTask[*types.ResponseDeliverTx], 0, len(entries))
+	for _, r := range entries {
+		task := &DeliverTxTask{
+			Ctx:      ctx,
+			Request:  r.Request,
+			SdkTx:    r.SdkTx,
+			Checksum: r.Checksum,
+		}
+		task.SetStatus("pending")
+		task.SetAbsoluteIndex(r.AbsoluteIndex)
+		task.SetDependencies(map[int]struct{}{})
+		task.SetTxTracer(r.TxTracer)
+		allTasks = append(allTasks, task)
+	}
+	return allTasks
+}
+
+func GetMultiVersionStore(ctx sdk.Context) map[string]multiversion.MultiVersionStore {
+	mvs := make(map[string]multiversion.MultiVersionStore)
+	keys := ctx.MultiStore().StoreKeys()
+	for _, sk := range keys {
+		mvs[sk.String()] = multiversion.NewMultiVersionStore(ctx.MultiStore().GetKVStore(sk))
+	}
+	return mvs
 }
 
 var _ sdk.TxTracer = &testTxTracer{}

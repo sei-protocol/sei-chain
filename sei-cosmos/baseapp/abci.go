@@ -15,6 +15,7 @@ import (
 	"github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/codec"
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
+	"github.com/cosmos/cosmos-sdk/store/multiversion"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/tasks"
 	"github.com/cosmos/cosmos-sdk/telemetry"
@@ -176,14 +177,17 @@ func (app *BaseApp) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchReques
 	}
 
 	// avoid overhead for empty batches
-	scheduler := tasks.NewScheduler(app.concurrencyWorkers, app.TracingInfo, app.DeliverTx)
-	txRes, err := scheduler.ProcessAll(ctx, req.TxEntries)
+	scheduler := tasks.NewScheduler(app.concurrencyWorkers, app.TracingInfo, app.Executor)
+	txRes, stats, err := scheduler.ProcessAll(ctx.Context(), TxEntriesToTasks(ctx, req.TxEntries), GetMultiVersionStore(ctx))
 	if err != nil {
 		ctx.Logger().Error("error while processing scheduler", "err", err)
 		panic(err)
 	}
+	logStats := []interface{}{"height", ctx.BlockHeight()}
+	logStats = append(logStats, stats...)
+	ctx.Logger().Info("occ scheduler", logStats...)
 	for _, tx := range txRes {
-		responses = append(responses, &sdk.DeliverTxResult{Response: tx})
+		responses = append(responses, &sdk.DeliverTxResult{Response: *tx})
 	}
 
 	return sdk.DeliverTxBatchResponse{Results: responses}
@@ -1158,4 +1162,37 @@ func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxP
 	return &abci.ResponseGetTxPriorityHint{
 		Priority: priority,
 	}, nil
+}
+
+func (app *BaseApp) Executor(task tasks.SchedulerTask[*abci.ResponseDeliverTx]) *abci.ResponseDeliverTx {
+	typedTask := task.(*tasks.DeliverTxTask)
+	resp := app.DeliverTx(typedTask.Ctx, typedTask.Request, typedTask.SdkTx, typedTask.Checksum)
+	return &resp
+}
+
+func TxEntriesToTasks(ctx sdk.Context, entries []*sdk.DeliverTxEntry) []tasks.SchedulerTask[*abci.ResponseDeliverTx] {
+	allTasks := make([]tasks.SchedulerTask[*abci.ResponseDeliverTx], 0, len(entries))
+	for _, r := range entries {
+		task := &tasks.DeliverTxTask{
+			Ctx:      ctx,
+			Request:  r.Request,
+			SdkTx:    r.SdkTx,
+			Checksum: r.Checksum,
+		}
+		task.SetStatus("pending")
+		task.SetAbsoluteIndex(r.AbsoluteIndex)
+		task.SetDependencies(map[int]struct{}{})
+		task.SetTxTracer(r.TxTracer)
+		allTasks = append(allTasks, task)
+	}
+	return allTasks
+}
+
+func GetMultiVersionStore(ctx sdk.Context) map[string]multiversion.MultiVersionStore {
+	mvs := make(map[string]multiversion.MultiVersionStore)
+	keys := ctx.MultiStore().StoreKeys()
+	for _, sk := range keys {
+		mvs[sk.String()] = multiversion.NewMultiVersionStore(ctx.MultiStore().GetKVStore(sk))
+	}
+	return mvs
 }
