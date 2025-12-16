@@ -230,3 +230,68 @@ func runTest(t *testing.T, tt Test) {
 		assertEqualState(t, sCtx.Ctx, pCtx.Ctx, tt.name)
 	}
 }
+
+// BenchmarkEVMTransactionsMixed benchmarks execution time for a mix of conflicting
+// and non-conflicting EVM transactions that are shuffled together.
+func BenchmarkEVMTransactionsMixed(b *testing.B) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+
+	// Transaction counts
+	conflictingCount := 50
+	nonConflictingCount := 50
+	totalTxCount := conflictingCount + nonConflictingCount
+
+	b.Logf("Benchmark setup: %d conflicting + %d non-conflicting = %d total EVM transactions",
+		conflictingCount, nonConflictingCount, totalTxCount)
+
+	b.ResetTimer()
+
+	var totalGasUsed int64
+	var totalTimedDuration time.Duration
+
+	// Run the benchmark
+	for i := 0; i < b.N; i++ {
+		// Create a fresh context and prepare transactions (outside timer)
+		b.StopTimer()
+		iterCtx := utils.NewTestContext(b, accts, blockTime, config.DefaultConcurrencyWorkers, true)
+
+		// Generate transactions for this iteration using the fresh context
+		conflictingTxs := messages.EVMTransferConflicting(iterCtx, conflictingCount)
+		nonConflictingTxs := messages.EVMTransferNonConflicting(iterCtx, nonConflictingCount)
+
+		mixedTxs := utils.JoinMsgs(conflictingTxs, nonConflictingTxs)
+		mixedTxs = utils.Shuffle(mixedTxs)
+
+		txs := utils.ToTxBytes(iterCtx, mixedTxs)
+		b.StartTimer()
+
+		// Only measure ProcessBlock execution time
+		startTime := time.Now()
+		_, txResults, _, err := utils.ProcessBlockDirect(iterCtx, txs, true)
+		timedDuration := time.Since(startTime)
+		totalTimedDuration += timedDuration
+
+		if err != nil {
+			b.Fatalf("ProcessBlock returned error (unexpected): %v", err)
+		}
+		if len(txResults) != len(txs) {
+			b.Fatalf("Expected %d transaction results, got %d", len(txs), len(txResults))
+		}
+
+		// Sum gas used from all transaction results
+		for _, result := range txResults {
+			totalGasUsed += result.GasUsed
+		}
+	}
+
+	// Report metrics
+	b.ReportMetric(float64(totalTxCount), "txns/op")
+	avgGasPerOp := float64(totalGasUsed) / float64(b.N)
+	b.ReportMetric(avgGasPerOp, "gas/op")
+
+	// Calculate and report gas per second
+	avgTimeSeconds := totalTimedDuration.Seconds() / float64(b.N)
+	gasPerSecond := avgGasPerOp / avgTimeSeconds
+	b.ReportMetric(gasPerSecond, "gas/sec")
+}
