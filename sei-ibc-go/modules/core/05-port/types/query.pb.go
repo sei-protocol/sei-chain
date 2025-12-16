@@ -6,9 +6,9 @@ package types
 import (
 	context "context"
 	fmt "fmt"
-	types "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	grpc1 "github.com/gogo/protobuf/grpc"
 	proto "github.com/gogo/protobuf/proto"
+	types "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
