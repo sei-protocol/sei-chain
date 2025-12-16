@@ -7,9 +7,9 @@ import (
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	tmtypes "github.com/tendermint/tendermint/types"
 
-	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	commitmenttypes "github.com/cosmos/ibc-go/v3/modules/core/23-commitment/types"
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
+	commitmenttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/23-commitment/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
 // SentinelRoot is used as a stand-in root value for the consensus state set at the upgrade height
@@ -38,6 +38,7 @@ func (cs ConsensusState) GetRoot() exported.Root {
 
 // GetTimestamp returns block time in nanoseconds of the header that created consensus state
 func (cs ConsensusState) GetTimestamp() uint64 {
+	// #nosec G115 --- checked at state population.
 	return uint64(cs.Timestamp.UnixNano())
 }
 

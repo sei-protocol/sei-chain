@@ -7,9 +7,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	abci "github.com/tendermint/tendermint/abci/types"
 
-	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	commitmenttypes "github.com/cosmos/ibc-go/v3/modules/core/23-commitment/types"
-	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
+	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
+	commitmenttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/23-commitment/types"
+	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 )
 
 // QueryTendermintProof performs an ABCI query with the given key and returns
@@ -62,6 +62,10 @@ func QueryTendermintProof(clientCtx client.Context, key []byte) ([]byte, []byte,
 		return nil, nil, clienttypes.Height{}, err
 	}
 
+	if res.Height < 0 {
+		return nil, nil, clienttypes.Height{}, fmt.Errorf("response height %d is negative", res.Height)
+	}
+
 	revision := clienttypes.ParseChainID(clientCtx.ChainID)
-	return res.Value, proofBz, clienttypes.NewHeight(revision, uint64(res.Height)+1), nil
+	return res.Value, proofBz, clienttypes.NewHeight(revision, uint64(res.Height)+1), nil // #nosec G115 --- overflow checked above
 }

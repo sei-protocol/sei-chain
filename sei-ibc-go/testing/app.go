@@ -13,8 +13,8 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/ibc-go/v3/modules/core/keeper"
-	"github.com/cosmos/ibc-go/v3/testing/simapp"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/simapp"
 )
 
 var DefaultTestingAppInit func() (TestingApp, map[string]json.RawMessage) = SetupTestingApp

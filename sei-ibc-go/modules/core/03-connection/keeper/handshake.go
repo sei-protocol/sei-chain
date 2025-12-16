@@ -8,10 +8,10 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/gogo/protobuf/proto"
 
-	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	"github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
-	commitmenttypes "github.com/cosmos/ibc-go/v3/modules/core/23-commitment/types"
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
+	commitmenttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/23-commitment/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
 // ConnOpenInit initialises a connection attempt on chain A. The generated connection identifier
@@ -94,15 +94,15 @@ func (k Keeper) ConnOpenTry(
 		// Check that existing connection versions for initialized connection is equal to compatible
 		// versions for this chain.
 		// ensure that existing connection's delay period is the same as desired delay period.
-		if !(previousConnection.Counterparty.ConnectionId == "" &&
-			bytes.Equal(previousConnection.Counterparty.Prefix.Bytes(), counterparty.Prefix.Bytes()) &&
-			previousConnection.ClientId == clientID &&
-			previousConnection.Counterparty.ClientId == counterparty.ClientId &&
-			previousConnection.DelayPeriod == delayPeriod) {
+		if previousConnection.Counterparty.ConnectionId != "" ||
+			!bytes.Equal(previousConnection.Counterparty.Prefix.Bytes(), counterparty.Prefix.Bytes()) ||
+			previousConnection.ClientId != clientID ||
+			previousConnection.Counterparty.ClientId != counterparty.ClientId ||
+			previousConnection.DelayPeriod != delayPeriod {
 			return "", sdkerrors.Wrap(types.ErrInvalidConnection, "connection fields mismatch previous connection fields")
 		}
 
-		if !(previousConnection.State == types.INIT) {
+		if previousConnection.State != types.INIT {
 			return "", sdkerrors.Wrapf(types.ErrInvalidConnectionState, "previous connection state is in state %s, expected INIT", previousConnection.State)
 		}
 

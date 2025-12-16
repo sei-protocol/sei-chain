@@ -5,7 +5,7 @@ import (
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
 var (

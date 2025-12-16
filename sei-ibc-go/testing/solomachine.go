@@ -1,6 +1,7 @@
 package ibctesting
 
 import (
+	"math"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -12,11 +13,11 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	"github.com/stretchr/testify/require"
 
-	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	commitmenttypes "github.com/cosmos/ibc-go/v3/modules/core/23-commitment/types"
-	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
-	solomachinetypes "github.com/cosmos/ibc-go/v3/modules/light-clients/06-solomachine/types"
+	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
+	commitmenttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/23-commitment/types"
+	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
+	solomachinetypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/06-solomachine/types"
 )
 
 // Solomachine is a testing helper used to simulate a counterparty
@@ -63,6 +64,7 @@ func NewSolomachine(t *testing.T, cdc codec.BinaryCodec, clientID, diversifier s
 // public key.
 func GenerateKeys(t *testing.T, n uint64) ([]cryptotypes.PrivKey, []cryptotypes.PubKey, cryptotypes.PubKey) {
 	require.NotEqual(t, uint64(0), n, "generation of zero keys is not allowed")
+	require.Less(t, n, uint64(math.MaxInt))
 
 	privKeys := make([]cryptotypes.PrivKey, n)
 	pubKeys := make([]cryptotypes.PubKey, n)
@@ -74,7 +76,7 @@ func GenerateKeys(t *testing.T, n uint64) ([]cryptotypes.PrivKey, []cryptotypes.
 	var pk cryptotypes.PubKey
 	if len(privKeys) > 1 {
 		// generate multi sig pk
-		pk = kmultisig.NewLegacyAminoPubKey(int(n), pubKeys)
+		pk = kmultisig.NewLegacyAminoPubKey(int(n), pubKeys) // #nosec G115 --- checked on top
 	} else {
 		pk = privKeys[0].PubKey()
 	}

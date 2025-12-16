@@ -1,7 +1,7 @@
 package keeper
 
 import (
-	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 )
 
 // UnmarshalDenomTrace attempts to decode and return an DenomTrace object from

@@ -9,8 +9,8 @@ import (
 	tmprotostate "github.com/tendermint/tendermint/proto/tendermint/state"
 	tmstate "github.com/tendermint/tendermint/state"
 
-	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
-	ibctesting "github.com/cosmos/ibc-go/v3/testing"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
+	ibctesting "github.com/sei-protocol/sei-chain/sei-ibc-go/testing"
 )
 
 const (

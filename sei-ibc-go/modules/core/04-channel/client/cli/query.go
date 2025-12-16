@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -9,9 +10,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/ibc-go/v3/modules/core/04-channel/client/utils"
-	"github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
-	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/client/utils"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
+	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 )
 
 const (
@@ -347,7 +348,7 @@ The return value represents:
 
 			seqs := make([]uint64, len(seqSlice))
 			for i := range seqSlice {
-				seqs[i] = uint64(seqSlice[i])
+				seqs[i] = uint64(seqSlice[i]) // #nosec G115 -- will hit cli limits first.
 			}
 
 			req := &types.QueryUnreceivedPacketsRequest{
@@ -397,7 +398,7 @@ The return value represents:
 
 			seqs := make([]uint64, len(seqSlice))
 			for i := range seqSlice {
-				seqs[i] = uint64(seqSlice[i])
+				seqs[i] = uint64(seqSlice[i]) // #nosec G115 -- will hit cli limits first.
 			}
 
 			req := &types.QueryUnreceivedAcksRequest{
@@ -445,6 +446,10 @@ func GetCmdQueryNextSequenceReceive() *cobra.Command {
 				return err
 			}
 
+			if sequenceRes.ProofHeight.RevisionHeight > math.MaxInt64 {
+				return fmt.Errorf("proof height revision %d exceeds max int64", sequenceRes.ProofHeight.RevisionHeight)
+			}
+			// #nosec G115 -- revision height is bounds checked above
 			clientCtx = clientCtx.WithHeight(int64(sequenceRes.ProofHeight.RevisionHeight))
 			return clientCtx.PrintProto(sequenceRes)
 		},

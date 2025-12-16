@@ -3,9 +3,9 @@ package client
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	"github.com/cosmos/ibc-go/v3/modules/core/02-client/keeper"
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
-	ibctmtypes "github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/keeper"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
+	ibctmtypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/07-tendermint/types"
 )
 
 // BeginBlocker updates an existing localhost client with the latest block height.
@@ -26,7 +26,9 @@ func BeginBlocker(ctx sdk.Context, k keeper.Keeper) {
 			}
 			bz := k.MustMarshalConsensusState(upgradedConsState)
 
-			k.SetUpgradedConsensusState(ctx, plan.Height, bz)
+			if err := k.SetUpgradedConsensusState(ctx, plan.Height, bz); err != nil {
+				panic(err)
+			}
 		}
 	}
 

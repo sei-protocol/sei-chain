@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/testutil"
-	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
+	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 
 	bam "github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -37,7 +37,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	ibcclient "github.com/cosmos/ibc-go/v3/modules/core/02-client"
+	ibcclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"

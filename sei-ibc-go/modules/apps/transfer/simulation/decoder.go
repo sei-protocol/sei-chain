@@ -6,7 +6,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/types/kv"
 
-	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 )
 
 // TransferUnmarshaler defines the expected encoding store functions.

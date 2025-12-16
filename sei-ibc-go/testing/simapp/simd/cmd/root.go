@@ -32,8 +32,8 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/cosmos/ibc-go/v3/testing/simapp"
-	"github.com/cosmos/ibc-go/v3/testing/simapp/params"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/simapp"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/simapp/params"
 )
 
 // NewRootCmd creates a new root command for simd. It is called once in the

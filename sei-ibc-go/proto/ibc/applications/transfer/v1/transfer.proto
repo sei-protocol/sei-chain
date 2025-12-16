@@ -4,7 +4,7 @@ package ibc.applications.transfer.v1;
 
 import "gogoproto/gogo.proto";
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/apps/transfer/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types";
 
 // DenomTrace contains the base denomination for ICS20 fungible tokens and the
 // source tracing information path.

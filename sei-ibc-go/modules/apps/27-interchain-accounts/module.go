@@ -15,16 +15,16 @@ import (
 	"github.com/spf13/cobra"
 	abci "github.com/tendermint/tendermint/abci/types"
 
-	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/client/cli"
-	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/controller"
-	controllerkeeper "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/controller/keeper"
-	controllertypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/controller/types"
-	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/host"
-	hostkeeper "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/host/keeper"
-	hosttypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/host/types"
-	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
-	porttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
-	ibchost "github.com/cosmos/ibc-go/v3/modules/core/24-host"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/client/cli"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/controller"
+	controllerkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/controller/keeper"
+	controllertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/controller/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/host"
+	hostkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/host/keeper"
+	hosttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/host/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/types"
+	porttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/05-port/types"
+	ibchost "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 )
 
 var (

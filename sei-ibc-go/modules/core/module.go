@@ -17,16 +17,16 @@ import (
 	"github.com/spf13/cobra"
 	abci "github.com/tendermint/tendermint/abci/types"
 
-	ibcclient "github.com/cosmos/ibc-go/v3/modules/core/02-client"
-	clientkeeper "github.com/cosmos/ibc-go/v3/modules/core/02-client/keeper"
-	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
-	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
-	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
-	"github.com/cosmos/ibc-go/v3/modules/core/client/cli"
-	"github.com/cosmos/ibc-go/v3/modules/core/keeper"
-	"github.com/cosmos/ibc-go/v3/modules/core/simulation"
-	"github.com/cosmos/ibc-go/v3/modules/core/types"
+	ibcclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
+	clientkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/keeper"
+	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
+	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
+	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
+	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/client/cli"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/simulation"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
 )
 
 var (
@@ -79,9 +79,15 @@ func (AppModuleBasic) RegisterRESTRoutes(client.Context, *mux.Router) {}
 
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the ibc module.
 func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {
-	clienttypes.RegisterQueryHandlerClient(context.Background(), mux, clienttypes.NewQueryClient(clientCtx))
-	connectiontypes.RegisterQueryHandlerClient(context.Background(), mux, connectiontypes.NewQueryClient(clientCtx))
-	channeltypes.RegisterQueryHandlerClient(context.Background(), mux, channeltypes.NewQueryClient(clientCtx))
+	if err := clienttypes.RegisterQueryHandlerClient(context.Background(), mux, clienttypes.NewQueryClient(clientCtx)); err != nil {
+		panic(err)
+	}
+	if err := connectiontypes.RegisterQueryHandlerClient(context.Background(), mux, connectiontypes.NewQueryClient(clientCtx)); err != nil {
+		panic(err)
+	}
+	if err := channeltypes.RegisterQueryHandlerClient(context.Background(), mux, channeltypes.NewQueryClient(clientCtx)); err != nil {
+		panic(err)
+	}
 }
 
 // GetTxCmd returns the root tx command for the ibc module.
@@ -148,7 +154,9 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterQueryService(cfg.QueryServer(), am.keeper)
 
 	m := clientkeeper.NewMigrator(am.keeper.ClientKeeper)
-	cfg.RegisterMigration(host.ModuleName, 1, m.Migrate1to2)
+	if err := cfg.RegisterMigration(host.ModuleName, 1, m.Migrate1to2); err != nil {
+		panic(err)
+	}
 }
 
 // InitGenesis performs genesis initialization for the ibc module. It returns

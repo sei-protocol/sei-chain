@@ -8,9 +8,9 @@ import (
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 
-	"github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	ibctmtypes "github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types"
-	ibctesting "github.com/cosmos/ibc-go/v3/testing"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
+	ibctmtypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/07-tendermint/types"
+	ibctesting "github.com/sei-protocol/sei-chain/sei-ibc-go/testing"
 )
 
 func (suite *TypesTestSuite) TestValidateBasic() {
