@@ -178,7 +178,7 @@ func (suite *KeeperTestSuite) TestValidateSelfClient() {
 		},
 		{
 			"frozen client",
-			&ibctmtypes.ClientState{suite.chainA.ChainID, ibctmtypes.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, testClientHeight, testClientHeight, commitmenttypes.GetSDKSpecs(), ibctesting.UpgradePath, false, false},
+			&ibctmtypes.ClientState{ChainId: suite.chainA.ChainID, TrustLevel: ibctmtypes.DefaultTrustLevel, TrustingPeriod: trustingPeriod, UnbondingPeriod: ubdPeriod, MaxClockDrift: maxClockDrift, FrozenHeight: testClientHeight, LatestHeight: testClientHeight, ProofSpecs: commitmenttypes.GetSDKSpecs(), UpgradePath: ibctesting.UpgradePath},
 			false,
 		},
 		{
@@ -203,7 +203,7 @@ func (suite *KeeperTestSuite) TestValidateSelfClient() {
 		},
 		{
 			"invalid trust level",
-			ibctmtypes.NewClientState(suite.chainA.ChainID, ibctmtypes.Fraction{0, 1}, trustingPeriod, ubdPeriod, maxClockDrift, testClientHeight, commitmenttypes.GetSDKSpecs(), ibctesting.UpgradePath, false, false),
+			ibctmtypes.NewClientState(suite.chainA.ChainID, ibctmtypes.Fraction{Denominator: 1}, trustingPeriod, ubdPeriod, maxClockDrift, testClientHeight, commitmenttypes.GetSDKSpecs(), ibctesting.UpgradePath, false, false),
 			false,
 		},
 		{
@@ -233,7 +233,7 @@ func (suite *KeeperTestSuite) TestValidateSelfClient() {
 	}
 }
 
-func (suite KeeperTestSuite) TestGetAllGenesisClients() {
+func (suite *KeeperTestSuite) TestGetAllGenesisClients() {
 	clientIDs := []string{
 		testClientID2, testClientID3, testClientID,
 	}
@@ -260,7 +260,7 @@ func (suite KeeperTestSuite) TestGetAllGenesisClients() {
 	suite.Require().Equal(expGenClients.Sort(), genClients)
 }
 
-func (suite KeeperTestSuite) TestGetAllGenesisMetadata() {
+func (suite *KeeperTestSuite) TestGetAllGenesisMetadata() {
 	expectedGenMetadata := []types.IdentifiedGenesisMetadata{
 		types.NewIdentifiedGenesisMetadata(
 			"07-tendermint-1",
@@ -291,7 +291,7 @@ func (suite KeeperTestSuite) TestGetAllGenesisMetadata() {
 	suite.Require().Equal(expectedGenMetadata, actualGenMetadata, "retrieved metadata is unexpected")
 }
 
-func (suite KeeperTestSuite) TestGetConsensusState() {
+func (suite *KeeperTestSuite) TestGetConsensusState() {
 	suite.ctx = suite.ctx.WithBlockHeight(10)
 	cases := []struct {
 		name    string
@@ -317,7 +317,7 @@ func (suite KeeperTestSuite) TestGetConsensusState() {
 	}
 }
 
-func (suite KeeperTestSuite) TestConsensusStateHelpers() {
+func (suite *KeeperTestSuite) TestConsensusStateHelpers() {
 	// initial setup
 	clientState := ibctmtypes.NewClientState(testChainID, ibctmtypes.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, testClientHeight, commitmenttypes.GetSDKSpecs(), ibctesting.UpgradePath, false, false)
 
@@ -343,7 +343,7 @@ func (suite KeeperTestSuite) TestConsensusStateHelpers() {
 
 // 2 clients in total are created on chainA. The first client is updated so it contains an initial consensus state
 // and a consensus state at the update height.
-func (suite KeeperTestSuite) TestGetAllConsensusStates() {
+func (suite *KeeperTestSuite) TestGetAllConsensusStates() {
 	path := ibctesting.NewPath(suite.chainA, suite.chainB)
 	suite.coordinator.SetupClients(path)
 

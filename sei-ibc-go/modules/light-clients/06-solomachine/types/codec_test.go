@@ -8,7 +8,7 @@ import (
 	ibctesting "github.com/sei-protocol/sei-chain/sei-ibc-go/testing"
 )
 
-func (suite SoloMachineTestSuite) TestUnmarshalDataByType() {
+func (suite *SoloMachineTestSuite) TestUnmarshalDataByType() {
 	var (
 		data []byte
 		err  error

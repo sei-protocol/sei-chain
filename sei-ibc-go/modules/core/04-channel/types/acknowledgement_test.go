@@ -3,7 +3,7 @@ package types_test
 import "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 
 // tests acknowledgement.ValidateBasic and acknowledgement.GetBytes
-func (suite TypesTestSuite) TestAcknowledgement() {
+func (suite *TypesTestSuite) TestAcknowledgement() {
 	testCases := []struct {
 		name       string
 		ack        types.Acknowledgement
