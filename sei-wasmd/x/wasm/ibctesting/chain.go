@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -39,8 +40,8 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 	tmversion "github.com/tendermint/tendermint/version"
 
-	wasmd "github.com/CosmWasm/wasmd/app"
-	"github.com/CosmWasm/wasmd/x/wasm"
+	wasmd "github.com/sei-protocol/sei-chain/sei-wasmd/app"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 )
 
 // TestChain is a testing struct that wraps a simapp with the last TM Header, the current ABCI
@@ -204,15 +205,18 @@ func (chain *TestChain) QueryProofAtHeight(key []byte, height int64) ([]byte, cl
 	// proof height + 1 is returned as the proof created corresponds to the height the proof
 	// was created in the IAVL tree. Tendermint and subsequently the clients that rely on it
 	// have heights 1 above the IAVL tree. Thus we return proof height + 1
+	require.Greater(chain.t, res.Height, int64(0))
+	// #nosec G115 -- checked above.
 	return proof, clienttypes.NewHeight(revision, uint64(res.Height)+1)
 }
 
 // QueryUpgradeProof performs an abci query with the given key and returns the proto encoded merkle proof
 // for the query and the height at which the proof will succeed on a tendermint verifier.
 func (chain *TestChain) QueryUpgradeProof(key []byte, height uint64) ([]byte, clienttypes.Height) {
+	require.Less(chain.t, height, math.MaxInt64)
 	res, _ := chain.App.Query(context.Background(), &abci.RequestQuery{
 		Path:   "store/upgrade/key",
-		Height: int64(height - 1),
+		Height: int64(height - 1), // #nosec G115 -- checked above.
 		Data:   key,
 		Prove:  true,
 	})
@@ -228,6 +232,8 @@ func (chain *TestChain) QueryUpgradeProof(key []byte, height uint64) ([]byte, cl
 	// proof height + 1 is returned as the proof created corresponds to the height the proof
 	// was created in the IAVL tree. Tendermint and subsequently the clients that rely on it
 	// have heights 1 above the IAVL tree. Thus we return proof height + 1
+	require.Greater(chain.t, res.Height, int64(0))
+	// #nosec G115 -- checked above.
 	return proof, clienttypes.NewHeight(revision, uint64(res.Height+1))
 }
 
@@ -265,7 +271,7 @@ func (chain *TestChain) NextBlock() {
 	}
 
 	wasmApp := chain.App.(*TestingAppDecorator).WasmApp
-	wasmApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+	_, err := wasmApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 		Height:  chain.App.LastBlockHeight() + 1,
 		Time:    chain.CurrentHeader.Time,
 		AppHash: chain.CurrentHeader.AppHash,
@@ -273,6 +279,7 @@ func (chain *TestChain) NextBlock() {
 		ValidatorsHash:     chain.Vals.Hash(),
 		NextValidatorsHash: chain.Vals.Hash(),
 	})
+	require.NoError(chain.t, err)
 	// wasmApp.BeginBlock(wasmApp.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: chain.CurrentHeader})
 }
 
@@ -411,6 +418,8 @@ func (chain *TestChain) ConstructUpdateTMClientHeaderWithTrustedHeight(counterpa
 		// since the last trusted validators for a header at height h
 		// is the NextValidators at h+1 committed to in header h by
 		// NextValidatorsHash
+		require.Less(chain.t, trustedHeight.RevisionHeight+1, math.MaxInt64)
+		// #nosec G115 -- checked above
 		tmTrustedVals, ok = counterparty.GetValsAtHeight(int64(trustedHeight.RevisionHeight + 1))
 		if !ok {
 			return nil, sdkerrors.Wrapf(ibctmtypes.ErrInvalidHeaderHeight, "could not retrieve trusted validators at trustedHeight: %d", trustedHeight)
@@ -471,6 +480,7 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 	hhash := tmHeader.Hash()
 	blockID := MakeBlockID(hhash, 3, tmhash.Sum([]byte("part_set")))
 	voteSet := tmtypes.NewVoteSet(chainID, blockHeight, 1, tmproto.PrecommitType, tmValSet)
+	require.LessOrEqual(chain.t, len(tmValSet.Validators), math.MaxInt32, "validator set size exceeds max int32")
 	for i, val := range tmValSet.Validators {
 		privVal := signers[i]
 		vote := &tmtypes.Vote{
@@ -480,13 +490,14 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 			BlockID:          blockID,
 			Timestamp:        timestamp,
 			ValidatorAddress: val.Address,
-			ValidatorIndex:   int32(i),
+			ValidatorIndex:   int32(i), // #nosec G115 -- validator set size is checked above
 		}
 		v := vote.ToProto()
 		err := privVal.SignVote(context.Background(), chainID, v)
 		require.NoError(chain.t, err)
 		vote.Signature = v.Signature
-		voteSet.AddVote(vote)
+		_, err = voteSet.AddVote(vote)
+		require.NoError(chain.t, err)
 	}
 
 	commit := voteSet.MakeCommit()
@@ -497,15 +508,11 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 	}
 
 	valSet, err := tmValSet.ToProto()
-	if err != nil {
-		panic(err)
-	}
+	require.NoError(chain.t, err)
 
 	if tmTrustedVals != nil {
 		trustedVals, err = tmTrustedVals.ToProto()
-		if err != nil {
-			panic(err)
-		}
+		require.NoError(chain.t, err)
 	}
 
 	// The trusted fields may be nil. They may be filled before relaying messages to a client.
@@ -569,7 +576,8 @@ func (chain *TestChain) CreatePortCapability(scopedKeeper capabilitykeeper.Scope
 
 	wasmApp := chain.App.(*TestingAppDecorator).WasmApp
 	wasmApp.SetDeliverStateToCommit()
-	chain.App.Commit(context.Background())
+	_, err := chain.App.Commit(context.Background())
+	require.NoError(chain.t, err)
 
 	chain.NextBlock()
 }
@@ -600,7 +608,8 @@ func (chain *TestChain) CreateChannelCapability(scopedKeeper capabilitykeeper.Sc
 
 	wasmApp := chain.App.(*TestingAppDecorator).WasmApp
 	wasmApp.SetDeliverStateToCommit()
-	chain.App.Commit(context.Background())
+	_, err := chain.App.Commit(context.Background())
+	require.NoError(chain.t, err)
 
 	chain.NextBlock()
 }

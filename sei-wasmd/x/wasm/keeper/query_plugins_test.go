@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/CosmWasm/wasmd/x/wasm/keeper/wasmtesting"
-	"github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper/wasmtesting"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 func TestIBCQuerier(t *testing.T) {

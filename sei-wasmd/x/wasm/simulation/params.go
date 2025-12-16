@@ -8,7 +8,7 @@ import (
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/cosmos/cosmos-sdk/x/simulation"
 
-	"github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 func ParamChanges(r *rand.Rand, cdc codec.Codec) []simtypes.ParamChange {
@@ -32,7 +32,7 @@ func ParamChanges(r *rand.Rand, cdc codec.Codec) []simtypes.ParamChange {
 }
 
 func RandomParams(r *rand.Rand) types.Params {
-	permissionType := types.AccessType(simtypes.RandIntBetween(r, 1, 3))
+	permissionType := types.AccessType(simtypes.RandIntBetween(r, 1, 3)) // #nosec G115
 	account, _ := simtypes.RandomAcc(r, simtypes.RandomAccounts(r, 10))
 	accessConfig := permissionType.With(account.Address)
 	return types.Params{

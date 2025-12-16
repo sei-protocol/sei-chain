@@ -6,10 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
+	"path/filepath"
 	"strings"
 
-	wasmd "github.com/CosmWasm/wasmd/app"
+	wasmd "github.com/sei-protocol/sei-chain/sei-wasmd/app"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/golang/protobuf/proto" //nolint
@@ -17,7 +18,7 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/rand"
 
-	"github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 var wasmIdent = []byte("\x00\x61\x73\x6D")
@@ -36,7 +37,7 @@ func (chain *TestChain) SeedNewContractInstance() sdk.AccAddress {
 }
 
 func (chain *TestChain) StoreCodeFile(filename string) types.MsgStoreCodeResponse {
-	wasmCode, err := ioutil.ReadFile(filename)
+	wasmCode, err := os.ReadFile(filepath.Clean(filename))
 	require.NoError(chain.t, err)
 	if strings.HasSuffix(filename, "wasm") { // compress for gas limit
 		var buf bytes.Buffer

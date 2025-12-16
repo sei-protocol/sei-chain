@@ -1,8 +1,9 @@
 package simulation
 
 import (
-	"io/ioutil"
 	"math/rand"
+	"os"
+	"path/filepath"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -11,8 +12,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/simulation"
 	seiappparams "github.com/sei-protocol/sei-chain/app/params"
 
-	"github.com/CosmWasm/wasmd/app/params"
-	"github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/app/params"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 // Simulation operation weights constants
@@ -61,7 +62,7 @@ func WeightedOperations(
 		},
 	)
 
-	wasmBz, err := ioutil.ReadFile(wasmContractPath)
+	wasmBz, err := os.ReadFile(filepath.Clean(wasmContractPath))
 	if err != nil {
 		panic(err)
 	}

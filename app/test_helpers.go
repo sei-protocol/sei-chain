@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CosmWasm/wasmd/x/wasm"
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/client"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ss"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
+	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/stretchr/testify/suite"
 	"github.com/tendermint/tendermint/config"
 

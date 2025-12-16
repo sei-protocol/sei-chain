@@ -8,7 +8,7 @@ import (
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 
-	"github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 // Messenger is an extension point for custom wasmd message handling

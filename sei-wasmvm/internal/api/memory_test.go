@@ -63,15 +63,15 @@ func TestCreateAndDestroyUnmanagedVector(t *testing.T) {
 func TestCopyDestroyUnmanagedVector(t *testing.T) {
 	{
 		// ptr, cap and len broken. Do not access those values when is_none is true
-		invalid_ptr := makeInvalidPointer()
-		uv := constructUnmanagedVector(cbool(true), cu8_ptr(invalid_ptr), cusize(0xBB), cusize(0xAA))
+		invalidPtr := makeInvalidPointer()
+		uv := constructUnmanagedVector(cbool(true), cu8_ptr(invalidPtr), cusize(0xBB), cusize(0xAA))
 		copy := copyAndDestroyUnmanagedVector(uv)
 		require.Nil(t, copy)
 	}
 	{
 		// Capacity is 0, so no allocation happened. Do not access the pointer.
-		invalid_ptr := makeInvalidPointer()
-		uv := constructUnmanagedVector(cbool(false), cu8_ptr(invalid_ptr), cusize(0), cusize(0))
+		invalidPtr := makeInvalidPointer()
+		uv := constructUnmanagedVector(cbool(false), cu8_ptr(invalidPtr), cusize(0), cusize(0))
 		copy := copyAndDestroyUnmanagedVector(uv)
 		require.Equal(t, []byte{}, copy)
 	}
