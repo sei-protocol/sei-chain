@@ -13,7 +13,6 @@ coverage:
           - "!sei-ibc-go/**"
           - "!sei-tendermint/**"
           - "!sei-wasmd/**"
-          - "!sei-wasmvm/**"
         flags:
           - sei-chain
       sei-cosmos:

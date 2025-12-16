@@ -16,7 +16,6 @@ RUN mkdir -p /go/lib && \
     cp /tmp/wasmvm-libs/libwasmvm.${ARCH_SUFFIX}.so /go/lib/
 
 COPY go.* ./
-COPY sei-wasmvm/go.* ./sei-wasmvm/
 COPY sei-wasmd/go.* ./sei-wasmd/
 COPY sei-cosmos/go.* ./sei-cosmos/
 COPY sei-tendermint/go.* ./sei-tendermint/

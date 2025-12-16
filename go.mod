@@ -5,7 +5,6 @@ go 1.24.5
 require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/CosmWasm/wasmd v0.27.0
-	github.com/CosmWasm/wasmvm v1.5.4
 	github.com/alitto/pond v1.8.3
 	github.com/armon/go-metrics v0.4.1
 	github.com/aws/aws-sdk-go v1.44.327
@@ -22,6 +21,7 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.5.1
 	github.com/golang/protobuf v1.5.4
 	github.com/golangci/golangci-lint v1.46.0
+	github.com/google/btree v1.1.3
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0
@@ -180,7 +180,6 @@ require (
 	github.com/golangci/misspell v0.3.5 // indirect
 	github.com/golangci/revgrep v0.0.0-20210930125155-c22e5001d4f2 // indirect
 	github.com/golangci/unconvert v0.0.0-20180507085042-28b1c447d1f4 // indirect
-	github.com/google/btree v1.1.3 // indirect
 	github.com/google/flatbuffers v23.5.26+incompatible // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
@@ -344,7 +343,6 @@ require (
 
 replace (
 	github.com/CosmWasm/wasmd => ./sei-wasmd
-	github.com/CosmWasm/wasmvm => ./sei-wasmvm
 	github.com/btcsuite/btcd => github.com/btcsuite/btcd v0.23.2
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
 	github.com/cosmos/cosmos-sdk => ./sei-cosmos

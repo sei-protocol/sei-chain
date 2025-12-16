@@ -11,8 +11,8 @@ import (
 
 	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 
-	wasmvm "github.com/CosmWasm/wasmvm"
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
+	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
+	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"

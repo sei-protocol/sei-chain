@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/CosmWasm/wasmvm/internal/api"
-	"github.com/CosmWasm/wasmvm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmvm/internal/api"
+	"github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 
 // VM is the main entry point to this library.
@@ -565,7 +565,7 @@ func (vm *VM) IBCPacketTimeout(
 func DeserializeResponse(gasLimit uint64, deserCost types.UFraction, gasReport *types.GasReport, data []byte, response any) error {
 	gasForDeserialization := deserCost.Mul(uint64(len(data))).Floor()
 	if gasLimit < gasForDeserialization+gasReport.UsedInternally {
-		return fmt.Errorf("Insufficient gas left to deserialize contract execution result (%d bytes)", len(data))
+		return fmt.Errorf("insufficient gas left to deserialize contract execution result (%d bytes)", len(data))
 	}
 	gasReport.UsedInternally += gasForDeserialization
 	gasReport.Remaining -= gasForDeserialization
