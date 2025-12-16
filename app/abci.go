@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/tasks"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -179,14 +180,17 @@ func (app *App) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchRequest) (
 	}
 
 	// avoid overhead for empty batches
-	scheduler := tasks.NewScheduler(app.ConcurrencyWorkers(), app.TracingInfo, app.DeliverTx)
-	txRes, err := scheduler.ProcessAll(ctx, req.TxEntries)
+	scheduler := tasks.NewScheduler(app.ConcurrencyWorkers(), app.TracingInfo, app.Executor)
+	txRes, stats, err := scheduler.ProcessAll(ctx.Context(), baseapp.TxEntriesToTasks(ctx, req.TxEntries), baseapp.GetMultiVersionStore(ctx))
 	if err != nil {
 		ctx.Logger().Error("error while processing scheduler", "err", err)
 		panic(err)
 	}
+	logStats := []interface{}{"height", ctx.BlockHeight()}
+	logStats = append(logStats, stats...)
+	ctx.Logger().Info("occ scheduler", logStats...)
 	for _, tx := range txRes {
-		responses = append(responses, &sdk.DeliverTxResult{Response: tx})
+		responses = append(responses, &sdk.DeliverTxResult{Response: *tx})
 	}
 
 	return sdk.DeliverTxBatchResponse{Results: responses}

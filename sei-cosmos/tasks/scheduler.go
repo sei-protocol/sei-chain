@@ -40,73 +40,205 @@ const (
 	maximumIterations = 10
 )
 
-type deliverTxTask struct {
+var _ SchedulerTask[*types.ResponseDeliverTx] = (*DeliverTxTask)(nil)
+
+type DeliverTxTask struct {
 	Ctx     sdk.Context
-	AbortCh chan occ.Abort
+	abortCh chan occ.Abort
 
 	mx            sync.RWMutex
-	Status        status
-	Dependencies  map[int]struct{}
+	status        status
+	dependencies  map[int]struct{}
 	Abort         *occ.Abort
-	Incarnation   int
+	incarnation   int
 	Request       types.RequestDeliverTxV2
 	SdkTx         sdk.Tx
 	Checksum      [32]byte
-	AbsoluteIndex int
-	Response      *types.ResponseDeliverTx
-	VersionStores map[sdk.StoreKey]*multiversion.VersionIndexedStore
-	TxTracer      sdk.TxTracer
+	absoluteIndex int
+	response      *types.ResponseDeliverTx
+	versionStores map[string]*multiversion.VersionIndexedStore
+	txTracer      sdk.TxTracer
 }
 
 // AppendDependencies appends the given indexes to the task's dependencies
-func (dt *deliverTxTask) AppendDependencies(deps []int) {
+func (dt *DeliverTxTask) AppendDependencies(deps []int) {
 	dt.mx.Lock()
 	defer dt.mx.Unlock()
 	for _, taskIdx := range deps {
-		dt.Dependencies[taskIdx] = struct{}{}
+		dt.dependencies[taskIdx] = struct{}{}
 	}
 }
 
-func (dt *deliverTxTask) IsStatus(s status) bool {
+func (dt *DeliverTxTask) IsStatus(s status) bool {
 	dt.mx.RLock()
 	defer dt.mx.RUnlock()
-	return dt.Status == s
+	return dt.status == s
 }
 
-func (dt *deliverTxTask) SetStatus(s status) {
+func (dt *DeliverTxTask) SetStatus(s status) {
 	dt.mx.Lock()
 	defer dt.mx.Unlock()
-	dt.Status = s
+	dt.status = s
 }
 
-func (dt *deliverTxTask) Reset() {
-	dt.SetStatus(statusPending)
-	dt.Response = nil
-	dt.Abort = nil
-	dt.AbortCh = nil
-	dt.VersionStores = nil
+func (dt *DeliverTxTask) Status() status {
+	return dt.status
+}
 
-	if dt.TxTracer != nil {
-		dt.TxTracer.Reset()
+func (dt *DeliverTxTask) Reset() {
+	dt.SetStatus(statusPending)
+	dt.response = nil
+	dt.Abort = nil
+	dt.abortCh = nil
+	dt.versionStores = nil
+
+	if dt.txTracer != nil {
+		dt.txTracer.Reset()
 	}
 }
 
-func (dt *deliverTxTask) Increment() {
-	dt.Incarnation++
+func (dt *DeliverTxTask) Increment() {
+	dt.incarnation++
 }
+
+func (dt *DeliverTxTask) Prepare(mvs map[string]multiversion.MultiVersionStore) {
+	ctx := dt.Ctx.WithTxIndex(dt.absoluteIndex)
+
+	// initialize the context
+	abortCh := make(chan occ.Abort, len(mvs))
+
+	// if there are no stores, don't try to wrap, because there's nothing to wrap
+	if len(mvs) > 0 {
+		// non-blocking
+		cms := ctx.MultiStore().CacheMultiStore()
+
+		// init version stores by store key
+		vs := make(map[string]*multiversion.VersionIndexedStore)
+		for storeKey, mvs := range mvs {
+			vs[storeKey] = mvs.VersionedIndexedStore(dt.absoluteIndex, dt.incarnation, abortCh)
+		}
+
+		// save off version store so we can ask it things later
+		dt.versionStores = vs
+		ms := cms.SetKVStores(func(k store.StoreKey, kvs sdk.KVStore) store.CacheWrap {
+			return vs[k.String()]
+		})
+
+		ctx = ctx.WithMultiStore(ms)
+	}
+
+	if dt.txTracer != nil {
+		ctx = dt.txTracer.InjectInContext(ctx)
+	}
+
+	dt.abortCh = abortCh
+	dt.Ctx = ctx
+}
+
+func (dt *DeliverTxTask) AbortCh() chan occ.Abort {
+	return dt.abortCh
+}
+
+func (dt *DeliverTxTask) SetAbort(abort *occ.Abort) {
+	dt.Abort = abort
+}
+
+func (dt *DeliverTxTask) VersionStores() map[string]*multiversion.VersionIndexedStore {
+	return dt.versionStores
+}
+
+func (dt *DeliverTxTask) SetResponse(response *types.ResponseDeliverTx) {
+	dt.response = response
+}
+
+func (dt *DeliverTxTask) TxTracer() sdk.TxTracer {
+	return dt.txTracer
+}
+
+func (dt *DeliverTxTask) SetTxTracer(txTracer sdk.TxTracer) {
+	dt.txTracer = txTracer
+}
+
+func (dt *DeliverTxTask) Tx() []byte {
+	return dt.Request.Tx
+}
+
+func (dt *DeliverTxTask) AbsoluteIndex() int {
+	return dt.absoluteIndex
+}
+
+func (dt *DeliverTxTask) SetAbsoluteIndex(absoluteIndex int) {
+	dt.absoluteIndex = absoluteIndex
+}
+
+func (dt *DeliverTxTask) Incarnation() int {
+	return dt.incarnation
+}
+
+func (dt *DeliverTxTask) Response() *types.ResponseDeliverTx {
+	return dt.response
+}
+
+func (dt *DeliverTxTask) Dependencies() map[int]struct{} {
+	return dt.dependencies
+}
+
+func (dt *DeliverTxTask) SetDependencies(dependencies map[int]struct{}) {
+	dt.dependencies = dependencies
+}
+
+func (dt *DeliverTxTask) SetTracerCtx(ctx context.Context) {
+	dt.Ctx = dt.Ctx.WithContext(ctx)
+}
+
+func (dt *DeliverTxTask) TracerCtx() context.Context {
+	return dt.Ctx.Context()
+}
+
+type Stats []interface{}
 
 // Scheduler processes tasks concurrently
-type Scheduler interface {
-	ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]types.ResponseDeliverTx, error)
+type Scheduler[Response any] interface {
+	ProcessAll(
+		ctx context.Context,
+		tasks []SchedulerTask[Response],
+		mvs map[string]multiversion.MultiVersionStore,
+	) ([]Response, Stats, error)
 }
 
-type scheduler struct {
-	deliverTx          func(ctx sdk.Context, req types.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx)
+type SchedulerTask[Response any] interface {
+	Tx() []byte
+	AbsoluteIndex() int
+	Incarnation() int
+	Response() Response
+	IsStatus(status) bool
+	Status() status
+	TracerCtx() context.Context
+	SetTracerCtx(context.Context)
+	Reset()
+	Increment()
+	Prepare(map[string]multiversion.MultiVersionStore)
+	AbortCh() chan occ.Abort
+	SetAbort(*occ.Abort)
+	AppendDependencies(deps []int)
+	Dependencies() map[int]struct{}
+	SetStatus(s status)
+	VersionStores() map[string]*multiversion.VersionIndexedStore
+	SetResponse(Response)
+
+	TxTracer() sdk.TxTracer // to be deprecated
+}
+
+var _ Scheduler[any] = (*scheduler[any])(nil)
+
+type scheduler[Response any] struct {
+	// deliverTx          func(ctx sdk.Context, req types.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx)
+	executor           func(SchedulerTask[Response]) Response
 	workers            int
-	multiVersionStores map[sdk.StoreKey]multiversion.MultiVersionStore
+	multiVersionStores map[string]multiversion.MultiVersionStore
 	tracingInfo        *tracing.Info
-	allTasksMap        map[int]*deliverTxTask
-	allTasks           []*deliverTxTask
+	allTasksMap        map[int]SchedulerTask[Response]
+	allTasks           []SchedulerTask[Response]
 	executeCh          chan func()
 	validateCh         chan func()
 	metrics            *schedulerMetrics
@@ -115,20 +247,20 @@ type scheduler struct {
 }
 
 // NewScheduler creates a new scheduler
-func NewScheduler(workers int, tracingInfo *tracing.Info, deliverTxFunc func(ctx sdk.Context, req types.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx)) Scheduler {
-	return &scheduler{
+func NewScheduler[Response any](workers int, tracingInfo *tracing.Info, executor func(SchedulerTask[Response]) Response) Scheduler[Response] {
+	return &scheduler[Response]{
 		workers:     workers,
-		deliverTx:   deliverTxFunc,
+		executor:    executor,
 		tracingInfo: tracingInfo,
 		metrics:     &schedulerMetrics{},
 	}
 }
 
-func (s *scheduler) invalidateTask(task *deliverTxTask) {
+func (s *scheduler[Response]) invalidateTask(task SchedulerTask[Response]) {
 	for _, mv := range s.multiVersionStores {
-		mv.InvalidateWriteset(task.AbsoluteIndex, task.Incarnation)
-		mv.ClearReadset(task.AbsoluteIndex)
-		mv.ClearIterateset(task.AbsoluteIndex)
+		mv.InvalidateWriteset(task.AbsoluteIndex(), task.Incarnation())
+		mv.ClearReadset(task.AbsoluteIndex())
+		mv.ClearIterateset(task.AbsoluteIndex())
 	}
 }
 
@@ -147,7 +279,7 @@ func start(ctx context.Context, ch chan func(), workers int) {
 	}
 }
 
-func (s *scheduler) DoValidate(work func()) {
+func (s *scheduler[Response]) DoValidate(work func()) {
 	if s.synchronous {
 		work()
 		return
@@ -155,7 +287,7 @@ func (s *scheduler) DoValidate(work func()) {
 	s.validateCh <- work
 }
 
-func (s *scheduler) DoExecute(work func()) {
+func (s *scheduler[Response]) DoExecute(work func()) {
 	if s.synchronous {
 		work()
 		return
@@ -163,12 +295,12 @@ func (s *scheduler) DoExecute(work func()) {
 	s.executeCh <- work
 }
 
-func (s *scheduler) findConflicts(task *deliverTxTask) (bool, []int) {
+func (s *scheduler[Response]) findConflicts(task SchedulerTask[Response]) (bool, []int) {
 	var conflicts []int
 	uniq := make(map[int]struct{})
 	valid := true
 	for _, mv := range s.multiVersionStores {
-		ok, mvConflicts := mv.ValidateTransactionState(task.AbsoluteIndex)
+		ok, mvConflicts := mv.ValidateTransactionState(task.AbsoluteIndex())
 		for _, c := range mvConflicts {
 			if _, ok := uniq[c]; !ok {
 				conflicts = append(conflicts, c)
@@ -182,51 +314,31 @@ func (s *scheduler) findConflicts(task *deliverTxTask) (bool, []int) {
 	return valid, conflicts
 }
 
-func toTasks(reqs []*sdk.DeliverTxEntry) ([]*deliverTxTask, map[int]*deliverTxTask) {
-	tasksMap := make(map[int]*deliverTxTask)
-	allTasks := make([]*deliverTxTask, 0, len(reqs))
-	for _, r := range reqs {
-		task := &deliverTxTask{
-			Request:       r.Request,
-			SdkTx:         r.SdkTx,
-			Checksum:      r.Checksum,
-			AbsoluteIndex: r.AbsoluteIndex,
-			Status:        statusPending,
-			Dependencies:  map[int]struct{}{},
-			TxTracer:      r.TxTracer,
-		}
-
-		tasksMap[r.AbsoluteIndex] = task
-		allTasks = append(allTasks, task)
-	}
-	return allTasks, tasksMap
-}
-
-func (s *scheduler) collectResponses(tasks []*deliverTxTask) []types.ResponseDeliverTx {
-	res := make([]types.ResponseDeliverTx, 0, len(tasks))
+func (s *scheduler[Response]) collectResponses(tasks []SchedulerTask[Response]) []Response {
+	res := make([]Response, 0, len(tasks))
 	for _, t := range tasks {
-		res = append(res, *t.Response)
+		res = append(res, t.Response())
 
 		if t.TxTracer != nil {
-			t.TxTracer.Commit()
+			t.TxTracer().Commit()
 		}
 	}
 	return res
 }
 
-func (s *scheduler) tryInitMultiVersionStore(ctx sdk.Context) {
+func (s *scheduler[Response]) tryInitMultiVersionStore(ctx sdk.Context) {
 	if s.multiVersionStores != nil {
 		return
 	}
-	mvs := make(map[sdk.StoreKey]multiversion.MultiVersionStore)
+	mvs := make(map[string]multiversion.MultiVersionStore)
 	keys := ctx.MultiStore().StoreKeys()
 	for _, sk := range keys {
-		mvs[sk] = multiversion.NewMultiVersionStore(ctx.MultiStore().GetKVStore(sk))
+		mvs[sk.String()] = multiversion.NewMultiVersionStore(ctx.MultiStore().GetKVStore(sk))
 	}
 	s.multiVersionStores = mvs
 }
 
-func dependenciesValidated(tasksMap map[int]*deliverTxTask, deps map[int]struct{}) bool {
+func dependenciesValidated[Response any](tasksMap map[int]SchedulerTask[Response], deps map[int]struct{}) bool {
 	for i := range deps {
 		// because idx contains absoluteIndices, we need to fetch from map
 		task := tasksMap[i]
@@ -237,17 +349,7 @@ func dependenciesValidated(tasksMap map[int]*deliverTxTask, deps map[int]struct{
 	return true
 }
 
-func filterTasks(tasks []*deliverTxTask, filter func(*deliverTxTask) bool) []*deliverTxTask {
-	var res []*deliverTxTask
-	for _, t := range tasks {
-		if filter(t) {
-			res = append(res, t)
-		}
-	}
-	return res
-}
-
-func allValidated(tasks []*deliverTxTask) bool {
+func allValidated[Response any](tasks []SchedulerTask[Response]) bool {
 	for _, t := range tasks {
 		if !t.IsStatus(statusValidated) {
 			return false
@@ -264,19 +366,25 @@ type schedulerMetrics struct {
 	retries int
 }
 
-func (s *scheduler) emitMetrics() {
+func (s *scheduler[Response]) emitMetrics() {
 	telemetry.IncrCounter(float32(s.metrics.retries), "scheduler", "retries")
 	telemetry.IncrCounter(float32(s.metrics.maxIncarnation), "scheduler", "incarnations")
 }
 
-func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]types.ResponseDeliverTx, error) {
+func (s *scheduler[Response]) ProcessAll(
+	ctx context.Context,
+	tasks []SchedulerTask[Response],
+	mvs map[string]multiversion.MultiVersionStore,
+) ([]Response, Stats, error) {
 	startTime := time.Now()
 	var iterations int
 	// initialize mutli-version stores if they haven't been initialized yet
-	s.tryInitMultiVersionStore(ctx)
-	tasks, tasksMap := toTasks(reqs)
+	s.multiVersionStores = mvs
 	s.allTasks = tasks
-	s.allTasksMap = tasksMap
+	s.allTasksMap = make(map[int]SchedulerTask[Response], len(tasks))
+	for _, t := range tasks {
+		s.allTasksMap[t.AbsoluteIndex()] = t
+	}
 	s.executeCh = make(chan func(), len(tasks))
 	s.validateCh = make(chan func(), len(tasks))
 	defer s.emitMetrics()
@@ -287,7 +395,7 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 		workers = len(tasks)
 	}
 
-	workerCtx, cancel := context.WithCancel(ctx.Context())
+	workerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	// execution tasks are limited by workers
@@ -311,7 +419,7 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 
 		// execute sets statuses of tasks to either executed or aborted
 		if err := s.executeAll(ctx, toExecute); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		// validate returns any that should be re-executed
@@ -319,7 +427,7 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 		var err error
 		toExecute, err = s.validateAll(ctx, tasks)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		// these are retries which apply to metrics
 		s.metrics.retries += len(toExecute)
@@ -331,13 +439,18 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 	}
 	s.metrics.maxIncarnation = s.maxIncarnation
 
-	ctx.Logger().Info("occ scheduler", "height", ctx.BlockHeight(), "txs", len(tasks), "latency_ms", time.Since(startTime).Milliseconds(), "retries", s.metrics.retries, "maxIncarnation", s.maxIncarnation, "iterations", iterations, "sync", s.synchronous, "workers", s.workers)
-
-	return s.collectResponses(tasks), nil
+	return s.collectResponses(tasks), Stats{
+		"txs", len(tasks),
+		"latency_ms", time.Since(startTime).Milliseconds(),
+		"retries", s.metrics.retries,
+		"maxIncarnation", s.maxIncarnation,
+		"iterations", iterations,
+		"sync", s.synchronous,
+		"workers", s.workers}, nil
 }
 
-func (s *scheduler) shouldRerun(task *deliverTxTask) bool {
-	switch task.Status {
+func (s *scheduler[Response]) shouldRerun(task SchedulerTask[Response]) bool {
+	switch task.Status() {
 
 	case statusAborted, statusPending:
 		return true
@@ -352,7 +465,7 @@ func (s *scheduler) shouldRerun(task *deliverTxTask) bool {
 			task.AppendDependencies(conflicts)
 
 			// if the conflicts are now validated, then rerun this task
-			if dependenciesValidated(s.allTasksMap, task.Dependencies) {
+			if dependenciesValidated(s.allTasksMap, task.Dependencies()) {
 				return true
 			} else {
 				// otherwise, wait for completion
@@ -369,12 +482,12 @@ func (s *scheduler) shouldRerun(task *deliverTxTask) bool {
 
 	case statusWaiting:
 		// if conflicts are done, then this task is ready to run again
-		return dependenciesValidated(s.allTasksMap, task.Dependencies)
+		return dependenciesValidated(s.allTasksMap, task.Dependencies())
 	}
-	panic("unexpected status: " + task.Status)
+	panic("unexpected status: " + task.Status())
 }
 
-func (s *scheduler) validateTask(ctx sdk.Context, task *deliverTxTask) bool {
+func (s *scheduler[Response]) validateTask(ctx context.Context, task SchedulerTask[Response]) bool {
 	_, span := s.traceSpan(ctx, "SchedulerValidate", task)
 	defer span.End()
 
@@ -384,21 +497,21 @@ func (s *scheduler) validateTask(ctx sdk.Context, task *deliverTxTask) bool {
 	return true
 }
 
-func (s *scheduler) findFirstNonValidated() (int, bool) {
+func (s *scheduler[Response]) findFirstNonValidated() (int, bool) {
 	for i, t := range s.allTasks {
-		if t.Status != statusValidated {
+		if t.Status() != statusValidated {
 			return i, true
 		}
 	}
 	return 0, false
 }
 
-func (s *scheduler) validateAll(ctx sdk.Context, tasks []*deliverTxTask) ([]*deliverTxTask, error) {
+func (s *scheduler[Response]) validateAll(ctx context.Context, tasks []SchedulerTask[Response]) ([]SchedulerTask[Response], error) {
 	ctx, span := s.traceSpan(ctx, "SchedulerValidateAll", nil)
 	defer span.End()
 
 	var mx sync.Mutex
-	var res []*deliverTxTask
+	var res []SchedulerTask[Response]
 
 	startIdx, anyLeft := s.findFirstNonValidated()
 
@@ -418,8 +531,8 @@ func (s *scheduler) validateAll(ctx sdk.Context, tasks []*deliverTxTask) ([]*del
 				t.Reset()
 				t.Increment()
 				// update max incarnation for scheduler
-				if t.Incarnation > s.maxIncarnation {
-					s.maxIncarnation = t.Incarnation
+				if t.Incarnation() > s.maxIncarnation {
+					s.maxIncarnation = t.Incarnation()
 				}
 				res = append(res, t)
 			}
@@ -431,7 +544,7 @@ func (s *scheduler) validateAll(ctx sdk.Context, tasks []*deliverTxTask) ([]*del
 }
 
 // ExecuteAll executes all tasks concurrently
-func (s *scheduler) executeAll(ctx sdk.Context, tasks []*deliverTxTask) error {
+func (s *scheduler[Response]) executeAll(ctx context.Context, tasks []SchedulerTask[Response]) error {
 	if len(tasks) == 0 {
 		return nil
 	}
@@ -456,68 +569,29 @@ func (s *scheduler) executeAll(ctx sdk.Context, tasks []*deliverTxTask) error {
 	return nil
 }
 
-func (s *scheduler) prepareAndRunTask(wg *sync.WaitGroup, ctx sdk.Context, task *deliverTxTask) {
+func (s *scheduler[Response]) prepareAndRunTask(wg *sync.WaitGroup, ctx context.Context, task SchedulerTask[Response]) {
 	eCtx, eSpan := s.traceSpan(ctx, "SchedulerExecute", task)
 	defer eSpan.End()
 
-	task.Ctx = eCtx
+	task.SetTracerCtx(eCtx)
 	s.executeTask(task)
 	wg.Done()
 }
 
-func (s *scheduler) traceSpan(ctx sdk.Context, name string, task *deliverTxTask) (sdk.Context, trace.Span) {
-	spanCtx, span := s.tracingInfo.StartWithContext(name, ctx.TraceSpanContext())
+func (s *scheduler[Response]) traceSpan(ctx context.Context, name string, task SchedulerTask[Response]) (context.Context, trace.Span) {
+	spanCtx, span := s.tracingInfo.StartWithContext(name, ctx)
 	if task != nil {
-		span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", sha256.Sum256(task.Request.Tx))))
-		span.SetAttributes(attribute.Int("absoluteIndex", task.AbsoluteIndex))
-		span.SetAttributes(attribute.Int("txIncarnation", task.Incarnation))
+		span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", sha256.Sum256(task.Tx()))))
+		span.SetAttributes(attribute.Int("absoluteIndex", task.AbsoluteIndex()))
+		span.SetAttributes(attribute.Int("txIncarnation", task.Incarnation()))
 	}
-	ctx = ctx.WithTraceSpanContext(spanCtx)
-	return ctx, span
+	return spanCtx, span
 }
 
-// prepareTask initializes the context and version stores for a task
-func (s *scheduler) prepareTask(task *deliverTxTask) {
-	ctx := task.Ctx.WithTxIndex(task.AbsoluteIndex)
-
-	_, span := s.traceSpan(ctx, "SchedulerPrepare", task)
-	defer span.End()
-
-	// initialize the context
-	abortCh := make(chan occ.Abort, len(s.multiVersionStores))
-
-	// if there are no stores, don't try to wrap, because there's nothing to wrap
-	if len(s.multiVersionStores) > 0 {
-		// non-blocking
-		cms := ctx.MultiStore().CacheMultiStore()
-
-		// init version stores by store key
-		vs := make(map[store.StoreKey]*multiversion.VersionIndexedStore)
-		for storeKey, mvs := range s.multiVersionStores {
-			vs[storeKey] = mvs.VersionedIndexedStore(task.AbsoluteIndex, task.Incarnation, abortCh)
-		}
-
-		// save off version store so we can ask it things later
-		task.VersionStores = vs
-		ms := cms.SetKVStores(func(k store.StoreKey, kvs sdk.KVStore) store.CacheWrap {
-			return vs[k]
-		})
-
-		ctx = ctx.WithMultiStore(ms)
-	}
-
-	if task.TxTracer != nil {
-		ctx = task.TxTracer.InjectInContext(ctx)
-	}
-
-	task.AbortCh = abortCh
-	task.Ctx = ctx
-}
-
-func (s *scheduler) executeTask(task *deliverTxTask) {
-	dCtx, dSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask", task)
+func (s *scheduler[Response]) executeTask(task SchedulerTask[Response]) {
+	dCtx, dSpan := s.traceSpan(task.TracerCtx(), "SchedulerExecuteTask", task)
 	defer dSpan.End()
-	task.Ctx = dCtx
+	task.SetTracerCtx(dCtx)
 
 	// in the synchronous case, we only want to re-execute tasks that need re-executing
 	if s.synchronous {
@@ -535,29 +609,29 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 		}
 	}
 
-	s.prepareTask(task)
+	task.Prepare(s.multiVersionStores)
 
-	resp := s.deliverTx(task.Ctx, task.Request, task.SdkTx, task.Checksum)
+	resp := s.executor(task)
 	// close the abort channel
-	close(task.AbortCh)
-	abort, ok := <-task.AbortCh
+	close(task.AbortCh())
+	abort, ok := <-task.AbortCh()
 	if ok {
 		// if there is an abort item that means we need to wait on the dependent tx
 		task.SetStatus(statusAborted)
-		task.Abort = &abort
+		task.SetAbort(&abort)
 		task.AppendDependencies([]int{abort.DependentTxIdx})
 		// write from version store to multiversion stores
-		for _, v := range task.VersionStores {
+		for _, v := range task.VersionStores() {
 			v.WriteEstimatesToMultiVersionStore()
 		}
 		return
 	}
 
 	task.SetStatus(statusExecuted)
-	task.Response = &resp
+	task.SetResponse(resp)
 
 	// write from version store to multiversion stores
-	for _, v := range task.VersionStores {
+	for _, v := range task.VersionStores() {
 		v.WriteToMultiVersionStore()
 	}
 }
