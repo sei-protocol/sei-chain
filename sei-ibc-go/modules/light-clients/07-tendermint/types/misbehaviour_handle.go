@@ -9,8 +9,8 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	tmtypes "github.com/tendermint/tendermint/types"
 
-	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
 // CheckMisbehaviourAndUpdateState determines whether or not two conflicting
@@ -37,11 +37,11 @@ func (cs ClientState) CheckMisbehaviourAndUpdateState(
 	// if heights are equal check that this is valid misbehaviour of a fork
 	// otherwise if heights are unequal check that this is valid misbehavior of BFT time violation
 	if tmMisbehaviour.Header1.GetHeight().EQ(tmMisbehaviour.Header2.GetHeight()) {
-		blockID1, err := tmtypes.BlockIDFromProto(&tmMisbehaviour.Header1.SignedHeader.Commit.BlockID)
+		blockID1, err := tmtypes.BlockIDFromProto(&tmMisbehaviour.Header1.Commit.BlockID)
 		if err != nil {
 			return nil, sdkerrors.Wrap(err, "invalid block ID from header 1 in misbehaviour")
 		}
-		blockID2, err := tmtypes.BlockIDFromProto(&tmMisbehaviour.Header2.SignedHeader.Commit.BlockID)
+		blockID2, err := tmtypes.BlockIDFromProto(&tmMisbehaviour.Header2.Commit.BlockID)
 		if err != nil {
 			return nil, sdkerrors.Wrap(err, "invalid block ID from header 2 in misbehaviour")
 		}
@@ -53,7 +53,7 @@ func (cs ClientState) CheckMisbehaviourAndUpdateState(
 	} else {
 		// Header1 is at greater height than Header2, therefore Header1 time must be less than or equal to
 		// Header2 time in order to be valid misbehaviour (violation of monotonic time).
-		if tmMisbehaviour.Header1.SignedHeader.Header.Time.After(tmMisbehaviour.Header2.SignedHeader.Header.Time) {
+		if tmMisbehaviour.Header1.Header.Time.After(tmMisbehaviour.Header2.Header.Time) {
 			return nil, sdkerrors.Wrap(clienttypes.ErrInvalidMisbehaviour, "headers are not at same height and are monotonically increasing")
 		}
 	}

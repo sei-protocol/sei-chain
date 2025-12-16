@@ -6,8 +6,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/server"
 	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
 
-	"github.com/cosmos/ibc-go/v3/testing/simapp"
-	"github.com/cosmos/ibc-go/v3/testing/simapp/simd/cmd"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/simapp"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/simapp/simd/cmd"
 )
 
 func main() {

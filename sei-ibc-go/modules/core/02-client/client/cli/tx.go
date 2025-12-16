@@ -2,7 +2,8 @@ package cli
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -16,8 +17,8 @@ import (
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
 // NewCreateClientCmd defines the command to create a new IBC light client.
@@ -43,7 +44,7 @@ func NewCreateClientCmd() *cobra.Command {
 			if err := cdc.UnmarshalInterfaceJSON([]byte(clientContentOrFileName), &clientState); err != nil {
 
 				// check for file path if JSON input is not provided
-				contents, err := ioutil.ReadFile(clientContentOrFileName)
+				contents, err := os.ReadFile(filepath.Clean(clientContentOrFileName))
 				if err != nil {
 					return fmt.Errorf("neither JSON input nor path to .json file for client state were provided: %w", err)
 				}
@@ -59,7 +60,7 @@ func NewCreateClientCmd() *cobra.Command {
 			if err := cdc.UnmarshalInterfaceJSON([]byte(consensusContentOrFileName), &consensusState); err != nil {
 
 				// check for file path if JSON input is not provided
-				contents, err := ioutil.ReadFile(consensusContentOrFileName)
+				contents, err := os.ReadFile(filepath.Clean(consensusContentOrFileName))
 				if err != nil {
 					return fmt.Errorf("neither JSON input nor path to .json file for consensus state were provided: %w", err)
 				}
@@ -105,7 +106,7 @@ func NewUpdateClientCmd() *cobra.Command {
 			if err := cdc.UnmarshalInterfaceJSON([]byte(headerContentOrFileName), &header); err != nil {
 
 				// check for file path if JSON input is not provided
-				contents, err := ioutil.ReadFile(headerContentOrFileName)
+				contents, err := os.ReadFile(filepath.Clean(headerContentOrFileName))
 				if err != nil {
 					return fmt.Errorf("neither JSON input nor path to .json file for header were provided: %w", err)
 				}
@@ -146,7 +147,7 @@ func NewSubmitMisbehaviourCmd() *cobra.Command {
 			if err := cdc.UnmarshalInterfaceJSON([]byte(misbehaviourContentOrFileName), &misbehaviour); err != nil {
 
 				// check for file path if JSON input is not provided
-				contents, err := ioutil.ReadFile(misbehaviourContentOrFileName)
+				contents, err := os.ReadFile(filepath.Clean(misbehaviourContentOrFileName))
 				if err != nil {
 					return fmt.Errorf("neither JSON input nor path to .json file for misbehaviour were provided: %w", err)
 				}
@@ -190,7 +191,7 @@ func NewUpgradeClientCmd() *cobra.Command {
 			if err := cdc.UnmarshalInterfaceJSON([]byte(clientContentOrFileName), &clientState); err != nil {
 
 				// check for file path if JSON input is not provided
-				contents, err := ioutil.ReadFile(clientContentOrFileName)
+				contents, err := os.ReadFile(filepath.Clean(clientContentOrFileName))
 				if err != nil {
 					return fmt.Errorf("neither JSON input nor path to .json file for client state were provided: %w", err)
 				}
@@ -206,7 +207,7 @@ func NewUpgradeClientCmd() *cobra.Command {
 			if err := cdc.UnmarshalInterfaceJSON([]byte(consensusContentOrFileName), &consensusState); err != nil {
 
 				// check for file path if JSON input is not provided
-				contents, err := ioutil.ReadFile(consensusContentOrFileName)
+				contents, err := os.ReadFile(filepath.Clean(consensusContentOrFileName))
 				if err != nil {
 					return fmt.Errorf("neither JSON input nor path to .json file for consensus state were provided: %w", err)
 				}
@@ -347,7 +348,7 @@ func NewCmdSubmitUpgradeProposal() *cobra.Command {
 			if err := cdc.UnmarshalInterfaceJSON([]byte(clientContentOrFileName), &clientState); err != nil {
 
 				// check for file path if JSON input is not provided
-				contents, err := ioutil.ReadFile(clientContentOrFileName)
+				contents, err := os.ReadFile(filepath.Clean(clientContentOrFileName))
 				if err != nil {
 					return fmt.Errorf("neither JSON input nor path to .json file for client state were provided: %w", err)
 				}

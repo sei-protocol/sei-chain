@@ -2,15 +2,16 @@ package cli
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/ibc-go/v3/modules/core/03-connection/client/utils"
-	"github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
-	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/client/utils"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
+	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 )
 
 // GetCmdQueryConnections defines the command to query all the connection ends
@@ -73,7 +74,10 @@ func GetCmdQueryConnection() *cobra.Command {
 			if err != nil {
 				return err
 			}
-
+			if connRes.ProofHeight.RevisionHeight > math.MaxInt64 {
+				return fmt.Errorf("proof height revision %d exceeds max int64", connRes.ProofHeight.RevisionHeight)
+			}
+			// #nosec G115 -- revision height is bounds checked above
 			clientCtx = clientCtx.WithHeight(int64(connRes.ProofHeight.RevisionHeight))
 			return clientCtx.PrintProto(connRes)
 		},
@@ -105,7 +109,10 @@ func GetCmdQueryClientConnections() *cobra.Command {
 			if err != nil {
 				return err
 			}
-
+			if connPathsRes.ProofHeight.RevisionHeight > math.MaxInt64 {
+				return fmt.Errorf("proof height revision %d exceeds max int64", connPathsRes.ProofHeight.RevisionHeight)
+			}
+			// #nosec G115 -- revision height is bounds checked above
 			clientCtx = clientCtx.WithHeight(int64(connPathsRes.ProofHeight.RevisionHeight))
 			return clientCtx.PrintProto(connPathsRes)
 		},

@@ -4,8 +4,8 @@ import (
 	"github.com/gogo/protobuf/grpc"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
-	"github.com/cosmos/ibc-go/v3/modules/core/client/cli"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/05-port/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/client/cli"
 )
 
 // Name returns the IBC port ICS name.

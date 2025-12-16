@@ -1,6 +1,6 @@
 package keeper_test
 
-import "github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
+import "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 
 func (suite *KeeperTestSuite) TestParams() {
 	expParams := types.DefaultParams()

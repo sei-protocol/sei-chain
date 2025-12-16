@@ -22,8 +22,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/upgrade"
 	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 
-	ibcclient "github.com/cosmos/ibc-go/v3/modules/core/02-client"
-	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
+	ibcclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
+	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 	epochmodulekeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
