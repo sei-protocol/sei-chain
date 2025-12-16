@@ -308,6 +308,7 @@ func (txmp *TxMempool) CheckTx(
 	defer txmp.mtx.RUnlock()
 
 	if txSize := len(tx); txSize > txmp.config.MaxTxBytes {
+		txmp.incrementBlacklistCounter(txInfo.SenderNodeID)
 		return types.ErrTxTooLarge{
 			Max:    txmp.config.MaxTxBytes,
 			Actual: txSize,
@@ -336,6 +337,7 @@ func (txmp *TxMempool) CheckTx(
 
 	if txmp.preCheck != nil {
 		if err := txmp.preCheck(tx); err != nil {
+			txmp.incrementBlacklistCounter(txInfo.SenderNodeID)
 			return types.ErrPreCheck{Reason: err}
 		}
 	}
@@ -447,6 +449,19 @@ func (txmp *TxMempool) CheckTx(
 	}
 
 	return nil
+}
+
+func (txmp *TxMempool) incrementBlacklistCounter(nodeID types.NodeID) {
+	if !txmp.config.CheckTxErrorBlacklistEnabled || nodeID == "" || txmp.router == nil {
+		return
+	}
+
+	txmp.mtxFailedCheckTxCounts.Lock()
+	defer txmp.mtxFailedCheckTxCounts.Unlock()
+	txmp.failedCheckTxCounts[nodeID]++
+	if txmp.failedCheckTxCounts[nodeID] > uint64(txmp.config.CheckTxErrorThreshold) {
+		txmp.router.Evict(nodeID, errors.New("mempool: checkTx error exceeded threshold"))
+	}
 }
 
 func (txmp *TxMempool) isInMempool(tx types.Tx) bool {
@@ -742,14 +757,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 		txmp.metrics.FailedTxs.Add(1)
 
 		wtx.removeHandler(!txmp.config.KeepInvalidTxsInCache)
-		if res.Code != abci.CodeTypeOK {
-			txmp.mtxFailedCheckTxCounts.Lock()
-			defer txmp.mtxFailedCheckTxCounts.Unlock()
-			txmp.failedCheckTxCounts[txInfo.SenderNodeID]++
-			if txmp.config.CheckTxErrorBlacklistEnabled && txmp.failedCheckTxCounts[txInfo.SenderNodeID] > uint64(txmp.config.CheckTxErrorThreshold) {
-				txmp.router.Evict(txInfo.SenderNodeID, errors.New("mempool: checkTx error exceeded threshold"))
-			}
-		}
+
 		return err
 	}
 
