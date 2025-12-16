@@ -64,7 +64,7 @@ func NewSolomachine(t *testing.T, cdc codec.BinaryCodec, clientID, diversifier s
 // public key.
 func GenerateKeys(t *testing.T, n uint64) ([]cryptotypes.PrivKey, []cryptotypes.PubKey, cryptotypes.PubKey) {
 	require.NotEqual(t, uint64(0), n, "generation of zero keys is not allowed")
-	require.Less(t, n, math.MinInt)
+	require.Less(t, n, uint64(math.MaxInt))
 
 	privKeys := make([]cryptotypes.PrivKey, n)
 	pubKeys := make([]cryptotypes.PubKey, n)

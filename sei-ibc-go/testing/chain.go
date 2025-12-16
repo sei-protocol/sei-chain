@@ -226,7 +226,7 @@ func (chain *TestChain) QueryProofAtHeight(key []byte, height int64) ([]byte, cl
 	// proof height + 1 is returned as the proof created corresponds to the height the proof
 	// was created in the IAVL tree. Tendermint and subsequently the clients that rely on it
 	// have heights 1 above the IAVL tree. Thus we return proof height + 1
-	require.Greater(chain.T, 0, res.Height+1)
+	require.Greater(chain.T, res.Height+1, int64(0))
 	return proof, clienttypes.NewHeight(revision, uint64(res.Height)+1) // #nosec G115 -- checked above
 }
 
@@ -251,7 +251,7 @@ func (chain *TestChain) QueryUpgradeProof(key []byte, height uint64) ([]byte, cl
 	// proof height + 1 is returned as the proof created corresponds to the height the proof
 	// was created in the IAVL tree. Tendermint and subsequently the clients that rely on it
 	// have heights 1 above the IAVL tree. Thus we return proof height + 1
-	require.Greater(chain.T, 0, res.Height+1)
+	require.Greater(chain.T, res.Height+1, int64(0))
 	return proof, clienttypes.NewHeight(revision, uint64(res.Height+1)) // #nosec G115 -- checked above
 }
 
