@@ -395,9 +395,12 @@ async function proposeParamChange(title, description, changes, deposit="20000000
         is_expedited: expedited  // Use expedited voting (15s vs 30s on localnet)
     };
     const proposalJson = JSON.stringify(proposal);
-    // Write to temp file and submit
     const tempFile = `/tmp/param_change_${Date.now()}.json`;
-    await execute(`echo '${proposalJson}' > ${tempFile}`);
+    
+    // Use base64 encoding to avoid quote escaping issues in Docker
+    const base64Json = Buffer.from(proposalJson).toString('base64');
+    await execute(`echo ${base64Json} | base64 -d > ${tempFile}`);
+    
     const command = `seid tx gov submit-proposal param-change ${tempFile} --from ${from} --fees ${fees} -y -o json --broadcast-mode=block`;
     const output = await execute(command);
     await execute(`rm ${tempFile}`);
