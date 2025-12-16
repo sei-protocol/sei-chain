@@ -418,7 +418,7 @@ func (chain *TestChain) ConstructUpdateTMClientHeaderWithTrustedHeight(counterpa
 		// since the last trusted validators for a header at height h
 		// is the NextValidators at h+1 committed to in header h by
 		// NextValidatorsHash
-		require.Less(chain.t, trustedHeight.RevisionHeight+1, math.MaxInt64)
+		require.Less(chain.t, trustedHeight.RevisionHeight+1, uint64(math.MaxInt64))
 		// #nosec G115 -- checked above
 		tmTrustedVals, ok = counterparty.GetValsAtHeight(int64(trustedHeight.RevisionHeight + 1))
 		if !ok {
