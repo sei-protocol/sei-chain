@@ -2,6 +2,7 @@ package ibctesting
 
 import (
 	"fmt"
+	"math"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
@@ -70,6 +71,10 @@ func (endpoint *Endpoint) QueryProof(key []byte) ([]byte, clienttypes.Height) {
 // provided
 func (endpoint *Endpoint) QueryProofAtHeight(key []byte, height uint64) ([]byte, clienttypes.Height) {
 	// query proof on the counterparty using the latest height of the IBC client
+	if height > math.MaxInt64 {
+		panic(fmt.Sprintf("height %d exceeds max int64", height))
+	}
+	// #nosec G115 -- height is bounds checked above
 	return endpoint.Chain.QueryProofAtHeight(key, int64(height))
 }
 

@@ -56,7 +56,7 @@ func (ch Channel) ValidateBasic() error {
 	if ch.State == UNINITIALIZED {
 		return ErrInvalidChannelState
 	}
-	if !(ch.Ordering == ORDERED || ch.Ordering == UNORDERED) {
+	if ch.Ordering != ORDERED && ch.Ordering != UNORDERED {
 		return sdkerrors.Wrap(ErrInvalidChannelOrdering, ch.Ordering.String())
 	}
 	if len(ch.ConnectionHops) != 1 {

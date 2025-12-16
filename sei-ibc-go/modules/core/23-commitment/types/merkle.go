@@ -172,6 +172,9 @@ func (proof MerkleProof) VerifyNonMembership(specs []*ics23.ProofSpec, root expo
 		return sdkerrors.Wrapf(ErrInvalidProof, "path length %d not same as proof %d",
 			len(mpath.KeyPath), len(specs))
 	}
+	if len(mpath.KeyPath) == 0 {
+		return sdkerrors.Wrap(ErrInvalidProof, "empty key path")
+	}
 
 	switch proof.Proofs[0].Proof.(type) {
 	case *ics23.CommitmentProof_Nonexist:
@@ -181,6 +184,7 @@ func (proof MerkleProof) VerifyNonMembership(specs []*ics23.ProofSpec, root expo
 		if err != nil {
 			return sdkerrors.Wrapf(ErrInvalidProof, "could not calculate root for proof index 0, merkle tree is likely empty. %v", err)
 		}
+		// #nosec G115 -- length is checked above to be non-empty
 		key, err := mpath.GetKey(uint64(len(mpath.KeyPath) - 1))
 		if err != nil {
 			return sdkerrors.Wrapf(ErrInvalidProof, "could not retrieve key bytes for key: %s", mpath.KeyPath[len(mpath.KeyPath)-1])
@@ -238,9 +242,14 @@ func verifyChainedMembershipProof(root []byte, specs []*ics23.ProofSpec, proofs 
 			}
 			// Since keys are passed in from highest to lowest, we must grab their indices in reverse order
 			// from the proofs and specs which are lowest to highest
-			key, err := keys.GetKey(uint64(len(keys.KeyPath) - 1 - i))
+			keyIndex := len(keys.KeyPath) - 1 - i
+			if keyIndex < 0 {
+				return sdkerrors.Wrapf(ErrInvalidProof, "key index out of bounds: %d", keyIndex)
+			}
+			// #nosec G115 -- keyIndex is bounds checked above
+			key, err := keys.GetKey(uint64(keyIndex))
 			if err != nil {
-				return sdkerrors.Wrapf(ErrInvalidProof, "could not retrieve key bytes for key %s: %v", keys.KeyPath[len(keys.KeyPath)-1-i], err)
+				return sdkerrors.Wrapf(ErrInvalidProof, "could not retrieve key bytes for key %s: %v", keys.KeyPath[keyIndex], err)
 			}
 
 			// verify membership of the proof at this index with appropriate key and value

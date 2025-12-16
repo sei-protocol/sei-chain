@@ -65,7 +65,7 @@ func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 func (k Keeper) GetAllPorts(ctx sdk.Context) []string {
 	store := ctx.KVStore(k.storeKey)
 	iterator := sdk.KVStorePrefixIterator(store, []byte(icatypes.PortKeyPrefix))
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	var ports []string
 	for ; iterator.Valid(); iterator.Next() {
@@ -133,7 +133,7 @@ func (k Keeper) GetOpenActiveChannel(ctx sdk.Context, connectionID, portID strin
 func (k Keeper) GetAllActiveChannels(ctx sdk.Context) []icatypes.ActiveChannel {
 	store := ctx.KVStore(k.storeKey)
 	iterator := sdk.KVStorePrefixIterator(store, []byte(icatypes.ActiveChannelKeyPrefix))
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	var activeChannels []icatypes.ActiveChannel
 	for ; iterator.Valid(); iterator.Next() {

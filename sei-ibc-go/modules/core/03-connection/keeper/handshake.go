@@ -94,15 +94,15 @@ func (k Keeper) ConnOpenTry(
 		// Check that existing connection versions for initialized connection is equal to compatible
 		// versions for this chain.
 		// ensure that existing connection's delay period is the same as desired delay period.
-		if !(previousConnection.Counterparty.ConnectionId == "" &&
-			bytes.Equal(previousConnection.Counterparty.Prefix.Bytes(), counterparty.Prefix.Bytes()) &&
-			previousConnection.ClientId == clientID &&
-			previousConnection.Counterparty.ClientId == counterparty.ClientId &&
-			previousConnection.DelayPeriod == delayPeriod) {
+		if previousConnection.Counterparty.ConnectionId != "" ||
+			!bytes.Equal(previousConnection.Counterparty.Prefix.Bytes(), counterparty.Prefix.Bytes()) ||
+			previousConnection.ClientId != clientID ||
+			previousConnection.Counterparty.ClientId != counterparty.ClientId ||
+			previousConnection.DelayPeriod != delayPeriod {
 			return "", sdkerrors.Wrap(types.ErrInvalidConnection, "connection fields mismatch previous connection fields")
 		}
 
-		if !(previousConnection.State == types.INIT) {
+		if previousConnection.State != types.INIT {
 			return "", sdkerrors.Wrapf(types.ErrInvalidConnectionState, "previous connection state is in state %s, expected INIT", previousConnection.State)
 		}
 

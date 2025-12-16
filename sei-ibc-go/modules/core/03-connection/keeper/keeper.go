@@ -166,7 +166,7 @@ func (k Keeper) IterateConnections(ctx sdk.Context, cb func(types.IdentifiedConn
 	store := ctx.KVStore(k.storeKey)
 	iterator := sdk.KVStorePrefixIterator(store, []byte(host.KeyConnectionPrefix))
 
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 	for ; iterator.Valid(); iterator.Next() {
 		var connection types.ConnectionEnd
 		k.cdc.MustUnmarshal(iterator.Value(), &connection)

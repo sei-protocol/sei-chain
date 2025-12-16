@@ -152,7 +152,7 @@ func (k Keeper) IterateDenomTraces(ctx sdk.Context, cb func(denomTrace types.Den
 	store := ctx.KVStore(k.storeKey)
 	iterator := sdk.KVStorePrefixIterator(store, types.DenomTraceKey)
 
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 	for ; iterator.Valid(); iterator.Next() {
 
 		denomTrace := k.MustUnmarshalDenomTrace(iterator.Value())

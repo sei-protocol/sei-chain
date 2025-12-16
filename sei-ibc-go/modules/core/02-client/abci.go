@@ -26,7 +26,9 @@ func BeginBlocker(ctx sdk.Context, k keeper.Keeper) {
 			}
 			bz := k.MustMarshalConsensusState(upgradedConsState)
 
-			k.SetUpgradedConsensusState(ctx, plan.Height, bz)
+			if err := k.SetUpgradedConsensusState(ctx, plan.Height, bz); err != nil {
+				panic(err)
+			}
 		}
 	}
 

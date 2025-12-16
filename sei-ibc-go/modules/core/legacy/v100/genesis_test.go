@@ -155,7 +155,7 @@ func (suite *LegacyTestSuite) TestMigrateGenesisSolomachine() {
 	ibcGenState := types.DefaultGenesisState()
 	ibcGenState.ClientGenesis = clientGenState
 	clientv100.RegisterInterfaces(clientCtx.InterfaceRegistry)
-	appState[host.ModuleName] = clientCtx.JSONCodec.MustMarshalJSON(ibcGenState)
+	appState[host.ModuleName] = clientCtx.Codec.MustMarshalJSON(ibcGenState)
 	genDoc := tmtypes.GenesisDoc{
 		ChainID:       suite.chainA.ChainID,
 		GenesisTime:   suite.coordinator.CurrentTime,
@@ -170,7 +170,7 @@ func (suite *LegacyTestSuite) TestMigrateGenesisSolomachine() {
 	expectedIBCGenState := types.DefaultGenesisState()
 	expectedIBCGenState.ClientGenesis = expectedClientGenState
 
-	bz, err := clientCtx.JSONCodec.MarshalJSON(expectedIBCGenState)
+	bz, err := clientCtx.Codec.MarshalJSON(expectedIBCGenState)
 	suite.Require().NoError(err)
 	expectedAppState[host.ModuleName] = bz
 

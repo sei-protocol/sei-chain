@@ -29,7 +29,12 @@ func (k Keeper) SendTx(ctx sdk.Context, chanCap *capabilitytypes.Capability, con
 	destinationPort := sourceChannelEnd.GetCounterparty().GetPortID()
 	destinationChannel := sourceChannelEnd.GetCounterparty().GetChannelID()
 
-	if uint64(ctx.BlockTime().UnixNano()) >= timeoutTimestamp {
+	blockTimeNano := ctx.BlockTime().UnixNano()
+	if blockTimeNano < 0 {
+		return 0, sdkerrors.Wrap(sdkerrors.ErrInvalidHeight, "block time is negative")
+	}
+	// #nosec G115 -- block time is checked above to be non-negative
+	if uint64(blockTimeNano) >= timeoutTimestamp {
 		return 0, icatypes.ErrInvalidTimeoutTimestamp
 	}
 

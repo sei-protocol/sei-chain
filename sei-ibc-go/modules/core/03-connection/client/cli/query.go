@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -73,7 +74,10 @@ func GetCmdQueryConnection() *cobra.Command {
 			if err != nil {
 				return err
 			}
-
+			if connRes.ProofHeight.RevisionHeight > math.MaxInt64 {
+				return fmt.Errorf("proof height revision %d exceeds max int64", connRes.ProofHeight.RevisionHeight)
+			}
+			// #nosec G115 -- revision height is bounds checked above
 			clientCtx = clientCtx.WithHeight(int64(connRes.ProofHeight.RevisionHeight))
 			return clientCtx.PrintProto(connRes)
 		},
@@ -105,7 +109,10 @@ func GetCmdQueryClientConnections() *cobra.Command {
 			if err != nil {
 				return err
 			}
-
+			if connPathsRes.ProofHeight.RevisionHeight > math.MaxInt64 {
+				return fmt.Errorf("proof height revision %d exceeds max int64", connPathsRes.ProofHeight.RevisionHeight)
+			}
+			// #nosec G115 -- revision height is bounds checked above
 			clientCtx = clientCtx.WithHeight(int64(connPathsRes.ProofHeight.RevisionHeight))
 			return clientCtx.PrintProto(connPathsRes)
 		},

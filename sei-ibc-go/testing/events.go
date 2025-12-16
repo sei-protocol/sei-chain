@@ -2,10 +2,11 @@ package ibctesting
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/assert"
-	abci "github.com/tendermint/tendermint/abci/types"
 	"slices"
 	"strconv"
+
+	"github.com/stretchr/testify/assert"
+	abci "github.com/tendermint/tendermint/abci/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 

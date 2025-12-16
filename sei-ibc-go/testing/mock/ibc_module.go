@@ -3,7 +3,6 @@ package mock
 import (
 	"bytes"
 	"fmt"
-	"strconv"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
@@ -155,15 +154,15 @@ func (im IBCModule) OnTimeoutPacket(ctx sdk.Context, packet channeltypes.Packet,
 
 // GetMockRecvCanaryCapabilityName generates a capability name for testing OnRecvPacket functionality.
 func GetMockRecvCanaryCapabilityName(packet channeltypes.Packet) string {
-	return fmt.Sprintf("%s%s%s%s", MockRecvCanaryCapabilityName, packet.GetDestPort(), packet.GetDestChannel(), strconv.Itoa(int(packet.GetSequence())))
+	return fmt.Sprintf("%s%s%s%d", MockRecvCanaryCapabilityName, packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence())
 }
 
 // GetMockAckCanaryCapabilityName generates a capability name for OnAcknowledgementPacket functionality.
 func GetMockAckCanaryCapabilityName(packet channeltypes.Packet) string {
-	return fmt.Sprintf("%s%s%s%s", MockAckCanaryCapabilityName, packet.GetSourcePort(), packet.GetSourceChannel(), strconv.Itoa(int(packet.GetSequence())))
+	return fmt.Sprintf("%s%s%s%d", MockAckCanaryCapabilityName, packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
 }
 
 // GetMockTimeoutCanaryCapabilityName generates a capability name for OnTimeoutacket functionality.
 func GetMockTimeoutCanaryCapabilityName(packet channeltypes.Packet) string {
-	return fmt.Sprintf("%s%s%s%s", MockTimeoutCanaryCapabilityName, packet.GetSourcePort(), packet.GetSourceChannel(), strconv.Itoa(int(packet.GetSequence())))
+	return fmt.Sprintf("%s%s%s%d", MockTimeoutCanaryCapabilityName, packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
 }

@@ -89,7 +89,7 @@ func IterateConsensusMetadata(store sdk.KVStore, cb func(key, val []byte) bool) 
 	iterator := sdk.KVStorePrefixIterator(store, []byte(host.KeyConsensusStatePrefix))
 
 	// iterate over processed time and processed height
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 	for ; iterator.Valid(); iterator.Next() {
 		keySplit := strings.Split(string(iterator.Key()), "/")
 		// processed time key in prefix store has format: "consensusState/<height>/processedTime"
@@ -111,7 +111,7 @@ func IterateConsensusMetadata(store sdk.KVStore, cb func(key, val []byte) bool) 
 	// iterate over iteration keys
 	iterator = sdk.KVStorePrefixIterator(store, []byte(KeyIterateConsensusStatePrefix))
 
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 	for ; iterator.Valid(); iterator.Next() {
 		if cb(iterator.Key(), iterator.Value()) {
 			break
@@ -226,7 +226,7 @@ func GetHeightFromIterationKey(iterKey []byte) exported.Height {
 // callback on each height, until stop=true is returned.
 func IterateConsensusStateAscending(clientStore sdk.KVStore, cb func(height exported.Height) (stop bool)) error {
 	iterator := sdk.KVStorePrefixIterator(clientStore, []byte(KeyIterateConsensusStatePrefix))
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid(); iterator.Next() {
 		iterKey := iterator.Key()
@@ -245,7 +245,7 @@ func IterateConsensusStateAscending(clientStore sdk.KVStore, cb func(height expo
 func GetNextConsensusState(clientStore sdk.KVStore, cdc codec.BinaryCodec, height exported.Height) (*ConsensusState, bool) {
 	iterateStore := prefix.NewStore(clientStore, []byte(KeyIterateConsensusStatePrefix))
 	iterator := iterateStore.Iterator(bigEndianHeightBytes(height), nil)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 	if !iterator.Valid() {
 		return nil, false
 	}
@@ -270,7 +270,7 @@ func GetNextConsensusState(clientStore sdk.KVStore, cdc codec.BinaryCodec, heigh
 func GetPreviousConsensusState(clientStore sdk.KVStore, cdc codec.BinaryCodec, height exported.Height) (*ConsensusState, bool) {
 	iterateStore := prefix.NewStore(clientStore, []byte(KeyIterateConsensusStatePrefix))
 	iterator := iterateStore.ReverseIterator(nil, bigEndianHeightBytes(height))
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	if !iterator.Valid() {
 		return nil, false
@@ -304,8 +304,7 @@ func PruneAllExpiredConsensusStates(
 		return false
 	}
 
-	IterateConsensusStateAscending(clientStore, pruneCb)
-	if err != nil {
+	if err := IterateConsensusStateAscending(clientStore, pruneCb); err != nil {
 		return err
 	}
 
@@ -348,7 +347,12 @@ func bigEndianHeightBytes(height exported.Height) []byte {
 // client state and consensus state will be set by client keeper
 // set iteration key to provide ability for efficient ordered iteration of consensus states.
 func setConsensusMetadata(ctx sdk.Context, clientStore sdk.KVStore, height exported.Height) {
-	setConsensusMetadataWithValues(clientStore, height, clienttypes.GetSelfHeight(ctx), uint64(ctx.BlockTime().UnixNano()))
+	blockTimeNano := ctx.BlockTime().UnixNano()
+	if blockTimeNano < 0 {
+		panic("block time is negative")
+	}
+	// #nosec G115 -- block time is checked above to be non-negative
+	setConsensusMetadataWithValues(clientStore, height, clienttypes.GetSelfHeight(ctx), uint64(blockTimeNano))
 }
 
 // setConsensusMetadataWithValues sets the consensus metadata with the provided values

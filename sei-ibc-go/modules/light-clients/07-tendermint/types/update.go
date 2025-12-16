@@ -2,6 +2,7 @@ package types
 
 import (
 	"bytes"
+	"math"
 	"reflect"
 	"time"
 
@@ -128,9 +129,12 @@ func (cs ClientState) CheckHeaderAndUpdateState(
 		}
 		return true
 	}
-	IterateConsensusStateAscending(clientStore, pruneCb)
 	if pruneError != nil {
 		return nil, nil, pruneError
+	}
+	err = IterateConsensusStateAscending(clientStore, pruneCb)
+	if err != nil {
+		return nil, nil, err
 	}
 	// if pruneHeight is set, delete consensus state and metadata
 	if pruneHeight != nil {
@@ -216,11 +220,15 @@ func checkValidity(
 		chainID, _ = clienttypes.SetRevisionNumber(chainID, header.GetHeight().GetRevisionNumber())
 	}
 
+	if header.TrustedHeight.RevisionHeight > math.MaxInt64 {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidHeight, "revision height %d exceeds max int64", header.TrustedHeight.RevisionHeight)
+	}
+
 	// Construct a trusted header using the fields in consensus state
 	// Only Height, Time, and NextValidatorsHash are necessary for verification
 	trustedHeader := tmtypes.Header{
 		ChainID:            chainID,
-		Height:             int64(header.TrustedHeight.RevisionHeight),
+		Height:             int64(header.TrustedHeight.RevisionHeight), // #nosec G115 --- checked above
 		Time:               consState.Timestamp,
 		NextValidatorsHash: consState.NextValidatorsHash,
 	}

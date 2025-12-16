@@ -38,6 +38,7 @@ func (cs ConsensusState) GetRoot() exported.Root {
 
 // GetTimestamp returns block time in nanoseconds of the header that created consensus state
 func (cs ConsensusState) GetTimestamp() uint64 {
+	// #nosec G115 --- checked at state population.
 	return uint64(cs.Timestamp.UnixNano())
 }
 

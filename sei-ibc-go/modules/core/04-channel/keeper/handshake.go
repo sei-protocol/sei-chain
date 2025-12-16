@@ -127,11 +127,11 @@ func (k Keeper) ChanOpenTry(
 			return "", nil, sdkerrors.Wrapf(types.ErrInvalidChannel, "previous channel does not exist for supplied previous channelID %s", previousChannelID)
 		}
 		// previous channel must use the same fields
-		if !(previousChannel.Ordering == order &&
-			previousChannel.Counterparty.PortId == counterparty.PortId &&
-			previousChannel.Counterparty.ChannelId == "" &&
-			previousChannel.ConnectionHops[0] == connectionHops[0] && // ChanOpenInit will only set a single connection hop
-			previousChannel.Version == counterpartyVersion) {
+		if previousChannel.Ordering != order ||
+			previousChannel.Counterparty.PortId != counterparty.PortId ||
+			previousChannel.Counterparty.ChannelId != "" ||
+			previousChannel.ConnectionHops[0] != connectionHops[0] || // ChanOpenInit will only set a single connection hop
+			previousChannel.Version != counterpartyVersion {
 			return "", nil, sdkerrors.Wrap(types.ErrInvalidChannel, "channel fields mismatch previous channel fields")
 		}
 
@@ -267,7 +267,7 @@ func (k Keeper) ChanOpenAck(
 		return sdkerrors.Wrapf(types.ErrChannelNotFound, "port ID (%s) channel ID (%s)", portID, channelID)
 	}
 
-	if !(channel.State == types.INIT || channel.State == types.TRYOPEN) {
+	if channel.State != types.INIT && channel.State != types.TRYOPEN {
 		return sdkerrors.Wrapf(
 			types.ErrInvalidChannelState,
 			"channel state should be INIT or TRYOPEN (got %s)", channel.State.String(),

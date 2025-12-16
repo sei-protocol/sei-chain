@@ -33,7 +33,7 @@ func (h Header) ClientType() string {
 // NOTE: the header.Header is checked to be non nil in ValidateBasic.
 func (h Header) GetHeight() exported.Height {
 	revision := clienttypes.ParseChainID(h.Header.ChainID)
-	return clienttypes.NewHeight(revision, uint64(h.Header.Height))
+	return clienttypes.NewHeight(revision, uint64(h.Header.Height)) // #nosec G115 --- validated before instantiation
 }
 
 // GetTime returns the current block timestamp. It returns a zero time if

@@ -62,6 +62,10 @@ func QueryTendermintProof(clientCtx client.Context, key []byte) ([]byte, []byte,
 		return nil, nil, clienttypes.Height{}, err
 	}
 
+	if res.Height < 0 {
+		return nil, nil, clienttypes.Height{}, fmt.Errorf("response height %d is negative", res.Height)
+	}
+
 	revision := clienttypes.ParseChainID(clientCtx.ChainID)
-	return res.Value, proofBz, clienttypes.NewHeight(revision, uint64(res.Height)+1), nil
+	return res.Value, proofBz, clienttypes.NewHeight(revision, uint64(res.Height)+1), nil // #nosec G115 --- overflow checked above
 }

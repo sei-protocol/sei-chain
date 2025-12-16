@@ -83,7 +83,7 @@ func Setup(isCheckTx bool) *SimApp {
 		}
 
 		// Initialize the chain
-		app.InitChain(
+		_, err = app.InitChain(
 			context.Background(),
 			&abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
@@ -91,6 +91,9 @@ func Setup(isCheckTx bool) *SimApp {
 				AppStateBytes:   stateBytes,
 			},
 		)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	return app
@@ -161,7 +164,7 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	require.NoError(t, err)
 
 	// init chain will set the validator set and initialize the genesis accounts
-	app.InitChain(
+	_, err = app.InitChain(
 		t.Context(),
 		&abci.RequestInitChain{
 			ChainId:         chainID,
@@ -170,6 +173,7 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 			AppStateBytes:   stateBytes,
 		},
 	)
+	require.NoError(t, err)
 
 	// This line is necessary due to the capability module which has a map as well as store usages,
 	// and because the initChain runs 3 times (deliver, prepare, process proposal),
@@ -178,43 +182,10 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	app.GetBaseApp().SetProcessProposalStateToCommit()
 
 	// commit genesis changes
-	app.Commit(t.Context())
-	app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
-
-	return app
-}
-
-// SetupWithGenesisAccounts initializes a new SimApp with the provided genesis
-// accounts and possible balances.
-func SetupWithGenesisAccounts(genAccs []authtypes.GenesisAccount, balances ...banktypes.Balance) *SimApp {
-	app, genesisState := setup(true, 0)
-	authGenesis := authtypes.NewGenesisState(authtypes.DefaultParams(), genAccs)
-	genesisState[authtypes.ModuleName] = app.AppCodec().MustMarshalJSON(authGenesis)
-
-	totalSupply := sdk.NewCoins()
-	for _, b := range balances {
-		totalSupply = totalSupply.Add(b.Coins...)
-	}
-
-	bankGenesis := banktypes.NewGenesisState(banktypes.DefaultGenesisState().Params, balances, totalSupply, []banktypes.Metadata{}, []banktypes.WeiBalance{})
-	genesisState[banktypes.ModuleName] = app.AppCodec().MustMarshalJSON(bankGenesis)
-
-	stateBytes, err := json.MarshalIndent(genesisState, "", " ")
-	if err != nil {
-		panic(err)
-	}
-
-	app.InitChain(
-		context.Background(),
-		&abci.RequestInitChain{
-			Validators:      []abci.ValidatorUpdate{},
-			ConsensusParams: DefaultConsensusParams,
-			AppStateBytes:   stateBytes,
-		},
-	)
-
-	app.Commit(context.Background())
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+	_, err = app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	require.NoError(t, err)
 
 	return app
 }
@@ -333,7 +304,7 @@ func TestAddr(addr string, bech string) (sdk.AccAddress, error) {
 
 // CheckBalance checks the balance of an account.
 func CheckBalance(t *testing.T, app *SimApp, addr sdk.AccAddress, balances sdk.Coins) {
-	ctxCheck := app.BaseApp.NewContext(true, tmproto.Header{})
+	ctxCheck := app.NewContext(true, tmproto.Header{})
 	require.True(t, balances.IsEqual(app.BankKeeper.GetAllBalances(ctxCheck, addr)))
 }
 
@@ -375,7 +346,8 @@ func SignAndDeliver(
 
 	app.EndBlock(app.GetContextForDeliverTx([]byte{}), abci.RequestEndBlock{})
 	app.SetDeliverStateToCommit()
-	app.Commit(context.Background())
+	_, err = app.Commit(context.Background())
+	require.NoError(t, err)
 
 	return gInfo, res, err
 }

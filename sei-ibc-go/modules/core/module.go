@@ -79,9 +79,15 @@ func (AppModuleBasic) RegisterRESTRoutes(client.Context, *mux.Router) {}
 
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the ibc module.
 func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {
-	clienttypes.RegisterQueryHandlerClient(context.Background(), mux, clienttypes.NewQueryClient(clientCtx))
-	connectiontypes.RegisterQueryHandlerClient(context.Background(), mux, connectiontypes.NewQueryClient(clientCtx))
-	channeltypes.RegisterQueryHandlerClient(context.Background(), mux, channeltypes.NewQueryClient(clientCtx))
+	if err := clienttypes.RegisterQueryHandlerClient(context.Background(), mux, clienttypes.NewQueryClient(clientCtx)); err != nil {
+		panic(err)
+	}
+	if err := connectiontypes.RegisterQueryHandlerClient(context.Background(), mux, connectiontypes.NewQueryClient(clientCtx)); err != nil {
+		panic(err)
+	}
+	if err := channeltypes.RegisterQueryHandlerClient(context.Background(), mux, channeltypes.NewQueryClient(clientCtx)); err != nil {
+		panic(err)
+	}
 }
 
 // GetTxCmd returns the root tx command for the ibc module.
@@ -148,7 +154,9 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterQueryService(cfg.QueryServer(), am.keeper)
 
 	m := clientkeeper.NewMigrator(am.keeper.ClientKeeper)
-	cfg.RegisterMigration(host.ModuleName, 1, m.Migrate1to2)
+	if err := cfg.RegisterMigration(host.ModuleName, 1, m.Migrate1to2); err != nil {
+		panic(err)
+	}
 }
 
 // InitGenesis performs genesis initialization for the ibc module. It returns

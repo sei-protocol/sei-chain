@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -347,7 +348,7 @@ The return value represents:
 
 			seqs := make([]uint64, len(seqSlice))
 			for i := range seqSlice {
-				seqs[i] = uint64(seqSlice[i])
+				seqs[i] = uint64(seqSlice[i]) // #nosec G115 -- will hit cli limits first.
 			}
 
 			req := &types.QueryUnreceivedPacketsRequest{
@@ -397,7 +398,7 @@ The return value represents:
 
 			seqs := make([]uint64, len(seqSlice))
 			for i := range seqSlice {
-				seqs[i] = uint64(seqSlice[i])
+				seqs[i] = uint64(seqSlice[i]) // #nosec G115 -- will hit cli limits first.
 			}
 
 			req := &types.QueryUnreceivedAcksRequest{
@@ -445,6 +446,10 @@ func GetCmdQueryNextSequenceReceive() *cobra.Command {
 				return err
 			}
 
+			if sequenceRes.ProofHeight.RevisionHeight > math.MaxInt64 {
+				return fmt.Errorf("proof height revision %d exceeds max int64", sequenceRes.ProofHeight.RevisionHeight)
+			}
+			// #nosec G115 -- revision height is bounds checked above
 			clientCtx = clientCtx.WithHeight(int64(sequenceRes.ProofHeight.RevisionHeight))
 			return clientCtx.PrintProto(sequenceRes)
 		},

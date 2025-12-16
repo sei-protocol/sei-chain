@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 
@@ -124,7 +125,7 @@ func (k Keeper) IterateConsensusStates(ctx sdk.Context, cb func(clientID string,
 	store := ctx.KVStore(k.storeKey)
 	iterator := sdk.KVStorePrefixIterator(store, host.KeyClientStorePrefix)
 
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 	for ; iterator.Valid(); iterator.Next() {
 		keySplit := strings.Split(string(iterator.Key()), "/")
 		// consensus key is in the format "clients/<clientID>/consensusStates/<height>"
@@ -251,6 +252,10 @@ func (k Keeper) GetSelfConsensusState(ctx sdk.Context, height exported.Height) (
 	if revision != height.GetRevisionNumber() {
 		return nil, sdkerrors.Wrapf(types.ErrInvalidHeight, "chainID revision number does not match height revision number: expected %d, got %d", revision, height.GetRevisionNumber())
 	}
+	if selfHeight.RevisionHeight > math.MaxInt64 {
+		return nil, sdkerrors.Wrapf(types.ErrInvalidHeight, "revision height %d exceeds max int64", selfHeight.RevisionHeight)
+	}
+	// #nosec G115 -- revision height is bounds checked above
 	histInfo, found := k.stakingKeeper.GetHistoricalInfo(ctx, int64(selfHeight.RevisionHeight))
 	if !found {
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrNotFound, "no historical info found at height %d", selfHeight.RevisionHeight)
@@ -291,7 +296,12 @@ func (k Keeper) ValidateSelfClient(ctx sdk.Context, clientState exported.ClientS
 			tmClient.LatestHeight.RevisionNumber, revision)
 	}
 
-	selfHeight := types.NewHeight(revision, uint64(ctx.BlockHeight()))
+	blockHeight := ctx.BlockHeight()
+	if blockHeight < 0 {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidHeight, "block height is negative")
+	}
+	// #nosec G115 -- block height is checked above to be non-negative
+	selfHeight := types.NewHeight(revision, uint64(blockHeight))
 	if tmClient.LatestHeight.GTE(selfHeight) {
 		return sdkerrors.Wrapf(types.ErrInvalidClient, "client has LatestHeight %d greater than or equal to chain height %d",
 			tmClient.LatestHeight, selfHeight)
@@ -356,7 +366,7 @@ func (k Keeper) IterateClients(ctx sdk.Context, cb func(clientID string, cs expo
 	store := ctx.KVStore(k.storeKey)
 	iterator := sdk.KVStorePrefixIterator(store, host.KeyClientStorePrefix)
 
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 	for ; iterator.Valid(); iterator.Next() {
 		keySplit := strings.Split(string(iterator.Key()), "/")
 		if keySplit[len(keySplit)-1] != host.KeyClientState {

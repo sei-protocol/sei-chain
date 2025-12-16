@@ -1,6 +1,7 @@
 package ibctesting
 
 import (
+	"math"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -63,6 +64,7 @@ func NewSolomachine(t *testing.T, cdc codec.BinaryCodec, clientID, diversifier s
 // public key.
 func GenerateKeys(t *testing.T, n uint64) ([]cryptotypes.PrivKey, []cryptotypes.PubKey, cryptotypes.PubKey) {
 	require.NotEqual(t, uint64(0), n, "generation of zero keys is not allowed")
+	require.Less(t, n, math.MinInt)
 
 	privKeys := make([]cryptotypes.PrivKey, n)
 	pubKeys := make([]cryptotypes.PubKey, n)
@@ -74,7 +76,7 @@ func GenerateKeys(t *testing.T, n uint64) ([]cryptotypes.PrivKey, []cryptotypes.
 	var pk cryptotypes.PubKey
 	if len(privKeys) > 1 {
 		// generate multi sig pk
-		pk = kmultisig.NewLegacyAminoPubKey(int(n), pubKeys)
+		pk = kmultisig.NewLegacyAminoPubKey(int(n), pubKeys) // #nosec G115 --- checked on top
 	} else {
 		pk = privKeys[0].PubKey()
 	}

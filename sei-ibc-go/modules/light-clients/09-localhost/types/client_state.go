@@ -84,7 +84,11 @@ func (cs *ClientState) CheckHeaderAndUpdateState(
 	// use the chain ID from context since the localhost client is from the running chain (i.e self).
 	cs.ChainId = ctx.ChainID()
 	revision := clienttypes.ParseChainID(cs.ChainId)
-	cs.Height = clienttypes.NewHeight(revision, uint64(ctx.BlockHeight()))
+	blockHeight := ctx.BlockHeight()
+	if blockHeight < 0 {
+		return nil, nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidHeight, "block height %d is negative", blockHeight)
+	}
+	cs.Height = clienttypes.NewHeight(revision, uint64(blockHeight)) // #nosec G115 --- overflow checked above
 	return cs, nil, nil
 }
 

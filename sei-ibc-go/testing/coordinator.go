@@ -67,8 +67,8 @@ func (coord *Coordinator) UpdateTime() {
 // UpdateTimeForChain updates the clock for a specific chain.
 func (coord *Coordinator) UpdateTimeForChain(chain *TestChain) {
 	chain.CurrentHeader.Time = coord.CurrentTime.UTC()
-	chain.App.FinalizeBlock(
-		chain.T.Context(),
+	_, err := chain.App.FinalizeBlock(
+		chain.Context(),
 		&abci.RequestFinalizeBlock{
 			Height:             chain.App.LastBlockHeight() + 1,
 			Time:               chain.CurrentHeader.Time,
@@ -77,6 +77,7 @@ func (coord *Coordinator) UpdateTimeForChain(chain *TestChain) {
 			NextValidatorsHash: chain.Vals.Hash(),
 		},
 	)
+	require.NoError(coord.T, err)
 }
 
 // Setup constructs a TM client, connection, and channel on both chains provided. It will
@@ -191,7 +192,8 @@ func GetChainID(index int) string {
 func (coord *Coordinator) CommitBlock(chains ...*TestChain) {
 	for _, chain := range chains {
 		chain.App.GetBaseApp().SetDeliverStateToCommit()
-		chain.App.Commit(coord.T.Context())
+		_, err := chain.App.Commit(coord.Context())
+		require.NoError(coord.T, err)
 		chain.NextBlock()
 	}
 	coord.IncrementTime()
@@ -200,7 +202,7 @@ func (coord *Coordinator) CommitBlock(chains ...*TestChain) {
 // CommitNBlocks commits n blocks to state and updates the block height by 1 for each commit.
 func (coord *Coordinator) CommitNBlocks(chain *TestChain, n uint64) {
 	for i := uint64(0); i < n; i++ {
-		chain.App.FinalizeBlock(coord.T.Context(), &abci.RequestFinalizeBlock{
+		_, err := chain.App.FinalizeBlock(coord.Context(), &abci.RequestFinalizeBlock{
 			Height:  chain.App.LastBlockHeight() + 1,
 			Time:    chain.CurrentHeader.Time,
 			AppHash: chain.CurrentHeader.AppHash,
@@ -208,8 +210,10 @@ func (coord *Coordinator) CommitNBlocks(chain *TestChain, n uint64) {
 			ValidatorsHash:     chain.Vals.Hash(),
 			NextValidatorsHash: chain.Vals.Hash(),
 		})
+		require.NoError(coord.T, err)
 		chain.App.GetBaseApp().SetDeliverStateToCommit()
-		chain.App.Commit(coord.T.Context())
+		_, err = chain.App.Commit(coord.Context())
+		require.NoError(coord.T, err)
 		chain.NextBlock()
 		coord.IncrementTime()
 	}

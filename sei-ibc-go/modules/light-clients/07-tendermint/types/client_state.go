@@ -517,7 +517,11 @@ func verifyDelayPeriodPassed(ctx sdk.Context, store sdk.KVStore, proofHeight exp
 	if !ok {
 		return sdkerrors.Wrapf(ErrProcessedTimeNotFound, "processed time not found for height: %s", proofHeight)
 	}
-	currentTimestamp := uint64(ctx.BlockTime().UnixNano())
+	blockTime := ctx.BlockTime().UnixNano()
+	if blockTime < 0 {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidHeight, "block time is negative")
+	}
+	currentTimestamp := uint64(blockTime) //nolint:gosec // overflow checked above
 	validTime := processedTime + delayTimePeriod
 	// NOTE: delay time period is inclusive, so if currentTimestamp is validTime, then we return no error
 	if currentTimestamp < validTime {

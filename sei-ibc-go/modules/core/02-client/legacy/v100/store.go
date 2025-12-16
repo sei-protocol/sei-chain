@@ -10,7 +10,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 
-	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
@@ -32,7 +31,7 @@ func MigrateStore(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCodec)
 	var clients []string
 
 	// collect all clients
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 	for ; iterator.Valid(); iterator.Next() {
 		keySplit := strings.Split(string(iterator.Key()), "/")
 		if keySplit[len(keySplit)-1] != host.KeyClientState {
@@ -45,7 +44,7 @@ func MigrateStore(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCodec)
 	}
 
 	for _, clientID := range clients {
-		clientType, _, err := types.ParseClientIdentifier(clientID)
+		clientType, _, err := clienttypes.ParseClientIdentifier(clientID)
 		if err != nil {
 			return err
 		}
@@ -90,7 +89,7 @@ func MigrateStore(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCodec)
 
 			tmClientState, ok := clientState.(*ibctmtypes.ClientState)
 			if !ok {
-				return sdkerrors.Wrap(types.ErrInvalidClient, "client state is not tendermint even though client id contains 07-tendermint")
+				return sdkerrors.Wrap(clienttypes.ErrInvalidClient, "client state is not tendermint even though client id contains 07-tendermint")
 			}
 
 			// add iteration keys so pruning will be successful
@@ -110,7 +109,7 @@ func MigrateStore(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCodec)
 	return nil
 }
 
-// migrateSolomachine migrates the solomachine from v1 to v2 solo machine protobuf defintion.
+// migrateSolomachine migrates the solomachine from v1 to v2 solo machine protobuf definition.
 func migrateSolomachine(clientState *ClientState) *smtypes.ClientState {
 	isFrozen := clientState.FrozenSequence != 0
 	consensusState := &smtypes.ConsensusState{
@@ -133,7 +132,7 @@ func pruneSolomachineConsensusStates(clientStore sdk.KVStore) {
 	iterator := sdk.KVStorePrefixIterator(clientStore, []byte(host.KeyConsensusStatePrefix))
 	var heights []exported.Height
 
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 	for ; iterator.Valid(); iterator.Next() {
 		keySplit := strings.Split(string(iterator.Key()), "/")
 		// key is in the format "consensusStates/<height>"
@@ -142,7 +141,7 @@ func pruneSolomachineConsensusStates(clientStore sdk.KVStore) {
 		}
 
 		// collect consensus states to be pruned
-		heights = append(heights, types.MustParseHeight(keySplit[1]))
+		heights = append(heights, clienttypes.MustParseHeight(keySplit[1]))
 	}
 
 	// delete all consensus states
@@ -158,7 +157,7 @@ func addConsensusMetadata(ctx sdk.Context, clientStore sdk.KVStore, cdc codec.Bi
 	var heights []exported.Height
 	iterator := sdk.KVStorePrefixIterator(clientStore, []byte(host.KeyConsensusStatePrefix))
 
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 	for ; iterator.Valid(); iterator.Next() {
 		keySplit := strings.Split(string(iterator.Key()), "/")
 		// consensus key is in the format "consensusStates/<height>"
@@ -166,7 +165,7 @@ func addConsensusMetadata(ctx sdk.Context, clientStore sdk.KVStore, cdc codec.Bi
 			continue
 		}
 
-		heights = append(heights, types.MustParseHeight(keySplit[1]))
+		heights = append(heights, clienttypes.MustParseHeight(keySplit[1]))
 	}
 
 	for _, height := range heights {
