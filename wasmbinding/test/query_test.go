@@ -7,10 +7,10 @@ import (
 	"time"
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app"
+	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
 	epochbinding "github.com/sei-protocol/sei-chain/x/epoch/client/wasm/bindings"

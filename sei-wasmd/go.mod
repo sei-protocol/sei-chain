@@ -3,7 +3,6 @@ module github.com/CosmWasm/wasmd
 go 1.24.5
 
 require (
-	github.com/CosmWasm/wasmvm v1.5.4
 	github.com/armon/go-metrics v0.4.1
 	github.com/cosmos/cosmos-sdk v0.45.10
 	github.com/cosmos/iavl v0.21.0-alpha.1.0.20230904092046-df3db2d96583
@@ -165,7 +164,6 @@ require (
 replace (
 	// Use the cosmos-flavored keyring library
 	github.com/99designs/keyring => github.com/cosmos/keyring v1.1.7-0.20210622111912-ef00f8ac3d76
-	github.com/CosmWasm/wasmvm => ../sei-wasmvm
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
 	github.com/cosmos/cosmos-sdk => ../sei-cosmos
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.2.0

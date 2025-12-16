@@ -3,9 +3,9 @@ package wasmbinding
 import (
 	"encoding/json"
 
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 
 const (

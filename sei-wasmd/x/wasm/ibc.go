@@ -5,13 +5,13 @@ import (
 
 	ibcexported "github.com/cosmos/ibc-go/v3/modules/core/exported"
 
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 	porttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
 	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
+	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 
 	types "github.com/CosmWasm/wasmd/x/wasm/types"
 )

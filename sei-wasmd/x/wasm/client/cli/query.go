@@ -10,10 +10,10 @@ import (
 	"io/ioutil"
 	"strconv"
 
-	wasmvm "github.com/CosmWasm/wasmvm"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
 

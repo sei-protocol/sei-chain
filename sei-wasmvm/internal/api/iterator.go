@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/CosmWasm/wasmvm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 
 // frame stores all Iterators for one contract call
@@ -49,7 +49,7 @@ func endCall(callID uint64) {
 	remove := removeFrame(callID)
 	// free all iterators in the frame when we release it
 	for _, iter := range remove {
-		iter.Close()
+		_ = iter.Close()
 	}
 }
 
@@ -60,16 +60,17 @@ func storeIterator(callID uint64, it types.Iterator, frameLenLimit int) (uint64,
 	iteratorFramesMutex.Lock()
 	defer iteratorFramesMutex.Unlock()
 
-	old_frame_len := len(iteratorFrames[callID])
-	if old_frame_len >= frameLenLimit {
-		return 0, fmt.Errorf("Reached iterator limit (%d)", frameLenLimit)
+	oldFrameLen := len(iteratorFrames[callID])
+	if oldFrameLen >= frameLenLimit {
+		return 0, fmt.Errorf("reached iterator limit (%d)", frameLenLimit)
 	}
 
-	// store at array position `old_frame_len`
+	// store at array position `oldFrameLen`
 	iteratorFrames[callID] = append(iteratorFrames[callID], it)
-	new_index := old_frame_len + 1
+	newIndex := oldFrameLen + 1
 
-	return uint64(new_index), nil
+	// #nosec G115 -- newIndex is always positive (oldFrameLen >= 0, so newIndex >= 1)
+	return uint64(newIndex), nil
 }
 
 // retrieveIterator will recover an iterator based on index. This ensures it will not be garbage collected.
@@ -82,10 +83,9 @@ func retrieveIterator(callID uint64, index uint64) types.Iterator {
 	if myFrame == nil {
 		return nil
 	}
-	posInFrame := int(index) - 1
-	if posInFrame < 0 || posInFrame >= len(myFrame) {
-		// index out of range
+	// Check bounds before converting to int to avoid integer overflow
+	if index == 0 || index > uint64(len(myFrame)) {
 		return nil
 	}
-	return myFrame[posInFrame]
+	return myFrame[index-1]
 }
