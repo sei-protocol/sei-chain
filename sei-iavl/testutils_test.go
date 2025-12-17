@@ -324,7 +324,7 @@ func BenchmarkImmutableAvlTreeMemDB(b *testing.B) {
 }
 
 func benchmarkImmutableAvlTreeWithDB(b *testing.B, db db.DB) {
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	b.StopTimer()
 

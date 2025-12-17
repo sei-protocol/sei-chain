@@ -2,11 +2,10 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-iavl"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	tmdb "github.com/tendermint/tm-db"
 )
 
@@ -50,7 +49,8 @@ func (s *Stats) AddNode(node *iavl.ExportNode) {
 	if node.Height == 0 {
 		s.leafNodes++
 	}
-	s.size += uint64(len(node.Key) + len(node.Value) + 8 + 1)
+	// #nosec G115 -- len() always returns non-negative values
+	s.size += uint64(len(node.Key)) + uint64(len(node.Value)) + 9
 }
 
 func (s *Stats) String() string {
@@ -61,12 +61,12 @@ func (s *Stats) String() string {
 // main runs the main program
 func main() {
 	if len(os.Args) != 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %v <dbpath>\n", os.Args[0])
+		_, _ = fmt.Fprintf(os.Stderr, "Usage: %v <dbpath>\n", os.Args[0])
 		os.Exit(1)
 	}
 	err := run(os.Args[1])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err.Error())
+		_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err.Error())
 		os.Exit(1)
 	}
 }
@@ -158,42 +158,47 @@ func runImport(version int64, exports map[string][]*iavl.ExportNode) error {
 	totalStats := Stats{}
 
 	for _, name := range stores {
-		tempdir, err := ioutil.TempDir("", name)
+		tempdir, err := os.MkdirTemp("", name)
 		if err != nil {
 			return err
 		}
-		defer os.RemoveAll(tempdir)
 
 		start := time.Now()
 		stats := Stats{}
 
 		newDB, err := tmdb.NewDB(name, tmdb.GoLevelDBBackend, tempdir)
 		if err != nil {
+			_ = os.RemoveAll(tempdir)
 			return err
 		}
 		newTree, err := iavl.NewMutableTree(newDB, 0, false)
 		if err != nil {
+			_ = os.RemoveAll(tempdir)
 			return err
 		}
 		importer, err := newTree.Import(version)
 		if err != nil {
+			_ = os.RemoveAll(tempdir)
 			return err
 		}
 		defer importer.Close()
 		for _, node := range exports[name] {
 			err = importer.Add(node)
 			if err != nil {
+				_ = os.RemoveAll(tempdir)
 				return err
 			}
 			stats.AddNode(node)
 		}
 		err = importer.Commit()
 		if err != nil {
+			_ = os.RemoveAll(tempdir)
 			return err
 		}
 		stats.AddDurationSince(start)
 		fmt.Printf("%-12v: %v\n", name, stats.String())
 		totalStats.Add(stats)
+		_ = os.RemoveAll(tempdir)
 	}
 
 	fmt.Printf("\nImported %v stores with %v\n", len(stores), totalStats.String())

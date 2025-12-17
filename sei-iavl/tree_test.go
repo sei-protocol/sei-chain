@@ -1653,7 +1653,7 @@ func BenchmarkTreeLoadAndDelete(b *testing.B) {
 	if err != nil {
 		panic(err)
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 	defer os.RemoveAll("./bench.db")
 
 	tree, err := NewMutableTree(d, 0, false)

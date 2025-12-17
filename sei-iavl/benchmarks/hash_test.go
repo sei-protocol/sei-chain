@@ -6,7 +6,7 @@ import (
 	"hash"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-iavl"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 
 	_ "crypto/sha256"

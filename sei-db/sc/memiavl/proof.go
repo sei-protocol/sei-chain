@@ -8,7 +8,7 @@ import (
 	"math"
 
 	ics23 "github.com/confio/ics23/go"
-	"github.com/sei-protocol/sei-chain/sei-iavl"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 /*

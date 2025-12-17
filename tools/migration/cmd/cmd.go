@@ -9,7 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	sstypes "github.com/sei-protocol/sei-chain/sei-db/ss"
-	"github.com/sei-protocol/sei-chain/sei-iavl"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/sei-protocol/sei-chain/tools/migration/sc"
 	"github.com/sei-protocol/sei-chain/tools/migration/ss"
 	"github.com/sei-protocol/sei-chain/tools/utils"

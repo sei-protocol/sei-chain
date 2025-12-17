@@ -2,6 +2,7 @@ package common
 
 import (
 	crand "crypto/rand"
+	"math"
 	mrand "math/rand"
 	"sync"
 	"time"
@@ -43,6 +44,7 @@ func (r *Rand) init() {
 		seed |= uint64(bz[i])
 		seed <<= 8
 	}
+	// #nosec G115 -- seed is intentionally truncated for PRNG seeding
 	r.reset(int64(seed))
 }
 
@@ -111,6 +113,7 @@ MAIN_LOOP:
 }
 
 func (r *Rand) Uint16() uint16 {
+	// #nosec G115 -- value is masked to 16 bits, always fits in uint16
 	return uint16(r.Uint32() & (1<<16 - 1))
 }
 
@@ -129,18 +132,22 @@ func (r *Rand) Uint() uint {
 	r.Lock()
 	i := r.rand.Int()
 	r.Unlock()
+	// #nosec G115 -- rand.Int() always returns non-negative values
 	return uint(i)
 }
 
 func (r *Rand) Int16() int16 {
+	// #nosec G115 -- value is masked to 16 bits, always fits in int16
 	return int16(r.Uint32() & (1<<16 - 1))
 }
 
 func (r *Rand) Int32() int32 {
+	// #nosec G115 -- intentional conversion for random number generation
 	return int32(r.Uint32())
 }
 
 func (r *Rand) Int64() int64 {
+	// #nosec G115 -- intentional conversion for random number generation
 	return int64(r.Uint64())
 }
 
@@ -194,7 +201,8 @@ func (r *Rand) Float64() float64 {
 }
 
 func (r *Rand) Time() time.Time {
-	return time.Unix(int64(r.Uint64()), 0)
+	// #nosec G115 -- limiting to MaxInt64 to ensure valid Unix timestamp
+	return time.Unix(int64(r.Uint64()&math.MaxInt64), 0)
 }
 
 // Bytes returns n random bytes generated from the internal

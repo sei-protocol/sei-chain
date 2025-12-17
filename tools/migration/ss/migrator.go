@@ -7,7 +7,7 @@ import (
 
 	"github.com/armon/go-metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/ss/types"
-	"github.com/sei-protocol/sei-chain/sei-iavl"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/sei-protocol/sei-chain/tools/utils"
 	seimetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	dbm "github.com/tendermint/tm-db"

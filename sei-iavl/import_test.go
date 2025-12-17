@@ -28,7 +28,7 @@ func ExampleImporter() {
 		// handle err
 	}
 	exporter := itree.Export()
-	defer exporter.Close()
+	defer func() { _ = exporter.Close() }()
 	exported := []*ExportNode{}
 	for {
 		var node *ExportNode
@@ -49,7 +49,7 @@ func ExampleImporter() {
 	if err != nil {
 		// handle err
 	}
-	defer importer.Close()
+	defer func() { _ = importer.Close() }()
 	for _, node := range exported {
 		err = importer.Add(node)
 		if err != nil {
@@ -130,7 +130,7 @@ func TestImporter_Add(t *testing.T) {
 			require.NoError(t, err)
 			importer, err := tree.Import(1)
 			require.NoError(t, err)
-			defer importer.Close()
+			defer func() { _ = importer.Close() }()
 
 			err = importer.Add(tc.node)
 			if tc.valid {
@@ -207,7 +207,7 @@ func TestImporter_Commit_Empty(t *testing.T) {
 	require.NoError(t, err)
 	importer, err := tree.Import(3)
 	require.NoError(t, err)
-	defer importer.Close()
+	defer func() { _ = importer.Close() }()
 
 	err = importer.Commit()
 	require.NoError(t, err)

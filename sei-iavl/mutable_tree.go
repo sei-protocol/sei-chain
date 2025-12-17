@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 
@@ -226,7 +227,7 @@ func (tree *MutableTree) Iterate(fn func(key []byte, value []byte) bool) (stoppe
 	}
 
 	itr := NewUnsavedFastIterator(nil, nil, true, tree.ndb, tree.unsavedFastNodeAdditions, tree.unsavedFastNodeRemovals)
-	defer itr.Close()
+	defer func() { _ = itr.Close() }()
 	for ; itr.Valid(); itr.Next() {
 		if fn(itr.Key(), itr.Value()) {
 			return true, nil
@@ -583,6 +584,10 @@ func (tree *MutableTree) LoadVersion(targetVersion int64) (toReturn int64, toErr
 	if err != nil {
 		return 0, err
 	}
+	if tree.ndb.opts.InitialVersion > math.MaxInt64 {
+		return firstVersion, fmt.Errorf("initial version %d exceeds max int64", tree.ndb.opts.InitialVersion)
+	}
+	// #nosec G115 -- InitialVersion is bounds checked above
 	if firstVersion > 0 && firstVersion < int64(tree.ndb.opts.InitialVersion) {
 		return firstVersion, fmt.Errorf("initial version set to %v, but found earlier version %v",
 			tree.ndb.opts.InitialVersion, firstVersion)
@@ -673,11 +678,15 @@ func (tree *MutableTree) LegacyLoadVersion(targetVersion int64) (toReturn int64,
 		}
 	}
 
-	if !(targetVersion == 0 || latestVersion == targetVersion) {
+	if targetVersion != 0 || latestVersion != targetVersion {
 		return latestVersion, fmt.Errorf("wanted to load target %v but only found up to %v",
 			targetVersion, latestVersion)
 	}
 
+	if tree.ndb.opts.InitialVersion > math.MaxInt64 {
+		return latestVersion, fmt.Errorf("initial version %d exceeds max int64", tree.ndb.opts.InitialVersion)
+	}
+	// #nosec G115 -- InitialVersion is bounds checked above
 	if firstVersion > 0 && firstVersion < int64(tree.ndb.opts.InitialVersion) {
 		return latestVersion, fmt.Errorf("initial version set to %v, but found earlier version %v",
 			tree.ndb.opts.InitialVersion, firstVersion)
@@ -759,7 +768,7 @@ func (tree *MutableTree) enableFastStorageAndCommitIfNotEnabled() (bool, error) 
 	// Therefore, there might exist stale fast nodes on disk. As a result, to avoid persisting the stale state, it might
 	// be worth to delete the fast nodes from disk.
 	fastItr := NewFastIterator(nil, nil, true, tree.ndb)
-	defer fastItr.Close()
+	defer func() { _ = fastItr.Close() }()
 	var deletedFastNodes uint64
 	for ; fastItr.Valid(); fastItr.Next() {
 		deletedFastNodes++
@@ -789,7 +798,7 @@ func (tree *MutableTree) enableFastStorageAndCommit() error {
 	var err error
 
 	itr := NewIteratorUnlocked(nil, nil, true, tree.ImmutableTree())
-	defer itr.Close()
+	defer func() { _ = itr.Close() }()
 	version := tree.ImmutableTree().version
 	var upgradedFastNodes uint64
 	for ; itr.Valid(); itr.Next() {
@@ -798,7 +807,9 @@ func (tree *MutableTree) enableFastStorageAndCommit() error {
 			return err
 		}
 		if upgradedFastNodes%commitGap == 0 {
-			tree.ndb.Commit()
+			if err := tree.ndb.Commit(); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -909,6 +920,10 @@ func (tree *MutableTree) GetVersioned(key []byte, version int64) ([]byte, error)
 func (tree *MutableTree) SaveCurrentVersion() ([]byte, int64, error) {
 	version := tree.ImmutableTree().version
 	if version == 1 && tree.ndb.opts.InitialVersion > 0 {
+		if tree.ndb.opts.InitialVersion > math.MaxInt64 {
+			return nil, 0, fmt.Errorf("initial version %d exceeds max int64", tree.ndb.opts.InitialVersion)
+		}
+		// #nosec G115 -- InitialVersion is bounds checked above
 		version = int64(tree.ndb.opts.InitialVersion)
 	}
 
@@ -954,6 +969,10 @@ func (tree *MutableTree) SaveCurrentVersion() ([]byte, int64, error) {
 func (tree *MutableTree) SaveVersion() ([]byte, int64, error) {
 	version := tree.ImmutableTree().version + 1
 	if version == 1 && tree.ndb.opts.InitialVersion > 0 {
+		if tree.ndb.opts.InitialVersion > math.MaxInt64 {
+			return nil, 0, fmt.Errorf("initial version %d exceeds max int64", tree.ndb.opts.InitialVersion)
+		}
+		// #nosec G115 -- InitialVersion is bounds checked above
 		version = int64(tree.ndb.opts.InitialVersion)
 	}
 

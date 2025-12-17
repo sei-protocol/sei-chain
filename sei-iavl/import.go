@@ -142,7 +142,7 @@ func batchWrite(i *Importer) {
 				break
 			}
 			i.batchMtx.Lock()
-			nextBatch.Close()
+			_ = nextBatch.Close()
 			i.batchMtx.Unlock()
 		} else {
 			break
