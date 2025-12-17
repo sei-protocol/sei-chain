@@ -678,7 +678,7 @@ func (tree *MutableTree) LegacyLoadVersion(targetVersion int64) (toReturn int64,
 		}
 	}
 
-	if targetVersion != 0 || latestVersion != targetVersion {
+	if targetVersion != 0 && latestVersion != targetVersion {
 		return latestVersion, fmt.Errorf("wanted to load target %v but only found up to %v",
 			targetVersion, latestVersion)
 	}
