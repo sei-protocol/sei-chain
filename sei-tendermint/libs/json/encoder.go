@@ -48,15 +48,6 @@ func encode(w io.Writer, v any) error {
 		return writeStr(w, "null")
 	}
 	rv := reflect.ValueOf(v)
-
-	// If this is a registered type, defer to interface encoder regardless of whether the input is
-	// an interface or a bare value. This retains Amino's behavior, but is inconsistent with
-	// behavior in structs where an interface field will get the type wrapper while a bare value
-	// field will not.
-	if typeRegistry.name(rv.Type()) != "" {
-		return encodeReflectInterface(w, rv)
-	}
-
 	return encodeReflect(w, rv)
 }
 
@@ -90,7 +81,7 @@ func encodeReflect(w io.Writer, rv reflect.Value) error {
 	switch rv.Type().Kind() {
 	// Complex types must be recursively encoded.
 	case reflect.Interface:
-		return encodeReflectInterface(w, rv)
+		return fmt.Errorf("encoding interfaces is not supported")
 
 	case reflect.Array, reflect.Slice:
 		return encodeReflectList(w, rv)
@@ -208,31 +199,6 @@ func encodeReflectStruct(w io.Writer, rv reflect.Value) error {
 			return err
 		}
 		writeComma = true
-	}
-	return writeStr(w, "}")
-}
-
-func encodeReflectInterface(w io.Writer, rv reflect.Value) error {
-	// Get concrete value and dereference pointers.
-	for rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Interface {
-		if rv.IsNil() {
-			return writeStr(w, "null")
-		}
-		rv = rv.Elem()
-	}
-
-	// Look up the name of the concrete type
-	name := typeRegistry.name(rv.Type())
-	if name == "" {
-		return fmt.Errorf("cannot encode unregistered type %v", rv.Type())
-	}
-
-	// Write value wrapped in interface envelope
-	if err := writeStr(w, fmt.Sprintf(`{"type":%q,"value":`, name)); err != nil {
-		return err
-	}
-	if err := encodeReflect(w, rv); err != nil {
-		return err
 	}
 	return writeStr(w, "}")
 }

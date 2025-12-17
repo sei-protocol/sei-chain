@@ -13,7 +13,6 @@ import (
 
 	"github.com/tendermint/tendermint/internal/jsontypes"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
-	tmjson "github.com/tendermint/tendermint/libs/json"
 )
 
 const PrivKeyName = "tendermint/PrivKeyEd25519"
@@ -35,8 +34,6 @@ var verifyOptions = &ed25519.Options{Verify: ed25519.VerifyOptionsZIP_215}
 var cachingVerifier = cache.NewVerifier(cache.NewLRUCache(cacheSize))
 
 func init() {
-	tmjson.RegisterType(PubKey{}, PubKeyName)
-	tmjson.RegisterType(PrivKey{}, PrivKeyName)
 	jsontypes.MustRegister(PubKey{})
 	jsontypes.MustRegister(PrivKey{})
 }
