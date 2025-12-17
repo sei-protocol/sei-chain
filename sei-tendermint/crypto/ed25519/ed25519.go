@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"errors"
 	"io"
-	"encoding/json"
 
 	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519"
 	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519/extra/cache"
@@ -90,15 +89,6 @@ func GenPrivKeyFromSecret(secret []byte) PrivKey {
 	return PrivKeyFromSeed(Seed(sha256.Sum256(secret)))
 }
 
-func (k PrivKey) MarshalJSON() ([]byte,error) {
-	return json.Marshal(k.raw)
-}
-
-func (k *PrivKey) UnmarshalJSON(j []byte) error {
-	return json.Unmarshal(j,&k.raw)
-}
-
-//-------------------------------------
 
 // PubKey implements the Ed25519 signature scheme.
 type PubKey [ed25519.PublicKeySize]byte
