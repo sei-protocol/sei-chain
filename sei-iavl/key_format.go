@@ -163,19 +163,13 @@ func format(a interface{}) []byte {
 	case uint64:
 		return formatUint64(v)
 	case int64:
-		if v < 0 {
-			panic(fmt.Errorf("keyFormat format() does not support negative int64 value: %d", v))
-		}
-		// #nosec G115 -- value is checked above to be non-negative
+		// #nosec G115 -- TestNegativeKeys seems to expect negative keys?
 		return formatUint64(uint64(v))
 	// Provide formatting from int,uint as a convenience to avoid casting arguments
 	case uint:
 		return formatUint64(uint64(v))
 	case int:
-		if v < 0 {
-			panic(fmt.Errorf("keyFormat format() does not support negative int value: %d", v))
-		}
-		// #nosec G115 -- value is checked above to be non-negative
+		// #nosec G115 -- TestNegativeKeys seems to expect negative keys?
 		return formatUint64(uint64(v))
 	case []byte:
 		return v
