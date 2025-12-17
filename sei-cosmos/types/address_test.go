@@ -27,10 +27,6 @@ func TestAddressTestSuite(t *testing.T) {
 	suite.Run(t, new(addressTestSuite))
 }
 
-func (s *addressTestSuite) SetupSuite() {
-	s.T().Parallel()
-}
-
 var invalidStrs = []string{
 	"hello, world!",
 	"0xAA",
@@ -217,6 +213,20 @@ func RandString(n int) string {
 }
 
 func (s *addressTestSuite) TestConfiguredPrefix() {
+	// Save original config to restore after test
+	config := types.GetConfig()
+	origAccAddr := config.GetBech32AccountAddrPrefix()
+	origAccPub := config.GetBech32AccountPubPrefix()
+	origValAddr := config.GetBech32ValidatorAddrPrefix()
+	origValPub := config.GetBech32ValidatorPubPrefix()
+	origConsAddr := config.GetBech32ConsensusAddrPrefix()
+	origConsPub := config.GetBech32ConsensusPubPrefix()
+	defer func() {
+		config.SetBech32PrefixForAccount(origAccAddr, origAccPub)
+		config.SetBech32PrefixForValidator(origValAddr, origValPub)
+		config.SetBech32PrefixForConsensusNode(origConsAddr, origConsPub)
+	}()
+
 	pubBz := make([]byte, ed25519.PubKeySize)
 	pub := &ed25519.PubKey{Key: pubBz}
 	for length := 1; length < 10; length++ {
@@ -226,7 +236,6 @@ func (s *addressTestSuite) TestConfiguredPrefix() {
 			prefix := RandString(length)
 
 			// Assuming that GetConfig is not sealed.
-			config := types.GetConfig()
 			config.SetBech32PrefixForAccount(
 				prefix+types.PrefixAccount,
 				prefix+types.PrefixPublic)
