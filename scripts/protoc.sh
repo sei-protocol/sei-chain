@@ -24,6 +24,7 @@ pushd "$(go env GOMODCACHE)/github.com/regen-network/cosmos-proto@v0.3.1" &&
   popd
 
 go run github.com/bufbuild/buf/cmd/buf@v1.58.0 generate
+go run github.com/bufbuild/buf/cmd/buf@v1.58.0 generate --template sei-tendermint/internal/buf.gen.yaml
 
 # We can't manipulate the outputs enough to eliminate the extra move-abouts.
 # So we just copy the files we want to the right places manually.
