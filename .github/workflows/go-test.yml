@@ -15,12 +15,14 @@ jobs:
   tests:
     env:
       GO_TEST_TIMEOUT: 30m
-      GO_TEST_SKIP_PACKAGES: "sei-iavl"  # pipe-separated patterns
-    name: "Test ${{ matrix.modules.name }}"
+      GO_TEST_SKIP_PACKAGES: "sei-iavl"
+    name: "Test ${{ matrix.modules.name }} (${{ matrix.shard }}/${{ matrix.total_shards }})"
     runs-on: ubuntu-large
     strategy:
       fail-fast: false
       matrix:
+        total_shards: [4]
+        shard: [1, 2, 3, 4]
         modules:
           - name: sei-chain
             path: ./
@@ -49,17 +51,26 @@ jobs:
         working-directory: '${{ matrix.modules.path }}'
         run: |
           if [ -n "$GO_TEST_SKIP_PACKAGES" ]; then
-            PACKAGES=$(go list ./... | grep -v -E "$GO_TEST_SKIP_PACKAGES")
+            ALL_PACKAGES=$(go list ./... | grep -v -E "$GO_TEST_SKIP_PACKAGES")
           else
-            PACKAGES="./..."
+            ALL_PACKAGES=$(go list ./...)
           fi
-          go test -race -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out $PACKAGES
+          
+          # Split packages into shards
+          PACKAGES=$(echo "$ALL_PACKAGES" | awk "NR % ${{ matrix.total_shards }} == ${{ matrix.shard }} - 1")
+          
+          if [ -n "$PACKAGES" ]; then
+            go test -race -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out $PACKAGES
+          else
+            echo "No packages in this shard"
+            touch coverage.out
+          fi
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: 'true'
+          fail_ci_if_error: 'false'
           disable_search: 'true'
-          name: '${{ matrix.modules.name }}-coverage'
+          name: '${{ matrix.modules.name }}-shard-${{ matrix.shard }}-coverage'
           files: ${{ matrix.modules.path }}/coverage.out
           flags: ${{ matrix.modules.name }}
