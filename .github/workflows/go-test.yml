@@ -16,7 +16,7 @@ jobs:
     env:
       GO_TEST_TIMEOUT: 30m
     name: "Test ${{ matrix.modules.name }}"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-large
     strategy:
       fail-fast: false
       matrix:
