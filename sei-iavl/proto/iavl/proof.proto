@@ -1,7 +1,7 @@
 syntax = "proto3";
 package iavl;
 
-option go_package = "proto";
+option go_package = "github.com/sei-protocol/sei-chain/sei-iavl/proto";
 
 // ValueOp is a Protobuf representation of iavl.ValueOp.
 message ValueOp {
