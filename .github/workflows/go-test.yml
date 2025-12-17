@@ -17,12 +17,12 @@ jobs:
       GO_TEST_TIMEOUT: 30m
       GO_TEST_SKIP_PACKAGES: "sei-iavl"
     name: "Test ${{ matrix.modules.name }} (${{ matrix.shard }}/${{ matrix.total_shards }})"
-    runs-on: ubuntu-large
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        total_shards: [4]
-        shard: [1, 2, 3, 4]
+        total_shards: [2]
+        shard: [1, 2]
         modules:
           - name: sei-chain
             path: ./
@@ -46,7 +46,6 @@ jobs:
             /usr/local/lib/android \
             /opt/ghc /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force
-      - run: go env
       - name: Go test with race detector
         working-directory: '${{ matrix.modules.path }}'
         run: |
