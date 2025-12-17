@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/cosmos/cosmos-sdk/version"
-	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/spf13/cobra"
 	dbm "github.com/tendermint/tm-db"
 )

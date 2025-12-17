@@ -8,7 +8,7 @@ import (
 	"time"
 
 	ics23 "github.com/confio/ics23/go"
-	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-chain/sei-iavl"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
 	tmcrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"

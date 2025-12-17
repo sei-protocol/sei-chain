@@ -10,10 +10,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cosmos/iavl/cache"
-	ibytes "github.com/cosmos/iavl/internal/bytes"
-	"github.com/cosmos/iavl/internal/logger"
 	"github.com/pkg/errors"
+	"github.com/sei-protocol/sei-chain/sei-iavl/cache"
+	ibytes "github.com/sei-protocol/sei-chain/sei-iavl/internal/bytes"
+	"github.com/sei-protocol/sei-chain/sei-iavl/internal/logger"
 	dbm "github.com/tendermint/tm-db"
 )
 

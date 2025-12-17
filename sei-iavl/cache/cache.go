@@ -3,7 +3,7 @@ package cache
 import (
 	"container/list"
 
-	ibytes "github.com/cosmos/iavl/internal/bytes"
+	ibytes "github.com/sei-protocol/sei-chain/sei-iavl/internal/bytes"
 )
 
 // Node represents a node eligible for caching.

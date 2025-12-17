@@ -14,12 +14,12 @@ import (
 	"github.com/alitto/pond"
 	"golang.org/x/exp/slices"
 
-	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/stream/types"
+	"github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 const (

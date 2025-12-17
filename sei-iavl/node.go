@@ -11,10 +11,10 @@ import (
 	"math"
 	"sync"
 
-	"github.com/cosmos/iavl/cache"
 	"github.com/pkg/errors"
+	"github.com/sei-protocol/sei-chain/sei-iavl/cache"
 
-	"github.com/cosmos/iavl/internal/encoding"
+	"github.com/sei-protocol/sei-chain/sei-iavl/internal/encoding"
 )
 
 // Node represents a node in a Tree.

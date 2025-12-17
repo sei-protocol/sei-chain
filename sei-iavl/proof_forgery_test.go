@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/crypto/tmhash"
 	db "github.com/tendermint/tm-db"

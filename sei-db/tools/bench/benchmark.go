@@ -9,10 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
+	"github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 // writeToDBConcurrently generates random write load against the db
