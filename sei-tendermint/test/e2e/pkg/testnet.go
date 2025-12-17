@@ -444,7 +444,8 @@ func (n Node) AddressP2P(withID bool) string {
 	}
 	addr := fmt.Sprintf("%v:26656", ip)
 	if withID {
-		addr = fmt.Sprintf("%x@%v", n.NodeKey.PubKey().Address().Bytes(), addr)
+		pubKey := n.NodeKey.Public()
+		addr = fmt.Sprintf("%x@%v", pubKey.Address().Bytes(), addr)
 	}
 	return addr
 }
@@ -481,15 +482,15 @@ func newKeyGenerator(seed int64) *keyGenerator {
 }
 
 func (g *keyGenerator) Generate(keyType string) crypto.PrivKey {
-	var seed ed25519.Seed
-	_, err := io.ReadFull(g.random, seed[:])
+	seed := make([]byte, 32)
+	_, err := io.ReadFull(g.random, seed)
 	if err != nil {
 		panic(err) // this shouldn't happen
 	}
 	if keyType != "" && keyType != "ed25519" {
 		panic("KeyType not supported")
 	}
-	return ed25519.PrivKeyFromSeed(seed)
+	return ed25519.TestSecretKey(seed)
 }
 
 // portGenerator generates local Docker proxy ports for each node.

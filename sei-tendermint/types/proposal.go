@@ -136,7 +136,7 @@ func (p *Proposal) String() string {
 		p.Round,
 		p.BlockID,
 		p.POLRound,
-		tmbytes.Fingerprint(p.Signature[:]),
+		tmbytes.Fingerprint(p.Signature.Bytes()),
 		CanonicalTime(p.Timestamp))
 }
 
@@ -171,7 +171,7 @@ func (p *Proposal) ToProto() *tmproto.Proposal {
 	pb.Round = p.Round
 	pb.PolRound = p.POLRound
 	pb.Timestamp = p.Timestamp
-	pb.Signature = p.Signature[:]
+	pb.Signature = p.Signature.Bytes()
 	txKeys := make([]*tmproto.TxKey, 0, len(p.TxKeys))
 	for _, txKey := range p.TxKeys {
 		txKeys = append(txKeys, txKey.ToProto())

@@ -121,12 +121,12 @@ func logNodeStartupInfo(state sm.State, pubKey utils.Option[crypto.PubKey], logg
 		if state.Validators.HasAddress(addr) {
 			logger.Info("This node is a validator",
 				"addr", addr,
-				"pubKey", k[:],
+				"pubKey", k.Bytes(),
 			)
 		} else {
 			logger.Info("This node is a validator (NOT in the active validator set)",
 				"addr", addr,
-				"pubKey", k[:],
+				"pubKey", k.Bytes(),
 			)
 		}
 	}

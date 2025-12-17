@@ -640,10 +640,11 @@ const (
 
 // CommitSig is a part of the Vote included in a Commit.
 type CommitSig struct {
-	BlockIDFlag      BlockIDFlag `json:"block_id_flag"`
-	ValidatorAddress Address     `json:"validator_address"`
-	Timestamp        time.Time   `json:"timestamp"`
-	Signature        crypto.Sig  `json:"signature"`
+	BlockIDFlag BlockIDFlag `json:"block_id_flag"`
+	// WARNING: all fields below should be zeroed if BlockIDFlag == BlockIDFlagAbsent
+	ValidatorAddress Address    `json:"validator_address"`
+	Timestamp        time.Time  `json:"timestamp"`
+	Signature        crypto.Sig `json:"signature"`
 }
 
 func MaxCommitBytes(valCount int) int64 {
@@ -668,7 +669,7 @@ func NewCommitSigAbsent() CommitSig {
 // 4. timestamp
 func (cs CommitSig) String() string {
 	return fmt.Sprintf("CommitSig{%X by %X on %v @ %s}",
-		tmbytes.Fingerprint(cs.Signature[:]),
+		tmbytes.Fingerprint(cs.Signature.Bytes()),
 		tmbytes.Fingerprint(cs.ValidatorAddress),
 		cs.BlockIDFlag,
 		CanonicalTime(cs.Timestamp))
@@ -709,7 +710,7 @@ func (cs CommitSig) ValidateBasic() error {
 		if !cs.Timestamp.IsZero() {
 			return errors.New("time is present")
 		}
-		if len(cs.Signature) != 0 {
+		if cs.Signature != (crypto.Sig{}) {
 			return errors.New("signature is present")
 		}
 	default:
@@ -735,7 +736,7 @@ func (cs *CommitSig) ToProto() *tmproto.CommitSig {
 		BlockIdFlag:      tmproto.BlockIDFlag(cs.BlockIDFlag),
 		ValidatorAddress: cs.ValidatorAddress,
 		Timestamp:        cs.Timestamp,
-		Signature:        cs.Signature[:],
+		Signature:        cs.Signature.Bytes(),
 	}
 }
 

@@ -15,7 +15,7 @@ import (
 
 	"github.com/tendermint/tendermint/abci/example/code"
 	"github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/libs/log"
 	cryptoproto "github.com/tendermint/tendermint/proto/tendermint/crypto"
@@ -333,7 +333,7 @@ func MakeValSetChangeTx(pubkey cryptoproto.PublicKey, power int64) []byte {
 	if err != nil {
 		panic(err)
 	}
-	pubStr := base64.StdEncoding.EncodeToString(pk[:])
+	pubStr := base64.StdEncoding.EncodeToString(pk.Bytes())
 	return []byte(fmt.Sprintf("val:%s!%d", pubStr, power))
 }
 
@@ -372,7 +372,14 @@ func (app *Application) execValidatorTx(tx []byte) *types.ExecTxResult {
 	}
 
 	// update
-	return app.updateValidator(types.UpdateValidator(crypto.PubKey(pubkey), power, ""))
+	key, err := ed25519.PublicKeyFromBytes(pubkey)
+	if err != nil {
+		return &types.ExecTxResult{
+			Code: code.CodeTypeEncodingError,
+			Log:  fmt.Sprintf("can't decode ed25519 key: %v", err),
+		}
+	}
+	return app.updateValidator(types.UpdateValidator(key, power, ""))
 }
 
 // add, update, or remove a validator
@@ -381,7 +388,7 @@ func (app *Application) updateValidator(v types.ValidatorUpdate) *types.ExecTxRe
 	if err != nil {
 		panic(fmt.Errorf("can't decode public key: %w", err))
 	}
-	key := []byte("val:" + string(pubkey[:]))
+	key := []byte("val:" + string(pubkey.Bytes()))
 
 	if v.Power == 0 {
 		// remove validator
@@ -390,7 +397,7 @@ func (app *Application) updateValidator(v types.ValidatorUpdate) *types.ExecTxRe
 			panic(err)
 		}
 		if !hasKey {
-			pubStr := base64.StdEncoding.EncodeToString(pubkey[:])
+			pubStr := base64.StdEncoding.EncodeToString(pubkey.Bytes())
 			return &types.ExecTxResult{
 				Code: code.CodeTypeUnauthorized,
 				Log:  fmt.Sprintf("Cannot remove non-existent validator %s", pubStr)}

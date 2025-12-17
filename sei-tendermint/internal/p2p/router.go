@@ -72,7 +72,7 @@ func NewRouter(
 	if err := options.Validate(); err != nil {
 		return nil, err
 	}
-	selfID := types.NodeIDFromPubKey(privKey.PubKey())
+	selfID := types.NodeIDFromPubKey(privKey.Public())
 	peerManager := newPeerManager[*Connection](selfID, options)
 	peerDB, err := newPeerDB(db, options.maxPeers())
 	if err != nil {

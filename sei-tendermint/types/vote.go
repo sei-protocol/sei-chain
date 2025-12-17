@@ -165,7 +165,7 @@ func (vote *Vote) String() string {
 		vote.Type,
 		typeString,
 		tmbytes.Fingerprint(vote.BlockID.Hash),
-		tmbytes.Fingerprint(vote.Signature[:]),
+		tmbytes.Fingerprint(vote.Signature.Bytes()),
 		CanonicalTime(vote.Timestamp),
 	)
 }
@@ -244,7 +244,7 @@ func (vote *Vote) ToProto() *tmproto.Vote {
 		Timestamp:        vote.Timestamp,
 		ValidatorAddress: vote.ValidatorAddress,
 		ValidatorIndex:   vote.ValidatorIndex,
-		Signature:        vote.Signature[:],
+		Signature:        vote.Signature.Bytes(),
 	}
 }
 

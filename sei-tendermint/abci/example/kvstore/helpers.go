@@ -6,6 +6,7 @@ import (
 
 	"github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 )
 
@@ -18,7 +19,12 @@ func RandVals(cnt int) []types.ValidatorUpdate {
 	for i := range res {
 		// Random value between [0, 2^16 - 1]
 		power := mrand.Uint32() & (1<<16 - 1) // nolint:gosec // G404: Use of weak random number generator
-		res[i] = types.UpdateValidator(crypto.PubKey(tmrand.Bytes(len(crypto.PubKey{}))), int64(power), "")
+		keyBytes := tmrand.Bytes(len(crypto.PubKey{}.Bytes()))
+		pubKey, err := ed25519.PublicKeyFromBytes(keyBytes)
+		if err != nil {
+			panic(err)
+		}
+		res[i] = types.UpdateValidator(pubKey, int64(power), "")
 	}
 	return res
 }

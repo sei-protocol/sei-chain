@@ -69,7 +69,7 @@ type SecretConnection struct {
 	recvAead cipher.AEAD
 	sendAead cipher.AEAD
 
-	remPubKey ed25519.PubKey
+	remPubKey ed25519.PublicKey
 	conn      io.ReadWriteCloser
 
 	// net.Conn must be thread safe:
@@ -92,10 +92,8 @@ type SecretConnection struct {
 // Returns nil if there is an error in handshake.
 // Caller should call conn.Close()
 // See docs/sts-final.pdf for more information.
-func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey ed25519.PrivKey) (*SecretConnection, error) {
-	var (
-		locPubKey = locPrivKey.PubKey()
-	)
+func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey ed25519.SecretKey) (*SecretConnection, error) {
+	locPubKey := locPrivKey.Public()
 
 	// Generate ephemeral keys for perfect forward secrecy.
 	locEphPub, locEphPriv, err := genEphKeys()
@@ -181,7 +179,7 @@ func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey ed25519.PrivKey) (
 }
 
 // RemotePubKey returns authenticated remote pubkey
-func (sc *SecretConnection) RemotePubKey() ed25519.PubKey {
+func (sc *SecretConnection) RemotePubKey() ed25519.PublicKey {
 	return sc.remPubKey
 }
 
@@ -393,22 +391,22 @@ func sort32(foo, bar *[32]byte) (lo, hi *[32]byte) {
 	return
 }
 
-func signChallenge(challenge *[32]byte, locPrivKey ed25519.PrivKey) ed25519.Sig {
+func signChallenge(challenge *[32]byte, locPrivKey ed25519.SecretKey) ed25519.Signature {
 	return locPrivKey.Sign(challenge[:])
 }
 
 type authSigMessage struct {
-	Key ed25519.PubKey
-	Sig ed25519.Sig
+	Key ed25519.PublicKey
+	Sig ed25519.Signature
 }
 
-func shareAuthSignature(sc io.ReadWriter, pubKey ed25519.PubKey, signature ed25519.Sig) (recvMsg authSigMessage, err error) {
+func shareAuthSignature(sc io.ReadWriter, pubKey ed25519.PublicKey, signature ed25519.Signature) (recvMsg authSigMessage, err error) {
 
 	// Send our info and receive theirs in tandem.
 	var trs, _ = async.Parallel(
 		func(_ int) (val interface{}, abort bool, err error) {
-			pk := tmproto.PublicKey{Sum: &tmproto.PublicKey_Ed25519{Ed25519: pubKey[:]}}
-			_, err = protoio.NewDelimitedWriter(sc).WriteMsg(&tmprivval.AuthSigMessage{PubKey: pk, Sig: signature[:]})
+			pk := tmproto.PublicKey{Sum: &tmproto.PublicKey_Ed25519{Ed25519: pubKey.Bytes()}}
+			_, err = protoio.NewDelimitedWriter(sc).WriteMsg(&tmprivval.AuthSigMessage{PubKey: pk, Sig: signature.Bytes()})
 			if err != nil {
 				return nil, true, err // abort
 			}
@@ -421,11 +419,11 @@ func shareAuthSignature(sc io.ReadWriter, pubKey ed25519.PubKey, signature ed255
 				return nil, true, err // abort
 			}
 
-			key, err := ed25519.PubKeyFromBytes(pba.PubKey.GetEd25519())
+			key, err := ed25519.PublicKeyFromBytes(pba.PubKey.GetEd25519())
 			if err != nil {
 				return nil, true, fmt.Errorf("PubKey: %w", err)
 			}
-			sig, err := ed25519.SigFromBytes(pba.Sig)
+			sig, err := ed25519.SignatureFromBytes(pba.Sig)
 			if err != nil {
 				return nil, true, fmt.Errorf("Sig: %w", err)
 			}

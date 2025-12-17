@@ -53,7 +53,7 @@ func (nk *NodeKey) UnmarshalJSON(data []byte) error {
 
 // PubKey returns the peer's PubKey
 func (nk NodeKey) PubKey() crypto.PubKey {
-	return nk.PrivKey.PubKey()
+	return nk.PrivKey.Public()
 }
 
 // SaveAs persists the NodeKey to filePath.
@@ -87,9 +87,12 @@ func LoadOrGenNodeKey(filePath string) (NodeKey, error) {
 
 // GenNodeKey generates a new node key.
 func GenNodeKey() NodeKey {
-	privKey := ed25519.GenPrivKey()
+	privKey, err := ed25519.GenerateSecretKey()
+	if err != nil {
+		panic(err)
+	}
 	return NodeKey{
-		ID:      NodeIDFromPubKey(privKey.PubKey()),
+		ID:      NodeIDFromPubKey(privKey.Public()),
 		PrivKey: privKey,
 	}
 }
