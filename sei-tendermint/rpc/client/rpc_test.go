@@ -16,7 +16,6 @@ import (
 
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/internal/mempool"
 	rpccore "github.com/tendermint/tendermint/internal/rpc/core"
@@ -24,6 +23,7 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	tmmath "github.com/tendermint/tendermint/libs/math"
 	"github.com/tendermint/tendermint/libs/service"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/privval"
 	"github.com/tendermint/tendermint/rpc/client"
 	rpchttp "github.com/tendermint/tendermint/rpc/client/http"

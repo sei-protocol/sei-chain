@@ -501,7 +501,7 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 		pv, _ := states[nodeIdx].privValidator.Get()
 		key, err := pv.GetPubKey(ctx)
 		require.NoError(t, err)
-	keyProto := encoding.PubKeyToProto(key)
+		keyProto := encoding.PubKeyToProto(key)
 		newPower := int64(rng.Intn(100000))
 		tx := kvstore.MakeValSetChangeTx(keyProto, newPower)
 		require.NoError(t, finalizeTx(ctx, valSet, blocksSubs, states, tx))

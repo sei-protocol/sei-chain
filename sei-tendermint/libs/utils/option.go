@@ -27,7 +27,6 @@ func (o Option[T]) Get() (T, bool) {
 	return Zero[T](), false
 }
 
-
 // IsPresent checks if the Option contains a value.
 func (o Option[T]) IsPresent() bool {
 	return o.isPresent

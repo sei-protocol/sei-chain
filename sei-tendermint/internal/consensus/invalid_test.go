@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/bytes"
-	"github.com/tendermint/tendermint/crypto"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmtime "github.com/tendermint/tendermint/libs/time"
 	"github.com/tendermint/tendermint/libs/utils"

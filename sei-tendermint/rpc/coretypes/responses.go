@@ -11,6 +11,7 @@ import (
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/jsontypes"
 	"github.com/tendermint/tendermint/libs/bytes"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -136,8 +137,8 @@ type validatorInfoJSON struct {
 
 func (v ValidatorInfo) MarshalJSON() ([]byte, error) {
 	j := validatorInfoJSON{VotingPower: v.VotingPower}
-	if k,ok:=v.PubKey.Get(); ok {
-		pk, err := k.MarshalJSON()
+	if k, ok := v.PubKey.Get(); ok {
+		pk, err := jsontypes.Marshal(k)
 		if err != nil {
 			return nil, err
 		}
@@ -149,12 +150,12 @@ func (v ValidatorInfo) MarshalJSON() ([]byte, error) {
 
 func (v *ValidatorInfo) UnmarshalJSON(data []byte) error {
 	var val validatorInfoJSON
-	if len(val.PubKey)!=0 {
+	if len(val.PubKey) != 0 {
 		var pk crypto.PubKey
-		if err := encoding.Unmarshal(val.PubKey, &pk); err != nil {
+		if err := jsontypes.Unmarshal(val.PubKey, &pk); err != nil {
 			return err
 		}
-		val.PubKey = utils.Some(pk)
+		v.PubKey = utils.Some(pk)
 	}
 	v.VotingPower = val.VotingPower
 	return nil

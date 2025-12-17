@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/libs/utils/require"
 
 	tmmath "github.com/tendermint/tendermint/libs/math"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"

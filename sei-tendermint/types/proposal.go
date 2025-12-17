@@ -6,8 +6,8 @@ import (
 	"math/bits"
 	"time"
 
-	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/internal/libs/protoio"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	tmtime "github.com/tendermint/tendermint/libs/time"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -26,13 +26,13 @@ var (
 // If POLRound >= 0, then BlockID corresponds to the block that is locked in POLRound.
 type Proposal struct {
 	Type            tmproto.SignedMsgType
-	Height          int64     `json:"height,string"`
-	Round           int32     `json:"round"`     // there can not be greater than 2_147_483_647 rounds
-	POLRound        int32     `json:"pol_round"` // -1 if null.
-	BlockID         BlockID   `json:"block_id"`
-	Timestamp       time.Time `json:"timestamp"`
-	Signature       crypto.Sig    `json:"signature"`
-	TxKeys          []TxKey   `json:"tx_keys"`
+	Height          int64      `json:"height,string"`
+	Round           int32      `json:"round"`     // there can not be greater than 2_147_483_647 rounds
+	POLRound        int32      `json:"pol_round"` // -1 if null.
+	BlockID         BlockID    `json:"block_id"`
+	Timestamp       time.Time  `json:"timestamp"`
+	Signature       crypto.Sig `json:"signature"`
+	TxKeys          []TxKey    `json:"tx_keys"`
 	Header          `json:"header"`
 	LastCommit      *Commit      `json:"last_commit"`
 	Evidence        EvidenceList `json:"evidence"`
@@ -209,9 +209,9 @@ func ProposalFromProto(pp *tmproto.Proposal) (*Proposal, error) {
 	p.Round = pp.Round
 	p.POLRound = pp.PolRound
 	p.Timestamp = pp.Timestamp
-	sig,err := crypto.SigFromBytes(pp.Signature)
-	if err!=nil {
-		return nil, fmt.Errorf("Signature: %w",err)
+	sig, err := crypto.SigFromBytes(pp.Signature)
+	if err != nil {
+		return nil, fmt.Errorf("Signature: %w", err)
 	}
 	p.Signature = sig
 	txKeys, err := TxKeysListFromProto(pp.TxKeys)

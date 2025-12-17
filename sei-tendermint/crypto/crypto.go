@@ -41,7 +41,7 @@ type Sig = ed25519.Sig
 type BatchVerifier = ed25519.BatchVerifier
 type ErrBadSig = ed25519.ErrBadSig
 
-func SigFromBytes(raw []byte) (Sig,error) {
+func SigFromBytes(raw []byte) (Sig, error) {
 	return ed25519.SigFromBytes(raw)
 }
 

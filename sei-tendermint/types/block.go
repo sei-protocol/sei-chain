@@ -745,11 +745,11 @@ func (cs *CommitSig) FromProto(csp tmproto.CommitSig) error {
 	cs.BlockIDFlag = BlockIDFlag(csp.BlockIdFlag)
 	cs.ValidatorAddress = csp.ValidatorAddress
 	cs.Timestamp = csp.Timestamp
-	sig,err := crypto.SigFromBytes(csp.Signature)
-	if err!=nil {
-		return fmt.Errorf("Signature: %w",err)
+	sig, err := crypto.SigFromBytes(csp.Signature)
+	if err != nil {
+		return fmt.Errorf("Signature: %w", err)
 	}
-	cs.Signature = sig 
+	cs.Signature = sig
 
 	return cs.ValidateBasic()
 }

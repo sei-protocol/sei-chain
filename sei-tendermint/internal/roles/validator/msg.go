@@ -1,11 +1,11 @@
 package validator
 
 import (
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/crypto/ed25519"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
-type Msg interface { isMsg() }
+type Msg interface{ isMsg() }
 
 type SessionID struct {
 	utils.ReadOnly
@@ -16,7 +16,7 @@ func (s *SessionID) Raw() [10]byte { return s.raw }
 
 func (s *SessionID) isMsg() {}
 
-type Sig struct { inner ed25519.Sig }
+type Sig struct{ inner ed25519.Sig }
 
 type Signed[M Msg] struct {
 	utils.ReadOnly

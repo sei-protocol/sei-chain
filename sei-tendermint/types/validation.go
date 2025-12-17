@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/libs/utils"
 	tmmath "github.com/tendermint/tendermint/libs/math"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
 const batchVerifyThreshold = 2
@@ -229,7 +229,7 @@ func verifyCommitBatch(
 	}
 
 	// attempt to verify the batch.
-	if err := bv.Verify(); err!=nil {
+	if err := bv.Verify(); err != nil {
 		err := utils.ErrorAs[crypto.ErrBadSig](err).OrPanic()
 		// go back from the batch index to the commit.Signatures index
 		idx := batchSigIdxs[err.Idx]
@@ -291,7 +291,7 @@ func verifyCommitSingle(
 		}
 
 		voteSignBytes = commit.VoteSignBytes(chainID, int32(idx))
-		if err := val.PubKey.Verify(voteSignBytes, commitSig.Signature); err!=nil {
+		if err := val.PubKey.Verify(voteSignBytes, commitSig.Signature); err != nil {
 			return errBadSig{fmt.Errorf("wrong signature (#%d): %X", idx, commitSig.Signature)}
 		}
 

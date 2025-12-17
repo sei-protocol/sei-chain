@@ -171,8 +171,8 @@ func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey ed25519.PrivKey) (
 	}
 
 	remPubKey, remSignature := authSigMsg.Key, authSigMsg.Sig
-	if err:=remPubKey.Verify(challenge[:], remSignature); err!=nil {
-		return nil, fmt.Errorf("challenge verification failed: %w",err)
+	if err := remPubKey.Verify(challenge[:], remSignature); err != nil {
+		return nil, fmt.Errorf("challenge verification failed: %w", err)
 	}
 
 	// We've authorized.
@@ -421,15 +421,15 @@ func shareAuthSignature(sc io.ReadWriter, pubKey ed25519.PubKey, signature ed255
 				return nil, true, err // abort
 			}
 
-			key,err := ed25519.PubKeyFromBytes(pba.PubKey.GetEd25519())
-			if err!=nil {
-				return nil,true, fmt.Errorf("PubKey: %w",err)
+			key, err := ed25519.PubKeyFromBytes(pba.PubKey.GetEd25519())
+			if err != nil {
+				return nil, true, fmt.Errorf("PubKey: %w", err)
 			}
-			sig,err := ed25519.SigFromBytes(pba.Sig)
-			if err!=nil {
-				return nil,true,fmt.Errorf("Sig: %w",err)
+			sig, err := ed25519.SigFromBytes(pba.Sig)
+			if err != nil {
+				return nil, true, fmt.Errorf("Sig: %w", err)
 			}
-			return authSigMessage{key,sig}, false, nil
+			return authSigMessage{key, sig}, false, nil
 		},
 	)
 

@@ -42,9 +42,9 @@ func signAddVote(ctx context.Context, privVal PrivValidator, vote *Vote, voteSet
 	if err := privVal.SignVote(ctx, voteSet.ChainID(), v); err != nil {
 		return false, err
 	}
-	sig,err := crypto.SigFromBytes(v.Signature)
-	if err!=nil {
-		return false, fmt.Errorf("SigFromBytes(): %w",err)
+	sig, err := crypto.SigFromBytes(v.Signature)
+	if err != nil {
+		return false, fmt.Errorf("SigFromBytes(): %w", err)
 	}
 	vote.Signature = sig
 	return voteSet.AddVote(vote)

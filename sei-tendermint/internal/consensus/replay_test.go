@@ -20,6 +20,7 @@ import (
 	"github.com/tendermint/tendermint/abci/example/kvstore"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
+	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/mempool"
@@ -37,7 +38,6 @@ import (
 	"github.com/tendermint/tendermint/privval"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
-	"github.com/tendermint/tendermint/crypto"
 )
 
 // These tests ensure we can always recover from failure at any part of the consensus process.
@@ -443,7 +443,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 			cssPubKey, err := pv.GetPubKey(ctx)
 			require.NoError(t, err)
 
-			if vsPubKey==cssPubKey {
+			if vsPubKey == cssPubKey {
 				return i
 			}
 		}

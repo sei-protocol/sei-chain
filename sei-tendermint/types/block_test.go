@@ -6,8 +6,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"math"
 	"io"
+	"math"
 	mrand "math/rand"
 	"os"
 	"reflect"
@@ -302,8 +302,8 @@ func TestMaxCommitBytes(t *testing.T) {
 	timestamp := time.Date(math.MaxInt64, 0, 0, 0, 0, 0, math.MaxInt64, time.UTC)
 
 	sig := crypto.Sig{}
-	_,err := io.ReadFull(rand.Reader,sig[:])
-	require.NoError(t,err)
+	_, err := io.ReadFull(rand.Reader, sig[:])
+	require.NoError(t, err)
 	cs := CommitSig{
 		BlockIDFlag:      BlockIDFlagNil,
 		ValidatorAddress: crypto.AddressHash([]byte("validator_address")),

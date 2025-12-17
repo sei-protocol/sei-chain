@@ -7,9 +7,9 @@ import (
 	"time"
 
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	"github.com/tendermint/tendermint/types"
-	"github.com/tendermint/tendermint/libs/utils"
 )
 
 // Status returns Tendermint status including node info, pubkey, latest block
@@ -49,7 +49,7 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 	// Return the very last voting power, not the voting power of this validator
 	// during the last block.
 	validatorInfo := coretypes.ValidatorInfo{PubKey: env.PubKey}
-	if val,ok := env.validatorAtHeight(env.latestUncommittedHeight()).Get(); ok {
+	if val, ok := env.validatorAtHeight(env.latestUncommittedHeight()).Get(); ok {
 		validatorInfo.VotingPower = val.VotingPower
 	}
 	var applicationInfo coretypes.ApplicationInfo
@@ -103,8 +103,10 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 
 func (env *Environment) validatorAtHeight(h int64) utils.Option[*types.Validator] {
 	none := utils.None[*types.Validator]()
-	k,ok := env.PubKey.Get()
-	if !ok { return none  }
+	k, ok := env.PubKey.Get()
+	if !ok {
+		return none
+	}
 	valsWithH, err := env.StateStore.LoadValidators(h)
 	if err != nil {
 		return none
@@ -125,7 +127,7 @@ func (env *Environment) validatorAtHeight(h int64) utils.Option[*types.Validator
 	}
 
 	_, val := valsWithH.GetByAddress(privValAddress)
-	if val!=nil {
+	if val != nil {
 		return utils.Some(val)
 	}
 	return none

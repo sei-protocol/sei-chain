@@ -99,7 +99,7 @@ func TestProposalVerifySignature(t *testing.T) {
 	prop.Signature = crypto.Sig(p.Signature)
 
 	// verify the same proposal
-	require.NoError(t,pubKey.Verify(signBytes, prop.Signature))
+	require.NoError(t, pubKey.Verify(signBytes, prop.Signature))
 
 	// serialize, deserialize and verify again....
 	newProp := new(tmproto.Proposal)
@@ -117,7 +117,7 @@ func TestProposalVerifySignature(t *testing.T) {
 	// verify the transmitted proposal
 	newSignBytes := ProposalSignBytes("test_chain_id", pb)
 	require.Equal(t, string(signBytes), string(newSignBytes))
-	require.NoError(t,pubKey.Verify(newSignBytes, np.Signature))
+	require.NoError(t, pubKey.Verify(newSignBytes, np.Signature))
 }
 
 func BenchmarkProposalWriteSignBytes(b *testing.B) {

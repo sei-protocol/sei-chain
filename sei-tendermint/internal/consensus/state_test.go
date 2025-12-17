@@ -250,7 +250,7 @@ func TestStateBadProposal(t *testing.T) {
 	require.NoError(t, err)
 	proposal := types.NewProposal(vs2.Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
 	p := proposal.ToProto()
-	require.NoError(t,vs2.SignProposal(ctx, config.ChainID(), p))
+	require.NoError(t, vs2.SignProposal(ctx, config.ChainID(), p))
 	proposal.Signature = crypto.Sig(p.Signature)
 
 	// set the proposal block

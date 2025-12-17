@@ -14,10 +14,10 @@ import (
 
 	"github.com/tendermint/tendermint/abci/example/code"
 	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/version"
-	"github.com/tendermint/tendermint/crypto"
 )
 
 // Application is an ABCI application for use by end-to-end tests. It is a

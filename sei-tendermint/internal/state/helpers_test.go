@@ -101,7 +101,7 @@ func makeValidCommit(
 
 func makePrivKey(i int) ed25519.PrivKey {
 	var seed ed25519.Seed
-	copy(seed[:],fmt.Sprintf("%d",i))
+	copy(seed[:], fmt.Sprintf("%d", i))
 	return ed25519.PrivKeyFromSeed(seed)
 }
 
@@ -109,7 +109,7 @@ func makeState(t *testing.T, nVals, height int) (sm.State, dbm.DB, map[string]ty
 	vals := make([]types.GenesisValidator, nVals)
 	privVals := make(map[string]types.PrivValidator, nVals)
 	for i := 0; i < nVals; i++ {
-		pk := makePrivKey(i) 
+		pk := makePrivKey(i)
 		valAddr := pk.PubKey().Address()
 		vals[i] = types.GenesisValidator{
 			Address: valAddr,
@@ -157,7 +157,7 @@ func makeHeaderPartsResponsesValPubKeyChange(
 	finalizeBlockResponses := &abci.ResponseFinalizeBlock{}
 	// If the pubkey is new, remove the old and add the new.
 	_, val := state.NextValidators.GetByIndex(0)
-	if pubkey!=val.PubKey {
+	if pubkey != val.PubKey {
 		vPbPk := encoding.PubKeyToProto(val.PubKey)
 		pbPk := encoding.PubKeyToProto(pubkey)
 

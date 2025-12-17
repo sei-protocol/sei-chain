@@ -162,8 +162,8 @@ func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey ed25519.PrivKey) (
 
 	remPubKey, remSignature := authSigMsg.Key, authSigMsg.Sig
 
-	if err:=remPubKey.Verify(challenge[:], remSignature); err!=nil {
-		return nil, fmt.Errorf("challenge verification failed: %w",err)
+	if err := remPubKey.Verify(challenge[:], remSignature); err != nil {
+		return nil, fmt.Errorf("challenge verification failed: %w", err)
 	}
 
 	// We've authorized.
@@ -404,13 +404,13 @@ func shareAuthSignature(sc io.ReadWriter, pubKey ed25519.PubKey, sig ed25519.Sig
 			if _, err := protoio.NewDelimitedReader(sc, 1024*1024).ReadMsg(&pba); err != nil {
 				return nil, true, err
 			}
-			key,err := ed25519.PubKeyFromBytes(pba.PubKey.GetEd25519())
-			if err!=nil { 
-				return nil, true, fmt.Errorf("ed25519.PubKeyFromBytes(): %w",err) 
+			key, err := ed25519.PubKeyFromBytes(pba.PubKey.GetEd25519())
+			if err != nil {
+				return nil, true, fmt.Errorf("ed25519.PubKeyFromBytes(): %w", err)
 			}
-			sig,err := ed25519.SigFromBytes(pba.Sig)
-			if err!=nil {
-				return nil, true, fmt.Errorf("ed25519.SigFromBytes(): %w",err)
+			sig, err := ed25519.SigFromBytes(pba.Sig)
+			if err != nil {
+				return nil, true, fmt.Errorf("ed25519.SigFromBytes(): %w", err)
 			}
 			return authSigMessage{Key: key, Sig: sig}, false, nil
 		},
@@ -418,7 +418,7 @@ func shareAuthSignature(sc io.ReadWriter, pubKey ed25519.PubKey, sig ed25519.Sig
 
 	// If error:
 	if trs.FirstError() != nil {
-		return authSigMessage{},trs.FirstError()
+		return authSigMessage{}, trs.FirstError()
 	}
 
 	var _recvMsg = trs.FirstValue().(authSigMessage)

@@ -49,7 +49,7 @@ func BenchmarkVerifyBatch(b *testing.B) {
 				for i := range sigsCount {
 					v.Add(pubs[i], msg, sigs[i])
 				}
-				if err := v.Verify(); err!=nil {
+				if err := v.Verify(); err != nil {
 					b.Fatal(err)
 				}
 			}

@@ -9,8 +9,8 @@ import (
 
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	"github.com/tendermint/tendermint/abci/types"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
 	"github.com/tendermint/tendermint/crypto"
+	tmrand "github.com/tendermint/tendermint/libs/rand"
 )
 
 func InitChain(ctx context.Context, client abciclient.Client) error {

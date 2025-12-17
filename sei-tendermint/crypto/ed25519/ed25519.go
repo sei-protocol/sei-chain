@@ -3,8 +3,8 @@ package ed25519
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"fmt"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519"
@@ -15,7 +15,7 @@ import (
 )
 
 const PrivKeyName = "tendermint/PrivKeyEd25519"
-const PubKeyName  = "tendermint/PubKeyEd25519"
+const PubKeyName = "tendermint/PubKeyEd25519"
 const KeyType = "ed25519"
 
 // cacheSize is the number of public keys that will be cached in
@@ -40,7 +40,7 @@ func init() {
 type Seed [ed25519.SeedSize]byte
 
 type PrivKey struct {
-	raw ed25519.PrivateKey // ed25519.PrivateKey is a slice, therefore the secret will not be copied around. 
+	raw ed25519.PrivateKey // ed25519.PrivateKey is a slice, therefore the secret will not be copied around.
 }
 
 // TypeTag satisfies the jsontypes.Tagged interface.
@@ -52,14 +52,14 @@ func (k PrivKey) SecretBytes() []byte { return k.raw }
 // Sig represents signature.
 type Sig [ed25519.SignatureSize]byte
 
-func SigFromBytes(raw []byte) (Sig,error) {
-	if len(raw)!=len(Sig{}) {
-		return Sig{},errors.New("invalid signature length")
+func SigFromBytes(raw []byte) (Sig, error) {
+	if len(raw) != len(Sig{}) {
+		return Sig{}, errors.New("invalid signature length")
 	}
-	return Sig(raw),nil
+	return Sig(raw), nil
 }
 
-// Sign signs a message with the key. 
+// Sign signs a message with the key.
 func (k PrivKey) Sign(msg []byte) Sig { return Sig(ed25519.Sign(k.raw, msg)) }
 
 // PubKey gets the corresponding public key from the private key.
@@ -70,7 +70,7 @@ func (k PrivKey) Type() string { return KeyType }
 // GenPrivKey generates a new ed25519 private key from OS entropy.
 func GenPrivKey() PrivKey {
 	var seed Seed
-	if _,err := io.ReadFull(rand.Reader,seed[:]); err != nil {
+	if _, err := io.ReadFull(rand.Reader, seed[:]); err != nil {
 		panic(err)
 	}
 	return PrivKeyFromSeed(seed)
@@ -89,15 +89,14 @@ func GenPrivKeyFromSecret(secret []byte) PrivKey {
 	return PrivKeyFromSeed(Seed(sha256.Sum256(secret)))
 }
 
-
 // PubKey implements the Ed25519 signature scheme.
 type PubKey [ed25519.PublicKeySize]byte
 
-func PubKeyFromBytes(raw []byte) (PubKey,error) {
-	if len(raw)!=len(PubKey{}) {
-		return PubKey{},errors.New("invalid pubkey length")
+func PubKeyFromBytes(raw []byte) (PubKey, error) {
+	if len(raw) != len(PubKey{}) {
+		return PubKey{}, errors.New("invalid pubkey length")
 	}
-	return PubKey(raw),nil
+	return PubKey(raw), nil
 }
 
 // TypeTag satisfies the jsontypes.Tagged interface.
@@ -117,10 +116,11 @@ func (k PubKey) Verify(msg []byte, sig Sig) error {
 }
 
 func (k PubKey) String() string { return fmt.Sprintf("PubKeyEd25519{%X}", k[:]) }
-func (k PubKey) Type() string { return KeyType }
+func (k PubKey) Type() string   { return KeyType }
 
 // BatchVerifier implements batch verification for ed25519.
-type BatchVerifier struct { inner *ed25519.BatchVerifier }
+type BatchVerifier struct{ inner *ed25519.BatchVerifier }
+
 func NewBatchVerifier() *BatchVerifier { return &BatchVerifier{ed25519.NewBatchVerifier()} }
 
 func (b *BatchVerifier) Add(key PubKey, msg []byte, sig Sig) {
@@ -132,18 +132,18 @@ type ErrBadSig struct {
 }
 
 func (e ErrBadSig) Error() string {
-	return fmt.Sprintf("invalid %vth signature",e.Idx)
+	return fmt.Sprintf("invalid %vth signature", e.Idx)
 }
 
 // Verify verifies the batched signatures using OS entropy.
 // If any signature is invalid, returns ErrBadSig with an index
 // of the first invalid signature.
 func (b *BatchVerifier) Verify() error {
-	ok,res := b.inner.Verify(rand.Reader)
+	ok, res := b.inner.Verify(rand.Reader)
 	if ok {
 		return nil
 	}
-	for idx,ok := range res {
+	for idx, ok := range res {
 		if !ok {
 			return ErrBadSig{idx}
 		}

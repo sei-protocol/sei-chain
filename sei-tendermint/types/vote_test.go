@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
@@ -163,7 +163,7 @@ func TestVoteVerifySignature(t *testing.T) {
 	require.NoError(t, privVal.SignVote(ctx, "test_chain_id", v))
 
 	// verify the same vote
-	require.NoError(t,pubkey.Verify(VoteSignBytes("test_chain_id", v), crypto.Sig(v.Signature)))
+	require.NoError(t, pubkey.Verify(VoteSignBytes("test_chain_id", v), crypto.Sig(v.Signature)))
 
 	// serialize, deserialize and verify again....
 	precommit := new(tmproto.Vote)

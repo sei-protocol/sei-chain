@@ -340,8 +340,6 @@ func AddCommands(
 
 	startCmd := StartCmd(appCreator, defaultNodeHome, tracerProviderOptions)
 	addStartFlags(startCmd)
-	inPlaceTestnetCmd := InPlaceTestnetCreator(appCreator, defaultNodeHome)
-	addStartFlags(inPlaceTestnetCmd)
 
 	rootCmd.AddCommand(
 		startCmd,
@@ -350,7 +348,6 @@ func AddCommands(
 		version.NewVersionCommand(),
 		NewRollbackCmd(appCreator, defaultNodeHome),
 		LatestVersionCmd(defaultNodeHome),
-		inPlaceTestnetCmd,
 	)
 }
 

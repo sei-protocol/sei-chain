@@ -45,5 +45,5 @@ func TestBatchSafe(t *testing.T) {
 		v.Add(pub, msg, priv.Sign(msg))
 	}
 
-	require.NoError(t,v.Verify())
+	require.NoError(t, v.Verify())
 }

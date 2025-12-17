@@ -67,9 +67,9 @@ func VoteFromProto(pv *tmproto.Vote) (*Vote, error) {
 	if err != nil {
 		return nil, err
 	}
-	sig,err := crypto.SigFromBytes(pv.Signature)
-	if err!=nil {
-		return nil,fmt.Errorf("Signature: %w",err)
+	sig, err := crypto.SigFromBytes(pv.Signature)
+	if err != nil {
+		return nil, fmt.Errorf("Signature: %w", err)
 	}
 	return &Vote{
 		Type:             pv.Type,
@@ -175,7 +175,7 @@ func (vote *Vote) verifyAndReturnProto(chainID string, pubKey crypto.PubKey) (*t
 		return nil, ErrVoteInvalidValidatorAddress
 	}
 	v := vote.ToProto()
-	if err:=pubKey.Verify(VoteSignBytes(chainID, v), vote.Signature); err!=nil {
+	if err := pubKey.Verify(VoteSignBytes(chainID, v), vote.Signature); err != nil {
 		return nil, ErrVoteInvalidSignature
 	}
 	return v, nil

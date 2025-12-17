@@ -183,7 +183,7 @@ func (voteSet *VoteSet) addVote(vote *Vote) (added bool, err error) {
 
 	// If we already know of this vote, return false.
 	if existing, ok := voteSet.getVote(valIndex, blockKey); ok {
-		if existing.Signature==vote.Signature {
+		if existing.Signature == vote.Signature {
 			return false, nil // duplicate
 		}
 		return false, fmt.Errorf("existing vote: %v; new vote: %v: %w", existing, vote, ErrVoteNonDeterministicSignature)

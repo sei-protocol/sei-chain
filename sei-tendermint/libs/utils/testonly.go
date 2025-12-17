@@ -49,7 +49,7 @@ var cmpOpts = []cmp.Option{
 }
 
 func OrPanic(err error) {
-	if err!=nil {
+	if err != nil {
 		panic(err)
 	}
 }
