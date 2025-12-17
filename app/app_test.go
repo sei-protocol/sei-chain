@@ -797,3 +797,15 @@ func TestProcessBlockUpgradePanicLogic(t *testing.T) {
 		})
 	}
 }
+
+func TestDeliverTxWithNilTypedTxDoesNotPanic(t *testing.T) {
+	sei := app.Setup(t, false, false, false)
+	ctx := sei.BaseApp.NewContext(false, types.Header{})
+
+	malformedTxBytes := []byte("invalid tx bytes that cannot be decoded")
+
+	require.NotPanics(t, func() {
+		result := sei.DeliverTxWithResult(ctx, malformedTxBytes, nil)
+		require.NotNil(t, result)
+	})
+}
