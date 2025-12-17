@@ -43,11 +43,12 @@ jobs:
             /usr/local/lib/android \
             /opt/ghc /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force
+      - run: go env
       - name: Go test with race detector
         working-directory: '${{ matrix.modules.path }}'
         # Skip sei-iavl tests as they take an excessively log time to run per PR
         # TODO: separate them to nightly tests.
-        run: go test -race -skip 'sei-iavl' -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out ./...
+        run: go test -race -skip 'sei-iavl' -test.parallel=8 -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out ./...
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
