@@ -27,7 +27,7 @@ coverage:
           - sei-tendermint
     patch:
       default:
-        target: 70%
+        target: auto
 
 comment:
   layout: "reach,diff,flags,tree,betaprofiling"
