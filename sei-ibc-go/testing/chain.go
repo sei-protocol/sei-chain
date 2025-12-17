@@ -3,6 +3,7 @@ package ibctesting
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -23,7 +24,7 @@ import (
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
+	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto/tmhash"
@@ -31,17 +32,17 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 	tmversion "github.com/tendermint/tendermint/version"
 
-	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	commitmenttypes "github.com/cosmos/ibc-go/v3/modules/core/23-commitment/types"
-	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
-	"github.com/cosmos/ibc-go/v3/modules/core/types"
-	ibctmtypes "github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types"
-	"github.com/cosmos/ibc-go/v3/testing/mock"
-	"github.com/cosmos/ibc-go/v3/testing/simapp"
+	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
+	commitmenttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/23-commitment/types"
+	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
+	ibctmtypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/07-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/mock"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/simapp"
 )
 
-var MaxAccounts = 10
+const MaxAccounts = 10
 
 type SenderAccount struct {
 	SenderPrivKey cryptotypes.PrivKey
@@ -98,7 +99,7 @@ func NewTestChainWithValSet(t *testing.T, coord *Coordinator, chainID string, va
 	// generate genesis accounts
 	for i := 0; i < MaxAccounts; i++ {
 		senderPrivKey := secp256k1.GenPrivKey()
-		acc := authtypes.NewBaseAccount(senderPrivKey.PubKey().Address().Bytes(), senderPrivKey.PubKey(), uint64(i), 0)
+		acc := authtypes.NewBaseAccount(senderPrivKey.PubKey().Address().Bytes(), senderPrivKey.PubKey(), uint64(i), 0) // #nosec G115 --- max accounts is 10.
 		amount, ok := sdk.NewIntFromString("10000000000000000000")
 		require.True(t, ok)
 
@@ -207,7 +208,7 @@ func (chain *TestChain) QueryProof(key []byte) ([]byte, clienttypes.Height) {
 // QueryProof performs an abci query with the given key and returns the proto encoded merkle proof
 // for the query and the height at which the proof will succeed on a tendermint verifier.
 func (chain *TestChain) QueryProofAtHeight(key []byte, height int64) ([]byte, clienttypes.Height) {
-	res, _ := chain.App.Query(chain.T.Context(), &abci.RequestQuery{
+	res, _ := chain.App.Query(chain.Context(), &abci.RequestQuery{
 		Path:   fmt.Sprintf("store/%s/key", host.StoreKey),
 		Height: height - 1,
 		Data:   key,
@@ -225,15 +226,16 @@ func (chain *TestChain) QueryProofAtHeight(key []byte, height int64) ([]byte, cl
 	// proof height + 1 is returned as the proof created corresponds to the height the proof
 	// was created in the IAVL tree. Tendermint and subsequently the clients that rely on it
 	// have heights 1 above the IAVL tree. Thus we return proof height + 1
-	return proof, clienttypes.NewHeight(revision, uint64(res.Height)+1)
+	require.Greater(chain.T, res.Height+1, int64(0))
+	return proof, clienttypes.NewHeight(revision, uint64(res.Height)+1) // #nosec G115 -- checked above
 }
 
 // QueryUpgradeProof performs an abci query with the given key and returns the proto encoded merkle proof
 // for the query and the height at which the proof will succeed on a tendermint verifier.
 func (chain *TestChain) QueryUpgradeProof(key []byte, height uint64) ([]byte, clienttypes.Height) {
-	res, _ := chain.App.Query(chain.T.Context(), &abci.RequestQuery{
+	res, _ := chain.App.Query(chain.Context(), &abci.RequestQuery{
 		Path:   "store/upgrade/key",
-		Height: int64(height - 1),
+		Height: int64(height - 1), // #nosec G115 -- testing.
 		Data:   key,
 		Prove:  true,
 	})
@@ -249,7 +251,8 @@ func (chain *TestChain) QueryUpgradeProof(key []byte, height uint64) ([]byte, cl
 	// proof height + 1 is returned as the proof created corresponds to the height the proof
 	// was created in the IAVL tree. Tendermint and subsequently the clients that rely on it
 	// have heights 1 above the IAVL tree. Thus we return proof height + 1
-	return proof, clienttypes.NewHeight(revision, uint64(res.Height+1))
+	require.Greater(chain.T, res.Height+1, int64(0))
+	return proof, clienttypes.NewHeight(revision, uint64(res.Height+1)) // #nosec G115 -- checked above
 }
 
 // QueryConsensusStateProof performs an abci query for a consensus state
@@ -285,7 +288,7 @@ func (chain *TestChain) NextBlock() {
 		NextValidatorsHash: chain.Vals.Hash(),
 	}
 
-	chain.App.FinalizeBlock(chain.T.Context(), &abci.RequestFinalizeBlock{
+	_, err := chain.App.FinalizeBlock(chain.Context(), &abci.RequestFinalizeBlock{
 		Height:  chain.App.LastBlockHeight() + 1,
 		Time:    chain.CurrentHeader.Time,
 		AppHash: chain.CurrentHeader.AppHash,
@@ -293,6 +296,7 @@ func (chain *TestChain) NextBlock() {
 		ValidatorsHash:     chain.Vals.Hash(),
 		NextValidatorsHash: chain.Vals.Hash(),
 	})
+	require.NoError(chain.T, err)
 }
 
 // sendMsgs delivers a transaction through the application without returning the result.
@@ -333,7 +337,8 @@ func (chain *TestChain) SendMsgs(msgs ...sdk.Msg) (*sdk.Result, error) {
 	chain.NextBlock()
 
 	// increment sequence for successful transaction execution
-	chain.SenderAccount.SetSequence(chain.SenderAccount.GetSequence() + 1)
+	err = chain.SenderAccount.SetSequence(chain.SenderAccount.GetSequence() + 1)
+	require.NoError(chain.T, err)
 
 	chain.Coordinator.IncrementTime()
 
@@ -414,6 +419,7 @@ func (chain *TestChain) ConstructUpdateTMClientHeaderWithTrustedHeight(counterpa
 		// since the last trusted validators for a header at height h
 		// is the NextValidators at h+1 committed to in header h by
 		// NextValidatorsHash
+		// #nosec G115 -- trusted height.
 		tmTrustedVals, ok = counterparty.GetValsAtHeight(int64(trustedHeight.RevisionHeight + 1))
 		if !ok {
 			return nil, sdkerrors.Wrapf(ibctmtypes.ErrInvalidHeaderHeight, "could not retrieve trusted validators at trustedHeight: %d", trustedHeight)
@@ -476,6 +482,7 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 	blockID := MakeBlockID(hhash, 3, tmhash.Sum([]byte("part_set")))
 	voteSet := tmtypes.NewVoteSet(chainID, blockHeight, 1, tmproto.PrecommitType, tmValSet)
 
+	require.Less(chain.T, len(tmValSet.Validators), math.MaxInt32)
 	for i, val := range tmValSet.Validators {
 		privVal := signers[i]
 		vote := &tmtypes.Vote{
@@ -485,13 +492,14 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 			BlockID:          blockID,
 			Timestamp:        timestamp,
 			ValidatorAddress: val.Address,
-			ValidatorIndex:   int32(i),
+			ValidatorIndex:   int32(i), // #nosec G115 --- checked above.
 		}
 		v := vote.ToProto()
-		err := privVal.SignVote(chain.T.Context(), chainID, v)
+		err := privVal.SignVote(chain.Context(), chainID, v)
 		require.NoError(chain.T, err)
 		vote.Signature = v.Signature
-		voteSet.AddVote(vote)
+		_, err = voteSet.AddVote(vote)
+		require.NoError(chain.T, err)
 	}
 
 	commit := voteSet.MakeCommit()
@@ -501,11 +509,8 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 		Commit: commit.ToProto(),
 	}
 
-	var err error
-	if tmValSet != nil {
-		valSet, err = tmValSet.ToProto()
-		require.NoError(chain.T, err)
-	}
+	valSet, err := tmValSet.ToProto()
+	require.NoError(chain.T, err)
 
 	if tmTrustedVals != nil {
 		trustedVals, err = tmTrustedVals.ToProto()
@@ -570,7 +575,8 @@ func (chain *TestChain) CreatePortCapability(scopedKeeper capabilitykeeper.Scope
 		require.NoError(chain.T, err)
 	}
 
-	chain.App.Commit(chain.T.Context())
+	_, err := chain.App.Commit(chain.Context())
+	require.NoError(chain.T, err)
 
 	chain.NextBlock()
 }
@@ -598,7 +604,8 @@ func (chain *TestChain) CreateChannelCapability(scopedKeeper capabilitykeeper.Sc
 		require.NoError(chain.T, err)
 	}
 
-	chain.App.Commit(chain.T.Context())
+	_, err := chain.App.Commit(chain.Context())
+	require.NoError(chain.T, err)
 
 	chain.NextBlock()
 }
@@ -615,7 +622,7 @@ func (chain *TestChain) GetChannelCapability(portID, channelID string) *capabili
 // GetTimeoutHeight is a convenience function which returns a IBC packet timeout height
 // to be used for testing. It returns the current IBC height + 100 blocks
 func (chain *TestChain) GetTimeoutHeight() clienttypes.Height {
-	return clienttypes.NewHeight(clienttypes.ParseChainID(chain.ChainID), uint64(chain.GetContext().BlockHeight())+100)
+	return clienttypes.NewHeight(clienttypes.ParseChainID(chain.ChainID), uint64(chain.GetContext().BlockHeight())+100) // #nosec G115 -- testing.
 }
 
 var _ TestingApp = TestingAppDecorator{}

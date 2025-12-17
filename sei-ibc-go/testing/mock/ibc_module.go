@@ -3,14 +3,13 @@ package mock
 import (
 	"bytes"
 	"fmt"
-	"strconv"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 
-	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
-	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
+	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
 // IBCModule implements the ICS26 callbacks for testing/mock.
@@ -155,15 +154,15 @@ func (im IBCModule) OnTimeoutPacket(ctx sdk.Context, packet channeltypes.Packet,
 
 // GetMockRecvCanaryCapabilityName generates a capability name for testing OnRecvPacket functionality.
 func GetMockRecvCanaryCapabilityName(packet channeltypes.Packet) string {
-	return fmt.Sprintf("%s%s%s%s", MockRecvCanaryCapabilityName, packet.GetDestPort(), packet.GetDestChannel(), strconv.Itoa(int(packet.GetSequence())))
+	return fmt.Sprintf("%s%s%s%d", MockRecvCanaryCapabilityName, packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence())
 }
 
 // GetMockAckCanaryCapabilityName generates a capability name for OnAcknowledgementPacket functionality.
 func GetMockAckCanaryCapabilityName(packet channeltypes.Packet) string {
-	return fmt.Sprintf("%s%s%s%s", MockAckCanaryCapabilityName, packet.GetSourcePort(), packet.GetSourceChannel(), strconv.Itoa(int(packet.GetSequence())))
+	return fmt.Sprintf("%s%s%s%d", MockAckCanaryCapabilityName, packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
 }
 
 // GetMockTimeoutCanaryCapabilityName generates a capability name for OnTimeoutacket functionality.
 func GetMockTimeoutCanaryCapabilityName(packet channeltypes.Packet) string {
-	return fmt.Sprintf("%s%s%s%s", MockTimeoutCanaryCapabilityName, packet.GetSourcePort(), packet.GetSourceChannel(), strconv.Itoa(int(packet.GetSequence())))
+	return fmt.Sprintf("%s%s%s%d", MockTimeoutCanaryCapabilityName, packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
 }

@@ -11,7 +11,7 @@ import "proofs.proto";
 import "tendermint/types/types.proto";
 import "tendermint/types/validator.proto";
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/07-tendermint/types";
 
 // ClientState from Tendermint tracks the current validator set, latest height,
 // and a possible frozen height.

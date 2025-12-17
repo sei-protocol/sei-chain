@@ -7,9 +7,9 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	tmtypes "github.com/tendermint/tendermint/types"
 
-	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	commitmenttypes "github.com/cosmos/ibc-go/v3/modules/core/23-commitment/types"
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
+	commitmenttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/23-commitment/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
 var _ exported.Header = &Header{}
@@ -33,7 +33,7 @@ func (h Header) ClientType() string {
 // NOTE: the header.Header is checked to be non nil in ValidateBasic.
 func (h Header) GetHeight() exported.Height {
 	revision := clienttypes.ParseChainID(h.Header.ChainID)
-	return clienttypes.NewHeight(revision, uint64(h.Header.Height))
+	return clienttypes.NewHeight(revision, uint64(h.Header.Height)) // #nosec G115 --- validated before instantiation
 }
 
 // GetTime returns the current block timestamp. It returns a zero time if

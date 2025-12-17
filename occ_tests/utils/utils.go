@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
-	wasmxtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	clienttx "github.com/cosmos/cosmos-sdk/client/tx"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -26,6 +24,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
+	wasmxtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -155,11 +155,11 @@ func deployCW20Token(tCtx *TestContext, i int) (string, error) {
 }
 
 // NewTestContext initializes a new TestContext with a new app and a new contract
-func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, workers int, occEnabled bool) *TestContext {
+func NewTestContext(tb testing.TB, testAccts []TestAcct, blockTime time.Time, workers int, occEnabled bool) *TestContext {
 	contractFile := "../integration_test/contracts/mars.wasm"
 	cw20ContractFile := "../contracts/wasm/cw20_base.wasm"
 
-	wrapper := app.NewTestWrapper(t, blockTime, testAccts[0].PublicKey, true, func(ba *baseapp.BaseApp) {
+	wrapper := app.NewTestWrapper(tb, blockTime, testAccts[0].PublicKey, true, func(ba *baseapp.BaseApp) {
 		ba.SetOccEnabled(occEnabled)
 		ba.SetConcurrencyWorkers(workers)
 	})
@@ -206,6 +206,12 @@ func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, wor
 	}
 
 	return tctx
+}
+
+// ToTxBytes converts test messages to transaction bytes.
+// This includes signing, encoding, and state preparation (funding accounts, updating sequences).
+func ToTxBytes(testCtx *TestContext, msgs []*TestMessage) [][]byte {
+	return toTxBytes(testCtx, msgs)
 }
 
 func toTxBytes(testCtx *TestContext, msgs []*TestMessage) [][]byte {
@@ -312,6 +318,19 @@ func RunWithoutOCC(testCtx *TestContext, msgs []*TestMessage) ([]types.Event, []
 func runTxs(testCtx *TestContext, msgs []*TestMessage, occ bool) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
 	app.EnableOCC = occ
 	txs := toTxBytes(testCtx, msgs)
+	req := &types.RequestFinalizeBlock{
+		Txs:    txs,
+		Height: testCtx.Ctx.BlockHeader().Height,
+	}
+
+	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, req.DecidedLastCommit, false)
+}
+
+// ProcessBlockDirect calls ProcessBlock directly with pre-prepared transaction bytes.
+// This is useful for benchmarks where you want to measure only ProcessBlock execution time,
+// excluding the overhead of transaction encoding, signing, and state preparation.
+func ProcessBlockDirect(testCtx *TestContext, txs [][]byte, occ bool) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
+	app.EnableOCC = occ
 	req := &types.RequestFinalizeBlock{
 		Txs:    txs,
 		Height: testCtx.Ctx.BlockHeader().Height,

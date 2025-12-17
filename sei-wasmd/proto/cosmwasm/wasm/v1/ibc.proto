@@ -3,7 +3,7 @@ package cosmwasm.wasm.v1;
 
 import "gogoproto/gogo.proto";
 
-option go_package = "github.com/CosmWasm/wasmd/x/wasm/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types";
 option (gogoproto.goproto_getters_all) = false;
 
 // MsgIBCSend

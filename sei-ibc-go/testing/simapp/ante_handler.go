@@ -6,8 +6,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 
-	ibcante "github.com/cosmos/ibc-go/v3/modules/core/ante"
-	"github.com/cosmos/ibc-go/v3/modules/core/keeper"
+	ibcante "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/ante"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 )
 
 // HandlerOptions extend the SDK's AnteHandler options by requiring the IBC keeper.

@@ -5,7 +5,7 @@ package ibc.core.connection.v1;
 import "gogoproto/gogo.proto";
 import "ibc/core/connection/v1/connection.proto";
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types";
 
 // GenesisState defines the ibc connection submodule's genesis state.
 message GenesisState {

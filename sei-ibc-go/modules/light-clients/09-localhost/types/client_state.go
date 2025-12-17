@@ -10,11 +10,11 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 
-	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
-	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
-	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
+	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
+	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
+	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
 var _ exported.ClientState = (*ClientState)(nil)
@@ -84,7 +84,11 @@ func (cs *ClientState) CheckHeaderAndUpdateState(
 	// use the chain ID from context since the localhost client is from the running chain (i.e self).
 	cs.ChainId = ctx.ChainID()
 	revision := clienttypes.ParseChainID(cs.ChainId)
-	cs.Height = clienttypes.NewHeight(revision, uint64(ctx.BlockHeight()))
+	blockHeight := ctx.BlockHeight()
+	if blockHeight < 0 {
+		return nil, nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidHeight, "block height %d is negative", blockHeight)
+	}
+	cs.Height = clienttypes.NewHeight(revision, uint64(blockHeight)) // #nosec G115 --- overflow checked above
 	return cs, nil, nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 
 	snapshot "github.com/cosmos/cosmos-sdk/snapshots/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -13,8 +14,8 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/CosmWasm/wasmd/x/wasm/ioutils"
-	"github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/ioutils"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 var _ snapshot.ExtensionSnapshotter = &WasmSnapshotter{}
@@ -48,6 +49,9 @@ func (ws *WasmSnapshotter) SupportedFormats() []uint32 {
 }
 
 func (ws *WasmSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer) error {
+	if height > math.MaxInt64 {
+		return errors.New("invalid height")
+	}
 	cacheMS, err := ws.cms.CacheMultiStoreForExport(int64(height))
 	if err != nil {
 		return err
@@ -101,6 +105,7 @@ func (ws *WasmSnapshotter) Restore(
 }
 
 func restoreV1(ctx sdk.Context, k *Keeper, compressedCode []byte, num int) error {
+	// #nosec G115 -- MaxWasmSize is a constant and always non-negative
 	wasmCode, err := ioutils.Uncompress(compressedCode, uint64(types.MaxWasmSize))
 	if err != nil {
 		return sdkerrors.Wrap(types.ErrCreateFailed, err.Error())
@@ -139,6 +144,10 @@ func (ws *WasmSnapshotter) processAllItems(
 	cb func(sdk.Context, *Keeper, []byte, int) error,
 	finalize func(sdk.Context, *Keeper) error,
 ) (snapshot.SnapshotItem, error) {
+	if height > math.MaxInt64 {
+		return snapshot.SnapshotItem{}, sdkerrors.Wrapf(sdkerrors.ErrInvalidHeight, "height %d exceeds max int64", height)
+	}
+	// #nosec G115 -- height is bounds checked above
 	ctx := sdk.NewContext(ws.cms, tmproto.Header{Height: int64(height)}, false, log.NewNopLogger())
 
 	// keep the last item here... if we break, it will either be empty (if we hit io.EOF)

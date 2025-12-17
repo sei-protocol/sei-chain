@@ -1,16 +1,18 @@
 package v100
 
 import (
+	"fmt"
+
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
-	clientv100 "github.com/cosmos/ibc-go/v3/modules/core/02-client/legacy/v100"
-	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
-	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
-	"github.com/cosmos/ibc-go/v3/modules/core/types"
+	clientv100 "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/legacy/v100"
+	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
+	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
+	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
 )
 
 // MigrateGenesis accepts exported v1.0.0 IBC client genesis file and migrates it to:
@@ -25,9 +27,13 @@ func MigrateGenesis(appState genutiltypes.AppMap, clientCtx client.Context, genD
 
 		// unmarshal relative source genesis application state
 		ibcGenState := &types.GenesisState{}
-		clientCtx.JSONCodec.MustUnmarshalJSON(appState[host.ModuleName], ibcGenState)
+		clientCtx.Codec.MustUnmarshalJSON(appState[host.ModuleName], ibcGenState)
 
-		clientGenState, err := clientv100.MigrateGenesis(codec.NewProtoCodec(clientCtx.InterfaceRegistry), &ibcGenState.ClientGenesis, genDoc.GenesisTime, clienttypes.NewHeight(clienttypes.ParseChainID(genDoc.ChainID), uint64(genDoc.InitialHeight)))
+		if genDoc.InitialHeight < 0 {
+			return nil, fmt.Errorf("initial height cannot be less than zero: %d", genDoc.InitialHeight)
+		}
+
+		clientGenState, err := clientv100.MigrateGenesis(codec.NewProtoCodec(clientCtx.InterfaceRegistry), &ibcGenState.ClientGenesis, genDoc.GenesisTime, clienttypes.NewHeight(clienttypes.ParseChainID(genDoc.ChainID), uint64(genDoc.InitialHeight))) // #nosec G115 --- checked above
 		if err != nil {
 			return nil, err
 		}
@@ -48,7 +54,7 @@ func MigrateGenesis(appState genutiltypes.AppMap, clientCtx client.Context, genD
 		delete(appState, host.ModuleName)
 
 		// set new ibc genesis state
-		appState[host.ModuleName] = clientCtx.JSONCodec.MustMarshalJSON(ibcGenState)
+		appState[host.ModuleName] = clientCtx.Codec.MustMarshalJSON(ibcGenState)
 	}
 	return appState, nil
 }

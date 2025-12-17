@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CosmWasm/wasmd/app"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/app"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 

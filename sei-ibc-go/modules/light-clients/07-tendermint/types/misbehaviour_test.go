@@ -3,11 +3,11 @@ package types_test
 import (
 	"time"
 
-	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
-	"github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types"
-	ibctesting "github.com/cosmos/ibc-go/v3/testing"
-	ibctestingmock "github.com/cosmos/ibc-go/v3/testing/mock"
+	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/07-tendermint/types"
+	ibctesting "github.com/sei-protocol/sei-chain/sei-ibc-go/testing"
+	ibctestingmock "github.com/sei-protocol/sei-chain/sei-ibc-go/testing/mock"
 	"github.com/tendermint/tendermint/crypto/tmhash"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	tmtypes "github.com/tendermint/tendermint/types"
