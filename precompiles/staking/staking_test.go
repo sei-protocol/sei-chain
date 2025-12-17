@@ -11,9 +11,11 @@ import (
 	"testing"
 	"time"
 
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	crptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -261,12 +263,77 @@ func setupValidator(t *testing.T, ctx sdk.Context, a *app.App, bondStatus stakin
 }
 
 type TestStakingQuerier struct {
-	Response *stakingtypes.QueryDelegationResponse
-	Err      error
+	Response                              *stakingtypes.QueryDelegationResponse
+	ValidatorsResponse                    *stakingtypes.QueryValidatorsResponse
+	ValidatorResponse                     *stakingtypes.QueryValidatorResponse
+	ValidatorDelegationsResponse          *stakingtypes.QueryValidatorDelegationsResponse
+	ValidatorUnbondingDelegationsResponse *stakingtypes.QueryValidatorUnbondingDelegationsResponse
+	UnbondingDelegationResponse           *stakingtypes.QueryUnbondingDelegationResponse
+	DelegatorDelegationsResponse          *stakingtypes.QueryDelegatorDelegationsResponse
+	DelegatorValidatorResponse            *stakingtypes.QueryDelegatorValidatorResponse
+	DelegatorUnbondingDelegationsResponse *stakingtypes.QueryDelegatorUnbondingDelegationsResponse
+	RedelegationsResponse                 *stakingtypes.QueryRedelegationsResponse
+	DelegatorValidatorsResponse           *stakingtypes.QueryDelegatorValidatorsResponse
+	HistoricalInfoResponse                *stakingtypes.QueryHistoricalInfoResponse
+	PoolResponse                          *stakingtypes.QueryPoolResponse
+	ParamsResponse                        *stakingtypes.QueryParamsResponse
+	Err                                   error
 }
 
 func (tq *TestStakingQuerier) Delegation(c context.Context, _ *stakingtypes.QueryDelegationRequest) (*stakingtypes.QueryDelegationResponse, error) {
 	return tq.Response, tq.Err
+}
+
+func (tq *TestStakingQuerier) Validators(c context.Context, _ *stakingtypes.QueryValidatorsRequest) (*stakingtypes.QueryValidatorsResponse, error) {
+	return tq.ValidatorsResponse, tq.Err
+}
+
+func (tq *TestStakingQuerier) Validator(c context.Context, _ *stakingtypes.QueryValidatorRequest) (*stakingtypes.QueryValidatorResponse, error) {
+	return tq.ValidatorResponse, tq.Err
+}
+
+func (tq *TestStakingQuerier) ValidatorDelegations(c context.Context, _ *stakingtypes.QueryValidatorDelegationsRequest) (*stakingtypes.QueryValidatorDelegationsResponse, error) {
+	return tq.ValidatorDelegationsResponse, tq.Err
+}
+
+func (tq *TestStakingQuerier) ValidatorUnbondingDelegations(c context.Context, _ *stakingtypes.QueryValidatorUnbondingDelegationsRequest) (*stakingtypes.QueryValidatorUnbondingDelegationsResponse, error) {
+	return tq.ValidatorUnbondingDelegationsResponse, tq.Err
+}
+
+func (tq *TestStakingQuerier) UnbondingDelegation(c context.Context, _ *stakingtypes.QueryUnbondingDelegationRequest) (*stakingtypes.QueryUnbondingDelegationResponse, error) {
+	return tq.UnbondingDelegationResponse, tq.Err
+}
+
+func (tq *TestStakingQuerier) DelegatorDelegations(c context.Context, _ *stakingtypes.QueryDelegatorDelegationsRequest) (*stakingtypes.QueryDelegatorDelegationsResponse, error) {
+	return tq.DelegatorDelegationsResponse, tq.Err
+}
+
+func (tq *TestStakingQuerier) DelegatorValidator(c context.Context, _ *stakingtypes.QueryDelegatorValidatorRequest) (*stakingtypes.QueryDelegatorValidatorResponse, error) {
+	return tq.DelegatorValidatorResponse, tq.Err
+}
+
+func (tq *TestStakingQuerier) DelegatorUnbondingDelegations(c context.Context, _ *stakingtypes.QueryDelegatorUnbondingDelegationsRequest) (*stakingtypes.QueryDelegatorUnbondingDelegationsResponse, error) {
+	return tq.DelegatorUnbondingDelegationsResponse, tq.Err
+}
+
+func (tq *TestStakingQuerier) Redelegations(c context.Context, _ *stakingtypes.QueryRedelegationsRequest) (*stakingtypes.QueryRedelegationsResponse, error) {
+	return tq.RedelegationsResponse, tq.Err
+}
+
+func (tq *TestStakingQuerier) DelegatorValidators(c context.Context, _ *stakingtypes.QueryDelegatorValidatorsRequest) (*stakingtypes.QueryDelegatorValidatorsResponse, error) {
+	return tq.DelegatorValidatorsResponse, tq.Err
+}
+
+func (tq *TestStakingQuerier) HistoricalInfo(c context.Context, _ *stakingtypes.QueryHistoricalInfoRequest) (*stakingtypes.QueryHistoricalInfoResponse, error) {
+	return tq.HistoricalInfoResponse, tq.Err
+}
+
+func (tq *TestStakingQuerier) Pool(c context.Context, _ *stakingtypes.QueryPoolRequest) (*stakingtypes.QueryPoolResponse, error) {
+	return tq.PoolResponse, tq.Err
+}
+
+func (tq *TestStakingQuerier) Params(c context.Context, _ *stakingtypes.QueryParamsRequest) (*stakingtypes.QueryParamsResponse, error) {
+	return tq.ParamsResponse, tq.Err
 }
 
 func TestPrecompile_Run_Delegation(t *testing.T) {
@@ -474,6 +541,1430 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 				require.Equal(t, vm.ErrExecutionReverted, err)
 				require.Nil(t, gotRet)
 			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+		})
+	}
+}
+
+func TestPrecompile_Run_Validators(t *testing.T) {
+	pre, _ := staking.NewPrecompile(&utils.EmptyKeepers{})
+	validatorsMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).ValidatorsID)
+
+	// Build a single validator in the staking module format.
+	val := stakingtypes.Validator{
+		OperatorAddress: "seivaloper1validator",
+		ConsensusPubkey: &codectypes.Any{Value: []byte("pubkey-bytes")},
+		Jailed:          false,
+		Status:          stakingtypes.Bonded,
+		Tokens:          sdk.NewInt(1000),
+		DelegatorShares: sdk.NewDec(1000),
+		Description: stakingtypes.NewDescription(
+			"moniker",
+			"identity",
+			"website",
+			"security",
+			"details",
+		),
+		UnbondingHeight: 10,
+		UnbondingTime:   time.Unix(1234, 0),
+		Commission: stakingtypes.Commission{
+			CommissionRates: stakingtypes.CommissionRates{
+				Rate:          sdk.NewDecWithPrec(10, 2),
+				MaxRate:       sdk.NewDecWithPrec(20, 2),
+				MaxChangeRate: sdk.NewDecWithPrec(1, 2),
+			},
+			UpdateTime: time.Unix(5678, 0),
+		},
+		MinSelfDelegation: sdk.NewInt(5),
+	}
+
+	nextKey := []byte("next-key")
+	validatorsResponse := &stakingtypes.QueryValidatorsResponse{
+		Validators: []stakingtypes.Validator{val},
+		Pagination: &query.PageResponse{NextKey: nextKey},
+	}
+
+	expected := staking.ValidatorsResponse{
+		Validators: []staking.Validator{
+			{
+				OperatorAddress:         val.OperatorAddress,
+				ConsensusPubkey:         string(val.ConsensusPubkey.Value),
+				Jailed:                  val.Jailed,
+				Status:                  int32(val.Status),
+				Tokens:                  val.Tokens.String(),
+				DelegatorShares:         val.DelegatorShares.String(),
+				Description:             val.Description.String(),
+				UnbondingHeight:         val.UnbondingHeight,
+				UnbondingTime:           val.UnbondingTime.Unix(),
+				CommissionRate:          val.Commission.Rate.String(),
+				CommissionMaxRate:       val.Commission.MaxRate.String(),
+				CommissionMaxChangeRate: val.Commission.MaxChangeRate.String(),
+				CommissionUpdateTime:    val.Commission.UpdateTime.Unix(),
+				MinSelfDelegation:       val.MinSelfDelegation.String(),
+			},
+		},
+		NextKey: nextKey,
+	}
+
+	happyPathPackedOutput, _ := validatorsMethod.Outputs.Pack(expected)
+
+	type fields struct {
+		stakingQuerier utils.StakingQuerier
+	}
+	type args struct {
+		status   string
+		key      []byte
+		value    *big.Int
+		readOnly bool
+	}
+
+	tests := []struct {
+		name       string
+		fields     fields
+		args       args
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "fails if value passed",
+			fields: fields{
+				stakingQuerier: &TestStakingQuerier{
+					ValidatorsResponse: validatorsResponse,
+				},
+			},
+			args: args{
+				status: "BOND_STATUS_BONDED",
+				key:    []byte{},
+				value:  big.NewInt(1),
+			},
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "should return validators and next key (static call allowed)",
+			fields: fields{
+				stakingQuerier: &TestStakingQuerier{
+					ValidatorsResponse: validatorsResponse,
+				},
+			},
+			args: args{
+				status:   "BOND_STATUS_BONDED",
+				key:      []byte{},
+				readOnly: true,
+			},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB: stateDb,
+			}
+			p, _ := staking.NewPrecompile(&app.PrecompileKeepers{
+				StakingQuerier: tt.fields.stakingQuerier,
+				EVMKeeper:      k,
+			})
+			method, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).ValidatorsID)
+			require.NoError(t, err)
+
+			inputs, err := method.Inputs.Pack(tt.args.status, tt.args.key)
+			require.NoError(t, err)
+
+			// Caller and callingContract are irrelevant for validators (query-only).
+			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.args.value, tt.args.readOnly, false, nil)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Nil(t, gotRet)
+				if tt.wantErrMsg != "" {
+					require.Contains(t, tt.wantErrMsg, tt.wantErrMsg)
+				}
+				return
+			}
+			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+		})
+	}
+}
+
+// Helper function to create a test validator
+func createTestValidator() stakingtypes.Validator {
+	return stakingtypes.Validator{
+		OperatorAddress: "seivaloper1validator",
+		ConsensusPubkey: &codectypes.Any{Value: []byte("pubkey-bytes")},
+		Jailed:          false,
+		Status:          stakingtypes.Bonded,
+		Tokens:          sdk.NewInt(1000),
+		DelegatorShares: sdk.NewDec(1000),
+		Description: stakingtypes.NewDescription(
+			"moniker",
+			"identity",
+			"website",
+			"security",
+			"details",
+		),
+		UnbondingHeight: 10,
+		UnbondingTime:   time.Unix(1234, 0),
+		Commission: stakingtypes.Commission{
+			CommissionRates: stakingtypes.CommissionRates{
+				Rate:          sdk.NewDecWithPrec(10, 2),
+				MaxRate:       sdk.NewDecWithPrec(20, 2),
+				MaxChangeRate: sdk.NewDecWithPrec(1, 2),
+			},
+			UpdateTime: time.Unix(5678, 0),
+		},
+		MinSelfDelegation: sdk.NewInt(5),
+	}
+}
+
+func TestPrecompile_Run_Validator(t *testing.T) {
+	pre, _ := staking.NewPrecompile(&utils.EmptyKeepers{})
+	validatorMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).ValidatorID)
+
+	val := createTestValidator()
+	validatorResponse := &stakingtypes.QueryValidatorResponse{
+		Validator: val,
+	}
+
+	expected := staking.Validator{
+		OperatorAddress:         val.OperatorAddress,
+		ConsensusPubkey:         string(val.ConsensusPubkey.Value),
+		Jailed:                  val.Jailed,
+		Status:                  int32(val.Status),
+		Tokens:                  val.Tokens.String(),
+		DelegatorShares:         val.DelegatorShares.String(),
+		Description:             val.Description.String(),
+		UnbondingHeight:         val.UnbondingHeight,
+		UnbondingTime:           val.UnbondingTime.Unix(),
+		CommissionRate:          val.Commission.Rate.String(),
+		CommissionMaxRate:       val.Commission.MaxRate.String(),
+		CommissionMaxChangeRate: val.Commission.MaxChangeRate.String(),
+		CommissionUpdateTime:    val.Commission.UpdateTime.Unix(),
+		MinSelfDelegation:       val.MinSelfDelegation.String(),
+	}
+
+	happyPathPackedOutput, _ := validatorMethod.Outputs.Pack(expected)
+
+	tests := []struct {
+		name       string
+		fields     utils.StakingQuerier
+		args       []interface{}
+		value      *big.Int
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "fails if value passed",
+			fields: &TestStakingQuerier{
+				ValidatorResponse: validatorResponse,
+			},
+			args:       []interface{}{val.OperatorAddress},
+			value:      big.NewInt(1),
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "should return validator (static call allowed)",
+			fields: &TestStakingQuerier{
+				ValidatorResponse: validatorResponse,
+			},
+			args:    []interface{}{val.OperatorAddress},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB: stateDb,
+			}
+			p, _ := staking.NewPrecompile(&app.PrecompileKeepers{
+				StakingQuerier: tt.fields,
+				EVMKeeper:      k,
+			})
+			method, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).ValidatorID)
+			require.NoError(t, err)
+
+			inputs, err := method.Inputs.Pack(tt.args...)
+			require.NoError(t, err)
+
+			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Nil(t, gotRet)
+				return
+			}
+			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+		})
+	}
+}
+
+func TestPrecompile_Run_ValidatorDelegations(t *testing.T) {
+	pre, _ := staking.NewPrecompile(&utils.EmptyKeepers{})
+	validatorDelegationsMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).ValidatorDelegationsID)
+
+	callerSeiAddress, _ := testkeeper.MockAddressPair()
+	validatorAddress := "seivaloper134ykhqrkyda72uq7f463ne77e4tn99steprmz7"
+	shares := 100
+	delegationResponse := &stakingtypes.DelegationResponse{
+		Delegation: stakingtypes.Delegation{
+			DelegatorAddress: callerSeiAddress.String(),
+			ValidatorAddress: validatorAddress,
+			Shares:           sdk.NewDec(int64(shares)),
+		},
+		Balance: sdk.NewCoin("usei", sdk.NewInt(int64(shares))),
+	}
+
+	nextKey := []byte("next-key")
+	validatorDelegationsResponse := &stakingtypes.QueryValidatorDelegationsResponse{
+		DelegationResponses: []stakingtypes.DelegationResponse{*delegationResponse},
+		Pagination:          &query.PageResponse{NextKey: nextKey},
+	}
+
+	hundredSharesValue := new(big.Int)
+	hundredSharesValue.SetString("100000000000000000000", 10)
+	expected := staking.DelegationsResponse{
+		Delegations: []staking.Delegation{
+			{
+				Balance: staking.Balance{
+					Amount: big.NewInt(int64(shares)),
+					Denom:  "usei",
+				},
+				Delegation: staking.DelegationDetails{
+					DelegatorAddress: callerSeiAddress.String(),
+					Shares:           hundredSharesValue,
+					Decimals:         big.NewInt(sdk.Precision),
+					ValidatorAddress: validatorAddress,
+				},
+			},
+		},
+		NextKey: nextKey,
+	}
+
+	happyPathPackedOutput, _ := validatorDelegationsMethod.Outputs.Pack(expected)
+
+	tests := []struct {
+		name       string
+		fields     utils.StakingQuerier
+		args       []interface{}
+		value      *big.Int
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "fails if value passed",
+			fields: &TestStakingQuerier{
+				ValidatorDelegationsResponse: validatorDelegationsResponse,
+			},
+			args:       []interface{}{validatorAddress, []byte{}},
+			value:      big.NewInt(1),
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "should return validator delegations (static call allowed)",
+			fields: &TestStakingQuerier{
+				ValidatorDelegationsResponse: validatorDelegationsResponse,
+			},
+			args:    []interface{}{validatorAddress, []byte{}},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB: stateDb,
+			}
+			p, _ := staking.NewPrecompile(&app.PrecompileKeepers{
+				StakingQuerier: tt.fields,
+				EVMKeeper:      k,
+			})
+			method, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).ValidatorDelegationsID)
+			require.NoError(t, err)
+
+			inputs, err := method.Inputs.Pack(tt.args...)
+			require.NoError(t, err)
+
+			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Nil(t, gotRet)
+				return
+			}
+			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+		})
+	}
+}
+
+func TestPrecompile_Run_ValidatorUnbondingDelegations(t *testing.T) {
+	pre, _ := staking.NewPrecompile(&utils.EmptyKeepers{})
+	validatorUnbondingDelegationsMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).ValidatorUnbondingDelegationsID)
+
+	callerSeiAddress, _ := testkeeper.MockAddressPair()
+	validatorAddress := "seivaloper134ykhqrkyda72uq7f463ne77e4tn99steprmz7"
+	unbondingDelegation := stakingtypes.UnbondingDelegation{
+		DelegatorAddress: callerSeiAddress.String(),
+		ValidatorAddress: validatorAddress,
+		Entries: []stakingtypes.UnbondingDelegationEntry{
+			{
+				CreationHeight: 100,
+				CompletionTime: time.Unix(2000, 0),
+				InitialBalance: sdk.NewInt(50),
+				Balance:        sdk.NewInt(40),
+			},
+		},
+	}
+
+	nextKey := []byte("next-key")
+	validatorUnbondingDelegationsResponse := &stakingtypes.QueryValidatorUnbondingDelegationsResponse{
+		UnbondingResponses: []stakingtypes.UnbondingDelegation{unbondingDelegation},
+		Pagination:         &query.PageResponse{NextKey: nextKey},
+	}
+
+	expected := staking.UnbondingDelegationsResponse{
+		UnbondingDelegations: []staking.UnbondingDelegation{
+			{
+				DelegatorAddress: callerSeiAddress.String(),
+				ValidatorAddress: validatorAddress,
+				Entries: []staking.UnbondingDelegationEntry{
+					{
+						CreationHeight: 100,
+						CompletionTime: 2000,
+						InitialBalance: "50",
+						Balance:        "40",
+					},
+				},
+			},
+		},
+		NextKey: nextKey,
+	}
+
+	happyPathPackedOutput, _ := validatorUnbondingDelegationsMethod.Outputs.Pack(expected)
+
+	tests := []struct {
+		name       string
+		fields     utils.StakingQuerier
+		args       []interface{}
+		value      *big.Int
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "fails if value passed",
+			fields: &TestStakingQuerier{
+				ValidatorUnbondingDelegationsResponse: validatorUnbondingDelegationsResponse,
+			},
+			args:       []interface{}{validatorAddress, []byte{}},
+			value:      big.NewInt(1),
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "should return validator unbonding delegations (static call allowed)",
+			fields: &TestStakingQuerier{
+				ValidatorUnbondingDelegationsResponse: validatorUnbondingDelegationsResponse,
+			},
+			args:    []interface{}{validatorAddress, []byte{}},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB: stateDb,
+			}
+			p, _ := staking.NewPrecompile(&app.PrecompileKeepers{
+				StakingQuerier: tt.fields,
+				EVMKeeper:      k,
+			})
+			method, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).ValidatorUnbondingDelegationsID)
+			require.NoError(t, err)
+
+			inputs, err := method.Inputs.Pack(tt.args...)
+			require.NoError(t, err)
+
+			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Nil(t, gotRet)
+				return
+			}
+			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+		})
+	}
+}
+
+func TestPrecompile_Run_UnbondingDelegation(t *testing.T) {
+	pre, _ := staking.NewPrecompile(&utils.EmptyKeepers{})
+	unbondingDelegationMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).UnbondingDelegationID)
+
+	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	validatorAddress := "seivaloper134ykhqrkyda72uq7f463ne77e4tn99steprmz7"
+	unbondingDelegation := stakingtypes.UnbondingDelegation{
+		DelegatorAddress: callerSeiAddress.String(),
+		ValidatorAddress: validatorAddress,
+		Entries: []stakingtypes.UnbondingDelegationEntry{
+			{
+				CreationHeight: 100,
+				CompletionTime: time.Unix(2000, 0),
+				InitialBalance: sdk.NewInt(50),
+				Balance:        sdk.NewInt(40),
+			},
+		},
+	}
+
+	unbondingDelegationResponse := &stakingtypes.QueryUnbondingDelegationResponse{
+		Unbond: unbondingDelegation,
+	}
+
+	expected := staking.UnbondingDelegation{
+		DelegatorAddress: callerSeiAddress.String(),
+		ValidatorAddress: validatorAddress,
+		Entries: []staking.UnbondingDelegationEntry{
+			{
+				CreationHeight: 100,
+				CompletionTime: 2000,
+				InitialBalance: "50",
+				Balance:        "40",
+			},
+		},
+	}
+
+	happyPathPackedOutput, _ := unbondingDelegationMethod.Outputs.Pack(expected)
+
+	tests := []struct {
+		name       string
+		fields     utils.StakingQuerier
+		args       []interface{}
+		value      *big.Int
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "fails if value passed",
+			fields: &TestStakingQuerier{
+				UnbondingDelegationResponse: unbondingDelegationResponse,
+			},
+			args:       []interface{}{callerEvmAddress, validatorAddress},
+			value:      big.NewInt(1),
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "should return unbonding delegation (static call allowed)",
+			fields: &TestStakingQuerier{
+				UnbondingDelegationResponse: unbondingDelegationResponse,
+			},
+			args:    []interface{}{callerEvmAddress, validatorAddress},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB: stateDb,
+			}
+			p, _ := staking.NewPrecompile(&app.PrecompileKeepers{
+				StakingQuerier: tt.fields,
+				EVMKeeper:      k,
+			})
+			method, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).UnbondingDelegationID)
+			require.NoError(t, err)
+
+			inputs, err := method.Inputs.Pack(tt.args...)
+			require.NoError(t, err)
+
+			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Nil(t, gotRet)
+				return
+			}
+			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+		})
+	}
+}
+
+func TestPrecompile_Run_DelegatorDelegations(t *testing.T) {
+	pre, _ := staking.NewPrecompile(&utils.EmptyKeepers{})
+	delegatorDelegationsMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).DelegatorDelegationsID)
+
+	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	validatorAddress := "seivaloper134ykhqrkyda72uq7f463ne77e4tn99steprmz7"
+	shares := 100
+	delegationResponse := &stakingtypes.DelegationResponse{
+		Delegation: stakingtypes.Delegation{
+			DelegatorAddress: callerSeiAddress.String(),
+			ValidatorAddress: validatorAddress,
+			Shares:           sdk.NewDec(int64(shares)),
+		},
+		Balance: sdk.NewCoin("usei", sdk.NewInt(int64(shares))),
+	}
+
+	nextKey := []byte("next-key")
+	delegatorDelegationsResponse := &stakingtypes.QueryDelegatorDelegationsResponse{
+		DelegationResponses: []stakingtypes.DelegationResponse{*delegationResponse},
+		Pagination:          &query.PageResponse{NextKey: nextKey},
+	}
+
+	hundredSharesValue := new(big.Int)
+	hundredSharesValue.SetString("100000000000000000000", 10)
+	expected := staking.DelegationsResponse{
+		Delegations: []staking.Delegation{
+			{
+				Balance: staking.Balance{
+					Amount: big.NewInt(int64(shares)),
+					Denom:  "usei",
+				},
+				Delegation: staking.DelegationDetails{
+					DelegatorAddress: callerSeiAddress.String(),
+					Shares:           hundredSharesValue,
+					Decimals:         big.NewInt(sdk.Precision),
+					ValidatorAddress: validatorAddress,
+				},
+			},
+		},
+		NextKey: nextKey,
+	}
+
+	happyPathPackedOutput, _ := delegatorDelegationsMethod.Outputs.Pack(expected)
+
+	tests := []struct {
+		name       string
+		fields     utils.StakingQuerier
+		args       []interface{}
+		value      *big.Int
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "fails if value passed",
+			fields: &TestStakingQuerier{
+				DelegatorDelegationsResponse: delegatorDelegationsResponse,
+			},
+			args:       []interface{}{callerEvmAddress, []byte{}},
+			value:      big.NewInt(1),
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "should return delegator delegations (static call allowed)",
+			fields: &TestStakingQuerier{
+				DelegatorDelegationsResponse: delegatorDelegationsResponse,
+			},
+			args:    []interface{}{callerEvmAddress, []byte{}},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB: stateDb,
+			}
+			p, _ := staking.NewPrecompile(&app.PrecompileKeepers{
+				StakingQuerier: tt.fields,
+				EVMKeeper:      k,
+			})
+			method, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).DelegatorDelegationsID)
+			require.NoError(t, err)
+
+			inputs, err := method.Inputs.Pack(tt.args...)
+			require.NoError(t, err)
+
+			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Nil(t, gotRet)
+				return
+			}
+			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+		})
+	}
+}
+
+func TestPrecompile_Run_DelegatorValidator(t *testing.T) {
+	pre, _ := staking.NewPrecompile(&utils.EmptyKeepers{})
+	delegatorValidatorMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).DelegatorValidatorID)
+
+	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	val := createTestValidator()
+	validatorResponse := &stakingtypes.QueryDelegatorValidatorResponse{
+		Validator: val,
+	}
+
+	expected := staking.Validator{
+		OperatorAddress:         val.OperatorAddress,
+		ConsensusPubkey:         string(val.ConsensusPubkey.Value),
+		Jailed:                  val.Jailed,
+		Status:                  int32(val.Status),
+		Tokens:                  val.Tokens.String(),
+		DelegatorShares:         val.DelegatorShares.String(),
+		Description:             val.Description.String(),
+		UnbondingHeight:         val.UnbondingHeight,
+		UnbondingTime:           val.UnbondingTime.Unix(),
+		CommissionRate:          val.Commission.Rate.String(),
+		CommissionMaxRate:       val.Commission.MaxRate.String(),
+		CommissionMaxChangeRate: val.Commission.MaxChangeRate.String(),
+		CommissionUpdateTime:    val.Commission.UpdateTime.Unix(),
+		MinSelfDelegation:       val.MinSelfDelegation.String(),
+	}
+
+	happyPathPackedOutput, _ := delegatorValidatorMethod.Outputs.Pack(expected)
+
+	tests := []struct {
+		name       string
+		fields     utils.StakingQuerier
+		args       []interface{}
+		value      *big.Int
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "fails if value passed",
+			fields: &TestStakingQuerier{
+				DelegatorValidatorResponse: validatorResponse,
+			},
+			args:       []interface{}{callerEvmAddress, val.OperatorAddress},
+			value:      big.NewInt(1),
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "should return delegator validator (static call allowed)",
+			fields: &TestStakingQuerier{
+				DelegatorValidatorResponse: validatorResponse,
+			},
+			args:    []interface{}{callerEvmAddress, val.OperatorAddress},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB: stateDb,
+			}
+			p, _ := staking.NewPrecompile(&app.PrecompileKeepers{
+				StakingQuerier: tt.fields,
+				EVMKeeper:      k,
+			})
+			method, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).DelegatorValidatorID)
+			require.NoError(t, err)
+
+			inputs, err := method.Inputs.Pack(tt.args...)
+			require.NoError(t, err)
+
+			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Nil(t, gotRet)
+				return
+			}
+			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+		})
+	}
+}
+
+func TestPrecompile_Run_DelegatorUnbondingDelegations(t *testing.T) {
+	pre, _ := staking.NewPrecompile(&utils.EmptyKeepers{})
+	delegatorUnbondingDelegationsMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).DelegatorUnbondingDelegationsID)
+
+	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	validatorAddress := "seivaloper134ykhqrkyda72uq7f463ne77e4tn99steprmz7"
+	unbondingDelegation := stakingtypes.UnbondingDelegation{
+		DelegatorAddress: callerSeiAddress.String(),
+		ValidatorAddress: validatorAddress,
+		Entries: []stakingtypes.UnbondingDelegationEntry{
+			{
+				CreationHeight: 100,
+				CompletionTime: time.Unix(2000, 0),
+				InitialBalance: sdk.NewInt(50),
+				Balance:        sdk.NewInt(40),
+			},
+		},
+	}
+
+	nextKey := []byte("next-key")
+	delegatorUnbondingDelegationsResponse := &stakingtypes.QueryDelegatorUnbondingDelegationsResponse{
+		UnbondingResponses: []stakingtypes.UnbondingDelegation{unbondingDelegation},
+		Pagination:         &query.PageResponse{NextKey: nextKey},
+	}
+
+	expected := staking.UnbondingDelegationsResponse{
+		UnbondingDelegations: []staking.UnbondingDelegation{
+			{
+				DelegatorAddress: callerSeiAddress.String(),
+				ValidatorAddress: validatorAddress,
+				Entries: []staking.UnbondingDelegationEntry{
+					{
+						CreationHeight: 100,
+						CompletionTime: 2000,
+						InitialBalance: "50",
+						Balance:        "40",
+					},
+				},
+			},
+		},
+		NextKey: nextKey,
+	}
+
+	happyPathPackedOutput, _ := delegatorUnbondingDelegationsMethod.Outputs.Pack(expected)
+
+	tests := []struct {
+		name       string
+		fields     utils.StakingQuerier
+		args       []interface{}
+		value      *big.Int
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "fails if value passed",
+			fields: &TestStakingQuerier{
+				DelegatorUnbondingDelegationsResponse: delegatorUnbondingDelegationsResponse,
+			},
+			args:       []interface{}{callerEvmAddress, []byte{}},
+			value:      big.NewInt(1),
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "should return delegator unbonding delegations (static call allowed)",
+			fields: &TestStakingQuerier{
+				DelegatorUnbondingDelegationsResponse: delegatorUnbondingDelegationsResponse,
+			},
+			args:    []interface{}{callerEvmAddress, []byte{}},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB: stateDb,
+			}
+			p, _ := staking.NewPrecompile(&app.PrecompileKeepers{
+				StakingQuerier: tt.fields,
+				EVMKeeper:      k,
+			})
+			method, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).DelegatorUnbondingDelegationsID)
+			require.NoError(t, err)
+
+			inputs, err := method.Inputs.Pack(tt.args...)
+			require.NoError(t, err)
+
+			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Nil(t, gotRet)
+				return
+			}
+			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+		})
+	}
+}
+
+func TestPrecompile_Run_Redelegations(t *testing.T) {
+	pre, _ := staking.NewPrecompile(&utils.EmptyKeepers{})
+	redelegationsMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).RedelegationsID)
+
+	callerSeiAddress, _ := testkeeper.MockAddressPair()
+	srcValidatorAddress := "seivaloper1src"
+	dstValidatorAddress := "seivaloper1dst"
+	redelegation := stakingtypes.Redelegation{
+		DelegatorAddress:    callerSeiAddress.String(),
+		ValidatorSrcAddress: srcValidatorAddress,
+		ValidatorDstAddress: dstValidatorAddress,
+		Entries: []stakingtypes.RedelegationEntry{
+			{
+				CreationHeight: 100,
+				CompletionTime: time.Unix(2000, 0),
+				InitialBalance: sdk.NewInt(50),
+				SharesDst:      sdk.NewDec(40),
+			},
+		},
+	}
+
+	redelegationEntryResponse := stakingtypes.RedelegationEntryResponse{
+		RedelegationEntry: redelegation.Entries[0],
+		Balance:           sdk.NewInt(40),
+	}
+
+	nextKey := []byte("next-key")
+	redelegationsResponse := &stakingtypes.QueryRedelegationsResponse{
+		RedelegationResponses: []stakingtypes.RedelegationResponse{
+			{
+				Redelegation: redelegation,
+				Entries:      []stakingtypes.RedelegationEntryResponse{redelegationEntryResponse},
+			},
+		},
+		Pagination: &query.PageResponse{NextKey: nextKey},
+	}
+
+	expected := staking.RedelegationsResponse{
+		Redelegations: []staking.Redelegation{
+			{
+				DelegatorAddress:    callerSeiAddress.String(),
+				ValidatorSrcAddress: srcValidatorAddress,
+				ValidatorDstAddress: dstValidatorAddress,
+				Entries: []staking.RedelegationEntry{
+					{
+						CreationHeight: 100,
+						CompletionTime: 2000,
+						InitialBalance: "50",
+						SharesDst:      "40",
+					},
+				},
+			},
+		},
+		NextKey: nextKey,
+	}
+
+	happyPathPackedOutput, _ := redelegationsMethod.Outputs.Pack(expected)
+
+	tests := []struct {
+		name       string
+		fields     utils.StakingQuerier
+		args       []interface{}
+		value      *big.Int
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "fails if value passed",
+			fields: &TestStakingQuerier{
+				RedelegationsResponse: redelegationsResponse,
+			},
+			args:       []interface{}{callerSeiAddress.String(), srcValidatorAddress, dstValidatorAddress, []byte{}},
+			value:      big.NewInt(1),
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "should return redelegations (static call allowed)",
+			fields: &TestStakingQuerier{
+				RedelegationsResponse: redelegationsResponse,
+			},
+			args:    []interface{}{callerSeiAddress.String(), srcValidatorAddress, dstValidatorAddress, []byte{}},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB: stateDb,
+			}
+			p, _ := staking.NewPrecompile(&app.PrecompileKeepers{
+				StakingQuerier: tt.fields,
+				EVMKeeper:      k,
+			})
+			method, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).RedelegationsID)
+			require.NoError(t, err)
+
+			inputs, err := method.Inputs.Pack(tt.args...)
+			require.NoError(t, err)
+
+			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Nil(t, gotRet)
+				return
+			}
+			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+		})
+	}
+}
+
+func TestPrecompile_Run_DelegatorValidators(t *testing.T) {
+	pre, _ := staking.NewPrecompile(&utils.EmptyKeepers{})
+	delegatorValidatorsMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).DelegatorValidatorsID)
+
+	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	val := createTestValidator()
+	nextKey := []byte("next-key")
+	delegatorValidatorsResponse := &stakingtypes.QueryDelegatorValidatorsResponse{
+		Validators: []stakingtypes.Validator{val},
+		Pagination: &query.PageResponse{NextKey: nextKey},
+	}
+
+	expected := staking.ValidatorsResponse{
+		Validators: []staking.Validator{
+			{
+				OperatorAddress:         val.OperatorAddress,
+				ConsensusPubkey:         string(val.ConsensusPubkey.Value),
+				Jailed:                  val.Jailed,
+				Status:                  int32(val.Status),
+				Tokens:                  val.Tokens.String(),
+				DelegatorShares:         val.DelegatorShares.String(),
+				Description:             val.Description.String(),
+				UnbondingHeight:         val.UnbondingHeight,
+				UnbondingTime:           val.UnbondingTime.Unix(),
+				CommissionRate:          val.Commission.Rate.String(),
+				CommissionMaxRate:       val.Commission.MaxRate.String(),
+				CommissionMaxChangeRate: val.Commission.MaxChangeRate.String(),
+				CommissionUpdateTime:    val.Commission.UpdateTime.Unix(),
+				MinSelfDelegation:       val.MinSelfDelegation.String(),
+			},
+		},
+		NextKey: nextKey,
+	}
+
+	happyPathPackedOutput, _ := delegatorValidatorsMethod.Outputs.Pack(expected)
+
+	tests := []struct {
+		name       string
+		fields     utils.StakingQuerier
+		args       []interface{}
+		value      *big.Int
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "fails if value passed",
+			fields: &TestStakingQuerier{
+				DelegatorValidatorsResponse: delegatorValidatorsResponse,
+			},
+			args:       []interface{}{callerEvmAddress, []byte{}},
+			value:      big.NewInt(1),
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "should return delegator validators (static call allowed)",
+			fields: &TestStakingQuerier{
+				DelegatorValidatorsResponse: delegatorValidatorsResponse,
+			},
+			args:    []interface{}{callerEvmAddress, []byte{}},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB: stateDb,
+			}
+			p, _ := staking.NewPrecompile(&app.PrecompileKeepers{
+				StakingQuerier: tt.fields,
+				EVMKeeper:      k,
+			})
+			method, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).DelegatorValidatorsID)
+			require.NoError(t, err)
+
+			inputs, err := method.Inputs.Pack(tt.args...)
+			require.NoError(t, err)
+
+			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Nil(t, gotRet)
+				return
+			}
+			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+		})
+	}
+}
+
+func TestPrecompile_Run_HistoricalInfo(t *testing.T) {
+	pre, _ := staking.NewPrecompile(&utils.EmptyKeepers{})
+	historicalInfoMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).HistoricalInfoID)
+
+	val := createTestValidator()
+	historicalInfo := stakingtypes.HistoricalInfo{
+		Header: tmtypes.Header{Height: 100},
+		Valset: []stakingtypes.Validator{val},
+	}
+
+	historicalInfoResponse := &stakingtypes.QueryHistoricalInfoResponse{
+		Hist: &historicalInfo,
+	}
+
+	expected := staking.HistoricalInfo{
+		Height: 100,
+		Header: []byte{},
+		Validators: []staking.Validator{
+			{
+				OperatorAddress:         val.OperatorAddress,
+				ConsensusPubkey:         string(val.ConsensusPubkey.Value),
+				Jailed:                  val.Jailed,
+				Status:                  int32(val.Status),
+				Tokens:                  val.Tokens.String(),
+				DelegatorShares:         val.DelegatorShares.String(),
+				Description:             val.Description.String(),
+				UnbondingHeight:         val.UnbondingHeight,
+				UnbondingTime:           val.UnbondingTime.Unix(),
+				CommissionRate:          val.Commission.Rate.String(),
+				CommissionMaxRate:       val.Commission.MaxRate.String(),
+				CommissionMaxChangeRate: val.Commission.MaxChangeRate.String(),
+				CommissionUpdateTime:    val.Commission.UpdateTime.Unix(),
+				MinSelfDelegation:       val.MinSelfDelegation.String(),
+			},
+		},
+	}
+
+	happyPathPackedOutput, _ := historicalInfoMethod.Outputs.Pack(expected)
+
+	tests := []struct {
+		name       string
+		fields     utils.StakingQuerier
+		args       []interface{}
+		value      *big.Int
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "fails if value passed",
+			fields: &TestStakingQuerier{
+				HistoricalInfoResponse: historicalInfoResponse,
+			},
+			args:       []interface{}{int64(100)},
+			value:      big.NewInt(1),
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "should return historical info (static call allowed)",
+			fields: &TestStakingQuerier{
+				HistoricalInfoResponse: historicalInfoResponse,
+			},
+			args:    []interface{}{int64(100)},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB: stateDb,
+			}
+			p, _ := staking.NewPrecompile(&app.PrecompileKeepers{
+				StakingQuerier: tt.fields,
+				EVMKeeper:      k,
+			})
+			method, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).HistoricalInfoID)
+			require.NoError(t, err)
+
+			inputs, err := method.Inputs.Pack(tt.args...)
+			require.NoError(t, err)
+
+			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Nil(t, gotRet)
+				return
+			}
+			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+		})
+	}
+}
+
+func TestPrecompile_Run_Pool(t *testing.T) {
+	pre, _ := staking.NewPrecompile(&utils.EmptyKeepers{})
+	poolMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).PoolID)
+
+	pool := stakingtypes.Pool{
+		NotBondedTokens: sdk.NewInt(1000),
+		BondedTokens:    sdk.NewInt(2000),
+	}
+
+	poolResponse := &stakingtypes.QueryPoolResponse{
+		Pool: pool,
+	}
+
+	expected := staking.Pool{
+		NotBondedTokens: pool.NotBondedTokens.String(),
+		BondedTokens:    pool.BondedTokens.String(),
+	}
+
+	happyPathPackedOutput, _ := poolMethod.Outputs.Pack(expected)
+
+	tests := []struct {
+		name       string
+		fields     utils.StakingQuerier
+		args       []interface{}
+		value      *big.Int
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "fails if value passed",
+			fields: &TestStakingQuerier{
+				PoolResponse: poolResponse,
+			},
+			args:       []interface{}{},
+			value:      big.NewInt(1),
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "should return pool (static call allowed)",
+			fields: &TestStakingQuerier{
+				PoolResponse: poolResponse,
+			},
+			args:    []interface{}{},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB: stateDb,
+			}
+			p, _ := staking.NewPrecompile(&app.PrecompileKeepers{
+				StakingQuerier: tt.fields,
+				EVMKeeper:      k,
+			})
+			method, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).PoolID)
+			require.NoError(t, err)
+
+			inputs, err := method.Inputs.Pack(tt.args...)
+			require.NoError(t, err)
+
+			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Nil(t, gotRet)
+				return
+			}
+			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+		})
+	}
+}
+
+func TestPrecompile_Run_Params(t *testing.T) {
+	pre, _ := staking.NewPrecompile(&utils.EmptyKeepers{})
+	paramsMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).ParamsID)
+
+	params := stakingtypes.Params{
+		UnbondingTime:                      time.Duration(1000000000000), // 1000 seconds in nanoseconds
+		MaxValidators:                      100,
+		MaxEntries:                         7,
+		HistoricalEntries:                  10000,
+		BondDenom:                          "usei",
+		MinCommissionRate:                  sdk.NewDecWithPrec(5, 2),
+		MaxVotingPowerRatio:                sdk.NewDecWithPrec(30, 2),
+		MaxVotingPowerEnforcementThreshold: sdk.NewInt(1000000),
+	}
+
+	paramsResponse := &stakingtypes.QueryParamsResponse{
+		Params: params,
+	}
+
+	expected := staking.Params{
+		UnbondingTime:                      uint64(params.UnbondingTime.Seconds()),
+		MaxValidators:                      params.MaxValidators,
+		MaxEntries:                         params.MaxEntries,
+		HistoricalEntries:                  params.HistoricalEntries,
+		BondDenom:                          params.BondDenom,
+		MinCommissionRate:                  params.MinCommissionRate.String(),
+		MaxVotingPowerRatio:                params.MaxVotingPowerRatio.String(),
+		MaxVotingPowerEnforcementThreshold: params.MaxVotingPowerEnforcementThreshold.String(),
+	}
+
+	happyPathPackedOutput, _ := paramsMethod.Outputs.Pack(expected)
+
+	tests := []struct {
+		name       string
+		fields     utils.StakingQuerier
+		args       []interface{}
+		value      *big.Int
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "fails if value passed",
+			fields: &TestStakingQuerier{
+				ParamsResponse: paramsResponse,
+			},
+			args:       []interface{}{},
+			value:      big.NewInt(1),
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "should return params (static call allowed)",
+			fields: &TestStakingQuerier{
+				ParamsResponse: paramsResponse,
+			},
+			args:    []interface{}{},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB: stateDb,
+			}
+			p, _ := staking.NewPrecompile(&app.PrecompileKeepers{
+				StakingQuerier: tt.fields,
+				EVMKeeper:      k,
+			})
+			method, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).ParamsID)
+			require.NoError(t, err)
+
+			inputs, err := method.Inputs.Pack(tt.args...)
+			require.NoError(t, err)
+
+			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Nil(t, gotRet)
+				return
+			}
+			if !reflect.DeepEqual(gotRet, tt.wantRet) {
 				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
 			}
 		})
