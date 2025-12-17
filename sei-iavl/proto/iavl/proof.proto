@@ -15,9 +15,9 @@ message AbsenceOp {
 
 // RangeProof is a Protobuf representation of iavl.RangeProof.
 message RangeProof {
-  repeated ProofInnerNode left_path   = 1;
-  repeated PathToLeaf     inner_nodes = 2;
-  repeated ProofLeafNode  leaves      = 3;
+  repeated ProofInnerNode left_path = 1;
+  repeated PathToLeaf inner_nodes = 2;
+  repeated ProofLeafNode leaves = 3;
 }
 
 // PathToLeaf is a Protobuf representation of iavl.PathToLeaf.
@@ -27,16 +27,16 @@ message PathToLeaf {
 
 // ProofInnerNode is a Protobuf representation of iavl.ProofInnerNode.
 message ProofInnerNode {
-  sint32 height  = 1;
-  int64  size    = 2;
-  int64  version = 3;
-  bytes  left    = 4;
-  bytes  right   = 5;
+  sint32 height = 1;
+  int64 size = 2;
+  int64 version = 3;
+  bytes left = 4;
+  bytes right = 5;
 }
 
 // ProofLeafNode is a Protobuf representation of iavl.ProofInnerNode.
 message ProofLeafNode {
-  bytes key        = 1;
+  bytes key = 1;
   bytes value_hash = 2;
-  int64 version    = 3;
+  int64 version = 3;
 }
