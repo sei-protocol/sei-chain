@@ -23,7 +23,6 @@ import (
 // is used to distinguish objects of that type.
 type Tagged interface {
 	TypeTag() string
-	Marshal() ([]byte,error)
 }
 
 // registry records the mapping from type tags to value types.
@@ -79,7 +78,7 @@ func Marshal(v Tagged) ([]byte, error) {
 func Unmarshal(data []byte, v any) error {
 	// Verify that the target is some kind of pointer.
 	target := reflect.ValueOf(v)
-	if target.Kind() != reflect.Ptr {
+	if target.Kind() != reflect.Pointer {
 		return fmt.Errorf("target %T is not a pointer", v)
 	} else if target.IsZero() {
 		return fmt.Errorf("target is a nil %T", v)
@@ -102,7 +101,7 @@ func Unmarshal(data []byte, v any) error {
 	}
 	if typ.AssignableTo(baseType) {
 		// ok: registered type is directly assignable to the target
-	} else if typ.Kind() == reflect.Ptr && typ.Elem().AssignableTo(baseType) {
+	} else if typ.Kind() == reflect.Pointer && typ.Elem().AssignableTo(baseType) {
 		typ = typ.Elem()
 		// ok: registered type is a pointer to a value assignable to the target
 	} else {

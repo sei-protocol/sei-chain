@@ -66,7 +66,7 @@ func encodeReflect(w io.Writer, rv reflect.Value) error {
 	}
 
 	// Recursively dereference if pointer.
-	for rv.Kind() == reflect.Ptr {
+	for rv.Kind() == reflect.Pointer {
 		if rv.IsNil() {
 			return writeStr(w, "null")
 		}
@@ -137,7 +137,7 @@ func encodeReflectList(w io.Writer, rv reflect.Value) error {
 	if err := writeStr(w, "["); err != nil {
 		return err
 	}
-	for i := 0; i < length; i++ {
+	for i := range length {
 		if err := encodeReflect(w, rv.Index(i)); err != nil {
 			return err
 		}
@@ -214,7 +214,7 @@ func encodeReflectStruct(w io.Writer, rv reflect.Value) error {
 
 func encodeReflectInterface(w io.Writer, rv reflect.Value) error {
 	// Get concrete value and dereference pointers.
-	for rv.Kind() == reflect.Ptr || rv.Kind() == reflect.Interface {
+	for rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Interface {
 		if rv.IsNil() {
 			return writeStr(w, "null")
 		}

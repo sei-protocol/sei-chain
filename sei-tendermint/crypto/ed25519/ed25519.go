@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"errors"
 	"io"
+	"encoding/json"
 
 	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519"
 	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519/extra/cache"
@@ -35,7 +36,7 @@ var cachingVerifier = cache.NewVerifier(cache.NewLRUCache(cacheSize))
 
 func init() {
 	tmjson.RegisterType(PubKey{}, PubKeyName)
-	tmjson.RegisterType(PrivKey{}, PubKeyName)
+	tmjson.RegisterType(PrivKey{}, PrivKeyName)
 	jsontypes.MustRegister(PubKey{})
 	jsontypes.MustRegister(PrivKey{})
 }
@@ -47,7 +48,7 @@ type PrivKey struct {
 }
 
 // TypeTag satisfies the jsontypes.Tagged interface.
-func (PrivKey) TypeTag() string { return PrivKeyName }
+func (k PrivKey) TypeTag() string { return PrivKeyName }
 
 // Bytes returns the privkey byte format.
 func (k PrivKey) SecretBytes() []byte { return k.raw }
@@ -90,6 +91,14 @@ func PrivKeyFromSeed(seed Seed) PrivKey {
 // if it's derived from user input.
 func GenPrivKeyFromSecret(secret []byte) PrivKey {
 	return PrivKeyFromSeed(Seed(sha256.Sum256(secret)))
+}
+
+func (k PrivKey) MarshalJSON() ([]byte,error) {
+	return json.Marshal(k.raw)
+}
+
+func (k *PrivKey) UnmarshalJSON(j []byte) error {
+	return json.Unmarshal(j,&k.raw)
 }
 
 //-------------------------------------
