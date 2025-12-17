@@ -139,7 +139,7 @@ func TestMarshalAmino(t *testing.T) {
 	testCases := []struct {
 		desc      string
 		msg       codec.AminoMarshaler
-		typ       interface{}
+		typ       any
 		expBinary []byte
 		expJSON   string
 	}{
@@ -190,14 +190,14 @@ func TestMarshalAmino_BackwardsCompatibility(t *testing.T) {
 	tmPrivKey := tmed25519.GenPrivKey()
 	tmPubKey := tmPrivKey.PubKey()
 	// Create our own keys, with the same private key as Tendermint's.
-	privKey := &ed25519.PrivKey{Key: []byte(tmPrivKey)}
+	privKey := &ed25519.PrivKey{Key: tmPrivKey.SecretBytes()}
 	pubKey := privKey.PubKey().(*ed25519.PubKey)
 
 	testCases := []struct {
 		desc      string
-		tmKey     interface{}
-		ourKey    interface{}
-		marshalFn func(o interface{}) ([]byte, error)
+		tmKey     any
+		ourKey    any
+		marshalFn func(o any) ([]byte, error)
 	}{
 		{
 			"ed25519 private key, binary",

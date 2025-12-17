@@ -6,7 +6,7 @@ import (
 )
 
 func BenchmarkSigning(b *testing.B) {
-	priv := GenPrivKey()
+	priv := TestSecretKey([]byte("test"))
 	message := []byte("Hello, world!")
 	for b.Loop() {
 		priv.Sign(message)
@@ -14,8 +14,8 @@ func BenchmarkSigning(b *testing.B) {
 }
 
 func BenchmarkVerification(b *testing.B) {
-	priv := GenPrivKey()
-	pub := priv.PubKey()
+	priv := TestSecretKey([]byte("test"))
+	pub := priv.Public()
 	message := []byte("Hello, world!")
 	sig := priv.Sign(message)
 	for b.Loop() {
@@ -29,11 +29,11 @@ func BenchmarkVerifyBatch(b *testing.B) {
 		b.Run(fmt.Sprintf("sig-count-%d", sigsCount), func(b *testing.B) {
 			// Pre-generate all of the keys, and signatures, but do not
 			// benchmark key-generation and signing.
-			pubs := make([]PubKey, 0, sigsCount)
-			sigs := make([]Sig, 0, sigsCount)
-			for range sigsCount {
-				priv := GenPrivKey()
-				pubs = append(pubs, priv.PubKey())
+			pubs := make([]PublicKey, 0, sigsCount)
+			sigs := make([]Signature, 0, sigsCount)
+			for i := range sigsCount {
+				priv := TestSecretKey(fmt.Appendf(nil,"test-%v",i))
+				pubs = append(pubs, priv.Public())
 				sigs = append(sigs, priv.Sign(msg))
 			}
 			b.ResetTimer()

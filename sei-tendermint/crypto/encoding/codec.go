@@ -16,14 +16,14 @@ func init() {
 
 // PubKeyToProto takes crypto.PubKey and transforms it to a protobuf Pubkey
 func PubKeyToProto(k crypto.PubKey) cryptoproto.PublicKey {
-	return cryptoproto.PublicKey{Sum: &cryptoproto.PublicKey_Ed25519{Ed25519: k[:]}}
+	return cryptoproto.PublicKey{Sum: &cryptoproto.PublicKey_Ed25519{Ed25519: k.Bytes()}}
 }
 
 // PubKeyFromProto takes a protobuf Pubkey and transforms it to a crypto.Pubkey
 func PubKeyFromProto(k cryptoproto.PublicKey) (crypto.PubKey, error) {
 	switch k := k.Sum.(type) {
 	case *cryptoproto.PublicKey_Ed25519:
-		return ed25519.PubKeyFromBytes(k.Ed25519)
+		return ed25519.PublicKeyFromBytes(k.Ed25519)
 	default:
 		return crypto.PubKey{}, fmt.Errorf("fromproto: key type %v is not supported", k)
 	}
