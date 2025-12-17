@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"unsafe"
 
-	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/wal"
 )

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/cosmos/iavl/cache"
+	"github.com/sei-protocol/sei-chain/sei-iavl/cache"
 	"github.com/stretchr/testify/require"
 )
 

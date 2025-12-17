@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	iavlrand "github.com/cosmos/iavl/internal/rand"
+	iavlrand "github.com/sei-protocol/sei-chain/sei-iavl/internal/rand"
 )
 
 // This file implement fuzz testing by generating programs and then running

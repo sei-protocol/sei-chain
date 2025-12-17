@@ -1,7 +1,7 @@
 package iavl
 
 import (
-	"github.com/cosmos/iavl/proto"
+	"github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
 
 type (

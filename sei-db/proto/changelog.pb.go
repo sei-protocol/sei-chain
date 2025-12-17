@@ -9,7 +9,7 @@ import (
 	math "math"
 	math_bits "math/bits"
 
-	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-chain/sei-iavl"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 )

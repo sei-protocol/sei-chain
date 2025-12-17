@@ -9,9 +9,9 @@ import (
 
 	"github.com/pkg/errors"
 
-	hexbytes "github.com/cosmos/iavl/internal/bytes"
-	"github.com/cosmos/iavl/internal/encoding"
-	iavlproto "github.com/cosmos/iavl/proto"
+	hexbytes "github.com/sei-protocol/sei-chain/sei-iavl/internal/bytes"
+	"github.com/sei-protocol/sei-chain/sei-iavl/internal/encoding"
+	iavlproto "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
 
 var bufPool = &sync.Pool{

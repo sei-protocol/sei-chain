@@ -9,7 +9,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	iavlproto "github.com/cosmos/iavl/proto"
+	iavlproto "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
 
 type RangeProof struct {

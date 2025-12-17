@@ -10,8 +10,8 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/iavl"
-	ibytes "github.com/cosmos/iavl/internal/bytes"
+	"github.com/sei-protocol/sei-chain/sei-iavl"
+	ibytes "github.com/sei-protocol/sei-chain/sei-iavl/internal/bytes"
 )
 
 // TODO: make this configurable?

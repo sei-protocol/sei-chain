@@ -10,7 +10,7 @@ import (
 	"github.com/pkg/errors"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/iavl/internal/logger"
+	"github.com/sei-protocol/sei-chain/sei-iavl/internal/logger"
 )
 
 // commitGap after upgrade/delete commitGap FastNodes when commit the batch
