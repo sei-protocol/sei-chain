@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package hashable.internal;
+
+import "hashable/hashable.proto";
+
+option go_package = "github.com/tendermint/tendermint/internal/hashable/internal/pb";
+
+enum TestonlyEnum {
+  TESTONLY_ENUM_UNSPECIFIED = 0;
+  TESTONLY_ENUM_ALPHA = 1;
+  TESTONLY_ENUM_BETA = 2;
+}
+
+message TestonlyNested {
+  option (hashable.hashable) = true;
+  oneof t {
+    string note = 1;
+    uint32 value = 2;
+  }
+}
+
+message TestonlyMsg {
+  option (hashable.hashable) = true;
+
+  optional bool bool_value = 1;
+  optional TestonlyEnum enum_value = 2;
+  optional int32 int32_value = 3;
+  optional int64 int64_value = 4;
+  optional sint32 sint32_value = 5;
+  optional sint64 sint64_value = 6;
+  optional uint32 uint32_value = 7;
+  optional uint64 uint64_value = 8;
+  optional fixed32 fixed32_value = 9;
+  optional fixed64 fixed64_value = 10;
+  optional sfixed32 sfixed32_value = 11;
+  optional sfixed64 sfixed64_value = 12;
+  optional bytes bytes_value = 13;
+  optional string string_value = 14;
+  optional TestonlyNested message_value = 15;
+  repeated sint64 repeated_packable = 16;
+  repeated string repeated_string = 17;
+  repeated TestonlyNested repeated_message = 18;
+  optional TestonlyNested optional_message = 19;
+  repeated fixed32 repeated_packable_singleton = 20;
+  repeated bytes repeated_bytes = 21;
+  repeated uint64 repeated_packable_empty = 22;
+}

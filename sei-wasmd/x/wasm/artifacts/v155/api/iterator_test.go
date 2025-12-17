@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/CosmWasm/wasmd/x/wasm/artifacts/v155/api/testdb"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/artifacts/v155/api/testdb"
 	"github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 

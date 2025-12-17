@@ -2,7 +2,7 @@ package keeper
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"strings"
 	"testing"
 
@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 // ReflectInitMsg is {}
@@ -94,14 +94,14 @@ func TestReflectContractSend(t *testing.T) {
 	_, _, bob := keyPubAddr()
 
 	// upload reflect code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
+	reflectCode, err := os.ReadFile("./testdata/reflect.wasm")
 	require.NoError(t, err)
 	reflectID, err := keeper.Create(ctx, creator, reflectCode, nil)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), reflectID)
 
 	// upload hackatom escrow code
-	escrowCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	escrowCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 	escrowID, err := keeper.Create(ctx, creator, escrowCode, nil)
 	require.NoError(t, err)
@@ -176,7 +176,7 @@ func TestReflectCustomMsg(t *testing.T) {
 	_, _, fred := keyPubAddr()
 
 	// upload code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
+	reflectCode, err := os.ReadFile("./testdata/reflect.wasm")
 	require.NoError(t, err)
 	codeID, err := keeper.Create(ctx, creator, reflectCode, nil)
 	require.NoError(t, err)
@@ -267,7 +267,7 @@ func TestMaskReflectCustomQuery(t *testing.T) {
 	creator := keepers.Faucet.NewFundedAccount(ctx, deposit...)
 
 	// upload code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
+	reflectCode, err := os.ReadFile("./testdata/reflect.wasm")
 	require.NoError(t, err)
 	codeID, err := keepers.ContractKeeper.Create(ctx, creator, reflectCode, nil)
 	require.NoError(t, err)
@@ -319,7 +319,7 @@ func TestReflectStargateQuery(t *testing.T) {
 	creator := keepers.Faucet.NewFundedAccount(ctx, funds...)
 
 	// upload code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
+	reflectCode, err := os.ReadFile("./testdata/reflect.wasm")
 	require.NoError(t, err)
 	codeID, err := keepers.ContractKeeper.Create(ctx, creator, reflectCode, nil)
 	require.NoError(t, err)
@@ -363,7 +363,7 @@ func TestReflectInvalidStargateQuery(t *testing.T) {
 	creator := keepers.Faucet.NewFundedAccount(ctx, funds...)
 
 	// upload code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
+	reflectCode, err := os.ReadFile("./testdata/reflect.wasm")
 	require.NoError(t, err)
 	codeID, err := keepers.ContractKeeper.Create(ctx, creator, reflectCode, nil)
 	require.NoError(t, err)
@@ -443,7 +443,7 @@ func TestMaskReflectWasmQueries(t *testing.T) {
 	creator := keepers.Faucet.NewFundedAccount(ctx, deposit...)
 
 	// upload reflect code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
+	reflectCode, err := os.ReadFile("./testdata/reflect.wasm")
 	require.NoError(t, err)
 	reflectID, err := keepers.ContractKeeper.Create(ctx, creator, reflectCode, nil)
 	require.NoError(t, err)
@@ -515,7 +515,7 @@ func TestWasmRawQueryWithNil(t *testing.T) {
 	creator := keepers.Faucet.NewFundedAccount(ctx, deposit...)
 
 	// upload reflect code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
+	reflectCode, err := os.ReadFile("./testdata/reflect.wasm")
 	require.NoError(t, err)
 	reflectID, err := keepers.ContractKeeper.Create(ctx, creator, reflectCode, nil)
 	require.NoError(t, err)

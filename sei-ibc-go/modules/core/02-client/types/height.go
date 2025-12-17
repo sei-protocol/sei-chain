@@ -10,7 +10,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
 var _ exported.Height = (*Height)(nil)
@@ -159,7 +159,7 @@ func SetRevisionNumber(chainID string, revision uint64) (string, error) {
 
 	splitStr := strings.Split(chainID, "-")
 	// swap out revision number with given revision
-	splitStr[len(splitStr)-1] = strconv.Itoa(int(revision))
+	splitStr[len(splitStr)-1] = strconv.FormatUint(revision, 10)
 	return strings.Join(splitStr, "-"), nil
 }
 
@@ -185,5 +185,10 @@ func ParseChainID(chainID string) uint64 {
 // Revision number is retrieved from ctx.ChainID()
 func GetSelfHeight(ctx sdk.Context) Height {
 	revision := ParseChainID(ctx.ChainID())
-	return NewHeight(revision, uint64(ctx.BlockHeight()))
+	blockHeight := ctx.BlockHeight()
+	if blockHeight < 0 {
+		panic("block height is negative")
+	}
+	// #nosec G115 -- block height is checked above to be non-negative
+	return NewHeight(revision, uint64(blockHeight))
 }

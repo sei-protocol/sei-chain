@@ -915,7 +915,7 @@ func getWasmFromFile(t *testing.T, wasmFile string) []byte {
 	require.NoError(t, err)
 	projectRoot := strings.Split(pwd, "x/wasm")[0]
 	absPath := filepath.Join(projectRoot, wasmFile)
-	wasm, err := ioutil.ReadFile(absPath)
+	wasm, err := os.ReadFile(absPath)
 	require.NoError(t, err)
 	return wasm
 }

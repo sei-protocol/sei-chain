@@ -5,7 +5,7 @@ package ibc.core.channel.v1;
 import "gogoproto/gogo.proto";
 import "ibc/core/channel/v1/channel.proto";
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types";
 
 // GenesisState defines the ibc channel submodule's genesis state.
 message GenesisState {

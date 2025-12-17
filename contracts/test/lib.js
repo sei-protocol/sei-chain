@@ -263,6 +263,9 @@ async function storeWasm(path, from=adminKeyName) {
     const command = `seid tx wasm store ${path} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
     const output = await execute(command);
     const response = JSON.parse(output)
+    if (response.code !== 0) {
+        throw new Error(`storeWasm failed: ${response.raw_log}`)
+    }
     return getEventAttribute(response, "store_code", "code_id")
 }
 
@@ -376,6 +379,9 @@ async function instantiateWasm(codeId, adminAddr, label, args = {}, from=adminKe
     const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddr} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
     const output = await execute(command);
     const response = JSON.parse(output);
+    if (response.code !== 0) {
+        throw new Error(`instantiateWasm failed: ${response.raw_log}`)
+    }
     return getEventAttribute(response, "instantiate", "_contract_address");
 }
 
@@ -386,19 +392,127 @@ async function proposeCW20toERC20Upgrade(erc20Address, cw20Address, title="erc20
     return await passProposal(proposalId)
 }
 
+async function proposeParamChange(title, description, changes, deposit="200000000usei", fees="200000usei", from=adminKeyName, expedited=true) {
+    const proposal = {
+        title,
+        description,
+        changes,
+        deposit,
+        is_expedited: expedited  // Use expedited voting (15s vs 30s on localnet)
+    };
+    const proposalJson = JSON.stringify(proposal);
+    const tempFile = `/tmp/param_change_${Date.now()}.json`;
+    
+    // Use base64 encoding to avoid quote escaping issues in Docker
+    const base64Json = Buffer.from(proposalJson).toString('base64');
+    await execute(`echo ${base64Json} | base64 -d > ${tempFile}`);
+    
+    const command = `seid tx gov submit-proposal param-change ${tempFile} --from ${from} --fees ${fees} -y -o json --broadcast-mode=block`;
+    const output = await execute(command);
+    await execute(`rm ${tempFile}`);
+    const response = JSON.parse(output);
+    if (response.code !== 0) {
+        throw new Error(`Failed to submit proposal: ${response.raw_log}`);
+    }
+    return getEventAttribute(response, "submit_proposal", "proposal_id");
+}
+
+async function proposeDisableWasm(title="Disable WASM", description="Disable cosmwasm store code and instantiate operations", deposit="200000000usei", fees="200000usei", from=adminKeyName) {
+    const changes = [
+        {
+            subspace: "wasm",
+            key: "uploadAccess",
+            value: { permission: "Nobody" }
+        },
+        {
+            subspace: "wasm",
+            key: "instantiateAccess",
+            value: "Nobody"
+        }
+    ];
+    const proposalId = await proposeParamChange(title, description, changes, deposit, fees, from);
+    return proposalId;
+}
+
+async function proposeEnableWasm(title="Enable WASM", description="Enable cosmwasm store code and instantiate operations", deposit="200000000usei", fees="200000usei", from=adminKeyName) {
+    const changes = [
+        {
+            subspace: "wasm",
+            key: "uploadAccess",
+            value: { permission: "Everybody" }
+        },
+        {
+            subspace: "wasm",
+            key: "instantiateAccess",
+            value: "Everybody"
+        }
+    ];
+    const proposalId = await proposeParamChange(title, description, changes, deposit, fees, from);
+    return proposalId;
+}
+
+async function disableWasm(from=adminKeyName) {
+    const proposalId = await proposeDisableWasm("Disable WASM", "Disable cosmwasm store code and instantiate operations", "200000000usei", "200000usei", from);
+    return await passProposal(proposalId);
+}
+
+async function enableWasm(from=adminKeyName) {
+    const proposalId = await proposeEnableWasm("Enable WASM", "Enable cosmwasm store code and instantiate operations", "200000000usei", "200000usei", from);
+    return await passProposal(proposalId);
+}
+
+async function getWasmParams() {
+    const uploadAccess = await execute(`seid query params subspace wasm uploadAccess -o json`);
+    const instantiateAccess = await execute(`seid query params subspace wasm instantiateAccess -o json`);
+    return {
+        uploadAccess: JSON.parse(uploadAccess),
+        instantiateAccess: JSON.parse(instantiateAccess)
+    };
+}
+
+async function isWasmEnabled() {
+    const params = await getWasmParams();
+    const uploadEnabled = params.uploadAccess.value.includes("Everybody");
+    const instantiateEnabled = params.instantiateAccess.value.includes("Everybody");
+    return uploadEnabled && instantiateEnabled;
+}
+
+async function isWasmDisabled() {
+    const params = await getWasmParams();
+    const uploadDisabled = params.uploadAccess.value.includes("Nobody");
+    const instantiateDisabled = params.instantiateAccess.value.includes("Nobody");
+    return uploadDisabled && instantiateDisabled;
+}
+
+async function ensureWasmEnabled(from=adminKeyName) {
+    if (!(await isWasmEnabled())) {
+        await enableWasm(from);
+    }
+}
+
+async function ensureWasmDisabled(from=adminKeyName) {
+    if (!(await isWasmDisabled())) {
+        await disableWasm(from);
+    }
+}
+
 async function passProposal(proposalId,  desposit="200000000usei", fees="200000usei", from=adminKeyName) {
     if(await isDocker()) {
         await executeOnAllNodes(`seid tx gov vote ${proposalId} yes --from node_admin -b block -y --fees ${fees}`)
     } else {
         await execute(`seid tx gov vote ${proposalId} yes --from ${from} -b block -y --fees ${fees}`)
     }
-    for(let i=0; i<100; i++) {
+    // Poll for proposal status with shorter delay for faster tests
+    for(let i=0; i<200; i++) {
         const proposal = await execute(`seid q gov proposal ${proposalId} -o json`)
         const status = JSON.parse(proposal).status
         if(status === "PROPOSAL_STATUS_PASSED") {
             return proposalId
         }
-        await delay()
+        if(status === "PROPOSAL_STATUS_REJECTED" || status === "PROPOSAL_STATUS_FAILED") {
+            throw new Error(`Proposal ${proposalId} was rejected/failed with status: ${status}`)
+        }
+        await sleep(250)  // Poll every 250ms instead of 1s for faster feedback
     }
     throw new Error("could not pass proposal "+proposalId)
 }
@@ -647,6 +761,17 @@ module.exports = {
     registerPointerForERC1155,
     getPointerForNative,
     proposeCW20toERC20Upgrade,
+    proposeParamChange,
+    proposeDisableWasm,
+    proposeEnableWasm,
+    disableWasm,
+    enableWasm,
+    getWasmParams,
+    isWasmEnabled,
+    isWasmDisabled,
+    ensureWasmEnabled,
+    ensureWasmDisabled,
+    passProposal,
     importKey,
     getNativeAccount,
     associateKey,

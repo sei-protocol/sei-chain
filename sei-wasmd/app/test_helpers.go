@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/testutil"
-	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
+	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 
 	bam "github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -37,7 +37,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	ibcclient "github.com/cosmos/ibc-go/v3/modules/core/02-client"
+	ibcclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -46,8 +46,8 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/CosmWasm/wasmd/x/wasm"
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 )
 
 // DefaultConsensusParams defines the default Tendermint consensus params used in
@@ -147,7 +147,7 @@ func SetupWithGenesisValSet(t *testing.T, chainID string, valSet *tmtypes.Valida
 	require.NoError(t, err)
 
 	// init chain will set the validator set and initialize the genesis accounts
-	app.InitChain(
+	_, err = app.InitChain(
 		context.Background(),
 		&abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
@@ -156,6 +156,7 @@ func SetupWithGenesisValSet(t *testing.T, chainID string, valSet *tmtypes.Valida
 			ChainId:         chainID,
 		},
 	)
+	require.NoError(t, err)
 	// This line is necessary due to the capability module which has a map as well as store usages,
 	// and because the initChain runs 3 times (deliver, prepare, process proposal),
 	// we need to make sure to first commit the last one so the proper values are persisted from the
@@ -163,13 +164,15 @@ func SetupWithGenesisValSet(t *testing.T, chainID string, valSet *tmtypes.Valida
 	app.SetProcessProposalStateToCommit()
 
 	// commit genesis changes
-	app.Commit(context.Background())
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+	_, err = app.Commit(context.Background())
+	require.NoError(t, err)
+	_, err = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 		Height:             app.LastBlockHeight() + 1,
 		Hash:               app.LastCommitID().Hash,
 		ValidatorsHash:     valSet.Hash(),
 		NextValidatorsHash: valSet.Hash(),
 	})
+	require.NoError(t, err)
 
 	return app
 }
@@ -301,7 +304,7 @@ func TestAddr(addr string, bech string) (sdk.AccAddress, error) {
 
 // CheckBalance checks the balance of an account.
 func CheckBalance(t *testing.T, app *WasmApp, addr sdk.AccAddress, balances sdk.Coins) {
-	ctxCheck := app.BaseApp.NewContext(true, tmproto.Header{})
+	ctxCheck := app.NewContext(true, tmproto.Header{})
 	require.True(t, balances.IsEqual(app.bankKeeper.GetAllBalances(ctxCheck, addr)))
 }
 
@@ -353,7 +356,8 @@ func SignCheckDeliver(
 
 	app.EndBlock(app.GetContextForDeliverTx([]byte{}), abci.RequestEndBlock{})
 	app.SetDeliverStateToCommit()
-	app.Commit(context.Background())
+	_, err = app.Commit(context.Background())
+	require.NoError(t, err)
 
 	return gInfo, res, err
 }
@@ -397,7 +401,8 @@ func SignAndDeliver(
 
 	app.EndBlock(app.GetContextForDeliverTx([]byte{}), abci.RequestEndBlock{})
 	app.SetDeliverStateToCommit()
-	app.Commit(context.Background())
+	_, err = app.Commit(context.Background())
+	require.NoError(t, err)
 
 	return gInfo, res, err
 }

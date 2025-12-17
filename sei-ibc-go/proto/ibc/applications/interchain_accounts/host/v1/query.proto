@@ -5,7 +5,7 @@ package ibc.applications.interchain_accounts.host.v1;
 import "google/api/annotations.proto";
 import "ibc/applications/interchain_accounts/host/v1/host.proto";
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/host/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/host/types";
 
 // Query provides defines the gRPC querier service.
 service Query {

@@ -3,7 +3,7 @@ package simapp
 import (
 	"github.com/cosmos/cosmos-sdk/std"
 
-	simappparams "github.com/cosmos/ibc-go/v3/testing/simapp/params"
+	simappparams "github.com/sei-protocol/sei-chain/sei-ibc-go/testing/simapp/params"
 )
 
 // MakeTestEncodingConfig creates an EncodingConfig for testing. This function
