@@ -161,7 +161,7 @@ func TestExporter(t *testing.T) {
 
 	actual := make([]*ExportNode, 0, len(expect))
 	exporter := tree.Export()
-	defer func() { _ = exporter.Close() }()
+	defer exporter.Close()
 	for {
 		node, err := exporter.Next()
 		if err == ExportDone {
@@ -190,13 +190,13 @@ func TestExporter_Import(t *testing.T) {
 			t.Parallel()
 
 			exporter := tree.Export()
-			defer func() { _ = exporter.Close() }()
+			defer exporter.Close()
 
 			newTree, err := NewMutableTree(db.NewMemDB(), 0, false)
 			require.NoError(t, err)
 			importer, err := newTree.Import(tree.Version())
 			require.NoError(t, err)
-			defer func() { _ = importer.Close() }()
+			defer importer.Close()
 
 			for {
 				item, err := exporter.Next()
@@ -274,7 +274,7 @@ func TestExporter_DeleteVersionErrors(t *testing.T) {
 	itree, err := tree.GetImmutable(2)
 	require.NoError(t, err)
 	exporter := itree.Export()
-	defer func() { _ = exporter.Close() }()
+	defer exporter.Close()
 
 	err = tree.DeleteVersion(2)
 	require.Error(t, err)
