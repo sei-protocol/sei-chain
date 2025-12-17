@@ -1836,6 +1836,10 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) 
 // Returns false only if DEFINITELY not gasless.
 // False negatives are unacceptable as they cause incorrect gas metrics.
 func (app *App) couldBeGaslessTransaction(tx sdk.Tx) bool {
+	if tx == nil {
+		return false
+	}
+
 	msgs := tx.GetMsgs()
 	if len(msgs) == 0 {
 		// Empty transactions are definitely not gasless
