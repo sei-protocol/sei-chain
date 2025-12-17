@@ -15,6 +15,7 @@ jobs:
   tests:
     env:
       GO_TEST_TIMEOUT: 30m
+      GO_TEST_SKIP_PACKAGES: "sei-iavl"  # pipe-separated patterns
     name: "Test ${{ matrix.modules.name }}"
     runs-on: ubuntu-large
     strategy:
@@ -46,9 +47,13 @@ jobs:
       - run: go env
       - name: Go test with race detector
         working-directory: '${{ matrix.modules.path }}'
-        # Skip sei-iavl tests as they take an excessively log time to run per PR
-        # TODO: separate them to nightly tests.
-        run: go test -race -skip 'sei-iavl' -test.parallel=8 -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out ./...
+        run: |
+          if [ -n "$GO_TEST_SKIP_PACKAGES" ]; then
+            PACKAGES=$(go list ./... | grep -v -E "$GO_TEST_SKIP_PACKAGES")
+          else
+            PACKAGES="./..."
+          fi
+          go test -race -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out $PACKAGES
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
