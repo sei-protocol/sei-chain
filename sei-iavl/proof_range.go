@@ -405,7 +405,7 @@ func (t *ImmutableTree) getRangeProof(keyStart, keyEnd []byte, limit int) (proof
 	if err != nil {
 		// Key doesn't exist, but instead we got the prev leaf (or the
 		// first or last leaf), which provides proof of absence).
-		err = nil
+		_ = err
 	}
 	startOK := keyStart == nil || bytes.Compare(keyStart, left.GetNodeKey()) <= 0
 	endOK := keyEnd == nil || bytes.Compare(left.GetNodeKey(), keyEnd) < 0

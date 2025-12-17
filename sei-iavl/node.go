@@ -50,7 +50,7 @@ func NewNode(key []byte, value []byte, version int64) *Node {
 // MakeNode constructs an *Node from an encoded byte slice.
 //
 // The new node doesn't have its hash saved or set. The caller must set it
-// afterwards.
+// afterward.
 func MakeNode(buf []byte) (*Node, error) {
 
 	// Read node header (height, size, version, key).
@@ -82,6 +82,7 @@ func MakeNode(buf []byte) (*Node, error) {
 	buf = buf[n:]
 
 	node := &Node{
+		// #nosec G115 -- height is bounds checked above to be within int8 range
 		height:  int8(height),
 		size:    size,
 		version: ver,

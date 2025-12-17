@@ -3,12 +3,13 @@ package changelog
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
 	"unsafe"
 
-	"github.com/sei-protocol/sei-chain/sei-iavl"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/wal"
 )
@@ -44,7 +45,7 @@ func truncateCorruptedTail(path string, format wal.LogFormat) error {
 		} else {
 			n, err = loadNextBinaryEntry(data)
 		}
-		if err == wal.ErrCorrupt {
+		if errors.Is(err, wal.ErrCorrupt) {
 			break
 		}
 		if err != nil {

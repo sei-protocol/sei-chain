@@ -19,15 +19,16 @@ type KeyFormat struct {
 // For example, to store keys that could index some objects by a version number and their SHA256 hash using the form:
 // 'c<version uint64><hash [32]byte>' then you would define the KeyFormat with:
 //
-//  var keyFormat = NewKeyFormat('c', 8, 32)
+//	var keyFormat = NewKeyFormat('c', 8, 32)
 //
 // Then you can create a key with:
 //
-//  func ObjectKey(version uint64, objectBytes []byte) []byte {
-//  	hasher := sha256.New()
-//  	hasher.Sum(nil)
-//  	return keyFormat.Key(version, hasher.Sum(nil))
-//  }
+//	func ObjectKey(version uint64, objectBytes []byte) []byte {
+//		hasher := sha256.New()
+//		hasher.Sum(nil)
+//		return keyFormat.Key(version, hasher.Sum(nil))
+//	}
+//
 // if the last term of the layout ends in 0
 func NewKeyFormat(prefix byte, layout ...int) *KeyFormat {
 	// For prefix byte
@@ -146,7 +147,7 @@ func (kf *KeyFormat) Prefix() string {
 func scan(a interface{}, value []byte) {
 	switch v := a.(type) {
 	case *int64:
-		// Negative values will be mapped correctly when read in as uint64 and then type converted
+		// #nosec G115 -- Negative values will be mapped correctly when read in as uint64 and then type converted
 		*v = int64(binary.BigEndian.Uint64(value))
 	case *uint64:
 		*v = binary.BigEndian.Uint64(value)
@@ -162,11 +163,19 @@ func format(a interface{}) []byte {
 	case uint64:
 		return formatUint64(v)
 	case int64:
+		if v < 0 {
+			panic(fmt.Errorf("keyFormat format() does not support negative int64 value: %d", v))
+		}
+		// #nosec G115 -- value is checked above to be non-negative
 		return formatUint64(uint64(v))
 	// Provide formatting from int,uint as a convenience to avoid casting arguments
 	case uint:
 		return formatUint64(uint64(v))
 	case int:
+		if v < 0 {
+			panic(fmt.Errorf("keyFormat format() does not support negative int value: %d", v))
+		}
+		// #nosec G115 -- value is checked above to be non-negative
 		return formatUint64(uint64(v))
 	case []byte:
 		return v

@@ -40,7 +40,7 @@ func Repair013Orphans(db dbm.DB) (uint64, error) {
 
 	var repaired uint64
 	batch := db.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 	err = ndb.traverseRange(orphanKeyFormat.Key(version), orphanKeyFormat.Key(int64(math.MaxInt64)), func(k, v []byte) error {
 		// Sanity check so we don't remove stuff we shouldn't
 		var toVersion int64

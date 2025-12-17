@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-iavl"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	db "github.com/tendermint/tm-db"
 )
 
@@ -344,7 +344,7 @@ func runBenchmarks(b *testing.B, benchmarks []benchmark) {
 		if bb.dbType != "nodb" {
 			d, err = db.NewDB("test", bb.dbType, dirName)
 			require.NoError(b, err)
-			defer d.Close()
+			defer func() { _ = d.Close() }()
 		}
 		b.Run(prefix, func(sub *testing.B) {
 			runSuite(sub, d, bb.initSize, bb.blockSize, bb.keyLen, bb.dataLen)

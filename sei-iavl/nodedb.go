@@ -720,7 +720,9 @@ func (ndb *nodeDB) deleteOrphans(version int64) error {
 			ndb.nodeCache.Remove(hash)
 		} else {
 			logger.Debug("MOVE predecessor:%v fromVersion:%v toVersion:%v %X\n", predecessor, fromVersion, toVersion, hash)
-			ndb.saveOrphan(hash, fromVersion, predecessor)
+			if err := ndb.saveOrphan(hash, fromVersion, predecessor); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -779,7 +781,7 @@ func (ndb *nodeDB) getFirstVersion() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer itr.Close()
+	defer func() { _ = itr.Close() }()
 	if itr.Valid() {
 		var version int64
 		rootKeyFormat.Scan(itr.Key(), &version)
@@ -829,7 +831,7 @@ func (ndb *nodeDB) getPreviousVersion(version int64) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer itr.Close()
+	defer func() { _ = itr.Close() }()
 
 	pversion := int64(-1)
 	for ; itr.Valid(); itr.Next() {
@@ -888,7 +890,7 @@ func (ndb *nodeDB) traverseRange(start []byte, end []byte, fn func(k, v []byte) 
 	if err != nil {
 		return err
 	}
-	defer itr.Close()
+	defer func() { _ = itr.Close() }()
 
 	for ; itr.Valid(); itr.Next() {
 		if err := fn(itr.Key(), itr.Value()); err != nil {
@@ -909,7 +911,7 @@ func (ndb *nodeDB) traversePrefix(prefix []byte, fn func(k, v []byte) error) err
 	if err != nil {
 		return err
 	}
-	defer itr.Close()
+	defer func() { _ = itr.Close() }()
 
 	for ; itr.Valid(); itr.Next() {
 		if err := fn(itr.Key(), itr.Value()); err != nil {
@@ -959,7 +961,9 @@ func (ndb *nodeDB) Commit() error {
 		return errors.Wrap(err, "failed to write batch")
 	}
 
-	ndb.batch.Close()
+	if err := ndb.batch.Close(); err != nil {
+		return err
+	}
 	ndb.batch = ndb.db.NewBatch()
 
 	return nil

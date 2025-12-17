@@ -9,9 +9,9 @@ import (
 	math "math"
 	math_bits "math/bits"
 
-	"github.com/sei-protocol/sei-chain/sei-iavl"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.

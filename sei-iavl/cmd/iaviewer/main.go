@@ -10,7 +10,7 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/sei-protocol/sei-chain/sei-iavl"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	ibytes "github.com/sei-protocol/sei-chain/sei-iavl/internal/bytes"
 )
 
@@ -95,7 +95,7 @@ func PrintDBStats(db dbm.DB) {
 		panic(err)
 	}
 
-	defer itr.Close()
+	defer func() { _ = itr.Close() }()
 	for ; itr.Valid(); itr.Next() {
 		key := ibytes.UnsafeBytesToStr(itr.Key()[:1])
 		prefix[key]++
@@ -137,7 +137,7 @@ func PrintTreeData(tree *iavl.MutableTree, keysOnly bool) {
 	totalValSize := 0
 	totalNumKeys := 0
 	keyPrefixMap := map[string]int{}
-	tree.Iterate(func(key []byte, value []byte) bool {
+	_, err := tree.Iterate(func(key []byte, value []byte) bool {
 		printKey := parseWeaveKey(key)
 		if keysOnly {
 			fmt.Printf("%s\n", printKey)
@@ -151,11 +151,15 @@ func PrintTreeData(tree *iavl.MutableTree, keysOnly bool) {
 		keyPrefixMap[fmt.Sprintf("%x", key[0])]++
 		return false
 	})
-	fmt.Printf("Total key count %d, total key bytes %d, total value bytes %d, prefix map %v\n", totalNumKeys, totalKeySize, totalValSize, keyPrefixMap)
+	if err != nil {
+		fmt.Printf("Failed to iterate the tree fully: %v\n", err)
+	} else {
+		fmt.Printf("Total key count %d, total key bytes %d, total value bytes %d, prefix map %v\n", totalNumKeys, totalKeySize, totalValSize, keyPrefixMap)
+	}
 }
 
 // parseWeaveKey assumes a separating : where all in front should be ascii,
-// and all afterwards may be ascii or binary
+// and all afterward may be ascii or binary
 func parseWeaveKey(key []byte) string {
 	return encodeID(key)
 }
@@ -199,7 +203,7 @@ func PrintVersions(tree *iavl.MutableTree) {
 func PrintSize(tree *iavl.MutableTree) {
 	count, totalKeySize, totalValueSize := 0, 0, 0
 	keySizeByPrefix, valSizeByPrefix := map[byte]int{}, map[byte]int{}
-	tree.Iterate(func(key []byte, value []byte) bool {
+	_, err := tree.Iterate(func(key []byte, value []byte) bool {
 		count += 1
 		totalKeySize += len(key)
 		totalValueSize += len(value)
@@ -211,6 +215,10 @@ func PrintSize(tree *iavl.MutableTree) {
 		valSizeByPrefix[key[0]] += len(value)
 		return false
 	})
+	if err != nil {
+		fmt.Printf("Failed to iterate the tree fully: %v\n", err)
+		return
+	}
 	fmt.Printf("Total entry count: %d. Total key bytes: %d. Total value bytes: %d\n", count, totalKeySize, totalValueSize)
 	for p := range keySizeByPrefix {
 		fmt.Printf("prefix %d has key bytes %d and value bytes %d\n", p, keySizeByPrefix[p], valSizeByPrefix[p])
