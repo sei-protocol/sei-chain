@@ -3,26 +3,23 @@ package ed25519
 import (
 	"testing"
 	"fmt"
-
-	"github.com/stretchr/testify/assert"
-
 	"github.com/tendermint/tendermint/libs/utils/require"
 )
 
-func TestSignAndValidateEd25519(t *testing.T) {
-	privKey := TestSecretKey([]byte("test"))
-	pubKey := privKey.Public()
-	msg := []byte("message")
-	sig := privKey.Sign(msg)
-
-	// Test the signature
-	assert.NoError(t, pubKey.Verify(msg, sig))
-
-	// Mutate the signature, just one bit.
-	// TODO: Replace this with a much better fuzzer, tendermint/ed25519/issues/10
-	sig.sig[7] ^= byte(0x01)
-
-	assert.Error(t, pubKey.Verify(msg, sig))
+func TestSign(t *testing.T) {
+	var keys []SecretKey
+	for i := range byte(3) {
+		keys = append(keys, TestSecretKey([]byte{i}))
+	}
+	t.Logf("keys = %+v", keys)
+	msg := []byte("test message")
+	for i := range keys {
+		for j := range keys {
+			if wantErr, err := i != j, keys[j].Public().Verify(msg, keys[i].Sign(msg)); wantErr != (err != nil) {
+				t.Errorf("keys[%d].Verify(keys[%d].Sign()) = %v, wantErr = %v", j, i, err, wantErr)
+			}
+		}
+	}
 }
 
 func TestBatchSafe(t *testing.T) {
