@@ -4,5 +4,4 @@ use (
 	.
 	./sei-cosmos
 	./sei-tendermint
-	./sei-wasmd
 )

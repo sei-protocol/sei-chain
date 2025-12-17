@@ -2,9 +2,9 @@ package types
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
-	"math/rand"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -32,7 +32,7 @@ func GenesisFixture(mutators ...func(*GenesisState)) GenesisState {
 	for i := 0; i < numSequences; i++ {
 		fixture.Sequences[i] = Sequence{
 			IDKey: randBytes(5),
-			Value: uint64(i),
+			Value: uint64(i), // #nosec G115 -- constant iterations.
 		}
 	}
 	fixture.GenMsgs = []GenesisState_GenMsgs{
@@ -48,7 +48,7 @@ func GenesisFixture(mutators ...func(*GenesisState)) GenesisState {
 
 func randBytes(n int) []byte {
 	r := make([]byte, n)
-	rand.Read(r)
+	_, _ = rand.Read(r)
 	return r
 }
 

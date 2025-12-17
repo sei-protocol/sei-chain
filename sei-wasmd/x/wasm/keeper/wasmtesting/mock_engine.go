@@ -9,7 +9,7 @@ import (
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	"github.com/tendermint/tendermint/libs/rand"
 
-	"github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 var _ types.WasmerEngine = &MockWasmer{}

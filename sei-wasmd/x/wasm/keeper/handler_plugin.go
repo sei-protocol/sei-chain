@@ -12,7 +12,7 @@ import (
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 
-	"github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 // msgEncoder is an extension point to customize encodings

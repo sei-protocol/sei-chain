@@ -5,21 +5,21 @@ import (
 	"compress/gzip"
 	"errors"
 	"io"
-	"io/ioutil"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 func TestUncompress(t *testing.T) {
-	wasmRaw, err := ioutil.ReadFile("../keeper/testdata/hackatom.wasm")
+	wasmRaw, err := os.ReadFile("../keeper/testdata/hackatom.wasm")
 	require.NoError(t, err)
 
-	wasmGzipped, err := ioutil.ReadFile("../keeper/testdata/hackatom.wasm.gzip")
+	wasmGzipped, err := os.ReadFile("../keeper/testdata/hackatom.wasm.gzip")
 	require.NoError(t, err)
 
 	const maxSize = 400_000

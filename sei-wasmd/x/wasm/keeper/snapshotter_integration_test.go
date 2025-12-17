@@ -3,11 +3,11 @@ package keeper_test
 import (
 	"context"
 	"crypto/sha256"
-	"io/ioutil"
+	"os"
 	"testing"
 	"time"
 
-	"github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 
 	"github.com/stretchr/testify/assert"
 
@@ -20,8 +20,8 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
-	"github.com/CosmWasm/wasmd/app"
-	"github.com/CosmWasm/wasmd/x/wasm/keeper"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/app"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 )
 
 func TestSnapshotter(t *testing.T) {
@@ -54,7 +54,7 @@ func TestSnapshotter(t *testing.T) {
 
 			srcCodeIDToChecksum := make(map[uint64][]byte, len(spec.wasmFiles))
 			for i, v := range spec.wasmFiles {
-				wasmCode, err := ioutil.ReadFile(v)
+				wasmCode, err := os.ReadFile(v)
 				require.NoError(t, err)
 				codeID, err := contractKeeper.Create(ctx, genesisAddr, wasmCode, nil)
 				require.NoError(t, err)

@@ -7,9 +7,9 @@ import (
 	ibcante "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/ante"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
-	wasmTypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
+	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
+	wasmTypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 // HandlerOptions extend the SDK's AnteHandler options by requiring the IBC
@@ -40,11 +40,6 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 	}
 	if options.TXCounterStoreKey == nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "tx counter key is required for ante builder")
-	}
-
-	sigGasConsumer := options.SigGasConsumer
-	if sigGasConsumer == nil {
-		sigGasConsumer = ante.DefaultSigVerificationGasConsumer
 	}
 
 	anteDecorators := []sdk.AnteDecorator{

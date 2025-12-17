@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/grpc/tmservice"
@@ -110,6 +109,7 @@ import (
 	ibcporttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/05-port/types"
 	ibchost "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
+	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
@@ -145,9 +145,9 @@ import (
 
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
-	"github.com/CosmWasm/wasmd/x/wasm"
-	wasmclient "github.com/CosmWasm/wasmd/x/wasm/client"
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
+	wasmclient "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/client"
+	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 
 	// unnamed import of statik for openapi/swagger UI support
 	_ "github.com/sei-protocol/sei-chain/docs/swagger"

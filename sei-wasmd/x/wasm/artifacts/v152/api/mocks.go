@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/CosmWasm/wasmd/x/wasm/artifacts/v152/api/testdb"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/artifacts/v152/api/testdb"
 	"github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 
@@ -369,7 +369,7 @@ func NewMockAPI() *types.GoAPI {
 }
 
 func TestMockApi(t *testing.T) {
-	human := "foobar"
+	const human = "foobar"
 	canon, cost, err := MockCanonicalAddress(human)
 	require.NoError(t, err)
 	assert.Equal(t, CanonicalLength, len(canon))
@@ -512,7 +512,7 @@ func (q ReflectCustom) Query(request json.RawMessage) ([]byte, error) {
 	} else if query.Capitalized != nil {
 		resp.Msg = strings.ToUpper(query.Capitalized.Text)
 	} else {
-		return nil, errors.New("Unsupported query")
+		return nil, errors.New("unsupported query")
 	}
 	return json.Marshal(resp)
 }

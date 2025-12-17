@@ -1,0 +1,14 @@
+version: v2
+inputs:
+  - directory: ./sei-tendermint/internal 
+plugins:
+  - remote: buf.build/protocolbuffers/go:v1.36.10
+    out: ./sei-tendermint/internal
+    opt: [module=github.com/tendermint/tendermint/internal]
+  - local:
+      - go
+      - run
+      - ./sei-tendermint/internal/hashable/plugin
+    strategy: all
+    out: ./sei-tendermint/internal
+    opt: [module=github.com/tendermint/tendermint/internal]

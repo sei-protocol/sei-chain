@@ -31,8 +31,8 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/CosmWasm/wasmd/x/wasm/types"
-	wasmTypes "github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
+	wasmTypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 const firstCodeID = 1
@@ -41,7 +41,7 @@ func TestGenesisExportImport(t *testing.T) {
 	wasmKeeper, srcCtx, srcStoreKeys := setupKeeper(t)
 	contractKeeper := NewGovPermissionKeeper(wasmKeeper)
 
-	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 
 	// store some test data
@@ -123,7 +123,7 @@ func TestGenesisExportImport(t *testing.T) {
 		wasmKeeper.storeContractInfo(srcCtx, address, x)
 		wasmKeeper.addToContractCodeSecondaryIndex(srcCtx, address, newHistory)
 		wasmKeeper.appendToContractHistory(srcCtx, address, newHistory)
-		iter.Close()
+		_ = iter.Close()
 		return false
 	})
 
@@ -154,7 +154,7 @@ func TestGenesisExportImport(t *testing.T) {
 }
 
 func TestGenesisInit(t *testing.T) {
-	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 
 	myCodeInfo := wasmTypes.CodeInfoFixture(wasmTypes.WithSHA256CodeHash(wasmCode))
@@ -499,7 +499,7 @@ func TestImportContractWithCodeHistoryReset(t *testing.T) {
 	keeper, ctx, _ := setupKeeper(t)
 	contractKeeper := NewGovPermissionKeeper(keeper)
 
-	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 
 	wasmCodeHash := sha256.Sum256(wasmCode)
@@ -565,7 +565,7 @@ func TestImportContractWithCodeHistoryReset(t *testing.T) {
 }
 
 func TestSupportedGenMsgTypes(t *testing.T) {
-	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 	var (
 		myAddress          sdk.AccAddress = bytes.Repeat([]byte{1}, types.ContractAddrLen)

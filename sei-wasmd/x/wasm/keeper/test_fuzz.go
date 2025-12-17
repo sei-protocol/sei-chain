@@ -6,14 +6,14 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	fuzz "github.com/google/gofuzz"
 
-	"github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 var ModelFuzzers = []interface{}{FuzzAddr, FuzzAddrString, FuzzAbsoluteTxPosition, FuzzContractInfo, FuzzStateModel, FuzzAccessType, FuzzAccessConfig, FuzzContractCodeHistory}
 
 func FuzzAddr(m *sdk.AccAddress, c fuzz.Continue) {
 	*m = make([]byte, 20)
-	c.Read(*m)
+	_, _ = c.Read(*m)
 }
 
 func FuzzAddrString(m *string, c fuzz.Continue) {
@@ -39,8 +39,10 @@ func FuzzContractCodeHistory(m *types.ContractCodeHistoryEntry, c fuzz.Continue)
 	const maxMsgSize = 128
 	m.CodeID = c.RandUint64()
 	msg := make([]byte, c.RandUint64()%maxMsgSize)
-	c.Read(msg)
-	var err error
+	_, err := c.Read(msg)
+	if err != nil {
+		panic(err)
+	}
 	if m.Msg, err = json.Marshal(msg); err != nil {
 		panic(err)
 	}

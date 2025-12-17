@@ -105,10 +105,10 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
-	wasmappparams "github.com/CosmWasm/wasmd/app/params"
-	"github.com/CosmWasm/wasmd/x/wasm"
-	wasmclient "github.com/CosmWasm/wasmd/x/wasm/client"
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
+	wasmappparams "github.com/sei-protocol/sei-chain/sei-wasmd/app/params"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
+	wasmclient "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/client"
+	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 
 	// unnamed import of statik for swagger UI support
 	_ "github.com/cosmos/cosmos-sdk/client/docs/statik"
@@ -359,7 +359,7 @@ func NewWasmApp(
 	app.authzKeeper = authzkeeper.NewKeeper(
 		keys[authzkeeper.StoreKey],
 		appCodec,
-		app.BaseApp.MsgServiceRouter(),
+		app.MsgServiceRouter(),
 	)
 	app.feeGrantKeeper = feegrantkeeper.NewKeeper(
 		appCodec,
@@ -551,7 +551,7 @@ func NewWasmApp(
 		genutil.NewAppModule(
 			app.accountKeeper,
 			app.stakingKeeper,
-			app.BaseApp.DeliverTx,
+			app.DeliverTx,
 			encodingConfig.TxConfig,
 		),
 		auth.NewAppModule(appCodec, app.accountKeeper, nil),
@@ -667,7 +667,7 @@ func NewWasmApp(
 		if err := app.LoadLatestVersion(); err != nil {
 			tmos.Exit(fmt.Sprintf("failed to load latest version: %s", err))
 		}
-		ctx := app.BaseApp.NewUncachedContext(true, tmproto.Header{})
+		ctx := app.NewUncachedContext(true, tmproto.Header{})
 
 		// Initialize pinned codes in wasmvm as they are not persisted there
 		if err := app.wasmKeeper.InitializePinnedCodes(ctx); err != nil {
@@ -841,12 +841,12 @@ func (app *WasmApp) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APICo
 
 // RegisterTxService implements the Application.RegisterTxService method.
 func (app *WasmApp) RegisterTxService(clientCtx client.Context) {
-	authtx.RegisterTxService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.BaseApp.Simulate, app.interfaceRegistry)
+	authtx.RegisterTxService(app.GRPCQueryRouter(), clientCtx, app.Simulate, app.interfaceRegistry)
 }
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
 func (app *WasmApp) RegisterTendermintService(clientCtx client.Context) {
-	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
+	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
 }
 
 func (app *WasmApp) AppCodec() codec.Codec {

@@ -1,9 +1,6 @@
 package app
 
 import (
-	wasm "github.com/CosmWasm/wasmd/x/wasm"
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
@@ -13,6 +10,9 @@ import (
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	ibcante "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/ante"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
+	wasm "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
+	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
+	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle"
