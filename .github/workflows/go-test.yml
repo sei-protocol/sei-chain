@@ -45,7 +45,6 @@ jobs:
             /usr/share/dotnet \
             /usr/local/lib/android \
             /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo docker image prune --all --force
       - name: Go test with race detector
         working-directory: '${{ matrix.modules.path }}'
         run: |
