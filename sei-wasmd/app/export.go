@@ -40,7 +40,7 @@ func (app *WasmApp) ExportAppStateAndValidators(
 		AppState:        appState,
 		Validators:      validators,
 		Height:          height,
-		ConsensusParams: app.BaseApp.GetConsensusParams(ctx),
+		ConsensusParams: app.GetConsensusParams(ctx),
 	}, err
 }
 
@@ -49,7 +49,7 @@ func (app *WasmApp) ExportAppStateAndValidators(
 //
 //	in favour of export at a block height
 func (app *WasmApp) prepForZeroHeightGenesis(ctx sdk.Context, jailAllowedAddrs []string) {
-	applyAllowedAddrs := false
+	var applyAllowedAddrs bool
 
 	// check if there is a allowed address list
 	if len(jailAllowedAddrs) > 0 {
@@ -173,7 +173,7 @@ func (app *WasmApp) prepForZeroHeightGenesis(ctx sdk.Context, jailAllowedAddrs [
 		counter++
 	}
 
-	iter.Close()
+	_ = iter.Close()
 
 	_, err := app.stakingKeeper.ApplyAndReturnValidatorSetUpdates(ctx)
 	if err != nil {

@@ -3,7 +3,7 @@
 package v152
 
 import (
-	"github.com/CosmWasm/wasmd/x/wasm/artifacts/v152/api"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/artifacts/v152/api"
 )
 
 func libwasmvmVersionImpl() (string, error) {

@@ -5,7 +5,7 @@ import "cosmwasm/wasm/v1/tx.proto";
 import "cosmwasm/wasm/v1/types.proto";
 import "gogoproto/gogo.proto";
 
-option go_package = "github.com/CosmWasm/wasmd/x/wasm/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types";
 
 // GenesisState - genesis state of x/wasm
 message GenesisState {

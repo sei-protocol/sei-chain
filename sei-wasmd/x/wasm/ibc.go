@@ -13,7 +13,7 @@ import (
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 
-	types "github.com/CosmWasm/wasmd/x/wasm/types"
+	types "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 var _ porttypes.IBCModule = IBCHandler{}

@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -17,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/json"
 	"github.com/sei-protocol/sei-chain/precompiles/pointer"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
+	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 )
 

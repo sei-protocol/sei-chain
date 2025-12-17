@@ -3,7 +3,7 @@ package benchmarks
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,10 +17,10 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
-	"github.com/CosmWasm/wasmd/x/wasm"
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
+	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 func setup(t *testing.T, db dbm.DB, withGenesis bool, invCheckPeriod uint, opts ...wasm.Option) (*seiapp.App, seiapp.GenesisState) {
@@ -117,7 +117,7 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 	legacyabci.BeginBlock(wasmApp.GetContextForDeliverTx([]byte{}), height, []abci.VoteInfo{}, []abci.Misbehavior{}, wasmApp.BeginBlockKeepers)
 
 	// upload the code
-	cw20Code, err := ioutil.ReadFile("./testdata/cw20_base.wasm")
+	cw20Code, err := os.ReadFile("./testdata/cw20_base.wasm")
 	require.NoError(b, err)
 	storeMsg := wasmtypes.MsgStoreCode{
 		Sender:       addr.String(),

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CosmWasm/wasmd/app"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/app"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	tmcli "github.com/tendermint/tendermint/libs/cli"

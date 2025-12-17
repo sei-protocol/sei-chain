@@ -30,7 +30,7 @@ go run github.com/bufbuild/buf/cmd/buf@v1.58.0 generate
 # The repo restructure should help this in the future.
 cp -rf ./build/proto/gocosmos/github.com/sei-protocol/sei-chain/* ./
 cp -rf ./build/proto/gocosmos/github.com/cosmos/cosmos-sdk/* ./sei-cosmos
-cp -rf ./build/proto/gocosmos/github.com/CosmWasm/wasmd/* ./sei-wasmd
+cp -rf ./build/proto/gocosmos/github.com/sei-protocol/sei-chain/sei-wasmd/* ./sei-wasmd
 
 # Use gogofaster for tendermint because that's the generator it is using currently.
 cp -rf ./build/proto/gogofaster/github.com/tendermint/tendermint/* ./sei-tendermint

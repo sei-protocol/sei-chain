@@ -4,7 +4,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/spf13/cobra"
 
-	wasmcli "github.com/CosmWasm/wasmd/x/wasm/client/cli"
+	wasmcli "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/client/cli"
 )
 
 func AddGenesisWasmMsgCmd(defaultNodeHome string) *cobra.Command {
