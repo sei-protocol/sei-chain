@@ -8,10 +8,10 @@ import (
 	"sync"
 
 	ics23 "github.com/confio/ics23/go"
-	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/sc/types"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	dbm "github.com/tendermint/tm-db"
 )
 

@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package hashable;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/tendermint/tendermint/internal/hashable/pb";
+
+// hashable marks messages which support canonical protobuf serialization and therefore
+// are suitable for hashing.
+// NOTE: you still need to use proto.Canonical for canonical encoding. proto.Marshal will not do.
+extend google.protobuf.MessageOptions {
+  bool hashable = 414126217;
+}

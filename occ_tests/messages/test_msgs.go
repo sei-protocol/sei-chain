@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/CosmWasm/wasmd/x/wasm"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	"github.com/sei-protocol/sei-chain/precompiles"
@@ -80,8 +80,6 @@ func EVMTransferConflicting(tCtx *utils.TestContext, count int) []*utils.TestMes
 	return msgs
 }
 
-// EVMTransferNonConflicting generates a list of EVM transfer messages that do not conflict with each other
-// each message will have a brand new address
 func evmTransfer(testAcct utils.TestAcct, to common.Address, scenario string) *utils.TestMessage {
 	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
 		GasFeeCap: new(big.Int).SetUint64(100000000000),

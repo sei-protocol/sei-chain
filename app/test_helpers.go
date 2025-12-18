@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CosmWasm/wasmd/x/wasm"
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/client"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
-	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
+	"github.com/cosmos/cosmos-sdk/x/staking"
 	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ss"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
+	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/stretchr/testify/suite"
 	"github.com/tendermint/tendermint/config"
 
@@ -96,45 +96,71 @@ type TestWrapper struct {
 
 	App *App
 	Ctx sdk.Context
+
+	// hasT tracks whether SetT was called, so we know if we can use Require()
+	hasT bool
 }
 
-func NewTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
-	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, false, baseAppOptions...)
+func NewTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
+	return newTestWrapper(tb, tm, valPub, enableEVMCustomPrecompiles, false, baseAppOptions...)
 }
 
 func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
 	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, baseAppOptions...)
 }
 
-func newTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useSc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
+func newTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useSc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
 	var appPtr *App
 	originalHome := DefaultNodeHome
-	tempHome := t.TempDir()
+	tempHome := tb.TempDir()
 	DefaultNodeHome = tempHome
-	t.Cleanup(func() {
+	tb.Cleanup(func() {
 		DefaultNodeHome = originalHome
 	})
 	if useSc {
-		appPtr = SetupWithSc(t, false, enableEVMCustomPrecompiles, baseAppOptions...)
+		if testT, ok := tb.(*testing.T); ok {
+			appPtr = SetupWithSc(testT, false, enableEVMCustomPrecompiles, baseAppOptions...)
+		} else {
+			panic("SetupWithSc requires *testing.T, cannot use with *testing.B")
+		}
 	} else {
-		appPtr = Setup(t, false, enableEVMCustomPrecompiles, false, baseAppOptions...)
+		appPtr = Setup(tb, false, enableEVMCustomPrecompiles, false, baseAppOptions...)
 	}
 	ctx := appPtr.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
 	wrapper := &TestWrapper{
-		App: appPtr,
-		Ctx: ctx,
+		App:  appPtr,
+		Ctx:  ctx,
+		hasT: false,
 	}
-	wrapper.SetT(t)
+	if testT, ok := tb.(*testing.T); ok {
+		wrapper.SetT(testT)
+		wrapper.hasT = true
+	}
 	wrapper.setupValidator(stakingtypes.Unbonded, valPub)
 	return wrapper
 }
 
+// requireNoError handles errors for both tests and benchmarks.
+// For tests (when SetT was called), it uses Require().NoError().
+// For benchmarks (when SetT wasn't called), it panics on error.
+func (s *TestWrapper) requireNoError(err error) {
+	if err == nil {
+		return
+	}
+	if s.hasT {
+		s.Require().NoError(err)
+	} else {
+		// Benchmark context - panic on error
+		panic(err)
+	}
+}
+
 func (s *TestWrapper) FundAcc(acc sdk.AccAddress, amounts sdk.Coins) {
 	err := s.App.BankKeeper.MintCoins(s.Ctx, minttypes.ModuleName, amounts)
-	s.Require().NoError(err)
+	s.requireNoError(err)
 
 	err = s.App.BankKeeper.SendCoinsFromModuleToAccount(s.Ctx, minttypes.ModuleName, acc, amounts)
-	s.Require().NoError(err)
+	s.requireNoError(err)
 }
 
 func (s *TestWrapper) setupValidator(bondStatus stakingtypes.BondStatus, valPub cryptotypes.PubKey) sdk.ValAddress {
@@ -144,18 +170,31 @@ func (s *TestWrapper) setupValidator(bondStatus stakingtypes.BondStatus, valPub 
 
 	s.FundAcc(sdk.AccAddress(valAddr), selfBond)
 
-	sh := teststaking.NewHelper(s.T(), s.Ctx, s.App.StakingKeeper)
-	msg := sh.CreateValidatorMsg(valAddr, valPub, selfBond[0].Amount)
-	sh.Handle(msg, true)
+	// Create validator message and handle it
+	commission := stakingtypes.NewCommissionRates(sdk.NewDecWithPrec(5, 2), sdk.NewDecWithPrec(5, 2), sdk.ZeroDec())
+	msg, err := stakingtypes.NewMsgCreateValidator(valAddr, valPub, selfBond[0], stakingtypes.Description{}, commission, sdk.OneInt())
+	s.requireNoError(err)
+
+	handler := staking.NewHandler(s.App.StakingKeeper)
+	res, err := handler(s.Ctx, msg)
+	s.requireNoError(err)
+	if res == nil {
+		panic("validator creation returned nil result")
+	}
 
 	val, found := s.App.StakingKeeper.GetValidator(s.Ctx, valAddr)
-	s.Require().True(found)
+	if !found {
+		panic("validator not found after creation")
+	}
+	if s.hasT {
+		s.Require().True(found)
+	}
 
 	val = val.UpdateStatus(bondStatus)
 	s.App.StakingKeeper.SetValidator(s.Ctx, val)
 
 	consAddr, err := val.GetConsAddr()
-	s.Suite.Require().NoError(err)
+	s.requireNoError(err)
 
 	signingInfo := slashingtypes.NewValidatorSigningInfo(
 		consAddr,
@@ -295,12 +334,12 @@ func SetupWithDefaultHome(isCheckTx bool, enableEVMCustomPrecompiles bool, overr
 	return res
 }
 
-func Setup(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
+func Setup(tb testing.TB, isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
 	db := dbm.NewMemDB()
-	return SetupWithDB(t, db, isCheckTx, enableEVMCustomPrecompiles, overrideWasmGasMultiplier, baseAppOptions...)
+	return SetupWithDB(tb, db, isCheckTx, enableEVMCustomPrecompiles, overrideWasmGasMultiplier, baseAppOptions...)
 }
 
-func SetupWithDB(t *testing.T, db dbm.DB, isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
+func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
 
@@ -332,7 +371,7 @@ func SetupWithDB(t *testing.T, db dbm.DB, isCheckTx bool, enableEVMCustomPrecomp
 		nil,
 		true,
 		map[int64]bool{},
-		t.TempDir(),
+		tb.TempDir(),
 		1,
 		enableEVMCustomPrecompiles,
 		config.TestConfig(),

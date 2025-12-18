@@ -8,7 +8,9 @@ modules:
   - path: sei-ibc-go/proto
   - path: sei-ibc-go/third_party/proto
   - path: sei-tendermint/proto
+  - path: sei-tendermint/internal
   - path: sei-wasmd/proto
+  - path: sei-iavl/proto
 
 lint:
   use:
@@ -29,4 +31,3 @@ breaking:
   use:
     - WIRE
     - WIRE_JSON
-    

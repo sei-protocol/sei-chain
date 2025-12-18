@@ -1,14 +1,14 @@
 package ioutils
 
 import (
-	"io/ioutil"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
 func GetTestData() ([]byte, []byte, []byte, error) {
-	wasmCode, err := ioutil.ReadFile("../keeper/testdata/hackatom.wasm")
+	wasmCode, err := os.ReadFile("../keeper/testdata/hackatom.wasm")
 	if err != nil {
 		return nil, nil, nil, err
 	}

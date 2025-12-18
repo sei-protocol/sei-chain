@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/CosmWasm/wasmd/app"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/app"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/stretchr/testify/require"

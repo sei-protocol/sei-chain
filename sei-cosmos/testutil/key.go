@@ -24,7 +24,7 @@ func GenerateCoinKey(algo keyring.SignatureAlgo) (sdk.AccAddress, string, error)
 	return sdk.AccAddress(info.GetPubKey().Address()), secret, nil
 }
 
-// GenerateSaveCoinKey generates a new key mnemonic with its addrress.
+// GenerateSaveCoinKey generates a new key mnemonic with its address.
 // If mnemonic is provided then it's used for key generation.
 // The key is saved in the keyring. The function returns error if overwrite=true and the key
 // already exists.

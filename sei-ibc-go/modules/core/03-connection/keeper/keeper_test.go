@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
-	ibctesting "github.com/cosmos/ibc-go/v3/testing"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
+	ibctesting "github.com/sei-protocol/sei-chain/sei-ibc-go/testing"
 )
 
 type KeeperTestSuite struct {
@@ -59,7 +59,7 @@ func (suite *KeeperTestSuite) TestSetAndGetClientConnectionPaths() {
 }
 
 // create 2 connections: A0 - B0, A1 - B1
-func (suite KeeperTestSuite) TestGetAllConnections() {
+func (suite *KeeperTestSuite) TestGetAllConnections() {
 	path1 := ibctesting.NewPath(suite.chainA, suite.chainB)
 	suite.coordinator.SetupConnections(path1)
 
@@ -87,7 +87,7 @@ func (suite KeeperTestSuite) TestGetAllConnections() {
 
 // the test creates 2 clients path.EndpointA.ClientID0 and path.EndpointA.ClientID1. path.EndpointA.ClientID0 has a single
 // connection and path.EndpointA.ClientID1 has 2 connections.
-func (suite KeeperTestSuite) TestGetAllClientConnectionPaths() {
+func (suite *KeeperTestSuite) TestGetAllClientConnectionPaths() {
 	path1 := ibctesting.NewPath(suite.chainA, suite.chainB)
 	path2 := ibctesting.NewPath(suite.chainA, suite.chainB)
 	suite.coordinator.SetupConnections(path1)

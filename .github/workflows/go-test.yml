@@ -27,11 +27,10 @@ jobs:
         module:
           - name: sei-chain
             path: ./
+            tags: ledger test_ledger_mock
           - name: sei-cosmos
             path: ./sei-cosmos
             tags: ledger test_ledger_mock
-          - name: sei-ibc-go
-            path: ./sei-ibc-go
           - name: sei-tendermint
             path: ./sei-tendermint
           - name: sei-wasmd

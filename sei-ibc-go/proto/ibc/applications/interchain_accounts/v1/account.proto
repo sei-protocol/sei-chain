@@ -6,7 +6,7 @@ import "cosmos/auth/v1beta1/auth.proto";
 import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/types";
 
 // An InterchainAccount is defined as a BaseAccount & the address of the account owner on the controller chain
 message InterchainAccount {

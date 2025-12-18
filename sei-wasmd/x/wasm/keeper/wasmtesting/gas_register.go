@@ -1,8 +1,8 @@
 package wasmtesting
 
 import (
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 
 // MockGasRegister mock that implements keeper.GasRegister

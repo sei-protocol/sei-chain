@@ -5,7 +5,7 @@ package ibc.applications.interchain_accounts.v1;
 import "gogoproto/gogo.proto";
 import "google/protobuf/any.proto";
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/types";
 
 // Type defines a classification of message issued from a controller chain to its associated interchain accounts
 // host

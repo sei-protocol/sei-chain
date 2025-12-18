@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/cockroachdb/pebble"
-	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/ss/util"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
