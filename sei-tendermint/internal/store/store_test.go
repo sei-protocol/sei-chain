@@ -19,6 +19,7 @@ import (
 	"github.com/tendermint/tendermint/internal/state/test/factory"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
 	"github.com/tendermint/tendermint/version"
 )
@@ -36,7 +37,7 @@ func makeTestCommit(height int64, timestamp time.Time) *types.Commit {
 		BlockIDFlag:      types.BlockIDFlagCommit,
 		ValidatorAddress: tmrand.Bytes(crypto.AddressSize),
 		Timestamp:        timestamp,
-		Signature:        testKey.Sign([]byte("Signature")),
+		Signature:        utils.Some(testKey.Sign([]byte("Signature"))),
 	}}
 	return &types.Commit{
 		Height: height,

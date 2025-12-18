@@ -3,11 +3,13 @@ package types
 import (
 	"context"
 	"testing"
+	"errors"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
 )
 
 func TestValidatorProtoBuf(t *testing.T) {
@@ -51,48 +53,39 @@ func TestValidatorValidateBasic(t *testing.T) {
 	pubKey, _ := priv.GetPubKey(ctx)
 	testCases := []struct {
 		val *Validator
-		err bool
-		msg string
+		err utils.Option[error]
 	}{
 		{
 			val: NewValidator(pubKey, 1),
-			err: false,
-			msg: "",
 		},
 		{
 			val: nil,
-			err: true,
-			msg: "nil validator",
+			err: utils.Some(ErrNilValidator),
 		},
 		{
 			val: NewValidator(pubKey, -1),
-			err: true,
-			msg: "validator has negative voting power",
+			err: utils.Some(ErrNegativeVotingPower),
 		},
 		{
 			val: &Validator{
 				PubKey:  pubKey,
 				Address: nil,
 			},
-			err: true,
-			msg: "validator address is the wrong size: ",
+			err: utils.Some(ErrBadAddressSize),
 		},
 		{
 			val: &Validator{
 				PubKey:  pubKey,
 				Address: []byte{'a'},
 			},
-			err: true,
-			msg: "validator address is the wrong size: 61",
+			err: utils.Some(ErrBadAddressSize),
 		},
 	}
 
 	for _, tc := range testCases {
 		err := tc.val.ValidateBasic()
-		if tc.err {
-			if assert.Error(t, err) {
-				assert.Equal(t, tc.msg, err.Error())
-			}
+		if wantErr,ok := tc.err.Get(); ok {
+			assert.True(t, errors.Is(err,wantErr))
 		} else {
 			assert.NoError(t, err)
 		}

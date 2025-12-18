@@ -197,18 +197,16 @@ func TestIncrementProposerPriorityPositiveTimes(t *testing.T) {
 }
 
 func BenchmarkValidatorSetCopy(b *testing.B) {
-	b.StopTimer()
 	vset := NewValidatorSet([]*Validator{})
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		privKey := ed25519.GenerateSecretKey()
 		pubKey := privKey.Public()
 		val := NewValidator(pubKey, 10)
 		err := vset.UpdateWithChangeSet([]*Validator{val})
 		require.NoError(b, err)
 	}
-	b.StartTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		vset.Copy()
 	}
 }
@@ -222,7 +220,7 @@ func TestProposerSelection1(t *testing.T) {
 		newValidator([]byte("baz"), 330),
 	})
 	var proposers []string
-	for i := 0; i < 99; i++ {
+	for range 99 {
 		val := vset.GetProposer()
 		proposers = append(proposers, string(val.Address))
 		vset.IncrementProposerPriority(1)
@@ -338,7 +336,7 @@ func TestProposerSelection3(t *testing.T) {
 	})
 
 	proposerOrder := make([]*Validator, 4)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		// need to give all validators to have keys
 		pk := ed25519.GenerateSecretKey().Public()
 		vset.Validators[i].PubKey = pk
@@ -424,7 +422,7 @@ func randValidator(ctx context.Context, randPower bool, minPower int64) (*Valida
 func randModuloValidatorSet(numValidators int) *ValidatorSet {
 	validators := make([]*Validator, numValidators)
 	totalVotingPower := int64(0)
-	for i := 0; i < numValidators; i++ {
+	for i := range numValidators {
 		validators[i] = randModuloValidator(totalVotingPower)
 		totalVotingPower += validators[i].VotingPower
 	}
@@ -826,7 +824,7 @@ func toTestValList(valList []*Validator) []testVal {
 
 func testValSet(nVals int, power int64) []testVal {
 	vals := make([]testVal, nVals)
-	for i := 0; i < nVals; i++ {
+	for i := range nVals {
 		vals[i] = testVal{fmt.Sprintf("v%d", i+1), power}
 	}
 	return vals
@@ -1624,8 +1622,9 @@ func deterministicValidatorSet(ctx context.Context, t *testing.T) (*ValidatorSet
 
 	t.Helper()
 
-	for i := 0; i < 10; i++ {
-		val, privValidator := deterministicValidator(ctx, t, ed25519.TestSecretKey([]byte{byte(i)}))
+	for i := range 10 {
+		// WARNING: this key has to be stable, otherwise hashes break.
+		val, privValidator := deterministicValidator(ctx, t, ed25519.TestSecretKey(fmt.Appendf(nil,"key: %x", i)))
 		valz[i] = val
 		privValidators[i] = privValidator
 	}

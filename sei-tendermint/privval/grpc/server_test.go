@@ -5,13 +5,14 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/crypto/encoding"
 	tmgrpc "github.com/tendermint/tendermint/privval/grpc"
 	privvalproto "github.com/tendermint/tendermint/proto/tendermint/privval"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -47,7 +48,7 @@ func TestGetPubKey(t *testing.T) {
 			} else {
 				pk, err := tc.pv.GetPubKey(ctx)
 				require.NoError(t, err)
-				require.Equal(t, resp.PubKey, pk)
+				require.Equal(t, resp.PubKey, encoding.PubKeyToProto(pk))
 			}
 		})
 	}

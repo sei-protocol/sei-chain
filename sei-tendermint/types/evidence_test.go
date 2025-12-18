@@ -384,7 +384,8 @@ func TestEvidenceVectors(t *testing.T) {
 
 	// Votes for duplicateEvidence
 	val := NewMockPV()
-	val.PrivKey = ed25519.TestSecretKey([]byte{1, 2, 3, 4}) // deterministic key
+	// WARNING: this key has to be stable, otherwise hashes break.
+	val.PrivKey = ed25519.TestSecretKey([]byte("it's a secret"))
 	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
 	blockID2 := makeBlockID(crypto.Checksum([]byte("blockhash2")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
 	const chainID = "mychain"

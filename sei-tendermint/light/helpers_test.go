@@ -12,6 +12,7 @@ import (
 	provider_mocks "github.com/tendermint/tendermint/light/provider/mocks"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/version"
 )
 
@@ -94,7 +95,7 @@ func makeVote(t testing.TB, header *types.Header, valset *types.ValidatorSet, ke
 		BlockID:          blockID,
 	}
 	// Sign it
-	vote.Signature = key.Sign(types.VoteSignBytes(header.ChainID, vote.ToProto()))
+	vote.Signature = utils.Some(key.Sign(types.VoteSignBytes(header.ChainID, vote.ToProto())))
 	return vote
 }
 

@@ -39,7 +39,6 @@ func exampleProposal() *types.Proposal {
 		Round:     2,
 		Timestamp: stamp,
 		POLRound:  2,
-		Signature: testKey.Sign([]byte("it's a signature")),
 		BlockID: types.BlockID{
 			Hash: crypto.Checksum([]byte("blockID_hash")),
 			PartSetHeader: types.PartSetHeader{
@@ -51,7 +50,8 @@ func exampleProposal() *types.Proposal {
 }
 
 func TestPrivvalVectors(t *testing.T) {
-	pk := ed25519.TestSecretKey([]byte{1, 2, 3, 4}).Public()
+	// WARNING: this key has to be stable for hashes to match.
+	pk := ed25519.TestSecretKey([]byte("it's a secret")).Public()
 	ppk := encoding.PubKeyToProto(pk)
 
 	// Generate a simple vote
@@ -61,6 +61,8 @@ func TestPrivvalVectors(t *testing.T) {
 	// Generate a simple proposal
 	proposal := exampleProposal()
 	proposalpb := proposal.ToProto()
+	// we set invalid signature for the hashes to match.
+	proposalpb.Signature = []byte("it's a signature")
 
 	// Create a Reuseable remote error
 	remoteError := &privproto.RemoteSignerError{Code: 1, Description: "it's a error"}

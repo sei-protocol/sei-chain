@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"io"
 	"math"
 	mrand "math/rand"
 	"os"
@@ -117,7 +116,6 @@ func TestBlockValidateBasic(t *testing.T) {
 		}, true},
 	}
 	for i, tc := range testCases {
-		i := i
 		t.Run(tc.testName, func(t *testing.T) {
 			block := MakeBlock(h, txs, commit, evList)
 			block.ProposerAddress = valSet.GetProposer().Address
@@ -284,7 +282,7 @@ func TestCommitHash(t *testing.T) {
 		BlockIDFlag:      BlockIDFlagCommit,
 		ValidatorAddress: crypto.AddressHash([]byte("validator1")),
 		Timestamp:        time.Now(),
-		Signature:        crypto.CRandBytes(64),
+		Signature:        utils.Some(testKey.Sign([]byte("data"))),
 	}
 
 	baseCommit := &Commit{
@@ -346,7 +344,7 @@ func TestCommitHash(t *testing.T) {
 			BlockIDFlag:      BlockIDFlagCommit,
 			ValidatorAddress: crypto.AddressHash([]byte("validator2")), // Different validator
 			Timestamp:        time.Now(),
-			Signature:        crypto.CRandBytes(64),
+			Signature:        utils.Some(testKey.Sign([]byte("other-data"))),
 		}
 		differentSigCommit := &Commit{
 			Height:     100,
@@ -371,7 +369,7 @@ func TestCommitValidateBasic(t *testing.T) {
 		expectErr      bool
 	}{
 		{"Random Commit", func(com *Commit) {}, false},
-		{"Incorrect signature", func(com *Commit) { com.Signatures[0].Signature = utils.Some(testKey.Sign(nil)) }, false},
+		{"Incorrect signature", func(com *Commit) { com.Signatures[0].Signature = utils.Some(testKey.Sign([]byte("whatever"))) }, false},
 		{"Incorrect height", func(com *Commit) { com.Height = int64(-100) }, true},
 		{"Incorrect round", func(com *Commit) { com.Round = -100 }, true},
 	}
@@ -382,7 +380,8 @@ func TestCommitValidateBasic(t *testing.T) {
 			com := randCommit(ctx, t, time.Now())
 
 			tc.malleateCommit(com)
-			assert.Equal(t, tc.expectErr, com.ValidateBasic() != nil, "Validate Basic had an unexpected result")
+			err := com.ValidateBasic()
+			assert.Equal(t, tc.expectErr, err != nil, "Validate Basic had an unexpected result: %v",err)
 		})
 	}
 }
@@ -392,15 +391,11 @@ func TestMaxCommitBytes(t *testing.T) {
 	// year int, month Month, day, hour, min, sec, nsec int, loc *Location
 	timestamp := time.Date(math.MaxInt64, 0, 0, 0, 0, 0, math.MaxInt64, time.UTC)
 
-	sigBytes := make([]byte, 64)
-	_, err := io.ReadFull(rand.Reader, sigBytes)
-	require.NoError(t, err)
-	sig := testKey.Sign(sigBytes)
 	cs := CommitSig{
 		BlockIDFlag:      BlockIDFlagNil,
 		ValidatorAddress: crypto.AddressHash([]byte("validator_address")),
 		Timestamp:        timestamp,
-		Signature:        utils.Some(sig),
+		Signature:        utils.Some(testKey.Sign([]byte("data"))),
 	}
 
 	pbSig := cs.ToProto()
@@ -529,7 +524,7 @@ func TestMaxHeaderBytes(t *testing.T) {
 	// Each supplementary character takes 4 bytes.
 	// http://www.i18nguy.com/unicode/supplementary-test.html
 	maxChainID := ""
-	for i := 0; i < MaxChainIDLen; i++ {
+	for range MaxChainIDLen {
 		maxChainID += "𠜎"
 	}
 
@@ -648,7 +643,7 @@ func TestVoteSetToCommit(t *testing.T) {
 
 	valSet, vals := randValidatorPrivValSet(ctx, t, 10, 1)
 	voteSet := NewVoteSet("test_chain_id", 3, 1, tmproto.PrecommitType, valSet)
-	for i := 0; i < len(vals); i++ {
+	for i := range vals {
 		pubKey, err := vals[i].GetPubKey(ctx)
 		require.NoError(t, err)
 		vote := &Vote{
@@ -926,7 +921,6 @@ func TestHeaderProto(t *testing.T) {
 	}
 
 	for _, tt := range tc {
-		tt := tt
 		t.Run(tt.msg, func(t *testing.T) {
 			pb := tt.h1.ToProto()
 			h, err := HeaderFromProto(pb)
@@ -1054,7 +1048,7 @@ func TestCommitSig_ValidateBasic(t *testing.T) {
 			CommitSig{
 				BlockIDFlag:      BlockIDFlagCommit,
 				ValidatorAddress: make([]byte, crypto.AddressSize),
-				Signature:        utils.Some(testKey.Sign(nil)),
+				Signature:        utils.None[crypto.Sig](),
 			},
 			true, "signature is missing",
 		},
@@ -1063,7 +1057,7 @@ func TestCommitSig_ValidateBasic(t *testing.T) {
 			CommitSig{
 				BlockIDFlag:      BlockIDFlagCommit,
 				ValidatorAddress: make([]byte, crypto.AddressSize),
-				Signature:        utils.Some(testKey.Sign(nil)),
+				Signature:        utils.Some(testKey.Sign([]byte("data"))),
 			},
 			false, "",
 		},
@@ -1384,6 +1378,27 @@ func TestCommit_ValidateBasic(t *testing.T) {
 			true, "no signatures in commit",
 		},
 		{
+			"invalid signature",
+			&Commit{
+				Height: 1,
+				Round:  1,
+				BlockID: BlockID{
+					Hash: make([]byte, crypto.HashSize),
+					PartSetHeader: PartSetHeader{
+						Hash: make([]byte, crypto.HashSize),
+					},
+				},
+				Signatures: []CommitSig{
+					{
+						BlockIDFlag:      BlockIDFlagCommit,
+						ValidatorAddress: make([]byte, crypto.AddressSize),
+						Signature:        utils.None[crypto.Sig](),
+					},
+				},
+			},
+			true, "wrong CommitSig",
+		},
+		{
 			"valid commit",
 			&Commit{
 				Height: 1,
@@ -1398,7 +1413,7 @@ func TestCommit_ValidateBasic(t *testing.T) {
 					{
 						BlockIDFlag:      BlockIDFlagCommit,
 						ValidatorAddress: make([]byte, crypto.AddressSize),
-						Signature:        utils.Some(testKey.Sign(nil)),
+						Signature:        utils.Some(testKey.Sign([]byte("data"))),
 					},
 				},
 			},

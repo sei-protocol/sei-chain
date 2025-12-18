@@ -117,23 +117,16 @@ func TestProposalVerifySignature(t *testing.T) {
 
 func BenchmarkProposalWriteSignBytes(b *testing.B) {
 	pbp := getTestProposal(b).ToProto()
-
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ProposalSignBytes("test_chain_id", pbp)
 	}
 }
 
 func BenchmarkProposalSign(b *testing.B) {
 	ctx := b.Context()
-
 	privVal := NewMockPV()
-
 	pbp := getTestProposal(b).ToProto()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		err := privVal.SignProposal(ctx, "test_chain_id", pbp)
 		if err != nil {
 			b.Error(err)
@@ -175,9 +168,6 @@ func TestProposalValidateBasic(t *testing.T) {
 		{"Invalid BlockId", func(p *Proposal) {
 			p.BlockID = BlockID{[]byte{1, 2, 3}, PartSetHeader{111, []byte("blockparts")}}
 		}, true},
-		{"Invalid Signature", func(p *Proposal) {
-			p.Signature = testKey.Sign(nil)
-		}, true},
 	}
 	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
 
@@ -196,7 +186,8 @@ func TestProposalValidateBasic(t *testing.T) {
 			require.NoError(t, privVal.SignProposal(ctx, "test_chain_id", p))
 			prop.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 			tc.malleateProposal(prop)
-			assert.Equal(t, tc.expectErr, prop.ValidateBasic() != nil, "Validate Basic had an unexpected result")
+			err = prop.ValidateBasic()
+			assert.Equal(t, tc.expectErr, err != nil, "Validate Basic had an unexpected result: %v",err)
 		})
 	}
 }

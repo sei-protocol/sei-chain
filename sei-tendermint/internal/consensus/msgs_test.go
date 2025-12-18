@@ -69,7 +69,7 @@ func TestMsgToProto(t *testing.T) {
 		POLRound:        1,
 		BlockID:         bi,
 		Timestamp:       time.Now(),
-		Signature:       makeSig("test-sig"),
+		Signature:       testKey.Sign([]byte("somedata")),
 		Header:          header,
 		Evidence:        types.EvidenceList{},
 		LastCommit:      &types.Commit{Signatures: []types.CommitSig{}},
@@ -339,9 +339,10 @@ func TestConsMsgsVectors(t *testing.T) {
 		POLRound:  1,
 		BlockID:   bi,
 		Timestamp: date,
-		Signature: makeSig("add_more_exclamation"),
 	}
 	pbProposal := proposal.ToProto()
+	// We populate the signature with invalid data to match the hash.
+	pbProposal.Signature = []byte("add_more_exclamation")
 
 	v := &types.Vote{
 		ValidatorAddress: []byte("add_more_exclamation"),
