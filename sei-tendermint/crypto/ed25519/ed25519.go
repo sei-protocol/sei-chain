@@ -136,7 +136,7 @@ func (k PublicKey) Compare(other PublicKey) int {
 
 // Verify verifies a signature using the public key.
 func (k PublicKey) Verify(msg []byte, sig Signature) error {
-	if !ed25519.VerifyWithOptions(k.key[:], msg, sig.sig[:], verifyOptions) {
+	if !cachingVerifier.VerifyWithOptions(k.key[:], msg, sig.sig[:], verifyOptions) {
 		return ErrBadSig{}
 	}
 	return nil
