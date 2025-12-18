@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -1407,12 +1408,14 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	defer func() {
 		if r := recover(); r != nil {
 			panicMsg := fmt.Sprintf("%v", r)
+
 			// Re-panic for upgrade-related panics to allow proper upgrade mechanism
 			if upgradePanicRe.MatchString(panicMsg) {
 				ctx.Logger().Error("upgrade panic detected, panicking to trigger upgrade", "panic", r)
 				panic(r) // Re-panic to trigger upgrade mechanism
 			}
-			ctx.Logger().Error("panic recovered in ProcessBlock", "panic", r)
+			stack := string(debug.Stack())
+			ctx.Logger().Error("panic recovered in ProcessBlock", "panic", r, "stack", stack)
 			err = fmt.Errorf("ProcessBlock panic: %v", r)
 			events = nil
 			txResults = nil
