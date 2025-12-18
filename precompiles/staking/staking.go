@@ -1,7 +1,6 @@
 package staking
 
 import (
-	"bytes"
 	"embed"
 	"encoding/hex"
 	"errors"
@@ -79,7 +78,7 @@ type PrecompileExecutor struct {
 	ParamsID                        []byte
 }
 
-func NewPrecompile(keepers utils.Keepers) (*pcommon.Precompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
@@ -133,69 +132,41 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.Precompile, error) {
 		}
 	}
 
-	return pcommon.NewPrecompile(newAbi, p, p.address, "staking"), nil
+	return pcommon.NewDynamicGasPrecompile(newAbi, p, p.address, "staking"), nil
 }
 
-// RequiredGas returns the required bare minimum gas to execute the precompile.
-func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64 {
-	if bytes.Equal(method.ID, p.DelegateID) {
-		return 50000
-	} else if bytes.Equal(method.ID, p.RedelegateID) {
-		return 70000
-	} else if bytes.Equal(method.ID, p.UndelegateID) {
-		return 50000
-	} else if bytes.Equal(method.ID, p.CreateValidatorID) {
-		return 100000
-	} else if bytes.Equal(method.ID, p.EditValidatorID) {
-		return 100000
-	} else if bytes.Equal(method.ID, p.DelegationID) ||
-		bytes.Equal(method.ID, p.ValidatorID) ||
-		bytes.Equal(method.ID, p.ValidatorDelegationsID) ||
-		bytes.Equal(method.ID, p.ValidatorUnbondingDelegationsID) ||
-		bytes.Equal(method.ID, p.UnbondingDelegationID) ||
-		bytes.Equal(method.ID, p.DelegatorDelegationsID) ||
-		bytes.Equal(method.ID, p.DelegatorValidatorID) ||
-		bytes.Equal(method.ID, p.DelegatorUnbondingDelegationsID) ||
-		bytes.Equal(method.ID, p.RedelegationsID) ||
-		bytes.Equal(method.ID, p.DelegatorValidatorsID) ||
-		bytes.Equal(method.ID, p.HistoricalInfoID) ||
-		bytes.Equal(method.ID, p.PoolID) ||
-		bytes.Equal(method.ID, p.ParamsID) ||
-		bytes.Equal(method.ID, p.ValidatorsID) {
-		return pcommon.DefaultGasCost(input, false)
-	}
-	// This should never happen since this is going to fail during Run
-	return pcommon.UnknownMethodCallGas
+func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
+	return p.evmKeeper
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, hooks *tracing.Hooks) (bz []byte, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if ctx.EVMPrecompileCalledFromDelegateCall() {
-		return nil, errors.New("cannot delegatecall staking")
+		return nil, 0, errors.New("cannot delegatecall staking")
 	}
 	switch method.Name {
 	case DelegateMethod:
 		if readOnly {
-			return nil, errors.New("cannot call staking precompile from staticcall")
+			return nil, 0, errors.New("cannot call staking precompile from staticcall")
 		}
 		return p.delegate(ctx, method, caller, args, value, hooks, evm)
 	case RedelegateMethod:
 		if readOnly {
-			return nil, errors.New("cannot call staking precompile from staticcall")
+			return nil, 0, errors.New("cannot call staking precompile from staticcall")
 		}
 		return p.redelegate(ctx, method, caller, args, value, evm)
 	case UndelegateMethod:
 		if readOnly {
-			return nil, errors.New("cannot call staking precompile from staticcall")
+			return nil, 0, errors.New("cannot call staking precompile from staticcall")
 		}
 		return p.undelegate(ctx, method, caller, args, value, evm)
 	case CreateValidatorMethod:
 		if readOnly {
-			return nil, errors.New("cannot call staking precompile from staticcall")
+			return nil, 0, errors.New("cannot call staking precompile from staticcall")
 		}
 		return p.createValidator(ctx, method, caller, args, value, hooks, evm)
 	case EditValidatorMethod:
 		if readOnly {
-			return nil, errors.New("cannot call staking precompile from staticcall")
+			return nil, 0, errors.New("cannot call staking precompile from staticcall")
 		}
 		return p.editValidator(ctx, method, caller, args, value, hooks, evm)
 	case DelegationMethod:
@@ -230,24 +201,24 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	return
 }
 
-func (p PrecompileExecutor) delegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, error) {
+func (p PrecompileExecutor) delegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, uint64, error) {
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	// if delegator is associated, then it must have Account set already
 	// if delegator is not associated, then it can't delegate anyway (since
 	// there is no good way to merge delegations if it becomes associated)
 	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !associated {
-		return nil, types.NewAssociationMissingErr(caller.Hex())
+		return nil, 0, types.NewAssociationMissingErr(caller.Hex())
 	}
 	validatorBech32 := args[0].(string)
 	if value == nil || value.Sign() == 0 {
-		return nil, errors.New("set `value` field to non-zero to send delegate fund")
+		return nil, 0, errors.New("set `value` field to non-zero to send delegate fund")
 	}
 	coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), delegator, value, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	_, err = p.stakingKeeper.Delegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgDelegate{
 		DelegatorAddress: delegator.String(),
@@ -255,7 +226,7 @@ func (p PrecompileExecutor) delegate(ctx sdk.Context, method *abi.Method, caller
 		Amount:           coin,
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Emit EVM event
@@ -264,20 +235,24 @@ func (p PrecompileExecutor) delegate(ctx sdk.Context, method *abi.Method, caller
 		ctx.Logger().Error("Failed to emit EVM delegate event", "error", emitErr)
 	}
 
-	return method.Outputs.Pack(true)
+	bz, err := method.Outputs.Pack(true)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) redelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) ([]byte, error) {
+func (p PrecompileExecutor) redelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 3); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !associated {
-		return nil, types.NewAssociationMissingErr(caller.Hex())
+		return nil, 0, types.NewAssociationMissingErr(caller.Hex())
 	}
 	srcValidatorBech32 := args[0].(string)
 	dstValidatorBech32 := args[1].(string)
@@ -289,7 +264,7 @@ func (p PrecompileExecutor) redelegate(ctx sdk.Context, method *abi.Method, call
 		Amount:              sdk.NewCoin(sdk.MustGetBaseDenom(), sdk.NewIntFromBigInt(amount)),
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Emit EVM event
@@ -298,20 +273,24 @@ func (p PrecompileExecutor) redelegate(ctx sdk.Context, method *abi.Method, call
 		ctx.Logger().Error("Failed to emit EVM redelegate event", "error", emitErr)
 	}
 
-	return method.Outputs.Pack(true)
+	bz, err := method.Outputs.Pack(true)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) undelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) ([]byte, error) {
+func (p PrecompileExecutor) undelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !associated {
-		return nil, types.NewAssociationMissingErr(caller.Hex())
+		return nil, 0, types.NewAssociationMissingErr(caller.Hex())
 	}
 	validatorBech32 := args[0].(string)
 	amount := args[1].(*big.Int)
@@ -321,7 +300,7 @@ func (p PrecompileExecutor) undelegate(ctx sdk.Context, method *abi.Method, call
 		Amount:           sdk.NewCoin(p.evmKeeper.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amount)),
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Emit EVM event
@@ -330,7 +309,11 @@ func (p PrecompileExecutor) undelegate(ctx sdk.Context, method *abi.Method, call
 		ctx.Logger().Error("Failed to emit EVM undelegate event", "error", emitErr)
 	}
 
-	return method.Outputs.Pack(true)
+	bz, err := method.Outputs.Pack(true)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
 type Delegation struct {
@@ -350,18 +333,18 @@ type DelegationDetails struct {
 	ValidatorAddress string
 }
 
-func (p PrecompileExecutor) delegation(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) delegation(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	seiDelegatorAddress, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	validatorBech32 := args[1].(string)
@@ -372,7 +355,7 @@ func (p PrecompileExecutor) delegation(ctx sdk.Context, method *abi.Method, args
 
 	delegationResponse, err := p.stakingQuerier.Delegation(sdk.WrapSDKContext(ctx), delegationRequest)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	delegation := Delegation{
@@ -388,7 +371,11 @@ func (p PrecompileExecutor) delegation(ctx sdk.Context, method *abi.Method, args
 		},
 	}
 
-	return method.Outputs.Pack(delegation)
+	bz, err := method.Outputs.Pack(delegation)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
 type ValidatorsResponse struct {
@@ -428,13 +415,13 @@ type Validator struct {
 	MinSelfDelegation       string
 }
 
-func (p PrecompileExecutor) validators(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) validators(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	validatorsRequest := &stakingtypes.QueryValidatorsRequest{
@@ -446,7 +433,7 @@ func (p PrecompileExecutor) validators(ctx sdk.Context, method *abi.Method, args
 
 	validatorsResponse, err := p.stakingQuerier.Validators(sdk.WrapSDKContext(ctx), validatorsRequest)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	res := ValidatorsResponse{
@@ -472,12 +459,16 @@ func (p PrecompileExecutor) validators(ctx sdk.Context, method *abi.Method, args
 		}
 	}
 
-	return method.Outputs.Pack(res)
+	bz, err := method.Outputs.Pack(res)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, error) {
+func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, uint64, error) {
 	if err := pcommon.ValidateArgsLength(args, 6); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Extract arguments
@@ -491,13 +482,13 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 	// Get validator address (caller's associated Sei address)
 	valAddress, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !associated {
-		return nil, types.NewAssociationMissingErr(caller.Hex())
+		return nil, 0, types.NewAssociationMissingErr(caller.Hex())
 	}
 
 	// Parse public key from hex
 	pubKeyBytes, err := hex.DecodeString(pubKeyHex)
 	if err != nil {
-		return nil, errors.New("invalid public key hex format")
+		return nil, 0, errors.New("invalid public key hex format")
 	}
 
 	// Create ed25519 public key
@@ -506,28 +497,28 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 	// Parse commission rates
 	commissionRate, err := sdk.NewDecFromStr(commissionRateStr)
 	if err != nil {
-		return nil, errors.New("invalid commission rate")
+		return nil, 0, errors.New("invalid commission rate")
 	}
 
 	commissionMaxRate, err := sdk.NewDecFromStr(commissionMaxRateStr)
 	if err != nil {
-		return nil, errors.New("invalid commission max rate")
+		return nil, 0, errors.New("invalid commission max rate")
 	}
 
 	commissionMaxChangeRate, err := sdk.NewDecFromStr(commissionMaxChangeRateStr)
 	if err != nil {
-		return nil, errors.New("invalid commission max change rate")
+		return nil, 0, errors.New("invalid commission max change rate")
 	}
 
 	commission := stakingtypes.NewCommissionRates(commissionRate, commissionMaxRate, commissionMaxChangeRate)
 
 	if value == nil || value.Sign() == 0 {
-		return nil, errors.New("set `value` field to non-zero to send delegate fund")
+		return nil, 0, errors.New("set `value` field to non-zero to send delegate fund")
 	}
 
 	// Validate minimum self delegation
 	if minSelfDelegation == nil || minSelfDelegation.Sign() <= 0 {
-		return nil, errors.New("minimum self delegation must be a positive integer: invalid request")
+		return nil, 0, errors.New("minimum self delegation must be a positive integer: invalid request")
 	}
 
 	coin, err := pcommon.HandlePaymentUsei(
@@ -540,7 +531,7 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 		hooks,
 		evm.GetDepth())
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	description := stakingtypes.NewDescription(moniker, "", "", "", "")
@@ -554,16 +545,16 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 		sdk.NewIntFromBigInt(minSelfDelegation),
 	)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := msg.ValidateBasic(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	_, err = p.stakingKeeper.CreateValidator(sdk.WrapSDKContext(ctx), msg)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Emit EVM event
@@ -572,16 +563,20 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 		ctx.Logger().Error("Failed to emit EVM validator created event", "error", emitErr)
 	}
 
-	return method.Outputs.Pack(true)
+	bz, err := method.Outputs.Pack(true)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, error) {
+func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, uint64, error) {
 	if err := pcommon.ValidateArgsLength(args, 3); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Extract arguments
@@ -592,7 +587,7 @@ func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, c
 	// Get validator address (caller's associated Sei address)
 	valAddress, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !associated {
-		return nil, types.NewAssociationMissingErr(caller.Hex())
+		return nil, 0, types.NewAssociationMissingErr(caller.Hex())
 	}
 
 	// Parse commission rate if provided
@@ -600,7 +595,7 @@ func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, c
 	if commissionRateStr != "" {
 		rate, err := sdk.NewDecFromStr(commissionRateStr)
 		if err != nil {
-			return nil, errors.New("invalid commission rate")
+			return nil, 0, errors.New("invalid commission rate")
 		}
 		commissionRate = &rate
 	}
@@ -628,12 +623,12 @@ func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, c
 	)
 
 	if err := msg.ValidateBasic(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	_, err := p.stakingKeeper.EditValidator(sdk.WrapSDKContext(ctx), msg)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Emit EVM event
@@ -642,16 +637,20 @@ func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, c
 		ctx.Logger().Error("Failed to emit EVM validator edited event", "error", emitErr)
 	}
 
-	return method.Outputs.Pack(true)
+	bz, err := method.Outputs.Pack(true)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) validator(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) validator(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	validatorBech32 := args[0].(string)
@@ -661,20 +660,24 @@ func (p PrecompileExecutor) validator(ctx sdk.Context, method *abi.Method, args 
 
 	validatorResponse, err := p.stakingQuerier.Validator(sdk.WrapSDKContext(ctx), validatorRequest)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	validator := convertValidatorToPrecompileType(validatorResponse.Validator)
-	return method.Outputs.Pack(validator)
+	bz, err := method.Outputs.Pack(validator)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) validatorDelegations(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) validatorDelegations(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	validatorBech32 := args[0].(string)
@@ -689,7 +692,7 @@ func (p PrecompileExecutor) validatorDelegations(ctx sdk.Context, method *abi.Me
 
 	response, err := p.stakingQuerier.ValidatorDelegations(sdk.WrapSDKContext(ctx), request)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	delegations := make([]Delegation, len(response.DelegationResponses))
@@ -713,16 +716,20 @@ func (p PrecompileExecutor) validatorDelegations(ctx sdk.Context, method *abi.Me
 		NextKey:     response.Pagination.NextKey,
 	}
 
-	return method.Outputs.Pack(result)
+	bz, err := method.Outputs.Pack(result)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) validatorUnbondingDelegations(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) validatorUnbondingDelegations(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	validatorBech32 := args[0].(string)
@@ -737,7 +744,7 @@ func (p PrecompileExecutor) validatorUnbondingDelegations(ctx sdk.Context, metho
 
 	response, err := p.stakingQuerier.ValidatorUnbondingDelegations(sdk.WrapSDKContext(ctx), request)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	unbondingDelegations := make([]UnbondingDelegation, len(response.UnbondingResponses))
@@ -763,21 +770,25 @@ func (p PrecompileExecutor) validatorUnbondingDelegations(ctx sdk.Context, metho
 		NextKey:              response.Pagination.NextKey,
 	}
 
-	return method.Outputs.Pack(result)
+	bz, err := method.Outputs.Pack(result)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) unbondingDelegation(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) unbondingDelegation(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	seiDelegatorAddress, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	validatorBech32 := args[1].(string)
@@ -788,7 +799,7 @@ func (p PrecompileExecutor) unbondingDelegation(ctx sdk.Context, method *abi.Met
 
 	response, err := p.stakingQuerier.UnbondingDelegation(sdk.WrapSDKContext(ctx), request)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	entries := make([]UnbondingDelegationEntry, len(response.Unbond.Entries))
@@ -807,21 +818,25 @@ func (p PrecompileExecutor) unbondingDelegation(ctx sdk.Context, method *abi.Met
 		Entries:          entries,
 	}
 
-	return method.Outputs.Pack(unbondingDelegation)
+	bz, err := method.Outputs.Pack(unbondingDelegation)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) delegatorDelegations(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) delegatorDelegations(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	seiDelegatorAddress, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	nextKey := args[1].([]byte)
@@ -834,7 +849,7 @@ func (p PrecompileExecutor) delegatorDelegations(ctx sdk.Context, method *abi.Me
 
 	response, err := p.stakingQuerier.DelegatorDelegations(sdk.WrapSDKContext(ctx), request)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	delegations := make([]Delegation, len(response.DelegationResponses))
@@ -858,21 +873,25 @@ func (p PrecompileExecutor) delegatorDelegations(ctx sdk.Context, method *abi.Me
 		NextKey:     response.Pagination.NextKey,
 	}
 
-	return method.Outputs.Pack(result)
+	bz, err := method.Outputs.Pack(result)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) delegatorValidator(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) delegatorValidator(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	seiDelegatorAddress, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	validatorBech32 := args[1].(string)
@@ -883,25 +902,29 @@ func (p PrecompileExecutor) delegatorValidator(ctx sdk.Context, method *abi.Meth
 
 	response, err := p.stakingQuerier.DelegatorValidator(sdk.WrapSDKContext(ctx), request)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	validator := convertValidatorToPrecompileType(response.Validator)
-	return method.Outputs.Pack(validator)
+	bz, err := method.Outputs.Pack(validator)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) delegatorUnbondingDelegations(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) delegatorUnbondingDelegations(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	seiDelegatorAddress, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	nextKey := args[1].([]byte)
@@ -914,7 +937,7 @@ func (p PrecompileExecutor) delegatorUnbondingDelegations(ctx sdk.Context, metho
 
 	response, err := p.stakingQuerier.DelegatorUnbondingDelegations(sdk.WrapSDKContext(ctx), request)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	unbondingDelegations := make([]UnbondingDelegation, len(response.UnbondingResponses))
@@ -940,16 +963,20 @@ func (p PrecompileExecutor) delegatorUnbondingDelegations(ctx sdk.Context, metho
 		NextKey:              response.Pagination.NextKey,
 	}
 
-	return method.Outputs.Pack(result)
+	bz, err := method.Outputs.Pack(result)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) redelegations(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) redelegations(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 4); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	delegatorStr := args[0].(string)
@@ -968,7 +995,7 @@ func (p PrecompileExecutor) redelegations(ctx sdk.Context, method *abi.Method, a
 
 	response, err := p.stakingQuerier.Redelegations(sdk.WrapSDKContext(ctx), request)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	redelegations := make([]Redelegation, len(response.RedelegationResponses))
@@ -995,21 +1022,25 @@ func (p PrecompileExecutor) redelegations(ctx sdk.Context, method *abi.Method, a
 		NextKey:       response.Pagination.NextKey,
 	}
 
-	return method.Outputs.Pack(result)
+	bz, err := method.Outputs.Pack(result)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) delegatorValidators(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) delegatorValidators(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	seiDelegatorAddress, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	nextKey := args[1].([]byte)
@@ -1022,7 +1053,7 @@ func (p PrecompileExecutor) delegatorValidators(ctx sdk.Context, method *abi.Met
 
 	response, err := p.stakingQuerier.DelegatorValidators(sdk.WrapSDKContext(ctx), request)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	validators := make([]Validator, len(response.Validators))
@@ -1035,16 +1066,20 @@ func (p PrecompileExecutor) delegatorValidators(ctx sdk.Context, method *abi.Met
 		NextKey:    response.Pagination.NextKey,
 	}
 
-	return method.Outputs.Pack(result)
+	bz, err := method.Outputs.Pack(result)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) historicalInfo(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) historicalInfo(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	height := args[0].(int64)
@@ -1054,11 +1089,11 @@ func (p PrecompileExecutor) historicalInfo(ctx sdk.Context, method *abi.Method, 
 
 	response, err := p.stakingQuerier.HistoricalInfo(sdk.WrapSDKContext(ctx), request)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if response.Hist == nil {
-		return nil, errors.New("historical info not found")
+		return nil, 0, errors.New("historical info not found")
 	}
 
 	validators := make([]Validator, len(response.Hist.Valset))
@@ -1066,36 +1101,31 @@ func (p PrecompileExecutor) historicalInfo(ctx sdk.Context, method *abi.Method, 
 		validators[i] = convertValidatorToPrecompileType(val)
 	}
 
-	// Marshal header to bytes
-	headerBytes := []byte{}
-	if response.Hist.Header.Height > 0 {
-		// Header is a complex type, we'll serialize it if needed
-		// For now, we'll use empty bytes as header serialization is complex
-		headerBytes = []byte{}
-	}
-
 	historicalInfo := HistoricalInfo{
 		Height:     height, // Use the requested height
-		Header:     headerBytes,
 		Validators: validators,
 	}
 
-	return method.Outputs.Pack(historicalInfo)
+	bz, err := method.Outputs.Pack(historicalInfo)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) pool(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) pool(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 0); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	request := &stakingtypes.QueryPoolRequest{}
 	response, err := p.stakingQuerier.Pool(sdk.WrapSDKContext(ctx), request)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	pool := Pool{
@@ -1103,22 +1133,26 @@ func (p PrecompileExecutor) pool(ctx sdk.Context, method *abi.Method, args []int
 		BondedTokens:    response.Pool.BondedTokens.String(),
 	}
 
-	return method.Outputs.Pack(pool)
+	bz, err := method.Outputs.Pack(pool)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) params(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) params(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 0); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	request := &stakingtypes.QueryParamsRequest{}
 	response, err := p.stakingQuerier.Params(sdk.WrapSDKContext(ctx), request)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	params := Params{
@@ -1132,7 +1166,11 @@ func (p PrecompileExecutor) params(ctx sdk.Context, method *abi.Method, args []i
 		MaxVotingPowerEnforcementThreshold: response.Params.MaxVotingPowerEnforcementThreshold.String(),
 	}
 
-	return method.Outputs.Pack(params)
+	bz, err := method.Outputs.Pack(params)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
 // Helper function to convert stakingtypes.Validator to precompile Validator type
@@ -1185,7 +1223,6 @@ type Redelegation struct {
 
 type HistoricalInfo struct {
 	Height     int64
-	Header     []byte
 	Validators []Validator
 }
 

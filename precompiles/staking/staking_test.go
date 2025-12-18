@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"testing"
@@ -532,7 +533,7 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 			require.Nil(t, err)
 			inputs, err := delegation.Inputs.Pack(tt.args.delegatorAddress, tt.args.validatorAddress)
 			require.Nil(t, err)
-			gotRet, err := p.Run(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*staking.PrecompileExecutor).DelegationID, inputs...), tt.args.value, tt.args.readOnly, tt.args.isFromDelegateCall, nil)
+			gotRet, _, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*staking.PrecompileExecutor).DelegationID, inputs...), math.MaxUint64, tt.args.value, nil, tt.args.readOnly, tt.args.isFromDelegateCall)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -679,7 +680,7 @@ func TestPrecompile_Run_Validators(t *testing.T) {
 			require.NoError(t, err)
 
 			// Caller and callingContract are irrelevant for validators (query-only).
-			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.args.value, tt.args.readOnly, false, nil)
+			gotRet, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), math.MaxUint64, tt.args.value, nil, tt.args.readOnly, false)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -805,7 +806,7 @@ func TestPrecompile_Run_Validator(t *testing.T) {
 			inputs, err := method.Inputs.Pack(tt.args...)
 			require.NoError(t, err)
 
-			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			gotRet, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), math.MaxUint64, tt.value, nil, true, false)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -914,7 +915,7 @@ func TestPrecompile_Run_ValidatorDelegations(t *testing.T) {
 			inputs, err := method.Inputs.Pack(tt.args...)
 			require.NoError(t, err)
 
-			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			gotRet, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), math.MaxUint64, tt.value, nil, true, false)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1024,7 +1025,7 @@ func TestPrecompile_Run_ValidatorUnbondingDelegations(t *testing.T) {
 			inputs, err := method.Inputs.Pack(tt.args...)
 			require.NoError(t, err)
 
-			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			gotRet, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), math.MaxUint64, tt.value, nil, true, false)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1128,7 +1129,7 @@ func TestPrecompile_Run_UnbondingDelegation(t *testing.T) {
 			inputs, err := method.Inputs.Pack(tt.args...)
 			require.NoError(t, err)
 
-			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			gotRet, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), math.MaxUint64, tt.value, nil, true, false)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1238,7 +1239,7 @@ func TestPrecompile_Run_DelegatorDelegations(t *testing.T) {
 			inputs, err := method.Inputs.Pack(tt.args...)
 			require.NoError(t, err)
 
-			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			gotRet, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), math.MaxUint64, tt.value, nil, true, false)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1333,7 +1334,7 @@ func TestPrecompile_Run_DelegatorValidator(t *testing.T) {
 			inputs, err := method.Inputs.Pack(tt.args...)
 			require.NoError(t, err)
 
-			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			gotRet, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), math.MaxUint64, tt.value, nil, true, false)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1444,7 +1445,7 @@ func TestPrecompile_Run_DelegatorUnbondingDelegations(t *testing.T) {
 			inputs, err := method.Inputs.Pack(tt.args...)
 			require.NoError(t, err)
 
-			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			gotRet, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), math.MaxUint64, tt.value, nil, true, false)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1567,7 +1568,7 @@ func TestPrecompile_Run_Redelegations(t *testing.T) {
 			inputs, err := method.Inputs.Pack(tt.args...)
 			require.NoError(t, err)
 
-			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			gotRet, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), math.MaxUint64, tt.value, nil, true, false)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1669,7 +1670,7 @@ func TestPrecompile_Run_DelegatorValidators(t *testing.T) {
 			inputs, err := method.Inputs.Pack(tt.args...)
 			require.NoError(t, err)
 
-			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			gotRet, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), math.MaxUint64, tt.value, nil, true, false)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1701,7 +1702,6 @@ func TestPrecompile_Run_HistoricalInfo(t *testing.T) {
 
 	expected := staking.HistoricalInfo{
 		Height: 100,
-		Header: []byte{},
 		Validators: []staking.Validator{
 			{
 				OperatorAddress:         val.OperatorAddress,
@@ -1773,7 +1773,7 @@ func TestPrecompile_Run_HistoricalInfo(t *testing.T) {
 			inputs, err := method.Inputs.Pack(tt.args...)
 			require.NoError(t, err)
 
-			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			gotRet, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), math.MaxUint64, tt.value, nil, true, false)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1858,7 +1858,7 @@ func TestPrecompile_Run_Pool(t *testing.T) {
 			inputs, err := method.Inputs.Pack(tt.args...)
 			require.NoError(t, err)
 
-			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			gotRet, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), math.MaxUint64, tt.value, nil, true, false)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1955,7 +1955,7 @@ func TestPrecompile_Run_Params(t *testing.T) {
 			inputs, err := method.Inputs.Pack(tt.args...)
 			require.NoError(t, err)
 
-			gotRet, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), tt.value, true, false, nil)
+			gotRet, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), math.MaxUint64, tt.value, nil, true, false)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Run() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -2416,81 +2416,6 @@ func TestEditValidator(t *testing.T) {
 	require.Equal(t, validator.ConsensusPubkey, updatedValidator.ConsensusPubkey, "Consensus pubkey should remain the same")
 }
 
-func TestStakingPrecompile_RequiredGas(t *testing.T) {
-	pre, err := staking.NewPrecompile(&utils.EmptyKeepers{})
-	require.NoError(t, err)
-
-	executor := pre.GetExecutor().(*staking.PrecompileExecutor)
-
-	// Test gas costs for all methods
-	testCases := []struct {
-		name        string
-		methodID    []byte
-		methodName  string
-		inputSize   int
-		expectedGas uint64
-	}{
-		{
-			name:        "delegate method",
-			methodID:    executor.DelegateID,
-			methodName:  staking.DelegateMethod,
-			expectedGas: 50000,
-		},
-		{
-			name:        "redelegate method",
-			methodID:    executor.RedelegateID,
-			methodName:  staking.RedelegateMethod,
-			expectedGas: 70000,
-		},
-		{
-			name:        "undelegate method",
-			methodID:    executor.UndelegateID,
-			methodName:  staking.UndelegateMethod,
-			expectedGas: 50000,
-		},
-		{
-			name:        "createValidator method",
-			methodID:    executor.CreateValidatorID,
-			methodName:  staking.CreateValidatorMethod,
-			expectedGas: 100000,
-		},
-		{
-			name:        "editValidator method",
-			methodID:    executor.EditValidatorID,
-			methodName:  "editValidator",
-			expectedGas: 100000,
-		},
-		{
-			name:        "delegation method (query)",
-			methodID:    executor.DelegationID,
-			methodName:  staking.DelegationMethod,
-			inputSize:   100,
-			expectedGas: 1300,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Get the method from ABI
-			method, err := pre.ABI.MethodById(tc.methodID)
-			require.NoError(t, err, "Should be able to find method by ID")
-			require.Equal(t, tc.methodName, method.Name, "Method name should match")
-
-			// Create mock input (method ID + some data)
-			input := make([]byte, 4+tc.inputSize) // method ID (4 bytes) + input data
-			copy(input[:4], tc.methodID)
-
-			// Test RequiredGas
-			gasRequired := executor.RequiredGas(input[4:], method)
-
-			// Verify gas
-			require.Equal(t, tc.expectedGas, gasRequired,
-				"Gas should be at least %d, got %d", tc.expectedGas, gasRequired)
-
-		})
-	}
-}
-
 func TestStakingPrecompileDelegateCallPrevention(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
@@ -2566,7 +2491,7 @@ func TestStakingPrecompileDelegateCallPrevention(t *testing.T) {
 				StateDB: state.NewDBImpl(ctx, k, false),
 			}
 
-			_, err := precompile.GetExecutor().(*staking.PrecompileExecutor).Execute(ctx, &method, evmAddr, evmAddr, tc.args, tc.value, false, evm, nil)
+			_, _, err := precompile.GetExecutor().(*staking.PrecompileExecutor).Execute(ctx, &method, evmAddr, evmAddr, tc.args, tc.value, false, evm, math.MaxUint64, nil)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "cannot delegatecall staking")
 		})
@@ -2646,7 +2571,7 @@ func TestStakingPrecompileStaticCallPrevention(t *testing.T) {
 			}
 
 			// Test with readOnly = true (staticcall)
-			_, err := precompile.GetExecutor().(*staking.PrecompileExecutor).Execute(ctx, &method, evmAddr, evmAddr, tc.args, tc.value, true, evm, nil)
+			_, _, err := precompile.GetExecutor().(*staking.PrecompileExecutor).Execute(ctx, &method, evmAddr, evmAddr, tc.args, tc.value, true, evm, math.MaxUint64, nil)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "cannot call staking precompile from staticcall")
 		})
@@ -2672,7 +2597,7 @@ func TestStakingPrecompileStaticCallPrevention(t *testing.T) {
 
 		// Should succeed with readOnly = true for query method (even if no delegation exists)
 		// The important thing is that the static call is allowed
-		_, err := precompile.GetExecutor().(*staking.PrecompileExecutor).Execute(ctx, &method, evmAddr, evmAddr, args, nil, true, evm, nil)
+		_, _, err := precompile.GetExecutor().(*staking.PrecompileExecutor).Execute(ctx, &method, evmAddr, evmAddr, args, nil, true, evm, math.MaxUint64, nil)
 		// We don't check the error because the delegation might not exist
 		// We're just testing that static calls are allowed for query methods
 		_ = err

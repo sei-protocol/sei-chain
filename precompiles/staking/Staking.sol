@@ -361,7 +361,6 @@ interface IStaking {
 
     struct HistoricalInfo {
         int64 height;
-        bytes header;
         Validator[] validators;
     }
 

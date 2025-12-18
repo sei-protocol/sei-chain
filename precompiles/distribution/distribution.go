@@ -440,7 +440,7 @@ func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method 
 	}
 	if err := pcommon.EmitEVMLog(evm, p.address, []common.Hash{
 		ValidatorCommissionEventSig,
-		common.BytesToHash([]byte(validator.String())),
+		crypto.Keccak256Hash([]byte(validator.String())),
 	}, logData); err != nil {
 		rerr = err
 		return
