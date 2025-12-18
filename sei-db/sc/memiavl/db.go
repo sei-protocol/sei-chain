@@ -18,13 +18,13 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/cosmos/iavl"
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/stream/changelog"
 	"github.com/sei-protocol/sei-chain/sei-db/stream/types"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 const LockFileName = "LOCK"

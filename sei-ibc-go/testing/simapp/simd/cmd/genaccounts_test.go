@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/libs/log"
 
-	"github.com/cosmos/ibc-go/v3/testing/simapp"
-	simcmd "github.com/cosmos/ibc-go/v3/testing/simapp/simd/cmd"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/simapp"
+	simcmd "github.com/sei-protocol/sei-chain/sei-ibc-go/testing/simapp/simd/cmd"
 )
 
 var testMbm = module.NewBasicManager(genutil.AppModuleBasic{})

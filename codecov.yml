@@ -10,9 +10,7 @@ coverage:
         target: 40%
         paths:
           - "!sei-cosmos/**"
-          - "!sei-ibc-go/**"
           - "!sei-tendermint/**"
-          - "!sei-wasmd/**"
         flags:
           - sei-chain
       sei-cosmos:
@@ -27,21 +25,9 @@ coverage:
           - "sei-tendermint/**"
         flags:
           - sei-tendermint
-      sei-wasmd:
-        target: 40%
-        paths:
-          - "sei-wasmd/**"
-        flags:
-          - sei-wasmd
-      sei-ibc-go:
-        target: 40%
-        paths:
-          - "sei-ibc-go/**"
-        flags:
-          - sei-ibc-go
     patch:
       default:
-        target: 70%
+        target: auto
 
 comment:
   layout: "reach,diff,flags,tree,betaprofiling"

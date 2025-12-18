@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
-	ibctesting "github.com/cosmos/ibc-go/v3/testing"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
+	ibctesting "github.com/sei-protocol/sei-chain/sei-ibc-go/testing"
 )
 
 // KeeperTestSuite is a testing suite to test keeper functions.
@@ -64,7 +64,7 @@ func (suite *KeeperTestSuite) TestSetChannel() {
 
 // TestGetAllChannels creates multiple channels on chain A through various connections
 // and tests their retrieval. 2 channels are on connA0 and 1 channel is on connA1
-func (suite KeeperTestSuite) TestGetAllChannels() {
+func (suite *KeeperTestSuite) TestGetAllChannels() {
 	path := ibctesting.NewPath(suite.chainA, suite.chainB)
 	suite.coordinator.Setup(path)
 	// channel0 on first connection on chainA
@@ -128,7 +128,7 @@ func (suite KeeperTestSuite) TestGetAllChannels() {
 
 // TestGetAllSequences sets all packet sequences for two different channels on chain A and
 // tests their retrieval.
-func (suite KeeperTestSuite) TestGetAllSequences() {
+func (suite *KeeperTestSuite) TestGetAllSequences() {
 	path := ibctesting.NewPath(suite.chainA, suite.chainB)
 	suite.coordinator.Setup(path)
 
@@ -170,7 +170,7 @@ func (suite KeeperTestSuite) TestGetAllSequences() {
 
 // TestGetAllPacketState creates a set of acks, packet commitments, and receipts on two different
 // channels on chain A and tests their retrieval.
-func (suite KeeperTestSuite) TestGetAllPacketState() {
+func (suite *KeeperTestSuite) TestGetAllPacketState() {
 	path := ibctesting.NewPath(suite.chainA, suite.chainB)
 	suite.coordinator.Setup(path)
 

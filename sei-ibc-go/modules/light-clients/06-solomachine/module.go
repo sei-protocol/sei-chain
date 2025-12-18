@@ -1,7 +1,7 @@
 package solomachine
 
 import (
-	"github.com/cosmos/ibc-go/v3/modules/light-clients/06-solomachine/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/06-solomachine/types"
 )
 
 // Name returns the solo machine client name.

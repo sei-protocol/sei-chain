@@ -6,7 +6,7 @@ import "gogoproto/gogo.proto";
 import "ibc/core/channel/v1/channel.proto";
 import "ibc/core/client/v1/client.proto";
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types";
 
 // Msg defines the ibc/channel Msg service.
 service Msg {

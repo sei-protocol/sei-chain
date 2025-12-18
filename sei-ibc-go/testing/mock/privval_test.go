@@ -9,7 +9,7 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/crypto"
 
-	"github.com/cosmos/ibc-go/v3/testing/mock"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/mock"
 )
 
 const chainID = "testChain"

@@ -3,7 +3,7 @@ package types
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
 // ClientKeeper expected account IBC client keeper

@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"math/big"
 
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v606"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"

@@ -5,7 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 )
 
 // Migrator is a struct for handling in-place store migrations.

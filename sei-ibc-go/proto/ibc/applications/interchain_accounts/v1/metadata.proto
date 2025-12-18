@@ -4,7 +4,7 @@ package ibc.applications.interchain_accounts.v1;
 
 import "gogoproto/gogo.proto";
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/types";
 
 // Metadata defines a set of protocol specific data encoded into the ICS27 channel version bytestring
 // See ICS004: https://github.com/cosmos/ibc/tree/master/spec/core/ics-004-channel-and-packet-semantics#Versioning

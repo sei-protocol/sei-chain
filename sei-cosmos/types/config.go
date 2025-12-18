@@ -73,10 +73,8 @@ func GetSealedConfig(ctx context.Context) (*Config, error) {
 	}
 }
 
+// assertNotSealed panics if the config is sealed. Caller must hold the write lock.
 func (config *Config) assertNotSealed() {
-	config.mtx.Lock()
-	defer config.mtx.Unlock()
-
 	if config.sealed {
 		panic("Config is sealed")
 	}
@@ -85,6 +83,9 @@ func (config *Config) assertNotSealed() {
 // SetBech32PrefixForAccount builds the Config with Bech32 addressPrefix and publKeyPrefix for accounts
 // and returns the config instance
 func (config *Config) SetBech32PrefixForAccount(addressPrefix, pubKeyPrefix string) {
+	config.mtx.Lock()
+	defer config.mtx.Unlock()
+
 	config.assertNotSealed()
 	config.bech32AddressPrefix["account_addr"] = addressPrefix
 	config.bech32AddressPrefix["account_pub"] = pubKeyPrefix
@@ -94,6 +95,9 @@ func (config *Config) SetBech32PrefixForAccount(addressPrefix, pubKeyPrefix stri
 //
 //	and returns the config instance
 func (config *Config) SetBech32PrefixForValidator(addressPrefix, pubKeyPrefix string) {
+	config.mtx.Lock()
+	defer config.mtx.Unlock()
+
 	config.assertNotSealed()
 	config.bech32AddressPrefix["validator_addr"] = addressPrefix
 	config.bech32AddressPrefix["validator_pub"] = pubKeyPrefix
@@ -102,6 +106,9 @@ func (config *Config) SetBech32PrefixForValidator(addressPrefix, pubKeyPrefix st
 // SetBech32PrefixForConsensusNode builds the Config with Bech32 addressPrefix and publKeyPrefix for consensus nodes
 // and returns the config instance
 func (config *Config) SetBech32PrefixForConsensusNode(addressPrefix, pubKeyPrefix string) {
+	config.mtx.Lock()
+	defer config.mtx.Unlock()
+
 	config.assertNotSealed()
 	config.bech32AddressPrefix["consensus_addr"] = addressPrefix
 	config.bech32AddressPrefix["consensus_pub"] = pubKeyPrefix
@@ -109,6 +116,9 @@ func (config *Config) SetBech32PrefixForConsensusNode(addressPrefix, pubKeyPrefi
 
 // SetTxEncoder builds the Config with TxEncoder used to marshal StdTx to bytes
 func (config *Config) SetTxEncoder(encoder TxEncoder) {
+	config.mtx.Lock()
+	defer config.mtx.Unlock()
+
 	config.assertNotSealed()
 	config.txEncoder = encoder
 }
@@ -116,6 +126,9 @@ func (config *Config) SetTxEncoder(encoder TxEncoder) {
 // SetAddressVerifier builds the Config with the provided function for verifying that addresses
 // have the correct format
 func (config *Config) SetAddressVerifier(addressVerifier func([]byte) error) {
+	config.mtx.Lock()
+	defer config.mtx.Unlock()
+
 	config.assertNotSealed()
 	config.addressVerifier = addressVerifier
 }
@@ -124,18 +137,27 @@ func (config *Config) SetAddressVerifier(addressVerifier func([]byte) error) {
 //
 // Deprecated: This method is supported for backward compatibility only and will be removed in a future release. Use SetPurpose and SetCoinType instead.
 func (config *Config) SetFullFundraiserPath(fullFundraiserPath string) {
+	config.mtx.Lock()
+	defer config.mtx.Unlock()
+
 	config.assertNotSealed()
 	config.fullFundraiserPath = fullFundraiserPath
 }
 
 // Set the BIP-0044 Purpose code on the config
 func (config *Config) SetPurpose(purpose uint32) {
+	config.mtx.Lock()
+	defer config.mtx.Unlock()
+
 	config.assertNotSealed()
 	config.purpose = purpose
 }
 
 // Set the BIP-0044 CoinType code on the config
 func (config *Config) SetCoinType(coinType uint32) {
+	config.mtx.Lock()
+	defer config.mtx.Unlock()
+
 	config.assertNotSealed()
 	config.coinType = coinType
 }
@@ -159,51 +181,81 @@ func (config *Config) Seal() *Config {
 
 // GetBech32AccountAddrPrefix returns the Bech32 prefix for account address
 func (config *Config) GetBech32AccountAddrPrefix() string {
+	config.mtx.RLock()
+	defer config.mtx.RUnlock()
+
 	return config.bech32AddressPrefix["account_addr"]
 }
 
 // GetBech32ValidatorAddrPrefix returns the Bech32 prefix for validator address
 func (config *Config) GetBech32ValidatorAddrPrefix() string {
+	config.mtx.RLock()
+	defer config.mtx.RUnlock()
+
 	return config.bech32AddressPrefix["validator_addr"]
 }
 
 // GetBech32ConsensusAddrPrefix returns the Bech32 prefix for consensus node address
 func (config *Config) GetBech32ConsensusAddrPrefix() string {
+	config.mtx.RLock()
+	defer config.mtx.RUnlock()
+
 	return config.bech32AddressPrefix["consensus_addr"]
 }
 
 // GetBech32AccountPubPrefix returns the Bech32 prefix for account public key
 func (config *Config) GetBech32AccountPubPrefix() string {
+	config.mtx.RLock()
+	defer config.mtx.RUnlock()
+
 	return config.bech32AddressPrefix["account_pub"]
 }
 
 // GetBech32ValidatorPubPrefix returns the Bech32 prefix for validator public key
 func (config *Config) GetBech32ValidatorPubPrefix() string {
+	config.mtx.RLock()
+	defer config.mtx.RUnlock()
+
 	return config.bech32AddressPrefix["validator_pub"]
 }
 
 // GetBech32ConsensusPubPrefix returns the Bech32 prefix for consensus node public key
 func (config *Config) GetBech32ConsensusPubPrefix() string {
+	config.mtx.RLock()
+	defer config.mtx.RUnlock()
+
 	return config.bech32AddressPrefix["consensus_pub"]
 }
 
 // GetTxEncoder return function to encode transactions
 func (config *Config) GetTxEncoder() TxEncoder {
+	config.mtx.RLock()
+	defer config.mtx.RUnlock()
+
 	return config.txEncoder
 }
 
 // GetAddressVerifier returns the function to verify that addresses have the correct format
 func (config *Config) GetAddressVerifier() func([]byte) error {
+	config.mtx.RLock()
+	defer config.mtx.RUnlock()
+
 	return config.addressVerifier
 }
 
 // GetPurpose returns the BIP-0044 Purpose code on the config.
 func (config *Config) GetPurpose() uint32 {
+	config.mtx.RLock()
+	defer config.mtx.RUnlock()
+
 	return config.purpose
 }
 
 // GetCoinType returns the BIP-0044 CoinType code on the config.
 func (config *Config) GetCoinType() uint32 {
+	config.mtx.RLock()
+	defer config.mtx.RUnlock()
+
 	return config.coinType
 }
 
@@ -211,11 +263,17 @@ func (config *Config) GetCoinType() uint32 {
 //
 // Deprecated: This method is supported for backward compatibility only and will be removed in a future release. Use GetFullBIP44Path instead.
 func (config *Config) GetFullFundraiserPath() string {
+	config.mtx.RLock()
+	defer config.mtx.RUnlock()
+
 	return config.fullFundraiserPath
 }
 
 // GetFullBIP44Path returns the BIP44Prefix.
 func (config *Config) GetFullBIP44Path() string {
+	config.mtx.RLock()
+	defer config.mtx.RUnlock()
+
 	return fmt.Sprintf("m/%d'/%d'/0'/0/0", config.purpose, config.coinType)
 }
 

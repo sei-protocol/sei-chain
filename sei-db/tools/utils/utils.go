@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/iavl"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	dbm "github.com/tendermint/tm-db"
 )
 

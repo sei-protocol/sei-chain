@@ -2,16 +2,17 @@ package keeper
 
 import (
 	"bytes"
+	"strconv"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
-	"strconv"
 
-	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
-	"github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
-	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
+	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
+	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
 // SendPacket is called by a module in order to send an IBC packet on a channel
@@ -218,10 +219,15 @@ func (k Keeper) RecvPacket(
 	}
 
 	// check if packet timeouted by comparing it with the latest timestamp of the chain
-	if packet.GetTimeoutTimestamp() != 0 && uint64(ctx.BlockTime().UnixNano()) >= packet.GetTimeoutTimestamp() {
+	blockTimeNano := ctx.BlockTime().UnixNano()
+	if blockTimeNano < 0 {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidHeight, "block time is negative")
+	}
+	// #nosec G115 -- block time is checked above to be non-negative
+	if packet.GetTimeoutTimestamp() != 0 && uint64(blockTimeNano) >= packet.GetTimeoutTimestamp() {
 		return GetPacketTimeoutErrorMessage(
 			"block timestamp >= packet timeout timestamp (%d >= %d)",
-			uint64(ctx.BlockTime().UTC().UnixNano()),
+			uint64(blockTimeNano),
 			packet.GetTimeoutTimestamp())
 	}
 

@@ -5,7 +5,7 @@ package ibc.core.commitment.v1;
 import "gogoproto/gogo.proto";
 import "proofs.proto";
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/core/23-commitment/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/23-commitment/types";
 
 // MerkleRoot defines a merkle root hash.
 // In the Cosmos SDK, the AppHash of a block header becomes the root.

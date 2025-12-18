@@ -12,10 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
-	"github.com/cosmos/ibc-go/v3/modules/light-clients/06-solomachine/types"
-	ibctesting "github.com/cosmos/ibc-go/v3/testing"
+	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/06-solomachine/types"
+	ibctesting "github.com/sei-protocol/sei-chain/sei-ibc-go/testing"
 )
 
 type SoloMachineTestSuite struct {

@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
 )
 
 func TestValidateParams(t *testing.T) {

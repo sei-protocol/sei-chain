@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/sc/types"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 )
 
