@@ -1,10 +1,10 @@
 package ed25519
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
-	"bytes"
 	"runtime"
 
 	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519"
@@ -87,12 +87,16 @@ func TestSecretKey(seed []byte) SecretKey {
 
 // GenerateSecretKey generates a new secret key using a cryptographically secure random number generator.
 func GenerateSecretKey() SecretKey {
-	var seed [ed25519.SeedSize]byte	
+	var seed [ed25519.SeedSize]byte
 	// rand.Read is documented to never return an error.
-	if _, err := rand.Read(seed[:]); err != nil { panic(err) }
+	if _, err := rand.Read(seed[:]); err != nil {
+		panic(err)
+	}
 	// Generated key is always valid.
 	key, err := SecretKeyFromSecretBytes(ed25519.NewKeyFromSeed(seed[:]))
-	if err!=nil { panic(err) }
+	if err != nil {
+		panic(err)
+	}
 	// Zeroize the seed after generation.
 	for i := range seed {
 		seed[i] = 0
@@ -137,6 +141,7 @@ func (k PublicKey) Verify(msg []byte, sig Signature) error {
 	}
 	return nil
 }
+
 // BatchVerifier implements batch verification for ed25519.
 type BatchVerifier struct{ inner *ed25519.BatchVerifier }
 

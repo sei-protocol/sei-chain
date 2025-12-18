@@ -3,6 +3,7 @@ package types
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -11,15 +12,14 @@ import (
 	"testing"
 	"testing/quick"
 	"time"
-	"errors"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	tmmath "github.com/tendermint/tendermint/libs/math"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
@@ -135,8 +135,8 @@ func TestValidatorSetValidateBasic(t *testing.T) {
 
 	for _, tc := range testCases {
 		err := tc.vals.ValidateBasic()
-		if wantErr,ok := tc.err.Get(); ok {
-			assert.True(t, errors.Is(err,wantErr))
+		if wantErr, ok := tc.err.Get(); ok {
+			assert.True(t, errors.Is(err, wantErr))
 		} else {
 			assert.NoError(t, err)
 		}
@@ -1624,7 +1624,7 @@ func deterministicValidatorSet(ctx context.Context, t *testing.T) (*ValidatorSet
 
 	for i := range 10 {
 		// WARNING: this key has to be stable, otherwise hashes break.
-		val, privValidator := deterministicValidator(ctx, t, ed25519.TestSecretKey(fmt.Appendf(nil,"key: %x", i)))
+		val, privValidator := deterministicValidator(ctx, t, ed25519.TestSecretKey(fmt.Appendf(nil, "key: %x", i)))
 		valz[i] = val
 		privValidators[i] = privValidator
 	}

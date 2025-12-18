@@ -100,7 +100,7 @@ func makeValidCommit(
 }
 
 func makePrivKey(i int) ed25519.SecretKey {
-	return ed25519.TestSecretKey(fmt.Appendf(nil,"%d", i))
+	return ed25519.TestSecretKey(fmt.Appendf(nil, "%d", i))
 }
 
 func makeState(t *testing.T, nVals, height int) (sm.State, dbm.DB, map[string]types.PrivValidator) {

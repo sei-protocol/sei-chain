@@ -381,7 +381,7 @@ func TestCommitValidateBasic(t *testing.T) {
 
 			tc.malleateCommit(com)
 			err := com.ValidateBasic()
-			assert.Equal(t, tc.expectErr, err != nil, "Validate Basic had an unexpected result: %v",err)
+			assert.Equal(t, tc.expectErr, err != nil, "Validate Basic had an unexpected result: %v", err)
 		})
 	}
 }

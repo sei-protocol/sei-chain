@@ -23,8 +23,8 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	tmmath "github.com/tendermint/tendermint/libs/math"
 	"github.com/tendermint/tendermint/libs/service"
-	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/privval"
 	"github.com/tendermint/tendermint/rpc/client"
 	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
@@ -875,15 +875,15 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 
 // WARNING: this function is called in subgoroutines to it shouldn't use testing.T.
 func testBatchedJSONRPCCalls(ctx context.Context, c *rpchttp.HTTP) {
-	k1,_, tx1 := MakeTxKV()
-	k2,_, tx2 := MakeTxKV()
+	k1, _, tx1 := MakeTxKV()
+	k2, _, tx2 := MakeTxKV()
 
 	batch := c.NewBatch()
 	r1 := utils.OrPanic1(batch.BroadcastTxCommit(ctx, tx1))
 	r2 := utils.OrPanic1(batch.BroadcastTxCommit(ctx, tx2))
 	utils.OrPanic(utils.TestDiff(2, batch.Count()))
 	bresults := utils.OrPanic1(batch.Send(ctx))
-	utils.OrPanic(utils.TestDiff(bresults, []any{r1,r2}))
+	utils.OrPanic(utils.TestDiff(bresults, []any{r1, r2}))
 	utils.OrPanic(utils.TestDiff(0, batch.Count()))
 	apph := tmmath.MaxInt64(r1.Height, r2.Height) + 1
 
@@ -893,5 +893,5 @@ func testBatchedJSONRPCCalls(ctx context.Context, c *rpchttp.HTTP) {
 	q2 := utils.OrPanic1(batch.ABCIQuery(ctx, "/key", k2))
 	utils.OrPanic(utils.TestDiff(2, batch.Count()))
 	qresults := utils.OrPanic1(batch.Send(ctx))
-	utils.OrPanic(utils.TestDiff(qresults, []any{q1,q2}))
+	utils.OrPanic(utils.TestDiff(qresults, []any{q1, q2}))
 }

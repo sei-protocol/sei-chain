@@ -2,8 +2,8 @@ package types
 
 import (
 	"context"
-	"testing"
 	"errors"
+	"testing"
 
 	"github.com/stretchr/testify/assert"
 
@@ -84,8 +84,8 @@ func TestValidatorValidateBasic(t *testing.T) {
 
 	for _, tc := range testCases {
 		err := tc.val.ValidateBasic()
-		if wantErr,ok := tc.err.Get(); ok {
-			assert.True(t, errors.Is(err,wantErr))
+		if wantErr, ok := tc.err.Get(); ok {
+			assert.True(t, errors.Is(err, wantErr))
 		} else {
 			assert.NoError(t, err)
 		}

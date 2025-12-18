@@ -1,9 +1,9 @@
 package ed25519
 
 import (
-	"testing"
 	"fmt"
 	"github.com/tendermint/tendermint/libs/utils/require"
+	"testing"
 )
 
 func TestSign(t *testing.T) {
@@ -26,7 +26,7 @@ func TestBatchSafe(t *testing.T) {
 	v := NewBatchVerifier()
 
 	for i := 0; i <= 38; i++ {
-		priv := TestSecretKey(fmt.Appendf(nil,"test-%v",i))
+		priv := TestSecretKey(fmt.Appendf(nil, "test-%v", i))
 		pub := priv.Public()
 
 		var msg []byte

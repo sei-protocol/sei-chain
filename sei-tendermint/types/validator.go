@@ -72,7 +72,7 @@ func NewValidator(pubKey crypto.PubKey, votingPower int64) *Validator {
 
 var ErrNilValidator = errors.New("nil validator")
 var ErrNegativeVotingPower = errors.New("validator has negative voting power")
-var ErrBadAddressSize = errors.New("validator address has bad size") 
+var ErrBadAddressSize = errors.New("validator address has bad size")
 
 // ValidateBasic performs basic validation.
 func (v *Validator) ValidateBasic() error {

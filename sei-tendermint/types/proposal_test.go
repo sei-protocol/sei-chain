@@ -187,7 +187,7 @@ func TestProposalValidateBasic(t *testing.T) {
 			prop.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 			tc.malleateProposal(prop)
 			err = prop.ValidateBasic()
-			assert.Equal(t, tc.expectErr, err != nil, "Validate Basic had an unexpected result: %v",err)
+			assert.Equal(t, tc.expectErr, err != nil, "Validate Basic had an unexpected result: %v", err)
 		})
 	}
 }

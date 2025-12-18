@@ -14,12 +14,11 @@ func init() {
 	jsontypes.MustRegister(SecretKey{})
 }
 
-
 func (k SecretKey) TypeTag() string { return SecretKeyName }
-func (k SecretKey) Type() string { return KeyType }
+func (k SecretKey) Type() string    { return KeyType }
 
 func (k PublicKey) TypeTag() string { return PublicKeyName }
-func (k PublicKey) Type() string   { return KeyType }
+func (k PublicKey) Type() string    { return KeyType }
 
 // WARNING: this is very BAD that one can leak a secret by embedding
 // a private key in some struct and then calling json.Marshal on it.

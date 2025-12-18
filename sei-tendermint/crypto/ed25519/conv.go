@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
+	"strings"
 )
 
 // Bytes converts the public key or signature to bytes.
@@ -68,5 +68,3 @@ func (k PublicKey) Address() tmbytes.HexBytes {
 	h := sha256.Sum256(k.Bytes())
 	return tmbytes.HexBytes(h[:20])
 }
-
-

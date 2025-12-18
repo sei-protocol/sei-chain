@@ -243,11 +243,11 @@ func VerifyDuplicateVote(e *types.DuplicateVoteEvidence, chainID string, valSet 
 	va := e.VoteA.ToProto()
 	vb := e.VoteB.ToProto()
 	// Signatures must be valid
-	sigA,ok := e.VoteA.Signature.Get()
+	sigA, ok := e.VoteA.Signature.Get()
 	if !ok {
 		return errors.New("VoteA.Signature missing")
 	}
-	sigB,ok := e.VoteB.Signature.Get()
+	sigB, ok := e.VoteB.Signature.Get()
 	if !ok {
 		return errors.New("VoteB.Signature missing")
 	}

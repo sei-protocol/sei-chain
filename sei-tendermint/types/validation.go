@@ -206,8 +206,10 @@ func verifyCommitBatch(
 		voteSignBytes := commit.VoteSignBytes(chainID, int32(idx))
 
 		// add the key, sig and message to the verifier
-		sig,ok := commitSig.Signature.Get()
-		if !ok { return fmt.Errorf("missing signature at idx %v",idx) }
+		sig, ok := commitSig.Signature.Get()
+		if !ok {
+			return fmt.Errorf("missing signature at idx %v", idx)
+		}
 		bv.Add(val.PubKey, voteSignBytes, sig)
 		batchSigIdxs = append(batchSigIdxs, idx)
 
@@ -293,9 +295,9 @@ func verifyCommitSingle(
 		}
 
 		voteSignBytes = commit.VoteSignBytes(chainID, int32(idx))
-		sig,ok := commitSig.Signature.Get()
+		sig, ok := commitSig.Signature.Get()
 		if !ok {
-			return fmt.Errorf("missing signature at idx %v",idx)
+			return fmt.Errorf("missing signature at idx %v", idx)
 		}
 		if err := val.PubKey.Verify(voteSignBytes, sig); err != nil {
 			return errBadSig{fmt.Errorf("wrong signature (#%d): %v", idx, sig)}

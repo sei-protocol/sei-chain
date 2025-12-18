@@ -32,7 +32,7 @@ func BenchmarkVerifyBatch(b *testing.B) {
 			pubs := make([]PublicKey, 0, sigsCount)
 			sigs := make([]Signature, 0, sigsCount)
 			for i := range sigsCount {
-				priv := TestSecretKey(fmt.Appendf(nil,"test-%v",i))
+				priv := TestSecretKey(fmt.Appendf(nil, "test-%v", i))
 				pubs = append(pubs, priv.Public())
 				sigs = append(sigs, priv.Sign(msg))
 			}
