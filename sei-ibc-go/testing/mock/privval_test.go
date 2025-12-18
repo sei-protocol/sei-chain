@@ -3,11 +3,11 @@ package mock_test
 import (
 	"testing"
 
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	tmtypes "github.com/tendermint/tendermint/types"
+	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/require"
-	"github.com/tendermint/tendermint/crypto"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/mock"
 )
@@ -40,5 +40,5 @@ func TestSignProposal(t *testing.T) {
 	pv.SignProposal(t.Context(), chainID, proposal)
 
 	msg := tmtypes.ProposalSignBytes(chainID, proposal)
-	require.NoError(t,pk.Verify(msg, utils.OrPanic1(crypto.SigFromBytes(proposal.Signature))))
+	require.NoError(t, pk.Verify(msg, utils.OrPanic1(crypto.SigFromBytes(proposal.Signature))))
 }
