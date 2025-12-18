@@ -24,6 +24,7 @@ import (
 	testfactory "github.com/tendermint/tendermint/internal/test/factory"
 	"github.com/tendermint/tendermint/libs/log"
 	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -97,7 +98,9 @@ func TestValidateBlockHeader(t *testing.T) {
 		{"LastResultsHash wrong", func(block *types.Block) { block.LastResultsHash = wrongHash }},
 
 		{"EvidenceHash wrong", func(block *types.Block) { block.EvidenceHash = wrongHash }},
-		{"Proposer wrong", func(block *types.Block) { block.ProposerAddress = ed25519.GenPrivKey().PubKey().Address() }},
+		{"Proposer wrong", func(block *types.Block) {
+			block.ProposerAddress = ed25519.GenerateSecretKey().Public().Address()
+		}},
 		{"Proposer invalid", func(block *types.Block) { block.ProposerAddress = []byte("wrong size") }},
 
 		{"first LastCommit contains signatures", func(block *types.Block) {
@@ -265,7 +268,8 @@ func TestValidateBlockCommit(t *testing.T) {
 		err = badPrivVal.SignVote(ctx, chainID, b)
 		require.NoError(t, err, "height %d", height)
 
-		goodVote.Signature, badVote.Signature = crypto.Sig(g.Signature), crypto.Sig(b.Signature)
+		goodVote.Signature = utils.OrPanic1(crypto.SigFromBytes(g.Signature))
+		badVote.Signature = utils.OrPanic1(crypto.SigFromBytes(b.Signature))
 
 		wrongSigsCommit = &types.Commit{
 			Height:     goodVote.Height,

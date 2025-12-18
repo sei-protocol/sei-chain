@@ -87,10 +87,7 @@ func LoadOrGenNodeKey(filePath string) (NodeKey, error) {
 
 // GenNodeKey generates a new node key.
 func GenNodeKey() NodeKey {
-	privKey, err := ed25519.GenerateSecretKey()
-	if err != nil {
-		panic(err)
-	}
+	privKey := ed25519.GenerateSecretKey()
 	return NodeKey{
 		ID:      NodeIDFromPubKey(privKey.Public()),
 		PrivKey: privKey,

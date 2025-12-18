@@ -67,7 +67,7 @@ type MockPV struct {
 }
 
 func NewMockPV() MockPV {
-	return MockPV{mustGenerateSecretKey(), false, false}
+	return MockPV{ed25519.GenerateSecretKey(), false, false}
 }
 
 // NewMockPVWithParams allows one to create a MockPV instance, but with finer
@@ -153,13 +153,5 @@ func (pv *ErroringMockPV) SignProposal(ctx context.Context, chainID string, prop
 // NewErroringMockPV returns a MockPV that fails on each signing request. Again, for testing only.
 
 func NewErroringMockPV() *ErroringMockPV {
-	return &ErroringMockPV{MockPV{mustGenerateSecretKey(), false, false}}
-}
-
-func mustGenerateSecretKey() crypto.PrivKey {
-	key, err := ed25519.GenerateSecretKey()
-	if err != nil {
-		panic(err)
-	}
-	return key
+	return &ErroringMockPV{MockPV{ed25519.GenerateSecretKey(), false, false}}
 }

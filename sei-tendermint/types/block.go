@@ -721,6 +721,7 @@ func (cs CommitSig) ValidateBasic() error {
 			)
 		}
 		// NOTE: Timestamp validation is subtle and handled elsewhere.
+		// TODO: check that signature is present
 	}
 
 	return nil

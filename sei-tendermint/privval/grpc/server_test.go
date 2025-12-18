@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/libs/log"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmgrpc "github.com/tendermint/tendermint/privval/grpc"
@@ -18,11 +19,7 @@ import (
 
 const ChainID = "123"
 
-func makeSig(data []byte) crypto.Sig {
-	var sig crypto.Sig
-	copy(sig[:], data)
-	return sig
-}
+var testKey = ed25519.TestSecretKey([]byte("test"))
 
 func TestGetPubKey(t *testing.T) {
 
@@ -94,7 +91,7 @@ func TestSignVote(t *testing.T) {
 			Timestamp:        ts,
 			ValidatorAddress: valAddr,
 			ValidatorIndex:   1,
-			Signature:        makeSig([]byte("signed")),
+			Signature:        testKey.Sign([]byte("signed")),
 		}, want: &types.Vote{
 			Type:             tmproto.PrecommitType,
 			Height:           1,
@@ -103,7 +100,7 @@ func TestSignVote(t *testing.T) {
 			Timestamp:        ts,
 			ValidatorAddress: valAddr,
 			ValidatorIndex:   1,
-			Signature:        makeSig([]byte("signed")),
+			Signature:        testKey.Sign([]byte("signed")),
 		},
 			err: true},
 	}
@@ -164,7 +161,7 @@ func TestSignProposal(t *testing.T) {
 			POLRound:  2,
 			BlockID:   types.BlockID{Hash: hash, PartSetHeader: types.PartSetHeader{Hash: hash, Total: 2}},
 			Timestamp: ts,
-			Signature: makeSig([]byte("signed")),
+			Signature: testKey.Sign([]byte("signed")),
 		}, want: &types.Proposal{
 			Type:      tmproto.ProposalType,
 			Height:    1,
@@ -172,7 +169,7 @@ func TestSignProposal(t *testing.T) {
 			POLRound:  2,
 			BlockID:   types.BlockID{Hash: hash, PartSetHeader: types.PartSetHeader{Hash: hash, Total: 2}},
 			Timestamp: ts,
-			Signature: makeSig([]byte("signed")),
+			Signature: testKey.Sign([]byte("signed")),
 		},
 			err: true},
 	}

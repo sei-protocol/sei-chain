@@ -163,7 +163,7 @@ func TestVoteVerifySignature(t *testing.T) {
 	require.NoError(t, privVal.SignVote(ctx, "test_chain_id", v))
 
 	// verify the same vote
-	require.NoError(t, pubkey.Verify(VoteSignBytes("test_chain_id", v), crypto.Sig(v.Signature)))
+	require.NoError(t, pubkey.Verify(VoteSignBytes("test_chain_id", v), utils.OrPanic1(crypto.SigFromBytes(v.Signature))))
 
 	// serialize, deserialize and verify again....
 	precommit := new(tmproto.Vote)
@@ -173,7 +173,7 @@ func TestVoteVerifySignature(t *testing.T) {
 	// verify the transmitted vote
 	newSignBytes := VoteSignBytes("test_chain_id", precommit)
 	require.NoError(t, utils.TestDiff(signBytes, newSignBytes))
-	require.NoError(t, pubkey.Verify(newSignBytes, crypto.Sig(precommit.Signature)))
+	require.NoError(t, pubkey.Verify(newSignBytes, utils.OrPanic1(crypto.SigFromBytes(precommit.Signature))))
 }
 
 func TestIsVoteTypeValid(t *testing.T) {
@@ -188,7 +188,6 @@ func TestIsVoteTypeValid(t *testing.T) {
 	}
 
 	for _, tt := range tc {
-		tt := tt
 		t.Run(tt.name, func(st *testing.T) {
 			if rs := IsVoteTypeValid(tt.in); rs != tt.out {
 				t.Errorf("got unexpected Vote type. Expected:\n%v\nGot:\n%v", rs, tt.out)
@@ -207,7 +206,7 @@ func TestVoteVerify(t *testing.T) {
 	vote := examplePrevote(t)
 	vote.ValidatorAddress = pubkey.Address()
 
-	err = vote.Verify("test_chain_id", ed25519.GenPrivKey().PubKey())
+	err = vote.Verify("test_chain_id", ed25519.GenerateSecretKey().Public())
 	if assert.Error(t, err) {
 		assert.Equal(t, ErrVoteInvalidValidatorAddress, err)
 	}
@@ -229,7 +228,7 @@ func signVote(ctx context.Context, t *testing.T, pv PrivValidator, chainID strin
 
 	v := vote.ToProto()
 	require.NoError(t, pv.SignVote(ctx, chainID, v))
-	vote.Signature = crypto.Sig(v.Signature)
+	vote.Signature = utils.OrPanic1(crypto.SigFromBytes(v.Signature))
 }
 
 func TestValidVotes(t *testing.T) {
@@ -285,7 +284,7 @@ func TestVoteProtobuf(t *testing.T) {
 	vote := examplePrecommit(t)
 	v := vote.ToProto()
 	require.NoError(t, privVal.SignVote(ctx, "test_chain_id", v))
-	vote.Signature = crypto.Sig(v.Signature)
+	vote.Signature = utils.OrPanic1(crypto.SigFromBytes(v.Signature))
 
 	testCases := []struct {
 		msg                 string

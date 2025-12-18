@@ -215,10 +215,7 @@ func GenFilePV(keyFilePath, stateFilePath, keyType string) (*FilePV, error) {
 	if keyType != "" && keyType != types.ABCIPubKeyTypeEd25519 {
 		return nil, fmt.Errorf("key type: %s is not supported", keyType)
 	}
-	privKey, err := ed25519.GenerateSecretKey()
-	if err != nil {
-		return nil, err
-	}
+	privKey := ed25519.GenerateSecretKey()
 	return NewFilePV(privKey, keyFilePath, stateFilePath), nil
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
@@ -38,12 +39,6 @@ func generateHeader() Header {
 		ConsensusHash:      make([]byte, crypto.HashSize),
 		LastResultsHash:    make([]byte, crypto.HashSize),
 	}
-}
-
-func makeSig(data []byte) crypto.Sig {
-	var sig crypto.Sig
-	copy(sig[:], data)
-	return sig
 }
 
 func getTestProposal(t testing.TB) *Proposal {
@@ -96,7 +91,7 @@ func TestProposalVerifySignature(t *testing.T) {
 
 	// sign it
 	require.NoError(t, privVal.SignProposal(ctx, "test_chain_id", p))
-	prop.Signature = crypto.Sig(p.Signature)
+	prop.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 
 	// verify the same proposal
 	require.NoError(t, pubKey.Verify(signBytes, prop.Signature))
@@ -181,7 +176,7 @@ func TestProposalValidateBasic(t *testing.T) {
 			p.BlockID = BlockID{[]byte{1, 2, 3}, PartSetHeader{111, []byte("blockparts")}}
 		}, true},
 		{"Invalid Signature", func(p *Proposal) {
-			p.Signature = crypto.Sig{}
+			p.Signature = testKey.Sign(nil)
 		}, true},
 	}
 	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
@@ -199,7 +194,7 @@ func TestProposalValidateBasic(t *testing.T) {
 				generateHeader(), &Commit{}, EvidenceList{}, pubKey.Address())
 			p := prop.ToProto()
 			require.NoError(t, privVal.SignProposal(ctx, "test_chain_id", p))
-			prop.Signature = crypto.Sig(p.Signature)
+			prop.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 			tc.malleateProposal(prop)
 			assert.Equal(t, tc.expectErr, prop.ValidateBasic() != nil, "Validate Basic had an unexpected result")
 		})
@@ -209,7 +204,7 @@ func TestProposalValidateBasic(t *testing.T) {
 func TestProposalProtoBuf(t *testing.T) {
 	var txKeys []TxKey
 	proposal := NewProposal(1, 2, 3, makeBlockID([]byte("hash"), 2, []byte("part_set_hash")), tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
-	proposal.Signature = makeSig([]byte("sig"))
+	proposal.Signature = testKey.Sign([]byte("sig"))
 	proposal2 := NewProposal(1, 2, 3, BlockID{}, tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
 
 	testCases := []struct {

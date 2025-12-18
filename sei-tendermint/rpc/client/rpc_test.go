@@ -548,7 +548,7 @@ func TestClientMethodCalls(t *testing.T) {
 					err = client.WaitForHeight(ctx, c, status.SyncInfo.LatestBlockHeight+2, nil)
 					require.NoError(t, err)
 
-					result2, err := c.ABCIQuery(ctx, "/val", pv.Key.PubKey[:])
+					result2, err := c.ABCIQuery(ctx, "/val", pv.Key.PubKey.Bytes())
 					require.NoError(t, err)
 					qres := result2.Response
 					require.True(t, qres.IsOK())

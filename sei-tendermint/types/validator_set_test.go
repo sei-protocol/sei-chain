@@ -18,7 +18,6 @@ import (
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	tmmath "github.com/tendermint/tendermint/libs/math"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
@@ -208,8 +207,8 @@ func BenchmarkValidatorSetCopy(b *testing.B) {
 	b.StopTimer()
 	vset := NewValidatorSet([]*Validator{})
 	for i := 0; i < 1000; i++ {
-		privKey := ed25519.GenPrivKey()
-		pubKey := privKey.PubKey()
+		privKey := ed25519.GenerateSecretKey()
+		pubKey := privKey.Public()
 		val := NewValidator(pubKey, 10)
 		err := vset.UpdateWithChangeSet([]*Validator{val})
 		require.NoError(b, err)
@@ -348,7 +347,7 @@ func TestProposerSelection3(t *testing.T) {
 	proposerOrder := make([]*Validator, 4)
 	for i := 0; i < 4; i++ {
 		// need to give all validators to have keys
-		pk := ed25519.GenPrivKey().PubKey()
+		pk := ed25519.GenerateSecretKey().Public()
 		vset.Validators[i].PubKey = pk
 		proposerOrder[i] = vset.GetProposer()
 		vset.IncrementProposerPriority(1)
@@ -403,7 +402,7 @@ func newValidator(address []byte, power int64) *Validator {
 }
 
 func randPubKey() crypto.PubKey {
-	return crypto.PubKey(tmrand.Bytes(len(crypto.PubKey{})))
+	return ed25519.GenerateSecretKey().Public()
 }
 
 func randModuloValidator(totalVotingPower int64) *Validator {
@@ -1633,8 +1632,7 @@ func deterministicValidatorSet(ctx context.Context, t *testing.T) (*ValidatorSet
 	t.Helper()
 
 	for i := 0; i < 10; i++ {
-		// val, privValidator := DeterministicValidator(ed25519.PrivKey([]byte(deterministicKeys[i])))
-		val, privValidator := deterministicValidator(ctx, t, ed25519.PrivKeyFromSeed(ed25519.Seed{byte(i)}))
+		val, privValidator := deterministicValidator(ctx, t, ed25519.TestSecretKey([]byte{byte(i)}))
 		valz[i] = val
 		privValidators[i] = privValidator
 	}

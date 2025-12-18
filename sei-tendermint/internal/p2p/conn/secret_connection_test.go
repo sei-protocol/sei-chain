@@ -110,7 +110,7 @@ func TestSecretConnectionReadWrite(t *testing.T) {
 	genNodeRunner := func(id string, nodeConn kvstoreConn, nodeWrites []string, nodeReads *[]string) async.Task {
 		return func(_ int) (interface{}, bool, error) {
 			// Initiate cryptographic private key and secret connection trhough nodeConn.
-			nodePrvKey := ed25519.GenPrivKey()
+			nodePrvKey := ed25519.GenerateSecretKey()
 			nodeSecretConn, err := MakeSecretConnection(nodeConn, nodePrvKey)
 			if err != nil {
 				t.Errorf("failed to establish SecretConnection for node: %v", err)
@@ -293,10 +293,10 @@ func makeKVStoreConnPair() (fooConn, barConn kvstoreConn) {
 func makeSecretConnPair(tb testing.TB) (fooSecConn, barSecConn *SecretConnection) {
 	var (
 		fooConn, barConn = makeKVStoreConnPair()
-		fooPrvKey        = ed25519.GenPrivKey()
-		fooPubKey        = fooPrvKey.PubKey()
-		barPrvKey        = ed25519.GenPrivKey()
-		barPubKey        = barPrvKey.PubKey()
+		fooPrvKey        = ed25519.GenerateSecretKey()
+		fooPubKey        = fooPrvKey.Public()
+		barPrvKey        = ed25519.GenerateSecretKey()
+		barPubKey        = barPrvKey.Public()
 	)
 
 	// Make connections from both sides in parallel.

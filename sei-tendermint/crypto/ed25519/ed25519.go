@@ -79,12 +79,18 @@ func TestSecretKey(seed []byte) SecretKey {
 }
 
 // GenerateSecretKey generates a new secret key using a cryptographically secure random number generator.
-func GenerateSecretKey() (SecretKey, error) {
-	var seed [ed25519.PrivateKeySize]byte
-	if _, err := rand.Read(seed[:]); err != nil {
-		return SecretKey{}, err
+func GenerateSecretKey() SecretKey {
+	var seed [ed25519.PrivateKeySize]byte	
+	// rand.Read is documented to never return an error.
+	if _, err := rand.Read(seed[:]); err != nil { panic(err) }
+	// Generated key is always valid.
+	key, err := SecretKeyFromSecretBytes(ed25519.NewKeyFromSeed(seed[:]))
+	if err!=nil { panic(err) }
+	// Zeroize the seed after generation.
+	for i := range seed {
+		seed[i] = 0
 	}
-	return SecretKeyFromSecretBytes(ed25519.NewKeyFromSeed(seed[:]))
+	return key
 }
 
 // Public returns the public key corresponding to the secret key.

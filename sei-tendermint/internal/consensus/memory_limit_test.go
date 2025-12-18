@@ -6,16 +6,16 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
 
+var testKey = ed25519.TestSecretKey([]byte("test"))
+
 func makeSig(data string) crypto.Sig {
-	var sig crypto.Sig
-	n := min(len(sig), len(data))
-	copy(sig[:n], []byte(data[:n]))
-	return sig
+	return testKey.Sign([]byte(data))
 }
 
 func TestPeerStateMemoryLimits(t *testing.T) {

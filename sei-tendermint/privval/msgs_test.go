@@ -51,7 +51,7 @@ func exampleProposal() *types.Proposal {
 }
 
 func TestPrivvalVectors(t *testing.T) {
-	pk := ed25519.PrivKeyFromSeed(ed25519.Seed{1, 2, 3, 4}).PubKey()
+	pk := ed25519.TestSecretKey([]byte{1, 2, 3, 4}).Public()
 	ppk := encoding.PubKeyToProto(pk)
 
 	// Generate a simple vote

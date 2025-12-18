@@ -141,10 +141,10 @@ func (vs *validatorStub) signVote(
 
 	// ref: signVote in FilePV, the vote should use the previous vote info when the sign data is the same.
 	if signDataIsEqual(vs.lastVote, v) {
-		v.Signature = vs.lastVote.Signature[:]
+		v.Signature = vs.lastVote.Signature.Bytes()
 		v.Timestamp = vs.lastVote.Timestamp
 	}
-	vote.Signature = crypto.Sig(v.Signature)
+	vote.Signature = utils.OrPanic1(crypto.SigFromBytes(v.Signature))
 	vote.Timestamp = v.Timestamp
 	return vote, nil
 }
@@ -258,7 +258,7 @@ func decideProposal(
 	proposal = types.NewProposal(height, round, polRound, propBlockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, address)
 	p := proposal.ToProto()
 	require.NoError(t, vs.SignProposal(ctx, chainID, p))
-	proposal.Signature = crypto.Sig(p.Signature)
+	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 	return
 }
 

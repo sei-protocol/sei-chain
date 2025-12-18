@@ -55,14 +55,14 @@ func makePeerManager(selfID types.NodeID, options *RouterOptions) *peerManager[*
 	return newPeerManager[*fakeConn](selfID, options)
 }
 
-var selfID = types.NodeIDFromPubKey(ed25519.PrivKeyFromSeed(ed25519.Seed{12, 43}).PubKey())
+var selfID = types.NodeIDFromPubKey(ed25519.TestSecretKey([]byte{12, 43}).Public())
 
-func makeKey(rng utils.Rng) ed25519.PrivKey {
-	return ed25519.PrivKeyFromSeed(ed25519.Seed(utils.GenBytes(rng, len(ed25519.Seed{}))))
+func makeKey(rng utils.Rng) ed25519.SecretKey {
+	return ed25519.TestSecretKey(utils.GenBytes(rng, 32))
 }
 
 func makeNodeID(rng utils.Rng) types.NodeID {
-	return types.NodeIDFromPubKey(makeKey(rng).PubKey())
+	return types.NodeIDFromPubKey(makeKey(rng).Public())
 }
 
 func makeAddrFor(rng utils.Rng, id types.NodeID) NodeAddress {

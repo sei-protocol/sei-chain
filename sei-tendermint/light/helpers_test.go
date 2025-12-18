@@ -28,7 +28,7 @@ type privKeys []crypto.PrivKey
 func genPrivKeys(n int) privKeys {
 	res := make(privKeys, n)
 	for i := range res {
-		res[i] = ed25519.GenPrivKey()
+		res[i] = ed25519.GenerateSecretKey()
 	}
 	return res
 }
@@ -46,7 +46,7 @@ func (pkz privKeys) Extend(n int) privKeys {
 func (pkz privKeys) ToValidators(init, inc int64) *types.ValidatorSet {
 	res := make([]*types.Validator, len(pkz))
 	for i, k := range pkz {
-		res[i] = types.NewValidator(k.PubKey(), init+int64(i)*inc)
+		res[i] = types.NewValidator(k.Public(), init+int64(i)*inc)
 	}
 	return types.NewValidatorSet(res)
 }
@@ -82,7 +82,7 @@ func (pkz privKeys) signHeader(t testing.TB, header *types.Header, valSet *types
 func makeVote(t testing.TB, header *types.Header, valset *types.ValidatorSet, key crypto.PrivKey, blockID types.BlockID) *types.Vote {
 	t.Helper()
 
-	addr := key.PubKey().Address()
+	addr := key.Public().Address()
 	idx, _ := valset.GetByAddress(addr)
 	vote := &types.Vote{
 		ValidatorAddress: addr,

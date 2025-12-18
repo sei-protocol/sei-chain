@@ -58,7 +58,7 @@ type evilConn struct {
 }
 
 func newEvilConn(shareEphKey, badEphKey, shareAuthSignature, badAuthSignature bool) *evilConn {
-	privKey := ed25519.GenPrivKey()
+	privKey := ed25519.GenerateSecretKey()
 	locEphPub, locEphPriv := genEphKeys()
 	var rep [32]byte
 	c := &evilConn{
@@ -113,8 +113,8 @@ func (c *evilConn) Read(data []byte) (n int, err error) {
 	case 1:
 		signature := c.signChallenge()
 		if !c.badAuthSignature {
-			pkpb := encoding.PubKeyToProto(c.privKey.PubKey())
-			bz, err := protoio.MarshalDelimited(&tmp2p.AuthSigMessage{PubKey: pkpb, Sig: signature[:]})
+			pkpb := encoding.PubKeyToProto(c.privKey.Public())
+			bz, err := protoio.MarshalDelimited(&tmp2p.AuthSigMessage{PubKey: pkpb, Sig: signature.Bytes()})
 			if err != nil {
 				panic(err)
 			}
@@ -177,7 +177,7 @@ func (c *evilConn) Close() error {
 	return nil
 }
 
-func (c *evilConn) signChallenge() ed25519.Sig {
+func (c *evilConn) signChallenge() ed25519.Signature {
 	// Sort by lexical order.
 	loEphPub, hiEphPub := sort32(c.locEphPub, c.remEphPub)
 
@@ -248,7 +248,7 @@ func TestMakeSecretConnection(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			privKey := ed25519.GenPrivKey()
+			privKey := ed25519.GenerateSecretKey()
 			_, err := MakeSecretConnection(tc.conn, privKey)
 			if tc.errMsg != "" {
 				if assert.Error(t, err) {

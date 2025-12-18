@@ -108,11 +108,15 @@ func TestUnmarshalValidatorState(t *testing.T) {
 
 func TestUnmarshalValidatorKey(t *testing.T) {
 	// create some fixed values
-	privKey := ed25519.GenPrivKey()
-	pubKey := privKey.PubKey()
+	privKey := ed25519.GenerateSecretKey()
+	pubKey := privKey.Public()
 	addr := pubKey.Address()
-	pubB64 := base64.StdEncoding.EncodeToString(pubKey[:])
-	privB64 := base64.StdEncoding.EncodeToString(privKey.SecretBytes())
+	pubB64 := base64.StdEncoding.EncodeToString(pubKey.Bytes())
+	privJSON, err := json.Marshal(privKey)
+	require.NoError(t, err)
+	var privBytes []byte
+	require.NoError(t, json.Unmarshal(privJSON, &privBytes))
+	privB64 := base64.StdEncoding.EncodeToString(privBytes)
 
 	serialized := fmt.Sprintf(`{
   "address": "%s",
@@ -127,7 +131,7 @@ func TestUnmarshalValidatorKey(t *testing.T) {
 }`, addr, pubB64, privB64)
 
 	val := FilePVKey{}
-	err := tmjson.Unmarshal([]byte(serialized), &val)
+	err = tmjson.Unmarshal([]byte(serialized), &val)
 	require.NoError(t, err)
 
 	// make sure the values match

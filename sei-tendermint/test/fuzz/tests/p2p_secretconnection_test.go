@@ -84,10 +84,10 @@ func makeKVStoreConnPair() (fooConn, barConn kvstoreConn) {
 func makeSecretConnPair() (fooSecConn, barSecConn *sc.SecretConnection) {
 	var (
 		fooConn, barConn = makeKVStoreConnPair()
-		fooPrvKey        = ed25519.GenPrivKey()
-		fooPubKey        = fooPrvKey.PubKey()
-		barPrvKey        = ed25519.GenPrivKey()
-		barPubKey        = barPrvKey.PubKey()
+		fooPrvKey        = ed25519.GenerateSecretKey()
+		fooPubKey        = fooPrvKey.Public()
+		barPrvKey        = ed25519.GenerateSecretKey()
+		barPubKey        = barPrvKey.Public()
 	)
 
 	// Make connections from both sides in parallel.

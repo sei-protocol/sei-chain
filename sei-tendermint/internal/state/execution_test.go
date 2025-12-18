@@ -28,6 +28,7 @@ import (
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/internal/test/factory"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
 	"github.com/tendermint/tendermint/version"
 )
@@ -207,7 +208,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 						BlockIDFlag:      types.BlockIDFlagNil,
 						ValidatorAddress: crypto.AddressHash([]byte("validator_address")),
 						Timestamp:        defaultEvidenceTime,
-						Signature:        crypto.Sig(crypto.CRandBytes(len(crypto.Sig{}))),
+						Signature:        utils.OrPanic1(crypto.SigFromBytes(crypto.CRandBytes(64))),
 					}},
 				},
 			},
@@ -372,8 +373,8 @@ func TestProcessProposal(t *testing.T) {
 }
 
 func TestValidateValidatorUpdates(t *testing.T) {
-	pubkey1 := ed25519.GenPrivKey().PubKey()
-	pubkey2 := ed25519.GenPrivKey().PubKey()
+	pubkey1 := ed25519.GenerateSecretKey().Public()
+	pubkey2 := ed25519.GenerateSecretKey().Public()
 	pk1 := encoding.PubKeyToProto(pubkey1)
 	pk2 := encoding.PubKeyToProto(pubkey2)
 
@@ -426,9 +427,9 @@ func TestValidateValidatorUpdates(t *testing.T) {
 }
 
 func TestUpdateValidators(t *testing.T) {
-	pubkey1 := ed25519.GenPrivKey().PubKey()
+	pubkey1 := ed25519.GenerateSecretKey().Public()
 	val1 := types.NewValidator(pubkey1, 10)
-	pubkey2 := ed25519.GenPrivKey().PubKey()
+	pubkey2 := ed25519.GenerateSecretKey().Public()
 	val2 := types.NewValidator(pubkey2, 20)
 
 	pk := encoding.PubKeyToProto(pubkey1)
@@ -549,7 +550,7 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 	require.NoError(t, err)
 	blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: bps.Header()}
 
-	pubkey := ed25519.GenPrivKey().PubKey()
+	pubkey := ed25519.GenerateSecretKey().Public()
 	pk := encoding.PubKeyToProto(pubkey)
 	app.ValidatorUpdates = []abci.ValidatorUpdate{
 		{PubKey: pk, Power: 10},
@@ -992,10 +993,4 @@ func TestCreateProposalBlockPanicRecovery(t *testing.T) {
 
 	// Verify mock expectations
 	mp.AssertExpectations(t)
-}
-
-func makeStateSignature(data []byte) crypto.Sig {
-	var sig crypto.Sig
-	copy(sig[:], data)
-	return sig
 }

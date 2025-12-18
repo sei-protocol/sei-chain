@@ -122,10 +122,7 @@ func Setup(logger log.Logger, testnet *e2e.Testnet) error {
 
 		// Set up a dummy validator. Tendermint requires a file PV even when not used, so we
 		// give it a dummy such that it will fail if it actually tries to use it.
-		dummyKey, err := ed25519.GenerateSecretKey()
-		if err != nil {
-			return err
-		}
+		dummyKey := ed25519.GenerateSecretKey()
 		err = (privval.NewFilePV(dummyKey,
 			filepath.Join(nodeDir, PrivvalDummyKeyFile),
 			filepath.Join(nodeDir, PrivvalDummyStateFile),

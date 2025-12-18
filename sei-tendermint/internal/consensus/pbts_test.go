@@ -16,6 +16,7 @@ import (
 	"github.com/tendermint/tendermint/internal/test/factory"
 	"github.com/tendermint/tendermint/libs/log"
 	tmtimemocks "github.com/tendermint/tendermint/libs/time/mocks"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -225,7 +226,7 @@ func (p *pbtsTestHarness) nextHeight(ctx context.Context, t *testing.T, proposer
 	}
 
 	time.Sleep(time.Until(deliverTime))
-	prop.Signature = crypto.Sig(tp.Signature)
+	prop.Signature = utils.OrPanic1(crypto.SigFromBytes(tp.Signature))
 	if err := p.observedState.SetProposalAndBlock(ctx, prop, b, ps, "peerID"); err != nil {
 		t.Fatal(err)
 	}

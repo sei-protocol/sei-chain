@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/libs/log"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	cryptoproto "github.com/tendermint/tendermint/proto/tendermint/crypto"
@@ -62,11 +63,7 @@ func getSignerTestCases(ctx context.Context, t *testing.T, logger log.Logger) []
 	return testCases
 }
 
-func makeSig(data []byte) crypto.Sig {
-	var sig crypto.Sig
-	copy(sig[:], data)
-	return sig
-}
+var testKey = ed25519.TestSecretKey([]byte("test"))
 
 func TestSignerClose(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
@@ -335,7 +332,7 @@ func TestSignerSignProposalErrors(t *testing.T) {
 				POLRound:  2,
 				BlockID:   types.BlockID{Hash: hash, PartSetHeader: types.PartSetHeader{Hash: hash, Total: 2}},
 				Timestamp: ts,
-				Signature: makeSig([]byte("signature")),
+				Signature: testKey.Sign([]byte("signature")),
 			}
 
 			err := tc.signerClient.SignProposal(ctx, tc.chainID, proposal.ToProto())
@@ -374,7 +371,7 @@ func TestSignerSignVoteErrors(t *testing.T) {
 				Timestamp:        ts,
 				ValidatorAddress: valAddr,
 				ValidatorIndex:   1,
-				Signature:        makeSig([]byte("signature")),
+				Signature:        testKey.Sign([]byte("signature")),
 			}
 
 			// Replace signer service privval with one that always fails

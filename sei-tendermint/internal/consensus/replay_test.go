@@ -360,7 +360,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	if err := vss[1].SignProposal(ctx, cfg.ChainID(), p); err != nil {
 		t.Fatal("failed to sign bad proposal", err)
 	}
-	proposal.Signature = crypto.Sig(p.Signature)
+	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 
 	// set the proposal block
 	if err := css[0].SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer"); err != nil {
@@ -395,7 +395,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	if err := vss[2].SignProposal(ctx, cfg.ChainID(), p); err != nil {
 		t.Fatal("failed to sign bad proposal", err)
 	}
-	proposal.Signature = crypto.Sig(p.Signature)
+	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 
 	// set the proposal block
 	if err := css[0].SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer"); err != nil {
@@ -460,7 +460,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	if err := vss[3].SignProposal(ctx, cfg.ChainID(), p); err != nil {
 		t.Fatal("failed to sign bad proposal", err)
 	}
-	proposal.Signature = crypto.Sig(p.Signature)
+	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 
 	// set the proposal block
 	if err := css[0].SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer"); err != nil {
@@ -533,7 +533,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	if err := vss[1].SignProposal(ctx, cfg.ChainID(), p); err != nil {
 		t.Fatal("failed to sign bad proposal", err)
 	}
-	proposal.Signature = crypto.Sig(p.Signature)
+	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 
 	// set the proposal block
 	if err := css[0].SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer"); err != nil {

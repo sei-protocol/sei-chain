@@ -22,7 +22,7 @@ import (
 )
 
 func makeInfo(key crypto.PrivKey) types.NodeInfo {
-	nodeID := types.NodeIDFromPubKey(key.PubKey())
+	nodeID := types.NodeIDFromPubKey(key.Public())
 	peerInfo := types.NodeInfo{
 		NodeID:     nodeID,
 		ListenAddr: "127.0.0.1:1239",

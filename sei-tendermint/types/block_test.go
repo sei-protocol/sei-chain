@@ -19,11 +19,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/crypto/merkle"
 	"github.com/tendermint/tendermint/libs/bits"
 	"github.com/tendermint/tendermint/libs/bytes"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	tmversion "github.com/tendermint/tendermint/proto/tendermint/version"
 	"github.com/tendermint/tendermint/version"
@@ -33,6 +35,8 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	os.Exit(code)
 }
+
+var testKey = ed25519.TestSecretKey([]byte("test"))
 
 func TestBlockAddEvidence(t *testing.T) {
 	ctx := t.Context()
@@ -280,7 +284,7 @@ func TestCommitValidateBasic(t *testing.T) {
 		expectErr      bool
 	}{
 		{"Random Commit", func(com *Commit) {}, false},
-		{"Incorrect signature", func(com *Commit) { com.Signatures[0].Signature = crypto.Sig{} }, false},
+		{"Incorrect signature", func(com *Commit) { com.Signatures[0].Signature = testKey.Sign(nil) }, false},
 		{"Incorrect height", func(com *Commit) { com.Height = int64(-100) }, true},
 		{"Incorrect round", func(com *Commit) { com.Round = -100 }, true},
 	}
@@ -301,9 +305,10 @@ func TestMaxCommitBytes(t *testing.T) {
 	// year int, month Month, day, hour, min, sec, nsec int, loc *Location
 	timestamp := time.Date(math.MaxInt64, 0, 0, 0, 0, 0, math.MaxInt64, time.UTC)
 
-	sig := crypto.Sig{}
-	_, err := io.ReadFull(rand.Reader, sig[:])
+	sigBytes := make([]byte, 64)
+	_, err := io.ReadFull(rand.Reader, sigBytes)
 	require.NoError(t, err)
+	sig := testKey.Sign(sigBytes)
 	cs := CommitSig{
 		BlockIDFlag:      BlockIDFlagNil,
 		ValidatorAddress: crypto.AddressHash([]byte("validator_address")),
@@ -570,7 +575,7 @@ func TestVoteSetToCommit(t *testing.T) {
 		}
 		v := vote.ToProto()
 		require.NoError(t, vals[i].SignVote(ctx, voteSet.ChainID(), v))
-		vote.Signature = crypto.Sig(v.Signature)
+		vote.Signature = utils.OrPanic1(crypto.SigFromBytes(v.Signature))
 		added, err := voteSet.AddVote(vote)
 		require.NoError(t, err)
 		require.True(t, added)
@@ -944,7 +949,7 @@ func TestCommitSig_ValidateBasic(t *testing.T) {
 		},
 		{
 			"BlockIDFlagAbsent signatures present",
-			CommitSig{BlockIDFlag: BlockIDFlagAbsent, Signature: crypto.Sig{0xAA}},
+			CommitSig{BlockIDFlag: BlockIDFlagAbsent, Signature: testKey.Sign([]byte{0xAA})},
 			true, "signature is present",
 		},
 		{
@@ -962,7 +967,7 @@ func TestCommitSig_ValidateBasic(t *testing.T) {
 			CommitSig{
 				BlockIDFlag:      BlockIDFlagCommit,
 				ValidatorAddress: make([]byte, crypto.AddressSize),
-				Signature:        crypto.Sig{},
+				Signature:        testKey.Sign(nil),
 			},
 			true, "signature is missing",
 		},
@@ -971,7 +976,7 @@ func TestCommitSig_ValidateBasic(t *testing.T) {
 			CommitSig{
 				BlockIDFlag:      BlockIDFlagCommit,
 				ValidatorAddress: make([]byte, crypto.AddressSize),
-				Signature:        crypto.Sig{},
+				Signature:        testKey.Sign(nil),
 			},
 			false, "",
 		},
@@ -1306,7 +1311,7 @@ func TestCommit_ValidateBasic(t *testing.T) {
 					{
 						BlockIDFlag:      BlockIDFlagCommit,
 						ValidatorAddress: make([]byte, crypto.AddressSize),
-						Signature:        crypto.Sig{},
+						Signature:        testKey.Sign(nil),
 					},
 				},
 			},

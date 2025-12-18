@@ -99,10 +99,8 @@ func makeValidCommit(
 	}, votes
 }
 
-func makePrivKey(i int) ed25519.PrivKey {
-	var seed ed25519.Seed
-	copy(seed[:], fmt.Sprintf("%d", i))
-	return ed25519.PrivKeyFromSeed(seed)
+func makePrivKey(i int) ed25519.SecretKey {
+	return ed25519.TestSecretKey(fmt.Appendf(nil,"%d", i))
 }
 
 func makeState(t *testing.T, nVals, height int) (sm.State, dbm.DB, map[string]types.PrivValidator) {
@@ -110,10 +108,10 @@ func makeState(t *testing.T, nVals, height int) (sm.State, dbm.DB, map[string]ty
 	privVals := make(map[string]types.PrivValidator, nVals)
 	for i := 0; i < nVals; i++ {
 		pk := makePrivKey(i)
-		valAddr := pk.PubKey().Address()
+		valAddr := pk.Public().Address()
 		vals[i] = types.GenesisValidator{
 			Address: valAddr,
-			PubKey:  pk.PubKey(),
+			PubKey:  pk.Public(),
 			Power:   1000,
 			Name:    fmt.Sprintf("test%d", i),
 		}
@@ -142,7 +140,7 @@ func makeState(t *testing.T, nVals, height int) (sm.State, dbm.DB, map[string]ty
 func genValSet(size int) *types.ValidatorSet {
 	vals := make([]*types.Validator, size)
 	for i := 0; i < size; i++ {
-		vals[i] = types.NewValidator(ed25519.GenPrivKey().PubKey(), 10)
+		vals[i] = types.NewValidator(ed25519.GenerateSecretKey().Public(), 10)
 	}
 	return types.NewValidatorSet(vals)
 }
@@ -207,7 +205,7 @@ func makeHeaderPartsResponsesParams(
 }
 
 func randomGenesisDoc() *types.GenesisDoc {
-	pubkey := ed25519.GenPrivKey().PubKey()
+	pubkey := ed25519.GenerateSecretKey().Public()
 	return &types.GenesisDoc{
 		GenesisTime: tmtime.Now(),
 		ChainID:     "abc",
