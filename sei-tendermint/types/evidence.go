@@ -13,6 +13,7 @@ import (
 
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/crypto/merkle"
 	"github.com/tendermint/tendermint/internal/jsontypes"
 	tmmath "github.com/tendermint/tendermint/libs/math"
@@ -855,16 +856,17 @@ func NewMockDuplicateVoteEvidenceWithValidator(ctx context.Context, height int64
 	val := NewValidator(pubKey, 10)
 	voteA := makeMockVote(height, 0, 0, pubKey.Address(), randBlockID(), time)
 	vA := voteA.ToProto()
-	_ = pv.SignVote(ctx, chainID, vA)
-	if voteA.Signature, err = crypto.SigFromBytes(vA.Signature); err != nil {
-		return nil, err
-	}
+	if err:=pv.SignVote(ctx, chainID, vA); err!=nil { return nil,err }
+	sig,err := crypto.SigFromBytes(vA.Signature)
+	if err != nil { return nil, err }
+	voteA.Signature = utils.Some(sig)
+
 	voteB := makeMockVote(height, 0, 0, pubKey.Address(), randBlockID(), time)
 	vB := voteB.ToProto()
 	_ = pv.SignVote(ctx, chainID, vB)
-	if voteB.Signature, err = crypto.SigFromBytes(vB.Signature); err != nil {
-		return nil, err
-	}
+	sig,err = crypto.SigFromBytes(vB.Signature)
+	if err != nil { return nil, err }
+	voteB.Signature = utils.Some(sig)
 	ev, err := NewDuplicateVoteEvidence(voteA, voteB, time, NewValidatorSet([]*Validator{val}))
 	if err != nil {
 		return nil, fmt.Errorf("constructing mock duplicate vote evidence: %w", err)

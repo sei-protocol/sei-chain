@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -44,6 +45,6 @@ func MakeVote(
 	if err != nil {
 		return nil, fmt.Errorf("crypto.SigFromBytes(): %w", err)
 	}
-	v.Signature = sig
+	v.Signature = utils.Some(sig)
 	return v, nil
 }

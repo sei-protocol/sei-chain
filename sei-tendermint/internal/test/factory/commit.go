@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -36,7 +37,7 @@ func MakeCommit(ctx context.Context, blockID types.BlockID, height int64, round 
 		if err != nil {
 			return nil, fmt.Errorf("crypto.SigFromBytes(): %w", err)
 		}
-		vote.Signature = sig
+		vote.Signature = utils.Some(sig)
 		if _, err := voteSet.AddVote(vote); err != nil {
 			return nil, err
 		}

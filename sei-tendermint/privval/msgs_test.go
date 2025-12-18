@@ -39,7 +39,7 @@ func exampleProposal() *types.Proposal {
 		Round:     2,
 		Timestamp: stamp,
 		POLRound:  2,
-		Signature: makeSig([]byte("it's a signature")),
+		Signature: testKey.Sign([]byte("it's a signature")),
 		BlockID: types.BlockID{
 			Hash: crypto.Checksum([]byte("blockID_hash")),
 			PartSetHeader: types.PartSetHeader{

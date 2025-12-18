@@ -2621,7 +2621,7 @@ func (cs *State) signVote(
 	if err != nil {
 		return nil, fmt.Errorf("crypto.SigFromBytes(): %w", err)
 	}
-	vote.Signature = sig
+	vote.Signature = utils.Some(sig)
 	vote.Timestamp = v.Timestamp
 
 	return vote, nil
