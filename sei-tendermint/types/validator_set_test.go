@@ -11,11 +11,13 @@ import (
 	"testing"
 	"testing/quick"
 	"time"
+	"errors"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	tmmath "github.com/tendermint/tendermint/libs/math"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -91,59 +93,50 @@ func TestValidatorSetValidateBasic(t *testing.T) {
 
 	testCases := []struct {
 		vals ValidatorSet
-		err  bool
-		msg  string
+		err  utils.Option[error]
 	}{
 		{
 			vals: ValidatorSet{},
-			err:  true,
-			msg:  "validator set is nil or empty",
+			err:  utils.Some(ErrValidatorSetEmpty),
 		},
 		{
 			vals: ValidatorSet{
 				Validators: []*Validator{},
 			},
-			err: true,
-			msg: "validator set is nil or empty",
+			err: utils.Some(ErrValidatorSetEmpty),
 		},
 		{
 			vals: ValidatorSet{
 				Validators: []*Validator{val},
 			},
-			err: true,
-			msg: "proposer failed validate basic, error: nil validator",
+			err: utils.Some(ErrNilValidator),
 		},
 		{
 			vals: ValidatorSet{
 				Validators: []*Validator{badVal},
+				Proposer:   val,
 			},
-			err: true,
-			msg: "invalid validator #0: validator does not have a public key",
+			err: utils.Some(ErrBadAddressSize),
 		},
 		{
 			vals: ValidatorSet{
 				Validators: []*Validator{val},
 				Proposer:   val,
 			},
-			err: false,
-			msg: "",
 		},
 		{
 			vals: ValidatorSet{
 				Validators: []*Validator{val},
 				Proposer:   val2,
 			},
-			err: true,
-			msg: ErrProposerNotInVals.Error(),
+			err: utils.Some(ErrProposerNotInVals),
 		},
 	}
 
 	for _, tc := range testCases {
 		err := tc.vals.ValidateBasic()
-		if tc.err {
-			if assert.Error(t, err) {
-				assert.Equal(t, tc.msg, err.Error())
-			}
+		if wantErr,ok := tc.err.Get(); ok {
+			assert.True(t, errors.Is(err,wantErr))
 		} else {
 			assert.NoError(t, err)
 		}

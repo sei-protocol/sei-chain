@@ -187,7 +187,7 @@ func (vote *Vote) verifyAndReturnProto(chainID string, pubKey crypto.PubKey) (*t
 	v := vote.ToProto()
 	sig,ok := vote.Signature.Get()
 	if !ok {
-		return nil, errors.New("signature missing")
+		return nil, ErrVoteInvalidSignature 
 	}
 	if err := pubKey.Verify(VoteSignBytes(chainID, v), sig); err != nil {
 		return nil, ErrVoteInvalidSignature
