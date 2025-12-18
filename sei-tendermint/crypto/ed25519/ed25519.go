@@ -47,6 +47,13 @@ type SecretKey struct {
 	_ utils.NoCompare
 }
 
+// WARNING: this function should only be used when persisting the private key.
+// TODO(gprusak): this should return a read-only slice - in particular,
+// SecretKeyFromSecretBytes(k.SecretBytes()) would wipe k currently.
+func (k SecretKey) SecretBytes() []byte {
+	return (*k.key)[:]
+}
+
 // SecretKeyFromSecretBytes constructs a secret key from a raw secret material.
 // WARNING: this function zeroes the content of the input slice.
 func SecretKeyFromSecretBytes(b []byte) (SecretKey, error) {

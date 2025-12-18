@@ -48,8 +48,8 @@ func setupTest(t *testing.T) testData {
 }
 
 func keyPubAddr() (crypto.PrivKey, crypto.PubKey, sdk.AccAddress) {
-	key := ed25519.GenPrivKey()
-	pub := key.PubKey()
+	key := ed25519.GenerateSecretKey()
+	pub := key.Public()
 	addr := sdk.AccAddress(pub.Address())
 	return key, pub, addr
 }

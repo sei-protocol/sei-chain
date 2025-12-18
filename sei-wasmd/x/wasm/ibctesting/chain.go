@@ -34,6 +34,7 @@ import (
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/crypto/tmhash"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -485,7 +486,7 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 		v := vote.ToProto()
 		err := privVal.SignVote(context.Background(), chainID, v)
 		require.NoError(chain.t, err)
-		vote.Signature = v.Signature
+		vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(v.Signature)))
 		voteSet.AddVote(vote)
 	}
 

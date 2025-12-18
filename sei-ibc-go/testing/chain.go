@@ -30,6 +30,8 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 	tmversion "github.com/tendermint/tendermint/version"
+	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/libs/utils"
 
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	commitmenttypes "github.com/cosmos/ibc-go/v3/modules/core/23-commitment/types"
@@ -490,7 +492,7 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 		v := vote.ToProto()
 		err := privVal.SignVote(chain.T.Context(), chainID, v)
 		require.NoError(chain.T, err)
-		vote.Signature = v.Signature
+		vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(v.Signature)))
 		voteSet.AddVote(vote)
 	}
 
