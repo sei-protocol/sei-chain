@@ -14,6 +14,7 @@ import (
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/libs/log"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
+	"github.com/tendermint/tendermint/libs/utils"
 	cryptoproto "github.com/tendermint/tendermint/proto/tendermint/crypto"
 	privvalproto "github.com/tendermint/tendermint/proto/tendermint/privval"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -371,7 +372,7 @@ func TestSignerSignVoteErrors(t *testing.T) {
 				Timestamp:        ts,
 				ValidatorAddress: valAddr,
 				ValidatorIndex:   1,
-				Signature:        testKey.Sign([]byte("signature")),
+				Signature:        utils.Some(testKey.Sign([]byte("signature"))),
 			}
 
 			// Replace signer service privval with one that always fails

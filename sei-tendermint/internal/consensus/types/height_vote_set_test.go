@@ -7,11 +7,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/test/factory"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -85,6 +85,6 @@ func makeVoteHR(
 
 	v := vote.ToProto()
 	require.NoError(t, privVal.SignVote(ctx, chainID, v))
-	vote.Signature = utils.OrPanic1(crypto.SigFromBytes(v.Signature))
+	vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(v.Signature)))
 	return vote
 }

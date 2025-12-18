@@ -284,7 +284,7 @@ func TestCommitValidateBasic(t *testing.T) {
 		expectErr      bool
 	}{
 		{"Random Commit", func(com *Commit) {}, false},
-		{"Incorrect signature", func(com *Commit) { com.Signatures[0].Signature = testKey.Sign(nil) }, false},
+		{"Incorrect signature", func(com *Commit) { com.Signatures[0].Signature = utils.Some(testKey.Sign(nil)) }, false},
 		{"Incorrect height", func(com *Commit) { com.Height = int64(-100) }, true},
 		{"Incorrect round", func(com *Commit) { com.Round = -100 }, true},
 	}
@@ -313,7 +313,7 @@ func TestMaxCommitBytes(t *testing.T) {
 		BlockIDFlag:      BlockIDFlagNil,
 		ValidatorAddress: crypto.AddressHash([]byte("validator_address")),
 		Timestamp:        timestamp,
-		Signature:        sig,
+		Signature:        utils.Some(sig),
 	}
 
 	pbSig := cs.ToProto()
@@ -575,7 +575,7 @@ func TestVoteSetToCommit(t *testing.T) {
 		}
 		v := vote.ToProto()
 		require.NoError(t, vals[i].SignVote(ctx, voteSet.ChainID(), v))
-		vote.Signature = utils.OrPanic1(crypto.SigFromBytes(v.Signature))
+		vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(v.Signature)))
 		added, err := voteSet.AddVote(vote)
 		require.NoError(t, err)
 		require.True(t, added)
@@ -949,7 +949,7 @@ func TestCommitSig_ValidateBasic(t *testing.T) {
 		},
 		{
 			"BlockIDFlagAbsent signatures present",
-			CommitSig{BlockIDFlag: BlockIDFlagAbsent, Signature: testKey.Sign([]byte{0xAA})},
+			CommitSig{BlockIDFlag: BlockIDFlagAbsent, Signature: utils.Some(testKey.Sign([]byte{0xAA}))},
 			true, "signature is present",
 		},
 		{
@@ -967,7 +967,7 @@ func TestCommitSig_ValidateBasic(t *testing.T) {
 			CommitSig{
 				BlockIDFlag:      BlockIDFlagCommit,
 				ValidatorAddress: make([]byte, crypto.AddressSize),
-				Signature:        testKey.Sign(nil),
+				Signature:        utils.Some(testKey.Sign(nil)),
 			},
 			true, "signature is missing",
 		},
@@ -976,7 +976,7 @@ func TestCommitSig_ValidateBasic(t *testing.T) {
 			CommitSig{
 				BlockIDFlag:      BlockIDFlagCommit,
 				ValidatorAddress: make([]byte, crypto.AddressSize),
-				Signature:        testKey.Sign(nil),
+				Signature:        utils.Some(testKey.Sign(nil)),
 			},
 			false, "",
 		},
@@ -1311,7 +1311,7 @@ func TestCommit_ValidateBasic(t *testing.T) {
 					{
 						BlockIDFlag:      BlockIDFlagCommit,
 						ValidatorAddress: make([]byte, crypto.AddressSize),
-						Signature:        testKey.Sign(nil),
+						Signature:        utils.Some(testKey.Sign(nil)),
 					},
 				},
 			},

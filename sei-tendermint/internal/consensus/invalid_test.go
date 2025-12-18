@@ -147,7 +147,7 @@ func invalidDoPrevoteFunc(
 
 		p := precommit.ToProto()
 		require.NoError(t, pv.SignVote(ctx, cs.state.ChainID, p))
-		precommit.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
+		precommit.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(p.Signature)))
 		t.Logf("disable priv val so we don't do normal votes")
 		cs.privValidator = utils.None[types.PrivValidator]()
 		cs.mtx.Unlock()

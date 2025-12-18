@@ -208,7 +208,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 						BlockIDFlag:      types.BlockIDFlagNil,
 						ValidatorAddress: crypto.AddressHash([]byte("validator_address")),
 						Timestamp:        defaultEvidenceTime,
-						Signature:        utils.OrPanic1(crypto.SigFromBytes(crypto.CRandBytes(64))),
+						Signature:        utils.Some(utils.OrPanic1(crypto.SigFromBytes(crypto.CRandBytes(64)))),
 					}},
 				},
 			},

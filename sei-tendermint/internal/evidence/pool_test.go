@@ -22,6 +22,7 @@ import (
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/internal/test/factory"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
 	"github.com/tendermint/tendermint/version"
 
@@ -590,7 +591,7 @@ func makeCommit(height int64, valAddr []byte) *types.Commit {
 			BlockIDFlag:      types.BlockIDFlagCommit,
 			ValidatorAddress: valAddr,
 			Timestamp:        defaultEvidenceTime,
-			Signature:        makeEvidenceSignature([]byte("Signature")),
+			Signature:        utils.Some(makeEvidenceSignature([]byte("Signature"))),
 		}},
 	}
 }

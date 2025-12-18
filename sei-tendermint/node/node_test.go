@@ -537,7 +537,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 		}
 		vpb := vote.ToProto()
 		require.NoError(t, privVals[i].SignVote(ctx, state.ChainID, vpb))
-		vote.Signature = utils.OrPanic1(crypto.SigFromBytes(vpb.Signature))
+		vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(vpb.Signature)))
 
 		added, err := voteSet.AddVote(vote)
 		require.NoError(t, err)

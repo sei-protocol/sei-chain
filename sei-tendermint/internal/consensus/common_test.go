@@ -141,10 +141,14 @@ func (vs *validatorStub) signVote(
 
 	// ref: signVote in FilePV, the vote should use the previous vote info when the sign data is the same.
 	if signDataIsEqual(vs.lastVote, v) {
-		v.Signature = vs.lastVote.Signature.Bytes()
+		sig, ok := vs.lastVote.Signature.Get()
+		if !ok {
+			panic("last vote missing signature")
+		}
+		v.Signature = sig.Bytes()
 		v.Timestamp = vs.lastVote.Timestamp
 	}
-	vote.Signature = utils.OrPanic1(crypto.SigFromBytes(v.Signature))
+	vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(v.Signature)))
 	vote.Timestamp = v.Timestamp
 	return vote, nil
 }

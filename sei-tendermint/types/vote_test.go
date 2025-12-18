@@ -228,7 +228,7 @@ func signVote(ctx context.Context, t *testing.T, pv PrivValidator, chainID strin
 
 	v := vote.ToProto()
 	require.NoError(t, pv.SignVote(ctx, chainID, v))
-	vote.Signature = utils.OrPanic1(crypto.SigFromBytes(v.Signature))
+	vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(v.Signature)))
 }
 
 func TestValidVotes(t *testing.T) {
@@ -284,7 +284,7 @@ func TestVoteProtobuf(t *testing.T) {
 	vote := examplePrecommit(t)
 	v := vote.ToProto()
 	require.NoError(t, privVal.SignVote(ctx, "test_chain_id", v))
-	vote.Signature = utils.OrPanic1(crypto.SigFromBytes(v.Signature))
+	vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(v.Signature)))
 
 	testCases := []struct {
 		msg                 string

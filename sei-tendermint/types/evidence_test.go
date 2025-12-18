@@ -314,7 +314,7 @@ func makeVote(
 	err = val.SignVote(ctx, chainID, vpb)
 	require.NoError(t, err)
 
-	v.Signature = utils.OrPanic1(crypto.SigFromBytes(vpb.Signature))
+	v.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(vpb.Signature)))
 	return v
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/tendermint/tendermint/crypto"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/privval"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/rpc/client"
@@ -26,9 +27,9 @@ func newEvidence(t *testing.T, val *privval.FilePV,
 	v := vote.ToProto()
 	v2 := vote2.ToProto()
 
-	vote.Signature = val.Key.PrivKey.Sign(types.VoteSignBytes(chainID, v))
+	vote.Signature = utils.Some(val.Key.PrivKey.Sign(types.VoteSignBytes(chainID, v)))
 
-	vote2.Signature = val.Key.PrivKey.Sign(types.VoteSignBytes(chainID, v2))
+	vote2.Signature = utils.Some(val.Key.PrivKey.Sign(types.VoteSignBytes(chainID, v2)))
 
 	validator := types.NewValidator(val.Key.PubKey, 10)
 	valSet := types.NewValidatorSet([]*types.Validator{validator})

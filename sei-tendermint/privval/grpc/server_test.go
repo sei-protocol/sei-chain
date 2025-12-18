@@ -11,6 +11,7 @@ import (
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/libs/log"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmgrpc "github.com/tendermint/tendermint/privval/grpc"
 	privvalproto "github.com/tendermint/tendermint/proto/tendermint/privval"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -91,7 +92,7 @@ func TestSignVote(t *testing.T) {
 			Timestamp:        ts,
 			ValidatorAddress: valAddr,
 			ValidatorIndex:   1,
-			Signature:        testKey.Sign([]byte("signed")),
+			Signature:        utils.Some(testKey.Sign([]byte("signed"))),
 		}, want: &types.Vote{
 			Type:             tmproto.PrecommitType,
 			Height:           1,
@@ -100,7 +101,7 @@ func TestSignVote(t *testing.T) {
 			Timestamp:        ts,
 			ValidatorAddress: valAddr,
 			ValidatorIndex:   1,
-			Signature:        testKey.Sign([]byte("signed")),
+			Signature:        utils.Some(testKey.Sign([]byte("signed"))),
 		},
 			err: true},
 	}

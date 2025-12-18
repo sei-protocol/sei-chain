@@ -11,7 +11,7 @@ import (
 
 const batchVerifyThreshold = 2
 
-func shouldBatchVerify(vals *ValidatorSet, commit *Commit) bool {
+func shouldBatchVerify(commit *Commit) bool {
 	return len(commit.Signatures) >= batchVerifyThreshold
 }
 
@@ -42,7 +42,7 @@ func VerifyCommit(chainID string, vals *ValidatorSet, blockID BlockID,
 	count := func(c CommitSig) bool { return c.BlockIDFlag == BlockIDFlagCommit }
 
 	// attempt to batch verify
-	if shouldBatchVerify(vals, commit) {
+	if shouldBatchVerify(commit) {
 		return verifyCommitBatch(chainID, vals, commit,
 			votingPowerNeeded, ignore, count, true, true)
 	}
@@ -75,7 +75,7 @@ func VerifyCommitLight(chainID string, vals *ValidatorSet, blockID BlockID,
 	count := func(c CommitSig) bool { return true }
 
 	// attempt to batch verify
-	if shouldBatchVerify(vals, commit) {
+	if shouldBatchVerify(commit) {
 		return verifyCommitBatch(chainID, vals, commit,
 			votingPowerNeeded, ignore, count, false, true)
 	}
@@ -121,7 +121,7 @@ func VerifyCommitLightTrusting(chainID string, vals *ValidatorSet, commit *Commi
 	// attempt to batch verify commit. As the validator set doesn't necessarily
 	// correspond with the validator set that signed the block we need to look
 	// up by address rather than index.
-	if shouldBatchVerify(vals, commit) {
+	if shouldBatchVerify(commit) {
 		return verifyCommitBatch(chainID, vals, commit,
 			votingPowerNeeded, ignore, count, false, false)
 	}
@@ -298,7 +298,7 @@ func verifyCommitSingle(
 			return fmt.Errorf("missing signature at idx %v",idx)
 		}
 		if err := val.PubKey.Verify(voteSignBytes, sig); err != nil {
-			return errBadSig{fmt.Errorf("wrong signature (#%d): %X", idx, commitSig.Signature)}
+			return errBadSig{fmt.Errorf("wrong signature (#%d): %v", idx, sig)}
 		}
 
 		// If this signature counts then add the voting power of the validator

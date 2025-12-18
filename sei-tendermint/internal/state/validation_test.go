@@ -268,8 +268,8 @@ func TestValidateBlockCommit(t *testing.T) {
 		err = badPrivVal.SignVote(ctx, chainID, b)
 		require.NoError(t, err, "height %d", height)
 
-		goodVote.Signature = utils.OrPanic1(crypto.SigFromBytes(g.Signature))
-		badVote.Signature = utils.OrPanic1(crypto.SigFromBytes(b.Signature))
+		goodVote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(g.Signature)))
+		badVote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(b.Signature)))
 
 		wrongSigsCommit = &types.Commit{
 			Height:     goodVote.Height,
