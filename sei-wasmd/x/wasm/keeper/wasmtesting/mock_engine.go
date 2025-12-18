@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"crypto/sha256"
 
-	wasmvm "github.com/CosmWasm/wasmvm"
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
+	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	"github.com/tendermint/tendermint/libs/rand"
 
 	"github.com/CosmWasm/wasmd/x/wasm/types"

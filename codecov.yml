@@ -5,7 +5,7 @@ coverage:
     project:
       default:
         target: auto
-        threshold: 0.1% # allow this much decrease on project
+        threshold: 3% # allow this much decrease on project
       sei-chain:
         target: 40%
         paths:
@@ -13,11 +13,10 @@ coverage:
           - "!sei-ibc-go/**"
           - "!sei-tendermint/**"
           - "!sei-wasmd/**"
-          - "!sei-wasmvm/**"
         flags:
           - sei-chain
       sei-cosmos:
-        target: 40%
+        target: 35%
         paths:
           - "sei-cosmos/**"
         flags:

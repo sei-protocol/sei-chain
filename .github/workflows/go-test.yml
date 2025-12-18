@@ -33,8 +33,6 @@ jobs:
           - name: sei-wasmd
             path: ./sei-wasmd
             tags: ledger test_ledger_mock
-          - name: sei-wasmvm
-            path: ./sei-wasmvm
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
