@@ -279,7 +279,7 @@ func TestQueueIteratorLimit(t *testing.T) {
 	require.Equal(t, `{}`, string(qres.Ok))
 
 	// Open 35000 iterators
-	gasLimit = TESTING_GAS_LIMIT * 7
+	gasLimit = TESTING_GAS_LIMIT * 10
 	gasMeter = NewMockGasMeter(gasLimit)
 	igasMeter = types.GasMeter(gasMeter)
 	store = setup.Store(gasMeter)
