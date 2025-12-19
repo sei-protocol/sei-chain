@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package roles.validator;
+
+import "hashable/hashable.proto";
+
+option go_package = "github.com/tendermint/tendermint/internal/roles/validator/pb";
+
+message Msg {
+  option (hashable.hashable) = true;
+  oneof kind {
+    // Encrypted session key to sign in handshake to prove
+    // that we are a validator.
+    bytes session_id = 1;
+  }
+}
+
+message PublicKey {
+  bytes ed25519 = 1;
+}
+
+message Signature {
+  bytes ed25519 = 1;
+}
+
+message SignedMsg {
+  Msg msg = 1;
+  PublicKey key = 2;
+  Signature sig = 3;
+}
