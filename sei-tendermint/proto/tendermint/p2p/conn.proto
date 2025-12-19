@@ -28,4 +28,5 @@ message Packet {
 message AuthSigMessage {
   tendermint.crypto.PublicKey pub_key = 1 [(gogoproto.nullable) = false];
   bytes sig = 2;
+  // Supported P2P features.
 }

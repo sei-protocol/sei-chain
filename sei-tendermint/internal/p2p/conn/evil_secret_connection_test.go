@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"net"
 
 	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/oasisprotocol/curve25519-voi/primitives/merlin"
@@ -12,6 +13,7 @@ import (
 	"golang.org/x/crypto/chacha20poly1305"
 
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
@@ -19,6 +21,7 @@ import (
 )
 
 type buffer struct {
+	net.Conn
 	next bytes.Buffer
 }
 
@@ -39,7 +42,7 @@ func (b *buffer) Close() error {
 }
 
 type evilConn struct {
-	secretConn *SecretConnection
+	*SecretConnection
 	buffer     *buffer
 
 	locEphPub  *[32]byte
@@ -118,7 +121,7 @@ func (c *evilConn) Read(data []byte) (n int, err error) {
 			if err != nil {
 				panic(err)
 			}
-			n, err = c.secretConn.Write(bz)
+			n, err = c.SecretConnection.Write(bz)
 			if err != nil {
 				panic(err)
 			}
@@ -131,7 +134,7 @@ func (c *evilConn) Read(data []byte) (n int, err error) {
 			if err != nil {
 				panic(err)
 			}
-			n, err = c.secretConn.Write(bz)
+			n, err = c.SecretConnection.Write(bz)
 			if err != nil {
 				panic(err)
 			}
@@ -217,11 +220,10 @@ func (c *evilConn) signChallenge() ed25519.Signature {
 	}
 
 	b := &buffer{}
-	c.secretConn = &SecretConnection{
+	c.SecretConnection = &SecretConnection{
 		conn:       b,
-		recvBuffer: nil,
-		recvNonce:  new([aeadNonceSize]byte),
-		sendNonce:  new([aeadNonceSize]byte),
+		recvState: utils.NewMutex(&recvState{}),
+		sendNonce: utils.NewMutex(&nonce{}),
 		recvAead:   recvAead,
 		sendAead:   sendAead,
 	}
