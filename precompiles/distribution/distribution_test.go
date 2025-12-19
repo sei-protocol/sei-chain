@@ -126,6 +126,12 @@ func TestWithdraw(t *testing.T) {
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
 	require.Equal(t, withdrawSeiAddr.String(), testApp.DistrKeeper.GetDelegatorWithdrawAddr(ctx, seiAddr).String())
+	receipt, err := k.GetTransientReceipt(ctx, tx.Hash(), 0)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(receipt.Logs))
+	require.Equal(t, distribution.SetWithdrawAddressEventSig, common.HexToHash(receipt.Logs[0].Topics[0]))
+	require.Equal(t, common.BytesToHash(evmAddr.Bytes()), common.HexToHash(receipt.Logs[0].Topics[1]))
+	require.NotEmpty(t, receipt.Logs[0].Data)
 
 	// withdraw
 	args, err = abi.Pack("withdrawDelegationRewards", val.String())
@@ -154,6 +160,13 @@ func TestWithdraw(t *testing.T) {
 	// reinitialized
 	d, found = testApp.StakingKeeper.GetDelegation(ctx, seiAddr, val)
 	require.True(t, found)
+
+	receipt, err = k.GetTransientReceipt(ctx, tx.Hash(), 0)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(receipt.Logs))
+	require.Equal(t, distribution.DelegationRewardsEventSig, common.HexToHash(receipt.Logs[0].Topics[0]))
+	require.Equal(t, common.BytesToHash(evmAddr.Bytes()), common.HexToHash(receipt.Logs[0].Topics[1]))
+	require.NotEmpty(t, receipt.Logs[0].Data)
 }
 
 func TestWithdrawMultipleDelegationRewards(t *testing.T) {
@@ -273,7 +286,7 @@ func setWithdrawAddressAndWithdraw(
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
-	seiAddr, _ := testkeeper.PrivateKeyToAddresses(privKey)
+	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
 	require.Equal(t, withdrawSeiAddr.String(), testApp.DistrKeeper.GetDelegatorWithdrawAddr(ctx, seiAddr).String())
 
 	var validators []string
@@ -303,6 +316,13 @@ func setWithdrawAddressAndWithdraw(
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
 	require.Equal(t, uint64(148290), res.GasUsed)
+
+	receipt, err := k.GetTransientReceipt(ctx, tx.Hash(), 0)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(receipt.Logs))
+	require.Equal(t, distribution.MultipleDelegationRewardsEventSig, common.HexToHash(receipt.Logs[0].Topics[0]))
+	require.Equal(t, common.BytesToHash(evmAddr.Bytes()), common.HexToHash(receipt.Logs[0].Topics[1]))
+	require.NotEmpty(t, receipt.Logs[0].Data)
 
 	// reinitialized
 	for _, val := range vals {
