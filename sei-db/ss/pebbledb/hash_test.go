@@ -338,12 +338,26 @@ func TestAsyncComputeMissingRanges(t *testing.T) {
 	err := db.ApplyChangesetAsync(31, changesets)
 	require.NoError(t, err)
 
-	// Wait a bit for the async computation to complete
-	time.Sleep(500 * time.Millisecond)
+	// waitForLastRangeHashed polls until the last range hashed reaches the expected value or timeout
+	waitForLastRangeHashed := func(t *testing.T, db *Database, expected int64, timeout time.Duration) int64 {
+		t.Helper()
+		deadline := time.Now().Add(timeout)
+		var lastHashed int64
+		var err error
+		for time.Now().Before(deadline) {
+			lastHashed, err = db.GetLastRangeHashed()
+			require.NoError(t, err)
+			if lastHashed >= expected {
+				return lastHashed
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		return lastHashed
+	}
 
+	// Wait until async computation completes / timeouts
 	// We should now have hashed up to version 30 (3 complete ranges)
-	lastHashed, err := db.GetLastRangeHashed()
-	require.NoError(t, err)
+	lastHashed := waitForLastRangeHashed(t, db, 30, 5*time.Second)
 	assert.Equal(t, int64(30), lastHashed)
 
 	// Apply more changesets to get to version 40
@@ -352,12 +366,10 @@ func TestAsyncComputeMissingRanges(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Wait a bit for async computation
-	time.Sleep(500 * time.Millisecond)
-
-	// We should now have hashed up to version 40
-	lastHashed, err = db.GetLastRangeHashed()
-	require.NoError(t, err)
+	// Wait until async computation completes / timeouts
+	// We should now have hashed up to version 30 (3 complete ranges)
+	lastHashed = waitForLastRangeHashed(t, db, 40, 5*time.Second)
+	assert.Equal(t, int64(30), lastHashed)
 	assert.Equal(t, int64(40), lastHashed)
 }
 
