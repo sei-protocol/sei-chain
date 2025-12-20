@@ -3,14 +3,49 @@ package types
 import (
 	"errors"
 	"fmt"
+	"math"
 	"math/bits"
+	"os"
+	"strconv"
 	"time"
 
+	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	tmtime "github.com/tendermint/tendermint/libs/time"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
+
+// maxTxKeysPerProposal is the maximum number of transaction keys that can be
+// included in a proposal. The limit is determined such that the proposal should
+// hit the gas limit before ever reaching the max transaction keys in order to
+// cap the maximum.
+//
+// By default, we set this to 1,000 which should be reasonable for most use
+// cases. However, this can be overridden by setting the
+// SEI_TENDERMINT_MAX_TX_KEYS_PER_PROPOSAL environment variable to a positive
+// integer value for load testing purposes.
+var maxTxKeysPerProposal int
+
+func init() {
+	const defaultMaxTxKeysPerProposal = 1_000
+	if value, found := os.LookupEnv("SEI_TENDERMINT_MAX_TX_KEYS_PER_PROPOSAL"); found {
+		maxTxKeys, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to parse SEI_TENDERMINT_MAX_TX_KEYS_PER_PROPOSAL %s: %v", value, err))
+		}
+		if maxTxKeys <= 0 {
+			panic(fmt.Sprintf("SEI_TENDERMINT_MAX_TX_KEYS_PER_PROPOSAL must be a positive integer, got %d", maxTxKeys))
+		}
+		if maxTxKeys > math.MaxInt {
+			panic(fmt.Sprintf("SEI_TENDERMINT_MAX_TX_KEYS_PER_PROPOSAL must be less than or equal to %d, got %d", math.MaxInt, maxTxKeys))
+		}
+		maxTxKeysPerProposal = int(maxTxKeys)
+		fmt.Printf("Using custom maxTxKeysPerProposal: %d\n", maxTxKeysPerProposal)
+	} else {
+		maxTxKeysPerProposal = defaultMaxTxKeysPerProposal
+	}
+}
 
 var (
 	ErrInvalidBlockPartSignature = errors.New("error invalid block part signature")
@@ -87,6 +122,28 @@ func (p *Proposal) ValidateBasic() error {
 	if len(p.Signature) > MaxSignatureSize {
 		return fmt.Errorf("signature is too big (max: %d)", MaxSignatureSize)
 	}
+
+	if err := p.LastCommit.ValidateBasic(); err != nil {
+		return fmt.Errorf("invalid LastCommit: %w", err)
+	}
+
+	// Evidence is validated as part of proto decoding. See EvidenceList.FromProto.
+
+	if err := p.Header.ValidateBasic(); err != nil {
+		return fmt.Errorf("invalid Header: %w", err)
+	}
+
+	if len(p.TxKeys) > maxTxKeysPerProposal {
+		return fmt.Errorf("invalid number of TxKeys: must be at most %d, got %d", maxTxKeysPerProposal, len(p.TxKeys))
+	}
+
+	if len(p.ProposerAddress) != crypto.AddressSize {
+		return fmt.Errorf(
+			"invalid ProposerAddress length; got: %d, expected: %d",
+			len(p.ProposerAddress), crypto.AddressSize,
+		)
+	}
+
 	return nil
 }
 
@@ -228,9 +285,14 @@ func ProposalFromProto(pp *tmproto.Proposal) (*Proposal, error) {
 	}
 	p.Header = header
 	lastCommit, err := CommitFromProto(pp.LastCommit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to instantiate last commit: %w", err)
+	}
 	p.LastCommit = lastCommit
 	eviD := new(EvidenceList)
-	eviD.FromProto(pp.Evidence)
+	if err := eviD.FromProto(pp.Evidence); err != nil {
+		return nil, fmt.Errorf("faield to instantiate evidence list: %w", err)
+	}
 	p.Evidence = *eviD
 	p.ProposerAddress = pp.ProposerAddress
 
