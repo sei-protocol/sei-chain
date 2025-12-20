@@ -1,36 +1,28 @@
-# This workflow will build a golang project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
-
-name: Docker Integration Test
+name: Go
 
 on:
+  workflow_call:
+  pull_request:
   push:
     branches:
       - main
-      - seiv2
-  pull_request:
-    branches:
-      - main
-      - seiv2
-      - evm
+      - release/**
 
-defaults:
-  run:
-    shell: bash
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  integration-tests:
-    name: Integration Test (${{ matrix.test.name }})
-    runs-on: ubuntu-large
-    timeout-minutes: 30
+  tests:
+    name: Test ${{ matrix.modules.name }}
+    runs-on: ubuntu-latest
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
+      GO_TEST_TIMEOUT: 30m
+
     strategy:
-      # other jobs should run even if one integration test fails
       fail-fast: false
       matrix:
+<<<<<<< HEAD
         test: [
           {
             name: "Wasm Module",
@@ -127,19 +119,46 @@ jobs:
             ]
           },
         ]
+=======
+        modules:
+          - name: sei-chain
+            path: ./
+          - name: sei-cosmos
+            path: ./sei-cosmos
+            tags: ledger test_ledger_mock
+          - name: sei-db
+            path: ./sei-db
+          - name: sei-tendermint
+            path: ./sei-tendermint
+          - name: sei-wasmd
+            path: ./sei-wasmd
+            tags: ledger test_ledger_mock
+          - name: sei-wasmvm
+            path: ./sei-wasmvm
+
+>>>>>>> origin/main
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v5
         with:
-          python-version: '3.10'
-      - uses: actions/setup-node@v2
-        with:
-          node-version: '20'
+          fetch-depth: 0   # needed for accurate coverage in monorepos
 
-      - name: Pyyaml
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.24'
+          cache: true
+
+      # Free up disk space – these are completely unnecessary for Sei builds
+      - name: Clean up pre-installed tooling
         run: |
-          pip3 install pyyaml
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup
+          sudo docker image prune --all --force
 
+<<<<<<< HEAD
       - name: Install jq
         run: sudo apt-get install -y jq
 
@@ -152,13 +171,27 @@ jobs:
         run: make clean && DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start
 
       - name: Wait for docker cluster to start
+=======
+      - name: Run tests with race detector & coverage
+        working-directory: ${{ matrix.modules.path }}
+>>>>>>> origin/main
         run: |
-          until [ $(cat build/generated/launch.complete |wc -l) = 4 ]
-          do
-            sleep 10
-          done
-          sleep 10
+          if [ -z "${{ matrix.modules.tags }}" ]; then
+            go test -race \
+              -timeout="${GO_TEST_TIMEOUT}" \
+              -covermode=atomic \
+              -coverprofile=coverage.out \
+              ./...
+          else
+            go test -race \
+              -tags="${{ matrix.modules.tags }}" \
+              -timeout="${GO_TEST_TIMEOUT}" \
+              -covermode=atomic \
+              -coverprofile=coverage.out \
+              ./...
+          fi
 
+<<<<<<< HEAD
       - name: Start rpc node
         run: make run-rpc-node-skipbuild &
 
@@ -215,25 +248,14 @@ jobs:
       - name: Get workflow conclusion
         id: workflow_conclusion
         uses: nick-fields/retry@v2
+=======
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+>>>>>>> origin/main
         with:
-          max_attempts: 2
-          retry_on: error
-          timeout_seconds: 30
-          command: |
-              jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-              job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
-
-              for status in $job_statuses
-              do
-                echo "Status: $status"
-                if [[ "$status" == "failure" ]]; then
-                  echo "Some or all tests have failed!"
-                  exit 1
-                fi
-                if [[ "$status" == "cancelled" ]]; then
-                  echo "Some or all tests have been cancelled!"
-                  exit 1
-                fi
-              done
-
-              echo "All tests have passed!"
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ${{ matrix.modules.path }}/coverage.out
+          flags: ${{ matrix.modules.name }}
+          name: ${{ matrix.modules.name }}-coverage
+          fail_ci_if_error: false   # change to true once you’re 100% confident
+          verbose: true

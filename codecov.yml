@@ -1,16 +1,32 @@
+comment:
+  behavior: default
+  layout: reach,diff,flags,tree,betaprofiling
+  require_changes:
+    - 1
+
 coverage:
   precision: 2
   round: down
   status:
+    patch:
+      default:
+        target: 70.0
     project:
       default:
         target: auto
+<<<<<<< HEAD
         threshold: 3% # allow this much decrease on project
+=======
+        threshold: 0.1
+>>>>>>> origin/main
       sei-chain:
-        target: 40%
+        flags:
+          - sei-chain
         paths:
+          - "sei-chain/**"
           - "!sei-cosmos/**"
           - "!sei-tendermint/**"
+<<<<<<< HEAD
         flags:
           - sei-chain
       sei-cosmos:
@@ -33,30 +49,14 @@ comment:
   layout: "reach,diff,flags,tree,betaprofiling"
   behavior: default # update if exists else create new
   require_changes: true
+=======
+          - "!sei-wasmd/**"
+          - "!sei-wasmvm/**"
+>>>>>>> origin/main
 
 ignore:
-  # Common documentation and metadata
   - "**/docs/**/*"
   - "**/*.md"
-  - "**/*.rst"
-  - "**/example/**/*"
-  - "**/benchmark/**/*"
-
-  # Generated protobuf files
-  - "**/*.pb.go"
-  - "**/*.pb.gw.go"
-
-  # Tests and test utilities
-  - "**/integration_test/**/*"
-  - "**/testutil/**/*"
-  - "**/x/**/test_common.go"
-  - "**/x/**/testdata/**/*"
-
-  # Scripts, tooling, and contribution helpers
   - "**/scripts/**/*"
   - "**/contrib/**/*"
-  - "**/docker/**/*"
-
-  # Project-specific exclusions
-  - "precompiles/**/legacy/**/*"
-  - "**/cli/**/*"
+  - "**/integration_test/**/*"

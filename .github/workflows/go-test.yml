@@ -1,4 +1,9 @@
+<<<<<<< HEAD
 name: Sei Cross-Architecture Build & Artifacts
+=======
+name: Go Cross-Platform Tests
+
+>>>>>>> origin/main
 on:
   push:
     branches: [main]
@@ -17,20 +22,38 @@ defaults:
     shell: bash
 
 jobs:
+<<<<<<< HEAD
   build:
     name: 🔨 ${{ matrix.os }} • ${{ matrix.module.name }}
+=======
+  tests:
+    env:
+      GO_TEST_TIMEOUT: 30m
+    name: "Test ${{ matrix.modules.name }} on ${{ matrix.os }}"
+>>>>>>> origin/main
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+<<<<<<< HEAD
         module:
+=======
+        modules:
+>>>>>>> origin/main
           - name: sei-chain
             path: ./
             tags: ledger test_ledger_mock
           - name: sei-cosmos
             path: ./sei-cosmos
             tags: ledger test_ledger_mock
+<<<<<<< HEAD
+=======
+          - name: sei-db
+            path: ./sei-db
+          - name: sei-ibc-go
+            path: ./sei-ibc-go
+>>>>>>> origin/main
           - name: sei-tendermint
             path: ./sei-tendermint
           - name: sei-wasmd
@@ -40,6 +63,7 @@ jobs:
             path: ./sei-wasmvm
 
     steps:
+<<<<<<< HEAD
       # -----------------------
       # 1️⃣ Checkout & Submodules
       # -----------------------
@@ -204,3 +228,46 @@ jobs:
           echo "🔐 Signing ledger-enabled binary: $BINARY"
           # Placeholder: implement real signing logic here
           echo "Signed $BINARY successfully"
+=======
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.24'
+
+      - name: Remove unnecessary tooling
+        if: runner.os != 'Windows'
+        run: |
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+
+      - name: Go test with race detector
+        working-directory: '${{ matrix.modules.path }}'
+        run: |
+          # Handle tags (empty if not defined)
+          TAGS=""
+          if [ -n "${{ matrix.modules.tags }}" ]; then
+            TAGS="-tags='${{ matrix.modules.tags }}'"
+          fi
+
+          # Skip keychain tests on CI macOS
+          if [ "$(uname)" = "Darwin" ]; then
+            export SKIP_KEYCHAIN_TESTS=1
+          fi
+
+          go test -race $TAGS -timeout='${{ env.GO_TEST_TIMEOUT }}' -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Upload coverage to Codecov
+        if: runner.os != 'windows'  # Skip coverage on Windows (stub files)
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: 'true'
+          disable_search: 'true'
+          name: '${{ matrix.modules.name }}-coverage-${{ matrix.os }}'
+          files: ${{ matrix.modules.path }}/coverage.out
+          flags: ${{ matrix.modules.name }}
+>>>>>>> origin/main

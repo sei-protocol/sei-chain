@@ -30,13 +30,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential
-
       - name: Verify Go installation
         run: |
           go version
           echo "GOARCH: $(go env GOARCH)"
           echo "GOOS: $(go env GOOS)"
-
       - name: Download Go dependencies
         run: go mod download
 
@@ -69,13 +67,11 @@ jobs:
       - name: Install system dependencies
         run: |
           xcode-select --version || xcode-select --install
-
       - name: Verify Go installation
         run: |
           go version
           echo "GOARCH: $(go env GOARCH)"
           echo "GOOS: $(go env GOOS)"
-
       - name: Download Go dependencies
         run: go mod download
 
