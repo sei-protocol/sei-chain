@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
@@ -25,10 +26,22 @@ const (
 	WithdrawMultipleDelegationRewardsMethod = "withdrawMultipleDelegationRewards"
 	WithdrawValidatorCommissionMethod       = "withdrawValidatorCommission"
 	RewardsMethod                           = "rewards"
+
+	SetWithdrawAddressEvent        = "WithdrawAddressSet"
+	DelegationRewardsEvent         = "DelegationRewardsWithdrawn"
+	MultipleDelegationRewardsEvent = "MultipleDelegationRewardsWithdrawn"
+	ValidatorCommissionEvent       = "ValidatorCommissionWithdrawn"
 )
 
 const (
 	DistrAddress = "0x0000000000000000000000000000000000001007"
+)
+
+var (
+	SetWithdrawAddressEventSig        = crypto.Keccak256Hash([]byte("WithdrawAddressSet(address,address)"))
+	DelegationRewardsEventSig         = crypto.Keccak256Hash([]byte("DelegationRewardsWithdrawn(address,string,uint256)"))
+	MultipleDelegationRewardsEventSig = crypto.Keccak256Hash([]byte("MultipleDelegationRewardsWithdrawn(address,string[],uint256[])"))
+	ValidatorCommissionEventSig       = crypto.Keccak256Hash([]byte("ValidatorCommissionWithdrawn(string,uint256)"))
 )
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
@@ -46,6 +59,8 @@ type PrecompileExecutor struct {
 	WithdrawMultipleDelegationRewardsID []byte
 	WithdrawValidatorCommissionID       []byte
 	RewardsID                           []byte
+
+	abi abi.ABI
 }
 
 func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
@@ -55,6 +70,7 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 		distrKeeper: keepers.DistributionK(),
 		evmKeeper:   keepers.EVMK(),
 		address:     common.HexToAddress(DistrAddress),
+		abi:         newAbi,
 	}
 
 	for name, m := range newAbi.Methods {
@@ -84,17 +100,17 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		if readOnly {
 			return nil, 0, errors.New("cannot call distr precompile from staticcall")
 		}
-		return p.setWithdrawAddress(ctx, method, caller, args, value)
+		return p.setWithdrawAddress(ctx, method, caller, args, value, evm)
 	case WithdrawDelegationRewardsMethod:
 		if readOnly {
 			return nil, 0, errors.New("cannot call distr precompile from staticcall")
 		}
-		return p.withdrawDelegationRewards(ctx, method, caller, args, value)
+		return p.withdrawDelegationRewards(ctx, method, caller, args, value, evm)
 	case WithdrawMultipleDelegationRewardsMethod:
 		if readOnly {
 			return nil, 0, errors.New("cannot call distr precompile from staticcall")
 		}
-		return p.withdrawMultipleDelegationRewards(ctx, method, caller, args, value)
+		return p.withdrawMultipleDelegationRewards(ctx, method, caller, args, value, evm)
 	case WithdrawValidatorCommissionMethod:
 		if err = pcommon.ValidateNonPayable(value); err != nil {
 			return nil, 0, err
@@ -102,7 +118,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		if readOnly {
 			return nil, 0, errors.New("cannot call distr precompile from staticcall")
 		}
-		return p.withdrawValidatorCommission(ctx, method, caller)
+		return p.withdrawValidatorCommission(ctx, method, caller, evm)
 	case RewardsMethod:
 		return p.rewards(ctx, method, args)
 	}
@@ -113,7 +129,7 @@ func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 	return p.evmKeeper
 }
 
-func (p PrecompileExecutor) setWithdrawAddress(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) setWithdrawAddress(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -148,10 +164,23 @@ func (p PrecompileExecutor) setWithdrawAddress(ctx sdk.Context, method *abi.Meth
 	}
 	ret, rerr = method.Outputs.Pack(true)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+
+	logData, err := p.abi.Events[SetWithdrawAddressEvent].Inputs.NonIndexed().Pack(args[0].(common.Address))
+	if err != nil {
+		rerr = err
+		return
+	}
+	if err := pcommon.EmitEVMLog(evm, p.address, []common.Hash{
+		SetWithdrawAddressEventSig,
+		common.BytesToHash(caller.Bytes()),
+	}, logData); err != nil {
+		rerr = err
+		return
+	}
 	return
 }
 
-func (p PrecompileExecutor) withdrawDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) withdrawDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -171,13 +200,26 @@ func (p PrecompileExecutor) withdrawDelegationRewards(ctx sdk.Context, method *a
 		rerr = err
 		return
 	}
-	_, err = p.withdraw(ctx, delegator, args[0].(string))
+	amts, err := p.withdraw(ctx, delegator, args[0].(string))
 	if err != nil {
 		rerr = err
 		return
 	}
 	ret, rerr = method.Outputs.Pack(true)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+
+	logData, err := p.abi.Events[DelegationRewardsEvent].Inputs.NonIndexed().Pack(args[0].(string), amts.AmountOf(sdk.DefaultBondDenom).BigInt())
+	if err != nil {
+		rerr = err
+		return
+	}
+	if err := pcommon.EmitEVMLog(evm, p.address, []common.Hash{
+		DelegationRewardsEventSig,
+		common.BytesToHash(caller.Bytes()),
+	}, logData); err != nil {
+		rerr = err
+		return
+	}
 	return
 }
 
@@ -210,7 +252,7 @@ func (p PrecompileExecutor) getDelegator(ctx sdk.Context, caller common.Address)
 	return delegator, nil
 }
 
-func (p PrecompileExecutor) withdrawMultipleDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) withdrawMultipleDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -231,16 +273,31 @@ func (p PrecompileExecutor) withdrawMultipleDelegationRewards(ctx sdk.Context, m
 		return
 	}
 	validators := args[0].([]string)
+	amts := make([]*big.Int, 0, len(validators))
 	for _, valAddr := range validators {
-		_, err := p.withdraw(ctx, delegator, valAddr)
+		amt, err := p.withdraw(ctx, delegator, valAddr)
 		if err != nil {
 			rerr = err
 			return
 		}
+		amts = append(amts, amt.AmountOf(sdk.DefaultBondDenom).BigInt())
 	}
 
 	ret, rerr = method.Outputs.Pack(true)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+
+	logData, err := p.abi.Events[MultipleDelegationRewardsEvent].Inputs.NonIndexed().Pack(validators, amts)
+	if err != nil {
+		rerr = err
+		return
+	}
+	if err := pcommon.EmitEVMLog(evm, p.address, []common.Hash{
+		MultipleDelegationRewardsEventSig,
+		common.BytesToHash(caller.Bytes()),
+	}, logData); err != nil {
+		rerr = err
+		return
+	}
 	return
 }
 
@@ -342,7 +399,7 @@ func getResponseOutput(response *distrtypes.QueryDelegationTotalRewardsResponse)
 	}
 }
 
-func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method *abi.Method, caller common.Address) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method *abi.Method, caller common.Address, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -367,7 +424,7 @@ func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method 
 	}
 
 	// Call the distribution keeper to withdraw validator commission
-	_, err = p.distrKeeper.WithdrawValidatorCommission(ctx, validator)
+	amts, err := p.distrKeeper.WithdrawValidatorCommission(ctx, validator)
 	if err != nil {
 		rerr = err
 		return
@@ -375,5 +432,18 @@ func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method 
 
 	ret, rerr = method.Outputs.Pack(true)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+
+	logData, err := p.abi.Events[ValidatorCommissionEvent].Inputs.NonIndexed().Pack(amts.AmountOf(sdk.DefaultBondDenom).BigInt())
+	if err != nil {
+		rerr = err
+		return
+	}
+	if err := pcommon.EmitEVMLog(evm, p.address, []common.Hash{
+		ValidatorCommissionEventSig,
+		crypto.Keccak256Hash([]byte(validator.String())),
+	}, logData); err != nil {
+		rerr = err
+		return
+	}
 	return
 }
