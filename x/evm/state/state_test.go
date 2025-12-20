@@ -137,6 +137,58 @@ func TestSelfDestructAssociated(t *testing.T) {
 	require.Equal(t, uint256.NewInt(1), statedb.GetBalance(fc))
 }
 
+// TestEIP6780WithPrefundedAddress verifies that EIP-6780 selfdestruct works correctly
+// when a contract is deployed to a prefunded address. This tests the fix for a bug where
+// contracts deployed to addresses with existing balance would not be destroyed by
+// SelfDestruct6780 because CreateAccount() was not called (since the account already existed).
+// The fix ensures CreateContract() marks the account as created for EIP-6780 purposes.
+func TestEIP6780WithPrefundedAddress(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	seiAddr, evmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+
+	statedb := state.NewDBImpl(ctx, k, false)
+
+	// Prefund the address with balance using statedb context
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000)))
+	k.BankKeeper().MintCoins(statedb.Ctx(), types.ModuleName, amt)
+	k.BankKeeper().SendCoinsFromModuleToAccount(statedb.Ctx(), types.ModuleName, seiAddr, amt)
+
+	// Verify the account has balance but is not marked as "created" yet
+	require.True(t, statedb.GetBalance(evmAddr).CmpBig(big.NewInt(0)) > 0, "address should have balance")
+	require.False(t, statedb.Created(evmAddr), "account should not be marked as created before CreateContract")
+
+	// Simulate the EVM's contract creation flow for a prefunded address:
+	// In go-ethereum's create(), if Exist() returns true (which it does for prefunded addresses),
+	// CreateAccount() is NOT called. Instead, only CreateContract() is called.
+	// This is the exact scenario that was broken before the fix.
+	require.True(t, statedb.Exist(evmAddr), "prefunded address should exist")
+
+	// Only call CreateContract (not CreateAccount) - this simulates the real EVM behavior
+	statedb.CreateContract(evmAddr)
+
+	// After CreateContract, the account should be marked as created for EIP-6780
+	require.True(t, statedb.Created(evmAddr), "account should be marked as created after CreateContract")
+
+	// Set some contract state
+	statedb.SetCode(evmAddr, []byte("contract code"))
+	key := common.BytesToHash([]byte("storage_key"))
+	val := common.BytesToHash([]byte("storage_value"))
+	statedb.SetState(evmAddr, key, val)
+
+	// Now SelfDestruct6780 should work correctly - the key test is that destructed == true
+	_, destructed := statedb.SelfDestruct6780(evmAddr)
+	require.True(t, destructed, "SelfDestruct6780 should destruct the contract created in same tx")
+	require.True(t, statedb.HasSelfDestructed(evmAddr), "account should be marked as self-destructed")
+
+	// Finalize to clear the state
+	statedb.Finalize()
+
+	// After finalize, the contract's state should be cleared
+	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, key), "storage should be cleared after finalize")
+}
+
 func TestSnapshot(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
@@ -178,4 +230,44 @@ func TestSnapshot(t *testing.T) {
 	require.Equal(t, common.Hash{}, newStateDB.GetTransientState(evmAddr, tkey))
 	require.Equal(t, val, newStateDB.GetState(evmAddr, key))
 	require.Equal(t, eventCount+1, len(ctx.EventManager().Events()))
+}
+
+// TestTransientStorageRevertNilMapPanic tests that reverting multiple transient storage
+// changes does not panic when a prior revert deletes the account's transient state map.
+func TestTransientStorageRevertNilMapPanic(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, false)
+	statedb.CreateAccount(evmAddr)
+
+	tkey := common.BytesToHash([]byte("transient_key"))
+	value1 := common.BytesToHash([]byte("value1"))
+	value2 := common.BytesToHash([]byte("value2"))
+
+	// Step 1: TSTORE(key, value1) - creates map, journal entry with prevalue=0
+	statedb.SetTransientState(evmAddr, tkey, value1)
+	require.Equal(t, value1, statedb.GetTransientState(evmAddr, tkey))
+
+	// Step 2: Take first snapshot
+	firstSnapshot := statedb.Snapshot()
+
+	// Step 3: TSTORE(key, 0) - deletes value, journal entry with prevalue=value1
+	statedb.SetTransientState(evmAddr, tkey, common.Hash{})
+	require.Equal(t, common.Hash{}, statedb.GetTransientState(evmAddr, tkey))
+
+	// Step 4: Take second snapshot (not used, but part of the sequence)
+	_ = statedb.Snapshot()
+
+	// Step 5: TSTORE(key, value2) - sets value, journal entry with prevalue=0
+	statedb.SetTransientState(evmAddr, tkey, value2)
+	require.Equal(t, value2, statedb.GetTransientState(evmAddr, tkey))
+
+	// Step 6: RevertToSnapshot(first), this should NOT panic.
+	require.NotPanics(t, func() {
+		statedb.RevertToSnapshot(firstSnapshot)
+	})
+
+	// After revert, the transient state should be restored to value1
+	require.Equal(t, value1, statedb.GetTransientState(evmAddr, tkey))
 }

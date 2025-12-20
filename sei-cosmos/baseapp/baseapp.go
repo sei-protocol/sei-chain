@@ -31,7 +31,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/store"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
 )
@@ -87,7 +86,6 @@ type BaseApp struct { //nolint: maligned
 	interfaceRegistry types.InterfaceRegistry
 	txDecoder         sdk.TxDecoder // unmarshal []byte into sdk.Tx
 
-	anteDepGenerator          sdk.AnteDepGenerator // ante dep generator for parallelization
 	prepareProposalHandler    sdk.PrepareProposalHandler
 	processProposalHandler    sdk.ProcessProposalHandler
 	finalizeBlocker           sdk.FinalizeBlocker
@@ -660,6 +658,10 @@ func (app *BaseApp) setVotesInfo(votes []abci.VoteInfo) {
 	app.voteInfos = votes
 }
 
+func (app *BaseApp) UnsafeGetVoteInfos() []abci.VoteInfo {
+	return app.voteInfos
+}
+
 // GetConsensusParams returns the current consensus parameters from the BaseApp's
 // ParamStore. If the BaseApp has no ParamStore defined, nil is returned.
 func (app *BaseApp) GetConsensusParams(ctx sdk.Context) *tmproto.ConsensusParams {
@@ -821,9 +823,23 @@ func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context 
 	return ctx
 }
 
-// cacheTxContext returns a new context based off of the provided context with
+func (app *BaseApp) GetCheckTxContext(txBytes []byte, recheck bool) sdk.Context {
+	app.votesInfoLock.RLock()
+	defer app.votesInfoLock.RUnlock()
+	mode := runTxModeCheck
+	if recheck {
+		mode = runTxModeReCheck
+	}
+	ctx := app.getState(mode).Context().
+		WithTxBytes(txBytes).
+		WithVoteInfos(app.voteInfos)
+
+	return ctx.WithConsensusParams(app.GetConsensusParams(ctx))
+}
+
+// CacheTxContext returns a new context based off of the provided context with
 // a branched multi-store.
-func (app *BaseApp) cacheTxContext(ctx sdk.Context, checksum [32]byte) (sdk.Context, sdk.CacheMultiStore) {
+func (app *BaseApp) CacheTxContext(ctx sdk.Context, checksum [32]byte) (sdk.Context, sdk.CacheMultiStore) {
 	ms := ctx.MultiStore()
 	// TODO: https://github.com/cosmos/cosmos-sdk/issues/2824
 	msCache := ms.CacheMultiStore()
@@ -866,16 +882,6 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		time.Now(),
 	)
 
-	// Reset events after each checkTx or simulateTx or recheckTx
-	// DeliverTx is garbage collected after FinalizeBlocker
-	if mode != runTxModeDeliver {
-		defer ctx.MultiStore().ResetEvents()
-	}
-
-	// Wait for signals to complete before starting the transaction. This is needed before any of the
-	// resources are acceessed by the ante handlers and message handlers.
-	defer acltypes.SendAllSignalsForTx(ctx.TxCompletionChannels())
-	acltypes.WaitForAllSignalsForTx(ctx.TxBlockingChannels())
 	// check for existing parent tracer, and if applicable, use it
 	spanCtx, span := app.TracingInfo.StartWithContext("RunTx", ctx.TraceSpanContext())
 	defer span.End()
@@ -892,13 +898,9 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 
 	defer func() {
 		if r := recover(); r != nil {
-			acltypes.SendAllSignalsForTx(ctx.TxCompletionChannels())
 			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, app.runTxRecoveryMiddleware)
 			recoveryMW = newOCCAbortRecoveryMiddleware(recoveryMW) // TODO: do we have to wrap with occ enabled check?
 			err, result = processRecovery(r, recoveryMW), nil
-			if mode != runTxModeDeliver {
-				ctx.MultiStore().ResetEvents()
-			}
 		}
 		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed(), GasEstimate: gasEstimate}
 	}()
@@ -929,7 +931,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		// NOTE: Alternatively, we could require that AnteHandler ensures that
 		// writes do not happen if aborted/failed.  This may have some
 		// performance benefits, but it'll be more difficult to get right.
-		anteCtx, msCache = app.cacheTxContext(ctx, checksum)
+		anteCtx, msCache = app.CacheTxContext(ctx, checksum)
 		anteCtx = anteCtx.WithEventManager(sdk.NewEventManager())
 		newCtx, err := app.anteHandler(anteCtx, tx, mode == runTxModeSimulate)
 
@@ -962,23 +964,6 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		gasWanted = ctx.GasMeter().Limit()
 		gasEstimate = ctx.GasEstimate()
 
-		// Dont need to validate in checkTx mode
-		if ctx.MsgValidator() != nil && mode == runTxModeDeliver {
-			storeAccessOpEvents := msCache.GetEvents()
-			accessOps := ctx.TxMsgAccessOps()[acltypes.ANTE_MSG_INDEX]
-
-			// TODO: (occ) This is an example of where we do our current validation. Note that this validation operates on the declared dependencies for a TX / antehandler + the utilized dependencies, whereas the validation
-			missingAccessOps := ctx.MsgValidator().ValidateAccessOperations(accessOps, storeAccessOpEvents)
-			if len(missingAccessOps) != 0 {
-				for op := range missingAccessOps {
-					ctx.Logger().Info((fmt.Sprintf("Antehandler Missing Access Operation:%s ", op.String())))
-					op.EmitValidationFailMetrics()
-				}
-				errMessage := fmt.Sprintf("Invalid Concurrent Execution antehandler missing %d access operations", len(missingAccessOps))
-				return gInfo, nil, nil, 0, nil, nil, nil, ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidConcurrencyExecution, errMessage)
-			}
-		}
-
 		priority = ctx.Priority()
 		pendingTxChecker = ctx.PendingTxChecker()
 		expireHandler = ctx.ExpireTxHandler()
@@ -991,14 +976,14 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	// Create a new Context based off of the existing Context with a MultiStore branch
 	// in case message processing fails. At this point, the MultiStore
 	// is a branch of a branch.
-	runMsgCtx, msCache := app.cacheTxContext(ctx, checksum)
+	runMsgCtx, msCache := app.CacheTxContext(ctx, checksum)
 
 	// Attempt to execute all messages and only update state if all messages pass
-	// and we're in DeliverTx. Note, runMsgs will never return a reference to a
+	// and we're in DeliverTx. Note, RunMsgs will never return a reference to a
 	// Result if any single message fails or does not have a registered Handler.
-	result, err = app.runMsgs(runMsgCtx, msgs, mode)
+	result, err = app.RunMsgs(runMsgCtx, msgs)
 
-	if err == nil && mode == runTxModeDeliver {
+	if err == nil {
 		msCache.Write()
 	}
 	// we do this since we will only be looking at result in DeliverTx
@@ -1031,17 +1016,17 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	return gInfo, result, anteEvents, priority, pendingTxChecker, expireHandler, checkTxCallback, ctx, err
 }
 
-// runMsgs iterates through a list of messages and executes them with the provided
+// RunMsgs iterates through a list of messages and executes them with the provided
 // Context and execution mode. Messages will only be executed during simulation
 // and DeliverTx. An error is returned if any single message fails or if a
 // Handler does not exist for a given message route. Otherwise, a reference to a
 // Result is returned. The caller must not commit state if an error is returned.
-func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*sdk.Result, error) {
+func (app *BaseApp) RunMsgs(ctx sdk.Context, msgs []sdk.Msg) (*sdk.Result, error) {
 
 	defer telemetry.MeasureThroughputSinceWithLabels(
 		telemetry.MessageCount,
 		[]metrics.Label{
-			telemetry.NewLabel("mode", modeKeyToString[mode]),
+			telemetry.NewLabel("mode", "deliver"),
 		},
 		time.Now(),
 	)
@@ -1064,17 +1049,13 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 
 	// NOTE: GasWanted is determined by the AnteHandler and GasUsed by the GasMeter.
 	for i, msg := range msgs {
-		// skip actual execution for (Re)CheckTx mode
-		if mode == runTxModeCheck || mode == runTxModeReCheck {
-			break
-		}
 		var (
 			msgResult    *sdk.Result
 			eventMsgName string // name to use as value in event `message.action`
 			err          error
 		)
 
-		msgCtx, msgMsCache := app.cacheTxContext(ctx, [32]byte{})
+		msgCtx, msgMsCache := app.CacheTxContext(ctx, [32]byte{})
 		msgCtx = msgCtx.WithMessageIndex(i)
 
 		startTime := time.Now()
@@ -1132,27 +1113,6 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 		if msgResult.EvmError != "" {
 			evmError = msgResult.EvmError
 		}
-
-		if ctx.MsgValidator() == nil {
-			continue
-		}
-		storeAccessOpEvents := msgMsCache.GetEvents()
-		accessOps := ctx.TxMsgAccessOps()[i]
-		missingAccessOps := ctx.MsgValidator().ValidateAccessOperations(accessOps, storeAccessOpEvents)
-		// TODO: (occ) This is where we are currently validating our per message dependencies,
-		// whereas validation will be done holistically based on the mvkv for OCC approach
-		if len(missingAccessOps) != 0 {
-			for op := range missingAccessOps {
-				ctx.Logger().Info((fmt.Sprintf("eventMsgName=%s Missing Access Operation:%s ", eventMsgName, op.String())))
-				op.EmitValidationFailMetrics()
-			}
-			errMessage := fmt.Sprintf("Invalid Concurrent Execution messageIndex=%d, missing %d access operations", i, len(missingAccessOps))
-			// we need to bubble up the events for inspection
-			return &sdk.Result{
-				Log:    strings.TrimSpace(msgLogs.String()),
-				Events: events.ToABCIEvents(),
-			}, sdkerrors.Wrap(sdkerrors.ErrInvalidConcurrencyExecution, errMessage)
-		}
 	}
 
 	data, err := proto.Marshal(txMsgData)
@@ -1166,10 +1126,6 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 		Events:   events.ToABCIEvents(),
 		EvmError: evmError,
 	}, nil
-}
-
-func (app *BaseApp) GetAnteDepGenerator() sdk.AnteDepGenerator {
-	return app.anteDepGenerator
 }
 
 func (app *BaseApp) startCompactionRoutine(db dbm.DB) {

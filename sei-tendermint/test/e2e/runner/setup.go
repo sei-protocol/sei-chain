@@ -203,11 +203,7 @@ func MakeGenesis(testnet *e2e.Testnet) (types.GenesisDoc, error) {
 		ConsensusParams: types.DefaultConsensusParams(),
 		InitialHeight:   testnet.InitialHeight,
 	}
-	switch testnet.KeyType {
-	case "", types.ABCIPubKeyTypeEd25519, types.ABCIPubKeyTypeSecp256k1:
-		genesis.ConsensusParams.Validator.PubKeyTypes =
-			append(genesis.ConsensusParams.Validator.PubKeyTypes, types.ABCIPubKeyTypeSecp256k1)
-	default:
+	if testnet.KeyType != "" && testnet.KeyType != types.ABCIPubKeyTypeEd25519 {
 		return genesis, errors.New("unsupported KeyType")
 	}
 	genesis.ConsensusParams.Evidence.MaxAgeNumBlocks = e2e.EvidenceAgeHeight

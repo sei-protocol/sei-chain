@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"reflect"
 
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/gogo/protobuf/proto"
+	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 
 const (
@@ -218,9 +218,12 @@ func NewAbsoluteTxPosition(ctx sdk.Context) *AbsoluteTxPosition {
 	if height < 0 {
 		panic(fmt.Sprintf("unsupported height: %d", height))
 	}
+	if index < 0 {
+		panic(fmt.Sprintf("unsupported index: %d", index))
+	}
 	return &AbsoluteTxPosition{
-		BlockHeight: uint64(height),
-		TxIndex:     uint64(index),
+		BlockHeight: uint64(height), // #nosec G115 -- checked above.
+		TxIndex:     uint64(index),  // #nosec G115 -- checked above.
 	}
 }
 
@@ -262,7 +265,7 @@ func NewEnv(ctx sdk.Context, contractAddr sdk.AccAddress) wasmvmtypes.Env {
 
 	env := wasmvmtypes.Env{
 		Block: wasmvmtypes.BlockInfo{
-			Height:  uint64(ctx.BlockHeight()),
+			Height:  uint64(ctx.BlockHeight()), // #nosec G115 -- checked above.
 			Time:    uint64(nano),
 			ChainID: ctx.ChainID(),
 		},

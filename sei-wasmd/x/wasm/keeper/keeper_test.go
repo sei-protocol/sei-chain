@@ -4,15 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"io/ioutil"
 	"math"
+	"os"
 	"testing"
 	"time"
 
 	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 
-	wasmvm "github.com/CosmWasm/wasmvm"
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
+	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
+	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -24,13 +24,13 @@ import (
 
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/CosmWasm/wasmd/x/wasm/keeper/wasmtesting"
-	"github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper/wasmtesting"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 // When migrated to go 1.16, embed package should be used instead.
 func init() {
-	b, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	b, err := os.ReadFile("./testdata/hackatom.wasm")
 	if err != nil {
 		panic(err)
 	}
@@ -347,7 +347,7 @@ func TestCreateWithGzippedPayload(t *testing.T) {
 	deposit := sdk.NewCoins(sdk.NewInt64Coin("denom", 100000))
 	creator := keepers.Faucet.NewFundedAccount(ctx, deposit...)
 
-	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm.gzip")
+	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm.gzip")
 	require.NoError(t, err, "reading gzipped WASM code")
 
 	contractID, err := keeper.Create(ctx, creator, wasmCode, nil)
@@ -389,7 +389,7 @@ func TestInstantiate(t *testing.T) {
 
 	gasAfter := ctx.GasMeter().GasConsumed()
 	if types.EnableGasVerification {
-		require.Equal(t, uint64(0x18b5d), gasAfter-gasBefore)
+		require.Equal(t, uint64(0x18b7c), gasAfter-gasBefore)
 	}
 
 	// ensure it is stored properly
@@ -622,7 +622,7 @@ func TestExecute(t *testing.T) {
 	// make sure gas is properly deducted from ctx
 	gasAfter := ctx.GasMeter().GasConsumed()
 	if types.EnableGasVerification {
-		require.Equal(t, uint64(0x17c7a), gasAfter-gasBefore)
+		require.Equal(t, uint64(0x17ca5), gasAfter-gasBefore)
 	}
 	// ensure bob now exists and got both payments released
 	bobAcct = accKeeper.GetAccount(ctx, bob)
@@ -1083,7 +1083,7 @@ func TestMigrateWithDispatchedMessage(t *testing.T) {
 	creator := keepers.Faucet.NewFundedAccount(ctx, deposit.Add(deposit...)...)
 	fred := keepers.Faucet.NewFundedAccount(ctx, sdk.NewInt64Coin("denom", 5000))
 
-	burnerCode, err := ioutil.ReadFile("./testdata/burner.wasm")
+	burnerCode, err := os.ReadFile("./testdata/burner.wasm")
 	require.NoError(t, err)
 
 	originalContractID, err := keeper.Create(ctx, creator, hackatomWasm, nil)

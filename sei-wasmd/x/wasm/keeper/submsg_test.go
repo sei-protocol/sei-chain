@@ -3,16 +3,16 @@ package keeper
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"strconv"
 	"testing"
 
-	"github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 
 	"github.com/stretchr/testify/assert"
 
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,7 +31,7 @@ func TestDispatchSubMsgSuccessCase(t *testing.T) {
 	_, _, fred := keyPubAddr()
 
 	// upload code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
+	reflectCode, err := os.ReadFile("./testdata/reflect.wasm")
 	require.NoError(t, err)
 	codeID, err := keepers.ContractKeeper.Create(ctx, creator, reflectCode, nil)
 	require.NoError(t, err)
@@ -121,13 +121,13 @@ func TestDispatchSubMsgErrorHandling(t *testing.T) {
 	uploader := keepers.Faucet.NewFundedAccount(ctx, contractStart.Add(contractStart...)...)
 
 	// upload code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
+	reflectCode, err := os.ReadFile("./testdata/reflect.wasm")
 	require.NoError(t, err)
 	reflectID, err := keepers.ContractKeeper.Create(ctx, uploader, reflectCode, nil)
 	require.NoError(t, err)
 
 	// create hackatom contract for testing (for infinite loop)
-	hackatomCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
+	hackatomCode, err := os.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 	hackatomID, err := keepers.ContractKeeper.Create(ctx, uploader, hackatomCode, nil)
 	require.NoError(t, err)
@@ -380,7 +380,7 @@ func TestDispatchSubMsgEncodeToNoSdkMsg(t *testing.T) {
 	_, _, fred := keyPubAddr()
 
 	// upload code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
+	reflectCode, err := os.ReadFile("./testdata/reflect.wasm")
 	require.NoError(t, err)
 	codeID, err := keepers.ContractKeeper.Create(ctx, creator, reflectCode, nil)
 	require.NoError(t, err)
@@ -448,7 +448,7 @@ func TestDispatchSubMsgConditionalReplyOn(t *testing.T) {
 	_, _, fred := keyPubAddr()
 
 	// upload code
-	reflectCode, err := ioutil.ReadFile("./testdata/reflect.wasm")
+	reflectCode, err := os.ReadFile("./testdata/reflect.wasm")
 	require.NoError(t, err)
 	codeID, err := keepers.ContractKeeper.Create(ctx, creator, reflectCode, nil)
 	require.NoError(t, err)

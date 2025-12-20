@@ -5,14 +5,13 @@ import (
 	"fmt"
 
 	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/batch"
 	tmmath "github.com/tendermint/tendermint/libs/math"
 )
 
 const batchVerifyThreshold = 2
 
 func shouldBatchVerify(vals *ValidatorSet, commit *Commit) bool {
-	return len(commit.Signatures) >= batchVerifyThreshold && batch.SupportsBatchVerifier(vals.GetProposer().PubKey)
+	return len(commit.Signatures) >= batchVerifyThreshold
 }
 
 // TODO(wbanfield): determine if the following comment is still true regarding Gaia.
@@ -168,13 +167,11 @@ func verifyCommitBatch(
 		seenVals           = make(map[int32]int, len(commit.Signatures))
 		batchSigIdxs       = make([]int, 0, len(commit.Signatures))
 	)
-	// attempt to create a batch verifier
-	bv, ok := batch.CreateBatchVerifier(vals.GetProposer().PubKey)
-	// re-check if batch verification is supported
-	if !ok || len(commit.Signatures) < batchVerifyThreshold {
-		// This should *NEVER* happen.
-		return fmt.Errorf("unsupported signature algorithm or insufficient signatures for batch verification")
+	if len(commit.Signatures) < batchVerifyThreshold {
+		return fmt.Errorf("insufficient signatures for batch verification")
 	}
+
+	bv := crypto.NewBatchVerifier()
 
 	for idx, commitSig := range commit.Signatures {
 		// skip over signatures that should be ignored

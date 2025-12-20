@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"runtime"
 
-	errorutils "github.com/sei-protocol/sei-db/common/errors"
-	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/sc/types"
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/sc/types"
 )
 
 // exportBufferSize is the number of nodes to buffer in the exporter. It improves throughput by
@@ -50,7 +50,7 @@ func NewMultiTreeExporter(dir string, version uint32, onlyAllowExportOnSnapshotV
 		if int64(version) > curVersion {
 			return nil, fmt.Errorf("export skipped because memiavl snapshot is not created yet for height: %d", version)
 		}
-		mtree, err = LoadMultiTree(filepath.Join(dir, snapshotName(int64(version))), opts)
+		mtree, err = LoadMultiTree(context.Background(), filepath.Join(dir, snapshotName(int64(version))), opts)
 		if err != nil {
 			return nil, fmt.Errorf("memiavl snapshot don't exist for height: %d, %w", version, err)
 		}

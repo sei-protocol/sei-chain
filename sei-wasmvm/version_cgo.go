@@ -3,7 +3,7 @@
 package cosmwasm
 
 import (
-	"github.com/CosmWasm/wasmvm/internal/api"
+	"github.com/sei-protocol/sei-chain/sei-wasmvm/internal/api"
 )
 
 func libwasmvmVersionImpl() (string, error) {

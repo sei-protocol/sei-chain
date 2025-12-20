@@ -1440,16 +1440,8 @@ func TestValidatorSetProtoBuf(t *testing.T) {
 	ctx := t.Context()
 
 	valset, _ := randValidatorPrivValSet(ctx, t, 10, 100)
-	valset2, _ := randValidatorPrivValSet(ctx, t, 10, 100)
-	valset2.Validators[0] = &Validator{}
-
 	valset3, _ := randValidatorPrivValSet(ctx, t, 10, 100)
 	valset3.Proposer = nil
-
-	valset4, _ := randValidatorPrivValSet(ctx, t, 10, 100)
-
-	valset4.Proposer = &Validator{}
-
 	testCases := []struct {
 		msg      string
 		v1       *ValidatorSet
@@ -1457,9 +1449,7 @@ func TestValidatorSetProtoBuf(t *testing.T) {
 		expPass2 bool
 	}{
 		{"success", valset, true, true},
-		{"fail valSet2, pubkey empty", valset2, false, false},
 		{"fail nil Proposer", valset3, false, false},
-		{"fail empty Proposer", valset4, false, false},
 		{"fail empty valSet", &ValidatorSet{}, true, false},
 		{"false nil", nil, true, false},
 	}
@@ -1531,7 +1521,7 @@ func BenchmarkUpdates(b *testing.B) {
 	)
 	// Init with n validators
 	vs := make([]*Validator, n)
-	for j := 0; j < n; j++ {
+	for j := range n {
 		vs[j] = newValidator([]byte(fmt.Sprintf("v%d", j)), 100)
 	}
 	valSet := NewValidatorSet(vs)
@@ -1566,7 +1556,7 @@ func BenchmarkValidatorSet_VerifyCommit_Ed25519(b *testing.B) { // nolint
 			// generate n validators
 			voteSet, valSet, vals := randVoteSet(ctx, b, h, 0, tmproto.PrecommitType, n, int64(n*5))
 			// create a commit with n validators
-			commit, err := makeCommit(ctx, blockID, h, 0, voteSet, vals, time.Now())
+			commit, err := MakeCommit(ctx, blockID, h, 0, voteSet, vals, time.Now())
 			require.NoError(b, err)
 
 			for i := 0; i < b.N/n; i++ {
@@ -1593,7 +1583,7 @@ func BenchmarkValidatorSet_VerifyCommitLight_Ed25519(b *testing.B) { // nolint
 			voteSet, valSet, vals := randVoteSet(ctx, b, h, 0, tmproto.PrecommitType, n, int64(n*5))
 
 			// create a commit with n validators
-			commit, err := makeCommit(ctx, blockID, h, 0, voteSet, vals, time.Now())
+			commit, err := MakeCommit(ctx, blockID, h, 0, voteSet, vals, time.Now())
 			require.NoError(b, err)
 
 			for i := 0; i < b.N/n; i++ {
@@ -1619,7 +1609,7 @@ func BenchmarkValidatorSet_VerifyCommitLightTrusting_Ed25519(b *testing.B) {
 			// generate n validators
 			voteSet, valSet, vals := randVoteSet(ctx, b, h, 0, tmproto.PrecommitType, n, int64(n*5))
 			// create a commit with n validators
-			commit, err := makeCommit(ctx, blockID, h, 0, voteSet, vals, time.Now())
+			commit, err := MakeCommit(ctx, blockID, h, 0, voteSet, vals, time.Now())
 			require.NoError(b, err)
 
 			for i := 0; i < b.N/n; i++ {

@@ -15,7 +15,6 @@ import (
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/crypto/secp256k1"
 	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
 	"github.com/tendermint/tendermint/types"
 )
@@ -302,9 +301,7 @@ func (t Testnet) Validate() error {
 	if len(t.Nodes) == 0 {
 		return errors.New("network has no nodes")
 	}
-	switch t.KeyType {
-	case "", types.ABCIPubKeyTypeEd25519, types.ABCIPubKeyTypeSecp256k1:
-	default:
+	if t.KeyType != "" && t.KeyType != types.ABCIPubKeyTypeEd25519 {
 		return errors.New("unsupported KeyType")
 	}
 	switch t.ABCIProtocol {
@@ -490,14 +487,10 @@ func (g *keyGenerator) Generate(keyType string) crypto.PrivKey {
 	if err != nil {
 		panic(err) // this shouldn't happen
 	}
-	switch keyType {
-	case "secp256k1":
-		return secp256k1.GenPrivKeySecp256k1(seed)
-	case "", "ed25519":
-		return ed25519.GenPrivKeyFromSecret(seed)
-	default:
-		panic("KeyType not supported") // should not make it this far
+	if keyType != "" && keyType != "ed25519" {
+		panic("KeyType not supported")
 	}
+	return ed25519.GenPrivKeyFromSecret(seed)
 }
 
 // portGenerator generates local Docker proxy ports for each node.

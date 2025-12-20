@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sei-protocol/sei-db/tools/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -40,7 +40,7 @@ func generate(cmd *cobra.Command, _ []string) {
 
 	// Default to all modules
 	exportModules := []string{
-		"dex", "wasm", "accesscontrol", "oracle", "epoch", "mint", "acc", "bank", "crisis", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
+		"wasm", "oracle", "epoch", "mint", "acc", "bank", "crisis", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
 	}
 	if modules != "" {
 		exportModules = strings.Split(modules, ",")

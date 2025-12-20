@@ -7,18 +7,18 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/alitto/pond"
+	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/stream/types"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"golang.org/x/exp/slices"
-
-	"github.com/cosmos/iavl"
-	"github.com/sei-protocol/sei-db/common/errors"
-	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/common/utils"
-	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/stream/types"
 )
 
 const (
@@ -75,7 +75,7 @@ func NewEmptyMultiTree(initialVersion uint32) *MultiTree {
 	return mt
 }
 
-func LoadMultiTree(dir string, opts Options) (*MultiTree, error) {
+func LoadMultiTree(ctx context.Context, dir string, opts Options) (*MultiTree, error) {
 	startTime := time.Now()
 	log := opts.Logger
 	metadata, err := readMetadata(dir)
@@ -91,6 +91,12 @@ func LoadMultiTree(dir string, opts Options) (*MultiTree, error) {
 	treeMap := make(map[string]*Tree, len(entries))
 	treeNames := make([]string, 0, len(entries))
 	for _, e := range entries {
+		// Check for cancellation
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
 		if !e.IsDir() {
 			continue
 		}
@@ -191,10 +197,16 @@ func (t *MultiTree) Copy() *MultiTree {
 		treesByName[entry.Name] = i
 	}
 
-	clone := *t
+	clone := MultiTree{
+		logger:         t.logger,
+		zeroCopy:       t.zeroCopy,
+		lastCommitInfo: t.lastCommitInfo,
+		metadata:       t.metadata,
+	}
+	clone.initialVersion.Store(t.initialVersion.Load())
 	clone.trees = trees
 	clone.treesByName = treesByName
-	clone.logger = t.logger
+
 	return &clone
 }
 
@@ -343,7 +355,7 @@ func (t *MultiTree) UpdateCommitInfo() {
 }
 
 // Catchup replay the new entries in the Rlog file on the tree to catch up to the target or latest version.
-func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersion int64) error {
+func (t *MultiTree) Catchup(ctx context.Context, stream types.Stream[proto.ChangelogEntry], endVersion int64) error {
 	startTime := time.Now()
 	lastIndex, err := stream.LastOffset()
 	if err != nil {
@@ -372,6 +384,12 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 
 	var replayCount = 0
 	err = stream.Replay(firstIndex, endIndex, func(index uint64, entry proto.ChangelogEntry) error {
+		// Check for cancellation
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		if err := t.ApplyUpgrades(entry.Upgrades); err != nil {
 			return err
 		}
@@ -455,17 +473,32 @@ func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp
 		t.logger.Info("writing remaining trees", "phase", "2/2", "count", len(otherTrees))
 		phase2Start := time.Now()
 
-		group, _ := wp.GroupContext(ctx)
+		// NOTE: We use explicit WaitGroup instead of pond.GroupContext because
+		// GroupContext.Wait() returns immediately on context cancellation without
+		// waiting for workers to finish. This causes data races when DB.Close()
+		// destroys mmap resources that background writers are still accessing.
+		// The WaitGroup ensures all goroutines fully exit before we return.
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var errs []error
 
 		for _, entry := range otherTrees {
-			tree, name := entry.Tree, entry.Name
-			group.Submit(func() error {
-				return tree.WriteSnapshot(ctx, filepath.Join(dir, name))
+			// Capture loop variables for goroutine closure to avoid data race
+			entry := entry // Create new variable for closure capture
+			wg.Add(1)
+			wp.Submit(func() {
+				defer wg.Done()
+				if err := entry.WriteSnapshot(ctx, filepath.Join(dir, entry.Name)); err != nil {
+					mu.Lock()
+					errs = append(errs, fmt.Errorf("tree %s: %w", entry.Name, err))
+					mu.Unlock()
+				}
 			})
 		}
 
-		if err := group.Wait(); err != nil {
-			return err
+		wg.Wait()
+		if len(errs) > 0 {
+			return errors.Join(errs...)
 		}
 
 		phase2Elapsed := time.Since(phase2Start).Seconds()

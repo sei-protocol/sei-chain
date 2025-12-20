@@ -7,14 +7,15 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/cosmos/iavl"
-	"github.com/sei-protocol/sei-db/common/errors"
-	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/common/utils"
-	"github.com/sei-protocol/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 )
 
@@ -103,15 +104,24 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 
 	// spin up goroutine to keep querying the tree
 	stopCh := make(chan struct{})
-	defer close(stopCh) // Ensure goroutine cleanup even if test fails early
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		ticker := time.NewTicker(5 * time.Millisecond)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				value := db.TreeByName("test").Get([]byte("hello1"))
-				require.True(t, value == nil || string(value) == "world1")
+				tree := db.TreeByName("test")
+				if tree == nil {
+					return
+				}
+				value := tree.Get([]byte("hello1"))
+				// check value only if we got valid result (snapshot might be swapping)
+				if value != nil {
+					require.Equal(t, "world1", string(value))
+				}
 			case <-stopCh:
 				return
 			}
@@ -139,6 +149,10 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 		_ = db.checkAsyncTasks()
 		return db.snapshotRewriteChan == nil
 	}, 3*time.Second, 50*time.Millisecond, "all snapshot rewrites should complete")
+
+	close(stopCh)
+	wg.Wait()
+
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
 
@@ -646,4 +660,140 @@ func TestRepeatedApplyChangeSet(t *testing.T) {
 		},
 	})
 	require.Error(t, err)
+}
+
+func TestLoadMultiTreeWithCancelledContext(t *testing.T) {
+	// Create a DB with some data first
+	dir := t.TempDir()
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+
+	// Add some data and create a snapshot
+	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "test", Changeset: iavl.ChangeSet{
+			Pairs: []*iavl.KVPair{{Key: []byte("key"), Value: []byte("value")}},
+		}},
+	}))
+	_, err = db.Commit()
+	require.NoError(t, err)
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	require.NoError(t, db.Close())
+
+	// Try to load with already cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err = LoadMultiTree(ctx, filepath.Join(dir, "current"), Options{
+		Dir:      dir,
+		ZeroCopy: true,
+		Logger:   logger.NewNopLogger(),
+	})
+	require.Error(t, err)
+	require.Equal(t, context.Canceled, err)
+}
+
+func TestCatchupWithCancelledContext(t *testing.T) {
+	// Create a DB with some data
+	dir := t.TempDir()
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	defer db.Close()
+
+	// Add multiple versions to have changelog entries
+	for i := 0; i < 5; i++ {
+		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: "test", Changeset: iavl.ChangeSet{
+				Pairs: []*iavl.KVPair{{Key: []byte("key"), Value: []byte("value" + strconv.Itoa(i))}},
+			}},
+		}))
+		_, err = db.Commit()
+		require.NoError(t, err)
+	}
+
+	// Create snapshot at version 2
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+
+	// Load the snapshot (at version 5)
+	mtree, err := LoadMultiTree(context.Background(), filepath.Join(dir, "current"), Options{
+		Dir:      dir,
+		ZeroCopy: true,
+		Logger:   logger.NewNopLogger(),
+	})
+	require.NoError(t, err)
+	defer mtree.Close()
+
+	// Catchup with cancelled context should return error
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	err = mtree.Catchup(ctx, db.streamHandler, 0)
+	// If already caught up, no error; otherwise should get context.Canceled
+	if err != nil {
+		require.Equal(t, context.Canceled, err)
+	}
+}
+
+func TestCloseWaitsForBackgroundSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:              dir,
+		CreateIfMissing:  true,
+		InitialStores:    []string{"test"},
+		SnapshotInterval: 1, // Trigger snapshot on every commit
+	})
+	require.NoError(t, err)
+
+	// Add some data to trigger background snapshot
+	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "test", Changeset: iavl.ChangeSet{
+			Pairs: []*iavl.KVPair{{Key: []byte("key"), Value: []byte("value")}},
+		}},
+	}))
+	_, err = db.Commit()
+	require.NoError(t, err)
+
+	// Close should wait for background snapshot and not panic
+	err = db.Close()
+	require.NoError(t, err)
+}
+
+func TestCloseWithSuccessfulBackgroundSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:                     dir,
+		CreateIfMissing:         true,
+		InitialStores:           []string{"test"},
+		SnapshotInterval:        0, // Disable auto snapshot
+		SnapshotMinTimeInterval: 0,
+	})
+	require.NoError(t, err)
+
+	// Add data and commit
+	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "test", Changeset: iavl.ChangeSet{
+			Pairs: []*iavl.KVPair{{Key: []byte("key"), Value: []byte("value")}},
+		}},
+	}))
+	_, err = db.Commit()
+	require.NoError(t, err)
+
+	// Manually trigger background snapshot (without going through Commit which would process the result)
+	err = db.RewriteSnapshotBackground()
+	require.NoError(t, err)
+
+	// Wait for background snapshot to complete
+	time.Sleep(500 * time.Millisecond)
+
+	// Close should properly close the returned mtree from background snapshot
+	// This tests the result.mtree != nil branch in Close()
+	err = db.Close()
+	require.NoError(t, err)
 }

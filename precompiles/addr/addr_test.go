@@ -167,7 +167,7 @@ func TestAssociatePubKey(t *testing.T) {
 			}
 			if err != nil {
 				require.Equal(t, vm.ErrExecutionReverted, err)
-				require.Equal(t, tt.wantErrMsg, string(ret))
+				require.Nil(t, ret)
 			} else if tt.wrongRet {
 				// tt.wrongRet is set if we expect a return value that's different from the happy path. This means that the wrong addresses were associated.
 				require.NotEqual(t, tt.wantRet, ret)
@@ -358,7 +358,7 @@ func TestAssociate(t *testing.T) {
 			}
 			if err != nil {
 				require.Equal(t, vm.ErrExecutionReverted, err)
-				require.Equal(t, tt.wantErrMsg, string(ret))
+				require.Nil(t, ret)
 			} else if tt.wrongRet {
 				// tt.wrongRet is set if we expect a return value that's different from the happy path. This means that the wrong addresses were associated.
 				require.NotEqual(t, tt.wantRet, ret)

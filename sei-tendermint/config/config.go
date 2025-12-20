@@ -876,8 +876,8 @@ func DefaultMempoolConfig() *MempoolConfig {
 		TTLDuration:                  5 * time.Second, // prevent stale txs from filling mempool
 		TTLNumBlocks:                 10,              // remove txs after 10 blocks
 		TxNotifyThreshold:            0,
-		CheckTxErrorBlacklistEnabled: false,
-		CheckTxErrorThreshold:        0,
+		CheckTxErrorBlacklistEnabled: true,
+		CheckTxErrorThreshold:        50,
 		PendingSize:                  5000,
 		MaxPendingTxsBytes:           1024 * 1024 * 1024, // 1GB
 		PendingTTLDuration:           0 * time.Second,
@@ -1099,7 +1099,6 @@ func (cfg *StateSyncConfig) ValidateBasic() error {
 type ConsensusConfig struct {
 	RootDir string `mapstructure:"home"`
 	WalPath string `mapstructure:"wal-file"`
-	walFile string // overrides WalPath if set
 
 	// EmptyBlocks mode and possible interval between empty blocks
 	CreateEmptyBlocks         bool          `mapstructure:"create-empty-blocks"`
@@ -1193,15 +1192,7 @@ func (cfg *ConsensusConfig) WaitForTxs() bool {
 
 // WalFile returns the full path to the write-ahead log file
 func (cfg *ConsensusConfig) WalFile() string {
-	if cfg.walFile != "" {
-		return cfg.walFile
-	}
 	return rootify(cfg.WalPath, cfg.RootDir)
-}
-
-// SetWalFile sets the path to the write-ahead log file
-func (cfg *ConsensusConfig) SetWalFile(walFile string) {
-	cfg.walFile = walFile
 }
 
 // ValidateBasic performs basic validation (checking param bounds, etc.) and

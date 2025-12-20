@@ -2,8 +2,10 @@ version: v2
 inputs:
   - directory: proto
   - directory: sei-cosmos/proto
+  - directory: sei-ibc-go/proto
   - directory: sei-tendermint/proto
   - directory: sei-wasmd/proto
+  - directory: sei-iavl/proto
 plugins:
   - local:
       - ./build/proto/gocosmos/protoc-gen-gocosmos

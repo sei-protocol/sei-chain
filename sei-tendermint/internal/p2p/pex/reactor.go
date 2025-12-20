@@ -7,19 +7,17 @@ import (
 	"time"
 
 	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
-	protop2p "github.com/tendermint/tendermint/proto/tendermint/p2p"
+	pb "github.com/tendermint/tendermint/proto/tendermint/p2p"
 	"github.com/tendermint/tendermint/types"
 	"golang.org/x/time/rate"
 )
 
 var (
 	_ service.Service = (*Reactor)(nil)
-	_ p2p.Wrapper     = (*protop2p.PexMessage)(nil)
 )
 
 var maxPeerRecvRate = rate.Every(100 * time.Millisecond)
@@ -55,10 +53,10 @@ var NoPeersAvailableError = errors.New("no available peers to send a PEX request
 // within each reactor (as they are now) or, considering that the reactor doesn't
 // really need to care about the channel descriptors, if they should be housed
 // in the node module.
-func ChannelDescriptor() conn.ChannelDescriptor {
-	return conn.ChannelDescriptor{
+func ChannelDescriptor() p2p.ChannelDescriptor[*pb.PexMessage] {
+	return p2p.ChannelDescriptor[*pb.PexMessage]{
 		ID:                  PexChannel,
-		MessageType:         new(protop2p.PexMessage),
+		MessageType:         new(pb.PexMessage),
 		Priority:            1,
 		SendQueueCapacity:   10,
 		RecvMessageCapacity: maxMsgSize,
@@ -82,7 +80,7 @@ type Reactor struct {
 	router       *p2p.Router
 	// peerLimiters limits the number of messages received from peers.
 	peerLimiters utils.Mutex[map[types.NodeID]*rate.Limiter]
-	channel      *p2p.Channel
+	channel      *p2p.Channel[*pb.PexMessage]
 }
 
 // NewReactor returns a reference to a new reactor.
@@ -91,7 +89,7 @@ func NewReactor(
 	router *p2p.Router,
 	sendInterval time.Duration,
 ) (*Reactor, error) {
-	channel, err := router.OpenChannel(ChannelDescriptor())
+	channel, err := p2p.OpenChannel(router, ChannelDescriptor())
 	if err != nil {
 		return nil, err
 	}
@@ -124,10 +122,21 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 // OnStop implements service.Service.
 func (r *Reactor) OnStop() {}
 
+func wrap[T *pb.PexRequest | *pb.PexResponse](msg T) *pb.PexMessage {
+	switch msg := any(msg).(type) {
+	case *pb.PexRequest:
+		return &pb.PexMessage{Sum: &pb.PexMessage_PexRequest{PexRequest: msg}}
+	case *pb.PexResponse:
+		return &pb.PexMessage{Sum: &pb.PexMessage_PexResponse{PexResponse: msg}}
+	default:
+		panic("unreachable")
+	}
+}
+
 func (r *Reactor) sendRoutine(ctx context.Context) error {
 	for {
 		r.logger.Info("PEX broadcast")
-		r.channel.Broadcast(&protop2p.PexRequest{})
+		r.channel.Broadcast(wrap(&pb.PexRequest{}))
 		if err := utils.Sleep(ctx, r.sendInterval); err != nil {
 			return err
 		}
@@ -171,7 +180,7 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 // handlePexMessage handles envelopes sent from peers on the PexChannel.
 // If an update was received, a new polling interval is returned; otherwise the
 // duration is 0.
-func (r *Reactor) handlePexMessage(m p2p.RecvMsg) error {
+func (r *Reactor) handlePexMessage(m p2p.RecvMsg[*pb.PexMessage]) error {
 	for peerLimiters := range r.peerLimiters.Lock() {
 		if _, ok := peerLimiters[m.From]; !ok {
 			peerLimiters[m.From] = rate.NewLimiter(maxPeerRecvRate, maxPeerRecvBurst)
@@ -180,27 +189,28 @@ func (r *Reactor) handlePexMessage(m p2p.RecvMsg) error {
 			return fmt.Errorf("peer rate limit exceeded")
 		}
 	}
-	switch msg := m.Message.(type) {
-	case *protop2p.PexRequest:
+	switch msg := m.Message.Sum.(type) {
+	case *pb.PexMessage_PexRequest:
 		// Fetch peers from the peer manager, convert NodeAddresses into URL
 		// strings, and send them back to the caller.
 		nodeAddresses := r.router.Advertise(maxAddresses)
-		pexAddresses := make([]protop2p.PexAddress, len(nodeAddresses))
+		pexAddresses := make([]pb.PexAddress, len(nodeAddresses))
 		for idx, addr := range nodeAddresses {
-			pexAddresses[idx] = protop2p.PexAddress{URL: addr.String()}
+			pexAddresses[idx] = pb.PexAddress{URL: addr.String()}
 		}
-		r.channel.Send(&protop2p.PexResponse{Addresses: pexAddresses}, m.From)
+		r.channel.Send(wrap(&pb.PexResponse{Addresses: pexAddresses}), m.From)
 		return nil
 
-	case *protop2p.PexResponse:
+	case *pb.PexMessage_PexResponse:
+		resp := msg.PexResponse
 		// Verify that the response does not exceed the safety limit.
-		if len(msg.Addresses) > maxAddresses {
+		if len(resp.Addresses) > maxAddresses {
 			return fmt.Errorf("peer sent too many addresses (%d > maxiumum %d)",
-				len(msg.Addresses), maxAddresses)
+				len(resp.Addresses), maxAddresses)
 		}
 
 		var addrs []p2p.NodeAddress
-		for _, pexAddress := range msg.Addresses {
+		for _, pexAddress := range resp.Addresses {
 			addr, err := p2p.ParseNodeAddress(pexAddress.URL)
 			if err != nil {
 				return fmt.Errorf("PEX parse node address error: %w", err)

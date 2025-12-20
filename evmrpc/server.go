@@ -5,16 +5,18 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/rpc"
+
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/evmrpc/stats"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/ss/types"
 	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
-	sstypes "github.com/sei-protocol/sei-db/ss/types"
 	"github.com/tendermint/tendermint/libs/log"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
@@ -34,7 +36,7 @@ type EVMServer interface {
 
 func NewEVMHTTPServer(
 	logger log.Logger,
-	config Config,
+	config evmrpcconfig.Config,
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
 	beginBlockKeepers legacyabci.BeginBlockKeepers,
@@ -48,8 +50,23 @@ func NewEVMHTTPServer(
 ) (EVMServer, error) {
 	logger = logger.With("module", "evmrpc")
 
-	// Initialize global worker pool with configuration
+	// Initialize global worker pool with configuration (metrics are embedded in pool)
 	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
+
+	// Get pool for logging and DB semaphore setup
+	pool := GetGlobalWorkerPool()
+	workerCount := pool.WorkerCount()
+	queueSize := pool.QueueSize()
+
+	// Set DB semaphore capacity in metrics (aligned with worker count)
+	// Only set once to avoid races when multiple test servers start in parallel.
+	pool.Metrics.DBSemaphoreCapacity.CompareAndSwap(0, int32(workerCount)) //nolint:gosec // G115: safe, max is 64
+
+	debugEnabled := IsDebugMetricsEnabled()
+	logger.Info("Started EVM RPC metrics exporter (interval: 5s)", "workers", workerCount, "queue", queueSize, "db_semaphore", workerCount, "debug_stdout", debugEnabled)
+	if !debugEnabled {
+		logger.Info("To enable debug metrics output to stdout, set EVM_DEBUG_METRICS=true")
+	}
 
 	// Initialize RPC tracker
 	stats.InitRPCTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
@@ -85,7 +102,8 @@ func NewEVMHTTPServer(
 	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex)
 	seiDebugAPI := NewSeiDebugAPI(tmClient, k, beginBlockKeepers, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex, watermarks)
 
-	dbReadSemaphore := make(chan struct{}, MaxDBReadConcurrency)
+	// DB semaphore aligned with worker count
+	dbReadSemaphore := make(chan struct{}, workerCount)
 	globalLogSlicePool := NewLogSlicePool()
 	apis := []rpc.API{
 		{
@@ -211,7 +229,7 @@ func NewEVMHTTPServer(
 
 func NewEVMWebSocketServer(
 	logger log.Logger,
-	config Config,
+	config evmrpcconfig.Config,
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
 	beginBlockKeepers legacyabci.BeginBlockKeepers,
@@ -224,7 +242,8 @@ func NewEVMWebSocketServer(
 ) (EVMServer, error) {
 	logger = logger.With("module", "evmrpc")
 
-	// Initialize global worker pool with configuration
+	// Initialize global worker pool with configuration (metrics are embedded in pool)
+	// This is idempotent - if HTTP server already initialized it, this is a no-op
 	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
 
 	// Initialize WebSocket tracker.
@@ -245,7 +264,8 @@ func NewEVMWebSocketServer(
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
 	}
 	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
-	dbReadSemaphore := make(chan struct{}, MaxDBReadConcurrency)
+	// DB semaphore aligned with worker count
+	dbReadSemaphore := make(chan struct{}, GetGlobalWorkerPool().WorkerCount())
 	globalBlockCache := NewBlockCache(3000)
 	cacheCreationMutex := &sync.Mutex{}
 	globalLogSlicePool := NewLogSlicePool()

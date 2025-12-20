@@ -3,7 +3,7 @@ package testdb
 import (
 	"errors"
 
-	"github.com/CosmWasm/wasmvm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 
 var (

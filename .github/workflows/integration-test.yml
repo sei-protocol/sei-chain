@@ -115,6 +115,12 @@ jobs:
             ]
           },
           {
+            name: "Disable WASM Tests",
+            scripts: [
+              "./integration_test/evm_module/scripts/disable_wasm.sh",
+            ]
+          },
+          {
             name: "dApp Tests",
             scripts: [
               "./integration_test/dapp_tests/dapp_tests.sh seilocal"
@@ -143,7 +149,7 @@ jobs:
           go-version: 1.24
 
       - name: Start 4 node docker cluster
-        run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start &
+        run: make clean && DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start
 
       - name: Wait for docker cluster to start
         run: |
@@ -169,6 +175,36 @@ jobs:
             bash -c "${script}"
           done
           unset IFS  # revert the internal field separator back to default
+
+      - name: Prepare log artifact name
+        if: ${{ always() }}
+        id: log_artifact_meta
+        run: |
+          raw="${{ matrix.test.name }}"
+          safe=$(echo "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g' | sed -E 's/^-+|-+$//g')
+          if [ -z "$safe" ]; then
+            safe="logs"
+          fi
+          echo "artifact_name=$safe" >> $GITHUB_OUTPUT
+
+      - name: Collect logs directory
+        if: ${{ always() }}
+        run: |
+          LOG_ROOT="artifacts/sei-${{ steps.log_artifact_meta.outputs.artifact_name }}"
+          mkdir -p "$LOG_ROOT"
+          if [ -d build/generated/logs ]; then
+            cp -r build/generated/logs "$LOG_ROOT/"
+          else
+            echo "No logs directory found"
+          fi
+
+      - name: Upload logs directory
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs-${{ steps.log_artifact_meta.outputs.artifact_name }}
+          path: artifacts/sei-${{ steps.log_artifact_meta.outputs.artifact_name }}
+          if-no-files-found: warn
 
   integration-test-check:
     name: Integration Test Check

@@ -9,14 +9,14 @@ import (
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
-	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/precompiles/ibc"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
+	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
@@ -337,7 +337,7 @@ func TestPrecompile_Run(t *testing.T) {
 			}
 			if err != nil {
 				require.Equal(t, vm.ErrExecutionReverted, err)
-				require.Equal(t, tt.wantErrMsg, string(gotBz))
+				require.Nil(t, gotBz)
 			} else if !reflect.DeepEqual(gotBz, tt.wantBz) {
 				t.Errorf("Run() gotRet = %v, want %v", gotBz, tt.wantBz)
 			}
@@ -538,7 +538,7 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 			}
 			if err != nil {
 				require.Equal(t, vm.ErrExecutionReverted, err)
-				require.Equal(t, tt.wantErrMsg, string(gotBz))
+				require.Nil(t, gotBz)
 			} else if !reflect.DeepEqual(gotBz, tt.wantBz) {
 				t.Errorf("Run() gotRet = %v, want %v", gotBz, tt.wantBz)
 			}

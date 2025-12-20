@@ -8,7 +8,7 @@ import (
 	"sort"
 	"testing"
 
-	iavlcache "github.com/cosmos/iavl/cache"
+	iavlcache "github.com/sei-protocol/sei-chain/sei-iavl/cache"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/btree"
 )

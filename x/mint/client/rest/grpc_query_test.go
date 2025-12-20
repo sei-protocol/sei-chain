@@ -1,5 +1,4 @@
 //go:build norace
-// +build norace
 
 package rest_test
 

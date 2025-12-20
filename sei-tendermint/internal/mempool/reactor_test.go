@@ -148,7 +148,7 @@ func TestReactorBroadcastDoesNotPanic(t *testing.T) {
 	// run the router
 	rts.start(t)
 
-	go primaryReactor.broadcastTxRoutine(ctx, secondary, rts.reactors[primary].channel)
+	go primaryReactor.broadcastTxRoutine(ctx, secondary)
 
 	wg := &sync.WaitGroup{}
 	for range 50 {

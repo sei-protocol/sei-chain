@@ -3,7 +3,7 @@ package types_test
 import (
 	"testing"
 
-	iavltree "github.com/cosmos/iavl"
+	iavltree "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"

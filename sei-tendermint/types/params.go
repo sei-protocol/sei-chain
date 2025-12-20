@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/crypto/secp256k1"
-	"github.com/tendermint/tendermint/crypto/sr25519"
 	tmstrings "github.com/tendermint/tendermint/libs/strings"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
@@ -24,15 +22,11 @@ const (
 	// this also the maximum number of bits in the bit array
 	MaxBlockPartsCount = (MaxBlockSizeBytes / BlockPartSizeBytes) + 1
 
-	ABCIPubKeyTypeEd25519   = ed25519.KeyType
-	ABCIPubKeyTypeSecp256k1 = secp256k1.KeyType
-	ABCIPubKeyTypeSr25519   = sr25519.KeyType
+	ABCIPubKeyTypeEd25519 = ed25519.KeyType
 )
 
 var ABCIPubKeyTypesToNames = map[string]string{
-	ABCIPubKeyTypeEd25519:   ed25519.PubKeyName,
-	ABCIPubKeyTypeSecp256k1: secp256k1.PubKeyName,
-	ABCIPubKeyTypeSr25519:   sr25519.PubKeyName,
+	ABCIPubKeyTypeEd25519: ed25519.PubKeyName,
 }
 
 // ConsensusParams contains consensus critical parameters that determine the

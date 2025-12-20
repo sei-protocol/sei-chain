@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
+	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
@@ -156,7 +156,7 @@ func TestExecute(t *testing.T) {
 	statedb.WithCtx(statedb.Ctx().WithIsEVM(false))
 	testApp.EvmKeeper.SetCode(statedb.Ctx(), mockEVMAddr, []byte{1, 2, 3})
 	res, _, err := p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false, false)
-	require.Equal(t, "sei does not support CW->EVM->CW call pattern", string(res))
+	require.Nil(t, res)
 	require.Equal(t, vm.ErrExecutionReverted, err)
 	statedb.WithCtx(statedb.Ctx().WithIsEVM(true))
 	res, g, err := p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false, false)

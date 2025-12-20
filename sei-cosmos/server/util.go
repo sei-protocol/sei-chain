@@ -329,8 +329,6 @@ func AddCommands(
 		commands.MakeGenValidatorCommand(),
 		commands.MakeReindexEventCommand(conf, logger),
 		commands.MakeLightCommand(conf, logger),
-		commands.MakeReplayCommand(conf, logger),
-		commands.MakeReplayConsoleCommand(conf, logger),
 		commands.MakeResetCommand(conf, logger),
 		commands.MakeUnsafeResetAllCommand(conf, logger),
 		commands.GenNodeKeyCmd,

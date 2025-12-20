@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/iavl"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 var (

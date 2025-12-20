@@ -184,13 +184,6 @@ func GenTimestamp(rng Rng) time.Time {
 	return time.Unix(0, rng.Int63())
 }
 
-// GenHash generates a random Hash.
-func GenHash(rng Rng) Hash {
-	var h Hash
-	_, _ = rng.Read(h[:])
-	return h
-}
-
 // Test tests whether reencoding a value is an identity operation.
 func (c *ProtoConv[T, P]) Test(want T) error {
 	p := c.Encode(want)

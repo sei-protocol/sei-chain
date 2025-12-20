@@ -5,7 +5,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store"
 	"github.com/cosmos/cosmos-sdk/store/iavl"
-	iavl2 "github.com/cosmos/iavl"
+	iavl2 "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 )

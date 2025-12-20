@@ -3,7 +3,7 @@ package api
 import (
 	"fmt"
 
-	"github.com/CosmWasm/wasmvm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 
 /***** Mock types.GoAPI ****/

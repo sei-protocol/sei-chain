@@ -1,14 +1,14 @@
 package keeper
 
 import (
-	"io/ioutil"
+	"os"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 // BenchmarkVerification benchmarks secp256k1 verification which is 1000 gas based on cpu time.
@@ -89,7 +89,7 @@ func BenchmarkCompilation(b *testing.B) {
 			ctx, keepers := createTestInput(b, false, SupportedFeatures, wasmConfig, db)
 
 			// print out code size for comparisons
-			code, err := ioutil.ReadFile(spec.wasmFile)
+			code, err := os.ReadFile(spec.wasmFile)
 			require.NoError(b, err)
 			b.Logf("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b(size: %d)  ", len(code))
 

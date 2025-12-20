@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/cosmos/cosmos-sdk/version"
-	"github.com/cosmos/iavl"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/spf13/cobra"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -26,7 +26,7 @@ const (
 )
 
 var modules = []string{
-	"wasm", "aclaccesscontrol", "oracle", "epoch", "mint", "acc", "bank", "crisis", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
+	"wasm", "oracle", "epoch", "mint", "acc", "bank", "crisis", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
 }
 
 func DumpIavlCmd() *cobra.Command {

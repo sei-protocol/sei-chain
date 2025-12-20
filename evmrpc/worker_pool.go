@@ -4,29 +4,9 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
-)
+	"time"
 
-const (
-	// WorkerBatchSize is the number of blocks processed in each batch.
-	// Used in filter.go for batch processing of block queries.
-	WorkerBatchSize = 100
-
-	// DefaultWorkerQueueSize is the default size of the task queue.
-	// This represents the number of tasks (not blocks) that can be queued.
-	// Total capacity = DefaultWorkerQueueSize * WorkerBatchSize blocks
-	// Example: 1000 tasks * 100 blocks/task = 100,000 blocks can be buffered
-	//
-	// Memory footprint estimate:
-	// - Queue channel overhead: ~8KB (1000 * 8 bytes per channel slot)
-	// - Each task closure: ~24 bytes
-	// - Total queue memory: ~32KB (negligible)
-	// Note: Actual memory usage depends on block data processed by workers
-	DefaultWorkerQueueSize = 1000
-
-	// MaxWorkerPoolSize caps the number of workers to prevent excessive
-	// goroutine creation on high-core machines. Tasks are primarily I/O bound
-	// (fetching and processing block logs), so 2x CPU cores can be excessive.
-	MaxWorkerPoolSize = 64
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 )
 
 // WorkerPool manages a pool of goroutines for concurrent task execution
@@ -38,6 +18,9 @@ type WorkerPool struct {
 	wg        sync.WaitGroup
 	closed    bool
 	mu        sync.RWMutex
+
+	// Embedded metrics for backpressure and observability
+	Metrics *WorkerPoolMetrics
 }
 
 var (
@@ -75,17 +58,23 @@ func GetGlobalWorkerPool() *WorkerPool {
 func NewWorkerPool(workers, queueSize int) *WorkerPool {
 	// Apply defaults if invalid
 	if workers <= 0 {
-		workers = min(MaxWorkerPoolSize, runtime.NumCPU()*2)
+		workers = min(evmrpcconfig.MaxWorkerPoolSize, runtime.NumCPU()*2)
 	}
 	if queueSize <= 0 {
-		queueSize = DefaultWorkerQueueSize
+		queueSize = evmrpcconfig.DefaultWorkerQueueSize
 	}
 
-	return &WorkerPool{
+	wp := &WorkerPool{
 		workers:   workers,
 		taskQueue: make(chan func(), queueSize),
 		done:      make(chan struct{}),
+		Metrics: &WorkerPoolMetrics{
+			windowStart: time.Now(),
+		},
 	}
+	wp.Metrics.TotalWorkers.Store(int32(workers))    //nolint:gosec // G115: safe, max is 64
+	wp.Metrics.QueueCapacity.Store(int32(queueSize)) //nolint:gosec // G115: safe, max is 1000
+	return wp
 }
 
 // Start initializes and starts the worker goroutines
@@ -106,20 +95,54 @@ func (wp *WorkerPool) start() {
 					}
 				}()
 				// The worker will exit gracefully when the taskQueue is closed and drained.
-				for task := range wp.taskQueue {
+				for wrappedTask := range wp.taskQueue {
 					func() {
 						defer func() {
 							if r := recover(); r != nil {
 								// Log the panic but continue processing other tasks
 								fmt.Printf("Task recovered from panic: %v\n", r)
+								wp.Metrics.RecordTaskPanicked()
 							}
 						}()
-						task()
+						wrappedTask()
 					}()
 				}
 			}()
 		}
 	})
+}
+
+// SubmitWithMetrics submits a task with full metrics tracking
+func (wp *WorkerPool) SubmitWithMetrics(task func()) error {
+	// Check if pool is closed first
+	wp.mu.RLock()
+	if wp.closed {
+		wp.mu.RUnlock()
+		return fmt.Errorf("worker pool is closing")
+	}
+	wp.mu.RUnlock()
+
+	queuedAt := time.Now()
+
+	// Wrap the task with metrics
+	wrappedTask := func() {
+		startedAt := time.Now()
+		wp.Metrics.RecordTaskStarted(queuedAt)
+		defer wp.Metrics.RecordTaskCompleted(startedAt)
+		task()
+	}
+
+	select {
+	case wp.taskQueue <- wrappedTask:
+		wp.Metrics.RecordTaskSubmitted()
+		return nil
+	case <-wp.done:
+		return fmt.Errorf("worker pool is closing")
+	default:
+		// Queue is full - fail fast
+		wp.Metrics.RecordTaskRejected()
+		return fmt.Errorf("worker pool queue is full")
+	}
 }
 
 // Submit submits a task to the worker pool with fail-fast behavior
@@ -167,4 +190,18 @@ func (wp *WorkerPool) WorkerCount() int {
 // QueueSize returns the capacity of the task queue
 func (wp *WorkerPool) QueueSize() int {
 	return cap(wp.taskQueue)
+}
+
+// QueueDepth returns the current number of tasks in the queue
+func (wp *WorkerPool) QueueDepth() int {
+	return len(wp.taskQueue)
+}
+
+// QueueUtilization returns the percentage of queue capacity in use
+func (wp *WorkerPool) QueueUtilization() float64 {
+	cap := cap(wp.taskQueue)
+	if cap == 0 {
+		return 0
+	}
+	return float64(len(wp.taskQueue)) / float64(cap) * 100
 }

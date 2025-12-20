@@ -17,7 +17,6 @@ import (
 
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/internal/mempool"
 	rpccore "github.com/tendermint/tendermint/internal/rpc/core"
@@ -549,7 +548,7 @@ func TestClientMethodCalls(t *testing.T) {
 					err = client.WaitForHeight(ctx, c, status.SyncInfo.LatestBlockHeight+2, nil)
 					require.NoError(t, err)
 
-					ed25519pub := pv.Key.PubKey.(ed25519.PubKey)
+					ed25519pub := pv.Key.PubKey
 					rawpub := ed25519pub.Bytes()
 					result2, err := c.ABCIQuery(ctx, "/val", rawpub)
 					require.NoError(t, err)

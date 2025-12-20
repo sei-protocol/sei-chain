@@ -32,6 +32,7 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	tmos "github.com/tendermint/tendermint/libs/os"
 	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/privval"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
@@ -73,14 +74,15 @@ func configSetup(t *testing.T) *config.Config {
 	t.Cleanup(func() { os.RemoveAll(configByzantineTest.RootDir) })
 
 	walDir := filepath.Dir(cfg.Consensus.WalFile())
-	ensureDir(t, walDir, 0700)
+	ensureDir(walDir, 0700)
 
 	return cfg
 }
 
-func ensureDir(t *testing.T, dir string, mode os.FileMode) {
-	t.Helper()
-	require.NoError(t, tmos.EnsureDir(dir, mode))
+func ensureDir(dir string, mode os.FileMode) {
+	if err := tmos.EnsureDir(dir, mode); err != nil {
+		panic(fmt.Errorf("tmos.EnsureDir(%s,%v): %w", dir, mode, err))
+	}
 }
 
 func ResetConfig(dir, name string) (*config.Config, error) {
@@ -437,25 +439,22 @@ func newState(
 	cfg, err := config.ResetTestRoot(t.TempDir(), "consensus_state_test")
 	require.NoError(t, err)
 
-	return newStateWithConfig(ctx, t, logger, cfg, state, pv, app)
+	return newStateWithConfig(ctx, logger, cfg, state, pv, app)
 }
 
 func newStateWithConfig(
 	ctx context.Context,
-	t *testing.T,
 	logger log.Logger,
 	thisConfig *config.Config,
 	state sm.State,
 	pv types.PrivValidator,
 	app abci.Application,
 ) *State {
-	t.Helper()
-	return newStateWithConfigAndBlockStore(ctx, t, logger, thisConfig, state, pv, app, store.NewBlockStore(dbm.NewMemDB()))
+	return newStateWithConfigAndBlockStore(ctx, logger, thisConfig, state, pv, app, store.NewBlockStore(dbm.NewMemDB()))
 }
 
 func newStateWithConfigAndBlockStore(
 	ctx context.Context,
-	t *testing.T,
 	logger log.Logger,
 	thisConfig *config.Config,
 	state sm.State,
@@ -463,8 +462,6 @@ func newStateWithConfigAndBlockStore(
 	app abci.Application,
 	blockStore *store.BlockStore,
 ) *State {
-	t.Helper()
-
 	// one for mempool, one for consensus
 	proxyAppConnMem := abciclient.NewLocalClient(logger, app)
 	proxyAppConnCon := abciclient.NewLocalClient(logger, app)
@@ -487,10 +484,14 @@ func newStateWithConfigAndBlockStore(
 	// Make State
 	stateDB := dbm.NewMemDB()
 	stateStore := sm.NewStore(stateDB)
-	require.NoError(t, stateStore.Save(state))
+	if err := stateStore.Save(state); err != nil {
+		panic(fmt.Errorf("stateStore.Save(): %w", err))
+	}
 
 	eventBus := eventbus.NewDefault(logger.With("module", "events"))
-	require.NoError(t, eventBus.Start(ctx))
+	if err := eventBus.Start(ctx); err != nil {
+		panic(fmt.Errorf("eventBus.Start(): %w", err))
+	}
 
 	blockExec := sm.NewBlockExecutor(stateStore, logger, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
 	cs, err := NewState(logger.With("module", "consensus"),
@@ -504,22 +505,25 @@ func newStateWithConfigAndBlockStore(
 		[]trace.TracerProviderOption{},
 	)
 	if err != nil {
-		t.Fatal(err)
+		panic(err)
 	}
 
-	cs.SetPrivValidator(ctx, pv)
+	cs.SetPrivValidator(ctx, utils.Some(pv))
 
 	return cs
 }
 
-func loadPrivValidator(t *testing.T, cfg *config.Config) *privval.FilePV {
-	t.Helper()
+func loadPrivValidator(cfg *config.Config) *privval.FilePV {
 	privValidatorKeyFile := cfg.PrivValidator.KeyFile()
-	ensureDir(t, filepath.Dir(privValidatorKeyFile), 0700)
+	ensureDir(filepath.Dir(privValidatorKeyFile), 0700)
 	privValidatorStateFile := cfg.PrivValidator.StateFile()
 	privValidator, err := privval.LoadOrGenFilePV(privValidatorKeyFile, privValidatorStateFile)
-	require.NoError(t, err)
-	require.NoError(t, privValidator.Reset())
+	if err != nil {
+		panic(fmt.Errorf("privval.LoadOrGenFilePV(): %w", err))
+	}
+	if err := privValidator.Reset(); err != nil {
+		panic(fmt.Errorf("privValidator.Reset(): %w", err))
+	}
 	return privValidator
 }
 
@@ -821,7 +825,7 @@ func makeConsensusState(
 		}
 
 		walDir := filepath.Dir(thisConfig.Consensus.WalFile())
-		ensureDir(t, walDir, 0700)
+		ensureDir(walDir, 0700)
 
 		app := kvstore.NewApplication()
 		closeFuncs = append(closeFuncs, app.Close)
@@ -831,7 +835,7 @@ func makeConsensusState(
 		require.NoError(t, err)
 
 		l := logger.With("validator", i, "module", "consensus")
-		css[i] = newStateWithConfigAndBlockStore(ctx, t, l, thisConfig, state, privVals[i], app, blockStore)
+		css[i] = newStateWithConfigAndBlockStore(ctx, l, thisConfig, state, privVals[i], app, blockStore)
 		css[i].SetTimeoutTicker(tickerFunc())
 	}
 
@@ -860,7 +864,6 @@ func randConsensusNetWithPeers(
 	valSet, privVals := factory.ValidatorSet(ctx, nValidators, testMinPower)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
 	css := make([]*State, nPeers)
-	t.Helper()
 	logger := consensusLogger()
 
 	var peer0Config *config.Config
@@ -871,7 +874,7 @@ func randConsensusNetWithPeers(
 		require.NoError(t, err)
 
 		configRootDirs = append(configRootDirs, thisConfig.RootDir)
-		ensureDir(t, filepath.Dir(thisConfig.Consensus.WalFile()), 0700) // dir for wal
+		ensureDir(filepath.Dir(thisConfig.Consensus.WalFile()), 0700) // dir for wal
 		if i == 0 {
 			peer0Config = thisConfig
 		}
@@ -893,16 +896,14 @@ func randConsensusNetWithPeers(
 		vals := types.TM2PB.ValidatorUpdates(state.Validators)
 		switch app.(type) {
 		// simulate handshake, receive app version. If don't do this, replay test will fail
-		case *kvstore.PersistentKVStoreApplication:
-			state.Version.Consensus.App = kvstore.ProtocolVersion
-		case *kvstore.Application:
+		case *kvstore.PersistentKVStoreApplication, *kvstore.Application:
 			state.Version.Consensus.App = kvstore.ProtocolVersion
 		}
 		_, err = app.InitChain(ctx, &abci.RequestInitChain{Validators: vals})
 		require.NoError(t, err)
 		// sm.SaveState(stateDB,state)	//height 1's validatorsInfo already saved in LoadStateFromDBOrGenesisDoc above
 
-		css[i] = newStateWithConfig(ctx, t, logger.With("validator", i, "module", "consensus"), thisConfig, state, privVal, app)
+		css[i] = newStateWithConfig(ctx, logger.With("validator", i, "module", "consensus"), thisConfig, state, privVal, app)
 		css[i].SetTimeoutTicker(tickerFunc())
 	}
 	return css, genDoc, peer0Config, func() {

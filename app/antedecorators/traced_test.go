@@ -12,15 +12,15 @@ import (
 
 func TestTracedDecorator(t *testing.T) {
 	output = ""
-	anteDecorators := []sdk.AnteFullDecorator{
-		sdk.DefaultWrappedAnteDecorator(FakeAnteDecoratorOne{}),
-		sdk.DefaultWrappedAnteDecorator(FakeAnteDecoratorTwo{}),
-		sdk.DefaultWrappedAnteDecorator(FakeAnteDecoratorThree{}),
+	anteDecorators := []sdk.AnteDecorator{
+		FakeAnteDecoratorOne{},
+		FakeAnteDecoratorTwo{},
+		FakeAnteDecoratorThree{},
 	}
-	tracedDecorators := utils.Map(anteDecorators, func(d sdk.AnteFullDecorator) sdk.AnteFullDecorator {
-		return sdk.DefaultWrappedAnteDecorator(antedecorators.NewTracedAnteDecorator(d, nil))
+	tracedDecorators := utils.Map(anteDecorators, func(d sdk.AnteDecorator) sdk.AnteDecorator {
+		return antedecorators.NewTracedAnteDecorator(d, nil)
 	})
-	chainedHandler, _ := sdk.ChainAnteDecorators(tracedDecorators...)
+	chainedHandler := sdk.ChainAnteDecorators(tracedDecorators...)
 	chainedHandler(sdk.NewContext(nil, tmproto.Header{}, false, nil), FakeTx{}, false)
 	require.Equal(t, "onetwothree", output)
 }

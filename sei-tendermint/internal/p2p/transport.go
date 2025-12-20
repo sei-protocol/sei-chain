@@ -184,14 +184,8 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *Connection) error {
 			if err := proto.Unmarshal(bz, msg); err != nil {
 				return fmt.Errorf("message decoding failed, dropping message: [peer=%v] %w", conn.peerInfo.NodeID, err)
 			}
-			if wrapper, ok := msg.(Wrapper); ok {
-				var err error
-				if msg, err = wrapper.Unwrap(); err != nil {
-					return fmt.Errorf("failed to unwrap message: %w", err)
-				}
-			}
 			// Priority is not used since all messages in this queue are from the same channel.
-			if _, ok := ch.recvQueue.Send(RecvMsg{From: conn.peerInfo.NodeID, Message: msg}, proto.Size(msg), 0).Get(); ok {
+			if _, ok := ch.recvQueue.Send(RecvMsg[proto.Message]{From: conn.peerInfo.NodeID, Message: msg}, proto.Size(msg), 0).Get(); ok {
 				r.metrics.QueueDroppedMsgs.With("ch_id", fmt.Sprint(chID), "direction", "in").Add(float64(1))
 			}
 			r.metrics.PeerReceiveBytesTotal.With(

@@ -8,14 +8,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 
-	abci "github.com/tendermint/tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
+	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 func BenchmarkTxSending(b *testing.B) {
@@ -114,7 +113,7 @@ func BenchmarkTxSending(b *testing.B) {
 					require.NoError(b, err)
 				}
 
-				appInfo.App.EndBlock(appInfo.App.GetContextForDeliverTx([]byte{}), abci.RequestEndBlock{Height: height})
+				appInfo.App.EndBlock(appInfo.App.GetContextForDeliverTx([]byte{}), height, 0)
 				appInfo.App.SetDeliverStateToCommit()
 				appInfo.App.Commit(context.Background())
 				height++

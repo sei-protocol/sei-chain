@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	tiavl "github.com/cosmos/iavl"
+	tiavl "github.com/sei-protocol/sei-chain/sei-iavl"
 
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
 	"github.com/cosmos/cosmos-sdk/store/gaskv"

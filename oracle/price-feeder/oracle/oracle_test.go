@@ -1903,6 +1903,82 @@ func TestSafeMapContains(t *testing.T) {
 	}
 }
 
+// TestSetPricesAndGetPricesConcurrency tests that concurrent calls to SetPrices
+// and GetPrices do not cause a data race. Run with `go test -race` to verify.
+func TestSetPricesAndGetPricesConcurrency(t *testing.T) {
+	oracle := &Oracle{
+		logger: zerolog.Nop(),
+		providerPairs: map[string][]types.CurrencyPair{
+			config.ProviderBinance: {{Base: "ATOM", Quote: "USD"}},
+		},
+		chainDenomMapping: map[string]string{
+			"ATOM": "uatom",
+		},
+		priceProviders: map[string]provider.Provider{
+			config.ProviderBinance: mockProvider{
+				prices: map[string]provider.TickerPrice{
+					"ATOMUSD": {
+						Price:  sdk.MustNewDecFromStr("10.00"),
+						Volume: sdk.MustNewDecFromStr("1000000.00"),
+					},
+				},
+			},
+		},
+		failedProviders: make(map[string]error),
+		paramCache: ParamCache{
+			params: &oracletypes.Params{
+				Whitelist: denomList("uatom"),
+			},
+		},
+		providerTimeout: 100 * time.Millisecond,
+		deviations:      make(map[string]sdk.Dec),
+	}
+
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	const numGoroutines = 10
+	const numIterations = 50
+
+	// Start goroutines that call SetPrices
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < numIterations; j++ {
+				_ = oracle.SetPrices(ctx)
+			}
+		}()
+	}
+
+	// Start goroutines that call GetPrices
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < numIterations; j++ {
+				_ = oracle.GetPrices()
+			}
+		}()
+	}
+
+	// Start goroutines that call GetLastPriceSyncTimestamp
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < numIterations; j++ {
+				_ = oracle.GetLastPriceSyncTimestamp()
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Verify the oracle is still in a valid state
+	prices := oracle.GetPrices()
+	require.NotNil(t, prices)
+}
+
 func TestReportPriceErrMetrics(t *testing.T) {
 	tests := []struct {
 		name          string

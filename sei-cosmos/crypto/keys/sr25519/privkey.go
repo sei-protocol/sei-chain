@@ -1,8 +1,8 @@
 package sr25519
 
 import (
+	"github.com/cosmos/cosmos-sdk/crypto/keys/sr25519/internal"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	tmsr25519 "github.com/tendermint/tendermint/crypto/sr25519"
 )
 
 const (
@@ -11,16 +11,12 @@ const (
 )
 
 type PrivKey struct {
-	tmsr25519.PrivKey
+	internal.PrivKey
 }
 
 // type conversion
 func (m *PrivKey) PubKey() cryptotypes.PubKey {
-	pk, ok := m.PrivKey.PubKey().(tmsr25519.PubKey)
-	if !ok {
-		panic("invalid public key type for sr25519 private key")
-	}
-	return &PubKey{Key: pk}
+	return &PubKey{Key: m.PrivKey.PubKey()}
 }
 
 // type conversion
@@ -35,7 +31,7 @@ func (m *PrivKey) Equals(other cryptotypes.LedgerPrivKey) bool {
 func (m *PrivKey) ProtoMessage() {}
 
 func (m *PrivKey) Reset() {
-	m.PrivKey = tmsr25519.PrivKey{}
+	m.PrivKey = internal.PrivKey{}
 }
 
 func (m *PrivKey) String() string {
@@ -43,5 +39,9 @@ func (m *PrivKey) String() string {
 }
 
 func GenPrivKey() *PrivKey {
-	return &PrivKey{tmsr25519.GenPrivKey()}
+	return &PrivKey{internal.GenPrivKey()}
+}
+
+func GenPrivKeyFromSecret(secret []byte) *PrivKey {
+	return &PrivKey{PrivKey: internal.GenPrivKeyFromSecret(secret)}
 }

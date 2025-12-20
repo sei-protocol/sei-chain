@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CosmWasm/wasmd/x/wasm"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
@@ -14,6 +13,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/testutil/network"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmdb "github.com/tendermint/tm-db"
 
@@ -27,7 +27,7 @@ type (
 
 type TestAppOptions struct{}
 
-func (t TestAppOptions) Get(s string) interface{} {
+func (t TestAppOptions) Get(s string) any {
 	if s == "chain-id" {
 		return "test-chain"
 	}
@@ -75,7 +75,6 @@ func DefaultConfig() network.Config {
 				wasm.EnableAllProposals,
 				&TestAppOptions{},
 				nil,
-				app.EmptyACLOpts,
 				app.EmptyAppOptions,
 				baseapp.SetPruning(storetypes.NewPruningOptionsFromString(val.AppConfig.Pruning)),
 				baseapp.SetMinGasPrices(val.AppConfig.MinGasPrices),
@@ -92,7 +91,7 @@ func DefaultConfig() network.Config {
 		BondedTokens:    sdk.TokensFromConsensusPower(100, sdk.DefaultPowerReduction),
 		PruningStrategy: storetypes.PruningOptionNothing,
 		CleanupDir:      true,
-		SigningAlgo:     string(hd.Secp256k1Type),
+		SigningAlgo:     string(hd.Ed25519Type),
 		KeyringOptions:  []keyring.Option{},
 	}
 }

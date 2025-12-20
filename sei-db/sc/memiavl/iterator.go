@@ -3,7 +3,7 @@ package memiavl
 import (
 	"bytes"
 
-	"github.com/sei-protocol/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbm "github.com/tendermint/tm-db"
 )
 

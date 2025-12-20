@@ -19,7 +19,7 @@ var (
 
 // Marshal marshals the value as JSON, using Amino-compatible JSON encoding (strings for
 // 64-bit numbers, and type wrappers for registered types).
-func Marshal(v interface{}) ([]byte, error) {
+func Marshal(v any) ([]byte, error) {
 	buf := new(bytes.Buffer)
 	err := encode(buf, v)
 	if err != nil {
@@ -29,7 +29,7 @@ func Marshal(v interface{}) ([]byte, error) {
 }
 
 // MarshalIndent marshals the value as JSON, using the given prefix and indentation.
-func MarshalIndent(v interface{}, prefix, indent string) ([]byte, error) {
+func MarshalIndent(v any, prefix, indent string) ([]byte, error) {
 	bz, err := Marshal(v)
 	if err != nil {
 		return nil, err
@@ -42,7 +42,7 @@ func MarshalIndent(v interface{}, prefix, indent string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func encode(w io.Writer, v interface{}) error {
+func encode(w io.Writer, v any) error {
 	// Bare nil values can't be reflected, so we must handle them here.
 	if v == nil {
 		return writeStr(w, "null")
@@ -237,7 +237,7 @@ func encodeReflectInterface(w io.Writer, rv reflect.Value) error {
 	return writeStr(w, "}")
 }
 
-func encodeStdlib(w io.Writer, v interface{}) error {
+func encodeStdlib(w io.Writer, v any) error {
 	// Doesn't stream the output because that adds a newline, as per:
 	// https://golang.org/pkg/encoding/json/#Encoder.Encode
 	blob, err := json.Marshal(v)

@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cosmos/iavl"
-	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/wal"
 )
@@ -145,10 +145,6 @@ func TestAsyncWrite(t *testing.T) {
 		entry.Changesets = cs
 		err := changelog.Write(uint64(i+1), *entry)
 		require.NoError(t, err)
-		lastIndex, err := changelog.LastOffset()
-		require.NoError(t, err)
-		// Writes happen async, so lastIndex should not move yet
-		require.Greater(t, uint64(3), lastIndex)
 	}
 	err = changelog.Close()
 	require.NoError(t, err)

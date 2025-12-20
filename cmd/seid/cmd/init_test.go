@@ -8,8 +8,8 @@ import (
 
 	srvconfig "github.com/cosmos/cosmos-sdk/server/config"
 	"github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/evmrpc"
-	seidbconfig "github.com/sei-protocol/sei-db/config"
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -133,7 +133,7 @@ func TestInitModeConfiguration(t *testing.T) {
 			// Write app.toml using our custom template that includes SeiDB configs
 			// This mirrors what initAppConfig does in root.go
 			appTomlPath := filepath.Join(configDir, "app.toml")
-			customConfig := NewCustomAppConfig(appConfig, evmrpc.DefaultConfig)
+			customConfig := NewCustomAppConfig(appConfig, evmrpcconfig.DefaultConfig)
 
 			// Apply mode-specific StateStore settings
 			if tt.mode == params.NodeModeValidator || tt.mode == params.NodeModeSeed {
@@ -223,7 +223,7 @@ func TestModeConfigurationMatrix(t *testing.T) {
 			require.Equal(t, expected.apiEnable, appConfig.API.Enable)
 
 			// Verify EVM config
-			evmConfig := evmrpc.DefaultConfig
+			evmConfig := evmrpcconfig.DefaultConfig
 			params.SetEVMConfigByMode(&evmConfig, mode)
 			require.Equal(t, expected.evmEnable, evmConfig.HTTPEnabled)
 			require.Equal(t, expected.evmEnable, evmConfig.WSEnabled)

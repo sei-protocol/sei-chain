@@ -32,5 +32,5 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Validate Docker build (amd64)
-        run: docker build --platform=linux/amd64 --target=go-builder .
+        run: docker build --platform=linux/amd64 .
 

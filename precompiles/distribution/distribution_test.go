@@ -126,6 +126,12 @@ func TestWithdraw(t *testing.T) {
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
 	require.Equal(t, withdrawSeiAddr.String(), testApp.DistrKeeper.GetDelegatorWithdrawAddr(ctx, seiAddr).String())
+	receipt, err := k.GetTransientReceipt(ctx, tx.Hash(), 0)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(receipt.Logs))
+	require.Equal(t, distribution.SetWithdrawAddressEventSig, common.HexToHash(receipt.Logs[0].Topics[0]))
+	require.Equal(t, common.BytesToHash(evmAddr.Bytes()), common.HexToHash(receipt.Logs[0].Topics[1]))
+	require.NotEmpty(t, receipt.Logs[0].Data)
 
 	// withdraw
 	args, err = abi.Pack("withdrawDelegationRewards", val.String())
@@ -154,6 +160,13 @@ func TestWithdraw(t *testing.T) {
 	// reinitialized
 	d, found = testApp.StakingKeeper.GetDelegation(ctx, seiAddr, val)
 	require.True(t, found)
+
+	receipt, err = k.GetTransientReceipt(ctx, tx.Hash(), 0)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(receipt.Logs))
+	require.Equal(t, distribution.DelegationRewardsEventSig, common.HexToHash(receipt.Logs[0].Topics[0]))
+	require.Equal(t, common.BytesToHash(evmAddr.Bytes()), common.HexToHash(receipt.Logs[0].Topics[1]))
+	require.NotEmpty(t, receipt.Logs[0].Data)
 }
 
 func TestWithdrawMultipleDelegationRewards(t *testing.T) {
@@ -273,7 +286,7 @@ func setWithdrawAddressAndWithdraw(
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
-	seiAddr, _ := testkeeper.PrivateKeyToAddresses(privKey)
+	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
 	require.Equal(t, withdrawSeiAddr.String(), testApp.DistrKeeper.GetDelegatorWithdrawAddr(ctx, seiAddr).String())
 
 	var validators []string
@@ -303,6 +316,13 @@ func setWithdrawAddressAndWithdraw(
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
 	require.Equal(t, uint64(148290), res.GasUsed)
+
+	receipt, err := k.GetTransientReceipt(ctx, tx.Hash(), 0)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(receipt.Logs))
+	require.Equal(t, distribution.MultipleDelegationRewardsEventSig, common.HexToHash(receipt.Logs[0].Topics[0]))
+	require.Equal(t, common.BytesToHash(evmAddr.Bytes()), common.HexToHash(receipt.Logs[0].Topics[1]))
+	require.NotEmpty(t, receipt.Logs[0].Data)
 
 	// reinitialized
 	for _, val := range vals {
@@ -502,7 +522,7 @@ func TestPrecompile_RunAndCalculateGas_WithdrawDelegationRewards(t *testing.T) {
 			}
 			if err != nil {
 				require.Equal(t, vm.ErrExecutionReverted, err)
-				require.Equal(t, tt.wantErrMsg, string(gotRet))
+				require.Nil(t, gotRet)
 			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
 				t.Errorf("RunAndCalculateGas() gotRet = %v, want %v", gotRet, tt.wantRet)
 			}
@@ -663,7 +683,7 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 			}
 			if err != nil {
 				require.Equal(t, vm.ErrExecutionReverted, err)
-				require.Equal(t, tt.wantErrMsg, string(gotRet))
+				require.Nil(t, gotRet)
 			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
 				t.Errorf("RunAndCalculateGas() gotRet = %v, want %v", gotRet, tt.wantRet)
 			}
@@ -839,7 +859,7 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 			}
 			if err != nil {
 				require.Equal(t, vm.ErrExecutionReverted, err)
-				require.Equal(t, tt.wantErrMsg, string(gotRet))
+				require.Nil(t, gotRet)
 			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
 				t.Errorf("RunAndCalculateGas() gotRet = %v, want %v", gotRet, tt.wantRet)
 			}
@@ -1136,7 +1156,7 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 			}
 			if err != nil {
 				require.Equal(t, vm.ErrExecutionReverted, err)
-				require.Equal(t, tt.wantErrMsg, string(gotRet))
+				require.Nil(t, gotRet)
 			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
 				t.Errorf("RunAndCalculateGas() gotRet = %v, want %v", gotRet, tt.wantRet)
 			}
@@ -1235,7 +1255,7 @@ func TestWithdrawValidatorCommission_noCommissionToWithdrawRightAfterDelegation(
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
-	require.Equal(t, "no validator commission to withdraw", string(res.ReturnData))
+	require.Nil(t, res.ReturnData)
 
 }
 
@@ -1376,7 +1396,7 @@ func TestWithdrawValidatorCommission_InputValidation(t *testing.T) {
 
 			if tc.wantError {
 				require.NotNil(t, err, "Expected error for test case: %s", tc.name)
-				require.Equal(t, tc.wantErrMsg, string(ret))
+				require.Nil(t, ret)
 			} else {
 				require.Nil(t, err, "Expected no error for test case: %s", tc.name)
 				require.Greater(t, remainingGas, uint64(0), "Should have remaining gas")
