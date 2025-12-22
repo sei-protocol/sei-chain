@@ -55,9 +55,12 @@ func main() {
 	}
 	fmt.Println()
 
-	// Fixed-width formatting for better alignment during iterative output
-	fmt.Printf("%-13s | %-14s | %-14s | %-12s | %-15s | %-8s\n", "Range Size", "From Block", "To Block", "Logs Found", "Latency", "Status")
-	fmt.Printf("%-13s | %-14s | %-14s | %-12s | %-15s | %-8s\n", "-------------", "--------------", "--------------", "------------", "---------------", "--------")
+	// Fixed-width formatting with detailed stats
+	// Range | Logs | Min | Max | Avg | Total Time | Status
+	fmt.Printf("%-10s | %-10s | %-12s | %-12s | %-12s | %-12s | %-8s\n",
+		"Range", "Logs", "Min Latency", "Max Latency", "Avg Latency", "Total Time", "Status")
+	fmt.Printf("%-10s | %-10s | %-12s | %-12s | %-12s | %-12s | %-8s\n",
+		"----------", "----------", "------------", "------------", "------------", "------------", "--------")
 
 	ranges := []int64{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 10000}
 
@@ -88,10 +91,12 @@ func main() {
 		}
 
 		var wg sync.WaitGroup
-		var totalDuration time.Duration
 		var logsFound int
 		var failures int
+		var latencies []time.Duration
 		var mu sync.Mutex
+
+		batchStart := time.Now()
 
 		for i := 0; i < *concurrency; i++ {
 			wg.Add(1)
@@ -108,26 +113,39 @@ func main() {
 				if err != nil {
 					failures++
 				} else {
-					totalDuration += callDuration
+					latencies = append(latencies, callDuration)
+					// Assuming all consistent queries return same count
 					logsFound = len(logs)
 				}
 			}()
 		}
 
 		wg.Wait()
+		totalBatchDuration := time.Since(batchStart)
 
 		status := "OK"
 		if failures > 0 {
 			status = fmt.Sprintf("ERR(%d)", failures)
 		}
 
-		var avgLatency time.Duration
-		effectiveSuccess := *concurrency - failures
-		if effectiveSuccess > 0 {
-			avgLatency = totalDuration / time.Duration(effectiveSuccess)
+		var minLat, maxLat, avgLat time.Duration
+		if len(latencies) > 0 {
+			minLat = latencies[0]
+			maxLat = latencies[0]
+			var sum time.Duration
+			for _, d := range latencies {
+				if d < minLat {
+					minLat = d
+				}
+				if d > maxLat {
+					maxLat = d
+				}
+				sum += d
+			}
+			avgLat = sum / time.Duration(len(latencies))
 		}
 
-		fmt.Printf("%-13d | %-14d | %-14d | %-12d | %-15v | %-8s\n",
-			r, fromBlock, latestBlock, logsFound, avgLatency, status)
+		fmt.Printf("%-10d | %-10d | %-12v | %-12v | %-12v | %-12v | %-8s\n",
+			r, logsFound, minLat, maxLat, avgLat, totalBatchDuration, status)
 	}
 }
