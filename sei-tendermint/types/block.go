@@ -17,8 +17,8 @@ import (
 	"github.com/tendermint/tendermint/libs/bits"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	tmmath "github.com/tendermint/tendermint/libs/math"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/utils"
 	"github.com/tendermint/tendermint/version"
 )
 
@@ -245,7 +245,10 @@ func (b *Block) ToReqBeginBlock(vals []*Validator) abci.RequestBeginBlock {
 			SignedLastBlock: commitSig.BlockIDFlag != BlockIDFlagAbsent,
 		})
 	}
-	abciEvidence := b.Evidence.ToABCI()
+	var byzantineValidators []abci.Evidence
+	for _, e := range b.Evidence.ToABCI() {
+		byzantineValidators = append(byzantineValidators, abci.Evidence(e))
+	}
 	return abci.RequestBeginBlock{
 		Hash:   b.hash,
 		Header: *tmHeader,
@@ -253,9 +256,7 @@ func (b *Block) ToReqBeginBlock(vals []*Validator) abci.RequestBeginBlock {
 			Round: b.LastCommit.Round,
 			Votes: votes,
 		},
-		ByzantineValidators: utils.Map(abciEvidence, func(e abci.Misbehavior) abci.Evidence {
-			return abci.Evidence(e)
-		}),
+		ByzantineValidators: byzantineValidators,
 	}
 }
 
@@ -640,10 +641,11 @@ const (
 
 // CommitSig is a part of the Vote included in a Commit.
 type CommitSig struct {
-	BlockIDFlag      BlockIDFlag `json:"block_id_flag"`
-	ValidatorAddress Address     `json:"validator_address"`
-	Timestamp        time.Time   `json:"timestamp"`
-	Signature        []byte      `json:"signature"`
+	BlockIDFlag BlockIDFlag `json:"block_id_flag"`
+	// WARNING: all fields below should be zeroed if BlockIDFlag == BlockIDFlagAbsent
+	ValidatorAddress Address                  `json:"validator_address"`
+	Timestamp        time.Time                `json:"timestamp"`
+	Signature        utils.Option[crypto.Sig] `json:"signature"`
 }
 
 func MaxCommitBytes(valCount int) int64 {
@@ -667,8 +669,12 @@ func NewCommitSigAbsent() CommitSig {
 // 3. block ID flag
 // 4. timestamp
 func (cs CommitSig) String() string {
+	var sigBytes []byte
+	if sig, ok := cs.Signature.Get(); ok {
+		sigBytes = sig.Bytes()
+	}
 	return fmt.Sprintf("CommitSig{%X by %X on %v @ %s}",
-		tmbytes.Fingerprint(cs.Signature),
+		tmbytes.Fingerprint(sigBytes),
 		tmbytes.Fingerprint(cs.ValidatorAddress),
 		cs.BlockIDFlag,
 		CanonicalTime(cs.Timestamp))
@@ -709,7 +715,7 @@ func (cs CommitSig) ValidateBasic() error {
 		if !cs.Timestamp.IsZero() {
 			return errors.New("time is present")
 		}
-		if len(cs.Signature) != 0 {
+		if cs.Signature.IsPresent() {
 			return errors.New("signature is present")
 		}
 	default:
@@ -719,13 +725,10 @@ func (cs CommitSig) ValidateBasic() error {
 				len(cs.ValidatorAddress),
 			)
 		}
-		// NOTE: Timestamp validation is subtle and handled elsewhere.
-		if len(cs.Signature) == 0 {
+		if !cs.Signature.IsPresent() {
 			return errors.New("signature is missing")
 		}
-		if len(cs.Signature) > MaxSignatureSize {
-			return fmt.Errorf("signature is too big (max: %d)", MaxSignatureSize)
-		}
+		// NOTE: Timestamp validation is subtle and handled elsewhere.
 	}
 
 	return nil
@@ -736,12 +739,15 @@ func (cs *CommitSig) ToProto() *tmproto.CommitSig {
 	if cs == nil {
 		return nil
 	}
-
+	var signature []byte
+	if sig, ok := cs.Signature.Get(); ok {
+		signature = sig.Bytes()
+	}
 	return &tmproto.CommitSig{
 		BlockIdFlag:      tmproto.BlockIDFlag(cs.BlockIDFlag),
 		ValidatorAddress: cs.ValidatorAddress,
 		Timestamp:        cs.Timestamp,
-		Signature:        cs.Signature,
+		Signature:        signature,
 	}
 }
 
@@ -751,7 +757,16 @@ func (cs *CommitSig) FromProto(csp tmproto.CommitSig) error {
 	cs.BlockIDFlag = BlockIDFlag(csp.BlockIdFlag)
 	cs.ValidatorAddress = csp.ValidatorAddress
 	cs.Timestamp = csp.Timestamp
-	cs.Signature = csp.Signature
+
+	if len(csp.Signature) > 0 {
+		sig, err := crypto.SigFromBytes(csp.Signature)
+		if err != nil {
+			return fmt.Errorf("Signature: %w", err)
+		}
+		cs.Signature = utils.Some(sig)
+	} else {
+		cs.Signature = utils.None[crypto.Sig]()
+	}
 
 	return cs.ValidateBasic()
 }

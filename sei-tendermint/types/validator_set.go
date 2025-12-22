@@ -84,9 +84,11 @@ func NewValidatorSet(valz []*Validator) *ValidatorSet {
 	return vals
 }
 
+var ErrValidatorSetEmpty = errors.New("validator set is nil or empty")
+
 func (vals *ValidatorSet) ValidateBasic() error {
 	if vals.IsNilOrEmpty() {
-		return errors.New("validator set is nil or empty")
+		return ErrValidatorSetEmpty
 	}
 
 	for idx, val := range vals.Validators {
@@ -96,7 +98,7 @@ func (vals *ValidatorSet) ValidateBasic() error {
 	}
 
 	if err := vals.Proposer.ValidateBasic(); err != nil {
-		return fmt.Errorf("proposer failed validate basic, error: %w", err)
+		return fmt.Errorf("Proposer: %w", err)
 	}
 
 	for _, val := range vals.Validators {

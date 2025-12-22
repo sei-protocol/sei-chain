@@ -191,7 +191,7 @@ func TestPruneStates(t *testing.T) {
 			db := dbm.NewMemDB()
 
 			stateStore := sm.NewStore(db)
-			pk := ed25519.GenPrivKey().PubKey()
+			pk := ed25519.GenerateSecretKey().Public()
 
 			// Generate a bunch of state data. Validators change for heights ending with 3, and
 			// parameters when ending with 5.

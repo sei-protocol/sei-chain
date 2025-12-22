@@ -122,7 +122,8 @@ func Setup(logger log.Logger, testnet *e2e.Testnet) error {
 
 		// Set up a dummy validator. Tendermint requires a file PV even when not used, so we
 		// give it a dummy such that it will fail if it actually tries to use it.
-		err = (privval.NewFilePV(ed25519.GenPrivKey(),
+		dummyKey := ed25519.GenerateSecretKey()
+		err = (privval.NewFilePV(dummyKey,
 			filepath.Join(nodeDir, PrivvalDummyKeyFile),
 			filepath.Join(nodeDir, PrivvalDummyStateFile),
 		)).Save()
@@ -209,10 +210,11 @@ func MakeGenesis(testnet *e2e.Testnet) (types.GenesisDoc, error) {
 	genesis.ConsensusParams.Evidence.MaxAgeNumBlocks = e2e.EvidenceAgeHeight
 	genesis.ConsensusParams.Evidence.MaxAgeDuration = e2e.EvidenceAgeTime
 	for validator, power := range testnet.Validators {
+		pubKey := validator.PrivvalKey.Public()
 		genesis.Validators = append(genesis.Validators, types.GenesisValidator{
 			Name:    validator.Name,
-			Address: validator.PrivvalKey.PubKey().Address(),
-			PubKey:  validator.PrivvalKey.PubKey(),
+			Address: pubKey.Address(),
+			PubKey:  pubKey,
 			Power:   power,
 		})
 	}
@@ -388,7 +390,8 @@ func MakeAppConfig(node *e2e.Node) ([]byte, error) {
 		for height, validators := range node.Testnet.ValidatorUpdates {
 			updateVals := map[string]int64{}
 			for node, power := range validators {
-				updateVals[base64.StdEncoding.EncodeToString(node.PrivvalKey.PubKey().Bytes())] = power
+				key := node.PrivvalKey.Public()
+				updateVals[base64.StdEncoding.EncodeToString(key.Bytes())] = power
 			}
 			validatorUpdates[fmt.Sprintf("%v", height)] = updateVals
 		}

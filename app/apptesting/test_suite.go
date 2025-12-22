@@ -165,7 +165,7 @@ func (s *KeeperTestHelper) BuildTx(
 func CreateRandomAccounts(numAccts int) []sdk.AccAddress {
 	testAddrs := make([]sdk.AccAddress, numAccts)
 	for i := 0; i < numAccts; i++ {
-		pk := ed25519.GenPrivKey().PubKey()
+		pk := ed25519.GenerateSecretKey().Public()
 		testAddrs[i] = sdk.AccAddress(pk.Address())
 	}
 
@@ -173,7 +173,7 @@ func CreateRandomAccounts(numAccts int) []sdk.AccAddress {
 }
 
 func GenerateTestAddrs() (string, string) {
-	pk1 := ed25519.GenPrivKey().PubKey()
+	pk1 := ed25519.GenerateSecretKey().Public()
 	validAddr := sdk.AccAddress(pk1.Address()).String()
 	invalidAddr := sdk.AccAddress("invalid").String()
 	return validAddr, invalidAddr

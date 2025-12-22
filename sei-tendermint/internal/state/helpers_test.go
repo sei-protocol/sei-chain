@@ -1,7 +1,6 @@
 package state_test
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"math/rand"
@@ -100,16 +99,19 @@ func makeValidCommit(
 	}, votes
 }
 
+func makePrivKey(i int) ed25519.SecretKey {
+	return ed25519.TestSecretKey(fmt.Appendf(nil, "%d", i))
+}
+
 func makeState(t *testing.T, nVals, height int) (sm.State, dbm.DB, map[string]types.PrivValidator) {
 	vals := make([]types.GenesisValidator, nVals)
 	privVals := make(map[string]types.PrivValidator, nVals)
 	for i := 0; i < nVals; i++ {
-		secret := []byte(fmt.Sprintf("test%d", i))
-		pk := ed25519.GenPrivKeyFromSecret(secret)
-		valAddr := pk.PubKey().Address()
+		pk := makePrivKey(i)
+		valAddr := pk.Public().Address()
 		vals[i] = types.GenesisValidator{
 			Address: valAddr,
-			PubKey:  pk.PubKey(),
+			PubKey:  pk.Public(),
 			Power:   1000,
 			Name:    fmt.Sprintf("test%d", i),
 		}
@@ -138,7 +140,7 @@ func makeState(t *testing.T, nVals, height int) (sm.State, dbm.DB, map[string]ty
 func genValSet(size int) *types.ValidatorSet {
 	vals := make([]*types.Validator, size)
 	for i := 0; i < size; i++ {
-		vals[i] = types.NewValidator(ed25519.GenPrivKey().PubKey(), 10)
+		vals[i] = types.NewValidator(ed25519.GenerateSecretKey().Public(), 10)
 	}
 	return types.NewValidatorSet(vals)
 }
@@ -153,11 +155,9 @@ func makeHeaderPartsResponsesValPubKeyChange(
 	finalizeBlockResponses := &abci.ResponseFinalizeBlock{}
 	// If the pubkey is new, remove the old and add the new.
 	_, val := state.NextValidators.GetByIndex(0)
-	if !bytes.Equal(pubkey.Bytes(), val.PubKey.Bytes()) {
-		vPbPk, err := encoding.PubKeyToProto(val.PubKey)
-		require.NoError(t, err)
-		pbPk, err := encoding.PubKeyToProto(pubkey)
-		require.NoError(t, err)
+	if pubkey != val.PubKey {
+		vPbPk := encoding.PubKeyToProto(val.PubKey)
+		pbPk := encoding.PubKeyToProto(pubkey)
 
 		finalizeBlockResponses.ValidatorUpdates = []abci.ValidatorUpdate{
 			{PubKey: vPbPk, Power: 0},
@@ -181,8 +181,7 @@ func makeHeaderPartsResponsesValPowerChange(
 	// If the pubkey is new, remove the old and add the new.
 	_, val := state.NextValidators.GetByIndex(0)
 	if val.VotingPower != power {
-		vPbPk, err := encoding.PubKeyToProto(val.PubKey)
-		require.NoError(t, err)
+		vPbPk := encoding.PubKeyToProto(val.PubKey)
 
 		finalizeBlockResponses.ValidatorUpdates = []abci.ValidatorUpdate{
 			{PubKey: vPbPk, Power: power},
@@ -206,7 +205,7 @@ func makeHeaderPartsResponsesParams(
 }
 
 func randomGenesisDoc() *types.GenesisDoc {
-	pubkey := ed25519.GenPrivKey().PubKey()
+	pubkey := ed25519.GenerateSecretKey().Public()
 	return &types.GenesisDoc{
 		GenesisTime: tmtime.Now(),
 		ChainID:     "abc",

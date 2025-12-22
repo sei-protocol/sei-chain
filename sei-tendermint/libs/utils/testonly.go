@@ -48,6 +48,17 @@ var cmpOpts = []cmp.Option{
 	cmp.Comparer(cmpComparer[big.Int]),
 }
 
+func OrPanic(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+func OrPanic1[T any](v T, err error) T {
+	OrPanic(err)
+	return v
+}
+
 // TestDiff generates a human-readable diff between two objects.
 func TestDiff[T any](want, got T) error {
 	if diff := cmp.Diff(want, got, cmpOpts...); diff != "" {

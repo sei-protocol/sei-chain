@@ -83,20 +83,20 @@ func (sc *SignerClient) Ping(ctx context.Context) error {
 func (sc *SignerClient) GetPubKey(ctx context.Context) (crypto.PubKey, error) {
 	response, err := sc.endpoint.SendRequest(ctx, mustWrapMsg(&privvalproto.PubKeyRequest{ChainId: sc.chainID}))
 	if err != nil {
-		return nil, fmt.Errorf("send: %w", err)
+		return crypto.PubKey{}, fmt.Errorf("send: %w", err)
 	}
 
 	resp := response.GetPubKeyResponse()
 	if resp == nil {
-		return nil, ErrUnexpectedResponse
+		return crypto.PubKey{}, ErrUnexpectedResponse
 	}
 	if resp.Error != nil {
-		return nil, &RemoteSignerError{Code: int(resp.Error.Code), Description: resp.Error.Description}
+		return crypto.PubKey{}, &RemoteSignerError{Code: int(resp.Error.Code), Description: resp.Error.Description}
 	}
 
 	pk, err := encoding.PubKeyFromProto(resp.PubKey)
 	if err != nil {
-		return nil, err
+		return crypto.PubKey{}, err
 	}
 
 	return pk, nil

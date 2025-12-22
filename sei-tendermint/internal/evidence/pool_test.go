@@ -11,6 +11,8 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/evidence"
 	"github.com/tendermint/tendermint/internal/evidence/mocks"
@@ -20,6 +22,7 @@ import (
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/internal/test/factory"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
 	"github.com/tendermint/tendermint/version"
 
@@ -33,6 +36,12 @@ var (
 	defaultEvidenceTime           = time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC)
 	defaultEvidenceMaxBytes int64 = 1000
 )
+
+var testKey = ed25519.TestSecretKey([]byte("test"))
+
+func makeEvidenceSignature(data []byte) crypto.Sig {
+	return testKey.Sign(data)
+}
 
 func startPool(t *testing.T, pool *evidence.Pool, store sm.Store) {
 	t.Helper()
@@ -174,7 +183,7 @@ func TestReportConflictingVotes(t *testing.T) {
 
 	pool, pv, _ := defaultTestPool(ctx, t, height)
 
-	val := types.NewValidator(pv.PrivKey.PubKey(), 10)
+	val := types.NewValidator(pv.PrivKey.Public(), 10)
 
 	ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, height+1, defaultEvidenceTime, pv, evidenceChainID)
 	require.NoError(t, err)
@@ -243,7 +252,7 @@ func TestEvidencePoolUpdate(t *testing.T) {
 		evidenceChainID,
 	)
 	require.NoError(t, err)
-	lastCommit := makeCommit(height, val.PrivKey.PubKey().Address())
+	lastCommit := makeCommit(height, val.PrivKey.Public().Address())
 	block := types.MakeBlock(height+1, []types.Tx{}, lastCommit, []types.Evidence{ev})
 
 	// update state (partially)
@@ -437,7 +446,7 @@ func TestRecoverPendingEvidence(t *testing.T) {
 
 	height := int64(10)
 	val := types.NewMockPV()
-	valAddress := val.PrivKey.PubKey().Address()
+	valAddress := val.PrivKey.Public().Address()
 	evidenceDB := dbm.NewMemDB()
 	stateStore := initializeValidatorState(ctx, t, val, height)
 
@@ -582,7 +591,7 @@ func makeCommit(height int64, valAddr []byte) *types.Commit {
 			BlockIDFlag:      types.BlockIDFlagCommit,
 			ValidatorAddress: valAddr,
 			Timestamp:        defaultEvidenceTime,
-			Signature:        []byte("Signature"),
+			Signature:        utils.Some(makeEvidenceSignature([]byte("Signature"))),
 		}},
 	}
 }
@@ -590,7 +599,7 @@ func makeCommit(height int64, valAddr []byte) *types.Commit {
 func defaultTestPool(ctx context.Context, t *testing.T, height int64) (*evidence.Pool, types.MockPV, *eventbus.EventBus) {
 	t.Helper()
 	val := types.NewMockPV()
-	valAddress := val.PrivKey.PubKey().Address()
+	valAddress := val.PrivKey.Public().Address()
 	evidenceDB := dbm.NewMemDB()
 	stateStore := initializeValidatorState(ctx, t, val, height)
 	state, err := stateStore.Load()

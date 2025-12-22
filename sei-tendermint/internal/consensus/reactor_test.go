@@ -501,8 +501,7 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 		pv, _ := states[nodeIdx].privValidator.Get()
 		key, err := pv.GetPubKey(ctx)
 		require.NoError(t, err)
-		keyProto, err := encoding.PubKeyToProto(key)
-		require.NoError(t, err)
+		keyProto := encoding.PubKeyToProto(key)
 		newPower := int64(rng.Intn(100000))
 		tx := kvstore.MakeValSetChangeTx(keyProto, newPower)
 		require.NoError(t, finalizeTx(ctx, valSet, blocksSubs, states, tx))
@@ -537,7 +536,7 @@ func TestReactorMemoryLimitCoverage(t *testing.T) {
 			},
 		},
 		Timestamp: time.Now(),
-		Signature: []byte("test-signature"),
+		Signature: makeSig("test-signature"),
 	}
 
 	// Test direct SetHasProposal call (this is what reactor calls)

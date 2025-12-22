@@ -228,7 +228,7 @@ func generateDuplicateVoteEvidence(
 func getRandomValidatorIndex(privVals []types.MockPV, vals *types.ValidatorSet) (types.MockPV, int32, error) {
 	for _, idx := range rand.Perm(len(privVals)) {
 		pv := privVals[idx]
-		valIdx, _ := vals.GetByAddress(pv.PrivKey.PubKey().Address())
+		valIdx, _ := vals.GetByAddress(pv.PrivKey.Public().Address())
 		if valIdx >= 0 {
 			return pv, valIdx, nil
 		}
@@ -239,12 +239,12 @@ func getRandomValidatorIndex(privVals []types.MockPV, vals *types.ValidatorSet) 
 func readPrivKey(keyFilePath string) (crypto.PrivKey, error) {
 	keyJSONBytes, err := os.ReadFile(keyFilePath)
 	if err != nil {
-		return nil, err
+		return crypto.PrivKey{}, err
 	}
 	pvKey := privval.FilePVKey{}
 	err = json.Unmarshal(keyJSONBytes, &pvKey)
 	if err != nil {
-		return nil, fmt.Errorf("error reading PrivValidator key from %v: %w", keyFilePath, err)
+		return crypto.PrivKey{}, fmt.Errorf("error reading PrivValidator key from %v: %w", keyFilePath, err)
 	}
 
 	return pvKey.PrivKey, nil
@@ -307,7 +307,7 @@ func mutateValidatorSet(ctx context.Context, privVals []types.MockPV, vals *type
 	for idx, val := range newVals.Validators {
 		found := false
 		for _, p := range append(privVals, newPrivVal.(types.MockPV)) {
-			if bytes.Equal(p.PrivKey.PubKey().Address(), val.Address) {
+			if bytes.Equal(p.PrivKey.Public().Address(), val.Address) {
 				pv[idx] = p
 				found = true
 				break

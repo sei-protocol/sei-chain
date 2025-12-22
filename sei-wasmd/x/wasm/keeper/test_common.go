@@ -721,8 +721,8 @@ func keyPubAddr() (crypto.PrivKey, crypto.PubKey, sdk.AccAddress) {
 	seed := make([]byte, 8)
 	binary.BigEndian.PutUint64(seed, keyCounter)
 
-	key := ed25519.GenPrivKeyFromSecret(seed)
-	pub := key.PubKey()
+	key := ed25519.TestSecretKey(seed)
+	pub := key.Public()
 	addr := sdk.AccAddress(pub.Address())
 	return key, pub, addr
 }

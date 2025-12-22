@@ -5,11 +5,14 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/ed25519"
+	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/libs/log"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	tmgrpc "github.com/tendermint/tendermint/privval/grpc"
 	privvalproto "github.com/tendermint/tendermint/proto/tendermint/privval"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -17,6 +20,8 @@ import (
 )
 
 const ChainID = "123"
+
+var testKey = ed25519.TestSecretKey([]byte("test"))
 
 func TestGetPubKey(t *testing.T) {
 
@@ -43,7 +48,7 @@ func TestGetPubKey(t *testing.T) {
 			} else {
 				pk, err := tc.pv.GetPubKey(ctx)
 				require.NoError(t, err)
-				assert.Equal(t, resp.PubKey.GetEd25519(), pk.Bytes())
+				require.Equal(t, resp.PubKey, encoding.PubKeyToProto(pk))
 			}
 		})
 	}
@@ -88,7 +93,7 @@ func TestSignVote(t *testing.T) {
 			Timestamp:        ts,
 			ValidatorAddress: valAddr,
 			ValidatorIndex:   1,
-			Signature:        []byte("signed"),
+			Signature:        utils.Some(testKey.Sign([]byte("signed"))),
 		}, want: &types.Vote{
 			Type:             tmproto.PrecommitType,
 			Height:           1,
@@ -97,7 +102,7 @@ func TestSignVote(t *testing.T) {
 			Timestamp:        ts,
 			ValidatorAddress: valAddr,
 			ValidatorIndex:   1,
-			Signature:        []byte("signed"),
+			Signature:        utils.Some(testKey.Sign([]byte("signed"))),
 		},
 			err: true},
 	}
@@ -158,7 +163,7 @@ func TestSignProposal(t *testing.T) {
 			POLRound:  2,
 			BlockID:   types.BlockID{Hash: hash, PartSetHeader: types.PartSetHeader{Hash: hash, Total: 2}},
 			Timestamp: ts,
-			Signature: []byte("signed"),
+			Signature: testKey.Sign([]byte("signed")),
 		}, want: &types.Proposal{
 			Type:      tmproto.ProposalType,
 			Height:    1,
@@ -166,7 +171,7 @@ func TestSignProposal(t *testing.T) {
 			POLRound:  2,
 			BlockID:   types.BlockID{Hash: hash, PartSetHeader: types.PartSetHeader{Hash: hash, Total: 2}},
 			Timestamp: ts,
-			Signature: []byte("signed"),
+			Signature: testKey.Sign([]byte("signed")),
 		},
 			err: true},
 	}

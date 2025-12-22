@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/bytes"
@@ -146,8 +147,7 @@ func invalidDoPrevoteFunc(
 
 		p := precommit.ToProto()
 		require.NoError(t, pv.SignVote(ctx, cs.state.ChainID, p))
-
-		precommit.Signature = p.Signature
+		precommit.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(p.Signature)))
 		t.Logf("disable priv val so we don't do normal votes")
 		cs.privValidator = utils.None[types.PrivValidator]()
 		cs.mtx.Unlock()

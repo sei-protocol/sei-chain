@@ -15,26 +15,16 @@ func init() {
 }
 
 // PubKeyToProto takes crypto.PubKey and transforms it to a protobuf Pubkey
-func PubKeyToProto(k crypto.PubKey) (cryptoproto.PublicKey, error) {
-	pk := make([]byte, len(k))
-	copy(pk, k.Bytes())
-	return cryptoproto.PublicKey{
-		Sum: &cryptoproto.PublicKey_Ed25519{Ed25519: pk},
-	}, nil
+func PubKeyToProto(k crypto.PubKey) cryptoproto.PublicKey {
+	return cryptoproto.PublicKey{Sum: &cryptoproto.PublicKey_Ed25519{Ed25519: k.Bytes()}}
 }
 
 // PubKeyFromProto takes a protobuf Pubkey and transforms it to a crypto.Pubkey
 func PubKeyFromProto(k cryptoproto.PublicKey) (crypto.PubKey, error) {
 	switch k := k.Sum.(type) {
 	case *cryptoproto.PublicKey_Ed25519:
-		if len(k.Ed25519) != ed25519.PubKeySize {
-			return nil, fmt.Errorf("invalid size for PubKeyEd25519. Got %d, expected %d",
-				len(k.Ed25519), ed25519.PubKeySize)
-		}
-		pk := make(ed25519.PubKey, ed25519.PubKeySize)
-		copy(pk, k.Ed25519)
-		return pk, nil
+		return ed25519.PublicKeyFromBytes(k.Ed25519)
 	default:
-		return nil, fmt.Errorf("fromproto: key type %v is not supported", k)
+		return crypto.PubKey{}, fmt.Errorf("fromproto: key type %v is not supported", k)
 	}
 }

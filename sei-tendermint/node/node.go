@@ -2,7 +2,6 @@ package node
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -205,21 +204,15 @@ func makeNode(
 		return nil, combineCloseError(err, makeCloser(closers))
 	}
 
-	var pubKey crypto.PubKey
-	pubKey, err = privValidator.GetPubKey(ctx)
-	if err != nil {
-		return nil, combineCloseError(fmt.Errorf("can't get pubkey: %w", err),
-			makeCloser(closers))
-	}
-
+	pubKey := utils.None[crypto.PubKey]()
 	if cfg.Mode == config.ModeValidator {
-		if pubKey == nil {
-			return nil, combineCloseError(
-				errors.New("could not retrieve public key from private validator"),
+		key, err := privValidator.GetPubKey(ctx)
+		if err != nil {
+			return nil, combineCloseError(fmt.Errorf("can't get pubkey: %w", err),
 				makeCloser(closers))
 		}
+		pubKey = utils.Some(key)
 	}
-
 	// TODO construct node here:
 	node := &nodeImpl{
 		config:        cfg,

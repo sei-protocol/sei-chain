@@ -227,7 +227,8 @@ func startSigner(ctx context.Context, logger log.Logger, cfg *Config) error {
 	var dialFn privval.SocketDialer
 	switch protocol {
 	case "tcp":
-		dialFn = privval.DialTCPFn(address, 3*time.Second, ed25519.GenPrivKey())
+		privKey := ed25519.GenerateSecretKey()
+		dialFn = privval.DialTCPFn(address, 3*time.Second, privKey)
 	case "unix":
 		dialFn = privval.DialUnixFn(address)
 	case "grpc":
