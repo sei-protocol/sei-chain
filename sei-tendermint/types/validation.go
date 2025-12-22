@@ -6,11 +6,12 @@ import (
 
 	"github.com/tendermint/tendermint/crypto"
 	tmmath "github.com/tendermint/tendermint/libs/math"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
 const batchVerifyThreshold = 2
 
-func shouldBatchVerify(vals *ValidatorSet, commit *Commit) bool {
+func shouldBatchVerify(commit *Commit) bool {
 	return len(commit.Signatures) >= batchVerifyThreshold
 }
 
@@ -41,7 +42,7 @@ func VerifyCommit(chainID string, vals *ValidatorSet, blockID BlockID,
 	count := func(c CommitSig) bool { return c.BlockIDFlag == BlockIDFlagCommit }
 
 	// attempt to batch verify
-	if shouldBatchVerify(vals, commit) {
+	if shouldBatchVerify(commit) {
 		return verifyCommitBatch(chainID, vals, commit,
 			votingPowerNeeded, ignore, count, true, true)
 	}
@@ -74,7 +75,7 @@ func VerifyCommitLight(chainID string, vals *ValidatorSet, blockID BlockID,
 	count := func(c CommitSig) bool { return true }
 
 	// attempt to batch verify
-	if shouldBatchVerify(vals, commit) {
+	if shouldBatchVerify(commit) {
 		return verifyCommitBatch(chainID, vals, commit,
 			votingPowerNeeded, ignore, count, false, true)
 	}
@@ -120,7 +121,7 @@ func VerifyCommitLightTrusting(chainID string, vals *ValidatorSet, commit *Commi
 	// attempt to batch verify commit. As the validator set doesn't necessarily
 	// correspond with the validator set that signed the block we need to look
 	// up by address rather than index.
-	if shouldBatchVerify(vals, commit) {
+	if shouldBatchVerify(commit) {
 		return verifyCommitBatch(chainID, vals, commit,
 			votingPowerNeeded, ignore, count, false, false)
 	}
@@ -205,9 +206,11 @@ func verifyCommitBatch(
 		voteSignBytes := commit.VoteSignBytes(chainID, int32(idx))
 
 		// add the key, sig and message to the verifier
-		if err := bv.Add(val.PubKey, voteSignBytes, commitSig.Signature); err != nil {
-			return err
+		sig, ok := commitSig.Signature.Get()
+		if !ok {
+			return fmt.Errorf("missing signature at idx %v", idx)
 		}
+		bv.Add(val.PubKey, voteSignBytes, sig)
 		batchSigIdxs = append(batchSigIdxs, idx)
 
 		// If this signature counts then add the voting power of the validator
@@ -230,28 +233,14 @@ func verifyCommitBatch(
 	}
 
 	// attempt to verify the batch.
-	ok, validSigs := bv.Verify()
-	if ok {
-		// success
-		return nil
+	if err := bv.Verify(); err != nil {
+		err := utils.ErrorAs[crypto.ErrBadSig](err).OrPanic()
+		// go back from the batch index to the commit.Signatures index
+		idx := batchSigIdxs[err.Idx]
+		sig := commit.Signatures[idx]
+		return errBadSig{fmt.Errorf("wrong signature (#%d): %X", idx, sig)}
 	}
-
-	// one or more of the signatures is invalid, find and return the first
-	// invalid signature.
-	for i, ok := range validSigs {
-		if !ok {
-			// go back from the batch index to the commit.Signatures index
-			idx := batchSigIdxs[i]
-			sig := commit.Signatures[idx]
-			return errBadSig{fmt.Errorf("wrong signature (#%d): %X", idx, sig)}
-		}
-	}
-
-	// execution reaching here is a bug, and one of the following has
-	// happened:
-	//  * non-zero tallied voting power, empty batch (impossible?)
-	//  * bv.Verify() returned `false, []bool{true, ..., true}` (BUG)
-	return fmt.Errorf("BUG: batch verification failed with no invalid signatures")
+	return nil
 }
 
 // Single Verification
@@ -306,9 +295,12 @@ func verifyCommitSingle(
 		}
 
 		voteSignBytes = commit.VoteSignBytes(chainID, int32(idx))
-
-		if !val.PubKey.VerifySignature(voteSignBytes, commitSig.Signature) {
-			return errBadSig{fmt.Errorf("wrong signature (#%d): %X", idx, commitSig.Signature)}
+		sig, ok := commitSig.Signature.Get()
+		if !ok {
+			return fmt.Errorf("missing signature at idx %v", idx)
+		}
+		if err := val.PubKey.Verify(voteSignBytes, sig); err != nil {
+			return errBadSig{fmt.Errorf("wrong signature (#%d): %v", idx, sig)}
 		}
 
 		// If this signature counts then add the voting power of the validator

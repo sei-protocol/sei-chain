@@ -278,8 +278,8 @@ func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
 // running peer manager, but does not add it to the existing
 // network. Callers are responsible for updating peering relationships.
 func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
-	privKey := ed25519.GenPrivKey()
-	nodeID := types.NodeIDFromPubKey(privKey.PubKey())
+	privKey := ed25519.GenerateSecretKey()
+	nodeID := types.NodeIDFromPubKey(privKey.Public())
 	logger := n.logger.With("node", nodeID[:5])
 
 	routerOpts := &RouterOptions{

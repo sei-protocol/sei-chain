@@ -9,6 +9,7 @@ import (
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
@@ -48,14 +49,14 @@ type Address = crypto.Address
 // Vote represents a prevote, precommit, or commit vote from validators for
 // consensus.
 type Vote struct {
-	Type             tmproto.SignedMsgType `json:"type"`
-	Height           int64                 `json:"height,string"`
-	Round            int32                 `json:"round"`    // assume there will not be greater than 2_147_483_647 rounds
-	BlockID          BlockID               `json:"block_id"` // zero if vote is nil.
-	Timestamp        time.Time             `json:"timestamp"`
-	ValidatorAddress Address               `json:"validator_address"`
-	ValidatorIndex   int32                 `json:"validator_index"`
-	Signature        []byte                `json:"signature"`
+	Type             tmproto.SignedMsgType    `json:"type"`
+	Height           int64                    `json:"height,string"`
+	Round            int32                    `json:"round"`    // assume there will not be greater than 2_147_483_647 rounds
+	BlockID          BlockID                  `json:"block_id"` // zero if vote is nil.
+	Timestamp        time.Time                `json:"timestamp"`
+	ValidatorAddress Address                  `json:"validator_address"`
+	ValidatorIndex   int32                    `json:"validator_index"`
+	Signature        utils.Option[crypto.Sig] `json:"signature"`
 }
 
 // VoteFromProto attempts to convert the given serialization (Protobuf) type to
@@ -67,7 +68,14 @@ func VoteFromProto(pv *tmproto.Vote) (*Vote, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	signature := utils.None[crypto.Sig]()
+	if len(pv.Signature) > 0 {
+		sig, err := crypto.SigFromBytes(pv.Signature)
+		if err != nil {
+			return nil, fmt.Errorf("Signature: %w", err)
+		}
+		signature = utils.Some(sig)
+	}
 	return &Vote{
 		Type:             pv.Type,
 		Height:           pv.Height,
@@ -76,7 +84,7 @@ func VoteFromProto(pv *tmproto.Vote) (*Vote, error) {
 		Timestamp:        pv.Timestamp,
 		ValidatorAddress: pv.ValidatorAddress,
 		ValidatorIndex:   pv.ValidatorIndex,
-		Signature:        pv.Signature,
+		Signature:        signature,
 	}, nil
 }
 
@@ -154,6 +162,11 @@ func (vote *Vote) String() string {
 		panic("Unknown vote type")
 	}
 
+	var sigBytes []byte
+	if sig, ok := vote.Signature.Get(); ok {
+		sigBytes = sig.Bytes()
+	}
+
 	return fmt.Sprintf("Vote{index=%v:%X %v/%02d/%v(%v) %X %X @ %s}",
 		vote.ValidatorIndex,
 		vote.ValidatorAddress,
@@ -162,7 +175,7 @@ func (vote *Vote) String() string {
 		vote.Type,
 		typeString,
 		tmbytes.Fingerprint(vote.BlockID.Hash),
-		tmbytes.Fingerprint(vote.Signature),
+		tmbytes.Fingerprint(sigBytes),
 		CanonicalTime(vote.Timestamp),
 	)
 }
@@ -172,7 +185,11 @@ func (vote *Vote) verifyAndReturnProto(chainID string, pubKey crypto.PubKey) (*t
 		return nil, ErrVoteInvalidValidatorAddress
 	}
 	v := vote.ToProto()
-	if !pubKey.VerifySignature(VoteSignBytes(chainID, v), vote.Signature) {
+	sig, ok := vote.Signature.Get()
+	if !ok {
+		return nil, ErrVoteInvalidSignature
+	}
+	if err := pubKey.Verify(VoteSignBytes(chainID, v), sig); err != nil {
 		return nil, ErrVoteInvalidSignature
 	}
 	return v, nil
@@ -223,13 +240,6 @@ func (vote *Vote) ValidateBasic() error {
 	if vote.ValidatorIndex < 0 {
 		return errors.New("negative ValidatorIndex")
 	}
-	if len(vote.Signature) == 0 {
-		return errors.New("signature is missing")
-	}
-
-	if len(vote.Signature) > MaxSignatureSize {
-		return fmt.Errorf("signature is too big (max: %d)", MaxSignatureSize)
-	}
 	return nil
 }
 
@@ -240,6 +250,11 @@ func (vote *Vote) ToProto() *tmproto.Vote {
 		return nil
 	}
 
+	var signature []byte
+	if sig, ok := vote.Signature.Get(); ok {
+		signature = sig.Bytes()
+	}
+
 	return &tmproto.Vote{
 		Type:             vote.Type,
 		Height:           vote.Height,
@@ -248,7 +263,7 @@ func (vote *Vote) ToProto() *tmproto.Vote {
 		Timestamp:        vote.Timestamp,
 		ValidatorAddress: vote.ValidatorAddress,
 		ValidatorIndex:   vote.ValidatorIndex,
-		Signature:        vote.Signature,
+		Signature:        signature,
 	}
 }
 

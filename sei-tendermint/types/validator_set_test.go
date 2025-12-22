@@ -3,6 +3,7 @@ package types
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -18,7 +19,7 @@ import (
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	tmmath "github.com/tendermint/tendermint/libs/math"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
@@ -92,59 +93,50 @@ func TestValidatorSetValidateBasic(t *testing.T) {
 
 	testCases := []struct {
 		vals ValidatorSet
-		err  bool
-		msg  string
+		err  utils.Option[error]
 	}{
 		{
 			vals: ValidatorSet{},
-			err:  true,
-			msg:  "validator set is nil or empty",
+			err:  utils.Some(ErrValidatorSetEmpty),
 		},
 		{
 			vals: ValidatorSet{
 				Validators: []*Validator{},
 			},
-			err: true,
-			msg: "validator set is nil or empty",
+			err: utils.Some(ErrValidatorSetEmpty),
 		},
 		{
 			vals: ValidatorSet{
 				Validators: []*Validator{val},
 			},
-			err: true,
-			msg: "proposer failed validate basic, error: nil validator",
+			err: utils.Some(ErrNilValidator),
 		},
 		{
 			vals: ValidatorSet{
 				Validators: []*Validator{badVal},
+				Proposer:   val,
 			},
-			err: true,
-			msg: "invalid validator #0: validator does not have a public key",
+			err: utils.Some(ErrBadAddressSize),
 		},
 		{
 			vals: ValidatorSet{
 				Validators: []*Validator{val},
 				Proposer:   val,
 			},
-			err: false,
-			msg: "",
 		},
 		{
 			vals: ValidatorSet{
 				Validators: []*Validator{val},
 				Proposer:   val2,
 			},
-			err: true,
-			msg: ErrProposerNotInVals.Error(),
+			err: utils.Some(ErrProposerNotInVals),
 		},
 	}
 
 	for _, tc := range testCases {
 		err := tc.vals.ValidateBasic()
-		if tc.err {
-			if assert.Error(t, err) {
-				assert.Equal(t, tc.msg, err.Error())
-			}
+		if wantErr, ok := tc.err.Get(); ok {
+			assert.True(t, errors.Is(err, wantErr))
 		} else {
 			assert.NoError(t, err)
 		}
@@ -205,18 +197,16 @@ func TestIncrementProposerPriorityPositiveTimes(t *testing.T) {
 }
 
 func BenchmarkValidatorSetCopy(b *testing.B) {
-	b.StopTimer()
 	vset := NewValidatorSet([]*Validator{})
-	for i := 0; i < 1000; i++ {
-		privKey := ed25519.GenPrivKey()
-		pubKey := privKey.PubKey()
+	for range 1000 {
+		privKey := ed25519.GenerateSecretKey()
+		pubKey := privKey.Public()
 		val := NewValidator(pubKey, 10)
 		err := vset.UpdateWithChangeSet([]*Validator{val})
 		require.NoError(b, err)
 	}
-	b.StartTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		vset.Copy()
 	}
 }
@@ -230,7 +220,7 @@ func TestProposerSelection1(t *testing.T) {
 		newValidator([]byte("baz"), 330),
 	})
 	var proposers []string
-	for i := 0; i < 99; i++ {
+	for range 99 {
 		val := vset.GetProposer()
 		proposers = append(proposers, string(val.Address))
 		vset.IncrementProposerPriority(1)
@@ -346,9 +336,9 @@ func TestProposerSelection3(t *testing.T) {
 	})
 
 	proposerOrder := make([]*Validator, 4)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		// need to give all validators to have keys
-		pk := ed25519.GenPrivKey().PubKey()
+		pk := ed25519.GenerateSecretKey().Public()
 		vset.Validators[i].PubKey = pk
 		proposerOrder[i] = vset.GetProposer()
 		vset.IncrementProposerPriority(1)
@@ -403,9 +393,7 @@ func newValidator(address []byte, power int64) *Validator {
 }
 
 func randPubKey() crypto.PubKey {
-	pubKey := make(ed25519.PubKey, ed25519.PubKeySize)
-	copy(pubKey, tmrand.Bytes(32))
-	return ed25519.PubKey(tmrand.Bytes(32))
+	return ed25519.GenerateSecretKey().Public()
 }
 
 func randModuloValidator(totalVotingPower int64) *Validator {
@@ -434,7 +422,7 @@ func randValidator(ctx context.Context, randPower bool, minPower int64) (*Valida
 func randModuloValidatorSet(numValidators int) *ValidatorSet {
 	validators := make([]*Validator, numValidators)
 	totalVotingPower := int64(0)
-	for i := 0; i < numValidators; i++ {
+	for i := range numValidators {
 		validators[i] = randModuloValidator(totalVotingPower)
 		totalVotingPower += validators[i].VotingPower
 	}
@@ -836,7 +824,7 @@ func toTestValList(valList []*Validator) []testVal {
 
 func testValSet(nVals int, power int64) []testVal {
 	vals := make([]testVal, nVals)
-	for i := 0; i < nVals; i++ {
+	for i := range nVals {
 		vals[i] = testVal{fmt.Sprintf("v%d", i+1), power}
 	}
 	return vals
@@ -1634,9 +1622,9 @@ func deterministicValidatorSet(ctx context.Context, t *testing.T) (*ValidatorSet
 
 	t.Helper()
 
-	for i := 0; i < 10; i++ {
-		// val, privValidator := DeterministicValidator(ed25519.PrivKey([]byte(deterministicKeys[i])))
-		val, privValidator := deterministicValidator(ctx, t, ed25519.GenPrivKeyFromSecret([]byte(fmt.Sprintf("key: %x", i))))
+	for i := range 10 {
+		// WARNING: this key has to be stable, otherwise hashes break.
+		val, privValidator := deterministicValidator(ctx, t, ed25519.TestSecretKey(fmt.Appendf(nil, "key: %x", i)))
 		valz[i] = val
 		privValidators[i] = privValidator
 	}

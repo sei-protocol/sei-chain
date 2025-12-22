@@ -3,9 +3,9 @@ package utils
 import (
 	"errors"
 	"fmt"
-	"sync"
-
 	"github.com/gogo/protobuf/proto"
+	"golang.org/x/exp/constraints"
+	"sync"
 )
 
 func ErrorAs[T error](err error) Option[T] {
@@ -16,14 +16,8 @@ func ErrorAs[T error](err error) Option[T] {
 	return None[T]()
 }
 
-// Int is a type constraint for integer types.
-type Int interface {
-	~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uint |
-		~int8 | ~int16 | ~int32 | ~int64 | ~int
-}
-
 // SafeCast casts between integer types, checking for overflows.
-func SafeCast[To Int, From Int](v From) (x To, ok bool) {
+func SafeCast[To constraints.Integer, From constraints.Integer](v From) (x To, ok bool) {
 	x = To(v)
 	// This can be further optimized by:
 	// * making compiler detect if From -> To conversion is always safe

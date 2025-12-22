@@ -10,17 +10,9 @@ import (
 	"github.com/oasisprotocol/curve25519-voi/primitives/sr25519"
 )
 
-var (
-	signingCtx = sr25519.NewSigningContext([]byte{})
-)
+var signingCtx = sr25519.NewSigningContext([]byte{})
 
-const (
-	PrivKeyName = "tendermint/PrivKeySr25519"
-	// PrivKeySize is the size of a sr25519 signature in bytes.
-	PrivKeySize = sr25519.MiniSecretKeySize
-
-	KeyType = "sr25519"
-)
+const KeyType = "sr25519"
 
 // PrivKey implements crypto.PrivKey.
 type PrivKey struct {
@@ -28,8 +20,6 @@ type PrivKey struct {
 	kp  *sr25519.KeyPair
 }
 
-// TypeTag satisfies the jsontypes.Tagged interface.
-func (PrivKey) TypeTag() string      { return PrivKeyName }
 func (privKey PrivKey) Type() string { return KeyType }
 
 // Bytes returns the byte-encoded PrivKey.

@@ -5,10 +5,18 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
+
+var testKey = ed25519.TestSecretKey([]byte("test"))
+
+func makeSig(data string) crypto.Sig {
+	return testKey.Sign([]byte(data))
+}
 
 func TestPeerStateMemoryLimits(t *testing.T) {
 	logger := log.NewTestingLogger(t)
@@ -47,7 +55,7 @@ func TestPeerStateMemoryLimits(t *testing.T) {
 					POLRound:  -1,
 					BlockID:   blockID,
 					Timestamp: time.Now(),
-					Signature: []byte("test-signature"),
+					Signature: makeSig("test-signature"),
 				}
 				ps.SetHasProposal(proposal)
 				if tc.expectError {

@@ -326,8 +326,8 @@ func TestDontExhaustMaxActiveIDs(t *testing.T) {
 
 	// ensure the reactor does not panic (i.e. exhaust active IDs)
 	for range MaxActiveIDs + 1 {
-		privKey := ed25519.GenPrivKey()
-		peerID := types.NodeIDFromPubKey(privKey.PubKey())
+		privKey := ed25519.GenerateSecretKey()
+		peerID := types.NodeIDFromPubKey(privKey.Public())
 		rts.reactors[nodeID].processPeerUpdate(ctx, p2p.PeerUpdate{
 			Status: p2p.PeerStatusUp,
 			NodeID: peerID,

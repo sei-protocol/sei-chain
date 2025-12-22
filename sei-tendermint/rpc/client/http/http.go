@@ -173,7 +173,7 @@ func (c *HTTP) NewBatch() *BatchHTTP {
 // compilation of the batched requests and send them off using the client as a
 // single request. On success, this returns a list of the deserialized results
 // from each request in the sent batch.
-func (b *BatchHTTP) Send(ctx context.Context) ([]interface{}, error) {
+func (b *BatchHTTP) Send(ctx context.Context) ([]any, error) {
 	return b.rpcBatch.Send(ctx)
 }
 

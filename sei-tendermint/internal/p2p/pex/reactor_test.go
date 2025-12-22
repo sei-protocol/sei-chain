@@ -521,5 +521,5 @@ func (r *reactorTestSuite) addAddresses(t *testing.T, node int, addrIDs []int) {
 }
 
 func randomNodeID() types.NodeID {
-	return types.NodeIDFromPubKey(ed25519.GenPrivKey().PubKey())
+	return types.NodeIDFromPubKey(ed25519.GenerateSecretKey().Public())
 }

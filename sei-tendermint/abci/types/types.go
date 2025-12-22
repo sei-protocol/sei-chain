@@ -156,11 +156,7 @@ func (v *ValidatorUpdate) UnmarshalJSON(data []byte) error {
 	if err := jsontypes.Unmarshal(vu.PubKey, &key); err != nil {
 		return err
 	}
-	pkey, err := encoding.PubKeyToProto(key)
-	if err != nil {
-		return err
-	}
-	v.PubKey = pkey
+	v.PubKey = encoding.PubKeyToProto(key)
 	v.Power = vu.Power
 	return nil
 }

@@ -15,6 +15,7 @@ import (
 
 	"github.com/tendermint/tendermint/abci/example/code"
 	"github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/libs/log"
 	cryptoproto "github.com/tendermint/tendermint/proto/tendermint/crypto"
@@ -371,7 +372,14 @@ func (app *Application) execValidatorTx(tx []byte) *types.ExecTxResult {
 	}
 
 	// update
-	return app.updateValidator(types.UpdateValidator(pubkey, power, ""))
+	key, err := ed25519.PublicKeyFromBytes(pubkey)
+	if err != nil {
+		return &types.ExecTxResult{
+			Code: code.CodeTypeEncodingError,
+			Log:  fmt.Sprintf("can't decode ed25519 key: %v", err),
+		}
+	}
+	return app.updateValidator(types.UpdateValidator(key, power, ""))
 }
 
 // add, update, or remove a validator

@@ -9,16 +9,6 @@ import (
 	"github.com/tendermint/tendermint/crypto/ed25519"
 )
 
-//-------------------------------------------
-// helper funcs
-
-func newPrivKey() ed25519.PrivKey {
-	return ed25519.GenPrivKey()
-}
-
-//-------------------------------------------
-// tests
-
 type listenerTestCase struct {
 	description string // For test reporting purposes.
 	listener    net.Listener
@@ -47,13 +37,13 @@ func tcpListenerTestCase(t *testing.T, timeoutAccept, timeoutReadWrite time.Dura
 		t.Fatal(err)
 	}
 
-	tcpLn := NewTCPListener(ln, newPrivKey())
+	tcpLn := NewTCPListener(ln, ed25519.GenerateSecretKey())
 	TCPListenerTimeoutAccept(timeoutAccept)(tcpLn)
 	TCPListenerTimeoutReadWrite(timeoutReadWrite)(tcpLn)
 	return listenerTestCase{
 		description: "TCP",
 		listener:    tcpLn,
-		dialer:      DialTCPFn(ln.Addr().String(), testTimeoutReadWrite, newPrivKey()),
+		dialer:      DialTCPFn(ln.Addr().String(), testTimeoutReadWrite, ed25519.GenerateSecretKey()),
 	}
 }
 

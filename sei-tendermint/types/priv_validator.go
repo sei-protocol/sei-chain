@@ -67,7 +67,7 @@ type MockPV struct {
 }
 
 func NewMockPV() MockPV {
-	return MockPV{ed25519.GenPrivKey(), false, false}
+	return MockPV{ed25519.GenerateSecretKey(), false, false}
 }
 
 // NewMockPVWithParams allows one to create a MockPV instance, but with finer
@@ -79,7 +79,7 @@ func NewMockPVWithParams(privKey crypto.PrivKey, breakProposalSigning, breakVote
 
 // Implements PrivValidator.
 func (pv MockPV) GetPubKey(ctx context.Context) (crypto.PubKey, error) {
-	return pv.PrivKey.PubKey(), nil
+	return pv.PrivKey.Public(), nil
 }
 
 // Implements PrivValidator.
@@ -90,11 +90,8 @@ func (pv MockPV) SignVote(ctx context.Context, chainID string, vote *tmproto.Vot
 	}
 
 	signBytes := VoteSignBytes(useChainID, vote)
-	sig, err := pv.PrivKey.Sign(signBytes)
-	if err != nil {
-		return err
-	}
-	vote.Signature = sig
+	sig := pv.PrivKey.Sign(signBytes)
+	vote.Signature = sig.Bytes()
 	return nil
 }
 
@@ -106,11 +103,8 @@ func (pv MockPV) SignProposal(ctx context.Context, chainID string, proposal *tmp
 	}
 
 	signBytes := ProposalSignBytes(useChainID, proposal)
-	sig, err := pv.PrivKey.Sign(signBytes)
-	if err != nil {
-		return err
-	}
-	proposal.Signature = sig
+	sig := pv.PrivKey.Sign(signBytes)
+	proposal.Signature = sig.Bytes()
 	return nil
 }
 
@@ -143,7 +137,7 @@ var ErroringMockPVErr = errors.New("erroringMockPV always returns an error")
 
 // Implements PrivValidator.
 func (pv *ErroringMockPV) GetPubKey(ctx context.Context) (crypto.PubKey, error) {
-	return nil, ErroringMockPVErr
+	return crypto.PubKey{}, ErroringMockPVErr
 }
 
 // Implements PrivValidator.
@@ -159,5 +153,5 @@ func (pv *ErroringMockPV) SignProposal(ctx context.Context, chainID string, prop
 // NewErroringMockPV returns a MockPV that fails on each signing request. Again, for testing only.
 
 func NewErroringMockPV() *ErroringMockPV {
-	return &ErroringMockPV{MockPV{ed25519.GenPrivKey(), false, false}}
+	return &ErroringMockPV{MockPV{ed25519.GenerateSecretKey(), false, false}}
 }

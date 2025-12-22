@@ -15,6 +15,7 @@ import (
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
@@ -39,6 +40,7 @@ func generateHeader() Header {
 		LastResultsHash:    make([]byte, crypto.HashSize),
 	}
 }
+
 func getTestProposal(t testing.TB) *Proposal {
 	t.Helper()
 
@@ -88,13 +90,11 @@ func TestProposalVerifySignature(t *testing.T) {
 	signBytes := ProposalSignBytes("test_chain_id", p)
 
 	// sign it
-	err = privVal.SignProposal(ctx, "test_chain_id", p)
-	require.NoError(t, err)
-	prop.Signature = p.Signature
+	require.NoError(t, privVal.SignProposal(ctx, "test_chain_id", p))
+	prop.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 
 	// verify the same proposal
-	valid := pubKey.VerifySignature(signBytes, prop.Signature)
-	require.True(t, valid)
+	require.NoError(t, pubKey.Verify(signBytes, prop.Signature))
 
 	// serialize, deserialize and verify again....
 	newProp := new(tmproto.Proposal)
@@ -112,29 +112,21 @@ func TestProposalVerifySignature(t *testing.T) {
 	// verify the transmitted proposal
 	newSignBytes := ProposalSignBytes("test_chain_id", pb)
 	require.Equal(t, string(signBytes), string(newSignBytes))
-	valid = pubKey.VerifySignature(newSignBytes, np.Signature)
-	require.True(t, valid)
+	require.NoError(t, pubKey.Verify(newSignBytes, np.Signature))
 }
 
 func BenchmarkProposalWriteSignBytes(b *testing.B) {
 	pbp := getTestProposal(b).ToProto()
-
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ProposalSignBytes("test_chain_id", pbp)
 	}
 }
 
 func BenchmarkProposalSign(b *testing.B) {
 	ctx := b.Context()
-
 	privVal := NewMockPV()
-
 	pbp := getTestProposal(b).ToProto()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		err := privVal.SignProposal(ctx, "test_chain_id", pbp)
 		if err != nil {
 			b.Error(err)
@@ -156,7 +148,7 @@ func BenchmarkProposalVerifySignature(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		pubKey.VerifySignature(ProposalSignBytes("test_chain_id", pbp), testProposal.Signature)
+		pubKey.Verify(ProposalSignBytes("test_chain_id", pbp), testProposal.Signature)
 	}
 }
 
@@ -176,12 +168,6 @@ func TestProposalValidateBasic(t *testing.T) {
 		{"Invalid BlockId", func(p *Proposal) {
 			p.BlockID = BlockID{[]byte{1, 2, 3}, PartSetHeader{111, []byte("blockparts")}}
 		}, true},
-		{"Invalid Signature", func(p *Proposal) {
-			p.Signature = make([]byte, 0)
-		}, true},
-		{"Too big Signature", func(p *Proposal) {
-			p.Signature = make([]byte, MaxSignatureSize+1)
-		}, true},
 	}
 	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
 
@@ -197,11 +183,11 @@ func TestProposalValidateBasic(t *testing.T) {
 				blockID, tmtime.Now(), txKeys,
 				generateHeader(), &Commit{}, EvidenceList{}, pubKey.Address())
 			p := prop.ToProto()
-			err = privVal.SignProposal(ctx, "test_chain_id", p)
-			prop.Signature = p.Signature
-			require.NoError(t, err)
+			require.NoError(t, privVal.SignProposal(ctx, "test_chain_id", p))
+			prop.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 			tc.malleateProposal(prop)
-			assert.Equal(t, tc.expectErr, prop.ValidateBasic() != nil, "Validate Basic had an unexpected result")
+			err = prop.ValidateBasic()
+			assert.Equal(t, tc.expectErr, err != nil, "Validate Basic had an unexpected result: %v", err)
 		})
 	}
 }
@@ -209,7 +195,7 @@ func TestProposalValidateBasic(t *testing.T) {
 func TestProposalProtoBuf(t *testing.T) {
 	var txKeys []TxKey
 	proposal := NewProposal(1, 2, 3, makeBlockID([]byte("hash"), 2, []byte("part_set_hash")), tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
-	proposal.Signature = []byte("sig")
+	proposal.Signature = testKey.Sign([]byte("sig"))
 	proposal2 := NewProposal(1, 2, 3, BlockID{}, tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
 
 	testCases := []struct {

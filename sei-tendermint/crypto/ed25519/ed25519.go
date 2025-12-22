@@ -4,219 +4,165 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
-	"errors"
 	"fmt"
-	"io"
+	"runtime"
 
 	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519"
 	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519/extra/cache"
 
-	"github.com/tendermint/tendermint/internal/jsontypes"
-	tmbytes "github.com/tendermint/tendermint/libs/bytes"
-	tmjson "github.com/tendermint/tendermint/libs/json"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
-//-------------------------------------
-
-var (
-	// curve25519-voi's Ed25519 implementation supports configurable
-	// verification behavior, and tendermint uses the ZIP-215 verification
-	// semantics.
-	verifyOptions = &ed25519.Options{
-		Verify: ed25519.VerifyOptionsZIP_215,
-	}
-
-	cachingVerifier = cache.NewVerifier(cache.NewLRUCache(cacheSize))
-)
-
-const (
-	PrivKeyName = "tendermint/PrivKeyEd25519"
-	PubKeyName  = "tendermint/PubKeyEd25519"
-	// PubKeySize is is the size, in bytes, of public keys as used in this package.
-	PubKeySize = 32
-	// PrivateKeySize is the size, in bytes, of private keys as used in this package.
-	PrivateKeySize = 64
-	// Size of an Edwards25519 signature. Namely the size of a compressed
-	// Edwards25519 point, and a field element. Both of which are 32 bytes.
-	SignatureSize = 64
-	// SeedSize is the size, in bytes, of private key seeds. These are the
-	// private key representations used by RFC 8032.
-	SeedSize = 32
-
-	KeyType = "ed25519"
-
-	// cacheSize is the number of public keys that will be cached in
-	// an expanded format for repeated signature verification.
-	//
-	// TODO/perf: Either this should exclude single verification, or be
-	// tuned to `> validatorSize + maxTxnsPerBlock` to avoid cache
-	// thrashing.
-	cacheSize = 4096
-)
-
-func init() {
-	tmjson.RegisterType(PubKey{}, PubKeyName)
-	tmjson.RegisterType(PrivKey{}, PrivKeyName)
-
-	jsontypes.MustRegister(PubKey{})
-	jsontypes.MustRegister(PrivKey{})
+type ErrBadSig struct {
+	Idx int // Index of the first invalid signature.
 }
 
-type PrivKey []byte
-
-// TypeTag satisfies the jsontypes.Tagged interface.
-func (PrivKey) TypeTag() string { return PrivKeyName }
-
-// Bytes returns the privkey byte format.
-func (privKey PrivKey) Bytes() []byte {
-	return []byte(privKey)
+func (e ErrBadSig) Error() string {
+	return fmt.Sprintf("invalid %vth signature", e.Idx)
 }
 
-// Sign produces a signature on the provided message.
-// This assumes the privkey is wellformed in the golang format.
-// The first 32 bytes should be random,
-// corresponding to the normal ed25519 private key.
-// The latter 32 bytes should be the compressed public key.
-// If these conditions aren't met, Sign will panic or produce an
-// incorrect signature.
-func (privKey PrivKey) Sign(msg []byte) ([]byte, error) {
-	signatureBytes := ed25519.Sign(ed25519.PrivateKey(privKey), msg)
-	return signatureBytes, nil
-}
-
-// PubKey gets the corresponding public key from the private key.
+// cacheSize is the number of public keys that will be cached in
+// an expanded format for repeated signature verification.
 //
-// Panics if the private key is not initialized.
-func (privKey PrivKey) PubKey() PubKey {
-	// If the latter 32 bytes of the privkey are all zero, privkey is not
-	// initialized.
-	initialized := false
-	for _, v := range privKey[32:] {
-		if v != 0 {
-			initialized = true
-			break
+// TODO/perf: Either this should exclude single verification, or be
+// tuned to `> validatorSize + maxTxnsPerBlock` to avoid cache
+// thrashing.
+const cacheSize = 4096
+
+// curve25519-voi's Ed25519 implementation supports configurable
+// verification behavior, and tendermint uses the ZIP-215 verification
+// semantics.
+var verifyOptions = &ed25519.Options{Verify: ed25519.VerifyOptionsZIP_215}
+var cachingVerifier = cache.NewVerifier(cache.NewLRUCache(cacheSize))
+
+// SecretKey represents a secret key in the Ed25519 signature scheme.
+type SecretKey struct {
+	// This is a pointer to avoid copying the secret all over the memory.
+	// This is a pointer to pointer, so that runtime.AddCleanup can actually work:
+	// Cleanup requires the referenced pointer to be unreachable, even from
+	// the cleanup function.
+	key **[ed25519.PrivateKeySize]byte
+	// Comparing the secrets is not allowed.
+	// If you have to, compare the public keys instead.
+	_ utils.NoCompare
+}
+
+// WARNING: this function should only be used when persisting the private key.
+// TODO(gprusak): this should return a read-only slice - in particular,
+// SecretKeyFromSecretBytes(k.SecretBytes()) would wipe k currently.
+func (k SecretKey) SecretBytes() []byte {
+	return (*k.key)[:]
+}
+
+// SecretKeyFromSecretBytes constructs a secret key from a raw secret material.
+// WARNING: this function zeroes the content of the input slice.
+func SecretKeyFromSecretBytes(b []byte) (SecretKey, error) {
+	if got, want := len(b), ed25519.PrivateKeySize; got != want {
+		return SecretKey{}, fmt.Errorf("ed25519: bad private key length: got %d, want %d", got, want)
+	}
+	raw := utils.Alloc([ed25519.PrivateKeySize]byte(b))
+	runtime.AddCleanup(&raw, func(int) {
+		// Zero the memory to avoid leaking the secret.
+		for i := range raw {
+			raw[i] = 0
 		}
+	}, 0)
+	key := SecretKey{key: &raw}
+	// Zero the input slice to avoid leaking the secret.
+	for i := range b {
+		b[i] = 0
 	}
-
-	if !initialized {
-		panic("Expected ed25519 PrivKey to include concatenated pubkey bytes")
-	}
-
-	pubkeyBytes := make([]byte, PubKeySize)
-	copy(pubkeyBytes, privKey[32:])
-	return PubKey(pubkeyBytes)
+	return key, nil
 }
 
-// Equals - you probably don't need to use this.
-// Runs in constant time based on length of the keys.
-func (privKey PrivKey) Equals(other PrivKey) bool {
-	return subtle.ConstantTimeCompare(privKey[:], other[:]) == 1
-}
-
-func (privKey PrivKey) Type() string {
-	return KeyType
-}
-
-// GenPrivKey generates a new ed25519 private key.
-// It uses OS randomness in conjunction with the current global random seed
-// in tendermint/libs/common to generate the private key.
-func GenPrivKey() PrivKey {
-	return genPrivKey(rand.Reader)
-}
-
-// genPrivKey generates a new ed25519 private key using the provided reader.
-func genPrivKey(rand io.Reader) PrivKey {
-	_, priv, err := ed25519.GenerateKey(rand)
+// TestSecretKey generates a testonly secret key.
+func TestSecretKey(seed []byte) SecretKey {
+	h := sha256.Sum256(seed)
+	key, err := SecretKeyFromSecretBytes(ed25519.NewKeyFromSeed(h[:]))
 	if err != nil {
 		panic(err)
 	}
-
-	return PrivKey(priv)
+	return key
 }
 
-// GenPrivKeyFromSecret hashes the secret with SHA2, and uses
-// that 32 byte output to create the private key.
-// NOTE: secret should be the output of a KDF like bcrypt,
-// if it's derived from user input.
-func GenPrivKeyFromSecret(secret []byte) PrivKey {
-	seed := sha256.Sum256(secret)
-	return PrivKey(ed25519.NewKeyFromSeed(seed[:]))
-}
-
-//-------------------------------------
-
-// PubKeyEd25519 implements the Ed25519 signature scheme.
-type PubKey []byte
-
-// TypeTag satisfies the jsontypes.Tagged interface.
-func (PubKey) TypeTag() string { return PubKeyName }
-
-// Address is the SHA256-20 of the raw pubkey bytes.
-func (pubKey PubKey) Address() tmbytes.HexBytes {
-	if len(pubKey) != PubKeySize {
-		panic("pubkey is incorrect size")
+// GenerateSecretKey generates a new secret key using a cryptographically secure random number generator.
+func GenerateSecretKey() SecretKey {
+	var seed [ed25519.SeedSize]byte
+	// rand.Read is documented to never return an error.
+	if _, err := rand.Read(seed[:]); err != nil {
+		panic(err)
 	}
-	return addressHash(pubKey)
-}
-
-// Bytes returns the PubKey byte format.
-func (pubKey PubKey) Bytes() []byte {
-	return []byte(pubKey)
-}
-
-func (pubKey PubKey) VerifySignature(msg []byte, sig []byte) bool {
-	// make sure we use the same algorithm to sign
-	if len(sig) != SignatureSize {
-		return false
+	// Generated key is always valid.
+	key, err := SecretKeyFromSecretBytes(ed25519.NewKeyFromSeed(seed[:]))
+	if err != nil {
+		panic(err)
 	}
-
-	return cachingVerifier.VerifyWithOptions(ed25519.PublicKey(pubKey), msg, sig, verifyOptions)
-}
-
-func (pubKey PubKey) String() string {
-	return fmt.Sprintf("PubKeyEd25519{%X}", []byte(pubKey))
-}
-
-func (pubKey PubKey) Type() string {
-	return KeyType
-}
-
-func (pubKey PubKey) Equals(other PubKey) bool {
-	return bytes.Equal(pubKey[:], other[:])
-}
-
-// BatchVerifier implements batch verification for ed25519.
-type BatchVerifier struct {
-	*ed25519.BatchVerifier
-}
-
-func NewBatchVerifier() *BatchVerifier {
-	return &BatchVerifier{ed25519.NewBatchVerifier()}
-}
-
-func (b *BatchVerifier) Add(key PubKey, msg, signature []byte) error {
-	pkBytes := key.Bytes()
-
-	if l := len(pkBytes); l != PubKeySize {
-		return fmt.Errorf("pubkey size is incorrect; expected: %d, got %d", PubKeySize, l)
+	// Zeroize the seed after generation.
+	for i := range seed {
+		seed[i] = 0
 	}
+	return key
+}
 
-	// check that the signature is the correct length
-	if len(signature) != SignatureSize {
-		return errors.New("invalid signature")
+// Public returns the public key corresponding to the secret key.
+func (k SecretKey) Public() PublicKey {
+	p := ed25519.PrivateKey((*k.key)[:]).Public().(ed25519.PublicKey)
+	return PublicKey{key: [ed25519.PublicKeySize]byte(p)}
+}
+
+// PublicKey represents a public key in the Ed25519 signature scheme.
+type PublicKey struct {
+	utils.ReadOnly
+	key [ed25519.PublicKeySize]byte
+}
+
+// Signature represents a signature in the Ed25519 signature scheme.
+type Signature struct {
+	utils.ReadOnly
+	sig [ed25519.SignatureSize]byte
+}
+
+// Sign signs a message using the secret key.
+func (k SecretKey) Sign(message []byte) Signature {
+	return Signature{
+		sig: [ed25519.SignatureSize]byte(ed25519.Sign((*k.key)[:], message)),
 	}
+}
 
-	cachingVerifier.AddWithOptions(b.BatchVerifier, ed25519.PublicKey(pkBytes), msg, signature, verifyOptions)
+// Compare defines a total order on public keys.
+func (k PublicKey) Compare(other PublicKey) int {
+	return bytes.Compare(k.key[:], other.key[:])
+}
 
+// Verify verifies a signature using the public key.
+func (k PublicKey) Verify(msg []byte, sig Signature) error {
+	if !cachingVerifier.VerifyWithOptions(k.key[:], msg, sig.sig[:], verifyOptions) {
+		return ErrBadSig{}
+	}
 	return nil
 }
 
-func (b *BatchVerifier) Verify() (bool, []bool) {
-	return b.BatchVerifier.Verify(rand.Reader)
+// BatchVerifier implements batch verification for ed25519.
+type BatchVerifier struct{ inner *ed25519.BatchVerifier }
+
+func NewBatchVerifier() *BatchVerifier { return &BatchVerifier{ed25519.NewBatchVerifier()} }
+
+func (b *BatchVerifier) Add(key PublicKey, msg []byte, sig Signature) {
+	cachingVerifier.AddWithOptions(b.inner, key.key[:], msg, sig.sig[:], verifyOptions)
 }
 
-func addressHash(bz []byte) tmbytes.HexBytes {
-	h := sha256.Sum256(bz)
-	return tmbytes.HexBytes(h[:20])
+// Verify verifies the batched signatures using OS entropy.
+// If any signature is invalid, returns ErrBadSig with an index
+// of the first invalid signature.
+func (b *BatchVerifier) Verify() error {
+	ok, res := b.inner.Verify(rand.Reader)
+	if ok {
+		return nil
+	}
+	for idx, ok := range res {
+		if !ok {
+			return ErrBadSig{idx}
+		}
+	}
+	panic("unreachable")
 }
