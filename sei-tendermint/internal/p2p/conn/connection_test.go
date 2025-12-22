@@ -36,8 +36,7 @@ func newMConnectionWithCh(
 	cfg := DefaultMConnConfig()
 	cfg.PingInterval = 250 * time.Millisecond
 	cfg.PongTimeout = 500 * time.Millisecond
-	c := NewMConnection(log.NewNopLogger(), conn, chDescs, cfg)
-	return c
+	return NewMConnection(log.NewNopLogger(), conn, chDescs, cfg)
 }
 
 func mayDisconnectAfterDone(ctx context.Context, err error) error {

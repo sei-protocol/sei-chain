@@ -4,19 +4,17 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"testing"
 	"net"
+	"testing"
 
 	gogotypes "github.com/gogo/protobuf/types"
-	"github.com/oasisprotocol/curve25519-voi/primitives/merlin"
-	"github.com/stretchr/testify/assert"
-	"golang.org/x/crypto/chacha20poly1305"
 
 	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	tmp2p "github.com/tendermint/tendermint/proto/tendermint/p2p"
 )
 
@@ -43,12 +41,11 @@ func (b *buffer) Close() error {
 
 type evilConn struct {
 	*SecretConnection
-	buffer     *buffer
+	buffer *buffer
 
-	locEphPub  *[32]byte
-	locEphPriv *[32]byte
-	remEphPub  *[32]byte
-	privKey    crypto.PrivKey
+	loc     ephSecret
+	rem     ephPublic
+	privKey crypto.PrivKey
 
 	readStep   int
 	writeStep  int
@@ -61,22 +58,14 @@ type evilConn struct {
 }
 
 func newEvilConn(shareEphKey, badEphKey, shareAuthSignature, badAuthSignature bool) *evilConn {
-	privKey := ed25519.GenerateSecretKey()
-	locEphPub, locEphPriv := genEphKeys()
-	var rep [32]byte
-	c := &evilConn{
-		locEphPub:  locEphPub,
-		locEphPriv: locEphPriv,
-		remEphPub:  &rep,
-		privKey:    privKey,
-
+	return &evilConn{
+		loc:                genEphKey(),
+		privKey:            ed25519.GenerateSecretKey(),
 		shareEphKey:        shareEphKey,
 		badEphKey:          badEphKey,
 		shareAuthSignature: shareAuthSignature,
 		badAuthSignature:   badAuthSignature,
 	}
-
-	return c
 }
 
 func (c *evilConn) Read(data []byte) (n int, err error) {
@@ -87,8 +76,7 @@ func (c *evilConn) Read(data []byte) (n int, err error) {
 	switch c.readStep {
 	case 0:
 		if !c.badEphKey {
-			lc := *c.locEphPub
-			bz, err := protoio.MarshalDelimited(&gogotypes.BytesValue{Value: lc[:]})
+			bz, err := protoio.MarshalDelimited(&gogotypes.BytesValue{Value: c.loc.public[:]})
 			if err != nil {
 				panic(err)
 			}
@@ -153,16 +141,9 @@ func (c *evilConn) Read(data []byte) (n int, err error) {
 func (c *evilConn) Write(data []byte) (n int, err error) {
 	switch c.writeStep {
 	case 0:
-		var (
-			bytes     gogotypes.BytesValue
-			remEphPub [32]byte
-		)
-		err := protoio.UnmarshalDelimited(data, &bytes)
-		if err != nil {
-			panic(err)
-		}
-		copy(remEphPub[:], bytes.Value)
-		c.remEphPub = &remEphPub
+		var bytes gogotypes.BytesValue
+		utils.OrPanic(protoio.UnmarshalDelimited(data, &bytes))
+		c.rem = ephPublic(bytes.Value)
 		c.writeStep = 1
 		if !c.shareAuthSignature {
 			c.writeStep = 2
@@ -181,83 +162,36 @@ func (c *evilConn) Close() error {
 }
 
 func (c *evilConn) signChallenge() ed25519.Signature {
-	// Sort by lexical order.
-	loEphPub, hiEphPub := sort32(c.locEphPub, c.remEphPub)
-
-	transcript := merlin.NewTranscript("TENDERMINT_SECRET_CONNECTION_TRANSCRIPT_HASH")
-
-	transcript.AppendMessage(labelEphemeralLowerPublicKey, loEphPub[:])
-	transcript.AppendMessage(labelEphemeralUpperPublicKey, hiEphPub[:])
-
-	// Check if the local ephemeral public key was the least, lexicographically
-	// sorted.
-	locIsLeast := bytes.Equal(c.locEphPub[:], loEphPub[:])
-
-	// Compute common diffie hellman secret using X25519.
-	dhSecret, err := computeDHSecret(c.remEphPub, c.locEphPriv)
-	if err != nil {
-		panic(err)
-	}
-
-	transcript.AppendMessage(labelDHSecret, dhSecret[:])
-
-	// Generate the secret used for receiving, sending, challenge via HKDF-SHA2
-	// on the transcript state (which itself also uses HKDF-SHA2 to derive a key
-	// from the dhSecret).
-	recvSecret, sendSecret := deriveSecrets(dhSecret, locIsLeast)
-
-	const challengeSize = 32
-	var challenge [challengeSize]byte
-	transcript.ExtractBytes(challenge[:], labelSecretConnectionMac)
-
-	sendAead, err := chacha20poly1305.New(sendSecret[:])
-	if err != nil {
-		panic(errors.New("invalid send SecretConnection Key"))
-	}
-	recvAead, err := chacha20poly1305.New(recvSecret[:])
-	if err != nil {
-		panic(errors.New("invalid receive SecretConnection Key"))
-	}
-
 	b := &buffer{}
-	c.SecretConnection = &SecretConnection{
-		conn:       b,
-		recvState: utils.NewMutex(&recvState{}),
-		sendNonce: utils.NewMutex(&nonce{}),
-		recvAead:   recvAead,
-		sendAead:   sendAead,
-	}
+	c.SecretConnection = newSecretConnection(b, c.loc, c.rem)
 	c.buffer = b
-
-	// Sign the challenge bytes for authentication.
-	return signChallenge(&challenge, c.privKey)
+	return c.privKey.Sign(c.challenge[:])
 }
 
 // TestMakeSecretConnection creates an evil connection and tests that
 // MakeSecretConnection errors at different stages.
 func TestMakeSecretConnection(t *testing.T) {
 	testCases := []struct {
-		name   string
-		conn   *evilConn
-		errMsg string
+		name string
+		conn *evilConn
+		err  utils.Option[error]
 	}{
-		{"refuse to share ethimeral key", newEvilConn(false, false, false, false), "EOF"},
-		{"share bad ethimeral key", newEvilConn(true, true, false, false), "wrong wireType"},
-		{"refuse to share auth signature", newEvilConn(true, false, false, false), "EOF"},
-		{"share bad auth signature", newEvilConn(true, false, true, true), "failed to decrypt SecretConnection"},
-		{"all good", newEvilConn(true, false, true, false), ""},
+		{"refuse to share ephemeral key", newEvilConn(false, false, false, false), utils.Some(errDH)},
+		{"share bad ephemeral key", newEvilConn(true, true, false, false), utils.Some(errDH)},
+		{"refuse to share auth signature", newEvilConn(true, false, false, false), utils.Some(io.EOF)},
+		{"share bad auth signature", newEvilConn(true, false, true, true), utils.Some(errAEAD)},
+		{"all good", newEvilConn(true, false, true, false), utils.None[error]()},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
 			privKey := ed25519.GenerateSecretKey()
-			_, err := MakeSecretConnection(tc.conn, privKey)
-			if tc.errMsg != "" {
-				if assert.Error(t, err) {
-					assert.Contains(t, err.Error(), tc.errMsg)
-				}
+			_, err := MakeSecretConnection(ctx, tc.conn, privKey)
+			if wantErr, ok := tc.err.Get(); ok {
+				require.True(t, errors.Is(err, wantErr), "got %v, want %v", err, wantErr)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 		})
 	}

@@ -103,7 +103,7 @@ initialization of the connection.
 type MConnection struct {
 	logger log.Logger
 
-	conn     *SecretConnection 
+	conn      net.Conn
 	sendQueue utils.Watch[*sendQueue]
 	recvPong  utils.Mutex[*utils.AtomicSend[bool]]
 	recvCh    chan mConnMessage
@@ -180,7 +180,7 @@ func (q *sendQueue) setFlush(t time.Time) {
 // NewMConnection wraps net.Conn and creates multiplex connection with a config
 func NewMConnection(
 	logger log.Logger,
-	conn *SecretConnection,
+	conn net.Conn,
 	chDescs []*ChannelDescriptor,
 	config MConnConfig,
 ) *MConnection {
