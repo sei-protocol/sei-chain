@@ -94,6 +94,7 @@ func main() {
 		var logsFound int
 		var failures int
 		var latencies []time.Duration
+		var lastErr error
 		var mu sync.Mutex
 
 		batchStart := time.Now()
@@ -112,6 +113,7 @@ func main() {
 
 				if err != nil {
 					failures++
+					lastErr = err
 				} else {
 					latencies = append(latencies, callDuration)
 					// Assuming all consistent queries return same count
@@ -147,5 +149,9 @@ func main() {
 
 		fmt.Printf("%-10d | %-10d | %-12v | %-12v | %-12v | %-12v | %-8s\n",
 			r, logsFound, minLat, maxLat, avgLat, totalBatchDuration, status)
+
+		if failures > 0 && lastErr != nil {
+			fmt.Printf("  Error: %v\n", lastErr)
+		}
 	}
 }
