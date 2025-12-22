@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	"os"
 	"sync"
-	"text/tabwriter"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -57,10 +55,9 @@ func main() {
 	}
 	fmt.Println()
 
-	// Initialize tab writer
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "Range Size\tFrom Block\tTo Block\tLogs Found\tLatency\tStatus")
-	fmt.Fprintln(w, "-------------\t--------------\t--------------\t------------\t------------\t--------")
+	// Fixed-width formatting for better alignment during iterative output
+	fmt.Printf("%-13s | %-14s | %-14s | %-12s | %-15s | %-8s\n", "Range Size", "From Block", "To Block", "Logs Found", "Latency", "Status")
+	fmt.Printf("%-13s | %-14s | %-14s | %-12s | %-15s | %-8s\n", "-------------", "--------------", "--------------", "------------", "---------------", "--------")
 
 	ranges := []int64{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 10000}
 
@@ -130,8 +127,7 @@ func main() {
 			avgLatency = totalDuration / time.Duration(effectiveSuccess)
 		}
 
-		fmt.Fprintf(w, "%d\t%d\t%d\t%d\t%s\t%s\n",
+		fmt.Printf("%-13d | %-14d | %-14d | %-12d | %-15v | %-8s\n",
 			r, fromBlock, latestBlock, logsFound, avgLatency, status)
-		w.Flush()
 	}
 }
