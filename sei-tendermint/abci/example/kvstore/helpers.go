@@ -26,7 +26,7 @@ func RandVals(cnt int) []types.ValidatorUpdate {
 		}
 		res[i] = types.ValidatorUpdate{
 			PubKey: crypto.PubKeyToProto(pubKey),
-			Power: int64(power),
+			Power:  int64(power),
 		}
 	}
 	return res

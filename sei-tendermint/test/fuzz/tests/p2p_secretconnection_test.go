@@ -4,16 +4,16 @@ package tests
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
-	"context"
-	"testing"
 	"net"
+	"testing"
 
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
-	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/require"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
 func FuzzP2PSecretConnection(f *testing.F) {
@@ -77,8 +77,6 @@ func (drw kvstoreConn) Close() (err error) {
 	}
 	return err1
 }
-
-
 
 // Each returned ReadWriteCloser is akin to a net.Connection
 func makeKVStoreConnPair() (fooConn, barConn kvstoreConn) {

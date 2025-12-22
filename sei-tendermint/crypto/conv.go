@@ -1,11 +1,11 @@
-package crypto 
+package crypto
 
 import (
 	"fmt"
 
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/jsontypes"
+	"github.com/tendermint/tendermint/libs/utils"
 	pb "github.com/tendermint/tendermint/proto/tendermint/crypto"
 )
 
@@ -14,9 +14,9 @@ func init() {
 	jsontypes.MustRegister((*pb.PublicKey_Ed25519)(nil))
 }
 
-var PubKeyConv = utils.ProtoConv[PubKey,*pb.PublicKey]{
+var PubKeyConv = utils.ProtoConv[PubKey, *pb.PublicKey]{
 	Encode: func(k PubKey) *pb.PublicKey { return utils.Alloc(PubKeyToProto(k)) },
-	Decode: func(x *pb.PublicKey) (PubKey,error) { return PubKeyFromProto(*x) },
+	Decode: func(x *pb.PublicKey) (PubKey, error) { return PubKeyFromProto(*x) },
 }
 
 // PubKeyToProto takes crypto.PubKey and transforms it to a protobuf Pubkey

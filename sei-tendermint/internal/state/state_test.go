@@ -15,8 +15,8 @@ import (
 
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/crypto/merkle"
 	sm "github.com/tendermint/tendermint/internal/state"
 	statefactory "github.com/tendermint/tendermint/internal/state/test/factory"

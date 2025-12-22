@@ -336,7 +336,7 @@ type authSigMessage struct {
 	Sig crypto.Sig
 }
 
-var authSigMessageConv = utils.ProtoConv[*authSigMessage, *pb.AuthSigMessage] {
+var authSigMessageConv = utils.ProtoConv[*authSigMessage, *pb.AuthSigMessage]{
 	Encode: func(m *authSigMessage) *pb.AuthSigMessage {
 		return &pb.AuthSigMessage{
 			PubKey: crypto.PubKeyConv.Encode(m.Key),
