@@ -15,6 +15,7 @@ import (
 	"github.com/tendermint/tendermint/abci/example/code"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto/ed25519"
+	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/version"
@@ -393,7 +394,10 @@ func (app *Application) validatorUpdates(height uint64) (abci.ValidatorUpdates, 
 		if err != nil {
 			return nil, fmt.Errorf("invalid ed25519 pubkey value %q: %w", keyString, err)
 		}
-		valUpdates = append(valUpdates, abci.UpdateValidator(pubKey, int64(power), app.cfg.KeyType))
+		valUpdates = append(valUpdates, abci.ValidatorUpdate {
+			PubKey: crypto.PubKeyToProto(pubKey),
+			Power: int64(power),
+		})
 	}
 
 	// the validator updates could be returned in arbitrary order,

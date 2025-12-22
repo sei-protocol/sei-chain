@@ -23,11 +23,10 @@ import (
 	"golang.org/x/crypto/nacl/box"
 
 	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
-	tmp2p "github.com/tendermint/tendermint/proto/tendermint/p2p"
+	pb "github.com/tendermint/tendermint/proto/tendermint/p2p"
 )
 
 // 4 + 1024 == 1028 total frame size
@@ -138,15 +137,15 @@ func MakeSecretConnection(ctx context.Context, conn net.Conn, locPrivKey crypto.
 	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*SecretConnection, error) {
 		// Share (in secret) each other's pubkey & challenge signature
 		s.Spawn(func() error {
-			loc := authSigMessage{locPrivKey.Public(), locPrivKey.Sign(sc.challenge[:])}
-			_, err := protoio.NewDelimitedWriter(sc).WriteMsg(loc.ToProto())
+			loc := &authSigMessage{locPrivKey.Public(), locPrivKey.Sign(sc.challenge[:])}
+			_, err := protoio.NewDelimitedWriter(sc).WriteMsg(authSigMessageConv.Encode(loc))
 			return err
 		})
-		var pba tmp2p.AuthSigMessage
+		var pba pb.AuthSigMessage
 		if _, err := protoio.NewDelimitedReader(sc, 1024*1024).ReadMsg(&pba); err != nil {
 			return nil, err
 		}
-		rem, err := authSigMessageFromProto(&pba)
+		rem, err := authSigMessageConv.Decode(&pba)
 		if err != nil {
 			return nil, fmt.Errorf("authSigMessageFromProto(): %w", err)
 		}
@@ -337,21 +336,22 @@ type authSigMessage struct {
 	Sig crypto.Sig
 }
 
-func (m *authSigMessage) ToProto() *tmp2p.AuthSigMessage {
-	return &tmp2p.AuthSigMessage{
-		PubKey: encoding.PubKeyToProto(m.Key),
-		Sig:    m.Sig.Bytes(),
-	}
-}
-
-func authSigMessageFromProto(p *tmp2p.AuthSigMessage) (*authSigMessage, error) {
-	key, err := encoding.PubKeyFromProto(p.PubKey)
-	if err != nil {
-		return nil, fmt.Errorf("PubKey: %w", err)
-	}
-	sig, err := crypto.SigFromBytes(p.Sig)
-	if err != nil {
-		return nil, fmt.Errorf("Sig: %w", err)
-	}
-	return &authSigMessage{key, sig}, nil
+var authSigMessageConv = utils.ProtoConv[*authSigMessage, *pb.AuthSigMessage] {
+	Encode: func(m *authSigMessage) *pb.AuthSigMessage {
+		return &pb.AuthSigMessage{
+			PubKey: crypto.PubKeyConv.Encode(m.Key),
+			Sig:    m.Sig.Bytes(),
+		}
+	},
+	Decode: func(p *pb.AuthSigMessage) (*authSigMessage, error) {
+		key, err := crypto.PubKeyConv.DecodeReq(p.PubKey)
+		if err != nil {
+			return nil, fmt.Errorf("PubKey: %w", err)
+		}
+		sig, err := crypto.SigFromBytes(p.Sig)
+		if err != nil {
+			return nil, fmt.Errorf("Sig: %w", err)
+		}
+		return &authSigMessage{key, sig}, nil
+	},
 }

@@ -12,8 +12,8 @@ message PacketPing {}
 message PacketPong {}
 
 message PacketMsg {
-  int32 channel_id = 1 [(gogoproto.customname) = "ChannelID"];
-  bool eof = 2 [(gogoproto.customname) = "EOF"];
+  int32 channel_id = 1;
+  bool eof = 2;
   bytes data = 3;
 }
 
@@ -26,7 +26,6 @@ message Packet {
 }
 
 message AuthSigMessage {
-  tendermint.crypto.PublicKey pub_key = 1 [(gogoproto.nullable) = false];
+  tendermint.crypto.PublicKey pub_key = 1;
   bytes sig = 2;
-  // Supported P2P features.
 }

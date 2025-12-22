@@ -16,7 +16,7 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/crypto/encoding"
+	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/merkle"
 	sm "github.com/tendermint/tendermint/internal/state"
 	statefactory "github.com/tendermint/tendermint/internal/state/test/factory"
@@ -117,7 +117,7 @@ func TestFinalizeBlockResponsesSaveLoad1(t *testing.T) {
 
 	finalizeBlockResponses.TxResults[0] = &abci.ExecTxResult{Data: []byte("foo"), Events: nil}
 	finalizeBlockResponses.TxResults[1] = &abci.ExecTxResult{Data: []byte("bar"), Log: "ok", Events: nil}
-	pbpk := encoding.PubKeyToProto(ed25519.GenerateSecretKey().Public())
+	pbpk := crypto.PubKeyToProto(ed25519.GenerateSecretKey().Public())
 	finalizeBlockResponses.ValidatorUpdates = []abci.ValidatorUpdate{{PubKey: pbpk, Power: 10}}
 
 	require.NoError(t, stateStore.SaveFinalizeBlockResponses(block.Height, finalizeBlockResponses))
@@ -355,7 +355,7 @@ func TestProposerFrequency(t *testing.T) {
 	for caseNum, testCase := range testCases {
 		// run each case 5 times to sample different
 		// initial priorities
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			valSet := genValSetWithPowers(testCase.powers)
 			testProposerFreq(t, caseNum, valSet)
 		}
@@ -365,11 +365,11 @@ func TestProposerFrequency(t *testing.T) {
 	maxVals := 100
 	maxPower := 1000
 	nTestCases := 5
-	for i := 0; i < nTestCases; i++ {
+	for i := range nTestCases {
 		N := mrand.Int()%maxVals + 1
 		vals := make([]*types.Validator, N)
 		totalVotePower := int64(0)
-		for j := 0; j < N; j++ {
+		for j := range N {
 			// make sure votePower > 0
 			votePower := int64(mrand.Int()%maxPower) + 1
 			totalVotePower += votePower
@@ -391,7 +391,7 @@ func genValSetWithPowers(powers []int64) *types.ValidatorSet {
 	size := len(powers)
 	vals := make([]*types.Validator, size)
 	totalVotePower := int64(0)
-	for i := 0; i < size; i++ {
+	for i := range size {
 		totalVotePower += powers[i]
 		val := types.NewValidator(ed25519.GenerateSecretKey().Public(), powers[i])
 		val.ProposerPriority = mrand.Int63()
@@ -411,7 +411,7 @@ func testProposerFreq(t *testing.T, caseNum int, valSet *types.ValidatorSet) {
 	runMult := 1
 	runs := int(totalPower) * runMult
 	freqs := make([]int, N)
-	for i := 0; i < runs; i++ {
+	for range runs {
 		prop := valSet.GetProposer()
 		idx, _ := valSet.GetByAddress(prop.Address)
 		freqs[idx]++
@@ -474,7 +474,7 @@ func TestProposerPriorityDoesNotGetResetToZero(t *testing.T) {
 	// add a validator
 	val2PubKey := ed25519.GenerateSecretKey().Public()
 	val2VotingPower := int64(100)
-	fvp := encoding.PubKeyToProto(val2PubKey)
+	fvp := crypto.PubKeyToProto(val2PubKey)
 
 	updateAddVal := abci.ValidatorUpdate{PubKey: fvp, Power: val2VotingPower}
 	validatorUpdates, err = types.PB2TM.ValidatorUpdates([]abci.ValidatorUpdate{updateAddVal})
@@ -601,7 +601,7 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 
 	// add a validator with the same voting power as the first
 	val2PubKey := ed25519.GenerateSecretKey().Public()
-	fvp := encoding.PubKeyToProto(val2PubKey)
+	fvp := crypto.PubKeyToProto(val2PubKey)
 	updateAddVal := abci.ValidatorUpdate{PubKey: fvp, Power: val1VotingPower}
 	validatorUpdates, err = types.PB2TM.ValidatorUpdates([]abci.ValidatorUpdate{updateAddVal})
 	assert.NoError(t, err)
@@ -707,7 +707,7 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 	expectedVal1Prio = -9
 	expectedVal2Prio = 9
 
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		// no validator updates:
 		fb := &abci.ResponseFinalizeBlock{
 			ValidatorUpdates: nil,
@@ -767,7 +767,7 @@ func TestLargeGenesisValidator(t *testing.T) {
 	// update state a few times with no validator updates
 	// asserts that the single validator's ProposerPrio stays the same
 	oldState := state
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		// no updates:
 		fb := &abci.ResponseFinalizeBlock{
 			ValidatorUpdates: nil,
@@ -800,7 +800,7 @@ func TestLargeGenesisValidator(t *testing.T) {
 	// see: https://github.com/tendermint/tendermint/issues/2960
 	firstAddedValPubKey := ed25519.GenerateSecretKey().Public()
 	firstAddedValVotingPower := int64(10)
-	fvp := encoding.PubKeyToProto(firstAddedValPubKey)
+	fvp := crypto.PubKeyToProto(firstAddedValPubKey)
 	firstAddedVal := abci.ValidatorUpdate{PubKey: fvp, Power: firstAddedValVotingPower}
 	validatorUpdates, err := types.PB2TM.ValidatorUpdates([]abci.ValidatorUpdate{firstAddedVal})
 	assert.NoError(t, err)
@@ -858,7 +858,7 @@ func TestLargeGenesisValidator(t *testing.T) {
 	// add 10 validators with the same voting power as the one added directly after genesis:
 	for i := 0; i < 10; i++ {
 		addedPubKey := ed25519.GenerateSecretKey().Public()
-		ap := encoding.PubKeyToProto(addedPubKey)
+		ap := crypto.PubKeyToProto(addedPubKey)
 		addedVal := abci.ValidatorUpdate{PubKey: ap, Power: firstAddedValVotingPower}
 		validatorUpdates, err := types.PB2TM.ValidatorUpdates([]abci.ValidatorUpdate{addedVal})
 		assert.NoError(t, err)
@@ -880,7 +880,7 @@ func TestLargeGenesisValidator(t *testing.T) {
 	require.Equal(t, 10+2, len(state.NextValidators.Validators))
 
 	// remove genesis validator:
-	gp := encoding.PubKeyToProto(genesisPubKey)
+	gp := crypto.PubKeyToProto(genesisPubKey)
 	removeGenesisVal := abci.ValidatorUpdate{PubKey: gp, Power: 0}
 	fb = &abci.ResponseFinalizeBlock{
 		ValidatorUpdates: []abci.ValidatorUpdate{removeGenesisVal},
@@ -1143,7 +1143,6 @@ func TestStateProto(t *testing.T) {
 	}
 
 	for _, tt := range tc {
-		tt := tt
 		pbs, err := tt.state.ToProto()
 		if !tt.expPass1 {
 			assert.Error(t, err)

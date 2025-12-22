@@ -16,7 +16,7 @@ import (
 	"github.com/tendermint/tendermint/abci/example/code"
 	"github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/crypto/encoding"
+	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/libs/log"
 	cryptoproto "github.com/tendermint/tendermint/proto/tendermint/crypto"
 	"github.com/tendermint/tendermint/version"
@@ -329,7 +329,7 @@ func (app *Application) Validators() (validators []types.ValidatorUpdate) {
 }
 
 func MakeValSetChangeTx(pubkey cryptoproto.PublicKey, power int64) []byte {
-	pk, err := encoding.PubKeyFromProto(pubkey)
+	pk, err := crypto.PubKeyFromProto(pubkey)
 	if err != nil {
 		panic(err)
 	}
@@ -379,12 +379,12 @@ func (app *Application) execValidatorTx(tx []byte) *types.ExecTxResult {
 			Log:  fmt.Sprintf("can't decode ed25519 key: %v", err),
 		}
 	}
-	return app.updateValidator(types.UpdateValidator(key, power, ""))
+	return app.updateValidator(types.ValidatorUpdate{PubKey: crypto.PubKeyToProto(key), Power: power})
 }
 
 // add, update, or remove a validator
 func (app *Application) updateValidator(v types.ValidatorUpdate) *types.ExecTxResult {
-	pubkey, err := encoding.PubKeyFromProto(v.PubKey)
+	pubkey, err := crypto.PubKeyFromProto(v.PubKey)
 	if err != nil {
 		panic(fmt.Errorf("can't decode public key: %w", err))
 	}

@@ -24,7 +24,10 @@ func RandVals(cnt int) []types.ValidatorUpdate {
 		if err != nil {
 			panic(err)
 		}
-		res[i] = types.UpdateValidator(pubKey, int64(power), "")
+		res[i] = types.ValidatorUpdate{
+			PubKey: crypto.PubKeyToProto(pubKey),
+			Power: int64(power),
+		}
 	}
 	return res
 }
