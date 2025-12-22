@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/ethereum/evmc/v12/bindings/go/evmc"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/sei-protocol/sei-chain/giga/executor/types"
 )
 
@@ -29,4 +30,9 @@ func (v *VMImpl) Call(sender types.Address, to types.Address, input []byte, gas 
 	}
 	ret, left, _, _, err := v.hostContext.Call(evmc.Call, evmc.Address(to), evmc.Address(sender), evmc.Hash(value), input, int64(gas), 0, false, evmc.Hash{}, evmc.Address(to))
 	return ret, uint64(left), err //nolint:gosec
+}
+
+func (v *VMImpl) ApplyMessage(msg *core.Message, gp *core.GasPool) (*core.ExecutionResult, error) {
+	executionResult, err := core.ApplyMessage(v.evm, msg, gp)
+	return executionResult, err
 }
