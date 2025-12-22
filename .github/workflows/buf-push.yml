@@ -2,7 +2,7 @@ name: Buf-Push
 
 on:
   push:
-    branches: [ main ]  # only on upstream main
+    branches: [ main ]
 
 permissions:
   contents: read
@@ -10,12 +10,9 @@ permissions:
 
 jobs:
   buf-push:
-    if: ${{ github.repository == 'sei-protocol/sei-chain' && secrets.BUF_TOKEN != '' }}
+    # Only run this job in the official repository
+    if: github.repository == 'sei-protocol/sei-chain'
     runs-on: ubuntu-latest
-    env:
-      BUF_TOKEN: ${{ secrets.BUF_TOKEN }}
-      GITHUB_TOKEN: ${{ github.token }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -24,13 +21,12 @@ jobs:
         with:
           go-version: "1.21"
 
-      - name: Install Buf
-        run: |
-          curl -sSL https://github.com/bufbuild/buf/releases/download/v1.31.0/buf-Linux-x86_64 -o /usr/local/bin/buf
-          chmod +x /usr/local/bin/buf
+      # Install Buf CLI (required for the push action)
+      - uses: bufbuild/buf-setup-action@v1
 
-      - name: Login & Push Buf module
-        run: |
-          echo "::add-mask::${BUF_TOKEN}"
-          echo "${BUF_TOKEN}" | buf registry login buf.build --token-stdin
-          buf push
+      # Push to Buf Schema Registry
+      - name: Push Buf module
+        uses: bufbuild/buf-push-action@v1
+        with:
+          input: '.'  # Adjust if your proto files are in a subdir, e.g., 'proto'
+          token: ${{ secrets.BUF_TOKEN }}  # Empty in forks/PRs from forks → safe failure if run
