@@ -161,8 +161,8 @@ func (p *pbtsTestHarness) observedValidatorProposerHeight(ctx context.Context, t
 	ensurePrevote(t, p.ensureVoteCh, p.currentHeight, p.currentRound)
 	signAddVotes(ctx, t, p.observedState, tmproto.PrevoteType, p.chainID, bid, p.otherValidators...)
 
-	signAddVotes(ctx, t, p.observedState, tmproto.PrecommitType, p.chainID, bid, p.otherValidators...)
 	ensurePrecommit(t, p.ensureVoteCh, p.currentHeight, p.currentRound)
+	signAddVotes(ctx, t, p.observedState, tmproto.PrecommitType, p.chainID, bid, p.otherValidators...)
 
 	ensureNewBlock(t, p.blockCh, p.currentHeight)
 
@@ -235,8 +235,8 @@ func (p *pbtsTestHarness) nextHeight(ctx context.Context, t *testing.T, proposer
 	ensurePrevote(t, p.ensureVoteCh, p.currentHeight, p.currentRound)
 	signAddVotes(ctx, t, p.observedState, tmproto.PrevoteType, p.chainID, bid, p.otherValidators...)
 
-	signAddVotes(ctx, t, p.observedState, tmproto.PrecommitType, p.chainID, bid, p.otherValidators...)
 	ensurePrecommit(t, p.ensureVoteCh, p.currentHeight, p.currentRound)
+	signAddVotes(ctx, t, p.observedState, tmproto.PrecommitType, p.chainID, bid, p.otherValidators...)
 
 	vk, err := p.observedValidator.GetPubKey(ctx)
 	require.NoError(t, err)
