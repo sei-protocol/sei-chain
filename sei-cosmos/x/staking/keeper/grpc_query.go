@@ -390,6 +390,7 @@ func (k Querier) Redelegations(c context.Context, req *types.QueryRedelegationsR
 	switch {
 	case req.DelegatorAddr != "" && req.SrcValidatorAddr != "" && req.DstValidatorAddr != "":
 		redels, err = queryRedelegation(ctx, k, req)
+		pageRes = &query.PageResponse{}
 	case req.DelegatorAddr == "" && req.SrcValidatorAddr != "" && req.DstValidatorAddr == "":
 		redels, pageRes, err = queryRedelegationsFromSrcValidator(store, k, req)
 	default:
