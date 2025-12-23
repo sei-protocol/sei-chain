@@ -1,32 +1,28 @@
 package evmc
 
 import (
-	"math"
-
-	"github.com/ethereum/evmc/v12/bindings/go/evmc"
-	"github.com/sei-protocol/sei-chain/giga/executor/types"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 type VMImpl struct {
-	hostContext evmc.HostContext
+	evm *vm.EVM
 }
 
-func NewVM(hostContext evmc.HostContext) types.VM {
-	return &VMImpl{hostContext: hostContext}
-}
-
-func (v *VMImpl) Create(sender types.Address, code []byte, gas uint64, value types.Hash) (ret []byte, contractAddr types.Address, gasLeft uint64, err error) {
-	if gas > math.MaxInt64 {
-		panic("gas overflow")
+func NewVM(blockCtx vm.BlockContext, stateDB vm.StateDB, chainConfig *params.ChainConfig, config vm.Config, customPrecompiles map[common.Address]vm.PrecompiledContract) *VMImpl {
+	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, config, customPrecompiles)
+	// todo(pdrobnjak): populate evmc.VM
+	hostContext := NewHostContext(nil, stateDB)
+	evm.EVMInterpreter = NewEVMInterpreter(hostContext, evm)
+	return &VMImpl{
+		evm: evm,
 	}
-	ret, left, _, addr, err := v.hostContext.Call(evmc.Create, evmc.Address{}, evmc.Address(sender), evmc.Hash(value), code, int64(gas), 0, false, evmc.Hash{}, evmc.Address{})
-	return ret, types.Address(addr), uint64(left), err //nolint:gosec
 }
 
-func (v *VMImpl) Call(sender types.Address, to types.Address, input []byte, gas uint64, value types.Hash) (ret []byte, gasLeft uint64, err error) {
-	if gas > math.MaxInt64 {
-		panic("gas overflow")
-	}
-	ret, left, _, _, err := v.hostContext.Call(evmc.Call, evmc.Address(to), evmc.Address(sender), evmc.Hash(value), input, int64(gas), 0, false, evmc.Hash{}, evmc.Address(to))
-	return ret, uint64(left), err //nolint:gosec
+// todo(pdrobnjak): we should probably have ExecuteTransaction only that will invoke ApplyMessage and receive a transaction
+func (v *VMImpl) ApplyMessage(msg *core.Message, gp *core.GasPool) (*core.ExecutionResult, error) {
+	executionResult, err := core.ApplyMessage(v.evm, msg, gp)
+	return executionResult, err
 }
