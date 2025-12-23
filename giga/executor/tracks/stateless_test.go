@@ -23,7 +23,9 @@ func TestStatelessTrack(t *testing.T) {
 	}
 	workerCount := 10
 	lastBlock := uint64(100)
-	tracks.StartStatelessTrack(inputs, outputs, processFn, workerCount, lastBlock)
+	statelessTrack := tracks.NewStatelessTrack(inputs, outputs, processFn, workerCount, lastBlock)
+	statelessTrack.Start()
+	defer statelessTrack.Stop()
 	for i := range 100 {
 		inputs <- &testBlock{id: uint64(i) + 1 + lastBlock}
 	}
