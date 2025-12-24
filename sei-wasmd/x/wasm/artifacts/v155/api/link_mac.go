@@ -2,5 +2,5 @@
 
 package api
 
-// #cgo LDFLAGS: -Wl,-rpath,${ORIGIN} -L${SRCDIR} -lwasmvm155
+// #cgo LDFLAGS: -Wl,-rpath,@loader_path -L${SRCDIR} -lwasmvm155
 import "C"
