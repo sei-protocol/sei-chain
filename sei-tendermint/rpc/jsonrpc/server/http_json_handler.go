@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"html/template"
 	"io"
 	"net/http"
@@ -38,7 +37,7 @@ func makeJSONRPCHandler(funcMap map[string]*RPCFunc, logger log.Logger) http.Han
 		// if its an empty request (like from a browser), just display a list of
 		// functions
 		if len(b) == 0 {
-			writeListOfEndpoints(w, hreq, funcMap)
+			writeListOfEndpoints(w, funcMap)
 			return
 		}
 
@@ -126,20 +125,19 @@ func parseRequests(data []byte) ([]rpctypes.RPCRequest, error) {
 }
 
 // writes a list of available rpc endpoints as an html page
-func writeListOfEndpoints(w http.ResponseWriter, r *http.Request, funcMap map[string]*RPCFunc) {
+func writeListOfEndpoints(w http.ResponseWriter, funcMap map[string]*RPCFunc) {
 	hasArgs := make(map[string]string)
 	noArgs := make(map[string]string)
 	for name, rf := range funcMap {
-		base := fmt.Sprintf("//%s/%s", r.Host, name)
 		if len(rf.args) == 0 {
-			noArgs[name] = base
+			noArgs[name] = name
 			continue
 		}
 		var query []string
 		for _, arg := range rf.args {
 			query = append(query, arg.name+"=_")
 		}
-		hasArgs[name] = base + "?" + strings.Join(query, "&")
+		hasArgs[name] = name + "?" + strings.Join(query, "&")
 	}
 	w.Header().Set("Content-Type", "text/html")
 	_ = listOfEndpoints.Execute(w, map[string]map[string]string{
