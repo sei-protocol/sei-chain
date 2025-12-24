@@ -22,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ss/util"
+	"github.com/sei-protocol/sei-chain/sei-db/ss/util/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/stream/changelog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -40,7 +41,17 @@ const (
 	latestMigratedKeyMetadata    = "s/_latestMigratedKey"
 	latestMigratedModuleMetadata = "s/_latestMigratedModule"
 	lastRangeHashKey             = "s/_hash:latestRange"
-	tombstoneVal                 = "TOMBSTONE"
+	// currentLtHashChecksumKey stores the 32-byte LtHash checksum for the latest version.
+	// It is derived from the full LtHash vector and is cheap to read/compare for observability.
+	currentLtHashChecksumKey = "s/_lthash:checksum"
+	// currentLtHashKey stores the full 2048-byte LtHash vector for the latest version.
+	// We persist this so the node can restore the in-memory LtHash state on restart.
+	// The checksum alone is not reversible and cannot be used to resume incremental updates.
+	currentLtHashKey = "s/_lthash:vector"
+	// ltHashChecksumHistoryPrefix stores per-height LtHash checksums:
+	// "s/_lthash:checksum_h:<height>" -> 32 bytes.
+	ltHashChecksumHistoryPrefix = "s/_lthash:checksum_h:"
+	tombstoneVal                = "TOMBSTONE"
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
@@ -80,6 +91,13 @@ type Database struct {
 	lastRangeHashedCache int64
 	lastRangeHashedMu    sync.RWMutex
 	hashComputationMu    sync.Mutex
+
+	// LtHash fields
+	lthash   *lthash.LtHash
+	lthashMu sync.RWMutex
+	// ltHashChecksum stores the current LtHash checksum (32 bytes) and the associated version.
+	// This is NOT the SC (MemIAVL) commitment hash.
+	ltHashChecksum types.StateHash
 
 	// Cancel function for background metrics collection
 	metricsCancel context.CancelFunc
@@ -150,9 +168,15 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		earliestVersion: atomic.Int64{},
 		latestVersion:   atomic.Int64{},
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
+		lthash:          lthash.NewEmptyLtHash(),
 	}
 	database.latestVersion.Store(latestVersion)
 	database.earliestVersion.Store(earliestVersion)
+
+	// Restore commit hash
+	if err := database.RestoreCommitHash(); err != nil {
+		return nil, fmt.Errorf("failed to restore commit hash: %w", err)
+	}
 
 	// Initialize the lastRangeHashed cache
 	lastHashed, err := retrieveLastRangeHashed(db)
@@ -201,9 +225,12 @@ func (db *Database) Close() error {
 		_ = db.streamHandler.Close()
 		db.streamHandler = nil
 	}
-	err := db.storage.Close()
-	db.storage = nil
-	return err
+	if db.storage != nil {
+		err := db.storage.Close()
+		db.storage = nil
+		return err
+	}
+	return nil
 }
 
 func (db *Database) SetLatestVersion(version int64) error {
@@ -436,6 +463,16 @@ func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedCh
 
 	for _, cs := range changeset {
 		for _, kvPair := range cs.Changeset.Pairs {
+			if isMetadataKey(kvPair.Key) {
+				if kvPair.Value == nil {
+					if err := db.storage.Delete(kvPair.Key, defaultWriteOpts); err != nil {
+						return err
+					}
+				} else if err := db.storage.Set(kvPair.Key, kvPair.Value, defaultWriteOpts); err != nil {
+					return err
+				}
+				continue
+			}
 			if kvPair.Value == nil {
 				if err := b.Delete(cs.Name, kvPair.Key); err != nil {
 					return err
@@ -470,12 +507,10 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 			int64(len(db.pendingChanges)),
 		)
 	}()
-	// Add to pending changes first
-	db.pendingChanges <- VersionedChangesets{
-		Version:    version,
-		Changesets: changesets,
-	}
-	// Write to WAL
+
+	// Write to WAL first (happens-before apply) to ensure crash recovery correctness.
+	// If we crash after enqueue but before WAL write, changesets could be partially
+	// applied without being recorded in WAL, breaking recovery semantics.
 	if db.streamHandler != nil {
 		entry := proto.ChangelogEntry{
 			Version: version,
@@ -486,6 +521,12 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 		if err != nil {
 			return err
 		}
+	}
+
+	// Now enqueue for async apply (safe because WAL has the durable record)
+	db.pendingChanges <- VersionedChangesets{
+		Version:    version,
+		Changesets: changesets,
 	}
 
 	if db.config.HashRange > 0 {
@@ -1230,4 +1271,166 @@ func (db *Database) collectAndRecordMetrics(ctx context.Context) {
 	otelMetrics.cacheHits.Add(ctx, m.BlockCache.Hits)
 	otelMetrics.cacheMisses.Add(ctx, m.BlockCache.Misses)
 	otelMetrics.cacheSize.Record(ctx, m.BlockCache.Size)
+}
+
+// ApplyCommitHash will calculate a new hash and update the latest DB commit hash.
+// If lastFlushValueGetter is non-nil, it will be used to retrieve last flush values
+// for LtHash delta computation instead of reading from the DB. This ensures determinism
+// when SS writes are asynchronous and may not yet be visible.
+func (db *Database) ApplyCommitHash(version int64, changesets []*proto.NamedChangeSet, lastFlushValueGetter types.LastFlushValueGetter) (types.StateHash, []types.KVPair) {
+	stateHash, _, metaKVs := db.ApplyCommitHashWithTimings(version, changesets, lastFlushValueGetter)
+	return stateHash, metaKVs
+}
+
+// ApplyCommitHashWithTimings is like ApplyCommitHash but also returns timing breakdown.
+// If lastFlushValueGetter is non-nil, it will be used to retrieve last flush values
+// for LtHash delta computation instead of reading from the DB. This ensures determinism
+// when SS writes are asynchronous and may not yet be visible.
+func (db *Database) ApplyCommitHashWithTimings(version int64, changesets []*proto.NamedChangeSet, lastFlushValueGetter types.LastFlushValueGetter) (types.StateHash, *types.LtHashTimings, []types.KVPair) {
+	db.lthashMu.Lock()
+	defer db.lthashMu.Unlock()
+
+	db.ltHashChecksum.Version = version
+	if len(changesets) == 0 {
+		return db.ltHashChecksum, nil, nil
+	}
+
+	// Helper function to get last flush value - uses provided getter for determinism,
+	// or falls back to DB read if getter is nil
+	getLastFlushValue := func(storeKey string, key []byte) []byte {
+		if lastFlushValueGetter != nil {
+			return lastFlushValueGetter(storeKey, key)
+		}
+		// Fallback to reading from DB (non-deterministic if SS is async)
+		val, _ := db.Get(storeKey, version-1, key)
+		return val
+	}
+
+	delta := lthash.NewEmptyLtHash()
+	var totalTimings types.LtHashTimings
+
+	for _, cs := range changesets {
+		var csKVs []lthash.KVPairWithOldValue
+		for _, kv := range cs.Changeset.Pairs {
+			lastFlushVal := getLastFlushValue(cs.Name, kv.Key)
+			csKVs = append(csKVs, lthash.KVPairWithOldValue{
+				Key:            kv.Key,
+				Value:          kv.Value,
+				LastFlushValue: lastFlushVal,
+				Deleted:        kv.Delete,
+			})
+		}
+		csDelta, timings := lthash.ComputeLtHashDeltaParallel(cs.Name, csKVs, lthash.DefaultLtHashWorkers)
+		delta.MixIn(csDelta)
+		if timings != nil {
+			totalTimings.TotalNs += timings.TotalNs
+			totalTimings.SerializeNs += timings.SerializeNs
+			totalTimings.Blake3Ns += timings.Blake3Ns
+			totalTimings.MixInOutNs += timings.MixInOutNs
+			totalTimings.MergeNs += timings.MergeNs
+		}
+	}
+
+	db.lthash.MixIn(delta)
+
+	// Record LtHash timing metrics (only total latency for now)
+	if totalTimings.TotalNs > 0 {
+		otelMetrics.lthashTotalLatency.Record(context.Background(), float64(totalTimings.TotalNs)/1e9)
+	}
+
+	// Compute checksum
+	checksum := db.lthash.Checksum()
+	checksumBytes := make([]byte, len(checksum))
+	copy(checksumBytes, checksum[:])
+	db.ltHashChecksum.Hash = checksumBytes
+
+	// Meta KVs to persist alongside this changeset.
+	lthashBytes := db.lthash.Bytes()
+	historyKey := fmt.Sprintf("%s%d", ltHashChecksumHistoryPrefix, version)
+	metaKVs := []types.KVPair{
+		{Key: []byte(currentLtHashChecksumKey), Value: checksumBytes},
+		{Key: []byte(currentLtHashKey), Value: lthashBytes},
+		{Key: []byte(historyKey), Value: checksumBytes},
+	}
+
+	return db.ltHashChecksum, &totalTimings, metaKVs
+}
+
+// GetCommitHash return the current DB commit hash.
+func (db *Database) GetCommitHash() types.StateHash {
+	db.lthashMu.RLock()
+	defer db.lthashMu.RUnlock()
+	return db.ltHashChecksum
+}
+
+// GetLtHash returns a copy of the current LtHash vector (thread-safe).
+func (db *Database) GetLtHash() types.LtHasher {
+	db.lthashMu.RLock()
+	defer db.lthashMu.RUnlock()
+	return db.lthash.Clone()
+}
+
+// GetLtHashChecksumAtHeight returns the LtHash checksum at a specific block height.
+func (db *Database) GetLtHashChecksumAtHeight(height uint64) ([]byte, error) {
+	historyKey := fmt.Sprintf("%s%d", ltHashChecksumHistoryPrefix, height)
+	checksumBytes, closer, err := db.storage.Get([]byte(historyKey))
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to read LtHash checksum at height %d: %w", height, err)
+	}
+	defer closer.Close()
+
+	if len(checksumBytes) == 0 {
+		return nil, nil
+	}
+	return slices.Clone(checksumBytes), nil
+}
+
+// RestoreCommitHash restores the previously persisted hash and LtHash vector.
+func (db *Database) RestoreCommitHash() error {
+	lthashBytes, closer, err := db.storage.Get([]byte(currentLtHashKey))
+	if err != nil && !errors.Is(err, pebble.ErrNotFound) {
+		return err
+	}
+	if closer != nil {
+		defer closer.Close()
+	}
+
+	if len(lthashBytes) == 0 {
+		// truly fresh DB
+		db.lthash = lthash.NewEmptyLtHash()
+		db.lthash.Identity()
+		return nil
+	}
+
+	// Load LtHash vector
+	db.lthash, err = lthash.FromRaw(lthashBytes)
+	if err != nil {
+		return fmt.Errorf("failed to deserialize LtHash: %w", err)
+	}
+
+	// Load stored hash
+	storedHash, closerHash, err := db.storage.Get([]byte(currentLtHashChecksumKey))
+	if err != nil && !errors.Is(err, pebble.ErrNotFound) {
+		return err
+	}
+	if closerHash != nil {
+		defer closerHash.Close()
+	}
+	// Verify checksum matches stored hash (detect DB corruption)
+	recomputed := db.lthash.Checksum()
+	if len(storedHash) > 0 && !bytes.Equal(recomputed[:], storedHash) {
+		return fmt.Errorf(
+			"lthash checksum mismatch (DB corruption detected): stored=%x, recomputed=%x",
+			storedHash, recomputed[:],
+		)
+	}
+
+	db.ltHashChecksum = types.StateHash{
+		Hash:    slices.Clone(storedHash),
+		Version: db.GetLatestVersion(),
+	}
+	return nil
 }
