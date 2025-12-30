@@ -2,21 +2,7 @@ package json_test
 
 import (
 	"time"
-
-	"github.com/tendermint/tendermint/libs/json"
 )
-
-// Register Car, an instance of the Vehicle interface.
-func init() {
-	json.RegisterType(&Car{}, "vehicle/car")
-	json.RegisterType(Boat{}, "vehicle/boat")
-	json.RegisterType(PublicKey{}, "key/public")
-	json.RegisterType(PrivateKey{}, "key/private")
-}
-
-type Vehicle interface {
-	Drive() error
-}
 
 // Car is a pointer implementation of Vehicle.
 type Car struct {
@@ -85,7 +71,6 @@ type Struct struct {
 	Time         time.Time
 	Car          *Car
 	Boat         Boat
-	Vehicles     []Vehicle
 	Child        *Struct
 	private      string
 }

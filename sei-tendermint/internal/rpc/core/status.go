@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	"github.com/tendermint/tendermint/types"
 )
@@ -47,19 +48,10 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 
 	// Return the very last voting power, not the voting power of this validator
 	// during the last block.
-	var votingPower int64
-	if val := env.validatorAtHeight(env.latestUncommittedHeight()); val != nil {
-		votingPower = val.VotingPower
+	validatorInfo := coretypes.ValidatorInfo{PubKey: env.PubKey}
+	if val, ok := env.validatorAtHeight(env.latestUncommittedHeight()).Get(); ok {
+		validatorInfo.VotingPower = val.VotingPower
 	}
-	validatorInfo := coretypes.ValidatorInfo{}
-	if env.PubKey != nil {
-		validatorInfo = coretypes.ValidatorInfo{
-			Address:     env.PubKey.Address(),
-			PubKey:      env.PubKey,
-			VotingPower: votingPower,
-		}
-	}
-
 	var applicationInfo coretypes.ApplicationInfo
 	if abciInfo, err := env.ABCIInfo(ctx); err == nil {
 		applicationInfo.Version = fmt.Sprint(abciInfo.Response.AppVersion)
@@ -109,29 +101,34 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 	return result, nil
 }
 
-func (env *Environment) validatorAtHeight(h int64) *types.Validator {
+func (env *Environment) validatorAtHeight(h int64) utils.Option[*types.Validator] {
+	none := utils.None[*types.Validator]()
+	k, ok := env.PubKey.Get()
+	if !ok {
+		return none
+	}
 	valsWithH, err := env.StateStore.LoadValidators(h)
 	if err != nil {
-		return nil
+		return none
 	}
 	if env.ConsensusState == nil {
-		return nil
+		return none
 	}
-	if env.PubKey == nil {
-		return nil
-	}
-	privValAddress := env.PubKey.Address()
+	privValAddress := k.Address()
 
 	// If we're still at height h, search in the current validator set.
 	lastBlockHeight, vals := env.ConsensusState.GetValidators()
 	if lastBlockHeight == h {
 		for _, val := range vals {
 			if bytes.Equal(val.Address, privValAddress) {
-				return val
+				return utils.Some(val)
 			}
 		}
 	}
 
 	_, val := valsWithH.GetByAddress(privValAddress)
-	return val
+	if val != nil {
+		return utils.Some(val)
+	}
+	return none
 }

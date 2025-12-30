@@ -37,11 +37,7 @@ func DefaultValidationRequestHandler(
 		if err != nil {
 			return res, err
 		}
-		pk, err := encoding.PubKeyToProto(pubKey)
-		if err != nil {
-			return res, err
-		}
-
+		pk := encoding.PubKeyToProto(pubKey)
 		if err != nil {
 			res = mustWrapMsg(&privvalproto.PubKeyResponse{
 				PubKey: cryptoproto.PublicKey{}, Error: &privvalproto.RemoteSignerError{Code: 0, Description: err.Error()}})

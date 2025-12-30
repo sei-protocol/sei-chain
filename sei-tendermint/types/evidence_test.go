@@ -14,6 +14,7 @@ import (
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/version"
 )
@@ -313,7 +314,7 @@ func makeVote(
 	err = val.SignVote(ctx, chainID, vpb)
 	require.NoError(t, err)
 
-	v.Signature = vpb.Signature
+	v.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(vpb.Signature)))
 	return v
 }
 
@@ -383,7 +384,8 @@ func TestEvidenceVectors(t *testing.T) {
 
 	// Votes for duplicateEvidence
 	val := NewMockPV()
-	val.PrivKey = ed25519.GenPrivKeyFromSecret([]byte("it's a secret")) // deterministic key
+	// WARNING: this key has to be stable, otherwise hashes break.
+	val.PrivKey = ed25519.TestSecretKey([]byte("it's a secret"))
 	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
 	blockID2 := makeBlockID(crypto.Checksum([]byte("blockhash2")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
 	const chainID = "mychain"

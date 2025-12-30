@@ -13,7 +13,7 @@ import (
 func GetTmConsPubKey(v types.Validator) (tmcrypto.PubKey, error) {
 	pk, err := v.ConsPubKey()
 	if err != nil {
-		return nil, err
+		return tmcrypto.PubKey{}, err
 	}
 
 	return cryptocodec.ToTmPubKeyInterface(pk)

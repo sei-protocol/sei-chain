@@ -89,7 +89,7 @@ func TestBasicGenesisDoc(t *testing.T) {
 	_, err := GenesisDocFromJSON(genDocBytes)
 	assert.NoError(t, err, "expected no error for good genDoc json")
 
-	pubkey := ed25519.GenPrivKey().PubKey()
+	pubkey := ed25519.GenerateSecretKey().Public()
 	// create a base gendoc from struct
 	baseGenDoc := &GenesisDoc{
 		ChainID:    "abc",
@@ -165,7 +165,7 @@ func TestGenesisValidatorHash(t *testing.T) {
 }
 
 func randomGenesisDoc() *GenesisDoc {
-	pubkey := ed25519.GenPrivKey().PubKey()
+	pubkey := ed25519.GenerateSecretKey().Public()
 	return &GenesisDoc{
 		GenesisTime:     tmtime.Now(),
 		ChainID:         "abc",

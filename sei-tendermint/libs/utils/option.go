@@ -40,6 +40,13 @@ func (o *Option[T]) Or(def T) T {
 	return def
 }
 
+func (o Option[T]) OrPanic() T {
+	if o.isPresent {
+		return o.value
+	}
+	panic("value missing")
+}
+
 // MapOpt applies a function to the value if present, returning a new Option.
 func MapOpt[T, R any](o Option[T], f func(T) R) Option[R] {
 	if o.isPresent {

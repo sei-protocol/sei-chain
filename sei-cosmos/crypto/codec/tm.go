@@ -41,19 +41,14 @@ func ToTmProtoPublicKey(pk cryptotypes.PubKey) (tmprotocrypto.PublicKey, error) 
 
 // FromTmPubKeyInterface converts TM's tmcrypto.PubKey to our own PubKey.
 func FromTmPubKeyInterface(tmPk tmcrypto.PubKey) (cryptotypes.PubKey, error) {
-	tmProtoPk, err := encoding.PubKeyToProto(tmPk)
-	if err != nil {
-		return nil, err
-	}
-
-	return FromTmProtoPublicKey(tmProtoPk)
+	return FromTmProtoPublicKey(encoding.PubKeyToProto(tmPk))
 }
 
 // ToTmPubKeyInterface converts our own PubKey to TM's tmcrypto.PubKey.
 func ToTmPubKeyInterface(pk cryptotypes.PubKey) (tmcrypto.PubKey, error) {
 	tmProtoPk, err := ToTmProtoPublicKey(pk)
 	if err != nil {
-		return nil, err
+		return tmcrypto.PubKey{}, err
 	}
 
 	return encoding.PubKeyFromProto(tmProtoPk)

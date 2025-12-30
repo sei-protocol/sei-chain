@@ -13,14 +13,13 @@ import (
 )
 
 func TestABCIPubKey(t *testing.T) {
-	pkEd := ed25519.GenPrivKey().PubKey()
+	pkEd := ed25519.GenerateSecretKey().Public()
 	err := testABCIPubKey(t, pkEd)
 	assert.NoError(t, err)
 }
 
 func testABCIPubKey(t *testing.T, pk crypto.PubKey) error {
-	abciPubKey, err := encoding.PubKeyToProto(pk)
-	require.NoError(t, err)
+	abciPubKey := encoding.PubKeyToProto(pk)
 	pk2, err := encoding.PubKeyFromProto(abciPubKey)
 	require.NoError(t, err)
 	require.Equal(t, pk, pk2)
@@ -28,7 +27,7 @@ func testABCIPubKey(t *testing.T, pk crypto.PubKey) error {
 }
 
 func TestABCIValidators(t *testing.T) {
-	pkEd := ed25519.GenPrivKey().PubKey()
+	pkEd := ed25519.GenerateSecretKey().Public()
 
 	// correct validator
 	tmValExpected := NewValidator(pkEd, 10)
@@ -53,7 +52,7 @@ func TestABCIValidators(t *testing.T) {
 }
 
 func TestABCIValidatorWithoutPubKey(t *testing.T) {
-	pkEd := ed25519.GenPrivKey().PubKey()
+	pkEd := ed25519.GenerateSecretKey().Public()
 
 	abciVal := TM2PB.Validator(NewValidator(pkEd, 10))
 

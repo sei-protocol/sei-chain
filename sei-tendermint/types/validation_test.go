@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
 
 	tmmath "github.com/tendermint/tendermint/libs/math"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -116,7 +118,7 @@ func TestValidatorSet_VerifyCommit_All(t *testing.T) {
 				v := vote.ToProto()
 
 				require.NoError(t, vals[vi%len(vals)].SignVote(ctx, tc.chainID, v))
-				vote.Signature = v.Signature
+				vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(v.Signature)))
 
 				sigs[vi] = vote.CommitSig()
 
@@ -175,9 +177,8 @@ func TestValidatorSet_VerifyCommit_CheckAllSignatures(t *testing.T) {
 	// malleate 4th signature
 	vote := voteSet.GetByIndex(3)
 	v := vote.ToProto()
-	err = vals[3].SignVote(ctx, "CentaurusA", v)
-	require.NoError(t, err)
-	vote.Signature = v.Signature
+	require.NoError(t, vals[3].SignVote(ctx, "CentaurusA", v))
+	vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(v.Signature)))
 	commit.Signatures[3] = vote.CommitSig()
 
 	err = valSet.VerifyCommit(chainID, blockID, h, commit)
@@ -204,9 +205,8 @@ func TestValidatorSet_VerifyCommitLight_ReturnsAsSoonAsMajorityOfVotingPowerSign
 	// malleate 4th signature (3 signatures are enough for 2/3+)
 	vote := voteSet.GetByIndex(3)
 	v := vote.ToProto()
-	err = vals[3].SignVote(ctx, "CentaurusA", v)
-	require.NoError(t, err)
-	vote.Signature = v.Signature
+	require.NoError(t, vals[3].SignVote(ctx, "CentaurusA", v))
+	vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(v.Signature)))
 	commit.Signatures[3] = vote.CommitSig()
 
 	err = valSet.VerifyCommitLight(chainID, blockID, h, commit)
@@ -230,9 +230,8 @@ func TestValidatorSet_VerifyCommitLightTrusting_ReturnsAsSoonAsTrustLevelOfVotin
 	// malleate 3rd signature (2 signatures are enough for 1/3+ trust level)
 	vote := voteSet.GetByIndex(2)
 	v := vote.ToProto()
-	err = vals[2].SignVote(ctx, "CentaurusA", v)
-	require.NoError(t, err)
-	vote.Signature = v.Signature
+	require.NoError(t, vals[2].SignVote(ctx, "CentaurusA", v))
+	vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(v.Signature)))
 	commit.Signatures[2] = vote.CommitSig()
 
 	err = valSet.VerifyCommitLightTrusting(chainID, commit, tmmath.Fraction{Numerator: 1, Denominator: 3})

@@ -94,7 +94,7 @@ func initDBs(
 	return blockStore, stateDB, makeCloser(closers), nil
 }
 
-func logNodeStartupInfo(state sm.State, pubKey crypto.PubKey, logger log.Logger, mode string) {
+func logNodeStartupInfo(state sm.State, pubKey utils.Option[crypto.PubKey], logger log.Logger, mode string) {
 	// Log the version info.
 	logger.Info("Version info",
 		"tmVersion", version.TMVersion,
@@ -115,28 +115,33 @@ func logNodeStartupInfo(state sm.State, pubKey crypto.PubKey, logger log.Logger,
 	case config.ModeFull:
 		logger.Info("This node is a fullnode")
 	case config.ModeValidator:
-		addr := pubKey.Address()
+		k := pubKey.OrPanic()
+		addr := k.Address()
 		// Log whether this node is a validator or an observer
 		if state.Validators.HasAddress(addr) {
 			logger.Info("This node is a validator",
 				"addr", addr,
-				"pubKey", pubKey.Bytes(),
+				"pubKey", k.Bytes(),
 			)
 		} else {
 			logger.Info("This node is a validator (NOT in the active validator set)",
 				"addr", addr,
-				"pubKey", pubKey.Bytes(),
+				"pubKey", k.Bytes(),
 			)
 		}
 	}
 }
 
-func onlyValidatorIsUs(state sm.State, pubKey crypto.PubKey) bool {
+func onlyValidatorIsUs(state sm.State, pubKey utils.Option[crypto.PubKey]) bool {
+	k, ok := pubKey.Get()
+	if !ok {
+		return false
+	}
 	if state.Validators.Size() > 1 {
 		return false
 	}
 	addr, _ := state.Validators.GetByIndex(0)
-	return pubKey != nil && bytes.Equal(pubKey.Address(), addr)
+	return bytes.Equal(k.Address(), addr)
 }
 
 func createMempoolReactor(

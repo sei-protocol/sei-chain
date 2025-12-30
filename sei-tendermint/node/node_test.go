@@ -34,6 +34,7 @@ import (
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	"github.com/tendermint/tendermint/libs/service"
 	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/privval"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
@@ -162,7 +163,7 @@ func TestNodeSetPrivValTCP(t *testing.T) {
 	defer os.RemoveAll(cfg.RootDir)
 	cfg.PrivValidator.ListenAddr = addr
 
-	dialer := privval.DialTCPFn(addr, 100*time.Millisecond, ed25519.GenPrivKey())
+	dialer := privval.DialTCPFn(addr, 100*time.Millisecond, ed25519.GenerateSecretKey())
 	dialerEndpoint := privval.NewSignerDialerEndpoint(logger, dialer)
 	privval.SignerDialerEndpointTimeoutReadWrite(100 * time.Millisecond)(dialerEndpoint)
 
@@ -468,10 +469,9 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	assert.NoError(t, err)
 	// now produce more txs than what a normal block can hold with 10 smaller txs
 	// At the end of the test, only the single big tx should be added
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		tx := tmrand.Bytes(10)
-		err = mp.CheckTx(ctx, tx, nil, mempool.TxInfo{})
-		assert.NoError(t, err)
+		assert.NoError(t, mp.CheckTx(ctx, tx, nil, mempool.TxInfo{}))
 	}
 
 	eventBus := eventbus.NewDefault(logger)
@@ -537,7 +537,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 		}
 		vpb := vote.ToProto()
 		require.NoError(t, privVals[i].SignVote(ctx, state.ChainID, vpb))
-		vote.Signature = vpb.Signature
+		vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(vpb.Signature)))
 
 		added, err := voteSet.AddVote(vote)
 		require.NoError(t, err)
@@ -712,8 +712,8 @@ func state(t *testing.T, nVals int, height int64) (sm.State, dbm.DB, []types.Pri
 		privVal := types.NewMockPV()
 		privVals[i] = privVal
 		vals[i] = types.GenesisValidator{
-			Address: privVal.PrivKey.PubKey().Address(),
-			PubKey:  privVal.PrivKey.PubKey(),
+			Address: privVal.PrivKey.Public().Address(),
+			PubKey:  privVal.PrivKey.Public(),
 			Power:   1000,
 			Name:    fmt.Sprintf("test%d", i),
 		}

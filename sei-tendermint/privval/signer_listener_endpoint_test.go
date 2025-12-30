@@ -69,7 +69,7 @@ func TestSignerRemoteRetryTCPOnly(t *testing.T) {
 	}(ln, attemptCh)
 
 	dialerEndpoint := NewSignerDialerEndpoint(logger,
-		DialTCPFn(ln.Addr().String(), testTimeoutReadWrite, ed25519.GenPrivKey()),
+		DialTCPFn(ln.Addr().String(), testTimeoutReadWrite, ed25519.GenerateSecretKey()),
 	)
 	SignerDialerEndpointTimeoutReadWrite(time.Millisecond)(dialerEndpoint)
 	SignerDialerEndpointConnRetries(retries)(dialerEndpoint)
@@ -160,7 +160,7 @@ func newSignerListenerEndpoint(t *testing.T, logger log.Logger, addr string, tim
 		UnixListenerTimeoutReadWrite(timeoutReadWrite)(unixLn)
 		listener = unixLn
 	} else {
-		tcpLn := NewTCPListener(ln, ed25519.GenPrivKey())
+		tcpLn := NewTCPListener(ln, ed25519.GenerateSecretKey())
 		TCPListenerTimeoutAccept(testTimeoutAccept)(tcpLn)
 		TCPListenerTimeoutReadWrite(timeoutReadWrite)(tcpLn)
 		listener = tcpLn

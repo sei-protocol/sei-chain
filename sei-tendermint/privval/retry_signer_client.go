@@ -59,16 +59,16 @@ func (sc *RetrySignerClient) GetPubKey(ctx context.Context) (crypto.PubKey, erro
 		}
 		// If remote signer errors, we don't retry.
 		if _, ok := err.(*RemoteSignerError); ok {
-			return nil, err
+			return pk, err
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return pk, ctx.Err()
 		case <-t.C:
 			t.Reset(sc.timeout)
 		}
 	}
-	return nil, fmt.Errorf("exhausted all attempts to get pubkey: %w", err)
+	return pk, fmt.Errorf("exhausted all attempts to get pubkey: %w", err)
 }
 
 func (sc *RetrySignerClient) SignVote(ctx context.Context, chainID string, vote *tmproto.Vote) error {

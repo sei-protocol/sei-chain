@@ -26,7 +26,7 @@ const (
 )
 
 var ABCIPubKeyTypesToNames = map[string]string{
-	ABCIPubKeyTypeEd25519: ed25519.PubKeyName,
+	ABCIPubKeyTypeEd25519: ed25519.PublicKeyName,
 }
 
 // ConsensusParams contains consensus critical parameters that determine the

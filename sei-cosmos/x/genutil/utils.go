@@ -82,7 +82,7 @@ func InitializeNodeValidatorFilesFromMnemonic(config *cfg.Config, mnemonic strin
 	if len(mnemonic) == 0 {
 		filePV, _ = privval.LoadOrGenFilePV(pvKeyFile, pvStateFile)
 	} else {
-		privKey := tmed25519.GenPrivKeyFromSecret([]byte(mnemonic))
+		privKey := tmed25519.TestSecretKey([]byte(mnemonic))
 		filePV = privval.NewFilePV(privKey, pvKeyFile, pvStateFile)
 	}
 

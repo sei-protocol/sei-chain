@@ -23,17 +23,7 @@ func decode(bz []byte, v interface{}) error {
 	if rv.Kind() != reflect.Ptr {
 		return errors.New("must decode into a pointer")
 	}
-	rv = rv.Elem()
-
-	// If this is a registered type, defer to interface decoder regardless of whether the input is
-	// an interface or a bare value. This retains Amino's behavior, but is inconsistent with
-	// behavior in structs where an interface field will get the type wrapper while a bare value
-	// field will not.
-	if typeRegistry.name(rv.Type()) != "" {
-		return decodeReflectInterface(bz, rv)
-	}
-
-	return decodeReflect(bz, rv)
+	return decodeReflect(bz, rv.Elem())
 }
 
 func decodeReflect(bz []byte, rv reflect.Value) error {
@@ -82,7 +72,7 @@ func decodeReflect(bz []byte, rv reflect.Value) error {
 		return decodeReflectStruct(bz, rv)
 
 	case reflect.Interface:
-		return decodeReflectInterface(bz, rv)
+		return fmt.Errorf("decoding interfaces is not supported")
 
 	// For 64-bit integers, unwrap expected string and defer to stdlib for integer decoding.
 	case reflect.Int64, reflect.Int, reflect.Uint64, reflect.Uint:
@@ -198,60 +188,6 @@ func decodeReflectStruct(bz []byte, rv reflect.Value) error {
 		}
 	}
 
-	return nil
-}
-
-func decodeReflectInterface(bz []byte, rv reflect.Value) error {
-	if !rv.CanAddr() {
-		return errors.New("interface value not addressable")
-	}
-
-	// Decode the interface wrapper.
-	wrapper := interfaceWrapper{}
-	if err := json.Unmarshal(bz, &wrapper); err != nil {
-		return err
-	}
-	if wrapper.Type == "" {
-		return errors.New("interface type cannot be empty")
-	}
-	if len(wrapper.Value) == 0 {
-		return errors.New("interface value cannot be empty")
-	}
-
-	// Dereference-and-construct pointers, to handle nested pointers.
-	for rv.Kind() == reflect.Ptr {
-		if rv.IsNil() {
-			rv.Set(reflect.New(rv.Type().Elem()))
-		}
-		rv = rv.Elem()
-	}
-
-	// Look up the interface type, and construct a concrete value.
-	rt, returnPtr := typeRegistry.lookup(wrapper.Type)
-	if rt == nil {
-		return fmt.Errorf("unknown type %q", wrapper.Type)
-	}
-
-	cptr := reflect.New(rt)
-	crv := cptr.Elem()
-	if err := decodeReflect(wrapper.Value, crv); err != nil {
-		return err
-	}
-
-	// This makes sure interface implementations with pointer receivers (e.g. func (c *Car)) are
-	// constructed as pointers behind the interface. The types must be registered as pointers with
-	// RegisterType().
-	if rv.Type().Kind() == reflect.Interface && returnPtr {
-		if !cptr.Type().AssignableTo(rv.Type()) {
-			return fmt.Errorf("invalid type %q for this value", wrapper.Type)
-		}
-		rv.Set(cptr)
-	} else {
-		if !crv.Type().AssignableTo(rv.Type()) {
-			return fmt.Errorf("invalid type %q for this value", wrapper.Type)
-		}
-		rv.Set(crv)
-	}
 	return nil
 }
 

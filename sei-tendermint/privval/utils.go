@@ -43,7 +43,7 @@ func NewSignerListener(listenAddr string, logger log.Logger) (*SignerListenerEnd
 		listener = NewUnixListener(ln)
 	case "tcp":
 		// TODO: persist this key so external signer can actually authenticate us
-		listener = NewTCPListener(ln, ed25519.GenPrivKey())
+		listener = NewTCPListener(ln, ed25519.GenerateSecretKey())
 	default:
 		panic("invalid protocol: " + protocol) // semantically unreachable
 	}
