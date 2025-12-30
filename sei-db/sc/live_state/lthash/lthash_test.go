@@ -91,7 +91,7 @@ func TestHashKVNoCollision(t *testing.T) {
 	}
 
 	// Also test boundary case
-	lth3 := HashKV("db", []byte(""), []byte("abc"))  // nil, should return nil
+	lth3 := HashKV("db", []byte(""), []byte("abc")) // nil, should return nil
 	lth4 := HashKV("db", []byte("abc"), []byte("")) // nil, should return nil
 	if lth3 != nil || lth4 != nil {
 		t.Error("Empty key or value should return nil")

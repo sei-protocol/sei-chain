@@ -130,7 +130,7 @@ func Hash(data []byte) *LtHash {
 
 	hasher := blake3HasherPool.Get().(*blake3.Hasher)
 	hasher.Reset()
-	hasher.Write(data)
+	_, _ = hasher.Write(data) // blake3.Hasher.Write never returns error
 	digest := hasher.Digest()
 
 	bufPtr := xofBufferPool.Get().(*[]byte)
@@ -177,17 +177,26 @@ func serializeKV(dbName string, key, value []byte) []byte {
 		return nil
 	}
 	dbNameBytes := []byte(dbName)
-	buf := make([]byte, 2+len(dbNameBytes)+4+len(key)+4+len(value))
+	dbNameLen := len(dbNameBytes)
+	keyLen := len(key)
+	valueLen := len(value)
+
+	// Bounds check to satisfy gosec (practically impossible to exceed)
+	if dbNameLen > 0xFFFF || keyLen > 0xFFFFFFFF || valueLen > 0xFFFFFFFF {
+		panic("serializeKV: length overflow")
+	}
+
+	buf := make([]byte, 2+dbNameLen+4+keyLen+4+valueLen)
 	off := 0
-	binary.LittleEndian.PutUint16(buf[off:], uint16(len(dbNameBytes)))
+	binary.LittleEndian.PutUint16(buf[off:], uint16(dbNameLen))
 	off += 2
 	copy(buf[off:], dbNameBytes)
-	off += len(dbNameBytes)
-	binary.LittleEndian.PutUint32(buf[off:], uint32(len(key)))
+	off += dbNameLen
+	binary.LittleEndian.PutUint32(buf[off:], uint32(keyLen))
 	off += 4
 	copy(buf[off:], key)
-	off += len(key)
-	binary.LittleEndian.PutUint32(buf[off:], uint32(len(value)))
+	off += keyLen
+	binary.LittleEndian.PutUint32(buf[off:], uint32(valueLen))
 	off += 4
 	copy(buf[off:], value)
 	return buf
