@@ -1,9 +1,5 @@
-<<<<<<< HEAD
-name: Sei Cross-Architecture Build & Artifacts
-=======
 name: Go Cross-Platform Tests
 
->>>>>>> origin/main
 on:
   push:
     branches: [main]
@@ -22,38 +18,27 @@ defaults:
     shell: bash
 
 jobs:
-<<<<<<< HEAD
-  build:
-    name: 🔨 ${{ matrix.os }} • ${{ matrix.module.name }}
-=======
   tests:
     env:
       GO_TEST_TIMEOUT: 30m
     name: "Test ${{ matrix.modules.name }} on ${{ matrix.os }}"
->>>>>>> origin/main
     runs-on: ${{ matrix.os }}
+
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-<<<<<<< HEAD
-        module:
-=======
         modules:
->>>>>>> origin/main
           - name: sei-chain
             path: ./
             tags: ledger test_ledger_mock
           - name: sei-cosmos
             path: ./sei-cosmos
             tags: ledger test_ledger_mock
-<<<<<<< HEAD
-=======
           - name: sei-db
             path: ./sei-db
           - name: sei-ibc-go
             path: ./sei-ibc-go
->>>>>>> origin/main
           - name: sei-tendermint
             path: ./sei-tendermint
           - name: sei-wasmd
@@ -63,172 +48,6 @@ jobs:
             path: ./sei-wasmvm
 
     steps:
-<<<<<<< HEAD
-      # -----------------------
-      # 1️⃣ Checkout & Submodules
-      # -----------------------
-      - name: 📥 Checkout Repository
-        uses: actions/checkout@v5
-        with:
-          submodules: recursive
-
-      # -----------------------
-      # 2️⃣ Go Setup + Module Cache
-      # -----------------------
-      - name: 🐹 Setup Go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-          cache-dependency-path: ${{ matrix.module.path }}/go.sum
-
-      # -----------------------
-      # 3️⃣ OS Dependencies
-      # -----------------------
-      - name: 🛠️ Install Platform Dependencies
-        run: |
-          echo "🖥️ Platform: $RUNNER_OS | Module: ${{ matrix.module.name }}"
-          go version
-          echo "📦 Target: $(go env GOOS)/$(go env GOARCH)"
-
-          case "$RUNNER_OS" in
-            Linux)
-              sudo apt-get update -qq
-              sudo apt-get install -y build-essential git curl wget
-              ;;
-            macOS)
-              brew update || true
-              xcode-select --install || true
-              ;;
-            Windows)
-              choco install visualstudio2019buildtools git -y
-              ;;
-          esac
-
-      # -----------------------
-      # 4️⃣ Resolve Dependencies
-      # -----------------------
-      - name: 📦 Resolve Go Dependencies
-        working-directory: ${{ matrix.module.path }}
-        run: |
-          go mod tidy
-          go mod download
-          go mod verify
-
-      # -----------------------
-      # 5️⃣ Build with Tags & Micro-Layered Build
-      # -----------------------
-      - name: ⚡ Compile Module
-        working-directory: ${{ matrix.module.path }}
-        env:
-          BUILD_TAGS: ${{ matrix.module.tags }}
-        run: |
-          TAGS_FLAG=""
-          if [[ -n "$BUILD_TAGS" ]]; then
-            TAGS_FLAG="-tags '$BUILD_TAGS'"
-            echo "🏷️ Building with tags: $BUILD_TAGS"
-          fi
-
-          mkdir -p build
-
-          # Micro-layer: Build using Make or Go Build fallback
-          if [[ -f Makefile ]]; then
-            echo "🛠 Using Makefile build"
-            make install TAGS="$BUILD_TAGS"
-            make build TAGS="$BUILD_TAGS"
-          else
-            echo "🛠 Using go build fallback"
-            go build $TAGS_FLAG -o build/seid ./...
-          fi
-
-      # -----------------------
-      # 6️⃣ Verify Build Output
-      # -----------------------
-      - name: ✅ Verify Binary
-        working-directory: ${{ matrix.module.path }}
-        run: |
-          BINARY="./build/seid"
-          [[ "$RUNNER_OS" == "Windows" ]] && BINARY="./build/seid.exe"
-
-          if [[ ! -f "$BINARY" ]]; then
-            echo "❌ Binary not found: $BINARY"
-            exit 1
-          fi
-
-          echo "✅ Binary exists: $BINARY"
-          "$BINARY" version --long
-
-          # Micro-layer: Generate SHA256 & checksum
-          sha256sum "$BINARY" > "$BINARY.sha256"
-          cat "$BINARY.sha256"
-
-      # -----------------------
-      # 7️⃣ Micro-Layer: Smoke & E2E Tests
-      # -----------------------
-      - name: 🧪 Run Smoke/E2E Tests
-        if: matrix.module.name != 'sei-wasmvm'
-        working-directory: ${{ matrix.module.path }}
-        run: |
-          # Only run if Makefile & test-e2e exists
-          if [[ -f Makefile && -n "$(make -n test-e2e 2>/dev/null)" ]]; then
-            echo "🏁 Running E2E tests"
-            make test-e2e
-          else
-            echo "⚠️ No E2E tests defined for this module"
-          fi
-
-      # -----------------------
-      # 8️⃣ Archive Artifacts with Compression & Metadata
-      # -----------------------
-      - name: 📤 Archive Build Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ runner.os }}-${{ matrix.module.name }}-binaries
-          path: |
-            ${{ matrix.module.path }}/build/**
-          retention-days: 14
-          if-no-files-found: warn
-          compression-method: zip
-
-      - name: 📝 Generate Artifact Metadata
-        working-directory: ${{ matrix.module.path }}
-        run: |
-          BINARY="./build/seid"
-          [[ "$RUNNER_OS" == "Windows" ]] && BINARY="./build/seid.exe"
-          echo "{" > build/artifact-meta.json
-          echo "  \"binary\": \"$BINARY\"," >> build/artifact-meta.json
-          echo "  \"sha256\": \"$(sha256sum $BINARY | cut -d ' ' -f1)\"," >> build/artifact-meta.json
-          echo "  \"os\": \"$RUNNER_OS\"," >> build/artifact-meta.json
-          echo "  \"arch\": \"$(go env GOARCH)\"," >> build/artifact-meta.json
-          echo "  \"tags\": \"$BUILD_TAGS\"" >> build/artifact-meta.json
-          echo "}" >> build/artifact-meta.json
-          cat build/artifact-meta.json
-
-      # -----------------------
-      # 9️⃣ Persist Go & Build Cache
-      # -----------------------
-      - name: 💾 Cache Build Output
-        uses: actions/cache@v3
-        with:
-          path: |
-            ${{ matrix.module.path }}/build
-          key: build-${{ matrix.os }}-${{ matrix.module.name }}-${{ github.sha }}
-          restore-keys: |
-            build-${{ matrix.os }}-${{ matrix.module.name }}-
-
-      # -----------------------
-      # 🔟 Optional: Ledger Module Signing (Extended Layer)
-      # -----------------------
-      - name: 🔐 Sign Ledger Binaries (if applicable)
-        if: matrix.module.tags && contains(matrix.module.tags, 'ledger')
-        working-directory: ${{ matrix.module.path }}
-        run: |
-          BINARY="./build/seid"
-          [[ "$RUNNER_OS" == "Windows" ]] && BINARY="./build/seid.exe"
-          echo "🔐 Signing ledger-enabled binary: $BINARY"
-          # Placeholder: implement real signing logic here
-          echo "Signed $BINARY successfully"
-=======
       - uses: actions/checkout@v5
 
       - uses: actions/setup-go@v6
@@ -241,33 +60,35 @@ jobs:
           sudo rm -rf \
             /usr/share/dotnet \
             /usr/local/lib/android \
-            /opt/ghc /opt/hostedtoolcache/CodeQL
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force
 
       - name: Go test with race detector
-        working-directory: '${{ matrix.modules.path }}'
+        working-directory: ${{ matrix.modules.path }}
         run: |
-          # Handle tags (empty if not defined)
           TAGS=""
           if [ -n "${{ matrix.modules.tags }}" ]; then
             TAGS="-tags='${{ matrix.modules.tags }}'"
           fi
 
-          # Skip keychain tests on CI macOS
           if [ "$(uname)" = "Darwin" ]; then
             export SKIP_KEYCHAIN_TESTS=1
           fi
 
-          go test -race $TAGS -timeout='${{ env.GO_TEST_TIMEOUT }}' -covermode=atomic -coverprofile=coverage.out ./...
+          go test -race $TAGS \
+            -timeout='${{ env.GO_TEST_TIMEOUT }}' \
+            -covermode=atomic \
+            -coverprofile=coverage.out \
+            ./...
 
       - name: Upload coverage to Codecov
-        if: runner.os != 'windows'  # Skip coverage on Windows (stub files)
+        if: runner.os != 'windows'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: 'true'
-          disable_search: 'true'
-          name: '${{ matrix.modules.name }}-coverage-${{ matrix.os }}'
+          fail_ci_if_error: true
+          disable_search: true
+          name: ${{ matrix.modules.name }}-coverage-${{ matrix.os }}
           files: ${{ matrix.modules.path }}/coverage.out
           flags: ${{ matrix.modules.name }}
->>>>>>> origin/main
