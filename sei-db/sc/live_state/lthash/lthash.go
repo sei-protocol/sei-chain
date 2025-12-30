@@ -169,19 +169,27 @@ func HashKV(dbName string, key, value []byte) *LtHash {
 	return Hash(serialized)
 }
 
-// serializeKV encodes a KV pair with domain separation.
-// Format: dbNameLen[2] || dbName || key || value
+// serializeKV encodes a KV pair with length-prefixed fields.
+// Format: dbNameLen[2] || dbName || keyLen[4] || key || valueLen[4] || value
 // Returns nil if key or value is empty.
 func serializeKV(dbName string, key, value []byte) []byte {
 	if len(key) == 0 || len(value) == 0 {
 		return nil
 	}
 	dbNameBytes := []byte(dbName)
-	buf := make([]byte, 2+len(dbNameBytes)+len(key)+len(value))
-	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(dbNameBytes)))
-	copy(buf[2:2+len(dbNameBytes)], dbNameBytes)
-	copy(buf[2+len(dbNameBytes):], key)
-	copy(buf[2+len(dbNameBytes)+len(key):], value)
+	buf := make([]byte, 2+len(dbNameBytes)+4+len(key)+4+len(value))
+	off := 0
+	binary.LittleEndian.PutUint16(buf[off:], uint16(len(dbNameBytes)))
+	off += 2
+	copy(buf[off:], dbNameBytes)
+	off += len(dbNameBytes)
+	binary.LittleEndian.PutUint32(buf[off:], uint32(len(key)))
+	off += 4
+	copy(buf[off:], key)
+	off += len(key)
+	binary.LittleEndian.PutUint32(buf[off:], uint32(len(value)))
+	off += 4
+	copy(buf[off:], value)
 	return buf
 }
 

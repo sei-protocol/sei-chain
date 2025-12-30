@@ -80,6 +80,24 @@ func TestHashKVDomainIsolation(t *testing.T) {
 	}
 }
 
+func TestHashKVNoCollision(t *testing.T) {
+	// Verify length-prefixing prevents key||value concatenation collisions
+	// Without length prefix: ("a","bc") and ("ab","c") would both serialize to "abc"
+	lth1 := HashKV("db", []byte("a"), []byte("bc"))
+	lth2 := HashKV("db", []byte("ab"), []byte("c"))
+
+	if lth1.Checksum() == lth2.Checksum() {
+		t.Error("Different key/value pairs must produce different hashes")
+	}
+
+	// Also test boundary case
+	lth3 := HashKV("db", []byte(""), []byte("abc"))  // nil, should return nil
+	lth4 := HashKV("db", []byte("abc"), []byte("")) // nil, should return nil
+	if lth3 != nil || lth4 != nil {
+		t.Error("Empty key or value should return nil")
+	}
+}
+
 func TestComputeLtHashDeltaParallel(t *testing.T) {
 	delta, timings := ComputeLtHashDeltaParallel("test", nil, 4)
 	if !delta.IsZero() {
