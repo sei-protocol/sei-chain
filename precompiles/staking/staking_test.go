@@ -591,7 +591,7 @@ func TestPrecompile_Run_Validators(t *testing.T) {
 		Validators: []staking.Validator{
 			{
 				OperatorAddress:         val.OperatorAddress,
-				ConsensusPubkey:         string(val.ConsensusPubkey.Value),
+				ConsensusPubkey:         val.ConsensusPubkey.Value,
 				Jailed:                  val.Jailed,
 				Status:                  int32(val.Status),
 				Tokens:                  val.Tokens.String(),
@@ -741,7 +741,7 @@ func TestPrecompile_Run_Validator(t *testing.T) {
 
 	expected := staking.Validator{
 		OperatorAddress:         val.OperatorAddress,
-		ConsensusPubkey:         string(val.ConsensusPubkey.Value),
+		ConsensusPubkey:         val.ConsensusPubkey.Value,
 		Jailed:                  val.Jailed,
 		Status:                  int32(val.Status),
 		Tokens:                  val.Tokens.String(),
@@ -1268,7 +1268,7 @@ func TestPrecompile_Run_DelegatorValidator(t *testing.T) {
 
 	expected := staking.Validator{
 		OperatorAddress:         val.OperatorAddress,
-		ConsensusPubkey:         string(val.ConsensusPubkey.Value),
+		ConsensusPubkey:         val.ConsensusPubkey.Value,
 		Jailed:                  val.Jailed,
 		Status:                  int32(val.Status),
 		Tokens:                  val.Tokens.String(),
@@ -1601,7 +1601,7 @@ func TestPrecompile_Run_DelegatorValidators(t *testing.T) {
 		Validators: []staking.Validator{
 			{
 				OperatorAddress:         val.OperatorAddress,
-				ConsensusPubkey:         string(val.ConsensusPubkey.Value),
+				ConsensusPubkey:         val.ConsensusPubkey.Value,
 				Jailed:                  val.Jailed,
 				Status:                  int32(val.Status),
 				Tokens:                  val.Tokens.String(),
@@ -1706,7 +1706,7 @@ func TestPrecompile_Run_HistoricalInfo(t *testing.T) {
 		Validators: []staking.Validator{
 			{
 				OperatorAddress:         val.OperatorAddress,
-				ConsensusPubkey:         string(val.ConsensusPubkey.Value),
+				ConsensusPubkey:         val.ConsensusPubkey.Value,
 				Jailed:                  val.Jailed,
 				Status:                  int32(val.Status),
 				Tokens:                  val.Tokens.String(),
