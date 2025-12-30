@@ -297,7 +297,7 @@ interface IStaking {
 
     struct Validator {
         string operatorAddress;
-        string consensusPubkey;
+        bytes consensusPubkey;
         bool jailed;
         int32 status;
         string tokens;
