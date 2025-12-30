@@ -38,13 +38,6 @@ var (
 		batchSize                metric.Int64Histogram
 		pendingChangesQueueDepth metric.Int64Gauge
 		iteratorIterations       metric.Float64Histogram
-
-		// LtHash timing metrics
-		lthashTotalLatency     metric.Float64Histogram
-		lthashSerializeLatency metric.Float64Histogram
-		lthashBlake3Latency    metric.Float64Histogram
-		lthashMixInOutLatency  metric.Float64Histogram
-		lthashMergeLatency     metric.Float64Histogram
 	}{
 		getLatency: must(meter.Float64Histogram(
 			"pebble_get_latency",
@@ -175,33 +168,6 @@ var (
 			"pebble_iterator_iterations",
 			metric.WithDescription("Number of iterations per iterator"),
 			metric.WithUnit("{count}"),
-		)),
-
-		// LtHash timing metrics
-		lthashTotalLatency: must(meter.Float64Histogram(
-			"pebble_lthash_total_latency",
-			metric.WithDescription("Total time taken to compute LtHash delta"),
-			metric.WithUnit("s"),
-		)),
-		lthashSerializeLatency: must(meter.Float64Histogram(
-			"pebble_lthash_serialize_latency",
-			metric.WithDescription("Time taken for LtHash serialization phase"),
-			metric.WithUnit("s"),
-		)),
-		lthashBlake3Latency: must(meter.Float64Histogram(
-			"pebble_lthash_blake3_latency",
-			metric.WithDescription("Time taken for LtHash Blake3 XOF phase"),
-			metric.WithUnit("s"),
-		)),
-		lthashMixInOutLatency: must(meter.Float64Histogram(
-			"pebble_lthash_mixinout_latency",
-			metric.WithDescription("Time taken for LtHash MixIn/MixOut phase"),
-			metric.WithUnit("s"),
-		)),
-		lthashMergeLatency: must(meter.Float64Histogram(
-			"pebble_lthash_merge_latency",
-			metric.WithDescription("Time taken to merge LtHash worker results"),
-			metric.WithUnit("s"),
 		)),
 	}
 )

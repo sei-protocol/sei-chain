@@ -30,7 +30,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ss"
 	"github.com/sei-protocol/sei-chain/sei-db/ss/pruning"
 	sstypes "github.com/sei-protocol/sei-chain/sei-db/ss/types"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
@@ -127,8 +126,6 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 
 	rs.lastCommitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
 	rs.lastCommitInfo = amendCommitInfo(rs.lastCommitInfo, rs.storesParams)
-	// NOTE: For the "double-write" phase, LtHash must NOT be used as the consensus
-	// app hash. We keep returning SC's CommitID (Merkle root) here.
 	return rs.lastCommitInfo.CommitID()
 }
 
@@ -149,63 +146,15 @@ func (rs *Store) flush() error {
 			}
 		}
 	}
-	if len(changeSets) > 0 {
+	if changeSets != nil && len(changeSets) > 0 {
 		sort.SliceStable(changeSets, func(i, j int) bool {
 			return changeSets[i].Name < changeSets[j].Name
 		})
 		if rs.ssStore != nil {
-			// Create a last flush value getter that reads from SC (MemIAVL) instead of SS.
-			// This ensures deterministic LtHash computation regardless of whether
-			// SS async writes have completed, avoiding consensus forks.
-			lastFlushValueGetter := func(storeKey string, key []byte) []byte {
-				tree := rs.scStore.GetTreeByName(storeKey)
-				if tree == nil {
-					return nil
-				}
-				return tree.Get(key)
-			}
-
-			stateHash, metaKVs := rs.ssStore.ApplyCommitHash(currentVersion, changeSets, lastFlushValueGetter)
-			// Clone changesets for SS persistence so appending meta KVs does not
-			// mutate the changesets that will be applied to SC (MemIAVL).
-			// This prevents SS metadata keys (s/_meta/*) from polluting SC state.
-			ssChangeSets := make([]*proto.NamedChangeSet, len(changeSets))
-			for i, cs := range changeSets {
-				pairsCopy := make([]*iavl.KVPair, len(cs.Changeset.Pairs))
-				copy(pairsCopy, cs.Changeset.Pairs)
-				ssChangeSets[i] = &proto.NamedChangeSet{
-					Name: cs.Name,
-					Changeset: iavl.ChangeSet{
-						Pairs: pairsCopy,
-					},
-				}
-			}
-			if len(metaKVs) > 0 {
-				// Append meta KVs to the first changeset for persistence in SS
-				for _, kv := range metaKVs {
-					ssChangeSets[0].Changeset.Pairs = append(ssChangeSets[0].Changeset.Pairs, &iavl.KVPair{
-						Key:    kv.Key,
-						Value:  kv.Value,
-						Delete: kv.Deleted,
-					})
-				}
-			}
-
-			if err := rs.ssStore.ApplyChangesetAsync(currentVersion, ssChangeSets); err != nil {
+			if err := rs.ssStore.ApplyChangesetAsync(currentVersion, changeSets); err != nil {
 				return err
 			}
 			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
-			// Double-write phase: record LtHash for observability only (not consensus).
-			if len(stateHash.Hash) > 0 {
-				// NOTE: stateHash.Hash here is the 32-byte LtHash checksum (not consensus AppHash).
-				// Keep "lthash" for backward compatibility; also emit "lthash_checksum" for clarity.
-				rs.logger.Info(
-					"lthash computed (non-consensus)",
-					"version", currentVersion,
-					"lthash", fmt.Sprintf("%X", stateHash.Hash),
-					"lthash_checksum", fmt.Sprintf("%X", stateHash.Hash),
-				)
-			}
 		}
 	} else {
 		// ensure the state store watermark advances even for empty blocks
@@ -234,11 +183,9 @@ func (rs *Store) LastCommitID() types.CommitID {
 		if err != nil {
 			panic(fmt.Errorf("failed to get latest version: %w", err))
 		}
-		commitID := types.CommitID{Version: v}
-		return commitID
+		return types.CommitID{Version: v}
 	}
 
-	// Double-write phase: SC CommitID only (LtHash is non-consensus).
 	return rs.lastCommitInfo.CommitID()
 }
 

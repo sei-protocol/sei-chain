@@ -1,21 +1,18 @@
 package lthash
 
 import (
-	"bytes"
 	"runtime"
 	"sync"
 	"time"
 )
 
-var ltHashMetaPrefix = []byte("s/_lthash:")
-
-// LtHashTimings is wall-clock timing breakdown for LtHash computation.
+// LtHashTimings holds wall-clock timing breakdown for LtHash computation.
 type LtHashTimings struct {
-	TotalNs     int64 // Total wall-clock time for the entire computation
-	Blake3Ns    int64 // Wall-clock time for Blake3 XOF phase
-	SerializeNs int64 // Wall-clock time for serialization phase
-	MixInOutNs  int64 // Wall-clock time for MixIn/MixOut phase
-	MergeNs     int64 // Wall-clock time for merging worker results
+	TotalNs     int64
+	Blake3Ns    int64
+	SerializeNs int64
+	MixInOutNs  int64
+	MergeNs     int64
 }
 
 // DefaultLtHashWorkers defaults to NumCPU.
@@ -23,7 +20,7 @@ var DefaultLtHashWorkers = runtime.NumCPU()
 
 func getLtHashFromPool() *LtHash {
 	lth := ltHashPool.Get().(*LtHash)
-	lth.Identity()
+	lth.Reset()
 	return lth
 }
 
@@ -33,15 +30,16 @@ func putLtHashToPool(lth *LtHash) {
 	}
 }
 
-// KVPairWithOldValue is a helper struct for parallel computation that includes the old value
+// KVPairWithOldValue holds a KV change for incremental LtHash delta computation.
 type KVPairWithOldValue struct {
 	Key            []byte
 	Value          []byte
-	LastFlushValue []byte
-	Deleted        bool
+	LastFlushValue []byte // Previous value (for MixOut)
+	Deleted        bool   // If true, only MixOut
 }
 
-// ComputeLtHashDeltaParallel computes LtHash delta for a changeset.
+// ComputeLtHashDeltaParallel computes the LtHash delta for a changeset.
+// For each KV: MixOut(old) if LastFlushValue set, MixIn(new) if not Deleted.
 func ComputeLtHashDeltaParallel(dbName string, kvPairs []KVPairWithOldValue, numWorkers int) (*LtHash, *LtHashTimings) {
 	totalStart := time.Now()
 
@@ -50,15 +48,15 @@ func ComputeLtHashDeltaParallel(dbName string, kvPairs []KVPairWithOldValue, num
 	}
 
 	if len(kvPairs) == 0 {
-		return NewEmptyLtHash(), &LtHashTimings{TotalNs: time.Since(totalStart).Nanoseconds()}
+		return New(), &LtHashTimings{TotalNs: time.Since(totalStart).Nanoseconds()}
 	}
 
-	// For small changesets, use serial processing (overhead of goroutines not worth it)
+	// Small changesets: serial is faster
 	if len(kvPairs) < 100 {
 		return computeLtHashDeltaSerial(dbName, kvPairs)
 	}
 
-	// Phase 1: Serialize all KV pairs
+	// Phase 1: Serialize
 	serializeStart := time.Now()
 	type serializedKV struct {
 		oldSerialized []byte
@@ -66,26 +64,22 @@ func ComputeLtHashDeltaParallel(dbName string, kvPairs []KVPairWithOldValue, num
 	}
 	serializedPairs := make([]serializedKV, len(kvPairs))
 	for i, kv := range kvPairs {
-		if isMetaKey(kv.Key) {
-			continue
-		}
 		if len(kv.LastFlushValue) > 0 {
-			serializedPairs[i].oldSerialized = SerializeForLtHash(dbName, kv.Key, kv.LastFlushValue)
+			serializedPairs[i].oldSerialized = serializeKV(dbName, kv.Key, kv.LastFlushValue)
 		}
 		if !kv.Deleted && len(kv.Value) > 0 {
-			serializedPairs[i].newSerialized = SerializeForLtHash(dbName, kv.Key, kv.Value)
+			serializedPairs[i].newSerialized = serializeKV(dbName, kv.Key, kv.Value)
 		}
 	}
 	serializeNs := time.Since(serializeStart).Nanoseconds()
 
-	// Phase 2: Blake3 XOF (parallel) - convert serialized bytes to LtHash vectors
+	// Phase 2: Hash (parallel)
 	blake3Start := time.Now()
 	type lthashPair struct {
 		oldLth *LtHash
 		newLth *LtHash
 	}
 	lthashPairs := make([]lthashPair, len(kvPairs))
-
 	chunkSize := (len(kvPairs) + numWorkers - 1) / numWorkers
 	var wg sync.WaitGroup
 
@@ -105,10 +99,10 @@ func ComputeLtHashDeltaParallel(dbName string, kvPairs []KVPairWithOldValue, num
 			for i := startIdx; i < endIdx; i++ {
 				skv := serializedPairs[i]
 				if skv.oldSerialized != nil {
-					lthashPairs[i].oldLth = FromBytes(skv.oldSerialized)
+					lthashPairs[i].oldLth = Hash(skv.oldSerialized)
 				}
 				if skv.newSerialized != nil {
-					lthashPairs[i].newLth = FromBytes(skv.newSerialized)
+					lthashPairs[i].newLth = Hash(skv.newSerialized)
 				}
 			}
 		}(start, end)
@@ -116,7 +110,7 @@ func ComputeLtHashDeltaParallel(dbName string, kvPairs []KVPairWithOldValue, num
 	wg.Wait()
 	blake3Ns := time.Since(blake3Start).Nanoseconds()
 
-	// Phase 3: MixIn/MixOut (parallel) - combine vectors
+	// Phase 3: MixIn/MixOut (parallel)
 	mixStart := time.Now()
 	results := make([]*LtHash, numWorkers)
 
@@ -151,9 +145,9 @@ func ComputeLtHashDeltaParallel(dbName string, kvPairs []KVPairWithOldValue, num
 	wg.Wait()
 	mixNs := time.Since(mixStart).Nanoseconds()
 
-	// Phase 4: Merge worker results
+	// Phase 4: Merge
 	mergeStart := time.Now()
-	finalLth := NewEmptyLtHash()
+	finalLth := New()
 	for _, r := range results {
 		if r != nil {
 			finalLth.MixIn(r)
@@ -162,21 +156,19 @@ func ComputeLtHashDeltaParallel(dbName string, kvPairs []KVPairWithOldValue, num
 	}
 	mergeNs := time.Since(mergeStart).Nanoseconds()
 
-	timings := &LtHashTimings{
+	return finalLth, &LtHashTimings{
 		TotalNs:     time.Since(totalStart).Nanoseconds(),
 		SerializeNs: serializeNs,
 		Blake3Ns:    blake3Ns,
 		MixInOutNs:  mixNs,
 		MergeNs:     mergeNs,
 	}
-
-	return finalLth, timings
 }
 
-// computeLtHashDeltaSerial computes the LtHash delta serially (for small changesets).
+// computeLtHashDeltaSerial is the serial version for small changesets.
 func computeLtHashDeltaSerial(dbName string, kvPairs []KVPairWithOldValue) (*LtHash, *LtHashTimings) {
 	totalStart := time.Now()
-	result := NewEmptyLtHash()
+	result := New()
 
 	// Phase 1: Serialize
 	serializeStart := time.Now()
@@ -186,21 +178,18 @@ func computeLtHashDeltaSerial(dbName string, kvPairs []KVPairWithOldValue) (*LtH
 	}
 	serializedPairs := make([]serializedKV, 0, len(kvPairs))
 	for _, kv := range kvPairs {
-		if isMetaKey(kv.Key) {
-			continue
-		}
 		skv := serializedKV{}
 		if len(kv.LastFlushValue) > 0 {
-			skv.oldSerialized = SerializeForLtHash(dbName, kv.Key, kv.LastFlushValue)
+			skv.oldSerialized = serializeKV(dbName, kv.Key, kv.LastFlushValue)
 		}
 		if !kv.Deleted && len(kv.Value) > 0 {
-			skv.newSerialized = SerializeForLtHash(dbName, kv.Key, kv.Value)
+			skv.newSerialized = serializeKV(dbName, kv.Key, kv.Value)
 		}
 		serializedPairs = append(serializedPairs, skv)
 	}
 	serializeNs := time.Since(serializeStart).Nanoseconds()
 
-	// Phase 2: Blake3 XOF
+	// Phase 2: Hash
 	blake3Start := time.Now()
 	type lthashPair struct {
 		oldLth *LtHash
@@ -209,10 +198,10 @@ func computeLtHashDeltaSerial(dbName string, kvPairs []KVPairWithOldValue) (*LtH
 	lthashPairs := make([]lthashPair, len(serializedPairs))
 	for i, skv := range serializedPairs {
 		if skv.oldSerialized != nil {
-			lthashPairs[i].oldLth = FromBytes(skv.oldSerialized)
+			lthashPairs[i].oldLth = Hash(skv.oldSerialized)
 		}
 		if skv.newSerialized != nil {
-			lthashPairs[i].newLth = FromBytes(skv.newSerialized)
+			lthashPairs[i].newLth = Hash(skv.newSerialized)
 		}
 	}
 	blake3Ns := time.Since(blake3Start).Nanoseconds()
@@ -231,18 +220,11 @@ func computeLtHashDeltaSerial(dbName string, kvPairs []KVPairWithOldValue) (*LtH
 	}
 	mixNs := time.Since(mixStart).Nanoseconds()
 
-	timings := &LtHashTimings{
+	return result, &LtHashTimings{
 		TotalNs:     time.Since(totalStart).Nanoseconds(),
 		SerializeNs: serializeNs,
 		Blake3Ns:    blake3Ns,
 		MixInOutNs:  mixNs,
-		MergeNs:     0, // No merge for serial
+		MergeNs:     0,
 	}
-
-	return result, timings
-}
-
-// isMetaKey checks for the "s/_lthash:" prefix (LtHash metadata keys).
-func isMetaKey(key []byte) bool {
-	return bytes.HasPrefix(key, ltHashMetaPrefix)
 }
