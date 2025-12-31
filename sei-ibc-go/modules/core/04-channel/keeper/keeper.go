@@ -9,6 +9,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/tendermint/tendermint/libs/log"
 	db "github.com/tendermint/tm-db"
 
@@ -29,6 +30,7 @@ type Keeper struct {
 
 	storeKey         sdk.StoreKey
 	cdc              codec.BinaryCodec
+	paramSpace       paramtypes.Subspace
 	clientKeeper     types.ClientKeeper
 	connectionKeeper types.ConnectionKeeper
 	portKeeper       types.PortKeeper
@@ -37,18 +39,29 @@ type Keeper struct {
 
 // NewKeeper creates a new IBC channel Keeper instance
 func NewKeeper(
-	cdc codec.BinaryCodec, key sdk.StoreKey,
+	cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Subspace,
 	clientKeeper types.ClientKeeper, connectionKeeper types.ConnectionKeeper,
 	portKeeper types.PortKeeper, scopedKeeper capabilitykeeper.ScopedKeeper,
 ) Keeper {
 	return Keeper{
 		storeKey:         key,
 		cdc:              cdc,
+		paramSpace:       paramSpace,
 		clientKeeper:     clientKeeper,
 		connectionKeeper: connectionKeeper,
 		portKeeper:       portKeeper,
 		scopedKeeper:     scopedKeeper,
 	}
+}
+
+// KeyOutboundEnabled is the param key for outbound enabled (duplicated from core/types to avoid import cycle)
+var KeyOutboundEnabled = []byte("OutboundEnabled")
+
+// IsOutboundEnabled returns true if outbound IBC is enabled.
+func (k Keeper) IsOutboundEnabled(ctx sdk.Context) bool {
+	var outbound bool
+	k.paramSpace.Get(ctx, KeyOutboundEnabled, &outbound)
+	return outbound
 }
 
 // Logger returns a module-specific logger.
