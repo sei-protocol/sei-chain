@@ -56,4 +56,3 @@ func validateBool(i interface{}) error {
 	}
 	return nil
 }
-
