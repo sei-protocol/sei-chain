@@ -122,15 +122,17 @@ func (l *LtHash) Checksum() [32]byte {
 	return result
 }
 
-// Hash creates an LtHash from arbitrary data using Blake3 XOF.
-func Hash(data []byte) *LtHash {
+// --- internal hash functions ---
+
+// hash creates an LtHash from arbitrary data using Blake3 XOF.
+func hash(data []byte) *LtHash {
 	if len(data) == 0 {
 		return New()
 	}
 
 	hasher := blake3HasherPool.Get().(*blake3.Hasher)
 	hasher.Reset()
-	_, _ = hasher.Write(data) // blake3.Hasher.Write never returns error
+	_, _ = hasher.Write(data)
 	digest := hasher.Digest()
 
 	bufPtr := xofBufferPool.Get().(*[]byte)
@@ -139,10 +141,9 @@ func Hash(data []byte) *LtHash {
 	blake3HasherPool.Put(hasher)
 
 	if err != nil || n != LtHashBytes {
-		// Fallback: chained hashing if XOF fails (rare).
 		xofBufferPool.Put(bufPtr)
-		hash := blake3.Sum256(data)
-		output = extendTo2048Bytes(hash[:])
+		h := blake3.Sum256(data)
+		output = extendTo2048Bytes(h[:])
 
 		lth := ltHashPool.Get().(*LtHash)
 		for i := 0; i < LtHashSize; i++ {
@@ -159,39 +160,21 @@ func Hash(data []byte) *LtHash {
 	return lth
 }
 
-// HashKV creates an LtHash from a key-value pair with domain separation.
-// Returns nil if key or value is empty.
-func HashKV(dbName string, key, value []byte) *LtHash {
-	serialized := serializeKV(dbName, key, value)
-	if serialized == nil {
-		return nil
-	}
-	return Hash(serialized)
-}
-
 // serializeKV encodes a KV pair with length-prefixed fields.
-// Format: dbNameLen[2] || dbName || keyLen[4] || key || valueLen[4] || value
-// Returns nil if key or value is empty.
-func serializeKV(dbName string, key, value []byte) []byte {
+// Format: keyLen[4] || key || valueLen[4] || value
+func serializeKV(key, value []byte) []byte {
 	if len(key) == 0 || len(value) == 0 {
 		return nil
 	}
-	dbNameBytes := []byte(dbName)
-	dbNameLen := len(dbNameBytes)
 	keyLen := len(key)
 	valueLen := len(value)
 
-	// Bounds check to satisfy gosec (practically impossible to exceed)
-	if dbNameLen > 0xFFFF || keyLen > 0xFFFFFFFF || valueLen > 0xFFFFFFFF {
+	if keyLen > 0xFFFFFFFF || valueLen > 0xFFFFFFFF {
 		panic("serializeKV: length overflow")
 	}
 
-	buf := make([]byte, 2+dbNameLen+4+keyLen+4+valueLen)
+	buf := make([]byte, 4+keyLen+4+valueLen)
 	off := 0
-	binary.LittleEndian.PutUint16(buf[off:], uint16(dbNameLen))
-	off += 2
-	copy(buf[off:], dbNameBytes)
-	off += dbNameLen
 	binary.LittleEndian.PutUint32(buf[off:], uint32(keyLen))
 	off += 4
 	copy(buf[off:], key)
@@ -230,16 +213,27 @@ var ltHashPool = sync.Pool{
 	},
 }
 
-// extendTo2048Bytes expands a 32-byte seed via chained hashing (fallback).
+func getLtHashFromPool() *LtHash {
+	lth := ltHashPool.Get().(*LtHash)
+	lth.Reset()
+	return lth
+}
+
+func putLtHashToPool(lth *LtHash) {
+	if lth != nil {
+		ltHashPool.Put(lth)
+	}
+}
+
 func extendTo2048Bytes(seed []byte) []byte {
 	result := make([]byte, LtHashBytes)
 	copy(result[:32], seed)
 	for i := 32; i < LtHashBytes; i += 32 {
 		chunk := result[i-32 : i]
-		hash := blake3.Sum256(chunk)
-		copy(result[i:], hash[:])
+		h := blake3.Sum256(chunk)
+		copy(result[i:], h[:])
 		if i+32 > LtHashBytes {
-			copy(result[i:], hash[:LtHashBytes-i])
+			copy(result[i:], h[:LtHashBytes-i])
 			break
 		}
 	}
