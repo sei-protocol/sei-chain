@@ -459,6 +459,10 @@ func (k Keeper) RecvPacket(goCtx context.Context, msg *channeltypes.MsgRecvPacke
 func (k Keeper) Timeout(goCtx context.Context, msg *channeltypes.MsgTimeout) (*channeltypes.MsgTimeoutResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	if !k.IsOutboundEnabled(ctx) {
+		return nil, sdkerrors.Wrap(coretypes.ErrOutboundDisabled, "timeout processing disabled")
+	}
+
 	relayer, err := sdk.AccAddressFromBech32(msg.Signer)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "Invalid address for msg Signer")
@@ -526,6 +530,10 @@ func (k Keeper) Timeout(goCtx context.Context, msg *channeltypes.MsgTimeout) (*c
 // TimeoutOnClose defines a rpc handler method for MsgTimeoutOnClose.
 func (k Keeper) TimeoutOnClose(goCtx context.Context, msg *channeltypes.MsgTimeoutOnClose) (*channeltypes.MsgTimeoutOnCloseResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	if !k.IsOutboundEnabled(ctx) {
+		return nil, sdkerrors.Wrap(coretypes.ErrOutboundDisabled, "timeout on close processing disabled")
+	}
 
 	relayer, err := sdk.AccAddressFromBech32(msg.Signer)
 	if err != nil {
@@ -597,6 +605,10 @@ func (k Keeper) TimeoutOnClose(goCtx context.Context, msg *channeltypes.MsgTimeo
 // Acknowledgement defines a rpc handler method for MsgAcknowledgement.
 func (k Keeper) Acknowledgement(goCtx context.Context, msg *channeltypes.MsgAcknowledgement) (*channeltypes.MsgAcknowledgementResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	if !k.IsOutboundEnabled(ctx) {
+		return nil, sdkerrors.Wrap(coretypes.ErrOutboundDisabled, "acknowledgement processing disabled")
+	}
 
 	relayer, err := sdk.AccAddressFromBech32(msg.Signer)
 	if err != nil {
