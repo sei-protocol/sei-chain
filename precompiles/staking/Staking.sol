@@ -151,6 +151,133 @@ interface IStaking {
         string memory valAddress
     ) external view returns (Delegation memory delegation);
 
+    function validators(
+        string memory status,
+        bytes memory nextKey
+    ) external view returns (ValidatorsResponse memory response);
+
+    /**
+     * @notice Get validator information for a given validator address
+     * @param validatorAddress The validator address
+     * @return validator Validator details
+     */
+    function validator(
+        string memory validatorAddress
+    ) external view returns (Validator memory validator);
+
+    /**
+     * @notice Get delegations for a validator
+     * @param validatorAddress The validator address
+     * @param nextKey Pagination key
+     * @return response Delegations response with pagination
+     */
+    function validatorDelegations(
+        string memory validatorAddress,
+        bytes memory nextKey
+    ) external view returns (DelegationsResponse memory response);
+
+    /**
+     * @notice Get unbonding delegations for a validator
+     * @param validatorAddress The validator address
+     * @param nextKey Pagination key
+     * @return response Unbonding delegations response with pagination
+     */
+    function validatorUnbondingDelegations(
+        string memory validatorAddress,
+        bytes memory nextKey
+    ) external view returns (UnbondingDelegationsResponse memory response);
+
+    /**
+     * @notice Get unbonding delegation information for a delegator and validator pair
+     * @param delegator The delegator's address
+     * @param validatorAddress The validator address
+     * @return unbondingDelegation Unbonding delegation details
+     */
+    function unbondingDelegation(
+        address delegator,
+        string memory validatorAddress
+    ) external view returns (UnbondingDelegation memory unbondingDelegation);
+
+    /**
+     * @notice Get all delegations for a delegator
+     * @param delegator The delegator's address
+     * @param nextKey Pagination key
+     * @return response Delegations response with pagination
+     */
+    function delegatorDelegations(
+        address delegator,
+        bytes memory nextKey
+    ) external view returns (DelegationsResponse memory response);
+
+    /**
+     * @notice Get validator information for a delegator and validator pair
+     * @param delegator The delegator's address
+     * @param validatorAddress The validator address
+     * @return validator Validator details
+     */
+    function delegatorValidator(
+        address delegator,
+        string memory validatorAddress
+    ) external view returns (Validator memory validator);
+
+    /**
+     * @notice Get all unbonding delegations for a delegator
+     * @param delegator The delegator's address
+     * @param nextKey Pagination key
+     * @return response Unbonding delegations response with pagination
+     */
+    function delegatorUnbondingDelegations(
+        address delegator,
+        bytes memory nextKey
+    ) external view returns (UnbondingDelegationsResponse memory response);
+
+    /**
+     * @notice Get redelegations
+     * @param delegator The delegator's address (empty string for all)
+     * @param srcValidator The source validator address (empty string for all)
+     * @param dstValidator The destination validator address (empty string for all)
+     * @param nextKey Pagination key
+     * @return response Redelegations response with pagination
+     */
+    function redelegations(
+        string memory delegator,
+        string memory srcValidator,
+        string memory dstValidator,
+        bytes memory nextKey
+    ) external view returns (RedelegationsResponse memory response);
+
+    /**
+     * @notice Get all validators for a delegator
+     * @param delegator The delegator's address
+     * @param nextKey Pagination key
+     * @return response Validators response with pagination
+     */
+    function delegatorValidators(
+        address delegator,
+        bytes memory nextKey
+    ) external view returns (ValidatorsResponse memory response);
+
+    /**
+     * @notice Get historical info for a given height
+     * @param height The block height
+     * @return historicalInfo Historical info
+     */
+    function historicalInfo(
+        int64 height
+    ) external view returns (HistoricalInfo memory historicalInfo);
+
+    /**
+     * @notice Get pool information
+     * @return pool Pool details
+     */
+    function pool() external view returns (Pool memory pool);
+
+    /**
+     * @notice Get staking parameters
+     * @return params Staking parameters
+     */
+    function params() external view returns (Params memory params);
+
     struct Delegation {
         Balance balance;
         DelegationDetails delegation;
@@ -166,5 +293,90 @@ interface IStaking {
         uint256 shares;
         uint256 decimals;
         string validator_address;
+    }
+
+    struct Validator {
+        string operatorAddress;
+        bytes consensusPubkey;
+        bool jailed;
+        int32 status;
+        string tokens;
+        string delegatorShares;
+        string description;
+        int64 unbondingHeight;
+        int64 unbondingTime;
+        string commissionRate;
+        string commissionMaxRate;
+        string commissionMaxChangeRate;
+        int64 commissionUpdateTime;
+        string minSelfDelegation;
+    }
+
+    struct ValidatorsResponse {
+        Validator[] validators;
+        bytes nextKey;
+    }
+
+    struct DelegationsResponse {
+        Delegation[] delegations;
+        bytes nextKey;
+    }
+
+    struct UnbondingDelegationEntry {
+        int64 creationHeight;
+        int64 completionTime;
+        string initialBalance;
+        string balance;
+    }
+
+    struct UnbondingDelegation {
+        string delegatorAddress;
+        string validatorAddress;
+        UnbondingDelegationEntry[] entries;
+    }
+
+    struct UnbondingDelegationsResponse {
+        UnbondingDelegation[] unbondingDelegations;
+        bytes nextKey;
+    }
+
+    struct RedelegationEntry {
+        int64 creationHeight;
+        int64 completionTime;
+        string initialBalance;
+        string sharesDst;
+    }
+
+    struct Redelegation {
+        string delegatorAddress;
+        string validatorSrcAddress;
+        string validatorDstAddress;
+        RedelegationEntry[] entries;
+    }
+
+    struct RedelegationsResponse {
+        Redelegation[] redelegations;
+        bytes nextKey;
+    }
+
+    struct HistoricalInfo {
+        int64 height;
+        Validator[] validators;
+    }
+
+    struct Pool {
+        string notBondedTokens;
+        string bondedTokens;
+    }
+
+    struct Params {
+        uint64 unbondingTime;
+        uint32 maxValidators;
+        uint32 maxEntries;
+        uint32 historicalEntries;
+        string bondDenom;
+        string minCommissionRate;
+        string maxVotingPowerRatio;
+        string maxVotingPowerEnforcementThreshold;
     }
 }

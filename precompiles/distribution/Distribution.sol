@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-/// @title Distribution Precompile Interface
-/// @notice This interface provides access to Cosmos SDK distribution module functionality
 /// @dev The distribution precompile is deployed at a fixed address and allows EVM contracts to interact with staking rewards
 address constant DISTR_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001007;
 
-/// @notice Global instance of the distribution precompile contract
 IDistr constant DISTR_CONTRACT = IDistr(
     DISTR_PRECOMPILE_ADDRESS
 );
@@ -15,6 +12,11 @@ IDistr constant DISTR_CONTRACT = IDistr(
 /// @notice Interface for interacting with the Cosmos SDK distribution module
 /// @dev This interface allows managing staking rewards, commission, and withdrawal addresses
 interface IDistr {
+    event WithdrawAddressSet(address indexed delegator, address withdrawAddr);
+    event DelegationRewardsWithdrawn(address indexed delegator, string validator, uint256 amount);
+    event MultipleDelegationRewardsWithdrawn(address indexed delegator, string[] validators, uint256[] amounts);
+    event ValidatorCommissionWithdrawn(string indexed validator, uint256 amount);
+
     // Transactions
     
     /// @notice Sets the withdrawal address for the caller's staking rewards
@@ -46,7 +48,7 @@ interface IDistr {
     /// @dev Returns rewards from all validators the address has delegated to
     /// @param delegatorAddress The EVM address of the delegator
     /// @return rewards Structured data containing all pending rewards
-    function rewards(address delegatorAddress) external view returns (Rewards rewards);
+    function rewards(address delegatorAddress) external view returns (Rewards memory rewards);
 
     /// @notice Represents a coin/token with amount, decimals, and denomination
     /// @dev Used to represent various tokens in the Cosmos ecosystem

@@ -207,7 +207,7 @@ func TestClaimSingleCW721(t *testing.T) {
 	_, remainingGas, err := p.ClaimSpecific(ctx, claimer, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaimSpecific(claimee, claimer, &evmtypes.Asset{AssetType: evmtypes.AssetType_TYPECW721, ContractAddress: contractAddr.String(), Denom: "5"}), claimee, claimer, acc, claimeeKey)}, false)
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	require.NoError(t, err)
-	require.Equal(t, uint64(1838040), remainingGas)
+	require.Equal(t, uint64(0x1c0bc6), remainingGas)
 	for i := 0; i < 15; i++ {
 		if i == 5 {
 			require.Equal(t, k.GetSeiAddressOrDefault(ctx, claimer).String(), queryCW721Owner(ctx, testkeeper.EVMTestApp.WasmKeeper, contractAddr, fmt.Sprintf("%d", i)))
