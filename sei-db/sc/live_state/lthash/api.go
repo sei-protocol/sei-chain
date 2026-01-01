@@ -233,4 +233,3 @@ func computeDeltaSerial(kvPairs []KVPairWithLastValue) (*LtHash, *LtHashTimings)
 		MergeNs:     0,
 	}
 }
-
