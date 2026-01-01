@@ -194,9 +194,9 @@ func (r *Reactor) handlePexMessage(m p2p.RecvMsg[*pb.PexMessage]) error {
 		// Fetch peers from the peer manager, convert NodeAddresses into URL
 		// strings, and send them back to the caller.
 		nodeAddresses := r.router.Advertise(maxAddresses)
-		pexAddresses := make([]pb.PexAddress, len(nodeAddresses))
+		pexAddresses := make([]*pb.PexAddress, len(nodeAddresses))
 		for idx, addr := range nodeAddresses {
-			pexAddresses[idx] = pb.PexAddress{URL: addr.String()}
+			pexAddresses[idx] = &pb.PexAddress{Url: addr.String()}
 		}
 		r.channel.Send(wrap(&pb.PexResponse{Addresses: pexAddresses}), m.From)
 		return nil
@@ -211,7 +211,7 @@ func (r *Reactor) handlePexMessage(m p2p.RecvMsg[*pb.PexMessage]) error {
 
 		var addrs []p2p.NodeAddress
 		for _, pexAddress := range resp.Addresses {
-			addr, err := p2p.ParseNodeAddress(pexAddress.URL)
+			addr, err := p2p.ParseNodeAddress(pexAddress.Url)
 			if err != nil {
 				return fmt.Errorf("PEX parse node address error: %w", err)
 			}

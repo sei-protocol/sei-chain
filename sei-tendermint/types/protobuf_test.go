@@ -9,7 +9,6 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/crypto/encoding"
 )
 
 func TestABCIPubKey(t *testing.T) {
@@ -19,8 +18,8 @@ func TestABCIPubKey(t *testing.T) {
 }
 
 func testABCIPubKey(t *testing.T, pk crypto.PubKey) error {
-	abciPubKey := encoding.PubKeyToProto(pk)
-	pk2, err := encoding.PubKeyFromProto(abciPubKey)
+	abciPubKey := crypto.PubKeyToProto(pk)
+	pk2, err := crypto.PubKeyFromProto(abciPubKey)
 	require.NoError(t, err)
 	require.Equal(t, pk, pk2)
 	return nil

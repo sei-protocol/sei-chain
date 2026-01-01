@@ -24,7 +24,10 @@ func InitChain(ctx context.Context, client abciclient.Client) error {
 		}
 		// nolint:gosec // G404: Use of weak random number generator
 		power := mrand.Int()
-		vals[i] = types.UpdateValidator(pubkey, int64(power), "")
+		vals[i] = types.ValidatorUpdate{
+			PubKey: crypto.PubKeyToProto(pubkey),
+			Power:  int64(power),
+		}
 	}
 	_, err := client.InitChain(ctx, &types.RequestInitChain{
 		Validators: vals,

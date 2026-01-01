@@ -32,7 +32,7 @@ const cacheSize = 4096
 // curve25519-voi's Ed25519 implementation supports configurable
 // verification behavior, and tendermint uses the ZIP-215 verification
 // semantics.
-var verifyOptions = &ed25519.Options{Verify: ed25519.VerifyOptionsZIP_215}
+var verifyOptions = ed25519.VerifyOptionsZIP_215
 var cachingVerifier = cache.NewVerifier(cache.NewLRUCache(cacheSize))
 
 // SecretKey represents a secret key in the Ed25519 signature scheme.
@@ -129,26 +129,65 @@ func (k SecretKey) Sign(message []byte) Signature {
 	}
 }
 
+// Domain separation tag.
+type Tag struct{ tag string }
+
+func NewTag(tag string) (Tag, error) {
+	if len(tag) > ed25519.ContextMaxSize {
+		return Tag{}, fmt.Errorf("len(%q) = %v, want <= %v", tag, len(tag), ed25519.ContextMaxSize)
+	}
+	return Tag{tag}, nil
+}
+
+// SignWithTag signs a message with a domain separation tag.
+// It is safe to assume that signatures for messages with different tags do not collide.
+// It is also safe to assume that Sign() signatures do not collide with SignWithTag() signatures.
+// It is secure to use the same secret key for signing with both Sign() and SignWithTag() [https://datatracker.ietf.org/doc/html/rfc8032#section-8.6].
+func (k SecretKey) SignWithTag(tag Tag, msg []byte) Signature {
+	opts := &ed25519.Options{Context: tag.tag}
+	// Returns no error if opts.Context is of correct size.
+	sig := utils.OrPanic1(ed25519.PrivateKey((*k.key)[:]).Sign(nil, msg, opts))
+	return Signature{sig: [ed25519.SignatureSize]byte(sig)}
+}
+
 // Compare defines a total order on public keys.
 func (k PublicKey) Compare(other PublicKey) int {
 	return bytes.Compare(k.key[:], other.key[:])
 }
 
-// Verify verifies a signature using the public key.
+// Verify verifies a signature.
 func (k PublicKey) Verify(msg []byte, sig Signature) error {
-	if !cachingVerifier.VerifyWithOptions(k.key[:], msg, sig.sig[:], verifyOptions) {
+	opts := &ed25519.Options{Verify: verifyOptions}
+	if !cachingVerifier.VerifyWithOptions(k.key[:], msg, sig.sig[:], opts) {
+		return ErrBadSig{}
+	}
+	return nil
+}
+
+// Verify verifies a signature, given domain separation tag.
+func (k PublicKey) VerifyWithTag(tag Tag, msg []byte, sig Signature) error {
+	opts := &ed25519.Options{Context: tag.tag, Verify: verifyOptions}
+	if !cachingVerifier.VerifyWithOptions(k.key[:], msg, sig.sig[:], opts) {
 		return ErrBadSig{}
 	}
 	return nil
 }
 
 // BatchVerifier implements batch verification for ed25519.
-type BatchVerifier struct{ inner *ed25519.BatchVerifier }
+type BatchVerifier struct {
+	inner *ed25519.BatchVerifier
+}
 
 func NewBatchVerifier() *BatchVerifier { return &BatchVerifier{ed25519.NewBatchVerifier()} }
 
 func (b *BatchVerifier) Add(key PublicKey, msg []byte, sig Signature) {
-	cachingVerifier.AddWithOptions(b.inner, key.key[:], msg, sig.sig[:], verifyOptions)
+	opts := &ed25519.Options{Verify: verifyOptions}
+	cachingVerifier.AddWithOptions(b.inner, key.key[:], msg, sig.sig[:], opts)
+}
+
+func (b *BatchVerifier) AddWithTag(key PublicKey, tag Tag, msg []byte, sig Signature) {
+	opts := &ed25519.Options{Context: tag.tag, Verify: verifyOptions}
+	cachingVerifier.AddWithOptions(b.inner, key.key[:], msg, sig.sig[:], opts)
 }
 
 // Verify verifies the batched signatures using OS entropy.
