@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package tendermint.p2p;
 
-import "gogoproto/gogo.proto";
-
 option go_package = "github.com/tendermint/tendermint/proto/tendermint/p2p";
 
 message PexAddress {
