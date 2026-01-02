@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
@@ -56,4 +57,68 @@ func (suite *KeeperTestSuite) TestRecvPacket_BlockedWhenInboundDisabled() {
 	suite.Require().Error(err, "expected RecvPacket to return an error when inbound is disabled")
 	suite.Require().True(strings.Contains(strings.ToLower(err.Error()), "inbound"),
 		"expected error to mention inbound/disabled, got: %s", err.Error())
+}
+
+// TestAcknowledgementAllowedWhenOutboundDisabled verifies that MsgAcknowledgement
+// succeeds even when OutboundEnabled == false (settlement must be allowed).
+func (suite *KeeperTestSuite) TestAcknowledgementAllowedWhenOutboundDisabled() {
+	suite.SetupTest()
+
+	path := ibctesting.NewPath(suite.chainA, suite.chainB)
+	suite.coordinator.Setup(path)
+
+	// send packet from A -> B
+	timeoutHeight := suite.chainB.GetTimeoutHeight()
+	packet := channeltypes.NewPacket(ibctesting.MockPacketData, 1,
+		path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID,
+		path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID,
+		timeoutHeight, 0,
+	)
+	err := path.EndpointA.SendPacket(packet)
+	suite.Require().NoError(err)
+
+	// receive packet on B (creates ack)
+	err = path.EndpointB.RecvPacket(packet)
+	suite.Require().NoError(err)
+
+	// disable outbound on chainA
+	ibcKeeperA := suite.chainA.App.GetIBCKeeper()
+	ibcKeeperA.SetOutboundEnabled(suite.chainA.GetContext(), false)
+	suite.Require().False(ibcKeeperA.IsOutboundEnabled(suite.chainA.GetContext()))
+
+	// ack should still succeed
+	err = path.EndpointA.AcknowledgePacket(packet, ibctesting.MockAcknowledgement)
+	suite.Require().NoError(err, "MsgAcknowledgement should succeed when outbound is disabled")
+}
+
+// TestTimeoutAllowedWhenOutboundDisabled verifies that MsgTimeout
+// succeeds even when OutboundEnabled == false (settlement must be allowed).
+func (suite *KeeperTestSuite) TestTimeoutAllowedWhenOutboundDisabled() {
+	suite.SetupTest()
+
+	path := ibctesting.NewPath(suite.chainA, suite.chainB)
+	path.SetChannelOrdered()
+	suite.coordinator.Setup(path)
+
+	// send packet from A -> B with a low timeout height
+	packet := channeltypes.NewPacket(ibctesting.MockPacketData, 1,
+		path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID,
+		path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID,
+		clienttypes.GetSelfHeight(suite.chainB.GetContext()), 0,
+	)
+	err := path.EndpointA.SendPacket(packet)
+	suite.Require().NoError(err)
+
+	// advance chainB past the timeout height
+	suite.coordinator.CommitNBlocks(suite.chainB, 3)
+	path.EndpointA.UpdateClient()
+
+	// disable outbound on chainA
+	ibcKeeperA := suite.chainA.App.GetIBCKeeper()
+	ibcKeeperA.SetOutboundEnabled(suite.chainA.GetContext(), false)
+	suite.Require().False(ibcKeeperA.IsOutboundEnabled(suite.chainA.GetContext()))
+
+	// timeout should still succeed
+	err = path.EndpointA.TimeoutPacket(packet)
+	suite.Require().NoError(err, "MsgTimeout should succeed when outbound is disabled")
 }
