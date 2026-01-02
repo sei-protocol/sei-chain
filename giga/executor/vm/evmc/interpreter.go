@@ -37,6 +37,7 @@ func (e *EVMInterpreter) Run(contract *vm.Contract, input []byte, readOnly bool)
 	recipient := evmc.Address{}
 	sender := evmc.Address{}
 	static := false
+	// irrelevant as it is only used for CREATE2 - geth is handling our CREATE2 logic
 	salt := evmc.Hash{}
 	codeAddress := evmc.Address{}
 	output, _, _, _, err := e.hostContext.Call(callKind, recipient, sender, contract.Value().Bytes32(), input,
