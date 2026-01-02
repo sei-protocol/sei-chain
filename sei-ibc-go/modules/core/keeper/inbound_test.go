@@ -57,4 +57,3 @@ func (suite *KeeperTestSuite) TestRecvPacket_BlockedWhenInboundDisabled() {
 	suite.Require().True(strings.Contains(strings.ToLower(err.Error()), "inbound"),
 		"expected error to mention inbound/disabled, got: %s", err.Error())
 }
-

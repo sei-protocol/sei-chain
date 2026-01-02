@@ -47,4 +47,3 @@ func (k *Keeper) SetOutboundEnabled(ctx sdk.Context, enabled bool) {
 func (k *Keeper) GetParamSpace() paramtypes.Subspace {
 	return k.paramSpace
 }
-

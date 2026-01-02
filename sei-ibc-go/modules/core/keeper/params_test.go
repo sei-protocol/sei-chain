@@ -27,4 +27,3 @@ func (suite *KeeperTestSuite) TestCoreParams_GetSet() {
 	suite.Require().True(params.InboundEnabled)
 	suite.Require().True(params.OutboundEnabled)
 }
-
