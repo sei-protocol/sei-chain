@@ -18,6 +18,9 @@ import (
 // ErrOutboundDisabled is the error for when outbound is disabled (duplicated from core/types to avoid import cycle)
 var ErrOutboundDisabled = sdkerrors.Register("ibc-channel", 102, "ibc outbound disabled")
 
+// ErrInboundDisabled is the error for when inbound is disabled (duplicated from core/types to avoid import cycle)
+var ErrInboundDisabled = sdkerrors.Register("ibc-channel", 103, "ibc inbound disabled")
+
 // SendPacket is called by a module in order to send an IBC packet on a channel
 // end owned by the calling module to the corresponding module on the counterparty
 // chain.
@@ -165,6 +168,11 @@ func (k Keeper) RecvPacket(
 	proof []byte,
 	proofHeight exported.Height,
 ) error {
+	// inbound gating: disallow processing inbound packets when inbound disabled
+	if !k.IsInboundEnabled(ctx) {
+		return sdkerrors.Wrap(ErrInboundDisabled, "ibc inbound disabled")
+	}
+
 	channel, found := k.GetChannel(ctx, packet.GetDestPort(), packet.GetDestChannel())
 	if !found {
 		return sdkerrors.Wrap(types.ErrChannelNotFound, packet.GetDestChannel())

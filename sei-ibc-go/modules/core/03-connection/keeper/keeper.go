@@ -15,6 +15,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
+// KeyInboundEnabled is the param key for inbound enabled (duplicated from core/types to avoid import cycle)
+var KeyInboundEnabled = []byte("InboundEnabled")
+
+// ErrInboundDisabled is the error for when inbound is disabled (duplicated from core/types to avoid import cycle)
+var ErrInboundDisabled = sdkerrors.Register("ibc-connection", 101, "ibc inbound disabled")
+
 // Keeper defines the IBC connection keeper
 type Keeper struct {
 	// implements gRPC QueryServer interface
@@ -44,6 +50,13 @@ func NewKeeper(cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Su
 // Logger returns a module-specific logger.
 func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", "x/"+host.ModuleName+"/"+types.SubModuleName)
+}
+
+// IsInboundEnabled returns true if inbound IBC is enabled.
+func (k Keeper) IsInboundEnabled(ctx sdk.Context) bool {
+	var inbound bool
+	k.paramSpace.Get(ctx, KeyInboundEnabled, &inbound)
+	return inbound
 }
 
 // GetCommitmentPrefix returns the IBC connection store prefix as a commitment

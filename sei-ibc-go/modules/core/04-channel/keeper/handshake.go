@@ -15,6 +15,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
+// ErrInboundDisabledHandshake is the error for when inbound is disabled during channel handshake
+var ErrInboundDisabledHandshake = sdkerrors.Register("ibc-channel-handshake", 101, "ibc inbound disabled")
+
 // ChanOpenInit is called by a module to initiate a channel opening handshake with
 // a module on another chain. The counterparty channel identifier is validated to be
 // empty in msg validation.
@@ -106,6 +109,11 @@ func (k Keeper) ChanOpenTry(
 	proofInit []byte,
 	proofHeight exported.Height,
 ) (string, *capabilitytypes.Capability, error) {
+	// inbound gating: disallow inbound channel tries when inbound disabled
+	if !k.IsInboundEnabled(ctx) {
+		return "", nil, sdkerrors.Wrap(ErrInboundDisabledHandshake, "channel inbound disabled")
+	}
+
 	var (
 		previousChannel      types.Channel
 		previousChannelFound bool

@@ -57,11 +57,21 @@ func NewKeeper(
 // KeyOutboundEnabled is the param key for outbound enabled (duplicated from core/types to avoid import cycle)
 var KeyOutboundEnabled = []byte("OutboundEnabled")
 
+// KeyInboundEnabled is the param key for inbound enabled (duplicated from core/types to avoid import cycle)
+var KeyInboundEnabled = []byte("InboundEnabled")
+
 // IsOutboundEnabled returns true if outbound IBC is enabled.
 func (k Keeper) IsOutboundEnabled(ctx sdk.Context) bool {
 	var outbound bool
 	k.paramSpace.Get(ctx, KeyOutboundEnabled, &outbound)
 	return outbound
+}
+
+// IsInboundEnabled returns true if inbound IBC is enabled.
+func (k Keeper) IsInboundEnabled(ctx sdk.Context) bool {
+	var inbound bool
+	k.paramSpace.Get(ctx, KeyInboundEnabled, &inbound)
+	return inbound
 }
 
 // Logger returns a module-specific logger.
