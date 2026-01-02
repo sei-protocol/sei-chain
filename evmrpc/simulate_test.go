@@ -20,7 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
-	sstypes "github.com/sei-protocol/sei-chain/sei-db/ss/types"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"

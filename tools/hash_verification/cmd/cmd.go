@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	sstypes "github.com/sei-protocol/sei-chain/sei-db/ss"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	"github.com/sei-protocol/sei-chain/tools/hash_verification/iavl"
 	"github.com/sei-protocol/sei-chain/tools/hash_verification/pebbledb"
 	"github.com/tendermint/tendermint/libs/log"

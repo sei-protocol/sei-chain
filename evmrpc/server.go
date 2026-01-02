@@ -14,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/evmrpc/stats"
-	sstypes "github.com/sei-protocol/sei-chain/sei-db/ss/types"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/tendermint/tendermint/libs/log"

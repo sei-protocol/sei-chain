@@ -30,7 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/tests"
 	"github.com/holiman/uint256"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/ss/types"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	abci "github.com/tendermint/tendermint/abci/types"

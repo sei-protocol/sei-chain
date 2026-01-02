@@ -56,7 +56,7 @@ jobs:
         run: |
           export CGO_CFLAGS="-I/usr/local/include"
           export CGO_LDFLAGS="-L/usr/local/lib -lrocksdb -lz -lbz2 -lsnappy -llz4 -lzstd -ljemalloc"
-          go test -v -mod=readonly -tags=rocksdbBackend ./sei-db/ss/rocksdb/... -covermode=atomic -coverprofile=./rdb-profile.out
+          go test -v -mod=readonly -tags=rocksdbBackend ./sei-db/db_engine/rocksdb/... -covermode=atomic -coverprofile=./rdb-profile.out
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:

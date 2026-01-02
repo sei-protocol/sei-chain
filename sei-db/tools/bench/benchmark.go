@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
