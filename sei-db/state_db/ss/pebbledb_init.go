@@ -13,7 +13,7 @@ func init() {
 		if configs.DBDirectory != "" {
 			dbHome = configs.DBDirectory
 		}
-		return mvcc.New(dbHome, configs)
+		return mvcc.OpenDB(dbHome, configs)
 	}
 	RegisterBackend(PebbleDBBackend, initializer)
 }

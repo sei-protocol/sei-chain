@@ -71,7 +71,7 @@ type Database struct {
 	pendingChanges chan VersionedChangesets
 }
 
-func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
+func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	//TODO: add a new config and check if readonly = true to support readonly mode
 
 	storage, cfHandle, err := OpenRocksDB(dataDir)

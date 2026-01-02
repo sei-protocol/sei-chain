@@ -90,7 +90,7 @@ type VersionedChangesets struct {
 	Changesets []*proto.NamedChangeSet
 }
 
-func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
+func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	cache := pebble.NewCache(1024 * 1024 * 32)
 	defer cache.Unref()
 	opts := &pebble.Options{

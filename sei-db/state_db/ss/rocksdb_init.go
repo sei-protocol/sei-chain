@@ -5,7 +5,7 @@ package ss
 import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/rocksdb/ "
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/rocksdb/mvcc"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 )
 
@@ -15,7 +15,7 @@ func init() {
 		if configs.DBDirectory != "" {
 			dbHome = configs.DBDirectory
 		}
-		return _.New(dbHome, configs)
+		return mvcc.OpenDB(dbHome, configs)
 	}
 	RegisterBackend(RocksDBBackend, initializer)
 }

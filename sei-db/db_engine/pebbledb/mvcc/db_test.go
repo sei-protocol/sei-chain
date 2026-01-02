@@ -14,7 +14,7 @@ func TestStorageTestSuite(t *testing.T) {
 	pebbleConfig.Backend = "pebbledb"
 	s := &sstest.StorageTestSuite{
 		NewDB: func(dir string, config config.StateStoreConfig) (types.StateStore, error) {
-			return New(dir, config)
+			return OpenDB(dir, config)
 		},
 		Config:         pebbleConfig,
 		EmptyBatchSize: 12,

@@ -29,7 +29,7 @@ func setupTestDB(t *testing.T) (*Database, string) {
 		ImportNumWorkers: 4,
 	}
 
-	db, err := New(tempDir, cfg)
+	db, err := OpenDB(tempDir, cfg)
 	require.NoError(t, err)
 
 	return db, tempDir
@@ -437,7 +437,7 @@ func TestHashRangeDisabled(t *testing.T) {
 		ImportNumWorkers: 4,
 	}
 
-	db, err := New(tempDir, cfg)
+	db, err := OpenDB(tempDir, cfg)
 	require.NoError(t, err)
 	defer cleanupTestDB(t, db, tempDir)
 

@@ -14,7 +14,7 @@ import (
 func BenchmarkDBBackend(b *testing.B) {
 	s := &sstest.StorageBenchSuite{
 		NewDB: func(dir string) (types.StateStore, error) {
-			return New(dir, config.DefaultStateStoreConfig())
+			return OpenDB(dir, config.DefaultStateStoreConfig())
 		},
 		BenchBackendName: "RocksDB",
 	}
