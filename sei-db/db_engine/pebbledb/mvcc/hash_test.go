@@ -367,9 +367,8 @@ func TestAsyncComputeMissingRanges(t *testing.T) {
 	}
 
 	// Wait until async computation completes / timeouts
-	// We should now have hashed up to version 30 (3 complete ranges)
+	// We should now have hashed up to version 40 (4 complete ranges)
 	lastHashed = waitForLastRangeHashed(t, db, 40, 5*time.Second)
-	assert.Equal(t, int64(30), lastHashed)
 	assert.Equal(t, int64(40), lastHashed)
 }
 
