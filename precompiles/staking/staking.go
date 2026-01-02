@@ -400,7 +400,7 @@ type RedelegationsResponse struct {
 
 type Validator struct {
 	OperatorAddress         string
-	ConsensusPubkey         string
+	ConsensusPubkey         []byte
 	Jailed                  bool
 	Status                  int32
 	Tokens                  string
@@ -443,7 +443,7 @@ func (p PrecompileExecutor) validators(ctx sdk.Context, method *abi.Method, args
 	for i, validator := range validatorsResponse.Validators {
 		res.Validators[i] = Validator{
 			OperatorAddress:         validator.OperatorAddress,
-			ConsensusPubkey:         string(validator.ConsensusPubkey.Value),
+			ConsensusPubkey:         validator.ConsensusPubkey.Value,
 			Jailed:                  validator.Jailed,
 			Status:                  int32(validator.Status),
 			Tokens:                  validator.Tokens.String(),
@@ -1177,7 +1177,7 @@ func (p PrecompileExecutor) params(ctx sdk.Context, method *abi.Method, args []i
 func convertValidatorToPrecompileType(val stakingtypes.Validator) Validator {
 	return Validator{
 		OperatorAddress:         val.OperatorAddress,
-		ConsensusPubkey:         string(val.ConsensusPubkey.Value),
+		ConsensusPubkey:         val.ConsensusPubkey.Value,
 		Jailed:                  val.Jailed,
 		Status:                  int32(val.Status),
 		Tokens:                  val.Tokens.String(),
