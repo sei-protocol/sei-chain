@@ -22,7 +22,6 @@ func NewVM(blockCtx vm.BlockContext, stateDB vm.StateDB, chainConfig *params.Cha
 	}
 }
 
-// todo(pdrobnjak): we should probably have ExecuteTransaction only that will invoke ApplyMessage and receive a transaction
 func (v *VMImpl) ApplyMessage(msg *core.Message, gp *core.GasPool) (*core.ExecutionResult, error) {
 	executionResult, err := core.ApplyMessage(v.evm, msg, gp)
 	return executionResult, err
