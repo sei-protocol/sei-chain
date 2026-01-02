@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/cockroachdb/pebble"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/exp/slices"
+
+	"github.com/cockroachdb/pebble"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 )
 
 var _ types.DBIterator = (*iterator)(nil)
