@@ -12,7 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
-// ErrInboundDisabled is the error for when inbound is disabled (duplicated from core/types to avoid import cycle)
+// ErrInboundDisabled is the error for when inbound is disabled
 var ErrInboundDisabled = sdkerrors.Register("ibc-client", 101, "ibc inbound disabled")
 
 // CreateClient creates a new client state and populates it with a given consensus

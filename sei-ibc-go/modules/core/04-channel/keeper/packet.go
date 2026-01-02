@@ -15,10 +15,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
-// ErrOutboundDisabled is the error for when outbound is disabled (duplicated from core/types to avoid import cycle)
+// ErrOutboundDisabled is the error for when outbound is disabled
 var ErrOutboundDisabled = sdkerrors.Register("ibc-channel", 102, "ibc outbound disabled")
 
-// ErrInboundDisabled is the error for when inbound is disabled (duplicated from core/types to avoid import cycle)
+// ErrInboundDisabled is the error for when inbound is disabled
 var ErrInboundDisabled = sdkerrors.Register("ibc-channel", 103, "ibc inbound disabled")
 
 // SendPacket is called by a module in order to send an IBC packet on a channel

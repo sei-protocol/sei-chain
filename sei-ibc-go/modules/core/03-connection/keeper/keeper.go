@@ -15,10 +15,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
-// KeyInboundEnabled is the param key for inbound enabled (duplicated from core/types to avoid import cycle)
+// KeyInboundEnabled is the param key for inbound enabled
 var KeyInboundEnabled = []byte("InboundEnabled")
 
-// ErrInboundDisabled is the error for when inbound is disabled (duplicated from core/types to avoid import cycle)
+// ErrInboundDisabled is the error for when inbound is disabled
 var ErrInboundDisabled = sdkerrors.Register("ibc-connection", 101, "ibc inbound disabled")
 
 // Keeper defines the IBC connection keeper

@@ -54,10 +54,10 @@ func NewKeeper(
 	}
 }
 
-// KeyOutboundEnabled is the param key for outbound enabled (duplicated from core/types to avoid import cycle)
+// KeyOutboundEnabled is the param key for outbound enabled
 var KeyOutboundEnabled = []byte("OutboundEnabled")
 
-// KeyInboundEnabled is the param key for inbound enabled (duplicated from core/types to avoid import cycle)
+// KeyInboundEnabled is the param key for inbound enabled
 var KeyInboundEnabled = []byte("InboundEnabled")
 
 // IsOutboundEnabled returns true if outbound IBC is enabled.

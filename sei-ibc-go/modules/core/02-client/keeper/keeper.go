@@ -22,7 +22,7 @@ import (
 	ibctmtypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/07-tendermint/types"
 )
 
-// KeyInboundEnabled is the param key for inbound enabled (duplicated from core/types to avoid import cycle)
+// KeyInboundEnabled is the param key for inbound enabled
 var KeyInboundEnabled = []byte("InboundEnabled")
 
 // Keeper represents a type that grants read and write permissions to any client
