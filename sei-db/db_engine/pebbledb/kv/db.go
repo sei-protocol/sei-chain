@@ -1,10 +1,10 @@
 package pebbledb
 
 import (
-	"github.com/pkg/errors"
-
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
+	"github.com/pkg/errors"
+	"golang.org/x/exp/slices"
 )
 
 // Database represents database.
@@ -71,6 +71,7 @@ func (db *Database) Has(key []byte) (bool, error) {
 }
 
 // Get returns value by key.
+// The returned value is a copy and safe to use after this call returns.
 func (db *Database) Get(key []byte) ([]byte, error) {
 	value, closer, err := db.storage.Get(key)
 	if err != nil {
@@ -79,7 +80,11 @@ func (db *Database) Get(key []byte) ([]byte, error) {
 		}
 		return nil, errors.WithStack(err)
 	}
-	return value, errors.WithStack(closer.Close())
+	defer closer.Close()
+	// Must clone the value before closer.Close() is called,
+	// as PebbleDB's zero-copy semantics mean the underlying
+	// memory is only valid until the closer is closed.
+	return slices.Clone(value), nil
 }
 
 // Set override and persist key,value pair.
