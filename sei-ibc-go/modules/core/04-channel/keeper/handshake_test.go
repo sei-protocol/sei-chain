@@ -307,6 +307,49 @@ func (suite *KeeperTestSuite) TestChanOpenTry() {
 	}
 }
 
+// TestChanOpenTry_BlockedWhenInboundDisabled tests that ChanOpenTry
+// is blocked when inbound IBC is disabled.
+func (suite *KeeperTestSuite) TestChanOpenTry_BlockedWhenInboundDisabled() {
+	suite.SetupTest()
+
+	path := ibctesting.NewPath(suite.chainA, suite.chainB)
+	suite.coordinator.SetupConnections(path)
+	path.SetChannelOrdered()
+
+	// chainA opens channel
+	err := path.EndpointA.ChanOpenInit()
+	suite.Require().NoError(err)
+
+	// create port capability on chainB
+	suite.chainB.CreatePortCapability(suite.chainB.GetSimApp().ScopedIBCMockKeeper, ibctesting.MockPort)
+	portCap := suite.chainB.GetPortCapability(ibctesting.MockPort)
+
+	// disable inbound on chainB
+	ibcKeeperB := suite.chainB.App.GetIBCKeeper()
+	ibcKeeperB.SetInboundEnabled(suite.chainB.GetContext(), false)
+	suite.Require().False(ibcKeeperB.IsInboundEnabled(suite.chainB.GetContext()))
+
+	// ensure client is up to date on chainB
+	err = path.EndpointB.UpdateClient()
+	suite.Require().NoError(err)
+
+	counterparty := types.NewCounterparty(path.EndpointB.ChannelConfig.PortID, ibctesting.FirstChannelID)
+
+	channelKey := host.ChannelKey(counterparty.PortId, counterparty.ChannelId)
+	proof, proofHeight := suite.chainA.QueryProof(channelKey)
+
+	// attempt ChanOpenTry on chainB with inbound disabled
+	_, _, err = suite.chainB.App.GetIBCKeeper().ChannelKeeper.ChanOpenTry(
+		suite.chainB.GetContext(), types.ORDERED, []string{path.EndpointB.ConnectionID},
+		path.EndpointB.ChannelConfig.PortID, "", portCap, counterparty, path.EndpointA.ChannelConfig.Version,
+		proof, proofHeight,
+	)
+
+	// should fail with ErrInboundDisabled
+	suite.Require().Error(err)
+	suite.Require().Contains(err.Error(), "inbound")
+}
+
 // TestChanOpenAck tests the OpenAck handshake call for channels. It uses message passing
 // to enter into the appropriate state and then calls ChanOpenAck directly. The handshake
 // call is occurring on chainA.

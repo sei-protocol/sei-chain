@@ -75,6 +75,11 @@ func (k Keeper) ConnOpenTry(
 	proofHeight exported.Height, // height at which relayer constructs proof of A storing connectionEnd in state
 	consensusHeight exported.Height, // latest height of chain B which chain A has stored in its chain B client
 ) (string, error) {
+	// inbound gating: disallow inbound connection tries when inbound disabled
+	if !k.IsInboundEnabled(ctx) {
+		return "", sdkerrors.Wrap(ErrInboundDisabled, "connection inbound disabled")
+	}
+
 	var (
 		connectionID       string
 		previousConnection types.ConnectionEnd
