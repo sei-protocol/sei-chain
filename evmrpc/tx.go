@@ -330,7 +330,10 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, t
 	if !ok {
 		return nil, errors.New("transaction is not an EVM transaction and thus cannot be represented in _getTransaction* endpoints")
 	}
-	ethtx, _ := evmTx.AsTransaction()
+	ethtx, _, err := evmTx.AsTransaction()
+	if err != nil {
+		return nil, err
+	}
 
 	return t.encodeRPCTransaction(ethtx, block, txIndex)
 }
@@ -398,7 +401,10 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 	if !ok || evmTx.IsAssociateTx() {
 		return nil
 	}
-	ethtx, _ := evmTx.AsTransaction()
+	ethtx, _, err := evmTx.AsTransaction()
+	if err != nil {
+		return nil
+	}
 	return ethtx
 }
 
@@ -414,7 +420,10 @@ func GetEvmTxIndex(ctx sdk.Context, block *coretypes.ResultBlock, msgs []indexed
 		var txHash common.Hash
 		switch m := msg.msg.(type) {
 		case *types.MsgEVMTransaction:
-			etx, _ = m.AsTransaction()
+			etx, _, err := m.AsTransaction()
+			if err != nil {
+				continue
+			}
 			txHash = etx.Hash()
 		case *wasmtypes.MsgExecuteContract:
 			etx = nil

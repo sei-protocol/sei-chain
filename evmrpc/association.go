@@ -172,7 +172,10 @@ func (t *AssociationAPI) GetCosmosTx(ctx context.Context, ethHash common.Hash) (
 		for _, msg := range decoded.GetMsgs() {
 			switch m := msg.(type) {
 			case *types.MsgEVMTransaction:
-				ethtx, _ := m.AsTransaction()
+				ethtx, _, err := m.AsTransaction()
+				if err != nil {
+					return "", err
+				}
 				hash := ethtx.Hash()
 				if hash == ethHash {
 					return fmt.Sprintf("%X", tmTx.Hash()), nil

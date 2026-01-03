@@ -236,7 +236,10 @@ func filterTransactions(
 				if m.IsAssociateTx() {
 					continue
 				}
-				ethtx, _ := m.AsTransaction()
+				ethtx, _, err := m.AsTransaction()
+				if err != nil {
+					continue
+				}
 				hash := ethtx.Hash()
 				sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, block.Block.Time.Unix())
 				receipt, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)
@@ -345,7 +348,10 @@ func getTxHashesFromBlock(
 	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, false, cacheCreationMutex, globalBlockCache) {
 		switch tx.msg.(type) {
 		case *types.MsgEVMTransaction:
-			ethtx, _ := tx.msg.(*types.MsgEVMTransaction).AsTransaction()
+			ethtx, _, err := tx.msg.(*types.MsgEVMTransaction).AsTransaction()
+			if err != nil {
+				continue
+			}
 			txHashes = append(txHashes, typedTxHash{hash: ethtx.Hash(), isEvm: true})
 		case *wasmtypes.MsgExecuteContract:
 			txHashes = append(txHashes, typedTxHash{hash: common.Hash(sha256.Sum256(block.Block.Txs[tx.index])), isEvm: false})
