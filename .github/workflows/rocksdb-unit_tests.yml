@@ -53,15 +53,14 @@ jobs:
           sudo ldconfig
 
       - name: Run RocksDB Tests
-        working-directory: ./sei-db
         run: |
           export CGO_CFLAGS="-I/usr/local/include"
           export CGO_LDFLAGS="-L/usr/local/lib -lrocksdb -lz -lbz2 -lsnappy -llz4 -lzstd -ljemalloc"
-          make test-rocksdb
+          go test -v -mod=readonly -tags=rocksdbBackend ./sei-db/db_engine/rocksdb/... -covermode=atomic -coverprofile=./rdb-profile.out
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: ./sei-db/rdb-profile.out
+          files: ./rdb-profile.out
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
           flags: sei-db

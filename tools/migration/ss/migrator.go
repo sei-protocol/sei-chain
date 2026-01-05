@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
-	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-db/state_db/ss/types"
+	iavl "github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/tools/utils"
 	seimetrics "github.com/sei-protocol/sei-chain/utils/metrics"
-	"github.com/sei-protocol/sei-db/ss/types"
 	dbm "github.com/tendermint/tm-db"
 )
 

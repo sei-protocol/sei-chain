@@ -5,10 +5,10 @@ import (
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
-	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-db/state_db/ss/types"
+	iavl "github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/tools/hash_verification/hasher"
 	"github.com/sei-protocol/sei-chain/tools/utils"
-	"github.com/sei-protocol/sei-db/ss/types"
 	dbm "github.com/tendermint/tm-db"
 )
 

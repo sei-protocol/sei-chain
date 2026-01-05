@@ -11,8 +11,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/kv"
-	"github.com/cosmos/iavl"
-	sctypes "github.com/sei-protocol/sei-db/sc/types"
+	sctypes "github.com/sei-protocol/sei-db/state_db/sc/types"
+	iavl "github.com/cosmos/iavl"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/proto/tendermint/crypto"
@@ -25,12 +25,12 @@ var (
 
 // Store Implements types.KVStore and CommitKVStore.
 type Store struct {
-	tree      sctypes.Tree
+	tree      sctypes.ModuleStore
 	logger    log.Logger
 	changeSet iavl.ChangeSet
 }
 
-func NewStore(tree sctypes.Tree, logger log.Logger) *Store {
+func NewStore(tree sctypes.ModuleStore, logger log.Logger) *Store {
 	return &Store{
 		tree:   tree,
 		logger: logger,

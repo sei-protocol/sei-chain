@@ -14,7 +14,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	proto "github.com/sei-protocol/sei-db/proto"
-	sstypes "github.com/sei-protocol/sei-db/ss/types"
+	sstypes "github.com/sei-protocol/sei-db/state_db/ss/types"
 
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/bytes"

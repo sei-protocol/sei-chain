@@ -25,11 +25,11 @@ import (
 	commonerrors "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/sc"
-	sctypes "github.com/sei-protocol/sei-db/sc/types"
-	"github.com/sei-protocol/sei-db/ss"
-	"github.com/sei-protocol/sei-db/ss/pruning"
-	sstypes "github.com/sei-protocol/sei-db/ss/types"
+	"github.com/sei-protocol/sei-db/state_db/sc"
+	sctypes "github.com/sei-protocol/sei-db/state_db/sc/types"
+	"github.com/sei-protocol/sei-db/state_db/ss"
+	"github.com/sei-protocol/sei-db/state_db/ss/pruning"
+	sstypes "github.com/sei-protocol/sei-db/state_db/ss/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
@@ -275,7 +275,7 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 	}
 	for k, store := range rs.ckvStores {
 		if store.GetStoreType() == types.StoreTypeIAVL {
-			tree := scStore.GetTreeByName(k.Name())
+			tree := scStore.GetModuleByName(k.Name())
 			stores[k] = commitment.NewStore(tree, rs.logger)
 		}
 	}
@@ -439,7 +439,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, params storeParam
 	case types.StoreTypeMulti:
 		panic("recursive MultiStores not yet supported")
 	case types.StoreTypeIAVL:
-		tree := rs.scStore.GetTreeByName(key.Name())
+		tree := rs.scStore.GetModuleByName(key.Name())
 		if tree == nil {
 			return nil, fmt.Errorf("new store is not added in upgrades: %s", key.Name())
 		}
@@ -550,7 +550,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 			return sdkerrors.QueryResult(err)
 		}
 		defer scStore.Close()
-		store = types.Queryable(commitment.NewStore(scStore.GetTreeByName(storeName), rs.logger))
+		store = types.Queryable(commitment.NewStore(scStore.GetModuleByName(storeName), rs.logger))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	}

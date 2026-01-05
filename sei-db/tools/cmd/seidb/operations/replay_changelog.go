@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/sei-protocol/sei-db/changelog/changelog"
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/ss"
-	"github.com/sei-protocol/sei-db/ss/types"
-	"github.com/sei-protocol/sei-db/stream/changelog"
+	"github.com/sei-protocol/sei-db/state_db/ss"
+	"github.com/sei-protocol/sei-db/state_db/ss/types"
 	"github.com/spf13/cobra"
 )
 
