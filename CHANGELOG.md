@@ -27,6 +27,11 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+
+## Unreleased
+sei-chain
+* [#2652](https://github.com/sei-protocol/sei-chain/pull/2652) Bump golangci-lint to v2.7.2
+
 ## v6.2.0
 sei-chain
 * [#2444](https://github.com/sei-protocol/sei-chain/pull/2444) Optimize getLogs performance
