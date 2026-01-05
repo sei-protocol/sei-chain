@@ -7,7 +7,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/storev2/state"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/sei-protocol/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"

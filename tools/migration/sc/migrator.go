@@ -22,7 +22,7 @@ import (
 	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/tools/utils"
-	"github.com/sei-protocol/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 )

@@ -38,7 +38,7 @@ import (
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/tools"
 	"github.com/sei-protocol/sei-chain/tools/migration/ss"
-	seidbconfig "github.com/sei-protocol/sei-db/config"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	tmcfg "github.com/tendermint/tendermint/config"

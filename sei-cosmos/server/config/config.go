@@ -9,7 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/sei-protocol/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/spf13/viper"
 	tmcfg "github.com/tendermint/tendermint/config"
 )

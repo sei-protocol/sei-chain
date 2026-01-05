@@ -13,8 +13,8 @@ import (
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	proto "github.com/sei-protocol/sei-db/proto"
-	sstypes "github.com/sei-protocol/sei-db/ss/types"
+	proto "github.com/sei-protocol/sei-chain/sei-db/proto"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/bytes"

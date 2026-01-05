@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/sc/memiavl"
-	"github.com/sei-protocol/sei-db/tools/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
 	"github.com/spf13/cobra"
 )
 

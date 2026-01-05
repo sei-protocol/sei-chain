@@ -9,7 +9,7 @@ import (
 	srvconfig "github.com/cosmos/cosmos-sdk/server/config"
 	"github.com/sei-protocol/sei-chain/app/params"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
-	seidbconfig "github.com/sei-protocol/sei-db/config"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 	tmcfg "github.com/tendermint/tendermint/config"

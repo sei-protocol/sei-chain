@@ -7,7 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
-	seidbconfig "github.com/sei-protocol/sei-db/config"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
 // WASMConfig defines configuration for the wasm module.

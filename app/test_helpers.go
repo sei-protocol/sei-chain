@@ -15,9 +15,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
-	ssconfig "github.com/sei-protocol/sei-db/config"
-	"github.com/sei-protocol/sei-db/ss"
-	seidbtypes "github.com/sei-protocol/sei-db/ss/types"
+	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+
 	"github.com/stretchr/testify/suite"
 	"github.com/tendermint/tendermint/config"
 
