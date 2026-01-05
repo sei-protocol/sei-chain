@@ -89,11 +89,11 @@ func (b *Batch) DeleteByStore(storeKey string, key []byte) error {
 
 func getStorePrefix(storeKey string) []byte {
 	// "s/k:" + storeKey + "/"
-    b := make([]byte, 0, len("s/k:/")+len(storeKey))
-    b = append(b, "s/k:"...)
-    b = append(b, storeKey...)
-    b = append(b, '/' )
-    return b
+	b := make([]byte, 0, len("s/k:/")+len(storeKey))
+	b = append(b, "s/k:"...)
+	b = append(b, storeKey...)
+	b = append(b, '/')
+	return b
 }
 
 func prependStoreKey(storeKey string, key []byte) []byte {
