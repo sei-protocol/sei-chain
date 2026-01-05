@@ -62,11 +62,11 @@ func TestPreprocessAnteHandler(t *testing.T) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
-	require.Equal(t, sdk.AccAddress(privKey.PubKey().Address()), sdk.AccAddress(msg.Derived.SenderSeiAddr))
-	require.Equal(t, sdk.NewInt(100), k.BankKeeper().GetBalance(ctx, seiAddr, "usei").Amount)
-	require.Equal(t, sdk.NewInt(10), k.BankKeeper().GetWeiBalance(ctx, seiAddr))
-	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount)
-	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetWeiBalance(ctx, sdk.AccAddress(evmAddr[:])))
+	require.Equal(t, sdk.AccAddress(evmAddr[:]), sdk.AccAddress(msg.Derived.SenderSeiAddr))
+	require.Equal(t, sdk.NewInt(100), k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount)
+	require.Equal(t, sdk.NewInt(10), k.BankKeeper().GetWeiBalance(ctx, sdk.AccAddress(evmAddr[:])))
+	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetBalance(ctx, seiAddr, "usei").Amount)
+	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetWeiBalance(ctx, seiAddr))
 }
 
 func TestPreprocessAnteHandlerUnprotectedShouldFail(t *testing.T) {
@@ -103,6 +103,7 @@ func TestPreprocessAssociateTx(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
 	privKey := testkeeper.MockPrivateKey()
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 
@@ -122,8 +123,7 @@ func TestPreprocessAssociateTx(t *testing.T) {
 	})
 	// not enough balance
 	require.NotNil(t, err)
-	seiAddr := sdk.AccAddress(privKey.PubKey().Address())
-	evmAddr := crypto.PubkeyToAddress(key.PublicKey)
+	seiAddr := sdk.AccAddress(evmAddr[:])
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(int64(ante.BalanceThreshold))))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, amt)
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, amt)
@@ -147,6 +147,7 @@ func TestPreprocessAssociateTxWithWeiBalance(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
 	privKey := testkeeper.MockPrivateKey()
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 
@@ -161,8 +162,7 @@ func TestPreprocessAssociateTxWithWeiBalance(t *testing.T) {
 	txData := ethtx.AssociateTx{V: V.Bytes(), R: R.Bytes(), S: S.Bytes(), CustomMessage: prefixedMessage}
 	msg, err := types.NewMsgEVMTransaction(&txData)
 	require.Nil(t, err)
-	seiAddr := sdk.AccAddress(privKey.PubKey().Address())
-	evmAddr := crypto.PubkeyToAddress(key.PublicKey)
+	seiAddr := sdk.AccAddress(evmAddr[:])
 	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		panic("should not be called")
 	})
@@ -194,7 +194,7 @@ func TestEVMAddressDecorator(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	privKey := testkeeper.MockPrivateKey()
-	sender, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	sender, _ := testkeeper.PrivateKeyToAddresses(privKey)
 	recipient, _ := testkeeper.MockAddressPair()
 	handler := ante.NewEVMAddressDecorator(k, k.AccountKeeper())
 	msg := banktypes.NewMsgSend(sender, recipient, sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())))
@@ -205,7 +205,7 @@ func TestEVMAddressDecorator(t *testing.T) {
 	require.Nil(t, err)
 	associatedEvmAddr, associated := k.GetEVMAddress(ctx, sender)
 	require.True(t, associated)
-	require.Equal(t, evmAddr, associatedEvmAddr)
+	require.Equal(t, common.BytesToAddress(sender), associatedEvmAddr)
 }
 
 func TestIsAccountBalancePositive(t *testing.T) {

@@ -24,6 +24,7 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
+	v640 "github.com/sei-protocol/sei-chain/x/evm/versioning"
 )
 
 // Accounts need to have at least 1Sei to force association. Note that account won't be charged.
@@ -149,6 +150,9 @@ func PreprocessUnpacked(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTrans
 		if err != nil {
 			return err
 		}
+		if v640.IsAssociationDeprecated(ctx) {
+			seiAddr = sdk.AccAddress(evmAddr.Bytes())
+		}
 		msgEVMTransaction.Derived = &derived.Derived{
 			SenderEVMAddr: evmAddr,
 			SenderSeiAddr: seiAddr,
@@ -188,6 +192,9 @@ func PreprocessUnpacked(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTrans
 	evmAddr, seiAddr, seiPubkey, err := helpers.GetAddresses(V, R, S, txHash)
 	if err != nil {
 		return sdkerrors.ErrInvalidChainID
+	}
+	if v640.IsAssociationDeprecated(ctx) {
+		seiAddr = sdk.AccAddress(evmAddr.Bytes())
 	}
 	msgEVMTransaction.Derived = &derived.Derived{
 		SenderEVMAddr: evmAddr,
@@ -275,6 +282,9 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 			ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
 				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
+		}
+		if v640.IsAssociationDeprecated(ctx) {
+			evmAddr = common.BytesToAddress(signer)
 		}
 		ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
 			sdk.NewAttribute(evmtypes.AttributeKeyEvmAddress, evmAddr.Hex()),
