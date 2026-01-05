@@ -13,6 +13,7 @@ import (
 	bankv606 "github.com/sei-protocol/sei-chain/precompiles/bank/legacy/v606"
 	bankv610 "github.com/sei-protocol/sei-chain/precompiles/bank/legacy/v610"
 	bankv614 "github.com/sei-protocol/sei-chain/precompiles/bank/legacy/v614"
+	bankv620 "github.com/sei-protocol/sei-chain/precompiles/bank/legacy/v620"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -30,6 +31,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 		"v6.0.6":      check(bankv606.NewPrecompile(keepers)),
 		"v6.1.0":      check(bankv610.NewPrecompile(keepers)),
 		"v6.1.4":      check(bankv614.NewPrecompile(keepers)),
+		"v6.2.0":      check(bankv620.NewPrecompile(keepers)),
 	}
 }
 
