@@ -73,6 +73,10 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	isAssociateTx := derived.IsAssociate
 	associateHelper := helpers.NewAssociationHelper(p.evmKeeper, p.evmKeeper.BankKeeper(), p.accountKeeper)
 	_, isAssociated := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
+	if !isAssociated && v640.IsAssociationDeprecated(ctx) {
+		seiAddr = sdk.AccAddress(evmAddr.Bytes())
+		derived.SenderSeiAddr = seiAddr
+	}
 	if isAssociateTx && isAssociated {
 		return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already has association set")
 	} else if isAssociateTx {
@@ -150,9 +154,6 @@ func PreprocessUnpacked(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTrans
 		if err != nil {
 			return err
 		}
-		if v640.IsAssociationDeprecated(ctx) {
-			seiAddr = sdk.AccAddress(evmAddr.Bytes())
-		}
 		msgEVMTransaction.Derived = &derived.Derived{
 			SenderEVMAddr: evmAddr,
 			SenderSeiAddr: seiAddr,
@@ -192,9 +193,6 @@ func PreprocessUnpacked(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTrans
 	evmAddr, seiAddr, seiPubkey, err := helpers.GetAddresses(V, R, S, txHash)
 	if err != nil {
 		return sdkerrors.ErrInvalidChainID
-	}
-	if v640.IsAssociationDeprecated(ctx) {
-		seiAddr = sdk.AccAddress(evmAddr.Bytes())
 	}
 	msgEVMTransaction.Derived = &derived.Derived{
 		SenderEVMAddr: evmAddr,
