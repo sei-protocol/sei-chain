@@ -80,7 +80,9 @@ func (db *Database) Get(key []byte) ([]byte, error) {
 		}
 		return nil, errors.WithStack(err)
 	}
-	defer closer.Close()
+	defer func() {
+		_ = closer.Close()
+	}()
 	// Must clone the value before closer.Close() is called,
 	// as PebbleDB's zero-copy semantics mean the underlying
 	// memory is only valid until the closer is closed.
