@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package mux;
+
+option go_package = "github.com/tendermint/tendermint/internal/mux/pb";
+
+message MaxStreams {
+  uint64 kind = 1;
+  uint64 limit = 2;
+}
+
+message Handshake {
+  repeated MaxStreams max_streams = 1;
+}
+
+// Flat small message, representing a unit of multiplexer information.
+message Frame {
+  uint64 stream_id = 1; // OPEN,RESIZE,MSG,CLOSE
+  optional uint64 stream_kind = 2; // OPEN
+  optional uint64 max_msg_size = 3; // OPEN
+  optional uint64 window_end = 4; // OPEN,RESIZE
+  optional uint64 payload_size = 5; // MSG
+  optional bool msg_end = 6; // MSG
+  optional bool stream_end = 7; // CLOSE
+}  
