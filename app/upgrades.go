@@ -89,6 +89,20 @@ func (app *App) RegisterUpgradeHandlers() {
 				return newVM, err
 			}
 
+			// IBC Toggle migration: initialize InboundEnabled and OutboundEnabled params
+			// Without this, upgrading chains would have these params unset (false), disabling all IBC
+			if upgradeName == "v6.4.0" {
+				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
+				if err != nil {
+					return newVM, err
+				}
+
+				// Enable IBC inbound and outbound by default
+				app.IBCKeeper.SetInboundEnabled(ctx, true)
+				app.IBCKeeper.SetOutboundEnabled(ctx, true)
+				return newVM, err
+			}
+
 			return app.mm.RunMigrations(ctx, app.configurator, fromVM)
 		})
 	}
