@@ -6,6 +6,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/holiman/uint256"
 )
 
 var _ evmc.HostContext = (*HostContext)(nil)
@@ -13,10 +14,19 @@ var _ evmc.HostContext = (*HostContext)(nil)
 type HostContext struct {
 	vm  *evmc.VM
 	evm *vm.EVM
+	// delegateToGeth controls whether Call should delegate to geth's EVM implementation
+	// This is set to true when entering from the interpreter (top-level calls)
+	// and should delegate child calls back to geth's implementation
+	delegateToGeth bool
 }
 
 func NewHostContext(vm *evmc.VM, evm *vm.EVM) *HostContext {
-	return &HostContext{vm: vm, evm: evm}
+	return &HostContext{vm: vm, evm: evm, delegateToGeth: true}
+}
+
+// SetDelegateToGeth controls whether Call should route to geth's EVM implementation
+func (h *HostContext) SetDelegateToGeth(delegate bool) {
+	h.delegateToGeth = delegate
 }
 
 func (h *HostContext) AccountExists(addr evmc.Address) bool {
@@ -139,46 +149,133 @@ func (h *HostContext) EmitLog(addr evmc.Address, topics []evmc.Hash, data []byte
 	h.evm.StateDB.AddLog(&ethtypes.Log{Address: common.Address(addr), Topics: gethTopics, Data: data})
 }
 
-// todo(pdrobnjak): figure out how to populate - evmRevision, delegated, code - probably can be passed down from interpreter
-// this will sometimes be called throught interpreter.Run (top level) and sometimes from evmc_execute (child calls)
-// which means that sometimes it should delegate to the interpreter and sometimes it should call evm.Call/evm.DelegateCall/...
-// we are getting a Frankestein of geth + evmc + evmone
-// can this be routed through depth? noup, but we can set an internal flag in HostContext when calling through interpreter.Run
-// host HostContext needs to contain the EVM
+// Call routes EVM calls either to geth's implementation or to evmone via evmc.
+// When delegateToGeth is true (default), calls are routed to geth's EVM which handles
+// all the complexity of call types. When false, calls go through evmc to evmone.
+//
+// The call flow is:
+//   - Top-level: interpreter.Run -> HostContext.Call (delegateToGeth=true) -> evm.Call/DelegateCall/etc
+//   - evmone path: evmc.Execute -> HostContext.Call (delegateToGeth=false) -> h.vm.Execute
 func (h *HostContext) Call(
 	kind evmc.CallKind, recipient evmc.Address, sender evmc.Address, value evmc.Hash, input []byte, gas int64,
 	depth int, static bool, salt evmc.Hash, codeAddress evmc.Address,
 ) ([]byte, int64, int64, evmc.Address, error) {
-	// evmc -> opdelegatecall -> HostContext.Call (here we should route ) -> evm.DelegateCall -> intepreter.Run -> HostContext.Call
-	flag := true
-	if flag {
+	// Convert evmc types to geth types
+	recipientAddr := common.Address(recipient)
+	senderAddr := common.Address(sender)
+	valueUint256 := new(uint256.Int).SetBytes(value[:])
+
+	// When delegateToGeth is true, route calls through geth's EVM implementation
+	if h.delegateToGeth {
+		var ret []byte
+		var leftoverGas uint64
+		var err error
+		var createAddr common.Address
+
 		switch kind {
 		case evmc.Call:
-			ret, leftoverGas, err := h.evm.Call(caller, addr, input, gas, value)
+			if static {
+				ret, leftoverGas, err = h.evm.StaticCall(senderAddr, recipientAddr, input, uint64(gas))
+			} else {
+				ret, leftoverGas, err = h.evm.Call(senderAddr, recipientAddr, input, uint64(gas), valueUint256)
+			}
 		case evmc.DelegateCall:
-			ret, leftoverGas, err := h.evm.DelegateCall(originCaller, caller, addr, input, gas, value)
+			// DelegateCall signature: (originCaller, caller, addr, input, gas, value)
+			// In delegate call, the sender is the origin, recipient is the target
+			ret, leftoverGas, err = h.evm.DelegateCall(h.evm.TxContext.Origin, senderAddr, recipientAddr, input, uint64(gas), valueUint256)
 		case evmc.CallCode:
-			ret, leftoverGas, err := h.evm.CallCode(caller, addr, input, gas, value)
+			ret, leftoverGas, err = h.evm.CallCode(senderAddr, recipientAddr, input, uint64(gas), valueUint256)
 		case evmc.Create:
-			ret, createAddr, leftoverGas, err := h.evm.Create(caller, code, gas, value)
+			ret, createAddr, leftoverGas, err = h.evm.Create(senderAddr, input, uint64(gas), valueUint256)
+			return ret, int64(leftoverGas), 0, evmc.Address(createAddr), err
 		case evmc.Create2:
-			ret, createAddr, leftoverGas, err := h.evm.Create2(caller, code, gas, endowment, salt)
+			saltUint256 := new(uint256.Int).SetBytes(salt[:])
+			ret, createAddr, leftoverGas, err = h.evm.Create2(senderAddr, input, uint64(gas), valueUint256, saltUint256)
+			return ret, int64(leftoverGas), 0, evmc.Address(createAddr), err
+		default:
+			// StaticCall and EofCreate are handled here
+			ret, leftoverGas, err = h.evm.StaticCall(senderAddr, recipientAddr, input, uint64(gas))
 		}
+
+		return ret, int64(leftoverGas), 0, evmc.Address{}, err
 	}
-	// ELSE
-	evmRevision := evmc.Frontier
-	delegated := false
-	var code []byte
+
+	// When not delegating to geth, use evmc/evmone for execution
+	// Determine EVM revision based on chain config and block number
+	evmRevision := h.getEVMRevision()
+	delegated := kind == evmc.DelegateCall || kind == evmc.CallCode
+	code := h.evm.StateDB.GetCode(recipientAddr)
+
 	executionResult, err := h.vm.Execute(
 		h, evmRevision, kind, static, delegated, depth,
 		gas, recipient, sender, input, value, code,
 	)
 	if err != nil {
-		return nil, 0, 0, [20]byte{}, err
+		return nil, 0, 0, evmc.Address{}, err
 	}
 
-	//todo(pdrobnjak): figure out how to populate createAddr
-	return executionResult.Output, executionResult.GasLeft, executionResult.GasRefund, evmc.Address{}, nil
+	// For Create/Create2, calculate the created address
+	var createAddr evmc.Address
+	if kind == evmc.Create || kind == evmc.Create2 {
+		// The created address should be set in the execution result
+		// For now, return empty - this needs to be populated from evmone's result
+		createAddr = evmc.Address{}
+	}
+
+	return executionResult.Output, executionResult.GasLeft, executionResult.GasRefund, createAddr, nil
+}
+
+// getEVMRevision determines the EVM revision based on the current chain configuration
+func (h *HostContext) getEVMRevision() evmc.Revision {
+	chainConfig := h.evm.ChainConfig()
+	blockNumber := h.evm.Context.BlockNumber
+	time := h.evm.Context.Time
+	isMerge := h.evm.Context.Random != nil
+
+	// Get the rules for the current block
+	rules := chainConfig.Rules(blockNumber, isMerge, time)
+
+	// Check from newest to oldest using rules
+	if rules.IsPrague {
+		return evmc.Prague
+	}
+	if rules.IsCancun {
+		return evmc.Cancun
+	}
+	if rules.IsShanghai {
+		return evmc.Shanghai
+	}
+	if rules.IsMerge {
+		return evmc.Paris
+	}
+	if rules.IsLondon {
+		return evmc.London
+	}
+	if rules.IsBerlin {
+		return evmc.Berlin
+	}
+	if rules.IsIstanbul {
+		return evmc.Istanbul
+	}
+	if rules.IsPetersburg {
+		return evmc.Petersburg
+	}
+	if rules.IsConstantinople {
+		return evmc.Constantinople
+	}
+	if rules.IsByzantium {
+		return evmc.Byzantium
+	}
+	if rules.IsEIP158 {
+		return evmc.SpuriousDragon
+	}
+	if rules.IsEIP150 {
+		return evmc.TangerineWhistle
+	}
+	if rules.IsHomestead {
+		return evmc.Homestead
+	}
+	return evmc.Frontier
 }
 
 func (h *HostContext) AccessAccount(addr evmc.Address) evmc.AccessStatus {

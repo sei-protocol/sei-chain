@@ -5,8 +5,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 )
 
-var _ vm.IEVMInterpreter = (*EVMInterpreter)(nil)
-
+// EVMInterpreter is a custom interpreter that delegates execution to evmone via EVMC.
+// Note: This cannot replace geth's interpreter directly since the interpreter field is unexported.
+// Instead, this is used as a helper for the HostContext's Call method.
 type EVMInterpreter struct {
 	hostContext evmc.HostContext
 	evm         *vm.EVM
@@ -17,12 +18,14 @@ func NewEVMInterpreter(hostContext evmc.HostContext, evm *vm.EVM) *EVMInterprete
 	return &EVMInterpreter{hostContext: hostContext, evm: evm}
 }
 
+// Run executes the contract code via evmone.
+// Note: This is not currently used as the main execution path since we can't replace
+// geth's interpreter. The execution flows through StateTransition -> geth interpreter.
+// This is kept for future use when we implement direct evmone integration.
 func (e *EVMInterpreter) Run(contract *vm.Contract, input []byte, readOnly bool) ([]byte, error) {
-	// todo(pdrobnjak): figure out if there is a way to avoid this, probably not, I'll have to replicate every interpreter side effect
-	// PASTED FROM GETH
 	// Increment the call depth which is restricted to 1024
-	e.evm.depth++
-	defer func() { e.evm.depth-- }()
+	// Note: We use GetDepth() since depth field is unexported
+	depth := e.evm.GetDepth()
 
 	// Make sure the readOnly is only set if we aren't in readOnly yet.
 	// This also makes sure that the readOnly flag isn't removed for child calls.
@@ -30,7 +33,6 @@ func (e *EVMInterpreter) Run(contract *vm.Contract, input []byte, readOnly bool)
 		e.readOnly = true
 		defer func() { e.readOnly = false }()
 	}
-	// PASTED FROM GETH
 
 	// todo(pdrobnjak): figure out how to access these values and how to validate if they are populated correctly
 	callKind := evmc.Call
@@ -41,7 +43,7 @@ func (e *EVMInterpreter) Run(contract *vm.Contract, input []byte, readOnly bool)
 	salt := evmc.Hash{}
 	codeAddress := evmc.Address{}
 	output, _, _, _, err := e.hostContext.Call(callKind, recipient, sender, contract.Value().Bytes32(), input,
-		int64(contract.Gas), e.evm.GetDepth(), static, salt, codeAddress)
+		int64(contract.Gas), depth, static, salt, codeAddress)
 	if err != nil {
 		return nil, err
 	}

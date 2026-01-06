@@ -1666,6 +1666,9 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	stateDB := evmstate.NewDBImpl(ctx, &app.EvmKeeper, false)
 	defer stateDB.Cleanup()
 
+	// Get EVM message from the transaction using recovered sender
+	evmMsg := app.EvmKeeper.GetEVMMessage(ctx, ethTx, sender)
+
 	// Get gas pool
 	gp := app.EvmKeeper.GetGasPool()
 
