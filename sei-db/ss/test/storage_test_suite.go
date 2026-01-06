@@ -27,13 +27,14 @@ type StorageTestSuite struct {
 	Config         config.StateStoreConfig
 }
 
-func (s *StorageTestSuite) TestDatabaseClose() {
+func (s *StorageTestSuite) TestDatabaseClose_IsIdempotent() {
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	s.Require().NoError(db.Close())
-
-	// close should not be idempotent
-	s.Require().Panics(func() { _ = db.Close() })
+	// The close operation on an already closed db should be a noop, because:
+	//  1. it avoids panic in cases where the db closure may be called multiple times in the call stack.
+	//  2. it is harmless to make it idempotent and adheres with Go SDK's IO package Close behavior.
+	s.Require().NoError(db.Close())
 }
 
 func (s *StorageTestSuite) TestDatabaseLatestVersion() {

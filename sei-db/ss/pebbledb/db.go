@@ -201,8 +201,11 @@ func (db *Database) Close() error {
 		_ = db.streamHandler.Close()
 		db.streamHandler = nil
 	}
-	err := db.storage.Close()
-	db.storage = nil
+	var err error
+	if db.storage != nil {
+		err = db.storage.Close()
+		db.storage = nil
+	}
 	return err
 }
 
