@@ -26,6 +26,11 @@ func (k Keeper) ConnOpenInit(
 	version *types.Version,
 	delayPeriod uint64,
 ) (string, error) {
+	// outbound gating: disallow outbound connection inits when outbound disabled
+	if !k.IsOutboundEnabled(ctx) {
+		return "", sdkerrors.Wrap(ErrOutboundDisabled, "connection outbound disabled")
+	}
+
 	versions := types.GetCompatibleVersions()
 	if version != nil {
 		if !types.IsSupportedVersion(version) {

@@ -100,6 +100,11 @@ func (k Keeper) SubmitMisbehaviour(goCtx context.Context, msg *clienttypes.MsgSu
 func (k Keeper) ConnectionOpenInit(goCtx context.Context, msg *connectiontypes.MsgConnectionOpenInit) (*connectiontypes.MsgConnectionOpenInitResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	// outbound gating: disallow outbound connection inits when outbound disabled
+	if !k.IsOutboundEnabled(ctx) {
+		return nil, sdkerrors.Wrap(coretypes.ErrOutboundDisabled, "connection outbound disabled")
+	}
+
 	if _, err := k.ConnectionKeeper.ConnOpenInit(ctx, msg.ClientId, msg.Counterparty, msg.Version, msg.DelayPeriod); err != nil {
 		return nil, sdkerrors.Wrap(err, "connection handshake open init failed")
 	}
@@ -168,6 +173,11 @@ func (k Keeper) ConnectionOpenConfirm(goCtx context.Context, msg *connectiontype
 // callback, and write an OpenInit channel into state upon successful execution.
 func (k Keeper) ChannelOpenInit(goCtx context.Context, msg *channeltypes.MsgChannelOpenInit) (*channeltypes.MsgChannelOpenInitResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	// outbound gating: disallow outbound channel inits when outbound disabled
+	if !k.IsOutboundEnabled(ctx) {
+		return nil, sdkerrors.Wrap(coretypes.ErrOutboundDisabled, "channel outbound disabled")
+	}
 
 	// Lookup module by port capability
 	module, portCap, err := k.PortKeeper.LookupModuleByPort(ctx, msg.PortId)

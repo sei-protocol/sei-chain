@@ -18,6 +18,9 @@ import (
 // ErrInboundDisabledHandshake is the error for when inbound is disabled during channel handshake
 var ErrInboundDisabledHandshake = sdkerrors.Register("ibc-channel-handshake", 101, "ibc inbound disabled")
 
+// ErrOutboundDisabledHandshake is the error for when outbound is disabled during channel handshake
+var ErrOutboundDisabledHandshake = sdkerrors.Register("ibc-channel-handshake", 102, "ibc outbound disabled")
+
 // ChanOpenInit is called by a module to initiate a channel opening handshake with
 // a module on another chain. The counterparty channel identifier is validated to be
 // empty in msg validation.
@@ -30,6 +33,11 @@ func (k Keeper) ChanOpenInit(
 	counterparty types.Counterparty,
 	version string,
 ) (string, *capabilitytypes.Capability, error) {
+	// outbound gating: disallow outbound channel inits when outbound disabled
+	if !k.IsOutboundEnabled(ctx) {
+		return "", nil, sdkerrors.Wrap(ErrOutboundDisabledHandshake, "channel outbound disabled")
+	}
+
 	// connection hop length checked on msg.ValidateBasic()
 	connectionEnd, found := k.connectionKeeper.GetConnection(ctx, connectionHops[0])
 	if !found {
