@@ -19,6 +19,8 @@ func NewEVMInterpreter(hostContext evmc.HostContext, evm *vm.EVM) *EVMInterprete
 // Run executes the contract code via evmone.
 func (e *EVMInterpreter) Run(contract *vm.Contract, input []byte, readOnly bool) ([]byte, error) {
 	// Increment the call depth which is restricted to 1024
+	e.evm.Depth++
+	defer func() { e.evm.Depth-- }()
 	depth := e.evm.Depth
 
 	// Make sure the readOnly is only set if we aren't in readOnly yet.
