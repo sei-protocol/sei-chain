@@ -59,6 +59,7 @@ var (
 
 type Database struct {
 	storage      *pebble.DB
+	cache        *pebble.Cache
 	asyncWriteWG sync.WaitGroup
 	config       config.StateStoreConfig
 	// Earliest version for db after pruning
@@ -92,7 +93,6 @@ type VersionedChangesets struct {
 
 func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	cache := pebble.NewCache(1024 * 1024 * 32)
-	defer cache.Unref()
 	opts := &pebble.Options{
 		Cache:                       cache,
 		Comparer:                    MVCCComparer,
@@ -128,23 +128,27 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 
 	db, err := pebble.Open(dataDir, opts)
 	if err != nil {
+		cache.Unref()
 		return nil, fmt.Errorf("failed to open PebbleDB: %w", err)
 	}
 
 	// Initialize earliest version
 	earliestVersion, err := retrieveEarliestVersion(db)
 	if err != nil {
+		cache.Unref()
 		return nil, fmt.Errorf("failed to retrieve earliest version: %w", err)
 	}
 
 	// Initialize latest version
 	latestVersion, err := retrieveLatestVersion(db)
 	if err != nil {
+		cache.Unref()
 		return nil, fmt.Errorf("failed to retrieve latest version: %w", err)
 	}
 
 	database := &Database{
 		storage:         db,
+		cache:           cache,
 		asyncWriteWG:    sync.WaitGroup{},
 		config:          config,
 		earliestVersion: atomic.Int64{},
@@ -157,11 +161,13 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	// Initialize the lastRangeHashed cache
 	lastHashed, err := retrieveLastRangeHashed(db)
 	if err != nil {
+		cache.Unref()
 		return nil, fmt.Errorf("failed to retrieve last range hashed: %w", err)
 	}
 	database.lastRangeHashedCache = lastHashed
 
 	if config.KeepRecent < 0 {
+		cache.Unref()
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
 	streamHandler, _ := changelog.NewStream(
@@ -205,6 +211,10 @@ func (db *Database) Close() error {
 	if db.storage != nil {
 		err = db.storage.Close()
 		db.storage = nil
+	}
+	if db.cache != nil {
+		db.cache.Unref()
+		db.cache = nil
 	}
 	return err
 }
