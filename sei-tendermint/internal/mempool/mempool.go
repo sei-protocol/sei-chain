@@ -540,7 +540,8 @@ func (txmp *TxMempool) Flush() {
 }
 
 // ReapMaxBytesMaxGas returns a list of transactions within the provided size
-// and gas constraints. Transaction are retrieved in priority order.
+// and gas constraints. The returned list starts with EVM transactions (in priority order),
+// followed by non-EVM transactions (in priority order).
 // There are 4 types of constraints.
 //  1. maxBytes - stops pulling txs from mempool once maxBytes is hit. Can be set to -1 to be ignored.
 //  2. maxGasWanted - stops pulling txs from mempool once total gas wanted exceeds maxGasWanted.
@@ -561,11 +562,13 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 		totalSize         int64
 	)
 
-	var txs []types.Tx
+	var evmTxs []types.Tx
+	var nonEvmTxs []types.Tx
+	numTxs := 0
 	encounteredGasUnfit := false
 	if uint64(txmp.NumTxsNotPending()) < txmp.config.TxNotifyThreshold {
 		// do not reap anything if threshold is not met
-		return txs
+		return []types.Tx{}
 	}
 	txmp.priorityIndex.ForEachTx(func(wtx *WrappedTx) bool {
 		size := types.ComputeProtoSizeForTxs([]types.Tx{wtx.tx})
@@ -593,7 +596,7 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 
 		if maxGasWantedExceeded || maxGasEstimatedExceeded {
 			// skip this unfit-by-gas tx once and attempt to pull up to 10 smaller ones
-			if !encounteredGasUnfit && len(txs) < MinTxsToPeek {
+			if !encounteredGasUnfit && numTxs < MinTxsToPeek {
 				encounteredGasUnfit = true
 				return true
 			}
@@ -605,14 +608,19 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 		totalGasWanted = prospectiveGasWanted
 		totalGasEstimated = prospectiveGasEstimated
 
-		txs = append(txs, wtx.tx)
-		if encounteredGasUnfit && len(txs) >= MinTxsToPeek {
+		if wtx.isEVM {
+			evmTxs = append(evmTxs, wtx.tx)
+		} else {
+			nonEvmTxs = append(nonEvmTxs, wtx.tx)
+		}
+		numTxs++
+		if encounteredGasUnfit && numTxs >= MinTxsToPeek {
 			return false
 		}
 		return true
 	})
 
-	return txs
+	return append(evmTxs, nonEvmTxs...)
 }
 
 // ReapMaxTxs returns a list of transactions within the provided number of
