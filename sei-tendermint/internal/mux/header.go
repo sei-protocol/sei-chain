@@ -11,38 +11,16 @@ id%2==0 => connected stream
 id%2==1 => accepted stream
 */
 
-type FrameOpen struct {
+type Header struct {
 	StreamID StreamID
-	StreamKind StreamKind
-	MaxMsgSize uint64
-	WindowEnd uint64
+	RecvMaxMsgSize utils.Option[uint64]
+	RecvWindowEnd utils.Option[uint64]
+	SendPayloadSize utils.Option[uint64]
+	SendMsgEnd utils.Option[bool]
+	SendClosed utils.Option[bool]
 }
 
-type FrameResize struct {
-	StreamID StreamID
-	WindowEnd uint64
-}
-
-type FrameMsg struct {
-	StreamID StreamID
-	PayloadSize uint64
-	MsgEnd bool
-}
-
-type FrameClose struct {
-	StreamID StreamID
-}
-
-type Frame interface {
-	isFrame()
-}
-
-func (*FrameOpen) isFrame() {}
-func (*FrameResize) isFrame() {}
-func (*FrameMsg) isFrame() {}
-func (*FrameClose) isFrame() {}
-
-func EncodeFrame(f Frame) *pb.Frame {
+func EncodeHeader(h Header) *pb.Header {
 	switch f := f.(type) {
 	case *FrameOpen:
 		return &pb.Frame {

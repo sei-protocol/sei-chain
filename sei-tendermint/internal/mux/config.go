@@ -7,30 +7,30 @@ import (
 
 
 type Handshake struct {
-	MaxStreams map[StreamKind]uint64
+	Kinds map[StreamKind]*StreamKindConfig
 }
 
 var HandshakeConv = protoutils.Conv[*Handshake,*pb.Handshake]{
 	Encode: func(h *Handshake) *pb.Handshake {
-		var maxStreams []*pb.MaxStreams
-		for kind,limit := range h.MaxStreams {
-			maxStreams = append(maxStreams, &pb.MaxStreams {
+		var kinds []*pb.StreamKindConfig
+		for kind,c := range h.Kinds {
+			kinds = append(kinds, &pb.StreamKindConfig {
 				Kind: uint64(kind),
-				Limit: limit,
+				MaxConnects: c.MaxConnects,
+				MaxAccepts: c.MaxAccepts,
 			})
 		}
-		return &pb.Handshake{
-			MaxStreams: maxStreams, 
-		}
+		return &pb.Handshake{Kinds: kinds} 
 	},
 	Decode: func(x *pb.Handshake) (*Handshake,error) { 
-		maxStreams := map[StreamKind]uint64{}
-		for _,ms := range x.MaxStreams {
-			maxStreams[StreamKind(ms.Kind)] = ms.Limit
+		kinds := map[StreamKind]*StreamKindConfig{}
+		for _,pc := range x.Kinds {
+			kinds[StreamKind(pc.Kind)] = &StreamKindConfig {
+				MaxConnects: pc.MaxConnects,
+				MaxAccepts: pc.MaxAccepts,
+			}
 		}
-		return &Handshake {
-			MaxStreams: maxStreams,
-		}, nil
+		return &Handshake {Kinds:kinds},nil
 	},
 }
 

@@ -21,28 +21,29 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type MaxStreams struct {
+type StreamKindConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Kind          uint64                 `protobuf:"varint,1,opt,name=kind,proto3" json:"kind,omitempty"`
-	Limit         uint64                 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	MaxConnects   uint64                 `protobuf:"varint,2,opt,name=max_connects,json=maxConnects,proto3" json:"max_connects,omitempty"`
+	MaxAccepts    uint64                 `protobuf:"varint,3,opt,name=max_accepts,json=maxAccepts,proto3" json:"max_accepts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *MaxStreams) Reset() {
-	*x = MaxStreams{}
+func (x *StreamKindConfig) Reset() {
+	*x = StreamKindConfig{}
 	mi := &file_mux_mux_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *MaxStreams) String() string {
+func (x *StreamKindConfig) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*MaxStreams) ProtoMessage() {}
+func (*StreamKindConfig) ProtoMessage() {}
 
-func (x *MaxStreams) ProtoReflect() protoreflect.Message {
+func (x *StreamKindConfig) ProtoReflect() protoreflect.Message {
 	mi := &file_mux_mux_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -54,28 +55,35 @@ func (x *MaxStreams) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use MaxStreams.ProtoReflect.Descriptor instead.
-func (*MaxStreams) Descriptor() ([]byte, []int) {
+// Deprecated: Use StreamKindConfig.ProtoReflect.Descriptor instead.
+func (*StreamKindConfig) Descriptor() ([]byte, []int) {
 	return file_mux_mux_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *MaxStreams) GetKind() uint64 {
+func (x *StreamKindConfig) GetKind() uint64 {
 	if x != nil {
 		return x.Kind
 	}
 	return 0
 }
 
-func (x *MaxStreams) GetLimit() uint64 {
+func (x *StreamKindConfig) GetMaxConnects() uint64 {
 	if x != nil {
-		return x.Limit
+		return x.MaxConnects
+	}
+	return 0
+}
+
+func (x *StreamKindConfig) GetMaxAccepts() uint64 {
+	if x != nil {
+		return x.MaxAccepts
 	}
 	return 0
 }
 
 type Handshake struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	MaxStreams    []*MaxStreams          `protobuf:"bytes,1,rep,name=max_streams,json=maxStreams,proto3" json:"max_streams,omitempty"`
+	Kinds         []*StreamKindConfig    `protobuf:"bytes,1,rep,name=kinds,proto3" json:"kinds,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -110,13 +118,14 @@ func (*Handshake) Descriptor() ([]byte, []int) {
 	return file_mux_mux_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *Handshake) GetMaxStreams() []*MaxStreams {
+func (x *Handshake) GetKinds() []*StreamKindConfig {
 	if x != nil {
-		return x.MaxStreams
+		return x.Kinds
 	}
 	return nil
 }
 
+// Flat small message, representing a unit of multiplexer information.
 type Frame struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	StreamId      uint64                 `protobuf:"varint,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`                // OPEN,RESIZE,MSG,CLOSE
@@ -213,14 +222,14 @@ var File_mux_mux_proto protoreflect.FileDescriptor
 
 const file_mux_mux_proto_rawDesc = "" +
 	"\n" +
-	"\rmux/mux.proto\x12\x03mux\"6\n" +
-	"\n" +
-	"MaxStreams\x12\x12\n" +
-	"\x04kind\x18\x01 \x01(\x04R\x04kind\x12\x14\n" +
-	"\x05limit\x18\x02 \x01(\x04R\x05limit\"=\n" +
-	"\tHandshake\x120\n" +
-	"\vmax_streams\x18\x01 \x03(\v2\x0f.mux.MaxStreamsR\n" +
-	"maxStreams\"\xdb\x02\n" +
+	"\rmux/mux.proto\x12\x03mux\"j\n" +
+	"\x10StreamKindConfig\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\x04R\x04kind\x12!\n" +
+	"\fmax_connects\x18\x02 \x01(\x04R\vmaxConnects\x12\x1f\n" +
+	"\vmax_accepts\x18\x03 \x01(\x04R\n" +
+	"maxAccepts\"8\n" +
+	"\tHandshake\x12+\n" +
+	"\x05kinds\x18\x01 \x03(\v2\x15.mux.StreamKindConfigR\x05kinds\"\xdb\x02\n" +
 	"\x05Frame\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\x04R\bstreamId\x12$\n" +
 	"\vstream_kind\x18\x02 \x01(\x04H\x00R\n" +
@@ -255,12 +264,12 @@ func file_mux_mux_proto_rawDescGZIP() []byte {
 
 var file_mux_mux_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_mux_mux_proto_goTypes = []any{
-	(*MaxStreams)(nil), // 0: mux.MaxStreams
-	(*Handshake)(nil),  // 1: mux.Handshake
-	(*Frame)(nil),      // 2: mux.Frame
+	(*StreamKindConfig)(nil), // 0: mux.StreamKindConfig
+	(*Handshake)(nil),        // 1: mux.Handshake
+	(*Frame)(nil),            // 2: mux.Frame
 }
 var file_mux_mux_proto_depIdxs = []int32{
-	0, // 0: mux.Handshake.max_streams:type_name -> mux.MaxStreams
+	0, // 0: mux.Handshake.kinds:type_name -> mux.StreamKindConfig
 	1, // [1:1] is the sub-list for method output_type
 	1, // [1:1] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name

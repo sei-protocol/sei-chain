@@ -4,13 +4,14 @@ package mux;
 
 option go_package = "github.com/tendermint/tendermint/internal/mux/pb";
 
-message MaxStreams {
+message StreamKindConfig {
   uint64 kind = 1;
-  uint64 limit = 2;
+  uint64 max_connects = 2;
+  uint64 max_accepts = 3;
 }
 
 message Handshake {
-  repeated MaxStreams max_streams = 1;
+  repeated StreamKindConfig kinds = 1;
 }
 
 // Flat small message, representing a unit of multiplexer information.
