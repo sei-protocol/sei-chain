@@ -6,8 +6,6 @@ import (
 )
 
 // EVMInterpreter is a custom interpreter that delegates execution to evmone via EVMC.
-// Note: This cannot replace geth's interpreter directly since the interpreter field is unexported.
-// Instead, this is used as a helper for the HostContext's Call method.
 type EVMInterpreter struct {
 	hostContext evmc.HostContext
 	evm         *vm.EVM
@@ -19,13 +17,9 @@ func NewEVMInterpreter(hostContext evmc.HostContext, evm *vm.EVM) *EVMInterprete
 }
 
 // Run executes the contract code via evmone.
-// Note: This is not currently used as the main execution path since we can't replace
-// geth's interpreter. The execution flows through StateTransition -> geth interpreter.
-// This is kept for future use when we implement direct evmone integration.
 func (e *EVMInterpreter) Run(contract *vm.Contract, input []byte, readOnly bool) ([]byte, error) {
 	// Increment the call depth which is restricted to 1024
-	// Note: We use GetDepth() since depth field is unexported
-	depth := e.evm.GetDepth()
+	depth := e.evm.Depth
 
 	// Make sure the readOnly is only set if we aren't in readOnly yet.
 	// This also makes sure that the readOnly flag isn't removed for child calls.
