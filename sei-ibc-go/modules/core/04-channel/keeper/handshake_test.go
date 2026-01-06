@@ -350,6 +350,37 @@ func (suite *KeeperTestSuite) TestChanOpenTry_BlockedWhenInboundDisabled() {
 	suite.Require().Contains(err.Error(), "inbound")
 }
 
+// TestChanOpenInit_BlockedWhenOutboundDisabled tests that ChanOpenInit
+// is blocked when outbound IBC is disabled.
+func (suite *KeeperTestSuite) TestChanOpenInit_BlockedWhenOutboundDisabled() {
+	suite.SetupTest()
+
+	path := ibctesting.NewPath(suite.chainA, suite.chainB)
+	suite.coordinator.SetupConnections(path)
+	path.SetChannelOrdered()
+
+	// create port capability on chainA
+	suite.chainA.CreatePortCapability(suite.chainA.GetSimApp().ScopedIBCMockKeeper, ibctesting.MockPort)
+	portCap := suite.chainA.GetPortCapability(ibctesting.MockPort)
+
+	// disable outbound on chainA
+	ibcKeeperA := suite.chainA.App.GetIBCKeeper()
+	ibcKeeperA.SetOutboundEnabled(suite.chainA.GetContext(), false)
+	suite.Require().False(ibcKeeperA.IsOutboundEnabled(suite.chainA.GetContext()))
+
+	counterparty := types.NewCounterparty(ibctesting.MockPort, "")
+
+	// attempt ChanOpenInit on chainA with outbound disabled
+	_, _, err := suite.chainA.App.GetIBCKeeper().ChannelKeeper.ChanOpenInit(
+		suite.chainA.GetContext(), types.ORDERED, []string{path.EndpointA.ConnectionID},
+		path.EndpointA.ChannelConfig.PortID, portCap, counterparty, path.EndpointA.ChannelConfig.Version,
+	)
+
+	// should fail with ErrOutboundDisabled
+	suite.Require().Error(err)
+	suite.Require().Contains(err.Error(), "outbound")
+}
+
 // TestChanOpenAck tests the OpenAck handshake call for channels. It uses message passing
 // to enter into the appropriate state and then calls ChanOpenAck directly. The handshake
 // call is occurring on chainA.

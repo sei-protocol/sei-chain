@@ -6,6 +6,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
+	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
@@ -121,4 +122,59 @@ func (suite *KeeperTestSuite) TestTimeoutAllowedWhenOutboundDisabled() {
 	// timeout should still succeed
 	err = path.EndpointA.TimeoutPacket(packet)
 	suite.Require().NoError(err, "MsgTimeout should succeed when outbound is disabled")
+}
+
+// TestConnectionOpenInit_BlockedWhenOutboundDisabled tests that MsgConnectionOpenInit
+// is blocked when outbound IBC is disabled.
+func (suite *KeeperTestSuite) TestConnectionOpenInit_BlockedWhenOutboundDisabled() {
+	suite.SetupTest()
+
+	path := ibctesting.NewPath(suite.chainA, suite.chainB)
+	suite.coordinator.SetupClients(path)
+
+	// disable outbound on chainA
+	ibcKeeperA := suite.chainA.App.GetIBCKeeper()
+	ibcKeeperA.SetOutboundEnabled(suite.chainA.GetContext(), false)
+	suite.Require().False(ibcKeeperA.IsOutboundEnabled(suite.chainA.GetContext()))
+
+	// craft MsgConnectionOpenInit
+	msg := connectiontypes.NewMsgConnectionOpenInit(
+		path.EndpointA.ClientID, path.EndpointB.ClientID, suite.chainB.GetPrefix(),
+		connectiontypes.DefaultIBCVersion, 0,
+		suite.chainA.SenderAccount.GetAddress().String(),
+	)
+
+	// call the gRPC/keeper ConnectionOpenInit and expect an error
+	_, err := keeper.Keeper.ConnectionOpenInit(*ibcKeeperA, sdk.WrapSDKContext(suite.chainA.GetContext()), msg)
+	suite.Require().Error(err, "expected ConnectionOpenInit to return an error when outbound is disabled")
+	suite.Require().True(strings.Contains(strings.ToLower(err.Error()), "outbound"),
+		"expected error to mention outbound, got: %s", err.Error())
+}
+
+// TestChannelOpenInit_BlockedWhenOutboundDisabled tests that MsgChannelOpenInit
+// is blocked when outbound IBC is disabled.
+func (suite *KeeperTestSuite) TestChannelOpenInit_BlockedWhenOutboundDisabled() {
+	suite.SetupTest()
+
+	path := ibctesting.NewPath(suite.chainA, suite.chainB)
+	suite.coordinator.SetupConnections(path)
+	path.SetChannelOrdered()
+
+	// disable outbound on chainA
+	ibcKeeperA := suite.chainA.App.GetIBCKeeper()
+	ibcKeeperA.SetOutboundEnabled(suite.chainA.GetContext(), false)
+	suite.Require().False(ibcKeeperA.IsOutboundEnabled(suite.chainA.GetContext()))
+
+	// craft MsgChannelOpenInit
+	msg := channeltypes.NewMsgChannelOpenInit(
+		path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelConfig.Version,
+		channeltypes.ORDERED, []string{path.EndpointA.ConnectionID},
+		ibctesting.MockPort, suite.chainA.SenderAccount.GetAddress().String(),
+	)
+
+	// call the gRPC/keeper ChannelOpenInit and expect an error
+	_, err := keeper.Keeper.ChannelOpenInit(*ibcKeeperA, sdk.WrapSDKContext(suite.chainA.GetContext()), msg)
+	suite.Require().Error(err, "expected ChannelOpenInit to return an error when outbound is disabled")
+	suite.Require().True(strings.Contains(strings.ToLower(err.Error()), "outbound"),
+		"expected error to mention outbound, got: %s", err.Error())
 }
