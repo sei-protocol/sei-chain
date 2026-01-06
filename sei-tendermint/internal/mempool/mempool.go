@@ -206,7 +206,7 @@ func (txmp *TxMempool) Size() int {
 }
 
 func (txmp *TxMempool) utilisation() float64 {
-	return float64(txmp.Size()) / float64(txmp.config.Size)
+	return float64(txmp.NumTxsNotPending()) / float64(txmp.config.Size)
 }
 
 func (txmp *TxMempool) NumTxsNotPending() int {
@@ -404,21 +404,23 @@ func (txmp *TxMempool) CheckTx(
 	}
 
 	if err == nil {
-		// Update transaction priority reservoir with the true Tx priority
-		// as determined by the application.
-		//
-		// NOTE: This is done before potentially rejecting the transaction due to
-		// mempool being full. This is to ensure that the reservoir contains a
-		// representative sample of all transactions that have been processed by
-		// CheckTx.
-		//
-		// We do not use the priority hint here as it may be misleading and
-		// inaccurate. The true priority as determined by the application is the
-		// most accurate.
-		txmp.priorityReservoir.Add(res.Priority)
-
 		// only add new transaction if checkTx passes and is not pending
 		if !res.IsPendingTransaction {
+			// Update transaction priority reservoir with the true Tx priority
+			// as determined by the application.
+			//
+			// NOTE: This is done before potentially rejecting the transaction due to
+			// mempool being full. This is to ensure that the reservoir contains a
+			// representative sample of all transactions that have been processed by
+			// CheckTx.
+			//
+			// However, this is NOT done if the tx is pending, since a spammer could
+			// throw off the correct priority percentiles otherwise.
+			//
+			// We do not use the priority hint here as it may be misleading and
+			// inaccurate. The true priority as determined by the application is the
+			// most accurate.
+			txmp.priorityReservoir.Add(res.Priority)
 			err = txmp.addNewTransaction(wtx, res.ResponseCheckTx, txInfo)
 			if err != nil {
 				return err
