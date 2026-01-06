@@ -16,10 +16,8 @@ RUN mkdir -p /go/lib && \
     cp /tmp/wasmvm-libs/libwasmvm.${ARCH_SUFFIX}.so /go/lib/
 
 COPY go.* ./
-COPY sei-wasmd/go.* ./sei-wasmd/
 COPY sei-cosmos/go.* ./sei-cosmos/
 COPY sei-tendermint/go.* ./sei-tendermint/
-COPY sei-ibc-go/go.* ./sei-ibc-go/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go mod download
