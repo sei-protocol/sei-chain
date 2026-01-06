@@ -16,10 +16,8 @@ RUN mkdir -p /go/lib && \
     cp /tmp/wasmvm-libs/libwasmvm.${ARCH_SUFFIX}.so /go/lib/
 
 COPY go.* ./
-COPY sei-wasmd/go.* ./sei-wasmd/
 COPY sei-cosmos/go.* ./sei-cosmos/
 COPY sei-tendermint/go.* ./sei-tendermint/
-COPY sei-ibc-go/go.* ./sei-ibc-go/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go mod download
@@ -43,6 +41,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -tags "${BUILD_TAGS}" -ldflags "${LDFLAGS}" ${GO_BUILD_ARGS} -o /go/bin/price-feeder ./oracle/price-feeder
 
 FROM docker.io/ubuntu:24.04@sha256:104ae83764a5119017b8e8d6218fa0832b09df65aae7d5a6de29a85d813da2fb
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /go/bin/seid /go/bin/price-feeder /usr/bin/
 COPY --from=builder /go/lib/*.so /usr/lib/
