@@ -81,6 +81,10 @@ type Keeper struct {
 	EthBlockTestConfig blocktest.Config
 	BlockTest          *tests.BlockTest
 
+	// GigaExecutorEnabled controls whether to use the Giga executor (evmone-based)
+	// instead of geth's interpreter for EVM execution. Experimental feature.
+	GigaExecutorEnabled bool
+
 	// used for both ETH replay and block tests. Not used in chain critical path.
 	Trie        ethstate.Trie
 	DB          ethstate.Database
