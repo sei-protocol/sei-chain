@@ -2,6 +2,7 @@ package pebbledb
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/cockroachdb/pebble"
@@ -232,5 +233,74 @@ func TestOpenOptionsComparerTypeCheck(t *testing.T) {
 	_, err := Open(dir, db_engine.OpenOptions{Comparer: "not-a-pebble-comparer"})
 	if err == nil {
 		t.Fatalf("expected error for invalid comparer type")
+	}
+}
+
+func TestErrNotFoundConsistency(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(dir, db_engine.OpenOptions{})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// Test that Get on missing key returns ErrNotFound
+	_, closer, err := db.Get([]byte("missing-key"))
+	if err == nil {
+		if closer != nil {
+			_ = closer.Close()
+		}
+		t.Fatalf("expected error for missing key")
+	}
+
+	// Test that error is ErrNotFound
+	if err != db_engine.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+
+	// Test that IsNotFound helper works
+	if !db_engine.IsNotFound(err) {
+		t.Fatalf("IsNotFound should return true for ErrNotFound")
+	}
+}
+
+func TestGetCloserMustWork(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(dir, db_engine.OpenOptions{})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// Set multiple keys
+	for i := 0; i < 100; i++ {
+		key := []byte(fmt.Sprintf("key-%d", i))
+		val := []byte(fmt.Sprintf("val-%d", i))
+		if err := db.Set(key, val, db_engine.WriteOptions{Sync: false}); err != nil {
+			t.Fatalf("Set: %v", err)
+		}
+	}
+
+	// Get keys and ensure closers work properly
+	for i := 0; i < 100; i++ {
+		key := []byte(fmt.Sprintf("key-%d", i))
+		val, closer, err := db.Get(key)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if closer == nil {
+			t.Fatalf("Get returned nil closer")
+		}
+
+		// Must clone before closing
+		cloned := bytes.Clone(val)
+		if err := closer.Close(); err != nil {
+			t.Fatalf("closer.Close: %v", err)
+		}
+
+		expected := fmt.Sprintf("val-%d", i)
+		if string(cloned) != expected {
+			t.Fatalf("value mismatch: got %q want %q", cloned, expected)
+		}
 	}
 }

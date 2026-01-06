@@ -91,8 +91,21 @@ type VersionedChangesets struct {
 	Changesets []*proto.NamedChangeSet
 }
 
-func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
+func OpenDB(dataDir string, config config.StateStoreConfig) (_ *Database, err error) {
 	cache := pebble.NewCache(1024 * 1024 * 32)
+
+	var db *pebble.DB
+
+	// Cleanup on failure: close db (if opened) and release cache
+	defer cleanupOnError(&err,
+		func() { cache.Unref() },
+		func() {
+			if db != nil {
+				_ = db.Close()
+			}
+		},
+	)
+
 	opts := &pebble.Options{
 		Cache:                       cache,
 		Comparer:                    MVCCComparer,
@@ -126,23 +139,20 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 
 	//TODO: add a new config and check if readonly = true to support readonly mode
 
-	db, err := pebble.Open(dataDir, opts)
+	db, err = pebble.Open(dataDir, opts)
 	if err != nil {
-		cache.Unref()
 		return nil, fmt.Errorf("failed to open PebbleDB: %w", err)
 	}
 
 	// Initialize earliest version
 	earliestVersion, err := retrieveEarliestVersion(db)
 	if err != nil {
-		cache.Unref()
 		return nil, fmt.Errorf("failed to retrieve earliest version: %w", err)
 	}
 
 	// Initialize latest version
 	latestVersion, err := retrieveLatestVersion(db)
 	if err != nil {
-		cache.Unref()
 		return nil, fmt.Errorf("failed to retrieve latest version: %w", err)
 	}
 
@@ -161,13 +171,11 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	// Initialize the lastRangeHashed cache
 	lastHashed, err := retrieveLastRangeHashed(db)
 	if err != nil {
-		cache.Unref()
 		return nil, fmt.Errorf("failed to retrieve last range hashed: %w", err)
 	}
 	database.lastRangeHashedCache = lastHashed
 
 	if config.KeepRecent < 0 {
-		cache.Unref()
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
 	streamHandler, _ := changelog.NewStream(

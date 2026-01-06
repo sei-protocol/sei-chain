@@ -1,6 +1,7 @@
 package pebbledb
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -19,13 +20,34 @@ type pebbleDB struct {
 var _ db_engine.DB = (*pebbleDB)(nil)
 
 // Open opens (or creates) a Pebble-backed DB at path, returning the DB interface.
-func Open(path string, opts db_engine.OpenOptions) (db_engine.DB, error) {
+func Open(path string, opts db_engine.OpenOptions) (_ db_engine.DB, err error) {
+	// Validate options before allocating resources to avoid leaks on validation failure
+	var cmp *pebble.Comparer
+	if opts.Comparer != nil {
+		var ok bool
+		cmp, ok = opts.Comparer.(*pebble.Comparer)
+		if !ok {
+			return nil, fmt.Errorf("OpenOptions.Comparer must be *pebble.Comparer, got %T", opts.Comparer)
+		}
+	}
+
 	// Cache is reference-counted. We keep it alive for the lifetime of the DB and
-	// Unref it in (*pebbleDB).Close(). Only on Open() failure do we Unref early.
+	// Unref it in (*pebbleDB).Close(). On failure, the deferred cleanup handles it.
 	cache := pebble.NewCache(1024 * 1024 * 512) // 512MB cache
+
+	var db *pebble.DB
+	defer cleanupOnError(&err,
+		func() { cache.Unref() },
+		func() {
+			if db != nil {
+				_ = db.Close()
+			}
+		},
+	)
 
 	popts := &pebble.Options{
 		Cache:                       cache,
+		Comparer:                    cmp,
 		FormatMajorVersion:          pebble.FormatNewest,
 		L0CompactionThreshold:       4,
 		L0StopWritesThreshold:       1000,
@@ -35,14 +57,6 @@ func Open(path string, opts db_engine.OpenOptions) (db_engine.DB, error) {
 		MemTableSize:                64 << 20,
 		MemTableStopWritesThreshold: 4,
 		DisableWAL:                  false,
-	}
-
-	if opts.Comparer != nil {
-		cmp, ok := opts.Comparer.(*pebble.Comparer)
-		if !ok {
-			return nil, fmt.Errorf("OpenOptions.Comparer must be *pebble.Comparer, got %T", opts.Comparer)
-		}
-		popts.Comparer = cmp
 	}
 
 	for i := 0; i < len(popts.Levels); i++ {
@@ -64,11 +78,11 @@ func Open(path string, opts db_engine.OpenOptions) (db_engine.DB, error) {
 	popts.FlushSplitBytes = popts.Levels[0].TargetFileSize
 	popts = popts.EnsureDefaults()
 
-	db, err := pebble.Open(path, popts)
+	db, err = pebble.Open(path, popts)
 	if err != nil {
-		cache.Unref() // only unref manually if we fail to open the db
 		return nil, err
 	}
+
 	return &pebbleDB{db: db, cache: cache}, nil
 }
 
@@ -76,7 +90,7 @@ func (p *pebbleDB) Get(key []byte) ([]byte, io.Closer, error) {
 	// Pebble returns a zero-copy view plus a closer; see db_engine.DB contract.
 	val, closer, err := p.db.Get(key)
 	if err != nil {
-		if err == pebble.ErrNotFound {
+		if errors.Is(err, pebble.ErrNotFound) {
 			return nil, nil, db_engine.ErrNotFound
 		}
 		return nil, nil, err
@@ -112,9 +126,19 @@ func (p *pebbleDB) Flush() error {
 }
 
 func (p *pebbleDB) Close() error {
-	err := p.db.Close()
-	if p.cache != nil {
-		p.cache.Unref()
+	// Make Close idempotent: Pebble panics if Close is called twice.
+	if p.db == nil {
+		return nil
+	}
+
+	db := p.db
+	p.db = nil
+	cache := p.cache
+	p.cache = nil
+
+	err := db.Close()
+	if cache != nil {
+		cache.Unref()
 	}
 	return err
 }

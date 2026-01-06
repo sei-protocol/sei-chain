@@ -6,6 +6,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 )
 
+// pebbleBatch wraps a Pebble batch for atomic writes.
+// Important: Callers must call Close() after Commit() to release batch resources,
+// even if Commit() succeeds. Failure to Close() will leak memory.
 type pebbleBatch struct {
 	b *pebble.Batch
 }
