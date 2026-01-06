@@ -249,3 +249,19 @@ func (k *Keeper) GetCosmosGasLimitFromEVMGas(ctx sdk.Context, evmGas uint64) uin
 	}
 	return gasLimitBigInt.Uint64()
 }
+
+// LegacySstoreSetGasEIP2200 is the original hardcoded SSTORE gas cost used before
+// the SSTORE parameterization was introduced (pre-v6.3.0). For blocks created before
+// the SeiSstoreSetGasEIP2200 param existed, we fall back to this value.
+const LegacySstoreSetGasEIP2200 = uint64(20000)
+
+// GetSstoreSetGasEIP2200 returns the SSTORE gas cost for the given context.
+// If the param is not set (0), it falls back to the legacy hardcoded value of 20000.
+// This ensures consistent gas accounting for blocks created before the param existed.
+func (k *Keeper) GetSstoreSetGasEIP2200(ctx sdk.Context) uint64 {
+	sstore := k.GetParams(ctx).SeiSstoreSetGasEip2200
+	if sstore == 0 {
+		return LegacySstoreSetGasEIP2200
+	}
+	return sstore
+}

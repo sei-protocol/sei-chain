@@ -1395,7 +1395,7 @@ describe("EVM Validations ", function() {
 
 })
 
-describe.only("SSTORE Gas Discrepancy Test", function() {
+describe("SSTORE Gas Discrepancy Test", function() {
   let sstoreTest;
   let owner;
 
@@ -1647,6 +1647,311 @@ describe.only("SSTORE Gas Discrepancy Test", function() {
       expect(difference).to.equal(0,
         `Gas mismatch: receipt=${receiptGasUsed}, trace=${callTracerGas}, diff=${difference}`);
     }
+  });
+
+  it.only("should reproduce mismatch by changing param between execution and trace", async function() {
+    this.timeout(120000); // 2 minutes for governance proposals
+    
+    const { proposeParamChange, passProposal, execute } = require("./lib.js");
+    
+    // 1. First, ensure param is set to a known high value (72000)
+    console.log("\n=== Step 1: Setting SSTORE param to 72000 ===");
+    try {
+      const proposalId1 = await proposeParamChange(
+        "Set SSTORE high", 
+        "Set to 72k for test", 
+        [{
+          subspace: "evm",
+          key: "KeySeiSstoreSetGasEIP2200",
+          value: "72000"
+        }]
+      );
+      await passProposal(proposalId1);
+      console.log("Param set to 72000");
+    } catch (e) {
+      console.log("Failed to set param (may already be set):", e.message);
+    }
+    
+    // Verify current param value
+    const paramCheck1 = await execute("seid q params subspace evm KeySeiSstoreSetGasEIP2200 -o json");
+    console.log("Current param value:", paramCheck1);
+    
+    // 2. Deploy and execute tx - receipt records gas with current SSTORE value
+    console.log("\n=== Step 2: Executing transaction (receipt uses SSTORE=72k) ===");
+    const SstoreGasTest = await ethers.getContractFactory("SstoreGasTest");
+    const contract = await SstoreGasTest.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
+    await contract.waitForDeployment();
+    console.log("Contract deployed to:", await contract.getAddress());
+    
+    const tx = await contract.singleColdSstore(12345, { gasPrice: ethers.parseUnits('100', 'gwei') });
+    const receipt = await tx.wait();
+    const receiptGasUsed = Number(receipt.gasUsed);
+    console.log("TX Hash:", receipt.hash);
+    console.log("Receipt gas used (with SSTORE=72k):", receiptGasUsed);
+    
+    // 3. Change param to 1 (simulating the bug condition - can't use 0 as it may be rejected)
+    console.log("\n=== Step 3: Changing SSTORE param to 1 ===");
+    try {
+      const proposalId2 = await proposeParamChange(
+        "Set SSTORE low", 
+        "Set to 1 to reproduce bug", 
+        [{
+          subspace: "evm",
+          key: "KeySeiSstoreSetGasEIP2200",
+          value: "1"
+        }]
+      );
+      await passProposal(proposalId2);
+      console.log("Param set to 1");
+    } catch (e) {
+      console.log("Failed to set param to 1:", e.message);
+      throw e;
+    }
+    
+    // Verify param changed
+    const paramCheck2 = await execute("seid q params subspace evm KeySeiSstoreSetGasEIP2200 -o json");
+    console.log("New param value:", paramCheck2);
+    
+    // 4. Now trace the FIRST transaction (executed with SSTORE=72k) - tracer uses SSTORE=1
+    console.log("\n=== Step 4: Tracing first transaction (executed with SSTORE=72k, trace uses SSTORE=1) ===");
+    const trace = await hre.network.provider.request({
+      method: "debug_traceTransaction",
+      params: [receipt.hash, { tracer: "callTracer" }],
+    });
+    const traceGasUsed = parseInt(trace.gasUsed, 16);
+    
+    console.log("Trace gas used (with SSTORE=1):", traceGasUsed);
+    
+    // 5. Compare results for first transaction
+    const difference = receiptGasUsed - traceGasUsed;
+    console.log("\n=== Results (First TX: executed with SSTORE=72k, traced with SSTORE=1) ===");
+    console.log("Receipt gas:", receiptGasUsed);
+    console.log("Trace gas:", traceGasUsed);
+    console.log("Difference:", difference);
+    
+    if (difference !== 0) {
+      console.log("\n❌ GAS MISMATCH DETECTED!");
+      console.log(`Receipt gas used: ${receiptGasUsed}`);
+      console.log(`Trace gas used: ${traceGasUsed}`);
+      console.log(`Mismatch difference: ${difference}`);
+      console.log("This reproduces the production bug where trace uses a different SSTORE cost than receipt.");
+    } else {
+      console.log("\n✓ Gas values match - no mismatch");
+    }
+    
+    // 6. Execute SECOND transaction while SSTORE=1
+    console.log("\n=== Step 6: Executing second transaction (receipt uses SSTORE=1) ===");
+    const SstoreGasTest2 = await ethers.getContractFactory("SstoreGasTest");
+    const contract2 = await SstoreGasTest2.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
+    await contract2.waitForDeployment();
+    
+    const tx2 = await contract2.singleColdSstore(99999, { gasPrice: ethers.parseUnits('100', 'gwei') });
+    const receipt2 = await tx2.wait();
+    const receipt2GasUsed = Number(receipt2.gasUsed);
+    console.log("TX2 Hash:", receipt2.hash);
+    console.log("Receipt2 gas used (with SSTORE=1):", receipt2GasUsed);
+    
+    // 7. Restore param to 72000
+    console.log("\n=== Step 7: Restoring SSTORE param to 72000 ===");
+    try {
+      const proposalId3 = await proposeParamChange(
+        "Restore SSTORE", 
+        "Restore to 72k", 
+        [{
+          subspace: "evm",
+          key: "KeySeiSstoreSetGasEIP2200",
+          value: "72000"
+        }]
+      );
+      await passProposal(proposalId3);
+      console.log("Param restored to 72000");
+    } catch (e) {
+      console.log("Failed to restore param:", e.message);
+    }
+    
+    // Verify param restored
+    const paramCheck3 = await execute("seid q params subspace evm KeySeiSstoreSetGasEIP2200 -o json");
+    console.log("Restored param value:", paramCheck3);
+    
+    // 8. Trace the SECOND transaction (executed with SSTORE=1) - should trace use SSTORE=1 (height-aware) or 72k (latest)?
+    console.log("\n=== Step 8: Tracing second transaction (executed with SSTORE=1, current param is 72k) ===");
+    console.log("If tracer is height-aware, trace should use SSTORE=1 and match receipt.");
+    console.log("If tracer uses latest param, trace will use SSTORE=72k and NOT match receipt.");
+    
+    const trace2 = await hre.network.provider.request({
+      method: "debug_traceTransaction",
+      params: [receipt2.hash, { tracer: "callTracer" }],
+    });
+    const trace2GasUsed = parseInt(trace2.gasUsed, 16);
+    
+    console.log("Trace2 gas used:", trace2GasUsed);
+    
+    // 9. Compare results for second transaction
+    const difference2 = receipt2GasUsed - trace2GasUsed;
+    console.log("\n=== Results (Second TX: executed with SSTORE=1, traced with current param=72k) ===");
+    console.log("Receipt2 gas:", receipt2GasUsed);
+    console.log("Trace2 gas:", trace2GasUsed);
+    console.log("Difference:", difference2);
+    
+    if (difference2 !== 0) {
+      console.log("\n❌ GAS MISMATCH ON SECOND TX!");
+      console.log(`Receipt gas used: ${receipt2GasUsed}`);
+      console.log(`Trace gas used: ${trace2GasUsed}`);
+      console.log(`Mismatch difference: ${difference2}`);
+      console.log("Tracer is NOT using height-aware SSTORE param - it's using latest param (72k) instead of historical (1).");
+    } else {
+      console.log("\n✓ Second TX gas values match - tracer correctly uses height-aware SSTORE param");
+    }
+    
+    // Test should FAIL if there's any mismatch
+    expect(difference).to.equal(0, 
+      `First TX gas mismatch! Receipt: ${receiptGasUsed}, Trace: ${traceGasUsed}, Difference: ${difference}`);
+    expect(difference2).to.equal(0, 
+      `Second TX gas mismatch! Receipt: ${receipt2GasUsed}, Trace: ${trace2GasUsed}, Difference: ${difference2}. Tracer is not using height-aware SSTORE param.`);
+  });
+
+  it.only("should correctly trace pre-upgrade tx after upgrade (v6.2.0 -> main simulation)", async function() {
+    this.timeout(180000); // 3 minutes for governance proposals
+    
+    const { proposeParamChange, passProposal, execute } = require("./lib.js");
+    
+    /**
+     * This test simulates the REAL production scenario:
+     * 
+     * v6.2.0 (before SSTORE parameterization):
+     * - The SeiSstoreSetGasEIP2200 param does NOT exist in chain state
+     * - go-ethereum used a hardcoded value of 20000 for cold SSTORE
+     * - Receipts were created with SSTORE cost = 20000
+     * 
+     * After upgrade to main (with SSTORE parameterization):
+     * - Migration sets SeiSstoreSetGasEIP2200 = 72000
+     * - New transactions use SSTORE cost = 72000
+     * - OLD transactions should still trace correctly with SSTORE = 20000
+     * 
+     * The tricky part: For blocks BEFORE the param existed, GetParams() returns 0,
+     * not 20000. So the tracer needs to handle this case.
+     * 
+     * To simulate this, we:
+     * 1. Don't set the param (or set to empty) - simulating v6.2.0 where param didn't exist
+     * 2. Execute tx - but on current code, this will use whatever the current param is
+     * 3. Set param to 72000 - simulating the migration
+     * 4. Trace the old tx - should use the historical value
+     * 
+     * NOTE: This test cannot perfectly simulate v6.2.0 because we can't run the old code.
+     * Instead, we test that after a param change, tracing uses the HISTORICAL value.
+     */
+    
+    // Step 1: Set SSTORE to 20000 (simulating what v6.2.0's hardcoded value was)
+    // In reality, on v6.2.0, the param didn't exist and go-ethereum used hardcoded 20000
+    console.log("\n=== Step 1: Setting SSTORE = 20000 (simulating v6.2.0 hardcoded value) ===");
+    console.log("NOTE: On real v6.2.0, this param didn't exist - go-ethereum used hardcoded 20k");
+    try {
+      const proposalId1 = await proposeParamChange(
+        "Simulate v6.2.0", 
+        "Set SSTORE to 20000 (pre-upgrade hardcoded value)", 
+        [{
+          subspace: "evm",
+          key: "KeySeiSstoreSetGasEIP2200",
+          value: "20000"
+        }]
+      );
+      await passProposal(proposalId1);
+      console.log("SSTORE param set to 20000");
+    } catch (e) {
+      console.log("Failed to set param:", e.message);
+      throw e;
+    }
+    
+    const paramCheck1 = await execute("seid q params subspace evm KeySeiSstoreSetGasEIP2200 -o json");
+    console.log("Current param value:", paramCheck1);
+    
+    // Step 2: Execute transaction - receipt will use SSTORE=20000
+    console.log("\n=== Step 2: Executing transaction (receipt uses SSTORE=20000) ===");
+    const SstoreGasTest = await ethers.getContractFactory("SstoreGasTest");
+    const contract = await SstoreGasTest.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
+    await contract.waitForDeployment();
+    console.log("Contract deployed to:", await contract.getAddress());
+    
+    const tx = await contract.singleColdSstore(77777, { gasPrice: ethers.parseUnits('100', 'gwei') });
+    const receipt = await tx.wait();
+    const receiptGasUsed = Number(receipt.gasUsed);
+    const txBlockNumber = receipt.blockNumber;
+    console.log("TX Hash:", receipt.hash);
+    console.log("TX Block Number:", txBlockNumber);
+    console.log("Receipt gas used (with SSTORE=20000):", receiptGasUsed);
+    
+    // Step 3: Simulate upgrade - set SSTORE to 72000 (what migration would do)
+    console.log("\n=== Step 3: Simulating upgrade to main (SSTORE = 72000 via migration) ===");
+    try {
+      const proposalId2 = await proposeParamChange(
+        "Simulate main upgrade", 
+        "Set SSTORE to 72000 (post-migration value)", 
+        [{
+          subspace: "evm",
+          key: "KeySeiSstoreSetGasEIP2200",
+          value: "72000"
+        }]
+      );
+      await passProposal(proposalId2);
+      console.log("SSTORE param set to 72000 (simulating migration)");
+    } catch (e) {
+      console.log("Failed to set param:", e.message);
+      throw e;
+    }
+    
+    const paramCheck2 = await execute("seid q params subspace evm KeySeiSstoreSetGasEIP2200 -o json");
+    console.log("Current param value:", paramCheck2);
+    
+    // Step 4: Trace the pre-upgrade transaction
+    console.log("\n=== Step 4: Tracing pre-upgrade transaction ===");
+    console.log("TX was executed at block", txBlockNumber, "when SSTORE=20000");
+    console.log("Current SSTORE param is 72000");
+    console.log("");
+    console.log("Expected behavior:");
+    console.log("  - Tracer should read SSTORE param at block", txBlockNumber);
+    console.log("  - At that block, SSTORE was 20000");
+    console.log("  - Trace gas should match receipt gas");
+    console.log("");
+    console.log("Bug behavior:");
+    console.log("  - Tracer reads LATEST SSTORE param (72000)");
+    console.log("  - Trace gas will be different from receipt gas");
+    console.log("  - Difference would be 52000 per cold SSTORE (72000 - 20000)");
+    
+    const trace = await hre.network.provider.request({
+      method: "debug_traceTransaction",
+      params: [receipt.hash, { tracer: "callTracer" }],
+    });
+    const traceGasUsed = parseInt(trace.gasUsed, 16);
+    
+    console.log("\nTrace gas used:", traceGasUsed);
+    
+    // Step 5: Compare results
+    const difference = receiptGasUsed - traceGasUsed;
+    console.log("\n=== Results ===");
+    console.log("Receipt gas (SSTORE=20000 at execution time):", receiptGasUsed);
+    console.log("Trace gas:", traceGasUsed);
+    console.log("Difference:", difference);
+    
+    if (difference !== 0) {
+      console.log("\n❌ GAS MISMATCH DETECTED!");
+      console.log(`Receipt gas used: ${receiptGasUsed}`);
+      console.log(`Trace gas used: ${traceGasUsed}`);
+      console.log(`Mismatch difference: ${difference}`);
+      if (Math.abs(difference) === 52000) {
+        console.log("\nDifference of 52000 confirms the bug:");
+        console.log("  - Tracer used SSTORE=72000 (current param)");
+        console.log("  - But should have used SSTORE=20000 (historical param at block " + txBlockNumber + ")");
+      }
+    } else {
+      console.log("\n✓ SUCCESS! Gas values match!");
+      console.log("Tracer correctly used historical SSTORE param (20000) from block", txBlockNumber);
+      console.log("This confirms the fix works for the v6.2.0 -> main upgrade scenario.");
+    }
+    
+    // Test should FAIL if there's a mismatch
+    expect(difference).to.equal(0, 
+      `Gas mismatch after upgrade! Receipt: ${receiptGasUsed}, Trace: ${traceGasUsed}, Difference: ${difference}. ` +
+      `Tracer should use historical SSTORE=20000 from block ${txBlockNumber}, not current SSTORE=72000.`);
   });
 });
 
