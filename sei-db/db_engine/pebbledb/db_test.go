@@ -304,3 +304,201 @@ func TestGetCloserMustWork(t *testing.T) {
 		}
 	}
 }
+
+func TestBatchLenResetDelete(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(dir, db_engine.OpenOptions{})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// First, set a key so we can delete it
+	if err := db.Set([]byte("to-delete"), []byte("val"), db_engine.WriteOptions{Sync: false}); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	b := db.NewBatch()
+	defer func() { _ = b.Close() }()
+
+	// Record initial batch len (Pebble batch always has a header, so may not be 0)
+	initialLen := b.Len()
+
+	// Add some operations
+	if err := b.Set([]byte("a"), []byte("1")); err != nil {
+		t.Fatalf("batch set: %v", err)
+	}
+	if err := b.Delete([]byte("to-delete")); err != nil {
+		t.Fatalf("batch delete: %v", err)
+	}
+
+	// Len should increase after operations (Pebble Len() returns bytes, not count)
+	if b.Len() <= initialLen {
+		t.Fatalf("expected Len() to increase after operations, got %d (initial %d)", b.Len(), initialLen)
+	}
+
+	// Reset should clear the batch back to initial state
+	b.Reset()
+	if b.Len() != initialLen {
+		t.Fatalf("expected Len()=%d after Reset, got %d", initialLen, b.Len())
+	}
+
+	// Add and commit
+	if err := b.Set([]byte("b"), []byte("2")); err != nil {
+		t.Fatalf("batch set: %v", err)
+	}
+	if err := b.Commit(db_engine.WriteOptions{Sync: false}); err != nil {
+		t.Fatalf("batch commit: %v", err)
+	}
+
+	// Verify "b" was written
+	got, closer, err := db.Get([]byte("b"))
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	cloned := bytes.Clone(got)
+	_ = closer.Close()
+	if string(cloned) != "2" {
+		t.Fatalf("expected '2', got %q", cloned)
+	}
+}
+
+func TestIteratorSeekLTAndValue(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(dir, db_engine.OpenOptions{})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// Insert keys: a, b, c with values
+	for _, kv := range []struct{ k, v string }{
+		{"a", "val-a"},
+		{"b", "val-b"},
+		{"c", "val-c"},
+	} {
+		if err := db.Set([]byte(kv.k), []byte(kv.v), db_engine.WriteOptions{Sync: false}); err != nil {
+			t.Fatalf("Set(%q): %v", kv.k, err)
+		}
+	}
+
+	itr, err := db.NewIter(nil)
+	if err != nil {
+		t.Fatalf("NewIter: %v", err)
+	}
+	defer func() { _ = itr.Close() }()
+
+	// SeekLT("c") should position at "b"
+	if !itr.SeekLT([]byte("c")) || !itr.Valid() {
+		t.Fatalf("expected SeekLT(c) to be valid")
+	}
+	if string(itr.Key()) != "b" {
+		t.Fatalf("expected key=b after SeekLT(c), got %q", itr.Key())
+	}
+	if string(itr.Value()) != "val-b" {
+		t.Fatalf("expected value=val-b, got %q", itr.Value())
+	}
+}
+
+func TestFlush(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(dir, db_engine.OpenOptions{})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// Set some data
+	if err := db.Set([]byte("flush-test"), []byte("val"), db_engine.WriteOptions{Sync: false}); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	// Flush should succeed
+	if err := db.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+
+	// Data should still be readable
+	got, closer, err := db.Get([]byte("flush-test"))
+	if err != nil {
+		t.Fatalf("Get after flush: %v", err)
+	}
+	cloned := bytes.Clone(got)
+	_ = closer.Close()
+	if string(cloned) != "val" {
+		t.Fatalf("expected 'val', got %q", cloned)
+	}
+}
+
+func TestCloseIsIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(dir, db_engine.OpenOptions{})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	// First close should succeed
+	if err := db.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+
+	// Second close should be idempotent (no panic, returns nil)
+	if err := db.Close(); err != nil {
+		t.Fatalf("second Close should return nil, got: %v", err)
+	}
+}
+
+func TestCleanupOnErrorExecutes(t *testing.T) {
+	var order []int
+
+	// Simulate an error scenario
+	testErr := fmt.Errorf("test error")
+	var err error = testErr
+
+	cleanupOnError(&err,
+		func() { order = append(order, 1) },
+		func() { order = append(order, 2) },
+		func() { order = append(order, 3) },
+	)
+
+	// Should execute in reverse order (LIFO)
+	if len(order) != 3 {
+		t.Fatalf("expected 3 cleanups, got %d", len(order))
+	}
+	if order[0] != 3 || order[1] != 2 || order[2] != 1 {
+		t.Fatalf("expected LIFO order [3,2,1], got %v", order)
+	}
+}
+
+func TestCleanupOnErrorSkipsOnSuccess(t *testing.T) {
+	var executed bool
+
+	// No error - cleanup should not run
+	var err error = nil
+	cleanupOnError(&err,
+		func() { executed = true },
+	)
+
+	if executed {
+		t.Fatalf("cleanup should not execute when err is nil")
+	}
+}
+
+func TestCleanupOnErrorHandlesNilPointer(t *testing.T) {
+	// Should not panic with nil error pointer
+	cleanupOnError(nil,
+		func() { t.Fatal("should not execute") },
+	)
+}
+
+func TestCleanupOnErrorHandlesNilFunc(t *testing.T) {
+	testErr := fmt.Errorf("test error")
+	var err error = testErr
+
+	// Should not panic with nil function in slice
+	cleanupOnError(&err,
+		nil,
+		func() {}, // valid
+		nil,
+	)
+}
