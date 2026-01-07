@@ -195,31 +195,14 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		tree.snapshot.leavesMap.PrepareForRandomRead()
 	}
 
-	// Create WAL for changelog replay and persistence
-	streamHandler, err := generic_wal.NewWAL(
-		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
-		func(data []byte) (proto.ChangelogEntry, error) {
-			var e proto.ChangelogEntry
-			err := e.Unmarshal(data)
-			return e, err
-		},
-		logger,
-		utils.GetChangelogPath(opts.Dir),
-		generic_wal.Config{
-			DisableFsync:    true,
-			ZeroCopy:        true,
-			WriteBufferSize: opts.AsyncCommitBuffer,
-		},
-	)
-	if err != nil {
-		return nil, err
-	}
+	// Use WAL from options (managed by upper layer like CommitStore)
+	streamHandler := opts.WAL
 
-	// Replay WAL to catch up to target version
-	if targetVersion == 0 || targetVersion > mtree.Version() {
+	// Replay WAL to catch up to target version (if WAL is provided)
+	if streamHandler != nil && (targetVersion == 0 || targetVersion > mtree.Version()) {
 		logger.Info("Start catching up and replaying the MemIAVL changelog file")
 		if err := mtree.Catchup(context.Background(), streamHandler, targetVersion); err != nil {
-			return nil, errorutils.Join(err, streamHandler.Close())
+			return nil, err
 		}
 		logger.Info(fmt.Sprintf("Finished the replay and caught up to version %d", targetVersion))
 	}
@@ -238,11 +221,13 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 			}
 		}
 
-		// truncate the rlog file
-		logger.Info("truncate rlog after version: %d", targetVersion)
-		truncateIndex := utils.VersionToIndex(targetVersion, mtree.initialVersion.Load())
-		if err := streamHandler.TruncateAfter(truncateIndex); err != nil {
-			return nil, fmt.Errorf("fail to truncate rlog file: %w", err)
+		// truncate the rlog file (if WAL is provided)
+		if streamHandler != nil {
+			logger.Info("truncate rlog after version: %d", targetVersion)
+			truncateIndex := utils.VersionToIndex(targetVersion, mtree.initialVersion.Load())
+			if err := streamHandler.TruncateAfter(truncateIndex); err != nil {
+				return nil, fmt.Errorf("fail to truncate rlog file: %w", err)
+			}
 		}
 
 		// prune snapshots that's larger than the target version
@@ -837,13 +822,9 @@ func (db *DB) Close() error {
 		db.snapshotRewriteCancelFunc = nil
 	}
 
-	// Close stream handler after background goroutine has finished
-	db.logger.Info("Closing stream handler...")
-	if db.streamHandler != nil {
-		err := db.streamHandler.Close()
-		errs = append(errs, err)
-		db.streamHandler = nil
-	}
+	// Note: streamHandler (WAL) is owned by the upper layer (CommitStore) and should not be closed here.
+	// Just clear the reference.
+	db.streamHandler = nil
 
 	errs = append(errs, db.MultiTree.Close())
 

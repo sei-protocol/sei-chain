@@ -15,9 +15,33 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/wal/generic_wal"
+	"github.com/sei-protocol/sei-chain/sei-db/wal/types"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 )
+
+// createTestWAL creates a WAL for testing purposes.
+func createTestWAL(t *testing.T, dir string) types.GenericWAL[proto.ChangelogEntry] {
+	t.Helper()
+	wal, err := generic_wal.NewWAL(
+		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
+		func(data []byte) (proto.ChangelogEntry, error) {
+			var e proto.ChangelogEntry
+			err := e.Unmarshal(data)
+			return e, err
+		},
+		logger.NewNopLogger(),
+		utils.GetChangelogPath(dir),
+		generic_wal.Config{
+			DisableFsync:    true,
+			ZeroCopy:        true,
+			WriteBufferSize: 0,
+		},
+	)
+	require.NoError(t, err)
+	return wal
+}
 
 // writeToWAL is a test helper that writes pending changes to WAL.
 // In production, CommitStore handles this. Tests that need WAL replay use this helper.
@@ -184,8 +208,9 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 	entries, err := os.ReadDir(db.dir)
 	require.NoError(t, err)
 
-	// three files: snapshot, current link, rlog, LOCK
-	require.Equal(t, 4, len(entries))
+	// three files: snapshot, current link, LOCK
+	// (no rlog when WAL is not provided)
+	require.Equal(t, 3, len(entries))
 	// stopCh is closed by defer above
 }
 
@@ -255,10 +280,16 @@ func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 func TestRlog(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test", "delete"}
+
+	// Create WAL for this test
+	wal := createTestWAL(t, dir)
+	defer wal.Close()
+
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   initialStores,
+		WAL:             wal,
 	})
 	require.NoError(t, err)
 
@@ -299,7 +330,8 @@ func TestRlog(t *testing.T) {
 
 	require.NoError(t, db.Close())
 
-	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir})
+	// Reopen with the same WAL
+	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, WAL: wal})
 	require.NoError(t, err)
 	defer db.Close() // Close the reopened DB
 
@@ -331,10 +363,15 @@ func TestInitialVersion(t *testing.T) {
 	for _, initialVersion := range []int64{0, 1, 100} {
 		dir := t.TempDir()
 		initialStores := []string{name}
+
+		// Create WAL for this test iteration
+		wal := createTestWAL(t, dir)
+
 		db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 			Dir:             dir,
 			CreateIfMissing: true,
 			InitialStores:   initialStores,
+			WAL:             wal,
 		})
 		require.NoError(t, err)
 		db.SetInitialVersion(initialVersion)
@@ -366,9 +403,9 @@ func TestInitialVersion(t *testing.T) {
 		}
 		require.NoError(t, db.Close())
 
-		db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir})
+		// Reopen with the same WAL
+		db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, WAL: wal})
 		require.NoError(t, err)
-		defer db.Close() // Close the reopened DB at end of loop iteration
 		require.Equal(t, uint32(initialVersion), db.initialVersion.Load())
 		require.Equal(t, v, db.Version())
 		require.Equal(t, hex.EncodeToString(hash), hex.EncodeToString(db.LastCommitInfo().StoreInfos[0].CommitId.Hash))
@@ -413,16 +450,25 @@ func TestInitialVersion(t *testing.T) {
 		require.Equal(t, name2, info2.Name)
 		require.Equal(t, v, info2.CommitId.Version)
 		require.Equal(t, hex.EncodeToString(info.CommitId.Hash), hex.EncodeToString(info2.CommitId.Hash))
+
+		require.NoError(t, db.Close())
+		require.NoError(t, wal.Close())
 	}
 }
 
 func TestLoadVersion(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test"}
+
+	// Create WAL for this test
+	wal := createTestWAL(t, dir)
+	defer wal.Close()
+
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   initialStores,
+		WAL:             wal,
 	})
 	require.NoError(t, err)
 
@@ -455,9 +501,11 @@ func TestLoadVersion(t *testing.T) {
 		if v == 0 {
 			continue
 		}
+		// Read-only loads use the same WAL to replay
 		tmp, err := OpenDB(logger.NewNopLogger(), int64(v), Options{
 			Dir:      dir,
 			ReadOnly: true,
+			WAL:      wal,
 		})
 		require.NoError(t, err)
 		require.Equal(t, RefHashes[v-1], tmp.TreeByName("test").RootHash())
@@ -537,11 +585,17 @@ func TestRlogIndexConversion(t *testing.T) {
 func TestEmptyValue(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test"}
+
+	// Create WAL for this test
+	wal := createTestWAL(t, dir)
+	defer wal.Close()
+
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 		Dir:             dir,
 		InitialStores:   initialStores,
 		CreateIfMissing: true,
 		ZeroCopy:        true,
+		WAL:             wal,
 	})
 	require.NoError(t, err)
 
@@ -572,7 +626,8 @@ func TestEmptyValue(t *testing.T) {
 
 	require.NoError(t, db.Close())
 
-	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ZeroCopy: true})
+	// Reopen with the same WAL
+	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ZeroCopy: true, WAL: wal})
 	require.NoError(t, err)
 	defer db.Close() // Close the reopened DB
 	require.Equal(t, version, db.Version())
@@ -762,26 +817,40 @@ func TestLoadMultiTreeWithCancelledContext(t *testing.T) {
 func TestCatchupWithCancelledContext(t *testing.T) {
 	// Create a DB with some data
 	dir := t.TempDir()
+	initialStores := []string{"test"}
+
+	// Create WAL for this test
+	wal := createTestWAL(t, dir)
+	defer wal.Close()
+
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
-		InitialStores:   []string{"test"},
+		InitialStores:   initialStores,
+		WAL:             wal,
 	})
 	require.NoError(t, err)
 	defer db.Close()
 
 	// Add multiple versions to have changelog entries
 	for i := 0; i < 5; i++ {
-		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
+		cs := []*proto.NamedChangeSet{
 			{Name: "test", Changeset: iavl.ChangeSet{
 				Pairs: []*iavl.KVPair{{Key: []byte("key"), Value: []byte("value" + strconv.Itoa(i))}},
 			}},
-		}))
+		}
+		require.NoError(t, db.ApplyChangeSets(cs))
+		// Write to WAL
+		if i == 0 {
+			writeToWAL(t, db, cs, initialUpgrades(initialStores))
+		} else {
+			writeToWAL(t, db, cs, nil)
+		}
 		_, err = db.Commit()
 		require.NoError(t, err)
 	}
 
-	// Create snapshot at version 2
+	// Create snapshot at version 5
 	require.NoError(t, db.RewriteSnapshot(context.Background()))
 
 	// Load the snapshot (at version 5)
@@ -797,7 +866,7 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	err = mtree.Catchup(ctx, db.streamHandler, 0)
+	err = mtree.Catchup(ctx, wal, 0)
 	// If already caught up, no error; otherwise should get context.Canceled
 	if err != nil {
 		require.Equal(t, context.Canceled, err)

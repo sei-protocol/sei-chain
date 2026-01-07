@@ -6,8 +6,9 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
-
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/wal/types"
 )
 
 type Options struct {
@@ -48,6 +49,11 @@ type Options struct {
 	// Minimum time interval between snapshots
 	// This prevents excessive snapshot creation during catch-up. Default is 1 hour.
 	SnapshotMinTimeInterval time.Duration
+
+	// WAL is the write-ahead log for changelog persistence and replay.
+	// If nil, no WAL operations will be performed (read-only mode or tests).
+	// The WAL is managed by the upper layer (CommitStore) and passed in.
+	WAL types.GenericWAL[proto.ChangelogEntry]
 }
 
 func (opts Options) Validate() error {

@@ -5,12 +5,15 @@ import (
 	"math"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
+	"github.com/sei-protocol/sei-chain/sei-db/wal/generic_wal"
+	waltypes "github.com/sei-protocol/sei-chain/sei-db/wal/types"
 )
 
 var _ types.Committer = (*CommitStore)(nil)
@@ -19,6 +22,9 @@ type CommitStore struct {
 	logger logger.Logger
 	db     *memiavl.DB
 	opts   memiavl.Options
+
+	// WAL for changelog persistence (owned by CommitStore)
+	wal waltypes.GenericWAL[proto.ChangelogEntry]
 
 	// pending changes to be written to WAL on next Commit
 	pendingLogEntry proto.ChangelogEntry
@@ -48,6 +54,25 @@ func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCom
 	return commitStore
 }
 
+// createWAL creates a new WAL instance for changelog persistence and replay.
+func (cs *CommitStore) createWAL() (waltypes.GenericWAL[proto.ChangelogEntry], error) {
+	return generic_wal.NewWAL(
+		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
+		func(data []byte) (proto.ChangelogEntry, error) {
+			var e proto.ChangelogEntry
+			err := e.Unmarshal(data)
+			return e, err
+		},
+		cs.logger,
+		utils.GetChangelogPath(cs.opts.Dir),
+		generic_wal.Config{
+			DisableFsync:    true,
+			ZeroCopy:        true,
+			WriteBufferSize: cs.opts.AsyncCommitBuffer,
+		},
+	)
+}
+
 func (cs *CommitStore) Initialize(initialStores []string) {
 	cs.opts.InitialStores = initialStores
 }
@@ -57,11 +82,23 @@ func (cs *CommitStore) SetInitialVersion(initialVersion int64) error {
 }
 
 func (cs *CommitStore) Rollback(targetVersion int64) error {
-	options := cs.opts
-	options.LoadForOverwriting = true
+	// Close existing resources
 	if cs.db != nil {
 		_ = cs.db.Close()
 	}
+	// Note: we reuse the existing WAL for rollback - memiavl will truncate it
+	if cs.wal == nil {
+		wal, err := cs.createWAL()
+		if err != nil {
+			return fmt.Errorf("failed to create WAL: %w", err)
+		}
+		cs.wal = wal
+	}
+
+	options := cs.opts
+	options.LoadForOverwriting = true
+	options.WAL = cs.wal
+
 	db, err := memiavl.OpenDB(cs.logger, targetVersion, options)
 	if err != nil {
 		return err
@@ -70,31 +107,64 @@ func (cs *CommitStore) Rollback(targetVersion int64) error {
 	return nil
 }
 
-// copyExisting is for creating new memiavl object given existing folder
+// LoadVersion loads the specified version of the database.
+// If copyExisting is true, creates a read-only copy for querying.
 func (cs *CommitStore) LoadVersion(targetVersion int64, copyExisting bool) (types.Committer, error) {
 	cs.logger.Info(fmt.Sprintf("SeiDB load target memIAVL version %d, copyExisting = %v\n", targetVersion, copyExisting))
+
 	if copyExisting {
-		opts := cs.opts
-		opts.ReadOnly = copyExisting
-		opts.CreateIfMissing = false
-		db, err := memiavl.OpenDB(cs.logger, targetVersion, opts)
+		// Create a read-only copy with its own WAL for replay
+		newCS := &CommitStore{
+			logger: cs.logger,
+			opts:   cs.opts,
+		}
+		newCS.opts.ReadOnly = true
+		newCS.opts.CreateIfMissing = false
+
+		// WAL is needed for replay even in read-only mode
+		wal, err := newCS.createWAL()
 		if err != nil {
+			return nil, fmt.Errorf("failed to create WAL: %w", err)
+		}
+		newCS.wal = wal
+		newCS.opts.WAL = wal
+
+		db, err := memiavl.OpenDB(cs.logger, targetVersion, newCS.opts)
+		if err != nil {
+			_ = wal.Close()
 			return nil, err
 		}
-		return &CommitStore{
-			logger: cs.logger,
-			db:     db,
-			opts:   opts,
-		}, nil
+		newCS.db = db
+		return newCS, nil
 	}
+
+	// Close existing resources
 	if cs.db != nil {
 		_ = cs.db.Close()
 	}
-	db, err := memiavl.OpenDB(cs.logger, targetVersion, cs.opts)
+	if cs.wal != nil {
+		_ = cs.wal.Close()
+		cs.wal = nil
+	}
+
+	// Create WAL for changelog persistence and replay
+	wal, err := cs.createWAL()
 	if err != nil {
+		return nil, fmt.Errorf("failed to create WAL: %w", err)
+	}
+
+	// Pass WAL to memiavl via options
+	opts := cs.opts
+	opts.WAL = wal
+
+	db, err := memiavl.OpenDB(cs.logger, targetVersion, opts)
+	if err != nil {
+		_ = wal.Close()
 		return nil, err
 	}
+
 	cs.db = db
+	cs.wal = wal
 	return cs, nil
 }
 
@@ -103,14 +173,13 @@ func (cs *CommitStore) Commit() (int64, error) {
 	nextVersion := cs.db.WorkingCommitInfo().Version
 
 	// Write to WAL first (ensures durability before tree commit)
-	wal := cs.db.GetWAL()
-	if wal != nil {
+	if cs.wal != nil {
 		cs.pendingLogEntry.Version = nextVersion
-		if err := wal.Write(cs.pendingLogEntry); err != nil {
+		if err := cs.wal.Write(cs.pendingLogEntry); err != nil {
 			return 0, fmt.Errorf("failed to write to WAL: %w", err)
 		}
 		// Check for async write errors
-		if err := wal.CheckError(); err != nil {
+		if err := cs.wal.CheckError(); err != nil {
 			return 0, fmt.Errorf("WAL async write error: %w", err)
 		}
 	}
@@ -185,10 +254,19 @@ func (cs *CommitStore) Importer(version int64) (types.Importer, error) {
 }
 
 func (cs *CommitStore) Close() error {
+	var errs []error
+
+	// Close DB first (it may still reference WAL)
 	if cs.db != nil {
-		err := cs.db.Close()
+		errs = append(errs, cs.db.Close())
 		cs.db = nil
-		return err
 	}
-	return nil
+
+	// Then close WAL
+	if cs.wal != nil {
+		errs = append(errs, cs.wal.Close())
+		cs.wal = nil
+	}
+
+	return errors.Join(errs...)
 }

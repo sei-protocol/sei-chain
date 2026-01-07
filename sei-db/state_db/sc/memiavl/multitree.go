@@ -78,6 +78,9 @@ func NewEmptyMultiTree(initialVersion uint32) *MultiTree {
 func LoadMultiTree(ctx context.Context, dir string, opts Options) (*MultiTree, error) {
 	startTime := time.Now()
 	log := opts.Logger
+	if log == nil {
+		log = logger.NewNopLogger()
+	}
 	metadata, err := readMetadata(dir)
 	if err != nil {
 		return nil, err
