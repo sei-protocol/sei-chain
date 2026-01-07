@@ -15,7 +15,7 @@ type StreamID uint64
 type StreamKind uint64
 
 type Config struct {
-	FrameSize uint64
+	FramePayload uint64
 	Kinds map[StreamKind]*StreamKindConfig
 }
 
@@ -37,22 +37,71 @@ func (v *canUpdate[T]) Pop() utils.Option[T] {
 	return utils.Some(v.value)
 }
 
+type SendState struct {
+	opened bool // StreamState.RemoteOpen()
+	maxMsgSize uint64
+	bufBegin uint64
+	begin uint64
+	end uint64
+	closed bool // Stream.Close()
+}
+
+type RecvState struct {
+	opened bool // Stream.open()
+	maxMsgSize uint64
+	begin uint64
+	used uint64
+	end uint64
+	msgs [][]byte
+	closed bool // StreamState.RemoteClose()
+}
+
 type StreamState struct {
 	id StreamID
 	kind StreamKind
+	send utils.Watch[*SendState]
+	recv utils.Watch[*RecvState]
+}
 
-	sendMaxMsgSize uint64
-	sendBegin uint64
-	sendEnd uint64
-	sendMsg utils.Option[[]byte]
-	sendClosed canUpdate[bool]
-	
-	recvMaxMsgSize canUpdate[uint64]
-	recvBegin uint64
-	recvUsed uint64
-	recvEnd canUpdate[uint64]
-	recvMsgs [][]byte
-	recvClosed bool
+func newStreamState(id StreamID, kind StreamKind) *StreamState {
+	return &StreamState {id: id, kind: kind, recv: utils.NewWatch(&RecvState{})}
+}
+
+func (s *StreamState) terminated() bool {
+	for send := range s.send.Lock() {
+		if !send.opened && !send.closed {
+			return false
+		}
+	}
+	for recv := range s.recv.Lock() {
+		if !recv.opened && !recv.closed {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *StreamState) RemoteOpen(maxMsgSize uint64) error {
+	for send,ctrl := range s.send.Lock() {
+		if send.opened {
+			return fmt.Errorf("already opened")
+		}
+		send.opened = true
+		send.maxMsgSize = maxMsgSize
+		ctrl.Updated()
+	}
+	return nil
+}
+
+func (s *StreamState) RemoteClose() error {
+	for recv,ctrl := range s.recv.Lock() {
+		if !recv.opened || recv.closed {
+			return fmt.Errorf("already closed")
+		}
+		recv.closed = true
+		ctrl.Updated()
+	}
+	return nil
 }
 
 type Frame struct {
@@ -60,219 +109,360 @@ type Frame struct {
 	Payload []byte
 }
 
-func (s *StreamState) PopFrame(maxPayload uint64) utils.Option[*Frame] {
-	f := Frame{
-		Header{
-			RecvMaxMsgSize: s.recvMaxMsgSize.Pop(),
-			RecvWindowEnd: s.recvEnd.Pop(),
-		},
-		nil,
-	}
-	// Sending message payload.
-	if sendMsg,ok := s.sendMsg.Get(); ok {
-		if uint64(len(sendMsg))>maxPayload {
-			f.SendPayloadSize = utils.Some(uint64(len(sendMsg)))
-			f.Payload = sendMsg
-			f.SendMsgEnd = utils.Some(true)
-			s.sendMsg = utils.None[[]byte]()
-		} else {
-			f.SendPayloadSize = utils.Some(maxPayload)
-			f.Payload = sendMsg[:maxPayload]
-			s.sendMsg = utils.Some(sendMsg[maxPayload:])
-		}
-	}
-	if !s.sendMsg.IsPresent() {
-		f.SendClosed = s.sendClosed.Pop()	
-	}
-	if f.Header!=(Header{}) {
-		f.StreamID = s.id
-		return utils.Some(&f)
-	}
-	return utils.None[*Frame]()
-}
-
 type Stream struct {
-	state *utils.Watch[*StreamState]
-	mux *Mux
+	state *StreamState
+	queue *Queue
 }
 
-func (s *Stream) Send(ctx context.Context, msg []byte) error {
-	for state,ctrl := range s.state.Lock() {
-		if uint64(len(msg))>state.sendMaxMsgSize {
-			return fmt.Errorf("message too large")
+func (s *Stream) open(ctx context.Context, maxMsgSize uint64, window uint64) error {
+	for recv := range s.state.recv.Lock() {
+		if recv.opened {
+			return fmt.Errorf("already opened")
 		}
-		if state.sendClosed.value { // not opened yet.
-			return fmt.Errorf("closed")
+		recv.opened = true
+		recv.maxMsgSize = maxMsgSize
+		recv.end = window
+		recv.msgs = make([][]byte,window)
+		for queue,ctrl := range s.queue.Lock() {
+			f,ok := queue[s.state.id]
+			if !ok {
+				if len(queue)==0 {
+					ctrl.Updated()
+				}
+				f = &Frame{Header:Header{StreamID: s.state.id}}
+				queue[s.state.id] = f
+			}
+			f.Kind = s.state.kind
+			f.RecvMaxMsgSize = maxMsgSize
+			f.RecvWindowEnd = window
 		}
-		if err:=ctrl.WaitUntil(ctx, func() bool {
-			return state.sendClosed.newValue || (state.sendBegin<state.sendEnd && !state.sendMsg.IsPresent())
-		}); err!=nil {
+	}
+	for send,ctrl := range s.state.send.Lock() {
+		if err:=ctrl.WaitUntil(ctx, func() bool { return send.opened }); err!=nil {
+			// WARNING: note that here we close, before the stream was opened
+			// Connect got cancelled and the stream is orphaned.
+			s.Close()
 			return err
 		}
-		if state.sendClosed.newValue { // closed while flushing
-			return fmt.Errorf("closed")
-		}
-		state.sendMsg = utils.Some(msg)
-		state.sendBegin += 1
 	}
-	s.mux.dirty(s)
 	return nil
 }
 
-func (s *Stream) SendClose() {
-	for state := range s.state.Lock() {
-		state.sendClosed.newValue = true
+func (s *Stream) Send(ctx context.Context, msg []byte) error {
+	for send,ctrl := range s.state.send.Lock() {	
+		// Wait until the local buffer is empty && remote buffer has capacity.
+		if err:=ctrl.WaitUntil(ctx, func() bool { return send.closed || (send.bufBegin == send.begin && send.begin < send.end) }); err!=nil {
+			return err
+		}
+		if send.closed {
+			return fmt.Errorf("stream closed")
+		}
+		if uint64(len(msg))>send.maxMsgSize {
+			return fmt.Errorf("message too large")
+		}
+		send.begin += 1
+		// Push msg to the queue.
+		for queue,ctrl := range s.queue.Lock() {
+			f,ok := queue[s.state.id]
+			if !ok {
+				if len(queue)==0 {
+					ctrl.Updated()
+				}
+				f = &Frame{Header:Header{StreamID: id}}
+				queue[s.state.id] = f
+			} 
+			f.PayloadSize = uint64(len(msg))
+			f.Payload = msg
+			f.MsgEnd = true
+		}
+	}
+	return nil
+}
+
+func (s *Stream) Close() {
+	for send := range s.state.send.Lock() {
+		if send.closed {
+			return
+		}
+		send.closed = true
+		for queue,ctrl := range s.queue.Lock() {
+			f,ok := queue[s.state.id]
+			if !ok {
+				if len(queue)==0 { ctrl.Updated() }
+				f = &Frame{Header:Header{StreamID: s.state.id}}
+				queue[s.state.id] = f
+			}
+			f.SendClosed = true
+		}
 	}
 }
 
 func (s *Stream) Recv(ctx context.Context, freeBuffer bool) ([]byte,error) {
-	for state,ctrl := range s.state.Lock() {
+	for recv,ctrl := range s.state.recv.Lock() {
 		if err:=ctrl.WaitUntil(ctx, func() bool {
-			return state.recvClosed || state.recvBegin<state.recvUsed
+			return recv.closed || recv.begin<recv.used
 		}); err!=nil {
 			return nil,err
 		}
-		if state.recvBegin==state.recvUsed {
+		if recv.begin==recv.used {
 			return nil,fmt.Errorf("closed")
 		}
-		i := state.recvBegin%uint64(len(state.recvMsgs))
-		msg := state.recvMsgs[i]
-		state.recvMsgs[i] = nil
-		state.recvBegin += 1
+		i := recv.begin%uint64(len(recv.msgs))
+		msg := recv.msgs[i]
+		recv.msgs[i] = nil
+		recv.begin += 1
 		if freeBuffer {
-			state.recvEnd.newValue = state.recvBegin + uint64(len(state.recvMsgs))
-			s.mux.dirty(s.stream)
+			recv.end = recv.begin + uint64(len(recv.msgs))
+			for queue,ctrl := range s.queue.Lock() {
+				f,ok := queue[s.state.id]
+				if !ok {
+					if len(queue)==0 { ctrl.Updated() }
+					f = &Frame{Header:Header{StreamID:s.state.id}}
+					queue[s.state.id] = f
+				}
+				f.RecvWindowEnd = recv.end
+			}
 		}
 		return msg,nil
 	}
 	panic("unreachable")
 }
 
-/*
-func (s *RecvState) CheckPayloadSize(payloadSize uint64) error {
-	if s.windowUsed>=s.windowEnd {
-		return fmt.Errorf("recv buffer overflow")
-	}
-	i := (s.windowUsed+1)%uint64(len(s.window))
-	if s.maxMsgSize-uint64(len(s.window[i])) < payloadSize {
-		return fmt.Errorf("recv buffer overflow")	
-	}
-	return nil
-}
-
-func (s *RecvState) PushPayload(payload []byte) {
-	i := (s.windowUsed+1)%uint64(len(s.window))
-	s.window[i] = append(s.window[i],payload...)
-}
-
-func (s *RecvState) PushMsgEnd() { s.windowUsed += 1 }
-func (s *RecvState) PushResize(windowEnd uint64) { s.windowEnd = max(s.windowEnd,windowEnd) }
-*/
-
-
 type KindState struct {
-	connectable chan *StreamState 
-	acceptable chan *StreamState
+	connectsQueue chan *StreamState
+	acceptsQueue chan *StreamState
 }
 
-type Mux struct {
-	kinds map[StreamKind]*KindState
-	dirty utils.Watch[[]StreamID]
+type runnerInner struct {
+	nextID StreamID
+	streams map[StreamID]*StreamState
+	acceptsSem map[StreamKind]int
 }
 
-func (m *Mux) NewMux(cfg *Config) *Mux {
+type runner struct {
+	mux *Mux
+	inner utils.RWMutex[*runnerInner]	
+}
 
+func newRunner(mux *Mux) *runner {
+	return &runner {
+		mux: mux,
+		inner: utils.NewRWMutex(&runnerInner {
+			nextID: 0,
+			streams: map[StreamID]*StreamState{},
+			acceptsSem: map[StreamKind]int{},
+		}),
+	}
+}
+
+func (r *runner) get(id StreamID) (*StreamState,bool) {
+	for inner := range r.inner.RLock() {
+		s,ok := inner.streams[id]
+		return s,ok
+	}
+	panic("unreachable")
+}
+
+func (r *runner) getOrAccept(id StreamID, kind StreamKind) (*StreamState,error) {
+	s,ok := r.get(id)
+	if ok { return s,nil }
+	for inner := range r.inner.Lock() {
+		if id.isConnect() {
+			return nil,fmt.Errorf("peer tried to open stream with bad id")
+		}
+		if inner.acceptsSem[kind]==0 {
+			return nil,fmt.Errorf("too many concurrent accept streams")
+		}
+		inner.acceptsSem[kind] -= 1
+		s = newStreamState(id,kind)
+		inner.streams[id] = s 
+		return s,nil
+	}
+	panic("unreachable")
+}
+
+func (r *runner) tryPrune(id StreamID) {
+	for inner := range r.inner.Lock() {
+		s,ok := inner.streams[id]
+		if !ok || !s.terminated() { return }
+		delete(inner.streams,id)
+		if id.isConnect() {
+			// Non-blocking since we just closed a connect stream.
+			r.mux.kinds[s.kind].connectsQueue <- newStreamState(inner.nextID,s.kind)
+			inner.nextID += 2
+		} else {
+			inner.acceptsSem[s.kind] += 1
+		}
+	}
+}
+
+// runSend handles the frame queue.
+// The frames from all streams are interleaved in a round robin fashion.
+// Frames have bounded size to make sure that large messages do not slow down smaller ones.
+// Stream priorities are not implemented (not needed).
+func (r *runner) runSend(ctx context.Context, conn net.Conn) error {
+	for {
+		// Collect frames in round robin over streams.
+		var frames []*Frame
+		flush := false
+		for queue,ctrl := range r.mux.queue.Lock() {
+			if err := ctrl.WaitUntil(ctx,func() bool { return len(queue)>0 }); err!=nil {
+				return err
+			}
+			for id,f := range queue {
+				frames = append(frames,f.Pop())
+				if f.Empty() {
+					delete(queue,id)
+				}
+			}
+			flush = len(queue)==0
+		}
+		// Send the frames
+		for _,f := range frames {
+			if f.SendMsgEnd {
+				// Notify sender about local buffer capacity.
+				for inner := range r.inner.RLock() {
+					for send,ctrl := range inner.streams[f.StreamId].send.Lock() {
+						send.bufBegin += 1
+						ctrl.Updated()
+					}
+				}
+			}
+			if f.SendClosed {
+				r.tryPrune(f.StreamID)	
+			}
+			headerRaw := proto.Marshal(EncodeHeader(f.Header))
+			if _,err:=conn.Write([]byte{len(frameRaw)}); err!=nil { return err }
+			if _,err:=conn.Write(headerRaw); err!=nil { return err }
+			if _,err:=conn.Write(f.Payload); err!=nil { return err }
+		}
+		if flush {
+			if err:=conn.Flush(); err!=nil { return err }
+		}
+	}
+}
+
+func (r *runner) runRecv(conn net.Conn) error {
+	for {
+		// Frame size is hard capped here at 255B.
+		// Currently we have 7 varint fields (up to 77B)
+		var frameSize [1]byte
+		if _,err := conn.Read(frameSize[:]); err!=nil { return err }
+		frameRaw := make([]byte, frameSize[0])
+		if _,err:=io.ReadFull(conn,frameRaw[:]); err!=nil { return err }
+		var frameProto pb.Frame
+		if err:=proto.Unmarshal(frameRaw,&frameProto); err!=nil { return err }
+		frame := DecodeFrame(&frameProto)
+		frame.StreamID = frame.StreamID.RemoteToLocal()
+		s,err := r.getOrAccept(frame.StreamID,frame.GetStreamKind())	
+		if frame.RecvMaxMsgSize!=nil {
+			if err:=s.RemoteOpen(frame.GetRecvMaxMsgSize()); err!=nil {
+				return err
+			}
+			if s.id.IsConnect() {
+				r.tryPrune(s.id) // tryPrune the stream in case it was orphaned.
+			} else {
+				r.mux.kinds[frame.StreamKind].acceptsQueue <- s
+			}
+		}
+		if f.RecvWindowEnd!=nil {
+			for send,ctrl := range s.send.Lock() {
+				if send.End<*f.RecvWindowEnd {
+					send.End = *f.RecvWindowEnd
+					ctrl.Updated()
+				}
+			}
+		}
+		if f.PayloadSize!=nil {
+			// check if there is place for the payload.
+			for recv := range s.recv.Lock() {
+				if recv.closed || !recv.opened { return fmt.Errorf("closed") }
+				if recv.used==recv.end {
+					return fmt.Errorf("buffer full")
+				}
+				i := int(recv.used)%len(recv.msgs)
+				if recv.maxMsgSize-len(recv.msgs[i]) < f.PayloadSize {
+					return fmt.Errorf("msg too large")
+				}
+			}
+			// Read the payload.
+			payload := make([]byte,*f.PayloadSize)
+			if _,err:=io.ReadFull(conn,payload[:]); err!=nil { return err }
+			for recv := range s.recv.Lock() {
+				i := int(recv.used)%len(recv.msgs)
+				recv.msgs[i] = append(recv.msgs[i],payload...)
+			}
+		}
+		if f.MsgEnd {
+			for recv,ctrl := range s.recv.Lock() {
+				if recv.closed || !recv.opened { return fmt.Errorf("closed") }
+				if recv.used==recv.end {
+					return fmt.Errorf("buffer full")
+				}
+				recv.used += 1
+				ctrl.Updated()
+			}
+		}
+		if f.SendClosed {
+			for recv,ctrl := range s.recv.Lock() {
+				if err:=recv.RemoteClose(); err!=nil {
+					return err
+				}
+				for ss := range ss.Lock() {
+					r.tryPrune(s.id)	
+				}
+				ctrl.Updated()
+			}
+		}
+	}
 }
 
 func (m *Mux) Run(ctx context.Context, conn net.Conn) error {
 	// TODO: handshake exchange.
-
+	r := newRunner(m)
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.Spawn(func() error {
-			// Sending task.
-			for {
-				// Wait for some stream to have data to send.
-			}
-			return nil
-		})
-		// Receiving task.
-		for {
-			// Frame size is hard capped here at 255B.
-			// Any real frame will be capped to 44B (4 varints)
-			// An average frame will be ~10B
-			var frameSize [1]byte
-			if _,err := conn.Read(frameSize[:]); err!=nil { return err }
-			frameRaw := make([]byte, frameSize[0])
-			if _,err:=io.ReadFull(conn,frameRaw[:]); err!=nil { return err }
-			var frameProto pb.Frame
-			if err:=proto.Unmarshal(frameRaw,&frameProto); err!=nil { return err }
-			switch frame := DecodeFrame(&frameProto).(type) {
-				case *FrameOpen:
-					// check if there is slot for a new stream and that the stream is new
-				case *FrameResize:
-					// move the WindowEnd
-				case *FrameMsg:
-					// check if there is place for these bytes.
-					// io.ReadFull(conn,buf[0:frame.PayloadSize])
-					// end the message and notify if needed.
-				case *FrameClose:
-					// Mark stream as remotely closed, clear the slot if needed.
-				default: panic(fmt.Errorf("unknown frame type %T",frame))
-			}
-		}
+		s.Spawn(func() error { return r.runSend(ctx,conn) })
+		s.Spawn(func() error { return r.runRecv(ctx,conn) })	
+		return nil
 	})
 }
 
-func (m *Mux) Connect(ctx context.Context, kind StreamKind, maxMsgSize uint64, window uint64) (StreamID,error) {
-	s,ok := m.kinds[kind]
-	if !ok { return 0,fmt.Errorf("kind %v not available",kind) }
-	id,err := utils.Recv(ctx,s.connectable)
-	if err!=nil { return 0,err }
-	m.send(&FrameOpen{id,kind,maxMsgSize,window})
-	// Wait until OPEN is received
-	// if context canceled, send FrameClose{}
-	// return stream
-	return id,nil
+type Queue = utils.Watch[map[StreamID]*Frame]
+
+type Mux struct {
+	cfg *Config
+	kinds map[StreamKind]*KindState
+	queue *Queue 
 }
 
-func (m *Mux) Accept(ctx context.Context, kind StreamKind, maxMsgSize uint64, window uint64) (StreamID,error) {
-	s,ok := m.kinds[kind]
-	if !ok { return 0,fmt.Errorf("kind %v not available",kind) }
-	id,err := utils.Recv(ctx,s.acceptable)
-	if err!=nil { return 0,err }
-	m.send(&Open{id,kind,maxMsgSize,window})	
-	return id,nil
-}
-
-// To make the peer respect msg response size limit, encode the limit within the request.
-func (m *Mux) Send(ctx context.Context, id StreamID, msg []byte) error {
-	// TODO: access under lock.
-	s,ok := m.streams[id]
-	if !ok { return fmt.Errorf("stream %v not available",id) }
-	if s.sendMaxMsgSize < uint64(len(msg)) {
-		return fmt.Errorf("msg too large")
-	}
-	for sendMsg,ctrl := range s.sendMsg.Lock() {
-		if err:=ctrl.WaitUntil(ctx,func() bool {
-			return !sendMsg.IsPresent()
-		}); err!=nil {
-			return err
+func (m *Mux) NewMux(cfg *Config) *Mux {
+	kinds := map[StreamKind]*KindState{}
+	for kind,c := range cfg.Kinds {
+		kinds[kind] = &KindState {
+			acceptsQueue: make(chan *StreamState, c.MaxAccepts),
+			connectsQueue: make(chan *StreamState, c.MaxConnects),
 		}
-		*sendMsg = utils.Some(msg)
 	}
-	return nil
+	queue := utils.NewWatch(map[StreamID]*Frame{})
+	return &Mux {cfg: cfg, kinds: kinds, queue: &queue}
 }
 
-func (m *Mux) Recv(ctx context.Context, freeBuf bool) ([]byte,error) {
-	// Find the stream state
-	// Fetch len(msg) from the recv buffer
-	// Check against the limit.
-	// Fetch msg from the recv buffer.
+func (m *Mux) Connect(ctx context.Context, kind StreamKind, maxMsgSize uint64, window uint64) (*Stream,error) {
+	ks,ok := m.kinds[kind]
+	if !ok { return nil,fmt.Errorf("kind %v not available",kind) }
+	state,err := utils.Recv(ctx,ks.connectsQueue)
+	if err!=nil { return nil,err }
+	s := &Stream{state,m.queue}
+	if err := s.open(ctx,maxMsgSize,window); err!=nil { return nil,err }
+	return s,nil
 }
 
-// Marks stream for closure. All data sent so far will be delivered.
-// Send and Recv will fail afterward.
-// Slot will be freed after CLOSE is actually sent and received.
-func (m *Mux) Close(id StreamID) {
-
+func (m *Mux) Accept(ctx context.Context, kind StreamKind, maxMsgSize uint64, window uint64) (*Stream,error) {
+	ks,ok := m.kinds[kind]
+	if !ok { return nil,fmt.Errorf("kind %v not available",kind) }
+	state,err := utils.Recv(ctx,ks.acceptsQueue)
+	if err!=nil { return nil,err }
+	s := &Stream{state,m.queue}
+	if err := s.open(ctx,maxMsgSize,window); err!=nil { return nil,err }
+	return s,nil
 }
