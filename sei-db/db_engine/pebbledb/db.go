@@ -13,8 +13,7 @@ import (
 
 // pebbleDB implements the db_engine.DB interface using PebbleDB.
 type pebbleDB struct {
-	db    *pebble.DB
-	cache *pebble.Cache
+	db *pebble.DB
 }
 
 var _ db_engine.DB = (*pebbleDB)(nil)
@@ -31,19 +30,8 @@ func Open(path string, opts db_engine.OpenOptions) (_ db_engine.DB, err error) {
 		}
 	}
 
-	// Cache is reference-counted. We keep it alive for the lifetime of the DB and
-	// Unref it in (*pebbleDB).Close(). On failure, the deferred cleanup handles it.
 	cache := pebble.NewCache(1024 * 1024 * 512) // 512MB cache
-
-	var db *pebble.DB
-	defer cleanupOnError(&err,
-		func() { cache.Unref() },
-		func() {
-			if db != nil {
-				_ = db.Close()
-			}
-		},
-	)
+	defer cache.Unref()
 
 	popts := &pebble.Options{
 		Cache:                       cache,
@@ -78,12 +66,12 @@ func Open(path string, opts db_engine.OpenOptions) (_ db_engine.DB, err error) {
 	popts.FlushSplitBytes = popts.Levels[0].TargetFileSize
 	popts = popts.EnsureDefaults()
 
-	db, err = pebble.Open(path, popts)
+	db, err := pebble.Open(path, popts)
 	if err != nil {
 		return nil, err
 	}
 
-	return &pebbleDB{db: db, cache: cache}, nil
+	return &pebbleDB{db: db}, nil
 }
 
 func (p *pebbleDB) Get(key []byte) ([]byte, io.Closer, error) {
@@ -133,14 +121,10 @@ func (p *pebbleDB) Close() error {
 
 	db := p.db
 	p.db = nil
-	cache := p.cache
-	p.cache = nil
 
-	err := db.Close()
-	if cache != nil {
-		cache.Unref()
-	}
-	return err
+	// db.Close() internally calls cache.Unref(), which decrements refcount to 0
+	// and frees the cache (since Open's defer already did our Unref).
+	return db.Close()
 }
 
 func toPebbleWriteOpts(opts db_engine.WriteOptions) *pebble.WriteOptions {

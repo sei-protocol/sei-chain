@@ -59,7 +59,6 @@ var (
 
 type Database struct {
 	storage      *pebble.DB
-	cache        *pebble.Cache
 	asyncWriteWG sync.WaitGroup
 	config       config.StateStoreConfig
 	// Earliest version for db after pruning
@@ -91,20 +90,9 @@ type VersionedChangesets struct {
 	Changesets []*proto.NamedChangeSet
 }
 
-func OpenDB(dataDir string, config config.StateStoreConfig) (_ *Database, err error) {
+func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	cache := pebble.NewCache(1024 * 1024 * 32)
-
-	var db *pebble.DB
-
-	// Cleanup on failure: close db (if opened) and release cache
-	defer cleanupOnError(&err,
-		func() { cache.Unref() },
-		func() {
-			if db != nil {
-				_ = db.Close()
-			}
-		},
-	)
+	defer cache.Unref()
 
 	opts := &pebble.Options{
 		Cache:                       cache,
@@ -139,7 +127,7 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (_ *Database, err er
 
 	//TODO: add a new config and check if readonly = true to support readonly mode
 
-	db, err = pebble.Open(dataDir, opts)
+	db, err := pebble.Open(dataDir, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open PebbleDB: %w", err)
 	}
@@ -147,18 +135,19 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (_ *Database, err er
 	// Initialize earliest version
 	earliestVersion, err := retrieveEarliestVersion(db)
 	if err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to retrieve earliest version: %w", err)
 	}
 
 	// Initialize latest version
 	latestVersion, err := retrieveLatestVersion(db)
 	if err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to retrieve latest version: %w", err)
 	}
 
 	database := &Database{
 		storage:         db,
-		cache:           cache,
 		asyncWriteWG:    sync.WaitGroup{},
 		config:          config,
 		earliestVersion: atomic.Int64{},
@@ -171,11 +160,13 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (_ *Database, err er
 	// Initialize the lastRangeHashed cache
 	lastHashed, err := retrieveLastRangeHashed(db)
 	if err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to retrieve last range hashed: %w", err)
 	}
 	database.lastRangeHashedCache = lastHashed
 
 	if config.KeepRecent < 0 {
+		_ = db.Close()
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
 	streamHandler, _ := changelog.NewStream(
@@ -215,15 +206,12 @@ func (db *Database) Close() error {
 		_ = db.streamHandler.Close()
 		db.streamHandler = nil
 	}
-	var err error
-	if db.storage != nil {
-		err = db.storage.Close()
-		db.storage = nil
+	// Make Close idempotent: Pebble panics if Close is called twice.
+	if db.storage == nil {
+		return nil
 	}
-	if db.cache != nil {
-		db.cache.Unref()
-		db.cache = nil
-	}
+	err := db.storage.Close()
+	db.storage = nil
 	return err
 }
 
