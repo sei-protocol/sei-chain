@@ -3,7 +3,9 @@ package geth
 import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+	"github.com/sei-protocol/sei-chain/giga/executor/precompiles"
 	"github.com/sei-protocol/sei-chain/giga/executor/types"
 )
 
@@ -25,4 +27,9 @@ func (v *VMImpl) Create(sender types.Address, code []byte, gas uint64, value typ
 func (v *VMImpl) Call(sender types.Address, to types.Address, input []byte, gas uint64, value types.Hash) (ret []byte, gasLeft uint64, err error) {
 	ret, gasLeft, err = v.evm.Call(common.Address(sender), common.Address(to), input, gas, new(uint256.Int).SetBytes(value[:]))
 	return ret, gasLeft, err
+}
+
+// To be called by an exported EVM create function which knows how to instantiate params like statedb.
+func createEVMWithFailFastPrecompile(blockContext vm.BlockContext, statedb vm.StateDB, chainConfig *params.ChainConfig, vmConfig vm.Config) *vm.EVM {
+	return vm.NewEVM(blockContext, statedb, chainConfig, vmConfig, precompiles.AllCustomPrecompilesFailFast)
 }
