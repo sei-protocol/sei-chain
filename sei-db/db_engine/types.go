@@ -31,13 +31,9 @@ type OpenOptions struct {
 
 // DB is a low-level KV engine contract (business-agnostic).
 //
-// Zero-copy contract:
-//   - Get may return a view into internal buffers; the returned value is only valid
-//     until closer.Close() is called.
-//   - Callers MUST close the closer when done.
-//   - If the value must outlive the closer, callers must copy it (e.g. bytes.Clone).
+// Get returns a value copy (safe to use after the call returns).
 type DB interface {
-	Get(key []byte) (value []byte, closer io.Closer, err error)
+	Get(key []byte) (value []byte, err error)
 	Set(key, value []byte, opts WriteOptions) error
 	Delete(key []byte, opts WriteOptions) error
 

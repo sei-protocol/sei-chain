@@ -1,9 +1,9 @@
 package pebbledb
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
-	"io"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
@@ -74,16 +74,18 @@ func Open(path string, opts db_engine.OpenOptions) (_ db_engine.DB, err error) {
 	return &pebbleDB{db: db}, nil
 }
 
-func (p *pebbleDB) Get(key []byte) ([]byte, io.Closer, error) {
-	// Pebble returns a zero-copy view plus a closer; see db_engine.DB contract.
+func (p *pebbleDB) Get(key []byte) ([]byte, error) {
+	// Pebble returns a zero-copy view plus a closer; we copy and close internally.
 	val, closer, err := p.db.Get(key)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
-			return nil, nil, db_engine.ErrNotFound
+			return nil, db_engine.ErrNotFound
 		}
-		return nil, nil, err
+		return nil, err
 	}
-	return val, closer, nil
+	cloned := bytes.Clone(val)
+	_ = closer.Close()
+	return cloned, nil
 }
 
 func (p *pebbleDB) Set(key, value []byte, opts db_engine.WriteOptions) error {
@@ -122,8 +124,6 @@ func (p *pebbleDB) Close() error {
 	db := p.db
 	p.db = nil
 
-	// db.Close() internally calls cache.Unref(), which decrements refcount to 0
-	// and frees the cache (since Open's defer already did our Unref).
 	return db.Close()
 }
 

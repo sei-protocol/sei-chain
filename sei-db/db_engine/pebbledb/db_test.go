@@ -2,7 +2,6 @@ package pebbledb
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
 
 	"github.com/cockroachdb/pebble"
@@ -20,36 +19,30 @@ func TestDBGetSetDelete(t *testing.T) {
 	key := []byte("k1")
 	val := []byte("v1")
 
-	_, c, err := db.Get(key)
+	_, err = db.Get(key)
 	if err != db_engine.ErrNotFound {
-		t.Fatalf("expected ErrNotFound, got %v (closer=%v)", err, c)
+		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 
 	if err := db.Set(key, val, db_engine.WriteOptions{Sync: false}); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
-	got, closer, err := db.Get(key)
+	got, err := db.Get(key)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if closer == nil {
-		t.Fatalf("Get returned nil closer")
-	}
-	cloned := bytes.Clone(got)
-	_ = closer.Close()
-
-	if !bytes.Equal(cloned, val) {
-		t.Fatalf("value mismatch: got %q want %q", cloned, val)
+	if !bytes.Equal(got, val) {
+		t.Fatalf("value mismatch: got %q want %q", got, val)
 	}
 
 	if err := db.Delete(key, db_engine.WriteOptions{Sync: false}); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 
-	_, c2, err := db.Get(key)
+	_, err = db.Get(key)
 	if err != db_engine.ErrNotFound {
-		t.Fatalf("expected ErrNotFound after delete, got %v (closer=%v)", err, c2)
+		t.Fatalf("expected ErrNotFound after delete, got %v", err)
 	}
 }
 
@@ -82,14 +75,12 @@ func TestBatchAtomicWrite(t *testing.T) {
 		{"a", "1"},
 		{"b", "2"},
 	} {
-		got, c, err := db.Get([]byte(tc.k))
+		got, err := db.Get([]byte(tc.k))
 		if err != nil {
 			t.Fatalf("Get(%q): %v", tc.k, err)
 		}
-		cloned := bytes.Clone(got)
-		_ = c.Close()
-		if string(cloned) != tc.v {
-			t.Fatalf("Get(%q)=%q want %q", tc.k, cloned, tc.v)
+		if string(got) != tc.v {
+			t.Fatalf("Get(%q)=%q want %q", tc.k, got, tc.v)
 		}
 	}
 }
@@ -245,11 +236,8 @@ func TestErrNotFoundConsistency(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	// Test that Get on missing key returns ErrNotFound
-	_, closer, err := db.Get([]byte("missing-key"))
+	_, err = db.Get([]byte("missing-key"))
 	if err == nil {
-		if closer != nil {
-			_ = closer.Close()
-		}
 		t.Fatalf("expected error for missing key")
 	}
 
@@ -264,7 +252,7 @@ func TestErrNotFoundConsistency(t *testing.T) {
 	}
 }
 
-func TestGetCloserMustWork(t *testing.T) {
+func TestGetReturnsCopy(t *testing.T) {
 	dir := t.TempDir()
 	db, err := Open(dir, db_engine.OpenOptions{})
 	if err != nil {
@@ -272,36 +260,25 @@ func TestGetCloserMustWork(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	// Set multiple keys
-	for i := 0; i < 100; i++ {
-		key := []byte(fmt.Sprintf("key-%d", i))
-		val := []byte(fmt.Sprintf("val-%d", i))
-		if err := db.Set(key, val, db_engine.WriteOptions{Sync: false}); err != nil {
-			t.Fatalf("Set: %v", err)
-		}
+	key := []byte("k")
+	val := []byte("v")
+	if err := db.Set(key, val, db_engine.WriteOptions{Sync: false}); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
 
-	// Get keys and ensure closers work properly
-	for i := 0; i < 100; i++ {
-		key := []byte(fmt.Sprintf("key-%d", i))
-		val, closer, err := db.Get(key)
-		if err != nil {
-			t.Fatalf("Get: %v", err)
-		}
-		if closer == nil {
-			t.Fatalf("Get returned nil closer")
-		}
+	got, err := db.Get(key)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	// Modify returned slice; should not affect stored value if Get returns a copy.
+	got[0] = 'X'
 
-		// Must clone before closing
-		cloned := bytes.Clone(val)
-		if err := closer.Close(); err != nil {
-			t.Fatalf("closer.Close: %v", err)
-		}
-
-		expected := fmt.Sprintf("val-%d", i)
-		if string(cloned) != expected {
-			t.Fatalf("value mismatch: got %q want %q", cloned, expected)
-		}
+	got2, err := db.Get(key)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if string(got2) != "v" {
+		t.Fatalf("expected stored value to remain unchanged, got %q", got2)
 	}
 }
 
@@ -352,14 +329,12 @@ func TestBatchLenResetDelete(t *testing.T) {
 	}
 
 	// Verify "b" was written
-	got, closer, err := db.Get([]byte("b"))
+	got, err := db.Get([]byte("b"))
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	cloned := bytes.Clone(got)
-	_ = closer.Close()
-	if string(cloned) != "2" {
-		t.Fatalf("expected '2', got %q", cloned)
+	if string(got) != "2" {
+		t.Fatalf("expected '2', got %q", got)
 	}
 }
 
@@ -419,14 +394,12 @@ func TestFlush(t *testing.T) {
 	}
 
 	// Data should still be readable
-	got, closer, err := db.Get([]byte("flush-test"))
+	got, err := db.Get([]byte("flush-test"))
 	if err != nil {
 		t.Fatalf("Get after flush: %v", err)
 	}
-	cloned := bytes.Clone(got)
-	_ = closer.Close()
-	if string(cloned) != "val" {
-		t.Fatalf("expected 'val', got %q", cloned)
+	if string(got) != "val" {
+		t.Fatalf("expected 'val', got %q", got)
 	}
 }
 
