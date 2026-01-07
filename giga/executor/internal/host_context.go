@@ -3,6 +3,8 @@ package internal
 import (
 	"github.com/ethereum/evmc/v12/bindings/go/evmc"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/sei-protocol/sei-chain/giga/executor/precompiles"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -286,4 +288,9 @@ func (h *HostContext) getEVMRevision() evmc.Revision {
 		return evmc.Homestead
 	}
 	return evmc.Frontier
+}
+
+// To be called by an exported EVM create function which knows how to instantiate params like statedb.
+func createEVMWithFailFastPrecompile(blockContext vm.BlockContext, statedb vm.StateDB, chainConfig *params.ChainConfig, vmConfig vm.Config) *vm.EVM {
+	return vm.NewEVM(blockContext, statedb, chainConfig, vmConfig, precompiles.AllCustomPrecompilesFailFast)
 }
