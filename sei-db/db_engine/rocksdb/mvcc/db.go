@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/linxGnu/grocksdb"
-	"github.com/sei-protocol/sei-chain/sei-db/changelog/changelog"
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
@@ -21,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/util"
+	"github.com/sei-protocol/sei-chain/sei-db/wal/generic_wal"
 	"golang.org/x/exp/slices"
 )
 
@@ -65,7 +65,7 @@ type Database struct {
 	asyncWriteWG sync.WaitGroup
 
 	// Changelog used to support async write
-	streamHandler *changelog.Stream
+	streamHandler *generic_wal.WAL[proto.ChangelogEntry]
 
 	// Pending changes to be written to the DB
 	pendingChanges chan VersionedChangesets
@@ -112,10 +112,16 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	}
 	database.latestVersion.Store(latestVersion)
 
-	streamHandler, _ := changelog.NewStream(
+	streamHandler, _ := generic_wal.NewWAL(
+		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
+		func(data []byte) (proto.ChangelogEntry, error) {
+			var e proto.ChangelogEntry
+			err := e.Unmarshal(data)
+			return e, err
+		},
 		logger.NewNopLogger(),
 		utils.GetChangelogPath(dataDir),
-		changelog.Config{
+		generic_wal.Config{
 			DisableFsync:  true,
 			ZeroCopy:      true,
 			KeepRecent:    uint64(config.KeepRecent),
@@ -263,7 +269,7 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 		}
 		entry.Changesets = changesets
 		entry.Upgrades = nil
-		err := db.streamHandler.WriteNextEntry(entry)
+		err := db.streamHandler.Write(entry)
 		if err != nil {
 			return err
 		}

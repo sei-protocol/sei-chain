@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/alitto/pond"
-	"github.com/sei-protocol/sei-chain/sei-db/changelog/types"
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/wal/types"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"golang.org/x/exp/slices"
 )
@@ -355,7 +355,7 @@ func (t *MultiTree) UpdateCommitInfo() {
 }
 
 // Catchup replay the new entries in the Rlog file on the tree to catch up to the target or latest version.
-func (t *MultiTree) Catchup(ctx context.Context, stream types.Stream[proto.ChangelogEntry], endVersion int64) error {
+func (t *MultiTree) Catchup(ctx context.Context, stream types.GenericWAL[proto.ChangelogEntry], endVersion int64) error {
 	startTime := time.Now()
 	lastIndex, err := stream.LastOffset()
 	if err != nil {

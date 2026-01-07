@@ -19,6 +19,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// writeToWAL is a test helper that writes pending changes to WAL.
+// In production, CommitStore handles this. Tests that need WAL replay use this helper.
+func writeToWAL(t *testing.T, db *DB, changesets []*proto.NamedChangeSet, upgrades []*proto.TreeNameUpgrade) {
+	t.Helper()
+	wal := db.GetWAL()
+	if wal == nil {
+		return
+	}
+	entry := proto.ChangelogEntry{
+		Version:    db.WorkingCommitInfo().Version,
+		Changesets: changesets,
+		Upgrades:   upgrades,
+	}
+	require.NoError(t, wal.Write(entry))
+}
+
+// initialUpgrades converts InitialStores names to TreeNameUpgrade slice for WAL writing.
+func initialUpgrades(stores []string) []*proto.TreeNameUpgrade {
+	var upgrades []*proto.TreeNameUpgrade
+	for _, name := range stores {
+		upgrades = append(upgrades, &proto.TreeNameUpgrade{Name: name})
+	}
+	return upgrades
+}
+
 func TestRewriteSnapshot(t *testing.T) {
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 		Dir:             t.TempDir(),
@@ -229,14 +254,15 @@ func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 
 func TestRlog(t *testing.T) {
 	dir := t.TempDir()
+	initialStores := []string{"test", "delete"}
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
-		InitialStores:   []string{"test", "delete"},
+		InitialStores:   initialStores,
 	})
 	require.NoError(t, err)
 
-	for _, changes := range ChangeSets {
+	for i, changes := range ChangeSets {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name:      "test",
@@ -244,13 +270,19 @@ func TestRlog(t *testing.T) {
 			},
 		}
 		require.NoError(t, db.ApplyChangeSets(cs))
+		// First WAL entry must include initial upgrades for replay to work
+		if i == 0 {
+			writeToWAL(t, db, cs, initialUpgrades(initialStores))
+		} else {
+			writeToWAL(t, db, cs, nil)
+		}
 		_, err := db.Commit()
 		require.NoError(t, err)
 	}
 
 	require.Equal(t, 2, len(db.lastCommitInfo.StoreInfos))
 
-	require.NoError(t, db.ApplyUpgrades([]*proto.TreeNameUpgrade{
+	upgrades := []*proto.TreeNameUpgrade{
 		{
 			Name:       "newtest",
 			RenameFrom: "test",
@@ -259,7 +291,9 @@ func TestRlog(t *testing.T) {
 			Name:   "delete",
 			Delete: true,
 		},
-	}))
+	}
+	require.NoError(t, db.ApplyUpgrades(upgrades))
+	writeToWAL(t, db, nil, upgrades)
 	_, err = db.Commit()
 	require.NoError(t, err)
 
@@ -296,14 +330,18 @@ func TestInitialVersion(t *testing.T) {
 	value := "world"
 	for _, initialVersion := range []int64{0, 1, 100} {
 		dir := t.TempDir()
+		initialStores := []string{name}
 		db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 			Dir:             dir,
 			CreateIfMissing: true,
-			InitialStores:   []string{name},
+			InitialStores:   initialStores,
 		})
 		require.NoError(t, err)
 		db.SetInitialVersion(initialVersion)
-		require.NoError(t, db.ApplyChangeSets(mockNameChangeSet(name, key, value)))
+		cs1 := mockNameChangeSet(name, key, value)
+		require.NoError(t, db.ApplyChangeSets(cs1))
+		// First WAL entry must include initial upgrades for replay to work
+		writeToWAL(t, db, cs1, initialUpgrades(initialStores))
 		v, err := db.Commit()
 		require.NoError(t, err)
 		if initialVersion <= 1 {
@@ -313,7 +351,9 @@ func TestInitialVersion(t *testing.T) {
 		}
 		hash := db.LastCommitInfo().StoreInfos[0].CommitId.Hash
 		require.Equal(t, "6032661ab0d201132db7a8fa1da6a0afe427e6278bd122c301197680ab79ca02", hex.EncodeToString(hash))
-		require.NoError(t, db.ApplyChangeSets(mockNameChangeSet(name, key, "world1")))
+		cs2 := mockNameChangeSet(name, key, "world1")
+		require.NoError(t, db.ApplyChangeSets(cs2))
+		writeToWAL(t, db, cs2, nil)
 		v, err = db.Commit()
 		require.NoError(t, err)
 		hash = db.LastCommitInfo().StoreInfos[0].CommitId.Hash
@@ -333,8 +373,11 @@ func TestInitialVersion(t *testing.T) {
 		require.Equal(t, v, db.Version())
 		require.Equal(t, hex.EncodeToString(hash), hex.EncodeToString(db.LastCommitInfo().StoreInfos[0].CommitId.Hash))
 
-		db.ApplyUpgrades([]*proto.TreeNameUpgrade{{Name: name1}})
-		require.NoError(t, db.ApplyChangeSets(mockNameChangeSet(name1, key, value)))
+		upgrades1 := []*proto.TreeNameUpgrade{{Name: name1}}
+		db.ApplyUpgrades(upgrades1)
+		cs3 := mockNameChangeSet(name1, key, value)
+		require.NoError(t, db.ApplyChangeSets(cs3))
+		writeToWAL(t, db, cs3, upgrades1)
 		v, err = db.Commit()
 		require.NoError(t, err)
 		if initialVersion <= 1 {
@@ -353,8 +396,11 @@ func TestInitialVersion(t *testing.T) {
 		require.NoError(t, db.RewriteSnapshot(context.Background()))
 		require.NoError(t, db.Reload())
 
-		db.ApplyUpgrades([]*proto.TreeNameUpgrade{{Name: name2}})
-		require.NoError(t, db.ApplyChangeSets(mockNameChangeSet(name2, key, value)))
+		upgrades2 := []*proto.TreeNameUpgrade{{Name: name2}}
+		db.ApplyUpgrades(upgrades2)
+		cs4 := mockNameChangeSet(name2, key, value)
+		require.NoError(t, db.ApplyChangeSets(cs4))
+		writeToWAL(t, db, cs4, upgrades2)
 		v, err = db.Commit()
 		require.NoError(t, err)
 		if initialVersion <= 1 {
@@ -372,10 +418,11 @@ func TestInitialVersion(t *testing.T) {
 
 func TestLoadVersion(t *testing.T) {
 	dir := t.TempDir()
+	initialStores := []string{"test"}
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
-		InitialStores:   []string{"test"},
+		InitialStores:   initialStores,
 	})
 	require.NoError(t, err)
 
@@ -392,6 +439,12 @@ func TestLoadVersion(t *testing.T) {
 			// check the root hash
 			require.Equal(t, RefHashes[db.Version()], db.WorkingCommitInfo().StoreInfos[0].CommitId.Hash)
 
+			// First WAL entry must include initial upgrades for replay to work
+			if i == 0 {
+				writeToWAL(t, db, cs, initialUpgrades(initialStores))
+			} else {
+				writeToWAL(t, db, cs, nil)
+			}
 			_, err := db.Commit()
 			require.NoError(t, err)
 		})
@@ -483,15 +536,16 @@ func TestRlogIndexConversion(t *testing.T) {
 
 func TestEmptyValue(t *testing.T) {
 	dir := t.TempDir()
+	initialStores := []string{"test"}
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 		Dir:             dir,
-		InitialStores:   []string{"test"},
+		InitialStores:   initialStores,
 		CreateIfMissing: true,
 		ZeroCopy:        true,
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
+	cs1 := []*proto.NamedChangeSet{
 		{Name: "test", Changeset: iavl.ChangeSet{
 			Pairs: []*iavl.KVPair{
 				{Key: []byte("hello1"), Value: []byte("")},
@@ -499,15 +553,20 @@ func TestEmptyValue(t *testing.T) {
 				{Key: []byte("hello3"), Value: []byte("")},
 			},
 		}},
-	}))
+	}
+	require.NoError(t, db.ApplyChangeSets(cs1))
+	// First WAL entry must include initial upgrades for replay to work
+	writeToWAL(t, db, cs1, initialUpgrades(initialStores))
 	_, err = db.Commit()
 	require.NoError(t, err)
 
-	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
+	cs2 := []*proto.NamedChangeSet{
 		{Name: "test", Changeset: iavl.ChangeSet{
 			Pairs: []*iavl.KVPair{{Key: []byte("hello1"), Delete: true}},
 		}},
-	}))
+	}
+	require.NoError(t, db.ApplyChangeSets(cs2))
+	writeToWAL(t, db, cs2, nil)
 	version, err := db.Commit()
 	require.NoError(t, err)
 
@@ -623,14 +682,16 @@ func TestRepeatedApplyChangeSet(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Note: Multiple ApplyChangeSets calls are now allowed at DB level.
+	// The "one changeset per tree per version" validation is enforced by CommitStore.
 	err = db.ApplyChangeSets([]*proto.NamedChangeSet{{Name: "test1"}})
-	require.Error(t, err)
+	require.NoError(t, err)
 	err = db.ApplyChangeSet("test1", iavl.ChangeSet{
 		Pairs: []*iavl.KVPair{
 			{Key: []byte("hello2"), Value: []byte("world2")},
 		},
 	})
-	require.Error(t, err)
+	require.NoError(t, err)
 
 	_, err = db.Commit()
 	require.NoError(t, err)
@@ -648,18 +709,20 @@ func TestRepeatedApplyChangeSet(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Note: At DB level, multiple ApplyChangeSet calls with the same tree name are now allowed.
+	// The "one changeset per tree per version" validation is enforced by CommitStore.
 	err = db.ApplyChangeSet("test1", iavl.ChangeSet{
 		Pairs: []*iavl.KVPair{
 			{Key: []byte("hello2"), Value: []byte("world2")},
 		},
 	})
-	require.Error(t, err)
+	require.NoError(t, err)
 	err = db.ApplyChangeSet("test2", iavl.ChangeSet{
 		Pairs: []*iavl.KVPair{
 			{Key: []byte("hello2"), Value: []byte("world2")},
 		},
 	})
-	require.Error(t, err)
+	require.NoError(t, err)
 }
 
 func TestLoadMultiTreeWithCancelledContext(t *testing.T) {

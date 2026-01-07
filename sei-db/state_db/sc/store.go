@@ -19,6 +19,9 @@ type CommitStore struct {
 	logger logger.Logger
 	db     *memiavl.DB
 	opts   memiavl.Options
+
+	// pending changes to be written to WAL on next Commit
+	pendingLogEntry proto.ChangelogEntry
 }
 
 func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCommitConfig) *CommitStore {
@@ -96,6 +99,26 @@ func (cs *CommitStore) LoadVersion(targetVersion int64, copyExisting bool) (type
 }
 
 func (cs *CommitStore) Commit() (int64, error) {
+	// Get the next version that will be committed
+	nextVersion := cs.db.WorkingCommitInfo().Version
+
+	// Write to WAL first (ensures durability before tree commit)
+	wal := cs.db.GetWAL()
+	if wal != nil {
+		cs.pendingLogEntry.Version = nextVersion
+		if err := wal.Write(cs.pendingLogEntry); err != nil {
+			return 0, fmt.Errorf("failed to write to WAL: %w", err)
+		}
+		// Check for async write errors
+		if err := wal.CheckError(); err != nil {
+			return 0, fmt.Errorf("WAL async write error: %w", err)
+		}
+	}
+
+	// Clear pending entry
+	cs.pendingLogEntry = proto.ChangelogEntry{}
+
+	// Now commit to the tree
 	return cs.db.Commit()
 }
 
@@ -112,10 +135,26 @@ func (cs *CommitStore) GetEarliestVersion() (int64, error) {
 }
 
 func (cs *CommitStore) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
+	if len(changesets) == 0 {
+		return nil
+	}
+
+	// Store in pending log entry for WAL
+	cs.pendingLogEntry.Changesets = changesets
+
+	// Apply to tree
 	return cs.db.ApplyChangeSets(changesets)
 }
 
 func (cs *CommitStore) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
+	if len(upgrades) == 0 {
+		return nil
+	}
+
+	// Store in pending log entry for WAL
+	cs.pendingLogEntry.Upgrades = append(cs.pendingLogEntry.Upgrades, upgrades...)
+
+	// Apply to tree
 	return cs.db.ApplyUpgrades(upgrades)
 }
 
@@ -135,27 +174,21 @@ func (cs *CommitStore) Exporter(version int64) (types.Exporter, error) {
 	if version < 0 || version > math.MaxUint32 {
 		return nil, fmt.Errorf("version %d out of range", version)
 	}
-
-	exporter, err := memiavl.NewMultiTreeExporter(cs.opts.Dir, uint32(version), cs.opts.OnlyAllowExportOnSnapshotVersion)
-	if err != nil {
-		return nil, err
-	}
-	return exporter, nil
+	return memiavl.NewMultiTreeExporter(cs.opts.Dir, uint32(version), cs.opts.OnlyAllowExportOnSnapshotVersion)
 }
 
 func (cs *CommitStore) Importer(version int64) (types.Importer, error) {
-
 	if version < 0 || version > math.MaxUint32 {
 		return nil, fmt.Errorf("version %d out of range", version)
 	}
-
-	treeImporter, err := memiavl.NewMultiTreeImporter(cs.opts.Dir, uint64(version))
-	if err != nil {
-		return nil, err
-	}
-	return treeImporter, nil
+	return memiavl.NewMultiTreeImporter(cs.opts.Dir, uint64(version))
 }
 
 func (cs *CommitStore) Close() error {
-	return cs.db.Close()
+	if cs.db != nil {
+		err := cs.db.Close()
+		cs.db = nil
+		return err
+	}
+	return nil
 }

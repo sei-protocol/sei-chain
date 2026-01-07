@@ -1,10 +1,10 @@
-package changelog
+package generic_wal
 
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/changelog/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/wal/types"
 )
 
 var _ types.Subscriber[proto.ChangelogEntry] = (*Subscriber)(nil)
@@ -47,6 +47,7 @@ func (s *Subscriber) startAsyncProcessing() {
 	if s.chPendingEntries == nil {
 		s.chPendingEntries = make(chan proto.ChangelogEntry, s.maxPendingSize)
 		s.errSignal = make(chan error)
+		s.stopSignal = make(chan struct{})
 		go func() {
 			defer close(s.errSignal)
 			for {
@@ -64,7 +65,7 @@ func (s *Subscriber) startAsyncProcessing() {
 }
 
 func (s *Subscriber) Close() error {
-	if s.chPendingEntries != nil {
+	if s.chPendingEntries == nil {
 		return nil
 	}
 	s.stopSignal <- struct{}{}
@@ -72,6 +73,7 @@ func (s *Subscriber) Close() error {
 	err := s.CheckError()
 	s.chPendingEntries = nil
 	s.errSignal = nil
+	s.stopSignal = nil
 	return err
 }
 

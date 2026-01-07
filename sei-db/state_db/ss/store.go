@@ -3,13 +3,13 @@ package ss
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/changelog/changelog"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/wal/generic_wal"
 )
 
 type BackendType string
@@ -61,7 +61,17 @@ func NewStateStore(logger logger.Logger, homeDir string, ssConfig config.StateSt
 func RecoverStateStore(logger logger.Logger, changelogPath string, stateStore types.StateStore) error {
 	ssLatestVersion := stateStore.GetLatestVersion()
 	logger.Info(fmt.Sprintf("Recovering from changelog %s with latest SS version %d", changelogPath, ssLatestVersion))
-	streamHandler, err := changelog.NewStream(logger, changelogPath, changelog.Config{})
+	streamHandler, err := generic_wal.NewWAL(
+		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
+		func(data []byte) (proto.ChangelogEntry, error) {
+			var e proto.ChangelogEntry
+			err := e.Unmarshal(data)
+			return e, err
+		},
+		logger,
+		changelogPath,
+		generic_wal.Config{},
+	)
 	if err != nil {
 		return err
 	}
