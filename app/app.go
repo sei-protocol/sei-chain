@@ -29,9 +29,11 @@ import (
 	"github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/cosmos/cosmos-sdk/tasks"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/cosmos/cosmos-sdk/types/occ"
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/cosmos-sdk/x/auth"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
@@ -91,8 +93,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	gigaevmc "github.com/sei-protocol/sei-chain/giga/executor/vm/evmc"
-	evmstate "github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
@@ -103,6 +103,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
+	gigaevmc "github.com/sei-protocol/sei-chain/giga/executor/vm/evmc"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ss"
@@ -131,6 +132,7 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
+	evmstate "github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/mint"
 	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
@@ -674,8 +676,13 @@ func New(
 		panic(fmt.Sprintf("error reading giga executor config due to %s", err))
 	}
 	app.EvmKeeper.GigaExecutorEnabled = gigaExecutorConfig.Enabled
+	app.EvmKeeper.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
 	if gigaExecutorConfig.Enabled {
-		logger.Info("benchmark: Giga Executor (evmone-based) is ENABLED - using new EVM execution path")
+		if gigaExecutorConfig.OCCEnabled {
+			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")
+		} else {
+			logger.Info("benchmark: Giga Executor (evmone-based) is ENABLED - using new EVM execution path (sequential)")
+		}
 	} else {
 		logger.Info("benchmark: Giga Executor is DISABLED - using default GETH interpreter")
 	}
@@ -1456,6 +1463,9 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	// Route to Giga Executor when enabled - bypasses Cosmos SDK transaction processing
 	if app.EvmKeeper.GigaExecutorEnabled {
+		if app.EvmKeeper.GigaOCCEnabled {
+			return app.ProcessBlockWithGigaExecutorOCC(ctx, txs, req, lastCommit, simulate)
+		}
 		return app.ProcessBlockWithGigaExecutor(ctx, txs, req, lastCommit, simulate)
 	}
 
@@ -1532,7 +1542,6 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 		}
 	}()
 
-
 	// Setup context like original ProcessBlock
 	ctx = ctx.WithIsOCCEnabled(false) // Disable OCC for giga executor path
 
@@ -1607,7 +1616,6 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 	// EndBlock
 	endBlockResp = app.EndBlock(ctx, req.GetHeight(), evmTotalGasUsed)
 	events = append(events, endBlockResp.Events...)
-
 
 	return events, txResults, endBlockResp, nil
 }
@@ -1710,6 +1718,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 		code = 1
 	}
 
+	//nolint:gosec // G115: safe, UsedGas won't exceed int64 max
 	return &abci.ExecTxResult{
 		Code:    code,
 		GasUsed: int64(execResult.UsedGas),
@@ -1720,6 +1729,150 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 			Nonce:   ethTx.Nonce(),
 		},
 	}, nil
+}
+
+// ProcessBlockWithGigaExecutorOCC executes block transactions using the Giga executor with OCC.
+// This combines the lean giga executor path with parallel execution and conflict detection.
+func (app *App) ProcessBlockWithGigaExecutorOCC(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
+	// Panic recovery
+	defer func() {
+		if r := recover(); r != nil {
+			stack := string(debug.Stack())
+			ctx.Logger().Error("benchmark panic in ProcessBlockWithGigaExecutorOCC", "panic", r, "height", req.GetHeight(), "txCount", len(txs), "stack", stack)
+			err = fmt.Errorf("ProcessBlockWithGigaExecutorOCC panic: %v", r)
+			events = nil
+			txResults = nil
+			endBlockResp = abci.ResponseEndBlock{}
+		}
+	}()
+
+	// Setup context - OCC is enabled for this path
+	ctx = ctx.WithIsOCCEnabled(true)
+
+	blockSpanCtx, blockSpan := app.GetBaseApp().TracingInfo.Start("GigaBlockOCC")
+	defer blockSpan.End()
+	blockSpan.SetAttributes(attribute.Int64("height", req.GetHeight()))
+	ctx = ctx.WithTraceSpanContext(blockSpanCtx)
+
+	events = []abci.Event{}
+
+	// BeginBlock
+	beginBlockResp := app.BeginBlock(ctx, req.GetHeight(), lastCommit.Votes, req.GetByzantineValidators(), true)
+	events = append(events, beginBlockResp.Events...)
+
+	// Build DeliverTxEntry list for OCC scheduler
+	txEntries := make([]*sdk.DeliverTxEntry, 0, len(txs))
+	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs))
+
+	for i, txBytes := range txs {
+		decodedTx, decodeErr := app.txDecoder(txBytes)
+		if decodeErr != nil {
+			continue
+		}
+		evmMsg := app.GetEVMMsg(decodedTx)
+		if evmMsg == nil {
+			continue
+		}
+		evmTxs[i] = evmMsg
+		checksum := sha256.Sum256(txBytes)
+		txEntries = append(txEntries, &sdk.DeliverTxEntry{
+			Request:       abci.RequestDeliverTxV2{Tx: txBytes},
+			SdkTx:         decodedTx,
+			Checksum:      checksum,
+			AbsoluteIndex: i,
+		})
+	}
+
+	// Create OCC scheduler with giga executor deliverTx
+	scheduler := tasks.NewScheduler(
+		app.ConcurrencyWorkers(),
+		app.TracingInfo,
+		app.gigaDeliverTx,
+	)
+
+	responses, schedErr := scheduler.ProcessAll(ctx, txEntries)
+	if schedErr != nil {
+		ctx.Logger().Error("benchmark OCC scheduler error", "error", schedErr, "height", req.GetHeight(), "txCount", len(txEntries))
+		return nil, nil, abci.ResponseEndBlock{}, schedErr
+	}
+
+	// Convert responses to ExecTxResult
+	txResults = make([]*abci.ExecTxResult, len(txs))
+	evmTotalGasUsed := int64(0)
+	for i, resp := range responses {
+		idx := txEntries[i].AbsoluteIndex
+		txResults[idx] = &abci.ExecTxResult{
+			Code:      resp.Code,
+			Data:      resp.Data,
+			Log:       resp.Log,
+			Info:      resp.Info,
+			GasWanted: resp.GasWanted,
+			GasUsed:   resp.GasUsed,
+			Events:    resp.Events,
+			Codespace: resp.Codespace,
+			EvmTxInfo: resp.EvmTxInfo,
+		}
+		evmTotalGasUsed += resp.GasUsed
+	}
+
+	// Fill in nil results for non-EVM or failed decode txs
+	for i := range txResults {
+		if txResults[i] == nil {
+			txResults[i] = &abci.ExecTxResult{
+				Code: 1,
+				Log:  "transaction not processed by giga executor OCC",
+			}
+		}
+	}
+
+	app.EvmKeeper.SetTxResults(txResults)
+	app.EvmKeeper.SetMsgs(evmTxs)
+
+	// Finalize bank transfers
+	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
+	events = append(events, lazyWriteEvents...)
+
+	// EndBlock
+	endBlockResp = app.EndBlock(ctx, req.GetHeight(), evmTotalGasUsed)
+	events = append(events, endBlockResp.Events...)
+
+	return events, txResults, endBlockResp, nil
+}
+
+// gigaDeliverTx is the OCC-compatible deliverTx function for the giga executor.
+// The ctx.MultiStore() is already wrapped with VersionIndexedStore by the scheduler.
+func (app *App) gigaDeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
+	defer func() {
+		if r := recover(); r != nil {
+			// OCC abort panics are expected - the scheduler uses them to detect conflicts
+			// and reschedule transactions. Don't log these as errors.
+			if _, isOCCAbort := r.(occ.Abort); !isOCCAbort {
+				ctx.Logger().Error("benchmark panic in gigaDeliverTx", "panic", r, "stack", string(debug.Stack()))
+			}
+		}
+	}()
+
+	evmMsg := app.GetEVMMsg(tx)
+	if evmMsg == nil {
+		return abci.ResponseDeliverTx{Code: 1, Log: "not an EVM transaction"}
+	}
+
+	result, err := app.executeEVMTxWithGigaExecutor(ctx, ctx.TxIndex(), evmMsg)
+	if err != nil {
+		return abci.ResponseDeliverTx{Code: 1, Log: fmt.Sprintf("giga executor error: %v", err)}
+	}
+
+	return abci.ResponseDeliverTx{
+		Code:      result.Code,
+		Data:      result.Data,
+		Log:       result.Log,
+		Info:      result.Info,
+		GasWanted: result.GasWanted,
+		GasUsed:   result.GasUsed,
+		Events:    result.Events,
+		Codespace: result.Codespace,
+		EvmTxInfo: result.EvmTxInfo,
+	}
 }
 
 func (app *App) GetEVMMsg(tx sdk.Tx) (res *evmtypes.MsgEVMTransaction) {

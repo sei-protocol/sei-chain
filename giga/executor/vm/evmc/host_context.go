@@ -107,7 +107,7 @@ func (h *HostContext) Selfdestruct(addr evmc.Address, beneficiary evmc.Address) 
 
 func (h *HostContext) GetTxContext() evmc.TxContext {
 	var gasPrice evmc.Hash
-	h.evm.TxContext.GasPrice.FillBytes(gasPrice[:])
+	h.evm.GasPrice.FillBytes(gasPrice[:])
 
 	var prevRandao evmc.Hash
 	if h.evm.Context.Random != nil {
@@ -123,9 +123,10 @@ func (h *HostContext) GetTxContext() evmc.TxContext {
 	var blobBaseFee evmc.Hash
 	h.evm.Context.BlobBaseFee.FillBytes(blobBaseFee[:])
 
+	//nolint:gosec // G115: safe integer conversions for Time and GasLimit
 	return evmc.TxContext{
 		GasPrice:    gasPrice,
-		Origin:      evmc.Address(h.evm.TxContext.Origin),
+		Origin:      evmc.Address(h.evm.Origin),
 		Coinbase:    evmc.Address(h.evm.Context.Coinbase),
 		Number:      h.evm.Context.BlockNumber.Int64(),
 		Timestamp:   int64(h.evm.Context.Time),
@@ -138,6 +139,7 @@ func (h *HostContext) GetTxContext() evmc.TxContext {
 }
 
 func (h *HostContext) GetBlockHash(number int64) evmc.Hash {
+	//nolint:gosec // G115: safe, block numbers are always positive
 	return evmc.Hash(h.evm.Context.GetHash(uint64(number)))
 }
 
@@ -172,6 +174,7 @@ func (h *HostContext) Call(
 		var err error
 		var createAddr common.Address
 
+		//nolint:gosec // G115: safe integer conversions for gas values
 		switch kind {
 		case evmc.Call:
 			if static {
@@ -182,7 +185,7 @@ func (h *HostContext) Call(
 		case evmc.DelegateCall:
 			// DelegateCall signature: (originCaller, caller, addr, input, gas, value)
 			// In delegate call, the sender is the origin, recipient is the target
-			ret, leftoverGas, err = h.evm.DelegateCall(h.evm.TxContext.Origin, senderAddr, recipientAddr, input, uint64(gas), valueUint256)
+			ret, leftoverGas, err = h.evm.DelegateCall(h.evm.Origin, senderAddr, recipientAddr, input, uint64(gas), valueUint256)
 		case evmc.CallCode:
 			ret, leftoverGas, err = h.evm.CallCode(senderAddr, recipientAddr, input, uint64(gas), valueUint256)
 		case evmc.Create:
@@ -197,6 +200,7 @@ func (h *HostContext) Call(
 			ret, leftoverGas, err = h.evm.StaticCall(senderAddr, recipientAddr, input, uint64(gas))
 		}
 
+		//nolint:gosec // G115: safe, leftoverGas won't exceed int64 max
 		return ret, int64(leftoverGas), 0, evmc.Address{}, err
 	}
 
