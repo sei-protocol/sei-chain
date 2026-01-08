@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/tidwall/wal"
@@ -25,7 +26,7 @@ type WAL[T any] struct {
 	writeChannel chan T
 	errSignal    chan error
 	nextOffset   uint64
-	isClosed     bool
+	isClosed     atomic.Bool
 }
 
 type Config struct {
@@ -70,7 +71,7 @@ func NewWAL[T any](
 		logger:    logger,
 		marshal:   marshal,
 		unmarshal: unmarshal,
-		isClosed:  false,
+		// isClosed is zero-initialized to false (atomic.Bool)
 	}
 	// Finding the nextOffset to write
 	lastIndex, err := log.LastIndex()
@@ -219,7 +220,7 @@ func (walLog *WAL[T]) Replay(start uint64, end uint64, processFn func(index uint
 }
 
 func (walLog *WAL[T]) StartPruning(keepRecent uint64, pruneInterval time.Duration) {
-	for !walLog.isClosed {
+	for !walLog.isClosed.Load() {
 		lastIndex, _ := walLog.log.LastIndex()
 		firstIndex, _ := walLog.log.FirstIndex()
 		if lastIndex > keepRecent && (lastIndex-keepRecent) > firstIndex {
@@ -233,7 +234,7 @@ func (walLog *WAL[T]) StartPruning(keepRecent uint64, pruneInterval time.Duratio
 }
 
 func (walLog *WAL[T]) Close() error {
-	walLog.isClosed = true
+	walLog.isClosed.Store(true)
 	var err error
 	if walLog.writeChannel != nil {
 		close(walLog.writeChannel)
