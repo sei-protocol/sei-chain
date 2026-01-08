@@ -86,7 +86,7 @@ sed -i.bak -e 's/ss-enable = .*/ss-enable = true/' $APP_TOML_PATH
 if [ "$GIGA_EXECUTOR" = true ]; then
   echo "Enabling Giga Executor (evmone-based EVM)..."
   if grep -q "\[giga_executor\]" $APP_TOML_PATH; then
-    # If the section exists, update it
+    # If the section exists, update enabled to true
     if [[ "$OSTYPE" == "darwin"* ]]; then
       sed -i '' '/\[giga_executor\]/,/^\[/ s/enabled = false/enabled = true/' $APP_TOML_PATH
     else
@@ -99,33 +99,21 @@ if [ "$GIGA_EXECUTOR" = true ]; then
     echo "enabled = true" >> $APP_TOML_PATH
     echo "occ_enabled = false" >> $APP_TOML_PATH
   fi
-fi
 
-# Enable OCC for Giga Executor if requested
-if [ "$GIGA_OCC" = true ]; then
-  echo "Enabling OCC for Giga Executor..."
-  if grep -q "occ_enabled" $APP_TOML_PATH; then
-    # If occ_enabled exists, update it
+  # Set OCC based on GIGA_OCC flag
+  if [ "$GIGA_OCC" = true ]; then
+    echo "Enabling OCC for Giga Executor..."
     if [[ "$OSTYPE" == "darwin"* ]]; then
       sed -i '' 's/occ_enabled = false/occ_enabled = true/' $APP_TOML_PATH
     else
       sed -i 's/occ_enabled = false/occ_enabled = true/' $APP_TOML_PATH
     fi
   else
-    # If occ_enabled doesn't exist but giga_executor section does, add it
-    if grep -q "\[giga_executor\]" $APP_TOML_PATH; then
-      if [[ "$OSTYPE" == "darwin"* ]]; then
-        sed -i '' '/\[giga_executor\]/a\
-occ_enabled = true' $APP_TOML_PATH
-      else
-        sed -i '/\[giga_executor\]/a occ_enabled = true' $APP_TOML_PATH
-      fi
+    echo "Disabling OCC for Giga Executor (sequential mode)..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' 's/occ_enabled = true/occ_enabled = false/' $APP_TOML_PATH
     else
-      # If giga_executor section doesn't exist, add both
-      echo "" >> $APP_TOML_PATH
-      echo "[giga_executor]" >> $APP_TOML_PATH
-      echo "enabled = true" >> $APP_TOML_PATH
-      echo "occ_enabled = true" >> $APP_TOML_PATH
+      sed -i 's/occ_enabled = true/occ_enabled = false/' $APP_TOML_PATH
     fi
   fi
 fi
