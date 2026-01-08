@@ -30,7 +30,7 @@ func newMConnection(conn net.Conn) *MConnection {
 }
 
 func newMConnectionWithCh(
-	conn net.Conn,
+	conn Conn,
 	chDescs []*ChannelDescriptor,
 ) *MConnection {
 	cfg := DefaultMConnConfig()

@@ -22,6 +22,13 @@ import (
 	"github.com/tendermint/tendermint/proto/tendermint/p2p"
 )
 
+type Conn interface {
+	io.Reader
+	io.Writer
+	io.Closer
+	Flush() error
+}
+
 func IsDisconnect(err error) bool {
 	return errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) || utils.ErrorAs[*net.OpError](err).IsPresent()
 }
@@ -103,7 +110,7 @@ initialization of the connection.
 type MConnection struct {
 	logger log.Logger
 
-	conn      net.Conn
+	conn      Conn
 	sendQueue utils.Watch[*sendQueue]
 	recvPong  utils.Mutex[*utils.AtomicSend[bool]]
 	recvCh    chan mConnMessage
@@ -180,7 +187,7 @@ func (q *sendQueue) setFlush(t time.Time) {
 // NewMConnection wraps net.Conn and creates multiplex connection with a config
 func NewMConnection(
 	logger log.Logger,
-	conn net.Conn,
+	conn Conn,
 	chDescs []*ChannelDescriptor,
 	config MConnConfig,
 ) *MConnection {
@@ -209,10 +216,6 @@ func (c *MConnection) Run(ctx context.Context) error {
 		c.conn.Close()
 		return nil
 	})
-}
-
-func (c *MConnection) String() string {
-	return fmt.Sprintf("MConn{%v}", c.conn.RemoteAddr())
 }
 
 // Queues a message to be sent.
@@ -359,8 +362,7 @@ func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 	const minWriteBufferSize = 65536
 	maxPacketMsgSize := c.maxPacketMsgSize()
 	limiter := rate.NewLimiter(c.config.getSendRateLimit(), max(maxPacketMsgSize, int(c.config.SendRate)))
-	bufWriter := bufio.NewWriterSize(c.conn, minWriteBufferSize)
-	protoWriter := protoio.NewDelimitedWriter(bufWriter)
+	protoWriter := protoio.NewDelimitedWriter(c.conn)
 	for {
 		msg, err := c.popSendQueue(ctx)
 		if err != nil {
@@ -376,7 +378,7 @@ func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 			}
 		} else {
 			c.logger.Debug("Flush", "conn", c)
-			if err := bufWriter.Flush(); err != nil {
+			if err := c.conn.Flush(); err != nil {
 				return fmt.Errorf("bufWriter.Flush(): %w", err)
 			}
 		}
