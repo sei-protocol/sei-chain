@@ -1,0 +1,63 @@
+name: ECR
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '`sei-chain` git ref'
+        required: true
+        type: string
+      tag:
+        description: 'Tag'
+        required: false
+
+jobs:
+  publisher:
+    name: Publish Container
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - name: AWS Login
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-2
+          role-to-assume: arn:aws:iam::189176372795:role/common/gha
+          role-duration-seconds: 900
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build and push seid with mock balances
+        uses: docker/build-push-action@v6
+        with:
+          context: '.'
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:mock-${{ inputs.tag || inputs.ref || github.sha }}
+          build-args: |
+            SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
+            SEI_CHAIN_BUILD_TAGS=mock_balances
+      - name: Build and push seid
+        uses: docker/build-push-action@v6
+        with:
+          context: '.'
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ inputs.tag || inputs.ref || github.sha }}
+          build-args: |
+            SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
