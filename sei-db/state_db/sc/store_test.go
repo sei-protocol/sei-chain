@@ -4,11 +4,12 @@ import (
 	"math"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
-	"github.com/stretchr/testify/require"
 )
 
 func TestNewCommitStore(t *testing.T) {
@@ -873,8 +874,8 @@ func TestWALTruncationOnCommit(t *testing.T) {
 
 	// Configure with snapshot interval to trigger snapshot creation
 	cfg := config.StateCommitConfig{
-		SnapshotInterval:   2,  // Create snapshot every 2 blocks
-		SnapshotKeepRecent: 1,  // Keep only 1 recent snapshot
+		SnapshotInterval:   2, // Create snapshot every 2 blocks
+		SnapshotKeepRecent: 1, // Keep only 1 recent snapshot
 	}
 	cs := NewCommitStore(dir, logger.NewNopLogger(), cfg)
 	cs.Initialize([]string{"test"})
