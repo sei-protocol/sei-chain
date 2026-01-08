@@ -1,3 +1,6 @@
+ARG SEICTL_VERSION=v0.0.5@sha256:268fc871e8358e706f505f0ce9ef318761e0d00d317716e9d87218734ae1a81c
+
+FROM ghcr.io/sei-protocol/seictl:${SEICTL_VERSION} AS seictl
 FROM docker.io/golang:1.24-bookworm@sha256:fc58bb98c4b7ebc8211c94df9dee40489e48363c69071bceca91aa59023b0dee AS builder
 WORKDIR /go/src/sei-chain
 
@@ -51,6 +54,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /go/bin/seid /go/bin/price-feeder /usr/bin/
+COPY --from=seictl /usr/bin/seictl /usr/bin/
 COPY --from=builder /go/lib/*.so /usr/lib/
 
 ENTRYPOINT ["/usr/bin/seid"]
