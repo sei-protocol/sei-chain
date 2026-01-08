@@ -226,6 +226,7 @@ func (cs *CommitStore) tryTruncateWAL() {
 	// Compute WAL's earliest version using delta
 	// delta = firstVersion - firstIndex, so firstVersion = firstIndex + delta
 	walDelta := cs.db.GetWALIndexDelta()
+	// #nosec G115 -- WAL indices are always much smaller than MaxInt64 in practice
 	walEarliestVersion := int64(firstWALIndex) + walDelta
 
 	// If WAL's earliest version is less than snapshot's earliest version,
@@ -234,7 +235,8 @@ func (cs *CommitStore) tryTruncateWAL() {
 		// Truncate WAL entries with version < earliestSnapshotVersion
 		// WAL index for earliestSnapshotVersion = earliestSnapshotVersion - delta
 		truncateIndex := earliestSnapshotVersion - walDelta
-		if truncateIndex > int64(firstWALIndex) {
+		// #nosec G115 -- truncateIndex is guaranteed > firstWALIndex (positive) by the outer check
+		if truncateIndex > int64(firstWALIndex) && truncateIndex > 0 {
 			if err := cs.wal.TruncateBefore(uint64(truncateIndex)); err != nil {
 				cs.logger.Error("failed to truncate WAL", "err", err, "truncateIndex", truncateIndex)
 			} else {

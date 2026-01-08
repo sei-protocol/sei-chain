@@ -543,6 +543,7 @@ func computeWALIndexDelta(stream wal.GenericWAL[proto.ChangelogEntry]) (int64, b
 	}
 
 	// delta = version - index, so for any entry: version = index + delta
+	// #nosec G115 -- WAL indices are always much smaller than MaxInt64 in practice
 	return firstVersion - int64(firstIndex), true, nil
 }
 
@@ -553,11 +554,13 @@ func (db *DB) versionToWALIndex(version int64) uint64 {
 	if index <= 0 {
 		return 0
 	}
+	// #nosec G115 -- index is guaranteed positive by the check above
 	return uint64(index)
 }
 
 // walIndexToVersion converts a WAL index to its corresponding version using the precomputed delta.
 func (db *DB) walIndexToVersion(index uint64) int64 {
+	// #nosec G115 -- WAL indices are always much smaller than MaxInt64 in practice
 	return int64(index) + db.walIndexDelta
 }
 
