@@ -1,7 +1,6 @@
 package conn
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -357,9 +356,6 @@ func (c *MConnection) popSendQueue(ctx context.Context) (*p2p.Packet, error) {
 
 // sendRoutine polls for packets to send from channels.
 func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
-	// TODO(gprusak): This doesn't make sense - TCP package is 1.5kB anyway (unless we match the encryption frame here)
-	// In fact, buffering should be just moved to the encryption layer.
-	const minWriteBufferSize = 65536
 	maxPacketMsgSize := c.maxPacketMsgSize()
 	limiter := rate.NewLimiter(c.config.getSendRateLimit(), max(maxPacketMsgSize, int(c.config.SendRate)))
 	protoWriter := protoio.NewDelimitedWriter(c.conn)
@@ -391,8 +387,7 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 	const readBufferSize = 1024
 	maxPacketMsgSize := c.maxPacketMsgSize()
 	limiter := rate.NewLimiter(c.config.getRecvRateLimit(), max(int(c.config.RecvRate), maxPacketMsgSize))
-	bufReader := bufio.NewReaderSize(c.conn, readBufferSize)
-	protoReader := protoio.NewDelimitedReader(bufReader, maxPacketMsgSize)
+	protoReader := protoio.NewDelimitedReader(c.conn, maxPacketMsgSize)
 	channels := map[ChannelID]*recvChannel{}
 	for q := range c.sendQueue.Lock() {
 		for _, ch := range q.channels {
