@@ -25,7 +25,6 @@ type benchmarkLogger struct {
 	maxBlockTime   time.Duration // Maximum time difference between consecutive blocks
 	totalBlockTime time.Duration // Sum of all block time differences in the window
 	blockTimeCount int64         // Number of block time differences calculated
-	peakTps        float64       // Highest TPS seen across entire execution (persists across flushes)
 	prevBlockTime  time.Time     // Previous block time for calculating differences
 	lastFlushTime  time.Time     // When we last flushed (for TPS calculation)
 	logger         log.Logger
@@ -83,7 +82,6 @@ type flushStats struct {
 	maxBlockTimeMs int64
 	avgBlockTimeMs int64
 	tps            float64
-	peakTps        float64
 }
 
 // getAndResetStats atomically reads current stats and resets counters for next window
@@ -102,7 +100,7 @@ func (l *benchmarkLogger) getAndResetStats(now time.Time) (flushStats, time.Time
 	totalBlockTime := l.totalBlockTime
 	blockTimeCount := l.blockTimeCount
 
-	// Reset counters for next window (but keep prevBlockTime and peakTps for continuity)
+	// Reset counters for next window (but keep prevBlockTime for continuity)
 	l.txCount = 0
 	l.blockCount = 0
 	l.latestHeight = 0
@@ -120,12 +118,6 @@ func (l *benchmarkLogger) getAndResetStats(now time.Time) (flushStats, time.Time
 	// Calculate average block time
 	stats.avgBlockTimeMs = calculateAvgBlockTime(totalBlockTime, blockTimeCount)
 
-	// Update peak TPS if current TPS is higher
-	if stats.tps > l.peakTps {
-		l.peakTps = stats.tps
-	}
-	stats.peakTps = l.peakTps
-
 	return stats, prevTime
 }
 
@@ -140,7 +132,6 @@ func (l *benchmarkLogger) FlushLog() {
 		"blockTimeMax", stats.maxBlockTimeMs,
 		"blockTimeAvg", stats.avgBlockTimeMs,
 		"tps", stats.tps,
-		"peakTps", stats.peakTps,
 	)
 }
 

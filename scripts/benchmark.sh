@@ -4,6 +4,8 @@ set -e
 
 # Parse command line arguments
 MOCK_BALANCES=${MOCK_BALANCES:-true}
+GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
+GIGA_OCC=${GIGA_OCC:-false}
 
 # Use python3 as default, but fall back to python if python3 doesn't exist
 PYTHON_CMD=python3
@@ -14,6 +16,13 @@ fi
 
 # set key name
 keyname=admin
+
+# Display configuration
+echo "=== Benchmark Configuration ==="
+echo "  MOCK_BALANCES:  $MOCK_BALANCES"
+echo "  GIGA_EXECUTOR:  $GIGA_EXECUTOR"
+echo "  GIGA_OCC:       $GIGA_OCC"
+echo "================================"
 
 # clean up old sei directory
 rm -rf ~/.sei
@@ -48,9 +57,9 @@ cat ~/.sei/config/genesis.json | jq '.app_state["oracle"]["params"]["vote_period
 cat ~/.sei/config/genesis.json | jq '.app_state["evm"]["params"]["target_gas_used_per_block"]="1000000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["oracle"]["params"]["whitelist"]=[{"name": "ueth"},{"name": "ubtc"},{"name": "uusdc"},{"name": "uusdt"},{"name": "uosmo"},{"name": "uatom"},{"name": "usei"}]' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["distribution"]["params"]["community_tax"]="0.000000000000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["max_gas"]="35000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["max_gas"]="100000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["min_txs_in_block"]="2"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["max_gas_wanted"]="50000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["max_gas_wanted"]="150000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["staking"]["params"]["max_voting_power_ratio"]="1.000000000000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["bank"]["denom_metadata"]=[{"denom_units":[{"denom":"usei","exponent":0,"aliases":["USEI"]}],"base":"usei","display":"usei","name":"USEI","symbol":"USEI"}]' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 
@@ -72,6 +81,42 @@ sed -i.bak -e 's/# concurrency-workers = .*/concurrency-workers = 500/' $APP_TOM
 sed -i.bak -e 's/occ-enabled = .*/occ-enabled = true/' $APP_TOML_PATH
 sed -i.bak -e 's/sc-enable = .*/sc-enable = true/' $APP_TOML_PATH
 sed -i.bak -e 's/ss-enable = .*/ss-enable = true/' $APP_TOML_PATH
+
+# Enable Giga Executor (evmone-based) if requested
+if [ "$GIGA_EXECUTOR" = true ]; then
+  echo "Enabling Giga Executor (evmone-based EVM)..."
+  if grep -q "\[giga_executor\]" $APP_TOML_PATH; then
+    # If the section exists, update enabled to true
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' '/\[giga_executor\]/,/^\[/ s/enabled = false/enabled = true/' $APP_TOML_PATH
+    else
+      sed -i '/\[giga_executor\]/,/^\[/ s/enabled = false/enabled = true/' $APP_TOML_PATH
+    fi
+  else
+    # If section doesn't exist, append it
+    echo "" >> $APP_TOML_PATH
+    echo "[giga_executor]" >> $APP_TOML_PATH
+    echo "enabled = true" >> $APP_TOML_PATH
+    echo "occ_enabled = false" >> $APP_TOML_PATH
+  fi
+
+  # Set OCC based on GIGA_OCC flag
+  if [ "$GIGA_OCC" = true ]; then
+    echo "Enabling OCC for Giga Executor..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' 's/occ_enabled = false/occ_enabled = true/' $APP_TOML_PATH
+    else
+      sed -i 's/occ_enabled = false/occ_enabled = true/' $APP_TOML_PATH
+    fi
+  else
+    echo "Disabling OCC for Giga Executor (sequential mode)..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' 's/occ_enabled = true/occ_enabled = false/' $APP_TOML_PATH
+    else
+      sed -i 's/occ_enabled = true/occ_enabled = false/' $APP_TOML_PATH
+    fi
+  fi
+fi
 
 # set block time to 2s
 if [ ! -z "$1" ]; then
