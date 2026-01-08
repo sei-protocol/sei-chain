@@ -107,7 +107,7 @@ func (h *HostContext) Selfdestruct(addr evmc.Address, beneficiary evmc.Address) 
 
 func (h *HostContext) GetTxContext() evmc.TxContext {
 	var gasPrice evmc.Hash
-	h.evm.TxContext.GasPrice.FillBytes(gasPrice[:])
+	h.evm.GasPrice.FillBytes(gasPrice[:])
 
 	var prevRandao evmc.Hash
 	if h.evm.Context.Random != nil {
@@ -125,11 +125,11 @@ func (h *HostContext) GetTxContext() evmc.TxContext {
 
 	return evmc.TxContext{
 		GasPrice:    gasPrice,
-		Origin:      evmc.Address(h.evm.TxContext.Origin),
+		Origin:      evmc.Address(h.evm.Origin),
 		Coinbase:    evmc.Address(h.evm.Context.Coinbase),
 		Number:      h.evm.Context.BlockNumber.Int64(),
-		Timestamp:   int64(h.evm.Context.Time),
-		GasLimit:    int64(h.evm.Context.GasLimit),
+		Timestamp:   int64(h.evm.Context.Time),   //nolint:gosec // G115: safe, Time is always a valid timestamp
+		GasLimit:    int64(h.evm.Context.GasLimit), //nolint:gosec // G115: safe, GasLimit won't exceed int64 max
 		PrevRandao:  prevRandao,
 		ChainID:     chainID,
 		BaseFee:     baseFee,
@@ -138,7 +138,7 @@ func (h *HostContext) GetTxContext() evmc.TxContext {
 }
 
 func (h *HostContext) GetBlockHash(number int64) evmc.Hash {
-	return evmc.Hash(h.evm.Context.GetHash(uint64(number)))
+	return evmc.Hash(h.evm.Context.GetHash(uint64(number))) //nolint:gosec // G115: safe, block numbers are always positive
 }
 
 func (h *HostContext) EmitLog(addr evmc.Address, topics []evmc.Hash, data []byte) {
@@ -175,9 +175,9 @@ func (h *HostContext) Call(
 		switch kind {
 		case evmc.Call:
 			if static {
-				ret, leftoverGas, err = h.evm.StaticCall(senderAddr, recipientAddr, input, uint64(gas))
+				ret, leftoverGas, err = h.evm.StaticCall(senderAddr, recipientAddr, input, uint64(gas)) //nolint:gosec // G115: safe, gas is always positive
 			} else {
-				ret, leftoverGas, err = h.evm.Call(senderAddr, recipientAddr, input, uint64(gas), valueUint256)
+				ret, leftoverGas, err = h.evm.Call(senderAddr, recipientAddr, input, uint64(gas), valueUint256) //nolint:gosec // G115: safe, gas is always positive
 			}
 		case evmc.DelegateCall:
 			// DelegateCall signature: (originCaller, caller, addr, input, gas, value)
@@ -197,7 +197,7 @@ func (h *HostContext) Call(
 			ret, leftoverGas, err = h.evm.StaticCall(senderAddr, recipientAddr, input, uint64(gas))
 		}
 
-		return ret, int64(leftoverGas), 0, evmc.Address{}, err
+		return ret, int64(leftoverGas), 0, evmc.Address{}, err //nolint:gosec // G115: safe, leftoverGas won't exceed int64 max
 	}
 
 	// When not delegating to geth, use evmc/evmone for execution
