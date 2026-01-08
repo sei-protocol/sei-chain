@@ -10,41 +10,60 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var (
-	EVM_RPC_MAINNET = "https://evm-rpc.sei-apis.com"
-	EVM_RPC_TESTNET = "https://evm-rpc-testnet.sei-apis.com"
+const (
+	evmRPCMainnet = "https://evm-rpc.sei-apis.com"
+	evmRPCTestnet = "https://evm-rpc-testnet.sei-apis.com"
 )
 
 func TestGetChainId(t *testing.T) {
-	//Run on mainnet RPC url
-	mChainId, err := getChainId(EVM_RPC_MAINNET)
-	require.Nil(t, err)
-	require.Equal(t, *big.NewInt(1329), *mChainId)
 
-	//Run on testnet RPC url
-	tChainId, err := getChainId(EVM_RPC_TESTNET)
-	require.Nil(t, err)
-	require.Equal(t, *big.NewInt(1328), *tChainId)
+	tests := []struct {
+		name    string
+		rpc     string
+		chainId int64
+		hasErr  bool
+	}{
+		{"mainnet chain id", evmRPCMainnet, 1329, false},
+		{"testnet chain id", evmRPCTestnet, 1328, false},
+		{"error chain id", "", 0, true},
+	}
 
-	//Run with no RPC url
-	_, err = getChainId("")
-	require.Error(t, err)
+	for _, test := range tests {
+		t.Run(test.name, func(st *testing.T) {
+			chainId, err := getChainId(test.rpc)
+			if test.hasErr {
+				require.Error(st, err)
+			} else {
+				require.NoError(st, err)
+				require.Equal(st, *big.NewInt(test.chainId), *chainId)
+			}
+		})
+	}
 }
 
 func TestGetNonce(t *testing.T) {
 	//Test nonce is zero for a new wallet
 	//Generate a new privateKey from secp256k1 and get public key
 	privateKey, err := ecdsa.GenerateKey(crypto.S256(), rand.Reader)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
-	//Check nonce on both mainnet and testnet
-	nonce, err := getNonce(EVM_RPC_MAINNET, privateKey.PublicKey)
-	require.Nil(t, err)
-	require.Equal(t, nonce, uint64(0))
+	tests := []struct {
+		name      string
+		rpc       string
+		publicKey ecdsa.PublicKey
+		nonce     uint64
+	}{
+		{"mainnet new address", evmRPCMainnet, privateKey.PublicKey, uint64(0)},
+		{"testnet new address", evmRPCTestnet, privateKey.PublicKey, uint64(0)},
+	}
 
-	nonce, err = getNonce(EVM_RPC_TESTNET, privateKey.PublicKey)
-	require.Nil(t, err)
-	require.Equal(t, nonce, uint64(0))
+	for _, test := range tests {
+		t.Run(test.name, func(st *testing.T) {
+			nonce, err := getNonce(test.rpc, test.publicKey)
+			require.NoError(st, err)
+			require.Equal(st, nonce, test.nonce)
+		})
+	}
 
 	//NOTE: Could add tests for known active public keys for mainnet and testnet
 }
