@@ -31,9 +31,9 @@ import (
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/tasks"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/occ"
 	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/cosmos/cosmos-sdk/types/occ"
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/cosmos-sdk/x/auth"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
@@ -93,8 +93,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	gigaevmc "github.com/sei-protocol/sei-chain/giga/executor/vm/evmc"
-	evmstate "github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
@@ -105,6 +103,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
+	gigaevmc "github.com/sei-protocol/sei-chain/giga/executor/vm/evmc"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ss"
@@ -133,6 +132,7 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
+	evmstate "github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/mint"
 	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
@@ -1542,7 +1542,6 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 		}
 	}()
 
-
 	// Setup context like original ProcessBlock
 	ctx = ctx.WithIsOCCEnabled(false) // Disable OCC for giga executor path
 
@@ -1617,7 +1616,6 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 	// EndBlock
 	endBlockResp = app.EndBlock(ctx, req.GetHeight(), evmTotalGasUsed)
 	events = append(events, endBlockResp.Events...)
-
 
 	return events, txResults, endBlockResp, nil
 }
@@ -1811,6 +1809,7 @@ func (app *App) ProcessBlockWithGigaExecutorOCC(ctx sdk.Context, txs [][]byte, r
 			GasUsed:   resp.GasUsed,
 			Events:    resp.Events,
 			Codespace: resp.Codespace,
+			EvmTxInfo: resp.EvmTxInfo,
 		}
 		evmTotalGasUsed += resp.GasUsed
 	}
@@ -1871,6 +1870,7 @@ func (app *App) gigaDeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 		GasUsed:   result.GasUsed,
 		Events:    result.Events,
 		Codespace: result.Codespace,
+		EvmTxInfo: result.EvmTxInfo,
 	}
 }
 
