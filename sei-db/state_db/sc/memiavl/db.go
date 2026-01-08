@@ -73,6 +73,10 @@ type DB struct {
 
 	// the changelog stream persists all the changesets (managed by upper layer)
 	streamHandler types.GenericWAL[proto.ChangelogEntry]
+	// walIndexDelta is the difference: version - walIndex for any entry.
+	// Since both WAL indices and versions are strictly contiguous, this delta is constant.
+	// Computed once when opening the DB from the first WAL entry.
+	walIndexDelta int64
 
 	// The assumptions to concurrency:
 	// - The methods on DB are protected by a mutex
@@ -198,6 +202,17 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 	// Use WAL from options (managed by upper layer like CommitStore)
 	streamHandler := opts.WAL
 
+	// Compute WAL index delta (only needed once per DB open)
+	var walIndexDelta int64
+	var walHasEntries bool
+	if streamHandler != nil {
+		var err error
+		walIndexDelta, walHasEntries, err = computeWALIndexDelta(streamHandler)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute WAL index delta: %w", err)
+		}
+	}
+
 	// Replay WAL to catch up to target version (if WAL is provided)
 	if streamHandler != nil && (targetVersion == 0 || targetVersion > mtree.Version()) {
 		logger.Info("Start catching up and replaying the MemIAVL changelog file")
@@ -221,12 +236,15 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 			}
 		}
 
-		// truncate the rlog file (if WAL is provided)
-		if streamHandler != nil {
+		// truncate the rlog file (if WAL is provided and has entries)
+		if streamHandler != nil && walHasEntries {
 			logger.Info("truncate rlog after version: %d", targetVersion)
-			truncateIndex := utils.VersionToIndex(targetVersion, mtree.initialVersion.Load())
-			if err := streamHandler.TruncateAfter(truncateIndex); err != nil {
-				return nil, fmt.Errorf("fail to truncate rlog file: %w", err)
+			// Use O(1) conversion: walIndex = version - delta
+			truncateIndex := targetVersion - walIndexDelta
+			if truncateIndex > 0 {
+				if err := streamHandler.TruncateAfter(uint64(truncateIndex)); err != nil {
+					return nil, fmt.Errorf("fail to truncate rlog file: %w", err)
+				}
 			}
 		}
 
@@ -262,6 +280,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		fileLock:                fileLock,
 		readOnly:                opts.ReadOnly,
 		streamHandler:           streamHandler,
+		walIndexDelta:           walIndexDelta,
 		snapshotKeepRecent:      opts.SnapshotKeepRecent,
 		snapshotInterval:        opts.SnapshotInterval,
 		snapshotMinTimeInterval: opts.SnapshotMinTimeInterval,
@@ -288,6 +307,12 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 // Upper layer (CommitStore) uses this to write to WAL.
 func (db *DB) GetWAL() types.GenericWAL[proto.ChangelogEntry] {
 	return db.streamHandler
+}
+
+// GetWALIndexDelta returns the precomputed delta between version and WAL index.
+// This allows O(1) conversion: version = walIndex + delta, walIndex = version - delta
+func (db *DB) GetWALIndexDelta() int64 {
+	return db.walIndexDelta
 }
 
 func removeTmpDirs(rootDir string) error {
@@ -457,7 +482,8 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 	return nil
 }
 
-// pruneSnapshot prune the old snapshots
+// pruneSnapshots prunes old snapshots, keeping only snapshotKeepRecent recent ones.
+// Note: WAL truncation is now handled by CommitStore after each commit.
 func (db *DB) pruneSnapshots() {
 	// wait until last prune finish
 	db.pruneSnapshotLock.Lock()
@@ -493,19 +519,47 @@ func (db *DB) pruneSnapshots() {
 		db.logger.Error("fail to prune snapshots", "err", err)
 		return
 	}
+}
 
-	// truncate Rlog until the earliest remaining snapshot (only if WAL is set)
-	if db.streamHandler != nil {
-		earliestVersion, err := GetEarliestVersion(db.dir)
-		if err != nil {
-			db.logger.Error("failed to find first snapshot", "err", err)
-			return
-		}
-
-		if err := db.streamHandler.TruncateBefore(utils.VersionToIndex(earliestVersion+1, db.initialVersion.Load())); err != nil {
-			db.logger.Error("failed to truncate rlog", "err", err, "version", earliestVersion+1)
-		}
+// computeWALIndexDelta computes the constant delta between version and WAL index.
+// Since both are strictly contiguous, we only need to read one entry.
+// Returns (delta, hasEntries, error). hasEntries is false if WAL is empty.
+func computeWALIndexDelta(stream types.GenericWAL[proto.ChangelogEntry]) (int64, bool, error) {
+	firstIndex, err := stream.FirstOffset()
+	if err != nil {
+		return 0, false, err
 	}
+	if firstIndex == 0 {
+		return 0, false, nil // empty WAL
+	}
+
+	// Read just the first entry to compute delta
+	var firstVersion int64
+	err = stream.Replay(firstIndex, firstIndex, func(index uint64, entry proto.ChangelogEntry) error {
+		firstVersion = entry.Version
+		return nil
+	})
+	if err != nil {
+		return 0, false, err
+	}
+
+	// delta = version - index, so for any entry: version = index + delta
+	return firstVersion - int64(firstIndex), true, nil
+}
+
+// versionToWALIndex converts a version to its corresponding WAL index using the precomputed delta.
+// Returns 0 if the version would result in an invalid (negative or zero) index.
+func (db *DB) versionToWALIndex(version int64) uint64 {
+	index := version - db.walIndexDelta
+	if index <= 0 {
+		return 0
+	}
+	return uint64(index)
+}
+
+// walIndexToVersion converts a WAL index to its corresponding version using the precomputed delta.
+func (db *DB) walIndexToVersion(index uint64) int64 {
+	return int64(index) + db.walIndexDelta
 }
 
 // Commit wraps SaveVersion to bump the version and finalize the tree state.

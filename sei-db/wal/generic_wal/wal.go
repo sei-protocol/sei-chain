@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -27,6 +28,8 @@ type WAL[T any] struct {
 	errSignal    chan error
 	nextOffset   uint64
 	isClosed     atomic.Bool
+	closeCh      chan struct{}  // signals shutdown to background goroutines
+	wg           sync.WaitGroup // tracks background goroutines (pruning)
 }
 
 type Config struct {
@@ -71,6 +74,7 @@ func NewWAL[T any](
 		logger:    logger,
 		marshal:   marshal,
 		unmarshal: unmarshal,
+		closeCh:   make(chan struct{}),
 		// isClosed is zero-initialized to false (atomic.Bool)
 	}
 	// Finding the nextOffset to write
@@ -81,7 +85,11 @@ func NewWAL[T any](
 	w.nextOffset = lastIndex + 1
 	// Start the auto pruning goroutine
 	if config.KeepRecent > 0 {
-		go w.StartPruning(config.KeepRecent, config.PruneInterval)
+		w.wg.Add(1)
+		go func() {
+			defer w.wg.Done()
+			w.StartPruning(config.KeepRecent, config.PruneInterval)
+		}()
 	}
 	return w, nil
 
@@ -220,21 +228,40 @@ func (walLog *WAL[T]) Replay(start uint64, end uint64, processFn func(index uint
 }
 
 func (walLog *WAL[T]) StartPruning(keepRecent uint64, pruneInterval time.Duration) {
-	for !walLog.isClosed.Load() {
-		lastIndex, _ := walLog.log.LastIndex()
-		firstIndex, _ := walLog.log.FirstIndex()
-		if lastIndex > keepRecent && (lastIndex-keepRecent) > firstIndex {
-			prunePos := lastIndex - keepRecent
-			if err := walLog.TruncateBefore(prunePos); err != nil {
-				walLog.logger.Error(fmt.Sprintf("failed to prune changelog till index %d", prunePos), "err", err)
+	// Use a minimum interval to avoid tight loops
+	if pruneInterval <= 0 {
+		pruneInterval = time.Minute // Default to 1 minute if not specified
+	}
+
+	ticker := time.NewTicker(pruneInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-walLog.closeCh:
+			return
+		case <-ticker.C:
+			lastIndex, _ := walLog.log.LastIndex()
+			firstIndex, _ := walLog.log.FirstIndex()
+			if lastIndex > keepRecent && (lastIndex-keepRecent) > firstIndex {
+				prunePos := lastIndex - keepRecent
+				if err := walLog.TruncateBefore(prunePos); err != nil {
+					walLog.logger.Error(fmt.Sprintf("failed to prune changelog till index %d", prunePos), "err", err)
+				}
 			}
 		}
-		time.Sleep(pruneInterval)
 	}
 }
 
 func (walLog *WAL[T]) Close() error {
 	walLog.isClosed.Store(true)
+
+	// Signal background goroutines to stop
+	close(walLog.closeCh)
+
+	// Wait for background goroutines (pruning) to finish before closing resources
+	walLog.wg.Wait()
+
 	var err error
 	if walLog.writeChannel != nil {
 		close(walLog.writeChannel)

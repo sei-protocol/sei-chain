@@ -582,6 +582,245 @@ func TestRlogIndexConversion(t *testing.T) {
 	}
 }
 
+// TestWALIndexDeltaComputation tests the O(1) delta-based WAL index conversion.
+// This is critical because:
+// 1. WAL indices and versions are both strictly contiguous
+// 2. We compute delta once from the first WAL entry: delta = firstVersion - firstIndex
+// 3. All conversions are then O(1): walIndex = version - delta
+func TestWALIndexDeltaComputation(t *testing.T) {
+	testCases := []struct {
+		name           string
+		initialVersion uint32
+		numVersions    int
+		rollbackTo     int64
+	}{
+		{
+			name:           "delta=0 (version starts at 1)",
+			initialVersion: 0,
+			numVersions:    5,
+			rollbackTo:     3,
+		},
+		{
+			name:           "delta=9 (version starts at 10)",
+			initialVersion: 10,
+			numVersions:    5,
+			rollbackTo:     12,
+		},
+		{
+			name:           "delta=99 (version starts at 100)",
+			initialVersion: 100,
+			numVersions:    5,
+			rollbackTo:     102,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			initialStores := []string{"test"}
+
+			// Create WAL
+			wal := createTestWAL(t, dir)
+
+			// Open DB with initial version
+			db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+				Dir:             dir,
+				CreateIfMissing: true,
+				InitialStores:   initialStores,
+				InitialVersion:  tc.initialVersion,
+				WAL:             wal,
+			})
+			require.NoError(t, err)
+
+			// Commit multiple versions
+			for i := 0; i < tc.numVersions; i++ {
+				cs := []*proto.NamedChangeSet{
+					{
+						Name: "test",
+						Changeset: iavl.ChangeSet{
+							Pairs: []*iavl.KVPair{
+								{Key: []byte("key"), Value: []byte("value" + strconv.Itoa(i))},
+							},
+						},
+					},
+				}
+				require.NoError(t, db.ApplyChangeSets(cs))
+
+				// First entry needs upgrades for replay
+				var upgrades []*proto.TreeNameUpgrade
+				if i == 0 {
+					upgrades = initialUpgrades(initialStores)
+				}
+				writeToWAL(t, db, cs, upgrades)
+				_, err = db.Commit()
+				require.NoError(t, err)
+			}
+
+			// When initialVersion=0, first commit is version 1, so after N commits: version = N
+			// When initialVersion=X, first commit is version X, so after N commits: version = X + N - 1
+			expectedVersion := int64(tc.numVersions)
+			if tc.initialVersion > 0 {
+				expectedVersion = int64(tc.initialVersion) + int64(tc.numVersions) - 1
+			}
+			require.Equal(t, expectedVersion, db.Version())
+
+			// Note: walIndexDelta is 0 here because it was computed at open time when WAL was empty.
+			// We'll verify the correct delta after reopening.
+
+			require.NoError(t, db.Close())
+			require.NoError(t, wal.Close())
+
+			// Reopen to verify delta is computed correctly from WAL entries
+			walReopen := createTestWAL(t, dir)
+			dbReopen, err := OpenDB(logger.NewNopLogger(), 0, Options{
+				Dir: dir,
+				WAL: walReopen,
+			})
+			require.NoError(t, err)
+
+			// Now verify delta is computed correctly
+			// delta = firstVersion - firstIndex
+			// When initialVersion=0: firstVersion = 1, firstIndex = 1, delta = 0
+			// When initialVersion=X: firstVersion = X, firstIndex = 1, delta = X - 1
+			expectedDelta := int64(0)
+			if tc.initialVersion > 0 {
+				expectedDelta = int64(tc.initialVersion) - 1
+			}
+			require.Equal(t, expectedDelta, dbReopen.walIndexDelta, "WAL index delta should be computed correctly")
+
+			// Test versionToWALIndex
+			for i := 0; i < tc.numVersions; i++ {
+				var version int64
+				if tc.initialVersion == 0 {
+					version = int64(i + 1) // versions: 1, 2, 3, 4, 5
+				} else {
+					version = int64(tc.initialVersion) + int64(i) // versions: 10, 11, 12, 13, 14
+				}
+				expectedIndex := uint64(i + 1) // WAL indices: 1, 2, 3, 4, 5
+				require.Equal(t, expectedIndex, dbReopen.versionToWALIndex(version),
+					"versionToWALIndex(%d) should return %d", version, expectedIndex)
+			}
+
+			require.NoError(t, dbReopen.Close())
+			require.NoError(t, walReopen.Close())
+
+			// Now test rollback with LoadForOverwriting
+			wal2 := createTestWAL(t, dir)
+			db2, err := OpenDB(logger.NewNopLogger(), tc.rollbackTo, Options{
+				Dir:                dir,
+				LoadForOverwriting: true,
+				WAL:                wal2,
+			})
+			require.NoError(t, err)
+
+			// Verify rollback worked
+			require.Equal(t, tc.rollbackTo, db2.Version(), "Version should be rolled back to %d", tc.rollbackTo)
+
+			// Verify WAL was truncated correctly
+			lastIndex, err := wal2.LastOffset()
+			require.NoError(t, err)
+			expectedLastIndex := uint64(tc.rollbackTo - db2.walIndexDelta)
+			require.Equal(t, expectedLastIndex, lastIndex, "WAL should be truncated to index %d", expectedLastIndex)
+
+			require.NoError(t, db2.Close())
+			require.NoError(t, wal2.Close())
+
+			// Reopen without LoadForOverwriting to verify persistence
+			wal3 := createTestWAL(t, dir)
+			db3, err := OpenDB(logger.NewNopLogger(), 0, Options{
+				Dir: dir,
+				WAL: wal3,
+			})
+			require.NoError(t, err)
+			require.Equal(t, tc.rollbackTo, db3.Version(), "Version should persist as %d after reopen", tc.rollbackTo)
+
+			require.NoError(t, db3.Close())
+			require.NoError(t, wal3.Close())
+		})
+	}
+}
+
+// TestWALIndexDeltaWithZeroDelta specifically tests the case where delta=0.
+// This was a bug where `walIndexDelta != 0` condition incorrectly skipped truncation
+// when versions started at 1 (making delta = 1 - 1 = 0).
+func TestWALIndexDeltaWithZeroDelta(t *testing.T) {
+	dir := t.TempDir()
+	initialStores := []string{"test"}
+
+	wal := createTestWAL(t, dir)
+
+	// Create DB with default initial version (0, so versions start at 1)
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   initialStores,
+		WAL:             wal,
+	})
+	require.NoError(t, err)
+
+	// Commit 5 versions (1, 2, 3, 4, 5)
+	for i := 0; i < 5; i++ {
+		cs := []*proto.NamedChangeSet{
+			{
+				Name: "test",
+				Changeset: iavl.ChangeSet{
+					Pairs: []*iavl.KVPair{
+						{Key: []byte("key"), Value: []byte("value" + strconv.Itoa(i))},
+					},
+				},
+			},
+		}
+		require.NoError(t, db.ApplyChangeSets(cs))
+
+		var upgrades []*proto.TreeNameUpgrade
+		if i == 0 {
+			upgrades = initialUpgrades(initialStores)
+		}
+		writeToWAL(t, db, cs, upgrades)
+		_, err = db.Commit()
+		require.NoError(t, err)
+	}
+
+	require.Equal(t, int64(5), db.Version())
+	// Critical: delta should be 0 (version 1 - index 1 = 0)
+	require.Equal(t, int64(0), db.walIndexDelta, "Delta should be 0 when versions start at 1")
+
+	require.NoError(t, db.Close())
+	require.NoError(t, wal.Close())
+
+	// Rollback to version 3
+	wal2 := createTestWAL(t, dir)
+	db2, err := OpenDB(logger.NewNopLogger(), 3, Options{
+		Dir:                dir,
+		LoadForOverwriting: true,
+		WAL:                wal2,
+	})
+	require.NoError(t, err)
+
+	// This is the key assertion that would have failed with the bug
+	require.Equal(t, int64(3), db2.Version(), "Rollback should work even when delta=0")
+
+	// Verify WAL truncation
+	lastIndex, err := wal2.LastOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), lastIndex, "WAL should be truncated to index 3")
+
+	require.NoError(t, db2.Close())
+	require.NoError(t, wal2.Close())
+
+	// Verify rollback persisted after reopen
+	wal3 := createTestWAL(t, dir)
+	db3, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir: dir,
+		WAL: wal3,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(3), db3.Version(), "Rollback should persist after reopen")
+
+	require.NoError(t, db3.Close())
+	require.NoError(t, wal3.Close())
+}
+
 func TestEmptyValue(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test"}

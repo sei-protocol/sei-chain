@@ -865,3 +865,185 @@ func TestReadOnlyCopyCannotCommit(t *testing.T) {
 	require.NoError(t, roCS.Close())
 	require.NoError(t, cs.Close())
 }
+
+// TestWALTruncationOnCommit tests that WAL is automatically truncated after commits
+// when the earliest snapshot version advances past WAL entries.
+func TestWALTruncationOnCommit(t *testing.T) {
+	dir := t.TempDir()
+
+	// Configure with snapshot interval to trigger snapshot creation
+	cfg := config.StateCommitConfig{
+		SnapshotInterval:   2,  // Create snapshot every 2 blocks
+		SnapshotKeepRecent: 1,  // Keep only 1 recent snapshot
+	}
+	cs := NewCommitStore(dir, logger.NewNopLogger(), cfg)
+	cs.Initialize([]string{"test"})
+
+	_, err := cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	// Commit multiple versions to trigger snapshot creation and WAL truncation
+	for i := 0; i < 10; i++ {
+		if i == 0 {
+			cs.pendingLogEntry.Upgrades = []*proto.TreeNameUpgrade{{Name: "test"}}
+		}
+		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
+			{
+				Name: "test",
+				Changeset: iavl.ChangeSet{
+					Pairs: []*iavl.KVPair{
+						{Key: []byte("key"), Value: []byte("value" + string(rune('0'+i)))},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		_, err = cs.Commit()
+		require.NoError(t, err)
+	}
+
+	// Verify current version
+	require.Equal(t, int64(10), cs.Version())
+
+	// Get WAL state
+	firstWALIndex, err := cs.wal.FirstOffset()
+	require.NoError(t, err)
+
+	// Get earliest snapshot version - may not exist yet if snapshots are async
+	earliestSnapshot, err := cs.GetEarliestVersion()
+	if err != nil {
+		// No snapshots yet (async snapshot creation), that's okay for this test
+		t.Logf("No snapshots created yet (async): %v", err)
+		require.NoError(t, cs.Close())
+		return
+	}
+
+	// WAL's first index should be greater than 1 if truncation happened
+	// (meaning early entries were removed)
+	// The exact value depends on snapshot creation timing and pruning
+	t.Logf("WAL first index: %d, earliest snapshot: %d", firstWALIndex, earliestSnapshot)
+
+	// Key assertion: WAL entries before earliest snapshot should be truncated
+	// WAL version = index + delta, so WAL first version = firstIndex + delta
+	walDelta := cs.db.GetWALIndexDelta()
+	walFirstVersion := int64(firstWALIndex) + walDelta
+	require.GreaterOrEqual(t, walFirstVersion, earliestSnapshot,
+		"WAL first version should be >= earliest snapshot version after truncation")
+
+	require.NoError(t, cs.Close())
+}
+
+// TestWALTruncationWithNoSnapshots tests that WAL truncation handles the case
+// when no snapshots exist yet (should not panic or error).
+func TestWALTruncationWithNoSnapshots(t *testing.T) {
+	dir := t.TempDir()
+
+	// No snapshot interval configured, so no snapshots will be created
+	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs.Initialize([]string{"test"})
+
+	_, err := cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	// Commit a version
+	cs.pendingLogEntry.Upgrades = []*proto.TreeNameUpgrade{{Name: "test"}}
+	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{
+			Name: "test",
+			Changeset: iavl.ChangeSet{
+				Pairs: []*iavl.KVPair{
+					{Key: []byte("key"), Value: []byte("value")},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Commit should succeed even though no snapshots exist
+	// (tryTruncateWAL should handle this gracefully)
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	// WAL should still have entries
+	firstIndex, err := cs.wal.FirstOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), firstIndex, "WAL should not be truncated when no snapshots exist")
+
+	require.NoError(t, cs.Close())
+}
+
+// TestWALTruncationDelta tests that WAL truncation correctly uses the delta
+// for version-to-index conversion with non-zero initial version.
+func TestWALTruncationDelta(t *testing.T) {
+	dir := t.TempDir()
+
+	cfg := config.StateCommitConfig{
+		SnapshotInterval:   2,
+		SnapshotKeepRecent: 1,
+	}
+	cs := NewCommitStore(dir, logger.NewNopLogger(), cfg)
+	cs.Initialize([]string{"test"})
+
+	_, err := cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	// Set initial version to 100
+	err = cs.SetInitialVersion(100)
+	require.NoError(t, err)
+
+	// Commit multiple versions
+	for i := 0; i < 10; i++ {
+		if i == 0 {
+			cs.pendingLogEntry.Upgrades = []*proto.TreeNameUpgrade{{Name: "test"}}
+		}
+		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
+			{
+				Name: "test",
+				Changeset: iavl.ChangeSet{
+					Pairs: []*iavl.KVPair{
+						{Key: []byte("key"), Value: []byte("value" + string(rune('0'+i)))},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		_, err = cs.Commit()
+		require.NoError(t, err)
+	}
+
+	// Verify version (should be 100 + 9 = 109)
+	require.Equal(t, int64(109), cs.Version())
+
+	// Close and reopen to verify delta is computed correctly from WAL
+	require.NoError(t, cs.Close())
+
+	// Reopen
+	cs2 := NewCommitStore(dir, logger.NewNopLogger(), cfg)
+	_, err = cs2.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	// Now verify delta is correct (computed from WAL entries)
+	walDelta := cs2.db.GetWALIndexDelta()
+	require.Equal(t, int64(99), walDelta, "Delta should be 99 (firstVersion 100 - firstIndex 1)")
+
+	// Verify WAL truncation respects delta
+	firstWALIndex, err := cs2.wal.FirstOffset()
+	require.NoError(t, err)
+
+	// Get earliest snapshot version - may not exist yet if snapshots are async
+	earliestSnapshot, err := cs2.GetEarliestVersion()
+	if err != nil {
+		t.Logf("No snapshots created yet: %v", err)
+		require.NoError(t, cs2.Close())
+		return
+	}
+
+	walFirstVersion := int64(firstWALIndex) + walDelta
+	t.Logf("WAL first index: %d, WAL first version: %d, earliest snapshot: %d",
+		firstWALIndex, walFirstVersion, earliestSnapshot)
+
+	require.GreaterOrEqual(t, walFirstVersion, earliestSnapshot,
+		"WAL first version should be >= earliest snapshot version")
+
+	require.NoError(t, cs2.Close())
+}

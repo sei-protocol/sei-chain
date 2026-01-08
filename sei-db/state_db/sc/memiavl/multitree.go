@@ -358,41 +358,48 @@ func (t *MultiTree) UpdateCommitInfo() {
 }
 
 // Catchup replay the new entries in the Rlog file on the tree to catch up to the target or latest version.
+// This function iterates through actual WAL entries and filters by the Version field stored in each entry,
+// rather than assuming WAL index equals VersionToIndex(version). This handles cases where WAL indices
+// don't match version mapping (e.g., after state sync, WAL pruning, etc.).
 func (t *MultiTree) Catchup(ctx context.Context, stream types.GenericWAL[proto.ChangelogEntry], endVersion int64) error {
 	startTime := time.Now()
+
+	// Get actual WAL index range
+	firstIndex, err := stream.FirstOffset()
+	if err != nil {
+		return fmt.Errorf("read rlog first index failed, %w", err)
+	}
 	lastIndex, err := stream.LastOffset()
 	if err != nil {
 		return fmt.Errorf("read rlog last index failed, %w", err)
 	}
 
-	iv := t.initialVersion.Load()
-	firstIndex := utils.VersionToIndex(utils.NextVersion(t.Version(), iv), iv)
-	if firstIndex > lastIndex {
-		// already up-to-date
+	// Empty WAL - nothing to replay
+	if lastIndex == 0 || firstIndex > lastIndex {
 		return nil
 	}
 
-	endIndex := lastIndex
-	if endVersion != 0 {
-		endIndex = utils.VersionToIndex(endVersion, iv)
-	}
-
-	if endIndex < firstIndex {
-		return fmt.Errorf("target index %d is pruned", endIndex)
-	}
-
-	if endIndex > lastIndex {
-		return fmt.Errorf("target index %d is in the future, latest index: %d", endIndex, lastIndex)
-	}
+	currentVersion := t.Version()
 
 	var replayCount = 0
-	err = stream.Replay(firstIndex, endIndex, func(index uint64, entry proto.ChangelogEntry) error {
+	err = stream.Replay(firstIndex, lastIndex, func(index uint64, entry proto.ChangelogEntry) error {
 		// Check for cancellation
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
+
+		// Filter by version: only apply entries newer than current tree version
+		if entry.Version <= currentVersion {
+			return nil // skip entries we already have
+		}
+
+		// If endVersion is specified, stop at that version
+		if endVersion != 0 && entry.Version > endVersion {
+			return nil // skip entries beyond target
+		}
+
 		if err := t.ApplyUpgrades(entry.Upgrades); err != nil {
 			return err
 		}
@@ -407,7 +414,7 @@ func (t *MultiTree) Catchup(ctx context.Context, stream types.GenericWAL[proto.C
 				tree.ApplyChangeSetAsync(iavl.ChangeSet{})
 			}
 		}
-		t.lastCommitInfo.Version = utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion.Load())
+		t.lastCommitInfo.Version = entry.Version
 		t.lastCommitInfo.StoreInfos = []proto.StoreInfo{}
 		replayCount++
 		if replayCount%1000 == 0 {
@@ -423,11 +430,14 @@ func (t *MultiTree) Catchup(ctx context.Context, stream types.GenericWAL[proto.C
 	if err != nil {
 		return err
 	}
-	t.UpdateCommitInfo()
 
-	replayElapsed := time.Since(startTime).Seconds()
-	t.logger.Info(fmt.Sprintf("Total replayed %d entries in %.1fs (%.1f entries/sec).\n",
-		replayCount, replayElapsed, float64(replayCount)/replayElapsed))
+	if replayCount > 0 {
+		t.UpdateCommitInfo()
+		replayElapsed := time.Since(startTime).Seconds()
+		t.logger.Info(fmt.Sprintf("Total replayed %d entries in %.1fs (%.1f entries/sec).\n",
+			replayCount, replayElapsed, float64(replayCount)/replayElapsed))
+	}
+
 	return nil
 }
 

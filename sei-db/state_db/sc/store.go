@@ -188,7 +188,61 @@ func (cs *CommitStore) Commit() (int64, error) {
 	cs.pendingLogEntry = proto.ChangelogEntry{}
 
 	// Now commit to the tree
-	return cs.db.Commit()
+	version, err := cs.db.Commit()
+	if err != nil {
+		return 0, err
+	}
+
+	// Try to truncate WAL after commit (non-blocking, errors are logged)
+	cs.tryTruncateWAL()
+
+	return version, nil
+}
+
+// tryTruncateWAL checks if WAL can be truncated based on earliest snapshot version.
+// This is safe because we only need WAL entries for versions newer than the earliest snapshot.
+// Called after each commit to keep WAL size bounded.
+func (cs *CommitStore) tryTruncateWAL() {
+	if cs.wal == nil {
+		return
+	}
+
+	// Get WAL's first index
+	firstWALIndex, err := cs.wal.FirstOffset()
+	if err != nil {
+		cs.logger.Error("failed to get WAL first offset", "err", err)
+		return
+	}
+	if firstWALIndex == 0 {
+		return // empty WAL, nothing to truncate
+	}
+
+	// Get earliest snapshot version
+	earliestSnapshotVersion, err := cs.GetEarliestVersion()
+	if err != nil {
+		// This can happen if no snapshots exist yet, which is normal
+		return
+	}
+
+	// Compute WAL's earliest version using delta
+	// delta = firstVersion - firstIndex, so firstVersion = firstIndex + delta
+	walDelta := cs.db.GetWALIndexDelta()
+	walEarliestVersion := int64(firstWALIndex) + walDelta
+
+	// If WAL's earliest version is less than snapshot's earliest version,
+	// we can safely truncate those WAL entries
+	if walEarliestVersion < earliestSnapshotVersion {
+		// Truncate WAL entries with version < earliestSnapshotVersion
+		// WAL index for earliestSnapshotVersion = earliestSnapshotVersion - delta
+		truncateIndex := earliestSnapshotVersion - walDelta
+		if truncateIndex > int64(firstWALIndex) {
+			if err := cs.wal.TruncateBefore(uint64(truncateIndex)); err != nil {
+				cs.logger.Error("failed to truncate WAL", "err", err, "truncateIndex", truncateIndex)
+			} else {
+				cs.logger.Debug("truncated WAL", "beforeIndex", truncateIndex, "earliestSnapshotVersion", earliestSnapshotVersion)
+			}
+		}
+	}
 }
 
 func (cs *CommitStore) Version() int64 {
