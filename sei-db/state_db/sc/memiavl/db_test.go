@@ -11,20 +11,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/wal/generic_wal"
-	"github.com/sei-protocol/sei-chain/sei-db/wal/types"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
-	"github.com/stretchr/testify/require"
 )
 
 // createTestWAL creates a WAL for testing purposes.
-func createTestWAL(t *testing.T, dir string) types.GenericWAL[proto.ChangelogEntry] {
+func createTestWAL(t *testing.T, dir string) wal.GenericWAL[proto.ChangelogEntry] {
 	t.Helper()
-	wal, err := generic_wal.NewWAL(
+	wal, err := wal.NewWAL(
 		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
 		func(data []byte) (proto.ChangelogEntry, error) {
 			var e proto.ChangelogEntry
@@ -33,7 +33,7 @@ func createTestWAL(t *testing.T, dir string) types.GenericWAL[proto.ChangelogEnt
 		},
 		logger.NewNopLogger(),
 		utils.GetChangelogPath(dir),
-		generic_wal.Config{
+		wal.Config{
 			DisableFsync:    true,
 			ZeroCopy:        true,
 			WriteBufferSize: 0,

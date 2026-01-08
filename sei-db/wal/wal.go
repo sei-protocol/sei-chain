@@ -1,4 +1,4 @@
-package generic_wal
+package wal
 
 import (
 	"errors"
@@ -13,7 +13,6 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
-	"github.com/sei-protocol/sei-chain/sei-db/wal/types"
 )
 
 // WAL is a generic write-ahead log implementation.
@@ -22,8 +21,8 @@ type WAL[T any] struct {
 	log          *wal.Log
 	config       Config
 	logger       logger.Logger
-	marshal      types.MarshalFn[T]
-	unmarshal    types.UnmarshalFn[T]
+	marshal      MarshalFn[T]
+	unmarshal    UnmarshalFn[T]
 	writeChannel chan T
 	errSignal    chan error
 	nextOffset   uint64
@@ -54,8 +53,8 @@ type Config struct {
 //	    logger, dir, config,
 //	)
 func NewWAL[T any](
-	marshal types.MarshalFn[T],
-	unmarshal types.UnmarshalFn[T],
+	marshal MarshalFn[T],
+	unmarshal UnmarshalFn[T],
 	logger logger.Logger,
 	dir string,
 	config Config,

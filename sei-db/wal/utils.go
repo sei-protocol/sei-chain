@@ -1,4 +1,4 @@
-package generic_wal
+package wal
 
 import (
 	"bytes"

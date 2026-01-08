@@ -8,7 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/wal/types"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
 type Options struct {
@@ -53,7 +53,7 @@ type Options struct {
 	// WAL is the write-ahead log for changelog persistence and replay.
 	// If nil, no WAL operations will be performed (read-only mode or tests).
 	// The WAL is managed by the upper layer (CommitStore) and passed in.
-	WAL types.GenericWAL[proto.ChangelogEntry]
+	WAL wal.GenericWAL[proto.ChangelogEntry]
 }
 
 func (opts Options) Validate() error {

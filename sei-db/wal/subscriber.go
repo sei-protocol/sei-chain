@@ -1,13 +1,12 @@
-package generic_wal
+package wal
 
 import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/wal/types"
 )
 
-var _ types.Subscriber[proto.ChangelogEntry] = (*Subscriber)(nil)
+var _ Processor[proto.ChangelogEntry] = (*Subscriber)(nil)
 
 type Subscriber struct {
 	maxPendingSize   int

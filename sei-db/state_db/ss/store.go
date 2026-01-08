@@ -9,7 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
-	"github.com/sei-protocol/sei-chain/sei-db/wal/generic_wal"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
 type BackendType string
@@ -61,7 +61,7 @@ func NewStateStore(logger logger.Logger, homeDir string, ssConfig config.StateSt
 func RecoverStateStore(logger logger.Logger, changelogPath string, stateStore types.StateStore) error {
 	ssLatestVersion := stateStore.GetLatestVersion()
 	logger.Info(fmt.Sprintf("Recovering from changelog %s with latest SS version %d", changelogPath, ssLatestVersion))
-	streamHandler, err := generic_wal.NewWAL(
+	streamHandler, err := wal.NewWAL(
 		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
 		func(data []byte) (proto.ChangelogEntry, error) {
 			var e proto.ChangelogEntry
@@ -70,7 +70,7 @@ func RecoverStateStore(logger logger.Logger, changelogPath string, stateStore ty
 		},
 		logger,
 		changelogPath,
-		generic_wal.Config{},
+		wal.Config{},
 	)
 	if err != nil {
 		return err

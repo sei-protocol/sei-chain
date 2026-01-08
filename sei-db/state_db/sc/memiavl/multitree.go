@@ -12,13 +12,14 @@ import (
 	"time"
 
 	"github.com/alitto/pond"
+	"golang.org/x/exp/slices"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/wal/types"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
-	"golang.org/x/exp/slices"
 )
 
 const (
@@ -361,7 +362,7 @@ func (t *MultiTree) UpdateCommitInfo() {
 // This function iterates through actual WAL entries and filters by the Version field stored in each entry,
 // rather than assuming WAL index equals VersionToIndex(version). This handles cases where WAL indices
 // don't match version mapping (e.g., after state sync, WAL pruning, etc.).
-func (t *MultiTree) Catchup(ctx context.Context, stream types.GenericWAL[proto.ChangelogEntry], endVersion int64) error {
+func (t *MultiTree) Catchup(ctx context.Context, stream wal.GenericWAL[proto.ChangelogEntry], endVersion int64) error {
 	startTime := time.Now()
 
 	// Get actual WAL index range

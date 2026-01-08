@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/spf13/cobra"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
-	"github.com/sei-protocol/sei-chain/sei-db/wal/generic_wal"
-	"github.com/spf13/cobra"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
 var ssStore types.StateStore
@@ -41,7 +42,7 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 	}
 
 	logDir := filepath.Join(dbDir, "changelog")
-	stream, err := generic_wal.NewWAL(
+	stream, err := wal.NewWAL(
 		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
 		func(data []byte) (proto.ChangelogEntry, error) {
 			var e proto.ChangelogEntry
@@ -50,7 +51,7 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 		},
 		logger.NewNopLogger(),
 		logDir,
-		generic_wal.Config{},
+		wal.Config{},
 	)
 	if err != nil {
 		panic(err)

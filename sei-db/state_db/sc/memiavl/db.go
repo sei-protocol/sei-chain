@@ -21,8 +21,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/wal/generic_wal"
-	"github.com/sei-protocol/sei-chain/sei-db/wal/types"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
@@ -72,7 +71,7 @@ type DB struct {
 	pruneSnapshotLock sync.Mutex
 
 	// the changelog stream persists all the changesets (managed by upper layer)
-	streamHandler types.GenericWAL[proto.ChangelogEntry]
+	streamHandler wal.GenericWAL[proto.ChangelogEntry]
 	// walIndexDelta is the difference: version - walIndex for any entry.
 	// Since both WAL indices and versions are strictly contiguous, this delta is constant.
 	// Computed once when opening the DB from the first WAL entry.
@@ -305,7 +304,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 
 // GetWAL returns the WAL handler for changelog operations.
 // Upper layer (CommitStore) uses this to write to WAL.
-func (db *DB) GetWAL() types.GenericWAL[proto.ChangelogEntry] {
+func (db *DB) GetWAL() wal.GenericWAL[proto.ChangelogEntry] {
 	return db.streamHandler
 }
 
@@ -524,7 +523,7 @@ func (db *DB) pruneSnapshots() {
 // computeWALIndexDelta computes the constant delta between version and WAL index.
 // Since both are strictly contiguous, we only need to read one entry.
 // Returns (delta, hasEntries, error). hasEntries is false if WAL is empty.
-func computeWALIndexDelta(stream types.GenericWAL[proto.ChangelogEntry]) (int64, bool, error) {
+func computeWALIndexDelta(stream wal.GenericWAL[proto.ChangelogEntry]) (int64, bool, error) {
 	firstIndex, err := stream.FirstOffset()
 	if err != nil {
 		return 0, false, err
@@ -1149,7 +1148,7 @@ func GetLatestVersion(dir string) (int64, error) {
 		}
 		return 0, err
 	}
-	lastIndex, err := generic_wal.GetLastIndex(generic_wal.LogPath(dir))
+	lastIndex, err := wal.GetLastIndex(wal.LogPath(dir))
 	if err != nil {
 		return 0, err
 	}

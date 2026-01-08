@@ -12,8 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	"github.com/sei-protocol/sei-chain/sei-db/wal/generic_wal"
-	waltypes "github.com/sei-protocol/sei-chain/sei-db/wal/types"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
 var _ types.Committer = (*CommitStore)(nil)
@@ -24,7 +23,7 @@ type CommitStore struct {
 	opts   memiavl.Options
 
 	// WAL for changelog persistence (owned by CommitStore)
-	wal waltypes.GenericWAL[proto.ChangelogEntry]
+	wal wal.GenericWAL[proto.ChangelogEntry]
 
 	// pending changes to be written to WAL on next Commit
 	pendingLogEntry proto.ChangelogEntry
@@ -55,8 +54,8 @@ func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCom
 }
 
 // createWAL creates a new WAL instance for changelog persistence and replay.
-func (cs *CommitStore) createWAL() (waltypes.GenericWAL[proto.ChangelogEntry], error) {
-	return generic_wal.NewWAL(
+func (cs *CommitStore) createWAL() (wal.GenericWAL[proto.ChangelogEntry], error) {
+	return wal.NewWAL(
 		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
 		func(data []byte) (proto.ChangelogEntry, error) {
 			var e proto.ChangelogEntry
@@ -65,7 +64,7 @@ func (cs *CommitStore) createWAL() (waltypes.GenericWAL[proto.ChangelogEntry], e
 		},
 		cs.logger,
 		utils.GetChangelogPath(cs.opts.Dir),
-		generic_wal.Config{
+		wal.Config{
 			DisableFsync:    true,
 			ZeroCopy:        true,
 			WriteBufferSize: cs.opts.AsyncCommitBuffer,

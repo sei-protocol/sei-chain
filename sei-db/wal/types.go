@@ -1,4 +1,4 @@
-package types
+package wal
 
 // MarshalFn is a function that serializes an entry to bytes.
 type MarshalFn[T any] func(entry T) ([]byte, error)
@@ -35,7 +35,7 @@ type GenericWAL[T any] interface {
 	Close() error
 }
 
-type Subscriber[T any] interface {
+type Processor[T any] interface {
 	// Start starts the subscriber processing goroutine
 	Start()
 
