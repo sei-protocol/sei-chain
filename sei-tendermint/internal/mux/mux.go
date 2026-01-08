@@ -1,6 +1,6 @@
 // mux package provides a TCP connection multiplexer - it allows to run
-// multiple reliable independent bidirectional Streams over a single TCP connection:
-// The data is sent in frames of bounded size in round robin fashion over all the Streams
+// multiple reliable independent bidirectional streams over a single TCP connection:
+// The data is sent in frames of bounded size in round robin fashion over all the streams
 // (fairness). There is no head-of-line blocking: a sender is not allowed to send bytes,
 // until peer allows it - a TCP-like buffer window is maintained: peer declares the
 // maximal size of message it is willing to consume, and the number of messages it currently
@@ -14,12 +14,16 @@ import (
 	"io"
 	"fmt"
 	"context"
+	"encoding/binary"
 	"net"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/internal/mux/pb"
 	"google.golang.org/protobuf/proto"
+	"github.com/tendermint/tendermint/internal/protoutils"
 )
+
+const handshakeMaxSize = 10 * 1024 // 10kB
 
 type Config struct {
 	// Maximal number of bytes in a frame (excluding header).
@@ -35,6 +39,34 @@ type StreamKindConfig struct {
 	MaxAccepts uint64
 }
 
+type handshake struct {
+	Kinds map[StreamKind]*StreamKindConfig
+}
+
+var handshakeConv = protoutils.Conv[*handshake,*pb.Handshake]{
+	Encode: func(h *handshake) *pb.Handshake {
+		var kinds []*pb.StreamKindConfig
+		for kind,c := range h.Kinds {
+			kinds = append(kinds, &pb.StreamKindConfig {
+				Kind: uint64(kind),
+				MaxConnects: c.MaxConnects,
+				MaxAccepts: c.MaxAccepts,
+			})
+		}
+		return &pb.Handshake{Kinds: kinds} 
+	},
+	Decode: func(x *pb.Handshake) (*handshake,error) { 
+		kinds := map[StreamKind]*StreamKindConfig{}
+		for _,pc := range x.Kinds {
+			kinds[StreamKind(pc.Kind)] = &StreamKindConfig {
+				MaxConnects: pc.MaxConnects,
+				MaxAccepts: pc.MaxAccepts,
+			}
+		}
+		return &handshake {Kinds:kinds},nil
+	},
+}
+
 type frame struct {
 	Header *pb.Header
 	Payload []byte
@@ -47,8 +79,8 @@ type kindState struct {
 
 type runnerInner struct {
 	nextID streamID
-	Streams map[streamID]*streamState
-	acceptsSem map[StreamKind]int
+	streams map[streamID]*streamState
+	acceptsSem map[StreamKind]uint64
 }
 
 // State of the running multiplexer.
@@ -62,8 +94,8 @@ func newRunner(mux *Mux) *runner {
 		mux: mux,
 		inner: utils.NewRWMutex(&runnerInner {
 			nextID: 0,
-			Streams: map[streamID]*streamState{},
-			acceptsSem: map[StreamKind]int{},
+			streams: map[streamID]*streamState{},
+			acceptsSem: map[StreamKind]uint64{},
 		}),
 	}
 }
@@ -73,17 +105,17 @@ func newRunner(mux *Mux) *runner {
 // In that case the inbound stream limit for the given kind is checked.
 func (r *runner) getOrAccept(id streamID, kind StreamKind) (*streamState,error) {
 	for inner := range r.inner.RLock() {
-		s,ok := inner.Streams[id]
+		s,ok := inner.streams[id]
 		if ok { return s,nil }
 		if id.isConnect() {
-			return nil,fmt.Errorf("peer tried to open Stream with bad id")
+			return nil,fmt.Errorf("peer tried to open stream with bad id")
 		}
 		if inner.acceptsSem[kind]==0 {
-			return nil,fmt.Errorf("too many concurrent accept Streams")
+			return nil,fmt.Errorf("too many concurrent accept streams")
 		}
 		inner.acceptsSem[kind] -= 1
 		s = newStreamState(id,kind)
-		inner.Streams[id] = s 
+		inner.streams[id] = s 
 		return s,nil
 	}
 	panic("unreachable")
@@ -92,13 +124,13 @@ func (r *runner) getOrAccept(id streamID, kind StreamKind) (*streamState,error) 
 func (r *runner) tryPrune(id streamID) {
 	for inner := range r.inner.Lock() {
 		// Check if the Stream is fully closed.
-		s,ok := inner.Streams[id]
+		s,ok := inner.streams[id]
 		if !ok { return }
 		for c := range s.closed.RLock() {
 			if !c.remote || !c.local { return }
 		}
 		// Delete Stream state.
-		delete(inner.Streams,id)
+		delete(inner.streams,id)
 		// Free the Stream capacity.
 		if id.isConnect() {
 			// Non-blocking since we just closed a connect Stream.
@@ -111,13 +143,13 @@ func (r *runner) tryPrune(id streamID) {
 }
 
 // runSend handles the frame queue.
-// The frames from all Streams are interleaved in a round robin fashion.
+// The frames from all streams are interleaved in a round robin fashion.
 // frames have bounded size to make sure that large messages do not slow down smaller ones.
 // Stream priorities are not implemented (not needed).
 // WARNING: it respects ctx only partially, because conn does not.
 func (r *runner) runSend(ctx context.Context, conn net.Conn) error {
 	for {
-		// Collect frames in round robin over Streams.
+		// Collect frames in round robin over streams.
 		var frames []*frame
 		flush := false
 		for queue,ctrl := range r.mux.queue.Lock() {
@@ -136,7 +168,7 @@ func (r *runner) runSend(ctx context.Context, conn net.Conn) error {
 			if f.Header.GetMsgEnd() {
 				// Notify sender about local buffer capacity.
 				for inner := range r.inner.RLock() {
-					for send,ctrl := range inner.Streams[id].send.Lock() {
+					for send,ctrl := range inner.streams[id].send.Lock() {
 						send.bufBegin += 1
 						ctrl.Updated()
 					}
@@ -213,14 +245,51 @@ func (r *runner) runRecv(ctx context.Context, conn net.Conn) error {
 // Run runs the multiplexer for the given connection.
 // It closes the connection before return.
 func (m *Mux) Run(ctx context.Context, conn net.Conn) error {
-	r := newRunner(m)
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		// Close on cancel.
 		s.Spawn(func() error {
 			defer conn.Close()
 			<-ctx.Done()
 			return nil
 		})
-		// TODO: handshake exchange.
+	
+		// Handshake exchange.
+		handshake,err := scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*handshake,error) {
+			s.Spawn(func() error {
+				handshakeRaw,err := proto.Marshal(handshakeConv.Encode(&handshake{Kinds: m.cfg.Kinds}))
+				if err!=nil { panic(err) }
+				sizeRaw := binary.LittleEndian.AppendUint32(nil,uint32(len(handshakeRaw)))	
+				if _,err := conn.Write(sizeRaw); err!=nil { return err }
+				if _,err := conn.Write(handshakeRaw); err!=nil { return err }
+				// TODO: flush
+				return nil
+			})
+			var sizeRaw [4]byte
+			if _,err:=io.ReadFull(conn,sizeRaw[:]); err!=nil { return nil,err }
+			size := binary.LittleEndian.Uint32(sizeRaw[:])
+			if size>handshakeMaxSize { return nil,fmt.Errorf("handshake too large") }
+			handshakeRaw := make([]byte,size)
+			if _,err:=io.ReadFull(conn,handshakeRaw[:]); err!=nil { return nil,err }
+			var handshakeProto pb.Handshake
+			if err := proto.Unmarshal(handshakeRaw,&handshakeProto); err!=nil { return nil,err }
+			return handshakeConv.Decode(&handshakeProto)
+		})
+		if err!=nil {
+			return err
+		}
+
+		// Initialize runner with handshake data.
+		r := newRunner(m)
+		for inner := range r.inner.Lock() {
+			for kind,cfg := range m.cfg.Kinds {
+				inner.acceptsSem[kind] = min(cfg.MaxAccepts,handshake.Kinds[kind].MaxConnects)	
+				for range min(cfg.MaxConnects,handshake.Kinds[kind].MaxAccepts) {
+					m.kinds[kind].connectsQueue <- newStreamState(inner.nextID,kind)
+					inner.nextID += 2
+				}
+			}
+		}
+		// Run the tasks.
 		s.Spawn(func() error { return r.runSend(ctx,conn) })
 		s.Spawn(func() error { return r.runRecv(ctx,conn) })	
 		return nil
