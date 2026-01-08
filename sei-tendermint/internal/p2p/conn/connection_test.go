@@ -31,8 +31,7 @@ type bufConn struct {
 }
 
 func (c *bufConn) Close() error {
-	defer c.conn.Close()
-	return c.Writer.Flush()
+	return c.conn.Close()
 }
 
 func withBuf(conn net.Conn) Conn {
