@@ -112,7 +112,7 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	}
 	database.latestVersion.Store(latestVersion)
 
-	streamHandler, _ := generic_wal.NewWAL(
+	streamHandler, err := generic_wal.NewWAL(
 		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
 		func(data []byte) (proto.ChangelogEntry, error) {
 			var e proto.ChangelogEntry
@@ -128,6 +128,9 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 			PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
 		},
 	)
+	if err != nil {
+		panic(err)
+	}
 	database.streamHandler = streamHandler
 	go database.writeAsyncInBackground()
 
