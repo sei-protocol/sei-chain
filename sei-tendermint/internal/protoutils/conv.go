@@ -1,8 +1,8 @@
 package protoutils
 
 import (
-	"fmt"
 	"errors"
+	"fmt"
 	"github.com/tendermint/tendermint/libs/utils"
 )
 
