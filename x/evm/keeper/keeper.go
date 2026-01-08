@@ -84,6 +84,8 @@ type Keeper struct {
 	// GigaExecutorEnabled controls whether to use the Giga executor (evmone-based)
 	// instead of geth's interpreter for EVM execution. Experimental feature.
 	GigaExecutorEnabled bool
+	// GigaOCCEnabled controls whether to use OCC with the Giga executor
+	GigaOCCEnabled bool
 
 	// used for both ETH replay and block tests. Not used in chain critical path.
 	Trie        ethstate.Trie
