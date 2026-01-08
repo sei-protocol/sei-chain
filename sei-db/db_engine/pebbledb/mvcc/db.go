@@ -93,6 +93,7 @@ type VersionedChangesets struct {
 func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	cache := pebble.NewCache(1024 * 1024 * 32)
 	defer cache.Unref()
+
 	opts := &pebble.Options{
 		Cache:                       cache,
 		Comparer:                    MVCCComparer,
@@ -134,12 +135,14 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	// Initialize earliest version
 	earliestVersion, err := retrieveEarliestVersion(db)
 	if err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to retrieve earliest version: %w", err)
 	}
 
 	// Initialize latest version
 	latestVersion, err := retrieveLatestVersion(db)
 	if err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to retrieve latest version: %w", err)
 	}
 
@@ -157,11 +160,13 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	// Initialize the lastRangeHashed cache
 	lastHashed, err := retrieveLastRangeHashed(db)
 	if err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to retrieve last range hashed: %w", err)
 	}
 	database.lastRangeHashedCache = lastHashed
 
 	if config.KeepRecent < 0 {
+		_ = db.Close()
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
 	streamHandler, _ := changelog.NewStream(
@@ -200,6 +205,10 @@ func (db *Database) Close() error {
 		// Now close the WAL stream
 		_ = db.streamHandler.Close()
 		db.streamHandler = nil
+	}
+	// Make Close idempotent: Pebble panics if Close is called twice.
+	if db.storage == nil {
+		return nil
 	}
 	err := db.storage.Close()
 	db.storage = nil
