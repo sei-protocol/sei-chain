@@ -6,11 +6,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/wal"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
-	"github.com/stretchr/testify/require"
-	"github.com/tidwall/wal"
 )
 
 var (
@@ -21,7 +22,7 @@ var (
 	}
 
 	// marshal/unmarshal functions for testing
-	marshalEntry = func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() }
+	marshalEntry   = func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() }
 	unmarshalEntry = func(data []byte) (proto.ChangelogEntry, error) {
 		var e proto.ChangelogEntry
 		err := e.Unmarshal(data)
