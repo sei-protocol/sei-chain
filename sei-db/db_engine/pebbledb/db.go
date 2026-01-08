@@ -1,0 +1,135 @@
+package pebbledb
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+
+	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/bloom"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+)
+
+// pebbleDB implements the db_engine.DB interface using PebbleDB.
+type pebbleDB struct {
+	db *pebble.DB
+}
+
+var _ db_engine.DB = (*pebbleDB)(nil)
+
+// Open opens (or creates) a Pebble-backed DB at path, returning the DB interface.
+func Open(path string, opts db_engine.OpenOptions) (_ db_engine.DB, err error) {
+	// Validate options before allocating resources to avoid leaks on validation failure
+	var cmp *pebble.Comparer
+	if opts.Comparer != nil {
+		var ok bool
+		cmp, ok = opts.Comparer.(*pebble.Comparer)
+		if !ok {
+			return nil, fmt.Errorf("OpenOptions.Comparer must be *pebble.Comparer, got %T", opts.Comparer)
+		}
+	}
+
+	cache := pebble.NewCache(1024 * 1024 * 512) // 512MB cache
+	defer cache.Unref()
+
+	popts := &pebble.Options{
+		Cache:                       cache,
+		Comparer:                    cmp,
+		FormatMajorVersion:          pebble.FormatNewest,
+		L0CompactionThreshold:       4,
+		L0StopWritesThreshold:       1000,
+		LBaseMaxBytes:               64 << 20, // 64 MB
+		Levels:                      make([]pebble.LevelOptions, 7),
+		MaxConcurrentCompactions:    func() int { return 3 },
+		MemTableSize:                64 << 20,
+		MemTableStopWritesThreshold: 4,
+		DisableWAL:                  false,
+	}
+
+	for i := 0; i < len(popts.Levels); i++ {
+		l := &popts.Levels[i]
+		l.BlockSize = 32 << 10       // 32 KB
+		l.IndexBlockSize = 256 << 10 // 256 KB
+		l.FilterPolicy = bloom.FilterPolicy(10)
+		l.FilterType = pebble.TableFilter
+		if i > 1 {
+			l.Compression = pebble.ZstdCompression
+		}
+		if i > 0 {
+			l.TargetFileSize = popts.Levels[i-1].TargetFileSize * 2
+		}
+		l.EnsureDefaults()
+	}
+
+	popts.Levels[6].FilterPolicy = nil
+	popts.FlushSplitBytes = popts.Levels[0].TargetFileSize
+	popts = popts.EnsureDefaults()
+
+	db, err := pebble.Open(path, popts)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pebbleDB{db: db}, nil
+}
+
+func (p *pebbleDB) Get(key []byte) ([]byte, error) {
+	// Pebble returns a zero-copy view plus a closer; we copy and close internally.
+	val, closer, err := p.db.Get(key)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return nil, db_engine.ErrNotFound
+		}
+		return nil, err
+	}
+	cloned := bytes.Clone(val)
+	_ = closer.Close()
+	return cloned, nil
+}
+
+func (p *pebbleDB) Set(key, value []byte, opts db_engine.WriteOptions) error {
+	return p.db.Set(key, value, toPebbleWriteOpts(opts))
+}
+
+func (p *pebbleDB) Delete(key []byte, opts db_engine.WriteOptions) error {
+	return p.db.Delete(key, toPebbleWriteOpts(opts))
+}
+
+func (p *pebbleDB) NewIter(opts *db_engine.IterOptions) (db_engine.Iterator, error) {
+	var iopts *pebble.IterOptions
+	if opts != nil {
+		iopts = &pebble.IterOptions{
+			LowerBound: opts.LowerBound,
+			UpperBound: opts.UpperBound,
+		}
+	}
+	it, err := p.db.NewIter(iopts)
+	if err != nil {
+		return nil, err
+	}
+	return &pebbleIterator{it: it}, nil
+}
+
+func (p *pebbleDB) Flush() error {
+	return p.db.Flush()
+}
+
+func (p *pebbleDB) Close() error {
+	// Make Close idempotent: Pebble panics if Close is called twice.
+	if p.db == nil {
+		return nil
+	}
+
+	db := p.db
+	p.db = nil
+
+	return db.Close()
+}
+
+func toPebbleWriteOpts(opts db_engine.WriteOptions) *pebble.WriteOptions {
+	if opts.Sync {
+		return pebble.Sync
+	}
+	return pebble.NoSync
+}
