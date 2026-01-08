@@ -38,10 +38,9 @@ func (e *EVMInterpreter) Run(contract *vm.Contract, input []byte, readOnly bool)
 	// irrelevant as it is only used for CREATE2 - geth is handling our CREATE2 logic
 	salt := evmc.Hash{}
 	codeAddress := evmc.Address{}
-	output, gasLeft, gasRefund, createAddr, err := e.hostContext.Call(callKind, recipient, sender, contract.Value().Bytes32(), input,
+	//nolint:dogsled,gosec // dogsled: Call returns 5 values, we only need output and err; gosec: safe gas conversion
+	output, _, _, _, err := e.hostContext.Call(callKind, recipient, sender, contract.Value().Bytes32(), input,
 		int64(contract.Gas), depth, static, salt, codeAddress)
-	// Silence unused variable warnings - these are returned by Call but not needed for basic execution
-	_, _, _ = gasLeft, gasRefund, createAddr
 	if err != nil {
 		return nil, err
 	}

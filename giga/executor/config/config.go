@@ -56,4 +56,3 @@ enabled = {{ .GigaExecutor.Enabled }}
 # Default: false
 occ_enabled = {{ .GigaExecutor.OCCEnabled }}
 `
-

@@ -1718,6 +1718,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 		code = 1
 	}
 
+	//nolint:gosec // G115: safe, UsedGas won't exceed int64 max
 	return &abci.ExecTxResult{
 		Code:    code,
 		GasUsed: int64(execResult.UsedGas),
