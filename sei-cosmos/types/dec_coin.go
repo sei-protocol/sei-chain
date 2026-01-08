@@ -625,7 +625,11 @@ func (coins DecCoins) Sort() DecCoins {
 func ParseDecCoin(coinStr string) (coin DecCoin, err error) {
 	coinStr = strings.TrimSpace(coinStr)
 
-	matches := reDecCoin.FindStringSubmatch(coinStr)
+	denomRegexMu.RLock()
+	re := reDecCoin
+	denomRegexMu.RUnlock()
+
+	matches := re.FindStringSubmatch(coinStr)
 	if matches == nil {
 		return DecCoin{}, fmt.Errorf("invalid decimal coin expression: %s", coinStr)
 	}

@@ -510,9 +510,11 @@ func (db *Database) Close() error {
 		// Only set to nil after background goroutine has finished
 		db.streamHandler = nil
 	}
-	db.storage.Close()
-	db.storage = nil
 	db.cfHandle = nil
+	if db.storage != nil {
+		db.storage.Close()
+		db.storage = nil
+	}
 
 	return nil
 }
