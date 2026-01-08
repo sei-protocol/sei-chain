@@ -126,33 +126,41 @@ func (x *Handshake) GetKinds() []*StreamKindConfig {
 }
 
 // Flat small message, representing a unit of multiplexer information.
-type Frame struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	StreamId      uint64                 `protobuf:"varint,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`                // OPEN,RESIZE,MSG,CLOSE
-	StreamKind    *uint64                `protobuf:"varint,2,opt,name=stream_kind,json=streamKind,proto3,oneof" json:"stream_kind,omitempty"`    // OPEN
-	MaxMsgSize    *uint64                `protobuf:"varint,3,opt,name=max_msg_size,json=maxMsgSize,proto3,oneof" json:"max_msg_size,omitempty"`  // OPEN
-	WindowEnd     *uint64                `protobuf:"varint,4,opt,name=window_end,json=windowEnd,proto3,oneof" json:"window_end,omitempty"`       // OPEN,RESIZE
-	PayloadSize   *uint64                `protobuf:"varint,5,opt,name=payload_size,json=payloadSize,proto3,oneof" json:"payload_size,omitempty"` // MSG
-	MsgEnd        *bool                  `protobuf:"varint,6,opt,name=msg_end,json=msgEnd,proto3,oneof" json:"msg_end,omitempty"`                // MSG
-	StreamEnd     *bool                  `protobuf:"varint,7,opt,name=stream_end,json=streamEnd,proto3,oneof" json:"stream_end,omitempty"`       // CLOSE
+// The frames for the same id can be sent merged,
+// since they have disjoint field sets.
+//
+// OPEN = id,kind,max_msg_size
+// RESIZE = id,window_end
+// MSG = id,payload_size,[msg_end]
+// CLOSE = id,close
+type Header struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// TOTAL: 59B
+	Id            uint64  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`                                            // 11B
+	Kind          *uint64 `protobuf:"varint,2,opt,name=kind,proto3,oneof" json:"kind,omitempty"`                                  //11B
+	MaxMsgSize    *uint64 `protobuf:"varint,3,opt,name=max_msg_size,json=maxMsgSize,proto3,oneof" json:"max_msg_size,omitempty"`  // 11B
+	WindowEnd     *uint64 `protobuf:"varint,4,opt,name=window_end,json=windowEnd,proto3,oneof" json:"window_end,omitempty"`       // 11B
+	PayloadSize   *uint64 `protobuf:"varint,5,opt,name=payload_size,json=payloadSize,proto3,oneof" json:"payload_size,omitempty"` // 11B
+	MsgEnd        *bool   `protobuf:"varint,6,opt,name=msg_end,json=msgEnd,proto3,oneof" json:"msg_end,omitempty"`                // 2B
+	Close         *bool   `protobuf:"varint,7,opt,name=close,proto3,oneof" json:"close,omitempty"`                                // 2B
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Frame) Reset() {
-	*x = Frame{}
+func (x *Header) Reset() {
+	*x = Header{}
 	mi := &file_mux_mux_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Frame) String() string {
+func (x *Header) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Frame) ProtoMessage() {}
+func (*Header) ProtoMessage() {}
 
-func (x *Frame) ProtoReflect() protoreflect.Message {
+func (x *Header) ProtoReflect() protoreflect.Message {
 	mi := &file_mux_mux_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -164,56 +172,56 @@ func (x *Frame) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Frame.ProtoReflect.Descriptor instead.
-func (*Frame) Descriptor() ([]byte, []int) {
+// Deprecated: Use Header.ProtoReflect.Descriptor instead.
+func (*Header) Descriptor() ([]byte, []int) {
 	return file_mux_mux_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *Frame) GetStreamId() uint64 {
+func (x *Header) GetId() uint64 {
 	if x != nil {
-		return x.StreamId
+		return x.Id
 	}
 	return 0
 }
 
-func (x *Frame) GetStreamKind() uint64 {
-	if x != nil && x.StreamKind != nil {
-		return *x.StreamKind
+func (x *Header) GetKind() uint64 {
+	if x != nil && x.Kind != nil {
+		return *x.Kind
 	}
 	return 0
 }
 
-func (x *Frame) GetMaxMsgSize() uint64 {
+func (x *Header) GetMaxMsgSize() uint64 {
 	if x != nil && x.MaxMsgSize != nil {
 		return *x.MaxMsgSize
 	}
 	return 0
 }
 
-func (x *Frame) GetWindowEnd() uint64 {
+func (x *Header) GetWindowEnd() uint64 {
 	if x != nil && x.WindowEnd != nil {
 		return *x.WindowEnd
 	}
 	return 0
 }
 
-func (x *Frame) GetPayloadSize() uint64 {
+func (x *Header) GetPayloadSize() uint64 {
 	if x != nil && x.PayloadSize != nil {
 		return *x.PayloadSize
 	}
 	return 0
 }
 
-func (x *Frame) GetMsgEnd() bool {
+func (x *Header) GetMsgEnd() bool {
 	if x != nil && x.MsgEnd != nil {
 		return *x.MsgEnd
 	}
 	return false
 }
 
-func (x *Frame) GetStreamEnd() bool {
-	if x != nil && x.StreamEnd != nil {
-		return *x.StreamEnd
+func (x *Header) GetClose() bool {
+	if x != nil && x.Close != nil {
+		return *x.Close
 	}
 	return false
 }
@@ -229,26 +237,24 @@ const file_mux_mux_proto_rawDesc = "" +
 	"\vmax_accepts\x18\x03 \x01(\x04R\n" +
 	"maxAccepts\"8\n" +
 	"\tHandshake\x12+\n" +
-	"\x05kinds\x18\x01 \x03(\v2\x15.mux.StreamKindConfigR\x05kinds\"\xdb\x02\n" +
-	"\x05Frame\x12\x1b\n" +
-	"\tstream_id\x18\x01 \x01(\x04R\bstreamId\x12$\n" +
-	"\vstream_kind\x18\x02 \x01(\x04H\x00R\n" +
-	"streamKind\x88\x01\x01\x12%\n" +
+	"\x05kinds\x18\x01 \x03(\v2\x15.mux.StreamKindConfigR\x05kinds\"\xad\x02\n" +
+	"\x06Header\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
+	"\x04kind\x18\x02 \x01(\x04H\x00R\x04kind\x88\x01\x01\x12%\n" +
 	"\fmax_msg_size\x18\x03 \x01(\x04H\x01R\n" +
 	"maxMsgSize\x88\x01\x01\x12\"\n" +
 	"\n" +
 	"window_end\x18\x04 \x01(\x04H\x02R\twindowEnd\x88\x01\x01\x12&\n" +
 	"\fpayload_size\x18\x05 \x01(\x04H\x03R\vpayloadSize\x88\x01\x01\x12\x1c\n" +
-	"\amsg_end\x18\x06 \x01(\bH\x04R\x06msgEnd\x88\x01\x01\x12\"\n" +
-	"\n" +
-	"stream_end\x18\a \x01(\bH\x05R\tstreamEnd\x88\x01\x01B\x0e\n" +
-	"\f_stream_kindB\x0f\n" +
+	"\amsg_end\x18\x06 \x01(\bH\x04R\x06msgEnd\x88\x01\x01\x12\x19\n" +
+	"\x05close\x18\a \x01(\bH\x05R\x05close\x88\x01\x01B\a\n" +
+	"\x05_kindB\x0f\n" +
 	"\r_max_msg_sizeB\r\n" +
 	"\v_window_endB\x0f\n" +
 	"\r_payload_sizeB\n" +
 	"\n" +
-	"\b_msg_endB\r\n" +
-	"\v_stream_endB2Z0github.com/tendermint/tendermint/internal/mux/pbb\x06proto3"
+	"\b_msg_endB\b\n" +
+	"\x06_closeB2Z0github.com/tendermint/tendermint/internal/mux/pbb\x06proto3"
 
 var (
 	file_mux_mux_proto_rawDescOnce sync.Once
@@ -266,7 +272,7 @@ var file_mux_mux_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_mux_mux_proto_goTypes = []any{
 	(*StreamKindConfig)(nil), // 0: mux.StreamKindConfig
 	(*Handshake)(nil),        // 1: mux.Handshake
-	(*Frame)(nil),            // 2: mux.Frame
+	(*Header)(nil),           // 2: mux.Header
 }
 var file_mux_mux_proto_depIdxs = []int32{
 	0, // 0: mux.Handshake.kinds:type_name -> mux.StreamKindConfig

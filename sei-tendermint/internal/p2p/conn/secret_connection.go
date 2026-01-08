@@ -65,6 +65,7 @@ func (n *nonce) inc() {
 
 type sendState struct {
 	cipher cipher.AEAD
+	// TODO(gprusak): add buffering for sends.
 	nonce  nonce
 }
 
@@ -161,7 +162,6 @@ func MakeSecretConnection(ctx context.Context, conn net.Conn, locPrivKey crypto.
 func (sc *SecretConnection) RemotePubKey() crypto.PubKey { return sc.remPubKey }
 
 // Writes encrypted frames of `totalFrameSize + aeadSizeOverhead`.
-// CONTRACT: data smaller than dataMaxSize is written atomically.
 func (sc *SecretConnection) Write(data []byte) (n int, err error) {
 	for sendState := range sc.sendState.Lock() {
 		for 0 < len(data) {
@@ -206,7 +206,6 @@ func (sc *SecretConnection) Write(data []byte) (n int, err error) {
 
 var errAEAD = errors.New("decoding failed")
 
-// CONTRACT: data smaller than dataMaxSize is read atomically.
 func (sc *SecretConnection) Read(data []byte) (n int, err error) {
 	for recvState := range sc.recvState.Lock() {
 		// read off and update the recvBuffer, if non-empty
