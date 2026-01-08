@@ -39,8 +39,9 @@ func (b *buffer) Close() error {
 }
 
 type evilConn struct {
-	*SecretConnection
-	buffer *buffer
+	net.Conn
+	secretConn *SecretConnection
+	buffer     *buffer
 
 	loc     ephSecret
 	rem     ephPublic
@@ -108,7 +109,7 @@ func (c *evilConn) Read(data []byte) (n int, err error) {
 			if err != nil {
 				panic(err)
 			}
-			n, err = c.SecretConnection.Write(bz)
+			n, err = c.secretConn.Write(bz)
 			if err != nil {
 				panic(err)
 			}
@@ -121,7 +122,7 @@ func (c *evilConn) Read(data []byte) (n int, err error) {
 			if err != nil {
 				panic(err)
 			}
-			n, err = c.SecretConnection.Write(bz)
+			n, err = c.secretConn.Write(bz)
 			if err != nil {
 				panic(err)
 			}
@@ -162,9 +163,9 @@ func (c *evilConn) Close() error {
 
 func (c *evilConn) signChallenge() ed25519.Signature {
 	b := &buffer{}
-	c.SecretConnection = newSecretConnection(b, c.loc, c.rem)
+	c.secretConn = newSecretConnection(b, c.loc, c.rem)
 	c.buffer = b
-	return c.privKey.Sign(c.challenge[:])
+	return c.privKey.Sign(c.secretConn.challenge[:])
 }
 
 // TestMakeSecretConnection creates an evil connection and tests that
@@ -177,8 +178,8 @@ func TestMakeSecretConnection(t *testing.T) {
 	}{
 		{"refuse to share ephemeral key", newEvilConn(false, false, false, false), utils.Some(errDH)},
 		{"share bad ephemeral key", newEvilConn(true, true, false, false), utils.Some(errDH)},
-		{"refuse to share auth signature", newEvilConn(true, false, false, false), utils.Some(io.EOF)},
-		{"share bad auth signature", newEvilConn(true, false, true, true), utils.Some(errAEAD)},
+		{"refuse to share auth signature", newEvilConn(true, false, false, false), utils.Some(errAuth)},
+		{"share bad auth signature", newEvilConn(true, false, true, true), utils.Some(errAuth)},
 		{"all good", newEvilConn(true, false, true, false), utils.None[error]()},
 	}
 

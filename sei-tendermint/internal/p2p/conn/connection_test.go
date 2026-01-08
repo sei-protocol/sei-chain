@@ -36,7 +36,7 @@ func (c *bufConn) Close() error {
 }
 
 func withBuf(conn net.Conn) Conn {
-	return &bufConn {	
+	return &bufConn{
 		bufio.NewReaderSize(conn, 1024),
 		bufio.NewWriterSize(conn, 1024),
 		conn,

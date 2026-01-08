@@ -27,15 +27,17 @@ import (
 	pb "github.com/tendermint/tendermint/proto/tendermint/p2p"
 )
 
+var errDH = errors.New("DH handshake failed")
+var errAuth = errors.New("authentication failed")
 var errAEAD = errors.New("decoding failed")
 
 // 4 + 1024 == 1028 total frame size
 const (
-	dataLenSize      = 4
-	dataMaxSize      = 1024
-	frameSize = dataLenSize + dataMaxSize
-	aeadOverhead     = chacha20poly1305.Overhead
-	aeadNonceSize    = chacha20poly1305.NonceSize
+	dataSizeLen   = 4
+	dataSizeMax   = 1024
+	frameSize     = dataSizeLen + dataSizeMax
+	aeadOverhead  = chacha20poly1305.Overhead
+	aeadNonceSize = chacha20poly1305.NonceSize
 
 	labelEphemeralLowerPublicKey = "EPHEMERAL_LOWER_PUBLIC_KEY"
 	labelEphemeralUpperPublicKey = "EPHEMERAL_UPPER_PUBLIC_KEY"
@@ -43,40 +45,39 @@ const (
 	labelSecretConnectionMac     = "SECRET_CONNECTION_MAC"
 )
 
-var ErrSmallOrderRemotePubKey = errors.New("detected low order point from remote peer")
 var secretConnKeyAndChallengeGen = []byte("TENDERMINT_SECRET_CONNECTION_KEY_AND_CHALLENGE_GEN")
 
 type sendState struct {
 	cipher cipher.AEAD
-	frame []byte
-	data []byte
-	nonce uint64
+	frame  []byte
+	data   []byte
+	nonce  uint64
 }
 
 type recvState struct {
 	cipher cipher.AEAD
-	frame []byte
-	data []byte
-	nonce uint64 
+	frame  []byte
+	data   []byte
+	nonce  uint64
 }
 
 func newSendState(cipher cipher.AEAD) *sendState {
-	frame := make([]byte,frameSize)
-	return &sendState {
+	frame := make([]byte, frameSize)
+	return &sendState{
 		cipher: cipher,
-		frame: frame,
-		data: frame[dataLenSize:dataLenSize],
+		frame:  frame,
+		data:   frame[dataSizeLen:dataSizeLen],
 	}
 }
 
 func newRecvState(cipher cipher.AEAD) *recvState {
-	return &recvState {
+	return &recvState{
 		cipher: cipher,
-		frame: make([]byte,frameSize),
+		frame:  make([]byte, frameSize),
 	}
 }
 
-// SecretConnection implements net.Conn.
+// SecretConnection implements Conn.
 // It is an implementation of the STS protocol.
 // See https://github.com/tendermint/tendermint/blob/0.1/docs/sts-final.pdf for
 // details on the protocol.
@@ -141,18 +142,21 @@ func MakeSecretConnection(ctx context.Context, conn net.Conn, locPrivKey crypto.
 		s.Spawn(func() error {
 			loc := &authSigMessage{locPrivKey.Public(), locPrivKey.Sign(sc.challenge[:])}
 			_, err := protoio.NewDelimitedWriter(sc).WriteMsg(authSigMessageConv.Encode(loc))
-			return err
+			if err != nil {
+				return err
+			}
+			return sc.Flush()
 		})
 		var pba pb.AuthSigMessage
 		if _, err := protoio.NewDelimitedReader(sc, 1024*1024).ReadMsg(&pba); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %v", errAuth, err)
 		}
 		rem, err := authSigMessageConv.Decode(&pba)
 		if err != nil {
-			return nil, fmt.Errorf("authSigMessageFromProto(): %w", err)
+			return nil, fmt.Errorf("%w: authSigMessageFromProto(): %v", errAuth, err)
 		}
 		if err := rem.Key.Verify(sc.challenge[:], rem.Sig); err != nil {
-			return nil, fmt.Errorf("challenge verification failed: %w", err)
+			return nil, fmt.Errorf("%w: %v", errAuth, err)
 		}
 		sc.remPubKey = rem.Key
 		return sc, nil
@@ -163,55 +167,72 @@ func MakeSecretConnection(ctx context.Context, conn net.Conn, locPrivKey crypto.
 func (sc *SecretConnection) RemotePubKey() crypto.PubKey { return sc.remPubKey }
 
 // Writes encrypted frames of `totalFrameSize + aeadSizeOverhead`.
-func (sc *SecretConnection) Write(data []byte) (int,error) {
+func (sc *SecretConnection) Write(data []byte) (int, error) {
 	for sendState := range sc.sendState.Lock() {
 		n := 0
 		for {
-			chunk := min(len(data),cap(sendState.data)-len(sendState.data))
+			chunk := min(len(data), cap(sendState.data)-len(sendState.data))
 			sendState.data = append(sendState.data, data[:chunk]...)
 			n += chunk
 			data = data[chunk:]
-			if len(data)==0 { return n,nil }
-			if err:=sc.flush(sendState); err!=nil { return n,err }
-		}	
+			if len(data) == 0 {
+				return n, nil
+			}
+			if err := sc.flush(sendState); err != nil {
+				return n, err
+			}
+		}
 	}
 	panic("unreachable")
 }
 
 func (sc *SecretConnection) flush(sendState *sendState) error {
-	if len(sendState.data)==0 { return nil }
+	if len(sendState.data) == 0 {
+		return nil
+	}
 	binary.LittleEndian.PutUint32(sendState.frame, uint32(len(sendState.data)))
-	if sendState.nonce==math.MaxUint64 { return fmt.Errorf("nonce overflow") }
+	if sendState.nonce == math.MaxUint64 {
+		return fmt.Errorf("nonce overflow")
+	}
 	var nonce [aeadNonceSize]byte
 	binary.LittleEndian.PutUint64(nonce[4:], sendState.nonce)
 	sendState.nonce += 1
 	// We use a predeclared stack-allocated buffer, to prevent Seal from doing heap allocation.
 	// I'm not surre whether this optimization is needed though.
-	var sealedFrame [dataLenSize+dataMaxSize+aeadOverhead]byte
+	var sealedFrame [frameSize + aeadOverhead]byte
 	_, err := sc.conn.Write(sendState.cipher.Seal(sealedFrame[:0], nonce[:], sendState.frame[:], nil))
-	sendState.data = sendState.frame[dataLenSize:dataLenSize]
+	sendState.data = sendState.frame[dataSizeLen:dataSizeLen]
 	return err
 }
 
-func (sc *SecretConnection) Read(data []byte) (int,error) {
-	if len(data)==0 { return 0,nil }
+func (sc *SecretConnection) Read(data []byte) (int, error) {
+	if len(data) == 0 {
+		return 0, nil
+	}
 	for recvState := range sc.recvState.Lock() {
-		for len(recvState.data)==0 {
-			var sealedFrame [frameSize+aeadOverhead]byte
-			if _, err := io.ReadFull(sc.conn, sealedFrame[:]); err!=nil { return 0,err }
-			if recvState.nonce==math.MaxUint64 { return 0,fmt.Errorf("nonce overflow") }
+		for len(recvState.data) == 0 {
+			var sealedFrame [frameSize + aeadOverhead]byte
+			if _, err := io.ReadFull(sc.conn, sealedFrame[:]); err != nil {
+				return 0, err
+			}
+			if recvState.nonce == math.MaxUint64 {
+				return 0, fmt.Errorf("nonce overflow")
+			}
 			var nonce [aeadNonceSize]byte
 			binary.LittleEndian.PutUint64(nonce[4:], recvState.nonce)
 			recvState.nonce += 1
-			if _, err := recvState.cipher.Open(recvState.frame[:0], nonce[:], sealedFrame[:], nil); err!=nil {
+			if _, err := recvState.cipher.Open(recvState.frame[:0], nonce[:], sealedFrame[:], nil); err != nil {
 				return 0, fmt.Errorf("%w: %v", errAEAD, err)
 			}
-			dataSize := binary.LittleEndian.Uint32(recvState.frame) 
-			if dataSize > dataMaxSize {
-				return 0, errors.New("chunkLength is greater than dataMaxSize")
+			dataSize := binary.LittleEndian.Uint32(recvState.frame)
+			if dataSize > dataSizeMax {
+				return 0, errors.New("dataSize is greater than dataSizeMax")
 			}
-			recvState.data = recvState.frame[dataLenSize:dataLenSize+dataSize]
+			recvState.data = recvState.frame[dataSizeLen : dataSizeLen+dataSize]
 		}
+		n := copy(data, recvState.data)
+		recvState.data = recvState.data[n:]
+		return n, nil
 	}
 	panic("unreachable")
 }
@@ -246,8 +267,6 @@ func genEphKey() ephSecret {
 		public: *public,
 	}
 }
-
-var errDH = errors.New("DH handshake failed")
 
 func shareEphPubKey(ctx context.Context, conn io.ReadWriter, locEphPub ephPublic) (ephPublic, error) {
 	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (ephPublic, error) {
