@@ -29,7 +29,10 @@ echo "=== Benchmark Configuration ==="
 echo "  MOCK_BALANCES:  $MOCK_BALANCES"
 echo "  GIGA_EXECUTOR:  $GIGA_EXECUTOR"
 echo "  GIGA_OCC:       $GIGA_OCC"
+<<<<<<< HEAD
 echo "  DB_BACKEND:     $DB_BACKEND"
+=======
+>>>>>>> a835d23e3 (Add OCC to giga (#2677))
 echo "================================"
 
 # clean up old sei directory
