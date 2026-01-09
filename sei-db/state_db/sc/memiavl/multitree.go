@@ -358,11 +358,10 @@ func (t *MultiTree) UpdateCommitInfo() {
 	t.lastCommitInfo = *t.buildCommitInfo(t.lastCommitInfo.Version)
 }
 
-// Catchup replay the new entries in the Rlog file on the tree to catch up to the target or latest version.
-// This function iterates through actual WAL entries and filters by the Version field stored in each entry,
-// rather than assuming WAL index equals VersionToIndex(version). This handles cases where WAL indices
-// don't match version mapping (e.g., after state sync, WAL pruning, etc.).
-func (t *MultiTree) Catchup(ctx context.Context, stream wal.GenericWAL[proto.ChangelogEntry], endVersion int64) error {
+// Catchup replays WAL entries to catch up the tree to the target or latest version.
+// delta is the difference between version and WAL index (version = walIndex + delta).
+// endVersion specifies the target version (0 means catch up to latest).
+func (t *MultiTree) Catchup(ctx context.Context, stream wal.GenericWAL[proto.ChangelogEntry], delta int64, endVersion int64) error {
 	startTime := time.Now()
 
 	// Get actual WAL index range
@@ -382,8 +381,24 @@ func (t *MultiTree) Catchup(ctx context.Context, stream wal.GenericWAL[proto.Cha
 
 	currentVersion := t.Version()
 
+	// Calculate start index: walIndex = version - delta
+	// We want to start from currentVersion + 1
+	startIndexSigned := currentVersion + 1 - delta
+
+	// Ensure startIndex is within valid range (handle negative case before uint64 conversion)
+	var startIndex uint64
+	if startIndexSigned <= 0 || uint64(startIndexSigned) < firstIndex {
+		startIndex = firstIndex
+	} else {
+		startIndex = uint64(startIndexSigned)
+	}
+	if startIndex > lastIndex {
+		// Nothing to replay - tree is already caught up
+		return nil
+	}
+
 	var replayCount = 0
-	err = stream.Replay(firstIndex, lastIndex, func(index uint64, entry proto.ChangelogEntry) error {
+	err = stream.Replay(startIndex, lastIndex, func(index uint64, entry proto.ChangelogEntry) error {
 		// Check for cancellation
 		select {
 		case <-ctx.Done():
@@ -391,14 +406,14 @@ func (t *MultiTree) Catchup(ctx context.Context, stream wal.GenericWAL[proto.Cha
 		default:
 		}
 
-		// Filter by version: only apply entries newer than current tree version
+		// Safety check: skip entries we already have (should not happen with correct startIndex)
 		if entry.Version <= currentVersion {
-			return nil // skip entries we already have
+			return nil
 		}
 
 		// If endVersion is specified, stop at that version
 		if endVersion != 0 && entry.Version > endVersion {
-			return nil // skip entries beyond target
+			return nil
 		}
 
 		if err := t.ApplyUpgrades(entry.Upgrades); err != nil {

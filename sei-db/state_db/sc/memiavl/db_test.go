@@ -1105,7 +1105,8 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	err = mtree.Catchup(ctx, wal, 0)
+	// delta=0 for this test since we're just testing context cancellation
+	err = mtree.Catchup(ctx, wal, 0, 0)
 	// If already caught up, no error; otherwise should get context.Canceled
 	if err != nil {
 		require.Equal(t, context.Canceled, err)

@@ -213,9 +213,9 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 	}
 
 	// Replay WAL to catch up to target version (if WAL is provided)
-	if streamHandler != nil && (targetVersion == 0 || targetVersion > mtree.Version()) {
+	if streamHandler != nil && walHasEntries && (targetVersion == 0 || targetVersion > mtree.Version()) {
 		logger.Info("Start catching up and replaying the MemIAVL changelog file")
-		if err := mtree.Catchup(context.Background(), streamHandler, targetVersion); err != nil {
+		if err := mtree.Catchup(context.Background(), streamHandler, walIndexDelta, targetVersion); err != nil {
 			return nil, err
 		}
 		logger.Info(fmt.Sprintf("Finished the replay and caught up to version %d", targetVersion))
@@ -460,7 +460,7 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 
 		// catchup the remaining entries in rlog (only if WAL is set)
 		if db.streamHandler != nil {
-			if err := result.mtree.Catchup(context.Background(), db.streamHandler, 0); err != nil {
+			if err := result.mtree.Catchup(context.Background(), db.streamHandler, db.walIndexDelta, 0); err != nil {
 				return fmt.Errorf("catchup failed: %w", err)
 			}
 		}
@@ -828,7 +828,7 @@ func (db *DB) rewriteSnapshotBackground() error {
 		// Only catch up if WAL is set (managed by upper layer)
 		if db.streamHandler != nil {
 			catchupStart := time.Now()
-			if err := mtree.Catchup(ctx, db.streamHandler, 0); err != nil {
+			if err := mtree.Catchup(ctx, db.streamHandler, db.walIndexDelta, 0); err != nil {
 				cloned.logger.Error("failed to catchup after snapshot", "error", err)
 				ch <- snapshotResult{err: err}
 				return
