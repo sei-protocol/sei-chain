@@ -55,8 +55,8 @@ func TestConcurrentReadWrite(t *testing.T) {
 	ctx := t.Context()
 	sc1, sc2 := makeSecretConnPair(t)
 	rng := utils.TestRng()
-	fooWriteText := utils.GenBytes(rng, dataMaxSize)
-	n := 100 * dataMaxSize
+	fooWriteText := utils.GenBytes(rng, dataSizeMax)
+	n := 100 * dataSizeMax
 
 	// read from two routines.
 	// should be safe from race according to net.Conn:
@@ -91,7 +91,7 @@ func TestSecretConnectionReadWrite(t *testing.T) {
 				s.Spawn(func() error {
 					var ws []byte
 					for range 100 {
-						w := utils.GenBytes(rng, rng.Intn(dataMaxSize*5)+1)
+						w := utils.GenBytes(rng, rng.Intn(dataSizeMax*5)+1)
 						ws = append(ws, w...)
 						n, err := sc.Write(w)
 						if err != nil {
@@ -99,6 +99,9 @@ func TestSecretConnectionReadWrite(t *testing.T) {
 						}
 						if n != len(w) {
 							return fmt.Errorf("failed to write all bytes. Expected %v, wrote %v", len(w), n)
+						}
+						if err := sc.Flush(); err != nil {
+							return fmt.Errorf("sc.Flush(): %w", err)
 						}
 					}
 					for writes := range writes.Lock() {
@@ -108,7 +111,7 @@ func TestSecretConnectionReadWrite(t *testing.T) {
 				})
 				s.Spawn(func() error {
 					var rs []byte
-					readBuffer := make([]byte, dataMaxSize)
+					readBuffer := make([]byte, dataSizeMax)
 					for {
 						n, err := sc.Read(readBuffer)
 						if err != nil {
@@ -177,13 +180,16 @@ func writeLots(sc *SecretConnection, data []byte, total int) error {
 		if _, err := sc.Write(data[:n]); err != nil {
 			return err
 		}
+		if err := sc.Flush(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 func readLots(sc *SecretConnection, total int) error {
 	for total > 0 {
-		readBuffer := make([]byte, min(dataMaxSize, total))
+		readBuffer := make([]byte, min(dataSizeMax, total))
 		n, err := sc.Read(readBuffer)
 		if err != nil {
 			return err
@@ -252,13 +258,13 @@ func BenchmarkWriteSecretConnection(b *testing.B) {
 	b.ReportAllocs()
 	fooSecConn, barSecConn := makeSecretConnPair(b)
 	randomMsgSizes := []int{
-		dataMaxSize / 10,
-		dataMaxSize / 3,
-		dataMaxSize / 2,
-		dataMaxSize,
-		dataMaxSize * 3 / 2,
-		dataMaxSize * 2,
-		dataMaxSize * 7 / 2,
+		dataSizeMax / 10,
+		dataSizeMax / 3,
+		dataSizeMax / 2,
+		dataSizeMax,
+		dataSizeMax * 3 / 2,
+		dataSizeMax * 2,
+		dataSizeMax * 7 / 2,
 	}
 	fooWriteBytes := make([][]byte, 0, len(randomMsgSizes))
 	for _, size := range randomMsgSizes {
@@ -266,7 +272,7 @@ func BenchmarkWriteSecretConnection(b *testing.B) {
 	}
 	// Consume reads from bar's reader
 	go func() {
-		readBuffer := make([]byte, dataMaxSize)
+		readBuffer := make([]byte, dataSizeMax)
 		for {
 			_, err := barSecConn.Read(readBuffer)
 			if err == io.EOF {
@@ -298,13 +304,13 @@ func BenchmarkReadSecretConnection(b *testing.B) {
 	b.ReportAllocs()
 	fooSecConn, barSecConn := makeSecretConnPair(b)
 	randomMsgSizes := []int{
-		dataMaxSize / 10,
-		dataMaxSize / 3,
-		dataMaxSize / 2,
-		dataMaxSize,
-		dataMaxSize * 3 / 2,
-		dataMaxSize * 2,
-		dataMaxSize * 7 / 2,
+		dataSizeMax / 10,
+		dataSizeMax / 3,
+		dataSizeMax / 2,
+		dataSizeMax,
+		dataSizeMax * 3 / 2,
+		dataSizeMax * 2,
+		dataSizeMax * 7 / 2,
 	}
 	fooWriteBytes := make([][]byte, 0, len(randomMsgSizes))
 	for _, size := range randomMsgSizes {
@@ -322,7 +328,7 @@ func BenchmarkReadSecretConnection(b *testing.B) {
 	}()
 
 	for b.Loop() {
-		readBuffer := make([]byte, dataMaxSize)
+		readBuffer := make([]byte, dataSizeMax)
 		_, err := barSecConn.Read(readBuffer)
 
 		if err == io.EOF {
