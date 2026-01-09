@@ -1395,6 +1395,281 @@ describe("EVM Validations ", function() {
 
 })
 
+describe("SSTORE Gas Discrepancy Test", function() {
+  let sstoreTest;
+  let owner;
+
+  before(async function() {
+    const accounts = await setupSigners(await hre.ethers.getSigners());
+    owner = accounts[0].signer;
+
+    // Deploy SstoreGasTest contract
+    const SstoreGasTest = await ethers.getContractFactory("SstoreGasTest");
+    sstoreTest = await SstoreGasTest.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
+    await sstoreTest.waitForDeployment();
+  });
+
+  // Helper to calculate total gas from flatCallTracer result (matches Go auditor logic)
+  function calculateTotalGasUsed(traceResult) {
+    // For callTracer, gasUsed is in the top-level result
+    // The result could be a single object or the gasUsed field directly
+    if (typeof traceResult === 'object' && traceResult.gasUsed !== undefined) {
+      // gasUsed is hex string like "0x5208"
+      if (typeof traceResult.gasUsed === 'string' && traceResult.gasUsed.startsWith('0x')) {
+        return parseInt(traceResult.gasUsed, 16);
+      }
+      return Number(traceResult.gasUsed);
+    }
+    return 0;
+  }
+
+  // Matches Go auditor: uses callTracer and compares gasUsed from trace result vs receipt
+  async function compareReceiptAndTraceGas(txHash) {
+    // Get receipt gas used (same as Go: receipt.GasUsed)
+    const receipt = await ethers.provider.getTransactionReceipt(txHash);
+    const receiptGasUsed = Number(receipt.gasUsed);
+
+    // Get trace with callTracer (similar to Go auditor's flatCallTracer)
+    const trace = await hre.network.provider.request({
+      method: "debug_traceTransaction",
+      params: [txHash, { tracer: "callTracer" }],
+    });
+    
+    // Calculate gas from trace result (same as Go: calculateTotalGasUsed(trace.Result))
+    const traceGasUsed = calculateTotalGasUsed(trace);
+
+    // Also get default tracer for comparison
+    const defaultTrace = await hre.network.provider.request({
+      method: "debug_traceTransaction",
+      params: [txHash],
+    });
+
+    return {
+      receiptGasUsed,
+      traceGasUsed,
+      defaultTraceGas: defaultTrace.gas,
+      difference: receiptGasUsed - traceGasUsed,
+      receipt,
+      trace,
+      defaultTrace
+    };
+  }
+
+  it("should have matching gas between receipt and trace for single cold SSTORE", async function() {
+    // Reset slots first to ensure cold storage
+    const resetTx = await sstoreTest.resetSlots({ gasPrice: ethers.parseUnits('100', 'gwei') });
+    await resetTx.wait();
+
+    // Deploy a fresh contract to ensure truly cold storage
+    const SstoreGasTest = await ethers.getContractFactory("SstoreGasTest");
+    const freshContract = await SstoreGasTest.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
+    await freshContract.waitForDeployment();
+
+    // Perform single cold SSTORE
+    const tx = await freshContract.singleColdSstore(12345, { gasPrice: ethers.parseUnits('100', 'gwei') });
+    const txReceipt = await tx.wait();
+
+    const result = await compareReceiptAndTraceGas(txReceipt.hash);
+    
+    expect(result.difference).to.equal(0, 
+      `Gas mismatch: receipt=${result.receiptGasUsed}, trace=${result.traceGasUsed}, diff=${result.difference}`);
+  });
+
+  it("should have matching gas between receipt and trace for multiple cold SSTOREs", async function() {
+    // Deploy a fresh contract to ensure truly cold storage
+    const SstoreGasTest = await ethers.getContractFactory("SstoreGasTest");
+    const freshContract = await SstoreGasTest.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
+    await freshContract.waitForDeployment();
+
+    // Perform multiple cold SSTOREs (5 slots)
+    const tx = await freshContract.multipleColdSstores(100, { gasPrice: ethers.parseUnits('100', 'gwei') });
+    const txReceipt = await tx.wait();
+
+    const result = await compareReceiptAndTraceGas(txReceipt.hash);
+    
+    expect(result.difference).to.equal(0,
+      `Gas mismatch: receipt=${result.receiptGasUsed}, trace=${result.traceGasUsed}, diff=${result.difference}`);
+  });
+
+  it("should have matching gas for mapping cold SSTOREs", async function() {
+    // Deploy a fresh contract
+    const SstoreGasTest = await ethers.getContractFactory("SstoreGasTest");
+    const freshContract = await SstoreGasTest.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
+    await freshContract.waitForDeployment();
+
+    // Perform cold SSTOREs to 3 mapping slots
+    const tx = await freshContract.coldSstoreMapping(3, 500, { gasPrice: ethers.parseUnits('100', 'gwei') });
+    const txReceipt = await tx.wait();
+
+    const result = await compareReceiptAndTraceGas(txReceipt.hash);
+    
+    expect(result.difference).to.equal(0,
+      `Gas mismatch: receipt=${result.receiptGasUsed}, trace=${result.traceGasUsed}, diff=${result.difference}`);
+  });
+
+  it("should analyze SSTORE opcodes in trace", async function() {
+    // Deploy a fresh contract
+    const SstoreGasTest = await ethers.getContractFactory("SstoreGasTest");
+    const freshContract = await SstoreGasTest.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
+    await freshContract.waitForDeployment();
+
+    // Perform single cold SSTORE
+    const tx = await freshContract.singleColdSstore(99999, { gasPrice: ethers.parseUnits('100', 'gwei') });
+    const txReceipt = await tx.wait();
+
+    // Get detailed trace
+    const trace = await hre.network.provider.request({
+      method: "debug_traceTransaction",
+      params: [txReceipt.hash],
+    });
+
+    // Find SSTORE operations and their gas costs
+    const sstoreOps = [];
+    for (let i = 0; i < trace.structLogs.length; i++) {
+      const log = trace.structLogs[i];
+      if (log.op === "SSTORE") {
+        const gasBefore = i > 0 ? trace.structLogs[i-1].gas : trace.structLogs[0].gas;
+        const gasAfter = log.gas;
+        const gasCost = gasBefore - gasAfter;
+        sstoreOps.push({
+          index: i,
+          gasCost: gasCost,
+          depth: log.depth,
+          gas: log.gas,
+          gasCostField: log.gasCost
+        });
+      }
+    }
+
+    // Verify we found at least one SSTORE
+    expect(sstoreOps.length).to.be.greaterThan(0, "Should find at least one SSTORE operation");
+  });
+
+  it("should compare gas with callTracer (matches Go auditor)", async function() {
+    // Deploy a fresh contract
+    const SstoreGasTest = await ethers.getContractFactory("SstoreGasTest");
+    const freshContract = await SstoreGasTest.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
+    await freshContract.waitForDeployment();
+
+    const tx = await freshContract.multipleColdSstores(200, { gasPrice: ethers.parseUnits('100', 'gwei') });
+    const txReceipt = await tx.wait();
+
+    // Get receipt gas (same as Go: receipt.GasUsed)
+    const receiptGasUsed = Number(txReceipt.gasUsed);
+    const receiptStatus = txReceipt.status;
+
+    // Get trace with callTracer (similar to Go auditor)
+    const callTrace = await hre.network.provider.request({
+      method: "debug_traceTransaction",
+      params: [txReceipt.hash, { tracer: "callTracer" }],
+    });
+
+    // Parse gasUsed from trace (same as Go: calculateTotalGasUsed(trace.Result))
+    const callTracerGas = parseInt(callTrace.gasUsed, 16);
+    const difference = receiptGasUsed - callTracerGas;
+
+    // This matches Go auditor's check for successful transactions
+    if (receiptStatus !== 0) {
+      expect(difference).to.equal(0,
+        `Gas mismatch: receipt=${receiptGasUsed}, trace=${callTracerGas}, diff=${difference}`);
+    }
+  });
+
+  it("should reproduce mismatch by changing param between execution and trace", async function() {
+    this.timeout(120000); // 2 minutes for governance proposals
+    
+    const { proposeParamChange, passProposal } = require("./lib.js");
+    
+    // 1. First, ensure param is set to a known high value (72000)
+    try {
+      const proposalId1 = await proposeParamChange(
+        "Set SSTORE high", 
+        "Set to 72k for test", 
+        [{
+          subspace: "evm",
+          key: "KeySeiSstoreSetGasEIP2200",
+          value: "72000"
+        }]
+      );
+      await passProposal(proposalId1);
+    } catch (e) {
+      // May already be set
+    }
+    
+    // 2. Deploy and execute tx - receipt records gas with current SSTORE value
+    const SstoreGasTest = await ethers.getContractFactory("SstoreGasTest");
+    const contract = await SstoreGasTest.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
+    await contract.waitForDeployment();
+    
+    const tx = await contract.singleColdSstore(12345, { gasPrice: ethers.parseUnits('100', 'gwei') });
+    const receipt = await tx.wait();
+    const receiptGasUsed = Number(receipt.gasUsed);
+    
+    // 3. Change param to 1 (simulating the bug condition - can't use 0 as it may be rejected)
+    const proposalId2 = await proposeParamChange(
+      "Set SSTORE low", 
+      "Set to 1 to reproduce bug", 
+      [{
+        subspace: "evm",
+        key: "KeySeiSstoreSetGasEIP2200",
+        value: "1"
+      }]
+    );
+    await passProposal(proposalId2);
+    
+    // 4. Now trace the FIRST transaction (executed with SSTORE=72k) - tracer should use historical value
+    const trace = await hre.network.provider.request({
+      method: "debug_traceTransaction",
+      params: [receipt.hash, { tracer: "callTracer" }],
+    });
+    const traceGasUsed = parseInt(trace.gasUsed, 16);
+    
+    // 5. Compare results for first transaction
+    const difference = receiptGasUsed - traceGasUsed;
+    
+    // 6. Execute SECOND transaction while SSTORE=1
+    const SstoreGasTest2 = await ethers.getContractFactory("SstoreGasTest");
+    const contract2 = await SstoreGasTest2.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
+    await contract2.waitForDeployment();
+    
+    const tx2 = await contract2.singleColdSstore(99999, { gasPrice: ethers.parseUnits('100', 'gwei') });
+    const receipt2 = await tx2.wait();
+    const receipt2GasUsed = Number(receipt2.gasUsed);
+    
+    // 7. Restore param to 72000
+    try {
+      const proposalId3 = await proposeParamChange(
+        "Restore SSTORE", 
+        "Restore to 72k", 
+        [{
+          subspace: "evm",
+          key: "KeySeiSstoreSetGasEIP2200",
+          value: "72000"
+        }]
+      );
+      await passProposal(proposalId3);
+    } catch (e) {
+      // Ignore restore failures
+    }
+    
+    // 8. Trace the SECOND transaction (executed with SSTORE=1) - should use historical value
+    const trace2 = await hre.network.provider.request({
+      method: "debug_traceTransaction",
+      params: [receipt2.hash, { tracer: "callTracer" }],
+    });
+    const trace2GasUsed = parseInt(trace2.gasUsed, 16);
+    
+    // 9. Compare results for second transaction
+    const difference2 = receipt2GasUsed - trace2GasUsed;
+    
+    // Test should FAIL if there's any mismatch
+    expect(difference).to.equal(0, 
+      `First TX gas mismatch! Receipt: ${receiptGasUsed}, Trace: ${traceGasUsed}, Difference: ${difference}`);
+    expect(difference2).to.equal(0, 
+      `Second TX gas mismatch! Receipt: ${receipt2GasUsed}, Trace: ${trace2GasUsed}, Difference: ${difference2}. Tracer is not using height-aware SSTORE param.`);
+  });
+});
+
 describe("EVM throughput", function(){
   let accounts;
   before(async function(){
