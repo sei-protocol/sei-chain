@@ -3,39 +3,43 @@ package cli
 import (
 	"crypto/ecdsa"
 	"crypto/rand"
+	"encoding/json"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	evmRPCMainnet = "https://evm-rpc.sei-apis.com"
-	evmRPCTestnet = "https://evm-rpc-testnet.sei-apis.com"
-)
-
 func TestGetChainId(t *testing.T) {
 
 	tests := []struct {
-		name    string
-		rpc     string
-		chainId int64
-		hasErr  bool
+		name       string
+		chainIdHex string
+		chainId    int64
+		hasURL     bool
 	}{
-		{"mainnet chain id", evmRPCMainnet, 1329, false},
-		{"testnet chain id", evmRPCTestnet, 1328, false},
-		{"error chain id", "", 0, true},
+		{"mainnet chain id", "0x531", 1329, true},
+		{"testnet chain id", "0x530", 1328, true},
+		{"url error chain id", "", 0, false},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(st *testing.T) {
-			chainId, err := getChainId(test.rpc)
-			if test.hasErr {
-				require.Error(st, err)
-			} else {
+
+			//Setup RPC Server with result and get URL
+			rpcServer := getRPCServer(test.chainIdHex)
+			defer rpcServer.Close()
+
+			if test.hasURL {
+				chainId, err := getChainId(rpcServer.URL)
 				require.NoError(st, err)
 				require.Equal(st, *big.NewInt(test.chainId), *chainId)
+			} else {
+				_, err := getChainId("")
+				require.Error(st, err)
 			}
 		})
 	}
@@ -49,21 +53,52 @@ func TestGetNonce(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		rpc       string
 		publicKey ecdsa.PublicKey
+		nonceHex  string
 		nonce     uint64
 	}{
-		{"mainnet new address", evmRPCMainnet, privateKey.PublicKey, uint64(0)},
-		{"testnet new address", evmRPCTestnet, privateKey.PublicKey, uint64(0)},
+		{"new address", privateKey.PublicKey, "0x0", uint64(0)},
+		{"active address", privateKey.PublicKey, "0x5", uint64(5)},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(st *testing.T) {
-			nonce, err := getNonce(test.rpc, test.publicKey)
+
+			//Setup RPC Server with result and get URL
+			rpcServer := getRPCServer(test.nonceHex)
+			defer rpcServer.Close()
+
+			nonce, err := getNonce(rpcServer.URL, test.publicKey)
 			require.NoError(st, err)
 			require.Equal(st, nonce, test.nonce)
 		})
 	}
+}
 
-	//NOTE: Could add tests for known active public keys for mainnet and testnet
+func getRPCServer(result string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		//Standard method call response from POST request to RPC
+		response := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      "send-cli",
+			"result":  result,
+		}
+
+		//Adjust to default GET response if not POST
+		if r.Method != http.MethodPost {
+			response = map[string]interface{}{
+				"sei": []map[string]interface{}{
+					{
+						"id":    "evm:local",
+						"alias": "sei",
+						"state": "OK",
+					},
+				},
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
 }
