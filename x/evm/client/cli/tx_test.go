@@ -27,19 +27,19 @@ func TestGetChainId(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run(test.name, func(st *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 
 			//Setup RPC Server with result and get URL
-			rpcServer := getRPCServer(test.chainIdHex)
+			rpcServer := getRPCServer(t, test.chainIdHex)
 			defer rpcServer.Close()
 
 			if test.hasURL {
 				chainId, err := getChainId(rpcServer.URL)
-				require.NoError(st, err)
-				require.Equal(st, *big.NewInt(test.chainId), *chainId)
+				require.NoError(t, err)
+				require.Equal(t, *big.NewInt(test.chainId), *chainId)
 			} else {
 				_, err := getChainId("")
-				require.Error(st, err)
+				require.Error(t, err)
 			}
 		})
 	}
@@ -62,24 +62,24 @@ func TestGetNonce(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run(test.name, func(st *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 
 			//Setup RPC Server with result and get URL
-			rpcServer := getRPCServer(test.nonceHex)
+			rpcServer := getRPCServer(t, test.nonceHex)
 			defer rpcServer.Close()
 
 			nonce, err := getNonce(rpcServer.URL, test.publicKey)
-			require.NoError(st, err)
-			require.Equal(st, nonce, test.nonce)
+			require.NoError(t, err)
+			require.Equal(t, nonce, test.nonce)
 		})
 	}
 }
 
-func getRPCServer(result string) *httptest.Server {
+func getRPCServer(t *testing.T, result string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 		//Standard method call response from POST request to RPC
-		response := map[string]interface{}{
+		response := map[string]any{
 			"jsonrpc": "2.0",
 			"id":      "send-cli",
 			"result":  result,
@@ -87,8 +87,8 @@ func getRPCServer(result string) *httptest.Server {
 
 		//Adjust to default GET response if not POST
 		if r.Method != http.MethodPost {
-			response = map[string]interface{}{
-				"sei": []map[string]interface{}{
+			response = map[string]any{
+				"sei": []map[string]any{
 					{
 						"id":    "evm:local",
 						"alias": "sei",
@@ -99,6 +99,7 @@ func getRPCServer(result string) *httptest.Server {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		err := json.NewEncoder(w).Encode(response)
+		require.NoError(t, err)
 	}))
 }
