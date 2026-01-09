@@ -15,12 +15,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/tendermint/tendermint/internal/mux/pb"
+	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/internal/protoutils"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"google.golang.org/protobuf/proto"
 	"io"
-	"net"
 )
 
 const handshakeMaxSize = 10 * 1024 // 10kB
@@ -153,7 +153,7 @@ func (r *runner) tryPrune(id streamID) {
 // frames have bounded size to make sure that large messages do not slow down smaller ones.
 // Stream priorities are not implemented (not needed).
 // WARNING: it respects ctx only partially, because conn does not.
-func (r *runner) runSend(ctx context.Context, conn net.Conn) error {
+func (r *runner) runSend(ctx context.Context, conn conn.Conn) error {
 	for {
 		// Collect frames in round robin over streams.
 		var frames []*frame
@@ -162,7 +162,7 @@ func (r *runner) runSend(ctx context.Context, conn net.Conn) error {
 			if err := ctrl.WaitUntil(ctx, func() bool { return len(queue) > 0 }); err != nil {
 				return err
 			}
-			frames := make([]*frame, 0, len(queue))
+			frames = make([]*frame, 0, len(queue))
 			for id := range queue {
 				frames = append(frames, queue.Pop(id, r.mux.cfg.FrameSize))
 			}
@@ -198,15 +198,13 @@ func (r *runner) runSend(ctx context.Context, conn net.Conn) error {
 			}
 		}
 		if flush {
-			// TODO: flush
-			//if err:=conn.Flush(); err!=nil { return err }
+			if err:=conn.Flush(); err!=nil { return err }
 		}
 	}
 }
 
 // runRecv receives and processes the incoming frames sequentially.
-// WARNING: it respects ctx only partially, because conn does not.
-func (r *runner) runRecv(ctx context.Context, conn net.Conn) error {
+func (r *runner) runRecv(conn conn.Conn) error {
 	for {
 		// frame size is hard capped here at 255B.
 		// Currently we have 7 varint fields (up to 77B)
@@ -278,7 +276,7 @@ func (r *runner) runRecv(ctx context.Context, conn net.Conn) error {
 
 // Run runs the multiplexer for the given connection.
 // It closes the connection before return.
-func (m *Mux) Run(ctx context.Context, conn net.Conn) error {
+func (m *Mux) Run(ctx context.Context, conn conn.Conn) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Close on cancel.
 		s.Spawn(func() error {
@@ -301,8 +299,7 @@ func (m *Mux) Run(ctx context.Context, conn net.Conn) error {
 				if _, err := conn.Write(handshakeRaw); err != nil {
 					return err
 				}
-				// TODO: flush
-				return nil
+				return conn.Flush()
 			})
 			var sizeRaw [4]byte
 			if _, err := io.ReadFull(conn, sizeRaw[:]); err != nil {
@@ -330,8 +327,10 @@ func (m *Mux) Run(ctx context.Context, conn net.Conn) error {
 		r := newRunner(m)
 		for inner := range r.inner.Lock() {
 			for kind, cfg := range m.cfg.Kinds {
-				inner.acceptsSem[kind] = min(cfg.MaxAccepts, handshake.Kinds[kind].MaxConnects)
-				for range min(cfg.MaxConnects, handshake.Kinds[kind].MaxAccepts) {
+				remCfg,ok := handshake.Kinds[kind]
+				if !ok { remCfg = &StreamKindConfig{} } 
+				inner.acceptsSem[kind] = min(cfg.MaxAccepts, remCfg.MaxConnects)
+				for range min(cfg.MaxConnects, remCfg.MaxAccepts) {
 					m.kinds[kind].connectsQueue <- newStreamState(inner.nextID, kind)
 					inner.nextID += 2
 				}
@@ -339,7 +338,7 @@ func (m *Mux) Run(ctx context.Context, conn net.Conn) error {
 		}
 		// Run the tasks.
 		s.Spawn(func() error { return r.runSend(ctx, conn) })
-		s.Spawn(func() error { return r.runRecv(ctx, conn) })
+		s.Spawn(func() error { return r.runRecv(conn) })
 		return nil
 	})
 }
