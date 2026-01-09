@@ -399,7 +399,7 @@ type Mux struct {
 
 // NewMux constructs a new multipexer.
 // Remember to spawn Mux.Run() afterwards.
-func (m *Mux) NewMux(cfg *Config) *Mux {
+func NewMux(cfg *Config) *Mux {
 	kinds := map[StreamKind]*kindState{}
 	for kind, c := range cfg.Kinds {
 		kinds[kind] = &kindState{
