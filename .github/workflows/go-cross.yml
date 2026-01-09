@@ -1,29 +1,22 @@
 name: Go Cross-Platform Tests
-
 on:
-  push:
-    branches: [main]
+  workflow_call:
   pull_request:
+  push:
+    branches:
+      - main
+      - release/**
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  GO_VERSION: '1.24'
-  LEDGER_ENABLED: false
-
-defaults:
-  run:
-    shell: bash
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
 
 jobs:
   tests:
     env:
       GO_TEST_TIMEOUT: 30m
-    name: "Test ${{ matrix.modules.name }} on ${{ matrix.os }}"
+    name: "Test ${{ matrix.modules.name }}"
     runs-on: ${{ matrix.os }}
-
     strategy:
       fail-fast: false
       matrix:
@@ -31,7 +24,6 @@ jobs:
         modules:
           - name: sei-chain
             path: ./
-            tags: ledger test_ledger_mock
           - name: sei-cosmos
             path: ./sei-cosmos
             tags: ledger test_ledger_mock
@@ -46,49 +38,24 @@ jobs:
             tags: ledger test_ledger_mock
           - name: sei-wasmvm
             path: ./sei-wasmvm
-
     steps:
       - uses: actions/checkout@v5
-
       - uses: actions/setup-go@v6
         with:
           go-version: '1.24'
-
       - name: Remove unnecessary tooling
-        if: runner.os != 'Windows'
         run: |
-          sudo rm -rf \
-            /usr/share/dotnet \
-            /usr/local/lib/android \
-            /opt/ghc \
-            /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force
-
       - name: Go test with race detector
-        working-directory: ${{ matrix.modules.path }}
-        run: |
-          TAGS=""
-          if [ -n "${{ matrix.modules.tags }}" ]; then
-            TAGS="-tags='${{ matrix.modules.tags }}'"
-          fi
-
-          if [ "$(uname)" = "Darwin" ]; then
-            export SKIP_KEYCHAIN_TESTS=1
-          fi
-
-          go test -race $TAGS \
-            -timeout='${{ env.GO_TEST_TIMEOUT }}' \
-            -covermode=atomic \
-            -coverprofile=coverage.out \
-            ./...
-
+        working-directory: '${{ matrix.modules.path }}'
+        run: go test -race -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out ./...
       - name: Upload coverage to Codecov
-        if: runner.os != 'windows'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: true
-          disable_search: true
-          name: ${{ matrix.modules.name }}-coverage-${{ matrix.os }}
+          fail_ci_if_error: 'true'
+          disable_search: 'true'
+          name: '${{ matrix.modules.name }}-coverage'
           files: ${{ matrix.modules.path }}/coverage.out
           flags: ${{ matrix.modules.name }}

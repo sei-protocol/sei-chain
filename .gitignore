@@ -57,3 +57,54 @@ contracts/artifacts
 
 # Integration tests build artifacts
 integration_test/dapp_tests/artifacts
+
+# Sei chain artifacts
+.sei/
+*.log
+*.pid
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+*.tar.gz
+
+# Private keys (CRITICAL)
+priv_validator_key.json
+node_key.json
+*.key
+*.pem
+wallets/
+keys/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Vercel
+.vercel
+
+# Temporary
+tmp/
+temp/
+*.tmp
