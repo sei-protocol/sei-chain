@@ -84,13 +84,16 @@ func (r *Router) handshake(ctx context.Context, tcpConn *net.TCPConn, dialAddr u
 			return nil
 		})
 		var err error
-		secretConn, err := conn.MakeSecretConnection(tcpConn, r.privKey)
+		secretConn, err := conn.MakeSecretConnection(ctx, tcpConn, r.privKey)
 		if err != nil {
 			return nil, err
 		}
 		s.Spawn(func() error {
 			_, err := protoio.NewDelimitedWriter(secretConn).WriteMsg(nodeInfo.ToProto())
-			return err
+			if err != nil {
+				return err
+			}
+			return secretConn.Flush()
 		})
 		var pbPeerInfo p2pproto.NodeInfo
 		if _, err := protoio.NewDelimitedReader(secretConn, types.MaxNodeInfoSize()).ReadMsg(&pbPeerInfo); err != nil {

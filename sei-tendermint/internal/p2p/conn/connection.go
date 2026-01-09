@@ -1,7 +1,6 @@
 package conn
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -21,6 +20,13 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/proto/tendermint/p2p"
 )
+
+type Conn interface {
+	io.Reader
+	io.Writer
+	io.Closer
+	Flush() error
+}
 
 func IsDisconnect(err error) bool {
 	return errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) || utils.ErrorAs[*net.OpError](err).IsPresent()
@@ -103,7 +109,7 @@ initialization of the connection.
 type MConnection struct {
 	logger log.Logger
 
-	conn      net.Conn
+	conn      Conn
 	sendQueue utils.Watch[*sendQueue]
 	recvPong  utils.Mutex[*utils.AtomicSend[bool]]
 	recvCh    chan mConnMessage
@@ -180,7 +186,7 @@ func (q *sendQueue) setFlush(t time.Time) {
 // NewMConnection wraps net.Conn and creates multiplex connection with a config
 func NewMConnection(
 	logger log.Logger,
-	conn net.Conn,
+	conn Conn,
 	chDescs []*ChannelDescriptor,
 	config MConnConfig,
 ) *MConnection {
@@ -209,10 +215,6 @@ func (c *MConnection) Run(ctx context.Context) error {
 		c.conn.Close()
 		return nil
 	})
-}
-
-func (c *MConnection) String() string {
-	return fmt.Sprintf("MConn{%v}", c.conn.RemoteAddr())
 }
 
 // Queues a message to be sent.
@@ -354,13 +356,9 @@ func (c *MConnection) popSendQueue(ctx context.Context) (*p2p.Packet, error) {
 
 // sendRoutine polls for packets to send from channels.
 func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
-	// TODO(gprusak): This doesn't make sense - TCP package is 1.5kB anyway (unless we match the encryption frame here)
-	// In fact, buffering should be just moved to the encryption layer.
-	const minWriteBufferSize = 65536
 	maxPacketMsgSize := c.maxPacketMsgSize()
 	limiter := rate.NewLimiter(c.config.getSendRateLimit(), max(maxPacketMsgSize, int(c.config.SendRate)))
-	bufWriter := bufio.NewWriterSize(c.conn, minWriteBufferSize)
-	protoWriter := protoio.NewDelimitedWriter(bufWriter)
+	protoWriter := protoio.NewDelimitedWriter(c.conn)
 	for {
 		msg, err := c.popSendQueue(ctx)
 		if err != nil {
@@ -376,7 +374,7 @@ func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 			}
 		} else {
 			c.logger.Debug("Flush", "conn", c)
-			if err := bufWriter.Flush(); err != nil {
+			if err := c.conn.Flush(); err != nil {
 				return fmt.Errorf("bufWriter.Flush(): %w", err)
 			}
 		}
@@ -389,8 +387,7 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 	const readBufferSize = 1024
 	maxPacketMsgSize := c.maxPacketMsgSize()
 	limiter := rate.NewLimiter(c.config.getRecvRateLimit(), max(int(c.config.RecvRate), maxPacketMsgSize))
-	bufReader := bufio.NewReaderSize(c.conn, readBufferSize)
-	protoReader := protoio.NewDelimitedReader(bufReader, maxPacketMsgSize)
+	protoReader := protoio.NewDelimitedReader(c.conn, maxPacketMsgSize)
 	channels := map[ChannelID]*recvChannel{}
 	for q := range c.sendQueue.Lock() {
 		for _, ch := range q.channels {
@@ -421,10 +418,10 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 				recvPong.Store(true)
 			}
 		case *p2p.Packet_PacketMsg:
-			channelID, castOk := utils.SafeCast[ChannelID](p.PacketMsg.ChannelID)
+			channelID, castOk := utils.SafeCast[ChannelID](p.PacketMsg.ChannelId)
 			ch, ok := channels[channelID]
 			if !castOk || !ok {
-				return errBadChannel{fmt.Errorf("unknown channel %X", p.PacketMsg.ChannelID)}
+				return errBadChannel{fmt.Errorf("unknown channel %X", p.PacketMsg.ChannelId)}
 			}
 			c.logger.Debug("Read PacketMsg", "conn", c, "packet", packet)
 			msgBytes, err := ch.pushMsg(p.PacketMsg)
@@ -451,8 +448,8 @@ func (c *MConnection) maxPacketMsgSize() int {
 	bz, err := proto.Marshal(&p2p.Packet{
 		Sum: &p2p.Packet_PacketMsg{
 			PacketMsg: &p2p.PacketMsg{
-				ChannelID: 0x01,
-				EOF:       true,
+				ChannelId: 0x01,
+				Eof:       true,
 				Data:      make([]byte, c.config.MaxPacketMsgPayloadSize),
 			},
 		},
@@ -477,12 +474,12 @@ func (ch *sendChannel) ratio() float32 {
 // Not goroutine-safe
 func (ch *sendChannel) popMsg(maxPayload int) *p2p.PacketMsg {
 	payload := ch.queue.Get(0)
-	packet := &p2p.PacketMsg{ChannelID: int32(ch.desc.ID)}
+	packet := &p2p.PacketMsg{ChannelId: int32(ch.desc.ID)}
 	if len(*payload) <= maxPayload {
-		packet.EOF = true
+		packet.Eof = true
 		packet.Data = *ch.queue.PopFront()
 	} else {
-		packet.EOF = false
+		packet.Eof = false
 		packet.Data = (*payload)[:maxPayload]
 		*payload = (*payload)[maxPayload:]
 	}
@@ -509,7 +506,7 @@ func (ch *recvChannel) pushMsg(packet *p2p.PacketMsg) ([]byte, error) {
 		return nil, fmt.Errorf("received message exceeds available capacity: %v < %v", wantMax, got)
 	}
 	ch.buf = append(ch.buf, packet.Data...)
-	if packet.EOF {
+	if packet.Eof {
 		msgBytes := ch.buf
 		ch.buf = make([]byte, 0, ch.desc.RecvBufferCapacity)
 		return msgBytes, nil

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	abci "github.com/tendermint/tendermint/abci/types"
-	cryptoenc "github.com/tendermint/tendermint/crypto/encoding"
+	"github.com/tendermint/tendermint/crypto"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
@@ -69,7 +69,7 @@ func (vals mockValidators) randomProposer(r *rand.Rand) tmbytes.HexBytes {
 	key := keys[r.Intn(len(keys))]
 
 	proposer := vals[key].val
-	pk, err := cryptoenc.PubKeyFromProto(proposer.PubKey)
+	pk, err := crypto.PubKeyFromProto(proposer.PubKey)
 	if err != nil { //nolint:wsl
 		panic(err)
 	}
@@ -149,7 +149,7 @@ func RandomRequestBeginBlock(r *rand.Rand, params Params,
 			event("begin_block", "signing", "missed")
 		}
 
-		pubkey, err := cryptoenc.PubKeyFromProto(mVal.val.PubKey)
+		pubkey, err := crypto.PubKeyFromProto(mVal.val.PubKey)
 		if err != nil {
 			panic(err)
 		}

@@ -1,55 +1,27 @@
 package conn
 
 import (
-	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"testing"
 
 	gogotypes "github.com/gogo/protobuf/types"
-	"github.com/oasisprotocol/curve25519-voi/primitives/merlin"
-	"github.com/stretchr/testify/assert"
-	"golang.org/x/crypto/chacha20poly1305"
 
-	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
-	tmp2p "github.com/tendermint/tendermint/proto/tendermint/p2p"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
-type buffer struct {
-	next bytes.Buffer
-}
-
-func (b *buffer) Read(data []byte) (n int, err error) {
-	return b.next.Read(data)
-}
-
-func (b *buffer) Write(data []byte) (n int, err error) {
-	return b.next.Write(data)
-}
-
-func (b *buffer) Bytes() []byte {
-	return b.next.Bytes()
-}
-
-func (b *buffer) Close() error {
-	return nil
-}
-
 type evilConn struct {
-	secretConn *SecretConnection
-	buffer     *buffer
-
-	locEphPub  *[32]byte
-	locEphPriv *[32]byte
-	remEphPub  *[32]byte
-	privKey    crypto.PrivKey
-
-	readStep   int
-	writeStep  int
-	readOffset int
+	net.Conn
+	remEphKey utils.AtomicSend[utils.Option[ephPublic]]
+	reader    *io.PipeReader
+	writer    *io.PipeWriter
 
 	shareEphKey        bool
 	badEphKey          bool
@@ -58,205 +30,109 @@ type evilConn struct {
 }
 
 func newEvilConn(shareEphKey, badEphKey, shareAuthSignature, badAuthSignature bool) *evilConn {
-	privKey := ed25519.GenerateSecretKey()
-	locEphPub, locEphPriv := genEphKeys()
-	var rep [32]byte
-	c := &evilConn{
-		locEphPub:  locEphPub,
-		locEphPriv: locEphPriv,
-		remEphPub:  &rep,
-		privKey:    privKey,
-
+	r, w := io.Pipe()
+	return &evilConn{
+		remEphKey:          utils.NewAtomicSend(utils.None[ephPublic]()),
+		reader:             r,
+		writer:             w,
 		shareEphKey:        shareEphKey,
 		badEphKey:          badEphKey,
 		shareAuthSignature: shareAuthSignature,
 		badAuthSignature:   badAuthSignature,
 	}
+}
 
-	return c
+type WriterConn struct {
+	net.Conn
+	writer io.Writer
+}
+
+func (wc WriterConn) Write(data []byte) (int, error) { return wc.writer.Write(data) }
+
+func (c *evilConn) Run(ctx context.Context) error {
+	defer c.writer.Close()
+
+	// ephemeral key exchange.
+	if !c.shareEphKey {
+		return nil
+	}
+	loc := genEphKey()
+	ephKey := loc.public[:]
+	if c.badEphKey {
+		ephKey = []byte("drop users;")
+	}
+	ephKeyMsg := &gogotypes.BytesValue{Value: ephKey}
+	if _, err := c.writer.Write(utils.OrPanic1(protoio.MarshalDelimited(ephKeyMsg))); err != nil {
+		return err
+	}
+
+	// authorisation signature exchange.
+	if !c.shareAuthSignature {
+		return nil
+	}
+	rem, err := c.remEphKey.Wait(ctx, func(k utils.Option[ephPublic]) bool { return k.IsPresent() })
+	if err != nil {
+		return err
+	}
+	sc := newSecretConnection(WriterConn{writer: c.writer}, loc, rem.OrPanic())
+	challenge := sc.challenge[:]
+	if c.badAuthSignature {
+		challenge = []byte("invalid challenge")
+	}
+	k := ed25519.GenerateSecretKey()
+	authSigMsg := authSigMessageConv.Encode(&authSigMessage{Key: k.Public(), Sig: k.Sign(challenge)})
+	if _, err := sc.Write(utils.OrPanic1(protoio.MarshalDelimited(authSigMsg))); err != nil {
+		return err
+	}
+	return sc.Flush()
 }
 
 func (c *evilConn) Read(data []byte) (n int, err error) {
-	if !c.shareEphKey {
-		return 0, io.EOF
-	}
-
-	switch c.readStep {
-	case 0:
-		if !c.badEphKey {
-			lc := *c.locEphPub
-			bz, err := protoio.MarshalDelimited(&gogotypes.BytesValue{Value: lc[:]})
-			if err != nil {
-				panic(err)
-			}
-			copy(data, bz[c.readOffset:])
-			n = len(data)
-		} else {
-			bz, err := protoio.MarshalDelimited(&gogotypes.BytesValue{Value: []byte("drop users;")})
-			if err != nil {
-				panic(err)
-			}
-			copy(data, bz)
-			n = len(data)
-		}
-		c.readOffset += n
-
-		if n >= 32 {
-			c.readOffset = 0
-			c.readStep = 1
-			if !c.shareAuthSignature {
-				c.readStep = 2
-			}
-		}
-
-		return n, nil
-	case 1:
-		signature := c.signChallenge()
-		if !c.badAuthSignature {
-			pkpb := encoding.PubKeyToProto(c.privKey.Public())
-			bz, err := protoio.MarshalDelimited(&tmp2p.AuthSigMessage{PubKey: pkpb, Sig: signature.Bytes()})
-			if err != nil {
-				panic(err)
-			}
-			n, err = c.secretConn.Write(bz)
-			if err != nil {
-				panic(err)
-			}
-			if c.readOffset > len(c.buffer.Bytes()) {
-				return len(data), nil
-			}
-			copy(data, c.buffer.Bytes()[c.readOffset:])
-		} else {
-			bz, err := protoio.MarshalDelimited(&gogotypes.BytesValue{Value: []byte("select * from users;")})
-			if err != nil {
-				panic(err)
-			}
-			n, err = c.secretConn.Write(bz)
-			if err != nil {
-				panic(err)
-			}
-			if c.readOffset > len(c.buffer.Bytes()) {
-				return len(data), nil
-			}
-			copy(data, c.buffer.Bytes())
-		}
-		c.readOffset += len(data)
-		return n, nil
-	default:
-		return 0, io.EOF
-	}
+	return c.reader.Read(data)
 }
 
 func (c *evilConn) Write(data []byte) (n int, err error) {
-	switch c.writeStep {
-	case 0:
-		var (
-			bytes     gogotypes.BytesValue
-			remEphPub [32]byte
-		)
-		err := protoio.UnmarshalDelimited(data, &bytes)
-		if err != nil {
-			panic(err)
-		}
-		copy(remEphPub[:], bytes.Value)
-		c.remEphPub = &remEphPub
-		c.writeStep = 1
-		if !c.shareAuthSignature {
-			c.writeStep = 2
-		}
+	// Fetch ephemeral key then ignore the rest of the stream.
+	if c.remEphKey.Load().IsPresent() {
 		return len(data), nil
-	case 1:
-		// Signature is not needed, therefore skipped.
-		return len(data), nil
-	default:
-		return 0, io.EOF
 	}
-}
-
-func (c *evilConn) Close() error {
-	return nil
-}
-
-func (c *evilConn) signChallenge() ed25519.Signature {
-	// Sort by lexical order.
-	loEphPub, hiEphPub := sort32(c.locEphPub, c.remEphPub)
-
-	transcript := merlin.NewTranscript("TENDERMINT_SECRET_CONNECTION_TRANSCRIPT_HASH")
-
-	transcript.AppendMessage(labelEphemeralLowerPublicKey, loEphPub[:])
-	transcript.AppendMessage(labelEphemeralUpperPublicKey, hiEphPub[:])
-
-	// Check if the local ephemeral public key was the least, lexicographically
-	// sorted.
-	locIsLeast := bytes.Equal(c.locEphPub[:], loEphPub[:])
-
-	// Compute common diffie hellman secret using X25519.
-	dhSecret, err := computeDHSecret(c.remEphPub, c.locEphPriv)
-	if err != nil {
-		panic(err)
-	}
-
-	transcript.AppendMessage(labelDHSecret, dhSecret[:])
-
-	// Generate the secret used for receiving, sending, challenge via HKDF-SHA2
-	// on the transcript state (which itself also uses HKDF-SHA2 to derive a key
-	// from the dhSecret).
-	recvSecret, sendSecret := deriveSecrets(dhSecret, locIsLeast)
-
-	const challengeSize = 32
-	var challenge [challengeSize]byte
-	transcript.ExtractBytes(challenge[:], labelSecretConnectionMac)
-
-	sendAead, err := chacha20poly1305.New(sendSecret[:])
-	if err != nil {
-		panic(errors.New("invalid send SecretConnection Key"))
-	}
-	recvAead, err := chacha20poly1305.New(recvSecret[:])
-	if err != nil {
-		panic(errors.New("invalid receive SecretConnection Key"))
-	}
-
-	b := &buffer{}
-	c.secretConn = &SecretConnection{
-		conn:       b,
-		recvBuffer: nil,
-		recvNonce:  new([aeadNonceSize]byte),
-		sendNonce:  new([aeadNonceSize]byte),
-		recvAead:   recvAead,
-		sendAead:   sendAead,
-	}
-	c.buffer = b
-
-	// Sign the challenge bytes for authentication.
-	return signChallenge(&challenge, c.privKey)
+	var bytes gogotypes.BytesValue
+	utils.OrPanic(protoio.UnmarshalDelimited(data, &bytes))
+	c.remEphKey.Store(utils.Some(ephPublic(bytes.Value)))
+	return len(data), nil
 }
 
 // TestMakeSecretConnection creates an evil connection and tests that
 // MakeSecretConnection errors at different stages.
 func TestMakeSecretConnection(t *testing.T) {
 	testCases := []struct {
-		name   string
-		conn   *evilConn
-		errMsg string
+		name string
+		conn *evilConn
+		err  utils.Option[error]
 	}{
-		{"refuse to share ethimeral key", newEvilConn(false, false, false, false), "EOF"},
-		{"share bad ethimeral key", newEvilConn(true, true, false, false), "wrong wireType"},
-		{"refuse to share auth signature", newEvilConn(true, false, false, false), "EOF"},
-		{"share bad auth signature", newEvilConn(true, false, true, true), "failed to decrypt SecretConnection"},
-		{"all good", newEvilConn(true, false, true, false), ""},
+		{"refuse to share ephemeral key", newEvilConn(false, false, false, false), utils.Some(errDH)},
+		{"share bad ephemeral key", newEvilConn(true, true, false, false), utils.Some(errDH)},
+		{"refuse to share auth signature", newEvilConn(true, false, false, false), utils.Some(errAuth)},
+		{"share bad auth signature", newEvilConn(true, false, true, true), utils.Some(errAuth)},
+		{"all good", newEvilConn(true, false, true, false), utils.None[error]()},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			privKey := ed25519.GenerateSecretKey()
-			_, err := MakeSecretConnection(tc.conn, privKey)
-			if tc.errMsg != "" {
-				if assert.Error(t, err) {
-					assert.Contains(t, err.Error(), tc.errMsg)
+			err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+				s.SpawnBg(func() error { return tc.conn.Run(ctx) })
+				privKey := ed25519.GenerateSecretKey()
+				_, err := MakeSecretConnection(ctx, tc.conn, privKey)
+				if wantErr, ok := tc.err.Get(); ok {
+					if !errors.Is(err, wantErr) {
+						return fmt.Errorf("got %v, want %v", err, wantErr)
+					}
+					return nil
+				} else {
+					return err
 				}
-			} else {
-				assert.NoError(t, err)
-			}
+			})
+			require.NoError(t, err)
 		})
 	}
 }

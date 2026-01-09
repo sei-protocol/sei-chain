@@ -1,6 +1,7 @@
 package conn
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/hex"
@@ -23,21 +24,37 @@ import (
 
 const maxPingPongPacketSize = 1024 // bytes
 
-func newMConnection(conn net.Conn) *MConnection {
+type bufConn struct {
+	*bufio.Reader
+	*bufio.Writer
+	conn net.Conn
+}
+
+func (c *bufConn) Close() error {
+	return c.conn.Close()
+}
+
+func withBuf(conn net.Conn) Conn {
+	return &bufConn{
+		bufio.NewReaderSize(conn, 1024),
+		bufio.NewWriterSize(conn, 1024),
+		conn,
+	}
+}
+
+func newMConnection(conn Conn) *MConnection {
 	chDescs := []*ChannelDescriptor{{ID: 0x01, Priority: 1, SendQueueCapacity: 1}}
 	return newMConnectionWithCh(conn, chDescs)
-
 }
 
 func newMConnectionWithCh(
-	conn net.Conn,
+	conn Conn,
 	chDescs []*ChannelDescriptor,
 ) *MConnection {
 	cfg := DefaultMConnConfig()
 	cfg.PingInterval = 250 * time.Millisecond
 	cfg.PongTimeout = 500 * time.Millisecond
-	c := NewMConnection(log.NewNopLogger(), conn, chDescs, cfg)
-	return c
+	return NewMConnection(log.NewNopLogger(), conn, chDescs, cfg)
 }
 
 func mayDisconnectAfterDone(ctx context.Context, err error) error {
@@ -52,9 +69,9 @@ func TestMConnectionSendRecv(t *testing.T) {
 	t.Cleanup(leaktest.CheckTimeout(t, 10*time.Second))
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		server, client := tcp.TestPipe()
-		mconn1 := newMConnection(client)
+		mconn1 := newMConnection(withBuf(client))
 		s.SpawnBgNamed("mconn1", func() error { return mayDisconnectAfterDone(ctx, mconn1.Run(ctx)) })
-		mconn2 := newMConnection(server)
+		mconn2 := newMConnection(withBuf(server))
 		s.SpawnBgNamed("mconn2", func() error { return mayDisconnectAfterDone(ctx, mconn2.Run(ctx)) })
 
 		rng := utils.TestRng()
@@ -96,7 +113,7 @@ func TestMConnectionPingPong(t *testing.T) {
 	t.Cleanup(leaktest.CheckTimeout(t, 10*time.Second))
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		server, client := tcp.TestPipe()
-		mconn := newMConnection(client)
+		mconn := newMConnection(withBuf(client))
 		s.Spawn(func() error { return mconn.Run(ctx) })
 		protoReader := protoio.NewDelimitedReader(server, maxPingPongPacketSize)
 		protoWriter := protoio.NewDelimitedWriter(server)
@@ -128,7 +145,7 @@ func TestMConnectionReadErrorBadEncoding(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		c1, c2 := tcp.TestPipe()
 		s.Spawn(func() error {
-			mconn := newMConnection(c1)
+			mconn := newMConnection(withBuf(c1))
 			if got, want := mconn.Run(ctx), (errBadEncoding{}); !errors.As(got, &want) {
 				return fmt.Errorf("got %v, want %T", got, want)
 			}
@@ -154,8 +171,8 @@ func TestMConnectionReadErrorUnknownChannel(t *testing.T) {
 			{ID: 0x01, Priority: 1, SendQueueCapacity: 1},
 			{ID: 0x02, Priority: 1, SendQueueCapacity: 1},
 		}
-		mconnClient := newMConnectionWithCh(client, chDescs)
-		mconnServer := newMConnection(server)
+		mconnClient := newMConnectionWithCh(withBuf(client), chDescs)
+		mconnServer := newMConnection(withBuf(server))
 		s.Spawn(func() error {
 			if err := mconnClient.Run(ctx); !IsDisconnect(err) {
 				return fmt.Errorf("got %v, want disconnect error", err)
@@ -189,7 +206,7 @@ func TestMConnectionReadErrorUnknownChannel(t *testing.T) {
 func TestMConnectionReadErrorLongMessage(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		c1, c2 := tcp.TestPipe()
-		mconn1 := newMConnection(c1)
+		mconn1 := newMConnection(withBuf(c1))
 		s.Spawn(func() error {
 			if err, want := mconn1.Run(ctx), (errBadEncoding{}); !errors.As(err, &want) {
 				return fmt.Errorf("expected errBadEncoding, got %v", err)
@@ -202,8 +219,8 @@ func TestMConnectionReadErrorLongMessage(t *testing.T) {
 
 		// send msg thats just right
 		msg := &p2p.PacketMsg{
-			ChannelID: 0x01,
-			EOF:       true,
+			ChannelId: 0x01,
+			Eof:       true,
 			Data:      make([]byte, mconn1.config.MaxPacketMsgPayloadSize),
 		}
 		packet := &p2p.Packet{
@@ -246,7 +263,7 @@ func TestConnVectors(t *testing.T) {
 		{"PacketPong", pongMsg(), "1200"},
 		{"PacketMsg", &p2p.Packet{Sum: &p2p.Packet_PacketMsg{
 			PacketMsg: &p2p.PacketMsg{
-				ChannelID: 1, EOF: false, Data: []byte("data transmitted over the wire"),
+				ChannelId: 1, Eof: false, Data: []byte("data transmitted over the wire"),
 			},
 		}}, "1a2208011a1e64617461207472616e736d6974746564206f766572207468652077697265"},
 	}
@@ -261,7 +278,7 @@ func TestConnVectors(t *testing.T) {
 func TestMConnectionChannelOverflow(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		c1, c2 := tcp.TestPipe()
-		m1 := newMConnection(c1)
+		m1 := newMConnection(withBuf(c1))
 		s.Spawn(func() error {
 			if err, want := m1.Run(ctx), (&errBadChannel{}); !errors.As(err, want) {
 				return fmt.Errorf("got %v, want %T", err, want)
@@ -272,8 +289,8 @@ func TestMConnectionChannelOverflow(t *testing.T) {
 		protoWriter := protoio.NewDelimitedWriter(c2)
 
 		msg := &p2p.PacketMsg{
-			ChannelID: int32(1025),
-			EOF:       true,
+			ChannelId: int32(1025),
+			Eof:       true,
 			Data:      []byte(`42`),
 		}
 		packet := &p2p.Packet{
