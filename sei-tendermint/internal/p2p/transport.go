@@ -84,7 +84,7 @@ func (r *Router) handshake(ctx context.Context, tcpConn *net.TCPConn, dialAddr u
 			return nil
 		})
 		var err error
-		secretConn, err := conn.MakeSecretConnection(tcpConn, r.privKey)
+		secretConn, err := conn.MakeSecretConnection(ctx, tcpConn, r.privKey)
 		if err != nil {
 			return nil, err
 		}

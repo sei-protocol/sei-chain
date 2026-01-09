@@ -21,7 +21,6 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/mempool"
 	"github.com/tendermint/tendermint/internal/proxy"
@@ -343,7 +342,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	pv, _ := css[nVals].privValidator.Get()
 	newValidatorPubKey1, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
-	valPubKey1ABCI := encoding.PubKeyToProto(newValidatorPubKey1)
+	valPubKey1ABCI := crypto.PubKeyToProto(newValidatorPubKey1)
 	newValidatorTx1 := kvstore.MakeValSetChangeTx(valPubKey1ABCI, testMinPower)
 	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, newValidatorTx1, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
@@ -379,7 +378,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	pv, _ = css[nVals].privValidator.Get()
 	updateValidatorPubKey1, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
-	updatePubKey1ABCI := encoding.PubKeyToProto(updateValidatorPubKey1)
+	updatePubKey1ABCI := crypto.PubKeyToProto(updateValidatorPubKey1)
 	updateValidatorTx1 := kvstore.MakeValSetChangeTx(updatePubKey1ABCI, 25)
 	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, updateValidatorTx1, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
@@ -414,14 +413,14 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	pv, _ = css[nVals+1].privValidator.Get()
 	newValidatorPubKey2, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
-	newVal2ABCI := encoding.PubKeyToProto(newValidatorPubKey2)
+	newVal2ABCI := crypto.PubKeyToProto(newValidatorPubKey2)
 	newValidatorTx2 := kvstore.MakeValSetChangeTx(newVal2ABCI, testMinPower)
 	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, newValidatorTx2, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
 	pv, _ = css[nVals+2].privValidator.Get()
 	newValidatorPubKey3, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
-	newVal3ABCI := encoding.PubKeyToProto(newValidatorPubKey3)
+	newVal3ABCI := crypto.PubKeyToProto(newValidatorPubKey3)
 	newValidatorTx3 := kvstore.MakeValSetChangeTx(newVal3ABCI, testMinPower)
 	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, newValidatorTx3, nil, mempool.TxInfo{})
 	assert.NoError(t, err)

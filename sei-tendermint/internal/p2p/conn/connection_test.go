@@ -36,8 +36,7 @@ func newMConnectionWithCh(
 	cfg := DefaultMConnConfig()
 	cfg.PingInterval = 250 * time.Millisecond
 	cfg.PongTimeout = 500 * time.Millisecond
-	c := NewMConnection(log.NewNopLogger(), conn, chDescs, cfg)
-	return c
+	return NewMConnection(log.NewNopLogger(), conn, chDescs, cfg)
 }
 
 func mayDisconnectAfterDone(ctx context.Context, err error) error {
@@ -202,8 +201,8 @@ func TestMConnectionReadErrorLongMessage(t *testing.T) {
 
 		// send msg thats just right
 		msg := &p2p.PacketMsg{
-			ChannelID: 0x01,
-			EOF:       true,
+			ChannelId: 0x01,
+			Eof:       true,
 			Data:      make([]byte, mconn1.config.MaxPacketMsgPayloadSize),
 		}
 		packet := &p2p.Packet{
@@ -246,7 +245,7 @@ func TestConnVectors(t *testing.T) {
 		{"PacketPong", pongMsg(), "1200"},
 		{"PacketMsg", &p2p.Packet{Sum: &p2p.Packet_PacketMsg{
 			PacketMsg: &p2p.PacketMsg{
-				ChannelID: 1, EOF: false, Data: []byte("data transmitted over the wire"),
+				ChannelId: 1, Eof: false, Data: []byte("data transmitted over the wire"),
 			},
 		}}, "1a2208011a1e64617461207472616e736d6974746564206f766572207468652077697265"},
 	}
@@ -272,8 +271,8 @@ func TestMConnectionChannelOverflow(t *testing.T) {
 		protoWriter := protoio.NewDelimitedWriter(c2)
 
 		msg := &p2p.PacketMsg{
-			ChannelID: int32(1025),
-			EOF:       true,
+			ChannelId: int32(1025),
+			Eof:       true,
 			Data:      []byte(`42`),
 		}
 		packet := &p2p.Packet{

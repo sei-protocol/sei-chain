@@ -10,7 +10,6 @@ import (
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/crypto/encoding"
 	cryptoproto "github.com/tendermint/tendermint/proto/tendermint/crypto"
 	privproto "github.com/tendermint/tendermint/proto/tendermint/privval"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -52,7 +51,7 @@ func exampleProposal() *types.Proposal {
 func TestPrivvalVectors(t *testing.T) {
 	// WARNING: this key has to be stable for hashes to match.
 	pk := ed25519.TestSecretKey([]byte("it's a secret")).Public()
-	ppk := encoding.PubKeyToProto(pk)
+	ppk := crypto.PubKeyToProto(pk)
 
 	// Generate a simple vote
 	vote := exampleVote()
