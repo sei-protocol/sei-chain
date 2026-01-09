@@ -27,6 +27,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/ethereum/go-ethereum/eth/tracers/tracersutils"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -390,7 +391,11 @@ func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
 func (b *Backend) RPCEVMTimeout() time.Duration { return b.config.EVMTimeout }
 
 func (b *Backend) ChainConfig() *params.ChainConfig {
-	ctx := b.ctxProvider(LatestCtxHeight)
+	return b.ChainConfigAtHeight(LatestCtxHeight)
+}
+
+func (b *Backend) ChainConfigAtHeight(height int64) *params.ChainConfig {
+	ctx := b.ctxProvider(height)
 	return types.DefaultChainConfig().EthereumConfig(b.keeper.ChainID(ctx))
 }
 
@@ -412,6 +417,7 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 
 func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
 	emptyRelease := func() {}
+	log.Info("[DEBUG] sei StateAtTransaction enter", "block", block.Number(), "txIndex", txIndex, "reexec", reexec)
 	stateDB, txs, err := b.ReplayTransactionTillIndex(ctx, block, txIndex-1)
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, emptyRelease, err
@@ -440,6 +446,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		evmMsg = msg
 	}
 	ethTx, _ := evmMsg.AsTransaction()
+	log.Info("[DEBUG] sei StateAtTransaction exit", "block", block.Number(), "txIndex", txIndex, "txHash", ethTx.Hash().Hex())
 	return ethTx, *blockContext, stateDB, emptyRelease, nil
 }
 

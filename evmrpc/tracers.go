@@ -138,16 +138,41 @@ func NewSeiDebugAPI(
 }
 
 func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
+	fmt.Println("[DEBUG] sei debug_traceTransaction enter", "hash", hash.Hex())
 	release := api.acquireTraceSemaphore()
 	defer release()
+
+	tracerName := "structLogger"
+	if config != nil && config.Tracer != nil {
+		tracerName = *config.Tracer
+	}
+	fmt.Println("[DEBUG] sei debug_traceTransaction enter", "hash", hash.Hex(), "tracer", tracerName)
 
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
 
 	startTime := time.Now()
-	defer recordMetrics("debug_traceTransaction", api.connectionType, startTime)
+	defer recordMetricsWithError("debug_traceTransaction", api.connectionType, startTime, returnErr)
 	result, returnErr = api.tracersAPI.TraceTransaction(ctx, hash, config)
-	return
+	fmt.Println("[DEBUG] sei debug_traceTransaction exit", "hash", hash.Hex(), "tracer", tracerName, "err", returnErr)
+	return result, returnErr
+}
+
+func (api *DebugAPI) AsRawJSON(result interface{}) ([]byte, bool) {
+	switch v := result.(type) {
+	case json.RawMessage:
+		return v, true
+	case []byte:
+		return v, true
+	case string:
+		return []byte(v), true
+	default:
+		bz, err := json.Marshal(v)
+		if err != nil {
+			return nil, false
+		}
+		return bz, true
+	}
 }
 
 func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
