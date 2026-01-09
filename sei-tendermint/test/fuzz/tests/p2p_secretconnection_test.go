@@ -41,6 +41,9 @@ func fuzz(t *testing.T, data []byte) {
 		if n < len(data) {
 			panic(fmt.Sprintf("wanted to write %d bytes, but %d was written", len(data), n))
 		}
+		if err := fooConn.Flush(); err != nil {
+			panic(err)
+		}
 	}()
 
 	dataRead := make([]byte, len(data))
