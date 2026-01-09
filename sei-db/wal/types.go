@@ -35,7 +35,7 @@ type GenericWAL[T any] interface {
 	Close() error
 }
 
-type Processor[T any] interface {
+type GenericWALProcessor[T any] interface {
 	// Start starts the subscriber processing goroutine
 	Start()
 
