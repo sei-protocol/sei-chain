@@ -14,7 +14,6 @@ var (
 		applyChangesetAsyncLatency metric.Float64Histogram
 		pruneLatency               metric.Float64Histogram
 		importLatency              metric.Float64Histogram
-		hashComputationLatency     metric.Float64Histogram
 		batchWriteLatency          metric.Float64Histogram
 
 		compactionCount        metric.Int64Counter
@@ -62,11 +61,6 @@ var (
 		importLatency: must(meter.Float64Histogram(
 			"pebble_import_latency",
 			metric.WithDescription("Time taken to import snapshot data to PebbleDB"),
-			metric.WithUnit("s"),
-		)),
-		hashComputationLatency: must(meter.Float64Histogram(
-			"pebble_hash_computation_latency",
-			metric.WithDescription("Time taken to compute hash for a block range"),
 			metric.WithUnit("s"),
 		)),
 		batchWriteLatency: must(meter.Float64Histogram(
