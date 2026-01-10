@@ -99,10 +99,6 @@ ss-prune-interval = {{ .StateStore.PruneIntervalSeconds }}
 # ImportNumWorkers defines the concurrency for state sync import
 # defaults to 1
 ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
-
-# HashRange defines the range of blocks after which a XOR hash is computed and stored
-# defaults to 1,000,000 blocks. Set to -1 to disable.
-ss-hash-range = {{ .StateStore.HashRange }}
 `
 
 // DefaultConfigTemplate combines both templates for backward compatibility

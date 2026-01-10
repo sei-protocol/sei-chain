@@ -11,7 +11,6 @@ const (
 	DefaultSSPruneInterval              = 600
 	DefaultSSImportWorkers              = 1
 	DefaultSSAsyncBuffer                = 100
-	DefaultSSHashRange                  = -1
 	DefaultSCHistoricalProofMaxInFlight = 1
 	DefaultSCHistoricalProofRateLimit   = 1.0 // req/s, <=0 disables rate limit
 	DefaultSCHistoricalProofBurst       = 1
@@ -119,10 +118,6 @@ type StateStoreConfig struct {
 	// Whether to keep last version of a key during pruning or delete
 	// defaults to true
 	KeepLastVersion bool `mapstructure:"keep-last-version"`
-
-	// Range of blocks after which a XOR hash is computed and stored
-	// defaults to 1,000,000 blocks. Set to -1 to disable.
-	HashRange int64 `json:"hash_range"`
 }
 
 func DefaultStateCommitConfig() StateCommitConfig {
@@ -149,6 +144,5 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		PruneIntervalSeconds: DefaultSSPruneInterval,
 		ImportNumWorkers:     DefaultSSImportWorkers,
 		KeepLastVersion:      true,
-		HashRange:            DefaultSSHashRange,
 	}
 }
