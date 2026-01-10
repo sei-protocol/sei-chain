@@ -1271,6 +1271,255 @@ describe("EVM Test", function () {
       });
     });
 
+    /**
+     * ============================================================================
+     * SSTORE DOUBLE-REFUND BUG REPRODUCTION TEST
+     * ============================================================================
+     * 
+     * This test reproduces the double-refund bug in sei-protocol/go-ethereum.
+     * 
+     * THE BUG:
+     * In core/vm/operations_acl.go, case 2.2.2.1 (reset to original inexistent slot)
+     * has a missing `else` block, causing BOTH refund calculations to run when
+     * SeiSstoreSetGasEIP2200 is non-nil.
+     * 
+     * REPRODUCTION STEPS:
+     * 1. Run STEP 1 on the OLD version (before the bug was introduced)
+     * 2. Copy the TX_HASH and RECEIPT_GAS from the output
+     * 3. Upgrade to the NEW version (with the bug)
+     * 4. Paste the values into STEP 2 and run it
+     * 5. If the test fails with gas mismatch, the bug is reproduced!
+     * 
+     * See SSTORE_ISSUE.md for full analysis.
+     * ============================================================================
+     */
+    describe.only("SSTORE Double-Refund Bug Repro", function() {
+      
+      const RPC_URL = 'http://localhost:8545';
+
+      // ========================================================================
+      // STEP 1: Execute on old version - save tx hash and receipt gas
+      // ========================================================================
+      it("STEP 1: Execute SSTORE transaction", async function() {
+        this.timeout(120000);
+        
+        console.log(`\n${"=".repeat(70)}`);
+        console.log(`SSTORE REFUND TEST - STEP 1`);
+        console.log(`${"=".repeat(70)}`);
+        
+        const networkName = hre.network.name;
+        if (networkName === 'hardhat') {
+          console.log(`\n⚠️  Must use: npx hardhat test --network seilocal --grep "STEP 1"\n`);
+          this.skip();
+          return;
+        }
+
+        // Deploy SstoreRefundTest contract
+        console.log(`\n[1/3] Deploying SstoreRefundTest contract...`);
+        const SstoreRefundTest = await ethers.getContractFactory("SstoreRefundTest");
+        const contract = await SstoreRefundTest.deploy();
+        await contract.waitForDeployment();
+        const contractAddr = await contract.getAddress();
+        console.log(`       Contract: ${contractAddr}`);
+
+        // Execute triggerSingleRefundWithGas: slot0 = 1; slot0 = 0; with extra gas burn
+        // This triggers case 2.2.2.1 (reset to original inexistent slot)
+        console.log(`\n[2/3] Executing triggerSingleRefundWithGas()...`);
+        const BURN_LOOPS = 5000;
+        console.log(`       Pattern: slot0 = 1; slot0 = 0; (set then reset to trigger case 2.2.2.1)`);
+        console.log(`       Extra gas burn loops: ${BURN_LOOPS}`);
+        const tx = await contract.triggerSingleRefundWithGas(BURN_LOOPS, {
+          gasPrice: ethers.parseUnits('100', 'gwei'),
+          gasLimit: 5_000_000,
+          type: 0
+        });
+        const receipt = await tx.wait();
+        const receiptGas = Number(receipt.gasUsed);
+        console.log(`       TX Hash: ${receipt.hash}`);
+        console.log(`       Receipt Gas Used: ${receiptGas}`);
+
+        // Verify trace works on current version
+        console.log(`\n[3/3] Verifying trace on current version...`);
+        console.log(`       RPC URL: ${RPC_URL}`);
+        console.log(`       TX Hash: ${receipt.hash}`);
+        
+        // First verify the node is reachable
+        try {
+          const blockResp = await axios.post(RPC_URL, {
+            jsonrpc: "2.0",
+            method: "eth_blockNumber",
+            params: [],
+            id: 1
+          });
+          console.log(`       Node reachable: YES (block ${parseInt(blockResp.data.result, 16)})`);
+        } catch (e) {
+          console.log(`       Node reachable: NO - ${e.message}`);
+          throw new Error(`Cannot connect to node at ${RPC_URL}`);
+        }
+
+        let traceGas;
+        for (let i = 0; i < 20; i++) {
+          console.log(`       Attempt ${i + 1}/20 - tracing...`);
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            const resp = await axios.post(RPC_URL, {
+              jsonrpc: "2.0",
+              method: "debug_traceTransaction",
+              params: [receipt.hash, { tracer: "callTracer" }],
+              id: 1
+            }, { timeout: 30000 });
+            
+            console.log(`       Response received, checking for errors...`);
+            
+            if (resp.data.error) {
+              const errMsg = resp.data.error.message || JSON.stringify(resp.data.error);
+              console.log(`       RPC Error: ${errMsg}`);
+              if (errMsg.includes('indexing')) {
+                console.log(`       (will retry)`);
+                continue;
+              }
+              if (i < 10) {
+                console.log(`       (will retry)`);
+                continue;
+              }
+              throw new Error(`Trace failed: ${errMsg}`);
+            }
+            
+            if (!resp.data.result) {
+              console.log(`       No result in response: ${JSON.stringify(resp.data)}`);
+              continue;
+            }
+            
+            const rawGasUsed = resp.data.result.gasUsed;
+            if (rawGasUsed === undefined) {
+              console.log(`       gasUsed missing in result: ${JSON.stringify(resp.data.result).substring(0, 200)}...`);
+              continue;
+            }
+
+            traceGas = parseInt(rawGasUsed, 16);
+            console.log(`       Got trace gas: ${traceGas} (raw: ${rawGasUsed})`);
+            
+            // If we got a real gas value (even if mismatch), we can stop retrying
+            if (traceGas > 0) {
+              break;
+            } else {
+              console.log(`       Trace gas is 0, may still be indexing...`);
+            }
+          } catch (e) {
+            console.log(`       Exception: ${e.message}`);
+            if (i >= 19) throw e;
+          }
+        }
+
+        if (traceGas === undefined || traceGas === 0) {
+          throw new Error('Failed to get valid trace gas after 20 attempts');
+        }
+
+        console.log(`       Trace Gas: ${traceGas}`);
+        console.log(`       Match: ${receiptGas === traceGas ? 'YES ✓' : 'NO ✗'}`);
+
+        console.log(`\n${"=".repeat(70)}`);
+        console.log(`STEP 1 COMPLETE - COPY THESE VALUES FOR STEP 2:`);
+        console.log(`${"=".repeat(70)}`);
+        console.log(`const TX_HASH = "${receipt.hash}";`);
+        console.log(`const RECEIPT_GAS = ${receiptGas};`);
+        console.log(`${"=".repeat(70)}`);
+        console.log(`\nNEXT STEPS:`);
+        console.log(`1. Upgrade seid to the version with the bug`);
+        console.log(`2. Paste the values above into STEP 2 test`);
+        console.log(`3. Run: npx hardhat test --network seilocal --grep "STEP 2"`);
+        console.log(`4. If STEP 2 fails, the bug is reproduced!`);
+        console.log(`${"=".repeat(70)}\n`);
+
+        // On same version, receipt and trace should match
+        expect(receiptGas).to.equal(traceGas,
+          `Same-version mismatch! Receipt=${receiptGas}, Trace=${traceGas}`);
+      });
+
+      // ========================================================================
+      // STEP 2: Trace on new version - compare with receipt from STEP 1
+      // ========================================================================
+      it("STEP 2: Re-trace transaction on new version", async function() {
+        this.timeout(120000);
+        
+        // =====================================================================
+        // PASTE VALUES FROM STEP 1 HERE:
+        // =====================================================================
+        const TX_HASH = "0x044e46c5600cd7963c1d3d0ccaaf43d02cf3fd71df183039beaa44b79e08dea6";
+        const RECEIPT_GAS = 3081033;
+        // =====================================================================
+
+        if (TX_HASH === "0x0000000000000000000000000000000000000000000000000000000000000000" || RECEIPT_GAS === 0) {
+          console.log(`\n${"=".repeat(70)}`);
+          console.log(`⚠️  You need to run STEP 1 first and paste the values here!`);
+          console.log(`${"=".repeat(70)}`);
+          console.log(`\n1. Run STEP 1: npx hardhat test --network seilocal --grep "STEP 1"`);
+          console.log(`2. Copy TX_HASH and RECEIPT_GAS from the output`);
+          console.log(`3. Paste them into this test (lines above)`);
+          console.log(`4. Upgrade seid to new version`);
+          console.log(`5. Run STEP 2: npx hardhat test --network seilocal --grep "STEP 2"\n`);
+          this.skip();
+          return;
+        }
+
+        console.log(`\n${"=".repeat(70)}`);
+        console.log(`SSTORE REFUND TEST - STEP 2`);
+        console.log(`${"=".repeat(70)}`);
+        console.log(`\nRe-tracing transaction from STEP 1...`);
+        console.log(`TX Hash: ${TX_HASH}`);
+        console.log(`Original Receipt Gas: ${RECEIPT_GAS}`);
+
+        // Trace the transaction on the new version
+        let traceGas;
+        for (let i = 0; i < 20; i++) {
+          await new Promise(r => setTimeout(r, 1000));
+          console.log(`Attempt ${i + 1}/20 - tracing...`);
+          const resp = await axios.post(RPC_URL, {
+            jsonrpc: "2.0",
+            method: "debug_traceTransaction",
+            params: [TX_HASH, { tracer: "callTracer" }],
+            id: 1
+          });
+          if (resp.data.error?.message?.includes('indexing')) continue;
+          if (resp.data.error) throw new Error(`Trace failed: ${JSON.stringify(resp.data.error)}`);
+          traceGas = parseInt(resp.data.result.gasUsed, 16);
+          break;
+        }
+
+        if (!traceGas) {
+          throw new Error('Failed to get trace after 20 attempts');
+        }
+
+        const delta = RECEIPT_GAS - traceGas;
+
+        console.log(`\n${"=".repeat(70)}`);
+        console.log(`RESULTS:`);
+        console.log(`${"=".repeat(70)}`);
+        console.log(`Receipt Gas (from STEP 1): ${RECEIPT_GAS}`);
+        console.log(`Trace Gas (current):       ${traceGas}`);
+        console.log(`Delta:                     ${delta}`);
+        console.log(`${"=".repeat(70)}`);
+
+        if (delta !== 0) {
+          console.log(`\n🐛 BUG REPRODUCED! Gas mismatch detected.`);
+          console.log(`\n   The double-refund bug in go-ethereum case 2.2.2.1`);
+          console.log(`   causes the trace to calculate a different refund`);
+          console.log(`   than what was used during execution.`);
+          console.log(`\n   Expected refund: 19,900 (SstoreSetGas - 100)`);
+          console.log(`   Buggy refund:    39,100 (double-add without else)`);
+          console.log(`\n   See SSTORE_ISSUE.md for the fix.\n`);
+        } else {
+          console.log(`\n✓ No mismatch detected.`);
+          console.log(`  The bug is fixed or you're on the same version.\n`);
+        }
+
+        // Test FAILS if there's a mismatch - this proves the bug
+        expect(RECEIPT_GAS).to.equal(traceGas,
+          `GAS MISMATCH! Receipt=${RECEIPT_GAS}, Trace=${traceGas}, Delta=${delta}. ` +
+          `This proves the double-refund bug exists. See SSTORE_ISSUE.md.`);
+      });
+    });
+
     describe("Usei/Wei testing", function() {
       it("Send 1 usei to contract", async function() {
         const usei = ethers.parseUnits("1", 12);

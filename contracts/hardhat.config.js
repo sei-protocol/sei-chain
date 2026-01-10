@@ -5,12 +5,27 @@ require('@openzeppelin/hardhat-upgrades');
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: {
-    version: "0.8.28",
-    settings: {
-      evmVersion: "prague",
-      optimizer: {
-        enabled: true,
-        runs: 1000,
+    compilers: [
+      {
+        version: "0.8.28",
+        settings: {
+          evmVersion: "prague",
+          optimizer: {
+            enabled: true,
+            runs: 1000,
+          },
+        },
+      },
+    ],
+    overrides: {
+      "src/SstoreRefundTest.sol": {
+        version: "0.8.28",
+        settings: {
+          evmVersion: "prague",
+          optimizer: {
+            enabled: false,
+          },
+        },
       },
     },
   },
