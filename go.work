@@ -9,5 +9,3 @@ use (
 	./sei-wasmd
 	./sei-wasmvm
 )
-
-replace github.com/ethereum/go-ethereum => /Users/jeremy/code/sei/go-ethereum
