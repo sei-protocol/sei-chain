@@ -429,6 +429,11 @@ func (db *DB) CommittedVersion() int64 {
 		if err != nil {
 			db.logger.Error("failed to read WAL last offset for committed version", "err", err)
 		} else if lastOffset > 0 {
+			// Defensive bound check: uint64 -> int64 conversion can overflow in theory.
+			if lastOffset > uint64(math.MaxInt64) {
+				db.logger.Error("WAL last offset overflows int64", "lastOffset", lastOffset)
+				return math.MaxInt64
+			}
 			return int64(lastOffset) + db.walIndexDelta
 		}
 	}
