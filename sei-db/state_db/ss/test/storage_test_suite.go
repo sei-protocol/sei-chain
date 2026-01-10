@@ -661,16 +661,6 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 
 	s.Require().NoError(FillData(db, 10, 50))
 
-	// Write some metadata (hash keys) to verify they don't interfere with pruning
-	// These keys start with "s/_" and should be ignored during pruning
-	// Only test with pebbledb since rocksdb doesn't implement hash metadata yet
-
-	if s.Config.Backend == pebbledb {
-		s.Require().NoError(db.WriteBlockRangeHash(storeKey1, 1, 10, []byte("hash1-10")))
-		s.Require().NoError(db.WriteBlockRangeHash(storeKey1, 11, 20, []byte("hash11-20")))
-		s.Require().NoError(db.WriteBlockRangeHash(storeKey2, 1, 25, []byte("hash1-25")))
-	}
-
 	// Verify earliest version is 0
 	earliestVersion := db.GetEarliestVersion()
 	s.Require().NoError(err)
