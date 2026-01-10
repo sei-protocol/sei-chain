@@ -135,10 +135,7 @@ func (cs *CommitStore) LoadVersion(targetVersion int64, copyExisting bool) (type
 	if cs.db != nil {
 		_ = cs.db.Close()
 	}
-	if cs.wal != nil {
-		// WAL is created once in NewCommitStore; do not recreate on LoadVersion.
-		// Keep it open and reuse.
-	}
+	// WAL is created once in NewCommitStore; keep it open and reuse.
 
 	opts := cs.opts
 	opts.WAL = cs.wal
