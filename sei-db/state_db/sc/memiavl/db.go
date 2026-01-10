@@ -210,6 +210,25 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		}
 	}
 
+	// Ensure initial store trees exist BEFORE replaying WAL.
+	// On a fresh DB (version 0), the snapshot can contain 0 trees but the chain has
+	// non-empty IAVL stores. Historically the initial stores existed before WAL replay.
+	//
+	// Note: We intentionally do NOT read from WAL here. "Add tree" upgrades are
+	// idempotent in MultiTree.ApplyUpgrades (it will skip existing trees), so it is
+	// safe to apply InitialStores unconditionally.
+	if !opts.ReadOnly && mtree.Version() == 0 && len(opts.InitialStores) > 0 {
+		var upgrades []*proto.TreeNameUpgrade
+		for _, name := range opts.InitialStores {
+			upgrades = append(upgrades, &proto.TreeNameUpgrade{Name: name})
+		}
+		if len(upgrades) > 0 {
+			if err := mtree.ApplyUpgrades(upgrades); err != nil {
+				return nil, fmt.Errorf("failed to apply initial stores before WAL replay: %w", err)
+			}
+		}
+	}
+
 	// Replay WAL to catch up to target version (if WAL is provided)
 	if walHandler != nil && walHasEntries && (targetVersion == 0 || targetVersion > mtree.Version()) {
 		logger.Info("Start catching up and replaying the MemIAVL changelog file")
@@ -283,17 +302,6 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		lastSnapshotTime:        lastSnapshotTime,
 		snapshotWriterPool:      workerPool,
 		opts:                    opts,
-	}
-
-	if !db.readOnly && db.Version() == 0 && len(opts.InitialStores) > 0 {
-		// do the initial upgrade with the `opts.InitialStores`
-		var upgrades []*proto.TreeNameUpgrade
-		for _, name := range opts.InitialStores {
-			upgrades = append(upgrades, &proto.TreeNameUpgrade{Name: name})
-		}
-		if err := db.ApplyUpgrades(upgrades); err != nil {
-			return nil, errorutils.Join(err, db.Close())
-		}
 	}
 
 	return db, nil
