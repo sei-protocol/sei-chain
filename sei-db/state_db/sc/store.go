@@ -5,20 +5,30 @@ import (
 	"math"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
 var _ types.Committer = (*CommitStore)(nil)
 
 type CommitStore struct {
-	logger logger.Logger
-	db     *memiavl.DB
-	opts   memiavl.Options
+	logger  logger.Logger
+	db      *memiavl.DB
+	opts    memiavl.Options
+	homeDir string
+	cfg     config.StateCommitConfig
+
+	// WAL for changelog persistence (owned by CommitStore)
+	wal wal.GenericWAL[proto.ChangelogEntry]
+
+	// pending changes to be written to WAL on next Commit
+	pendingLogEntry proto.ChangelogEntry
 }
 
 func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCommitConfig) *CommitStore {
@@ -26,8 +36,9 @@ func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCom
 	if config.Directory != "" {
 		scDir = config.Directory
 	}
+	commitDBPath := utils.GetCommitStorePath(scDir)
 	opts := memiavl.Options{
-		Dir:                              utils.GetCommitStorePath(scDir),
+		Dir:                              commitDBPath,
 		ZeroCopy:                         config.ZeroCopy,
 		AsyncCommitBuffer:                config.AsyncCommitBuffer,
 		SnapshotInterval:                 config.SnapshotInterval,
@@ -39,8 +50,36 @@ func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCom
 		OnlyAllowExportOnSnapshotVersion: config.OnlyAllowExportOnSnapshotVersion,
 	}
 	commitStore := &CommitStore{
-		logger: logger,
-		opts:   opts,
+		logger:  logger,
+		opts:    opts,
+		homeDir: homeDir,
+		cfg:     config,
+	}
+
+	// Create WAL once per CommitStore instance. The WAL path is derived from StateCommitConfig
+	// (via scDir -> committer.db -> changelog).
+	w, err := wal.NewWAL(
+		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
+		func(data []byte) (proto.ChangelogEntry, error) {
+			var e proto.ChangelogEntry
+			err := e.Unmarshal(data)
+			return e, err
+		},
+		commitStore.logger,
+		utils.GetChangelogPath(commitDBPath),
+		wal.Config{
+			DisableFsync:    true,
+			ZeroCopy:        true,
+			WriteBufferSize: commitStore.opts.AsyncCommitBuffer,
+		},
+	)
+	if err != nil {
+		// Keep CommitStore constructible (signature has no error), but fail fast at runtime
+		// if caller tries to use WAL-dependent features.
+		commitStore.logger.Error("failed to create WAL", "err", err)
+	} else {
+		commitStore.wal = w
+		commitStore.opts.WAL = w
 	}
 	return commitStore
 }
@@ -54,11 +93,15 @@ func (cs *CommitStore) SetInitialVersion(initialVersion int64) error {
 }
 
 func (cs *CommitStore) Rollback(targetVersion int64) error {
-	options := cs.opts
-	options.LoadForOverwriting = true
+	// Close existing resources
 	if cs.db != nil {
 		_ = cs.db.Close()
 	}
+
+	options := cs.opts
+	options.LoadForOverwriting = true
+	options.WAL = cs.wal
+
 	db, err := memiavl.OpenDB(cs.logger, targetVersion, options)
 	if err != nil {
 		return err
@@ -67,36 +110,121 @@ func (cs *CommitStore) Rollback(targetVersion int64) error {
 	return nil
 }
 
-// copyExisting is for creating new memiavl object given existing folder
+// LoadVersion loads the specified version of the database.
+// If copyExisting is true, creates a read-only copy for querying.
 func (cs *CommitStore) LoadVersion(targetVersion int64, copyExisting bool) (types.Committer, error) {
 	cs.logger.Info(fmt.Sprintf("SeiDB load target memIAVL version %d, copyExisting = %v\n", targetVersion, copyExisting))
+
 	if copyExisting {
-		opts := cs.opts
-		opts.ReadOnly = copyExisting
-		opts.CreateIfMissing = false
-		db, err := memiavl.OpenDB(cs.logger, targetVersion, opts)
+		// Create a read-only copy via NewCommitStore (WAL creation happens only there)
+		newCS := NewCommitStore(cs.homeDir, cs.logger, cs.cfg)
+		newCS.opts = cs.opts
+		newCS.opts.ReadOnly = true
+		newCS.opts.CreateIfMissing = false
+		newCS.opts.WAL = newCS.wal
+
+		db, err := memiavl.OpenDB(cs.logger, targetVersion, newCS.opts)
 		if err != nil {
 			return nil, err
 		}
-		return &CommitStore{
-			logger: cs.logger,
-			db:     db,
-			opts:   opts,
-		}, nil
+		newCS.db = db
+		return newCS, nil
 	}
+
+	// Close existing resources
 	if cs.db != nil {
 		_ = cs.db.Close()
 	}
-	db, err := memiavl.OpenDB(cs.logger, targetVersion, cs.opts)
+	// WAL is created once in NewCommitStore; keep it open and reuse.
+
+	opts := cs.opts
+	opts.WAL = cs.wal
+	db, err := memiavl.OpenDB(cs.logger, targetVersion, opts)
 	if err != nil {
 		return nil, err
 	}
+
 	cs.db = db
 	return cs, nil
 }
 
 func (cs *CommitStore) Commit() (int64, error) {
-	return cs.db.Commit()
+	// Get the next version that will be committed
+	nextVersion := cs.db.WorkingCommitInfo().Version
+
+	// Write to WAL first (ensures durability before tree commit)
+	if cs.wal != nil {
+		cs.pendingLogEntry.Version = nextVersion
+		if err := cs.wal.Write(cs.pendingLogEntry); err != nil {
+			return 0, fmt.Errorf("failed to write to WAL: %w", err)
+		}
+		// Check for async write errors
+		if err := cs.wal.CheckError(); err != nil {
+			return 0, fmt.Errorf("WAL async write error: %w", err)
+		}
+	}
+
+	// Clear pending entry
+	cs.pendingLogEntry = proto.ChangelogEntry{}
+
+	// Now commit to the tree
+	version, err := cs.db.Commit()
+	if err != nil {
+		return 0, err
+	}
+
+	// Try to truncate WAL after commit (non-blocking, errors are logged)
+	cs.tryTruncateWAL()
+
+	return version, nil
+}
+
+// tryTruncateWAL checks if WAL can be truncated based on earliest snapshot version.
+// This is safe because we only need WAL entries for versions newer than the earliest snapshot.
+// Called after each commit to keep WAL size bounded.
+func (cs *CommitStore) tryTruncateWAL() {
+	if cs.wal == nil {
+		return
+	}
+
+	// Get WAL's first index
+	firstWALIndex, err := cs.wal.FirstOffset()
+	if err != nil {
+		cs.logger.Error("failed to get WAL first offset", "err", err)
+		return
+	}
+	if firstWALIndex == 0 {
+		return // empty WAL, nothing to truncate
+	}
+
+	// Get earliest snapshot version
+	earliestSnapshotVersion, err := cs.GetEarliestVersion()
+	if err != nil {
+		// This can happen if no snapshots exist yet, which is normal
+		return
+	}
+
+	// Compute WAL's earliest version using delta
+	// delta = firstVersion - firstIndex, so firstVersion = firstIndex + delta
+	walDelta := cs.db.GetWALIndexDelta()
+	// #nosec G115 -- WAL indices are always much smaller than MaxInt64 in practice
+	walEarliestVersion := int64(firstWALIndex) + walDelta
+
+	// If WAL's earliest version is less than snapshot's earliest version,
+	// we can safely truncate those WAL entries
+	if walEarliestVersion < earliestSnapshotVersion {
+		// Truncate WAL entries with version < earliestSnapshotVersion
+		// WAL index for earliestSnapshotVersion = earliestSnapshotVersion - delta
+		truncateIndex := earliestSnapshotVersion - walDelta
+		// #nosec G115 -- truncateIndex is guaranteed > firstWALIndex (positive) by the outer check
+		if truncateIndex > int64(firstWALIndex) && truncateIndex > 0 {
+			if err := cs.wal.TruncateBefore(uint64(truncateIndex)); err != nil {
+				cs.logger.Error("failed to truncate WAL", "err", err, "truncateIndex", truncateIndex)
+			} else {
+				cs.logger.Debug("truncated WAL", "beforeIndex", truncateIndex, "earliestSnapshotVersion", earliestSnapshotVersion)
+			}
+		}
+	}
 }
 
 func (cs *CommitStore) Version() int64 {
@@ -112,10 +240,26 @@ func (cs *CommitStore) GetEarliestVersion() (int64, error) {
 }
 
 func (cs *CommitStore) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
+	if len(changesets) == 0 {
+		return nil
+	}
+
+	// Store in pending log entry for WAL
+	cs.pendingLogEntry.Changesets = changesets
+
+	// Apply to tree
 	return cs.db.ApplyChangeSets(changesets)
 }
 
 func (cs *CommitStore) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
+	if len(upgrades) == 0 {
+		return nil
+	}
+
+	// Store in pending log entry for WAL
+	cs.pendingLogEntry.Upgrades = append(cs.pendingLogEntry.Upgrades, upgrades...)
+
+	// Apply to tree
 	return cs.db.ApplyUpgrades(upgrades)
 }
 
@@ -135,27 +279,30 @@ func (cs *CommitStore) Exporter(version int64) (types.Exporter, error) {
 	if version < 0 || version > math.MaxUint32 {
 		return nil, fmt.Errorf("version %d out of range", version)
 	}
-
-	exporter, err := memiavl.NewMultiTreeExporter(cs.opts.Dir, uint32(version), cs.opts.OnlyAllowExportOnSnapshotVersion)
-	if err != nil {
-		return nil, err
-	}
-	return exporter, nil
+	return memiavl.NewMultiTreeExporter(cs.opts.Dir, uint32(version), cs.opts.OnlyAllowExportOnSnapshotVersion)
 }
 
 func (cs *CommitStore) Importer(version int64) (types.Importer, error) {
-
 	if version < 0 || version > math.MaxUint32 {
 		return nil, fmt.Errorf("version %d out of range", version)
 	}
-
-	treeImporter, err := memiavl.NewMultiTreeImporter(cs.opts.Dir, uint64(version))
-	if err != nil {
-		return nil, err
-	}
-	return treeImporter, nil
+	return memiavl.NewMultiTreeImporter(cs.opts.Dir, uint64(version))
 }
 
 func (cs *CommitStore) Close() error {
-	return cs.db.Close()
+	var errs []error
+
+	// Close DB first (it may still reference WAL)
+	if cs.db != nil {
+		errs = append(errs, cs.db.Close())
+		cs.db = nil
+	}
+
+	// Then close WAL
+	if cs.wal != nil {
+		errs = append(errs, cs.wal.Close())
+		cs.wal = nil
+	}
+
+	return errors.Join(errs...)
 }

@@ -1,15 +1,14 @@
-package changelog
+package wal
 
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/changelog/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-var _ types.Subscriber[proto.ChangelogEntry] = (*Subscriber)(nil)
+var _ GenericWALProcessor[proto.ChangelogEntry] = (*Processor)(nil)
 
-type Subscriber struct {
+type Processor struct {
 	maxPendingSize   int
 	chPendingEntries chan proto.ChangelogEntry
 	errSignal        chan error
@@ -20,8 +19,8 @@ type Subscriber struct {
 func NewSubscriber(
 	maxPendingSize int,
 	processFn func(entry proto.ChangelogEntry) error,
-) *Subscriber {
-	subscriber := &Subscriber{
+) *Processor {
+	subscriber := &Processor{
 		maxPendingSize: maxPendingSize,
 		processFn:      processFn,
 	}
@@ -29,13 +28,13 @@ func NewSubscriber(
 	return subscriber
 }
 
-func (s *Subscriber) Start() {
+func (s *Processor) Start() {
 	if s.maxPendingSize > 0 {
 		s.startAsyncProcessing()
 	}
 }
 
-func (s *Subscriber) ProcessEntry(entry proto.ChangelogEntry) error {
+func (s *Processor) ProcessEntry(entry proto.ChangelogEntry) error {
 	if s.maxPendingSize <= 0 {
 		return s.processFn(entry)
 	}
@@ -43,10 +42,11 @@ func (s *Subscriber) ProcessEntry(entry proto.ChangelogEntry) error {
 	return s.CheckError()
 }
 
-func (s *Subscriber) startAsyncProcessing() {
+func (s *Processor) startAsyncProcessing() {
 	if s.chPendingEntries == nil {
 		s.chPendingEntries = make(chan proto.ChangelogEntry, s.maxPendingSize)
 		s.errSignal = make(chan error)
+		s.stopSignal = make(chan struct{})
 		go func() {
 			defer close(s.errSignal)
 			for {
@@ -63,8 +63,8 @@ func (s *Subscriber) startAsyncProcessing() {
 	}
 }
 
-func (s *Subscriber) Close() error {
-	if s.chPendingEntries != nil {
+func (s *Processor) Close() error {
+	if s.chPendingEntries == nil {
 		return nil
 	}
 	s.stopSignal <- struct{}{}
@@ -72,10 +72,11 @@ func (s *Subscriber) Close() error {
 	err := s.CheckError()
 	s.chPendingEntries = nil
 	s.errSignal = nil
+	s.stopSignal = nil
 	return err
 }
 
-func (s *Subscriber) CheckError() error {
+func (s *Processor) CheckError() error {
 	select {
 	case err := <-s.errSignal:
 		// async wal writing failed, we need to abort the state machine

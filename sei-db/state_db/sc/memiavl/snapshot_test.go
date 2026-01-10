@@ -141,15 +141,23 @@ func TestSnapshotImportExport(t *testing.T) {
 }
 
 func TestDBSnapshotRestore(t *testing.T) {
+	dir := t.TempDir()
+	initialStores := []string{"test", "test2"}
+
+	// Create WAL for this test
+	wal := createTestWAL(t, dir)
+	defer wal.Close()
+
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:               t.TempDir(),
+		Dir:               dir,
 		CreateIfMissing:   true,
-		InitialStores:     []string{"test", "test2"},
+		InitialStores:     initialStores,
 		AsyncCommitBuffer: -1,
+		WAL:               wal,
 	})
 	require.NoError(t, err)
 
-	for _, changes := range ChangeSets {
+	for i, changes := range ChangeSets {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name:      "test",
@@ -161,19 +169,28 @@ func TestDBSnapshotRestore(t *testing.T) {
 			},
 		}
 		require.NoError(t, db.ApplyChangeSets(cs))
+		// First WAL entry must include initial upgrades for replay to work
+		if i == 0 {
+			writeToWAL(t, db, cs, initialUpgrades(initialStores))
+		} else {
+			writeToWAL(t, db, cs, nil)
+		}
 		_, err := db.Commit()
 		require.NoError(t, err)
+
+		// Create snapshot so export/import test can work without WAL
+		require.NoError(t, db.RewriteSnapshot(context.Background()))
 		testSnapshotRoundTrip(t, db)
 	}
 
-	require.NoError(t, db.RewriteSnapshot(context.Background()))
 	require.NoError(t, db.Reload())
 	require.Equal(t, len(ChangeSets), int(db.metadata.CommitInfo.Version))
 	testSnapshotRoundTrip(t, db)
 }
 
 func testSnapshotRoundTrip(t *testing.T, db *DB) {
-	exporter, err := NewMultiTreeExporter(db.dir, uint32(db.Version()), false)
+	// Use NewMultiTreeExporter which loads from snapshot on disk
+	exporter, err := NewMultiTreeExporter(db.dir, uint32(db.Version()), true) // onlyAllowExportOnSnapshotVersion=true
 	require.NoError(t, err)
 
 	restoreDir := t.TempDir()
