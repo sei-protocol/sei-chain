@@ -427,6 +427,17 @@ func (db *DB) checkAsyncTasks() error {
 
 // CommittedVersion returns the current version of the MultiTree.
 func (db *DB) CommittedVersion() int64 {
+	// Prefer the WAL's last offset, converted via walIndexDelta, to avoid relying
+	// on potentially stale tree metadata. Fall back to the tree version on error
+	// or when WAL is absent/empty.
+	if db.streamHandler != nil {
+		lastOffset, err := db.streamHandler.LastOffset()
+		if err != nil {
+			db.logger.Error("failed to read WAL last offset for committed version", "err", err)
+		} else if lastOffset > 0 {
+			return int64(lastOffset) + db.walIndexDelta
+		}
+	}
 	return db.MultiTree.Version()
 }
 
