@@ -176,6 +176,44 @@ jobs:
           done
           unset IFS  # revert the internal field separator back to default
 
+      # The integration test runner executes commands inside docker containers (see integration_test/scripts/runner.py).
+      # Logs written to build/generated/logs therefore live inside the containers, not on the GitHub runner host.
+      - name: Collect docker node logs (container filesystem)
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/container-logs
+          for c in sei-node-0 sei-node-1 sei-node-2 sei-node-3 sei-rpc-node; do
+            if ! docker ps --format '{{.Names}}' | grep -q "^${c}$"; then
+              echo "Container ${c} not running; skipping"
+              continue
+            fi
+            echo "Locating build/generated/logs in ${c}..."
+            LOG_DIR=$(docker exec "${c}" /bin/bash -lc 'set -e; for root in /root /workspace /; do d=$(find "$root" -maxdepth 6 -type d -path "*/build/generated/logs" 2>/dev/null | head -n1 || true); if [ -n "$d" ]; then echo "$d"; exit 0; fi; done; exit 0')
+            if [ -z "${LOG_DIR}" ]; then
+              echo "No build/generated/logs found in ${c}"
+              continue
+            fi
+            echo "Found ${LOG_DIR} in ${c}"
+            mkdir -p "artifacts/container-logs/${c}"
+            # Copy logs out for artifact upload
+            docker cp "${c}:${LOG_DIR}" "artifacts/container-logs/${c}/" || true
+          done
+
+      - name: Print last 200 lines of node logs on failure
+        if: ${{ failure() }}
+        run: |
+          set -euo pipefail
+          for c in sei-node-0 sei-node-1 sei-node-2 sei-node-3; do
+            echo "==================== ${c} (docker logs tail) ===================="
+            docker logs --tail 200 "${c}" || true
+            echo "==================== ${c} (seid log file tail) ===================="
+            # Try to print the per-node log file if present in the copied artifacts
+            if [ -f "artifacts/container-logs/${c}/logs/seid-${c#sei-node-}.log" ]; then
+              tail -200 "artifacts/container-logs/${c}/logs/seid-${c#sei-node-}.log" || true
+            fi
+          done
+
       - name: Prepare log artifact name
         if: ${{ always() }}
         id: log_artifact_meta
@@ -196,6 +234,10 @@ jobs:
             cp -r build/generated/logs "$LOG_ROOT/"
           else
             echo "No logs directory found"
+          fi
+          # Also include container logs (these are the real node logs for most integration tests)
+          if [ -d artifacts/container-logs ]; then
+            cp -r artifacts/container-logs "$LOG_ROOT/"
           fi
 
       - name: Upload logs directory
