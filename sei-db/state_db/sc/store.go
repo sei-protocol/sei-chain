@@ -18,9 +18,11 @@ import (
 var _ types.Committer = (*CommitStore)(nil)
 
 type CommitStore struct {
-	logger logger.Logger
-	db     *memiavl.DB
-	opts   memiavl.Options
+	logger  logger.Logger
+	db      *memiavl.DB
+	opts    memiavl.Options
+	homeDir string
+	cfg     config.StateCommitConfig
 
 	// WAL for changelog persistence (owned by CommitStore)
 	wal wal.GenericWAL[proto.ChangelogEntry]
@@ -34,8 +36,9 @@ func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCom
 	if config.Directory != "" {
 		scDir = config.Directory
 	}
+	commitDBPath := utils.GetCommitStorePath(scDir)
 	opts := memiavl.Options{
-		Dir:                              utils.GetCommitStorePath(scDir),
+		Dir:                              commitDBPath,
 		ZeroCopy:                         config.ZeroCopy,
 		AsyncCommitBuffer:                config.AsyncCommitBuffer,
 		SnapshotInterval:                 config.SnapshotInterval,
@@ -47,29 +50,38 @@ func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCom
 		OnlyAllowExportOnSnapshotVersion: config.OnlyAllowExportOnSnapshotVersion,
 	}
 	commitStore := &CommitStore{
-		logger: logger,
-		opts:   opts,
+		logger:  logger,
+		opts:    opts,
+		homeDir: homeDir,
+		cfg:     config,
 	}
-	return commitStore
-}
 
-// createWAL creates a new WAL instance for changelog persistence and replay.
-func (cs *CommitStore) createWAL() (wal.GenericWAL[proto.ChangelogEntry], error) {
-	return wal.NewWAL(
+	// Create WAL once per CommitStore instance. The WAL path is derived from StateCommitConfig
+	// (via scDir -> committer.db -> changelog).
+	w, err := wal.NewWAL(
 		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
 		func(data []byte) (proto.ChangelogEntry, error) {
 			var e proto.ChangelogEntry
 			err := e.Unmarshal(data)
 			return e, err
 		},
-		cs.logger,
-		utils.GetChangelogPath(cs.opts.Dir),
+		commitStore.logger,
+		utils.GetChangelogPath(commitDBPath),
 		wal.Config{
 			DisableFsync:    true,
 			ZeroCopy:        true,
-			WriteBufferSize: cs.opts.AsyncCommitBuffer,
+			WriteBufferSize: commitStore.opts.AsyncCommitBuffer,
 		},
 	)
+	if err != nil {
+		// Keep CommitStore constructible (signature has no error), but fail fast at runtime
+		// if caller tries to use WAL-dependent features.
+		commitStore.logger.Error("failed to create WAL", "err", err)
+	} else {
+		commitStore.wal = w
+		commitStore.opts.WAL = w
+	}
+	return commitStore
 }
 
 func (cs *CommitStore) Initialize(initialStores []string) {
@@ -84,14 +96,6 @@ func (cs *CommitStore) Rollback(targetVersion int64) error {
 	// Close existing resources
 	if cs.db != nil {
 		_ = cs.db.Close()
-	}
-	// Note: we reuse the existing WAL for rollback - memiavl will truncate it
-	if cs.wal == nil {
-		wal, err := cs.createWAL()
-		if err != nil {
-			return fmt.Errorf("failed to create WAL: %w", err)
-		}
-		cs.wal = wal
 	}
 
 	options := cs.opts
@@ -112,25 +116,15 @@ func (cs *CommitStore) LoadVersion(targetVersion int64, copyExisting bool) (type
 	cs.logger.Info(fmt.Sprintf("SeiDB load target memIAVL version %d, copyExisting = %v\n", targetVersion, copyExisting))
 
 	if copyExisting {
-		// Create a read-only copy with its own WAL for replay
-		newCS := &CommitStore{
-			logger: cs.logger,
-			opts:   cs.opts,
-		}
+		// Create a read-only copy via NewCommitStore (WAL creation happens only there)
+		newCS := NewCommitStore(cs.homeDir, cs.logger, cs.cfg)
+		newCS.opts = cs.opts
 		newCS.opts.ReadOnly = true
 		newCS.opts.CreateIfMissing = false
-
-		// WAL is needed for replay even in read-only mode
-		wal, err := newCS.createWAL()
-		if err != nil {
-			return nil, fmt.Errorf("failed to create WAL: %w", err)
-		}
-		newCS.wal = wal
-		newCS.opts.WAL = wal
+		newCS.opts.WAL = newCS.wal
 
 		db, err := memiavl.OpenDB(cs.logger, targetVersion, newCS.opts)
 		if err != nil {
-			_ = wal.Close()
 			return nil, err
 		}
 		newCS.db = db
@@ -142,28 +136,18 @@ func (cs *CommitStore) LoadVersion(targetVersion int64, copyExisting bool) (type
 		_ = cs.db.Close()
 	}
 	if cs.wal != nil {
-		_ = cs.wal.Close()
-		cs.wal = nil
+		// WAL is created once in NewCommitStore; do not recreate on LoadVersion.
+		// Keep it open and reuse.
 	}
 
-	// Create WAL for changelog persistence and replay
-	wal, err := cs.createWAL()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create WAL: %w", err)
-	}
-
-	// Pass WAL to memiavl via options
 	opts := cs.opts
-	opts.WAL = wal
-
+	opts.WAL = cs.wal
 	db, err := memiavl.OpenDB(cs.logger, targetVersion, opts)
 	if err != nil {
-		_ = wal.Close()
 		return nil, err
 	}
 
 	cs.db = db
-	cs.wal = wal
 	return cs, nil
 }
 

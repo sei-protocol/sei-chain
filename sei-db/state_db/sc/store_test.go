@@ -483,10 +483,8 @@ func TestCreateWAL(t *testing.T) {
 	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
 	cs.Initialize([]string{"test"})
 
-	// createWAL should create a valid WAL instance
-	wal, err := cs.createWAL()
-	require.NoError(t, err)
-	require.NotNil(t, wal)
+	// WAL is created during NewCommitStore
+	require.NotNil(t, cs.wal)
 
 	// WAL should be functional - write an entry
 	entry := proto.ChangelogEntry{
@@ -495,11 +493,11 @@ func TestCreateWAL(t *testing.T) {
 			{Name: "test"},
 		},
 	}
-	err = wal.Write(entry)
+	err := cs.wal.Write(entry)
 	require.NoError(t, err)
 
 	// Clean up
-	require.NoError(t, wal.Close())
+	require.NoError(t, cs.Close())
 }
 
 func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
@@ -751,17 +749,14 @@ func TestRollbackCreatesWALIfNeeded(t *testing.T) {
 	// Close to clear WAL
 	require.NoError(t, cs.Close())
 
-	// WAL should be nil after close
-	require.Nil(t, cs.wal)
+	// After Close(), create a new CommitStore (WAL creation happens in NewCommitStore)
+	cs2 := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs2.Initialize([]string{"test"})
+	require.NotNil(t, cs2.wal)
 
-	// Rollback should create a new WAL
-	err = cs.Rollback(1)
-	require.NoError(t, err)
-
-	// WAL should be created
-	require.NotNil(t, cs.wal)
-
-	require.NoError(t, cs.Close())
+	// Rollback should work
+	require.NoError(t, cs2.Rollback(1))
+	require.NoError(t, cs2.Close())
 }
 
 func TestCloseReleasesWAL(t *testing.T) {

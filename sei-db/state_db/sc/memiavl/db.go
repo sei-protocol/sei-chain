@@ -70,8 +70,6 @@ type DB struct {
 	// make sure only one snapshot rewrite is running
 	pruneSnapshotLock sync.Mutex
 
-	// the changelog stream persists all the changesets (managed by upper layer)
-	streamHandler wal.GenericWAL[proto.ChangelogEntry]
 	// walIndexDelta is the difference: version - walIndex for any entry.
 	// Since both WAL indices and versions are strictly contiguous, this delta is constant.
 	// Computed once when opening the DB from the first WAL entry.
@@ -199,23 +197,23 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 	}
 
 	// Use WAL from options (managed by upper layer like CommitStore)
-	streamHandler := opts.WAL
+	walHandler := opts.WAL
 
 	// Compute WAL index delta (only needed once per DB open)
 	var walIndexDelta int64
 	var walHasEntries bool
-	if streamHandler != nil {
+	if walHandler != nil {
 		var err error
-		walIndexDelta, walHasEntries, err = computeWALIndexDelta(streamHandler)
+		walIndexDelta, walHasEntries, err = computeWALIndexDelta(walHandler)
 		if err != nil {
 			return nil, fmt.Errorf("failed to compute WAL index delta: %w", err)
 		}
 	}
 
 	// Replay WAL to catch up to target version (if WAL is provided)
-	if streamHandler != nil && walHasEntries && (targetVersion == 0 || targetVersion > mtree.Version()) {
+	if walHandler != nil && walHasEntries && (targetVersion == 0 || targetVersion > mtree.Version()) {
 		logger.Info("Start catching up and replaying the MemIAVL changelog file")
-		if err := mtree.Catchup(context.Background(), streamHandler, walIndexDelta, targetVersion); err != nil {
+		if err := mtree.Catchup(context.Background(), walHandler, walIndexDelta, targetVersion); err != nil {
 			return nil, err
 		}
 		logger.Info(fmt.Sprintf("Finished the replay and caught up to version %d", targetVersion))
@@ -236,12 +234,12 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		}
 
 		// truncate the rlog file (if WAL is provided and has entries)
-		if streamHandler != nil && walHasEntries {
+		if walHandler != nil && walHasEntries {
 			logger.Info("truncate rlog after version: %d", targetVersion)
 			// Use O(1) conversion: walIndex = version - delta
 			truncateIndex := targetVersion - walIndexDelta
 			if truncateIndex > 0 {
-				if err := streamHandler.TruncateAfter(uint64(truncateIndex)); err != nil {
+				if err := walHandler.TruncateAfter(uint64(truncateIndex)); err != nil {
 					return nil, fmt.Errorf("fail to truncate rlog file: %w", err)
 				}
 			}
@@ -278,7 +276,6 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		dir:                     opts.Dir,
 		fileLock:                fileLock,
 		readOnly:                opts.ReadOnly,
-		streamHandler:           streamHandler,
 		walIndexDelta:           walIndexDelta,
 		snapshotKeepRecent:      opts.SnapshotKeepRecent,
 		snapshotInterval:        opts.SnapshotInterval,
@@ -305,7 +302,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 // GetWAL returns the WAL handler for changelog operations.
 // Upper layer (CommitStore) uses this to write to WAL.
 func (db *DB) GetWAL() wal.GenericWAL[proto.ChangelogEntry] {
-	return db.streamHandler
+	return db.opts.WAL
 }
 
 // GetWALIndexDelta returns the precomputed delta between version and WAL index.
@@ -416,13 +413,10 @@ func (db *DB) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
 // checkAsyncTasks checks the status of background tasks non-blocking-ly and process the result
 func (db *DB) checkAsyncTasks() error {
 	var walErr error
-	if db.streamHandler != nil {
-		walErr = db.streamHandler.CheckError()
+	if wal := db.GetWAL(); wal != nil {
+		walErr = wal.CheckError()
 	}
-	return errorutils.Join(
-		walErr,
-		db.checkBackgroundSnapshotRewrite(),
-	)
+	return errorutils.Join(walErr, db.checkBackgroundSnapshotRewrite())
 }
 
 // CommittedVersion returns the current version of the MultiTree.
@@ -430,8 +424,8 @@ func (db *DB) CommittedVersion() int64 {
 	// Prefer the WAL's last offset, converted via walIndexDelta, to avoid relying
 	// on potentially stale tree metadata. Fall back to the tree version on error
 	// or when WAL is absent/empty.
-	if db.streamHandler != nil {
-		lastOffset, err := db.streamHandler.LastOffset()
+	if wal := db.GetWAL(); wal != nil {
+		lastOffset, err := wal.LastOffset()
 		if err != nil {
 			db.logger.Error("failed to read WAL last offset for committed version", "err", err)
 		} else if lastOffset > 0 {
@@ -469,9 +463,9 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 			time.Sleep(time.Nanosecond)
 		}
 
-		// catchup the remaining entries in rlog (only if WAL is set)
-		if db.streamHandler != nil {
-			if err := result.mtree.Catchup(context.Background(), db.streamHandler, db.walIndexDelta, 0); err != nil {
+		// catchup the remaining entries in rlog
+		if wal := db.GetWAL(); wal != nil {
+			if err := result.mtree.Catchup(context.Background(), wal, db.walIndexDelta, 0); err != nil {
 				return fmt.Errorf("catchup failed: %w", err)
 			}
 		}
@@ -836,10 +830,9 @@ func (db *DB) rewriteSnapshotBackground() error {
 		cloned.logger.Info("loaded multitree after snapshot", "elapsed", time.Since(loadStart).Seconds())
 
 		// do a best effort catch-up, will do another final catch-up in main thread.
-		// Only catch up if WAL is set (managed by upper layer)
-		if db.streamHandler != nil {
+		if wal := db.GetWAL(); wal != nil {
 			catchupStart := time.Now()
-			if err := mtree.Catchup(ctx, db.streamHandler, db.walIndexDelta, 0); err != nil {
+			if err := mtree.Catchup(ctx, wal, db.walIndexDelta, 0); err != nil {
 				cloned.logger.Error("failed to catchup after snapshot", "error", err)
 				ch <- snapshotResult{err: err}
 				return
@@ -867,8 +860,7 @@ func (db *DB) Close() error {
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
 
-	// Close rewrite channel first - must wait for background goroutine before closing streamHandler
-	// because the goroutine may still be using streamHandler
+	// Close rewrite channel first - must wait for background goroutine before closing WAL
 	db.logger.Info("Closing rewrite channel...")
 	if db.snapshotRewriteChan != nil {
 		db.snapshotRewriteCancelFunc()
@@ -889,9 +881,7 @@ func (db *DB) Close() error {
 		db.snapshotRewriteCancelFunc = nil
 	}
 
-	// Note: streamHandler (WAL) is owned by the upper layer (CommitStore) and should not be closed here.
-	// Just clear the reference.
-	db.streamHandler = nil
+	// WAL lifecycle is owned by upper layer (CommitStore); do not close or clear it here.
 
 	errs = append(errs, db.MultiTree.Close())
 
