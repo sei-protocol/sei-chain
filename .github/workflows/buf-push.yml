@@ -1,0 +1,32 @@
+name: Buf-Push
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  buf-push:
+    # Only run this job in the official repository
+    if: github.repository == 'sei-protocol/sei-chain'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+
+      # Install Buf CLI (required for the push action)
+      - uses: bufbuild/buf-setup-action@v1
+
+      # Push to Buf Schema Registry
+      - name: Push Buf module
+        uses: bufbuild/buf-push-action@v1
+        with:
+          input: '.'  # Adjust if your proto files are in a subdir, e.g., 'proto'
+          token: ${{ secrets.BUF_TOKEN }}  # Empty in forks/PRs from forks → safe failure if run
