@@ -100,6 +100,11 @@ func (k Keeper) SubmitMisbehaviour(goCtx context.Context, msg *clienttypes.MsgSu
 func (k Keeper) ConnectionOpenInit(goCtx context.Context, msg *connectiontypes.MsgConnectionOpenInit) (*connectiontypes.MsgConnectionOpenInitResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	// outbound gating: disallow outbound connection inits when outbound disabled
+	if !k.IsOutboundEnabled(ctx) {
+		return nil, sdkerrors.Wrap(coretypes.ErrOutboundDisabled, "connection outbound disabled")
+	}
+
 	if _, err := k.ConnectionKeeper.ConnOpenInit(ctx, msg.ClientId, msg.Counterparty, msg.Version, msg.DelayPeriod); err != nil {
 		return nil, sdkerrors.Wrap(err, "connection handshake open init failed")
 	}
@@ -110,6 +115,10 @@ func (k Keeper) ConnectionOpenInit(goCtx context.Context, msg *connectiontypes.M
 // ConnectionOpenTry defines a rpc handler method for MsgConnectionOpenTry.
 func (k Keeper) ConnectionOpenTry(goCtx context.Context, msg *connectiontypes.MsgConnectionOpenTry) (*connectiontypes.MsgConnectionOpenTryResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	if !k.IsInboundEnabled(ctx) {
+		return nil, sdkerrors.Wrap(coretypes.ErrInboundDisabled, "connection inbound disabled")
+	}
 
 	targetClient, err := clienttypes.UnpackClientState(msg.ClientState)
 	if err != nil {
@@ -165,6 +174,11 @@ func (k Keeper) ConnectionOpenConfirm(goCtx context.Context, msg *connectiontype
 func (k Keeper) ChannelOpenInit(goCtx context.Context, msg *channeltypes.MsgChannelOpenInit) (*channeltypes.MsgChannelOpenInitResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	// outbound gating: disallow outbound channel inits when outbound disabled
+	if !k.IsOutboundEnabled(ctx) {
+		return nil, sdkerrors.Wrap(coretypes.ErrOutboundDisabled, "channel outbound disabled")
+	}
+
 	// Lookup module by port capability
 	module, portCap, err := k.PortKeeper.LookupModuleByPort(ctx, msg.PortId)
 	if err != nil {
@@ -205,6 +219,10 @@ func (k Keeper) ChannelOpenInit(goCtx context.Context, msg *channeltypes.MsgChan
 // callback, and write an OpenTry channel into state upon successful execution.
 func (k Keeper) ChannelOpenTry(goCtx context.Context, msg *channeltypes.MsgChannelOpenTry) (*channeltypes.MsgChannelOpenTryResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	if !k.IsInboundEnabled(ctx) {
+		return nil, sdkerrors.Wrap(coretypes.ErrInboundDisabled, "channel inbound disabled")
+	}
 
 	// Lookup module by port capability
 	module, portCap, err := k.PortKeeper.LookupModuleByPort(ctx, msg.PortId)
@@ -368,6 +386,10 @@ func (k Keeper) ChannelCloseConfirm(goCtx context.Context, msg *channeltypes.Msg
 // RecvPacket defines a rpc handler method for MsgRecvPacket.
 func (k Keeper) RecvPacket(goCtx context.Context, msg *channeltypes.MsgRecvPacket) (*channeltypes.MsgRecvPacketResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	if !k.IsInboundEnabled(ctx) {
+		return nil, sdkerrors.Wrap(coretypes.ErrInboundDisabled, "recv packet disabled")
+	}
 
 	relayer, err := sdk.AccAddressFromBech32(msg.Signer)
 	if err != nil {
