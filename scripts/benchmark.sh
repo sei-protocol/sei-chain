@@ -30,9 +30,13 @@ echo "  MOCK_BALANCES:  $MOCK_BALANCES"
 echo "  GIGA_EXECUTOR:  $GIGA_EXECUTOR"
 echo "  GIGA_OCC:       $GIGA_OCC"
 <<<<<<< HEAD
+<<<<<<< HEAD
 echo "  DB_BACKEND:     $DB_BACKEND"
 =======
 >>>>>>> a835d23e3 (Add OCC to giga (#2677))
+=======
+echo "  DB_BACKEND:     $DB_BACKEND"
+>>>>>>> 550db0c5c (update test)
 echo "================================"
 
 # clean up old sei directory
