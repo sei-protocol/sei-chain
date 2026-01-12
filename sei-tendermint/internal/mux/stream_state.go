@@ -37,61 +37,67 @@ type recvState struct {
 	msgs       [][]byte
 }
 
+type streamStateInner struct {
+	send sendState
+	recv recvState
+	closed closeState
+}
+
 type streamState struct {
 	id     streamID
 	kind   StreamKind
-	send   utils.Watch[*sendState]
-	recv   utils.Watch[*recvState]
-	closed utils.RWMutex[*closeState]
+	inner  utils.Watch[*streamStateInner]
 }
 
 func newStreamState(id streamID, kind StreamKind) *streamState {
 	return &streamState{
 		id:     id,
 		kind:   kind,
-		send:   utils.NewWatch(&sendState{}),
-		recv:   utils.NewWatch(&recvState{}),
-		closed: utils.NewRWMutex(&closeState{}),
+		inner:  utils.NewWatch(&streamStateInner{}),
 	}
 }
 
 func (s *streamState) RemoteOpen(maxMsgSize uint64) error {
-	for send, ctrl := range s.send.Lock() {
-		if send.remoteOpened {
+	fmt.Printf("RemoteOpen(%v)\n",maxMsgSize)
+	for inner, ctrl := range s.inner.Lock() {
+		if inner.send.remoteOpened {
 			return fmt.Errorf("already opened")
 		}
-		send.remoteOpened = true
-		send.maxMsgSize = maxMsgSize
+		inner.send.remoteOpened = true
+		inner.send.maxMsgSize = maxMsgSize
 		ctrl.Updated()
 	}
 	return nil
 }
 
 func (s *streamState) RemoteClose() error {
-	for c := range s.closed.Lock() {
-		if c.remote {
+	for inner, ctrl := range s.inner.Lock() {
+		if inner.closed.remote {
 			return fmt.Errorf("already closed")
 		}
-		c.remote = true
-	}
-	// Both send and recv are affected.
-	for _, ctrl := range s.send.Lock() {
-		ctrl.Updated()
-	}
-	for _, ctrl := range s.recv.Lock() {
+		inner.closed.remote = true
 		ctrl.Updated()
 	}
 	return nil
 }
 
+func (s *streamState) RemoteWindowEnd(windowEnd uint64) {
+	for inner, ctrl := range s.inner.Lock() {
+		if inner.send.end < windowEnd {
+			inner.send.end = windowEnd
+			ctrl.Updated()
+		}
+	}
+}
+
+// RemotePayloadSize checks if there is place for the payload.
 func (s *streamState) RemotePayloadSize(payloadSize uint64) error {
-	// check if there is place for the payload.
-	for recv := range s.recv.Lock() {
-		if recv.used == recv.end {
+	for inner := range s.inner.Lock() {
+		if inner.recv.used == inner.recv.end {
 			return fmt.Errorf("buffer full")
 		}
-		i := int(recv.used) % len(recv.msgs)
-		if recv.maxMsgSize-uint64(len(recv.msgs[i])) < payloadSize {
+		i := int(inner.recv.used) % len(inner.recv.msgs)
+		if inner.recv.maxMsgSize-uint64(len(inner.recv.msgs[i])) < payloadSize {
 			return fmt.Errorf("msg too large")
 		}
 	}
@@ -99,18 +105,18 @@ func (s *streamState) RemotePayloadSize(payloadSize uint64) error {
 }
 
 func (s *streamState) RemotePayload(payload []byte) {
-	for recv := range s.recv.Lock() {
-		i := int(recv.used) % len(recv.msgs)
-		recv.msgs[i] = append(recv.msgs[i], payload...)
+	for inner := range s.inner.Lock() {
+		i := int(inner.recv.used) % len(inner.recv.msgs)
+		inner.recv.msgs[i] = append(inner.recv.msgs[i], payload...)
 	}
 }
 
 func (s *streamState) RemoteMsgEnd() error {
-	for recv, ctrl := range s.recv.Lock() {
-		if recv.used == recv.end {
+	for inner, ctrl := range s.inner.Lock() {
+		if inner.recv.used == inner.recv.end {
 			return fmt.Errorf("buffer full")
 		}
-		recv.used += 1
+		inner.recv.used += 1
 		ctrl.Updated()
 	}
 	return nil

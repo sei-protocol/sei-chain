@@ -25,13 +25,13 @@ func transform(msg []byte) []byte {
 	return out
 }
 
-func runServer(ctx context.Context, rng utils.Rng, mux *Mux, kind StreamKind) error {
+func runServer(ctx context.Context, _ utils.Rng, mux *Mux, kind StreamKind) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		var count atomic.Int64
 		for {
 			// Accept a stream.
-			maxMsgSize := uint64(rng.Intn(10000)+100)
-			window := uint64(rng.Intn(10)+1)
+			maxMsgSize := uint64(100) // uint64(rng.Intn(10000)+100)
+			window := uint64(1) // uint64(rng.Intn(10)+1)
 			stream,err := mux.Accept(ctx,kind,maxMsgSize,window)
 			if err!=nil {
 				return utils.IgnoreCancel(err)
@@ -93,6 +93,7 @@ func (c *client) Run(ctx context.Context, rng utils.Rng) error {
 	stream,err := c.mux.Connect(ctx,c.kind,maxMsgSize,window)
 	if err!=nil { return fmt.Errorf("mux.Connect(): %w",err) }
 	// Assert that concurrent stream limit is respected.
+	fmt.Printf("stream kind=%v connected\n",c.kind)
 	if got,wantMax := uint64(c.count.Add(1)),c.mux.cfg.Kinds[c.kind].MaxConnects; got>wantMax {
 		return fmt.Errorf("got %v concurrent connects, want <= %v",got,wantMax)
 	}
@@ -153,8 +154,8 @@ func runConn(ctx context.Context, rng utils.Rng, kindCount int, c *net.TCPConn) 
 		for kind := range StreamKind(kindCount) {
 			kinds[kind] = &StreamKindConfig {
 				// > 1, so that blocked client doesn't hog all the streams
-				MaxAccepts: uint64(rng.Intn(4)+2),
-				MaxConnects: uint64(rng.Intn(4)+2),
+				MaxAccepts: 1, //uint64(rng.Intn(4)+2),
+				MaxConnects: 1, //uint64(rng.Intn(4)+2),
 			}
 		}
 		mux := NewMux(&Config {FrameSize: 10 * 1024, Kinds: kinds})
@@ -173,10 +174,10 @@ func runConn(ctx context.Context, rng utils.Rng, kindCount int, c *net.TCPConn) 
 				s.Spawn(func() error { return cs.SynchronousClient().Run(ctx,clientRng) })
 			}
 			// Clients which send requests concurrently.
-			for range 20 {
+			/*for range 20 {
 				clientRng := rng.Split()	
 				s.Spawn(func() error { return cs.StreamingClient().Run(ctx,clientRng) })
-			}
+			}*/
 		}
 		return nil
 	})

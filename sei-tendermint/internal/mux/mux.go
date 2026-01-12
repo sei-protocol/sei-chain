@@ -123,6 +123,14 @@ func (r *runner) getOrAccept(id streamID, kind StreamKind) (*streamState, error)
 	panic("unreachable")
 }
 
+func (i *runnerInner) newConnectStream(kind StreamKind) *streamState {
+	// Non-blocking since we just closed a connect Stream.
+	s := newStreamState(i.nextID, kind)
+	i.streams[s.id] = s
+	i.nextID += 2
+	return s
+}
+
 func (r *runner) tryPrune(id streamID) {
 	for inner := range r.inner.Lock() {
 		// Check if the Stream is fully closed.
@@ -130,8 +138,8 @@ func (r *runner) tryPrune(id streamID) {
 		if !ok {
 			return
 		}
-		for c := range s.closed.RLock() {
-			if !c.remote || !c.local {
+		for sInner := range s.inner.Lock() {
+			if !sInner.closed.remote || !sInner.closed.local {
 				return
 			}
 		}
@@ -139,9 +147,7 @@ func (r *runner) tryPrune(id streamID) {
 		delete(inner.streams, id)
 		// Free the Stream capacity.
 		if id.isConnect() {
-			// Non-blocking since we just closed a connect Stream.
-			r.mux.kinds[s.kind].connectsQueue <- newStreamState(inner.nextID, s.kind)
-			inner.nextID += 2
+			r.mux.kinds[s.kind].connectsQueue <- inner.newConnectStream(s.kind) 
 		} else {
 			inner.acceptsSem[s.kind] += 1
 		}
@@ -171,11 +177,12 @@ func (r *runner) runSend(ctx context.Context, conn conn.Conn) error {
 		// Send the frames
 		for _, f := range frames {
 			id := streamID(f.Header.Id)
+			fmt.Printf("send frame = %v\n",f)
 			if f.Header.GetMsgEnd() {
 				// Notify sender about local buffer capacity.
 				for inner := range r.inner.RLock() {
-					for send, ctrl := range inner.streams[id].send.Lock() {
-						send.bufBegin += 1
+					for sInner, ctrl := range inner.streams[id].inner.Lock() {
+						sInner.send.bufBegin += 1
 						ctrl.Updated()
 					}
 				}
@@ -222,13 +229,15 @@ func (r *runner) runRecv(conn conn.Conn) error {
 		}
 		id := streamIDFromRemote(h.Id)
 		kind := StreamKind(h.GetKind())
+		fmt.Printf("recv header = %v\n",&h)
 
 		s, err := r.getOrAccept(id, kind)
 		if err != nil {
 			return err
 		}
-		for c := range s.closed.RLock() {
-			if c.remote {
+		fmt.Printf("recv header (stream) = %v\n",&h)
+		for sInner := range s.inner.Lock() {
+			if sInner.closed.remote {
 				return fmt.Errorf("frame after CLOSE frame")
 			}
 		}
@@ -241,13 +250,8 @@ func (r *runner) runRecv(conn conn.Conn) error {
 				r.mux.kinds[kind].acceptsQueue <- s
 			}
 		}
-		if we := h.WindowEnd; we != nil {
-			for send, ctrl := range s.send.Lock() {
-				if send.end < *we {
-					send.end = *we
-					ctrl.Updated()
-				}
-			}
+		if we := h.GetWindowEnd(); we > 0 {
+			s.RemoteWindowEnd(we)	
 		}
 		if ps := h.GetPayloadSize(); ps > 0 {
 			if err := s.RemotePayloadSize(ps); err != nil {
@@ -331,8 +335,7 @@ func (m *Mux) Run(ctx context.Context, conn conn.Conn) error {
 				if !ok { remCfg = &StreamKindConfig{} } 
 				inner.acceptsSem[kind] = min(cfg.MaxAccepts, remCfg.MaxConnects)
 				for range min(cfg.MaxConnects, remCfg.MaxAccepts) {
-					m.kinds[kind].connectsQueue <- newStreamState(inner.nextID, kind)
-					inner.nextID += 2
+					m.kinds[kind].connectsQueue <- inner.newConnectStream(kind) 
 				}
 			}
 		}

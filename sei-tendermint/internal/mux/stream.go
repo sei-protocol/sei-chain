@@ -15,8 +15,8 @@ type Stream struct {
 }
 
 func (s *Stream) maxSendMsgSize() uint64 {
-	for send := range s.state.send.Lock() {
-		return send.maxMsgSize
+	for inner := range s.state.inner.Lock() {
+		return inner.send.maxMsgSize
 	}
 	panic("unreachable")
 }
@@ -26,14 +26,14 @@ func (s *Stream) maxSendMsgSize() uint64 {
 // Whenever you call Recv, you specify whether window should grow (i.e. whether to report that the messages
 // have been consumed and he can send more).
 func (s *Stream) open(ctx context.Context, maxMsgSize uint64, window uint64) error {
-	for recv := range s.state.recv.Lock() {
-		if recv.opened {
+	for inner,ctrl := range s.state.inner.Lock() {
+		if inner.recv.opened {
 			return fmt.Errorf("already opened")
 		}
-		recv.opened = true
-		recv.maxMsgSize = maxMsgSize
-		recv.end = window
-		recv.msgs = make([][]byte, window)
+		inner.recv.opened = true
+		inner.recv.maxMsgSize = maxMsgSize
+		inner.recv.end = window
+		inner.recv.msgs = make([][]byte, window)
 		for queue, ctrl := range s.queue.Lock() {
 			if len(queue) == 0 {
 				ctrl.Updated()
@@ -43,10 +43,9 @@ func (s *Stream) open(ctx context.Context, maxMsgSize uint64, window uint64) err
 			f.Header.MaxMsgSize = utils.Alloc(maxMsgSize)
 			f.Header.WindowEnd = utils.Alloc(window)
 		}
-	}
-	for send, ctrl := range s.state.send.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return send.remoteOpened }); err != nil {
-			s.Close()
+		if err := ctrl.WaitUntil(ctx, func() bool { return inner.send.remoteOpened }); err != nil {
+			s.close(inner)
+			ctrl.Updated()
 			return err
 		}
 	}
@@ -59,29 +58,24 @@ func (s *Stream) open(ctx context.Context, maxMsgSize uint64, window uint64) err
 // Returns an error if Close() was called already.
 // Returns an error if the message is too large (exceeds maxMsgSize declared by the peer).
 func (s *Stream) Send(ctx context.Context, msg []byte) error {
-	for send, ctrl := range s.state.send.Lock() {
+	for inner, ctrl := range s.state.inner.Lock() {
 		// Wait until the local buffer is empty && remote buffer has capacity.
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			for c := range s.state.closed.RLock() {
-				// Will we never be able to send...
-				never := c.local || (c.remote && send.begin == send.end)
-				// ...or we can send now.
-				return never || (send.bufBegin == send.begin && send.begin < send.end)
-			}
-			panic("unreachable")
+			// Will we never be able to send...
+			never := inner.closed.local || (inner.closed.remote && inner.send.begin == inner.send.end)
+			// ...or we can send now.
+			return never || (inner.send.bufBegin == inner.send.begin && inner.send.begin < inner.send.end)
 		}); err != nil {
 			return err
 		}
-		for c := range s.state.closed.RLock() {
-			if c.local || (c.remote && send.begin == send.end) {
-				return errClosed
-			}
+		if inner.closed.local || inner.send.begin == inner.send.end {
+			return errClosed
 		}
 		// We check msg size AFTER waiting because maxMsgSize could be set AFTER we wait.
-		if uint64(len(msg)) > send.maxMsgSize {
+		if uint64(len(msg)) > inner.send.maxMsgSize {
 			return fmt.Errorf("message too large")
 		}
-		send.begin += 1
+		inner.send.begin += 1
 		// Push msg to the queue.
 		for queue, ctrl := range s.queue.Lock() {
 			if len(queue) == 0 {
@@ -96,25 +90,28 @@ func (s *Stream) Send(ctx context.Context, msg []byte) error {
 	return nil
 }
 
+func (s *Stream) close(inner *streamStateInner) {
+	if inner.closed.local {
+		return
+	}
+	inner.closed.local = true
+	for queue, ctrl := range s.queue.Lock() {
+		if len(queue) == 0 {
+			ctrl.Updated()
+		}
+		f := queue.Get(s.state.id)
+		f.Header.Close = utils.Alloc(true)
+	}
+}
+
 // Close sends a final CLOSE flag to the peer.
 // All subsequent Send calls will fail.
 // Recv calls will no longer be able to free buffer space.
+// NOTE: we may consider separating Close into SendClose and RecvClose,
+// to make send and recv parts of the stream entirely independent.
 func (s *Stream) Close() {
-	for c := range s.state.closed.Lock() {
-		if c.local {
-			return
-		}
-		c.local = true
-		for queue, ctrl := range s.queue.Lock() {
-			if len(queue) == 0 {
-				ctrl.Updated()
-			}
-			f := queue.Get(s.state.id)
-			f.Header.Close = utils.Alloc(true)
-		}
-	}
-	// Send is affected.
-	for _, ctrl := range s.state.send.Lock() {
+	for inner, ctrl := range s.state.inner.Lock() {
+		s.close(inner)
 		ctrl.Updated()
 	}
 }
@@ -123,41 +120,29 @@ func (s *Stream) Close() {
 // until peer has closed their end of the Stream.
 // If freeBuffer is set, it permits the peer to send more messages (since local buffer was freed).
 func (s *Stream) Recv(ctx context.Context, freeBuffer bool) ([]byte, error) {
-	for recv, ctrl := range s.state.recv.Lock() {
+	for inner, ctrl := range s.state.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			// A message is available...
-			if recv.begin < recv.used {
-				return true
-			}
-			// ...or peer closed the Stream.
-			for c := range s.state.closed.RLock() {
-				return c.remote
-			}
-			panic("unreachable")
+			// A message is available or peer closed the Stream.
+			return inner.recv.begin < inner.recv.used || inner.closed.remote
 		}); err != nil {
 			return nil, err
 		}
-		if recv.begin == recv.used {
+		if inner.recv.begin == inner.recv.used {
 			return nil, errClosed
 		}
-		i := recv.begin % uint64(len(recv.msgs))
-		msg := recv.msgs[i]
-		recv.msgs[i] = nil
-		recv.begin += 1
-		// Free buffer if requested AND the Stream was not closed locally.
-		if freeBuffer {
-			for c := range s.state.closed.RLock() {
-				if c.local {
-					break
+		i := inner.recv.begin % uint64(len(inner.recv.msgs))
+		msg := inner.recv.msgs[i]
+		inner.recv.msgs[i] = nil
+		inner.recv.begin += 1
+		// Free buffer if requested AND the stream was not closed locally.
+		if freeBuffer && !inner.closed.local {
+			inner.recv.end = inner.recv.begin + uint64(len(inner.recv.msgs))
+			for queue, ctrl := range s.queue.Lock() {
+				if len(queue) == 0 {
+					ctrl.Updated()
 				}
-				recv.end = recv.begin + uint64(len(recv.msgs))
-				for queue, ctrl := range s.queue.Lock() {
-					if len(queue) == 0 {
-						ctrl.Updated()
-					}
-					f := queue.Get(s.state.id)
-					f.Header.WindowEnd = utils.Alloc(recv.end)
-				}
+				f := queue.Get(s.state.id)
+				f.Header.WindowEnd = utils.Alloc(inner.recv.end)
 			}
 		}
 		return msg, nil
