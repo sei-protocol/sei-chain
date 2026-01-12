@@ -23,15 +23,15 @@ import (
 type ExecutorMode int
 
 const (
-	ModeGethSequential ExecutorMode = iota // Default geth interpreter, no OCC
+	ModeV2withOCC      ExecutorMode = iota // V2 execution path with OCC (standard production path)
 	ModeGigaSequential                     // Giga executor, no OCC
 	ModeGigaOCC                            // Giga executor with OCC
 )
 
 func (m ExecutorMode) String() string {
 	switch m {
-	case ModeGethSequential:
-		return "GethSequential"
+	case ModeV2withOCC:
+		return "V2withOCC"
 	case ModeGigaSequential:
 		return "GigaSequential"
 	case ModeGigaOCC:
@@ -50,8 +50,9 @@ type GigaTestContext struct {
 }
 
 // NewGigaTestContext creates a test context configured for a specific executor mode
-func NewGigaTestContext(t *testing.T, testAccts []utils.TestAcct, blockTime time.Time, workers int, mode ExecutorMode) *GigaTestContext {
-	occEnabled := mode == ModeGigaOCC
+func NewGigaTestContext(t testing.TB, testAccts []utils.TestAcct, blockTime time.Time, workers int, mode ExecutorMode) *GigaTestContext {
+	// OCC is enabled for both GethOCC and GigaOCC modes
+	occEnabled := mode == ModeV2withOCC || mode == ModeGigaOCC
 	gigaEnabled := mode == ModeGigaSequential || mode == ModeGigaOCC
 	gigaOCCEnabled := mode == ModeGigaOCC
 
@@ -104,7 +105,7 @@ type EVMTransfer struct {
 }
 
 // CreateEVMTransferTxs creates signed EVM transfer transactions and funds the signers
-func CreateEVMTransferTxs(t *testing.T, tCtx *GigaTestContext, transfers []EVMTransfer) [][]byte {
+func CreateEVMTransferTxs(t testing.TB, tCtx *GigaTestContext, transfers []EVMTransfer) [][]byte {
 	txs := make([][]byte, 0, len(transfers))
 	tc := app.MakeEncodingConfig().TxConfig
 
@@ -187,9 +188,9 @@ func GenerateConflictingTransfers(count int, recipient common.Address) []EVMTran
 }
 
 // RunBlock executes a block of transactions and returns results
-func RunBlock(t *testing.T, tCtx *GigaTestContext, txs [][]byte) ([]abci.Event, []*abci.ExecTxResult, error) {
-	// Set global OCC flag based on mode
-	app.EnableOCC = tCtx.Mode == ModeGigaOCC
+func RunBlock(t testing.TB, tCtx *GigaTestContext, txs [][]byte) ([]abci.Event, []*abci.ExecTxResult, error) {
+	// Set global OCC flag based on mode (both GethOCC and GigaOCC use OCC)
+	app.EnableOCC = tCtx.Mode == ModeV2withOCC || tCtx.Mode == ModeGigaOCC
 
 	req := &abci.RequestFinalizeBlock{
 		Txs:    txs,
@@ -239,7 +240,7 @@ func TestGigaVsGeth_NonConflicting(t *testing.T) {
 	transfers := GenerateNonConflictingTransfers(txCount)
 
 	// Run with Geth (baseline)
-	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGethSequential)
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
 	gethTxs := CreateEVMTransferTxs(t, gethCtx, transfers)
 	_, gethResults, gethErr := RunBlock(t, gethCtx, gethTxs)
 	require.NoError(t, gethErr, "Geth execution failed")
@@ -275,7 +276,7 @@ func TestGigaVsGeth_Conflicting(t *testing.T) {
 	transfers := GenerateConflictingTransfers(txCount, recipient)
 
 	// Run with Geth (baseline)
-	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGethSequential)
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
 	gethTxs := CreateEVMTransferTxs(t, gethCtx, transfers)
 	_, gethResults, gethErr := RunBlock(t, gethCtx, gethTxs)
 	require.NoError(t, gethErr, "Geth execution failed")
@@ -401,7 +402,7 @@ func TestAllModes_NonConflicting(t *testing.T) {
 	transfers := GenerateNonConflictingTransfers(txCount)
 
 	// Geth Sequential
-	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGethSequential)
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
 	gethTxs := CreateEVMTransferTxs(t, gethCtx, transfers)
 	_, gethResults, gethErr := RunBlock(t, gethCtx, gethTxs)
 	require.NoError(t, gethErr)
@@ -438,7 +439,7 @@ func TestAllModes_Conflicting(t *testing.T) {
 	transfers := GenerateConflictingTransfers(txCount, recipient)
 
 	// Geth Sequential
-	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGethSequential)
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
 	gethTxs := CreateEVMTransferTxs(t, gethCtx, transfers)
 	_, gethResults, gethErr := RunBlock(t, gethCtx, gethTxs)
 	require.NoError(t, gethErr)

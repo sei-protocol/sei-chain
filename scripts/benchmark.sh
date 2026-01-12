@@ -7,6 +7,13 @@ MOCK_BALANCES=${MOCK_BALANCES:-true}
 GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
 GIGA_OCC=${GIGA_OCC:-false}
 
+# DB_BACKEND options:
+#   goleveldb - default, pure Go, can have compaction stalls under heavy write load
+#   memdb     - in-memory only, fastest (no disk I/O), data lost on restart
+#   cleveldb  - C LevelDB, faster than goleveldb, requires CGO
+#   rocksdb   - best compaction control, requires CGO and rocksdb libs
+DB_BACKEND=${DB_BACKEND:-goleveldb}
+
 # Use python3 as default, but fall back to python if python3 doesn't exist
 PYTHON_CMD=python3
 if ! command -v $PYTHON_CMD &> /dev/null
@@ -22,14 +29,40 @@ echo "=== Benchmark Configuration ==="
 echo "  MOCK_BALANCES:  $MOCK_BALANCES"
 echo "  GIGA_EXECUTOR:  $GIGA_EXECUTOR"
 echo "  GIGA_OCC:       $GIGA_OCC"
+echo "  DB_BACKEND:     $DB_BACKEND"
 echo "================================"
 
 # clean up old sei directory
 rm -rf ~/.sei
 echo "Building..."
+
+# Determine build options based on DB_BACKEND
+BUILD_TAGS=""
+case "$DB_BACKEND" in
+  cleveldb)
+    echo "Building with cleveldb support (C LevelDB - faster)..."
+    BUILD_TAGS="cleveldb"
+    ;;
+  rocksdb)
+    echo "Building with rocksdb support (best compaction control)..."
+    BUILD_TAGS="rocksdb"
+    ;;
+  goleveldb|memdb)
+    echo "Building with default goleveldb support..."
+    ;;
+  *)
+    echo "ERROR: Unknown DB_BACKEND '$DB_BACKEND'. Valid options: goleveldb, memdb, cleveldb, rocksdb"
+    exit 1
+    ;;
+esac
+
 # install seid with benchmark support (includes mock_balances)
 echo "Building with benchmark and mock balances support enabled..."
-make install-bench
+if [ -n "$BUILD_TAGS" ]; then
+  COSMOS_BUILD_OPTIONS="$BUILD_TAGS" make install-bench
+else
+  make install-bench
+fi
 # initialize chain with chain ID and add the first key
 ~/go/bin/seid init demo --chain-id sei-chain
 ~/go/bin/seid keys add $keyname --keyring-backend test
@@ -135,11 +168,17 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
   sed -i 's/mode = "full"/mode = "validator"/g' $CONFIG_PATH
   sed -i 's/indexer = \["null"\]/indexer = \["kv"\]/g' $CONFIG_PATH
   sed -i 's/skip_timeout_commit =.*/skip_timeout_commit = false/g' $CONFIG_PATH
-  # sed -i 's/slow = false/slow = true/g' $APP_PATH
+  sed -i 's/pprof-laddr = ""/pprof-laddr = ":6060"/g' $CONFIG_PATH
+  # Set the DB backend
+  sed -i "s/db-backend = \"goleveldb\"/db-backend = \"$DB_BACKEND\"/g" $CONFIG_PATH
+  echo "DB backend set to: $DB_BACKEND"
 elif [[ "$OSTYPE" == "darwin"* ]]; then
   sed -i '' 's/mode = "full"/mode = "validator"/g' $CONFIG_PATH
   sed -i '' 's/indexer = \["null"\]/indexer = \["kv"\]/g' $CONFIG_PATH
-  # sed -i '' 's/slow = false/slow = true/g' $APP_PATH
+  sed -i '' 's/pprof-laddr = ""/pprof-laddr = ":6060"/g' $CONFIG_PATH
+  # Set the DB backend
+  sed -i '' "s/db-backend = \"goleveldb\"/db-backend = \"$DB_BACKEND\"/g" $CONFIG_PATH
+  echo "DB backend set to: $DB_BACKEND"
 else
   printf "Platform not supported, please ensure that the following values are set in your config.toml:\n"
   printf "###         Consensus Configuration Options         ###\n"
@@ -154,4 +193,12 @@ fi
 
 # start the chain with log tracing
 # Benchmark mode is enabled via build tag, no --benchmark flag needed
+echo ""
+echo "=== pprof enabled at http://localhost:6060/debug/pprof ==="
+echo "To capture 30s CPU profile during benchmark:"
+echo "  go tool pprof http://localhost:6060/debug/pprof/profile?seconds=30"
+echo "To capture heap profile:"
+echo "  go tool pprof http://localhost:6060/debug/pprof/heap"
+echo "============================================================"
+echo ""
 ~/go/bin/seid start --chain-id sei-chain 2>&1 | grep benchmark
