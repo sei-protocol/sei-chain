@@ -159,11 +159,11 @@ func runConn(ctx context.Context, rng utils.Rng, kindCount int, c *net.TCPConn) 
 			}
 		}
 		mux := NewMux(&Config {FrameSize: 10 * 1024, Kinds: kinds})
-		s.SpawnBg(func() error { return mux.Run(ctx,sc) })
+		s.SpawnBgNamed("mux.Run()", func() error { return mux.Run(ctx,sc) })
 		for kind := range kinds {
 			// Server.
 			serverRng := rng.Split()
-			s.SpawnBg(func() error { return runServer(ctx,serverRng,mux,kind) })
+			s.SpawnBgNamed("runServer()", func() error { return runServer(ctx,serverRng,mux,kind) })
 			cs := &clientSet{mux:mux,kind:kind}
 			// Client which is blocked and doesn't receive responses.
 			//clientRng := rng.Split()
@@ -171,7 +171,7 @@ func runConn(ctx context.Context, rng utils.Rng, kindCount int, c *net.TCPConn) 
 			// Clients which send requests sequentially. 
 			for range 5 {
 				clientRng := rng.Split()	
-				s.Spawn(func() error { return cs.SynchronousClient().Run(ctx,clientRng) })
+				s.SpawnNamed("sync",func() error { return cs.SynchronousClient().Run(ctx,clientRng) })
 			}
 			// Clients which send requests concurrently.
 			/*for range 20 {
@@ -200,9 +200,9 @@ func TestHappyPath(t *testing.T) {
 			return nil
 		})
 		connRng := rng.Split()
-		s.Spawn(func() error { return runConn(ctx,connRng,kindCount,c1) })
+		s.SpawnNamed("c1", func() error { return runConn(ctx,connRng,kindCount,c1) })
 		connRng = rng.Split()
-		s.Spawn(func() error { return runConn(ctx,connRng,kindCount,c2) })
+		s.SpawnNamed("c2", func() error { return runConn(ctx,connRng,kindCount,c2) })
 		return nil
 	})
 	if err!=nil { t.Fatal(err) }
