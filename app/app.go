@@ -120,6 +120,7 @@ import (
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/helpers"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
 	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
@@ -1629,16 +1630,27 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 		return nil, fmt.Errorf("failed to convert to eth transaction")
 	}
 
-	// Recover sender address directly from the transaction signature
-	// This bypasses all Cosmos SDK ante handler processing
 	chainID := app.EvmKeeper.ChainID(ctx)
-	signer := ethtypes.LatestSignerForChainID(chainID)
-	sender, sigErr := ethtypes.Sender(signer, ethTx)
-	if sigErr != nil {
+
+	// Recover sender addresses and pubkey from the transaction signature.
+	// This uses the same logic as x/evm/ante/preprocess.go to ensure consistent results.
+	sender, seiAddr, pubkey, recoverErr := helpers.RecoverSenderFromTx(ethTx, chainID)
+	if recoverErr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
-			Log:  fmt.Sprintf("failed to recover sender from signature: %v", sigErr),
+			Log:  fmt.Sprintf("failed to recover sender from signature: %v", recoverErr),
 		}, nil
+	}
+
+	// Associate the address if not already associated (same as EVMPreprocessDecorator)
+	if _, isAssociated := app.EvmKeeper.GetEVMAddress(ctx, seiAddr); !isAssociated {
+		associateHelper := helpers.NewAssociationHelper(&app.EvmKeeper, app.BankKeeper, &app.AccountKeeper)
+		if err := associateHelper.AssociateAddresses(ctx, seiAddr, sender, pubkey); err != nil {
+			return &abci.ExecTxResult{
+				Code: 1,
+				Log:  fmt.Sprintf("failed to associate addresses: %v", err),
+			}, nil
+		}
 	}
 
 	// Prepare context for EVM transaction (set infinite gas meter like original flow)

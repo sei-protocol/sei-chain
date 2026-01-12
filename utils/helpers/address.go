@@ -13,6 +13,12 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
+var (
+	big2  = big.NewInt(2)
+	big8  = big.NewInt(8)
+	big27 = big.NewInt(27)
+)
+
 func GetAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
 	pubkey, err := RecoverPubkey(data, R, S, V, true)
 	if err != nil {
@@ -65,4 +71,43 @@ func PubkeyToEVMAddress(pub []byte) (common.Address, error) {
 func PubkeyBytesToSeiPubKey(pub []byte) secp256k1.PubKey {
 	pubkeyObj, _ := btcec.ParsePubKey(pub)
 	return secp256k1.PubKey{Key: pubkeyObj.SerializeCompressed()}
+}
+
+// RecoverSenderFromTx recovers the sender's EVM address, Sei address, and public key
+// from a signed Ethereum transaction. This uses the same signature recovery logic as
+// x/evm/ante/preprocess.go:Preprocess to ensure consistent results.
+//
+// The function handles both legacy and EIP-2718 typed transactions, adjusting the V value
+// appropriately for each transaction type.
+func RecoverSenderFromTx(ethTx *ethtypes.Transaction, chainID *big.Int) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
+	if !ethTx.Protected() {
+		return common.Address{}, nil, nil, errors.New("unprotected transactions not supported")
+	}
+
+	// Get the signer for this chain
+	signer := ethtypes.LatestSignerForChainID(chainID)
+	txHash := signer.Hash(ethTx)
+
+	// Get raw signature values
+	V, R, S := ethTx.RawSignatureValues()
+
+	// Adjust V for recovery - must match x/evm/ante/preprocess.go:AdjustV
+	adjustedV := adjustVForRecovery(V, ethTx.Type(), chainID)
+
+	// Recover addresses using the shared GetAddresses function
+	return GetAddresses(adjustedV, R, S, txHash)
+}
+
+// adjustVForRecovery adjusts the V value from raw signature for pubkey recovery.
+// This mirrors the logic in x/evm/ante/preprocess.go:AdjustV exactly.
+func adjustVForRecovery(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
+	// Non-legacy TX always needs to be bumped by 27
+	if txType != ethtypes.LegacyTxType {
+		return new(big.Int).Add(V, big27)
+	}
+
+	// Legacy TX needs to be adjusted based on chainID
+	// V = V - 2*chainID - 8
+	adjusted := new(big.Int).Sub(V, new(big.Int).Mul(chainID, big2))
+	return adjusted.Sub(adjusted, big8)
 }
