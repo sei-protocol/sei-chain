@@ -19,7 +19,7 @@ import (
 	"github.com/tendermint/tendermint/abci/example/kvstore"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto/encoding"
+	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/mempool"
 	"github.com/tendermint/tendermint/internal/p2p"
@@ -501,7 +501,7 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 		pv, _ := states[nodeIdx].privValidator.Get()
 		key, err := pv.GetPubKey(ctx)
 		require.NoError(t, err)
-		keyProto := encoding.PubKeyToProto(key)
+		keyProto := crypto.PubKeyToProto(key)
 		newPower := int64(rng.Intn(100000))
 		tx := kvstore.MakeValSetChangeTx(keyProto, newPower)
 		require.NoError(t, finalizeTx(ctx, valSet, blocksSubs, states, tx))

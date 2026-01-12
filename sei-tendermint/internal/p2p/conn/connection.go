@@ -421,10 +421,10 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 				recvPong.Store(true)
 			}
 		case *p2p.Packet_PacketMsg:
-			channelID, castOk := utils.SafeCast[ChannelID](p.PacketMsg.ChannelID)
+			channelID, castOk := utils.SafeCast[ChannelID](p.PacketMsg.ChannelId)
 			ch, ok := channels[channelID]
 			if !castOk || !ok {
-				return errBadChannel{fmt.Errorf("unknown channel %X", p.PacketMsg.ChannelID)}
+				return errBadChannel{fmt.Errorf("unknown channel %X", p.PacketMsg.ChannelId)}
 			}
 			c.logger.Debug("Read PacketMsg", "conn", c, "packet", packet)
 			msgBytes, err := ch.pushMsg(p.PacketMsg)
@@ -451,8 +451,8 @@ func (c *MConnection) maxPacketMsgSize() int {
 	bz, err := proto.Marshal(&p2p.Packet{
 		Sum: &p2p.Packet_PacketMsg{
 			PacketMsg: &p2p.PacketMsg{
-				ChannelID: 0x01,
-				EOF:       true,
+				ChannelId: 0x01,
+				Eof:       true,
 				Data:      make([]byte, c.config.MaxPacketMsgPayloadSize),
 			},
 		},
@@ -477,12 +477,12 @@ func (ch *sendChannel) ratio() float32 {
 // Not goroutine-safe
 func (ch *sendChannel) popMsg(maxPayload int) *p2p.PacketMsg {
 	payload := ch.queue.Get(0)
-	packet := &p2p.PacketMsg{ChannelID: int32(ch.desc.ID)}
+	packet := &p2p.PacketMsg{ChannelId: int32(ch.desc.ID)}
 	if len(*payload) <= maxPayload {
-		packet.EOF = true
+		packet.Eof = true
 		packet.Data = *ch.queue.PopFront()
 	} else {
-		packet.EOF = false
+		packet.Eof = false
 		packet.Data = (*payload)[:maxPayload]
 		*payload = (*payload)[maxPayload:]
 	}
@@ -509,7 +509,7 @@ func (ch *recvChannel) pushMsg(packet *p2p.PacketMsg) ([]byte, error) {
 		return nil, fmt.Errorf("received message exceeds available capacity: %v < %v", wantMax, got)
 	}
 	ch.buf = append(ch.buf, packet.Data...)
-	if packet.EOF {
+	if packet.Eof {
 		msgBytes := ch.buf
 		ch.buf = make([]byte, 0, ch.desc.RecvBufferCapacity)
 		return msgBytes, nil
