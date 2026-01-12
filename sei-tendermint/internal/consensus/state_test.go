@@ -3,6 +3,7 @@ package consensus
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -340,7 +341,6 @@ func TestStateOversizedBlock(t *testing.T) {
 
 // propose, prevote, and precommit a block
 func TestStateFullRound1(t *testing.T) {
-	t.Skip("See: https://linear.app/seilabs/issue/CON-102/teststatefullround1-flakes")
 	config := configSetup(t)
 	ctx := t.Context()
 
@@ -2614,7 +2614,8 @@ func TestStateTimestamp_ProposalMatch(t *testing.T) {
 	validatePrecommit(ctx, t, cs1, round, 1, vss[0], propBlock.Hash(), propBlock.Hash())
 }
 
-// subscribe subscribes test client to the given query and returns a channel with cap = 1.
+// subscribe subscribes test client to the given query and returns a buffered channel.
+// Uses buffered subscription and channel to prevent message loss during fast consensus rounds.
 func subscribe(
 	ctx context.Context,
 	t *testing.T,
@@ -2625,17 +2626,19 @@ func subscribe(
 	sub, err := eventBus.SubscribeWithArgs(ctx, tmpubsub.SubscribeArgs{
 		ClientID: testSubscriber,
 		Query:    q,
+		Limit:    10,
 	})
 	require.NoError(t, err)
-	ch := make(chan tmpubsub.Message)
+	ch := make(chan tmpubsub.Message, 10)
 	go func() {
 		for {
 			next, err := sub.Next(ctx)
 			if err != nil {
-				if ctx.Err() != nil {
-					return
+				// ErrTerminated is expected when the event bus is stopped during test cleanup.
+				// context.Canceled is expected when the test context is cancelled.
+				if !errors.Is(err, tmpubsub.ErrTerminated) && !errors.Is(err, context.Canceled) {
+					t.Errorf("Subscription for %v unexpectedly terminated: %v", q, err)
 				}
-				t.Errorf("Subscription for %v unexpectedly terminated: %v", q, err)
 				return
 			}
 			select {

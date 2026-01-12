@@ -17,7 +17,6 @@ import (
 	abcimocks "github.com/tendermint/tendermint/abci/types/mocks"
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	mpmocks "github.com/tendermint/tendermint/internal/mempool/mocks"
 	"github.com/tendermint/tendermint/internal/proxy"
@@ -375,8 +374,8 @@ func TestProcessProposal(t *testing.T) {
 func TestValidateValidatorUpdates(t *testing.T) {
 	pubkey1 := ed25519.GenerateSecretKey().Public()
 	pubkey2 := ed25519.GenerateSecretKey().Public()
-	pk1 := encoding.PubKeyToProto(pubkey1)
-	pk2 := encoding.PubKeyToProto(pubkey2)
+	pk1 := crypto.PubKeyToProto(pubkey1)
+	pk2 := crypto.PubKeyToProto(pubkey2)
 
 	defaultValidatorParams := types.ValidatorParams{PubKeyTypes: []string{types.ABCIPubKeyTypeEd25519}}
 
@@ -432,8 +431,8 @@ func TestUpdateValidators(t *testing.T) {
 	pubkey2 := ed25519.GenerateSecretKey().Public()
 	val2 := types.NewValidator(pubkey2, 20)
 
-	pk := encoding.PubKeyToProto(pubkey1)
-	pk2 := encoding.PubKeyToProto(pubkey2)
+	pk := crypto.PubKeyToProto(pubkey1)
+	pk2 := crypto.PubKeyToProto(pubkey2)
 
 	testCases := []struct {
 		name string
@@ -551,7 +550,7 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 	blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: bps.Header()}
 
 	pubkey := ed25519.GenerateSecretKey().Public()
-	pk := encoding.PubKeyToProto(pubkey)
+	pk := crypto.PubKeyToProto(pubkey)
 	app.ValidatorUpdates = []abci.ValidatorUpdate{
 		{PubKey: pk, Power: 10},
 	}
@@ -615,7 +614,7 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 	require.NoError(t, err)
 	blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: bps.Header()}
 
-	vp := encoding.PubKeyToProto(state.Validators.Validators[0].PubKey)
+	vp := crypto.PubKeyToProto(state.Validators.Validators[0].PubKey)
 	// Remove the only validator
 	app.ValidatorUpdates = []abci.ValidatorUpdate{
 		{PubKey: vp, Power: 0},
