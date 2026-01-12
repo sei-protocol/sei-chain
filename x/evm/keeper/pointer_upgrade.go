@@ -25,7 +25,7 @@ func (k *Keeper) RunWithOneOffEVMInstance(
 		logger("get block context", err.Error())
 		return err
 	}
-	sstore := k.GetParams(ctx).SeiSstoreSetGasEip2200
+	sstore := k.GetSstoreSetGasEIP2200(ctx)
 	cfg := types.DefaultChainConfig().EthereumConfigWithSstore(k.ChainID(ctx), &sstore)
 	txCtx := core.NewEVMTxContext(&core.Message{From: evmModuleAddress, GasPrice: utils.Big0})
 	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))

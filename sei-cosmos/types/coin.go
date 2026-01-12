@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
 //-----------------------------------------------------------------------------
@@ -781,6 +782,9 @@ var (
 	reSpc       = `[[:space:]]*`
 	reDnm       *regexp.Regexp
 	reDecCoin   *regexp.Regexp
+
+	// denomRegexMu protects coinDenomRegex, reDnm, and reDecCoin from concurrent access
+	denomRegexMu sync.RWMutex
 )
 
 func init() {
@@ -798,6 +802,9 @@ var coinDenomRegex = DefaultCoinDenomRegex
 // SetCoinDenomRegex allows for coin's custom validation by overriding the regular
 // expression string used for denom validation.
 func SetCoinDenomRegex(reFn func() string) {
+	denomRegexMu.Lock()
+	defer denomRegexMu.Unlock()
+
 	coinDenomRegex = reFn
 
 	reDnm = regexp.MustCompile(fmt.Sprintf(`^%s$`, coinDenomRegex()))
@@ -806,7 +813,11 @@ func SetCoinDenomRegex(reFn func() string) {
 
 // ValidateDenom is the default validation function for Coin.Denom.
 func ValidateDenom(denom string) error {
-	if !reDnm.MatchString(denom) {
+	denomRegexMu.RLock()
+	re := reDnm
+	denomRegexMu.RUnlock()
+
+	if !re.MatchString(denom) {
 		return fmt.Errorf("invalid denom: %s", denom)
 	}
 	return nil

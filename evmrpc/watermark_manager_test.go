@@ -14,7 +14,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	proto "github.com/sei-protocol/sei-chain/sei-db/proto"
-	sstypes "github.com/sei-protocol/sei-chain/sei-db/ss/types"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/bytes"
@@ -226,7 +226,6 @@ func (f *fakeStateStore) GetEarliestVersion() int64                             
 func (f *fakeStateStore) SetEarliestVersion(version int64, _ bool) error               { return nil }
 func (f *fakeStateStore) GetLatestMigratedKey() ([]byte, error)                        { return nil, nil }
 func (f *fakeStateStore) GetLatestMigratedModule() (string, error)                     { return "", nil }
-func (f *fakeStateStore) WriteBlockRangeHash(string, int64, int64, []byte) error       { return nil }
 func (f *fakeStateStore) ApplyChangesetSync(_ int64, _ []*proto.NamedChangeSet) error  { return nil }
 func (f *fakeStateStore) ApplyChangesetAsync(_ int64, _ []*proto.NamedChangeSet) error { return nil }
 func (f *fakeStateStore) Import(_ int64, _ <-chan sstypes.SnapshotNode) error          { return nil }
