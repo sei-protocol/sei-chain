@@ -230,11 +230,7 @@ func RecoverSenderFromEthTx(ctx sdk.Context, ethTx *ethtypes.Transaction, chainI
 		return common.Address{}, nil, nil, ethtypes.ErrInvalidChainId
 	}
 
-	// Same recovery logic as PreprocessUnpacked
-	V, R, S := ethTx.RawSignatureValues()
-	V = helpers.AdjustV(V, ethTx.Type(), ethCfg.ChainID)
-	txHash := signer.Hash(ethTx)
-	return helpers.GetAddresses(V, R, S, txHash)
+	return helpers.RecoverAddressesFromTx(ethTx, signer, ethCfg.ChainID)
 }
 
 func GetVersion(ctx sdk.Context, ethCfg *params.ChainConfig) derived.SignerVersion {
