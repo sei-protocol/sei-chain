@@ -288,7 +288,7 @@ func TestGetAddresses(t *testing.T) {
 	}
 }
 
-func TestRecoverSenderFromTx(t *testing.T) {
+func TestRecoverAddressesFromTx(t *testing.T) {
 	chainID := big.NewInt(713715) // Sei chain ID
 
 	// Generate a private key for signing
@@ -297,8 +297,9 @@ func TestRecoverSenderFromTx(t *testing.T) {
 
 	expectedEvmAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
 
-	// Create a signer for this chain
-	signer := ethtypes.LatestSignerForChainID(chainID)
+	// Create a signer for this chain (simulating what evmante.SignerMap[version](chainID) returns)
+	// In production, the signer is selected based on block height/time via evmante.GetVersion
+	signer := ethtypes.NewCancunSigner(chainID)
 
 	tests := []struct {
 		name   string
@@ -362,8 +363,8 @@ func TestRecoverSenderFromTx(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			signedTx := tt.makeTx()
 
-			// Use our RecoverSenderFromTx function
-			evmAddr, seiAddr, pubkey, err := RecoverSenderFromTx(signedTx, chainID)
+			// Use RecoverAddressesFromTx with explicit signer (same pattern as production code)
+			evmAddr, seiAddr, pubkey, err := RecoverAddressesFromTx(signedTx, signer, chainID)
 			require.NoError(t, err)
 
 			// Verify EVM address matches expected
@@ -388,36 +389,8 @@ func TestRecoverSenderFromTx(t *testing.T) {
 	}
 }
 
-func TestRecoverSenderFromTx_UnprotectedReject(t *testing.T) {
-	chainID := big.NewInt(713715)
-	privateKey, err := crypto.GenerateKey()
-	require.NoError(t, err)
-
-	toAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
-
-	// Create an unprotected legacy transaction (no chain ID in signature)
-	// This uses HomesteadSigner which doesn't include chain ID
-	unprotectedTx := ethtypes.NewTx(&ethtypes.LegacyTx{
-		Nonce:    0,
-		GasPrice: big.NewInt(100000000000),
-		Gas:      21000,
-		To:       &toAddr,
-		Value:    big.NewInt(1),
-	})
-	signedTx, err := ethtypes.SignTx(unprotectedTx, ethtypes.HomesteadSigner{}, privateKey)
-	require.NoError(t, err)
-
-	// Verify the transaction is unprotected
-	require.False(t, signedTx.Protected(), "transaction should be unprotected")
-
-	// RecoverSenderFromTx should reject unprotected transactions
-	_, _, _, err = RecoverSenderFromTx(signedTx, chainID)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unprotected")
-}
-
-func TestRecoverSenderFromTx_MatchesPreprocessLogic(t *testing.T) {
-	// This test verifies that RecoverSenderFromTx produces the same results
+func TestRecoverAddressesFromTx_MatchesPreprocessLogic(t *testing.T) {
+	// This test verifies that RecoverAddressesFromTx produces the same results
 	// as the preprocess.go logic by manually performing the same steps
 
 	chainID := big.NewInt(713715)
@@ -425,7 +398,9 @@ func TestRecoverSenderFromTx_MatchesPreprocessLogic(t *testing.T) {
 	require.NoError(t, err)
 
 	toAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
-	signer := ethtypes.LatestSignerForChainID(chainID)
+
+	// Use version-based signer like production code (Cancun signer for current chain)
+	signer := ethtypes.NewCancunSigner(chainID)
 
 	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
 		ChainID:   chainID,
@@ -438,15 +413,15 @@ func TestRecoverSenderFromTx_MatchesPreprocessLogic(t *testing.T) {
 	}), signer, privateKey)
 	require.NoError(t, err)
 
-	// Method 1: Use RecoverSenderFromTx
-	evmAddr1, seiAddr1, pubkey1, err := RecoverSenderFromTx(signedTx, chainID)
+	// Method 1: Use RecoverAddressesFromTx (what production code uses)
+	evmAddr1, seiAddr1, pubkey1, err := RecoverAddressesFromTx(signedTx, signer, chainID)
 	require.NoError(t, err)
 
 	// Method 2: Manually replicate what preprocess.go does
 	txHash := signer.Hash(signedTx)
 	V, R, S := signedTx.RawSignatureValues()
-	// For non-legacy tx, V needs to be bumped by 27
-	adjustedV := new(big.Int).Add(V, big.NewInt(27))
+	// For non-legacy tx, V needs to be bumped by 27 (same as AdjustV)
+	adjustedV := AdjustV(V, signedTx.Type(), chainID)
 	evmAddr2, seiAddr2, pubkey2, err := GetAddresses(adjustedV, R, S, txHash)
 	require.NoError(t, err)
 
@@ -454,6 +429,11 @@ func TestRecoverSenderFromTx_MatchesPreprocessLogic(t *testing.T) {
 	require.Equal(t, evmAddr1, evmAddr2, "EVM addresses should match between methods")
 	require.Equal(t, seiAddr1, seiAddr2, "Sei addresses should match between methods")
 	require.Equal(t, pubkey1.Bytes(), pubkey2.Bytes(), "Pubkeys should match between methods")
+
+	// Also verify against go-ethereum's Sender
+	gethSender, err := ethtypes.Sender(signer, signedTx)
+	require.NoError(t, err)
+	require.Equal(t, gethSender, evmAddr1, "should match go-ethereum Sender")
 }
 
 func TestAdjustV(t *testing.T) {

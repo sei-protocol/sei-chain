@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
@@ -206,6 +207,34 @@ func IsTxTypeAllowed(version derived.SignerVersion, txType uint8) bool {
 		}
 	}
 	return false
+}
+
+// RecoverSenderFromEthTx recovers the sender's EVM address, Sei address, and public key
+// from a signed Ethereum transaction. This encapsulates the version-based signer selection
+// and signature recovery logic used by both the ante handler and Giga executor.
+//
+// This function rejects unprotected transactions (returns error).
+// For protected transactions, it uses the appropriate signer based on the chain version.
+func RecoverSenderFromEthTx(ctx sdk.Context, ethTx *ethtypes.Transaction, chainID *big.Int) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
+	if !ethTx.Protected() {
+		return common.Address{}, nil, nil, errors.New("unprotected transactions not supported")
+	}
+
+	// Version-based signer selection (same logic as PreprocessUnpacked)
+	chainCfg := evmtypes.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	version := GetVersion(ctx, ethCfg)
+	signer := SignerMap[version](chainID)
+
+	if !IsTxTypeAllowed(version, ethTx.Type()) {
+		return common.Address{}, nil, nil, ethtypes.ErrInvalidChainId
+	}
+
+	// Same recovery logic as PreprocessUnpacked
+	V, R, S := ethTx.RawSignatureValues()
+	V = helpers.AdjustV(V, ethTx.Type(), ethCfg.ChainID)
+	txHash := signer.Hash(ethTx)
+	return helpers.GetAddresses(V, R, S, txHash)
 }
 
 func GetVersion(ctx sdk.Context, ethCfg *params.ChainConfig) derived.SignerVersion {

@@ -1632,9 +1632,8 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 
 	chainID := app.EvmKeeper.ChainID(ctx)
 
-	// Recover sender addresses and pubkey from the transaction signature.
-	// This uses the same logic as x/evm/ante/preprocess.go to ensure consistent results.
-	sender, seiAddr, pubkey, recoverErr := helpers.RecoverSenderFromTx(ethTx, chainID)
+	// Recover sender using the same logic as preprocess.go (version-based signer selection)
+	sender, seiAddr, pubkey, recoverErr := evmante.RecoverSenderFromEthTx(ctx, ethTx, chainID)
 	if recoverErr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,

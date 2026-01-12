@@ -89,27 +89,20 @@ func PubkeyBytesToSeiPubKey(pub []byte) secp256k1.PubKey {
 	return secp256k1.PubKey{Key: pubkeyObj.SerializeCompressed()}
 }
 
-// RecoverSenderFromTx recovers the sender's EVM address, Sei address, and public key
-// from a signed Ethereum transaction. This uses the same signature recovery logic as
-// x/evm/ante/preprocess.go:Preprocess to ensure consistent results.
+// RecoverAddressesFromTx recovers the sender's EVM address, Sei address, and public key
+// from a signed PROTECTED Ethereum transaction using the provided signer.
+// This is the core recovery function used by both the EVM ante handler and Giga executor.
 //
-// The function handles both legacy and EIP-2718 typed transactions, adjusting the V value
-// appropriately for each transaction type.
-func RecoverSenderFromTx(ethTx *ethtypes.Transaction, chainID *big.Int) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
-	if !ethTx.Protected() {
-		return common.Address{}, nil, nil, errors.New("unprotected transactions not supported")
-	}
-
-	// Get the signer for this chain
-	signer := ethtypes.LatestSignerForChainID(chainID)
+// IMPORTANT: This function calls AdjustV internally, which is only correct for protected
+// (EIP-155) transactions. For unprotected legacy transactions (blocktest only), use
+// GetAddresses directly with the raw V value.
+//
+// The caller must provide the appropriate signer for the context. Use evmante.SignerMap[version](chainID)
+// where version is determined by evmante.GetVersion(ctx, ethCfg) to ensure consistent behavior
+// with the EVM ante handler.
+func RecoverAddressesFromTx(ethTx *ethtypes.Transaction, signer ethtypes.Signer, chainID *big.Int) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
 	txHash := signer.Hash(ethTx)
-
-	// Get raw signature values
 	V, R, S := ethTx.RawSignatureValues()
-
-	// Adjust V for recovery using the shared AdjustV function
 	adjustedV := AdjustV(V, ethTx.Type(), chainID)
-
-	// Recover addresses using the shared GetAddresses function
 	return GetAddresses(adjustedV, R, S, txHash)
 }
