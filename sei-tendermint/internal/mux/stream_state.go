@@ -58,7 +58,6 @@ func newStreamState(id streamID, kind StreamKind) *streamState {
 }
 
 func (s *streamState) RemoteOpen(maxMsgSize uint64) error {
-	fmt.Printf("RemoteOpen(%v)\n",maxMsgSize)
 	for inner, ctrl := range s.inner.Lock() {
 		if inner.send.remoteOpened {
 			return fmt.Errorf("already opened")

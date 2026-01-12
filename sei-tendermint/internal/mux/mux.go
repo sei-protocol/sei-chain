@@ -25,6 +25,8 @@ import (
 
 const handshakeMaxSize = 10 * 1024 // 10kB
 
+type errConn struct { error }
+
 type Config struct {
 	// Maximal number of bytes in a frame (excluding header).
 	FrameSize uint64
@@ -177,7 +179,6 @@ func (r *runner) runSend(ctx context.Context, conn conn.Conn) error {
 		// Send the frames
 		for _, f := range frames {
 			id := streamID(f.Header.Id)
-			fmt.Printf("send frame = %v\n",f)
 			if f.Header.GetMsgEnd() {
 				// Notify sender about local buffer capacity.
 				for inner := range r.inner.RLock() {
@@ -195,17 +196,17 @@ func (r *runner) runSend(ctx context.Context, conn conn.Conn) error {
 				panic(err)
 			}
 			if _, err := conn.Write([]byte{byte(len(headerRaw))}); err != nil {
-				return err
+				return errConn{err} 
 			}
 			if _, err := conn.Write(headerRaw); err != nil {
-				return err
+				return errConn{err} 
 			}
 			if _, err := conn.Write(f.Payload); err != nil {
-				return err
+				return errConn{err} 
 			}
 		}
 		if flush {
-			if err:=conn.Flush(); err!=nil { return err }
+			if err:=conn.Flush(); err!=nil { return errConn{err} }
 		}
 	}
 }
@@ -217,11 +218,11 @@ func (r *runner) runRecv(conn conn.Conn) error {
 		// Currently we have 7 varint fields (up to 77B)
 		var headerSize [1]byte
 		if _, err := conn.Read(headerSize[:]); err != nil {
-			return err
+			return errConn{err}
 		}
 		headerRaw := make([]byte, headerSize[0])
 		if _, err := io.ReadFull(conn, headerRaw[:]); err != nil {
-			return err
+			return errConn{err}
 		}
 		var h pb.Header
 		if err := proto.Unmarshal(headerRaw, &h); err != nil {
@@ -229,13 +230,11 @@ func (r *runner) runRecv(conn conn.Conn) error {
 		}
 		id := streamIDFromRemote(h.Id)
 		kind := StreamKind(h.GetKind())
-		fmt.Printf("recv header = %v\n",&h)
 
 		s, err := r.getOrAccept(id, kind)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("recv header (stream) = %v\n",&h)
 		for sInner := range s.inner.Lock() {
 			if sInner.closed.remote {
 				return fmt.Errorf("frame after CLOSE frame")
@@ -284,8 +283,9 @@ func (m *Mux) Run(ctx context.Context, conn conn.Conn) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Close on cancel.
 		s.Spawn(func() error {
-			defer conn.Close()
 			<-ctx.Done()
+			s.Cancel(ctx.Err())
+			conn.Close()
 			return nil
 		})
 
@@ -298,16 +298,17 @@ func (m *Mux) Run(ctx context.Context, conn conn.Conn) error {
 				}
 				sizeRaw := binary.LittleEndian.AppendUint32(nil, uint32(len(handshakeRaw)))
 				if _, err := conn.Write(sizeRaw); err != nil {
-					return err
+					return errConn{err}
 				}
 				if _, err := conn.Write(handshakeRaw); err != nil {
-					return err
+					return errConn{err}
 				}
-				return conn.Flush()
+				if err := conn.Flush(); err!=nil { return errConn{err} }
+				return nil
 			})
 			var sizeRaw [4]byte
 			if _, err := io.ReadFull(conn, sizeRaw[:]); err != nil {
-				return nil, err
+				return nil,errConn{err}
 			}
 			size := binary.LittleEndian.Uint32(sizeRaw[:])
 			if size > handshakeMaxSize {
@@ -315,7 +316,7 @@ func (m *Mux) Run(ctx context.Context, conn conn.Conn) error {
 			}
 			handshakeRaw := make([]byte, size)
 			if _, err := io.ReadFull(conn, handshakeRaw[:]); err != nil {
-				return nil, err
+				return nil, errConn{err}
 			}
 			var handshakeProto pb.Handshake
 			if err := proto.Unmarshal(handshakeRaw, &handshakeProto); err != nil {
