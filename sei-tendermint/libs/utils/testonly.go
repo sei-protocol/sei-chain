@@ -116,7 +116,8 @@ func (rng Rng) Shuffle(n int, swap func(i, j int)) {
 	}
 }
 
-// TestRngSplit returns a new random number splitted from the given one.
+// Split returns a new random number splitted from the given one.
+// It should be used to provide deterministic rngs to independent goroutines.
 // This is a very primitive splitting, known to result with dependent randomness.
 // If that ever causes a problem, we can switch to SplitMix.
 func (rng Rng) Split() Rng {

@@ -2,13 +2,23 @@ package mux
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/tendermint/tendermint/libs/utils"
 )
 
+var errClosed = errors.New("closed")
+
 type Stream struct {
 	state *streamState
 	queue *utils.Watch[queue]
+}
+
+func (s *Stream) maxSendMsgSize() uint64 {
+	for send := range s.state.send.Lock() {
+		return send.maxMsgSize
+	}
+	panic("unreachable")
 }
 
 // open() opens the recv end of the Stream. Permits the peer to send "window" messages, up to maxMsgSize bytes each.
@@ -64,7 +74,7 @@ func (s *Stream) Send(ctx context.Context, msg []byte) error {
 		}
 		for c := range s.state.closed.RLock() {
 			if c.local || (c.remote && send.begin == send.end) {
-				return fmt.Errorf("closed")
+				return errClosed
 			}
 		}
 		// We check msg size AFTER waiting because maxMsgSize could be set AFTER we wait.
@@ -128,7 +138,7 @@ func (s *Stream) Recv(ctx context.Context, freeBuffer bool) ([]byte, error) {
 			return nil, err
 		}
 		if recv.begin == recv.used {
-			return nil, fmt.Errorf("closed")
+			return nil, errClosed
 		}
 		i := recv.begin % uint64(len(recv.msgs))
 		msg := recv.msgs[i]
