@@ -194,7 +194,11 @@ describe("EVM Precompile Tester", function () {
             expect(delegation).to.not.be.null;
             expect(delegation[0][0]).to.equal(10000n);
 
-            const undelegate = await staking.undelegate(validatorAddr, delegation[0][0]);
+            // manually set gas limit to 500_000 because gas estimate for undelegate
+            // is not reliable (cost varies greatly block by block)
+            const undelegate = await staking.undelegate(validatorAddr, delegation[0][0],{
+                gasLimit: 500_000,
+            });
             const undelegateReceipt = await undelegate.wait();
             expect(undelegateReceipt.status).to.equal(1);
 
