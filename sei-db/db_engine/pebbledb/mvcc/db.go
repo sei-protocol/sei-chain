@@ -83,9 +83,20 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	cache := pebble.NewCache(1024 * 1024 * 32)
 	defer cache.Unref()
 
+	// Select comparer based on config. Note: UseDefaultComparer is NOT backwards compatible
+	// with existing databases created with MVCCComparer - Pebble will refuse to open due to
+	// comparer name mismatch. Only use UseDefaultComparer for NEW databases.
+	var comparer *pebble.Comparer
+	if config.UseDefaultComparer {
+		comparer = pebble.DefaultComparer
+	} else {
+		// TODO: Delete once we remove support
+		comparer = MVCCComparer
+	}
+
 	opts := &pebble.Options{
 		Cache:                       cache,
-		Comparer:                    MVCCComparer,
+		Comparer:                    comparer,
 		FormatMajorVersion:          pebble.FormatNewest,
 		L0CompactionThreshold:       2,
 		L0StopWritesThreshold:       1000,

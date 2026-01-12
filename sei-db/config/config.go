@@ -100,6 +100,14 @@ type StateStoreConfig struct {
 	// Whether to keep last version of a key during pruning or delete
 	// defaults to true
 	KeepLastVersion bool `mapstructure:"keep-last-version"`
+
+	// UseDefaultComparer uses Pebble's default lexicographic byte comparer instead of
+	// the custom MVCCComparer. This is NOT backwards compatible with existing databases
+	// that were created with MVCCComparer - only use this for NEW databases.
+	// The MVCC key encoding uses big-endian version bytes, so ordering is compatible,
+	// but existing databases will fail to open due to comparer name mismatch.
+	// defaults to false (use MVCCComparer for backwards compatibility)
+	UseDefaultComparer bool `mapstructure:"use-default-comparer"`
 }
 
 func DefaultStateCommitConfig() StateCommitConfig {

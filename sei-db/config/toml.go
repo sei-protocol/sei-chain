@@ -90,6 +90,13 @@ ss-prune-interval = {{ .StateStore.PruneIntervalSeconds }}
 # ImportNumWorkers defines the concurrency for state sync import
 # defaults to 1
 ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
+
+# UseDefaultComparer uses Pebble's default lexicographic byte comparer instead of
+# the custom MVCCComparer. WARNING: This is NOT backwards compatible with existing
+# databases - only enable this for NEW databases. Existing databases will fail to
+# open with "comparer name mismatch" error.
+# defaults to false
+ss-use-default-comparer = {{ .StateStore.UseDefaultComparer }}
 `
 
 // DefaultConfigTemplate combines both templates for backward compatibility
