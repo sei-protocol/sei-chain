@@ -1213,3 +1213,72 @@ func TestMempoolExpiration(t *testing.T) {
 	require.Equal(t, 0, txmp.expirationIndex.Size())
 	require.Equal(t, 0, txmp.txStore.Size())
 }
+
+// TestReapMaxBytesMaxGas_EVMFirst verifies that ReapMaxBytesMaxGas returns
+// EVM transactions first, followed by non-EVM transactions.
+func TestReapMaxBytesMaxGas_EVMFirst(t *testing.T) {
+	ctx := t.Context()
+
+	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
+	if err := client.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Wait)
+
+	txmp := setup(t, client, 0)
+	peerID := uint16(1)
+
+	evmAddress1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
+	evmAddress2 := "0xfD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
+	evmAddress3 := "0xaD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
+
+	// Set up priorities so that pure priority ordering would interleave EVM and non-EVM:
+	// Priority order: EVM(100), non-EVM(90), EVM(80), non-EVM(70), EVM(60)
+	txsToAdd := [][]byte{
+		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", evmAddress1, 100, 0)), // EVM, priority 100
+		[]byte("sender-1=key1=90"),                                      // non-EVM, priority 90
+		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", evmAddress2, 80, 0)),  // EVM, priority 80
+		[]byte("sender-2=key2=70"),                                      // non-EVM, priority 70
+		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", evmAddress3, 60, 0)),  // EVM, priority 60
+	}
+
+	for _, tx := range txsToAdd {
+		require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: peerID}))
+	}
+
+	require.Equal(t, 5, txmp.Size())
+
+	// Reap all transactions
+	reapedTxs := txmp.ReapMaxBytesMaxGas(-1, -1, -1)
+	require.Len(t, reapedTxs, 5)
+
+	// Verify EVM transactions come first, then non-EVM
+	// Find the boundary between EVM and non-EVM transactions
+	evmCount := 0
+	nonEvmStartIdx := -1
+	for i, tx := range reapedTxs {
+		isEVM := strings.HasPrefix(string(tx), "evm")
+		if isEVM {
+			evmCount++
+			// After we've seen non-EVM, we shouldn't see any more EVM
+			require.Equal(t, -1, nonEvmStartIdx, "EVM transaction found after non-EVM transaction at index %d: %s", i, string(tx))
+		} else {
+			if nonEvmStartIdx == -1 {
+				nonEvmStartIdx = i
+			}
+		}
+	}
+
+	// We should have exactly 3 EVM transactions first, then 2 non-EVM
+	require.Equal(t, 3, evmCount, "Expected 3 EVM transactions")
+	require.Equal(t, 3, nonEvmStartIdx, "Expected non-EVM transactions to start at index 3")
+
+	// Verify the first 3 transactions are EVM
+	require.True(t, strings.HasPrefix(string(reapedTxs[0]), "evm"), "First tx should be EVM: %s", string(reapedTxs[0]))
+	require.True(t, strings.HasPrefix(string(reapedTxs[1]), "evm"), "Second tx should be EVM: %s", string(reapedTxs[1]))
+	require.True(t, strings.HasPrefix(string(reapedTxs[2]), "evm"), "Third tx should be EVM: %s", string(reapedTxs[2]))
+
+	// Verify the last 2 transactions are non-EVM
+	require.True(t, strings.HasPrefix(string(reapedTxs[3]), "sender"), "Fourth tx should be non-EVM: %s", string(reapedTxs[3]))
+	require.True(t, strings.HasPrefix(string(reapedTxs[4]), "sender"), "Fifth tx should be non-EVM: %s", string(reapedTxs[4]))
+}
