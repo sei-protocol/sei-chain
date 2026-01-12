@@ -19,7 +19,7 @@ type ReadOnly struct{}
 
 // isReadOnly returns true if t embeds ReadOnly.
 func isReadOnly(t reflect.Type) bool {
-	want := reflect.TypeOf(ReadOnly{})
+	want := reflect.TypeFor[ReadOnly]()
 	if t.Kind() != reflect.Struct {
 		return false
 	}
@@ -85,6 +85,13 @@ func (rng Rng) Read(p []byte) (int, error) {
 func (rng Rng) Int63() int64 {
 	for inner := range rng.inner.Lock() {
 		return inner.Int63()
+	}
+	panic("unreachable")
+}
+
+func (rng Rng) Uint64() uint64 {
+	for inner := range rng.inner.Lock() {
+		return inner.Uint64()
 	}
 	panic("unreachable")
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/tendermint/tendermint/libs/utils"
 )
 
+var errRemoteClosed = errors.New("remote closed")
 var errClosed = errors.New("closed")
 
 type Stream struct {
@@ -68,8 +69,11 @@ func (s *Stream) Send(ctx context.Context, msg []byte) error {
 		}); err != nil {
 			return err
 		}
-		if inner.closed.local || inner.send.begin == inner.send.end {
+		if inner.closed.local {
 			return errClosed
+		}
+		if inner.send.begin == inner.send.end {
+			return errRemoteClosed
 		}
 		// We check msg size AFTER waiting because maxMsgSize could be set AFTER we wait.
 		if uint64(len(msg)) > inner.send.maxMsgSize {
@@ -128,7 +132,7 @@ func (s *Stream) Recv(ctx context.Context, freeBuffer bool) ([]byte, error) {
 			return nil, err
 		}
 		if inner.recv.begin == inner.recv.used {
-			return nil, errClosed
+			return nil, errRemoteClosed
 		}
 		i := inner.recv.begin % uint64(len(inner.recv.msgs))
 		msg := inner.recv.msgs[i]

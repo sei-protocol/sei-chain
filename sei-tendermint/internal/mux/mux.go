@@ -12,6 +12,7 @@ package mux
 
 import (
 	"context"
+	"errors"
 	"encoding/binary"
 	"fmt"
 	"github.com/tendermint/tendermint/internal/mux/pb"
@@ -25,6 +26,7 @@ import (
 
 const handshakeMaxSize = 10 * 1024 // 10kB
 
+var errUnknownKind = errors.New("unknown kind")
 type errConn struct { error }
 
 type Config struct {
@@ -422,7 +424,7 @@ func NewMux(cfg *Config) *Mux {
 func (m *Mux) Connect(ctx context.Context, kind StreamKind, maxMsgSize uint64, window uint64) (*Stream, error) {
 	ks, ok := m.kinds[kind]
 	if !ok {
-		return nil, fmt.Errorf("kind %v not available", kind)
+		return nil, fmt.Errorf("%w %v", errUnknownKind, kind)
 	}
 	state, err := utils.Recv(ctx, ks.connectsQueue)
 	if err != nil {
@@ -441,7 +443,7 @@ func (m *Mux) Connect(ctx context.Context, kind StreamKind, maxMsgSize uint64, w
 func (m *Mux) Accept(ctx context.Context, kind StreamKind, maxMsgSize uint64, window uint64) (*Stream, error) {
 	ks, ok := m.kinds[kind]
 	if !ok {
-		return nil, fmt.Errorf("kind %v not available", kind)
+		return nil, fmt.Errorf("%w %v", errUnknownKind, kind)
 	}
 	state, err := utils.Recv(ctx, ks.acceptsQueue)
 	if err != nil {
