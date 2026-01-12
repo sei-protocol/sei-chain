@@ -717,10 +717,11 @@ func (db *DB) rewriteIfApplicable(height int64) {
 	snapshotVersion := db.SnapshotVersion()
 	blocksSinceLastSnapshot := height - snapshotVersion
 
-	// Create snapshot when both conditions are met:
+	// Create snapshot when all conditions are met:
 	// 1. Block height interval is reached (height - last snapshot >= interval)
 	// 2. Minimum time interval has elapsed (prevents excessive snapshots during catch-up)
-	if blocksSinceLastSnapshot >= int64(db.snapshotInterval) {
+	// 3. Block height % snapshot interval == 0
+	if blocksSinceLastSnapshot >= int64(db.snapshotInterval) && height%int64(db.snapshotInterval) == 0 {
 		timeSinceLastSnapshot := time.Since(db.lastSnapshotTime)
 
 		if timeSinceLastSnapshot < db.snapshotMinTimeInterval {
