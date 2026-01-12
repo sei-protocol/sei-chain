@@ -19,6 +19,22 @@ var (
 	big27 = big.NewInt(27)
 )
 
+// AdjustV adjusts the V value from a raw signature for pubkey recovery.
+// For non-legacy transactions, V is bumped by 27.
+// For legacy transactions, V is adjusted based on chainID per EIP-155.
+// This function is used by both the EVM ante handler and the Giga executor.
+func AdjustV(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
+	// Non-legacy TX always needs to be bumped by 27
+	if txType != ethtypes.LegacyTxType {
+		return new(big.Int).Add(V, big27)
+	}
+
+	// Legacy TX needs to be adjusted based on chainID
+	// V = V - 2*chainID - 8
+	adjusted := new(big.Int).Sub(V, new(big.Int).Mul(chainID, big2))
+	return adjusted.Sub(adjusted, big8)
+}
+
 func GetAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
 	pubkey, err := RecoverPubkey(data, R, S, V, true)
 	if err != nil {
@@ -91,23 +107,9 @@ func RecoverSenderFromTx(ethTx *ethtypes.Transaction, chainID *big.Int) (common.
 	// Get raw signature values
 	V, R, S := ethTx.RawSignatureValues()
 
-	// Adjust V for recovery - must match x/evm/ante/preprocess.go:AdjustV
-	adjustedV := adjustVForRecovery(V, ethTx.Type(), chainID)
+	// Adjust V for recovery using the shared AdjustV function
+	adjustedV := AdjustV(V, ethTx.Type(), chainID)
 
 	// Recover addresses using the shared GetAddresses function
 	return GetAddresses(adjustedV, R, S, txHash)
-}
-
-// adjustVForRecovery adjusts the V value from raw signature for pubkey recovery.
-// This mirrors the logic in x/evm/ante/preprocess.go:AdjustV exactly.
-func adjustVForRecovery(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
-	// Non-legacy TX always needs to be bumped by 27
-	if txType != ethtypes.LegacyTxType {
-		return new(big.Int).Add(V, big27)
-	}
-
-	// Legacy TX needs to be adjusted based on chainID
-	// V = V - 2*chainID - 8
-	adjusted := new(big.Int).Sub(V, new(big.Int).Mul(chainID, big2))
-	return adjusted.Sub(adjusted, big8)
 }

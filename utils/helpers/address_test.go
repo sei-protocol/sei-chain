@@ -456,7 +456,7 @@ func TestRecoverSenderFromTx_MatchesPreprocessLogic(t *testing.T) {
 	require.Equal(t, pubkey1.Bytes(), pubkey2.Bytes(), "Pubkeys should match between methods")
 }
 
-func TestAdjustVForRecovery(t *testing.T) {
+func TestAdjustV(t *testing.T) {
 	chainID := big.NewInt(713715)
 
 	tests := []struct {
@@ -501,7 +501,7 @@ func TestAdjustVForRecovery(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := adjustVForRecovery(tt.inputV, tt.txType, chainID)
+			result := AdjustV(tt.inputV, tt.txType, chainID)
 			require.Equal(t, tt.expected, result, "adjusted V should match expected")
 		})
 	}

@@ -174,7 +174,7 @@ func PreprocessUnpacked(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTrans
 	var txHash common.Hash
 	V, R, S := ethTx.RawSignatureValues()
 	if ethTx.Protected() {
-		V = AdjustV(V, ethTx.Type(), ethCfg.ChainID)
+		V = helpers.AdjustV(V, ethTx.Type(), ethCfg.ChainID)
 		txHash = signer.Hash(ethTx)
 	} else {
 		if isBlockTest {
@@ -206,17 +206,6 @@ func IsTxTypeAllowed(version derived.SignerVersion, txType uint8) bool {
 		}
 	}
 	return false
-}
-
-func AdjustV(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
-	// Non-legacy TX always needs to be bumped by 27
-	if txType != ethtypes.LegacyTxType {
-		return new(big.Int).Add(V, utils.Big27)
-	}
-
-	// legacy TX needs to be adjusted based on chainID
-	V = new(big.Int).Sub(V, new(big.Int).Mul(chainID, utils.Big2))
-	return V.Sub(V, utils.Big8)
 }
 
 func GetVersion(ctx sdk.Context, ethCfg *params.ChainConfig) derived.SignerVersion {

@@ -251,7 +251,7 @@ func CheckAndDecodeSignature(ctx sdk.Context, txData ethtx.TxData, chainID *big.
 	var txHash common.Hash
 	V, R, S := ethTx.RawSignatureValues()
 	if ethTx.Protected() {
-		V = evmante.AdjustV(V, ethTx.Type(), ethCfg.ChainID)
+		V = helpers.AdjustV(V, ethTx.Type(), ethCfg.ChainID)
 		txHash = signer.Hash(ethTx)
 	} else {
 		if isBlockTest {
