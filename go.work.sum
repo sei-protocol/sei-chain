@@ -181,6 +181,8 @@ github.com/russross/blackfriday v1.5.2 h1:HyvC0ARfnZBqnXwABFeSZHpKvJHJJfPz81GNue
 github.com/sagikazarmark/crypt v0.3.0/go.mod h1:uD/D+6UF4SrIR1uGEv7bBNkNqLGqUr43MRiaGWX1Nig=
 github.com/sei-protocol/go-ethereum v1.15.7-sei-12 h1:3Wj5nU7X0+mKcDho6mwf0leVytQWmNEq6xFv9Wr+HOs=
 github.com/sei-protocol/go-ethereum v1.15.7-sei-12/go.mod h1:+S9k+jFzlyVTNcYGvqFhzN/SFhI6vA+aOY4T5tLSPL0=
+github.com/sei-protocol/go-ethereum v1.15.7-sei-14 h1:yJ272fLard1CqL3YvDEB3MFpp9zJ37j3ky4ojqq7NL0=
+github.com/sei-protocol/go-ethereum v1.15.7-sei-14/go.mod h1:+S9k+jFzlyVTNcYGvqFhzN/SFhI6vA+aOY4T5tLSPL0=
 github.com/shirou/gopsutil/v3 v3.22.9/go.mod h1:bBYl1kjgEJpWpxeHmLI+dVHWtyAwfcmSBLDsp2TNT8A=
 github.com/spf13/afero v1.10.0/go.mod h1:UBogFpq8E9Hx+xc5CNTTEpTnuHVmXDwZcZcE1eb/UhQ=
 github.com/spf13/cobra v1.3.0/go.mod h1:BrRVncBjOJa/eUcVVm9CE+oC6as8k+VYr4NY7WCi9V4=
