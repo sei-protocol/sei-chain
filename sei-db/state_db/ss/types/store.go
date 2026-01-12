@@ -20,7 +20,6 @@ type StateStore interface {
 	SetEarliestVersion(version int64, ignoreVersion bool) error
 	GetLatestMigratedKey() ([]byte, error)
 	GetLatestMigratedModule() (string, error)
-	WriteBlockRangeHash(storeKey string, beginBlockRange, endBlockRange int64, hash []byte) error
 
 	// ApplyChangesetSync Persist all changeset of a block and bump the latest version
 	// the version should be latest version plus one.
