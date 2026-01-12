@@ -130,5 +130,6 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		PruneIntervalSeconds: DefaultSSPruneInterval,
 		ImportNumWorkers:     DefaultSSImportWorkers,
 		KeepLastVersion:      true,
+		UseDefaultComparer:   false, // TODO: flip to true once MVCCComparer is deprecated
 	}
 }
