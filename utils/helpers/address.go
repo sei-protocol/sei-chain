@@ -13,6 +13,28 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
+var (
+	big2  = big.NewInt(2)
+	big8  = big.NewInt(8)
+	big27 = big.NewInt(27)
+)
+
+// AdjustV adjusts the V value from a raw signature for pubkey recovery.
+// For non-legacy transactions, V is bumped by 27.
+// For legacy transactions, V is adjusted based on chainID per EIP-155.
+// This function is used by both the EVM ante handler and the Giga executor.
+func AdjustV(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
+	// Non-legacy TX always needs to be bumped by 27
+	if txType != ethtypes.LegacyTxType {
+		return new(big.Int).Add(V, big27)
+	}
+
+	// Legacy TX needs to be adjusted based on chainID
+	// V = V - 2*chainID - 8
+	adjusted := new(big.Int).Sub(V, new(big.Int).Mul(chainID, big2))
+	return adjusted.Sub(adjusted, big8)
+}
+
 func GetAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
 	pubkey, err := RecoverPubkey(data, R, S, V, true)
 	if err != nil {
@@ -65,4 +87,22 @@ func PubkeyToEVMAddress(pub []byte) (common.Address, error) {
 func PubkeyBytesToSeiPubKey(pub []byte) secp256k1.PubKey {
 	pubkeyObj, _ := btcec.ParsePubKey(pub)
 	return secp256k1.PubKey{Key: pubkeyObj.SerializeCompressed()}
+}
+
+// RecoverAddressesFromTx recovers the sender's EVM address, Sei address, and public key
+// from a signed PROTECTED Ethereum transaction using the provided signer.
+// This is the core recovery function used by both the EVM ante handler and Giga executor.
+//
+// IMPORTANT: This function calls AdjustV internally, which is only correct for protected
+// (EIP-155) transactions. For unprotected legacy transactions (blocktest only), use
+// GetAddresses directly with the raw V value.
+//
+// The caller must provide the appropriate signer for the context. Use evmante.SignerMap[version](chainID)
+// where version is determined by evmante.GetVersion(ctx, ethCfg) to ensure consistent behavior
+// with the EVM ante handler.
+func RecoverAddressesFromTx(ethTx *ethtypes.Transaction, signer ethtypes.Signer, chainID *big.Int) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
+	txHash := signer.Hash(ethTx)
+	V, R, S := ethTx.RawSignatureValues()
+	adjustedV := AdjustV(V, ethTx.Type(), chainID)
+	return GetAddresses(adjustedV, R, S, txHash)
 }
