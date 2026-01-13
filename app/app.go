@@ -102,7 +102,12 @@ import (
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+<<<<<<< HEAD
 	gigaexecutor "github.com/sei-protocol/sei-chain/giga/executor"
+=======
+	gigaevmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
+	gigaevmstate "github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
+>>>>>>> 10ae35030 ([giga] fork x/evm)
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	"github.com/sei-protocol/sei-chain/precompiles"
@@ -134,7 +139,6 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
-	evmstate "github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/mint"
 	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
@@ -342,6 +346,7 @@ type App struct {
 	WasmKeeper       wasm.Keeper
 	OracleKeeper     oraclekeeper.Keeper
 	EvmKeeper        evmkeeper.Keeper
+	GigaEvmKeeper    gigaevmkeeper.Keeper
 
 	// make scoped keepers public for test purposes
 	ScopedIBCKeeper      capabilitykeeper.ScopedKeeper
@@ -672,13 +677,17 @@ func New(
 		app.EvmKeeper.EthClient = ethclient.NewClient(rpcclient)
 	}
 
+	app.GigaEvmKeeper = *gigaevmkeeper.NewKeeper(keys[evmtypes.StoreKey],
+		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
+		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
+		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.UpgradeKeeper)
 	// Read Giga Executor config
 	gigaExecutorConfig, err := gigaconfig.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading giga executor config due to %s", err))
 	}
-	app.EvmKeeper.GigaExecutorEnabled = gigaExecutorConfig.Enabled
-	app.EvmKeeper.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
+	app.GigaEvmKeeper.GigaExecutorEnabled = gigaExecutorConfig.Enabled
+	app.GigaEvmKeeper.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
 	if gigaExecutorConfig.Enabled {
 		evmoneVM, err := gigalib.InitEvmoneVM()
 		if err != nil {
@@ -1636,7 +1645,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 		return nil, fmt.Errorf("failed to convert to eth transaction")
 	}
 
-	chainID := app.EvmKeeper.ChainID(ctx)
+	chainID := app.GigaEvmKeeper.ChainID(ctx)
 
 	// Recover sender using the same logic as preprocess.go (version-based signer selection)
 	sender, seiAddr, pubkey, recoverErr := evmante.RecoverSenderFromEthTx(ctx, ethTx, chainID)
@@ -1648,8 +1657,8 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	}
 
 	// Associate the address if not already associated (same as EVMPreprocessDecorator)
-	if _, isAssociated := app.EvmKeeper.GetEVMAddress(ctx, seiAddr); !isAssociated {
-		associateHelper := helpers.NewAssociationHelper(&app.EvmKeeper, app.BankKeeper, &app.AccountKeeper)
+	if _, isAssociated := app.GigaEvmKeeper.GetEVMAddress(ctx, seiAddr); !isAssociated {
+		associateHelper := helpers.NewAssociationHelper(&app.GigaEvmKeeper, app.BankKeeper, &app.AccountKeeper)
 		if err := associateHelper.AssociateAddresses(ctx, seiAddr, sender, pubkey); err != nil {
 			return &abci.ExecTxResult{
 				Code: 1,
@@ -1663,17 +1672,17 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	ctx = ctx.WithTxIndex(txIndex)
 
 	// Create state DB for this transaction
-	stateDB := evmstate.NewDBImpl(ctx, &app.EvmKeeper, false)
+	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)
 	defer stateDB.Cleanup()
 
 	// Get EVM message from the transaction using recovered sender
-	evmMsg := app.EvmKeeper.GetEVMMessage(ctx, ethTx, sender)
+	evmMsg := app.GigaEvmKeeper.GetEVMMessage(ctx, ethTx, sender)
 
 	// Get gas pool
-	gp := app.EvmKeeper.GetGasPool()
+	gp := app.GigaEvmKeeper.GetGasPool()
 
 	// Get block context
-	blockCtx, blockCtxErr := app.EvmKeeper.GetVMBlockContext(ctx, gp)
+	blockCtx, blockCtxErr := app.GigaEvmKeeper.GetVMBlockContext(ctx, gp)
 	if blockCtxErr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
