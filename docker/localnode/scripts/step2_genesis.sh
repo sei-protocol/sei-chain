@@ -21,6 +21,8 @@ override_genesis '.app_state["slashing"]["params"]["signed_blocks_window"]="1000
 override_genesis '.app_state["slashing"]["params"]["min_signed_per_window"]="0.050000000000000000"'
 override_genesis '.app_state["staking"]["params"]["max_validators"]="50"'
 override_genesis '.consensus_params["block"]["max_gas"]="35000000"'
+# Set MaxGasWanted to be 2x of MaxGas, similar to mainnet, in order to avoid false-positive gas related issue reports. 
+override_genesis '.consensus_params["block"]["max_gas_wanted"]="70000000"'
 override_genesis '.app_state["staking"]["params"]["unbonding_time"]="10s"'
 
 # Set a token release schedule for the genesis file

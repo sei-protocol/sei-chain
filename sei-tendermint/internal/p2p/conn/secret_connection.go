@@ -201,6 +201,9 @@ func (sc *SecretConnection) flush(sendState *sendState) error {
 	// I'm not surre whether this optimization is needed though.
 	var sealedFrame [frameSize + aeadOverhead]byte
 	_, err := sc.conn.Write(sendState.cipher.Seal(sealedFrame[:0], nonce[:], sendState.frame[:], nil))
+	// Zeroize the the frame to avoid resending data from the previous frame.
+	// Security-wise it doesn't make any difference, it is here just to avoid people raising concerns.
+	clear(sendState.frame)
 	sendState.data = sendState.frame[dataSizeLen:dataSizeLen]
 	return err
 }
