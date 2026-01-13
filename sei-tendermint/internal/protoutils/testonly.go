@@ -2,8 +2,8 @@ package protoutils
 
 import (
 	"fmt"
-	"google.golang.org/protobuf/proto"
 	"github.com/tendermint/tendermint/libs/utils"
+	"google.golang.org/protobuf/proto"
 )
 
 // Test tests whether reencoding a value is an identity operation.

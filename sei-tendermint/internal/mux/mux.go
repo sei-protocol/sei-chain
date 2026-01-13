@@ -8,12 +8,25 @@
 //
 // Each mux stream has its own Kind number. Kind numbers are supposed to identify the stream-level communication
 // protocol (for example, if you implement an RPC server on top of this multiplexer, each RPC will have its own Kind number).
+//
+// # LOW LEVEL PROTOCOL
+//
+// Multiplexer traffic consists of frames. Frame looks as follows:
+// [header size (1B)] [header] [payload]
+// Header is a binary protobuf message with size up to 255B (because size is sent as a single byte).
+// This message is intentionally flat with a small number of fields (see mux.proto), so that it is encoded efficiently.
+// In particular header contains PayloadSize field which indicates the size of the payload of the frame which is sent after the header.
+// There are multiple frame types:
+// * OPEN (opens a stream)
+// * RESIZE (extends the window of the stream, allowing peer to send more messages)
+// * MSG (actual payload of the stream)
+// * CLOSE (closes the stream - this is the last frame of the stream)
 package mux
 
 import (
 	"context"
-	"errors"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"github.com/tendermint/tendermint/internal/mux/pb"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
@@ -32,7 +45,8 @@ var errFrameAfterClose = errors.New("received frame after CLOSE frame")
 var errTooManyMsgs = errors.New("too many messages")
 var errTooLargeMsg = errors.New("message too large")
 var errUnknownKind = errors.New("unknown kind")
-type errConn struct { error }
+
+type errConn struct{ error }
 
 type Config struct {
 	// Maximal number of bytes in a frame (excluding header).
@@ -113,20 +127,20 @@ func newRunner(mux *Mux) *runner {
 // If the stream does not exist yet, it tries to create it as an accept (inbound) stream.
 // In that case the inbound stream limit for the given kind is checked.
 func (r *runner) getOrAccept(id streamID, kind StreamKind) (*streamState, error) {
-	fmt.Printf("getOrAccept(%v)\n",id)
+	fmt.Printf("getOrAccept(%v)\n", id)
 	for inner := range r.inner.RLock() {
 		s, ok := inner.streams[id]
 		if ok {
 			return s, nil
-		}	
+		}
 	}
 	for inner := range r.inner.Lock() {
-		fmt.Printf("accepting stream %v\n",id)
+		fmt.Printf("accepting stream %v\n", id)
 		if id.isConnect() {
-			return nil, errUnknownStream 
+			return nil, errUnknownStream
 		}
 		if inner.acceptsSem[kind] == 0 {
-			return nil, errTooManyAccepts 
+			return nil, errTooManyAccepts
 		}
 		inner.acceptsSem[kind] -= 1
 		s := newStreamState(id, kind)
@@ -160,7 +174,7 @@ func (r *runner) tryPrune(id streamID) {
 		delete(inner.streams, id)
 		// Free the stream capacity.
 		if id.isConnect() {
-			r.mux.kinds[s.kind].connectsQueue <- inner.newConnectStream(s.kind) 
+			r.mux.kinds[s.kind].connectsQueue <- inner.newConnectStream(s.kind)
 		} else {
 			inner.acceptsSem[s.kind] += 1
 		}
@@ -207,17 +221,19 @@ func (r *runner) runSend(ctx context.Context, conn conn.Conn) error {
 				panic(err)
 			}
 			if _, err := conn.Write([]byte{byte(len(headerRaw))}); err != nil {
-				return errConn{err} 
+				return errConn{err}
 			}
 			if _, err := conn.Write(headerRaw); err != nil {
-				return errConn{err} 
+				return errConn{err}
 			}
 			if _, err := conn.Write(f.Payload); err != nil {
-				return errConn{err} 
+				return errConn{err}
 			}
 		}
 		if flush {
-			if err:=conn.Flush(); err!=nil { return errConn{err} }
+			if err := conn.Flush(); err != nil {
+				return errConn{err}
+			}
 		}
 	}
 }
@@ -247,13 +263,13 @@ func (r *runner) runRecv(conn conn.Conn) error {
 			return err
 		}
 		for sInner := range s.inner.Lock() {
-			fmt.Printf("sInner.closed.remote[%v] = %v, %v\n", s.id, sInner.closed.remote,&h)
+			fmt.Printf("sInner.closed.remote[%v] = %v, %v\n", s.id, sInner.closed.remote, &h)
 			if sInner.closed.remote {
-				return errFrameAfterClose 
+				return errFrameAfterClose
 			}
 		}
 		// Process the frame content in order: OPEN, RESIZE, MSG, CLOSE
-		if h.Kind!=nil {
+		if h.Kind != nil {
 			if err := s.RemoteOpen(h.GetMaxMsgSize()); err != nil {
 				return err
 			}
@@ -262,7 +278,7 @@ func (r *runner) runRecv(conn conn.Conn) error {
 			}
 		}
 		if we := h.GetWindowEnd(); we > 0 {
-			s.RemoteWindowEnd(we)	
+			s.RemoteWindowEnd(we)
 		}
 		if ps := h.GetPayloadSize(); ps > 0 {
 			if err := s.RemotePayloadSize(ps); err != nil {
@@ -315,12 +331,14 @@ func (m *Mux) Run(ctx context.Context, conn conn.Conn) error {
 				if _, err := conn.Write(handshakeRaw); err != nil {
 					return errConn{err}
 				}
-				if err := conn.Flush(); err!=nil { return errConn{err} }
+				if err := conn.Flush(); err != nil {
+					return errConn{err}
+				}
 				return nil
 			})
 			var sizeRaw [4]byte
 			if _, err := io.ReadFull(conn, sizeRaw[:]); err != nil {
-				return nil,errConn{err}
+				return nil, errConn{err}
 			}
 			size := binary.LittleEndian.Uint32(sizeRaw[:])
 			if size > handshakeMaxSize {
@@ -344,11 +362,13 @@ func (m *Mux) Run(ctx context.Context, conn conn.Conn) error {
 		r := newRunner(m)
 		for inner := range r.inner.Lock() {
 			for kind, cfg := range m.cfg.Kinds {
-				remCfg,ok := handshake.Kinds[kind]
-				if !ok { remCfg = &StreamKindConfig{} } 
+				remCfg, ok := handshake.Kinds[kind]
+				if !ok {
+					remCfg = &StreamKindConfig{}
+				}
 				inner.acceptsSem[kind] = min(cfg.MaxAccepts, remCfg.MaxConnects)
 				for range min(cfg.MaxConnects, remCfg.MaxAccepts) {
-					m.kinds[kind].connectsQueue <- inner.newConnectStream(kind) 
+					m.kinds[kind].connectsQueue <- inner.newConnectStream(kind)
 				}
 			}
 		}

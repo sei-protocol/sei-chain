@@ -38,22 +38,22 @@ type recvState struct {
 }
 
 type streamStateInner struct {
-	send sendState
-	recv recvState
+	send   sendState
+	recv   recvState
 	closed closeState
 }
 
 type streamState struct {
-	id     streamID
-	kind   StreamKind
-	inner  utils.Watch[*streamStateInner]
+	id    streamID
+	kind  StreamKind
+	inner utils.Watch[*streamStateInner]
 }
 
 func newStreamState(id streamID, kind StreamKind) *streamState {
 	return &streamState{
-		id:     id,
-		kind:   kind,
-		inner:  utils.NewWatch(&streamStateInner{}),
+		id:    id,
+		kind:  kind,
+		inner: utils.NewWatch(&streamStateInner{}),
 	}
 }
 

@@ -27,7 +27,7 @@ func (s *Stream) maxSendMsgSize() uint64 {
 // Whenever you call Recv, you specify whether window should grow (i.e. whether to report that the messages
 // have been consumed and he can send more).
 func (s *Stream) open(ctx context.Context, maxMsgSize uint64, window uint64) error {
-	for inner,ctrl := range s.state.inner.Lock() {
+	for inner, ctrl := range s.state.inner.Lock() {
 		if inner.recv.opened {
 			return fmt.Errorf("already opened")
 		}
