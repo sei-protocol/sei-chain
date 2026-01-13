@@ -2,11 +2,11 @@ name: Go
 
 on:
   workflow_call:
-  pull_request:
   push:
     branches:
       - main
       - release/**
+  pull_request:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}

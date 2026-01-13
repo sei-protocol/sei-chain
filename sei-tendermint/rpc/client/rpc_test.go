@@ -16,7 +16,7 @@ import (
 
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto/encoding"
+	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/mempool"
 	rpccore "github.com/tendermint/tendermint/internal/rpc/core"
 	tmjson "github.com/tendermint/tendermint/libs/json"
@@ -557,7 +557,7 @@ func TestClientMethodCalls(t *testing.T) {
 					err = abci.ReadMessage(bytes.NewReader(qres.Value), &v)
 					require.NoError(t, err, "Error reading query result, value %v", qres.Value)
 
-					pk, err := encoding.PubKeyFromProto(v.PubKey)
+					pk, err := crypto.PubKeyFromProto(v.PubKey)
 					require.NoError(t, err)
 
 					require.Equal(t, pv.Key.PubKey, pk, "Stored PubKey not equal with expected, value %v", string(qres.Value))

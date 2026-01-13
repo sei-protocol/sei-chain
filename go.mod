@@ -52,6 +52,7 @@ require (
 	github.com/tidwall/gjson v1.10.2
 	github.com/tidwall/wal v1.1.7
 	github.com/zbiljic/go-filelock v0.0.0-20170914061330-1dbf7103ab7d
+	github.com/zeebo/blake3 v0.2.4
 	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/exporters/prometheus v0.60.0
 	go.opentelemetry.io/otel/metric v1.38.0
@@ -99,6 +100,7 @@ require (
 	github.com/alingse/asasalint v0.0.11 // indirect
 	github.com/ashanbrown/forbidigo v1.3.0 // indirect
 	github.com/ashanbrown/makezero v1.1.1 // indirect
+	github.com/benbjohnson/clock v1.3.0 // indirect
 	github.com/benbjohnson/immutable v0.4.3 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bgentry/speakeasy v0.1.0 // indirect
@@ -226,6 +228,7 @@ require (
 	github.com/kisielk/gotool v1.0.0 // indirect
 	github.com/kkHAIKE/contextcheck v1.1.3 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/kulti/thelper v0.6.3 // indirect
@@ -352,7 +355,7 @@ replace (
 	github.com/btcsuite/btcd => github.com/btcsuite/btcd v0.23.2
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
 	github.com/cosmos/cosmos-sdk => ./sei-cosmos
-	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.15.7-sei-7.0.20250929182230-93350978bb7c
+	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.15.7-sei-14
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	// Latest goleveldb is broken, we have to stick to this version
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
