@@ -171,10 +171,11 @@ require (
 )
 
 replace (
+	github.com/sei-protocol/sei-chain => ..
 	github.com/99designs/keyring => github.com/cosmos/keyring v1.1.7-0.20210622111912-ef00f8ac3d76
 	github.com/btcsuite/btcd => github.com/btcsuite/btcd v0.23.2
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum 15c12348b2d041884ba573ac617175dab2f7d9e1
+	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum 2094021b5e3760fd9521fe9bd9fc84c0ef86792c
 	// Fix upstream GHSA-h395-qcrw-5vmq vulnerability.
 	// TODO Remove it: https://github.com/cosmos/cosmos-sdk/issues/10409
 	github.com/gin-gonic/gin => github.com/gin-gonic/gin v1.7.0

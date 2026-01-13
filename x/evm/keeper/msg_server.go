@@ -242,7 +242,7 @@ func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *sta
 	if err != nil {
 		return nil, err
 	}
-	sstore := k.GetParams(ctx).SeiSstoreSetGasEip2200
+	sstore := k.GetSstoreSetGasEIP2200(ctx)
 	cfg := types.DefaultChainConfig().EthereumConfigWithSstore(k.ChainID(ctx), &sstore)
 	txCtx := core.NewEVMTxContext(msg)
 

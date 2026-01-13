@@ -4,28 +4,28 @@ package tests
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
-	"log"
+	"net"
 	"testing"
 
 	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/internal/libs/async"
-	sc "github.com/tendermint/tendermint/internal/p2p/conn"
+	"github.com/tendermint/tendermint/internal/p2p/conn"
+	"github.com/tendermint/tendermint/libs/utils/require"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
 func FuzzP2PSecretConnection(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data []byte) {
-		fuzz(data)
-	})
+	f.Fuzz(fuzz)
 }
 
-func fuzz(data []byte) {
+func fuzz(t *testing.T, data []byte) {
 	if len(data) == 0 {
 		return
 	}
 
-	fooConn, barConn := makeSecretConnPair()
+	fooConn, barConn := makeSecretConnPair(t)
 
 	// Run Write in a separate goroutine because if data is greater than 1024
 	// bytes, each Write must be followed by Read (see io.Pipe documentation).
@@ -40,6 +40,9 @@ func fuzz(data []byte) {
 		}
 		if n < len(data) {
 			panic(fmt.Sprintf("wanted to write %d bytes, but %d was written", len(data), n))
+		}
+		if err := fooConn.Flush(); err != nil {
+			panic(err)
 		}
 	}()
 
@@ -61,13 +64,17 @@ func fuzz(data []byte) {
 }
 
 type kvstoreConn struct {
-	*io.PipeReader
-	*io.PipeWriter
+	net.Conn
+	reader *io.PipeReader
+	writer *io.PipeWriter
 }
 
+func (drw kvstoreConn) Read(data []byte) (n int, err error)  { return drw.reader.Read(data) }
+func (drw kvstoreConn) Write(data []byte) (n int, err error) { return drw.writer.Write(data) }
+
 func (drw kvstoreConn) Close() (err error) {
-	err2 := drw.PipeWriter.CloseWithError(io.EOF)
-	err1 := drw.PipeReader.Close()
+	err2 := drw.writer.CloseWithError(io.EOF)
+	err1 := drw.reader.Close()
 	if err2 != nil {
 		return err
 	}
@@ -78,58 +85,33 @@ func (drw kvstoreConn) Close() (err error) {
 func makeKVStoreConnPair() (fooConn, barConn kvstoreConn) {
 	barReader, fooWriter := io.Pipe()
 	fooReader, barWriter := io.Pipe()
-	return kvstoreConn{fooReader, fooWriter}, kvstoreConn{barReader, barWriter}
+	return kvstoreConn{reader: fooReader, writer: fooWriter}, kvstoreConn{reader: barReader, writer: barWriter}
 }
 
-func makeSecretConnPair() (fooSecConn, barSecConn *sc.SecretConnection) {
-	var (
-		fooConn, barConn = makeKVStoreConnPair()
-		fooPrvKey        = ed25519.GenerateSecretKey()
-		fooPubKey        = fooPrvKey.Public()
-		barPrvKey        = ed25519.GenerateSecretKey()
-		barPubKey        = barPrvKey.Public()
-	)
+func makeSecretConnPair(tb testing.TB) (sc1 *conn.SecretConnection, sc2 *conn.SecretConnection) {
+	ctx := tb.Context()
+	c1, c2 := makeKVStoreConnPair()
+	k1 := ed25519.GenerateSecretKey()
+	k2 := ed25519.GenerateSecretKey()
 
 	// Make connections from both sides in parallel.
-	var trs, ok = async.Parallel(
-		func(_ int) (val any, abort bool, err error) {
-			fooSecConn, err = sc.MakeSecretConnection(fooConn, fooPrvKey)
-			if err != nil {
-				log.Printf("failed to establish SecretConnection for foo: %v", err)
-				return nil, true, err
-			}
-			remotePubBytes := fooSecConn.RemotePubKey()
-			if remotePubBytes != barPubKey {
-				err = fmt.Errorf("unexpected fooSecConn.RemotePubKey.  Expected %v, got %v",
-					barPubKey, fooSecConn.RemotePubKey())
-				log.Print(err)
-				return nil, true, err
-			}
-			return nil, false, nil
-		},
-		func(_ int) (val any, abort bool, err error) {
-			barSecConn, err = sc.MakeSecretConnection(barConn, barPrvKey)
-			if barSecConn == nil {
-				log.Printf("failed to establish SecretConnection for bar: %v", err)
-				return nil, true, err
-			}
-			remotePubBytes := barSecConn.RemotePubKey()
-			if remotePubBytes != fooPubKey {
-				err = fmt.Errorf("unexpected barSecConn.RemotePubKey.  Expected %v, got %v",
-					fooPubKey, barSecConn.RemotePubKey())
-				log.Print(err)
-				return nil, true, err
-			}
-			return nil, false, nil
-		},
-	)
-
-	if trs.FirstError() != nil {
-		log.Fatalf("unexpected error: %v", trs.FirstError())
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error {
+			var err error
+			sc1, err = conn.MakeSecretConnection(ctx, c1, k1)
+			return err
+		})
+		s.Spawn(func() error {
+			var err error
+			sc2, err = conn.MakeSecretConnection(ctx, c2, k2)
+			return err
+		})
+		return nil
+	})
+	if err != nil {
+		tb.Fatal(err)
 	}
-	if !ok {
-		log.Fatal("Unexpected task abortion")
-	}
-
-	return fooSecConn, barSecConn
+	require.Equal(tb, k1.Public(), sc2.RemotePubKey())
+	require.Equal(tb, k2.Public(), sc1.RemotePubKey())
+	return sc1, sc2
 }

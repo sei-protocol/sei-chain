@@ -3,7 +3,7 @@ package pebbledb
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/tools/hash_verification/hasher"
 	"github.com/sei-protocol/sei-chain/tools/utils"
 )
@@ -13,10 +13,9 @@ type HashScanner struct {
 	latestVersion  int64
 	blocksInterval int64
 	hashResult     map[string][][]byte
-	backfill       bool
 }
 
-func NewHashScanner(db types.StateStore, blocksInterval int64, backfill bool) *HashScanner {
+func NewHashScanner(db types.StateStore, blocksInterval int64) *HashScanner {
 	latestVersion := db.GetLatestVersion()
 	fmt.Printf("Detected Pebbledb latest version: %d\n", latestVersion)
 	return &HashScanner{
@@ -24,7 +23,6 @@ func NewHashScanner(db types.StateStore, blocksInterval int64, backfill bool) *H
 		latestVersion:  latestVersion,
 		blocksInterval: blocksInterval,
 		hashResult:     make(map[string][][]byte),
-		backfill:       backfill,
 	}
 }
 
@@ -37,13 +35,6 @@ func (s *HashScanner) ScanAllModules() {
 			endBlockRange := s.blocksInterval * (int64(i) + 1)
 
 			fmt.Printf("Module %s block range %d-%d hash is: %X\n", moduleName, beginBlockRange, endBlockRange, hashResult)
-
-			// Write the block range hash to the database only if backfill is enabled
-			if s.backfill {
-				if err := s.db.WriteBlockRangeHash(moduleName, beginBlockRange, endBlockRange, hashResult); err != nil {
-					panic(fmt.Errorf("failed to write block range hash: %w", err))
-				}
-			}
 		}
 	}
 }
