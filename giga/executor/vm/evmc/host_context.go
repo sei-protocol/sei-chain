@@ -156,7 +156,7 @@ func (h *HostContext) Execute(kind evmc.CallKind, recipient evmc.Address, sender
 		return nil, 0, 0, evmc.Address{}, err
 	}
 
-	// For Create/Create2, calculate the created address
+	// todo(pdrobnjak): calculate/propagate created address
 	var createAddr evmc.Address
 	if kind == evmc.Create || kind == evmc.Create2 {
 		// The created address should be set in the execution result
