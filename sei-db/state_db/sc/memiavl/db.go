@@ -207,15 +207,6 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 	// Even in read-only mode we may need WAL replay to reconstruct non-snapshot versions.
 	var walHandler wal.GenericWAL[proto.ChangelogEntry]
 	changelogDir := utils.GetChangelogPath(opts.Dir)
-	if st, err := os.Stat(changelogDir); err == nil && !st.IsDir() {
-		return nil, fmt.Errorf("changelog path exists but is not a directory: %s", changelogDir)
-	} else if err != nil && os.IsNotExist(err) {
-		// Create empty WAL directory if missing. This preserves the invariant that db.GetWAL() is non-nil.
-		// In read-only mode this is still safe: we won't write entries unless Commit() is called (which is disallowed).
-		if err := os.MkdirAll(changelogDir, 0o755); err != nil {
-			return nil, fmt.Errorf("failed to create changelog directory: %w", err)
-		}
-	}
 
 	writeBuf := 0
 	if !opts.ReadOnly {
