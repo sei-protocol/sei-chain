@@ -17,7 +17,7 @@ message Handshake {
 // Flat small message, representing a unit of multiplexer information.
 // The frames for the same id can be sent merged,
 // since they have disjoint field sets.
-// 
+//
 // OPEN = id,kind,max_msg_size
 // RESIZE = id,window_end
 // MSG = id,payload_size,[msg_end]
@@ -31,4 +31,4 @@ message Header {
   optional uint64 payload_size = 5; // 11B
   optional bool msg_end = 6; // 2B
   optional bool close = 7; // 2B
-}  
+}
