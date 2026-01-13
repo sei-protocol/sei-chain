@@ -5,6 +5,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 )
 
+var _ vm.IEVMInterpreter = (*EVMInterpreter)(nil)
+
 // EVMInterpreter is a custom interpreter that delegates execution to evmone via EVMC.
 type EVMInterpreter struct {
 	hostContext *HostContext
