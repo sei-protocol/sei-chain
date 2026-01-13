@@ -8,7 +8,6 @@ import (
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/libs/log"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	"github.com/tendermint/tendermint/libs/utils"
@@ -48,7 +47,7 @@ func TestGetPubKey(t *testing.T) {
 			} else {
 				pk, err := tc.pv.GetPubKey(ctx)
 				require.NoError(t, err)
-				require.Equal(t, resp.PubKey, encoding.PubKeyToProto(pk))
+				require.Equal(t, resp.PubKey, crypto.PubKeyToProto(pk))
 			}
 		})
 	}

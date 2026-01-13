@@ -2,6 +2,7 @@ package conn
 
 import (
 	"bytes"
+	"context"
 	"crypto/cipher"
 	crand "crypto/rand"
 	"crypto/sha256"
@@ -11,32 +12,32 @@ import (
 	"io"
 	"math"
 	"net"
-	"sync"
-	"time"
 
 	gogotypes "github.com/gogo/protobuf/types"
-	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/oasisprotocol/curve25519-voi/primitives/merlin"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/nacl/box"
 
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/internal/libs/async"
+	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/crypto"
-	tmp2p "github.com/tendermint/tendermint/proto/tendermint/p2p"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	pb "github.com/tendermint/tendermint/proto/tendermint/p2p"
 )
+
+var errDH = errors.New("DH handshake failed")
+var errAuth = errors.New("authentication failed")
+var errAEAD = errors.New("decoding failed")
 
 // 4 + 1024 == 1028 total frame size
 const (
-	dataLenSize      = 4
-	dataMaxSize      = 1024
-	totalFrameSize   = dataMaxSize + dataLenSize
-	aeadSizeOverhead = 16 // overhead of poly 1305 authentication tag
-	aeadKeySize      = chacha20poly1305.KeySize
-	aeadNonceSize    = chacha20poly1305.NonceSize
+	dataSizeLen   = 4
+	dataSizeMax   = 1024
+	frameSize     = dataSizeLen + dataSizeMax
+	aeadOverhead  = chacha20poly1305.Overhead
+	aeadNonceSize = chacha20poly1305.NonceSize
 
 	labelEphemeralLowerPublicKey = "EPHEMERAL_LOWER_PUBLIC_KEY"
 	labelEphemeralUpperPublicKey = "EPHEMERAL_UPPER_PUBLIC_KEY"
@@ -44,13 +45,39 @@ const (
 	labelSecretConnectionMac     = "SECRET_CONNECTION_MAC"
 )
 
-var (
-	ErrSmallOrderRemotePubKey = errors.New("detected low order point from remote peer")
+var secretConnKeyAndChallengeGen = []byte("TENDERMINT_SECRET_CONNECTION_KEY_AND_CHALLENGE_GEN")
 
-	secretConnKeyAndChallengeGen = []byte("TENDERMINT_SECRET_CONNECTION_KEY_AND_CHALLENGE_GEN")
-)
+type sendState struct {
+	cipher cipher.AEAD
+	frame  []byte
+	data   []byte
+	nonce  uint64
+}
 
-// SecretConnection implements net.Conn.
+type recvState struct {
+	cipher cipher.AEAD
+	frame  []byte
+	data   []byte
+	nonce  uint64
+}
+
+func newSendState(cipher cipher.AEAD) *sendState {
+	frame := make([]byte, frameSize)
+	return &sendState{
+		cipher: cipher,
+		frame:  frame,
+		data:   frame[dataSizeLen:dataSizeLen],
+	}
+}
+
+func newRecvState(cipher cipher.AEAD) *recvState {
+	return &recvState{
+		cipher: cipher,
+		frame:  make([]byte, frameSize),
+	}
+}
+
+// SecretConnection implements Conn.
 // It is an implementation of the STS protocol.
 // See https://github.com/tendermint/tendermint/blob/0.1/docs/sts-final.pdf for
 // details on the protocol.
@@ -60,27 +87,36 @@ var (
 // Otherwise they are vulnerable to MITM.
 // (TODO(ismail): see also https://github.com/tendermint/tendermint/issues/3010)
 type SecretConnection struct {
+	conn      net.Conn
+	challenge [32]byte
+	recvState utils.Mutex[*recvState]
+	sendState utils.Mutex[*sendState]
+	remPubKey crypto.PubKey
+}
 
-	// immutable
-	recvAead cipher.AEAD
-	sendAead cipher.AEAD
+func newSecretConnection(conn net.Conn, loc ephSecret, rem ephPublic) *SecretConnection {
+	pubs := utils.Slice(loc.public, rem)
+	if bytes.Compare(pubs[0][:], pubs[1][:]) > 0 {
+		pubs[0], pubs[1] = pubs[1], pubs[0]
+	}
+	transcript := merlin.NewTranscript("TENDERMINT_SECRET_CONNECTION_TRANSCRIPT_HASH")
+	transcript.AppendMessage(labelEphemeralLowerPublicKey, pubs[0][:])
+	transcript.AppendMessage(labelEphemeralUpperPublicKey, pubs[1][:])
+	dh := loc.DhSecret(rem)
+	transcript.AppendMessage(labelDHSecret, dh[:])
+	var challenge [32]byte
+	transcript.ExtractBytes(challenge[:], labelSecretConnectionMac)
 
-	remPubKey ed25519.PublicKey
-	conn      io.ReadWriteCloser
-
-	// net.Conn must be thread safe:
-	// https://golang.org/pkg/net/#Conn.
-	// Since we have internal mutable state,
-	// we need mtxs. But recv and send states
-	// are independent, so we can use two mtxs.
-	// All .Read are covered by recvMtx,
-	// all .Write are covered by sendMtx.
-	recvMtx    sync.Mutex
-	recvBuffer []byte
-	recvNonce  *[aeadNonceSize]byte
-
-	sendMtx   sync.Mutex
-	sendNonce *[aeadNonceSize]byte
+	// Generate the secret used for receiving, sending, challenge via HKDF-SHA2
+	// on the transcript state (which itself also uses HKDF-SHA2 to derive a key
+	// from the dhSecret).
+	aead := dh.AeadSecrets(loc.public == pubs[0])
+	return &SecretConnection{
+		conn:      conn,
+		challenge: challenge,
+		recvState: utils.NewMutex(newRecvState(aead.recv.Cipher())),
+		sendState: utils.NewMutex(newSendState(aead.send.Cipher())),
+	}
 }
 
 // MakeSecretConnection performs handshake and returns a new authenticated
@@ -88,354 +124,222 @@ type SecretConnection struct {
 // Returns nil if there is an error in handshake.
 // Caller should call conn.Close()
 // See docs/sts-final.pdf for more information.
-func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey ed25519.SecretKey) (*SecretConnection, error) {
-	locPubKey := locPrivKey.Public()
-
-	// Generate ephemeral keys for perfect forward secrecy.
-	locEphPub, locEphPriv := genEphKeys()
+func MakeSecretConnection(ctx context.Context, conn net.Conn, locPrivKey crypto.PrivKey) (*SecretConnection, error) {
+	// Generate ephemeral key for perfect forward secrecy.
+	loc := genEphKey()
 
 	// Write local ephemeral pubkey and receive one too.
 	// NOTE: every 32-byte string is accepted as a Curve25519 public key (see
 	// DJB's Curve25519 paper: http://cr.yp.to/ecdh/curve25519-20060209.pdf)
-	remEphPub, err := shareEphPubKey(conn, locEphPub)
+	rem, err := shareEphPubKey(ctx, conn, loc.public)
 	if err != nil {
 		return nil, err
 	}
+	sc := newSecretConnection(conn, loc, rem)
 
-	// Sort by lexical order.
-	loEphPub, hiEphPub := sort32(locEphPub, remEphPub)
-
-	transcript := merlin.NewTranscript("TENDERMINT_SECRET_CONNECTION_TRANSCRIPT_HASH")
-
-	transcript.AppendMessage(labelEphemeralLowerPublicKey, loEphPub[:])
-	transcript.AppendMessage(labelEphemeralUpperPublicKey, hiEphPub[:])
-
-	// Check if the local ephemeral public key was the least, lexicographically
-	// sorted.
-	locIsLeast := bytes.Equal(locEphPub[:], loEphPub[:])
-
-	// Compute common diffie hellman secret using X25519.
-	dhSecret, err := computeDHSecret(remEphPub, locEphPriv)
-	if err != nil {
-		return nil, err
-	}
-
-	transcript.AppendMessage(labelDHSecret, dhSecret[:])
-
-	// Generate the secret used for receiving, sending, challenge via HKDF-SHA2
-	// on the transcript state (which itself also uses HKDF-SHA2 to derive a key
-	// from the dhSecret).
-	recvSecret, sendSecret := deriveSecrets(dhSecret, locIsLeast)
-
-	const challengeSize = 32
-	var challenge [challengeSize]byte
-	transcript.ExtractBytes(challenge[:], labelSecretConnectionMac)
-
-	sendAead, err := chacha20poly1305.New(sendSecret[:])
-	if err != nil {
-		return nil, errors.New("invalid send SecretConnection Key")
-	}
-	recvAead, err := chacha20poly1305.New(recvSecret[:])
-	if err != nil {
-		return nil, errors.New("invalid receive SecretConnection Key")
-	}
-
-	sc := &SecretConnection{
-		conn:       conn,
-		recvBuffer: nil,
-		recvNonce:  new([aeadNonceSize]byte),
-		sendNonce:  new([aeadNonceSize]byte),
-		recvAead:   recvAead,
-		sendAead:   sendAead,
-	}
-
-	// Sign the challenge bytes for authentication.
-	locSignature := signChallenge(&challenge, locPrivKey)
-
-	// Share (in secret) each other's pubkey & challenge signature
-	authSigMsg, err := shareAuthSignature(sc, locPubKey, locSignature)
-	if err != nil {
-		return nil, err
-	}
-
-	remPubKey, remSignature := authSigMsg.Key, authSigMsg.Sig
-
-	if err := remPubKey.Verify(challenge[:], remSignature); err != nil {
-		return nil, fmt.Errorf("challenge verification failed: %w", err)
-	}
-
-	// We've authorized.
-	sc.remPubKey = remPubKey
-	return sc, nil
-}
-
-// RemotePubKey returns authenticated remote pubkey
-func (sc *SecretConnection) RemotePubKey() ed25519.PublicKey {
-	return sc.remPubKey
-}
-
-// Writes encrypted frames of `totalFrameSize + aeadSizeOverhead`.
-// CONTRACT: data smaller than dataMaxSize is written atomically.
-func (sc *SecretConnection) Write(data []byte) (n int, err error) {
-	sc.sendMtx.Lock()
-	defer sc.sendMtx.Unlock()
-
-	for 0 < len(data) {
-		if err := func() error {
-			var sealedFrame = pool.Get(aeadSizeOverhead + totalFrameSize)
-			var frame = pool.Get(totalFrameSize)
-			defer func() {
-				pool.Put(sealedFrame)
-				pool.Put(frame)
-			}()
-			var chunk []byte
-			if dataMaxSize < len(data) {
-				chunk = data[:dataMaxSize]
-				data = data[dataMaxSize:]
-			} else {
-				chunk = data
-				data = nil
-			}
-			chunkLength := len(chunk)
-			binary.LittleEndian.PutUint32(frame, uint32(chunkLength))
-			copy(frame[dataLenSize:], chunk)
-
-			// encrypt the frame
-			sc.sendAead.Seal(sealedFrame[:0], sc.sendNonce[:], frame, nil)
-			incrNonce(sc.sendNonce)
-			// end encryption
-
-			_, err = sc.conn.Write(sealedFrame)
+	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*SecretConnection, error) {
+		// Share (in secret) each other's pubkey & challenge signature
+		s.Spawn(func() error {
+			loc := &authSigMessage{locPrivKey.Public(), locPrivKey.Sign(sc.challenge[:])}
+			_, err := protoio.NewDelimitedWriter(sc).WriteMsg(authSigMessageConv.Encode(loc))
 			if err != nil {
 				return err
 			}
-			n += len(chunk)
-			return nil
-		}(); err != nil {
-			return n, err
+			return sc.Flush()
+		})
+		var pba pb.AuthSigMessage
+		if _, err := protoio.NewDelimitedReader(sc, 1024*1024).ReadMsg(&pba); err != nil {
+			return nil, fmt.Errorf("%w: %v", errAuth, err)
+		}
+		rem, err := authSigMessageConv.Decode(&pba)
+		if err != nil {
+			return nil, fmt.Errorf("%w: authSigMessageFromProto(): %v", errAuth, err)
+		}
+		if err := rem.Key.Verify(sc.challenge[:], rem.Sig); err != nil {
+			return nil, fmt.Errorf("%w: %v", errAuth, err)
+		}
+		sc.remPubKey = rem.Key
+		return sc, nil
+	})
+}
+
+// RemotePubKey returns authenticated remote pubkey
+func (sc *SecretConnection) RemotePubKey() crypto.PubKey { return sc.remPubKey }
+
+// Writes encrypted frames of `totalFrameSize + aeadSizeOverhead`.
+func (sc *SecretConnection) Write(data []byte) (int, error) {
+	for sendState := range sc.sendState.Lock() {
+		n := 0
+		for {
+			chunk := min(len(data), cap(sendState.data)-len(sendState.data))
+			sendState.data = append(sendState.data, data[:chunk]...)
+			n += chunk
+			data = data[chunk:]
+			if len(data) == 0 {
+				return n, nil
+			}
+			if err := sc.flush(sendState); err != nil {
+				return n, err
+			}
 		}
 	}
-	return n, err
+	panic("unreachable")
 }
 
-// CONTRACT: data smaller than dataMaxSize is read atomically.
-func (sc *SecretConnection) Read(data []byte) (n int, err error) {
-	sc.recvMtx.Lock()
-	defer sc.recvMtx.Unlock()
-
-	// read off and update the recvBuffer, if non-empty
-	if 0 < len(sc.recvBuffer) {
-		n = copy(data, sc.recvBuffer)
-		sc.recvBuffer = sc.recvBuffer[n:]
-		return
+func (sc *SecretConnection) flush(sendState *sendState) error {
+	if len(sendState.data) == 0 {
+		return nil
 	}
-
-	// read off the conn
-	var sealedFrame = pool.Get(aeadSizeOverhead + totalFrameSize)
-	defer pool.Put(sealedFrame)
-	_, err = io.ReadFull(sc.conn, sealedFrame)
-	if err != nil {
-		return
+	binary.LittleEndian.PutUint32(sendState.frame, uint32(len(sendState.data)))
+	if sendState.nonce == math.MaxUint64 {
+		return fmt.Errorf("nonce overflow")
 	}
-
-	// decrypt the frame.
-	// reads and updates the sc.recvNonce
-	var frame = pool.Get(totalFrameSize)
-	defer pool.Put(frame)
-	_, err = sc.recvAead.Open(frame[:0], sc.recvNonce[:], sealedFrame, nil)
-	if err != nil {
-		return n, fmt.Errorf("failed to decrypt SecretConnection: %w", err)
-	}
-	incrNonce(sc.recvNonce)
-	// end decryption
-
-	// copy checkLength worth into data,
-	// set recvBuffer to the rest.
-	var chunkLength = binary.LittleEndian.Uint32(frame) // read the first four bytes
-	if chunkLength > dataMaxSize {
-		return 0, errors.New("chunkLength is greater than dataMaxSize")
-	}
-	var chunk = frame[dataLenSize : dataLenSize+chunkLength]
-	n = copy(data, chunk)
-	if n < len(chunk) {
-		sc.recvBuffer = make([]byte, len(chunk)-n)
-		copy(sc.recvBuffer, chunk[n:])
-	}
-	return n, err
+	var nonce [aeadNonceSize]byte
+	binary.LittleEndian.PutUint64(nonce[4:], sendState.nonce)
+	sendState.nonce += 1
+	// We use a predeclared stack-allocated buffer, to prevent Seal from doing heap allocation.
+	// I'm not surre whether this optimization is needed though.
+	var sealedFrame [frameSize + aeadOverhead]byte
+	_, err := sc.conn.Write(sendState.cipher.Seal(sealedFrame[:0], nonce[:], sendState.frame[:], nil))
+	// Zeroize the the frame to avoid resending data from the previous frame.
+	// Security-wise it doesn't make any difference, it is here just to avoid people raising concerns.
+	clear(sendState.frame)
+	sendState.data = sendState.frame[dataSizeLen:dataSizeLen]
+	return err
 }
 
-// Implements net.Conn
-func (sc *SecretConnection) Close() error                  { return sc.conn.Close() }
-func (sc *SecretConnection) LocalAddr() net.Addr           { return sc.conn.(net.Conn).LocalAddr() }
-func (sc *SecretConnection) RemoteAddr() net.Addr          { return sc.conn.(net.Conn).RemoteAddr() }
-func (sc *SecretConnection) SetDeadline(t time.Time) error { return sc.conn.(net.Conn).SetDeadline(t) }
-func (sc *SecretConnection) SetReadDeadline(t time.Time) error {
-	return sc.conn.(net.Conn).SetReadDeadline(t)
-}
-func (sc *SecretConnection) SetWriteDeadline(t time.Time) error {
-	return sc.conn.(net.Conn).SetWriteDeadline(t)
+func (sc *SecretConnection) Read(data []byte) (int, error) {
+	if len(data) == 0 {
+		return 0, nil
+	}
+	for recvState := range sc.recvState.Lock() {
+		for len(recvState.data) == 0 {
+			var sealedFrame [frameSize + aeadOverhead]byte
+			if _, err := io.ReadFull(sc.conn, sealedFrame[:]); err != nil {
+				return 0, err
+			}
+			if recvState.nonce == math.MaxUint64 {
+				return 0, fmt.Errorf("nonce overflow")
+			}
+			var nonce [aeadNonceSize]byte
+			binary.LittleEndian.PutUint64(nonce[4:], recvState.nonce)
+			recvState.nonce += 1
+			if _, err := recvState.cipher.Open(recvState.frame[:0], nonce[:], sealedFrame[:], nil); err != nil {
+				return 0, fmt.Errorf("%w: %v", errAEAD, err)
+			}
+			dataSize := binary.LittleEndian.Uint32(recvState.frame)
+			if dataSize > dataSizeMax {
+				return 0, errors.New("dataSize is greater than dataSizeMax")
+			}
+			recvState.data = recvState.frame[dataSizeLen : dataSizeLen+dataSize]
+		}
+		n := copy(data, recvState.data)
+		recvState.data = recvState.data[n:]
+		return n, nil
+	}
+	panic("unreachable")
 }
 
-func genEphKeys() (ephPub, ephPriv *[32]byte) {
-	var err error
+// Implements Conn
+func (sc *SecretConnection) Flush() error {
+	for sendState := range sc.sendState.Lock() {
+		return sc.flush(sendState)
+	}
+	panic("unreachable")
+}
+
+func (sc *SecretConnection) Close() error { return sc.conn.Close() }
+
+type ephPublic [32]byte
+
+type ephSecret struct {
+	secret [32]byte
+	public ephPublic
+}
+
+func genEphKey() ephSecret {
 	// TODO: Probably not a problem but ask Tony: different from the rust implementation (uses x25519-dalek),
 	// we do not "clamp" the private key scalar:
 	// see: https://github.com/dalek-cryptography/x25519-dalek/blob/34676d336049df2bba763cc076a75e47ae1f170f/src/x25519.rs#L56-L74
-	ephPub, ephPriv, err = box.GenerateKey(crand.Reader)
+	public, secret, err := box.GenerateKey(crand.Reader)
 	if err != nil {
-		panic("Could not generate ephemeral key-pair")
+		panic(fmt.Errorf("Could not generate ephemeral key-pair: %w", err))
 	}
-	return
+	return ephSecret{
+		secret: *secret,
+		public: *public,
+	}
 }
 
-func shareEphPubKey(conn io.ReadWriter, locEphPub *[32]byte) (remEphPub *[32]byte, err error) {
-
-	// Send our pubkey and receive theirs in tandem.
-	var trs, _ = async.Parallel(
-		func(_ int) (val any, abort bool, err error) {
-			lc := *locEphPub
-			_, err = protoio.NewDelimitedWriter(conn).WriteMsg(&gogotypes.BytesValue{Value: lc[:]})
-			if err != nil {
-				return nil, true, err // abort
-			}
-			return nil, false, nil
-		},
-		func(_ int) (val any, abort bool, err error) {
-			var bytes gogotypes.BytesValue
-			_, err = protoio.NewDelimitedReader(conn, 1024*1024).ReadMsg(&bytes)
-			if err != nil {
-				return nil, true, err // abort
-			}
-
-			var _remEphPub [32]byte
-			copy(_remEphPub[:], bytes.Value)
-			return _remEphPub, false, nil
-		},
-	)
-
-	// If error:
-	if trs.FirstError() != nil {
-		err = trs.FirstError()
-		return
-	}
-
-	// Otherwise:
-	var _remEphPub = trs.FirstValue().([32]byte)
-	return &_remEphPub, nil
+func shareEphPubKey(ctx context.Context, conn io.ReadWriter, locEphPub ephPublic) (ephPublic, error) {
+	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (ephPublic, error) {
+		s.Spawn(func() error {
+			_, err := protoio.NewDelimitedWriter(conn).WriteMsg(&gogotypes.BytesValue{Value: locEphPub[:]})
+			return err
+		})
+		var bytes gogotypes.BytesValue
+		if _, err := protoio.NewDelimitedReader(conn, 1024*1024).ReadMsg(&bytes); err != nil {
+			return ephPublic{}, fmt.Errorf("%w: %v", errDH, err)
+		}
+		if len(bytes.Value) != len(ephPublic{}) {
+			return ephPublic{}, fmt.Errorf("%w: bad ephemeral key size", errDH)
+		}
+		return ephPublic(bytes.Value), nil
+	})
 }
 
-func deriveSecrets(
-	dhSecret *[32]byte,
-	locIsLeast bool,
-) (recvSecret, sendSecret *[aeadKeySize]byte) {
-	hash := sha256.New
-	hkdf := hkdf.New(hash, dhSecret[:], nil, secretConnKeyAndChallengeGen)
-	// get enough data for 2 aead keys, and a 32 byte challenge
-	res := new([2*aeadKeySize + 32]byte)
-	_, err := io.ReadFull(hkdf, res[:])
-	if err != nil {
-		panic(err)
-	}
+type dhSecret [32]byte
+type aeadSecret [chacha20poly1305.KeySize]byte
 
-	recvSecret = new([aeadKeySize]byte)
-	sendSecret = new([aeadKeySize]byte)
+type aeadSecrets struct {
+	send aeadSecret
+	recv aeadSecret
+}
 
-	// bytes 0 through aeadKeySize - 1 are one aead key.
-	// bytes aeadKeySize through 2*aeadKeySize -1 are another aead key.
-	// which key corresponds to sending and receiving key depends on whether
-	// the local key is less than the remote key.
+func (s aeadSecret) Cipher() cipher.AEAD {
+	// Never returns an error on input of correct size.
+	return utils.OrPanic1(chacha20poly1305.New(s[:]))
+}
+
+func (s dhSecret) AeadSecrets(locIsLeast bool) aeadSecrets {
+	hkdf := hkdf.New(sha256.New, s[:], nil, secretConnKeyAndChallengeGen)
+	aead := aeadSecrets{}
+	// hkdf reader never returns an error.
+	utils.OrPanic1(io.ReadFull(hkdf, aead.send[:]))
+	utils.OrPanic1(io.ReadFull(hkdf, aead.recv[:]))
 	if locIsLeast {
-		copy(recvSecret[:], res[0:aeadKeySize])
-		copy(sendSecret[:], res[aeadKeySize:aeadKeySize*2])
-	} else {
-		copy(sendSecret[:], res[0:aeadKeySize])
-		copy(recvSecret[:], res[aeadKeySize:aeadKeySize*2])
+		aead.send, aead.recv = aead.recv, aead.send
 	}
-
-	return
+	return aead
 }
 
 // computeDHSecret computes a Diffie-Hellman shared secret key
 // from our own local private key and the other's public key.
-func computeDHSecret(remPubKey, locPrivKey *[32]byte) (*[32]byte, error) {
-	shrKey, err := curve25519.X25519(locPrivKey[:], remPubKey[:])
-	if err != nil {
-		return nil, err
-	}
-	var shrKeyArray [32]byte
-	copy(shrKeyArray[:], shrKey)
-	return &shrKeyArray, nil
-}
-
-func sort32(foo, bar *[32]byte) (lo, hi *[32]byte) {
-	if bytes.Compare(foo[:], bar[:]) < 0 {
-		lo = foo
-		hi = bar
-	} else {
-		lo = bar
-		hi = foo
-	}
-	return
-}
-
-func signChallenge(challenge *[32]byte, locPrivKey ed25519.SecretKey) ed25519.Signature {
-	return locPrivKey.Sign(challenge[:])
+func (s ephSecret) DhSecret(remPubKey ephPublic) dhSecret {
+	return dhSecret(utils.OrPanic1(curve25519.X25519(s.secret[:], remPubKey[:])))
 }
 
 type authSigMessage struct {
-	Key ed25519.PublicKey
-	Sig ed25519.Signature
+	Key crypto.PubKey
+	Sig crypto.Sig
 }
 
-func shareAuthSignature(sc io.ReadWriter, pubKey ed25519.PublicKey, sig ed25519.Signature) (authSigMessage, error) {
-	// Send our info and receive theirs in tandem.
-	var trs, _ = async.Parallel(
-		func(_ int) (val any, abort bool, err error) {
-			pk := tmproto.PublicKey{Sum: &tmproto.PublicKey_Ed25519{Ed25519: pubKey.Bytes()}}
-			if _, err := protoio.NewDelimitedWriter(sc).WriteMsg(&tmp2p.AuthSigMessage{PubKey: pk, Sig: sig.Bytes()}); err != nil {
-				return nil, true, err
-			}
-			return nil, false, nil
-		},
-		func(_ int) (val any, abort bool, err error) {
-			var pba tmp2p.AuthSigMessage
-			if _, err := protoio.NewDelimitedReader(sc, 1024*1024).ReadMsg(&pba); err != nil {
-				return nil, true, err
-			}
-			key, err := ed25519.PublicKeyFromBytes(pba.PubKey.GetEd25519())
-			if err != nil {
-				return nil, true, fmt.Errorf("ed25519.PublicKeyFromBytes(): %w", err)
-			}
-			sig, err := ed25519.SignatureFromBytes(pba.Sig)
-			if err != nil {
-				return nil, true, fmt.Errorf("ed25519.SignatureFromBytes(): %w", err)
-			}
-			return authSigMessage{Key: key, Sig: sig}, false, nil
-		},
-	)
-
-	// If error:
-	if trs.FirstError() != nil {
-		return authSigMessage{}, trs.FirstError()
-	}
-
-	var _recvMsg = trs.FirstValue().(authSigMessage)
-	return _recvMsg, nil
-}
-
-//--------------------------------------------------------------------------------
-
-// Increment nonce little-endian by 1 with wraparound.
-// Due to chacha20poly1305 expecting a 12 byte nonce we do not use the first four
-// bytes. We only increment a 64 bit unsigned int in the remaining 8 bytes
-// (little-endian in nonce[4:]).
-func incrNonce(nonce *[aeadNonceSize]byte) {
-	counter := binary.LittleEndian.Uint64(nonce[4:])
-	if counter == math.MaxUint64 {
-		// Terminates the session and makes sure the nonce would not re-used.
-		// See https://github.com/tendermint/tendermint/issues/3531
-		panic("can't increase nonce without overflow")
-	}
-	counter++
-	binary.LittleEndian.PutUint64(nonce[4:], counter)
+var authSigMessageConv = utils.ProtoConv[*authSigMessage, *pb.AuthSigMessage]{
+	Encode: func(m *authSigMessage) *pb.AuthSigMessage {
+		return &pb.AuthSigMessage{
+			PubKey: crypto.PubKeyConv.Encode(m.Key),
+			Sig:    m.Sig.Bytes(),
+		}
+	},
+	Decode: func(p *pb.AuthSigMessage) (*authSigMessage, error) {
+		key, err := crypto.PubKeyConv.DecodeReq(p.PubKey)
+		if err != nil {
+			return nil, fmt.Errorf("PubKey: %w", err)
+		}
+		sig, err := crypto.SigFromBytes(p.Sig)
+		if err != nil {
+			return nil, fmt.Errorf("Sig: %w", err)
+		}
+		return &authSigMessage{key, sig}, nil
+	},
 }
