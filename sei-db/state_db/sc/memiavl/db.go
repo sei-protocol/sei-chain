@@ -212,21 +212,11 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 	if !opts.ReadOnly {
 		writeBuf = opts.AsyncCommitBuffer
 	}
-	w, err := wal.NewWAL(
-		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
-		func(data []byte) (proto.ChangelogEntry, error) {
-			var e proto.ChangelogEntry
-			err := e.Unmarshal(data)
-			return e, err
-		},
-		logger,
-		changelogDir,
-		wal.Config{
-			DisableFsync:    true,
-			ZeroCopy:        true,
-			WriteBufferSize: writeBuf,
-		},
-	)
+	w, err := wal.NewChangelogWAL(logger, changelogDir, wal.Config{
+		DisableFsync:    true,
+		ZeroCopy:        true,
+		WriteBufferSize: writeBuf,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open changelog WAL: %w", err)
 	}

@@ -42,17 +42,7 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 	}
 
 	logDir := filepath.Join(dbDir, "changelog")
-	stream, err := wal.NewWAL(
-		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
-		func(data []byte) (proto.ChangelogEntry, error) {
-			var e proto.ChangelogEntry
-			err := e.Unmarshal(data)
-			return e, err
-		},
-		logger.NewNopLogger(),
-		logDir,
-		wal.Config{},
-	)
+	stream, err := wal.NewChangelogWAL(logger.NewNopLogger(), logDir, wal.Config{})
 	if err != nil {
 		panic(err)
 	}

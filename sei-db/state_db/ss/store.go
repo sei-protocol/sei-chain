@@ -61,17 +61,7 @@ func NewStateStore(logger logger.Logger, homeDir string, ssConfig config.StateSt
 func RecoverStateStore(logger logger.Logger, changelogPath string, stateStore types.StateStore) error {
 	ssLatestVersion := stateStore.GetLatestVersion()
 	logger.Info(fmt.Sprintf("Recovering from changelog %s with latest SS version %d", changelogPath, ssLatestVersion))
-	streamHandler, err := wal.NewWAL(
-		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
-		func(data []byte) (proto.ChangelogEntry, error) {
-			var e proto.ChangelogEntry
-			err := e.Unmarshal(data)
-			return e, err
-		},
-		logger,
-		changelogPath,
-		wal.Config{},
-	)
+	streamHandler, err := wal.NewChangelogWAL(logger, changelogPath, wal.Config{})
 	if err != nil {
 		return err
 	}

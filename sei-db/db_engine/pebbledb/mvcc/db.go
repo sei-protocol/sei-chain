@@ -66,7 +66,7 @@ type Database struct {
 	storeKeyDirty sync.Map
 
 	// Changelog used to support async write
-	streamHandler *wal.WAL[proto.ChangelogEntry]
+	streamHandler wal.ChangelogWAL
 
 	// Pending changes to be written to the DB
 	pendingChanges chan VersionedChangesets
@@ -151,22 +151,12 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		_ = db.Close()
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
-	streamHandler, err := wal.NewWAL(
-		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
-		func(data []byte) (proto.ChangelogEntry, error) {
-			var e proto.ChangelogEntry
-			err := e.Unmarshal(data)
-			return e, err
-		},
-		logger.NewNopLogger(),
-		utils.GetChangelogPath(dataDir),
-		wal.Config{
-			DisableFsync:  true,
-			ZeroCopy:      true,
-			KeepRecent:    uint64(config.KeepRecent),
-			PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
-		},
-	)
+	streamHandler, err := wal.NewChangelogWAL(logger.NewNopLogger(), utils.GetChangelogPath(dataDir), wal.Config{
+		DisableFsync:  true,
+		ZeroCopy:      true,
+		KeepRecent:    uint64(config.KeepRecent),
+		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
+	})
 	if err != nil {
 		panic(err)
 	}
