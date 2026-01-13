@@ -582,6 +582,47 @@ func TestRlogIndexConversion(t *testing.T) {
 	}
 }
 
+// Regression test: on a fresh DB (version 0), the initial snapshot can contain 0 trees,
+// but WAL replay may already contain changesets for initial store names. OpenDB must
+// ensure InitialStores are applied before replay, otherwise replay will fail with
+// "unknown tree name" (or panic via nil tree).
+func TestOpenDB_ReplayWithEmptySnapshotUsesInitialStores(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create WAL entry that references a store name, but has no upgrades.
+	// This simulates a WAL that only has changesets (e.g. initial upgrades were not
+	// written due to refactor/order changes), while snapshot is still empty.
+	w := createTestWAL(t, dir)
+	defer func() { _ = w.Close() }()
+
+	require.NoError(t, w.Write(proto.ChangelogEntry{
+		Version: 1,
+		Changesets: []*proto.NamedChangeSet{
+			{
+				Name: "test",
+				Changeset: iavl.ChangeSet{
+					Pairs: []*iavl.KVPair{{Key: []byte("k"), Value: []byte("v")}},
+				},
+			},
+		},
+		Upgrades: nil,
+	}))
+
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:             dir,
+		CreateIfMissing: true, // creates an empty snapshot (0 trees) via initEmptyDB
+		InitialStores:   []string{"test"},
+		WAL:             w,
+		// Disable background snapshots; not relevant for this test.
+		SnapshotInterval: 0,
+	})
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	require.NotNil(t, db.TreeByName("test"))
+	require.Equal(t, []byte("v"), db.TreeByName("test").Get([]byte("k")))
+}
+
 // TestWALIndexDeltaComputation tests the O(1) delta-based WAL index conversion.
 // This is critical because:
 // 1. WAL indices and versions are both strictly contiguous
