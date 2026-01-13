@@ -12,6 +12,19 @@ import (
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
+func mustReadLastChangelogEntry(t *testing.T, cs *CommitStore) proto.ChangelogEntry {
+	t.Helper()
+	require.NotNil(t, cs.db)
+	w := cs.db.GetWAL()
+	require.NotNil(t, w)
+	last, err := w.LastOffset()
+	require.NoError(t, err)
+	require.Greater(t, last, uint64(0))
+	e, err := w.ReadAt(last)
+	require.NoError(t, err)
+	return e
+}
+
 func TestNewCommitStore(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.StateCommitConfig{
@@ -77,17 +90,14 @@ func TestCommitStoreBasicOperations(t *testing.T) {
 	err = cs.ApplyChangeSets(changesets)
 	require.NoError(t, err)
 
-	// Verify pending entry has the changesets
-	require.Equal(t, changesets, cs.pendingLogEntry.Changesets)
-
 	// Commit
 	version, err := cs.Commit()
 	require.NoError(t, err)
 	require.Equal(t, int64(1), version)
 
-	// Pending entry should be cleared after commit
-	require.Nil(t, cs.pendingLogEntry.Changesets)
-	require.Nil(t, cs.pendingLogEntry.Upgrades)
+	entry := mustReadLastChangelogEntry(t, cs)
+	require.Equal(t, int64(1), entry.Version)
+	require.Equal(t, changesets, entry.Changesets)
 
 	// Version should be updated
 	require.Equal(t, int64(1), cs.Version())
@@ -105,11 +115,9 @@ func TestApplyChangeSetsEmpty(t *testing.T) {
 	// Empty changesets should be no-op
 	err = cs.ApplyChangeSets(nil)
 	require.NoError(t, err)
-	require.Nil(t, cs.pendingLogEntry.Changesets)
 
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{})
 	require.NoError(t, err)
-	require.Nil(t, cs.pendingLogEntry.Changesets)
 }
 
 func TestApplyUpgrades(t *testing.T) {
@@ -129,17 +137,17 @@ func TestApplyUpgrades(t *testing.T) {
 	err = cs.ApplyUpgrades(upgrades)
 	require.NoError(t, err)
 
-	// Verify pending entry has the upgrades
-	require.Equal(t, upgrades, cs.pendingLogEntry.Upgrades)
-
 	// Apply more upgrades - should append
 	moreUpgrades := []*proto.TreeNameUpgrade{
 		{Name: "newstore3"},
 	}
 	err = cs.ApplyUpgrades(moreUpgrades)
 	require.NoError(t, err)
-
-	require.Len(t, cs.pendingLogEntry.Upgrades, 3)
+	_, err = cs.Commit()
+	require.NoError(t, err)
+	entry := mustReadLastChangelogEntry(t, cs)
+	// 4 upgrades total: initial store "test" + newstore1, newstore2, newstore3
+	require.Len(t, entry.Upgrades, 4)
 }
 
 func TestApplyUpgradesEmpty(t *testing.T) {
@@ -154,11 +162,9 @@ func TestApplyUpgradesEmpty(t *testing.T) {
 	// Empty upgrades should be no-op
 	err = cs.ApplyUpgrades(nil)
 	require.NoError(t, err)
-	require.Nil(t, cs.pendingLogEntry.Upgrades)
 
 	err = cs.ApplyUpgrades([]*proto.TreeNameUpgrade{})
 	require.NoError(t, err)
-	require.Nil(t, cs.pendingLogEntry.Upgrades)
 }
 
 func TestLoadVersionCopyExisting(t *testing.T) {
@@ -169,10 +175,6 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 	// First load to create the DB
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
-
-	// For the first commit, we need to include initial upgrades in pending entry
-	// so they are written to WAL for replay
-	cs.pendingLogEntry.Upgrades = []*proto.TreeNameUpgrade{{Name: "test"}}
 
 	// Apply and commit some data
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -320,10 +322,6 @@ func TestRollback(t *testing.T) {
 
 	// Commit a few versions
 	for i := 0; i < 3; i++ {
-		// First commit needs initial upgrades for WAL replay
-		if i == 0 {
-			cs.pendingLogEntry.Upgrades = []*proto.TreeNameUpgrade{{Name: "test"}}
-		}
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
@@ -375,9 +373,6 @@ func TestMultipleCommits(t *testing.T) {
 		version, err := cs.Commit()
 		require.NoError(t, err)
 		require.Equal(t, int64(i), version)
-
-		// Pending entry should be cleared
-		require.Nil(t, cs.pendingLogEntry.Changesets)
 	}
 
 	require.Equal(t, int64(5), cs.Version())
@@ -411,18 +406,14 @@ func TestCommitWithUpgradesAndChangesets(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Both should be in pending entry
-	require.Len(t, cs.pendingLogEntry.Upgrades, 1)
-	require.Len(t, cs.pendingLogEntry.Changesets, 1)
-
 	// Commit
 	version, err := cs.Commit()
 	require.NoError(t, err)
 	require.Equal(t, int64(1), version)
-
-	// Pending entry should be cleared
-	require.Nil(t, cs.pendingLogEntry.Changesets)
-	require.Nil(t, cs.pendingLogEntry.Upgrades)
+	entry := mustReadLastChangelogEntry(t, cs)
+	// 2 upgrades total: initial store "test" + "newstore"
+	require.Len(t, entry.Upgrades, 2)
+	require.Len(t, entry.Changesets, 1)
 }
 
 func TestSetInitialVersion(t *testing.T) {
@@ -449,10 +440,6 @@ func TestGetVersions(t *testing.T) {
 
 	// Commit a few versions
 	for i := 0; i < 3; i++ {
-		// First commit needs initial upgrades for WAL replay
-		if i == 0 {
-			cs.pendingLogEntry.Upgrades = []*proto.TreeNameUpgrade{{Name: "test"}}
-		}
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
@@ -483,21 +470,12 @@ func TestCreateWAL(t *testing.T) {
 	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
 	cs.Initialize([]string{"test"})
 
-	// WAL is created during NewCommitStore
-	require.NotNil(t, cs.wal)
-
-	// WAL should be functional - write an entry
-	entry := proto.ChangelogEntry{
-		Version: 1,
-		Upgrades: []*proto.TreeNameUpgrade{
-			{Name: "test"},
-		},
-	}
-	err := cs.wal.Write(entry)
+	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
+	defer cs.Close()
 
-	// Clean up
-	require.NoError(t, cs.Close())
+	// MemIAVL should have opened its changelog WAL.
+	require.NotNil(t, cs.db.GetWAL())
 }
 
 func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
@@ -509,8 +487,7 @@ func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	// Write data with WAL entries
-	cs.pendingLogEntry.Upgrades = []*proto.TreeNameUpgrade{{Name: "test"}}
+	// Write data (MemIAVL will persist changelog internally)
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
@@ -551,8 +528,7 @@ func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
 	roCommitStore := readOnlyCS.(*CommitStore)
 	require.Equal(t, int64(2), roCommitStore.Version())
 
-	// The read-only copy should have its own WAL
-	require.NotNil(t, roCommitStore.wal)
+	require.NotNil(t, roCommitStore.db.GetWAL())
 
 	// Clean up
 	require.NoError(t, roCommitStore.Close())
@@ -569,7 +545,6 @@ func TestLoadVersionReadOnlyCreatesOwnWAL(t *testing.T) {
 	require.NoError(t, err)
 
 	// Commit some data with WAL entries
-	cs.pendingLogEntry.Upgrades = []*proto.TreeNameUpgrade{{Name: "test"}}
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
@@ -596,9 +571,8 @@ func TestLoadVersionReadOnlyCreatesOwnWAL(t *testing.T) {
 	// Each should have its own WAL instance
 	ro1 := readOnly1.(*CommitStore)
 	ro2 := readOnly2.(*CommitStore)
-	require.NotNil(t, ro1.wal)
-	require.NotNil(t, ro2.wal)
-	require.NotSame(t, ro1.wal, ro2.wal)
+	require.NotNil(t, ro1.db.GetWAL())
+	require.NotNil(t, ro2.db.GetWAL())
 
 	// Clean up
 	require.NoError(t, ro1.Close())
@@ -617,7 +591,6 @@ func TestWALPersistenceAcrossRestart(t *testing.T) {
 	require.NoError(t, err)
 
 	// Write and commit
-	cs.pendingLogEntry.Upgrades = []*proto.TreeNameUpgrade{{Name: "test"}}
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
@@ -678,9 +651,6 @@ func TestRollbackWithWAL(t *testing.T) {
 
 	// Commit multiple versions
 	for i := 0; i < 5; i++ {
-		if i == 0 {
-			cs.pendingLogEntry.Upgrades = []*proto.TreeNameUpgrade{{Name: "test"}}
-		}
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
@@ -697,7 +667,7 @@ func TestRollbackWithWAL(t *testing.T) {
 	}
 
 	require.Equal(t, int64(5), cs.Version())
-	require.NotNil(t, cs.wal)
+	require.NotNil(t, cs.db.GetWAL())
 
 	// Rollback to version 3
 	err = cs.Rollback(3)
@@ -705,7 +675,7 @@ func TestRollbackWithWAL(t *testing.T) {
 	require.Equal(t, int64(3), cs.Version())
 
 	// WAL should still exist after rollback
-	require.NotNil(t, cs.wal)
+	require.NotNil(t, cs.db.GetWAL())
 
 	require.NoError(t, cs.Close())
 
@@ -731,7 +701,6 @@ func TestRollbackCreatesWALIfNeeded(t *testing.T) {
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	cs.pendingLogEntry.Upgrades = []*proto.TreeNameUpgrade{{Name: "test"}}
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
@@ -752,7 +721,6 @@ func TestRollbackCreatesWALIfNeeded(t *testing.T) {
 	// After Close(), create a new CommitStore (WAL creation happens in NewCommitStore)
 	cs2 := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
 	cs2.Initialize([]string{"test"})
-	require.NotNil(t, cs2.wal)
 
 	// Rollback should work
 	require.NoError(t, cs2.Rollback(1))
@@ -767,14 +735,13 @@ func TestCloseReleasesWAL(t *testing.T) {
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	// WAL should exist after load
-	require.NotNil(t, cs.wal)
+	require.NotNil(t, cs.db)
+	require.NotNil(t, cs.db.GetWAL())
 
 	// Close
 	require.NoError(t, cs.Close())
 
-	// WAL should be nil after close
-	require.Nil(t, cs.wal)
+	// DB should be nil after close
 	require.Nil(t, cs.db)
 }
 
@@ -787,11 +754,9 @@ func TestLoadVersionReusesExistingWAL(t *testing.T) {
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	// WAL should be created
-	require.NotNil(t, cs.wal)
+	require.NotNil(t, cs.db.GetWAL())
 
 	// Commit some data
-	cs.pendingLogEntry.Upgrades = []*proto.TreeNameUpgrade{{Name: "test"}}
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
@@ -810,8 +775,7 @@ func TestLoadVersionReusesExistingWAL(t *testing.T) {
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	// WAL should still exist
-	require.NotNil(t, cs.wal)
+	require.NotNil(t, cs.db.GetWAL())
 
 	// Version should be replayed
 	require.Equal(t, int64(1), cs.Version())
@@ -829,7 +793,6 @@ func TestReadOnlyCopyCannotCommit(t *testing.T) {
 	require.NoError(t, err)
 
 	// Commit initial data
-	cs.pendingLogEntry.Upgrades = []*proto.TreeNameUpgrade{{Name: "test"}}
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
@@ -880,9 +843,6 @@ func TestWALTruncationOnCommit(t *testing.T) {
 
 	// Commit multiple versions to trigger snapshot creation and WAL truncation
 	for i := 0; i < 10; i++ {
-		if i == 0 {
-			cs.pendingLogEntry.Upgrades = []*proto.TreeNameUpgrade{{Name: "test"}}
-		}
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
@@ -902,7 +862,7 @@ func TestWALTruncationOnCommit(t *testing.T) {
 	require.Equal(t, int64(10), cs.Version())
 
 	// Get WAL state
-	firstWALIndex, err := cs.wal.FirstOffset()
+	firstWALIndex, err := cs.db.GetWAL().FirstOffset()
 	require.NoError(t, err)
 
 	// Get earliest snapshot version - may not exist yet if snapshots are async
@@ -942,7 +902,6 @@ func TestWALTruncationWithNoSnapshots(t *testing.T) {
 	require.NoError(t, err)
 
 	// Commit a version
-	cs.pendingLogEntry.Upgrades = []*proto.TreeNameUpgrade{{Name: "test"}}
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
@@ -961,7 +920,7 @@ func TestWALTruncationWithNoSnapshots(t *testing.T) {
 	require.NoError(t, err)
 
 	// WAL should still have entries
-	firstIndex, err := cs.wal.FirstOffset()
+	firstIndex, err := cs.db.GetWAL().FirstOffset()
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), firstIndex, "WAL should not be truncated when no snapshots exist")
 
@@ -989,9 +948,6 @@ func TestWALTruncationDelta(t *testing.T) {
 
 	// Commit multiple versions
 	for i := 0; i < 10; i++ {
-		if i == 0 {
-			cs.pendingLogEntry.Upgrades = []*proto.TreeNameUpgrade{{Name: "test"}}
-		}
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
@@ -1015,6 +971,7 @@ func TestWALTruncationDelta(t *testing.T) {
 
 	// Reopen
 	cs2 := NewCommitStore(dir, logger.NewNopLogger(), cfg)
+	cs2.Initialize([]string{"test"})
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -1023,7 +980,7 @@ func TestWALTruncationDelta(t *testing.T) {
 	require.Equal(t, int64(99), walDelta, "Delta should be 99 (firstVersion 100 - firstIndex 1)")
 
 	// Verify WAL truncation respects delta
-	firstWALIndex, err := cs2.wal.FirstOffset()
+	firstWALIndex, err := cs2.db.GetWAL().FirstOffset()
 	require.NoError(t, err)
 
 	// Get earliest snapshot version - may not exist yet if snapshots are async

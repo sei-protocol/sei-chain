@@ -17,56 +17,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
-
-// createTestWAL creates a WAL for testing purposes.
-func createTestWAL(t *testing.T, dir string) wal.GenericWAL[proto.ChangelogEntry] {
-	t.Helper()
-	wal, err := wal.NewWAL(
-		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
-		func(data []byte) (proto.ChangelogEntry, error) {
-			var e proto.ChangelogEntry
-			err := e.Unmarshal(data)
-			return e, err
-		},
-		logger.NewNopLogger(),
-		utils.GetChangelogPath(dir),
-		wal.Config{
-			DisableFsync:    true,
-			ZeroCopy:        true,
-			WriteBufferSize: 0,
-		},
-	)
-	require.NoError(t, err)
-	return wal
-}
-
-// writeToWAL is a test helper that writes pending changes to WAL.
-// In production, CommitStore handles this. Tests that need WAL replay use this helper.
-func writeToWAL(t *testing.T, db *DB, changesets []*proto.NamedChangeSet, upgrades []*proto.TreeNameUpgrade) {
-	t.Helper()
-	wal := db.GetWAL()
-	if wal == nil {
-		return
-	}
-	entry := proto.ChangelogEntry{
-		Version:    db.WorkingCommitInfo().Version,
-		Changesets: changesets,
-		Upgrades:   upgrades,
-	}
-	require.NoError(t, wal.Write(entry))
-}
-
-// initialUpgrades converts InitialStores names to TreeNameUpgrade slice for WAL writing.
-func initialUpgrades(stores []string) []*proto.TreeNameUpgrade {
-	var upgrades []*proto.TreeNameUpgrade
-	for _, name := range stores {
-		upgrades = append(upgrades, &proto.TreeNameUpgrade{Name: name})
-	}
-	return upgrades
-}
 
 func TestRewriteSnapshot(t *testing.T) {
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
@@ -208,9 +160,8 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 	entries, err := os.ReadDir(db.dir)
 	require.NoError(t, err)
 
-	// three files: snapshot, current link, LOCK
-	// (no rlog when WAL is not provided)
-	require.Equal(t, 3, len(entries))
+	// snapshot, current link, LOCK, changelog WAL dir
+	require.Equal(t, 4, len(entries))
 	// stopCh is closed by defer above
 }
 
@@ -281,19 +232,14 @@ func TestRlog(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test", "delete"}
 
-	// Create WAL for this test
-	wal := createTestWAL(t, dir)
-	defer wal.Close()
-
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   initialStores,
-		WAL:             wal,
 	})
 	require.NoError(t, err)
 
-	for i, changes := range ChangeSets {
+	for _, changes := range ChangeSets {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name:      "test",
@@ -301,12 +247,6 @@ func TestRlog(t *testing.T) {
 			},
 		}
 		require.NoError(t, db.ApplyChangeSets(cs))
-		// First WAL entry must include initial upgrades for replay to work
-		if i == 0 {
-			writeToWAL(t, db, cs, initialUpgrades(initialStores))
-		} else {
-			writeToWAL(t, db, cs, nil)
-		}
 		_, err := db.Commit()
 		require.NoError(t, err)
 	}
@@ -324,14 +264,13 @@ func TestRlog(t *testing.T) {
 		},
 	}
 	require.NoError(t, db.ApplyUpgrades(upgrades))
-	writeToWAL(t, db, nil, upgrades)
 	_, err = db.Commit()
 	require.NoError(t, err)
 
 	require.NoError(t, db.Close())
 
-	// Reopen with the same WAL
-	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, WAL: wal})
+	// Reopen (MemIAVL will open the changelog from disk)
+	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, InitialStores: initialStores})
 	require.NoError(t, err)
 	defer db.Close() // Close the reopened DB
 
@@ -364,21 +303,15 @@ func TestInitialVersion(t *testing.T) {
 		dir := t.TempDir()
 		initialStores := []string{name}
 
-		// Create WAL for this test iteration
-		wal := createTestWAL(t, dir)
-
 		db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 			Dir:             dir,
 			CreateIfMissing: true,
 			InitialStores:   initialStores,
-			WAL:             wal,
 		})
 		require.NoError(t, err)
 		db.SetInitialVersion(initialVersion)
 		cs1 := mockNameChangeSet(name, key, value)
 		require.NoError(t, db.ApplyChangeSets(cs1))
-		// First WAL entry must include initial upgrades for replay to work
-		writeToWAL(t, db, cs1, initialUpgrades(initialStores))
 		v, err := db.Commit()
 		require.NoError(t, err)
 		if initialVersion <= 1 {
@@ -390,7 +323,6 @@ func TestInitialVersion(t *testing.T) {
 		require.Equal(t, "6032661ab0d201132db7a8fa1da6a0afe427e6278bd122c301197680ab79ca02", hex.EncodeToString(hash))
 		cs2 := mockNameChangeSet(name, key, "world1")
 		require.NoError(t, db.ApplyChangeSets(cs2))
-		writeToWAL(t, db, cs2, nil)
 		v, err = db.Commit()
 		require.NoError(t, err)
 		hash = db.LastCommitInfo().StoreInfos[0].CommitId.Hash
@@ -403,8 +335,8 @@ func TestInitialVersion(t *testing.T) {
 		}
 		require.NoError(t, db.Close())
 
-		// Reopen with the same WAL
-		db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, WAL: wal})
+		// Reopen (MemIAVL will open the changelog from disk)
+		db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, InitialStores: initialStores})
 		require.NoError(t, err)
 		require.Equal(t, uint32(initialVersion), db.initialVersion.Load())
 		require.Equal(t, v, db.Version())
@@ -414,7 +346,6 @@ func TestInitialVersion(t *testing.T) {
 		db.ApplyUpgrades(upgrades1)
 		cs3 := mockNameChangeSet(name1, key, value)
 		require.NoError(t, db.ApplyChangeSets(cs3))
-		writeToWAL(t, db, cs3, upgrades1)
 		v, err = db.Commit()
 		require.NoError(t, err)
 		if initialVersion <= 1 {
@@ -437,7 +368,6 @@ func TestInitialVersion(t *testing.T) {
 		db.ApplyUpgrades(upgrades2)
 		cs4 := mockNameChangeSet(name2, key, value)
 		require.NoError(t, db.ApplyChangeSets(cs4))
-		writeToWAL(t, db, cs4, upgrades2)
 		v, err = db.Commit()
 		require.NoError(t, err)
 		if initialVersion <= 1 {
@@ -452,7 +382,6 @@ func TestInitialVersion(t *testing.T) {
 		require.Equal(t, hex.EncodeToString(info.CommitId.Hash), hex.EncodeToString(info2.CommitId.Hash))
 
 		require.NoError(t, db.Close())
-		require.NoError(t, wal.Close())
 	}
 }
 
@@ -460,15 +389,10 @@ func TestLoadVersion(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test"}
 
-	// Create WAL for this test
-	wal := createTestWAL(t, dir)
-	defer wal.Close()
-
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   initialStores,
-		WAL:             wal,
 	})
 	require.NoError(t, err)
 
@@ -484,13 +408,6 @@ func TestLoadVersion(t *testing.T) {
 
 			// check the root hash
 			require.Equal(t, RefHashes[db.Version()], db.WorkingCommitInfo().StoreInfos[0].CommitId.Hash)
-
-			// First WAL entry must include initial upgrades for replay to work
-			if i == 0 {
-				writeToWAL(t, db, cs, initialUpgrades(initialStores))
-			} else {
-				writeToWAL(t, db, cs, nil)
-			}
 			_, err := db.Commit()
 			require.NoError(t, err)
 		})
@@ -503,9 +420,9 @@ func TestLoadVersion(t *testing.T) {
 		}
 		// Read-only loads use the same WAL to replay
 		tmp, err := OpenDB(logger.NewNopLogger(), int64(v), Options{
-			Dir:      dir,
-			ReadOnly: true,
-			WAL:      wal,
+			Dir:           dir,
+			ReadOnly:      true,
+			InitialStores: initialStores,
 		})
 		require.NoError(t, err)
 		require.Equal(t, RefHashes[v-1], tmp.TreeByName("test").RootHash())
@@ -584,45 +501,6 @@ func TestRlogIndexConversion(t *testing.T) {
 
 // Regression test: on a fresh DB (version 0), the initial snapshot can contain 0 trees,
 // but WAL replay may already contain changesets for initial store names. OpenDB must
-// ensure InitialStores are applied before replay, otherwise replay will fail with
-// "unknown tree name" (or panic via nil tree).
-func TestOpenDB_ReplayWithEmptySnapshotUsesInitialStores(t *testing.T) {
-	dir := t.TempDir()
-
-	// Create WAL entry that references a store name, but has no upgrades.
-	// This simulates a WAL that only has changesets (e.g. initial upgrades were not
-	// written due to refactor/order changes), while snapshot is still empty.
-	w := createTestWAL(t, dir)
-	defer func() { _ = w.Close() }()
-
-	require.NoError(t, w.Write(proto.ChangelogEntry{
-		Version: 1,
-		Changesets: []*proto.NamedChangeSet{
-			{
-				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{{Key: []byte("k"), Value: []byte("v")}},
-				},
-			},
-		},
-		Upgrades: nil,
-	}))
-
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:             dir,
-		CreateIfMissing: true, // creates an empty snapshot (0 trees) via initEmptyDB
-		InitialStores:   []string{"test"},
-		WAL:             w,
-		// Disable background snapshots; not relevant for this test.
-		SnapshotInterval: 0,
-	})
-	require.NoError(t, err)
-	defer func() { _ = db.Close() }()
-
-	require.NotNil(t, db.TreeByName("test"))
-	require.Equal(t, []byte("v"), db.TreeByName("test").Get([]byte("k")))
-}
-
 // TestWALIndexDeltaComputation tests the O(1) delta-based WAL index conversion.
 // This is critical because:
 // 1. WAL indices and versions are both strictly contiguous
@@ -660,16 +538,12 @@ func TestWALIndexDeltaComputation(t *testing.T) {
 			dir := t.TempDir()
 			initialStores := []string{"test"}
 
-			// Create WAL
-			wal := createTestWAL(t, dir)
-
 			// Open DB with initial version
 			db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 				Dir:             dir,
 				CreateIfMissing: true,
 				InitialStores:   initialStores,
 				InitialVersion:  tc.initialVersion,
-				WAL:             wal,
 			})
 			require.NoError(t, err)
 
@@ -686,13 +560,6 @@ func TestWALIndexDeltaComputation(t *testing.T) {
 					},
 				}
 				require.NoError(t, db.ApplyChangeSets(cs))
-
-				// First entry needs upgrades for replay
-				var upgrades []*proto.TreeNameUpgrade
-				if i == 0 {
-					upgrades = initialUpgrades(initialStores)
-				}
-				writeToWAL(t, db, cs, upgrades)
 				_, err = db.Commit()
 				require.NoError(t, err)
 			}
@@ -705,17 +572,12 @@ func TestWALIndexDeltaComputation(t *testing.T) {
 			}
 			require.Equal(t, expectedVersion, db.Version())
 
-			// Note: walIndexDelta is 0 here because it was computed at open time when WAL was empty.
-			// We'll verify the correct delta after reopening.
-
 			require.NoError(t, db.Close())
-			require.NoError(t, wal.Close())
 
 			// Reopen to verify delta is computed correctly from WAL entries
-			walReopen := createTestWAL(t, dir)
 			dbReopen, err := OpenDB(logger.NewNopLogger(), 0, Options{
-				Dir: dir,
-				WAL: walReopen,
+				Dir:           dir,
+				InitialStores: initialStores,
 			})
 			require.NoError(t, err)
 
@@ -743,14 +605,12 @@ func TestWALIndexDeltaComputation(t *testing.T) {
 			}
 
 			require.NoError(t, dbReopen.Close())
-			require.NoError(t, walReopen.Close())
 
 			// Now test rollback with LoadForOverwriting
-			wal2 := createTestWAL(t, dir)
 			db2, err := OpenDB(logger.NewNopLogger(), tc.rollbackTo, Options{
 				Dir:                dir,
+				InitialStores:      initialStores,
 				LoadForOverwriting: true,
-				WAL:                wal2,
 			})
 			require.NoError(t, err)
 
@@ -758,25 +618,22 @@ func TestWALIndexDeltaComputation(t *testing.T) {
 			require.Equal(t, tc.rollbackTo, db2.Version(), "Version should be rolled back to %d", tc.rollbackTo)
 
 			// Verify WAL was truncated correctly
-			lastIndex, err := wal2.LastOffset()
+			lastIndex, err := db2.GetWAL().LastOffset()
 			require.NoError(t, err)
 			expectedLastIndex := uint64(tc.rollbackTo - db2.walIndexDelta)
 			require.Equal(t, expectedLastIndex, lastIndex, "WAL should be truncated to index %d", expectedLastIndex)
 
 			require.NoError(t, db2.Close())
-			require.NoError(t, wal2.Close())
 
 			// Reopen without LoadForOverwriting to verify persistence
-			wal3 := createTestWAL(t, dir)
 			db3, err := OpenDB(logger.NewNopLogger(), 0, Options{
-				Dir: dir,
-				WAL: wal3,
+				Dir:           dir,
+				InitialStores: initialStores,
 			})
 			require.NoError(t, err)
 			require.Equal(t, tc.rollbackTo, db3.Version(), "Version should persist as %d after reopen", tc.rollbackTo)
 
 			require.NoError(t, db3.Close())
-			require.NoError(t, wal3.Close())
 		})
 	}
 }
@@ -788,14 +645,11 @@ func TestWALIndexDeltaWithZeroDelta(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test"}
 
-	wal := createTestWAL(t, dir)
-
 	// Create DB with default initial version (0, so versions start at 1)
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   initialStores,
-		WAL:             wal,
 	})
 	require.NoError(t, err)
 
@@ -812,12 +666,6 @@ func TestWALIndexDeltaWithZeroDelta(t *testing.T) {
 			},
 		}
 		require.NoError(t, db.ApplyChangeSets(cs))
-
-		var upgrades []*proto.TreeNameUpgrade
-		if i == 0 {
-			upgrades = initialUpgrades(initialStores)
-		}
-		writeToWAL(t, db, cs, upgrades)
 		_, err = db.Commit()
 		require.NoError(t, err)
 	}
@@ -827,14 +675,12 @@ func TestWALIndexDeltaWithZeroDelta(t *testing.T) {
 	require.Equal(t, int64(0), db.walIndexDelta, "Delta should be 0 when versions start at 1")
 
 	require.NoError(t, db.Close())
-	require.NoError(t, wal.Close())
 
 	// Rollback to version 3
-	wal2 := createTestWAL(t, dir)
 	db2, err := OpenDB(logger.NewNopLogger(), 3, Options{
 		Dir:                dir,
+		InitialStores:      initialStores,
 		LoadForOverwriting: true,
-		WAL:                wal2,
 	})
 	require.NoError(t, err)
 
@@ -842,40 +688,32 @@ func TestWALIndexDeltaWithZeroDelta(t *testing.T) {
 	require.Equal(t, int64(3), db2.Version(), "Rollback should work even when delta=0")
 
 	// Verify WAL truncation
-	lastIndex, err := wal2.LastOffset()
+	lastIndex, err := db2.GetWAL().LastOffset()
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), lastIndex, "WAL should be truncated to index 3")
 
 	require.NoError(t, db2.Close())
-	require.NoError(t, wal2.Close())
 
 	// Verify rollback persisted after reopen
-	wal3 := createTestWAL(t, dir)
 	db3, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir: dir,
-		WAL: wal3,
+		Dir:           dir,
+		InitialStores: initialStores,
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(3), db3.Version(), "Rollback should persist after reopen")
 
 	require.NoError(t, db3.Close())
-	require.NoError(t, wal3.Close())
 }
 
 func TestEmptyValue(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test"}
 
-	// Create WAL for this test
-	wal := createTestWAL(t, dir)
-	defer wal.Close()
-
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 		Dir:             dir,
 		InitialStores:   initialStores,
 		CreateIfMissing: true,
 		ZeroCopy:        true,
-		WAL:             wal,
 	})
 	require.NoError(t, err)
 
@@ -889,8 +727,6 @@ func TestEmptyValue(t *testing.T) {
 		}},
 	}
 	require.NoError(t, db.ApplyChangeSets(cs1))
-	// First WAL entry must include initial upgrades for replay to work
-	writeToWAL(t, db, cs1, initialUpgrades(initialStores))
 	_, err = db.Commit()
 	require.NoError(t, err)
 
@@ -900,14 +736,13 @@ func TestEmptyValue(t *testing.T) {
 		}},
 	}
 	require.NoError(t, db.ApplyChangeSets(cs2))
-	writeToWAL(t, db, cs2, nil)
 	version, err := db.Commit()
 	require.NoError(t, err)
 
 	require.NoError(t, db.Close())
 
-	// Reopen with the same WAL
-	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ZeroCopy: true, WAL: wal})
+	// Reopen (MemIAVL will open the changelog from disk)
+	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ZeroCopy: true, InitialStores: initialStores})
 	require.NoError(t, err)
 	defer db.Close() // Close the reopened DB
 	require.Equal(t, version, db.Version())
@@ -1099,18 +934,16 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test"}
 
-	// Create WAL for this test
-	wal := createTestWAL(t, dir)
-	defer wal.Close()
-
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   initialStores,
-		WAL:             wal,
 	})
 	require.NoError(t, err)
 	defer db.Close()
+
+	wal := db.GetWAL()
+	require.NotNil(t, wal)
 
 	// Add multiple versions to have changelog entries
 	for i := 0; i < 5; i++ {
@@ -1120,12 +953,6 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 			}},
 		}
 		require.NoError(t, db.ApplyChangeSets(cs))
-		// Write to WAL
-		if i == 0 {
-			writeToWAL(t, db, cs, initialUpgrades(initialStores))
-		} else {
-			writeToWAL(t, db, cs, nil)
-		}
 		_, err = db.Commit()
 		require.NoError(t, err)
 	}
@@ -1146,8 +973,7 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	// delta=0 for this test since we're just testing context cancellation
-	err = mtree.Catchup(ctx, wal, 0, 0)
+	err = mtree.Catchup(ctx, wal, db.walIndexDelta, 0)
 	// If already caught up, no error; otherwise should get context.Canceled
 	if err != nil {
 		require.Equal(t, context.Canceled, err)

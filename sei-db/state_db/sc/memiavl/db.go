@@ -53,6 +53,13 @@ type DB struct {
 	readOnly bool
 	opts     Options
 
+	// streamHandler is the changelog WAL owned by MemIAVL.
+	// It is opened during OpenDB (if present / allowed) and closed in DB.Close().
+	streamHandler wal.GenericWAL[proto.ChangelogEntry]
+	// pendingLogEntry accumulates changes (changesets + upgrades) to be written
+	// into the changelog WAL on the next Commit().
+	pendingLogEntry proto.ChangelogEntry
+
 	// result channel of snapshot rewrite goroutine
 	snapshotRewriteChan chan snapshotResult
 	// context cancel function to cancel the snapshot rewrite goroutine
@@ -196,41 +203,58 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		tree.snapshot.leavesMap.PrepareForRandomRead()
 	}
 
-	// Use WAL from options (managed by upper layer like CommitStore)
-	walHandler := opts.WAL
+	// MemIAVL owns changelog lifecycle: always open the WAL here.
+	// Even in read-only mode we may need WAL replay to reconstruct non-snapshot versions.
+	var walHandler wal.GenericWAL[proto.ChangelogEntry]
+	changelogDir := utils.GetChangelogPath(opts.Dir)
+	if st, err := os.Stat(changelogDir); err == nil && !st.IsDir() {
+		return nil, fmt.Errorf("changelog path exists but is not a directory: %s", changelogDir)
+	} else if err != nil && os.IsNotExist(err) {
+		// Create empty WAL directory if missing. This preserves the invariant that db.GetWAL() is non-nil.
+		// In read-only mode this is still safe: we won't write entries unless Commit() is called (which is disallowed).
+		if err := os.MkdirAll(changelogDir, 0o755); err != nil {
+			return nil, fmt.Errorf("failed to create changelog directory: %w", err)
+		}
+	}
+
+	writeBuf := 0
+	if !opts.ReadOnly {
+		writeBuf = opts.AsyncCommitBuffer
+	}
+	w, err := wal.NewWAL(
+		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
+		func(data []byte) (proto.ChangelogEntry, error) {
+			var e proto.ChangelogEntry
+			err := e.Unmarshal(data)
+			return e, err
+		},
+		logger,
+		changelogDir,
+		wal.Config{
+			DisableFsync:    true,
+			ZeroCopy:        true,
+			WriteBufferSize: writeBuf,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open changelog WAL: %w", err)
+	}
+	walHandler = w
 
 	// Compute WAL index delta (only needed once per DB open)
 	var walIndexDelta int64
 	var walHasEntries bool
-	if walHandler != nil {
-		var err error
-		walIndexDelta, walHasEntries, err = computeWALIndexDelta(walHandler)
-		if err != nil {
-			return nil, fmt.Errorf("failed to compute WAL index delta: %w", err)
-		}
+	walIndexDelta, walHasEntries, err = computeWALIndexDelta(walHandler)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute WAL index delta: %w", err)
+	}
+	// If WAL is empty, set delta so first WAL entry aligns with NextVersion().
+	if !walHasEntries {
+		walIndexDelta = mtree.WorkingCommitInfo().Version - 1
 	}
 
-	// Ensure initial store trees exist BEFORE replaying WAL.
-	// On a fresh DB (version 0), the snapshot can contain 0 trees but the chain has
-	// non-empty IAVL stores. Historically the initial stores existed before WAL replay.
-	//
-	// Note: We intentionally do NOT read from WAL here. "Add tree" upgrades are
-	// idempotent in MultiTree.ApplyUpgrades (it will skip existing trees), so it is
-	// safe to apply InitialStores unconditionally.
-	if !opts.ReadOnly && mtree.Version() == 0 && len(opts.InitialStores) > 0 {
-		var upgrades []*proto.TreeNameUpgrade
-		for _, name := range opts.InitialStores {
-			upgrades = append(upgrades, &proto.TreeNameUpgrade{Name: name})
-		}
-		if len(upgrades) > 0 {
-			if err := mtree.ApplyUpgrades(upgrades); err != nil {
-				return nil, fmt.Errorf("failed to apply initial stores before WAL replay: %w", err)
-			}
-		}
-	}
-
-	// Replay WAL to catch up to target version (if WAL is provided)
-	if walHandler != nil && walHasEntries && (targetVersion == 0 || targetVersion > mtree.Version()) {
+	// Replay WAL to catch up to target version (if WAL has entries)
+	if walHasEntries && (targetVersion == 0 || targetVersion > mtree.Version()) {
 		logger.Info("Start catching up and replaying the MemIAVL changelog file")
 		if err := mtree.Catchup(context.Background(), walHandler, walIndexDelta, targetVersion); err != nil {
 			return nil, err
@@ -253,7 +277,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		}
 
 		// truncate the rlog file (if WAL is provided and has entries)
-		if walHandler != nil && walHasEntries {
+		if walHasEntries {
 			logger.Info("truncate rlog after version: %d", targetVersion)
 			// Use O(1) conversion: walIndex = version - delta
 			truncateIndex := targetVersion - walIndexDelta
@@ -296,6 +320,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		fileLock:                fileLock,
 		readOnly:                opts.ReadOnly,
 		walIndexDelta:           walIndexDelta,
+		streamHandler:           walHandler,
 		snapshotKeepRecent:      opts.SnapshotKeepRecent,
 		snapshotInterval:        opts.SnapshotInterval,
 		snapshotMinTimeInterval: opts.SnapshotMinTimeInterval,
@@ -304,13 +329,26 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		opts:                    opts,
 	}
 
+	// Apply initial stores on a fresh DB (version 0) so they get persisted to WAL.
+	// This creates the trees and populates pendingLogEntry, which will be written
+	// to WAL on the first Commit().
+	// ApplyUpgrades is idempotent (skips existing trees), so this is safe.
+	if !opts.ReadOnly && db.Version() == 0 && len(opts.InitialStores) > 0 {
+		var upgrades []*proto.TreeNameUpgrade
+		for _, name := range opts.InitialStores {
+			upgrades = append(upgrades, &proto.TreeNameUpgrade{Name: name})
+		}
+		if err := db.ApplyUpgrades(upgrades); err != nil {
+			return nil, fmt.Errorf("failed to apply initial stores: %w", err)
+		}
+	}
+
 	return db, nil
 }
 
 // GetWAL returns the WAL handler for changelog operations.
-// Upper layer (CommitStore) uses this to write to WAL.
 func (db *DB) GetWAL() wal.GenericWAL[proto.ChangelogEntry] {
-	return db.opts.WAL
+	return db.streamHandler
 }
 
 // GetWALIndexDelta returns the precomputed delta between version and WAL index.
@@ -374,6 +412,9 @@ func (db *DB) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 		return errReadOnly
 	}
 
+	if len(upgrades) > 0 {
+		db.pendingLogEntry.Upgrades = append(db.pendingLogEntry.Upgrades, upgrades...)
+	}
 	return db.MultiTree.ApplyUpgrades(upgrades)
 }
 
@@ -399,6 +440,8 @@ func (db *DB) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (_err error) {
 		return errReadOnly
 	}
 
+	// Overwrite pending changesets for this commit; callers typically provide them once per block.
+	db.pendingLogEntry.Changesets = changeSets
 	return db.MultiTree.ApplyChangeSets(changeSets)
 }
 
@@ -415,6 +458,10 @@ func (db *DB) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
 		return errReadOnly
 	}
 
+	db.pendingLogEntry.Changesets = append(db.pendingLogEntry.Changesets, &proto.NamedChangeSet{
+		Name:      name,
+		Changeset: changeSet,
+	})
 	return db.MultiTree.ApplyChangeSet(name, changeSet)
 }
 
@@ -583,7 +630,7 @@ func (db *DB) walIndexToVersion(index uint64) int64 {
 }
 
 // Commit wraps SaveVersion to bump the version and finalize the tree state.
-// The caller (CommitStore) is responsible for writing to WAL before calling this.
+// MemIAVL owns the changelog: it writes the pending changelog entry before committing the tree.
 func (db *DB) Commit() (version int64, _err error) {
 	startTime := time.Now()
 	defer func() {
@@ -603,6 +650,19 @@ func (db *DB) Commit() (version int64, _err error) {
 		return 0, errReadOnly
 	}
 
+	nextVersion := db.MultiTree.WorkingCommitInfo().Version
+	if wal := db.GetWAL(); wal != nil {
+		entry := db.pendingLogEntry
+		entry.Version = nextVersion
+		if err := wal.Write(entry); err != nil {
+			return 0, fmt.Errorf("failed to write changelog WAL: %w", err)
+		}
+		if err := wal.CheckError(); err != nil {
+			return 0, fmt.Errorf("changelog WAL async write error: %w", err)
+		}
+	}
+	db.pendingLogEntry = proto.ChangelogEntry{}
+
 	v, err := db.MultiTree.SaveVersion(true)
 	if err != nil {
 		return 0, err
@@ -614,8 +674,40 @@ func (db *DB) Commit() (version int64, _err error) {
 
 	// Rewrite tree snapshot if applicable
 	db.rewriteIfApplicable(v)
+	db.tryTruncateWAL()
 
 	return v, nil
+}
+
+// tryTruncateWAL best-effort truncates old WAL entries that are older than the earliest snapshot.
+func (db *DB) tryTruncateWAL() {
+	if db.streamHandler == nil {
+		return
+	}
+	firstWALIndex, err := db.streamHandler.FirstOffset()
+	if err != nil || firstWALIndex == 0 {
+		return
+	}
+	earliestSnapshotVersion, err := GetEarliestVersion(db.dir)
+	if err != nil {
+		return
+	}
+	if firstWALIndex > uint64(math.MaxInt64) {
+		db.logger.Error("WAL first offset overflows int64; skipping truncation", "firstWALIndex", firstWALIndex)
+		return
+	}
+	walEarliestVersion := int64(firstWALIndex) + db.walIndexDelta
+	if walEarliestVersion >= earliestSnapshotVersion {
+		return
+	}
+	truncateIndex := earliestSnapshotVersion - db.walIndexDelta
+	if truncateIndex <= 0 || truncateIndex <= int64(firstWALIndex) {
+		return
+	}
+	// #nosec G115 -- truncateIndex is checked to be positive and <= MaxInt64 above.
+	if err := db.streamHandler.TruncateBefore(uint64(truncateIndex)); err != nil {
+		db.logger.Error("failed to truncate changelog WAL", "err", err, "truncateIndex", truncateIndex)
+	}
 }
 
 func (db *DB) Copy() *DB {
@@ -894,7 +986,11 @@ func (db *DB) Close() error {
 		db.snapshotRewriteCancelFunc = nil
 	}
 
-	// WAL lifecycle is owned by upper layer (CommitStore); do not close or clear it here.
+	// Close WAL after snapshot rewrite goroutine has fully exited.
+	if db.streamHandler != nil {
+		errs = append(errs, db.streamHandler.Close())
+		db.streamHandler = nil
+	}
 
 	errs = append(errs, db.MultiTree.Close())
 

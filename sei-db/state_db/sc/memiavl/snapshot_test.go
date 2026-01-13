@@ -144,20 +144,15 @@ func TestDBSnapshotRestore(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test", "test2"}
 
-	// Create WAL for this test
-	wal := createTestWAL(t, dir)
-	defer wal.Close()
-
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 		Dir:               dir,
 		CreateIfMissing:   true,
 		InitialStores:     initialStores,
 		AsyncCommitBuffer: -1,
-		WAL:               wal,
 	})
 	require.NoError(t, err)
 
-	for i, changes := range ChangeSets {
+	for _, changes := range ChangeSets {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name:      "test",
@@ -169,12 +164,6 @@ func TestDBSnapshotRestore(t *testing.T) {
 			},
 		}
 		require.NoError(t, db.ApplyChangeSets(cs))
-		// First WAL entry must include initial upgrades for replay to work
-		if i == 0 {
-			writeToWAL(t, db, cs, initialUpgrades(initialStores))
-		} else {
-			writeToWAL(t, db, cs, nil)
-		}
 		_, err := db.Commit()
 		require.NoError(t, err)
 
