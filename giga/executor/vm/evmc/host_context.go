@@ -169,7 +169,7 @@ func (h *HostContext) Execute(kind evmc.CallKind, recipient evmc.Address, sender
 
 func (h *HostContext) Call(
 	kind evmc.CallKind, recipient evmc.Address, sender evmc.Address, value evmc.Hash, input []byte, gas int64,
-	depth int, static bool, salt evmc.Hash, codeAddress evmc.Address,
+	_ int, static bool, salt evmc.Hash, _ evmc.Address,
 ) ([]byte, int64, int64, evmc.Address, error) {
 	recipientAddr := common.Address(recipient)
 	senderAddr := common.Address(sender)
@@ -188,8 +188,7 @@ func (h *HostContext) Call(
 			ret, leftoverGas, err = h.evm.Call(senderAddr, recipientAddr, input, uint64(gas), valueUint256)
 		}
 	case evmc.DelegateCall:
-		// DelegateCall signature: (originCaller, caller, addr, input, gas, value)
-		// In delegate call, the sender is the origin, recipient is the target
+		// todo(pdrobnjak): sender and recipient might not be correctly propagated in case of DELEGATECALL
 		ret, leftoverGas, err = h.evm.DelegateCall(
 			h.evm.Origin, senderAddr, recipientAddr, input, uint64(gas), valueUint256,
 		)
