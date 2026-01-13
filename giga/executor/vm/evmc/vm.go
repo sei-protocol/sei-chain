@@ -11,15 +11,20 @@ type VMImpl struct {
 	evm *vm.EVM
 }
 
-// this should bootstrap evmone - receive a configuration or something similar, we can do it the same way we did in v3
+// NewVM creates a new giga executor VM wrapper.
+// TODO(pdrobnjak): populate evmc.VM and integrate evmone for direct bytecode execution
 func NewVM(blockCtx vm.BlockContext, stateDB vm.StateDB, chainConfig *params.ChainConfig, config vm.Config, customPrecompiles map[common.Address]vm.PrecompiledContract) *VMImpl {
 	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, config, customPrecompiles)
-	// todo(pdrobnjak): populate evmc.VM
 	hostContext := NewHostContext(nil, evm)
 	evm.EVMInterpreter = NewEVMInterpreter(hostContext, evm)
 	return &VMImpl{
 		evm: evm,
 	}
+}
+
+// SetTxContext sets the transaction context for the EVM
+func (v *VMImpl) SetTxContext(txCtx vm.TxContext) {
+	v.evm.SetTxContext(txCtx)
 }
 
 func (v *VMImpl) ApplyMessage(msg *core.Message, gp *core.GasPool) (*core.ExecutionResult, error) {
