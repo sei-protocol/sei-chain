@@ -7,7 +7,6 @@ on:
   push:
     branches:
       - main
-      - seiv2
       - release/**
     paths:
       - "**.go"
