@@ -4,9 +4,8 @@ on:
     tags:
       - v*
     branches:
-      - master
       - main
-      - seiv2
+      - release/**
   pull_request:
 permissions:
   contents: read
