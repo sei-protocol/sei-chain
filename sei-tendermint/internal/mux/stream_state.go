@@ -62,6 +62,10 @@ func (s *streamState) RemoteOpen(maxMsgSize uint64) error {
 		if inner.send.remoteOpened {
 			return fmt.Errorf("already opened")
 		}
+		// Do not allow remote open before we connect.
+		if s.id.isConnect() && !inner.recv.opened {
+			return errUnknownStream
+		}
 		inner.send.remoteOpened = true
 		inner.send.maxMsgSize = maxMsgSize
 		ctrl.Updated()
@@ -70,6 +74,7 @@ func (s *streamState) RemoteOpen(maxMsgSize uint64) error {
 }
 
 func (s *streamState) RemoteClose() error {
+	fmt.Printf("RemoteClose\n")
 	for inner, ctrl := range s.inner.Lock() {
 		if inner.closed.remote {
 			return fmt.Errorf("already closed")
@@ -93,11 +98,11 @@ func (s *streamState) RemoteWindowEnd(windowEnd uint64) {
 func (s *streamState) RemotePayloadSize(payloadSize uint64) error {
 	for inner := range s.inner.Lock() {
 		if inner.recv.used == inner.recv.end {
-			return fmt.Errorf("buffer full")
+			return errTooManyMsgs
 		}
 		i := int(inner.recv.used) % len(inner.recv.msgs)
 		if inner.recv.maxMsgSize-uint64(len(inner.recv.msgs[i])) < payloadSize {
-			return fmt.Errorf("msg too large")
+			return errTooLargeMsg
 		}
 	}
 	return nil

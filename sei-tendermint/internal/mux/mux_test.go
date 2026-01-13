@@ -14,6 +14,33 @@ import (
 	"github.com/tendermint/tendermint/crypto/ed25519"
 )
 
+// Ignores cancellation and connection errors.
+// Wrap Mux.Run() calls in this - in tests we manage both ends of the connection,
+// so there is a race condition between disconnects and cancellation, when test
+// is shutting down.
+func ignoreDisconnect(err error) error {
+	if utils.ErrorAs[errConn](err).IsPresent() {
+		return nil
+	}
+	return utils.IgnoreCancel(err)
+}
+
+func testConn(t *testing.T) (*conn.SecretConnection,*conn.SecretConnection) {
+	c1,c2 := tcp.TestPipe()
+	var scs [2]*conn.SecretConnection
+	utils.OrPanic(scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		for i,c := range utils.Slice(c1,c2) {
+			t.Cleanup(func(){ c.Close() })
+			s.Spawn(func() error {
+				scs[i] = utils.OrPanic1(conn.MakeSecretConnection(ctx,c,ed25519.GenerateSecretKey()))
+				return nil
+			})
+		}
+		return nil
+	}))
+	return scs[0],scs[1]
+}
+
 // Arbitrary nontrivial transformation to make sure that
 // server actually does something.
 func transform(msg []byte) []byte {
@@ -197,22 +224,16 @@ func runClients(ctx context.Context, rng utils.Rng, mux *Mux) error {
 func TestHappyPath(t *testing.T) {
 	rng := utils.TestRng()
 	kindCount := 5
+	c1,c2 := testConn(t)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		mux1 := makeMux(rng,kindCount)
-		mux2 := makeMux(rng,kindCount)
-		s.SpawnBgNamed("runConn",func() error { return utils.IgnoreCancel(runConn(ctx,mux1,mux2)) })
-		
-		// Start servers.
-		serverRng := rng.Split()
-		s.SpawnBgNamed("server1",func() error { return utils.IgnoreCancel(runServer(ctx,serverRng,mux1)) })
-		serverRng = rng.Split()
-		s.SpawnBgNamed("server2",func() error { return utils.IgnoreCancel(runServer(ctx,serverRng,mux2)) })
-		
-		// Run clients.
-		clientRng := rng.Split()
-		s.SpawnNamed("client1",func() error { return runClients(ctx,clientRng,mux1) })
-		clientRng = rng.Split()
-		s.SpawnNamed("client2",func() error { return runClients(ctx,clientRng,mux2) })
+		for _,c := range utils.Slice(c1,c2) {
+			mux := makeMux(rng,kindCount)
+			serverRng := rng.Split()
+			s.SpawnBgNamed("mux",func() error { return ignoreDisconnect(mux.Run(ctx,c)) })
+			s.SpawnBgNamed("server",func() error { return utils.IgnoreCancel(runServer(ctx,serverRng,mux)) })
+			clientRng := rng.Split()
+			s.SpawnNamed("client",func() error { return runClients(ctx,clientRng,mux) })
+		}
 		return nil
 	})
 	if err!=nil { t.Fatal(err) }
@@ -251,48 +272,34 @@ func makeConfig(kinds ...StreamKind) *Config {
 	return cfg
 }
 
-func runConn(ctx context.Context, mux1 *Mux, mux2 *Mux) error {
-	c1,c2 := tcp.TestPipe()
-	defer c1.Close()
-	defer c2.Close()
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnNamed("mux1",func() error {
-			sc,err := conn.MakeSecretConnection(ctx,c1,ed25519.GenerateSecretKey())
-			if err!=nil { return err }
-			return mux1.Run(ctx,sc)
-		})
-		s.SpawnNamed("mux2",func() error {
-			sc,err := conn.MakeSecretConnection(ctx,c2,ed25519.GenerateSecretKey())
-			if err!=nil { return err }
-			return mux2.Run(ctx,sc)
-		})
-		return nil
-	})
-}
-
 func TestStreamKindsMismatch(t *testing.T) {
+	c1,c2 := testConn(t)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		var k0,k1,k2 StreamKind = 0,1,2
-		mux1 := NewMux(makeConfig(k0,k1))
-		mux2 := NewMux(makeConfig(k1,k2))
-		s.SpawnBg(func() error { return utils.IgnoreCancel(runConn(ctx,mux1,mux2)) })
+		muxs := utils.Slice(
+			NewMux(makeConfig(k0,k1)),
+			NewMux(makeConfig(k1,k2)),
+		)
+		for i,c := range utils.Slice(c1,c2) {
+			s.SpawnBg(func() error { return ignoreDisconnect(muxs[i].Run(ctx,c)) })
+		}
 		// Connecting/accepting of unconfigured kind should error.
-		if _,err := mux1.Connect(ctx,k2,10,10); !errors.Is(err,errUnknownKind) {
+		if _,err := muxs[0].Connect(ctx,k2,10,10); !errors.Is(err,errUnknownKind) {
 			return fmt.Errorf("got %v, want %v",err,errUnknownKind)
 		}
-		if _,err := mux2.Accept(ctx,k0,10,10); !errors.Is(err,errUnknownKind) {
+		if _,err := muxs[1].Accept(ctx,k0,10,10); !errors.Is(err,errUnknownKind) {
 			return fmt.Errorf("got %v, want %v",err,errUnknownKind)
 		}
 
 		// Connecting/accepting, when other end does not support given kind, should block.
 		s.SpawnBg(func() error {
-			if _,err := mux1.Connect(ctx,k0,10,10); !errors.Is(err,context.Canceled) {
+			if _,err := muxs[0].Connect(ctx,k0,10,10); !errors.Is(err,context.Canceled) {
 				return fmt.Errorf("got %v, want canceled",err)
 			}
 			return nil
 		})
 		s.SpawnBg(func() error {
-			if _,err := mux2.Accept(ctx,k2,10,10); !errors.Is(err,context.Canceled) {
+			if _,err := muxs[1].Accept(ctx,k2,10,10); !errors.Is(err,context.Canceled) {
 				return fmt.Errorf("got %v, want canceled",err)
 			}
 			return nil
@@ -301,7 +308,7 @@ func TestStreamKindsMismatch(t *testing.T) {
 		// Stream of the shared kind should work.
 		msg := []byte("hello")
 		s.Spawn(func() error {
-			stream,err := mux1.Connect(ctx,k1,0,0)
+			stream,err := muxs[0].Connect(ctx,k1,0,0)
 			if err!=nil { return fmt.Errorf("mux1.Connect(): %w",err) }
 			if err:=stream.Send(ctx,msg); err!=nil {
 				return fmt.Errorf("stream.Send(): %w",err)
@@ -309,7 +316,7 @@ func TestStreamKindsMismatch(t *testing.T) {
 			return nil
 		})
 		s.Spawn(func() error {
-			stream,err := mux2.Accept(ctx,k1,uint64(len(msg)),1)
+			stream,err := muxs[1].Accept(ctx,k1,uint64(len(msg)),1)
 			if err!=nil { return fmt.Errorf("mux2.Accept(): %w",err) }
 			got,err := stream.Recv(ctx,false)
 			if err!=nil { return fmt.Errorf("stream.Recv(): %w",err) }
@@ -323,16 +330,21 @@ func TestStreamKindsMismatch(t *testing.T) {
 // Test checking that closing a stream does not drop messages on the floor:
 // sending and receiving still works as long as messages fit into a window.
 func TestClosedStream(t *testing.T) {
+	c1,c2 := testConn(t)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		kind := StreamKind(0)
 		window := uint64(4)
 		msg := []byte("hello")
-		mux1 := NewMux(makeConfig(kind))
-		mux2 := NewMux(makeConfig(kind))
-		s.SpawnBg(func() error { return utils.IgnoreCancel(runConn(ctx,mux1,mux2)) })
+		muxs := utils.Slice(
+			NewMux(makeConfig(kind)),
+			NewMux(makeConfig(kind)),
+		)
+		for i,c := range utils.Slice(c1,c2) {
+			s.SpawnBg(func() error { return ignoreDisconnect(muxs[i].Run(ctx,c)) })
+		}
 		s.Spawn(func() error {
 			// Just accept a single stream and close immediately.
-			stream,err := mux1.Accept(ctx,kind,uint64(len(msg)),window)
+			stream,err := muxs[0].Accept(ctx,kind,uint64(len(msg)),window)
 			if err!=nil {
 				return fmt.Errorf("mux1.Accept(): %w",err)
 			}
@@ -351,7 +363,7 @@ func TestClosedStream(t *testing.T) {
 			return nil
 		})
 		// Open a stream.
-		stream,err := mux2.Connect(ctx,kind,0,0)
+		stream,err := muxs[1].Connect(ctx,kind,0,0)
 		if err!=nil { return fmt.Errorf("mux2.Connect(): %w",err) }
 		defer stream.Close()
 		// Fill the available window.
@@ -374,11 +386,233 @@ func TestClosedStream(t *testing.T) {
 	if err!=nil { t.Fatal(err) }
 }
 
-// Test checking that mux protocol violations are handled gracefully.
-func TestProtocol(t *testing.T) {
-	//   more streams than allowed
-	//   msg bigger than allowed
-	//   more messages than allowed
-	//   send after close (although good peer didn't close yet)
-	//   unknown kind
+func TestProtocol_TooLargeMsg(t *testing.T) {
+	c1,c2 := testConn(t)
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		kind := StreamKind(0)
+		maxMsgSize := uint64(10)
+		
+		// Bad mux.
+		badMux := NewMux(makeConfig(kind))
+		s.SpawnBg(func() error { return ignoreDisconnect(badMux.Run(ctx,c1)) })
+		s.SpawnBg(func() error {
+			t.Log("Connect stream.")
+			stream,err := badMux.Connect(ctx,kind,0,0)
+			if err!=nil { return fmt.Errorf("mux2.Connect(): %w",err) }
+			defer stream.Close()
+			rng := utils.TestRng()
+			badMsg := utils.GenBytes(rng,int(maxMsgSize)+1)
+			t.Log("Malform stream state to allow too large messages.")
+			for inner := range stream.state.inner.Lock() {
+				inner.send.maxMsgSize = uint64(len(badMsg))
+			}
+			t.Log("Send too large message")
+			return utils.IgnoreCancel(stream.Send(ctx,badMsg))
+		})
+
+		mux := NewMux(makeConfig(kind))
+		s.SpawnBg(func() error {
+			t.Log("Accept stream")
+			stream,err := mux.Accept(ctx,kind,maxMsgSize,10)
+			if err!=nil { return fmt.Errorf("mux.Accept(): %w",err) }
+			stream.Close()
+			return utils.IgnoreCancel(err)
+		})
+		err := mux.Run(ctx,c2)
+		t.Logf("mux terminated: %v",err)
+		if !errors.Is(err,errTooLargeMsg) {
+			return fmt.Errorf("err = %v, want %v",err,errTooLargeMsg)
+		}
+		return nil
+	})
+	if err!=nil { t.Fatal(err) }
+}
+
+func TestProtocol_TooManyMsgs(t *testing.T) {
+	c1,c2 := testConn(t)
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		kind := StreamKind(0)
+		maxMsgSize := uint64(10)
+		window := uint64(3)
+		
+		// Bad mux.
+		badMux := NewMux(makeConfig(kind))
+		s.SpawnBg(func() error { return ignoreDisconnect(badMux.Run(ctx,c1)) })
+		s.SpawnBg(func() error {
+			t.Log("Connect stream.")
+			stream,err := badMux.Connect(ctx,kind,0,0)
+			if err!=nil { return fmt.Errorf("mux2.Connect(): %w",err) }
+			defer stream.Close()
+			t.Log("Malform stream state to allow too many messages.")
+			for inner := range stream.state.inner.Lock() {
+				inner.send.end = window+1 
+			}
+			t.Log("Send too many messages")
+			rng := utils.TestRng()
+			for range window {
+				if err:=stream.Send(ctx,utils.GenBytes(rng,int(maxMsgSize))); err!=nil {
+					return err
+				}
+			}
+			return utils.IgnoreCancel(stream.Send(ctx,utils.GenBytes(rng,int(maxMsgSize))))
+		})
+
+		mux := NewMux(makeConfig(kind))
+		s.SpawnBg(func() error {
+			t.Log("Accept stream")
+			stream,err := mux.Accept(ctx,kind,maxMsgSize,window)
+			if err!=nil { return fmt.Errorf("mux.Accept(): %w",err) }
+			stream.Close()
+			return nil
+		})
+		err := mux.Run(ctx,c2)
+		t.Logf("mux terminated: %v",err)
+		if !errors.Is(err,errTooManyMsgs) {
+			return fmt.Errorf("err = %v, want %v",err,errTooManyMsgs)
+		}
+		return nil
+	})
+	if err!=nil { t.Fatal(err) }
+}
+
+func TestProtocol_FrameAfterClose(t *testing.T) {
+	c1,c2 := testConn(t)
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		kind := StreamKind(0)
+		
+		// Bad mux.
+		badMux := NewMux(makeConfig(kind))	
+		maxMsgSize := uint64(10)
+		s.SpawnBg(func() error { return ignoreDisconnect(badMux.Run(ctx,c1)) })
+		s.SpawnBg(func() error {
+			t.Log("Connect stream.")
+			stream,err := badMux.Connect(ctx,kind,0,0)
+			if err!=nil { return fmt.Errorf("mux2.Connect(): %w",err) }
+			defer stream.Close()
+			t.Log("Trigger sending CLOSED frame without actually closing.")
+			for inner := range stream.state.inner.Lock() {
+				stream.close(inner)
+				inner.closed.local = false
+			}
+			t.Log("Send 2 messages.")
+			// We need to send 2 messages, because CLOSE might get delivered together with the 1st message
+			// in which case peer would not realize that they were supposed to be sent out of order.
+			rng := utils.TestRng()
+			for range 2 {
+				if err:=stream.Send(ctx,utils.GenBytes(rng,int(maxMsgSize))); err!=nil {
+					return utils.IgnoreCancel(err)
+				}
+			}
+			return nil
+			
+		})
+
+		mux := NewMux(makeConfig(kind))
+		s.SpawnBg(func() error {
+			t.Log("Accept stream")
+			stream,err := mux.Accept(ctx,kind,maxMsgSize,10)
+			if err!=nil { return fmt.Errorf("mux.Accept(): %w",err) }
+			defer stream.Close()
+			t.Log("Keep stream open")
+			<-ctx.Done()
+			return nil
+		})
+		err := mux.Run(ctx,c2)
+		t.Logf("mux terminated: %v",err)
+		if !errors.Is(err,errFrameAfterClose) {
+			return fmt.Errorf("err = %v, want %v",err,errFrameAfterClose)
+		}
+		return nil
+	})
+	if err!=nil { t.Fatal(err) }
+}
+
+func TestProtocol_TooManyAccepts(t *testing.T) {
+	c1,c2 := testConn(t)
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		kind := StreamKind(0)
+		
+		// Bad mux.
+		badMux := NewMux(makeConfig(kind))	
+		s.SpawnBg(func() error { return ignoreDisconnect(badMux.Run(ctx,c1)) })
+		s.SpawnBg(func() error {
+			// Artificially connect too many streams.
+			for queue,ctrl := range badMux.queue.Lock() {
+				for i := range badMux.cfg.Kinds[kind].MaxConnects+1 {
+					f := queue.Get(streamID(2*i))
+					f.Header.Kind = utils.Alloc(uint64(kind))
+				}
+				ctrl.Updated()
+			}
+			return nil
+		})
+
+		mux := NewMux(makeConfig(kind))
+		err := mux.Run(ctx,c2)
+		t.Logf("mux terminated: %v",err)
+		if !errors.Is(err,errTooManyAccepts) {
+			return fmt.Errorf("err = %v, want %v",err,errTooManyAccepts)
+		}
+		return nil
+	})
+	if err!=nil { t.Fatal(err) }
+}
+
+func TestProtocol_UnknownStream(t *testing.T) {
+	c1,c2 := testConn(t)
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		kind := StreamKind(0)
+		
+		// Bad mux.
+		badMux := NewMux(makeConfig(kind))	
+		s.SpawnBg(func() error { return ignoreDisconnect(badMux.Run(ctx,c1)) })
+		s.SpawnBg(func() error {
+			// Artificially accept a stream without connect.
+			for queue,ctrl := range badMux.queue.Lock() {
+				f := queue.Get(streamID(1))
+				f.Header.Kind = utils.Alloc(uint64(kind))
+				ctrl.Updated()
+			}
+			return nil
+		})
+
+		mux := NewMux(makeConfig(kind))
+		err := mux.Run(ctx,c2)
+		t.Logf("mux terminated: %v",err)
+		if !errors.Is(err,errUnknownStream) {
+			return fmt.Errorf("err = %v, want %v",err,errUnknownStream)
+		}
+		return nil
+	})
+	if err!=nil { t.Fatal(err) }
+}
+
+func TestProtocol_UnknownKind(t *testing.T) {
+	c1,c2 := testConn(t)
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		kind := StreamKind(0)
+		badKind := StreamKind(1)
+		
+		// Bad mux.
+		badMux := NewMux(makeConfig(kind))	
+		s.SpawnBg(func() error { return ignoreDisconnect(badMux.Run(ctx,c1)) })
+		s.SpawnBg(func() error {
+			// Artificially connect a stream of unknown kind. 
+			for queue,ctrl := range badMux.queue.Lock() {
+				f := queue.Get(streamID(0))
+				f.Header.Kind = utils.Alloc(uint64(badKind))
+				ctrl.Updated()
+			}
+			return nil
+		})
+		mux := NewMux(makeConfig(kind))
+		err := mux.Run(ctx,c2)
+		t.Logf("mux terminated: %v",err)
+		// Unknown kinds are treated as if they has 0 allowed accepts.
+		if !errors.Is(err,errTooManyAccepts) {
+			return fmt.Errorf("err = %v, want %v",err,errTooManyAccepts)
+		}
+		return nil
+	})
+	if err!=nil { t.Fatal(err) }
 }

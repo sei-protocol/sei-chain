@@ -6,7 +6,7 @@
 // maximal size of message it is willing to consume, and the number of messages it currently
 // can buffer locally.
 //
-// Each mux Stream has its own Kind number. Kind numbers are supposed to identify the Stream-level communication
+// Each mux stream has its own Kind number. Kind numbers are supposed to identify the stream-level communication
 // protocol (for example, if you implement an RPC server on top of this multiplexer, each RPC will have its own Kind number).
 package mux
 
@@ -26,6 +26,11 @@ import (
 
 const handshakeMaxSize = 10 * 1024 // 10kB
 
+var errUnknownStream = errors.New("frame for an unknown stream")
+var errTooManyAccepts = errors.New("too many concurrent accepted streams")
+var errFrameAfterClose = errors.New("received frame after CLOSE frame")
+var errTooManyMsgs = errors.New("too many messages")
+var errTooLargeMsg = errors.New("message too large")
 var errUnknownKind = errors.New("unknown kind")
 type errConn struct { error }
 
@@ -108,19 +113,23 @@ func newRunner(mux *Mux) *runner {
 // If the stream does not exist yet, it tries to create it as an accept (inbound) stream.
 // In that case the inbound stream limit for the given kind is checked.
 func (r *runner) getOrAccept(id streamID, kind StreamKind) (*streamState, error) {
+	fmt.Printf("getOrAccept(%v)\n",id)
 	for inner := range r.inner.RLock() {
 		s, ok := inner.streams[id]
 		if ok {
 			return s, nil
-		}
+		}	
+	}
+	for inner := range r.inner.Lock() {
+		fmt.Printf("accepting stream %v\n",id)
 		if id.isConnect() {
-			return nil, fmt.Errorf("peer tried to open stream with bad id")
+			return nil, errUnknownStream 
 		}
 		if inner.acceptsSem[kind] == 0 {
-			return nil, fmt.Errorf("too many concurrent accept streams")
+			return nil, errTooManyAccepts 
 		}
 		inner.acceptsSem[kind] -= 1
-		s = newStreamState(id, kind)
+		s := newStreamState(id, kind)
 		inner.streams[id] = s
 		return s, nil
 	}
@@ -137,7 +146,7 @@ func (i *runnerInner) newConnectStream(kind StreamKind) *streamState {
 
 func (r *runner) tryPrune(id streamID) {
 	for inner := range r.inner.Lock() {
-		// Check if the Stream is fully closed.
+		// Check if the stream is fully closed.
 		s, ok := inner.streams[id]
 		if !ok {
 			return
@@ -147,9 +156,9 @@ func (r *runner) tryPrune(id streamID) {
 				return
 			}
 		}
-		// Delete Stream state.
+		// Delete stream state.
 		delete(inner.streams, id)
-		// Free the Stream capacity.
+		// Free the stream capacity.
 		if id.isConnect() {
 			r.mux.kinds[s.kind].connectsQueue <- inner.newConnectStream(s.kind) 
 		} else {
@@ -238,13 +247,14 @@ func (r *runner) runRecv(conn conn.Conn) error {
 			return err
 		}
 		for sInner := range s.inner.Lock() {
+			fmt.Printf("sInner.closed.remote[%v] = %v, %v\n", s.id, sInner.closed.remote,&h)
 			if sInner.closed.remote {
-				return fmt.Errorf("frame after CLOSE frame")
+				return errFrameAfterClose 
 			}
 		}
 		// Process the frame content in order: OPEN, RESIZE, MSG, CLOSE
-		if mms := h.MaxMsgSize; mms != nil {
-			if err := s.RemoteOpen(*mms); err != nil {
+		if h.Kind!=nil {
+			if err := s.RemoteOpen(h.GetMaxMsgSize()); err != nil {
 				return err
 			}
 			if !s.id.isConnect() {

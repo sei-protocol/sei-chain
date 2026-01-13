@@ -77,7 +77,7 @@ func (s *Stream) Send(ctx context.Context, msg []byte) error {
 		}
 		// We check msg size AFTER waiting because maxMsgSize could be set AFTER we wait.
 		if uint64(len(msg)) > inner.send.maxMsgSize {
-			return fmt.Errorf("message too large")
+			return errTooLargeMsg
 		}
 		inner.send.begin += 1
 		// Push msg to the queue.
