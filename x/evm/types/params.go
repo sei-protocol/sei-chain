@@ -126,6 +126,21 @@ func (ppre606 *ParamsPreV606) ParamSetPairs() paramtypes.ParamSetPairs {
 	}
 }
 
+func (ppre630 *ParamsPreV630) ParamSetPairs() paramtypes.ParamSetPairs {
+	return paramtypes.ParamSetPairs{
+		paramtypes.NewParamSetPair(KeyPriorityNormalizer, &ppre630.PriorityNormalizer, validatePriorityNormalizer),
+		paramtypes.NewParamSetPair(KeyBaseFeePerGas, &ppre630.BaseFeePerGas, validateBaseFeePerGas),
+		paramtypes.NewParamSetPair(KeyMaxDynamicBaseFeeUpwardAdjustment, &ppre630.MaxDynamicBaseFeeUpwardAdjustment, validateBaseFeeAdjustment),
+		paramtypes.NewParamSetPair(KeyMaxDynamicBaseFeeDownwardAdjustment, &ppre630.MaxDynamicBaseFeeDownwardAdjustment, validateBaseFeeAdjustment),
+		paramtypes.NewParamSetPair(KeyMinFeePerGas, &ppre630.MinimumFeePerGas, validateMinFeePerGas),
+		paramtypes.NewParamSetPair(KeyWhitelistedCwCodeHashesForDelegateCall, &ppre630.WhitelistedCwCodeHashesForDelegateCall, validateWhitelistedCwHashesForDelegateCall),
+		paramtypes.NewParamSetPair(KeyDeliverTxHookWasmGasLimit, &ppre630.DeliverTxHookWasmGasLimit, validateDeliverTxHookWasmGasLimit),
+		paramtypes.NewParamSetPair(KeyTargetGasUsedPerBlock, &ppre630.TargetGasUsedPerBlock, func(i interface{}) error { return nil }),
+		paramtypes.NewParamSetPair(KeyMaxFeePerGas, &ppre630.MaximumFeePerGas, validateMaxFeePerGas),
+		paramtypes.NewParamSetPair(KeyRegisterPointerDisabled, &ppre630.RegisterPointerDisabled, validateRegisterPointerDisabled),
+	}
+}
+
 func (p Params) Validate() error {
 	if err := validatePriorityNormalizer(p.PriorityNormalizer); err != nil {
 		return err
@@ -196,6 +211,11 @@ func (ppre601 ParamsPreV601) String() string {
 
 func (ppre606 ParamsPreV606) String() string {
 	out, _ := yaml.Marshal(ppre606)
+	return string(out)
+}
+
+func (ppre630 ParamsPreV630) String() string {
+	out, _ := yaml.Marshal(ppre630)
 	return string(out)
 }
 
