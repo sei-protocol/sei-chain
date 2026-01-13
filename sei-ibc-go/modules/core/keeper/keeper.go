@@ -33,6 +33,8 @@ type Keeper struct {
 	ChannelKeeper    channelkeeper.Keeper
 	PortKeeper       portkeeper.Keeper
 	Router           *porttypes.Router
+
+	paramSpace paramtypes.Subspace
 }
 
 // NewKeeper creates a new ibc Keeper
@@ -46,6 +48,8 @@ func NewKeeper(
 	if !paramSpace.HasKeyTable() {
 		keyTable := clienttypes.ParamKeyTable()
 		keyTable.RegisterParamSet(&connectiontypes.Params{})
+		// register core params
+		keyTable.RegisterParamSet(&types.Params{})
 		paramSpace = paramSpace.WithKeyTable(keyTable)
 	}
 
@@ -65,7 +69,7 @@ func NewKeeper(
 	clientKeeper := clientkeeper.NewKeeper(cdc, key, paramSpace, stakingKeeper, upgradeKeeper)
 	connectionKeeper := connectionkeeper.NewKeeper(cdc, key, paramSpace, clientKeeper)
 	portKeeper := portkeeper.NewKeeper(scopedKeeper)
-	channelKeeper := channelkeeper.NewKeeper(cdc, key, clientKeeper, connectionKeeper, portKeeper, scopedKeeper)
+	channelKeeper := channelkeeper.NewKeeper(cdc, key, paramSpace, clientKeeper, connectionKeeper, portKeeper, scopedKeeper)
 
 	return &Keeper{
 		cdc:              cdc,
@@ -73,6 +77,7 @@ func NewKeeper(
 		ConnectionKeeper: connectionKeeper,
 		ChannelKeeper:    channelKeeper,
 		PortKeeper:       portKeeper,
+		paramSpace:       paramSpace,
 	}
 }
 

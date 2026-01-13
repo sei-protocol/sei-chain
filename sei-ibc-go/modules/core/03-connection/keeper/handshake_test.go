@@ -600,6 +600,79 @@ func (suite *KeeperTestSuite) TestConnOpenAck() {
 	}
 }
 
+// TestConnOpenTry_BlockedWhenInboundDisabled tests that ConnOpenTry
+// is blocked when inbound IBC is disabled.
+func (suite *KeeperTestSuite) TestConnOpenTry_BlockedWhenInboundDisabled() {
+	suite.SetupTest()
+
+	path := ibctesting.NewPath(suite.chainA, suite.chainB)
+	suite.coordinator.SetupClients(path)
+
+	// chainA initiates connection
+	err := path.EndpointA.ConnOpenInit()
+	suite.Require().NoError(err)
+
+	// retrieve client state of chainA to pass as counterpartyClient
+	counterpartyClient := suite.chainA.GetClientState(path.EndpointA.ClientID)
+
+	// disable inbound on chainB
+	ibcKeeperB := suite.chainB.App.GetIBCKeeper()
+	ibcKeeperB.SetInboundEnabled(suite.chainB.GetContext(), false)
+	suite.Require().False(ibcKeeperB.IsInboundEnabled(suite.chainB.GetContext()))
+
+	// ensure client is up to date on chainB
+	err = path.EndpointB.UpdateClient()
+	suite.Require().NoError(err)
+
+	counterparty := types.NewCounterparty(path.EndpointA.ClientID, path.EndpointA.ConnectionID, suite.chainA.GetPrefix())
+
+	connectionKey := host.ConnectionKey(path.EndpointA.ConnectionID)
+	proofInit, proofHeight := suite.chainA.QueryProof(connectionKey)
+
+	consensusHeight := counterpartyClient.GetLatestHeight()
+	consensusKey := host.FullConsensusStateKey(path.EndpointA.ClientID, consensusHeight)
+	proofConsensus, _ := suite.chainA.QueryProof(consensusKey)
+
+	clientKey := host.FullClientStateKey(path.EndpointA.ClientID)
+	proofClient, _ := suite.chainA.QueryProof(clientKey)
+
+	// attempt ConnOpenTry on chainB with inbound disabled
+	_, err = suite.chainB.App.GetIBCKeeper().ConnectionKeeper.ConnOpenTry(
+		suite.chainB.GetContext(), "", counterparty, 0, path.EndpointB.ClientID, counterpartyClient,
+		types.GetCompatibleVersions(), proofInit, proofClient, proofConsensus,
+		proofHeight, consensusHeight,
+	)
+
+	// should fail with ErrInboundDisabled
+	suite.Require().Error(err)
+	suite.Require().Contains(err.Error(), "inbound")
+}
+
+// TestConnOpenInit_BlockedWhenOutboundDisabled tests that ConnOpenInit
+// is blocked when outbound IBC is disabled.
+func (suite *KeeperTestSuite) TestConnOpenInit_BlockedWhenOutboundDisabled() {
+	suite.SetupTest()
+
+	path := ibctesting.NewPath(suite.chainA, suite.chainB)
+	suite.coordinator.SetupClients(path)
+
+	// disable outbound on chainA
+	ibcKeeperA := suite.chainA.App.GetIBCKeeper()
+	ibcKeeperA.SetOutboundEnabled(suite.chainA.GetContext(), false)
+	suite.Require().False(ibcKeeperA.IsOutboundEnabled(suite.chainA.GetContext()))
+
+	counterparty := types.NewCounterparty(path.EndpointB.ClientID, "", suite.chainB.GetPrefix())
+
+	// attempt ConnOpenInit on chainA with outbound disabled
+	_, err := suite.chainA.App.GetIBCKeeper().ConnectionKeeper.ConnOpenInit(
+		suite.chainA.GetContext(), path.EndpointA.ClientID, counterparty, types.DefaultIBCVersion, 0,
+	)
+
+	// should fail with ErrOutboundDisabled
+	suite.Require().Error(err)
+	suite.Require().Contains(err.Error(), "outbound")
+}
+
 // TestConnOpenConfirm - chainB calls ConnOpenConfirm to confirm that
 // chainA state is now OPEN.
 func (suite *KeeperTestSuite) TestConnOpenConfirm() {

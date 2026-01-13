@@ -63,6 +63,7 @@ if [ "$any_change" = true ]; then
     cp "$SRC" "$TARGET/"
     # Replace package line
     sed -i '' "1s|^package .*|package $TAG_FOLDER|" "$TARGET/precompiles.go"
+    sed -i '' "1s|^package .*|package $TAG_FOLDER|" "$TARGET/evm_events.go"
   fi
 fi
 
