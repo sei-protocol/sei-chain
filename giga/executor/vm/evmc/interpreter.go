@@ -7,12 +7,12 @@ import (
 
 // EVMInterpreter is a custom interpreter that delegates execution to evmone via EVMC.
 type EVMInterpreter struct {
-	hostContext evmc.HostContext
+	hostContext *HostContext
 	evm         *vm.EVM
 	readOnly    bool
 }
 
-func NewEVMInterpreter(hostContext evmc.HostContext, evm *vm.EVM) *EVMInterpreter {
+func NewEVMInterpreter(hostContext *HostContext, evm *vm.EVM) *EVMInterpreter {
 	return &EVMInterpreter{hostContext: hostContext, evm: evm}
 }
 
@@ -35,12 +35,9 @@ func (e *EVMInterpreter) Run(contract *vm.Contract, input []byte, readOnly bool)
 	recipient := evmc.Address{}
 	sender := evmc.Address{}
 	static := false
-	// irrelevant as it is only used for CREATE2 - geth is handling our CREATE2 logic
-	salt := evmc.Hash{}
-	codeAddress := evmc.Address{}
 	//nolint:dogsled,gosec // dogsled: Call returns 5 values, we only need output and err; gosec: safe gas conversion
-	output, _, _, _, err := e.hostContext.Call(callKind, recipient, sender, contract.Value().Bytes32(), input,
-		int64(contract.Gas), depth, static, salt, codeAddress)
+	output, _, _, _, err := e.hostContext.Execute(callKind, recipient, sender, contract.Value().Bytes32(), input,
+		int64(contract.Gas), depth, static)
 	if err != nil {
 		return nil, err
 	}

@@ -14,19 +14,10 @@ var _ evmc.HostContext = (*HostContext)(nil)
 type HostContext struct {
 	vm  *evmc.VM
 	evm *vm.EVM
-	// delegateToGeth controls whether Call should delegate to geth's EVM implementation
-	// This is set to true when entering from the interpreter (top-level calls)
-	// and should delegate child calls back to geth's implementation
-	delegateToGeth bool
 }
 
 func NewHostContext(vm *evmc.VM, evm *vm.EVM) *HostContext {
-	return &HostContext{vm: vm, evm: evm, delegateToGeth: true}
-}
-
-// SetDelegateToGeth controls whether Call should route to geth's EVM implementation
-func (h *HostContext) SetDelegateToGeth(delegate bool) {
-	h.delegateToGeth = delegate
+	return &HostContext{vm: vm, evm: evm}
 }
 
 func (h *HostContext) AccountExists(addr evmc.Address) bool {
@@ -151,64 +142,11 @@ func (h *HostContext) EmitLog(addr evmc.Address, topics []evmc.Hash, data []byte
 	h.evm.StateDB.AddLog(&ethtypes.Log{Address: common.Address(addr), Topics: gethTopics, Data: data})
 }
 
-// Call routes EVM calls either to geth's implementation or to evmone via evmc.
-// When delegateToGeth is true (default), calls are routed to geth's EVM which handles
-// all the complexity of call types. When false, calls go through evmc to evmone.
-//
-// The call flow is:
-//   - Top-level: interpreter.Run -> HostContext.Call (delegateToGeth=true) -> evm.Call/DelegateCall/etc
-//   - evmone path: evmc.Execute -> HostContext.Call (delegateToGeth=false) -> h.vm.Execute
-func (h *HostContext) Call(
-	kind evmc.CallKind, recipient evmc.Address, sender evmc.Address, value evmc.Hash, input []byte, gas int64,
-	depth int, static bool, salt evmc.Hash, codeAddress evmc.Address,
-) ([]byte, int64, int64, evmc.Address, error) {
-	// Convert evmc types to geth types
-	recipientAddr := common.Address(recipient)
-	senderAddr := common.Address(sender)
-	valueUint256 := new(uint256.Int).SetBytes(value[:])
-
-	// When delegateToGeth is true, route calls through geth's EVM implementation
-	if h.delegateToGeth {
-		var ret []byte
-		var leftoverGas uint64
-		var err error
-		var createAddr common.Address
-
-		//nolint:gosec // G115: safe integer conversions for gas values
-		switch kind {
-		case evmc.Call:
-			if static {
-				ret, leftoverGas, err = h.evm.StaticCall(senderAddr, recipientAddr, input, uint64(gas))
-			} else {
-				ret, leftoverGas, err = h.evm.Call(senderAddr, recipientAddr, input, uint64(gas), valueUint256)
-			}
-		case evmc.DelegateCall:
-			// DelegateCall signature: (originCaller, caller, addr, input, gas, value)
-			// In delegate call, the sender is the origin, recipient is the target
-			ret, leftoverGas, err = h.evm.DelegateCall(h.evm.Origin, senderAddr, recipientAddr, input, uint64(gas), valueUint256)
-		case evmc.CallCode:
-			ret, leftoverGas, err = h.evm.CallCode(senderAddr, recipientAddr, input, uint64(gas), valueUint256)
-		case evmc.Create:
-			ret, createAddr, leftoverGas, err = h.evm.Create(senderAddr, input, uint64(gas), valueUint256)
-			return ret, int64(leftoverGas), 0, evmc.Address(createAddr), err
-		case evmc.Create2:
-			saltUint256 := new(uint256.Int).SetBytes(salt[:])
-			ret, createAddr, leftoverGas, err = h.evm.Create2(senderAddr, input, uint64(gas), valueUint256, saltUint256)
-			return ret, int64(leftoverGas), 0, evmc.Address(createAddr), err
-		default:
-			// StaticCall and EofCreate are handled here
-			ret, leftoverGas, err = h.evm.StaticCall(senderAddr, recipientAddr, input, uint64(gas))
-		}
-
-		//nolint:gosec // G115: safe, leftoverGas won't exceed int64 max
-		return ret, int64(leftoverGas), 0, evmc.Address{}, err
-	}
-
-	// When not delegating to geth, use evmc/evmone for execution
-	// Determine EVM revision based on chain config and block number
+func (h *HostContext) Execute(kind evmc.CallKind, recipient evmc.Address, sender evmc.Address, value evmc.Hash, input []byte, gas int64,
+	depth int, static bool) ([]byte, int64, int64, evmc.Address, error) {
 	evmRevision := h.getEVMRevision()
 	delegated := kind == evmc.DelegateCall || kind == evmc.CallCode
-	code := h.evm.StateDB.GetCode(recipientAddr)
+	code := h.evm.StateDB.GetCode(common.Address(recipient))
 
 	executionResult, err := h.vm.Execute(
 		h, evmRevision, kind, static, delegated, depth,
@@ -227,6 +165,75 @@ func (h *HostContext) Call(
 	}
 
 	return executionResult.Output, executionResult.GasLeft, executionResult.GasRefund, createAddr, nil
+}
+
+func (h *HostContext) Call(
+	kind evmc.CallKind, recipient evmc.Address, sender evmc.Address, value evmc.Hash, input []byte, gas int64,
+	depth int, static bool, salt evmc.Hash, codeAddress evmc.Address,
+) ([]byte, int64, int64, evmc.Address, error) {
+	recipientAddr := common.Address(recipient)
+	senderAddr := common.Address(sender)
+	valueUint256 := new(uint256.Int).SetBytes(value[:])
+	var ret []byte
+	var leftoverGas uint64
+	var err error
+	var createAddr common.Address
+
+	//nolint:gosec // G115: safe integer conversions for gas values
+	switch kind {
+	case evmc.Call:
+		if static {
+			ret, leftoverGas, err = h.evm.StaticCall(senderAddr, recipientAddr, input, uint64(gas))
+		} else {
+			ret, leftoverGas, err = h.evm.Call(senderAddr, recipientAddr, input, uint64(gas), valueUint256)
+		}
+	case evmc.DelegateCall:
+		// DelegateCall signature: (originCaller, caller, addr, input, gas, value)
+		// In delegate call, the sender is the origin, recipient is the target
+		ret, leftoverGas, err = h.evm.DelegateCall(
+			h.evm.Origin, senderAddr, recipientAddr, input, uint64(gas), valueUint256,
+		)
+	case evmc.CallCode:
+		ret, leftoverGas, err = h.evm.CallCode(senderAddr, recipientAddr, input, uint64(gas), valueUint256)
+	case evmc.Create:
+		ret, createAddr, leftoverGas, err = h.evm.Create(senderAddr, input, uint64(gas), valueUint256)
+		return ret, int64(leftoverGas), 0, evmc.Address(createAddr), err
+	case evmc.Create2:
+		saltUint256 := new(uint256.Int).SetBytes(salt[:])
+		ret, createAddr, leftoverGas, err = h.evm.Create2(senderAddr, input, uint64(gas), valueUint256, saltUint256)
+		return ret, int64(leftoverGas), 0, evmc.Address(createAddr), err
+	default:
+		panic("EofCreate is not supported")
+	}
+
+	//nolint:gosec // G115: safe, leftoverGas won't exceed int64 max
+	return ret, int64(leftoverGas), 0, evmc.Address{}, err
+}
+
+func (h *HostContext) AccessAccount(addr evmc.Address) evmc.AccessStatus {
+	addrInAccessList := h.evm.StateDB.AddressInAccessList(common.Address(addr))
+	if addrInAccessList {
+		return evmc.WarmAccess
+	}
+	// todo(pdrobnjak): poll something similar to - https://github.com/sei-protocol/sei-v3/blob/cd50388d4d423501b15a544612643073680aa8de/execute/store/types/types.go#L23 - temporarily we can expose access via our statedb impl for testing
+	return evmc.ColdAccess
+}
+
+func (h *HostContext) AccessStorage(addr evmc.Address, key evmc.Hash) evmc.AccessStatus {
+	addrInAccessList, slotInAccessList := h.evm.StateDB.SlotInAccessList(common.Address(addr), common.Hash(key))
+	if addrInAccessList && slotInAccessList {
+		return evmc.WarmAccess
+	}
+	// todo(pdrobnjak): poll something similar to - https://github.com/sei-protocol/sei-v3/blob/cd50388d4d423501b15a544612643073680aa8de/execute/store/types/types.go#L22 - temporarily we can expose access via our statedb impl for testing
+	return evmc.ColdAccess
+}
+
+func (h *HostContext) GetTransientStorage(addr evmc.Address, key evmc.Hash) evmc.Hash {
+	return evmc.Hash(h.evm.StateDB.GetTransientState(common.Address(addr), common.Hash(key)))
+}
+
+func (h *HostContext) SetTransientStorage(addr evmc.Address, key evmc.Hash, value evmc.Hash) {
+	h.evm.StateDB.SetTransientState(common.Address(addr), common.Hash(key), common.Hash(value))
 }
 
 // getEVMRevision determines the EVM revision based on the current chain configuration
@@ -280,30 +287,4 @@ func (h *HostContext) getEVMRevision() evmc.Revision {
 		return evmc.Homestead
 	}
 	return evmc.Frontier
-}
-
-func (h *HostContext) AccessAccount(addr evmc.Address) evmc.AccessStatus {
-	addrInAccessList := h.evm.StateDB.AddressInAccessList(common.Address(addr))
-	if addrInAccessList {
-		return evmc.WarmAccess
-	}
-	// todo(pdrobnjak): poll something similar to - https://github.com/sei-protocol/sei-v3/blob/cd50388d4d423501b15a544612643073680aa8de/execute/store/types/types.go#L23 - temporarily we can expose access via our statedb impl for testing
-	return evmc.ColdAccess
-}
-
-func (h *HostContext) AccessStorage(addr evmc.Address, key evmc.Hash) evmc.AccessStatus {
-	addrInAccessList, slotInAccessList := h.evm.StateDB.SlotInAccessList(common.Address(addr), common.Hash(key))
-	if addrInAccessList && slotInAccessList {
-		return evmc.WarmAccess
-	}
-	// todo(pdrobnjak): poll something similar to - https://github.com/sei-protocol/sei-v3/blob/cd50388d4d423501b15a544612643073680aa8de/execute/store/types/types.go#L22 - temporarily we can expose access via our statedb impl for testing
-	return evmc.ColdAccess
-}
-
-func (h *HostContext) GetTransientStorage(addr evmc.Address, key evmc.Hash) evmc.Hash {
-	return evmc.Hash(h.evm.StateDB.GetTransientState(common.Address(addr), common.Hash(key)))
-}
-
-func (h *HostContext) SetTransientStorage(addr evmc.Address, key evmc.Hash, value evmc.Hash) {
-	h.evm.StateDB.SetTransientState(common.Address(addr), common.Hash(key), common.Hash(value))
 }
