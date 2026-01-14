@@ -361,7 +361,7 @@ func (t *MultiTree) UpdateCommitInfo() {
 // Catchup replays WAL entries to catch up the tree to the target or latest version.
 // delta is the difference between version and WAL index (version = walIndex + delta).
 // endVersion specifies the target version (0 means catch up to latest).
-func (t *MultiTree) Catchup(ctx context.Context, stream wal.GenericWAL[proto.ChangelogEntry], delta int64, endVersion int64) error {
+func (t *MultiTree) Catchup(ctx context.Context, stream wal.ChangelogWAL, delta int64, endVersion int64) error {
 	startTime := time.Now()
 
 	// Get actual WAL index range

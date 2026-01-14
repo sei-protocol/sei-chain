@@ -55,7 +55,7 @@ type DB struct {
 
 	// streamHandler is the changelog WAL owned by MemIAVL.
 	// It is opened during OpenDB (if present / allowed) and closed in DB.Close().
-	streamHandler wal.GenericWAL[proto.ChangelogEntry]
+	streamHandler wal.ChangelogWAL
 	// pendingLogEntry accumulates changes (changesets + upgrades) to be written
 	// into the changelog WAL on the next Commit().
 	pendingLogEntry proto.ChangelogEntry
@@ -318,7 +318,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 }
 
 // GetWAL returns the WAL handler for changelog operations.
-func (db *DB) GetWAL() wal.GenericWAL[proto.ChangelogEntry] {
+func (db *DB) GetWAL() wal.ChangelogWAL {
 	return db.streamHandler
 }
 
@@ -555,7 +555,7 @@ func (db *DB) pruneSnapshots() {
 // computeWALIndexDelta computes the constant delta between version and WAL index.
 // Since both are strictly contiguous, we only need to read one entry.
 // Returns (delta, hasEntries, error). hasEntries is false if WAL is empty.
-func computeWALIndexDelta(stream wal.GenericWAL[proto.ChangelogEntry]) (int64, bool, error) {
+func computeWALIndexDelta(stream wal.ChangelogWAL) (int64, bool, error) {
 	firstIndex, err := stream.FirstOffset()
 	if err != nil {
 		return 0, false, err

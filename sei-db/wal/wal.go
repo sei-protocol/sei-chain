@@ -234,8 +234,16 @@ func (walLog *WAL[T]) StartPruning(keepRecent uint64, pruneInterval time.Duratio
 		case <-walLog.closeCh:
 			return
 		case <-ticker.C:
-			lastIndex, _ := walLog.log.LastIndex()
-			firstIndex, _ := walLog.log.FirstIndex()
+			lastIndex, err := walLog.log.LastIndex()
+			if err != nil {
+				walLog.logger.Error("failed to get last index for pruning", "err", err)
+				continue
+			}
+			firstIndex, err := walLog.log.FirstIndex()
+			if err != nil {
+				walLog.logger.Error("failed to get first index for pruning", "err", err)
+				continue
+			}
 			if lastIndex > keepRecent && (lastIndex-keepRecent) > firstIndex {
 				prunePos := lastIndex - keepRecent
 				if err := walLog.TruncateBefore(prunePos); err != nil {
