@@ -378,7 +378,7 @@ type App struct {
 	genesisImportConfig genesistypes.GenesisImportConfig
 
 	stateStore   seidb.StateStore
-	receiptStore seidb.StateStore
+	receiptStore evmkeeper.ReceiptStore
 
 	forkInitializer func(sdk.Context)
 
@@ -620,10 +620,11 @@ func New(
 	ssConfig.DBDirectory = receiptStorePath
 	ssConfig.KeepLastVersion = false
 	if app.receiptStore == nil {
-		app.receiptStore, err = ss.NewStateStore(logger, receiptStorePath, ssConfig)
+		receiptStateStore, err := ss.NewStateStore(logger, receiptStorePath, ssConfig)
 		if err != nil {
 			panic(fmt.Sprintf("error while creating receipt store: %s", err))
 		}
+		app.receiptStore = evmkeeper.NewReceiptStore(receiptStateStore, keys[evmtypes.StoreKey])
 	}
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,

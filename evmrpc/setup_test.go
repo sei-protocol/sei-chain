@@ -574,10 +574,10 @@ func init() {
 	testApp.Commit(context.Background())
 	if store := EVMKeeper.ReceiptStore(); store != nil {
 		latest := int64(math.MaxInt64)
-		if err := store.SetLatestVersion(latest); err != nil {
+		if err := store.SetLatestHeight(latest); err != nil {
 			panic(err)
 		}
-		_ = store.SetEarliestVersion(1, true)
+		_ = store.SetEarliestHeight(1)
 	}
 	ctxProvider := func(height int64) sdk.Context {
 		if height == MockHeight2 {
@@ -1097,10 +1097,10 @@ func setupLogs() {
 	EVMKeeper.SetEvmOnlyBlockBloom(Ctx, []ethtypes.Bloom{bloom4, bloomTx1})
 
 	if store := EVMKeeper.ReceiptStore(); store != nil {
-		if err := store.SetLatestVersion(MockHeight103); err != nil {
+		if err := store.SetLatestHeight(MockHeight103); err != nil {
 			panic(err)
 		}
-		_ = store.SetEarliestVersion(1, true)
+		_ = store.SetEarliestHeight(1)
 	}
 
 }

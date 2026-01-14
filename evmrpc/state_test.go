@@ -217,8 +217,8 @@ func TestGetProof(t *testing.T) {
 		require.Nil(t, err)
 	}
 	if store := testApp.EvmKeeper.ReceiptStore(); store != nil {
-		require.NoError(t, store.SetLatestVersion(MockHeight8))
-		require.NoError(t, store.SetEarliestVersion(1, true))
+		require.NoError(t, store.SetLatestHeight(MockHeight8))
+		require.NoError(t, store.SetEarliestHeight(1))
 	}
 	client := &MockClient{}
 	ctxProvider := func(height int64) sdk.Context {

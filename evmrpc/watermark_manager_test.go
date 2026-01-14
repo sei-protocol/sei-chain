@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
 
@@ -15,6 +17,8 @@ import (
 
 	proto "github.com/sei-protocol/sei-chain/sei-db/proto"
 	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/bytes"
@@ -28,7 +32,7 @@ func TestWatermarksAggregatesSources(t *testing.T) {
 		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 10, EarliestBlockHeight: 2}},
 	}
 	stateStore := &fakeStateStore{latest: 8, earliest: 3}
-	receiptStore := &fakeStateStore{latest: 9, earliest: 3}
+	receiptStore := &fakeReceiptStore{latest: 9}
 	wm := NewWatermarkManager(tmClient, nil, stateStore, receiptStore)
 
 	blockEarliest, stateEarliest, latest, err := wm.Watermarks(context.Background())
@@ -232,6 +236,39 @@ func (f *fakeStateStore) Import(_ int64, _ <-chan sstypes.SnapshotNode) error   
 func (f *fakeStateStore) RawImport(_ <-chan sstypes.RawSnapshotNode) error             { return nil }
 func (f *fakeStateStore) Prune(_ int64) error                                          { return nil }
 func (f *fakeStateStore) Close() error                                                 { return nil }
+
+type fakeReceiptStore struct {
+	latest int64
+}
+
+func (f *fakeReceiptStore) LatestHeight() int64 {
+	return f.latest
+}
+
+func (f *fakeReceiptStore) SetLatestHeight(height int64) error {
+	f.latest = height
+	return nil
+}
+
+func (f *fakeReceiptStore) SetEarliestHeight(_ int64) error { return nil }
+
+func (f *fakeReceiptStore) GetReceipt(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
+	return nil, errors.New("not found")
+}
+
+func (f *fakeReceiptStore) GetReceiptFromStore(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
+	return nil, errors.New("not found")
+}
+
+func (f *fakeReceiptStore) StoreReceipts(sdk.Context, []evmkeeper.ReceiptRecord) error {
+	return nil
+}
+
+func (f *fakeReceiptStore) FilterLogs(sdk.Context, int64, common.Hash, []common.Hash, filters.FilterCriteria, bool) ([]*ethtypes.Log, error) {
+	return []*ethtypes.Log{}, nil
+}
+
+func (f *fakeReceiptStore) Close() error { return nil }
 
 type fakeMultiStore struct {
 	earliest int64

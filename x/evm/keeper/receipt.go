@@ -3,14 +3,11 @@ package keeper
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -59,50 +56,18 @@ func (k *Keeper) DeleteTransientReceipt(ctx sdk.Context, txHash common.Hash, txI
 // Many EVM applications (e.g. MetaMask) relies on being on able to query receipt
 // by EVM transaction hash (not Sei transaction hash) to function properly.
 func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	// receipts are immutable, use latest version
-	lv := k.receiptStore.GetLatestVersion()
-
-	// try persistent store
-	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
-	if err != nil {
-		return nil, err
+	if k.receiptStore == nil {
+		return nil, errors.New("receipt store not configured")
 	}
-
-	if bz == nil {
-		// try legacy store for older receipts
-		store := ctx.KVStore(k.storeKey)
-		bz = store.Get(types.ReceiptKey(txHash))
-		if bz == nil {
-			return nil, errors.New("not found")
-		}
-	}
-
-	var r types.Receipt
-	if err := r.Unmarshal(bz); err != nil {
-		return nil, err
-	}
-	return &r, nil
+	return k.receiptStore.GetReceipt(ctx, txHash)
 }
 
 // Only used for testing
 func (k *Keeper) GetReceiptFromReceiptStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	// receipts are immutable, use latest version
-	lv := k.receiptStore.GetLatestVersion()
-
-	// try persistent store
-	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
-	if err != nil {
-		return nil, err
+	if k.receiptStore == nil {
+		return nil, errors.New("receipt store not configured")
 	}
-	if bz == nil {
-		return nil, errors.New("not found")
-	}
-
-	var r types.Receipt
-	if err := r.Unmarshal(bz); err != nil {
-		return nil, err
-	}
-	return &r, nil
+	return k.receiptStore.GetReceiptFromStore(ctx, txHash)
 }
 
 // GetReceiptWithRetry attempts to get a receipt with retries to handle race conditions
@@ -177,7 +142,7 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
 	transientReceiptStore := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix)
 	iter := transientReceiptStore.Iterator(nil, nil)
 	defer func() { _ = iter.Close() }()
-	var pairs []*iavl.KVPair
+	records := make([]ReceiptRecord, 0)
 
 	// TransientReceiptStore is recreated on commit meaning it will only contain receipts for a single block at a time
 	// and will never flush a subset of block's receipts.
@@ -195,36 +160,13 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
 			receipt.CumulativeGasUsed = cumulativeGasUsedPerBlock[receipt.BlockNumber]
 		}
 
-		marshalledReceipt, err := receipt.Marshal()
-		if err != nil {
-			return err
-		}
-
-		kvPair := &iavl.KVPair{Key: types.ReceiptKey(types.TransientReceiptKey(iter.Key()).TransactionHash()), Value: marshalledReceipt}
-		pairs = append(pairs, kvPair)
+		txHash := types.TransientReceiptKey(iter.Key()).TransactionHash()
+		records = append(records, ReceiptRecord{TxHash: txHash, Receipt: receipt})
 	}
-	ncs := &proto.NamedChangeSet{
-		Name:      types.ReceiptStoreKey,
-		Changeset: iavl.ChangeSet{Pairs: pairs},
+	if k.receiptStore == nil {
+		return errors.New("receipt store not configured")
 	}
-
-	var changesets []*proto.NamedChangeSet
-	changesets = append(changesets, ncs)
-	// Genesis and some unit tests execute at block height 0. Async writes
-	// rely on a positive version to avoid regressions in the underlying
-	// state store metadata, so fall back to a synchronous apply in that case.
-	if ctx.BlockHeight() == 0 {
-		return k.receiptStore.ApplyChangesetSync(ctx.BlockHeight(), changesets)
-	}
-	err := k.receiptStore.ApplyChangesetAsync(ctx.BlockHeight(), changesets)
-	if err != nil {
-		if !strings.Contains(err.Error(), "not implemented") { // for tests
-			return err
-		}
-		// fallback to synchronous apply for stores that do not support async writes
-		return k.receiptStore.ApplyChangesetSync(ctx.BlockHeight(), []*proto.NamedChangeSet{ncs})
-	}
-	return nil
+	return k.receiptStore.StoreReceipts(ctx, records)
 }
 
 // MigrateLegacyReceiptsBatch moves up to batchSize receipts from the legacy KV store

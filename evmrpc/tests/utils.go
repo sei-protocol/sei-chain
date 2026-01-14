@@ -162,10 +162,10 @@ func setupTestServer(
 	}
 	if store := a.EvmKeeper.ReceiptStore(); store != nil {
 		latest := int64(math.MaxInt64)
-		if err := store.SetLatestVersion(latest); err != nil {
+		if err := store.SetLatestHeight(latest); err != nil {
 			panic(err)
 		}
-		_ = store.SetEarliestVersion(1, true)
+		_ = store.SetEarliestHeight(1)
 	}
 	return TestServer{EVMServer: s, port: port, mockClient: mockClient, app: a}
 }

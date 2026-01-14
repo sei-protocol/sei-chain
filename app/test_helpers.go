@@ -15,9 +15,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
+	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/suite"
 	"github.com/tendermint/tendermint/config"
 
@@ -247,7 +248,7 @@ func (s *TestWrapper) EndBlock() {
 	legacyabci.EndBlock(s.Ctx, s.Ctx.BlockHeight(), 0, s.App.EndBlockKeepers)
 }
 
-func setupReceiptStore() (seidbtypes.StateStore, error) {
+func setupReceiptStore(storeKey sdk.StoreKey) (evmkeeper.ReceiptStore, error) {
 	// Create a unique temporary directory per test process to avoid Pebble DB lock conflicts
 	baseDir := filepath.Join(os.TempDir(), "sei-testing")
 	if err := os.MkdirAll(baseDir, 0o750); err != nil {
@@ -262,11 +263,11 @@ func setupReceiptStore() (seidbtypes.StateStore, error) {
 	ssConfig.KeepRecent = 0 // No min retain blocks in test
 	ssConfig.DBDirectory = tempDir
 	ssConfig.KeepLastVersion = false
-	receiptStore, err := ss.NewStateStore(log.NewNopLogger(), tempDir, ssConfig)
+	receiptStateStore, err := ss.NewStateStore(log.NewNopLogger(), tempDir, ssConfig)
 	if err != nil {
 		return nil, err
 	}
-	return receiptStore, nil
+	return evmkeeper.NewReceiptStore(receiptStateStore, storeKey), nil
 }
 
 func SetupWithDefaultHome(isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
@@ -275,7 +276,7 @@ func SetupWithDefaultHome(isCheckTx bool, enableEVMCustomPrecompiles bool, overr
 
 	options := []AppOption{
 		func(app *App) {
-			receiptStore, err := setupReceiptStore()
+			receiptStore, err := setupReceiptStore(app.keys[evmtypes.StoreKey])
 			if err != nil {
 				panic(fmt.Sprintf("error while creating receipt store: %s", err))
 			}
@@ -345,7 +346,7 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 
 	options := []AppOption{
 		func(app *App) {
-			receiptStore, err := setupReceiptStore()
+			receiptStore, err := setupReceiptStore(app.keys[evmtypes.StoreKey])
 			if err != nil {
 				panic(fmt.Sprintf("error while creating receipt store: %s", err))
 			}
@@ -411,7 +412,7 @@ func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, 
 
 	options := []AppOption{
 		func(app *App) {
-			receiptStore, err := setupReceiptStore()
+			receiptStore, err := setupReceiptStore(app.keys[evmtypes.StoreKey])
 			if err != nil {
 				panic(fmt.Sprintf("error while creating receipt store: %s", err))
 			}
