@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/wal"
@@ -189,8 +192,7 @@ func TestOpenWithNilOptions(t *testing.T) {
 
 func TestTruncateAfter(t *testing.T) {
 	changelog := prepareTestData(t)
-	err := changelog.Close()
-	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
 
 	// Verify we have 3 entries
 	lastIndex, err := changelog.LastOffset()
@@ -219,8 +221,7 @@ func TestTruncateAfter(t *testing.T) {
 
 func TestTruncateBefore(t *testing.T) {
 	changelog := prepareTestData(t)
-	err := changelog.Close()
-	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
 
 	// Verify we have 3 entries starting at 1
 	firstIndex, err := changelog.FirstOffset()
@@ -465,6 +466,282 @@ func TestWriteMultipleChangesets(t *testing.T) {
 	require.Equal(t, "store1", readEntry.Changesets[0].Name)
 	require.Equal(t, "store2", readEntry.Changesets[1].Name)
 	require.Equal(t, "store3", readEntry.Changesets[2].Name)
+}
+
+func TestConcurrentCloseWithInFlightAsyncWrites_NoPanicOrDeadlock(t *testing.T) {
+	dir := t.TempDir()
+	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{WriteBufferSize: 8})
+	require.NoError(t, err)
+
+	// We intentionally do NOT use t.Cleanup here because we want to race Close() explicitly.
+
+	var (
+		stop      atomic.Bool
+		panicOnce sync.Once
+		panicVal  atomic.Value
+	)
+
+	writer := func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicOnce.Do(func() { panicVal.Store(r) })
+			}
+		}()
+		for !stop.Load() {
+			entry := proto.ChangelogEntry{
+				Changesets: []*proto.NamedChangeSet{{
+					Name:      "test",
+					Changeset: iavl.ChangeSet{Pairs: MockKVPairs("k", "v")},
+				}},
+			}
+			_ = changelog.Write(entry) // may return "wal is closed"; must not panic or deadlock
+		}
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); writer() }()
+	}
+
+	// Give writers a moment to start pushing.
+	time.Sleep(20 * time.Millisecond)
+
+	// Race: close while writes are potentially in-flight.
+	_ = changelog.Close()
+
+	stop.Store(true)
+
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("writers did not exit (possible deadlock)")
+	}
+
+	if v := panicVal.Load(); v != nil {
+		t.Fatalf("panic during concurrent write/close: %v", v)
+	}
+}
+
+func TestConcurrentAsyncWritesWithPruningAndTruncateBefore_NoDeadlockOrCorruption(t *testing.T) {
+	dir := t.TempDir()
+	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{
+		WriteBufferSize: 32,
+		KeepRecent:      50,
+		PruneInterval:   1 * time.Millisecond,
+	})
+	require.NoError(t, err)
+
+	var (
+		stop      atomic.Bool
+		panicOnce sync.Once
+		panicVal  atomic.Value
+	)
+
+	// Writer goroutines.
+	var seq atomic.Uint64
+	writeWorker := func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicOnce.Do(func() { panicVal.Store(r) })
+			}
+		}()
+		for !stop.Load() {
+			n := seq.Add(1)
+			entry := proto.ChangelogEntry{
+				Changesets: []*proto.NamedChangeSet{{
+					Name:      "test",
+					Changeset: iavl.ChangeSet{Pairs: MockKVPairs(fmt.Sprintf("k-%d", n), "v")},
+				}},
+			}
+			// Ignore errors (e.g. closed), but must not panic/deadlock.
+			_ = changelog.Write(entry)
+			if n >= 500 {
+				return
+			}
+		}
+	}
+
+	// Truncation goroutine (front truncation only).
+	truncWorker := func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicOnce.Do(func() { panicVal.Store(r) })
+			}
+		}()
+		ticker := time.NewTicker(2 * time.Millisecond)
+		defer ticker.Stop()
+		for !stop.Load() {
+			<-ticker.C
+			last, err := changelog.LastOffset()
+			if err != nil || last == 0 {
+				continue
+			}
+			// Try to keep last ~100 entries.
+			var pruneBefore uint64
+			if last > 100 {
+				pruneBefore = last - 100
+			} else {
+				pruneBefore = 1
+			}
+			_ = changelog.TruncateBefore(pruneBefore)
+		}
+	}
+
+	// Concurrent reader goroutine.
+	readWorker := func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicOnce.Do(func() { panicVal.Store(r) })
+			}
+		}()
+		ticker := time.NewTicker(1 * time.Millisecond)
+		defer ticker.Stop()
+		for !stop.Load() {
+			<-ticker.C
+			first, err1 := changelog.FirstOffset()
+			last, err2 := changelog.LastOffset()
+			if err1 != nil || err2 != nil || first == 0 || last == 0 || first > last {
+				continue
+			}
+			// Read around the midpoint.
+			mid := first + (last-first)/2
+			_, _ = changelog.ReadAt(mid)
+		}
+	}
+
+	var writerWg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		writerWg.Add(1)
+		go func() { defer writerWg.Done(); writeWorker() }()
+	}
+	var bgWg sync.WaitGroup
+	bgWg.Add(1)
+	go func() { defer bgWg.Done(); truncWorker() }()
+	bgWg.Add(1)
+	go func() { defer bgWg.Done(); readWorker() }()
+
+	writerWg.Wait()
+	stop.Store(true)
+	bgDone := make(chan struct{})
+	go func() { bgWg.Wait(); close(bgDone) }()
+	select {
+	case <-bgDone:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("background workers did not exit (possible deadlock)")
+	}
+
+	require.NoError(t, changelog.Close())
+
+	if v := panicVal.Load(); v != nil {
+		t.Fatalf("panic during concurrent WAL operations: %v", v)
+	}
+
+	// Reopen and ensure the remaining range is readable via Replay.
+	changelog2, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, changelog2.Close()) })
+
+	first, err := changelog2.FirstOffset()
+	require.NoError(t, err)
+	last, err := changelog2.LastOffset()
+	require.NoError(t, err)
+	require.True(t, first <= last, "invalid WAL index range: first=%d last=%d", first, last)
+	if last > 0 && first > 0 {
+		require.NoError(t, changelog2.Replay(first, last, func(index uint64, entry proto.ChangelogEntry) error {
+			// basic sanity: entries should be decodable and have expected structure
+			if len(entry.Changesets) > 0 && len(entry.Changesets[0].Changeset.Pairs) > 0 {
+				_ = entry.Changesets[0].Changeset.Pairs[0].Key
+			}
+			return nil
+		}))
+	}
+}
+
+func TestConcurrentTruncateBeforeWithSyncWrites_DoesNotCorruptOrAffectWriteIndex(t *testing.T) {
+	dir := t.TempDir()
+	// Use sync writes to make the expected index deterministic (LastIndex+1 for each write).
+	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
+
+	const (
+		totalWrites = 300
+		keepRecent  = uint64(50)
+	)
+
+	stop := make(chan struct{})
+	var truncPanic atomic.Value
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				truncPanic.Store(r)
+			}
+		}()
+		ticker := time.NewTicker(1 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				last, err := changelog.LastOffset()
+				if err != nil || last == 0 {
+					continue
+				}
+				var pruneBefore uint64 = 1
+				if last > keepRecent {
+					pruneBefore = last - keepRecent
+				}
+				// Truncate front concurrently with writes.
+				_ = changelog.TruncateBefore(pruneBefore)
+			}
+		}
+	}()
+
+	var lastSeen uint64
+	for i := 1; i <= totalWrites; i++ {
+		entry := proto.ChangelogEntry{
+			Changesets: []*proto.NamedChangeSet{{
+				Name:      "test",
+				Changeset: iavl.ChangeSet{Pairs: MockKVPairs(fmt.Sprintf("k-%d", i), "v")},
+			}},
+		}
+		require.NoError(t, changelog.Write(entry))
+
+		// The last offset should advance monotonically by exactly 1 per write
+		// because we only truncate the front (which doesn't change LastIndex).
+		last, err := changelog.LastOffset()
+		require.NoError(t, err)
+		require.Equal(t, uint64(i), last)
+		require.True(t, last > lastSeen, "last offset must be strictly increasing")
+		lastSeen = last
+
+		// Sanity: the newest entry is readable and decodes correctly.
+		got, err := changelog.ReadAt(last)
+		require.NoError(t, err)
+		require.Len(t, got.Changesets, 1)
+		require.Equal(t, []byte(fmt.Sprintf("k-%d", i)), got.Changesets[0].Changeset.Pairs[0].Key)
+	}
+
+	close(stop)
+	if v := truncPanic.Load(); v != nil {
+		t.Fatalf("panic during concurrent truncation: %v", v)
+	}
+
+	// Reopen and ensure the remaining range is replayable.
+	changelog2, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, changelog2.Close()) })
+
+	first, err := changelog2.FirstOffset()
+	require.NoError(t, err)
+	last, err := changelog2.LastOffset()
+	require.NoError(t, err)
+	require.True(t, first <= last, "invalid WAL range after concurrent truncation")
+	require.NoError(t, changelog2.Replay(first, last, func(index uint64, entry proto.ChangelogEntry) error { return nil }))
 }
 
 func TestGetLastIndex(t *testing.T) {

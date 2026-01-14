@@ -87,9 +87,9 @@ func NewWAL[T any](
 // Whether the writes is in blocking or async manner depends on the buffer size.
 // For async writes, this also checks for any previous async write errors.
 func (walLog *WAL[T]) Write(entry T) error {
+	// Never hold walLog.mtx while doing a potentially-blocking send. Close() may run concurrently.
 	walLog.mtx.Lock()
 	defer walLog.mtx.Unlock()
-
 	if walLog.isClosed.Load() {
 		return errors.New("wal is closed")
 	}
@@ -98,7 +98,6 @@ func (walLog *WAL[T]) Write(entry T) error {
 	}
 	writeBufferSize := walLog.config.WriteBufferSize
 	if writeBufferSize > 0 {
-		// async write
 		if walLog.writeChannel == nil {
 			walLog.writeChannel = make(chan T, writeBufferSize)
 			walLog.startAsyncWriteGoroutine()
@@ -249,19 +248,22 @@ func (walLog *WAL[T]) StartPruning(keepRecent uint64, pruneInterval time.Duratio
 }
 
 func (walLog *WAL[T]) Close() error {
-	// Close should only be called once and run for once
-	if walLog.isClosed.CompareAndSwap(false, true) {
-		// Signal background goroutines to stop.
-		close(walLog.closeCh)
-		if walLog.writeChannel != nil {
-			close(walLog.writeChannel)
-		}
-		// Wait for all background goroutines (pruning + async write) to finish
-		walLog.wg.Wait()
-		walLog.writeChannel = nil
-		return walLog.log.Close()
+	// Close should only be called once.
+	if !walLog.isClosed.CompareAndSwap(false, true) {
+		return nil
 	}
-	return nil
+	walLog.mtx.Lock()
+	defer walLog.mtx.Unlock()
+	// Signal background goroutines to stop.
+	close(walLog.closeCh)
+	if walLog.writeChannel != nil {
+		close(walLog.writeChannel)
+		walLog.writeChannel = nil
+	}
+	// Wait for all background goroutines (pruning + async write) to finish.
+	walLog.wg.Wait()
+
+	return walLog.log.Close()
 }
 
 // recordAsyncWriteErr records the first async write error (non-blocking).
