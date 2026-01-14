@@ -1,7 +1,7 @@
 package consensus
 
 import (
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
@@ -11,14 +11,14 @@ type hcv = types.Hash[*types.CommitVote]
 type commitVotes struct {
 	byKey  map[types.PublicKey]scv
 	byHash map[hcv]map[types.PublicKey]scv
-	qc     utils.AtomicWatch[utils.Option[*types.CommitQC]]
+	qc     utils.AtomicSend[utils.Option[*types.CommitQC]]
 }
 
 func newCommitVotes() *commitVotes {
 	return &commitVotes{
 		byKey:  map[types.PublicKey]scv{},
 		byHash: map[hcv]map[types.PublicKey]scv{},
-		qc:     utils.NewAtomicWatch(utils.None[*types.CommitQC]()),
+		qc:     utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 	}
 }
 
@@ -54,14 +54,13 @@ func (cv *commitVotes) pushVote(c *types.Committee, vote *types.Signed[*types.Co
 	}
 
 	// Construct a CommitQC from the votes.
-	cv.qc.Update(func(old utils.Option[*types.CommitQC]) (utils.Option[*types.CommitQC], bool) {
-		if old, ok := old.Get(); ok && !old.Proposal().View().Less(view) {
-			return utils.None[*types.CommitQC](), false
-		}
-		var votes []*types.Signed[*types.CommitVote]
-		for _, v := range cv.byHash[h] {
-			votes = append(votes, v)
-		}
-		return utils.Some(types.NewCommitQC(votes)), true
-	})
+	old := cv.qc.Load()
+	if old, ok := old.Get(); ok && !old.Proposal().View().Less(view) {
+		return
+	}
+	var votes []*types.Signed[*types.CommitVote]
+	for _, v := range cv.byHash[h] {
+		votes = append(votes, v)
+	}
+	cv.qc.Store(utils.Some(types.NewCommitQC(votes)))
 }

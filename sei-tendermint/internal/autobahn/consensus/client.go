@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/tendermint/tendermint/internal/autobahn/config"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/grpcutils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/service"
 	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
 	"github.com/tendermint/tendermint/internal/autobahn/types"

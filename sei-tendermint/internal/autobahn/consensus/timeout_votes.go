@@ -1,21 +1,21 @@
 package consensus
 
 import (
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
 type timeoutVotes struct {
 	byKey  map[types.PublicKey]*types.FullTimeoutVote
 	byView map[types.View]map[types.PublicKey]*types.FullTimeoutVote
-	qc     utils.AtomicWatch[utils.Option[*types.TimeoutQC]]
+	qc     utils.AtomicSend[utils.Option[*types.TimeoutQC]]
 }
 
 func newTimeoutVotes() *timeoutVotes {
 	return &timeoutVotes{
 		byKey:  map[types.PublicKey]*types.FullTimeoutVote{},
 		byView: map[types.View]map[types.PublicKey]*types.FullTimeoutVote{},
-		qc:     utils.NewAtomicWatch(utils.None[*types.TimeoutQC]()),
+		qc:     utils.NewAtomicSend(utils.None[*types.TimeoutQC]()),
 	}
 }
 
@@ -46,14 +46,13 @@ func (tv *timeoutVotes) pushVote(c *types.Committee, vote *types.FullTimeoutVote
 		return
 	}
 	// Construct a TimeoutQC from the votes.
-	tv.qc.Update(func(old utils.Option[*types.TimeoutQC]) (utils.Option[*types.TimeoutQC], bool) {
-		if old, ok := old.Get(); ok && !old.View().Less(view) {
-			return utils.None[*types.TimeoutQC](), false
-		}
-		var votes []*types.FullTimeoutVote
-		for _, v := range tv.byView[view] {
-			votes = append(votes, v)
-		}
-		return utils.Some(types.NewTimeoutQC(votes)), true
-	})
+	old := tv.qc.Load()
+	if old, ok := old.Get(); ok && !old.View().Less(view) {
+		return
+	}
+	var votes []*types.FullTimeoutVote
+	for _, v := range tv.byView[view] {
+		votes = append(votes, v)
+	}
+	tv.qc.Store(utils.Some(types.NewTimeoutQC(votes)))
 }

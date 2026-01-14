@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/tendermint/tendermint/internal/autobahn/data"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/service"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/consensus/avail"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
@@ -28,18 +28,18 @@ type State struct {
 	cfg     *Config
 	avail   *avail.State
 	metrics *Metrics
-	inner   utils.AtomicWatch[inner]
+	inner   utils.AtomicSend[inner]
 
 	timeoutVotes utils.Mutex[*timeoutVotes]
 	prepareVotes utils.Mutex[*prepareVotes]
 	commitVotes  utils.Mutex[*commitVotes]
 
-	myView        utils.AtomicWatch[types.ViewSpec]
-	myProposal    utils.AtomicWatch[utils.Option[*types.FullProposal]]
-	myPrepareVote utils.AtomicWatch[utils.Option[*types.ConsensusReqPrepareVote]]
-	myCommitVote  utils.AtomicWatch[utils.Option[*types.ConsensusReqCommitVote]]
-	myTimeoutVote utils.AtomicWatch[utils.Option[*types.FullTimeoutVote]]
-	myTimeoutQC   utils.AtomicWatch[utils.Option[*types.TimeoutQC]]
+	myView        utils.AtomicSend[types.ViewSpec]
+	myProposal    utils.AtomicSend[utils.Option[*types.FullProposal]]
+	myPrepareVote utils.AtomicSend[utils.Option[*types.ConsensusReqPrepareVote]]
+	myCommitVote  utils.AtomicSend[utils.Option[*types.ConsensusReqCommitVote]]
+	myTimeoutVote utils.AtomicSend[utils.Option[*types.FullTimeoutVote]]
+	myTimeoutQC   utils.AtomicSend[utils.Option[*types.TimeoutQC]]
 }
 
 // NewState constructs a new state.
@@ -48,18 +48,18 @@ func NewState(cfg *Config, data *data.State) *State {
 		cfg:     cfg,
 		metrics: NewMetrics(),
 		avail:   avail.NewState(cfg.Key, data),
-		inner:   utils.NewAtomicWatch(inner{}),
+		inner:   utils.NewAtomicSend(inner{}),
 
 		timeoutVotes: utils.NewMutex(newTimeoutVotes()),
 		prepareVotes: utils.NewMutex(newPrepareVotes()),
 		commitVotes:  utils.NewMutex(newCommitVotes()),
 
-		myView:        utils.NewAtomicWatch(types.ViewSpec{}),
-		myProposal:    utils.NewAtomicWatch(utils.None[*types.FullProposal]()),
-		myPrepareVote: utils.NewAtomicWatch(utils.None[*types.ConsensusReqPrepareVote]()),
-		myCommitVote:  utils.NewAtomicWatch(utils.None[*types.ConsensusReqCommitVote]()),
-		myTimeoutVote: utils.NewAtomicWatch(utils.None[*types.FullTimeoutVote]()),
-		myTimeoutQC:   utils.NewAtomicWatch(utils.None[*types.TimeoutQC]()),
+		myView:        utils.NewAtomicSend(types.ViewSpec{}),
+		myProposal:    utils.NewAtomicSend(utils.None[*types.FullProposal]()),
+		myPrepareVote: utils.NewAtomicSend(utils.None[*types.ConsensusReqPrepareVote]()),
+		myCommitVote:  utils.NewAtomicSend(utils.None[*types.ConsensusReqCommitVote]()),
+		myTimeoutVote: utils.NewAtomicSend(utils.None[*types.FullTimeoutVote]()),
+		myTimeoutQC:   utils.NewAtomicSend(utils.None[*types.TimeoutQC]()),
 	}
 }
 
@@ -178,24 +178,20 @@ func (s *State) runPropose(ctx context.Context) error {
 	})
 }
 
-func updateOutput[T types.ConsensusReq](w *utils.AtomicWatch[utils.Option[T]], v T) {
-	w.Update(func(old utils.Option[T]) (utils.Option[T], bool) {
-		if !v.View().Less(types.NextViewOpt(old)) {
-			return utils.Some(v), true
-		}
-		return old, false
-	})
+func updateOutput[T types.ConsensusReq](w *utils.AtomicSend[utils.Option[T]], v T) {
+	old := w.Load()
+	if !v.View().Less(types.NextViewOpt(old)) {
+		w.Store(utils.Some(v))
+	}
 }
 
 // Updates the outputs based on the inner state.
 func (s *State) runOutputs(ctx context.Context) error {
 	return s.inner.Iter(ctx, func(ctx context.Context, i inner) error {
-		s.myView.Update(func(old types.ViewSpec) (types.ViewSpec, bool) {
-			if old.View().Less(i.viewSpec.View()) {
-				return i.viewSpec, true
-			}
-			return old, false
-		})
+		old := s.myView.Load()
+		if old.View().Less(i.viewSpec.View()) {
+			s.myView.Store(i.viewSpec)
+		}
 		if v, ok := i.prepareVote.Get(); ok {
 			updateOutput(&s.myPrepareVote, &types.ConsensusReqPrepareVote{Signed: v})
 		}
@@ -214,7 +210,7 @@ func (s *State) runOutputs(ctx context.Context) error {
 
 // Run runs the background processes of the consensus state.
 func (s *State) Run(ctx context.Context) error {
-	return utils.IgnoreCancel(service.Run(ctx, func(ctx context.Context, scope service.Scope) error {
+	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		scope.SpawnNamed("avail", func() error { return s.avail.Run(ctx) })
 		scope.SpawnNamed("propose", func() error { return s.runPropose(ctx) })
 		scope.SpawnNamed("outputs", func() error { return s.runOutputs(ctx) })
