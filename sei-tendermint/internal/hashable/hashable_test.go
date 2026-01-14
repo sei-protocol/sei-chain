@@ -51,6 +51,115 @@ func TestMarshalCanonicalRoundTrip(t *testing.T) {
 	}
 }
 
+func TestOptionalFieldStatesAffectHash(t *testing.T) {
+	testCases := []struct {
+		name       string
+		setDefault func(*pb.TestonlyMsg)
+		setNonZero func(*pb.TestonlyMsg)
+	}{
+		{
+			name:       "BoolValue",
+			setDefault: func(m *pb.TestonlyMsg) { m.BoolValue = utils.Alloc(false) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.BoolValue = utils.Alloc(true) },
+		},
+		{
+			name:       "EnumValue",
+			setDefault: func(m *pb.TestonlyMsg) { m.EnumValue = utils.Alloc(pb.TestonlyEnum_TESTONLY_ENUM_UNSPECIFIED) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.EnumValue = utils.Alloc(pb.TestonlyEnum_TESTONLY_ENUM_ALPHA) },
+		},
+		{
+			name:       "Int32Value",
+			setDefault: func(m *pb.TestonlyMsg) { m.Int32Value = utils.Alloc(int32(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Int32Value = utils.Alloc(int32(1)) },
+		},
+		{
+			name:       "Int64Value",
+			setDefault: func(m *pb.TestonlyMsg) { m.Int64Value = utils.Alloc(int64(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Int64Value = utils.Alloc(int64(1)) },
+		},
+		{
+			name:       "Sint32Value",
+			setDefault: func(m *pb.TestonlyMsg) { m.Sint32Value = utils.Alloc(int32(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Sint32Value = utils.Alloc(int32(1)) },
+		},
+		{
+			name:       "Sint64Value",
+			setDefault: func(m *pb.TestonlyMsg) { m.Sint64Value = utils.Alloc(int64(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Sint64Value = utils.Alloc(int64(1)) },
+		},
+		{
+			name:       "Uint32Value",
+			setDefault: func(m *pb.TestonlyMsg) { m.Uint32Value = utils.Alloc(uint32(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Uint32Value = utils.Alloc(uint32(1)) },
+		},
+		{
+			name:       "Uint64Value",
+			setDefault: func(m *pb.TestonlyMsg) { m.Uint64Value = utils.Alloc(uint64(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Uint64Value = utils.Alloc(uint64(1)) },
+		},
+		{
+			name:       "Fixed32Value",
+			setDefault: func(m *pb.TestonlyMsg) { m.Fixed32Value = utils.Alloc(uint32(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Fixed32Value = utils.Alloc(uint32(1)) },
+		},
+		{
+			name:       "Fixed64Value",
+			setDefault: func(m *pb.TestonlyMsg) { m.Fixed64Value = utils.Alloc(uint64(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Fixed64Value = utils.Alloc(uint64(1)) },
+		},
+		{
+			name:       "Sfixed32Value",
+			setDefault: func(m *pb.TestonlyMsg) { m.Sfixed32Value = utils.Alloc(int32(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Sfixed32Value = utils.Alloc(int32(1)) },
+		},
+		{
+			name:       "Sfixed64Value",
+			setDefault: func(m *pb.TestonlyMsg) { m.Sfixed64Value = utils.Alloc(int64(0)) },
+			setNonZero: func(m *pb.TestonlyMsg) { m.Sfixed64Value = utils.Alloc(int64(1)) },
+		},
+		{
+			name:       "BytesValue",
+			setDefault: func(m *pb.TestonlyMsg) { m.BytesValue = []byte{} },
+			setNonZero: func(m *pb.TestonlyMsg) { m.BytesValue = []byte{0x01} },
+		},
+		{
+			name:       "StringValue",
+			setDefault: func(m *pb.TestonlyMsg) { m.StringValue = utils.Alloc("") },
+			setNonZero: func(m *pb.TestonlyMsg) { m.StringValue = utils.Alloc("alpha") },
+		},
+		{
+			name:       "MessageValue",
+			setDefault: func(m *pb.TestonlyMsg) { m.MessageValue = &pb.TestonlyNested{} },
+			setNonZero: func(m *pb.TestonlyMsg) {
+				m.MessageValue = &pb.TestonlyNested{T: &pb.TestonlyNested_Note{Note: "note"}}
+			},
+		},
+		{
+			name:       "OptionalMessage",
+			setDefault: func(m *pb.TestonlyMsg) { m.OptionalMessage = &pb.TestonlyNested{} },
+			setNonZero: func(m *pb.TestonlyMsg) {
+				m.OptionalMessage = &pb.TestonlyNested{T: &pb.TestonlyNested_Note{Note: "note"}}
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			unset := &pb.TestonlyMsg{}
+			withDefault := &pb.TestonlyMsg{}
+			tc.setDefault(withDefault)
+			withNonZero := &pb.TestonlyMsg{}
+			tc.setNonZero(withNonZero)
+
+			hashes := map[Hash[*pb.TestonlyMsg]]bool{}
+			hashes[ToHash(unset)] = true
+			hashes[ToHash(withDefault)] = true
+			hashes[ToHash(withNonZero)] = true
+			require.Equal(t,3,len(hashes),"collision on different values")
+		})
+	}
+}
+
 func msgFromSeed(seed int64) *pb.TestonlyMsg {
 	r := rand.New(rand.NewSource(seed))
 	msg := &pb.TestonlyMsg{}

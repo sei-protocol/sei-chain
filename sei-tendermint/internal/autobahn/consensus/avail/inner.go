@@ -1,0 +1,61 @@
+package avail
+
+import (
+	"github.com/sei-protocol/sei-stream/pkg/utils"
+	"github.com/tendermint/tendermint/internal/autobahn/types"
+)
+
+type inner struct {
+	latestAppQC    utils.Option[*types.AppQC]
+	latestCommitQC utils.AtomicWatch[utils.Option[*types.CommitQC]]
+	appVotes       *queue[types.GlobalBlockNumber, appVotes]
+	commitQCs      *queue[types.RoadIndex, *types.CommitQC]
+	blocks         map[types.LaneID]*queue[types.BlockNumber, *types.Block]
+	votes          map[types.LaneID]*queue[types.BlockNumber, blockVotes]
+}
+
+func newInner(c *types.Committee) *inner {
+	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
+	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Block]{}
+	for _, lane := range c.Lanes().All() {
+		votes[lane] = newQueue[types.BlockNumber, blockVotes]()
+		blocks[lane] = newQueue[types.BlockNumber, *types.Block]()
+	}
+	return &inner{
+		latestAppQC:    utils.None[*types.AppQC](),
+		latestCommitQC: utils.NewAtomicWatch(utils.None[*types.CommitQC]()),
+		appVotes:       newQueue[types.GlobalBlockNumber, appVotes](),
+		commitQCs:      newQueue[types.RoadIndex, *types.CommitQC](),
+		blocks:         blocks,
+		votes:          votes,
+	}
+}
+
+func (i *inner) laneQC(c *types.Committee, lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
+	for _, vs := range i.votes[lane].q[n].byHeader {
+		if len(vs) >= c.LaneQuorum() {
+			return types.NewLaneQC(vs[:c.LaneQuorum()]), true
+		}
+	}
+	return nil, false
+}
+
+func (i *inner) prune(appQC *types.AppQC, commitQC *types.CommitQC) bool {
+	idx := appQC.Proposal().RoadIndex()
+	if idx < types.NextOpt(i.latestAppQC) {
+		return false
+	}
+	i.latestAppQC = utils.Some(appQC)
+	i.commitQCs.prune(idx)
+	if i.commitQCs.next == idx {
+		i.commitQCs.pushBack(commitQC)
+		i.latestCommitQC.Store(utils.Some(commitQC))
+	}
+	i.appVotes.prune(commitQC.GlobalRange().First)
+	for lane := range i.votes {
+		lr := commitQC.LaneRange(lane)
+		i.votes[lr.Lane()].prune(lr.First())
+		i.blocks[lr.Lane()].prune(lr.First())
+	}
+	return true
+}
