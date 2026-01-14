@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -142,7 +143,7 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
 	transientReceiptStore := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix)
 	iter := transientReceiptStore.Iterator(nil, nil)
 	defer func() { _ = iter.Close() }()
-	records := make([]ReceiptRecord, 0)
+	records := make([]receipt.ReceiptRecord, 0)
 
 	// TransientReceiptStore is recreated on commit meaning it will only contain receipts for a single block at a time
 	// and will never flush a subset of block's receipts.
@@ -150,18 +151,18 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
 	// and we need to account for that.
 	cumulativeGasUsedPerBlock := make(map[uint64]uint64)
 	for ; iter.Valid(); iter.Next() {
-		receipt := &types.Receipt{}
-		if err := receipt.Unmarshal(iter.Value()); err != nil {
+		rcpt := &types.Receipt{}
+		if err := rcpt.Unmarshal(iter.Value()); err != nil {
 			return err
 		}
 
-		if !isLegacyReceipt(ctx, receipt) {
-			cumulativeGasUsedPerBlock[receipt.BlockNumber] += receipt.GasUsed
-			receipt.CumulativeGasUsed = cumulativeGasUsedPerBlock[receipt.BlockNumber]
+		if !isLegacyReceipt(ctx, rcpt) {
+			cumulativeGasUsedPerBlock[rcpt.BlockNumber] += rcpt.GasUsed
+			rcpt.CumulativeGasUsed = cumulativeGasUsedPerBlock[rcpt.BlockNumber]
 		}
 
 		txHash := types.TransientReceiptKey(iter.Key()).TransactionHash()
-		records = append(records, ReceiptRecord{TxHash: txHash, Receipt: receipt})
+		records = append(records, receipt.ReceiptRecord{TxHash: txHash, Receipt: rcpt})
 	}
 	if k.receiptStore == nil {
 		return errors.New("receipt store not configured")

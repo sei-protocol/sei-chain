@@ -7,8 +7,8 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/rpc"
+	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
-	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 )
@@ -23,14 +23,14 @@ type WatermarkManager struct {
 	tmClient     rpcclient.Client
 	ctxProvider  func(int64) sdk.Context
 	stateStore   sstypes.StateStore
-	receiptStore evmkeeper.ReceiptStore
+	receiptStore receipt.ReceiptStore
 }
 
 func NewWatermarkManager(
 	tmClient rpcclient.Client,
 	ctxProvider func(int64) sdk.Context,
 	stateStore sstypes.StateStore,
-	receiptStore evmkeeper.ReceiptStore,
+	receiptStore receipt.ReceiptStore,
 ) *WatermarkManager {
 	return &WatermarkManager{
 		tmClient:     tmClient,

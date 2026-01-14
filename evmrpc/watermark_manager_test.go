@@ -15,9 +15,9 @@ import (
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	proto "github.com/sei-protocol/sei-chain/sei-db/proto"
 	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
-	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -260,7 +260,7 @@ func (f *fakeReceiptStore) GetReceiptFromStore(sdk.Context, common.Hash) (*evmty
 	return nil, errors.New("not found")
 }
 
-func (f *fakeReceiptStore) StoreReceipts(sdk.Context, []evmkeeper.ReceiptRecord) error {
+func (f *fakeReceiptStore) StoreReceipts(sdk.Context, []receipt.ReceiptRecord) error {
 	return nil
 }
 

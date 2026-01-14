@@ -14,9 +14,9 @@ import (
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
-	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/suite"
 	"github.com/tendermint/tendermint/config"
@@ -247,7 +247,7 @@ func (s *TestWrapper) EndBlock() {
 	legacyabci.EndBlock(s.Ctx, s.Ctx.BlockHeight(), 0, s.App.EndBlockKeepers)
 }
 
-func setupReceiptStore(storeKey sdk.StoreKey) (evmkeeper.ReceiptStore, error) {
+func setupReceiptStore(storeKey sdk.StoreKey) (receipt.ReceiptStore, error) {
 	// Create a unique temporary directory per test process to avoid Pebble DB lock conflicts
 	baseDir := filepath.Join(os.TempDir(), "sei-testing")
 	if err := os.MkdirAll(baseDir, 0o750); err != nil {
@@ -262,7 +262,7 @@ func setupReceiptStore(storeKey sdk.StoreKey) (evmkeeper.ReceiptStore, error) {
 	ssConfig.KeepRecent = 0 // No min retain blocks in test
 	ssConfig.DBDirectory = tempDir
 	ssConfig.KeepLastVersion = false
-	receiptStore, err := evmkeeper.NewReceiptStore(log.NewNopLogger(), ssConfig, storeKey)
+	receiptStore, err := receipt.NewReceiptStore(log.NewNopLogger(), ssConfig, storeKey)
 	if err != nil {
 		return nil, err
 	}

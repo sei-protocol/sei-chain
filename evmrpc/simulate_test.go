@@ -20,8 +20,8 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
+	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/rpc/client/mock"
@@ -40,7 +40,7 @@ type bcFailClient struct {
 	first bool
 }
 
-func primeReceiptStore(t *testing.T, store evmkeeper.ReceiptStore, latest int64) {
+func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
 	t.Helper()
 	if store == nil {
 		return

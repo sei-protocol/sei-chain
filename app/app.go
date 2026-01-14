@@ -152,6 +152,7 @@ import (
 	// unnamed import of statik for openapi/swagger UI support
 	_ "github.com/sei-protocol/sei-chain/docs/swagger"
 	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -377,7 +378,7 @@ type App struct {
 	genesisImportConfig genesistypes.GenesisImportConfig
 
 	stateStore   seidb.StateStore
-	receiptStore evmkeeper.ReceiptStore
+	receiptStore receipt.ReceiptStore
 
 	forkInitializer func(sdk.Context)
 
@@ -619,7 +620,7 @@ func New(
 	ssConfig.DBDirectory = receiptStorePath
 	ssConfig.KeepLastVersion = false
 	if app.receiptStore == nil {
-		receiptStore, err := evmkeeper.NewReceiptStore(logger, ssConfig, keys[evmtypes.StoreKey])
+		receiptStore, err := receipt.NewReceiptStore(logger, ssConfig, keys[evmtypes.StoreKey])
 		if err != nil {
 			panic(fmt.Sprintf("error while creating receipt store: %s", err))
 		}

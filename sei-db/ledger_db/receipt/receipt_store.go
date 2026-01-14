@@ -1,4 +1,4 @@
-package keeper
+package receipt
 
 import (
 	"errors"
@@ -14,11 +14,12 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/sei-protocol/sei-chain/sei-db/changelog/changelog"
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
-	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -59,7 +60,7 @@ func NewReceiptStore(log dbLogger.Logger, config dbconfig.StateStoreConfig, stor
 	if err != nil {
 		return nil, err
 	}
-	if err := recoverReceiptStore(log, utils.GetChangelogPath(config.DBDirectory), db); err != nil {
+	if err := recoverReceiptStore(log, dbutils.GetChangelogPath(config.DBDirectory), db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -215,7 +216,7 @@ func (s *receiptStore) FilterLogs(ctx sdk.Context, blockHeight int64, blockHash 
 			continue
 		}
 
-		txLogs := GetLogsForTx(receipt, totalLogs)
+		txLogs := getLogsForTx(receipt, totalLogs)
 
 		if hasFilters {
 			if len(receipt.LogsBloom) == 0 || matchFilters(ethtypes.Bloom(receipt.LogsBloom), filterIndexes) {
@@ -449,4 +450,20 @@ func matchTopics(topics [][]common.Hash, eventTopics []common.Hash) bool {
 		}
 	}
 	return true
+}
+
+func getLogsForTx(receipt *types.Receipt, logStartIndex uint) []*ethtypes.Log {
+	return utils.Map(receipt.Logs, func(l *types.Log) *ethtypes.Log { return convertLog(l, receipt, logStartIndex) })
+}
+
+func convertLog(l *types.Log, receipt *types.Receipt, logStartIndex uint) *ethtypes.Log {
+	return &ethtypes.Log{
+		Address:     common.HexToAddress(l.Address),
+		Topics:      utils.Map(l.Topics, common.HexToHash),
+		Data:        l.Data,
+		BlockNumber: receipt.BlockNumber,
+		TxHash:      common.HexToHash(receipt.TxHashHex),
+		TxIndex:     uint(receipt.TransactionIndex),
+		Index:       uint(l.Index) + logStartIndex,
+	}
 }
