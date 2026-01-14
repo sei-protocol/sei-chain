@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
-	"github.com/cockroachdb/pebble"
-	"github.com/cockroachdb/pebble/bloom"
+	"github.com/cockroachdb/pebble/v2"
+	"github.com/cockroachdb/pebble/v2/bloom"
 	"github.com/sei-protocol/sei-chain/sei-db/changelog/changelog"
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
@@ -101,8 +101,6 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		L0CompactionThreshold:       2,
 		L0StopWritesThreshold:       1000,
 		LBaseMaxBytes:               64 << 20, // 64 MB
-		Levels:                      make([]pebble.LevelOptions, 7),
-		MaxConcurrentCompactions:    func() int { return 3 }, // TODO: Make Configurable
 		MemTableSize:                64 << 20,
 		MemTableStopWritesThreshold: 4,
 	}
@@ -113,17 +111,10 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		l.IndexBlockSize = 256 << 10 // 256 KB
 		l.FilterPolicy = bloom.FilterPolicy(10)
 		l.FilterType = pebble.TableFilter
-		// TODO: Consider compression only for specific layers like bottommost
-		l.Compression = pebble.ZstdCompression
-		if i > 0 {
-			l.TargetFileSize = opts.Levels[i-1].TargetFileSize * 2
-		}
-		l.EnsureDefaults()
 	}
 
 	opts.Levels[6].FilterPolicy = nil
-	opts.FlushSplitBytes = opts.Levels[0].TargetFileSize
-	opts = opts.EnsureDefaults()
+	opts.EnsureDefaults()
 
 	//TODO: add a new config and check if readonly = true to support readonly mode
 
@@ -1036,10 +1027,10 @@ func (db *Database) collectAndRecordMetrics(ctx context.Context) {
 		levelMetrics := m.Levels[level]
 		levelAttr := attribute.Int("level", level)
 
-		otelMetrics.sstableCount.Record(ctx, levelMetrics.NumFiles, metric.WithAttributes(levelAttr))
-		otelMetrics.sstableTotalSize.Record(ctx, levelMetrics.Size, metric.WithAttributes(levelAttr))
-		otelMetrics.compactionBytesRead.Add(ctx, int64(levelMetrics.BytesIn), metric.WithAttributes(levelAttr))           //nolint:gosec
-		otelMetrics.compactionBytesWritten.Add(ctx, int64(levelMetrics.BytesCompacted), metric.WithAttributes(levelAttr)) //nolint:gosec
+		otelMetrics.sstableCount.Record(ctx, levelMetrics.TablesCount, metric.WithAttributes(levelAttr))
+		otelMetrics.sstableTotalSize.Record(ctx, levelMetrics.TablesSize, metric.WithAttributes(levelAttr))
+		otelMetrics.compactionBytesRead.Add(ctx, int64(levelMetrics.TableBytesIn), metric.WithAttributes(levelAttr))           //nolint:gosec
+		otelMetrics.compactionBytesWritten.Add(ctx, int64(levelMetrics.TableBytesCompacted), metric.WithAttributes(levelAttr)) //nolint:gosec
 	}
 
 	// Memtable metrics
