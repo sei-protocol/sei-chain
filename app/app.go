@@ -87,6 +87,7 @@ import (
 	upgradeclient "github.com/cosmos/cosmos-sdk/x/upgrade/client"
 	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -1701,8 +1702,21 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	if execResult.Err != nil {
 		vmError = execResult.Err.Error()
 	}
-	// todo(pdrobnjak): Should we convert tx to msg outside of executor or inside it?
-	receipt, rerr := app.EvmKeeper.WriteReceipt(ctx, stateDB, nil, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError)
+
+	// Create core.Message from ethTx for WriteReceipt
+	// WriteReceipt needs msg for GasPrice, To, From, Data, Nonce fields
+	evmMsg := &core.Message{
+		Nonce:     ethTx.Nonce(),
+		GasLimit:  ethTx.Gas(),
+		GasPrice:  ethTx.GasPrice(),
+		GasFeeCap: ethTx.GasFeeCap(),
+		GasTipCap: ethTx.GasTipCap(),
+		To:        ethTx.To(),
+		Value:     ethTx.Value(),
+		Data:      ethTx.Data(),
+		From:      sender,
+	}
+	receipt, rerr := app.EvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError)
 	if rerr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
@@ -1724,9 +1738,15 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 		code = 1
 	}
 
+	// Serialize receipt to include in response Data field.
+	// In OCC mode, transient store writes are lost because the CacheMultiStore
+	// isn't committed, so we pass the receipt through the response for later processing.
+	receiptBytes, _ := receipt.Marshal()
+
 	//nolint:gosec // G115: safe, UsedGas won't exceed int64 max
 	return &abci.ExecTxResult{
 		Code:    code,
+		Data:    receiptBytes,
 		GasUsed: int64(execResult.UsedGas),
 		Log:     vmError,
 		EvmTxInfo: &abci.EvmTxInfo{
@@ -1802,7 +1822,10 @@ func (app *App) ProcessBlockWithGigaExecutorOCC(ctx sdk.Context, txs [][]byte, r
 		return nil, nil, abci.ResponseEndBlock{}, schedErr
 	}
 
-	// Convert responses to ExecTxResult
+	// Convert responses to ExecTxResult and restore transient store data
+	// In OCC mode, transient store writes (receipts, deferred info) are lost because the
+	// CacheMultiStore isn't committed. We pass receipt data through response.Data and
+	// write to transient store here using the main context.
 	txResults = make([]*abci.ExecTxResult, len(txs))
 	evmTotalGasUsed := int64(0)
 	for i, resp := range responses {
@@ -1819,6 +1842,23 @@ func (app *App) ProcessBlockWithGigaExecutorOCC(ctx sdk.Context, txs [][]byte, r
 			EvmTxInfo: resp.EvmTxInfo,
 		}
 		evmTotalGasUsed += resp.GasUsed
+
+		// Restore transient store data using main context
+		if resp.Code == 0 && len(resp.Data) > 0 && evmTxs[idx] != nil {
+			receipt := &evmtypes.Receipt{}
+			if err := receipt.Unmarshal(resp.Data); err == nil {
+				ethTx, _ := evmTxs[idx].AsTransaction()
+				if ethTx != nil {
+					txHash := ethTx.Hash()
+					// Write receipt to transient store using main context
+					_ = app.EvmKeeper.SetTransientReceipt(ctx.WithTxIndex(idx), txHash, receipt)
+					// Write deferred info using main context
+					bloom := ethtypes.Bloom{}
+					bloom.SetBytes(receipt.LogsBloom)
+					app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(idx), bloom, txHash, sdk.ZeroInt())
+				}
+			}
+		}
 	}
 
 	// Fill in nil results for non-EVM or failed decode txs
