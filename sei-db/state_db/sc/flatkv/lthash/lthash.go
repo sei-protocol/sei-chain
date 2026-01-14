@@ -137,20 +137,8 @@ func hash(data []byte) *LtHash {
 
 	bufPtr := xofBufferPool.Get().(*[]byte)
 	output := *bufPtr
-	n, err := digest.Read(output)
+	_, _ = digest.Read(output) // Blake3 XOF never errors and always fills buffer
 	blake3HasherPool.Put(hasher)
-
-	if err != nil || n != LtHashBytes {
-		xofBufferPool.Put(bufPtr)
-		h := blake3.Sum256(data)
-		output = extendTo2048Bytes(h[:])
-
-		lth := ltHashPool.Get().(*LtHash)
-		for i := 0; i < LtHashSize; i++ {
-			lth.limbs[i] = binary.LittleEndian.Uint16(output[i*2:])
-		}
-		return lth
-	}
 
 	lth := ltHashPool.Get().(*LtHash)
 	for i := 0; i < LtHashSize; i++ {
@@ -223,19 +211,4 @@ func putLtHashToPool(lth *LtHash) {
 	if lth != nil {
 		ltHashPool.Put(lth)
 	}
-}
-
-func extendTo2048Bytes(seed []byte) []byte {
-	result := make([]byte, LtHashBytes)
-	copy(result[:32], seed)
-	for i := 32; i < LtHashBytes; i += 32 {
-		chunk := result[i-32 : i]
-		h := blake3.Sum256(chunk)
-		copy(result[i:], h[:])
-		if i+32 > LtHashBytes {
-			copy(result[i:], h[:LtHashBytes-i])
-			break
-		}
-	}
-	return result
 }
