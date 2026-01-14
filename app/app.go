@@ -105,6 +105,8 @@ import (
 	gigaexecutor "github.com/sei-protocol/sei-chain/giga/executor"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
+	gigaprecompiles "github.com/sei-protocol/sei-chain/giga/executor/precompiles"
+	gigautils "github.com/sei-protocol/sei-chain/giga/executor/utils"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
@@ -1314,7 +1316,7 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 	}
 }
 
-func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
+func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
 
 	txResults := []*abci.ExecTxResult{}
@@ -1324,6 +1326,43 @@ func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte, typedTxs 
 		txResults = append(txResults, res)
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
+	return txResults
+}
+
+func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
+	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
+
+	txResults := make([]*abci.ExecTxResult, len(txs))
+	for i, tx := range txs {
+		ctx = ctx.WithTxIndex(absoluteTxIndices[i])
+		evmMsg := app.GetEVMMsg(typedTxs[i])
+		// If not an EVM tx, fall back to v2 processing
+		if evmMsg == nil {
+			result := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
+			txResults[i] = result
+			continue
+		}
+
+		// Execute EVM transaction through giga executor
+		result, execErr := app.executeEVMTxWithGigaExecutor(ctx, i, evmMsg)
+		if execErr != nil {
+			// Check if this is a fail-fast error (Cosmos precompile interop detected)
+			if gigautils.ShouldExecutionAbort(execErr) {
+				res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
+				txResults[i] = res
+				continue
+			}
+			txResults[i] = &abci.ExecTxResult{
+				Code: 1,
+				Log:  fmt.Sprintf("[BUG] giga executor error: %v", execErr),
+			}
+			continue
+		}
+
+		txResults[i] = result
+		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
+	}
+
 	return txResults
 }
 
@@ -1369,12 +1408,16 @@ func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []
 
 // ExecuteTxsConcurrently calls the appropriate function for processing transacitons
 func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
-	// TODO after OCC release, remove this check and call ProcessTXsWithOCC directly
-	if ctx.IsOCCEnabled() {
-		return app.ProcessTXsWithOCC(ctx, txs, typedTxs, absoluteTxIndices)
+	// Giga only supports synchronous execution for now
+	if app.EvmKeeper.GigaExecutorEnabled {
+		results := app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs, absoluteTxIndices)
+		return results, ctx
+	} else if !ctx.IsOCCEnabled() {
+		results := app.ProcessTxsSynchronousV2(ctx, txs, typedTxs, absoluteTxIndices)
+		return results, ctx
 	}
-	results := app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
-	return results, ctx
+
+	return app.ProcessTXsWithOCC(ctx, txs, typedTxs, absoluteTxIndices)
 }
 
 func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex int, bz []byte, tx sdk.Tx) (res *sdk.DeliverTxEntry) {
@@ -1468,12 +1511,9 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		}
 	}()
 
-	// Route to Giga Executor when enabled - bypasses Cosmos SDK transaction processing
-	if app.EvmKeeper.GigaExecutorEnabled {
-		if app.EvmKeeper.GigaOCCEnabled {
-			return app.ProcessBlockWithGigaExecutorOCC(ctx, txs, req, lastCommit, simulate)
-		}
-		return app.ProcessBlockWithGigaExecutor(ctx, txs, req, lastCommit, simulate)
+	// TODO: for now Giga OCC calls ProcessBlockWithGigaExecutorOCC, WIP
+	if app.EvmKeeper.GigaExecutorEnabled && app.EvmKeeper.GigaOCCEnabled {
+		return app.ProcessBlockWithGigaExecutorOCC(ctx, txs, req, lastCommit, simulate)
 	}
 
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
@@ -1536,6 +1576,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 // ProcessBlockWithGigaExecutor executes block transactions using the Giga executor,
 // bypassing the standard Cosmos SDK transaction processing flow.
 // This is an experimental path for improved EVM throughput.
+// NOTE: This is not currently used in the codebase, but might be in the future.
 func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
 	// Panic recovery like original ProcessBlock
 	defer func() {
@@ -1586,12 +1627,9 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 		// Check if this is an EVM transaction
 		evmMsg := app.GetEVMMsg(decodedTx)
 		if evmMsg == nil {
-			// Non-EVM transaction - for now, fall back to standard processing
-			// TODO: Handle or reject non-EVM txs in giga mode
-			txResults[i] = &abci.ExecTxResult{
-				Code: 1,
-				Log:  "non-EVM transactions not supported in giga executor mode",
-			}
+			res := app.DeliverTxWithResult(ctx, txBytes, decodedTx)
+			// Non-EVM transaction - fall back to standard processing
+			txResults[i] = res
 			continue
 		}
 
@@ -1600,9 +1638,15 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 		// Execute EVM transaction through giga executor
 		result, execErr := app.executeEVMTxWithGigaExecutor(ctx, i, evmMsg)
 		if execErr != nil {
+			// Check if this is a fail-fast error (Cosmos precompile interop detected)
+			if gigautils.ShouldExecutionAbort(execErr) {
+				res := app.DeliverTxWithResult(ctx, txBytes, decodedTx)
+				txResults[i] = res
+				continue
+			}
 			txResults[i] = &abci.ExecTxResult{
 				Code: 1,
-				Log:  fmt.Sprintf("giga executor error: %v", execErr),
+				Log:  fmt.Sprintf("[BUG] giga executor error: %v", execErr),
 			}
 			continue
 		}
@@ -1682,8 +1726,8 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	sstore := app.EvmKeeper.GetParams(ctx).SeiSstoreSetGasEip2200
 	cfg := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(app.EvmKeeper.ChainID(ctx), &sstore)
 
-	// Create Giga executor VM (wraps evmone)
-	gigaExecutor := gigaexecutor.NewEvmoneExecutor(app.EvmKeeper.EvmoneVM, *blockCtx, stateDB, cfg, vm.Config{}, app.EvmKeeper.CustomPrecompiles(ctx))
+	// Create Giga executor VM
+	gigaExecutor := gigaexecutor.NewGethExecutor(*blockCtx, stateDB, cfg, vm.Config{}, gigaprecompiles.AllCustomPrecompilesFailFast)
 
 	// Execute the transaction through giga VM
 	execResult, execErr := gigaExecutor.ExecuteTransaction(ethTx, sender, app.EvmKeeper.GetBaseFee(ctx), &gp)
@@ -1692,6 +1736,12 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 			Code: 1,
 			Log:  fmt.Sprintf("giga executor apply message error: %v", execErr),
 		}, nil
+	}
+
+	// Check if the execution hit a fail-fast precompile (Cosmos interop detected)
+	// Return the error to the caller so it can handle accordingly (e.g., fallback to standard execution)
+	if execResult.Err != nil && gigautils.ShouldExecutionAbort(execResult.Err) {
+		return nil, execResult.Err
 	}
 
 	// Finalize state changes
@@ -1911,6 +1961,12 @@ func (app *App) gigaDeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 
 	result, err := app.executeEVMTxWithGigaExecutor(ctx, ctx.TxIndex(), evmMsg)
 	if err != nil {
+		// Check if this is a fail-fast error (Cosmos precompile interop detected)
+		if gigautils.ShouldExecutionAbort(err) {
+			// Transaction requires Cosmos interop - not supported in giga mode
+			// TODO: implement fallback to standard execution path
+			return abci.ResponseDeliverTx{Code: 1, Log: fmt.Sprintf("giga executor: cosmos interop not supported: %v", err)}
+		}
 		return abci.ResponseDeliverTx{Code: 1, Log: fmt.Sprintf("giga executor error: %v", err)}
 	}
 
