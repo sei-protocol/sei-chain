@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 )
 
@@ -120,6 +120,25 @@ var MVCCComparer = &pebble.Comparer{
 		// a trailing 0. If there is no timestamp this falls out naturally. If
 		// there is a timestamp we prepend a 0 to the encoded timestamp data.
 		return len(key) + 1
+	},
+
+	// ComparePointSuffixes compares MVCC timestamps (suffixes) for v2.
+	ComparePointSuffixes: func(a, b []byte) int {
+		if len(a) == 0 {
+			if len(b) == 0 {
+				return 0
+			}
+			return -1
+		}
+		if len(b) == 0 {
+			return 1
+		}
+		return bytes.Compare(a, b)
+	},
+
+	// CompareRangeSuffixes compares suffixes for range keys (v2).
+	CompareRangeSuffixes: func(a, b []byte) int {
+		return bytes.Compare(a, b)
 	},
 }
 
