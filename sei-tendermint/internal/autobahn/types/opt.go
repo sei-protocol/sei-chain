@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/sei-protocol/sei-stream/pkg/utils"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
 // NextOpt defaults to 0.

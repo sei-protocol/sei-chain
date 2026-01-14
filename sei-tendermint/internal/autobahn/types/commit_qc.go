@@ -2,9 +2,10 @@ package types
 
 import (
 	"fmt"
-
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 )
 
 // CommitQC .
@@ -103,14 +104,14 @@ func (m *FullCommitQC) Verify(c *Committee) error {
 }
 
 // CommitQCConv is a protobuf converter for CommitQC.
-var CommitQCConv = utils.ProtoConv[*CommitQC, *protocol.CommitQC]{
-	Encode: func(m *CommitQC) *protocol.CommitQC {
-		return &protocol.CommitQC{
+var CommitQCConv = protoutils.Conv[*CommitQC, *pb.CommitQC]{
+	Encode: func(m *CommitQC) *pb.CommitQC {
+		return &pb.CommitQC{
 			Vote: CommitVoteConv.Encode(m.vote.Msg()),
 			Sigs: SignatureConv.EncodeSlice(m.sigs),
 		}
 	},
-	Decode: func(m *protocol.CommitQC) (*CommitQC, error) {
+	Decode: func(m *pb.CommitQC) (*CommitQC, error) {
 		vote, err := CommitVoteConv.DecodeReq(m.Vote)
 		if err != nil {
 			return nil, fmt.Errorf("vote: %w", err)
@@ -124,14 +125,14 @@ var CommitQCConv = utils.ProtoConv[*CommitQC, *protocol.CommitQC]{
 }
 
 // FullCommitQCConv is a protobuf converter for FullCommitQC.
-var FullCommitQCConv = utils.ProtoConv[*FullCommitQC, *protocol.FullCommitQC]{
-	Encode: func(m *FullCommitQC) *protocol.FullCommitQC {
-		return &protocol.FullCommitQC{
+var FullCommitQCConv = protoutils.Conv[*FullCommitQC, *pb.FullCommitQC]{
+	Encode: func(m *FullCommitQC) *pb.FullCommitQC {
+		return &pb.FullCommitQC{
 			Qc:      CommitQCConv.Encode(m.qc),
 			Headers: BlockHeaderConv.EncodeSlice(m.headers),
 		}
 	},
-	Decode: func(m *protocol.FullCommitQC) (*FullCommitQC, error) {
+	Decode: func(m *pb.FullCommitQC) (*FullCommitQC, error) {
 		qc, err := CommitQCConv.DecodeReq(m.Qc)
 		if err != nil {
 			return nil, fmt.Errorf("qC: %w", err)

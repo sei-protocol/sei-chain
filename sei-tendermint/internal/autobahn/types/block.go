@@ -8,8 +8,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/internal/hashable"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 )
 
 // LaneID represents a lane identifier (currently it is the same as NodeID,
@@ -26,10 +28,15 @@ type BlockNumber uint64
 type GlobalBlockNumber uint64
 
 // BlockHeaderHash is the hash of a BlockHeader.
-type BlockHeaderHash utils.Hash
+type BlockHeaderHash hashable.Hash[*pb.BlockHeader]
 
 // Bytes converts the BlockHeaderHash to a byte slice.
 func (h BlockHeaderHash) Bytes() []byte { return h[:] }
+
+func ParseBlockHeaderHash(bytes []byte) (BlockHeaderHash,error) {
+	h,err := hashable.ParseHash[*pb.BlockHeader](bytes)
+	return BlockHeaderHash(h),err
+}
 
 // BlockHeader .
 type BlockHeader struct {
@@ -116,11 +123,11 @@ func (b *Block) Verify(c *Committee) error {
 
 // Hash of the BlockHeader.
 func (h *BlockHeader) Hash() BlockHeaderHash {
-	return BlockHeaderHash(utils.ProtoHash(BlockHeaderConv.Encode(h)))
+	return BlockHeaderHash(hashable.ToHash(BlockHeaderConv.Encode(h)))
 }
 
 // PayloadHash is the hash of a Payload.
-type PayloadHash utils.Hash
+type PayloadHash hashable.Hash[*pb.Payload]
 
 // PayloadBuilder builds a Payload.
 type PayloadBuilder struct {
@@ -164,35 +171,38 @@ func (p *Payload) Txs() [][]byte { return p.p.Txs }
 
 // Hash of the Payload.
 func (p *Payload) Hash() PayloadHash {
-	return PayloadHash(utils.ProtoHash(PayloadConv.Encode(p)))
+	return PayloadHash(hashable.ToHash(PayloadConv.Encode(p)))
 }
 
 // BlockHeaderConv is a protobuf converter for BlockHeader.
-var BlockHeaderConv = utils.ProtoConv[*BlockHeader, *protocol.BlockHeader]{
-	Encode: func(h *BlockHeader) *protocol.BlockHeader {
-		return &protocol.BlockHeader{
+var BlockHeaderConv = protoutils.Conv[*BlockHeader, *pb.BlockHeader]{
+	Encode: func(h *BlockHeader) *pb.BlockHeader {
+		return &pb.BlockHeader{
 			Lane:        PublicKeyConv.Encode(h.lane),
-			BlockNumber: uint64(h.blockNumber),
+			BlockNumber: utils.Alloc(uint64(h.blockNumber)),
 			ParentHash:  h.parentHash[:],
 			PayloadHash: h.payloadHash[:],
 		}
 	},
-	Decode: func(h *protocol.BlockHeader) (*BlockHeader, error) {
-		payloadHash, err := utils.ParseHash(h.PayloadHash)
+	Decode: func(h *pb.BlockHeader) (*BlockHeader, error) {
+		payloadHash, err := hashable.ParseHash[*pb.Payload](h.PayloadHash)
 		if err != nil {
-			return nil, fmt.Errorf("payloadHash: %w", err)
+			return nil, fmt.Errorf("PayloadHash: %w", err)
 		}
-		parentHash, err := utils.ParseHash(h.ParentHash)
+		parentHash, err := hashable.ParseHash[*pb.BlockHeader](h.ParentHash)
 		if err != nil {
-			return nil, fmt.Errorf("parentHash: %w", err)
+			return nil, fmt.Errorf("ParentHash: %w", err)
 		}
 		lane, err := PublicKeyConv.DecodeReq(h.Lane)
 		if err != nil {
 			return nil, fmt.Errorf("lane: %w", err)
 		}
+		if h.BlockNumber==nil {
+			return nil, fmt.Errorf("BlockNumber: missing")
+		}
 		return &BlockHeader{
 			lane:        lane,
-			blockNumber: BlockNumber(h.BlockNumber),
+			blockNumber: BlockNumber(*h.BlockNumber),
 			parentHash:  BlockHeaderHash(parentHash),
 			payloadHash: PayloadHash(payloadHash),
 		}, nil
@@ -200,42 +210,45 @@ var BlockHeaderConv = utils.ProtoConv[*BlockHeader, *protocol.BlockHeader]{
 }
 
 // PayloadConv is a protobuf converter for Payload.
-var PayloadConv = utils.ProtoConv[*Payload, *protocol.Payload]{
-	Encode: func(p *Payload) *protocol.Payload {
-		return &protocol.Payload{
+var PayloadConv = protoutils.Conv[*Payload, *pb.Payload]{
+	Encode: func(p *Payload) *pb.Payload {
+		return &pb.Payload{
 			CreatedAt: TimeConv.Encode(p.p.CreatedAt),
-			TotalGas:  p.p.TotalGas,
-			EdgeCount: p.p.EdgeCount,
+			TotalGas:  utils.Alloc(p.p.TotalGas),
+			EdgeCount: utils.Alloc(p.p.EdgeCount),
 			Coinbase:  p.p.Coinbase,
-			Basefee:   p.p.Basefee,
+			Basefee:   utils.Alloc(p.p.Basefee),
 			Txs:       p.p.Txs,
 		}
 	},
-	Decode: func(p *protocol.Payload) (*Payload, error) {
+	Decode: func(p *pb.Payload) (*Payload, error) {
 		createdAt, err := TimeConv.DecodeReq(p.CreatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("created_at: %w", err)
 		}
+		if p.TotalGas==nil { return nil,fmt.Errorf("TotalGas: missing") }
+		if p.EdgeCount==nil { return nil,fmt.Errorf("EdgeCount: missing") }
+		if p.Basefee==nil { return nil,fmt.Errorf("Basefee: missing") }
 		return PayloadBuilder{
 			CreatedAt: createdAt,
-			TotalGas:  p.TotalGas,
-			EdgeCount: p.EdgeCount,
+			TotalGas:  *p.TotalGas,
+			EdgeCount: *p.EdgeCount,
 			Coinbase:  p.Coinbase,
-			Basefee:   p.Basefee,
+			Basefee:   *p.Basefee,
 			Txs:       p.Txs,
 		}.Build(), nil
 	},
 }
 
 // BlockConv is a protobuf converter for Block.
-var BlockConv = utils.ProtoConv[*Block, *protocol.Block]{
-	Encode: func(b *Block) *protocol.Block {
-		return &protocol.Block{
+var BlockConv = protoutils.Conv[*Block, *pb.Block]{
+	Encode: func(b *Block) *pb.Block {
+		return &pb.Block{
 			Header:  BlockHeaderConv.Encode(b.header),
 			Payload: PayloadConv.Encode(b.payload),
 		}
 	},
-	Decode: func(b *protocol.Block) (*Block, error) {
+	Decode: func(b *pb.Block) (*Block, error) {
 		header, err := BlockHeaderConv.Decode(b.Header)
 		if err != nil {
 			return nil, err

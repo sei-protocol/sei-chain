@@ -3,7 +3,7 @@ package avail
 import (
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/sei-protocol/sei-stream/pkg/metrics"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/metrics"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 

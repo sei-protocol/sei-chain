@@ -9,9 +9,9 @@ import (
 	"github.com/samber/lo"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/sei-protocol/sei-stream/storage/serde"
-	"github.com/sei-protocol/sei-stream/storage/stores/kv"
-	"github.com/sei-protocol/sei-stream/storage/types"
+	"github.com/tendermint/tendermint/internal/autobahn/storage/serde"
+	"github.com/tendermint/tendermint/internal/autobahn/storage/stores/kv"
+	"github.com/tendermint/tendermint/internal/autobahn/storage/types"
 	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
 	streamtypes "github.com/tendermint/tendermint/internal/autobahn/types"
 )

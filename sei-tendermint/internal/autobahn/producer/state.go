@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sei-protocol/sei-stream/pkg/service"
-	"github.com/sei-protocol/sei-stream/pkg/utils"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/service"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/consensus"
 	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
 	"github.com/tendermint/tendermint/internal/autobahn/types"

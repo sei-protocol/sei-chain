@@ -2,11 +2,11 @@ package types
 
 import (
 	"encoding/json"
-	"math/rand"
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-stream/pkg/utils"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/protoutils"
 )
 
 func firstErr(errs ...error) error {
@@ -19,7 +19,7 @@ func firstErr(errs ...error) error {
 }
 
 // msgTest tests a converter, generalized msg converter and signed msg converter.
-func msgTest[T Msg, P utils.ProtoMessage](rng *rand.Rand, msg T, conv utils.ProtoConv[T, P]) error {
+func msgTest[T Msg, P protoutils.Message](rng utils.Rng, msg T, conv protoutils.Conv[T, P]) error {
 	return firstErr(
 		conv.Test(msg),
 		MsgConv.Test(msg),

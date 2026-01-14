@@ -3,10 +3,10 @@ package store
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-stream/pkg/require"
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/sei-protocol/sei-stream/storage/db"
-	dbtypes "github.com/sei-protocol/sei-stream/storage/db/types"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/require"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
+	"github.com/tendermint/tendermint/internal/autobahn/storage/db"
+	dbtypes "github.com/tendermint/tendermint/internal/autobahn/storage/db/types"
 	streamtypes "github.com/tendermint/tendermint/internal/autobahn/types"
 )
 

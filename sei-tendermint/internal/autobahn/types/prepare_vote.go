@@ -2,9 +2,10 @@ package types
 
 import (
 	"fmt"
-
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 )
 
 // PrepareVote .
@@ -22,11 +23,11 @@ func NewPrepareVote(proposal *Proposal) *PrepareVote {
 func (m *PrepareVote) Proposal() *Proposal { return m.proposal }
 
 // PrepareVoteConv is the protobuf converter for PrepareVote.
-var PrepareVoteConv = utils.ProtoConv[*PrepareVote, *protocol.Proposal]{
-	Encode: func(m *PrepareVote) *protocol.Proposal {
+var PrepareVoteConv = protoutils.Conv[*PrepareVote, *pb.Proposal]{
+	Encode: func(m *PrepareVote) *pb.Proposal {
 		return ProposalConv.Encode(m.proposal)
 	},
-	Decode: func(m *protocol.Proposal) (*PrepareVote, error) {
+	Decode: func(m *pb.Proposal) (*PrepareVote, error) {
 		proposal, err := ProposalConv.DecodeReq(m)
 		if err != nil {
 			return nil, fmt.Errorf("proposal: %w", err)

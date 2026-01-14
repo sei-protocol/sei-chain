@@ -3,9 +3,10 @@ package types
 import (
 	"errors"
 	"fmt"
-
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 )
 
 // TimeoutVote .
@@ -130,7 +131,7 @@ func (m *TimeoutQC) LatestPrepareQC() utils.Option[*PrepareQC] {
 
 // Verify verifies the TimeoutQC against the committee and the previous CommitQC.
 // Verifying TimeoutQC should NOT require previous TimeoutQC,
-// since observing prior TimeoutQCs is not required in the protocol.
+// since observing prior TimeoutQCs is not required in the pb.
 func (m *TimeoutQC) Verify(c *Committee, prev utils.Option[*CommitQC]) error {
 	// Verify the signatures.
 	done := map[PublicKey]struct{}{}
@@ -202,9 +203,9 @@ func (m *TimeoutQC) reproposal() (*Proposal, bool) {
 }
 
 // TimeoutVoteConv is the protobuf converter for TimeoutVote.
-var TimeoutVoteConv = utils.ProtoConv[*TimeoutVote, *protocol.TimeoutVote]{
-	Encode: func(m *TimeoutVote) *protocol.TimeoutVote {
-		return &protocol.TimeoutVote{
+var TimeoutVoteConv = protoutils.Conv[*TimeoutVote, *pb.TimeoutVote]{
+	Encode: func(m *TimeoutVote) *pb.TimeoutVote {
+		return &pb.TimeoutVote{
 			View: ViewConv.Encode(m.view),
 			LatestPrepareQcViewNumber: func() *uint64 {
 				if v, ok := m.latestPrepareQC.Get(); ok {
@@ -214,7 +215,7 @@ var TimeoutVoteConv = utils.ProtoConv[*TimeoutVote, *protocol.TimeoutVote]{
 			}(),
 		}
 	},
-	Decode: func(m *protocol.TimeoutVote) (*TimeoutVote, error) {
+	Decode: func(m *pb.TimeoutVote) (*TimeoutVote, error) {
 		view, err := ViewConv.DecodeReq(m.View)
 		if err != nil {
 			return nil, fmt.Errorf("view: %w", err)
@@ -232,14 +233,14 @@ var TimeoutVoteConv = utils.ProtoConv[*TimeoutVote, *protocol.TimeoutVote]{
 }
 
 // FullTimeoutVoteConv is the protobuf converter for FullTimeoutVote.
-var FullTimeoutVoteConv = utils.ProtoConv[*FullTimeoutVote, *protocol.FullTimeoutVote]{
-	Encode: func(m *FullTimeoutVote) *protocol.FullTimeoutVote {
-		return &protocol.FullTimeoutVote{
+var FullTimeoutVoteConv = protoutils.Conv[*FullTimeoutVote, *pb.FullTimeoutVote]{
+	Encode: func(m *FullTimeoutVote) *pb.FullTimeoutVote {
+		return &pb.FullTimeoutVote{
 			Vote:            SignedMsgConv[*TimeoutVote]().Encode(m.vote),
 			LatestPrepareQc: PrepareQCConv.EncodeOpt(m.latestPrepareQC),
 		}
 	},
-	Decode: func(m *protocol.FullTimeoutVote) (*FullTimeoutVote, error) {
+	Decode: func(m *pb.FullTimeoutVote) (*FullTimeoutVote, error) {
 		vote, err := SignedMsgConv[*TimeoutVote]().Decode(m.Vote)
 		if err != nil {
 			return nil, fmt.Errorf("timeoutVote: %w", err)
@@ -256,14 +257,14 @@ var FullTimeoutVoteConv = utils.ProtoConv[*FullTimeoutVote, *protocol.FullTimeou
 }
 
 // TimeoutQCConv is the protobuf converter for TimeoutQC.
-var TimeoutQCConv = utils.ProtoConv[*TimeoutQC, *protocol.TimeoutQC]{
-	Encode: func(m *TimeoutQC) *protocol.TimeoutQC {
-		return &protocol.TimeoutQC{
+var TimeoutQCConv = protoutils.Conv[*TimeoutQC, *pb.TimeoutQC]{
+	Encode: func(m *TimeoutQC) *pb.TimeoutQC {
+		return &pb.TimeoutQC{
 			Votes:           SignedMsgConv[*TimeoutVote]().EncodeSlice(m.votes),
 			LatestPrepareQc: PrepareQCConv.EncodeOpt(m.latestPrepareQC),
 		}
 	},
-	Decode: func(m *protocol.TimeoutQC) (*TimeoutQC, error) {
+	Decode: func(m *pb.TimeoutQC) (*TimeoutQC, error) {
 		votes, err := SignedMsgConv[*TimeoutVote]().DecodeSlice(m.Votes)
 		if err != nil {
 			return nil, fmt.Errorf("votes: %w", err)

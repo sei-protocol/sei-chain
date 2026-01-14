@@ -6,7 +6,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/sei-protocol/sei-stream/pkg/metrics"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/metrics"
 	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
 )
 

@@ -1,31 +1,32 @@
 package types
 
 import (
-	"math/rand"
 	"time"
 
-	"github.com/sei-protocol/sei-stream/crypto/ed25519"
-	"github.com/sei-protocol/sei-stream/pkg/utils"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/hashable"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 )
 
 // GenNodeID generates a random NodeID.
-func GenNodeID(rng *rand.Rand) NodeID {
+func GenNodeID(rng utils.Rng) NodeID {
 	return NodeID(utils.GenString(rng, 10))
 }
 
 // GenPublicKey generates a random PublicKey.
-func GenPublicKey(rng *rand.Rand) PublicKey {
+func GenPublicKey(rng utils.Rng) PublicKey {
 	return GenSecretKey(rng).Public()
 }
 
 // GenSecretKey generates a random SecretKey.
-func GenSecretKey(rng *rand.Rand) SecretKey {
+func GenSecretKey(rng utils.Rng) SecretKey {
 	return SecretKey{key: ed25519.TestSecretKey(utils.GenBytes(rng, 32))}
 }
 
 // GenCommittee generates a random Committee of the given size.
 // Returns the generated secret keys as well.
-func GenCommittee(rng *rand.Rand, size int) (*Committee, []SecretKey) {
+func GenCommittee(rng utils.Rng, size int) (*Committee, []SecretKey) {
 	sks := utils.GenSliceN(rng, size, GenSecretKey)
 	pks := make([]PublicKey, size)
 	for i, sk := range sks {
@@ -45,12 +46,12 @@ func TestSecretKey(nodeID NodeID) SecretKey {
 }
 
 // GenLaneID generates a random LaneID.
-func GenLaneID(rng *rand.Rand) LaneID {
+func GenLaneID(rng utils.Rng) LaneID {
 	return TestSecretKey(GenNodeID(rng)).Public()
 }
 
 // GenSignature generates a random Signature.
-func GenSignature(rng *rand.Rand) *Signature {
+func GenSignature(rng utils.Rng) *Signature {
 	key := GenSecretKey(rng)
 	return &Signature{
 		key: key.Public(),
@@ -59,27 +60,27 @@ func GenSignature(rng *rand.Rand) *Signature {
 }
 
 // GenBlockNumber generates a random BlockNumber.
-func GenBlockNumber(rng *rand.Rand) BlockNumber {
+func GenBlockNumber(rng utils.Rng) BlockNumber {
 	return BlockNumber(rng.Uint64())
 }
 
 // GenLaneRange generates a random LaneRange.
-func GenLaneRange(rng *rand.Rand) *LaneRange {
+func GenLaneRange(rng utils.Rng) *LaneRange {
 	return NewLaneRange(GenLaneID(rng), GenBlockNumber(rng), utils.Some(GenBlockHeader(rng)))
 }
 
 // GenBlockHeaderHash generates a random BlockHeaderHash.
-func GenBlockHeaderHash(rng *rand.Rand) BlockHeaderHash {
-	return BlockHeaderHash(utils.GenHash(rng))
+func GenBlockHeaderHash(rng utils.Rng) BlockHeaderHash {
+	return BlockHeaderHash(hashable.GenHash[*pb.BlockHeader](rng))
 }
 
 // GenPayloadHash generates a random PayloadHash.
-func GenPayloadHash(rng *rand.Rand) PayloadHash {
-	return PayloadHash(utils.GenHash(rng))
+func GenPayloadHash(rng utils.Rng) PayloadHash {
+	return PayloadHash(hashable.GenHash[*pb.Payload](rng))
 }
 
 // GenBlockHeader generates a random BlockHeader.
-func GenBlockHeader(rng *rand.Rand) *BlockHeader {
+func GenBlockHeader(rng utils.Rng) *BlockHeader {
 	return &BlockHeader{
 		lane:        GenLaneID(rng),
 		blockNumber: GenBlockNumber(rng),
@@ -88,19 +89,19 @@ func GenBlockHeader(rng *rand.Rand) *BlockHeader {
 }
 
 // GenPayload generates a random Payload.
-func GenPayload(rng *rand.Rand) *Payload {
+func GenPayload(rng utils.Rng) *Payload {
 	return PayloadBuilder{
 		CreatedAt: utils.GenTimestamp(rng),
 		TotalGas:  rng.Uint64(),
 		EdgeCount: rng.Int63(),
 		Coinbase:  utils.GenBytes(rng, 10),
 		Basefee:   rng.Int63(),
-		Txs:       utils.GenSlice(rng, func(rng *rand.Rand) []byte { return utils.GenBytes(rng, 10) }),
+		Txs:       utils.GenSlice(rng, func(rng utils.Rng) []byte { return utils.GenBytes(rng, 10) }),
 	}.Build()
 }
 
 // GenBlock generates a random Block.
-func GenBlock(rng *rand.Rand) *Block {
+func GenBlock(rng utils.Rng) *Block {
 	return NewBlock(
 		GenLaneID(rng),
 		GenBlockNumber(rng),
@@ -110,41 +111,41 @@ func GenBlock(rng *rand.Rand) *Block {
 }
 
 // GenSigned generates a random Signed.
-func GenSigned[T Msg](rng *rand.Rand, msg T) *Signed[T] {
+func GenSigned[T Msg](rng utils.Rng, msg T) *Signed[T] {
 	return Sign(GenSecretKey(rng), msg)
 }
 
 // GenLaneProposal generates a random LaneProposal.
-func GenLaneProposal(rng *rand.Rand) *LaneProposal {
+func GenLaneProposal(rng utils.Rng) *LaneProposal {
 	return NewLaneProposal(GenBlock(rng))
 }
 
 // GenLaneVote generates a random LaneVote.
-func GenLaneVote(rng *rand.Rand) *LaneVote {
+func GenLaneVote(rng utils.Rng) *LaneVote {
 	return NewLaneVote(GenBlockHeader(rng))
 }
 
 // GenLaneQC generates a random LaneQC.
-func GenLaneQC(rng *rand.Rand) *LaneQC {
+func GenLaneQC(rng utils.Rng) *LaneQC {
 	vote := GenLaneVote(rng)
 	return NewLaneQC(utils.GenSlice(
 		rng,
-		func(rng *rand.Rand) *Signed[*LaneVote] { return GenSigned(rng, vote) },
+		func(rng utils.Rng) *Signed[*LaneVote] { return GenSigned(rng, vote) },
 	))
 }
 
 // GenRoadIndex generates a random RoadIndex.
-func GenRoadIndex(rng *rand.Rand) RoadIndex {
+func GenRoadIndex(rng utils.Rng) RoadIndex {
 	return RoadIndex(rng.Uint64())
 }
 
 // GenViewNumber generates a random ViewNumber.
-func GenViewNumber(rng *rand.Rand) ViewNumber {
+func GenViewNumber(rng utils.Rng) ViewNumber {
 	return ViewNumber(rng.Uint64())
 }
 
 // GenView generates a random View.
-func GenView(rng *rand.Rand) View {
+func GenView(rng utils.Rng) View {
 	return View{
 		Index:  GenRoadIndex(rng),
 		Number: GenViewNumber(rng),
@@ -152,37 +153,36 @@ func GenView(rng *rand.Rand) View {
 }
 
 // GenProposal generates a random Proposal.
-func GenProposal(rng *rand.Rand) *Proposal {
+func GenProposal(rng utils.Rng) *Proposal {
 	return newProposal(GenView(rng), time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)))
 }
 
 // GenAppHash generates a random AppHash.
-func GenAppHash(rng *rand.Rand) AppHash {
-	h := utils.GenHash(rng)
-	return AppHash(h[:])
+func GenAppHash(rng utils.Rng) AppHash {
+	return AppHash(utils.GenBytes(rng,32))
 }
 
 // GenAppProposal generates a random AppProposal.
-func GenAppProposal(rng *rand.Rand) *AppProposal {
+func GenAppProposal(rng utils.Rng) *AppProposal {
 	return NewAppProposal(GenGlobalBlockNumber(rng), GenRoadIndex(rng), GenAppHash(rng))
 }
 
 // GenAppVote generates a random AppVote.
-func GenAppVote(rng *rand.Rand) *AppVote {
+func GenAppVote(rng utils.Rng) *AppVote {
 	return NewAppVote(GenAppProposal(rng))
 }
 
 // GenAppQC generates a random AppQC.
-func GenAppQC(rng *rand.Rand) *AppQC {
+func GenAppQC(rng utils.Rng) *AppQC {
 	vote := GenAppVote(rng)
 	return NewAppQC(utils.GenSlice(
 		rng,
-		func(rng *rand.Rand) *Signed[*AppVote] { return GenSigned(rng, vote) },
+		func(rng utils.Rng) *Signed[*AppVote] { return GenSigned(rng, vote) },
 	))
 }
 
 // GenFullProposal generates a random FullProposal.
-func GenFullProposal(rng *rand.Rand) *FullProposal {
+func GenFullProposal(rng utils.Rng) *FullProposal {
 	laneQCs := map[LaneID]*LaneQC{}
 	for _, qc := range utils.GenSlice(rng, GenLaneQC) {
 		laneQCs[qc.Header().Lane()] = qc
@@ -196,12 +196,12 @@ func GenFullProposal(rng *rand.Rand) *FullProposal {
 }
 
 // GenGlobalBlockNumber generates a random GlobalBlockNumber.
-func GenGlobalBlockNumber(rng *rand.Rand) GlobalBlockNumber {
+func GenGlobalBlockNumber(rng utils.Rng) GlobalBlockNumber {
 	return GlobalBlockNumber(rng.Uint64())
 }
 
 // GenGlobalBlock generates a random GlobalBlock.
-func GenGlobalBlock(rng *rand.Rand) *GlobalBlock {
+func GenGlobalBlock(rng utils.Rng) *GlobalBlock {
 	return &GlobalBlock{
 		GlobalNumber:  GenGlobalBlockNumber(rng),
 		Payload:       GenPayload(rng),
@@ -210,35 +210,35 @@ func GenGlobalBlock(rng *rand.Rand) *GlobalBlock {
 }
 
 // GenPrepareVote generates a random PrepareVote.
-func GenPrepareVote(rng *rand.Rand) *PrepareVote {
+func GenPrepareVote(rng utils.Rng) *PrepareVote {
 	return NewPrepareVote(GenProposal(rng))
 }
 
 // GenPrepareQC generates a random PrepareQC.
-func GenPrepareQC(rng *rand.Rand) *PrepareQC {
+func GenPrepareQC(rng utils.Rng) *PrepareQC {
 	vote := GenPrepareVote(rng)
 	return NewPrepareQC(utils.GenSlice(
 		rng,
-		func(rng *rand.Rand) *Signed[*PrepareVote] { return GenSigned(rng, vote) },
+		func(rng utils.Rng) *Signed[*PrepareVote] { return GenSigned(rng, vote) },
 	))
 }
 
 // GenCommitVote generates a random CommitVote.
-func GenCommitVote(rng *rand.Rand) *CommitVote {
+func GenCommitVote(rng utils.Rng) *CommitVote {
 	return NewCommitVote(GenProposal(rng))
 }
 
 // GenCommitQC generates a random CommitQC.
-func GenCommitQC(rng *rand.Rand) *CommitQC {
+func GenCommitQC(rng utils.Rng) *CommitQC {
 	vote := GenCommitVote(rng)
 	return NewCommitQC(utils.GenSlice(
 		rng,
-		func(rng *rand.Rand) *Signed[*CommitVote] { return GenSigned(rng, vote) },
+		func(rng utils.Rng) *Signed[*CommitVote] { return GenSigned(rng, vote) },
 	))
 }
 
 // GenFullCommitQC generates a random FullCommitQC.
-func GenFullCommitQC(rng *rand.Rand) *FullCommitQC {
+func GenFullCommitQC(rng utils.Rng) *FullCommitQC {
 	return &FullCommitQC{
 		qc:      GenCommitQC(rng),
 		headers: utils.GenSlice(rng, GenBlockHeader),
@@ -246,16 +246,16 @@ func GenFullCommitQC(rng *rand.Rand) *FullCommitQC {
 }
 
 // GenTimeoutVote generates a random TimeoutVote.
-func GenTimeoutVote(rng *rand.Rand) *TimeoutVote {
+func GenTimeoutVote(rng utils.Rng) *TimeoutVote {
 	return NewTimeoutVote(GenView(rng), utils.Some(GenViewNumber(rng)))
 }
 
 // GenFullTimeoutVote generates a random FullTimeoutVote.
-func GenFullTimeoutVote(rng *rand.Rand) *FullTimeoutVote {
+func GenFullTimeoutVote(rng utils.Rng) *FullTimeoutVote {
 	return NewFullTimeoutVote(GenSecretKey(rng), GenView(rng), utils.Some(GenPrepareQC(rng)))
 }
 
 // GenTimeoutQC generates a random TimeoutQC.
-func GenTimeoutQC(rng *rand.Rand) *TimeoutQC {
+func GenTimeoutQC(rng utils.Rng) *TimeoutQC {
 	return NewTimeoutQC(utils.GenSlice(rng, GenFullTimeoutVote))
 }

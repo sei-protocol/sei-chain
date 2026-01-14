@@ -3,9 +3,9 @@ package types
 import (
 	"errors"
 	"fmt"
-
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 )
 
 // ConsensusReq is the interface for all consensus messages.
@@ -33,55 +33,55 @@ func (m *FullTimeoutVote) isConsensusReq()         {}
 func (m *TimeoutQC) isConsensusReq()               {}
 
 // ConsensusReqConv is the protobuf converter for ConsensusReq.
-var ConsensusReqConv = utils.ProtoConv[ConsensusReq, *protocol.ConsensusReq]{
-	Encode: func(m ConsensusReq) *protocol.ConsensusReq {
+var ConsensusReqConv = protoutils.Conv[ConsensusReq, *pb.ConsensusReq]{
+	Encode: func(m ConsensusReq) *pb.ConsensusReq {
 		switch m := m.(type) {
 		case *FullProposal:
-			return &protocol.ConsensusReq{
-				T: &protocol.ConsensusReq_Proposal{Proposal: FullProposalConv.Encode(m)},
+			return &pb.ConsensusReq{
+				T: &pb.ConsensusReq_Proposal{Proposal: FullProposalConv.Encode(m)},
 			}
 		case *ConsensusReqPrepareVote:
-			return &protocol.ConsensusReq{
-				T: &protocol.ConsensusReq_PrepareVote{PrepareVote: SignedMsgConv[*PrepareVote]().Encode(m.Signed)},
+			return &pb.ConsensusReq{
+				T: &pb.ConsensusReq_PrepareVote{PrepareVote: SignedMsgConv[*PrepareVote]().Encode(m.Signed)},
 			}
 		case *ConsensusReqCommitVote:
-			return &protocol.ConsensusReq{
-				T: &protocol.ConsensusReq_CommitVote{CommitVote: SignedMsgConv[*CommitVote]().Encode(m.Signed)},
+			return &pb.ConsensusReq{
+				T: &pb.ConsensusReq_CommitVote{CommitVote: SignedMsgConv[*CommitVote]().Encode(m.Signed)},
 			}
 		case *FullTimeoutVote:
-			return &protocol.ConsensusReq{
-				T: &protocol.ConsensusReq_TimeoutVote{TimeoutVote: FullTimeoutVoteConv.Encode(m)},
+			return &pb.ConsensusReq{
+				T: &pb.ConsensusReq_TimeoutVote{TimeoutVote: FullTimeoutVoteConv.Encode(m)},
 			}
 		case *TimeoutQC:
-			return &protocol.ConsensusReq{
-				T: &protocol.ConsensusReq_TimeoutQc{TimeoutQc: TimeoutQCConv.Encode(m)},
+			return &pb.ConsensusReq{
+				T: &pb.ConsensusReq_TimeoutQc{TimeoutQc: TimeoutQCConv.Encode(m)},
 			}
 		default:
 			panic(fmt.Sprintf("Unknown ConsensusReq type: %T", m))
 		}
 	},
-	Decode: func(m *protocol.ConsensusReq) (ConsensusReq, error) {
+	Decode: func(m *pb.ConsensusReq) (ConsensusReq, error) {
 		if m.T == nil {
 			return nil, errors.New("empty")
 		}
 		switch t := m.T.(type) {
-		case *protocol.ConsensusReq_Proposal:
+		case *pb.ConsensusReq_Proposal:
 			return FullProposalConv.DecodeReq(t.Proposal)
-		case *protocol.ConsensusReq_PrepareVote:
+		case *pb.ConsensusReq_PrepareVote:
 			vote, err := SignedMsgConv[*PrepareVote]().DecodeReq(t.PrepareVote)
 			if err != nil {
 				return nil, fmt.Errorf("prepareVote: %w", err)
 			}
 			return &ConsensusReqPrepareVote{vote}, nil
-		case *protocol.ConsensusReq_CommitVote:
+		case *pb.ConsensusReq_CommitVote:
 			vote, err := SignedMsgConv[*CommitVote]().DecodeReq(t.CommitVote)
 			if err != nil {
 				return nil, fmt.Errorf("commitVote: %w", err)
 			}
 			return &ConsensusReqCommitVote{vote}, nil
-		case *protocol.ConsensusReq_TimeoutVote:
+		case *pb.ConsensusReq_TimeoutVote:
 			return FullTimeoutVoteConv.DecodeReq(t.TimeoutVote)
-		case *protocol.ConsensusReq_TimeoutQc:
+		case *pb.ConsensusReq_TimeoutQc:
 			return TimeoutQCConv.DecodeReq(t.TimeoutQc)
 		default:
 			return nil, fmt.Errorf("unknown ConsensusReq type: %T", t)

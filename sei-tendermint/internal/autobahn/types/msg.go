@@ -5,45 +5,47 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/sei-protocol/sei-stream/crypto/ed25519"
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/hashable"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 )
 
 // Msg is the interface for all messages signable by a stream node.
-type Msg interface{ asMsg() *protocol.Msg }
+type Msg interface{ asMsg() *pb.Msg }
 
-func (m *LaneProposal) asMsg() *protocol.Msg {
-	return &protocol.Msg{T: &protocol.Msg_LaneProposal{LaneProposal: LaneProposalConv.Encode(m)}}
+func (m *LaneProposal) asMsg() *pb.Msg {
+	return &pb.Msg{T: &pb.Msg_LaneProposal{LaneProposal: LaneProposalConv.Encode(m)}}
 }
 
-func (m *LaneVote) asMsg() *protocol.Msg {
-	return &protocol.Msg{T: &protocol.Msg_LaneVote{LaneVote: LaneVoteConv.Encode(m)}}
+func (m *LaneVote) asMsg() *pb.Msg {
+	return &pb.Msg{T: &pb.Msg_LaneVote{LaneVote: LaneVoteConv.Encode(m)}}
 }
 
-func (m *AppVote) asMsg() *protocol.Msg {
-	return &protocol.Msg{T: &protocol.Msg_AppVote{AppVote: AppVoteConv.Encode(m)}}
+func (m *AppVote) asMsg() *pb.Msg {
+	return &pb.Msg{T: &pb.Msg_AppVote{AppVote: AppVoteConv.Encode(m)}}
 }
 
-func (m *Proposal) asMsg() *protocol.Msg {
-	return &protocol.Msg{T: &protocol.Msg_Proposal{Proposal: ProposalConv.Encode(m)}}
+func (m *Proposal) asMsg() *pb.Msg {
+	return &pb.Msg{T: &pb.Msg_Proposal{Proposal: ProposalConv.Encode(m)}}
 }
 
-func (m *PrepareVote) asMsg() *protocol.Msg {
-	return &protocol.Msg{T: &protocol.Msg_PrepareVote{PrepareVote: PrepareVoteConv.Encode(m)}}
+func (m *PrepareVote) asMsg() *pb.Msg {
+	return &pb.Msg{T: &pb.Msg_PrepareVote{PrepareVote: PrepareVoteConv.Encode(m)}}
 }
 
-func (m *CommitVote) asMsg() *protocol.Msg {
-	return &protocol.Msg{T: &protocol.Msg_CommitVote{CommitVote: CommitVoteConv.Encode(m)}}
+func (m *CommitVote) asMsg() *pb.Msg {
+	return &pb.Msg{T: &pb.Msg_CommitVote{CommitVote: CommitVoteConv.Encode(m)}}
 }
 
-func (m *TimeoutVote) asMsg() *protocol.Msg {
-	return &protocol.Msg{T: &protocol.Msg_TimeoutVote{TimeoutVote: TimeoutVoteConv.Encode(m)}}
+func (m *TimeoutVote) asMsg() *pb.Msg {
+	return &pb.Msg{T: &pb.Msg_TimeoutVote{TimeoutVote: TimeoutVoteConv.Encode(m)}}
 }
 
 // Hash is the hash of a message.
-type Hash[T Msg] utils.Hash
+type Hash[T Msg] hashable.Hash[*pb.Msg]
 
 // Hashed is a message with its hash.
 type Hashed[T Msg] struct {
@@ -62,7 +64,7 @@ func (m *Hashed[T]) Hash() Hash[T] { return m.hash }
 func NewHashed[T Msg](msg T) *Hashed[T] {
 	return &Hashed[T]{
 		msg:  msg,
-		hash: Hash[T](utils.ProtoHash(msg.asMsg())),
+		hash: Hash[T](hashable.ToHash[*pb.Msg](msg.asMsg())),
 	}
 }
 
@@ -207,13 +209,13 @@ func (m *Hashed[T]) verifyQC(c *Committee, quorum int, sigs []*Signature) error 
 }
 
 // PublicKeyConv is a protobuf converter for PublicKey.
-var PublicKeyConv = utils.ProtoConv[PublicKey, *protocol.PublicKey]{
-	Encode: func(k PublicKey) *protocol.PublicKey {
-		return &protocol.PublicKey{
+var PublicKeyConv = protoutils.Conv[PublicKey, *pb.PublicKey]{
+	Encode: func(k PublicKey) *pb.PublicKey {
+		return &pb.PublicKey{
 			Ed25519: k.Bytes(),
 		}
 	},
-	Decode: func(p *protocol.PublicKey) (PublicKey, error) {
+	Decode: func(p *pb.PublicKey) (PublicKey, error) {
 		key, err := PublicKeyFromBytes(p.Ed25519)
 		if err != nil {
 			return PublicKey{}, err
@@ -223,14 +225,14 @@ var PublicKeyConv = utils.ProtoConv[PublicKey, *protocol.PublicKey]{
 }
 
 // SignatureConv is a protobuf converter for Signature.
-var SignatureConv = utils.ProtoConv[*Signature, *protocol.Signature]{
-	Encode: func(s *Signature) *protocol.Signature {
-		return &protocol.Signature{
+var SignatureConv = protoutils.Conv[*Signature, *pb.Signature]{
+	Encode: func(s *Signature) *pb.Signature {
+		return &pb.Signature{
 			Key: PublicKeyConv.Encode(s.key),
 			Sig: s.sig.Bytes(),
 		}
 	},
-	Decode: func(p *protocol.Signature) (*Signature, error) {
+	Decode: func(p *pb.Signature) (*Signature, error) {
 		key, err := PublicKeyConv.Decode(p.Key)
 		if err != nil {
 			return nil, fmt.Errorf("key: %w", err)
@@ -244,28 +246,28 @@ var SignatureConv = utils.ProtoConv[*Signature, *protocol.Signature]{
 }
 
 // MsgConv is a protobuf converter for Msg.
-var MsgConv = utils.ProtoConv[Msg, *protocol.Msg]{
-	Encode: func(m Msg) *protocol.Msg {
+var MsgConv = protoutils.Conv[Msg, *pb.Msg]{
+	Encode: func(m Msg) *pb.Msg {
 		return m.asMsg()
 	},
-	Decode: func(m *protocol.Msg) (Msg, error) {
+	Decode: func(m *pb.Msg) (Msg, error) {
 		if m.T == nil {
 			return nil, errors.New("empty")
 		}
 		switch t := m.T.(type) {
-		case *protocol.Msg_LaneProposal:
+		case *pb.Msg_LaneProposal:
 			return LaneProposalConv.DecodeReq(t.LaneProposal)
-		case *protocol.Msg_LaneVote:
+		case *pb.Msg_LaneVote:
 			return LaneVoteConv.DecodeReq(t.LaneVote)
-		case *protocol.Msg_Proposal:
+		case *pb.Msg_Proposal:
 			return ProposalConv.DecodeReq(t.Proposal)
-		case *protocol.Msg_PrepareVote:
+		case *pb.Msg_PrepareVote:
 			return PrepareVoteConv.DecodeReq(t.PrepareVote)
-		case *protocol.Msg_CommitVote:
+		case *pb.Msg_CommitVote:
 			return CommitVoteConv.DecodeReq(t.CommitVote)
-		case *protocol.Msg_TimeoutVote:
+		case *pb.Msg_TimeoutVote:
 			return TimeoutVoteConv.DecodeReq(t.TimeoutVote)
-		case *protocol.Msg_AppVote:
+		case *pb.Msg_AppVote:
 			return AppVoteConv.DecodeReq(t.AppVote)
 		default:
 			return nil, fmt.Errorf("unknown Msg type: %T", t)
@@ -275,7 +277,7 @@ var MsgConv = utils.ProtoConv[Msg, *protocol.Msg]{
 
 // AsMsg casts a hashed message to Hashed[Msg].
 func (m *Hashed[T]) AsMsg() *Hashed[Msg] {
-	return &Hashed[Msg]{msg: m.msg, hash: Hash[Msg](utils.Hash(m.hash))}
+	return &Hashed[Msg]{msg: m.msg, hash: Hash[Msg](hashable.Hash[*pb.Msg](m.hash))}
 }
 
 // AsMsg casts a signed message to Signed[Msg].
@@ -285,7 +287,7 @@ func (m *Signed[T]) AsMsg() *Signed[Msg] {
 
 // HashedCast PANICS if msg.Msg() is not of type T.
 func HashedCast[T Msg](msg *Hashed[Msg]) *Hashed[T] {
-	return &Hashed[T]{msg: msg.msg.(T), hash: Hash[T](utils.Hash(msg.hash))}
+	return &Hashed[T]{msg: msg.msg.(T), hash: Hash[T](hashable.Hash[*pb.Msg](msg.hash))}
 }
 
 // SignedCast PANICS if msg.Msg() is not of type T.
@@ -294,12 +296,12 @@ func SignedCast[T Msg](msg *Signed[Msg]) *Signed[T] {
 }
 
 // SignedMsgConv is a protobuf converter for Signed[Msg].
-func SignedMsgConv[T Msg]() *utils.ProtoConv[*Signed[T], *protocol.SignedMsg] {
-	return &utils.ProtoConv[*Signed[T], *protocol.SignedMsg]{
-		Encode: func(m *Signed[T]) *protocol.SignedMsg {
-			return &protocol.SignedMsg{Msg: MsgConv.Encode(m.hashed.msg), Sig: SignatureConv.Encode(m.sig)}
+func SignedMsgConv[T Msg]() *protoutils.Conv[*Signed[T], *pb.SignedMsg] {
+	return &protoutils.Conv[*Signed[T], *pb.SignedMsg]{
+		Encode: func(m *Signed[T]) *pb.SignedMsg {
+			return &pb.SignedMsg{Msg: MsgConv.Encode(m.hashed.msg), Sig: SignatureConv.Encode(m.sig)}
 		},
-		Decode: func(m *protocol.SignedMsg) (*Signed[T], error) {
+		Decode: func(m *pb.SignedMsg) (*Signed[T], error) {
 			msg, err := MsgConv.Decode(m.Msg)
 			if err != nil {
 				return nil, fmt.Errorf("msg: %w", err)

@@ -2,9 +2,10 @@ package types
 
 import (
 	"fmt"
-
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 )
 
 // LaneVote .
@@ -27,11 +28,11 @@ func (m *LaneVote) Verify(c *Committee) error {
 }
 
 // LaneVoteConv is the protobuf converter for LaneVote.
-var LaneVoteConv = utils.ProtoConv[*LaneVote, *protocol.BlockHeader]{
-	Encode: func(m *LaneVote) *protocol.BlockHeader {
+var LaneVoteConv = protoutils.Conv[*LaneVote, *pb.BlockHeader]{
+	Encode: func(m *LaneVote) *pb.BlockHeader {
 		return BlockHeaderConv.Encode(m.header)
 	},
-	Decode: func(m *protocol.BlockHeader) (*LaneVote, error) {
+	Decode: func(m *pb.BlockHeader) (*LaneVote, error) {
 		header, err := BlockHeaderConv.DecodeReq(m)
 		if err != nil {
 			return nil, fmt.Errorf("header: %w", err)

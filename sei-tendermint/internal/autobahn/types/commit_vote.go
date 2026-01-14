@@ -2,9 +2,11 @@ package types
 
 import (
 	"fmt"
+	
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
 )
 
 // CommitVote .
@@ -22,11 +24,11 @@ func NewCommitVote(proposal *Proposal) *CommitVote {
 func (m *CommitVote) Proposal() *Proposal { return m.proposal }
 
 // CommitVoteConv is the protobuf converter for CommitVote.
-var CommitVoteConv = utils.ProtoConv[*CommitVote, *protocol.Proposal]{
-	Encode: func(m *CommitVote) *protocol.Proposal {
+var CommitVoteConv = protoutils.Conv[*CommitVote, *pb.Proposal]{
+	Encode: func(m *CommitVote) *pb.Proposal {
 		return ProposalConv.Encode(m.proposal)
 	},
-	Decode: func(m *protocol.Proposal) (*CommitVote, error) {
+	Decode: func(m *pb.Proposal) (*CommitVote, error) {
 		proposal, err := ProposalConv.DecodeReq(m)
 		if err != nil {
 			return nil, fmt.Errorf("proposal: %w", err)

@@ -1,7 +1,7 @@
 package avail
 
 import (
-	"github.com/sei-protocol/sei-stream/pkg/utils"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 

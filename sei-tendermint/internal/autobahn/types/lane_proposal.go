@@ -2,9 +2,10 @@ package types
 
 import (
 	"fmt"
-
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 )
 
 // LaneProposal .
@@ -27,11 +28,11 @@ func (m *LaneProposal) Verify(c *Committee) error {
 }
 
 // LaneProposalConv is a protobuf converter for LaneProposal.
-var LaneProposalConv = utils.ProtoConv[*LaneProposal, *protocol.Block]{
-	Encode: func(m *LaneProposal) *protocol.Block {
+var LaneProposalConv = protoutils.Conv[*LaneProposal, *pb.Block]{
+	Encode: func(m *LaneProposal) *pb.Block {
 		return BlockConv.Encode(m.block)
 	},
-	Decode: func(m *protocol.Block) (*LaneProposal, error) {
+	Decode: func(m *pb.Block) (*LaneProposal, error) {
 		block, err := BlockConv.Decode(m)
 		if err != nil {
 			return nil, fmt.Errorf("block: %w", err)

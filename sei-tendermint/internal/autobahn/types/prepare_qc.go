@@ -2,9 +2,10 @@ package types
 
 import (
 	"fmt"
-
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 )
 
 // PrepareQC .
@@ -42,14 +43,14 @@ func (m *PrepareQC) Verify(c *Committee) error {
 }
 
 // PrepareQCConv is a protobuf converter for PrepareQC.
-var PrepareQCConv = utils.ProtoConv[*PrepareQC, *protocol.PrepareQC]{
-	Encode: func(m *PrepareQC) *protocol.PrepareQC {
-		return &protocol.PrepareQC{
+var PrepareQCConv = protoutils.Conv[*PrepareQC, *pb.PrepareQC]{
+	Encode: func(m *PrepareQC) *pb.PrepareQC {
+		return &pb.PrepareQC{
 			Vote: PrepareVoteConv.Encode(m.vote.Msg()),
 			Sigs: SignatureConv.EncodeSlice(m.sigs),
 		}
 	},
-	Decode: func(m *protocol.PrepareQC) (*PrepareQC, error) {
+	Decode: func(m *pb.PrepareQC) (*PrepareQC, error) {
 		vote, err := PrepareVoteConv.DecodeReq(m.Vote)
 		if err != nil {
 			return nil, fmt.Errorf("vote: %w", err)

@@ -6,7 +6,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/sei-protocol/sei-stream/pkg/utils"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 

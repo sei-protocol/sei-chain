@@ -10,13 +10,13 @@ import (
 	_ "github.com/grafana/pyroscope-go/godeltaprof/http/pprof" //  necessary for continuous profiling
 	cli2 "github.com/urfave/cli/v3"
 
-	"github.com/sei-protocol/sei-stream/config"
-	"github.com/sei-protocol/sei-stream/pkg/logger"
-	"github.com/sei-protocol/sei-stream/pkg/metrics"
-	"github.com/sei-protocol/sei-stream/pkg/opt"
-	"github.com/sei-protocol/sei-stream/pkg/service"
-	"github.com/sei-protocol/sei-stream/pkg/trace"
-	"github.com/sei-protocol/sei-stream/pkg/version"
+	"github.com/tendermint/tendermint/internal/autobahn/config"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/logger"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/metrics"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/opt"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/service"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/trace"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/version"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 

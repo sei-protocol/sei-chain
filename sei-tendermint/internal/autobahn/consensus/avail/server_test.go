@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-stream/config"
-	"github.com/sei-protocol/sei-stream/data"
-	"github.com/sei-protocol/sei-stream/pkg/grpcutils"
-	"github.com/sei-protocol/sei-stream/pkg/service"
-	"github.com/sei-protocol/sei-stream/pkg/tcp"
-	"github.com/sei-protocol/sei-stream/pkg/utils"
+	"github.com/tendermint/tendermint/internal/autobahn/config"
+	"github.com/tendermint/tendermint/internal/autobahn/data"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/grpcutils"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/service"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/tcp"
+	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 

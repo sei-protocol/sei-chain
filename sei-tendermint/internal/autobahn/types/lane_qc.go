@@ -2,9 +2,10 @@ package types
 
 import (
 	"fmt"
-
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 )
 
 // LaneQC .
@@ -38,14 +39,14 @@ func (m *LaneQC) Verify(c *Committee) error {
 }
 
 // LaneQCConv is a protobuf converter for LaneQC.
-var LaneQCConv = utils.ProtoConv[*LaneQC, *protocol.LaneQC]{
-	Encode: func(m *LaneQC) *protocol.LaneQC {
-		return &protocol.LaneQC{
+var LaneQCConv = protoutils.Conv[*LaneQC, *pb.LaneQC]{
+	Encode: func(m *LaneQC) *pb.LaneQC {
+		return &pb.LaneQC{
 			Vote: LaneVoteConv.Encode(m.vote.Msg()),
 			Sigs: SignatureConv.EncodeSlice(m.sigs),
 		}
 	},
-	Decode: func(m *protocol.LaneQC) (*LaneQC, error) {
+	Decode: func(m *pb.LaneQC) (*LaneQC, error) {
 		vote, err := LaneVoteConv.DecodeReq(m.Vote)
 		if err != nil {
 			return nil, fmt.Errorf("vote: %w", err)

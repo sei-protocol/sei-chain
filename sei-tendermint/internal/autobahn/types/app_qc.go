@@ -3,8 +3,9 @@ package types
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 )
 
 // AppQC .
@@ -40,14 +41,14 @@ func (m *AppQC) Verify(c *Committee) error {
 }
 
 // AppQCConv is a protobuf converter for AppQC.
-var AppQCConv = utils.ProtoConv[*AppQC, *protocol.AppQC]{
-	Encode: func(m *AppQC) *protocol.AppQC {
-		return &protocol.AppQC{
+var AppQCConv = protoutils.Conv[*AppQC, *pb.AppQC]{
+	Encode: func(m *AppQC) *pb.AppQC {
+		return &pb.AppQC{
 			Vote: AppVoteConv.Encode(m.vote.Msg()),
 			Sigs: SignatureConv.EncodeSlice(m.sigs),
 		}
 	},
-	Decode: func(m *protocol.AppQC) (*AppQC, error) {
+	Decode: func(m *pb.AppQC) (*AppQC, error) {
 		vote, err := AppVoteConv.DecodeReq(m.Vote)
 		if err != nil {
 			return nil, fmt.Errorf("proposal: %w", err)

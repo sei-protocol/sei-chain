@@ -6,21 +6,22 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
+	"github.com/tendermint/tendermint/internal/protoutils"
 )
 
 // TimeConv is the protobuf converter for time.Time.
-var TimeConv = utils.ProtoConv[time.Time, *protocol.Timestamp]{
+var TimeConv = protoutils.Conv[time.Time, *pb.Timestamp]{
 	// implementation based on
-	// https://github.com/protocolbuffers/protobuf-go/blob/v1.36.5/types/known/timestamppb/timestamp.pb.go
-	Encode: func(t time.Time) *protocol.Timestamp {
-		return &protocol.Timestamp{
+	// https://github.com/pbbuffers/protobuf-go/blob/v1.36.5/types/known/timestamppb/timestamp.pb.go
+	Encode: func(t time.Time) *pb.Timestamp {
+		return &pb.Timestamp{
 			Seconds: proto.Int64(t.Unix()),
 			Nanos:   proto.Int32(int32(t.Nanosecond())),
 		}
 	},
-	Decode: func(p *protocol.Timestamp) (time.Time, error) {
+	Decode: func(p *pb.Timestamp) (time.Time, error) {
 		if p.Seconds == nil {
 			return utils.Zero[time.Time](), errors.New("seconds: missing")
 		}
@@ -32,19 +33,19 @@ var TimeConv = utils.ProtoConv[time.Time, *protocol.Timestamp]{
 }
 
 // DurationConv is the protobuf converter for time.Duration.
-var DurationConv = utils.ProtoConv[time.Duration, *protocol.Duration]{
+var DurationConv = protoutils.Conv[time.Duration, *pb.Duration]{
 	// implementation based on
-	// https://github.com/protocolbuffers/protobuf-go/blob/v1.36.5/types/known/durationpb/duration.pb.go
-	Encode: func(d time.Duration) *protocol.Duration {
+	// https://github.com/pbbuffers/protobuf-go/blob/v1.36.5/types/known/durationpb/duration.pb.go
+	Encode: func(d time.Duration) *pb.Duration {
 		nanos := d.Nanoseconds()
 		secs := nanos / 1e9
 		nanos -= secs * 1e9
-		return &protocol.Duration{
+		return &pb.Duration{
 			Seconds: proto.Int64(secs),
 			Nanos:   proto.Int32(int32(nanos)),
 		}
 	},
-	Decode: func(p *protocol.Duration) (time.Duration, error) {
+	Decode: func(p *pb.Duration) (time.Duration, error) {
 		if p.Seconds == nil {
 			return utils.Zero[time.Duration](), errors.New("seconds: missing")
 		}

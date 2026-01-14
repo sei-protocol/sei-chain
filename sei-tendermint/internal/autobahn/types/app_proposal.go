@@ -3,8 +3,9 @@ package types
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 )
 
 // AppHash represents EVM state hash.
@@ -50,18 +51,20 @@ func (m *AppProposal) Verify(qc *CommitQC) error {
 }
 
 // AppProposalConv is a protobuf converter for AppProposal.
-var AppProposalConv = utils.ProtoConv[*AppProposal, *protocol.AppProposal]{
-	Encode: func(m *AppProposal) *protocol.AppProposal {
-		return &protocol.AppProposal{
-			GlobalNumber: uint64(m.globalNumber),
-			RoadIndex:    uint64(m.roadIndex),
+var AppProposalConv = protoutils.Conv[*AppProposal, *pb.AppProposal]{
+	Encode: func(m *AppProposal) *pb.AppProposal {
+		return &pb.AppProposal{
+			GlobalNumber: utils.Alloc(uint64(m.globalNumber)),
+			RoadIndex:    utils.Alloc(uint64(m.roadIndex)),
 			AppHash:      m.appHash,
 		}
 	},
-	Decode: func(m *protocol.AppProposal) (*AppProposal, error) {
+	Decode: func(m *pb.AppProposal) (*AppProposal, error) {
+		if m.GlobalNumber==nil { return nil,fmt.Errorf("GlobalNumber: missing") }
+		if m.RoadIndex==nil { return nil,fmt.Errorf("RoadIndex: missing") }
 		return &AppProposal{
-			globalNumber: GlobalBlockNumber(m.GlobalNumber),
-			roadIndex:    RoadIndex(m.RoadIndex),
+			globalNumber: GlobalBlockNumber(*m.GlobalNumber),
+			roadIndex:    RoadIndex(*m.RoadIndex),
 			appHash:      AppHash(m.AppHash),
 		}, nil
 	},

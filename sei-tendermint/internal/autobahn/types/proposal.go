@@ -6,9 +6,11 @@ import (
 	"sort"
 	"time"
 
-	"github.com/sei-protocol/sei-stream/pkg/service"
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
+
 )
 
 // LaneRange represents a range [first,next) of blocks of a lane.
@@ -270,7 +272,7 @@ func (m *FullProposal) TimeoutQC() utils.Option[*TimeoutQC] {
 
 // Verify verifies the FullProposal against the current view.
 func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
-	return service.Parallel(func(s service.ParallelScope) error {
+	return scope.Parallel(func(s scope.ParallelScope) error {
 		// Does the view match?
 		if got, want := m.proposal.Msg().View(), vs.View(); got != want {
 			return fmt.Errorf("view = %v, want %v", m.View(), vs.View())
@@ -361,68 +363,72 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 }
 
 // LaneRangeConv is the protobuf converter for LaneRange.
-var LaneRangeConv = utils.ProtoConv[*LaneRange, *protocol.LaneRange]{
-	Encode: func(m *LaneRange) *protocol.LaneRange {
-		return &protocol.LaneRange{
+var LaneRangeConv = protoutils.Conv[*LaneRange, *pb.LaneRange]{
+	Encode: func(m *LaneRange) *pb.LaneRange {
+		return &pb.LaneRange{
 			Lane:     PublicKeyConv.Encode(m.lane),
-			First:    uint64(m.first),
-			Next:     uint64(m.next),
+			First:    utils.Alloc(uint64(m.first)),
+			Next:     utils.Alloc(uint64(m.next)),
 			LastHash: m.lastHash[:],
 		}
 	},
-	Decode: func(m *protocol.LaneRange) (*LaneRange, error) {
-		lastHash, err := utils.ParseHash(m.LastHash)
-		if err != nil {
-			return nil, fmt.Errorf("last: %w", err)
-		}
+	Decode: func(m *pb.LaneRange) (*LaneRange, error) {
 		lane, err := PublicKeyConv.Decode(m.Lane)
 		if err != nil {
-			return nil, fmt.Errorf("lane: %w", err)
+			return nil, fmt.Errorf("Lane: %w", err)
+		}
+		if m.First==nil { return nil,fmt.Errorf("First: missing") }
+		if m.Next==nil { return nil,fmt.Errorf("Next: missing") }
+		lastHash, err := ParseBlockHeaderHash(m.LastHash)
+		if err != nil {
+			return nil, fmt.Errorf("LastHash: %w", err)
 		}
 		return &LaneRange{
 			lane:     lane,
-			first:    BlockNumber(m.First),
-			next:     BlockNumber(m.Next),
+			first:    BlockNumber(*m.First),
+			next:     BlockNumber(*m.Next),
 			lastHash: BlockHeaderHash(lastHash),
 		}, nil
 	},
 }
 
 // ViewConv is the protobuf converter for View.
-var ViewConv = utils.ProtoConv[View, *protocol.View]{
-	Encode: func(m View) *protocol.View {
-		return &protocol.View{
-			Index:  uint64(m.Index),
-			Number: uint64(m.Number),
+var ViewConv = protoutils.Conv[View, *pb.View]{
+	Encode: func(m View) *pb.View {
+		return &pb.View{
+			Index:  utils.Alloc(uint64(m.Index)),
+			Number: utils.Alloc(uint64(m.Number)),
 		}
 	},
-	Decode: func(m *protocol.View) (View, error) {
+	Decode: func(m *pb.View) (View, error) {
 		if m == nil {
 			return View{}, nil
 		}
+		if m.Index==nil { return View{},fmt.Errorf("Index: missing") }
+		if m.Number==nil { return View{},fmt.Errorf("Number: missing") }
 		return View{
-			Index:  RoadIndex(m.Index),
-			Number: ViewNumber(m.Number),
+			Index:  RoadIndex(*m.Index),
+			Number: ViewNumber(*m.Number),
 		}, nil
 	},
 }
 
 // ProposalConv is the protobuf converter for Proposal.
-var ProposalConv = utils.ProtoConv[*Proposal, *protocol.Proposal]{
-	Encode: func(m *Proposal) *protocol.Proposal {
+var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
+	Encode: func(m *Proposal) *pb.Proposal {
 		var laneRanges []*LaneRange
 		for _, r := range m.laneRanges {
 			laneRanges = append(laneRanges, r)
 		}
 		sort.Slice(laneRanges, func(i, j int) bool { return laneRanges[i].Lane().Compare(laneRanges[j].Lane()) < 0 })
-		return &protocol.Proposal{
+		return &pb.Proposal{
 			View:       ViewConv.Encode(m.view),
 			CreatedAt:  TimeConv.Encode(m.createdAt),
 			LaneRanges: LaneRangeConv.EncodeSlice(laneRanges),
 			App:        AppProposalConv.EncodeOpt(m.app),
 		}
 	},
-	Decode: func(m *protocol.Proposal) (*Proposal, error) {
+	Decode: func(m *pb.Proposal) (*Proposal, error) {
 		view, err := ViewConv.Decode(m.View)
 		if err != nil {
 			return nil, fmt.Errorf("view: %w", err)
@@ -449,20 +455,20 @@ var ProposalConv = utils.ProtoConv[*Proposal, *protocol.Proposal]{
 }
 
 // FullProposalConv is the protobuf converter for FullProposal.
-var FullProposalConv = utils.ProtoConv[*FullProposal, *protocol.FullProposal]{
-	Encode: func(m *FullProposal) *protocol.FullProposal {
+var FullProposalConv = protoutils.Conv[*FullProposal, *pb.FullProposal]{
+	Encode: func(m *FullProposal) *pb.FullProposal {
 		var laneQCs []*LaneQC
 		for _, qc := range m.laneQCs {
 			laneQCs = append(laneQCs, qc)
 		}
-		return &protocol.FullProposal{
+		return &pb.FullProposal{
 			Proposal:  SignedMsgConv[*Proposal]().Encode(m.proposal),
 			LaneQcs:   LaneQCConv.EncodeSlice(laneQCs),
 			AppQc:     AppQCConv.EncodeOpt(m.appQC),
 			TimeoutQc: TimeoutQCConv.EncodeOpt(m.timeoutQC),
 		}
 	},
-	Decode: func(m *protocol.FullProposal) (*FullProposal, error) {
+	Decode: func(m *pb.FullProposal) (*FullProposal, error) {
 		proposal, err := SignedMsgConv[*Proposal]().DecodeReq(m.Proposal)
 		if err != nil {
 			return nil, fmt.Errorf("proposal: %w", err)
