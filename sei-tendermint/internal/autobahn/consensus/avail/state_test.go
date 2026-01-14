@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"testing"
 	"time"
 
 	"github.com/tendermint/tendermint/internal/autobahn/data"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/service"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
@@ -34,7 +33,7 @@ func makeLaneVotes(keys []types.SecretKey, h *types.BlockHeader) []*types.Signed
 }
 
 func makeCommitQC(
-	rng *rand.Rand,
+	rng utils.Rng,
 	committee *types.Committee,
 	keys []types.SecretKey,
 	prev utils.Option[*types.CommitQC],
@@ -73,7 +72,7 @@ func TestState(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 3)
 
-	if err := service.Run(ctx, func(ctx context.Context, s service.Scope) error {
+	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		ds := data.NewState(&data.Config{
 			Committee: committee,
 		}, utils.None[data.BlockStore]())

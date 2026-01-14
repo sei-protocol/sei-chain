@@ -6,28 +6,27 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/metrics"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	"github.com/tendermint/tendermint/internal/autobahn/metrics"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 )
 
-// Server implements protocol.ProducerAPIServer.
+// Server implements pb.ProducerAPIServer.
 type server struct {
-	protocol.UnimplementedProducerAPIServer
 	state *State
 }
 
 // Register registers ProducerAPIServer with the given grpc server.
 func (s *State) Register(grpcServer *grpc.Server) {
-	protocol.RegisterProducerAPIServer(grpcServer, &server{state: s})
+	pb.RegisterProducerAPIServer(grpcServer, &server{state: s})
 }
 
-// Mempool implements protocol.ProducerAPIServer.
-func (s *server) Mempool(stream grpc.ClientStreamingServer[protocol.Transaction, protocol.TransactionResp]) error {
+// Mempool implements pb.ProducerAPIServer.
+func (s *server) Mempool(stream grpc.ClientStreamingServer[pb.Transaction, pb.TransactionResp]) error {
 	ctx := stream.Context()
 	for {
 		tx, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
-			return stream.SendAndClose(&protocol.TransactionResp{})
+			return stream.SendAndClose(&pb.TransactionResp{})
 		}
 		if err != nil {
 			return err

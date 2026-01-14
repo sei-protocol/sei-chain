@@ -1,13 +1,13 @@
 package avail
 
 import (
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
 type inner struct {
 	latestAppQC    utils.Option[*types.AppQC]
-	latestCommitQC utils.AtomicWatch[utils.Option[*types.CommitQC]]
+	latestCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]]
 	appVotes       *queue[types.GlobalBlockNumber, appVotes]
 	commitQCs      *queue[types.RoadIndex, *types.CommitQC]
 	blocks         map[types.LaneID]*queue[types.BlockNumber, *types.Block]
@@ -23,7 +23,7 @@ func newInner(c *types.Committee) *inner {
 	}
 	return &inner{
 		latestAppQC:    utils.None[*types.AppQC](),
-		latestCommitQC: utils.NewAtomicWatch(utils.None[*types.CommitQC]()),
+		latestCommitQC: utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		appVotes:       newQueue[types.GlobalBlockNumber, appVotes](),
 		commitQCs:      newQueue[types.RoadIndex, *types.CommitQC](),
 		blocks:         blocks,

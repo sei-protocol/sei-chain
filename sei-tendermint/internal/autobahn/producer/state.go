@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/service"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
+	"golang.org/x/time/rate"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/consensus"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
-// Config is the config of the block service.
+// Config is the config of the block scope.
 type Config struct {
 	MaxGasPerBlock   uint64
 	MaxTxsPerBlock   uint64
@@ -33,7 +34,7 @@ func (c *Config) maxTxsPerBlock() uint64 {
 type State struct {
 	cfg *Config
 	// channel of transactions to build the next block from.
-	mempool chan *protocol.Transaction
+	mempool chan *pb.Transaction
 	// consensus state to which published blocks will be reported.
 	consensus *consensus.State
 }
@@ -43,7 +44,7 @@ type State struct {
 func NewState(cfg *Config, consensus *consensus.State) *State {
 	return &State{
 		cfg:       cfg,
-		mempool:   make(chan *protocol.Transaction, cfg.MempoolSize),
+		mempool:   make(chan *pb.Transaction, cfg.MempoolSize),
 		consensus: consensus,
 	}
 }
@@ -86,21 +87,21 @@ func (s *State) nextPayload(ctx context.Context) (*types.Payload, error) {
 }
 
 // PushToMempool pushes the transaction to the mempool.
-func (s *State) PushToMempool(ctx context.Context, tx *protocol.Transaction) error {
+func (s *State) PushToMempool(ctx context.Context, tx *pb.Transaction) error {
 	return utils.Send(ctx, s.mempool, tx)
 }
 
 // Run runs the background tasks of the producer state.
 func (s *State) Run(ctx context.Context) error {
-	return utils.IgnoreCancel(service.Run(ctx, func(ctx context.Context, scope service.Scope) error {
+	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		// Construct blocks from mempool.
-		var limiter utils.Option[*utils.Limiter]
-		if rate, ok := s.cfg.MaxTxsPerSecond.Get(); ok {
-			burst := rate + s.cfg.MaxTxsPerBlock
-			l := utils.NewLimiter(rate, burst)
-			scope.Spawn(func() error { return l.Run(ctx) })
-			limiter = utils.Some(l)
+		limit := rate.Inf
+		burst := 1
+		if l, ok := s.cfg.MaxTxsPerSecond.Get(); ok {
+			limit = rate.Limit(l)
+			burst = int(l + s.cfg.MaxTxsPerBlock)
 		}
+		limiter := rate.NewLimiter(limit,burst)
 		for {
 			if err := s.consensus.WaitForCapacity(ctx); err != nil {
 				return fmt.Errorf("s.Data().WaitForCapacity(): %w", err)
@@ -112,10 +113,8 @@ func (s *State) Run(ctx context.Context) error {
 			if _, err := s.consensus.ProduceBlock(ctx, payload); err != nil {
 				return fmt.Errorf("s.Data().PushBlock(): %w", err)
 			}
-			if limiter, ok := limiter.Get(); ok {
-				if err := limiter.Acquire(ctx, uint64(len(payload.Txs()))); err != nil {
-					return fmt.Errorf("limiter(): %w", err)
-				}
+			if err := limiter.WaitN(ctx, len(payload.Txs())); err != nil {
+				return fmt.Errorf("limiter(): %w", err)
 			}
 		}
 	}))

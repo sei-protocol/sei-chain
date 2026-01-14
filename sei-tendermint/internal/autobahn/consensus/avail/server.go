@@ -7,27 +7,27 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/tendermint/tendermint/internal/autobahn/data"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
 type server struct {
-	protocol.AvailAPIServer
+	pb.AvailAPIServer
 	state *State
 }
 
 // Register registers DataAPIServer with the given grpc server.
 func (s *State) Register(grpcServer *grpc.Server) {
-	protocol.RegisterAvailAPIServer(grpcServer, &server{
+	pb.RegisterAvailAPIServer(grpcServer, &server{
 		state: s,
 	})
 }
 
-// StreamLaneProposals implements protocol.StreamAPIServer.
+// StreamLaneProposals implements pb.StreamAPIServer.
 // Streams local blocks starting from the requested number.
 func (s *server) StreamLaneProposals(
-	req *protocol.StreamLaneProposalsReq,
-	stream grpc.ServerStreamingServer[protocol.LaneProposal],
+	req *pb.StreamLaneProposalsReq,
+	stream grpc.ServerStreamingServer[pb.LaneProposal],
 ) error {
 	ctx := stream.Context()
 	for i := types.BlockNumber(req.FirstBlockNumber); ; i++ {
@@ -39,7 +39,7 @@ func (s *server) StreamLaneProposals(
 			return fmt.Errorf("s.state.Block(): %w", err)
 		}
 		proposal := types.Sign(s.state.key, types.NewLaneProposal(b))
-		if err := stream.Send(&protocol.LaneProposal{
+		if err := stream.Send(&pb.LaneProposal{
 			LaneProposal: types.SignedMsgConv[*types.LaneProposal]().Encode(proposal),
 		}); err != nil {
 			return fmt.Errorf("stream.Send(): %w", err)
@@ -48,8 +48,8 @@ func (s *server) StreamLaneProposals(
 }
 
 func (s *server) StreamLaneVotes(
-	req *protocol.StreamLaneVotesReq,
-	stream grpc.ServerStreamingServer[protocol.LaneVote],
+	req *pb.StreamLaneVotesReq,
+	stream grpc.ServerStreamingServer[pb.LaneVote],
 ) error {
 	ctx := stream.Context()
 	next := map[types.LaneID]types.BlockNumber{}
@@ -74,7 +74,7 @@ func (s *server) StreamLaneVotes(
 		for _, h := range batch {
 			vote := types.Sign(s.state.key, types.NewLaneVote(h))
 			signedVote := types.SignedMsgConv[*types.LaneVote]().Encode(vote)
-			if err := stream.Send(&protocol.LaneVote{LaneVote: signedVote}); err != nil {
+			if err := stream.Send(&pb.LaneVote{LaneVote: signedVote}); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
 		}
@@ -82,8 +82,8 @@ func (s *server) StreamLaneVotes(
 }
 
 func (s *server) StreamAppVotes(
-	req *protocol.StreamAppVotesReq,
-	stream grpc.ServerStreamingServer[protocol.AppVote],
+	req *pb.StreamAppVotesReq,
+	stream grpc.ServerStreamingServer[pb.AppVote],
 ) error {
 	ctx := stream.Context()
 	for idx := types.RoadIndex(0); ; idx = max(idx, s.state.firstCommitQC()) + 1 {
@@ -115,7 +115,7 @@ func (s *server) StreamAppVotes(
 			// Send the vote.
 			vote := types.Sign(s.state.key, types.NewAppVote(p))
 			signedVote := types.SignedMsgConv[*types.AppVote]().Encode(vote)
-			if err := stream.Send(&protocol.AppVote{AppVote: signedVote}); err != nil {
+			if err := stream.Send(&pb.AppVote{AppVote: signedVote}); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
 		}
@@ -123,8 +123,8 @@ func (s *server) StreamAppVotes(
 }
 
 func (s *server) StreamAppQCs(
-	req *protocol.StreamAppQCsReq,
-	stream grpc.ServerStreamingServer[protocol.StreamAppQCsResp],
+	req *pb.StreamAppQCsReq,
+	stream grpc.ServerStreamingServer[pb.StreamAppQCsResp],
 ) error {
 	ctx := stream.Context()
 	next := types.RoadIndex(0)
@@ -134,7 +134,7 @@ func (s *server) StreamAppQCs(
 			return fmt.Errorf("s.state.WaitForAppQC(): %w", err)
 		}
 		next = appQC.Next()
-		if err := stream.Send(&protocol.StreamAppQCsResp{
+		if err := stream.Send(&pb.StreamAppQCsResp{
 			AppQc:    types.AppQCConv.Encode(appQC),
 			CommitQc: types.CommitQCConv.Encode(commitQC),
 		}); err != nil {
@@ -144,8 +144,8 @@ func (s *server) StreamAppQCs(
 }
 
 func (s *server) StreamCommitQCs(
-	req *protocol.StreamCommitQCsReq,
-	stream grpc.ServerStreamingServer[protocol.CommitQC],
+	req *pb.StreamCommitQCsReq,
+	stream grpc.ServerStreamingServer[pb.CommitQC],
 ) error {
 	ctx := stream.Context()
 	next := types.RoadIndex(0)

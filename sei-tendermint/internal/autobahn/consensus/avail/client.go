@@ -5,16 +5,15 @@ import (
 	"fmt"
 
 	"github.com/tendermint/tendermint/internal/autobahn/config"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/grpcutils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/service"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
 // Client is a StreamAPIClient wrapper capable of sending consensus state updates.
 type client struct {
-	protocol.AvailAPIClient
+	pb.AvailAPIClient
 	cfg   *config.PeerConfig
 	state *State
 }
@@ -22,13 +21,13 @@ type client struct {
 // RunClient runs an RPC client which actively pulls the peer's availability state.
 // If peer is a lane producer, then it also fetches the blocks producer by the peer.
 func (s *State) RunClient(ctx context.Context, cfg *config.PeerConfig) error {
-	return utils.IgnoreCancel(service.Run(ctx, func(ctx context.Context, scope service.Scope) error {
+	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		conn, err := grpcutils.NewClient(cfg.Address)
 		if err != nil {
 			return fmt.Errorf("grpc.NewClient(%q): %w", cfg.Address, err)
 		}
 		c := &client{
-			AvailAPIClient: protocol.NewAvailAPIClient(conn),
+			AvailAPIClient: pb.NewAvailAPIClient(conn),
 			cfg:            cfg,
 			state:          s,
 		}
@@ -53,7 +52,7 @@ func (s *State) RunClient(ctx context.Context, cfg *config.PeerConfig) error {
 
 func (c *client) runStreamLaneProposals(ctx context.Context) error {
 	return c.cfg.Retry(ctx, "StreamLaneProposals", func(ctx context.Context) error {
-		stream, err := c.StreamLaneProposals(ctx, &protocol.StreamLaneProposalsReq{
+		stream, err := c.StreamLaneProposals(ctx, &pb.StreamLaneProposalsReq{
 			FirstBlockNumber: uint64(c.state.NextBlock(c.cfg.GetKey())),
 		})
 		if err != nil {
@@ -81,7 +80,7 @@ func (c *client) runStreamLaneProposals(ctx context.Context) error {
 
 func (c *client) runStreamLaneVotes(ctx context.Context) error {
 	return c.cfg.Retry(ctx, "StreamLaneVotes", func(ctx context.Context) error {
-		stream, err := c.StreamLaneVotes(ctx, &protocol.StreamLaneVotesReq{})
+		stream, err := c.StreamLaneVotes(ctx, &pb.StreamLaneVotesReq{})
 		if err != nil {
 			return fmt.Errorf("client.StreamLaneVotes(): %w", err)
 		}
@@ -103,7 +102,7 @@ func (c *client) runStreamLaneVotes(ctx context.Context) error {
 
 func (c *client) runStreamCommitQCs(ctx context.Context) error {
 	return c.cfg.Retry(ctx, "StreamCommitQCs", func(ctx context.Context) error {
-		stream, err := c.StreamCommitQCs(ctx, &protocol.StreamCommitQCsReq{})
+		stream, err := c.StreamCommitQCs(ctx, &pb.StreamCommitQCsReq{})
 		if err != nil {
 			return fmt.Errorf("client.StreamCommitQCs(): %w", err)
 		}
@@ -127,7 +126,7 @@ func (c *client) runStreamAppVotes(ctx context.Context) error {
 	return c.cfg.Retry(ctx, "StreamAppVotes", func(ctx context.Context) error {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		stream, err := c.StreamAppVotes(ctx, &protocol.StreamAppVotesReq{})
+		stream, err := c.StreamAppVotes(ctx, &pb.StreamAppVotesReq{})
 		if err != nil {
 			return fmt.Errorf("client.StreamAppVotes(): %w", err)
 		}
@@ -149,7 +148,7 @@ func (c *client) runStreamAppVotes(ctx context.Context) error {
 
 func (c *client) runStreamAppQCs(ctx context.Context) error {
 	return c.cfg.Retry(ctx, "StreamAppQCs", func(ctx context.Context) error {
-		stream, err := c.StreamAppQCs(ctx, &protocol.StreamAppQCsReq{})
+		stream, err := c.StreamAppQCs(ctx, &pb.StreamAppQCsReq{})
 		if err != nil {
 			return fmt.Errorf("client.StreamAppQCs(): %w", err)
 		}

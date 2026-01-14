@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	"github.com/tendermint/tendermint/internal/autobahn/data"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/service"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
@@ -402,7 +402,7 @@ func (s *State) ProduceBlock(ctx context.Context, lane types.LaneID, payload *ty
 
 // Run runs the background tasks of the state.
 func (s *State) Run(ctx context.Context) error {
-	return utils.IgnoreCancel(service.Run(ctx, func(ctx context.Context, scope service.Scope) error {
+	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		// Task inserting FullCommitQCs and local blocks to data state.
 		scope.SpawnNamed("s.data.PushQC", func() error {
 			c := s.data.Committee()

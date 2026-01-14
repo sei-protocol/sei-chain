@@ -3,16 +3,14 @@ package avail
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
 	"time"
 
 	"github.com/tendermint/tendermint/internal/autobahn/config"
 	"github.com/tendermint/tendermint/internal/autobahn/data"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/grpcutils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/service"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/tcp"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
@@ -22,7 +20,7 @@ func TestClientServer(t *testing.T) {
 	committee, keys := types.GenCommittee(rng, 4)
 	active := keys[:3]
 	totalBlocks := 3 * blocksPerLane
-	if err := service.Run(ctx, func(ctx context.Context, s service.Scope) error {
+	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		t.Logf("Committee with 4 nodes, where 1 is down.")
 		var peerCfgs []*config.PeerConfig
 		availStates := map[types.PublicKey]*State{}
@@ -58,7 +56,7 @@ func TestClientServer(t *testing.T) {
 			}
 		}
 
-		producerTask := func(rng *rand.Rand, state *State, producer types.LaneID) func() error {
+		producerTask := func(rng utils.Rng, state *State, producer types.LaneID) func() error {
 			return func() error {
 				for range totalBlocks {
 					if _, err := state.ProduceBlock(ctx, producer, types.GenPayload(rng)); err != nil {
@@ -72,10 +70,10 @@ func TestClientServer(t *testing.T) {
 			}
 		}
 		t.Logf("Spawn task sending corrupted data of node 0 to node 2.")
-		s.SpawnBg(producerTask(utils.TestRngSplit(rng), availStates[active[2].Public()], active[0].Public()))
+		s.SpawnBg(producerTask(rng.Split(), availStates[active[2].Public()], active[0].Public()))
 		t.Logf("Spawn block producing tasks.")
 		for _, producer := range active {
-			s.SpawnBg(producerTask(utils.TestRngSplit(rng), availStates[producer.Public()], producer.Public()))
+			s.SpawnBg(producerTask(rng.Split(), availStates[producer.Public()], producer.Public()))
 		}
 		as2 := availStates[active[2].Public()]
 		for i := 0; ; i += 1 {

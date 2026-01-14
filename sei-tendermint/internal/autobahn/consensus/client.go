@@ -6,14 +6,15 @@ import (
 	"time"
 
 	"github.com/tendermint/tendermint/internal/autobahn/config"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
 // Client is a StreamAPIClient wrapper capable of sending consensus state updates.
 type client struct {
-	protocol.StreamAPIClient
+	pb.StreamAPIClient
 	cfg   *config.PeerConfig
 	state *State
 }
@@ -71,7 +72,7 @@ func (c *client) sendPings(ctx context.Context) error {
 				return err
 			}
 			t0 := time.Now()
-			if err := stream.Send(&protocol.PingReq{}); err != nil {
+			if err := stream.Send(&pb.PingReq{}); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
 			if _, err := stream.Recv(); err != nil {
@@ -84,7 +85,7 @@ func (c *client) sendPings(ctx context.Context) error {
 
 // Run sends newest consensus messages to the peer.
 func (c *client) Run(ctx context.Context) error {
-	return service.Run(ctx, func(ctx context.Context, s service.Scope) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Send updates about new consensus messages.
 		s.Spawn(func() error { return sendUpdates(ctx, c, c.state.myProposal.Subscribe()) })
 		s.Spawn(func() error { return sendUpdates(ctx, c, c.state.myPrepareVote.Subscribe()) })
@@ -109,7 +110,7 @@ func (c *client) Run(ctx context.Context) error {
 // Unfortunately this is a system-level setting, not a per-connection one,
 // so it will affect all TCP connections on the system.
 func (s *State) RunClientPool(ctx context.Context, cfgs []*config.PeerConfig) error {
-	return utils.IgnoreCancel(service.Run(ctx, func(ctx context.Context, scope service.Scope) error {
+	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		for _, cfg := range cfgs {
 			conn, err := grpcutils.NewClient(cfg.Address)
 			if err != nil {
@@ -118,7 +119,7 @@ func (s *State) RunClientPool(ctx context.Context, cfgs []*config.PeerConfig) er
 			c := &client{
 				cfg:             cfg,
 				state:           s,
-				StreamAPIClient: protocol.NewStreamAPIClient(conn),
+				StreamAPIClient: pb.NewStreamAPIClient(conn),
 			}
 			scope.SpawnNamed(cfg.Address, func() error { return c.Run(ctx) })
 		}

@@ -9,12 +9,11 @@ import (
 
 	"github.com/tendermint/tendermint/internal/autobahn/config"
 	"github.com/tendermint/tendermint/internal/autobahn/data"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/grpcutils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/service"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/tcp"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/consensus"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
@@ -39,9 +38,9 @@ func TestState(t *testing.T) {
 		AllowEmptyBlocks: false,
 	}
 	wantBlocks := 4
-	var wantTxs []*protocol.Transaction
+	var wantTxs []*pb.Transaction
 	var gotBlockTxs [][][]byte
-	if err := service.Run(ctx, func(ctx context.Context, s service.Scope) error {
+	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		ds := data.NewState(&data.Config{
 			Committee: committee,
 		}, utils.None[data.BlockStore]())
@@ -73,7 +72,7 @@ func TestState(t *testing.T) {
 		s.SpawnBgNamed("producer", func() error { return state.Run(ctx) })
 		s.SpawnNamed("edge", func() error {
 			for range wantBlocks * int(cfg.MaxTxsPerBlock) {
-				tx := &protocol.Transaction{
+				tx := &pb.Transaction{
 					Hash:    utils.GenString(rng, 10),
 					Payload: utils.GenBytes(rng, 10),
 					GasUsed: uint64(rng.Intn(1000)),
@@ -100,7 +99,7 @@ func TestState(t *testing.T) {
 
 	// Transactions should be included in blocks in order.
 	wantBlockTxs := slices.Collect(slices.Chunk(
-		Map(wantTxs, func(tx *protocol.Transaction) []byte { return tx.Payload }),
+		Map(wantTxs, func(tx *pb.Transaction) []byte { return tx.Payload }),
 		int(cfg.MaxTxsPerBlock),
 	))
 	if err := utils.TestDiff(wantBlockTxs, gotBlockTxs); err != nil {

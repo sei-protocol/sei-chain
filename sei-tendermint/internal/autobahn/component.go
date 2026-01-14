@@ -12,10 +12,8 @@ import (
 
 	"github.com/tendermint/tendermint/internal/autobahn/config"
 	"github.com/tendermint/tendermint/internal/autobahn/data"
-	"github.com/tendermint/tendermint/internal/autobahn/execute"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/grpcutils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/service"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/internal/autobahn/storage/stores/ledger"
 	"github.com/tendermint/tendermint/internal/autobahn/consensus"
 	"github.com/tendermint/tendermint/internal/autobahn/producer"
@@ -35,7 +33,7 @@ func Run(
 		return fmt.Errorf("cfg.StreamConfig.Committee(): %w", err)
 	}
 
-	return service.Run(ctx, func(ctx context.Context, s service.Scope) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		var blockStore utils.Option[data.BlockStore]
 		if cfg.ExecuteConfig != nil {
 			if dbPath, ok := cfg.ExecuteConfig.BlockDBPath.Get(); ok {
