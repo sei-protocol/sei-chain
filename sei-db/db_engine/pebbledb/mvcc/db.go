@@ -158,7 +158,7 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
 	})
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	database.streamHandler = streamHandler
 	database.asyncWriteWG.Add(1)
