@@ -279,6 +279,9 @@ func (s *StorageTestSuite) TestApplyChangesetSyncAtomicAcrossModules() {
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorEmptyDomain() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -290,6 +293,9 @@ func (s *StorageTestSuite) TestDatabaseIteratorEmptyDomain() {
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorClose() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -304,6 +310,9 @@ func (s *StorageTestSuite) TestDatabaseIteratorClose() {
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorDomain() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -336,6 +345,9 @@ func (s *StorageTestSuite) TestDatabaseIteratorDomain() {
 }
 
 func (s *StorageTestSuite) TestDatabaseIterator() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -395,6 +407,9 @@ func (s *StorageTestSuite) TestDatabaseIterator() {
 	s.Require().Nil(iter3)
 }
 func (s *StorageTestSuite) TestDatabaseIteratorRangedDeletes() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -421,6 +436,9 @@ func (s *StorageTestSuite) TestDatabaseIteratorRangedDeletes() {
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorDeletes() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -458,6 +476,9 @@ func (s *StorageTestSuite) TestDatabaseIteratorDeletes() {
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorMultiVersion() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -505,6 +526,9 @@ func (s *StorageTestSuite) TestDatabaseIteratorMultiVersion() {
 
 // Tests bug where iterator loops continuously
 func (s *StorageTestSuite) TestDatabaseBugInitialReverseIteration() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -535,6 +559,9 @@ func (s *StorageTestSuite) TestDatabaseBugInitialReverseIteration() {
 }
 
 func (s *StorageTestSuite) TestDatabaseBugInitialForwardIteration() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -566,6 +593,9 @@ func (s *StorageTestSuite) TestDatabaseBugInitialForwardIteration() {
 }
 
 func (s *StorageTestSuite) TestDatabaseBugInitialForwardIterationHigher() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -595,6 +625,9 @@ func (s *StorageTestSuite) TestDatabaseBugInitialForwardIterationHigher() {
 }
 
 func (s *StorageTestSuite) TestDatabaseBugInitialReverseIterationHigher() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -625,6 +658,9 @@ func (s *StorageTestSuite) TestDatabaseBugInitialReverseIterationHigher() {
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorNoDomain() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -864,6 +900,9 @@ func (s *StorageTestSuite) TestDatabasePruneKeepLastVersion() {
 }
 
 func (s *StorageTestSuite) TestDatabaseReverseIterator() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -967,6 +1006,9 @@ func (s *StorageTestSuite) TestParallelWrites() {
 }
 
 func (s *StorageTestSuite) TestParallelWriteAndPruning() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -1028,6 +1070,9 @@ func (s *StorageTestSuite) TestParallelWriteAndPruning() {
 }
 
 func (s *StorageTestSuite) TestDatabaseParallelDeleteIteration() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -1165,6 +1210,9 @@ func (s *StorageTestSuite) TestDatabaseParallelWriteDelete() {
 }
 
 func (s *StorageTestSuite) TestParallelIterationAndPruning() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	fmt.Printf("DEBUG - config %+v\n", s.Config)
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
@@ -1242,6 +1290,9 @@ func (s *StorageTestSuite) TestParallelIterationAndPruning() {
 }
 
 func (s *StorageTestSuite) TestDatabaseParallelIterationVersions() {
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -1363,7 +1414,9 @@ func (s *StorageTestSuite) TestDatabaseRawImport() {
 // TestDatabaseReverseIteratorPrefixIsolation Verifies that ReverseIterator(nil, nil) is clamped to the caller's prefix
 // via prefixEnd()/UpperBound and does **not** spill into the next module.
 func (s *StorageTestSuite) TestDatabaseReverseIteratorPrefixIsolation() {
-
+	if slices.Contains(s.SkipTests, s.T().Name()) {
+		s.T().SkipNow()
+	}
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
