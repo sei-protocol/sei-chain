@@ -14,7 +14,6 @@ import (
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -263,11 +262,11 @@ func setupReceiptStore(storeKey sdk.StoreKey) (evmkeeper.ReceiptStore, error) {
 	ssConfig.KeepRecent = 0 // No min retain blocks in test
 	ssConfig.DBDirectory = tempDir
 	ssConfig.KeepLastVersion = false
-	receiptStateStore, err := ss.NewStateStore(log.NewNopLogger(), tempDir, ssConfig)
+	receiptStore, err := evmkeeper.NewReceiptStore(log.NewNopLogger(), ssConfig, storeKey)
 	if err != nil {
 		return nil, err
 	}
-	return evmkeeper.NewReceiptStore(receiptStateStore, storeKey), nil
+	return receiptStore, nil
 }
 
 func SetupWithDefaultHome(isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
