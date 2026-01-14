@@ -50,9 +50,10 @@ func TestOpenAndCorruptedTail(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			os.WriteFile(filepath.Join(dir, "00000000000000000001"), tc.logs, 0o600)
+			err := os.WriteFile(filepath.Join(dir, "00000000000000000001"), tc.logs, 0o600)
+			require.NoError(t, err)
 
-			_, err := wal.Open(dir, opts)
+			_, err = wal.Open(dir, opts)
 			require.Equal(t, wal.ErrCorrupt, err)
 
 			log, err := open(dir, opts)
@@ -188,7 +189,8 @@ func TestOpenWithNilOptions(t *testing.T) {
 
 func TestTruncateAfter(t *testing.T) {
 	changelog := prepareTestData(t)
-	defer changelog.Close()
+	err := changelog.Close()
+	require.NoError(t, err)
 
 	// Verify we have 3 entries
 	lastIndex, err := changelog.LastOffset()
@@ -217,7 +219,8 @@ func TestTruncateAfter(t *testing.T) {
 
 func TestTruncateBefore(t *testing.T) {
 	changelog := prepareTestData(t)
-	defer changelog.Close()
+	err := changelog.Close()
+	require.NoError(t, err)
 
 	// Verify we have 3 entries starting at 1
 	firstIndex, err := changelog.FirstOffset()
@@ -266,7 +269,7 @@ func TestCloseSyncMode(t *testing.T) {
 	// Reopen and verify data persisted
 	changelog2, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
 	require.NoError(t, err)
-	defer changelog2.Close()
+	t.Cleanup(func() { require.NoError(t, changelog2.Close()) })
 
 	lastIndex, err := changelog2.LastOffset()
 	require.NoError(t, err)
@@ -275,7 +278,7 @@ func TestCloseSyncMode(t *testing.T) {
 
 func TestReadAtNonExistent(t *testing.T) {
 	changelog := prepareTestData(t)
-	defer changelog.Close()
+	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
 
 	// Try to read an entry that doesn't exist
 	_, err := changelog.ReadAt(100)
@@ -284,7 +287,7 @@ func TestReadAtNonExistent(t *testing.T) {
 
 func TestReplayWithError(t *testing.T) {
 	changelog := prepareTestData(t)
-	defer changelog.Close()
+	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
 
 	// Replay with a function that returns an error
 	expectedErr := fmt.Errorf("test error")
@@ -342,7 +345,7 @@ func TestEmptyLog(t *testing.T) {
 	dir := t.TempDir()
 	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
 	require.NoError(t, err)
-	defer changelog.Close()
+	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
 
 	// Empty log should have 0 for both first and last index
 	firstIndex, err := changelog.FirstOffset()
@@ -371,7 +374,7 @@ func TestCheckErrorNoError(t *testing.T) {
 
 func TestFirstAndLastOffset(t *testing.T) {
 	changelog := prepareTestData(t)
-	defer changelog.Close()
+	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
 
 	firstIndex, err := changelog.FirstOffset()
 	require.NoError(t, err)
@@ -417,7 +420,7 @@ func TestAsyncWriteReopenAndContinue(t *testing.T) {
 	// Reopen and verify all 6 entries
 	changelog3, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
 	require.NoError(t, err)
-	defer changelog3.Close()
+	t.Cleanup(func() { require.NoError(t, changelog3.Close()) })
 
 	lastIndex, err := changelog3.LastOffset()
 	require.NoError(t, err)
@@ -426,7 +429,7 @@ func TestAsyncWriteReopenAndContinue(t *testing.T) {
 
 func TestReplaySingleEntry(t *testing.T) {
 	changelog := prepareTestData(t)
-	defer changelog.Close()
+	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
 
 	var count int
 	err := changelog.Replay(2, 2, func(index uint64, entry proto.ChangelogEntry) error {
@@ -442,7 +445,7 @@ func TestWriteMultipleChangesets(t *testing.T) {
 	dir := t.TempDir()
 	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
 	require.NoError(t, err)
-	defer changelog.Close()
+	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
 
 	// Write entry with multiple changesets
 	entry := &proto.ChangelogEntry{

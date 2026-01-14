@@ -27,7 +27,7 @@ func TestRewriteSnapshot(t *testing.T) {
 		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
-	defer db.Close() // Ensure DB cleanup
+	t.Cleanup(func() { require.NoError(t, db.Close()) }) // Ensure DB cleanup
 
 	for i, changes := range ChangeSets {
 		cs := []*proto.NamedChangeSet{
@@ -51,7 +51,6 @@ func TestRewriteSnapshot(t *testing.T) {
 
 func TestRemoveSnapshotDir(t *testing.T) {
 	dbDir := t.TempDir()
-	defer os.RemoveAll(dbDir)
 
 	snapshotDir := filepath.Join(dbDir, snapshotName(0))
 	tmpDir := snapshotDir + "-tmp"
@@ -101,7 +100,7 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 		SnapshotKeepRecent: 0, // only a single snapshot is kept
 	})
 	require.NoError(t, err)
-	defer db.Close() // Ensure DB cleanup and goroutine termination
+	t.Cleanup(func() { require.NoError(t, db.Close()) }) // Ensure DB cleanup and goroutine termination
 
 	// spin up goroutine to keep querying the tree
 	stopCh := make(chan struct{})
@@ -272,7 +271,7 @@ func TestRlog(t *testing.T) {
 	// Reopen (MemIAVL will open the changelog from disk)
 	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, InitialStores: initialStores})
 	require.NoError(t, err)
-	defer db.Close() // Close the reopened DB
+	t.Cleanup(func() { require.NoError(t, db.Close()) }) // Close the reopened DB
 
 	require.Equal(t, "newtest", db.lastCommitInfo.StoreInfos[0].Name)
 	require.Equal(t, 1, len(db.lastCommitInfo.StoreInfos))
@@ -514,19 +513,19 @@ func TestWALIndexDeltaComputation(t *testing.T) {
 		rollbackTo     int64
 	}{
 		{
-			name:           "delta=0 (version starts at 1)",
+			name:           "Test wal delta=0 and version = 1",
 			initialVersion: 0,
 			numVersions:    5,
 			rollbackTo:     3,
 		},
 		{
-			name:           "delta=9 (version starts at 10)",
+			name:           "Test wal delta=9 and version = 10",
 			initialVersion: 10,
 			numVersions:    5,
 			rollbackTo:     12,
 		},
 		{
-			name:           "delta=99 (version starts at 100)",
+			name:           "Test wal delta=99 and version = 100",
 			initialVersion: 100,
 			numVersions:    5,
 			rollbackTo:     102,
@@ -744,7 +743,7 @@ func TestEmptyValue(t *testing.T) {
 	// Reopen (MemIAVL will open the changelog from disk)
 	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ZeroCopy: true, InitialStores: initialStores})
 	require.NoError(t, err)
-	defer db.Close() // Close the reopened DB
+	t.Cleanup(func() { require.NoError(t, db.Close()) }) // Close the reopened DB
 	require.Equal(t, version, db.Version())
 }
 
@@ -940,7 +939,7 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 		InitialStores:   initialStores,
 	})
 	require.NoError(t, err)
-	defer db.Close()
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	wal := db.GetWAL()
 	require.NotNil(t, wal)
@@ -967,7 +966,7 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 		Logger:   logger.NewNopLogger(),
 	})
 	require.NoError(t, err)
-	defer mtree.Close()
+	t.Cleanup(func() { require.NoError(t, mtree.Close()) })
 
 	// Catchup with cancelled context should return error
 	ctx, cancel := context.WithCancel(context.Background())

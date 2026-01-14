@@ -442,24 +442,15 @@ func (db *DB) checkAsyncTasks() error {
 }
 
 // CommittedVersion returns the current version of the MultiTree.
-func (db *DB) CommittedVersion() int64 {
-	// Prefer the WAL's last offset, converted via walIndexDelta, to avoid relying
-	// on potentially stale tree metadata. Fall back to the tree version on error
-	// or when WAL is absent/empty.
-	if wal := db.GetWAL(); wal != nil {
-		lastOffset, err := wal.LastOffset()
-		if err != nil {
-			db.logger.Error("failed to read WAL last offset for committed version", "err", err)
-		} else if lastOffset > 0 {
-			// Defensive bound check: uint64 -> int64 conversion can overflow in theory.
-			if lastOffset > uint64(math.MaxInt64) {
-				db.logger.Error("WAL last offset overflows int64", "lastOffset", lastOffset)
-				return math.MaxInt64
-			}
-			return db.walIndexToVersion(lastOffset)
-		}
+func (db *DB) CommittedVersion() (int64, error) {
+	lastOffset, err := db.GetWAL().LastOffset()
+	if err != nil {
+		return 0, err
 	}
-	return db.MultiTree.Version()
+	if lastOffset == 0 {
+		return db.SnapshotVersion(), nil
+	}
+	return db.walIndexToVersion(lastOffset), nil
 }
 
 // checkBackgroundSnapshotRewrite check the result of background snapshot rewrite, cleans up the old snapshots and switches to a new multitree
@@ -483,7 +474,10 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		// wait for potential pending writes to finish, to make sure we catch up to latest state.
 		// in real world, block execution should be slower than tree updates, so this should not block for long.
 		for {
-			committedVersion := db.CommittedVersion()
+			committedVersion, err := db.CommittedVersion()
+			if err != nil {
+				return fmt.Errorf("get committed version failed: %w", err)
+			}
 			if db.lastCommitInfo.Version == committedVersion {
 				break
 			}

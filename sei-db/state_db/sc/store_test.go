@@ -70,7 +70,10 @@ func TestCommitStoreBasicOperations(t *testing.T) {
 	// Load version 0 to initialize the DB
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
-	defer cs.Close()
+	defer func() {
+		err := cs.Close()
+		require.NoError(t, err)
+	}()
 
 	// Initial version should be 0
 	require.Equal(t, int64(0), cs.Version())
@@ -110,7 +113,10 @@ func TestApplyChangeSetsEmpty(t *testing.T) {
 
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
-	defer cs.Close()
+	defer func() {
+		err := cs.Close()
+		require.NoError(t, err)
+	}()
 
 	// Empty changesets should be no-op
 	err = cs.ApplyChangeSets(nil)
@@ -127,7 +133,10 @@ func TestApplyUpgrades(t *testing.T) {
 
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
-	defer cs.Close()
+	defer func() {
+		err := cs.Close()
+		require.NoError(t, err)
+	}()
 
 	// Apply upgrades
 	upgrades := []*proto.TreeNameUpgrade{
@@ -157,7 +166,10 @@ func TestApplyUpgradesEmpty(t *testing.T) {
 
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
-	defer cs.Close()
+	defer func() {
+		err := cs.Close()
+		require.NoError(t, err)
+	}()
 
 	// Empty upgrades should be no-op
 	err = cs.ApplyUpgrades(nil)
@@ -212,7 +224,10 @@ func TestCommitInfo(t *testing.T) {
 
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
-	defer cs.Close()
+	defer func() {
+		err := cs.Close()
+		require.NoError(t, err)
+	}()
 
 	// WorkingCommitInfo before any commit
 	workingInfo := cs.WorkingCommitInfo()
@@ -246,7 +261,10 @@ func TestGetModuleByName(t *testing.T) {
 
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
-	defer cs.Close()
+	defer func() {
+		err := cs.Close()
+		require.NoError(t, err)
+	}()
 
 	// Get existing module
 	module := cs.GetModuleByName("test")
@@ -264,7 +282,10 @@ func TestExporterVersionValidation(t *testing.T) {
 
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
-	defer cs.Close()
+	defer func() {
+		err := cs.Close()
+		require.NoError(t, err)
+	}()
 
 	// Negative version should fail
 	_, err = cs.Exporter(-1)
@@ -354,7 +375,10 @@ func TestMultipleCommits(t *testing.T) {
 
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
-	defer cs.Close()
+	defer func() {
+		err := cs.Close()
+		require.NoError(t, err)
+	}()
 
 	// Multiple commits
 	for i := 1; i <= 5; i++ {
@@ -385,7 +409,10 @@ func TestCommitWithUpgradesAndChangesets(t *testing.T) {
 
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
-	defer cs.Close()
+	defer func() {
+		err := cs.Close()
+		require.NoError(t, err)
+	}()
 
 	// Apply upgrades first
 	err = cs.ApplyUpgrades([]*proto.TreeNameUpgrade{
@@ -423,7 +450,10 @@ func TestSetInitialVersion(t *testing.T) {
 
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
-	defer cs.Close()
+	defer func() {
+		err := cs.Close()
+		require.NoError(t, err)
+	}()
 
 	// Set initial version
 	err = cs.SetInitialVersion(100)
@@ -472,7 +502,10 @@ func TestCreateWAL(t *testing.T) {
 
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
-	defer cs.Close()
+	defer func() {
+		err := cs.Close()
+		require.NoError(t, err)
+	}()
 
 	// MemIAVL should have opened its changelog WAL.
 	require.NotNil(t, cs.db.GetWAL())
