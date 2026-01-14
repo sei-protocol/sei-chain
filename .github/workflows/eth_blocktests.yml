@@ -4,11 +4,11 @@ on:
   push:
     branches:
       - main
-      - seiv2
+      - release/**
   pull_request:
     branches:
       - main
-      - seiv2
+      - release/**
 
 defaults:
  run:
