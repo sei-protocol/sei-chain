@@ -11,9 +11,6 @@ type GenericWAL[T any] interface {
 	// Write will append a new entry to the end of the log.
 	Write(entry T) error
 
-	// CheckError check the error signal of async writes
-	CheckError() error
-
 	// TruncateBefore will remove all entries that are before the provided `offset`
 	TruncateBefore(offset uint64) error
 

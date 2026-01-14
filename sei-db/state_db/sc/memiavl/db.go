@@ -205,27 +205,19 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 
 	// MemIAVL owns changelog lifecycle: always open the WAL here.
 	// Even in read-only mode we may need WAL replay to reconstruct non-snapshot versions.
-	var walHandler wal.GenericWAL[proto.ChangelogEntry]
-	changelogDir := utils.GetChangelogPath(opts.Dir)
-
-	writeBuf := 0
-	if !opts.ReadOnly {
-		writeBuf = opts.AsyncCommitBuffer
-	}
-	w, err := wal.NewChangelogWAL(logger, changelogDir, wal.Config{
+	streamHandler, err := wal.NewChangelogWAL(logger, utils.GetChangelogPath(opts.Dir), wal.Config{
 		DisableFsync:    true,
 		ZeroCopy:        true,
-		WriteBufferSize: writeBuf,
+		WriteBufferSize: opts.AsyncCommitBuffer,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open changelog WAL: %w", err)
 	}
-	walHandler = w
 
 	// Compute WAL index delta (only needed once per DB open)
 	var walIndexDelta int64
 	var walHasEntries bool
-	walIndexDelta, walHasEntries, err = computeWALIndexDelta(walHandler)
+	walIndexDelta, walHasEntries, err = computeWALIndexDelta(streamHandler)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute WAL index delta: %w", err)
 	}
@@ -237,7 +229,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 	// Replay WAL to catch up to target version (if WAL has entries)
 	if walHasEntries && (targetVersion == 0 || targetVersion > mtree.Version()) {
 		logger.Info("Start catching up and replaying the MemIAVL changelog file")
-		if err := mtree.Catchup(context.Background(), walHandler, walIndexDelta, targetVersion); err != nil {
+		if err := mtree.Catchup(context.Background(), streamHandler, walIndexDelta, targetVersion); err != nil {
 			return nil, err
 		}
 		logger.Info(fmt.Sprintf("Finished the replay and caught up to version %d", targetVersion))
@@ -263,7 +255,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 			// Use O(1) conversion: walIndex = version - delta
 			truncateIndex := targetVersion - walIndexDelta
 			if truncateIndex > 0 {
-				if err := walHandler.TruncateAfter(uint64(truncateIndex)); err != nil {
+				if err := streamHandler.TruncateAfter(uint64(truncateIndex)); err != nil {
 					return nil, fmt.Errorf("fail to truncate rlog file: %w", err)
 				}
 			}
@@ -301,7 +293,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		fileLock:                fileLock,
 		readOnly:                opts.ReadOnly,
 		walIndexDelta:           walIndexDelta,
-		streamHandler:           walHandler,
+		streamHandler:           streamHandler,
 		snapshotKeepRecent:      opts.SnapshotKeepRecent,
 		snapshotInterval:        opts.SnapshotInterval,
 		snapshotMinTimeInterval: opts.SnapshotMinTimeInterval,
@@ -448,11 +440,7 @@ func (db *DB) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
 
 // checkAsyncTasks checks the status of background tasks non-blocking-ly and process the result
 func (db *DB) checkAsyncTasks() error {
-	var walErr error
-	if wal := db.GetWAL(); wal != nil {
-		walErr = wal.CheckError()
-	}
-	return errorutils.Join(walErr, db.checkBackgroundSnapshotRewrite())
+	return db.checkBackgroundSnapshotRewrite()
 }
 
 // CommittedVersion returns the current version of the MultiTree.
@@ -470,7 +458,7 @@ func (db *DB) CommittedVersion() int64 {
 				db.logger.Error("WAL last offset overflows int64", "lastOffset", lastOffset)
 				return math.MaxInt64
 			}
-			return int64(lastOffset) + db.walIndexDelta
+			return db.walIndexToVersion(lastOffset)
 		}
 	}
 	return db.MultiTree.Version()
@@ -631,23 +619,30 @@ func (db *DB) Commit() (version int64, _err error) {
 		return 0, errReadOnly
 	}
 
-	nextVersion := db.MultiTree.WorkingCommitInfo().Version
-	if wal := db.GetWAL(); wal != nil {
-		entry := db.pendingLogEntry
-		entry.Version = nextVersion
-		if err := wal.Write(entry); err != nil {
-			return 0, fmt.Errorf("failed to write changelog WAL: %w", err)
-		}
-		if err := wal.CheckError(); err != nil {
-			return 0, fmt.Errorf("changelog WAL async write error: %w", err)
-		}
-	}
-	db.pendingLogEntry = proto.ChangelogEntry{}
-
+	// Commit the in-memory tree state FIRST.
+	// MemIAVL is purely in-memory; SaveVersion() doesn't persist anything.
+	// The changelog WAL is our persistence layer.
 	v, err := db.MultiTree.SaveVersion(true)
 	if err != nil {
 		return 0, err
 	}
+
+	// Write to WAL AFTER successful SaveVersion.
+	// Rationale: If SaveVersion fails but we already wrote to WAL, we'd have
+	// a WAL entry for a version that was never committed. On replay, this would
+	// corrupt state. By writing WAL after SaveVersion succeeds, we ensure WAL
+	// only contains valid committed versions. If WAL write fails after SaveVersion,
+	// we lose this version on crash (rollback to prior state), but remain consistent.
+	//
+	// Note: Write() automatically checks for any previous async write errors.
+	if wal := db.GetWAL(); wal != nil {
+		entry := db.pendingLogEntry
+		entry.Version = v
+		if err := wal.Write(entry); err != nil {
+			return 0, fmt.Errorf("failed to write changelog WAL: %w", err)
+		}
+	}
+	db.pendingLogEntry = proto.ChangelogEntry{}
 
 	if err := db.checkAsyncTasks(); err != nil {
 		return 0, err
@@ -677,16 +672,15 @@ func (db *DB) tryTruncateWAL() {
 		db.logger.Error("WAL first offset overflows int64; skipping truncation", "firstWALIndex", firstWALIndex)
 		return
 	}
-	walEarliestVersion := int64(firstWALIndex) + db.walIndexDelta
+	walEarliestVersion := db.walIndexToVersion(firstWALIndex)
 	if walEarliestVersion >= earliestSnapshotVersion {
 		return
 	}
-	truncateIndex := earliestSnapshotVersion - db.walIndexDelta
-	if truncateIndex <= 0 || truncateIndex <= int64(firstWALIndex) {
+	truncateIndex := db.versionToWALIndex(earliestSnapshotVersion)
+	if truncateIndex == 0 || truncateIndex <= firstWALIndex {
 		return
 	}
-	// #nosec G115 -- truncateIndex is checked to be positive and <= MaxInt64 above.
-	if err := db.streamHandler.TruncateBefore(uint64(truncateIndex)); err != nil {
+	if err := db.streamHandler.TruncateBefore(truncateIndex); err != nil {
 		db.logger.Error("failed to truncate changelog WAL", "err", err, "truncateIndex", truncateIndex)
 	}
 }

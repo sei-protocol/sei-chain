@@ -365,10 +365,6 @@ func TestCheckErrorNoError(t *testing.T) {
 	err = changelog.Write(*entry)
 	require.NoError(t, err)
 
-	// CheckError should return nil when no errors
-	err = changelog.CheckError()
-	require.NoError(t, err)
-
 	err = changelog.Close()
 	require.NoError(t, err)
 }

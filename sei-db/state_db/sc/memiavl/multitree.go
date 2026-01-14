@@ -264,14 +264,6 @@ func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 			t.trees[i].Name = upgrade.Name
 		default:
 			// add tree
-			// Idempotency: adding an existing tree should be a no-op. This can happen
-			// if callers apply InitialStores up front and WAL replay also contains the
-			// same "add tree" upgrades.
-			if slices.IndexFunc(t.trees, func(entry NamedTree) bool {
-				return entry.Name == upgrade.Name
-			}) >= 0 {
-				continue
-			}
 			v := utils.NextVersion(t.Version(), t.initialVersion.Load())
 			if v < 0 || v > math.MaxUint32 {
 				return fmt.Errorf("version overflows uint32: %d", v)

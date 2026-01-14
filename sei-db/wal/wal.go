@@ -24,7 +24,7 @@ type WAL[T any] struct {
 	marshal      MarshalFn[T]
 	unmarshal    UnmarshalFn[T]
 	writeChannel chan T
-	errSignal    chan error
+	asyncErr     atomic.Pointer[error] // stores async write error, checked on each Write()
 	nextOffset   uint64
 	isClosed     atomic.Bool
 	closeCh      chan struct{}  // signals shutdown to background goroutines
@@ -96,7 +96,13 @@ func NewWAL[T any](
 
 // Write will append a new entry to the end of the log.
 // Whether the writes is in blocking or async manner depends on the buffer size.
+// For async writes, this also checks for any previous async write errors.
 func (walLog *WAL[T]) Write(entry T) error {
+	// Check for any previous async write error
+	if errPtr := walLog.asyncErr.Load(); errPtr != nil {
+		return fmt.Errorf("async WAL write failed previously: %w", *errPtr)
+	}
+
 	channelBufferSize := walLog.config.WriteBufferSize
 	if channelBufferSize > 0 {
 		if walLog.writeChannel == nil {
@@ -124,12 +130,12 @@ func (walLog *WAL[T]) Write(entry T) error {
 // This should only be called on initialization if async write is enabled
 func (walLog *WAL[T]) startWriteGoroutine() {
 	walLog.writeChannel = make(chan T, walLog.config.WriteBufferSize)
-	walLog.errSignal = make(chan error)
 	// Capture the starting offset for the goroutine
 	writeOffset := walLog.nextOffset
+	walLog.wg.Add(1)
 	go func() {
+		defer walLog.wg.Done()
 		batch := wal.Batch{}
-		defer close(walLog.errSignal)
 		for {
 			entries := channelBatchRecv(walLog.writeChannel)
 			if len(entries) == 0 {
@@ -140,7 +146,7 @@ func (walLog *WAL[T]) startWriteGoroutine() {
 			for _, entry := range entries {
 				bz, err := walLog.marshal(entry)
 				if err != nil {
-					walLog.errSignal <- err
+					walLog.asyncErr.Store(&err)
 					return
 				}
 				batch.Write(writeOffset, bz)
@@ -148,7 +154,7 @@ func (walLog *WAL[T]) startWriteGoroutine() {
 			}
 
 			if err := walLog.log.WriteBatch(&batch); err != nil {
-				walLog.errSignal <- err
+				walLog.asyncErr.Store(&err)
 				return
 			}
 			batch.Clear()
@@ -171,17 +177,6 @@ func (walLog *WAL[T]) TruncateAfter(index uint64) error {
 // In other words the entry at `index` becomes the first entry in the log.
 func (walLog *WAL[T]) TruncateBefore(index uint64) error {
 	return walLog.log.TruncateFront(index)
-}
-
-// CheckError check if there's any failed async writes or not
-func (walLog *WAL[T]) CheckError() error {
-	select {
-	case err := <-walLog.errSignal:
-		// async wal writing failed, we need to abort the state machine
-		return fmt.Errorf("async wal writing goroutine quit unexpectedly: %w", err)
-	default:
-	}
-	return nil
 }
 
 func (walLog *WAL[T]) FirstOffset() (index uint64, err error) {
@@ -258,18 +253,25 @@ func (walLog *WAL[T]) Close() error {
 	// Signal background goroutines to stop
 	close(walLog.closeCh)
 
-	// Wait for background goroutines (pruning) to finish before closing resources
-	walLog.wg.Wait()
-
-	var err error
+	// Close write channel to signal the write goroutine to exit.
+	// Don't set to nil yet - goroutine still needs to read from it.
 	if walLog.writeChannel != nil {
 		close(walLog.writeChannel)
-		err = <-walLog.errSignal
-		walLog.writeChannel = nil
-		walLog.errSignal = nil
+	}
+
+	// Wait for all background goroutines (pruning + write) to finish
+	walLog.wg.Wait()
+
+	// Now safe to nil out
+	walLog.writeChannel = nil
+
+	// Check for any async write error that occurred
+	var asyncErr error
+	if errPtr := walLog.asyncErr.Load(); errPtr != nil {
+		asyncErr = *errPtr
 	}
 	errClose := walLog.log.Close()
-	return errorutils.Join(err, errClose)
+	return errorutils.Join(asyncErr, errClose)
 }
 
 // open opens the replay log, try to truncate the corrupted tail if there's any
