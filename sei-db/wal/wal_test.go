@@ -261,7 +261,10 @@ func TestCloseSyncMode(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify isClosed is set
-	require.True(t, changelog.isClosed.Load())
+	changelog.mtx.RLock()
+	isClosed := changelog.isClosed
+	changelog.mtx.RUnlock()
+	require.True(t, isClosed)
 
 	// Reopen and verify data persisted
 	changelog2, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
