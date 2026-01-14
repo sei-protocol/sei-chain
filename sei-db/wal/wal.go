@@ -32,8 +32,6 @@ type WAL[T any] struct {
 }
 
 type Config struct {
-	DisableFsync    bool
-	ZeroCopy        bool
 	WriteBufferSize int
 	KeepRecent      uint64
 	PruneInterval   time.Duration
@@ -60,8 +58,8 @@ func NewWAL[T any](
 	config Config,
 ) (*WAL[T], error) {
 	log, err := open(dir, &wal.Options{
-		NoSync: config.DisableFsync,
-		NoCopy: config.ZeroCopy,
+		NoSync: true,
+		NoCopy: true,
 	})
 	if err != nil {
 		return nil, err
@@ -79,6 +77,7 @@ func NewWAL[T any](
 	// Finding the nextOffset to write
 	lastIndex, err := log.LastIndex()
 	if err != nil {
+		_ = log.Close() // Close the opened log to avoid resource leak
 		return nil, err
 	}
 	w.nextOffset = lastIndex + 1

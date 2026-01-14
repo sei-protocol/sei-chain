@@ -206,8 +206,6 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 	// MemIAVL owns changelog lifecycle: always open the WAL here.
 	// Even in read-only mode we may need WAL replay to reconstruct non-snapshot versions.
 	streamHandler, err := wal.NewChangelogWAL(logger, utils.GetChangelogPath(opts.Dir), wal.Config{
-		DisableFsync:    true,
-		ZeroCopy:        true,
 		WriteBufferSize: opts.AsyncCommitBuffer,
 	})
 	if err != nil {

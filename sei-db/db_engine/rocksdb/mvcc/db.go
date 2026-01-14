@@ -114,8 +114,6 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	database.latestVersion.Store(latestVersion)
 
 	streamHandler, err := wal.NewChangelogWAL(logger.NewNopLogger(), utils.GetChangelogPath(dataDir), wal.Config{
-		DisableFsync:  true,
-		ZeroCopy:      true,
 		KeepRecent:    uint64(config.KeepRecent),
 		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
 	})
