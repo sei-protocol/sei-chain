@@ -87,7 +87,6 @@ import (
 	upgradeclient "github.com/cosmos/cosmos-sdk/x/upgrade/client"
 	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
-	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -102,8 +101,8 @@ import (
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	gigaexecutor "github.com/sei-protocol/sei-chain/giga/executor"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
-	gigaevmc "github.com/sei-protocol/sei-chain/giga/executor/vm/evmc"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
@@ -1660,9 +1659,6 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	stateDB := evmstate.NewDBImpl(ctx, &app.EvmKeeper, false)
 	defer stateDB.Cleanup()
 
-	// Get EVM message from the transaction using recovered sender
-	evmMsg := app.EvmKeeper.GetEVMMessage(ctx, ethTx, sender)
-
 	// Get gas pool
 	gp := app.EvmKeeper.GetGasPool()
 
@@ -1678,14 +1674,12 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	// Get chain config
 	sstore := app.EvmKeeper.GetParams(ctx).SeiSstoreSetGasEip2200
 	cfg := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(app.EvmKeeper.ChainID(ctx), &sstore)
-	txCtx := core.NewEVMTxContext(evmMsg)
 
 	// Create Giga executor VM (wraps evmone)
-	gigaVM := gigaevmc.NewVM(*blockCtx, stateDB, cfg, vm.Config{}, app.EvmKeeper.CustomPrecompiles(ctx))
-	gigaVM.SetTxContext(txCtx)
+	gigaExecutor := gigaexecutor.NewEvmoneExecutor(*blockCtx, stateDB, cfg, vm.Config{}, app.EvmKeeper.CustomPrecompiles(ctx))
 
 	// Execute the transaction through giga VM
-	execResult, execErr := gigaVM.ApplyMessage(evmMsg, &gp)
+	execResult, execErr := gigaExecutor.ExecuteTransaction(ethTx, sender, app.EvmKeeper.GetBaseFee(ctx), &gp)
 	if execErr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
@@ -1707,7 +1701,8 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	if execResult.Err != nil {
 		vmError = execResult.Err.Error()
 	}
-	receipt, rerr := app.EvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError)
+	// todo(pdrobnjak): Should we convert tx to msg outside of executor or inside it?
+	receipt, rerr := app.EvmKeeper.WriteReceipt(ctx, stateDB, nil, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError)
 	if rerr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
