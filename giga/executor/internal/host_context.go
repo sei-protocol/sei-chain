@@ -1,4 +1,4 @@
-package evmc
+package internal
 
 import (
 	"github.com/ethereum/evmc/v12/bindings/go/evmc"
