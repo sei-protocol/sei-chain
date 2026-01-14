@@ -249,11 +249,13 @@ func (walLog *WAL[T]) StartPruning(keepRecent uint64, pruneInterval time.Duratio
 }
 
 func (walLog *WAL[T]) Close() error {
-	// Close should only be called once
+	// Close should only be called once and run for once
 	if walLog.isClosed.CompareAndSwap(false, true) {
 		// Signal background goroutines to stop.
 		close(walLog.closeCh)
-		close(walLog.writeChannel)
+		if walLog.writeChannel != nil {
+			close(walLog.writeChannel)
+		}
 		// Wait for all background goroutines (pruning + async write) to finish
 		walLog.wg.Wait()
 		walLog.writeChannel = nil
