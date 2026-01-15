@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"math/big"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -373,18 +375,53 @@ func RunStateTestBlock(t testing.TB, stc *StateTestContext, txs [][]byte) ([]abc
 	return events, results, err
 }
 
-// TestGigaVsGeth_StateTests runs state tests comparing Giga vs Geth execution
-// Set ETHEREUM_TESTS_PATH environment variable to point to cloned ethereum/tests repo
-func TestGigaVsGeth_StateTests(t *testing.T) {
-	testPath := os.Getenv("ETHEREUM_TESTS_PATH")
-	if testPath == "" {
-		t.Skip("ETHEREUM_TESTS_PATH not set - skipping state tests")
+// extractOnce ensures we only extract the archive once per test run
+var extractOnce sync.Once
+
+// getStateTestsPath returns the path to GeneralStateTests, extracting from archive if needed
+func getStateTestsPath(t testing.TB) string {
+	// Priority 1: Environment variable override
+	if p := os.Getenv("ETHEREUM_TESTS_PATH"); p != "" {
+		stateTestsPath := filepath.Join(p, "GeneralStateTests")
+		if _, err := os.Stat(stateTestsPath); err == nil {
+			return stateTestsPath
+		}
+		t.Logf("ETHEREUM_TESTS_PATH set but GeneralStateTests not found at %s", stateTestsPath)
 	}
 
-	stateTestsPath := filepath.Join(testPath, "GeneralStateTests")
-	if _, err := os.Stat(stateTestsPath); os.IsNotExist(err) {
-		t.Skipf("State tests directory not found: %s", stateTestsPath)
+	// Priority 2: Already extracted testdata
+	testdataPath := filepath.Join("testdata", "GeneralStateTests")
+	if _, err := os.Stat(testdataPath); err == nil {
+		return testdataPath
 	}
+
+	// Priority 3: Extract from archive
+	archivePath := filepath.Join("testdata", "fixtures_general_state_tests.tgz")
+	if _, err := os.Stat(archivePath); err == nil {
+		extractOnce.Do(func() {
+			t.Log("Extracting test fixtures from archive...")
+			extractArchive(t, archivePath, "testdata")
+		})
+		if _, err := os.Stat(testdataPath); err == nil {
+			return testdataPath
+		}
+	}
+
+	t.Skip("No test fixtures available (set ETHEREUM_TESTS_PATH or add fixtures_general_state_tests.tgz to testdata/)")
+	return ""
+}
+
+// extractArchive extracts a .tgz archive to the destination directory
+func extractArchive(t testing.TB, archivePath, destDir string) {
+	cmd := exec.Command("tar", "-xzf", archivePath, "-C", destDir)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to extract test fixtures: %v\nOutput: %s", err, output)
+	}
+}
+
+// TestGigaVsGeth_StateTests runs state tests comparing Giga vs Geth execution
+func TestGigaVsGeth_StateTests(t *testing.T) {
+	stateTestsPath := getStateTestsPath(t)
 
 	// Load a subset of tests for initial validation
 	// Start with simple arithmetic tests
