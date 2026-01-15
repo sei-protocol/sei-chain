@@ -680,7 +680,6 @@ func New(
 	app.EvmKeeper.GigaExecutorEnabled = gigaExecutorConfig.Enabled
 	app.EvmKeeper.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
 	if gigaExecutorConfig.Enabled {
-		// Load evmone VM at startup
 		evmoneVM, err := gigalib.InitEvmoneVM()
 		if err != nil {
 			panic(fmt.Sprintf("failed to load evmone: %s", err))
