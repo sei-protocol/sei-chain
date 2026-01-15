@@ -9,7 +9,7 @@ import (
 )
 
 // InitEvmoneVM initializes the EVMC VM by loading the platform-specific evmone library.
-// It verifies that the loaded VM version is compatible with the EVMC bindings version.
+// It does not verify that the loaded version is compatible with evmc version.
 func InitEvmoneVM() (*evmc.VM, error) {
 	_, path, _, ok := runtime.Caller(0)
 	if !ok {
