@@ -143,6 +143,16 @@ func Test0xd09db4e79993c42eda67b45ca2fd5ac1e4cc60284a03335a08bb91d5b3800d84(t *t
 	)
 }
 
+func Test0x8d47010fec64a987e4bb03b358782404a4405596eee90b6a976f2e66383e485c(t *testing.T) {
+	testTx(t,
+		"0x8d47010fec64a987e4bb03b358782404a4405596eee90b6a976f2e66383e485c",
+		"v6.2.6",
+		"0x4af3f2",
+		"",
+		false,
+	)
+}
+
 func Test169638844(t *testing.T) {
 	testBlock(
 		t,
