@@ -104,6 +104,7 @@ import (
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaexecutor "github.com/sei-protocol/sei-chain/giga/executor"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
+	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
@@ -680,9 +681,9 @@ func New(
 	app.EvmKeeper.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
 	if gigaExecutorConfig.Enabled {
 		// Load evmone VM at startup
-		evmoneVM, evmoneErr := gigaexecutor.LoadEvmone()
-		if evmoneErr != nil {
-			panic(fmt.Sprintf("failed to load evmone: %s", evmoneErr))
+		evmoneVM, err := gigalib.InitVM()
+		if err != nil {
+			panic(fmt.Sprintf("failed to load evmone: %s", err))
 		}
 		app.EvmKeeper.EvmoneVM = evmoneVM
 		if gigaExecutorConfig.OCCEnabled {

@@ -21,6 +21,7 @@ case "$OS" in
         case "$ARCH" in
             x86_64|amd64)
                 ARTIFACT_NAME="evmone-${EVMONE_VERSION}-linux-x86_64.tar.gz"
+                OUTPUT_NAME="libevmone.${EVMONE_VERSION}_linux_amd64.so"
                 LIB_EXT="so"
                 ;;
             *)
@@ -33,6 +34,7 @@ case "$OS" in
         case "$ARCH" in
             arm64|aarch64)
                 ARTIFACT_NAME="evmone-${EVMONE_VERSION}-darwin-arm64.tar.gz"
+                OUTPUT_NAME="libevmone.${EVMONE_VERSION}_darwin_arm64.dylib"
                 LIB_EXT="dylib"
                 ;;
             *)
@@ -54,7 +56,7 @@ echo "=== evmone Bootstrap Script ==="
 echo "OS: $OS ($ARCH)"
 echo "evmone version: v${EVMONE_VERSION}"
 echo "Artifact: $ARTIFACT_NAME"
-echo "Library output: $LIB_DIR"
+echo "Output: $LIB_DIR/$OUTPUT_NAME"
 echo ""
 
 # Create lib directory
@@ -84,8 +86,13 @@ fi
 echo "Extracting..."
 tar -xzf "$ARTIFACT_NAME"
 
-# Find and copy the library
-LIB_FILE=$(find . -name "libevmone.${LIB_EXT}" -type f | head -1)
+# Find and copy the library with the correct output name
+# Look for the versioned library first (e.g., libevmone.0.12.0.dylib)
+LIB_FILE=$(find . -name "libevmone.${EVMONE_VERSION}.${LIB_EXT}" -type f | head -1)
+if [ -z "$LIB_FILE" ]; then
+    # Fall back to unversioned name
+    LIB_FILE=$(find . -name "libevmone.${LIB_EXT}" -type f | head -1)
+fi
 if [ -z "$LIB_FILE" ]; then
     echo "Error: Could not find libevmone.${LIB_EXT} in archive"
     echo "Archive contents:"
@@ -93,11 +100,8 @@ if [ -z "$LIB_FILE" ]; then
     exit 1
 fi
 
-cp "$LIB_FILE" "$LIB_DIR/"
+cp "$LIB_FILE" "$LIB_DIR/$OUTPUT_NAME"
 
 echo ""
 echo "=== Bootstrap Complete ==="
-echo "Library installed to: $LIB_DIR/libevmone.${LIB_EXT}"
-echo ""
-echo "To use evmone, set EVMONE_PATH environment variable:"
-echo "  export EVMONE_PATH=$LIB_DIR/libevmone.${LIB_EXT}"
+echo "Library installed to: $LIB_DIR/$OUTPUT_NAME"

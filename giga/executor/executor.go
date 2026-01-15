@@ -1,10 +1,7 @@
 package executor
 
 import (
-	"fmt"
 	"math/big"
-	"os"
-	"sync"
 
 	"github.com/ethereum/evmc/v12/bindings/go/evmc"
 	"github.com/ethereum/go-ethereum/common"
@@ -14,36 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/giga/executor/internal"
 )
-
-const (
-	// EvmonePathEnv is the environment variable name for the evmone library path
-	EvmonePathEnv = "EVMONE_PATH"
-)
-
-var (
-	evmoneVM   *evmc.VM
-	evmoneOnce sync.Once
-	evmoneErr  error
-)
-
-// LoadEvmone loads the evmone shared library from the path specified by EVMONE_PATH environment variable.
-// It returns the loaded VM instance or an error if loading fails.
-// The VM is loaded only once and cached for subsequent calls.
-func LoadEvmone() (*evmc.VM, error) {
-	evmoneOnce.Do(func() {
-		path := os.Getenv(EvmonePathEnv)
-		if path == "" {
-			evmoneErr = fmt.Errorf("%s environment variable not set", EvmonePathEnv)
-			return
-		}
-
-		evmoneVM, evmoneErr = evmc.Load(path)
-		if evmoneErr != nil {
-			evmoneErr = fmt.Errorf("failed to load evmone from %s: %w", path, evmoneErr)
-		}
-	})
-	return evmoneVM, evmoneErr
-}
 
 type Executor struct {
 	evm *vm.EVM
