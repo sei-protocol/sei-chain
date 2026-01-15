@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/encoding"
 	cryptoproto "github.com/tendermint/tendermint/proto/tendermint/crypto"
 	privvalproto "github.com/tendermint/tendermint/proto/tendermint/privval"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -37,11 +36,7 @@ func DefaultValidationRequestHandler(
 		if err != nil {
 			return res, err
 		}
-		pk, err := encoding.PubKeyToProto(pubKey)
-		if err != nil {
-			return res, err
-		}
-
+		pk := crypto.PubKeyToProto(pubKey)
 		if err != nil {
 			res = mustWrapMsg(&privvalproto.PubKeyResponse{
 				PubKey: cryptoproto.PublicKey{}, Error: &privvalproto.RemoteSignerError{Code: 0, Description: err.Error()}})

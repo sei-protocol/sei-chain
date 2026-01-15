@@ -10,7 +10,6 @@ import (
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/crypto/encoding"
 	cryptoproto "github.com/tendermint/tendermint/proto/tendermint/crypto"
 	privproto "github.com/tendermint/tendermint/proto/tendermint/privval"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -39,7 +38,6 @@ func exampleProposal() *types.Proposal {
 		Round:     2,
 		Timestamp: stamp,
 		POLRound:  2,
-		Signature: []byte("it's a signature"),
 		BlockID: types.BlockID{
 			Hash: crypto.Checksum([]byte("blockID_hash")),
 			PartSetHeader: types.PartSetHeader{
@@ -51,9 +49,9 @@ func exampleProposal() *types.Proposal {
 }
 
 func TestPrivvalVectors(t *testing.T) {
-	pk := ed25519.GenPrivKeyFromSecret([]byte("it's a secret")).PubKey()
-	ppk, err := encoding.PubKeyToProto(pk)
-	require.NoError(t, err)
+	// WARNING: this key has to be stable for hashes to match.
+	pk := ed25519.TestSecretKey([]byte("it's a secret")).Public()
+	ppk := crypto.PubKeyToProto(pk)
 
 	// Generate a simple vote
 	vote := exampleVote()
@@ -62,6 +60,8 @@ func TestPrivvalVectors(t *testing.T) {
 	// Generate a simple proposal
 	proposal := exampleProposal()
 	proposalpb := proposal.ToProto()
+	// we set invalid signature for the hashes to match.
+	proposalpb.Signature = []byte("it's a signature")
 
 	// Create a Reuseable remote error
 	remoteError := &privproto.RemoteSignerError{Code: 1, Description: "it's a error"}

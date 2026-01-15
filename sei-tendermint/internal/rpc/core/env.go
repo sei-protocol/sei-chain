@@ -27,6 +27,7 @@ import (
 	tmjson "github.com/tendermint/tendermint/libs/json"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/strings"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	rpcserver "github.com/tendermint/tendermint/rpc/jsonrpc/server"
 	"github.com/tendermint/tendermint/types"
@@ -86,7 +87,7 @@ type Environment struct {
 	PeerManager peerManager
 
 	// objects
-	PubKey            crypto.PubKey
+	PubKey            utils.Option[crypto.PubKey]
 	GenDoc            *types.GenesisDoc // cache the genesis structure
 	EventSinks        []indexer.EventSink
 	EventBus          *eventbus.EventBus // thread safe

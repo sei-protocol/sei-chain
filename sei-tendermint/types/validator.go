@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/internal/jsontypes"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -38,13 +37,11 @@ func (v Validator) MarshalJSON() ([]byte, error) {
 		VotingPower:      v.VotingPower,
 		ProposerPriority: v.ProposerPriority,
 	}
-	if v.PubKey != nil {
-		pk, err := jsontypes.Marshal(v.PubKey)
-		if err != nil {
-			return nil, err
-		}
-		val.PubKey = pk
+	pk, err := jsontypes.Marshal(v.PubKey)
+	if err != nil {
+		return nil, err
 	}
+	val.PubKey = pk
 	return json.Marshal(val)
 }
 
@@ -72,21 +69,21 @@ func NewValidator(pubKey crypto.PubKey, votingPower int64) *Validator {
 	}
 }
 
+var ErrNilValidator = errors.New("nil validator")
+var ErrNegativeVotingPower = errors.New("validator has negative voting power")
+var ErrBadAddressSize = errors.New("validator address has bad size")
+
 // ValidateBasic performs basic validation.
 func (v *Validator) ValidateBasic() error {
 	if v == nil {
-		return errors.New("nil validator")
+		return ErrNilValidator
 	}
-	if v.PubKey == nil {
-		return errors.New("validator does not have a public key")
-	}
-
 	if v.VotingPower < 0 {
-		return errors.New("validator has negative voting power")
+		return ErrNegativeVotingPower
 	}
 
 	if len(v.Address) != crypto.AddressSize {
-		return fmt.Errorf("validator address is the wrong size: %v", v.Address)
+		return fmt.Errorf("%w: %v", ErrBadAddressSize, v.Address)
 	}
 
 	return nil
@@ -154,11 +151,7 @@ func ValidatorListString(vals []*Validator) string {
 // as its redundant with the pubkey. This also excludes ProposerPriority
 // which changes every round.
 func (v *Validator) Bytes() []byte {
-	pk, err := encoding.PubKeyToProto(v.PubKey)
-	if err != nil {
-		panic(err)
-	}
-
+	pk := crypto.PubKeyToProto(v.PubKey)
 	pbv := tmproto.SimpleValidator{
 		PubKey:      &pk,
 		VotingPower: v.VotingPower,
@@ -176,15 +169,9 @@ func (v *Validator) ToProto() (*tmproto.Validator, error) {
 	if v == nil {
 		return nil, errors.New("nil validator")
 	}
-
-	pk, err := encoding.PubKeyToProto(v.PubKey)
-	if err != nil {
-		return nil, err
-	}
-
 	return &tmproto.Validator{
 		Address:          v.Address,
-		PubKey:           pk,
+		PubKey:           crypto.PubKeyToProto(v.PubKey),
 		VotingPower:      v.VotingPower,
 		ProposerPriority: v.ProposerPriority,
 	}, nil
@@ -197,7 +184,7 @@ func ValidatorFromProto(vp *tmproto.Validator) (*Validator, error) {
 		return nil, errors.New("nil validator")
 	}
 
-	pk, err := encoding.PubKeyFromProto(vp.PubKey)
+	pk, err := crypto.PubKeyFromProto(vp.PubKey)
 	if err != nil {
 		return nil, err
 	}

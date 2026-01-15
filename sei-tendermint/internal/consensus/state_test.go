@@ -3,6 +3,7 @@ package consensus
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -250,10 +251,8 @@ func TestStateBadProposal(t *testing.T) {
 	require.NoError(t, err)
 	proposal := types.NewProposal(vs2.Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
 	p := proposal.ToProto()
-	err = vs2.SignProposal(ctx, config.ChainID(), p)
-	require.NoError(t, err)
-
-	proposal.Signature = p.Signature
+	require.NoError(t, vs2.SignProposal(ctx, config.ChainID(), p))
+	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 
 	// set the proposal block
 	err = cs1.SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer")
@@ -308,9 +307,8 @@ func TestStateOversizedBlock(t *testing.T) {
 	require.NoError(t, err)
 	proposal := types.NewProposal(height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
 	p := proposal.ToProto()
-	err = vs2.SignProposal(ctx, config.ChainID(), p)
-	require.NoError(t, err)
-	proposal.Signature = p.Signature
+	require.NoError(t, vs2.SignProposal(ctx, config.ChainID(), p))
+	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 
 	totalBytes := 0
 	for i := 0; i < int(propBlockParts.Total()); i++ {
@@ -343,7 +341,6 @@ func TestStateOversizedBlock(t *testing.T) {
 
 // propose, prevote, and precommit a block
 func TestStateFullRound1(t *testing.T) {
-	t.Skip("See: https://linear.app/seilabs/issue/CON-102/teststatefullround1-flakes")
 	config := configSetup(t)
 	ctx := t.Context()
 
@@ -808,9 +805,9 @@ func TestStateLock_POLRelock(t *testing.T) {
 	require.NoError(t, err)
 	propR1 := types.NewProposal(height, round, cs1.roundState.ValidRound(), blockID, theBlock.Header.Time, theBlock.GetTxKeys(), theBlock.Header, theBlock.LastCommit, theBlock.Evidence, pubKey.Address())
 	p := propR1.ToProto()
-	err = vs2.SignProposal(ctx, cs1.state.ChainID, p)
-	require.NoError(t, err)
-	propR1.Signature = p.Signature
+	require.NoError(t, vs2.SignProposal(ctx, cs1.state.ChainID, p))
+	propR1.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
+
 	err = cs1.SetProposalAndBlock(ctx, propR1, theBlock, theBlockParts, "")
 	require.NoError(t, err)
 
@@ -1488,7 +1485,7 @@ func TestStateLock_POLSafety2(t *testing.T) {
 	err = vs3.SignProposal(ctx, config.ChainID(), p)
 	require.NoError(t, err)
 
-	newProp.Signature = p.Signature
+	newProp.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 
 	err = cs1.SetProposalAndBlock(ctx, newProp, propBlock0, propBlockParts0, "some peer")
 	require.NoError(t, err)
@@ -1625,7 +1622,7 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 	p := propR2.ToProto()
 	err = vs3.SignProposal(ctx, cs1.state.ChainID, p)
 	require.NoError(t, err)
-	propR2.Signature = p.Signature
+	propR2.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 
 	// cs1 receives a proposal for D, the block that received a POL in round 1.
 	err = cs1.SetProposalAndBlock(ctx, propR2, propBlockR1, propBlockR1Parts, "")
@@ -2439,7 +2436,7 @@ func TestGossipTransactionKeyOnlyConfig(t *testing.T) {
 	p := proposal.ToProto()
 	err = vs2.SignProposal(ctx, config.ChainID(), p)
 	require.NoError(t, err)
-	proposal.Signature = p.Signature
+	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 
 	proposalMsg := ProposalMessage{&proposal}
 	peerID, err := types.NewNodeID("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
@@ -2554,7 +2551,7 @@ func TestStateTimestamp_ProposalNotMatch(t *testing.T) {
 	p := proposal.ToProto()
 	err = vs2.SignProposal(ctx, config.ChainID(), p)
 	require.NoError(t, err)
-	proposal.Signature = p.Signature
+	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 	require.NoError(t, cs1.SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer"))
 
 	startTestRound(ctx, cs1, height, round)
@@ -2601,7 +2598,7 @@ func TestStateTimestamp_ProposalMatch(t *testing.T) {
 	p := proposal.ToProto()
 	err = vs2.SignProposal(ctx, config.ChainID(), p)
 	require.NoError(t, err)
-	proposal.Signature = p.Signature
+	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 	require.NoError(t, cs1.SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer"))
 
 	startTestRound(ctx, cs1, height, round)
@@ -2617,7 +2614,8 @@ func TestStateTimestamp_ProposalMatch(t *testing.T) {
 	validatePrecommit(ctx, t, cs1, round, 1, vss[0], propBlock.Hash(), propBlock.Hash())
 }
 
-// subscribe subscribes test client to the given query and returns a channel with cap = 1.
+// subscribe subscribes test client to the given query and returns a buffered channel.
+// Uses buffered subscription and channel to prevent message loss during fast consensus rounds.
 func subscribe(
 	ctx context.Context,
 	t *testing.T,
@@ -2628,17 +2626,19 @@ func subscribe(
 	sub, err := eventBus.SubscribeWithArgs(ctx, tmpubsub.SubscribeArgs{
 		ClientID: testSubscriber,
 		Query:    q,
+		Limit:    10,
 	})
 	require.NoError(t, err)
-	ch := make(chan tmpubsub.Message)
+	ch := make(chan tmpubsub.Message, 10)
 	go func() {
 		for {
 			next, err := sub.Next(ctx)
 			if err != nil {
-				if ctx.Err() != nil {
-					return
+				// ErrTerminated is expected when the event bus is stopped during test cleanup.
+				// context.Canceled is expected when the test context is cancelled.
+				if !errors.Is(err, tmpubsub.ErrTerminated) && !errors.Is(err, context.Canceled) {
+					t.Errorf("Subscription for %v unexpectedly terminated: %v", q, err)
 				}
-				t.Errorf("Subscription for %v unexpectedly terminated: %v", q, err)
 				return
 			}
 			select {

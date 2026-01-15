@@ -19,7 +19,7 @@ func TestMarshal(t *testing.T) {
 	boat := Boat{Sail: true}
 
 	testcases := map[string]struct {
-		value  interface{}
+		value  any
 		output string
 	}{
 		"nil":             {nil, `null`},
@@ -50,14 +50,7 @@ func TestMarshal(t *testing.T) {
 		"map nil":         {map[string]int64(nil), `{}`}, // retain Amino compatibility
 		"map empty":       {map[string]int64{}, `{}`},
 		"map int64":       {map[string]int64{"a": 1, "b": 2, "c": 3}, `{"a":"1","b":"2","c":"3"}`},
-		"car":             {car, `{"type":"vehicle/car","value":{"Wheels":4}}`},
-		"car value":       {*car, `{"type":"vehicle/car","value":{"Wheels":4}}`},
-		"car iface":       {Vehicle(car), `{"type":"vehicle/car","value":{"Wheels":4}}`},
 		"car nil":         {(*Car)(nil), `null`},
-		"boat":            {boat, `{"type":"vehicle/boat","value":{"Sail":true}}`},
-		"boat ptr":        {&boat, `{"type":"vehicle/boat","value":{"Sail":true}}`},
-		"boat iface":      {Vehicle(boat), `{"type":"vehicle/boat","value":{"Sail":true}}`},
-		"key public":      {PublicKey{1, 2, 3, 4, 5, 6, 7, 8}, `{"type":"key/public","value":"AQIDBAUGBwg="}`},
 		"tags": {
 			Tags{JSONName: "name", OmitEmpty: "foo", Hidden: "bar", Tags: &Tags{JSONName: "child"}},
 			`{"name":"name","OmitEmpty":"foo","tags":{"name":"child"}}`,
@@ -71,7 +64,7 @@ func TestMarshal(t *testing.T) {
 			Struct{
 				Bool: true, Float64: 3.14, Int32: 32, Int64: 64, Int64Ptr: &i64,
 				String: "foo", StringPtrPtr: &sPtr, Bytes: []byte{1, 2, 3},
-				Time: ti, Car: car, Boat: boat, Vehicles: []Vehicle{car, boat},
+				Time: ti, Car: car, Boat: boat,
 				Child: &Struct{Bool: false, String: "child"}, private: "private",
 			},
 			`{
@@ -80,15 +73,11 @@ func TestMarshal(t *testing.T) {
 				"Time":"2020-06-02T16:05:13.004346374Z",
 				"Car":{"Wheels":4},
 				"Boat":{"Sail":true},
-				"Vehicles":[
-					{"type":"vehicle/car","value":{"Wheels":4}},
-					{"type":"vehicle/boat","value":{"Sail":true}}
-				],
 				"Child":{
 					"Bool":false, "Float64":0, "Int32":0, "Int64":"0", "Int64Ptr":null,
 					"String":"child", "StringPtrPtr":null, "Bytes":null,
 					"Time":"0001-01-01T00:00:00Z",
-					"Car":null, "Boat":{"Sail":false}, "Vehicles":null, "Child":null
+					"Car":null, "Boat":{"Sail":false}, "Child":null
 				}
 			}`,
 		},

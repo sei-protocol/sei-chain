@@ -1,55 +1,85 @@
-package ed25519_test
+package ed25519
 
 import (
+	"fmt"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/ed25519"
 )
 
-func TestSignAndValidateEd25519(t *testing.T) {
-
-	privKey := ed25519.GenPrivKey()
-	pubKey := privKey.PubKey()
-
-	msg := crypto.CRandBytes(128)
-	sig, err := privKey.Sign(msg)
-	require.NoError(t, err)
-
-	// Test the signature
-	assert.True(t, pubKey.VerifySignature(msg, sig))
-
-	// Mutate the signature, just one bit.
-	// TODO: Replace this with a much better fuzzer, tendermint/ed25519/issues/10
-	sig[7] ^= byte(0x01)
-
-	assert.False(t, pubKey.VerifySignature(msg, sig))
+func TestSign(t *testing.T) {
+	var keys []SecretKey
+	for i := range byte(3) {
+		keys = append(keys, TestSecretKey([]byte{i}))
+	}
+	t.Logf("keys = %+v", keys)
+	msg := []byte("test message")
+	for i := range keys {
+		for j := range keys {
+			if wantErr, err := i != j, keys[j].Public().Verify(msg, keys[i].Sign(msg)); wantErr != (err != nil) {
+				t.Errorf("keys[%d].Verify(keys[%d].Sign()) = %v, wantErr = %v", j, i, err, wantErr)
+			}
+		}
+	}
 }
 
-func TestBatchSafe(t *testing.T) {
-	v := ed25519.NewBatchVerifier()
+func TestSignWithTag(t *testing.T) {
+	var keys []SecretKey
+	for i := range byte(3) {
+		keys = append(keys, TestSecretKey([]byte{i}))
+	}
+	t.Logf("keys = %+v", keys)
+	msg := []byte("test message")
+	tag := utils.OrPanic1(NewTag("testTag"))
+	for i := range keys {
+		for j := range keys {
+			if wantErr, err := i != j, keys[j].Public().VerifyWithTag(tag, msg, keys[i].SignWithTag(tag, msg)); wantErr != (err != nil) {
+				t.Errorf("keys[%d].Verify(keys[%d].Sign()) = %v, wantErr = %v", j, i, err, wantErr)
+			}
+		}
+	}
+}
 
-	for i := 0; i <= 38; i++ {
-		priv := ed25519.GenPrivKey()
-		pub := priv.PubKey()
+func TestDomainSeparation(t *testing.T) {
+	msg := []byte("test message")
+	tag1 := utils.OrPanic1(NewTag("testTag"))
+	tag2 := utils.OrPanic1(NewTag("testTag2"))
+	k := TestSecretKey([]byte{34, 33})
+	sigs := map[utils.Option[Tag]]Signature{}
+	sigs[utils.Some(tag1)] = k.SignWithTag(tag1, msg)
+	sigs[utils.Some(tag2)] = k.SignWithTag(tag2, msg)
+	sigs[utils.None[Tag]()] = k.Sign(msg)
+	for _, tag := range utils.Slice(utils.Some(tag1), utils.Some(tag2), utils.None[Tag]()) {
+		for wantTag, sig := range sigs {
+			var err error
+			if tag, ok := tag.Get(); ok {
+				err = k.Public().VerifyWithTag(tag, msg, sig)
+			} else {
+				err = k.Public().Verify(msg, sig)
+			}
+			require.Equal(t, err == nil, tag == wantTag, "err = %v", err)
+		}
+	}
+}
 
+func TestBatchVerifier(t *testing.T) {
+	v := NewBatchVerifier()
+	tag := utils.OrPanic1(NewTag("testTag"))
+
+	for i := range 100 {
+		priv := TestSecretKey(fmt.Appendf(nil, "test-%v", i))
+		pub := priv.Public()
 		var msg []byte
 		if i%2 == 0 {
 			msg = []byte("easter")
 		} else {
 			msg = []byte("egg")
 		}
-
-		sig, err := priv.Sign(msg)
-		require.NoError(t, err)
-
-		err = v.Add(pub, msg, sig)
-		require.NoError(t, err)
+		if i%3 == 0 {
+			v.AddWithTag(pub, tag, msg, priv.SignWithTag(tag, msg))
+		} else {
+			v.Add(pub, msg, priv.Sign(msg))
+		}
 	}
-
-	ok, _ := v.Verify()
-	require.True(t, ok)
+	require.NoError(t, v.Verify())
 }

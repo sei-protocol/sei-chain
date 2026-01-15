@@ -14,13 +14,17 @@ import (
 
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/internal/state/test/factory"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
 	"github.com/tendermint/tendermint/version"
 )
+
+var testKey = ed25519.TestSecretKey([]byte("test"))
 
 // A cleanupFunc cleans up any config / test files created for a particular
 // test.
@@ -33,7 +37,7 @@ func makeTestCommit(height int64, timestamp time.Time) *types.Commit {
 		BlockIDFlag:      types.BlockIDFlagCommit,
 		ValidatorAddress: tmrand.Bytes(crypto.AddressSize),
 		Timestamp:        timestamp,
-		Signature:        []byte("Signature"),
+		Signature:        utils.Some(testKey.Sign([]byte("Signature"))),
 	}}
 	return &types.Commit{
 		Height: height,

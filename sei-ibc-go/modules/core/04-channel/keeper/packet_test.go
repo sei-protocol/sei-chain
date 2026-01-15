@@ -491,6 +491,46 @@ func (suite *KeeperTestSuite) TestRecvPacket() {
 	}
 }
 
+// TestRecvPacket_BlockedWhenInboundDisabled tests that RecvPacket
+// is blocked when inbound IBC is disabled.
+func (suite *KeeperTestSuite) TestRecvPacket_BlockedWhenInboundDisabled() {
+	suite.SetupTest()
+
+	path := ibctesting.NewPath(suite.chainA, suite.chainB)
+	path.SetChannelOrdered()
+	suite.coordinator.Setup(path)
+
+	// prepare packet from A -> B
+	packet := types.NewPacket(ibctesting.MockPacketData, 1,
+		path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID,
+		path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID,
+		timeoutHeight, disabledTimeoutTimestamp,
+	)
+
+	err := path.EndpointA.SendPacket(packet)
+	suite.Require().NoError(err)
+
+	// disable inbound on chainB
+	ibcKeeperB := suite.chainB.App.GetIBCKeeper()
+	ibcKeeperB.SetInboundEnabled(suite.chainB.GetContext(), false)
+	suite.Require().False(ibcKeeperB.IsInboundEnabled(suite.chainB.GetContext()))
+
+	// get proof of packet commitment from chainA
+	packetKey := host.PacketCommitmentKey(packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
+	proof, proofHeight := path.EndpointA.QueryProof(packetKey)
+
+	channelCap := suite.chainB.GetChannelCapability(path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID)
+
+	// attempt RecvPacket with inbound disabled
+	err = suite.chainB.App.GetIBCKeeper().ChannelKeeper.RecvPacket(
+		suite.chainB.GetContext(), channelCap, packet, proof, proofHeight,
+	)
+
+	// should fail with ErrInboundDisabled
+	suite.Require().Error(err)
+	suite.Require().Contains(err.Error(), "inbound")
+}
+
 func (suite *KeeperTestSuite) TestWriteAcknowledgement() {
 	var (
 		path       *ibctesting.Path

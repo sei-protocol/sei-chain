@@ -2,8 +2,11 @@ package factory
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -38,7 +41,10 @@ func MakeVote(
 	if err := val.SignVote(ctx, chainID, vpb); err != nil {
 		return nil, err
 	}
-
-	v.Signature = vpb.Signature
+	sig, err := crypto.SigFromBytes(vpb.Signature)
+	if err != nil {
+		return nil, fmt.Errorf("crypto.SigFromBytes(): %w", err)
+	}
+	v.Signature = utils.Some(sig)
 	return v, nil
 }

@@ -69,7 +69,7 @@ type SecretConnection struct {
 	recvAead cipher.AEAD
 	sendAead cipher.AEAD
 
-	remPubKey ed25519.PubKey
+	remPubKey ed25519.PublicKey
 	conn      io.ReadWriteCloser
 
 	// net.Conn must be thread safe:
@@ -92,10 +92,8 @@ type SecretConnection struct {
 // Returns nil if there is an error in handshake.
 // Caller should call conn.Close()
 // See docs/sts-final.pdf for more information.
-func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey ed25519.PrivKey) (*SecretConnection, error) {
-	var (
-		locPubKey = locPrivKey.PubKey()
-	)
+func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey ed25519.SecretKey) (*SecretConnection, error) {
+	locPubKey := locPrivKey.Public()
 
 	// Generate ephemeral keys for perfect forward secrecy.
 	locEphPub, locEphPriv, err := genEphKeys()
@@ -162,10 +160,7 @@ func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey ed25519.PrivKey) (
 	}
 
 	// Sign the challenge bytes for authentication.
-	locSignature, err := signChallenge(&challenge, locPrivKey)
-	if err != nil {
-		return nil, err
-	}
+	locSignature := signChallenge(&challenge, locPrivKey)
 
 	// Share (in secret) each other's pubkey & challenge signature
 	authSigMsg, err := shareAuthSignature(sc, locPubKey, locSignature)
@@ -174,8 +169,8 @@ func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey ed25519.PrivKey) (
 	}
 
 	remPubKey, remSignature := authSigMsg.Key, authSigMsg.Sig
-	if !remPubKey.VerifySignature(challenge[:], remSignature) {
-		return nil, errors.New("challenge verification failed")
+	if err := remPubKey.Verify(challenge[:], remSignature); err != nil {
+		return nil, fmt.Errorf("challenge verification failed: %w", err)
 	}
 
 	// We've authorized.
@@ -184,7 +179,7 @@ func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey ed25519.PrivKey) (
 }
 
 // RemotePubKey returns authenticated remote pubkey
-func (sc *SecretConnection) RemotePubKey() ed25519.PubKey {
+func (sc *SecretConnection) RemotePubKey() ed25519.PublicKey {
 	return sc.remPubKey
 }
 
@@ -396,26 +391,22 @@ func sort32(foo, bar *[32]byte) (lo, hi *[32]byte) {
 	return
 }
 
-func signChallenge(challenge *[32]byte, locPrivKey ed25519.PrivKey) ([]byte, error) {
-	signature, err := locPrivKey.Sign(challenge[:])
-	if err != nil {
-		return nil, err
-	}
-	return signature, nil
+func signChallenge(challenge *[32]byte, locPrivKey ed25519.SecretKey) ed25519.Signature {
+	return locPrivKey.Sign(challenge[:])
 }
 
 type authSigMessage struct {
-	Key ed25519.PubKey
-	Sig []byte
+	Key ed25519.PublicKey
+	Sig ed25519.Signature
 }
 
-func shareAuthSignature(sc io.ReadWriter, pubKey ed25519.PubKey, signature []byte) (recvMsg authSigMessage, err error) {
+func shareAuthSignature(sc io.ReadWriter, pubKey ed25519.PublicKey, signature ed25519.Signature) (recvMsg authSigMessage, err error) {
 
 	// Send our info and receive theirs in tandem.
 	var trs, _ = async.Parallel(
 		func(_ int) (val interface{}, abort bool, err error) {
-			pk := tmproto.PublicKey{Sum: &tmproto.PublicKey_Ed25519{Ed25519: pubKey}}
-			_, err = protoio.NewDelimitedWriter(sc).WriteMsg(&tmprivval.AuthSigMessage{PubKey: pk, Sig: signature})
+			pk := tmproto.PublicKey{Sum: &tmproto.PublicKey_Ed25519{Ed25519: pubKey.Bytes()}}
+			_, err = protoio.NewDelimitedWriter(sc).WriteMsg(&tmprivval.AuthSigMessage{PubKey: pk, Sig: signature.Bytes()})
 			if err != nil {
 				return nil, true, err // abort
 			}
@@ -428,16 +419,15 @@ func shareAuthSignature(sc io.ReadWriter, pubKey ed25519.PubKey, signature []byt
 				return nil, true, err // abort
 			}
 
-			pk := pba.PubKey.GetEd25519()
-			if len(pk) != ed25519.PubKeySize {
-				return nil, true, fmt.Errorf("invalid ed25519 key size")
+			key, err := ed25519.PublicKeyFromBytes(pba.PubKey.GetEd25519())
+			if err != nil {
+				return nil, true, fmt.Errorf("PubKey: %w", err)
 			}
-
-			_recvMsg := authSigMessage{
-				Key: ed25519.PubKey(pk),
-				Sig: pba.Sig,
+			sig, err := ed25519.SignatureFromBytes(pba.Sig)
+			if err != nil {
+				return nil, true, fmt.Errorf("Sig: %w", err)
 			}
-			return _recvMsg, false, nil
+			return authSigMessage{key, sig}, false, nil
 		},
 	)
 

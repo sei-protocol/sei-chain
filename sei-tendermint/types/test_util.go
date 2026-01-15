@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
@@ -38,10 +40,13 @@ func MakeCommit(ctx context.Context, blockID BlockID, height int64, round int32,
 
 func signAddVote(ctx context.Context, privVal PrivValidator, vote *Vote, voteSet *VoteSet) (signed bool, err error) {
 	v := vote.ToProto()
-	err = privVal.SignVote(ctx, voteSet.ChainID(), v)
-	if err != nil {
+	if err := privVal.SignVote(ctx, voteSet.ChainID(), v); err != nil {
 		return false, err
 	}
-	vote.Signature = v.Signature
+	sig, err := crypto.SigFromBytes(v.Signature)
+	if err != nil {
+		return false, fmt.Errorf("SigFromBytes(): %w", err)
+	}
+	vote.Signature = utils.Some(sig)
 	return voteSet.AddVote(vote)
 }

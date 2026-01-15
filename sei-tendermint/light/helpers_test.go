@@ -5,11 +5,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/libs/utils"
 	provider_mocks "github.com/tendermint/tendermint/light/provider/mocks"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
@@ -29,7 +29,7 @@ type privKeys []crypto.PrivKey
 func genPrivKeys(n int) privKeys {
 	res := make(privKeys, n)
 	for i := range res {
-		res[i] = ed25519.GenPrivKey()
+		res[i] = ed25519.GenerateSecretKey()
 	}
 	return res
 }
@@ -47,7 +47,7 @@ func (pkz privKeys) Extend(n int) privKeys {
 func (pkz privKeys) ToValidators(init, inc int64) *types.ValidatorSet {
 	res := make([]*types.Validator, len(pkz))
 	for i, k := range pkz {
-		res[i] = types.NewValidator(k.PubKey(), init+int64(i)*inc)
+		res[i] = types.NewValidator(k.Public(), init+int64(i)*inc)
 	}
 	return types.NewValidatorSet(res)
 }
@@ -57,7 +57,7 @@ func (pkz privKeys) signHeader(t testing.TB, header *types.Header, valSet *types
 	t.Helper()
 
 	commitSigs := make([]types.CommitSig, len(pkz))
-	for i := 0; i < len(pkz); i++ {
+	for i := range commitSigs {
 		commitSigs[i] = types.NewCommitSigAbsent()
 	}
 
@@ -83,7 +83,7 @@ func (pkz privKeys) signHeader(t testing.TB, header *types.Header, valSet *types
 func makeVote(t testing.TB, header *types.Header, valset *types.ValidatorSet, key crypto.PrivKey, blockID types.BlockID) *types.Vote {
 	t.Helper()
 
-	addr := key.PubKey().Address()
+	addr := key.Public().Address()
 	idx, _ := valset.GetByAddress(addr)
 	vote := &types.Vote{
 		ValidatorAddress: addr,
@@ -94,15 +94,8 @@ func makeVote(t testing.TB, header *types.Header, valset *types.ValidatorSet, ke
 		Type:             tmproto.PrecommitType,
 		BlockID:          blockID,
 	}
-
-	v := vote.ToProto()
 	// Sign it
-	signBytes := types.VoteSignBytes(header.ChainID, v)
-	sig, err := key.Sign(signBytes)
-	require.NoError(t, err)
-
-	vote.Signature = sig
-
+	vote.Signature = utils.Some(key.Sign(types.VoteSignBytes(header.ChainID, vote.ToProto())))
 	return vote
 }
 

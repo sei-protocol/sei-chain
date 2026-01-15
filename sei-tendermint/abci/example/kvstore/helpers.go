@@ -5,18 +5,10 @@ import (
 	mrand "math/rand"
 
 	"github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 )
-
-// RandVal creates one random validator, with a key derived
-// from the input value
-func RandVal(i int) types.ValidatorUpdate {
-	pubkey := tmrand.Bytes(32)
-	// Random value between [0, 2^16 - 1]
-	power := mrand.Uint32() & (1<<16 - 1) // nolint:gosec // G404: Use of weak random number generator
-	v := types.UpdateValidator(pubkey, int64(power), "")
-	return v
-}
 
 // RandVals returns a list of cnt validators for initializing
 // the application. Note that the keys are deterministically
@@ -24,8 +16,18 @@ func RandVal(i int) types.ValidatorUpdate {
 // random (Change this if not desired)
 func RandVals(cnt int) []types.ValidatorUpdate {
 	res := make([]types.ValidatorUpdate, cnt)
-	for i := 0; i < cnt; i++ {
-		res[i] = RandVal(i)
+	for i := range res {
+		// Random value between [0, 2^16 - 1]
+		power := mrand.Uint32() & (1<<16 - 1) // nolint:gosec // G404: Use of weak random number generator
+		keyBytes := tmrand.Bytes(len(crypto.PubKey{}.Bytes()))
+		pubKey, err := ed25519.PublicKeyFromBytes(keyBytes)
+		if err != nil {
+			panic(err)
+		}
+		res[i] = types.ValidatorUpdate{
+			PubKey: crypto.PubKeyToProto(pubKey),
+			Power:  int64(power),
+		}
 	}
 	return res
 }

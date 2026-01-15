@@ -1268,7 +1268,12 @@ func (cs *State) decideProposal(ctx context.Context, height int64, round int32, 
 	ctxto, cancel := context.WithTimeout(ctx, cs.state.ConsensusParams.Timeout.Propose)
 	defer cancel()
 	if err := privValidator.SignProposal(ctxto, cs.state.ChainID, p); err == nil {
-		proposal.Signature = p.Signature
+		sig, err := crypto.SigFromBytes(p.Signature)
+		if err != nil {
+			cs.logger.Error("propose step; failed signing proposal", "height", height, "round", round, "err", err)
+			return
+		}
+		proposal.Signature = sig
 
 		// send proposal and block parts on internal msg queue
 		cs.sendInternalMessage(ctx, msgInfo{&ProposalMessage{proposal}, "", tmtime.Now()})
@@ -2147,13 +2152,11 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 
 	p := proposal.ToProto()
 	// Verify signature
-	if !cs.roundState.Validators().GetProposer().PubKey.VerifySignature(
+	if err := cs.roundState.Validators().GetProposer().PubKey.Verify(
 		types.ProposalSignBytes(cs.state.ChainID, p), proposal.Signature,
-	) {
+	); err != nil {
 		return ErrInvalidProposalSignature
 	}
-
-	proposal.Signature = p.Signature
 	cs.roundState.SetProposal(proposal)
 	cs.roundState.SetProposalReceiveTime(recvTime)
 	cs.calculateProposalTimestampDifferenceMetric()
@@ -2611,11 +2614,17 @@ func (cs *State) signVote(
 	ctxto, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	err := privValidator.SignVote(ctxto, cs.state.ChainID, v)
-	vote.Signature = v.Signature
+	if err := privValidator.SignVote(ctxto, cs.state.ChainID, v); err != nil {
+		return nil, err
+	}
+	sig, err := crypto.SigFromBytes(v.Signature)
+	if err != nil {
+		return nil, fmt.Errorf("crypto.SigFromBytes(): %w", err)
+	}
+	vote.Signature = utils.Some(sig)
 	vote.Timestamp = v.Timestamp
 
-	return vote, err
+	return vote, nil
 }
 
 // sign the vote and publish on internalMsgQueue

@@ -206,7 +206,7 @@ func (txmp *TxMempool) Size() int {
 }
 
 func (txmp *TxMempool) utilisation() float64 {
-	return float64(txmp.Size()) / float64(txmp.config.Size)
+	return float64(txmp.NumTxsNotPending()) / float64(txmp.config.Size)
 }
 
 func (txmp *TxMempool) NumTxsNotPending() int {
@@ -404,21 +404,23 @@ func (txmp *TxMempool) CheckTx(
 	}
 
 	if err == nil {
-		// Update transaction priority reservoir with the true Tx priority
-		// as determined by the application.
-		//
-		// NOTE: This is done before potentially rejecting the transaction due to
-		// mempool being full. This is to ensure that the reservoir contains a
-		// representative sample of all transactions that have been processed by
-		// CheckTx.
-		//
-		// We do not use the priority hint here as it may be misleading and
-		// inaccurate. The true priority as determined by the application is the
-		// most accurate.
-		txmp.priorityReservoir.Add(res.Priority)
-
 		// only add new transaction if checkTx passes and is not pending
 		if !res.IsPendingTransaction {
+			// Update transaction priority reservoir with the true Tx priority
+			// as determined by the application.
+			//
+			// NOTE: This is done before potentially rejecting the transaction due to
+			// mempool being full. This is to ensure that the reservoir contains a
+			// representative sample of all transactions that have been processed by
+			// CheckTx.
+			//
+			// However, this is NOT done if the tx is pending, since a spammer could
+			// throw off the correct priority percentiles otherwise.
+			//
+			// We do not use the priority hint here as it may be misleading and
+			// inaccurate. The true priority as determined by the application is the
+			// most accurate.
+			txmp.priorityReservoir.Add(res.Priority)
 			err = txmp.addNewTransaction(wtx, res.ResponseCheckTx, txInfo)
 			if err != nil {
 				return err
@@ -538,7 +540,8 @@ func (txmp *TxMempool) Flush() {
 }
 
 // ReapMaxBytesMaxGas returns a list of transactions within the provided size
-// and gas constraints. Transaction are retrieved in priority order.
+// and gas constraints. The returned list starts with EVM transactions (in priority order),
+// followed by non-EVM transactions (in priority order).
 // There are 4 types of constraints.
 //  1. maxBytes - stops pulling txs from mempool once maxBytes is hit. Can be set to -1 to be ignored.
 //  2. maxGasWanted - stops pulling txs from mempool once total gas wanted exceeds maxGasWanted.
@@ -559,11 +562,13 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 		totalSize         int64
 	)
 
-	var txs []types.Tx
+	var evmTxs []types.Tx
+	var nonEvmTxs []types.Tx
+	numTxs := 0
 	encounteredGasUnfit := false
 	if uint64(txmp.NumTxsNotPending()) < txmp.config.TxNotifyThreshold {
 		// do not reap anything if threshold is not met
-		return txs
+		return []types.Tx{}
 	}
 	txmp.priorityIndex.ForEachTx(func(wtx *WrappedTx) bool {
 		size := types.ComputeProtoSizeForTxs([]types.Tx{wtx.tx})
@@ -591,7 +596,7 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 
 		if maxGasWantedExceeded || maxGasEstimatedExceeded {
 			// skip this unfit-by-gas tx once and attempt to pull up to 10 smaller ones
-			if !encounteredGasUnfit && len(txs) < MinTxsToPeek {
+			if !encounteredGasUnfit && numTxs < MinTxsToPeek {
 				encounteredGasUnfit = true
 				return true
 			}
@@ -603,14 +608,19 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 		totalGasWanted = prospectiveGasWanted
 		totalGasEstimated = prospectiveGasEstimated
 
-		txs = append(txs, wtx.tx)
-		if encounteredGasUnfit && len(txs) >= MinTxsToPeek {
+		if wtx.isEVM {
+			evmTxs = append(evmTxs, wtx.tx)
+		} else {
+			nonEvmTxs = append(nonEvmTxs, wtx.tx)
+		}
+		numTxs++
+		if encounteredGasUnfit && numTxs >= MinTxsToPeek {
 			return false
 		}
 		return true
 	})
 
-	return txs
+	return append(evmTxs, nonEvmTxs...)
 }
 
 // ReapMaxTxs returns a list of transactions within the provided number of

@@ -197,8 +197,8 @@ var _ types.PrivValidator = (*FilePV)(nil)
 func NewFilePV(privKey crypto.PrivKey, keyFilePath, stateFilePath string) *FilePV {
 	return &FilePV{
 		Key: FilePVKey{
-			Address:  privKey.PubKey().Address(),
-			PubKey:   privKey.PubKey(),
+			Address:  privKey.Public().Address(),
+			PubKey:   privKey.Public(),
 			PrivKey:  privKey,
 			filePath: keyFilePath,
 		},
@@ -215,7 +215,8 @@ func GenFilePV(keyFilePath, stateFilePath, keyType string) (*FilePV, error) {
 	if keyType != "" && keyType != types.ABCIPubKeyTypeEd25519 {
 		return nil, fmt.Errorf("key type: %s is not supported", keyType)
 	}
-	return NewFilePV(ed25519.GenPrivKey(), keyFilePath, stateFilePath), nil
+	privKey := ed25519.GenerateSecretKey()
+	return NewFilePV(privKey, keyFilePath, stateFilePath), nil
 }
 
 // LoadFilePV loads a FilePV from the filePaths.  The FilePV handles double
@@ -244,7 +245,7 @@ func loadFilePV(keyFilePath, stateFilePath string, loadState bool) (*FilePV, err
 	}
 
 	// overwrite pubkey and address for convenience
-	pvKey.PubKey = pvKey.PrivKey.PubKey()
+	pvKey.PubKey = pvKey.PrivKey.Public()
 	pvKey.Address = pvKey.PubKey.Address()
 	pvKey.filePath = keyFilePath
 
@@ -396,14 +397,12 @@ func (pv *FilePV) signVote(chainID string, vote *tmproto.Vote) error {
 	}
 
 	// It passed the checks. Sign the vote
-	sig, err := pv.Key.PrivKey.Sign(signBytes)
-	if err != nil {
+	sig := pv.Key.PrivKey.Sign(signBytes)
+	sigBytes := sig.Bytes()
+	if err := pv.saveSigned(height, round, step, signBytes, sigBytes); err != nil {
 		return err
 	}
-	if err := pv.saveSigned(height, round, step, signBytes, sig); err != nil {
-		return err
-	}
-	vote.Signature = sig
+	vote.Signature = sigBytes
 
 	return nil
 }
@@ -433,14 +432,12 @@ func (pv *FilePV) signProposal(chainID string, proposal *tmproto.Proposal) error
 	}
 
 	// It passed the checks. Sign the proposal
-	sig, err := pv.Key.PrivKey.Sign(signBytes)
-	if err != nil {
+	sig := pv.Key.PrivKey.Sign(signBytes)
+	sigBytes := sig.Bytes()
+	if err := pv.saveSigned(height, round, step, signBytes, sigBytes); err != nil {
 		return err
 	}
-	if err := pv.saveSigned(height, round, step, signBytes, sig); err != nil {
-		return err
-	}
-	proposal.Signature = sig
+	proposal.Signature = sigBytes
 	return nil
 }
 

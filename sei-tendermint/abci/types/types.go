@@ -6,7 +6,6 @@ import (
 
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/internal/jsontypes"
 )
 
@@ -133,7 +132,7 @@ type validatorUpdateJSON struct {
 }
 
 func (v *ValidatorUpdate) MarshalJSON() ([]byte, error) {
-	key, err := encoding.PubKeyFromProto(v.PubKey)
+	key, err := crypto.PubKeyFromProto(v.PubKey)
 	if err != nil {
 		return nil, err
 	}
@@ -156,11 +155,7 @@ func (v *ValidatorUpdate) UnmarshalJSON(data []byte) error {
 	if err := jsontypes.Unmarshal(vu.PubKey, &key); err != nil {
 		return err
 	}
-	pkey, err := encoding.PubKeyToProto(key)
-	if err != nil {
-		return err
-	}
-	v.PubKey = pkey
+	v.PubKey = crypto.PubKeyToProto(key)
 	v.Power = vu.Power
 	return nil
 }

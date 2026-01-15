@@ -2,7 +2,7 @@ package types
 
 import (
 	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto/encoding"
+	"github.com/tendermint/tendermint/crypto"
 )
 
 //-------------------------------------------------------
@@ -20,19 +20,13 @@ func (tm2pb) Validator(val *Validator) abci.Validator {
 	}
 }
 
-// XXX: panics on unknown pubkey type
 func (tm2pb) ValidatorUpdate(val *Validator) abci.ValidatorUpdate {
-	pk, err := encoding.PubKeyToProto(val.PubKey)
-	if err != nil {
-		panic(err)
-	}
 	return abci.ValidatorUpdate{
-		PubKey: pk,
+		PubKey: crypto.PubKeyToProto(val.PubKey),
 		Power:  val.VotingPower,
 	}
 }
 
-// XXX: panics on nil or unknown pubkey type
 func (tm2pb) ValidatorUpdates(vals *ValidatorSet) []abci.ValidatorUpdate {
 	validators := make([]abci.ValidatorUpdate, vals.Size())
 	for i, val := range vals.Validators {
@@ -52,7 +46,7 @@ type pb2tm struct{}
 func (pb2tm) ValidatorUpdates(vals []abci.ValidatorUpdate) ([]*Validator, error) {
 	tmVals := make([]*Validator, len(vals))
 	for i, v := range vals {
-		pub, err := encoding.PubKeyFromProto(v.PubKey)
+		pub, err := crypto.PubKeyFromProto(v.PubKey)
 		if err != nil {
 			return nil, err
 		}

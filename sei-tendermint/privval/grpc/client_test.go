@@ -60,7 +60,7 @@ func TestSignerClient_GetPubKey(t *testing.T) {
 
 	pk, err := client.GetPubKey(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, mockPV.PrivKey.PubKey(), pk)
+	assert.Equal(t, mockPV.PrivKey.Public(), pk)
 }
 
 func TestSignerClient_SignVote(t *testing.T) {

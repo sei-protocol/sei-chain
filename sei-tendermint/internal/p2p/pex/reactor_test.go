@@ -144,11 +144,11 @@ func TestReactorErrorsOnReceivingTooManyPeers(t *testing.T) {
 	}
 
 	t.Log("send a response with too many addresses")
-	addresses := make([]pb.PexAddress, 101)
+	addresses := make([]*pb.PexAddress, 101)
 	for i := range addresses {
 		nodeAddress := p2p.NodeAddress{NodeID: randomNodeID()}
-		addresses[i] = pb.PexAddress{
-			URL: nodeAddress.String(),
+		addresses[i] = &pb.PexAddress{
+			Url: nodeAddress.String(),
 		}
 	}
 	ch.Send(wrap(&pb.PexResponse{Addresses: addresses}), n1)
@@ -459,12 +459,12 @@ func (r *reactorTestSuite) listenForPeerDown(
 	r.network.Node(on).WaitForConn(t.Context(), with, false)
 }
 
-func (r *reactorTestSuite) getAddressesFor(nodes []int) []pb.PexAddress {
-	addresses := make([]pb.PexAddress, len(nodes))
+func (r *reactorTestSuite) getAddressesFor(nodes []int) []*pb.PexAddress {
+	addresses := make([]*pb.PexAddress, len(nodes))
 	for idx, node := range nodes {
 		nodeID := r.nodes[node]
-		addresses[idx] = pb.PexAddress{
-			URL: r.network.Node(nodeID).NodeAddress.String(),
+		addresses[idx] = &pb.PexAddress{
+			Url: r.network.Node(nodeID).NodeAddress.String(),
 		}
 	}
 	return addresses
@@ -521,5 +521,5 @@ func (r *reactorTestSuite) addAddresses(t *testing.T, node int, addrIDs []int) {
 }
 
 func randomNodeID() types.NodeID {
-	return types.NodeIDFromPubKey(ed25519.GenPrivKey().PubKey())
+	return types.NodeIDFromPubKey(ed25519.GenerateSecretKey().Public())
 }

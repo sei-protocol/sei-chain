@@ -141,7 +141,7 @@ func TestSetHasProposal(t *testing.T) {
 				Hash:  crypto.CRandBytes(crypto.HashSize),
 			},
 		},
-		Signature: []byte("signature"),
+		Signature: makeSig("signature"),
 	}
 	ps3.SetHasProposal(tooLargeTotalProposal)
 	require.False(t, ps3.PRS.Proposal, "Proposal with too large Total should be silently ignored")
@@ -159,7 +159,7 @@ func TestSetHasProposal(t *testing.T) {
 				Hash:  crypto.CRandBytes(crypto.HashSize),
 			},
 		},
-		Signature: []byte("signature"),
+		Signature: makeSig("signature"),
 	}
 	ps.SetHasProposal(validProposal)
 	require.True(t, ps.PRS.Proposal, "Valid proposal should be accepted")
@@ -178,7 +178,7 @@ func TestSetHasProposal(t *testing.T) {
 				Hash:  crypto.CRandBytes(crypto.HashSize),
 			},
 		},
-		Signature: []byte("signature"),
+		Signature: makeSig("signature"),
 	}
 	ps2.SetHasProposal(differentProposal)
 	require.True(t, ps2.PRS.Proposal, "Proposal with matching height should be accepted")
@@ -193,7 +193,7 @@ func TestSetHasProposalMemoryLimit(t *testing.T) {
 	hash := crypto.CRandBytes(crypto.HashSize)
 
 	// Create a dummy signature
-	sig := crypto.CRandBytes(types.MaxSignatureSize)
+	sig := makeSig("dummy-sig")
 
 	// Create a proposal with a large PartSetHeader.Total
 	proposal := &types.Proposal{
@@ -349,7 +349,7 @@ func TestSetHasProposalEdgeCases(t *testing.T) {
 					},
 				},
 				Timestamp: time.Now(),
-				Signature: []byte("test-signature"),
+				Signature: makeSig("test-signature"),
 			},
 			expectProposal: false, // Should silently ignore
 			expectPanic:    false,
@@ -373,7 +373,7 @@ func TestSetHasProposalEdgeCases(t *testing.T) {
 					},
 				},
 				Timestamp: time.Now(),
-				Signature: []byte("test-signature"),
+				Signature: makeSig("test-signature"),
 			},
 			expectProposal: false,
 			expectPanic:    false,
@@ -398,7 +398,7 @@ func TestSetHasProposalEdgeCases(t *testing.T) {
 					},
 				},
 				Timestamp: time.Now(),
-				Signature: []byte("test-signature"),
+				Signature: makeSig("test-signature"),
 			},
 			expectProposal: true, // Should remain true
 			expectPanic:    false,
@@ -422,7 +422,7 @@ func TestSetHasProposalEdgeCases(t *testing.T) {
 					},
 				},
 				Timestamp: time.Now(),
-				Signature: []byte("test-signature"),
+				Signature: makeSig("test-signature"),
 			},
 			expectProposal: true, // Should be set
 			expectPanic:    false,

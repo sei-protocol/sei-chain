@@ -101,7 +101,7 @@ func TestNodeInfoValidate(t *testing.T) {
 }
 
 func testNodeID() NodeID {
-	return NodeIDFromPubKey(ed25519.GenPrivKey().PubKey())
+	return NodeIDFromPubKey(ed25519.GenerateSecretKey().Public())
 }
 
 func testNodeInfo(t *testing.T, id NodeID, name string) NodeInfo {

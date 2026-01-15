@@ -3,7 +3,9 @@ package mock_test
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
@@ -27,8 +29,7 @@ func TestSignVote(t *testing.T) {
 	pv.SignVote(t.Context(), chainID, vote)
 
 	msg := tmtypes.VoteSignBytes(chainID, vote)
-	ok := pk.VerifySignature(msg, vote.Signature)
-	require.True(t, ok)
+	require.NoError(t, pk.Verify(msg, utils.OrPanic1(crypto.SigFromBytes(vote.Signature))))
 }
 
 func TestSignProposal(t *testing.T) {
@@ -39,6 +40,5 @@ func TestSignProposal(t *testing.T) {
 	pv.SignProposal(t.Context(), chainID, proposal)
 
 	msg := tmtypes.ProposalSignBytes(chainID, proposal)
-	ok := pk.VerifySignature(msg, proposal.Signature)
-	require.True(t, ok)
+	require.NoError(t, pk.Verify(msg, utils.OrPanic1(crypto.SigFromBytes(proposal.Signature))))
 }

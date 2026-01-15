@@ -1,3 +1,6 @@
+ARG SEICTL_VERSION=v0.0.5@sha256:268fc871e8358e706f505f0ce9ef318761e0d00d317716e9d87218734ae1a81c
+
+FROM ghcr.io/sei-protocol/seictl:${SEICTL_VERSION} AS seictl
 FROM docker.io/golang:1.24-bookworm@sha256:fc58bb98c4b7ebc8211c94df9dee40489e48363c69071bceca91aa59023b0dee AS builder
 WORKDIR /go/src/sei-chain
 
@@ -16,10 +19,8 @@ RUN mkdir -p /go/lib && \
     cp /tmp/wasmvm-libs/libwasmvm.${ARCH_SUFFIX}.so /go/lib/
 
 COPY go.* ./
-COPY sei-wasmd/go.* ./sei-wasmd/
 COPY sei-cosmos/go.* ./sei-cosmos/
 COPY sei-tendermint/go.* ./sei-tendermint/
-COPY sei-ibc-go/go.* ./sei-ibc-go/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go mod download
@@ -44,7 +45,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM docker.io/ubuntu:24.04@sha256:104ae83764a5119017b8e8d6218fa0832b09df65aae7d5a6de29a85d813da2fb
 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /go/bin/seid /go/bin/price-feeder /usr/bin/
+COPY --from=seictl /usr/bin/seictl /usr/bin/
 COPY --from=builder /go/lib/*.so /usr/lib/
 
 ENTRYPOINT ["/usr/bin/seid"]
