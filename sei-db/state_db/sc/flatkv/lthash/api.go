@@ -99,7 +99,7 @@ func computeDelta(kvPairs []KVPairWithLastValue, numWorkers int) (*LtHash, *LtHa
 	for w := 0; w < numWorkers; w++ {
 		start := w * chunkSize
 		if start >= len(kvPairs) {
-			continue
+			break
 		}
 		end := start + chunkSize
 		if end > len(kvPairs) {
@@ -130,7 +130,7 @@ func computeDelta(kvPairs []KVPairWithLastValue, numWorkers int) (*LtHash, *LtHa
 	for w := 0; w < numWorkers; w++ {
 		start := w * chunkSize
 		if start >= len(kvPairs) {
-			continue
+			break
 		}
 		end := start + chunkSize
 		if end > len(kvPairs) {
