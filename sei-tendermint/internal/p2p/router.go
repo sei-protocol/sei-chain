@@ -45,6 +45,7 @@ type Router struct {
 	nodeInfoProducer func() *types.NodeInfo
 
 	channels utils.RWMutex[map[ChannelID]*channel]
+	giga utils.Option[*GigaRouter]
 
 	started chan struct{}
 }
@@ -89,6 +90,9 @@ func NewRouter(
 		channels:         utils.NewRWMutex(map[ChannelID]*channel{}),
 		peerDB:           utils.NewMutex(peerDB),
 		started:          make(chan struct{}),
+	}
+	if options.EnableGiga {
+		router.giga = utils.Some(NewGigaRouter())
 	}
 	router.BaseService = service.NewBaseService(logger, "router", router)
 	return router, nil
@@ -203,6 +207,16 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					r.logger.Error("peer filtered by IP", "ip", remoteAddr, "err", err)
 					return nil
 				}
+				if d, ok := r.options.HandshakeTimeout.Get(); ok {
+					var cancel context.CancelFunc
+					ctx, cancel = context.WithTimeout(ctx, d)
+					defer cancel()
+				}
+				secretConn, err := conn.MakeSecretConnection(ctx, tcpConn, r.privKey, r.giga.IsPresent())
+				if err != nil {
+					r.logger.Error("MakeSecretConnection()", "addr", remoteAddr, "err", err)
+					return nil
+				} 
 				conn, err := r.handshake(ctx, tcpConn, utils.None[NodeAddress]())
 				if err != nil {
 					r.logger.Error("r.handshake()", "addr", remoteAddr, "err", err)
@@ -213,7 +227,11 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					return nil
 				}
 				release()
-				err = r.runConn(ctx, conn)
+				if conn.IsGiga() {
+					err = r.giga.OrPanic().RunConn(ctx, conn)
+				} else {
+					err = r.runConn(ctx, conn)
+				}
 				r.logger.Error("r.runConn(inbound)", "err", err)
 				return nil
 			})
@@ -244,7 +262,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 						}
 						defer tcpConn.Close()
 						r.metrics.NewConnections.With("direction", "out").Add(1)
-						conn, err := r.handshake(ctx, tcpConn, utils.Some(addr))
+						conn, err := r.handshake(ctx, tcpConn, utils.Some(addr), false)
 						if err != nil {
 							r.peerManager.DialFailed(addr)
 							r.logger.Error("r.handshake()", "addr", addr, "err", err)

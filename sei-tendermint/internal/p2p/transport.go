@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/gogo/protobuf/proto"
-	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
@@ -12,7 +11,6 @@ import (
 	"math"
 	"net"
 	"net/netip"
-	"sync/atomic"
 	"time"
 
 	p2pproto "github.com/tendermint/tendermint/proto/tendermint/p2p"
@@ -56,93 +54,94 @@ func (c *Connection) Info() peerConnInfo {
 	}
 }
 
+type authConn struct {
+	peerInfo types.NodeInfo
+	dialAddr utils.Option[NodeAddress]
+	sc *conn.SecretConnection
+}
+
 // handshake handshakes with a peer, validating the peer's information. If
 // dialAddr is given, we check that the peer's info matches it.
 // Closes the tcpConn if case of any error.
-func (r *Router) handshake(ctx context.Context, tcpConn *net.TCPConn, dialAddr utils.Option[NodeAddress]) (c *Connection, err error) {
+func (r *Router) handshake(ctx context.Context, c tcp.Conn, dialAddr utils.Option[NodeAddress]) (*authConn, error) {	
 	if d, ok := r.options.HandshakeTimeout.Get(); ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, d)
 		defer cancel()
 	}
-	defer func() {
-		// Late error check. Close conn to avoid leaking it.
-		if err != nil {
-			tcpConn.Close()
-		}
-	}()
+	sc, err := conn.MakeSecretConnection(ctx, c)
+	if err != nil { return nil,err }
+	challenge := sc.Challenge()
 	nodeInfo := r.nodeInfoProducer()
-	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*Connection, error) {
-		var ok atomic.Bool
-		s.SpawnBg(func() error {
-			// Early error check. Close conn to terminate tasks which do not respect ctx.
-			<-ctx.Done()
-			if !ok.Load() {
-				s.Cancel(ctx.Err())
-				tcpConn.Close()
-			}
-			return nil
-		})
-		var err error
-		secretConn, err := conn.MakeSecretConnection(ctx, tcpConn, r.privKey)
-		if err != nil {
-			return nil, err
-		}
+	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*authConn, error) {
 		s.Spawn(func() error {
-			_, err := protoio.NewDelimitedWriter(secretConn).WriteMsg(nodeInfo.ToProto())
-			if err != nil {
-				return err
-			}
-			return secretConn.Flush()
+			authMsg := &authSigMessage{r.privKey.Public(), r.privKey.Sign(challenge[:])}
+			if err := conn.WriteSizedProto(ctx,sc,authSigMessageConv.Encode(authMsg)); err != nil { return err }
+			if err := conn.WriteSizedProto(ctx,sc,nodeInfo.ToProto()); err != nil { return err }
+			return sc.Flush(ctx)
 		})
-		var pbPeerInfo p2pproto.NodeInfo
-		if _, err := protoio.NewDelimitedReader(secretConn, types.MaxNodeInfoSize()).ReadMsg(&pbPeerInfo); err != nil {
-			return nil, err
+		
+		var authProto pb.AuthSigMessage
+		if err := conn.ReadSizedProto(ctx,sc,&authProto,1024*1024); err != nil {
+			return nil, fmt.Errorf("%w: %v", errAuth, err)
 		}
-		peerInfo, err := types.NodeInfoFromProto(&pbPeerInfo)
+		authMsg, err := authSigMessageConv.Decode(&authProto)
 		if err != nil {
-			return nil, fmt.Errorf("error reading NodeInfo: %w", err)
+			return nil, fmt.Errorf("%w: authSigMessageFromProto(): %v", errAuth, err)
 		}
+		if err := authMsg.Key.Verify(challenge[:], authMsg.Sig); err != nil {
+			return nil, fmt.Errorf("%w: %v", errAuth, err)
+		}
+		var pbPeerInfo p2pproto.NodeInfo
+		if err := conn.ReadSizedProto(ctx,sc,&pbPeerInfo,uint64(types.MaxNodeInfoSize())); err != nil { return nil,err }
+		peerInfo, err := types.NodeInfoFromProto(&pbPeerInfo)
+		if err != nil { return nil,fmt.Errorf("error reading NodeInfo: %w", err) }
+		
 		// Authenticate the peer first.
-		peerID := types.NodeIDFromPubKey(secretConn.RemotePubKey())
+		peerID := types.NodeIDFromPubKey(authMsg.Key)
 		if peerID != peerInfo.NodeID {
-			return nil, fmt.Errorf("peer's public key did not match its node ID %q (expected %q)",
-				peerInfo.NodeID, peerID)
+			return nil,fmt.Errorf("peer's public key did not match its node ID %q (expected %q)", peerInfo.NodeID, peerID)
 		}
 		// Validate the received info.
 		if err := peerInfo.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid handshake NodeInfo: %w", err)
+			return nil,fmt.Errorf("invalid handshake NodeInfo: %w", err)
 		}
-		nodeInfo := r.nodeInfoProducer()
 		if peerInfo.Network != nodeInfo.Network {
-			return nil, errBadNetwork{fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)}
+			return nil,errBadNetwork{fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)}
 		}
 		if want, ok := dialAddr.Get(); ok && want.NodeID != peerInfo.NodeID {
-			return nil, fmt.Errorf("expected to connect with peer %q, got %q",
-				want.NodeID, peerInfo.NodeID)
+			return nil,fmt.Errorf("expected to connect with peer %q, got %q", want.NodeID, peerInfo.NodeID)
+		}
+		if !dialAddr.IsPresent() {
+			// Filter inbound 
+			if err := r.options.filterPeerByID(ctx, peerInfo.ID()); err != nil {
+				return nil,fmt.Errorf("peer filtered by ID (%v): %w",peerInfo.ID(),err)
+			}
 		}
 		if err := nodeInfo.CompatibleWith(peerInfo); err != nil {
-			return nil, ErrRejected{
+			return nil,ErrRejected{
 				err:            err,
 				id:             peerInfo.ID(),
 				isIncompatible: true,
 			}
 		}
-		ok.Store(true)
-		return &Connection{
-			dialAddr:     dialAddr,
-			conn:         tcpConn,
-			sendQueue:    NewQueue[sendMsg](queueBufferDefault),
+		return &authConn{
+			dialAddr: dialAddr,
 			peerInfo:     peerInfo,
+			sc: sc,
+		},nil
+	})
+		/*
+			
+			sendQueue:    NewQueue[sendMsg](queueBufferDefault),
 			peerChannels: toChannelIDs(peerInfo.Channels),
 			mconn: conn.NewMConnection(
-				r.logger.With("peer", Endpoint{tcp.RemoteAddr(tcpConn)}.NodeAddress(peerInfo.NodeID)),
-				secretConn,
+				//r.logger.With("peer", Endpoint{sc.RemoteAddr()}.NodeAddress(peerInfo.NodeID)),
+				sc,
 				r.getChannelDescs(),
 				r.options.Connection,
 			),
-		}, nil
-	})
+		}, nil*/
 }
 
 func (r *Router) connSendRoutine(ctx context.Context, conn *Connection) error {
@@ -263,4 +262,29 @@ func (e Endpoint) Validate() error {
 		return InvalidEndpointErr{fmt.Errorf("endpoint has invalid address %q", e.String())}
 	}
 	return nil
+}
+
+type authSigMessage struct {
+	Key crypto.PubKey
+	Sig crypto.Sig
+}
+
+var authSigMessageConv = utils.ProtoConv[*authSigMessage, *pb.AuthSigMessage]{
+	Encode: func(m *authSigMessage) *pb.AuthSigMessage {
+		return &pb.AuthSigMessage{
+			PubKey: crypto.PubKeyConv.Encode(m.Key),
+			Sig:    m.Sig.Bytes(),
+		}
+	},
+	Decode: func(p *pb.AuthSigMessage) (*authSigMessage, error) {
+		key, err := crypto.PubKeyConv.DecodeReq(p.PubKey)
+		if err != nil {
+			return nil, fmt.Errorf("PubKey: %w", err)
+		}
+		sig, err := crypto.SigFromBytes(p.Sig)
+		if err != nil {
+			return nil, fmt.Errorf("Sig: %w", err)
+		}
+		return &authSigMessage{key, sig}, nil
+	},
 }

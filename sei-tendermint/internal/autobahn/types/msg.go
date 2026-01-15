@@ -13,6 +13,8 @@ import (
 	"github.com/tendermint/tendermint/crypto/ed25519"
 )
 
+var autobahnTag = utils.OrPanic1(ed25519.NewTag("sei_giga_autobahn"))
+
 // Msg is the interface for all messages signable by a stream node.
 type Msg interface{ asMsg() *pb.Msg }
 
@@ -64,7 +66,7 @@ func (m *Hashed[T]) Hash() Hash[T] { return m.hash }
 func NewHashed[T Msg](msg T) *Hashed[T] {
 	return &Hashed[T]{
 		msg:  msg,
-		hash: Hash[T](hashable.ToHash[*pb.Msg](msg.asMsg())),
+		hash: Hash[T](hashable.ToHash(msg.asMsg())),
 	}
 }
 
@@ -150,7 +152,7 @@ func Sign[T Msg](key SecretKey, msg T) *Signed[T] {
 		hashed: hMsg,
 		sig: &Signature{
 			key: key.Public(),
-			sig: key.key.Sign(hMsg.hash[:]),
+			sig: key.key.SignWithTag(autobahnTag,hMsg.hash[:]),
 		},
 	}
 }
@@ -186,7 +188,7 @@ func (m *Signed[T]) VerifySig(c *Committee) error {
 	if !c.Replicas().Has(m.sig.key) {
 		return fmt.Errorf("%q is not a replica", m.sig.key)
 	}
-	return m.sig.key.key.Verify(m.hashed.hash[:], m.sig.sig)
+	return m.sig.key.key.VerifyWithTag(autobahnTag,m.hashed.hash[:], m.sig.sig)
 }
 
 // verifyQC verifies a slice of signatures and checks if they form a quorum.
@@ -286,13 +288,13 @@ func (m *Signed[T]) AsMsg() *Signed[Msg] {
 }
 
 // HashedCast PANICS if msg.Msg() is not of type T.
-func HashedCast[T Msg](msg *Hashed[Msg]) *Hashed[T] {
+func HashedCastOrPanic[T Msg](msg *Hashed[Msg]) *Hashed[T] {
 	return &Hashed[T]{msg: msg.msg.(T), hash: Hash[T](hashable.Hash[*pb.Msg](msg.hash))}
 }
 
 // SignedCast PANICS if msg.Msg() is not of type T.
-func SignedCast[T Msg](msg *Signed[Msg]) *Signed[T] {
-	return &Signed[T]{hashed: HashedCast[T](msg.hashed), sig: msg.sig}
+func SignedCastOrPanic[T Msg](msg *Signed[Msg]) *Signed[T] {
+	return &Signed[T]{hashed: HashedCastOrPanic[T](msg.hashed), sig: msg.sig}
 }
 
 // SignedMsgConv is a protobuf converter for Signed[Msg].

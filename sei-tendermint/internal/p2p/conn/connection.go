@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"net"
+	"net/netip"
 	"reflect"
 	"sync/atomic"
 	"time"
@@ -17,15 +18,20 @@ import (
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/proto/tendermint/p2p"
 )
 
+var _ Conn = tcp.Conn{}
+
 type Conn interface {
-	io.Reader
-	io.Writer
-	io.Closer
-	Flush() error
+	LocalAddr() netip.AddrPort
+	RemoteAddr() netip.AddrPort
+	Read(ctx context.Context, data []byte) error 
+	Write(ctx context.Context, data []byte) error
+	Flush(ctx context.Context) error
+	Close()
 }
 
 func IsDisconnect(err error) bool {

@@ -1,4 +1,4 @@
-package stream
+package autobahn
 
 import (
 	"context"
@@ -13,11 +13,10 @@ import (
 
 	"github.com/tendermint/tendermint/internal/autobahn/config"
 	"github.com/tendermint/tendermint/internal/autobahn/data"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/grpcutils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/service"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/tcp"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
@@ -32,12 +31,12 @@ func retry[T any](ctx context.Context, f func() (T, error)) (T, error) {
 	}
 }
 
-func connect(address string) (protocol.ProducerAPIClient, func(), error) {
+func connect(address string) (pb.ProducerAPIClient, func(), error) {
 	conn, err := grpcutils.NewClient(address)
 	if err != nil {
 		return nil, nil, err
 	}
-	return protocol.NewProducerAPIClient(conn), func() { _ = conn.Close() }, nil
+	return pb.NewProducerAPIClient(conn), func() { _ = conn.Close() }, nil
 }
 
 func TestRun(t *testing.T) {
@@ -70,11 +69,11 @@ func TestRun(t *testing.T) {
 	type TxPayload = [L]byte
 	type TxSet = map[TxPayload]struct{}
 	wantTxs := TxSet{}
-	var txs []*protocol.Transaction
+	var txs []*pb.Transaction
 
 	txCount := 10
 	for range txCount {
-		tx := &protocol.Transaction{
+		tx := &pb.Transaction{
 			Hash:    utils.GenString(rng, 10),
 			Payload: utils.GenBytes(rng, L),
 			GasUsed: uint64(rng.Intn(1000)),
@@ -83,7 +82,7 @@ func TestRun(t *testing.T) {
 		wantTxs[TxPayload(tx.Payload)] = struct{}{}
 	}
 
-	if err := service.Run(ctx, func(ctx context.Context, s service.Scope) error {
+	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for i, r := range replicaCfgs[:active] {
 			streamCfg := &config.StreamConfig{
 				ServerAddr:               addrs[i],
@@ -111,7 +110,7 @@ func TestRun(t *testing.T) {
 					return fmt.Errorf("connect(): %w", err)
 				}
 				defer closeConn()
-				stream, err := retry(ctx, func() (protocol.ProducerAPI_MempoolClient, error) { return client.Mempool(ctx) })
+				stream, err := retry(ctx, func() (pb.ProducerAPI_MempoolClient, error) { return client.Mempool(ctx) })
 				if err != nil {
 					return fmt.Errorf("client.Mempool(): %w", err)
 				}
