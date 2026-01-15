@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/app"
+	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -71,6 +72,13 @@ func NewGigaTestContext(t testing.TB, testAccts []utils.TestAcct, blockTime time
 	// Configure giga executor
 	testApp.EvmKeeper.GigaExecutorEnabled = gigaEnabled
 	testApp.EvmKeeper.GigaOCCEnabled = gigaOCCEnabled
+	if gigaEnabled {
+		evmoneVM, err := gigalib.InitEvmoneVM()
+		if err != nil {
+			t.Fatalf("failed to load evmone: %v", err)
+		}
+		testApp.EvmKeeper.EvmoneVM = evmoneVM
+	}
 
 	// Fund test accounts
 	amounts := sdk.NewCoins(
