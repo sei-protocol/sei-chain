@@ -1141,7 +1141,7 @@ func (k Keeper) emitCW721OwnerBeforeTransferIfApplicable(ctx sdk.Context, contra
 		if err != nil {
 			return
 		}
-		if ctx.IsTracing() && ctx.ChainID() == "pacific-1" && strings.Compare(ctx.ClosestUpgradeName(), "v6.3.0") < 0 {
+		if ctx.IsTracing() && ctx.ChainID() == "pacific-1" && strings.Compare(ctx.ClosestUpgradeName(), "v6.2.0") < 0 {
 			ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 		}
 		resBz, err := k.QuerySmart(ctx, contractAddress, ownerQueryBz)
