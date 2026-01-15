@@ -457,12 +457,13 @@ func (s *scheduler) executeAll(ctx sdk.Context, tasks []*deliverTxTask) error {
 }
 
 func (s *scheduler) prepareAndRunTask(wg *sync.WaitGroup, ctx sdk.Context, task *deliverTxTask) {
+	defer wg.Done() // Must be deferred to prevent deadlock on panic
+
 	eCtx, eSpan := s.traceSpan(ctx, "SchedulerExecute", task)
 	defer eSpan.End()
 
 	task.Ctx = eCtx
 	s.executeTask(task)
-	wg.Done()
 }
 
 func (s *scheduler) traceSpan(ctx sdk.Context, name string, task *deliverTxTask) (sdk.Context, trace.Span) {
