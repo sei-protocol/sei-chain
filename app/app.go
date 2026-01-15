@@ -1887,6 +1887,7 @@ func (app *App) ProcessBlockWithGigaExecutorOCC(ctx sdk.Context, txs [][]byte, r
 	// EndBlock
 	endBlockResp = app.EndBlock(ctx, req.GetHeight(), evmTotalGasUsed)
 	events = append(events, endBlockResp.Events...)
+
 	return events, txResults, endBlockResp, nil
 }
 
