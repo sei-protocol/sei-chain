@@ -1,6 +1,8 @@
 package internal
 
 import (
+	"errors"
+
 	"github.com/ethereum/evmc/v12/bindings/go/evmc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -196,17 +198,17 @@ func (h *HostContext) Call(
 		ret, leftoverGas, err = h.evm.CallCode(senderAddr, recipientAddr, input, uint64(gas), valueUint256)
 	case evmc.Create:
 		ret, createAddr, leftoverGas, err = h.evm.Create(senderAddr, input, uint64(gas), valueUint256)
-		return ret, int64(leftoverGas), 0, evmc.Address(createAddr), err
+		return ret, int64(leftoverGas), 0, evmc.Address(createAddr), toEvmcError(err)
 	case evmc.Create2:
 		saltUint256 := new(uint256.Int).SetBytes(salt[:])
 		ret, createAddr, leftoverGas, err = h.evm.Create2(senderAddr, input, uint64(gas), valueUint256, saltUint256)
-		return ret, int64(leftoverGas), 0, evmc.Address(createAddr), err
+		return ret, int64(leftoverGas), 0, evmc.Address(createAddr), toEvmcError(err)
 	default:
 		panic("EofCreate is not supported")
 	}
 
 	//nolint:gosec // G115: safe, leftoverGas won't exceed int64 max
-	return ret, int64(leftoverGas), 0, evmc.Address{}, err
+	return ret, int64(leftoverGas), 0, evmc.Address{}, toEvmcError(err)
 }
 
 func (h *HostContext) AccessAccount(addr evmc.Address) evmc.AccessStatus {
@@ -286,4 +288,19 @@ func (h *HostContext) getEVMRevision() evmc.Revision {
 		return evmc.Homestead
 	}
 	return evmc.Frontier
+}
+
+// toEvmcError converts a Go error to an evmc.Error.
+// The EVMC bindings expect Call() to return evmc.Error type, not standard Go errors.
+func toEvmcError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, ok := err.(evmc.Error); ok {
+		return err
+	}
+	if errors.Is(err, vm.ErrExecutionReverted) {
+		return evmc.Revert
+	}
+	return evmc.Failure
 }
