@@ -10,9 +10,9 @@ import (
 	"github.com/ethereum/evmc/v12/bindings/go/evmc"
 )
 
-// InitVM initializes the EVMC VM by loading the platform-specific evmone library.
+// InitEvmoneVM initializes the EVMC VM by loading the platform-specific evmone library.
 // It verifies that the loaded VM version is compatible with the EVMC bindings version.
-func InitVM() (*evmc.VM, error) {
+func InitEvmoneVM() (*evmc.VM, error) {
 	_, path, _, ok := runtime.Caller(0)
 	if !ok {
 		return nil, fmt.Errorf("failed to get caller information")
@@ -24,8 +24,7 @@ func InitVM() (*evmc.VM, error) {
 		return nil, fmt.Errorf("evmc.Load(%q): %w", libPath, err)
 	}
 
-	// Verify version compatibility
-	if err := verifyVersion(vm); err != nil {
+	if err := verifyVersionCompatibility(vm); err != nil {
 		return nil, err
 	}
 
@@ -34,7 +33,7 @@ func InitVM() (*evmc.VM, error) {
 
 // verifyVersion checks that the loaded evmone version is compatible with the EVMC bindings.
 // EVMC v12.x.x requires evmone 0.12.x
-func verifyVersion(vm *evmc.VM) error {
+func verifyVersionCompatibility(vm *evmc.VM) error {
 	expectedPrefix, err := getExpectedEvmoneVersionPrefix()
 	if err != nil {
 		return fmt.Errorf("failed to determine expected evmone version: %w", err)
