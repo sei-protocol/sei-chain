@@ -380,22 +380,11 @@ var extractOnce sync.Once
 
 // getStateTestsPath returns the path to GeneralStateTests, extracting from archive if needed
 func getStateTestsPath(t testing.TB) string {
-	// Priority 1: Environment variable override
-	if p := os.Getenv("ETHEREUM_TESTS_PATH"); p != "" {
-		stateTestsPath := filepath.Join(p, "GeneralStateTests")
-		if _, err := os.Stat(stateTestsPath); err == nil {
-			return stateTestsPath
-		}
-		t.Logf("ETHEREUM_TESTS_PATH set but GeneralStateTests not found at %s", stateTestsPath)
-	}
-
-	// Priority 2: Already extracted testdata
 	testdataPath := filepath.Join("testdata", "GeneralStateTests")
 	if _, err := os.Stat(testdataPath); err == nil {
 		return testdataPath
 	}
 
-	// Priority 3: Extract from archive
 	archivePath := filepath.Join("testdata", "fixtures_general_state_tests.tgz")
 	if _, err := os.Stat(archivePath); err == nil {
 		extractOnce.Do(func() {
@@ -407,7 +396,7 @@ func getStateTestsPath(t testing.TB) string {
 		}
 	}
 
-	t.Skip("No test fixtures available (set ETHEREUM_TESTS_PATH or add fixtures_general_state_tests.tgz to testdata/)")
+	t.Skip("No test fixtures available")
 	return ""
 }
 
