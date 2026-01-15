@@ -34,6 +34,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
@@ -439,6 +440,7 @@ func initAppConfig() (string, interface{}) {
 		seidbconfig.StateCommitConfigTemplate +
 		seidbconfig.StateStoreConfigTemplate +
 		evmrpcconfig.ConfigTemplate +
+		gigaconfig.ConfigTemplate +
 		serverconfig.AutoManagedConfigTemplate + `
 ###############################################################################
 ###                        WASM Configuration (Auto-managed)                ###
