@@ -386,6 +386,31 @@ async function proposeCW20toERC20Upgrade(erc20Address, cw20Address, title="erc20
     return await passProposal(proposalId)
 }
 
+async function proposeParamChange(title, description, changes, deposit="200000000usei", fees="200000usei", from=adminKeyName, expedited=true) {
+    const proposal = {
+        title,
+        description,
+        changes,
+        deposit,
+        is_expedited: expedited  // Use expedited voting (15s vs 30s on localnet)
+    };
+    const proposalJson = JSON.stringify(proposal);
+    const tempFile = `/tmp/param_change_${Date.now()}.json`;
+    
+    // Use base64 encoding to avoid quote escaping issues in Docker
+    const base64Json = Buffer.from(proposalJson).toString('base64');
+    await execute(`echo ${base64Json} | base64 -d > ${tempFile}`);
+    
+    const command = `seid tx gov submit-proposal param-change ${tempFile} --from ${from} --fees ${fees} -y -o json --broadcast-mode=block`;
+    const output = await execute(command);
+    await execute(`rm ${tempFile}`);
+    const response = JSON.parse(output);
+    if (response.code !== 0) {
+        throw new Error(`Failed to submit proposal: ${response.raw_log}`);
+    }
+    return getEventAttribute(response, "submit_proposal", "proposal_id");
+}
+
 async function passProposal(proposalId,  desposit="200000000usei", fees="200000usei", from=adminKeyName) {
     if(await isDocker()) {
         await executeOnAllNodes(`seid tx gov vote ${proposalId} yes --from node_admin -b block -y --fees ${fees}`)
