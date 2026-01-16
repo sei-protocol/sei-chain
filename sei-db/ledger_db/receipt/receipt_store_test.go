@@ -11,13 +11,13 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
-	"github.com/sei-protocol/sei-chain/sei-db/changelog/changelog"
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
@@ -229,7 +229,7 @@ func TestRecoverReceiptStoreReplaysChangelog(t *testing.T) {
 	changelogPath := dbutils.GetChangelogPath(dir)
 	require.NoError(t, os.MkdirAll(changelogPath, 0o750))
 
-	stream, err := changelog.NewStream(dbLogger.NewNopLogger(), changelogPath, changelog.Config{})
+	stream, err := wal.NewChangelogWAL(dbLogger.NewNopLogger(), changelogPath, wal.Config{})
 	require.NoError(t, err)
 
 	txHash1 := common.HexToHash("0x20")

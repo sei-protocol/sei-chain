@@ -13,12 +13,12 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/eth/filters"
-	"github.com/sei-protocol/sei-chain/sei-db/changelog/changelog"
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -283,7 +283,7 @@ func (s *receiptStore) Close() error {
 func recoverReceiptStore(log dbLogger.Logger, changelogPath string, db *mvcc.Database) error {
 	ssLatestVersion := db.GetLatestVersion()
 	log.Info(fmt.Sprintf("Recovering from changelog %s with latest receipt version %d", changelogPath, ssLatestVersion))
-	streamHandler, err := changelog.NewStream(log, changelogPath, changelog.Config{})
+	streamHandler, err := wal.NewChangelogWAL(log, changelogPath, wal.Config{})
 	if err != nil {
 		return err
 	}
