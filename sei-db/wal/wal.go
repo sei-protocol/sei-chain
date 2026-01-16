@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/tidwall/wal"
@@ -23,9 +22,9 @@ type WAL[T any] struct {
 	marshal         MarshalFn[T]
 	unmarshal       UnmarshalFn[T]
 	writeChannel    chan T
-	mtx             sync.RWMutex
-	asyncWriteErrCh chan error // buffered=1; async writer reports first error non-blocking
-	isClosed        atomic.Bool
+	mtx             sync.RWMutex // guards WAL state: lazy init/close of writeChannel, isClosed checks
+	asyncWriteErrCh chan error   // buffered=1; async writer reports first error non-blocking
+	isClosed        bool
 	closeCh         chan struct{}  // signals shutdown to background goroutines
 	wg              sync.WaitGroup // tracks background goroutines (pruning)
 }
@@ -72,12 +71,11 @@ func NewWAL[T any](
 		unmarshal:       unmarshal,
 		closeCh:         make(chan struct{}),
 		asyncWriteErrCh: make(chan error, 1),
-		isClosed:        atomic.Bool{},
 	}
 
 	// Start the auto pruning goroutine
 	if config.KeepRecent > 0 && config.PruneInterval > 0 {
-		w.StartPruning(config.KeepRecent, config.PruneInterval)
+		w.startPruning(config.KeepRecent, config.PruneInterval)
 	}
 	return w, nil
 
@@ -90,7 +88,7 @@ func (walLog *WAL[T]) Write(entry T) error {
 	// Never hold walLog.mtx while doing a potentially-blocking send. Close() may run concurrently.
 	walLog.mtx.Lock()
 	defer walLog.mtx.Unlock()
-	if walLog.isClosed.Load() {
+	if walLog.isClosed {
 		return errors.New("wal is closed")
 	}
 	if err := walLog.getAsyncWriteErrLocked(); err != nil {
@@ -152,10 +150,7 @@ func (walLog *WAL[T]) startAsyncWriteGoroutine() {
 // TruncateAfter will remove all entries that are after the provided `index`.
 // In other words the entry at `index` becomes the last entry in the log.
 func (walLog *WAL[T]) TruncateAfter(index uint64) error {
-	if err := walLog.log.TruncateBack(index); err != nil {
-		return err
-	}
-	return nil
+	return walLog.log.TruncateBack(index)
 }
 
 // TruncateBefore will remove all entries that are before the provided `index`.
@@ -215,7 +210,7 @@ func (walLog *WAL[T]) Replay(start uint64, end uint64, processFn func(index uint
 	return nil
 }
 
-func (walLog *WAL[T]) StartPruning(keepRecent uint64, pruneInterval time.Duration) {
+func (walLog *WAL[T]) startPruning(keepRecent uint64, pruneInterval time.Duration) {
 	walLog.wg.Add(1)
 	go func() {
 		defer walLog.wg.Done()
@@ -248,12 +243,12 @@ func (walLog *WAL[T]) StartPruning(keepRecent uint64, pruneInterval time.Duratio
 }
 
 func (walLog *WAL[T]) Close() error {
-	// Close should only be called once.
-	if !walLog.isClosed.CompareAndSwap(false, true) {
-		return nil
-	}
 	walLog.mtx.Lock()
 	defer walLog.mtx.Unlock()
+	// Close should only be executed once.
+	if walLog.isClosed {
+		return nil
+	}
 	// Signal background goroutines to stop.
 	close(walLog.closeCh)
 	if walLog.writeChannel != nil {
@@ -262,7 +257,7 @@ func (walLog *WAL[T]) Close() error {
 	}
 	// Wait for all background goroutines (pruning + async write) to finish.
 	walLog.wg.Wait()
-
+	walLog.isClosed = true
 	return walLog.log.Close()
 }
 
