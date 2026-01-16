@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.25'
+          go-version: '1.25.6'
       - name: Remove unnecessary tooling
         run: |
           # Remove unrelated tooling to open up more space. Without doing 
