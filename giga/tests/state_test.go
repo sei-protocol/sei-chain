@@ -409,8 +409,8 @@ func extractArchive(t testing.TB, archivePath, destDir string) {
 	}
 }
 
-// TestGigaVsGeth_StateTests runs state tests comparing Giga vs Geth execution
-func TestGigaVsGeth_StateTests(t *testing.T) {
+// TestGigaVsV2_StateTests runs state tests comparing Giga vs V2 execution
+func TestGigaVsV2_StateTests(t *testing.T) {
 	stateTestsPath := getStateTestsPath(t)
 
 	// Allow filtering to specific directory via STATE_TEST_DIR env var
@@ -498,7 +498,7 @@ func VerifyPostState(t *testing.T, stc *StateTestContext, expectedState ethtypes
 	}
 }
 
-// runStateTestComparison runs a state test through both Geth and Giga and compares results
+// runStateTestComparison runs a state test through both V2 and Giga and compares results
 func runStateTestComparison(t *testing.T, st *stJSON, post stPost) {
 	blockTime := time.Now()
 
@@ -506,14 +506,14 @@ func runStateTestComparison(t *testing.T, st *stJSON, post stPost) {
 	signedTx, sender := BuildTransaction(t, st, post)
 	txBytes := EncodeTxForApp(t, signedTx)
 
-	// --- Run with Geth Sequential (baseline) ---
-	gethCtx := NewStateTestContext(t, blockTime, 1, ModeV2Sequential)
-	gethCtx.SetupPreState(t, st.Pre)
+	// --- Run with V2 Sequential (baseline) ---
+	v2Ctx := NewStateTestContext(t, blockTime, 1, ModeV2Sequential)
+	v2Ctx.SetupPreState(t, st.Pre)
 	// Associate sender address
-	senderSei := gethCtx.TestApp.EvmKeeper.GetSeiAddressOrDefault(gethCtx.Ctx, sender)
-	gethCtx.TestApp.EvmKeeper.SetAddressMapping(gethCtx.Ctx, senderSei, sender)
+	senderSei := v2Ctx.TestApp.EvmKeeper.GetSeiAddressOrDefault(v2Ctx.Ctx, sender)
+	v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, senderSei, sender)
 
-	_, gethResults, gethErr := RunStateTestBlock(t, gethCtx, [][]byte{txBytes})
+	_, v2Results, v2Err := RunStateTestBlock(t, v2Ctx, [][]byte{txBytes})
 
 	// --- Run with Giga ---
 	gigaCtx := NewStateTestContext(t, blockTime, 1, ModeGigaSequential)
@@ -528,10 +528,10 @@ func runStateTestComparison(t *testing.T, st *stJSON, post stPost) {
 	if post.ExpectException != "" {
 		// This test expects the transaction to fail
 		// Both executors should produce an error or a failed result
-		gethFailed := gethErr != nil || (len(gethResults) > 0 && gethResults[0].Code != 0)
+		v2Failed := v2Err != nil || (len(v2Results) > 0 && v2Results[0].Code != 0)
 		gigaFailed := gigaErr != nil || (len(gigaResults) > 0 && gigaResults[0].Code != 0)
 
-		if !gethFailed && !gigaFailed {
+		if !v2Failed && !gigaFailed {
 			t.Fatalf("Expected exception %q but both executors succeeded", post.ExpectException)
 		}
 		// Both should fail - that's expected, no further verification needed
@@ -539,46 +539,46 @@ func runStateTestComparison(t *testing.T, st *stJSON, post stPost) {
 	}
 
 	// --- Compare execution errors ---
-	if gethErr != nil && gigaErr != nil {
+	if v2Err != nil && gigaErr != nil {
 		// Both failed - check if same type of failure
-		t.Logf("Both executors failed: geth=%v, giga=%v", gethErr, gigaErr)
+		t.Logf("Both executors failed: v2=%v, giga=%v", v2Err, gigaErr)
 		return
 	}
-	if gethErr != nil {
-		t.Fatalf("Geth execution failed but Giga succeeded: %v", gethErr)
+	if v2Err != nil {
+		t.Fatalf("V2 execution failed but Giga succeeded: %v", v2Err)
 	}
 	if gigaErr != nil {
-		t.Fatalf("Giga execution failed but Geth succeeded: %v", gigaErr)
+		t.Fatalf("Giga execution failed but V2 succeeded: %v", gigaErr)
 	}
 
 	// --- Compare results ---
-	require.Equal(t, len(gethResults), len(gigaResults), "result count mismatch")
+	require.Equal(t, len(v2Results), len(gigaResults), "result count mismatch")
 
-	for i := range gethResults {
+	for i := range v2Results {
 		// Compare success/failure
-		if gethResults[i].Code != gigaResults[i].Code {
-			t.Logf("tx[%d] Geth: code=%d log=%q", i, gethResults[i].Code, gethResults[i].Log)
+		if v2Results[i].Code != gigaResults[i].Code {
+			t.Logf("tx[%d] V2: code=%d log=%q", i, v2Results[i].Code, v2Results[i].Log)
 			t.Logf("tx[%d] Giga: code=%d log=%q", i, gigaResults[i].Code, gigaResults[i].Log)
 		}
-		require.Equal(t, gethResults[i].Code, gigaResults[i].Code,
+		require.Equal(t, v2Results[i].Code, gigaResults[i].Code,
 			"tx[%d] result code mismatch", i)
 
 		// Compare EvmTxInfo if present
-		if gethResults[i].EvmTxInfo != nil && gigaResults[i].EvmTxInfo != nil {
-			require.Equal(t, gethResults[i].EvmTxInfo.TxHash, gigaResults[i].EvmTxInfo.TxHash,
+		if v2Results[i].EvmTxInfo != nil && gigaResults[i].EvmTxInfo != nil {
+			require.Equal(t, v2Results[i].EvmTxInfo.TxHash, gigaResults[i].EvmTxInfo.TxHash,
 				"tx[%d] tx hash mismatch", i)
 		}
 	}
 
 	// --- Verify post-state against fixture (if available) ---
 	if len(post.State) > 0 {
-		VerifyPostState(t, gethCtx, post.State, "Geth")
+		VerifyPostState(t, v2Ctx, post.State, "V2")
 		VerifyPostState(t, gigaCtx, post.State, "Giga")
 	}
 }
 
-// TestGigaVsGeth_StateTest_Simple is a simple sanity test using embedded test data
-func TestGigaVsGeth_StateTest_Simple(t *testing.T) {
+// TestGigaVsV2_StateTest_Simple is a simple sanity test using embedded test data
+func TestGigaVsV2_StateTest_Simple(t *testing.T) {
 	// A simple state test: transfer value from one account to another
 	blockTime := time.Now()
 
@@ -616,15 +616,15 @@ func TestGigaVsGeth_StateTest_Simple(t *testing.T) {
 
 	txBytes := EncodeTxForApp(t, signedTx)
 
-	// --- Run with Geth Sequential ---
-	gethCtx := NewStateTestContext(t, blockTime, 1, ModeV2Sequential)
-	gethCtx.SetupPreState(t, pre)
-	senderSei := gethCtx.TestApp.EvmKeeper.GetSeiAddressOrDefault(gethCtx.Ctx, sender)
-	gethCtx.TestApp.EvmKeeper.SetAddressMapping(gethCtx.Ctx, senderSei, sender)
+	// --- Run with V2 Sequential ---
+	v2Ctx := NewStateTestContext(t, blockTime, 1, ModeV2Sequential)
+	v2Ctx.SetupPreState(t, pre)
+	senderSei := v2Ctx.TestApp.EvmKeeper.GetSeiAddressOrDefault(v2Ctx.Ctx, sender)
+	v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, senderSei, sender)
 
-	_, gethResults, gethErr := RunStateTestBlock(t, gethCtx, [][]byte{txBytes})
-	require.NoError(t, gethErr, "Geth execution failed")
-	require.Len(t, gethResults, 1)
+	_, v2Results, v2Err := RunStateTestBlock(t, v2Ctx, [][]byte{txBytes})
+	require.NoError(t, v2Err, "V2 execution failed")
+	require.Len(t, v2Results, 1)
 
 	// --- Run with Giga ---
 	gigaCtx := NewStateTestContext(t, blockTime, 1, ModeGigaSequential)
@@ -637,12 +637,12 @@ func TestGigaVsGeth_StateTest_Simple(t *testing.T) {
 	require.Len(t, gigaResults, 1)
 
 	// --- Compare ---
-	t.Logf("Geth result: code=%d, gasUsed=%d", gethResults[0].Code, gethResults[0].GasUsed)
+	t.Logf("V2 result: code=%d, gasUsed=%d", v2Results[0].Code, v2Results[0].GasUsed)
 	t.Logf("Giga result: code=%d, gasUsed=%d", gigaResults[0].Code, gigaResults[0].GasUsed)
 
-	require.Equal(t, gethResults[0].Code, gigaResults[0].Code, "result code mismatch")
-	require.Equal(t, uint32(0), gethResults[0].Code, "Geth tx failed: %s", gethResults[0].Log)
+	require.Equal(t, v2Results[0].Code, gigaResults[0].Code, "result code mismatch")
+	require.Equal(t, uint32(0), v2Results[0].Code, "V2 tx failed: %s", v2Results[0].Log)
 	require.Equal(t, uint32(0), gigaResults[0].Code, "Giga tx failed: %s", gigaResults[0].Log)
 
-	t.Log("Simple state test passed: Giga matches Geth")
+	t.Log("Simple state test passed: Giga matches V2")
 }

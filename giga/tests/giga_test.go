@@ -56,7 +56,7 @@ type GigaTestContext struct {
 
 // NewGigaTestContext creates a test context configured for a specific executor mode
 func NewGigaTestContext(t testing.TB, testAccts []utils.TestAcct, blockTime time.Time, workers int, mode ExecutorMode) *GigaTestContext {
-	// OCC is enabled for both GethOCC and GigaOCC modes
+	// OCC is enabled for both V2OCC and GigaOCC modes
 	occEnabled := mode == ModeV2withOCC || mode == ModeGigaOCC
 	gigaEnabled := mode == ModeGigaSequential || mode == ModeGigaOCC
 	gigaOCCEnabled := mode == ModeGigaOCC
@@ -201,7 +201,7 @@ func GenerateConflictingTransfers(count int, recipient common.Address) []EVMTran
 
 // RunBlock executes a block of transactions and returns results
 func RunBlock(t testing.TB, tCtx *GigaTestContext, txs [][]byte) ([]abci.Event, []*abci.ExecTxResult, error) {
-	// Set global OCC flag based on mode (both GethOCC and GigaOCC use OCC)
+	// Set global OCC flag based on mode (both V2OCC and GigaOCC use OCC)
 	app.EnableOCC = tCtx.Mode == ModeV2withOCC || tCtx.Mode == ModeGigaOCC
 
 	req := &abci.RequestFinalizeBlock{
@@ -252,8 +252,8 @@ func compareResultsWithOptions(t *testing.T, testName string, expected, actual [
 	}
 }
 
-// TestGigaVsGeth_NonConflicting compares Giga executor vs Geth for non-conflicting EVM transfers
-func TestGigaVsGeth_NonConflicting(t *testing.T) {
+// TestGigaVsV2_NonConflicting compares Giga executor vs V2 for non-conflicting EVM transfers
+func TestGigaVsV2_NonConflicting(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(5)
 	txCount := 10
@@ -261,12 +261,12 @@ func TestGigaVsGeth_NonConflicting(t *testing.T) {
 	// Generate the same transfers for both runs
 	transfers := GenerateNonConflictingTransfers(txCount)
 
-	// Run with Geth (baseline)
-	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
-	gethTxs := CreateEVMTransferTxs(t, gethCtx, transfers)
-	_, gethResults, gethErr := RunBlock(t, gethCtx, gethTxs)
-	require.NoError(t, gethErr, "Geth execution failed")
-	require.Len(t, gethResults, txCount)
+	// Run with V2 (baseline)
+	v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	v2Txs := CreateEVMTransferTxs(t, v2Ctx, transfers)
+	_, v2Results, v2Err := RunBlock(t, v2Ctx, v2Txs)
+	require.NoError(t, v2Err, "V2 execution failed")
+	require.Len(t, v2Results, txCount)
 
 	// Run with Giga Sequential
 	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
@@ -276,19 +276,19 @@ func TestGigaVsGeth_NonConflicting(t *testing.T) {
 	require.Len(t, gigaResults, txCount)
 
 	// Compare results
-	CompareResults(t, "GigaVsGeth_NonConflicting", gethResults, gigaResults)
+	CompareResults(t, "GigaVsV2_NonConflicting", v2Results, gigaResults)
 
 	// Verify all transactions succeeded
-	for i, result := range gethResults {
-		require.Equal(t, uint32(0), result.Code, "Geth tx[%d] failed: %s", i, result.Log)
+	for i, result := range v2Results {
+		require.Equal(t, uint32(0), result.Code, "V2 tx[%d] failed: %s", i, result.Log)
 	}
 	for i, result := range gigaResults {
 		require.Equal(t, uint32(0), result.Code, "Giga tx[%d] failed: %s", i, result.Log)
 	}
 }
 
-// TestGigaVsGeth_Conflicting compares Giga executor vs Geth for conflicting EVM transfers
-func TestGigaVsGeth_Conflicting(t *testing.T) {
+// TestGigaVsV2_Conflicting compares Giga executor vs V2 for conflicting EVM transfers
+func TestGigaVsV2_Conflicting(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(5)
 	txCount := 10
@@ -297,12 +297,12 @@ func TestGigaVsGeth_Conflicting(t *testing.T) {
 	recipient := accts[0].EvmAddress
 	transfers := GenerateConflictingTransfers(txCount, recipient)
 
-	// Run with Geth (baseline)
-	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
-	gethTxs := CreateEVMTransferTxs(t, gethCtx, transfers)
-	_, gethResults, gethErr := RunBlock(t, gethCtx, gethTxs)
-	require.NoError(t, gethErr, "Geth execution failed")
-	require.Len(t, gethResults, txCount)
+	// Run with V2 (baseline)
+	v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	v2Txs := CreateEVMTransferTxs(t, v2Ctx, transfers)
+	_, v2Results, v2Err := RunBlock(t, v2Ctx, v2Txs)
+	require.NoError(t, v2Err, "V2 execution failed")
+	require.Len(t, v2Results, txCount)
 
 	// Run with Giga Sequential
 	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
@@ -312,7 +312,7 @@ func TestGigaVsGeth_Conflicting(t *testing.T) {
 	require.Len(t, gigaResults, txCount)
 
 	// Compare results
-	CompareResults(t, "GigaVsGeth_Conflicting", gethResults, gigaResults)
+	CompareResults(t, "GigaVsV2_Conflicting", v2Results, gigaResults)
 }
 
 // TestGigaOCCVsGigaSequential_NonConflicting compares Giga+OCC vs Giga sequential for non-conflicting transfers
@@ -423,11 +423,11 @@ func TestAllModes_NonConflicting(t *testing.T) {
 
 	transfers := GenerateNonConflictingTransfers(txCount)
 
-	// Geth Sequential
-	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
-	gethTxs := CreateEVMTransferTxs(t, gethCtx, transfers)
-	_, gethResults, gethErr := RunBlock(t, gethCtx, gethTxs)
-	require.NoError(t, gethErr)
+	// V2 Sequential
+	v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	v2Txs := CreateEVMTransferTxs(t, v2Ctx, transfers)
+	_, v2Results, v2Err := RunBlock(t, v2Ctx, v2Txs)
+	require.NoError(t, v2Err)
 
 	// Giga Sequential
 	gigaSeqCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
@@ -441,8 +441,8 @@ func TestAllModes_NonConflicting(t *testing.T) {
 	_, gigaOCCResults, gigaOCCErr := RunBlock(t, gigaOCCCtx, gigaOCCTxs)
 	require.NoError(t, gigaOCCErr)
 
-	// Compare: Geth vs Giga Sequential
-	CompareResults(t, "AllModes_GethVsGigaSeq", gethResults, gigaSeqResults)
+	// Compare: V2 vs Giga Sequential
+	CompareResults(t, "AllModes_V2VsGigaSeq", v2Results, gigaSeqResults)
 
 	// Compare: Giga Sequential vs Giga OCC
 	CompareResults(t, "AllModes_GigaSeqVsOCC", gigaSeqResults, gigaOCCResults)
@@ -460,11 +460,11 @@ func TestAllModes_Conflicting(t *testing.T) {
 	recipient := accts[0].EvmAddress
 	transfers := GenerateConflictingTransfers(txCount, recipient)
 
-	// Geth Sequential
-	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
-	gethTxs := CreateEVMTransferTxs(t, gethCtx, transfers)
-	_, gethResults, gethErr := RunBlock(t, gethCtx, gethTxs)
-	require.NoError(t, gethErr)
+	// V2 Sequential
+	v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	v2Txs := CreateEVMTransferTxs(t, v2Ctx, transfers)
+	_, v2Results, v2Err := RunBlock(t, v2Ctx, v2Txs)
+	require.NoError(t, v2Err)
 
 	// Giga Sequential
 	gigaSeqCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
@@ -478,8 +478,8 @@ func TestAllModes_Conflicting(t *testing.T) {
 	_, gigaOCCResults, gigaOCCErr := RunBlock(t, gigaOCCCtx, gigaOCCTxs)
 	require.NoError(t, gigaOCCErr)
 
-	// Compare: Geth vs Giga Sequential
-	CompareResults(t, "AllModes_Conflicting_GethVsGigaSeq", gethResults, gigaSeqResults)
+	// Compare: V2 vs Giga Sequential
+	CompareResults(t, "AllModes_Conflicting_V2VsGigaSeq", v2Results, gigaSeqResults)
 
 	// Compare: Giga Sequential vs Giga OCC
 	CompareResults(t, "AllModes_Conflicting_GigaSeqVsOCC", gigaSeqResults, gigaOCCResults)
@@ -637,23 +637,23 @@ func encodeSetCall(value *big.Int) []byte {
 	return append(setFunctionSelector, paddedValue...)
 }
 
-// TestGigaVsGeth_ContractDeployAndCall compares Giga vs Geth for contract deployment and calls
-func TestGigaVsGeth_ContractDeployAndCall(t *testing.T) {
+// TestGigaVsV2_ContractDeployAndCall compares Giga vs V2 for contract deployment and calls
+func TestGigaVsV2_ContractDeployAndCall(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(5)
 
 	// Create a deployer
 	deployer := utils.NewSigner()
 
-	// Deploy contract with Geth
-	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
-	gethDeployTxs := CreateContractDeployTxs(t, gethCtx, []EVMContractDeploy{
+	// Deploy contract with V2
+	v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	v2DeployTxs := CreateContractDeployTxs(t, v2Ctx, []EVMContractDeploy{
 		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
 	})
-	_, gethDeployResults, gethDeployErr := RunBlock(t, gethCtx, gethDeployTxs)
-	require.NoError(t, gethDeployErr, "Geth deploy failed")
-	require.Len(t, gethDeployResults, 1)
-	require.Equal(t, uint32(0), gethDeployResults[0].Code, "Geth deploy tx failed: %s", gethDeployResults[0].Log)
+	_, v2DeployResults, v2DeployErr := RunBlock(t, v2Ctx, v2DeployTxs)
+	require.NoError(t, v2DeployErr, "V2 deploy failed")
+	require.Len(t, v2DeployResults, 1)
+	require.Equal(t, uint32(0), v2DeployResults[0].Code, "V2 deploy tx failed: %s", v2DeployResults[0].Log)
 
 	// Deploy contract with Giga
 	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
@@ -666,16 +666,16 @@ func TestGigaVsGeth_ContractDeployAndCall(t *testing.T) {
 	require.Equal(t, uint32(0), gigaDeployResults[0].Code, "Giga deploy tx failed: %s", gigaDeployResults[0].Log)
 
 	// Compare deployment results (skip gas comparison - different EVM implementations may differ)
-	CompareResultsNoGas(t, "ContractDeploy", gethDeployResults, gigaDeployResults)
+	CompareResultsNoGas(t, "ContractDeploy", v2DeployResults, gigaDeployResults)
 
-	t.Logf("Contract deployment successful on both Geth and Giga")
-	t.Logf("Geth deploy gas used: %d", gethDeployResults[0].GasUsed)
+	t.Logf("Contract deployment successful on both V2 and Giga")
+	t.Logf("V2 deploy gas used: %d", v2DeployResults[0].GasUsed)
 	t.Logf("Giga deploy gas used: %d", gigaDeployResults[0].GasUsed)
 }
 
-// TestGigaVsGeth_ContractCallsSequential compares Giga vs Geth for sequential contract calls
+// TestGigaVsV2_ContractCallsSequential compares Giga vs V2 for sequential contract calls
 // This test deploys a contract and calls it within the same block
-func TestGigaVsGeth_ContractCallsSequential(t *testing.T) {
+func TestGigaVsV2_ContractCallsSequential(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(5)
 	callCount := 5
@@ -690,30 +690,30 @@ func TestGigaVsGeth_ContractCallsSequential(t *testing.T) {
 	// Calculate expected contract address (deployer address + nonce 0)
 	contractAddr := crypto.CreateAddress(deployer.EvmAddress, 0)
 
-	// ---- Run with Geth ----
-	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	// ---- Run with V2 ----
+	v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
 
 	// Build all transactions: deploy + calls in same block
-	gethDeployTxs := CreateContractDeployTxs(t, gethCtx, []EVMContractDeploy{
+	v2DeployTxs := CreateContractDeployTxs(t, v2Ctx, []EVMContractDeploy{
 		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
 	})
 
-	gethCallInputs := make([]EVMContractCall, callCount)
+	v2CallInputs := make([]EVMContractCall, callCount)
 	for i := 0; i < callCount; i++ {
-		gethCallInputs[i] = EVMContractCall{
+		v2CallInputs[i] = EVMContractCall{
 			Signer:   callers[i],
 			Contract: contractAddr,
 			Data:     encodeSetCall(big.NewInt(int64(i + 100))), // set(100), set(101), etc.
 			Nonce:    0,
 		}
 	}
-	gethCallTxs := CreateContractCallTxs(t, gethCtx, gethCallInputs)
+	v2CallTxs := CreateContractCallTxs(t, v2Ctx, v2CallInputs)
 
 	// Combine deploy + calls into one block
-	allGethTxs := append(gethDeployTxs, gethCallTxs...)
-	_, gethResults, gethErr := RunBlock(t, gethCtx, allGethTxs)
-	require.NoError(t, gethErr)
-	require.Len(t, gethResults, 1+callCount)
+	allV2Txs := append(v2DeployTxs, v2CallTxs...)
+	_, v2Results, v2Err := RunBlock(t, v2Ctx, allV2Txs)
+	require.NoError(t, v2Err)
+	require.Len(t, v2Results, 1+callCount)
 
 	t.Logf("Contract deployed at: %s", contractAddr.Hex())
 
@@ -741,17 +741,17 @@ func TestGigaVsGeth_ContractCallsSequential(t *testing.T) {
 	require.Len(t, gigaResults, 1+callCount)
 
 	// Compare results (skip gas comparison - different EVM implementations may differ)
-	CompareResultsNoGas(t, "ContractDeployAndCalls", gethResults, gigaResults)
+	CompareResultsNoGas(t, "ContractDeployAndCalls", v2Results, gigaResults)
 
 	// Verify all transactions succeeded
-	for i, result := range gethResults {
-		require.Equal(t, uint32(0), result.Code, "Geth tx[%d] failed: %s", i, result.Log)
+	for i, result := range v2Results {
+		require.Equal(t, uint32(0), result.Code, "V2 tx[%d] failed: %s", i, result.Log)
 	}
 	for i, result := range gigaResults {
 		require.Equal(t, uint32(0), result.Code, "Giga tx[%d] failed: %s", i, result.Log)
 	}
 
-	t.Logf("Contract deployment + %d calls successful on both Geth and Giga", callCount)
+	t.Logf("Contract deployment + %d calls successful on both V2 and Giga", callCount)
 }
 
 // TestAllModes_ContractExecution runs contract deployment and calls through all executor modes
@@ -765,20 +765,20 @@ func TestAllModes_ContractExecution(t *testing.T) {
 	caller := utils.NewSigner()
 	contractAddr := crypto.CreateAddress(deployer.EvmAddress, 0)
 
-	// ---- Geth with OCC ----
-	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
-	gethDeployTxs := CreateContractDeployTxs(t, gethCtx, []EVMContractDeploy{
+	// ---- V2 with OCC ----
+	v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	v2DeployTxs := CreateContractDeployTxs(t, v2Ctx, []EVMContractDeploy{
 		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
 	})
-	gethCallTxs := CreateContractCallTxs(t, gethCtx, []EVMContractCall{
+	v2CallTxs := CreateContractCallTxs(t, v2Ctx, []EVMContractCall{
 		{Signer: caller, Contract: contractAddr, Data: encodeSetCall(big.NewInt(42)), Nonce: 0},
 	})
-	allGethTxs := append(gethDeployTxs, gethCallTxs...)
-	_, gethResults, err := RunBlock(t, gethCtx, allGethTxs)
+	allV2Txs := append(v2DeployTxs, v2CallTxs...)
+	_, v2Results, err := RunBlock(t, v2Ctx, allV2Txs)
 	require.NoError(t, err)
-	require.Len(t, gethResults, 2)
-	require.Equal(t, uint32(0), gethResults[0].Code, "Geth deploy failed: %s", gethResults[0].Log)
-	require.Equal(t, uint32(0), gethResults[1].Code, "Geth call failed: %s", gethResults[1].Log)
+	require.Len(t, v2Results, 2)
+	require.Equal(t, uint32(0), v2Results[0].Code, "V2 deploy failed: %s", v2Results[0].Log)
+	require.Equal(t, uint32(0), v2Results[1].Code, "V2 call failed: %s", v2Results[1].Log)
 
 	// ---- Giga Sequential ----
 	gigaSeqCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
@@ -811,8 +811,8 @@ func TestAllModes_ContractExecution(t *testing.T) {
 	require.Equal(t, uint32(0), gigaOCCResults[1].Code, "GigaOCC call failed: %s", gigaOCCResults[1].Log)
 
 	// Compare results
-	// Skip gas for Geth vs Giga (different implementations), but compare gas for Giga variants
-	CompareResultsNoGas(t, "AllModes_GethVsGigaSeq", gethResults, gigaSeqResults)
+	// Skip gas for V2 vs Giga (different implementations), but compare gas for Giga variants
+	CompareResultsNoGas(t, "AllModes_V2VsGigaSeq", v2Results, gigaSeqResults)
 	CompareResults(t, "AllModes_GigaSeqVsOCC", gigaSeqResults, gigaOCCResults)
 
 	t.Logf("Contract deployment and calls produced identical results across all three executor modes")
