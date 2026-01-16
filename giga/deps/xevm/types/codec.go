@@ -8,10 +8,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/msgservice"
 
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types/ethtx"
 )
@@ -31,39 +29,11 @@ func GetAmino() *codec.LegacyAmino {
 	return amino
 }
 
-func RegisterCodec(cdc *codec.LegacyAmino) {
-	cdc.RegisterConcrete(&MsgAssociate{}, "evm/MsgAssociate", nil)
-	cdc.RegisterConcrete(&MsgEVMTransaction{}, "evm/MsgEVMTransaction", nil)
-	cdc.RegisterConcrete(&MsgSend{}, "evm/MsgSend", nil)
-	cdc.RegisterConcrete(&MsgRegisterPointer{}, "evm/MsgRegisterPointer", nil)
-	cdc.RegisterConcrete(&MsgAssociateContractAddress{}, "evm/MsgAssociateContractAddress", nil)
-	cdc.RegisterConcrete(&MsgClaim{}, "evm/MsgClaim", nil)
-	cdc.RegisterConcrete(&MsgClaimSpecific{}, "evm/MsgClaimSpecific", nil)
-}
+func RegisterCodec(cdc *codec.LegacyAmino) {}
 
 func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
-	registry.RegisterImplementations((*govtypes.Content)(nil),
-		&AddERCNativePointerProposal{},
-		&AddERCCW20PointerProposal{},
-		&AddERCCW721PointerProposal{},
-		&AddERCCW1155PointerProposal{},
-		&AddCWERC20PointerProposal{},
-		&AddCWERC721PointerProposal{},
-		&AddCWERC1155PointerProposal{},
-		&AddERCNativePointerProposalV2{},
-	)
-	registry.RegisterImplementations(
-		(*sdk.Msg)(nil),
-		&MsgEVMTransaction{},
-		&MsgSend{},
-		&MsgRegisterPointer{},
-		&MsgAssociateContractAddress{},
-		&MsgClaim{},
-		&MsgClaimSpecific{},
-		&MsgAssociate{},
-	)
 	registry.RegisterInterface(
-		"seiprotocol.seichain.evm.TxData",
+		"seiprotocol.seichain.gigaevm.TxData",
 		(*ethtx.TxData)(nil),
 		&ethtx.DynamicFeeTx{},
 		&ethtx.AccessListTx{},

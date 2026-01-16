@@ -30,7 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/tests"
 	"github.com/holiman/uint256"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/ss/types"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -80,12 +80,6 @@ type Keeper struct {
 	// only used during blocktest. Not used in chain critical path.
 	EthBlockTestConfig blocktest.Config
 	BlockTest          *tests.BlockTest
-
-	// GigaExecutorEnabled controls whether to use the Giga executor (evmone-based)
-	// instead of geth's interpreter for EVM execution. Experimental feature.
-	GigaExecutorEnabled bool
-	// GigaOCCEnabled controls whether to use OCC with the Giga executor
-	GigaOCCEnabled bool
 
 	// used for both ETH replay and block tests. Not used in chain critical path.
 	Trie        ethstate.Trie

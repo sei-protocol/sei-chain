@@ -5,11 +5,12 @@ package types
 
 import (
 	fmt "fmt"
-	_ "github.com/gogo/protobuf/gogoproto"
-	proto "github.com/gogo/protobuf/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
+
+	_ "github.com/gogo/protobuf/gogoproto"
+	proto "github.com/gogo/protobuf/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -386,12 +387,12 @@ func (m *GenesisState) GetSerialized() []*Serialized {
 }
 
 func init() {
-	proto.RegisterType((*AddressAssociation)(nil), "seiprotocol.seichain.evm.AddressAssociation")
-	proto.RegisterType((*Code)(nil), "seiprotocol.seichain.evm.Code")
-	proto.RegisterType((*ContractState)(nil), "seiprotocol.seichain.evm.ContractState")
-	proto.RegisterType((*Nonce)(nil), "seiprotocol.seichain.evm.Nonce")
-	proto.RegisterType((*Serialized)(nil), "seiprotocol.seichain.evm.Serialized")
-	proto.RegisterType((*GenesisState)(nil), "seiprotocol.seichain.evm.GenesisState")
+	proto.RegisterType((*AddressAssociation)(nil), "seiprotocol.seichain.gigaevm.AddressAssociation")
+	proto.RegisterType((*Code)(nil), "seiprotocol.seichain.gigaevm.Code")
+	proto.RegisterType((*ContractState)(nil), "seiprotocol.seichain.gigaevm.ContractState")
+	proto.RegisterType((*Nonce)(nil), "seiprotocol.seichain.gigaevm.Nonce")
+	proto.RegisterType((*Serialized)(nil), "seiprotocol.seichain.gigaevm.Serialized")
+	proto.RegisterType((*GenesisState)(nil), "seiprotocol.seichain.gigaevm.GenesisState")
 }
 
 func init() { proto.RegisterFile("evm/genesis.proto", fileDescriptor_9f044f30507c97ed) }

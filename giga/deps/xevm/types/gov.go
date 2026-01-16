@@ -22,27 +22,7 @@ const (
 	ProposalTypeAddERCNativePointerV2 = "AddERCNativePointerV2"
 )
 
-func init() {
-	// for routing
-	govtypes.RegisterProposalType(ProposalTypeAddERCNativePointer)
-	govtypes.RegisterProposalType(ProposalTypeAddERCCW20Pointer)
-	govtypes.RegisterProposalType(ProposalTypeAddERCCW721Pointer)
-	govtypes.RegisterProposalType(ProposalTypeAddERCCW1155Pointer)
-	govtypes.RegisterProposalType(ProposalTypeAddCWERC20Pointer)
-	govtypes.RegisterProposalType(ProposalTypeAddCWERC721Pointer)
-	govtypes.RegisterProposalType(ProposalTypeAddCWERC1155Pointer)
-	govtypes.RegisterProposalType(ProposalTypeAddERCNativePointerV2)
-
-	// for marshal and unmarshal
-	govtypes.RegisterProposalTypeCodec(&AddERCNativePointerProposal{}, "evm/AddERCNativePointerProposal")
-	govtypes.RegisterProposalTypeCodec(&AddERCCW20PointerProposal{}, "evm/AddERCCW20PointerProposal")
-	govtypes.RegisterProposalTypeCodec(&AddERCCW721PointerProposal{}, "evm/AddERCCW721PointerProposal")
-	govtypes.RegisterProposalTypeCodec(&AddERCCW1155PointerProposal{}, "evm/AddERCCW1155PointerProposal")
-	govtypes.RegisterProposalTypeCodec(&AddCWERC20PointerProposal{}, "evm/AddCWERC20PointerProposal")
-	govtypes.RegisterProposalTypeCodec(&AddCWERC721PointerProposal{}, "evm/AddCWERC721PointerProposal")
-	govtypes.RegisterProposalTypeCodec(&AddCWERC1155PointerProposal{}, "evm/AddCWERC1155PointerProposal")
-	govtypes.RegisterProposalTypeCodec(&AddERCNativePointerProposalV2{}, "evm/AddERCNativePointerProposalV2")
-}
+func init() {}
 
 func (p *AddERCNativePointerProposal) GetTitle() string { return p.Title }
 

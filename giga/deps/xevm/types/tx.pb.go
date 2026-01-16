@@ -463,7 +463,7 @@ var xxx_messageInfo_MsgSendResponse proto.InternalMessageInfo
 
 type MsgRegisterPointer struct {
 	Sender      string      `protobuf:"bytes,1,opt,name=sender,proto3" json:"sender,omitempty"`
-	PointerType PointerType `protobuf:"varint,2,opt,name=pointer_type,json=pointerType,proto3,enum=seiprotocol.seichain.evm.PointerType" json:"pointer_type,omitempty"`
+	PointerType PointerType `protobuf:"varint,2,opt,name=pointer_type,json=pointerType,proto3,enum=seiprotocol.seichain.gigaevm.PointerType" json:"pointer_type,omitempty"`
 	ErcAddress  string      `protobuf:"bytes,3,opt,name=erc_address,json=ercAddress,proto3" json:"erc_address,omitempty"`
 }
 
@@ -794,7 +794,7 @@ func (m *MsgClaim) GetClaimer() string {
 }
 
 type Asset struct {
-	AssetType       AssetType `protobuf:"varint,1,opt,name=asset_type,json=assetType,proto3,enum=seiprotocol.seichain.evm.AssetType" json:"asset_type,omitempty"`
+	AssetType       AssetType `protobuf:"varint,1,opt,name=asset_type,json=assetType,proto3,enum=seiprotocol.seichain.gigaevm.AssetType" json:"asset_type,omitempty"`
 	ContractAddress string    `protobuf:"bytes,2,opt,name=contract_address,json=contractAddress,proto3" json:"contract_address,omitempty"`
 	Denom           string    `protobuf:"bytes,3,opt,name=denom,proto3" json:"denom,omitempty"`
 }
@@ -914,23 +914,23 @@ func (m *MsgClaimSpecific) GetAssets() []*Asset {
 }
 
 func init() {
-	proto.RegisterType((*MsgEVMTransaction)(nil), "seiprotocol.seichain.evm.MsgEVMTransaction")
-	proto.RegisterType((*MsgEVMTransactionResponse)(nil), "seiprotocol.seichain.evm.MsgEVMTransactionResponse")
-	proto.RegisterType((*MsgInternalEVMCall)(nil), "seiprotocol.seichain.evm.MsgInternalEVMCall")
-	proto.RegisterType((*MsgInternalEVMCallResponse)(nil), "seiprotocol.seichain.evm.MsgInternalEVMCallResponse")
-	proto.RegisterType((*MsgInternalEVMDelegateCall)(nil), "seiprotocol.seichain.evm.MsgInternalEVMDelegateCall")
-	proto.RegisterType((*MsgInternalEVMDelegateCallResponse)(nil), "seiprotocol.seichain.evm.MsgInternalEVMDelegateCallResponse")
-	proto.RegisterType((*MsgSend)(nil), "seiprotocol.seichain.evm.MsgSend")
-	proto.RegisterType((*MsgSendResponse)(nil), "seiprotocol.seichain.evm.MsgSendResponse")
-	proto.RegisterType((*MsgRegisterPointer)(nil), "seiprotocol.seichain.evm.MsgRegisterPointer")
-	proto.RegisterType((*MsgRegisterPointerResponse)(nil), "seiprotocol.seichain.evm.MsgRegisterPointerResponse")
-	proto.RegisterType((*MsgAssociateContractAddress)(nil), "seiprotocol.seichain.evm.MsgAssociateContractAddress")
-	proto.RegisterType((*MsgAssociateContractAddressResponse)(nil), "seiprotocol.seichain.evm.MsgAssociateContractAddressResponse")
-	proto.RegisterType((*MsgAssociate)(nil), "seiprotocol.seichain.evm.MsgAssociate")
-	proto.RegisterType((*MsgAssociateResponse)(nil), "seiprotocol.seichain.evm.MsgAssociateResponse")
-	proto.RegisterType((*MsgClaim)(nil), "seiprotocol.seichain.evm.MsgClaim")
-	proto.RegisterType((*Asset)(nil), "seiprotocol.seichain.evm.Asset")
-	proto.RegisterType((*MsgClaimSpecific)(nil), "seiprotocol.seichain.evm.MsgClaimSpecific")
+	proto.RegisterType((*MsgEVMTransaction)(nil), "seiprotocol.seichain.gigaevm.MsgEVMTransaction")
+	proto.RegisterType((*MsgEVMTransactionResponse)(nil), "seiprotocol.seichain.gigaevm.MsgEVMTransactionResponse")
+	proto.RegisterType((*MsgInternalEVMCall)(nil), "seiprotocol.seichain.gigaevm.MsgInternalEVMCall")
+	proto.RegisterType((*MsgInternalEVMCallResponse)(nil), "seiprotocol.seichain.gigaevm.MsgInternalEVMCallResponse")
+	proto.RegisterType((*MsgInternalEVMDelegateCall)(nil), "seiprotocol.seichain.gigaevm.MsgInternalEVMDelegateCall")
+	proto.RegisterType((*MsgInternalEVMDelegateCallResponse)(nil), "seiprotocol.seichain.gigaevm.MsgInternalEVMDelegateCallResponse")
+	proto.RegisterType((*MsgSend)(nil), "seiprotocol.seichain.gigaevm.MsgSend")
+	proto.RegisterType((*MsgSendResponse)(nil), "seiprotocol.seichain.gigaevm.MsgSendResponse")
+	proto.RegisterType((*MsgRegisterPointer)(nil), "seiprotocol.seichain.gigaevm.MsgRegisterPointer")
+	proto.RegisterType((*MsgRegisterPointerResponse)(nil), "seiprotocol.seichain.gigaevm.MsgRegisterPointerResponse")
+	proto.RegisterType((*MsgAssociateContractAddress)(nil), "seiprotocol.seichain.gigaevm.MsgAssociateContractAddress")
+	proto.RegisterType((*MsgAssociateContractAddressResponse)(nil), "seiprotocol.seichain.gigaevm.MsgAssociateContractAddressResponse")
+	proto.RegisterType((*MsgAssociate)(nil), "seiprotocol.seichain.gigaevm.MsgAssociate")
+	proto.RegisterType((*MsgAssociateResponse)(nil), "seiprotocol.seichain.gigaevm.MsgAssociateResponse")
+	proto.RegisterType((*MsgClaim)(nil), "seiprotocol.seichain.gigaevm.MsgClaim")
+	proto.RegisterType((*Asset)(nil), "seiprotocol.seichain.gigaevm.Asset")
+	proto.RegisterType((*MsgClaimSpecific)(nil), "seiprotocol.seichain.gigaevm.MsgClaimSpecific")
 }
 
 func init() { proto.RegisterFile("evm/tx.proto", fileDescriptor_d72e73a3d1d93781) }
@@ -1030,7 +1030,7 @@ func NewMsgClient(cc grpc1.ClientConn) MsgClient {
 
 func (c *msgClient) EVMTransaction(ctx context.Context, in *MsgEVMTransaction, opts ...grpc.CallOption) (*MsgEVMTransactionResponse, error) {
 	out := new(MsgEVMTransactionResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.evm.Msg/EVMTransaction", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.gigaevm.Msg/EVMTransaction", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1039,7 +1039,7 @@ func (c *msgClient) EVMTransaction(ctx context.Context, in *MsgEVMTransaction, o
 
 func (c *msgClient) Send(ctx context.Context, in *MsgSend, opts ...grpc.CallOption) (*MsgSendResponse, error) {
 	out := new(MsgSendResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.evm.Msg/Send", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.gigaevm.Msg/Send", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1048,7 +1048,7 @@ func (c *msgClient) Send(ctx context.Context, in *MsgSend, opts ...grpc.CallOpti
 
 func (c *msgClient) RegisterPointer(ctx context.Context, in *MsgRegisterPointer, opts ...grpc.CallOption) (*MsgRegisterPointerResponse, error) {
 	out := new(MsgRegisterPointerResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.evm.Msg/RegisterPointer", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.gigaevm.Msg/RegisterPointer", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1057,7 +1057,7 @@ func (c *msgClient) RegisterPointer(ctx context.Context, in *MsgRegisterPointer,
 
 func (c *msgClient) AssociateContractAddress(ctx context.Context, in *MsgAssociateContractAddress, opts ...grpc.CallOption) (*MsgAssociateContractAddressResponse, error) {
 	out := new(MsgAssociateContractAddressResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.evm.Msg/AssociateContractAddress", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.gigaevm.Msg/AssociateContractAddress", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1066,7 +1066,7 @@ func (c *msgClient) AssociateContractAddress(ctx context.Context, in *MsgAssocia
 
 func (c *msgClient) Associate(ctx context.Context, in *MsgAssociate, opts ...grpc.CallOption) (*MsgAssociateResponse, error) {
 	out := new(MsgAssociateResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.evm.Msg/Associate", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.gigaevm.Msg/Associate", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1116,7 +1116,7 @@ func _Msg_EVMTransaction_Handler(srv interface{}, ctx context.Context, dec func(
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.evm.Msg/EVMTransaction",
+		FullMethod: "/seiprotocol.seichain.gigaevm.Msg/EVMTransaction",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MsgServer).EVMTransaction(ctx, req.(*MsgEVMTransaction))
@@ -1134,7 +1134,7 @@ func _Msg_Send_Handler(srv interface{}, ctx context.Context, dec func(interface{
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.evm.Msg/Send",
+		FullMethod: "/seiprotocol.seichain.gigaevm.Msg/Send",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MsgServer).Send(ctx, req.(*MsgSend))
@@ -1152,7 +1152,7 @@ func _Msg_RegisterPointer_Handler(srv interface{}, ctx context.Context, dec func
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.evm.Msg/RegisterPointer",
+		FullMethod: "/seiprotocol.seichain.gigaevm.Msg/RegisterPointer",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MsgServer).RegisterPointer(ctx, req.(*MsgRegisterPointer))
@@ -1170,7 +1170,7 @@ func _Msg_AssociateContractAddress_Handler(srv interface{}, ctx context.Context,
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.evm.Msg/AssociateContractAddress",
+		FullMethod: "/seiprotocol.seichain.gigaevm.Msg/AssociateContractAddress",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MsgServer).AssociateContractAddress(ctx, req.(*MsgAssociateContractAddress))
@@ -1188,7 +1188,7 @@ func _Msg_Associate_Handler(srv interface{}, ctx context.Context, dec func(inter
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.evm.Msg/Associate",
+		FullMethod: "/seiprotocol.seichain.gigaevm.Msg/Associate",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MsgServer).Associate(ctx, req.(*MsgAssociate))
@@ -1197,7 +1197,7 @@ func _Msg_Associate_Handler(srv interface{}, ctx context.Context, dec func(inter
 }
 
 var _Msg_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "seiprotocol.seichain.evm.Msg",
+	ServiceName: "seiprotocol.seichain.gigaevm.Msg",
 	HandlerType: (*MsgServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{

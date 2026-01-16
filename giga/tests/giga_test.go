@@ -71,8 +71,8 @@ func NewGigaTestContext(t testing.TB, testAccts []utils.TestAcct, blockTime time
 	})
 
 	// Configure giga executor
-	testApp.EvmKeeper.GigaExecutorEnabled = gigaEnabled
-	testApp.EvmKeeper.GigaOCCEnabled = gigaOCCEnabled
+	testApp.GigaExecutorEnabled = gigaEnabled
+	testApp.GigaOCCEnabled = gigaOCCEnabled
 	if gigaEnabled {
 		evmoneVM, err := gigalib.InitEvmoneVM()
 		if err != nil {

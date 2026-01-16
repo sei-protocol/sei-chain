@@ -82,11 +82,6 @@ type Keeper struct {
 	EthBlockTestConfig blocktest.Config
 	BlockTest          *tests.BlockTest
 
-	// GigaExecutorEnabled controls whether to use the Giga executor (evmone-based)
-	// instead of geth's interpreter for EVM execution. Experimental feature.
-	GigaExecutorEnabled bool
-	// GigaOCCEnabled controls whether to use OCC with the Giga executor
-	GigaOCCEnabled bool
 	// EvmoneVM holds the loaded evmone VM instance for the Giga executor
 	EvmoneVM *evmc.VM
 

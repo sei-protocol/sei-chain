@@ -5,12 +5,13 @@ package types
 
 import (
 	fmt "fmt"
-	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
-	_ "github.com/gogo/protobuf/gogoproto"
-	proto "github.com/gogo/protobuf/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
+
+	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
+	_ "github.com/gogo/protobuf/gogoproto"
+	proto "github.com/gogo/protobuf/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -138,8 +139,8 @@ func (m *DeferredInfo) GetError() string {
 }
 
 func init() {
-	proto.RegisterType((*Whitelist)(nil), "seiprotocol.seichain.evm.Whitelist")
-	proto.RegisterType((*DeferredInfo)(nil), "seiprotocol.seichain.evm.DeferredInfo")
+	proto.RegisterType((*Whitelist)(nil), "seiprotocol.seichain.gigaevm.Whitelist")
+	proto.RegisterType((*DeferredInfo)(nil), "seiprotocol.seichain.gigaevm.DeferredInfo")
 }
 
 func init() { proto.RegisterFile("evm/types.proto", fileDescriptor_6eba926c274d8fd0) }

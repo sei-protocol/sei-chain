@@ -5,12 +5,13 @@ package types
 
 import (
 	fmt "fmt"
-	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
-	_ "github.com/gogo/protobuf/gogoproto"
-	proto "github.com/gogo/protobuf/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
+
+	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
+	_ "github.com/gogo/protobuf/gogoproto"
+	proto "github.com/gogo/protobuf/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -435,11 +436,11 @@ func (m *ParamsPreV606) GetTargetGasUsedPerBlock() uint64 {
 }
 
 func init() {
-	proto.RegisterType((*Params)(nil), "seiprotocol.seichain.evm.Params")
-	proto.RegisterType((*ParamsPreV580)(nil), "seiprotocol.seichain.evm.ParamsPreV580")
-	proto.RegisterType((*ParamsPreV600)(nil), "seiprotocol.seichain.evm.ParamsPreV600")
-	proto.RegisterType((*ParamsPreV601)(nil), "seiprotocol.seichain.evm.ParamsPreV601")
-	proto.RegisterType((*ParamsPreV606)(nil), "seiprotocol.seichain.evm.ParamsPreV606")
+	proto.RegisterType((*Params)(nil), "seiprotocol.seichain.gigaevm.Params")
+	proto.RegisterType((*ParamsPreV580)(nil), "seiprotocol.seichain.gigaevm.ParamsPreV580")
+	proto.RegisterType((*ParamsPreV600)(nil), "seiprotocol.seichain.gigaevm.ParamsPreV600")
+	proto.RegisterType((*ParamsPreV601)(nil), "seiprotocol.seichain.gigaevm.ParamsPreV601")
+	proto.RegisterType((*ParamsPreV606)(nil), "seiprotocol.seichain.gigaevm.ParamsPreV606")
 }
 
 func init() { proto.RegisterFile("evm/params.proto", fileDescriptor_9272f3679901ea94) }

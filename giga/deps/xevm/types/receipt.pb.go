@@ -5,11 +5,12 @@ package types
 
 import (
 	fmt "fmt"
-	_ "github.com/gogo/protobuf/gogoproto"
-	proto "github.com/gogo/protobuf/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
+
+	_ "github.com/gogo/protobuf/gogoproto"
+	proto "github.com/gogo/protobuf/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -249,8 +250,8 @@ func (m *Receipt) GetLogsBloom() []byte {
 }
 
 func init() {
-	proto.RegisterType((*Log)(nil), "seiprotocol.seichain.evm.Log")
-	proto.RegisterType((*Receipt)(nil), "seiprotocol.seichain.evm.Receipt")
+	proto.RegisterType((*Log)(nil), "seiprotocol.seichain.gigaevm.Log")
+	proto.RegisterType((*Receipt)(nil), "seiprotocol.seichain.gigaevm.Receipt")
 }
 
 func init() { proto.RegisterFile("evm/receipt.proto", fileDescriptor_d864f6bdca684f52) }

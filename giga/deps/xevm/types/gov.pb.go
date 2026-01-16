@@ -5,11 +5,12 @@ package types
 
 import (
 	fmt "fmt"
-	_ "github.com/gogo/protobuf/gogoproto"
-	proto "github.com/gogo/protobuf/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
+
+	_ "github.com/gogo/protobuf/gogoproto"
+	proto "github.com/gogo/protobuf/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -345,14 +346,14 @@ func (m *AddERCNativePointerProposalV2) XXX_DiscardUnknown() {
 var xxx_messageInfo_AddERCNativePointerProposalV2 proto.InternalMessageInfo
 
 func init() {
-	proto.RegisterType((*AddERCNativePointerProposal)(nil), "seiprotocol.seichain.evm.AddERCNativePointerProposal")
-	proto.RegisterType((*AddERCCW20PointerProposal)(nil), "seiprotocol.seichain.evm.AddERCCW20PointerProposal")
-	proto.RegisterType((*AddERCCW721PointerProposal)(nil), "seiprotocol.seichain.evm.AddERCCW721PointerProposal")
-	proto.RegisterType((*AddERCCW1155PointerProposal)(nil), "seiprotocol.seichain.evm.AddERCCW1155PointerProposal")
-	proto.RegisterType((*AddCWERC20PointerProposal)(nil), "seiprotocol.seichain.evm.AddCWERC20PointerProposal")
-	proto.RegisterType((*AddCWERC721PointerProposal)(nil), "seiprotocol.seichain.evm.AddCWERC721PointerProposal")
-	proto.RegisterType((*AddCWERC1155PointerProposal)(nil), "seiprotocol.seichain.evm.AddCWERC1155PointerProposal")
-	proto.RegisterType((*AddERCNativePointerProposalV2)(nil), "seiprotocol.seichain.evm.AddERCNativePointerProposalV2")
+	proto.RegisterType((*AddERCNativePointerProposal)(nil), "seiprotocol.seichain.gigaevm.AddERCNativePointerProposal")
+	proto.RegisterType((*AddERCCW20PointerProposal)(nil), "seiprotocol.seichain.gigaevm.AddERCCW20PointerProposal")
+	proto.RegisterType((*AddERCCW721PointerProposal)(nil), "seiprotocol.seichain.gigaevm.AddERCCW721PointerProposal")
+	proto.RegisterType((*AddERCCW1155PointerProposal)(nil), "seiprotocol.seichain.gigaevm.AddERCCW1155PointerProposal")
+	proto.RegisterType((*AddCWERC20PointerProposal)(nil), "seiprotocol.seichain.gigaevm.AddCWERC20PointerProposal")
+	proto.RegisterType((*AddCWERC721PointerProposal)(nil), "seiprotocol.seichain.gigaevm.AddCWERC721PointerProposal")
+	proto.RegisterType((*AddCWERC1155PointerProposal)(nil), "seiprotocol.seichain.gigaevm.AddCWERC1155PointerProposal")
+	proto.RegisterType((*AddERCNativePointerProposalV2)(nil), "seiprotocol.seichain.gigaevm.AddERCNativePointerProposalV2")
 }
 
 func init() { proto.RegisterFile("evm/gov.proto", fileDescriptor_fb66eb1aab5c39af) }

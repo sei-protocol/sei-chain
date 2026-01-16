@@ -6,15 +6,16 @@ package types
 import (
 	context "context"
 	fmt "fmt"
+	io "io"
+	math "math"
+	math_bits "math/bits"
+
 	grpc1 "github.com/gogo/protobuf/grpc"
 	proto "github.com/gogo/protobuf/proto"
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
-	io "io"
-	math "math"
-	math_bits "math/bits"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -317,7 +318,7 @@ func (m *QueryStaticCallResponse) GetData() []byte {
 }
 
 type QueryPointerRequest struct {
-	PointerType PointerType `protobuf:"varint,1,opt,name=pointer_type,json=pointerType,proto3,enum=seiprotocol.seichain.evm.PointerType" json:"pointer_type,omitempty"`
+	PointerType PointerType `protobuf:"varint,1,opt,name=pointer_type,json=pointerType,proto3,enum=seiprotocol.seichain.gigaevm.PointerType" json:"pointer_type,omitempty"`
 	Pointee     string      `protobuf:"bytes,2,opt,name=pointee,proto3" json:"pointee,omitempty"`
 }
 
@@ -429,7 +430,7 @@ func (m *QueryPointerResponse) GetExists() bool {
 }
 
 type QueryPointerVersionRequest struct {
-	PointerType PointerType `protobuf:"varint,1,opt,name=pointer_type,json=pointerType,proto3,enum=seiprotocol.seichain.evm.PointerType" json:"pointer_type,omitempty"`
+	PointerType PointerType `protobuf:"varint,1,opt,name=pointer_type,json=pointerType,proto3,enum=seiprotocol.seichain.gigaevm.PointerType" json:"pointer_type,omitempty"`
 }
 
 func (m *QueryPointerVersionRequest) Reset()         { *m = QueryPointerVersionRequest{} }
@@ -525,7 +526,7 @@ func (m *QueryPointerVersionResponse) GetCwCodeId() uint64 {
 }
 
 type QueryPointeeRequest struct {
-	PointerType PointerType `protobuf:"varint,1,opt,name=pointer_type,json=pointerType,proto3,enum=seiprotocol.seichain.evm.PointerType" json:"pointer_type,omitempty"`
+	PointerType PointerType `protobuf:"varint,1,opt,name=pointer_type,json=pointerType,proto3,enum=seiprotocol.seichain.gigaevm.PointerType" json:"pointer_type,omitempty"`
 	Pointer     string      `protobuf:"bytes,2,opt,name=pointer,proto3" json:"pointer,omitempty"`
 }
 
@@ -637,18 +638,18 @@ func (m *QueryPointeeResponse) GetExists() bool {
 }
 
 func init() {
-	proto.RegisterType((*QuerySeiAddressByEVMAddressRequest)(nil), "seiprotocol.seichain.evm.QuerySeiAddressByEVMAddressRequest")
-	proto.RegisterType((*QuerySeiAddressByEVMAddressResponse)(nil), "seiprotocol.seichain.evm.QuerySeiAddressByEVMAddressResponse")
-	proto.RegisterType((*QueryEVMAddressBySeiAddressRequest)(nil), "seiprotocol.seichain.evm.QueryEVMAddressBySeiAddressRequest")
-	proto.RegisterType((*QueryEVMAddressBySeiAddressResponse)(nil), "seiprotocol.seichain.evm.QueryEVMAddressBySeiAddressResponse")
-	proto.RegisterType((*QueryStaticCallRequest)(nil), "seiprotocol.seichain.evm.QueryStaticCallRequest")
-	proto.RegisterType((*QueryStaticCallResponse)(nil), "seiprotocol.seichain.evm.QueryStaticCallResponse")
-	proto.RegisterType((*QueryPointerRequest)(nil), "seiprotocol.seichain.evm.QueryPointerRequest")
-	proto.RegisterType((*QueryPointerResponse)(nil), "seiprotocol.seichain.evm.QueryPointerResponse")
-	proto.RegisterType((*QueryPointerVersionRequest)(nil), "seiprotocol.seichain.evm.QueryPointerVersionRequest")
-	proto.RegisterType((*QueryPointerVersionResponse)(nil), "seiprotocol.seichain.evm.QueryPointerVersionResponse")
-	proto.RegisterType((*QueryPointeeRequest)(nil), "seiprotocol.seichain.evm.QueryPointeeRequest")
-	proto.RegisterType((*QueryPointeeResponse)(nil), "seiprotocol.seichain.evm.QueryPointeeResponse")
+	proto.RegisterType((*QuerySeiAddressByEVMAddressRequest)(nil), "seiprotocol.seichain.gigaevm.QuerySeiAddressByEVMAddressRequest")
+	proto.RegisterType((*QuerySeiAddressByEVMAddressResponse)(nil), "seiprotocol.seichain.gigaevm.QuerySeiAddressByEVMAddressResponse")
+	proto.RegisterType((*QueryEVMAddressBySeiAddressRequest)(nil), "seiprotocol.seichain.gigaevm.QueryEVMAddressBySeiAddressRequest")
+	proto.RegisterType((*QueryEVMAddressBySeiAddressResponse)(nil), "seiprotocol.seichain.gigaevm.QueryEVMAddressBySeiAddressResponse")
+	proto.RegisterType((*QueryStaticCallRequest)(nil), "seiprotocol.seichain.gigaevm.QueryStaticCallRequest")
+	proto.RegisterType((*QueryStaticCallResponse)(nil), "seiprotocol.seichain.gigaevm.QueryStaticCallResponse")
+	proto.RegisterType((*QueryPointerRequest)(nil), "seiprotocol.seichain.gigaevm.QueryPointerRequest")
+	proto.RegisterType((*QueryPointerResponse)(nil), "seiprotocol.seichain.gigaevm.QueryPointerResponse")
+	proto.RegisterType((*QueryPointerVersionRequest)(nil), "seiprotocol.seichain.gigaevm.QueryPointerVersionRequest")
+	proto.RegisterType((*QueryPointerVersionResponse)(nil), "seiprotocol.seichain.gigaevm.QueryPointerVersionResponse")
+	proto.RegisterType((*QueryPointeeRequest)(nil), "seiprotocol.seichain.gigaevm.QueryPointeeRequest")
+	proto.RegisterType((*QueryPointeeResponse)(nil), "seiprotocol.seichain.gigaevm.QueryPointeeResponse")
 }
 
 func init() { proto.RegisterFile("evm/query.proto", fileDescriptor_11c0d37eed5339f7) }
@@ -729,7 +730,7 @@ func NewQueryClient(cc grpc1.ClientConn) QueryClient {
 
 func (c *queryClient) SeiAddressByEVMAddress(ctx context.Context, in *QuerySeiAddressByEVMAddressRequest, opts ...grpc.CallOption) (*QuerySeiAddressByEVMAddressResponse, error) {
 	out := new(QuerySeiAddressByEVMAddressResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.evm.Query/SeiAddressByEVMAddress", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.gigaevm.Query/SeiAddressByEVMAddress", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -738,7 +739,7 @@ func (c *queryClient) SeiAddressByEVMAddress(ctx context.Context, in *QuerySeiAd
 
 func (c *queryClient) EVMAddressBySeiAddress(ctx context.Context, in *QueryEVMAddressBySeiAddressRequest, opts ...grpc.CallOption) (*QueryEVMAddressBySeiAddressResponse, error) {
 	out := new(QueryEVMAddressBySeiAddressResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.evm.Query/EVMAddressBySeiAddress", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.gigaevm.Query/EVMAddressBySeiAddress", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -747,7 +748,7 @@ func (c *queryClient) EVMAddressBySeiAddress(ctx context.Context, in *QueryEVMAd
 
 func (c *queryClient) StaticCall(ctx context.Context, in *QueryStaticCallRequest, opts ...grpc.CallOption) (*QueryStaticCallResponse, error) {
 	out := new(QueryStaticCallResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.evm.Query/StaticCall", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.gigaevm.Query/StaticCall", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -756,7 +757,7 @@ func (c *queryClient) StaticCall(ctx context.Context, in *QueryStaticCallRequest
 
 func (c *queryClient) Pointer(ctx context.Context, in *QueryPointerRequest, opts ...grpc.CallOption) (*QueryPointerResponse, error) {
 	out := new(QueryPointerResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.evm.Query/Pointer", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.gigaevm.Query/Pointer", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -765,7 +766,7 @@ func (c *queryClient) Pointer(ctx context.Context, in *QueryPointerRequest, opts
 
 func (c *queryClient) PointerVersion(ctx context.Context, in *QueryPointerVersionRequest, opts ...grpc.CallOption) (*QueryPointerVersionResponse, error) {
 	out := new(QueryPointerVersionResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.evm.Query/PointerVersion", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.gigaevm.Query/PointerVersion", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -774,7 +775,7 @@ func (c *queryClient) PointerVersion(ctx context.Context, in *QueryPointerVersio
 
 func (c *queryClient) Pointee(ctx context.Context, in *QueryPointeeRequest, opts ...grpc.CallOption) (*QueryPointeeResponse, error) {
 	out := new(QueryPointeeResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.evm.Query/Pointee", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.gigaevm.Query/Pointee", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -828,7 +829,7 @@ func _Query_SeiAddressByEVMAddress_Handler(srv interface{}, ctx context.Context,
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.evm.Query/SeiAddressByEVMAddress",
+		FullMethod: "/seiprotocol.seichain.gigaevm.Query/SeiAddressByEVMAddress",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(QueryServer).SeiAddressByEVMAddress(ctx, req.(*QuerySeiAddressByEVMAddressRequest))
@@ -846,7 +847,7 @@ func _Query_EVMAddressBySeiAddress_Handler(srv interface{}, ctx context.Context,
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.evm.Query/EVMAddressBySeiAddress",
+		FullMethod: "/seiprotocol.seichain.gigaevm.Query/EVMAddressBySeiAddress",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(QueryServer).EVMAddressBySeiAddress(ctx, req.(*QueryEVMAddressBySeiAddressRequest))
@@ -864,7 +865,7 @@ func _Query_StaticCall_Handler(srv interface{}, ctx context.Context, dec func(in
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.evm.Query/StaticCall",
+		FullMethod: "/seiprotocol.seichain.gigaevm.Query/StaticCall",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(QueryServer).StaticCall(ctx, req.(*QueryStaticCallRequest))
@@ -882,7 +883,7 @@ func _Query_Pointer_Handler(srv interface{}, ctx context.Context, dec func(inter
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.evm.Query/Pointer",
+		FullMethod: "/seiprotocol.seichain.gigaevm.Query/Pointer",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(QueryServer).Pointer(ctx, req.(*QueryPointerRequest))
@@ -900,7 +901,7 @@ func _Query_PointerVersion_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.evm.Query/PointerVersion",
+		FullMethod: "/seiprotocol.seichain.gigaevm.Query/PointerVersion",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(QueryServer).PointerVersion(ctx, req.(*QueryPointerVersionRequest))
@@ -918,7 +919,7 @@ func _Query_Pointee_Handler(srv interface{}, ctx context.Context, dec func(inter
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.evm.Query/Pointee",
+		FullMethod: "/seiprotocol.seichain.gigaevm.Query/Pointee",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(QueryServer).Pointee(ctx, req.(*QueryPointeeRequest))
@@ -927,7 +928,7 @@ func _Query_Pointee_Handler(srv interface{}, ctx context.Context, dec func(inter
 }
 
 var _Query_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "seiprotocol.seichain.evm.Query",
+	ServiceName: "seiprotocol.seichain.gigaevm.Query",
 	HandlerType: (*QueryServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{

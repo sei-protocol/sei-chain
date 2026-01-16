@@ -5,12 +5,13 @@ package ethtx
 
 import (
 	fmt "fmt"
-	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
-	_ "github.com/gogo/protobuf/gogoproto"
-	proto "github.com/gogo/protobuf/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
+
+	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
+	_ "github.com/gogo/protobuf/gogoproto"
+	proto "github.com/gogo/protobuf/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -488,16 +489,16 @@ func (m *ExtensionOptionsEthereumTx) XXX_DiscardUnknown() {
 var xxx_messageInfo_ExtensionOptionsEthereumTx proto.InternalMessageInfo
 
 func init() {
-	proto.RegisterType((*AccessTuple)(nil), "seiprotocol.seichain.eth.AccessTuple")
-	proto.RegisterType((*AssociateTx)(nil), "seiprotocol.seichain.eth.AssociateTx")
-	proto.RegisterType((*SetCodeAuthorization)(nil), "seiprotocol.seichain.eth.SetCodeAuthorization")
-	proto.RegisterType((*LegacyTx)(nil), "seiprotocol.seichain.eth.LegacyTx")
-	proto.RegisterType((*AccessListTx)(nil), "seiprotocol.seichain.eth.AccessListTx")
-	proto.RegisterType((*SetCodeTx)(nil), "seiprotocol.seichain.eth.SetCodeTx")
-	proto.RegisterType((*DynamicFeeTx)(nil), "seiprotocol.seichain.eth.DynamicFeeTx")
-	proto.RegisterType((*BlobTx)(nil), "seiprotocol.seichain.eth.BlobTx")
-	proto.RegisterType((*BlobTxSidecar)(nil), "seiprotocol.seichain.eth.BlobTxSidecar")
-	proto.RegisterType((*ExtensionOptionsEthereumTx)(nil), "seiprotocol.seichain.eth.ExtensionOptionsEthereumTx")
+	proto.RegisterType((*AccessTuple)(nil), "seiprotocol.seichain.gigaeth.AccessTuple")
+	proto.RegisterType((*AssociateTx)(nil), "seiprotocol.seichain.gigaeth.AssociateTx")
+	proto.RegisterType((*SetCodeAuthorization)(nil), "seiprotocol.seichain.gigaeth.SetCodeAuthorization")
+	proto.RegisterType((*LegacyTx)(nil), "seiprotocol.seichain.gigaeth.LegacyTx")
+	proto.RegisterType((*AccessListTx)(nil), "seiprotocol.seichain.gigaeth.AccessListTx")
+	proto.RegisterType((*SetCodeTx)(nil), "seiprotocol.seichain.gigaeth.SetCodeTx")
+	proto.RegisterType((*DynamicFeeTx)(nil), "seiprotocol.seichain.gigaeth.DynamicFeeTx")
+	proto.RegisterType((*BlobTx)(nil), "seiprotocol.seichain.gigaeth.BlobTx")
+	proto.RegisterType((*BlobTxSidecar)(nil), "seiprotocol.seichain.gigaeth.BlobTxSidecar")
+	proto.RegisterType((*ExtensionOptionsEthereumTx)(nil), "seiprotocol.seichain.gigaeth.ExtensionOptionsEthereumTx")
 }
 
 func init() { proto.RegisterFile("eth/tx.proto", fileDescriptor_5aa89218db340ee8) }

@@ -5,8 +5,9 @@ package types
 
 import (
 	fmt "fmt"
-	proto "github.com/gogo/protobuf/proto"
 	math "math"
+
+	proto "github.com/gogo/protobuf/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -92,8 +93,8 @@ func (AssetType) EnumDescriptor() ([]byte, []int) {
 }
 
 func init() {
-	proto.RegisterEnum("seiprotocol.seichain.evm.PointerType", PointerType_name, PointerType_value)
-	proto.RegisterEnum("seiprotocol.seichain.evm.AssetType", AssetType_name, AssetType_value)
+	proto.RegisterEnum("seiprotocol.seichain.gigaevm.PointerType", PointerType_name, PointerType_value)
+	proto.RegisterEnum("seiprotocol.seichain.gigaevm.AssetType", AssetType_name, AssetType_value)
 }
 
 func init() { proto.RegisterFile("evm/enums.proto", fileDescriptor_9ba0923a26222f98) }

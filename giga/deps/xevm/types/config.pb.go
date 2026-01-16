@@ -5,11 +5,12 @@ package types
 
 import (
 	fmt "fmt"
-	_ "github.com/gogo/protobuf/gogoproto"
-	proto "github.com/gogo/protobuf/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
+
+	_ "github.com/gogo/protobuf/gogoproto"
+	proto "github.com/gogo/protobuf/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -96,7 +97,7 @@ func (m *ChainConfig) GetSeiSstoreSetGasEip2200() uint64 {
 }
 
 func init() {
-	proto.RegisterType((*ChainConfig)(nil), "seiprotocol.seichain.evm.ChainConfig")
+	proto.RegisterType((*ChainConfig)(nil), "seiprotocol.seichain.gigaevm.ChainConfig")
 }
 
 func init() { proto.RegisterFile("evm/config.proto", fileDescriptor_95b591dca6bd862e) }
