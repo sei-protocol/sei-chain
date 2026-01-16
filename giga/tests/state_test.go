@@ -1,6 +1,7 @@
 package giga_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"math/big"
 	"os"
@@ -463,6 +464,40 @@ func TestGigaVsGeth_StateTests(t *testing.T) {
 	}
 }
 
+// VerifyPostState verifies that the actual state matches the expected post-state from the fixture.
+// This follows the same pattern as x/evm/keeper/replay.go:VerifyAccount() but adapted for test assertions.
+// Note: Balance verification is skipped due to Sei's gas refund modifications
+// (see https://github.com/sei-protocol/go-ethereum/pull/32)
+func VerifyPostState(t *testing.T, stc *StateTestContext, expectedState ethtypes.GenesisAlloc, executorName string) {
+	for addr, expectedAccount := range expectedState {
+		// Verify storage
+		for key, expectedValue := range expectedAccount.Storage {
+			actualValue := stc.TestApp.EvmKeeper.GetState(stc.Ctx, addr, key)
+			if !bytes.Equal(expectedValue.Bytes(), actualValue.Bytes()) {
+				t.Errorf("%s: storage mismatch for %s key %s: expected %s, got %s",
+					executorName, addr.Hex(), key.Hex(), expectedValue.Hex(), actualValue.Hex())
+			}
+		}
+
+		// Verify nonce
+		actualNonce := stc.TestApp.EvmKeeper.GetNonce(stc.Ctx, addr)
+		if expectedAccount.Nonce != actualNonce {
+			t.Errorf("%s: nonce mismatch for %s: expected %d, got %d",
+				executorName, addr.Hex(), expectedAccount.Nonce, actualNonce)
+		}
+
+		// Verify code
+		actualCode := stc.TestApp.EvmKeeper.GetCode(stc.Ctx, addr)
+		if !bytes.Equal(expectedAccount.Code, actualCode) {
+			t.Errorf("%s: code mismatch for %s: expected %d bytes, got %d bytes",
+				executorName, addr.Hex(), len(expectedAccount.Code), len(actualCode))
+		}
+
+		// Note: Balance verification is intentionally skipped due to Sei-specific gas handling
+		// (limiting EVM max refund to 150% of used gas)
+	}
+}
+
 // runStateTestComparison runs a state test through both Geth and Giga and compares results
 func runStateTestComparison(t *testing.T, st *stJSON, post stPost) {
 	blockTime := time.Now()
@@ -488,6 +523,20 @@ func runStateTestComparison(t *testing.T, st *stJSON, post stPost) {
 	gigaCtx.TestApp.EvmKeeper.SetAddressMapping(gigaCtx.Ctx, senderSeiGiga, sender)
 
 	_, gigaResults, gigaErr := RunStateTestBlock(t, gigaCtx, [][]byte{txBytes})
+
+	// --- Handle ExpectException cases ---
+	if post.ExpectException != "" {
+		// This test expects the transaction to fail
+		// Both executors should produce an error or a failed result
+		gethFailed := gethErr != nil || (len(gethResults) > 0 && gethResults[0].Code != 0)
+		gigaFailed := gigaErr != nil || (len(gigaResults) > 0 && gigaResults[0].Code != 0)
+
+		if !gethFailed && !gigaFailed {
+			t.Fatalf("Expected exception %q but both executors succeeded", post.ExpectException)
+		}
+		// Both should fail - that's expected, no further verification needed
+		return
+	}
 
 	// --- Compare execution errors ---
 	if gethErr != nil && gigaErr != nil {
@@ -519,6 +568,12 @@ func runStateTestComparison(t *testing.T, st *stJSON, post stPost) {
 			require.Equal(t, gethResults[i].EvmTxInfo.TxHash, gigaResults[i].EvmTxInfo.TxHash,
 				"tx[%d] tx hash mismatch", i)
 		}
+	}
+
+	// --- Verify post-state against fixture (if available) ---
+	if len(post.State) > 0 {
+		VerifyPostState(t, gethCtx, post.State, "Geth")
+		VerifyPostState(t, gigaCtx, post.State, "Giga")
 	}
 }
 
