@@ -242,8 +242,8 @@ func TestRecoverReceiptStoreReplaysChangelog(t *testing.T) {
 	entry2, err := makeChangeSetEntry(2, txHash2, receipt2)
 	require.NoError(t, err)
 
-	require.NoError(t, stream.WriteNextEntry(entry1))
-	require.NoError(t, stream.WriteNextEntry(entry2))
+	require.NoError(t, stream.Write(entry1))
+	require.NoError(t, stream.Write(entry2))
 	require.NoError(t, stream.Close())
 
 	cfg := dbconfig.DefaultStateStoreConfig()
