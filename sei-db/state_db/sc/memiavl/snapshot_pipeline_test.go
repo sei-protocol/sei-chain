@@ -30,7 +30,7 @@ func TestSnapshotWriterPipeline(t *testing.T) {
 	opts.FillDefaults()
 	snapshot, err := OpenSnapshot(snapshotDir, opts)
 	require.NoError(t, err)
-	defer snapshot.Close()
+	t.Cleanup(func() { require.NoError(t, snapshot.Close()) })
 
 	require.Equal(t, uint32(tree.Version()), snapshot.Version())
 	require.Equal(t, tree.RootHash(), snapshot.RootHash())
@@ -222,7 +222,7 @@ func TestEmptySnapshotWrite(t *testing.T) {
 	opts.FillDefaults()
 	snapshot, err := OpenSnapshot(snapshotDir, opts)
 	require.NoError(t, err)
-	defer snapshot.Close()
+	t.Cleanup(func() { require.NoError(t, snapshot.Close()) })
 
 	require.True(t, snapshot.IsEmpty())
 	require.Equal(t, uint32(0), snapshot.Version())

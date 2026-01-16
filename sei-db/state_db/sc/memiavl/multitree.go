@@ -12,13 +12,14 @@ import (
 	"time"
 
 	"github.com/alitto/pond"
-	"github.com/sei-protocol/sei-db/changelog/types"
+	"golang.org/x/exp/slices"
+
 	"github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
+	"github.com/sei-protocol/sei-db/wal"
 	iavl "github.com/cosmos/iavl"
-	"golang.org/x/exp/slices"
 )
 
 const (
@@ -78,6 +79,9 @@ func NewEmptyMultiTree(initialVersion uint32) *MultiTree {
 func LoadMultiTree(ctx context.Context, dir string, opts Options) (*MultiTree, error) {
 	startTime := time.Now()
 	log := opts.Logger
+	if log == nil {
+		log = logger.NewNopLogger()
+	}
 	metadata, err := readMetadata(dir)
 	if err != nil {
 		return nil, err
@@ -354,49 +358,75 @@ func (t *MultiTree) UpdateCommitInfo() {
 	t.lastCommitInfo = *t.buildCommitInfo(t.lastCommitInfo.Version)
 }
 
-// Catchup replay the new entries in the Rlog file on the tree to catch up to the target or latest version.
-func (t *MultiTree) Catchup(ctx context.Context, stream types.Stream[proto.ChangelogEntry], endVersion int64) error {
+// Catchup replays WAL entries to catch up the tree to the target or latest version.
+// delta is the difference between version and WAL index (version = walIndex + delta).
+// endVersion specifies the target version (0 means catch up to latest).
+func (t *MultiTree) Catchup(ctx context.Context, stream wal.ChangelogWAL, delta int64, endVersion int64) error {
 	startTime := time.Now()
+
+	// Get actual WAL index range
+	firstIndex, err := stream.FirstOffset()
+	if err != nil {
+		return fmt.Errorf("read rlog first index failed, %w", err)
+	}
 	lastIndex, err := stream.LastOffset()
 	if err != nil {
 		return fmt.Errorf("read rlog last index failed, %w", err)
 	}
 
-	iv := t.initialVersion.Load()
-	firstIndex := utils.VersionToIndex(utils.NextVersion(t.Version(), iv), iv)
-	if firstIndex > lastIndex {
-		// already up-to-date
+	// Empty WAL - nothing to replay
+	if lastIndex == 0 || firstIndex > lastIndex {
 		return nil
 	}
 
-	endIndex := lastIndex
-	if endVersion != 0 {
-		endIndex = utils.VersionToIndex(endVersion, iv)
-	}
+	currentVersion := t.Version()
 
-	if endIndex < firstIndex {
-		return fmt.Errorf("target index %d is pruned", endIndex)
-	}
+	// Calculate start index: walIndex = version - delta
+	// We want to start from currentVersion + 1
+	startIndexSigned := currentVersion + 1 - delta
 
-	if endIndex > lastIndex {
-		return fmt.Errorf("target index %d is in the future, latest index: %d", endIndex, lastIndex)
+	// Ensure startIndex is within valid range (handle negative case before uint64 conversion)
+	var startIndex uint64
+	if startIndexSigned <= 0 || uint64(startIndexSigned) < firstIndex {
+		startIndex = firstIndex
+	} else {
+		startIndex = uint64(startIndexSigned)
+	}
+	if startIndex > lastIndex {
+		// Nothing to replay - tree is already caught up
+		return nil
 	}
 
 	var replayCount = 0
-	err = stream.Replay(firstIndex, endIndex, func(index uint64, entry proto.ChangelogEntry) error {
+	err = stream.Replay(startIndex, lastIndex, func(index uint64, entry proto.ChangelogEntry) error {
 		// Check for cancellation
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
+
+		// Safety check: skip entries we already have (should not happen with correct startIndex)
+		if entry.Version <= currentVersion {
+			return nil
+		}
+
+		// If endVersion is specified, stop at that version
+		if endVersion != 0 && entry.Version > endVersion {
+			return nil
+		}
+
 		if err := t.ApplyUpgrades(entry.Upgrades); err != nil {
 			return err
 		}
 		updatedTrees := make(map[string]bool)
 		for _, cs := range entry.Changesets {
 			treeName := cs.Name
-			t.TreeByName(treeName).ApplyChangeSetAsync(cs.Changeset)
+			tree := t.TreeByName(treeName)
+			if tree == nil {
+				return fmt.Errorf("unknown tree name %s during WAL replay (missing initial stores / upgrades)", treeName)
+			}
+			tree.ApplyChangeSetAsync(cs.Changeset)
 			updatedTrees[treeName] = true
 		}
 		for _, tree := range t.trees {
@@ -404,7 +434,7 @@ func (t *MultiTree) Catchup(ctx context.Context, stream types.Stream[proto.Chang
 				tree.ApplyChangeSetAsync(iavl.ChangeSet{})
 			}
 		}
-		t.lastCommitInfo.Version = utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion.Load())
+		t.lastCommitInfo.Version = entry.Version
 		t.lastCommitInfo.StoreInfos = []proto.StoreInfo{}
 		replayCount++
 		if replayCount%1000 == 0 {
@@ -420,11 +450,14 @@ func (t *MultiTree) Catchup(ctx context.Context, stream types.Stream[proto.Chang
 	if err != nil {
 		return err
 	}
-	t.UpdateCommitInfo()
 
-	replayElapsed := time.Since(startTime).Seconds()
-	t.logger.Info(fmt.Sprintf("Total replayed %d entries in %.1fs (%.1f entries/sec).\n",
-		replayCount, replayElapsed, float64(replayCount)/replayElapsed))
+	if replayCount > 0 {
+		t.UpdateCommitInfo()
+		replayElapsed := time.Since(startTime).Seconds()
+		t.logger.Info(fmt.Sprintf("Total replayed %d entries in %.1fs (%.1f entries/sec).\n",
+			replayCount, replayElapsed, float64(replayCount)/replayElapsed))
+	}
+
 	return nil
 }
 

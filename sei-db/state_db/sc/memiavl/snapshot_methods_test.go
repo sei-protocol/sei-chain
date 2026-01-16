@@ -24,7 +24,7 @@ func TestSnapshotLeaf(t *testing.T) {
 	opts.FillDefaults()
 	snapshot, err := OpenSnapshot(snapshotDir, opts)
 	require.NoError(t, err)
-	defer snapshot.Close()
+	t.Cleanup(func() { require.NoError(t, snapshot.Close()) })
 
 	// Test Leaf method
 	if snapshot.leavesLen() > 0 {
@@ -49,7 +49,7 @@ func TestSnapshotScanNodes(t *testing.T) {
 	opts.FillDefaults()
 	snapshot, err := OpenSnapshot(snapshotDir, opts)
 	require.NoError(t, err)
-	defer snapshot.Close()
+	t.Cleanup(func() { require.NoError(t, snapshot.Close()) })
 
 	// Test ScanNodes
 	count := 0
@@ -77,7 +77,7 @@ func TestSnapshotKey(t *testing.T) {
 	opts.FillDefaults()
 	snapshot, err := OpenSnapshot(snapshotDir, opts)
 	require.NoError(t, err)
-	defer snapshot.Close()
+	t.Cleanup(func() { require.NoError(t, snapshot.Close()) })
 
 	// Test Key method via scanning leaves
 	if snapshot.leavesLen() > 0 {
@@ -126,7 +126,7 @@ func TestPrefetchSnapshot(t *testing.T) {
 
 	snapshot, err := OpenSnapshot(snapshotDir, opts)
 	require.NoError(t, err)
-	defer snapshot.Close()
+	t.Cleanup(func() { require.NoError(t, snapshot.Close()) })
 
 	require.NotNil(t, snapshot)
 }

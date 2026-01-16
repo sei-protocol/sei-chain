@@ -3,13 +3,13 @@ package ss
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-db/changelog/changelog"
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/state_db/ss/pruning"
 	"github.com/sei-protocol/sei-db/state_db/ss/types"
+	"github.com/sei-protocol/sei-db/wal"
 )
 
 type BackendType string
@@ -61,7 +61,7 @@ func NewStateStore(logger logger.Logger, homeDir string, ssConfig config.StateSt
 func RecoverStateStore(logger logger.Logger, changelogPath string, stateStore types.StateStore) error {
 	ssLatestVersion := stateStore.GetLatestVersion()
 	logger.Info(fmt.Sprintf("Recovering from changelog %s with latest SS version %d", changelogPath, ssLatestVersion))
-	streamHandler, err := changelog.NewStream(logger, changelogPath, changelog.Config{})
+	streamHandler, err := wal.NewChangelogWAL(logger, changelogPath, wal.Config{})
 	if err != nil {
 		return err
 	}

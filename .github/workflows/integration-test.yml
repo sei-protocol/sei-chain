@@ -169,6 +169,21 @@ jobs:
           done
           unset IFS  # revert the internal field separator back to default
 
+      - name: Print node logs on failure
+        if: ${{ failure() }}
+        run: |
+          set -euo pipefail
+          for c in sei-node-0 sei-node-1 sei-node-2 sei-node-3; do
+            echo "==================== ${c} (docker logs tail) ===================="
+            docker logs --tail 200 "${c}" || true
+            echo "==================== ${c} (seid log file tail) ===================="
+            # Logs are accessible on host since build/generated is mounted in containers
+            NODE_ID=${c#sei-node-}
+            if [ -f "build/generated/logs/seid-${NODE_ID}.log" ]; then
+              tail -200 "build/generated/logs/seid-${NODE_ID}.log" || true
+            fi
+          done
+
       - name: Prepare log artifact name
         if: ${{ always() }}
         id: log_artifact_meta

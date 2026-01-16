@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-db/common/logger"
-
 	"github.com/sei-protocol/sei-db/config"
 )
 

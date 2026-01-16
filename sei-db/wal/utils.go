@@ -1,16 +1,18 @@
-package changelog
+package wal
 
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
 	"unsafe"
 
-	"github.com/cosmos/iavl"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/wal"
+
+	iavl "github.com/cosmos/iavl"
 )
 
 func LogPath(dir string) string {
@@ -44,7 +46,7 @@ func truncateCorruptedTail(path string, format wal.LogFormat) error {
 		} else {
 			n, err = loadNextBinaryEntry(data)
 		}
-		if err == wal.ErrCorrupt {
+		if errors.Is(err, wal.ErrCorrupt) {
 			break
 		}
 		if err != nil {
@@ -89,16 +91,16 @@ func loadNextBinaryEntry(data []byte) (n int, err error) {
 	return n + size, nil
 }
 
-func channelBatchRecv[T any](ch <-chan *T) []*T {
+func channelBatchRecv[T any](ch <-chan T) []T {
 	// block if channel is empty
-	item := <-ch
-	if item == nil {
+	item, ok := <-ch
+	if !ok {
 		// channel is closed
 		return nil
 	}
 
 	remaining := len(ch)
-	result := make([]*T, 0, remaining+1)
+	result := make([]T, 0, remaining+1)
 	result = append(result, item)
 	for i := 0; i < remaining; i++ {
 		result = append(result, <-ch)
