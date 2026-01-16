@@ -5,12 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/giga/tests/harness"
 	"github.com/stretchr/testify/require"
 )
 
 // TestGigaVsV2_StateTests runs state tests comparing Giga vs V2 execution
 func TestGigaVsV2_StateTests(t *testing.T) {
-	stateTestsPath := getStateTestsPath(t)
+	stateTestsPath := harness.GetStateTestsPath(t)
 
 	// Allow filtering to specific directory via STATE_TEST_DIR env var
 	specificDir := os.Getenv("STATE_TEST_DIR")
@@ -37,7 +38,7 @@ func TestGigaVsV2_StateTests(t *testing.T) {
 			continue
 		}
 
-		tests := LoadStateTestsFromDir(t, dirPath)
+		tests := harness.LoadStateTestsFromDir(t, dirPath)
 		for testName, st := range tests {
 			// Run each subtest for Cancun fork (most recent stable)
 			cancunPosts, ok := st.Post["Cancun"]
