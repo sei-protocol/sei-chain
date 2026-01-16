@@ -1,4 +1,4 @@
-package changelog
+package wal
 
 import (
 	"bytes"
@@ -9,9 +9,10 @@ import (
 	"path/filepath"
 	"unsafe"
 
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/wal"
+
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 func LogPath(dir string) string {
@@ -90,16 +91,16 @@ func loadNextBinaryEntry(data []byte) (n int, err error) {
 	return n + size, nil
 }
 
-func channelBatchRecv[T any](ch <-chan *T) []*T {
+func channelBatchRecv[T any](ch <-chan T) []T {
 	// block if channel is empty
-	item := <-ch
-	if item == nil {
+	item, ok := <-ch
+	if !ok {
 		// channel is closed
 		return nil
 	}
 
 	remaining := len(ch)
-	result := make([]*T, 0, remaining+1)
+	result := make([]T, 0, remaining+1)
 	result = append(result, item)
 	for i := 0; i < remaining; i++ {
 		result = append(result, <-ch)
