@@ -5,6 +5,7 @@ FROM docker.io/golang:1.24-bookworm@sha256:fc58bb98c4b7ebc8211c94df9dee40489e483
 WORKDIR /go/src/sei-chain
 
 COPY sei-wasmd/x/wasm/artifacts/v152/api/*.so /tmp/wasmd-libs/
+COPY sei-wasmd/x/wasm/artifacts/v154/api/*.so /tmp/wasmd-libs/
 COPY sei-wasmd/x/wasm/artifacts/v155/api/*.so /tmp/wasmd-libs/
 COPY sei-wasmvm/internal/api/*.so /tmp/wasmvm-libs/
 ARG TARGETARCH
@@ -15,6 +16,7 @@ RUN mkdir -p /go/lib && \
       *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
     esac && \
     cp /tmp/wasmd-libs/libwasmvm152.${ARCH_SUFFIX}.so /go/lib/ && \
+    cp /tmp/wasmd-libs/libwasmvm154.${ARCH_SUFFIX}.so /go/lib/ && \
     cp /tmp/wasmd-libs/libwasmvm155.${ARCH_SUFFIX}.so /go/lib/ && \
     cp /tmp/wasmvm-libs/libwasmvm.${ARCH_SUFFIX}.so /go/lib/
 
