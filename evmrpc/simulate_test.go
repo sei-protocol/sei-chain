@@ -48,8 +48,8 @@ func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
 	if latest <= 0 {
 		latest = 1
 	}
-	require.NoError(t, store.SetLatestHeight(latest))
-	require.NoError(t, store.SetEarliestHeight(1))
+	require.NoError(t, store.SetLatestVersion(latest))
+	require.NoError(t, store.SetEarliestVersion(1))
 }
 
 func (bc *bcFailClient) Block(ctx context.Context, h *int64) (*coretypes.ResultBlock, error) {

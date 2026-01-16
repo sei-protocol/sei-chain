@@ -241,16 +241,16 @@ type fakeReceiptStore struct {
 	latest int64
 }
 
-func (f *fakeReceiptStore) LatestHeight() int64 {
+func (f *fakeReceiptStore) LatestVersion() int64 {
 	return f.latest
 }
 
-func (f *fakeReceiptStore) SetLatestHeight(height int64) error {
-	f.latest = height
+func (f *fakeReceiptStore) SetLatestVersion(version int64) error {
+	f.latest = version
 	return nil
 }
 
-func (f *fakeReceiptStore) SetEarliestHeight(_ int64) error { return nil }
+func (f *fakeReceiptStore) SetEarliestVersion(_ int64) error { return nil }
 
 func (f *fakeReceiptStore) GetReceipt(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
 	return nil, errors.New("not found")
@@ -260,7 +260,7 @@ func (f *fakeReceiptStore) GetReceiptFromStore(sdk.Context, common.Hash) (*evmty
 	return nil, errors.New("not found")
 }
 
-func (f *fakeReceiptStore) StoreReceipts(sdk.Context, []receipt.ReceiptRecord) error {
+func (f *fakeReceiptStore) SetReceipts(sdk.Context, []receipt.ReceiptRecord) error {
 	return nil
 }
 

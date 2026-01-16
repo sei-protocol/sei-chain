@@ -106,9 +106,9 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 		}
 	}
 
-	// Receipt store height participates only in the latest watermark.
+	// Receipt store version participates only in the latest watermark.
 	if m.receiptStore != nil {
-		if latest := m.receiptStore.LatestHeight(); latest > 0 {
+		if latest := m.receiptStore.LatestVersion(); latest > 0 {
 			setLatest(latest)
 		}
 	}

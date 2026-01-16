@@ -88,27 +88,27 @@ func TestNewReceiptStoreConfigErrors(t *testing.T) {
 
 func TestReceiptStoreNilReceiver(t *testing.T) {
 	store := receipt.NilReceiptStore()
-	require.Equal(t, int64(0), store.LatestHeight())
-	require.Error(t, store.SetLatestHeight(1))
-	require.Error(t, store.SetEarliestHeight(1))
+	require.Equal(t, int64(0), store.LatestVersion())
+	require.Error(t, store.SetLatestVersion(1))
+	require.Error(t, store.SetEarliestVersion(1))
 	_, err := store.GetReceipt(sdk.Context{}, common.Hash{})
 	require.Error(t, err)
 	_, err = store.GetReceiptFromStore(sdk.Context{}, common.Hash{})
 	require.Error(t, err)
-	require.Error(t, store.StoreReceipts(sdk.Context{}, nil))
+	require.Error(t, store.SetReceipts(sdk.Context{}, nil))
 	_, err = store.FilterLogs(sdk.Context{}, 1, common.Hash{}, nil, filters.FilterCriteria{}, false)
 	require.Error(t, err)
 	require.NoError(t, store.Close())
 }
 
-func TestStoreReceiptsAndGet(t *testing.T) {
+func TestSetReceiptsAndGet(t *testing.T) {
 	store, ctx, _ := setupReceiptStore(t)
 	txHash := common.HexToHash("0x1")
 	addr := common.HexToAddress("0x1")
 	topic := common.HexToHash("0x2")
 	r := makeReceipt(txHash, addr, []common.Hash{topic}, 0)
 
-	err := store.StoreReceipts(ctx.WithBlockHeight(0), []receipt.ReceiptRecord{
+	err := store.SetReceipts(ctx.WithBlockHeight(0), []receipt.ReceiptRecord{
 		{TxHash: txHash, Receipt: r},
 		{TxHash: txHash},
 	})
@@ -125,10 +125,10 @@ func TestStoreReceiptsAndGet(t *testing.T) {
 	_, err = store.GetReceiptFromStore(ctx, common.HexToHash("0x3"))
 	require.Error(t, err)
 
-	require.GreaterOrEqual(t, store.LatestHeight(), int64(1))
-	require.NoError(t, store.SetLatestHeight(10))
-	require.Equal(t, int64(10), store.LatestHeight())
-	require.NoError(t, store.SetEarliestHeight(1))
+	require.GreaterOrEqual(t, store.LatestVersion(), int64(1))
+	require.NoError(t, store.SetLatestVersion(10))
+	require.Equal(t, int64(10), store.LatestVersion())
+	require.NoError(t, store.SetEarliestVersion(1))
 }
 
 func TestReceiptStoreLegacyFallback(t *testing.T) {
@@ -148,11 +148,11 @@ func TestReceiptStoreLegacyFallback(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestStoreReceiptsAsync(t *testing.T) {
+func TestSetReceiptsAsync(t *testing.T) {
 	store, ctx, _ := setupReceiptStore(t)
 	txHash := common.HexToHash("0x6")
 	r := makeReceipt(txHash, common.HexToAddress("0x3"), []common.Hash{common.HexToHash("0x7")}, 0)
-	require.NoError(t, store.StoreReceipts(ctx.WithBlockHeight(2), []receipt.ReceiptRecord{{TxHash: txHash, Receipt: r}}))
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(2), []receipt.ReceiptRecord{{TxHash: txHash, Receipt: r}}))
 
 	require.Eventually(t, func() bool {
 		_, err := store.GetReceipt(ctx, txHash)
@@ -181,7 +181,7 @@ func TestFilterLogs(t *testing.T) {
 	r2 := makeReceipt(txHash2, addr2, []common.Hash{topic2}, 1)
 	r3 := withBloom(makeReceipt(txHash3, addr3, []common.Hash{topic3}, 2))
 
-	err := store.StoreReceipts(ctx.WithBlockHeight(0), []receipt.ReceiptRecord{
+	err := store.SetReceipts(ctx.WithBlockHeight(0), []receipt.ReceiptRecord{
 		{TxHash: txHash1, Receipt: r1},
 		{TxHash: txHash2, Receipt: r2},
 		{TxHash: txHash3, Receipt: r3},

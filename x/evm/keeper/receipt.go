@@ -167,7 +167,7 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
 	if k.receiptStore == nil {
 		return receipt.ErrNotConfigured
 	}
-	return k.receiptStore.StoreReceipts(ctx, records)
+	return k.receiptStore.SetReceipts(ctx, records)
 }
 
 // MigrateLegacyReceiptsBatch moves up to batchSize receipts from the legacy KV store
