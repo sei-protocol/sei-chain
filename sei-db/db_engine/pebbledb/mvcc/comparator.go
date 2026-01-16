@@ -122,24 +122,9 @@ var MVCCComparer = &pebble.Comparer{
 		return len(key) + 1
 	},
 
-	// ComparePointSuffixes compares MVCC timestamps (suffixes) for v2.
-	ComparePointSuffixes: func(a, b []byte) int {
-		if len(a) == 0 {
-			if len(b) == 0 {
-				return 0
-			}
-			return -1
-		}
-		if len(b) == 0 {
-			return 1
-		}
-		return bytes.Compare(a, b)
-	},
+	ComparePointSuffixes: pebble.DefaultComparer.ComparePointSuffixes,
 
-	// CompareRangeSuffixes compares suffixes for range keys (v2).
-	CompareRangeSuffixes: func(a, b []byte) int {
-		return bytes.Compare(a, b)
-	},
+	CompareRangeSuffixes: pebble.DefaultComparer.CompareRangeSuffixes,
 }
 
 type mvccKeyFormatter struct {
