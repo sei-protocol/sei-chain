@@ -6,6 +6,7 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDBGetSetDelete(t *testing.T) {
@@ -14,7 +15,7 @@ func TestDBGetSetDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	key := []byte("k1")
 	val := []byte("v1")
@@ -52,10 +53,10 @@ func TestBatchAtomicWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	b := db.NewBatch()
-	defer func() { _ = b.Close() }()
+	t.Cleanup(func() { require.NoError(t, b.Close()) })
 
 	if err := b.Set([]byte("a"), []byte("1")); err != nil {
 		t.Fatalf("batch set: %v", err)
@@ -91,7 +92,7 @@ func TestIteratorBounds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	// Keys: a, b, c
 	for _, k := range []string{"a", "b", "c"} {
@@ -104,7 +105,7 @@ func TestIteratorBounds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIter: %v", err)
 	}
-	defer func() { _ = itr.Close() }()
+	t.Cleanup(func() { require.NoError(t, itr.Close()) })
 
 	var keys []string
 	for ok := itr.First(); ok && itr.Valid(); ok = itr.Next() {
@@ -125,7 +126,7 @@ func TestIteratorPrev(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	// Keys: a, b, c
 	for _, k := range []string{"a", "b", "c"} {
@@ -138,7 +139,7 @@ func TestIteratorPrev(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIter: %v", err)
 	}
-	defer func() { _ = itr.Close() }()
+	t.Cleanup(func() { require.NoError(t, itr.Close()) })
 
 	if !itr.Last() || !itr.Valid() {
 		t.Fatalf("expected Last() to position iterator")
@@ -190,7 +191,7 @@ func TestIteratorNextPrefixWithComparerSplit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	for _, k := range []string{"a/1", "a/2", "a/3", "b/1"} {
 		if err := db.Set([]byte(k), []byte("x"), db_engine.WriteOptions{Sync: false}); err != nil {
@@ -202,7 +203,7 @@ func TestIteratorNextPrefixWithComparerSplit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIter: %v", err)
 	}
-	defer func() { _ = itr.Close() }()
+	t.Cleanup(func() { require.NoError(t, itr.Close()) })
 
 	if !itr.SeekGE([]byte("a/")) || !itr.Valid() {
 		t.Fatalf("expected SeekGE(a/) to be valid")
@@ -233,7 +234,7 @@ func TestErrNotFoundConsistency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	// Test that Get on missing key returns ErrNotFound
 	_, err = db.Get([]byte("missing-key"))
@@ -258,7 +259,7 @@ func TestGetReturnsCopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	key := []byte("k")
 	val := []byte("v")
@@ -288,7 +289,7 @@ func TestBatchLenResetDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	// First, set a key so we can delete it
 	if err := db.Set([]byte("to-delete"), []byte("val"), db_engine.WriteOptions{Sync: false}); err != nil {
@@ -296,7 +297,7 @@ func TestBatchLenResetDelete(t *testing.T) {
 	}
 
 	b := db.NewBatch()
-	defer func() { _ = b.Close() }()
+	t.Cleanup(func() { require.NoError(t, b.Close()) })
 
 	// Record initial batch len (Pebble batch always has a header, so may not be 0)
 	initialLen := b.Len()
@@ -344,7 +345,7 @@ func TestIteratorSeekLTAndValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	// Insert keys: a, b, c with values
 	for _, kv := range []struct{ k, v string }{
@@ -361,7 +362,7 @@ func TestIteratorSeekLTAndValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIter: %v", err)
 	}
-	defer func() { _ = itr.Close() }()
+	t.Cleanup(func() { require.NoError(t, itr.Close()) })
 
 	// SeekLT("c") should position at "b"
 	if !itr.SeekLT([]byte("c")) || !itr.Valid() {
@@ -381,7 +382,7 @@ func TestFlush(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	// Set some data
 	if err := db.Set([]byte("flush-test"), []byte("val"), db_engine.WriteOptions{Sync: false}); err != nil {
