@@ -15,6 +15,7 @@ import (
 	"github.com/armon/go-metrics"
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/bloom"
+	"github.com/cockroachdb/pebble/v2/sstable"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/exp/slices"
@@ -112,6 +113,7 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		l.IndexBlockSize = 256 << 10 // 256 KB
 		l.FilterPolicy = bloom.FilterPolicy(10)
 		l.FilterType = pebble.TableFilter
+		l.Compression = func() *sstable.CompressionProfile { return sstable.ZstdCompression }
 	}
 
 	opts.Levels[6].FilterPolicy = nil

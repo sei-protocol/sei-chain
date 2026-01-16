@@ -7,6 +7,7 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/bloom"
+	"github.com/cockroachdb/pebble/v2/sstable"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 )
@@ -51,6 +52,7 @@ func Open(path string, opts db_engine.OpenOptions) (_ db_engine.DB, err error) {
 		l.IndexBlockSize = 256 << 10 // 256 KB
 		l.FilterPolicy = bloom.FilterPolicy(10)
 		l.FilterType = pebble.TableFilter
+		l.Compression = func() *sstable.CompressionProfile { return sstable.ZstdCompression }
 	}
 
 	popts.Levels[6].FilterPolicy = nil
