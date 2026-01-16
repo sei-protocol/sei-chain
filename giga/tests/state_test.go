@@ -412,11 +412,22 @@ func extractArchive(t testing.TB, archivePath, destDir string) {
 func TestGigaVsGeth_StateTests(t *testing.T) {
 	stateTestsPath := getStateTestsPath(t)
 
-	// Load a subset of tests for initial validation
-	// Start with simple arithmetic tests
-	testDirs := []string{
-		"stArgsZeroOneBalance",
-		"stExample",
+	// Allow filtering to specific directory via STATE_TEST_DIR env var
+	specificDir := os.Getenv("STATE_TEST_DIR")
+
+	var testDirs []string
+	if specificDir != "" {
+		// Run only the specified directory
+		testDirs = []string{specificDir}
+	} else {
+		// Run all directories
+		entries, err := os.ReadDir(stateTestsPath)
+		require.NoError(t, err, "failed to read state tests directory")
+		for _, entry := range entries {
+			if entry.IsDir() {
+				testDirs = append(testDirs, entry.Name())
+			}
+		}
 	}
 
 	for _, dir := range testDirs {
