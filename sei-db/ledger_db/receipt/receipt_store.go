@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	"sync"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -21,6 +22,12 @@ import (
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+)
+
+// Sentinel errors for consistent error checking.
+var (
+	ErrNotFound      = errors.New("receipt not found")
+	ErrNotConfigured = errors.New("receipt store not configured")
 )
 
 // ReceiptStore exposes receipt-specific operations without leaking the StateStore interface.
@@ -41,8 +48,10 @@ type ReceiptRecord struct {
 }
 
 type receiptStore struct {
-	db       *mvcc.Database
-	storeKey sdk.StoreKey
+	db          *mvcc.Database
+	storeKey    sdk.StoreKey
+	stopPruning chan struct{}
+	closeOnce   sync.Once
 }
 
 func NewReceiptStore(log dbLogger.Logger, config dbconfig.StateStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
@@ -64,10 +73,12 @@ func NewReceiptStore(log dbLogger.Logger, config dbconfig.StateStoreConfig, stor
 		_ = db.Close()
 		return nil, err
 	}
-	startReceiptPruning(log, db, int64(config.KeepRecent), int64(config.PruneIntervalSeconds))
+	stopPruning := make(chan struct{})
+	startReceiptPruning(log, db, int64(config.KeepRecent), int64(config.PruneIntervalSeconds), stopPruning)
 	return &receiptStore{
-		db:       db,
-		storeKey: storeKey,
+		db:          db,
+		storeKey:    storeKey,
+		stopPruning: stopPruning,
 	}, nil
 }
 
@@ -80,21 +91,21 @@ func (s *receiptStore) LatestHeight() int64 {
 
 func (s *receiptStore) SetLatestHeight(height int64) error {
 	if s == nil || s.db == nil {
-		return errors.New("receipt store not configured")
+		return ErrNotConfigured
 	}
 	return s.db.SetLatestVersion(height)
 }
 
 func (s *receiptStore) SetEarliestHeight(height int64) error {
 	if s == nil || s.db == nil {
-		return errors.New("receipt store not configured")
+		return ErrNotConfigured
 	}
 	return s.db.SetEarliestVersion(height, true)
 }
 
 func (s *receiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	if s == nil || s.db == nil {
-		return nil, errors.New("receipt store not configured")
+		return nil, ErrNotConfigured
 	}
 
 	// receipts are immutable, use latest version
@@ -111,7 +122,7 @@ func (s *receiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.R
 		store := ctx.KVStore(s.storeKey)
 		bz = store.Get(types.ReceiptKey(txHash))
 		if bz == nil {
-			return nil, errors.New("not found")
+			return nil, ErrNotFound
 		}
 	}
 
@@ -125,7 +136,7 @@ func (s *receiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.R
 // Only used for testing.
 func (s *receiptStore) GetReceiptFromStore(_ sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	if s == nil || s.db == nil {
-		return nil, errors.New("receipt store not configured")
+		return nil, ErrNotConfigured
 	}
 
 	// receipts are immutable, use latest version
@@ -137,7 +148,7 @@ func (s *receiptStore) GetReceiptFromStore(_ sdk.Context, txHash common.Hash) (*
 		return nil, err
 	}
 	if bz == nil {
-		return nil, errors.New("not found")
+		return nil, ErrNotFound
 	}
 
 	var r types.Receipt
@@ -149,7 +160,7 @@ func (s *receiptStore) GetReceiptFromStore(_ sdk.Context, txHash common.Hash) (*
 
 func (s *receiptStore) StoreReceipts(ctx sdk.Context, receipts []ReceiptRecord) error {
 	if s == nil || s.db == nil {
-		return errors.New("receipt store not configured")
+		return ErrNotConfigured
 	}
 
 	pairs := make([]*iavl.KVPair, 0, len(receipts))
@@ -193,7 +204,7 @@ func (s *receiptStore) StoreReceipts(ctx sdk.Context, receipts []ReceiptRecord) 
 
 func (s *receiptStore) FilterLogs(ctx sdk.Context, blockHeight int64, blockHash common.Hash, txHashes []common.Hash, crit filters.FilterCriteria, applyExactMatch bool) ([]*ethtypes.Log, error) {
 	if s == nil || s.db == nil {
-		return nil, errors.New("receipt store not configured")
+		return nil, ErrNotConfigured
 	}
 	if len(txHashes) == 0 {
 		return []*ethtypes.Log{}, nil
@@ -258,7 +269,15 @@ func (s *receiptStore) Close() error {
 	if s == nil || s.db == nil {
 		return nil
 	}
-	return s.db.Close()
+	var err error
+	s.closeOnce.Do(func() {
+		// Signal the pruning goroutine to stop
+		if s.stopPruning != nil {
+			close(s.stopPruning)
+		}
+		err = s.db.Close()
+	})
+	return err
 }
 
 func recoverReceiptStore(log dbLogger.Logger, changelogPath string, db *mvcc.Database) error {
@@ -314,7 +333,7 @@ func recoverReceiptStore(log dbLogger.Logger, changelogPath string, db *mvcc.Dat
 	return nil
 }
 
-func startReceiptPruning(log dbLogger.Logger, db *mvcc.Database, keepRecent int64, pruneInterval int64) {
+func startReceiptPruning(log dbLogger.Logger, db *mvcc.Database, keepRecent int64, pruneInterval int64, stopCh <-chan struct{}) {
 	if keepRecent <= 0 || pruneInterval <= 0 {
 		return
 	}
@@ -334,7 +353,15 @@ func startReceiptPruning(log dbLogger.Logger, db *mvcc.Database, keepRecent int6
 			// Generate a random percentage (between 0% and 100%) of the fixed interval as a delay
 			randomPercentage := rand.Float64()
 			randomDelay := int64(float64(pruneInterval) * randomPercentage)
-			time.Sleep(time.Duration(pruneInterval+randomDelay) * time.Second)
+			sleepDuration := time.Duration(pruneInterval+randomDelay) * time.Second
+
+			select {
+			case <-stopCh:
+				log.Info("Receipt store pruning goroutine stopped")
+				return
+			case <-time.After(sleepDuration):
+				// Continue to next iteration
+			}
 		}
 	}()
 }

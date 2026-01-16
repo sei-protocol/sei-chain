@@ -39,7 +39,7 @@ func (k *Keeper) GetTransientReceipt(ctx sdk.Context, txHash common.Hash, txInde
 	store := ctx.TransientStore(k.transientStoreKey)
 	bz := store.Get(types.NewTransientReceiptKey(txIndex, txHash))
 	if bz == nil {
-		return nil, errors.New("not found")
+		return nil, receipt.ErrNotFound
 	}
 	r := &types.Receipt{}
 	if err := r.Unmarshal(bz); err != nil {
@@ -58,7 +58,7 @@ func (k *Keeper) DeleteTransientReceipt(ctx sdk.Context, txHash common.Hash, txI
 // by EVM transaction hash (not Sei transaction hash) to function properly.
 func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	if k.receiptStore == nil {
-		return nil, errors.New("receipt store not configured")
+		return nil, receipt.ErrNotConfigured
 	}
 	return k.receiptStore.GetReceipt(ctx, txHash)
 }
@@ -66,7 +66,7 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 // Only used for testing
 func (k *Keeper) GetReceiptFromReceiptStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	if k.receiptStore == nil {
-		return nil, errors.New("receipt store not configured")
+		return nil, receipt.ErrNotConfigured
 	}
 	return k.receiptStore.GetReceiptFromStore(ctx, txHash)
 }
@@ -76,13 +76,13 @@ func (k *Keeper) GetReceiptFromReceiptStore(ctx sdk.Context, txHash common.Hash)
 func (k *Keeper) GetReceiptWithRetry(ctx sdk.Context, txHash common.Hash, maxRetries int) (*types.Receipt, error) {
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {
-		receipt, err := k.GetReceipt(ctx, txHash)
+		rcpt, err := k.GetReceipt(ctx, txHash)
 		if err == nil {
-			return receipt, nil
+			return rcpt, nil
 		}
 
 		// If it's not a "not found" error, return immediately
-		if err.Error() != "not found" {
+		if !errors.Is(err, receipt.ErrNotFound) {
 			return nil, err
 		}
 
@@ -96,9 +96,9 @@ func (k *Keeper) GetReceiptWithRetry(ctx sdk.Context, txHash common.Hash, maxRet
 //	MockReceipt sets a data structure that stores EVM specific transaction metadata.
 //
 // this is currently used by a number of tests to set receipts at the moment
-func (k *Keeper) MockReceipt(ctx sdk.Context, txHash common.Hash, receipt *types.Receipt) error {
+func (k *Keeper) MockReceipt(ctx sdk.Context, txHash common.Hash, rcpt *types.Receipt) error {
 	fmt.Printf("MOCK RECEIPT height=%d, tx=%s\n", ctx.BlockHeight(), txHash.Hex())
-	if err := k.SetTransientReceipt(ctx, txHash, receipt); err != nil {
+	if err := k.SetTransientReceipt(ctx, txHash, rcpt); err != nil {
 		return err
 	}
 	if err := k.FlushTransientReceipts(ctx); err != nil {
@@ -108,11 +108,11 @@ func (k *Keeper) MockReceipt(ctx sdk.Context, txHash common.Hash, receipt *types
 	for {
 		if _, err := k.GetReceipt(ctx, txHash); err == nil {
 			return nil
-		} else if err != nil && err.Error() != "not found" {
+		} else if err != nil && !errors.Is(err, receipt.ErrNotFound) {
 			return err
 		}
 		if time.Now().After(deadline) {
-			return errors.New("receipt not found after async flush")
+			return fmt.Errorf("%w: after async flush", receipt.ErrNotFound)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -165,7 +165,7 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
 		records = append(records, receipt.ReceiptRecord{TxHash: txHash, Receipt: rcpt})
 	}
 	if k.receiptStore == nil {
-		return errors.New("receipt store not configured")
+		return receipt.ErrNotConfigured
 	}
 	return k.receiptStore.StoreReceipts(ctx, records)
 }
