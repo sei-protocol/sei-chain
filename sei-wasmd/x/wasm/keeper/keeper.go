@@ -26,6 +26,7 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 
 	v152 "github.com/CosmWasm/wasmd/x/wasm/artifacts/v152"
+	v154 "github.com/CosmWasm/wasmd/x/wasm/artifacts/v154"
 	v155 "github.com/CosmWasm/wasmd/x/wasm/artifacts/v155"
 	"github.com/CosmWasm/wasmd/x/wasm/ioutils"
 	"github.com/CosmWasm/wasmd/x/wasm/types"
@@ -87,6 +88,7 @@ type Keeper struct {
 	rpcWasmVM             types.WasmerEngine
 	rpcWasmVM152          types.WasmerEngine
 	rpcWasmVM155          types.WasmerEngine
+	rpcWasmVM154          types.WasmerEngine
 	wasmVMQueryHandler    WasmVMQueryHandler
 	wasmVMResponseHandler WasmVMResponseHandler
 	messenger             Messenger
@@ -137,6 +139,10 @@ func NewKeeper(
 	if err != nil {
 		panic(err)
 	}
+	rpcWasmer154, err := v154.NewVM(filepath.Join(homeDir, "wasm"), supportedFeatures, contractMemoryLimit, wasmConfig.ContractDebugMode, wasmConfig.MemoryCacheSize)
+	if err != nil {
+		panic(err)
+	}
 	// set KeyTable if it has not already been set
 	if !paramSpace.HasKeyTable() {
 		paramSpace = paramSpace.WithKeyTable(types.ParamKeyTable())
@@ -150,6 +156,7 @@ func NewKeeper(
 		rpcWasmVM:         NewVMWrapper(rpcWasmer),
 		rpcWasmVM152:      NewVMWrapper(rpcWasmer152),
 		rpcWasmVM155:      NewVMWrapper(rpcWasmer155),
+		rpcWasmVM154:      NewVMWrapper(rpcWasmer154),
 		accountKeeper:     accountKeeper,
 		bank:              NewBankCoinTransferrer(bankKeeper),
 		portKeeper:        portKeeper,
@@ -185,6 +192,10 @@ func (k Keeper) getWasmer(ctx sdk.Context) types.WasmerEngine {
 		}
 		if ctx.BlockHeight() < 139936278 {
 			return k.rpcWasmVM155
+		}
+		// TODO: change conditions above to be release-tag based instead of height
+		if strings.Compare(ctx.ClosestUpgradeName(), "v6.3.0") < 0 {
+			return k.rpcWasmVM154
 		}
 		return k.rpcWasmVM
 	}

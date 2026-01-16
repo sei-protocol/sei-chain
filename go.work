@@ -7,5 +7,5 @@ use (
 	./sei-ibc-go
 	./sei-tendermint
 	./sei-wasmd
-	// ./sei-wasmvm
+	./sei-wasmvm
 )
