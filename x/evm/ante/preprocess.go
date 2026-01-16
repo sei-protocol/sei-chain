@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/sei-protocol/sei-chain/utils/helpers"
 
@@ -177,7 +178,7 @@ func PreprocessUnpacked(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTrans
 		V = AdjustV(V, ethTx.Type(), ethCfg.ChainID)
 		txHash = signer.Hash(ethTx)
 	} else {
-		if isBlockTest {
+		if isBlockTest || (ctx.IsTracing() && strings.Compare(ctx.ClosestUpgradeName(), "v6.3.0") < 0) {
 			// need to allow unprotected legacy txs in blocktest
 			// to not lose coverage for other parts of the code
 			txHash = ethtypes.FrontierSigner{}.Hash(ethTx)
