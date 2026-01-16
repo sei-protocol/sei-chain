@@ -42,8 +42,8 @@ func Open(path string, opts db_engine.OpenOptions) (_ db_engine.DB, err error) {
 		// would cause the on-disk format to silently upgrade when pebble is updated,
 		// making the database incompatible with older software versions.
 		// When upgrading this version, ensure it's an intentional, documented change.
-		FormatMajorVersion:    pebble.FormatVirtualSSTables,
-		L0CompactionThreshold: 4,
+		FormatMajorVersion:          pebble.FormatVirtualSSTables,
+		L0CompactionThreshold:       4,
 		L0StopWritesThreshold:       1000,
 		LBaseMaxBytes:               64 << 20, // 64 MB
 		MemTableSize:                64 << 20,
@@ -61,7 +61,6 @@ func Open(path string, opts db_engine.OpenOptions) (_ db_engine.DB, err error) {
 	}
 
 	popts.Levels[6].FilterPolicy = nil
-	popts.EnsureDefaults()
 
 	db, err := pebble.Open(path, popts)
 	if err != nil {

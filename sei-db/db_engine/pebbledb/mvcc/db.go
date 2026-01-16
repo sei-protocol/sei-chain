@@ -122,7 +122,6 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	}
 
 	opts.Levels[6].FilterPolicy = nil
-	opts.EnsureDefaults()
 
 	//TODO: add a new config and check if readonly = true to support readonly mode
 
