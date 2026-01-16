@@ -33,7 +33,6 @@ import (
 var ZeroInt = uint256.NewInt(0)
 
 func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
-	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	amt := amtUint256.ToBig()
 	if amt.Sign() == 0 {
 		return *ZeroInt
@@ -75,7 +74,6 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 }
 
 func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
-	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	amt := amtUint256.ToBig()
 	if amt.Sign() == 0 {
 		return *ZeroInt
@@ -149,7 +147,6 @@ func (s *DBImpl) mockBalance(evmAddr common.Address) *uint256.Int {
 }
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *uint256.Int {
-	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	seiAddr := s.getSeiAddress(evmAddr)
 	res, overflow := uint256.FromBig(s.k.GetBalance(s.ctx, seiAddr))
 	if overflow {

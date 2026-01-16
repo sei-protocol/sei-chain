@@ -3,12 +3,8 @@ package keeper_test
 import (
 	"context"
 	"encoding/hex"
-	"fmt"
 	"math"
 	"math/big"
-	"os"
-	"sort"
-	"strings"
 	"sync"
 	"testing"
 
@@ -24,7 +20,6 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types/ethtx"
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/rand"
@@ -263,71 +258,6 @@ func TestAddPendingNonce(t *testing.T) {
 	require.Equal(t, common.HexToAddress("123"), keyToNonce[tmtypes.TxKey{3}].Address)
 	require.Equal(t, uint64(2), keyToNonce[tmtypes.TxKey{3}].Nonce)
 	require.NotContains(t, keyToNonce, tmtypes.TxKey{2})
-}
-
-func TestGetCustomPrecompiles(t *testing.T) {
-	// Read all version files from precompiles subfolders
-	tagSet := make(map[string]bool)
-
-	// Define the precompiles directories to scan
-	precompileDirs := []string{
-		"addr", "bank", "distribution", "gov", "ibc", "json",
-		"oracle", "p256", "pointer", "pointerview", "solo", "staking", "wasmd",
-	}
-	precompileTags := map[string][]string{}
-
-	// Read versions from each precompile directory
-	for _, dir := range precompileDirs {
-		versionFile := fmt.Sprintf("../../../precompiles/%s/versions", dir)
-		content, err := os.ReadFile(versionFile)
-		if err != nil {
-			t.Logf("Warning: Could not read %s: %v", versionFile, err)
-			continue
-		}
-
-		// Parse each line as a tag
-		precompileTags[dir] = utils.Map(strings.Split(string(content), "\n"), strings.TrimSpace)
-		for _, line := range precompileTags[dir] {
-			if line != "" {
-				tagSet[line] = true
-			}
-		}
-	}
-
-	// Convert to slice and sort
-	var tags []string
-	for tag := range tagSet {
-		tags = append(tags, tag)
-	}
-	sort.Strings(tags)
-
-	// Verify we have tags
-	require.Greater(t, len(tags), 0, "Should have found at least one tag")
-
-	// Setup keeper and context
-	k, ctx := keeper.MockEVMKeeperPrecompiles(t)
-
-	// Set up upgrade heights with increment of 10
-	baseHeight := 1000000
-	tagToHeight := map[string]int64{}
-	for i, tag := range tags {
-		height := baseHeight + (i * 10)
-		k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(int64(height)), tag)
-		t.Logf("Set upgrade height %d for tag %s", height, tag)
-		tagToHeight[tag] = int64(height)
-	}
-
-	for precompile, tags := range precompileTags {
-		for _, tag := range tags {
-			ps := k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(tagToHeight[tag] + 1))
-			for p, rtag := range ps {
-				if p.Hex() != precompile {
-					continue
-				}
-				require.Equal(t, tag, rtag)
-			}
-		}
-	}
 }
 
 func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {

@@ -13,7 +13,6 @@ import (
 )
 
 func (s *DBImpl) CreateAccount(acc common.Address) {
-	s.k.PrepareReplayedAddr(s.ctx, acc)
 	// clear any existing state but keep balance untouched
 	if !s.ctx.IsTracing() {
 		// too slow on historical DB so not doing it for tracing for now.
@@ -32,13 +31,10 @@ func (s *DBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
 }
 
 func (s *DBImpl) getState(ctx sdk.Context, addr common.Address, hash common.Hash) common.Hash {
-	s.k.PrepareReplayedAddr(ctx, addr)
 	return s.k.GetState(ctx, addr, hash)
 }
 
 func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) common.Hash {
-	s.k.PrepareReplayedAddr(s.ctx, addr)
-
 	old := s.GetState(addr, key)
 	if s.logger != nil && s.logger.OnStorageChange != nil {
 		s.logger.OnStorageChange(addr, key, old, val)
@@ -75,7 +71,6 @@ func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
 // clear account's state except the transient state (in Ethereum transient states are
 // still available even after self destruction in the same tx)
 func (s *DBImpl) SelfDestruct(acc common.Address) uint256.Int {
-	s.k.PrepareReplayedAddr(s.ctx, acc)
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok {
 		// remove the association
 		s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
@@ -168,7 +163,6 @@ func (s *DBImpl) clearAccountStateIfDestructed(st *TemporaryState) {
 }
 
 func (s *DBImpl) clearAccountState(acc common.Address) {
-	s.k.PrepareReplayedAddr(s.ctx, acc)
 	if deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:]) {
 		s.k.PurgePrefix(s.ctx, types.StateKey(acc))
 		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), acc[:])

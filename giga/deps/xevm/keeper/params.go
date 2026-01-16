@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"math"
 	"math/big"
 	"strings"
 
@@ -11,6 +12,8 @@ import (
 )
 
 const BaseDenom = "usei"
+
+var MaxUint64BigInt = new(big.Int).SetUint64(math.MaxUint64)
 
 func (k Keeper) SetParams(ctx sdk.Context, params types.Params) {
 	k.Paramstore.SetParamSet(ctx, &params)
@@ -223,10 +226,6 @@ func (k *Keeper) GetRegisterPointerDisabled(ctx sdk.Context) bool {
 }
 
 func (k *Keeper) ChainID(ctx sdk.Context) *big.Int {
-	if k.EthReplayConfig.Enabled || k.EthBlockTestConfig.Enabled {
-		// replay is for eth mainnet so always return 1
-		return utils.Big1
-	}
 	// return mapped chain ID
 	return config.GetEVMChainID(ctx.ChainID())
 
@@ -248,4 +247,19 @@ func (k *Keeper) GetCosmosGasLimitFromEVMGas(ctx sdk.Context, evmGas uint64) uin
 		gasLimitBigInt = utils.BigMaxU64
 	}
 	return gasLimitBigInt.Uint64()
+}
+
+func (k *Keeper) getEvmGasLimitFromCtx(ctx sdk.Context) uint64 {
+	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
+	if ctx.GasMeter().Limit() <= 0 {
+		return math.MaxUint64
+	}
+	if ctx.ChainID() != Pacific1ChainID || ctx.BlockHeight() >= 119821526 {
+		ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+	}
+	evmGasBig := sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Quo(k.GetPriorityNormalizer(ctx)).TruncateInt().BigInt()
+	if evmGasBig.Cmp(MaxUint64BigInt) > 0 {
+		evmGasBig = MaxUint64BigInt
+	}
+	return evmGasBig.Uint64()
 }

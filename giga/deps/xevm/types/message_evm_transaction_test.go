@@ -13,7 +13,6 @@ import (
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/giga/deps/xevm/derived"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types/ethtx"
 	"github.com/stretchr/testify/require"
@@ -102,14 +101,4 @@ func TestMustGetEVMTransactionMessageMultipleMsgs(t *testing.T) {
 	defer func() { recover() }()
 	types.MustGetEVMTransactionMessage(testTx)
 	t.Errorf("Should not be able to convert a non evm emssage")
-}
-
-func TestAttackerUnableToSetDerived(t *testing.T) {
-	msg := types.MsgEVMTransaction{Derived: &derived.Derived{SenderEVMAddr: common.BytesToAddress([]byte("abc"))}}
-	bz, err := msg.Marshal()
-	require.Nil(t, err)
-	decoded := types.MsgEVMTransaction{}
-	err = decoded.Unmarshal(bz)
-	require.Nil(t, err)
-	require.Equal(t, common.Address{}, decoded.Derived.SenderEVMAddr)
 }

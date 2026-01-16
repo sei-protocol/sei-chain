@@ -17,13 +17,11 @@ type accessList struct {
 }
 
 func (s *DBImpl) AddressInAccessList(addr common.Address) bool {
-	s.k.PrepareReplayedAddr(s.ctx, addr)
 	_, ok := s.getCurrentAccessList().Addresses[addr]
 	return ok
 }
 
 func (s *DBImpl) SlotInAccessList(addr common.Address, slot common.Hash) (addressOk bool, slotOk bool) {
-	s.k.PrepareReplayedAddr(s.ctx, addr)
 	al := s.getCurrentAccessList()
 	idx, addrOk := al.Addresses[addr]
 	if addrOk && idx != -1 {
@@ -34,7 +32,6 @@ func (s *DBImpl) SlotInAccessList(addr common.Address, slot common.Hash) (addres
 }
 
 func (s *DBImpl) AddAddressToAccessList(addr common.Address) {
-	s.k.PrepareReplayedAddr(s.ctx, addr)
 	al := s.getCurrentAccessList()
 	if _, present := al.Addresses[addr]; present {
 		return
@@ -44,7 +41,6 @@ func (s *DBImpl) AddAddressToAccessList(addr common.Address) {
 }
 
 func (s *DBImpl) AddSlotToAccessList(addr common.Address, slot common.Hash) {
-	s.k.PrepareReplayedAddr(s.ctx, addr)
 	al := s.getCurrentAccessList()
 	idx, addrPresent := al.Addresses[addr]
 	if !addrPresent {
@@ -68,11 +64,6 @@ func (s *DBImpl) AddSlotToAccessList(addr common.Address, slot common.Hash) {
 }
 
 func (s *DBImpl) Prepare(_ params.Rules, sender, coinbase common.Address, dest *common.Address, precompiles []common.Address, txAccesses ethtypes.AccessList) {
-	s.k.PrepareReplayedAddr(s.ctx, sender)
-	s.k.PrepareReplayedAddr(s.ctx, coinbase)
-	if dest != nil {
-		s.k.PrepareReplayedAddr(s.ctx, *dest)
-	}
 	s.Snapshot()
 	s.AddAddressToAccessList(sender)
 	if dest != nil {
