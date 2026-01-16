@@ -1,6 +1,6 @@
 module github.com/sei-protocol/sei-chain
 
-go 1.24.5
+go 1.25.6
 
 require (
 	github.com/BurntSushi/toml v1.4.0
@@ -50,7 +50,7 @@ require (
 	github.com/tendermint/tm-db v0.6.8-0.20220519162814-e24b96538a12
 	github.com/tidwall/btree v1.6.0
 	github.com/tidwall/gjson v1.10.2
-	github.com/tidwall/wal v1.1.7
+	github.com/tidwall/wal v1.2.1
 	github.com/zbiljic/go-filelock v0.0.0-20170914061330-1dbf7103ab7d
 	github.com/zeebo/blake3 v0.2.4
 	go.opentelemetry.io/otel v1.38.0
