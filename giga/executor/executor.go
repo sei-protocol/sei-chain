@@ -33,12 +33,20 @@ func NewGethExecutor(blockCtx vm.BlockContext, stateDB vm.StateDB, chainConfig *
 }
 
 func (e *Executor) ExecuteTransaction(tx *types.Transaction, sender common.Address, baseFee *big.Int, gasPool *core.GasPool) (*core.ExecutionResult, error) {
+	return e.ExecuteTransactionWithOptions(tx, sender, baseFee, gasPool, false, true)
+}
+
+// ExecuteTransactionWithOptions executes a transaction with explicit control over fee and nonce handling.
+// - feeCharged: if true, assumes gas fee was already charged (skips BuyGas). Use true to match V2 behavior.
+// - shouldIncrementNonce: if true, increments the sender's nonce during execution.
+func (e *Executor) ExecuteTransactionWithOptions(tx *types.Transaction, sender common.Address, baseFee *big.Int, gasPool *core.GasPool, feeCharged bool, shouldIncrementNonce bool) (*core.ExecutionResult, error) {
 	message, err := core.TransactionToMessage(tx, &internal.Signer{From: sender}, baseFee)
 	if err != nil {
 		return nil, err
 	}
 
-	executionResult, err := core.ApplyMessage(e.evm, message, gasPool)
+	e.evm.SetTxContext(core.NewEVMTxContext(message))
+	executionResult, err := core.NewStateTransition(e.evm, message, gasPool, feeCharged, shouldIncrementNonce).Execute()
 	if err != nil {
 		return nil, err
 	}

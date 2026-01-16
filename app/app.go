@@ -1334,6 +1334,7 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	for i, tx := range txs {
+		fmt.Println("GIGA WORKING 17:34 tx", absoluteTxIndices[i])
 		ctx = ctx.WithTxIndex(absoluteTxIndices[i])
 		evmMsg := app.GetEVMMsg(typedTxs[i])
 		// If not an EVM tx, fall back to v2 processing
@@ -1691,7 +1692,14 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 		}, nil
 	}
 
+	// Prepare context for EVM transaction (set infinite gas meter like original flow)
+	// Use a fresh EventManager to collect ALL events during this transaction
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+	ctx = ctx.WithTxIndex(txIndex)
+	ctx = ctx.WithEventManager(sdk.NewEventManager())
+
 	// Associate the address if not already associated (same as EVMPreprocessDecorator)
+	// This emits address_associated event
 	if _, isAssociated := app.EvmKeeper.GetEVMAddress(ctx, seiAddr); !isAssociated {
 		associateHelper := helpers.NewAssociationHelper(&app.EvmKeeper, app.BankKeeper, &app.AccountKeeper)
 		if err := associateHelper.AssociateAddresses(ctx, seiAddr, sender, pubkey); err != nil {
@@ -1702,11 +1710,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 		}
 	}
 
-	// Prepare context for EVM transaction (set infinite gas meter like original flow)
-	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
-	ctx = ctx.WithTxIndex(txIndex)
-
-	// Create state DB for this transaction
+	// Create state DB for this transaction (uses ctx with our EventManager)
 	stateDB := evmstate.NewDBImpl(ctx, &app.EvmKeeper, false)
 	defer stateDB.Cleanup()
 
@@ -1726,11 +1730,29 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	sstore := app.EvmKeeper.GetParams(ctx).SeiSstoreSetGasEip2200
 	cfg := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(app.EvmKeeper.ChainID(ctx), &sstore)
 
+	// Pre-charge gas fee (like V2 ante handler does)
+	// This emits gas-related events BEFORE message execution, matching V2's event order
+	evmMsg := app.EvmKeeper.GetEVMMessage(ctx, ethTx, sender)
+	preChargeEVM := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, app.EvmKeeper.CustomPrecompiles(ctx))
+	preChargeEVM.SetTxContext(core.NewEVMTxContext(evmMsg))
+	preChargeST := core.NewStateTransition(preChargeEVM, evmMsg, &gp, false, false) // feeCharged=false to call BuyGas
+	if buyGasErr := preChargeST.BuyGas(); buyGasErr != nil {
+		return &abci.ExecTxResult{
+			Code: 1,
+			Log:  fmt.Sprintf("failed to buy gas: %v", buyGasErr),
+		}, nil
+	}
+
+	// Record the count of "ante" events (association + gas charging)
+	// In V2, these events appear BEFORE message:action
+	anteEventCount := len(ctx.EventManager().Events())
+
 	// Create Giga executor VM
 	gigaExecutor := gigaexecutor.NewGethExecutor(*blockCtx, stateDB, cfg, vm.Config{}, gigaprecompiles.AllCustomPrecompilesFailFast)
 
-	// Execute the transaction through giga VM
-	execResult, execErr := gigaExecutor.ExecuteTransaction(ethTx, sender, app.EvmKeeper.GetBaseFee(ctx), &gp)
+	// Execute the transaction with feeCharged=true since we already charged gas above
+	// This prevents double-charging and ensures gas events are in "ante" position
+	execResult, execErr := gigaExecutor.ExecuteTransactionWithOptions(ethTx, sender, app.EvmKeeper.GetBaseFee(ctx), &gp, true, true)
 	if execErr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
@@ -1759,19 +1781,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 		vmError = execResult.Err.Error()
 	}
 
-	// Create core.Message from ethTx for WriteReceipt
-	// WriteReceipt needs msg for GasPrice, To, From, Data, Nonce fields
-	evmMsg := &core.Message{
-		Nonce:     ethTx.Nonce(),
-		GasLimit:  ethTx.Gas(),
-		GasPrice:  ethTx.GasPrice(),
-		GasFeeCap: ethTx.GasFeeCap(),
-		GasTipCap: ethTx.GasTipCap(),
-		To:        ethTx.To(),
-		Value:     ethTx.Value(),
-		Data:      ethTx.Data(),
-		From:      sender,
-	}
+	// WriteReceipt uses the evmMsg created earlier for gas pre-charge
 	receipt, rerr := app.EvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError)
 	if rerr != nil {
 		return &abci.ExecTxResult{
@@ -1799,12 +1809,62 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	// isn't committed, so we pass the receipt through the response for later processing.
 	receiptBytes, _ := receipt.Marshal()
 
+	// Collect all events from the EventManager
+	// In V2, events are structured as: anteEvents + message:action + msgResult.Events
+	// We insert message:action at the correct position (after ante events)
+	eventMsgName := sdk.MsgTypeURL(msg)
+	allEventsSlice := ctx.EventManager().Events()
+
+	// Split events: ante events (before execution) and exec events (during execution)
+	// IMPORTANT: Make copies to avoid slice aliasing issues with append
+	anteEvents := make(sdk.Events, anteEventCount)
+	copy(anteEvents, allEventsSlice[:anteEventCount])
+	execEvents := make(sdk.Events, len(allEventsSlice)-anteEventCount)
+	copy(execEvents, allEventsSlice[anteEventCount:])
+
+	// Check if anteEvents or execEvents already contains a message:action event
+	// (This can happen if the execution path emits one internally)
+	hasMessageAction := false
+	for _, e := range allEventsSlice {
+		if e.Type == sdk.EventTypeMessage {
+			for _, attr := range e.Attributes {
+				if string(attr.Key) == sdk.AttributeKeyAction {
+					hasMessageAction = true
+					break
+				}
+			}
+		}
+		if hasMessageAction {
+			break
+		}
+	}
+
+	// Build final events: anteEvents + message:action + execEvents (matches V2 exactly)
+	// Only add message:action if not already present
+	var allEvents sdk.Events
+	if hasMessageAction {
+		// message:action already exists, just combine without adding another
+		allEvents = anteEvents.AppendEvents(execEvents)
+	} else {
+		// Insert message:action between ante and exec events
+		msgActionEvent := sdk.Events{
+			sdk.NewEvent(sdk.EventTypeMessage, sdk.NewAttribute(sdk.AttributeKeyAction, eventMsgName)),
+		}
+		allEvents = anteEvents.AppendEvents(msgActionEvent).AppendEvents(execEvents)
+	}
+
+	// Create message log (same format as RunMsgs)
+	msgLogs := sdk.ABCIMessageLogs{
+		sdk.NewABCIMessageLog(uint32(0), vmError, allEvents),
+	}
+
 	//nolint:gosec // G115: safe, UsedGas won't exceed int64 max
 	return &abci.ExecTxResult{
 		Code:    code,
 		Data:    receiptBytes,
 		GasUsed: int64(execResult.UsedGas),
-		Log:     vmError,
+		Log:     strings.TrimSpace(msgLogs.String()),
+		Events:  sdk.MarkEventsToIndex(allEvents.ToABCIEvents(), app.IndexEvents),
 		EvmTxInfo: &abci.EvmTxInfo{
 			TxHash:  ethTx.Hash().Hex(),
 			VmError: vmError,
