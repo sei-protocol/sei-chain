@@ -3,6 +3,7 @@ package executor
 import (
 	"math/big"
 
+	"github.com/ethereum/evmc/v12/bindings/go/evmc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -15,10 +16,9 @@ type Executor struct {
 	evm *vm.EVM
 }
 
-func NewEvmoneExecutor(blockCtx vm.BlockContext, stateDB vm.StateDB, chainConfig *params.ChainConfig, config vm.Config, customPrecompiles map[common.Address]vm.PrecompiledContract) *Executor {
+func NewEvmoneExecutor(evmoneVM *evmc.VM, blockCtx vm.BlockContext, stateDB vm.StateDB, chainConfig *params.ChainConfig, config vm.Config, customPrecompiles map[common.Address]vm.PrecompiledContract) *Executor {
 	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, config, customPrecompiles)
-	// TODO(pdrobnjak): populate evmc.VM and integrate evmone for direct bytecode execution
-	hostContext := internal.NewHostContext(nil, evm)
+	hostContext := internal.NewHostContext(evmoneVM, evm)
 	evm.EVMInterpreter = internal.NewEVMInterpreter(hostContext, evm)
 	return &Executor{
 		evm: evm,

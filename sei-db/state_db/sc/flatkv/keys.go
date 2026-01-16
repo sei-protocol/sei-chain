@@ -3,121 +3,152 @@ package flatkv
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 )
 
-// Key is a type-safe FlatKV key. Use constructors (AccountKey, StorageKey, etc.)
-// to create keys; raw []byte cannot be cast to Key.
-// Zero value (Key{}) represents unbounded in iterator operations.
-type Key struct {
-	b []byte
+// Address is an EVM address (20 bytes).
+type Address [20]byte
+
+// CodeHash is a 32-byte contract code hash.
+type CodeHash [32]byte
+
+// Slot is a 32-byte storage slot key.
+type Slot [32]byte
+
+// Word is a fixed-size 32-byte EVM word (balance, storage value, etc.).
+type Word [32]byte
+
+// AccountKey is a type-safe account DB key.
+// Zero value means "unbounded" for iterator bounds.
+type AccountKey struct{ b []byte }
+
+func (k AccountKey) isZero() bool  { return len(k.b) == 0 }
+func (k AccountKey) bytes() []byte { return k.b }
+
+// AccountKeyFor returns the account DB key for addr.
+func AccountKeyFor(addr Address) AccountKey {
+	b := make([]byte, 20)
+	copy(b, addr[:])
+	return AccountKey{b: b}
 }
 
-func keyFromBytes(b []byte) Key {
-	if len(b) == 0 {
-		return Key{}
-	}
-	return Key{b: b}
+// CodeKey is a type-safe code DB key.
+// Zero value means "unbounded" for iterator bounds.
+type CodeKey struct{ b []byte }
+
+func (k CodeKey) isZero() bool  { return len(k.b) == 0 }
+func (k CodeKey) bytes() []byte { return k.b }
+
+// CodeKeyFor returns the code DB key for codeHash.
+func CodeKeyFor(codeHash CodeHash) CodeKey {
+	b := make([]byte, 32)
+	copy(b, codeHash[:])
+	return CodeKey{b: b}
 }
 
-func (k Key) isZero() bool  { return len(k.b) == 0 }
-func (k Key) bytes() []byte { return k.b }
-
-// Keyspace prefixes (binary layout, stable across versions).
+// StorageKey is a type-safe storage DB key (or prefix).
 //
-//	account: 0x01 || addr(20) || field(1)
-//	code:    0x02 || codehash(32)
-//	storage: 0x03 || addr(20) || slotLen(u16be) || slot
-//	raw:     0x7f || keyLen(u32be) || originalKey
-const (
-	pfxAccount byte = 0x01
-	pfxCode    byte = 0x02
-	pfxStorage byte = 0x03
-	// pfxRaw is a fallback namespace for keys FlatKV does not model explicitly.
-	// It allows storing unknown/original EVM KV entries without data loss.
-	pfxRaw byte = 0x7f
-)
+// Supported encodings:
+//   - nil: unbounded
+//   - addr(20): address prefix (iterates over all slots for addr)
+//   - addr(20) || slot(32): full key
+type StorageKey struct{ b []byte }
 
-// AccountField identifies a field within an account record.
-type AccountField byte
+func (k StorageKey) isZero() bool  { return len(k.b) == 0 }
+func (k StorageKey) bytes() []byte { return k.b }
 
-const (
-	accountFieldNonce    byte = 0x01
-	accountFieldCodeHash byte = 0x02
-
-	// AccountFieldNonce is the nonce (tx count) field.
-	// Usage: flatkv.AccountKey(addr, flatkv.AccountFieldNonce)
-	AccountFieldNonce AccountField = AccountField(accountFieldNonce)
-
-	// AccountFieldCodeHash is the contract codehash field.
-	// Usage: flatkv.AccountKey(addr, flatkv.AccountFieldCodeHash)
-	AccountFieldCodeHash AccountField = AccountField(accountFieldCodeHash)
-)
-
-// AccountKey returns the key for an account field (nonce, codehash).
-func AccountKey(addr []byte, field AccountField) Key {
-	k := make([]byte, 0, 1+len(addr)+1)
-	k = append(k, pfxAccount)
-	k = append(k, addr...)
-	k = append(k, byte(field))
-	return keyFromBytes(k)
+// StoragePrefix returns the storage DB prefix key for addr.
+func StoragePrefix(addr Address) StorageKey {
+	b := make([]byte, 20)
+	copy(b, addr[:])
+	return StorageKey{b: b}
 }
 
-// CodeKey returns the key for contract bytecode (indexed by codehash).
-func CodeKey(codeHash []byte) Key {
-	k := make([]byte, 0, 1+len(codeHash))
-	k = append(k, pfxCode)
-	k = append(k, codeHash...)
-	return keyFromBytes(k)
-}
-
-// StorageKey returns the key for a contract storage slot.
-func StorageKey(addr []byte, slot []byte) Key {
-	k := make([]byte, 0, 1+len(addr)+2+len(slot))
-	k = append(k, pfxStorage)
-	k = append(k, addr...)
-	var sz [2]byte
-	binary.BigEndian.PutUint16(sz[:], uint16(len(slot))) //nolint:gosec
-	k = append(k, sz[:]...)
-	k = append(k, slot...)
-	return keyFromBytes(k)
-}
-
-// RawKey wraps an unrecognized key (fallback for unknown prefixes).
-func RawKey(original []byte) Key {
-	k := make([]byte, 0, 1+4+len(original))
-	k = append(k, pfxRaw)
-	var sz [4]byte
-	binary.BigEndian.PutUint32(sz[:], uint32(len(original))) //nolint:gosec
-	k = append(k, sz[:]...)
-	k = append(k, original...)
-	return keyFromBytes(k)
-}
-
-// StoragePrefixStart returns the start key for iterating a contract's storage.
-//
-//	start := StoragePrefixStart(addr)
-//	end := PrefixEnd(start)
-//	iter := store.Iterator(start, end)
-//	iter.First()
-func StoragePrefixStart(addr []byte) Key {
-	k := make([]byte, 0, 1+len(addr))
-	k = append(k, pfxStorage)
-	k = append(k, addr...)
-	return keyFromBytes(k)
+// StorageKeyFor returns the storage DB key for (addr, slot).
+func StorageKeyFor(addr Address, slot Slot) StorageKey {
+	b := make([]byte, 0, 20+32)
+	b = append(b, addr[:]...)
+	b = append(b, slot[:]...)
+	return StorageKey{b: b}
 }
 
 // PrefixEnd returns the exclusive upper bound for prefix iteration.
-// Returns Key{} if prefix is empty or has no successor (all 0xFF).
-func PrefixEnd(prefix Key) Key {
-	if prefix.isZero() {
-		return Key{}
+// Returns nil if prefix is empty or has no successor (all 0xFF).
+func PrefixEnd(prefix []byte) []byte {
+	if len(prefix) == 0 {
+		return nil
 	}
-	b := bytes.Clone(prefix.b)
+	b := bytes.Clone(prefix)
 	for i := len(b) - 1; i >= 0; i-- {
 		if b[i] != 0xFF {
 			b[i]++
-			return keyFromBytes(b[:i+1])
+			return b[:i+1]
 		}
 	}
-	return Key{}
+	return nil
+}
+
+// AccountValue is the fixed-size account record stored in the account DB.
+//
+// FlatKV distinguishes "missing" from "zero" via explicit presence bits:
+// a field can be present with a zero value, or absent entirely.
+type AccountValue struct {
+	Balance     Word
+	Nonce       uint64
+	CodeHash    CodeHash
+	HasBalance  bool
+	HasNonce    bool
+	HasCodeHash bool
+}
+
+const (
+	accountValueFlagHasBalance  = 1 << 0
+	accountValueFlagHasNonce    = 1 << 1
+	accountValueFlagHasCodeHash = 1 << 2
+
+	// accountValueEncodedLen is the stable on-disk encoding length:
+	// flags(1) || balance(32) || nonce(u64be=8) || codehash(32)
+	accountValueEncodedLen = 1 + 32 + 8 + 32
+)
+
+// EncodeAccountValue encodes v into a stable, fixed-length byte slice.
+func EncodeAccountValue(v AccountValue) []byte {
+	b := make([]byte, 0, accountValueEncodedLen)
+	var flags byte
+	if v.HasBalance {
+		flags |= accountValueFlagHasBalance
+	}
+	if v.HasNonce {
+		flags |= accountValueFlagHasNonce
+	}
+	if v.HasCodeHash {
+		flags |= accountValueFlagHasCodeHash
+	}
+	b = append(b, flags)
+	b = append(b, v.Balance[:]...)
+	var nonce [8]byte
+	binary.BigEndian.PutUint64(nonce[:], v.Nonce)
+	b = append(b, nonce[:]...)
+	b = append(b, v.CodeHash[:]...)
+	return b
+}
+
+// DecodeAccountValue decodes a fixed-length account record previously produced by EncodeAccountValue.
+func DecodeAccountValue(b []byte) (AccountValue, error) {
+	if len(b) != accountValueEncodedLen {
+		return AccountValue{}, fmt.Errorf("invalid account value length: got %d, want %d", len(b), accountValueEncodedLen)
+	}
+	var v AccountValue
+	flags := b[0]
+	v.HasBalance = (flags & accountValueFlagHasBalance) != 0
+	v.HasNonce = (flags & accountValueFlagHasNonce) != 0
+	v.HasCodeHash = (flags & accountValueFlagHasCodeHash) != 0
+
+	off := 1
+	copy(v.Balance[:], b[off:off+32])
+	off += 32
+	v.Nonce = binary.BigEndian.Uint64(b[off : off+8])
+	off += 8
+	copy(v.CodeHash[:], b[off:off+32])
+	return v, nil
 }
