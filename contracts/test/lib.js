@@ -672,6 +672,8 @@ module.exports = {
     registerPointerForERC1155,
     getPointerForNative,
     proposeCW20toERC20Upgrade,
+    proposeParamChange,
+    passProposal,
     importKey,
     getNativeAccount,
     associateKey,
