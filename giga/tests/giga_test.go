@@ -26,6 +26,7 @@ type ExecutorMode int
 
 const (
 	ModeV2withOCC      ExecutorMode = iota // V2 execution path with OCC (standard production path)
+	ModeV2Sequential                       // V2 execution path without OCC (sequential)
 	ModeGigaSequential                     // Giga executor, no OCC
 	ModeGigaOCC                            // Giga executor with OCC
 )
@@ -34,6 +35,8 @@ func (m ExecutorMode) String() string {
 	switch m {
 	case ModeV2withOCC:
 		return "V2withOCC"
+	case ModeV2Sequential:
+		return "V2Sequential"
 	case ModeGigaSequential:
 		return "GigaSequential"
 	case ModeGigaOCC:

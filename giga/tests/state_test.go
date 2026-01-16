@@ -506,8 +506,8 @@ func runStateTestComparison(t *testing.T, st *stJSON, post stPost) {
 	signedTx, sender := BuildTransaction(t, st, post)
 	txBytes := EncodeTxForApp(t, signedTx)
 
-	// --- Run with Geth (baseline) ---
-	gethCtx := NewStateTestContext(t, blockTime, 1, ModeV2withOCC)
+	// --- Run with Geth Sequential (baseline) ---
+	gethCtx := NewStateTestContext(t, blockTime, 1, ModeV2Sequential)
 	gethCtx.SetupPreState(t, st.Pre)
 	// Associate sender address
 	senderSei := gethCtx.TestApp.EvmKeeper.GetSeiAddressOrDefault(gethCtx.Ctx, sender)
@@ -616,8 +616,8 @@ func TestGigaVsGeth_StateTest_Simple(t *testing.T) {
 
 	txBytes := EncodeTxForApp(t, signedTx)
 
-	// --- Run with Geth ---
-	gethCtx := NewStateTestContext(t, blockTime, 1, ModeV2withOCC)
+	// --- Run with Geth Sequential ---
+	gethCtx := NewStateTestContext(t, blockTime, 1, ModeV2Sequential)
 	gethCtx.SetupPreState(t, pre)
 	senderSei := gethCtx.TestApp.EvmKeeper.GetSeiAddressOrDefault(gethCtx.Ctx, sender)
 	gethCtx.TestApp.EvmKeeper.SetAddressMapping(gethCtx.Ctx, senderSei, sender)
