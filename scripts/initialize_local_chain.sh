@@ -4,6 +4,8 @@ set -e
 
 # Parse command line arguments
 MOCK_BALANCES=${MOCK_BALANCES:-false}
+GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
+GIGA_OCC=${GIGA_OCC:-false}
 
 # Use python3 as default, but fall back to python if python3 doesn't exist
 PYTHON_CMD=python3
@@ -29,6 +31,13 @@ keyname=admin
 #  -p 14269:14269 \
 #  -p 9411:9411 \
 #  jaegertracing/all-in-one:1.33
+# Display configuration
+echo "=== Local Chain Configuration ==="
+echo "  MOCK_BALANCES:  $MOCK_BALANCES"
+echo "  GIGA_EXECUTOR:  $GIGA_EXECUTOR"
+echo "  GIGA_OCC:       $GIGA_OCC"
+echo "================================="
+
 # clean up old sei directory
 rm -rf ~/.sei
 echo "Building..."
@@ -90,6 +99,42 @@ sed -i.bak -e 's/# concurrency-workers = .*/concurrency-workers = 500/' $APP_TOM
 sed -i.bak -e 's/occ-enabled = .*/occ-enabled = true/' $APP_TOML_PATH
 sed -i.bak -e 's/sc-enable = .*/sc-enable = true/' $APP_TOML_PATH
 sed -i.bak -e 's/ss-enable = .*/ss-enable = true/' $APP_TOML_PATH
+
+# Enable Giga Executor (evmone-based) if requested
+if [ "$GIGA_EXECUTOR" = true ]; then
+  echo "Enabling Giga Executor (evmone-based EVM)..."
+  if grep -q "\[giga_executor\]" $APP_TOML_PATH; then
+    # If the section exists, update enabled to true
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' '/\[giga_executor\]/,/^\[/ s/enabled = false/enabled = true/' $APP_TOML_PATH
+    else
+      sed -i '/\[giga_executor\]/,/^\[/ s/enabled = false/enabled = true/' $APP_TOML_PATH
+    fi
+  else
+    # If section doesn't exist, append it
+    echo "" >> $APP_TOML_PATH
+    echo "[giga_executor]" >> $APP_TOML_PATH
+    echo "enabled = true" >> $APP_TOML_PATH
+    echo "occ_enabled = false" >> $APP_TOML_PATH
+  fi
+
+  # Set OCC based on GIGA_OCC flag
+  if [ "$GIGA_OCC" = true ]; then
+    echo "Enabling OCC for Giga Executor..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' 's/occ_enabled = false/occ_enabled = true/' $APP_TOML_PATH
+    else
+      sed -i 's/occ_enabled = false/occ_enabled = true/' $APP_TOML_PATH
+    fi
+  else
+    echo "Disabling OCC for Giga Executor (sequential mode)..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' 's/occ_enabled = true/occ_enabled = false/' $APP_TOML_PATH
+    else
+      sed -i 's/occ_enabled = true/occ_enabled = false/' $APP_TOML_PATH
+    fi
+  fi
+fi
 
 # set block time to 2s
 if [ ! -z "$1" ]; then

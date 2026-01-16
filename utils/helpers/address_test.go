@@ -8,6 +8,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 )
@@ -283,6 +284,205 @@ func TestGetAddresses(t *testing.T) {
 				expectedEvmAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
 				require.Equal(t, expectedEvmAddr, evmAddr)
 			}
+		})
+	}
+}
+
+func TestRecoverAddressesFromTx(t *testing.T) {
+	chainID := big.NewInt(713715) // Sei chain ID
+
+	// Generate a private key for signing
+	privateKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+
+	expectedEvmAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
+
+	// Create a signer for this chain (simulating what evmante.SignerMap[version](chainID) returns)
+	// In production, the signer is selected based on block height/time via evmante.GetVersion
+	signer := ethtypes.NewCancunSigner(chainID)
+
+	tests := []struct {
+		name   string
+		txType string
+		makeTx func() *ethtypes.Transaction
+	}{
+		{
+			name:   "DynamicFeeTx (EIP-1559)",
+			txType: "dynamic",
+			makeTx: func() *ethtypes.Transaction {
+				tx := ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+					ChainID:   chainID,
+					Nonce:     0,
+					GasFeeCap: big.NewInt(100000000000),
+					GasTipCap: big.NewInt(100000000000),
+					Gas:       21000,
+					To:        &expectedEvmAddr,
+					Value:     big.NewInt(1),
+				})
+				signedTx, err := ethtypes.SignTx(tx, signer, privateKey)
+				require.NoError(t, err)
+				return signedTx
+			},
+		},
+		{
+			name:   "AccessListTx (EIP-2930)",
+			txType: "accesslist",
+			makeTx: func() *ethtypes.Transaction {
+				tx := ethtypes.NewTx(&ethtypes.AccessListTx{
+					ChainID:  chainID,
+					Nonce:    1,
+					GasPrice: big.NewInt(100000000000),
+					Gas:      21000,
+					To:       &expectedEvmAddr,
+					Value:    big.NewInt(1),
+				})
+				signedTx, err := ethtypes.SignTx(tx, signer, privateKey)
+				require.NoError(t, err)
+				return signedTx
+			},
+		},
+		{
+			name:   "LegacyTx (protected)",
+			txType: "legacy",
+			makeTx: func() *ethtypes.Transaction {
+				tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+					Nonce:    2,
+					GasPrice: big.NewInt(100000000000),
+					Gas:      21000,
+					To:       &expectedEvmAddr,
+					Value:    big.NewInt(1),
+				})
+				signedTx, err := ethtypes.SignTx(tx, signer, privateKey)
+				require.NoError(t, err)
+				return signedTx
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			signedTx := tt.makeTx()
+
+			// Use RecoverAddressesFromTx with explicit signer (same pattern as production code)
+			evmAddr, seiAddr, pubkey, err := RecoverAddressesFromTx(signedTx, signer, chainID)
+			require.NoError(t, err)
+
+			// Verify EVM address matches expected
+			require.Equal(t, expectedEvmAddr, evmAddr, "EVM address should match expected")
+
+			// Verify EVM address matches what go-ethereum's Sender returns
+			gethSender, err := ethtypes.Sender(signer, signedTx)
+			require.NoError(t, err)
+			require.Equal(t, gethSender, evmAddr, "EVM address should match go-ethereum Sender result")
+
+			// Verify Sei address is derived correctly from pubkey
+			require.NotNil(t, pubkey)
+			expectedSeiAddr := sdk.AccAddress(pubkey.Address())
+			require.Equal(t, expectedSeiAddr, seiAddr, "Sei address should be derived from pubkey")
+
+			// Verify the pubkey can be used to derive the EVM address
+			uncompressedPubkey := crypto.FromECDSAPub(&privateKey.PublicKey)
+			derivedEvmAddr, err := PubkeyToEVMAddress(uncompressedPubkey)
+			require.NoError(t, err)
+			require.Equal(t, derivedEvmAddr, evmAddr, "EVM address from pubkey should match")
+		})
+	}
+}
+
+func TestRecoverAddressesFromTx_MatchesPreprocessLogic(t *testing.T) {
+	// This test verifies that RecoverAddressesFromTx produces the same results
+	// as the preprocess.go logic by manually performing the same steps
+
+	chainID := big.NewInt(713715)
+	privateKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+
+	toAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
+
+	// Use version-based signer like production code (Cancun signer for current chain)
+	signer := ethtypes.NewCancunSigner(chainID)
+
+	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+		ChainID:   chainID,
+		Nonce:     0,
+		GasFeeCap: big.NewInt(100000000000),
+		GasTipCap: big.NewInt(100000000000),
+		Gas:       21000,
+		To:        &toAddr,
+		Value:     big.NewInt(1),
+	}), signer, privateKey)
+	require.NoError(t, err)
+
+	// Method 1: Use RecoverAddressesFromTx (what production code uses)
+	evmAddr1, seiAddr1, pubkey1, err := RecoverAddressesFromTx(signedTx, signer, chainID)
+	require.NoError(t, err)
+
+	// Method 2: Manually replicate what preprocess.go does
+	txHash := signer.Hash(signedTx)
+	V, R, S := signedTx.RawSignatureValues()
+	// For non-legacy tx, V needs to be bumped by 27 (same as AdjustV)
+	adjustedV := AdjustV(V, signedTx.Type(), chainID)
+	evmAddr2, seiAddr2, pubkey2, err := GetAddresses(adjustedV, R, S, txHash)
+	require.NoError(t, err)
+
+	// Verify both methods produce the same results
+	require.Equal(t, evmAddr1, evmAddr2, "EVM addresses should match between methods")
+	require.Equal(t, seiAddr1, seiAddr2, "Sei addresses should match between methods")
+	require.Equal(t, pubkey1.Bytes(), pubkey2.Bytes(), "Pubkeys should match between methods")
+
+	// Also verify against go-ethereum's Sender
+	gethSender, err := ethtypes.Sender(signer, signedTx)
+	require.NoError(t, err)
+	require.Equal(t, gethSender, evmAddr1, "should match go-ethereum Sender")
+}
+
+func TestAdjustV(t *testing.T) {
+	chainID := big.NewInt(713715)
+
+	tests := []struct {
+		name     string
+		txType   uint8
+		inputV   *big.Int
+		expected *big.Int
+	}{
+		{
+			name:     "DynamicFeeTx - V=0",
+			txType:   ethtypes.DynamicFeeTxType,
+			inputV:   big.NewInt(0),
+			expected: big.NewInt(27),
+		},
+		{
+			name:     "DynamicFeeTx - V=1",
+			txType:   ethtypes.DynamicFeeTxType,
+			inputV:   big.NewInt(1),
+			expected: big.NewInt(28),
+		},
+		{
+			name:     "AccessListTx - V=0",
+			txType:   ethtypes.AccessListTxType,
+			inputV:   big.NewInt(0),
+			expected: big.NewInt(27),
+		},
+		{
+			name:   "LegacyTx - EIP-155 V value",
+			txType: ethtypes.LegacyTxType,
+			// For EIP-155: V = chainID * 2 + 35 + recovery_id
+			// For chainID 713715 and recovery_id 0: V = 713715*2 + 35 + 0 = 1427465
+			inputV:   big.NewInt(1427465),
+			expected: big.NewInt(27), // After adjustment: 1427465 - 713715*2 - 8 = 27
+		},
+		{
+			name:     "LegacyTx - EIP-155 V value (recovery_id=1)",
+			txType:   ethtypes.LegacyTxType,
+			inputV:   big.NewInt(1427466), // recovery_id = 1
+			expected: big.NewInt(28),      // After adjustment: 1427466 - 713715*2 - 8 = 28
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := AdjustV(tt.inputV, tt.txType, chainID)
+			require.Equal(t, tt.expected, result, "adjusted V should match expected")
 		})
 	}
 }
