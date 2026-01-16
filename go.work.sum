@@ -1433,8 +1433,6 @@ github.com/seccomp/libseccomp-golang v0.9.1 h1:NJjM5DNFOs0s3kYE1WUOr6G8V97sdt46r
 github.com/segmentio/asm v1.2.0 h1:9BQrFxC+YOHJlTlHGkTrFWf59nbL3XnCoFLTwDCI7ys=
 github.com/segmentio/asm v1.2.0/go.mod h1:BqMnlJP91P8d+4ibuonYZw9mfnzI9HfxselHZr5aAcs=
 github.com/segmentio/fasthash v1.0.3 h1:EI9+KE1EwvMLBWwjpRDc+fEM+prwxDYbslddQGtrmhM=
-github.com/sei-protocol/sei-wasmvm v1.5.4-sei.0.0.2 h1:bhfjHJFhYe/Ffq83UsSJrCcZPkAx5TSEJl1z5lBd6ow=
-github.com/sei-protocol/sei-wasmvm v1.5.4-sei.0.0.2/go.mod h1:Q0bSEtlktzh7W2hhEaifrFp1Erx11ckQZmjq8FLCyys=
 github.com/sergi/go-diff v1.1.0 h1:we8PVUC3FE2uYfodKH/nBHMSetSfHDR6scGdBi+erh0=
 github.com/shirou/gopsutil/v3 v3.22.9/go.mod h1:bBYl1kjgEJpWpxeHmLI+dVHWtyAwfcmSBLDsp2TNT8A=
 github.com/shirou/gopsutil/v3 v3.23.2 h1:PAWSuiAszn7IhPMBtXsbSCafej7PqUOvY6YywlQUExU=

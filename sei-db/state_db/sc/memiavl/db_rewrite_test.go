@@ -81,7 +81,7 @@ func TestLoadMultiTreeWithPrefetchDisabled(t *testing.T) {
 
 	db2, err := OpenDB(logger.NewNopLogger(), 0, opts)
 	require.NoError(t, err)
-	defer db2.Close()
+	t.Cleanup(func() { require.NoError(t, db2.Close()) })
 
 	// Verify data is accessible
 	tree := db2.TreeByName("test")

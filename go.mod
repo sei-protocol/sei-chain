@@ -301,7 +301,7 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/tidwall/tinylru v1.1.0 // indirect
-	github.com/tidwall/wal v1.1.7 // indirect
+	github.com/tidwall/wal v1.2.1 // indirect
 	github.com/timakin/bodyclose v0.0.0-20210704033933-f49887972144 // indirect
 	github.com/timonwong/loggercheck v0.9.3 // indirect
 	github.com/tklauser/go-sysconf v0.3.15 // indirect

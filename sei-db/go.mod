@@ -12,7 +12,6 @@ require (
 	github.com/gogo/protobuf v1.3.3
 	github.com/ledgerwatch/erigon-lib v0.0.0-20230210071639-db0e7ed11263
 	github.com/linxGnu/grocksdb v1.8.11
-	github.com/pkg/errors v0.9.1
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.11.1
 	github.com/tendermint/tm-db v0.6.8-0.20220519162814-e24b96538a12
@@ -65,6 +64,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/onsi/gomega v1.27.1 // indirect
 	github.com/petermattis/goid v0.0.0-20230317030725-371a4b8eda08 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_golang v1.23.0 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect

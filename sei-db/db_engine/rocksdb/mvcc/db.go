@@ -13,7 +13,8 @@ import (
 	"time"
 
 	"github.com/linxGnu/grocksdb"
-	"github.com/sei-protocol/sei-chain/sei-db/changelog/changelog"
+	"golang.org/x/exp/slices"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
@@ -21,7 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/util"
-	"golang.org/x/exp/slices"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
 const (
@@ -67,7 +68,7 @@ type Database struct {
 	asyncWriteWG sync.WaitGroup
 
 	// Changelog used to support async write
-	streamHandler *changelog.Stream
+	streamHandler wal.ChangelogWAL
 
 	// Pending changes to be written to the DB
 	pendingChanges chan VersionedChangesets
@@ -113,17 +114,14 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
 	}
 	database.latestVersion.Store(latestVersion)
-	walKeepRecent := math.Max(MinWALEntriesToKeep, float64(config.AsyncWriteBuffer+1))
-	streamHandler, _ := changelog.NewStream(
-		logger.NewNopLogger(),
-		utils.GetChangelogPath(dataDir),
-		changelog.Config{
-			DisableFsync:  true,
-			ZeroCopy:      true,
-			KeepRecent:    uint64(walKeepRecent),
-			PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
-		},
-	)
+
+	streamHandler, err := wal.NewChangelogWAL(logger.NewNopLogger(), utils.GetChangelogPath(dataDir), wal.Config{
+		KeepRecent:    uint64(config.KeepRecent),
+		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
+	})
+	if err != nil {
+		return nil, err
+	}
 	database.streamHandler = streamHandler
 	go database.writeAsyncInBackground()
 
@@ -265,7 +263,7 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 		}
 		entry.Changesets = changesets
 		entry.Upgrades = nil
-		err := db.streamHandler.WriteNextEntry(entry)
+		err := db.streamHandler.Write(entry)
 		if err != nil {
 			return err
 		}

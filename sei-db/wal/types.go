@@ -1,11 +1,15 @@
-package types
+package wal
 
-type Stream[T any] interface {
-	// Write will write a new entry to the log at the given index.
-	Write(offset uint64, entry T) error
+// MarshalFn is a function that serializes an entry to bytes.
+type MarshalFn[T any] func(entry T) ([]byte, error)
 
-	// CheckError check the error signal of async writes
-	CheckError() error
+// UnmarshalFn is a function that deserializes bytes to an entry.
+type UnmarshalFn[T any] func(data []byte) (T, error)
+
+// GenericWAL is a generic write-ahead log interface.
+type GenericWAL[T any] interface {
+	// Write will append a new entry to the end of the log.
+	Write(entry T) error
 
 	// TruncateBefore will remove all entries that are before the provided `offset`
 	TruncateBefore(offset uint64) error
@@ -14,7 +18,7 @@ type Stream[T any] interface {
 	TruncateAfter(offset uint64) error
 
 	// ReadAt will read the replay log at the given index
-	ReadAt(offset uint64) (*T, error)
+	ReadAt(offset uint64) (T, error)
 
 	// FirstOffset returns the first written index of the log
 	FirstOffset() (offset uint64, err error)
@@ -28,7 +32,7 @@ type Stream[T any] interface {
 	Close() error
 }
 
-type Subscriber[T any] interface {
+type GenericWALProcessor[T any] interface {
 	// Start starts the subscriber processing goroutine
 	Start()
 
