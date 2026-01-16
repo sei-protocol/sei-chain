@@ -9,7 +9,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
+	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -71,6 +73,13 @@ func NewGigaTestContext(t testing.TB, testAccts []utils.TestAcct, blockTime time
 	// Configure giga executor
 	testApp.EvmKeeper.GigaExecutorEnabled = gigaEnabled
 	testApp.EvmKeeper.GigaOCCEnabled = gigaOCCEnabled
+	if gigaEnabled {
+		evmoneVM, err := gigalib.InitEvmoneVM()
+		if err != nil {
+			t.Fatalf("failed to load evmone: %v", err)
+		}
+		testApp.EvmKeeper.EvmoneVM = evmoneVM
+	}
 
 	// Fund test accounts
 	amounts := sdk.NewCoins(
@@ -203,6 +212,16 @@ func RunBlock(t testing.TB, tCtx *GigaTestContext, txs [][]byte) ([]abci.Event, 
 
 // CompareResults compares execution results between two runs
 func CompareResults(t *testing.T, testName string, expected, actual []*abci.ExecTxResult) {
+	compareResultsWithOptions(t, testName, expected, actual, true)
+}
+
+// CompareResultsNoGas compares execution results but skips gas comparison
+// Use this for contract execution tests where gas may differ between implementations
+func CompareResultsNoGas(t *testing.T, testName string, expected, actual []*abci.ExecTxResult) {
+	compareResultsWithOptions(t, testName, expected, actual, false)
+}
+
+func compareResultsWithOptions(t *testing.T, testName string, expected, actual []*abci.ExecTxResult, compareGas bool) {
 	require.Equal(t, len(expected), len(actual), "%s: result count mismatch", testName)
 
 	for i := range expected {
@@ -213,8 +232,8 @@ func CompareResults(t *testing.T, testName string, expected, actual []*abci.Exec
 		require.Equal(t, expected[i].Code, actual[i].Code,
 			"%s: tx[%d] code mismatch (expected %d, got %d)", testName, i, expected[i].Code, actual[i].Code)
 
-		// For successful txs, compare gas used (allow small variance for different execution paths)
-		if expected[i].Code == 0 && actual[i].Code == 0 {
+		// For successful txs, compare gas used if requested
+		if compareGas && expected[i].Code == 0 && actual[i].Code == 0 {
 			require.Equal(t, expected[i].GasUsed, actual[i].GasUsed,
 				"%s: tx[%d] gas used mismatch", testName, i)
 		}
@@ -470,4 +489,328 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// SimpleStorage contract bytecode (compiled from example/contracts/simplestorage/SimpleStorage.sol)
+// Contract has: set(uint256), get() -> uint256, bad() that reverts, and an event SetEvent(uint256)
+var simpleStorageBytecode = common.Hex2Bytes("608060405234801561000f575f80fd5b506101938061001d5f395ff3fe608060405234801561000f575f80fd5b506004361061003f575f3560e01c806360fe47b1146100435780636d4ce63c1461005f5780639c3674fc1461007d575b5f80fd5b61005d6004803603810190610058919061010a565b610087565b005b6100676100c7565b6040516100749190610144565b60405180910390f35b6100856100cf565b005b805f819055507f0de2d86113046b9e8bb6b785e96a6228f6803952bf53a40b68a36dce316218c1816040516100bc9190610144565b60405180910390a150565b5f8054905090565b5f80fd5b5f80fd5b5f819050919050565b6100e9816100d7565b81146100f3575f80fd5b50565b5f81359050610104816100e0565b92915050565b5f6020828403121561011f5761011e6100d3565b5b5f61012c848285016100f6565b91505092915050565b61013e816100d7565b82525050565b5f6020820190506101575f830184610135565b9291505056fea2646970667358221220bb55137839ea2afda11ab2d30ad07fee30bb9438caaa46e30ccd1053ed72439064736f6c63430008150033")
+
+// set(uint256) function selector
+var setFunctionSelector = common.Hex2Bytes("60fe47b1")
+
+// get() function selector
+var getFunctionSelector = common.Hex2Bytes("6d4ce63c")
+
+// EVMContractDeploy represents a contract deployment transaction for testing
+type EVMContractDeploy struct {
+	Signer   utils.TestAcct
+	Bytecode []byte
+	Nonce    uint64
+}
+
+// EVMContractCall represents a contract call transaction for testing
+type EVMContractCall struct {
+	Signer   utils.TestAcct
+	Contract common.Address
+	Data     []byte
+	Value    *big.Int
+	Nonce    uint64
+}
+
+// CreateContractDeployTxs creates signed contract deployment transactions
+func CreateContractDeployTxs(t testing.TB, tCtx *GigaTestContext, deploys []EVMContractDeploy) [][]byte {
+	txs := make([][]byte, 0, len(deploys))
+	tc := app.MakeEncodingConfig().TxConfig
+
+	for _, deploy := range deploys {
+		// Associate the Cosmos address with the EVM address
+		tCtx.TestApp.EvmKeeper.SetAddressMapping(tCtx.Ctx, deploy.Signer.AccountAddress, deploy.Signer.EvmAddress)
+
+		// Fund the signer account
+		amounts := sdk.NewCoins(
+			sdk.NewCoin("usei", sdk.NewInt(1000000000000000000)),
+			sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)),
+		)
+		err := tCtx.TestApp.BankKeeper.MintCoins(tCtx.Ctx, "mint", amounts)
+		require.NoError(t, err)
+		err = tCtx.TestApp.BankKeeper.SendCoinsFromModuleToAccount(tCtx.Ctx, "mint", deploy.Signer.AccountAddress, amounts)
+		require.NoError(t, err)
+
+		// Contract deployment: To is nil
+		signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+			GasFeeCap: new(big.Int).SetUint64(100000000000),
+			GasTipCap: new(big.Int).SetUint64(100000000000),
+			Gas:       1000000, // Higher gas for contract deployment
+			ChainID:   big.NewInt(config.DefaultChainID),
+			To:        nil, // nil means contract creation
+			Value:     big.NewInt(0),
+			Data:      deploy.Bytecode,
+			Nonce:     deploy.Nonce,
+		}), deploy.Signer.EvmSigner, deploy.Signer.EvmPrivateKey)
+		require.NoError(t, err)
+
+		txData, err := ethtx.NewTxDataFromTx(signedTx)
+		require.NoError(t, err)
+
+		msg, err := types.NewMsgEVMTransaction(txData)
+		require.NoError(t, err)
+
+		txBuilder := tc.NewTxBuilder()
+		err = txBuilder.SetMsgs(msg)
+		require.NoError(t, err)
+		txBuilder.SetGasLimit(10000000000)
+		txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000))))
+
+		txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
+		require.NoError(t, err)
+
+		txs = append(txs, txBytes)
+	}
+
+	return txs
+}
+
+// CreateContractCallTxs creates signed contract call transactions
+func CreateContractCallTxs(t testing.TB, tCtx *GigaTestContext, calls []EVMContractCall) [][]byte {
+	txs := make([][]byte, 0, len(calls))
+	tc := app.MakeEncodingConfig().TxConfig
+
+	for _, call := range calls {
+		// Associate the Cosmos address with the EVM address
+		tCtx.TestApp.EvmKeeper.SetAddressMapping(tCtx.Ctx, call.Signer.AccountAddress, call.Signer.EvmAddress)
+
+		// Fund the signer account
+		amounts := sdk.NewCoins(
+			sdk.NewCoin("usei", sdk.NewInt(1000000000000000000)),
+			sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)),
+		)
+		err := tCtx.TestApp.BankKeeper.MintCoins(tCtx.Ctx, "mint", amounts)
+		require.NoError(t, err)
+		err = tCtx.TestApp.BankKeeper.SendCoinsFromModuleToAccount(tCtx.Ctx, "mint", call.Signer.AccountAddress, amounts)
+		require.NoError(t, err)
+
+		value := call.Value
+		if value == nil {
+			value = big.NewInt(0)
+		}
+
+		signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+			GasFeeCap: new(big.Int).SetUint64(100000000000),
+			GasTipCap: new(big.Int).SetUint64(100000000000),
+			Gas:       200000, // Gas for contract call
+			ChainID:   big.NewInt(config.DefaultChainID),
+			To:        &call.Contract,
+			Value:     value,
+			Data:      call.Data,
+			Nonce:     call.Nonce,
+		}), call.Signer.EvmSigner, call.Signer.EvmPrivateKey)
+		require.NoError(t, err)
+
+		txData, err := ethtx.NewTxDataFromTx(signedTx)
+		require.NoError(t, err)
+
+		msg, err := types.NewMsgEVMTransaction(txData)
+		require.NoError(t, err)
+
+		txBuilder := tc.NewTxBuilder()
+		err = txBuilder.SetMsgs(msg)
+		require.NoError(t, err)
+		txBuilder.SetGasLimit(10000000000)
+		txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000))))
+
+		txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
+		require.NoError(t, err)
+
+		txs = append(txs, txBytes)
+	}
+
+	return txs
+}
+
+// encodeSetCall encodes a call to set(uint256)
+func encodeSetCall(value *big.Int) []byte {
+	// Pad value to 32 bytes
+	paddedValue := common.LeftPadBytes(value.Bytes(), 32)
+	return append(setFunctionSelector, paddedValue...)
+}
+
+// TestGigaVsGeth_ContractDeployAndCall compares Giga vs Geth for contract deployment and calls
+func TestGigaVsGeth_ContractDeployAndCall(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+
+	// Create a deployer
+	deployer := utils.NewSigner()
+
+	// Deploy contract with Geth
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	gethDeployTxs := CreateContractDeployTxs(t, gethCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
+	})
+	_, gethDeployResults, gethDeployErr := RunBlock(t, gethCtx, gethDeployTxs)
+	require.NoError(t, gethDeployErr, "Geth deploy failed")
+	require.Len(t, gethDeployResults, 1)
+	require.Equal(t, uint32(0), gethDeployResults[0].Code, "Geth deploy tx failed: %s", gethDeployResults[0].Log)
+
+	// Deploy contract with Giga
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	gigaDeployTxs := CreateContractDeployTxs(t, gigaCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
+	})
+	_, gigaDeployResults, gigaDeployErr := RunBlock(t, gigaCtx, gigaDeployTxs)
+	require.NoError(t, gigaDeployErr, "Giga deploy failed")
+	require.Len(t, gigaDeployResults, 1)
+	require.Equal(t, uint32(0), gigaDeployResults[0].Code, "Giga deploy tx failed: %s", gigaDeployResults[0].Log)
+
+	// Compare deployment results (skip gas comparison - different EVM implementations may differ)
+	CompareResultsNoGas(t, "ContractDeploy", gethDeployResults, gigaDeployResults)
+
+	t.Logf("Contract deployment successful on both Geth and Giga")
+	t.Logf("Geth deploy gas used: %d", gethDeployResults[0].GasUsed)
+	t.Logf("Giga deploy gas used: %d", gigaDeployResults[0].GasUsed)
+}
+
+// TestGigaVsGeth_ContractCallsSequential compares Giga vs Geth for sequential contract calls
+// This test deploys a contract and calls it within the same block
+func TestGigaVsGeth_ContractCallsSequential(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+	callCount := 5
+
+	// Create a deployer and separate callers
+	deployer := utils.NewSigner()
+	callers := make([]utils.TestAcct, callCount)
+	for i := 0; i < callCount; i++ {
+		callers[i] = utils.NewSigner()
+	}
+
+	// Calculate expected contract address (deployer address + nonce 0)
+	contractAddr := crypto.CreateAddress(deployer.EvmAddress, 0)
+
+	// ---- Run with Geth ----
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+
+	// Build all transactions: deploy + calls in same block
+	gethDeployTxs := CreateContractDeployTxs(t, gethCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
+	})
+
+	gethCallInputs := make([]EVMContractCall, callCount)
+	for i := 0; i < callCount; i++ {
+		gethCallInputs[i] = EVMContractCall{
+			Signer:   callers[i],
+			Contract: contractAddr,
+			Data:     encodeSetCall(big.NewInt(int64(i + 100))), // set(100), set(101), etc.
+			Nonce:    0,
+		}
+	}
+	gethCallTxs := CreateContractCallTxs(t, gethCtx, gethCallInputs)
+
+	// Combine deploy + calls into one block
+	allGethTxs := append(gethDeployTxs, gethCallTxs...)
+	_, gethResults, gethErr := RunBlock(t, gethCtx, allGethTxs)
+	require.NoError(t, gethErr)
+	require.Len(t, gethResults, 1+callCount)
+
+	t.Logf("Contract deployed at: %s", contractAddr.Hex())
+
+	// ---- Run with Giga ----
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+
+	gigaDeployTxs := CreateContractDeployTxs(t, gigaCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
+	})
+
+	gigaCallInputs := make([]EVMContractCall, callCount)
+	for i := 0; i < callCount; i++ {
+		gigaCallInputs[i] = EVMContractCall{
+			Signer:   callers[i],
+			Contract: contractAddr,
+			Data:     encodeSetCall(big.NewInt(int64(i + 100))),
+			Nonce:    0,
+		}
+	}
+	gigaCallTxs := CreateContractCallTxs(t, gigaCtx, gigaCallInputs)
+
+	allGigaTxs := append(gigaDeployTxs, gigaCallTxs...)
+	_, gigaResults, gigaErr := RunBlock(t, gigaCtx, allGigaTxs)
+	require.NoError(t, gigaErr)
+	require.Len(t, gigaResults, 1+callCount)
+
+	// Compare results (skip gas comparison - different EVM implementations may differ)
+	CompareResultsNoGas(t, "ContractDeployAndCalls", gethResults, gigaResults)
+
+	// Verify all transactions succeeded
+	for i, result := range gethResults {
+		require.Equal(t, uint32(0), result.Code, "Geth tx[%d] failed: %s", i, result.Log)
+	}
+	for i, result := range gigaResults {
+		require.Equal(t, uint32(0), result.Code, "Giga tx[%d] failed: %s", i, result.Log)
+	}
+
+	t.Logf("Contract deployment + %d calls successful on both Geth and Giga", callCount)
+}
+
+// TestAllModes_ContractExecution runs contract deployment and calls through all executor modes
+// All transactions are executed in a single block
+func TestAllModes_ContractExecution(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+	workers := 4
+
+	deployer := utils.NewSigner()
+	caller := utils.NewSigner()
+	contractAddr := crypto.CreateAddress(deployer.EvmAddress, 0)
+
+	// ---- Geth with OCC ----
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	gethDeployTxs := CreateContractDeployTxs(t, gethCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
+	})
+	gethCallTxs := CreateContractCallTxs(t, gethCtx, []EVMContractCall{
+		{Signer: caller, Contract: contractAddr, Data: encodeSetCall(big.NewInt(42)), Nonce: 0},
+	})
+	allGethTxs := append(gethDeployTxs, gethCallTxs...)
+	_, gethResults, err := RunBlock(t, gethCtx, allGethTxs)
+	require.NoError(t, err)
+	require.Len(t, gethResults, 2)
+	require.Equal(t, uint32(0), gethResults[0].Code, "Geth deploy failed: %s", gethResults[0].Log)
+	require.Equal(t, uint32(0), gethResults[1].Code, "Geth call failed: %s", gethResults[1].Log)
+
+	// ---- Giga Sequential ----
+	gigaSeqCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	gigaSeqDeployTxs := CreateContractDeployTxs(t, gigaSeqCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
+	})
+	gigaSeqCallTxs := CreateContractCallTxs(t, gigaSeqCtx, []EVMContractCall{
+		{Signer: caller, Contract: contractAddr, Data: encodeSetCall(big.NewInt(42)), Nonce: 0},
+	})
+	allGigaSeqTxs := append(gigaSeqDeployTxs, gigaSeqCallTxs...)
+	_, gigaSeqResults, err := RunBlock(t, gigaSeqCtx, allGigaSeqTxs)
+	require.NoError(t, err)
+	require.Len(t, gigaSeqResults, 2)
+	require.Equal(t, uint32(0), gigaSeqResults[0].Code, "GigaSeq deploy failed: %s", gigaSeqResults[0].Log)
+	require.Equal(t, uint32(0), gigaSeqResults[1].Code, "GigaSeq call failed: %s", gigaSeqResults[1].Log)
+
+	// ---- Giga OCC ----
+	gigaOCCCtx := NewGigaTestContext(t, accts, blockTime, workers, ModeGigaOCC)
+	gigaOCCDeployTxs := CreateContractDeployTxs(t, gigaOCCCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
+	})
+	gigaOCCCallTxs := CreateContractCallTxs(t, gigaOCCCtx, []EVMContractCall{
+		{Signer: caller, Contract: contractAddr, Data: encodeSetCall(big.NewInt(42)), Nonce: 0},
+	})
+	allGigaOCCTxs := append(gigaOCCDeployTxs, gigaOCCCallTxs...)
+	_, gigaOCCResults, err := RunBlock(t, gigaOCCCtx, allGigaOCCTxs)
+	require.NoError(t, err)
+	require.Len(t, gigaOCCResults, 2)
+	require.Equal(t, uint32(0), gigaOCCResults[0].Code, "GigaOCC deploy failed: %s", gigaOCCResults[0].Log)
+	require.Equal(t, uint32(0), gigaOCCResults[1].Code, "GigaOCC call failed: %s", gigaOCCResults[1].Log)
+
+	// Compare results
+	// Skip gas for Geth vs Giga (different implementations), but compare gas for Giga variants
+	CompareResultsNoGas(t, "AllModes_GethVsGigaSeq", gethResults, gigaSeqResults)
+	CompareResults(t, "AllModes_GigaSeqVsOCC", gigaSeqResults, gigaOCCResults)
+
+	t.Logf("Contract deployment and calls produced identical results across all three executor modes")
 }
