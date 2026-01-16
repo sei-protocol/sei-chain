@@ -145,7 +145,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.24
+          go-version: '1.25.6'
 
       - name: Start 4 node docker cluster
         run: make clean && DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start
@@ -174,6 +174,21 @@ jobs:
             bash -c "${script}"
           done
           unset IFS  # revert the internal field separator back to default
+
+      - name: Print node logs on failure
+        if: ${{ failure() }}
+        run: |
+          set -euo pipefail
+          for c in sei-node-0 sei-node-1 sei-node-2 sei-node-3; do
+            echo "==================== ${c} (docker logs tail) ===================="
+            docker logs --tail 200 "${c}" || true
+            echo "==================== ${c} (seid log file tail) ===================="
+            # Logs are accessible on host since build/generated is mounted in containers
+            NODE_ID=${c#sei-node-}
+            if [ -f "build/generated/logs/seid-${NODE_ID}.log" ]; then
+              tail -200 "build/generated/logs/seid-${NODE_ID}.log" || true
+            fi
+          done
 
       - name: Prepare log artifact name
         if: ${{ always() }}
