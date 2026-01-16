@@ -116,11 +116,11 @@ func prepareTestData(t *testing.T) *WAL[proto.ChangelogEntry] {
 	dir := t.TempDir()
 	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
 	require.NoError(t, err)
-	writeTestData(changelog)
+	writeTestData(t, changelog)
 	return changelog
 }
 
-func writeTestData(changelog *WAL[proto.ChangelogEntry]) {
+func writeTestData(t *testing.T, changelog *WAL[proto.ChangelogEntry]) {
 	for _, changes := range ChangeSets {
 		cs := []*proto.NamedChangeSet{
 			{
@@ -130,7 +130,7 @@ func writeTestData(changelog *WAL[proto.ChangelogEntry]) {
 		}
 		entry := proto.ChangelogEntry{}
 		entry.Changesets = cs
-		_ = changelog.Write(entry)
+		require.NoError(t, changelog.Write(entry))
 	}
 }
 
@@ -257,7 +257,7 @@ func TestCloseSyncMode(t *testing.T) {
 	require.NoError(t, err)
 
 	// Write some data in sync mode
-	writeTestData(changelog)
+	writeTestData(t, changelog)
 
 	// Close the changelog
 	err = changelog.Close()
@@ -307,7 +307,7 @@ func TestReopenAndContinueWrite(t *testing.T) {
 	// Create and write initial data
 	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
 	require.NoError(t, err)
-	writeTestData(changelog)
+	writeTestData(t, changelog)
 	err = changelog.Close()
 	require.NoError(t, err)
 
@@ -502,8 +502,9 @@ func TestConcurrentCloseWithInFlightAsyncWrites(t *testing.T) {
 	}, 1*time.Second, 10*time.Millisecond, "expected some writes before Close()")
 
 	closeDone := make(chan struct{})
+	closeErr := make(chan error, 1)
 	go func() {
-		_ = changelog.Close() // may return error depending on race; must not deadlock/panic
+		closeErr <- changelog.Close()
 		close(closeDone)
 	}()
 
@@ -528,6 +529,8 @@ func TestConcurrentCloseWithInFlightAsyncWrites(t *testing.T) {
 			return false
 		}
 	}, 3*time.Second, 10*time.Millisecond, "Close() did not return (possible deadlock)")
+
+	require.NoError(t, <-closeErr)
 }
 
 func TestConcurrentTruncateBeforeWithAsyncWrites(t *testing.T) {
@@ -605,7 +608,7 @@ func TestGetLastIndex(t *testing.T) {
 	dir := t.TempDir()
 	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
 	require.NoError(t, err)
-	writeTestData(changelog)
+	writeTestData(t, changelog)
 	err = changelog.Close()
 	require.NoError(t, err)
 
