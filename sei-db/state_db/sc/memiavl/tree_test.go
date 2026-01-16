@@ -259,7 +259,7 @@ func TestGetByIndex(t *testing.T) {
 	snapshot, err := OpenSnapshot(dir, Options{})
 	require.NoError(t, err)
 	ptree := NewFromSnapshot(snapshot, Options{ZeroCopy: true})
-	defer func() { _ = ptree.Close() }()
+	t.Cleanup(func() { require.NoError(t, ptree.Close()) })
 
 	for i, pair := range changes.Pairs {
 		idx, v := ptree.GetWithIndex(pair.Key)
