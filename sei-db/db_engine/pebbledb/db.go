@@ -35,10 +35,15 @@ func Open(path string, opts db_engine.OpenOptions) (_ db_engine.DB, err error) {
 	defer cache.Unref()
 
 	popts := &pebble.Options{
-		Cache:                       cache,
-		Comparer:                    cmp,
-		FormatMajorVersion:          pebble.FormatNewest,
-		L0CompactionThreshold:       4,
+		Cache:    cache,
+		Comparer: cmp,
+		// FormatMajorVersion is pinned to a specific version to prevent accidental
+		// breaking changes when updating the pebble dependency. Using FormatNewest
+		// would cause the on-disk format to silently upgrade when pebble is updated,
+		// making the database incompatible with older software versions.
+		// When upgrading this version, ensure it's an intentional, documented change.
+		FormatMajorVersion:    pebble.FormatVirtualSSTables,
+		L0CompactionThreshold: 4,
 		L0StopWritesThreshold:       1000,
 		LBaseMaxBytes:               64 << 20, // 64 MB
 		MemTableSize:                64 << 20,

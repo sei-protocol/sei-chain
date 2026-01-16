@@ -97,9 +97,14 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	}
 
 	opts := &pebble.Options{
-		Cache:                       cache,
-		Comparer:                    comparer,
-		FormatMajorVersion:          pebble.FormatNewest,
+		Cache:    cache,
+		Comparer: comparer,
+		// FormatMajorVersion is pinned to a specific version to prevent accidental
+		// breaking changes when updating the pebble dependency. Using FormatNewest
+		// would cause the on-disk format to silently upgrade when pebble is updated,
+		// making the database incompatible with older software versions.
+		// When upgrading this version, ensure it's an intentional, documented change.
+		FormatMajorVersion:          pebble.FormatVirtualSSTables,
 		L0CompactionThreshold:       2,
 		L0StopWritesThreshold:       1000,
 		LBaseMaxBytes:               64 << 20, // 64 MB
