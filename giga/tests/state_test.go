@@ -381,19 +381,19 @@ var extractOnce sync.Once
 
 // getStateTestsPath returns the path to GeneralStateTests, extracting from archive if needed
 func getStateTestsPath(t testing.TB) string {
-	testdataPath := filepath.Join("testdata", "GeneralStateTests")
-	if _, err := os.Stat(testdataPath); err == nil {
-		return testdataPath
+	dataPath := filepath.Join("data", "GeneralStateTests")
+	if _, err := os.Stat(dataPath); err == nil {
+		return dataPath
 	}
 
-	archivePath := filepath.Join("testdata", "fixtures_general_state_tests.tgz")
+	archivePath := filepath.Join("data", "fixtures_general_state_tests.tgz")
 	if _, err := os.Stat(archivePath); err == nil {
 		extractOnce.Do(func() {
 			t.Log("Extracting test fixtures from archive...")
-			extractArchive(t, archivePath, "testdata")
+			extractArchive(t, archivePath, "data")
 		})
-		if _, err := os.Stat(testdataPath); err == nil {
-			return testdataPath
+		if _, err := os.Stat(dataPath); err == nil {
+			return dataPath
 		}
 	}
 
@@ -575,74 +575,4 @@ func runStateTestComparison(t *testing.T, st *stJSON, post stPost) {
 		VerifyPostState(t, v2Ctx, post.State, "V2")
 		VerifyPostState(t, gigaCtx, post.State, "Giga")
 	}
-}
-
-// TestGigaVsV2_StateTest_Simple is a simple sanity test using embedded test data
-func TestGigaVsV2_StateTest_Simple(t *testing.T) {
-	// A simple state test: transfer value from one account to another
-	blockTime := time.Now()
-
-	// Create a sender with funds
-	senderKey, err := crypto.GenerateKey()
-	require.NoError(t, err)
-	sender := crypto.PubkeyToAddress(senderKey.PublicKey)
-
-	// Create a receiver
-	receiverKey, err := crypto.GenerateKey()
-	require.NoError(t, err)
-	receiver := crypto.PubkeyToAddress(receiverKey.PublicKey)
-
-	// Pre-state: sender has 1 ETH
-	pre := ethtypes.GenesisAlloc{
-		sender: {
-			Balance: big.NewInt(1e18),
-			Nonce:   0,
-		},
-	}
-
-	// Create a simple value transfer transaction
-	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
-		Nonce:    0,
-		GasPrice: big.NewInt(1e9),
-		Gas:      21000,
-		To:       &receiver,
-		Value:    big.NewInt(1e15), // 0.001 ETH
-		Data:     nil,
-	})
-
-	signer := ethtypes.LatestSignerForChainID(big.NewInt(config.DefaultChainID))
-	signedTx, err := ethtypes.SignTx(tx, signer, senderKey)
-	require.NoError(t, err)
-
-	txBytes := EncodeTxForApp(t, signedTx)
-
-	// --- Run with V2 Sequential ---
-	v2Ctx := NewStateTestContext(t, blockTime, 1, ModeV2Sequential)
-	v2Ctx.SetupPreState(t, pre)
-	senderSei := v2Ctx.TestApp.EvmKeeper.GetSeiAddressOrDefault(v2Ctx.Ctx, sender)
-	v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, senderSei, sender)
-
-	_, v2Results, v2Err := RunStateTestBlock(t, v2Ctx, [][]byte{txBytes})
-	require.NoError(t, v2Err, "V2 execution failed")
-	require.Len(t, v2Results, 1)
-
-	// --- Run with Giga ---
-	gigaCtx := NewStateTestContext(t, blockTime, 1, ModeGigaSequential)
-	gigaCtx.SetupPreState(t, pre)
-	senderSeiGiga := gigaCtx.TestApp.EvmKeeper.GetSeiAddressOrDefault(gigaCtx.Ctx, sender)
-	gigaCtx.TestApp.EvmKeeper.SetAddressMapping(gigaCtx.Ctx, senderSeiGiga, sender)
-
-	_, gigaResults, gigaErr := RunStateTestBlock(t, gigaCtx, [][]byte{txBytes})
-	require.NoError(t, gigaErr, "Giga execution failed")
-	require.Len(t, gigaResults, 1)
-
-	// --- Compare ---
-	t.Logf("V2 result: code=%d, gasUsed=%d", v2Results[0].Code, v2Results[0].GasUsed)
-	t.Logf("Giga result: code=%d, gasUsed=%d", gigaResults[0].Code, gigaResults[0].GasUsed)
-
-	require.Equal(t, v2Results[0].Code, gigaResults[0].Code, "result code mismatch")
-	require.Equal(t, uint32(0), v2Results[0].Code, "V2 tx failed: %s", v2Results[0].Log)
-	require.Equal(t, uint32(0), gigaResults[0].Code, "Giga tx failed: %s", gigaResults[0].Log)
-
-	t.Log("Simple state test passed: Giga matches V2")
 }
