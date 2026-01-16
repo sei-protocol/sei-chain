@@ -3,7 +3,6 @@ package harness
 import (
 	"math/big"
 	"strings"
-	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -13,15 +12,16 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
-	"github.com/stretchr/testify/require"
 )
 
 // BuildTransaction creates an Ethereum transaction from state test data
 // Note: Rebuilds the transaction with Sei's chain ID since fixtures use chain ID 1
-func BuildTransaction(t testing.TB, st *StateTestJSON, subtest StateTestPost) (*ethtypes.Transaction, common.Address) {
+func BuildTransaction(st *StateTestJSON, subtest StateTestPost) (*ethtypes.Transaction, common.Address, error) {
 	// Get the private key
 	privateKey, err := crypto.ToECDSA(st.Transaction.PrivateKey)
-	require.NoError(t, err, "invalid private key")
+	if err != nil {
+		return nil, common.Address{}, err
+	}
 
 	// Use sender from transaction if available, otherwise derive from key
 	var sender common.Address
@@ -125,31 +125,41 @@ func BuildTransaction(t testing.TB, st *StateTestJSON, subtest StateTestPost) (*
 	// Sign the transaction with Sei's chain ID
 	signer := ethtypes.LatestSignerForChainID(big.NewInt(config.DefaultChainID))
 	signedTx, err := ethtypes.SignTx(tx, signer, privateKey)
-	require.NoError(t, err, "failed to sign transaction")
+	if err != nil {
+		return nil, common.Address{}, err
+	}
 
-	return signedTx, sender
+	return signedTx, sender, nil
 }
 
 // EncodeTxForApp encodes a signed transaction for the Sei app
-func EncodeTxForApp(t testing.TB, signedTx *ethtypes.Transaction) []byte {
+func EncodeTxForApp(signedTx *ethtypes.Transaction) ([]byte, error) {
 	tc := app.MakeEncodingConfig().TxConfig
 
 	txData, err := ethtx.NewTxDataFromTx(signedTx)
-	require.NoError(t, err, "failed to create tx data")
+	if err != nil {
+		return nil, err
+	}
 
 	msg, err := types.NewMsgEVMTransaction(txData)
-	require.NoError(t, err, "failed to create EVM message")
+	if err != nil {
+		return nil, err
+	}
 
 	txBuilder := tc.NewTxBuilder()
 	err = txBuilder.SetMsgs(msg)
-	require.NoError(t, err, "failed to set messages")
+	if err != nil {
+		return nil, err
+	}
 	txBuilder.SetGasLimit(10000000000)
 	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000))))
 
 	txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
-	require.NoError(t, err, "failed to encode transaction")
+	if err != nil {
+		return nil, err
+	}
 
-	return txBytes
+	return txBytes, nil
 }
 
 // parseHexBig parses a hex string (with possible leading zeros) to *big.Int

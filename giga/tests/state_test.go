@@ -11,7 +11,8 @@ import (
 
 // TestGigaVsV2_StateTests runs state tests comparing Giga vs V2 execution
 func TestGigaVsV2_StateTests(t *testing.T) {
-	stateTestsPath := harness.GetStateTestsPath(t)
+	stateTestsPath, err := harness.GetStateTestsPath()
+	require.NoError(t, err, "failed to get path to state tests")
 
 	// Allow filtering to specific directory via STATE_TEST_DIR env var
 	specificDir := os.Getenv("STATE_TEST_DIR")
@@ -38,7 +39,9 @@ func TestGigaVsV2_StateTests(t *testing.T) {
 			continue
 		}
 
-		tests := harness.LoadStateTestsFromDir(t, dirPath)
+		tests, err := harness.LoadStateTestsFromDir(dirPath)
+		require.NoError(t, err, "failed to load state tests from %s", dirPath)
+
 		for testName, st := range tests {
 			// Run each subtest for Cancun fork (most recent stable)
 			cancunPosts, ok := st.Post["Cancun"]

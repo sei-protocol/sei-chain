@@ -1,6 +1,7 @@
 package giga_test
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	"github.com/sei-protocol/sei-chain/giga/tests/harness"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
+	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -112,7 +114,7 @@ func (stc *StateTestContext) SetupSender(sender common.Address) {
 }
 
 // RunStateTestBlock executes a state test transaction and returns results
-func RunStateTestBlock(t testing.TB, stc *StateTestContext, txs [][]byte) ([]abci.Event, []*abci.ExecTxResult, error) {
+func RunStateTestBlock(stc *StateTestContext, txs [][]byte) ([]abci.Event, []*abci.ExecTxResult, error) {
 	app.EnableOCC = stc.Mode == ModeV2withOCC || stc.Mode == ModeGigaOCC
 
 	req := &abci.RequestFinalizeBlock{
@@ -129,22 +131,25 @@ func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harnes
 	blockTime := time.Now()
 
 	// Build the transaction
-	signedTx, sender := harness.BuildTransaction(t, st, post)
-	txBytes := harness.EncodeTxForApp(t, signedTx)
+	signedTx, sender, err := harness.BuildTransaction(st, post)
+	require.NoError(t, err, "failed to build transaction")
+
+	txBytes, err := harness.EncodeTxForApp(signedTx)
+	require.NoError(t, err, "failed to encode transaction")
 
 	// --- Run with V2 Sequential (baseline) ---
 	v2Ctx := NewStateTestContext(t, blockTime, 1, ModeV2Sequential)
 	v2Ctx.SetupPreState(t, st.Pre)
 	v2Ctx.SetupSender(sender)
 
-	_, v2Results, v2Err := RunStateTestBlock(t, v2Ctx, [][]byte{txBytes})
+	_, v2Results, v2Err := RunStateTestBlock(v2Ctx, [][]byte{txBytes})
 
 	// --- Run with Giga ---
 	gigaCtx := NewStateTestContext(t, blockTime, 1, ModeGigaSequential)
 	gigaCtx.SetupPreState(t, st.Pre)
 	gigaCtx.SetupSender(sender)
 
-	_, gigaResults, gigaErr := RunStateTestBlock(t, gigaCtx, [][]byte{txBytes})
+	_, gigaResults, gigaErr := RunStateTestBlock(gigaCtx, [][]byte{txBytes})
 
 	// --- Handle ExpectException cases ---
 	if post.ExpectException != "" {
@@ -194,7 +199,41 @@ func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harnes
 
 	// --- Verify post-state against fixture (if available) ---
 	if len(post.State) > 0 {
-		harness.VerifyPostState(t, v2Ctx.Ctx, &v2Ctx.TestApp.EvmKeeper, post.State, "V2")
-		harness.VerifyPostState(t, gigaCtx.Ctx, &gigaCtx.TestApp.EvmKeeper, post.State, "Giga")
+		VerifyPostState(t, v2Ctx.Ctx, &v2Ctx.TestApp.EvmKeeper, post.State, "V2")
+		VerifyPostState(t, gigaCtx.Ctx, &gigaCtx.TestApp.EvmKeeper, post.State, "Giga")
+	}
+}
+
+// VerifyPostState verifies that the actual state matches the expected post-state from the fixture.
+// This follows the same pattern as x/evm/keeper/replay.go:VerifyAccount() but adapted for test assertions.
+// Note: Balance verification is skipped due to Sei's gas refund modifications
+// (see https://github.com/sei-protocol/go-ethereum/pull/32)
+func VerifyPostState(t *testing.T, ctx sdk.Context, keeper *evmkeeper.Keeper, expectedState ethtypes.GenesisAlloc, executorName string) {
+	for addr, expectedAccount := range expectedState {
+		// Verify storage
+		for key, expectedValue := range expectedAccount.Storage {
+			actualValue := keeper.GetState(ctx, addr, key)
+			if !bytes.Equal(expectedValue.Bytes(), actualValue.Bytes()) {
+				t.Errorf("%s: storage mismatch for %s key %s: expected %s, got %s",
+					executorName, addr.Hex(), key.Hex(), expectedValue.Hex(), actualValue.Hex())
+			}
+		}
+
+		// Verify nonce
+		actualNonce := keeper.GetNonce(ctx, addr)
+		if expectedAccount.Nonce != actualNonce {
+			t.Errorf("%s: nonce mismatch for %s: expected %d, got %d",
+				executorName, addr.Hex(), expectedAccount.Nonce, actualNonce)
+		}
+
+		// Verify code
+		actualCode := keeper.GetCode(ctx, addr)
+		if !bytes.Equal(expectedAccount.Code, actualCode) {
+			t.Errorf("%s: code mismatch for %s: expected %d bytes, got %d bytes",
+				executorName, addr.Hex(), len(expectedAccount.Code), len(actualCode))
+		}
+
+		// Note: Balance verification is intentionally skipped due to Sei-specific gas handling
+		// (limiting EVM max refund to 150% of used gas)
 	}
 }
