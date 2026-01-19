@@ -13,7 +13,6 @@ import (
 	"io"
 	"math"
 
-	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/oasisprotocol/curve25519-voi/primitives/merlin"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/curve25519"
@@ -21,6 +20,8 @@ import (
 	"golang.org/x/crypto/nacl/box"
 
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/p2p/pb"
+	"github.com/tendermint/tendermint/internal/protoutils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
@@ -93,6 +94,8 @@ func newRecvState(cipher cipher.AEAD) *recvState {
 
 var _ Conn = (*SecretConnection)(nil)
 
+type Challenge [32]byte 
+
 // SecretConnection implements Conn.
 // It is an implementation of the STS protocol.
 // See https://github.com/tendermint/tendermint/blob/0.1/docs/sts-final.pdf for
@@ -104,12 +107,12 @@ var _ Conn = (*SecretConnection)(nil)
 // (TODO(ismail): see also https://github.com/tendermint/tendermint/issues/3010)
 type SecretConnection struct {
 	conn      Conn
-	challenge [32]byte
+	challenge Challenge 
 	recvState asyncMutex[*recvState]
 	sendState asyncMutex[*sendState]
 }
 
-func (sc *SecretConnection) Challenge() [32]byte { return sc.challenge }
+func (sc *SecretConnection) Challenge() Challenge { return sc.challenge }
 
 func newSecretConnection(conn Conn, loc ephSecret, rem ephPublic) *SecretConnection {
 	pubs := utils.Slice(loc.public, rem)
@@ -121,7 +124,7 @@ func newSecretConnection(conn Conn, loc ephSecret, rem ephPublic) *SecretConnect
 	transcript.AppendMessage(labelEphemeralUpperPublicKey, pubs[1][:])
 	dh := loc.DhSecret(rem)
 	transcript.AppendMessage(labelDHSecret, dh[:])
-	var challenge [32]byte
+	var challenge Challenge
 	transcript.ExtractBytes(challenge[:], labelSecretConnectionMac)
 
 	// Generate the secret used for receiving, sending, challenge via HKDF-SHA2
@@ -142,26 +145,30 @@ func newSecretConnection(conn Conn, loc ephSecret, rem ephPublic) *SecretConnect
 // Caller should call conn.Close()
 // See docs/sts-final.pdf for more information.
 func MakeSecretConnection(ctx context.Context, conn Conn) (*SecretConnection, error) {
-	// Generate ephemeral key for perfect forward secrecy.
-	loc := genEphKey()
-
 	// Write local ephemeral pubkey and receive one too.
 	// NOTE: every 32-byte string is accepted as a Curve25519 public key (see
 	// DJB's Curve25519 paper: http://cr.yp.to/ecdh/curve25519-20060209.pdf)
-	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*SecretConnection, error) {
+	sc,err := scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*SecretConnection, error) {
+		// Generate ephemeral key for perfect forward secrecy.
+		loc := genEphKey()
 		s.Spawn(func() error {
-			if err:=WriteSizedProto(ctx,conn,&gogotypes.BytesValue{Value: loc.public[:]}); err!=nil { return err }
+			prefaceMsg := &pb.Preface{StsPublicKey:loc.public[:]}
+			if err:=WriteSizedMsg(ctx,conn,protoutils.Marshal(prefaceMsg)); err!=nil { return err }
 			return conn.Flush(ctx)
 		})
-		var bytes gogotypes.BytesValue
-		if err := ReadSizedProto(ctx, conn, &bytes, 1024*1024); err != nil {
-			return nil, fmt.Errorf("%w: %v", errDH, err)
+		prefaceBytes,err := ReadSizedMsg(ctx, conn, 1024)
+		if err != nil { return nil, fmt.Errorf("ReadSizedMsg(): %w", err) }
+		prefaceMsg,err := protoutils.Unmarshal[*pb.Preface](prefaceBytes)
+		if err != nil { return nil, fmt.Errorf("Unmarshal(): %w",err) }
+		if len(prefaceMsg.StsPublicKey) != len(ephPublic{}) {
+			return nil, errors.New("bad ephemeral key size")
 		}
-		if len(bytes.Value) != len(ephPublic{}) {
-			return nil, fmt.Errorf("%w: bad ephemeral key size", errDH)
-		}
-		return newSecretConnection(conn, loc, ephPublic(bytes.Value)), nil
+		return newSecretConnection(conn, loc, ephPublic(prefaceMsg.StsPublicKey)), nil
 	})
+	if err!=nil {
+		return nil,fmt.Errorf("%w: %v",errDH,err)
+	}
+	return sc,nil
 }
 
 // Writes encrypted frames of `totalFrameSize + aeadSizeOverhead`.

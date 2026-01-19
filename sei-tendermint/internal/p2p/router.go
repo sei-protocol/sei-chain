@@ -4,12 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"sync"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
@@ -25,9 +23,9 @@ import (
 
 type errBadNetwork struct{ error }
 
-type PeerManager = peerManager[*Connection]
-type PeerUpdatesRecv = peerUpdatesRecv[*Connection]
-type ConnSet = connSet[*Connection]
+type PeerManager = peerManager[*ConnV2]
+type PeerUpdatesRecv = peerUpdatesRecv[*ConnV2]
+type ConnSet = connSet[*ConnV2]
 
 // Router manages peer connections and routes messages between peers and channels.
 type Router struct {
@@ -38,7 +36,7 @@ type Router struct {
 	lc      *metricsLabelCache
 
 	options     *RouterOptions
-	privKey     crypto.PrivKey
+	privKey     NodeSecretKey
 	peerManager *PeerManager
 
 	peerDB           utils.Mutex[*peerDB]
@@ -65,7 +63,7 @@ func (r *Router) getChannelDescs() []*conn.ChannelDescriptor {
 func NewRouter(
 	logger log.Logger,
 	metrics *Metrics,
-	privKey crypto.PrivKey,
+	privKey NodeSecretKey,
 	nodeInfoProducer func() *types.NodeInfo,
 	db dbm.DB,
 	options *RouterOptions,
@@ -73,8 +71,8 @@ func NewRouter(
 	if err := options.Validate(); err != nil {
 		return nil, err
 	}
-	selfID := types.NodeIDFromPubKey(privKey.Public())
-	peerManager := newPeerManager[*Connection](selfID, options)
+	selfID := privKey.Public().NodeID()
+	peerManager := newPeerManager[*ConnV2](selfID, options)
 	peerDB, err := newPeerDB(db, options.maxPeers())
 	if err != nil {
 		return nil, fmt.Errorf("newPeerDB(): %w", err)
@@ -194,45 +192,25 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 			r.metrics.NewConnections.With("direction", "in").Add(1)
 			// Spawn a goroutine per connection.
 			s.Spawn(func() error {
-				release := sync.OnceFunc(func() { sem.Release(1) })
-				defer release()
-				defer tcpConn.Close()
-				remoteAddr := tcp.RemoteAddr(tcpConn)
-				if err := connTracker.AddConn(remoteAddr); err != nil {
-					r.logger.Error("rate limiting incoming", "addr", remoteAddr, "err", err)
-					return nil
+				addr := tcpConn.RemoteAddr()
+				err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+					s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+					release := sync.OnceFunc(func() { sem.Release(1) })
+					defer release()
+					if err := connTracker.AddConn(addr); err != nil {
+						return fmt.Errorf("rate limiting incoming: %w", err)
+					}
+					defer connTracker.RemoveConn(addr)
+					conn, err := r.handshake(ctx, tcpConn, utils.None[NodeAddress](), r.giga.IsPresent())
+					if err != nil { return fmt.Errorf("r.handshake(): %w", err) }
+					release()
+					switch conn := conn.(type) {
+					case *ConnV2: return r.runConn(ctx, conn)
+					case *ConnGiga: return r.giga.OrPanic().RunConn(ctx, conn)
+					default: panic("unreachable")	
 				}
-				defer connTracker.RemoveConn(remoteAddr)
-				if err := r.options.filterPeerByIP(ctx, remoteAddr); err != nil {
-					r.logger.Error("peer filtered by IP", "ip", remoteAddr, "err", err)
-					return nil
-				}
-				if d, ok := r.options.HandshakeTimeout.Get(); ok {
-					var cancel context.CancelFunc
-					ctx, cancel = context.WithTimeout(ctx, d)
-					defer cancel()
-				}
-				secretConn, err := conn.MakeSecretConnection(ctx, tcpConn, r.privKey, r.giga.IsPresent())
-				if err != nil {
-					r.logger.Error("MakeSecretConnection()", "addr", remoteAddr, "err", err)
-					return nil
-				} 
-				conn, err := r.handshake(ctx, tcpConn, utils.None[NodeAddress]())
-				if err != nil {
-					r.logger.Error("r.handshake()", "addr", remoteAddr, "err", err)
-					return nil
-				}
-				if err := r.options.filterPeerByID(ctx, conn.PeerInfo().ID()); err != nil {
-					r.logger.Error("peer filtered by IP", "ip", remoteAddr, "err", err)
-					return nil
-				}
-				release()
-				if conn.IsGiga() {
-					err = r.giga.OrPanic().RunConn(ctx, conn)
-				} else {
-					err = r.runConn(ctx, conn)
-				}
-				r.logger.Error("r.runConn(inbound)", "err", err)
+				})
+				r.logger.Error("r.runConn(inbound)", "addr", addr, "err", err)
 				return nil
 			})
 		}
@@ -254,22 +232,26 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 						return err
 					}
 					s.Spawn(func() error {
-						tcpConn, err := r.dial(ctx, addr)
-						if err != nil {
-							r.peerManager.DialFailed(addr)
-							r.logger.Error("r.dial()", "addr", addr, "err", err)
+						err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+							tcpConn, err := r.dial(ctx, addr)
+							if err != nil {
+								r.peerManager.DialFailed(addr)
+								return fmt.Errorf("r.dial(): %w",err)
+							}
+							s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+							r.metrics.NewConnections.With("direction", "out").Add(1)
+							conn, err := r.handshake(ctx, tcpConn, utils.Some(addr), false)
+							if err != nil {
+								r.peerManager.DialFailed(addr)
+								return fmt.Errorf("r.handshake(): %w", err)
+							}
+							// handshake(tryGigaConn=false) always returns *ConnV2
+							if err:=r.runConn(ctx, conn.(*ConnV2)); err!=nil {
+								return fmt.Errorf("r.runConn(): %w",err)
+							}
 							return nil
-						}
-						defer tcpConn.Close()
-						r.metrics.NewConnections.With("direction", "out").Add(1)
-						conn, err := r.handshake(ctx, tcpConn, utils.Some(addr), false)
-						if err != nil {
-							r.peerManager.DialFailed(addr)
-							r.logger.Error("r.handshake()", "addr", addr, "err", err)
-							return nil
-						}
-						err = r.runConn(ctx, conn)
-						r.logger.Error("r.runConn(outbound)", "err", err)
+						})
+						r.logger.Error("r.runConn(outbound)", "addr",addr,"err", err)
 						return nil
 					})
 				}
@@ -302,7 +284,7 @@ func (r *Router) storePeersRoutine(ctx context.Context) error {
 }
 
 func (r *Router) metricsRoutine(ctx context.Context) error {
-	_, err := r.peerManager.conns.Wait(ctx, func(conns im.Map[types.NodeID, *Connection]) bool {
+	_, err := r.peerManager.conns.Wait(ctx, func(conns im.Map[types.NodeID, *ConnV2]) bool {
 		r.metrics.Peers.Set(float64(r.peerManager.Conns().Len()))
 		return false
 	})
@@ -320,7 +302,7 @@ func (r *Router) IsBlockSyncPeer(id types.NodeID) bool {
 }
 
 // dialPeer connects to a peer by dialing it.
-func (r *Router) dial(ctx context.Context, addr NodeAddress) (*net.TCPConn, error) {
+func (r *Router) dial(ctx context.Context, addr NodeAddress) (tcp.Conn, error) {
 	resolveCtx := ctx
 	if d, ok := r.options.ResolveTimeout.Get(); ok {
 		var cancel context.CancelFunc
@@ -331,10 +313,10 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (*net.TCPConn, erro
 	r.logger.Debug("dialing peer address", "peer", addr)
 	endpoints, err := addr.Resolve(resolveCtx)
 	if err != nil {
-		return nil, fmt.Errorf("address.Resolve(): %w", err)
+		return tcp.Conn{}, fmt.Errorf("address.Resolve(): %w", err)
 	}
 	if len(endpoints) == 0 {
-		return nil, fmt.Errorf("address %q did not resolve to any endpoints", addr)
+		return tcp.Conn{}, fmt.Errorf("address %q did not resolve to any endpoints", addr)
 	}
 
 	for _, endpoint := range endpoints {
@@ -345,19 +327,18 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (*net.TCPConn, erro
 			defer cancel()
 		}
 		if err := endpoint.Validate(); err != nil {
-			return nil, err
+			return tcp.Conn{}, err
 		}
-		dialer := net.Dialer{}
-		tcpConn, err := dialer.DialContext(dialCtx, "tcp", endpoint.String())
+		c, err := tcp.Dial(dialCtx,endpoint.AddrPort)
 		if err != nil {
 			r.logger.Debug("failed to dial endpoint", "peer", addr.NodeID, "endpoint", endpoint, "err", err)
 			continue
 		}
 		r.metrics.NewConnections.With("direction", "out").Add(1)
 		r.logger.Debug("dialed peer", "peer", addr.NodeID, "endpoint", endpoint)
-		return tcpConn.(*net.TCPConn), nil
+		return c, nil
 	}
-	return nil, errors.New("all endpoints failed")
+	return tcp.Conn{}, errors.New("all endpoints failed")
 }
 
 func (r *Router) Run(ctx context.Context) error {

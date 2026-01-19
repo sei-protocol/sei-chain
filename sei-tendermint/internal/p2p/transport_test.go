@@ -17,12 +17,11 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/types"
 
-	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/libs/log"
 )
 
-func makeInfo(key crypto.PrivKey) types.NodeInfo {
-	nodeID := types.NodeIDFromPubKey(key.Public())
+func makeInfo(key NodeSecretKey) types.NodeInfo {
+	nodeID := key.Public().NodeID()
 	peerInfo := types.NodeInfo{
 		NodeID:     nodeID,
 		ListenAddr: "127.0.0.1:1239",
@@ -68,10 +67,10 @@ func TestRouter_MaxConcurrentAccepts(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("tcp.dial(): %w", err)
 				}
-				defer tcpConn.Close()
+				s.SpawnBg(func() error { return tcpConn.Run(ctx) })
 				// Begin handshake (but not finish)
 				var input [1]byte
-				if _, err := tcp.ReadOrClose(ctx, tcpConn, input[:]); err != nil {
+				if err := tcpConn.Read(ctx, input[:]); err != nil {
 					return fmt.Errorf("tcpConn.Read(): %w", err)
 				}
 				// Check that limit was not exceeded.
@@ -126,8 +125,8 @@ func TestRouter_Listen(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("tcp.dial(): %v", err)
 				}
-				defer tcpConn.Close()
-				if _, err := x.handshake(ctx, tcpConn, utils.Some(addr)); err != nil {
+				s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+				if _, err := x.handshake(ctx, tcpConn, utils.Some(addr), false); err != nil {
 					return fmt.Errorf("handshake(): %v", err)
 				}
 				return nil
@@ -156,13 +155,12 @@ func TestHandshake_NodeInfo(t *testing.T) {
 		if err != nil {
 			return fmt.Errorf("tcp.dial(): %v", err)
 		}
-		defer tcpConn.Close()
-		conn, err := x.handshake(ctx, tcpConn, utils.Some(addr))
+		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+		conn, err := x.handshake(ctx, tcpConn, utils.Some(addr), false)
 		if err != nil {
 			return fmt.Errorf("handshake(): %v", err)
 		}
-		defer conn.Close()
-		if err := utils.TestDiff(*r.nodeInfoProducer(), conn.PeerInfo()); err != nil {
+		if err := utils.TestDiff(*r.nodeInfoProducer(), conn.(*ConnV2).PeerInfo()); err != nil {
 			t.Fatalf("conn.PeerInfo(): %v", err)
 		}
 		return nil
@@ -182,39 +180,27 @@ func TestHandshake_Context(t *testing.T) {
 		listener, err := tcp.Listen(a.Endpoint().AddrPort)
 		if err != nil {
 			return fmt.Errorf("tcp.Listen(): %w", err)
-		}
-		s.Spawn(func() error {
-			defer listener.Close()
-			// One connection end does not handshake.
-			tcpConn, err := listener.AcceptOrClose(ctx)
-			if err != nil {
-				return fmt.Errorf("tcp.AcceptOrClose(): %w", err)
-			}
-			s.SpawnBg(func() error {
-				defer tcpConn.Close()
-				<-ctx.Done()
-				return nil
-			})
-			return nil
-		})
-		s.Spawn(func() error {
-			// Second connection end tries to handshake.
+		}	
+		defer listener.Close()
+		s.SpawnBg(func() error {
+			// One connection end tries to handshake.
 			addr := TestAddress(a)
 			tcpConn, err := b.dial(ctx, addr)
 			if err != nil {
 				t.Fatalf("tcp.dial(): %v", err)
 			}
-			s.SpawnBg(func() error {
-				defer tcpConn.Close()
-				conn, err := b.handshake(ctx, tcpConn, utils.Some(addr))
-				if err == nil {
-					defer conn.Close()
-					return fmt.Errorf("handshake(): expected error, got %w", err)
-				}
-				return nil
-			})
+			s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+			if _, err := b.handshake(ctx, tcpConn, utils.Some(addr), false); err == nil {
+				return fmt.Errorf("handshake(): expected error, got %w", err)
+			}
 			return nil
 		})
+		// Second connection end does not handshake.
+		tcpConn, err := listener.AcceptOrClose(ctx)
+		if err != nil {
+			return fmt.Errorf("tcp.AcceptOrClose(): %w", err)
+		}
+		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
 		return nil
 	})
 	if err != nil {

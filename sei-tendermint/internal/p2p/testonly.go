@@ -12,7 +12,6 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	gogotypes "github.com/gogo/protobuf/types"
-	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
@@ -228,12 +227,12 @@ type TestNode struct {
 	NodeID      types.NodeID
 	NodeInfo    types.NodeInfo
 	NodeAddress NodeAddress
-	PrivKey     crypto.PrivKey
+	PrivKey     NodeSecretKey 
 	Router      *Router
 }
 
 // Waits for the specific connection to get disconnected.
-func (n *TestNode) WaitForDisconnect(ctx context.Context, conn *Connection) {
+func (n *TestNode) WaitForDisconnect(ctx context.Context, conn *ConnV2) {
 	if _, err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
 		got, ok := conns.Get(conn.Info().ID)
 		return !ok || got != conn
@@ -278,8 +277,8 @@ func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
 // running peer manager, but does not add it to the existing
 // network. Callers are responsible for updating peering relationships.
 func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
-	privKey := ed25519.GenerateSecretKey()
-	nodeID := types.NodeIDFromPubKey(privKey.Public())
+	privKey := NodeSecretKey(ed25519.GenerateSecretKey())
+	nodeID := privKey.Public().NodeID()
 	logger := n.logger.With("node", nodeID[:5])
 
 	routerOpts := &RouterOptions{
@@ -407,8 +406,8 @@ func RequireUpdate(t *testing.T, recv *PeerUpdatesRecv, expect PeerUpdate) {
 	if err != nil {
 		require.FailNow(t, "recv.Recv(): %w", err)
 	}
-	require.Equal(t, expect.NodeID, update.NodeID, "node id did not match")
-	require.Equal(t, expect.Status, update.Status, "statuses did not match")
+	utils.OrPanic(utils.TestDiff(expect.NodeID, update.NodeID))
+	utils.OrPanic(utils.TestDiff(expect.Status, update.Status))
 }
 
 // RequireUpdates requires that a PeerUpdates subscription yields the given updates

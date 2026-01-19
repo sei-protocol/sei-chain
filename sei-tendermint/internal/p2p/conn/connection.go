@@ -12,10 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	gogoproto "github.com/gogo/protobuf/proto"
 	"golang.org/x/time/rate"
 
-	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
@@ -41,9 +40,9 @@ func IsDisconnect(err error) bool {
 // ChannelID is an arbitrary channel ID.
 type ChannelID uint16
 
-type ChannelDescriptor = ChannelDescriptorT[proto.Message]
+type ChannelDescriptor = ChannelDescriptorT[gogoproto.Message]
 
-type ChannelDescriptorT[T proto.Message] struct {
+type ChannelDescriptorT[T gogoproto.Message] struct {
 	ID       ChannelID
 	Priority int
 
@@ -223,6 +222,10 @@ func (c *MConnection) Run(ctx context.Context) error {
 	})
 }
 
+func (c *MConnection) LocalAddr() netip.AddrPort { return c.conn.LocalAddr() }
+func (c *MConnection) RemoteAddr() netip.AddrPort { return c.conn.RemoteAddr() }
+func (c *MConnection) Close() { c.conn.Close() }
+
 // Queues a message to be sent.
 // WARNING: takes ownership of msgBytes
 // TODO(gprusak): fix the ownership
@@ -363,24 +366,25 @@ func (c *MConnection) popSendQueue(ctx context.Context) (*p2p.Packet, error) {
 // sendRoutine polls for packets to send from channels.
 func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 	maxPacketMsgSize := c.maxPacketMsgSize()
-	limiter := rate.NewLimiter(c.config.getSendRateLimit(), max(maxPacketMsgSize, int(c.config.SendRate)))
-	protoWriter := protoio.NewDelimitedWriter(c.conn)
+	limiter := rate.NewLimiter(c.config.getSendRateLimit(), int(max(maxPacketMsgSize, uint64(c.config.SendRate))))
 	for {
 		msg, err := c.popSendQueue(ctx)
 		if err != nil {
 			return fmt.Errorf("popSendQueue(): %w", err)
 		}
-		if msg != nil {
-			n, err := protoWriter.WriteMsg(msg)
-			if err != nil {
+		if msg != nil { 
+			// Marshalling is expected to always succeed.
+			msgBytes := utils.OrPanic1(gogoproto.Marshal(msg))
+			if err := WriteSizedMsg(ctx,c.conn,msgBytes); err != nil {
 				return fmt.Errorf("protoWriter.WriteMsg(): %w", err)
 			}
-			if err := limiter.WaitN(ctx, n); err != nil {
+			// Here we ignore the fact that writing sized msg actually writes extra bytes to express size.
+			if err := limiter.WaitN(ctx, len(msgBytes)); err != nil {
 				return err
 			}
 		} else {
 			c.logger.Debug("Flush", "conn", c)
-			if err := c.conn.Flush(); err != nil {
+			if err := c.conn.Flush(ctx); err != nil {
 				return fmt.Errorf("bufWriter.Flush(): %w", err)
 			}
 		}
@@ -392,8 +396,7 @@ func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 	const readBufferSize = 1024
 	maxPacketMsgSize := c.maxPacketMsgSize()
-	limiter := rate.NewLimiter(c.config.getRecvRateLimit(), max(int(c.config.RecvRate), maxPacketMsgSize))
-	protoReader := protoio.NewDelimitedReader(c.conn, maxPacketMsgSize)
+	limiter := rate.NewLimiter(c.config.getRecvRateLimit(), int(max(maxPacketMsgSize, uint64(c.config.SendRate))))
 	channels := map[ChannelID]*recvChannel{}
 	for q := range c.sendQueue.Lock() {
 		for _, ch := range q.channels {
@@ -402,17 +405,14 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 	}
 
 	for {
-		packet := &p2p.Packet{}
-		n, err := protoReader.ReadMsg(packet)
+		msg, err := ReadSizedMsg(ctx,c.conn,maxPacketMsgSize)
 		if err != nil {
-			if !IsDisconnect(err) {
-				err = errBadEncoding{err}
-			}
 			return fmt.Errorf("protoReader.ReadMsg(): %w", err)
 		}
-		if err := limiter.WaitN(ctx, n); err != nil {
+		if err := limiter.WaitN(ctx, len(msg)); err != nil {
 			return err
 		}
+		packet := &p2p.Packet{}
 		switch p := packet.Sum.(type) {
 		case *p2p.Packet_PacketPing:
 			for q, ctrl := range c.sendQueue.Lock() {
@@ -450,8 +450,8 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 }
 
 // maxPacketMsgSize returns a maximum size of PacketMsg
-func (c *MConnection) maxPacketMsgSize() int {
-	bz, err := proto.Marshal(&p2p.Packet{
+func (c *MConnection) maxPacketMsgSize() uint64 {
+	bz, err := gogoproto.Marshal(&p2p.Packet{
 		Sum: &p2p.Packet_PacketMsg{
 			PacketMsg: &p2p.PacketMsg{
 				ChannelId: 0x01,
@@ -463,7 +463,7 @@ func (c *MConnection) maxPacketMsgSize() int {
 	if err != nil {
 		panic(err)
 	}
-	return len(bz)
+	return uint64(len(bz))
 }
 
 type sendChannel struct {

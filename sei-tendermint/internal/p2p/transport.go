@@ -3,17 +3,17 @@ package p2p
 import (
 	"context"
 	"fmt"
-	"github.com/gogo/protobuf/proto"
+	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/mux"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"math"
-	"net"
 	"net/netip"
 	"time"
 
-	p2pproto "github.com/tendermint/tendermint/proto/tendermint/p2p"
+	gogopb "github.com/tendermint/tendermint/proto/tendermint/p2p"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -36,17 +36,31 @@ func (cs ChannelIDSet) Contains(id ChannelID) bool {
 	return ok
 }
 
+type anyConn interface { isAnyConn() }
+func (*ConnV2) isAnyConn() {}
+func (*ConnGiga) isAnyConn() {}
+
+type ConnGiga struct {
+	conn conn.Conn
+	mux *mux.Mux
+}
+
+func (c *ConnGiga) Run(ctx context.Context) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		return c.mux.Run(ctx,c.conn)
+	})
+}
+
 // Connection implements Connection for Transport.
-type Connection struct {
+type ConnV2 struct {
 	dialAddr     utils.Option[NodeAddress]
-	conn         *net.TCPConn
 	peerChannels ChannelIDSet
 	peerInfo     types.NodeInfo
 	sendQueue    *Queue[sendMsg]
 	mconn        *conn.MConnection
 }
 
-func (c *Connection) Info() peerConnInfo {
+func (c *ConnV2) Info() peerConnInfo {
 	return peerConnInfo{
 		ID:       c.peerInfo.NodeID,
 		Channels: c.peerChannels,
@@ -54,51 +68,86 @@ func (c *Connection) Info() peerConnInfo {
 	}
 }
 
-type authConn struct {
-	peerInfo types.NodeInfo
-	dialAddr utils.Option[NodeAddress]
-	sc *conn.SecretConnection
+func exchangeHandshakeMsg(ctx context.Context, c conn.Conn, msg *handshakeMsg) (*handshakeMsg, error) {
+	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*handshakeMsg, error) {
+		s.Spawn(func() error {
+			if err := conn.WriteSizedMsg(ctx,c,handshakeMsgConv.Marshal(msg)); err != nil {
+				return fmt.Errorf("conn.WriteSizedMsg(): %w",err)
+			}
+			if err:=c.Flush(ctx); err!=nil {
+				return fmt.Errorf("c.Flush(): %w",err)
+			}
+			return nil
+		})
+		msgBytes,err := conn.ReadSizedMsg(ctx,c,1024*1024)
+		if err != nil { return nil,fmt.Errorf("conn.ReadSizedMsg(): %w",err) }
+		return handshakeMsgConv.Unmarshal(msgBytes)
+	})
 }
 
 // handshake handshakes with a peer, validating the peer's information. If
 // dialAddr is given, we check that the peer's info matches it.
 // Closes the tcpConn if case of any error.
-func (r *Router) handshake(ctx context.Context, c tcp.Conn, dialAddr utils.Option[NodeAddress]) (*authConn, error) {	
+func (r *Router) handshake(ctx context.Context, c tcp.Conn, dialAddr utils.Option[NodeAddress], trySeiGigaConn bool) (anyConn, error) {	
+	if !dialAddr.IsPresent() {
+		if err := r.options.filterPeerByIP(ctx, c.RemoteAddr()); err != nil {
+			return nil,fmt.Errorf("peer filtered by IP: %w",err)
+		}
+	}
 	if d, ok := r.options.HandshakeTimeout.Get(); ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, d)
 		defer cancel()
 	}
 	sc, err := conn.MakeSecretConnection(ctx, c)
-	if err != nil { return nil,err }
-	challenge := sc.Challenge()
+	if err != nil { return nil,fmt.Errorf("conn.MakeSecretConnection(): %w",err) }
+	handshakeMsg,err := exchangeHandshakeMsg(ctx,sc,&handshakeMsg{
+		NodeAuth:r.privKey.SignChallenge(sc.Challenge()),
+		SeiGigaConnection:trySeiGigaConn,
+	})
+	if err!=nil { return nil,fmt.Errorf("exchangeHandshakeMsg(): %w",err) }
+
+	if err := handshakeMsg.NodeAuth.Verify(sc.Challenge()); err != nil {
+		return nil, fmt.Errorf("handshakeMsg.NodeAuth.Verify(): %w",err)
+	}
+	peerID := handshakeMsg.NodeAuth.Key().NodeID()
+	if want, ok := dialAddr.Get(); ok && want.NodeID != peerID {
+		return nil,fmt.Errorf("expected to connect with peer %q, got %q", want.NodeID, peerID)
+	} else {
+		if err := r.options.filterPeerByID(ctx, peerID); err != nil {
+			return nil,fmt.Errorf("peer filtered by ID: %w", err)
+		}
+	}
+	
+	if trySeiGigaConn && handshakeMsg.SeiGigaConnection {
+		return &ConnGiga {
+			conn: sc,
+			mux: mux.NewMux(&mux.Config {
+				FrameSize: 10 * 1024,
+				Kinds: map[mux.StreamKind]*mux.StreamKindConfig{},	
+			}),
+		},nil
+	}
+
 	nodeInfo := r.nodeInfoProducer()
-	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*authConn, error) {
+	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (anyConn, error) {
 		s.Spawn(func() error {
-			authMsg := &authSigMessage{r.privKey.Public(), r.privKey.Sign(challenge[:])}
-			if err := conn.WriteSizedProto(ctx,sc,authSigMessageConv.Encode(authMsg)); err != nil { return err }
-			if err := conn.WriteSizedProto(ctx,sc,nodeInfo.ToProto()); err != nil { return err }
+			// Marshalling should always succeed.
+			if err := conn.WriteSizedMsg(ctx,sc,utils.OrPanic1(gogoproto.Marshal(nodeInfo.ToProto()))); err != nil {
+				return fmt.Errorf("conn.WriteSizedMsg(<nodeInfo>): %w",err)
+			}
 			return sc.Flush(ctx)
 		})
-		
-		var authProto pb.AuthSigMessage
-		if err := conn.ReadSizedProto(ctx,sc,&authProto,1024*1024); err != nil {
-			return nil, fmt.Errorf("%w: %v", errAuth, err)
+		nodeInfoBytes,err := conn.ReadSizedMsg(ctx,sc,uint64(types.MaxNodeInfoSize()))
+		if err != nil { return nil,fmt.Errorf("conn.ReadSizedMsg(): %w", err) }
+		var nodeInfoProto gogopb.NodeInfo
+		if err:=gogoproto.Unmarshal(nodeInfoBytes,&nodeInfoProto); err!=nil {
+			return nil,fmt.Errorf("gogoproto.Unmarshal(): %w",err)
 		}
-		authMsg, err := authSigMessageConv.Decode(&authProto)
-		if err != nil {
-			return nil, fmt.Errorf("%w: authSigMessageFromProto(): %v", errAuth, err)
-		}
-		if err := authMsg.Key.Verify(challenge[:], authMsg.Sig); err != nil {
-			return nil, fmt.Errorf("%w: %v", errAuth, err)
-		}
-		var pbPeerInfo p2pproto.NodeInfo
-		if err := conn.ReadSizedProto(ctx,sc,&pbPeerInfo,uint64(types.MaxNodeInfoSize())); err != nil { return nil,err }
-		peerInfo, err := types.NodeInfoFromProto(&pbPeerInfo)
-		if err != nil { return nil,fmt.Errorf("error reading NodeInfo: %w", err) }
-		
+		peerInfo, err := types.NodeInfoFromProto(&nodeInfoProto)
+		if err != nil { return nil,fmt.Errorf("types.NodeInfoFromProto(): %w", err) }
+	
 		// Authenticate the peer first.
-		peerID := types.NodeIDFromPubKey(authMsg.Key)
 		if peerID != peerInfo.NodeID {
 			return nil,fmt.Errorf("peer's public key did not match its node ID %q (expected %q)", peerInfo.NodeID, peerID)
 		}
@@ -108,16 +157,7 @@ func (r *Router) handshake(ctx context.Context, c tcp.Conn, dialAddr utils.Optio
 		}
 		if peerInfo.Network != nodeInfo.Network {
 			return nil,errBadNetwork{fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)}
-		}
-		if want, ok := dialAddr.Get(); ok && want.NodeID != peerInfo.NodeID {
-			return nil,fmt.Errorf("expected to connect with peer %q, got %q", want.NodeID, peerInfo.NodeID)
-		}
-		if !dialAddr.IsPresent() {
-			// Filter inbound 
-			if err := r.options.filterPeerByID(ctx, peerInfo.ID()); err != nil {
-				return nil,fmt.Errorf("peer filtered by ID (%v): %w",peerInfo.ID(),err)
-			}
-		}
+		}	
 		if err := nodeInfo.CompatibleWith(peerInfo); err != nil {
 			return nil,ErrRejected{
 				err:            err,
@@ -125,26 +165,22 @@ func (r *Router) handshake(ctx context.Context, c tcp.Conn, dialAddr utils.Optio
 				isIncompatible: true,
 			}
 		}
-		return &authConn{
+		return &ConnV2{
 			dialAddr: dialAddr,
 			peerInfo:     peerInfo,
-			sc: sc,
-		},nil
-	})
-		/*
-			
 			sendQueue:    NewQueue[sendMsg](queueBufferDefault),
 			peerChannels: toChannelIDs(peerInfo.Channels),
 			mconn: conn.NewMConnection(
-				//r.logger.With("peer", Endpoint{sc.RemoteAddr()}.NodeAddress(peerInfo.NodeID)),
+				r.logger.With("peer", Endpoint{sc.RemoteAddr()}.NodeAddress(peerInfo.NodeID)),
 				sc,
 				r.getChannelDescs(),
 				r.options.Connection,
 			),
-		}, nil*/
+		}, nil
+	})
 }
 
-func (r *Router) connSendRoutine(ctx context.Context, conn *Connection) error {
+func (r *Router) connSendRoutine(ctx context.Context, conn *ConnV2) error {
 	for {
 		start := time.Now().UTC()
 		m, err := conn.sendQueue.Recv(ctx)
@@ -152,7 +188,7 @@ func (r *Router) connSendRoutine(ctx context.Context, conn *Connection) error {
 			return err
 		}
 		r.metrics.RouterPeerQueueRecv.Observe(time.Since(start).Seconds())
-		bz, err := proto.Marshal(m.Message)
+		bz, err := gogoproto.Marshal(m.Message)
 		if err != nil {
 			panic(fmt.Sprintf("proto.Marshal(): %v", err))
 		}
@@ -168,7 +204,7 @@ func (r *Router) connSendRoutine(ctx context.Context, conn *Connection) error {
 
 // receivePeer receives inbound messages from a peer, deserializes them and
 // passes them on to the appropriate channel.
-func (r *Router) connRecvRoutine(ctx context.Context, conn *Connection) error {
+func (r *Router) connRecvRoutine(ctx context.Context, conn *ConnV2) error {
 	for {
 		chID, bz, err := conn.mconn.Recv(ctx)
 		if err != nil {
@@ -182,24 +218,24 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *Connection) error {
 				continue
 			}
 
-			msg := proto.Clone(ch.desc.MessageType)
-			if err := proto.Unmarshal(bz, msg); err != nil {
+			msg := gogoproto.Clone(ch.desc.MessageType)
+			if err := gogoproto.Unmarshal(bz, msg); err != nil {
 				return fmt.Errorf("message decoding failed, dropping message: [peer=%v] %w", conn.peerInfo.NodeID, err)
 			}
 			// Priority is not used since all messages in this queue are from the same channel.
-			if _, ok := ch.recvQueue.Send(RecvMsg[proto.Message]{From: conn.peerInfo.NodeID, Message: msg}, proto.Size(msg), 0).Get(); ok {
+			if _, ok := ch.recvQueue.Send(RecvMsg[gogoproto.Message]{From: conn.peerInfo.NodeID, Message: msg}, gogoproto.Size(msg), 0).Get(); ok {
 				r.metrics.QueueDroppedMsgs.With("ch_id", fmt.Sprint(chID), "direction", "in").Add(float64(1))
 			}
 			r.metrics.PeerReceiveBytesTotal.With(
 				"chID", fmt.Sprint(chID),
 				"peer_id", string(conn.peerInfo.NodeID),
-				"message_type", r.lc.ValueToMetricLabel(msg)).Add(float64(proto.Size(msg)))
+				"message_type", r.lc.ValueToMetricLabel(msg)).Add(float64(gogoproto.Size(msg)))
 			r.logger.Debug("received message", "peer", conn.peerInfo.NodeID, "message", msg)
 		}
 	}
 }
 
-func (r *Router) runConn(ctx context.Context, conn *Connection) error {
+func (r *Router) runConn(ctx context.Context, conn *ConnV2) error {
 	if err := r.peerManager.Connected(conn); err != nil {
 		return fmt.Errorf("r.peerManager.Connected(): %w", err)
 	}
@@ -213,29 +249,11 @@ func (r *Router) runConn(ctx context.Context, conn *Connection) error {
 	})
 }
 
-// String displays connection information.
-func (c *Connection) String() string {
-	return c.RemoteEndpoint().String()
-}
-
-func (c *Connection) PeerInfo() types.NodeInfo {
-	return c.peerInfo
-}
-
-// LocalEndpoint implements Connection.
-func (c *Connection) LocalEndpoint() Endpoint {
-	return Endpoint{tcp.LocalAddr(c.conn)}
-}
-
-// RemoteEndpoint.
-func (c *Connection) RemoteEndpoint() Endpoint {
-	return Endpoint{tcp.RemoteAddr(c.conn)}
-}
-
-// Close.
-func (c *Connection) Close() {
-	c.conn.Close()
-}
+func (c *ConnV2) String() string { return c.RemoteEndpoint().String() }
+func (c *ConnV2) PeerInfo() types.NodeInfo { return c.peerInfo }
+func (c *ConnV2) LocalEndpoint() Endpoint { return Endpoint{c.mconn.LocalAddr()} }
+func (c *ConnV2) RemoteEndpoint() Endpoint { return Endpoint{c.mconn.RemoteAddr()} }
+func (c *ConnV2) Close() { c.mconn.Close() }
 
 // Endpoint represents a transport connection endpoint, either local or remote.
 // It is a TCP endpoint address.
@@ -264,27 +282,3 @@ func (e Endpoint) Validate() error {
 	return nil
 }
 
-type authSigMessage struct {
-	Key crypto.PubKey
-	Sig crypto.Sig
-}
-
-var authSigMessageConv = utils.ProtoConv[*authSigMessage, *pb.AuthSigMessage]{
-	Encode: func(m *authSigMessage) *pb.AuthSigMessage {
-		return &pb.AuthSigMessage{
-			PubKey: crypto.PubKeyConv.Encode(m.Key),
-			Sig:    m.Sig.Bytes(),
-		}
-	},
-	Decode: func(p *pb.AuthSigMessage) (*authSigMessage, error) {
-		key, err := crypto.PubKeyConv.DecodeReq(p.PubKey)
-		if err != nil {
-			return nil, fmt.Errorf("PubKey: %w", err)
-		}
-		sig, err := crypto.SigFromBytes(p.Sig)
-		if err != nil {
-			return nil, fmt.Errorf("Sig: %w", err)
-		}
-		return &authSigMessage{key, sig}, nil
-	},
-}

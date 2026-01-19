@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"strings"
 	"sync/atomic"
@@ -15,7 +14,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
-	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
@@ -222,7 +220,7 @@ func TestRouter_SendError(t *testing.T) {
 var keyFiltered = makeKey(utils.TestRngFromSeed(738234133))
 var infoFiltered = makeInfo(keyFiltered)
 
-func makeRouterWithOptionsAndKey(logger log.Logger, opts *RouterOptions, key crypto.PrivKey) *Router {
+func makeRouterWithOptionsAndKey(logger log.Logger, opts *RouterOptions, key NodeSecretKey) *Router {
 	info := makeInfo(key)
 	r, err := NewRouter(
 		logger.With("node", info.NodeID),
@@ -258,7 +256,7 @@ func makeRouterWithOptions(logger log.Logger, rng utils.Rng, opts *RouterOptions
 	return makeRouterWithOptionsAndKey(logger, opts, makeKey(rng))
 }
 
-func makeRouterWithKey(logger log.Logger, key crypto.PrivKey) *Router {
+func makeRouterWithKey(logger log.Logger, key NodeSecretKey) *Router {
 	return makeRouterWithOptionsAndKey(logger, makeRouterOptions(), key)
 }
 
@@ -280,7 +278,7 @@ func TestRouter_FilterByIP(t *testing.T) {
 		}
 		return nil
 	})
-	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	if err:=scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		r := makeRouterWithOptions(logger, rng, opts)
 		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
 		if err := r.WaitForStart(ctx); err != nil {
@@ -291,36 +289,41 @@ func TestRouter_FilterByIP(t *testing.T) {
 		t.Logf("Connection should succeed.")
 		r2 := makeRouter(logger, rng)
 		addr := TestAddress(r)
-		tcpConn, err := r2.dial(ctx, addr)
-		if err != nil {
-			return fmt.Errorf("peerTransport.dial(): %w", err)
+		
+		if err:=scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			tcpConn, err := r2.dial(ctx, addr)
+			if err != nil {
+				return fmt.Errorf("peerTransport.dial(): %w", err)
+			}
+			s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+			if _, err := r2.handshake(ctx, tcpConn, utils.Some(addr), false); err != nil {
+				return fmt.Errorf("handshake(): %w", err)
+			}
+			RequireUpdate(t, sub, PeerUpdate{
+				NodeID: TestAddress(r2).NodeID,
+				Status: PeerStatusUp,
+			})
+			return nil
+		}); err!=nil {
+			return err
 		}
-		defer tcpConn.Close()
-		conn, err := r2.handshake(ctx, tcpConn, utils.Some(addr))
-		if err != nil {
-			return fmt.Errorf("handshake(): %w", err)
-		}
-		RequireUpdate(t, sub, PeerUpdate{
-			NodeID: TestAddress(r2).NodeID,
-			Status: PeerStatusUp,
-		})
-		conn.Close()
-
 		t.Logf("Enable filtering.")
 		reject.Store(true)
 
 		t.Logf("Connection should fail during handshake.")
 		r2 = makeRouter(logger, rng)
-		tcpConn, err = r2.dial(ctx, addr)
-		if err != nil {
-			return fmt.Errorf("peerTransport.dial(): %w", err)
-		}
-		defer tcpConn.Close()
-		if _, err := r2.handshake(ctx, tcpConn, utils.Some(addr)); err == nil {
-			return fmt.Errorf("handshake(): expected error")
-		}
-		return nil
-	}); err != nil {
+		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			tcpConn, err := r2.dial(ctx, addr)
+			if err != nil {
+				return fmt.Errorf("peerTransport.dial(): %w", err)
+			}
+			s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+			if _, err := r2.handshake(ctx, tcpConn, utils.Some(addr), false); err == nil {
+				return fmt.Errorf("handshake(): expected error")
+			}
+			return nil
+		})
+	}); err!=nil {
 		t.Fatal(err)
 	}
 }
@@ -333,7 +336,7 @@ func TestRouter_AcceptPeers(t *testing.T) {
 	badInfo.Network = "other-network"
 	testcases := map[string]struct {
 		info types.NodeInfo
-		key  crypto.PrivKey
+		key NodeSecretKey 
 		ok   bool
 	}{
 		"valid handshake":      {makeInfo(peerKey), peerKey, true},
@@ -364,9 +367,9 @@ func TestRouter_AcceptPeers(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("peerTransport.dial(): %w", err)
 				}
-				defer tcpConn.Close()
+				s.SpawnBg(func() error { return tcpConn.Run(ctx) })
 				if tc.ok {
-					if _, err := x.handshake(ctx, tcpConn, utils.Some(addr)); err != nil {
+					if _, err := x.handshake(ctx, tcpConn, utils.Some(addr), false); err != nil {
 						return fmt.Errorf("handshake(): %w", err)
 					}
 					RequireUpdate(t, sub, PeerUpdate{
@@ -376,11 +379,11 @@ func TestRouter_AcceptPeers(t *testing.T) {
 				} else {
 					t.Logf("Expect immediate or delayed failure.")
 					// Peer should drop the connection during handshake.
-					conn, err := x.handshake(ctx, tcpConn, utils.Some(addr))
+					conn, err := x.handshake(ctx, tcpConn, utils.Some(addr), false)
 					if err != nil {
 						return nil
 					}
-					if err := x.runConn(ctx, conn); utils.IgnoreCancel(err) == nil {
+					if err := x.runConn(ctx, conn.(*ConnV2)); utils.IgnoreCancel(err) == nil {
 						return fmt.Errorf("want non-cancellation error, got %w", err)
 					}
 				}
@@ -410,7 +413,7 @@ func TestRouter_AcceptPeers_Parallel(t *testing.T) {
 
 		t.Logf("dial raw connections.")
 		var peers []*Router
-		var conns []*net.TCPConn
+		var conns []tcp.Conn
 		addr := TestAddress(r)
 		for range 10 {
 			x := makeRouter(logger, rng)
@@ -419,12 +422,12 @@ func TestRouter_AcceptPeers_Parallel(t *testing.T) {
 			if err != nil {
 				return fmt.Errorf("x.dial(): %w", err)
 			}
-			defer conn.Close()
+			s.SpawnBg(func() error { return conn.Run(ctx) })
 			conns = append(conns, conn)
 		}
 		t.Logf("Handshake the connections in reverse order.")
 		for i := len(conns) - 1; i >= 0; i-- {
-			if _, err := peers[i].handshake(ctx, conns[i], utils.Some(addr)); err != nil {
+			if _, err := peers[i].handshake(ctx, conns[i], utils.Some(addr), false); err != nil {
 				return fmt.Errorf("handshake(): %w", err)
 			}
 			RequireUpdate(t, sub, PeerUpdate{
@@ -476,8 +479,8 @@ func TestRouter_dialPeer_Retry(t *testing.T) {
 		if err != nil {
 			return fmt.Errorf("peerTransport.dial(): %w", err)
 		}
-		defer conn.Close()
-		if _, err := x.handshake(ctx, conn, utils.None[NodeAddress]()); err != nil {
+		s.SpawnBg(func() error { return conn.Run(ctx) })
+		if _, err := x.handshake(ctx, conn, utils.None[NodeAddress](), false); err != nil {
 			return fmt.Errorf("handshake(): %w", err)
 		}
 		RequireUpdate(t, sub, PeerUpdate{
@@ -532,14 +535,14 @@ func TestRouter_dialPeer_Reject(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("listener.AcceptOrClose(): %w", err)
 				}
-				defer tcpConn.Close()
+				s.SpawnBg(func() error { return tcpConn.Run(ctx) })
 				// Connections should be closed either during handshake, or immediately afterwards.
 				*x.nodeInfoProducer() = tc.info
-				conn, err := x.handshake(ctx, tcpConn, utils.None[NodeAddress]())
+				conn, err := x.handshake(ctx, tcpConn, utils.None[NodeAddress](), false)
 				if err != nil {
 					return nil
 				}
-				if err := x.runConn(ctx, conn); utils.IgnoreCancel(err) == nil {
+				if err := x.runConn(ctx, conn.(*ConnV2)); utils.IgnoreCancel(err) == nil {
 					return fmt.Errorf("want non-nil, non-cancellation error, got %w", err)
 				}
 				return nil
@@ -568,7 +571,7 @@ func TestRouter_dialPeers_Parallel(t *testing.T) {
 
 		t.Logf("Accept raw connections.")
 		var peers []*Router
-		var conns []*net.TCPConn
+		var conns []tcp.Conn
 		for i := range 10 {
 			t.Logf("ACCEPT %v", i)
 			peer := makeRouter(logger, rng)
@@ -584,7 +587,7 @@ func TestRouter_dialPeers_Parallel(t *testing.T) {
 			if err != nil {
 				return fmt.Errorf("listener.AcceptOrClose(): %w", err)
 			}
-			defer conn.Close()
+			s.SpawnBg(func() error { return conn.Run(ctx) })
 			conns = append(conns, conn)
 			peers = append(peers, peer)
 		}
@@ -592,7 +595,7 @@ func TestRouter_dialPeers_Parallel(t *testing.T) {
 		for i := len(conns) - 1; i >= 0; i-- {
 			conn := conns[i]
 			peer := peers[i]
-			if _, err := peer.handshake(ctx, conn, utils.None[NodeAddress]()); err != nil {
+			if _, err := peer.handshake(ctx, conn, utils.None[NodeAddress](), false); err != nil {
 				return fmt.Errorf("handshake(): %w", err)
 			}
 			RequireUpdate(t, sub, PeerUpdate{
@@ -624,8 +627,8 @@ func TestRouter_EvictPeers(t *testing.T) {
 		if err != nil {
 			return fmt.Errorf("dial(): %w", err)
 		}
-		defer tcpConn.Close()
-		conn, err := x.handshake(ctx, tcpConn, utils.Some(addr))
+		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+		conn, err := x.handshake(ctx, tcpConn, utils.Some(addr), false)
 		if err != nil {
 			return fmt.Errorf("handshake(): %w", err)
 		}
@@ -638,7 +641,7 @@ func TestRouter_EvictPeers(t *testing.T) {
 		t.Log("Report the peer as bad.")
 		r.Evict(peerID, errors.New("boom"))
 		t.Log("Wait for conn down")
-		if err := x.runConn(ctx, conn); utils.IgnoreCancel(err) == nil {
+		if err := x.runConn(ctx, conn.(*ConnV2)); utils.IgnoreCancel(err) == nil {
 			return fmt.Errorf("want non-nil, non-cancellation error, got %w", err)
 		}
 		return nil
@@ -682,8 +685,8 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 		if err != nil {
 			return fmt.Errorf("dial(): %w", err)
 		}
-		defer tcpConn.Close()
-		conn, err := x.handshake(ctx, tcpConn, utils.Some(addr))
+		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+		conn, err := x.handshake(ctx, tcpConn, utils.Some(addr), false)
 		if err != nil {
 			return fmt.Errorf("handshake(): %w", err)
 		}
@@ -691,7 +694,7 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 			NodeID: TestAddress(x).NodeID,
 			Status: PeerStatusUp,
 		})
-		s.SpawnBg(func() error { return mayDisconnectAfterDone(ctx, x.runConn(ctx, conn)) })
+		s.SpawnBg(func() error { return mayDisconnectAfterDone(ctx, x.runConn(ctx, conn.(*ConnV2))) })
 		n := 1
 		msg1 := &TestMessage{Value: "Hello"}
 		msg2 := &TestMessage{Value: "Hello2"}
