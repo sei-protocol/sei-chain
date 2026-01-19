@@ -17,6 +17,7 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
+	"github.com/ethereum/evmc/v12/bindings/go/evmc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core"
@@ -76,6 +77,9 @@ type Keeper struct {
 	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
 	latestUpgrade           string
+
+	// EvmoneVM holds the loaded evmone VM instance for the Giga executor
+	EvmoneVM *evmc.VM
 }
 
 type AddressNoncePair struct {

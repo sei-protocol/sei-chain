@@ -78,7 +78,7 @@ func NewGigaTestContext(t testing.TB, testAccts []utils.TestAcct, blockTime time
 		if err != nil {
 			t.Fatalf("failed to load evmone: %v", err)
 		}
-		testApp.EvmKeeper.EvmoneVM = evmoneVM
+		testApp.GigaEvmKeeper.EvmoneVM = evmoneVM
 	}
 
 	// Fund test accounts
