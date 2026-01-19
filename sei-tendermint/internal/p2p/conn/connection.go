@@ -8,7 +8,6 @@ import (
 	"math"
 	"net"
 	"net/netip"
-	"reflect"
 	"sync/atomic"
 	"time"
 
@@ -211,13 +210,6 @@ func (c *MConnection) Run(ctx context.Context) error {
 		s.SpawnNamed("sendRoutine", func() error { return c.sendRoutine(ctx) })
 		s.SpawnNamed("recvRoutine", func() error { return c.recvRoutine(ctx) })
 		s.SpawnNamed("statsRoutine", func() error { return c.statsRoutine(ctx) })
-		// Unfortunately golang std IO operations do not support cancellation via context.
-		// Instead, we trigger cancellation by closing the underlying connection.
-		// Alternatively, we could utilise net.Conn.Set[Read|Write]Deadline() methods
-		// for precise cancellation, but we don't have a need for that here.
-		<-ctx.Done()
-		s.Cancel(ctx.Err())
-		c.conn.Close()
 		return nil
 	})
 }
@@ -407,12 +399,15 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 	for {
 		msg, err := ReadSizedMsg(ctx,c.conn,maxPacketMsgSize)
 		if err != nil {
-			return fmt.Errorf("protoReader.ReadMsg(): %w", err)
+			return fmt.Errorf("ReadSizedMsg(): %w", err)
 		}
 		if err := limiter.WaitN(ctx, len(msg)); err != nil {
 			return err
 		}
 		packet := &p2p.Packet{}
+		if err:=gogoproto.Unmarshal(msg,packet); err!=nil {
+			return errBadEncoding{fmt.Errorf("gogoproto.Unmarshal(): %w",err)}
+		}
 		switch p := packet.Sum.(type) {
 		case *p2p.Packet_PacketPing:
 			for q, ctrl := range c.sendQueue.Lock() {
@@ -444,7 +439,7 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 				}
 			}
 		default:
-			return fmt.Errorf("unknown message type %v", reflect.TypeOf(packet))
+			return fmt.Errorf("unknown message type")
 		}
 	}
 }

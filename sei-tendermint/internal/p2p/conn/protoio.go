@@ -7,6 +7,8 @@ import (
 	"github.com/gogo/protobuf/proto"
 )
 
+var errMsgTooLarge = errors.New("message too large")
+
 // Writes size-prefixed proto message.
 func WriteSizedMsg(ctx context.Context, conn Conn, msg []byte) error {
 	var sizeVar [binary.MaxVarintLen64]byte
@@ -26,7 +28,7 @@ func ReadSizedMsg(ctx context.Context, conn Conn, maxSize uint64) ([]byte,error)
 	}
 	size, n := binary.Uvarint(sizeVar[:])
 	if n<=0 { return nil,errors.New("invalid size") }
-	if size>maxSize { return nil,errors.New("message too large") }
+	if size>maxSize { return nil,errMsgTooLarge }
 	msg := make([]byte, size)
 	if err:=conn.Read(ctx,msg); err!=nil { return nil,err }
 	return msg,nil

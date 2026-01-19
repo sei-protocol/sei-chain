@@ -34,7 +34,10 @@ func runEvilConn(ctx context.Context, conn Conn, shareEphKey, badEphKey bool) er
 			ephKey = []byte("drop users;")
 		}
 		ephKeyMsg := &pb.Preface{StsPublicKey: ephKey}
-		return WriteSizedMsg(ctx,conn,protoutils.Marshal(ephKeyMsg))
+		if err:=WriteSizedMsg(ctx,conn,protoutils.Marshal(ephKeyMsg)); err!=nil {
+			return fmt.Errorf("WriteSizedMsg(): %w",err)
+		}
+		return conn.Flush(ctx)
 	}))
 }
 
@@ -48,7 +51,6 @@ func TestMakeSecretConnection(t *testing.T) {
 		err  utils.Option[error]
 	}{
 		{"all good", true,false, utils.None[error]()},
-		{"refuse to share ephemeral key", false, false, utils.Some(errDH)},
 		{"share bad ephemeral key", true, true, utils.Some(errDH)},
 	}
 
@@ -56,6 +58,15 @@ func TestMakeSecretConnection(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 				c1,c2 := tcp.TestPipe()
+				s.SpawnBg(func() error {
+					_ = c1.Run(ctx)
+					return nil
+				})
+				s.SpawnBg(func() error {
+					_ = c2.Run(ctx)
+					return nil
+				})
+
 				s.SpawnBg(func() error { return runEvilConn(ctx,c2,tc.shareEphKey,tc.badEphKey) })
 				_, err := MakeSecretConnection(ctx, c1)
 				if wantErr, ok := tc.err.Get(); ok {

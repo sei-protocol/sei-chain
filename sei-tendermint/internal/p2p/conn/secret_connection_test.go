@@ -57,8 +57,8 @@ func TestSecretConnectionReadWrite(t *testing.T) {
 	)
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		c1, c2 := tcp.TestPipe()
-		s.SpawnBg(func() error { return c1.Run(ctx) })
-		s.SpawnBg(func() error { return c2.Run(ctx) })
+		s.SpawnBg(func() error { return utils.IgnoreCancel(c1.Run(ctx)) })
+		s.SpawnBg(func() error { return utils.IgnoreCancel(c2.Run(ctx)) })
 		for id, c := range utils.Slice(c1, c2) {
 			rng := rng.Split()
 			s.Spawn(func() error {
@@ -66,11 +66,11 @@ func TestSecretConnectionReadWrite(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("MakeSecretConnection(): %w", err)
 				}
-				// In parallel, handle some reads and writes.
+				writeRng := rng.Split()
 				s.Spawn(func() error {
 					toWrite := data[id]
 					for len(toWrite)>0 {
-						n := min(rng.Intn(dataSizeMax*5)+1,len(toWrite))
+						n := min(writeRng.Intn(dataSizeMax*5)+1,len(toWrite))
 						if err := sc.Write(ctx,toWrite[:n]); err != nil {
 							return fmt.Errorf("failed to write to nodeSecretConn: %w", err)
 						}
@@ -81,10 +81,11 @@ func TestSecretConnectionReadWrite(t *testing.T) {
 					}
 					return nil
 				})
+				readRng := rng.Split()
 				s.Spawn(func() error {
 					toRead := data[1-id]
-					n := min(rng.Intn(dataSizeMax*5)+1,len(toRead))
 					for len(toRead)>0 {
+						n := min(readRng.Intn(dataSizeMax*5)+1,len(toRead))
 						buf := make([]byte,n)	
 						if err := sc.Read(ctx,buf); err != nil {
 							return fmt.Errorf("failed to read from nodeSecretConn: %w", err)
@@ -173,10 +174,11 @@ func createGoldenTestVectors() string {
 	}
 	return data
 }
+
 func spawnBgForTest(t testing.TB, task func(context.Context) error) {
 	go func() {
 		if err := task(t.Context()); t.Context().Err()==nil {
-			t.Error(err)	
+			utils.OrPanic(err)	
 		}
 	}()
 }

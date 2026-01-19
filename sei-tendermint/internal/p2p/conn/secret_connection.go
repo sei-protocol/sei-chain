@@ -26,7 +26,6 @@ import (
 )
 
 var errDH = errors.New("DH handshake failed")
-var errAuth = errors.New("authentication failed")
 var errAEAD = errors.New("decoding failed")
 
 // 4 + 1024 == 1028 total frame size
