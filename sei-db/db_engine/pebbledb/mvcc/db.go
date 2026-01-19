@@ -112,15 +112,27 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		MemTableStopWritesThreshold: 4,
 	}
 
-	for i := 0; i < len(opts.Levels); i++ {
+	// Configure L0 with explicit settings
+	opts.Levels[0].BlockSize = 32 << 10       // 32 KB
+	opts.Levels[0].IndexBlockSize = 256 << 10 // 256 KB
+	opts.Levels[0].FilterPolicy = bloom.FilterPolicy(10)
+	opts.Levels[0].FilterType = pebble.TableFilter
+	opts.Levels[0].Compression = func() *sstable.CompressionProfile { return sstable.ZstdCompression }
+	opts.Levels[0].EnsureL0Defaults()
+
+	// Configure L1+ levels, inheriting from previous level
+	for i := 1; i < len(opts.Levels); i++ {
 		l := &opts.Levels[i]
 		l.BlockSize = 32 << 10       // 32 KB
 		l.IndexBlockSize = 256 << 10 // 256 KB
 		l.FilterPolicy = bloom.FilterPolicy(10)
 		l.FilterType = pebble.TableFilter
 		l.Compression = func() *sstable.CompressionProfile { return sstable.ZstdCompression }
+		l.EnsureL1PlusDefaults(&opts.Levels[i-1])
 	}
 
+	// Disable bloom filter at bottommost level (L6) - bloom filters are less useful
+	// at the bottom level since most data lives there and false positive rate is low
 	opts.Levels[6].FilterPolicy = nil
 
 	//TODO: add a new config and check if readonly = true to support readonly mode

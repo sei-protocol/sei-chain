@@ -51,15 +51,27 @@ func Open(path string, opts db_engine.OpenOptions) (_ db_engine.DB, err error) {
 		DisableWAL:                  false,
 	}
 
-	for i := 0; i < len(popts.Levels); i++ {
+	// Configure L0 with explicit settings
+	popts.Levels[0].BlockSize = 32 << 10       // 32 KB
+	popts.Levels[0].IndexBlockSize = 256 << 10 // 256 KB
+	popts.Levels[0].FilterPolicy = bloom.FilterPolicy(10)
+	popts.Levels[0].FilterType = pebble.TableFilter
+	popts.Levels[0].Compression = func() *sstable.CompressionProfile { return sstable.ZstdCompression }
+	popts.Levels[0].EnsureL0Defaults()
+
+	// Configure L1+ levels, inheriting from previous level
+	for i := 1; i < len(popts.Levels); i++ {
 		l := &popts.Levels[i]
 		l.BlockSize = 32 << 10       // 32 KB
 		l.IndexBlockSize = 256 << 10 // 256 KB
 		l.FilterPolicy = bloom.FilterPolicy(10)
 		l.FilterType = pebble.TableFilter
 		l.Compression = func() *sstable.CompressionProfile { return sstable.ZstdCompression }
+		l.EnsureL1PlusDefaults(&popts.Levels[i-1])
 	}
 
+	// Disable bloom filter at bottommost level (L6) - bloom filters are less useful
+	// at the bottom level since most data lives there and false positive rate is low
 	popts.Levels[6].FilterPolicy = nil
 
 	db, err := pebble.Open(path, popts)
