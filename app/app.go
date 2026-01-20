@@ -1810,9 +1810,8 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 
 	// GasWanted should be set to the transaction's gas limit to match standard executor behavior.
 	// This is critical for LastResultsHash computation which uses Code, Data, GasWanted, and GasUsed.
-	//nolint:gosec // G115: safe, Gas() and UsedGas won't exceed int64 max
-	gasWanted := int64(ethTx.Gas())
-	gasUsed := int64(execResult.UsedGas)
+	gasWanted := int64(ethTx.Gas())     //nolint:gosec // G115: safe, Gas() won't exceed int64 max
+	gasUsed := int64(execResult.UsedGas) //nolint:gosec // G115: safe, UsedGas won't exceed int64 max
 
 	// Build Data field to match standard executor format.
 	// Standard path wraps MsgEVMTransactionResponse in TxMsgData.
@@ -1961,7 +1960,7 @@ func (app *App) ProcessBlockWithGigaExecutorOCC(ctx sdk.Context, txs [][]byte, r
 				// The full receipt details would need to be fetched from transient store if it exists.
 				bloom := ethtypes.Bloom{}
 				// Try to get receipt from transient store (may exist if execution succeeded)
-				existingReceipt, receiptErr := app.EvmKeeper.GetTransientReceipt(ctx.WithTxIndex(idx), txHash, uint64(idx)) //nolint:gosec
+				existingReceipt, receiptErr := app.EvmKeeper.GetTransientReceipt(ctx.WithTxIndex(idx), txHash, uint64(idx)) //nolint:gosec // G115: idx is a valid tx index, always non-negative
 				if receiptErr == nil && existingReceipt != nil {
 					bloom.SetBytes(existingReceipt.LogsBloom)
 				}
