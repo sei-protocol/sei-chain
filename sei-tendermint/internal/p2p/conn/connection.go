@@ -14,12 +14,12 @@ import (
 	gogoproto "github.com/gogo/protobuf/proto"
 	"golang.org/x/time/rate"
 
+	"github.com/tendermint/tendermint/internal/p2p/pb"
+	"github.com/tendermint/tendermint/internal/protoutils"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
-	"github.com/tendermint/tendermint/internal/protoutils"
-	"github.com/tendermint/tendermint/internal/p2p/pb"
 )
 
 var _ Conn = tcp.Conn{}
@@ -405,7 +405,7 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 		if err := limiter.WaitN(ctx, len(msg)); err != nil {
 			return err
 		}
-		packet,err := protoutils.Unmarshal[*pb.Packet](msg)
+		packet, err := protoutils.Unmarshal[*pb.Packet](msg)
 		if err != nil {
 			return errBadEncoding{fmt.Errorf("protoutils.Unmarshal(): %w", err)}
 		}

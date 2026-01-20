@@ -90,7 +90,7 @@ func (r *Router) handshake(ctx context.Context, c tcp.Conn, dialAddr utils.Optio
 		return nil, fmt.Errorf("conn.MakeSecretConnection(): %w", err)
 	}
 	handshakeMsg, err := exchangeHandshakeMsg(ctx, sc, &handshakeMsg{
-		NodeAuth:          r.privKey.SignChallenge(sc.Challenge()),
+		NodeAuth: r.privKey.SignChallenge(sc.Challenge()),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("exchangeHandshakeMsg(): %w", err)

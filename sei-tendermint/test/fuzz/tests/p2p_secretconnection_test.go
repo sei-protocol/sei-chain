@@ -9,10 +9,10 @@ import (
 	"net"
 	"testing"
 
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
-	"github.com/tendermint/tendermint/libs/utils/tcp"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 )
 
 func FuzzP2PSecretConnection(f *testing.F) {
@@ -33,12 +33,12 @@ func fuzz(t *testing.T, data []byte) {
 		// Copy data because Write modifies the slice.
 		dataToWrite := make([]byte, len(data))
 		copy(dataToWrite, data)
-		utils.OrPanic(fooConn.Write(ctx,dataToWrite))
+		utils.OrPanic(fooConn.Write(ctx, dataToWrite))
 		utils.OrPanic(fooConn.Flush(ctx))
 	}()
 
 	dataRead := make([]byte, len(data))
-	utils.OrPanic(barConn.Read(ctx,dataRead))
+	utils.OrPanic(barConn.Read(ctx, dataRead))
 
 	if !bytes.Equal(data, dataRead) {
 		panic("bytes written != read")

@@ -17,25 +17,25 @@ import (
 
 type call struct {
 	data []byte
-	done chan bool 
+	done chan bool
 }
 
 type Conn struct {
-	writes chan call 
-	reads chan call
+	writes chan call
+	reads  chan call
 	errors chan error
-	conn *net.TCPConn
+	conn   *net.TCPConn
 }
 
 func (c Conn) Read(ctx context.Context, data []byte) error {
 	done := make(chan bool)
-	if err:=utils.Send(ctx, c.reads, call{data,done}); err!=nil {
+	if err := utils.Send(ctx, c.reads, call{data, done}); err != nil {
 		return err
 	}
-	ok,err := utils.Recv(ctx,done)
-	if err!=nil {
+	ok, err := utils.Recv(ctx, done)
+	if err != nil {
 		c.conn.CloseRead() // close the read half.
-		<-done // wait for data ownership to be returned.
+		<-done             // wait for data ownership to be returned.
 		return err
 	}
 	if !ok {
@@ -47,44 +47,50 @@ func (c Conn) Read(ctx context.Context, data []byte) error {
 
 func (c Conn) Write(ctx context.Context, data []byte) error {
 	done := make(chan bool)
-	if err:=utils.Send(ctx, c.writes, call{data,done}); err!=nil {
+	if err := utils.Send(ctx, c.writes, call{data, done}); err != nil {
 		return err
 	}
-	ok,err := utils.Recv(ctx,done)
-	if err!=nil {
+	ok, err := utils.Recv(ctx, done)
+	if err != nil {
 		c.conn.CloseWrite() // close the write half.
-		<-done // wait for data ownership to be returned.
+		<-done              // wait for data ownership to be returned.
 		return err
 	}
 	if !ok {
 		// wait for context to finish.
-		<-ctx.Done() 
+		<-ctx.Done()
 		return ctx.Err()
 	}
 	return nil
 }
 
 func (c Conn) Flush(_ context.Context) error { return nil }
-func (c Conn) Close() { _ = c.conn.Close() }
+func (c Conn) Close()                        { _ = c.conn.Close() }
 
 func (c Conn) Run(ctx context.Context) error {
 	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error {
 			for {
-				call,err:=utils.Recv(ctx,c.writes)
-				if err!=nil { return err }
-				_,err = c.conn.Write(call.data)
-				call.done <- err==nil
-				if err!=nil { return err }
+				call, err := utils.Recv(ctx, c.writes)
+				if err != nil {
+					return err
+				}
+				_, err = c.conn.Write(call.data)
+				call.done <- err == nil
+				if err != nil {
+					return err
+				}
 			}
 		})
 		s.Spawn(func() error {
 			for {
-				call,err:=utils.Recv(ctx,c.reads)
-				if err!=nil { return err }
-				for len(call.data)>0 {
-					n,err := c.conn.Read(call.data)
-					if err!=nil {
+				call, err := utils.Recv(ctx, c.reads)
+				if err != nil {
+					return err
+				}
+				for len(call.data) > 0 {
+					n, err := c.conn.Read(call.data)
+					if err != nil {
 						call.done <- false
 						return err
 					}
@@ -125,9 +131,9 @@ func Dial(ctx context.Context, addr netip.AddrPort) (Conn, error) {
 		return Conn{}, err
 	}
 	return Conn{
-		conn: conn.(*net.TCPConn),
+		conn:   conn.(*net.TCPConn),
 		writes: make(chan call),
-		reads: make(chan call),
+		reads:  make(chan call),
 	}, nil
 }
 
@@ -219,8 +225,8 @@ func (l *Listener) AcceptOrClose(ctx context.Context) (Conn, error) {
 	// If there were no error, then res contains an open connection.
 	if err == nil {
 		return Conn{
-			conn: res.Load(),
-			reads: make(chan call),
+			conn:   res.Load(),
+			reads:  make(chan call),
 			writes: make(chan call),
 		}, nil
 	}
@@ -307,7 +313,7 @@ func TestPipe() (Conn, Conn) {
 		panic(err)
 	}
 	defer listen.Close()
-	var c1, c2 Conn 
+	var c1, c2 Conn
 	ctx := context.Background()
 	scope.Parallel(func(s scope.ParallelScope) error {
 		s.Spawn(func() error {
