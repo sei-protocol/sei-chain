@@ -92,5 +92,22 @@ ss-prune-interval = {{ .StateStore.PruneIntervalSeconds }}
 ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
 `
 
+// ReceiptStoreConfigTemplate defines the configuration template for receipt-store
+const ReceiptStoreConfigTemplate = `
+###############################################################################
+###                        Receipt Store Configuration                      ###
+###############################################################################
+
+[receipt-store]
+# Backend defines the receipt store backend.
+# Supported backends: pebble, parquet
+# defaults to pebble
+rs-backend = "{{ .ReceiptStore.Backend }}"
+
+# Defines the directory to store the receipt db files.
+# If not explicitly set, default to application home directory.
+rs-db-directory = "{{ .ReceiptStore.DBDirectory }}"
+`
+
 // DefaultConfigTemplate combines both templates for backward compatibility
-const DefaultConfigTemplate = StateCommitConfigTemplate + StateStoreConfigTemplate
+const DefaultConfigTemplate = StateCommitConfigTemplate + StateStoreConfigTemplate + ReceiptStoreConfigTemplate

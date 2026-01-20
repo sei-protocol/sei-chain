@@ -78,7 +78,13 @@ func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, store)
 
-	cfg.Backend = "pebbledb"
+	cfg.Backend = "pebble"
+	store, err = receipt.NewReceiptStore(nil, cfg, storeKey)
+	require.NoError(t, err)
+	require.NotNil(t, store)
+	require.NoError(t, store.Close())
+
+	cfg.Backend = "parquet"
 	store, err = receipt.NewReceiptStore(nil, cfg, storeKey)
 	require.NoError(t, err)
 	require.NotNil(t, store)
