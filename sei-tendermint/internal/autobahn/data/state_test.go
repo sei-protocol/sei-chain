@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tendermint/tendermint/internal/autobahn/types"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
 type Snapshot struct {

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
 func firstErr(errs ...error) error {

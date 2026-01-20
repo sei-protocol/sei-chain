@@ -60,29 +60,31 @@ func TestRouter_MaxConcurrentAccepts(t *testing.T) {
 		t.Logf("spawn a bunch of connections, making sure that no more than %d are accepted at any given time", maxAccepts)
 		for range 10 {
 			s.SpawnNamed("test", func() error {
-				x := makeRouter(logger, rng)
-				// Establish a connection.
-				addr := TestAddress(r)
-				tcpConn, err := x.dial(ctx, addr)
-				if err != nil {
-					return fmt.Errorf("tcp.dial(): %w", err)
-				}
-				s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-				// Begin handshake (but not finish)
-				var input [1]byte
-				if err := tcpConn.Read(ctx, input[:]); err != nil {
-					return fmt.Errorf("tcpConn.Read(): %w", err)
-				}
-				// Check that limit was not exceeded.
-				if got, wantMax := total.Add(1), int64(maxAccepts); got > wantMax {
-					return fmt.Errorf("accepted too many connections: %d > %d", got, wantMax)
-				}
-				defer total.Add(-1)
-				// Keep the connection open for a while to force other dialers to wait.
-				if err := utils.Sleep(ctx, 100*time.Millisecond); err != nil {
-					return err
-				}
-				return nil
+				return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+					x := makeRouter(logger, rng)
+					// Establish a connection.
+					addr := TestAddress(r)
+					tcpConn, err := x.dial(ctx, addr)
+					if err != nil {
+						return fmt.Errorf("tcp.dial(): %w", err)
+					}
+					s.SpawnBg(func() error { return ignore(tcpConn.Run(ctx)) })
+					// Begin handshake (but not finish)
+					var input [1]byte
+					if err := tcpConn.Read(ctx, input[:]); err != nil {
+						return fmt.Errorf("tcpConn.Read(): %w", err)
+					}
+					// Check that limit was not exceeded.
+					if got, wantMax := total.Add(1), int64(maxAccepts); got > wantMax {
+						return fmt.Errorf("accepted too many connections: %d > %d", got, wantMax)
+					}
+					defer total.Add(-1)
+					// Keep the connection open for a while to force other dialers to wait.
+					if err := utils.Sleep(ctx, 100*time.Millisecond); err != nil {
+						return err
+					}
+					return nil
+				})
 			})
 		}
 		return nil
@@ -180,7 +182,7 @@ func TestHandshake_Context(t *testing.T) {
 		listener, err := tcp.Listen(a.Endpoint().AddrPort)
 		if err != nil {
 			return fmt.Errorf("tcp.Listen(): %w", err)
-		}	
+		}
 		defer listener.Close()
 		s.SpawnBg(func() error {
 			// One connection end tries to handshake.

@@ -1,8 +1,8 @@
 package consensus
 
 import (
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
 type scv = *types.Signed[*types.CommitVote]

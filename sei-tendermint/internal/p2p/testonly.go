@@ -227,7 +227,7 @@ type TestNode struct {
 	NodeID      types.NodeID
 	NodeInfo    types.NodeInfo
 	NodeAddress NodeAddress
-	PrivKey     NodeSecretKey 
+	PrivKey     NodeSecretKey
 	Router      *Router
 }
 

@@ -6,11 +6,10 @@ import (
 	"sort"
 	"time"
 
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
+	"github.com/tendermint/tendermint/internal/protoutils"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/internal/protoutils"
-	"github.com/tendermint/tendermint/internal/autobahn/pb"
-
 )
 
 // LaneRange represents a range [first,next) of blocks of a lane.
@@ -377,8 +376,12 @@ var LaneRangeConv = protoutils.Conv[*LaneRange, *pb.LaneRange]{
 		if err != nil {
 			return nil, fmt.Errorf("Lane: %w", err)
 		}
-		if m.First==nil { return nil,fmt.Errorf("First: missing") }
-		if m.Next==nil { return nil,fmt.Errorf("Next: missing") }
+		if m.First == nil {
+			return nil, fmt.Errorf("First: missing")
+		}
+		if m.Next == nil {
+			return nil, fmt.Errorf("Next: missing")
+		}
 		lastHash, err := ParseBlockHeaderHash(m.LastHash)
 		if err != nil {
 			return nil, fmt.Errorf("LastHash: %w", err)
@@ -404,8 +407,12 @@ var ViewConv = protoutils.Conv[View, *pb.View]{
 		if m == nil {
 			return View{}, nil
 		}
-		if m.Index==nil { return View{},fmt.Errorf("Index: missing") }
-		if m.Number==nil { return View{},fmt.Errorf("Number: missing") }
+		if m.Index == nil {
+			return View{}, fmt.Errorf("Index: missing")
+		}
+		if m.Number == nil {
+			return View{}, fmt.Errorf("Number: missing")
+		}
 		return View{
 			Index:  RoadIndex(*m.Index),
 			Number: ViewNumber(*m.Number),

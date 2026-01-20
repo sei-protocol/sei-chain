@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/internal/autobahn/data"
-	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/consensus/avail"
+	"github.com/tendermint/tendermint/internal/autobahn/data"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
 // ViewTimeoutFunc is a function that specifies the timeout for the given view.

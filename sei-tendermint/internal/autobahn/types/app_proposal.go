@@ -3,9 +3,9 @@ package types
 import (
 	"fmt"
 
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/internal/protoutils"
 	"github.com/tendermint/tendermint/internal/autobahn/pb"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
 // AppHash represents EVM state hash.
@@ -60,8 +60,12 @@ var AppProposalConv = protoutils.Conv[*AppProposal, *pb.AppProposal]{
 		}
 	},
 	Decode: func(m *pb.AppProposal) (*AppProposal, error) {
-		if m.GlobalNumber==nil { return nil,fmt.Errorf("GlobalNumber: missing") }
-		if m.RoadIndex==nil { return nil,fmt.Errorf("RoadIndex: missing") }
+		if m.GlobalNumber == nil {
+			return nil, fmt.Errorf("GlobalNumber: missing")
+		}
+		if m.RoadIndex == nil {
+			return nil, fmt.Errorf("RoadIndex: missing")
+		}
 		return &AppProposal{
 			globalNumber: GlobalBlockNumber(*m.GlobalNumber),
 			roadIndex:    RoadIndex(*m.RoadIndex),

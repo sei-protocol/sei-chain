@@ -15,9 +15,9 @@ import (
 
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 )
 
 // Run go test -update from within this module
@@ -25,7 +25,7 @@ import (
 var update = flag.Bool("update", false, "update .golden files")
 
 func TestSecretConnectionHandshake(t *testing.T) {
-	_,_ = makeSecretConnPair(t)
+	_, _ = makeSecretConnPair(t)
 }
 
 func TestConcurrentReadWrite(t *testing.T) {
@@ -52,8 +52,8 @@ func TestSecretConnectionReadWrite(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	data := utils.Slice(
-		utils.GenBytes(rng,dataSizeMax*100),
-		utils.GenBytes(rng,dataSizeMax*100),
+		utils.GenBytes(rng, dataSizeMax*100),
+		utils.GenBytes(rng, dataSizeMax*100),
 	)
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		c1, c2 := tcp.TestPipe()
@@ -69,9 +69,9 @@ func TestSecretConnectionReadWrite(t *testing.T) {
 				writeRng := rng.Split()
 				s.Spawn(func() error {
 					toWrite := data[id]
-					for len(toWrite)>0 {
-						n := min(writeRng.Intn(dataSizeMax*5)+1,len(toWrite))
-						if err := sc.Write(ctx,toWrite[:n]); err != nil {
+					for len(toWrite) > 0 {
+						n := min(writeRng.Intn(dataSizeMax*5)+1, len(toWrite))
+						if err := sc.Write(ctx, toWrite[:n]); err != nil {
 							return fmt.Errorf("failed to write to nodeSecretConn: %w", err)
 						}
 						toWrite = toWrite[n:]
@@ -84,13 +84,15 @@ func TestSecretConnectionReadWrite(t *testing.T) {
 				readRng := rng.Split()
 				s.Spawn(func() error {
 					toRead := data[1-id]
-					for len(toRead)>0 {
-						n := min(readRng.Intn(dataSizeMax*5)+1,len(toRead))
-						buf := make([]byte,n)	
-						if err := sc.Read(ctx,buf); err != nil {
+					for len(toRead) > 0 {
+						n := min(readRng.Intn(dataSizeMax*5)+1, len(toRead))
+						buf := make([]byte, n)
+						if err := sc.Read(ctx, buf); err != nil {
 							return fmt.Errorf("failed to read from nodeSecretConn: %w", err)
 						}
-						if err:=utils.TestDiff(buf,toRead[:n]); err!=nil { return err }
+						if err := utils.TestDiff(buf, toRead[:n]); err != nil {
+							return err
+						}
 						toRead = toRead[n:]
 					}
 					return nil
@@ -149,7 +151,7 @@ func writeLots(ctx context.Context, sc *SecretConnection, data []byte, total int
 func readLots(ctx context.Context, sc *SecretConnection, total int) error {
 	for total > 0 {
 		readBuffer := make([]byte, min(dataSizeMax, total))
-		err := sc.Read(ctx,readBuffer)
+		err := sc.Read(ctx, readBuffer)
 		if err != nil {
 			return err
 		}
@@ -177,8 +179,8 @@ func createGoldenTestVectors() string {
 
 func spawnBgForTest(t testing.TB, task func(context.Context) error) {
 	go func() {
-		if err := task(t.Context()); t.Context().Err()==nil {
-			utils.OrPanic(err)	
+		if err := task(t.Context()); t.Context().Err() == nil {
+			utils.OrPanic(err)
 		}
 	}()
 }
@@ -186,8 +188,8 @@ func spawnBgForTest(t testing.TB, task func(context.Context) error) {
 func makeSecretConnPair(tb testing.TB) (sc1 *SecretConnection, sc2 *SecretConnection) {
 	ctx := tb.Context()
 	c1, c2 := tcp.TestPipe()
-	spawnBgForTest(tb,c1.Run)
-	spawnBgForTest(tb,c2.Run)
+	spawnBgForTest(tb, c1.Run)
+	spawnBgForTest(tb, c2.Run)
 	// Make connections from both sides in parallel.
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error {
@@ -231,7 +233,7 @@ func BenchmarkWriteSecretConnection(b *testing.B) {
 	spawnBgForTest(b, func(ctx context.Context) error {
 		readBuffer := make([]byte, dataSizeMax)
 		for {
-			if err := barSecConn.Read(b.Context(), readBuffer); err!=nil {
+			if err := barSecConn.Read(b.Context(), readBuffer); err != nil {
 				return err
 			}
 		}
@@ -240,7 +242,7 @@ func BenchmarkWriteSecretConnection(b *testing.B) {
 	ctx := b.Context()
 	for b.Loop() {
 		idx := mrand.Intn(len(fooWriteBytes))
-		if err := fooSecConn.Write(ctx,fooWriteBytes[idx]); err != nil {
+		if err := fooSecConn.Write(ctx, fooWriteBytes[idx]); err != nil {
 			b.Errorf("failed to write to fooSecConn: %v", err)
 			return
 		}
@@ -264,7 +266,7 @@ func BenchmarkReadSecretConnection(b *testing.B) {
 	for _, size := range randomMsgSizes {
 		fooWriteBytes = append(fooWriteBytes, tmrand.Bytes(size))
 	}
-	spawnBgForTest(b,func(ctx context.Context) error {
+	spawnBgForTest(b, func(ctx context.Context) error {
 		for {
 			idx := mrand.Intn(len(fooWriteBytes))
 			if err := fooSecConn.Write(ctx, fooWriteBytes[idx]); err != nil {
@@ -276,7 +278,7 @@ func BenchmarkReadSecretConnection(b *testing.B) {
 	ctx := b.Context()
 	for b.Loop() {
 		readBuffer := make([]byte, dataSizeMax)
-		if err := barSecConn.Read(ctx,readBuffer); err!=nil {
+		if err := barSecConn.Read(ctx, readBuffer); err != nil {
 			b.Fatalf("Failed to read from barSecConn: %v", err)
 		}
 	}

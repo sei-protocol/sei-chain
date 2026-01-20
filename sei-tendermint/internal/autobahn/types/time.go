@@ -6,9 +6,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/pb"
 	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
 // TimeConv is the protobuf converter for time.Time.

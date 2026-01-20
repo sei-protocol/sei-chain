@@ -7,11 +7,11 @@ import (
 	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
-	"net/netip"
 	"errors"
 	"fmt"
 	"io"
 	"math"
+	"net/netip"
 
 	"github.com/oasisprotocol/curve25519-voi/primitives/merlin"
 	"golang.org/x/crypto/chacha20poly1305"
@@ -19,13 +19,12 @@ import (
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/nacl/box"
 
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/p2p/pb"
 	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
-var errDH = errors.New("DH handshake failed")
 var errAEAD = errors.New("decoding failed")
 
 // 4 + 1024 == 1028 total frame size
@@ -44,18 +43,18 @@ const (
 
 type asyncMutex[T any] struct {
 	mu chan struct{}
-	v T
+	v  T
 }
 
 func newAsyncMutex[T any](v T) asyncMutex[T] {
-	return asyncMutex[T]{make(chan struct{},1),v}
+	return asyncMutex[T]{make(chan struct{}, 1), v}
 }
 
 func (m *asyncMutex[T]) Lock(ctx context.Context, yield func(T) error) error {
-	if err:=utils.Send(ctx,m.mu,struct{}{}); err!=nil {
+	if err := utils.Send(ctx, m.mu, struct{}{}); err != nil {
 		return err
 	}
-	defer func(){ <-m.mu }()
+	defer func() { <-m.mu }()
 	return yield(m.v)
 }
 
@@ -93,7 +92,7 @@ func newRecvState(cipher cipher.AEAD) *recvState {
 
 var _ Conn = (*SecretConnection)(nil)
 
-type Challenge [32]byte 
+type Challenge [32]byte
 
 // SecretConnection implements Conn.
 // It is an implementation of the STS protocol.
@@ -106,7 +105,7 @@ type Challenge [32]byte
 // (TODO(ismail): see also https://github.com/tendermint/tendermint/issues/3010)
 type SecretConnection struct {
 	conn      Conn
-	challenge Challenge 
+	challenge Challenge
 	recvState asyncMutex[*recvState]
 	sendState asyncMutex[*sendState]
 }
@@ -147,27 +146,33 @@ func MakeSecretConnection(ctx context.Context, conn Conn) (*SecretConnection, er
 	// Write local ephemeral pubkey and receive one too.
 	// NOTE: every 32-byte string is accepted as a Curve25519 public key (see
 	// DJB's Curve25519 paper: http://cr.yp.to/ecdh/curve25519-20060209.pdf)
-	sc,err := scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*SecretConnection, error) {
+	sc, err := scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*SecretConnection, error) {
 		// Generate ephemeral key for perfect forward secrecy.
 		loc := genEphKey()
 		s.Spawn(func() error {
-			prefaceMsg := &pb.Preface{StsPublicKey:loc.public[:]}
-			if err:=WriteSizedMsg(ctx,conn,protoutils.Marshal(prefaceMsg)); err!=nil { return err }
+			prefaceMsg := &pb.Preface{StsPublicKey: loc.public[:]}
+			if err := WriteSizedMsg(ctx, conn, protoutils.Marshal(prefaceMsg)); err != nil {
+				return err
+			}
 			return conn.Flush(ctx)
 		})
-		prefaceBytes,err := ReadSizedMsg(ctx, conn, 1024)
-		if err != nil { return nil, fmt.Errorf("ReadSizedMsg(): %w", err) }
-		prefaceMsg,err := protoutils.Unmarshal[*pb.Preface](prefaceBytes)
-		if err != nil { return nil, fmt.Errorf("Unmarshal(): %w",err) }
+		prefaceBytes, err := ReadSizedMsg(ctx, conn, 1024)
+		if err != nil {
+			return nil, fmt.Errorf("ReadSizedMsg(): %w", err)
+		}
+		prefaceMsg, err := protoutils.Unmarshal[*pb.Preface](prefaceBytes)
+		if err != nil {
+			return nil, fmt.Errorf("Unmarshal(): %w", err)
+		}
 		if len(prefaceMsg.StsPublicKey) != len(ephPublic{}) {
 			return nil, errors.New("bad ephemeral key size")
 		}
 		return newSecretConnection(conn, loc, ephPublic(prefaceMsg.StsPublicKey)), nil
 	})
-	if err!=nil {
-		return nil,fmt.Errorf("%w: %v",errDH,err)
+	if err != nil {
+		return nil, err
 	}
-	return sc,nil
+	return sc, nil
 }
 
 // Writes encrypted frames of `totalFrameSize + aeadSizeOverhead`.
@@ -182,7 +187,7 @@ func (sc *SecretConnection) Write(ctx context.Context, data []byte) error {
 			if len(data) == 0 {
 				return nil
 			}
-			if err := sc.flush(ctx,sendState); err != nil {
+			if err := sc.flush(ctx, sendState); err != nil {
 				return err
 			}
 		}
@@ -203,7 +208,7 @@ func (sc *SecretConnection) flush(ctx context.Context, sendState *sendState) err
 	// We use a predeclared stack-allocated buffer, to prevent Seal from doing heap allocation.
 	// I'm not surre whether this optimization is needed though.
 	var sealedFrame [frameSize + aeadOverhead]byte
-	err := sc.conn.Write(ctx,sendState.cipher.Seal(sealedFrame[:0], nonce[:], sendState.frame[:], nil))
+	err := sc.conn.Write(ctx, sendState.cipher.Seal(sealedFrame[:0], nonce[:], sendState.frame[:], nil))
 	// Zeroize the the frame to avoid resending data from the previous frame.
 	// Security-wise it doesn't make any difference, it is here just to avoid people raising concerns.
 	clear(sendState.frame)
@@ -245,13 +250,13 @@ func (sc *SecretConnection) Read(ctx context.Context, data []byte) error {
 // Implements Conn
 func (sc *SecretConnection) Flush(ctx context.Context) error {
 	return sc.sendState.Lock(ctx, func(sendState *sendState) error {
-		return sc.flush(ctx,sendState)
+		return sc.flush(ctx, sendState)
 	})
 }
 
-func (sc *SecretConnection) LocalAddr() netip.AddrPort { return sc.conn.LocalAddr() }
+func (sc *SecretConnection) LocalAddr() netip.AddrPort  { return sc.conn.LocalAddr() }
 func (sc *SecretConnection) RemoteAddr() netip.AddrPort { return sc.conn.RemoteAddr() }
-func (sc *SecretConnection) Close() { sc.conn.Close() }
+func (sc *SecretConnection) Close()                     { sc.conn.Close() }
 
 type ephPublic [32]byte
 

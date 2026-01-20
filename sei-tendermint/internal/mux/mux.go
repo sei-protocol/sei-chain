@@ -219,7 +219,7 @@ func (r *runner) runSend(ctx context.Context, conn conn.Conn) error {
 			if err != nil {
 				panic(err)
 			}
-			if err := conn.Write(ctx,[]byte{byte(len(headerRaw))}); err != nil {
+			if err := conn.Write(ctx, []byte{byte(len(headerRaw))}); err != nil {
 				return errConn{err}
 			}
 			if err := conn.Write(ctx, headerRaw); err != nil {
@@ -243,7 +243,7 @@ func (r *runner) runRecv(ctx context.Context, conn conn.Conn) error {
 		// frame size is hard capped here at 255B.
 		// Currently we have 7 varint fields (up to 77B)
 		var headerSize [1]byte
-		if err := conn.Read(ctx,headerSize[:]); err != nil {
+		if err := conn.Read(ctx, headerSize[:]); err != nil {
 			return errConn{err}
 		}
 		headerRaw := make([]byte, headerSize[0])

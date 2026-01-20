@@ -1,8 +1,8 @@
 package protoutils
 
 import (
-	"google.golang.org/protobuf/proto"
 	"github.com/tendermint/tendermint/libs/utils"
+	"google.golang.org/protobuf/proto"
 )
 
 // Message is comparable proto.Message.
@@ -21,10 +21,10 @@ func Marshal[T Message](t T) []byte {
 	return utils.OrPanic1(proto.Marshal(t))
 }
 
-func Unmarshal[T Message](bytes []byte) (T,error) {
+func Unmarshal[T Message](bytes []byte) (T, error) {
 	t := New[T]()
-	err := proto.Unmarshal(bytes,t)
-	return t,err
+	err := proto.Unmarshal(bytes, t)
+	return t, err
 }
 
 // Clone clones a proto.Message object.

@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/tendermint/tendermint/internal/autobahn/data"
-	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
 type byLane[T any] map[types.LaneID][]T

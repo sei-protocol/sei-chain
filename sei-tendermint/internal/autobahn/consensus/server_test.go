@@ -8,10 +8,10 @@ import (
 
 	"github.com/tendermint/tendermint/internal/autobahn/config"
 	"github.com/tendermint/tendermint/internal/autobahn/data"
+	"github.com/tendermint/tendermint/internal/autobahn/types"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
 func TestClientServer(t *testing.T) {

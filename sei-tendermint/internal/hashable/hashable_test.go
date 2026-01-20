@@ -155,7 +155,7 @@ func TestOptionalFieldStatesAffectHash(t *testing.T) {
 			hashes[ToHash(unset)] = true
 			hashes[ToHash(withDefault)] = true
 			hashes[ToHash(withNonZero)] = true
-			require.Equal(t,3,len(hashes),"collision on different values")
+			require.Equal(t, 3, len(hashes), "collision on different values")
 		})
 	}
 }

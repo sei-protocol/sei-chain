@@ -17,8 +17,10 @@ func (c Conv[T, P]) Marshal(t T) []byte {
 }
 
 func (c Conv[T, P]) Unmarshal(bytes []byte) (T, error) {
-	p,err := Unmarshal[P](bytes)
-	if err!=nil { return utils.Zero[T](),err }
+	p, err := Unmarshal[P](bytes)
+	if err != nil {
+		return utils.Zero[T](), err
+	}
 	return c.Decode(p)
 }
 

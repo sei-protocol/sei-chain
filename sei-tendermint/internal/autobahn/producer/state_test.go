@@ -8,13 +8,13 @@ import (
 	"time"
 
 	"github.com/tendermint/tendermint/internal/autobahn/config"
-	"github.com/tendermint/tendermint/internal/autobahn/data"
-	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/libs/utils/tcp"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/consensus"
+	"github.com/tendermint/tendermint/internal/autobahn/data"
 	"github.com/tendermint/tendermint/internal/autobahn/pb"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 )
 
 func Map[T, U any](s []T, f func(T) U) []U {

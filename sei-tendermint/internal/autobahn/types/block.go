@@ -8,10 +8,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/internal/protoutils"
-	"github.com/tendermint/tendermint/internal/hashable"
 	"github.com/tendermint/tendermint/internal/autobahn/pb"
+	"github.com/tendermint/tendermint/internal/hashable"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
 // LaneID represents a lane identifier (currently it is the same as NodeID,
@@ -33,9 +33,9 @@ type BlockHeaderHash hashable.Hash[*pb.BlockHeader]
 // Bytes converts the BlockHeaderHash to a byte slice.
 func (h BlockHeaderHash) Bytes() []byte { return h[:] }
 
-func ParseBlockHeaderHash(bytes []byte) (BlockHeaderHash,error) {
-	h,err := hashable.ParseHash[*pb.BlockHeader](bytes)
-	return BlockHeaderHash(h),err
+func ParseBlockHeaderHash(bytes []byte) (BlockHeaderHash, error) {
+	h, err := hashable.ParseHash[*pb.BlockHeader](bytes)
+	return BlockHeaderHash(h), err
 }
 
 // BlockHeader .
@@ -197,7 +197,7 @@ var BlockHeaderConv = protoutils.Conv[*BlockHeader, *pb.BlockHeader]{
 		if err != nil {
 			return nil, fmt.Errorf("lane: %w", err)
 		}
-		if h.BlockNumber==nil {
+		if h.BlockNumber == nil {
 			return nil, fmt.Errorf("BlockNumber: missing")
 		}
 		return &BlockHeader{
@@ -226,9 +226,15 @@ var PayloadConv = protoutils.Conv[*Payload, *pb.Payload]{
 		if err != nil {
 			return nil, fmt.Errorf("created_at: %w", err)
 		}
-		if p.TotalGas==nil { return nil,fmt.Errorf("TotalGas: missing") }
-		if p.EdgeCount==nil { return nil,fmt.Errorf("EdgeCount: missing") }
-		if p.Basefee==nil { return nil,fmt.Errorf("Basefee: missing") }
+		if p.TotalGas == nil {
+			return nil, fmt.Errorf("TotalGas: missing")
+		}
+		if p.EdgeCount == nil {
+			return nil, fmt.Errorf("EdgeCount: missing")
+		}
+		if p.Basefee == nil {
+			return nil, fmt.Errorf("Basefee: missing")
+		}
 		return PayloadBuilder{
 			CreatedAt: createdAt,
 			TotalGas:  *p.TotalGas,

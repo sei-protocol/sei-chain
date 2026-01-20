@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	
-	"github.com/tendermint/tendermint/libs/utils"
+
+	"github.com/tendermint/tendermint/crypto/ed25519"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
 	"github.com/tendermint/tendermint/internal/hashable"
 	"github.com/tendermint/tendermint/internal/protoutils"
-	"github.com/tendermint/tendermint/internal/autobahn/pb"
-	"github.com/tendermint/tendermint/crypto/ed25519"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
 var autobahnTag = utils.OrPanic1(ed25519.NewTag("sei_giga_autobahn"))
@@ -152,7 +152,7 @@ func Sign[T Msg](key SecretKey, msg T) *Signed[T] {
 		hashed: hMsg,
 		sig: &Signature{
 			key: key.Public(),
-			sig: key.key.SignWithTag(autobahnTag,hMsg.hash[:]),
+			sig: key.key.SignWithTag(autobahnTag, hMsg.hash[:]),
 		},
 	}
 }
@@ -188,7 +188,7 @@ func (m *Signed[T]) VerifySig(c *Committee) error {
 	if !c.Replicas().Has(m.sig.key) {
 		return fmt.Errorf("%q is not a replica", m.sig.key)
 	}
-	return m.sig.key.key.VerifyWithTag(autobahnTag,m.hashed.hash[:], m.sig.sig)
+	return m.sig.key.key.VerifyWithTag(autobahnTag, m.hashed.hash[:], m.sig.sig)
 }
 
 // verifyQC verifies a slice of signatures and checks if they form a quorum.

@@ -3,9 +3,9 @@ package types
 import (
 	"errors"
 	"fmt"
-	
-	"github.com/tendermint/tendermint/internal/protoutils"
+
 	"github.com/tendermint/tendermint/internal/autobahn/pb"
+	"github.com/tendermint/tendermint/internal/protoutils"
 )
 
 // ConsensusReq is the interface for all consensus messages.

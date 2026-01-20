@@ -7,8 +7,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
 // PeerConfig stores the configuration of a peer.
@@ -76,7 +76,7 @@ func (c *PeerConfig) Retry(ctx context.Context, name string, f func(ctx context.
 // Config is the config of the stream component.
 type Config struct {
 	// Local address to serve DataAPI and StreamAPI RPCs from.
-	ServerAddr  netip.AddrPort `json:"server_addr"`
+	ServerAddr netip.AddrPort `json:"server_addr"`
 	// Local address to expose the prometheus metrics on.
 	MetricsEndpoint utils.Option[netip.AddrPort] `json:"metrics_endpoint,omitzero"`
 	// ViewTimeout is the timeout for a view in the consensus protocol.

@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	gogoproto "github.com/gogo/protobuf/proto"
+	"github.com/tendermint/tendermint/internal/mux"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/internal/mux"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"math"
@@ -36,18 +36,19 @@ func (cs ChannelIDSet) Contains(id ChannelID) bool {
 	return ok
 }
 
-type anyConn interface { isAnyConn() }
-func (*ConnV2) isAnyConn() {}
+type anyConn interface{ isAnyConn() }
+
+func (*ConnV2) isAnyConn()   {}
 func (*ConnGiga) isAnyConn() {}
 
 type ConnGiga struct {
 	conn conn.Conn
-	mux *mux.Mux
+	mux  *mux.Mux
 }
 
 func (c *ConnGiga) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		return c.mux.Run(ctx,c.conn)
+		return c.mux.Run(ctx, c.conn)
 	})
 }
 
@@ -71,16 +72,18 @@ func (c *ConnV2) Info() peerConnInfo {
 func exchangeHandshakeMsg(ctx context.Context, c conn.Conn, msg *handshakeMsg) (*handshakeMsg, error) {
 	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*handshakeMsg, error) {
 		s.Spawn(func() error {
-			if err := conn.WriteSizedMsg(ctx,c,handshakeMsgConv.Marshal(msg)); err != nil {
-				return fmt.Errorf("conn.WriteSizedMsg(): %w",err)
+			if err := conn.WriteSizedMsg(ctx, c, handshakeMsgConv.Marshal(msg)); err != nil {
+				return fmt.Errorf("conn.WriteSizedMsg(): %w", err)
 			}
-			if err:=c.Flush(ctx); err!=nil {
-				return fmt.Errorf("c.Flush(): %w",err)
+			if err := c.Flush(ctx); err != nil {
+				return fmt.Errorf("c.Flush(): %w", err)
 			}
 			return nil
 		})
-		msgBytes,err := conn.ReadSizedMsg(ctx,c,1024*1024)
-		if err != nil { return nil,fmt.Errorf("conn.ReadSizedMsg(): %w",err) }
+		msgBytes, err := conn.ReadSizedMsg(ctx, c, 1024*1024)
+		if err != nil {
+			return nil, fmt.Errorf("conn.ReadSizedMsg(): %w", err)
+		}
 		return handshakeMsgConv.Unmarshal(msgBytes)
 	})
 }
@@ -88,10 +91,10 @@ func exchangeHandshakeMsg(ctx context.Context, c conn.Conn, msg *handshakeMsg) (
 // handshake handshakes with a peer, validating the peer's information. If
 // dialAddr is given, we check that the peer's info matches it.
 // Closes the tcpConn if case of any error.
-func (r *Router) handshake(ctx context.Context, c tcp.Conn, dialAddr utils.Option[NodeAddress], trySeiGigaConn bool) (anyConn, error) {	
+func (r *Router) handshake(ctx context.Context, c tcp.Conn, dialAddr utils.Option[NodeAddress], trySeiGigaConn bool) (anyConn, error) {
 	if !dialAddr.IsPresent() {
 		if err := r.options.filterPeerByIP(ctx, c.RemoteAddr()); err != nil {
-			return nil,fmt.Errorf("peer filtered by IP: %w",err)
+			return nil, fmt.Errorf("peer filtered by IP: %w", err)
 		}
 	}
 	if d, ok := r.options.HandshakeTimeout.Get(); ok {
@@ -100,73 +103,81 @@ func (r *Router) handshake(ctx context.Context, c tcp.Conn, dialAddr utils.Optio
 		defer cancel()
 	}
 	sc, err := conn.MakeSecretConnection(ctx, c)
-	if err != nil { return nil,fmt.Errorf("conn.MakeSecretConnection(): %w",err) }
-	handshakeMsg,err := exchangeHandshakeMsg(ctx,sc,&handshakeMsg{
-		NodeAuth:r.privKey.SignChallenge(sc.Challenge()),
-		SeiGigaConnection:trySeiGigaConn,
+	if err != nil {
+		return nil, fmt.Errorf("conn.MakeSecretConnection(): %w", err)
+	}
+	handshakeMsg, err := exchangeHandshakeMsg(ctx, sc, &handshakeMsg{
+		NodeAuth:          r.privKey.SignChallenge(sc.Challenge()),
+		SeiGigaConnection: trySeiGigaConn,
 	})
-	if err!=nil { return nil,fmt.Errorf("exchangeHandshakeMsg(): %w",err) }
+	if err != nil {
+		return nil, fmt.Errorf("exchangeHandshakeMsg(): %w", err)
+	}
 
 	if err := handshakeMsg.NodeAuth.Verify(sc.Challenge()); err != nil {
-		return nil, fmt.Errorf("handshakeMsg.NodeAuth.Verify(): %w",err)
+		return nil, fmt.Errorf("handshakeMsg.NodeAuth.Verify(): %w", err)
 	}
 	peerID := handshakeMsg.NodeAuth.Key().NodeID()
 	if want, ok := dialAddr.Get(); ok && want.NodeID != peerID {
-		return nil,fmt.Errorf("expected to connect with peer %q, got %q", want.NodeID, peerID)
+		return nil, fmt.Errorf("expected to connect with peer %q, got %q", want.NodeID, peerID)
 	} else {
 		if err := r.options.filterPeerByID(ctx, peerID); err != nil {
-			return nil,fmt.Errorf("peer filtered by ID: %w", err)
+			return nil, fmt.Errorf("peer filtered by ID: %w", err)
 		}
 	}
-	
+
 	if trySeiGigaConn && handshakeMsg.SeiGigaConnection {
-		return &ConnGiga {
+		return &ConnGiga{
 			conn: sc,
-			mux: mux.NewMux(&mux.Config {
+			mux: mux.NewMux(&mux.Config{
 				FrameSize: 10 * 1024,
-				Kinds: map[mux.StreamKind]*mux.StreamKindConfig{},	
+				Kinds:     map[mux.StreamKind]*mux.StreamKindConfig{},
 			}),
-		},nil
+		}, nil
 	}
 
 	nodeInfo := r.nodeInfoProducer()
 	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (anyConn, error) {
 		s.Spawn(func() error {
 			// Marshalling should always succeed.
-			if err := conn.WriteSizedMsg(ctx,sc,utils.OrPanic1(gogoproto.Marshal(nodeInfo.ToProto()))); err != nil {
-				return fmt.Errorf("conn.WriteSizedMsg(<nodeInfo>): %w",err)
+			if err := conn.WriteSizedMsg(ctx, sc, utils.OrPanic1(gogoproto.Marshal(nodeInfo.ToProto()))); err != nil {
+				return fmt.Errorf("conn.WriteSizedMsg(<nodeInfo>): %w", err)
 			}
 			return sc.Flush(ctx)
 		})
-		nodeInfoBytes,err := conn.ReadSizedMsg(ctx,sc,uint64(types.MaxNodeInfoSize()))
-		if err != nil { return nil,fmt.Errorf("conn.ReadSizedMsg(): %w", err) }
+		nodeInfoBytes, err := conn.ReadSizedMsg(ctx, sc, uint64(types.MaxNodeInfoSize()))
+		if err != nil {
+			return nil, fmt.Errorf("conn.ReadSizedMsg(): %w", err)
+		}
 		var nodeInfoProto gogopb.NodeInfo
-		if err:=gogoproto.Unmarshal(nodeInfoBytes,&nodeInfoProto); err!=nil {
-			return nil,fmt.Errorf("gogoproto.Unmarshal(): %w",err)
+		if err := gogoproto.Unmarshal(nodeInfoBytes, &nodeInfoProto); err != nil {
+			return nil, fmt.Errorf("gogoproto.Unmarshal(): %w", err)
 		}
 		peerInfo, err := types.NodeInfoFromProto(&nodeInfoProto)
-		if err != nil { return nil,fmt.Errorf("types.NodeInfoFromProto(): %w", err) }
-	
+		if err != nil {
+			return nil, fmt.Errorf("types.NodeInfoFromProto(): %w", err)
+		}
+
 		// Authenticate the peer first.
 		if peerID != peerInfo.NodeID {
-			return nil,fmt.Errorf("peer's public key did not match its node ID %q (expected %q)", peerInfo.NodeID, peerID)
+			return nil, fmt.Errorf("peer's public key did not match its node ID %q (expected %q)", peerInfo.NodeID, peerID)
 		}
 		// Validate the received info.
 		if err := peerInfo.Validate(); err != nil {
-			return nil,fmt.Errorf("invalid handshake NodeInfo: %w", err)
+			return nil, fmt.Errorf("invalid handshake NodeInfo: %w", err)
 		}
 		if peerInfo.Network != nodeInfo.Network {
-			return nil,errBadNetwork{fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)}
-		}	
+			return nil, errBadNetwork{fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)}
+		}
 		if err := nodeInfo.CompatibleWith(peerInfo); err != nil {
-			return nil,ErrRejected{
+			return nil, ErrRejected{
 				err:            err,
 				id:             peerInfo.ID(),
 				isIncompatible: true,
 			}
 		}
 		return &ConnV2{
-			dialAddr: dialAddr,
+			dialAddr:     dialAddr,
 			peerInfo:     peerInfo,
 			sendQueue:    NewQueue[sendMsg](queueBufferDefault),
 			peerChannels: toChannelIDs(peerInfo.Channels),
@@ -249,11 +260,11 @@ func (r *Router) runConn(ctx context.Context, conn *ConnV2) error {
 	})
 }
 
-func (c *ConnV2) String() string { return c.RemoteEndpoint().String() }
+func (c *ConnV2) String() string           { return c.RemoteEndpoint().String() }
 func (c *ConnV2) PeerInfo() types.NodeInfo { return c.peerInfo }
-func (c *ConnV2) LocalEndpoint() Endpoint { return Endpoint{c.mconn.LocalAddr()} }
+func (c *ConnV2) LocalEndpoint() Endpoint  { return Endpoint{c.mconn.LocalAddr()} }
 func (c *ConnV2) RemoteEndpoint() Endpoint { return Endpoint{c.mconn.RemoteAddr()} }
-func (c *ConnV2) Close() { c.mconn.Close() }
+func (c *ConnV2) Close()                   { c.mconn.Close() }
 
 // Endpoint represents a transport connection endpoint, either local or remote.
 // It is a TCP endpoint address.
@@ -281,4 +292,3 @@ func (e Endpoint) Validate() error {
 	}
 	return nil
 }
-

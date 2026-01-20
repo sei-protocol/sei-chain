@@ -3,10 +3,10 @@ package types
 import (
 	"time"
 
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/internal/hashable"
-	"github.com/tendermint/tendermint/internal/autobahn/pb"
 	"github.com/tendermint/tendermint/crypto/ed25519"
+	"github.com/tendermint/tendermint/internal/autobahn/pb"
+	"github.com/tendermint/tendermint/internal/hashable"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
 // GenNodeID generates a random NodeID.
@@ -159,7 +159,7 @@ func GenProposal(rng utils.Rng) *Proposal {
 
 // GenAppHash generates a random AppHash.
 func GenAppHash(rng utils.Rng) AppHash {
-	return AppHash(utils.GenBytes(rng,32))
+	return AppHash(utils.GenBytes(rng, 32))
 }
 
 // GenAppProposal generates a random AppProposal.

@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/tendermint/tendermint/internal/autobahn/config"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/internal/autobahn/pb"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
 // Client is a StreamAPIClient wrapper capable of sending consensus state updates.

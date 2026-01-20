@@ -6,7 +6,6 @@ import (
 )
 
 type GigaRouter struct {
-
 }
 
 func NewGigaRouter() *GigaRouter {

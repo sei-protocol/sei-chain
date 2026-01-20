@@ -2,10 +2,10 @@ package types
 
 import (
 	"fmt"
-	
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/internal/protoutils"
+
 	"github.com/tendermint/tendermint/internal/autobahn/pb"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
 // LaneProposal .

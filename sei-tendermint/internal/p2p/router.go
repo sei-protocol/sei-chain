@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
@@ -43,7 +43,7 @@ type Router struct {
 	nodeInfoProducer func() *types.NodeInfo
 
 	channels utils.RWMutex[map[ChannelID]*channel]
-	giga utils.Option[*GigaRouter]
+	giga     utils.Option[*GigaRouter]
 
 	started chan struct{}
 }
@@ -144,7 +144,7 @@ func (r *Router) Advertise(maxAddrs int) []NodeAddress {
 }
 
 // OpenChannel opens a new channel for the given message type.
-func OpenChannel[T proto.Message](r *Router, chDesc ChannelDescriptor[T]) (*Channel[T], error) {
+func OpenChannel[T gogoproto.Message](r *Router, chDesc ChannelDescriptor[T]) (*Channel[T], error) {
 	for channels := range r.channels.Lock() {
 		id := chDesc.ID
 		if _, ok := channels[id]; ok {
@@ -202,13 +202,18 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					}
 					defer connTracker.RemoveConn(addr)
 					conn, err := r.handshake(ctx, tcpConn, utils.None[NodeAddress](), r.giga.IsPresent())
-					if err != nil { return fmt.Errorf("r.handshake(): %w", err) }
+					if err != nil {
+						return fmt.Errorf("r.handshake(): %w", err)
+					}
 					release()
 					switch conn := conn.(type) {
-					case *ConnV2: return r.runConn(ctx, conn)
-					case *ConnGiga: return r.giga.OrPanic().RunConn(ctx, conn)
-					default: panic("unreachable")	
-				}
+					case *ConnV2:
+						return r.runConn(ctx, conn)
+					case *ConnGiga:
+						return r.giga.OrPanic().RunConn(ctx, conn)
+					default:
+						panic("unreachable")
+					}
 				})
 				r.logger.Error("r.runConn(inbound)", "addr", addr, "err", err)
 				return nil
@@ -236,7 +241,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 							tcpConn, err := r.dial(ctx, addr)
 							if err != nil {
 								r.peerManager.DialFailed(addr)
-								return fmt.Errorf("r.dial(): %w",err)
+								return fmt.Errorf("r.dial(): %w", err)
 							}
 							s.SpawnBg(func() error { return tcpConn.Run(ctx) })
 							r.metrics.NewConnections.With("direction", "out").Add(1)
@@ -246,12 +251,12 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 								return fmt.Errorf("r.handshake(): %w", err)
 							}
 							// handshake(tryGigaConn=false) always returns *ConnV2
-							if err:=r.runConn(ctx, conn.(*ConnV2)); err!=nil {
-								return fmt.Errorf("r.runConn(): %w",err)
+							if err := r.runConn(ctx, conn.(*ConnV2)); err != nil {
+								return fmt.Errorf("r.runConn(): %w", err)
 							}
 							return nil
 						})
-						r.logger.Error("r.runConn(outbound)", "addr",addr,"err", err)
+						r.logger.Error("r.runConn(outbound)", "addr", addr, "err", err)
 						return nil
 					})
 				}
@@ -329,7 +334,7 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (tcp.Conn, error) {
 		if err := endpoint.Validate(); err != nil {
 			return tcp.Conn{}, err
 		}
-		c, err := tcp.Dial(dialCtx,endpoint.AddrPort)
+		c, err := tcp.Dial(dialCtx, endpoint.AddrPort)
 		if err != nil {
 			r.logger.Debug("failed to dial endpoint", "peer", addr.NodeID, "endpoint", endpoint, "err", err)
 			continue

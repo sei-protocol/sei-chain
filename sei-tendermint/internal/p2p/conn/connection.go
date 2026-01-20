@@ -16,8 +16,8 @@ import (
 
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/proto/tendermint/p2p"
 )
 
@@ -26,7 +26,7 @@ var _ Conn = tcp.Conn{}
 type Conn interface {
 	LocalAddr() netip.AddrPort
 	RemoteAddr() netip.AddrPort
-	Read(ctx context.Context, data []byte) error 
+	Read(ctx context.Context, data []byte) error
 	Write(ctx context.Context, data []byte) error
 	Flush(ctx context.Context) error
 	Close()
@@ -214,9 +214,9 @@ func (c *MConnection) Run(ctx context.Context) error {
 	})
 }
 
-func (c *MConnection) LocalAddr() netip.AddrPort { return c.conn.LocalAddr() }
+func (c *MConnection) LocalAddr() netip.AddrPort  { return c.conn.LocalAddr() }
 func (c *MConnection) RemoteAddr() netip.AddrPort { return c.conn.RemoteAddr() }
-func (c *MConnection) Close() { c.conn.Close() }
+func (c *MConnection) Close()                     { c.conn.Close() }
 
 // Queues a message to be sent.
 // WARNING: takes ownership of msgBytes
@@ -364,10 +364,10 @@ func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 		if err != nil {
 			return fmt.Errorf("popSendQueue(): %w", err)
 		}
-		if msg != nil { 
+		if msg != nil {
 			// Marshalling is expected to always succeed.
 			msgBytes := utils.OrPanic1(gogoproto.Marshal(msg))
-			if err := WriteSizedMsg(ctx,c.conn,msgBytes); err != nil {
+			if err := WriteSizedMsg(ctx, c.conn, msgBytes); err != nil {
 				return fmt.Errorf("protoWriter.WriteMsg(): %w", err)
 			}
 			// Here we ignore the fact that writing sized msg actually writes extra bytes to express size.
@@ -397,7 +397,7 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 	}
 
 	for {
-		msg, err := ReadSizedMsg(ctx,c.conn,maxPacketMsgSize)
+		msg, err := ReadSizedMsg(ctx, c.conn, maxPacketMsgSize)
 		if err != nil {
 			return fmt.Errorf("ReadSizedMsg(): %w", err)
 		}
@@ -405,8 +405,8 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 			return err
 		}
 		packet := &p2p.Packet{}
-		if err:=gogoproto.Unmarshal(msg,packet); err!=nil {
-			return errBadEncoding{fmt.Errorf("gogoproto.Unmarshal(): %w",err)}
+		if err := gogoproto.Unmarshal(msg, packet); err != nil {
+			return errBadEncoding{fmt.Errorf("gogoproto.Unmarshal(): %w", err)}
 		}
 		switch p := packet.Sum.(type) {
 		case *p2p.Packet_PacketPing:

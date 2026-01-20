@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"golang.org/x/time/rate"
-	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/consensus"
 	"github.com/tendermint/tendermint/internal/autobahn/pb"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"golang.org/x/time/rate"
 )
 
 // Config is the config of the block scope.
@@ -101,7 +101,7 @@ func (s *State) Run(ctx context.Context) error {
 			limit = rate.Limit(l)
 			burst = int(l + s.cfg.MaxTxsPerBlock)
 		}
-		limiter := rate.NewLimiter(limit,burst)
+		limiter := rate.NewLimiter(limit, burst)
 		for {
 			if err := s.consensus.WaitForCapacity(ctx); err != nil {
 				return fmt.Errorf("s.Data().WaitForCapacity(): %w", err)
