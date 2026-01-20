@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,19 +43,27 @@ func withEnc(c1, c2 Conn) (Conn, Conn) {
 
 const maxPingPongPacketSize = 1024 // bytes
 
-func newMConnection(conn Conn) *MConnection {
-	chDescs := []*ChannelDescriptor{{ID: 0x01, Priority: 1, SendQueueCapacity: 1}}
-	return newMConnectionWithCh(conn, chDescs)
-}
-
-func newMConnectionWithCh(
-	conn Conn,
-	chDescs []*ChannelDescriptor,
-) *MConnection {
+func makeCfg() MConnConfig {
 	cfg := DefaultMConnConfig()
 	cfg.PingInterval = 250 * time.Millisecond
 	cfg.PongTimeout = 500 * time.Millisecond
+	return cfg
+}
+
+func makeChDescs() []*ChannelDescriptor {
+	return []*ChannelDescriptor{{ID: 0x01, Priority: 1, SendQueueCapacity: 1}}
+}
+
+func newMConnectionWithCfg(conn Conn, chDescs []*ChannelDescriptor, cfg MConnConfig) *MConnection {
 	return NewMConnection(log.NewNopLogger(), conn, chDescs, cfg)
+}
+
+func newMConnection(conn Conn) *MConnection {
+	return newMConnectionWithCfg(conn, makeChDescs(), makeCfg())
+}
+
+func newMConnectionWithCh(conn Conn, chDescs []*ChannelDescriptor) *MConnection {
+	return newMConnectionWithCfg(conn, chDescs, makeCfg())
 }
 
 func TestMConnectionSendRecv(t *testing.T) {
@@ -103,15 +112,13 @@ func pongMsg() *p2p.Packet {
 
 func TestMConnectionPingPong(t *testing.T) {
 	t.Cleanup(leaktest.CheckTimeout(t, 10*time.Second))
+	var stoppedResponding atomic.Bool
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := tcp.TestPipe()
-		s.SpawnBg(func() error { return c1.Run(ctx) })
-		s.SpawnBg(func() error {
-			_ = c2.Run(ctx)
-			return nil
-		})
-		client, server := withEnc(c1, c2)
-		s.Spawn(func() error { return newMConnection(client).Run(ctx) })
+		client, server := spawnBgPipe(ctx, s)
+		cfg := makeCfg()
+		cfg.PingInterval = 100 * time.Millisecond
+		cfg.PongTimeout = 50 * time.Millisecond
+		s.Spawn(func() error { return newMConnectionWithCfg(client, makeChDescs(), cfg).Run(ctx) })
 		for range 3 {
 			// read ping
 			var got p2p.Packet
@@ -130,7 +137,11 @@ func TestMConnectionPingPong(t *testing.T) {
 			if err := WriteSizedMsg(ctx, server, utils.OrPanic1(gogoproto.Marshal(pongMsg()))); err != nil {
 				return fmt.Errorf("WriteSizedMsg(): %w", err)
 			}
+			if err := server.Flush(ctx); err != nil {
+				return fmt.Errorf("Flush(): %w", err)
+			}
 		}
+		stoppedResponding.Store(true)
 		// Read until connection dies.
 		var buf [1024]byte
 		for {
@@ -139,6 +150,9 @@ func TestMConnectionPingPong(t *testing.T) {
 			}
 		}
 	})
+	if !stoppedResponding.Load() {
+		t.Fatalf("failed too early: %v", err)
+	}
 	if !errors.Is(err, errPongTimeout) {
 		t.Fatalf("expected pong timeout error, got %v", err)
 	}
