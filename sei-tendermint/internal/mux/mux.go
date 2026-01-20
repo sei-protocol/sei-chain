@@ -34,7 +34,6 @@ import (
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"google.golang.org/protobuf/proto"
-	"io"
 )
 
 const handshakeMaxSize = 10 * 1024 // 10kB
@@ -220,18 +219,18 @@ func (r *runner) runSend(ctx context.Context, conn conn.Conn) error {
 			if err != nil {
 				panic(err)
 			}
-			if _, err := conn.Write([]byte{byte(len(headerRaw))}); err != nil {
+			if err := conn.Write(ctx, []byte{byte(len(headerRaw))}); err != nil {
 				return errConn{err}
 			}
-			if _, err := conn.Write(headerRaw); err != nil {
+			if err := conn.Write(ctx, headerRaw); err != nil {
 				return errConn{err}
 			}
-			if _, err := conn.Write(f.Payload); err != nil {
+			if err := conn.Write(ctx, f.Payload); err != nil {
 				return errConn{err}
 			}
 		}
 		if flush {
-			if err := conn.Flush(); err != nil {
+			if err := conn.Flush(ctx); err != nil {
 				return errConn{err}
 			}
 		}
@@ -239,16 +238,16 @@ func (r *runner) runSend(ctx context.Context, conn conn.Conn) error {
 }
 
 // runRecv receives and processes the incoming frames sequentially.
-func (r *runner) runRecv(conn conn.Conn) error {
+func (r *runner) runRecv(ctx context.Context, conn conn.Conn) error {
 	for {
 		// frame size is hard capped here at 255B.
 		// Currently we have 7 varint fields (up to 77B)
 		var headerSize [1]byte
-		if _, err := conn.Read(headerSize[:]); err != nil {
+		if err := conn.Read(ctx, headerSize[:]); err != nil {
 			return errConn{err}
 		}
 		headerRaw := make([]byte, headerSize[0])
-		if _, err := io.ReadFull(conn, headerRaw[:]); err != nil {
+		if err := conn.Read(ctx, headerRaw[:]); err != nil {
 			return errConn{err}
 		}
 		var h pb.Header
@@ -286,7 +285,7 @@ func (r *runner) runRecv(conn conn.Conn) error {
 			}
 			// Read the payload.
 			payload := make([]byte, ps)
-			if _, err := io.ReadFull(conn, payload[:]); err != nil {
+			if err := conn.Read(ctx, payload[:]); err != nil {
 				return err
 			}
 			s.RemotePayload(payload)
@@ -309,14 +308,6 @@ func (r *runner) runRecv(conn conn.Conn) error {
 // It closes the connection before return.
 func (m *Mux) Run(ctx context.Context, conn conn.Conn) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		// Close on cancel.
-		s.Spawn(func() error {
-			<-ctx.Done()
-			s.Cancel(ctx.Err())
-			conn.Close()
-			return nil
-		})
-
 		// Handshake exchange.
 		handshake, err := scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*handshake, error) {
 			s.Spawn(func() error {
@@ -325,19 +316,19 @@ func (m *Mux) Run(ctx context.Context, conn conn.Conn) error {
 					panic(err)
 				}
 				sizeRaw := binary.LittleEndian.AppendUint32(nil, uint32(len(handshakeRaw)))
-				if _, err := conn.Write(sizeRaw); err != nil {
+				if err := conn.Write(ctx, sizeRaw); err != nil {
 					return errConn{err}
 				}
-				if _, err := conn.Write(handshakeRaw); err != nil {
+				if err := conn.Write(ctx, handshakeRaw); err != nil {
 					return errConn{err}
 				}
-				if err := conn.Flush(); err != nil {
+				if err := conn.Flush(ctx); err != nil {
 					return errConn{err}
 				}
 				return nil
 			})
 			var sizeRaw [4]byte
-			if _, err := io.ReadFull(conn, sizeRaw[:]); err != nil {
+			if err := conn.Read(ctx, sizeRaw[:]); err != nil {
 				return nil, errConn{err}
 			}
 			size := binary.LittleEndian.Uint32(sizeRaw[:])
@@ -345,7 +336,7 @@ func (m *Mux) Run(ctx context.Context, conn conn.Conn) error {
 				return nil, fmt.Errorf("handshake too large")
 			}
 			handshakeRaw := make([]byte, size)
-			if _, err := io.ReadFull(conn, handshakeRaw[:]); err != nil {
+			if err := conn.Read(ctx, handshakeRaw[:]); err != nil {
 				return nil, errConn{err}
 			}
 			var handshakeProto pb.Handshake
@@ -374,7 +365,7 @@ func (m *Mux) Run(ctx context.Context, conn conn.Conn) error {
 		}
 		// Run the tasks.
 		s.Spawn(func() error { return r.runSend(ctx, conn) })
-		s.Spawn(func() error { return r.runRecv(conn) })
+		s.Spawn(func() error { return r.runRecv(ctx, conn) })
 		return nil
 	})
 }

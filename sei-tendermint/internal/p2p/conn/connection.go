@@ -7,25 +7,29 @@ import (
 	"io"
 	"math"
 	"net"
-	"reflect"
+	"net/netip"
 	"sync/atomic"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	gogoproto "github.com/gogo/protobuf/proto"
 	"golang.org/x/time/rate"
 
-	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/proto/tendermint/p2p"
 )
 
+var _ Conn = tcp.Conn{}
+
 type Conn interface {
-	io.Reader
-	io.Writer
-	io.Closer
-	Flush() error
+	LocalAddr() netip.AddrPort
+	RemoteAddr() netip.AddrPort
+	Read(ctx context.Context, data []byte) error
+	Write(ctx context.Context, data []byte) error
+	Flush(ctx context.Context) error
+	Close()
 }
 
 func IsDisconnect(err error) bool {
@@ -35,9 +39,9 @@ func IsDisconnect(err error) bool {
 // ChannelID is an arbitrary channel ID.
 type ChannelID uint16
 
-type ChannelDescriptor = ChannelDescriptorT[proto.Message]
+type ChannelDescriptor = ChannelDescriptorT[gogoproto.Message]
 
-type ChannelDescriptorT[T proto.Message] struct {
+type ChannelDescriptorT[T gogoproto.Message] struct {
 	ID       ChannelID
 	Priority int
 
@@ -206,16 +210,13 @@ func (c *MConnection) Run(ctx context.Context) error {
 		s.SpawnNamed("sendRoutine", func() error { return c.sendRoutine(ctx) })
 		s.SpawnNamed("recvRoutine", func() error { return c.recvRoutine(ctx) })
 		s.SpawnNamed("statsRoutine", func() error { return c.statsRoutine(ctx) })
-		// Unfortunately golang std IO operations do not support cancellation via context.
-		// Instead, we trigger cancellation by closing the underlying connection.
-		// Alternatively, we could utilise net.Conn.Set[Read|Write]Deadline() methods
-		// for precise cancellation, but we don't have a need for that here.
-		<-ctx.Done()
-		s.Cancel(ctx.Err())
-		c.conn.Close()
 		return nil
 	})
 }
+
+func (c *MConnection) LocalAddr() netip.AddrPort  { return c.conn.LocalAddr() }
+func (c *MConnection) RemoteAddr() netip.AddrPort { return c.conn.RemoteAddr() }
+func (c *MConnection) Close()                     { c.conn.Close() }
 
 // Queues a message to be sent.
 // WARNING: takes ownership of msgBytes
@@ -357,24 +358,25 @@ func (c *MConnection) popSendQueue(ctx context.Context) (*p2p.Packet, error) {
 // sendRoutine polls for packets to send from channels.
 func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 	maxPacketMsgSize := c.maxPacketMsgSize()
-	limiter := rate.NewLimiter(c.config.getSendRateLimit(), max(maxPacketMsgSize, int(c.config.SendRate)))
-	protoWriter := protoio.NewDelimitedWriter(c.conn)
+	limiter := rate.NewLimiter(c.config.getSendRateLimit(), int(max(maxPacketMsgSize, uint64(c.config.SendRate))))
 	for {
 		msg, err := c.popSendQueue(ctx)
 		if err != nil {
 			return fmt.Errorf("popSendQueue(): %w", err)
 		}
 		if msg != nil {
-			n, err := protoWriter.WriteMsg(msg)
-			if err != nil {
+			// Marshalling is expected to always succeed.
+			msgBytes := utils.OrPanic1(gogoproto.Marshal(msg))
+			if err := WriteSizedMsg(ctx, c.conn, msgBytes); err != nil {
 				return fmt.Errorf("protoWriter.WriteMsg(): %w", err)
 			}
-			if err := limiter.WaitN(ctx, n); err != nil {
+			// Here we ignore the fact that writing sized msg actually writes extra bytes to express size.
+			if err := limiter.WaitN(ctx, len(msgBytes)); err != nil {
 				return err
 			}
 		} else {
 			c.logger.Debug("Flush", "conn", c)
-			if err := c.conn.Flush(); err != nil {
+			if err := c.conn.Flush(ctx); err != nil {
 				return fmt.Errorf("bufWriter.Flush(): %w", err)
 			}
 		}
@@ -386,8 +388,7 @@ func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 	const readBufferSize = 1024
 	maxPacketMsgSize := c.maxPacketMsgSize()
-	limiter := rate.NewLimiter(c.config.getRecvRateLimit(), max(int(c.config.RecvRate), maxPacketMsgSize))
-	protoReader := protoio.NewDelimitedReader(c.conn, maxPacketMsgSize)
+	limiter := rate.NewLimiter(c.config.getRecvRateLimit(), int(max(maxPacketMsgSize, uint64(c.config.SendRate))))
 	channels := map[ChannelID]*recvChannel{}
 	for q := range c.sendQueue.Lock() {
 		for _, ch := range q.channels {
@@ -396,16 +397,16 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 	}
 
 	for {
-		packet := &p2p.Packet{}
-		n, err := protoReader.ReadMsg(packet)
+		msg, err := ReadSizedMsg(ctx, c.conn, maxPacketMsgSize)
 		if err != nil {
-			if !IsDisconnect(err) {
-				err = errBadEncoding{err}
-			}
-			return fmt.Errorf("protoReader.ReadMsg(): %w", err)
+			return fmt.Errorf("ReadSizedMsg(): %w", err)
 		}
-		if err := limiter.WaitN(ctx, n); err != nil {
+		if err := limiter.WaitN(ctx, len(msg)); err != nil {
 			return err
+		}
+		packet := &p2p.Packet{}
+		if err := gogoproto.Unmarshal(msg, packet); err != nil {
+			return errBadEncoding{fmt.Errorf("gogoproto.Unmarshal(): %w", err)}
 		}
 		switch p := packet.Sum.(type) {
 		case *p2p.Packet_PacketPing:
@@ -438,14 +439,14 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 				}
 			}
 		default:
-			return fmt.Errorf("unknown message type %v", reflect.TypeOf(packet))
+			return fmt.Errorf("unknown message type")
 		}
 	}
 }
 
 // maxPacketMsgSize returns a maximum size of PacketMsg
-func (c *MConnection) maxPacketMsgSize() int {
-	bz, err := proto.Marshal(&p2p.Packet{
+func (c *MConnection) maxPacketMsgSize() uint64 {
+	bz, err := gogoproto.Marshal(&p2p.Packet{
 		Sum: &p2p.Packet_PacketMsg{
 			PacketMsg: &p2p.PacketMsg{
 				ChannelId: 0x01,
@@ -457,7 +458,7 @@ func (c *MConnection) maxPacketMsgSize() int {
 	if err != nil {
 		panic(err)
 	}
-	return len(bz)
+	return uint64(len(bz))
 }
 
 type sendChannel struct {

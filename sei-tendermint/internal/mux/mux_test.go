@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/require"
@@ -25,14 +24,21 @@ func ignoreDisconnect(err error) error {
 	return utils.IgnoreCancel(err)
 }
 
-func testConn(t *testing.T) (*conn.SecretConnection, *conn.SecretConnection) {
+func spawnBgPipe(ctx context.Context, s scope.Scope) (*conn.SecretConnection, *conn.SecretConnection) {
 	c1, c2 := tcp.TestPipe()
+	s.SpawnBg(func() error {
+		_ = c1.Run(ctx)
+		return nil
+	})
+	s.SpawnBg(func() error {
+		_ = c2.Run(ctx)
+		return nil
+	})
 	var scs [2]*conn.SecretConnection
-	utils.OrPanic(scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+	utils.OrPanic(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for i, c := range utils.Slice(c1, c2) {
-			t.Cleanup(func() { c.Close() })
 			s.Spawn(func() error {
-				scs[i] = utils.OrPanic1(conn.MakeSecretConnection(ctx, c, ed25519.GenerateSecretKey()))
+				scs[i] = utils.OrPanic1(conn.MakeSecretConnection(ctx, c))
 				return nil
 			})
 		}
@@ -230,8 +236,8 @@ func runClients(ctx context.Context, rng utils.Rng, mux *Mux) error {
 func TestHappyPath(t *testing.T) {
 	rng := utils.TestRng()
 	kindCount := 5
-	c1, c2 := testConn(t)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		c1, c2 := spawnBgPipe(ctx, s)
 		for _, c := range utils.Slice(c1, c2) {
 			mux := makeMux(rng, kindCount)
 			serverRng := rng.Split()
@@ -281,8 +287,8 @@ func makeConfig(kinds ...StreamKind) *Config {
 }
 
 func TestStreamKindsMismatch(t *testing.T) {
-	c1, c2 := testConn(t)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		c1, c2 := spawnBgPipe(ctx, s)
 		var k0, k1, k2 StreamKind = 0, 1, 2
 		muxs := utils.Slice(
 			NewMux(makeConfig(k0, k1)),
@@ -346,8 +352,8 @@ func TestStreamKindsMismatch(t *testing.T) {
 // Test checking that closing a stream does not drop messages on the floor:
 // sending and receiving still works as long as messages fit into a window.
 func TestClosedStream(t *testing.T) {
-	c1, c2 := testConn(t)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		c1, c2 := spawnBgPipe(ctx, s)
 		kind := StreamKind(0)
 		window := uint64(4)
 		msg := []byte("hello")
@@ -407,8 +413,8 @@ func TestClosedStream(t *testing.T) {
 }
 
 func TestProtocol_TooLargeMsg(t *testing.T) {
-	c1, c2 := testConn(t)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		c1, c2 := spawnBgPipe(ctx, s)
 		kind := StreamKind(0)
 		maxMsgSize := uint64(10)
 
@@ -455,8 +461,8 @@ func TestProtocol_TooLargeMsg(t *testing.T) {
 }
 
 func TestProtocol_TooManyMsgs(t *testing.T) {
-	c1, c2 := testConn(t)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		c1, c2 := spawnBgPipe(ctx, s)
 		kind := StreamKind(0)
 		maxMsgSize := uint64(10)
 		window := uint64(3)
@@ -508,8 +514,8 @@ func TestProtocol_TooManyMsgs(t *testing.T) {
 }
 
 func TestProtocol_FrameAfterClose(t *testing.T) {
-	c1, c2 := testConn(t)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		c1, c2 := spawnBgPipe(ctx, s)
 		kind := StreamKind(0)
 
 		// Bad mux.
@@ -566,8 +572,8 @@ func TestProtocol_FrameAfterClose(t *testing.T) {
 }
 
 func TestProtocol_TooManyAccepts(t *testing.T) {
-	c1, c2 := testConn(t)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		c1, c2 := spawnBgPipe(ctx, s)
 		kind := StreamKind(0)
 
 		// Bad mux.
@@ -599,8 +605,8 @@ func TestProtocol_TooManyAccepts(t *testing.T) {
 }
 
 func TestProtocol_UnknownStream(t *testing.T) {
-	c1, c2 := testConn(t)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		c1, c2 := spawnBgPipe(ctx, s)
 		kind := StreamKind(0)
 
 		// Bad mux.
@@ -630,8 +636,8 @@ func TestProtocol_UnknownStream(t *testing.T) {
 }
 
 func TestProtocol_UnknownKind(t *testing.T) {
-	c1, c2 := testConn(t)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		c1, c2 := spawnBgPipe(ctx, s)
 		kind := StreamKind(0)
 		badKind := StreamKind(1)
 
