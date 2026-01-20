@@ -4,6 +4,24 @@ package p2p;
 
 option go_package = "github.com/tendermint/tendermint/internal/p2p/pb";
 
+message PacketPing {}
+
+message PacketPong {}
+
+message PacketMsg {
+  int32 channel_id = 1;
+  bool eof = 2;
+  bytes data = 3;
+}
+
+message Packet {
+  oneof sum {
+    PacketPing packet_ping = 1;
+    PacketPong packet_pong = 2;
+    PacketMsg packet_msg = 3;
+  }
+}
+
 message NodePublicKey {
   bytes ed25519 = 1;
   reserved 2, 3;
