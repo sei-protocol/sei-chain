@@ -9,8 +9,8 @@ import (
 // must not be altered after this function is called as it will cause a segmentation fault.
 func UnsafeStrToBytes(s string) []byte {
 	var buf []byte
-	sHdr := (*reflect.StringHeader)(unsafe.Pointer(&s))
-	bufHdr := (*reflect.SliceHeader)(unsafe.Pointer(&buf))
+	sHdr := (*reflect.StringHeader)(unsafe.Pointer(&s))    //nolint:gosec,staticcheck
+	bufHdr := (*reflect.SliceHeader)(unsafe.Pointer(&buf)) //nolint:gosec,staticcheck
 	bufHdr.Data = sHdr.Data
 	bufHdr.Cap = sHdr.Len
 	bufHdr.Len = sHdr.Len
@@ -22,5 +22,5 @@ func UnsafeStrToBytes(s string) []byte {
 // to be used generally, but for a specific pattern to delete keys
 // from a map.
 func UnsafeBytesToStr(b []byte) string {
-	return *(*string)(unsafe.Pointer(&b))
+	return *(*string)(unsafe.Pointer(&b)) //nolint:gosec
 }

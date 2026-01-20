@@ -36,7 +36,6 @@ echo "=== Local Chain Configuration ==="
 echo "  MOCK_BALANCES:  $MOCK_BALANCES"
 echo "  GIGA_EXECUTOR:  $GIGA_EXECUTOR"
 echo "  GIGA_OCC:       $GIGA_OCC"
-echo "  GIGA_CACHE_KV:  $GIGA_CACHE_KV"
 echo "================================="
 
 # clean up old sei directory
@@ -117,7 +116,6 @@ if [ "$GIGA_EXECUTOR" = true ]; then
     echo "[giga_executor]" >> $APP_TOML_PATH
     echo "enabled = true" >> $APP_TOML_PATH
     echo "occ_enabled = false" >> $APP_TOML_PATH
-    echo "use_giga_cache_kv = false" >> $APP_TOML_PATH
   fi
 
   # Set OCC based on GIGA_OCC flag

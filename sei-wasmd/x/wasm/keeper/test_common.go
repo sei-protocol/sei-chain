@@ -211,7 +211,7 @@ func createTestInput(
 		capabilitytypes.StoreKey, feegrant.StoreKey, authzkeeper.StoreKey,
 		types.StoreKey,
 	)
-	ms := store.NewCommitMultiStore(db, []string{})
+	ms := store.NewCommitMultiStore(db)
 	for _, v := range keys {
 		ms.MountStoreWithDB(v, sdk.StoreTypeIAVL, db)
 	}

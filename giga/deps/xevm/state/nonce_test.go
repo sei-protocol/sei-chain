@@ -12,8 +12,8 @@ import (
 )
 
 func TestNonce(t *testing.T) {
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
 	stateDB := state.NewDBImpl(ctx, k, false)
 	_, addr := testkeeper.MockAddressPair()
 	stateDB.SetNonce(addr, 1, tracing.NonceChangeEoACall)

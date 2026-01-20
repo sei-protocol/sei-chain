@@ -11,8 +11,7 @@ import (
 )
 
 func TestBaseFeePerGas(t *testing.T) {
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	k, ctx := testkeeper.MockEVMKeeper(t)
 	require.Equal(t, k.GetMinimumFeePerGas(ctx), k.GetNextBaseFeePerGas(ctx))
 	require.True(t, k.GetNextBaseFeePerGas(ctx).LTE(k.GetMaximumFeePerGas(ctx)))
 	originalbf := k.GetNextBaseFeePerGas(ctx)

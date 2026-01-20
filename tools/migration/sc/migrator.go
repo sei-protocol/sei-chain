@@ -38,7 +38,7 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
 
 	// Creating CMS for store V1
-	cmsV1 := rootmulti.NewStore(db, logger, []string{})
+	cmsV1 := rootmulti.NewStore(db, logger)
 	for _, key := range utils.ModuleKeys {
 		cmsV1.MountStoreWithDB(key, sdk.StoreTypeIAVL, nil)
 	}

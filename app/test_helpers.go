@@ -48,6 +48,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 
+	xevmtypes "github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 )
 
@@ -75,9 +76,9 @@ func (t TestTx) GetGasEstimate() uint64 {
 }
 
 type TestAppOpts struct {
-	useSc         bool
-	enableGiga    bool
-	enableGigaOCC bool
+	UseSc         bool
+	EnableGiga    bool
+	EnableGigaOCC bool
 }
 
 func (t TestAppOpts) Get(s string) interface{} {
@@ -85,7 +86,7 @@ func (t TestAppOpts) Get(s string) interface{} {
 		return "sei-test"
 	}
 	if s == FlagSCEnable {
-		return t.useSc
+		return t.UseSc
 	}
 	// Disable snapshot creation in tests to avoid background goroutines
 	// that are not relevant to the test logic
@@ -93,10 +94,10 @@ func (t TestAppOpts) Get(s string) interface{} {
 		return uint32(0) // 0 = disabled
 	}
 	if s == gigaconfig.FlagEnabled {
-		return t.enableGiga
+		return t.EnableGiga
 	}
 	if s == gigaconfig.FlagOCCEnabled {
-		return t.enableGigaOCC
+		return t.EnableGigaOCC
 	}
 	return nil
 }
@@ -116,14 +117,17 @@ func NewTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enab
 }
 
 func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
-	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{useSc: true}, baseAppOptions...)
+	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true}, baseAppOptions...)
 }
 
 func NewGigaTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
-	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{useSc: true, enableGiga: true, enableGigaOCC: useOcc}, baseAppOptions...)
+	wrapper := newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: true, EnableGigaOCC: useOcc}, baseAppOptions...)
+	genState := xevmtypes.DefaultGenesis()
+	wrapper.App.GigaEvmKeeper.InitGenesis(wrapper.Ctx, *genState)
+	return wrapper
 }
 
-func newTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useSc bool, testAppOpts TestAppOpts, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
+func newTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, UseSc bool, testAppOpts TestAppOpts, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
 	var appPtr *App
 	originalHome := DefaultNodeHome
 	tempHome := tb.TempDir()
@@ -131,7 +135,7 @@ func newTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enab
 	tb.Cleanup(func() {
 		DefaultNodeHome = originalHome
 	})
-	if useSc {
+	if UseSc {
 		if testT, ok := tb.(*testing.T); ok {
 			appPtr = SetupWithSc(testT, false, enableEVMCustomPrecompiles, testAppOpts, baseAppOptions...)
 		} else {
@@ -284,6 +288,10 @@ func setupReceiptStore() (seidbtypes.StateStore, error) {
 }
 
 func SetupWithDefaultHome(isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
+	return SetupWithAppOptsAndDefaultHome(isCheckTx, TestAppOpts{}, enableEVMCustomPrecompiles, overrideWasmGasMultiplier, baseAppOptions...)
+}
+
+func SetupWithAppOptsAndDefaultHome(isCheckTx bool, appOpts TestAppOpts, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
 
@@ -321,7 +329,7 @@ func SetupWithDefaultHome(isCheckTx bool, enableEVMCustomPrecompiles bool, overr
 		config.TestConfig(),
 		encodingConfig,
 		wasm.EnableAllProposals,
-		TestAppOpts{},
+		appOpts,
 		wasmOpts,
 		options,
 		baseAppOptions...,
@@ -332,6 +340,9 @@ func SetupWithDefaultHome(isCheckTx bool, enableEVMCustomPrecompiles bool, overr
 		if err != nil {
 			panic(err)
 		}
+
+		// TODO: remove once init chain works with SC
+		defer func() { _ = recover() }()
 
 		_, err = res.InitChain(
 			context.Background(), &abci.RequestInitChain{

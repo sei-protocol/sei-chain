@@ -92,8 +92,8 @@ func TestGetLogsForTx(t *testing.T) {
 }
 
 func TestLegacyBlockBloomCutoffHeight(t *testing.T) {
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(123)
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockHeight(123)
 	require.Equal(t, int64(0), k.GetLegacyBlockBloomCutoffHeight(ctx))
 	k.SetLegacyBlockBloomCutoffHeight(ctx)
 	require.Equal(t, int64(123), k.GetLegacyBlockBloomCutoffHeight(ctx))

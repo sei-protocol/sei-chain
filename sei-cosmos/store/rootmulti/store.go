@@ -56,7 +56,6 @@ type Store struct {
 	storesParams        map[types.StoreKey]storeParams
 	stores              map[types.StoreKey]types.CommitKVStore
 	keysByName          map[string]types.StoreKey
-	gigaKeys            []string
 	lazyLoading         bool
 	pruneHeights        []int64
 	initialVersion      int64
@@ -93,7 +92,7 @@ func keysForStoreKeyMap[V any](m map[types.StoreKey]V) []types.StoreKey {
 // store will be created with a PruneNothing pruning strategy by default. After
 // a store is created, KVStores must be mounted and finally LoadLatestVersion or
 // LoadVersion must be called.
-func NewStore(db dbm.DB, logger log.Logger, gigaKeys []string) *Store {
+func NewStore(db dbm.DB, logger log.Logger) *Store {
 	return &Store{
 		db:                  db,
 		logger:              logger,
@@ -104,12 +103,11 @@ func NewStore(db dbm.DB, logger log.Logger, gigaKeys []string) *Store {
 		stores:              make(map[types.StoreKey]types.CommitKVStore),
 		keysByName:          make(map[string]types.StoreKey),
 		pruneHeights:        make([]int64, 0),
-		gigaKeys:            gigaKeys,
 	}
 }
 
-func NewStoreWithArchival(db, archivalDb dbm.DB, archivalVersion int64, logger log.Logger, gigaKeys []string) *Store {
-	store := NewStore(db, logger, gigaKeys)
+func NewStoreWithArchival(db, archivalDb dbm.DB, archivalVersion int64, logger log.Logger) *Store {
+	store := NewStore(db, logger)
 	store.archivalDb = archivalDb
 	store.archivalVersion = archivalVersion
 	return store
@@ -547,12 +545,7 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 	for k, v := range rs.stores {
 		stores[k] = v
 	}
-	gigaStores := make(map[types.StoreKey]types.KVStore, len(rs.gigaKeys))
-	for _, k := range rs.gigaKeys {
-		key := rs.keysByName[k]
-		gigaStores[key] = rs.stores[key]
-	}
-	return cachemulti.NewStore(rs.db, stores, rs.keysByName, gigaStores, rs.traceWriter, rs.getTracingContext())
+	return cachemulti.NewStore(rs.db, stores, rs.keysByName, nil, rs.traceWriter, rs.getTracingContext())
 }
 
 // CacheMultiStoreWithVersion is analogous to CacheMultiStore except that it

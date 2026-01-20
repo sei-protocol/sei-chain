@@ -123,7 +123,7 @@ func setupTestApp(t *testing.T, height int64) (*mockApplication, string) {
 	db, err := dbm.NewDB("test", dbm.MemDBBackend, tempDir)
 	require.NoError(t, err)
 
-	cms := rootmulti.NewStore(db, log.NewNopLogger(), []string{})
+	cms := rootmulti.NewStore(db, log.NewNopLogger())
 	key := storetypes.NewKVStoreKey("test")
 	cms.MountStoreWithDB(key, storetypes.StoreTypeIAVL, db)
 	err = cms.LoadLatestVersion()

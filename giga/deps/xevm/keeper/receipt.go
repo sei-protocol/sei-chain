@@ -3,14 +3,10 @@ package keeper
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -135,163 +131,7 @@ func (k *Keeper) MockReceipt(ctx sdk.Context, txHash common.Hash, receipt *types
 	if err := k.SetTransientReceipt(ctx, txHash, receipt); err != nil {
 		return err
 	}
-	if err := k.FlushTransientReceipts(ctx); err != nil {
-		return err
-	}
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		if _, err := k.GetReceipt(ctx, txHash); err == nil {
-			return nil
-		} else if err != nil && err.Error() != "not found" {
-			return err
-		}
-		if time.Now().After(deadline) {
-			return errors.New("receipt not found after async flush")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func (k *Keeper) FlushTransientReceipts(ctx sdk.Context) error {
-	return k.flushTransientReceipts(ctx)
-}
-
-func (k *Keeper) FlushTransientReceiptsAsync(ctx sdk.Context) error {
-	return k.flushTransientReceipts(ctx)
-}
-
-func isLegacyReceipt(ctx sdk.Context, receipt *types.Receipt) bool {
-	if ctx.ChainID() == "pacific-1" {
-		return receipt.BlockNumber < 162745893
-	}
-	if ctx.ChainID() == "atlantic-2" {
-		return receipt.BlockNumber < 191939681
-	}
-	if ctx.ChainID() == "arctic-1" {
-		return receipt.BlockNumber < 109393643
-	}
-	return false
-}
-
-func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
-	transientReceiptStore := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix)
-	iter := transientReceiptStore.Iterator(nil, nil)
-	defer func() { _ = iter.Close() }()
-	var pairs []*iavl.KVPair
-
-	// TransientReceiptStore is recreated on commit meaning it will only contain receipts for a single block at a time
-	// and will never flush a subset of block's receipts.
-	// However in our test suite it can happen that the transient store can contain receipts from different blocks
-	// and we need to account for that.
-	cumulativeGasUsedPerBlock := make(map[uint64]uint64)
-	for ; iter.Valid(); iter.Next() {
-		receipt := &types.Receipt{}
-		if err := receipt.Unmarshal(iter.Value()); err != nil {
-			return err
-		}
-
-		if !isLegacyReceipt(ctx, receipt) {
-			cumulativeGasUsedPerBlock[receipt.BlockNumber] += receipt.GasUsed
-			receipt.CumulativeGasUsed = cumulativeGasUsedPerBlock[receipt.BlockNumber]
-		}
-
-		marshalledReceipt, err := receipt.Marshal()
-		if err != nil {
-			return err
-		}
-
-		kvPair := &iavl.KVPair{Key: types.ReceiptKey(types.TransientReceiptKey(iter.Key()).TransactionHash()), Value: marshalledReceipt}
-		pairs = append(pairs, kvPair)
-	}
-	ncs := &proto.NamedChangeSet{
-		Name:      types.ReceiptStoreKey,
-		Changeset: iavl.ChangeSet{Pairs: pairs},
-	}
-
-	var changesets []*proto.NamedChangeSet
-	changesets = append(changesets, ncs)
-	// Genesis and some unit tests execute at block height 0. Async writes
-	// rely on a positive version to avoid regressions in the underlying
-	// state store metadata, so fall back to a synchronous apply in that case.
-	if ctx.BlockHeight() == 0 {
-		return k.receiptStore.ApplyChangesetSync(ctx.BlockHeight(), changesets)
-	}
-	err := k.receiptStore.ApplyChangesetAsync(ctx.BlockHeight(), changesets)
-	if err != nil {
-		if !strings.Contains(err.Error(), "not implemented") { // for tests
-			return err
-		}
-		// fallback to synchronous apply for stores that do not support async writes
-		return k.receiptStore.ApplyChangesetSync(ctx.BlockHeight(), []*proto.NamedChangeSet{ncs})
-	}
 	return nil
-}
-
-// MigrateLegacyReceiptsBatch moves up to batchSize receipts from the legacy KV store
-// into the persistent receipt store and deletes them from the legacy store.
-// It returns the number of receipts migrated.
-func (k *Keeper) MigrateLegacyReceiptsBatch(ctx sdk.Context, batchSize int) (int, error) {
-	// Iterate over legacy receipt keys under prefix types.ReceiptKeyPrefix
-	legacyStore := prefix.NewStore(ctx.GigaKVStore(k.storeKey), types.ReceiptKeyPrefix)
-	iter := legacyStore.Iterator(nil, nil)
-	defer func() { _ = iter.Close() }()
-
-	// Early exit if nothing to migrate
-	if !iter.Valid() {
-		return 0, nil
-	}
-
-	if batchSize <= 0 {
-		return 0, nil
-	}
-
-	var (
-		txHashes     []common.Hash
-		receipts     []*types.Receipt
-		keysToDelete [][]byte
-		migrated     int
-	)
-
-	txHashes = make([]common.Hash, 0, batchSize)
-	receipts = make([]*types.Receipt, 0, batchSize)
-	keysToDelete = make([][]byte, 0, batchSize)
-
-	for ; migrated < batchSize && iter.Valid(); iter.Next() {
-		keySuffix := iter.Key() // tx hash bytes (without prefix)
-		value := iter.Value()   // serialized receipt bytes
-
-		receipt := &types.Receipt{}
-		if err := receipt.Unmarshal(value); err != nil {
-			return 0, err
-		}
-
-		// Derive tx hash directly from key suffix
-		txHash := common.BytesToHash(keySuffix)
-
-		receipts = append(receipts, receipt)
-		txHashes = append(txHashes, txHash)
-		// Save the suffix for deletion from legacy store after successful write
-		keysToDelete = append(keysToDelete, append([]byte{}, keySuffix...))
-		migrated++
-	}
-
-	if migrated == 0 {
-		return 0, nil
-	}
-
-	// Write to transient receipt store first; they'll be flushed to receipt.db at pre-commit
-	for i := range receipts {
-		if err := k.SetTransientReceipt(ctx, txHashes[i], receipts[i]); err != nil {
-			return 0, err
-		}
-	}
-
-	// After a successful write, delete from legacy store
-	for _, kdel := range keysToDelete {
-		legacyStore.Delete(kdel)
-	}
-
-	return migrated, nil
 }
 
 func (k *Keeper) WriteReceipt(

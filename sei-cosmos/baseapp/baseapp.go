@@ -59,8 +59,6 @@ const (
 	FlagChainID            = "chain-id"
 	FlagConcurrencyWorkers = "concurrency-workers"
 	FlagOccEnabled         = "occ-enabled"
-
-	FlagGigaKeys = "giga-keys"
 )
 
 var (
@@ -173,7 +171,6 @@ type BaseApp struct { //nolint: maligned
 	occEnabled         bool
 
 	deliverTxHooks []DeliverTxHook
-	gigaKeys       []string
 }
 
 type appStore struct {
@@ -232,8 +229,7 @@ type snapshotData struct {
 func NewBaseApp(
 	name string, logger log.Logger, db dbm.DB, txDecoder sdk.TxDecoder, tmConfig *tmcfg.Config, appOpts servertypes.AppOptions, options ...func(*BaseApp),
 ) *BaseApp {
-	gigaKeys := cast.ToStringSlice(appOpts.Get(FlagGigaKeys))
-	cms := store.NewCommitMultiStore(db, gigaKeys)
+	cms := store.NewCommitMultiStore(db)
 	archivalVersion := cast.ToInt64(appOpts.Get(FlagArchivalVersion))
 	if archivalVersion > 0 {
 		switch cast.ToString(appOpts.Get(FlagArchivalDBType)) {
@@ -244,7 +240,7 @@ func NewBaseApp(
 			if err != nil {
 				panic(err)
 			}
-			cms = store.NewCommitMultiStoreWithArchival(db, arweaveDb, archivalVersion, gigaKeys)
+			cms = store.NewCommitMultiStoreWithArchival(db, arweaveDb, archivalVersion)
 		}
 	}
 
@@ -282,7 +278,6 @@ func NewBaseApp(
 		commitLock:       &sync.Mutex{},
 		checkTxStateLock: &sync.RWMutex{},
 		deliverTxHooks:   []DeliverTxHook{},
-		gigaKeys:         gigaKeys,
 	}
 
 	for _, option := range options {
@@ -1184,7 +1179,7 @@ func (app *BaseApp) ReloadDB() error {
 		return err
 	}
 	app.db = db
-	app.cms = store.NewCommitMultiStore(db, app.gigaKeys)
+	app.cms = store.NewCommitMultiStore(db)
 	if app.snapshotManager != nil {
 		app.snapshotManager.SetMultiStore(app.cms)
 	}
