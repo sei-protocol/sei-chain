@@ -13,17 +13,6 @@ import (
 	"testing"
 )
 
-// Ignores cancellation and connection errors.
-// Wrap Mux.Run() calls in this - in tests we manage both ends of the connection,
-// so there is a race condition between disconnects and cancellation, when test
-// is shutting down.
-func ignoreDisconnect(err error) error {
-	if utils.ErrorAs[errConn](err).IsPresent() {
-		return nil
-	}
-	return utils.IgnoreCancel(err)
-}
-
 func spawnBgPipe(ctx context.Context, s scope.Scope) (*conn.SecretConnection, *conn.SecretConnection) {
 	c1, c2 := tcp.TestPipe()
 	s.SpawnBg(func() error {
@@ -59,7 +48,7 @@ func transform(msg []byte) []byte {
 }
 
 func runServer(ctx context.Context, rng utils.Rng, mux *Mux) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for kind := range mux.cfg.Kinds {
 			_ = rng.Split()
 			s.Spawn(func() error {
@@ -100,7 +89,7 @@ func runServer(ctx context.Context, rng utils.Rng, mux *Mux) error {
 			})
 		}
 		return nil
-	})
+	}))
 }
 
 type clientSet struct {
@@ -241,8 +230,8 @@ func TestHappyPath(t *testing.T) {
 		for _, c := range utils.Slice(c1, c2) {
 			mux := makeMux(rng, kindCount)
 			serverRng := rng.Split()
-			s.SpawnBgNamed("mux", func() error { return ignoreDisconnect(mux.Run(ctx, c)) })
-			s.SpawnBgNamed("server", func() error { return utils.IgnoreCancel(runServer(ctx, serverRng, mux)) })
+			s.SpawnBgNamed("mux", func() error { return mux.Run(ctx, c) })
+			s.SpawnBgNamed("server", func() error { return runServer(ctx, serverRng, mux) })
 			clientRng := rng.Split()
 			s.SpawnNamed("client", func() error { return runClients(ctx, clientRng, mux) })
 		}
@@ -295,7 +284,7 @@ func TestStreamKindsMismatch(t *testing.T) {
 			NewMux(makeConfig(k1, k2)),
 		)
 		for i, c := range utils.Slice(c1, c2) {
-			s.SpawnBg(func() error { return ignoreDisconnect(muxs[i].Run(ctx, c)) })
+			s.SpawnBg(func() error { return muxs[i].Run(ctx, c) })
 		}
 		// Connecting/accepting of unconfigured kind should error.
 		if _, err := muxs[0].Connect(ctx, k2, 10, 10); !errors.Is(err, errUnknownKind) {
@@ -362,7 +351,7 @@ func TestClosedStream(t *testing.T) {
 			NewMux(makeConfig(kind)),
 		)
 		for i, c := range utils.Slice(c1, c2) {
-			s.SpawnBg(func() error { return ignoreDisconnect(muxs[i].Run(ctx, c)) })
+			s.SpawnBg(func() error { return muxs[i].Run(ctx, c) })
 		}
 		s.Spawn(func() error {
 			// Just accept a single stream and close immediately.
@@ -420,7 +409,7 @@ func TestProtocol_TooLargeMsg(t *testing.T) {
 
 		// Bad mux.
 		badMux := NewMux(makeConfig(kind))
-		s.SpawnBg(func() error { return ignoreDisconnect(badMux.Run(ctx, c1)) })
+		s.SpawnBg(func() error { return badMux.Run(ctx, c1) })
 		s.SpawnBg(func() error {
 			t.Log("Connect stream.")
 			stream, err := badMux.Connect(ctx, kind, 0, 0)
@@ -469,7 +458,7 @@ func TestProtocol_TooManyMsgs(t *testing.T) {
 
 		// Bad mux.
 		badMux := NewMux(makeConfig(kind))
-		s.SpawnBg(func() error { return ignoreDisconnect(badMux.Run(ctx, c1)) })
+		s.SpawnBg(func() error { return badMux.Run(ctx, c1) })
 		s.SpawnBg(func() error {
 			t.Log("Connect stream.")
 			stream, err := badMux.Connect(ctx, kind, 0, 0)
@@ -521,7 +510,7 @@ func TestProtocol_FrameAfterClose(t *testing.T) {
 		// Bad mux.
 		badMux := NewMux(makeConfig(kind))
 		maxMsgSize := uint64(10)
-		s.SpawnBg(func() error { return ignoreDisconnect(badMux.Run(ctx, c1)) })
+		s.SpawnBg(func() error { return badMux.Run(ctx, c1) })
 		s.SpawnBg(func() error {
 			t.Log("Connect stream.")
 			stream, err := badMux.Connect(ctx, kind, 0, 0)
@@ -578,7 +567,7 @@ func TestProtocol_TooManyAccepts(t *testing.T) {
 
 		// Bad mux.
 		badMux := NewMux(makeConfig(kind))
-		s.SpawnBg(func() error { return ignoreDisconnect(badMux.Run(ctx, c1)) })
+		s.SpawnBg(func() error { return badMux.Run(ctx, c1) })
 		s.SpawnBg(func() error {
 			// Artificially connect too many streams.
 			for queue, ctrl := range badMux.queue.Lock() {
@@ -611,7 +600,7 @@ func TestProtocol_UnknownStream(t *testing.T) {
 
 		// Bad mux.
 		badMux := NewMux(makeConfig(kind))
-		s.SpawnBg(func() error { return ignoreDisconnect(badMux.Run(ctx, c1)) })
+		s.SpawnBg(func() error { return badMux.Run(ctx, c1) })
 		s.SpawnBg(func() error {
 			// Artificially accept a stream without connect.
 			for queue, ctrl := range badMux.queue.Lock() {
@@ -643,7 +632,7 @@ func TestProtocol_UnknownKind(t *testing.T) {
 
 		// Bad mux.
 		badMux := NewMux(makeConfig(kind))
-		s.SpawnBg(func() error { return ignoreDisconnect(badMux.Run(ctx, c1)) })
+		s.SpawnBg(func() error { return badMux.Run(ctx, c1) })
 		s.SpawnBg(func() error {
 			// Artificially connect a stream of unknown kind.
 			for queue, ctrl := range badMux.queue.Lock() {

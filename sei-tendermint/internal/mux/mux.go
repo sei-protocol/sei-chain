@@ -45,8 +45,6 @@ var errTooManyMsgs = errors.New("too many messages")
 var errTooLargeMsg = errors.New("message too large")
 var errUnknownKind = errors.New("unknown kind")
 
-type errConn struct{ error }
-
 type Config struct {
 	// Maximal number of bytes in a frame (excluding header).
 	FrameSize uint64
@@ -126,7 +124,6 @@ func newRunner(mux *Mux) *runner {
 // If the stream does not exist yet, it tries to create it as an accept (inbound) stream.
 // In that case the inbound stream limit for the given kind is checked.
 func (r *runner) getOrAccept(id streamID, kind StreamKind) (*streamState, error) {
-	fmt.Printf("getOrAccept(%v)\n", id)
 	for inner := range r.inner.RLock() {
 		s, ok := inner.streams[id]
 		if ok {
@@ -134,7 +131,6 @@ func (r *runner) getOrAccept(id streamID, kind StreamKind) (*streamState, error)
 		}
 	}
 	for inner := range r.inner.Lock() {
-		fmt.Printf("accepting stream %v\n", id)
 		if id.isConnect() {
 			return nil, errUnknownStream
 		}
@@ -220,18 +216,18 @@ func (r *runner) runSend(ctx context.Context, conn conn.Conn) error {
 				panic(err)
 			}
 			if err := conn.Write(ctx, []byte{byte(len(headerRaw))}); err != nil {
-				return errConn{err}
+				return err
 			}
 			if err := conn.Write(ctx, headerRaw); err != nil {
-				return errConn{err}
+				return err
 			}
 			if err := conn.Write(ctx, f.Payload); err != nil {
-				return errConn{err}
+				return err
 			}
 		}
 		if flush {
 			if err := conn.Flush(ctx); err != nil {
-				return errConn{err}
+				return err
 			}
 		}
 	}
@@ -244,11 +240,11 @@ func (r *runner) runRecv(ctx context.Context, conn conn.Conn) error {
 		// Currently we have 7 varint fields (up to 77B)
 		var headerSize [1]byte
 		if err := conn.Read(ctx, headerSize[:]); err != nil {
-			return errConn{err}
+			return err
 		}
 		headerRaw := make([]byte, headerSize[0])
 		if err := conn.Read(ctx, headerRaw[:]); err != nil {
-			return errConn{err}
+			return err
 		}
 		var h pb.Header
 		if err := proto.Unmarshal(headerRaw, &h); err != nil {
@@ -262,7 +258,6 @@ func (r *runner) runRecv(ctx context.Context, conn conn.Conn) error {
 			return err
 		}
 		for sInner := range s.inner.Lock() {
-			fmt.Printf("sInner.closed.remote[%v] = %v, %v\n", s.id, sInner.closed.remote, &h)
 			if sInner.closed.remote {
 				return errFrameAfterClose
 			}
@@ -306,30 +301,27 @@ func (r *runner) runRecv(ctx context.Context, conn conn.Conn) error {
 
 // Run runs the multiplexer for the given connection.
 // It closes the connection before return.
-func (m *Mux) Run(ctx context.Context, conn conn.Conn) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+func (m *Mux) Run(ctx context.Context, conn conn.Conn) (err error) {
+	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Handshake exchange.
 		handshake, err := scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*handshake, error) {
 			s.Spawn(func() error {
-				handshakeRaw, err := proto.Marshal(handshakeConv.Encode(&handshake{Kinds: m.cfg.Kinds}))
-				if err != nil {
-					panic(err)
-				}
+				handshakeRaw := handshakeConv.Marshal(&handshake{Kinds: m.cfg.Kinds})
 				sizeRaw := binary.LittleEndian.AppendUint32(nil, uint32(len(handshakeRaw)))
 				if err := conn.Write(ctx, sizeRaw); err != nil {
-					return errConn{err}
+					return err
 				}
 				if err := conn.Write(ctx, handshakeRaw); err != nil {
-					return errConn{err}
+					return err
 				}
 				if err := conn.Flush(ctx); err != nil {
-					return errConn{err}
+					return err
 				}
 				return nil
 			})
 			var sizeRaw [4]byte
 			if err := conn.Read(ctx, sizeRaw[:]); err != nil {
-				return nil, errConn{err}
+				return nil, err
 			}
 			size := binary.LittleEndian.Uint32(sizeRaw[:])
 			if size > handshakeMaxSize {
@@ -337,13 +329,9 @@ func (m *Mux) Run(ctx context.Context, conn conn.Conn) error {
 			}
 			handshakeRaw := make([]byte, size)
 			if err := conn.Read(ctx, handshakeRaw[:]); err != nil {
-				return nil, errConn{err}
-			}
-			var handshakeProto pb.Handshake
-			if err := proto.Unmarshal(handshakeRaw, &handshakeProto); err != nil {
 				return nil, err
 			}
-			return handshakeConv.Decode(&handshakeProto)
+			return handshakeConv.Unmarshal(handshakeRaw)
 		})
 		if err != nil {
 			return err
@@ -367,7 +355,7 @@ func (m *Mux) Run(ctx context.Context, conn conn.Conn) error {
 		s.Spawn(func() error { return r.runSend(ctx, conn) })
 		s.Spawn(func() error { return r.runRecv(ctx, conn) })
 		return nil
-	})
+	}))
 }
 
 // queue is a queue of frames to send, consumed by runSend.
