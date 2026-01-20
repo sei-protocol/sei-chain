@@ -23,9 +23,3 @@ message Packet {
     PacketMsg packet_msg = 3;
   }
 }
-
-message AuthSigMessage {
-  tendermint.crypto.PublicKey pub_key = 1;
-  bytes sig = 2;
-  bool sei_giga_connection = 3;
-}
