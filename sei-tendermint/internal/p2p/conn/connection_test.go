@@ -11,13 +11,13 @@ import (
 	"time"
 
 	"github.com/fortytw2/leaktest"
-	gogoproto "github.com/gogo/protobuf/proto"
+	"github.com/tendermint/tendermint/internal/p2p/pb"
+	"github.com/tendermint/tendermint/internal/protoutils"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
-	"github.com/tendermint/tendermint/proto/tendermint/p2p"
 )
 
 func spawnBgPipe(ctx context.Context, s scope.Scope) (Conn, Conn) {
@@ -94,18 +94,18 @@ func TestMConnectionSendRecv(t *testing.T) {
 	}
 }
 
-func pingMsg() *p2p.Packet {
-	return &p2p.Packet{
-		Sum: &p2p.Packet_PacketPing{
-			PacketPing: &p2p.PacketPing{},
+func pingMsg() *pb.Packet {
+	return &pb.Packet{
+		Sum: &pb.Packet_PacketPing{
+			PacketPing: &pb.PacketPing{},
 		},
 	}
 }
 
-func pongMsg() *p2p.Packet {
-	return &p2p.Packet{
-		Sum: &p2p.Packet_PacketPong{
-			PacketPong: &p2p.PacketPong{},
+func pongMsg() *pb.Packet {
+	return &pb.Packet{
+		Sum: &pb.Packet_PacketPong{
+			PacketPong: &pb.PacketPong{},
 		},
 	}
 }
@@ -121,20 +121,20 @@ func TestMConnectionPingPong(t *testing.T) {
 		s.Spawn(func() error { return newMConnectionWithCfg(client, makeChDescs(), cfg).Run(ctx) })
 		for range 3 {
 			// read ping
-			var got p2p.Packet
 			gotBytes, err := ReadSizedMsg(ctx, server, maxPingPongPacketSize)
 			if err != nil {
 				return fmt.Errorf("ReadSizedMsg(): %w", err)
 			}
-			if err := gogoproto.Unmarshal(gotBytes, &got); err != nil {
+			got, err := protoutils.Unmarshal[*pb.Packet](gotBytes)
+			if err != nil {
 				return err
 			}
-			if _, ok := got.Sum.(*p2p.Packet_PacketPing); !ok {
+			if _, ok := got.Sum.(*pb.Packet_PacketPing); !ok {
 				return fmt.Errorf("expected ping, got %T", got.Sum)
 			}
 
 			// respond with pong
-			if err := WriteSizedMsg(ctx, server, utils.OrPanic1(gogoproto.Marshal(pongMsg()))); err != nil {
+			if err := WriteSizedMsg(ctx, server, protoutils.Marshal(pongMsg())); err != nil {
 				return fmt.Errorf("WriteSizedMsg(): %w", err)
 			}
 			if err := server.Flush(ctx); err != nil {
@@ -227,14 +227,15 @@ func TestMConnectionReadErrorLongMessage(t *testing.T) {
 		})
 
 		t.Log("send msg thats just right")
-		msg := &p2p.PacketMsg{
+		msg := &pb.PacketMsg{
 			ChannelId: 0x01,
 			Eof:       true,
 			Data:      make([]byte, mconn1.config.MaxPacketMsgPayloadSize),
 		}
-		packet := utils.OrPanic1(gogoproto.Marshal(&p2p.Packet{
-			Sum: &p2p.Packet_PacketMsg{PacketMsg: msg},
-		}))
+		packet := protoutils.Marshal(&pb.Packet{
+			Sum: &pb.Packet_PacketMsg{PacketMsg: msg},
+		})
+
 		if err := WriteSizedMsg(ctx, c2, packet); err != nil {
 			return fmt.Errorf("WriteSizedMsg(): %w", err)
 		}
@@ -254,9 +255,9 @@ func TestMConnectionReadErrorLongMessage(t *testing.T) {
 
 		t.Log("send msg thats too long")
 		msg.Data = make([]byte, mconn1.config.MaxPacketMsgPayloadSize+100)
-		packet = utils.OrPanic1(gogoproto.Marshal(&p2p.Packet{
-			Sum: &p2p.Packet_PacketMsg{PacketMsg: msg},
-		}))
+		packet = protoutils.Marshal(&pb.Packet{
+			Sum: &pb.Packet_PacketMsg{PacketMsg: msg},
+		})
 		// Depending on when the server will terminate the connection,
 		// writing may fail or succeed.
 		_ = WriteSizedMsg(ctx, c2, packet)
@@ -271,21 +272,20 @@ func TestMConnectionReadErrorLongMessage(t *testing.T) {
 func TestConnVectors(t *testing.T) {
 	testCases := []struct {
 		testName string
-		packet   *p2p.Packet
+		packet   *pb.Packet
 		expBytes string
 	}{
 		{"PacketPing", pingMsg(), "0a00"},
 		{"PacketPong", pongMsg(), "1200"},
-		{"PacketMsg", &p2p.Packet{Sum: &p2p.Packet_PacketMsg{
-			PacketMsg: &p2p.PacketMsg{
+		{"PacketMsg", &pb.Packet{Sum: &pb.Packet_PacketMsg{
+			PacketMsg: &pb.PacketMsg{
 				ChannelId: 1, Eof: false, Data: []byte("data transmitted over the wire"),
 			},
 		}}, "1a2208011a1e64617461207472616e736d6974746564206f766572207468652077697265"},
 	}
 
 	for _, tc := range testCases {
-		bz, err := tc.packet.Marshal()
-		require.NoError(t, err, tc.testName)
+		bz := protoutils.Marshal(tc.packet)
 		require.Equal(t, tc.expBytes, hex.EncodeToString(bz), tc.testName)
 	}
 }
@@ -300,14 +300,14 @@ func TestMConnectionChannelOverflow(t *testing.T) {
 			}
 			return nil
 		})
-		msg := &p2p.PacketMsg{
+		msg := &pb.PacketMsg{
 			ChannelId: int32(1025),
 			Eof:       true,
 			Data:      []byte(`42`),
 		}
-		packet := utils.OrPanic1(gogoproto.Marshal(&p2p.Packet{
-			Sum: &p2p.Packet_PacketMsg{PacketMsg: msg},
-		}))
+		packet := protoutils.Marshal(&pb.Packet{
+			Sum: &pb.Packet_PacketMsg{PacketMsg: msg},
+		})
 		if err := WriteSizedMsg(ctx, c2, packet); err != nil {
 			return fmt.Errorf("WriteSizedMsg(): %w", err)
 		}
