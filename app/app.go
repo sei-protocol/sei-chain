@@ -1810,7 +1810,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 
 	// GasWanted should be set to the transaction's gas limit to match standard executor behavior.
 	// This is critical for LastResultsHash computation which uses Code, Data, GasWanted, and GasUsed.
-	gasWanted := int64(ethTx.Gas())     //nolint:gosec // G115: safe, Gas() won't exceed int64 max
+	gasWanted := int64(ethTx.Gas())      //nolint:gosec // G115: safe, Gas() won't exceed int64 max
 	gasUsed := int64(execResult.UsedGas) //nolint:gosec // G115: safe, UsedGas won't exceed int64 max
 
 	// Build Data field to match standard executor format.
