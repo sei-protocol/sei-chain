@@ -1,18 +1,17 @@
-//go:build gofuzz || go1.18
+//go:build gofuzz
 
 package tests
 
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"net"
 	"testing"
 
-	"github.com/tendermint/tendermint/crypto/ed25519"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
-	"github.com/tendermint/tendermint/libs/utils/require"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
@@ -21,6 +20,7 @@ func FuzzP2PSecretConnection(f *testing.F) {
 }
 
 func fuzz(t *testing.T, data []byte) {
+	ctx := t.Context()
 	if len(data) == 0 {
 		return
 	}
@@ -33,30 +33,12 @@ func fuzz(t *testing.T, data []byte) {
 		// Copy data because Write modifies the slice.
 		dataToWrite := make([]byte, len(data))
 		copy(dataToWrite, data)
-
-		n, err := fooConn.Write(dataToWrite)
-		if err != nil {
-			panic(err)
-		}
-		if n < len(data) {
-			panic(fmt.Sprintf("wanted to write %d bytes, but %d was written", len(data), n))
-		}
-		if err := fooConn.Flush(); err != nil {
-			panic(err)
-		}
+		utils.OrPanic(fooConn.Write(ctx,dataToWrite))
+		utils.OrPanic(fooConn.Flush(ctx))
 	}()
 
 	dataRead := make([]byte, len(data))
-	totalRead := 0
-	for totalRead < len(data) {
-		buf := make([]byte, len(data)-totalRead)
-		m, err := barConn.Read(buf)
-		if err != nil {
-			panic(err)
-		}
-		copy(dataRead[totalRead:], buf[:m])
-		totalRead += m
-	}
+	utils.OrPanic(barConn.Read(ctx,dataRead))
 
 	if !bytes.Equal(data, dataRead) {
 		panic("bytes written != read")
@@ -81,29 +63,29 @@ func (drw kvstoreConn) Close() (err error) {
 	return err1
 }
 
-// Each returned ReadWriteCloser is akin to a net.Connection
-func makeKVStoreConnPair() (fooConn, barConn kvstoreConn) {
-	barReader, fooWriter := io.Pipe()
-	fooReader, barWriter := io.Pipe()
-	return kvstoreConn{reader: fooReader, writer: fooWriter}, kvstoreConn{reader: barReader, writer: barWriter}
+func spawnBgForTest(t testing.TB, task func(context.Context) error) {
+	go func() {
+		if err := task(t.Context()); t.Context().Err() == nil {
+			utils.OrPanic(err)
+		}
+	}()
 }
 
 func makeSecretConnPair(tb testing.TB) (sc1 *conn.SecretConnection, sc2 *conn.SecretConnection) {
 	ctx := tb.Context()
-	c1, c2 := makeKVStoreConnPair()
-	k1 := ed25519.GenerateSecretKey()
-	k2 := ed25519.GenerateSecretKey()
-
+	c1, c2 := tcp.TestPipe()
+	spawnBgForTest(tb, c1.Run)
+	spawnBgForTest(tb, c2.Run)
 	// Make connections from both sides in parallel.
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error {
 			var err error
-			sc1, err = conn.MakeSecretConnection(ctx, c1, k1)
+			sc1, err = conn.MakeSecretConnection(ctx, c1)
 			return err
 		})
 		s.Spawn(func() error {
 			var err error
-			sc2, err = conn.MakeSecretConnection(ctx, c2, k2)
+			sc2, err = conn.MakeSecretConnection(ctx, c2)
 			return err
 		})
 		return nil
@@ -111,7 +93,5 @@ func makeSecretConnPair(tb testing.TB) (sc1 *conn.SecretConnection, sc2 *conn.Se
 	if err != nil {
 		tb.Fatal(err)
 	}
-	require.Equal(tb, k1.Public(), sc2.RemotePubKey())
-	require.Equal(tb, k2.Public(), sc1.RemotePubKey())
 	return sc1, sc2
 }
