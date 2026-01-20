@@ -38,7 +38,7 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
 
 	// Creating CMS for store V1
-	cmsV1 := rootmulti.NewStore(db, logger)
+	cmsV1 := rootmulti.NewStore(db, logger, []string{})
 	for _, key := range utils.ModuleKeys {
 		cmsV1.MountStoreWithDB(key, sdk.StoreTypeIAVL, nil)
 	}
@@ -53,7 +53,7 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Enable = true
 	ssConfig.KeepRecent = 0
-	cmsV2 := rootmulti2.NewStore(homeDir, logger, scConfig, ssConfig, true)
+	cmsV2 := rootmulti2.NewStore(homeDir, logger, scConfig, ssConfig, true, []string{})
 	for _, key := range utils.ModuleKeys {
 		cmsV2.MountStoreWithDB(key, sdk.StoreTypeIAVL, db)
 	}

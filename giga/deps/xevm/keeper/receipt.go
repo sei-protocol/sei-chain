@@ -70,7 +70,7 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 
 	if bz == nil {
 		// try legacy store for older receipts
-		store := ctx.KVStore(k.storeKey)
+		store := ctx.GigaKVStore(k.storeKey)
 		bz = store.Get(types.ReceiptKey(txHash))
 		if bz == nil {
 			return nil, errors.New("not found")
@@ -232,7 +232,7 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
 // It returns the number of receipts migrated.
 func (k *Keeper) MigrateLegacyReceiptsBatch(ctx sdk.Context, batchSize int) (int, error) {
 	// Iterate over legacy receipt keys under prefix types.ReceiptKeyPrefix
-	legacyStore := prefix.NewStore(ctx.KVStore(k.storeKey), types.ReceiptKeyPrefix)
+	legacyStore := prefix.NewStore(ctx.GigaKVStore(k.storeKey), types.ReceiptKeyPrefix)
 	iter := legacyStore.Iterator(nil, nil)
 	defer func() { _ = iter.Close() }()
 

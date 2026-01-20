@@ -11,7 +11,7 @@ import (
 const ZeroStorageCleanupBatchSize = 100
 
 func (k *Keeper) GetZeroStorageCleanupCheckpoint(ctx sdk.Context) []byte {
-	store := ctx.KVStore(k.storeKey)
+	store := ctx.GigaKVStore(k.storeKey)
 	bz := store.Get(types.ZeroStorageCleanupCheckpointKey)
 	if len(bz) == 0 {
 		return nil
@@ -20,7 +20,7 @@ func (k *Keeper) GetZeroStorageCleanupCheckpoint(ctx sdk.Context) []byte {
 }
 
 func (k *Keeper) setZeroStorageCleanupCheckpoint(ctx sdk.Context, key []byte) {
-	store := ctx.KVStore(k.storeKey)
+	store := ctx.GigaKVStore(k.storeKey)
 	if len(key) == 0 {
 		store.Delete(types.ZeroStorageCleanupCheckpointKey)
 		return

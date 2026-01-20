@@ -9,7 +9,7 @@ import (
 const DefaultTxHashesToRemove = 100
 
 func (k *Keeper) RemoveFirstNTxHashes(ctx sdk.Context, n int) {
-	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), types.TxHashesPrefix)
+	store := prefix.NewStore(ctx.GigaKVStore(k.GetStoreKey()), types.TxHashesPrefix)
 	iter := store.Iterator(nil, nil)
 	defer func() { _ = iter.Close() }()
 	keysToDelete := make([][]byte, 0, n)

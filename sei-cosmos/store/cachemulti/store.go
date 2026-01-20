@@ -10,6 +10,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
+	gigacachekv "github.com/sei-protocol/sei-chain/giga/deps/store"
 )
 
 //----------------------------------------
@@ -20,9 +21,10 @@ import (
 // NOTE: a Store (and MultiStores in general) should never expose the
 // keys for the substores.
 type Store struct {
-	db     types.CacheKVStore
-	stores map[types.StoreKey]types.CacheWrap
-	keys   map[string]types.StoreKey
+	db         types.CacheKVStore
+	stores     map[types.StoreKey]types.CacheWrap
+	keys       map[string]types.StoreKey
+	gigaStores map[types.StoreKey]types.KVStore
 
 	traceWriter  io.Writer
 	traceContext types.TraceContext
@@ -37,12 +39,14 @@ var _ types.CacheMultiStore = Store{}
 // is a branched store.
 func NewFromKVStore(
 	store types.KVStore, stores map[types.StoreKey]types.CacheWrapper,
+	gigaStores map[types.StoreKey]types.KVStore,
 	keys map[string]types.StoreKey, traceWriter io.Writer, traceContext types.TraceContext,
 ) Store {
 	cms := Store{
 		db:           cachekv.NewStore(store, nil, types.DefaultCacheSizeLimit),
 		stores:       make(map[types.StoreKey]types.CacheWrap, len(stores)),
 		keys:         keys,
+		gigaStores:   make(map[types.StoreKey]types.KVStore, len(gigaStores)),
 		traceWriter:  traceWriter,
 		traceContext: traceContext,
 		closers:      []io.Closer{},
@@ -55,6 +59,10 @@ func NewFromKVStore(
 		cms.stores[key] = cachekv.NewStore(store.(types.KVStore), key, types.DefaultCacheSizeLimit)
 	}
 
+	for key, store := range gigaStores {
+		cms.gigaStores[key] = gigacachekv.NewStore(store, key, types.DefaultCacheSizeLimit)
+	}
+
 	return cms
 }
 
@@ -62,10 +70,10 @@ func NewFromKVStore(
 // CacheWrapper objects. Each CacheWrapper store is a branched store.
 func NewStore(
 	db dbm.DB, stores map[types.StoreKey]types.CacheWrapper, keys map[string]types.StoreKey,
-	traceWriter io.Writer, traceContext types.TraceContext,
+	gigaStores map[types.StoreKey]types.KVStore, traceWriter io.Writer, traceContext types.TraceContext,
 ) Store {
 
-	return NewFromKVStore(dbadapter.Store{DB: db}, stores, keys, traceWriter, traceContext)
+	return NewFromKVStore(dbadapter.Store{DB: db}, stores, gigaStores, keys, traceWriter, traceContext)
 }
 
 func newCacheMultiStoreFromCMS(cms Store) Store {
@@ -73,8 +81,12 @@ func newCacheMultiStoreFromCMS(cms Store) Store {
 	for k, v := range cms.stores {
 		stores[k] = v
 	}
+	gigaStores := make(map[types.StoreKey]types.KVStore, len(cms.gigaStores))
+	for k, v := range cms.gigaStores {
+		gigaStores[k] = v
+	}
 
-	return NewFromKVStore(cms.db, stores, nil, cms.traceWriter, cms.traceContext)
+	return NewFromKVStore(cms.db, stores, gigaStores, nil, cms.traceWriter, cms.traceContext)
 }
 
 // SetTracer sets the tracer for the MultiStore that the underlying
@@ -115,6 +127,12 @@ func (cms Store) Write() {
 	cms.db.Write()
 	for _, store := range cms.stores {
 		store.Write()
+	}
+}
+
+func (cms Store) WriteGiga() {
+	for _, store := range cms.gigaStores {
+		store.(types.CacheKVStore).Write()
 	}
 }
 
@@ -160,6 +178,19 @@ func (cms Store) GetKVStore(key types.StoreKey) types.KVStore {
 	return store.(types.KVStore)
 }
 
+func (cms Store) GetGigaKVStore(key types.StoreKey) types.KVStore {
+	store := cms.gigaStores[key]
+	if key == nil || store == nil {
+		panic(fmt.Sprintf("giga kv store with key %v has not been registered in stores", key))
+	}
+	return store
+}
+
+func (cms Store) IsStoreGiga(key types.StoreKey) bool {
+	_, ok := cms.gigaStores[key]
+	return ok
+}
+
 func (cms Store) GetWorkingHash() ([]byte, error) {
 	panic("should never attempt to get working hash from cache multi store")
 }
@@ -177,6 +208,13 @@ func (cms Store) StoreKeys() []types.StoreKey {
 func (cms Store) SetKVStores(handler func(sk types.StoreKey, s types.KVStore) types.CacheWrap) types.MultiStore {
 	for k, s := range cms.stores {
 		cms.stores[k] = handler(k, s.(types.KVStore))
+	}
+	return cms
+}
+
+func (cms Store) SetGigaKVStores(handler func(sk types.StoreKey, s types.KVStore) types.KVStore) types.MultiStore {
+	for k, s := range cms.gigaStores {
+		cms.gigaStores[k] = handler(k, s)
 	}
 	return cms
 }

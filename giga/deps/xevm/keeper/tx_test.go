@@ -27,12 +27,12 @@ func TestRemoveFirstNTxHashes(t *testing.T) {
 }
 
 func setTxHash(ctx sdk.Context, k *keeper.Keeper, key byte, value byte) {
-	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), types.TxHashesPrefix)
+	store := prefix.NewStore(ctx.GigaKVStore(k.GetStoreKey()), types.TxHashesPrefix)
 	store.Set([]byte{key}, []byte{value})
 }
 
 func getTxHashCount(ctx sdk.Context, k *keeper.Keeper) (cnt int) {
-	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), types.TxHashesPrefix)
+	store := prefix.NewStore(ctx.GigaKVStore(k.GetStoreKey()), types.TxHashesPrefix)
 	iter := store.Iterator(nil, nil)
 	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {

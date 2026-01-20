@@ -94,7 +94,7 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 }
 
 func setLegacyReceipt(ctx sdk.Context, k *keeper.Keeper, txHash common.Hash, receipt *types.Receipt) {
-	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), types.ReceiptKeyPrefix)
+	store := prefix.NewStore(ctx.GigaKVStore(k.GetStoreKey()), types.ReceiptKeyPrefix)
 	bz, err := receipt.Marshal()
 	if err != nil {
 		panic(err)
@@ -103,7 +103,7 @@ func setLegacyReceipt(ctx sdk.Context, k *keeper.Keeper, txHash common.Hash, rec
 }
 
 func getLegacyReceiptCount(ctx sdk.Context, k *keeper.Keeper) (cnt int) {
-	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), types.ReceiptKeyPrefix)
+	store := prefix.NewStore(ctx.GigaKVStore(k.GetStoreKey()), types.ReceiptKeyPrefix)
 	iter := store.Iterator(nil, nil)
 	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
@@ -115,7 +115,7 @@ func getLegacyReceiptCount(ctx sdk.Context, k *keeper.Keeper) (cnt int) {
 // checkLegacyReceipt asserts the presence of a legacy receipt (stored in KV under ReceiptKeyPrefix)
 // prior to migration, and its absence after migration.
 func checkLegacyReceipt(t *testing.T, ctx sdk.Context, k *keeper.Keeper, txHash common.Hash, shouldExist bool) {
-	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), types.ReceiptKeyPrefix)
+	store := prefix.NewStore(ctx.GigaKVStore(k.GetStoreKey()), types.ReceiptKeyPrefix)
 	exists := store.Get(txHash[:]) != nil
 	if shouldExist {
 		require.Truef(t, exists, "expected legacy receipt to exist for %s", txHash.Hex())
