@@ -260,7 +260,7 @@ func TestBenchmarkLogger_FirstFlushZeroTPS(t *testing.T) {
 func createTestContext() sdk.Context {
 	db := dbm.NewMemDB()
 	logger := log.NewNopLogger()
-	ms := rootmulti.NewStore(db, log.NewNopLogger(), []string{})
+	ms := rootmulti.NewStore(db, log.NewNopLogger())
 	return sdk.NewContext(ms, tmtypes.Header{}, false, logger)
 }
 

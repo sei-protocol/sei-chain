@@ -54,7 +54,7 @@ func (s *KeeperTestHelper) CreateTestContext() sdk.Context {
 	db := dbm.NewMemDB()
 	logger := log.NewNopLogger()
 
-	ms := rootmulti.NewStore(db, log.NewNopLogger(), []string{})
+	ms := rootmulti.NewStore(db, log.NewNopLogger())
 
 	return sdk.NewContext(ms, tmtypes.Header{}, false, logger)
 }
