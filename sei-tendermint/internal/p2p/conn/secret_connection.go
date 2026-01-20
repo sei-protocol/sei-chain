@@ -94,7 +94,7 @@ type SecretConnection struct {
 	remPubKey crypto.PubKey
 }
 
-func newSecretConnection(conn net.Conn, loc ephSecret, rem ephPublic) *SecretConnection {
+func newSecretConnection(conn net.Conn, loc ephSecret, rem ephPublic) (*SecretConnection, error) {
 	pubs := utils.Slice(loc.public, rem)
 	if bytes.Compare(pubs[0][:], pubs[1][:]) > 0 {
 		pubs[0], pubs[1] = pubs[1], pubs[0]
@@ -102,7 +102,10 @@ func newSecretConnection(conn net.Conn, loc ephSecret, rem ephPublic) *SecretCon
 	transcript := merlin.NewTranscript("TENDERMINT_SECRET_CONNECTION_TRANSCRIPT_HASH")
 	transcript.AppendMessage(labelEphemeralLowerPublicKey, pubs[0][:])
 	transcript.AppendMessage(labelEphemeralUpperPublicKey, pubs[1][:])
-	dh := loc.DhSecret(rem)
+	dh, err := loc.DhSecret(rem)
+	if err != nil {
+		return nil, err
+	}
 	transcript.AppendMessage(labelDHSecret, dh[:])
 	var challenge [32]byte
 	transcript.ExtractBytes(challenge[:], labelSecretConnectionMac)
@@ -116,7 +119,7 @@ func newSecretConnection(conn net.Conn, loc ephSecret, rem ephPublic) *SecretCon
 		challenge: challenge,
 		recvState: utils.NewMutex(newRecvState(aead.recv.Cipher())),
 		sendState: utils.NewMutex(newSendState(aead.send.Cipher())),
-	}
+	}, nil
 }
 
 // MakeSecretConnection performs handshake and returns a new authenticated
@@ -135,8 +138,10 @@ func MakeSecretConnection(ctx context.Context, conn net.Conn, locPrivKey crypto.
 	if err != nil {
 		return nil, err
 	}
-	sc := newSecretConnection(conn, loc, rem)
-
+	sc, err := newSecretConnection(conn, loc, rem)
+	if err != nil {
+		return nil, err
+	}
 	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*SecretConnection, error) {
 		// Share (in secret) each other's pubkey & challenge signature
 		s.Spawn(func() error {
@@ -315,8 +320,12 @@ func (s dhSecret) AeadSecrets(locIsLeast bool) aeadSecrets {
 
 // computeDHSecret computes a Diffie-Hellman shared secret key
 // from our own local private key and the other's public key.
-func (s ephSecret) DhSecret(remPubKey ephPublic) dhSecret {
-	return dhSecret(utils.OrPanic1(curve25519.X25519(s.secret[:], remPubKey[:])))
+func (s ephSecret) DhSecret(remPubKey ephPublic) (dhSecret, error) {
+	dhSecretRaw, err := curve25519.X25519(s.secret[:], remPubKey[:])
+	if err != nil {
+		return dhSecret{}, fmt.Errorf("%w: %v", errDH, err)
+	}
+	return dhSecret(dhSecretRaw), nil
 }
 
 type authSigMessage struct {

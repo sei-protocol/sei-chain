@@ -9,12 +9,16 @@ import (
 )
 
 type AssociationHelper struct {
-	evmKeeper     utils.EVMKeeper
+	evmKeeper     evmKeeper
 	bankKeeper    utils.BankKeeper
 	accountKeeper utils.AccountKeeper
 }
 
-func NewAssociationHelper(evmKeeper utils.EVMKeeper, bankKeeper utils.BankKeeper, accountKeeper utils.AccountKeeper) *AssociationHelper {
+type evmKeeper interface {
+	SetAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, evmAddress common.Address)
+}
+
+func NewAssociationHelper(evmKeeper evmKeeper, bankKeeper utils.BankKeeper, accountKeeper utils.AccountKeeper) *AssociationHelper {
 	return &AssociationHelper{evmKeeper: evmKeeper, bankKeeper: bankKeeper, accountKeeper: accountKeeper}
 }
 

@@ -17,6 +17,11 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
+func TestLowOrderPoint(t *testing.T) {
+	_, err := newSecretConnection(nil, genEphKey(), ephPublic{})
+	require.True(t, errors.Is(err, errDH))
+}
+
 type evilConn struct {
 	net.Conn
 	remEphKey utils.AtomicSend[utils.Option[ephPublic]]
@@ -57,11 +62,11 @@ func (c *evilConn) Run(ctx context.Context) error {
 		return nil
 	}
 	loc := genEphKey()
-	ephKey := loc.public[:]
+	ephKey := loc.public
 	if c.badEphKey {
-		ephKey = []byte("drop users;")
+		ephKey = ephPublic{}
 	}
-	ephKeyMsg := &gogotypes.BytesValue{Value: ephKey}
+	ephKeyMsg := &gogotypes.BytesValue{Value: ephKey[:]}
 	if _, err := c.writer.Write(utils.OrPanic1(protoio.MarshalDelimited(ephKeyMsg))); err != nil {
 		return err
 	}
@@ -74,7 +79,7 @@ func (c *evilConn) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	sc := newSecretConnection(WriterConn{writer: c.writer}, loc, rem.OrPanic())
+	sc := utils.OrPanic1(newSecretConnection(WriterConn{writer: c.writer}, loc, rem.OrPanic()))
 	challenge := sc.challenge[:]
 	if c.badAuthSignature {
 		challenge = []byte("invalid challenge")
