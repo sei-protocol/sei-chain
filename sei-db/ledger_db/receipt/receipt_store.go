@@ -54,32 +54,57 @@ type receiptStore struct {
 	closeOnce   sync.Once
 }
 
-func NewReceiptStore(log dbLogger.Logger, config dbconfig.StateStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
+func normalizeReceiptBackend(backend string) string {
+	switch strings.ToLower(strings.TrimSpace(backend)) {
+	case "", "pebbledb", "pebble":
+		return "pebble"
+	case "parquet":
+		return "parquet"
+	default:
+		return strings.ToLower(strings.TrimSpace(backend))
+	}
+}
+
+func NewReceiptStore(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
 	if log == nil {
 		log = dbLogger.NewNopLogger()
 	}
 	if config.DBDirectory == "" {
 		return nil, errors.New("receipt store db directory not configured")
 	}
-	if config.Backend != "" && config.Backend != "pebbledb" {
+
+	backend := normalizeReceiptBackend(config.Backend)
+	switch backend {
+	case "parquet":
+		return newParquetReceiptStore(log, config, storeKey)
+	case "pebble":
+		ssConfig := dbconfig.DefaultStateStoreConfig()
+		ssConfig.DBDirectory = config.DBDirectory
+		ssConfig.KeepRecent = config.KeepRecent
+		if config.PruneIntervalSeconds > 0 {
+			ssConfig.PruneIntervalSeconds = config.PruneIntervalSeconds
+		}
+		ssConfig.KeepLastVersion = false
+		ssConfig.Backend = "pebbledb"
+
+		db, err := mvcc.OpenDB(ssConfig.DBDirectory, ssConfig)
+		if err != nil {
+			return nil, err
+		}
+		if err := recoverReceiptStore(log, dbutils.GetChangelogPath(ssConfig.DBDirectory), db); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		stopPruning := make(chan struct{})
+		startReceiptPruning(log, db, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds), stopPruning)
+		return &receiptStore{
+			db:          db,
+			storeKey:    storeKey,
+			stopPruning: stopPruning,
+		}, nil
+	default:
 		return nil, fmt.Errorf("unsupported receipt store backend: %s", config.Backend)
 	}
-
-	db, err := mvcc.OpenDB(config.DBDirectory, config)
-	if err != nil {
-		return nil, err
-	}
-	if err := recoverReceiptStore(log, dbutils.GetChangelogPath(config.DBDirectory), db); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	stopPruning := make(chan struct{})
-	startReceiptPruning(log, db, int64(config.KeepRecent), int64(config.PruneIntervalSeconds), stopPruning)
-	return &receiptStore{
-		db:          db,
-		storeKey:    storeKey,
-		stopPruning: stopPruning,
-	}, nil
 }
 
 func (s *receiptStore) LatestVersion() int64 {

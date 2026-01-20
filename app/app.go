@@ -634,13 +634,24 @@ func New(
 		wasmOpts...,
 	)
 
-	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
-	ssConfig := ssconfig.DefaultStateStoreConfig()
-	ssConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
-	ssConfig.DBDirectory = receiptStorePath
-	ssConfig.KeepLastVersion = false
+	receiptConfig := ssconfig.DefaultReceiptStoreConfig()
+	receiptBackend := strings.TrimSpace(cast.ToString(appOpts.Get(FlagRSBackend)))
+	if receiptBackend != "" {
+		receiptConfig.Backend = receiptBackend
+	}
+	receiptConfig.DBDirectory = strings.TrimSpace(cast.ToString(appOpts.Get(FlagRSDirectory)))
+	receiptConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
+	if receiptConfig.DBDirectory == "" {
+		switch strings.ToLower(receiptConfig.Backend) {
+		case "parquet":
+			receiptConfig.DBDirectory = filepath.Join(homePath, "data", "receipt.parquet")
+		default:
+			receiptConfig.DBDirectory = filepath.Join(homePath, "data", "receipt.db")
+		}
+	}
+
 	if app.receiptStore == nil {
-		receiptStore, err := receipt.NewReceiptStore(logger, ssConfig, keys[evmtypes.StoreKey])
+		receiptStore, err := receipt.NewReceiptStore(logger, receiptConfig, keys[evmtypes.StoreKey])
 		if err != nil {
 			panic(fmt.Sprintf("error while creating receipt store: %s", err))
 		}

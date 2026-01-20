@@ -28,10 +28,9 @@ func setupReceiptStore(t *testing.T) (receipt.ReceiptStore, sdk.Context, storety
 	storeKey := storetypes.NewKVStoreKey("evm")
 	tkey := storetypes.NewTransientStoreKey("evm_transient")
 	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(0)
-	cfg := dbconfig.DefaultStateStoreConfig()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.DBDirectory = t.TempDir()
 	cfg.KeepRecent = 0
-	cfg.KeepLastVersion = false
 	store, err := receipt.NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
@@ -67,7 +66,7 @@ func withBloom(r *types.Receipt) *types.Receipt {
 
 func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	storeKey := storetypes.NewKVStoreKey("evm")
-	cfg := dbconfig.DefaultStateStoreConfig()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.DBDirectory = ""
 	store, err := receipt.NewReceiptStore(nil, cfg, storeKey)
 	require.Error(t, err)
@@ -79,7 +78,13 @@ func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, store)
 
-	cfg.Backend = "pebbledb"
+	cfg.Backend = "pebble"
+	store, err = receipt.NewReceiptStore(nil, cfg, storeKey)
+	require.NoError(t, err)
+	require.NotNil(t, store)
+	require.NoError(t, store.Close())
+
+	cfg.Backend = "parquet"
 	store, err = receipt.NewReceiptStore(nil, cfg, storeKey)
 	require.NoError(t, err)
 	require.NotNil(t, store)

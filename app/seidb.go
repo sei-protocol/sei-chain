@@ -35,6 +35,10 @@ const (
 	FlagSSPruneInterval     = "state-store.ss-prune-interval"
 	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
 
+	// Receipt store configs
+	FlagRSBackend   = "receipt-store.rs-backend"
+	FlagRSDirectory = "receipt-store.rs-db-directory"
+
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
 	FlagMigrateIAVL      = "migrate-iavl"

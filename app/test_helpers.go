@@ -258,11 +258,10 @@ func setupReceiptStore(storeKey sdk.StoreKey) (receipt.ReceiptStore, error) {
 		return nil, err
 	}
 
-	ssConfig := ssconfig.DefaultStateStoreConfig()
-	ssConfig.KeepRecent = 0 // No min retain blocks in test
-	ssConfig.DBDirectory = tempDir
-	ssConfig.KeepLastVersion = false
-	receiptStore, err := receipt.NewReceiptStore(log.NewNopLogger(), ssConfig, storeKey)
+	receiptConfig := ssconfig.DefaultReceiptStoreConfig()
+	receiptConfig.KeepRecent = 0 // No min retain blocks in test
+	receiptConfig.DBDirectory = tempDir
+	receiptStore, err := receipt.NewReceiptStore(log.NewNopLogger(), receiptConfig, storeKey)
 	if err != nil {
 		return nil, err
 	}

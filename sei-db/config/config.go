@@ -110,6 +110,24 @@ type StateStoreConfig struct {
 	UseDefaultComparer bool `mapstructure:"use-default-comparer"`
 }
 
+type ReceiptStoreConfig struct {
+	// DBDirectory defines the directory to store the receipt db files.
+	// If not explicitly set, default to application home directory.
+	DBDirectory string `mapstructure:"db-directory"`
+
+	// Backend defines the backend used for receipt storage.
+	// Supported backends: pebble, pebbledb, parquet.
+	// defaults to pebble.
+	Backend string `mapstructure:"backend"`
+
+	// KeepRecent defines the number of versions to keep in receipt store.
+	// Setting it to 0 means keep everything.
+	KeepRecent int `mapstructure:"keep-recent"`
+
+	// PruneIntervalSeconds defines the interval in seconds to trigger pruning.
+	PruneIntervalSeconds int `mapstructure:"prune-interval-seconds"`
+}
+
 func DefaultStateCommitConfig() StateCommitConfig {
 	return StateCommitConfig{
 		Enable:                    true,
@@ -131,5 +149,11 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		ImportNumWorkers:     DefaultSSImportWorkers,
 		KeepLastVersion:      true,
 		UseDefaultComparer:   false, // TODO: flip to true once MVCCComparer is deprecated
+	}
+}
+
+func DefaultReceiptStoreConfig() ReceiptStoreConfig {
+	return ReceiptStoreConfig{
+		Backend: "pebble",
 	}
 }
