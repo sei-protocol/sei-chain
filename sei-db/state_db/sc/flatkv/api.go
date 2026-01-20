@@ -6,46 +6,58 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// Exporter streams FlatKV state for snapshot export.
-type Exporter interface{}
+// Exporter streams FlatKV state (in x/evm memiavl key format) for snapshots.
+type Exporter interface {
+	// Next returns the next key/value pair. Returns (nil, nil, io.EOF) when done.
+	Next() (key, value []byte, err error)
+
+	io.Closer
+}
 
 // Options configures a FlatKV store.
 type Options struct {
-	// Dir is the base directory. Layout:
-	//   accounts/   - Account DB (address -> account record)
-	//   code/       - Code DB (codehash -> bytecode)
-	//   storage/    - Storage DBs (sharded; key is address+slot)
-	//   raw/        - Raw DB (fallback; optional)
-	//   changelog/  - FlatKV changelog (best-effort in Phase 1)
-	//   metadata    - commit point (version + LtHash)
+	// Dir is the base directory containing
+	// accounts/,
+	// code/,
+	// storage/,
+	// changelog/,
+	// __metadata.
 	Dir string
 }
 
 // Store provides EVM state storage with LtHash integrity.
 //
 // Write path: ApplyChangeSets (buffer) → Commit (persist).
-// Read path: Accounts/Code/Storage/Raw read committed state only.
+// Read path: Get/Has/Iterator read committed state only.
+// Key format: x/evm memiavl keys (mapped internally to account/code/storage DBs).
 type Store interface {
-	// ApplyChangeSets buffers EVM changesets and updates the working LtHash.
+	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
 	// Non-EVM modules are ignored. Call Commit to persist.
 	ApplyChangeSets(cs []*proto.NamedChangeSet) error
 
-	// Commit persists buffered writes and advances the committed version.
+	// Commit persists buffered writes and advances the version.
 	Commit(version int64) error
 
-	// Accounts exposes the committed account state (address -> record).
-	Accounts() AccountStore
+	// Get returns the value for the x/evm memiavl key, or (nil, false) if not found.
+	Get(key []byte) ([]byte, bool)
 
-	// Code exposes committed contract bytecode (codehash -> bytecode).
-	Code() CodeStore
+	// Has reports whether the x/evm memiavl key exists.
+	Has(key []byte) bool
 
-	// Storage exposes committed contract storage (sharded; address+slot -> value).
-	Storage() StorageStore
+	// Iterator returns an iterator over [start, end) in memiavl key order.
+	// Pass nil for unbounded.
+	//
+	// Multiplexes across internal DBs to return keys in standard memiavl prefix order:
+	//   0x03 (Storage), 0x07 (Code), 0x08 (CodeHash), 0x09 (CodeSize), 0x0a (Nonce).
+	Iterator(start, end []byte) Iterator
 
-	// Raw is a fallback namespace for entries FlatKV does not model explicitly.
-	Raw() RawStore
+	// IteratorByPrefix iterates all keys with the given prefix (more efficient than Iterator).
+	// Supported: StateKeyPrefix||addr, NonceKeyPrefix, CodeKeyPrefix.
+	IteratorByPrefix(prefix []byte) Iterator
 
-	// RootHash returns the working LtHash (2048 bytes, in-memory).
+	// RootHash returns the 32-byte checksum of the working LtHash.
+	// Note: This is the Blake3-256 digest of the underlying 2048-byte
+	// raw LtHash vector.
 	RootHash() []byte
 
 	// Version returns the latest committed version.
@@ -63,98 +75,9 @@ type Store interface {
 	io.Closer
 }
 
-// AccountStore provides committed reads over the account DB.
-type AccountStore interface {
-	Get(addr Address) (AccountValue, bool)
-	Has(addr Address) bool
-	Iterator(start, end AccountKey) AccountIterator
-}
-
-// CodeStore provides committed reads over the code DB.
-type CodeStore interface {
-	Get(codeHash CodeHash) ([]byte, bool)
-	Has(codeHash CodeHash) bool
-	Iterator(start, end CodeKey) CodeIterator
-}
-
-// StorageStore provides committed reads over the sharded storage DB.
-//
-// Keys and values are fixed-size 32-byte words at the EVM level.
-type StorageStore interface {
-	Get(addr Address, slot Slot) (Word, bool)
-	Has(addr Address, slot Slot) bool
-	Iterator(start, end StorageKey) StorageIterator
-}
-
-// RawStore provides committed reads over the raw DB.
-// Raw keys and values are opaque.
-type RawStore interface {
-	Get(key []byte) ([]byte, bool)
-	Has(key []byte) bool
-	Iterator(start, end []byte) RawIterator
-}
-
-// AccountIterator provides ordered iteration over account keys.
+// Iterator provides ordered iteration over EVM keys (memiavl format).
 // Follows PebbleDB semantics: not positioned on creation.
-type AccountIterator interface {
-	Domain() (start, end []byte)
-	Valid() bool
-	Error() error
-	Close() error
-
-	First() bool
-	Last() bool
-	SeekGE(key AccountKey) bool
-	SeekLT(key AccountKey) bool
-	Next() bool
-	Prev() bool
-
-	// Key and raw value bytes are valid until the next movement call.
-	Key() Address
-	Value() []byte
-}
-
-// CodeIterator provides ordered iteration over code keys.
-// Follows PebbleDB semantics: not positioned on creation.
-type CodeIterator interface {
-	Domain() (start, end []byte)
-	Valid() bool
-	Error() error
-	Close() error
-
-	First() bool
-	Last() bool
-	SeekGE(key CodeKey) bool
-	SeekLT(key CodeKey) bool
-	Next() bool
-	Prev() bool
-
-	Key() CodeHash
-	Value() []byte
-}
-
-// StorageIterator provides ordered iteration over storage keys.
-// Follows PebbleDB semantics: not positioned on creation.
-type StorageIterator interface {
-	Domain() (start, end []byte)
-	Valid() bool
-	Error() error
-	Close() error
-
-	First() bool
-	Last() bool
-	SeekGE(key StorageKey) bool
-	SeekLT(key StorageKey) bool
-	Next() bool
-	Prev() bool
-
-	Key() (addr Address, slot Slot)
-	Value() []byte
-}
-
-// RawIterator provides ordered iteration over raw keys.
-// Follows PebbleDB semantics: not positioned on creation.
-type RawIterator interface {
+type Iterator interface {
 	Domain() (start, end []byte)
 	Valid() bool
 	Error() error
@@ -167,6 +90,9 @@ type RawIterator interface {
 	Next() bool
 	Prev() bool
 
+	// Key returns the current key (valid until next move).
 	Key() []byte
+
+	// Value returns the current value (valid until next move).
 	Value() []byte
 }
