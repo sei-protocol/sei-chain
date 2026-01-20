@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -93,6 +94,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
@@ -150,6 +152,7 @@ import (
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmcfg "github.com/tendermint/tendermint/config"
+	"github.com/tendermint/tendermint/crypto/merkle"
 	"github.com/tendermint/tendermint/libs/log"
 	tmos "github.com/tendermint/tendermint/libs/os"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -184,6 +187,77 @@ func getGovProposalHandlers() []govclient.ProposalHandler {
 	)
 
 	return govProposalHandlers
+}
+
+// LogTxResultsForDebug logs the deterministic fields of tx results that go into LastResultsHash.
+// This is useful for debugging consensus failures due to hash mismatches between executors.
+func LogTxResultsForDebug(logger log.Logger, height int64, txResults []*abci.ExecTxResult, executorType string) {
+	if len(txResults) == 0 {
+		logger.Info("DEBUG_TX_RESULTS: no transactions",
+			"height", height,
+			"executor", executorType,
+		)
+		return
+	}
+
+	// Compute the overall LastResultsHash
+	deterministicResults := make([][]byte, len(txResults))
+	for i, r := range txResults {
+		// Only Code, Data, GasWanted, GasUsed are deterministic (per deterministicExecTxResult)
+		deterministicResult := &abci.ExecTxResult{
+			Code:      r.Code,
+			Data:      r.Data,
+			GasWanted: r.GasWanted,
+			GasUsed:   r.GasUsed,
+		}
+		b, err := deterministicResult.Marshal()
+		if err != nil {
+			logger.Error("DEBUG_TX_RESULTS: failed to marshal tx result", "index", i, "error", err)
+			continue
+		}
+		deterministicResults[i] = b
+	}
+	overallHash := merkle.HashFromByteSlices(deterministicResults)
+
+	logger.Info("DEBUG_TX_RESULTS: block summary",
+		"height", height,
+		"executor", executorType,
+		"txCount", len(txResults),
+		"computedLastResultsHash", hex.EncodeToString(overallHash),
+	)
+
+	// Log each tx result's deterministic fields
+	for i, r := range txResults {
+		// Compute individual tx result hash
+		deterministicResult := &abci.ExecTxResult{
+			Code:      r.Code,
+			Data:      r.Data,
+			GasWanted: r.GasWanted,
+			GasUsed:   r.GasUsed,
+		}
+		b, _ := deterministicResult.Marshal()
+		txHash := sha256.Sum256(b)
+
+		// Truncate Data for logging (can be large)
+		dataHex := hex.EncodeToString(r.Data)
+		if len(dataHex) > 128 {
+			dataHex = dataHex[:128] + "...(truncated)"
+		}
+
+		logger.Info("DEBUG_TX_RESULTS: tx details",
+			"height", height,
+			"executor", executorType,
+			"txIndex", i,
+			"code", r.Code,
+			"gasWanted", r.GasWanted,
+			"gasUsed", r.GasUsed,
+			"dataLen", len(r.Data),
+			"dataHex", dataHex,
+			"txResultHash", hex.EncodeToString(txHash[:]),
+			"log", r.Log,
+			"evmTxInfo", fmt.Sprintf("%+v", r.EvmTxInfo),
+		)
+	}
 }
 
 var (
@@ -1266,6 +1340,14 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			cms := app.WriteState()
 			app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
+
+			// Debug logging for LastResultsHash debugging
+			executorType := "standard"
+			if app.GigaExecutorEnabled {
+				executorType = "giga"
+			}
+			LogTxResultsForDebug(app.Logger(), req.Height, txRes, executorType+"-optimistic")
+
 			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
 			return &resp, nil
 		}
@@ -1285,6 +1367,14 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	cms := app.WriteState()
 	app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
+
+	// Debug logging for LastResultsHash debugging
+	executorType := "standard"
+	if app.GigaExecutorEnabled {
+		executorType = "giga"
+	}
+	LogTxResultsForDebug(app.Logger(), req.Height, txResults, executorType)
+
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil
 }
@@ -1316,7 +1406,7 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 		metrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted)
 	}
 
-	return &abci.ExecTxResult{
+	result := &abci.ExecTxResult{
 		Code:      deliverTxResp.Code,
 		Data:      deliverTxResp.Data,
 		Log:       deliverTxResp.Log,
@@ -1327,6 +1417,26 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 		Codespace: deliverTxResp.Codespace,
 		EvmTxInfo: deliverTxResp.EvmTxInfo,
 	}
+
+	// Debug logging for standard executor output (for EVM tx comparison with giga executor)
+	if deliverTxResp.EvmTxInfo != nil {
+		dataHex := hex.EncodeToString(deliverTxResp.Data)
+		if len(dataHex) > 128 {
+			dataHex = dataHex[:128] + "...(truncated)"
+		}
+		ctx.Logger().Info("DEBUG_STANDARD_EXECUTOR: tx result",
+			"txIndex", ctx.TxIndex(),
+			"txHash", deliverTxResp.EvmTxInfo.TxHash,
+			"code", deliverTxResp.Code,
+			"gasWanted", deliverTxResp.GasWanted,
+			"gasUsed", deliverTxResp.GasUsed,
+			"dataLen", len(deliverTxResp.Data),
+			"dataHex", dataHex,
+			"log", deliverTxResp.Log,
+		)
+	}
+
+	return result
 }
 
 func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
@@ -1807,23 +1917,80 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 		code = 1
 	}
 
-	// Serialize receipt to include in response Data field.
-	// In OCC mode, transient store writes are lost because the CacheMultiStore
-	// isn't committed, so we pass the receipt through the response for later processing.
-	receiptBytes, _ := receipt.Marshal()
+	// GasWanted should be set to the transaction's gas limit to match standard executor behavior.
+	// This is critical for LastResultsHash computation which uses Code, Data, GasWanted, and GasUsed.
+	//nolint:gosec // G115: safe, Gas() and UsedGas won't exceed int64 max
+	gasWanted := int64(ethTx.Gas())
+	gasUsed := int64(execResult.UsedGas)
 
-	//nolint:gosec // G115: safe, UsedGas won't exceed int64 max
-	return &abci.ExecTxResult{
-		Code:    code,
-		Data:    receiptBytes,
-		GasUsed: int64(execResult.UsedGas),
-		Log:     vmError,
+	// Build Data field to match standard executor format.
+	// Standard path wraps MsgEVMTransactionResponse in TxMsgData.
+	// This is critical for LastResultsHash to match.
+	evmResponse := &evmtypes.MsgEVMTransactionResponse{
+		GasUsed:    execResult.UsedGas,
+		VmError:    vmError,
+		ReturnData: execResult.ReturnData,
+		Hash:       ethTx.Hash().Hex(),
+		Logs:       evmtypes.NewLogsFromEth(stateDB.GetAllLogs()),
+	}
+	evmResponseBytes, marshalErr := evmResponse.Marshal()
+	if marshalErr != nil {
+		return &abci.ExecTxResult{
+			Code: 1,
+			Log:  fmt.Sprintf("failed to marshal evm response: %v", marshalErr),
+		}, nil
+	}
+
+	// Wrap in TxMsgData like the standard path does
+	txMsgData := &sdk.TxMsgData{
+		Data: []*sdk.MsgData{
+			{
+				MsgType: sdk.MsgTypeURL(msg),
+				Data:    evmResponseBytes,
+			},
+		},
+	}
+	txMsgDataBytes, txMarshalErr := proto.Marshal(txMsgData)
+	if txMarshalErr != nil {
+		return &abci.ExecTxResult{
+			Code: 1,
+			Log:  fmt.Sprintf("failed to marshal tx msg data: %v", txMarshalErr),
+		}, nil
+	}
+
+	result := &abci.ExecTxResult{
+		Code:      code,
+		Data:      txMsgDataBytes,
+		GasWanted: gasWanted,
+		GasUsed:   gasUsed,
+		Log:       vmError,
 		EvmTxInfo: &abci.EvmTxInfo{
 			TxHash:  ethTx.Hash().Hex(),
 			VmError: vmError,
 			Nonce:   ethTx.Nonce(),
 		},
-	}, nil
+	}
+
+	// Debug logging for giga executor output
+	dataHex := hex.EncodeToString(txMsgDataBytes)
+	if len(dataHex) > 128 {
+		dataHex = dataHex[:128] + "...(truncated)"
+	}
+	ctx.Logger().Info("DEBUG_GIGA_EXECUTOR: tx result",
+		"txIndex", txIndex,
+		"txHash", ethTx.Hash().Hex(),
+		"code", code,
+		"gasWanted", gasWanted,
+		"gasUsed", gasUsed,
+		"dataLen", len(txMsgDataBytes),
+		"dataHex", dataHex,
+		"vmError", vmError,
+		"evmGasUsed", execResult.UsedGas,
+		"returnDataLen", len(execResult.ReturnData),
+		"logsCount", len(stateDB.GetAllLogs()),
+	)
+
+	return result, nil
 }
 
 // ProcessBlockWithGigaExecutorOCC executes block transactions using the Giga executor with OCC.
@@ -1913,19 +2080,22 @@ func (app *App) ProcessBlockWithGigaExecutorOCC(ctx sdk.Context, txs [][]byte, r
 		evmTotalGasUsed += resp.GasUsed
 
 		// Restore transient store data using main context
-		if resp.Code == 0 && len(resp.Data) > 0 && evmTxs[idx] != nil {
-			receipt := &evmtypes.Receipt{}
-			if err := receipt.Unmarshal(resp.Data); err == nil {
-				ethTx, _ := evmTxs[idx].AsTransaction()
-				if ethTx != nil {
-					txHash := ethTx.Hash()
-					// Write receipt to transient store using main context
-					_ = app.EvmKeeper.SetTransientReceipt(ctx.WithTxIndex(idx), txHash, receipt)
-					// Write deferred info using main context
-					bloom := ethtypes.Bloom{}
-					bloom.SetBytes(receipt.LogsBloom)
-					app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(idx), bloom, txHash, sdk.ZeroInt())
+		// In OCC mode, the Data field contains TxMsgData (standard format) for correct LastResultsHash.
+		// We need to extract the receipt info from the response or reconstruct it.
+		if resp.Code == 0 && evmTxs[idx] != nil {
+			ethTx, _ := evmTxs[idx].AsTransaction()
+			if ethTx != nil {
+				txHash := ethTx.Hash()
+				// In OCC mode, the receipt was written during execution but may have been lost.
+				// We can reconstruct minimal receipt info from the response for deferred processing.
+				// The full receipt details would need to be fetched from transient store if it exists.
+				bloom := ethtypes.Bloom{}
+				// Try to get receipt from transient store (may exist if execution succeeded)
+				existingReceipt, receiptErr := app.EvmKeeper.GetTransientReceipt(ctx.WithTxIndex(idx), txHash, uint64(idx)) //nolint:gosec
+				if receiptErr == nil && existingReceipt != nil {
+					bloom.SetBytes(existingReceipt.LogsBloom)
 				}
+				app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(idx), bloom, txHash, sdk.ZeroInt())
 			}
 		}
 	}
