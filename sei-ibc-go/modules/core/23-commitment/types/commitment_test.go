@@ -21,7 +21,7 @@ type MerkleTestSuite struct {
 
 func (suite *MerkleTestSuite) SetupTest() {
 	db := dbm.NewMemDB()
-	suite.store = rootmulti.NewStore(db, log.NewNopLogger())
+	suite.store = rootmulti.NewStore(db, log.NewNopLogger(), []string{})
 
 	suite.storeKey = storetypes.NewKVStoreKey("iavlStoreKey")
 

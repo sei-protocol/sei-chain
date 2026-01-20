@@ -58,7 +58,7 @@ func TestMultiHooks(t *testing.T) {
 	}
 
 	db := tmdb.NewMemDB()
-	ms := store.NewCommitMultiStore(db)
+	ms := store.NewCommitMultiStore(db, []string{})
 	ctx := sdk.NewContext(ms, tmproto.Header{}, false, nil)
 	epoch := types.Epoch{}
 
@@ -82,7 +82,7 @@ func TestMultiHooks_Panic(t *testing.T) {
 	}
 
 	db := tmdb.NewMemDB()
-	ms := store.NewCommitMultiStore(db)
+	ms := store.NewCommitMultiStore(db, []string{})
 	ctx := sdk.NewContext(ms, tmproto.Header{}, false, nil)
 	epoch := types.Epoch{}
 

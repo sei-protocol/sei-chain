@@ -297,7 +297,7 @@ func setupTest(t *testing.T) (*app.App, sdk.Context, codec.Codec) {
 	appCodec := a.AppCodec()
 
 	db := dbm.NewMemDB()
-	ms := store.NewCommitMultiStore(db)
+	ms := store.NewCommitMultiStore(db, []string{})
 
 	ms.LoadLatestVersion()
 
