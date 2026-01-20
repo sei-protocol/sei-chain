@@ -16,7 +16,7 @@ import (
 	_ "github.com/cockroachdb/pebble/v2/sstable/block" // for CompressionProfile
 )
 
-// VersionIndex maintains key -> sorted versions mapping
+// VersionIndex maintains key -> sorted versions mapping (in-memory)
 type VersionIndex struct {
 	mu   sync.RWMutex
 	data map[string][]int64
@@ -55,6 +55,90 @@ func (idx *VersionIndex) FindLatestLE(key []byte, targetVersion int64) int64 {
 		return 0
 	}
 	return versions[i-1]
+}
+
+// =============================================================================
+// ON-DISK INDEX: Store index in PebbleDB
+// Index format: "i|" + key + "|" + bigEndianVersion -> empty value
+// This allows SeekLT to find largest version <= target
+// =============================================================================
+
+type DiskIndex struct {
+	db *pebble.DB
+}
+
+func NewDiskIndex(dir string) (*DiskIndex, error) {
+	opts := &pebble.Options{
+		Comparer:           pebble.DefaultComparer,
+		FormatMajorVersion: pebble.FormatVirtualSSTables,
+	}
+	db, err := pebble.Open(dir, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &DiskIndex{db: db}, nil
+}
+
+func (idx *DiskIndex) Close() error {
+	return idx.db.Close()
+}
+
+// encodeIndexKey: "i|" + key + "|" + bigEndianVersion
+func encodeIndexKey(key []byte, version int64) []byte {
+	buf := make([]byte, 2+len(key)+1+8)
+	buf[0] = 'i'
+	buf[1] = '|'
+	copy(buf[2:], key)
+	buf[2+len(key)] = '|'
+	binary.BigEndian.PutUint64(buf[2+len(key)+1:], uint64(version))
+	return buf
+}
+
+// indexKeyPrefix: "i|" + key + "|"
+func indexKeyPrefix(key []byte) []byte {
+	buf := make([]byte, 2+len(key)+1)
+	buf[0] = 'i'
+	buf[1] = '|'
+	copy(buf[2:], key)
+	buf[2+len(key)] = '|'
+	return buf
+}
+
+func (idx *DiskIndex) Add(key []byte, version int64, batch *pebble.Batch) {
+	indexKey := encodeIndexKey(key, version)
+	batch.Set(indexKey, nil, nil) // Empty value, just track existence
+}
+
+func (idx *DiskIndex) AddDirect(key []byte, version int64) error {
+	indexKey := encodeIndexKey(key, version)
+	return idx.db.Set(indexKey, nil, pebble.NoSync)
+}
+
+func (idx *DiskIndex) FindLatestLE(key []byte, targetVersion int64) int64 {
+	// Seek to key|targetVersion, then find largest <= target
+	prefix := indexKeyPrefix(key)
+	upperBound := encodeIndexKey(key, targetVersion+1)
+
+	iter, _ := idx.db.NewIter(&pebble.IterOptions{
+		LowerBound: prefix,
+		UpperBound: upperBound,
+	})
+	defer iter.Close()
+
+	// SeekLT to find largest key < upperBound
+	if iter.Last() && iter.Valid() {
+		// Extract version from key
+		k := iter.Key()
+		if len(k) >= 8 {
+			v := binary.BigEndian.Uint64(k[len(k)-8:])
+			return int64(v)
+		}
+	}
+	return 0
+}
+
+func (idx *DiskIndex) Flush() error {
+	return idx.db.Flush()
 }
 
 // Version-Prefixed Key Encoding: <8-byte-big-endian-version><key>
@@ -408,7 +492,7 @@ func BenchmarkIndexedPrefixWrite(b *testing.B) {
 	b.ReportMetric(float64(1000), "keys/op")
 }
 
-// BenchmarkIndexedPrefixRead benchmarks MVCC read with index
+// BenchmarkIndexedPrefixRead benchmarks MVCC read with in-memory index
 func BenchmarkIndexedPrefixRead(b *testing.B) {
 	dir, err := os.MkdirTemp("", "pebble-indexed-read-*")
 	if err != nil {
@@ -530,6 +614,130 @@ func BenchmarkPrefixMixedWorkload(b *testing.B) {
 			batch.Commit(pebble.NoSync)
 			batch.Close()
 			version++
+		}
+	}
+}
+
+// =============================================================================
+// DISK INDEX BENCHMARKS
+// =============================================================================
+
+// BenchmarkDiskIndexedPrefixWrite benchmarks write with on-disk index
+func BenchmarkDiskIndexedPrefixWrite(b *testing.B) {
+	dataDir, _ := os.MkdirTemp("", "pebble-diskidx-data-*")
+	indexDir, _ := os.MkdirTemp("", "pebble-diskidx-index-*")
+	defer os.RemoveAll(dataDir)
+	defer os.RemoveAll(indexDir)
+
+	db, err := openPrefixDB(dataDir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	index, err := NewDiskIndex(indexDir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer index.Close()
+
+	keys := make([][]byte, 10000)
+	for i := range keys {
+		keys[i] = []byte(fmt.Sprintf("key-%08d", i))
+	}
+	value := make([]byte, 100)
+	rand.Read(value)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	version := int64(1)
+	for i := 0; i < b.N; i++ {
+		dataBatch := db.NewBatch()
+		indexBatch := index.db.NewBatch()
+
+		// Write 1000 keys per batch
+		for j := 0; j < 1000; j++ {
+			key := keys[j%len(keys)]
+			// Write data
+			encodedKey := encodeVersionPrefix(version, key)
+			dataBatch.Set(encodedKey, value, nil)
+			// Write index
+			index.Add(key, version, indexBatch)
+		}
+
+		dataBatch.Commit(pebble.NoSync)
+		indexBatch.Commit(pebble.NoSync)
+		dataBatch.Close()
+		indexBatch.Close()
+		version++
+	}
+
+	b.StopTimer()
+	b.ReportMetric(float64(1000), "keys/op")
+}
+
+// BenchmarkDiskIndexedPrefixRead benchmarks MVCC read with on-disk index
+func BenchmarkDiskIndexedPrefixRead(b *testing.B) {
+	dataDir, _ := os.MkdirTemp("", "pebble-diskidx-data-*")
+	indexDir, _ := os.MkdirTemp("", "pebble-diskidx-index-*")
+	defer os.RemoveAll(dataDir)
+	defer os.RemoveAll(indexDir)
+
+	db, err := openPrefixDB(dataDir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	index, err := NewDiskIndex(indexDir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer index.Close()
+
+	numKeys := 10000
+	maxVersion := int64(100)
+	keys := make([][]byte, numKeys)
+	for i := range keys {
+		keys[i] = []byte(fmt.Sprintf("key-%08d", i))
+	}
+	value := make([]byte, 100)
+	rand.Read(value)
+
+	// Pre-populate with sparse data
+	r := rand.New(rand.NewSource(42))
+	for _, key := range keys {
+		for j := 0; j < 10; j++ {
+			v := int64(r.Intn(int(maxVersion)) + 1)
+			// Write data
+			encodedKey := encodeVersionPrefix(v, key)
+			db.Set(encodedKey, value, pebble.NoSync)
+			// Write index
+			index.AddDirect(key, v)
+		}
+	}
+	db.Flush()
+	index.Flush()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	r = rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < b.N; i++ {
+		keyIdx := r.Intn(numKeys)
+		targetVersion := int64(r.Intn(int(maxVersion)) + 1)
+		key := keys[keyIdx]
+
+		// Disk index lookup + data fetch
+		bestVersion := index.FindLatestLE(key, targetVersion)
+		if bestVersion > 0 {
+			encodedKey := encodeVersionPrefix(bestVersion, key)
+			val, closer, err := db.Get(encodedKey)
+			if err == nil {
+				_ = val
+				closer.Close()
+			}
 		}
 	}
 }
