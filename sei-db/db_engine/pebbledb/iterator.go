@@ -1,7 +1,7 @@
 package pebbledb
 
 import (
-	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/v2"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 )

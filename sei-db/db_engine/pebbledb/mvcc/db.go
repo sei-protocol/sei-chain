@@ -13,8 +13,9 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
-	"github.com/cockroachdb/pebble"
-	"github.com/cockroachdb/pebble/bloom"
+	"github.com/cockroachdb/pebble/v2"
+	"github.com/cockroachdb/pebble/v2/bloom"
+	"github.com/cockroachdb/pebble/v2/sstable"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/exp/slices"
@@ -87,36 +88,55 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	cache := pebble.NewCache(1024 * 1024 * 32)
 	defer cache.Unref()
 
+	// Select comparer based on config. Note: UseDefaultComparer is NOT backwards compatible
+	// with existing databases created with MVCCComparer - Pebble will refuse to open due to
+	// comparer name mismatch. Only use UseDefaultComparer for NEW databases.
+	var comparer *pebble.Comparer
+	if config.UseDefaultComparer {
+		comparer = pebble.DefaultComparer
+	} else {
+		// TODO: Delete once we remove support
+		comparer = MVCCComparer
+	}
+
 	opts := &pebble.Options{
-		Cache:                       cache,
-		Comparer:                    MVCCComparer,
-		FormatMajorVersion:          pebble.FormatNewest,
+		Cache:    cache,
+		Comparer: comparer,
+		// FormatMajorVersion is pinned to a specific version to prevent accidental
+		// breaking changes when updating the pebble dependency. Using FormatNewest
+		// would cause the on-disk format to silently upgrade when pebble is updated,
+		// making the database incompatible with older software versions.
+		// When upgrading this version, ensure it's an intentional, documented change.
+		FormatMajorVersion:          pebble.FormatVirtualSSTables,
 		L0CompactionThreshold:       2,
 		L0StopWritesThreshold:       1000,
 		LBaseMaxBytes:               64 << 20, // 64 MB
-		Levels:                      make([]pebble.LevelOptions, 7),
-		MaxConcurrentCompactions:    func() int { return 3 }, // TODO: Make Configurable
 		MemTableSize:                64 << 20,
 		MemTableStopWritesThreshold: 4,
 	}
 
-	for i := 0; i < len(opts.Levels); i++ {
+	// Configure L0 with explicit settings
+	opts.Levels[0].BlockSize = 32 << 10       // 32 KB
+	opts.Levels[0].IndexBlockSize = 256 << 10 // 256 KB
+	opts.Levels[0].FilterPolicy = bloom.FilterPolicy(10)
+	opts.Levels[0].FilterType = pebble.TableFilter
+	opts.Levels[0].Compression = func() *sstable.CompressionProfile { return sstable.ZstdCompression }
+	opts.Levels[0].EnsureL0Defaults()
+
+	// Configure L1+ levels, inheriting from previous level
+	for i := 1; i < len(opts.Levels); i++ {
 		l := &opts.Levels[i]
 		l.BlockSize = 32 << 10       // 32 KB
 		l.IndexBlockSize = 256 << 10 // 256 KB
 		l.FilterPolicy = bloom.FilterPolicy(10)
 		l.FilterType = pebble.TableFilter
-		// TODO: Consider compression only for specific layers like bottommost
-		l.Compression = pebble.ZstdCompression
-		if i > 0 {
-			l.TargetFileSize = opts.Levels[i-1].TargetFileSize * 2
-		}
-		l.EnsureDefaults()
+		l.Compression = func() *sstable.CompressionProfile { return sstable.ZstdCompression }
+		l.EnsureL1PlusDefaults(&opts.Levels[i-1])
 	}
 
+	// Disable bloom filter at bottommost level (L6) - bloom filters are less useful
+	// at the bottom level since most data lives there and false positive rate is low
 	opts.Levels[6].FilterPolicy = nil
-	opts.FlushSplitBytes = opts.Levels[0].TargetFileSize
-	opts = opts.EnsureDefaults()
 
 	//TODO: add a new config and check if readonly = true to support readonly mode
 
@@ -1033,10 +1053,10 @@ func (db *Database) collectAndRecordMetrics(ctx context.Context) {
 		levelMetrics := m.Levels[level]
 		levelAttr := attribute.Int("level", level)
 
-		otelMetrics.sstableCount.Record(ctx, levelMetrics.NumFiles, metric.WithAttributes(levelAttr))
-		otelMetrics.sstableTotalSize.Record(ctx, int64(levelMetrics.Size), metric.WithAttributes(levelAttr))
-		otelMetrics.compactionBytesRead.Add(ctx, int64(levelMetrics.BytesIn), metric.WithAttributes(levelAttr))
-		otelMetrics.compactionBytesWritten.Add(ctx, int64(levelMetrics.BytesCompacted), metric.WithAttributes(levelAttr))
+		otelMetrics.sstableCount.Record(ctx, levelMetrics.TablesCount, metric.WithAttributes(levelAttr))
+		otelMetrics.sstableTotalSize.Record(ctx, levelMetrics.TablesSize, metric.WithAttributes(levelAttr))
+		otelMetrics.compactionBytesRead.Add(ctx, int64(levelMetrics.TableBytesIn), metric.WithAttributes(levelAttr))           //nolint:gosec
+		otelMetrics.compactionBytesWritten.Add(ctx, int64(levelMetrics.TableBytesCompacted), metric.WithAttributes(levelAttr)) //nolint:gosec
 	}
 
 	// Memtable metrics

@@ -9,7 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/stretchr/testify/suite"
-	"golang.org/x/exp/slices"
 )
 
 const (
@@ -17,17 +16,24 @@ const (
 	storeKey2 = "store2"
 )
 
-// StorageTestSuite defines a reusable test suite for all storage backends.
-type StorageTestSuite struct {
+// BaseStorageTestSuite defines a reusable test suite for all storage backends.
+// It contains tests that work with any comparer (both MVCCComparer and DefaultComparer).
+// For tests that require MVCCComparer's iterator functionality, use StorageTestSuite instead.
+type BaseStorageTestSuite struct {
 	suite.Suite
 
 	NewDB          func(dir string, config config.StateStoreConfig) (types.StateStore, error)
 	EmptyBatchSize int
-	SkipTests      []string
 	Config         config.StateStoreConfig
 }
 
-func (s *StorageTestSuite) TestDatabaseClose_IsIdempotent() {
+// StorageTestSuite extends BaseStorageTestSuite with tests that require MVCCComparer.
+// This includes all iterator-related tests and prune tests that use iteration internally.
+type StorageTestSuite struct {
+	BaseStorageTestSuite
+}
+
+func (s *BaseStorageTestSuite) TestDatabaseClose_IsIdempotent() {
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	s.Require().NoError(db.Close())
@@ -37,7 +43,7 @@ func (s *StorageTestSuite) TestDatabaseClose_IsIdempotent() {
 	s.Require().NoError(db.Close())
 }
 
-func (s *StorageTestSuite) TestDatabaseLatestVersion() {
+func (s *BaseStorageTestSuite) TestDatabaseLatestVersion() {
 	tempDir := s.T().TempDir()
 	db, err := s.NewDB(tempDir, s.Config)
 	s.Require().NoError(err)
@@ -71,7 +77,7 @@ func (s *StorageTestSuite) TestDatabaseLatestVersion() {
 
 }
 
-func (s *StorageTestSuite) TestDatabaseVersionedKeys() {
+func (s *BaseStorageTestSuite) TestDatabaseVersionedKeys() {
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -86,7 +92,7 @@ func (s *StorageTestSuite) TestDatabaseVersionedKeys() {
 	}
 }
 
-func (s *StorageTestSuite) TestDatabaseGetVersionedKey() {
+func (s *BaseStorageTestSuite) TestDatabaseGetVersionedKey() {
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -155,7 +161,7 @@ func (s *StorageTestSuite) TestDatabaseGetVersionedKey() {
 	}
 }
 
-func (s *StorageTestSuite) TestDatabaseVersionZero() {
+func (s *BaseStorageTestSuite) TestDatabaseVersionZero() {
 	// Db should write all keys at version 0 at version 1
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
@@ -191,7 +197,7 @@ func (s *StorageTestSuite) TestDatabaseVersionZero() {
 
 }
 
-func (s *StorageTestSuite) TestDatabaseApplyChangeset() {
+func (s *BaseStorageTestSuite) TestDatabaseApplyChangeset() {
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -231,7 +237,7 @@ func (s *StorageTestSuite) TestDatabaseApplyChangeset() {
 
 // Ensure ApplyChangesetSync(version, []*NamedChangeSet{moduleA, moduleB, ...})
 // only bumps latest version after all module writes are persisted.
-func (s *StorageTestSuite) TestApplyChangesetSyncAtomicAcrossModules() {
+func (s *BaseStorageTestSuite) TestApplyChangesetSyncAtomicAcrossModules() {
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -650,10 +656,6 @@ func (s *StorageTestSuite) TestDatabaseIteratorNoDomain() {
 }
 
 func (s *StorageTestSuite) TestDatabasePrune() {
-	if slices.Contains(s.SkipTests, s.T().Name()) {
-		s.T().SkipNow()
-	}
-
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -731,7 +733,7 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 	}
 }
 
-func (s *StorageTestSuite) TestDatabasePruneAndTombstone() {
+func (s *BaseStorageTestSuite) TestDatabasePruneAndTombstone() {
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -750,10 +752,6 @@ func (s *StorageTestSuite) TestDatabasePruneAndTombstone() {
 }
 
 func (s *StorageTestSuite) TestDatabasePruneKeepRecent() {
-	if slices.Contains(s.SkipTests, s.T().Name()) {
-		s.T().SkipNow()
-	}
-
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -798,7 +796,7 @@ func (s *StorageTestSuite) TestDatabasePruneKeepRecent() {
 	s.Require().Equal([]byte("value003"), bz)
 }
 
-func (s *StorageTestSuite) TestDatabasePruneKeepLastVersion() {
+func (s *BaseStorageTestSuite) TestDatabasePruneKeepLastVersion() {
 	// Only test KeepLastVersion = false for pebbledb backend
 	// NOTE: KeepLastVersion is always true and will be removed in future
 	if s.Config.Backend == "pebbledb" {
@@ -918,7 +916,7 @@ func (s *StorageTestSuite) TestDatabaseReverseIterator() {
 	s.Require().Nil(iter3)
 }
 
-func (s *StorageTestSuite) TestParallelWrites() {
+func (s *BaseStorageTestSuite) TestParallelWrites() {
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -1100,7 +1098,7 @@ func (s *StorageTestSuite) TestDatabaseParallelDeleteIteration() {
 	}
 }
 
-func (s *StorageTestSuite) TestDatabaseParallelWriteDelete() {
+func (s *BaseStorageTestSuite) TestDatabaseParallelWriteDelete() {
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -1289,7 +1287,7 @@ func (s *StorageTestSuite) TestDatabaseParallelIterationVersions() {
 	wg.Wait()
 }
 
-func (s *StorageTestSuite) TestDatabaseImport() {
+func (s *BaseStorageTestSuite) TestDatabaseImport() {
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
@@ -1316,7 +1314,7 @@ func (s *StorageTestSuite) TestDatabaseImport() {
 	}
 }
 
-func (s *StorageTestSuite) TestDatabaseRawImport() {
+func (s *BaseStorageTestSuite) TestDatabaseRawImport() {
 	// RawImport is only useful for PebbleDB backend
 	// NOTE: Will be removed from interface soon
 	if s.Config.Backend != "pebbledb" {
@@ -1362,7 +1360,6 @@ func (s *StorageTestSuite) TestDatabaseRawImport() {
 // TestDatabaseReverseIteratorPrefixIsolation Verifies that ReverseIterator(nil, nil) is clamped to the caller's prefix
 // via prefixEnd()/UpperBound and does **not** spill into the next module.
 func (s *StorageTestSuite) TestDatabaseReverseIteratorPrefixIsolation() {
-
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 
