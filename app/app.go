@@ -93,6 +93,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
@@ -1807,17 +1808,52 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 		code = 1
 	}
 
-	// Serialize receipt to include in response Data field.
-	// In OCC mode, transient store writes are lost because the CacheMultiStore
-	// isn't committed, so we pass the receipt through the response for later processing.
-	receiptBytes, _ := receipt.Marshal()
+	// GasWanted should be set to the transaction's gas limit to match standard executor behavior.
+	// This is critical for LastResultsHash computation which uses Code, Data, GasWanted, and GasUsed.
+	gasWanted := int64(ethTx.Gas())      //nolint:gosec // G115: safe, Gas() won't exceed int64 max
+	gasUsed := int64(execResult.UsedGas) //nolint:gosec // G115: safe, UsedGas won't exceed int64 max
 
-	//nolint:gosec // G115: safe, UsedGas won't exceed int64 max
+	// Build Data field to match standard executor format.
+	// Standard path wraps MsgEVMTransactionResponse in TxMsgData.
+	// This is critical for LastResultsHash to match.
+	evmResponse := &evmtypes.MsgEVMTransactionResponse{
+		GasUsed:    execResult.UsedGas,
+		VmError:    vmError,
+		ReturnData: execResult.ReturnData,
+		Hash:       ethTx.Hash().Hex(),
+		Logs:       evmtypes.NewLogsFromEth(stateDB.GetAllLogs()),
+	}
+	evmResponseBytes, marshalErr := evmResponse.Marshal()
+	if marshalErr != nil {
+		return &abci.ExecTxResult{
+			Code: 1,
+			Log:  fmt.Sprintf("failed to marshal evm response: %v", marshalErr),
+		}, nil
+	}
+
+	// Wrap in TxMsgData like the standard path does
+	txMsgData := &sdk.TxMsgData{
+		Data: []*sdk.MsgData{
+			{
+				MsgType: sdk.MsgTypeURL(msg),
+				Data:    evmResponseBytes,
+			},
+		},
+	}
+	txMsgDataBytes, txMarshalErr := proto.Marshal(txMsgData)
+	if txMarshalErr != nil {
+		return &abci.ExecTxResult{
+			Code: 1,
+			Log:  fmt.Sprintf("failed to marshal tx msg data: %v", txMarshalErr),
+		}, nil
+	}
+
 	return &abci.ExecTxResult{
-		Code:    code,
-		Data:    receiptBytes,
-		GasUsed: int64(execResult.UsedGas),
-		Log:     vmError,
+		Code:      code,
+		Data:      txMsgDataBytes,
+		GasWanted: gasWanted,
+		GasUsed:   gasUsed,
+		Log:       vmError,
 		EvmTxInfo: &abci.EvmTxInfo{
 			TxHash:  ethTx.Hash().Hex(),
 			VmError: vmError,
@@ -1913,19 +1949,22 @@ func (app *App) ProcessBlockWithGigaExecutorOCC(ctx sdk.Context, txs [][]byte, r
 		evmTotalGasUsed += resp.GasUsed
 
 		// Restore transient store data using main context
-		if resp.Code == 0 && len(resp.Data) > 0 && evmTxs[idx] != nil {
-			receipt := &evmtypes.Receipt{}
-			if err := receipt.Unmarshal(resp.Data); err == nil {
-				ethTx, _ := evmTxs[idx].AsTransaction()
-				if ethTx != nil {
-					txHash := ethTx.Hash()
-					// Write receipt to transient store using main context
-					_ = app.EvmKeeper.SetTransientReceipt(ctx.WithTxIndex(idx), txHash, receipt)
-					// Write deferred info using main context
-					bloom := ethtypes.Bloom{}
-					bloom.SetBytes(receipt.LogsBloom)
-					app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(idx), bloom, txHash, sdk.ZeroInt())
+		// In OCC mode, the Data field contains TxMsgData (standard format) for correct LastResultsHash.
+		// We need to extract the receipt info from the response or reconstruct it.
+		if resp.Code == 0 && evmTxs[idx] != nil {
+			ethTx, _ := evmTxs[idx].AsTransaction()
+			if ethTx != nil {
+				txHash := ethTx.Hash()
+				// In OCC mode, the receipt was written during execution but may have been lost.
+				// We can reconstruct minimal receipt info from the response for deferred processing.
+				// The full receipt details would need to be fetched from transient store if it exists.
+				bloom := ethtypes.Bloom{}
+				// Try to get receipt from transient store (may exist if execution succeeded)
+				existingReceipt, receiptErr := app.EvmKeeper.GetTransientReceipt(ctx.WithTxIndex(idx), txHash, uint64(idx)) //nolint:gosec // G115: idx is a valid tx index, always non-negative
+				if receiptErr == nil && existingReceipt != nil {
+					bloom.SetBytes(existingReceipt.LogsBloom)
 				}
+				app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(idx), bloom, txHash, sdk.ZeroInt())
 			}
 		}
 	}
