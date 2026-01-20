@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -152,7 +151,6 @@ import (
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmcfg "github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto/merkle"
 	"github.com/tendermint/tendermint/libs/log"
 	tmos "github.com/tendermint/tendermint/libs/os"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -187,77 +185,6 @@ func getGovProposalHandlers() []govclient.ProposalHandler {
 	)
 
 	return govProposalHandlers
-}
-
-// LogTxResultsForDebug logs the deterministic fields of tx results that go into LastResultsHash.
-// This is useful for debugging consensus failures due to hash mismatches between executors.
-func LogTxResultsForDebug(logger log.Logger, height int64, txResults []*abci.ExecTxResult, executorType string) {
-	if len(txResults) == 0 {
-		logger.Info("DEBUG_TX_RESULTS: no transactions",
-			"height", height,
-			"executor", executorType,
-		)
-		return
-	}
-
-	// Compute the overall LastResultsHash
-	deterministicResults := make([][]byte, len(txResults))
-	for i, r := range txResults {
-		// Only Code, Data, GasWanted, GasUsed are deterministic (per deterministicExecTxResult)
-		deterministicResult := &abci.ExecTxResult{
-			Code:      r.Code,
-			Data:      r.Data,
-			GasWanted: r.GasWanted,
-			GasUsed:   r.GasUsed,
-		}
-		b, err := deterministicResult.Marshal()
-		if err != nil {
-			logger.Error("DEBUG_TX_RESULTS: failed to marshal tx result", "index", i, "error", err)
-			continue
-		}
-		deterministicResults[i] = b
-	}
-	overallHash := merkle.HashFromByteSlices(deterministicResults)
-
-	logger.Info("DEBUG_TX_RESULTS: block summary",
-		"height", height,
-		"executor", executorType,
-		"txCount", len(txResults),
-		"computedLastResultsHash", hex.EncodeToString(overallHash),
-	)
-
-	// Log each tx result's deterministic fields
-	for i, r := range txResults {
-		// Compute individual tx result hash
-		deterministicResult := &abci.ExecTxResult{
-			Code:      r.Code,
-			Data:      r.Data,
-			GasWanted: r.GasWanted,
-			GasUsed:   r.GasUsed,
-		}
-		b, _ := deterministicResult.Marshal()
-		txHash := sha256.Sum256(b)
-
-		// Truncate Data for logging (can be large)
-		dataHex := hex.EncodeToString(r.Data)
-		if len(dataHex) > 128 {
-			dataHex = dataHex[:128] + "...(truncated)"
-		}
-
-		logger.Info("DEBUG_TX_RESULTS: tx details",
-			"height", height,
-			"executor", executorType,
-			"txIndex", i,
-			"code", r.Code,
-			"gasWanted", r.GasWanted,
-			"gasUsed", r.GasUsed,
-			"dataLen", len(r.Data),
-			"dataHex", dataHex,
-			"txResultHash", hex.EncodeToString(txHash[:]),
-			"log", r.Log,
-			"evmTxInfo", fmt.Sprintf("%+v", r.EvmTxInfo),
-		)
-	}
 }
 
 var (
@@ -1340,14 +1267,6 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			cms := app.WriteState()
 			app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
-
-			// Debug logging for LastResultsHash debugging
-			executorType := "standard"
-			if app.GigaExecutorEnabled {
-				executorType = "giga"
-			}
-			LogTxResultsForDebug(app.Logger(), req.Height, txRes, executorType+"-optimistic")
-
 			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
 			return &resp, nil
 		}
@@ -1367,14 +1286,6 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	cms := app.WriteState()
 	app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
-
-	// Debug logging for LastResultsHash debugging
-	executorType := "standard"
-	if app.GigaExecutorEnabled {
-		executorType = "giga"
-	}
-	LogTxResultsForDebug(app.Logger(), req.Height, txResults, executorType)
-
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil
 }
@@ -1406,7 +1317,7 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 		metrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted)
 	}
 
-	result := &abci.ExecTxResult{
+	return &abci.ExecTxResult{
 		Code:      deliverTxResp.Code,
 		Data:      deliverTxResp.Data,
 		Log:       deliverTxResp.Log,
@@ -1417,26 +1328,6 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 		Codespace: deliverTxResp.Codespace,
 		EvmTxInfo: deliverTxResp.EvmTxInfo,
 	}
-
-	// Debug logging for standard executor output (for EVM tx comparison with giga executor)
-	if deliverTxResp.EvmTxInfo != nil {
-		dataHex := hex.EncodeToString(deliverTxResp.Data)
-		if len(dataHex) > 128 {
-			dataHex = dataHex[:128] + "...(truncated)"
-		}
-		ctx.Logger().Info("DEBUG_STANDARD_EXECUTOR: tx result",
-			"txIndex", ctx.TxIndex(),
-			"txHash", deliverTxResp.EvmTxInfo.TxHash,
-			"code", deliverTxResp.Code,
-			"gasWanted", deliverTxResp.GasWanted,
-			"gasUsed", deliverTxResp.GasUsed,
-			"dataLen", len(deliverTxResp.Data),
-			"dataHex", dataHex,
-			"log", deliverTxResp.Log,
-		)
-	}
-
-	return result
 }
 
 func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
@@ -1958,7 +1849,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 		}, nil
 	}
 
-	result := &abci.ExecTxResult{
+	return &abci.ExecTxResult{
 		Code:      code,
 		Data:      txMsgDataBytes,
 		GasWanted: gasWanted,
@@ -1969,28 +1860,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 			VmError: vmError,
 			Nonce:   ethTx.Nonce(),
 		},
-	}
-
-	// Debug logging for giga executor output
-	dataHex := hex.EncodeToString(txMsgDataBytes)
-	if len(dataHex) > 128 {
-		dataHex = dataHex[:128] + "...(truncated)"
-	}
-	ctx.Logger().Info("DEBUG_GIGA_EXECUTOR: tx result",
-		"txIndex", txIndex,
-		"txHash", ethTx.Hash().Hex(),
-		"code", code,
-		"gasWanted", gasWanted,
-		"gasUsed", gasUsed,
-		"dataLen", len(txMsgDataBytes),
-		"dataHex", dataHex,
-		"vmError", vmError,
-		"evmGasUsed", execResult.UsedGas,
-		"returnDataLen", len(execResult.ReturnData),
-		"logsCount", len(stateDB.GetAllLogs()),
-	)
-
-	return result, nil
+	}, nil
 }
 
 // ProcessBlockWithGigaExecutorOCC executes block transactions using the Giga executor with OCC.
