@@ -1,7 +1,6 @@
 package keeper
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -18,9 +17,9 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
+	"github.com/ethereum/evmc/v12/bindings/go/evmc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
-	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	"github.com/ethereum/go-ethereum/core"
 	ethstate "github.com/ethereum/go-ethereum/core/state"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -28,21 +27,16 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/tests"
 	"github.com/holiman/uint256"
-	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
+	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
+	"github.com/sei-protocol/sei-chain/utils"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
-
-	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
-	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
-	"github.com/sei-protocol/sei-chain/x/evm/querier"
-	"github.com/sei-protocol/sei-chain/x/evm/replay"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const Pacific1ChainID = "pacific-1"
@@ -71,16 +65,6 @@ type Keeper struct {
 	pendingTxs                   map[string][]*PendingTx
 	keyToNonce                   map[tmtypes.TxKey]*AddressNoncePair
 
-	QueryConfig *querier.Config
-
-	// only used during ETH replay. Not used in chain critical path.
-	EthClient       *ethclient.Client
-	EthReplayConfig replay.Config
-
-	// only used during blocktest. Not used in chain critical path.
-	EthBlockTestConfig blocktest.Config
-	BlockTest          *tests.BlockTest
-
 	// used for both ETH replay and block tests. Not used in chain critical path.
 	Trie        ethstate.Trie
 	DB          ethstate.Database
@@ -93,6 +77,9 @@ type Keeper struct {
 	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
 	latestUpgrade           string
+
+	// EvmoneVM holds the loaded evmone VM instance for the Giga executor
+	EvmoneVM *evmc.VM
 }
 
 type AddressNoncePair struct {
@@ -130,7 +117,7 @@ func (ctx *ReplayChainContext) Config() *params.ChainConfig {
 }
 
 func NewKeeper(
-	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStore receipt.ReceiptStore,
+	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStateStore receipt.ReceiptStore,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
 	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper) *Keeper {
 
@@ -152,7 +139,7 @@ func NewKeeper(
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*AddressNoncePair),
-		receiptStore:                 receiptStore,
+		receiptStore:                 receiptStateStore,
 	}
 	return k
 }
@@ -252,12 +239,6 @@ func (k *Keeper) PurgePrefix(ctx sdk.Context, pref []byte) {
 }
 
 func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockContext, error) {
-	if k.EthBlockTestConfig.Enabled {
-		return k.getBlockTestBlockCtx(ctx)
-	}
-	if k.EthReplayConfig.Enabled {
-		return k.getReplayBlockCtx(ctx)
-	}
 	coinbase, err := k.GetFeeCollectorAddress(ctx)
 	if err != nil {
 		return nil, err
@@ -459,77 +440,11 @@ func (k *Keeper) GetKeysToNonces() map[tmtypes.TxKey]*AddressNoncePair {
 	return k.keyToNonce
 }
 
-// Only used in ETH replay
-func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
-	if !k.EthReplayConfig.Enabled {
-		return
-	}
-	store := k.PrefixStore(ctx, types.ReplaySeenAddrPrefix)
-	bz := store.Get(addr[:])
-	if len(bz) > 0 {
-		return
-	}
-	a, err := k.Trie.GetAccount(addr)
-	if err != nil || a == nil {
-		return
-	}
-	store.Set(addr[:], a.Root[:])
-	if a.Balance != nil && a.Balance.CmpBig(utils.Big0) != 0 {
-		usei, wei := state.SplitUseiWeiAmount(a.Balance.ToBig())
-		err = k.BankKeeper().AddCoins(ctx, k.GetSeiAddressOrDefault(ctx, addr), sdk.NewCoins(sdk.NewCoin("usei", usei)), true)
-		if err != nil {
-			panic(err)
-		}
-		err = k.BankKeeper().AddWei(ctx, k.GetSeiAddressOrDefault(ctx, addr), wei)
-		if err != nil {
-			panic(err)
-		}
-	}
-	k.SetNonce(ctx, addr, a.Nonce)
-	if !bytes.Equal(a.CodeHash, ethtypes.EmptyCodeHash.Bytes()) {
-		k.PrefixStore(ctx, types.CodeHashKeyPrefix).Set(addr[:], a.CodeHash)
-		code := k.CachingDB.ContractCodeWithPrefix(addr, common.BytesToHash(a.CodeHash))
-		if len(code) > 0 {
-			k.PrefixStore(ctx, types.CodeKeyPrefix).Set(addr[:], code)
-			length := make([]byte, 8)
-			binary.BigEndian.PutUint64(length, uint64(len(code)))
-			k.PrefixStore(ctx, types.CodeSizeKeyPrefix).Set(addr[:], length)
-		}
-	}
-}
-
 func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
-	if k.EthReplayConfig.Enabled {
-		return k.ReplayBlock.Header_.BaseFee
-	}
-	if k.EthBlockTestConfig.Enabled {
-		bb := k.BlockTest.Json.Blocks[ctx.BlockHeight()-1]
-		b, err := bb.Decode()
-		if err != nil {
-			panic(err)
-		}
-		return b.Header_.BaseFee
-	}
 	if ctx.ChainID() == Pacific1ChainID && ctx.BlockHeight() < k.upgradeKeeper.GetDoneHeight(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "6.2.0") {
 		return nil
 	}
 	return k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
-}
-
-func (k *Keeper) GetReplayedHeight(ctx sdk.Context) int64 {
-	return k.getInt64State(ctx, types.ReplayedHeight)
-}
-
-func (k *Keeper) SetReplayedHeight(ctx sdk.Context) {
-	k.setInt64State(ctx, types.ReplayedHeight, ctx.BlockHeight())
-}
-
-func (k *Keeper) GetReplayInitialHeight(ctx sdk.Context) int64 {
-	return k.getInt64State(ctx, types.ReplayInitialHeight)
-}
-
-func (k *Keeper) SetReplayInitialHeight(ctx sdk.Context, h int64) {
-	k.setInt64State(ctx, types.ReplayInitialHeight, h)
 }
 
 func (k *Keeper) setInt64State(ctx sdk.Context, key []byte, val int64) {
@@ -548,85 +463,8 @@ func (k *Keeper) getInt64State(ctx sdk.Context, key []byte) int64 {
 	return int64(binary.BigEndian.Uint64(bz)) //nolint:gosec
 }
 
-func (k *Keeper) getBlockTestBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
-	bb := k.BlockTest.Json.Blocks[ctx.BlockHeight()-1]
-	b, err := bb.Decode()
-	if err != nil {
-		return nil, err
-	}
-	header := b.Header_
-	getHash := func(height uint64) common.Hash {
-		height = height + 1
-		for i := 0; i < len(k.BlockTest.Json.Blocks); i++ {
-			if k.BlockTest.Json.Blocks[i].BlockHeader.Number.Uint64() == height {
-				return k.BlockTest.Json.Blocks[i].BlockHeader.Hash
-			}
-		}
-		panic(fmt.Sprintf("block hash not found for height %d", height))
-	}
-	var (
-		baseFee     *big.Int
-		blobBaseFee *big.Int
-		random      *common.Hash
-	)
-	if header.BaseFee != nil {
-		baseFee = new(big.Int).Set(header.BaseFee)
-	}
-	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
-	blobBaseFee = eip4844.CalcBlobFee(chainConfig, header)
-	if header.Difficulty.Cmp(common.Big0) == 0 {
-		random = &header.MixDigest
-	}
-	return &vm.BlockContext{
-		CanTransfer: core.CanTransfer,
-		Transfer:    core.Transfer,
-		GetHash:     getHash,
-		Coinbase:    header.Coinbase,
-		GasLimit:    header.GasLimit,
-		BlockNumber: new(big.Int).Set(header.Number),
-		Time:        header.Time,
-		Difficulty:  new(big.Int).Set(header.Difficulty),
-		BaseFee:     baseFee,
-		BlobBaseFee: blobBaseFee,
-		Random:      random,
-	}, nil
-}
-
-func (k *Keeper) getReplayBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
-	header := k.ReplayBlock.Header_
-	replayCtx := &ReplayChainContext{ethClient: k.EthClient, chainID: k.ChainID(ctx), params: k.GetParams(ctx)}
-	getHash := core.GetHashFn(header, replayCtx)
-	var (
-		baseFee     *big.Int
-		blobBaseFee *big.Int
-		random      *common.Hash
-	)
-	if header.BaseFee != nil {
-		baseFee = new(big.Int).Set(header.BaseFee)
-	} else {
-		baseFee = big.NewInt(0)
-	}
-	if header.ExcessBlobGas != nil {
-		blobBaseFee = eip4844.CalcBlobFee(replayCtx.Config(), header)
-	} else {
-		blobBaseFee = big.NewInt(0)
-	}
-	if header.Difficulty.Cmp(common.Big0) == 0 {
-		random = &header.MixDigest
-	}
-	return &vm.BlockContext{
-		CanTransfer: core.CanTransfer,
-		Transfer:    core.Transfer,
-		GetHash:     getHash,
-		Coinbase:    header.Coinbase,
-		GasLimit:    header.GasLimit,
-		BlockNumber: new(big.Int).Set(header.Number),
-		Time:        header.Time,
-		Difficulty:  new(big.Int).Set(header.Difficulty),
-		BaseFee:     baseFee,
-		BlobBaseFee: blobBaseFee,
-		Random:      random,
-	}, nil
+func (k *Keeper) GetGasPool() core.GasPool {
+	return math.MaxUint64
 }
 
 func uint64Cmp(a, b uint64) int {

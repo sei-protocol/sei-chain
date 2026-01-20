@@ -7,13 +7,13 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
+	testkeeper "github.com/sei-protocol/sei-chain/giga/deps/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	"github.com/stretchr/testify/require"
 )
 
 func TestReceipt(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
+	k := &testkeeper.EVMTestApp.GigaEvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	txHash := common.HexToHash("0x0750333eac0be1203864220893d8080dd8a8fd7a2ed098dfd92a718c99d437f2")
 	_, err := k.GetReceipt(ctx, txHash)
@@ -24,11 +24,11 @@ func TestReceipt(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, txHash.Hex(), r.TxHashHex)
 	_, err = k.GetReceipt(ctx, common.Hash{1})
-	require.Equal(t, "receipt not found", err.Error())
+	require.Equal(t, "not found", err.Error())
 }
 
 func TestGetReceiptWithRetry(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
+	k := &testkeeper.EVMTestApp.GigaEvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	txHash := common.HexToHash("0x0750333eac0be1203864220893d8080dd8a8fd7a2ed098dfd92a718c99d437f2")
 
@@ -36,7 +36,7 @@ func TestGetReceiptWithRetry(t *testing.T) {
 	nonExistentHash := common.Hash{1}
 	_, err := k.GetReceiptWithRetry(ctx, nonExistentHash, 2)
 	require.NotNil(t, err)
-	require.Equal(t, "receipt not found", err.Error())
+	require.Equal(t, "not found", err.Error())
 
 	// Then test successful retry
 	go func() {
@@ -50,7 +50,7 @@ func TestGetReceiptWithRetry(t *testing.T) {
 }
 
 func TestFlushTransientReceipts(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
+	k := &testkeeper.EVMTestApp.GigaEvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	txHash := common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
 	receipt := &types.Receipt{TxHashHex: txHash.Hex(), Status: 1}
@@ -87,7 +87,7 @@ func TestFlushTransientReceipts(t *testing.T) {
 }
 
 func TestDeleteTransientReceipt(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
+	k := &testkeeper.EVMTestApp.GigaEvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	txHash := common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
 	receipt := &types.Receipt{TxHashHex: txHash.Hex(), Status: 1}
@@ -99,13 +99,13 @@ func TestDeleteTransientReceipt(t *testing.T) {
 
 	receipt, err = k.GetTransientReceipt(ctx, txHash, 0)
 	require.Nil(t, receipt)
-	require.Equal(t, "receipt not found", err.Error())
+	require.Equal(t, "not found", err.Error())
 }
 
 // Flush transient receipts should not adjust cumulative gas used for legacy receipts
 func TestFlushTransientReceiptsLegacyReceipts(t *testing.T) {
 	// Pacific-1
-	k := &testkeeper.EVMTestApp.EvmKeeper
+	k := &testkeeper.EVMTestApp.GigaEvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	ctx = ctx.WithChainID("pacific-1")
 

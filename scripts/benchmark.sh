@@ -30,6 +30,7 @@ echo "  MOCK_BALANCES:  $MOCK_BALANCES"
 echo "  GIGA_EXECUTOR:  $GIGA_EXECUTOR"
 echo "  GIGA_OCC:       $GIGA_OCC"
 echo "  DB_BACKEND:     $DB_BACKEND"
+echo "  DB_BACKEND:     $DB_BACKEND"
 echo "================================"
 
 # clean up old sei directory
