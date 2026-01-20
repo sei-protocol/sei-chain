@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package p2p;
+
+option go_package = "github.com/tendermint/tendermint/internal/p2p/pb";
+
+message NodePublicKey {
+  bytes ed25519 = 1;
+  reserved 2, 3;
+  reserved "secp256k1", "sr25519";
+}
+
+message Preface {
+  // ephemeral curve25519 key for Diffie-Hellman secret sharing.
+  bytes sts_public_key = 1;
+}
+
+message Handshake {
+  // Node signature on the encrypted session challenge
+  // derived from the secret. It authenticates the node.
+  NodePublicKey node_auth_key = 1;
+  bytes node_auth_sig = 2;
+
+  bool sei_giga_connection = 3;
+}
