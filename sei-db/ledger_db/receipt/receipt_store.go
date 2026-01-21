@@ -54,7 +54,7 @@ type receiptStore struct {
 	closeOnce   sync.Once
 }
 
-func NewReceiptStore(log dbLogger.Logger, config dbconfig.StateStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
+func NewReceiptStore(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
 	if log == nil {
 		log = dbLogger.NewNopLogger()
 	}
@@ -65,7 +65,16 @@ func NewReceiptStore(log dbLogger.Logger, config dbconfig.StateStoreConfig, stor
 		return nil, fmt.Errorf("unsupported receipt store backend: %s", config.Backend)
 	}
 
-	db, err := mvcc.OpenDB(config.DBDirectory, config)
+	dbConfig := dbconfig.StateStoreConfig{
+		DBDirectory:          config.DBDirectory,
+		Backend:              config.Backend,
+		AsyncWriteBuffer:     config.AsyncWriteBuffer,
+		KeepRecent:           config.KeepRecent,
+		PruneIntervalSeconds: config.PruneIntervalSeconds,
+		UseDefaultComparer:   config.UseDefaultComparer,
+	}
+
+	db, err := mvcc.OpenDB(config.DBDirectory, dbConfig)
 	if err != nil {
 		return nil, err
 	}

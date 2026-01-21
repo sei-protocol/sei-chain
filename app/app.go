@@ -635,12 +635,15 @@ func New(
 	)
 
 	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
-	ssConfig := ssconfig.DefaultStateStoreConfig()
-	ssConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
-	ssConfig.DBDirectory = receiptStorePath
-	ssConfig.KeepLastVersion = false
+	receiptConfig := parseReceiptStoreConfig(appOpts)
+	if receiptConfig.DBDirectory == "" {
+		receiptConfig.DBDirectory = receiptStorePath
+	}
+	if appOpts.Get(FlagRSKeepRecent) == nil {
+		receiptConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
+	}
 	if app.receiptStore == nil {
-		receiptStore, err := receipt.NewReceiptStore(logger, ssConfig, keys[evmtypes.StoreKey])
+		receiptStore, err := receipt.NewReceiptStore(logger, receiptConfig, keys[evmtypes.StoreKey])
 		if err != nil {
 			panic(fmt.Sprintf("error while creating receipt store: %s", err))
 		}
