@@ -43,8 +43,8 @@ func TestFlatKVAccountValueEncoding(t *testing.T) {
 	}
 
 	t.Run("RoundTrip", func(t *testing.T) {
-		var balance Word
-		copy(balance[:], randomBytes(WordLen))
+		var balance Balance
+		copy(balance[:], randomBytes(BalanceLen))
 		var codeHash CodeHash
 		copy(codeHash[:], randomBytes(CodeHashLen))
 
@@ -64,7 +64,7 @@ func TestFlatKVAccountValueEncoding(t *testing.T) {
 
 	t.Run("RoundTripZeroValues", func(t *testing.T) {
 		original := AccountValue{
-			Balance:  Word{},
+			Balance:  Balance{},
 			Nonce:    0,
 			CodeHash: CodeHash{},
 		}

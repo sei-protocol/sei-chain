@@ -10,7 +10,7 @@ const (
 	AddressLen  = 20
 	CodeHashLen = 32
 	SlotLen     = 32
-	WordLen     = 32
+	BalanceLen  = 32
 
 	NonceLen = 8
 )
@@ -24,8 +24,8 @@ type CodeHash [CodeHashLen]byte
 // Slot is a storage slot key (32 bytes).
 type Slot [SlotLen]byte
 
-// Word is a fixed-size EVM word (32 bytes).
-type Word [WordLen]byte
+// Balance is an EVM balance (32 bytes, big-endian uint256).
+type Balance [BalanceLen]byte
 
 func AddressFromBytes(b []byte) (Address, bool) {
 	if len(b) != AddressLen {
@@ -119,14 +119,14 @@ func PrefixEnd(prefix []byte) []byte {
 
 // AccountValue is the account record: balance(32) || nonce(8) || codehash(32).
 type AccountValue struct {
-	Balance  Word
+	Balance  Balance
 	Nonce    uint64
 	CodeHash CodeHash
 }
 
 const (
-	// accountValueEncodedLen = WordLen + NonceLen + CodeHashLen
-	accountValueEncodedLen = WordLen + NonceLen + CodeHashLen
+	// accountValueEncodedLen = BalanceLen + NonceLen + CodeHashLen
+	accountValueEncodedLen = BalanceLen + NonceLen + CodeHashLen
 )
 
 // EncodeAccountValue encodes v into a stable 72-byte slice.
@@ -147,8 +147,8 @@ func DecodeAccountValue(b []byte) (AccountValue, error) {
 	}
 	var v AccountValue
 	off := 0
-	copy(v.Balance[:], b[off:off+WordLen])
-	off += WordLen
+	copy(v.Balance[:], b[off:off+BalanceLen])
+	off += BalanceLen
 	v.Nonce = binary.BigEndian.Uint64(b[off : off+NonceLen])
 	off += NonceLen
 	copy(v.CodeHash[:], b[off:off+CodeHashLen])
