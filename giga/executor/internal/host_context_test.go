@@ -12,73 +12,73 @@ import (
 // This tests the algorithm used in SetStorage without needing a full StateDB
 func TestStorageStatusLogic(t *testing.T) {
 	tests := []struct {
-		name          string
-		original      common.Hash // committed state
-		current       common.Hash // current state in tx
-		newValue      common.Hash // value being set
+		name           string
+		original       common.Hash // committed state
+		current        common.Hash // current state in tx
+		newValue       common.Hash // value being set
 		expectedStatus evmc.StorageStatus
 	}{
 		{
-			name:          "StorageAdded - zero to non-zero, clean",
-			original:      common.Hash{},
-			current:       common.Hash{},
-			newValue:      common.Hash{1, 2, 3},
+			name:           "StorageAdded - zero to non-zero, clean",
+			original:       common.Hash{},
+			current:        common.Hash{},
+			newValue:       common.Hash{1, 2, 3},
 			expectedStatus: evmc.StorageAdded,
 		},
 		{
-			name:          "StorageDeleted - non-zero to zero, clean",
-			original:      common.Hash{1, 2, 3},
-			current:       common.Hash{1, 2, 3},
-			newValue:      common.Hash{},
+			name:           "StorageDeleted - non-zero to zero, clean",
+			original:       common.Hash{1, 2, 3},
+			current:        common.Hash{1, 2, 3},
+			newValue:       common.Hash{},
 			expectedStatus: evmc.StorageDeleted,
 		},
 		{
-			name:          "StorageModified - non-zero to different non-zero, clean",
-			original:      common.Hash{1, 2, 3},
-			current:       common.Hash{1, 2, 3},
-			newValue:      common.Hash{4, 5, 6},
+			name:           "StorageModified - non-zero to different non-zero, clean",
+			original:       common.Hash{1, 2, 3},
+			current:        common.Hash{1, 2, 3},
+			newValue:       common.Hash{4, 5, 6},
 			expectedStatus: evmc.StorageModified,
 		},
 		{
-			name:          "StorageAssigned - dirty, not restored, same value",
-			original:      common.Hash{1, 1, 1},
-			current:       common.Hash{2, 2, 2},
-			newValue:      common.Hash{2, 2, 2}, // same as current
+			name:           "StorageAssigned - dirty, not restored, same value",
+			original:       common.Hash{1, 1, 1},
+			current:        common.Hash{2, 2, 2},
+			newValue:       common.Hash{2, 2, 2}, // same as current
 			expectedStatus: evmc.StorageAssigned,
 		},
 		{
-			name:          "StorageDeletedRestored - was deleted, restore to original",
-			original:      common.Hash{1, 2, 3},
-			current:       common.Hash{}, // deleted
-			newValue:      common.Hash{1, 2, 3}, // restore
+			name:           "StorageDeletedRestored - was deleted, restore to original",
+			original:       common.Hash{1, 2, 3},
+			current:        common.Hash{},        // deleted
+			newValue:       common.Hash{1, 2, 3}, // restore
 			expectedStatus: evmc.StorageDeletedRestored,
 		},
 		{
-			name:          "StorageAddedDeleted - was added, now delete",
-			original:      common.Hash{},
-			current:       common.Hash{1, 2, 3}, // added
-			newValue:      common.Hash{}, // delete (restore to original)
+			name:           "StorageAddedDeleted - was added, now delete",
+			original:       common.Hash{},
+			current:        common.Hash{1, 2, 3}, // added
+			newValue:       common.Hash{},        // delete (restore to original)
 			expectedStatus: evmc.StorageAddedDeleted,
 		},
 		{
-			name:          "StorageModifiedRestored - was modified, restore to original",
-			original:      common.Hash{1, 2, 3},
-			current:       common.Hash{4, 5, 6}, // modified
-			newValue:      common.Hash{1, 2, 3}, // restore
+			name:           "StorageModifiedRestored - was modified, restore to original",
+			original:       common.Hash{1, 2, 3},
+			current:        common.Hash{4, 5, 6}, // modified
+			newValue:       common.Hash{1, 2, 3}, // restore
 			expectedStatus: evmc.StorageModifiedRestored,
 		},
 		{
-			name:          "StorageDeletedAdded - was deleted, add back different",
-			original:      common.Hash{1, 2, 3},
-			current:       common.Hash{}, // deleted
-			newValue:      common.Hash{4, 5, 6}, // different non-zero
+			name:           "StorageDeletedAdded - was deleted, add back different",
+			original:       common.Hash{1, 2, 3},
+			current:        common.Hash{},        // deleted
+			newValue:       common.Hash{4, 5, 6}, // different non-zero
 			expectedStatus: evmc.StorageAssigned, // dirty && !restored && !(currentIsZero && valueIsZero)
 		},
 		{
-			name:          "StorageModifiedDeleted - was modified, now delete",
-			original:      common.Hash{1, 2, 3},
-			current:       common.Hash{4, 5, 6}, // modified, not zero
-			newValue:      common.Hash{}, // delete
+			name:           "StorageModifiedDeleted - was modified, now delete",
+			original:       common.Hash{1, 2, 3},
+			current:        common.Hash{4, 5, 6}, // modified, not zero
+			newValue:       common.Hash{},        // delete
 			expectedStatus: evmc.StorageModifiedDeleted,
 		},
 	}
@@ -255,39 +255,39 @@ func TestStorageStatusValues(t *testing.T) {
 // TestExecuteCodeSelection tests the logic for selecting code in Execute
 func TestExecuteCodeSelection(t *testing.T) {
 	tests := []struct {
-		name         string
-		kind         evmc.CallKind
-		input        []byte
+		name          string
+		kind          evmc.CallKind
+		input         []byte
 		recipientCode []byte
-		expectedCode []byte
+		expectedCode  []byte
 	}{
 		{
-			name:         "CREATE uses input as initcode",
-			kind:         evmc.Create,
-			input:        []byte{0x60, 0x00, 0xf3}, // initcode
-			recipientCode: []byte{0xfe},            // should not be used
-			expectedCode: []byte{0x60, 0x00, 0xf3},
+			name:          "CREATE uses input as initcode",
+			kind:          evmc.Create,
+			input:         []byte{0x60, 0x00, 0xf3}, // initcode
+			recipientCode: []byte{0xfe},             // should not be used
+			expectedCode:  []byte{0x60, 0x00, 0xf3},
 		},
 		{
-			name:         "CREATE2 uses input as initcode",
-			kind:         evmc.Create2,
-			input:        []byte{0x60, 0x01, 0xf3}, // initcode
-			recipientCode: []byte{0xfe},            // should not be used
-			expectedCode: []byte{0x60, 0x01, 0xf3},
+			name:          "CREATE2 uses input as initcode",
+			kind:          evmc.Create2,
+			input:         []byte{0x60, 0x01, 0xf3}, // initcode
+			recipientCode: []byte{0xfe},             // should not be used
+			expectedCode:  []byte{0x60, 0x01, 0xf3},
 		},
 		{
-			name:         "CALL uses recipient code",
-			kind:         evmc.Call,
-			input:        []byte{0x12, 0x34}, // call data
+			name:          "CALL uses recipient code",
+			kind:          evmc.Call,
+			input:         []byte{0x12, 0x34}, // call data
 			recipientCode: []byte{0x60, 0x00, 0x52, 0x60, 0x20, 0xf3},
-			expectedCode: []byte{0x60, 0x00, 0x52, 0x60, 0x20, 0xf3},
+			expectedCode:  []byte{0x60, 0x00, 0x52, 0x60, 0x20, 0xf3},
 		},
 		{
-			name:         "DELEGATECALL uses recipient code",
-			kind:         evmc.DelegateCall,
-			input:        []byte{0x12, 0x34},
+			name:          "DELEGATECALL uses recipient code",
+			kind:          evmc.DelegateCall,
+			input:         []byte{0x12, 0x34},
 			recipientCode: []byte{0x60, 0x00, 0xf3},
-			expectedCode: []byte{0x60, 0x00, 0xf3},
+			expectedCode:  []byte{0x60, 0x00, 0xf3},
 		},
 	}
 

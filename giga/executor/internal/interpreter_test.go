@@ -11,45 +11,45 @@ import (
 // TestCallKindMapping tests that opcode to evmc call kind mapping is correct
 func TestCallKindMapping(t *testing.T) {
 	tests := []struct {
-		name         string
-		opCode       vm.OpCode
-		expectedKind evmc.CallKind
+		name           string
+		opCode         vm.OpCode
+		expectedKind   evmc.CallKind
 		expectedStatic bool
 	}{
 		{
-			name:         "CALL",
-			opCode:       vm.CALL,
-			expectedKind: evmc.Call,
+			name:           "CALL",
+			opCode:         vm.CALL,
+			expectedKind:   evmc.Call,
 			expectedStatic: false,
 		},
 		{
-			name:         "STATICCALL",
-			opCode:       vm.STATICCALL,
-			expectedKind: evmc.Call,
+			name:           "STATICCALL",
+			opCode:         vm.STATICCALL,
+			expectedKind:   evmc.Call,
 			expectedStatic: true,
 		},
 		{
-			name:         "DELEGATECALL",
-			opCode:       vm.DELEGATECALL,
-			expectedKind: evmc.DelegateCall,
+			name:           "DELEGATECALL",
+			opCode:         vm.DELEGATECALL,
+			expectedKind:   evmc.DelegateCall,
 			expectedStatic: false,
 		},
 		{
-			name:         "CALLCODE",
-			opCode:       vm.CALLCODE,
-			expectedKind: evmc.CallCode,
+			name:           "CALLCODE",
+			opCode:         vm.CALLCODE,
+			expectedKind:   evmc.CallCode,
 			expectedStatic: false,
 		},
 		{
-			name:         "CREATE",
-			opCode:       vm.CREATE,
-			expectedKind: evmc.Create,
+			name:           "CREATE",
+			opCode:         vm.CREATE,
+			expectedKind:   evmc.Create,
 			expectedStatic: false,
 		},
 		{
-			name:         "CREATE2",
-			opCode:       vm.CREATE2,
-			expectedKind: evmc.Create2,
+			name:           "CREATE2",
+			opCode:         vm.CREATE2,
+			expectedKind:   evmc.Create2,
 			expectedStatic: false,
 		},
 	}
@@ -113,7 +113,7 @@ func TestCodeToExecuteForCreate(t *testing.T) {
 		{
 			name:         "CALL uses input (call data)",
 			opCode:       vm.CALL,
-			contractCode: []byte{0xfe}, // not used
+			contractCode: []byte{0xfe},                   // not used
 			input:        []byte{0x12, 0x34, 0x56, 0x78}, // call data
 			expectCode:   []byte{0x12, 0x34, 0x56, 0x78},
 		},
