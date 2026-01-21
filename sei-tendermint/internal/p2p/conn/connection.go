@@ -14,11 +14,12 @@ import (
 	gogoproto "github.com/gogo/protobuf/proto"
 	"golang.org/x/time/rate"
 
+	"github.com/tendermint/tendermint/internal/p2p/pb"
+	"github.com/tendermint/tendermint/internal/protoutils"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
-	"github.com/tendermint/tendermint/proto/tendermint/p2p"
 )
 
 var _ Conn = tcp.Conn{}
@@ -295,24 +296,24 @@ func (c *MConnection) statsRoutine(ctx context.Context) error {
 
 // popSendQueue pops a message from the send queue.
 // Returns nil,nil if the connection should be flushed.
-func (c *MConnection) popSendQueue(ctx context.Context) (*p2p.Packet, error) {
+func (c *MConnection) popSendQueue(ctx context.Context) (*pb.Packet, error) {
 	for q, ctrl := range c.sendQueue.Lock() {
 		for {
 			if q.ping {
 				q.ping = false
 				q.setFlush(time.Now())
-				return &p2p.Packet{
-					Sum: &p2p.Packet_PacketPing{
-						PacketPing: &p2p.PacketPing{},
+				return &pb.Packet{
+					Sum: &pb.Packet_PacketPing{
+						PacketPing: &pb.PacketPing{},
 					},
 				}, nil
 			}
 			if q.pong {
 				q.pong = false
 				q.setFlush(time.Now())
-				return &p2p.Packet{
-					Sum: &p2p.Packet_PacketPong{
-						PacketPong: &p2p.PacketPong{},
+				return &pb.Packet{
+					Sum: &pb.Packet_PacketPong{
+						PacketPong: &pb.PacketPong{},
 					},
 				}, nil
 			}
@@ -334,8 +335,8 @@ func (c *MConnection) popSendQueue(ctx context.Context) (*p2p.Packet, error) {
 				msg := leastChannel.popMsg(c.config.MaxPacketMsgPayloadSize)
 				ctrl.Updated()
 				leastChannel.recentlySent.Add(uint64(len(msg.Data)))
-				return &p2p.Packet{
-					Sum: &p2p.Packet_PacketMsg{
+				return &pb.Packet{
+					Sum: &pb.Packet_PacketMsg{
 						PacketMsg: msg,
 					},
 				}, nil
@@ -366,7 +367,7 @@ func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 		}
 		if msg != nil {
 			// Marshalling is expected to always succeed.
-			msgBytes := utils.OrPanic1(gogoproto.Marshal(msg))
+			msgBytes := protoutils.Marshal(msg)
 			if err := WriteSizedMsg(ctx, c.conn, msgBytes); err != nil {
 				return fmt.Errorf("protoWriter.WriteMsg(): %w", err)
 			}
@@ -386,9 +387,8 @@ func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 // recvRoutine receives messages and pushes them to recvCh.
 // It also handles ping/pong messages.
 func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
-	const readBufferSize = 1024
 	maxPacketMsgSize := c.maxPacketMsgSize()
-	limiter := rate.NewLimiter(c.config.getRecvRateLimit(), int(max(maxPacketMsgSize, uint64(c.config.SendRate))))
+	limiter := rate.NewLimiter(c.config.getRecvRateLimit(), int(max(maxPacketMsgSize, uint64(c.config.RecvRate))))
 	channels := map[ChannelID]*recvChannel{}
 	for q := range c.sendQueue.Lock() {
 		for _, ch := range q.channels {
@@ -404,21 +404,21 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 		if err := limiter.WaitN(ctx, len(msg)); err != nil {
 			return err
 		}
-		packet := &p2p.Packet{}
-		if err := gogoproto.Unmarshal(msg, packet); err != nil {
-			return errBadEncoding{fmt.Errorf("gogoproto.Unmarshal(): %w", err)}
+		packet, err := protoutils.Unmarshal[*pb.Packet](msg)
+		if err != nil {
+			return errBadEncoding{fmt.Errorf("protoutils.Unmarshal(): %w", err)}
 		}
 		switch p := packet.Sum.(type) {
-		case *p2p.Packet_PacketPing:
+		case *pb.Packet_PacketPing:
 			for q, ctrl := range c.sendQueue.Lock() {
 				q.pong = true
 				ctrl.Updated()
 			}
-		case *p2p.Packet_PacketPong:
+		case *pb.Packet_PacketPong:
 			for recvPong := range c.recvPong.Lock() {
 				recvPong.Store(true)
 			}
-		case *p2p.Packet_PacketMsg:
+		case *pb.Packet_PacketMsg:
 			channelID, castOk := utils.SafeCast[ChannelID](p.PacketMsg.ChannelId)
 			ch, ok := channels[channelID]
 			if !castOk || !ok {
@@ -446,19 +446,15 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 
 // maxPacketMsgSize returns a maximum size of PacketMsg
 func (c *MConnection) maxPacketMsgSize() uint64 {
-	bz, err := gogoproto.Marshal(&p2p.Packet{
-		Sum: &p2p.Packet_PacketMsg{
-			PacketMsg: &p2p.PacketMsg{
+	return uint64(len(protoutils.Marshal(&pb.Packet{
+		Sum: &pb.Packet_PacketMsg{
+			PacketMsg: &pb.PacketMsg{
 				ChannelId: 0x01,
 				Eof:       true,
 				Data:      make([]byte, c.config.MaxPacketMsgPayloadSize),
 			},
 		},
-	})
-	if err != nil {
-		panic(err)
-	}
-	return uint64(len(bz))
+	})))
 }
 
 type sendChannel struct {
@@ -473,9 +469,9 @@ func (ch *sendChannel) ratio() float32 {
 
 // Creates a new PacketMsg to send.
 // Not goroutine-safe
-func (ch *sendChannel) popMsg(maxPayload int) *p2p.PacketMsg {
+func (ch *sendChannel) popMsg(maxPayload int) *pb.PacketMsg {
 	payload := ch.queue.Get(0)
-	packet := &p2p.PacketMsg{ChannelId: int32(ch.desc.ID)}
+	packet := &pb.PacketMsg{ChannelId: int32(ch.desc.ID)}
 	if len(*payload) <= maxPayload {
 		packet.Eof = true
 		packet.Data = *ch.queue.PopFront()
@@ -502,7 +498,7 @@ func newRecvChannel(desc ChannelDescriptor) *recvChannel {
 // Handles incoming PacketMsgs. It returns a message bytes if message is
 // complete, which is owned by the caller and will not be modified.
 // Not goroutine-safe
-func (ch *recvChannel) pushMsg(packet *p2p.PacketMsg) ([]byte, error) {
+func (ch *recvChannel) pushMsg(packet *pb.PacketMsg) ([]byte, error) {
 	if got, wantMax := len(ch.buf)+len(packet.Data), ch.desc.RecvMessageCapacity; got > wantMax {
 		return nil, fmt.Errorf("received message exceeds available capacity: %v < %v", wantMax, got)
 	}

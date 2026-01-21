@@ -137,11 +137,9 @@ func newSecretConnection(conn Conn, loc ephSecret, rem ephPublic) *SecretConnect
 	}
 }
 
-// MakeSecretConnection performs handshake and returns a new authenticated
-// SecretConnection.
-// Returns nil if there is an error in handshake.
-// Caller should call conn.Close()
-// See docs/sts-final.pdf for more information.
+// MakeSecretConnection performs handshake and returns an encrypted SecretConnection.
+// To authenticate the secret connection, you need to sign the Challenge() and exchange the signatures
+// with the peer. See docs/sts-final.pdf for more information.
 func MakeSecretConnection(ctx context.Context, conn Conn) (*SecretConnection, error) {
 	// Write local ephemeral pubkey and receive one too.
 	// NOTE: every 32-byte string is accepted as a Curve25519 public key (see
