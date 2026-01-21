@@ -35,6 +35,14 @@ const (
 	FlagSSPruneInterval     = "state-store.ss-prune-interval"
 	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
 
+	// Receipt store configs
+	FlagRSDirectory          = "receipt-store.rs-db-directory"
+	FlagRSBackend            = "receipt-store.rs-backend"
+	FlagRSAsyncWriterBuffer  = "receipt-store.rs-async-write-buffer"
+	FlagRSKeepRecent         = "receipt-store.rs-keep-recent"
+	FlagRSPruneInterval      = "receipt-store.rs-prune-interval"
+	FlagRSUseDefaultComparer = "receipt-store.rs-use-default-comparer"
+
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
 	FlagMigrateIAVL      = "migrate-iavl"
@@ -104,6 +112,31 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.ImportNumWorkers = cast.ToInt(appOpts.Get(FlagSSImportNumWorkers))
 	ssConfig.DBDirectory = cast.ToString(appOpts.Get(FlagSSDirectory))
 	return ssConfig
+}
+
+func parseReceiptStoreConfig(appOpts servertypes.AppOptions) config.ReceiptStoreConfig {
+	receiptConfig := config.DefaultReceiptStoreConfig()
+
+	if raw := appOpts.Get(FlagRSDirectory); raw != nil {
+		receiptConfig.DBDirectory = cast.ToString(raw)
+	}
+	if raw := appOpts.Get(FlagRSBackend); raw != nil {
+		receiptConfig.Backend = cast.ToString(raw)
+	}
+	if raw := appOpts.Get(FlagRSAsyncWriterBuffer); raw != nil {
+		receiptConfig.AsyncWriteBuffer = cast.ToInt(raw)
+	}
+	if raw := appOpts.Get(FlagRSKeepRecent); raw != nil {
+		receiptConfig.KeepRecent = cast.ToInt(raw)
+	}
+	if raw := appOpts.Get(FlagRSPruneInterval); raw != nil {
+		receiptConfig.PruneIntervalSeconds = cast.ToInt(raw)
+	}
+	if raw := appOpts.Get(FlagRSUseDefaultComparer); raw != nil {
+		receiptConfig.UseDefaultComparer = cast.ToBool(raw)
+	}
+
+	return receiptConfig
 }
 
 func validateConfigs(appOpts servertypes.AppOptions) {
