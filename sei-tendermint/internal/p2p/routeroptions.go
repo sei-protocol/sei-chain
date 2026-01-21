@@ -39,7 +39,7 @@ type RouterOptions struct {
 	SelfAddress utils.Option[NodeAddress]
 
 	// Whether sei giga connections should be established.
-	EnableGiga bool
+	Giga utils.Option[*GigaRouterConfig]
 
 	// Local endpoint to listen for p2p connections on.
 	// SelfAddress should point to this endpoint.

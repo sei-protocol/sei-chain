@@ -89,8 +89,8 @@ func NewRouter(
 		peerDB:           utils.NewMutex(peerDB),
 		started:          make(chan struct{}),
 	}
-	if options.EnableGiga {
-		router.giga = utils.Some(NewGigaRouter())
+	if gigaCfg,ok := options.Giga.Get(); ok {
+		router.giga = utils.Some(NewGigaRouter(gigaCfg))
 	}
 	router.BaseService = service.NewBaseService(logger, "router", router)
 	return router, nil

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"net/netip"
 	"os"
 	"sync/atomic"
@@ -135,6 +136,31 @@ func Dial(ctx context.Context, addr netip.AddrPort) (Conn, error) {
 		writes: make(chan call),
 		reads:  make(chan call),
 	}, nil
+}
+
+type HostPort struct {
+	Hostname string
+	Port uint16
+}
+
+func ParseHostPort(hp string) (HostPort,error) {
+	h,p,err := net.SplitHostPort(hp)
+	if err!=nil { return HostPort{},err }
+	port,err := strconv.ParseUint(p,10,16)
+	if err!=nil { return HostPort{},err }
+	return HostPort{h,uint16(port)},nil
+}
+
+func (h HostPort) Resolve(ctx context.Context) ([]netip.AddrPort,error) {
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", h.Hostname)
+	if err!=nil { return nil,err }
+	addrs := make([]netip.AddrPort,len(ips))
+	for i,ip := range ips {
+		ip, ok := netip.AddrFromSlice(ip)
+		if !ok { return nil,fmt.Errorf("LookupIP() returned invalid ip address") }
+		addrs[i] = netip.AddrPortFrom(ip,h.Port)
+	}
+	return addrs,nil
 }
 
 type Listener struct {

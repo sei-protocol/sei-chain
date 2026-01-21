@@ -43,6 +43,8 @@ func (*ConnGiga) isAnyConn() {}
 
 type ConnGiga struct {
 	conn conn.Conn
+	outbound bool
+	key NodePublicKey
 	mux  *mux.Mux
 }
 
@@ -129,6 +131,8 @@ func (r *Router) handshake(ctx context.Context, c tcp.Conn, dialAddr utils.Optio
 	if trySeiGigaConn && handshakeMsg.SeiGigaConnection {
 		return &ConnGiga{
 			conn: sc,
+			outbound: dialAddr.IsPresent(),
+			key: handshakeMsg.NodeAuth.Key(),
 			mux: mux.NewMux(&mux.Config{
 				FrameSize: 10 * 1024,
 				Kinds:     map[mux.StreamKind]*mux.StreamKindConfig{},
