@@ -814,3 +814,70 @@ func TestAllModes_ContractExecution(t *testing.T) {
 
 	t.Logf("Contract deployment and calls produced identical results across all three executor modes")
 }
+
+
+// TestGigaVsGeth_GasComparison compares gas usage between Geth and Giga executors.
+//
+// KNOWN GAS DIFFERENCES:
+//   - Contract Deploy: Gas should be IDENTICAL (0 diff) since CREATE doesn't involve SSTORE
+//   - Contract Call with SSTORE: Sei uses a custom SSTORE gas cost of 72,000 (vs standard 20,000).
+//     The EVMC interface doesn't support passing custom SSTORE costs to evmone, so evmone uses
+//     the standard EIP-2200 gas cost. This results in a predictable 52,000 gas difference per SSTORE.
+//
+// This test verifies:
+//   1. Deploy gas is exactly the same (no SSTORE involved)
+//   2. Call gas differs by exactly 52,000 (one SSTORE: 72,000 - 20,000 = 52,000)
+func TestGigaVsGeth_GasComparison(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+
+	deployer := utils.NewSigner()
+	caller := utils.NewSigner()
+	contractAddr := crypto.CreateAddress(deployer.EvmAddress, 0)
+
+	// Run contract deploy + call with Geth
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	gethDeployTxs := CreateContractDeployTxs(t, gethCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
+	})
+	gethCallTxs := CreateContractCallTxs(t, gethCtx, []EVMContractCall{
+		{Signer: caller, Contract: contractAddr, Data: encodeSetCall(big.NewInt(42)), Nonce: 0},
+	})
+	allGethTxs := append(gethDeployTxs, gethCallTxs...)
+	_, gethResults, gethErr := RunBlock(t, gethCtx, allGethTxs)
+	require.NoError(t, gethErr)
+
+	// Run with Giga
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	gigaDeployTxs := CreateContractDeployTxs(t, gigaCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
+	})
+	gigaCallTxs := CreateContractCallTxs(t, gigaCtx, []EVMContractCall{
+		{Signer: caller, Contract: contractAddr, Data: encodeSetCall(big.NewInt(42)), Nonce: 0},
+	})
+	allGigaTxs := append(gigaDeployTxs, gigaCallTxs...)
+	_, gigaResults, gigaErr := RunBlock(t, gigaCtx, allGigaTxs)
+	require.NoError(t, gigaErr)
+
+	// Report gas comparison
+	deployDiff := int64(gethResults[0].GasUsed) - int64(gigaResults[0].GasUsed)
+	callDiff := int64(gethResults[1].GasUsed) - int64(gigaResults[1].GasUsed)
+
+	t.Logf("Gas Comparison Report (Geth vs Giga/evmone):")
+	t.Logf("  Contract Deploy: Geth=%d, Giga=%d, Diff=%d",
+		gethResults[0].GasUsed, gigaResults[0].GasUsed, deployDiff)
+	t.Logf("  Contract Call:   Geth=%d, Giga=%d, Diff=%d",
+		gethResults[1].GasUsed, gigaResults[1].GasUsed, callDiff)
+
+	// Deploy gas should be EXACTLY the same (no SSTORE operations in CREATE)
+	require.Equal(t, int64(0), deployDiff,
+		"Deploy gas should be identical between Geth and Giga (no SSTORE)")
+
+	// Call gas should differ by exactly 52,000 due to Sei's custom SSTORE gas:
+	// Sei SSTORE_SET = 72,000, Standard SSTORE_SET = 20,000, Diff = 52,000
+	expectedSstoreDiff := int64(52000)
+	require.Equal(t, expectedSstoreDiff, callDiff,
+		"Call gas should differ by exactly 52,000 (Sei SSTORE=72000 vs Standard SSTORE=20000)")
+
+	t.Logf("Gas comparison verified: Deploy identical, Call differs by expected SSTORE delta")
+}
