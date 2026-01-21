@@ -707,7 +707,7 @@ func DefaultP2PConfig() *P2PConfig {
 		// optional header fields are used) and thus the max for (non-Jumbo frame)
 		// Ethernet is 1500 - 20 -20 = 1460
 		// Source: https://stackoverflow.com/a/3074427/820520
-		MaxPacketMsgPayloadSize: 1400,
+		MaxPacketMsgPayloadSize: 1048576,
 		SendRate:                20971520, // 20 MiB/s per connection
 		RecvRate:                20971520, // 20 MiB/s per connection
 		PexReactor:              true,

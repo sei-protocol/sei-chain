@@ -312,6 +312,7 @@ flush-throttle-timeout = "{{ .P2P.FlushThrottleTimeout }}"
 
 # Maximum size of a message packet payload, in bytes
 # TODO: Remove once MConnConnection is removed.
+# WARNING: coordinate before changing this default; impacts network interoperability
 max-packet-msg-payload-size = {{ .P2P.MaxPacketMsgPayloadSize }}
 
 # Rate at which packets can be sent, in bytes/second
