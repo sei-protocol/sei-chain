@@ -248,8 +248,15 @@ func TestRecoverReceiptStoreReplaysChangelog(t *testing.T) {
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.DBDirectory = dir
 	cfg.KeepRecent = 0
-	cfg.KeepLastVersion = false
-	db, err := mvcc.OpenDB(dir, cfg)
+	dbCfg := dbconfig.StateStoreConfig{
+		DBDirectory:          cfg.DBDirectory,
+		Backend:              cfg.Backend,
+		AsyncWriteBuffer:     cfg.AsyncWriteBuffer,
+		KeepRecent:           cfg.KeepRecent,
+		PruneIntervalSeconds: cfg.PruneIntervalSeconds,
+		UseDefaultComparer:   cfg.UseDefaultComparer,
+	}
+	db, err := mvcc.OpenDB(dir, dbCfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
