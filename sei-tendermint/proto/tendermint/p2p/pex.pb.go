@@ -148,6 +148,7 @@ func (m *PexResponse) GetAddresses() []*PexAddress {
 
 type PexMessage struct {
 	// Types that are valid to be assigned to Sum:
+	//
 	//	*PexMessage_PexRequest
 	//	*PexMessage_PexResponse
 	Sum isPexMessage_Sum `protobuf_oneof:"sum"`

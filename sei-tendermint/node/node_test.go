@@ -58,8 +58,7 @@ func TestNodeStartStop(t *testing.T) {
 	t.Cleanup(func() {
 		n.Wait()
 	})
-	// TODO: Cannot guarantee no leaks, because go-cache leaks goroutines by design.
-	// t.Cleanup(leaktest.CheckTimeout(t, time.Second))
+	t.Cleanup(leaktest.CheckTimeout(t, time.Second))
 
 	require.NoError(t, n.Start(ctx))
 	// wait for the node to produce a block
