@@ -7,25 +7,30 @@ import (
 	"io"
 	"math"
 	"net"
-	"reflect"
+	"net/netip"
 	"sync/atomic"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	gogoproto "github.com/gogo/protobuf/proto"
 	"golang.org/x/time/rate"
 
-	"github.com/tendermint/tendermint/internal/libs/protoio"
+	"github.com/tendermint/tendermint/internal/p2p/pb"
+	"github.com/tendermint/tendermint/internal/protoutils"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/proto/tendermint/p2p"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 )
 
+var _ Conn = tcp.Conn{}
+
 type Conn interface {
-	io.Reader
-	io.Writer
-	io.Closer
-	Flush() error
+	LocalAddr() netip.AddrPort
+	RemoteAddr() netip.AddrPort
+	Read(ctx context.Context, data []byte) error
+	Write(ctx context.Context, data []byte) error
+	Flush(ctx context.Context) error
+	Close()
 }
 
 func IsDisconnect(err error) bool {
@@ -35,9 +40,9 @@ func IsDisconnect(err error) bool {
 // ChannelID is an arbitrary channel ID.
 type ChannelID uint16
 
-type ChannelDescriptor = ChannelDescriptorT[proto.Message]
+type ChannelDescriptor = ChannelDescriptorT[gogoproto.Message]
 
-type ChannelDescriptorT[T proto.Message] struct {
+type ChannelDescriptorT[T gogoproto.Message] struct {
 	ID       ChannelID
 	Priority int
 
@@ -206,16 +211,13 @@ func (c *MConnection) Run(ctx context.Context) error {
 		s.SpawnNamed("sendRoutine", func() error { return c.sendRoutine(ctx) })
 		s.SpawnNamed("recvRoutine", func() error { return c.recvRoutine(ctx) })
 		s.SpawnNamed("statsRoutine", func() error { return c.statsRoutine(ctx) })
-		// Unfortunately golang std IO operations do not support cancellation via context.
-		// Instead, we trigger cancellation by closing the underlying connection.
-		// Alternatively, we could utilise net.Conn.Set[Read|Write]Deadline() methods
-		// for precise cancellation, but we don't have a need for that here.
-		<-ctx.Done()
-		s.Cancel(ctx.Err())
-		c.conn.Close()
 		return nil
 	})
 }
+
+func (c *MConnection) LocalAddr() netip.AddrPort  { return c.conn.LocalAddr() }
+func (c *MConnection) RemoteAddr() netip.AddrPort { return c.conn.RemoteAddr() }
+func (c *MConnection) Close()                     { c.conn.Close() }
 
 // Queues a message to be sent.
 // WARNING: takes ownership of msgBytes
@@ -294,24 +296,24 @@ func (c *MConnection) statsRoutine(ctx context.Context) error {
 
 // popSendQueue pops a message from the send queue.
 // Returns nil,nil if the connection should be flushed.
-func (c *MConnection) popSendQueue(ctx context.Context) (*p2p.Packet, error) {
+func (c *MConnection) popSendQueue(ctx context.Context) (*pb.Packet, error) {
 	for q, ctrl := range c.sendQueue.Lock() {
 		for {
 			if q.ping {
 				q.ping = false
 				q.setFlush(time.Now())
-				return &p2p.Packet{
-					Sum: &p2p.Packet_PacketPing{
-						PacketPing: &p2p.PacketPing{},
+				return &pb.Packet{
+					Sum: &pb.Packet_PacketPing{
+						PacketPing: &pb.PacketPing{},
 					},
 				}, nil
 			}
 			if q.pong {
 				q.pong = false
 				q.setFlush(time.Now())
-				return &p2p.Packet{
-					Sum: &p2p.Packet_PacketPong{
-						PacketPong: &p2p.PacketPong{},
+				return &pb.Packet{
+					Sum: &pb.Packet_PacketPong{
+						PacketPong: &pb.PacketPong{},
 					},
 				}, nil
 			}
@@ -333,8 +335,8 @@ func (c *MConnection) popSendQueue(ctx context.Context) (*p2p.Packet, error) {
 				msg := leastChannel.popMsg(c.config.MaxPacketMsgPayloadSize)
 				ctrl.Updated()
 				leastChannel.recentlySent.Add(uint64(len(msg.Data)))
-				return &p2p.Packet{
-					Sum: &p2p.Packet_PacketMsg{
+				return &pb.Packet{
+					Sum: &pb.Packet_PacketMsg{
 						PacketMsg: msg,
 					},
 				}, nil
@@ -357,24 +359,25 @@ func (c *MConnection) popSendQueue(ctx context.Context) (*p2p.Packet, error) {
 // sendRoutine polls for packets to send from channels.
 func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 	maxPacketMsgSize := c.maxPacketMsgSize()
-	limiter := rate.NewLimiter(c.config.getSendRateLimit(), max(maxPacketMsgSize, int(c.config.SendRate)))
-	protoWriter := protoio.NewDelimitedWriter(c.conn)
+	limiter := rate.NewLimiter(c.config.getSendRateLimit(), int(max(maxPacketMsgSize, uint64(c.config.SendRate))))
 	for {
 		msg, err := c.popSendQueue(ctx)
 		if err != nil {
 			return fmt.Errorf("popSendQueue(): %w", err)
 		}
 		if msg != nil {
-			n, err := protoWriter.WriteMsg(msg)
-			if err != nil {
+			// Marshalling is expected to always succeed.
+			msgBytes := protoutils.Marshal(msg)
+			if err := WriteSizedMsg(ctx, c.conn, msgBytes); err != nil {
 				return fmt.Errorf("protoWriter.WriteMsg(): %w", err)
 			}
-			if err := limiter.WaitN(ctx, n); err != nil {
+			// Here we ignore the fact that writing sized msg actually writes extra bytes to express size.
+			if err := limiter.WaitN(ctx, len(msgBytes)); err != nil {
 				return err
 			}
 		} else {
 			c.logger.Debug("Flush", "conn", c)
-			if err := c.conn.Flush(); err != nil {
+			if err := c.conn.Flush(ctx); err != nil {
 				return fmt.Errorf("bufWriter.Flush(): %w", err)
 			}
 		}
@@ -384,10 +387,8 @@ func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 // recvRoutine receives messages and pushes them to recvCh.
 // It also handles ping/pong messages.
 func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
-	const readBufferSize = 1024
 	maxPacketMsgSize := c.maxPacketMsgSize()
-	limiter := rate.NewLimiter(c.config.getRecvRateLimit(), max(int(c.config.RecvRate), maxPacketMsgSize))
-	protoReader := protoio.NewDelimitedReader(c.conn, maxPacketMsgSize)
+	limiter := rate.NewLimiter(c.config.getRecvRateLimit(), int(max(maxPacketMsgSize, uint64(c.config.RecvRate))))
 	channels := map[ChannelID]*recvChannel{}
 	for q := range c.sendQueue.Lock() {
 		for _, ch := range q.channels {
@@ -396,28 +397,28 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 	}
 
 	for {
-		packet := &p2p.Packet{}
-		n, err := protoReader.ReadMsg(packet)
+		msg, err := ReadSizedMsg(ctx, c.conn, maxPacketMsgSize)
 		if err != nil {
-			if !IsDisconnect(err) {
-				err = errBadEncoding{err}
-			}
-			return fmt.Errorf("protoReader.ReadMsg(): %w", err)
+			return fmt.Errorf("ReadSizedMsg(): %w", err)
 		}
-		if err := limiter.WaitN(ctx, n); err != nil {
+		if err := limiter.WaitN(ctx, len(msg)); err != nil {
 			return err
 		}
+		packet, err := protoutils.Unmarshal[*pb.Packet](msg)
+		if err != nil {
+			return errBadEncoding{fmt.Errorf("protoutils.Unmarshal(): %w", err)}
+		}
 		switch p := packet.Sum.(type) {
-		case *p2p.Packet_PacketPing:
+		case *pb.Packet_PacketPing:
 			for q, ctrl := range c.sendQueue.Lock() {
 				q.pong = true
 				ctrl.Updated()
 			}
-		case *p2p.Packet_PacketPong:
+		case *pb.Packet_PacketPong:
 			for recvPong := range c.recvPong.Lock() {
 				recvPong.Store(true)
 			}
-		case *p2p.Packet_PacketMsg:
+		case *pb.Packet_PacketMsg:
 			channelID, castOk := utils.SafeCast[ChannelID](p.PacketMsg.ChannelId)
 			ch, ok := channels[channelID]
 			if !castOk || !ok {
@@ -438,26 +439,22 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 				}
 			}
 		default:
-			return fmt.Errorf("unknown message type %v", reflect.TypeOf(packet))
+			return fmt.Errorf("unknown message type")
 		}
 	}
 }
 
 // maxPacketMsgSize returns a maximum size of PacketMsg
-func (c *MConnection) maxPacketMsgSize() int {
-	bz, err := proto.Marshal(&p2p.Packet{
-		Sum: &p2p.Packet_PacketMsg{
-			PacketMsg: &p2p.PacketMsg{
+func (c *MConnection) maxPacketMsgSize() uint64 {
+	return uint64(len(protoutils.Marshal(&pb.Packet{
+		Sum: &pb.Packet_PacketMsg{
+			PacketMsg: &pb.PacketMsg{
 				ChannelId: 0x01,
 				Eof:       true,
 				Data:      make([]byte, c.config.MaxPacketMsgPayloadSize),
 			},
 		},
-	})
-	if err != nil {
-		panic(err)
-	}
-	return len(bz)
+	})))
 }
 
 type sendChannel struct {
@@ -472,9 +469,9 @@ func (ch *sendChannel) ratio() float32 {
 
 // Creates a new PacketMsg to send.
 // Not goroutine-safe
-func (ch *sendChannel) popMsg(maxPayload int) *p2p.PacketMsg {
+func (ch *sendChannel) popMsg(maxPayload int) *pb.PacketMsg {
 	payload := ch.queue.Get(0)
-	packet := &p2p.PacketMsg{ChannelId: int32(ch.desc.ID)}
+	packet := &pb.PacketMsg{ChannelId: int32(ch.desc.ID)}
 	if len(*payload) <= maxPayload {
 		packet.Eof = true
 		packet.Data = *ch.queue.PopFront()
@@ -501,7 +498,7 @@ func newRecvChannel(desc ChannelDescriptor) *recvChannel {
 // Handles incoming PacketMsgs. It returns a message bytes if message is
 // complete, which is owned by the caller and will not be modified.
 // Not goroutine-safe
-func (ch *recvChannel) pushMsg(packet *p2p.PacketMsg) ([]byte, error) {
+func (ch *recvChannel) pushMsg(packet *pb.PacketMsg) ([]byte, error) {
 	if got, wantMax := len(ch.buf)+len(packet.Data), ch.desc.RecvMessageCapacity; got > wantMax {
 		return nil, fmt.Errorf("received message exceeds available capacity: %v < %v", wantMax, got)
 	}

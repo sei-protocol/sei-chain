@@ -27,8 +27,8 @@ func ParseHash[T Hashable](raw []byte) (Hash[T], error) {
 	return Hash[T](raw), nil
 }
 
-// ProtoHash hashes a Hashable proto object.
-func ProtoHash[T Hashable](a T) Hash[T] {
+// ToHash hashes a Hashable proto object.
+func ToHash[T Hashable](a T) Hash[T] {
 	return sha256.Sum256(MarshalCanonical(a))
 }
 
