@@ -7,7 +7,6 @@ on:
         required: false
         type: string
         default: ''
-  pull_request:
   push:
     branches:
       - main
@@ -34,8 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          # ref: ${{ inputs.ref || github.sha }}
-          ref: 'masih/v6-3-reftype-wasmparser-fork'
+           ref: ${{ inputs.ref || github.sha }}
       - name: Build
         run: |
           mkdir -p libwasmvm/artifacts
