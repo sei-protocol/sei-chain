@@ -1,0 +1,77 @@
+package p2p
+
+import (
+	"fmt"
+	"github.com/tendermint/tendermint/crypto/ed25519"
+	"github.com/tendermint/tendermint/internal/p2p/conn"
+	"github.com/tendermint/tendermint/internal/p2p/pb"
+	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/types"
+)
+
+type NodeSecretKey ed25519.SecretKey
+type NodePublicKey ed25519.PublicKey
+
+type NodeChallengeSig struct {
+	utils.ReadOnly
+	key NodePublicKey
+	sig ed25519.Signature
+}
+
+func (k NodePublicKey) Bytes() []byte         { return ed25519.PublicKey(k).Bytes() }
+func (k NodeSecretKey) Public() NodePublicKey { return NodePublicKey(ed25519.SecretKey(k).Public()) }
+func (k NodeSecretKey) SignChallenge(challenge conn.Challenge) NodeChallengeSig {
+	return NodeChallengeSig{key: k.Public(), sig: ed25519.SecretKey(k).Sign(challenge[:])}
+}
+
+func (s NodeChallengeSig) Key() NodePublicKey { return s.key }
+func (s NodeChallengeSig) Verify(challenge conn.Challenge) error {
+	return ed25519.PublicKey(s.key).Verify(challenge[:], s.sig)
+}
+
+func (k NodePublicKey) NodeID() types.NodeID {
+	return types.NodeIDFromPubKey(ed25519.PublicKey(k))
+}
+
+var nodePublicKeyConv = utils.ProtoConv[NodePublicKey, *pb.NodePublicKey]{
+	Encode: func(k NodePublicKey) *pb.NodePublicKey {
+		return &pb.NodePublicKey{Ed25519: k.Bytes()}
+	},
+	Decode: func(p *pb.NodePublicKey) (NodePublicKey, error) {
+		k, err := ed25519.PublicKeyFromBytes(p.Ed25519)
+		if err != nil {
+			return NodePublicKey{}, fmt.Errorf("Ed25519: %w", err)
+		}
+		return NodePublicKey(k), nil
+	},
+}
+
+type handshakeMsg struct {
+	NodeAuth          NodeChallengeSig
+	SeiGigaConnection bool
+}
+
+var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
+	Encode: func(m *handshakeMsg) *pb.Handshake {
+		return &pb.Handshake{
+			NodeAuthKey:       nodePublicKeyConv.Encode(m.NodeAuth.Key()),
+			NodeAuthSig:       m.NodeAuth.sig.Bytes(),
+			SeiGigaConnection: m.SeiGigaConnection,
+		}
+	},
+	Decode: func(p *pb.Handshake) (*handshakeMsg, error) {
+		nodeAuthKey, err := nodePublicKeyConv.DecodeReq(p.NodeAuthKey)
+		if err != nil {
+			return nil, fmt.Errorf("NodeAuthKey: %w", err)
+		}
+		nodeAuthSig, err := ed25519.SignatureFromBytes(p.NodeAuthSig)
+		if err != nil {
+			return nil, fmt.Errorf("NodeAuthSig: %w", err)
+		}
+		return &handshakeMsg{
+			NodeAuth:          NodeChallengeSig{key: nodeAuthKey, sig: nodeAuthSig},
+			SeiGigaConnection: p.SeiGigaConnection,
+		}, nil
+	},
+}

@@ -12,6 +12,18 @@ type Conv[T any, P Message] struct {
 	Decode func(P) (T, error)
 }
 
+func (c Conv[T, P]) Marshal(t T) []byte {
+	return Marshal(c.Encode(t))
+}
+
+func (c Conv[T, P]) Unmarshal(bytes []byte) (T, error) {
+	p, err := Unmarshal[P](bytes)
+	if err != nil {
+		return utils.Zero[T](), err
+	}
+	return c.Decode(p)
+}
+
 // EncodeSlice encodes a slice of T into a slice of P.
 func (c Conv[T, P]) EncodeSlice(t []T) []P {
 	p := make([]P, len(t))
