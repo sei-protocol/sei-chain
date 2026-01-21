@@ -702,7 +702,7 @@ func DefaultP2PConfig() *P2PConfig {
 		MaxConnections:                100,
 		MaxIncomingConnectionAttempts: 100,
 		FlushThrottleTimeout:          100 * time.Millisecond,
-		MaxPacketMsgPayloadSize:       1048576,
+		MaxPacketMsgPayloadSize:       1000000,
 		SendRate:                      20971520, // 20 MiB/s per connection
 		RecvRate:                      20971520, // 20 MiB/s per connection
 		PexReactor:                    true,
