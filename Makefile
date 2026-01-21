@@ -191,16 +191,31 @@ build-loadtest:
 
 # Build linux binary on other platforms
 build-linux:
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc make build
+	@if [ "$$(uname -m)" = "aarch64" ] || [ "$$(uname -m)" = "arm64" ]; then \
+		echo "Building for ARM64..."; \
+		GOOS=linux GOARCH=arm64 CGO_ENABLED=1 make build; \
+	else \
+		echo "Building for AMD64..."; \
+		GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc make build; \
+	fi
 .PHONY: build-linux
 
 build-price-feeder-linux:
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc make build-price-feeder
+	@if [ "$$(uname -m)" = "aarch64" ] || [ "$$(uname -m)" = "arm64" ]; then \
+		GOOS=linux GOARCH=arm64 CGO_ENABLED=1 make build-price-feeder; \
+	else \
+		GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc make build-price-feeder; \
+	fi
 .PHONY: build-price-feeder-linux
 
-# Build docker image
+# Auto-detect platform: use arm64 on ARM Macs, amd64 elsewhere
+DOCKER_PLATFORM ?= $(shell if [ "$$(uname -m)" = "arm64" ]; then echo "linux/arm64"; else echo "linux/amd64"; fi)
+export DOCKER_PLATFORM
+
+# Build docker image for detected platform
 build-docker-node:
-	@cd docker && docker build --tag sei-chain/localnode localnode --platform linux/x86_64
+	@echo "Building for $(DOCKER_PLATFORM)..."
+	@cd docker && docker build --tag sei-chain/localnode localnode --platform $(DOCKER_PLATFORM)
 .PHONY: build-docker-node
 
 build-rpc-node:
@@ -272,7 +287,7 @@ docker-cluster-start: docker-cluster-stop build-docker-node
 		else \
 			DETACH_FLAG=""; \
 		fi; \
-		USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} docker compose up $$DETACH_FLAG
+		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} docker compose up $$DETACH_FLAG
 
 .PHONY: localnet-start
 
@@ -285,12 +300,12 @@ docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 		else \
 			DETACH_FLAG=""; \
 		fi; \
-		USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 SKIP_BUILD=true docker compose up $$DETACH_FLAG
+		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 SKIP_BUILD=true docker compose up $$DETACH_FLAG
 .PHONY: localnet-start
 
 # Stop 4-node docker containers
 docker-cluster-stop:
-	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose down
+	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose down
 .PHONY: localnet-stop
 
 
