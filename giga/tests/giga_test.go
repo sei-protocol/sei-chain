@@ -815,7 +815,6 @@ func TestAllModes_ContractExecution(t *testing.T) {
 	t.Logf("Contract deployment and calls produced identical results across all three executor modes")
 }
 
-
 // TestGigaVsGeth_GasComparison compares gas usage between Geth and Giga executors.
 //
 // KNOWN GAS DIFFERENCES:
@@ -825,8 +824,8 @@ func TestAllModes_ContractExecution(t *testing.T) {
 //     the standard EIP-2200 gas cost. This results in a predictable 52,000 gas difference per SSTORE.
 //
 // This test verifies:
-//   1. Deploy gas is exactly the same (no SSTORE involved)
-//   2. Call gas differs by exactly 52,000 (one SSTORE: 72,000 - 20,000 = 52,000)
+//  1. Deploy gas is exactly the same (no SSTORE involved)
+//  2. Call gas differs by exactly 52,000 (one SSTORE: 72,000 - 20,000 = 52,000)
 func TestGigaVsGeth_GasComparison(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(5)

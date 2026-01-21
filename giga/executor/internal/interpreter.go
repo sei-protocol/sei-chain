@@ -77,7 +77,7 @@ func (e *EVMInterpreter) Run(callOpCode vm.OpCode, contract *vm.Contract, input 
 	// This is critical for proper gas accounting!
 	//nolint:gosec // safe conversion - gasLeft is always <= contract.Gas
 	contract.Gas = uint64(gasLeft)
-	
+
 	// Apply gas refund to the EVM's refund counter
 	//nolint:gosec // safe conversion
 	e.evm.StateDB.AddRefund(uint64(gasRefund))
