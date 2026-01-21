@@ -445,19 +445,15 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 
 // maxPacketMsgSize returns a maximum size of PacketMsg
 func (c *MConnection) maxPacketMsgSize() int {
-	bz, err := proto.Marshal(&p2p.Packet{
+	return proto.Size(&p2p.Packet{
 		Sum: &p2p.Packet_PacketMsg{
 			PacketMsg: &p2p.PacketMsg{
-				ChannelId: 0x01,
+				ChannelId: math.MaxInt32,
 				Eof:       true,
 				Data:      make([]byte, c.config.MaxPacketMsgPayloadSize),
 			},
 		},
 	})
-	if err != nil {
-		panic(err)
-	}
-	return len(bz)
 }
 
 type sendChannel struct {
