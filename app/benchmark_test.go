@@ -168,7 +168,6 @@ func TestBenchmarkLogger_GetAndResetStats(t *testing.T) {
 	bl.maxBlockTime = 2 * time.Second
 	bl.totalBlockTime = 10 * time.Second
 	bl.blockTimeCount = 9 // 9 intervals between 10 blocks
-	bl.peakTps = 500.0
 
 	// Wait a bit to ensure duration > 0
 	time.Sleep(10 * time.Millisecond)
@@ -189,13 +188,6 @@ func TestBenchmarkLogger_GetAndResetStats(t *testing.T) {
 	expectedTPS := calculateTPS(1000, duration)
 	require.InDelta(t, expectedTPS, stats.tps, 0.01)
 
-	// Check peak TPS (should be max of current TPS and previous peak)
-	if stats.tps > 500.0 {
-		require.Equal(t, stats.tps, stats.peakTps)
-	} else {
-		require.Equal(t, 500.0, stats.peakTps)
-	}
-
 	// Check counters were reset
 	require.Equal(t, int64(0), bl.txCount)
 	require.Equal(t, int64(0), bl.blockCount)
@@ -204,49 +196,6 @@ func TestBenchmarkLogger_GetAndResetStats(t *testing.T) {
 	require.Equal(t, time.Duration(0), bl.totalBlockTime)
 	require.Equal(t, int64(0), bl.blockTimeCount)
 	require.Equal(t, now, bl.lastFlushTime)
-
-	// Check peakTps persists (prevBlockTime may be zero if no Increment was called)
-	require.NotZero(t, bl.peakTps)
-}
-
-func TestBenchmarkLogger_PeakTPS(t *testing.T) {
-	logger := log.NewNopLogger()
-	bl := &benchmarkLogger{
-		logger: logger,
-	}
-
-	baseTime := time.Now()
-	bl.lastFlushTime = baseTime
-
-	// First flush with high TPS
-	bl.txCount = 10000
-	bl.blockCount = 10
-	bl.totalBlockTime = 1 * time.Second
-	bl.blockTimeCount = 9
-	time.Sleep(10 * time.Millisecond)
-	stats1, _ := bl.getAndResetStats(time.Now())
-	require.Greater(t, stats1.tps, 0.0)
-	require.Equal(t, stats1.tps, stats1.peakTps)
-
-	// Second flush with lower TPS
-	bl.txCount = 1000
-	bl.blockCount = 10
-	bl.totalBlockTime = 1 * time.Second
-	bl.blockTimeCount = 9
-	time.Sleep(10 * time.Millisecond)
-	stats2, _ := bl.getAndResetStats(time.Now())
-	require.Less(t, stats2.tps, stats1.tps)
-	require.Equal(t, stats1.tps, stats2.peakTps) // Peak should persist
-
-	// Third flush with even higher TPS
-	bl.txCount = 20000
-	bl.blockCount = 10
-	bl.totalBlockTime = 1 * time.Second
-	bl.blockTimeCount = 9
-	time.Sleep(10 * time.Millisecond)
-	stats3, _ := bl.getAndResetStats(time.Now())
-	require.Greater(t, stats3.tps, stats1.tps)
-	require.Equal(t, stats3.tps, stats3.peakTps) // New peak
 }
 
 func TestBenchmarkLogger_StartStop(t *testing.T) {
@@ -510,7 +459,6 @@ func TestFlushLog(t *testing.T) {
 	bl.maxBlockTime = 2 * time.Second
 	bl.totalBlockTime = 10 * time.Second
 	bl.blockTimeCount = 9
-	bl.peakTps = 0.0
 
 	// Wait a bit to ensure duration > 0
 	time.Sleep(10 * time.Millisecond)
@@ -531,16 +479,15 @@ func TestFlushLog(t *testing.T) {
 	bl.FlushLog()
 	require.Equal(t, int64(0), bl.txCount)
 
-	// Test FlushLog with peak TPS set
+	// Test FlushLog with some TPS
 	bl.txCount = 1000
 	bl.blockCount = 5
 	bl.lastFlushTime = time.Now().Add(-2 * time.Second)
-	bl.peakTps = 500.0
 	time.Sleep(10 * time.Millisecond)
 	bl.FlushLog()
 
-	// Peak TPS should persist
-	require.Greater(t, bl.peakTps, 0.0, "Peak TPS should persist across flushes")
+	// Stats should be reset after flush
+	require.Equal(t, int64(0), bl.txCount)
 }
 
 func TestNewGeneratorCh_ContextCancellation(t *testing.T) {

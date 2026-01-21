@@ -26,6 +26,7 @@ import (
 )
 
 var errAEAD = errors.New("decoding failed")
+var errDH = errors.New("DH secret failure")
 
 // 4 + 1024 == 1028 total frame size
 const (
@@ -112,7 +113,7 @@ type SecretConnection struct {
 
 func (sc *SecretConnection) Challenge() Challenge { return sc.challenge }
 
-func newSecretConnection(conn Conn, loc ephSecret, rem ephPublic) *SecretConnection {
+func newSecretConnection(conn Conn, loc ephSecret, rem ephPublic) (*SecretConnection, error) {
 	pubs := utils.Slice(loc.public, rem)
 	if bytes.Compare(pubs[0][:], pubs[1][:]) > 0 {
 		pubs[0], pubs[1] = pubs[1], pubs[0]
@@ -120,7 +121,10 @@ func newSecretConnection(conn Conn, loc ephSecret, rem ephPublic) *SecretConnect
 	transcript := merlin.NewTranscript("TENDERMINT_SECRET_CONNECTION_TRANSCRIPT_HASH")
 	transcript.AppendMessage(labelEphemeralLowerPublicKey, pubs[0][:])
 	transcript.AppendMessage(labelEphemeralUpperPublicKey, pubs[1][:])
-	dh := loc.DhSecret(rem)
+	dh, err := loc.DhSecret(rem)
+	if err != nil {
+		return nil, err
+	}
 	transcript.AppendMessage(labelDHSecret, dh[:])
 	var challenge Challenge
 	transcript.ExtractBytes(challenge[:], labelSecretConnectionMac)
@@ -134,7 +138,11 @@ func newSecretConnection(conn Conn, loc ephSecret, rem ephPublic) *SecretConnect
 		challenge: challenge,
 		recvState: newAsyncMutex(newRecvState(aead.recv.Cipher())),
 		sendState: newAsyncMutex(newSendState(aead.send.Cipher())),
+<<<<<<< HEAD
 	}
+=======
+	}, nil
+>>>>>>> gprusak-tcp
 }
 
 // MakeSecretConnection performs handshake and returns an encrypted SecretConnection.
@@ -165,7 +173,11 @@ func MakeSecretConnection(ctx context.Context, conn Conn) (*SecretConnection, er
 		if len(prefaceMsg.StsPublicKey) != len(ephPublic{}) {
 			return nil, errors.New("bad ephemeral key size")
 		}
+<<<<<<< HEAD
 		return newSecretConnection(conn, loc, ephPublic(prefaceMsg.StsPublicKey)), nil
+=======
+		return newSecretConnection(conn, loc, ephPublic(prefaceMsg.StsPublicKey))
+>>>>>>> gprusak-tcp
 	})
 	if err != nil {
 		return nil, err
@@ -304,6 +316,15 @@ func (s dhSecret) AeadSecrets(locIsLeast bool) aeadSecrets {
 
 // computeDHSecret computes a Diffie-Hellman shared secret key
 // from our own local private key and the other's public key.
+<<<<<<< HEAD
 func (s ephSecret) DhSecret(remPubKey ephPublic) dhSecret {
 	return dhSecret(utils.OrPanic1(curve25519.X25519(s.secret[:], remPubKey[:])))
+=======
+func (s ephSecret) DhSecret(remPubKey ephPublic) (dhSecret, error) {
+	dhSecretRaw, err := curve25519.X25519(s.secret[:], remPubKey[:])
+	if err != nil {
+		return dhSecret{}, fmt.Errorf("%w: %v", errDH, err)
+	}
+	return dhSecret(dhSecretRaw), nil
+>>>>>>> gprusak-tcp
 }
