@@ -6,6 +6,20 @@ import (
 	"github.com/tendermint/tendermint/libs/utils"
 )
 
+func EncodeOpt[T any](v utils.Option[T]) *T {
+	if v, ok := v.Get(); ok {
+		return &v
+	}
+	return nil
+}
+
+func DecodeOpt[T any](v *T) utils.Option[T] {
+	if v != nil {
+		return utils.Some(*v)
+	}
+	return utils.None[T]()
+}
+
 // Conv is a pair of functions to encode and decode between a type and a Message.
 type Conv[T any, P Message] struct {
 	Encode func(T) P

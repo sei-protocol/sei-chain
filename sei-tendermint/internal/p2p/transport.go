@@ -90,7 +90,8 @@ func (r *Router) handshake(ctx context.Context, c tcp.Conn, dialAddr utils.Optio
 		return nil, fmt.Errorf("conn.MakeSecretConnection(): %w", err)
 	}
 	handshakeMsg, err := exchangeHandshakeMsg(ctx, sc, &handshakeMsg{
-		NodeAuth: r.privKey.SignChallenge(sc.Challenge()),
+		NodeAuth:                r.privKey.SignChallenge(sc.Challenge()),
+		MaxPacketMsgPayloadSize: utils.Some(r.options.Connection.MaxPacketMsgPayloadSize),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("exchangeHandshakeMsg(): %w", err)
@@ -148,6 +149,13 @@ func (r *Router) handshake(ctx context.Context, c tcp.Conn, dialAddr utils.Optio
 				isIncompatible: true,
 			}
 		}
+		cfg := r.options.Connection // shallow copy
+		if m, ok := handshakeMsg.MaxPacketMsgPayloadSize.Get(); ok {
+			if m <= 0 {
+				return nil, fmt.Errorf("MaxPacketMsgPayloadSize = %v, want >0", m)
+			}
+			cfg.MaxPacketMsgPayloadSize = min(cfg.MaxPacketMsgPayloadSize, m)
+		}
 		return &ConnV2{
 			dialAddr:     dialAddr,
 			peerInfo:     peerInfo,
@@ -157,7 +165,7 @@ func (r *Router) handshake(ctx context.Context, c tcp.Conn, dialAddr utils.Optio
 				r.logger.With("peer", Endpoint{sc.RemoteAddr()}.NodeAddress(peerInfo.NodeID)),
 				sc,
 				r.getChannelDescs(),
-				r.options.Connection,
+				cfg,
 			),
 		}, nil
 	})

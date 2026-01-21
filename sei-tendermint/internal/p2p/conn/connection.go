@@ -13,6 +13,7 @@ import (
 
 	gogoproto "github.com/gogo/protobuf/proto"
 	"golang.org/x/time/rate"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/tendermint/tendermint/internal/p2p/pb"
 	"github.com/tendermint/tendermint/internal/protoutils"
@@ -125,7 +126,7 @@ type MConnection struct {
 type MConnConfig struct {
 	SendRate                int64         // B/s
 	RecvRate                int64         // B/s
-	MaxPacketMsgPayloadSize int           // Maximum payload size
+	MaxPacketMsgPayloadSize uint64        // Maximum payload size
 	FlushThrottle           time.Duration // Interval to flush writes (throttled)
 	PingInterval            time.Duration // Interval to send pings
 	PongTimeout             time.Duration // Time to wait for a pong
@@ -445,8 +446,8 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 }
 
 // maxPacketMsgSize returns a maximum size of PacketMsg
-func (c *MConnection) maxPacketMsgSize() int {
-	return proto.Size(&pb.Packet{
+func (c *MConnection) maxPacketMsgSize() uint64 {
+	return uint64(proto.Size(&pb.Packet{
 		Sum: &pb.Packet_PacketMsg{
 			PacketMsg: &pb.PacketMsg{
 				ChannelId: math.MaxInt32,
@@ -454,7 +455,7 @@ func (c *MConnection) maxPacketMsgSize() int {
 				Data:      make([]byte, c.config.MaxPacketMsgPayloadSize),
 			},
 		},
-	})
+	}))
 }
 
 type sendChannel struct {
@@ -469,10 +470,10 @@ func (ch *sendChannel) ratio() float32 {
 
 // Creates a new PacketMsg to send.
 // Not goroutine-safe
-func (ch *sendChannel) popMsg(maxPayload int) *pb.PacketMsg {
+func (ch *sendChannel) popMsg(maxPayload uint64) *pb.PacketMsg {
 	payload := ch.queue.Get(0)
 	packet := &pb.PacketMsg{ChannelId: int32(ch.desc.ID)}
-	if len(*payload) <= maxPayload {
+	if uint64(len(*payload)) <= maxPayload {
 		packet.Eof = true
 		packet.Data = *ch.queue.PopFront()
 	} else {

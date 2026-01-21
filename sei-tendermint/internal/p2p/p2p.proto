@@ -38,6 +38,7 @@ message Handshake {
   // derived from the secret. It authenticates the node.
   NodePublicKey node_auth_key = 1;
   bytes node_auth_sig = 2;
+  optional uint64 max_packet_msg_payload_size = 4;
 
   bool sei_giga_connection = 3;
 }
