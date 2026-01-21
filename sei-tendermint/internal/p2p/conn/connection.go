@@ -387,9 +387,8 @@ func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 // recvRoutine receives messages and pushes them to recvCh.
 // It also handles ping/pong messages.
 func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
-	const readBufferSize = 1024
 	maxPacketMsgSize := c.maxPacketMsgSize()
-	limiter := rate.NewLimiter(c.config.getRecvRateLimit(), int(max(maxPacketMsgSize, uint64(c.config.SendRate))))
+	limiter := rate.NewLimiter(c.config.getRecvRateLimit(), int(max(maxPacketMsgSize, uint64(c.config.RecvRate))))
 	channels := map[ChannelID]*recvChannel{}
 	for q := range c.sendQueue.Lock() {
 		for _, ch := range q.channels {
