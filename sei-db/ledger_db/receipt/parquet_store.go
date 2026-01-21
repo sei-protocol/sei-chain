@@ -15,6 +15,7 @@ import (
 	"github.com/parquet-go/parquet-go"
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	dbwal "github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -72,18 +73,25 @@ type parquetReceiptStore struct {
 	reader           *parquetReader
 	cache            *ledgerCache
 	storeKey         sdk.StoreKey
+	wal              dbwal.GenericWAL[parquetWALEntry]
 	latestVersion    atomic.Int64
 	earliestVersion  atomic.Int64
 	currentFileStart atomic.Uint64
 	closeOnce        sync.Once
 }
 
-func newParquetReceiptStore(_ dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
+func newParquetReceiptStore(log dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
 	if err := os.MkdirAll(cfg.DBDirectory, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create parquet base directory: %w", err)
 	}
 
 	reader, err := newParquetReader(cfg.DBDirectory)
+	if err != nil {
+		return nil, err
+	}
+
+	walDir := filepath.Join(cfg.DBDirectory, "parquet-wal")
+	receiptWAL, err := newParquetWAL(log, walDir)
 	if err != nil {
 		return nil, err
 	}
@@ -96,6 +104,7 @@ func newParquetReceiptStore(_ dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig, 
 		reader:         reader,
 		cache:          newLedgerCache(),
 		storeKey:       storeKey,
+		wal:            receiptWAL,
 	}
 
 	if maxBlock, ok, err := reader.maxReceiptBlockNumber(context.Background()); err != nil {
@@ -113,6 +122,10 @@ func newParquetReceiptStore(_ dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig, 
 	store.currentFileStart.Store(store.fileStartBlock)
 
 	if err := store.initWriters(); err != nil {
+		return nil, err
+	}
+
+	if err := store.replayWAL(); err != nil {
 		return nil, err
 	}
 
@@ -222,6 +235,7 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 
 	inputs := make([]parquetReceiptInput, 0, len(receipts))
 	cacheBatches := make([]cacheBatch, 0)
+	walEntries := make([]parquetWALEntry, 0, len(receipts))
 
 	var (
 		currentBlock  uint64
@@ -229,6 +243,7 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 		cacheEntries  []receiptCacheEntry
 		cacheLogs     []*ethtypes.Log
 		maxBlock      uint64
+		dropOffset    uint64
 	)
 
 	flushCacheBatch := func(blockNumber uint64) {
@@ -268,6 +283,9 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 		if err != nil {
 			return err
 		}
+		walEntries = append(walEntries, parquetWALEntry{
+			ReceiptBytes: copyBytesOrEmpty(receiptBytes),
+		})
 
 		txLogs := getLogsForTx(receipt, logStartIndex)
 		logStartIndex += uint(len(txLogs))
@@ -292,6 +310,14 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 		cacheLogs = append(cacheLogs, txLogs...)
 	}
 	flushCacheBatch(currentBlock)
+
+	if s.wal != nil {
+		for i := range walEntries {
+			if err := s.wal.Write(walEntries[i]); err != nil {
+				return err
+			}
+		}
+	}
 
 	s.mu.Lock()
 	for i := range inputs {
@@ -388,6 +414,12 @@ func (s *parquetReceiptStore) Close() error {
 			err = closeErr
 			return
 		}
+		if s.wal != nil {
+			if closeErr := s.wal.Close(); closeErr != nil {
+				err = closeErr
+				return
+			}
+		}
 		if s.reader != nil {
 			if closeErr := s.reader.Close(); closeErr != nil {
 				err = closeErr
@@ -465,6 +497,7 @@ func (s *parquetReceiptStore) rotateFileLocked(newBlockNumber uint64) error {
 	if s.cache != nil {
 		s.cache.Rotate()
 	}
+	s.clearWAL()
 
 	s.fileStartBlock = newBlockNumber
 	s.currentFileStart.Store(newBlockNumber)
@@ -627,6 +660,142 @@ func (s *parquetReceiptStore) filterLogsFromReceipts(ctx sdk.Context, blockHeigh
 	}
 
 	return logs, nil
+}
+
+func (s *parquetReceiptStore) replayWAL() error {
+	if s.wal == nil {
+		return nil
+	}
+
+	firstOffset, errFirst := s.wal.FirstOffset()
+	if errFirst != nil || firstOffset <= 0 {
+		return nil
+	}
+	lastOffset, errLast := s.wal.LastOffset()
+	if errLast != nil || lastOffset <= 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var (
+		currentBlock  uint64
+		logStartIndex uint
+		cacheEntries  []receiptCacheEntry
+		cacheLogs     []*ethtypes.Log
+		maxBlock      uint64
+	)
+
+	flushCacheBatch := func(blockNumber uint64) {
+		if s.cache == nil || len(cacheEntries) == 0 {
+			cacheEntries = nil
+			cacheLogs = nil
+			return
+		}
+		s.cache.AddReceiptsBatch(blockNumber, cacheEntries)
+		if len(cacheLogs) > 0 {
+			s.cache.AddLogsForBlock(blockNumber, cacheLogs)
+		}
+		cacheEntries = nil
+		cacheLogs = nil
+	}
+
+	blockHash := common.Hash{}
+	fileStartBlock := s.fileStartBlock
+
+	err := s.wal.Replay(firstOffset, lastOffset, func(offset uint64, entry parquetWALEntry) error {
+		if len(entry.ReceiptBytes) == 0 {
+			return nil
+		}
+
+		receipt := &types.Receipt{}
+		if err := receipt.Unmarshal(entry.ReceiptBytes); err != nil {
+			return err
+		}
+
+		blockNumber := receipt.BlockNumber
+		if blockNumber < fileStartBlock {
+			dropOffset = offset
+			return nil
+		}
+
+		txHash := common.HexToHash(receipt.TxHashHex)
+
+		if currentBlock == 0 {
+			currentBlock = blockNumber
+		}
+		if blockNumber != currentBlock {
+			flushCacheBatch(currentBlock)
+			currentBlock = blockNumber
+			logStartIndex = 0
+		}
+
+		txLogs := getLogsForTx(receipt, logStartIndex)
+		logStartIndex += uint(len(txLogs))
+		for _, lg := range txLogs {
+			lg.BlockHash = blockHash
+		}
+
+		input := parquetReceiptInput{
+			blockNumber: blockNumber,
+			receipt: receiptRecord{
+				TxHash:       copyBytes(txHash[:]),
+				BlockNumber:  blockNumber,
+				ReceiptBytes: copyBytesOrEmpty(entry.ReceiptBytes),
+			},
+			logs: buildLogRecords(txLogs, blockHash),
+		}
+
+		if err := s.applyReceiptLocked(input); err != nil {
+			return err
+		}
+
+		if s.cache != nil {
+			cacheEntries = append(cacheEntries, receiptCacheEntry{
+				TxHash:  txHash,
+				Receipt: receipt,
+			})
+			cacheLogs = append(cacheLogs, txLogs...)
+		}
+
+		if blockNumber > maxBlock {
+			maxBlock = blockNumber
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	flushCacheBatch(currentBlock)
+
+	if maxBlock > 0 {
+		s.latestVersion.Store(int64(maxBlock))
+	}
+	if dropOffset > 0 {
+		_ = s.wal.TruncateBefore(dropOffset + 1)
+	}
+	return nil
+}
+
+func (s *parquetReceiptStore) clearWAL() {
+	if s.wal == nil {
+		return
+	}
+	firstOffset, errFirst := s.wal.FirstOffset()
+	if errFirst != nil || firstOffset <= 0 {
+		return
+	}
+	lastOffset, errLast := s.wal.LastOffset()
+	if errLast != nil || lastOffset <= 0 {
+		return
+	}
+	if lastOffset < firstOffset {
+		return
+	}
+	_ = s.wal.TruncateBefore(lastOffset + 1)
 }
 
 func buildLogRecords(logs []*ethtypes.Log, blockHash common.Hash) []logRecord {

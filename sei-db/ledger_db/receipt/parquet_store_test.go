@@ -1,6 +1,8 @@
 package receipt
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -166,4 +168,44 @@ func TestParquetReceiptStoreReopenQueries(t *testing.T) {
 	require.Len(t, logs, 1)
 	require.Equal(t, blockHash, logs[0].BlockHash)
 	require.Equal(t, uint64(5), logs[0].BlockNumber)
+}
+
+func TestParquetReceiptStoreWALReplay(t *testing.T) {
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet"
+	cfg.DBDirectory = t.TempDir()
+
+	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	require.NoError(t, err)
+
+	txHash := common.HexToHash("0x30")
+	addr := common.HexToAddress("0x400")
+	topic := common.HexToHash("0x9abc")
+	receipt := makeTestReceipt(txHash, 3, 0, addr, []common.Hash{topic})
+
+	require.NoError(t, store.SetReceipts(ctx, []ReceiptRecord{
+		{TxHash: txHash, Receipt: receipt},
+	}))
+	require.NoError(t, store.Close())
+
+	receiptFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
+	require.NoError(t, err)
+	for _, file := range receiptFiles {
+		require.NoError(t, os.Remove(file))
+	}
+
+	logFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "logs_*.parquet"))
+	require.NoError(t, err)
+	for _, file := range logFiles {
+		require.NoError(t, os.Remove(file))
+	}
+
+	store, err = NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	got, err := store.GetReceiptFromStore(ctx, txHash)
+	require.NoError(t, err)
+	require.Equal(t, receipt.TxHashHex, got.TxHashHex)
 }
