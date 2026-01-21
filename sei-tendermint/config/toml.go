@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"os"
 	"path/filepath"
 	"strings"
@@ -710,6 +711,7 @@ func ResetTestRootWithChainID(dir, testName string, chainID string) (*Config, er
 	}
 
 	config := TestConfig().SetRoot(rootDir)
+	config.P2P.ListenAddress = tcp.TestReserveAddr().String()
 	config.Instrumentation.Namespace = fmt.Sprintf("%s_%s_%s", testName, chainID, tmrand.Str(16))
 	return config, nil
 }
