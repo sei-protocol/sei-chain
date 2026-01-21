@@ -19,7 +19,7 @@ type ReadOnly struct{}
 
 // isReadOnly returns true if t embeds ReadOnly.
 func isReadOnly(t reflect.Type) bool {
-	want := reflect.TypeOf(ReadOnly{})
+	want := reflect.TypeFor[ReadOnly]()
 	if t.Kind() != reflect.Struct {
 		return false
 	}
@@ -89,6 +89,13 @@ func (rng Rng) Int63() int64 {
 	panic("unreachable")
 }
 
+func (rng Rng) Uint64() uint64 {
+	for inner := range rng.inner.Lock() {
+		return inner.Uint64()
+	}
+	panic("unreachable")
+}
+
 func (rng Rng) Int() int {
 	for inner := range rng.inner.Lock() {
 		return inner.Int()
@@ -116,7 +123,8 @@ func (rng Rng) Shuffle(n int, swap func(i, j int)) {
 	}
 }
 
-// TestRngSplit returns a new random number splitted from the given one.
+// Split returns a new random number splitted from the given one.
+// It should be used to provide deterministic rngs to independent goroutines.
 // This is a very primitive splitting, known to result with dependent randomness.
 // If that ever causes a problem, we can switch to SplitMix.
 func (rng Rng) Split() Rng {
