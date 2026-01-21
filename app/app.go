@@ -1439,15 +1439,15 @@ func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []
 // ExecuteTxsConcurrently calls the appropriate function for processing transacitons
 func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	// Giga only supports synchronous execution for now
-	if app.GigaExecutorEnabled {
-		results := app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs, absoluteTxIndices)
-		return results, ctx
+	if app.GigaExecutorEnabled && app.GigaOCCEnabled {
+		return app.ProcessTXsWithOCCGiga(ctx, txs, typedTxs, absoluteTxIndices)
+	} else if app.GigaExecutorEnabled {
+		return app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs, absoluteTxIndices), ctx
 	} else if !ctx.IsOCCEnabled() {
-		results := app.ProcessTxsSynchronousV2(ctx, txs, typedTxs, absoluteTxIndices)
-		return results, ctx
+		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs, absoluteTxIndices), ctx
 	}
 
-	return app.ProcessTXsWithOCC(ctx, txs, typedTxs, absoluteTxIndices)
+	return app.ProcessTXsWithOCCV2(ctx, txs, typedTxs, absoluteTxIndices)
 }
 
 func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex int, bz []byte, tx sdk.Tx) (res *sdk.DeliverTxEntry) {
@@ -1460,8 +1460,8 @@ func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex i
 	return
 }
 
-// ProcessTXsWithOCC runs the transactions concurrently via OCC
-func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+// ProcessTXsWithOCCV2 runs the transactions concurrently via OCC, using the V2 executor
+func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
 	for txIndex, tx := range txs {
 		entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
@@ -1512,6 +1512,47 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 	return execResults, ctx
 }
 
+// ProcessTXsWithOCCGiga runs the transactions concurrently via OCC, using the Giga executor
+func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+	entries := make([]*sdk.DeliverTxEntry, len(txs))
+	for txIndex, tx := range txs {
+		entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
+	}
+
+	// Create OCC scheduler with giga executor deliverTx
+	scheduler := tasks.NewScheduler(
+		app.ConcurrencyWorkers(),
+		app.TracingInfo,
+		app.gigaDeliverTx,
+	)
+
+	batchResult, schedErr := scheduler.ProcessAll(ctx, entries)
+	if schedErr != nil {
+		// TODO: DeliverTxBatch panics in this case
+		ctx.Logger().Error("benchmark OCC scheduler error", "error", schedErr, "height", ctx.BlockHeight(), "txCount", len(entries))
+		return nil, ctx
+	}
+
+	////////////////////////////////
+
+	execResults := make([]*abci.ExecTxResult, 0, len(batchResult))
+	for _, r := range batchResult {
+		execResults = append(execResults, &abci.ExecTxResult{
+			Code:      r.Code,
+			Data:      r.Data,
+			Log:       r.Log,
+			Info:      r.Info,
+			GasWanted: r.GasWanted,
+			GasUsed:   r.GasUsed,
+			Events:    r.Events,
+			Codespace: r.Codespace,
+			EvmTxInfo: r.EvmTxInfo,
+		})
+	}
+
+	return execResults, ctx
+}
+
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -1541,11 +1582,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			app.wsServerStartSignal <- struct{}{}
 		}
 	}()
-
-	// TODO: for now Giga OCC calls ProcessBlockWithGigaExecutorOCC, WIP
-	if app.GigaExecutorEnabled && app.GigaOCCEnabled {
-		return app.ProcessBlockWithGigaExecutorOCC(ctx, txs, req, lastCommit, simulate)
-	}
 
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
@@ -2034,10 +2070,9 @@ func (app *App) gigaDeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 	if err != nil {
 		// Check if this is a fail-fast error (Cosmos precompile interop detected)
 		if gigautils.ShouldExecutionAbort(err) {
-			// Transaction requires Cosmos interop - not supported in giga mode
-			// TODO: implement fallback to standard execution path
-			return abci.ResponseDeliverTx{Code: 1, Log: fmt.Sprintf("giga executor: cosmos interop not supported: %v", err)}
+			return app.DeliverTx(ctx, req, tx, checksum)
 		}
+
 		return abci.ResponseDeliverTx{Code: 1, Log: fmt.Sprintf("giga executor error: %v", err)}
 	}
 
