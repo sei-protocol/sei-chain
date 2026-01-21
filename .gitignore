@@ -21,9 +21,6 @@ yarn.lock
 oracle/node_modules/
 node_modules/
 
-# Go workspace sum file (machine-specific)
-go.work.sum
-
 # test coverage output
 c.out
 
