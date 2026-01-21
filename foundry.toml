@@ -4,4 +4,10 @@ out = "contracts/out"
 test = "contracts/test"
 libs = ["contracts/lib"]
 
+[profile.ci]
+src = "contracts/src"
+out = "contracts/out"
+test = "contracts/test"
+libs = ["contracts/lib"]
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
