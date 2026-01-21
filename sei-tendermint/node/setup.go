@@ -289,7 +289,7 @@ func createRouter(
 	router, err := p2p.NewRouter(
 		logger.With("module", "p2p"),
 		p2pMetrics,
-		nodeKey.PrivKey,
+		p2p.NodeSecretKey(nodeKey.PrivKey),
 		nodeInfoProducer,
 		peerDB,
 		options,
