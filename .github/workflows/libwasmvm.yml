@@ -9,6 +9,7 @@ on:
         default: ''
   push:
     branches:
+      - masih/fix-libwasmvm-workflow-dispatch2
       - main
       - release/**
 
@@ -33,7 +34,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-           ref: ${{ inputs.ref || github.sha }}
+#           ref: ${{ inputs.ref || github.sha }}
+           ref: 'masih/v6-3-reftype-wasmparser-fork'
       - name: Build
         run: |
           mkdir -p libwasmvm/artifacts
