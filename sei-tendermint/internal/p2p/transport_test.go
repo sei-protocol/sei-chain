@@ -184,17 +184,20 @@ func TestHandshake_Context(t *testing.T) {
 			return fmt.Errorf("tcp.Listen(): %w", err)
 		}
 		defer listener.Close()
-		s.SpawnBg(func() error {
+		s.Spawn(func() error {
 			// One connection end tries to handshake.
 			addr := TestAddress(a)
 			tcpConn, err := b.dial(ctx, addr)
 			if err != nil {
-				t.Fatalf("tcp.dial(): %v", err)
+				return fmt.Errorf("tcp.dial(): %v", err)
 			}
 			s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-			if _, err := b.handshake(ctx, tcpConn, utils.Some(addr)); err == nil {
-				return fmt.Errorf("handshake(): expected error, got %w", err)
-			}
+			s.SpawnBg(func() error {
+				if _, err := b.handshake(ctx, tcpConn, utils.Some(addr)); err == nil {
+					return fmt.Errorf("handshake(): expected error, got %w", err)
+				}
+				return nil
+			})
 			return nil
 		})
 		// Second connection end does not handshake.
