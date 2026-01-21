@@ -92,42 +92,5 @@ ss-prune-interval = {{ .StateStore.PruneIntervalSeconds }}
 ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
 `
 
-// ReceiptStoreConfigTemplate defines the configuration template for receipt-store
-const ReceiptStoreConfigTemplate = `
-###############################################################################
-###                        Receipt Store Configuration                      ###
-###############################################################################
-
-[receipt-store]
-# Defines the directory to store the receipt store db files
-# If not explicitly set, default to application home directory
-rs-db-directory = "{{ .ReceiptStore.DBDirectory }}"
-
-# DBBackend defines the backend database used for receipt-store.
-# Supported backends: pebbledb, rocksdb
-# defaults to pebbledb (recommended)
-rs-backend = "{{ .ReceiptStore.Backend }}"
-
-# AsyncWriteBuffer defines the async queue length for commits to be applied to receipt store
-# Set <= 0 for synchronous writes
-# defaults to 100 for asynchronous writes
-rs-async-write-buffer = {{ .ReceiptStore.AsyncWriteBuffer }}
-
-# KeepRecent defines the number of versions to keep in receipt store
-# Setting it to 0 means keep everything
-# Default to keep the last 100,000 blocks
-rs-keep-recent = {{ .ReceiptStore.KeepRecent }}
-
-# PruneInterval defines the minimum interval in seconds + some random delay to trigger pruning.
-# It is recommended to trigger pruning less frequently with a large interval.
-# default to 600 seconds
-rs-prune-interval = {{ .ReceiptStore.PruneIntervalSeconds }}
-
-# UseDefaultComparer uses Pebble's default comparer instead of MVCCComparer.
-# This is NOT backwards compatible with existing databases created with MVCCComparer.
-# defaults to false (use MVCCComparer for backwards compatibility)
-rs-use-default-comparer = {{ .ReceiptStore.UseDefaultComparer }}
-`
-
 // DefaultConfigTemplate combines both templates for backward compatibility
-const DefaultConfigTemplate = StateCommitConfigTemplate + StateStoreConfigTemplate + ReceiptStoreConfigTemplate
+const DefaultConfigTemplate = StateCommitConfigTemplate + StateStoreConfigTemplate

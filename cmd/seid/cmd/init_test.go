@@ -143,7 +143,7 @@ func TestInitModeConfiguration(t *testing.T) {
 			}
 
 			// Build custom template with all sections
-			customAppTemplate := srvconfig.ManualConfigTemplate + seidbconfig.StateCommitConfigTemplate + seidbconfig.StateStoreConfigTemplate + seidbconfig.ReceiptStoreConfigTemplate +
+			customAppTemplate := srvconfig.ManualConfigTemplate + seidbconfig.StateCommitConfigTemplate + seidbconfig.StateStoreConfigTemplate +
 				srvconfig.AutoManagedConfigTemplate // Simplified - just need the pruning config
 
 			srvconfig.SetConfigTemplate(customAppTemplate)

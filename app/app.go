@@ -107,6 +107,7 @@ import (
 	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
+	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
@@ -634,13 +635,9 @@ func New(
 	)
 
 	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
-	receiptConfig := parseReceiptStoreConfig(appOpts)
-	if receiptConfig.DBDirectory == "" {
-		receiptConfig.DBDirectory = receiptStorePath
-	}
-	if appOpts.Get(FlagRSKeepRecent) == nil {
-		receiptConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
-	}
+	receiptConfig := ssconfig.DefaultReceiptStoreConfig()
+	receiptConfig.DBDirectory = receiptStorePath
+	receiptConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
 	if app.receiptStore == nil {
 		receiptStore, err := receipt.NewReceiptStore(logger, receiptConfig, keys[evmtypes.StoreKey])
 		if err != nil {
