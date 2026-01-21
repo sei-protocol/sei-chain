@@ -36,8 +36,8 @@ func spawnBgPipe(ctx context.Context, s scope.Scope) (Conn, Conn) {
 func withEnc(c1, c2 Conn) (Conn, Conn) {
 	k1 := genEphKey()
 	k2 := genEphKey()
-	sc1 := newSecretConnection(c1, k1, k2.public)
-	sc2 := newSecretConnection(c2, k2, k1.public)
+	sc1 := utils.OrPanic1(newSecretConnection(c1, k1, k2.public))
+	sc2 := utils.OrPanic1(newSecretConnection(c2, k2, k1.public))
 	return sc1, sc2
 }
 

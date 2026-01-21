@@ -2,6 +2,7 @@ package conn
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -12,6 +13,11 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
 )
+
+func TestLowOrderPoint(t *testing.T) {
+	_, err := newSecretConnection(nil, genEphKey(), ephPublic{})
+	require.True(t, errors.Is(err, errDH))
+}
 
 func runEvilConn(ctx context.Context, conn Conn) error {
 	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {

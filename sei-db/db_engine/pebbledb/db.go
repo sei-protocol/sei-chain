@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cockroachdb/pebble"
-	"github.com/cockroachdb/pebble/bloom"
+	"github.com/cockroachdb/pebble/v2"
+	"github.com/cockroachdb/pebble/v2/bloom"
+	"github.com/cockroachdb/pebble/v2/sstable"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 )
@@ -34,37 +35,44 @@ func Open(path string, opts db_engine.OpenOptions) (_ db_engine.DB, err error) {
 	defer cache.Unref()
 
 	popts := &pebble.Options{
-		Cache:                       cache,
-		Comparer:                    cmp,
-		FormatMajorVersion:          pebble.FormatNewest,
+		Cache:    cache,
+		Comparer: cmp,
+		// FormatMajorVersion is pinned to a specific version to prevent accidental
+		// breaking changes when updating the pebble dependency. Using FormatNewest
+		// would cause the on-disk format to silently upgrade when pebble is updated,
+		// making the database incompatible with older software versions.
+		// When upgrading this version, ensure it's an intentional, documented change.
+		FormatMajorVersion:          pebble.FormatVirtualSSTables,
 		L0CompactionThreshold:       4,
 		L0StopWritesThreshold:       1000,
 		LBaseMaxBytes:               64 << 20, // 64 MB
-		Levels:                      make([]pebble.LevelOptions, 7),
-		MaxConcurrentCompactions:    func() int { return 3 },
 		MemTableSize:                64 << 20,
 		MemTableStopWritesThreshold: 4,
 		DisableWAL:                  false,
 	}
 
-	for i := 0; i < len(popts.Levels); i++ {
+	// Configure L0 with explicit settings
+	popts.Levels[0].BlockSize = 32 << 10       // 32 KB
+	popts.Levels[0].IndexBlockSize = 256 << 10 // 256 KB
+	popts.Levels[0].FilterPolicy = bloom.FilterPolicy(10)
+	popts.Levels[0].FilterType = pebble.TableFilter
+	popts.Levels[0].Compression = func() *sstable.CompressionProfile { return sstable.ZstdCompression }
+	popts.Levels[0].EnsureL0Defaults()
+
+	// Configure L1+ levels, inheriting from previous level
+	for i := 1; i < len(popts.Levels); i++ {
 		l := &popts.Levels[i]
 		l.BlockSize = 32 << 10       // 32 KB
 		l.IndexBlockSize = 256 << 10 // 256 KB
 		l.FilterPolicy = bloom.FilterPolicy(10)
 		l.FilterType = pebble.TableFilter
-		if i > 1 {
-			l.Compression = pebble.ZstdCompression
-		}
-		if i > 0 {
-			l.TargetFileSize = popts.Levels[i-1].TargetFileSize * 2
-		}
-		l.EnsureDefaults()
+		l.Compression = func() *sstable.CompressionProfile { return sstable.ZstdCompression }
+		l.EnsureL1PlusDefaults(&popts.Levels[i-1])
 	}
 
+	// Disable bloom filter at bottommost level (L6) - bloom filters are less useful
+	// at the bottom level since most data lives there and false positive rate is low
 	popts.Levels[6].FilterPolicy = nil
-	popts.FlushSplitBytes = popts.Levels[0].TargetFileSize
-	popts = popts.EnsureDefaults()
 
 	db, err := pebble.Open(path, popts)
 	if err != nil {
