@@ -74,7 +74,6 @@ func (s *streamState) RemoteOpen(maxMsgSize uint64) error {
 }
 
 func (s *streamState) RemoteClose() error {
-	fmt.Printf("RemoteClose\n")
 	for inner, ctrl := range s.inner.Lock() {
 		if inner.closed.remote {
 			return fmt.Errorf("already closed")

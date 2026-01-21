@@ -1,4 +1,4 @@
-//go:build gofuzz || go1.18
+//go:build gofuzz
 
 package tests
 
