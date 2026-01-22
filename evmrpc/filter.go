@@ -783,7 +783,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		localLogs := f.globalLogSlicePool.Get()
 
 		for _, block := range batch {
-			f.GetLogsForBlockPooled(block, crit, bloomIndexes, &localLogs)
+			f.GetLogsForBlockPooled(block, crit, &localLogs)
 		}
 
 		// Sort the local batch
@@ -907,68 +907,32 @@ func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
 }
 
 // Pooled version that reuses slice allocation
-func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, result *[]*ethtypes.Log) {
+func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, result *[]*ethtypes.Log) {
 	collector := &pooledCollector{logs: result}
-	f.collectLogs(block, crit, filters, collector, true) // Apply exact matching
-}
-
-func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCriteria) bool {
-	addrMatch := len(crit.Addresses) == 0
-	for _, addrFilter := range crit.Addresses {
-		if log.Address == addrFilter {
-			addrMatch = true
-			break
-		}
-	}
-	return addrMatch && matchTopics(crit.Topics, log.Topics)
+	f.collectLogs(block, crit, collector, true) // Apply exact matching
 }
 
 // Unified log collection logic
-func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, collector logCollector, applyExactMatch bool) {
+func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, collector logCollector, applyExactMatch bool) {
 	ctx := f.ctxProvider(block.Block.Height)
-	totalLogs := uint(0)
-	evmTxIndex := 0
+	store := f.k.ReceiptStore()
+	if store == nil {
+		return
+	}
 
-	for _, hash := range getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache) {
-		receipt, found := getOrSetCachedReceipt(f.cacheCreationMutex, f.globalBlockCache, ctx, f.k, block, hash.hash)
-		if !found {
-			ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", hash.hash.Hex()))
-			continue
-		}
+	txHashes := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
+	hashes := make([]common.Hash, 0, len(txHashes))
+	for _, hash := range txHashes {
+		hashes = append(hashes, hash.hash)
+	}
 
-		txLogs := keeper.GetLogsForTx(receipt, totalLogs)
-
-		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
-			if len(receipt.LogsBloom) == 0 || MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
-				if applyExactMatch {
-					for _, log := range txLogs {
-						log.TxIndex = uint(evmTxIndex)               //nolint:gosec
-						log.BlockNumber = uint64(block.Block.Height) //nolint:gosec
-						log.BlockHash = common.BytesToHash(block.BlockID.Hash)
-						if f.IsLogExactMatch(log, crit) {
-							collector.Append(log)
-						}
-					}
-				} else {
-					for _, log := range txLogs {
-						log.TxIndex = uint(evmTxIndex)               //nolint:gosec
-						log.BlockNumber = uint64(block.Block.Height) //nolint:gosec
-						log.BlockHash = common.BytesToHash(block.BlockID.Hash)
-						collector.Append(log)
-					}
-				}
-			}
-		} else {
-			for _, log := range txLogs {
-				log.TxIndex = uint(evmTxIndex)               //nolint:gosec
-				log.BlockNumber = uint64(block.Block.Height) //nolint:gosec
-				log.BlockHash = common.BytesToHash(block.BlockID.Hash)
-				collector.Append(log)
-			}
-		}
-
-		totalLogs += uint(len(txLogs))
-		evmTxIndex++
+	logs, err := store.FilterLogs(ctx, block.Block.Height, common.BytesToHash(block.BlockID.Hash), hashes, crit, applyExactMatch)
+	if err != nil {
+		ctx.Logger().Error(fmt.Sprintf("collectLogs: %s", err.Error()))
+		return
+	}
+	for _, log := range logs {
+		collector.Append(log)
 	}
 }
 
@@ -1156,27 +1120,4 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		wpMetrics.RecordDBSemaphoreRelease()
 		res <- block
 	}
-}
-
-func matchTopics(topics [][]common.Hash, eventTopics []common.Hash) bool {
-	for i, topicList := range topics {
-		if len(topicList) == 0 {
-			// anything matches for this position
-			continue
-		}
-		if i >= len(eventTopics) {
-			return false
-		}
-		matched := false
-		for _, topic := range topicList {
-			if topic == eventTopics[i] {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return false
-		}
-	}
-	return true
 }

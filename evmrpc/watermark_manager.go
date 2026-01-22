@@ -7,6 +7,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/rpc"
+	receipt "github.com/sei-protocol/sei-db/ledger_db/receipt"
 	sstypes "github.com/sei-protocol/sei-db/state_db/ss/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -22,14 +23,14 @@ type WatermarkManager struct {
 	tmClient     rpcclient.Client
 	ctxProvider  func(int64) sdk.Context
 	stateStore   sstypes.StateStore
-	receiptStore sstypes.StateStore
+	receiptStore receipt.ReceiptStore
 }
 
 func NewWatermarkManager(
 	tmClient rpcclient.Client,
 	ctxProvider func(int64) sdk.Context,
 	stateStore sstypes.StateStore,
-	receiptStore sstypes.StateStore,
+	receiptStore receipt.ReceiptStore,
 ) *WatermarkManager {
 	return &WatermarkManager{
 		tmClient:     tmClient,
@@ -105,9 +106,9 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 		}
 	}
 
-	// Receipt store height participates only in the latest watermark.
+	// Receipt store version participates only in the latest watermark.
 	if m.receiptStore != nil {
-		if latest := m.receiptStore.GetLatestVersion(); latest > 0 {
+		if latest := m.receiptStore.LatestVersion(); latest > 0 {
 			setLatest(latest)
 		}
 	}
