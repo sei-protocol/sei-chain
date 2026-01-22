@@ -19,19 +19,19 @@ var DefaultConfig = Config{
 }
 
 const (
-	flagEnabled    = "giga_executor.enabled"
-	flagOCCEnabled = "giga_executor.occ_enabled"
+	FlagEnabled    = "giga_executor.enabled"
+	FlagOCCEnabled = "giga_executor.occ_enabled"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	cfg := DefaultConfig // copy
 	var err error
-	if v := opts.Get(flagEnabled); v != nil {
+	if v := opts.Get(FlagEnabled); v != nil {
 		if cfg.Enabled, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}
-	if v := opts.Get(flagOCCEnabled); v != nil {
+	if v := opts.Get(FlagOCCEnabled); v != nil {
 		if cfg.OCCEnabled, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
