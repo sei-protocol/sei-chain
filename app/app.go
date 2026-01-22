@@ -1383,10 +1383,11 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		fmt.Println("Codespace", result.Codespace)
 		fmt.Println("EvmTxInfo", result.EvmTxInfo)
 
-
 		txResults[i] = result
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
+
+	ctx.GigaMultiStore().WriteGiga()
 
 	return txResults
 }
@@ -1780,6 +1781,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	}
 
 	// Finalize state changes
+	fmt.Println("Balance ", sender, stateDB.GetBalance(sender))
 	surplus, ferr := stateDB.Finalize()
 	if ferr != nil {
 		return &abci.ExecTxResult{
