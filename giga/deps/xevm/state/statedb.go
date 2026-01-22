@@ -133,9 +133,22 @@ func (s *DBImpl) flushCtxs() {
 	// remove transient states
 	// write cache to underlying
 	s.flushCtx(s.ctx)
-	// write all snapshotted caches in reverse order, except the very first one (base) which will be written by baseapp::runTx
+	// write all snapshotted caches in reverse order
 	for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
 		s.flushCtx(s.snapshottedCtxs[i])
+	}
+	// For Giga synchronous mode (non-OCC), we must also flush snapshottedCtxs[0] (the base context).
+	// In OCC mode, the scheduler handles cache flushing and snapshottedCtxs[0] has a VersionIndexedStore
+	// which doesn't support Write(). We check if it's a CacheMultiStore before flushing.
+	if len(s.snapshottedCtxs) > 0 {
+		baseCtx := s.snapshottedCtxs[0]
+		if cms, ok := baseCtx.MultiStore().(sdk.CacheMultiStore); ok {
+			cms.Write()
+		}
+		// Try to flush giga stores if available (may not exist in OCC mode)
+		if gms, ok := baseCtx.MultiStore().(sdk.GigaMultiStore); ok {
+			gms.WriteGiga()
+		}
 	}
 }
 

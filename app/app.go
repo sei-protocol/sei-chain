@@ -1391,8 +1391,6 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
 
-	ctx.GigaMultiStore().WriteGiga()
-
 	return txResults
 }
 
