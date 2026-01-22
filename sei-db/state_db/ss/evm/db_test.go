@@ -1,7 +1,9 @@
 package evm
 
 import (
+	"fmt"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -206,5 +208,285 @@ func TestKeyRouter(t *testing.T) {
 
 		restored = router.RestoreKey(NonceStore, strippedKey)
 		require.Equal(t, append([]byte{0x0a}, strippedKey...), restored)
+	})
+}
+
+func TestEVMDatabaseBatch(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "evm_batch_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	db, err := OpenEVMDB(tmpDir, StorageStore)
+	require.NoError(t, err)
+	defer db.Close()
+
+	t.Run("ApplyBatch multiple keys", func(t *testing.T) {
+		pairs := []*iavl.KVPair{
+			{Key: []byte("key1"), Value: []byte("val1")},
+			{Key: []byte("key2"), Value: []byte("val2")},
+			{Key: []byte("key3"), Value: []byte("val3")},
+		}
+
+		err := db.ApplyBatch(pairs, 1)
+		require.NoError(t, err)
+
+		for _, pair := range pairs {
+			val, err := db.Get(pair.Key, 1)
+			require.NoError(t, err)
+			require.Equal(t, pair.Value, val)
+		}
+	})
+
+	t.Run("ApplyBatch with deletes", func(t *testing.T) {
+		// First set some values
+		pairs := []*iavl.KVPair{
+			{Key: []byte("del_key1"), Value: []byte("val1")},
+			{Key: []byte("del_key2"), Value: []byte("val2")},
+		}
+		err := db.ApplyBatch(pairs, 2)
+		require.NoError(t, err)
+
+		// Now delete one
+		deletePairs := []*iavl.KVPair{
+			{Key: []byte("del_key1"), Delete: true},
+			{Key: []byte("del_key2"), Value: []byte("updated")},
+		}
+		err = db.ApplyBatch(deletePairs, 3)
+		require.NoError(t, err)
+
+		// Check del_key1 is deleted at version 3
+		val, err := db.Get([]byte("del_key1"), 3)
+		require.NoError(t, err)
+		require.Nil(t, val)
+
+		// Check del_key1 still exists at version 2
+		val, err = db.Get([]byte("del_key1"), 2)
+		require.NoError(t, err)
+		require.Equal(t, []byte("val1"), val)
+
+		// Check del_key2 is updated
+		val, err = db.Get([]byte("del_key2"), 3)
+		require.NoError(t, err)
+		require.Equal(t, []byte("updated"), val)
+	})
+
+	t.Run("ApplyBatch empty", func(t *testing.T) {
+		err := db.ApplyBatch([]*iavl.KVPair{}, 4)
+		require.NoError(t, err)
+	})
+}
+
+func TestEVMStateStoreParallel(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "evm_parallel_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	store, err := NewEVMStateStore(tmpDir)
+	require.NoError(t, err)
+	defer store.Close()
+
+	t.Run("ApplyChangesetParallel", func(t *testing.T) {
+		changes := map[EVMStoreType][]*iavl.KVPair{
+			StorageStore: {
+				{Key: []byte("storage1"), Value: []byte("s1")},
+				{Key: []byte("storage2"), Value: []byte("s2")},
+			},
+			CodeStore: {
+				{Key: []byte("code1"), Value: []byte("bytecode1")},
+			},
+			NonceStore: {
+				{Key: []byte("nonce1"), Value: []byte{1}},
+			},
+		}
+
+		err := store.ApplyChangesetParallel(1, changes)
+		require.NoError(t, err)
+
+		// Verify all writes
+		val, err := store.Get(StorageStore, []byte("storage1"), 1)
+		require.NoError(t, err)
+		require.Equal(t, []byte("s1"), val)
+
+		val, err = store.Get(CodeStore, []byte("code1"), 1)
+		require.NoError(t, err)
+		require.Equal(t, []byte("bytecode1"), val)
+
+		val, err = store.Get(NonceStore, []byte("nonce1"), 1)
+		require.NoError(t, err)
+		require.Equal(t, []byte{1}, val)
+	})
+}
+
+func TestEVMDatabaseConcurrent(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "evm_concurrent_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	db, err := OpenEVMDB(tmpDir, StorageStore)
+	require.NoError(t, err)
+	defer db.Close()
+
+	// Pre-populate some data
+	for i := 0; i < 100; i++ {
+		key := []byte(fmt.Sprintf("key%d", i))
+		val := []byte(fmt.Sprintf("val%d", i))
+		require.NoError(t, db.Set(key, val, 1))
+	}
+
+	t.Run("Concurrent reads", func(t *testing.T) {
+		var wg sync.WaitGroup
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				for j := 0; j < 100; j++ {
+					key := []byte(fmt.Sprintf("key%d", j))
+					_, err := db.Get(key, 1)
+					require.NoError(t, err)
+				}
+			}(i)
+		}
+		wg.Wait()
+	})
+
+	t.Run("Concurrent reads and writes", func(t *testing.T) {
+		var wg sync.WaitGroup
+
+		// Readers
+		for i := 0; i < 5; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for j := 0; j < 50; j++ {
+					key := []byte(fmt.Sprintf("key%d", j))
+					_, _ = db.Get(key, 1)
+				}
+			}()
+		}
+
+		// Writers
+		for i := 0; i < 5; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				for j := 0; j < 20; j++ {
+					key := []byte(fmt.Sprintf("concurrent_key_%d_%d", idx, j))
+					val := []byte(fmt.Sprintf("val_%d_%d", idx, j))
+					_ = db.Set(key, val, int64(2+idx))
+				}
+			}(i)
+		}
+
+		wg.Wait()
+	})
+}
+
+func TestEVMDatabaseIterator(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "evm_iter_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	db, err := OpenEVMDB(tmpDir, StorageStore)
+	require.NoError(t, err)
+	defer db.Close()
+
+	// Add data
+	keys := []string{"aaa", "bbb", "ccc", "ddd"}
+	for i, k := range keys {
+		require.NoError(t, db.Set([]byte(k), []byte(fmt.Sprintf("val%d", i)), 1))
+	}
+
+	t.Run("Forward iteration", func(t *testing.T) {
+		itr, err := db.Iterator(nil, nil, 1)
+		require.NoError(t, err)
+		defer itr.Close()
+
+		var found []string
+		for ; itr.Valid(); itr.Next() {
+			found = append(found, string(itr.Key()))
+		}
+		require.Equal(t, keys, found)
+	})
+
+	t.Run("Reverse iteration", func(t *testing.T) {
+		itr, err := db.ReverseIterator(nil, nil, 1)
+		require.NoError(t, err)
+		defer itr.Close()
+
+		var found []string
+		for ; itr.Valid(); itr.Next() {
+			found = append(found, string(itr.Key()))
+		}
+
+		// Should be reversed
+		expected := []string{"ddd", "ccc", "bbb", "aaa"}
+		require.Equal(t, expected, found)
+	})
+
+	t.Run("Bounded iteration", func(t *testing.T) {
+		itr, err := db.Iterator([]byte("bbb"), []byte("ddd"), 1)
+		require.NoError(t, err)
+		defer itr.Close()
+
+		var found []string
+		for ; itr.Valid(); itr.Next() {
+			found = append(found, string(itr.Key()))
+		}
+		require.Equal(t, []string{"bbb", "ccc"}, found)
+	})
+}
+
+func TestEVMDatabaseVersionEdgeCases(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "evm_version_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	db, err := OpenEVMDB(tmpDir, StorageStore)
+	require.NoError(t, err)
+	defer db.Close()
+
+	t.Run("Version 0 read", func(t *testing.T) {
+		require.NoError(t, db.Set([]byte("key"), []byte("val"), 1))
+
+		// Version 0 should not find the key (written at version 1)
+		val, err := db.Get([]byte("key"), 0)
+		require.NoError(t, err)
+		require.Nil(t, val)
+	})
+
+	t.Run("Large version gap", func(t *testing.T) {
+		require.NoError(t, db.Set([]byte("gapkey"), []byte("v1"), 1))
+		require.NoError(t, db.Set([]byte("gapkey"), []byte("v1000"), 1000))
+
+		// Version 500 should return v1
+		val, err := db.Get([]byte("gapkey"), 500)
+		require.NoError(t, err)
+		require.Equal(t, []byte("v1"), val)
+
+		// Version 1000 should return v1000
+		val, err = db.Get([]byte("gapkey"), 1000)
+		require.NoError(t, err)
+		require.Equal(t, []byte("v1000"), val)
+	})
+
+	t.Run("Overwrite same version", func(t *testing.T) {
+		// This shouldn't happen in practice, but let's be safe
+		require.NoError(t, db.Set([]byte("owkey"), []byte("first"), 5))
+		require.NoError(t, db.Set([]byte("owkey"), []byte("second"), 5))
+
+		// Should return the last written value
+		val, err := db.Get([]byte("owkey"), 5)
+		require.NoError(t, err)
+		require.Equal(t, []byte("second"), val)
+	})
+
+	t.Run("Empty value vs tombstone", func(t *testing.T) {
+		// Set with empty value (should be treated as tombstone)
+		require.NoError(t, db.Set([]byte("emptykey"), []byte{}, 1))
+
+		// Get should return nil (empty is tombstone)
+		val, err := db.Get([]byte("emptykey"), 1)
+		require.NoError(t, err)
+		require.Nil(t, val)
 	})
 }

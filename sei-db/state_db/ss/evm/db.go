@@ -174,6 +174,36 @@ func (db *EVMDatabase) Delete(key []byte, version int64) error {
 	return db.storage.Set(encodedKey, nil, defaultWriteOpts)
 }
 
+// ApplyBatch applies multiple key-value pairs in a single batch for efficiency
+func (db *EVMDatabase) ApplyBatch(pairs []*iavl.KVPair, version int64) error {
+	if len(pairs) == 0 {
+		return nil
+	}
+
+	batch := db.storage.NewBatch()
+	defer batch.Close()
+
+	for _, pair := range pairs {
+		encodedKey := encodeKey(pair.Key, version)
+		if pair.Value == nil || pair.Delete {
+			// Tombstone
+			if err := batch.Set(encodedKey, nil, nil); err != nil {
+				return err
+			}
+		} else {
+			if err := batch.Set(encodedKey, pair.Value, nil); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := batch.Commit(defaultWriteOpts); err != nil {
+		return err
+	}
+
+	return db.SetLatestVersion(version)
+}
+
 func (db *EVMDatabase) SetLatestVersion(version int64) error {
 	db.latestVersion.Store(version)
 	var ts [VersionSize]byte
@@ -300,27 +330,55 @@ func (s *EVMStateStore) Delete(storeType EVMStoreType, key []byte, version int64
 	return db.Delete(key, version)
 }
 
-// ApplyChangeset applies a changeset to all relevant EVM databases
+// ApplyChangeset applies a changeset to all relevant EVM databases sequentially
 func (s *EVMStateStore) ApplyChangeset(version int64, changes map[EVMStoreType][]*iavl.KVPair) error {
 	for storeType, pairs := range changes {
 		db := s.GetDB(storeType)
 		if db == nil {
 			continue
 		}
-		for _, pair := range pairs {
-			var err error
-			if pair.Value == nil || pair.Delete {
-				err = db.Delete(pair.Key, version)
-			} else {
-				err = db.Set(pair.Key, pair.Value, version)
-			}
-			if err != nil {
-				return err
-			}
-		}
-		if err := db.SetLatestVersion(version); err != nil {
+		if err := db.ApplyBatch(pairs, version); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// ApplyChangesetParallel applies changesets to different EVM DBs in parallel
+func (s *EVMStateStore) ApplyChangesetParallel(version int64, changes map[EVMStoreType][]*iavl.KVPair) error {
+	if len(changes) == 0 {
+		return nil
+	}
+
+	// If only one store type, no need for parallelism
+	if len(changes) == 1 {
+		return s.ApplyChangeset(version, changes)
+	}
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(changes))
+
+	for storeType, pairs := range changes {
+		db := s.GetDB(storeType)
+		if db == nil {
+			continue
+		}
+
+		wg.Add(1)
+		go func(db *EVMDatabase, pairs []*iavl.KVPair) {
+			defer wg.Done()
+			if err := db.ApplyBatch(pairs, version); err != nil {
+				errCh <- err
+			}
+		}(db, pairs)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	// Return first error if any
+	for err := range errCh {
+		return err
 	}
 	return nil
 }
@@ -465,20 +523,23 @@ func newEVMIterator(db *pebble.DB, start, end []byte, version, earliestVersion i
 		reverse:         reverse,
 	}
 
+	// Position at first entry
 	if reverse {
 		it.valid = itr.Last()
 	} else {
 		it.valid = itr.First()
 	}
 
+	// Find first valid entry
 	if it.valid {
-		it.advance()
+		it.findValidEntry()
 	}
 
 	return it, nil
 }
 
-func (it *EVMIterator) advance() {
+// findValidEntry scans from current position to find a valid entry for iteration
+func (it *EVMIterator) findValidEntry() {
 	for it.itr.Valid() {
 		key, keyVersion, ok := decodeKey(it.itr.Key())
 		if !ok {
@@ -492,20 +553,18 @@ func (it *EVMIterator) advance() {
 			continue
 		}
 
-		// Check for tombstone
+		// Check for tombstone (empty value)
 		value := it.itr.Value()
 		if len(value) == 0 {
-			it.moveNext()
+			// Skip all versions of this tombstoned key
+			it.skipPastKey(key)
 			continue
 		}
 
-		// Found valid entry
+		// Found valid entry - store it
 		it.currentKey = slices.Clone(key)
 		it.currentValue = slices.Clone(value)
 		it.valid = true
-
-		// Skip to next key prefix to avoid duplicate versions
-		it.skipToNextKey(key)
 		return
 	}
 
@@ -520,8 +579,9 @@ func (it *EVMIterator) moveNext() {
 	}
 }
 
-func (it *EVMIterator) skipToNextKey(currentKey []byte) {
-	for {
+// skipPastKey moves the iterator past all versions of the given key
+func (it *EVMIterator) skipPastKey(currentKey []byte) {
+	for it.itr.Valid() {
 		it.moveNext()
 		if !it.itr.Valid() {
 			return
@@ -545,7 +605,16 @@ func (it *EVMIterator) Next() {
 	if !it.valid {
 		return
 	}
-	it.advance()
+
+	// Skip past all versions of current key
+	it.skipPastKey(it.currentKey)
+
+	// Find the next valid entry
+	if it.itr.Valid() {
+		it.findValidEntry()
+	} else {
+		it.valid = false
+	}
 }
 
 func (it *EVMIterator) Key() []byte {

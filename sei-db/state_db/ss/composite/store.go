@@ -24,7 +24,6 @@ type CompositeStateStore struct {
 	evmStore    *evm.EVMStateStore // Separate EVM DBs with default comparer
 	router      *evm.KeyRouter
 	logger      logger.Logger
-	mu          sync.RWMutex
 }
 
 // CompositeConfig holds configuration for composite state store
@@ -64,9 +63,6 @@ func NewCompositeStateStore(logger logger.Logger, homeDir string, cfg CompositeC
 }
 
 func (s *CompositeStateStore) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	var lastErr error
 	if s.evmStore != nil {
 		if err := s.evmStore.Close(); err != nil {
@@ -80,11 +76,9 @@ func (s *CompositeStateStore) Close() error {
 }
 
 // Get reads from EVM_SS first for EVM keys, then fallback to Cosmos_SS
+// No lock needed - underlying stores are thread-safe
 func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Try EVM_SS first for EVM-related keys
+	// Fast path: check if this is an EVM key that we can serve from EVM_SS
 	if s.evmStore != nil {
 		if evmStoreType, strippedKey, isEVM := s.router.RouteKey(storeKey, key); isEVM {
 			val, err := s.evmStore.Get(evmStoreType, strippedKey, version)
@@ -94,7 +88,7 @@ func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([
 			if val != nil {
 				return val, nil
 			}
-			// Fallback to Cosmos_SS
+			// Fallback to Cosmos_SS if not found in EVM_SS
 		}
 	}
 
@@ -103,10 +97,8 @@ func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([
 }
 
 // Has checks existence in EVM_SS first, then Cosmos_SS
+// No lock needed - underlying stores are thread-safe
 func (s *CompositeStateStore) Has(storeKey string, version int64, key []byte) (bool, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	if s.evmStore != nil {
 		if evmStoreType, strippedKey, isEVM := s.router.RouteKey(storeKey, key); isEVM {
 			db := s.evmStore.GetDB(evmStoreType)
@@ -181,62 +173,82 @@ func (s *CompositeStateStore) GetLatestMigratedModule() (string, error) {
 // ApplyChangesetSync applies changeset synchronously
 // Writes to both EVM_SS and Cosmos_SS for EVM data, only Cosmos_SS for rest
 func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// Fast path: if no EVM store, just apply to Cosmos
+	if s.evmStore == nil {
+		return s.cosmosStore.ApplyChangesetSync(version, changesets)
+	}
 
-	// Separate EVM changes from regular changes
-	evmChanges := make(map[evm.EVMStoreType][]*iavl.KVPair)
+	// Extract EVM changes - pre-allocate with estimated capacity
+	evmChanges := make(map[evm.EVMStoreType][]*iavl.KVPair, 4)
 
 	for _, changeset := range changesets {
-		if changeset.Name == evm.EVMStoreKey && s.evmStore != nil {
-			for _, kvPair := range changeset.Changeset.Pairs {
-				if evmStoreType, strippedKey, isEVM := s.router.RouteKey(changeset.Name, kvPair.Key); isEVM {
-					evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
-						Key:   strippedKey,
-						Value: kvPair.Value,
-					})
-				}
+		if changeset.Name != evm.EVMStoreKey {
+			continue
+		}
+		for _, kvPair := range changeset.Changeset.Pairs {
+			if evmStoreType, strippedKey, isEVM := s.router.RouteKey(changeset.Name, kvPair.Key); isEVM {
+				evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
+					Key:    strippedKey,
+					Value:  kvPair.Value,
+					Delete: kvPair.Delete,
+				})
 			}
 		}
 	}
 
-	// Apply to EVM_SS
-	if s.evmStore != nil && len(evmChanges) > 0 {
-		if err := s.evmStore.ApplyChangeset(version, evmChanges); err != nil {
-			return fmt.Errorf("failed to apply EVM changeset: %w", err)
-		}
+	// Apply to EVM_SS in parallel with Cosmos_SS
+	var evmErr error
+	var wg sync.WaitGroup
+
+	if len(evmChanges) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			evmErr = s.evmStore.ApplyChangesetParallel(version, evmChanges)
+		}()
 	}
 
-	// Always apply full changeset to Cosmos_SS
-	return s.cosmosStore.ApplyChangesetSync(version, changesets)
+	// Apply to Cosmos_SS concurrently
+	cosmosErr := s.cosmosStore.ApplyChangesetSync(version, changesets)
+
+	wg.Wait()
+
+	if evmErr != nil {
+		return fmt.Errorf("failed to apply EVM changeset: %w", evmErr)
+	}
+	return cosmosErr
 }
 
 // ApplyChangesetAsync applies changeset asynchronously
 func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// Fast path: if no EVM store, just apply to Cosmos
+	if s.evmStore == nil {
+		return s.cosmosStore.ApplyChangesetAsync(version, changesets)
+	}
 
-	// Extract and apply EVM changes
-	evmChanges := make(map[evm.EVMStoreType][]*iavl.KVPair)
+	// Extract EVM changes
+	evmChanges := make(map[evm.EVMStoreType][]*iavl.KVPair, 4)
 
 	for _, changeset := range changesets {
-		if changeset.Name == evm.EVMStoreKey && s.evmStore != nil {
-			for _, kvPair := range changeset.Changeset.Pairs {
-				if evmStoreType, strippedKey, isEVM := s.router.RouteKey(changeset.Name, kvPair.Key); isEVM {
-					evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
-						Key:   strippedKey,
-						Value: kvPair.Value,
-					})
-				}
+		if changeset.Name != evm.EVMStoreKey {
+			continue
+		}
+		for _, kvPair := range changeset.Changeset.Pairs {
+			if evmStoreType, strippedKey, isEVM := s.router.RouteKey(changeset.Name, kvPair.Key); isEVM {
+				evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
+					Key:    strippedKey,
+					Value:  kvPair.Value,
+					Delete: kvPair.Delete,
+				})
 			}
 		}
 	}
 
-	// Apply EVM changes synchronously (EVM stores don't have async yet)
-	if s.evmStore != nil && len(evmChanges) > 0 {
-		if err := s.evmStore.ApplyChangeset(version, evmChanges); err != nil {
-			return fmt.Errorf("failed to apply EVM changeset: %w", err)
-		}
+	// Apply EVM changes in parallel (fire and forget for async path)
+	if len(evmChanges) > 0 {
+		go func() {
+			_ = s.evmStore.ApplyChangesetParallel(version, evmChanges)
+		}()
 	}
 
 	// Apply to Cosmos_SS async
