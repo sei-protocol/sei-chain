@@ -82,6 +82,7 @@ func (r *parquetReader) validateFiles(files []string) ([]string, string) {
 }
 
 func (r *parquetReader) isFileReadable(path string) bool {
+	// #nosec G201 -- path comes from validated local files, not user input
 	_, err := r.db.Exec(fmt.Sprintf("SELECT 1 FROM read_parquet('%s') LIMIT 1", path))
 	return err == nil
 }
@@ -117,6 +118,7 @@ func (r *parquetReader) maxReceiptBlockNumber(ctx context.Context) (uint64, bool
 		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(closedFiles))
 	}
 
+	// #nosec G201 -- parquetFiles derived from local file paths
 	query := fmt.Sprintf("SELECT MAX(block_number) FROM read_parquet(%s, union_by_name=true)", parquetFiles)
 	row := r.db.QueryRowContext(ctx, query)
 	var max sql.NullInt64
@@ -125,6 +127,9 @@ func (r *parquetReader) maxReceiptBlockNumber(ctx context.Context) (uint64, bool
 	}
 	if !max.Valid {
 		return 0, false, nil
+	}
+	if max.Int64 < 0 {
+		return 0, false, fmt.Errorf("invalid negative block number: %d", max.Int64)
 	}
 	return uint64(max.Int64), true, nil
 }
@@ -151,6 +156,7 @@ func (r *parquetReader) getReceiptByTxHash(ctx context.Context, txHash common.Ha
 		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(closedFiles))
 	}
 
+	// #nosec G201 -- parquetFiles derived from local file paths
 	query := fmt.Sprintf(`
 		SELECT
 			tx_hash, block_number, receipt_bytes
@@ -202,7 +208,7 @@ func (r *parquetReader) getLogs(ctx context.Context, filter logFilter) ([]logRes
 		return nil, nil
 	}
 
-	var files []string
+	files := make([]string, 0, len(closedFiles))
 	for _, f := range closedFiles {
 		startBlock := extractBlockNumber(f)
 		if filter.ToBlock != nil && startBlock > *filter.ToBlock {
@@ -225,6 +231,7 @@ func (r *parquetReader) queryLogFiles(ctx context.Context, files []string, filte
 		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(files))
 	}
 
+	// #nosec G201 -- parquetFiles derived from local file paths
 	query := fmt.Sprintf(`
 		SELECT
 			block_number, tx_hash, tx_index, log_index, address,
@@ -291,7 +298,7 @@ func (r *parquetReader) queryLogFiles(ctx context.Context, files []string, filte
 	if err != nil {
 		return nil, fmt.Errorf("failed to query logs: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []logResult
 	for rows.Next() {

@@ -19,6 +19,11 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+const (
+	maxInt64  = int64(^uint64(0) >> 1)
+	maxUint32 = ^uint32(0)
+)
+
 type receiptRecord struct {
 	TxHash       []byte `parquet:"tx_hash"`
 	BlockNumber  uint64 `parquet:"block_number"`
@@ -81,7 +86,7 @@ type parquetReceiptStore struct {
 }
 
 func newParquetReceiptStore(log dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
-	if err := os.MkdirAll(cfg.DBDirectory, 0o755); err != nil {
+	if err := os.MkdirAll(cfg.DBDirectory, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create parquet base directory: %w", err)
 	}
 
@@ -110,7 +115,11 @@ func newParquetReceiptStore(log dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig
 	if maxBlock, ok, err := reader.maxReceiptBlockNumber(context.Background()); err != nil {
 		return nil, err
 	} else if ok {
-		store.latestVersion.Store(int64(maxBlock))
+		latest, err := int64FromUint64(maxBlock)
+		if err != nil {
+			return nil, err
+		}
+		store.latestVersion.Store(latest)
 		if maxBlock < ^uint64(0) {
 			store.fileStartBlock = maxBlock + 1
 		}
@@ -240,10 +249,10 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 	var (
 		currentBlock  uint64
 		logStartIndex uint
-		cacheEntries  []receiptCacheEntry
-		cacheLogs     []*ethtypes.Log
 		maxBlock      uint64
 	)
+	cacheEntries := make([]receiptCacheEntry, 0, len(receipts))
+	cacheLogs := make([]*ethtypes.Log, 0)
 
 	flushCacheBatch := func(blockNumber uint64) {
 		if len(cacheEntries) == 0 && len(cacheLogs) == 0 {
@@ -328,7 +337,11 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 	s.mu.Unlock()
 
 	if maxBlock > 0 {
-		s.latestVersion.Store(int64(maxBlock))
+		latest, err := int64FromUint64(maxBlock)
+		if err != nil {
+			return err
+		}
+		s.latestVersion.Store(latest)
 	}
 
 	if s.cache != nil {
@@ -349,6 +362,9 @@ func (s *parquetReceiptStore) FilterLogs(ctx sdk.Context, blockHeight int64, blo
 		return []*ethtypes.Log{}, nil
 	}
 
+	if blockHeight < 0 {
+		return nil, fmt.Errorf("negative block height: %d", blockHeight)
+	}
 	blockNumber := uint64(blockHeight)
 	if applyExactMatch {
 		if s.cache != nil && s.useCacheForBlock(blockNumber) {
@@ -509,14 +525,18 @@ func (s *parquetReceiptStore) initWriters() error {
 	receiptPath := filepath.Join(s.basePath, fmt.Sprintf("receipts_%d.parquet", s.fileStartBlock))
 	logPath := filepath.Join(s.basePath, fmt.Sprintf("logs_%d.parquet", s.fileStartBlock))
 
+	// #nosec G304 -- paths are constructed from configured base directory
 	receiptFile, err := os.Create(receiptPath)
 	if err != nil {
 		return fmt.Errorf("failed to create receipt parquet file: %w", err)
 	}
 
+	// #nosec G304 -- paths are constructed from configured base directory
 	logFile, err := os.Create(logPath)
 	if err != nil {
-		receiptFile.Close()
+		if closeErr := receiptFile.Close(); closeErr != nil {
+			return fmt.Errorf("failed to create log parquet file: %w; close receipt file error: %v", err, closeErr)
+		}
 		return fmt.Errorf("failed to create log parquet file: %w", err)
 	}
 
@@ -772,7 +792,11 @@ func (s *parquetReceiptStore) replayWAL() error {
 	flushCacheBatch(currentBlock)
 
 	if maxBlock > 0 {
-		s.latestVersion.Store(int64(maxBlock))
+		latest, err := int64FromUint64(maxBlock)
+		if err != nil {
+			return err
+		}
+		s.latestVersion.Store(latest)
 	}
 	if dropOffset > 0 {
 		_ = s.wal.TruncateBefore(dropOffset + 1)
@@ -809,8 +833,8 @@ func buildLogRecords(logs []*ethtypes.Log, blockHash common.Hash) []logRecord {
 		rec := logRecord{
 			BlockNumber: lg.BlockNumber,
 			TxHash:      lg.TxHash[:],
-			TxIndex:     uint32(lg.TxIndex),
-			LogIndex:    uint32(lg.Index),
+			TxIndex:     uint32FromUint(lg.TxIndex),
+			LogIndex:    uint32FromUint(lg.Index),
 			Address:     lg.Address[:],
 			BlockHash:   blockHash[:],
 			Removed:     lg.Removed,
@@ -882,4 +906,18 @@ func copyBytesOrEmpty(src []byte) []byte {
 		return make([]byte, 0)
 	}
 	return copyBytes(src)
+}
+
+func int64FromUint64(value uint64) (int64, error) {
+	if value > uint64(maxInt64) {
+		return 0, fmt.Errorf("value %d overflows int64", value)
+	}
+	return int64(value), nil
+}
+
+func uint32FromUint(value uint) uint32 {
+	if value > uint(maxUint32) {
+		return maxUint32
+	}
+	return uint32(value)
 }

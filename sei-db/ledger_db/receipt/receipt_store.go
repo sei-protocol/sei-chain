@@ -54,12 +54,17 @@ type receiptStore struct {
 	closeOnce   sync.Once
 }
 
+const (
+	receiptBackendPebble  = "pebble"
+	receiptBackendParquet = "parquet"
+)
+
 func normalizeReceiptBackend(backend string) string {
 	switch strings.ToLower(strings.TrimSpace(backend)) {
-	case "", "pebbledb", "pebble":
-		return "pebble"
-	case "parquet":
-		return "parquet"
+	case "", "pebbledb", receiptBackendPebble:
+		return receiptBackendPebble
+	case receiptBackendParquet:
+		return receiptBackendParquet
 	default:
 		return strings.ToLower(strings.TrimSpace(backend))
 	}
@@ -75,9 +80,9 @@ func NewReceiptStore(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, st
 
 	backend := normalizeReceiptBackend(config.Backend)
 	switch backend {
-	case "parquet":
+	case receiptBackendParquet:
 		return newParquetReceiptStore(log, config, storeKey)
-	case "pebble":
+	case receiptBackendPebble:
 		ssConfig := dbconfig.DefaultStateStoreConfig()
 		ssConfig.DBDirectory = config.DBDirectory
 		ssConfig.KeepRecent = config.KeepRecent
