@@ -81,8 +81,6 @@ func TestInitModeConfiguration(t *testing.T) {
 				require.False(t, v.GetBool("rosetta.enable"), "Rosetta is disabled by default for all modes")
 				require.True(t, v.GetBool("state-store.ss-enable"), "StateStore should be enabled")
 
-				// Note: EVM config requires custom template, tested separately in TestSetEVMConfigByMode and binary tests
-
 				// Verify pruning uses cosmos default (now in iavl section)
 				require.Equal(t, "nothing", v.GetString("iavl.pruning"))
 			},
@@ -143,7 +141,9 @@ func TestInitModeConfiguration(t *testing.T) {
 			}
 
 			// Build custom template with all sections
-			customAppTemplate := srvconfig.ManualConfigTemplate + seidbconfig.StateCommitConfigTemplate + seidbconfig.StateStoreConfigTemplate +
+			customAppTemplate := srvconfig.ManualConfigTemplate +
+				seidbconfig.StateCommitConfigTemplate +
+				seidbconfig.StateStoreConfigTemplate +
 				seidbconfig.ReceiptStoreConfigTemplate +
 				srvconfig.AutoManagedConfigTemplate // Simplified - just need the pruning config
 

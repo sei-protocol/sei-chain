@@ -103,10 +103,6 @@ const ReceiptStoreConfigTemplate = `
 # Supported backends: pebble, parquet
 # defaults to pebble
 rs-backend = "{{ .ReceiptStore.Backend }}"
-
-# Defines the directory to store the receipt db files.
-# If not explicitly set, default to application home directory.
-rs-db-directory = "{{ .ReceiptStore.DBDirectory }}"
 `
 
 // DefaultConfigTemplate combines both templates for backward compatibility
