@@ -1759,7 +1759,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	}
 
 	// Finalize state changes
-	_, ferr := stateDB.Finalize()
+	surplus, ferr := stateDB.Finalize()
 	if ferr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
@@ -1795,11 +1795,9 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	}
 
 	// Append deferred info for EndBlock processing
-	// Calculate surplus (gas fee paid minus gas used * effective gas price)
-	// For giga executor, we set surplus to zero since we're not charging gas fees through the normal flow
-	surplus := sdk.ZeroInt()
 	bloom := ethtypes.Bloom{}
 	bloom.SetBytes(receipt.LogsBloom)
+	// TODO: when we don't need consensus with v2, we can zero out surplus
 	app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, ethTx.Hash(), surplus)
 
 	// Determine result code based on VM error
