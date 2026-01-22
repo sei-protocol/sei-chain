@@ -21,104 +21,83 @@ func TestFlatKVParseEVMKey(t *testing.T) {
 		name      string
 		key       []byte
 		wantKind  EVMKeyKind
-		wantAddr  Address
-		wantSlot  Slot
-		wantError bool
+		wantBytes []byte
 	}{
 		{
 			name:      "Nonce",
 			key:       append(evmtypes.NonceKeyPrefix, addr[:]...),
 			wantKind:  EVMKeyNonce,
-			wantAddr:  addr,
-			wantError: false,
+			wantBytes: addr[:],
 		},
 		{
 			name:      "CodeHash",
 			key:       append(evmtypes.CodeHashKeyPrefix, addr[:]...),
 			wantKind:  EVMKeyCodeHash,
-			wantAddr:  addr,
-			wantError: false,
+			wantBytes: addr[:],
 		},
 		{
 			name:      "Code",
 			key:       append(evmtypes.CodeKeyPrefix, addr[:]...),
 			wantKind:  EVMKeyCode,
-			wantAddr:  addr,
-			wantError: false,
+			wantBytes: addr[:],
 		},
 		{
 			name:      "CodeSize",
 			key:       append(evmtypes.CodeSizeKeyPrefix, addr[:]...),
 			wantKind:  EVMKeyCodeSize,
-			wantAddr:  addr,
-			wantError: false,
+			wantBytes: addr[:],
 		},
 		{
 			name:      "Storage",
 			key:       append(append(evmtypes.StateKeyPrefix, addr[:]...), slot[:]...),
 			wantKind:  EVMKeyStorage,
-			wantAddr:  addr,
-			wantSlot:  slot,
-			wantError: false,
+			wantBytes: append(addr[:], slot[:]...),
 		},
 		{
-			name:      "UnknownPrefix",
-			key:       []byte{0xFF, 0xAA},
-			wantKind:  EVMKeyUnknown,
-			wantError: false, // Unknown is not an error, just unknown kind
+			name:     "UnknownPrefix",
+			key:      []byte{0xFF, 0xAA},
+			wantKind: EVMKeyUnknown,
 		},
 		{
-			name:      "Empty",
-			key:       []byte{},
-			wantKind:  EVMKeyUnknown,
-			wantError: true,
+			name:     "Empty",
+			key:      []byte{},
+			wantKind: EVMKeyUnknown,
 		},
 		{
-			name:      "NonceTooShort",
-			key:       evmtypes.NonceKeyPrefix,
-			wantKind:  EVMKeyUnknown,
-			wantError: true,
+			name:     "NonceTooShort",
+			key:      evmtypes.NonceKeyPrefix,
+			wantKind: EVMKeyUnknown,
 		},
 		{
-			name:      "NonceWrongLenShort",
-			key:       append(evmtypes.NonceKeyPrefix, addr[:AddressLen-1]...),
-			wantKind:  EVMKeyUnknown,
-			wantError: true,
+			name:     "NonceWrongLenShort",
+			key:      append(evmtypes.NonceKeyPrefix, addr[:AddressLen-1]...),
+			wantKind: EVMKeyUnknown,
 		},
 		{
-			name:      "NonceWrongLenLong",
-			key:       append(evmtypes.NonceKeyPrefix, append(addr[:], 0x00)...),
-			wantKind:  EVMKeyUnknown,
-			wantError: true,
+			name:     "NonceWrongLenLong",
+			key:      append(evmtypes.NonceKeyPrefix, append(addr[:], 0x00)...),
+			wantKind: EVMKeyUnknown,
 		},
 		{
-			name:      "StorageTooShort",
-			key:       append(evmtypes.StateKeyPrefix, addr[:]...),
-			wantKind:  EVMKeyUnknown,
-			wantError: true,
+			name:     "StorageTooShort",
+			key:      append(evmtypes.StateKeyPrefix, addr[:]...),
+			wantKind: EVMKeyUnknown,
 		},
 		{
-			name:      "StorageWrongLenLong",
-			key:       append(append(append(evmtypes.StateKeyPrefix, addr[:]...), slot[:]...), 0x00),
-			wantKind:  EVMKeyUnknown,
-			wantError: true,
+			name:     "StorageWrongLenLong",
+			key:      append(append(append(evmtypes.StateKeyPrefix, addr[:]...), slot[:]...), 0x00),
+			wantKind: EVMKeyUnknown,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			kind, a, s, err := ParseEVMKey(tc.key)
-			if tc.wantError {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
+			kind, keyBytes := ParseEVMKey(tc.key)
 			require.Equal(t, tc.wantKind, kind)
-			if kind == EVMKeyStorage {
-				require.Equal(t, tc.wantAddr, a)
-				require.Equal(t, tc.wantSlot, s)
-			} else if kind != EVMKeyUnknown {
-				require.Equal(t, tc.wantAddr, a)
+			if kind != EVMKeyUnknown {
+				require.Equal(t, tc.wantBytes, keyBytes)
+			} else {
+				require.Nil(t, keyBytes)
 			}
 		})
 	}
