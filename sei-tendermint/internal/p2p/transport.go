@@ -38,20 +38,13 @@ func (cs ChannelIDSet) Contains(id ChannelID) bool {
 
 type anyConn interface{ isAnyConn() }
 
-func (*ConnV2) isAnyConn()   {}
-func (*ConnGiga) isAnyConn() {}
+func (*ConnV2) isAnyConn() {}
+func (*ConnV3) isAnyConn() {}
 
-type ConnGiga struct {
+type ConnV3 struct {
 	conn conn.Conn
 	outbound bool
 	key NodePublicKey
-	mux  *mux.Mux
-}
-
-func (c *ConnGiga) Run(ctx context.Context) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		return c.mux.Run(ctx, c.conn)
-	})
 }
 
 // Connection implements Connection for Transport.
@@ -129,14 +122,10 @@ func (r *Router) handshake(ctx context.Context, c tcp.Conn, dialAddr utils.Optio
 	}
 
 	if trySeiGigaConn && handshakeMsg.SeiGigaConnection {
-		return &ConnGiga{
+		return &ConnV3{
 			conn: sc,
 			outbound: dialAddr.IsPresent(),
 			key: handshakeMsg.NodeAuth.Key(),
-			mux: mux.NewMux(&mux.Config{
-				FrameSize: 10 * 1024,
-				Kinds:     map[mux.StreamKind]*mux.StreamKindConfig{},
-			}),
 		}, nil
 	}
 

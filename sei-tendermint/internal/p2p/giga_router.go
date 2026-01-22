@@ -8,8 +8,81 @@ import (
 	"github.com/tendermint/tendermint/libs/utils"
 )
 
+type GigaConn struct {
+	closed chan struct{}
+	mux *mux.Mux
+}
+
+func newGigaConn() *GigaConn {
+	
+}
+
+
+func (c *GigaConn) run(ctx context.Context, conn conn.Conn) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return c.mux.Run(ctx, conn) })
+		_,_,_ = utils.RecvOrClosed(ctx,c.closed)
+		return 
+	})
+}
+type GRouter struct {}
+
+func (GRouter) ForConn(ctx,func(ctx,GConn) error) error {
+	// internally uses a queue of connections with removable elements
+	// ctx is limited to connection lifetime
+}
+
+func (GConn) Kind1() rpc.Kind[Req1,Resp1]
+func (GConn) Kind2() rpc.Kind[Req2,Resp2]
+
+type rpc.Kind[Req,Resp any] struct {
+	*mux.Mux
+	kind mux.StreamKind
+}
+
+func (Kind[Req,Resp]) Connect(ctx) Stream[Req,Resp]
+func (Kind[Req,Resp]) Accept(ctx) Stream[Resp,Req]
+
+func (Stream[Req,Resp]) Send(ctx,Req) error
+func (Stream[Req,Resp]) Recv(ctx) (Resp,error)
+func (Stream[Req,Resp]) Close()
+
+*KindSpec {
+	mux.StreamKind
+	inflight int
+	maxReqSize
+	maxRespSize
+}
+
+MuxView[Req,Resp] {
+	*mux.Mux
+	*KindSpec
+}
+
+type ServerSpec struct {}
+
+func (ServerSpec) Register(KindSpec{
+	acceptMax
+	connectMax
+	reqMaxSize
+	respMaxSize
+	func( endpoint[Req,Resp]
+})
+
+Server.ForEach(ctx, func(ctx context.Context, conn *ConnGiga) error {
+	conn.LaneVotes().Call()
+
+})
+
+type Server struct {
+	
+}
+
+func (Server) RegisterStream(mux.StreamKind, Handle[Req,Vote], Handle[Vote,Req])
+func (Server) RegisterRPC(mux.StreamKind, rate
+
 type GigaServer interface {
-	LaneVotes(ctx context.Context, Handle[Req,Vote], Handle[Vote,Req]) error
+	LaneVotes(ctx context.Context, ) error
 	CommitQCs()
 	ExchangeAppVotes()
 	ExchangeAppQCs()
@@ -39,8 +112,8 @@ func NewGigaRouter(cfg *GigaRouterConfig) *GigaRouter {
 	return &GigaRouter{
 		cfg: cfg,
 		pool: utils.NewMutex(&GigaConnPool{
-			inbound: map[NodePublicKey]*ConnGiga{},
-			outbound: map[NodePublicKey]*ConnGiga{},
+			inbound: map[NodePublicKey]*GigaConn{},
+			outbound: map[NodePublicKey]*GigaConn{},
 		}),
 	}
 }
@@ -69,7 +142,16 @@ func (r *GigaRouter) RunConn(ctx context.Context, conn *ConnGiga) error {
 			}()
 		}
 	}
+	mux := mux.NewMux(&mux.Config{
+		FrameSize: 10 * 1024,
+		Kinds:     map[mux.StreamKind]*mux.StreamKindConfig{},
+	})
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			
+	mux.NewMux(Cfg{kind1 spec, kind2 spec})
+}
+
+
 		return conn.Run(ctx)
 	})
 }
