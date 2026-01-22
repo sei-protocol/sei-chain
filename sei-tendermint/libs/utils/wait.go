@@ -5,6 +5,7 @@ import (
 	"encoding"
 	"errors"
 	"time"
+	"sync/atomic"
 )
 
 // IgnoreCancel returns nil if the error is context.Canceled, err otherwise.
@@ -128,4 +129,26 @@ func (d Duration) Duration() time.Duration {
 // Seconds returns the underlying time.Duration value in seconds.
 func (d Duration) Seconds() float64 {
 	return time.Duration(d).Seconds()
+}
+
+// Once is an idempotent signal.
+type Once struct {
+	_ NoCopy
+	ch chan struct{}
+	done atomic.Bool
+}
+
+func NewOnce() (o Once) {
+	o.ch = make(chan struct{})
+	return
+}
+
+func (o *Once) Send() {
+	if o.done.Swap(true) { return }
+	close(o.ch)
+}
+
+func (o *Once) Recv(ctx context.Context) error {
+	_,_,err := RecvOrClosed(ctx,o.ch)
+	return err
 }

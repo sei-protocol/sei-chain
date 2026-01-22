@@ -43,7 +43,7 @@ func (*ConnV3) isAnyConn() {}
 
 type ConnV3 struct {
 	conn conn.Conn
-	outbound bool
+	dir Dir
 	key NodePublicKey
 }
 
