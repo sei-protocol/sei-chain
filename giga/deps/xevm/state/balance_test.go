@@ -14,8 +14,8 @@ import (
 )
 
 func TestAddBalance(t *testing.T) {
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
 	db := state.NewDBImpl(ctx, k, false)
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	require.Equal(t, uint256.NewInt(0), db.GetBalance(evmAddr))
@@ -30,8 +30,8 @@ func TestAddBalance(t *testing.T) {
 }
 
 func TestSubBalance(t *testing.T) {
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
 	db := state.NewDBImpl(ctx, k, false)
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	require.Equal(t, uint256.NewInt(0), db.GetBalance(evmAddr))
@@ -49,8 +49,8 @@ func TestSubBalance(t *testing.T) {
 }
 
 func TestSetBalance(t *testing.T) {
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
 	db := state.NewDBImpl(ctx, k, true)
 	_, evmAddr := testkeeper.MockAddressPair()
 	db.SetBalance(evmAddr, uint256.NewInt(10000000000000), tracing.BalanceChangeUnspecified)
@@ -63,8 +63,8 @@ func TestSetBalance(t *testing.T) {
 }
 
 func TestSurplus(t *testing.T) {
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
 	_, evmAddr := testkeeper.MockAddressPair()
 
 	// test negative usei surplus negative wei surplus
