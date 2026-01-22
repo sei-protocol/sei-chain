@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	fmt "fmt"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -81,6 +82,14 @@ func (c Context) Context() context.Context {
 
 func (c Context) MultiStore() MultiStore {
 	return c.ms
+}
+
+func (c Context) GigaMultiStore() GigaMultiStore {
+	gigaMultiStore, ok := c.ms.(GigaMultiStore)
+	if !ok {
+		panic(fmt.Sprintf("multi store is not a giga multi store: %T", c.MultiStore()))
+	}
+	return gigaMultiStore
 }
 
 func (c Context) BlockHeight() int64 {
@@ -530,6 +539,10 @@ func (c Context) KVStore(key StoreKey) KVStore {
 		}
 	}
 	return gaskv.NewStore(c.MultiStore().GetKVStore(key), c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
+}
+
+func (c Context) GigaKVStore(key StoreKey) KVStore {
+	return c.GigaMultiStore().GetGigaKVStore(key)
 }
 
 // TransientStore fetches a TransientStore from the MultiStore.

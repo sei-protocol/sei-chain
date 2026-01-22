@@ -12,8 +12,8 @@ import (
 )
 
 func TestCode(t *testing.T) {
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
 	_, addr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k, false)
 

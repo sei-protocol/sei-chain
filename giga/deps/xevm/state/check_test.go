@@ -13,8 +13,8 @@ import (
 
 func TestExist(t *testing.T) {
 	// not exist
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
 	_, addr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k, false)
 	require.False(t, statedb.Exist(addr))
@@ -37,8 +37,8 @@ func TestExist(t *testing.T) {
 
 func TestEmpty(t *testing.T) {
 	// empty
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
 	_, addr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k, false)
 	require.True(t, statedb.Empty(addr))
