@@ -59,7 +59,7 @@ func (k *Keeper) GetCodeSize(ctx sdk.Context, addr common.Address) int {
 }
 
 func (k *Keeper) IterateAllCode(ctx sdk.Context, cb func(addr common.Address, code []byte) bool) {
-	iter := prefix.NewStore(ctx.GigaKVStore(k.storeKey), types.CodeKeyPrefix).Iterator(nil, nil)
+	iter := prefix.NewStore(ctx.KVStore(k.storeKey), types.CodeKeyPrefix).Iterator(nil, nil)
 	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		evmAddr := common.BytesToAddress(iter.Key())

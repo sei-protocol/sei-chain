@@ -10,7 +10,8 @@ import (
 )
 
 func (k *Keeper) SetAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, evmAddress common.Address) {
-	store := ctx.GigaKVStore(k.storeKey)
+	// Use regular KVStore for consensus-critical data
+	store := ctx.KVStore(k.storeKey)
 	fmt.Printf("  GIGA SetAddressMapping: evmAddr=%s seiAddr=%s storePtr=%p\n", evmAddress.Hex(), seiAddress.String(), store)
 	store.Set(types.EVMAddressToSeiAddressKey(evmAddress), seiAddress)
 	store.Set(types.SeiAddressToEVMAddressKey(seiAddress), evmAddress[:])
@@ -25,13 +26,13 @@ func (k *Keeper) SetAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, e
 }
 
 func (k *Keeper) DeleteAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, evmAddress common.Address) {
-	store := ctx.GigaKVStore(k.storeKey)
+	store := ctx.KVStore(k.storeKey)
 	store.Delete(types.EVMAddressToSeiAddressKey(evmAddress))
 	store.Delete(types.SeiAddressToEVMAddressKey(seiAddress))
 }
 
 func (k *Keeper) GetEVMAddress(ctx sdk.Context, seiAddress sdk.AccAddress) (common.Address, bool) {
-	store := ctx.GigaKVStore(k.storeKey)
+	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.SeiAddressToEVMAddressKey(seiAddress))
 	addr := common.Address{}
 	if bz == nil {
@@ -50,7 +51,7 @@ func (k *Keeper) GetEVMAddressOrDefault(ctx sdk.Context, seiAddress sdk.AccAddre
 }
 
 func (k *Keeper) GetSeiAddress(ctx sdk.Context, evmAddress common.Address) (sdk.AccAddress, bool) {
-	store := ctx.GigaKVStore(k.storeKey)
+	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.EVMAddressToSeiAddressKey(evmAddress))
 	fmt.Printf("  GIGA GetSeiAddress: evmAddr=%s found=%v seiAddr=%s storePtr=%p\n", evmAddress.Hex(), bz != nil, sdk.AccAddress(bz).String(), store)
 	if bz == nil {
@@ -68,7 +69,7 @@ func (k *Keeper) GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Addre
 }
 
 func (k *Keeper) IterateSeiAddressMapping(ctx sdk.Context, cb func(evmAddr common.Address, seiAddr sdk.AccAddress) bool) {
-	iter := prefix.NewStore(ctx.GigaKVStore(k.storeKey), types.EVMAddressToSeiAddressKeyPrefix).Iterator(nil, nil)
+	iter := prefix.NewStore(ctx.KVStore(k.storeKey), types.EVMAddressToSeiAddressKeyPrefix).Iterator(nil, nil)
 	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		evmAddr := common.BytesToAddress(iter.Key())
