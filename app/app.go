@@ -31,6 +31,7 @@ import (
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/tasks"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/types/occ"
@@ -1801,9 +1802,10 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, ethTx.Hash(), surplus)
 
 	// Determine result code based on VM error
+	// Use ErrEVMVMError.ABCICode() (45) to match V2 executor behavior
 	code := uint32(0)
 	if execResult.Err != nil {
-		code = 1
+		code = sdkerrors.ErrEVMVMError.ABCICode()
 	}
 
 	// GasWanted should be set to the transaction's gas limit to match standard executor behavior.
