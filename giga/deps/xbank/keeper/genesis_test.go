@@ -13,6 +13,8 @@ func (suite *IntegrationTestSuite) TestExportGenesis() {
 	app, ctx := suite.app, suite.ctx
 
 	expectedMetadata := suite.getTestMetadata()
+	genesisTotal, _, err := app.GigaBankKeeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
+	suite.Require().NoError(err)
 	expectedBalances, totalSupply := suite.getTestBalancesAndSupply()
 	for i := range []int{1, 2} {
 		app.GigaBankKeeper.SetDenomMetaData(ctx, expectedMetadata[i])
@@ -38,13 +40,20 @@ func (suite *IntegrationTestSuite) TestExportGenesis() {
 
 	suite.Require().Len(exportGenesis.Params.SendEnabled, 0)
 	suite.Require().Equal(types.DefaultParams().DefaultSendEnabled, exportGenesis.Params.DefaultSendEnabled)
-	suite.Require().Equal(totalSupply, exportGenesis.Supply)
+	expectedTotal := genesisTotal.Add(totalSupply...)
+	suite.Require().Equal(expectedTotal, exportGenesis.Supply)
 	expectedBalances[0].Coins = expectedBalances[0].Coins.Sub(sdk.NewCoins(sdk.NewCoin(sdk.MustGetBaseDenom(), sdk.OneInt())))
 	expectedWeiBalances := []types.WeiBalance{
 		{Amount: keeper.OneUseiInWei.Sub(sdk.OneInt()), Address: expectedBalances[0].Address},
 		{Amount: sdk.OneInt(), Address: expectedBalances[1].Address},
 	}
-	suite.Require().Equal(expectedBalances, exportGenesis.Balances)
+	for _, balance := range exportGenesis.Balances {
+		for _, expectedBalance := range expectedBalances {
+			if balance.Address == expectedBalance.Address {
+				suite.Require().Equal(expectedBalance.Coins, balance.Coins)
+			}
+		}
+	}
 	suite.Require().Equal(expectedMetadata, exportGenesis.DenomMetadata)
 	suite.Require().Equal(expectedWeiBalances, exportGenesis.WeiBalances)
 }

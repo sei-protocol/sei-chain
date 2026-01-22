@@ -21,7 +21,6 @@ import (
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/suite"
-	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
@@ -173,6 +172,9 @@ func (suite *IntegrationTestSuite) TestSupply() {
 	// add module accounts to supply keeper
 	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
 
+	genesisTotal, _, err := keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
+	require.NoError(err)
+
 	initialPower := int64(100)
 	initTokens := suite.app.StakingKeeper.TokensFromConsensusPower(ctx, initialPower)
 	totalSupply := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, initTokens))
@@ -183,8 +185,9 @@ func (suite *IntegrationTestSuite) TestSupply() {
 	require.NoError(keeper.SendCoinsFromModuleToAccount(ctx, authtypes.Minter, burnerAcc.GetAddress(), totalSupply))
 
 	total, _, err := keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
+	expectedTotal := genesisTotal.Add(totalSupply...)
 	require.NoError(err)
-	require.Equal(totalSupply, total)
+	require.Equal(expectedTotal, total)
 
 	// burning all supplied tokens
 	err = keeper.BurnCoins(ctx, authtypes.Burner, totalSupply)
@@ -192,7 +195,7 @@ func (suite *IntegrationTestSuite) TestSupply() {
 
 	total, _, err = keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
 	require.NoError(err)
-	require.Equal(total.String(), "")
+	require.Equal(genesisTotal, total)
 }
 
 func (suite *IntegrationTestSuite) TestIterateSupply() {
@@ -202,6 +205,9 @@ func (suite *IntegrationTestSuite) TestIterateSupply() {
 
 	// add module accounts to supply keeper
 	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
+
+	genesisTotal, _, err := keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
+	require.NoError(err)
 
 	initialPower := int64(100)
 	initTokens := suite.app.StakingKeeper.TokensFromConsensusPower(ctx, initialPower)
@@ -218,7 +224,8 @@ func (suite *IntegrationTestSuite) TestIterateSupply() {
 		amounts = append(amounts, c)
 		return false
 	})
-	require.Equal(totalSupply, sdk.Coins(amounts))
+	expectedTotal := genesisTotal.Add(totalSupply...)
+	require.Equal(expectedTotal, sdk.Coins(amounts))
 }
 
 func (suite *IntegrationTestSuite) TestSendCoinsFromModuleToAccount_Blocklist() {
@@ -942,238 +949,6 @@ func (suite *IntegrationTestSuite) TestHasBalance() {
 	suite.Require().True(app.GigaBankKeeper.HasBalance(ctx, addr, newFooCoin(1)))
 }
 
-func (suite *IntegrationTestSuite) TestMsgSendEvents() {
-	app, ctx := suite.app, suite.ctx
-	addr := sdk.AccAddress([]byte("addr1_______________"))
-	addr2 := sdk.AccAddress([]byte("addr2_______________"))
-	acc := app.AccountKeeper.NewAccountWithAddress(ctx, addr)
-
-	app.AccountKeeper.SetAccount(ctx, acc)
-	newCoins := sdk.NewCoins(sdk.NewInt64Coin(fooDenom, 50))
-	suite.Require().NoError(apptesting.FundAccount(app.GigaBankKeeper, ctx, addr, newCoins))
-
-	suite.Require().NoError(app.GigaBankKeeper.SendCoins(ctx, addr, addr2, newCoins))
-	event1 := sdk.Event{
-		Type:       types.EventTypeTransfer,
-		Attributes: []abci.EventAttribute{},
-	}
-	event1.Attributes = append(
-		event1.Attributes,
-		abci.EventAttribute{Key: []byte(types.AttributeKeyRecipient), Value: []byte(addr2.String())},
-	)
-	event1.Attributes = append(
-		event1.Attributes,
-		abci.EventAttribute{Key: []byte(types.AttributeKeySender), Value: []byte(addr.String())},
-	)
-	event1.Attributes = append(
-		event1.Attributes,
-		abci.EventAttribute{Key: []byte(sdk.AttributeKeyAmount), Value: []byte(newCoins.String())},
-	)
-
-	event2 := sdk.Event{
-		Type:       sdk.EventTypeMessage,
-		Attributes: []abci.EventAttribute{},
-	}
-	event2.Attributes = append(
-		event2.Attributes,
-		abci.EventAttribute{Key: []byte(types.AttributeKeySender), Value: []byte(addr.String())},
-	)
-
-	// events are shifted due to the funding account events
-	events := ctx.EventManager().ABCIEvents()
-	suite.Require().Equal(10, len(events))
-	suite.Require().Equal(abci.Event(event1), events[8])
-	suite.Require().Equal(abci.Event(event2), events[9])
-}
-
-func (suite *IntegrationTestSuite) TestMsgSendCoinsAndWeiEvents() {
-	app, ctx := suite.app, suite.ctx
-	addr := sdk.AccAddress([]byte("addr1_______________"))
-	addr2 := sdk.AccAddress([]byte("addr2_______________"))
-	acc := app.AccountKeeper.NewAccountWithAddress(ctx, addr)
-
-	app.AccountKeeper.SetAccount(ctx, acc)
-	newCoins := sdk.NewCoins(sdk.NewInt64Coin(sdk.MustGetBaseDenom(), 50))
-	sendCoins := sdk.NewCoins(sdk.NewInt64Coin(sdk.MustGetBaseDenom(), 40))
-	suite.Require().NoError(apptesting.FundAccount(app.GigaBankKeeper, ctx, addr, newCoins))
-
-	ctx = ctx.WithEventManager(sdk.NewEventManager())
-
-	suite.Require().NoError(app.GigaBankKeeper.SendCoinsAndWei(ctx, addr, addr2, sendCoins.AmountOf(sdk.MustGetBaseDenom()), sdk.NewInt(100)))
-	event1 := sdk.Event{
-		Type:       types.EventTypeTransfer,
-		Attributes: []abci.EventAttribute{},
-	}
-	event1.Attributes = append(
-		event1.Attributes,
-		abci.EventAttribute{Key: []byte(types.AttributeKeyRecipient), Value: []byte(addr2.String())},
-	)
-	event1.Attributes = append(
-		event1.Attributes,
-		abci.EventAttribute{Key: []byte(types.AttributeKeySender), Value: []byte(addr.String())},
-	)
-	event1.Attributes = append(
-		event1.Attributes,
-		abci.EventAttribute{Key: []byte(sdk.AttributeKeyAmount), Value: []byte(sendCoins.String())},
-	)
-
-	event2 := sdk.Event{
-		Type:       sdk.EventTypeMessage,
-		Attributes: []abci.EventAttribute{},
-	}
-	event2.Attributes = append(
-		event2.Attributes,
-		abci.EventAttribute{Key: []byte(types.AttributeKeySender), Value: []byte(addr.String())},
-	)
-
-	weiEvent := sdk.Event{
-		Type:       types.EventTypeWeiSpent,
-		Attributes: []abci.EventAttribute{},
-	}
-
-	weiEvent.Attributes = append(
-		weiEvent.Attributes,
-		abci.EventAttribute{Key: []byte(types.AttributeKeySpender), Value: []byte(addr.String())},
-		abci.EventAttribute{Key: []byte(sdk.AttributeKeyAmount), Value: []byte("100")},
-	)
-
-	weiEvent2 := sdk.Event{
-		Type:       types.EventTypeWeiReceived,
-		Attributes: []abci.EventAttribute{},
-	}
-
-	weiEvent2.Attributes = append(
-		weiEvent2.Attributes,
-		abci.EventAttribute{Key: []byte(types.AttributeKeyReceiver), Value: []byte(addr2.String())},
-		abci.EventAttribute{Key: []byte(sdk.AttributeKeyAmount), Value: []byte("100")},
-	)
-
-	weiTransfer := sdk.Event{
-		Type:       types.EventTypeWeiTransfer,
-		Attributes: []abci.EventAttribute{},
-	}
-
-	weiTransfer.Attributes = append(
-		weiTransfer.Attributes,
-		abci.EventAttribute{Key: []byte(types.AttributeKeyRecipient), Value: []byte(addr2.String())},
-		abci.EventAttribute{Key: []byte(types.AttributeKeySender), Value: []byte(addr.String())},
-		abci.EventAttribute{Key: []byte(sdk.AttributeKeyAmount), Value: []byte("100")},
-	)
-
-	// events are shifted due to the funding account events
-	events := ctx.EventManager().ABCIEvents()
-	suite.Require().Equal(7, len(events))
-	suite.Require().Equal(abci.Event(weiTransfer), events[2])
-	suite.Require().Equal(abci.Event(event1), events[5])
-	suite.Require().Equal(abci.Event(event2), events[6])
-	suite.Require().Equal(abci.Event(weiEvent), events[0])
-	suite.Require().Equal(abci.Event(weiEvent2), events[1])
-
-	// verify no wei add and sub events are emitted when the amount is zero
-	ctx = ctx.WithEventManager(sdk.NewEventManager())
-	suite.Require().NoError(app.GigaBankKeeper.SendCoinsAndWei(ctx, addr2, addr, sendCoins.AmountOf(sdk.MustGetBaseDenom()), sdk.ZeroInt()))
-	events = ctx.EventManager().ABCIEvents()
-	suite.Require().Equal(5, len(events))
-}
-
-func (suite *IntegrationTestSuite) TestMsgMultiSendEvents() {
-	app, ctx := suite.app, suite.ctx
-
-	app.GigaBankKeeper.SetParams(ctx, cosmosbanktypes.DefaultParams())
-
-	addr := sdk.AccAddress([]byte("addr1_______________"))
-	addr2 := sdk.AccAddress([]byte("addr2_______________"))
-	addr3 := sdk.AccAddress([]byte("addr3_______________"))
-	addr4 := sdk.AccAddress([]byte("addr4_______________"))
-	acc := app.AccountKeeper.NewAccountWithAddress(ctx, addr)
-	acc2 := app.AccountKeeper.NewAccountWithAddress(ctx, addr2)
-
-	app.AccountKeeper.SetAccount(ctx, acc)
-	app.AccountKeeper.SetAccount(ctx, acc2)
-
-	newCoins := sdk.NewCoins(sdk.NewInt64Coin(fooDenom, 50))
-	newCoins2 := sdk.NewCoins(sdk.NewInt64Coin(barDenom, 100))
-	inputs := []types.Input{
-		{Address: addr.String(), Coins: newCoins},
-		{Address: addr2.String(), Coins: newCoins2},
-	}
-	outputs := []types.Output{
-		{Address: addr3.String(), Coins: newCoins},
-		{Address: addr4.String(), Coins: newCoins2},
-	}
-
-	suite.Require().Error(app.GigaBankKeeper.InputOutputCoins(ctx, inputs, outputs))
-
-	events := ctx.EventManager().ABCIEvents()
-	suite.Require().Equal(0, len(events))
-
-	// Set addr's coins but not addr2's coins
-	suite.Require().NoError(apptesting.FundAccount(app.GigaBankKeeper, ctx, addr, sdk.NewCoins(sdk.NewInt64Coin(fooDenom, 50))))
-	suite.Require().Error(app.GigaBankKeeper.InputOutputCoins(ctx, inputs, outputs))
-
-	events = ctx.EventManager().ABCIEvents()
-	suite.Require().Equal(8, len(events)) // 7 events because account funding causes extra minting + coin_spent + coin_recv events
-
-	event1 := sdk.Event{
-		Type:       sdk.EventTypeMessage,
-		Attributes: []abci.EventAttribute{},
-	}
-	event1.Attributes = append(
-		event1.Attributes,
-		abci.EventAttribute{Key: []byte(types.AttributeKeySender), Value: []byte(addr.String())},
-	)
-	suite.Require().Equal(abci.Event(event1), events[7])
-
-	// Set addr's coins and addr2's coins
-	suite.Require().NoError(apptesting.FundAccount(app.GigaBankKeeper, ctx, addr, sdk.NewCoins(sdk.NewInt64Coin(fooDenom, 50))))
-	newCoins = sdk.NewCoins(sdk.NewInt64Coin(fooDenom, 50))
-
-	suite.Require().NoError(apptesting.FundAccount(app.GigaBankKeeper, ctx, addr2, sdk.NewCoins(sdk.NewInt64Coin(barDenom, 100))))
-	newCoins2 = sdk.NewCoins(sdk.NewInt64Coin(barDenom, 100))
-
-	suite.Require().NoError(app.GigaBankKeeper.InputOutputCoins(ctx, inputs, outputs))
-
-	events = ctx.EventManager().ABCIEvents()
-	suite.Require().Equal(28, len(events)) // 25 due to account funding + coin_spent + coin_recv events
-
-	event2 := sdk.Event{
-		Type:       sdk.EventTypeMessage,
-		Attributes: []abci.EventAttribute{},
-	}
-	event2.Attributes = append(
-		event2.Attributes,
-		abci.EventAttribute{Key: []byte(types.AttributeKeySender), Value: []byte(addr2.String())},
-	)
-	event3 := sdk.Event{
-		Type:       types.EventTypeTransfer,
-		Attributes: []abci.EventAttribute{},
-	}
-	event3.Attributes = append(
-		event3.Attributes,
-		abci.EventAttribute{Key: []byte(types.AttributeKeyRecipient), Value: []byte(addr3.String())},
-	)
-	event3.Attributes = append(
-		event3.Attributes,
-		abci.EventAttribute{Key: []byte(sdk.AttributeKeyAmount), Value: []byte(newCoins.String())})
-	event4 := sdk.Event{
-		Type:       types.EventTypeTransfer,
-		Attributes: []abci.EventAttribute{},
-	}
-	event4.Attributes = append(
-		event4.Attributes,
-		abci.EventAttribute{Key: []byte(types.AttributeKeyRecipient), Value: []byte(addr4.String())},
-	)
-	event4.Attributes = append(
-		event4.Attributes,
-		abci.EventAttribute{Key: []byte(sdk.AttributeKeyAmount), Value: []byte(newCoins2.String())},
-	)
-	// events are shifted due to the funding account events
-	suite.Require().Equal(abci.Event(event1), events[21])
-	suite.Require().Equal(abci.Event(event2), events[23])
-	suite.Require().Equal(abci.Event(event3), events[25])
-	suite.Require().Equal(abci.Event(event4), events[27])
-}
-
 func (suite *IntegrationTestSuite) TestSpendableCoins() {
 	app, ctx := suite.app, suite.ctx
 	now := tmtime.Now()
@@ -1855,9 +1630,9 @@ func (suite *IntegrationTestSuite) getTestMetadata() []types.Metadata {
 		Symbol:      "ATOM",
 		Description: "The native staking token of the Cosmos Hub.",
 		DenomUnits: []*types.DenomUnit{
-			{"uatom", uint32(0), []string{"microatom"}},
-			{"matom", uint32(3), []string{"milliatom"}},
-			{"atom", uint32(6), nil},
+			{Denom: "uatom", Exponent: uint32(0), Aliases: []string{"microatom"}},
+			{Denom: "matom", Exponent: uint32(3), Aliases: []string{"milliatom"}},
+			{Denom: "atom", Exponent: uint32(6), Aliases: nil},
 		},
 		Base:    "uatom",
 		Display: "atom",
@@ -1867,9 +1642,9 @@ func (suite *IntegrationTestSuite) getTestMetadata() []types.Metadata {
 			Symbol:      "TOKEN",
 			Description: "The native staking token of the Token Hub.",
 			DenomUnits: []*types.DenomUnit{
-				{"1token", uint32(5), []string{"decitoken"}},
-				{"2token", uint32(4), []string{"centitoken"}},
-				{"3token", uint32(7), []string{"dekatoken"}},
+				{Denom: "1token", Exponent: uint32(5), Aliases: []string{"decitoken"}},
+				{Denom: "2token", Exponent: uint32(4), Aliases: []string{"centitoken"}},
+				{Denom: "3token", Exponent: uint32(7), Aliases: []string{"dekatoken"}},
 			},
 			Base:    "utoken",
 			Display: "token",

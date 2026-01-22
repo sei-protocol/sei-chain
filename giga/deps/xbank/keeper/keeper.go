@@ -1,7 +1,6 @@
 package keeper
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 
@@ -322,7 +321,7 @@ func (k BaseKeeper) IterateAllDenomMetaData(ctx sdk.Context, cb func(types.Metad
 	denomMetaDataStore := prefix.NewStore(store, types.DenomMetadataPrefix)
 
 	iterator := denomMetaDataStore.Iterator(nil, nil)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid(); iterator.Next() {
 		var metadata types.Metadata
@@ -421,7 +420,7 @@ func (k BaseKeeper) DeferredSendCoinsFromAccountToModule(
 	}
 	// get txIndex
 	txIndex := ctx.TxIndex()
-	err = k.deferredCache.UpsertBalances(ctx, moduleAcc.GetAddress(), uint64(txIndex), amount)
+	err = k.deferredCache.UpsertBalances(ctx, moduleAcc.GetAddress(), uint64(txIndex), amount) //nolint:gosec
 	if err != nil {
 		return err
 	}
@@ -464,7 +463,7 @@ func (k BaseKeeper) WriteDeferredBalances(ctx sdk.Context) []abci.Event {
 	for _, moduleBech32Addr := range moduleList {
 		amount, ok := moduleAddrBalanceMap[moduleBech32Addr]
 		if !ok {
-			err := fmt.Errorf("Failed to get module balance for writing deferred balances for address=%s", moduleBech32Addr)
+			err := fmt.Errorf("failed to get module balance for writing deferred balances for address=%s", moduleBech32Addr)
 			ctx.Logger().Error(err.Error())
 			panic(err)
 		}
@@ -568,7 +567,7 @@ func (k BaseKeeper) MintCoins(ctx sdk.Context, moduleName string, amounts sdk.Co
 	addFn := func(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
 		acc := k.ak.GetModuleAccount(ctx, moduleName)
 		if acc == nil {
-			return errors.New(fmt.Sprintf("module account for %s not found", moduleName))
+			return fmt.Errorf("module account for %s not found", moduleName)
 		}
 		return k.AddCoins(ctx, acc.GetAddress(), amounts, true)
 	}
