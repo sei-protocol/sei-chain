@@ -1373,7 +1373,16 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 			continue
 		}
 
-		fmt.Println("GIGASYNC result (0)", i, result)
+		fmt.Println("GIGASYNC result (0)", i)
+		fmt.Println("Code", result.Code)
+		fmt.Println("Log", result.Log)
+		fmt.Println("Info", result.Info)
+		fmt.Println("GasWanted", result.GasWanted)
+		fmt.Println("GasUsed", result.GasUsed)
+		fmt.Println("Events", result.Events)
+		fmt.Println("Codespace", result.Codespace)
+		fmt.Println("EvmTxInfo", result.EvmTxInfo)
+
 
 		txResults[i] = result
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
@@ -1493,7 +1502,15 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 			EvmTxInfo: r.Response.EvmTxInfo,
 		})
 
-		fmt.Println("OCC result (0)", i, execResults[i])
+		fmt.Println("OCC result (0)", i)
+		fmt.Println("Code", execResults[i].Code)
+		fmt.Println("Log", execResults[i].Log)
+		fmt.Println("Info", execResults[i].Info)
+		fmt.Println("GasWanted", execResults[i].GasWanted)
+		fmt.Println("GasUsed", execResults[i].GasUsed)
+		fmt.Println("Events", execResults[i].Events)
+		fmt.Println("Codespace", execResults[i].Codespace)
+		fmt.Println("EvmTxInfo", execResults[i].EvmTxInfo)
 	}
 
 	return execResults, ctx
