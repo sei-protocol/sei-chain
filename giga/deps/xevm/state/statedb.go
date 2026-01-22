@@ -137,6 +137,7 @@ func (s *DBImpl) flushCtxs() {
 
 func (s *DBImpl) flushCtx(ctx sdk.Context) {
 	ctx.MultiStore().(sdk.CacheMultiStore).Write()
+	ctx.GigaMultiStore().WriteGiga()
 }
 
 func (s *DBImpl) flushEvents(ctx sdk.Context) {
