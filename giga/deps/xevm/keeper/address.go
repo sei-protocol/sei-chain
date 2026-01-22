@@ -8,7 +8,7 @@ import (
 )
 
 func (k *Keeper) SetAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, evmAddress common.Address) {
-	store := ctx.KVStore(k.storeKey)
+	store := ctx.GigaKVStore(k.storeKey)
 	store.Set(types.EVMAddressToSeiAddressKey(evmAddress), seiAddress)
 	store.Set(types.SeiAddressToEVMAddressKey(seiAddress), evmAddress[:])
 	if !k.accountKeeper.HasAccount(ctx, seiAddress) {
@@ -22,13 +22,13 @@ func (k *Keeper) SetAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, e
 }
 
 func (k *Keeper) DeleteAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, evmAddress common.Address) {
-	store := ctx.KVStore(k.storeKey)
+	store := ctx.GigaKVStore(k.storeKey)
 	store.Delete(types.EVMAddressToSeiAddressKey(evmAddress))
 	store.Delete(types.SeiAddressToEVMAddressKey(seiAddress))
 }
 
 func (k *Keeper) GetEVMAddress(ctx sdk.Context, seiAddress sdk.AccAddress) (common.Address, bool) {
-	store := ctx.KVStore(k.storeKey)
+	store := ctx.GigaKVStore(k.storeKey)
 	bz := store.Get(types.SeiAddressToEVMAddressKey(seiAddress))
 	addr := common.Address{}
 	if bz == nil {
@@ -47,7 +47,7 @@ func (k *Keeper) GetEVMAddressOrDefault(ctx sdk.Context, seiAddress sdk.AccAddre
 }
 
 func (k *Keeper) GetSeiAddress(ctx sdk.Context, evmAddress common.Address) (sdk.AccAddress, bool) {
-	store := ctx.KVStore(k.storeKey)
+	store := ctx.GigaKVStore(k.storeKey)
 	bz := store.Get(types.EVMAddressToSeiAddressKey(evmAddress))
 	if bz == nil {
 		return []byte{}, false
@@ -64,7 +64,7 @@ func (k *Keeper) GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Addre
 }
 
 func (k *Keeper) IterateSeiAddressMapping(ctx sdk.Context, cb func(evmAddr common.Address, seiAddr sdk.AccAddress) bool) {
-	iter := prefix.NewStore(ctx.KVStore(k.storeKey), types.EVMAddressToSeiAddressKeyPrefix).Iterator(nil, nil)
+	iter := prefix.NewStore(ctx.GigaKVStore(k.storeKey), types.EVMAddressToSeiAddressKeyPrefix).Iterator(nil, nil)
 	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		evmAddr := common.BytesToAddress(iter.Key())

@@ -13,7 +13,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
-	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -61,10 +60,18 @@ func NewGigaTestContext(t testing.TB, testAccts []utils.TestAcct, blockTime time
 	gigaEnabled := mode == ModeGigaSequential || mode == ModeGigaOCC
 	gigaOCCEnabled := mode == ModeGigaOCC
 
-	wrapper := app.NewTestWrapper(t, blockTime, testAccts[0].PublicKey, true, func(ba *baseapp.BaseApp) {
-		ba.SetOccEnabled(occEnabled)
-		ba.SetConcurrencyWorkers(workers)
-	})
+	var wrapper *app.TestWrapper
+	if !gigaEnabled {
+		wrapper = app.NewTestWrapperWithSc(t.(*testing.T), blockTime, testAccts[0].PublicKey, true, func(ba *baseapp.BaseApp) {
+			ba.SetOccEnabled(occEnabled)
+			ba.SetConcurrencyWorkers(workers)
+		})
+	} else {
+		wrapper = app.NewGigaTestWrapper(t.(*testing.T), blockTime, testAccts[0].PublicKey, true, gigaOCCEnabled, func(ba *baseapp.BaseApp) {
+			ba.SetOccEnabled(occEnabled)
+			ba.SetConcurrencyWorkers(workers)
+		})
+	}
 	testApp := wrapper.App
 	ctx := wrapper.Ctx
 	ctx = ctx.WithBlockHeader(tmproto.Header{
@@ -72,17 +79,6 @@ func NewGigaTestContext(t testing.TB, testAccts []utils.TestAcct, blockTime time
 		ChainID: ctx.BlockHeader().ChainID,
 		Time:    blockTime,
 	})
-
-	// Configure giga executor
-	testApp.GigaExecutorEnabled = gigaEnabled
-	testApp.GigaOCCEnabled = gigaOCCEnabled
-	if gigaEnabled {
-		evmoneVM, err := gigalib.InitEvmoneVM()
-		if err != nil {
-			t.Fatalf("failed to load evmone: %v", err)
-		}
-		testApp.GigaEvmKeeper.EvmoneVM = evmoneVM
-	}
 
 	// Fund test accounts
 	amounts := sdk.NewCoins(
