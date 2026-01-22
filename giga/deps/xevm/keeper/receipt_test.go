@@ -22,7 +22,7 @@ func TestReceipt(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, txHash.Hex(), r.TxHashHex)
 	_, err = k.GetTransientReceipt(ctx, common.Hash{1}, 0)
-	require.Equal(t, "not found", err.Error())
+	require.Equal(t, "receipt not found", err.Error())
 }
 
 func TestDeleteTransientReceipt(t *testing.T) {
@@ -37,5 +37,5 @@ func TestDeleteTransientReceipt(t *testing.T) {
 
 	receipt, err = k.GetTransientReceipt(ctx, txHash, 0)
 	require.Nil(t, receipt)
-	require.Equal(t, "not found", err.Error())
+	require.Equal(t, "receipt not found", err.Error())
 }
