@@ -110,6 +110,24 @@ type StateStoreConfig struct {
 	UseDefaultComparer bool `mapstructure:"use-default-comparer"`
 }
 
+// EVMStateStoreConfig defines configuration for the separate EVM state stores.
+// EVM stores use default comparer and separate PebbleDBs for storage, balance, nonce, and code.
+type EVMStateStoreConfig struct {
+	// Enable defines if the EVM state stores should be enabled.
+	// When enabled, EVM data is stored in separate optimized databases.
+	// defaults to false
+	Enable bool `mapstructure:"enable"`
+
+	// DBDirectory defines the directory to store the EVM state store db files
+	// If not explicitly set, defaults to <home>/data/evm_ss
+	DBDirectory string `mapstructure:"db-directory"`
+
+	// KeepRecent defines the number of versions to keep in EVM state stores
+	// Setting it to 0 means keep everything.
+	// Default to keep the last 100,000 blocks
+	KeepRecent int `mapstructure:"keep-recent"`
+}
+
 // ReceiptStoreConfig defines configuration for the receipt store database.
 type ReceiptStoreConfig struct {
 	// DBDirectory defines the directory to store the receipt store db files
@@ -174,5 +192,12 @@ func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 		KeepRecent:           DefaultSSKeepRecent,
 		PruneIntervalSeconds: DefaultSSPruneInterval,
 		UseDefaultComparer:   false, // TODO: flip to true once MVCCComparer is deprecated
+	}
+}
+
+func DefaultEVMStateStoreConfig() EVMStateStoreConfig {
+	return EVMStateStoreConfig{
+		Enable:     false, // Disabled by default, enable for optimized EVM storage
+		KeepRecent: DefaultSSKeepRecent,
 	}
 }
