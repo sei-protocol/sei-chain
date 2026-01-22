@@ -25,7 +25,12 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: nightly
+          # Pin to stable for predictable CI. If tests fail after a Foundry update,
+          # either fix compatibility or pin to a specific version (e.g., 1.5.1).
+          # See:
+          #  - https://github.com/foundry-rs/foundry/releases
+          #  - https://github.com/foundry-rs/foundry-toolchain
+          version: stable
 
       - name: Run Forge build
         run: |
