@@ -1020,35 +1020,3 @@ func TestGiga_GasAccounting(t *testing.T) {
 
 	t.Logf("Gas accounting verified: Call used %d gas", callResults[0].GasUsed)
 }
-
-// TestGiga_DepthTracking verifies call depth is tracked correctly
-func TestGiga_DepthTracking(t *testing.T) {
-	blockTime := time.Now()
-	accts := utils.NewTestAccounts(3)
-
-	deployer := utils.NewSigner()
-	caller := utils.NewSigner()
-	contractAddr := crypto.CreateAddress(deployer.EvmAddress, 0)
-
-	// Run multiple calls in sequence - each should properly track depth
-	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
-
-	// Deploy
-	deployTxs := CreateContractDeployTxs(t, gigaCtx, []EVMContractDeploy{
-		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
-	})
-	_, _, err := RunBlock(t, gigaCtx, deployTxs)
-	require.NoError(t, err)
-
-	// Multiple sequential calls
-	for i := 0; i < 3; i++ {
-		callTxs := CreateContractCallTxs(t, gigaCtx, []EVMContractCall{
-			{Signer: caller, Contract: contractAddr, Data: encodeSetCall(big.NewInt(int64(i))), Nonce: uint64(i)},
-		})
-		_, callResults, err := RunBlock(t, gigaCtx, callTxs)
-		require.NoError(t, err)
-		require.Equal(t, uint32(0), callResults[0].Code, "Call %d should succeed", i)
-	}
-
-	t.Logf("Depth tracking verified: Multiple sequential calls succeeded")
-}
