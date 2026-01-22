@@ -254,15 +254,15 @@ func TestRecoverReceiptStoreReplaysChangelog(t *testing.T) {
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.DBDirectory = dir
 	cfg.KeepRecent = 0
-	dbCfg := dbconfig.StateStoreConfig{
-		DBDirectory:          cfg.DBDirectory,
-		Backend:              cfg.Backend,
-		AsyncWriteBuffer:     cfg.AsyncWriteBuffer,
-		KeepRecent:           cfg.KeepRecent,
-		PruneIntervalSeconds: cfg.PruneIntervalSeconds,
-		UseDefaultComparer:   cfg.UseDefaultComparer,
+	ssConfig := dbconfig.DefaultStateStoreConfig()
+	ssConfig.DBDirectory = cfg.DBDirectory
+	ssConfig.KeepRecent = cfg.KeepRecent
+	if cfg.PruneIntervalSeconds > 0 {
+		ssConfig.PruneIntervalSeconds = cfg.PruneIntervalSeconds
 	}
-	db, err := mvcc.OpenDB(dir, dbCfg)
+	ssConfig.KeepLastVersion = false
+	ssConfig.Backend = "pebbledb"
+	db, err := mvcc.OpenDB(dir, ssConfig)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
