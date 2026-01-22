@@ -3,6 +3,7 @@
 package state
 
 import (
+	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -55,6 +56,11 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	surplus := sdk.NewIntFromBigInt(amt)
 	s.tempState.surplus = s.tempState.surplus.Add(surplus)
 	s.journal = append(s.journal, &surplusChange{delta: surplus})
+
+	// DEBUG: trace balance operations
+	fmt.Printf("  V2 SubBalance: addr=%s seiAddr=%s amt=%s reason=%d surplus_delta=+%s total_surplus=%s\n",
+		evmAddr.Hex(), addr.String(), amt.String(), reason, surplus.String(), s.tempState.surplus.String())
+
 	return *ZeroInt
 }
 
@@ -98,6 +104,11 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	surplus := sdk.NewIntFromBigInt(amt).Neg()
 	s.tempState.surplus = s.tempState.surplus.Add(surplus)
 	s.journal = append(s.journal, &surplusChange{delta: surplus})
+
+	// DEBUG: trace balance operations
+	fmt.Printf("  V2 AddBalance: addr=%s seiAddr=%s amt=%s reason=%d surplus_delta=%s total_surplus=%s\n",
+		evmAddr.Hex(), addr.String(), amt.String(), reason, surplus.String(), s.tempState.surplus.String())
+
 	return *ZeroInt
 }
 

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -86,9 +87,11 @@ import (
 	upgradeclient "github.com/cosmos/cosmos-sdk/x/upgrade/client"
 	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/giga/deps/tasks"
@@ -169,6 +172,7 @@ import (
 
 	gigaevmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	gigaevmstate "github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
+	evmstate "github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -1373,7 +1377,7 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 			continue
 		}
 
-		fmt.Println("GIGASYNC result (0)", i)
+		fmt.Println("GIGASYNC result (0)", i, ctx.BlockHeight())
 		fmt.Println("Code", result.Code)
 		fmt.Println("Log", result.Log)
 		fmt.Println("Info", result.Info)
@@ -1503,7 +1507,7 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 			EvmTxInfo: r.Response.EvmTxInfo,
 		})
 
-		fmt.Println("OCC result (0)", i)
+		fmt.Println("OCC result (0)", i, ctx.BlockHeight())
 		fmt.Println("Code", execResults[i].Code)
 		fmt.Println("Log", execResults[i].Log)
 		fmt.Println("Info", execResults[i].Info)
@@ -1512,6 +1516,46 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 		fmt.Println("Events", execResults[i].Events)
 		fmt.Println("Codespace", execResults[i].Codespace)
 		fmt.Println("EvmTxInfo", execResults[i].EvmTxInfo)
+
+		// DEBUG: Dump state after V2 OCC execution for comparison with Giga
+		if evmMsg := app.GetEVMMsg(typedTxs[absoluteTxIndices[i]]); evmMsg != nil {
+			ethTx, _ := evmMsg.AsTransaction()
+			if ethTx != nil {
+				sender := evmMsg.Derived.SenderEVMAddr
+				senderSeiAddr := app.EvmKeeper.GetSeiAddressOrDefault(ctx, sender)
+				senderBal := app.BankKeeper.GetBalance(ctx, senderSeiAddr, app.EvmKeeper.GetBaseDenom(ctx))
+				senderWei := app.BankKeeper.GetWeiBalance(ctx, senderSeiAddr)
+				senderNonce := app.EvmKeeper.GetNonce(ctx, sender)
+
+				var recipientBal sdk.Coin
+				var recipientWei sdk.Int
+				var recipientNonce uint64
+				if ethTx.To() != nil {
+					recipientSeiAddr := app.EvmKeeper.GetSeiAddressOrDefault(ctx, *ethTx.To())
+					recipientBal = app.BankKeeper.GetBalance(ctx, recipientSeiAddr, app.EvmKeeper.GetBaseDenom(ctx))
+					recipientWei = app.BankKeeper.GetWeiBalance(ctx, recipientSeiAddr)
+					recipientNonce = app.EvmKeeper.GetNonce(ctx, *ethTx.To())
+				}
+
+				coinbaseAddr := evmstate.GetCoinbaseAddress(absoluteTxIndices[i])
+				coinbaseBal := app.BankKeeper.GetBalance(ctx, coinbaseAddr, app.EvmKeeper.GetBaseDenom(ctx))
+				coinbaseWei := app.BankKeeper.GetWeiBalance(ctx, coinbaseAddr)
+
+				fmt.Printf("=== V2 OCC STATE DUMP height=%d txIdx=%d txHash=%s ===\n", ctx.BlockHeight(), absoluteTxIndices[i], ethTx.Hash().Hex())
+				fmt.Printf("  Sender:    %s (EVM: %s)\n", senderSeiAddr, sender.Hex())
+				fmt.Printf("    Balance: %s + %s wei\n", senderBal.String(), senderWei.String())
+				fmt.Printf("    Nonce:   %d\n", senderNonce)
+				if ethTx.To() != nil {
+					fmt.Printf("  Recipient: %s (EVM: %s)\n", app.EvmKeeper.GetSeiAddressOrDefault(ctx, *ethTx.To()), ethTx.To().Hex())
+					fmt.Printf("    Balance: %s + %s wei\n", recipientBal.String(), recipientWei.String())
+					fmt.Printf("    Nonce:   %d\n", recipientNonce)
+				}
+				fmt.Printf("  Coinbase:  %s\n", coinbaseAddr)
+				fmt.Printf("    Balance: %s + %s wei\n", coinbaseBal.String(), coinbaseWei.String())
+				fmt.Printf("  GasUsed:   %d\n", r.Response.GasUsed)
+				fmt.Printf("===============================================\n")
+			}
+		}
 	}
 
 	return execResults, ctx
@@ -1604,6 +1648,9 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	}
 
 	endBlockResp = app.EndBlock(ctx, req.GetHeight(), evmTotalGasUsed)
+
+	// DEBUG: Dump all account balances after V2 block processing
+	app.DumpAllBalances(ctx, "V2 OCC ProcessBlock")
 
 	events = append(events, endBlockResp.Events...)
 	return events, txResults, endBlockResp, nil
@@ -1703,6 +1750,10 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 
 	// EndBlock
 	endBlockResp = app.EndBlock(ctx, req.GetHeight(), evmTotalGasUsed)
+
+	// DEBUG: Dump all account balances after Giga Sync block processing
+	app.DumpAllBalances(ctx, "Giga Sync ProcessBlock")
+
 	events = append(events, endBlockResp.Events...)
 
 	return events, txResults, endBlockResp, nil
@@ -1781,7 +1832,6 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	}
 
 	// Finalize state changes
-	fmt.Println("Balance ", sender, stateDB.GetBalance(sender))
 	surplus, ferr := stateDB.Finalize()
 	if ferr != nil {
 		return &abci.ExecTxResult{
@@ -1822,6 +1872,44 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	bloom.SetBytes(receipt.LogsBloom)
 	// TODO: when we don't need consensus with v2, we can zero out surplus
 	app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, ethTx.Hash(), surplus)
+
+	// DEBUG: Dump state after Giga execution for comparison with V2
+	{
+		senderSeiAddr := app.GigaEvmKeeper.GetSeiAddressOrDefault(ctx, sender)
+		senderBal := app.BankKeeper.GetBalance(ctx, senderSeiAddr, app.GigaEvmKeeper.GetBaseDenom(ctx))
+		senderWei := app.BankKeeper.GetWeiBalance(ctx, senderSeiAddr)
+		senderNonce := app.GigaEvmKeeper.GetNonce(ctx, sender)
+
+		var recipientBal sdk.Coin
+		var recipientWei sdk.Int
+		var recipientNonce uint64
+		if ethTx.To() != nil {
+			recipientSeiAddr := app.GigaEvmKeeper.GetSeiAddressOrDefault(ctx, *ethTx.To())
+			recipientBal = app.BankKeeper.GetBalance(ctx, recipientSeiAddr, app.GigaEvmKeeper.GetBaseDenom(ctx))
+			recipientWei = app.BankKeeper.GetWeiBalance(ctx, recipientSeiAddr)
+			recipientNonce = app.GigaEvmKeeper.GetNonce(ctx, *ethTx.To())
+		}
+
+		coinbaseAddr := gigaevmstate.GetCoinbaseAddress(ctx.TxIndex())
+		coinbaseBal := app.BankKeeper.GetBalance(ctx, coinbaseAddr, app.GigaEvmKeeper.GetBaseDenom(ctx))
+		coinbaseWei := app.BankKeeper.GetWeiBalance(ctx, coinbaseAddr)
+
+		fmt.Printf("=== GIGA STATE DUMP height=%d txIdx=%d txHash=%s ===\n", ctx.BlockHeight(), ctx.TxIndex(), ethTx.Hash().Hex())
+		fmt.Printf("  Sender:    %s (EVM: %s)\n", senderSeiAddr, sender.Hex())
+		fmt.Printf("    Balance: %s + %s wei\n", senderBal.String(), senderWei.String())
+		fmt.Printf("    Nonce:   %d\n", senderNonce)
+		if ethTx.To() != nil {
+			fmt.Printf("  Recipient: %s (EVM: %s)\n", app.GigaEvmKeeper.GetSeiAddressOrDefault(ctx, *ethTx.To()), ethTx.To().Hex())
+			fmt.Printf("    Balance: %s + %s wei\n", recipientBal.String(), recipientWei.String())
+			fmt.Printf("    Nonce:   %d\n", recipientNonce)
+		}
+		fmt.Printf("  Coinbase:  %s\n", coinbaseAddr)
+		fmt.Printf("    Balance: %s + %s wei\n", coinbaseBal.String(), coinbaseWei.String())
+		fmt.Printf("  Surplus:   %s\n", surplus.String())
+		fmt.Printf("  GasUsed:   %d\n", execResult.UsedGas)
+		fmt.Printf("  VmError:   %s\n", vmError)
+		fmt.Printf("===============================================\n")
+	}
 
 	// Determine result code based on VM error
 	code := uint32(0)
@@ -2011,6 +2099,10 @@ func (app *App) ProcessBlockWithGigaExecutorOCC(ctx sdk.Context, txs [][]byte, r
 
 	// EndBlock
 	endBlockResp = app.EndBlock(ctx, req.GetHeight(), evmTotalGasUsed)
+
+	// DEBUG: Dump all account balances after Giga OCC block processing
+	app.DumpAllBalances(ctx, "Giga OCC ProcessBlock")
+
 	events = append(events, endBlockResp.Events...)
 
 	return events, txResults, endBlockResp, nil
@@ -2514,6 +2606,86 @@ func (app *App) inplacetestnetInitializer(pk cryptotypes.PubKey) error {
 		)
 	}
 	return nil
+}
+
+// DumpAllBalances prints all accounts with non-zero balances for debugging app-hash mismatches
+func (app *App) DumpAllBalances(ctx sdk.Context, label string) {
+	fmt.Printf("\n========== STATE DUMP: %s (height=%d) ==========\n", label, ctx.BlockHeight())
+
+	denom := app.EvmKeeper.GetBaseDenom(ctx)
+	var accounts []struct {
+		addr    string
+		balance sdk.Coin
+		wei     sdk.Int
+	}
+
+	// Iterate all balances
+	app.BankKeeper.IterateAllBalances(ctx, func(addr sdk.AccAddress, coin sdk.Coin) bool {
+		if coin.Denom == denom && !coin.Amount.IsZero() {
+			wei := app.BankKeeper.GetWeiBalance(ctx, addr)
+			accounts = append(accounts, struct {
+				addr    string
+				balance sdk.Coin
+				wei     sdk.Int
+			}{addr.String(), coin, wei})
+		}
+		return false
+	})
+
+	// Sort by address for deterministic output
+	sort.Slice(accounts, func(i, j int) bool {
+		return accounts[i].addr < accounts[j].addr
+	})
+
+	fmt.Printf("Total accounts with non-zero %s balance: %d\n", denom, len(accounts))
+	for _, acc := range accounts {
+		weiStr := "0"
+		if !acc.wei.IsNil() && !acc.wei.IsZero() {
+			weiStr = acc.wei.String()
+		}
+		fmt.Printf("  %s: %s + %s wei\n", acc.addr, acc.balance.String(), weiStr)
+	}
+
+	// Also dump EVM-specific state: deferred info
+	deferredInfoList := app.EvmKeeper.GetAllEVMTxDeferredInfo(ctx)
+	if len(deferredInfoList) > 0 {
+		fmt.Printf("\nDeferred EVM TX Info (%d entries):\n", len(deferredInfoList))
+		for _, info := range deferredInfoList {
+			fmt.Printf("  TxIdx=%d TxHash=%x Surplus=%s Error=%s\n",
+				info.TxIndex, info.TxHash, info.Surplus.String(), info.Error)
+		}
+	}
+
+	// Dump ante surplus
+	anteSurplus := app.EvmKeeper.GetAnteSurplusSum(ctx)
+	fmt.Printf("\nAnte Surplus Sum: %s\n", anteSurplus.String())
+
+	// Dump EVM address mappings
+	fmt.Printf("\nEVM Address Mappings:\n")
+	app.EvmKeeper.IterateSeiAddressMapping(ctx, func(evmAddr common.Address, seiAddr sdk.AccAddress) bool {
+		fmt.Printf("  %s <-> %s\n", evmAddr.Hex(), seiAddr.String())
+		return false
+	})
+
+	// Dump EVM code (contract addresses)
+	fmt.Printf("\nEVM Contracts (addresses with code):\n")
+	app.EvmKeeper.IterateAllCode(ctx, func(addr common.Address, code []byte) bool {
+		codeHash := common.BytesToHash(crypto.Keccak256(code))
+		fmt.Printf("  %s: codeSize=%d codeHash=%s\n", addr.Hex(), len(code), codeHash.Hex())
+		return false
+	})
+
+	// Dump EVM nonces for known addresses
+	fmt.Printf("\nEVM Nonces:\n")
+	app.EvmKeeper.IterateSeiAddressMapping(ctx, func(evmAddr common.Address, seiAddr sdk.AccAddress) bool {
+		nonce := app.EvmKeeper.GetNonce(ctx, evmAddr)
+		if nonce > 0 {
+			fmt.Printf("  %s: nonce=%d\n", evmAddr.Hex(), nonce)
+		}
+		return false
+	})
+
+	fmt.Printf("========== END STATE DUMP ==========\n\n")
 }
 
 func init() {

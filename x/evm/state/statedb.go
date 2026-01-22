@@ -1,6 +1,8 @@
 package state
 
 import (
+	"fmt"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -119,6 +121,8 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	s.flushEvents(s.ctx)
 
 	surplus = s.tempState.surplus
+	// DEBUG: trace Finalize
+	fmt.Printf("  V2 Finalize: txIdx=%d surplus=%s\n", s.ctx.TxIndex(), surplus.String())
 	return
 }
 
