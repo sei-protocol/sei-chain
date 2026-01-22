@@ -290,9 +290,9 @@ func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {
 
 func TestGetBaseFeeBeforeV620(t *testing.T) {
 	// Set up a test app and context
-	testApp := app.Setup(t, false, false, false)
+	testApp, testCtx := testkeeper.MockApp(t)
 	testHeight := int64(1000)
-	testCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(testHeight)
+	testCtx = testCtx.WithBlockHeight(testHeight)
 
 	// Set chain ID to pacific-1
 	testCtx = testCtx.WithChainID("pacific-1")

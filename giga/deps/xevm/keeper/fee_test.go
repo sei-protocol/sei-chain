@@ -11,8 +11,7 @@ import (
 )
 
 func TestBaseFeePerGas(t *testing.T) {
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	k, ctx := testkeeper.MockEVMKeeper(t)
 	require.Equal(t, k.GetMinimumFeePerGas(ctx), k.GetNextBaseFeePerGas(ctx))
 	require.True(t, k.GetNextBaseFeePerGas(ctx).LTE(k.GetMaximumFeePerGas(ctx)))
 	originalbf := k.GetNextBaseFeePerGas(ctx)
@@ -183,7 +182,7 @@ func TestGetDynamicBaseFeePerGasWithNilMinFee(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper(t)
 
 	// Test case 1: When dynamic base fee doesn't exist and minimum fee is nil
-	store := ctx.KVStore(k.GetStoreKey())
+	store := ctx.GigaKVStore(k.GetStoreKey())
 	store.Delete(types.BaseFeePerGasPrefix)
 
 	// Clear the dynamic base fee from store
@@ -204,7 +203,7 @@ func TestGetPrevBlockBaseFeePerGasWithNilMinFee(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper(t)
 
 	// Test case 1: When dynamic base fee doesn't exist and minimum fee is nil
-	store := ctx.KVStore(k.GetStoreKey())
+	store := ctx.GigaKVStore(k.GetStoreKey())
 	store.Delete(types.BaseFeePerGasPrefix)
 
 	// Clear the dynamic base fee from store

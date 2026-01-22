@@ -9,8 +9,7 @@ import (
 )
 
 func TestGetFeeCollectorAddress(t *testing.T) {
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	k, ctx := testkeeper.MockEVMKeeper(t)
 	addr, err := k.GetFeeCollectorAddress(ctx)
 	require.Nil(t, err)
 	expected := k.GetEVMAddressOrDefault(ctx, k.AccountKeeper().GetModuleAddress("fee_collector"))

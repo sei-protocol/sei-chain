@@ -15,12 +15,103 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
-func LocalAddr(conn *net.TCPConn) netip.AddrPort {
-	return conn.LocalAddr().(*net.TCPAddr).AddrPort()
+type call struct {
+	data []byte
+	done chan bool
 }
 
-func RemoteAddr(conn *net.TCPConn) netip.AddrPort {
-	return conn.RemoteAddr().(*net.TCPAddr).AddrPort()
+type Conn struct {
+	writes chan call
+	reads  chan call
+	errors chan error
+	conn   *net.TCPConn
+}
+
+func (c Conn) Read(ctx context.Context, data []byte) error {
+	done := make(chan bool)
+	if err := utils.Send(ctx, c.reads, call{data, done}); err != nil {
+		return err
+	}
+	ok, err := utils.Recv(ctx, done)
+	if err != nil {
+		c.conn.CloseRead() // close the read half.
+		<-done             // wait for data ownership to be returned.
+		return err
+	}
+	if !ok {
+		<-ctx.Done() // wait for context to finish.
+		return ctx.Err()
+	}
+	return nil
+}
+
+func (c Conn) Write(ctx context.Context, data []byte) error {
+	done := make(chan bool)
+	if err := utils.Send(ctx, c.writes, call{data, done}); err != nil {
+		return err
+	}
+	ok, err := utils.Recv(ctx, done)
+	if err != nil {
+		c.conn.CloseWrite() // close the write half.
+		<-done              // wait for data ownership to be returned.
+		return err
+	}
+	if !ok {
+		// wait for context to finish.
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return nil
+}
+
+func (c Conn) Flush(_ context.Context) error { return nil }
+func (c Conn) Close()                        { _ = c.conn.Close() }
+
+func (c Conn) Run(ctx context.Context) error {
+	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error {
+			for {
+				call, err := utils.Recv(ctx, c.writes)
+				if err != nil {
+					return err
+				}
+				_, err = c.conn.Write(call.data)
+				call.done <- err == nil
+				if err != nil {
+					return err
+				}
+			}
+		})
+		s.Spawn(func() error {
+			for {
+				call, err := utils.Recv(ctx, c.reads)
+				if err != nil {
+					return err
+				}
+				for len(call.data) > 0 {
+					n, err := c.conn.Read(call.data)
+					if err != nil {
+						call.done <- false
+						return err
+					}
+					call.data = call.data[n:]
+				}
+				call.done <- true
+			}
+		})
+		<-ctx.Done()
+		s.Cancel(ctx.Err())
+		c.conn.Close()
+		return nil
+	}))
+}
+
+func (c Conn) LocalAddr() netip.AddrPort {
+	return c.conn.LocalAddr().(*net.TCPAddr).AddrPort()
+}
+
+func (c Conn) RemoteAddr() netip.AddrPort {
+	return c.conn.RemoteAddr().(*net.TCPAddr).AddrPort()
 }
 
 // reserverAddrs is a global register of reserved ports.
@@ -33,13 +124,17 @@ var reservedAddrs = utils.NewMutex(map[netip.AddrPort]utils.Option[int]{})
 // IPv4Loopback returns the IPv4 loopback address.
 func IPv4Loopback() netip.Addr { return netip.AddrFrom4([4]byte{127, 0, 0, 1}) }
 
-func Dial(ctx context.Context, addr netip.AddrPort) (*net.TCPConn, error) {
+func Dial(ctx context.Context, addr netip.AddrPort) (Conn, error) {
 	d := net.Dialer{}
 	conn, err := d.DialContext(ctx, "tcp", addr.String())
 	if err != nil {
-		return nil, err
+		return Conn{}, err
 	}
-	return conn.(*net.TCPConn), nil
+	return Conn{
+		conn:   conn.(*net.TCPConn),
+		writes: make(chan call),
+		reads:  make(chan call),
+	}, nil
 }
 
 type Listener struct {
@@ -105,7 +200,7 @@ func (l *Listener) Close() error {
 
 // Accepts an incoming TCP connection.
 // Closes the listener if ctx is done before a connection is accepted.
-func (l *Listener) AcceptOrClose(ctx context.Context) (*net.TCPConn, error) {
+func (l *Listener) AcceptOrClose(ctx context.Context) (Conn, error) {
 	var res atomic.Pointer[net.TCPConn]
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
@@ -129,39 +224,18 @@ func (l *Listener) AcceptOrClose(ctx context.Context) (*net.TCPConn, error) {
 	})
 	// If there were no error, then res contains an open connection.
 	if err == nil {
-		return res.Load(), nil
+		return Conn{
+			conn:   res.Load(),
+			reads:  make(chan call),
+			writes: make(chan call),
+		}, nil
 	}
 	// Otherwise close the listener (for consistency), and close the connection (if established).
 	l.Close()
 	if conn := res.Load(); conn != nil {
 		conn.Close()
 	}
-	return nil, err
-}
-
-func ReadOrClose(ctx context.Context, conn *net.TCPConn, buf []byte) (int, error) {
-	var res atomic.Pointer[int]
-	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBg(func() error {
-			<-ctx.Done()
-			if res.Load() != nil {
-				return nil
-			}
-			s.Cancel(ctx.Err())
-			// Early close to abort Read().
-			conn.Close()
-			return nil
-		})
-		n, err := conn.Read(buf)
-		res.Store(&n)
-		return err
-	})
-	if err != nil {
-		// Late close in case Read succeded while context got canceled.
-		conn.Close()
-		return 0, err
-	}
-	return *res.Load(), nil
+	return Conn{}, err
 }
 
 // Listen opens a TCP listener on the given address.
@@ -232,14 +306,14 @@ func TestReservePort(ip netip.Addr) netip.AddrPort {
 	return addr
 }
 
-func TestPipe() (*net.TCPConn, *net.TCPConn) {
+func TestPipe() (Conn, Conn) {
 	addr := TestReserveAddr()
 	listen, err := Listen(addr)
 	if err != nil {
 		panic(err)
 	}
 	defer listen.Close()
-	var c1, c2 *net.TCPConn
+	var c1, c2 Conn
 	ctx := context.Background()
 	scope.Parallel(func(s scope.ParallelScope) error {
 		s.Spawn(func() error {

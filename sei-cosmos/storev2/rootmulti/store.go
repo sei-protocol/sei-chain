@@ -49,6 +49,7 @@ type Store struct {
 	storesParams   map[types.StoreKey]storeParams
 	storeKeys      map[string]types.StoreKey
 	ckvStores      map[types.StoreKey]types.CommitKVStore
+	gigaKeys       []string
 	pruningManager *pruning.Manager
 }
 
@@ -63,6 +64,7 @@ func NewStore(
 	scConfig config.StateCommitConfig,
 	ssConfig config.StateStoreConfig,
 	migrateIavl bool,
+	gigaKeys []string,
 ) *Store {
 	scStore := sc.NewCommitStore(homeDir, logger, scConfig)
 	store := &Store{
@@ -71,6 +73,7 @@ func NewStore(
 		storesParams: make(map[types.StoreKey]storeParams),
 		storeKeys:    make(map[string]types.StoreKey),
 		ckvStores:    make(map[types.StoreKey]types.CommitKVStore),
+		gigaKeys:     gigaKeys,
 	}
 	if ssConfig.Enable {
 		ssStore, err := ss.NewStateStore(logger, homeDir, ssConfig)
@@ -227,7 +230,12 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 		store := types.KVStore(v)
 		stores[k] = store
 	}
-	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil)
+	gigaStores := make(map[types.StoreKey]types.KVStore, len(rs.gigaKeys))
+	for _, k := range rs.gigaKeys {
+		key := rs.storeKeys[k]
+		gigaStores[key] = rs.ckvStores[key]
+	}
+	return cachemulti.NewStore(nil, stores, rs.storeKeys, gigaStores, nil, nil)
 }
 
 // CacheMultiStoreWithVersion Implements interface MultiStore
@@ -253,7 +261,7 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 		}
 	}
 
-	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil), nil
+	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil), nil
 }
 
 func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore, error) {
@@ -280,7 +288,7 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 		}
 	}
 	rs.mtx.RUnlock()
-	cacheMs := cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil)
+	cacheMs := cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil)
 	// We need this because we need to make sure sc is closed after being used to release the resources
 	cacheMs.AddCloser(scStore)
 	return cacheMs, nil
