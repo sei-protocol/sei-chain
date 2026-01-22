@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
@@ -174,7 +175,7 @@ func PreprocessUnpacked(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTrans
 	var txHash common.Hash
 	V, R, S := ethTx.RawSignatureValues()
 	if ethTx.Protected() {
-		V = AdjustV(V, ethTx.Type(), ethCfg.ChainID)
+		V = helpers.AdjustV(V, ethTx.Type(), ethCfg.ChainID)
 		txHash = signer.Hash(ethTx)
 	} else {
 		if isBlockTest {
@@ -208,15 +209,28 @@ func IsTxTypeAllowed(version derived.SignerVersion, txType uint8) bool {
 	return false
 }
 
-func AdjustV(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
-	// Non-legacy TX always needs to be bumped by 27
-	if txType != ethtypes.LegacyTxType {
-		return new(big.Int).Add(V, utils.Big27)
+// RecoverSenderFromEthTx recovers the sender's EVM address, Sei address, and public key
+// from a signed Ethereum transaction. This encapsulates the version-based signer selection
+// and signature recovery logic used by both the ante handler and Giga executor.
+//
+// This function rejects unprotected transactions (returns error).
+// For protected transactions, it uses the appropriate signer based on the chain version.
+func RecoverSenderFromEthTx(ctx sdk.Context, ethTx *ethtypes.Transaction, chainID *big.Int) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
+	if !ethTx.Protected() {
+		return common.Address{}, nil, nil, errors.New("unprotected transactions not supported")
 	}
 
-	// legacy TX needs to be adjusted based on chainID
-	V = new(big.Int).Sub(V, new(big.Int).Mul(chainID, utils.Big2))
-	return V.Sub(V, utils.Big8)
+	// Version-based signer selection (same logic as PreprocessUnpacked)
+	chainCfg := evmtypes.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	version := GetVersion(ctx, ethCfg)
+	signer := SignerMap[version](chainID)
+
+	if !IsTxTypeAllowed(version, ethTx.Type()) {
+		return common.Address{}, nil, nil, ethtypes.ErrInvalidChainId
+	}
+
+	return helpers.RecoverAddressesFromTx(ethTx, signer, ethCfg.ChainID)
 }
 
 func GetVersion(ctx sdk.Context, ethCfg *params.ChainConfig) derived.SignerVersion {

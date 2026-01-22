@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"os"
 	"path/filepath"
 	"strings"
@@ -312,6 +313,7 @@ flush-throttle-timeout = "{{ .P2P.FlushThrottleTimeout }}"
 
 # Maximum size of a message packet payload, in bytes
 # TODO: Remove once MConnConnection is removed.
+# WARNING: coordinate before changing this default; impacts network interoperability
 max-packet-msg-payload-size = {{ .P2P.MaxPacketMsgPayloadSize }}
 
 # Rate at which packets can be sent, in bytes/second
@@ -709,6 +711,7 @@ func ResetTestRootWithChainID(dir, testName string, chainID string) (*Config, er
 	}
 
 	config := TestConfig().SetRoot(rootDir)
+	config.P2P.ListenAddress = tcp.TestReserveAddr().String()
 	config.Instrumentation.Namespace = fmt.Sprintf("%s_%s_%s", testName, chainID, tmrand.Str(16))
 	return config, nil
 }

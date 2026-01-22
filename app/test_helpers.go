@@ -47,6 +47,8 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
+
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 )
 
 const TestContract = "TEST"
@@ -73,7 +75,9 @@ func (t TestTx) GetGasEstimate() uint64 {
 }
 
 type TestAppOpts struct {
-	useSc bool
+	useSc         bool
+	enableGiga    bool
+	enableGigaOCC bool
 }
 
 func (t TestAppOpts) Get(s string) interface{} {
@@ -87,6 +91,12 @@ func (t TestAppOpts) Get(s string) interface{} {
 	// that are not relevant to the test logic
 	if s == FlagSCSnapshotInterval {
 		return uint32(0) // 0 = disabled
+	}
+	if s == gigaconfig.FlagEnabled {
+		return t.enableGiga
+	}
+	if s == gigaconfig.FlagOCCEnabled {
+		return t.enableGigaOCC
 	}
 	return nil
 }
@@ -102,14 +112,18 @@ type TestWrapper struct {
 }
 
 func NewTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
-	return newTestWrapper(tb, tm, valPub, enableEVMCustomPrecompiles, false, baseAppOptions...)
+	return newTestWrapper(tb, tm, valPub, enableEVMCustomPrecompiles, false, TestAppOpts{}, baseAppOptions...)
 }
 
 func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
-	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, baseAppOptions...)
+	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{useSc: true}, baseAppOptions...)
 }
 
-func newTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useSc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
+func NewGigaTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
+	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{useSc: true, enableGiga: true, enableGigaOCC: useOcc}, baseAppOptions...)
+}
+
+func newTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useSc bool, testAppOpts TestAppOpts, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
 	var appPtr *App
 	originalHome := DefaultNodeHome
 	tempHome := tb.TempDir()
@@ -119,7 +133,7 @@ func newTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enab
 	})
 	if useSc {
 		if testT, ok := tb.(*testing.T); ok {
-			appPtr = SetupWithSc(testT, false, enableEVMCustomPrecompiles, baseAppOptions...)
+			appPtr = SetupWithSc(testT, false, enableEVMCustomPrecompiles, testAppOpts, baseAppOptions...)
 		} else {
 			panic("SetupWithSc requires *testing.T, cannot use with *testing.B")
 		}
@@ -404,7 +418,7 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 	return res
 }
 
-func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
+func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, testAppOpts TestAppOpts, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
 	db := dbm.NewMemDB()
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
@@ -431,7 +445,7 @@ func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, 
 		config.TestConfig(),
 		encodingConfig,
 		wasm.EnableAllProposals,
-		TestAppOpts{true},
+		testAppOpts,
 		EmptyWasmOpts,
 		options,
 		baseAppOptions...,
