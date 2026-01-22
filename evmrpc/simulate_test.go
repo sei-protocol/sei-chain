@@ -20,7 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
-	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
@@ -40,7 +40,7 @@ type bcFailClient struct {
 	first bool
 }
 
-func primeReceiptStore(t *testing.T, store sstypes.StateStore, latest int64) {
+func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
 	t.Helper()
 	if store == nil {
 		return
@@ -49,7 +49,7 @@ func primeReceiptStore(t *testing.T, store sstypes.StateStore, latest int64) {
 		latest = 1
 	}
 	require.NoError(t, store.SetLatestVersion(latest))
-	require.NoError(t, store.SetEarliestVersion(1, true))
+	require.NoError(t, store.SetEarliestVersion(1))
 }
 
 func (bc *bcFailClient) Block(ctx context.Context, h *int64) (*coretypes.ResultBlock, error) {

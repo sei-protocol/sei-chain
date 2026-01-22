@@ -24,7 +24,7 @@ func TestReceipt(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, txHash.Hex(), r.TxHashHex)
 	_, err = k.GetReceipt(ctx, common.Hash{1})
-	require.Equal(t, "not found", err.Error())
+	require.Equal(t, "receipt not found", err.Error())
 }
 
 func TestGetReceiptWithRetry(t *testing.T) {
@@ -36,7 +36,7 @@ func TestGetReceiptWithRetry(t *testing.T) {
 	nonExistentHash := common.Hash{1}
 	_, err := k.GetReceiptWithRetry(ctx, nonExistentHash, 2)
 	require.NotNil(t, err)
-	require.Equal(t, "not found", err.Error())
+	require.Equal(t, "receipt not found", err.Error())
 
 	// Then test successful retry
 	go func() {
@@ -99,7 +99,7 @@ func TestDeleteTransientReceipt(t *testing.T) {
 
 	receipt, err = k.GetTransientReceipt(ctx, txHash, 0)
 	require.Nil(t, receipt)
-	require.Equal(t, "not found", err.Error())
+	require.Equal(t, "receipt not found", err.Error())
 }
 
 // Flush transient receipts should not adjust cumulative gas used for legacy receipts
