@@ -6,6 +6,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/storev2/rootmulti"
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/spf13/cast"
@@ -45,6 +46,8 @@ const (
 	FlagMigrateHeight    = "migrate-height"
 )
 
+var GigaKeys = []string{"evm"}
+
 func SetupSeiDB(
 	logger log.Logger,
 	homePath string,
@@ -63,10 +66,17 @@ func SetupSeiDB(
 		logger.Info(fmt.Sprintf("SeiDB StateStore is enabled, running %s for historical state", ssConfig.Backend))
 	}
 	validateConfigs(appOpts)
-
+	gigaExecutorConfig, err := gigaconfig.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading giga executor config due to %s", err))
+	}
+	gigaStoreKeys := []string{}
+	if gigaExecutorConfig.Enabled {
+		gigaStoreKeys = GigaKeys
+	}
 	// cms must be overridden before the other options, because they may use the cms,
 	// make sure the cms aren't be overridden by the other options later on.
-	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig, cast.ToBool(appOpts.Get("migrate-iavl")))
+	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig, cast.ToBool(appOpts.Get("migrate-iavl")), gigaStoreKeys)
 	migrationEnabled := cast.ToBool(appOpts.Get(FlagMigrateIAVL))
 	migrationHeight := cast.ToInt64(appOpts.Get(FlagMigrateHeight))
 	baseAppOptions = append([]func(*baseapp.BaseApp){

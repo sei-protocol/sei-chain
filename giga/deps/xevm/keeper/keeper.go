@@ -227,7 +227,7 @@ func (k *Keeper) IterateAll(ctx sdk.Context, pref []byte, cb func(key, val []byt
 }
 
 func (k *Keeper) PrefixStore(ctx sdk.Context, pref []byte) sdk.KVStore {
-	store := ctx.KVStore(k.GetStoreKey())
+	store := ctx.GigaKVStore(k.GetStoreKey())
 	return prefix.NewStore(store, pref)
 }
 
@@ -448,14 +448,14 @@ func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
 }
 
 func (k *Keeper) setInt64State(ctx sdk.Context, key []byte, val int64) {
-	store := ctx.KVStore(k.storeKey)
+	store := ctx.GigaKVStore(k.storeKey)
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, uint64(val)) //nolint:gosec
 	store.Set(key, bz)
 }
 
 func (k *Keeper) getInt64State(ctx sdk.Context, key []byte) int64 {
-	store := ctx.KVStore(k.storeKey)
+	store := ctx.GigaKVStore(k.storeKey)
 	bz := store.Get(key)
 	if bz == nil {
 		return 0

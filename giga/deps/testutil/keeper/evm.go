@@ -16,45 +16,24 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	evmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
+	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	"github.com/stretchr/testify/require"
 )
 
-var EVMTestApp = app.SetupWithDefaultHome(false, true, false)
 var mockKeeper *evmkeeper.Keeper
 var mockCtx sdk.Context
 var mtx = &sync.Mutex{}
 
-func MockEVMKeeperWithPrecompiles() (*evmkeeper.Keeper, sdk.Context) {
-	mtx.Lock()
-	defer mtx.Unlock()
-	if mockKeeper != nil {
-		return mockKeeper, mockCtx
-	}
-	ctx := EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
-	k := EVMTestApp.GigaEvmKeeper
-	k.InitGenesis(ctx, *evmtypes.DefaultGenesis())
-
-	// mint some coins to a sei address
-	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
-	if err != nil {
-		panic(err)
-	}
-	err = EVMTestApp.BankKeeper.MintCoins(ctx, "evm", sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
-	if err != nil {
-		panic(err)
-	}
-	err = EVMTestApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, "evm", seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
-	if err != nil {
-		panic(err)
-	}
-	mockKeeper = &k
-	mockCtx = ctx
-	return &k, ctx
+func MockApp(t *testing.T) (*app.App, sdk.Context) {
+	accts := utils.NewTestAccounts(1)
+	testWrapper := app.NewGigaTestWrapper(t, time.Now(), accts[0].PublicKey, false, false)
+	testApp := testWrapper.App
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8).WithBlockTime(time.Now())
+	return testApp, ctx
 }
 
 func MockEVMKeeper(t *testing.T) (*evmkeeper.Keeper, sdk.Context) {
-	testApp := app.Setup(t, false, false, false)
-	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8).WithBlockTime(time.Now())
+	testApp, ctx := MockApp(t)
 	k := testApp.GigaEvmKeeper
 	k.InitGenesis(ctx, *evmtypes.DefaultGenesis())
 
@@ -149,10 +128,4 @@ func WaitForReceiptFromStore(t *testing.T, k *evmkeeper.Keeper, ctx sdk.Context,
 		return err == nil
 	}, 2*time.Second, 10*time.Millisecond)
 	return receipt
-}
-
-func MustMockReceipt(t *testing.T, k *evmkeeper.Keeper, ctx sdk.Context, txHash common.Hash, receipt *evmtypes.Receipt) {
-	t.Helper()
-	require.NoError(t, k.MockReceipt(ctx, txHash, receipt))
-	WaitForReceipt(t, k, ctx, txHash)
 }

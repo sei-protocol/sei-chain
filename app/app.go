@@ -29,7 +29,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/tasks"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
 	"github.com/cosmos/cosmos-sdk/types/module"
@@ -92,6 +91,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/giga/deps/tasks"
 
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
@@ -1637,6 +1637,7 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 			evmTotalGasUsed += result.GasUsed
 		}
 	}
+	ctx.GigaMultiStore().WriteGiga()
 
 	app.EvmKeeper.SetTxResults(txResults)
 	app.EvmKeeper.SetMsgs(evmTxs)
@@ -1901,6 +1902,8 @@ func (app *App) ProcessBlockWithGigaExecutorOCC(ctx sdk.Context, txs [][]byte, r
 			}
 		}
 	}
+
+	ctx.GigaMultiStore().WriteGiga()
 
 	app.EvmKeeper.SetTxResults(txResults)
 	app.EvmKeeper.SetMsgs(evmTxs)

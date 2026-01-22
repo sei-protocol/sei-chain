@@ -243,7 +243,6 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 		cacheEntries  []receiptCacheEntry
 		cacheLogs     []*ethtypes.Log
 		maxBlock      uint64
-		dropOffset    uint64
 	)
 
 	flushCacheBatch := func(blockNumber uint64) {
@@ -685,6 +684,7 @@ func (s *parquetReceiptStore) replayWAL() error {
 		cacheEntries  []receiptCacheEntry
 		cacheLogs     []*ethtypes.Log
 		maxBlock      uint64
+		dropOffset    uint64
 	)
 
 	flushCacheBatch := func(blockNumber uint64) {

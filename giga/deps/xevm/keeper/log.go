@@ -12,7 +12,7 @@ import (
 )
 
 func (k *Keeper) GetBlockBloom(ctx sdk.Context) (res ethtypes.Bloom) {
-	store := ctx.KVStore(k.storeKey)
+	store := ctx.GigaKVStore(k.storeKey)
 	bz := store.Get(types.BlockBloomPrefix)
 	if bz != nil {
 		res.SetBytes(bz)
@@ -26,7 +26,7 @@ func (k *Keeper) GetBlockBloom(ctx sdk.Context) (res ethtypes.Bloom) {
 }
 
 func (k *Keeper) GetEvmOnlyBlockBloom(ctx sdk.Context) (res ethtypes.Bloom) {
-	store := ctx.KVStore(k.storeKey)
+	store := ctx.GigaKVStore(k.storeKey)
 	bz := store.Get(types.EvmOnlyBlockBloomPrefix)
 	if bz != nil {
 		res.SetBytes(bz)
@@ -40,7 +40,7 @@ func (k *Keeper) GetEvmOnlyBlockBloom(ctx sdk.Context) (res ethtypes.Bloom) {
 }
 
 func (k *Keeper) GetLegacyBlockBloom(ctx sdk.Context, height int64) (res ethtypes.Bloom) {
-	store := ctx.KVStore(k.storeKey)
+	store := ctx.GigaKVStore(k.storeKey)
 	bz := store.Get(types.BlockBloomKey(height))
 	if bz != nil {
 		res.SetBytes(bz)
@@ -55,7 +55,7 @@ func (k *Keeper) SetEvmOnlyBlockBloom(ctx sdk.Context, blooms []ethtypes.Bloom) 
 		bitutil.ORBytes(or, blockBloom, bloom[:])
 		blockBloom = or
 	}
-	store := ctx.KVStore(k.storeKey)
+	store := ctx.GigaKVStore(k.storeKey)
 	store.Set(types.EvmOnlyBlockBloomPrefix, blockBloom)
 }
 
@@ -66,19 +66,19 @@ func (k *Keeper) SetBlockBloom(ctx sdk.Context, blooms []ethtypes.Bloom) {
 		bitutil.ORBytes(or, blockBloom, bloom[:])
 		blockBloom = or
 	}
-	store := ctx.KVStore(k.storeKey)
+	store := ctx.GigaKVStore(k.storeKey)
 	store.Set(types.BlockBloomPrefix, blockBloom)
 }
 
 func (k *Keeper) SetLegacyBlockBloomCutoffHeight(ctx sdk.Context) {
-	store := ctx.KVStore(k.storeKey)
+	store := ctx.GigaKVStore(k.storeKey)
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, uint64(ctx.BlockHeight())) //nolint:gosec
 	store.Set(types.LegacyBlockBloomCutoffHeightKey, bz)
 }
 
 func (k *Keeper) GetLegacyBlockBloomCutoffHeight(ctx sdk.Context) int64 {
-	store := ctx.KVStore(k.storeKey)
+	store := ctx.GigaKVStore(k.storeKey)
 	bz := store.Get(types.LegacyBlockBloomCutoffHeightKey)
 	if len(bz) == 0 {
 		return 0

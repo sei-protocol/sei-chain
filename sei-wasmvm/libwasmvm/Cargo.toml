@@ -26,12 +26,12 @@ default = []
 backtraces = []
 
 [dependencies]
-cosmwasm-std = { git = "https://github.com/sei-protocol/cosmwasm.git", rev = "v1.5.12", features = [
+cosmwasm-std = { git = "https://github.com/sei-protocol/cosmwasm.git", rev = "v1.5.13", features = [
   "staking",
   "stargate",
   "iterator",
 ] }
-cosmwasm-vm = { git = "https://github.com/sei-protocol/cosmwasm.git", rev = "v1.5.12", features = [
+cosmwasm-vm = { git = "https://github.com/sei-protocol/cosmwasm.git", rev = "v1.5.13", features = [
   "staking",
   "stargate",
   "iterator",
@@ -59,3 +59,10 @@ codegen-units = 16
 panic = 'unwind'
 incremental = true
 overflow-checks = true
+
+# Points to parser with adjusted validation to check the decoded table_index value instead
+#of the raw encoding byte.
+# 
+# See: https://github.com/sei-protocol/wasm-tools/pull/1
+[patch.crates-io]
+wasmparser = { git = "https://github.com/sei-protocol/wasm-tools", rev = "wasmparser-0.95.1" }
