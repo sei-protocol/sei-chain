@@ -16,8 +16,8 @@ import (
 )
 
 func TestState(t *testing.T) {
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
 	_, evmAddr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k, false)
 	statedb.CreateAccount(evmAddr)
@@ -57,8 +57,8 @@ func TestState(t *testing.T) {
 }
 
 func TestCreate(t *testing.T) {
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
 	_, evmAddr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k, false)
 	statedb.CreateAccount(evmAddr)
@@ -92,8 +92,8 @@ func TestCreate(t *testing.T) {
 }
 
 func TestSelfDestructAssociated(t *testing.T) {
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	statedb := state.NewDBImpl(ctx, k, false)
@@ -143,8 +143,8 @@ func TestSelfDestructAssociated(t *testing.T) {
 // SelfDestruct6780 because CreateAccount() was not called (since the account already existed).
 // The fix ensures CreateContract() marks the account as created for EIP-6780 purposes.
 func TestEIP6780WithPrefundedAddress(t *testing.T) {
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 
@@ -190,8 +190,8 @@ func TestEIP6780WithPrefundedAddress(t *testing.T) {
 }
 
 func TestSnapshot(t *testing.T) {
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	eventCount := len(ctx.EventManager().Events())
@@ -235,8 +235,8 @@ func TestSnapshot(t *testing.T) {
 // TestTransientStorageRevertNilMapPanic tests that reverting multiple transient storage
 // changes does not panic when a prior revert deletes the account's transient state map.
 func TestTransientStorageRevertNilMapPanic(t *testing.T) {
-	k := &testkeeper.EVMTestApp.GigaEvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
 	_, evmAddr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k, false)
 	statedb.CreateAccount(evmAddr)

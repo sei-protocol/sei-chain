@@ -457,3 +457,10 @@ type StoreWithInitialVersion interface {
 	// starting a new chain at an arbitrary height.
 	SetInitialVersion(version int64)
 }
+
+type GigaMultiStore interface {
+	GetGigaKVStore(StoreKey) KVStore
+	WriteGiga()
+	IsStoreGiga(key StoreKey) bool
+	SetGigaKVStores(handler func(sk StoreKey, s KVStore) KVStore) MultiStore
+}
