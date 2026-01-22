@@ -139,7 +139,7 @@ func TestGetVMError(t *testing.T) {
 	resObj := sendRequestGood(t, "getVMError", "0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32")
 	require.Equal(t, "", resObj["result"].(string))
 	resObj = sendRequestGood(t, "getVMError", "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872f")
-	require.Equal(t, "not found", resObj["error"].(map[string]interface{})["message"])
+	require.Equal(t, "receipt not found", resObj["error"].(map[string]interface{})["message"])
 }
 
 func TestGetTransactionReceiptExcludeTraceFail(t *testing.T) {

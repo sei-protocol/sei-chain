@@ -6,9 +6,8 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/eth/filters"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -580,28 +579,10 @@ func TestCollectLogsEvmTransactionIndex(t *testing.T) {
 		testkeeper.MustMockReceipt(t, k, ctx, txHash, receipt)
 	}
 
-	// Test the core logic that collectLogs implements
-	// This simulates what collectLogs does for each EVM transaction
-	var collectedLogs []*ethtypes.Log
-	evmTxIndex := 0
-	totalLogs := uint(0)
-
-	for _, txHash := range evmTxHashes {
-		receipt, err := k.GetReceipt(ctx, txHash)
-		require.NoError(t, err, "should be able to get receipt for tx %s", txHash.Hex())
-
-		// This simulates keeper.GetLogsForTx
-		logs := keeper.GetLogsForTx(receipt, totalLogs)
-
-		// This is the key part we're testing: setting the correct EVM transaction index
-		for _, log := range logs {
-			log.TxIndex = uint(evmTxIndex) // This should override receipt.TransactionIndex
-			collectedLogs = append(collectedLogs, log)
-		}
-
-		totalLogs += uint(len(receipt.Logs))
-		evmTxIndex++
-	}
+	store := k.ReceiptStore()
+	require.NotNil(t, store)
+	collectedLogs, err := store.FilterLogs(ctx, 2, common.HexToHash("0x2"), evmTxHashes, filters.FilterCriteria{}, true)
+	require.NoError(t, err)
 
 	// Verify that the transaction indices are set correctly
 	require.Equal(t, len(evmTxHashes), len(collectedLogs), "should have one log per transaction")
