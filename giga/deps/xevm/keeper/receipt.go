@@ -13,7 +13,9 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
+	receipts "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/utils"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // Number of blocks between legacy receipt migration batches
@@ -37,7 +39,7 @@ func (k *Keeper) GetTransientReceipt(ctx sdk.Context, txHash common.Hash, txInde
 	store := ctx.TransientStore(k.transientStoreKey)
 	bz := store.Get(types.NewTransientReceiptKey(txIndex, txHash))
 	if bz == nil {
-		return nil, errors.New("not found")
+		return nil, receipts.ErrNotFound
 	}
 	r := &types.Receipt{}
 	if err := r.Unmarshal(bz); err != nil {
@@ -55,50 +57,42 @@ func (k *Keeper) DeleteTransientReceipt(ctx sdk.Context, txHash common.Hash, txI
 // Many EVM applications (e.g. MetaMask) relies on being on able to query receipt
 // by EVM transaction hash (not Sei transaction hash) to function properly.
 func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	// receipts are immutable, use latest version
-	lv := k.receiptStore.GetLatestVersion()
-
-	// try persistent store
-	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
-	if err != nil {
+	if k.receiptStore == nil {
+		return nil, receipts.ErrNotConfigured
+	}
+	r, err := k.receiptStore.GetReceipt(ctx, txHash)
+	if err == nil {
+		return convertReceipt(r), nil
+	}
+	// Only fall back to legacy store for a not found error.
+	if !errors.Is(err, receipts.ErrNotFound) {
 		return nil, err
 	}
 
+	// try legacy store for older receipts
+	store := ctx.GigaKVStore(k.storeKey)
+	bz := store.Get(types.ReceiptKey(txHash))
 	if bz == nil {
-		// try legacy store for older receipts
-		store := ctx.GigaKVStore(k.storeKey)
-		bz = store.Get(types.ReceiptKey(txHash))
-		if bz == nil {
-			return nil, errors.New("not found")
-		}
+		return nil, receipts.ErrNotFound
 	}
 
-	var r types.Receipt
-	if err := r.Unmarshal(bz); err != nil {
+	var legacy types.Receipt
+	if err := legacy.Unmarshal(bz); err != nil {
 		return nil, err
 	}
-	return &r, nil
+	return &legacy, nil
 }
 
 // Only used for testing
 func (k *Keeper) GetReceiptFromReceiptStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	// receipts are immutable, use latest version
-	lv := k.receiptStore.GetLatestVersion()
-
-	// try persistent store
-	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
+	if k.receiptStore == nil {
+		return nil, receipts.ErrNotConfigured
+	}
+	r, err := k.receiptStore.GetReceiptFromStore(ctx, txHash)
 	if err != nil {
 		return nil, err
 	}
-	if bz == nil {
-		return nil, errors.New("not found")
-	}
-
-	var r types.Receipt
-	if err := r.Unmarshal(bz); err != nil {
-		return nil, err
-	}
-	return &r, nil
+	return convertReceipt(r), nil
 }
 
 // GetReceiptWithRetry attempts to get a receipt with retries to handle race conditions
@@ -112,7 +106,7 @@ func (k *Keeper) GetReceiptWithRetry(ctx sdk.Context, txHash common.Hash, maxRet
 		}
 
 		// If it's not a "not found" error, return immediately
-		if err.Error() != "not found" {
+		if !errors.Is(err, receipts.ErrNotFound) {
 			return nil, err
 		}
 
@@ -132,6 +126,21 @@ func (k *Keeper) MockReceipt(ctx sdk.Context, txHash common.Hash, receipt *types
 		return err
 	}
 	return nil
+}
+
+func convertReceipt(r *evmtypes.Receipt) *types.Receipt {
+	if r == nil {
+		return nil
+	}
+	bz, err := r.Marshal()
+	if err != nil {
+		return nil
+	}
+	var out types.Receipt
+	if err := out.Unmarshal(bz); err != nil {
+		return nil
+	}
+	return &out
 }
 
 func (k *Keeper) WriteReceipt(
