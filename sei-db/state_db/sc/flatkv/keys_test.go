@@ -42,7 +42,7 @@ func TestFlatKVAccountValueEncoding(t *testing.T) {
 		return b
 	}
 
-	t.Run("RoundTrip", func(t *testing.T) {
+	t.Run("RoundTripContract", func(t *testing.T) {
 		var balance Balance
 		copy(balance[:], randomBytes(BalanceLen))
 		var codeHash CodeHash
@@ -54,23 +54,48 @@ func TestFlatKVAccountValueEncoding(t *testing.T) {
 			CodeHash: codeHash,
 		}
 
+		require.True(t, original.HasCode(), "contract should have code")
+
 		encoded := EncodeAccountValue(original)
-		require.Equal(t, accountValueEncodedLen, len(encoded))
+		require.Equal(t, accountValueContractLen, len(encoded), "contract should be 72 bytes")
 
 		decoded, err := DecodeAccountValue(encoded)
 		require.NoError(t, err)
 		require.Equal(t, original, decoded)
 	})
 
-	t.Run("RoundTripZeroValues", func(t *testing.T) {
+	t.Run("RoundTripEOA", func(t *testing.T) {
+		var balance Balance
+		copy(balance[:], randomBytes(BalanceLen))
+
+		original := AccountValue{
+			Balance:  balance,
+			Nonce:    rng.Uint64(),
+			CodeHash: CodeHash{}, // EOA has no code
+		}
+
+		require.False(t, original.HasCode(), "EOA should not have code")
+
+		encoded := EncodeAccountValue(original)
+		require.Equal(t, accountValueEOALen, len(encoded), "EOA should be 40 bytes")
+
+		decoded, err := DecodeAccountValue(encoded)
+		require.NoError(t, err)
+		require.Equal(t, original, decoded)
+	})
+
+	t.Run("RoundTripZeroEOA", func(t *testing.T) {
+		// Completely empty account (zero balance, zero nonce, no code)
 		original := AccountValue{
 			Balance:  Balance{},
 			Nonce:    0,
 			CodeHash: CodeHash{},
 		}
 
+		require.False(t, original.HasCode())
+
 		encoded := EncodeAccountValue(original)
-		require.Equal(t, accountValueEncodedLen, len(encoded))
+		require.Equal(t, accountValueEOALen, len(encoded), "zero EOA should be 40 bytes")
 
 		decoded, err := DecodeAccountValue(encoded)
 		require.NoError(t, err)
@@ -78,12 +103,24 @@ func TestFlatKVAccountValueEncoding(t *testing.T) {
 	})
 
 	t.Run("InvalidLength", func(t *testing.T) {
+		// Too short
 		_, err := DecodeAccountValue([]byte{0x00})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid account value length")
+
+		// In between EOA and Contract lengths
+		_, err = DecodeAccountValue(make([]byte, 50))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid account value length")
+
+		// Too long
+		_, err = DecodeAccountValue(make([]byte, 100))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid account value length")
 	})
 
 	t.Run("NonceIsBigEndianUint64", func(t *testing.T) {
+		// Test with EOA
 		original := AccountValue{
 			Nonce: math.MaxUint64,
 		}
@@ -91,6 +128,30 @@ func TestFlatKVAccountValueEncoding(t *testing.T) {
 		decoded, err := DecodeAccountValue(encoded)
 		require.NoError(t, err)
 		require.Equal(t, original.Nonce, decoded.Nonce)
+
+		// Test with Contract
+		var codeHash CodeHash
+		copy(codeHash[:], randomBytes(CodeHashLen))
+		originalContract := AccountValue{
+			Nonce:    math.MaxUint64,
+			CodeHash: codeHash,
+		}
+		encodedContract := EncodeAccountValue(originalContract)
+		decodedContract, err := DecodeAccountValue(encodedContract)
+		require.NoError(t, err)
+		require.Equal(t, originalContract.Nonce, decodedContract.Nonce)
+	})
+
+	t.Run("HasCodeMethod", func(t *testing.T) {
+		// EOA - no code
+		eoa := AccountValue{CodeHash: CodeHash{}}
+		require.False(t, eoa.HasCode())
+
+		// Contract - has code (any non-zero hash)
+		var codeHash CodeHash
+		codeHash[0] = 0x01 // Just one non-zero byte is enough
+		contract := AccountValue{CodeHash: codeHash}
+		require.True(t, contract.HasCode())
 	})
 }
 

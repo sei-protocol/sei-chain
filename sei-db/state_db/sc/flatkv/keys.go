@@ -117,7 +117,14 @@ func PrefixEnd(prefix []byte) []byte {
 	return nil
 }
 
-// AccountValue is the account record: balance(32) || nonce(8) || codehash(32).
+// AccountValue is the account record.
+//
+// Encoding is variable-length to save space for EOA accounts:
+//   - EOA (no code):      balance(32) || nonce(8)           = 40 bytes
+//   - Contract (has code): balance(32) || nonce(8) || codehash(32) = 72 bytes
+//
+// CodeHash == CodeHash{} (all zeros) means the account has no code (EOA).
+// Note: empty code contracts have CodeHash = keccak256("") which is non-zero.
 type AccountValue struct {
 	Balance  Balance
 	Nonce    uint64
@@ -125,13 +132,33 @@ type AccountValue struct {
 }
 
 const (
-	// accountValueEncodedLen = BalanceLen + NonceLen + CodeHashLen
-	accountValueEncodedLen = BalanceLen + NonceLen + CodeHashLen
+	// accountValueEOALen is the encoded length for EOA accounts (no code).
+	accountValueEOALen = BalanceLen + NonceLen // 40 bytes
+
+	// accountValueContractLen is the encoded length for contract accounts.
+	accountValueContractLen = BalanceLen + NonceLen + CodeHashLen // 72 bytes
 )
 
-// EncodeAccountValue encodes v into a stable 72-byte slice.
+// HasCode returns true if the account has code (is a contract).
+func (v AccountValue) HasCode() bool {
+	return v.CodeHash != CodeHash{}
+}
+
+// EncodeAccountValue encodes v into a variable-length slice.
+// EOA accounts (no code) are encoded as 40 bytes, contracts as 72 bytes.
 func EncodeAccountValue(v AccountValue) []byte {
-	b := make([]byte, 0, accountValueEncodedLen)
+	if !v.HasCode() {
+		// EOA: balance(32) || nonce(8)
+		b := make([]byte, 0, accountValueEOALen)
+		b = append(b, v.Balance[:]...)
+		var nonce [NonceLen]byte
+		binary.BigEndian.PutUint64(nonce[:], v.Nonce)
+		b = append(b, nonce[:]...)
+		return b
+	}
+
+	// Contract: balance(32) || nonce(8) || codehash(32)
+	b := make([]byte, 0, accountValueContractLen)
 	b = append(b, v.Balance[:]...)
 	var nonce [NonceLen]byte
 	binary.BigEndian.PutUint64(nonce[:], v.Nonce)
@@ -140,17 +167,28 @@ func EncodeAccountValue(v AccountValue) []byte {
 	return b
 }
 
-// DecodeAccountValue decodes a fixed-length account record.
+// DecodeAccountValue decodes a variable-length account record.
+// Returns an error if the length is neither 40 (EOA) nor 72 (contract) bytes.
 func DecodeAccountValue(b []byte) (AccountValue, error) {
-	if len(b) != accountValueEncodedLen {
-		return AccountValue{}, fmt.Errorf("invalid account value length: got %d, want %d", len(b), accountValueEncodedLen)
+	switch len(b) {
+	case accountValueEOALen:
+		// EOA: balance(32) || nonce(8)
+		var v AccountValue
+		copy(v.Balance[:], b[:BalanceLen])
+		v.Nonce = binary.BigEndian.Uint64(b[BalanceLen:])
+		// CodeHash remains zero (no code)
+		return v, nil
+
+	case accountValueContractLen:
+		// Contract: balance(32) || nonce(8) || codehash(32)
+		var v AccountValue
+		copy(v.Balance[:], b[:BalanceLen])
+		v.Nonce = binary.BigEndian.Uint64(b[BalanceLen : BalanceLen+NonceLen])
+		copy(v.CodeHash[:], b[BalanceLen+NonceLen:])
+		return v, nil
+
+	default:
+		return AccountValue{}, fmt.Errorf("invalid account value length: got %d, want %d (EOA) or %d (contract)",
+			len(b), accountValueEOALen, accountValueContractLen)
 	}
-	var v AccountValue
-	off := 0
-	copy(v.Balance[:], b[off:off+BalanceLen])
-	off += BalanceLen
-	v.Nonce = binary.BigEndian.Uint64(b[off : off+NonceLen])
-	off += NonceLen
-	copy(v.CodeHash[:], b[off:off+CodeHashLen])
-	return v, nil
 }
