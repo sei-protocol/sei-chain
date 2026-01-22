@@ -1,6 +1,8 @@
 package keeper
 
 import (
+	"fmt"
+
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -9,6 +11,7 @@ import (
 
 func (k *Keeper) SetAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, evmAddress common.Address) {
 	store := ctx.GigaKVStore(k.storeKey)
+	fmt.Printf("  GIGA SetAddressMapping: evmAddr=%s seiAddr=%s storePtr=%p\n", evmAddress.Hex(), seiAddress.String(), store)
 	store.Set(types.EVMAddressToSeiAddressKey(evmAddress), seiAddress)
 	store.Set(types.SeiAddressToEVMAddressKey(seiAddress), evmAddress[:])
 	if !k.accountKeeper.HasAccount(ctx, seiAddress) {
@@ -49,6 +52,7 @@ func (k *Keeper) GetEVMAddressOrDefault(ctx sdk.Context, seiAddress sdk.AccAddre
 func (k *Keeper) GetSeiAddress(ctx sdk.Context, evmAddress common.Address) (sdk.AccAddress, bool) {
 	store := ctx.GigaKVStore(k.storeKey)
 	bz := store.Get(types.EVMAddressToSeiAddressKey(evmAddress))
+	fmt.Printf("  GIGA GetSeiAddress: evmAddr=%s found=%v seiAddr=%s storePtr=%p\n", evmAddress.Hex(), bz != nil, sdk.AccAddress(bz).String(), store)
 	if bz == nil {
 		return []byte{}, false
 	}

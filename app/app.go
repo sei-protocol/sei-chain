@@ -1778,7 +1778,9 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	}
 
 	// Associate the address if not already associated (same as EVMPreprocessDecorator)
+	fmt.Printf("  GIGA checking association: seiAddr=%s evmAddr=%s\n", seiAddr.String(), sender.Hex())
 	if _, isAssociated := app.GigaEvmKeeper.GetEVMAddress(ctx, seiAddr); !isAssociated {
+		fmt.Printf("  GIGA associating addresses: seiAddr=%s evmAddr=%s multiStorePtr=%p\n", seiAddr.String(), sender.Hex(), ctx.MultiStore())
 		associateHelper := helpers.NewAssociationHelper(&app.GigaEvmKeeper, app.BankKeeper, &app.AccountKeeper)
 		if err := associateHelper.AssociateAddresses(ctx, seiAddr, sender, pubkey); err != nil {
 			return &abci.ExecTxResult{
@@ -1786,6 +1788,15 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 				Log:  fmt.Sprintf("failed to associate addresses: %v", err),
 			}, nil
 		}
+		fmt.Printf("  GIGA association done, verifying...\n")
+		// Verify the association was written
+		if readAddr, found := app.GigaEvmKeeper.GetSeiAddress(ctx, sender); found {
+			fmt.Printf("  GIGA verification OK: evmAddr=%s -> seiAddr=%s\n", sender.Hex(), readAddr.String())
+		} else {
+			fmt.Printf("  GIGA verification FAILED: evmAddr=%s not found!\n", sender.Hex())
+		}
+	} else {
+		fmt.Printf("  GIGA already associated\n")
 	}
 
 	// Prepare context for EVM transaction (set infinite gas meter like original flow)
@@ -1873,6 +1884,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 
 	// DEBUG: Dump state after Giga execution for comparison with V2
 	{
+		fmt.Printf("  GIGA dump: multiStorePtr=%p\n", ctx.MultiStore())
 		senderSeiAddr := app.GigaEvmKeeper.GetSeiAddressOrDefault(ctx, sender)
 		senderBal := app.BankKeeper.GetBalance(ctx, senderSeiAddr, app.GigaEvmKeeper.GetBaseDenom(ctx))
 		senderWei := app.BankKeeper.GetWeiBalance(ctx, senderSeiAddr)
