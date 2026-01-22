@@ -110,7 +110,7 @@ import (
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
+	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 
 	"github.com/sei-protocol/sei-chain/utils"
@@ -154,7 +154,7 @@ import (
 
 	// unnamed import of statik for openapi/swagger UI support
 	_ "github.com/sei-protocol/sei-chain/docs/swagger"
-	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -380,7 +380,7 @@ type App struct {
 	genesisImportConfig genesistypes.GenesisImportConfig
 
 	stateStore   seidb.StateStore
-	receiptStore seidb.StateStore
+	receiptStore receipt.ReceiptStore
 
 	forkInitializer func(sdk.Context)
 
@@ -617,15 +617,15 @@ func New(
 	)
 
 	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
-	ssConfig := ssconfig.DefaultStateStoreConfig()
-	ssConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
-	ssConfig.DBDirectory = receiptStorePath
-	ssConfig.KeepLastVersion = false
+	receiptConfig := ssconfig.DefaultReceiptStoreConfig()
+	receiptConfig.DBDirectory = receiptStorePath
+	receiptConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
 	if app.receiptStore == nil {
-		app.receiptStore, err = ss.NewStateStore(logger, receiptStorePath, ssConfig)
+		receiptStore, err := receipt.NewReceiptStore(logger, receiptConfig, keys[evmtypes.StoreKey])
 		if err != nil {
 			panic(fmt.Sprintf("error while creating receipt store: %s", err))
 		}
+		app.receiptStore = receiptStore
 	}
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
