@@ -66,11 +66,26 @@ func (e *EVMInterpreter) Run(callOpCode vm.OpCode, contract *vm.Contract, input 
 	sender := evmc.Address(contract.Caller())
 	recipient := evmc.Address(contract.Address())
 
+	// Reset SSTORE gas adjustment before execution
+	e.hostContext.ResetSstoreGasAdjustment()
+
 	//nolint:gosec // gosec: safe gas conversion
 	output, gasLeft, gasRefund, _, err := e.hostContext.Execute(callKind, recipient, sender, contract.Value().Bytes32(), codeToExecute,
 		int64(contract.Gas), depth, static)
 	if err != nil {
 		return nil, err
+	}
+
+	// Apply SSTORE gas adjustment for Sei's custom SSTORE cost.
+	// evmone uses standard EIP-2200 gas (20k), but Sei may have a higher cost (e.g., 72k).
+	// The adjustment is tracked during SetStorage calls and applied here.
+	sstoreAdjustment := e.hostContext.GetSstoreGasAdjustment()
+	if sstoreAdjustment > 0 {
+		gasLeft -= sstoreAdjustment
+		// If gas goes negative, execution would have failed with out of gas
+		if gasLeft < 0 {
+			return nil, vm.ErrOutOfGas
+		}
 	}
 
 	// Update the contract's gas to reflect what evmone consumed

@@ -2,6 +2,7 @@ package internal
 
 import (
 	"errors"
+	"sync/atomic"
 
 	"github.com/ethereum/evmc/v12/bindings/go/evmc"
 	"github.com/ethereum/go-ethereum/common"
@@ -15,13 +16,45 @@ import (
 
 var _ evmc.HostContext = (*HostContext)(nil)
 
+// StandardSstoreSetGasEIP2200 is the standard EIP-2200 SSTORE gas cost for setting
+// storage from zero to non-zero. evmone uses this internally.
+const StandardSstoreSetGasEIP2200 = uint64(20000)
+
 type HostContext struct {
 	vm  *evmc.VM
 	evm *vm.EVM
+	// sstoreGasDelta is the per-SSTORE gas delta (Sei custom cost - standard cost).
+	// This is added to gas consumption for each StorageAdded operation.
+	sstoreGasDelta uint64
+	// sstoreGasAdjustment accumulates the total extra gas to charge for SSTORE operations.
+	// This is applied after evmone execution completes.
+	sstoreGasAdjustment atomic.Int64
 }
 
-func NewHostContext(vm *evmc.VM, evm *vm.EVM) *HostContext {
-	return &HostContext{vm: vm, evm: evm}
+// NewHostContext creates a new HostContext with the custom SSTORE gas cost.
+// seiSstoreGas is the Sei chain's custom SSTORE gas cost (typically 72000).
+// If 0 or less than standard, no adjustment is applied.
+func NewHostContext(vm *evmc.VM, evm *vm.EVM, seiSstoreGas uint64) *HostContext {
+	var delta uint64
+	if seiSstoreGas > StandardSstoreSetGasEIP2200 {
+		delta = seiSstoreGas - StandardSstoreSetGasEIP2200
+	}
+	return &HostContext{
+		vm:             vm,
+		evm:            evm,
+		sstoreGasDelta: delta,
+	}
+}
+
+// GetSstoreGasAdjustment returns the total accumulated SSTORE gas adjustment.
+// This should be called after execution to apply the extra gas charge.
+func (h *HostContext) GetSstoreGasAdjustment() int64 {
+	return h.sstoreGasAdjustment.Load()
+}
+
+// ResetSstoreGasAdjustment resets the accumulated SSTORE gas adjustment to zero.
+func (h *HostContext) ResetSstoreGasAdjustment() {
+	h.sstoreGasAdjustment.Store(0)
 }
 
 func (h *HostContext) AccountExists(addr evmc.Address) bool {
@@ -67,6 +100,14 @@ func (h *HostContext) SetStorage(addr evmc.Address, key evmc.Hash, value evmc.Ha
 		} else {
 			status = evmc.StorageModifiedRestored
 		}
+	}
+
+	// Accumulate SSTORE gas adjustment for StorageAdded operations.
+	// evmone uses standard EIP-2200 gas (20k), but Sei may have a higher cost (e.g., 72k).
+	// We track the delta here and apply it after execution.
+	if status == evmc.StorageAdded && h.sstoreGasDelta > 0 {
+		//nolint:gosec // G115: safe conversion - sstoreGasDelta is always positive and small
+		h.sstoreGasAdjustment.Add(int64(h.sstoreGasDelta))
 	}
 
 	h.evm.StateDB.SetState(gethAddr, gethKey, common.Hash(value))
