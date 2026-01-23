@@ -577,7 +577,7 @@ func init() {
 		if err := store.SetLatestVersion(latest); err != nil {
 			panic(err)
 		}
-		_ = store.SetEarliestVersion(1, true)
+		_ = store.SetEarliestVersion(1)
 	}
 	ctxProvider := func(height int64) sdk.Context {
 		if height == MockHeight2 {
@@ -1100,7 +1100,7 @@ func setupLogs() {
 		if err := store.SetLatestVersion(MockHeight103); err != nil {
 			panic(err)
 		}
-		_ = store.SetEarliestVersion(1, true)
+		_ = store.SetEarliestVersion(1)
 	}
 
 }

@@ -31,7 +31,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -72,7 +72,7 @@ type Keeper struct {
 	Root        common.Hash
 	ReplayBlock *ethtypes.Block
 
-	receiptStore seidbtypes.StateStore
+	receiptStore receipt.ReceiptStore
 
 	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
@@ -117,7 +117,7 @@ func (ctx *ReplayChainContext) Config() *params.ChainConfig {
 }
 
 func NewKeeper(
-	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStateStore seidbtypes.StateStore,
+	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStateStore receipt.ReceiptStore,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
 	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper) *Keeper {
 
@@ -200,7 +200,7 @@ func (k *Keeper) BankKeeper() bankkeeper.Keeper {
 	return k.bankKeeper
 }
 
-func (k *Keeper) ReceiptStore() seidbtypes.StateStore {
+func (k *Keeper) ReceiptStore() receipt.ReceiptStore {
 	return k.receiptStore
 }
 

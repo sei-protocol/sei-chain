@@ -165,7 +165,7 @@ func setupTestServer(
 		if err := store.SetLatestVersion(latest); err != nil {
 			panic(err)
 		}
-		_ = store.SetEarliestVersion(1, true)
+		_ = store.SetEarliestVersion(1)
 	}
 	return TestServer{EVMServer: s, port: port, mockClient: mockClient, app: a}
 }
