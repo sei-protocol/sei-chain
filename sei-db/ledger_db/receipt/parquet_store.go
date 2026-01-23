@@ -237,6 +237,9 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 	}
 
 	if len(receipts) == 0 {
+		if ctx.BlockHeight() > 0 {
+			s.latestVersion.Store(ctx.BlockHeight())
+		}
 		return nil
 	}
 
