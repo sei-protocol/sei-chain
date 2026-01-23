@@ -10,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/app"
-	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	"github.com/sei-protocol/sei-chain/giga/tests/harness"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -33,13 +32,20 @@ func NewStateTestContext(t testing.TB, blockTime time.Time, workers int, mode Ex
 	gigaEnabled := mode == ModeGigaSequential || mode == ModeGigaOCC
 	gigaOCCEnabled := mode == ModeGigaOCC
 
-	// Create a minimal test account for app initialization
 	testAcct := utils.NewSigner()
 
-	wrapper := app.NewTestWrapper(t, blockTime, testAcct.PublicKey, true, func(ba *baseapp.BaseApp) {
-		ba.SetOccEnabled(occEnabled)
-		ba.SetConcurrencyWorkers(workers)
-	})
+	var wrapper *app.TestWrapper
+	if !gigaEnabled {
+		wrapper = app.NewTestWrapperWithSc(t.(*testing.T), blockTime, testAcct.PublicKey, true, func(ba *baseapp.BaseApp) {
+			ba.SetOccEnabled(occEnabled)
+			ba.SetConcurrencyWorkers(workers)
+		})
+	} else {
+		wrapper = app.NewGigaTestWrapper(t.(*testing.T), blockTime, testAcct.PublicKey, true, gigaOCCEnabled, func(ba *baseapp.BaseApp) {
+			ba.SetOccEnabled(occEnabled)
+			ba.SetConcurrencyWorkers(workers)
+		})
+	}
 	testApp := wrapper.App
 	ctx := wrapper.Ctx
 	ctx = ctx.WithBlockHeader(tmproto.Header{
@@ -47,17 +53,6 @@ func NewStateTestContext(t testing.TB, blockTime time.Time, workers int, mode Ex
 		ChainID: ctx.BlockHeader().ChainID,
 		Time:    blockTime,
 	})
-
-	// Configure giga executor
-	testApp.EvmKeeper.GigaExecutorEnabled = gigaEnabled
-	testApp.EvmKeeper.GigaOCCEnabled = gigaOCCEnabled
-	if gigaEnabled {
-		evmoneVM, err := gigalib.InitEvmoneVM()
-		if err != nil {
-			t.Fatalf("failed to load evmone: %v", err)
-		}
-		testApp.EvmKeeper.EvmoneVM = evmoneVM
-	}
 
 	// Set minimum fee to 0 for state tests
 	params := testApp.EvmKeeper.GetParams(ctx)
@@ -138,7 +133,7 @@ func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harnes
 	require.NoError(t, err, "failed to encode transaction")
 
 	// --- Run with V2 Sequential (baseline) ---
-	v2Ctx := NewStateTestContext(t, blockTime, 1, ModeV2Sequential)
+	v2Ctx := NewStateTestContext(t, blockTime, 1, ModeV2withOCC)
 	v2Ctx.SetupPreState(t, st.Pre)
 	v2Ctx.SetupSender(sender)
 
