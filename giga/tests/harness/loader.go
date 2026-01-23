@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -28,9 +29,14 @@ func LoadStateTest(filePath string) (map[string]*StateTestJSON, error) {
 	}
 
 	result := make(map[string]*StateTestJSON)
-	for name, test := range tests {
-		testCopy := test
-		result[name] = &testCopy
+	names := make([]string, 0, len(tests))
+	for name := range tests {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		test := tests[name]
+		result[name] = &test
 	}
 	return result, nil
 }
@@ -52,11 +58,16 @@ func LoadStateTestsFromDir(dirPath string) (map[string]*StateTestJSON, error) {
 			return err
 		}
 
-		for name, test := range tests {
+		names := make([]string, 0, len(tests))
+		for name := range tests {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
 			// Use relative path + test name as key to avoid collisions
 			relPath, _ := filepath.Rel(dirPath, path)
 			fullName := filepath.Join(relPath, name)
-			result[fullName] = test
+			result[fullName] = tests[name]
 		}
 		return nil
 	})

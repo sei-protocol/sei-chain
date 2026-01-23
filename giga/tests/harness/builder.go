@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"fmt"
 	"math/big"
 	"strings"
 
@@ -171,7 +172,7 @@ func parseHexBig(s string) *big.Int {
 	s = strings.TrimPrefix(s, "0X")
 	result, ok := new(big.Int).SetString(s, 16)
 	if !ok {
-		return new(big.Int)
+		panic(fmt.Sprintf("parseHexBig: failed to parse hex string %q", s))
 	}
 	return result
 }

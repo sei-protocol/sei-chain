@@ -1,6 +1,7 @@
 package giga_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,7 +57,7 @@ func TestGigaVsV2_StateTests(t *testing.T) {
 			for i, post := range cancunPosts {
 				subtestName := testName
 				if len(cancunPosts) > 1 {
-					subtestName = testName + "/" + string(rune('0'+i))
+					subtestName = fmt.Sprintf("%s/%d", testName, i)
 				}
 
 				t.Run(subtestName, func(t *testing.T) {
