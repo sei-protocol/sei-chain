@@ -31,7 +31,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -72,7 +72,7 @@ type Keeper struct {
 	Root        common.Hash
 	ReplayBlock *ethtypes.Block
 
-	receiptStore seidbtypes.StateStore
+	receiptStore receipt.ReceiptStore
 
 	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
@@ -80,6 +80,10 @@ type Keeper struct {
 
 	// EvmoneVM holds the loaded evmone VM instance for the Giga executor
 	EvmoneVM *evmc.VM
+
+	// UseRegularStore when true causes PrefixStore to use ctx.KVStore instead of ctx.GigaKVStore.
+	// This is for debugging/testing to isolate Giga executor logic from GigaKVStore layer.
+	UseRegularStore bool
 }
 
 type AddressNoncePair struct {
@@ -117,7 +121,7 @@ func (ctx *ReplayChainContext) Config() *params.ChainConfig {
 }
 
 func NewKeeper(
-	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStateStore seidbtypes.StateStore,
+	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStateStore receipt.ReceiptStore,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
 	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper) *Keeper {
 
@@ -200,7 +204,7 @@ func (k *Keeper) BankKeeper() bankkeeper.Keeper {
 	return k.bankKeeper
 }
 
-func (k *Keeper) ReceiptStore() seidbtypes.StateStore {
+func (k *Keeper) ReceiptStore() receipt.ReceiptStore {
 	return k.receiptStore
 }
 
@@ -226,9 +230,18 @@ func (k *Keeper) IterateAll(ctx sdk.Context, pref []byte, cb func(key, val []byt
 	}
 }
 
+// GetKVStore returns the appropriate KVStore based on the UseRegularStore flag.
+// When UseRegularStore is true (for debugging/testing), returns regular KVStore.
+// Otherwise returns GigaKVStore.
+func (k *Keeper) GetKVStore(ctx sdk.Context) sdk.KVStore {
+	if k.UseRegularStore {
+		return ctx.KVStore(k.GetStoreKey())
+	}
+	return ctx.GigaKVStore(k.GetStoreKey())
+}
+
 func (k *Keeper) PrefixStore(ctx sdk.Context, pref []byte) sdk.KVStore {
-	store := ctx.GigaKVStore(k.GetStoreKey())
-	return prefix.NewStore(store, pref)
+	return prefix.NewStore(k.GetKVStore(ctx), pref)
 }
 
 func (k *Keeper) PurgePrefix(ctx sdk.Context, pref []byte) {
@@ -448,14 +461,14 @@ func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
 }
 
 func (k *Keeper) setInt64State(ctx sdk.Context, key []byte, val int64) {
-	store := ctx.GigaKVStore(k.storeKey)
+	store := k.GetKVStore(ctx)
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, uint64(val)) //nolint:gosec
 	store.Set(key, bz)
 }
 
 func (k *Keeper) getInt64State(ctx sdk.Context, key []byte) int64 {
-	store := ctx.GigaKVStore(k.storeKey)
+	store := k.GetKVStore(ctx)
 	bz := store.Get(key)
 	if bz == nil {
 		return 0
