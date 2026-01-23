@@ -1,16 +1,6 @@
-//go:build enable_bench
+//go:build slow_bench
 
 // Package bench provides benchmarks for CommitStore.
-//
-// Run benchmarks:
-//
-//	go test -tags=enable_bench -bench=BenchmarkWriteThroughput -benchtime=1x -run='^$' \
-//	  ./sei-db/state_db/bench/... -args -keys=1000 -blocks=100
-//
-// Available flags:
-//
-//	-keys      Number of keys per block (default: 1000)
-//	-blocks    Number of blocks to commit (default: 100)
 package bench
 
 import (
@@ -28,18 +18,10 @@ import (
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
-// =============================================================================
-// Flags
-// =============================================================================
-
 var (
 	flagKeysPerBlock = flag.Int("keys", 1000, "number of keys per block")
 	flagNumBlocks    = flag.Int("blocks", 100, "number of blocks to commit")
 )
-
-// =============================================================================
-// Constants
-// =============================================================================
 
 const (
 	// EVMStoreName simulates the EVM module store
@@ -49,10 +31,6 @@ const (
 	KeySize   = 52
 	ValueSize = 32
 )
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 func newCommitStore(b *testing.B) *sc.CommitStore {
 	b.Helper()
@@ -95,10 +73,6 @@ func generateChangesets(numBlocks, keysPerBlock int) []*proto.NamedChangeSet {
 	}
 	return cs
 }
-
-// =============================================================================
-// Progress Reporter
-// =============================================================================
 
 // ProgressReporter reports benchmark progress periodically.
 type ProgressReporter struct {
@@ -168,7 +142,7 @@ func runBenchmark(b *testing.B, keysPerBlock, numBlocks int) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		b.StopTimer()
 		cs := newCommitStore(b)
 		b.StartTimer()
@@ -229,21 +203,7 @@ func runBenchmarkWithProgress(b *testing.B, keysPerBlock, numBlocks int) {
 	}
 }
 
-// =============================================================================
-// Benchmarks
-// =============================================================================
-
 // BenchmarkWriteThroughput measures write throughput with configurable parameters.
-//
-// Flags:
-//
-//	-keys     Keys per block (default: 1000)
-//	-blocks   Number of blocks (default: 100)
-//
-// Example:
-//
-//	go test -tags=enable_bench -bench=BenchmarkWriteThroughput -benchtime=1x -run='^$' \
-//	  ./sei-db/state_db/bench/... -args -keys=2000 -blocks=500
 func BenchmarkWriteThroughput(b *testing.B) {
 	b.Logf("keysPerBlock=%d, numBlocks=%d, totalKeys=%d",
 		*flagKeysPerBlock, *flagNumBlocks, *flagKeysPerBlock**flagNumBlocks)
@@ -253,16 +213,11 @@ func BenchmarkWriteThroughput(b *testing.B) {
 
 // BenchmarkWriteWithDifferentBlockSize tests throughput with fixed 1M total keys,
 // varying keysPerBlock and numBlocks to find optimal block size.
-//
-// Example:
-//
-//	go test -tags=enable_bench -bench=BenchmarkWriteWithDifferentBlockSize -benchtime=1x -run='^$' \
-//	  ./sei-db/state_db/bench/...
 func BenchmarkWriteWithDifferentBlockSize(b *testing.B) {
 	const totalKeys = 1_000_000
 
 	// Different keys per block to test (numBlocks = totalKeys / keysPerBlock)
-	keysPerBlockOptions := []int{10, 20, 100, 200, 1000, 2000}
+	keysPerBlockOptions := []int{1, 2, 10, 20, 100, 200, 1000, 2000}
 
 	for _, keysPerBlock := range keysPerBlockOptions {
 		numBlocks := totalKeys / keysPerBlock
