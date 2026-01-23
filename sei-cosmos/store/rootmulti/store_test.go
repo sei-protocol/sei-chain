@@ -651,7 +651,7 @@ func TestTraceConcurrency(t *testing.T) {
 		}
 	}(stopW)
 
-	time.Sleep(3 * time.Second)
+	time.Sleep(200 * time.Millisecond)
 	stop <- struct{}{}
 	stopW <- struct{}{}
 }

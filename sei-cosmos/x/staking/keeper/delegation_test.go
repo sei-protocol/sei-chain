@@ -140,7 +140,7 @@ func TestSetDelegation(t *testing.T) {
 func TestDelegationGentx(t *testing.T) {
 	_, app, ctx := createTestInput(t)
 
-	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 3, app.StakingKeeper.TokensFromConsensusPower(ctx, 5100000000000))
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 3, app.StakingKeeper.TokensFromConsensusPower(ctx, 1000000000))
 	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 
 	//construct the validators
@@ -159,7 +159,7 @@ func TestDelegationGentx(t *testing.T) {
 
 	// Test Genesis gentx delegation
 	ctx = ctx.WithBlockHeight(0)
-	_, err := app.StakingKeeper.Delegate(ctx, addrDels[0], app.StakingKeeper.TokensFromConsensusPower(ctx, 100000000000), types.Unbonded, validators[0], true)
+	_, err := app.StakingKeeper.Delegate(ctx, addrDels[0], app.StakingKeeper.TokensFromConsensusPower(ctx, 100000000), types.Unbonded, validators[0], true)
 	_ = staking.EndBlocker(ctx, app.StakingKeeper)
 
 	require.Nil(t, err)
@@ -170,7 +170,7 @@ func TestDelegationGentx(t *testing.T) {
 func TestDelegation(t *testing.T) {
 	_, app, ctx := createTestInput(t)
 
-	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 3, app.StakingKeeper.TokensFromConsensusPower(ctx, 5100000000000))
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 3, app.StakingKeeper.TokensFromConsensusPower(ctx, 1000000000))
 	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 
 	//construct the validators

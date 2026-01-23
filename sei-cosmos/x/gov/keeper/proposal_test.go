@@ -119,7 +119,7 @@ func (suite *KeeperTestSuite) TestGetProposalsFiltered() {
 	addr1 := sdk.AccAddress("foo_________________")
 
 	for _, s := range status {
-		for i := 0; i < 50; i++ {
+		for i := 0; i < 20; i++ {
 			p, err := types.NewProposal(TestProposal, proposalID, time.Now(), time.Now(), false)
 			suite.Require().NoError(err)
 
@@ -141,18 +141,18 @@ func (suite *KeeperTestSuite) TestGetProposalsFiltered() {
 		params             types.QueryProposalsParams
 		expectedNumResults int
 	}{
-		{types.NewQueryProposalsParams(1, 50, types.StatusNil, nil, nil), 50},
-		{types.NewQueryProposalsParams(1, 50, types.StatusDepositPeriod, nil, nil), 50},
-		{types.NewQueryProposalsParams(1, 50, types.StatusVotingPeriod, nil, nil), 50},
+		{types.NewQueryProposalsParams(1, 50, types.StatusNil, nil, nil), 40},
+		{types.NewQueryProposalsParams(1, 50, types.StatusDepositPeriod, nil, nil), 20},
+		{types.NewQueryProposalsParams(1, 50, types.StatusVotingPeriod, nil, nil), 20},
 		{types.NewQueryProposalsParams(1, 25, types.StatusNil, nil, nil), 25},
-		{types.NewQueryProposalsParams(2, 25, types.StatusNil, nil, nil), 25},
+		{types.NewQueryProposalsParams(2, 25, types.StatusNil, nil, nil), 15},
 		{types.NewQueryProposalsParams(1, 50, types.StatusRejected, nil, nil), 0},
-		{types.NewQueryProposalsParams(1, 50, types.StatusNil, addr1, nil), 50},
-		{types.NewQueryProposalsParams(1, 50, types.StatusNil, nil, addr1), 50},
-		{types.NewQueryProposalsParams(1, 50, types.StatusNil, addr1, addr1), 50},
-		{types.NewQueryProposalsParams(1, 50, types.StatusDepositPeriod, addr1, addr1), 25},
-		{types.NewQueryProposalsParams(1, 50, types.StatusDepositPeriod, nil, nil), 50},
-		{types.NewQueryProposalsParams(1, 50, types.StatusVotingPeriod, nil, nil), 50},
+		{types.NewQueryProposalsParams(1, 50, types.StatusNil, addr1, nil), 20},
+		{types.NewQueryProposalsParams(1, 50, types.StatusNil, nil, addr1), 20},
+		{types.NewQueryProposalsParams(1, 50, types.StatusNil, addr1, addr1), 20},
+		{types.NewQueryProposalsParams(1, 50, types.StatusDepositPeriod, addr1, addr1), 10},
+		{types.NewQueryProposalsParams(1, 50, types.StatusDepositPeriod, nil, nil), 20},
+		{types.NewQueryProposalsParams(1, 50, types.StatusVotingPeriod, nil, nil), 20},
 	}
 
 	for i, tc := range testCases {

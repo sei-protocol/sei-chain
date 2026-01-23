@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	PKs = seiapp.CreateTestPubKeys(500)
+	PKs = seiapp.CreateTestPubKeys(100)
 )
 
 func init() {

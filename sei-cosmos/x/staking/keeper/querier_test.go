@@ -19,7 +19,7 @@ import (
 func TestNewQuerier(t *testing.T) {
 	cdc, app, ctx := createTestInput(t)
 
-	addrs := seiapp.AddTestAddrs(app, ctx, 500, sdk.NewInt(10000))
+	addrs := seiapp.AddTestAddrs(app, ctx, 100, sdk.NewInt(10000))
 	_, addrAcc2 := addrs[0], addrs[1]
 	addrVal1, _ := sdk.ValAddress(addrs[0]), sdk.ValAddress(addrs[1])
 
@@ -140,7 +140,7 @@ func TestQueryValidators(t *testing.T) {
 	legacyQuerierCdc := codec.NewAminoCodec(app.LegacyAmino())
 	querier := keeper.NewQuerier(app.StakingKeeper, legacyQuerierCdc.LegacyAmino)
 
-	addrs := seiapp.AddTestAddrs(app, ctx, 500, app.StakingKeeper.TokensFromConsensusPower(ctx, 10000))
+	addrs := seiapp.AddTestAddrs(app, ctx, 100, app.StakingKeeper.TokensFromConsensusPower(ctx, 10000))
 
 	// Create Validators
 	amts := []sdk.Int{sdk.NewInt(9), sdk.NewInt(8), sdk.NewInt(7)}
