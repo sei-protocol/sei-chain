@@ -70,7 +70,7 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 	}
 
 	// try legacy store for older receipts
-	store := ctx.GigaKVStore(k.storeKey)
+	store := k.GetKVStore(ctx)
 	bz := store.Get(types.ReceiptKey(txHash))
 	if bz == nil {
 		return nil, receipts.ErrNotFound
