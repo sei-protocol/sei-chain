@@ -301,20 +301,19 @@ func (h *HostContext) getEVMRevision() evmc.Revision {
 // To add proper mapping for vm.ErrOutOfGas -> evmc.OutOfGas, the Go bindings in
 // github.com/ethereum/evmc would need to be extended first.
 func toEvmcError(err error) error {
-	if err == nil {
+	switch {
+	case err == nil:
 		return nil
-	}
-	// If it's already an evmc.Error, return as-is
-	if _, ok := err.(evmc.Error); ok {
+	case errors.As(err, new(evmc.Error)):
+		// Already an evmc.Error, return as-is
 		return err
-	}
-	// Map known geth VM errors to EVMC errors
-	if errors.Is(err, vm.ErrExecutionReverted) {
+	case errors.Is(err, vm.ErrExecutionReverted):
 		return evmc.Revert
+	default:
+		// All other errors map to generic failure
+		// TODO: Add evmc.OutOfGas mapping once the Go bindings expose it
+		return evmc.Failure
 	}
-	// All other errors map to generic failure
-	// TODO: Add evmc.OutOfGas mapping once the Go bindings expose it
-	return evmc.Failure
 }
 
 // To be called by an exported EVM create function which knows how to instantiate params like statedb.
