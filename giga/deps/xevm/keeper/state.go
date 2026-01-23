@@ -25,7 +25,7 @@ func (k *Keeper) SetState(ctx sdk.Context, addr common.Address, key common.Hash,
 }
 
 func (k *Keeper) IterateState(ctx sdk.Context, cb func(addr common.Address, key common.Hash, val common.Hash) bool) {
-	iter := prefix.NewStore(ctx.GigaKVStore(k.storeKey), types.StateKeyPrefix).Iterator(nil, nil)
+	iter := prefix.NewStore(k.GetKVStore(ctx), types.StateKeyPrefix).Iterator(nil, nil)
 	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		k := iter.Key()
