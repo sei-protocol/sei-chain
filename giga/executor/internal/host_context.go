@@ -20,29 +20,44 @@ var _ evmc.HostContext = (*HostContext)(nil)
 // storage from zero to non-zero. evmone uses this internally.
 const StandardSstoreSetGasEIP2200 = uint64(20000)
 
-type HostContext struct {
-	vm  *evmc.VM
-	evm *vm.EVM
-	// sstoreGasDelta is the per-SSTORE gas delta (Sei custom cost - standard cost).
+// HostContextConfig holds configuration for the HostContext.
+// Values are pre-computed from ChainConfig at construction time for efficiency.
+type HostContextConfig struct {
+	// SstoreGasDelta is the per-SSTORE gas delta (Sei custom cost - standard 20k).
 	// This is added to gas consumption for each StorageAdded operation.
-	sstoreGasDelta uint64
+	SstoreGasDelta uint64
+}
+
+// NewHostContextConfig creates a HostContextConfig from the chain config.
+// This extracts and pre-computes values needed by HostContext.
+func NewHostContextConfig(chainConfig *params.ChainConfig) HostContextConfig {
+	var delta uint64
+	if chainConfig != nil && chainConfig.SeiSstoreSetGasEIP2200 != nil {
+		seiSstoreGas := *chainConfig.SeiSstoreSetGasEIP2200
+		if seiSstoreGas > StandardSstoreSetGasEIP2200 {
+			delta = seiSstoreGas - StandardSstoreSetGasEIP2200
+		}
+	}
+	return HostContextConfig{
+		SstoreGasDelta: delta,
+	}
+}
+
+type HostContext struct {
+	vm     *evmc.VM
+	evm    *vm.EVM
+	config HostContextConfig
 	// sstoreGasAdjustment accumulates the total extra gas to charge for SSTORE operations.
 	// This is applied after evmone execution completes.
 	sstoreGasAdjustment atomic.Int64
 }
 
-// NewHostContext creates a new HostContext with the custom SSTORE gas cost.
-// seiSstoreGas is the Sei chain's custom SSTORE gas cost (typically 72000).
-// If 0 or less than standard, no adjustment is applied.
-func NewHostContext(vm *evmc.VM, evm *vm.EVM, seiSstoreGas uint64) *HostContext {
-	var delta uint64
-	if seiSstoreGas > StandardSstoreSetGasEIP2200 {
-		delta = seiSstoreGas - StandardSstoreSetGasEIP2200
-	}
+// NewHostContext creates a new HostContext with the given configuration.
+func NewHostContext(vm *evmc.VM, evm *vm.EVM, config HostContextConfig) *HostContext {
 	return &HostContext{
-		vm:             vm,
-		evm:            evm,
-		sstoreGasDelta: delta,
+		vm:     vm,
+		evm:    evm,
+		config: config,
 	}
 }
 
@@ -105,9 +120,9 @@ func (h *HostContext) SetStorage(addr evmc.Address, key evmc.Hash, value evmc.Ha
 	// Accumulate SSTORE gas adjustment for StorageAdded operations.
 	// evmone uses standard EIP-2200 gas (20k), but Sei may have a higher cost (e.g., 72k).
 	// We track the delta here and apply it after execution.
-	if status == evmc.StorageAdded && h.sstoreGasDelta > 0 {
-		//nolint:gosec // G115: safe conversion - sstoreGasDelta is always positive and small
-		h.sstoreGasAdjustment.Add(int64(h.sstoreGasDelta))
+	if status == evmc.StorageAdded && h.config.SstoreGasDelta > 0 {
+		//nolint:gosec // G115: safe conversion - delta is always positive and small
+		h.sstoreGasAdjustment.Add(int64(h.config.SstoreGasDelta))
 	}
 
 	h.evm.StateDB.SetState(gethAddr, gethKey, common.Hash(value))

@@ -18,12 +18,9 @@ type Executor struct {
 
 func NewEvmoneExecutor(evmoneVM *evmc.VM, blockCtx vm.BlockContext, stateDB vm.StateDB, chainConfig *params.ChainConfig, config vm.Config, customPrecompiles map[common.Address]vm.PrecompiledContract) *Executor {
 	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, config, customPrecompiles)
-	// Get custom SSTORE gas cost from chain config (Sei's custom parameter)
-	var seiSstoreGas uint64
-	if chainConfig.SeiSstoreSetGasEIP2200 != nil {
-		seiSstoreGas = *chainConfig.SeiSstoreSetGasEIP2200
-	}
-	hostContext := internal.NewHostContext(evmoneVM, evm, seiSstoreGas)
+	// Pre-compute HostContext config from chain config (avoids per-SSTORE overhead)
+	hostConfig := internal.NewHostContextConfig(chainConfig)
+	hostContext := internal.NewHostContext(evmoneVM, evm, hostConfig)
 	evm.EVMInterpreter = internal.NewEVMInterpreter(hostContext, evm)
 	return &Executor{
 		evm: evm,
