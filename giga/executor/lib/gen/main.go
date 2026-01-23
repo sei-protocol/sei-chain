@@ -138,12 +138,13 @@ func downloadAndExtract(ctx context.Context, p Platform, outDir string) error {
 		outName := fmt.Sprintf("libevmone.%s_%s_%s.%s", evmoneVersion, p.OS, p.Arch, p.Ext)
 		outPath := filepath.Join(outDir, outName)
 
-		f, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		f, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644) //nolint:gosec
 		if err != nil {
 			return fmt.Errorf("create: %w", err)
 		}
 
-		if _, err := io.Copy(f, tr); err != nil {
+		const maxSize = 100 << 20 // 100MiB maximum copy
+		if _, err := io.CopyN(f, tr, maxSize); err != nil && err != io.EOF {
 			_ = f.Close()
 			return fmt.Errorf("extract: %w", err)
 		}
