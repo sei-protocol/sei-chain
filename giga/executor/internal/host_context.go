@@ -1,6 +1,8 @@
 package internal
 
 import (
+	"errors"
+
 	"github.com/ethereum/evmc/v12/bindings/go/evmc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -288,6 +290,31 @@ func (h *HostContext) getEVMRevision() evmc.Revision {
 		return evmc.Homestead
 	}
 	return evmc.Frontier
+}
+
+// toEvmcError converts a Go error to an evmc.Error.
+// The EVMC bindings expect Call() to return evmc.Error type, not standard Go errors.
+//
+// Note: The evmc Go bindings currently only expose evmc.Failure and evmc.Revert constants.
+// Additional error codes like EVMC_OUT_OF_GAS (3), EVMC_INVALID_INSTRUCTION (4), etc.
+// are defined in the C header (evmc/evmc.h) but not exported in the Go bindings.
+// To add proper mapping for vm.ErrOutOfGas -> evmc.OutOfGas, the Go bindings in
+// github.com/ethereum/evmc would need to be extended first.
+func toEvmcError(err error) error {
+	if err == nil {
+		return nil
+	}
+	// If it's already an evmc.Error, return as-is
+	if _, ok := err.(evmc.Error); ok {
+		return err
+	}
+	// Map known geth VM errors to EVMC errors
+	if errors.Is(err, vm.ErrExecutionReverted) {
+		return evmc.Revert
+	}
+	// All other errors map to generic failure
+	// TODO: Add evmc.OutOfGas mapping once the Go bindings expose it
+	return evmc.Failure
 }
 
 // To be called by an exported EVM create function which knows how to instantiate params like statedb.
