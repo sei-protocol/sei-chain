@@ -1,6 +1,8 @@
 package internal
 
 import (
+	"errors"
+
 	"github.com/ethereum/evmc/v12/bindings/go/evmc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -207,17 +209,17 @@ func (h *HostContext) Call(
 		ret, leftoverGas, err = h.evm.CallCode(senderAddr, recipientAddr, input, uint64(gas), valueUint256)
 	case evmc.Create:
 		ret, createAddr, leftoverGas, err = h.evm.Create(senderAddr, input, uint64(gas), valueUint256)
-		return ret, int64(leftoverGas), 0, evmc.Address(createAddr), err
+		return ret, int64(leftoverGas), 0, evmc.Address(createAddr), toEvmcError(err)
 	case evmc.Create2:
 		saltUint256 := new(uint256.Int).SetBytes(salt[:])
 		ret, createAddr, leftoverGas, err = h.evm.Create2(senderAddr, input, uint64(gas), valueUint256, saltUint256)
-		return ret, int64(leftoverGas), 0, evmc.Address(createAddr), err
+		return ret, int64(leftoverGas), 0, evmc.Address(createAddr), toEvmcError(err)
 	default:
 		panic("EofCreate is not supported")
 	}
 
 	//nolint:gosec // G115: safe, leftoverGas won't exceed int64 max
-	return ret, int64(leftoverGas), 0, evmc.Address{}, err
+	return ret, int64(leftoverGas), 0, evmc.Address{}, toEvmcError(err)
 }
 
 func (h *HostContext) AccessAccount(addr evmc.Address) evmc.AccessStatus {
@@ -301,6 +303,30 @@ func (h *HostContext) getEVMRevision() evmc.Revision {
 		return evmc.Homestead
 	}
 	return evmc.Frontier
+}
+
+// toEvmcError converts a Go error to an evmc.Error.
+// The EVMC bindings expect Call() to return evmc.Error type, not standard Go errors.
+//
+// Note: The evmc Go bindings currently only expose evmc.Failure and evmc.Revert constants.
+// Additional error codes like EVMC_OUT_OF_GAS (3), EVMC_INVALID_INSTRUCTION (4), etc.
+// are defined in the C header (evmc/evmc.h) but not exported in the Go bindings.
+// To add proper mapping for vm.ErrOutOfGas -> evmc.OutOfGas, the Go bindings in
+// github.com/ethereum/evmc would need to be extended first.
+func toEvmcError(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.As(err, new(evmc.Error)):
+		// Already an evmc.Error, return as-is
+		return err
+	case errors.Is(err, vm.ErrExecutionReverted):
+		return evmc.Revert
+	default:
+		// All other errors map to generic failure
+		// TODO: Add evmc.OutOfGas mapping once the Go bindings expose it
+		return evmc.Failure
+	}
 }
 
 // To be called by an exported EVM create function which knows how to instantiate params like statedb.
