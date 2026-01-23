@@ -169,9 +169,15 @@ func (p *ProgressReporter) report() {
 	keys := p.keysWritten.Load()
 	elapsed := time.Since(p.startTime).Seconds()
 	if elapsed > 0 {
-		blocks := keys / int64(p.totalKeys/p.totalBlocks)
+		keysPerBlock := p.totalKeys / p.totalBlocks
+		if keysPerBlock > 0 {
+			blocks := keys / keysPerBlock
+			fmt.Printf("[Progress] blocks=%d/%d, keys=%d/%d, keys/sec=%.0f\n",
+				blocks, p.totalBlocks, keys, p.totalKeys, float64(keys)/elapsed)
+			return
+		}
 		fmt.Printf("[Progress] blocks=%d/%d, keys=%d/%d, keys/sec=%.0f\n",
-			blocks, p.totalBlocks, keys, p.totalKeys, float64(keys)/elapsed)
+			0, p.totalBlocks, keys, p.totalKeys, float64(keys)/elapsed)
 	}
 }
 
@@ -250,6 +256,9 @@ func keyFromIndex(index int64) []byte {
 	key := make([]byte, KeySize)
 	copy(key, "0x")
 	var input [9]byte
+	if index < 0 {
+		panic(fmt.Sprintf("negative key index: %d", index))
+	}
 	binary.LittleEndian.PutUint64(input[1:], uint64(index))
 	sum1 := sha256.Sum256(input[:])
 	input[0] = 1
