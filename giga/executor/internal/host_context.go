@@ -36,6 +36,7 @@ func NewHostContextConfig(chainConfig *params.ChainConfig) HostContextConfig {
 	if chainConfig != nil && chainConfig.SeiSstoreSetGasEIP2200 != nil {
 		seiSstoreGas := *chainConfig.SeiSstoreSetGasEIP2200
 		// Delta = Sei cost - standard cost (can be positive or negative)
+		//nolint:gosec // G115: safe - gas costs are always << int64 max (~9 quintillion)
 		delta = int64(seiSstoreGas) - int64(StandardSstoreSetGasEIP2200)
 	}
 	return HostContextConfig{
