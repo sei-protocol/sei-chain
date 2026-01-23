@@ -24,13 +24,16 @@ import (
 type ExecutorMode int
 
 const (
-	ModeV2withOCC      ExecutorMode = iota // V2 execution path with OCC (standard production path)
+	ModeV2Sequential   ExecutorMode = iota // V2 execution path, sequential (no OCC)
+	ModeV2withOCC                          // V2 execution path with OCC (standard production path)
 	ModeGigaSequential                     // Giga executor, no OCC
 	ModeGigaOCC                            // Giga executor with OCC
 )
 
 func (m ExecutorMode) String() string {
 	switch m {
+	case ModeV2Sequential:
+		return "V2Sequential"
 	case ModeV2withOCC:
 		return "V2withOCC"
 	case ModeGigaSequential:

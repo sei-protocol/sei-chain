@@ -133,7 +133,7 @@ func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harnes
 	require.NoError(t, err, "failed to encode transaction")
 
 	// --- Run with V2 Sequential (baseline) ---
-	v2Ctx := NewStateTestContext(t, blockTime, 1, ModeV2withOCC)
+	v2Ctx := NewStateTestContext(t, blockTime, 1, ModeV2Sequential)
 	v2Ctx.SetupPreState(t, st.Pre)
 	v2Ctx.SetupSender(sender)
 
