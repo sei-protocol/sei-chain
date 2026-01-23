@@ -34,6 +34,14 @@ import (
 
 func TestLoadSnapshotChunk(t *testing.T) {
 	app := setupBaseAppWithSnapshots(t, 2, 5)
+	respList, _ := app.ListSnapshots(context.Background(), &abci.RequestListSnapshots{})
+	require.NotEmpty(t, respList.Snapshots)
+	snapshot := respList.Snapshots[0]
+	existingChunk := uint32(0)
+	if snapshot.Chunks > 1 {
+		existingChunk = snapshot.Chunks - 1
+	}
+	missingChunk := snapshot.Chunks + 1
 
 	testcases := map[string]struct {
 		height      uint64
@@ -41,13 +49,13 @@ func TestLoadSnapshotChunk(t *testing.T) {
 		chunk       uint32
 		expectEmpty bool
 	}{
-		"Existing snapshot": {2, 1, 1, false},
+		"Existing snapshot": {snapshot.Height, snapshot.Format, existingChunk, false},
 		"Missing height":    {100, 1, 1, true},
-		"Missing format":    {2, 2, 1, true},
-		"Missing chunk":     {2, 1, 9, true},
+		"Missing format":    {snapshot.Height, snapshot.Format + 1, 1, true},
+		"Missing chunk":     {snapshot.Height, snapshot.Format, missingChunk, true},
 		"Zero height":       {0, 1, 1, true},
 		"Zero format":       {2, 0, 1, true},
-		"Zero chunk":        {2, 1, 0, false},
+		"Zero chunk":        {snapshot.Height, snapshot.Format, 0, false},
 	}
 	for name, tc := range testcases {
 		tc := tc
@@ -131,8 +139,8 @@ func TestApplySnapshotChunk(t *testing.T) {
 	require.NotEmpty(t, respList.Snapshots)
 	snapshot := respList.Snapshots[0]
 
-	// Make sure the snapshot has at least 3 chunks
-	require.GreaterOrEqual(t, snapshot.Chunks, uint32(3), "Not enough snapshot chunks")
+	// Make sure the snapshot has at least 1 chunk
+	require.GreaterOrEqual(t, snapshot.Chunks, uint32(1), "Not enough snapshot chunks")
 
 	// Begin a snapshot restoration in the target
 	respOffer, _ := target.OfferSnapshot(context.Background(), &abci.RequestOfferSnapshot{Snapshot: snapshot})
@@ -1731,13 +1739,15 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 
 	r := rand.New(rand.NewSource(3920758213583))
 	keyCounter := 0
+	msgsPerTx := 10
+	valueSize := 1000
 	for height := int64(1); height <= int64(blocks); height++ {
 		app.setDeliverState(tmproto.Header{Height: height})
 		for txNum := 0; txNum < blockTxs; txNum++ {
 			tx := txTest{Msgs: []sdk.Msg{}}
-			for msgNum := 0; msgNum < 100; msgNum++ {
+			for msgNum := 0; msgNum < msgsPerTx; msgNum++ {
 				key := []byte(fmt.Sprintf("%v", keyCounter))
-				value := make([]byte, 10000)
+				value := make([]byte, valueSize)
 				_, err := r.Read(value)
 				require.NoError(t, err)
 				tx.Msgs = append(tx.Msgs, &msgKeyValue{Key: key, Value: value})

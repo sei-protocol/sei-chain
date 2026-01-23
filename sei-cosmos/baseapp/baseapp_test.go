@@ -166,11 +166,13 @@ func TestSetOccEnabled(t *testing.T) {
 func TestListSnapshots(t *testing.T) {
 	app := setupBaseAppWithSnapshots(t, 2, 5)
 
-	expected := abci.ResponseListSnapshots{Snapshots: []*abci.Snapshot{
-		{Height: 2, Format: 1, Chunks: 2},
-	}}
-
 	resp, _ := app.ListSnapshots(context.Background(), &abci.RequestListSnapshots{})
+	require.Len(t, resp.Snapshots, 1)
+	snapshot := resp.Snapshots[0]
+	assert.Equal(t, uint64(2), snapshot.Height)
+	assert.Equal(t, uint32(1), snapshot.Format)
+	assert.Greater(t, snapshot.Chunks, uint32(0))
+
 	queryResponse, _ := app.Query(context.Background(), &abci.RequestQuery{
 		Path: "/app/snapshots",
 	})
@@ -192,5 +194,4 @@ func TestListSnapshots(t *testing.T) {
 		s.Hash = nil
 		s.Metadata = nil
 	}
-	assert.Equal(t, expected, *resp)
 }

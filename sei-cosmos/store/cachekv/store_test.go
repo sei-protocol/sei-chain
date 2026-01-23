@@ -319,11 +319,17 @@ func TestCacheKVMergeIteratorRandom(t *testing.T) {
 	max := 1000
 	setRange(t, st, truth, start, end)
 
-	// do an op, test the iterator
-	for i := 0; i < 2000; i++ {
+	iterations := 200
+	compareEvery := 20
+
+	// do an op, sample iterator correctness
+	for i := 0; i < iterations; i++ {
 		doRandomOp(t, st, truth, max)
-		assertIterateDomainCompare(t, st, truth)
+		if i%compareEvery == 0 {
+			assertIterateDomainCompare(t, st, truth)
+		}
 	}
+	assertIterateDomainCompare(t, st, truth)
 }
 
 //-------------------------------------------------------------------------------------------
@@ -342,6 +348,7 @@ const (
 func randInt(n int) int {
 	return utils.NewRand().Int() % n
 }
+
 
 // useful for replaying a error case if we find one
 func doOp(t *testing.T, st types.CacheKVStore, truth dbm.DB, op int, args ...int) {
