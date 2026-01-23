@@ -165,7 +165,6 @@ import (
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	gigaevmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
-	gigaevmstate "github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -411,6 +410,9 @@ type App struct {
 	GigaExecutorEnabled bool
 	// GigaOCCEnabled controls whether to use OCC with the Giga executor
 	GigaOCCEnabled bool
+	// GigaUseEvmKeeper controls whether to use the original EvmKeeper instead of GigaEvmKeeper.
+	// When true, the Giga executor uses ctx.KVStore() instead of ctx.GigaKVStore().
+	GigaUseEvmKeeper bool
 }
 
 type AppOption func(*App)
@@ -692,6 +694,7 @@ func New(
 	}
 	app.GigaExecutorEnabled = gigaExecutorConfig.Enabled
 	app.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
+	app.GigaUseEvmKeeper = gigaExecutorConfig.UseEvmKeeper
 	if gigaExecutorConfig.Enabled {
 		evmoneVM, err := gigalib.InitEvmoneVM()
 		if err != nil {
@@ -702,6 +705,11 @@ func New(
 			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")
 		} else {
 			logger.Info("benchmark: Giga Executor (evmone-based) is ENABLED - using new EVM execution path (sequential)")
+		}
+		if gigaExecutorConfig.UseEvmKeeper {
+			logger.Info("benchmark: Giga Executor using original EvmKeeper (x/evm/keeper) with ctx.KVStore()")
+		} else {
+			logger.Info("benchmark: Giga Executor using GigaEvmKeeper (giga/deps/xevm/keeper) with ctx.GigaKVStore()")
 		}
 	} else {
 		logger.Info("benchmark: Giga Executor is DISABLED - using default GETH interpreter")
@@ -1546,6 +1554,16 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	return events, txResults, endBlockResp, nil
 }
 
+// getGigaExecutorKeeper returns the appropriate GigaExecutorKeeper based on config.
+// When GigaUseEvmKeeper is true, returns an adapter wrapping the original EvmKeeper.
+// Otherwise, returns a wrapper around GigaEvmKeeper.
+func (app *App) getGigaExecutorKeeper() gigaexecutor.GigaExecutorKeeper {
+	if app.GigaUseEvmKeeper {
+		return gigaexecutor.NewEvmKeeperAdapter(&app.EvmKeeper, app.GigaEvmKeeper.EvmoneVM)
+	}
+	return gigaexecutor.NewGigaEvmKeeperWrapper(&app.GigaEvmKeeper)
+}
+
 // ProcessBlockWithGigaExecutor executes block transactions using the Giga executor,
 // bypassing the standard Cosmos SDK transaction processing flow.
 // This is an experimental path for improved EVM throughput.
@@ -1643,14 +1661,18 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 
 // executeEVMTxWithGigaExecutor executes a single EVM transaction using the giga executor.
 // The sender address is recovered directly from the transaction signature - no Cosmos SDK ante handlers needed.
+// Uses the GigaExecutorKeeper interface to support both GigaEvmKeeper and EvmKeeper.
 func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *evmtypes.MsgEVMTransaction) (*abci.ExecTxResult, error) {
+	// Get the appropriate keeper based on config
+	keeper := app.getGigaExecutorKeeper()
+
 	// Get the Ethereum transaction from the message
 	ethTx, txData := msg.AsTransaction()
 	if ethTx == nil || txData == nil {
 		return nil, fmt.Errorf("failed to convert to eth transaction")
 	}
 
-	chainID := app.GigaEvmKeeper.ChainID(ctx)
+	chainID := keeper.ChainID(ctx)
 
 	// Recover sender using the same logic as preprocess.go (version-based signer selection)
 	sender, seiAddr, pubkey, recoverErr := evmante.RecoverSenderFromEthTx(ctx, ethTx, chainID)
@@ -1662,8 +1684,8 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	}
 
 	// Associate the address if not already associated (same as EVMPreprocessDecorator)
-	if _, isAssociated := app.GigaEvmKeeper.GetEVMAddress(ctx, seiAddr); !isAssociated {
-		associateHelper := helpers.NewAssociationHelper(&app.GigaEvmKeeper, app.BankKeeper, &app.AccountKeeper)
+	if _, isAssociated := keeper.GetEVMAddress(ctx, seiAddr); !isAssociated {
+		associateHelper := helpers.NewAssociationHelper(keeper, keeper.BankKeeper(), keeper.AccountKeeper())
 		if err := associateHelper.AssociateAddresses(ctx, seiAddr, sender, pubkey); err != nil {
 			return &abci.ExecTxResult{
 				Code: 1,
@@ -1676,15 +1698,15 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	ctx = ctx.WithTxIndex(txIndex)
 
-	// Create state DB for this transaction
-	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)
+	// Create state DB for this transaction using the keeper's NewStateDB method
+	stateDB := keeper.NewStateDB(ctx, false)
 	defer stateDB.Cleanup()
 
 	// Get gas pool
-	gp := app.GigaEvmKeeper.GetGasPool()
+	gp := keeper.GetGasPool()
 
 	// Get block context
-	blockCtx, blockCtxErr := app.GigaEvmKeeper.GetVMBlockContext(ctx, gp)
+	blockCtx, blockCtxErr := keeper.GetVMBlockContext(ctx, gp)
 	if blockCtxErr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
@@ -1692,15 +1714,14 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 		}, nil
 	}
 
-	// Get chain config
-	sstore := app.GigaEvmKeeper.GetParams(ctx).SeiSstoreSetGasEip2200
-	cfg := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(app.GigaEvmKeeper.ChainID(ctx), &sstore)
+	// Get chain config from keeper
+	cfg := keeper.GetChainConfig(ctx)
 
 	// Create Giga executor VM (wraps evmone)
-	gigaExecutor := gigaexecutor.NewEvmoneExecutor(app.GigaEvmKeeper.EvmoneVM, *blockCtx, stateDB, cfg, vm.Config{}, app.GigaEvmKeeper.CustomPrecompiles(ctx))
+	gigaExec := gigaexecutor.NewEvmoneExecutor(keeper.EvmoneVM(), *blockCtx, stateDB, cfg, vm.Config{}, keeper.CustomPrecompiles(ctx))
 
 	// Execute the transaction through giga VM
-	execResult, execErr := gigaExecutor.ExecuteTransaction(ethTx, sender, app.GigaEvmKeeper.GetBaseFee(ctx), &gp)
+	execResult, execErr := gigaExec.ExecuteTransaction(ethTx, sender, keeper.GetBaseFee(ctx), &gp)
 	if execErr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
@@ -1736,7 +1757,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 		Data:      ethTx.Data(),
 		From:      sender,
 	}
-	receipt, rerr := app.GigaEvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError)
+	receiptResult, rerr := keeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError)
 	if rerr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
@@ -1749,7 +1770,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	// For giga executor, we set surplus to zero since we're not charging gas fees through the normal flow
 	surplus := sdk.ZeroInt()
 	bloom := ethtypes.Bloom{}
-	bloom.SetBytes(receipt.LogsBloom)
+	bloom.SetBytes(receiptResult.LogsBloom)
 	app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, ethTx.Hash(), surplus)
 
 	// Determine result code based on VM error
@@ -1758,15 +1779,10 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 		code = 1
 	}
 
-	// Serialize receipt to include in response Data field.
-	// In OCC mode, transient store writes are lost because the CacheMultiStore
-	// isn't committed, so we pass the receipt through the response for later processing.
-	receiptBytes, _ := receipt.Marshal()
-
 	//nolint:gosec // G115: safe, UsedGas won't exceed int64 max
 	return &abci.ExecTxResult{
 		Code:    code,
-		Data:    receiptBytes,
+		Data:    receiptResult.ReceiptBytes,
 		GasUsed: int64(execResult.UsedGas),
 		Log:     vmError,
 		EvmTxInfo: &abci.EvmTxInfo{

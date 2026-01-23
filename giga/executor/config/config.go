@@ -11,16 +11,22 @@ type Config struct {
 	Enabled bool `mapstructure:"enabled"`
 	// OCCEnabled controls whether to use OCC (Optimistic Concurrency Control) with the Giga executor
 	OCCEnabled bool `mapstructure:"occ_enabled"`
+	// UseEvmKeeper controls whether to use the original EvmKeeper (x/evm/keeper) instead of
+	// GigaEvmKeeper (giga/deps/xevm/keeper). This is useful for comparing behavior between keepers.
+	// When true, the executor uses ctx.KVStore() instead of ctx.GigaKVStore().
+	UseEvmKeeper bool `mapstructure:"use_evm_keeper"`
 }
 
 var DefaultConfig = Config{
-	Enabled:    false, // disabled by default, opt-in
-	OCCEnabled: false, // OCC disabled by default
+	Enabled:      false, // disabled by default, opt-in
+	OCCEnabled:   false, // OCC disabled by default
+	UseEvmKeeper: false, // use GigaEvmKeeper by default
 }
 
 const (
-	FlagEnabled    = "giga_executor.enabled"
-	FlagOCCEnabled = "giga_executor.occ_enabled"
+	FlagEnabled      = "giga_executor.enabled"
+	FlagOCCEnabled   = "giga_executor.occ_enabled"
+	FlagUseEvmKeeper = "giga_executor.use_evm_keeper"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -33,6 +39,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(FlagOCCEnabled); v != nil {
 		if cfg.OCCEnabled, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(FlagUseEvmKeeper); v != nil {
+		if cfg.UseEvmKeeper, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -55,4 +66,10 @@ enabled = {{ .GigaExecutor.Enabled }}
 # When true, transactions are executed in parallel with conflict detection and retry.
 # Default: false
 occ_enabled = {{ .GigaExecutor.OCCEnabled }}
+
+# use_evm_keeper controls whether to use the original EvmKeeper (x/evm/keeper) instead of
+# GigaEvmKeeper (giga/deps/xevm/keeper). This is useful for comparing behavior between keepers.
+# When true, the executor uses ctx.KVStore() instead of ctx.GigaKVStore().
+# Default: false
+use_evm_keeper = {{ .GigaExecutor.UseEvmKeeper }}
 `
