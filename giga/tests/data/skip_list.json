@@ -1,5 +1,6 @@
 {
   "skipped_tests": {
+    "stExample/solidityExample": "result_code mismatch - V2 succeeds (code=0), Giga reverts (code=1)"
   },
   "skipped_categories": [
     "Cancun",
@@ -24,7 +25,6 @@
     "stEIP158Specific",
     "stEIP2930",
     "stEIP3607",
-    "stExample",
     "stExpectSection",
     "stExtCodeHash",
     "stHomesteadSpecific",

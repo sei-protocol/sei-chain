@@ -596,6 +596,7 @@ func runV2VsGigaWithRegularStoreComparison(t *testing.T, st *harness.StateTestJS
 // If tests fail here, the issue is in the Giga executor logic itself.
 //
 // Usage: STATE_TEST_DIR=stChainId go test -v -run TestGigaWithRegularStore_StateTests ./giga/tests/...
+// Usage with test name filter: STATE_TEST_DIR=stExample STATE_TEST_NAME=add11 go test -v -run TestGigaWithRegularStore_StateTests ./giga/tests/...
 func TestGigaWithRegularStore_StateTests(t *testing.T) {
 	stateTestsPath, err := harness.GetStateTestsPath()
 	require.NoError(t, err, "failed to get path to state tests")
@@ -609,6 +610,9 @@ func TestGigaWithRegularStore_StateTests(t *testing.T) {
 	if specificDir == "" {
 		t.Skip("STATE_TEST_DIR not set - skipping state tests")
 	}
+
+	// Allow filtering to specific test name via STATE_TEST_NAME env var
+	specificTestName := os.Getenv("STATE_TEST_NAME")
 
 	// Check if entire category is skipped
 	if skipList.IsCategorySkipped(specificDir) {
@@ -625,6 +629,9 @@ func TestGigaWithRegularStore_StateTests(t *testing.T) {
 	}
 
 	t.Logf("Found %d state test files in %s", len(tests), specificDir)
+	if specificTestName != "" {
+		t.Logf("Filtering to tests matching: %s", specificTestName)
+	}
 
 	// Track results for summary
 	summary := NewTestSummary()
@@ -636,6 +643,11 @@ func TestGigaWithRegularStore_StateTests(t *testing.T) {
 	})
 
 	for testName, st := range tests {
+		// Filter by test name if specified
+		if specificTestName != "" && !strings.Contains(testName, specificTestName) {
+			continue
+		}
+
 		// Run each subtest for Cancun fork (most recent stable)
 		cancunPosts, ok := st.Post["Cancun"]
 		if !ok {
@@ -676,5 +688,259 @@ func TestGigaWithRegularStore_StateTests(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestDebugStateTest runs a single state test with verbose output for debugging.
+// This test ignores the skip list and provides detailed execution information.
+//
+// Usage: STATE_TEST_DIR=stExample STATE_TEST_NAME=add11 go test -v -run TestDebugStateTest ./giga/tests/...
+func TestDebugStateTest(t *testing.T) {
+	stateTestsPath, err := harness.GetStateTestsPath()
+	require.NoError(t, err, "failed to get path to state tests")
+
+	// Require both STATE_TEST_DIR and STATE_TEST_NAME
+	specificDir := os.Getenv("STATE_TEST_DIR")
+	if specificDir == "" {
+		t.Skip("STATE_TEST_DIR not set - skipping debug test")
+	}
+
+	specificTestName := os.Getenv("STATE_TEST_NAME")
+	if specificTestName == "" {
+		t.Skip("STATE_TEST_NAME not set - skipping debug test")
+	}
+
+	dirPath := stateTestsPath + "/" + specificDir
+
+	tests, err := harness.LoadStateTestsFromDir(dirPath)
+	require.NoError(t, err, "failed to load state tests from %s", dirPath)
+
+	if len(tests) == 0 {
+		t.Fatalf("No state tests found in %s", dirPath)
+	}
+
+	t.Logf("=== Debug State Test ===")
+	t.Logf("Category: %s", specificDir)
+	t.Logf("Test name filter: %s", specificTestName)
+	t.Logf("Note: Skip list is IGNORED in debug mode")
+	t.Logf("")
+
+	// Find matching tests
+	var matchingTests []struct {
+		name string
+		st   *harness.StateTestJSON
+		post harness.StateTestPost
+	}
+
+	for testName, st := range tests {
+		if !strings.Contains(testName, specificTestName) {
+			continue
+		}
+
+		// Get Cancun posts or fallback to other forks
+		cancunPosts, ok := st.Post["Cancun"]
+		if !ok {
+			for fork := range st.Post {
+				cancunPosts = st.Post[fork]
+				break
+			}
+		}
+
+		for i, post := range cancunPosts {
+			subtestName := testName
+			if len(cancunPosts) > 1 {
+				subtestName = fmt.Sprintf("%s/%d", testName, i)
+			}
+			matchingTests = append(matchingTests, struct {
+				name string
+				st   *harness.StateTestJSON
+				post harness.StateTestPost
+			}{name: subtestName, st: st, post: post})
+		}
+	}
+
+	if len(matchingTests) == 0 {
+		t.Fatalf("No tests found matching %q in %s", specificTestName, specificDir)
+	}
+
+	t.Logf("Found %d matching test(s)", len(matchingTests))
+	t.Logf("")
+
+	for _, mt := range matchingTests {
+		t.Run(mt.name, func(t *testing.T) {
+			runDebugStateTest(t, mt.st, mt.post)
+		})
+	}
+}
+
+// runDebugStateTest runs a single state test with verbose debug output
+func runDebugStateTest(t *testing.T, st *harness.StateTestJSON, post harness.StateTestPost) {
+	blockTime := time.Now()
+
+	t.Logf("=== Pre-State Setup ===")
+	for addr, account := range st.Pre {
+		t.Logf("Address: %s", addr.Hex())
+		t.Logf("  Balance: %s", account.Balance.String())
+		t.Logf("  Nonce: %d", account.Nonce)
+		if len(account.Code) > 0 {
+			t.Logf("  Code: %d bytes", len(account.Code))
+		}
+		if len(account.Storage) > 0 {
+			t.Logf("  Storage entries: %d", len(account.Storage))
+			for key, value := range account.Storage {
+				t.Logf("    %s -> %s", truncateHex(key.Hex()), truncateHex(value.Hex()))
+			}
+		}
+	}
+	t.Logf("")
+
+	// Build the transaction
+	signedTx, sender, err := harness.BuildTransaction(st, post)
+	if err != nil {
+		t.Fatalf("Failed to build transaction: %v", err)
+	}
+
+	t.Logf("=== Transaction ===")
+	t.Logf("Sender: %s", sender.Hex())
+	t.Logf("To: %v", signedTx.To())
+	t.Logf("Value: %s", signedTx.Value().String())
+	t.Logf("Gas: %d", signedTx.Gas())
+	t.Logf("GasPrice: %s", signedTx.GasPrice().String())
+	t.Logf("Data: %d bytes", len(signedTx.Data()))
+	t.Logf("")
+
+	txBytes, err := harness.EncodeTxForApp(signedTx)
+	if err != nil {
+		t.Fatalf("Failed to encode transaction: %v", err)
+	}
+
+	// --- Run with V2 Sequential ---
+	t.Logf("=== V2 Sequential Execution ===")
+	v2Ctx := NewStateTestContext(t, blockTime, 1, ModeV2Sequential)
+	v2Ctx.SetupPreState(t, st.Pre)
+	v2Ctx.SetupSender(sender)
+
+	_, v2Results, v2Err := RunStateTestBlock(v2Ctx, [][]byte{txBytes})
+
+	if v2Err != nil {
+		t.Logf("V2 Error: %v", v2Err)
+	} else if len(v2Results) > 0 {
+		t.Logf("V2 Result Code: %d", v2Results[0].Code)
+		t.Logf("V2 Result Log: %s", v2Results[0].Log)
+		t.Logf("V2 Gas Used: %d", v2Results[0].GasUsed)
+	}
+	t.Logf("")
+
+	// --- Run with Giga using regular KVStore ---
+	t.Logf("=== Giga (with Regular Store) Execution ===")
+	gigaCtx := NewStateTestContext(t, blockTime, 1, ModeGigaWithRegularStore)
+	gigaCtx.SetupPreState(t, st.Pre)
+	gigaCtx.SetupSender(sender)
+
+	_, gigaResults, gigaErr := RunStateTestBlock(gigaCtx, [][]byte{txBytes})
+
+	if gigaErr != nil {
+		t.Logf("Giga Error: %v", gigaErr)
+	} else if len(gigaResults) > 0 {
+		t.Logf("Giga Result Code: %d", gigaResults[0].Code)
+		t.Logf("Giga Result Log: %s", gigaResults[0].Log)
+		t.Logf("Giga Gas Used: %d", gigaResults[0].GasUsed)
+	}
+	t.Logf("")
+
+	// --- Compare Results ---
+	t.Logf("=== Comparison ===")
+
+	// Check for expected exceptions
+	if post.ExpectException != "" {
+		t.Logf("Expected exception: %s", post.ExpectException)
+		v2Failed := v2Err != nil || (len(v2Results) > 0 && v2Results[0].Code != 0)
+		gigaFailed := gigaErr != nil || (len(gigaResults) > 0 && gigaResults[0].Code != 0)
+		t.Logf("V2 failed: %v, Giga failed: %v", v2Failed, gigaFailed)
+		if v2Failed && gigaFailed {
+			t.Logf("PASS: Both executors correctly failed")
+			return
+		}
+		if !v2Failed && !gigaFailed {
+			t.Errorf("FAIL: Both executors succeeded but expected exception %q", post.ExpectException)
+			return
+		}
+	}
+
+	// Compare errors
+	if v2Err != nil && gigaErr != nil {
+		t.Logf("Both executors returned errors (matching behavior)")
+	} else if v2Err != nil {
+		t.Errorf("FAIL: V2 error but Giga succeeded: %v", v2Err)
+		return
+	} else if gigaErr != nil {
+		t.Errorf("FAIL: Giga error but V2 succeeded: %v", gigaErr)
+		return
+	}
+
+	// Compare result codes
+	if len(v2Results) > 0 && len(gigaResults) > 0 {
+		if v2Results[0].Code != gigaResults[0].Code {
+			t.Errorf("FAIL: Result code mismatch - V2=%d, Giga=%d", v2Results[0].Code, gigaResults[0].Code)
+			t.Logf("  V2 Log: %s", v2Results[0].Log)
+			t.Logf("  Giga Log: %s", gigaResults[0].Log)
+		} else {
+			t.Logf("Result codes match: %d", v2Results[0].Code)
+		}
+	}
+
+	// Compare post-state
+	t.Logf("")
+	t.Logf("=== Post-State Comparison (V2 vs Giga) ===")
+	stateDiffs := comparePostStates(t, v2Ctx, gigaCtx, st.Pre)
+	if len(stateDiffs) > 0 {
+		for _, diff := range stateDiffs {
+			t.Errorf("State diff at %s: %s", diff.Address.Hex(), diff.Summary)
+			t.Logf("  Expected (V2): %s", diff.Expected)
+			t.Logf("  Actual (Giga): %s", diff.Actual)
+		}
+	} else {
+		t.Logf("Post-state matches between V2 and Giga")
+	}
+
+	// Verify against expected post-state if available
+	if len(post.State) > 0 {
+		t.Logf("")
+		t.Logf("=== Expected Post-State Verification ===")
+		for addr, expectedAccount := range post.State {
+			t.Logf("Expected state for %s:", addr.Hex())
+			t.Logf("  Nonce: %d", expectedAccount.Nonce)
+			if len(expectedAccount.Code) > 0 {
+				t.Logf("  Code: %d bytes", len(expectedAccount.Code))
+			}
+			for key, value := range expectedAccount.Storage {
+				t.Logf("  Storage[%s]: %s", truncateHex(key.Hex()), truncateHex(value.Hex()))
+			}
+		}
+
+		v2Diffs := verifyPostStateWithResult(t, v2Ctx.Ctx, &v2Ctx.TestApp.EvmKeeper, post.State, "V2")
+		gigaDiffs := verifyPostStateWithResult(t, gigaCtx.Ctx, &gigaCtx.TestApp.EvmKeeper, post.State, "Giga")
+
+		if len(v2Diffs) > 0 {
+			t.Logf("V2 has %d differences from expected post-state", len(v2Diffs))
+		} else {
+			t.Logf("V2 matches expected post-state")
+		}
+
+		if len(gigaDiffs) > 0 {
+			t.Errorf("Giga has %d differences from expected post-state", len(gigaDiffs))
+			for _, diff := range gigaDiffs {
+				t.Logf("  %s at %s: expected=%s, actual=%s", diff.Type, diff.Address.Hex(), diff.Expected, diff.Actual)
+			}
+		} else {
+			t.Logf("Giga matches expected post-state")
+		}
+	}
+
+	t.Logf("")
+	if t.Failed() {
+		t.Logf("=== TEST FAILED ===")
+	} else {
+		t.Logf("=== TEST PASSED ===")
 	}
 }

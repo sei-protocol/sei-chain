@@ -73,6 +73,22 @@ func (sl *SkipList) ShouldSkip(category, testName string) (skip bool, reason str
 		return true, r
 	}
 
+	// Check for partial matches - allows skipping by short name like "category/testBase"
+	// which will match "category/testBase.json/..." style full test names
+	for skipPattern, r := range sl.Tests {
+		// Pattern format: "category/shortName" should match if testName contains shortName
+		parts := strings.SplitN(skipPattern, "/", 2)
+		if len(parts) == 2 && parts[0] == category {
+			shortName := parts[1]
+			// Match if the test name starts with the short name (before any .json or /)
+			if strings.HasPrefix(testName, shortName+".json") ||
+				strings.HasPrefix(testName, shortName+"/") ||
+				testName == shortName {
+				return true, r
+			}
+		}
+	}
+
 	return false, ""
 }
 

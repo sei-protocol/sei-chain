@@ -181,6 +181,9 @@ func (ts *TestSummary) PrintSummary(t *testing.T) {
 var globalSummary = NewTestSummary()
 
 // TestGigaVsV2_StateTests runs state tests comparing Giga vs V2 execution
+//
+// Usage: STATE_TEST_DIR=stChainId go test -v -run TestGigaVsV2_StateTests ./giga/tests/...
+// Usage with test name filter: STATE_TEST_DIR=stExample STATE_TEST_NAME=add11 go test -v -run TestGigaVsV2_StateTests ./giga/tests/...
 func TestGigaVsV2_StateTests(t *testing.T) {
 	stateTestsPath, err := harness.GetStateTestsPath()
 	require.NoError(t, err, "failed to get path to state tests")
@@ -191,6 +194,9 @@ func TestGigaVsV2_StateTests(t *testing.T) {
 
 	// Allow filtering to specific directory via STATE_TEST_DIR env var
 	specificDir := os.Getenv("STATE_TEST_DIR")
+
+	// Allow filtering to specific test name via STATE_TEST_NAME env var
+	specificTestName := os.Getenv("STATE_TEST_NAME")
 
 	var testDirs []string
 	if specificDir != "" {
@@ -215,6 +221,10 @@ func TestGigaVsV2_StateTests(t *testing.T) {
 		globalSummary.PrintSummary(t)
 	})
 
+	if specificTestName != "" {
+		t.Logf("Filtering to tests matching: %s", specificTestName)
+	}
+
 	for _, dir := range testDirs {
 		// Check if entire category is skipped
 		if skipList.IsCategorySkipped(dir) {
@@ -232,6 +242,11 @@ func TestGigaVsV2_StateTests(t *testing.T) {
 		require.NoError(t, err, "failed to load state tests from %s", dirPath)
 
 		for testName, st := range tests {
+			// Filter by test name if specified
+			if specificTestName != "" && !strings.Contains(testName, specificTestName) {
+				continue
+			}
+
 			// Run each subtest for Cancun fork (most recent stable)
 			cancunPosts, ok := st.Post["Cancun"]
 			if !ok {
