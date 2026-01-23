@@ -1670,7 +1670,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	// Associate the address if not already associated (same as EVMPreprocessDecorator)
 	if _, isAssociated := app.GigaEvmKeeper.GetEVMAddress(ctx, seiAddr); !isAssociated {
 		associateHelper := helpers.NewAssociationHelper(&app.GigaEvmKeeper, app.GigaBankKeeper, &app.AccountKeeper)
-		if err := associateHelper.AssociateAddresses(ctx, seiAddr, sender, pubkey); err != nil {
+		if err := associateHelper.AssociateAddresses(ctx, seiAddr, sender, pubkey, true); err != nil {
 			return &abci.ExecTxResult{
 				Code: 1,
 				Log:  fmt.Sprintf("failed to associate addresses: %v", err),

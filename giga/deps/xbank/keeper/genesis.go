@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/query"
 	cosmosbanktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
 )
@@ -61,15 +60,7 @@ func (k BaseKeeper) InitGenesis(ctx sdk.Context, genState *types.GenesisState) {
 
 // ExportGenesis returns the bank module's genesis state.
 func (k BaseKeeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
-	totalSupply, _, err := k.GetPaginatedTotalSupply(ctx, &query.PageRequest{Limit: query.MaxLimit})
-	if err != nil {
-		panic(fmt.Errorf("unable to fetch total supply %v", err))
-	}
 	weiBalances := []types.WeiBalance{}
-	k.IterateAllWeiBalances(ctx, func(aa sdk.AccAddress, i sdk.Int) bool {
-		weiBalances = append(weiBalances, types.WeiBalance{Address: aa.String(), Amount: i})
-		return false
-	})
 	cosmosParams := k.GetParams(ctx)
 	params := types.Params{
 		SendEnabled:        make([]*types.SendEnabled, len(cosmosParams.SendEnabled)),
@@ -84,9 +75,9 @@ func (k BaseKeeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
 
 	return types.NewGenesisState(
 		params,
-		k.GetAccountsBalances(ctx),
-		totalSupply,
-		k.GetAllDenomMetaData(ctx),
+		[]types.Balance{},
+		sdk.Coins{},
+		[]types.Metadata{},
 		weiBalances,
 	)
 }

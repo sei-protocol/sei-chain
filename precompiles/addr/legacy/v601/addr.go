@@ -239,7 +239,7 @@ func (p PrecompileExecutor) associateAddresses(ctx sdk.Context, method *abi.Meth
 
 	// Associate Addresses:
 	associationHelper := helpers.NewAssociationHelper(p.evmKeeper, p.bankKeeper, p.accountKeeper)
-	err = associationHelper.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey)
+	err = associationHelper.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey, false)
 	if err != nil {
 		return nil, 0, err
 	}

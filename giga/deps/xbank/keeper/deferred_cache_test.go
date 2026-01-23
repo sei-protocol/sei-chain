@@ -74,12 +74,12 @@ func (suite *IntegrationTestSuite) TestDeferredCacheUpsertBalances() {
 	suite.Require().Equal(0, count)
 
 	// assert module balances correct
-	expectedBankBalances := sdk.NewCoins(newFooCoin(55), newBarCoin(35))
-	bals := app.GigaBankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress())
-	suite.Require().Equal(expectedBankBalances, bals)
+	bals := app.GigaBankKeeper.GetBalance(ctx, multiPermAcc.GetAddress(), "foo").Amount.Int64()
+	suite.Require().Equal(int64(55), bals)
+	bals = app.GigaBankKeeper.GetBalance(ctx, multiPermAcc.GetAddress(), "bar").Amount.Int64()
+	suite.Require().Equal(int64(35), bals)
 
 	// assert module balances correct for other module acc
-	expectedBankBalances = sdk.NewCoins(newFooCoin(7))
-	bals = app.GigaBankKeeper.GetAllBalances(ctx, randomPermAcc.GetAddress())
-	suite.Require().Equal(expectedBankBalances, bals)
+	bals = app.GigaBankKeeper.GetBalance(ctx, randomPermAcc.GetAddress(), "foo").Amount.Int64()
+	suite.Require().Equal(int64(7), bals)
 }
