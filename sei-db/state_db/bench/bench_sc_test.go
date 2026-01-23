@@ -9,44 +9,44 @@ func BenchmarkWriteWithDifferentBlockSize(b *testing.B) {
 
 	scenarios := []TestScenario{
 		{
-			Name:           "1_key_per_block",
-			TotalKeys:      totalKeys,
-			NumBlocks:      totalKeys / 1,
+			Name:      "1_key_per_block",
+			TotalKeys: totalKeys,
+			NumBlocks: totalKeys / 1,
 		},
 		{
-			Name:           "2_keys_per_block",
-			TotalKeys:      totalKeys,
-			NumBlocks:      totalKeys / 2,
+			Name:      "2_keys_per_block",
+			TotalKeys: totalKeys,
+			NumBlocks: totalKeys / 2,
 		},
 		{
-			Name:           "10_keys_per_block",
-			TotalKeys:      totalKeys,
-			NumBlocks:      totalKeys / 10,
+			Name:      "10_keys_per_block",
+			TotalKeys: totalKeys,
+			NumBlocks: totalKeys / 10,
 		},
 		{
-			Name:           "20_keys_per_block",
-			TotalKeys:      totalKeys,
-			NumBlocks:      totalKeys / 20,
+			Name:      "20_keys_per_block",
+			TotalKeys: totalKeys,
+			NumBlocks: totalKeys / 20,
 		},
 		{
-			Name:           "100_keys_per_block",
-			TotalKeys:      totalKeys,
-			NumBlocks:      totalKeys / 100,
+			Name:      "100_keys_per_block",
+			TotalKeys: totalKeys,
+			NumBlocks: totalKeys / 100,
 		},
 		{
-			Name:           "200_keys_per_block",
-			TotalKeys:      totalKeys,
-			NumBlocks:      totalKeys / 200,
+			Name:      "200_keys_per_block",
+			TotalKeys: totalKeys,
+			NumBlocks: totalKeys / 200,
 		},
 		{
-			Name:           "1000_keys_per_block",
-			TotalKeys:      totalKeys,
-			NumBlocks:      totalKeys / 1000,
+			Name:      "1000_keys_per_block",
+			TotalKeys: totalKeys,
+			NumBlocks: totalKeys / 1000,
 		},
 		{
-			Name:           "2000_keys_per_block",
-			TotalKeys:      totalKeys,
-			NumBlocks:      totalKeys / 2000,
+			Name:      "2000_keys_per_block",
+			TotalKeys: totalKeys,
+			NumBlocks: totalKeys / 2000,
 		},
 	}
 
@@ -66,24 +66,24 @@ func BenchmarkWriteWithDifferentKeyDistributions(b *testing.B) {
 
 	scenarios := []TestScenario{
 		{
-			Name:           "even_distribution",
-			TotalKeys:      totalKeys,
-			NumBlocks:      numBlocks,
+			Name:      "even_distribution",
+			TotalKeys: totalKeys,
+			NumBlocks: numBlocks,
 		},
 		{
-			Name:           "bursty_distribution",
-			TotalKeys:      totalKeys,
-			NumBlocks:      numBlocks,
+			Name:      "bursty_distribution",
+			TotalKeys: totalKeys,
+			NumBlocks: numBlocks,
 		},
 		{
-			Name:           "normal_distribution",
-			TotalKeys:      totalKeys,
-			NumBlocks:      numBlocks,
+			Name:      "normal_distribution",
+			TotalKeys: totalKeys,
+			NumBlocks: numBlocks,
 		},
 		{
-			Name:           "ramp_distribution",
-			TotalKeys:      totalKeys,
-			NumBlocks:      numBlocks,
+			Name:      "ramp_distribution",
+			TotalKeys: totalKeys,
+			NumBlocks: numBlocks,
 		},
 	}
 
