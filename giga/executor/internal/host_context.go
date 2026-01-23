@@ -25,18 +25,18 @@ const StandardSstoreSetGasEIP2200 = uint64(20000)
 type HostContextConfig struct {
 	// SstoreGasDelta is the per-SSTORE gas delta (Sei custom cost - standard 20k).
 	// This is added to gas consumption for each StorageAdded operation.
-	SstoreGasDelta uint64
+	// Can be negative if Sei cost is below standard (results in gas reduction).
+	SstoreGasDelta int64
 }
 
 // NewHostContextConfig creates a HostContextConfig from the chain config.
 // This extracts and pre-computes values needed by HostContext.
 func NewHostContextConfig(chainConfig *params.ChainConfig) HostContextConfig {
-	var delta uint64
+	var delta int64
 	if chainConfig != nil && chainConfig.SeiSstoreSetGasEIP2200 != nil {
 		seiSstoreGas := *chainConfig.SeiSstoreSetGasEIP2200
-		if seiSstoreGas > StandardSstoreSetGasEIP2200 {
-			delta = seiSstoreGas - StandardSstoreSetGasEIP2200
-		}
+		// Delta = Sei cost - standard cost (can be positive or negative)
+		delta = int64(seiSstoreGas) - int64(StandardSstoreSetGasEIP2200)
 	}
 	return HostContextConfig{
 		SstoreGasDelta: delta,
@@ -118,11 +118,11 @@ func (h *HostContext) SetStorage(addr evmc.Address, key evmc.Hash, value evmc.Ha
 	}
 
 	// Accumulate SSTORE gas adjustment for StorageAdded operations.
-	// evmone uses standard EIP-2200 gas (20k), but Sei may have a higher cost (e.g., 72k).
+	// evmone uses standard EIP-2200 gas (20k), but Sei may have a different cost.
 	// We track the delta here and apply it after execution.
-	if status == evmc.StorageAdded && h.config.SstoreGasDelta > 0 {
-		//nolint:gosec // G115: safe conversion - delta is always positive and small
-		h.sstoreGasAdjustment.Add(int64(h.config.SstoreGasDelta))
+	// Delta can be positive (higher cost) or negative (lower cost).
+	if status == evmc.StorageAdded && h.config.SstoreGasDelta != 0 {
+		h.sstoreGasAdjustment.Add(h.config.SstoreGasDelta)
 	}
 
 	h.evm.StateDB.SetState(gethAddr, gethKey, common.Hash(value))

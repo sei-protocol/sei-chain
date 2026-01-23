@@ -310,7 +310,7 @@ func TestNewHostContextConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		chainConfig   *params.ChainConfig
-		expectedDelta uint64
+		expectedDelta int64
 	}{
 		{
 			name:          "Nil chain config",
@@ -346,18 +346,18 @@ func TestNewHostContextConfig(t *testing.T) {
 			expectedDelta: 80000,
 		},
 		{
-			name: "Lower than standard (10k) - no delta",
+			name: "Lower than standard (10k) - negative delta",
 			chainConfig: &params.ChainConfig{
 				SeiSstoreSetGasEIP2200: func() *uint64 { v := uint64(10000); return &v }(),
 			},
-			expectedDelta: 0,
+			expectedDelta: -10000,
 		},
 		{
-			name: "Zero value - no delta",
+			name: "Zero value - max negative delta",
 			chainConfig: &params.ChainConfig{
 				SeiSstoreSetGasEIP2200: func() *uint64 { v := uint64(0); return &v }(),
 			},
-			expectedDelta: 0,
+			expectedDelta: -20000,
 		},
 	}
 
@@ -371,12 +371,12 @@ func TestNewHostContextConfig(t *testing.T) {
 }
 
 // TestSstoreGasDeltaCalculation tests the SSTORE gas delta calculation logic
-// that determines how much extra gas to charge for Sei's custom SSTORE cost.
+// that determines how much extra/less gas to charge for Sei's custom SSTORE cost.
 func TestSstoreGasDeltaCalculation(t *testing.T) {
 	tests := []struct {
 		name          string
 		seiSstoreGas  uint64
-		expectedDelta uint64
+		expectedDelta int64
 	}{
 		{
 			name:          "Standard EIP-2200 (20k) - no adjustment",
@@ -394,19 +394,24 @@ func TestSstoreGasDeltaCalculation(t *testing.T) {
 			expectedDelta: 80000,
 		},
 		{
-			name:          "Lower than standard (10k) - no adjustment",
+			name:          "Lower than standard (10k) - negative delta",
 			seiSstoreGas:  10000,
-			expectedDelta: 0,
+			expectedDelta: -10000,
 		},
 		{
-			name:          "Zero - no adjustment",
+			name:          "Zero - max negative delta",
 			seiSstoreGas:  0,
-			expectedDelta: 0,
+			expectedDelta: -20000,
 		},
 		{
 			name:          "Just above standard (20001) - 1 delta",
 			seiSstoreGas:  20001,
 			expectedDelta: 1,
+		},
+		{
+			name:          "Just below standard (19999) - -1 delta",
+			seiSstoreGas:  19999,
+			expectedDelta: -1,
 		},
 		{
 			name:          "Exactly standard - no adjustment",
@@ -417,11 +422,8 @@ func TestSstoreGasDeltaCalculation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Replicate the delta calculation logic from getSstoreGasDelta
-			var delta uint64
-			if tt.seiSstoreGas > StandardSstoreSetGasEIP2200 {
-				delta = tt.seiSstoreGas - StandardSstoreSetGasEIP2200
-			}
+			// Replicate the delta calculation logic: Sei cost - standard cost
+			delta := int64(tt.seiSstoreGas) - int64(StandardSstoreSetGasEIP2200)
 
 			require.Equal(t, tt.expectedDelta, delta,
 				"Delta for seiSstoreGas=%d should be %d", tt.seiSstoreGas, tt.expectedDelta)

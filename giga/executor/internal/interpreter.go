@@ -77,10 +77,11 @@ func (e *EVMInterpreter) Run(callOpCode vm.OpCode, contract *vm.Contract, input 
 	}
 
 	// Apply SSTORE gas adjustment for Sei's custom SSTORE cost.
-	// evmone uses standard EIP-2200 gas (20k), but Sei may have a higher cost (e.g., 72k).
+	// evmone uses standard EIP-2200 gas (20k), but Sei may have a different cost.
 	// The adjustment is tracked during SetStorage calls and applied here.
+	// Adjustment can be positive (charge more) or negative (refund/reduce).
 	sstoreAdjustment := e.hostContext.GetSstoreGasAdjustment()
-	if sstoreAdjustment > 0 {
+	if sstoreAdjustment != 0 {
 		gasLeft -= sstoreAdjustment
 		// If gas goes negative, execution would have failed with out of gas
 		if gasLeft < 0 {

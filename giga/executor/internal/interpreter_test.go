@@ -467,11 +467,11 @@ func TestSstoreGasAdjustmentApplication(t *testing.T) {
 // TestSstoreGasAdjustmentBoundaryConditions tests edge cases
 func TestSstoreGasAdjustmentBoundaryConditions(t *testing.T) {
 	tests := []struct {
-		name             string
-		gasLeft          int64
-		adjustment       int64
-		expectedResult   int64
-		expectError      bool
+		name           string
+		gasLeft        int64
+		adjustment     int64
+		expectedResult int64
+		expectError    bool
 	}{
 		{
 			name:           "Zero gas left, zero adjustment",
