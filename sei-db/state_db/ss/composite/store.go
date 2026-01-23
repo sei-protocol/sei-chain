@@ -170,17 +170,16 @@ func (s *CompositeStateStore) GetLatestMigratedModule() (string, error) {
 	return s.cosmosStore.GetLatestMigratedModule()
 }
 
-// ApplyChangesetSync applies changeset synchronously
-// Writes to both EVM_SS and Cosmos_SS for EVM data, only Cosmos_SS for rest
+// ApplyChangesetSync applies changeset synchronously to both stores in parallel.
+// If either fails, returns error - caller should retry (writes are idempotent).
 func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {
 	// Fast path: if no EVM store, just apply to Cosmos
 	if s.evmStore == nil {
 		return s.cosmosStore.ApplyChangesetSync(version, changesets)
 	}
 
-	// Extract EVM changes - pre-allocate with estimated capacity
+	// Extract EVM changes
 	evmChanges := make(map[evm.EVMStoreType][]*iavl.KVPair, 4)
-
 	for _, changeset := range changesets {
 		if changeset.Name != evm.EVMStoreKey {
 			continue
@@ -196,9 +195,16 @@ func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*pr
 		}
 	}
 
-	// Apply to EVM_SS in parallel with Cosmos_SS
-	var evmErr error
+	// Write to both stores in parallel - both must succeed
+	// If either fails, return error. Caller can retry safely (idempotent writes).
 	var wg sync.WaitGroup
+	var cosmosErr, evmErr error
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		cosmosErr = s.cosmosStore.ApplyChangesetSync(version, changesets)
+	}()
 
 	if len(evmChanges) > 0 {
 		wg.Add(1)
@@ -208,18 +214,20 @@ func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*pr
 		}()
 	}
 
-	// Apply to Cosmos_SS concurrently
-	cosmosErr := s.cosmosStore.ApplyChangesetSync(version, changesets)
-
 	wg.Wait()
 
-	if evmErr != nil {
-		return fmt.Errorf("failed to apply EVM changeset: %w", evmErr)
+	// Return first error encountered - caller should retry
+	if cosmosErr != nil {
+		return fmt.Errorf("cosmos store failed: %w", cosmosErr)
 	}
-	return cosmosErr
+	if evmErr != nil {
+		return fmt.Errorf("evm store failed: %w", evmErr)
+	}
+	return nil
 }
 
-// ApplyChangesetAsync applies changeset asynchronously
+// ApplyChangesetAsync applies changeset asynchronously to both stores in parallel.
+// If either fails, returns error - caller should retry (writes are idempotent).
 func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
 	// Fast path: if no EVM store, just apply to Cosmos
 	if s.evmStore == nil {
@@ -228,7 +236,6 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 
 	// Extract EVM changes
 	evmChanges := make(map[evm.EVMStoreType][]*iavl.KVPair, 4)
-
 	for _, changeset := range changesets {
 		if changeset.Name != evm.EVMStoreKey {
 			continue
@@ -244,15 +251,33 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 		}
 	}
 
-	// Apply EVM changes in parallel (fire and forget for async path)
+	// Write to both stores in parallel - both must succeed
+	var wg sync.WaitGroup
+	var cosmosErr, evmErr error
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		cosmosErr = s.cosmosStore.ApplyChangesetAsync(version, changesets)
+	}()
+
 	if len(evmChanges) > 0 {
+		wg.Add(1)
 		go func() {
-			_ = s.evmStore.ApplyChangesetParallel(version, evmChanges)
+			defer wg.Done()
+			evmErr = s.evmStore.ApplyChangesetParallel(version, evmChanges)
 		}()
 	}
 
-	// Apply to Cosmos_SS async
-	return s.cosmosStore.ApplyChangesetAsync(version, changesets)
+	wg.Wait()
+
+	if cosmosErr != nil {
+		return fmt.Errorf("cosmos store failed: %w", cosmosErr)
+	}
+	if evmErr != nil {
+		return fmt.Errorf("evm store failed: %w", evmErr)
+	}
+	return nil
 }
 
 // Import imports data into the store
