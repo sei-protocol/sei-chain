@@ -8,19 +8,13 @@ BRANCH_NAME := $(shell git rev-parse --abbrev-ref HEAD)
 BRANCH_VERSION := $(shell echo "$(BRANCH_NAME)" | sed -n 's#.*\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*[-A-Za-z0-9._]*\).*#\1#p')
 TAG_VERSION := $(shell echo $(shell git describe --tags))
 VERSION := $(shell \
-	BRANCH_BASE=$$(echo "$(BRANCH_VERSION)" | sed 's/^\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/'); \
-	TAG_BASE=$$(echo "$(TAG_VERSION)" | sed 's/^\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/'); \
-	if [ -z "$(BRANCH_VERSION)" ]; then \
-		echo "$(TAG_VERSION)"; \
-	elif [ -z "$(TAG_VERSION)" ]; then \
-		echo "$(BRANCH_VERSION)"; \
-	elif [ "$$BRANCH_BASE" = "$$TAG_BASE" ]; then \
-		echo "$(TAG_VERSION)"; \
-	elif [ "$$(printf "%s\n%s\n" "$$TAG_BASE" "$$BRANCH_BASE" | sort -V | tail -n 1)" = "$$BRANCH_BASE" ]; then \
-		echo "$(BRANCH_VERSION)"; \
-	else \
-		echo "$(TAG_VERSION)"; \
-	fi)
+	bv="$(BRANCH_VERSION)"; tv="$(TAG_VERSION)"; \
+	bb=$$(echo "$$bv" | sed 's/^\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/'); \
+	tb=$$(echo "$$tv" | sed 's/^\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/'); \
+	if [ -z "$$bv" ]; then echo "$$tv"; \
+	elif [ -z "$$tv" ] || [ "$$bb" = "$$tb" ]; then echo "$$tv"; \
+	elif [ "$$(printf '%s\n%s\n' "$$tb" "$$bb" | sort -V | tail -n 1)" = "$$bb" ]; then echo "$$bv"; \
+	else echo "$$tv"; fi)
 COMMIT := $(shell git log -1 --format='%H')
 
 BUILDDIR ?= $(CURDIR)/build
