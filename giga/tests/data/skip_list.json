@@ -13,7 +13,6 @@
     "stCallCreateCallCodeTest",
     "stCallDelegateCodesCallCodeHomestead",
     "stCallDelegateCodesHomestead",
-    "stChainId",
     "stCodeCopyTest",
     "stCodeSizeLimit",
     "stCreate2",
