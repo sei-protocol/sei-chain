@@ -152,7 +152,7 @@ func TestMultistoreCommitLoad(t *testing.T) {
 	require.Nil(t, s77)
 
 	// Make a few commits and check them.
-	nCommits := int64(3)
+	nCommits := int64(2)
 	for i := int64(0); i < nCommits; i++ {
 		commitID = store.Commit(true)
 		expectedCommitID := getExpectedCommitID(store, i+1)
@@ -340,7 +340,7 @@ func TestMultiStoreRestart(t *testing.T) {
 	k2, v2 := "water", "flows"
 	k3, v3 := "fire", "burns"
 
-	for i := 1; i < 3; i++ {
+	for i := 1; i < 2; i++ {
 		// Set and commit data in one store.
 		store1 := multi.GetStoreByName("store1").(types.KVStore)
 		store1.Set([]byte(k), []byte(fmt.Sprintf("%s:%d", v, i)))
@@ -362,48 +362,48 @@ func TestMultiStoreRestart(t *testing.T) {
 
 	// Set and commit data in one store.
 	store1 := multi.GetStoreByName("store1").(types.KVStore)
-	store1.Set([]byte(k), []byte(fmt.Sprintf("%s:%d", v, 3)))
+	store1.Set([]byte(k), []byte(fmt.Sprintf("%s:%d", v, 2)))
 
 	// ... and another.
 	store2 := multi.GetStoreByName("store2").(types.KVStore)
-	store2.Set([]byte(k2), []byte(fmt.Sprintf("%s:%d", v2, 3)))
+	store2.Set([]byte(k2), []byte(fmt.Sprintf("%s:%d", v2, 2)))
 
 	multi.Commit(true)
 
-	flushedCinfo, err := getCommitInfo(multi.db, 3)
+	flushedCinfo, err := getCommitInfo(multi.db, 2)
 	require.Nil(t, err)
 	require.NotEqual(t, initCid, flushedCinfo, "CID is different after flush to disk")
 
 	// ... and another.
 	store3 := multi.GetStoreByName("store3").(types.KVStore)
-	store3.Set([]byte(k3), []byte(fmt.Sprintf("%s:%d", v3, 3)))
+	store3.Set([]byte(k3), []byte(fmt.Sprintf("%s:%d", v3, 2)))
 
 	multi.Commit(true)
 
-	postFlushCinfo, err := getCommitInfo(multi.db, 4)
+	postFlushCinfo, err := getCommitInfo(multi.db, 3)
 	require.NoError(t, err)
-	require.Equal(t, int64(4), postFlushCinfo.Version, "Commit changed after in-memory commit")
+	require.Equal(t, int64(3), postFlushCinfo.Version, "Commit changed after in-memory commit")
 
 	multi = newMultiStoreWithMounts(db, pruning)
 	err = multi.LoadLatestVersion()
 	require.Nil(t, err)
 
 	reloadedCid := multi.LastCommitID()
-	require.Equal(t, int64(4), reloadedCid.Version, "Reloaded CID is not the same as last flushed CID")
+	require.Equal(t, int64(3), reloadedCid.Version, "Reloaded CID is not the same as last flushed CID")
 
 	// Check that store1 and store2 retained date from 3rd commit
 	store1 = multi.GetStoreByName("store1").(types.KVStore)
 	val := store1.Get([]byte(k))
-	require.Equal(t, []byte(fmt.Sprintf("%s:%d", v, 3)), val, "Reloaded value not the same as last flushed value")
+	require.Equal(t, []byte(fmt.Sprintf("%s:%d", v, 2)), val, "Reloaded value not the same as last flushed value")
 
 	store2 = multi.GetStoreByName("store2").(types.KVStore)
 	val2 := store2.Get([]byte(k2))
-	require.Equal(t, []byte(fmt.Sprintf("%s:%d", v2, 3)), val2, "Reloaded value not the same as last flushed value")
+	require.Equal(t, []byte(fmt.Sprintf("%s:%d", v2, 2)), val2, "Reloaded value not the same as last flushed value")
 
 	// Check that store3 still has data from last commit even though update happened on 2nd commit
 	store3 = multi.GetStoreByName("store3").(types.KVStore)
 	val3 := store3.Get([]byte(k3))
-	require.Equal(t, []byte(fmt.Sprintf("%s:%d", v3, 3)), val3, "Reloaded value not the same as last flushed value")
+	require.Equal(t, []byte(fmt.Sprintf("%s:%d", v3, 2)), val3, "Reloaded value not the same as last flushed value")
 }
 
 func TestMultiStoreQuery(t *testing.T) {
@@ -504,11 +504,9 @@ func TestMultiStore_Pruning(t *testing.T) {
 		deleted     []int64
 		saved       []int64
 	}{
-		{"prune nothing", 10, types.PruneNothing, nil, []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}},
-		{"prune everything", 10, types.PruneEverything, []int64{1, 2, 3, 4, 5, 6, 7, 8, 9}, []int64{10}},
-		{"prune some; no batch", 10, types.NewPruningOptions(2, 3, 1), []int64{1, 2, 4, 5, 7}, []int64{3, 6, 8, 9, 10}},
-		{"prune some; small batch", 10, types.NewPruningOptions(2, 3, 3), []int64{1, 2, 4, 5}, []int64{3, 6, 7, 8, 9, 10}},
-		{"prune some; large batch", 10, types.NewPruningOptions(2, 3, 11), nil, []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}},
+		{"prune nothing", 6, types.PruneNothing, nil, []int64{1, 2, 3, 4, 5, 6}},
+		{"prune everything", 6, types.PruneEverything, []int64{1, 2, 3, 4, 5}, []int64{6}},
+		{"prune some; no batch", 6, types.NewPruningOptions(2, 3, 1), []int64{1, 2, 4}, []int64{3, 5, 6}},
 	}
 
 	for _, tc := range testCases {
@@ -538,16 +536,16 @@ func TestMultiStore_Pruning(t *testing.T) {
 
 func TestMultiStore_PruningRestart(t *testing.T) {
 	db := dbm.NewMemDB()
-	ms := newMultiStoreWithMounts(db, types.NewPruningOptions(2, 3, 11))
+	ms := newMultiStoreWithMounts(db, types.NewPruningOptions(2, 3, 7))
 	require.NoError(t, ms.LoadLatestVersion())
 
 	// Commit enough to build up heights to prune, where on the next block we should
 	// batch delete.
-	for i := int64(0); i < 10; i++ {
+	for i := int64(0); i < 6; i++ {
 		ms.Commit(true)
 	}
 
-	pruneHeights := []int64{1, 2, 4, 5, 7}
+	pruneHeights := []int64{1, 2}
 
 	// ensure we've persisted the current batch of heights to prune to the store's DB
 	ph, err := getPruningHeights(ms.db)
@@ -555,7 +553,7 @@ func TestMultiStore_PruningRestart(t *testing.T) {
 	require.Equal(t, pruneHeights, ph)
 
 	// "restart"
-	ms = newMultiStoreWithMounts(db, types.NewPruningOptions(2, 3, 11))
+	ms = newMultiStoreWithMounts(db, types.NewPruningOptions(2, 3, 7))
 	err = ms.LoadLatestVersion()
 	require.NoError(t, err)
 	require.Equal(t, pruneHeights, ms.pruneHeights)

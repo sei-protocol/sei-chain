@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 
 	metrics "github.com/armon/go-metrics"
 	"github.com/prometheus/common/expfmt"
@@ -58,19 +57,11 @@ func TestMetrics_Prom(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, gr.ContentType, string(expfmt.FmtText))
 
-	require.True(t, strings.Contains(string(gr.Metrics), "test_dummy_counter 30"))
+	require.True(t, strings.Contains(string(gr.Metrics), "test_dummy_counter 10"))
 }
 
 func emitMetrics() {
-	ticker := time.NewTicker(time.Second)
-	timeout := time.After(30 * time.Second)
-
-	for {
-		select {
-		case <-ticker.C:
-			metrics.IncrCounter([]string{"dummy_counter"}, 1.0)
-		case <-timeout:
-			return
-		}
+	for i := 0; i < 10; i++ {
+		metrics.IncrCounter([]string{"dummy_counter"}, 1.0)
 	}
 }
