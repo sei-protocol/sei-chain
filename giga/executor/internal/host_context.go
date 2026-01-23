@@ -200,17 +200,17 @@ func (h *HostContext) Call(
 		ret, leftoverGas, err = h.evm.CallCode(senderAddr, recipientAddr, input, uint64(gas), valueUint256)
 	case evmc.Create:
 		ret, createAddr, leftoverGas, err = h.evm.Create(senderAddr, input, uint64(gas), valueUint256)
-		return ret, int64(leftoverGas), 0, evmc.Address(createAddr), err
+		return ret, int64(leftoverGas), 0, evmc.Address(createAddr), toEvmcError(err)
 	case evmc.Create2:
 		saltUint256 := new(uint256.Int).SetBytes(salt[:])
 		ret, createAddr, leftoverGas, err = h.evm.Create2(senderAddr, input, uint64(gas), valueUint256, saltUint256)
-		return ret, int64(leftoverGas), 0, evmc.Address(createAddr), err
+		return ret, int64(leftoverGas), 0, evmc.Address(createAddr), toEvmcError(err)
 	default:
 		panic("EofCreate is not supported")
 	}
 
 	//nolint:gosec // G115: safe, leftoverGas won't exceed int64 max
-	return ret, int64(leftoverGas), 0, evmc.Address{}, err
+	return ret, int64(leftoverGas), 0, evmc.Address{}, toEvmcError(err)
 }
 
 func (h *HostContext) AccessAccount(addr evmc.Address) evmc.AccessStatus {
