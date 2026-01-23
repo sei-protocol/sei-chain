@@ -349,7 +349,6 @@ func randInt(n int) int {
 	return utils.NewRand().Int() % n
 }
 
-
 // useful for replaying a error case if we find one
 func doOp(t *testing.T, st types.CacheKVStore, truth dbm.DB, op int, args ...int) {
 	switch op {
