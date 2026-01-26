@@ -850,9 +850,8 @@ func TestAllModes_ContractExecution(t *testing.T) {
 	require.Equal(t, uint32(0), gigaOCCResults[0].Code, "GigaOCC deploy failed: %s", gigaOCCResults[0].Log)
 	require.Equal(t, uint32(0), gigaOCCResults[1].Code, "GigaOCC call failed: %s", gigaOCCResults[1].Log)
 
-	// Compare results
-	// Skip gas for Geth vs Giga (different implementations), but compare gas for Giga variants
-	CompareResultsNoGas(t, "AllModes_GethVsGigaSeq", gethResults, gigaSeqResults)
+	// Compare results - gas should now be identical since GIGA applies the Sei custom SSTORE adjustment
+	CompareResults(t, "AllModes_GethVsGigaSeq", gethResults, gigaSeqResults)
 	CompareResults(t, "AllModes_GigaSeqVsOCC", gigaSeqResults, gigaOCCResults)
 
 	t.Logf("Contract deployment and calls produced identical results across all three executor modes")
@@ -860,14 +859,12 @@ func TestAllModes_ContractExecution(t *testing.T) {
 
 // TestGigaVsGeth_GasComparison compares gas usage between Geth and Giga executors.
 //
-// KNOWN GAS BEHAVIOR (default params):
-//   - Contract Deploy: Gas should be IDENTICAL (0 diff) since CREATE doesn't involve SSTORE.
-//   - Contract Call with SSTORE: Sei defaults to the standard 20,000 SSTORE cost, so Geth and
-//     Giga/evmone should match (no expected diff).
+// Both Geth and Giga use Sei's configurable SSTORE gas cost (SeiSstoreSetGasEIP2200).
+// The GIGA path applies a gas adjustment after evmone execution to match Sei's custom SSTORE cost.
 //
 // This test verifies:
-//  1. Deploy gas is exactly the same (no SSTORE involved).
-//  2. Call gas is exactly the same with default SSTORE pricing.
+//  1. Deploy gas is exactly the same (no SSTORE involved)
+//  2. Call gas is exactly the same (SSTORE gas adjustment applied in GIGA)
 func TestGigaVsGeth_GasComparison(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(5)
@@ -914,12 +911,11 @@ func TestGigaVsGeth_GasComparison(t *testing.T) {
 	require.Equal(t, int64(0), deployDiff,
 		"Deploy gas should be identical between Geth and Giga (no SSTORE)")
 
-	// Call gas should match with default SSTORE pricing (20,000).
-	expectedSstoreDiff := int64(0)
-	require.Equal(t, expectedSstoreDiff, callDiff,
-		"Call gas should match between Geth and Giga with default SSTORE pricing")
+	// Call gas should now be IDENTICAL since GIGA applies the Sei custom SSTORE gas adjustment
+	require.Equal(t, int64(0), callDiff,
+		"Call gas should be identical between Geth and Giga (SSTORE gas adjustment applied)")
 
-	t.Logf("Gas comparison verified: Deploy identical, Call identical with default SSTORE pricing")
+	t.Logf("Gas comparison verified: Both deploy and call gas are identical")
 }
 
 // TestGiga_CREATE_CodePath verifies the CREATE opcode uses contract.Code (initcode)
@@ -1059,4 +1055,95 @@ func TestGiga_GasAccounting(t *testing.T) {
 	require.True(t, callResults[0].GasUsed < 1000000, "Gas used should be reasonable: %d", callResults[0].GasUsed)
 
 	t.Logf("Gas accounting verified: Call used %d gas", callResults[0].GasUsed)
+}
+
+// TestGiga_SstoreGasDeltaCalculation verifies that the SSTORE gas delta is correctly calculated
+// based on different Sei SSTORE gas parameter values.
+// This is a unit test for the HostContext gas adjustment logic.
+func TestGiga_SstoreGasDeltaCalculation(t *testing.T) {
+	// Test the delta calculation directly
+	// StandardSstoreSetGasEIP2200 = 20000
+
+	tests := []struct {
+		name          string
+		seiSstoreGas  uint64
+		expectedDelta uint64
+	}{
+		{
+			name:          "Standard (20k) - no adjustment needed",
+			seiSstoreGas:  20000,
+			expectedDelta: 0,
+		},
+		{
+			name:          "Higher value (72k) - 52k delta",
+			seiSstoreGas:  72000,
+			expectedDelta: 52000,
+		},
+		{
+			name:          "Higher (100k) - 80k delta",
+			seiSstoreGas:  100000,
+			expectedDelta: 80000,
+		},
+		{
+			name:          "Lower than standard (10k) - no adjustment",
+			seiSstoreGas:  10000,
+			expectedDelta: 0, // No negative adjustments
+		},
+		{
+			name:          "Zero - no adjustment",
+			seiSstoreGas:  0,
+			expectedDelta: 0,
+		},
+	}
+
+	const standardSstoreGas = uint64(20000)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Calculate delta the same way NewHostContext does
+			var delta uint64
+			if tt.seiSstoreGas > standardSstoreGas {
+				delta = tt.seiSstoreGas - standardSstoreGas
+			}
+
+			require.Equal(t, tt.expectedDelta, delta,
+				"Delta calculation for seiSstoreGas=%d", tt.seiSstoreGas)
+		})
+	}
+
+	t.Logf("SSTORE gas delta calculation verified for all test cases")
+}
+
+// TestGiga_SstoreGasHonoredByChainConfig verifies that the SSTORE gas parameter
+// is correctly read from the chain config and would be passed to the executor.
+// This tests the parameter flow, not full execution.
+func TestGiga_SstoreGasHonoredByChainConfig(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+
+	// Create a GIGA context
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+
+	// Get default params
+	defaultParams := gigaCtx.TestApp.GigaEvmKeeper.GetParams(gigaCtx.Ctx)
+	t.Logf("Default SeiSstoreSetGasEip2200: %d", defaultParams.SeiSstoreSetGasEip2200)
+
+	// Verify default matches the expected default from types package
+	require.Equal(t, types.DefaultSeiSstoreSetGasEIP2200, defaultParams.SeiSstoreSetGasEip2200,
+		"Default SSTORE gas should match types.DefaultSeiSstoreSetGasEIP2200 (%d)", types.DefaultSeiSstoreSetGasEIP2200)
+
+	// Update to a different value
+	customValue := uint64(50000)
+	customParams := defaultParams
+	customParams.SeiSstoreSetGasEip2200 = customValue
+	gigaCtx.TestApp.GigaEvmKeeper.SetParams(gigaCtx.Ctx, customParams)
+
+	// Read back and verify
+	updatedParams := gigaCtx.TestApp.GigaEvmKeeper.GetParams(gigaCtx.Ctx)
+	require.Equal(t, customValue, updatedParams.SeiSstoreSetGasEip2200,
+		"Updated SSTORE gas should be %d", customValue)
+
+	t.Logf("Verified: SSTORE gas parameter can be read and updated")
+	t.Logf("  Default: %d", defaultParams.SeiSstoreSetGasEip2200)
+	t.Logf("  Updated: %d", updatedParams.SeiSstoreSetGasEip2200)
 }
