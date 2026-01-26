@@ -50,7 +50,7 @@ jobs:
             /usr/local/lib/android \
             /opt/ghc /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force
-      - name: Go test with race detector
+      - name: Go test with coverage
         working-directory: '${{ matrix.modules.path }}'
         run: go test -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out -coverpkg=./... ./...
 
