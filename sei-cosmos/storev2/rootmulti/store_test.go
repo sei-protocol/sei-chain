@@ -93,3 +93,39 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	require.EqualValues(t, 0, resp.Code)
 	require.Equal(t, valV1, resp.Value)
 }
+
+func TestCacheMultiStoreWithVersion_NoSS(t *testing.T) {
+	// Test that CacheMultiStoreWithVersion works when SS is disabled
+	home := t.TempDir()
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	ssCfg := config.StateStoreConfig{Enable: false} // SS disabled
+
+	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, false)
+	defer func() { _ = store.Close() }()
+
+	// Mount one IAVL store and load
+	key := types.NewKVStoreKey("staking")
+	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	// Write and commit
+	kv := store.GetStoreByName("staking").(types.KVStore)
+	keyBytes := []byte("validator")
+	val := []byte("data")
+	kv.Set(keyBytes, val)
+	c1 := store.Commit(true)
+	require.Equal(t, int64(1), c1.Version)
+
+	// CacheMultiStoreWithVersion should work even without SS
+	cms, err := store.CacheMultiStoreWithVersion(c1.Version)
+	require.NoError(t, err)
+
+	// GetKVStore should not panic and should return the store
+	kvStore := cms.GetKVStore(key)
+	require.NotNil(t, kvStore)
+
+	// Should be able to read the value
+	got := kvStore.Get(keyBytes)
+	require.Equal(t, val, got)
+}

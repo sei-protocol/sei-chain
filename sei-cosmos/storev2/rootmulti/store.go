@@ -242,13 +242,20 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 			stores[k] = store
 		}
 	}
-	// TODO: May need to add historical SC store as well for nodes that doesn't enable ss but still need historical queries
 
 	// add SS stores for historical queries
 	if rs.ssStore != nil {
 		for k, store := range rs.ckvStores {
 			if store.GetStoreType() == types.StoreTypeIAVL {
 				stores[k] = state.NewStore(rs.ssStore, k, version)
+			}
+		}
+	} else {
+		// SS is not enabled, use current SC stores directly.
+		// This only supports queries at the latest committed version.
+		for k, store := range rs.ckvStores {
+			if store.GetStoreType() == types.StoreTypeIAVL {
+				stores[k] = store
 			}
 		}
 	}
