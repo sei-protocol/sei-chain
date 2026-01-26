@@ -859,7 +859,7 @@ func TestAllModes_ContractExecution(t *testing.T) {
 
 // TestGigaVsGeth_GasComparison compares gas usage between Geth and Giga executors.
 //
-// Both Geth and Giga now use Sei's custom SSTORE gas cost (SeiSstoreSetGasEIP2200, default 72k).
+// Both Geth and Giga use Sei's configurable SSTORE gas cost (SeiSstoreSetGasEIP2200).
 // The GIGA path applies a gas adjustment after evmone execution to match Sei's custom SSTORE cost.
 //
 // This test verifies:
@@ -1075,7 +1075,7 @@ func TestGiga_SstoreGasDeltaCalculation(t *testing.T) {
 			expectedDelta: 0,
 		},
 		{
-			name:          "Sei default (72k) - 52k delta",
+			name:          "Higher value (72k) - 52k delta",
 			seiSstoreGas:  72000,
 			expectedDelta: 52000,
 		},
@@ -1128,19 +1128,20 @@ func TestGiga_SstoreGasHonoredByChainConfig(t *testing.T) {
 	defaultParams := gigaCtx.TestApp.GigaEvmKeeper.GetParams(gigaCtx.Ctx)
 	t.Logf("Default SeiSstoreSetGasEip2200: %d", defaultParams.SeiSstoreSetGasEip2200)
 
-	// Verify default is 72000
-	require.Equal(t, uint64(72000), defaultParams.SeiSstoreSetGasEip2200,
-		"Default SSTORE gas should be 72000")
+	// Verify default matches the expected default from types package
+	require.Equal(t, types.DefaultSeiSstoreSetGasEIP2200, defaultParams.SeiSstoreSetGasEip2200,
+		"Default SSTORE gas should match types.DefaultSeiSstoreSetGasEIP2200 (%d)", types.DefaultSeiSstoreSetGasEIP2200)
 
 	// Update to a different value
+	customValue := uint64(50000)
 	customParams := defaultParams
-	customParams.SeiSstoreSetGasEip2200 = 50000
+	customParams.SeiSstoreSetGasEip2200 = customValue
 	gigaCtx.TestApp.GigaEvmKeeper.SetParams(gigaCtx.Ctx, customParams)
 
 	// Read back and verify
 	updatedParams := gigaCtx.TestApp.GigaEvmKeeper.GetParams(gigaCtx.Ctx)
-	require.Equal(t, uint64(50000), updatedParams.SeiSstoreSetGasEip2200,
-		"Updated SSTORE gas should be 50000")
+	require.Equal(t, customValue, updatedParams.SeiSstoreSetGasEip2200,
+		"Updated SSTORE gas should be %d", customValue)
 
 	t.Logf("Verified: SSTORE gas parameter can be read and updated")
 	t.Logf("  Default: %d", defaultParams.SeiSstoreSetGasEip2200)

@@ -333,7 +333,7 @@ func TestNewHostContextConfig(t *testing.T) {
 			expectedDelta: 0,
 		},
 		{
-			name: "Sei default (72k) - 52k delta",
+			name: "Higher value (72k) - 52k delta",
 			chainConfig: &params.ChainConfig{
 				SeiSstoreSetGasEIP2200: func() *uint64 { v := uint64(72000); return &v }(),
 			},
@@ -416,7 +416,7 @@ func TestSstoreGasDeltaCalculation(t *testing.T) {
 			expectedDelta: 0,
 		},
 		{
-			name:          "Sei default (72k) - 52k delta",
+			name:          "Higher value (72k) - 52k delta",
 			seiSstoreGas:  72000,
 			expectedDelta: 52000,
 		},
