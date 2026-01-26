@@ -25,6 +25,13 @@ func (e *EVMInterpreter) Run(callOpCode vm.OpCode, contract *vm.Contract, input 
 	defer func() { e.evm.Depth-- }()
 	depth := e.evm.Depth
 
+	// For CREATE/CREATE2, the initcode is in contract.Code, not in input.
+	// For regular calls, input contains the call data.
+	codeToExecute := input
+	if callOpCode == vm.CREATE || callOpCode == vm.CREATE2 {
+		codeToExecute = contract.Code
+	}
+
 	// Make sure the readOnly is only set if we aren't in readOnly yet.
 	// This also makes sure that the readOnly flag isn't removed for child calls.
 	if readOnly && !e.readOnly {
@@ -59,12 +66,21 @@ func (e *EVMInterpreter) Run(callOpCode vm.OpCode, contract *vm.Contract, input 
 	sender := evmc.Address(contract.Caller())
 	recipient := evmc.Address(contract.Address())
 
-	//nolint:dogsled,gosec // dogsled: Call returns 5 values, we only need output and err; gosec: safe gas conversion
-	output, _, _, _, err := e.hostContext.Execute(callKind, recipient, sender, contract.Value().Bytes32(), input,
+	//nolint:gosec // gosec: safe gas conversion
+	output, gasLeft, gasRefund, _, err := e.hostContext.Execute(callKind, recipient, sender, contract.Value().Bytes32(), codeToExecute,
 		int64(contract.Gas), depth, static)
 	if err != nil {
 		return nil, err
 	}
+
+	// Update the contract's gas to reflect what evmone consumed
+	// This is critical for proper gas accounting!
+	//nolint:gosec // safe conversion - gasLeft is always <= contract.Gas
+	contract.Gas = uint64(gasLeft)
+
+	// Apply gas refund to the EVM's refund counter
+	//nolint:gosec // safe conversion
+	e.evm.StateDB.AddRefund(uint64(gasRefund))
 
 	return output, nil
 }

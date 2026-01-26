@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"io"
+	"sort"
 	"sync"
 
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
@@ -79,26 +80,35 @@ func (store *Store) Write() {
 	store.mtx.Lock()
 	defer store.mtx.Unlock()
 
-	store.cache.Range(func(k, value any) bool {
-		if value.(*types.CValue).Dirty() {
-			key := k.(string)
-			if store.isDeleted(key) {
-				// We use []byte(key) instead of conv.UnsafeStrToBytes because we cannot
-				// be sure if the underlying store might do a save with the byteslice or
-				// not. Once we get confirmation that .Delete is guaranteed not to
-				// save the byteslice, then we can assume only a read-only copy is sufficient.
-				store.parent.Delete([]byte(key))
-				return true
-			}
+	// We need a copy of all of the keys.
+	// Not the best, but probably not a bottleneck depending.
+	keys := []string{}
 
-			cacheValue, ok := store.cache.Load(key)
-			if ok && cacheValue.(*types.CValue).Value() != nil {
-				// It already exists in the parent, hence delete it.
-				store.parent.Set([]byte(key), cacheValue.(*types.CValue).Value())
-			}
+	store.cache.Range(func(key, value any) bool {
+		if value.(*types.CValue).Dirty() {
+			keys = append(keys, key.(string))
 		}
 		return true
 	})
+	sort.Strings(keys)
+	// TODO: Consider allowing usage of Batch, which would allow the write to
+	// at least happen atomically.
+	for _, key := range keys {
+		if store.isDeleted(key) {
+			// We use []byte(key) instead of conv.UnsafeStrToBytes because we cannot
+			// be sure if the underlying store might do a save with the byteslice or
+			// not. Once we get confirmation that .Delete is guaranteed not to
+			// save the byteslice, then we can assume only a read-only copy is sufficient.
+			store.parent.Delete([]byte(key))
+			continue
+		}
+
+		cacheValue, ok := store.cache.Load(key)
+		if ok && cacheValue.(*types.CValue).Value() != nil {
+			// It already exists in the parent, hence delete it.
+			store.parent.Set([]byte(key), cacheValue.(*types.CValue).Value())
+		}
+	}
 
 	store.cache = &sync.Map{}
 	store.deleted = &sync.Map{}
