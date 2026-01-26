@@ -8,33 +8,9 @@ import (
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"sync/atomic"
 	"testing"
 )
-
-func spawnBgPipe(ctx context.Context, s scope.Scope) (*conn.SecretConnection, *conn.SecretConnection) {
-	c1, c2 := tcp.TestPipe()
-	s.SpawnBg(func() error {
-		_ = c1.Run(ctx)
-		return nil
-	})
-	s.SpawnBg(func() error {
-		_ = c2.Run(ctx)
-		return nil
-	})
-	var scs [2]*conn.SecretConnection
-	utils.OrPanic(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		for i, c := range utils.Slice(c1, c2) {
-			s.Spawn(func() error {
-				scs[i] = utils.OrPanic1(conn.MakeSecretConnection(ctx, c))
-				return nil
-			})
-		}
-		return nil
-	}))
-	return scs[0], scs[1]
-}
 
 // Arbitrary nontrivial transformation to make sure that
 // server actually does something.
@@ -226,7 +202,7 @@ func TestHappyPath(t *testing.T) {
 	rng := utils.TestRng()
 	kindCount := 5
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := spawnBgPipe(ctx, s)
+		c1, c2 := conn.NewTestConn()
 		for _, c := range utils.Slice(c1, c2) {
 			mux := makeMux(rng, kindCount)
 			serverRng := rng.Split()
@@ -277,7 +253,7 @@ func makeConfig(kinds ...StreamKind) *Config {
 
 func TestStreamKindsMismatch(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := spawnBgPipe(ctx, s)
+		c1, c2 := conn.NewTestConn() 
 		var k0, k1, k2 StreamKind = 0, 1, 2
 		muxs := utils.Slice(
 			NewMux(makeConfig(k0, k1)),
@@ -342,7 +318,7 @@ func TestStreamKindsMismatch(t *testing.T) {
 // sending and receiving still works as long as messages fit into a window.
 func TestClosedStream(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := spawnBgPipe(ctx, s)
+		c1, c2 := conn.NewTestConn() 
 		kind := StreamKind(0)
 		window := uint64(4)
 		msg := []byte("hello")
@@ -403,7 +379,7 @@ func TestClosedStream(t *testing.T) {
 
 func TestProtocol_TooLargeMsg(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := spawnBgPipe(ctx, s)
+		c1, c2 := conn.NewTestConn() 
 		kind := StreamKind(0)
 		maxMsgSize := uint64(10)
 
@@ -451,7 +427,7 @@ func TestProtocol_TooLargeMsg(t *testing.T) {
 
 func TestProtocol_TooManyMsgs(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := spawnBgPipe(ctx, s)
+		c1, c2 := conn.NewTestConn() 
 		kind := StreamKind(0)
 		maxMsgSize := uint64(10)
 		window := uint64(3)
@@ -504,7 +480,7 @@ func TestProtocol_TooManyMsgs(t *testing.T) {
 
 func TestProtocol_FrameAfterClose(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := spawnBgPipe(ctx, s)
+		c1, c2 := conn.NewTestConn() 
 		kind := StreamKind(0)
 
 		// Bad mux.
@@ -562,7 +538,7 @@ func TestProtocol_FrameAfterClose(t *testing.T) {
 
 func TestProtocol_TooManyAccepts(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := spawnBgPipe(ctx, s)
+		c1, c2 := conn.NewTestConn() 
 		kind := StreamKind(0)
 
 		// Bad mux.
@@ -595,7 +571,7 @@ func TestProtocol_TooManyAccepts(t *testing.T) {
 
 func TestProtocol_UnknownStream(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := spawnBgPipe(ctx, s)
+		c1, c2 := conn.NewTestConn() 
 		kind := StreamKind(0)
 
 		// Bad mux.
@@ -626,7 +602,7 @@ func TestProtocol_UnknownStream(t *testing.T) {
 
 func TestProtocol_UnknownKind(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := spawnBgPipe(ctx, s)
+		c1, c2 := conn.NewTestConn() 
 		kind := StreamKind(0)
 		badKind := StreamKind(1)
 
