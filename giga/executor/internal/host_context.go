@@ -150,12 +150,21 @@ func (h *HostContext) Execute(kind evmc.CallKind, recipient evmc.Address, sender
 	depth int, static bool) ([]byte, int64, int64, evmc.Address, error) {
 	evmRevision := h.getEVMRevision()
 	delegated := kind == evmc.DelegateCall || kind == evmc.CallCode
-	code := h.evm.StateDB.GetCode(common.Address(recipient))
+
+	// For CREATE/CREATE2, the input contains the initcode (constructor bytecode)
+	// For regular calls, fetch the code from the target address
+	var code []byte
+	if kind == evmc.Create || kind == evmc.Create2 {
+		code = input // initcode is passed as input for contract creation
+	} else {
+		code = h.evm.StateDB.GetCode(common.Address(recipient))
+	}
 
 	executionResult, err := h.vm.Execute(
 		h, evmRevision, kind, static, delegated, depth,
 		gas, recipient, sender, input, value, code,
 	)
+
 	if err != nil {
 		return nil, 0, 0, evmc.Address{}, err
 	}
@@ -214,20 +223,25 @@ func (h *HostContext) Call(
 }
 
 func (h *HostContext) AccessAccount(addr evmc.Address) evmc.AccessStatus {
-	addrInAccessList := h.evm.StateDB.AddressInAccessList(common.Address(addr))
+	gethAddr := common.Address(addr)
+	addrInAccessList := h.evm.StateDB.AddressInAccessList(gethAddr)
 	if addrInAccessList {
 		return evmc.WarmAccess
 	}
-	// todo(pdrobnjak): poll something similar to - https://github.com/sei-protocol/sei-v3/blob/cd50388d4d423501b15a544612643073680aa8de/execute/store/types/types.go#L23 - temporarily we can expose access via our statedb impl for testing
+	// After a cold access, add address to access list so subsequent accesses are warm
+	h.evm.StateDB.AddAddressToAccessList(gethAddr)
 	return evmc.ColdAccess
 }
 
 func (h *HostContext) AccessStorage(addr evmc.Address, key evmc.Hash) evmc.AccessStatus {
-	addrInAccessList, slotInAccessList := h.evm.StateDB.SlotInAccessList(common.Address(addr), common.Hash(key))
+	gethAddr := common.Address(addr)
+	gethKey := common.Hash(key)
+	addrInAccessList, slotInAccessList := h.evm.StateDB.SlotInAccessList(gethAddr, gethKey)
 	if addrInAccessList && slotInAccessList {
 		return evmc.WarmAccess
 	}
-	// todo(pdrobnjak): poll something similar to - https://github.com/sei-protocol/sei-v3/blob/cd50388d4d423501b15a544612643073680aa8de/execute/store/types/types.go#L22 - temporarily we can expose access via our statedb impl for testing
+	// After a cold access, add slot to access list so subsequent accesses are warm
+	h.evm.StateDB.AddSlotToAccessList(gethAddr, gethKey)
 	return evmc.ColdAccess
 }
 
@@ -250,10 +264,9 @@ func (h *HostContext) getEVMRevision() evmc.Revision {
 	rules := chainConfig.Rules(blockNumber, isMerge, time)
 
 	// Check from newest to oldest using rules
-	if rules.IsPrague {
-		return evmc.Prague
-	}
-	if rules.IsCancun {
+	// NOTE: Prague support in evmone 0.12.0 may have incomplete gas rules,
+	// so we cap at Cancun for now until evmone is updated
+	if rules.IsPrague || rules.IsCancun {
 		return evmc.Cancun
 	}
 	if rules.IsShanghai {
