@@ -99,6 +99,11 @@ func (t TestAppOpts) Get(s string) interface{} {
 	if s == gigaconfig.FlagOCCEnabled {
 		return t.EnableGigaOCC
 	}
+	// Disable EVM HTTP and WebSocket servers in tests to avoid port conflicts
+	// when multiple tests run in parallel (all would try to bind to port 8545)
+	if s == "evm.http_enabled" || s == "evm.ws_enabled" {
+		return false
+	}
 	return nil
 }
 

@@ -125,6 +125,13 @@ jobs:
               "./integration_test/dapp_tests/dapp_tests.sh seilocal"
             ]
           },
+          {
+            name: "EVM GIGA Module",
+            env: "GIGA_EXECUTOR=true GIGA_OCC=true",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_giga_tests.sh"
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3
