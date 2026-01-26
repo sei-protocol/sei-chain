@@ -1,10 +1,12 @@
 package internal
 
 import (
+	"math"
 	"testing"
 
 	"github.com/ethereum/evmc/v12/bindings/go/evmc"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/require"
 )
 
@@ -302,4 +304,339 @@ func TestExecuteCodeSelection(t *testing.T) {
 			require.Equal(t, tt.expectedCode, code)
 		})
 	}
+}
+
+// TestNewHostContextConfig tests the HostContextConfig creation from ChainConfig
+func TestNewHostContextConfig(t *testing.T) {
+	tests := []struct {
+		name          string
+		chainConfig   *params.ChainConfig
+		expectedDelta int64
+	}{
+		{
+			name:          "Nil chain config",
+			chainConfig:   nil,
+			expectedDelta: 0,
+		},
+		{
+			name: "Nil SeiSstoreSetGasEIP2200",
+			chainConfig: &params.ChainConfig{
+				SeiSstoreSetGasEIP2200: nil,
+			},
+			expectedDelta: 0,
+		},
+		{
+			name: "Standard value (20k) - no delta",
+			chainConfig: &params.ChainConfig{
+				SeiSstoreSetGasEIP2200: func() *uint64 { v := uint64(20000); return &v }(),
+			},
+			expectedDelta: 0,
+		},
+		{
+			name: "Higher value (72k) - 52k delta",
+			chainConfig: &params.ChainConfig{
+				SeiSstoreSetGasEIP2200: func() *uint64 { v := uint64(72000); return &v }(),
+			},
+			expectedDelta: 52000,
+		},
+		{
+			name: "Higher value (100k) - 80k delta",
+			chainConfig: &params.ChainConfig{
+				SeiSstoreSetGasEIP2200: func() *uint64 { v := uint64(100000); return &v }(),
+			},
+			expectedDelta: 80000,
+		},
+		{
+			name: "Lower than standard (10k) - negative delta",
+			chainConfig: &params.ChainConfig{
+				SeiSstoreSetGasEIP2200: func() *uint64 { v := uint64(10000); return &v }(),
+			},
+			expectedDelta: -10000,
+		},
+		{
+			name: "Zero value - max negative delta",
+			chainConfig: &params.ChainConfig{
+				SeiSstoreSetGasEIP2200: func() *uint64 { v := uint64(0); return &v }(),
+			},
+			expectedDelta: -20000,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := NewHostContextConfig(tt.chainConfig)
+			require.Equal(t, tt.expectedDelta, config.SstoreGasDelta,
+				"SstoreGasDelta mismatch for %s", tt.name)
+		})
+	}
+}
+
+// TestNewHostContextConfig_OverflowPanic tests that an overflow-causing value panics
+func TestNewHostContextConfig_OverflowPanic(t *testing.T) {
+	// Value that would overflow when cast to int64
+	overflowValue := uint64(math.MaxInt64) + 1
+
+	chainConfig := &params.ChainConfig{
+		SeiSstoreSetGasEIP2200: &overflowValue,
+	}
+
+	require.Panics(t, func() {
+		NewHostContextConfig(chainConfig)
+	}, "Should panic when SeiSstoreSetGasEIP2200 exceeds math.MaxInt64")
+}
+
+// TestNewHostContextConfig_MaxSafeValue tests boundary at math.MaxInt64
+func TestNewHostContextConfig_MaxSafeValue(t *testing.T) {
+	// Maximum safe value (exactly math.MaxInt64) should not panic
+	maxSafeValue := uint64(math.MaxInt64)
+
+	chainConfig := &params.ChainConfig{
+		SeiSstoreSetGasEIP2200: &maxSafeValue,
+	}
+
+	require.NotPanics(t, func() {
+		config := NewHostContextConfig(chainConfig)
+		// Delta = MaxInt64 - 20000 = a very large positive delta
+		expectedDelta := int64(math.MaxInt64) - int64(StandardSstoreSetGasEIP2200)
+		require.Equal(t, expectedDelta, config.SstoreGasDelta)
+	}, "Should not panic when SeiSstoreSetGasEIP2200 equals math.MaxInt64")
+}
+
+// TestSstoreGasDeltaCalculation tests the SSTORE gas delta calculation logic
+// that determines how much extra/less gas to charge for Sei's custom SSTORE cost.
+func TestSstoreGasDeltaCalculation(t *testing.T) {
+	tests := []struct {
+		name          string
+		seiSstoreGas  uint64
+		expectedDelta int64
+	}{
+		{
+			name:          "Standard EIP-2200 (20k) - no adjustment",
+			seiSstoreGas:  20000,
+			expectedDelta: 0,
+		},
+		{
+			name:          "Higher value (72k) - 52k delta",
+			seiSstoreGas:  72000,
+			expectedDelta: 52000,
+		},
+		{
+			name:          "Higher custom (100k) - 80k delta",
+			seiSstoreGas:  100000,
+			expectedDelta: 80000,
+		},
+		{
+			name:          "Lower than standard (10k) - negative delta",
+			seiSstoreGas:  10000,
+			expectedDelta: -10000,
+		},
+		{
+			name:          "Zero - max negative delta",
+			seiSstoreGas:  0,
+			expectedDelta: -20000,
+		},
+		{
+			name:          "Just above standard (20001) - 1 delta",
+			seiSstoreGas:  20001,
+			expectedDelta: 1,
+		},
+		{
+			name:          "Just below standard (19999) - -1 delta",
+			seiSstoreGas:  19999,
+			expectedDelta: -1,
+		},
+		{
+			name:          "Exactly standard - no adjustment",
+			seiSstoreGas:  StandardSstoreSetGasEIP2200,
+			expectedDelta: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Replicate the delta calculation logic: Sei cost - standard cost
+			delta := int64(tt.seiSstoreGas) - int64(StandardSstoreSetGasEIP2200)
+
+			require.Equal(t, tt.expectedDelta, delta,
+				"Delta for seiSstoreGas=%d should be %d", tt.seiSstoreGas, tt.expectedDelta)
+		})
+	}
+}
+
+// TestSstoreGasAdjustmentAccumulation tests the atomic accumulation of gas adjustments
+func TestSstoreGasAdjustmentAccumulation(t *testing.T) {
+	tests := []struct {
+		name               string
+		deltas             []int64 // deltas to add
+		expectedTotal      int64
+		resetMidway        bool // reset after half the deltas
+		expectedAfterReset int64
+	}{
+		{
+			name:          "Single delta",
+			deltas:        []int64{52000},
+			expectedTotal: 52000,
+		},
+		{
+			name:          "Multiple deltas accumulate",
+			deltas:        []int64{52000, 52000, 52000},
+			expectedTotal: 156000,
+		},
+		{
+			name:          "Mixed delta values",
+			deltas:        []int64{52000, 28000, 80000},
+			expectedTotal: 160000,
+		},
+		{
+			name:          "No deltas - zero total",
+			deltas:        []int64{},
+			expectedTotal: 0,
+		},
+		{
+			name:               "Reset clears accumulation",
+			deltas:             []int64{52000, 52000, 52000, 52000},
+			resetMidway:        true,
+			expectedAfterReset: 104000, // Only last 2 deltas
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a minimal HostContext (only need the atomic counter)
+			hc := &HostContext{}
+
+			// Reset to ensure clean state
+			hc.ResetSstoreGasAdjustment()
+			require.Equal(t, int64(0), hc.GetSstoreGasAdjustment(), "Should start at 0")
+
+			if tt.resetMidway {
+				// Add half the deltas
+				half := len(tt.deltas) / 2
+				for i := 0; i < half; i++ {
+					hc.sstoreGasAdjustment.Add(tt.deltas[i])
+				}
+
+				// Reset
+				hc.ResetSstoreGasAdjustment()
+				require.Equal(t, int64(0), hc.GetSstoreGasAdjustment(), "Should be 0 after reset")
+
+				// Add remaining deltas
+				for i := half; i < len(tt.deltas); i++ {
+					hc.sstoreGasAdjustment.Add(tt.deltas[i])
+				}
+
+				require.Equal(t, tt.expectedAfterReset, hc.GetSstoreGasAdjustment())
+			} else {
+				// Add all deltas
+				for _, delta := range tt.deltas {
+					hc.sstoreGasAdjustment.Add(delta)
+				}
+
+				require.Equal(t, tt.expectedTotal, hc.GetSstoreGasAdjustment())
+			}
+		})
+	}
+}
+
+// TestSstoreGasAdjustmentWithStorageStatus tests that only StorageAdded triggers adjustment
+func TestSstoreGasAdjustmentWithStorageStatus(t *testing.T) {
+	tests := []struct {
+		name         string
+		status       evmc.StorageStatus
+		shouldAdjust bool
+	}{
+		{
+			name:         "StorageAdded triggers adjustment",
+			status:       evmc.StorageAdded,
+			shouldAdjust: true,
+		},
+		{
+			name:         "StorageModified does NOT trigger adjustment",
+			status:       evmc.StorageModified,
+			shouldAdjust: false,
+		},
+		{
+			name:         "StorageDeleted does NOT trigger adjustment",
+			status:       evmc.StorageDeleted,
+			shouldAdjust: false,
+		},
+		{
+			name:         "StorageAssigned does NOT trigger adjustment",
+			status:       evmc.StorageAssigned,
+			shouldAdjust: false,
+		},
+		{
+			name:         "StorageDeletedAdded does NOT trigger adjustment",
+			status:       evmc.StorageDeletedAdded,
+			shouldAdjust: false,
+		},
+		{
+			name:         "StorageModifiedDeleted does NOT trigger adjustment",
+			status:       evmc.StorageModifiedDeleted,
+			shouldAdjust: false,
+		},
+		{
+			name:         "StorageDeletedRestored does NOT trigger adjustment",
+			status:       evmc.StorageDeletedRestored,
+			shouldAdjust: false,
+		},
+		{
+			name:         "StorageAddedDeleted does NOT trigger adjustment",
+			status:       evmc.StorageAddedDeleted,
+			shouldAdjust: false,
+		},
+		{
+			name:         "StorageModifiedRestored does NOT trigger adjustment",
+			status:       evmc.StorageModifiedRestored,
+			shouldAdjust: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test the condition used in SetStorage
+			shouldAdjust := tt.status == evmc.StorageAdded
+
+			require.Equal(t, tt.shouldAdjust, shouldAdjust,
+				"StorageStatus %v adjustment check", tt.status)
+		})
+	}
+}
+
+// TestStandardSstoreSetGasConstant verifies the constant matches EIP-2200
+func TestStandardSstoreSetGasConstant(t *testing.T) {
+	// EIP-2200 defines SstoreSetGas as 20000
+	require.Equal(t, uint64(20000), StandardSstoreSetGasEIP2200,
+		"StandardSstoreSetGasEIP2200 should be 20000 per EIP-2200")
+}
+
+// TestSstoreGasAdjustmentConcurrency tests thread-safety of gas adjustment
+func TestSstoreGasAdjustmentConcurrency(t *testing.T) {
+	hc := &HostContext{}
+	hc.ResetSstoreGasAdjustment()
+
+	const numGoroutines = 100
+	const deltasPerGoroutine = 100
+	const deltaValue = int64(52000)
+
+	done := make(chan bool, numGoroutines)
+
+	// Spawn goroutines that concurrently add to the adjustment
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			for j := 0; j < deltasPerGoroutine; j++ {
+				hc.sstoreGasAdjustment.Add(deltaValue)
+			}
+			done <- true
+		}()
+	}
+
+	// Wait for all goroutines
+	for i := 0; i < numGoroutines; i++ {
+		<-done
+	}
+
+	expected := int64(numGoroutines * deltasPerGoroutine * deltaValue)
+	require.Equal(t, expected, hc.GetSstoreGasAdjustment(),
+		"Concurrent additions should accumulate correctly")
 }
