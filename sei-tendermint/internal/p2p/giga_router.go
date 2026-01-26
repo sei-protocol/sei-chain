@@ -3,44 +3,44 @@ package p2p
 import (
 	"context"
 	"fmt"
-	"log"
-	"time"
-	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/libs/utils/tcp"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/internal/p2p/giga"
 	"github.com/tendermint/tendermint/internal/p2p/rpc"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
+	"log"
+	"time"
 )
 
 type GigaRouterConfig struct {
-	privKey NodeSecretKey
-	InboundPeers map[NodePublicKey]bool
+	privKey       NodeSecretKey
+	InboundPeers  map[NodePublicKey]bool
 	OutboundPeers map[NodePublicKey]tcp.HostPort
 }
 
 type GigaRouter struct {
-	cfg *GigaRouterConfig
-	poolIn *giga.Pool[NodePublicKey,rpc.Server[giga.API]]
-	poolOut *giga.Pool[NodePublicKey,rpc.Client[giga.API]]
+	cfg     *GigaRouterConfig
+	poolIn  *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
+	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
 }
 
 func NewGigaRouter(cfg *GigaRouterConfig) *GigaRouter {
 	return &GigaRouter{
-		cfg: cfg,
-		poolIn: giga.NewPool[NodePublicKey,rpc.Server[giga.API]](),
-		poolOut: giga.NewPool[NodePublicKey,rpc.Client[giga.API]](),
+		cfg:     cfg,
+		poolIn:  giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
+		poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
 	}
 }
 
 func (r *GigaRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		for key,hostport := range r.cfg.OutboundPeers {
+		for key, hostport := range r.cfg.OutboundPeers {
 			s.Spawn(func() error {
 				for {
-					err := r.dialAndRunConn(ctx,key,hostport)
-					log.Printf("[%v:%v] %v",key,hostport,err)
-					if err:=utils.Sleep(ctx,10*time.Second); err!=nil {
+					err := r.dialAndRunConn(ctx, key, hostport)
+					log.Printf("[%v:%v] %v", key, hostport, err)
+					if err := utils.Sleep(ctx, 10*time.Second); err != nil {
 						return err
 					}
 				}
@@ -51,49 +51,56 @@ func (r *GigaRouter) Run(ctx context.Context) error {
 }
 
 func (r *GigaRouter) RunClients(ctx context.Context, task func(context.Context, rpc.Client[giga.API]) error) error {
-	return r.poolOut.RunForEach(ctx,task)
+	return r.poolOut.RunForEach(ctx, task)
 }
 
 func (r *GigaRouter) RunServers(ctx context.Context, task func(context.Context, rpc.Server[giga.API]) error) error {
-	return r.poolIn.RunForEach(ctx,task)
+	return r.poolIn.RunForEach(ctx, task)
 }
 
 func (r *GigaRouter) dialAndRunConn(ctx context.Context, key NodePublicKey, hp tcp.HostPort) error {
-	addrs,err := hp.Resolve(ctx)
-	if err!=nil { return fmt.Errorf("%v.Resolve(): %w",hp,err) }
-	if len(addrs)==0 { return fmt.Errorf("%v.Resolve() = []",hp) }
+	addrs, err := hp.Resolve(ctx)
+	if err != nil {
+		return fmt.Errorf("%v.Resolve(): %w", hp, err)
+	}
+	if len(addrs) == 0 {
+		return fmt.Errorf("%v.Resolve() = []", hp)
+	}
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		tcpConn,err := tcp.Dial(ctx,addrs[0])
-		if err!=nil { return fmt.Errorf("tcp.Dial(%v): %w",addrs[0],err) }
+		tcpConn, err := tcp.Dial(ctx, addrs[0])
+		if err != nil {
+			return fmt.Errorf("tcp.Dial(%v): %w", addrs[0], err)
+		}
 		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
 		sc, err := conn.MakeSecretConnection(ctx, tcpConn)
 		if err != nil {
 			return fmt.Errorf("conn.MakeSecretConnection(): %w", err)
 		}
-		handshakeMsg, err := exchangeHandshakeMsg(ctx, sc, &handshakeMsg{
-			NodeAuth:          r.cfg.privKey.SignChallenge(sc.Challenge()),
-			SeiGigaConnection: true,
-		})
+		// TODO: handshake needs a timeout.
+		hConn, err := handshake(ctx, tcpConn, r.cfg.privKey, true)
 		if err != nil {
-			return fmt.Errorf("exchangeHandshakeMsg(): %w", err)
+			return fmt.Errorf("handshake(): %w", err)
 		}
-		if !handshakeMsg.SeiGigaConnection {
+		if !hConn.msg.SeiGigaConnection {
 			return fmt.Errorf("not a sei giga connection")
 		}
-		if handshakeMsg.NodeAuth.Key() != key {
-			return fmt.Errorf("peer key = %v, want %v",handshakeMsg.NodeAuth.Key,key)
-		}
-		if err := handshakeMsg.NodeAuth.Verify(sc.Challenge()); err != nil {
-			return fmt.Errorf("handshakeMsg.NodeAuth.Verify(): %w", err)
+		if got := hConn.msg.NodeAuth.Key(); got != key {
+			return fmt.Errorf("peer key = %v, want %v", got, key)
 		}
 		client := rpc.NewClient[giga.API]()
-		return r.poolOut.InsertAndRun(ctx,key,client,func(ctx context.Context) error { return client.Run(ctx,sc) })
+		return r.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error { return client.Run(ctx, sc) })
 	})
 }
 
-func (r *GigaRouter) RunInboundConn(ctx context.Context, key NodePublicKey, conn conn.Conn) error {
+func (r *GigaRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) error {
+	if !hConn.msg.SeiGigaConnection {
+		return fmt.Errorf("not a SeiGiga connection")
+	}
 	// Filter unwanded connections.
-	if !r.cfg.InboundPeers[key] { return fmt.Errorf("peer not whitelisted") }
+	key := hConn.msg.NodeAuth.Key()
+	if !r.cfg.InboundPeers[key] {
+		return fmt.Errorf("peer not whitelisted")
+	}
 	server := rpc.NewServer[giga.API]()
-	return r.poolIn.InsertAndRun(ctx,key,server,func(ctx context.Context) error { return server.Run(ctx,conn) })	
+	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error { return server.Run(ctx, hConn.conn) })
 }

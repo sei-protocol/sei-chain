@@ -3,10 +3,10 @@ package conn
 import (
 	"context"
 	"errors"
+	"github.com/tendermint/tendermint/libs/utils"
 	"io"
 	"net"
 	"net/netip"
-	"github.com/tendermint/tendermint/libs/utils"
 )
 
 type Conn interface {

@@ -89,7 +89,7 @@ func NewRouter(
 		peerDB:           utils.NewMutex(peerDB),
 		started:          make(chan struct{}),
 	}
-	if gigaCfg,ok := options.Giga.Get(); ok {
+	if gigaCfg, ok := options.Giga.Get(); ok {
 		router.giga = utils.Some(NewGigaRouter(gigaCfg))
 	}
 	router.BaseService = service.NewBaseService(logger, "router", router)
@@ -204,27 +204,32 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						return fmt.Errorf("rate limiting incoming: %w", err)
 					}
 					defer connTracker.RemoveConn(addr)
-					
+
 					s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-					
-					var handshakeCtx context.Context
+
+					handshakeCtx := ctx
 					if d, ok := r.options.HandshakeTimeout.Get(); ok {
 						var cancel context.CancelFunc
 						handshakeCtx, cancel = context.WithTimeout(ctx, d)
 						defer cancel()
 					}
 					hConn, err := handshake(handshakeCtx, tcpConn, r.privKey, r.giga.IsPresent())
-					if err!=nil {
-						return fmt.Errorf("handshake(): %w",err)
+					if err != nil {
+						return fmt.Errorf("handshake(): %w", err)
 					}
-					if giga,ok := r.giga.Get(); ok && hConn.msg.SeiGigaConnection {
+					if giga, ok := r.giga.Get(); ok && hConn.msg.SeiGigaConnection {
 						release()
-						return giga.RunInboundConn(ctx,hConn)
+						return giga.RunInboundConn(ctx, hConn)
 					}
-					info,err := exchangeNodeInfo(ctx,hConn,*r.nodeInfoProducer())
-					if err!=nil { return fmt.Errorf("exchangeNodeInfo(): %w",err) }
+					if err := r.options.filterPeerByID(ctx, hConn.msg.NodeAuth.Key().NodeID()); err != nil {
+						return fmt.Errorf("peer filtered by ID: %w", err)
+					}
+					info, err := exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
+					if err != nil {
+						return fmt.Errorf("exchangeNodeInfo(): %w", err)
+					}
 					release()
-					return r.runConn(ctx, hConn, info)
+					return r.runConn(ctx, hConn.conn, info, utils.None[NodeAddress]())
 				})
 				r.logger.Error("r.runConn(inbound)", "addr", addr, "err", err)
 				return nil
@@ -254,15 +259,31 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 								r.peerManager.DialFailed(addr)
 								return fmt.Errorf("r.dial(): %w", err)
 							}
-							s.SpawnBg(func() error { return tcpConn.Run(ctx) })
 							r.metrics.NewConnections.With("direction", "out").Add(1)
-							conn, err := r.handshakeV2(ctx, tcpConn, utils.Some(addr), false)
+							s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+
+							var hConn *handshakedConn
+							var info types.NodeInfo
+							err = utils.WithOptTimeout(ctx, r.options.HandshakeTimeout, func(ctx context.Context) error {
+								var err error
+								hConn, err = handshake(ctx, tcpConn, r.privKey, false)
+								if err != nil {
+									return fmt.Errorf("handshake(): %w", err)
+								}
+								if got := hConn.msg.NodeAuth.Key().NodeID(); got != addr.NodeID {
+									return fmt.Errorf("peer NodeID = %v, want %v", got, addr.NodeID)
+								}
+								info, err = exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
+								if err != nil {
+									return fmt.Errorf("exchangeNodeInfo(): %w", err)
+								}
+								return nil
+							})
 							if err != nil {
 								r.peerManager.DialFailed(addr)
-								return fmt.Errorf("r.handshake(): %w", err)
+								return err
 							}
-							// handshake(tryGigaConn=false) always returns *ConnV2
-							if err := r.runConn(ctx, conn.(*ConnV2)); err != nil {
+							if err := r.runConn(ctx, hConn.conn, info, utils.Some(addr)); err != nil {
 								return fmt.Errorf("r.runConn(): %w", err)
 							}
 							return nil

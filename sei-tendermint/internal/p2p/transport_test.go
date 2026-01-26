@@ -128,7 +128,7 @@ func TestRouter_Listen(t *testing.T) {
 					return fmt.Errorf("tcp.dial(): %v", err)
 				}
 				s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-				if _, err := x.handshake(ctx, tcpConn, utils.Some(addr), false); err != nil {
+				if _, _, err := x.handshakeV2(ctx, tcpConn, utils.Some(addr)); err != nil {
 					return fmt.Errorf("handshake(): %v", err)
 				}
 				return nil
@@ -158,11 +158,11 @@ func TestHandshake_NodeInfo(t *testing.T) {
 			return fmt.Errorf("tcp.dial(): %v", err)
 		}
 		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-		conn, err := x.handshake(ctx, tcpConn, utils.Some(addr), false)
+		_, info, err := x.handshakeV2(ctx, tcpConn, utils.Some(addr))
 		if err != nil {
 			return fmt.Errorf("handshake(): %v", err)
 		}
-		if err := utils.TestDiff(*r.nodeInfoProducer(), conn.(*ConnV2).PeerInfo()); err != nil {
+		if err := utils.TestDiff(*r.nodeInfoProducer(), info); err != nil {
 			t.Fatalf("conn.PeerInfo(): %v", err)
 		}
 		return nil
@@ -193,7 +193,7 @@ func TestHandshake_Context(t *testing.T) {
 			}
 			s.SpawnBg(func() error { return tcpConn.Run(ctx) })
 			s.SpawnBg(func() error {
-				if _, err := b.handshake(ctx, tcpConn, utils.Some(addr),false); err == nil {
+				if _, _, err := b.handshakeV2(ctx, tcpConn, utils.Some(addr)); err == nil {
 					return fmt.Errorf("handshake(): expected error, got %w", err)
 				}
 				return nil

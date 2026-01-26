@@ -164,7 +164,7 @@ func TestMConnectionReadErrorUnknownChannel(t *testing.T) {
 			{ID: 0x01, Priority: 1, SendQueueCapacity: 1},
 			{ID: 0x02, Priority: 1, SendQueueCapacity: 1},
 		}
-		client, server := NewTestConn() 
+		client, server := NewTestConn()
 		mconnClient := newMConnectionWithCh(client, chDescs)
 		mconnServer := newMConnection(server)
 
@@ -195,7 +195,7 @@ func TestMConnectionReadErrorUnknownChannel(t *testing.T) {
 
 func TestMConnectionReadErrorLongMessage(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := NewTestConn() 
+		c1, c2 := NewTestConn()
 		mconn1 := newMConnection(c1)
 		s.Spawn(func() error {
 			if err := mconn1.Run(ctx); !errors.Is(err, errMsgTooLarge) {
@@ -273,7 +273,7 @@ func TestConnVectors(t *testing.T) {
 
 func TestMConnectionChannelOverflow(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := NewTestConn() 
+		c1, c2 := NewTestConn()
 		m1 := newMConnection(c1)
 		s.Spawn(func() error {
 			if err, want := m1.Run(ctx), (&errBadChannel{}); !errors.As(err, want) {

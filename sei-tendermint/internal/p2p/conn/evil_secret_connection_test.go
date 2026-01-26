@@ -14,7 +14,6 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/tcp"
 )
 
-
 func TestLowOrderPoint(t *testing.T) {
 	_, err := newSecretConnection(nil, genEphKey(), ephPublic{})
 	require.True(t, errors.Is(err, errDH))

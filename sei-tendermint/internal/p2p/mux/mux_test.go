@@ -253,7 +253,7 @@ func makeConfig(kinds ...StreamKind) *Config {
 
 func TestStreamKindsMismatch(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := conn.NewTestConn() 
+		c1, c2 := conn.NewTestConn()
 		var k0, k1, k2 StreamKind = 0, 1, 2
 		muxs := utils.Slice(
 			NewMux(makeConfig(k0, k1)),
@@ -318,7 +318,7 @@ func TestStreamKindsMismatch(t *testing.T) {
 // sending and receiving still works as long as messages fit into a window.
 func TestClosedStream(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := conn.NewTestConn() 
+		c1, c2 := conn.NewTestConn()
 		kind := StreamKind(0)
 		window := uint64(4)
 		msg := []byte("hello")
@@ -379,7 +379,7 @@ func TestClosedStream(t *testing.T) {
 
 func TestProtocol_TooLargeMsg(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := conn.NewTestConn() 
+		c1, c2 := conn.NewTestConn()
 		kind := StreamKind(0)
 		maxMsgSize := uint64(10)
 
@@ -427,7 +427,7 @@ func TestProtocol_TooLargeMsg(t *testing.T) {
 
 func TestProtocol_TooManyMsgs(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := conn.NewTestConn() 
+		c1, c2 := conn.NewTestConn()
 		kind := StreamKind(0)
 		maxMsgSize := uint64(10)
 		window := uint64(3)
@@ -480,7 +480,7 @@ func TestProtocol_TooManyMsgs(t *testing.T) {
 
 func TestProtocol_FrameAfterClose(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := conn.NewTestConn() 
+		c1, c2 := conn.NewTestConn()
 		kind := StreamKind(0)
 
 		// Bad mux.
@@ -538,7 +538,7 @@ func TestProtocol_FrameAfterClose(t *testing.T) {
 
 func TestProtocol_TooManyAccepts(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := conn.NewTestConn() 
+		c1, c2 := conn.NewTestConn()
 		kind := StreamKind(0)
 
 		// Bad mux.
@@ -571,7 +571,7 @@ func TestProtocol_TooManyAccepts(t *testing.T) {
 
 func TestProtocol_UnknownStream(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := conn.NewTestConn() 
+		c1, c2 := conn.NewTestConn()
 		kind := StreamKind(0)
 
 		// Bad mux.
@@ -602,7 +602,7 @@ func TestProtocol_UnknownStream(t *testing.T) {
 
 func TestProtocol_UnknownKind(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2 := conn.NewTestConn() 
+		c1, c2 := conn.NewTestConn()
 		kind := StreamKind(0)
 		badKind := StreamKind(1)
 

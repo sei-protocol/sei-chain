@@ -7,10 +7,10 @@ import (
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/types"
 	"math"
 	"net/netip"
 	"time"
-	"github.com/tendermint/tendermint/types"
 )
 
 const queueBufferDefault = 1024
@@ -30,16 +30,6 @@ type ChannelIDSet map[ChannelID]struct{}
 func (cs ChannelIDSet) Contains(id ChannelID) bool {
 	_, ok := cs[id]
 	return ok
-}
-
-type anyConn interface{ isAnyConn() }
-
-func (*ConnV2) isAnyConn() {}
-func (*ConnV3) isAnyConn() {}
-
-type ConnV3 struct {
-	conn conn.Conn
-	key NodePublicKey
 }
 
 // Connection implements Connection for Transport.
@@ -114,7 +104,19 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *ConnV2) error {
 	}
 }
 
-func (r *Router) runConn(ctx context.Context, conn *ConnV2) error {
+func (r *Router) runConn(ctx context.Context, sc *conn.SecretConnection, peerInfo types.NodeInfo, dialAddr utils.Option[NodeAddress]) error {
+	conn := &ConnV2{
+		dialAddr:     dialAddr,
+		peerInfo:     peerInfo,
+		sendQueue:    NewQueue[sendMsg](queueBufferDefault),
+		peerChannels: toChannelIDs(peerInfo.Channels),
+		mconn: conn.NewMConnection(
+			r.logger.With("peer", Endpoint{sc.RemoteAddr()}.NodeAddress(peerInfo.NodeID)),
+			sc,
+			r.getChannelDescs(),
+			r.options.Connection,
+		),
+	}
 	if err := r.peerManager.Connected(conn); err != nil {
 		return fmt.Errorf("r.peerManager.Connected(): %w", err)
 	}
