@@ -246,6 +246,9 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 	stores := make(map[types.StoreKey]types.CacheWrapper)
 	// Serve from SS stores for ALL historical queries
 	if rs.ssStore != nil {
+		if version <= 0 {
+			version = rs.ssStore.GetLatestVersion()
+		}
 		// add the transient/mem stores registered in current app.
 		for k, store := range rs.ckvStores {
 			if store.GetStoreType() != types.StoreTypeIAVL {
