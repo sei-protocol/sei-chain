@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/app"
+	gigaevmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	"github.com/sei-protocol/sei-chain/giga/tests/harness"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -92,6 +93,13 @@ func NewStateTestContext(t testing.TB, blockTime time.Time, workers int, mode Ex
 	params.MinimumFeePerGas = sdk.NewDecFromInt(sdk.NewInt(0))
 	testApp.EvmKeeper.SetParams(ctx, params)
 
+	// Also set minimum fee to 0 in GigaEvmKeeper for Giga mode
+	if gigaEnabled {
+		gigaParams := testApp.GigaEvmKeeper.GetParams(ctx)
+		gigaParams.MinimumFeePerGas = sdk.NewDecFromInt(sdk.NewInt(0))
+		testApp.GigaEvmKeeper.SetParams(ctx, gigaParams)
+	}
+
 	return &StateTestContext{
 		Ctx:     ctx,
 		TestApp: testApp,
@@ -101,11 +109,14 @@ func NewStateTestContext(t testing.TB, blockTime time.Time, workers int, mode Ex
 
 // SetupPreState configures the state from the test's pre-state allocation
 func (stc *StateTestContext) SetupPreState(t testing.TB, pre ethtypes.GenesisAlloc) {
+	isGigaMode := stc.Mode == ModeGigaSequential || stc.Mode == ModeGigaOCC
+
 	for addr, account := range pre {
 		// Fund the account with the specified balance
 		usei, wei := state.SplitUseiWeiAmount(account.Balance)
 		seiAddr := stc.TestApp.EvmKeeper.GetSeiAddressOrDefault(stc.Ctx, addr)
 
+		// Always set up state in regular keepers (needed for V2 and as base state)
 		if usei.GT(sdk.ZeroInt()) {
 			err := stc.TestApp.BankKeeper.MintCoins(stc.Ctx, "mint", sdk.NewCoins(sdk.NewCoin("usei", usei)))
 			require.NoError(t, err, "failed to mint coins for %s", addr.Hex())
@@ -132,13 +143,55 @@ func (stc *StateTestContext) SetupPreState(t testing.TB, pre ethtypes.GenesisAll
 
 		// Associate the addresses
 		stc.TestApp.EvmKeeper.SetAddressMapping(stc.Ctx, seiAddr, addr)
+
+		// For Giga mode, also set up state in the Giga keepers (GigaKVStore)
+		if isGigaMode {
+			// Set balance in GigaBankKeeper
+			if usei.GT(sdk.ZeroInt()) {
+				err := stc.TestApp.GigaBankKeeper.MintCoins(stc.Ctx, "mint", sdk.NewCoins(sdk.NewCoin("usei", usei)))
+				require.NoError(t, err, "failed to mint coins in Giga for %s", addr.Hex())
+				err = stc.TestApp.GigaBankKeeper.SendCoinsFromModuleToAccount(stc.Ctx, "mint", seiAddr, sdk.NewCoins(sdk.NewCoin("usei", usei)))
+				require.NoError(t, err, "failed to send coins in Giga to %s", addr.Hex())
+			}
+			if wei.GT(sdk.ZeroInt()) {
+				err := stc.TestApp.GigaBankKeeper.AddWei(stc.Ctx, seiAddr, wei)
+				require.NoError(t, err, "failed to add wei in Giga to %s", addr.Hex())
+			}
+
+			// Set nonce in GigaEvmKeeper
+			stc.TestApp.GigaEvmKeeper.SetNonce(stc.Ctx, addr, account.Nonce)
+
+			// Set code in GigaEvmKeeper
+			if len(account.Code) > 0 {
+				stc.TestApp.GigaEvmKeeper.SetCode(stc.Ctx, addr, account.Code)
+				// Debug: verify code was written
+				readBackCode := stc.TestApp.GigaEvmKeeper.GetCode(stc.Ctx, addr)
+				if len(readBackCode) != len(account.Code) {
+					t.Logf("DEBUG: SetupPreState code write/read mismatch for %s: wrote %d bytes, read back %d bytes", addr.Hex(), len(account.Code), len(readBackCode))
+				}
+			}
+
+			// Set storage in GigaEvmKeeper
+			for key, value := range account.Storage {
+				stc.TestApp.GigaEvmKeeper.SetState(stc.Ctx, addr, key, value)
+			}
+
+			// Associate the addresses in GigaEvmKeeper
+			stc.TestApp.GigaEvmKeeper.SetAddressMapping(stc.Ctx, seiAddr, addr)
+		}
 	}
 }
 
 // SetupSender associates the sender address with its Sei address
 func (stc *StateTestContext) SetupSender(sender common.Address) {
+	isGigaMode := stc.Mode == ModeGigaSequential || stc.Mode == ModeGigaOCC
 	seiAddr := stc.TestApp.EvmKeeper.GetSeiAddressOrDefault(stc.Ctx, sender)
 	stc.TestApp.EvmKeeper.SetAddressMapping(stc.Ctx, seiAddr, sender)
+
+	// For Giga mode, also set up in GigaEvmKeeper
+	if isGigaMode {
+		stc.TestApp.GigaEvmKeeper.SetAddressMapping(stc.Ctx, seiAddr, sender)
+	}
 }
 
 // RunStateTestBlock executes a state test transaction and returns results
@@ -152,18 +205,6 @@ func RunStateTestBlock(stc *StateTestContext, txs [][]byte) ([]abci.Event, []*ab
 
 	events, results, _, err := stc.TestApp.ProcessBlock(stc.Ctx, txs, req, req.DecidedLastCommit, false)
 	return events, results, err
-}
-
-// runStateTestComparison runs a state test through both V2 and Giga and compares results
-// This is kept for backward compatibility
-func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harness.StateTestPost) {
-	result := runStateTestComparisonWithResult(t, st, post)
-	if !result.Passed {
-		t.Errorf("Test failed: %s - %s", result.FailureType, result.Message)
-		for _, detail := range result.Details {
-			t.Logf("  %s", detail)
-		}
-	}
 }
 
 // runStateTestComparisonWithResult runs a state test and returns detailed results
@@ -292,7 +333,14 @@ func runStateTestComparisonWithResult(t *testing.T, st *harness.StateTestJSON, p
 	// --- Verify post-state against fixture (if available) ---
 	if len(post.State) > 0 {
 		v2Diffs := verifyPostStateWithResult(t, v2Ctx.Ctx, &v2Ctx.TestApp.EvmKeeper, post.State, "V2")
-		gigaDiffs := verifyPostStateWithResult(t, gigaCtx.Ctx, &gigaCtx.TestApp.EvmKeeper, post.State, "Giga")
+
+		// Use the appropriate verification function based on mode
+		var gigaDiffs []StateDiff
+		if gigaCtx.Mode == ModeGigaSequential || gigaCtx.Mode == ModeGigaOCC {
+			gigaDiffs = verifyGigaPostStateWithResult(t, gigaCtx.Ctx, &gigaCtx.TestApp.GigaEvmKeeper, post.State, "Giga")
+		} else {
+			gigaDiffs = verifyPostStateWithResult(t, gigaCtx.Ctx, &gigaCtx.TestApp.EvmKeeper, post.State, "Giga")
+		}
 
 		// Log any fixture verification differences
 		if len(v2Diffs) > 0 {
@@ -341,12 +389,18 @@ func formatStateDiffs(diffs []StateDiff) []string {
 // comparePostStates compares state between V2 and Giga contexts
 func comparePostStates(_ *testing.T, v2Ctx, gigaCtx *StateTestContext, preState ethtypes.GenesisAlloc) []StateDiff {
 	var diffs []StateDiff
+	isGigaMode := gigaCtx.Mode == ModeGigaSequential || gigaCtx.Mode == ModeGigaOCC
 
 	// Compare state for all addresses in pre-state
 	for addr := range preState {
 		// Compare nonce
 		v2Nonce := v2Ctx.TestApp.EvmKeeper.GetNonce(v2Ctx.Ctx, addr)
-		gigaNonce := gigaCtx.TestApp.EvmKeeper.GetNonce(gigaCtx.Ctx, addr)
+		var gigaNonce uint64
+		if isGigaMode {
+			gigaNonce = gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, addr)
+		} else {
+			gigaNonce = gigaCtx.TestApp.EvmKeeper.GetNonce(gigaCtx.Ctx, addr)
+		}
 		if v2Nonce != gigaNonce {
 			diffs = append(diffs, StateDiff{
 				Type:     FailureTypeNonceMismatch,
@@ -359,7 +413,12 @@ func comparePostStates(_ *testing.T, v2Ctx, gigaCtx *StateTestContext, preState 
 
 		// Compare code
 		v2Code := v2Ctx.TestApp.EvmKeeper.GetCode(v2Ctx.Ctx, addr)
-		gigaCode := gigaCtx.TestApp.EvmKeeper.GetCode(gigaCtx.Ctx, addr)
+		var gigaCode []byte
+		if isGigaMode {
+			gigaCode = gigaCtx.TestApp.GigaEvmKeeper.GetCode(gigaCtx.Ctx, addr)
+		} else {
+			gigaCode = gigaCtx.TestApp.EvmKeeper.GetCode(gigaCtx.Ctx, addr)
+		}
 		if !bytes.Equal(v2Code, gigaCode) {
 			diffs = append(diffs, StateDiff{
 				Type:     FailureTypeCodeMismatch,
@@ -373,7 +432,12 @@ func comparePostStates(_ *testing.T, v2Ctx, gigaCtx *StateTestContext, preState 
 		// Compare storage for keys we know about
 		for key := range preState[addr].Storage {
 			v2Value := v2Ctx.TestApp.EvmKeeper.GetState(v2Ctx.Ctx, addr, key)
-			gigaValue := gigaCtx.TestApp.EvmKeeper.GetState(gigaCtx.Ctx, addr, key)
+			var gigaValue common.Hash
+			if isGigaMode {
+				gigaValue = gigaCtx.TestApp.GigaEvmKeeper.GetState(gigaCtx.Ctx, addr, key)
+			} else {
+				gigaValue = gigaCtx.TestApp.EvmKeeper.GetState(gigaCtx.Ctx, addr, key)
+			}
 			if !bytes.Equal(v2Value.Bytes(), gigaValue.Bytes()) {
 				diffs = append(diffs, StateDiff{
 					Type:     FailureTypeStateMismatch,
@@ -391,6 +455,63 @@ func comparePostStates(_ *testing.T, v2Ctx, gigaCtx *StateTestContext, preState 
 
 // verifyPostStateWithResult verifies state and returns detailed diffs
 func verifyPostStateWithResult(t *testing.T, ctx sdk.Context, keeper *evmkeeper.Keeper, expectedState ethtypes.GenesisAlloc, executorName string) []StateDiff {
+	var diffs []StateDiff
+
+	for addr, expectedAccount := range expectedState {
+		// Verify storage
+		for key, expectedValue := range expectedAccount.Storage {
+			actualValue := keeper.GetState(ctx, addr, key)
+			if !bytes.Equal(expectedValue.Bytes(), actualValue.Bytes()) {
+				diffs = append(diffs, StateDiff{
+					Type:     FailureTypeStateMismatch,
+					Address:  addr,
+					Summary:  fmt.Sprintf("storage[%s] differs", truncateHex(key.Hex())),
+					Expected: expectedValue.Hex(),
+					Actual:   actualValue.Hex(),
+				})
+				t.Logf("%s: storage mismatch for %s key %s:", executorName, addr.Hex(), key.Hex())
+				t.Logf("  expected: %s", expectedValue.Hex())
+				t.Logf("  actual:   %s", actualValue.Hex())
+			}
+		}
+
+		// Verify nonce
+		actualNonce := keeper.GetNonce(ctx, addr)
+		if expectedAccount.Nonce != actualNonce {
+			diffs = append(diffs, StateDiff{
+				Type:     FailureTypeNonceMismatch,
+				Address:  addr,
+				Summary:  fmt.Sprintf("nonce expected=%d, actual=%d", expectedAccount.Nonce, actualNonce),
+				Expected: fmt.Sprintf("%d", expectedAccount.Nonce),
+				Actual:   fmt.Sprintf("%d", actualNonce),
+			})
+			t.Logf("%s: nonce mismatch for %s: expected %d, got %d",
+				executorName, addr.Hex(), expectedAccount.Nonce, actualNonce)
+		}
+
+		// Verify code
+		actualCode := keeper.GetCode(ctx, addr)
+		if !bytes.Equal(expectedAccount.Code, actualCode) {
+			diffs = append(diffs, StateDiff{
+				Type:     FailureTypeCodeMismatch,
+				Address:  addr,
+				Summary:  fmt.Sprintf("code len expected=%d, actual=%d", len(expectedAccount.Code), len(actualCode)),
+				Expected: fmt.Sprintf("%d bytes", len(expectedAccount.Code)),
+				Actual:   fmt.Sprintf("%d bytes", len(actualCode)),
+			})
+			t.Logf("%s: code mismatch for %s: expected %d bytes, got %d bytes",
+				executorName, addr.Hex(), len(expectedAccount.Code), len(actualCode))
+		}
+
+		// Note: Balance verification is intentionally skipped due to Sei-specific gas handling
+		// (limiting EVM max refund to 150% of used gas)
+	}
+
+	return diffs
+}
+
+// verifyGigaPostStateWithResult verifies state against Giga keeper and returns detailed diffs
+func verifyGigaPostStateWithResult(t *testing.T, ctx sdk.Context, keeper *gigaevmkeeper.Keeper, expectedState ethtypes.GenesisAlloc, executorName string) []StateDiff {
 	var diffs []StateDiff
 
 	for addr, expectedAccount := range expectedState {
@@ -685,6 +806,10 @@ func TestGigaWithRegularStore_StateTests(t *testing.T) {
 					summary.RecordPass(category, testNameCopy)
 				} else {
 					summary.RecordFailure(category, testNameCopy, result.FailureType, result.Message)
+					t.Errorf("State comparison failed: %s - %s", result.FailureType, result.Message)
+					for _, detail := range result.Details {
+						t.Logf("  %s", detail)
+					}
 				}
 			})
 		}
@@ -831,9 +956,9 @@ func runDebugStateTest(t *testing.T, st *harness.StateTestJSON, post harness.Sta
 	}
 	t.Logf("")
 
-	// --- Run with Giga using regular KVStore ---
-	t.Logf("=== Giga (with Regular Store) Execution ===")
-	gigaCtx := NewStateTestContext(t, blockTime, 1, ModeGigaWithRegularStore)
+	// --- Run with Giga ---
+	t.Logf("=== Giga Execution ===")
+	gigaCtx := NewStateTestContext(t, blockTime, 1, ModeGigaSequential)
 	gigaCtx.SetupPreState(t, st.Pre)
 	gigaCtx.SetupSender(sender)
 
@@ -919,7 +1044,14 @@ func runDebugStateTest(t *testing.T, st *harness.StateTestJSON, post harness.Sta
 		}
 
 		v2Diffs := verifyPostStateWithResult(t, v2Ctx.Ctx, &v2Ctx.TestApp.EvmKeeper, post.State, "V2")
-		gigaDiffs := verifyPostStateWithResult(t, gigaCtx.Ctx, &gigaCtx.TestApp.EvmKeeper, post.State, "Giga")
+
+		// Use the appropriate verification function based on mode
+		var gigaDiffs []StateDiff
+		if gigaCtx.Mode == ModeGigaSequential || gigaCtx.Mode == ModeGigaOCC {
+			gigaDiffs = verifyGigaPostStateWithResult(t, gigaCtx.Ctx, &gigaCtx.TestApp.GigaEvmKeeper, post.State, "Giga")
+		} else {
+			gigaDiffs = verifyPostStateWithResult(t, gigaCtx.Ctx, &gigaCtx.TestApp.EvmKeeper, post.State, "Giga")
+		}
 
 		if len(v2Diffs) > 0 {
 			t.Logf("V2 has %d differences from expected post-state", len(v2Diffs))

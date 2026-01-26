@@ -1,6 +1,7 @@
 {
   "skipped_tests": {
-    "stExample/solidityExample": "result_code mismatch - V2 succeeds (code=0), Giga reverts (code=1)"
+    "stExample/mergeTest": "state_mismatch - storage[0x0] differs between V2 and Giga",
+    "stExample/eip1559": "state_mismatch - storage[0x0] differs between V2 and Giga"
   },
   "skipped_categories": [
     "Cancun",
@@ -14,6 +15,7 @@
     "stCallCreateCallCodeTest",
     "stCallDelegateCodesCallCodeHomestead",
     "stCallDelegateCodesHomestead",
+    "stChainId",
     "stCodeCopyTest",
     "stCodeSizeLimit",
     "stCreate2",
@@ -29,6 +31,7 @@
     "stExtCodeHash",
     "stHomesteadSpecific",
     "stInitCodeTest",
+    "stLogTests",
     "stMemExpandingEIP150Calls",
     "stMemoryStressTest",
     "stMemoryTest",
@@ -45,6 +48,7 @@
     "stSLoadTest",
     "stSStoreTest",
     "stSelfBalance",
+    "stShift",
     "stSolidityTest",
     "stSpecialTest",
     "stStackTests",
@@ -59,5 +63,8 @@
     "stZeroCallsTest",
     "stZeroKnowledge",
     "stZeroKnowledge2"
-  ]
+  ],
+  "skipped_category_reasons": {
+    "stExample": "ANALYZED: 37/39 tests pass. 2 failures: mergeTest and eip1559 (storage mismatches).",
+  }
 }

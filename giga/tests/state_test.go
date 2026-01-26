@@ -284,6 +284,10 @@ func TestGigaVsV2_StateTests(t *testing.T) {
 						globalSummary.RecordPass(category, testNameCopy)
 					} else {
 						globalSummary.RecordFailure(category, testNameCopy, result.FailureType, result.Message)
+						t.Errorf("State comparison failed: %s - %s", result.FailureType, result.Message)
+						for _, detail := range result.Details {
+							t.Logf("  %s", detail)
+						}
 					}
 				})
 			}
