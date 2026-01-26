@@ -24,14 +24,6 @@ import (
 	"github.com/tendermint/tendermint/types"
 )
 
-func mayDisconnectAfterDone(ctx context.Context, err error) error {
-	err = utils.IgnoreCancel(err)
-	if err == nil || ctx.Err() == nil || !conn.IsDisconnect(err) {
-		return err
-	}
-	return nil
-}
-
 func makeChDesc(id ChannelID) ChannelDescriptor[*TestMessage] {
 	return ChannelDescriptor[*TestMessage]{
 		ID:                  id,
@@ -713,7 +705,7 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 			NodeID: TestAddress(x).NodeID,
 			Status: PeerStatusUp,
 		})
-		s.SpawnBg(func() error { return mayDisconnectAfterDone(ctx, x.runConn(ctx, conn.(*ConnV2))) })
+		s.SpawnBg(func() error { return utils.IgnoreCancel(x.runConn(ctx, conn.(*ConnV2))) })
 		n := 1
 		msg1 := &TestMessage{Value: "Hello"}
 		msg2 := &TestMessage{Value: "Hello2"}
