@@ -26,10 +26,10 @@ func TestGetPruningOptionsFromFlags(t *testing.T) {
 			expectedOptions: types.PruneNothing,
 		},
 		{
-			name: iavlPruningKey,
+			name: FlagIAVLPruning,
 			initParams: func() *viper.Viper {
 				v := viper.New()
-				v.Set(iavlPruningKey, types.PruningOptionNothing)
+				v.Set(FlagIAVLPruning, types.PruningOptionNothing)
 				return v
 			},
 			expectedOptions: types.PruneNothing,
@@ -55,10 +55,10 @@ func TestGetPruningOptionsFromFlags(t *testing.T) {
 			name: "custom pruning options iavl",
 			initParams: func() *viper.Viper {
 				v := viper.New()
-				v.Set(iavlPruningKey, types.PruningOptionCustom)
-				v.Set(iavlPruningKeepRecentKey, 1234)
-				v.Set(iavlPruningKeepEveryKey, 4321)
-				v.Set(iavlPruningIntervalKey, 10)
+				v.Set(FlagIAVLPruning, types.PruningOptionCustom)
+				v.Set(FlagIAVLPruningKeepRecent, 1234)
+				v.Set(FlagIAVLPruningKeepEvery, 4321)
+				v.Set(FlagIAVLPruningInterval, 10)
 
 				return v
 			},
@@ -83,7 +83,7 @@ func TestGetPruningOptionsFromFlags(t *testing.T) {
 				v := viper.New()
 				// Both old and new format present - new format should win
 				v.Set(FlagPruning, types.PruningOptionNothing)
-				v.Set(iavlPruningKey, types.PruningOptionEverything)
+				v.Set(FlagIAVLPruning, types.PruningOptionEverything)
 				return v
 			},
 			expectedOptions: types.PruneEverything,
