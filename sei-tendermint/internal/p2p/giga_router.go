@@ -14,6 +14,7 @@ import (
 )
 
 type GigaRouterConfig struct {
+	privKey NodeSecretKey
 	InboundPeers map[NodePublicKey]bool
 	OutboundPeers map[NodePublicKey]tcp.HostPort
 }
@@ -65,9 +66,26 @@ func (r *GigaRouter) dialAndRunConn(ctx context.Context, key NodePublicKey, hp t
 		tcpConn,err := tcp.Dial(ctx,addrs[0])
 		if err!=nil { return fmt.Errorf("tcp.Dial(%v): %w",addrs[0],err) }
 		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-		// TODO: handshake
-		sc,err := TODO
-		// TODO: authenticate
+		sc, err := conn.MakeSecretConnection(ctx, tcpConn)
+		if err != nil {
+			return fmt.Errorf("conn.MakeSecretConnection(): %w", err)
+		}
+		handshakeMsg, err := exchangeHandshakeMsg(ctx, sc, &handshakeMsg{
+			NodeAuth:          r.cfg.privKey.SignChallenge(sc.Challenge()),
+			SeiGigaConnection: true,
+		})
+		if err != nil {
+			return fmt.Errorf("exchangeHandshakeMsg(): %w", err)
+		}
+		if !handshakeMsg.SeiGigaConnection {
+			return fmt.Errorf("not a sei giga connection")
+		}
+		if handshakeMsg.NodeAuth.Key() != key {
+			return fmt.Errorf("peer key = %v, want %v",handshakeMsg.NodeAuth.Key,key)
+		}
+		if err := handshakeMsg.NodeAuth.Verify(sc.Challenge()); err != nil {
+			return fmt.Errorf("handshakeMsg.NodeAuth.Verify(): %w", err)
+		}
 		client := rpc.NewClient[giga.API]()
 		return r.poolOut.InsertAndRun(ctx,key,client,func(ctx context.Context) error { return client.Run(ctx,sc) })
 	})
@@ -79,4 +97,3 @@ func (r *GigaRouter) RunInboundConn(ctx context.Context, key NodePublicKey, conn
 	server := rpc.NewServer[giga.API]()
 	return r.poolIn.InsertAndRun(ctx,key,server,func(ctx context.Context) error { return server.Run(ctx,conn) })	
 }
-

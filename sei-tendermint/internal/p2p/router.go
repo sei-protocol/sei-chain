@@ -190,30 +190,41 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 				return err
 			}
 			r.metrics.NewConnections.With("direction", "in").Add(1)
+			addr := tcpConn.RemoteAddr()
 			// Spawn a goroutine per connection.
 			s.Spawn(func() error {
-				addr := tcpConn.RemoteAddr()
+				defer tcpConn.Close()
+				release := sync.OnceFunc(func() { sem.Release(1) })
+				defer release()
 				err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-					s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-					release := sync.OnceFunc(func() { sem.Release(1) })
-					defer release()
+					if err := r.options.filterPeerByIP(ctx, addr); err != nil {
+						return fmt.Errorf("peer filtered by IP: %w", err)
+					}
 					if err := connTracker.AddConn(addr); err != nil {
 						return fmt.Errorf("rate limiting incoming: %w", err)
 					}
 					defer connTracker.RemoveConn(addr)
-					conn, err := r.handshake(ctx, tcpConn, utils.None[NodeAddress](), r.giga.IsPresent())
-					if err != nil {
-						return fmt.Errorf("r.handshake(): %w", err)
+					
+					s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+					
+					var handshakeCtx context.Context
+					if d, ok := r.options.HandshakeTimeout.Get(); ok {
+						var cancel context.CancelFunc
+						handshakeCtx, cancel = context.WithTimeout(ctx, d)
+						defer cancel()
 					}
+					hConn, err := handshake(handshakeCtx, tcpConn, r.privKey, r.giga.IsPresent())
+					if err!=nil {
+						return fmt.Errorf("handshake(): %w",err)
+					}
+					if giga,ok := r.giga.Get(); ok && hConn.msg.SeiGigaConnection {
+						release()
+						return giga.RunInboundConn(ctx,hConn)
+					}
+					info,err := exchangeNodeInfo(ctx,hConn,*r.nodeInfoProducer())
+					if err!=nil { return fmt.Errorf("exchangeNodeInfo(): %w",err) }
 					release()
-					switch conn := conn.(type) {
-					case *ConnV2:
-						return r.runConn(ctx, conn)
-					case *ConnGiga:
-						return r.giga.OrPanic().RunConn(ctx, conn)
-					default:
-						panic("unreachable")
-					}
+					return r.runConn(ctx, hConn, info)
 				})
 				r.logger.Error("r.runConn(inbound)", "addr", addr, "err", err)
 				return nil
@@ -245,7 +256,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 							}
 							s.SpawnBg(func() error { return tcpConn.Run(ctx) })
 							r.metrics.NewConnections.With("direction", "out").Add(1)
-							conn, err := r.handshake(ctx, tcpConn, utils.Some(addr), false)
+							conn, err := r.handshakeV2(ctx, tcpConn, utils.Some(addr), false)
 							if err != nil {
 								r.peerManager.DialFailed(addr)
 								return fmt.Errorf("r.handshake(): %w", err)
