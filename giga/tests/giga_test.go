@@ -881,10 +881,10 @@ func TestGigaVsGeth_GasComparison(t *testing.T) {
 	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
 	gethDeployTxs := CreateContractDeployTxs(t, gethCtx, []EVMContractDeploy{
 		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
-	})
+	}, false)
 	gethCallTxs := CreateContractCallTxs(t, gethCtx, []EVMContractCall{
 		{Signer: caller, Contract: contractAddr, Data: encodeSetCall(big.NewInt(42)), Nonce: 0},
-	})
+	}, false)
 	allGethTxs := append(gethDeployTxs, gethCallTxs...)
 	_, gethResults, gethErr := RunBlock(t, gethCtx, allGethTxs)
 	require.NoError(t, gethErr)
@@ -893,10 +893,10 @@ func TestGigaVsGeth_GasComparison(t *testing.T) {
 	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
 	gigaDeployTxs := CreateContractDeployTxs(t, gigaCtx, []EVMContractDeploy{
 		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
-	})
+	}, true)
 	gigaCallTxs := CreateContractCallTxs(t, gigaCtx, []EVMContractCall{
 		{Signer: caller, Contract: contractAddr, Data: encodeSetCall(big.NewInt(42)), Nonce: 0},
-	})
+	}, true)
 	allGigaTxs := append(gigaDeployTxs, gigaCallTxs...)
 	_, gigaResults, gigaErr := RunBlock(t, gigaCtx, allGigaTxs)
 	require.NoError(t, gigaErr)
@@ -938,7 +938,7 @@ func TestGiga_CREATE_CodePath(t *testing.T) {
 
 	deployTxs := CreateContractDeployTxs(t, gigaCtx, []EVMContractDeploy{
 		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
-	})
+	}, true)
 
 	_, results, err := RunBlock(t, gigaCtx, deployTxs)
 	require.NoError(t, err)
@@ -965,7 +965,7 @@ func TestGiga_CALL_CodePath(t *testing.T) {
 	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
 	deployTxs := CreateContractDeployTxs(t, gethCtx, []EVMContractDeploy{
 		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
-	})
+	}, false)
 	_, deployResults, err := RunBlock(t, gethCtx, deployTxs)
 	require.NoError(t, err)
 	require.Equal(t, uint32(0), deployResults[0].Code)
@@ -976,7 +976,7 @@ func TestGiga_CALL_CodePath(t *testing.T) {
 	// Deploy first so the contract exists
 	gigaDeployTxs := CreateContractDeployTxs(t, gigaCtx, []EVMContractDeploy{
 		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
-	})
+	}, true)
 	_, _, err = RunBlock(t, gigaCtx, gigaDeployTxs)
 	require.NoError(t, err)
 
@@ -984,7 +984,7 @@ func TestGiga_CALL_CodePath(t *testing.T) {
 	// which should fetch code from the recipient address
 	callTxs := CreateContractCallTxs(t, gigaCtx, []EVMContractCall{
 		{Signer: caller, Contract: contractAddr, Data: encodeSetCall(big.NewInt(123)), Nonce: 0},
-	})
+	}, true)
 	_, callResults, err := RunBlock(t, gigaCtx, callTxs)
 	require.NoError(t, err)
 	require.Len(t, callResults, 1)
@@ -1010,7 +1010,7 @@ func TestGiga_STATICCALL_ReadOnly(t *testing.T) {
 
 	deployTxs := CreateContractDeployTxs(t, gigaCtx, []EVMContractDeploy{
 		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
-	})
+	}, true)
 	_, deployResults, err := RunBlock(t, gigaCtx, deployTxs)
 	require.NoError(t, err)
 	require.Equal(t, uint32(0), deployResults[0].Code)
@@ -1019,7 +1019,7 @@ func TestGiga_STATICCALL_ReadOnly(t *testing.T) {
 	// The get() function doesn't modify state, so it's effectively a static call
 	callTxs := CreateContractCallTxs(t, gigaCtx, []EVMContractCall{
 		{Signer: caller, Contract: contractAddr, Data: encodeGetCall(), Nonce: 0},
-	})
+	}, true)
 	_, callResults, err := RunBlock(t, gigaCtx, callTxs)
 	require.NoError(t, err)
 	require.Len(t, callResults, 1)
@@ -1042,7 +1042,7 @@ func TestGiga_GasAccounting(t *testing.T) {
 	// Deploy
 	deployTxs := CreateContractDeployTxs(t, gigaCtx, []EVMContractDeploy{
 		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
-	})
+	}, true)
 	_, deployResults, err := RunBlock(t, gigaCtx, deployTxs)
 	require.NoError(t, err)
 	require.Equal(t, uint32(0), deployResults[0].Code)
@@ -1050,7 +1050,7 @@ func TestGiga_GasAccounting(t *testing.T) {
 	// Call and check gas usage is reasonable
 	callTxs := CreateContractCallTxs(t, gigaCtx, []EVMContractCall{
 		{Signer: caller, Contract: contractAddr, Data: encodeSetCall(big.NewInt(42)), Nonce: 0},
-	})
+	}, true)
 	_, callResults, err := RunBlock(t, gigaCtx, callTxs)
 	require.NoError(t, err)
 	require.Len(t, callResults, 1)
