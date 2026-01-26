@@ -14,20 +14,21 @@ import (
 )
 
 type GigaRouterConfig struct {
-	privKey       NodeSecretKey
 	InboundPeers  map[NodePublicKey]bool
 	OutboundPeers map[NodePublicKey]tcp.HostPort
 }
 
 type GigaRouter struct {
 	cfg     *GigaRouterConfig
+	key NodeSecretKey
 	poolIn  *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
 }
 
-func NewGigaRouter(cfg *GigaRouterConfig) *GigaRouter {
+func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) *GigaRouter {
 	return &GigaRouter{
 		cfg:     cfg,
+		key: key,
 		poolIn:  giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 		poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
 	}
@@ -77,7 +78,7 @@ func (r *GigaRouter) dialAndRunConn(ctx context.Context, key NodePublicKey, hp t
 			return fmt.Errorf("conn.MakeSecretConnection(): %w", err)
 		}
 		// TODO: handshake needs a timeout.
-		hConn, err := handshake(ctx, tcpConn, r.cfg.privKey, true)
+		hConn, err := handshake(ctx, tcpConn, r.key, true)
 		if err != nil {
 			return fmt.Errorf("handshake(): %w", err)
 		}
