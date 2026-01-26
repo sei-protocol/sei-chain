@@ -1,6 +1,6 @@
-name: libwasmvm
+name: Build libwasmvm
 on:
-  workflow_call:
+  workflow_dispatch:
     inputs:
       ref:
         description: 'Git ref to checkout (branch, tag, or SHA)'

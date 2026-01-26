@@ -273,7 +273,7 @@ func AssociateAddress(ctx sdk.Context, ek *evmkeeper.Keeper, evmAddr common.Addr
 	_, isAssociated := ek.GetEVMAddress(ctx, seiAddr)
 	if !isAssociated {
 		associateHelper := helpers.NewAssociationHelper(ek, ek.BankKeeper(), ek.AccountKeeper())
-		if err := associateHelper.AssociateAddresses(ctx, seiAddr, evmAddr, seiPubkey); err != nil {
+		if err := associateHelper.AssociateAddresses(ctx, seiAddr, evmAddr, seiPubkey, false); err != nil {
 			return err
 		}
 	}
