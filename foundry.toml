@@ -4,4 +4,11 @@ out = "contracts/out"
 test = "contracts/test"
 libs = ["contracts/lib"]
 
+# CI profile mirrors default to satisfy CI runners that select it explicitly.
+[profile.ci]
+src = "contracts/src"
+out = "contracts/out"
+test = "contracts/test"
+libs = ["contracts/lib"]
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
