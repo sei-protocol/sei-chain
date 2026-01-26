@@ -860,15 +860,14 @@ func TestAllModes_ContractExecution(t *testing.T) {
 
 // TestGigaVsGeth_GasComparison compares gas usage between Geth and Giga executors.
 //
-// KNOWN GAS DIFFERENCES:
-//   - Contract Deploy: Gas should be IDENTICAL (0 diff) since CREATE doesn't involve SSTORE
-//   - Contract Call with SSTORE: Sei uses a custom SSTORE gas cost of 72,000 (vs standard 20,000).
-//     The EVMC interface doesn't support passing custom SSTORE costs to evmone, so evmone uses
-//     the standard EIP-2200 gas cost. This results in a predictable 52,000 gas difference per SSTORE.
+// KNOWN GAS BEHAVIOR (default params):
+//   - Contract Deploy: Gas should be IDENTICAL (0 diff) since CREATE doesn't involve SSTORE.
+//   - Contract Call with SSTORE: Sei defaults to the standard 20,000 SSTORE cost, so Geth and
+//     Giga/evmone should match (no expected diff).
 //
 // This test verifies:
-//  1. Deploy gas is exactly the same (no SSTORE involved)
-//  2. Call gas differs by exactly 52,000 (one SSTORE: 72,000 - 20,000 = 52,000)
+//  1. Deploy gas is exactly the same (no SSTORE involved).
+//  2. Call gas is exactly the same with default SSTORE pricing.
 func TestGigaVsGeth_GasComparison(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(5)
@@ -915,13 +914,12 @@ func TestGigaVsGeth_GasComparison(t *testing.T) {
 	require.Equal(t, int64(0), deployDiff,
 		"Deploy gas should be identical between Geth and Giga (no SSTORE)")
 
-	// Call gas should differ by exactly 52,000 due to Sei's custom SSTORE gas:
-	// Sei SSTORE_SET = 72,000, Standard SSTORE_SET = 20,000, Diff = 52,000
-	expectedSstoreDiff := int64(52000)
+	// Call gas should match with default SSTORE pricing (20,000).
+	expectedSstoreDiff := int64(0)
 	require.Equal(t, expectedSstoreDiff, callDiff,
-		"Call gas should differ by exactly 52,000 (Sei SSTORE=72000 vs Standard SSTORE=20000)")
+		"Call gas should match between Geth and Giga with default SSTORE pricing")
 
-	t.Logf("Gas comparison verified: Deploy identical, Call differs by expected SSTORE delta")
+	t.Logf("Gas comparison verified: Deploy identical, Call identical with default SSTORE pricing")
 }
 
 // TestGiga_CREATE_CodePath verifies the CREATE opcode uses contract.Code (initcode)
