@@ -2,6 +2,8 @@ package internal
 
 import (
 	"errors"
+	"fmt"
+	"math"
 	"sync/atomic"
 
 	"github.com/ethereum/evmc/v12/bindings/go/evmc"
@@ -35,8 +37,16 @@ func NewHostContextConfig(chainConfig *params.ChainConfig) HostContextConfig {
 	var delta int64
 	if chainConfig != nil && chainConfig.SeiSstoreSetGasEIP2200 != nil {
 		seiSstoreGas := *chainConfig.SeiSstoreSetGasEIP2200
+
+		// Guard against overflow: seiSstoreGas is uint64, and casting to int64 would
+		// overflow if value > math.MaxInt64. This is a critical misconfiguration.
+		if seiSstoreGas > uint64(math.MaxInt64) {
+			panic(fmt.Sprintf("SeiSstoreSetGasEIP2200 (%d) exceeds maximum safe value (%d)",
+				seiSstoreGas, uint64(math.MaxInt64)))
+		}
+
 		// Delta = Sei cost - standard cost (can be positive or negative)
-		//nolint:gosec // G115: safe - gas costs are always << int64 max (~9 quintillion)
+		// Safe to cast now that we've verified seiSstoreGas <= math.MaxInt64
 		delta = int64(seiSstoreGas) - int64(StandardSstoreSetGasEIP2200)
 	}
 	return HostContextConfig{

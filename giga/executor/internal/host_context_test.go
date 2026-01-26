@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"math"
 	"testing"
 
 	"github.com/ethereum/evmc/v12/bindings/go/evmc"
@@ -368,6 +369,37 @@ func TestNewHostContextConfig(t *testing.T) {
 				"SstoreGasDelta mismatch for %s", tt.name)
 		})
 	}
+}
+
+// TestNewHostContextConfig_OverflowPanic tests that an overflow-causing value panics
+func TestNewHostContextConfig_OverflowPanic(t *testing.T) {
+	// Value that would overflow when cast to int64
+	overflowValue := uint64(math.MaxInt64) + 1
+
+	chainConfig := &params.ChainConfig{
+		SeiSstoreSetGasEIP2200: &overflowValue,
+	}
+
+	require.Panics(t, func() {
+		NewHostContextConfig(chainConfig)
+	}, "Should panic when SeiSstoreSetGasEIP2200 exceeds math.MaxInt64")
+}
+
+// TestNewHostContextConfig_MaxSafeValue tests boundary at math.MaxInt64
+func TestNewHostContextConfig_MaxSafeValue(t *testing.T) {
+	// Maximum safe value (exactly math.MaxInt64) should not panic
+	maxSafeValue := uint64(math.MaxInt64)
+
+	chainConfig := &params.ChainConfig{
+		SeiSstoreSetGasEIP2200: &maxSafeValue,
+	}
+
+	require.NotPanics(t, func() {
+		config := NewHostContextConfig(chainConfig)
+		// Delta = MaxInt64 - 20000 = a very large positive delta
+		expectedDelta := int64(math.MaxInt64) - int64(StandardSstoreSetGasEIP2200)
+		require.Equal(t, expectedDelta, config.SstoreGasDelta)
+	}, "Should not panic when SeiSstoreSetGasEIP2200 equals math.MaxInt64")
 }
 
 // TestSstoreGasDeltaCalculation tests the SSTORE gas delta calculation logic
