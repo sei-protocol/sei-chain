@@ -8,7 +8,7 @@ Sei is the fastest general purpose L1 blockchain and the first parallelized EVM.
 **Sei** is a high-performance, low-fee, delegated proof-of-stake blockchain designed for developers. It supports optimistic parallel execution of both EVM and CosmWasm, opening up new design possibilities. With unique optimizations like twin turbo consensus and SeiDB, Sei ensures consistent 400ms block times and a transaction throughput that’s orders of magnitude higher than Ethereum. This means faster, more cost-effective operations. Plus, Sei’s seamless interoperability between EVM and CosmWasm gives developers native access to the entire Cosmos ecosystem, including IBC tokens, multi-sig accounts, fee grants, and more.
 
 # Documentation
-For the most up to date documentation please visit https://www.docs.sei.io/
+For the most up-to-date documentation please visit https://www.docs.sei.io/
 
 # Sei Optimizations
 Sei introduces four major innovations:
