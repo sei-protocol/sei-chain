@@ -141,6 +141,8 @@ grep -E "^\s+- category/" /tmp/results.log
 - stSpecialTest (21/22 passing, 1 skipped)
 - stSolidityTest (21/23 passing, 2 skipped)
 - stNonZeroCallsTest (21/24 passing, 3 skipped)
+- stRefundTest (23/26 passing, 3 skipped)
+- stWalletTest (41/46 passing, 5 skipped)
 
 ### Categories needing longer timeout (>20min)
 
