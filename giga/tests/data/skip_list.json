@@ -75,6 +75,9 @@
     "stCallDelegateCodesHomestead": "ANALYZED: 5/58 tests pass. 53 failures: gas_mismatch, result_code",
     "stDelegatecallTestHomestead": "ANALYZED: 1/33 tests pass. 32 failures: gas_mismatch, result_code",
     "stCreate2": "ANALYZED: 97/191 tests pass. 94 failures",
-    "stCreateTest": "ANALYZED: 103/209 tests pass. 106 failures"
+    "stCreateTest": "ANALYZED: 103/209 tests pass. 106 failures",
+    "stInitCodeTest": "ANALYZED: 15/22 tests pass. 7 failures: result_code(7)",
+    "stRefundTest": "ANALYZED: 23/26 tests pass. 3 failures: result_code(3)",
+    "stMemExpandingEIP150Calls": "ANALYZED: 9/14 tests pass. 5 failures: gas_mismatch(4), result_code(1)"
   }
 }
