@@ -69,6 +69,12 @@
     "stEIP150Specific": "ANALYZED: 9/25 tests pass. 16 failures: gas_mismatch(15), result_code(1)",
     "stCallCodes": "ANALYZED: 32/86 tests pass. 54 failures: gas_mismatch(53), result_code(1)",
     "stEIP150singleCodeGasPrices": "ANALYZED: 422/450 tests pass. 28 failures: gas_mismatch(24), result_code(4)",
-    "stEIP2930": "ANALYZED: 106/140 tests pass. 34 failures: gas_mismatch(18), result_code(16)"
+    "stEIP2930": "ANALYZED: 106/140 tests pass. 34 failures: gas_mismatch(18), result_code(16)",
+    "stCallCreateCallCodeTest": "ANALYZED: 41/56 tests pass. 15 failures: gas_mismatch(9), result_code(6)",
+    "stCallDelegateCodesCallCodeHomestead": "ANALYZED: 3/58 tests pass. 55 failures: gas_mismatch, result_code",
+    "stCallDelegateCodesHomestead": "ANALYZED: 5/58 tests pass. 53 failures: gas_mismatch, result_code",
+    "stDelegatecallTestHomestead": "ANALYZED: 1/33 tests pass. 32 failures: gas_mismatch, result_code",
+    "stCreate2": "ANALYZED: 97/191 tests pass. 94 failures",
+    "stCreateTest": "ANALYZED: 103/209 tests pass. 106 failures"
   }
 }
