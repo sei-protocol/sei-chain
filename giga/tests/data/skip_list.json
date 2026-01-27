@@ -13,8 +13,6 @@
     "stCallCreateCallCodeTest",
     "stCallDelegateCodesCallCodeHomestead",
     "stCallDelegateCodesHomestead",
-    "stChainId",
-    "stCodeCopyTest",
     "stCodeSizeLimit",
     "stCreate2",
     "stCreateTest",
@@ -22,10 +20,8 @@
     "stEIP150Specific",
     "stEIP150singleCodeGasPrices",
     "stEIP1559",
-    "stEIP158Specific",
     "stEIP2930",
     "stEIP3607",
-    "stExpectSection",
     "stExtCodeHash",
     "stHomesteadSpecific",
     "stInitCodeTest",
@@ -63,6 +59,16 @@
   ],
   "skipped_category_reasons": {
     "stExample": "ANALYZED: 39/39 tests pass. All passing.",
-    "stSLoadTest": "ANALYZED: 1/1 tests pass. All passing."
+    "stSLoadTest": "ANALYZED: 1/1 tests pass. All passing.",
+    "stChainId": "ANALYZED: 2/2 tests pass. All passing.",
+    "stCodeCopyTest": "ANALYZED: 2/2 tests pass. All passing.",
+    "stExpectSection": "ANALYZED: 10/10 tests pass. All passing.",
+    "stEIP158Specific": "ANALYZED: 8/8 tests pass. All passing.",
+    "stCodeSizeLimit": "ANALYZED: 7/9 tests pass. 2 failures: result_code(2)",
+    "stEIP3607": "ANALYZED: 7/12 tests pass. 5 failures: result_code(5)",
+    "stEIP150Specific": "ANALYZED: 9/25 tests pass. 16 failures: gas_mismatch(15), result_code(1)",
+    "stCallCodes": "ANALYZED: 32/86 tests pass. 54 failures: gas_mismatch(53), result_code(1)",
+    "stEIP150singleCodeGasPrices": "ANALYZED: 422/450 tests pass. 28 failures: gas_mismatch(24), result_code(4)",
+    "stEIP2930": "ANALYZED: 106/140 tests pass. 34 failures: gas_mismatch(18), result_code(16)"
   }
 }

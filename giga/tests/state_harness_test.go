@@ -574,8 +574,11 @@ func runStateTestSuite(t *testing.T, config ComparisonConfig, summaryName string
 	// Allow filtering to specific test name via STATE_TEST_NAME env var
 	specificTestName := os.Getenv("STATE_TEST_NAME")
 
+	// Allow bypassing skip list for analysis purposes
+	ignoreSkipList := os.Getenv("IGNORE_SKIP_LIST") == "true"
+
 	// Check if entire category is skipped
-	if skipList.IsCategorySkipped(specificDir) {
+	if !ignoreSkipList && skipList.IsCategorySkipped(specificDir) {
 		t.Skipf("Skipping category %s (in skip list)", specificDir)
 	}
 
@@ -624,13 +627,15 @@ func runStateTestSuite(t *testing.T, config ComparisonConfig, summaryName string
 				subtestName = fmt.Sprintf("%s/%d", testName, i)
 			}
 
-			// Check skip list
-			if shouldSkip, reason := skipList.ShouldSkip(specificDir, subtestName); shouldSkip {
-				t.Run(subtestName, func(t *testing.T) {
-					summary.RecordSkip(specificDir, subtestName, reason)
-					t.Skipf("Skipped: %s", reason)
-				})
-				continue
+			// Check skip list (unless bypassed for analysis)
+			if !ignoreSkipList {
+				if shouldSkip, reason := skipList.ShouldSkip(specificDir, subtestName); shouldSkip {
+					t.Run(subtestName, func(t *testing.T) {
+						summary.RecordSkip(specificDir, subtestName, reason)
+						t.Skipf("Skipped: %s", reason)
+					})
+					continue
+				}
 			}
 
 			// Capture variables for closure
