@@ -5,7 +5,7 @@
 # - Compare only the base vX.Y.Z (strip any suffix) between branch/tag.
 # - Prefer tag if bases are equal; otherwise use whichever base is newer.
 BRANCH_NAME := $(shell git rev-parse --abbrev-ref HEAD)
-BRANCH_VERSION := $(shell echo "$(BRANCH_NAME)" | sed -E -n 's|.*(v[0-9]+\.[0-9]+\.[0-9]+[-A-Za-z0-9._]*).*|\\1|p')
+BRANCH_VERSION := $(shell echo "$(BRANCH_NAME)" | sed -E -n 's|.*(v[0-9]+\.[0-9]+\.[0-9]+[-A-Za-z0-9._]*).*|\1|p')
 TAG_VERSION := $(shell echo $(shell git describe --tags))
 VERSION := $(shell \
 	bv="$(BRANCH_VERSION)"; tv="$(TAG_VERSION)"; \
