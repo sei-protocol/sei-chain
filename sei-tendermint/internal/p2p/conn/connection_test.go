@@ -192,8 +192,8 @@ func TestMConnectionReadErrorUnknownChannel(t *testing.T) {
 
 		s.SpawnBg(func() error { return utils.IgnoreCancel(mconnClient.Run(ctx)) })
 		s.Spawn(func() error {
-			if err, want := mconnServer.Run(ctx), (errBadChannel{}); !errors.As(err, &want) {
-				return fmt.Errorf("got %v, want %T", err, want)
+			if err := mconnServer.Run(ctx); !utils.ErrorAs[errBadChannel](err).IsPresent() {
+				return fmt.Errorf("got %v, want errBadChannel", err)
 			}
 			return nil
 		})
