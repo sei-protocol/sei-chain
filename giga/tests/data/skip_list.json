@@ -40,7 +40,6 @@
     "stRevertTest",
     "stSStoreTest",
     "stSelfBalance",
-    "stShift",
     "stSolidityTest",
     "stSpecialTest",
     "stStackTests",
@@ -89,6 +88,9 @@
     "stSpecialTest": "ANALYZED: 21/22 tests pass. 1 failure",
     "stNonZeroCallsTest": "ANALYZED: 21/24 tests pass. 3 failures",
     "stArgsZeroOneBalance": "ANALYZED: 91/96 tests pass. 5 failures",
-    "stStaticCall": "TIMED_OUT: needs re-run with longer timeout"
+    "stStaticCall": "TIMED_OUT: needs re-run with longer timeout",
+    "stBugs": "ANALYZED: 4/8 tests pass. 4 failures",
+    "stShift": "ANALYZED: 42/42 tests pass. All passing.",
+    "stSelfBalance": "ANALYZED: 20/42 tests pass. 22 failures"
   }
 }
