@@ -44,7 +44,7 @@ message TransactionHeader {
 message Transaction {
   string hash = 1;
   bytes payload = 2;
-  uint64 gasUsed = 3;
+  uint64 gas_used = 3;
   TransactionHeader header = 4;
 }
 

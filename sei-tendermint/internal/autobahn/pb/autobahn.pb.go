@@ -252,7 +252,7 @@ type Transaction struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Hash          string                 `protobuf:"bytes,1,opt,name=hash,proto3" json:"hash,omitempty"`
 	Payload       []byte                 `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"`
-	GasUsed       uint64                 `protobuf:"varint,3,opt,name=gasUsed,proto3" json:"gasUsed,omitempty"`
+	GasUsed       uint64                 `protobuf:"varint,3,opt,name=gas_used,json=gasUsed,proto3" json:"gas_used,omitempty"`
 	Header        *TransactionHeader     `protobuf:"bytes,4,opt,name=header,proto3" json:"header,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2484,11 +2484,11 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"timestamps\x1a=\n" +
 	"\x0fPropertiesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x8a\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x8b\x01\n" +
 	"\vTransaction\x12\x12\n" +
 	"\x04hash\x18\x01 \x01(\tR\x04hash\x12\x18\n" +
-	"\apayload\x18\x02 \x01(\fR\apayload\x12\x18\n" +
-	"\agasUsed\x18\x03 \x01(\x04R\agasUsed\x123\n" +
+	"\apayload\x18\x02 \x01(\fR\apayload\x12\x19\n" +
+	"\bgas_used\x18\x03 \x01(\x04R\agasUsed\x123\n" +
 	"\x06header\x18\x04 \x01(\v2\x1b.autobahn.TransactionHeaderR\x06header\"Y\n" +
 	"\x0fTransactionResp\x12\x12\n" +
 	"\x04hash\x18\x01 \x01(\tR\x04hash\x12\x18\n" +
