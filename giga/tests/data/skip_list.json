@@ -107,6 +107,8 @@
     "stMemoryStressTest": "ANALYZED: 13/82 tests pass. 69 failures",
     "stRandom": "ANALYZED: 256/310 tests pass. 54 failures",
     "stRandom2": "ANALYZED: 173/221 tests pass. 48 failures",
-    "stSStoreTest": "ANALYZED: 145/475 tests pass. 330 failures"
+    "stSStoreTest": "ANALYZED: 145/475 tests pass. 330 failures",
+    "Cancun": "ANALYZED: 117/177 tests pass. 60 failures",
+    "Shanghai": "ANALYZED: 26/27 tests pass. 1 failure"
   }
 }
