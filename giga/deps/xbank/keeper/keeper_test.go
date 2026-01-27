@@ -63,7 +63,7 @@ type IntegrationTestSuite struct {
 	ctx sdk.Context
 }
 
-func (suite *IntegrationTestSuite) initKeepersWithmAccPerms(blockedAddrs map[string]bool) (authkeeper.AccountKeeper, keeper.BaseKeeper) {
+func (suite *IntegrationTestSuite) initKeepersWithmAccPerms(blockedAddrs map[string]bool) (authkeeper.AccountKeeper, *keeper.BaseKeeper) {
 	a := suite.app
 	maccPerms := app.GetMaccPerms()
 	appCodec := app.MakeEncodingConfig().Marshaler
@@ -77,12 +77,12 @@ func (suite *IntegrationTestSuite) initKeepersWithmAccPerms(blockedAddrs map[str
 		appCodec, a.GetKey(types.StoreKey), a.GetSubspace(types.ModuleName),
 		authtypes.ProtoBaseAccount, maccPerms,
 	)
-	keeper := keeper.NewBaseKeeperWithDeferredCache(
+	k := keeper.NewBaseKeeperWithDeferredCache(
 		appCodec, a.GetKey(types.StoreKey), authKeeper,
 		a.GetSubspace(types.ModuleName), blockedAddrs, a.GetMemKey(types.DeferredCacheStoreKey),
 	)
 
-	return authKeeper, keeper
+	return authKeeper, &k
 }
 
 func (suite *IntegrationTestSuite) SetupTest() {
@@ -775,8 +775,9 @@ func (suite *IntegrationTestSuite) TestMintCoinRestrictions() {
 	}
 
 	for _, test := range tests {
-		suite.app.GigaBankKeeper = keeper.NewBaseKeeperWithDeferredCache(suite.app.AppCodec(), suite.app.GetKey(types.StoreKey),
+		k := keeper.NewBaseKeeperWithDeferredCache(suite.app.AppCodec(), suite.app.GetKey(types.StoreKey),
 			suite.app.AccountKeeper, suite.app.GetSubspace(types.ModuleName), nil, suite.app.GetKey(types.DeferredCacheStoreKey)).WithMintCoinsRestriction(keeper.MintingRestrictionFn(test.restrictionFn))
+		suite.app.GigaBankKeeper = &k
 		for _, testCase := range test.testCases {
 			if testCase.expectPass {
 				suite.Require().NoError(
