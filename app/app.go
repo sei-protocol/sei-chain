@@ -1167,6 +1167,11 @@ func (app *App) ClearOptimisticProcessingInfo() {
 }
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
+	// Start block processing timing (ends at FinalizeBlock)
+	if app.benchmarkLogger != nil {
+		app.benchmarkLogger.StartBlockProcessing()
+	}
+
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
 
@@ -1242,6 +1247,10 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		app.ClearOptimisticProcessingInfo()
 		duration := time.Since(startTime)
 		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
+		// End block processing timing (started at ProcessProposal)
+		if app.benchmarkLogger != nil {
+			app.benchmarkLogger.EndBlockProcessing()
+		}
 	}()
 
 	// Get all optimistic processing info atomically
