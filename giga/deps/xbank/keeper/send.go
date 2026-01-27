@@ -314,7 +314,7 @@ func (k BaseSendKeeper) setBalance(ctx sdk.Context, addr sdk.AccAddress, balance
 }
 
 func (k BaseSendKeeper) setWeiBalance(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int) error {
-	store := prefix.NewStore(ctx.GigaKVStore(k.storeKey), types.WeiBalancesPrefix)
+	store := prefix.NewStore(k.GetKVStore(ctx), types.WeiBalancesPrefix)
 	if amt.IsZero() {
 		store.Delete(addr)
 		return nil
@@ -451,7 +451,7 @@ func SplitUseiWeiAmount(amt sdk.Int) (sdk.Int, sdk.Int) {
 }
 
 func (k BaseSendKeeper) SetDenomAllowList(ctx sdk.Context, denom string, allowList types.AllowList) {
-	store := ctx.GigaKVStore(k.storeKey)
+	store := k.GetKVStore(ctx)
 	denomAllowListStore := prefix.NewStore(store, types.DenomAllowListKey(denom))
 
 	m := k.cdc.MustMarshal(&allowList)
@@ -459,7 +459,7 @@ func (k BaseSendKeeper) SetDenomAllowList(ctx sdk.Context, denom string, allowLi
 }
 
 func (k BaseSendKeeper) GetDenomAllowList(ctx sdk.Context, denom string) types.AllowList {
-	store := ctx.GigaKVStore(k.storeKey)
+	store := k.GetKVStore(ctx)
 	store = prefix.NewStore(store, types.DenomAllowListKey(denom))
 
 	bz := store.Get([]byte(denom))
