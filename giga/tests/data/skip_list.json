@@ -99,6 +99,10 @@
     "stTransactionTest": "ANALYZED: 248/259 tests pass. 11 failures",
     "stZeroCallsTest": "ANALYZED: 20/24 tests pass. 4 failures",
     "stZeroCallsRevert": "ANALYZED: 0/16 tests pass. 16 failures",
-    "stStaticFlagEnabled": "ANALYZED: 28/34 tests pass. 6 failures"
+    "stStaticFlagEnabled": "ANALYZED: 28/34 tests pass. 6 failures",
+    "stEIP1559": "TIMED_OUT: needs re-run with longer timeout",
+    "stZeroKnowledge": "ANALYZED: 380/944 tests pass. 564 failures",
+    "stZeroKnowledge2": "ANALYZED: 286/519 tests pass. 233 failures",
+    "stPreCompiledContracts2": "ANALYZED: 118/160 tests pass. 42 failures"
   }
 }
