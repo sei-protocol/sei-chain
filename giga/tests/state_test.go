@@ -28,10 +28,10 @@ type TestSummary struct {
 
 // CategoryStats tracks stats for a single category
 type CategoryStats struct {
-	Total   int
-	Passed  int
-	Failed  int
-	Skipped int
+	Total    int
+	Passed   int
+	Failed   int
+	Skipped  int
 	Failures []FailureRecord
 }
 
@@ -182,4 +182,18 @@ func TestGigaVsV2_StateTests(t *testing.T) {
 		GigaMode:           ModeGigaSequential,
 		VerifyEthereumSpec: os.Getenv("VERIFY_ETHEREUM_SPEC") == "true",
 	}, "Giga vs V2")
+}
+
+// TestGigaWithRegularStore_StateTests runs state tests comparing V2 vs Giga with regular KVStore.
+// This test isolates whether issues are in the Giga executor logic vs the GigaKVStore layer.
+// If tests pass here but fail with normal Giga mode, the issue is in GigaKVStore integration.
+// If tests fail here, the issue is in the Giga executor logic itself.
+//
+// Usage: STATE_TEST_DIR=stChainId go test -v -run TestGigaWithRegularStore_StateTests ./giga/tests/...
+// Usage with test name filter: STATE_TEST_DIR=stExample STATE_TEST_NAME=add11 go test -v -run TestGigaWithRegularStore_StateTests ./giga/tests/...
+func TestGigaWithRegularStore_StateTests(t *testing.T) {
+	runStateTestSuite(t, ComparisonConfig{
+		GigaMode:           ModeGigaWithRegularStore,
+		VerifyEthereumSpec: os.Getenv("VERIFY_ETHEREUM_SPEC") == "true",
+	}, "Giga with Regular Store")
 }
