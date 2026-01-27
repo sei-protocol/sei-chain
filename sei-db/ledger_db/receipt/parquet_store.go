@@ -75,14 +75,13 @@ type parquetReceiptStore struct {
 	blocksSinceFlush uint64
 	blocksInFile     uint64
 
-	reader           *parquetReader
-	cache            *ledgerCache
-	storeKey         sdk.StoreKey
-	wal              dbwal.GenericWAL[parquetWALEntry]
-	latestVersion    atomic.Int64
-	earliestVersion  atomic.Int64
-	currentFileStart atomic.Uint64
-	closeOnce        sync.Once
+	reader          *parquetReader
+	storeKey        sdk.StoreKey
+	wal             dbwal.GenericWAL[parquetWALEntry]
+	latestVersion   atomic.Int64
+	earliestVersion atomic.Int64
+	warmupReceipts  []ReceiptRecord
+	closeOnce       sync.Once
 }
 
 func newParquetReceiptStore(log dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
@@ -107,7 +106,6 @@ func newParquetReceiptStore(log dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig
 		logsBuffer:     make([]logRecord, 0, 10000),
 		config:         defaultParquetStoreConfig(),
 		reader:         reader,
-		cache:          newLedgerCache(),
 		storeKey:       storeKey,
 		wal:            receiptWAL,
 	}
@@ -128,7 +126,6 @@ func newParquetReceiptStore(log dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig
 	if reader.closedReceiptFileCount() == 0 {
 		store.fileStartBlock = 0
 	}
-	store.currentFileStart.Store(store.fileStartBlock)
 
 	if err := store.initWriters(); err != nil {
 		return nil, err
@@ -164,15 +161,25 @@ func (s *parquetReceiptStore) SetEarliestVersion(version int64) error {
 	return nil
 }
 
+func (s *parquetReceiptStore) cacheRotateInterval() uint64 {
+	if s == nil {
+		return 0
+	}
+	return s.config.MaxBlocksPerFile
+}
+
+func (s *parquetReceiptStore) warmupReceipts() []ReceiptRecord {
+	if s == nil {
+		return nil
+	}
+	receipts := s.warmupReceipts
+	s.warmupReceipts = nil
+	return receipts
+}
+
 func (s *parquetReceiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	if s == nil {
 		return nil, ErrNotConfigured
-	}
-
-	if s.cache != nil {
-		if receipt, ok := s.cache.GetReceipt(txHash); ok {
-			return receipt, nil
-		}
 	}
 
 	if s.reader != nil {
@@ -204,12 +211,6 @@ func (s *parquetReceiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*
 func (s *parquetReceiptStore) GetReceiptFromStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	if s == nil {
 		return nil, ErrNotConfigured
-	}
-
-	if s.cache != nil {
-		if receipt, ok := s.cache.GetReceipt(txHash); ok {
-			return receipt, nil
-		}
 	}
 
 	if s.reader == nil {
@@ -246,7 +247,6 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 	blockHash := common.Hash{}
 
 	inputs := make([]parquetReceiptInput, 0, len(receipts))
-	cacheBatches := make([]cacheBatch, 0)
 	walEntries := make([]parquetWALEntry, 0, len(receipts))
 
 	var (
@@ -254,21 +254,6 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 		logStartIndex uint
 		maxBlock      uint64
 	)
-	cacheEntries := make([]receiptCacheEntry, 0, len(receipts))
-	cacheLogs := make([]*ethtypes.Log, 0)
-
-	flushCacheBatch := func(blockNumber uint64) {
-		if len(cacheEntries) == 0 && len(cacheLogs) == 0 {
-			return
-		}
-		cacheBatches = append(cacheBatches, cacheBatch{
-			blockNumber: blockNumber,
-			entries:     cacheEntries,
-			logs:        cacheLogs,
-		})
-		cacheEntries = nil
-		cacheLogs = nil
-	}
 
 	for _, record := range receipts {
 		if record.Receipt == nil {
@@ -285,7 +270,6 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 			currentBlock = blockNumber
 		}
 		if blockNumber != currentBlock {
-			flushCacheBatch(currentBlock)
 			currentBlock = blockNumber
 			logStartIndex = 0
 		}
@@ -313,14 +297,7 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 			},
 			logs: buildLogRecords(txLogs, blockHash),
 		})
-
-		cacheEntries = append(cacheEntries, receiptCacheEntry{
-			TxHash:  record.TxHash,
-			Receipt: receipt,
-		})
-		cacheLogs = append(cacheLogs, txLogs...)
 	}
-	flushCacheBatch(currentBlock)
 
 	if s.wal != nil {
 		for i := range walEntries {
@@ -347,13 +324,6 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 		s.latestVersion.Store(latest)
 	}
 
-	if s.cache != nil {
-		for i := range cacheBatches {
-			s.cache.AddReceiptsBatch(cacheBatches[i].blockNumber, cacheBatches[i].entries)
-			s.cache.AddLogsForBlock(cacheBatches[i].blockNumber, cacheBatches[i].logs)
-		}
-	}
-
 	return nil
 }
 
@@ -370,16 +340,7 @@ func (s *parquetReceiptStore) FilterLogs(ctx sdk.Context, blockHeight int64, blo
 	}
 	blockNumber := uint64(blockHeight)
 	if applyExactMatch {
-		if s.cache != nil && s.useCacheForBlock(blockNumber) {
-			logs := s.cache.GetLogsWithFilter(blockNumber, blockNumber, crit.Addresses, crit.Topics)
-			for _, lg := range logs {
-				lg.BlockHash = blockHash
-				lg.BlockNumber = blockNumber
-			}
-			return logs, nil
-		}
-
-		if s.reader != nil && !s.useCacheForBlock(blockNumber) {
+		if s.reader != nil {
 			filter := logFilter{
 				FromBlock: &blockNumber,
 				ToBlock:   &blockNumber,
@@ -411,7 +372,7 @@ func (s *parquetReceiptStore) FilterLogs(ctx sdk.Context, blockHeight int64, blo
 		}
 	}
 
-	return s.filterLogsFromReceipts(ctx, blockHeight, blockHash, txHashes, crit, applyExactMatch)
+	return filterLogsFromReceipts(ctx, blockHeight, blockHash, txHashes, crit, applyExactMatch, s.GetReceipt)
 }
 
 func (s *parquetReceiptStore) Close() error {
@@ -452,12 +413,6 @@ type parquetReceiptInput struct {
 	blockNumber uint64
 	receipt     receiptRecord
 	logs        []logRecord
-}
-
-type cacheBatch struct {
-	blockNumber uint64
-	entries     []receiptCacheEntry
-	logs        []*ethtypes.Log
 }
 
 func (s *parquetReceiptStore) applyReceiptLocked(input parquetReceiptInput) error {
@@ -512,13 +467,9 @@ func (s *parquetReceiptStore) rotateFileLocked(newBlockNumber uint64) error {
 	if s.reader != nil {
 		s.reader.onFileRotation(oldStartBlock)
 	}
-	if s.cache != nil {
-		s.cache.Rotate()
-	}
 	s.clearWAL()
 
 	s.fileStartBlock = newBlockNumber
-	s.currentFileStart.Store(newBlockNumber)
 	s.blocksInFile = 0
 
 	return s.initWriters()
@@ -620,70 +571,6 @@ func (s *parquetReceiptStore) closeWritersLocked() error {
 	return nil
 }
 
-func (s *parquetReceiptStore) useCacheForBlock(blockNumber uint64) bool {
-	current := s.currentFileStart.Load()
-	if current == 0 {
-		return true
-	}
-	return blockNumber >= current
-}
-
-func (s *parquetReceiptStore) filterLogsFromReceipts(ctx sdk.Context, blockHeight int64, blockHash common.Hash, txHashes []common.Hash, crit filters.FilterCriteria, applyExactMatch bool) ([]*ethtypes.Log, error) {
-	hasFilters := len(crit.Addresses) != 0 || len(crit.Topics) != 0
-	var filterIndexes [][]bloomIndexes
-	if hasFilters {
-		filterIndexes = encodeFilters(crit.Addresses, crit.Topics)
-	}
-
-	logs := make([]*ethtypes.Log, 0)
-	totalLogs := uint(0)
-	evmTxIndex := 0
-
-	for _, txHash := range txHashes {
-		receipt, err := s.GetReceipt(ctx, txHash)
-		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", txHash.Hex()))
-			continue
-		}
-
-		txLogs := getLogsForTx(receipt, totalLogs)
-
-		if hasFilters {
-			if len(receipt.LogsBloom) == 0 || matchFilters(ethtypes.Bloom(receipt.LogsBloom), filterIndexes) {
-				if applyExactMatch {
-					for _, log := range txLogs {
-						log.TxIndex = uint(evmTxIndex)        //nolint:gosec
-						log.BlockNumber = uint64(blockHeight) //nolint:gosec
-						log.BlockHash = blockHash
-						if isLogExactMatch(log, crit) {
-							logs = append(logs, log)
-						}
-					}
-				} else {
-					for _, log := range txLogs {
-						log.TxIndex = uint(evmTxIndex)        //nolint:gosec
-						log.BlockNumber = uint64(blockHeight) //nolint:gosec
-						log.BlockHash = blockHash
-						logs = append(logs, log)
-					}
-				}
-			}
-		} else {
-			for _, log := range txLogs {
-				log.TxIndex = uint(evmTxIndex)        //nolint:gosec
-				log.BlockNumber = uint64(blockHeight) //nolint:gosec
-				log.BlockHash = blockHash
-				logs = append(logs, log)
-			}
-		}
-
-		totalLogs += uint(len(txLogs))
-		evmTxIndex++
-	}
-
-	return logs, nil
-}
-
 func (s *parquetReceiptStore) replayWAL() error {
 	if s.wal == nil {
 		return nil
@@ -704,25 +591,9 @@ func (s *parquetReceiptStore) replayWAL() error {
 	var (
 		currentBlock  uint64
 		logStartIndex uint
-		cacheEntries  []receiptCacheEntry
-		cacheLogs     []*ethtypes.Log
 		maxBlock      uint64
 		dropOffset    uint64
 	)
-
-	flushCacheBatch := func(blockNumber uint64) {
-		if s.cache == nil || len(cacheEntries) == 0 {
-			cacheEntries = nil
-			cacheLogs = nil
-			return
-		}
-		s.cache.AddReceiptsBatch(blockNumber, cacheEntries)
-		if len(cacheLogs) > 0 {
-			s.cache.AddLogsForBlock(blockNumber, cacheLogs)
-		}
-		cacheEntries = nil
-		cacheLogs = nil
-	}
 
 	blockHash := common.Hash{}
 	fileStartBlock := s.fileStartBlock
@@ -744,12 +615,15 @@ func (s *parquetReceiptStore) replayWAL() error {
 		}
 
 		txHash := common.HexToHash(receipt.TxHashHex)
+		s.warmupReceipts = append(s.warmupReceipts, ReceiptRecord{
+			TxHash:  txHash,
+			Receipt: receipt,
+		})
 
 		if currentBlock == 0 {
 			currentBlock = blockNumber
 		}
 		if blockNumber != currentBlock {
-			flushCacheBatch(currentBlock)
 			currentBlock = blockNumber
 			logStartIndex = 0
 		}
@@ -774,14 +648,6 @@ func (s *parquetReceiptStore) replayWAL() error {
 			return err
 		}
 
-		if s.cache != nil {
-			cacheEntries = append(cacheEntries, receiptCacheEntry{
-				TxHash:  txHash,
-				Receipt: receipt,
-			})
-			cacheLogs = append(cacheLogs, txLogs...)
-		}
-
 		if blockNumber > maxBlock {
 			maxBlock = blockNumber
 		}
@@ -791,8 +657,6 @@ func (s *parquetReceiptStore) replayWAL() error {
 	if err != nil {
 		return err
 	}
-
-	flushCacheBatch(currentBlock)
 
 	if maxBlock > 0 {
 		latest, err := int64FromUint64(maxBlock)

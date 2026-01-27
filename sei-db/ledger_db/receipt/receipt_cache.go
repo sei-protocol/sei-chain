@@ -216,6 +216,22 @@ func (c *ledgerCache) GetLogsWithFilter(fromBlock, toBlock uint64, addresses []c
 	return result
 }
 
+func (c *ledgerCache) HasLogsForBlock(blockNumber uint64) bool {
+	c.logMu.RLock()
+	defer c.logMu.RUnlock()
+
+	for i := 0; i < numCacheChunks; i++ {
+		chunk := c.logChunks[i].Load()
+		if chunk == nil {
+			continue
+		}
+		if logs, exists := chunk.logs[blockNumber]; exists && len(logs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *ledgerCache) AddLogsForBlock(blockNumber uint64, logs []*ethtypes.Log) {
 	if len(logs) == 0 {
 		return

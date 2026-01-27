@@ -74,6 +74,8 @@ func TestLedgerCacheReceiptsAndLogs(t *testing.T) {
 		},
 	})
 
+	require.True(t, cache.HasLogsForBlock(blockNumber))
+
 	logs := cache.GetLogsWithFilter(blockNumber, blockNumber, []common.Address{addr}, [][]common.Hash{{topic}})
 	require.Len(t, logs, 1)
 	require.Equal(t, addr, logs[0].Address)
@@ -158,6 +160,15 @@ func TestParquetReceiptStoreReopenQueries(t *testing.T) {
 	got, err := store.GetReceiptFromStore(ctx, txHash)
 	require.NoError(t, err)
 	require.Equal(t, receipt.TxHashHex, got.TxHashHex)
+
+	blockHash := common.HexToHash("0xd00d")
+	logs, err := store.FilterLogs(ctx, 3, blockHash, []common.Hash{txHash}, filters.FilterCriteria{
+		Addresses: []common.Address{addr},
+		Topics:    [][]common.Hash{{topic}},
+	}, true)
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	require.Equal(t, blockHash, logs[0].BlockHash)
 
 	blockHash := common.HexToHash("0xcafe")
 	logs, err := store.FilterLogs(ctx, 5, blockHash, []common.Hash{txHash}, filters.FilterCriteria{

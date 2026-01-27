@@ -71,6 +71,14 @@ func normalizeReceiptBackend(backend string) string {
 }
 
 func NewReceiptStore(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
+	backend, err := newReceiptBackend(log, config, storeKey)
+	if err != nil {
+		return nil, err
+	}
+	return newCachedReceiptStore(backend), nil
+}
+
+func newReceiptBackend(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
 	if log == nil {
 		log = dbLogger.NewNopLogger()
 	}
@@ -239,60 +247,7 @@ func (s *receiptStore) FilterLogs(ctx sdk.Context, blockHeight int64, blockHash 
 	if len(txHashes) == 0 {
 		return []*ethtypes.Log{}, nil
 	}
-
-	hasFilters := len(crit.Addresses) != 0 || len(crit.Topics) != 0
-	var filterIndexes [][]bloomIndexes
-	if hasFilters {
-		filterIndexes = encodeFilters(crit.Addresses, crit.Topics)
-	}
-
-	logs := make([]*ethtypes.Log, 0)
-	totalLogs := uint(0)
-	evmTxIndex := 0
-
-	for _, txHash := range txHashes {
-		receipt, err := s.GetReceipt(ctx, txHash)
-		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", txHash.Hex()))
-			continue
-		}
-
-		txLogs := getLogsForTx(receipt, totalLogs)
-
-		if hasFilters {
-			if len(receipt.LogsBloom) == 0 || matchFilters(ethtypes.Bloom(receipt.LogsBloom), filterIndexes) {
-				if applyExactMatch {
-					for _, log := range txLogs {
-						log.TxIndex = uint(evmTxIndex)        //nolint:gosec
-						log.BlockNumber = uint64(blockHeight) //nolint:gosec
-						log.BlockHash = blockHash
-						if isLogExactMatch(log, crit) {
-							logs = append(logs, log)
-						}
-					}
-				} else {
-					for _, log := range txLogs {
-						log.TxIndex = uint(evmTxIndex)        //nolint:gosec
-						log.BlockNumber = uint64(blockHeight) //nolint:gosec
-						log.BlockHash = blockHash
-						logs = append(logs, log)
-					}
-				}
-			}
-		} else {
-			for _, log := range txLogs {
-				log.TxIndex = uint(evmTxIndex)        //nolint:gosec
-				log.BlockNumber = uint64(blockHeight) //nolint:gosec
-				log.BlockHash = blockHash
-				logs = append(logs, log)
-			}
-		}
-
-		totalLogs += uint(len(txLogs))
-		evmTxIndex++
-	}
-
-	return logs, nil
+	return filterLogsFromReceipts(ctx, blockHeight, blockHash, txHashes, crit, applyExactMatch, s.GetReceipt)
 }
 
 func (s *receiptStore) Close() error {

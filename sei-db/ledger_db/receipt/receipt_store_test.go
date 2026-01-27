@@ -165,6 +165,40 @@ func TestSetReceiptsAsync(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 }
 
+func TestReceiptStorePebbleBackendBasic(t *testing.T) {
+	storeKey := storetypes.NewKVStoreKey("evm")
+	tkey := storetypes.NewTransientStoreKey("evm_transient")
+	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(0)
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.DBDirectory = t.TempDir()
+	cfg.KeepRecent = 0
+	cfg.Backend = "pebble"
+
+	store, err := receipt.NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	txHash := common.HexToHash("0x55")
+	addr := common.HexToAddress("0x500")
+	topic := common.HexToHash("0x501")
+	r := makeReceipt(txHash, addr, []common.Hash{topic}, 0)
+
+	require.NoError(t, store.SetReceipts(ctx, []receipt.ReceiptRecord{{TxHash: txHash, Receipt: r}}))
+
+	got, err := store.GetReceipt(ctx, txHash)
+	require.NoError(t, err)
+	require.Equal(t, r.TxHashHex, got.TxHashHex)
+
+	blockHash := common.HexToHash("0xf00")
+	logs, err := store.FilterLogs(ctx, 1, blockHash, []common.Hash{txHash}, filters.FilterCriteria{
+		Addresses: []common.Address{addr},
+		Topics:    [][]common.Hash{{topic}},
+	}, true)
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	require.Equal(t, blockHash, logs[0].BlockHash)
+}
+
 func TestFilterLogs(t *testing.T) {
 	store, ctx, _ := setupReceiptStore(t)
 	blockHeight := int64(8)
