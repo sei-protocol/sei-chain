@@ -138,6 +138,9 @@ grep -E "^\s+- category/" /tmp/results.log
 - Shanghai (26/27 passing, 1 skipped)
 - stArgsZeroOneBalance (91/96 passing, 5 skipped)
 - stTransactionTest (248/259 passing, 11 skipped)
+- stSpecialTest (21/22 passing, 1 skipped)
+- stSolidityTest (21/23 passing, 2 skipped)
+- stNonZeroCallsTest (21/24 passing, 3 skipped)
 
 ### Categories needing longer timeout (>20min)
 
