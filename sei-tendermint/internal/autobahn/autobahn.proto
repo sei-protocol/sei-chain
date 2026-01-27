@@ -11,7 +11,7 @@ option go_package = "github.com/tendermint/tendermint/internal/autobahn/pb";
 // See `google.protobuf.Timestamp` for more detailed specification.
 message Timestamp {
   option (hashable.hashable) = true;
-  
+
   // Represents seconds of UTC time since Unix epoch
   // 1970-01-01T00:00:00Z. Must be from 0001-01-01T00:00:00Z to
   // 9999-12-31T23:59:59Z inclusive.
@@ -177,13 +177,13 @@ message Msg {
     // Lane
     Block lane_proposal = 1;
     BlockHeader lane_vote = 2;
-    
+
     // Consensus
     Proposal proposal = 3;
     Proposal prepare_vote = 4;
     Proposal commit_vote = 5;
     TimeoutVote timeout_vote = 6;
-    
+
     // App
     AppProposal app_vote = 7;
   }
@@ -245,32 +245,10 @@ message StreamCommitQCsReq {}
 message StreamLaneVotesReq {}
 message StreamAppVotesReq {}
 
-service ProducerAPI {
-  rpc Mempool(stream Transaction) returns (TransactionResp);
-}
-
-service AvailAPI {
-  rpc StreamLaneProposals(StreamLaneProposalsReq) returns (stream LaneProposal);
-  rpc StreamLaneVotes(StreamLaneVotesReq) returns (stream LaneVote);
-  rpc StreamCommitQCs(StreamCommitQCsReq) returns (stream CommitQC);
-  rpc StreamAppVotes(StreamAppVotesReq) returns (stream AppVote);
-  rpc StreamAppQCs(StreamAppQCsReq) returns (stream StreamAppQCsResp);
-}
-
-service StreamAPI {
-  rpc Consensus(stream ConsensusReq) returns (stream ConsensusResp);
-  rpc Ping(stream PingReq) returns (stream PingResp);
-}
-
 message GetBlockReq {
   uint64 global_number = 1;
 }
 
 message StreamFullCommitQCsReq {
   uint64 next_block = 1;
-}
-
-service DataAPI {
-  rpc StreamFullCommitQCs(StreamFullCommitQCsReq) returns (stream FullCommitQC);
-  rpc GetBlock(GetBlockReq) returns (Block);
 }

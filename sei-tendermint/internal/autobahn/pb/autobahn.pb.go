@@ -2654,21 +2654,7 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\rglobal_number\x18\x01 \x01(\x04R\fglobalNumber\"7\n" +
 	"\x16StreamFullCommitQCsReq\x12\x1d\n" +
 	"\n" +
-	"next_block\x18\x01 \x01(\x04R\tnextBlock2L\n" +
-	"\vProducerAPI\x12=\n" +
-	"\aMempool\x12\x15.autobahn.Transaction\x1a\x19.autobahn.TransactionResp(\x012\xf8\x02\n" +
-	"\bAvailAPI\x12Q\n" +
-	"\x13StreamLaneProposals\x12 .autobahn.StreamLaneProposalsReq\x1a\x16.autobahn.LaneProposal0\x01\x12E\n" +
-	"\x0fStreamLaneVotes\x12\x1c.autobahn.StreamLaneVotesReq\x1a\x12.autobahn.LaneVote0\x01\x12E\n" +
-	"\x0fStreamCommitQCs\x12\x1c.autobahn.StreamCommitQCsReq\x1a\x12.autobahn.CommitQC0\x01\x12B\n" +
-	"\x0eStreamAppVotes\x12\x1b.autobahn.StreamAppVotesReq\x1a\x11.autobahn.AppVote0\x01\x12G\n" +
-	"\fStreamAppQCs\x12\x19.autobahn.StreamAppQCsReq\x1a\x1a.autobahn.StreamAppQCsResp0\x012\x80\x01\n" +
-	"\tStreamAPI\x12@\n" +
-	"\tConsensus\x12\x16.autobahn.ConsensusReq\x1a\x17.autobahn.ConsensusResp(\x010\x01\x121\n" +
-	"\x04Ping\x12\x11.autobahn.PingReq\x1a\x12.autobahn.PingResp(\x010\x012\x90\x01\n" +
-	"\aDataAPI\x12Q\n" +
-	"\x13StreamFullCommitQCs\x12 .autobahn.StreamFullCommitQCsReq\x1a\x16.autobahn.FullCommitQC0\x01\x122\n" +
-	"\bGetBlock\x12\x15.autobahn.GetBlockReq\x1a\x0f.autobahn.BlockB7Z5github.com/tendermint/tendermint/internal/autobahn/pbb\x06proto3"
+	"next_block\x18\x01 \x01(\x04R\tnextBlockB7Z5github.com/tendermint/tendermint/internal/autobahn/pbb\x06proto3"
 
 var (
 	file_autobahn_autobahn_proto_rawDescOnce sync.Once
@@ -2784,28 +2770,8 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	25, // 50: autobahn.AppVote.app_vote:type_name -> autobahn.SignedMsg
 	22, // 51: autobahn.StreamAppQCsResp.app_qc:type_name -> autobahn.AppQC
 	17, // 52: autobahn.StreamAppQCsResp.commit_qc:type_name -> autobahn.CommitQC
-	4,  // 53: autobahn.ProducerAPI.Mempool:input_type -> autobahn.Transaction
-	36, // 54: autobahn.AvailAPI.StreamLaneProposals:input_type -> autobahn.StreamLaneProposalsReq
-	40, // 55: autobahn.AvailAPI.StreamLaneVotes:input_type -> autobahn.StreamLaneVotesReq
-	39, // 56: autobahn.AvailAPI.StreamCommitQCs:input_type -> autobahn.StreamCommitQCsReq
-	41, // 57: autobahn.AvailAPI.StreamAppVotes:input_type -> autobahn.StreamAppVotesReq
-	37, // 58: autobahn.AvailAPI.StreamAppQCs:input_type -> autobahn.StreamAppQCsReq
-	29, // 59: autobahn.StreamAPI.Consensus:input_type -> autobahn.ConsensusReq
-	34, // 60: autobahn.StreamAPI.Ping:input_type -> autobahn.PingReq
-	43, // 61: autobahn.DataAPI.StreamFullCommitQCs:input_type -> autobahn.StreamFullCommitQCsReq
-	42, // 62: autobahn.DataAPI.GetBlock:input_type -> autobahn.GetBlockReq
-	5,  // 63: autobahn.ProducerAPI.Mempool:output_type -> autobahn.TransactionResp
-	31, // 64: autobahn.AvailAPI.StreamLaneProposals:output_type -> autobahn.LaneProposal
-	30, // 65: autobahn.AvailAPI.StreamLaneVotes:output_type -> autobahn.LaneVote
-	17, // 66: autobahn.AvailAPI.StreamCommitQCs:output_type -> autobahn.CommitQC
-	32, // 67: autobahn.AvailAPI.StreamAppVotes:output_type -> autobahn.AppVote
-	38, // 68: autobahn.AvailAPI.StreamAppQCs:output_type -> autobahn.StreamAppQCsResp
-	33, // 69: autobahn.StreamAPI.Consensus:output_type -> autobahn.ConsensusResp
-	35, // 70: autobahn.StreamAPI.Ping:output_type -> autobahn.PingResp
-	18, // 71: autobahn.DataAPI.StreamFullCommitQCs:output_type -> autobahn.FullCommitQC
-	10, // 72: autobahn.DataAPI.GetBlock:output_type -> autobahn.Block
-	63, // [63:73] is the sub-list for method output_type
-	53, // [53:63] is the sub-list for method input_type
+	53, // [53:53] is the sub-list for method output_type
+	53, // [53:53] is the sub-list for method input_type
 	53, // [53:53] is the sub-list for extension type_name
 	53, // [53:53] is the sub-list for extension extendee
 	0,  // [0:53] is the sub-list for field type_name
@@ -2855,7 +2821,7 @@ func file_autobahn_autobahn_proto_init() {
 			NumEnums:      0,
 			NumMessages:   45,
 			NumExtensions: 0,
-			NumServices:   4,
+			NumServices:   0,
 		},
 		GoTypes:           file_autobahn_autobahn_proto_goTypes,
 		DependencyIndexes: file_autobahn_autobahn_proto_depIdxs,
