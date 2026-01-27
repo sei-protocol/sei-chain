@@ -82,6 +82,9 @@
     "stExtCodeHash": "ANALYZED: 45/69 tests pass. 24 failures",
     "stStackTests": "ANALYZED: 229/375 tests pass. 146 failures",
     "stMemoryTest": "ANALYZED: 252/578 tests pass. 326 failures",
-    "stPreCompiledContracts": "TIMED_OUT: needs re-run with longer timeout"
+    "stPreCompiledContracts": "TIMED_OUT: needs re-run with longer timeout",
+    "stRevertTest": "ANALYZED: 44/271 tests pass. 227 failures",
+    "stReturnDataTest": "ANALYZED: 126/273 tests pass. 147 failures",
+    "stSystemOperationsTest": "ANALYZED: 63/83 tests pass. 20 failures"
   }
 }
