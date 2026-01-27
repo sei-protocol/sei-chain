@@ -3,7 +3,9 @@ package composite
 import (
 	"fmt"
 	"path/filepath"
+	"sync"
 
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -13,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 // CompositeStateStore routes operations between Cosmos_SS (main state store) and EVM_SS (optimized EVM stores).
@@ -242,45 +245,243 @@ func (s *CompositeStateStore) Close() error {
 }
 
 // =============================================================================
-// Write path methods - delegated to Cosmos store only in this PR
-// Full dual-write implementation will be added in the next PR
+// Write path methods - dual-write to both Cosmos_SS and EVM_SS
 // =============================================================================
 
-// SetLatestVersion sets the latest version
+// SetLatestVersion sets the latest version on both stores
 func (s *CompositeStateStore) SetLatestVersion(version int64) error {
-	return s.cosmosStore.SetLatestVersion(version)
+	if err := s.cosmosStore.SetLatestVersion(version); err != nil {
+		return err
+	}
+	if s.evmStore != nil {
+		if err := s.evmStore.SetLatestVersion(version); err != nil {
+			s.logger.Error("failed to set EVM store latest version", "error", err)
+			// Non-fatal: EVM store is optimization layer
+		}
+	}
+	return nil
 }
 
 // SetEarliestVersion sets the earliest version
 func (s *CompositeStateStore) SetEarliestVersion(version int64, ignoreVersion bool) error {
-	return s.cosmosStore.SetEarliestVersion(version, ignoreVersion)
+	if err := s.cosmosStore.SetEarliestVersion(version, ignoreVersion); err != nil {
+		return err
+	}
+	if s.evmStore != nil {
+		if err := s.evmStore.SetEarliestVersion(version); err != nil {
+			s.logger.Error("failed to set EVM store earliest version", "error", err)
+		}
+	}
+	return nil
 }
 
-// ApplyChangesetSync applies changeset synchronously (delegates to Cosmos store)
+// ApplyChangesetSync applies changeset synchronously to both stores in parallel.
+// If either fails, returns error - caller should retry (writes are idempotent).
 func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {
-	// TODO: Add dual-write to EVM_SS in next PR
-	return s.cosmosStore.ApplyChangesetSync(version, changesets)
+	// Fast path: if no EVM store, just apply to Cosmos
+	if s.evmStore == nil {
+		return s.cosmosStore.ApplyChangesetSync(version, changesets)
+	}
+
+	// Extract EVM changes
+	evmChanges := s.extractEVMChanges(changesets)
+
+	// Write to both stores in parallel - both must succeed
+	// If either fails, return error. Caller can retry safely (idempotent writes).
+	var wg sync.WaitGroup
+	var cosmosErr, evmErr error
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		cosmosErr = s.cosmosStore.ApplyChangesetSync(version, changesets)
+	}()
+
+	if len(evmChanges) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			evmErr = s.evmStore.ApplyChangesetParallel(version, evmChanges)
+		}()
+	}
+
+	wg.Wait()
+
+	// Return first error encountered - caller should retry
+	if cosmosErr != nil {
+		return fmt.Errorf("cosmos store failed: %w", cosmosErr)
+	}
+	if evmErr != nil {
+		return fmt.Errorf("evm store failed: %w", evmErr)
+	}
+	return nil
 }
 
-// ApplyChangesetAsync applies changeset asynchronously (delegates to Cosmos store)
+// ApplyChangesetAsync applies changeset asynchronously to both stores in parallel.
+// If either fails, returns error - caller should retry (writes are idempotent).
 func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
-	// TODO: Add dual-write to EVM_SS in next PR
-	return s.cosmosStore.ApplyChangesetAsync(version, changesets)
+	// Fast path: if no EVM store, just apply to Cosmos
+	if s.evmStore == nil {
+		return s.cosmosStore.ApplyChangesetAsync(version, changesets)
+	}
+
+	// Extract EVM changes
+	evmChanges := s.extractEVMChanges(changesets)
+
+	// Write to both stores in parallel
+	var wg sync.WaitGroup
+	var cosmosErr, evmErr error
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		cosmosErr = s.cosmosStore.ApplyChangesetAsync(version, changesets)
+	}()
+
+	if len(evmChanges) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			evmErr = s.evmStore.ApplyChangesetParallel(version, evmChanges)
+		}()
+	}
+
+	wg.Wait()
+
+	if cosmosErr != nil {
+		return fmt.Errorf("cosmos store failed: %w", cosmosErr)
+	}
+	if evmErr != nil {
+		return fmt.Errorf("evm store failed: %w", evmErr)
+	}
+	return nil
 }
 
-// Import imports initial state
+// extractEVMChanges extracts EVM-routable changes from changesets
+func (s *CompositeStateStore) extractEVMChanges(changesets []*proto.NamedChangeSet) map[evm.EVMStoreType][]*iavl.KVPair {
+	evmChanges := make(map[evm.EVMStoreType][]*iavl.KVPair, 5) // 5 EVM store types
+
+	for _, changeset := range changesets {
+		if changeset.Name != evm.EVMStoreKey {
+			continue
+		}
+		for _, kvPair := range changeset.Changeset.Pairs {
+			evmStoreType, strippedKey := commonevm.ParseEVMKey(kvPair.Key)
+			if evmStoreType != evm.StoreUnknown {
+				evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
+					Key:    strippedKey,
+					Value:  kvPair.Value,
+					Delete: kvPair.Delete,
+				})
+			}
+		}
+	}
+
+	return evmChanges
+}
+
+// Import imports initial state to both stores
 func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
-	// TODO: Add dual-write to EVM_SS in next PR
-	return s.cosmosStore.Import(version, ch)
+	if s.evmStore == nil {
+		return s.cosmosStore.Import(version, ch)
+	}
+
+	// Fan out to both stores
+	cosmosCh := make(chan types.SnapshotNode, 100)
+	evmChanges := make(map[evm.EVMStoreType][]*iavl.KVPair, 5)
+
+	var wg sync.WaitGroup
+	var cosmosErr error
+
+	// Start Cosmos import in background
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		cosmosErr = s.cosmosStore.Import(version, cosmosCh)
+	}()
+
+	// Process incoming nodes
+	for node := range ch {
+		// Send to Cosmos
+		cosmosCh <- node
+
+		// Route EVM keys
+		if node.StoreKey == evm.EVMStoreKey {
+			evmStoreType, strippedKey := commonevm.ParseEVMKey(node.Key)
+			if evmStoreType != evm.StoreUnknown {
+				evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
+					Key:   strippedKey,
+					Value: node.Value,
+				})
+			}
+		}
+	}
+	close(cosmosCh)
+
+	// Apply EVM changes
+	if len(evmChanges) > 0 {
+		if err := s.evmStore.ApplyChangesetParallel(version, evmChanges); err != nil {
+			s.logger.Error("failed to import EVM data", "error", err)
+		}
+	}
+
+	wg.Wait()
+	return cosmosErr
 }
 
-// RawImport imports raw key-value entries
+// RawImport imports raw key-value entries to both stores
 func (s *CompositeStateStore) RawImport(ch <-chan types.RawSnapshotNode) error {
-	// TODO: Add dual-write to EVM_SS in next PR
-	return s.cosmosStore.RawImport(ch)
+	if s.evmStore == nil {
+		return s.cosmosStore.RawImport(ch)
+	}
+
+	// Fan out to both stores
+	cosmosCh := make(chan types.RawSnapshotNode, 100)
+	evmChangesByVersion := make(map[int64]map[evm.EVMStoreType][]*iavl.KVPair)
+
+	var wg sync.WaitGroup
+	var cosmosErr error
+
+	// Start Cosmos import in background
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		cosmosErr = s.cosmosStore.RawImport(cosmosCh)
+	}()
+
+	// Process incoming nodes
+	for node := range ch {
+		// Send to Cosmos
+		cosmosCh <- node
+
+		// Route EVM keys
+		if node.StoreKey == evm.EVMStoreKey {
+			evmStoreType, strippedKey := commonevm.ParseEVMKey(node.Key)
+			if evmStoreType != evm.StoreUnknown {
+				if evmChangesByVersion[node.Version] == nil {
+					evmChangesByVersion[node.Version] = make(map[evm.EVMStoreType][]*iavl.KVPair, 5)
+				}
+				evmChangesByVersion[node.Version][evmStoreType] = append(
+					evmChangesByVersion[node.Version][evmStoreType],
+					&iavl.KVPair{Key: strippedKey, Value: node.Value},
+				)
+			}
+		}
+	}
+	close(cosmosCh)
+
+	// Apply EVM changes by version
+	for version, evmChanges := range evmChangesByVersion {
+		if err := s.evmStore.ApplyChangesetParallel(version, evmChanges); err != nil {
+			s.logger.Error("failed to raw import EVM data", "version", version, "error", err)
+		}
+	}
+
+	wg.Wait()
+	return cosmosErr
 }
 
-// Prune removes old versions
+// Prune removes old versions from both stores
 func (s *CompositeStateStore) Prune(version int64) error {
 	// Prune both stores
 	if s.evmStore != nil {
