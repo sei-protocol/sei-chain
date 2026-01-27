@@ -75,13 +75,13 @@ type parquetReceiptStore struct {
 	blocksSinceFlush uint64
 	blocksInFile     uint64
 
-	reader          *parquetReader
-	storeKey        sdk.StoreKey
-	wal             dbwal.GenericWAL[parquetWALEntry]
-	latestVersion   atomic.Int64
-	earliestVersion atomic.Int64
-	warmupReceipts  []ReceiptRecord
-	closeOnce       sync.Once
+	reader             *parquetReader
+	storeKey           sdk.StoreKey
+	wal                dbwal.GenericWAL[parquetWALEntry]
+	latestVersion      atomic.Int64
+	earliestVersion    atomic.Int64
+	warmupCacheRecords []ReceiptRecord
+	closeOnce          sync.Once
 }
 
 func newParquetReceiptStore(log dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
@@ -172,9 +172,9 @@ func (s *parquetReceiptStore) warmupReceipts() []ReceiptRecord {
 	if s == nil {
 		return nil
 	}
-	receipts := s.warmupReceipts
-	s.warmupReceipts = nil
-	return receipts
+	records := s.warmupCacheRecords
+	s.warmupCacheRecords = nil
+	return records
 }
 
 func (s *parquetReceiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
@@ -615,7 +615,7 @@ func (s *parquetReceiptStore) replayWAL() error {
 		}
 
 		txHash := common.HexToHash(receipt.TxHashHex)
-		s.warmupReceipts = append(s.warmupReceipts, ReceiptRecord{
+		s.warmupCacheRecords = append(s.warmupCacheRecords, ReceiptRecord{
 			TxHash:  txHash,
 			Receipt: receipt,
 		})
