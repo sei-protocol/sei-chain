@@ -29,6 +29,15 @@ type BaseViewKeeper struct {
 	storeKey  sdk.StoreKey
 	ak        types.AccountKeeper
 	cacheSize int
+	// UseRegularStore when true causes GetKVStore to use ctx.KVStore instead of ctx.GigaKVStore.
+	UseRegularStore bool
+}
+
+func (k BaseViewKeeper) GetKVStore(ctx sdk.Context) sdk.KVStore {
+	if k.UseRegularStore {
+		return ctx.KVStore(k.storeKey)
+	}
+	return ctx.GigaKVStore(k.storeKey)
 }
 
 // NewBaseViewKeeper returns a new BaseViewKeeper.
@@ -98,13 +107,13 @@ func (k BaseViewKeeper) SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk
 
 // getAccountStore gets the account store of the given address.
 func (k BaseViewKeeper) getAccountStore(ctx sdk.Context, addr sdk.AccAddress) prefix.Store {
-	store := ctx.GigaKVStore(k.storeKey)
+	store := k.GetKVStore(ctx)
 
 	return prefix.NewStore(store, types.CreateAccountBalancesPrefix(addr))
 }
 
 func (k BaseViewKeeper) GetWeiBalance(ctx sdk.Context, addr sdk.AccAddress) sdk.Int {
-	store := prefix.NewStore(ctx.GigaKVStore(k.storeKey), types.WeiBalancesPrefix)
+	store := prefix.NewStore(k.GetKVStore(ctx), types.WeiBalancesPrefix)
 	val := store.Get(addr)
 	if val == nil {
 		return sdk.ZeroInt()

@@ -225,7 +225,7 @@ func (k BaseKeeper) UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAdd
 
 // GetSupply retrieves the Supply from store
 func (k BaseKeeper) GetSupply(ctx sdk.Context, denom string) sdk.Coin {
-	store := ctx.GigaKVStore(k.storeKey)
+	store := k.GetKVStore(ctx)
 	supplyStore := prefix.NewStore(store, types.SupplyKey)
 
 	bz := supplyStore.Get([]byte(denom))
@@ -250,7 +250,7 @@ func (k BaseKeeper) GetSupply(ctx sdk.Context, denom string) sdk.Coin {
 
 // HasSupply checks if the supply coin exists in store.
 func (k BaseKeeper) HasSupply(ctx sdk.Context, denom string) bool {
-	store := ctx.GigaKVStore(k.storeKey)
+	store := k.GetKVStore(ctx)
 	supplyStore := prefix.NewStore(store, types.SupplyKey)
 	return supplyStore.Has([]byte(denom))
 }
@@ -258,7 +258,7 @@ func (k BaseKeeper) HasSupply(ctx sdk.Context, denom string) bool {
 // GetDenomMetaData retrieves the denomination metadata. returns the metadata and true if the denom exists,
 // false otherwise.
 func (k BaseKeeper) GetDenomMetaData(ctx sdk.Context, denom string) (types.Metadata, bool) {
-	store := ctx.GigaKVStore(k.storeKey)
+	store := k.GetKVStore(ctx)
 	store = prefix.NewStore(store, types.DenomMetadataKey(denom))
 
 	bz := store.Get([]byte(denom))
@@ -274,7 +274,7 @@ func (k BaseKeeper) GetDenomMetaData(ctx sdk.Context, denom string) (types.Metad
 
 // SetDenomMetaData sets the denominations metadata
 func (k BaseKeeper) SetDenomMetaData(ctx sdk.Context, denomMetaData types.Metadata) {
-	store := ctx.GigaKVStore(k.storeKey)
+	store := k.GetKVStore(ctx)
 	denomMetaDataStore := prefix.NewStore(store, types.DenomMetadataKey(denomMetaData.Base))
 
 	m := k.cdc.MustMarshal(&denomMetaData)
@@ -572,7 +572,7 @@ func (k BaseKeeper) SetSupply(ctx sdk.Context, coin sdk.Coin) {
 		panic(fmt.Errorf("unable to marshal amount value %v", err))
 	}
 
-	store := ctx.GigaKVStore(k.storeKey)
+	store := k.GetKVStore(ctx)
 	supplyStore := prefix.NewStore(store, types.SupplyKey)
 
 	// Bank invariants and IBC requires to remove zero coins.
