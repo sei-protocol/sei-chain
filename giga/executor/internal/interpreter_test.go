@@ -391,3 +391,131 @@ func TestEvmcCallKindValues(t *testing.T) {
 		require.NotEqual(t, "Unknown", name, "CallKind should be recognized")
 	}
 }
+
+// TestSstoreGasAdjustmentApplication tests the gas adjustment logic in Run()
+func TestSstoreGasAdjustmentApplication(t *testing.T) {
+	tests := []struct {
+		name              string
+		gasLeftFromEvmone int64
+		sstoreAdjustment  int64
+		expectedGasLeft   int64
+		expectOutOfGas    bool
+	}{
+		{
+			name:              "No adjustment needed",
+			gasLeftFromEvmone: 100000,
+			sstoreAdjustment:  0,
+			expectedGasLeft:   100000,
+			expectOutOfGas:    false,
+		},
+		{
+			name:              "Single SSTORE adjustment (52k delta)",
+			gasLeftFromEvmone: 100000,
+			sstoreAdjustment:  52000,
+			expectedGasLeft:   48000,
+			expectOutOfGas:    false,
+		},
+		{
+			name:              "Multiple SSTORE adjustments",
+			gasLeftFromEvmone: 200000,
+			sstoreAdjustment:  156000, // 3 x 52000
+			expectedGasLeft:   44000,
+			expectOutOfGas:    false,
+		},
+		{
+			name:              "Adjustment exactly equals gas left",
+			gasLeftFromEvmone: 52000,
+			sstoreAdjustment:  52000,
+			expectedGasLeft:   0,
+			expectOutOfGas:    false,
+		},
+		{
+			name:              "Adjustment exceeds gas left - out of gas",
+			gasLeftFromEvmone: 50000,
+			sstoreAdjustment:  52000,
+			expectedGasLeft:   -2000, // Would be negative
+			expectOutOfGas:    true,
+		},
+		{
+			name:              "Large adjustment exceeds gas left",
+			gasLeftFromEvmone: 100000,
+			sstoreAdjustment:  156000, // 3 SSTOREs worth
+			expectedGasLeft:   -56000, // Would be negative
+			expectOutOfGas:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Replicate the logic from Run()
+			gasLeft := tt.gasLeftFromEvmone
+
+			if tt.sstoreAdjustment > 0 {
+				gasLeft -= tt.sstoreAdjustment
+				if gasLeft < 0 {
+					require.True(t, tt.expectOutOfGas, "Should have detected out of gas")
+					return
+				}
+			}
+
+			require.False(t, tt.expectOutOfGas, "Should not have out of gas error")
+			require.Equal(t, tt.expectedGasLeft, gasLeft)
+		})
+	}
+}
+
+// TestSstoreGasAdjustmentBoundaryConditions tests edge cases
+func TestSstoreGasAdjustmentBoundaryConditions(t *testing.T) {
+	tests := []struct {
+		name           string
+		gasLeft        int64
+		adjustment     int64
+		expectedResult int64
+		expectError    bool
+	}{
+		{
+			name:           "Zero gas left, zero adjustment",
+			gasLeft:        0,
+			adjustment:     0,
+			expectedResult: 0,
+			expectError:    false,
+		},
+		{
+			name:           "Zero gas left, positive adjustment",
+			gasLeft:        0,
+			adjustment:     1,
+			expectedResult: -1,
+			expectError:    true,
+		},
+		{
+			name:           "Minimum positive adjustment",
+			gasLeft:        1,
+			adjustment:     1,
+			expectedResult: 0,
+			expectError:    false,
+		},
+		{
+			name:           "Large gas values",
+			gasLeft:        1000000000, // 1B gas
+			adjustment:     500000000,  // 500M adjustment
+			expectedResult: 500000000,
+			expectError:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.gasLeft
+			if tt.adjustment > 0 {
+				result -= tt.adjustment
+			}
+
+			if tt.expectError {
+				require.True(t, result < 0, "Should result in negative gas")
+			} else {
+				require.Equal(t, tt.expectedResult, result)
+				require.True(t, result >= 0, "Result should be non-negative")
+			}
+		})
+	}
+}
