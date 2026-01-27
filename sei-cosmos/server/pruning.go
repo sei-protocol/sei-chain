@@ -15,17 +15,35 @@ import (
 // PruningOptions. If a pruning strategy is provided, that will be parsed and
 // returned, otherwise, it is assumed custom pruning options are provided.
 func GetPruningOptionsFromFlags(appOpts types.AppOptions) (storetypes.PruningOptions, error) {
-	strategy := strings.ToLower(cast.ToString(appOpts.Get(FlagPruning)))
+	// New format (iavl.*) takes priority, fallback to legacy top-level keys for backward compatibility
+	strategy := cast.ToString(appOpts.Get(FlagIAVLPruning))
+	if strategy == "" {
+		strategy = cast.ToString(appOpts.Get(FlagPruning))
+	}
+	strategy = strings.ToLower(strategy)
 
 	switch strategy {
 	case storetypes.PruningOptionDefault, storetypes.PruningOptionNothing, storetypes.PruningOptionEverything:
 		return storetypes.NewPruningOptionsFromString(strategy), nil
 
 	case storetypes.PruningOptionCustom:
+		keepRecent := appOpts.Get(FlagIAVLPruningKeepRecent)
+		if keepRecent == nil {
+			keepRecent = appOpts.Get(FlagPruningKeepRecent)
+		}
+		keepEvery := appOpts.Get(FlagIAVLPruningKeepEvery)
+		if keepEvery == nil {
+			keepEvery = appOpts.Get(FlagPruningKeepEvery)
+		}
+		interval := appOpts.Get(FlagIAVLPruningInterval)
+		if interval == nil {
+			interval = appOpts.Get(FlagPruningInterval)
+		}
+
 		opts := storetypes.NewPruningOptions(
-			cast.ToUint64(appOpts.Get(FlagPruningKeepRecent)),
-			cast.ToUint64(appOpts.Get(FlagPruningKeepEvery)),
-			cast.ToUint64(appOpts.Get(FlagPruningInterval)),
+			cast.ToUint64(keepRecent),
+			cast.ToUint64(keepEvery),
+			cast.ToUint64(interval),
 		)
 
 		if err := opts.Validate(); err != nil {

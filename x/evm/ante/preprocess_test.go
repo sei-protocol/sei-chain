@@ -300,7 +300,7 @@ func TestMigrateBalance(t *testing.T) {
 			sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))), math.MaxInt64, admin),
 	))
 	associateHelper := helpers.NewAssociationHelper(k, k.BankKeeper(), k.AccountKeeper())
-	require.Nil(t, associateHelper.MigrateBalance(ctx, evmAddr, seiAddr))
+	require.Nil(t, associateHelper.MigrateBalance(ctx, evmAddr, seiAddr, false))
 	require.Equal(t, int64(1), k.BankKeeper().SpendableCoins(ctx, seiAddr).AmountOf("usei").Int64())
 	require.Equal(t, int64(0), k.BankKeeper().LockedCoins(ctx, seiAddr).AmountOf("usei").Int64())
 	require.Equal(t, int64(0), k.BankKeeper().SpendableCoins(ctx, sdk.AccAddress(evmAddr[:])).AmountOf("usei").Int64())

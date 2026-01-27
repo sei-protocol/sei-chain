@@ -54,10 +54,19 @@ const (
 	FlagProfile            = "profile"
 	FlagInvCheckPeriod     = "inv-check-period"
 
-	FlagPruning                      = "pruning"
-	FlagPruningKeepRecent            = "pruning-keep-recent"
-	FlagPruningKeepEvery             = "pruning-keep-every"
-	FlagPruningInterval              = "pruning-interval"
+	// Legacy pruning flags (kept for backward compatibility)
+	FlagPruning           = "pruning"
+	FlagPruningKeepRecent = "pruning-keep-recent"
+	FlagPruningKeepEvery  = "pruning-keep-every"
+	FlagPruningInterval   = "pruning-interval"
+
+	// New pruning config keys under [iavl] section (v6.3.0+)
+	// TODO: Remove legacy fallback once all nodes have migrated to v6.3.0+
+	FlagIAVLPruning           = "iavl.pruning"
+	FlagIAVLPruningKeepRecent = "iavl.pruning-keep-recent"
+	FlagIAVLPruningKeepEvery  = "iavl.pruning-keep-every"
+	FlagIAVLPruningInterval   = "iavl.pruning-interval"
+
 	FlagIndexEvents                  = "index-events"
 	FlagMinRetainBlocks              = "min-retain-blocks"
 	FlagIAVLCacheSize                = "iavl-cache-size"

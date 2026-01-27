@@ -1,0 +1,51 @@
+name: Build libwasmvm
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to checkout (branch, tag, or SHA)'
+        required: false
+        type: string
+        default: ''
+  push:
+    branches:
+      - main
+      - release/**
+
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+
+defaults:
+  run:
+    working-directory: sei-wasmvm
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - release-build-alpine
+          - release-build-linux
+          - release-build-macos
+    steps:
+      - uses: actions/checkout@v6
+        with:
+           ref: ${{ inputs.ref || github.sha }}
+      - name: Build
+        run: |
+          mkdir -p libwasmvm/artifacts
+          make ${{ matrix.target }}
+          ls -alh internal/api
+      - name: Upload libraries
+        uses: actions/upload-artifact@v5
+        with:
+          name: libwasmvm-${{ matrix.target }}-${{ inputs.ref || github.sha }}
+          path: |
+            sei-wasmvm/internal/api/*.h
+            sei-wasmvm/internal/api/*.so
+            sei-wasmvm/internal/api/*.a
+            sei-wasmvm/internal/api/*.dylib
+          if-no-files-found: warn
