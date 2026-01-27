@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding"
 	"errors"
-	"time"
 	"sync/atomic"
+	"time"
 )
 
 // IgnoreCancel returns nil if the error is context.Canceled, err otherwise.
@@ -37,8 +37,8 @@ func WithTimeout(ctx context.Context, d time.Duration, f func(ctx context.Contex
 
 // WithTimeout executes a function with a timeout.
 func WithOptTimeout(ctx context.Context, d Option[time.Duration], f func(ctx context.Context) error) error {
-	if d,ok := d.Get(); ok {
-		return WithTimeout(ctx,d,f)
+	if d, ok := d.Get(); ok {
+		return WithTimeout(ctx, d, f)
 	}
 	return f(ctx)
 }
@@ -141,8 +141,8 @@ func (d Duration) Seconds() float64 {
 
 // Once is an idempotent signal.
 type Once struct {
-	_ NoCopy
-	ch chan struct{}
+	_    NoCopy
+	ch   chan struct{}
 	done atomic.Bool
 }
 
@@ -152,11 +152,13 @@ func NewOnce() (o Once) {
 }
 
 func (o *Once) Send() {
-	if o.done.Swap(true) { return }
+	if o.done.Swap(true) {
+		return
+	}
 	close(o.ch)
 }
 
 func (o *Once) Recv(ctx context.Context) error {
-	_,_,err := RecvOrClosed(ctx,o.ch)
+	_, _, err := RecvOrClosed(ctx, o.ch)
 	return err
 }

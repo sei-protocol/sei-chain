@@ -20,7 +20,7 @@ type GigaRouterConfig struct {
 
 type GigaRouter struct {
 	cfg     *GigaRouterConfig
-	key NodeSecretKey
+	key     NodeSecretKey
 	poolIn  *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
 }
@@ -28,7 +28,7 @@ type GigaRouter struct {
 func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) *GigaRouter {
 	return &GigaRouter{
 		cfg:     cfg,
-		key: key,
+		key:     key,
 		poolIn:  giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 		poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
 	}

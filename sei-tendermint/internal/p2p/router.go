@@ -90,7 +90,7 @@ func NewRouter(
 		started:          make(chan struct{}),
 	}
 	if gigaCfg, ok := options.Giga.Get(); ok {
-		router.giga = utils.Some(NewGigaRouter(gigaCfg,privKey))
+		router.giga = utils.Some(NewGigaRouter(gigaCfg, privKey))
 	}
 	router.BaseService = service.NewBaseService(logger, "router", router)
 	return router, nil
@@ -384,8 +384,8 @@ func (r *Router) Run(ctx context.Context) error {
 		s.SpawnNamed("dialPeers", func() error { return r.dialPeersRoutine(ctx) })
 		s.SpawnNamed("storePeers", func() error { return r.storePeersRoutine(ctx) })
 		s.SpawnNamed("metrics", func() error { return r.metricsRoutine(ctx) })
-		if giga,ok := r.giga.Get(); ok {
-			s.SpawnNamed("giga",func() error { return giga.Run(ctx) })
+		if giga, ok := r.giga.Get(); ok {
+			s.SpawnNamed("giga", func() error { return giga.Run(ctx) })
 		}
 		return nil
 	})
