@@ -69,8 +69,7 @@ grep "gas_mismatch\|result_code\|state_mismatch\|balance_mismatch" results.log
 ```json
 {
   "skipped_tests": {
-    "stCategory/TestName": "reason (e.g., gas_mismatch)",
-    "stCreate2/CREATE2_Bounds": "gas_mismatch"
+    "category/relPath.json/FullTestNameFromJSON/index": "reason"
   },
   "skipped_categories": [
     "stTimeConsuming"
@@ -81,11 +80,38 @@ grep "gas_mismatch\|result_code\|state_mismatch\|balance_mismatch" results.log
 }
 ```
 
+### Test Name Format for `skipped_tests`
+
+The test name key must match the exact format used internally. Get the correct format from the test summary output:
+
+```bash
+# Run tests and look for failure summary lines starting with "- category/..."
+grep -E "^\s+- category/" /tmp/results.log
+```
+
+**Format:** `category/relPath/FullJSONKey/index`
+
+- `category` - The STATE_TEST_DIR value (e.g., `Shanghai`, `stTransactionTest`)
+- `relPath` - Relative path from category dir to the .json file (e.g., `subdir/test.json` or just `test.json`)
+- `FullJSONKey` - The full key from inside the JSON file (includes `GeneralStateTests/...`)
+- `index` - Optional subtest index (e.g., `/5`) if the test has multiple post states
+
+**Examples:**
+
+```json
+{
+  "skipped_tests": {
+    "Shanghai/stEIP3651-warmcoinbase/coinbaseWarmAccountCallGas.json/GeneralStateTests/Shanghai/stEIP3651-warmcoinbase/coinbaseWarmAccountCallGas.json::coinbaseWarmAccountCallGas-fork_[Cancun-Prague]-d[0-7]g0v0/5": "gas_mismatch",
+    "stTransactionTest/HighGasPriceParis.json/GeneralStateTests/stTransactionTest/HighGasPriceParis.json::HighGasPriceParis-fork_[Cancun-Prague]-d0g0v0": "fee_out_of_bound"
+  }
+}
+```
+
 ### Per-test vs Per-category skipping
 
 - Use `skipped_tests` for specific failing tests (allows passing tests to run)
 - Use `skipped_categories` only for categories not yet analyzed or with extensive failures
-- `skipped_category_reasons` tracks analysis status
+- `skipped_category_reasons` tracks analysis status (use "ENABLED:" prefix for categories with individual test skips)
 
 ## Failure Types
 
@@ -106,6 +132,12 @@ grep "gas_mismatch\|result_code\|state_mismatch\|balance_mismatch" results.log
 
 - stExample, stSLoadTest, stChainId, stCodeCopyTest, stExpectSection, stEIP158Specific
 - stLogTests, stShift, stHomesteadSpecific, stAttackTest, stRecursiveCreate
+
+### Categories enabled with individual test skips
+
+- Shanghai (26/27 passing, 1 skipped)
+- stArgsZeroOneBalance (91/96 passing, 5 skipped)
+- stTransactionTest (248/259 passing, 11 skipped)
 
 ### Categories needing longer timeout (>20min)
 
@@ -128,9 +160,25 @@ grep "gas_mismatch\|result_code\|state_mismatch\|balance_mismatch" results.log
 
 3. **If 100% pass:** Remove from `skipped_categories`
 
-4. **If failures:** Extract failing test names and add to `skipped_tests`:
+4. **If failures:** Extract failing test names from summary output and add to `skipped_tests`:
    ```bash
-   grep -e "FAIL:" /tmp/results.log | grep "stNewCategory"
+   # Get exact test names from the summary section
+   grep -E "^\s+- stNewCategory/" /tmp/results.log
    ```
 
-5. **Update `skipped_category_reasons` with summary**
+5. **Update skip_list.json:**
+   - Add failing tests to `skipped_tests` with failure reason
+   - Remove category from `skipped_categories`
+   - Update `skipped_category_reasons` with "ENABLED:" prefix and summary
+
+6. **Verify tests pass:**
+   ```bash
+   STATE_TEST_DIR=stNewCategory go test -v -run TestGigaVsV2_StateTests ./giga/tests/... -timeout 10m
+   ```
+
+7. **Commit and push after each batch:**
+   ```bash
+   git add giga/tests/data/skip_list.json
+   git commit -m "Enable stNewCategory state tests (X/Y passing)"
+   git push
+   ```
