@@ -25,7 +25,6 @@
     "stExtCodeHash",
     "stHomesteadSpecific",
     "stInitCodeTest",
-    "stLogTests",
     "stMemExpandingEIP150Calls",
     "stMemoryStressTest",
     "stMemoryTest",
@@ -85,6 +84,11 @@
     "stPreCompiledContracts": "TIMED_OUT: needs re-run with longer timeout",
     "stRevertTest": "ANALYZED: 44/271 tests pass. 227 failures",
     "stReturnDataTest": "ANALYZED: 126/273 tests pass. 147 failures",
-    "stSystemOperationsTest": "ANALYZED: 63/83 tests pass. 20 failures"
+    "stSystemOperationsTest": "ANALYZED: 63/83 tests pass. 20 failures",
+    "stLogTests": "ANALYZED: 46/46 tests pass. All passing.",
+    "stSpecialTest": "ANALYZED: 21/22 tests pass. 1 failure",
+    "stNonZeroCallsTest": "ANALYZED: 21/24 tests pass. 3 failures",
+    "stArgsZeroOneBalance": "ANALYZED: 91/96 tests pass. 5 failures",
+    "stStaticCall": "TIMED_OUT: needs re-run with longer timeout"
   }
 }
