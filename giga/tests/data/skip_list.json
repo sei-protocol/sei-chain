@@ -103,6 +103,10 @@
     "stEIP1559": "TIMED_OUT: needs re-run with longer timeout",
     "stZeroKnowledge": "ANALYZED: 380/944 tests pass. 564 failures",
     "stZeroKnowledge2": "ANALYZED: 286/519 tests pass. 233 failures",
-    "stPreCompiledContracts2": "ANALYZED: 118/160 tests pass. 42 failures"
+    "stPreCompiledContracts2": "ANALYZED: 118/160 tests pass. 42 failures",
+    "stMemoryStressTest": "ANALYZED: 13/82 tests pass. 69 failures",
+    "stRandom": "ANALYZED: 256/310 tests pass. 54 failures",
+    "stRandom2": "ANALYZED: 173/221 tests pass. 48 failures",
+    "stSStoreTest": "ANALYZED: 145/475 tests pass. 330 failures"
   }
 }
