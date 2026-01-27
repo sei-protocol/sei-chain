@@ -96,6 +96,9 @@
     "stWalletTest": "ANALYZED: 41/46 tests pass. 5 failures",
     "stTransitionTest": "ANALYZED: 3/6 tests pass. 3 failures",
     "stRecursiveCreate": "ANALYZED: 2/2 tests pass. All passing.",
-    "stTransactionTest": "ANALYZED: 248/259 tests pass. 11 failures"
+    "stTransactionTest": "ANALYZED: 248/259 tests pass. 11 failures",
+    "stZeroCallsTest": "ANALYZED: 20/24 tests pass. 4 failures",
+    "stZeroCallsRevert": "ANALYZED: 0/16 tests pass. 16 failures",
+    "stStaticFlagEnabled": "ANALYZED: 28/34 tests pass. 6 failures"
   }
 }
