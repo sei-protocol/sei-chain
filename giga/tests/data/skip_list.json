@@ -65,6 +65,6 @@
     "stZeroKnowledge2"
   ],
   "skipped_category_reasons": {
-    "stExample": "ANALYZED: 37/39 tests pass. 2 failures: mergeTest and eip1559 (storage mismatches).",
+    "stExample": "ANALYZED: 37/39 tests pass. 2 failures: mergeTest and eip1559 (storage mismatches)."
   }
 }
