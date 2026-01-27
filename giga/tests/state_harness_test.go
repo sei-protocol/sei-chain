@@ -3,6 +3,7 @@ package giga_test
 import (
 	"bytes"
 	"fmt"
+	"math/big"
 	"os"
 	"strings"
 	"testing"
@@ -40,21 +41,23 @@ type BankKeeperInterface interface {
 	MintCoins(ctx sdk.Context, moduleName string, amt sdk.Coins) error
 	SendCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
 	AddWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int) error
+	GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin
 }
 
 // FailureType categorizes the type of test failure
 type FailureType string
 
 const (
-	FailureTypeResultCode    FailureType = "result_code"
-	FailureTypeGasMismatch   FailureType = "gas_mismatch"
-	FailureTypeStateMismatch FailureType = "state_mismatch"
-	FailureTypeCodeMismatch  FailureType = "code_mismatch"
-	FailureTypeNonceMismatch FailureType = "nonce_mismatch"
-	FailureTypeErrorMismatch FailureType = "error_mismatch"
-	FailureTypeV2Error       FailureType = "v2_error"
-	FailureTypeGigaError     FailureType = "giga_error"
-	FailureTypeUnknown       FailureType = "unknown"
+	FailureTypeResultCode      FailureType = "result_code"
+	FailureTypeGasMismatch     FailureType = "gas_mismatch"
+	FailureTypeStateMismatch   FailureType = "state_mismatch"
+	FailureTypeCodeMismatch    FailureType = "code_mismatch"
+	FailureTypeNonceMismatch   FailureType = "nonce_mismatch"
+	FailureTypeBalanceMismatch FailureType = "balance_mismatch"
+	FailureTypeErrorMismatch   FailureType = "error_mismatch"
+	FailureTypeV2Error         FailureType = "v2_error"
+	FailureTypeGigaError       FailureType = "giga_error"
+	FailureTypeUnknown         FailureType = "unknown"
 )
 
 // TestResult captures the outcome of a state test comparison
@@ -313,8 +316,18 @@ func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harnes
 			}
 		}
 
-		// Note: Gas comparison is intentionally skipped for now
-		// TODO: Re-enable gas comparison once Giga executor gas accounting is finalized
+		// Compare gas used
+		if v2Results[i].GasUsed != gigaResults[i].GasUsed {
+			return TestResult{
+				Passed:      false,
+				FailureType: FailureTypeGasMismatch,
+				Message:     fmt.Sprintf("tx[%d] gas mismatch: V2=%d, Giga=%d", i, v2Results[i].GasUsed, gigaResults[i].GasUsed),
+				Details: []string{
+					fmt.Sprintf("V2 gas used: %d", v2Results[i].GasUsed),
+					fmt.Sprintf("Giga gas used: %d", gigaResults[i].GasUsed),
+				},
+			}
+		}
 	}
 
 	// --- Compare V2 vs Giga post-state ---
@@ -334,8 +347,8 @@ func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harnes
 
 	// --- Verify post-state against fixture (if configured and available) ---
 	if config.VerifyEthereumSpec && len(post.State) > 0 {
-		v2Diffs := verifyPostStateWithResult(t, v2Ctx.Ctx, v2Ctx.EvmKeeper(), post.State, "V2")
-		gigaDiffs := verifyPostStateWithResult(t, gigaCtx.Ctx, gigaCtx.EvmKeeper(), post.State, "Giga")
+		v2Diffs := verifyPostStateWithResult(t, v2Ctx.Ctx, v2Ctx.EvmKeeper(), v2Ctx.BankKeeper(), post.State, "V2")
+		gigaDiffs := verifyPostStateWithResult(t, gigaCtx.Ctx, gigaCtx.EvmKeeper(), gigaCtx.BankKeeper(), post.State, "Giga")
 
 		// Log any fixture verification differences
 		if len(v2Diffs) > 0 {
@@ -392,9 +405,27 @@ func comparePostStates(_ *testing.T, v2Ctx, gigaCtx *StateTestContext, preState 
 	var diffs []StateDiff
 	v2Keeper := v2Ctx.EvmKeeper()
 	gigaKeeper := gigaCtx.EvmKeeper()
+	v2Bank := v2Ctx.BankKeeper()
+	gigaBank := gigaCtx.BankKeeper()
 
 	// Compare state for all addresses in pre-state
 	for addr := range preState {
+		// Get Sei address from EVM address
+		seiAddr := v2Keeper.GetSeiAddressOrDefault(v2Ctx.Ctx, addr)
+
+		// Compare balance (usei)
+		v2Balance := v2Bank.GetBalance(v2Ctx.Ctx, seiAddr, "usei")
+		gigaBalance := gigaBank.GetBalance(gigaCtx.Ctx, seiAddr, "usei")
+		if !v2Balance.Amount.Equal(gigaBalance.Amount) {
+			diffs = append(diffs, StateDiff{
+				Type:     FailureTypeBalanceMismatch,
+				Address:  addr,
+				Summary:  fmt.Sprintf("balance V2=%s, Giga=%s", v2Balance.String(), gigaBalance.String()),
+				Expected: v2Balance.String(),
+				Actual:   gigaBalance.String(),
+			})
+		}
+
 		// Compare nonce
 		v2Nonce := v2Keeper.GetNonce(v2Ctx.Ctx, addr)
 		gigaNonce := gigaKeeper.GetNonce(gigaCtx.Ctx, addr)
@@ -441,10 +472,32 @@ func comparePostStates(_ *testing.T, v2Ctx, gigaCtx *StateTestContext, preState 
 }
 
 // verifyPostStateWithResult verifies state and returns detailed diffs
-func verifyPostStateWithResult(t *testing.T, ctx sdk.Context, keeper EvmKeeperInterface, expectedState ethtypes.GenesisAlloc, executorName string) []StateDiff {
+func verifyPostStateWithResult(t *testing.T, ctx sdk.Context, keeper EvmKeeperInterface, bankKeeper BankKeeperInterface, expectedState ethtypes.GenesisAlloc, executorName string) []StateDiff {
 	var diffs []StateDiff
 
 	for addr, expectedAccount := range expectedState {
+		// Verify balance
+		seiAddr := keeper.GetSeiAddressOrDefault(ctx, addr)
+		actualCoin := bankKeeper.GetBalance(ctx, seiAddr, "usei")
+		actualBalance := actualCoin.Amount.BigInt()
+
+		expectedBalance := expectedAccount.Balance
+		if expectedBalance == nil {
+			expectedBalance = big.NewInt(0)
+		}
+
+		if actualBalance.Cmp(expectedBalance) != 0 {
+			diffs = append(diffs, StateDiff{
+				Type:     FailureTypeBalanceMismatch,
+				Address:  addr,
+				Summary:  fmt.Sprintf("balance expected=%s, actual=%s", expectedBalance.String(), actualBalance.String()),
+				Expected: expectedBalance.String(),
+				Actual:   actualBalance.String(),
+			})
+			t.Logf("%s: balance mismatch for %s: expected %s, got %s",
+				executorName, addr.Hex(), expectedBalance.String(), actualBalance.String())
+		}
+
 		// Verify storage
 		for key, expectedValue := range expectedAccount.Storage {
 			actualValue := keeper.GetState(ctx, addr, key)
@@ -489,9 +542,6 @@ func verifyPostStateWithResult(t *testing.T, ctx sdk.Context, keeper EvmKeeperIn
 			t.Logf("%s: code mismatch for %s: expected %d bytes, got %d bytes",
 				executorName, addr.Hex(), len(expectedAccount.Code), len(actualCode))
 		}
-
-		// Note: Balance verification is intentionally skipped due to Sei-specific gas handling
-		// (limiting EVM max refund to 150% of used gas)
 	}
 
 	return diffs
