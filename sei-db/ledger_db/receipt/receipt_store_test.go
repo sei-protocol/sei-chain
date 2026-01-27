@@ -78,7 +78,13 @@ func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, store)
 
-	cfg.Backend = "pebbledb"
+	cfg.Backend = "pebble"
+	store, err = receipt.NewReceiptStore(nil, cfg, storeKey)
+	require.NoError(t, err)
+	require.NotNil(t, store)
+	require.NoError(t, store.Close())
+
+	cfg.Backend = "parquet"
 	store, err = receipt.NewReceiptStore(nil, cfg, storeKey)
 	require.NoError(t, err)
 	require.NotNil(t, store)
@@ -157,6 +163,40 @@ func TestSetReceiptsAsync(t *testing.T) {
 		_, err := store.GetReceipt(ctx, txHash)
 		return err == nil
 	}, 2*time.Second, 10*time.Millisecond)
+}
+
+func TestReceiptStorePebbleBackendBasic(t *testing.T) {
+	storeKey := storetypes.NewKVStoreKey("evm")
+	tkey := storetypes.NewTransientStoreKey("evm_transient")
+	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(0)
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.DBDirectory = t.TempDir()
+	cfg.KeepRecent = 0
+	cfg.Backend = "pebble"
+
+	store, err := receipt.NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	txHash := common.HexToHash("0x55")
+	addr := common.HexToAddress("0x500")
+	topic := common.HexToHash("0x501")
+	r := makeReceipt(txHash, addr, []common.Hash{topic}, 0)
+
+	require.NoError(t, store.SetReceipts(ctx, []receipt.ReceiptRecord{{TxHash: txHash, Receipt: r}}))
+
+	got, err := store.GetReceipt(ctx, txHash)
+	require.NoError(t, err)
+	require.Equal(t, r.TxHashHex, got.TxHashHex)
+
+	blockHash := common.HexToHash("0xf00")
+	logs, err := store.FilterLogs(ctx, 1, blockHash, []common.Hash{txHash}, filters.FilterCriteria{
+		Addresses: []common.Address{addr},
+		Topics:    [][]common.Hash{{topic}},
+	}, true)
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	require.Equal(t, blockHash, logs[0].BlockHash)
 }
 
 func TestFilterLogs(t *testing.T) {
@@ -248,15 +288,15 @@ func TestRecoverReceiptStoreReplaysChangelog(t *testing.T) {
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.DBDirectory = dir
 	cfg.KeepRecent = 0
-	dbCfg := dbconfig.StateStoreConfig{
-		DBDirectory:          cfg.DBDirectory,
-		Backend:              cfg.Backend,
-		AsyncWriteBuffer:     cfg.AsyncWriteBuffer,
-		KeepRecent:           cfg.KeepRecent,
-		PruneIntervalSeconds: cfg.PruneIntervalSeconds,
-		UseDefaultComparer:   cfg.UseDefaultComparer,
+	ssConfig := dbconfig.DefaultStateStoreConfig()
+	ssConfig.DBDirectory = cfg.DBDirectory
+	ssConfig.KeepRecent = cfg.KeepRecent
+	if cfg.PruneIntervalSeconds > 0 {
+		ssConfig.PruneIntervalSeconds = cfg.PruneIntervalSeconds
 	}
-	db, err := mvcc.OpenDB(dir, dbCfg)
+	ssConfig.KeepLastVersion = false
+	ssConfig.Backend = "pebbledb"
+	db, err := mvcc.OpenDB(dir, ssConfig)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 

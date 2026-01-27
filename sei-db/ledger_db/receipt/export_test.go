@@ -8,9 +8,9 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-// NilReceiptStore returns a nil *receiptStore for testing nil receiver behavior.
+// NilReceiptStore returns a nil *cachedReceiptStore for testing nil receiver behavior.
 func NilReceiptStore() ReceiptStore {
-	return (*receiptStore)(nil)
+	return (*cachedReceiptStore)(nil)
 }
 
 // MatchTopics exposes matchTopics for testing.

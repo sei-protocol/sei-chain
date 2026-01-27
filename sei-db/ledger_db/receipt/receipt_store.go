@@ -54,41 +54,70 @@ type receiptStore struct {
 	closeOnce   sync.Once
 }
 
+const (
+	receiptBackendPebble  = "pebble"
+	receiptBackendParquet = "parquet"
+)
+
+func normalizeReceiptBackend(backend string) string {
+	switch strings.ToLower(strings.TrimSpace(backend)) {
+	case "", "pebbledb", receiptBackendPebble:
+		return receiptBackendPebble
+	case receiptBackendParquet:
+		return receiptBackendParquet
+	default:
+		return strings.ToLower(strings.TrimSpace(backend))
+	}
+}
+
 func NewReceiptStore(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
+	backend, err := newReceiptBackend(log, config, storeKey)
+	if err != nil {
+		return nil, err
+	}
+	return newCachedReceiptStore(backend), nil
+}
+
+func newReceiptBackend(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
 	if log == nil {
 		log = dbLogger.NewNopLogger()
 	}
 	if config.DBDirectory == "" {
 		return nil, errors.New("receipt store db directory not configured")
 	}
-	if config.Backend != "" && config.Backend != "pebbledb" {
+
+	backend := normalizeReceiptBackend(config.Backend)
+	switch backend {
+	case receiptBackendParquet:
+		return newParquetReceiptStore(log, config, storeKey)
+	case receiptBackendPebble:
+		ssConfig := dbconfig.DefaultStateStoreConfig()
+		ssConfig.DBDirectory = config.DBDirectory
+		ssConfig.KeepRecent = config.KeepRecent
+		if config.PruneIntervalSeconds > 0 {
+			ssConfig.PruneIntervalSeconds = config.PruneIntervalSeconds
+		}
+		ssConfig.KeepLastVersion = false
+		ssConfig.Backend = "pebbledb"
+
+		db, err := mvcc.OpenDB(ssConfig.DBDirectory, ssConfig)
+		if err != nil {
+			return nil, err
+		}
+		if err := recoverReceiptStore(log, dbutils.GetChangelogPath(ssConfig.DBDirectory), db); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		stopPruning := make(chan struct{})
+		startReceiptPruning(log, db, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds), stopPruning)
+		return &receiptStore{
+			db:          db,
+			storeKey:    storeKey,
+			stopPruning: stopPruning,
+		}, nil
+	default:
 		return nil, fmt.Errorf("unsupported receipt store backend: %s", config.Backend)
 	}
-
-	dbConfig := dbconfig.StateStoreConfig{
-		DBDirectory:          config.DBDirectory,
-		Backend:              config.Backend,
-		AsyncWriteBuffer:     config.AsyncWriteBuffer,
-		KeepRecent:           config.KeepRecent,
-		PruneIntervalSeconds: config.PruneIntervalSeconds,
-		UseDefaultComparer:   config.UseDefaultComparer,
-	}
-
-	db, err := mvcc.OpenDB(config.DBDirectory, dbConfig)
-	if err != nil {
-		return nil, err
-	}
-	if err := recoverReceiptStore(log, dbutils.GetChangelogPath(config.DBDirectory), db); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	stopPruning := make(chan struct{})
-	startReceiptPruning(log, db, int64(config.KeepRecent), int64(config.PruneIntervalSeconds), stopPruning)
-	return &receiptStore{
-		db:          db,
-		storeKey:    storeKey,
-		stopPruning: stopPruning,
-	}, nil
 }
 
 func (s *receiptStore) LatestVersion() int64 {
@@ -218,60 +247,7 @@ func (s *receiptStore) FilterLogs(ctx sdk.Context, blockHeight int64, blockHash 
 	if len(txHashes) == 0 {
 		return []*ethtypes.Log{}, nil
 	}
-
-	hasFilters := len(crit.Addresses) != 0 || len(crit.Topics) != 0
-	var filterIndexes [][]bloomIndexes
-	if hasFilters {
-		filterIndexes = encodeFilters(crit.Addresses, crit.Topics)
-	}
-
-	logs := make([]*ethtypes.Log, 0)
-	totalLogs := uint(0)
-	evmTxIndex := 0
-
-	for _, txHash := range txHashes {
-		receipt, err := s.GetReceipt(ctx, txHash)
-		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", txHash.Hex()))
-			continue
-		}
-
-		txLogs := getLogsForTx(receipt, totalLogs)
-
-		if hasFilters {
-			if len(receipt.LogsBloom) == 0 || matchFilters(ethtypes.Bloom(receipt.LogsBloom), filterIndexes) {
-				if applyExactMatch {
-					for _, log := range txLogs {
-						log.TxIndex = uint(evmTxIndex)        //nolint:gosec
-						log.BlockNumber = uint64(blockHeight) //nolint:gosec
-						log.BlockHash = blockHash
-						if isLogExactMatch(log, crit) {
-							logs = append(logs, log)
-						}
-					}
-				} else {
-					for _, log := range txLogs {
-						log.TxIndex = uint(evmTxIndex)        //nolint:gosec
-						log.BlockNumber = uint64(blockHeight) //nolint:gosec
-						log.BlockHash = blockHash
-						logs = append(logs, log)
-					}
-				}
-			}
-		} else {
-			for _, log := range txLogs {
-				log.TxIndex = uint(evmTxIndex)        //nolint:gosec
-				log.BlockNumber = uint64(blockHeight) //nolint:gosec
-				log.BlockHash = blockHash
-				logs = append(logs, log)
-			}
-		}
-
-		totalLogs += uint(len(txLogs))
-		evmTxIndex++
-	}
-
-	return logs, nil
+	return filterLogsFromReceipts(ctx, blockHeight, blockHash, txHashes, crit, applyExactMatch, s.GetReceipt)
 }
 
 func (s *receiptStore) Close() error {
