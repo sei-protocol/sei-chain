@@ -2,15 +2,10 @@ package giga_test
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/sei-protocol/sei-chain/giga/tests/harness"
-	"github.com/stretchr/testify/require"
 )
 
 // TestSummary tracks test results for summary reporting
@@ -177,120 +172,13 @@ func (ts *TestSummary) PrintSummary(t *testing.T) {
 	t.Log(sb.String())
 }
 
-// Global test summary (shared across subtests)
-var globalSummary = NewTestSummary()
-
 // TestGigaVsV2_StateTests runs state tests comparing Giga vs V2 execution
 //
 // Usage: STATE_TEST_DIR=stChainId go test -v -run TestGigaVsV2_StateTests ./giga/tests/...
 // Usage with test name filter: STATE_TEST_DIR=stExample STATE_TEST_NAME=add11 go test -v -run TestGigaVsV2_StateTests ./giga/tests/...
 func TestGigaVsV2_StateTests(t *testing.T) {
-	stateTestsPath, err := harness.GetStateTestsPath()
-	require.NoError(t, err, "failed to get path to state tests")
-
-	// Load skip list
-	skipList, err := harness.LoadSkipList()
-	require.NoError(t, err, "failed to load skip list")
-
-	// Allow filtering to specific directory via STATE_TEST_DIR env var
-	specificDir := os.Getenv("STATE_TEST_DIR")
-
-	// Allow filtering to specific test name via STATE_TEST_NAME env var
-	specificTestName := os.Getenv("STATE_TEST_NAME")
-
-	var testDirs []string
-	if specificDir != "" {
-		// Run only the specified directory
-		testDirs = []string{specificDir}
-	} else {
-		// Run all directories
-		entries, err := os.ReadDir(stateTestsPath)
-		require.NoError(t, err, "failed to read state tests directory")
-		for _, entry := range entries {
-			if entry.IsDir() {
-				testDirs = append(testDirs, entry.Name())
-			}
-		}
-	}
-
-	// Reset global summary for this run
-	globalSummary = NewTestSummary()
-
-	// Print summary at the end
-	t.Cleanup(func() {
-		globalSummary.PrintSummary(t)
-	})
-
-	if specificTestName != "" {
-		t.Logf("Filtering to tests matching: %s", specificTestName)
-	}
-
-	for _, dir := range testDirs {
-		// Check if entire category is skipped
-		if skipList.IsCategorySkipped(dir) {
-			t.Logf("Skipping category %s (in skip list)", dir)
-			continue
-		}
-
-		dirPath := filepath.Join(stateTestsPath, dir)
-		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-			t.Logf("Skipping %s - directory not found", dir)
-			continue
-		}
-
-		tests, err := harness.LoadStateTestsFromDir(dirPath)
-		require.NoError(t, err, "failed to load state tests from %s", dirPath)
-
-		for testName, st := range tests {
-			// Filter by test name if specified
-			if specificTestName != "" && !strings.Contains(testName, specificTestName) {
-				continue
-			}
-
-			// Run each subtest for Cancun fork (most recent stable)
-			cancunPosts, ok := st.Post["Cancun"]
-			if !ok {
-				// Try other forks
-				for fork := range st.Post {
-					cancunPosts = st.Post[fork]
-					break
-				}
-			}
-
-			for i, post := range cancunPosts {
-				subtestName := testName
-				if len(cancunPosts) > 1 {
-					subtestName = fmt.Sprintf("%s/%d", testName, i)
-				}
-
-				// Check skip list
-				if shouldSkip, reason := skipList.ShouldSkip(dir, subtestName); shouldSkip {
-					t.Run(subtestName, func(t *testing.T) {
-						globalSummary.RecordSkip(dir, subtestName, reason)
-						t.Skipf("Skipped: %s", reason)
-					})
-					continue
-				}
-
-				// Capture variables for closure
-				category := dir
-				testNameCopy := subtestName
-				stCopy := st
-				postCopy := post
-
-				t.Run(subtestName, func(t *testing.T) {
-					result := runStateTestComparisonWithResult(t, stCopy, postCopy)
-					if result.Passed {
-						globalSummary.RecordPass(category, testNameCopy)
-					} else {
-						globalSummary.RecordFailure(category, testNameCopy, result.FailureType, result.Message)
-						t.Errorf("State comparison failed: %s - %s", result.FailureType, result.Message)
-						for _, detail := range result.Details {
-							t.Logf("  %s", detail)
-						}
-					}
-				})
-			}
-		}
-	}
+	runStateTestSuite(t, ComparisonConfig{
+		GigaMode:      ModeGigaSequential,
+		VerifyFixture: true,
+	}, "Giga vs V2")
 }

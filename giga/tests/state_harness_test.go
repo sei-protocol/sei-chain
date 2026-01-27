@@ -209,8 +209,9 @@ func RunStateTestBlock(stc *StateTestContext, txs [][]byte) ([]abci.Event, []*ab
 	return events, results, err
 }
 
-// runStateTestComparisonWithResult runs a state test and returns detailed results
-func runStateTestComparisonWithResult(t *testing.T, st *harness.StateTestJSON, post harness.StateTestPost) TestResult {
+// runStateTestComparison runs a state test and returns detailed results.
+// The config parameter controls which Giga mode to use and whether to verify against fixtures.
+func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harness.StateTestPost, config ComparisonConfig) TestResult {
 	blockTime := time.Now()
 
 	// Build the transaction
@@ -239,8 +240,8 @@ func runStateTestComparisonWithResult(t *testing.T, st *harness.StateTestJSON, p
 
 	_, v2Results, v2Err := RunStateTestBlock(v2Ctx, [][]byte{txBytes})
 
-	// --- Run with Giga ---
-	gigaCtx := NewStateTestContext(t, blockTime, 1, ModeGigaSequential)
+	// --- Run with Giga (mode from config) ---
+	gigaCtx := NewStateTestContext(t, blockTime, 1, config.GigaMode)
 	gigaCtx.SetupPreState(t, st.Pre)
 	gigaCtx.SetupSender(sender)
 
@@ -332,8 +333,8 @@ func runStateTestComparisonWithResult(t *testing.T, st *harness.StateTestJSON, p
 		}
 	}
 
-	// --- Verify post-state against fixture (if available) ---
-	if len(post.State) > 0 {
+	// --- Verify post-state against fixture (if configured and available) ---
+	if config.VerifyFixture && len(post.State) > 0 {
 		v2Diffs := verifyPostStateWithResult(t, v2Ctx.Ctx, v2Ctx.EvmKeeper(), post.State, "V2")
 		gigaDiffs := verifyPostStateWithResult(t, gigaCtx.Ctx, gigaCtx.EvmKeeper(), post.State, "Giga")
 
@@ -369,6 +370,12 @@ type StateDiff struct {
 	Summary  string
 	Expected string
 	Actual   string
+}
+
+// ComparisonConfig configures how state test comparison runs
+type ComparisonConfig struct {
+	GigaMode      ExecutorMode // ModeGigaSequential or ModeGigaWithRegularStore
+	VerifyFixture bool         // Whether to verify against post-state fixture
 }
 
 // formatStateDiffs converts state diffs to string slice for logging
@@ -515,134 +522,9 @@ func VerifyPostState(t *testing.T, ctx sdk.Context, keeper *evmkeeper.Keeper, ex
 	}
 }
 
-// runV2VsGigaWithRegularStoreComparison runs a state test comparing V2 vs Giga with regular KVStore.
-// This isolates whether issues are in Giga executor logic vs GigaKVStore layer.
-// Both executors use EvmKeeper (regular KVStore), so if they match, the executor logic is correct.
-func runV2VsGigaWithRegularStoreComparison(t *testing.T, st *harness.StateTestJSON, post harness.StateTestPost) TestResult {
-	blockTime := time.Now()
-
-	// Build the transaction
-	signedTx, sender, err := harness.BuildTransaction(st, post)
-	if err != nil {
-		return TestResult{
-			Passed:      false,
-			FailureType: FailureTypeUnknown,
-			Message:     fmt.Sprintf("failed to build transaction: %v", err),
-		}
-	}
-
-	txBytes, err := harness.EncodeTxForApp(signedTx)
-	if err != nil {
-		return TestResult{
-			Passed:      false,
-			FailureType: FailureTypeUnknown,
-			Message:     fmt.Sprintf("failed to encode transaction: %v", err),
-		}
-	}
-
-	// --- Run with V2 Sequential (baseline) ---
-	v2Ctx := NewStateTestContext(t, blockTime, 1, ModeV2Sequential)
-	v2Ctx.SetupPreState(t, st.Pre)
-	v2Ctx.SetupSender(sender)
-
-	_, v2Results, v2Err := RunStateTestBlock(v2Ctx, [][]byte{txBytes})
-
-	// --- Run with Giga using regular KVStore ---
-	gigaCtx := NewStateTestContext(t, blockTime, 1, ModeGigaWithRegularStore)
-	gigaCtx.SetupPreState(t, st.Pre)
-	gigaCtx.SetupSender(sender)
-
-	_, gigaResults, gigaErr := RunStateTestBlock(gigaCtx, [][]byte{txBytes})
-
-	// --- Handle ExpectException cases ---
-	if post.ExpectException != "" {
-		v2Failed := v2Err != nil || (len(v2Results) > 0 && v2Results[0].Code != 0)
-		gigaFailed := gigaErr != nil || (len(gigaResults) > 0 && gigaResults[0].Code != 0)
-
-		if !v2Failed && !gigaFailed {
-			return TestResult{
-				Passed:      false,
-				FailureType: FailureTypeErrorMismatch,
-				Message:     fmt.Sprintf("expected exception %q but both executors succeeded", post.ExpectException),
-			}
-		}
-		return TestResult{Passed: true}
-	}
-
-	// --- Compare execution errors ---
-	if v2Err != nil && gigaErr != nil {
-		t.Logf("Both executors failed: v2=%v, giga=%v", v2Err, gigaErr)
-		return TestResult{Passed: true}
-	}
-	if v2Err != nil {
-		return TestResult{
-			Passed:      false,
-			FailureType: FailureTypeV2Error,
-			Message:     fmt.Sprintf("V2 execution failed but Giga succeeded: %v", v2Err),
-		}
-	}
-	if gigaErr != nil {
-		return TestResult{
-			Passed:      false,
-			FailureType: FailureTypeGigaError,
-			Message:     fmt.Sprintf("Giga execution failed but V2 succeeded: %v", gigaErr),
-		}
-	}
-
-	// --- Compare results ---
-	if len(v2Results) != len(gigaResults) {
-		return TestResult{
-			Passed:      false,
-			FailureType: FailureTypeUnknown,
-			Message:     fmt.Sprintf("result count mismatch: V2=%d, Giga=%d", len(v2Results), len(gigaResults)),
-		}
-	}
-
-	for i := range v2Results {
-		if v2Results[i].Code != gigaResults[i].Code {
-			details := []string{
-				fmt.Sprintf("V2: code=%d log=%q", v2Results[i].Code, v2Results[i].Log),
-				fmt.Sprintf("Giga: code=%d log=%q", gigaResults[i].Code, gigaResults[i].Log),
-			}
-			t.Logf("tx[%d] result code mismatch:", i)
-			for _, d := range details {
-				t.Logf("  %s", d)
-			}
-			return TestResult{
-				Passed:      false,
-				FailureType: FailureTypeResultCode,
-				Message:     fmt.Sprintf("tx[%d] V2 code=%d, Giga code=%d", i, v2Results[i].Code, gigaResults[i].Code),
-				Details:     details,
-			}
-		}
-	}
-
-	// --- Compare V2 vs Giga post-state (both use EvmKeeper/regular KVStore) ---
-	stateDiffs := comparePostStates(t, v2Ctx, gigaCtx, st.Pre)
-	if len(stateDiffs) > 0 {
-		t.Logf("V2 vs Giga (with regular store) state differences:")
-		for _, diff := range stateDiffs {
-			t.Logf("  %s", diff)
-		}
-		return TestResult{
-			Passed:      false,
-			FailureType: stateDiffs[0].Type,
-			Message:     stateDiffs[0].Summary,
-			Details:     formatStateDiffs(stateDiffs),
-		}
-	}
-
-	return TestResult{Passed: true}
-}
-
-// TestGigaWithRegularStore_StateTests runs state tests comparing V2 vs Giga with regular KVStore.
-// This test isolates whether issues are in the Giga executor logic vs the GigaKVStore layer.
-// If tests pass here but fail with normal Giga mode, the issue is in GigaKVStore integration.
-// If tests fail here, the issue is in the Giga executor logic itself.
-//
-// Usage: STATE_TEST_DIR=stChainId go test -v -run TestGigaWithRegularStore_StateTests ./giga/tests/...
-// Usage with test name filter: STATE_TEST_DIR=stExample STATE_TEST_NAME=add11 go test -v -run TestGigaWithRegularStore_StateTests ./giga/tests/...
-func TestGigaWithRegularStore_StateTests(t *testing.T) {
+// runStateTestSuite runs the state test suite with the given configuration.
+// This is the common test iteration logic shared by TestGigaVsV2_StateTests and TestGigaWithRegularStore_StateTests.
+func runStateTestSuite(t *testing.T, config ComparisonConfig, summaryName string) {
 	stateTestsPath, err := harness.GetStateTestsPath()
 	require.NoError(t, err, "failed to get path to state tests")
 
@@ -683,7 +565,7 @@ func TestGigaWithRegularStore_StateTests(t *testing.T) {
 
 	// Print summary at the end
 	t.Cleanup(func() {
-		t.Logf("\n=== Giga with Regular Store Test Summary ===")
+		t.Logf("\n=== %s Test Summary ===", summaryName)
 		summary.PrintSummary(t)
 	})
 
@@ -725,7 +607,7 @@ func TestGigaWithRegularStore_StateTests(t *testing.T) {
 			postCopy := post
 
 			t.Run(subtestName, func(t *testing.T) {
-				result := runV2VsGigaWithRegularStoreComparison(t, stCopy, postCopy)
+				result := runStateTestComparison(t, stCopy, postCopy, config)
 				if result.Passed {
 					summary.RecordPass(category, testNameCopy)
 				} else {
@@ -738,6 +620,20 @@ func TestGigaWithRegularStore_StateTests(t *testing.T) {
 			})
 		}
 	}
+}
+
+// TestGigaWithRegularStore_StateTests runs state tests comparing V2 vs Giga with regular KVStore.
+// This test isolates whether issues are in the Giga executor logic vs the GigaKVStore layer.
+// If tests pass here but fail with normal Giga mode, the issue is in GigaKVStore integration.
+// If tests fail here, the issue is in the Giga executor logic itself.
+//
+// Usage: STATE_TEST_DIR=stChainId go test -v -run TestGigaWithRegularStore_StateTests ./giga/tests/...
+// Usage with test name filter: STATE_TEST_DIR=stExample STATE_TEST_NAME=add11 go test -v -run TestGigaWithRegularStore_StateTests ./giga/tests/...
+func TestGigaWithRegularStore_StateTests(t *testing.T) {
+	runStateTestSuite(t, ComparisonConfig{
+		GigaMode:      ModeGigaWithRegularStore,
+		VerifyFixture: false,
+	}, "Giga with Regular Store")
 }
 
 // TestDebugStateTest runs a single state test with verbose output for debugging.
