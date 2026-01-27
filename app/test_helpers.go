@@ -13,6 +13,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking"
+	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
@@ -50,7 +51,6 @@ import (
 
 	xevmtypes "github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
-	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 )
 
 const TestContract = "TEST"
@@ -151,6 +151,9 @@ func NewGigaTestWrapperWithRegularStore(t *testing.T, tm time.Time, valPub crypt
 
 	// Configure GigaEvmKeeper to use regular KVStore instead of GigaKVStore
 	wrapper.App.GigaEvmKeeper.UseRegularStore = true
+
+	// Configure GigaBankKeeper to use regular KVStore instead of GigaKVStore
+	wrapper.App.GigaBankKeeper.UseRegularStore = true
 
 	// Initialize evmone VM if not already initialized
 	if wrapper.App.GigaEvmKeeper.EvmoneVM == nil {
