@@ -144,16 +144,8 @@ func (s *DBImpl) mockBalance(evmAddr common.Address) *uint256.Int {
 	}
 
 	moduleAddr := s.k.AccountKeeper().GetModuleAddress(types.ModuleName)
-	usei, wei := SplitUseiWeiAmount(amt)
+	usei, _ := SplitUseiWeiAmount(amt)
 	coinsAmt := sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei.Add(sdk.OneInt())))
-
-	s.ctx.Logger().Info("benchmark: Regular EVM mockBalance minting coins",
-		"evmAddr", evmAddr.Hex(),
-		"seiAddr", seiAddr.String(),
-		"useiToMint", usei.Add(sdk.OneInt()).String(),
-		"weiPart", wei.String(),
-		"height", s.ctx.BlockHeight(),
-		"txIndex", s.ctx.TxIndex())
 
 	// avoids flooding logs
 	if err := s.k.BankKeeper().MintCoins(s.ctx.WithLogger(log.NewNopLogger()), types.ModuleName, coinsAmt); err != nil {
