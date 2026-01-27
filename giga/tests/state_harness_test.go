@@ -334,7 +334,7 @@ func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harnes
 	}
 
 	// --- Verify post-state against fixture (if configured and available) ---
-	if config.VerifyFixture && len(post.State) > 0 {
+	if config.VerifyEthereumSpec && len(post.State) > 0 {
 		v2Diffs := verifyPostStateWithResult(t, v2Ctx.Ctx, v2Ctx.EvmKeeper(), post.State, "V2")
 		gigaDiffs := verifyPostStateWithResult(t, gigaCtx.Ctx, gigaCtx.EvmKeeper(), post.State, "Giga")
 
@@ -375,7 +375,7 @@ type StateDiff struct {
 // ComparisonConfig configures how state test comparison runs
 type ComparisonConfig struct {
 	GigaMode      ExecutorMode // ModeGigaSequential or ModeGigaWithRegularStore
-	VerifyFixture bool         // Whether to verify against post-state fixture
+	VerifyEthereumSpec bool // Whether to verify against Ethereum test spec expected post-state
 }
 
 // formatStateDiffs converts state diffs to string slice for logging
@@ -631,8 +631,8 @@ func runStateTestSuite(t *testing.T, config ComparisonConfig, summaryName string
 // Usage with test name filter: STATE_TEST_DIR=stExample STATE_TEST_NAME=add11 go test -v -run TestGigaWithRegularStore_StateTests ./giga/tests/...
 func TestGigaWithRegularStore_StateTests(t *testing.T) {
 	runStateTestSuite(t, ComparisonConfig{
-		GigaMode:      ModeGigaWithRegularStore,
-		VerifyFixture: false,
+		GigaMode:           ModeGigaWithRegularStore,
+		VerifyEthereumSpec: os.Getenv("VERIFY_ETHEREUM_SPEC") == "true",
 	}, "Giga with Regular Store")
 }
 

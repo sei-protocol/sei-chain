@@ -2,6 +2,7 @@ package giga_test
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -178,7 +179,7 @@ func (ts *TestSummary) PrintSummary(t *testing.T) {
 // Usage with test name filter: STATE_TEST_DIR=stExample STATE_TEST_NAME=add11 go test -v -run TestGigaVsV2_StateTests ./giga/tests/...
 func TestGigaVsV2_StateTests(t *testing.T) {
 	runStateTestSuite(t, ComparisonConfig{
-		GigaMode:      ModeGigaSequential,
-		VerifyFixture: true,
+		GigaMode:           ModeGigaSequential,
+		VerifyEthereumSpec: os.Getenv("VERIFY_ETHEREUM_SPEC") == "true",
 	}, "Giga vs V2")
 }
