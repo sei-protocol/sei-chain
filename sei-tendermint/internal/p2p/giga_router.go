@@ -3,7 +3,6 @@ package p2p
 import (
 	"context"
 	"fmt"
-	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/internal/p2p/giga"
 	"github.com/tendermint/tendermint/internal/p2p/rpc"
 	"github.com/tendermint/tendermint/libs/utils"
@@ -73,10 +72,6 @@ func (r *GigaRouter) dialAndRunConn(ctx context.Context, key NodePublicKey, hp t
 			return fmt.Errorf("tcp.Dial(%v): %w", addrs[0], err)
 		}
 		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-		sc, err := conn.MakeSecretConnection(ctx, tcpConn)
-		if err != nil {
-			return fmt.Errorf("conn.MakeSecretConnection(): %w", err)
-		}
 		// TODO: handshake needs a timeout.
 		hConn, err := handshake(ctx, tcpConn, r.key, true)
 		if err != nil {
@@ -89,7 +84,7 @@ func (r *GigaRouter) dialAndRunConn(ctx context.Context, key NodePublicKey, hp t
 			return fmt.Errorf("peer key = %v, want %v", got, key)
 		}
 		client := rpc.NewClient[giga.API]()
-		return r.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error { return client.Run(ctx, sc) })
+		return r.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error { return client.Run(ctx, hConn.conn) })
 	})
 }
 
