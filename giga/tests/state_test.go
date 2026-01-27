@@ -173,27 +173,23 @@ func (ts *TestSummary) PrintSummary(t *testing.T) {
 	t.Log(sb.String())
 }
 
-// TestGigaVsV2_StateTests runs state tests comparing Giga vs V2 execution
+// TestGigaVsV2_StateTests runs state tests comparing Giga vs V2 execution.
+// By default, uses GigaStore (ModeGigaSequential). Set USE_REGULAR_STORE=true to use
+// regular KVStore instead, which isolates whether issues are in the Giga executor
+// logic vs the GigaKVStore layer.
 //
 // Usage: STATE_TEST_DIR=stChainId go test -v -run TestGigaVsV2_StateTests ./giga/tests/...
 // Usage with test name filter: STATE_TEST_DIR=stExample STATE_TEST_NAME=add11 go test -v -run TestGigaVsV2_StateTests ./giga/tests/...
+// Usage with regular store: STATE_TEST_DIR=stChainId USE_REGULAR_STORE=true go test -v -run TestGigaVsV2_StateTests ./giga/tests/...
 func TestGigaVsV2_StateTests(t *testing.T) {
+	mode := ModeGigaSequential
+	modeName := "Giga vs V2"
+	if os.Getenv("USE_REGULAR_STORE") == "true" {
+		mode = ModeGigaWithRegularStore
+		modeName = "Giga with Regular Store"
+	}
 	runStateTestSuite(t, ComparisonConfig{
-		GigaMode:           ModeGigaSequential,
+		GigaMode:           mode,
 		VerifyEthereumSpec: os.Getenv("VERIFY_ETHEREUM_SPEC") == "true",
-	}, "Giga vs V2")
-}
-
-// TestGigaWithRegularStore_StateTests runs state tests comparing V2 vs Giga with regular KVStore.
-// This test isolates whether issues are in the Giga executor logic vs the GigaKVStore layer.
-// If tests pass here but fail with normal Giga mode, the issue is in GigaKVStore integration.
-// If tests fail here, the issue is in the Giga executor logic itself.
-//
-// Usage: STATE_TEST_DIR=stChainId go test -v -run TestGigaWithRegularStore_StateTests ./giga/tests/...
-// Usage with test name filter: STATE_TEST_DIR=stExample STATE_TEST_NAME=add11 go test -v -run TestGigaWithRegularStore_StateTests ./giga/tests/...
-func TestGigaWithRegularStore_StateTests(t *testing.T) {
-	runStateTestSuite(t, ComparisonConfig{
-		GigaMode:           ModeGigaWithRegularStore,
-		VerifyEthereumSpec: os.Getenv("VERIFY_ETHEREUM_SPEC") == "true",
-	}, "Giga with Regular Store")
+	}, modeName)
 }
