@@ -78,6 +78,10 @@
     "stCreateTest": "ANALYZED: 103/209 tests pass. 106 failures",
     "stInitCodeTest": "ANALYZED: 15/22 tests pass. 7 failures: result_code(7)",
     "stRefundTest": "ANALYZED: 23/26 tests pass. 3 failures: result_code(3)",
-    "stMemExpandingEIP150Calls": "ANALYZED: 9/14 tests pass. 5 failures: gas_mismatch(4), result_code(1)"
+    "stMemExpandingEIP150Calls": "ANALYZED: 9/14 tests pass. 5 failures: gas_mismatch(4), result_code(1)",
+    "stExtCodeHash": "ANALYZED: 45/69 tests pass. 24 failures",
+    "stStackTests": "ANALYZED: 229/375 tests pass. 146 failures",
+    "stMemoryTest": "ANALYZED: 252/578 tests pass. 326 failures",
+    "stPreCompiledContracts": "TIMED_OUT: needs re-run with longer timeout"
   }
 }
