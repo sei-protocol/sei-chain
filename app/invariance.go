@@ -40,7 +40,16 @@ func ReadLightInvarianceConfig(opts servertypes.AppOptions) (LightInvarianceConf
 	return cfg, nil
 }
 
-func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore, config LightInvarianceConfig) {
+func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore, config LightInvarianceConfig, blockHeight int64) {
+	// Block 1 must be skipped due to how Cosmos SDK InitChain works:
+	// - InitChain writes genesis state but does NOT commit
+	// - At block 1, the changeSet contains both genesis writes AND block 1 tx writes
+	// - Pre-block reads from committed parent (empty), post-block reads from changeSet
+	// - Genesis balances are set directly in InitGenesis, not via MintCoins
+	// - This creates an unavoidable balance vs supply mismatch at block 1 only
+	if blockHeight == 1 {
+		return
+	}
 	if config.SupplyEnabled {
 		app.LightInvarianceTotalSupply(cms)
 	}
@@ -241,9 +250,13 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 	if !weiDiffRemainder.IsZero() {
 		panic(fmt.Sprintf("non-zero wei diff found! Pre-block wei total %s, post-block wei total %s", weiPreTotal, weiPostTotal))
 	}
+	// Formula: useiDiff = useiPreTotal - useiPostTotal - weiDiffInUsei + supplyChanged
+	// If money is conserved, this should be zero
+	// useiPreTotal - useiPostTotal = how much usei left balances (negative means usei entered balances)
+	// weiDiffInUsei = how much usei was moved to wei balances
+	// supplyChanged = how much new usei was minted
 	useiDiff := useiPreTotal.Sub(useiPostTotal).Sub(weiDiffInUsei).Add(supplyChanged)
 	if !useiDiff.IsZero() {
 		panic(fmt.Sprintf("unexpected usei balance total found! Pre-block usei total %s wei total %s total supply %s, post-block usei total %s wei total %s total supply %s", useiPreTotal, weiPreTotal, preTotalSupply, useiPostTotal, weiPostTotal, preTotalSupply.Add(supplyChanged)))
 	}
-	app.Logger().Info("successfully verified supply light invariance")
 }
