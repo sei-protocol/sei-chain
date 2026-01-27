@@ -117,22 +117,6 @@ func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, blockHeight int64, bloc
 		return s.backend.FilterLogs(ctx, blockHeight, blockHash, txHashes, crit, applyExactMatch)
 	}
 
-	if applyExactMatch && s.cache != nil {
-		blockNumber := uint64(blockHeight)
-		if s.cache.HasLogsForBlock(blockNumber) {
-			logs := s.cache.GetLogsWithFilter(blockNumber, blockNumber, crit.Addresses, crit.Topics)
-			for _, lg := range logs {
-				lg.BlockHash = blockHash
-				lg.BlockNumber = blockNumber
-			}
-			return logs, nil
-		}
-	}
-
-	if applyExactMatch {
-		return s.backend.FilterLogs(ctx, blockHeight, blockHash, txHashes, crit, applyExactMatch)
-	}
-
 	return filterLogsFromReceipts(ctx, blockHeight, blockHash, txHashes, crit, applyExactMatch, s.GetReceipt)
 }
 
