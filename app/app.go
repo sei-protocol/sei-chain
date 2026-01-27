@@ -164,6 +164,7 @@ import (
 	_ "github.com/sei-protocol/sei-chain/docs/swagger"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
+	gigabankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	gigaevmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	gigaevmstate "github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
 )
@@ -328,6 +329,7 @@ type App struct {
 	AccountKeeper    authkeeper.AccountKeeper
 	AuthzKeeper      authzkeeper.Keeper
 	BankKeeper       bankkeeper.Keeper
+	GigaBankKeeper   gigabankkeeper.Keeper
 	CapabilityKeeper *capabilitykeeper.Keeper
 	StakingKeeper    stakingkeeper.Keeper
 	SlashingKeeper   slashingkeeper.Keeper
@@ -506,6 +508,9 @@ func New(
 	app.BankKeeper = bankkeeper.NewBaseKeeperWithDeferredCache(
 		appCodec, keys[banktypes.StoreKey], app.AccountKeeper, app.GetSubspace(banktypes.ModuleName), app.ModuleAccountAddrs(), memKeys[banktypes.DeferredCacheStoreKey],
 	)
+	app.GigaBankKeeper = gigabankkeeper.NewBaseKeeperWithDeferredCache(
+		appCodec, keys[banktypes.StoreKey], app.AccountKeeper, app.GetSubspace(banktypes.ModuleName), app.ModuleAccountAddrs(), memKeys[banktypes.DeferredCacheStoreKey],
+	)
 	stakingKeeper := stakingkeeper.NewKeeper(
 		appCodec, keys[stakingtypes.StoreKey], app.AccountKeeper, app.BankKeeper, app.GetSubspace(stakingtypes.ModuleName),
 	)
@@ -682,9 +687,10 @@ func New(
 	}
 
 	app.GigaEvmKeeper = *gigaevmkeeper.NewKeeper(keys[evmtypes.StoreKey],
-		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
+		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.GigaBankKeeper,
 		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
 		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.UpgradeKeeper)
+	app.GigaBankKeeper.RegisterRecipientChecker(app.GigaEvmKeeper.CanAddressReceive)
 	// Read Giga Executor config
 	gigaExecutorConfig, err := gigaconfig.ReadConfig(appOpts)
 	if err != nil {
@@ -1161,6 +1167,11 @@ func (app *App) ClearOptimisticProcessingInfo() {
 }
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
+	// Start block processing timing (ends at FinalizeBlock)
+	if app.benchmarkLogger != nil {
+		app.benchmarkLogger.StartBlockProcessing()
+	}
+
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
 
@@ -1236,6 +1247,10 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		app.ClearOptimisticProcessingInfo()
 		duration := time.Since(startTime)
 		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
+		// End block processing timing (started at ProcessProposal)
+		if app.benchmarkLogger != nil {
+			app.benchmarkLogger.EndBlockProcessing()
+		}
 	}()
 
 	// Get all optimistic processing info atomically
@@ -1631,7 +1646,7 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 	app.EvmKeeper.SetMsgs(evmTxs)
 
 	// Finalize bank transfers
-	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
+	lazyWriteEvents := app.GigaBankKeeper.WriteDeferredBalances(ctx)
 	events = append(events, lazyWriteEvents...)
 
 	// EndBlock
@@ -1663,8 +1678,8 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 
 	// Associate the address if not already associated (same as EVMPreprocessDecorator)
 	if _, isAssociated := app.GigaEvmKeeper.GetEVMAddress(ctx, seiAddr); !isAssociated {
-		associateHelper := helpers.NewAssociationHelper(&app.GigaEvmKeeper, app.BankKeeper, &app.AccountKeeper)
-		if err := associateHelper.AssociateAddresses(ctx, seiAddr, sender, pubkey); err != nil {
+		associateHelper := helpers.NewAssociationHelper(&app.GigaEvmKeeper, app.GigaBankKeeper, &app.AccountKeeper)
+		if err := associateHelper.AssociateAddresses(ctx, seiAddr, sender, pubkey, true); err != nil {
 			return &abci.ExecTxResult{
 				Code: 1,
 				Log:  fmt.Sprintf("failed to associate addresses: %v", err),
@@ -1897,7 +1912,7 @@ func (app *App) ProcessBlockWithGigaExecutorOCC(ctx sdk.Context, txs [][]byte, r
 	app.EvmKeeper.SetMsgs(evmTxs)
 
 	// Finalize bank transfers
-	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
+	lazyWriteEvents := app.GigaBankKeeper.WriteDeferredBalances(ctx)
 	events = append(events, lazyWriteEvents...)
 
 	// EndBlock

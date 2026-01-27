@@ -32,7 +32,6 @@ func CommonPreset(app *App) *Preset {
 		Admin: app.NewSignableAccount("admin"),
 	}
 	fmt.Printf("Admin: %s\n", p.Admin.String())
-	app.FundAccount(p.Admin, 100000000000)
 	for i := 0; i < 3; i++ {
 		acc := app.NewAccount()
 		p.AllAccounts = append(p.AllAccounts, acc)
@@ -40,7 +39,6 @@ func CommonPreset(app *App) *Preset {
 	}
 	for i := 0; i < 3; i++ {
 		val := app.NewValidator()
-		app.FundAccount(sdk.AccAddress(val), 10000000)
 		app.NewDelegation(sdk.AccAddress(val), val, 7000000)
 		p.AllAccounts = append(p.AllAccounts, sdk.AccAddress(val))
 		p.AllValidators = append(p.AllValidators, val)

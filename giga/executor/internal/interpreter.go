@@ -25,6 +25,13 @@ func (e *EVMInterpreter) Run(callOpCode vm.OpCode, contract *vm.Contract, input 
 	defer func() { e.evm.Depth-- }()
 	depth := e.evm.Depth
 
+	// For CREATE/CREATE2, the initcode is in contract.Code, not in input.
+	// For regular calls, input contains the call data.
+	codeToExecute := input
+	if callOpCode == vm.CREATE || callOpCode == vm.CREATE2 {
+		codeToExecute = contract.Code
+	}
+
 	// Make sure the readOnly is only set if we aren't in readOnly yet.
 	// This also makes sure that the readOnly flag isn't removed for child calls.
 	if readOnly && !e.readOnly {
@@ -59,12 +66,37 @@ func (e *EVMInterpreter) Run(callOpCode vm.OpCode, contract *vm.Contract, input 
 	sender := evmc.Address(contract.Caller())
 	recipient := evmc.Address(contract.Address())
 
-	//nolint:dogsled,gosec // dogsled: Call returns 5 values, we only need output and err; gosec: safe gas conversion
-	output, _, _, _, err := e.hostContext.Execute(callKind, recipient, sender, contract.Value().Bytes32(), input,
+	// Reset SSTORE gas adjustment before execution
+	e.hostContext.ResetSstoreGasAdjustment()
+
+	//nolint:gosec // gosec: safe gas conversion
+	output, gasLeft, gasRefund, _, err := e.hostContext.Execute(callKind, recipient, sender, contract.Value().Bytes32(), codeToExecute,
 		int64(contract.Gas), depth, static)
 	if err != nil {
 		return nil, err
 	}
+
+	// Apply SSTORE gas adjustment for Sei's custom SSTORE cost.
+	// evmone uses standard EIP-2200 gas (20k), but Sei may have a different cost.
+	// The adjustment is tracked during SetStorage calls and applied here.
+	// Adjustment can be positive (charge more) or negative (refund/reduce).
+	sstoreAdjustment := e.hostContext.GetSstoreGasAdjustment()
+	if sstoreAdjustment != 0 {
+		gasLeft -= sstoreAdjustment
+		// If gas goes negative, execution would have failed with out of gas
+		if gasLeft < 0 {
+			return nil, vm.ErrOutOfGas
+		}
+	}
+
+	// Update the contract's gas to reflect what evmone consumed
+	// This is critical for proper gas accounting!
+	//nolint:gosec // safe conversion - gasLeft is always <= contract.Gas
+	contract.Gas = uint64(gasLeft)
+
+	// Apply gas refund to the EVM's refund counter
+	//nolint:gosec // safe conversion
+	e.evm.StateDB.AddRefund(uint64(gasRefund))
 
 	return output, nil
 }
