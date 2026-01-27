@@ -110,6 +110,8 @@
     "stSStoreTest": "ANALYZED: 145/475 tests pass. 330 failures",
     "Cancun": "ANALYZED: 117/177 tests pass. 60 failures",
     "Shanghai": "ANALYZED: 26/27 tests pass. 1 failure",
-    "VMTests": "ANALYZED: 204/595 tests pass. 391 failures"
+    "VMTests": "ANALYZED: 204/595 tests pass. 391 failures",
+    "stQuadraticComplexityTest": "TIMED_OUT: needs re-run with longer timeout",
+    "stTimeConsuming": "TIMED_OUT: needs re-run with longer timeout"
   }
 }
