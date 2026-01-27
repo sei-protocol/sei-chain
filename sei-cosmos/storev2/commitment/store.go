@@ -79,28 +79,52 @@ func (st *Store) CacheWrapWithTrace(k types.StoreKey, w io.Writer, tc types.Trac
 	return cachekv.NewStore(tracekv.NewStore(st, w, tc), k, types.DefaultCacheSizeLimit)
 }
 
-// Implements types.KVStore.
-//
-// we assume Set is only called in `Commit`, so the written state is only visible after commit.
+// Set adds a key-value pair to the pending changeSet.
+// The write will be visible immediately via Get() and committed
+// to the tree during Commit().
 func (st *Store) Set(key, value []byte) {
 	st.changeSet.Pairs = append(st.changeSet.Pairs, &iavl.KVPair{
 		Key: key, Value: value,
 	})
 }
 
+// getFromChangeSet looks up a key in the pending changeSet.
+// Returns (value, found). If found is true but value is nil, the key was deleted.
+func (st *Store) getFromChangeSet(key []byte) ([]byte, bool) {
+	// Iterate in reverse order to get the most recent write for this key
+	for i := len(st.changeSet.Pairs) - 1; i >= 0; i-- {
+		pair := st.changeSet.Pairs[i]
+		if bytes.Equal(pair.Key, key) {
+			if pair.Delete {
+				return nil, true // Key was deleted
+			}
+			return pair.Value, true
+		}
+	}
+	return nil, false
+}
+
 // Implements types.KVStore.
 func (st *Store) Get(key []byte) []byte {
+	// Check changeSet first for uncommitted writes
+	if value, found := st.getFromChangeSet(key); found {
+		return value // Returns nil for deleted keys
+	}
 	return st.tree.Get(key)
 }
 
 // Implements types.KVStore.
 func (st *Store) Has(key []byte) bool {
+	// Check changeSet first for uncommitted writes
+	if value, found := st.getFromChangeSet(key); found {
+		return value != nil // Returns false for deleted keys
+	}
 	return st.tree.Has(key)
 }
 
-// Implements types.KVStore.
-//
-// we assume Delete is only called in `Commit`, so the written state is only visible after commit.
+// Delete marks a key as deleted in the pending changeSet.
+// The deletion will be visible immediately via Get()/Has() and committed
+// to the tree during Commit().
 func (st *Store) Delete(key []byte) {
 	st.changeSet.Pairs = append(st.changeSet.Pairs, &iavl.KVPair{
 		Key: key, Delete: true,

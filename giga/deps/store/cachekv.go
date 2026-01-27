@@ -110,6 +110,9 @@ func (store *Store) Write() {
 		}
 	}
 
+	// Clear the cache and deleted map after writing to parent.
+	// The parent store (commitment.Store) now makes writes immediately visible
+	// via Get() by checking its changeSet buffer.
 	store.cache = &sync.Map{}
 	store.deleted = &sync.Map{}
 }
