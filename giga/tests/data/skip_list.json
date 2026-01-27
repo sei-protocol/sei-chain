@@ -32,7 +32,6 @@
     "stQuadraticComplexityTest",
     "stRandom",
     "stRandom2",
-    "stRecursiveCreate",
     "stRefundTest",
     "stReturnDataTest",
     "stRevertTest",
@@ -93,6 +92,10 @@
     "stHomesteadSpecific": "ANALYZED: 5/5 tests pass. All passing.",
     "stAttackTest": "ANALYZED: 2/2 tests pass. All passing.",
     "stSolidityTest": "ANALYZED: 21/23 tests pass. 2 failures",
-    "stBadOpcode": "TIMED_OUT: needs re-run with longer timeout"
+    "stBadOpcode": "TIMED_OUT: needs re-run with longer timeout",
+    "stWalletTest": "ANALYZED: 41/46 tests pass. 5 failures",
+    "stTransitionTest": "ANALYZED: 3/6 tests pass. 3 failures",
+    "stRecursiveCreate": "ANALYZED: 2/2 tests pass. All passing.",
+    "stTransactionTest": "ANALYZED: 248/259 tests pass. 11 failures"
   }
 }
