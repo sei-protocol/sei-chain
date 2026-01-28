@@ -1,0 +1,2 @@
+# Ignore extracted test fixtures (only archive is tracked)
+GeneralStateTests/
