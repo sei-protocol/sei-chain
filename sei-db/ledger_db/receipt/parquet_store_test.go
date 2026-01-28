@@ -170,8 +170,8 @@ func TestParquetReceiptStoreReopenQueries(t *testing.T) {
 	require.Len(t, logs, 1)
 	require.Equal(t, blockHash, logs[0].BlockHash)
 
-	blockHash := common.HexToHash("0xcafe")
-	logs, err := store.FilterLogs(ctx, 5, blockHash, []common.Hash{txHash}, filters.FilterCriteria{
+	blockHash = common.HexToHash("0xcafe")
+	logs, err = store.FilterLogs(ctx, 5, blockHash, []common.Hash{txHash}, filters.FilterCriteria{
 		Addresses: []common.Address{addr},
 		Topics:    [][]common.Hash{{topic}},
 	}, true)
