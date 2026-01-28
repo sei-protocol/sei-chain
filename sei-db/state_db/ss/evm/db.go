@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"path/filepath"
+	"runtime"
 
 	"github.com/cockroachdb/pebble"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
@@ -16,10 +17,7 @@ const (
 	earliestVersionKey = "earliest_version"
 )
 
-var (
-	defaultWriteOpts = &pebble.WriteOptions{Sync: false}
-	syncWriteOpts    = &pebble.WriteOptions{Sync: true}
-)
+var defaultWriteOpts = &pebble.WriteOptions{Sync: false}
 
 // EVMDatabase represents a single PebbleDB instance for a specific EVM data type.
 // Uses pebble.DefaultComparer (lexicographic byte ordering) instead of MVCCComparer.
@@ -36,7 +34,7 @@ type EVMDatabase struct {
 func OpenEVMDB(dir string, storeType EVMStoreType) (*EVMDatabase, error) {
 	opts := &pebble.Options{
 		Comparer:                 pebble.DefaultComparer,
-		MaxConcurrentCompactions: func() int { return 2 },
+		MaxConcurrentCompactions: func() int { return runtime.NumCPU() },
 	}
 
 	dbPath := filepath.Join(dir, StoreTypeName(storeType))
@@ -205,11 +203,11 @@ func (db *EVMDatabase) GetLatestVersion() int64 {
 	return db.latestVersion
 }
 
-// SetLatestVersion updates the latest version
+// SetLatestVersion updates the latest version (async write for performance)
 func (db *EVMDatabase) SetLatestVersion(version int64) error {
 	buf := make([]byte, 8)
 	binary.BigEndian.PutUint64(buf, uint64(version))
-	if err := db.storage.Set([]byte(latestVersionKey), buf, syncWriteOpts); err != nil {
+	if err := db.storage.Set([]byte(latestVersionKey), buf, defaultWriteOpts); err != nil {
 		return err
 	}
 	db.latestVersion = version
@@ -221,11 +219,11 @@ func (db *EVMDatabase) GetEarliestVersion() int64 {
 	return db.earliestVersion
 }
 
-// SetEarliestVersion updates the earliest version
+// SetEarliestVersion updates the earliest version (async write for performance)
 func (db *EVMDatabase) SetEarliestVersion(version int64) error {
 	buf := make([]byte, 8)
 	binary.BigEndian.PutUint64(buf, uint64(version))
-	if err := db.storage.Set([]byte(earliestVersionKey), buf, syncWriteOpts); err != nil {
+	if err := db.storage.Set([]byte(earliestVersionKey), buf, defaultWriteOpts); err != nil {
 		return err
 	}
 	db.earliestVersion = version
