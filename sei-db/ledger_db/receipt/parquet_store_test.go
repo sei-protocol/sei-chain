@@ -17,6 +17,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func requireParquetEnabled(t *testing.T) {
+	t.Helper()
+	if !ParquetEnabled() {
+		t.Skip("duckdb disabled; build with -tags duckdb to run parquet tests")
+	}
+}
+
 func makeTestReceipt(txHash common.Hash, blockNumber uint64, txIndex uint32, addr common.Address, topics []common.Hash) *types.Receipt {
 	topicHex := make([]string, 0, len(topics))
 	for _, topic := range topics {
@@ -104,6 +111,7 @@ func TestLedgerCacheRotatePrunes(t *testing.T) {
 }
 
 func TestParquetReceiptStoreCacheLogs(t *testing.T) {
+	requireParquetEnabled(t)
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.Backend = "parquet"
@@ -135,6 +143,7 @@ func TestParquetReceiptStoreCacheLogs(t *testing.T) {
 }
 
 func TestParquetReceiptStoreReopenQueries(t *testing.T) {
+	requireParquetEnabled(t)
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.Backend = "parquet"
@@ -182,6 +191,7 @@ func TestParquetReceiptStoreReopenQueries(t *testing.T) {
 }
 
 func TestParquetReceiptStoreWALReplay(t *testing.T) {
+	requireParquetEnabled(t)
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.Backend = "parquet"

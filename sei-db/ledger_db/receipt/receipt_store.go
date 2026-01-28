@@ -89,6 +89,9 @@ func newReceiptBackend(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, 
 	backend := normalizeReceiptBackend(config.Backend)
 	switch backend {
 	case receiptBackendParquet:
+		if !ParquetEnabled() {
+			return nil, fmt.Errorf("parquet receipt store requires duckdb build tag")
+		}
 		return newParquetReceiptStore(log, config, storeKey)
 	case receiptBackendPebble:
 		ssConfig := dbconfig.DefaultStateStoreConfig()

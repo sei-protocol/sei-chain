@@ -1,3 +1,6 @@
+//go:build duckdb
+// +build duckdb
+
 package receipt
 
 import (
@@ -134,12 +137,6 @@ func (r *parquetReader) maxReceiptBlockNumber(ctx context.Context) (uint64, bool
 	return uint64(max.Int64), true, nil
 }
 
-type receiptResult struct {
-	TxHash       []byte
-	BlockNumber  uint64
-	ReceiptBytes []byte
-}
-
 func (r *parquetReader) getReceiptByTxHash(ctx context.Context, txHash common.Hash) (*receiptResult, error) {
 	r.mu.RLock()
 	closedFiles := r.closedReceiptFiles
@@ -174,29 +171,6 @@ func (r *parquetReader) getReceiptByTxHash(ctx context.Context, txHash common.Ha
 		return nil, fmt.Errorf("failed to query receipt: %w", err)
 	}
 	return &rec, nil
-}
-
-type logFilter struct {
-	FromBlock *uint64
-	ToBlock   *uint64
-	Addresses []common.Address
-	Topics    [][]common.Hash
-	Limit     int
-}
-
-type logResult struct {
-	BlockNumber uint64
-	TxHash      []byte
-	TxIndex     uint32
-	LogIndex    uint32
-	Address     []byte
-	Topic0      []byte
-	Topic1      []byte
-	Topic2      []byte
-	Topic3      []byte
-	Data        []byte
-	BlockHash   []byte
-	Removed     bool
 }
 
 func (r *parquetReader) getLogs(ctx context.Context, filter logFilter) ([]logResult, error) {
