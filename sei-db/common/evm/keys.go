@@ -13,11 +13,11 @@ const (
 )
 
 var (
-	// ErrMalformedMemIAVLKey indicates invalid EVM key encoding.
-	ErrMalformedMemIAVLKey = errors.New("sei-db: malformed memiavl evm key")
+	// ErrMalformedEVMKey indicates invalid EVM key encoding.
+	ErrMalformedEVMKey = errors.New("sei-db: malformed evm key")
 )
 
-// EVMKeyKind identifies a memiavl EVM key family.
+// EVMKeyKind identifies an EVM key family.
 type EVMKeyKind uint8
 
 const (
@@ -29,12 +29,12 @@ const (
 	EVMKeyStorage
 )
 
-// ParseMemIAVLEVMKey parses a memiavl EVM key (x/evm store keyspace).
+// ParseEVMKey parses an EVM key from the x/evm store keyspace.
 //
 // For non-storage keys, keyBytes is the 20-byte address.
 // For storage keys, keyBytes is addr||slot (20+32 bytes).
 // For unknown or malformed keys, returns (EVMKeyUnknown, nil).
-func ParseMemIAVLEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
+func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
 	if len(key) == 0 {
 		return EVMKeyUnknown, nil
 	}
