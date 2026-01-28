@@ -191,15 +191,12 @@ func TestMConnectionReadErrorUnknownChannel(t *testing.T) {
 		mconnServer := newMConnection(server)
 
 		s.SpawnBg(func() error { return utils.IgnoreCancel(mconnClient.Run(ctx)) })
-
-		// Use a channel to wait for server to complete, ensuring the message
-		// is actually sent before the context is cancelled.
-		serverDone := make(chan error, 1)
-		s.SpawnBg(func() error {
-			serverDone <- mconnServer.Run(ctx)
+		s.Spawn(func() error {
+			if err := mconnServer.Run(ctx); !utils.ErrorAs[errBadChannel](err).IsPresent() {
+				return fmt.Errorf("got %v, want errBadChannel", err)
+			}
 			return nil
 		})
-
 		msg := []byte("Ant-Man")
 
 		// fail to send msg on channel unknown by client
@@ -210,16 +207,6 @@ func TestMConnectionReadErrorUnknownChannel(t *testing.T) {
 		// should cause an error on the server side.
 		if err := mconnClient.Send(ctx, 0x02, msg); err != nil {
 			return fmt.Errorf("mconnClient.Send(): %w", err)
-		}
-
-		// Wait for server to receive the message and fail with errBadChannel
-		select {
-		case err := <-serverDone:
-			if want := (errBadChannel{}); !errors.As(err, &want) {
-				return fmt.Errorf("got %v, want %T", err, want)
-			}
-		case <-ctx.Done():
-			return ctx.Err()
 		}
 		return nil
 	})

@@ -1,7 +1,6 @@
 package precompiles
 
 import (
-	"errors"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -38,7 +37,24 @@ var FailFastPrecompileAddresses = []common.Address{
 	common.HexToAddress(p256.P256VerifyAddress),
 }
 
-var ErrInvalidPrecompileCall = errors.New("invalid precompile call")
+// InvalidPrecompileCallError is an error type that implements vm.AbortError,
+// signaling that execution should abort and this error should propagate
+// through the entire call stack.
+type InvalidPrecompileCallError struct{}
+
+func (e *InvalidPrecompileCallError) Error() string {
+	return "invalid precompile call"
+}
+
+// IsAbortError implements vm.AbortError interface, signaling that this error
+// should propagate through the EVM call stack instead of being swallowed.
+func (e *InvalidPrecompileCallError) IsAbortError() bool {
+	return true
+}
+
+// ErrInvalidPrecompileCall is the singleton error instance for invalid precompile calls.
+// It implements vm.AbortError to ensure it propagates through the call stack.
+var ErrInvalidPrecompileCall error = &InvalidPrecompileCallError{}
 
 type FailFastPrecompile struct{}
 

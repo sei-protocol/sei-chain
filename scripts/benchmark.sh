@@ -6,6 +6,8 @@ set -e
 MOCK_BALANCES=${MOCK_BALANCES:-true}
 GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
 GIGA_OCC=${GIGA_OCC:-false}
+BENCHMARK_TXS_PER_BATCH=${BENCHMARK_TXS_PER_BATCH:-1000}
+DISABLE_INDEXER=${DISABLE_INDEXER:-true}
 
 # DB_BACKEND options:
 #   goleveldb - default, pure Go, can have compaction stalls under heavy write load
@@ -26,11 +28,12 @@ keyname=admin
 
 # Display configuration
 echo "=== Benchmark Configuration ==="
-echo "  MOCK_BALANCES:  $MOCK_BALANCES"
-echo "  GIGA_EXECUTOR:  $GIGA_EXECUTOR"
-echo "  GIGA_OCC:       $GIGA_OCC"
-echo "  DB_BACKEND:     $DB_BACKEND"
-echo "  DB_BACKEND:     $DB_BACKEND"
+echo "  MOCK_BALANCES:           $MOCK_BALANCES"
+echo "  GIGA_EXECUTOR:           $GIGA_EXECUTOR"
+echo "  GIGA_OCC:                $GIGA_OCC"
+echo "  DB_BACKEND:              $DB_BACKEND"
+echo "  BENCHMARK_TXS_PER_BATCH: $BENCHMARK_TXS_PER_BATCH"
+echo "  DISABLE_INDEXER:         $DISABLE_INDEXER"
 echo "================================"
 
 # clean up old sei directory
@@ -167,7 +170,10 @@ fi
 
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
   sed -i 's/mode = "full"/mode = "validator"/g' $CONFIG_PATH
-  sed -i 's/indexer = \["null"\]/indexer = \["kv"\]/g' $CONFIG_PATH
+  if [ "$DISABLE_INDEXER" = true ]; then
+    sed -i 's/indexer = \["kv"\]/indexer = \["null"\]/g' $CONFIG_PATH
+    echo "Indexer disabled"
+  fi
   sed -i 's/skip_timeout_commit =.*/skip_timeout_commit = false/g' $CONFIG_PATH
   sed -i 's/pprof-laddr = ""/pprof-laddr = ":6060"/g' $CONFIG_PATH
   # Set the DB backend
@@ -175,7 +181,10 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
   echo "DB backend set to: $DB_BACKEND"
 elif [[ "$OSTYPE" == "darwin"* ]]; then
   sed -i '' 's/mode = "full"/mode = "validator"/g' $CONFIG_PATH
-  sed -i '' 's/indexer = \["null"\]/indexer = \["kv"\]/g' $CONFIG_PATH
+  if [ "$DISABLE_INDEXER" = true ]; then
+    sed -i '' 's/indexer = \["kv"\]/indexer = \["null"\]/g' $CONFIG_PATH
+    echo "Indexer disabled"
+  fi
   sed -i '' 's/pprof-laddr = ""/pprof-laddr = ":6060"/g' $CONFIG_PATH
   # Set the DB backend
   sed -i '' "s/db-backend = \"goleveldb\"/db-backend = \"$DB_BACKEND\"/g" $CONFIG_PATH
@@ -202,4 +211,4 @@ echo "To capture heap profile:"
 echo "  go tool pprof http://localhost:6060/debug/pprof/heap"
 echo "============================================================"
 echo ""
-~/go/bin/seid start --chain-id sei-chain 2>&1 | grep benchmark
+BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH ~/go/bin/seid start --chain-id sei-chain 2>&1 | grep benchmark

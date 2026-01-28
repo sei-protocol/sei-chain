@@ -214,6 +214,18 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 
 	err := validateBlock(state, block)
 	if err != nil {
+		// Check if this is a LastResultsHash mismatch and log detailed info
+		if !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
+			blockExec.logger.Error("LastResultsHash mismatch detected",
+				"height", block.Height,
+				"expectedHash", fmt.Sprintf("%X", state.LastResultsHash),
+				"gotHash", fmt.Sprintf("%X", block.LastResultsHash),
+				"blockHash", fmt.Sprintf("%X", block.Hash()),
+				"lastBlockHeight", state.LastBlockHeight,
+				"lastBlockID", state.LastBlockID.String(),
+				"numTxs", len(block.Txs),
+			)
+		}
 		return fmt.Errorf("validateBlock(): %w", err)
 	}
 
@@ -342,6 +354,31 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		return state, fmt.Errorf("marshaling TxResults: %w", err)
 	}
 	h := merkle.HashFromByteSlices(rs)
+
+	// Log LastResultsHash computation details for debugging consensus issues
+	if len(fBlockRes.TxResults) > 0 {
+		blockExec.logger.Info("LastResultsHash computed",
+			"height", block.Height,
+			"hash", fmt.Sprintf("%X", h),
+			"txCount", len(fBlockRes.TxResults),
+		)
+		// Log per-tx deterministic fields (Code, Data, GasWanted, GasUsed) for debugging
+		for i, txRes := range fBlockRes.TxResults {
+			dataLen := 0
+			if txRes.Data != nil {
+				dataLen = len(txRes.Data)
+			}
+			blockExec.logger.Debug("TxResult for LastResultsHash",
+				"height", block.Height,
+				"txIndex", i,
+				"code", txRes.Code,
+				"gasWanted", txRes.GasWanted,
+				"gasUsed", txRes.GasUsed,
+				"dataLen", dataLen,
+			)
+		}
+	}
+
 	state, err = state.Update(blockID, &block.Header, h, fBlockRes.ConsensusParamUpdates, validatorUpdates)
 	if err != nil {
 		return state, fmt.Errorf("commit failed for application: %w", err)
