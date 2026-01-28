@@ -1363,6 +1363,9 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
 
+	ms := ctx.MultiStore().CacheMultiStore()
+	defer ms.Write()
+	ctx = ctx.WithMultiStore(ms)
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	for i, tx := range txs {
 		ctx = ctx.WithTxIndex(absoluteTxIndices[i])
@@ -1371,6 +1374,7 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		if evmMsg == nil {
 			result := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 			txResults[i] = result
+			ms.Write()
 			continue
 		}
 
@@ -1381,6 +1385,7 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 			if gigautils.ShouldExecutionAbort(execErr) {
 				res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 				txResults[i] = res
+				ms.Write()
 				continue
 			}
 			txResults[i] = &abci.ExecTxResult{
@@ -1391,6 +1396,7 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		}
 
 		txResults[i] = result
+		ctx.GigaMultiStore().WriteGiga()
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
 

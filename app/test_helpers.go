@@ -49,7 +49,6 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 
-	xevmtypes "github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 )
 
@@ -128,8 +127,8 @@ func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub cryptotypes.PubKey,
 
 func NewGigaTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
 	wrapper := newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: true, EnableGigaOCC: useOcc}, baseAppOptions...)
-	genState := xevmtypes.DefaultGenesis()
-	wrapper.App.GigaEvmKeeper.InitGenesis(wrapper.Ctx, *genState)
+	genState := evmtypes.DefaultGenesis()
+	wrapper.App.EvmKeeper.InitGenesis(wrapper.Ctx, *genState)
 	return wrapper
 }
 
