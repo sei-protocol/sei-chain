@@ -155,7 +155,7 @@ func DefaultStateStoreConfig() StateStoreConfig {
 
 func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 	return ReceiptStoreConfig{
-		Backend:              "parquet",
+		Backend:              "pebbledb",
 		KeepRecent:           DefaultSSKeepRecent,
 		PruneIntervalSeconds: DefaultSSPruneInterval,
 	}
