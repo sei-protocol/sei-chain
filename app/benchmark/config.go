@@ -25,7 +25,7 @@ func LoadConfig(configPath string, evmChainID int64, seiChainID string) (*config
 		}, nil
 	}
 
-	data, err := os.ReadFile(configPath)
+	data, err := os.ReadFile(configPath) //nolint:gosec // G304: configPath is from trusted env var
 	if err != nil {
 		return nil, err
 	}

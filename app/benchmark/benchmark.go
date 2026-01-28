@@ -2,12 +2,12 @@
 //
 // The benchmark system operates in two phases:
 //
-// 1. Setup Phase: Deploys any contracts required by the configured scenarios.
-//    During this phase, deployment transactions are generated and submitted.
-//    After each block, receipts are checked to extract deployed contract addresses.
+//  1. Setup Phase: Deploys any contracts required by the configured scenarios.
+//     During this phase, deployment transactions are generated and submitted.
+//     After each block, receipts are checked to extract deployed contract addresses.
 //
-// 2. Load Phase: Once all contracts are deployed, the system transitions to
-//    generating load transactions according to the configured scenario weights.
+//  2. Load Phase: Once all contracts are deployed, the system transitions to
+//     generating load transactions according to the configured scenario weights.
 //
 // Usage:
 //
@@ -26,16 +26,16 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/ethereum/go-ethereum/common"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	evmcfg "github.com/sei-protocol/sei-chain/x/evm/config"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
 )
 
 // Manager coordinates benchmark generation and logging.
 type Manager struct {
-	Generator *Generator
-	Logger    *Logger
+	Generator  *Generator
+	Logger     *Logger
 	proposalCh <-chan *abci.ResponsePrepareProposal
 }
 
@@ -48,7 +48,7 @@ func NewManager(ctx context.Context, txConfig client.TxConfig, chainID string, e
 
 	// Load config from environment variable or use default
 	configPath := os.Getenv("BENCHMARK_CONFIG")
-	
+
 	cfg, err := LoadConfig(configPath, evmChainID, chainID)
 	if err != nil {
 		return nil, err

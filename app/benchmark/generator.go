@@ -39,20 +39,20 @@ const WarmupBlocks = 3
 
 // scenarioState tracks the state of a scenario instance.
 type scenarioState struct {
-	config    config.Scenario
-	scenario  scenarios.TxGenerator
-	accounts  loadtypes.AccountPool
-	deployed  bool
-	address   common.Address
-	deployTx  *ethtypes.Transaction
+	config       config.Scenario
+	scenario     scenarios.TxGenerator
+	accounts     loadtypes.AccountPool
+	deployed     bool
+	address      common.Address
+	deployTx     *ethtypes.Transaction
 	deployTxHash common.Hash
 }
 
 // Generator manages the benchmark transaction generation with setup and load phases.
 type Generator struct {
-	cfg           *config.LoadConfig
-	txConfig      client.TxConfig
-	chainID       *big.Int
+	cfg      *config.LoadConfig
+	txConfig client.TxConfig
+	chainID  *big.Int
 
 	scenarios      []*scenarioState
 	deployer       *loadtypes.Account
@@ -165,10 +165,10 @@ func (g *Generator) createDeploymentTx(state *scenarioState) *ethtypes.Transacti
 	// Try to get a deployment transaction by checking if scenario supports it
 	// We use the scenario's Deploy method which creates deployment transactions
 	// For scenarios that don't need deployment (like EVMTransfer), this returns zero address
-	
+
 	// Check if this is a contract scenario by trying to generate a deploy-style tx
 	// We do this by calling the scenario's internal deployment logic
-	
+
 	// For now, we identify contract scenarios by name
 	switch state.scenario.Name() {
 	case scenarios.EVMTransfer, scenarios.EVMTransferNoop:
@@ -216,8 +216,8 @@ func (g *Generator) craftDeploymentTx(state *scenarioState, txScenario *loadtype
 		Nonce:     nonce,
 		To:        nil, // nil To address indicates contract creation
 		Value:     big.NewInt(0),
-		Gas:       5000000, // 5M gas limit for deployment (increased)
-		GasTipCap: big.NewInt(1000000000),   // 1 gwei
+		Gas:       5000000,                   // 5M gas limit for deployment (increased)
+		GasTipCap: big.NewInt(1000000000),    // 1 gwei
 		GasFeeCap: big.NewInt(1000000000000), // 1000 gwei (high to ensure inclusion)
 		Data:      deployData,
 	}
@@ -244,7 +244,7 @@ func (g *Generator) generateSetupBlock() []*abci.TxRecord {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	var txRecords []*abci.TxRecord
+	txRecords := make([]*abci.TxRecord, 0, len(g.scenarios))
 
 	for _, state := range g.scenarios {
 		// Skip if already deployed
@@ -452,7 +452,7 @@ func (g *Generator) transitionToLoadPhase() {
 	g.phase = PhaseLoad
 
 	// Create weighted generator from deployed scenarios
-	var weightedConfigs []*generator.WeightedCfg
+	weightedConfigs := make([]*generator.WeightedCfg, 0, len(g.scenarios))
 	for _, state := range g.scenarios {
 		if !state.deployed {
 			g.logger.Info("benchmark: Scenario not deployed, skipping", "scenario", state.config.Name)
@@ -483,7 +483,7 @@ func (g *Generator) transitionToLoadPhase() {
 func (g *Generator) Generate() []*abci.TxRecord {
 	g.mu.Lock()
 	phase := g.phase
-	
+
 	// Handle warmup phase - just count blocks and transition to setup
 	if phase == PhaseWarmup {
 		g.warmupCounter++

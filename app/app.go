@@ -1991,12 +1991,12 @@ func (app *App) ProcessBlockWithGigaExecutorOCC(ctx sdk.Context, txs [][]byte, r
 				bloom := ethtypes.Bloom{}
 				// Try to get receipt from transient store (may exist if execution succeeded)
 				existingReceipt, receiptErr := app.EvmKeeper.GetTransientReceipt(ctx.WithTxIndex(idx), txHash, uint64(idx)) //nolint:gosec // G115: idx is a valid tx index, always non-negative
-			if receiptErr == nil && existingReceipt != nil {
-				bloom.SetBytes(existingReceipt.LogsBloom)
+				if receiptErr == nil && existingReceipt != nil {
+					bloom.SetBytes(existingReceipt.LogsBloom)
+				}
+				app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(idx), bloom, txHash, sdk.ZeroInt())
 			}
-			app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(idx), bloom, txHash, sdk.ZeroInt())
 		}
-	}
 	}
 
 	// Fill in nil results for non-EVM or failed decode txs
