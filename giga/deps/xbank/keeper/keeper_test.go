@@ -100,6 +100,7 @@ func (suite *IntegrationTestSuite) SetupTest() {
 		ChainID: ctx.BlockHeader().ChainID,
 		Time:    blockTime,
 	})
+	ctx = ctx.WithMultiStore(ctx.MultiStore().CacheMultiStore())
 
 	a.AccountKeeper.SetParams(ctx, authtypes.DefaultParams())
 	a.GigaBankKeeper.SetParams(ctx, cosmosbanktypes.DefaultParams())
