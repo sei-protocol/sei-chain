@@ -344,12 +344,12 @@ func (c *MConnection) popSendQueue(ctx context.Context) (*pb.Packet, error) {
 			if err := utils.WithDeadline(ctx, q.flush, func(ctx context.Context) error {
 				return ctrl.Wait(ctx)
 			}); err != nil {
-				if ctx.Err() == nil {
-					// It is flush time!
-					q.flush = utils.None[time.Time]()
-					return nil, nil
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
 				}
-				return nil, err
+				// It is flush time!
+				q.flush = utils.None[time.Time]()
+				return nil, nil
 			}
 		}
 	}
