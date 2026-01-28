@@ -137,9 +137,6 @@
   "skipped_categories": [
     "VMTests",
     "stBadOpcode",
-    "stCallDelegateCodesCallCodeHomestead",
-    "stCallDelegateCodesHomestead",
-    "stDelegatecallTestHomestead",
     "stEIP1559",
     "stQuadraticComplexityTest",
     "stTimeConsuming"
@@ -158,9 +155,9 @@
     "stEIP150singleCodeGasPrices": "ENABLED: 422/450 tests pass. 28 failures skipped: gas_mismatch(24), result_code(4)",
     "stEIP2930": "ENABLED: 110/140 tests pass. 30 failures skipped: result_code(30)",
     "stCallCreateCallCodeTest": "ENABLED: 56/56 tests pass. All passing.",
-    "stCallDelegateCodesCallCodeHomestead": "ANALYZED: 3/58 tests pass. 55 failures: gas_mismatch, result_code",
-    "stCallDelegateCodesHomestead": "ANALYZED: 5/58 tests pass. 53 failures: gas_mismatch, result_code",
-    "stDelegatecallTestHomestead": "ANALYZED: 1/33 tests pass. 32 failures: gas_mismatch, result_code",
+    "stCallDelegateCodesCallCodeHomestead": "ENABLED: 59/59 tests pass. All passing.",
+    "stCallDelegateCodesHomestead": "ENABLED: 59/59 tests pass. All passing.",
+    "stDelegatecallTestHomestead": "ENABLED: 34/34 tests pass. All passing.",
     "stCreate2": "ENABLED: 192/192 tests pass. All passing.",
     "stCreateTest": "ENABLED: 210/210 tests pass. All passing.",
     "stInitCodeTest": "ENABLED: 22/22 tests pass. All passing.",
