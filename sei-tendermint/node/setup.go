@@ -227,7 +227,7 @@ func createRouter(
 	options.Connection.FlushThrottle = cfg.P2P.FlushThrottleTimeout
 	options.Connection.SendRate = cfg.P2P.SendRate
 	options.Connection.RecvRate = cfg.P2P.RecvRate
-	options.Connection.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
+	options.Connection.MaxPacketMsgPayloadSize = uint64(cfg.P2P.MaxPacketMsgPayloadSize)
 	if addr := cfg.P2P.ExternalAddress; addr != "" {
 		nodeAddr, err := p2p.ParseNodeAddress(nodeKey.ID.AddressString(addr))
 		if err != nil {

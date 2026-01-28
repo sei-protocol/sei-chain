@@ -48,16 +48,18 @@ var nodePublicKeyConv = utils.ProtoConv[NodePublicKey, *pb.NodePublicKey]{
 }
 
 type handshakeMsg struct {
-	NodeAuth          NodeChallengeSig
-	SeiGigaConnection bool
+	NodeAuth                NodeChallengeSig
+	MaxPacketMsgPayloadSize utils.Option[uint64]
+	SeiGigaConnection       bool
 }
 
 var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 	Encode: func(m *handshakeMsg) *pb.Handshake {
 		return &pb.Handshake{
-			NodeAuthKey:       nodePublicKeyConv.Encode(m.NodeAuth.Key()),
-			NodeAuthSig:       m.NodeAuth.sig.Bytes(),
-			SeiGigaConnection: m.SeiGigaConnection,
+			NodeAuthKey:             nodePublicKeyConv.Encode(m.NodeAuth.Key()),
+			NodeAuthSig:             m.NodeAuth.sig.Bytes(),
+			MaxPacketMsgPayloadSize: protoutils.EncodeOpt(m.MaxPacketMsgPayloadSize),
+			SeiGigaConnection:       m.SeiGigaConnection,
 		}
 	},
 	Decode: func(p *pb.Handshake) (*handshakeMsg, error) {
@@ -70,8 +72,9 @@ var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 			return nil, fmt.Errorf("NodeAuthSig: %w", err)
 		}
 		return &handshakeMsg{
-			NodeAuth:          NodeChallengeSig{key: nodeAuthKey, sig: nodeAuthSig},
-			SeiGigaConnection: p.SeiGigaConnection,
+			NodeAuth:                NodeChallengeSig{key: nodeAuthKey, sig: nodeAuthSig},
+			MaxPacketMsgPayloadSize: protoutils.DecodeOpt(p.MaxPacketMsgPayloadSize),
+			SeiGigaConnection:       p.SeiGigaConnection,
 		}, nil
 	},
 }
