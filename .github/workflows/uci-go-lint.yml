@@ -17,4 +17,5 @@ concurrency:
 
 jobs:
   go-lint:
+    name: Go
     uses: sei-protocol/uci/.github/workflows/go-lint.yml@v0.0.6
