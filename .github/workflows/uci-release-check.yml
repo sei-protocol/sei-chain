@@ -1,4 +1,5 @@
-name: UCI / Release Check
+name: UCI
+run-name: UCI / Release Check
 
 on:
   pull_request_target:

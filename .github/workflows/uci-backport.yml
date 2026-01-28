@@ -1,4 +1,5 @@
-name: UCI / Backport
+name: UCI
+run-name: UCI / Backport
 
 on:
   pull_request_target:

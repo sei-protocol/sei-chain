@@ -1,4 +1,5 @@
-name: UCI / Release Publish
+name: UCI
+run-name: UCI / Release Publish
 
 on:
   push:

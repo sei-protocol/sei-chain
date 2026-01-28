@@ -1,4 +1,5 @@
-name: UCI / Stale Check
+name: UCI
+run-name: UCI / Stale Check
 
 on:
   workflow_dispatch:

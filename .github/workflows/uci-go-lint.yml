@@ -1,4 +1,5 @@
-name: UCI / Go Lint
+name: UCI
+run-name: UCI / Go Lint
 
 on:
   pull_request:
