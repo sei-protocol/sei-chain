@@ -19,6 +19,7 @@ package state
 
 import (
 	"math/big"
+	"sync"
 
 	"github.com/tendermint/tendermint/libs/log"
 
@@ -31,6 +32,15 @@ import (
 )
 
 var ZeroInt = uint256.NewInt(0)
+
+// mockedAddresses tracks addresses that have already been mocked in the current block.
+// This prevents repeated minting when Snapshot() creates new cache branches that
+// don't see prior writes. The map is cleared at the start of each new block.
+var (
+	mockedAddresses   = make(map[common.Address]bool)
+	mockedAddressesMu sync.Mutex
+	lastMockedHeight  int64
+)
 
 func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
 	amt := amtUint256.ToBig()
@@ -155,6 +165,24 @@ func (s *DBImpl) GetBalance(evmAddr common.Address) *uint256.Int {
 	// Lazy initialization: if balance is insufficient for gas operations, mint more
 	minRequiredBalance := uint256.NewInt(1_000_000_000_000_000_000) // 1 ETH worth of wei for gas
 	if res == nil || res.Cmp(minRequiredBalance) < 0 {
+		// Check if we've already mocked this address in the current block.
+		// This is needed because Snapshot() creates new cache branches that don't
+		// see prior writes, causing repeated GetBalance calls to trigger repeated mints.
+		mockedAddressesMu.Lock()
+		currentHeight := s.ctx.BlockHeight()
+		if lastMockedHeight != currentHeight {
+			// New block - clear the mocked addresses set
+			mockedAddresses = make(map[common.Address]bool)
+			lastMockedHeight = currentHeight
+		}
+		if mockedAddresses[evmAddr] {
+			mockedAddressesMu.Unlock()
+			// Already mocked, return the expected mock balance
+			return uint256.NewInt(10_000_000_000_000_000_000) // 10 ETH in wei
+		}
+		mockedAddresses[evmAddr] = true
+		mockedAddressesMu.Unlock()
+
 		mockBal := s.mockBalance(evmAddr)
 		return mockBal
 	}

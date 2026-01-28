@@ -197,8 +197,6 @@ func (app *App) Commit(ctx context.Context) (res *abci.ResponseCommit, err error
 	defer span.End()
 	start := time.Now()
 	res, err = app.BaseApp.Commit(ctx)
-	if app.benchmarkLogger != nil {
-		app.benchmarkLogger.RecordCommitTime(time.Since(start))
-	}
+	app.RecordBenchmarkCommitTime(time.Since(start))
 	return res, err
 }

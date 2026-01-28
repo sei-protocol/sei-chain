@@ -98,6 +98,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/app/benchmark"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
@@ -171,6 +172,7 @@ import (
 	gigabankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	gigaevmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	gigaevmstate "github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
+	xevmtypes "github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -409,8 +411,7 @@ type App struct {
 
 	txPrioritizer sdk.TxPrioritizer
 
-	benchmarkProposalCh <-chan *abci.ResponsePrepareProposal
-	benchmarkLogger     *benchmarkLogger
+	benchmarkManager *benchmark.Manager
 
 	// GigaExecutorEnabled controls whether to use the Giga executor (evmone-based)
 	// instead of geth's interpreter for EVM execution. Experimental feature.
@@ -957,8 +958,8 @@ func New(
 	// benchmarkEnabled is enabled via build flag (make install-bench)
 	if benchmarkEnabled {
 		evmChainID := evmconfig.GetEVMChainID(app.ChainID).Int64()
-		app.InitGenerator(context.Background(), app.ChainID, evmChainID, logger)
-		app.SetPrepareProposalHandler(app.PrepareProposalGeneratorHandler)
+		app.InitBenchmark(context.Background(), app.ChainID, evmChainID, logger)
+		app.SetPrepareProposalHandler(app.PrepareProposalBenchmarkHandler)
 	} else {
 		app.SetPrepareProposalHandler(app.PrepareProposalHandler)
 	}
@@ -1147,7 +1148,17 @@ func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.Res
 		}
 	}
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
-	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
+	response := app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
+
+	// Initialize the Giga EVM keeper's genesis state when giga executor is enabled.
+	// The GigaEvmKeeper uses a separate GigaKVStore, so it needs its own InitGenesis
+	// to set up required state like the fee collector address mapping.
+	if app.GigaExecutorEnabled {
+		gigaGenState := xevmtypes.DefaultGenesis()
+		app.GigaEvmKeeper.InitGenesis(ctx, *gigaGenState)
+	}
+
+	return response
 }
 
 func (app *App) PrepareProposalHandler(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
@@ -1172,9 +1183,7 @@ func (app *App) ClearOptimisticProcessingInfo() {
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	// Start block processing timing (ends at FinalizeBlock)
-	if app.benchmarkLogger != nil {
-		app.benchmarkLogger.StartBlockProcessing()
-	}
+	app.StartBenchmarkBlockProcessing()
 
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
@@ -1252,9 +1261,9 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		duration := time.Since(startTime)
 		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
 		// End block processing timing (started at ProcessProposal)
-		if app.benchmarkLogger != nil {
-			app.benchmarkLogger.EndBlockProcessing()
-		}
+		app.EndBenchmarkBlockProcessing()
+		// Process receipts for benchmark deployment tracking
+		app.ProcessBenchmarkReceipts(ctx)
 	}()
 
 	// Get all optimistic processing info atomically
@@ -1280,8 +1289,10 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 				return &abci.ResponseFinalizeBlock{}, nil
 			}
+			// Flush mocked supply before WriteState so invariance check sees the updated supply
+			app.FlushMockedSupplyIfNeeded(ctx)
 			cms := app.WriteState()
-			app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
+			app.LightInvarianceChecks(cms, app.lightInvarianceConfig, req.Height)
 			appHash := app.GetWorkingHash()
 			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
 			return &resp, nil
@@ -1299,8 +1310,10 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return &abci.ResponseFinalizeBlock{}, nil
 	}
+	// Flush mocked supply before WriteState so invariance check sees the updated supply
+	app.FlushMockedSupplyIfNeeded(ctx)
 	cms := app.WriteState()
-	app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
+	app.LightInvarianceChecks(cms, app.lightInvarianceConfig, req.Height)
 	appHash := app.GetWorkingHash()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil

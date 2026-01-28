@@ -64,21 +64,7 @@ func (k BaseViewKeeper) HasBalance(ctx sdk.Context, addr sdk.AccAddress, amt sdk
 	return k.GetBalance(ctx, addr, amt.Denom).IsGTE(amt)
 }
 
-// GetBalance returns the balance of a specific denomination for a given account
-// by address.
-func (k BaseViewKeeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin {
-	accountStore := k.getAccountStore(ctx, addr)
-
-	bz := accountStore.Get([]byte(denom))
-	if bz == nil {
-		return sdk.NewCoin(denom, sdk.ZeroInt())
-	}
-
-	var balance sdk.Coin
-	k.cdc.MustUnmarshal(bz, &balance)
-
-	return balance
-}
+// GetBalance is defined in balance.go (or mock_balances.go when that build tag is set)
 
 // LockedCoins returns all the coins that are not spendable (i.e. locked) for an
 // account by address. For standard accounts, the result will always be no coins.

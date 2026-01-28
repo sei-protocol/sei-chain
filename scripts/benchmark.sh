@@ -8,6 +8,8 @@ GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
 GIGA_OCC=${GIGA_OCC:-false}
 BENCHMARK_TXS_PER_BATCH=${BENCHMARK_TXS_PER_BATCH:-1000}
 DISABLE_INDEXER=${DISABLE_INDEXER:-true}
+# Benchmark scenario config (path to JSON file, see scripts/scenarios/)
+BENCHMARK_CONFIG=${BENCHMARK_CONFIG:-"scripts/scenarios/EVMTransfer.json"}
 
 # DB_BACKEND options:
 #   goleveldb - default, pure Go, can have compaction stalls under heavy write load
@@ -34,6 +36,10 @@ echo "  GIGA_OCC:                $GIGA_OCC"
 echo "  DB_BACKEND:              $DB_BACKEND"
 echo "  BENCHMARK_TXS_PER_BATCH: $BENCHMARK_TXS_PER_BATCH"
 echo "  DISABLE_INDEXER:         $DISABLE_INDEXER"
+echo "  BENCHMARK_CONFIG:        ${BENCHMARK_CONFIG:-(default: EVMTransfer)}"
+echo ""
+echo "Available scenarios in scripts/scenarios/:"
+ls -1 scripts/scenarios/*.json 2>/dev/null | sed 's/^/    /' || echo "    (none found)"
 echo "================================"
 
 # clean up old sei directory
@@ -211,4 +217,4 @@ echo "To capture heap profile:"
 echo "  go tool pprof http://localhost:6060/debug/pprof/heap"
 echo "============================================================"
 echo ""
-BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH ~/go/bin/seid start --chain-id sei-chain 2>&1 | grep benchmark
+BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH ~/go/bin/seid start --chain-id sei-chain 2>&1 | grep -E "(benchmark|Benchmark|deployed|transitioning)"

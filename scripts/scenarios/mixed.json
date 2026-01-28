@@ -1,0 +1,16 @@
+{
+  "accounts": {
+    "count": 5000,
+    "newAccountRate": 0.0
+  },
+  "scenarios": [
+    {
+      "name": "EVMTransfer",
+      "weight": 3
+    },
+    {
+      "name": "ERC20",
+      "weight": 1
+    }
+  ]
+}
