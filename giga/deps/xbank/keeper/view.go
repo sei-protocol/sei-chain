@@ -29,15 +29,10 @@ type BaseViewKeeper struct {
 	storeKey  sdk.StoreKey
 	ak        types.AccountKeeper
 	cacheSize int
-	// UseRegularStore when true causes GetKVStore to use ctx.KVStore instead of ctx.GigaKVStore.
-	UseRegularStore bool
-}
 
-func (k BaseViewKeeper) GetKVStore(ctx sdk.Context) sdk.KVStore {
-	if k.UseRegularStore {
-		return ctx.KVStore(k.storeKey)
-	}
-	return ctx.GigaKVStore(k.storeKey)
+	// UseRegularStore when true causes GetKVStore to use ctx.KVStore instead of ctx.GigaKVStore.
+	// This is for debugging/testing to isolate Giga executor logic from GigaKVStore layer.
+	UseRegularStore bool
 }
 
 // NewBaseViewKeeper returns a new BaseViewKeeper.
@@ -52,6 +47,16 @@ func NewBaseViewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey, ak types.Ac
 // Logger returns a module-specific logger.
 func (k BaseViewKeeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", "x/"+types.ModuleName)
+}
+
+// GetKVStore returns the appropriate KVStore based on the UseRegularStore flag.
+// When UseRegularStore is true (for debugging/testing), returns regular KVStore.
+// Otherwise returns GigaKVStore.
+func (k BaseViewKeeper) GetKVStore(ctx sdk.Context) sdk.KVStore {
+	if k.UseRegularStore {
+		return ctx.KVStore(k.storeKey)
+	}
+	return ctx.GigaKVStore(k.storeKey)
 }
 
 // HasBalance returns whether or not an account has at least amt balance.

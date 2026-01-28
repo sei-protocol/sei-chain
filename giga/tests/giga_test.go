@@ -1,6 +1,11 @@
 package giga_test
 
 import (
+	"bytes"
+	"fmt"
+
+	"github.com/tendermint/tendermint/crypto/merkle"
+
 	"math/big"
 	"testing"
 	"time"
@@ -234,6 +239,86 @@ func RunBlock(t testing.TB, tCtx *GigaTestContext, txs [][]byte) ([]abci.Event, 
 
 	events, results, _, err := tCtx.TestApp.ProcessBlock(tCtx.Ctx, txs, req, req.DecidedLastCommit, false)
 	return events, results, err
+}
+
+// ComputeLastResultsHash computes the LastResultsHash from tx results
+// This uses the same logic as tendermint: only Code, Data, GasWanted, GasUsed are included
+func ComputeLastResultsHash(results []*abci.ExecTxResult) ([]byte, error) {
+	rs, err := abci.MarshalTxResults(results)
+	if err != nil {
+		return nil, err
+	}
+	return merkle.HashFromByteSlices(rs), nil
+}
+
+// CompareLastResultsHash compares the LastResultsHash between two result sets
+// This is the critical comparison for consensus - if hashes differ, nodes will fork
+func CompareLastResultsHash(t *testing.T, testName string, expected, actual []*abci.ExecTxResult) {
+	expectedHash, err := ComputeLastResultsHash(expected)
+	require.NoError(t, err, "%s: failed to compute expected LastResultsHash", testName)
+
+	actualHash, err := ComputeLastResultsHash(actual)
+	require.NoError(t, err, "%s: failed to compute actual LastResultsHash", testName)
+
+	if !bytes.Equal(expectedHash, actualHash) {
+		// Log detailed info about each tx result's deterministic fields
+		t.Logf("%s: LastResultsHash MISMATCH!", testName)
+		t.Logf("  Expected hash: %X", expectedHash)
+		t.Logf("  Actual hash:   %X", actualHash)
+
+		// Log per-tx deterministic fields to help debug
+		maxLen := len(expected)
+		if len(actual) > maxLen {
+			maxLen = len(actual)
+		}
+		for i := 0; i < maxLen; i++ {
+			var expInfo, actInfo string
+			if i < len(expected) {
+				expInfo = fmt.Sprintf("Code=%d GasWanted=%d GasUsed=%d DataLen=%d",
+					expected[i].Code, expected[i].GasWanted, expected[i].GasUsed, len(expected[i].Data))
+			} else {
+				expInfo = "(missing)"
+			}
+			if i < len(actual) {
+				actInfo = fmt.Sprintf("Code=%d GasWanted=%d GasUsed=%d DataLen=%d",
+					actual[i].Code, actual[i].GasWanted, actual[i].GasUsed, len(actual[i].Data))
+			} else {
+				actInfo = "(missing)"
+			}
+
+			// Check if this tx differs
+			differs := ""
+			if i < len(expected) && i < len(actual) {
+				if expected[i].Code != actual[i].Code ||
+					expected[i].GasWanted != actual[i].GasWanted ||
+					expected[i].GasUsed != actual[i].GasUsed ||
+					!bytes.Equal(expected[i].Data, actual[i].Data) {
+					differs = " <-- DIFFERS"
+				}
+			}
+			t.Logf("  tx[%d] expected: %s", i, expInfo)
+			t.Logf("  tx[%d] actual:   %s%s", i, actInfo, differs)
+		}
+	}
+
+	require.True(t, bytes.Equal(expectedHash, actualHash),
+		"%s: LastResultsHash mismatch - expected %X, got %X", testName, expectedHash, actualHash)
+}
+
+// CompareDeterministicFields compares the 4 deterministic fields that go into LastResultsHash
+func CompareDeterministicFields(t *testing.T, testName string, expected, actual []*abci.ExecTxResult) {
+	require.Equal(t, len(expected), len(actual), "%s: result count mismatch", testName)
+
+	for i := range expected {
+		require.Equal(t, expected[i].Code, actual[i].Code,
+			"%s: tx[%d] Code mismatch (expected %d, got %d)", testName, i, expected[i].Code, actual[i].Code)
+		require.Equal(t, expected[i].GasWanted, actual[i].GasWanted,
+			"%s: tx[%d] GasWanted mismatch (expected %d, got %d)", testName, i, expected[i].GasWanted, actual[i].GasWanted)
+		require.Equal(t, expected[i].GasUsed, actual[i].GasUsed,
+			"%s: tx[%d] GasUsed mismatch (expected %d, got %d)", testName, i, expected[i].GasUsed, actual[i].GasUsed)
+		require.True(t, bytes.Equal(expected[i].Data, actual[i].Data),
+			"%s: tx[%d] Data mismatch (expected len=%d, got len=%d)", testName, i, len(expected[i].Data), len(actual[i].Data))
+	}
 }
 
 // CompareResults compares execution results between two runs
@@ -1152,4 +1237,218 @@ func TestGiga_SstoreGasHonoredByChainConfig(t *testing.T) {
 	t.Logf("Verified: SSTORE gas parameter can be read and updated")
 	t.Logf("  Default: %d", defaultParams.SeiSstoreSetGasEip2200)
 	t.Logf("  Updated: %d", updatedParams.SeiSstoreSetGasEip2200)
+}
+
+// ============================================================================
+// LastResultsHash Consistency Tests
+// These tests verify that the deterministic fields (Code, Data, GasWanted, GasUsed)
+// that go into LastResultsHash are identical between executor modes.
+// This is critical for consensus - mismatches cause chain forks.
+// ============================================================================
+
+// TestLastResultsHash_GigaVsGeth_SimpleTransfer verifies LastResultsHash matches for simple transfers
+func TestLastResultsHash_GigaVsGeth_SimpleTransfer(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+	txCount := 5
+
+	transfers := GenerateNonConflictingTransfers(txCount)
+
+	// Run with Geth (baseline)
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	gethTxs := CreateEVMTransferTxs(t, gethCtx, transfers, false)
+	_, gethResults, gethErr := RunBlock(t, gethCtx, gethTxs)
+	require.NoError(t, gethErr, "Geth execution failed")
+
+	// Run with Giga Sequential
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	gigaTxs := CreateEVMTransferTxs(t, gigaCtx, transfers, true)
+	_, gigaResults, gigaErr := RunBlock(t, gigaCtx, gigaTxs)
+	require.NoError(t, gigaErr, "Giga execution failed")
+
+	// Verify all transactions succeeded
+	for i, result := range gethResults {
+		require.Equal(t, uint32(0), result.Code, "Geth tx[%d] failed: %s", i, result.Log)
+	}
+	for i, result := range gigaResults {
+		require.Equal(t, uint32(0), result.Code, "Giga tx[%d] failed: %s", i, result.Log)
+	}
+
+	// Compare LastResultsHash - this is the critical consensus check
+	CompareLastResultsHash(t, "LastResultsHash_GigaVsGeth_SimpleTransfer", gethResults, gigaResults)
+
+	// Also compare individual deterministic fields for detailed debugging
+	CompareDeterministicFields(t, "DeterministicFields_GigaVsGeth_SimpleTransfer", gethResults, gigaResults)
+
+	gethHash, _ := ComputeLastResultsHash(gethResults)
+	gigaHash, _ := ComputeLastResultsHash(gigaResults)
+	t.Logf("LastResultsHash verified identical: %X", gethHash)
+	t.Logf("Geth hash:  %X", gethHash)
+	t.Logf("Giga hash:  %X", gigaHash)
+}
+
+// TestLastResultsHash_GigaVsGeth_ContractDeploy verifies LastResultsHash for contract deployment
+func TestLastResultsHash_GigaVsGeth_ContractDeploy(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+
+	deployer := utils.NewSigner()
+
+	// Run with Geth
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	gethTxs := CreateContractDeployTxs(t, gethCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
+	}, false)
+	_, gethResults, gethErr := RunBlock(t, gethCtx, gethTxs)
+	require.NoError(t, gethErr)
+	require.Equal(t, uint32(0), gethResults[0].Code, "Geth deploy failed: %s", gethResults[0].Log)
+
+	// Run with Giga
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	gigaTxs := CreateContractDeployTxs(t, gigaCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
+	}, true)
+	_, gigaResults, gigaErr := RunBlock(t, gigaCtx, gigaTxs)
+	require.NoError(t, gigaErr)
+	require.Equal(t, uint32(0), gigaResults[0].Code, "Giga deploy failed: %s", gigaResults[0].Log)
+
+	// Compare LastResultsHash
+	CompareLastResultsHash(t, "LastResultsHash_GigaVsGeth_ContractDeploy", gethResults, gigaResults)
+
+	gethHash, _ := ComputeLastResultsHash(gethResults)
+	t.Logf("Contract deploy LastResultsHash verified identical: %X", gethHash)
+}
+
+// TestLastResultsHash_GigaVsGeth_ContractCall verifies LastResultsHash for contract calls
+func TestLastResultsHash_GigaVsGeth_ContractCall(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+
+	deployer := utils.NewSigner()
+	caller := utils.NewSigner()
+	contractAddr := crypto.CreateAddress(deployer.EvmAddress, 0)
+
+	// Run with Geth: deploy + call
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	gethDeployTxs := CreateContractDeployTxs(t, gethCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
+	}, false)
+	gethCallTxs := CreateContractCallTxs(t, gethCtx, []EVMContractCall{
+		{Signer: caller, Contract: contractAddr, Data: encodeSetCall(big.NewInt(42)), Nonce: 0},
+	}, false)
+	allGethTxs := append(gethDeployTxs, gethCallTxs...)
+	_, gethResults, gethErr := RunBlock(t, gethCtx, allGethTxs)
+	require.NoError(t, gethErr)
+	require.Equal(t, uint32(0), gethResults[0].Code, "Geth deploy failed: %s", gethResults[0].Log)
+	require.Equal(t, uint32(0), gethResults[1].Code, "Geth call failed: %s", gethResults[1].Log)
+
+	// Run with Giga: deploy + call
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	gigaDeployTxs := CreateContractDeployTxs(t, gigaCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
+	}, true)
+	gigaCallTxs := CreateContractCallTxs(t, gigaCtx, []EVMContractCall{
+		{Signer: caller, Contract: contractAddr, Data: encodeSetCall(big.NewInt(42)), Nonce: 0},
+	}, true)
+	allGigaTxs := append(gigaDeployTxs, gigaCallTxs...)
+	_, gigaResults, gigaErr := RunBlock(t, gigaCtx, allGigaTxs)
+	require.NoError(t, gigaErr)
+	require.Equal(t, uint32(0), gigaResults[0].Code, "Giga deploy failed: %s", gigaResults[0].Log)
+	require.Equal(t, uint32(0), gigaResults[1].Code, "Giga call failed: %s", gigaResults[1].Log)
+
+	// Compare LastResultsHash
+	CompareLastResultsHash(t, "LastResultsHash_GigaVsGeth_ContractCall", gethResults, gigaResults)
+
+	gethHash, _ := ComputeLastResultsHash(gethResults)
+	t.Logf("Contract call LastResultsHash verified identical: %X", gethHash)
+}
+
+// TestLastResultsHash_AllModes verifies LastResultsHash is identical across all executor modes
+func TestLastResultsHash_AllModes(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+	txCount := 10
+	workers := 4
+
+	transfers := GenerateNonConflictingTransfers(txCount)
+
+	// Geth with OCC (standard production path)
+	gethCtx := NewGigaTestContext(t, accts, blockTime, workers, ModeV2withOCC)
+	gethTxs := CreateEVMTransferTxs(t, gethCtx, transfers, false)
+	_, gethResults, err := RunBlock(t, gethCtx, gethTxs)
+	require.NoError(t, err)
+
+	// Giga Sequential
+	gigaSeqCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	gigaSeqTxs := CreateEVMTransferTxs(t, gigaSeqCtx, transfers, true)
+	_, gigaSeqResults, err := RunBlock(t, gigaSeqCtx, gigaSeqTxs)
+	require.NoError(t, err)
+
+	// Giga OCC
+	gigaOCCCtx := NewGigaTestContext(t, accts, blockTime, workers, ModeGigaOCC)
+	gigaOCCTxs := CreateEVMTransferTxs(t, gigaOCCCtx, transfers, true)
+	_, gigaOCCResults, err := RunBlock(t, gigaOCCCtx, gigaOCCTxs)
+	require.NoError(t, err)
+
+	// Verify all transactions succeeded
+	for i := range gethResults {
+		require.Equal(t, uint32(0), gethResults[i].Code, "Geth tx[%d] failed", i)
+		require.Equal(t, uint32(0), gigaSeqResults[i].Code, "GigaSeq tx[%d] failed", i)
+		require.Equal(t, uint32(0), gigaOCCResults[i].Code, "GigaOCC tx[%d] failed", i)
+	}
+
+	// Compare LastResultsHash across all modes
+	CompareLastResultsHash(t, "Geth vs GigaSequential", gethResults, gigaSeqResults)
+	CompareLastResultsHash(t, "GigaSequential vs GigaOCC", gigaSeqResults, gigaOCCResults)
+	CompareLastResultsHash(t, "Geth vs GigaOCC", gethResults, gigaOCCResults)
+
+	gethHash, _ := ComputeLastResultsHash(gethResults)
+	gigaSeqHash, _ := ComputeLastResultsHash(gigaSeqResults)
+	gigaOCCHash, _ := ComputeLastResultsHash(gigaOCCResults)
+
+	t.Logf("LastResultsHash verified identical across all 3 executor modes:")
+	t.Logf("  Geth+OCC:        %X", gethHash)
+	t.Logf("  Giga Sequential: %X", gigaSeqHash)
+	t.Logf("  Giga+OCC:        %X", gigaOCCHash)
+}
+
+// TestLastResultsHash_DeterministicFieldsLogged logs the deterministic fields for manual inspection
+// This is useful for debugging when hashes don't match
+func TestLastResultsHash_DeterministicFieldsLogged(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+
+	// Single simple transfer for easy inspection
+	transfers := GenerateNonConflictingTransfers(1)
+
+	// Run with Geth
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	gethTxs := CreateEVMTransferTxs(t, gethCtx, transfers, false)
+	_, gethResults, _ := RunBlock(t, gethCtx, gethTxs)
+
+	// Run with Giga
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	gigaTxs := CreateEVMTransferTxs(t, gigaCtx, transfers, true)
+	_, gigaResults, _ := RunBlock(t, gigaCtx, gigaTxs)
+
+	// Log the deterministic fields for inspection
+	t.Log("=== Geth Result ===")
+	for i, r := range gethResults {
+		t.Logf("tx[%d]: Code=%d GasWanted=%d GasUsed=%d DataLen=%d Data=%X",
+			i, r.Code, r.GasWanted, r.GasUsed, len(r.Data), r.Data)
+	}
+
+	t.Log("=== Giga Result ===")
+	for i, r := range gigaResults {
+		t.Logf("tx[%d]: Code=%d GasWanted=%d GasUsed=%d DataLen=%d Data=%X",
+			i, r.Code, r.GasWanted, r.GasUsed, len(r.Data), r.Data)
+	}
+
+	gethHash, _ := ComputeLastResultsHash(gethResults)
+	gigaHash, _ := ComputeLastResultsHash(gigaResults)
+	t.Logf("Geth LastResultsHash: %X", gethHash)
+	t.Logf("Giga LastResultsHash: %X", gigaHash)
+
+	// Still verify they match
+	CompareLastResultsHash(t, "DeterministicFieldsLogged", gethResults, gigaResults)
 }
