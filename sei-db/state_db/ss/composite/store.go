@@ -3,7 +3,6 @@ package composite
 import (
 	"path/filepath"
 
-	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -59,20 +58,14 @@ func NewCompositeStateStore(
 func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
 	// Try EVM store first for EVM keys
 	if s.evmStore != nil && storeKey == evm.EVMStoreKey {
-		storeType, strippedKey := commonevm.ParseEVMKey(key)
-		if storeType != evm.StoreUnknown {
-			db := s.evmStore.GetDB(storeType)
-			if db != nil {
-				val, err := db.Get(strippedKey, version)
-				if err != nil {
-					return nil, err
-				}
-				if val != nil {
-					return val, nil
-				}
-				// Fall through to Cosmos_SS if not found in EVM_SS
-			}
+		val, err := s.evmStore.Get(key, version)
+		if err != nil {
+			return nil, err
 		}
+		if val != nil {
+			return val, nil
+		}
+		// Fall through to Cosmos_SS if not found in EVM_SS
 	}
 
 	// Fallback to Cosmos store
@@ -83,20 +76,14 @@ func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([
 func (s *CompositeStateStore) Has(storeKey string, version int64, key []byte) (bool, error) {
 	// Try EVM store first for EVM keys
 	if s.evmStore != nil && storeKey == evm.EVMStoreKey {
-		storeType, strippedKey := commonevm.ParseEVMKey(key)
-		if storeType != evm.StoreUnknown {
-			db := s.evmStore.GetDB(storeType)
-			if db != nil {
-				has, err := db.Has(strippedKey, version)
-				if err != nil {
-					return false, err
-				}
-				if has {
-					return true, nil
-				}
-				// Fall through to check Cosmos_SS
-			}
+		has, err := s.evmStore.Has(key, version)
+		if err != nil {
+			return false, err
 		}
+		if has {
+			return true, nil
+		}
+		// Fall through to check Cosmos_SS
 	}
 
 	// Fallback to Cosmos store
