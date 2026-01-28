@@ -169,12 +169,31 @@ func (s *EVMStateStore) SetEarliestVersion(version int64) error {
 	return nil
 }
 
-// Prune removes old versions from all databases
+// Prune removes old versions from all databases in parallel
 func (s *EVMStateStore) Prune(version int64) error {
+	if len(s.databases) == 0 {
+		return nil
+	}
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(s.databases))
+
 	for _, db := range s.databases {
-		if err := db.Prune(version); err != nil {
-			return err
-		}
+		wg.Add(1)
+		go func(db *EVMDatabase) {
+			defer wg.Done()
+			if err := db.Prune(version); err != nil {
+				errCh <- err
+			}
+		}(db)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	// Return first error if any
+	for err := range errCh {
+		return err
 	}
 	return nil
 }

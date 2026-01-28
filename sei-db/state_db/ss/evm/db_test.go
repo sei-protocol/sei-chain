@@ -46,39 +46,39 @@ func TestEVMDatabase(t *testing.T) {
 
 	t.Run("Version handling", func(t *testing.T) {
 		key := []byte("versioned_key")
-		
+
 		// Write v1
 		err := db.Set(key, []byte("v1"), 1)
 		require.NoError(t, err)
-		
+
 		// Write v5
 		err = db.Set(key, []byte("v5"), 5)
 		require.NoError(t, err)
-		
+
 		// Write v10
 		err = db.Set(key, []byte("v10"), 10)
 		require.NoError(t, err)
-		
+
 		// Query at v1 -> get v1
 		got, err := db.Get(key, 1)
 		require.NoError(t, err)
 		require.Equal(t, []byte("v1"), got)
-		
+
 		// Query at v3 -> get v1 (latest <= 3)
 		got, err = db.Get(key, 3)
 		require.NoError(t, err)
 		require.Equal(t, []byte("v1"), got)
-		
+
 		// Query at v7 -> get v5 (latest <= 7)
 		got, err = db.Get(key, 7)
 		require.NoError(t, err)
 		require.Equal(t, []byte("v5"), got)
-		
+
 		// Query at v10 -> get v10
 		got, err = db.Get(key, 10)
 		require.NoError(t, err)
 		require.Equal(t, []byte("v10"), got)
-		
+
 		// Query at v100 -> get v10 (latest <= 100)
 		got, err = db.Get(key, 100)
 		require.NoError(t, err)
@@ -87,25 +87,25 @@ func TestEVMDatabase(t *testing.T) {
 
 	t.Run("Delete (tombstone)", func(t *testing.T) {
 		key := []byte("delete_key")
-		
+
 		// Write at v1
 		err := db.Set(key, []byte("value"), 1)
 		require.NoError(t, err)
-		
+
 		// Delete at v5
 		err = db.Delete(key, 5)
 		require.NoError(t, err)
-		
+
 		// Query at v1 -> exists
 		got, err := db.Get(key, 1)
 		require.NoError(t, err)
 		require.Equal(t, []byte("value"), got)
-		
+
 		// Query at v5 -> deleted (nil)
 		got, err = db.Get(key, 5)
 		require.NoError(t, err)
 		require.Nil(t, got)
-		
+
 		// Query at v10 -> still deleted
 		got, err = db.Get(key, 10)
 		require.NoError(t, err)
@@ -143,7 +143,7 @@ func TestEVMDatabaseBatch(t *testing.T) {
 		{Key: []byte("key1"), Delete: true},
 		{Key: []byte("key4"), Value: []byte("value4")},
 	}
-	
+
 	err = db.ApplyBatch(deletePairs, 2)
 	require.NoError(t, err)
 
@@ -177,13 +177,13 @@ func TestEVMStateStore(t *testing.T) {
 		for _, storeType := range AllEVMStoreTypes() {
 			db := store.GetDB(storeType)
 			require.NotNil(t, db)
-			
+
 			key := []byte("key_" + StoreTypeName(storeType))
 			value := []byte("value_" + StoreTypeName(storeType))
-			
+
 			err := db.Set(key, value, 1)
 			require.NoError(t, err)
-			
+
 			got, err := db.Get(key, 1)
 			require.NoError(t, err)
 			require.Equal(t, value, got)
