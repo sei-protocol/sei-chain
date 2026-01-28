@@ -139,9 +139,9 @@ func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord) {
 		currentBlock  uint64
 		hasBlock      bool
 		logStartIndex uint
-		cacheEntries  []receiptCacheEntry
 		cacheLogs     []*ethtypes.Log
 	)
+	cacheEntries := make([]receiptCacheEntry, 0, len(receipts))
 
 	flushBatch := func(blockNumber uint64) {
 		if len(cacheEntries) == 0 && len(cacheLogs) == 0 {
@@ -152,8 +152,8 @@ func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord) {
 		if len(cacheLogs) > 0 {
 			s.cache.AddLogsForBlock(blockNumber, cacheLogs)
 		}
-		cacheEntries = nil
-		cacheLogs = nil
+		cacheEntries = cacheEntries[:0]
+		cacheLogs = cacheLogs[:0]
 	}
 
 	for _, record := range receipts {
