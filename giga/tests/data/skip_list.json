@@ -141,7 +141,6 @@
     "stCallDelegateCodesHomestead",
     "stDelegatecallTestHomestead",
     "stEIP1559",
-    "stMemoryStressTest",
     "stQuadraticComplexityTest",
     "stTimeConsuming"
   ],
@@ -197,13 +196,13 @@
     "stZeroKnowledge": "ENABLED: 945/945 tests pass. All passing.",
     "stZeroKnowledge2": "ENABLED: 520/520 tests pass. All passing.",
     "stPreCompiledContracts2": "ENABLED: 160/160 tests pass. All passing.",
-    "stMemoryStressTest": "ANALYZED: 13/82 tests pass. 69 failures",
+    "stMemoryStressTest": "ENABLED: 83/83 tests pass. All passing.",
     "stRandom": "ENABLED: 310/310 tests pass. All passing.",
     "stRandom2": "ENABLED: 221/221 tests pass. All passing.",
     "stSStoreTest": "ENABLED: 476/476 tests pass. All passing.",
     "Cancun": "ENABLED: 170/177 tests pass. 7 failures skipped: error_mismatch(7)",
     "Shanghai": "ENABLED: 26/27 tests pass. 1 failure skipped: gas_mismatch(1)",
-    "VMTests": "ANALYZED: 204/595 tests pass. 391 failures",
+    "VMTests": "ANALYZED: 311/596 tests pass (52%). 285 failures: result_code. Too many to skip individually.",
     "stQuadraticComplexityTest": "TIMED_OUT: needs re-run with longer timeout",
     "stTimeConsuming": "TIMED_OUT: needs re-run with longer timeout"
   }
