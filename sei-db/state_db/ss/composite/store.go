@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -264,7 +265,7 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 
 // extractEVMChanges extracts EVM-routable changes from changesets
 func (s *CompositeStateStore) extractEVMChanges(changesets []*proto.NamedChangeSet) map[evm.EVMStoreType][]*iavl.KVPair {
-	evmChanges := make(map[evm.EVMStoreType][]*iavl.KVPair, 5) // 5 EVM store types
+	evmChanges := make(map[evm.EVMStoreType][]*iavl.KVPair, evm.NumEVMStoreTypes)
 
 	for _, changeset := range changesets {
 		if changeset.Name != evm.EVMStoreKey {
@@ -293,7 +294,7 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 
 	// Fan out to both stores
 	cosmosCh := make(chan types.SnapshotNode, 100)
-	evmChanges := make(map[evm.EVMStoreType][]*iavl.KVPair, 5)
+	evmChanges := make(map[evm.EVMStoreType][]*iavl.KVPair, evm.NumEVMStoreTypes)
 
 	var wg sync.WaitGroup
 	var cosmosErr error
@@ -364,7 +365,7 @@ func (s *CompositeStateStore) RawImport(ch <-chan types.RawSnapshotNode) error {
 			evmStoreType, strippedKey := commonevm.ParseEVMKey(node.Key)
 			if evmStoreType != evm.StoreUnknown {
 				if evmChangesByVersion[node.Version] == nil {
-					evmChangesByVersion[node.Version] = make(map[evm.EVMStoreType][]*iavl.KVPair, 5)
+					evmChangesByVersion[node.Version] = make(map[evm.EVMStoreType][]*iavl.KVPair, evm.NumEVMStoreTypes)
 				}
 				evmChangesByVersion[node.Version][evmStoreType] = append(
 					evmChangesByVersion[node.Version][evmStoreType],
