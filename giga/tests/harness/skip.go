@@ -32,7 +32,7 @@ func LoadSkipListFromPath(path string) (*SkipList, error) {
 		}
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var sl SkipList
 	decoder := json.NewDecoder(file)

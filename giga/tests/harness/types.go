@@ -48,8 +48,8 @@ type StateTestPost struct {
 
 // StateTestJSON is the root structure of a state test file
 type StateTestJSON struct {
-	Pre         ethtypes.GenesisAlloc        `json:"pre"`
-	Env         StateTestEnv                 `json:"env"`
-	Transaction StateTestTransaction         `json:"transaction"`
-	Post        map[string][]StateTestPost   `json:"post"`
+	Pre         ethtypes.GenesisAlloc      `json:"pre"`
+	Env         StateTestEnv               `json:"env"`
+	Transaction StateTestTransaction       `json:"transaction"`
+	Post        map[string][]StateTestPost `json:"post"`
 }

@@ -16,10 +16,10 @@ var extractOnce sync.Once
 // LoadStateTest loads a state test from a JSON file
 func LoadStateTest(filePath string) (map[string]*StateTestJSON, error) {
 	file, err := os.Open(filepath.Clean(filePath))
-	defer file.Close()
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = file.Close() }()
 
 	var tests map[string]StateTestJSON
 	decoder := json.NewDecoder(file)
