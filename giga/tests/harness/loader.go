@@ -91,16 +91,18 @@ func GetStateTestsPath() (string, error) {
 		return "", err
 	}
 
+	var extractErr error
 	extractOnce.Do(func() {
-		err = extractArchive(archivePath, "data")
+		extractErr = extractArchive(archivePath, "data")
 	})
-	if err != nil {
-		return "", err
+	if extractErr != nil {
+		return "", extractErr
 	}
 
-	_, err = os.Stat(dataPath)
-	if err != nil {
-		return "", nil
+	// Always verify the directory exists after sync.Once completes,
+	// regardless of whether this was the first invocation
+	if _, err = os.Stat(dataPath); err != nil {
+		return "", err
 	}
 
 	return dataPath, nil

@@ -9,6 +9,9 @@ import (
 	"testing"
 )
 
+// maxFailuresToDisplay limits the number of individual failures shown in the summary
+const maxFailuresToDisplay = 50
+
 // TestSummary tracks test results for summary reporting
 type TestSummary struct {
 	mu sync.Mutex
@@ -147,20 +150,20 @@ func (ts *TestSummary) PrintSummary(t *testing.T) {
 		}
 		sb.WriteString("\n")
 
-		// List failed tests (limit to first 50 to avoid huge output)
+		// List failed tests (limit to avoid huge output)
 		sb.WriteString("Failed tests:\n")
 		failedCount := 0
 		for _, cat := range categories {
 			stats := ts.CategoryStats[cat]
 			for _, f := range stats.Failures {
-				if failedCount >= 50 {
-					sb.WriteString(fmt.Sprintf("  ... and %d more failures\n", ts.TotalFailed-50))
+				if failedCount >= maxFailuresToDisplay {
+					sb.WriteString(fmt.Sprintf("  ... and %d more failures\n", ts.TotalFailed-maxFailuresToDisplay))
 					break
 				}
 				sb.WriteString(fmt.Sprintf("  - %s/%s: %s (%s)\n", cat, f.TestName, f.FailureType, f.Message))
 				failedCount++
 			}
-			if failedCount >= 50 {
+			if failedCount >= maxFailuresToDisplay {
 				break
 			}
 		}

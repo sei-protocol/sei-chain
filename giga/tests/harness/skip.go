@@ -117,29 +117,3 @@ func (sl *SkipList) GetSkipReason(category, testName string) string {
 	_, reason := sl.ShouldSkip(category, testName)
 	return reason
 }
-
-// NormalizeTestName normalizes a test name by removing leading directory components
-// that match known patterns (e.g., "stExample/test.json/testName" -> "stExample/testName")
-func NormalizeTestName(fullName string) (category string, testName string) {
-	parts := strings.Split(fullName, "/")
-	if len(parts) >= 1 {
-		category = parts[0]
-	}
-	if len(parts) >= 2 {
-		// Remove .json extension if present in any part
-		var cleanParts []string
-		for i, p := range parts[1:] {
-			if strings.HasSuffix(p, ".json") {
-				// Skip the json filename part, use remaining parts
-				continue
-			}
-			cleanParts = append(cleanParts, p)
-			// If this is the last part, include index if present
-			if i == len(parts)-2 {
-				break
-			}
-		}
-		testName = strings.Join(cleanParts, "/")
-	}
-	return category, testName
-}
