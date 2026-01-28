@@ -2408,6 +2408,50 @@ func (x *GetBlockReq) GetGlobalNumber() uint64 {
 	return 0
 }
 
+type GetBlockResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Block         *Block                 `protobuf:"bytes,1,opt,name=block,proto3,oneof" json:"block,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetBlockResp) Reset() {
+	*x = GetBlockResp{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetBlockResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetBlockResp) ProtoMessage() {}
+
+func (x *GetBlockResp) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetBlockResp.ProtoReflect.Descriptor instead.
+func (*GetBlockResp) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *GetBlockResp) GetBlock() *Block {
+	if x != nil {
+		return x.Block
+	}
+	return nil
+}
+
 type StreamFullCommitQCsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	NextBlock     uint64                 `protobuf:"varint,1,opt,name=next_block,json=nextBlock,proto3" json:"next_block,omitempty"`
@@ -2417,7 +2461,7 @@ type StreamFullCommitQCsReq struct {
 
 func (x *StreamFullCommitQCsReq) Reset() {
 	*x = StreamFullCommitQCsReq{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[43]
+	mi := &file_autobahn_autobahn_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2429,7 +2473,7 @@ func (x *StreamFullCommitQCsReq) String() string {
 func (*StreamFullCommitQCsReq) ProtoMessage() {}
 
 func (x *StreamFullCommitQCsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[43]
+	mi := &file_autobahn_autobahn_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2442,7 +2486,7 @@ func (x *StreamFullCommitQCsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamFullCommitQCsReq.ProtoReflect.Descriptor instead.
 func (*StreamFullCommitQCsReq) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{43}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *StreamFullCommitQCsReq) GetNextBlock() uint64 {
@@ -2651,7 +2695,10 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x12StreamLaneVotesReq\"\x13\n" +
 	"\x11StreamAppVotesReq\"2\n" +
 	"\vGetBlockReq\x12#\n" +
-	"\rglobal_number\x18\x01 \x01(\x04R\fglobalNumber\"7\n" +
+	"\rglobal_number\x18\x01 \x01(\x04R\fglobalNumber\"D\n" +
+	"\fGetBlockResp\x12*\n" +
+	"\x05block\x18\x01 \x01(\v2\x0f.autobahn.BlockH\x00R\x05block\x88\x01\x01B\b\n" +
+	"\x06_block\"7\n" +
 	"\x16StreamFullCommitQCsReq\x12\x1d\n" +
 	"\n" +
 	"next_block\x18\x01 \x01(\x04R\tnextBlockB7Z5github.com/tendermint/tendermint/internal/autobahn/pbb\x06proto3"
@@ -2668,7 +2715,7 @@ func file_autobahn_autobahn_proto_rawDescGZIP() []byte {
 	return file_autobahn_autobahn_proto_rawDescData
 }
 
-var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
+var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 46)
 var file_autobahn_autobahn_proto_goTypes = []any{
 	(*Timestamp)(nil),              // 0: autobahn.Timestamp
 	(*Duration)(nil),               // 1: autobahn.Duration
@@ -2713,11 +2760,12 @@ var file_autobahn_autobahn_proto_goTypes = []any{
 	(*StreamLaneVotesReq)(nil),     // 40: autobahn.StreamLaneVotesReq
 	(*StreamAppVotesReq)(nil),      // 41: autobahn.StreamAppVotesReq
 	(*GetBlockReq)(nil),            // 42: autobahn.GetBlockReq
-	(*StreamFullCommitQCsReq)(nil), // 43: autobahn.StreamFullCommitQCsReq
-	nil,                            // 44: autobahn.TransactionHeader.PropertiesEntry
+	(*GetBlockResp)(nil),           // 43: autobahn.GetBlockResp
+	(*StreamFullCommitQCsReq)(nil), // 44: autobahn.StreamFullCommitQCsReq
+	nil,                            // 45: autobahn.TransactionHeader.PropertiesEntry
 }
 var file_autobahn_autobahn_proto_depIdxs = []int32{
-	44, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
+	45, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
 	2,  // 1: autobahn.TransactionHeader.timestamps:type_name -> autobahn.TransactionTimestamps
 	3,  // 2: autobahn.Transaction.header:type_name -> autobahn.TransactionHeader
 	6,  // 3: autobahn.Signature.key:type_name -> autobahn.PublicKey
@@ -2770,11 +2818,12 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	25, // 50: autobahn.AppVote.app_vote:type_name -> autobahn.SignedMsg
 	22, // 51: autobahn.StreamAppQCsResp.app_qc:type_name -> autobahn.AppQC
 	17, // 52: autobahn.StreamAppQCsResp.commit_qc:type_name -> autobahn.CommitQC
-	53, // [53:53] is the sub-list for method output_type
-	53, // [53:53] is the sub-list for method input_type
-	53, // [53:53] is the sub-list for extension type_name
-	53, // [53:53] is the sub-list for extension extendee
-	0,  // [0:53] is the sub-list for field type_name
+	10, // 53: autobahn.GetBlockResp.block:type_name -> autobahn.Block
+	54, // [54:54] is the sub-list for method output_type
+	54, // [54:54] is the sub-list for method input_type
+	54, // [54:54] is the sub-list for extension type_name
+	54, // [54:54] is the sub-list for extension extendee
+	0,  // [0:54] is the sub-list for field type_name
 }
 
 func init() { file_autobahn_autobahn_proto_init() }
@@ -2813,13 +2862,14 @@ func file_autobahn_autobahn_proto_init() {
 		(*ConsensusReq_TimeoutVote)(nil),
 		(*ConsensusReq_TimeoutQc)(nil),
 	}
+	file_autobahn_autobahn_proto_msgTypes[43].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_autobahn_autobahn_proto_rawDesc), len(file_autobahn_autobahn_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   45,
+			NumMessages:   46,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

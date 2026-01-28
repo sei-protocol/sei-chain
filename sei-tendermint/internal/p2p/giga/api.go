@@ -58,5 +58,5 @@ var StreamFullCommitQCs = rpc.Register[API](7,
 var GetBlock = rpc.Register[API](8,
 	rpc.Limit{Rate: 10, Concurrent: 10},
 	rpc.Msg[*pb.GetBlockReq]{MsgSize: 10 * kB, Window: 1},
-	rpc.Msg[*pb.Block]{MsgSize: 2 * MB, Window: 1},
+	rpc.Msg[*pb.GetBlockResp]{MsgSize: 2 * MB, Window: 1},
 )
