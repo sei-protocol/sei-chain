@@ -230,12 +230,11 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 		store := types.KVStore(v)
 		stores[k] = store
 	}
-	gigaStores := make(map[types.StoreKey]types.KVStore, len(rs.gigaKeys))
+	gigaKeys := make([]types.StoreKey, 0, len(rs.gigaKeys))
 	for _, k := range rs.gigaKeys {
-		key := rs.storeKeys[k]
-		gigaStores[key] = rs.ckvStores[key]
+		gigaKeys = append(gigaKeys, rs.storeKeys[k])
 	}
-	return cachemulti.NewStore(nil, stores, rs.storeKeys, gigaStores, nil, nil)
+	return cachemulti.NewStore(nil, stores, rs.storeKeys, gigaKeys, nil, nil)
 }
 
 // CacheMultiStoreWithVersion Implements interface MultiStore
