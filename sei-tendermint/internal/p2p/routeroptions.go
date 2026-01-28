@@ -38,6 +38,9 @@ type RouterOptions struct {
 	// If Hostname and Port are unset, Advertise() will include no self-announcement
 	SelfAddress utils.Option[NodeAddress]
 
+	// Whether sei giga connections should be established.
+	Giga utils.Option[*GigaRouterConfig]
+
 	// Local endpoint to listen for p2p connections on.
 	// SelfAddress should point to this endpoint.
 	Endpoint Endpoint

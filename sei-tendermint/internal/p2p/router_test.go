@@ -24,12 +24,19 @@ import (
 	"github.com/tendermint/tendermint/types"
 )
 
-func mayDisconnectAfterDone(ctx context.Context, err error) error {
-	err = utils.IgnoreCancel(err)
-	if err == nil || ctx.Err() == nil || !conn.IsDisconnect(err) {
-		return err
+func (r *Router) handshakeV2(ctx context.Context, conn tcp.Conn, dialAddr utils.Option[NodeAddress]) (*handshakedConn, types.NodeInfo, error) {
+	hConn, err := handshake(ctx, conn, r.privKey, false)
+	if err != nil {
+		return nil, types.NodeInfo{}, err
 	}
-	return nil
+	if dialAddr, ok := dialAddr.Get(); ok && dialAddr.NodeID != hConn.msg.NodeAuth.Key().NodeID() {
+		return nil, types.NodeInfo{}, fmt.Errorf("unexpected peer NodeID")
+	}
+	info, err := exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
+	if err != nil {
+		return nil, types.NodeInfo{}, err
+	}
+	return hConn, info, nil
 }
 
 func makeChDesc(id ChannelID) ChannelDescriptor[*TestMessage] {
@@ -306,7 +313,7 @@ func TestRouter_FilterByIP(t *testing.T) {
 				return fmt.Errorf("peerTransport.dial(): %w", err)
 			}
 			s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-			if _, err := r2.handshake(ctx, tcpConn, utils.Some(addr)); err != nil {
+			if _, _, err := r2.handshakeV2(ctx, tcpConn, utils.Some(addr)); err != nil {
 				return fmt.Errorf("handshake(): %w", err)
 			}
 			RequireUpdate(t, sub, PeerUpdate{
@@ -328,7 +335,7 @@ func TestRouter_FilterByIP(t *testing.T) {
 				return fmt.Errorf("peerTransport.dial(): %w", err)
 			}
 			s.SpawnBg(func() error {
-				_, err := r2.handshake(ctx, tcpConn, utils.Some(addr))
+				_, _, err := r2.handshakeV2(ctx, tcpConn, utils.Some(addr))
 				return utils.IgnoreCancel(err)
 			})
 			if utils.IgnoreCancel(tcpConn.Run(ctx)) == nil {
@@ -457,7 +464,7 @@ func TestRouter_AcceptPeers_Parallel(t *testing.T) {
 		}
 		t.Logf("Handshake the connections in reverse order.")
 		for i := len(conns) - 1; i >= 0; i-- {
-			if _, err := peers[i].handshake(ctx, conns[i], utils.Some(addr)); err != nil {
+			if _, _, err := peers[i].handshakeV2(ctx, conns[i], utils.Some(addr)); err != nil {
 				return fmt.Errorf("handshake(): %w", err)
 			}
 			RequireUpdate(t, sub, PeerUpdate{
@@ -510,7 +517,7 @@ func TestRouter_dialPeer_Retry(t *testing.T) {
 			return fmt.Errorf("peerTransport.dial(): %w", err)
 		}
 		s.SpawnBg(func() error { return conn.Run(ctx) })
-		if _, err := x.handshake(ctx, conn, utils.None[NodeAddress]()); err != nil {
+		if _, _, err := x.handshakeV2(ctx, conn, utils.None[NodeAddress]()); err != nil {
 			return fmt.Errorf("handshake(): %w", err)
 		}
 		RequireUpdate(t, sub, PeerUpdate{
@@ -617,7 +624,7 @@ func TestRouter_dialPeers_Parallel(t *testing.T) {
 		for i := len(conns) - 1; i >= 0; i-- {
 			conn := conns[i]
 			peer := peers[i]
-			if _, err := peer.handshake(ctx, conn, utils.None[NodeAddress]()); err != nil {
+			if _, _, err := peer.handshakeV2(ctx, conn, utils.None[NodeAddress]()); err != nil {
 				return fmt.Errorf("handshake(): %w", err)
 			}
 			RequireUpdate(t, sub, PeerUpdate{
@@ -705,7 +712,7 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 			return fmt.Errorf("dial(): %w", err)
 		}
 		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-		conn, err := x.handshake(ctx, tcpConn, utils.Some(addr))
+		hConn, info, err := x.handshakeV2(ctx, tcpConn, utils.Some(addr))
 		if err != nil {
 			return fmt.Errorf("handshake(): %w", err)
 		}
@@ -713,7 +720,7 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 			NodeID: TestAddress(x).NodeID,
 			Status: PeerStatusUp,
 		})
-		s.SpawnBg(func() error { return mayDisconnectAfterDone(ctx, x.runConn(ctx, conn)) })
+		s.SpawnBg(func() error { return utils.IgnoreCancel(x.runConn(ctx, hConn.conn, info, utils.Some(addr))) })
 		n := 1
 		msg1 := &TestMessage{Value: "Hello"}
 		msg2 := &TestMessage{Value: "Hello2"}

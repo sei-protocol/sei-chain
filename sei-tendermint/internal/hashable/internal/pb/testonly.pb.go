@@ -77,7 +77,11 @@ type TestonlyNested struct {
 	//
 	//	*TestonlyNested_Note
 	//	*TestonlyNested_Value
-	T             isTestonlyNested_T `protobuf_oneof:"t"`
+	T isTestonlyNested_T `protobuf_oneof:"t"`
+	// Recursive field. Even without optional
+	// it can be missing - we need to ensure that
+	// canonical encoding works with it.
+	Recursive     *TestonlyNested `protobuf:"bytes,3,opt,name=recursive,proto3" json:"recursive,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -135,6 +139,13 @@ func (x *TestonlyNested) GetValue() uint32 {
 		}
 	}
 	return 0
+}
+
+func (x *TestonlyNested) GetRecursive() *TestonlyNested {
+	if x != nil {
+		return x.Recursive
+	}
+	return nil
 }
 
 type isTestonlyNested_T interface {
@@ -369,10 +380,11 @@ var File_hashable_internal_testonly_proto protoreflect.FileDescriptor
 
 const file_hashable_internal_testonly_proto_rawDesc = "" +
 	"\n" +
-	" hashable/internal/testonly.proto\x12\x11hashable.internal\x1a\x17hashable/hashable.proto\"K\n" +
+	" hashable/internal/testonly.proto\x12\x11hashable.internal\x1a\x17hashable/hashable.proto\"\x8c\x01\n" +
 	"\x0eTestonlyNested\x12\x14\n" +
 	"\x04note\x18\x01 \x01(\tH\x00R\x04note\x12\x16\n" +
-	"\x05value\x18\x02 \x01(\rH\x00R\x05value:\x06Ȉ\xe2\xab\f\x01B\x03\n" +
+	"\x05value\x18\x02 \x01(\rH\x00R\x05value\x12?\n" +
+	"\trecursive\x18\x03 \x01(\v2!.hashable.internal.TestonlyNestedR\trecursive:\x06Ȉ\xe2\xab\f\x01B\x03\n" +
 	"\x01t\"\xdb\n" +
 	"\n" +
 	"\vTestonlyMsg\x12\"\n" +
@@ -446,15 +458,16 @@ var file_hashable_internal_testonly_proto_goTypes = []any{
 	(*TestonlyMsg)(nil),    // 2: hashable.internal.TestonlyMsg
 }
 var file_hashable_internal_testonly_proto_depIdxs = []int32{
-	0, // 0: hashable.internal.TestonlyMsg.enum_value:type_name -> hashable.internal.TestonlyEnum
-	1, // 1: hashable.internal.TestonlyMsg.message_value:type_name -> hashable.internal.TestonlyNested
-	1, // 2: hashable.internal.TestonlyMsg.repeated_message:type_name -> hashable.internal.TestonlyNested
-	1, // 3: hashable.internal.TestonlyMsg.optional_message:type_name -> hashable.internal.TestonlyNested
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	1, // 0: hashable.internal.TestonlyNested.recursive:type_name -> hashable.internal.TestonlyNested
+	0, // 1: hashable.internal.TestonlyMsg.enum_value:type_name -> hashable.internal.TestonlyEnum
+	1, // 2: hashable.internal.TestonlyMsg.message_value:type_name -> hashable.internal.TestonlyNested
+	1, // 3: hashable.internal.TestonlyMsg.repeated_message:type_name -> hashable.internal.TestonlyNested
+	1, // 4: hashable.internal.TestonlyMsg.optional_message:type_name -> hashable.internal.TestonlyNested
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_hashable_internal_testonly_proto_init() }

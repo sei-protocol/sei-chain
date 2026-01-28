@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"github.com/gogo/protobuf/proto"
 )
 
@@ -39,7 +40,7 @@ func ReadSizedMsg(ctx context.Context, conn Conn, maxSize uint64) ([]byte, error
 		return nil, errors.New("invalid size")
 	}
 	if size > maxSize {
-		return nil, errMsgTooLarge
+		return nil, fmt.Errorf("%w: got %v, want <=%v", errMsgTooLarge, size, maxSize)
 	}
 	msg := make([]byte, size)
 	if err := conn.Read(ctx, msg); err != nil {

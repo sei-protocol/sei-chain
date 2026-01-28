@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.10
 // 	protoc        (unknown)
-// source: mux/mux.proto
+// source: p2p/mux/mux.proto
 
 package pb
 
@@ -32,7 +32,7 @@ type StreamKindConfig struct {
 
 func (x *StreamKindConfig) Reset() {
 	*x = StreamKindConfig{}
-	mi := &file_mux_mux_proto_msgTypes[0]
+	mi := &file_p2p_mux_mux_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -44,7 +44,7 @@ func (x *StreamKindConfig) String() string {
 func (*StreamKindConfig) ProtoMessage() {}
 
 func (x *StreamKindConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_mux_mux_proto_msgTypes[0]
+	mi := &file_p2p_mux_mux_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -57,7 +57,7 @@ func (x *StreamKindConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamKindConfig.ProtoReflect.Descriptor instead.
 func (*StreamKindConfig) Descriptor() ([]byte, []int) {
-	return file_mux_mux_proto_rawDescGZIP(), []int{0}
+	return file_p2p_mux_mux_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *StreamKindConfig) GetKind() uint64 {
@@ -90,7 +90,7 @@ type Handshake struct {
 
 func (x *Handshake) Reset() {
 	*x = Handshake{}
-	mi := &file_mux_mux_proto_msgTypes[1]
+	mi := &file_p2p_mux_mux_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -102,7 +102,7 @@ func (x *Handshake) String() string {
 func (*Handshake) ProtoMessage() {}
 
 func (x *Handshake) ProtoReflect() protoreflect.Message {
-	mi := &file_mux_mux_proto_msgTypes[1]
+	mi := &file_p2p_mux_mux_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -115,7 +115,7 @@ func (x *Handshake) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Handshake.ProtoReflect.Descriptor instead.
 func (*Handshake) Descriptor() ([]byte, []int) {
-	return file_mux_mux_proto_rawDescGZIP(), []int{1}
+	return file_p2p_mux_mux_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Handshake) GetKinds() []*StreamKindConfig {
@@ -149,7 +149,7 @@ type Header struct {
 
 func (x *Header) Reset() {
 	*x = Header{}
-	mi := &file_mux_mux_proto_msgTypes[2]
+	mi := &file_p2p_mux_mux_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -161,7 +161,7 @@ func (x *Header) String() string {
 func (*Header) ProtoMessage() {}
 
 func (x *Header) ProtoReflect() protoreflect.Message {
-	mi := &file_mux_mux_proto_msgTypes[2]
+	mi := &file_p2p_mux_mux_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -174,7 +174,7 @@ func (x *Header) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Header.ProtoReflect.Descriptor instead.
 func (*Header) Descriptor() ([]byte, []int) {
-	return file_mux_mux_proto_rawDescGZIP(), []int{2}
+	return file_p2p_mux_mux_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Header) GetId() uint64 {
@@ -226,11 +226,11 @@ func (x *Header) GetClose() bool {
 	return false
 }
 
-var File_mux_mux_proto protoreflect.FileDescriptor
+var File_p2p_mux_mux_proto protoreflect.FileDescriptor
 
-const file_mux_mux_proto_rawDesc = "" +
+const file_p2p_mux_mux_proto_rawDesc = "" +
 	"\n" +
-	"\rmux/mux.proto\x12\x03mux\"j\n" +
+	"\x11p2p/mux/mux.proto\x12\x03mux\"j\n" +
 	"\x10StreamKindConfig\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\x04R\x04kind\x12!\n" +
 	"\fmax_connects\x18\x02 \x01(\x04R\vmaxConnects\x12\x1f\n" +
@@ -254,27 +254,27 @@ const file_mux_mux_proto_rawDesc = "" +
 	"\r_payload_sizeB\n" +
 	"\n" +
 	"\b_msg_endB\b\n" +
-	"\x06_closeB2Z0github.com/tendermint/tendermint/internal/mux/pbb\x06proto3"
+	"\x06_closeB6Z4github.com/tendermint/tendermint/internal/p2p/mux/pbb\x06proto3"
 
 var (
-	file_mux_mux_proto_rawDescOnce sync.Once
-	file_mux_mux_proto_rawDescData []byte
+	file_p2p_mux_mux_proto_rawDescOnce sync.Once
+	file_p2p_mux_mux_proto_rawDescData []byte
 )
 
-func file_mux_mux_proto_rawDescGZIP() []byte {
-	file_mux_mux_proto_rawDescOnce.Do(func() {
-		file_mux_mux_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_mux_mux_proto_rawDesc), len(file_mux_mux_proto_rawDesc)))
+func file_p2p_mux_mux_proto_rawDescGZIP() []byte {
+	file_p2p_mux_mux_proto_rawDescOnce.Do(func() {
+		file_p2p_mux_mux_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_p2p_mux_mux_proto_rawDesc), len(file_p2p_mux_mux_proto_rawDesc)))
 	})
-	return file_mux_mux_proto_rawDescData
+	return file_p2p_mux_mux_proto_rawDescData
 }
 
-var file_mux_mux_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
-var file_mux_mux_proto_goTypes = []any{
+var file_p2p_mux_mux_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_p2p_mux_mux_proto_goTypes = []any{
 	(*StreamKindConfig)(nil), // 0: mux.StreamKindConfig
 	(*Handshake)(nil),        // 1: mux.Handshake
 	(*Header)(nil),           // 2: mux.Header
 }
-var file_mux_mux_proto_depIdxs = []int32{
+var file_p2p_mux_mux_proto_depIdxs = []int32{
 	0, // 0: mux.Handshake.kinds:type_name -> mux.StreamKindConfig
 	1, // [1:1] is the sub-list for method output_type
 	1, // [1:1] is the sub-list for method input_type
@@ -283,27 +283,27 @@ var file_mux_mux_proto_depIdxs = []int32{
 	0, // [0:1] is the sub-list for field type_name
 }
 
-func init() { file_mux_mux_proto_init() }
-func file_mux_mux_proto_init() {
-	if File_mux_mux_proto != nil {
+func init() { file_p2p_mux_mux_proto_init() }
+func file_p2p_mux_mux_proto_init() {
+	if File_p2p_mux_mux_proto != nil {
 		return
 	}
-	file_mux_mux_proto_msgTypes[2].OneofWrappers = []any{}
+	file_p2p_mux_mux_proto_msgTypes[2].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_mux_mux_proto_rawDesc), len(file_mux_mux_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_p2p_mux_mux_proto_rawDesc), len(file_p2p_mux_mux_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_mux_mux_proto_goTypes,
-		DependencyIndexes: file_mux_mux_proto_depIdxs,
-		MessageInfos:      file_mux_mux_proto_msgTypes,
+		GoTypes:           file_p2p_mux_mux_proto_goTypes,
+		DependencyIndexes: file_p2p_mux_mux_proto_depIdxs,
+		MessageInfos:      file_p2p_mux_mux_proto_msgTypes,
 	}.Build()
-	File_mux_mux_proto = out.File
-	file_mux_mux_proto_goTypes = nil
-	file_mux_mux_proto_depIdxs = nil
+	File_p2p_mux_mux_proto = out.File
+	file_p2p_mux_mux_proto_goTypes = nil
+	file_p2p_mux_mux_proto_depIdxs = nil
 }
