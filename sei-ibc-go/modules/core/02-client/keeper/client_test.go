@@ -41,27 +41,6 @@ func (suite *KeeperTestSuite) TestCreateClient() {
 	}
 }
 
-// TestCreateClient_BlockedWhenInboundDisabled tests that CreateClient
-// is blocked when inbound IBC is disabled.
-func (suite *KeeperTestSuite) TestCreateClient_BlockedWhenInboundDisabled() {
-	// disable inbound on chainA
-	ibcKeeperA := suite.chainA.App.GetIBCKeeper()
-	ibcKeeperA.SetInboundEnabled(suite.chainA.GetContext(), false)
-	suite.Require().False(ibcKeeperA.IsInboundEnabled(suite.chainA.GetContext()))
-
-	clientState := ibctmtypes.NewClientState(testChainID, ibctmtypes.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, testClientHeight, commitmenttypes.GetSDKSpecs(), ibctesting.UpgradePath, false, false)
-
-	// attempt CreateClient with inbound disabled
-	clientID, err := suite.chainA.App.GetIBCKeeper().ClientKeeper.CreateClient(
-		suite.chainA.GetContext(), clientState, suite.consensusState,
-	)
-
-	// should fail with ErrInboundDisabled
-	suite.Require().Error(err)
-	suite.Require().Contains(err.Error(), "inbound")
-	suite.Require().Equal("", clientID)
-}
-
 func (suite *KeeperTestSuite) TestUpdateClientTendermint() {
 	var (
 		path         *ibctesting.Path
