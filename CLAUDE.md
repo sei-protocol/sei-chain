@@ -1,19 +1,5 @@
 # Sei Chain
 
-## Go Version
-
-This project requires Go 1.25.6. Use gvm to switch versions:
-
-```bash
-source ~/.gvm/scripts/gvm && gvm use go1.25.6
-```
-
-Or in a subshell:
-
-```bash
-bash -l -c "source ~/.gvm/scripts/gvm && gvm use go1.25.6 && <command>"
-```
-
 ## Code Style
 
 ### Go Formatting

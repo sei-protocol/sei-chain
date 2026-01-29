@@ -321,7 +321,10 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 		if err != nil {
 			return err
 		}
-		s.latestVersion.Store(latest)
+		// Only update latestVersion if the new value is higher (avoids lowering it when writing receipts out of order)
+		if latest > s.latestVersion.Load() {
+			s.latestVersion.Store(latest)
+		}
 	}
 
 	return nil
@@ -663,7 +666,10 @@ func (s *parquetReceiptStore) replayWAL() error {
 		if err != nil {
 			return err
 		}
-		s.latestVersion.Store(latest)
+		// Only update latestVersion if the new value is higher (avoids lowering it when writing receipts out of order)
+		if latest > s.latestVersion.Load() {
+			s.latestVersion.Store(latest)
+		}
 	}
 	if dropOffset > 0 {
 		_ = s.wal.TruncateBefore(dropOffset + 1)
