@@ -15,36 +15,12 @@ import (
 	apb "github.com/tendermint/tendermint/internal/autobahn/pb"
 )
 
-type Service struct {
-	getBlockReqs chan req
-	data *data.State
-}
-
-func (x *Service) Run(ctx context.Context) error {
-	return x.runBlockFetcher(ctx)
-}
-
-func (x *Service) RunServer(ctx context.Context, server rpc.Server[API]) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.Spawn(func() error { return x.serverStreamFullCommitQCs(ctx,server) })
-		s.Spawn(func() error { return x.serverGetBlock(ctx,server) })
-		return nil
-	})
-}
-
-func (x *Service) RunClient(ctx context.Context, client rpc.Client[API]) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.Spawn(func() error { return x.clientStreamFullCommitQCs(ctx,client) })
-		s.Spawn(func() error { return x.clientGetBlock(ctx,client) })
-		return nil
-	})
-}
-
 func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Client[API]) error {
 	stream, err := StreamFullCommitQCs.Call(ctx, client)
 	if err != nil {
 		return fmt.Errorf("client.StreamFullCommitQCs(): %w", err)
 	}
+	defer stream.Close()
 	if err:=stream.Send(ctx,&pb.StreamFullCommitQCsReq{NextBlock: uint64(s.data.NextBlock())}); err!=nil {
 		return fmt.Errorf("stream.Send(): %w",err)
 	}
@@ -77,12 +53,15 @@ type req struct {
 }
 
 func (s *Service) clientGetBlock(ctx context.Context, client rpc.Client[API]) error {
-	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {	
+	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {	
 		for ctx.Err()==nil {
 			stream, err := GetBlock.Call(ctx, client)
 			if err!=nil { return fmt.Errorf("GetBlock.Call(): %w",err) }
 			req,err := utils.Recv(ctx,s.getBlockReqs)
-			if err!=nil { return err }
+			if err!=nil {
+				stream.Close()
+				return err
+			}
 			scope.Spawn(func() error {
 				defer stream.Close()
 				defer close(req.done)
@@ -109,7 +88,7 @@ func (s *Service) clientGetBlock(ctx context.Context, client rpc.Client[API]) er
 			})
 		}
 		return ctx.Err()
-	}))
+	})
 }
 
 func (x *Service) runBlockFetcher(ctx context.Context) error {

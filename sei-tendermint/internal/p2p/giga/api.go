@@ -13,7 +13,7 @@ type API struct{}
 
 var Ping = rpc.Register[API](
 	0,
-	rpc.Limit{Rate: 1, Concurrent: 1},
+	rpc.Limit{Rate: 1, Concurrent: 2},
 	rpc.Msg[*pb.PingReq]{MsgSize: kB, Window: 1},
 	rpc.Msg[*pb.PingResp]{MsgSize: kB, Window: 1},
 )
@@ -44,12 +44,18 @@ var StreamAppVotes = rpc.Register[API](
 var StreamAppQCs = rpc.Register[API](5,
 	rpc.Limit{Rate: 1, Concurrent: 1},
 	rpc.Msg[*pb.StreamAppQCsReq]{MsgSize: kB, Window: 1},
-	rpc.Msg[*apb.AppQC]{MsgSize: 10 * kB, Window: 20},
+	rpc.Msg[*pb.StreamAppQCsResp]{MsgSize: 10 * kB, Window: 20},
 )
 var Consensus = rpc.Register[API](6,
-	rpc.Limit{Rate: 1, Concurrent: 1},
-	rpc.Msg[*pb.ConsensusReq]{MsgSize: kB, Window: 1},
-	rpc.Msg[*pb.ConsensusResp]{MsgSize: 10 * kB, Window: 100},
+	// Consensus streams are special in a sense that
+	// * each stream sends just 1 message per view
+	// * messages are streamed from client to server
+	// * there are many stream (1 per message type)
+	// This is an artifact of how Consensus was initially implemented,
+	// but it can be made to be consistent with all other streaming RPCs.
+	rpc.Limit{Rate: 1, Concurrent: 10},
+	rpc.Msg[*apb.ConsensusReq]{MsgSize: 10 * kB, Window: 1},
+	rpc.Msg[*pb.ConsensusResp]{MsgSize: kB, Window: 1},
 )
 var StreamFullCommitQCs = rpc.Register[API](7,
 	rpc.Limit{Rate: 1, Concurrent: 1},

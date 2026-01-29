@@ -42,6 +42,13 @@ type State struct {
 	myTimeoutQC   utils.AtomicSend[utils.Option[*types.TimeoutQC]]
 }
 
+// TODO: replace with a single ConsensusMsg stream.
+func (s *State) SubscribeProposal() utils.AtomicRecv[utils.Option[*types.FullProposal]] { return s.myProposal.Subscribe() }
+func (s *State) SubscribePrepareVote() utils.AtomicRecv[utils.Option[*types.ConsensusReqPrepareVote]] { return s.myPrepareVote.Subscribe() }
+func (s *State) SubscribeCommitVote() utils.AtomicRecv[utils.Option[*types.ConsensusReqCommitVote]] { return s.myCommitVote.Subscribe() }
+func (s *State) SubscribeTimeoutVote() utils.AtomicRecv[utils.Option[*types.FullTimeoutVote]] { return s.myTimeoutVote.Subscribe() }
+func (s *State) SubscribeTimeoutQC() utils.AtomicRecv[utils.Option[*types.TimeoutQC]] { return s.myTimeoutQC.Subscribe() }
+
 // NewState constructs a new state.
 func NewState(cfg *Config, data *data.State) *State {
 	return &State{
