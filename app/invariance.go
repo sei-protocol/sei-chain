@@ -40,19 +40,10 @@ func ReadLightInvarianceConfig(opts servertypes.AppOptions) (LightInvarianceConf
 	return cfg, nil
 }
 
-func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore, config LightInvarianceConfig, blockHeight int64) {
+func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore, config LightInvarianceConfig) {
 	// Skip invariance checks when mock_balances is enabled since we fake balances
 	// without updating the actual store, which would fail the supply check.
 	if MockBalancesEnabled {
-		return
-	}
-	// Block 1 must be skipped due to how Cosmos SDK InitChain works:
-	// - InitChain writes genesis state but does NOT commit
-	// - At block 1, the changeSet contains both genesis writes AND block 1 tx writes
-	// - Pre-block reads from committed parent (empty), post-block reads from changeSet
-	// - Genesis balances are set directly in InitGenesis, not via MintCoins
-	// - This creates an unavoidable balance vs supply mismatch at block 1 only
-	if blockHeight == 1 {
 		return
 	}
 	if config.SupplyEnabled {

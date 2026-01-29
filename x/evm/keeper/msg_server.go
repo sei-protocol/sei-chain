@@ -70,7 +70,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	ctx, originalGasMeter := server.PrepareCtxForEVMTransaction(ctx, tx)
 
 	stateDB := state.NewDBImpl(ctx, &server, false)
-
 	emsg := server.GetEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
 	gp := server.GetGasPool()
 

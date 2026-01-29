@@ -1293,7 +1293,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			// Flush mocked supply before WriteState so invariance check sees the updated supply
 			app.FlushMockedSupplyIfNeeded(ctx)
 			cms := app.WriteState()
-			app.LightInvarianceChecks(cms, app.lightInvarianceConfig, req.Height)
+			app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
 			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
 			return &resp, nil
@@ -1314,7 +1314,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	// Flush mocked supply before WriteState so invariance check sees the updated supply
 	app.FlushMockedSupplyIfNeeded(ctx)
 	cms := app.WriteState()
-	app.LightInvarianceChecks(cms, app.lightInvarianceConfig, req.Height)
+	app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil

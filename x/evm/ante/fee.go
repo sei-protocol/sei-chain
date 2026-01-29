@@ -70,7 +70,6 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	etx, _ := msg.AsTransaction()
 	emsg := fc.evmKeeper.GetEVMMessage(ctx, etx, msg.Derived.SenderEVMAddr)
 	stateDB := state.NewDBImpl(ctx, fc.evmKeeper, false)
-
 	gp := fc.evmKeeper.GetGasPool()
 	blockCtx, err := fc.evmKeeper.GetVMBlockContext(ctx, gp)
 	if err != nil {

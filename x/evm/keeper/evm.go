@@ -94,7 +94,6 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	// This call was not part of an existing StateTransition, so it should trigger one
 	executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)).WithEVMEntryViaWasmdPrecompile(false)
 	stateDB := state.NewDBImpl(executionCtx, k, false)
-
 	gp := k.GetGasPool()
 	evmMsg := &core.Message{
 		Nonce:     stateDB.GetNonce(from), // replay attack is prevented by the AccountSequence number set on the CW transaction that triggered this call
