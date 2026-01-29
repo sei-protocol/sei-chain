@@ -492,3 +492,183 @@ func (s *CompositeStateStore) Prune(version int64) error {
 	}
 	return s.cosmosStore.Prune(version)
 }
+
+// =============================================================================
+// Recovery - WAL replay to sync both stores on startup
+// =============================================================================
+
+// RecoverCompositeStateStore recovers the composite state store from WAL.
+// If EVM_SS is behind Cosmos_SS, syncs it first, then replays any new WAL entries.
+func RecoverCompositeStateStore(
+	logger logger.Logger,
+	changelogPath string,
+	compositeStore *CompositeStateStore,
+) error {
+	cosmosVersion := compositeStore.cosmosStore.GetLatestVersion()
+
+	if compositeStore.evmStore == nil {
+		return recoverStandardWAL(logger, changelogPath, compositeStore, cosmosVersion)
+	}
+
+	evmVersion := compositeStore.evmStore.GetLatestVersion()
+	logger.Info("Recovering CompositeStateStore",
+		"cosmosVersion", cosmosVersion,
+		"evmVersion", evmVersion,
+		"changelogPath", changelogPath,
+	)
+
+	// Sync EVM_SS if behind
+	if evmVersion < cosmosVersion {
+		if err := syncEVMStore(logger, changelogPath, compositeStore, evmVersion, cosmosVersion); err != nil {
+			logger.Error("Failed to sync EVM store, continuing with degraded performance",
+				"error", err, "evmVersion", evmVersion, "cosmosVersion", cosmosVersion)
+		}
+	}
+
+	return recoverStandardWAL(logger, changelogPath, compositeStore, cosmosVersion)
+}
+
+// syncEVMStore replays WAL entries to catch up EVM_SS to Cosmos_SS version
+func syncEVMStore(
+	logger logger.Logger,
+	changelogPath string,
+	compositeStore *CompositeStateStore,
+	evmVersion int64,
+	cosmosVersion int64,
+) error {
+	logger.Info("Syncing EVM store from WAL", "fromVersion", evmVersion, "toVersion", cosmosVersion)
+
+	streamHandler, err := wal.NewChangelogWAL(logger, changelogPath, wal.Config{})
+	if err != nil {
+		return fmt.Errorf("failed to open changelog WAL: %w", err)
+	}
+	defer streamHandler.Close()
+
+	firstOffset, err := streamHandler.FirstOffset()
+	if err != nil || firstOffset <= 0 {
+		return fmt.Errorf("failed to get first WAL offset: %w", err)
+	}
+
+	lastOffset, err := streamHandler.LastOffset()
+	if err != nil || lastOffset <= 0 {
+		return fmt.Errorf("failed to get last WAL offset: %w", err)
+	}
+
+	startOffset, err := findReplayStartOffset(streamHandler, firstOffset, lastOffset, evmVersion)
+	if err != nil {
+		return fmt.Errorf("failed to find replay start offset: %w", err)
+	}
+
+	if startOffset > lastOffset {
+		logger.Info("No WAL entries to replay for EVM sync")
+		return nil
+	}
+
+	logger.Info("Replaying WAL to EVM store", "startOffset", startOffset, "endOffset", lastOffset)
+
+	return streamHandler.Replay(startOffset, lastOffset, func(index uint64, entry proto.ChangelogEntry) error {
+		if entry.Version > cosmosVersion {
+			return nil
+		}
+
+		evmChanges := extractEVMChangesFromChangesets(entry.Changesets)
+		if len(evmChanges) > 0 {
+			if err := compositeStore.evmStore.ApplyChangesetParallel(entry.Version, evmChanges); err != nil {
+				return fmt.Errorf("failed to apply EVM changeset at version %d: %w", entry.Version, err)
+			}
+		}
+
+		if err := compositeStore.evmStore.SetLatestVersion(entry.Version); err != nil {
+			return fmt.Errorf("failed to set EVM version %d: %w", entry.Version, err)
+		}
+		return nil
+	})
+}
+
+// recoverStandardWAL replays WAL entries through CompositeStateStore (dual-writes to both stores)
+func recoverStandardWAL(
+	logger logger.Logger,
+	changelogPath string,
+	stateStore types.StateStore,
+	latestVersion int64,
+) error {
+	streamHandler, err := wal.NewChangelogWAL(logger, changelogPath, wal.Config{})
+	if err != nil {
+		return fmt.Errorf("failed to open changelog WAL: %w", err)
+	}
+	defer streamHandler.Close()
+
+	firstOffset, errFirst := streamHandler.FirstOffset()
+	if firstOffset <= 0 || errFirst != nil {
+		return nil
+	}
+
+	lastOffset, errLast := streamHandler.LastOffset()
+	if lastOffset <= 0 || errLast != nil {
+		return nil
+	}
+
+	lastEntry, err := streamHandler.ReadAt(lastOffset)
+	if err != nil {
+		return fmt.Errorf("failed to read last WAL entry: %w", err)
+	}
+
+	if lastEntry.Version <= latestVersion {
+		return nil
+	}
+
+	startOffset, err := findReplayStartOffset(streamHandler, firstOffset, lastOffset, latestVersion)
+	if err != nil {
+		return fmt.Errorf("failed to find replay start: %w", err)
+	}
+
+	if startOffset > lastOffset {
+		return nil
+	}
+
+	logger.Info("Replaying WAL to CompositeStateStore",
+		"startOffset", startOffset, "endOffset", lastOffset, "latestVersion", latestVersion)
+
+	return streamHandler.Replay(startOffset, lastOffset, func(index uint64, entry proto.ChangelogEntry) error {
+		if err := stateStore.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
+			return fmt.Errorf("failed to apply changeset at version %d: %w", entry.Version, err)
+		}
+		if err := stateStore.SetLatestVersion(entry.Version); err != nil {
+			return fmt.Errorf("failed to set version %d: %w", entry.Version, err)
+		}
+		return nil
+	})
+}
+
+func findReplayStartOffset(streamHandler wal.ChangelogWAL, firstOffset, lastOffset uint64, targetVersion int64) (uint64, error) {
+	for offset := firstOffset; offset <= lastOffset; offset++ {
+		entry, err := streamHandler.ReadAt(offset)
+		if err != nil {
+			return 0, err
+		}
+		if entry.Version > targetVersion {
+			return offset, nil
+		}
+	}
+	return lastOffset + 1, nil
+}
+
+func extractEVMChangesFromChangesets(changesets []*proto.NamedChangeSet) map[evm.EVMStoreType][]*iavl.KVPair {
+	evmChanges := make(map[evm.EVMStoreType][]*iavl.KVPair, evm.NumEVMStoreTypes)
+	for _, changeset := range changesets {
+		if changeset.Name != evm.EVMStoreKey {
+			continue
+		}
+		for _, kvPair := range changeset.Changeset.Pairs {
+			evmStoreType, strippedKey := commonevm.ParseEVMKey(kvPair.Key)
+			if evmStoreType != evm.StoreUnknown {
+				evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
+					Key:    strippedKey,
+					Value:  kvPair.Value,
+					Delete: kvPair.Delete,
+				})
+			}
+		}
+	}
+	return evmChanges
+}
