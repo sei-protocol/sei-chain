@@ -73,7 +73,7 @@ func CosmosCheckTxAnte(
 ) (returnCtx sdk.Context, returnErr error) {
 	oracleVote, err := CosmosStatelessChecks(tx, ctx.BlockHeight(), ctx.ConsensusParams())
 	if err != nil {
-		return SetGasMeter(ctx, 0, pk), err
+		return ctx, err
 	}
 
 	defer func() {
@@ -81,14 +81,11 @@ func CosmosCheckTxAnte(
 			returnErr = HandleOutofGas(r, tx.(GasTx).GetGas(), ctx.GasMeter().GasConsumed())
 		}
 	}()
-	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
-	isGasless, err := antedecorators.IsTxGasless(tx, ctx, oraclek, ek)
+	gasMeter, isGasless, err := GetGasMeter(ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter()), tx, oraclek, ek, pk)
 	if err != nil {
 		return ctx, err
 	}
-	if !isGasless {
-		ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
-	}
+	ctx = ctx.WithGasMeter(gasMeter)
 
 	authParams := accountKeeper.GetParams(ctx)
 
@@ -239,14 +236,21 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 	return oracleVote, nil
 }
 
-func SetGasMeter(ctx sdk.Context, gasLimit uint64, paramsKeeper paramskeeper.Keeper) sdk.Context {
-	cosmosGasParams := paramsKeeper.GetCosmosGasParams(ctx)
-
-	if ctx.BlockHeight() == 0 {
-		return ctx.WithGasMeter(storetypes.NewInfiniteMultiplierGasMeter(cosmosGasParams.CosmosGasMultiplierNumerator, cosmosGasParams.CosmosGasMultiplierDenominator))
+func GetGasMeter(
+	ctx sdk.Context, tx sdk.Tx, oracleKeeper oraclekeeper.Keeper,
+	evmKeeper *evmkeeper.Keeper,
+	paramsKeeper paramskeeper.Keeper,
+) (sdk.GasMeter, bool, error) {
+	// TODO: may not be necessary for CheckTx
+	isGasless, err := antedecorators.IsTxGasless(tx, ctx, oracleKeeper, evmKeeper)
+	if err != nil {
+		return nil, false, err
 	}
-
-	return ctx.WithGasMeter(storetypes.NewMultiplierGasMeter(gasLimit, cosmosGasParams.CosmosGasMultiplierNumerator, cosmosGasParams.CosmosGasMultiplierDenominator))
+	if !isGasless {
+		cosmosGasParams := paramsKeeper.GetCosmosGasParams(ctx)
+		return storetypes.NewMultiplierGasMeter(tx.(GasTx).GetGas(), cosmosGasParams.CosmosGasMultiplierNumerator, cosmosGasParams.CosmosGasMultiplierDenominator), isGasless, nil
+	}
+	return ctx.GasMeter(), isGasless, nil
 }
 
 func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, feegrantKeeper *feegrantkeeper.Keeper, paramsKeeper paramskeeper.Keeper, isGasless bool) (priority int64, err error) {
