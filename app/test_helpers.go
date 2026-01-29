@@ -49,7 +49,6 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 
-	xevmtypes "github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 )
 
@@ -128,8 +127,46 @@ func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub cryptotypes.PubKey,
 
 func NewGigaTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
 	wrapper := newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: true, EnableGigaOCC: useOcc}, baseAppOptions...)
+	genState := evmtypes.DefaultGenesis()
+	wrapper.App.EvmKeeper.InitGenesis(wrapper.Ctx, *genState)
+	return wrapper
+}
+
+// NewGigaTestWrapperWithRegularStore creates a test wrapper that runs Giga executor
+// but uses regular KVStore instead of GigaKVStore. This is for debugging - it isolates
+// whether issues are in the Giga executor logic vs the GigaKVStore layer.
+//
+// How it works:
+// - Creates app with UseSc=true but EnableGiga=false (so GigaKVStore is NOT registered)
+// - Manually enables Giga executor flags on the app
+// - Sets GigaEvmKeeper.UseRegularStore=true so it uses ctx.KVStore instead of ctx.GigaKVStore
+func NewGigaTestWrapperWithRegularStore(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
+	// Create wrapper with Sc but WITHOUT EnableGiga - this means GigaKVStore won't be registered
+	wrapper := newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: false, EnableGigaOCC: false}, baseAppOptions...)
+
+	// Manually enable Giga executor on the app
+	wrapper.App.GigaExecutorEnabled = true
+	wrapper.App.GigaOCCEnabled = useOcc
+
+	// Configure GigaEvmKeeper to use regular KVStore instead of GigaKVStore
+	wrapper.App.GigaEvmKeeper.UseRegularStore = true
+
+	// Configure GigaBankKeeper to use regular KVStore instead of GigaKVStore
+	wrapper.App.GigaBankKeeper.UseRegularStore = true
+
+	// Initialize evmone VM if not already initialized
+	if wrapper.App.GigaEvmKeeper.EvmoneVM == nil {
+		evmoneVM, err := gigalib.InitEvmoneVM()
+		if err != nil {
+			panic(fmt.Sprintf("failed to load evmone: %s", err))
+		}
+		wrapper.App.GigaEvmKeeper.EvmoneVM = evmoneVM
+	}
+
+	// Init genesis for GigaEvmKeeper (now uses regular KVStore)
 	genState := xevmtypes.DefaultGenesis()
 	wrapper.App.GigaEvmKeeper.InitGenesis(wrapper.Ctx, *genState)
+
 	return wrapper
 }
 
