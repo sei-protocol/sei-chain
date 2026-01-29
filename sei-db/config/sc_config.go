@@ -1,0 +1,45 @@
+package config
+
+import (
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+)
+
+// StateCommitConfig defines configuration for the state commit (SC) layer.
+type StateCommitConfig struct {
+	// Enable defines if the state-commit(SeiDB) should be enabled.
+	// If true, it will replace the existing IAVL db backend with memIAVL.
+	// defaults to true.
+	Enable bool `mapstructure:"enable"`
+
+	// Directory defines the state-commit store directory
+	// If not explicitly set, default to application home directory
+	Directory string `mapstructure:"directory"`
+
+	// WriteMode defines the write routing mode for EVM data
+	// Valid values: cosmos_only, dual_write, split_write, evm_only
+	// defaults to cosmos_only
+	WriteMode WriteMode `mapstructure:"write_mode"`
+
+	// ReadMode defines the read routing mode for EVM data
+	// Valid values: cosmos_only, evm_first, split_read
+	// defaults to cosmos_only
+	ReadMode ReadMode `mapstructure:"read_mode"`
+
+	// MemIAVLConfig is the configuration for the MemIAVL (Cosmos) backend
+	MemIAVLConfig memiavl.Config
+
+	// FlatKVConfig is the configuration for the FlatKV (EVM) backend
+	FlatKVConfig flatkv.Config
+}
+
+// DefaultStateCommitConfig returns the default StateCommitConfig
+func DefaultStateCommitConfig() StateCommitConfig {
+	return StateCommitConfig{
+		Enable:        true,
+		WriteMode:     CosmosOnlyWrite,
+		ReadMode:      CosmosOnlyRead,
+		MemIAVLConfig: memiavl.DefaultConfig(),
+		FlatKVConfig:  flatkv.DefaultConfig(),
+	}
+}

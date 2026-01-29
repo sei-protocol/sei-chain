@@ -10,6 +10,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/spf13/viper"
 	tmcfg "github.com/tendermint/tendermint/config"
 )
@@ -405,15 +406,14 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			SnapshotDirectory:  v.GetString("state-sync.snapshot-directory"),
 		},
 		StateCommit: config.StateCommitConfig{
-			Enable:                           v.GetBool("state-commit.enable"),
-			Directory:                        v.GetString("state-commit.directory"),
-			ZeroCopy:                         v.GetBool("state-commit.zero-copy"),
-			AsyncCommitBuffer:                v.GetInt("state-commit.async-commit-buffer"),
-			SnapshotKeepRecent:               v.GetUint32("state-commit.snapshot-keep-recent"),
-			SnapshotInterval:                 v.GetUint32("state-commit.snapshot-interval"),
-			SnapshotWriterLimit:              v.GetInt("state-commit.snapshot-writer-limit"),
-			CacheSize:                        v.GetInt("state-commit.cache-size"),
-			OnlyAllowExportOnSnapshotVersion: v.GetBool("state-commit.only-allow-export-on-snapshot-version"),
+			Enable:    v.GetBool("state-commit.enable"),
+			Directory: v.GetString("state-commit.directory"),
+			MemIAVLConfig: memiavl.Config{
+				AsyncCommitBuffer:   v.GetInt("state-commit.async-commit-buffer"),
+				SnapshotKeepRecent:  v.GetUint32("state-commit.snapshot-keep-recent"),
+				SnapshotInterval:    v.GetUint32("state-commit.snapshot-interval"),
+				SnapshotWriterLimit: v.GetInt("state-commit.snapshot-writer-limit"),
+			},
 		},
 		StateStore: config.StateStoreConfig{
 			Enable:               v.GetBool("state-store.enable"),

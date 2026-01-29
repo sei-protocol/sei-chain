@@ -13,11 +13,6 @@ sc-enable = {{ .StateCommit.Enable }}
 # Defines the SC store directory, if not explicitly set, default to application home directory
 sc-directory = "{{ .StateCommit.Directory }}"
 
-# ZeroCopy defines if memiavl should return slices pointing to mmap-ed buffers directly (zero-copy),
-# the zero-copied slices must not be retained beyond current block's execution.
-# the sdk address cache will be disabled if zero-copy is enabled.
-sc-zero-copy = {{ .StateCommit.ZeroCopy }}
-
 # AsyncCommitBuffer defines the size of asynchronous commit queue, this greatly improve block catching-up
 # performance, setting to 0 means synchronous commit.
 sc-async-commit-buffer = {{ .StateCommit.AsyncCommitBuffer }}
@@ -46,9 +41,6 @@ sc-snapshot-writer-limit = {{ .StateCommit.SnapshotWriterLimit }}
 # Setting to 0 disables prefetching. Defaults to 0.8
 sc-snapshot-prefetch-threshold = {{ .StateCommit.SnapshotPrefetchThreshold }}
 
-# OnlyAllowExportOnSnapshotVersion defines whether we only allow state sync
-# snapshot creation happens after the memiavl snapshot is created.
-sc-only-allow-export-on-snapshot-version = {{ .StateCommit.OnlyAllowExportOnSnapshotVersion }}
 `
 
 // StateStoreConfigTemplate defines the configuration template for state-store
