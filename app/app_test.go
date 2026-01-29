@@ -196,8 +196,8 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	fmt.Println("txResults1", txResults)
 
 	require.Equal(t, 2, len(txResults))
-	require.Equal(t, uint32(15), txResults[0].Code)
-	require.Equal(t, uint32(15), txResults[1].Code)
+	require.Equal(t, uint32(3), txResults[0].Code)
+	require.Equal(t, uint32(5), txResults[1].Code)
 
 	diffOrderTxs := [][]byte{
 		otherTx,
@@ -220,8 +220,8 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 
 	require.Equal(t, 2, len(txResults2))
 	// opposite ordering due to true index ordering
-	require.Equal(t, uint32(15), txResults2[0].Code)
-	require.Equal(t, uint32(15), txResults2[1].Code)
+	require.Equal(t, uint32(5), txResults2[0].Code)
+	require.Equal(t, uint32(3), txResults2[1].Code)
 }
 
 func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
