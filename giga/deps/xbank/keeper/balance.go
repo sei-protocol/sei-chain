@@ -1,5 +1,3 @@
-//go:build !mock_balances
-
 package keeper
 
 import (
@@ -9,8 +7,12 @@ import (
 // GetBalance returns the balance of a specific denomination for a given account
 // by address.
 func (k BaseViewKeeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin {
-	accountStore := k.getAccountStore(ctx, addr)
+	// Hook for mock balances (no-op in production builds)
+	if coin, ok := k.ensureMinimumBalance(ctx, addr, denom); ok {
+		return coin
+	}
 
+	accountStore := k.getAccountStore(ctx, addr)
 	bz := accountStore.Get([]byte(denom))
 	if bz == nil {
 		return sdk.NewCoin(denom, sdk.ZeroInt())
@@ -22,7 +24,7 @@ func (k BaseViewKeeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom s
 	return balance
 }
 
-// FlushMockedSupply is a no-op when mock_balances is not enabled.
+// FlushMockedSupply is a no-op - supply is updated immediately during minting.
 func FlushMockedSupply(ctx sdk.Context, storeKey sdk.StoreKey) {
-	// No-op: mock_balances not enabled
+	// No-op
 }

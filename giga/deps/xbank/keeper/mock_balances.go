@@ -6,13 +6,10 @@ package keeper
 ==============================================================================
 ============================= !!! WARNING !!! ================================
 ==============================================================================
-== This file is ONLY for TESTING PURPOSES.                                  ==
-== It enables MOCK BALANCES for bank accounts.                              ==
+== This file is ONLY for TESTING/BENCHMARKING.                              ==
+== It enables automatic top-off of bank accounts with insufficient funds.   ==
 == DO NOT USE IN PRODUCTION OR MAINNET BUILDS.                              ==
-== This file is included only when the 'mock_balances' build tag is set,    ==
-== and overrides the default GetBalance behavior.                           ==
-== It is used to mock balances for accounts that don't have any balances    ==
-== yet, enabling benchmark/load testing without pre-funding accounts.       ==
+== This is enabled only when the 'mock_balances' build tag is set.          ==
 ==============================================================================
 */
 
@@ -22,15 +19,12 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
 )
 
-// Default mock balance: 1 trillion usei (should be plenty for gas)
+// MockBalanceUsei is the amount to set when an account needs funds (1 trillion usei)
 const MockBalanceUsei = 1_000_000_000_000
 
-// GetBalance returns the balance of a specific denomination for a given account.
-// With mock_balances enabled, it will mint coins if the account has insufficient funds.
-// This produces normal side effects (balance + supply updates) that work correctly
-// with OCC (Optimistic Concurrency Control) parallel execution.
-func (k BaseViewKeeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin {
-	// SAFETY: Never allow mock balances on mainnet
+// ensureMinimumBalance checks if the account needs topping off.
+// Returns (coin, true) if it handled the request, (zero, false) to use normal path.
+func (k BaseViewKeeper) ensureMinimumBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) (sdk.Coin, bool) {
 	if ctx.ChainID() == "pacific-1" {
 		panic("FATAL: mock_balances build tag enabled on pacific-1 mainnet - this is a critical misconfiguration")
 	}
@@ -48,19 +42,17 @@ func (k BaseViewKeeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom s
 
 	// If balance is sufficient or this isn't the base denom, return as-is
 	if denom != sdk.MustGetBaseDenom() || balance.Amount.GTE(sdk.NewInt(1_000_000)) {
-		return balance
+		return balance, true
 	}
 
-	// Mint mock balance - this updates both balance AND supply as normal side effects.
-	// OCC will handle any conflicts by re-executing the transaction.
+	// Mint mock balance
 	k.mintMockBalance(ctx, addr, denom)
 
-	return sdk.NewCoin(denom, sdk.NewInt(MockBalanceUsei))
+	return sdk.NewCoin(denom, sdk.NewInt(MockBalanceUsei)), true
 }
 
 // mintMockBalance performs the actual minting - updating both the account balance
-// and the total supply. This uses the same store path (GetKVStore) as regular
-// bank operations, so the side effects work correctly with OCC conflict detection.
+// and the total supply.
 func (k BaseViewKeeper) mintMockBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) {
 	mintAmount := sdk.NewInt(MockBalanceUsei)
 
@@ -98,9 +90,4 @@ func (k BaseViewKeeper) mintMockBalance(ctx sdk.Context, addr sdk.AccAddress, de
 		return
 	}
 	supplyStore.Set([]byte(denom), intBytes)
-}
-
-// FlushMockedSupply is a no-op - supply is updated immediately during minting.
-func FlushMockedSupply(ctx sdk.Context, storeKey sdk.StoreKey) {
-	// No-op
 }
