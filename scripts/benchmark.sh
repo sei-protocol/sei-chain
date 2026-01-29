@@ -9,7 +9,7 @@ GIGA_OCC=${GIGA_OCC:-false}
 BENCHMARK_TXS_PER_BATCH=${BENCHMARK_TXS_PER_BATCH:-1000}
 DISABLE_INDEXER=${DISABLE_INDEXER:-true}
 # Benchmark scenario config (path to JSON file, see scripts/scenarios/)
-BENCHMARK_CONFIG=${BENCHMARK_CONFIG:-"scripts/scenarios/EVMTransfer.json"}
+BENCHMARK_CONFIG=${BENCHMARK_CONFIG:-"scripts/scenarios/evm.json"}
 
 # DB_BACKEND options:
 #   goleveldb - default, pure Go, can have compaction stalls under heavy write load
