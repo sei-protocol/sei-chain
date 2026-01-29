@@ -56,17 +56,8 @@ func (e *accessListAddSlotChange) revert(s *DBImpl) {
 	// since slot change always comes after address change, and revert
 	// happens in reverse order, the address access list hasn't been
 	// cleared at this point.
-	idx, ok := s.tempState.transientAccessLists.Addresses[e.address]
-	// If the address was already removed or has no slots (idx == -1),
-	// there is nothing to revert.
-	if !ok || idx == -1 {
-		return
-	}
+	idx := s.tempState.transientAccessLists.Addresses[e.address]
 	slotsList := s.tempState.transientAccessLists.Slots
-	// Bounds check in case a prior revert already modified the slots slice.
-	if idx >= len(slotsList) {
-		return
-	}
 	slots := slotsList[idx]
 	delete(slots, e.slot)
 	if len(slots) == 0 {
