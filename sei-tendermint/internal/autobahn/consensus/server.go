@@ -2,22 +2,16 @@ package consensus
 
 import (
 	"fmt"
-
-	"google.golang.org/grpc"
-
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/protocol"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
 // Server implements Consensus and Ping RPCs of the protocol.StreamAPIServer.
 type server struct {
-	protocol.UnimplementedStreamAPIServer
 	state *State
 }
 
 // Register registers StreamAPIServer with the given grpc server.
 func (s *State) Register(grpcServer *grpc.Server) {
-	protocol.RegisterStreamAPIServer(grpcServer, &server{state: s})
 	s.avail.Register(grpcServer)
 }
 

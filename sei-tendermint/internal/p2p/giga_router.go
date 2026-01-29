@@ -84,7 +84,10 @@ func (r *GigaRouter) dialAndRunConn(ctx context.Context, key NodePublicKey, hp t
 			return fmt.Errorf("peer key = %v, want %v", got, key)
 		}
 		client := rpc.NewClient[giga.API]()
-		return r.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error { return client.Run(ctx, hConn.conn) })
+		return r.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error { 
+			return scope.Run(ctx, func(ctx context.Context,
+			return client.Run(ctx, hConn.conn)
+		})
 	})
 }
 
@@ -99,4 +102,29 @@ func (r *GigaRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) 
 	}
 	server := rpc.NewServer[giga.API]()
 	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error { return server.Run(ctx, hConn.conn) })
+}
+
+func RunServer(ctx context.Context, state *State, router *p2p.GigaRouter) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error { return runBlockFetcher(ctx,state,getBlockReqs) })
+		s.Spawn(func() error {
+			return router.RunServers(ctx, func(ctx context.Context, server rpc.Server[giga.API]) error {
+				return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
+					s.Spawn(func() error { return giga.StreamFullCommitQCs.Serve(ctx, server, state.streamFullCommitQCs) })
+					s.Spawn(func() error { return giga.GetBlock.Serve(ctx, server, state.getBlock) })
+					return nil
+				})
+			})
+		})
+		s.Spawn(func() error {
+			return router.RunClients(ctx, func(ctx context.Context, client rpc.Client[giga.API]) error {
+				return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
+					s.Spawn(func() error { return state.runStreamFullCommitQCs(ctx,client) })
+					s.Spawn(func() error { return state.runGetBlock(ctx,client,getBlockReqs) })
+					return nil
+				})
+			})
+		})
+		return nil
+	})
 }

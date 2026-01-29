@@ -188,3 +188,19 @@ message Msg {
     AppProposal app_vote = 7;
   }
 }
+
+message SignedMsg {
+  Msg msg = 1;
+  Signature sig = 2;
+}
+
+// TODO(gprusak): rename to ConsensusMsg
+message ConsensusReq {
+  oneof t {
+    FullProposal proposal = 1;
+    SignedMsg prepare_vote = 2;
+    SignedMsg commit_vote = 3;
+    FullTimeoutVote timeout_vote = 4;
+    TimeoutQC timeout_qc = 5;
+  }
+}

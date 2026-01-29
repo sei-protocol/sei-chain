@@ -1,4 +1,4 @@
-syntax = "proto3"
+syntax = "proto3";
 
 package p2p.giga;
 
@@ -6,45 +6,31 @@ import "autobahn/autobahn.proto";
 
 option go_package = "github.com/tendermint/tendermint/internal/p2p/giga/pb";
 
-message SignedMsg {
-  Msg msg = 1;
-  Signature sig = 2;
-}
-
 message LaneReq {
-  SignedMsg lane_proposal = 1;
+  autobahn.SignedMsg lane_proposal = 1;
 }
 
 message LaneResp {
-  SignedMsg lane_vote = 1;
+  autobahn.SignedMsg lane_vote = 1;
 }
 
 message LaneQCsResp {}
 
-message ConsensusReq {
-  oneof t {
-    FullProposal proposal = 1;
-    SignedMsg prepare_vote = 2;
-    SignedMsg commit_vote = 3;
-    FullTimeoutVote timeout_vote = 4;
-    TimeoutQC timeout_qc = 5;
-  }
-}
 message ConsensusResp {}
 
 message PingReq {}
 message PingResp {}
 
 message LaneVote {
-  SignedMsg lane_vote = 1;
+  autobahn.SignedMsg lane_vote = 1;
 }
 
 message LaneProposal {
-  SignedMsg lane_proposal = 1;
+  autobahn.SignedMsg lane_proposal = 1;
 }
 
 message AppVote {
-  SignedMsg app_vote = 1;
+  autobahn.SignedMsg app_vote = 1;
 }
 
 message StreamLaneProposalsReq {
@@ -53,8 +39,8 @@ message StreamLaneProposalsReq {
 
 message StreamAppQCsReq {}
 message StreamAppQCsResp {
-  AppQC app_qc = 1;
-  CommitQC commit_qc = 2;
+  autobahn.AppQC app_qc = 1;
+  autobahn.CommitQC commit_qc = 2;
 }
 
 message StreamCommitQCsReq {}
@@ -66,7 +52,7 @@ message GetBlockReq {
 }
 
 message GetBlockResp {
-  optional Block block = 1;
+  optional autobahn.Block block = 1;
 }
 
 message StreamFullCommitQCsReq {

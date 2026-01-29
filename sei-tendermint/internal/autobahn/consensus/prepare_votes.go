@@ -1,7 +1,7 @@
 package consensus
 
 import (
-	"github.com/tendermint/tendermint/internal/autobahn/pkg/utils"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
@@ -12,7 +12,7 @@ type hpv = types.Hash[*types.PrepareVote]
 type prepareVotes struct {
 	byKey  map[types.PublicKey]spv
 	byHash map[hpv]map[types.PublicKey]spv
-	qc     utils.AtomicWatch[utils.Option[*types.PrepareQC]]
+	qc     utils.AtomicSend[utils.Option[*types.PrepareQC]]
 }
 
 // newPrepareVotes initializes a new prepareVotes instance.
@@ -20,7 +20,7 @@ func newPrepareVotes() *prepareVotes {
 	return &prepareVotes{
 		byKey:  map[types.PublicKey]spv{},
 		byHash: map[hpv]map[types.PublicKey]spv{},
-		qc:     utils.NewAtomicWatch(utils.None[*types.PrepareQC]()),
+		qc:     utils.NewAtomicSend(utils.None[*types.PrepareQC]()),
 	}
 }
 
@@ -57,14 +57,12 @@ func (pv *prepareVotes) pushVote(c *types.Committee, vote *types.Signed[*types.P
 	}
 
 	// Construct a PrepareQC from the votes.
-	pv.qc.Update(func(old utils.Option[*types.PrepareQC]) (utils.Option[*types.PrepareQC], bool) {
-		if old, ok := old.Get(); ok && !old.Proposal().View().Less(view) {
-			return utils.None[*types.PrepareQC](), false
-		}
-		var votes []*types.Signed[*types.PrepareVote]
-		for _, v := range pv.byHash[h] {
-			votes = append(votes, v)
-		}
-		return utils.Some(types.NewPrepareQC(votes)), true
-	})
+	if old, ok := pv.qc.Load().Get(); ok && !old.Proposal().View().Less(view) {
+		return
+	}
+	var votes []*types.Signed[*types.PrepareVote]
+	for _, v := range pv.byHash[h] {
+		votes = append(votes, v)
+	}
+	pv.qc.Store(utils.Some(types.NewPrepareQC(votes)))
 }

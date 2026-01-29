@@ -1,7 +1,8 @@
 package giga
 
 import (
-	"github.com/tendermint/tendermint/internal/autobahn/pb"
+	pb "github.com/tendermint/tendermint/internal/p2p/giga/pb"
+	apb "github.com/tendermint/tendermint/internal/autobahn/pb"
 	"github.com/tendermint/tendermint/internal/p2p/rpc"
 )
 
@@ -32,7 +33,7 @@ var StreamCommitQCs = rpc.Register[API](
 	3,
 	rpc.Limit{Rate: 1, Concurrent: 1},
 	rpc.Msg[*pb.StreamCommitQCsReq]{MsgSize: kB, Window: 1},
-	rpc.Msg[*pb.CommitQC]{MsgSize: 10 * kB, Window: 20},
+	rpc.Msg[*apb.CommitQC]{MsgSize: 10 * kB, Window: 20},
 )
 var StreamAppVotes = rpc.Register[API](
 	4,
@@ -43,7 +44,7 @@ var StreamAppVotes = rpc.Register[API](
 var StreamAppQCs = rpc.Register[API](5,
 	rpc.Limit{Rate: 1, Concurrent: 1},
 	rpc.Msg[*pb.StreamAppQCsReq]{MsgSize: kB, Window: 1},
-	rpc.Msg[*pb.AppQC]{MsgSize: 10 * kB, Window: 20},
+	rpc.Msg[*apb.AppQC]{MsgSize: 10 * kB, Window: 20},
 )
 var Consensus = rpc.Register[API](6,
 	rpc.Limit{Rate: 1, Concurrent: 1},
@@ -53,7 +54,7 @@ var Consensus = rpc.Register[API](6,
 var StreamFullCommitQCs = rpc.Register[API](7,
 	rpc.Limit{Rate: 1, Concurrent: 1},
 	rpc.Msg[*pb.StreamFullCommitQCsReq]{MsgSize: kB, Window: 1},
-	rpc.Msg[*pb.FullCommitQC]{MsgSize: 100 * kB, Window: 20},
+	rpc.Msg[*apb.FullCommitQC]{MsgSize: 100 * kB, Window: 20},
 )
 var GetBlock = rpc.Register[API](8,
 	rpc.Limit{Rate: 10, Concurrent: 10},

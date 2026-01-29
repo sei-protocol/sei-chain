@@ -6,7 +6,6 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/tendermint/tendermint/internal/autobahn/metrics"
 	"github.com/tendermint/tendermint/internal/autobahn/pb"
 )
 

@@ -1,4 +1,4 @@
-package data
+package giga
 
 import (
 	"context"
@@ -6,25 +6,24 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-stream/config"
-	"github.com/sei-protocol/sei-stream/pkg/grpcutils"
-	"github.com/sei-protocol/sei-stream/pkg/service"
-	"github.com/sei-protocol/sei-stream/pkg/tcp"
-	"github.com/sei-protocol/sei-stream/pkg/utils"
-	"github.com/sei-protocol/sei-stream/stream/types"
+	"github.com/tendermint/tendermint/internal/autobahn/data"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
 func TestClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	if err := service.Run(ctx, func(ctx context.Context, s service.Scope) error {
+	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		committee, keys := types.GenCommittee(rng, 3)
-		cfg := &Config{
+		cfg := &data.Config{
 			Committee: committee,
 		}
-		serverState := NewState(cfg, utils.None[BlockStore]())
+		serverState := data.NewState(cfg, utils.None[data.BlockStore]())
 		s.SpawnBgNamed("serverState.Run()", func() error { return utils.IgnoreCancel(serverState.Run(ctx)) })
-		clientState := NewState(cfg, utils.None[BlockStore]())
+		clientState := data.NewState(cfg, utils.None[data.BlockStore]())
 		s.SpawnBgNamed("clientState.Run()", func() error { return utils.IgnoreCancel(clientState.Run(ctx)) })
 		addr := tcp.TestReserveAddr()
 

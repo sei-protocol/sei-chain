@@ -14,7 +14,6 @@ import (
 	"github.com/tendermint/tendermint/internal/autobahn/data"
 	"github.com/tendermint/tendermint/internal/autobahn/producer"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
-	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"golang.org/x/time/rate"
@@ -27,7 +26,6 @@ func Run(
 	key types.SecretKey,
 	viewTimeout consensus.ViewTimeoutFunc,
 	//reg *prometheus.Registry,
-	router *p2p.GigaRouter,
 ) error {
 	committee, err := cfg.Committee()
 	if err != nil {
@@ -69,7 +67,6 @@ func Run(
 		})
 
 		s.SpawnNamed("dataState", func() error { return dataState.Run(ctx) })
-		s.SpawnNamed("dataClient", func() error { return dataState.RunClientPool(ctx, cfg.Peers) })
 
 		// The consensus will be running iff the node is supposed to be online.
 		if online, err := cfg.IsOnline(key.Public()); err != nil {
