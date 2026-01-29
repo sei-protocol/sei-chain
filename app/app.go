@@ -1764,10 +1764,6 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)
 	defer stateDB.Cleanup()
 
-	// Pre-fund sender if needed (only active with mock_balances build tag).
-	// The giga executor bypasses ante handlers, so we must mock balance here.
-	stateDB.PrepareMockBalance(sender)
-
 	// Get gas pool
 	gp := app.GigaEvmKeeper.GetGasPool()
 

@@ -297,8 +297,6 @@ func EvmCheckAndChargeFees(ctx sdk.Context, sender common.Address, ek *evmkeeper
 	}
 	emsg := ek.GetEVMMessage(ctx, etx, sender)
 	stateDB := state.NewDBImpl(ctx, ek, false)
-	// Pre-fund sender if needed (only active with mock_balances build tag)
-	stateDB.PrepareMockBalance(sender)
 	gp := ek.GetGasPool()
 	blockCtx, err := ek.GetVMBlockContext(ctx, gp)
 	if err != nil {

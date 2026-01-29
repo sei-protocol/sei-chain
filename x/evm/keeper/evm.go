@@ -95,9 +95,6 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)).WithEVMEntryViaWasmdPrecompile(false)
 	stateDB := state.NewDBImpl(executionCtx, k, false)
 
-	// Pre-fund sender if needed (only active with mock_balances build tag)
-	stateDB.PrepareMockBalance(from)
-
 	gp := k.GetGasPool()
 	evmMsg := &core.Message{
 		Nonce:     stateDB.GetNonce(from), // replay attack is prevented by the AccountSequence number set on the CW transaction that triggered this call

@@ -33,11 +33,6 @@ var ZeroInt = uint256.NewInt(0)
 var TopOffAmount = new(big.Int).Mul(big.NewInt(100), big.NewInt(1_000_000_000_000_000_000))
 
 func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
-	// SAFETY: Never allow mock balances on mainnet
-	if s.ctx.ChainID() == "pacific-1" {
-		panic("FATAL: mock_balances build tag enabled on pacific-1 mainnet - this is a critical misconfiguration")
-	}
-
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	amt := amtUint256.ToBig()
 	if amt.Sign() == 0 {
@@ -136,22 +131,42 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	return *ZeroInt
 }
 
-// PrepareMockBalance tops off the account with mock funds before fee checks
-// This is called before BuyGas to ensure the account has sufficient balance
-func (s *DBImpl) PrepareMockBalance(evmAddr common.Address) {
+// PrepareMockBalance is kept for API compatibility but is now a no-op.
+// GetBalance handles all top-off logic automatically.
+func (s *DBImpl) PrepareMockBalance(_ common.Address) {
+	// No-op: GetBalance now handles top-off automatically
+}
+
+func (s *DBImpl) GetBalance(evmAddr common.Address) *uint256.Int {
 	// SAFETY: Never allow mock balances on mainnet
 	if s.ctx.ChainID() == "pacific-1" {
 		panic("FATAL: mock_balances build tag enabled on pacific-1 mainnet - this is a critical misconfiguration")
 	}
 
+	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	seiAddr := s.getSeiAddress(evmAddr)
 	currentBalance := s.k.GetBalance(s.ctx, seiAddr)
 
-	// Only top off if balance is low
-	if currentBalance.Cmp(TopOffAmount) >= 0 {
-		return // Already has enough
+	// If balance is low, top it off immediately
+	// This ensures preCheck passes in StateTransition
+	if currentBalance.Cmp(TopOffAmount) < 0 {
+		s.topOffAccount(seiAddr)
+		// Re-read the balance after top-off
+		currentBalance = s.k.GetBalance(s.ctx, seiAddr)
 	}
 
+	res, overflow := uint256.FromBig(currentBalance)
+	if overflow {
+		panic("balance overflow")
+	}
+	if res == nil {
+		return uint256.NewInt(0)
+	}
+	return res
+}
+
+// topOffAccount mints funds to an account that has low balance
+func (s *DBImpl) topOffAccount(seiAddr sdk.AccAddress) {
 	// Ensure account exists
 	if !s.k.AccountKeeper().HasAccount(s.ctx, seiAddr) {
 		s.k.AccountKeeper().SetAccount(s.ctx, s.k.AccountKeeper().NewAccountWithAddress(s.ctx, seiAddr))
@@ -166,19 +181,6 @@ func (s *DBImpl) PrepareMockBalance(evmAddr common.Address) {
 	}
 	moduleAddr := s.k.AccountKeeper().GetModuleAddress(types.ModuleName)
 	_ = s.k.BankKeeper().SendCoinsAndWei(ctx, moduleAddr, seiAddr, usei, wei)
-}
-
-func (s *DBImpl) GetBalance(evmAddr common.Address) *uint256.Int {
-	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
-	seiAddr := s.getSeiAddress(evmAddr)
-	res, overflow := uint256.FromBig(s.k.GetBalance(s.ctx, seiAddr))
-	if overflow {
-		panic("balance overflow")
-	}
-	if res == nil {
-		return uint256.NewInt(0)
-	}
-	return res
 }
 
 // should only be called during simulation
