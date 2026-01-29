@@ -34,6 +34,9 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Check disk space
+        run: df -h
+
       - name: Free disk space
         if: matrix.modules.name == 'sei-cosmos'
         run: |
