@@ -52,7 +52,7 @@ func OpenEVMDB(dir string, storeType EVMStoreType) (*EVMDatabase, error) {
 
 	// Load version metadata
 	if err := evmDB.loadVersionMetadata(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 
@@ -63,8 +63,8 @@ func (db *EVMDatabase) loadVersionMetadata() error {
 	// Load latest version
 	val, closer, err := db.storage.Get([]byte(latestVersionKey))
 	if err == nil {
-		db.latestVersion = int64(binary.BigEndian.Uint64(val))
-		closer.Close()
+		db.latestVersion = int64(binary.BigEndian.Uint64(val)) //nolint:gosec // version values are always valid int64
+		_ = closer.Close()
 	} else if err != pebble.ErrNotFound {
 		return err
 	}
@@ -72,8 +72,8 @@ func (db *EVMDatabase) loadVersionMetadata() error {
 	// Load earliest version
 	val, closer, err = db.storage.Get([]byte(earliestVersionKey))
 	if err == nil {
-		db.earliestVersion = int64(binary.BigEndian.Uint64(val))
-		closer.Close()
+		db.earliestVersion = int64(binary.BigEndian.Uint64(val)) //nolint:gosec // version values are always valid int64
+		_ = closer.Close()
 	} else if err != pebble.ErrNotFound {
 		return err
 	}
@@ -85,7 +85,7 @@ func (db *EVMDatabase) loadVersionMetadata() error {
 func encodeKey(key []byte, version int64) []byte {
 	encoded := make([]byte, len(key)+8)
 	copy(encoded, key)
-	binary.BigEndian.PutUint64(encoded[len(key):], uint64(version))
+	binary.BigEndian.PutUint64(encoded[len(key):], uint64(version)) //nolint:gosec // version is always non-negative
 	return encoded
 }
 
@@ -95,7 +95,7 @@ func decodeKey(encoded []byte) ([]byte, int64) {
 		return encoded, 0
 	}
 	key := encoded[:len(encoded)-8]
-	version := int64(binary.BigEndian.Uint64(encoded[len(encoded)-8:]))
+	version := int64(binary.BigEndian.Uint64(encoded[len(encoded)-8:])) //nolint:gosec // version values are always valid int64
 	return key, version
 }
 
@@ -111,7 +111,7 @@ func (db *EVMDatabase) Get(key []byte, version int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	// Seek to the last key in range (latest version <= requested)
 	if !iter.Last() {
@@ -124,7 +124,7 @@ func (db *EVMDatabase) Get(key []byte, version int64) ([]byte, error) {
 	}
 
 	value := iter.Value()
-	if value == nil || len(value) == 0 {
+	if len(value) == 0 {
 		return nil, nil // Tombstone
 	}
 
@@ -168,7 +168,7 @@ func (db *EVMDatabase) ApplyBatch(pairs []*iavl.KVPair, version int64) error {
 	}
 
 	batch := db.storage.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 
 	for _, pair := range pairs {
 		encodedKey := encodeKey(pair.Key, version)
@@ -206,7 +206,7 @@ func (db *EVMDatabase) GetLatestVersion() int64 {
 // SetLatestVersion updates the latest version (async write for performance)
 func (db *EVMDatabase) SetLatestVersion(version int64) error {
 	buf := make([]byte, 8)
-	binary.BigEndian.PutUint64(buf, uint64(version))
+	binary.BigEndian.PutUint64(buf, uint64(version)) //nolint:gosec // version is always non-negative
 	if err := db.storage.Set([]byte(latestVersionKey), buf, defaultWriteOpts); err != nil {
 		return err
 	}
@@ -222,7 +222,7 @@ func (db *EVMDatabase) GetEarliestVersion() int64 {
 // SetEarliestVersion updates the earliest version (async write for performance)
 func (db *EVMDatabase) SetEarliestVersion(version int64) error {
 	buf := make([]byte, 8)
-	binary.BigEndian.PutUint64(buf, uint64(version))
+	binary.BigEndian.PutUint64(buf, uint64(version)) //nolint:gosec // version is always non-negative
 	if err := db.storage.Set([]byte(earliestVersionKey), buf, defaultWriteOpts); err != nil {
 		return err
 	}
@@ -237,10 +237,10 @@ func (db *EVMDatabase) Prune(version int64) error {
 	if err != nil {
 		return err
 	}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	batch := db.storage.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 
 	batchSize := 0
 	const maxBatchSize = 10000
@@ -316,7 +316,7 @@ func newEVMIterator(db *pebble.DB, start, end []byte, version int64, reverse boo
 	if err != nil {
 		return nil, err
 	}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	for iter.First(); iter.Valid(); iter.Next() {
 		rawKey, keyVersion := decodeKey(iter.Key())
@@ -344,7 +344,7 @@ func newEVMIterator(db *pebble.DB, start, end []byte, version int64, reverse boo
 		existingVersion, exists := keyVersions[keyStr]
 		if !exists || keyVersion > existingVersion {
 			value := iter.Value()
-			if value == nil || len(value) == 0 {
+			if len(value) == 0 {
 				// Tombstone - store nil to indicate deletion
 				keyValues[keyStr] = nil
 			} else {

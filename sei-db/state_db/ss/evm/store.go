@@ -26,7 +26,7 @@ func NewEVMStateStore(dir string) (*EVMStateStore, error) {
 		db, err := OpenEVMDB(dir, storeType)
 		if err != nil {
 			// Close any already opened DBs
-			store.Close()
+			_ = store.Close()
 			return nil, fmt.Errorf("failed to open EVM DB for %s: %w", StoreTypeName(storeType), err)
 		}
 		store.databases[storeType] = db
