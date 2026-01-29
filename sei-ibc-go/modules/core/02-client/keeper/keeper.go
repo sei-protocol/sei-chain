@@ -22,9 +22,6 @@ import (
 	ibctmtypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/07-tendermint/types"
 )
 
-// KeyInboundEnabled is the param key for inbound enabled
-var KeyInboundEnabled = []byte("InboundEnabled")
-
 // Keeper represents a type that grants read and write permissions to any client
 // state information
 type Keeper struct {
@@ -54,13 +51,6 @@ func NewKeeper(cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Su
 // Logger returns a module-specific logger.
 func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", "x/"+host.ModuleName+"/"+types.SubModuleName)
-}
-
-// IsInboundEnabled returns true if inbound IBC is enabled.
-func (k Keeper) IsInboundEnabled(ctx sdk.Context) bool {
-	var inbound bool
-	k.paramSpace.Get(ctx, KeyInboundEnabled, &inbound)
-	return inbound
 }
 
 // GenerateClientIdentifier returns the next client identifier.

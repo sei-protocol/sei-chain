@@ -15,18 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
-// KeyInboundEnabled is the param key for inbound enabled
-var KeyInboundEnabled = []byte("InboundEnabled")
-
-// KeyOutboundEnabled is the param key for outbound enabled
-var KeyOutboundEnabled = []byte("OutboundEnabled")
-
-// ErrInboundDisabled is the error for when inbound is disabled
-var ErrInboundDisabled = sdkerrors.Register("ibc-connection", 101, "ibc inbound disabled")
-
-// ErrOutboundDisabled is the error for when outbound is disabled
-var ErrOutboundDisabled = sdkerrors.Register("ibc-connection", 102, "ibc outbound disabled")
-
 // Keeper defines the IBC connection keeper
 type Keeper struct {
 	// implements gRPC QueryServer interface
@@ -56,20 +44,6 @@ func NewKeeper(cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Su
 // Logger returns a module-specific logger.
 func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", "x/"+host.ModuleName+"/"+types.SubModuleName)
-}
-
-// IsInboundEnabled returns true if inbound IBC is enabled.
-func (k Keeper) IsInboundEnabled(ctx sdk.Context) bool {
-	var inbound bool
-	k.paramSpace.Get(ctx, KeyInboundEnabled, &inbound)
-	return inbound
-}
-
-// IsOutboundEnabled returns true if outbound IBC is enabled.
-func (k Keeper) IsOutboundEnabled(ctx sdk.Context) bool {
-	var outbound bool
-	k.paramSpace.Get(ctx, KeyOutboundEnabled, &outbound)
-	return outbound
 }
 
 // GetCommitmentPrefix returns the IBC connection store prefix as a commitment
