@@ -571,7 +571,11 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	testApp.Commit(context.Background())
+	// Commit multiple times to advance the chain to height 8
+	// This ensures VersionExists(8) returns true for CheckVersion
+	for i := 0; i < 8; i++ {
+		testApp.Commit(context.Background())
+	}
 	if store := EVMKeeper.ReceiptStore(); store != nil {
 		latest := int64(math.MaxInt64)
 		if err := store.SetLatestVersion(latest); err != nil {
@@ -583,11 +587,9 @@ func init() {
 		if height == MockHeight2 {
 			return MultiTxCtx.WithIsTracing(true)
 		}
-		if height == evmrpc.LatestCtxHeight {
-			return baseCtx.WithIsTracing(true)
-		}
-		// Return a context with the requested block height
-		return baseCtx.WithBlockHeight(height).WithIsTracing(true)
+		// Always return baseCtx to ensure the store version matches
+		// Tests were incorrectly modifying the global Ctx which broke CheckVersion
+		return baseCtx.WithIsTracing(true)
 	}
 	// Start good http server
 	goodConfig := evmrpcconfig.DefaultConfig
