@@ -8,11 +8,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-// NilReceiptStore returns a nil *cachedReceiptStore for testing nil receiver behavior.
-func NilReceiptStore() ReceiptStore {
-	return (*cachedReceiptStore)(nil)
-}
-
 // MatchTopics exposes matchTopics for testing.
 func MatchTopics(topics [][]common.Hash, eventTopics []common.Hash) bool {
 	return matchTopics(topics, eventTopics)

@@ -124,31 +124,18 @@ func newReceiptBackend(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, 
 }
 
 func (s *receiptStore) LatestVersion() int64 {
-	if s == nil || s.db == nil {
-		return 0
-	}
 	return s.db.GetLatestVersion()
 }
 
 func (s *receiptStore) SetLatestVersion(version int64) error {
-	if s == nil || s.db == nil {
-		return ErrNotConfigured
-	}
 	return s.db.SetLatestVersion(version)
 }
 
 func (s *receiptStore) SetEarliestVersion(version int64) error {
-	if s == nil || s.db == nil {
-		return ErrNotConfigured
-	}
 	return s.db.SetEarliestVersion(version, true)
 }
 
 func (s *receiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrNotConfigured
-	}
-
 	// receipts are immutable, use latest version
 	lv := s.db.GetLatestVersion()
 
@@ -176,10 +163,6 @@ func (s *receiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.R
 
 // Only used for testing.
 func (s *receiptStore) GetReceiptFromStore(_ sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrNotConfigured
-	}
-
 	// receipts are immutable, use latest version
 	lv := s.db.GetLatestVersion()
 
@@ -200,10 +183,6 @@ func (s *receiptStore) GetReceiptFromStore(_ sdk.Context, txHash common.Hash) (*
 }
 
 func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error {
-	if s == nil || s.db == nil {
-		return ErrNotConfigured
-	}
-
 	pairs := make([]*iavl.KVPair, 0, len(receipts))
 	for _, record := range receipts {
 		if record.Receipt == nil {
@@ -244,9 +223,6 @@ func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) er
 }
 
 func (s *receiptStore) FilterLogs(ctx sdk.Context, blockHeight int64, blockHash common.Hash, txHashes []common.Hash, crit filters.FilterCriteria, applyExactMatch bool) ([]*ethtypes.Log, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrNotConfigured
-	}
 	if len(txHashes) == 0 {
 		return []*ethtypes.Log{}, nil
 	}
@@ -254,9 +230,6 @@ func (s *receiptStore) FilterLogs(ctx sdk.Context, blockHeight int64, blockHash 
 }
 
 func (s *receiptStore) Close() error {
-	if s == nil || s.db == nil {
-		return nil
-	}
 	var err error
 	s.closeOnce.Do(func() {
 		// Signal the pruning goroutine to stop

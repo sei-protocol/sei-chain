@@ -95,21 +95,6 @@ func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	}
 }
 
-func TestReceiptStoreNilReceiver(t *testing.T) {
-	store := receipt.NilReceiptStore()
-	require.Equal(t, int64(0), store.LatestVersion())
-	require.Error(t, store.SetLatestVersion(1))
-	require.Error(t, store.SetEarliestVersion(1))
-	_, err := store.GetReceipt(sdk.Context{}, common.Hash{})
-	require.Error(t, err)
-	_, err = store.GetReceiptFromStore(sdk.Context{}, common.Hash{})
-	require.Error(t, err)
-	require.Error(t, store.SetReceipts(sdk.Context{}, nil))
-	_, err = store.FilterLogs(sdk.Context{}, 1, common.Hash{}, nil, filters.FilterCriteria{}, false)
-	require.Error(t, err)
-	require.NoError(t, store.Close())
-}
-
 func TestSetReceiptsAndGet(t *testing.T) {
 	store, ctx, _ := setupReceiptStore(t)
 	txHash := common.HexToHash("0x1")

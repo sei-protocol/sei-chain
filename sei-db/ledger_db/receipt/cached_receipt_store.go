@@ -31,7 +31,7 @@ type cachedReceiptStore struct {
 
 func newCachedReceiptStore(backend ReceiptStore) ReceiptStore {
 	if backend == nil {
-		return (*cachedReceiptStore)(nil)
+		return nil
 	}
 	interval := uint64(defaultReceiptCacheRotateInterval)
 	if provider, ok := backend.(cacheRotateIntervalProvider); ok {
@@ -51,54 +51,32 @@ func newCachedReceiptStore(backend ReceiptStore) ReceiptStore {
 }
 
 func (s *cachedReceiptStore) LatestVersion() int64 {
-	if s == nil || s.backend == nil {
-		return 0
-	}
 	return s.backend.LatestVersion()
 }
 
 func (s *cachedReceiptStore) SetLatestVersion(version int64) error {
-	if s == nil || s.backend == nil {
-		return ErrNotConfigured
-	}
 	return s.backend.SetLatestVersion(version)
 }
 
 func (s *cachedReceiptStore) SetEarliestVersion(version int64) error {
-	if s == nil || s.backend == nil {
-		return ErrNotConfigured
-	}
 	return s.backend.SetEarliestVersion(version)
 }
 
 func (s *cachedReceiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	if s == nil || s.backend == nil {
-		return nil, ErrNotConfigured
-	}
-	if s.cache != nil {
-		if receipt, ok := s.cache.GetReceipt(txHash); ok {
-			return receipt, nil
-		}
+	if receipt, ok := s.cache.GetReceipt(txHash); ok {
+		return receipt, nil
 	}
 	return s.backend.GetReceipt(ctx, txHash)
 }
 
 func (s *cachedReceiptStore) GetReceiptFromStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	if s == nil || s.backend == nil {
-		return nil, ErrNotConfigured
-	}
-	if s.cache != nil {
-		if receipt, ok := s.cache.GetReceipt(txHash); ok {
-			return receipt, nil
-		}
+	if receipt, ok := s.cache.GetReceipt(txHash); ok {
+		return receipt, nil
 	}
 	return s.backend.GetReceiptFromStore(ctx, txHash)
 }
 
 func (s *cachedReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error {
-	if s == nil || s.backend == nil {
-		return ErrNotConfigured
-	}
 	if err := s.backend.SetReceipts(ctx, receipts); err != nil {
 		return err
 	}
@@ -107,28 +85,21 @@ func (s *cachedReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptReco
 }
 
 func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, blockHeight int64, blockHash common.Hash, txHashes []common.Hash, crit filters.FilterCriteria, applyExactMatch bool) ([]*ethtypes.Log, error) {
-	if s == nil || s.backend == nil {
-		return nil, ErrNotConfigured
-	}
 	if len(txHashes) == 0 {
 		return []*ethtypes.Log{}, nil
 	}
 	if blockHeight < 0 {
 		return s.backend.FilterLogs(ctx, blockHeight, blockHash, txHashes, crit, applyExactMatch)
 	}
-
 	return filterLogsFromReceipts(ctx, blockHeight, blockHash, txHashes, crit, applyExactMatch, s.GetReceipt)
 }
 
 func (s *cachedReceiptStore) Close() error {
-	if s == nil || s.backend == nil {
-		return nil
-	}
 	return s.backend.Close()
 }
 
 func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord) {
-	if s == nil || s.cache == nil || len(receipts) == 0 {
+	if len(receipts) == 0 {
 		return
 	}
 
