@@ -868,34 +868,21 @@ func (commit *Commit) ValidateBasic() error {
 	return nil
 }
 
-// Hash returns the hash of the commit.
-// It computes a Merkle tree from all commit fields: Height, Round, BlockID, and Signatures.
+// Hash returns the hash of the commit
 func (commit *Commit) Hash() tmbytes.HexBytes {
 	if commit == nil {
 		return nil
 	}
 	if commit.hash == nil {
-		// Encode BlockID
-		pbbi := commit.BlockID.ToProto()
-		bzbi, err := pbbi.Marshal()
-		if err != nil {
-			panic(err)
-		}
-
-		// Build slice with metadata fields first, then signatures
-		// Fields: Height, Round, BlockID, followed by each CommitSig
-		bs := make([][]byte, 3+len(commit.Signatures))
-		bs[0] = cdcEncode(commit.Height)
-		bs[1] = cdcEncode(int64(commit.Round)) // Cast to int64 for cdcEncode
-		bs[2] = bzbi
-
+		bs := make([][]byte, len(commit.Signatures))
 		for i, commitSig := range commit.Signatures {
 			pbcs := commitSig.ToProto()
 			bz, err := pbcs.Marshal()
 			if err != nil {
 				panic(err)
 			}
-			bs[3+i] = bz
+
+			bs[i] = bz
 		}
 		commit.hash = merkle.HashFromByteSlices(bs)
 	}
