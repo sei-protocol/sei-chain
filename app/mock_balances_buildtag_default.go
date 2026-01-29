@@ -2,14 +2,5 @@
 
 package app
 
-import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-)
-
 // MockBalancesEnabled indicates whether mock_balances build tag is set.
 const MockBalancesEnabled = false
-
-// FlushMockedSupplyIfNeeded is a no-op when mock_balances is not enabled.
-func (app *App) FlushMockedSupplyIfNeeded(ctx sdk.Context) {
-	// No-op: mock_balances not enabled
-}

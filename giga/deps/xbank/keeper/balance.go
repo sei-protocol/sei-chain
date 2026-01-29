@@ -23,8 +23,3 @@ func (k BaseViewKeeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom s
 
 	return balance
 }
-
-// FlushMockedSupply is a no-op - supply is updated immediately during minting.
-func FlushMockedSupply(ctx sdk.Context, storeKey sdk.StoreKey) {
-	// No-op
-}
