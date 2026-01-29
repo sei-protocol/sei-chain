@@ -318,7 +318,7 @@ func (suite *IntegrationTestSuite) TestSendCoinsModuleToAccount() {
 	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
 	authKeeper.SetModuleAccount(ctx, multiPermAcc)
 	app := suite.app
-	app.GigaBankKeeper = keeper
+	app.GigaBankKeeper = &keeper
 
 	addr1 := sdk.AccAddress("addr1_______________")
 	acc1 := authKeeper.NewAccountWithAddress(ctx, addr1)
@@ -776,8 +776,9 @@ func (suite *IntegrationTestSuite) TestMintCoinRestrictions() {
 	}
 
 	for _, test := range tests {
-		suite.app.GigaBankKeeper = keeper.NewBaseKeeperWithDeferredCache(suite.app.AppCodec(), suite.app.GetKey(types.StoreKey),
+		bk := keeper.NewBaseKeeperWithDeferredCache(suite.app.AppCodec(), suite.app.GetKey(types.StoreKey),
 			suite.app.AccountKeeper, suite.app.GetSubspace(types.ModuleName), nil, suite.app.GetKey(types.DeferredCacheStoreKey)).WithMintCoinsRestriction(keeper.MintingRestrictionFn(test.restrictionFn))
+		suite.app.GigaBankKeeper = &bk
 		for _, testCase := range test.testCases {
 			if testCase.expectPass {
 				suite.Require().NoError(
