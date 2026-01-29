@@ -8,6 +8,8 @@ GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
 GIGA_OCC=${GIGA_OCC:-false}
 BENCHMARK_TXS_PER_BATCH=${BENCHMARK_TXS_PER_BATCH:-1000}
 DISABLE_INDEXER=${DISABLE_INDEXER:-true}
+# Debug mode - if true, prints all log output without filtering
+DEBUG=${DEBUG:-false}
 # Benchmark scenario config (path to JSON file, see scripts/scenarios/)
 BENCHMARK_CONFIG=${BENCHMARK_CONFIG:-"scripts/scenarios/evm.json"}
 
@@ -36,6 +38,7 @@ echo "  GIGA_OCC:                $GIGA_OCC"
 echo "  DB_BACKEND:              $DB_BACKEND"
 echo "  BENCHMARK_TXS_PER_BATCH: $BENCHMARK_TXS_PER_BATCH"
 echo "  DISABLE_INDEXER:         $DISABLE_INDEXER"
+echo "  DEBUG:                   $DEBUG"
 echo "  BENCHMARK_CONFIG:        ${BENCHMARK_CONFIG:-(default: EVMTransfer)}"
 echo ""
 echo "Available scenarios in scripts/scenarios/:"
@@ -217,4 +220,10 @@ echo "To capture heap profile:"
 echo "  go tool pprof http://localhost:6060/debug/pprof/heap"
 echo "============================================================"
 echo ""
-BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH ~/go/bin/seid start --chain-id sei-chain 2>&1 | grep -E "(benchmark|Benchmark|deployed|transitioning)"
+if [ "$DEBUG" = true ]; then
+  # Debug mode: print all output
+  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH ~/go/bin/seid start --chain-id sei-chain
+else
+  # Normal mode: filter to benchmark-related output only
+  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH ~/go/bin/seid start --chain-id sei-chain 2>&1 | grep -E "(benchmark|Benchmark|deployed|transitioning)"
+fi

@@ -70,6 +70,11 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	ctx, originalGasMeter := server.PrepareCtxForEVMTransaction(ctx, tx)
 
 	stateDB := state.NewDBImpl(ctx, &server, false)
+
+	// Pre-fund sender if needed (only active with mock_balances build tag).
+	// This ensures sender has sufficient balance for EVM execution.
+	stateDB.PrepareMockBalance(msg.Derived.SenderEVMAddr)
+
 	emsg := server.GetEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
 	gp := server.GetGasPool()
 

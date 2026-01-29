@@ -1407,6 +1407,15 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
 
+	// Commit giga state changes to the underlying store.
+	// The giga executor uses a separate GigaMultiStore, so we must call WriteGiga()
+	// to make state changes (including receipts) visible.
+	ctx.GigaMultiStore().WriteGiga()
+
+	// Finalize giga bank transfers. The giga executor uses GigaBankKeeper which
+	// has its own deferred balance tracking.
+	app.GigaBankKeeper.WriteDeferredBalances(ctx)
+
 	return txResults
 }
 
@@ -1754,6 +1763,10 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	// Create state DB for this transaction
 	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)
 	defer stateDB.Cleanup()
+
+	// Pre-fund sender if needed (only active with mock_balances build tag).
+	// The giga executor bypasses ante handlers, so we must mock balance here.
+	stateDB.PrepareMockBalance(sender)
 
 	// Get gas pool
 	gp := app.GigaEvmKeeper.GetGasPool()

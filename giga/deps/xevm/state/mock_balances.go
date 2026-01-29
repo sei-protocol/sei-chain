@@ -11,15 +11,12 @@ package state
 == DO NOT USE IN PRODUCTION OR MAINNET BUILDS.                              ==
 == This file is included only when the 'mock_balances' build tag is set,    ==
 == and replaces the existing balance.go file.                               ==
-== It is used to mock balances for accounts that don't have any balances    ==
-== yet, and to top off balances when attempting to spend with insufficient  ==
-== funds.                                                                   ==
+== It tops off balances when accounts have insufficient funds.              ==
 ==============================================================================
 */
 
 import (
 	"math/big"
-	"sync"
 
 	"github.com/tendermint/tendermint/libs/log"
 
@@ -27,22 +24,20 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/holiman/uint256"
-	"github.com/sei-protocol/sei-chain/giga/deps/xevm/config"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 )
 
 var ZeroInt = uint256.NewInt(0)
 
-// mockedAddresses tracks addresses that have already been mocked in the current block.
-// This prevents repeated minting when Snapshot() creates new cache branches that
-// don't see prior writes. The map is cleared at the start of each new block.
-var (
-	mockedAddresses   = make(map[common.Address]bool)
-	mockedAddressesMu sync.Mutex
-	lastMockedHeight  int64
-)
+// TopOffAmount is the amount to mint when an account needs more funds (100 ETH)
+var TopOffAmount = new(big.Int).Mul(big.NewInt(100), big.NewInt(1_000_000_000_000_000_000))
 
 func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
+	// SAFETY: Never allow mock balances on mainnet
+	if s.ctx.ChainID() == "pacific-1" {
+		panic("FATAL: mock_balances build tag enabled on pacific-1 mainnet - this is a critical misconfiguration")
+	}
+
 	amt := amtUint256.ToBig()
 	if amt.Sign() == 0 {
 		return *ZeroInt
@@ -52,10 +47,31 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	}
 
 	ctx := s.ctx
-
-	// this avoids emitting cosmos events for ephemeral bookkeeping transfers like send_native
 	if s.eventsSuppressed {
 		ctx = ctx.WithEventManager(sdk.NewEventManager())
+	}
+
+	// Always ensure account has enough - add coins directly via bank keeper
+	// This avoids cache visibility issues by using the same ctx for both add and sub
+	seiAddr := s.getSeiAddress(evmAddr)
+	currentBalance := s.k.GetBalance(s.ctx, seiAddr)
+	if currentBalance.Cmp(amt) < 0 {
+		// Need to top off - add the difference plus extra buffer directly
+		needed := new(big.Int).Sub(amt, currentBalance)
+		needed = needed.Add(needed, TopOffAmount)
+		neededUsei, neededWei := SplitUseiWeiAmount(needed)
+
+		// Ensure account exists
+		if !s.k.AccountKeeper().HasAccount(s.ctx, seiAddr) {
+			s.k.AccountKeeper().SetAccount(s.ctx, s.k.AccountKeeper().NewAccountWithAddress(s.ctx, seiAddr))
+		}
+
+		// Add coins directly (this mints internally)
+		coinsAmt := sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), neededUsei.Add(sdk.OneInt())))
+		if err := s.k.BankKeeper().MintCoins(ctx.WithLogger(log.NewNopLogger()), types.ModuleName, coinsAmt); err == nil {
+			moduleAddr := s.k.AccountKeeper().GetModuleAddress(types.ModuleName)
+			_ = s.k.BankKeeper().SendCoinsAndWei(ctx, moduleAddr, seiAddr, neededUsei, neededWei)
+		}
 	}
 
 	usei, wei := SplitUseiWeiAmount(amt)
@@ -72,10 +88,8 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	}
 
 	if s.logger != nil && s.logger.OnBalanceChange != nil {
-		// We could modify AddWei instead so it returns us the old/new balance directly.
 		newBalance := s.GetBalance(evmAddr).ToBig()
 		oldBalance := new(big.Int).Add(newBalance, amt)
-
 		s.logger.OnBalanceChange(evmAddr, oldBalance, newBalance, reason)
 	}
 
@@ -93,7 +107,6 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	}
 
 	ctx := s.ctx
-	// this avoids emitting cosmos events for ephemeral bookkeeping transfers like send_native
 	if s.eventsSuppressed {
 		ctx = ctx.WithEventManager(sdk.NewEventManager())
 	}
@@ -112,10 +125,8 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	}
 
 	if s.logger != nil && s.logger.OnBalanceChange != nil {
-		// We could modify AddWei instead so it returns us the old/new balance directly.
 		newBalance := s.GetBalance(evmAddr).ToBig()
 		oldBalance := new(big.Int).Sub(newBalance, amt)
-
 		s.logger.OnBalanceChange(evmAddr, oldBalance, newBalance, reason)
 	}
 
@@ -123,37 +134,36 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	return *ZeroInt
 }
 
-// This function is used to mock balance, and is only intended for use in TESTING.
-func (s *DBImpl) mockBalance(evmAddr common.Address) *uint256.Int {
-	// Prevent calling mockBalance on sei mainnet
-	if config.GetEVMChainID(s.ctx.ChainID()) == big.NewInt(1329) {
-		panic("Prevent mock balance from ever being called on mainnet")
+// PrepareMockBalance tops off the account with mock funds before fee checks
+// This is called before BuyGas to ensure the account has sufficient balance
+func (s *DBImpl) PrepareMockBalance(evmAddr common.Address) {
+	// SAFETY: Never allow mock balances on mainnet
+	if s.ctx.ChainID() == "pacific-1" {
+		panic("FATAL: mock_balances build tag enabled on pacific-1 mainnet - this is a critical misconfiguration")
 	}
 
-	// Mint enough for many gas operations (10 ETH worth)
-	bal := uint256.NewInt(10_000_000_000_000_000_000) // 10 ETH in wei
-
-	amt := bal.ToBig()
 	seiAddr := s.getSeiAddress(evmAddr)
+	currentBalance := s.k.GetBalance(s.ctx, seiAddr)
 
-	// Check if account exists, create if needed
+	// Only top off if balance is low
+	if currentBalance.Cmp(TopOffAmount) >= 0 {
+		return // Already has enough
+	}
+
+	// Ensure account exists
 	if !s.k.AccountKeeper().HasAccount(s.ctx, seiAddr) {
 		s.k.AccountKeeper().SetAccount(s.ctx, s.k.AccountKeeper().NewAccountWithAddress(s.ctx, seiAddr))
 	}
 
-	moduleAddr := s.k.AccountKeeper().GetModuleAddress(types.ModuleName)
-	usei, _ := SplitUseiWeiAmount(amt)
+	// Mint and send top-off amount (use NopLogger to suppress log spam)
+	usei, wei := SplitUseiWeiAmount(TopOffAmount)
 	coinsAmt := sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei.Add(sdk.OneInt())))
-
-	// avoids flooding logs
-	if err := s.k.BankKeeper().MintCoins(s.ctx.WithLogger(log.NewNopLogger()), types.ModuleName, coinsAmt); err != nil {
-		panic(err)
+	ctx := s.ctx.WithLogger(log.NewNopLogger())
+	if err := s.k.BankKeeper().MintCoins(ctx, types.ModuleName, coinsAmt); err != nil {
+		return
 	}
-	s.send(moduleAddr, seiAddr, amt)
-	if s.err != nil {
-		panic(s.err)
-	}
-	return bal
+	moduleAddr := s.k.AccountKeeper().GetModuleAddress(types.ModuleName)
+	_ = s.k.BankKeeper().SendCoinsAndWei(ctx, moduleAddr, seiAddr, usei, wei)
 }
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *uint256.Int {
@@ -162,29 +172,8 @@ func (s *DBImpl) GetBalance(evmAddr common.Address) *uint256.Int {
 	if overflow {
 		panic("balance overflow")
 	}
-	// Lazy initialization: if balance is insufficient for gas operations, mint more
-	minRequiredBalance := uint256.NewInt(1_000_000_000_000_000_000) // 1 ETH worth of wei for gas
-	if res == nil || res.Cmp(minRequiredBalance) < 0 {
-		// Check if we've already mocked this address in the current block.
-		// This is needed because Snapshot() creates new cache branches that don't
-		// see prior writes, causing repeated GetBalance calls to trigger repeated mints.
-		mockedAddressesMu.Lock()
-		currentHeight := s.ctx.BlockHeight()
-		if lastMockedHeight != currentHeight {
-			// New block - clear the mocked addresses set
-			mockedAddresses = make(map[common.Address]bool)
-			lastMockedHeight = currentHeight
-		}
-		if mockedAddresses[evmAddr] {
-			mockedAddressesMu.Unlock()
-			// Already mocked, return the expected mock balance
-			return uint256.NewInt(10_000_000_000_000_000_000) // 10 ETH in wei
-		}
-		mockedAddresses[evmAddr] = true
-		mockedAddressesMu.Unlock()
-
-		mockBal := s.mockBalance(evmAddr)
-		return mockBal
+	if res == nil {
+		return uint256.NewInt(0)
 	}
 	return res
 }

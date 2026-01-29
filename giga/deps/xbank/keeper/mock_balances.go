@@ -30,6 +30,11 @@ const MockBalanceUsei = 1_000_000_000_000
 // This produces normal side effects (balance + supply updates) that work correctly
 // with OCC (Optimistic Concurrency Control) parallel execution.
 func (k BaseViewKeeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin {
+	// SAFETY: Never allow mock balances on mainnet
+	if ctx.ChainID() == "pacific-1" {
+		panic("FATAL: mock_balances build tag enabled on pacific-1 mainnet - this is a critical misconfiguration")
+	}
+
 	// Read the actual balance from the store
 	accountStore := k.getAccountStore(ctx, addr)
 	bz := accountStore.Get([]byte(denom))
@@ -43,11 +48,6 @@ func (k BaseViewKeeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom s
 
 	// If balance is sufficient or this isn't the base denom, return as-is
 	if denom != sdk.MustGetBaseDenom() || balance.Amount.GTE(sdk.NewInt(1_000_000)) {
-		return balance
-	}
-
-	// Prevent calling on mainnet
-	if ctx.ChainID() == "pacific-1" {
 		return balance
 	}
 

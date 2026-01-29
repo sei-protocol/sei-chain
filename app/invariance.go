@@ -41,6 +41,11 @@ func ReadLightInvarianceConfig(opts servertypes.AppOptions) (LightInvarianceConf
 }
 
 func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore, config LightInvarianceConfig, blockHeight int64) {
+	// Skip invariance checks when mock_balances is enabled since we fake balances
+	// without updating the actual store, which would fail the supply check.
+	if MockBalancesEnabled {
+		return
+	}
 	// Block 1 must be skipped due to how Cosmos SDK InitChain works:
 	// - InitChain writes genesis state but does NOT commit
 	// - At block 1, the changeSet contains both genesis writes AND block 1 tx writes

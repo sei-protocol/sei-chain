@@ -70,6 +70,11 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	etx, _ := msg.AsTransaction()
 	emsg := fc.evmKeeper.GetEVMMessage(ctx, etx, msg.Derived.SenderEVMAddr)
 	stateDB := state.NewDBImpl(ctx, fc.evmKeeper, false)
+
+	// Pre-fund sender if needed (only active with mock_balances build tag).
+	// Must be called before BuyGas() to ensure sender has sufficient balance.
+	stateDB.PrepareMockBalance(msg.Derived.SenderEVMAddr)
+
 	gp := fc.evmKeeper.GetGasPool()
 	blockCtx, err := fc.evmKeeper.GetVMBlockContext(ctx, gp)
 	if err != nil {
