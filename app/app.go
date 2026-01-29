@@ -371,7 +371,6 @@ type App struct {
 	BeginBlockKeepers legacyabci.BeginBlockKeepers
 	EndBlockKeepers   legacyabci.EndBlockKeepers
 	CheckTxKeepers    legacyabci.CheckTxKeepers
-	DeliverTxKeepers  legacyabci.DeliverTxKeepers
 
 	// mm is the module manager
 	mm *module.Manager
@@ -836,15 +835,6 @@ func New(
 		BankKeeper:     app.BankKeeper,
 		FeeGrantKeeper: &app.FeeGrantKeeper,
 		IBCKeeper:      app.IBCKeeper,
-		OracleKeeper:   app.OracleKeeper,
-		EvmKeeper:      &app.EvmKeeper,
-		ParamsKeeper:   app.ParamsKeeper,
-		UpgradeKeeper:  &app.UpgradeKeeper,
-	}
-	app.DeliverTxKeepers = legacyabci.DeliverTxKeepers{
-		AccountKeeper:  app.AccountKeeper,
-		BankKeeper:     app.BankKeeper,
-		FeeGrantKeeper: &app.FeeGrantKeeper,
 		OracleKeeper:   app.OracleKeeper,
 		EvmKeeper:      &app.EvmKeeper,
 		ParamsKeeper:   app.ParamsKeeper,
