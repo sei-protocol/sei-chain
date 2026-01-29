@@ -38,7 +38,7 @@ func newParquetReader(basePath string) (*parquetReader, error) {
 	db.SetMaxIdleConns(numCPU)
 
 	_, _ = db.Exec(fmt.Sprintf("SET threads TO %d", numCPU))
-	_, _ = db.Exec("SET memory_limit = '20GB'")
+	_, _ = db.Exec("SET memory_limit = '1GB'")
 	_, _ = db.Exec("SET enable_object_cache = true")
 	_, _ = db.Exec("SET parquet_metadata_cache_size = 500")
 	_, _ = db.Exec("SET access_mode = 'READ_ONLY'")

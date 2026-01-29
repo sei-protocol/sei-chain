@@ -204,9 +204,8 @@ func (s *parquetReceiptStore) GetReceiptFromStore(ctx sdk.Context, txHash common
 }
 
 func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error {
-
 	if len(receipts) == 0 {
-		if ctx.BlockHeight() > 0 {
+		if ctx.BlockHeight() > s.latestVersion.Load() {
 			s.latestVersion.Store(ctx.BlockHeight())
 		}
 		return nil

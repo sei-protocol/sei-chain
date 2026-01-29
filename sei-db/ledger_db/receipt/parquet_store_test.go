@@ -82,11 +82,7 @@ func TestLedgerCacheReceiptsAndLogs(t *testing.T) {
 	})
 
 	require.True(t, cache.HasLogsForBlock(blockNumber))
-
-	logs := cache.GetLogsWithFilter(blockNumber, blockNumber, []common.Address{addr}, [][]common.Hash{{topic}})
-	require.Len(t, logs, 1)
-	require.Equal(t, addr, logs[0].Address)
-	require.Equal(t, topic, logs[0].Topics[0])
+	require.False(t, cache.HasLogsForBlock(blockNumber+1))
 }
 
 func TestLedgerCacheRotatePrunes(t *testing.T) {

@@ -174,48 +174,6 @@ func (c *ledgerCache) AddReceiptsBatch(blockNumber uint64, receipts []receiptCac
 	}
 }
 
-func (c *ledgerCache) GetLogsWithFilter(fromBlock, toBlock uint64, addresses []common.Address, topics [][]common.Hash) []*ethtypes.Log {
-	var addressSet map[common.Address]struct{}
-	if len(addresses) > 0 {
-		addressSet = make(map[common.Address]struct{}, len(addresses))
-		for _, addr := range addresses {
-			addressSet[addr] = struct{}{}
-		}
-	}
-
-	c.logMu.RLock()
-	defer c.logMu.RUnlock()
-
-	var result []*ethtypes.Log
-	for i := 0; i < numCacheChunks; i++ {
-		chunk := c.logChunks[i].Load()
-		if chunk == nil {
-			continue
-		}
-
-		for blockNum := fromBlock; blockNum <= toBlock; blockNum++ {
-			logs, exists := chunk.logs[blockNum]
-			if !exists {
-				continue
-			}
-
-			for _, lg := range logs {
-				if addressSet != nil {
-					if _, found := addressSet[lg.Address]; !found {
-						continue
-					}
-				}
-				if !matchTopics(topics, lg.Topics) {
-					continue
-				}
-				result = append(result, lg)
-			}
-		}
-	}
-
-	return result
-}
-
 func (c *ledgerCache) HasLogsForBlock(blockNumber uint64) bool {
 	c.logMu.RLock()
 	defer c.logMu.RUnlock()
