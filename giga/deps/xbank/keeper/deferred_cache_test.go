@@ -13,7 +13,7 @@ func (suite *IntegrationTestSuite) TestDeferredCacheUpsertBalances() {
 	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
 	authKeeper.SetModuleAccount(ctx, multiPermAcc)
 	app := suite.app
-	app.GigaBankKeeper = keeper
+	app.GigaBankKeeper = &keeper
 
 	addr1 := sdk.AccAddress("addr1_______________")
 	acc1 := authKeeper.NewAccountWithAddress(ctx, addr1)
