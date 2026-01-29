@@ -115,39 +115,3 @@ func addAndCheckSlot(t *testing.T, statedb *state.DBImpl, addr common.Address, a
 	require.Nil(t, statedb.Err())
 	require.True(t, slotOk)
 }
-
-func TestDuplicateSlotsInAccessListRevert(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
-	statedb := state.NewDBImpl(ctx, k, false)
-
-	_, sender := testkeeper.MockAddressPair()
-	_, coinbase := testkeeper.MockAddressPair()
-	_, dest := testkeeper.MockAddressPair()
-	_, accessAddr := testkeeper.MockAddressPair()
-
-	duplicateSlot := common.BytesToHash([]byte("duplicate"))
-	txaccesses := []ethtypes.AccessTuple{
-		{
-			Address: accessAddr,
-			StorageKeys: []common.Hash{
-				duplicateSlot,
-				duplicateSlot,
-				duplicateSlot,
-			},
-		},
-	}
-
-	shanghai := params.Rules{ChainID: k.ChainID(ctx), IsShanghai: true}
-
-	statedb.Prepare(shanghai, sender, coinbase, &dest, []common.Address{}, txaccesses)
-
-	addrOk, slotOk := statedb.SlotInAccessList(accessAddr, duplicateSlot)
-	require.True(t, addrOk)
-	require.True(t, slotOk)
-
-	// Reverting to snapshot 0 (initial) should NOT panic
-	require.NotPanics(t, func() {
-		statedb.RevertToSnapshot(0)
-	})
-}

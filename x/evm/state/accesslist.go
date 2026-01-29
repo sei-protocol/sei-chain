@@ -58,12 +58,11 @@ func (s *DBImpl) AddSlotToAccessList(addr common.Address, slot common.Hash) {
 		s.journal = append(s.journal, &accessListAddSlotChange{address: addr, slot: slot})
 		return
 	}
+	// There is already an (address,slot) mapping
 	slotmap := al.Slots[idx]
-	if _, ok := slotmap[slot]; ok {
-		// Slot already present, nothing to do (no journal entry needed)
-		return
+	if _, ok := slotmap[slot]; !ok {
+		slotmap[slot] = struct{}{}
 	}
-	slotmap[slot] = struct{}{}
 	s.journal = append(s.journal, &accessListAddSlotChange{address: addr, slot: slot})
 }
 
