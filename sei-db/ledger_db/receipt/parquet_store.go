@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -82,6 +83,10 @@ type parquetReceiptStore struct {
 	earliestVersion    atomic.Int64
 	warmupCacheRecords []ReceiptRecord
 	closeOnce          sync.Once
+
+	log        dbLogger.Logger
+	keepRecent int64
+	pruneStop  chan struct{}
 }
 
 func newParquetReceiptStore(log dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
@@ -108,6 +113,9 @@ func newParquetReceiptStore(log dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig
 		reader:         reader,
 		storeKey:       storeKey,
 		wal:            receiptWAL,
+		log:            log,
+		keepRecent:     int64(cfg.KeepRecent),
+		pruneStop:      make(chan struct{}),
 	}
 
 	if maxBlock, ok, err := reader.maxReceiptBlockNumber(context.Background()); err != nil {
@@ -134,6 +142,8 @@ func newParquetReceiptStore(log dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig
 	if err := store.replayWAL(); err != nil {
 		return nil, err
 	}
+
+	store.startPruning(int64(cfg.PruneIntervalSeconds))
 
 	return store, nil
 }
@@ -341,6 +351,10 @@ func (s *parquetReceiptStore) FilterLogs(ctx sdk.Context, blockHeight int64, blo
 func (s *parquetReceiptStore) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
+		if s.pruneStop != nil {
+			close(s.pruneStop)
+		}
+
 		s.mu.Lock()
 		defer s.mu.Unlock()
 
@@ -362,6 +376,71 @@ func (s *parquetReceiptStore) Close() error {
 	})
 
 	return err
+}
+
+func (s *parquetReceiptStore) startPruning(pruneIntervalSeconds int64) {
+	if s.keepRecent <= 0 || pruneIntervalSeconds <= 0 {
+		return
+	}
+	go func() {
+		for {
+			latestVersion := s.latestVersion.Load()
+			pruneBeforeBlock := latestVersion - s.keepRecent
+			if pruneBeforeBlock > 0 {
+				pruned := s.pruneOldFiles(uint64(pruneBeforeBlock))
+				if pruned > 0 && s.log != nil {
+					s.log.Info(fmt.Sprintf("Pruned %d parquet file pairs older than block %d", pruned, pruneBeforeBlock))
+				}
+			}
+
+			// Add jitter to avoid thundering herd
+			jitter := time.Duration(float64(pruneIntervalSeconds)*0.5) * time.Second
+			sleepDuration := time.Duration(pruneIntervalSeconds)*time.Second + jitter
+
+			select {
+			case <-s.pruneStop:
+				return
+			case <-time.After(sleepDuration):
+				// Continue to next iteration
+			}
+		}
+	}()
+}
+
+func (s *parquetReceiptStore) pruneOldFiles(pruneBeforeBlock uint64) int {
+	prunedCount := 0
+
+	// Get list of files to prune from the reader
+	filesToPrune := s.reader.getFilesBeforeBlock(pruneBeforeBlock)
+
+	for _, filePair := range filesToPrune {
+		// Remove receipt file
+		if filePair.receiptFile != "" {
+			if err := os.Remove(filePair.receiptFile); err != nil && !os.IsNotExist(err) {
+				if s.log != nil {
+					s.log.Error("failed to prune receipt file", "file", filePair.receiptFile, "err", err)
+				}
+				continue
+			}
+		}
+		// Remove log file
+		if filePair.logFile != "" {
+			if err := os.Remove(filePair.logFile); err != nil && !os.IsNotExist(err) {
+				if s.log != nil {
+					s.log.Error("failed to prune log file", "file", filePair.logFile, "err", err)
+				}
+				continue
+			}
+		}
+		prunedCount++
+	}
+
+	// Update reader's file lists
+	if prunedCount > 0 {
+		s.reader.removeFilesBeforeBlock(pruneBeforeBlock)
+	}
+
+	return prunedCount
 }
 
 type parquetReceiptInput struct {

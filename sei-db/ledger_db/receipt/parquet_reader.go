@@ -106,6 +106,62 @@ func (r *parquetReader) closedReceiptFileCount() int {
 	return len(r.closedReceiptFiles)
 }
 
+type parquetFilePair struct {
+	receiptFile string
+	logFile     string
+	startBlock  uint64
+}
+
+// getFilesBeforeBlock returns files whose start block is before the given block.
+// These files contain only data older than the prune threshold.
+func (r *parquetReader) getFilesBeforeBlock(pruneBeforeBlock uint64) []parquetFilePair {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var result []parquetFilePair
+	for _, f := range r.closedReceiptFiles {
+		startBlock := extractBlockNumber(f)
+		// Only prune files that are entirely before the prune threshold
+		// We need to check that the NEXT file starts before pruneBeforeBlock,
+		// meaning this file's data is all older than the threshold
+		if startBlock+500 <= pruneBeforeBlock { // 500 = MaxBlocksPerFile
+			logFile := filepath.Join(r.basePath, fmt.Sprintf("logs_%d.parquet", startBlock))
+			result = append(result, parquetFilePair{
+				receiptFile: f,
+				logFile:     logFile,
+				startBlock:  startBlock,
+			})
+		}
+	}
+	return result
+}
+
+// removeFilesBeforeBlock removes files from tracking that are before the given block.
+func (r *parquetReader) removeFilesBeforeBlock(pruneBeforeBlock uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Filter receipt files
+	newReceiptFiles := make([]string, 0, len(r.closedReceiptFiles))
+	for _, f := range r.closedReceiptFiles {
+		startBlock := extractBlockNumber(f)
+		if startBlock+500 > pruneBeforeBlock {
+			newReceiptFiles = append(newReceiptFiles, f)
+		}
+	}
+	r.closedReceiptFiles = newReceiptFiles
+
+	// Filter log files
+	newLogFiles := make([]string, 0, len(r.closedLogFiles))
+	for _, f := range r.closedLogFiles {
+		startBlock := extractBlockNumber(f)
+		if startBlock+500 > pruneBeforeBlock {
+			newLogFiles = append(newLogFiles, f)
+		}
+	}
+	r.closedLogFiles = newLogFiles
+}
+
 func (r *parquetReader) maxReceiptBlockNumber(ctx context.Context) (uint64, bool, error) {
 	r.mu.RLock()
 	closedFiles := r.closedReceiptFiles

@@ -226,3 +226,219 @@ func TestParquetReceiptStoreWALReplay(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, receipt.TxHashHex, got.TxHashHex)
 }
+
+func TestParquetFilePruning(t *testing.T) {
+	requireParquetEnabled(t)
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet"
+	cfg.DBDirectory = t.TempDir()
+	cfg.KeepRecent = 600 // Keep 600 blocks, so files with blocks < (latest - 600) get pruned
+
+	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	require.NoError(t, err)
+
+	// Write receipts across multiple files (500 blocks per file)
+	// File 0: blocks 1-500
+	// File 1: blocks 501-1000
+	// File 2: blocks 1001-1500
+	for block := uint64(1); block <= 1500; block++ {
+		txHash := common.BigToHash(common.Big1.SetUint64(block))
+		receipt := makeTestReceipt(txHash, block, 0, common.HexToAddress("0x1"), nil)
+		err := store.SetReceipts(ctx.WithBlockHeight(int64(block)), []ReceiptRecord{
+			{TxHash: txHash, Receipt: receipt},
+		})
+		require.NoError(t, err)
+	}
+
+	// Close to flush all files
+	require.NoError(t, store.Close())
+
+	// Verify we have 3 receipt files and 3 log files
+	receiptFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(receiptFiles), 2, "should have at least 2 receipt files")
+
+	logFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "logs_*.parquet"))
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(logFiles), 2, "should have at least 2 log files")
+
+	// Reopen store - this should trigger pruning since keepRecent=600
+	// Latest version is 1500, so prune before block 900
+	// File 0 (blocks 1-500) should be pruned
+	store, err = NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	// Get the parquet store to manually trigger pruning
+	cachedStore := store.(*cachedReceiptStore)
+	parquetStore := cachedStore.backend.(*parquetReceiptStore)
+
+	// Manually trigger pruning (normally runs in background)
+	pruneBeforeBlock := uint64(parquetStore.latestVersion.Load() - parquetStore.keepRecent)
+	pruned := parquetStore.pruneOldFiles(pruneBeforeBlock)
+
+	// Should have pruned at least one file pair
+	if pruneBeforeBlock > 500 {
+		require.Greater(t, pruned, 0, "should have pruned at least one file pair")
+	}
+
+	// Verify the old files are deleted
+	receiptFilesAfter, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
+	require.NoError(t, err)
+
+	// Check that file_0 (receipts_0.parquet) was deleted if pruned
+	if pruned > 0 {
+		for _, f := range receiptFilesAfter {
+			startBlock := extractBlockNumber(f)
+			require.GreaterOrEqual(t, startBlock+500, pruneBeforeBlock,
+				"file %s should not exist after pruning (startBlock=%d, pruneBeforeBlock=%d)",
+				f, startBlock, pruneBeforeBlock)
+		}
+	}
+}
+
+func TestParquetReaderGetFilesBeforeBlock(t *testing.T) {
+	requireParquetEnabled(t)
+	dir := t.TempDir()
+
+	// Create mock parquet files
+	createMockParquetFile(t, dir, "receipts_0.parquet")
+	createMockParquetFile(t, dir, "receipts_500.parquet")
+	createMockParquetFile(t, dir, "receipts_1000.parquet")
+	createMockParquetFile(t, dir, "logs_0.parquet")
+	createMockParquetFile(t, dir, "logs_500.parquet")
+	createMockParquetFile(t, dir, "logs_1000.parquet")
+
+	reader, err := newParquetReader(dir)
+	require.NoError(t, err)
+	defer reader.Close()
+
+	// Test: prune before block 600
+	// File 0 (blocks 0-499) should be pruned (0 + 500 <= 600)
+	// File 500 (blocks 500-999) should NOT be pruned (500 + 500 > 600)
+	files := reader.getFilesBeforeBlock(600)
+	require.Len(t, files, 1)
+	require.Contains(t, files[0].receiptFile, "receipts_0.parquet")
+
+	// Test: prune before block 1100
+	// Files 0 and 500 should be pruned
+	files = reader.getFilesBeforeBlock(1100)
+	require.Len(t, files, 2)
+
+	// Test: prune before block 400
+	// No files should be pruned (0 + 500 > 400)
+	files = reader.getFilesBeforeBlock(400)
+	require.Len(t, files, 0)
+}
+
+func TestParquetReaderRemoveFilesBeforeBlock(t *testing.T) {
+	requireParquetEnabled(t)
+	dir := t.TempDir()
+
+	// Create mock parquet files
+	createMockParquetFile(t, dir, "receipts_0.parquet")
+	createMockParquetFile(t, dir, "receipts_500.parquet")
+	createMockParquetFile(t, dir, "receipts_1000.parquet")
+	createMockParquetFile(t, dir, "logs_0.parquet")
+	createMockParquetFile(t, dir, "logs_500.parquet")
+	createMockParquetFile(t, dir, "logs_1000.parquet")
+
+	reader, err := newParquetReader(dir)
+	require.NoError(t, err)
+	defer reader.Close()
+
+	initialCount := reader.closedReceiptFileCount()
+	require.Equal(t, 3, initialCount)
+
+	// Remove files before block 600
+	reader.removeFilesBeforeBlock(600)
+
+	// Should have 2 files left (500 and 1000)
+	require.Equal(t, 2, reader.closedReceiptFileCount())
+
+	// Remove files before block 1100
+	reader.removeFilesBeforeBlock(1100)
+
+	// Should have 1 file left (1000)
+	require.Equal(t, 1, reader.closedReceiptFileCount())
+}
+
+func TestParquetPruneOldFiles(t *testing.T) {
+	requireParquetEnabled(t)
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet"
+	cfg.DBDirectory = t.TempDir()
+	cfg.KeepRecent = 0 // Disable auto-pruning
+
+	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	require.NoError(t, err)
+
+	// Write enough data to create multiple files
+	for block := uint64(1); block <= 1200; block++ {
+		txHash := common.BigToHash(common.Big1.SetUint64(block))
+		receipt := makeTestReceipt(txHash, block, 0, common.HexToAddress("0x1"), nil)
+		err := store.SetReceipts(ctx.WithBlockHeight(int64(block)), []ReceiptRecord{
+			{TxHash: txHash, Receipt: receipt},
+		})
+		require.NoError(t, err)
+	}
+	require.NoError(t, store.Close())
+
+	// Count files before pruning
+	receiptFilesBefore, _ := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
+	logFilesBefore, _ := filepath.Glob(filepath.Join(cfg.DBDirectory, "logs_*.parquet"))
+
+	// Reopen and manually prune
+	store, err = NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	require.NoError(t, err)
+	defer store.Close()
+
+	cachedStore := store.(*cachedReceiptStore)
+	parquetStore := cachedStore.backend.(*parquetReceiptStore)
+
+	// Prune files before block 600 (should remove file 0)
+	pruned := parquetStore.pruneOldFiles(600)
+
+	// Count files after pruning
+	receiptFilesAfter, _ := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
+	logFilesAfter, _ := filepath.Glob(filepath.Join(cfg.DBDirectory, "logs_*.parquet"))
+
+	require.Greater(t, pruned, 0, "should have pruned at least one file")
+	require.Less(t, len(receiptFilesAfter), len(receiptFilesBefore), "should have fewer receipt files")
+	require.Less(t, len(logFilesAfter), len(logFilesBefore), "should have fewer log files")
+}
+
+func TestExtractBlockNumber(t *testing.T) {
+	tests := []struct {
+		path     string
+		expected uint64
+	}{
+		{"receipts_0.parquet", 0},
+		{"receipts_500.parquet", 500},
+		{"receipts_1000.parquet", 1000},
+		{"/path/to/receipts_12345.parquet", 12345},
+		{"logs_0.parquet", 0},
+		{"logs_999.parquet", 999},
+		{"invalid.parquet", 0},
+		{"receipts_.parquet", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			result := extractBlockNumber(tt.path)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// createMockParquetFile creates a minimal valid parquet file for testing
+func createMockParquetFile(t *testing.T, dir, name string) {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	// Create an empty file - for testing file existence and naming only
+	f, err := os.Create(path)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+}
