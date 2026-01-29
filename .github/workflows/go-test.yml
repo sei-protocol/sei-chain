@@ -34,6 +34,20 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Free disk space
+        if: matrix.modules.name == 'sei-cosmos'
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          docker system prune -af || true
+          echo "Disk space after cleanup:"
+          df -h
+
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25.6'
