@@ -586,7 +586,8 @@ func init() {
 		if height == evmrpc.LatestCtxHeight {
 			return baseCtx.WithIsTracing(true)
 		}
-		return Ctx.WithIsTracing(true)
+		// Return a context with the requested block height
+		return baseCtx.WithBlockHeight(height).WithIsTracing(true)
 	}
 	// Start good http server
 	goodConfig := evmrpcconfig.DefaultConfig

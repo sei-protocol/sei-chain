@@ -1694,6 +1694,7 @@ describe("EVM throughput", function(){
       txs.push({
         to: toAddress,
         value: 1,
+        gasLimit: 21000,
         nonce: nextNonce,
       })
       maxNonce = nextNonce;
@@ -1724,12 +1725,15 @@ describe("EVM throughput", function(){
 
     blockNumbers = uniq(blockNumbers).sort((a,b)=>{return a-b})
     const minedNonceOrder = []
+    const senderLower = address.toLowerCase()
     for(const blockNumber of blockNumbers){
       const block = await ethers.provider.getBlock(parseInt(blockNumber,10));
       // get receipt for transaction hash in block
       for(const txHash of block.transactions){
         const tx = await ethers.provider.getTransaction(txHash)
-        minedNonceOrder.push(tx.nonce)
+        if (tx?.from?.toLowerCase() === senderLower && tx.nonce >= nonce && tx.nonce <= maxNonce) {
+          minedNonceOrder.push(tx.nonce)
+        }
       }
     }
 
