@@ -2,6 +2,8 @@ package commands_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -31,7 +33,18 @@ func TestRollbackIntegration(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, node.IsRunning())
 
-		time.Sleep(3 * time.Second)
+		// Wait for prev_app_state.json to exist (requires 2 block commits)
+		// This is more reliable than a fixed sleep on slow CI runners
+		prevStateFile := filepath.Join(dir, "prev_app_state.json")
+		deadline := time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(prevStateFile); err == nil {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		require.FileExists(t, prevStateFile, "prev_app_state.json should exist after 2 block commits")
+
 		t.Cleanup(func() {
 			node.Wait()
 			require.False(t, node.IsRunning())
