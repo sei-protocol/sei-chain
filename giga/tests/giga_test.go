@@ -29,19 +29,25 @@ import (
 type ExecutorMode int
 
 const (
-	ModeV2withOCC      ExecutorMode = iota // V2 execution path with OCC (standard production path)
-	ModeGigaSequential                     // Giga executor, no OCC
-	ModeGigaOCC                            // Giga executor with OCC
+	ModeV2Sequential         ExecutorMode = iota // V2 execution path, sequential (no OCC)
+	ModeV2withOCC                                // V2 execution path with OCC (standard production path)
+	ModeGigaSequential                           // Giga executor, no OCC
+	ModeGigaOCC                                  // Giga executor with OCC
+	ModeGigaWithRegularStore                     // Giga executor with regular KVStore (for debugging - isolates executor from GigaKVStore)
 )
 
 func (m ExecutorMode) String() string {
 	switch m {
+	case ModeV2Sequential:
+		return "V2Sequential"
 	case ModeV2withOCC:
 		return "V2withOCC"
 	case ModeGigaSequential:
 		return "GigaSequential"
 	case ModeGigaOCC:
 		return "GigaOCC"
+	case ModeGigaWithRegularStore:
+		return "GigaWithRegularStore"
 	default:
 		return "Unknown"
 	}
