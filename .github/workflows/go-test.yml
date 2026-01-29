@@ -34,23 +34,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Check disk space
-        run: df -h
-
-      - name: Free disk space
-        if: matrix.modules.name == 'sei-cosmos'
-        run: |
-          echo "Disk space before cleanup:"
-          df -h
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo apt-get clean
-          docker system prune -af || true
-          echo "Disk space after cleanup:"
-          df -h
-
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25.6'
@@ -79,6 +62,25 @@ jobs:
           echo "packages=$PACKAGES" >> $GITHUB_OUTPUT
         working-directory: '${{ matrix.modules.path }}'
 
+      - name: Disk usage before tests
+        run: |
+          echo "=== Disk space ==="
+          df -h
+          echo "=== Key directories ==="
+          du -sh $HOME/go || true
+          du -sh $HOME/.cache/go-build || true
+          du -sh $GITHUB_WORKSPACE || true
+
       - name: Go test with race detector
         working-directory: '${{ matrix.modules.path }}'
         run: go test -race -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' ${{ steps.test-packages.outputs.packages }}
+
+      - name: Disk usage after tests
+        if: always()
+        run: |
+          echo "=== Disk space ==="
+          df -h
+          echo "=== Key directories ==="
+          du -sh $HOME/go || true
+          du -sh $HOME/.cache/go-build || true
+          du -sh $GITHUB_WORKSPACE || true
