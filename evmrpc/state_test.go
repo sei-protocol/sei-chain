@@ -82,10 +82,7 @@ func TestGetBalance(t *testing.T) {
 				_, ok := resObj["error"]
 				require.True(t, ok)
 			} else {
-				errObj, ok := resObj["error"]
-				if ok {
-					t.Logf("Unexpected error: %+v", errObj)
-				}
+				_, ok := resObj["error"]
 				require.False(t, ok)
 				require.Equal(t, tt.wantAmount, resObj["result"])
 			}
@@ -140,10 +137,7 @@ func TestGetCode(t *testing.T) {
 				_, ok := resObj["error"]
 				require.True(t, ok)
 			} else {
-				errObj, ok := resObj["error"]
-				if ok {
-					t.Logf("Unexpected error: %+v", errObj)
-				}
+				_, ok := resObj["error"]
 				require.False(t, ok)
 				got := resObj["result"]
 				require.Equal(t, wantKey, got)
@@ -201,10 +195,7 @@ func TestGetStorageAt(t *testing.T) {
 				_, ok := resObj["error"]
 				require.True(t, ok)
 			} else {
-				errObj, ok := resObj["error"]
-				if ok {
-					t.Logf("Unexpected error: %+v", errObj)
-				}
+				_, ok := resObj["error"]
 				require.False(t, ok)
 				got := resObj["result"]
 				require.Equal(t, wantValue, got)

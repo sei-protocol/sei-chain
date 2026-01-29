@@ -554,7 +554,10 @@ var MultiTxCtx sdk.Context
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
 	testApp := app.SetupWithDefaultHome(false, false, false)
-	Ctx = testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
+	// Use height 1 which matches the committed store version
+	// The MockClient returns MockHeight103 as latest, but CheckVersion
+	// validates against the actual store version, not the mock
+	Ctx = testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
 	baseCtx := Ctx
 	MultiTxCtx, _ = Ctx.CacheContext()
 	EVMKeeper = &testApp.EvmKeeper
@@ -571,11 +574,7 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	// Commit multiple times to advance the chain to height 8
-	// This ensures VersionExists(8) returns true for CheckVersion
-	for i := 0; i < 8; i++ {
-		testApp.Commit(context.Background())
-	}
+	testApp.Commit(context.Background())
 	if store := EVMKeeper.ReceiptStore(); store != nil {
 		latest := int64(math.MaxInt64)
 		if err := store.SetLatestVersion(latest); err != nil {
@@ -587,8 +586,12 @@ func init() {
 		if height == MockHeight2 {
 			return MultiTxCtx.WithIsTracing(true)
 		}
-		// Always return baseCtx to ensure the store version matches
-		// Tests were incorrectly modifying the global Ctx which broke CheckVersion
+		if height == evmrpc.LatestCtxHeight {
+			// Return high height for watermark calculations so they don't reject test data at higher heights
+			return baseCtx.WithBlockHeight(MockHeight8).WithIsTracing(true)
+		}
+		// For state queries, return baseCtx with height 1 so CheckVersion passes
+		// (the store is only committed at version 1)
 		return baseCtx.WithIsTracing(true)
 	}
 	// Start good http server
