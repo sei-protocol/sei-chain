@@ -164,8 +164,8 @@ func NewGigaTestWrapperWithRegularStore(t *testing.T, tm time.Time, valPub crypt
 	}
 
 	// Init genesis for GigaEvmKeeper (now uses regular KVStore)
-	genState := xevmtypes.DefaultGenesis()
-	wrapper.App.GigaEvmKeeper.InitGenesis(wrapper.Ctx, *genState)
+	genState := evmtypes.DefaultGenesis()
+	wrapper.App.EvmKeeper.InitGenesis(wrapper.Ctx, *genState)
 
 	return wrapper
 }
