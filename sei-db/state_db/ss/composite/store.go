@@ -497,6 +497,25 @@ func (s *CompositeStateStore) Prune(version int64) error {
 // Recovery - WAL replay to sync both stores on startup
 // =============================================================================
 
+// newCompositeStateStoreWithStores creates a composite store from pre-created stores.
+// This is primarily for testing recovery scenarios where we need control over store states.
+// For production use, prefer NewCompositeStateStore which handles initialization properly.
+func newCompositeStateStoreWithStores(
+	cosmosStore types.StateStore,
+	evmStore *evm.EVMStateStore,
+	ssConfig config.StateStoreConfig,
+	evmConfig config.EVMStateStoreConfig,
+	log logger.Logger,
+) *CompositeStateStore {
+	return &CompositeStateStore{
+		cosmosStore: cosmosStore,
+		evmStore:    evmStore,
+		ssConfig:    ssConfig,
+		evmConfig:   evmConfig,
+		logger:      log,
+	}
+}
+
 // RecoverCompositeStateStore recovers the composite state store from WAL.
 // If EVM_SS is behind Cosmos_SS, syncs it first, then replays any new WAL entries.
 func RecoverCompositeStateStore(
@@ -542,7 +561,7 @@ func syncEVMStore(
 	if err != nil {
 		return fmt.Errorf("failed to open changelog WAL: %w", err)
 	}
-	defer streamHandler.Close()
+	defer func() { _ = streamHandler.Close() }()
 
 	firstOffset, err := streamHandler.FirstOffset()
 	if err != nil || firstOffset <= 0 {
@@ -596,7 +615,7 @@ func recoverStandardWAL(
 	if err != nil {
 		return fmt.Errorf("failed to open changelog WAL: %w", err)
 	}
-	defer streamHandler.Close()
+	defer func() { _ = streamHandler.Close() }()
 
 	firstOffset, errFirst := streamHandler.FirstOffset()
 	if firstOffset <= 0 || errFirst != nil {

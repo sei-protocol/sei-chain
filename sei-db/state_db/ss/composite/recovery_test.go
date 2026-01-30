@@ -8,9 +8,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
@@ -24,22 +25,27 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 
 	log := logger.NewNopLogger()
 
-	// Create cosmos store
+	// Create cosmos store directly (without pruning for testing)
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = "pebbledb"
-	cosmosStore, err := ss.NewStateStore(log, dir, ssConfig)
+	dbHome := utils.GetStateStorePath(dir, ssConfig.Backend)
+	cosmosStore, err := mvcc.OpenDB(dbHome, ssConfig)
 	require.NoError(t, err)
 	defer cosmosStore.Close()
 
-	// Create EVM config
-	evmConfig := &config.EVMStateStoreConfig{
+	// Create EVM store directly
+	evmConfig := config.EVMStateStoreConfig{
 		Enable:      true,
+		EnableRead:  true,
+		EnableWrite: true,
 		DBDirectory: filepath.Join(dir, "evm_ss"),
 	}
-
-	// Create composite store
-	compositeStore, err := NewCompositeStateStore(cosmosStore, evmConfig, dir, log)
+	evmStore, err := evm.NewEVMStateStore(evmConfig.DBDirectory)
 	require.NoError(t, err)
+	defer evmStore.Close()
+
+	// Create composite store using test helper (no auto-recovery)
+	compositeStore := newCompositeStateStoreWithStores(cosmosStore, evmStore, ssConfig, evmConfig, log)
 	defer compositeStore.Close()
 
 	// Create WAL and write some entries
@@ -105,10 +111,11 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 
 	log := logger.NewNopLogger()
 
-	// Create cosmos store
+	// Create cosmos store directly
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = "pebbledb"
-	cosmosStore, err := ss.NewStateStore(log, dir, ssConfig)
+	dbHome := utils.GetStateStorePath(dir, ssConfig.Backend)
+	cosmosStore, err := mvcc.OpenDB(dbHome, ssConfig)
 	require.NoError(t, err)
 
 	// Create test EVM key
@@ -159,14 +166,17 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 	walLog.Close()
 
 	// Create EVM store (fresh, at version 0)
-	evmConfig := &config.EVMStateStoreConfig{
+	evmConfig := config.EVMStateStoreConfig{
 		Enable:      true,
+		EnableRead:  true,
+		EnableWrite: true,
 		DBDirectory: filepath.Join(dir, "evm_ss"),
 	}
-
-	// Create composite store - EVM store starts at version 0
-	compositeStore, err := NewCompositeStateStore(cosmosStore, evmConfig, dir, log)
+	evmStore, err := evm.NewEVMStateStore(evmConfig.DBDirectory)
 	require.NoError(t, err)
+
+	// Create composite store using test helper - EVM store starts at version 0
+	compositeStore := newCompositeStateStoreWithStores(cosmosStore, evmStore, ssConfig, evmConfig, log)
 	defer compositeStore.Close()
 
 	// Verify EVM store is behind
