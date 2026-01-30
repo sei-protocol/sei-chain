@@ -55,7 +55,7 @@ func BuildTransaction(st *StateTestJSON, subtest StateTestPost) (*ethtypes.Trans
 	// Parse value
 	value := new(big.Int)
 	if valueIdx < len(st.Transaction.Value) {
-		value = parseHexBig(st.Transaction.Value[valueIdx])
+		value = ParseHexBig(st.Transaction.Value[valueIdx])
 	}
 
 	// Parse to address
@@ -69,9 +69,9 @@ func BuildTransaction(st *StateTestJSON, subtest StateTestPost) (*ethtypes.Trans
 	nonce := parseHexUint64(st.Transaction.Nonce)
 
 	// Parse gas prices
-	gasPrice := parseHexBig(st.Transaction.GasPrice)
-	maxFeePerGas := parseHexBig(st.Transaction.MaxFeePerGas)
-	maxPriorityFeePerGas := parseHexBig(st.Transaction.MaxPriorityFeePerGas)
+	gasPrice := ParseHexBig(st.Transaction.GasPrice)
+	maxFeePerGas := ParseHexBig(st.Transaction.MaxFeePerGas)
+	maxPriorityFeePerGas := ParseHexBig(st.Transaction.MaxPriorityFeePerGas)
 
 	// Determine transaction type and create accordingly
 	var tx *ethtypes.Transaction
@@ -163,8 +163,8 @@ func EncodeTxForApp(signedTx *ethtypes.Transaction) ([]byte, error) {
 	return txBytes, nil
 }
 
-// parseHexBig parses a hex string (with possible leading zeros) to *big.Int
-func parseHexBig(s string) *big.Int {
+// ParseHexBig parses a hex string (with possible leading zeros) to *big.Int
+func ParseHexBig(s string) *big.Int {
 	if s == "" {
 		return new(big.Int)
 	}
@@ -172,12 +172,12 @@ func parseHexBig(s string) *big.Int {
 	s = strings.TrimPrefix(s, "0X")
 	result, ok := new(big.Int).SetString(s, 16)
 	if !ok {
-		panic(fmt.Sprintf("parseHexBig: failed to parse hex string %q", s))
+		panic(fmt.Sprintf("ParseHexBig: failed to parse hex string %q", s))
 	}
 	return result
 }
 
 // parseHexUint64 parses a hex string to uint64
 func parseHexUint64(s string) uint64 {
-	return parseHexBig(s).Uint64()
+	return ParseHexBig(s).Uint64()
 }

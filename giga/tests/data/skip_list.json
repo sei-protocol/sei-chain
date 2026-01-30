@@ -1,6 +1,6 @@
 {
   "skipped_tests": {
-    "stTransactionTest/HighGasPriceParis.json/GeneralStateTests/stTransactionTest/HighGasPriceParis.json::HighGasPriceParis-fork_[Cancun-Prague]-d0g0v0": "fee_out_of_bound",
+    "stTransactionTest/HighGasPriceParis.json/GeneralStateTests/stTransactionTest/HighGasPriceParis.json::HighGasPriceParis-fork_[Cancun-Prague]-d0g0v0": "tx_encoding_error",
     "Cancun/stEIP4844-blobtransactions/wrongBlobhashVersion.json/GeneralStateTests/Cancun/stEIP4844-blobtransactions/wrongBlobhashVersion.json::wrongBlobhashVersion-fork_[Cancun-Prague]-d0g0v0": "error_mismatch",
     "Cancun/stEIP4844-blobtransactions/blobhashListBounds9.json/GeneralStateTests/Cancun/stEIP4844-blobtransactions/blobhashListBounds9.json::blobhashListBounds9-fork_[Cancun-Prague]-d0g0v0": "error_mismatch",
     "Cancun/stEIP4844-blobtransactions/emptyBlobhashList.json/GeneralStateTests/Cancun/stEIP4844-blobtransactions/emptyBlobhashList.json::emptyBlobhashList-fork_[Cancun-Prague]-d0g0v0": "error_mismatch",
@@ -8,10 +8,7 @@
     "Cancun/stEIP4844-blobtransactions/blobhashListBounds8.json/GeneralStateTests/Cancun/stEIP4844-blobtransactions/blobhashListBounds8.json::blobhashListBounds8-fork_[Cancun-Prague]-d0g0v0": "error_mismatch",
     "Cancun/stEIP4844-blobtransactions/createBlobhashTx.json/GeneralStateTests/Cancun/stEIP4844-blobtransactions/createBlobhashTx.json::createBlobhashTx-fork_[Cancun-Prague]-d0g0v0": "error_mismatch",
     "Cancun/stEIP4844-blobtransactions/blobhashListBounds10.json/GeneralStateTests/Cancun/stEIP4844-blobtransactions/blobhashListBounds10.json::blobhashListBounds10-fork_[Cancun-Prague]-d0g0v0": "error_mismatch",
-    "stEIP1559/lowFeeCap.json/GeneralStateTests/stEIP1559/lowFeeCap.json::lowFeeCap-fork_[Cancun-Prague]-d0g0v0": "error_mismatch",
-    "stEIP1559/lowGasPriceOldTypes.json/GeneralStateTests/stEIP1559/lowGasPriceOldTypes.json::lowGasPriceOldTypes-fork_[Cancun-Prague]-d[0-1]g0v0/0": "error_mismatch",
-    "stEIP1559/lowGasPriceOldTypes.json/GeneralStateTests/stEIP1559/lowGasPriceOldTypes.json::lowGasPriceOldTypes-fork_[Cancun-Prague]-d[0-1]g0v0/1": "error_mismatch",
-    "stEIP1559/tipTooHigh.json/GeneralStateTests/stEIP1559/tipTooHigh.json::tipTooHigh-fork_[Cancun-Prague]-d0g0v0": "unknown",
+    "stEIP1559/tipTooHigh.json/GeneralStateTests/stEIP1559/tipTooHigh.json::tipTooHigh-fork_[Cancun-Prague]-d0g0v0": "tx_encoding_error",
     "stEIP1559/lowGasLimit.json/GeneralStateTests/stEIP1559/lowGasLimit.json::lowGasLimit-fork_[Cancun-Prague]-d0g[0-3]v0/0": "error_mismatch"
   },
   "skipped_categories": [
@@ -63,11 +60,11 @@
     "stWalletTest": "ENABLED: 46/46 tests pass. All passing (after PR #2780 fix).",
     "stTransitionTest": "ENABLED: 6/6 tests pass. All passing.",
     "stRecursiveCreate": "ANALYZED: 2/2 tests pass. All passing.",
-    "stTransactionTest": "ENABLED: 258/259 tests pass. 1 failure skipped: fee_out_of_bound(1) (after PR #2780 fix).",
+    "stTransactionTest": "ENABLED: 258/259 tests pass. 1 failure skipped: tx_encoding_error(1) (after PR #2780 fix).",
     "stZeroCallsTest": "ENABLED: 24/24 tests pass. All passing.",
     "stZeroCallsRevert": "ENABLED: 16/16 tests pass. All passing.",
     "stStaticFlagEnabled": "ENABLED: 34/34 tests pass. All passing.",
-    "stEIP1559": "ENABLED: 1840/1846 tests pass. 6 failures skipped: error_mismatch(5), unknown(1)",
+    "stEIP1559": "ENABLED: 1843/1846 tests pass. 3 failures skipped: tx_encoding_error(1), error_mismatch(1), fixed_by_fee_validation(1). Note: lowFeeCap and lowGasPriceOldTypes(x2) now passing after fee validation fix.",
     "stZeroKnowledge": "ENABLED: 945/945 tests pass. All passing.",
     "stZeroKnowledge2": "ENABLED: 520/520 tests pass. All passing.",
     "stPreCompiledContracts2": "ENABLED: 160/160 tests pass. All passing.",

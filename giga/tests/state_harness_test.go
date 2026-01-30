@@ -196,6 +196,22 @@ func (stc *StateTestContext) SetupSender(sender common.Address) {
 	evmKeeper.SetAddressMapping(stc.Ctx, seiAddr, sender)
 }
 
+// SetupEnv configures the block environment from the test's env settings.
+// This sets the base fee to match the test's expected block conditions.
+func (stc *StateTestContext) SetupEnv(env harness.StateTestEnv) {
+	// Set base fee from test environment
+	if env.BaseFee != "" {
+		baseFee := harness.ParseHexBig(env.BaseFee)
+		baseFeeSDK := sdk.NewDecFromBigInt(baseFee)
+
+		// Set the next base fee in EvmKeeper
+		// This is what GetBaseFee() actually reads, not params.BaseFeePerGas
+		// After PR #2780, both Giga and V2 executors share the same underlying data layer,
+		// so we only need to set it once via EvmKeeper - both paths will read the same value.
+		stc.TestApp.EvmKeeper.SetNextBaseFeePerGas(stc.Ctx, baseFeeSDK)
+	}
+}
+
 // RunStateTestBlock executes a state test transaction and returns results
 func RunStateTestBlock(stc *StateTestContext, txs [][]byte) ([]abci.Event, []*abci.ExecTxResult, error) {
 	app.EnableOCC = stc.Mode == ModeV2withOCC || stc.Mode == ModeGigaOCC
@@ -235,6 +251,7 @@ func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harnes
 
 	// --- Run with V2 Sequential (baseline) ---
 	v2Ctx := NewStateTestContext(t, blockTime, 1, ModeV2Sequential)
+	v2Ctx.SetupEnv(st.Env)
 	v2Ctx.SetupPreState(t, st.Pre)
 	v2Ctx.SetupSender(sender)
 
@@ -242,6 +259,7 @@ func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harnes
 
 	// --- Run with Giga (mode from config) ---
 	gigaCtx := NewStateTestContext(t, blockTime, 1, config.GigaMode)
+	gigaCtx.SetupEnv(st.Env)
 	gigaCtx.SetupPreState(t, st.Pre)
 	gigaCtx.SetupSender(sender)
 

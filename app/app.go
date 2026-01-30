@@ -172,6 +172,7 @@ import (
 	gigabankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	gigaevmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	gigaevmstate "github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -1740,6 +1741,42 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 				Log:  fmt.Sprintf("failed to associate addresses: %v", err),
 			}, nil
 		}
+	}
+
+	// ============================================================================
+	// Fee validation (mirrors V2's ante handler checks in evm_checktx.go)
+	// These checks must happen BEFORE state changes (stateDB creation) so that
+	// failed transactions don't affect state (no nonce increment, no balance change).
+	// ============================================================================
+	baseFee := app.GigaEvmKeeper.GetBaseFee(ctx)
+
+	// 1. Fee cap < base fee check (INSUFFICIENT_MAX_FEE_PER_GAS)
+	// V2: evm_checktx.go line 284-286
+	if txData.GetGasFeeCap().Cmp(baseFee) < 0 {
+		return &abci.ExecTxResult{
+			Code: uint32(sdkerrors.ErrInsufficientFee.ABCICode()),
+			Log:  "max fee per gas less than block base fee",
+		}, nil
+	}
+
+	// 2. Tip > fee cap check (PRIORITY_GREATER_THAN_MAX_FEE_PER_GAS)
+	// This is checked in txData.Validate() for DynamicFeeTx, but we also check here
+	// to ensure consistent rejection before execution.
+	if txData.GetGasTipCap().Cmp(txData.GetGasFeeCap()) > 0 {
+		return &abci.ExecTxResult{
+			Code: 1,
+			Log:  "max priority fee per gas higher than max fee per gas",
+		}, nil
+	}
+
+	// 3. Gas limit * gas price overflow check (GASLIMIT_PRICE_PRODUCT_OVERFLOW)
+	// V2: Uses IsValidInt256(tx.Fee()) in dynamic_fee_tx.go Validate()
+	// Fee = GasFeeCap * GasLimit, must fit in 256 bits
+	if !ethtx.IsValidInt256(txData.Fee()) {
+		return &abci.ExecTxResult{
+			Code: 1,
+			Log:  "fee out of bound",
+		}, nil
 	}
 
 	// Prepare context for EVM transaction (set infinite gas meter like original flow)
