@@ -54,7 +54,6 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 		journal:            []journalEntry{},
 		coinbaseEvmAddress: feeCollector,
 	}
-	s.Snapshot() // take an initial snapshot for GetCommitted
 	return s
 }
 
@@ -95,7 +94,6 @@ func (s *DBImpl) CleanupForTracer() {
 	s.tempState = NewTemporaryState()
 	s.journal = []journalEntry{}
 	s.snapshottedCtxs = []sdk.Context{}
-	s.Snapshot()
 }
 
 func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
@@ -116,7 +114,9 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	for i := 1; i < len(s.snapshottedCtxs); i++ {
 		s.flushEvents(s.snapshottedCtxs[i])
 	}
-	s.flushEvents(s.ctx)
+	if len(s.snapshottedCtxs) > 0 {
+		s.flushEvents(s.ctx)
+	}
 
 	surplus = s.tempState.surplus
 	return
