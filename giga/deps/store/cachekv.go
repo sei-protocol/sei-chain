@@ -56,6 +56,15 @@ func (store *Store) Get(key []byte) (value []byte) {
 	return store.getFromCache(key)
 }
 
+// GetCommitted gets from the first non-giga store in the ancestor chain
+func (store *Store) GetCommitted(key []byte) (value []byte) {
+	parentGigaStore, ok := store.parent.(*Store)
+	if ok {
+		return parentGigaStore.GetCommitted(key)
+	}
+	return store.parent.Get(key)
+}
+
 // Set implements types.KVStore.
 func (store *Store) Set(key []byte, value []byte) {
 	types.AssertValidKey(key)
