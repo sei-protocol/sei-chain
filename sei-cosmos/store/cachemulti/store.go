@@ -25,6 +25,7 @@ type Store struct {
 	stores     map[types.StoreKey]types.CacheWrap
 	keys       map[string]types.StoreKey
 	gigaStores map[types.StoreKey]types.KVStore
+	gigaKeys   []types.StoreKey
 
 	traceWriter  io.Writer
 	traceContext types.TraceContext
@@ -40,13 +41,31 @@ var _ types.CacheMultiStore = Store{}
 func NewFromKVStore(
 	store types.KVStore, stores map[types.StoreKey]types.CacheWrapper,
 	gigaStores map[types.StoreKey]types.KVStore,
-	keys map[string]types.StoreKey, traceWriter io.Writer, traceContext types.TraceContext,
+	keys map[string]types.StoreKey, gigaKeys []types.StoreKey, traceWriter io.Writer, traceContext types.TraceContext,
 ) Store {
+	cms := newStoreWithoutGiga(store, stores, keys, gigaKeys, traceWriter, traceContext)
+
+	cms.gigaStores = make(map[types.StoreKey]types.KVStore, len(gigaKeys))
+	for _, key := range gigaKeys {
+		if gigaStore, ok := gigaStores[key]; ok {
+			// if key is in gigaStores, use it as the parent store
+			cms.gigaStores[key] = gigacachekv.NewStore(gigaStore, key, types.DefaultCacheSizeLimit)
+		} else {
+			// if not, use regular store as the parent store
+			parent := stores[key].(types.KVStore)
+			cms.gigaStores[key] = gigacachekv.NewStore(parent, key, types.DefaultCacheSizeLimit)
+		}
+	}
+
+	return cms
+}
+
+func newStoreWithoutGiga(store types.KVStore, stores map[types.StoreKey]types.CacheWrapper, keys map[string]types.StoreKey, gigaKeys []types.StoreKey, traceWriter io.Writer, traceContext types.TraceContext) Store {
 	cms := Store{
 		db:           cachekv.NewStore(store, nil, types.DefaultCacheSizeLimit),
 		stores:       make(map[types.StoreKey]types.CacheWrap, len(stores)),
 		keys:         keys,
-		gigaStores:   make(map[types.StoreKey]types.KVStore, len(gigaStores)),
+		gigaKeys:     gigaKeys,
 		traceWriter:  traceWriter,
 		traceContext: traceContext,
 		closers:      []io.Closer{},
@@ -58,11 +77,6 @@ func NewFromKVStore(
 		}
 		cms.stores[key] = cachekv.NewStore(store.(types.KVStore), key, types.DefaultCacheSizeLimit)
 	}
-
-	for key, store := range gigaStores {
-		cms.gigaStores[key] = gigacachekv.NewStore(store, key, types.DefaultCacheSizeLimit)
-	}
-
 	return cms
 }
 
@@ -70,10 +84,10 @@ func NewFromKVStore(
 // CacheWrapper objects. Each CacheWrapper store is a branched store.
 func NewStore(
 	db dbm.DB, stores map[types.StoreKey]types.CacheWrapper, keys map[string]types.StoreKey,
-	gigaStores map[types.StoreKey]types.KVStore, traceWriter io.Writer, traceContext types.TraceContext,
+	gigaKeys []types.StoreKey, traceWriter io.Writer, traceContext types.TraceContext,
 ) Store {
 
-	return NewFromKVStore(dbadapter.Store{DB: db}, stores, gigaStores, keys, traceWriter, traceContext)
+	return newStoreWithoutGiga(dbadapter.Store{DB: db}, stores, keys, gigaKeys, traceWriter, traceContext)
 }
 
 func newCacheMultiStoreFromCMS(cms Store) Store {
@@ -86,7 +100,7 @@ func newCacheMultiStoreFromCMS(cms Store) Store {
 		gigaStores[k] = v
 	}
 
-	return NewFromKVStore(cms.db, stores, gigaStores, nil, cms.traceWriter, cms.traceContext)
+	return NewFromKVStore(cms.db, stores, gigaStores, nil, cms.gigaKeys, cms.traceWriter, cms.traceContext)
 }
 
 // SetTracer sets the tracer for the MultiStore that the underlying
