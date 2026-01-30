@@ -8,7 +8,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 )
@@ -17,23 +16,21 @@ func setupTestStores(t *testing.T) (*CompositeStateStore, string, func()) {
 	dir, err := os.MkdirTemp("", "composite_store_test")
 	require.NoError(t, err)
 
-	// Create Cosmos store using the ss package
 	ssConfig := config.StateStoreConfig{
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0, // Sync writes for tests
 		KeepRecent:       100000,
 	}
-	cosmosStore, err := ss.NewStateStore(logger.NewNopLogger(), dir, ssConfig)
-	require.NoError(t, err)
 
-	// Create composite store with EVM enabled
 	evmConfig := &config.EVMStateStoreConfig{
 		Enable:      true,
+		EnableRead:  true,
+		EnableWrite: true,
 		DBDirectory: filepath.Join(dir, "evm_ss"),
 		KeepRecent:  100000,
 	}
 
-	compositeStore, err := NewCompositeStateStore(cosmosStore, evmConfig, dir, logger.NewNopLogger())
+	compositeStore, err := NewCompositeStateStore(ssConfig, evmConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 
 	cleanup := func() {
@@ -179,17 +176,14 @@ func TestCompositeStateStoreWithoutEVM(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	// Create Cosmos store using the ss package
 	ssConfig := config.StateStoreConfig{
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
 	}
-	cosmosStore, err := ss.NewStateStore(logger.NewNopLogger(), dir, ssConfig)
-	require.NoError(t, err)
 
-	// Create composite store with EVM disabled
-	store, err := NewCompositeStateStore(cosmosStore, nil, dir, logger.NewNopLogger())
+	// Create composite store with EVM disabled (nil config)
+	store, err := NewCompositeStateStore(ssConfig, nil, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 

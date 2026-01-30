@@ -1,13 +1,18 @@
 package composite
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
 // CompositeStateStore routes operations between Cosmos_SS (main state store) and EVM_SS (optimized EVM stores).
@@ -16,22 +21,36 @@ import (
 type CompositeStateStore struct {
 	cosmosStore types.StateStore   // Main MVCC PebbleDB for all modules
 	evmStore    *evm.EVMStateStore // Separate EVM DBs with default comparer (nil if disabled)
+	ssConfig    config.StateStoreConfig
 	evmConfig   *config.EVMStateStoreConfig
 	logger      logger.Logger
 }
 
-// NewCompositeStateStore creates a new composite state store
-// cosmosStore: the main state store (required)
-// evmConfig: configuration for EVM state stores (optional - if nil or disabled, only cosmosStore is used)
+// NewCompositeStateStore creates a new composite state store that manages both Cosmos_SS and EVM_SS.
+// It initializes both stores internally and starts pruning on the composite store.
+//
+// ssConfig: configuration for the main Cosmos state store (required)
+// evmConfig: configuration for EVM state stores (optional - if nil or disabled, only Cosmos_SS is used)
 // homeDir: base directory for data files
 func NewCompositeStateStore(
-	cosmosStore types.StateStore,
+	ssConfig config.StateStoreConfig,
 	evmConfig *config.EVMStateStoreConfig,
 	homeDir string,
 	log logger.Logger,
 ) (*CompositeStateStore, error) {
+	// Initialize Cosmos store (without pruning - we start pruning on composite)
+	dbHome := utils.GetStateStorePath(homeDir, ssConfig.Backend)
+	if ssConfig.DBDirectory != "" {
+		dbHome = ssConfig.DBDirectory
+	}
+	cosmosStore, err := mvcc.OpenDB(dbHome, ssConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cosmos store: %w", err)
+	}
+
 	cs := &CompositeStateStore{
 		cosmosStore: cosmosStore,
+		ssConfig:    ssConfig,
 		evmConfig:   evmConfig,
 		logger:      log,
 	}
@@ -45,13 +64,87 @@ func NewCompositeStateStore(
 
 		evmStore, err := evm.NewEVMStateStore(evmDir)
 		if err != nil {
-			return nil, err
+			_ = cosmosStore.Close()
+			return nil, fmt.Errorf("failed to create EVM store: %w", err)
 		}
 		cs.evmStore = evmStore
 		log.Info("EVM state store enabled", "dir", evmDir, "read", evmConfig.EnableRead, "write", evmConfig.EnableWrite)
 	}
 
+	// Recover from WAL if needed
+	changelogPath := utils.GetChangelogPath(dbHome)
+	if err := recoverFromWAL(log, changelogPath, cs); err != nil {
+		_ = cs.Close()
+		return nil, fmt.Errorf("failed to recover state store: %w", err)
+	}
+
+	// Start pruning on the composite store (prunes both Cosmos_SS and EVM_SS)
+	cs.StartPruning()
+
 	return cs, nil
+}
+
+// StartPruning starts the pruning manager for this composite store.
+// Pruning removes old versions from both Cosmos_SS and EVM_SS.
+func (s *CompositeStateStore) StartPruning() *pruning.Manager {
+	pm := pruning.NewPruningManager(s.logger, s, int64(s.ssConfig.KeepRecent), int64(s.ssConfig.PruneIntervalSeconds))
+	pm.Start()
+	return pm
+}
+
+// recoverFromWAL replays WAL entries to recover state after crash/restart
+func recoverFromWAL(log logger.Logger, changelogPath string, stateStore types.StateStore) error {
+	ssLatestVersion := stateStore.GetLatestVersion()
+	log.Info(fmt.Sprintf("Recovering from changelog %s with latest SS version %d", changelogPath, ssLatestVersion))
+
+	streamHandler, err := wal.NewChangelogWAL(log, changelogPath, wal.Config{})
+	if err != nil {
+		return nil // No WAL to recover from
+	}
+
+	firstOffset, errFirst := streamHandler.FirstOffset()
+	if firstOffset <= 0 || errFirst != nil {
+		return nil
+	}
+
+	lastOffset, errLast := streamHandler.LastOffset()
+	if lastOffset <= 0 || errLast != nil {
+		return nil
+	}
+
+	lastEntry, errRead := streamHandler.ReadAt(lastOffset)
+	if errRead != nil {
+		return nil
+	}
+
+	// Find replay start offset
+	curVersion := lastEntry.Version
+	curOffset := lastOffset
+	if ssLatestVersion > 0 {
+		for curVersion > ssLatestVersion && curOffset > firstOffset {
+			curOffset--
+			curEntry, err := streamHandler.ReadAt(curOffset)
+			if err != nil {
+				return err
+			}
+			curVersion = curEntry.Version
+		}
+	} else {
+		curOffset = firstOffset
+	}
+
+	targetStartOffset := curOffset
+	log.Info(fmt.Sprintf("Replaying changelog to recover StateStore from offset %d to %d", targetStartOffset, lastOffset))
+
+	if targetStartOffset < lastOffset {
+		return streamHandler.Replay(targetStartOffset, lastOffset, func(index uint64, entry proto.ChangelogEntry) error {
+			if err := stateStore.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
+				return err
+			}
+			return stateStore.SetLatestVersion(entry.Version)
+		})
+	}
+	return nil
 }
 
 // Get retrieves a value for a key at a specific version
