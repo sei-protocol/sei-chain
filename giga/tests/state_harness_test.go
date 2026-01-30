@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,7 @@ type BankKeeperInterface interface {
 	SendCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
 	AddWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int) error
 	GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin
+	GetWeiBalance(ctx sdk.Context, addr sdk.AccAddress) sdk.Int
 }
 
 // FailureType categorizes the type of test failure
@@ -134,21 +136,17 @@ func (stc *StateTestContext) IsGigaMode() bool {
 	return stc.Mode == ModeGigaSequential || stc.Mode == ModeGigaOCC
 }
 
-// EvmKeeper returns the appropriate EVM keeper based on mode.
-// For Giga modes, returns GigaEvmKeeper; for V2 modes, returns EvmKeeper.
+// EvmKeeper returns the EVM keeper.
+// After PR #2780, both Giga and V2 executors share the same underlying data layer,
+// so we always use the regular EvmKeeper for pre/post state setup.
 func (stc *StateTestContext) EvmKeeper() EvmKeeperInterface {
-	if stc.IsGigaMode() {
-		return &stc.TestApp.GigaEvmKeeper
-	}
 	return &stc.TestApp.EvmKeeper
 }
 
-// BankKeeper returns the appropriate bank keeper based on mode.
-// For Giga modes, returns GigaBankKeeper; for V2 modes, returns BankKeeper.
+// BankKeeper returns the bank keeper.
+// After PR #2780, both Giga and V2 executors share the same underlying data layer,
+// so we always use the regular BankKeeper for pre/post state setup.
 func (stc *StateTestContext) BankKeeper() BankKeeperInterface {
-	if stc.IsGigaMode() {
-		return stc.TestApp.GigaBankKeeper
-	}
 	return stc.TestApp.BankKeeper
 }
 
@@ -248,6 +246,12 @@ func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harnes
 	gigaCtx.SetupSender(sender)
 
 	_, gigaResults, gigaErr := RunStateTestBlock(gigaCtx, [][]byte{txBytes})
+
+	// Debug: log result codes and gas used
+	if len(v2Results) > 0 && len(gigaResults) > 0 {
+		t.Logf("V2 result:   code=%d gas=%d log=%q", v2Results[0].Code, v2Results[0].GasUsed, v2Results[0].Log)
+		t.Logf("Giga result: code=%d gas=%d log=%q", gigaResults[0].Code, gigaResults[0].GasUsed, gigaResults[0].Log)
+	}
 
 	// --- Handle ExpectException cases ---
 	if post.ExpectException != "" {
@@ -401,7 +405,7 @@ func formatStateDiffs(diffs []StateDiff) []string {
 }
 
 // comparePostStates compares state between V2 and Giga contexts
-func comparePostStates(_ *testing.T, v2Ctx, gigaCtx *StateTestContext, preState ethtypes.GenesisAlloc) []StateDiff {
+func comparePostStates(t *testing.T, v2Ctx, gigaCtx *StateTestContext, preState ethtypes.GenesisAlloc) []StateDiff {
 	var diffs []StateDiff
 	v2Keeper := v2Ctx.EvmKeeper()
 	gigaKeeper := gigaCtx.EvmKeeper()
@@ -413,16 +417,34 @@ func comparePostStates(_ *testing.T, v2Ctx, gigaCtx *StateTestContext, preState 
 		// Get Sei address from EVM address
 		seiAddr := v2Keeper.GetSeiAddressOrDefault(v2Ctx.Ctx, addr)
 
-		// Compare balance (usei)
-		v2Balance := v2Bank.GetBalance(v2Ctx.Ctx, seiAddr, "usei")
-		gigaBalance := gigaBank.GetBalance(gigaCtx.Ctx, seiAddr, "usei")
-		if !v2Balance.Amount.Equal(gigaBalance.Amount) {
+		// Compare balance (usei + wei)
+		// Total balance = usei × 10^12 + wei
+		v2Usei := v2Bank.GetBalance(v2Ctx.Ctx, seiAddr, "usei").Amount
+		v2Wei := v2Bank.GetWeiBalance(v2Ctx.Ctx, seiAddr)
+		gigaUsei := gigaBank.GetBalance(gigaCtx.Ctx, seiAddr, "usei").Amount
+		gigaWei := gigaBank.GetWeiBalance(gigaCtx.Ctx, seiAddr)
+
+		// Calculate total balance in wei for comparison
+		weiPerUsei := new(big.Int).Exp(big.NewInt(10), big.NewInt(12), nil) // 10^12
+		v2Total := new(big.Int).Mul(v2Usei.BigInt(), weiPerUsei)
+		v2Total.Add(v2Total, v2Wei.BigInt())
+		gigaTotal := new(big.Int).Mul(gigaUsei.BigInt(), weiPerUsei)
+		gigaTotal.Add(gigaTotal, gigaWei.BigInt())
+
+		if v2Total.Cmp(gigaTotal) != 0 {
+			// Log detailed balance breakdown for debugging
+			t.Logf("Balance mismatch for %s:", addr.Hex())
+			t.Logf("  V2:   usei=%s wei=%s (total=%s)", v2Usei.String(), v2Wei.String(), v2Total.String())
+			t.Logf("  Giga: usei=%s wei=%s (total=%s)", gigaUsei.String(), gigaWei.String(), gigaTotal.String())
+			diff := new(big.Int).Sub(v2Total, gigaTotal)
+			t.Logf("  Diff (V2-Giga): %s wei", diff.String())
+
 			diffs = append(diffs, StateDiff{
 				Type:     FailureTypeBalanceMismatch,
 				Address:  addr,
-				Summary:  fmt.Sprintf("balance V2=%s, Giga=%s", v2Balance.String(), gigaBalance.String()),
-				Expected: v2Balance.String(),
-				Actual:   gigaBalance.String(),
+				Summary:  fmt.Sprintf("balance V2(usei=%s,wei=%s) != Giga(usei=%s,wei=%s)", v2Usei.String(), v2Wei.String(), gigaUsei.String(), gigaWei.String()),
+				Expected: fmt.Sprintf("total=%s (usei=%s, wei=%s)", v2Total.String(), v2Usei.String(), v2Wei.String()),
+				Actual:   fmt.Sprintf("total=%s (usei=%s, wei=%s)", gigaTotal.String(), gigaUsei.String(), gigaWei.String()),
 			})
 		}
 
@@ -574,6 +596,17 @@ func runStateTestSuite(t *testing.T, config ComparisonConfig, summaryName string
 	// Allow filtering to specific test name via STATE_TEST_NAME env var
 	specificTestName := os.Getenv("STATE_TEST_NAME")
 
+	// Allow filtering to specific test index via STATE_TEST_INDEX env var
+	specificIndexStr := os.Getenv("STATE_TEST_INDEX")
+	specificIndex := -1
+	if specificIndexStr != "" {
+		var parseErr error
+		specificIndex, parseErr = strconv.Atoi(specificIndexStr)
+		if parseErr != nil {
+			t.Fatalf("Invalid STATE_TEST_INDEX: %s", specificIndexStr)
+		}
+	}
+
 	// Allow bypassing skip list for analysis purposes
 	ignoreSkipList := os.Getenv("IGNORE_SKIP_LIST") == "true"
 
@@ -622,6 +655,11 @@ func runStateTestSuite(t *testing.T, config ComparisonConfig, summaryName string
 		}
 
 		for i, post := range cancunPosts {
+			// Filter by specific index if specified
+			if specificIndex >= 0 && i != specificIndex {
+				continue
+			}
+
 			subtestName := testName
 			if len(cancunPosts) > 1 {
 				subtestName = fmt.Sprintf("%s/%d", testName, i)
