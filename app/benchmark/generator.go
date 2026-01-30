@@ -288,21 +288,25 @@ func (g *Generator) generateSetupBlock() []*abci.TxRecord {
 		txRecords = append(txRecords, txRecord)
 	}
 
-	// If no pending deploys and all scenarios are handled, transition to load phase
-	if len(g.pendingDeploys) == 0 {
-		allHandled := true
-		for _, state := range g.scenarios {
-			if !state.deployed && state.deployTxHash == (common.Hash{}) {
-				allHandled = false
-				break
-			}
-		}
-		if allHandled {
-			g.transitionToLoadPhase()
-		}
+	// Fast-path: if no scenarios need contract deployment (e.g., all EVMTransfer),
+	// we can transition to load phase immediately since all are marked deployed.
+	// For contract scenarios, transition happens in ProcessReceipts() after
+	// deployment transactions are confirmed.
+	if len(g.pendingDeploys) == 0 && g.allScenariosDeployed() {
+		g.transitionToLoadPhase()
 	}
 
 	return txRecords
+}
+
+// allScenariosDeployed returns true if all scenarios are marked as deployed.
+func (g *Generator) allScenariosDeployed() bool {
+	for _, state := range g.scenarios {
+		if !state.deployed {
+			return false
+		}
+	}
+	return true
 }
 
 // generateLoadBlock generates load transactions.
@@ -420,16 +424,8 @@ func (g *Generator) ProcessReceipts(receipts map[common.Hash]*evmtypes.Receipt) 
 		delete(g.pendingDeploys, txHash)
 	}
 
-	// Check if all scenarios are deployed
-	allDeployed := true
-	for _, state := range g.scenarios {
-		if !state.deployed {
-			allDeployed = false
-			break
-		}
-	}
-
-	if allDeployed && len(g.pendingDeploys) == 0 {
+	// Transition to load phase once all deployments are confirmed
+	if len(g.pendingDeploys) == 0 && g.allScenariosDeployed() {
 		g.transitionToLoadPhase()
 	}
 }
