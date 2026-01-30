@@ -891,10 +891,6 @@ func (tk *TestDistributionKeeper) WithdrawValidatorCommission(ctx sdk.Context, v
 	return sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(50000))), nil
 }
 
-func (tk *TestDistributionKeeper) GetDelegatorWithdrawAddr(ctx sdk.Context, delAddr sdk.AccAddress) sdk.AccAddress {
-	return delAddr
-}
-
 func (tk *TestDistributionKeeper) DelegationTotalRewards(ctx context.Context, req *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error) {
 	uatomCoins := 1
 	val1useiCoins := 5
@@ -939,10 +935,6 @@ func (tk *TestEmptyRewardsDistributionKeeper) DelegationTotalRewards(ctx context
 		Total:   []sdk.DecCoin{},
 	}
 	return response, nil
-}
-
-func (tk *TestEmptyRewardsDistributionKeeper) GetDelegatorWithdrawAddr(ctx sdk.Context, delAddr sdk.AccAddress) sdk.AccAddress {
-	return delAddr
 }
 
 func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
