@@ -208,7 +208,15 @@ func (p PrecompileExecutor) withdrawDelegationRewards(ctx sdk.Context, method *a
 	ret, rerr = method.Outputs.Pack(true)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 
-	if err := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, caller, args[0].(string), amts.AmountOf(sdk.DefaultBondDenom).BigInt()); err != nil {
+	logData, err := p.abi.Events[DelegationRewardsEvent].Inputs.NonIndexed().Pack(args[0].(string), amts.AmountOf(sdk.DefaultBondDenom).BigInt())
+	if err != nil {
+		rerr = err
+		return
+	}
+	if err := pcommon.EmitEVMLog(evm, p.address, []common.Hash{
+		DelegationRewardsEventSig,
+		common.BytesToHash(caller.Bytes()),
+	}, logData); err != nil {
 		rerr = err
 		return
 	}

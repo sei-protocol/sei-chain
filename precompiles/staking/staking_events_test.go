@@ -158,6 +158,7 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 
 		// Verify the events (Redelegate event + src DelegationRewardsWithdrawn + dst DelegationRewardsWithdrawn)
 		require.Len(t, res.Logs, 3)
+
 		log := res.Logs[0]
 
 		// Check event signature
@@ -265,8 +266,8 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 		require.Empty(t, res.VmError)
 		require.NotEmpty(t, res.Logs)
 
-		// Verify we have 2 logs: Undelegate event and DelegationRewardsWithdrawn event
-		require.Len(t, res.Logs, 2)
+		// Verify the event
+		require.Len(t, res.Logs, 1)
 		log := res.Logs[0]
 
 		// Check event signature
@@ -284,55 +285,6 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 		amountBytes := log.Data[32:64]
 		amount := new(big.Int).SetBytes(amountBytes)
 		require.Equal(t, undelegateAmount, amount)
-	})
-
-	// Test rewards withdrawn event emitted during undelegate
-	t.Run("TestUndelegateRewardsWithdrawnEvent", func(t *testing.T) {
-		// First, delegate some funds
-		addr := common.HexToAddress(staking.StakingAddress)
-		delegateArgs, err := pcommon.MustGetABI(f, "abi.json").Pack("delegate", valStr)
-		require.NoError(t, err)
-
-		delegateTx := createEVMTx(t, k, ctx, privKey, &addr, delegateArgs, big.NewInt(100_000_000_000_000)) // 100 usei in wei
-		delegateRes := executeEVMTx(t, testApp, ctx, delegateTx, privKey)
-		require.Empty(t, delegateRes.VmError)
-
-		// Now undelegate some funds
-		abi := pcommon.MustGetABI(f, "abi.json")
-		undelegateAmount := big.NewInt(30) // 30 usei
-		args, err := abi.Pack("undelegate", valStr, undelegateAmount)
-		require.NoError(t, err)
-
-		tx := createEVMTx(t, k, ctx, privKey, &addr, args, big.NewInt(0))
-		res := executeEVMTx(t, testApp, ctx, tx, privKey)
-
-		require.Empty(t, res.VmError)
-		require.NotEmpty(t, res.Logs)
-
-		// Verify we have 2 logs: Undelegate event and DelegationRewardsWithdrawn event
-		require.Len(t, res.Logs, 2)
-
-		// The second log should be the DelegationRewardsWithdrawn event
-		rewardsLog := res.Logs[1]
-
-		// Check event signature for DelegationRewardsWithdrawn
-		expectedSig := pcommon.DelegationRewardsWithdrawnEventSig
-		require.Equal(t, expectedSig.Hex(), rewardsLog.Topics[0])
-
-		// Check indexed delegator address
-		require.Equal(t, common.BytesToHash(evmAddr.Bytes()).Hex(), rewardsLog.Topics[1])
-
-		// Decode the event data
-		// For the DelegationRewardsWithdrawn event, the validator string and amount are not indexed
-		// Data layout: offset for string (32 bytes), amount (32 bytes), string length (32 bytes), string data
-		require.GreaterOrEqual(t, len(rewardsLog.Data), 96) // At least 3 * 32 bytes
-
-		// Verify the amount is encoded in the data (at position 32-64)
-		// Note: In a simple test without block progression, rewards might be 0
-		amountBytes := rewardsLog.Data[32:64]
-		rewardsAmount := new(big.Int).SetBytes(amountBytes)
-		// Rewards amount should be >= 0 (could be 0 if no rewards accumulated)
-		require.True(t, rewardsAmount.Sign() >= 0, "rewards amount should be non-negative")
 	})
 
 	// Test createValidator event

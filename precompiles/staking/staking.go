@@ -52,12 +52,11 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	stakingKeeper      utils.StakingKeeper
-	stakingQuerier     utils.StakingQuerier
-	evmKeeper          utils.EVMKeeper
-	bankKeeper         utils.BankKeeper
-	distributionKeeper utils.DistributionKeeper
-	address            common.Address
+	stakingKeeper  utils.StakingKeeper
+	stakingQuerier utils.StakingQuerier
+	evmKeeper      utils.EVMKeeper
+	bankKeeper     utils.BankKeeper
+	address        common.Address
 
 	DelegateID                      []byte
 	RedelegateID                    []byte
@@ -84,12 +83,11 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		stakingKeeper:      keepers.StakingK(),
-		stakingQuerier:     keepers.StakingQ(),
-		evmKeeper:          keepers.EVMK(),
-		bankKeeper:         keepers.BankK(),
-		distributionKeeper: keepers.DistributionK(),
-		address:            common.HexToAddress(StakingAddress),
+		stakingKeeper:  keepers.StakingK(),
+		stakingQuerier: keepers.StakingQ(),
+		evmKeeper:      keepers.EVMK(),
+		bankKeeper:     keepers.BankK(),
+		address:        common.HexToAddress(StakingAddress),
 	}
 
 	for name, m := range newAbi.Methods {
@@ -314,16 +312,6 @@ func (p PrecompileExecutor) redelegate(ctx sdk.Context, method *abi.Method, call
 		ctx.Logger().Error("Failed to emit EVM redelegate event", "error", emitErr)
 	}
 
-	if emitErr := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, caller, srcValidatorBech32, srcRewardsWithdrawn.Amount.BigInt()); emitErr != nil {
-		// Log error but don't fail the transaction
-		ctx.Logger().Error("Failed to emit rewards withdrawn event", "error", emitErr)
-	}
-
-	if emitErr := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, caller, dstValidatorBech32, dstRewardAmount); emitErr != nil {
-		// Log error but don't fail the transaction
-		ctx.Logger().Error("Failed to emit rewards withdrawn event", "error", emitErr)
-	}
-
 	bz, err := method.Outputs.Pack(true)
 	if err != nil {
 		return nil, 0, err
@@ -345,8 +333,6 @@ func (p PrecompileExecutor) undelegate(ctx sdk.Context, method *abi.Method, call
 	}
 	validatorBech32 := args[0].(string)
 	amount := args[1].(*big.Int)
-	withdrawAddress := p.distributionKeeper.GetDelegatorWithdrawAddr(ctx, delegator)
-	withdrawAddressBalanceBefore := p.bankKeeper.GetBalance(ctx, withdrawAddress, sdk.MustGetBaseDenom())
 	_, err := p.stakingKeeper.Undelegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgUndelegate{
 		DelegatorAddress: delegator.String(),
 		ValidatorAddress: validatorBech32,
@@ -355,18 +341,11 @@ func (p PrecompileExecutor) undelegate(ctx sdk.Context, method *abi.Method, call
 	if err != nil {
 		return nil, 0, err
 	}
-	withdrawAddressBalanceAfter := p.bankKeeper.GetBalance(ctx, withdrawAddress, sdk.MustGetBaseDenom())
-	rewardsWithdrawn := withdrawAddressBalanceAfter.Sub(withdrawAddressBalanceBefore)
 
 	// Emit EVM event
 	if emitErr := pcommon.EmitUndelegateEvent(evm, p.address, caller, validatorBech32, amount); emitErr != nil {
 		// Log error but don't fail the transaction
 		ctx.Logger().Error("Failed to emit EVM undelegate event", "error", emitErr)
-	}
-
-	if emitErr := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, caller, validatorBech32, rewardsWithdrawn.Amount.BigInt()); emitErr != nil {
-		// Log error but don't fail the transaction
-		ctx.Logger().Error("Failed to emit rewards withdrawn event", "error", emitErr)
 	}
 
 	bz, err := method.Outputs.Pack(true)

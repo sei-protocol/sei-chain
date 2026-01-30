@@ -57,12 +57,6 @@ var (
 	ValidatorEditedEventSig = crypto.Keccak256Hash([]byte("ValidatorEdited(address,string,string)"))
 )
 
-// Event signatures for distribution precompile
-var (
-	// DelegationRewardsWithdrawn(address indexed delegator, string validator, uint256 amount)
-	DelegationRewardsWithdrawnEventSig = crypto.Keccak256Hash([]byte("DelegationRewardsWithdrawn(address,string,uint256)"))
-)
-
 // Helper functions for common event patterns
 func BuildDelegateEvent(delegator common.Address, validator string, amount *big.Int) ([]common.Hash, []byte, error) {
 	// Pack the non-indexed data: validator string and amount
@@ -259,42 +253,6 @@ func BuildValidatorEditedEvent(editor common.Address, validatorAddr string, moni
 
 func EmitValidatorEditedEvent(evm *vm.EVM, precompileAddr common.Address, editor common.Address, validatorAddr string, moniker string) error {
 	topics, data, err := BuildValidatorEditedEvent(editor, validatorAddr, moniker)
-	if err != nil {
-		return err
-	}
-	return EmitEVMLog(evm, precompileAddr, topics, data)
-}
-
-func BuildDelegationRewardsWithdrawnEvent(delegator common.Address, validator string, amount *big.Int) ([]common.Hash, []byte, error) {
-	// Pack the non-indexed data: validator string and amount
-	// For strings in events, we need to encode: offset, length, and actual string data
-	valBytes := []byte(validator)
-	paddedLen := ((len(valBytes) + 31) / 32) * 32
-
-	// 32 (offset) + 32 (amount) + 32 (string length) + paddedLen (string data)
-	data := make([]byte, 0, 32+32+32+paddedLen)
-
-	// Offset for string (always 64 for first dynamic param when second param is uint256)
-	data = append(data, common.LeftPadBytes(big.NewInt(64).Bytes(), 32)...)
-
-	// Amount (uint256)
-	data = append(data, common.LeftPadBytes(amount.Bytes(), 32)...)
-
-	// String length
-	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(valBytes))).Bytes(), 32)...) //nolint:gosec // validator names are short strings; no overflow risk
-
-	// String data (padded to 32 bytes)
-	data = append(data, common.RightPadBytes(valBytes, paddedLen)...)
-
-	topics := []common.Hash{
-		DelegationRewardsWithdrawnEventSig,
-		common.BytesToHash(delegator.Bytes()), // indexed
-	}
-	return topics, data, nil
-}
-
-func EmitDelegationRewardsWithdrawnEvent(evm *vm.EVM, precompileAddr common.Address, delegator common.Address, validator string, amount *big.Int) error {
-	topics, data, err := BuildDelegationRewardsWithdrawnEvent(delegator, validator, amount)
 	if err != nil {
 		return err
 	}
