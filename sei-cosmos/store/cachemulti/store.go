@@ -77,6 +77,15 @@ func newStoreWithoutGiga(store types.KVStore, stores map[types.StoreKey]types.Ca
 		}
 		cms.stores[key] = cachekv.NewStore(store.(types.KVStore), key, types.DefaultCacheSizeLimit)
 	}
+
+	// Initialize giga stores from the regular stores
+	cms.gigaStores = make(map[types.StoreKey]types.KVStore, len(gigaKeys))
+	for _, key := range gigaKeys {
+		if parent, ok := stores[key]; ok {
+			cms.gigaStores[key] = gigacachekv.NewStore(parent.(types.KVStore), key, types.DefaultCacheSizeLimit)
+		}
+	}
+
 	return cms
 }
 
