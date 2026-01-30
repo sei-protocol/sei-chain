@@ -57,7 +57,7 @@ func (f *fakeReceiptBackend) SetReceipts(_ sdk.Context, receipts []ReceiptRecord
 	return nil
 }
 
-func (f *fakeReceiptBackend) FilterLogs(_ sdk.Context, _ int64, _ common.Hash, _ []common.Hash, _ filters.FilterCriteria, _ bool) ([]*ethtypes.Log, error) {
+func (f *fakeReceiptBackend) FilterLogs(_ sdk.Context, _, _ uint64, _ filters.FilterCriteria) ([]*ethtypes.Log, error) {
 	f.filterLogCalls++
 	return []*ethtypes.Log{}, nil
 }
@@ -85,7 +85,7 @@ func TestCachedReceiptStoreUsesCacheForReceipt(t *testing.T) {
 	require.Equal(t, 0, backend.getReceiptCalls)
 }
 
-func TestCachedReceiptStoreUsesCacheForFilterLogs(t *testing.T) {
+func TestCachedReceiptStoreFilterLogsDelegates(t *testing.T) {
 	ctx, _ := newTestContext()
 	backend := newFakeReceiptBackend()
 	store := newCachedReceiptStore(backend)
@@ -98,14 +98,12 @@ func TestCachedReceiptStoreUsesCacheForFilterLogs(t *testing.T) {
 	require.NoError(t, store.SetReceipts(ctx, []ReceiptRecord{{TxHash: txHash, Receipt: receipt}}))
 
 	backend.filterLogCalls = 0
-	blockHash := common.HexToHash("0xbeef")
-	logs, err := store.FilterLogs(ctx, 9, blockHash, []common.Hash{txHash}, filters.FilterCriteria{
+	// FilterLogs now delegates to the backend for range queries
+	logs, err := store.FilterLogs(ctx, 9, 9, filters.FilterCriteria{
 		Addresses: []common.Address{addr},
 		Topics:    [][]common.Hash{{topic}},
-	}, true)
+	})
 	require.NoError(t, err)
-	require.Len(t, logs, 1)
-	require.Equal(t, blockHash, logs[0].BlockHash)
-	require.Equal(t, uint64(9), logs[0].BlockNumber)
-	require.Equal(t, 0, backend.filterLogCalls)
+	require.Len(t, logs, 0) // fake backend returns empty
+	require.Equal(t, 1, backend.filterLogCalls)
 }

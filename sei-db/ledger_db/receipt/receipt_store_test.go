@@ -178,71 +178,19 @@ func TestReceiptStorePebbleBackendBasic(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, r.TxHashHex, got.TxHashHex)
 
-	blockHash := common.HexToHash("0xf00")
-	logs, err := store.FilterLogs(ctx, 1, blockHash, []common.Hash{txHash}, filters.FilterCriteria{
+	// Pebble backend does not support range queries
+	_, err = store.FilterLogs(ctx, 1, 1, filters.FilterCriteria{
 		Addresses: []common.Address{addr},
 		Topics:    [][]common.Hash{{topic}},
-	}, true)
-	require.NoError(t, err)
-	require.Len(t, logs, 1)
-	require.Equal(t, blockHash, logs[0].BlockHash)
+	})
+	require.ErrorIs(t, err, receipt.ErrRangeQueryNotSupported)
 }
 
-func TestFilterLogs(t *testing.T) {
+func TestFilterLogsRangeQueryNotSupported(t *testing.T) {
 	store, ctx, _ := setupReceiptStore(t)
-	blockHeight := int64(8)
-	blockHash := common.HexToHash("0xab")
-
-	txHash1 := common.HexToHash("0x10")
-	txHash2 := common.HexToHash("0x11")
-	txHash3 := common.HexToHash("0x12")
-
-	addr1 := common.HexToAddress("0x100")
-	addr2 := common.HexToAddress("0x200")
-	addr3 := common.HexToAddress("0x300")
-
-	topic1 := common.HexToHash("0xaa")
-	topic2 := common.HexToHash("0xbb")
-	topic3 := common.HexToHash("0xcc")
-
-	r1 := withBloom(makeReceipt(txHash1, addr1, []common.Hash{topic1}, 0))
-	r2 := makeReceipt(txHash2, addr2, []common.Hash{topic2}, 1)
-	r3 := withBloom(makeReceipt(txHash3, addr3, []common.Hash{topic3}, 2))
-
-	err := store.SetReceipts(ctx.WithBlockHeight(0), []receipt.ReceiptRecord{
-		{TxHash: txHash1, Receipt: r1},
-		{TxHash: txHash2, Receipt: r2},
-		{TxHash: txHash3, Receipt: r3},
-	})
-	require.NoError(t, err)
-
-	logs, err := store.FilterLogs(ctx, blockHeight, blockHash, nil, filters.FilterCriteria{}, false)
-	require.NoError(t, err)
-	require.Len(t, logs, 0)
-
-	crit := filters.FilterCriteria{
-		Addresses: []common.Address{addr1},
-		Topics:    [][]common.Hash{{topic1}},
-	}
-	txHashes := []common.Hash{txHash1, txHash2, txHash3, common.HexToHash("0xdead")}
-
-	logs, err = store.FilterLogs(ctx, blockHeight, blockHash, txHashes, crit, true)
-	require.NoError(t, err)
-	require.Len(t, logs, 1)
-	require.Equal(t, addr1, logs[0].Address)
-	require.Equal(t, uint64(blockHeight), logs[0].BlockNumber)
-	require.Equal(t, blockHash, logs[0].BlockHash)
-	require.Equal(t, uint(0), logs[0].TxIndex)
-
-	logs, err = store.FilterLogs(ctx, blockHeight, blockHash, txHashes, crit, false)
-	require.NoError(t, err)
-	require.Len(t, logs, 2)
-	require.Equal(t, addr1, logs[0].Address)
-	require.Equal(t, addr2, logs[1].Address)
-
-	logs, err = store.FilterLogs(ctx, blockHeight, blockHash, txHashes[:3], filters.FilterCriteria{}, false)
-	require.NoError(t, err)
-	require.Len(t, logs, 3)
+	// Pebble backend does not support range queries, so FilterLogs returns ErrRangeQueryNotSupported.
+	_, err := store.FilterLogs(ctx, 1, 10, filters.FilterCriteria{})
+	require.ErrorIs(t, err, receipt.ErrRangeQueryNotSupported)
 }
 
 func TestMatchTopics(t *testing.T) {

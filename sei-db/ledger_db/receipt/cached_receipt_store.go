@@ -84,14 +84,10 @@ func (s *cachedReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptReco
 	return nil
 }
 
-func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, blockHeight int64, blockHash common.Hash, txHashes []common.Hash, crit filters.FilterCriteria, applyExactMatch bool) ([]*ethtypes.Log, error) {
-	if len(txHashes) == 0 {
-		return []*ethtypes.Log{}, nil
-	}
-	if blockHeight < 0 {
-		return s.backend.FilterLogs(ctx, blockHeight, blockHash, txHashes, crit, applyExactMatch)
-	}
-	return filterLogsFromReceipts(ctx, blockHeight, blockHash, txHashes, crit, applyExactMatch, s.GetReceipt)
+// FilterLogs queries logs across a range of blocks.
+// Delegates to the backend which may use efficient range queries (parquet/DuckDB).
+func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+	return s.backend.FilterLogs(ctx, fromBlock, toBlock, crit)
 }
 
 func (s *cachedReceiptStore) Close() error {

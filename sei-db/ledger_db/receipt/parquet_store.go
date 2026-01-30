@@ -305,47 +305,43 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 	return nil
 }
 
-func (s *parquetReceiptStore) FilterLogs(ctx sdk.Context, blockHeight int64, blockHash common.Hash, txHashes []common.Hash, crit filters.FilterCriteria, applyExactMatch bool) ([]*ethtypes.Log, error) {
-	if len(txHashes) == 0 {
-		return []*ethtypes.Log{}, nil
+// FilterLogs queries logs across a range of blocks using a single DuckDB query.
+// For single-block queries, set fromBlock == toBlock.
+func (s *parquetReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+	if fromBlock > toBlock {
+		return nil, fmt.Errorf("fromBlock (%d) > toBlock (%d)", fromBlock, toBlock)
 	}
 
-	if blockHeight < 0 {
-		return nil, fmt.Errorf("negative block height: %d", blockHeight)
-	}
-	blockNumber := uint64(blockHeight)
-	if applyExactMatch {
-		filter := logFilter{
-			FromBlock: &blockNumber,
-			ToBlock:   &blockNumber,
-			Addresses: crit.Addresses,
-			Topics:    crit.Topics,
-		}
-		results, err := s.reader.getLogs(ctx.Context(), filter)
-		if err != nil {
-			return nil, err
-		}
-		logs := make([]*ethtypes.Log, 0, len(results))
-		for i := range results {
-			lr := results[i]
-			logEntry := &ethtypes.Log{
-				BlockNumber: lr.BlockNumber,
-				TxHash:      common.BytesToHash(lr.TxHash),
-				TxIndex:     uint(lr.TxIndex),
-				Index:       uint(lr.LogIndex),
-				Data:        lr.Data,
-				Removed:     lr.Removed,
-				BlockHash:   blockHash,
-			}
-			copy(logEntry.Address[:], lr.Address)
-			logEntry.Topics = buildTopicsFromLogResult(lr)
-			logEntry.BlockNumber = blockNumber
-			logs = append(logs, logEntry)
-		}
-		return logs, nil
+	filter := logFilter{
+		FromBlock: &fromBlock,
+		ToBlock:   &toBlock,
+		Addresses: crit.Addresses,
+		Topics:    crit.Topics,
 	}
 
-	return filterLogsFromReceipts(ctx, blockHeight, blockHash, txHashes, crit, applyExactMatch, s.GetReceipt)
+	results, err := s.reader.getLogs(ctx.Context(), filter)
+	if err != nil {
+		return nil, err
+	}
+
+	logs := make([]*ethtypes.Log, 0, len(results))
+	for i := range results {
+		lr := results[i]
+		logEntry := &ethtypes.Log{
+			BlockNumber: lr.BlockNumber,
+			TxHash:      common.BytesToHash(lr.TxHash),
+			TxIndex:     uint(lr.TxIndex),
+			Index:       uint(lr.LogIndex),
+			Data:        lr.Data,
+			Removed:     lr.Removed,
+			BlockHash:   common.BytesToHash(lr.BlockHash),
+		}
+		copy(logEntry.Address[:], lr.Address)
+		logEntry.Topics = buildTopicsFromLogResult(lr)
+		logs = append(logs, logEntry)
+	}
+
+	return logs, nil
 }
 
 func (s *parquetReceiptStore) Close() error {

@@ -26,8 +26,9 @@ import (
 
 // Sentinel errors for consistent error checking.
 var (
-	ErrNotFound      = errors.New("receipt not found")
-	ErrNotConfigured = errors.New("receipt store not configured")
+	ErrNotFound               = errors.New("receipt not found")
+	ErrNotConfigured          = errors.New("receipt store not configured")
+	ErrRangeQueryNotSupported = errors.New("range query not supported by this backend")
 )
 
 // ReceiptStore exposes receipt-specific operations without leaking the StateStore interface.
@@ -38,7 +39,9 @@ type ReceiptStore interface {
 	GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error)
 	GetReceiptFromStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error)
 	SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error
-	FilterLogs(ctx sdk.Context, blockHeight int64, blockHash common.Hash, txHashes []common.Hash, crit filters.FilterCriteria, applyExactMatch bool) ([]*ethtypes.Log, error)
+	// FilterLogs queries logs across a range of blocks.
+	// For single-block queries, set fromBlock == toBlock.
+	FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error)
 	Close() error
 }
 
@@ -222,11 +225,11 @@ func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) er
 	return nil
 }
 
-func (s *receiptStore) FilterLogs(ctx sdk.Context, blockHeight int64, blockHash common.Hash, txHashes []common.Hash, crit filters.FilterCriteria, applyExactMatch bool) ([]*ethtypes.Log, error) {
-	if len(txHashes) == 0 {
-		return []*ethtypes.Log{}, nil
-	}
-	return filterLogsFromReceipts(ctx, blockHeight, blockHash, txHashes, crit, applyExactMatch, s.GetReceipt)
+// FilterLogs is not efficiently supported by the pebble backend since receipts
+// are indexed by tx hash, not by block number. Returns ErrRangeQueryNotSupported.
+// Callers should fall back to fetching receipts individually via GetReceipt.
+func (s *receiptStore) FilterLogs(_ sdk.Context, _, _ uint64, _ filters.FilterCriteria) ([]*ethtypes.Log, error) {
+	return nil, ErrRangeQueryNotSupported
 }
 
 func (s *receiptStore) Close() error {

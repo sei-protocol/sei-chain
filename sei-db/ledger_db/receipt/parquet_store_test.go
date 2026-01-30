@@ -126,14 +126,12 @@ func TestParquetReceiptStoreCacheLogs(t *testing.T) {
 		{TxHash: txHash, Receipt: receipt},
 	}))
 
-	blockHash := common.HexToHash("0xbeef")
-	logs, err := store.FilterLogs(ctx, 10, blockHash, []common.Hash{txHash}, filters.FilterCriteria{
+	logs, err := store.FilterLogs(ctx, 10, 10, filters.FilterCriteria{
 		Addresses: []common.Address{addr},
 		Topics:    [][]common.Hash{{topic}},
-	}, true)
+	})
 	require.NoError(t, err)
 	require.Len(t, logs, 1)
-	require.Equal(t, blockHash, logs[0].BlockHash)
 	require.Equal(t, uint64(10), logs[0].BlockNumber)
 	require.Equal(t, uint(2), logs[0].TxIndex)
 }
@@ -166,23 +164,13 @@ func TestParquetReceiptStoreReopenQueries(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, receipt.TxHashHex, got.TxHashHex)
 
-	blockHash := common.HexToHash("0xd00d")
-	logs, err := store.FilterLogs(ctx, 3, blockHash, []common.Hash{txHash}, filters.FilterCriteria{
+	// Query blocks 3-5, receipt is in block 5
+	logs, err := store.FilterLogs(ctx, 3, 5, filters.FilterCriteria{
 		Addresses: []common.Address{addr},
 		Topics:    [][]common.Hash{{topic}},
-	}, true)
+	})
 	require.NoError(t, err)
 	require.Len(t, logs, 1)
-	require.Equal(t, blockHash, logs[0].BlockHash)
-
-	blockHash = common.HexToHash("0xcafe")
-	logs, err = store.FilterLogs(ctx, 5, blockHash, []common.Hash{txHash}, filters.FilterCriteria{
-		Addresses: []common.Address{addr},
-		Topics:    [][]common.Hash{{topic}},
-	}, true)
-	require.NoError(t, err)
-	require.Len(t, logs, 1)
-	require.Equal(t, blockHash, logs[0].BlockHash)
 	require.Equal(t, uint64(5), logs[0].BlockNumber)
 }
 
