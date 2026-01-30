@@ -11,11 +11,12 @@ import (
 )
 
 // CompositeStateStore routes operations between Cosmos_SS (main state store) and EVM_SS (optimized EVM stores).
-// - Reads check EVM_SS first for EVM keys, then fallback to Cosmos_SS
-// - Writes go to both stores for EVM keys, only Cosmos_SS for others
+// - Reads check EVM_SS first for EVM keys (if EnableRead), then fallback to Cosmos_SS
+// - Writes go to both stores for EVM keys (if EnableWrite), only Cosmos_SS for others
 type CompositeStateStore struct {
 	cosmosStore types.StateStore   // Main MVCC PebbleDB for all modules
 	evmStore    *evm.EVMStateStore // Separate EVM DBs with default comparer (nil if disabled)
+	evmConfig   *config.EVMStateStoreConfig
 	logger      logger.Logger
 }
 
@@ -31,6 +32,7 @@ func NewCompositeStateStore(
 ) (*CompositeStateStore, error) {
 	cs := &CompositeStateStore{
 		cosmosStore: cosmosStore,
+		evmConfig:   evmConfig,
 		logger:      log,
 	}
 
@@ -46,18 +48,18 @@ func NewCompositeStateStore(
 			return nil, err
 		}
 		cs.evmStore = evmStore
-		log.Info("EVM state store enabled", "dir", evmDir)
+		log.Info("EVM state store enabled", "dir", evmDir, "read", evmConfig.EnableRead, "write", evmConfig.EnableWrite)
 	}
 
 	return cs, nil
 }
 
 // Get retrieves a value for a key at a specific version
-// For EVM keys: check EVM_SS first, fallback to Cosmos_SS
+// For EVM keys: check EVM_SS first (if EnableRead), fallback to Cosmos_SS
 // For non-EVM keys: use Cosmos_SS directly
 func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
-	// Try EVM store first for EVM keys
-	if s.evmStore != nil && storeKey == evm.EVMStoreKey {
+	// Try EVM store first for EVM keys if read is enabled
+	if s.evmStore != nil && s.evmConfig.EnableRead && storeKey == evm.EVMStoreKey {
 		val, err := s.evmStore.Get(key, version)
 		if err != nil {
 			return nil, err
@@ -74,8 +76,8 @@ func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([
 
 // Has checks if a key exists at a specific version
 func (s *CompositeStateStore) Has(storeKey string, version int64, key []byte) (bool, error) {
-	// Try EVM store first for EVM keys
-	if s.evmStore != nil && storeKey == evm.EVMStoreKey {
+	// Try EVM store first for EVM keys if read is enabled
+	if s.evmStore != nil && s.evmConfig.EnableRead && storeKey == evm.EVMStoreKey {
 		has, err := s.evmStore.Has(key, version)
 		if err != nil {
 			return false, err

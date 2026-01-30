@@ -58,10 +58,14 @@ type StateStoreConfig struct {
 // (storage, nonce, code, codehash, codesize).
 type EVMStateStoreConfig struct {
 	// Enable defines if the EVM state stores should be enabled.
-	// When enabled, EVM data is dual-written to separate optimized databases.
-	// Reads check EVM_SS first, then fallback to Cosmos_SS.
+	// When enabled, EVM data can be dual-written to separate optimized databases.
 	// defaults to false
 	Enable bool `mapstructure:"enable"`
+
+	// WriteMode controls how EVM data writes are routed.
+	// Uses WriteMode enum from write_mode.go (cosmos_only, dual_write, split_write).
+	// defaults to CosmosOnlyWrite
+	WriteMode WriteMode `mapstructure:"write-mode"`
 
 	// DBDirectory defines the directory to store the EVM state store db files
 	// If not explicitly set, defaults to <home>/data/evm_ss
@@ -89,7 +93,8 @@ func DefaultStateStoreConfig() StateStoreConfig {
 
 func DefaultEVMStateStoreConfig() EVMStateStoreConfig {
 	return EVMStateStoreConfig{
-		Enable:     false, // Disabled by default, enable for optimized EVM storage
+		Enable:     false,           // Disabled by default, enable for optimized EVM storage
+		WriteMode:  CosmosOnlyWrite, // Default: write only to Cosmos_SS
 		KeepRecent: DefaultSSKeepRecent,
 	}
 }
