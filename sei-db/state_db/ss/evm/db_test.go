@@ -15,7 +15,7 @@ func TestEVMDatabase(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	db, err := OpenEVMDB(dir, StoreStorage)
+	db, err := OpenDB(dir, StoreStorage)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -118,7 +118,7 @@ func TestEVMDatabaseBatch(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	db, err := OpenEVMDB(dir, StoreStorage)
+	db, err := OpenDB(dir, StoreStorage)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -260,7 +260,7 @@ func TestEVMDatabaseConcurrent(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	db, err := OpenEVMDB(dir, StoreStorage)
+	db, err := OpenDB(dir, StoreStorage)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -292,7 +292,7 @@ func TestEVMDatabaseIterator(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	db, err := OpenEVMDB(dir, StoreStorage)
+	db, err := OpenDB(dir, StoreStorage)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -383,7 +383,7 @@ func TestEVMDatabaseVersionEdgeCases(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	db, err := OpenEVMDB(dir, StoreStorage)
+	db, err := OpenDB(dir, StoreStorage)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -472,7 +472,7 @@ func TestPrune(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	db, err := OpenEVMDB(dir, StoreStorage)
+	db, err := OpenDB(dir, StoreStorage)
 	require.NoError(t, err)
 	defer db.Close()
 

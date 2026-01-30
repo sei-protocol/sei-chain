@@ -23,7 +23,7 @@ func NewEVMStateStore(dir string) (*EVMStateStore, error) {
 
 	// Open a database for each EVM store type
 	for _, storeType := range AllEVMStoreTypes() {
-		db, err := OpenEVMDB(dir, storeType)
+		db, err := OpenDB(dir, storeType)
 		if err != nil {
 			// Close any already opened DBs
 			_ = store.Close()

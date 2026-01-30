@@ -31,8 +31,8 @@ type EVMDatabase struct {
 	earliestVersion atomic.Int64
 }
 
-// OpenEVMDB opens a PebbleDB with default comparer for EVM data
-func OpenEVMDB(dir string, storeType EVMStoreType) (*EVMDatabase, error) {
+// OpenDB opens a PebbleDB with default comparer for EVM data
+func OpenDB(dir string, storeType EVMStoreType) (*EVMDatabase, error) {
 	opts := &pebble.Options{
 		Comparer:                 pebble.DefaultComparer,
 		MaxConcurrentCompactions: func() int { return runtime.NumCPU() },
