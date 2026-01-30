@@ -227,7 +227,7 @@ func (g *Generator) craftDeploymentTx(state *scenarioState, txScenario *loadtype
 	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(tx), signer, g.deployer.PrivKey)
 	if err != nil {
 		g.logger.Error("benchmark: Failed to sign deployment tx", "error", err)
-		return nil
+		panic(err)
 	}
 
 	g.logger.Info("benchmark: Deployment transaction signed",
@@ -267,7 +267,7 @@ func (g *Generator) generateSetupBlock() []*abci.TxRecord {
 				"scenario", state.scenario.Name())
 			state.deployed = true
 			if err := state.scenario.Attach(g.cfg, common.Address{}); err != nil {
-				g.logger.Error("benchmark: Failed to attach scenario", "scenario", state.scenario.Name(), "error", err)
+				panic(fmt.Sprintf("benchmark: Failed to attach scenario %s: %v", state.scenario.Name(), err))
 			}
 			continue
 		}
@@ -283,8 +283,7 @@ func (g *Generator) generateSetupBlock() []*abci.TxRecord {
 		// Convert to Cosmos SDK tx
 		txRecord, err := g.ethTxToTxRecord(deployTx)
 		if err != nil {
-			g.logger.Error("benchmark: Failed to convert deployment tx", "error", err)
-			continue
+			panic(fmt.Sprintf("benchmark: Failed to convert deployment tx for %s: %v", state.config.Name, err))
 		}
 		txRecords = append(txRecords, txRecord)
 	}
@@ -329,8 +328,7 @@ func (g *Generator) generateLoadBlock() []*abci.TxRecord {
 
 		txRecord, err := g.ethTxToTxRecord(loadTx.EthTx)
 		if err != nil {
-			g.logger.Error("Failed to convert load tx", "error", err)
-			continue
+			panic(fmt.Sprintf("benchmark: Failed to convert load tx: %v", err))
 		}
 		txRecords = append(txRecords, txRecord)
 	}
@@ -398,15 +396,8 @@ func (g *Generator) ProcessReceipts(receipts map[common.Hash]*evmtypes.Receipt) 
 			"vmError", receipt.VmError)
 
 		if receipt.Status != uint32(ethtypes.ReceiptStatusSuccessful) {
-			g.logger.Error("benchmark: Deployment failed",
-				"scenario", state.config.Name,
-				"txHash", txHash.Hex(),
-				"status", receipt.Status,
-				"vmError", receipt.VmError,
-				"gasUsed", receipt.GasUsed)
-			// Remove from pending but don't mark as deployed
-			delete(g.pendingDeploys, txHash)
-			continue
+			panic(fmt.Sprintf("benchmark: Deployment failed for scenario %s: txHash=%s status=%d vmError=%s gasUsed=%d",
+				state.config.Name, txHash.Hex(), receipt.Status, receipt.VmError, receipt.GasUsed))
 		}
 
 		addr := common.HexToAddress(receipt.ContractAddress)
@@ -418,15 +409,12 @@ func (g *Generator) ProcessReceipts(receipts map[common.Hash]*evmtypes.Receipt) 
 
 		// Attach the deployed address to the scenario
 		if err := state.scenario.Attach(g.cfg, addr); err != nil {
-			g.logger.Error("benchmark: Failed to attach scenario",
-				"scenario", state.config.Name,
-				"address", addr.Hex(),
-				"error", err)
-		} else {
-			g.logger.Info("benchmark: Scenario attached to deployed contract",
-				"scenario", state.config.Name,
-				"address", addr.Hex())
+			panic(fmt.Sprintf("benchmark: Failed to attach scenario %s to address %s: %v",
+				state.config.Name, addr.Hex(), err))
 		}
+		g.logger.Info("benchmark: Scenario attached to deployed contract",
+			"scenario", state.config.Name,
+			"address", addr.Hex())
 		state.address = addr
 		state.deployed = true
 		delete(g.pendingDeploys, txHash)
@@ -471,8 +459,7 @@ func (g *Generator) transitionToLoadPhase() {
 	}
 
 	if len(weightedConfigs) == 0 {
-		g.logger.Error("benchmark: No scenarios available for load generation")
-		return
+		panic("benchmark: No scenarios available for load generation")
 	}
 
 	g.loadGenerator = generator.NewWeightedGenerator(weightedConfigs...)
