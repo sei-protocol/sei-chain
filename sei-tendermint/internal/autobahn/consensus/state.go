@@ -100,7 +100,7 @@ func (s *State) WaitForCapacity(ctx context.Context) error {
 // Returns ErrNoCapacity if there is currently no capacity for the next block.
 // Run WaitForCapacity before calling ProduceBlock.
 func (s *State) ProduceBlock(ctx context.Context, payload *types.Payload) (*types.Block, error) {
-	return s.avail.ProduceBlock(ctx, s.cfg.Key.Public(), payload)
+	return s.avail.ProduceBlock(ctx, payload)
 }
 
 // PushProposal processes an unverified FullProposal message.

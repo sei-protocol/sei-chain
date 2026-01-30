@@ -10,16 +10,16 @@ type inner struct {
 	latestCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]]
 	appVotes       *queue[types.GlobalBlockNumber, appVotes]
 	commitQCs      *queue[types.RoadIndex, *types.CommitQC]
-	blocks         map[types.LaneID]*queue[types.BlockNumber, *types.Block]
+	blocks         map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	votes          map[types.LaneID]*queue[types.BlockNumber, blockVotes]
 }
 
 func newInner(c *types.Committee) *inner {
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
-	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Block]{}
+	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{}
 	for _, lane := range c.Lanes().All() {
 		votes[lane] = newQueue[types.BlockNumber, blockVotes]()
-		blocks[lane] = newQueue[types.BlockNumber, *types.Block]()
+		blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
 	}
 	return &inner{
 		latestAppQC:    utils.None[*types.AppQC](),

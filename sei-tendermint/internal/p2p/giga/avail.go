@@ -11,23 +11,16 @@ import (
 	"github.com/tendermint/tendermint/internal/autobahn/data"
 )
 
-// StreamLaneProposals implements pb.StreamAPIServer.
-// Streams local blocks starting from the requested number.
 func (x *Service) serverStreamLaneProposals(ctx context.Context, server rpc.Server[API]) error {
 	return StreamLaneProposals.Serve(ctx,server, func(ctx context.Context, stream rpc.Stream[*pb.LaneProposal,*pb.StreamLaneProposalsReq]) error {
 		req,err := stream.Recv(ctx)
 		if err!=nil { return err }
-		for i := types.BlockNumber(req.FirstBlockNumber); ; i++ {
-			b, err := x.avail.Block(ctx, x.avail.key.Public(), i)
-			if err != nil {
-				if errors.Is(err, data.ErrPruned) {
-					continue
-				}
-				return fmt.Errorf("x.avail.Block(): %w", err)
-			}
-			proposal := types.Sign(x.avail.key, types.NewLaneProposal(b))
+		sub := x.avail.SubscribeLaneProposals(types.BlockNumber(req.FirstBlockNumber))
+		for {
+			p,err := sub.Recv(ctx)
+			if err!=nil { return err }
 			if err := stream.Send(ctx,&pb.LaneProposal{
-				LaneProposal: types.SignedMsgConv[*types.LaneProposal]().Encode(proposal),
+				LaneProposal: types.SignedMsgConv[*types.LaneProposal]().Encode(p),
 			}); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
@@ -40,27 +33,11 @@ func (x *Service) serverStreamLaneVotes(ctx context.Context, server rpc.Server[A
 		req,err := stream.Recv(ctx)
 		if err!=nil { return err }
 		_ = req
-		next := map[types.LaneID]types.BlockNumber{}
+		sub := x.avail.SubscribeLaneVotes()
 		for {
-			var batch []*types.BlockHeader
-			for inner, ctrl := range x.avail.inner.Lock() {
-				for {
-					for lane, bq := range inner.blocks {
-						for i := max(bq.first, next[lane]); i < bq.next; i++ {
-							batch = append(batch, bq.q[i].Header())
-						}
-						next[lane] = bq.next
-					}
-					if len(batch) > 0 {
-						break
-					}
-					if err := ctrl.Wait(ctx); err != nil {
-						return err
-					}
-				}
-			}
-			for _, h := range batch {
-				vote := types.Sign(x.avail.key, types.NewLaneVote(h))
+			batch,err := sub.RecvBatch(ctx)
+			if err!=nil { return err }
+			for _, vote := range batch {
 				signedVote := types.SignedMsgConv[*types.LaneVote]().Encode(vote)
 				if err := stream.Send(ctx,&pb.LaneVote{LaneVote: signedVote}); err != nil {
 					return fmt.Errorf("stream.Send(): %w", err)
@@ -75,38 +52,13 @@ func (x *Service) serverStreamAppVotes(ctx context.Context, server rpc.Server[AP
 		req,err := stream.Recv(ctx)
 		if err!=nil { return err }
 		_ = req
-		for idx := types.RoadIndex(0); ; idx = max(idx, x.avail.firstCommitQC()) + 1 {
-			qc, err := x.avail.CommitQC(ctx, idx)
-			if err != nil {
-				if errors.Is(err, data.ErrPruned) {
-					continue
-				}
-				return err
-			}
-			// Send votes for global blocks from this commitQC.
-			gr := qc.GlobalRange()
-			for n := gr.First; ; n += 1 {
-				// Fetch the proposal.
-				p, err := x.avail.Data().AppProposal(ctx, n)
-				if err != nil {
-					if errors.Is(err, data.ErrPruned) {
-						continue
-					}
-					return err
-				}
-				// AppProposal currently might return a proposal with a higher global number than the one we requested.
-				// Correct the n in such a case.
-				// TODO(gprusak): simplify, as this is overcomplicated.
-				n = p.GlobalNumber()
-				if n >= gr.Next {
-					break
-				}
-				// Send the vote.
-				vote := types.Sign(x.avail.key, types.NewAppVote(p))
-				signedVote := types.SignedMsgConv[*types.AppVote]().Encode(vote)
-				if err := stream.Send(&pb.AppVote{AppVote: signedVote}); err != nil {
-					return fmt.Errorf("stream.Send(): %w", err)
-				}
+		sub := x.avail.SubscribeAppVotes()
+		for {
+			vote,err := sub.Recv(ctx)
+			if err!=nil { return err }
+			signedVote := types.SignedMsgConv[*types.AppVote]().Encode(vote)
+			if err := stream.Send(ctx,&pb.AppVote{AppVote: signedVote}); err != nil {
+				return fmt.Errorf("stream.Send(): %w", err)
 			}
 		}
 	})
@@ -141,7 +93,7 @@ func (x *Service) serverStreamCommitQCs(ctx context.Context, server rpc.Server[A
 			qc, err := x.avail.CommitQC(ctx, next)
 			if err != nil {
 				if errors.Is(err, data.ErrPruned) {
-					next = x.avail.firstCommitQC()
+					next = x.avail.FirstCommitQC()
 					continue
 				}
 				return fmt.Errorf("x.avail.FirstCommitQC(): %w", err)
@@ -158,7 +110,12 @@ func (x *Service) clientStreamLaneProposals(ctx context.Context, c rpc.Client[AP
 	stream, err := StreamLaneProposals.Call(ctx,c)
 	if err!=nil { return err }
 	defer stream.Close()
-	if err := stream.Send(ctx,&pb.StreamLaneProposalsReq{FirstBlockNumber: uint64(x.avail.NextBlock(c.cfg.GetKey()))}); err != nil {
+	req := &pb.StreamLaneProposalsReq{}
+	// TODO(gprusak): dissemination of LaneProposals is the main source of bandwidth consumption.
+	// * to keep low latency, we need to push the lane proposals (streaming is required)
+	// * to avoid wasting bandwidth, we should set req.FirstBlockNumber (for that we need to authenticate validator in handshake)
+	// * the current implementation assumes a fully connected network - with a different topology we will need to be smarter.
+	if err := stream.Send(ctx,req); err != nil {
 		return fmt.Errorf("client.StreamLaneProposals(): %w", err)
 	}
 	for {
@@ -171,9 +128,10 @@ func (x *Service) clientStreamLaneProposals(ctx context.Context, c rpc.Client[AP
 			return fmt.Errorf("types.LaneProposalConv.Decode(): %w", err)
 		}
 		// Sanity check, checking that the producer only sends their own proposals.
-		if got, want := proposal.Msg().Block().Header().Lane(), c.cfg.GetKey(); got != want {
+		// TODO(gprusak): authenticate the peer to be able to do this check. 
+		/*if got, want := proposal.Msg().Block().Header().Lane(), c.cfg.GetKey(); got != want {
 			return fmt.Errorf("producer = %q, want %q", got, want)
-		}
+		}*/
 		if err := x.avail.PushBlock(ctx, proposal); err != nil {
 			return fmt.Errorf("s.PushLaneProposal(): %w", err)
 		}

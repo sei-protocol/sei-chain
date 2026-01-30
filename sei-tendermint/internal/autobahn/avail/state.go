@@ -38,7 +38,7 @@ func NewState(key types.SecretKey, data *data.State) *State {
 	}
 }
 
-func (s *State) firstCommitQC() types.RoadIndex {
+func (s *State) FirstCommitQC() types.RoadIndex {
 	for inner := range s.inner.Lock() {
 		return inner.commitQCs.first
 	}
@@ -203,7 +203,7 @@ func (s *State) NextBlock(lane types.LaneID) types.BlockNumber {
 // Block returns block n of the given lane.
 // Waits until the block is available.
 // Returns ErrPruned if the block has been already pruned.
-func (s *State) Block(ctx context.Context, lane types.LaneID, n types.BlockNumber) (*types.Block, error) {
+func (s *State) Block(ctx context.Context, lane types.LaneID, n types.BlockNumber) (*types.Signed[*types.LaneProposal], error) {
 	for inner, ctrl := range s.inner.Lock() {
 		q, ok := inner.blocks[lane]
 		if !ok {
@@ -244,7 +244,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		if q.next != h.BlockNumber() {
 			return nil
 		}
-		q.pushBack(p.Msg().Block())
+		q.pushBack(p)
 		ctrl.Updated()
 	}
 	return nil
@@ -376,9 +376,15 @@ func (s *State) WaitForLaneQCs(
 	panic("unreachable")
 }
 
-// ProduceBlock appends a new block to the given lane.
+// ProduceBlock appends a new block to the producers lane.
 // Blocks until the lane has enough capacity for the new block.
-func (s *State) ProduceBlock(ctx context.Context, lane types.LaneID, payload *types.Payload) (*types.Block, error) {
+func (s *State) ProduceBlock(ctx context.Context, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
+	return s.produceBlock(ctx, s.key, payload)
+}
+
+// TODO: produceBlock is a separate function for testing - consider improving the tests to use ProduceBlock only.
+func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
+	lane := key.Public()
 	for inner, ctrl := range s.inner.Lock() {
 		q, ok := inner.blocks[lane]
 		if !ok {
@@ -389,13 +395,13 @@ func (s *State) ProduceBlock(ctx context.Context, lane types.LaneID, payload *ty
 		}
 		var parent types.BlockHeaderHash
 		if q.first < q.next {
-			parent = q.q[q.next-1].Header().Hash()
+			parent = q.q[q.next-1].Msg().Block().Header().Hash()
 		}
-		b := types.NewBlock(lane, q.next, parent, payload)
-		q.q[q.next] = b
+		p := types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, q.next, parent, payload)))
+		q.q[q.next] = p 
 		q.next += 1
 		ctrl.Updated()
-		return b, nil
+		return p, nil
 	}
 	panic("unreachable")
 }
@@ -406,7 +412,7 @@ func (s *State) Run(ctx context.Context) error {
 		// Task inserting FullCommitQCs and local blocks to data state.
 		scope.SpawnNamed("s.data.PushQC", func() error {
 			c := s.data.Committee()
-			for n := types.RoadIndex(0); ; n = max(n+1, s.firstCommitQC()) {
+			for n := types.RoadIndex(0); ; n = max(n+1, s.FirstCommitQC()) {
 				qc, err := s.fullCommitQC(ctx, n)
 				if err != nil {
 					if errors.Is(err, data.ErrPruned) {
@@ -425,7 +431,7 @@ func (s *State) Run(ctx context.Context) error {
 							if b, ok := inner.blocks[lr.Lane()].q[n]; ok {
 								// We don't need to check the blocks against the headers,
 								// as bad blocks will be filtered out by PushQC anyway.
-								blocks = append(blocks, b)
+								blocks = append(blocks, b.Msg().Block())
 							}
 						}
 					}

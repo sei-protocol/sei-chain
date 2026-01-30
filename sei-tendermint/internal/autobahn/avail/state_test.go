@@ -91,14 +91,15 @@ func TestState(t *testing.T) {
 			t.Logf("Push some blocks.")
 			want := byLane[types.PayloadHash]{}
 			for range 10 {
-				lane := keys[rng.Intn(len(keys))].Public()
+				key := keys[rng.Intn(len(keys))]
+				lane := key.Public()
 				p := types.GenPayload(rng)
 				want[lane] = append(want[lane], p.Hash())
-				b, err := state.ProduceBlock(ctx, lane, p)
+				b, err := state.produceBlock(ctx, key, p)
 				if err != nil {
 					return fmt.Errorf("state.ProduceBlock(): %w", err)
 				}
-				if err := utils.TestDiff(b.Payload(), p); err != nil {
+				if err := utils.TestDiff(b.Msg().Block().Payload(), p); err != nil {
 					return fmt.Errorf("snapshot: %w", err)
 				}
 			}
@@ -111,7 +112,7 @@ func TestState(t *testing.T) {
 					if err != nil {
 						return fmt.Errorf("state.TryBlock(): %w", err)
 					}
-					for _, vote := range makeLaneVotes(keys, b.Header()) {
+					for _, vote := range makeLaneVotes(keys, b.Msg().Block().Header()) {
 						if err := state.PushVote(ctx, vote); err != nil {
 							return fmt.Errorf("state.PushVote(): %w", err)
 						}
