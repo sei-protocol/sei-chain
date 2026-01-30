@@ -763,6 +763,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}
 
 	// Try efficient range query first (supported by parquet/DuckDB backend)
+	// #nosec G115 -- begin and end are validated to be positive block heights above
 	if logs, rangeErr := f.tryFilterLogsRange(ctx, uint64(begin), uint64(end), crit); rangeErr == nil {
 		return logs, end, nil
 	} else if !errors.Is(rangeErr, receipt.ErrRangeQueryNotSupported) {
@@ -925,6 +926,7 @@ func (f *LogFetcher) tryFilterLogsRange(_ context.Context, fromBlock, toBlock ui
 	}
 
 	// Use a context at the toBlock height for the query
+	// #nosec G115 -- toBlock is a block height which fits in int64
 	sdkCtx := f.ctxProvider(int64(toBlock))
 
 	logs, err := store.FilterLogs(sdkCtx, fromBlock, toBlock, crit)
@@ -972,6 +974,7 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 
 		// Extract logs from receipt
 		for _, log := range rcpt.Logs {
+			// #nosec G115 -- blockHeight and txIdx are validated non-negative
 			ethLog := &ethtypes.Log{
 				Address:     common.HexToAddress(log.Address),
 				Data:        log.Data,
