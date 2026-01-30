@@ -54,6 +54,9 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 		journal:            []journalEntry{},
 		coinbaseEvmAddress: feeCollector,
 	}
+	if k.ShouldUseRegularStore() {
+		s.Snapshot()
+	}
 	return s
 }
 
@@ -94,6 +97,9 @@ func (s *DBImpl) CleanupForTracer() {
 	s.tempState = NewTemporaryState()
 	s.journal = []journalEntry{}
 	s.snapshottedCtxs = []sdk.Context{}
+	if s.k.ShouldUseRegularStore() {
+		s.Snapshot()
+	}
 }
 
 func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {

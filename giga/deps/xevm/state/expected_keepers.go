@@ -31,4 +31,5 @@ type EVMKeeper interface {
 	SetNonce(sdk.Context, common.Address, uint64)
 	GetBalance(ctx sdk.Context, addr sdk.AccAddress) *big.Int
 	UpgradeKeeper() *upgradekeeper.Keeper
+	ShouldUseRegularStore() bool
 }
