@@ -99,7 +99,7 @@ func (s *State) WaitForCapacity(ctx context.Context) error {
 // ProduceBlock produces a new block with the given payload.
 // Returns ErrNoCapacity if there is currently no capacity for the next block.
 // Run WaitForCapacity before calling ProduceBlock.
-func (s *State) ProduceBlock(ctx context.Context, payload *types.Payload) (*types.Block, error) {
+func (s *State) ProduceBlock(ctx context.Context, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
 	return s.avail.ProduceBlock(ctx, payload)
 }
 
@@ -147,9 +147,8 @@ func (s *State) PushTimeoutVote(vote *types.FullTimeoutVote) error {
 }
 
 // Data is the underlying data state.
-func (s *State) Data() *data.State {
-	return s.avail.Data()
-}
+func (s *State) Data() *data.State { return s.avail.Data() }
+func (s *State) Avail() *avail.State { return s.avail }
 
 // Constructs new proposals.
 func (s *State) runPropose(ctx context.Context) error {

@@ -3,22 +3,23 @@ package giga
 import (
 	"context"
 
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/internal/autobahn/data"
 	"github.com/tendermint/tendermint/internal/autobahn/consensus"
-	"github.com/tendermint/tendermint/internal/autobahn/avail"
 	"github.com/tendermint/tendermint/internal/p2p/rpc"
 )
 
 type Service struct {
 	getBlockReqs chan req
-	data *data.State
-	avail *avail.State
-	consensus *consensus.State
+	state *consensus.State
+}
+
+func NewService(state *consensus.State) *Service {
+	return &Service{make(chan req),state}
 }
 
 func (x *Service) Run(ctx context.Context) error {
-	return x.runBlockFetcher(ctx)
+	return utils.IgnoreCancel(x.runBlockFetcher(ctx))
 }
 
 func (x *Service) RunServer(ctx context.Context, server rpc.Server[API]) error {

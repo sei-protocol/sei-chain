@@ -7,58 +7,108 @@ import (
 	"time"
 
 	"github.com/tendermint/tendermint/internal/autobahn/data"
+	"github.com/tendermint/tendermint/internal/autobahn/consensus"
 	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
+	"github.com/tendermint/tendermint/internal/p2p/conn"
+	"github.com/tendermint/tendermint/internal/p2p/rpc"
 )
+
+type testNode struct {
+	data *data.State
+	consensus *consensus.State
+	service *Service
+}
+
+func defaultViewTimeout(view types.View) time.Duration { return time.Hour } 
+
+func newTestNode(committee *types.Committee, cfg *consensus.Config) *testNode {
+	dataState := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+	consensusState := consensus.NewState(cfg,dataState)
+	return &testNode {
+		data: dataState,
+		consensus: consensusState,
+		service: NewService(consensusState),
+	}
+}
+
+func (n *testNode) Run(ctx context.Context) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error { return n.data.Run(ctx) })
+		s.Spawn(func() error { return n.consensus.Run(ctx) })
+		s.Spawn(func() error { return n.service.Run(ctx) })
+		return nil
+	})
+}
+
+type testEnv struct {
+	committee *types.Committee
+	nodes map[types.PublicKey]*testNode
+}
+
+func newTestEnv(committee *types.Committee) *testEnv {
+	return &testEnv{committee,map[types.PublicKey]*testNode{}}
+}
+
+// Call AddNode BEFORE Run.
+func (e *testEnv) AddNode(key types.SecretKey) *testNode {
+	n := newTestNode(e.committee,&consensus.Config{
+		Key: key,
+		ViewTimeout: func(view types.View) time.Duration {
+			if _,ok := e.nodes[e.committee.Leader(view)]; ok { return 0 }
+			return time.Hour
+		},
+	})
+	e.nodes[key.Public()] = n
+	return n
+}
+
+func (e *testEnv) Run(ctx context.Context) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for _,x := range e.nodes {
+			s.Spawn(func() error { return x.Run(ctx) })
+			for _,y := range e.nodes {
+				xConn,yConn := conn.NewTestConn()
+				server := rpc.NewServer[API]()
+				client := rpc.NewClient[API]()
+				s.Spawn(func() error { return server.Run(ctx,xConn) })
+				s.Spawn(func() error { return client.Run(ctx,yConn) })
+				s.Spawn(func() error { return x.service.RunServer(ctx,server) })
+				s.Spawn(func() error { return y.service.RunClient(ctx,client) })
+			}
+		}
+		return nil
+	})
+}
 
 func TestDataClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 2)
+	env := newTestEnv(committee)
+	server := env.AddNode(keys[0])
+	client := env.AddNode(keys[1])
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		committee, keys := types.GenCommittee(rng, 3)
-		cfg := &data.Config{
-			Committee: committee,
-		}
-		serverState := data.NewState(cfg, utils.None[data.BlockStore]())
-		s.SpawnBgNamed("serverState.Run()", func() error { return utils.IgnoreCancel(serverState.Run(ctx)) })
-		clientState := data.NewState(cfg, utils.None[data.BlockStore]())
-		s.SpawnBgNamed("clientState.Run()", func() error { return utils.IgnoreCancel(clientState.Run(ctx)) })
-		addr := tcp.TestReserveAddr()
-
-		// Connect client to the server.
-		s.SpawnBgNamed("server", func() error {
-			server := grpcutils.NewServer()
-			serverState.Register(server)
-			return grpcutils.RunServer(ctx, server, addr)
-		})
-		s.SpawnBgNamed("client", func() error {
-			return clientState.RunClientPool(ctx, []*config.PeerConfig{
-				{
-					Address:    addr.String(),
-					RetryDelay: utils.Some(utils.Duration(100 * time.Millisecond)),
-				},
-			})
-		})
+		s.SpawnBg(func() error { return env.Run(ctx) })
 
 		t.Logf("push data")
 		prev := utils.None[*types.CommitQC]()
 		for i := range 3 {
 			t.Logf("iteration %v", i)
-			qc, blocks := makeCommitQC(rng, committee, keys, prev)
-			if err := serverState.PushQC(ctx, qc, blocks); err != nil {
+			qc, blocks := data.TestCommitQC(rng, committee, keys, prev)
+			if err := server.data.PushQC(ctx, qc, blocks); err != nil {
 				return fmt.Errorf("serverState.PushQC(): %w", err)
 			}
 			prev = utils.Some(qc.QC())
 		}
 		t.Logf("wait for replication")
-		for n := range serverState.NextBlock() {
-			want, err := serverState.GlobalBlock(ctx, n)
+		for n := range server.data.NextBlock() {
+			want, err := server.data.GlobalBlock(ctx, n)
 			if err != nil {
 				return fmt.Errorf("serverState.FinalBlock(): %w", err)
 			}
-			got, err := clientState.GlobalBlock(ctx, n)
+			got, err := client.data.GlobalBlock(ctx, n)
 			if err != nil {
 				return fmt.Errorf("clientState.FinalBlock(): %w", err)
 			}
@@ -66,11 +116,11 @@ func TestDataClientServer(t *testing.T) {
 				return err
 			}
 
-			wantQC, err := serverState.QC(ctx, n)
+			wantQC, err := server.data.QC(ctx, n)
 			if err != nil {
 				return fmt.Errorf("serverState.CommitQC(): %w", err)
 			}
-			gotQC, err := clientState.QC(ctx, n)
+			gotQC, err := client.data.QC(ctx, n)
 			if err != nil {
 				return fmt.Errorf("clientState.CommitQC(): %w", err)
 			}

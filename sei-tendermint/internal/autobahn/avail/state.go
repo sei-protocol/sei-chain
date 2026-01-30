@@ -14,8 +14,8 @@ import (
 // ErrBadLane .
 var ErrBadLane = errors.New("bad lane")
 
-const blocksPerLane = 3 * blocksPerLanePerCommit
-const blocksPerLanePerCommit = 10
+const BlocksPerLane = 3 * BlocksPerLanePerCommit
+const BlocksPerLanePerCommit = 10
 
 // State is the block availability state provided by the node for consensus.
 // It contains:
@@ -236,7 +236,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 			return ErrBadLane
 		}
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			return h.BlockNumber() <= min(q.next, q.first+blocksPerLane-1)
+			return h.BlockNumber() <= min(q.next, q.first+BlocksPerLane-1)
 		}); err != nil {
 			return err
 		}
@@ -267,7 +267,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 			return ErrBadLane
 		}
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			return h.BlockNumber() < q.first+blocksPerLane
+			return h.BlockNumber() < q.first+BlocksPerLane
 		}); err != nil {
 			return err
 		}
@@ -340,7 +340,7 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Ful
 func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID) error {
 	for inner, ctrl := range s.inner.Lock() {
 		q := inner.blocks[lane]
-		if err := ctrl.WaitUntil(ctx, func() bool { return q.Len() < blocksPerLane }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return q.Len() < BlocksPerLane }); err != nil {
 			return err
 		}
 	}
@@ -357,7 +357,7 @@ func (s *State) WaitForLaneQCs(
 		for {
 			for _, lane := range c.Lanes().All() {
 				first := types.LaneRangeOpt(prev, lane).Next()
-				for i := range types.BlockNumber(blocksPerLanePerCommit) {
+				for i := range types.BlockNumber(BlocksPerLanePerCommit) {
 					if qc, ok := inner.laneQC(c, lane, first+i); ok {
 						laneQCs[lane] = qc
 					} else {
@@ -390,7 +390,7 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 		if !ok {
 			return nil, ErrBadLane
 		}
-		if err := ctrl.WaitUntil(ctx, func() bool { return q.Len() < blocksPerLane }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return q.Len() < BlocksPerLane }); err != nil {
 			return nil, err
 		}
 		var parent types.BlockHeaderHash

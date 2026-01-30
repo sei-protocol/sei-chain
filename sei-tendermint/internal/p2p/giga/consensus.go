@@ -73,11 +73,11 @@ func (x *Service) clientPing(ctx context.Context, client rpc.Client[API]) error 
 func (x *Service) clientConsensus(ctx context.Context, c rpc.Client[API]) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Send updates about new consensus messages.
-		s.Spawn(func() error { return sendUpdates(ctx, c, x.consensus.SubscribeProposal()) })
-		s.Spawn(func() error { return sendUpdates(ctx, c, x.consensus.SubscribePrepareVote()) })
-		s.Spawn(func() error { return sendUpdates(ctx, c, x.consensus.SubscribeCommitVote()) })
-		s.Spawn(func() error { return sendUpdates(ctx, c, x.consensus.SubscribeTimeoutVote()) })
-		s.Spawn(func() error { return sendUpdates(ctx, c, x.consensus.SubscribeTimeoutQC()) })
+		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribeProposal()) })
+		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribePrepareVote()) })
+		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribeCommitVote()) })
+		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribeTimeoutVote()) })
+		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribeTimeoutQC()) })
 		return nil
 	})
 }
@@ -110,24 +110,24 @@ func (x *Service) serverConsensus(ctx context.Context, server rpc.Server[API]) e
 			}
 			switch req := req.(type) {
 			case *types.ConsensusReqPrepareVote:
-				if err := x.consensus.PushPrepareVote(req.Signed); err != nil {
-					return fmt.Errorf("x.consensus.PushPrepareVote(): %w", err)
+				if err := x.state.PushPrepareVote(req.Signed); err != nil {
+					return fmt.Errorf("x.state.PushPrepareVote(): %w", err)
 				}
 			case *types.ConsensusReqCommitVote:
-				if err := x.consensus.PushCommitVote(req.Signed); err != nil {
-					return fmt.Errorf("x.consensus.PushCommitVote(): %w", err)
+				if err := x.state.PushCommitVote(req.Signed); err != nil {
+					return fmt.Errorf("x.state.PushCommitVote(): %w", err)
 				}
 			case *types.FullTimeoutVote:
-				if err := x.consensus.PushTimeoutVote(req); err != nil {
-					return fmt.Errorf("x.consensus.PushTimeoutVote(): %w", err)
+				if err := x.state.PushTimeoutVote(req); err != nil {
+					return fmt.Errorf("x.state.PushTimeoutVote(): %w", err)
 				}
 			case *types.FullProposal:
-				if err := x.consensus.PushProposal(ctx, req); err != nil {
-					return fmt.Errorf("x.consensus.PushProposal(): %w", err)
+				if err := x.state.PushProposal(ctx, req); err != nil {
+					return fmt.Errorf("x.state.PushProposal(): %w", err)
 				}
 			case *types.TimeoutQC:
-				if err := x.consensus.PushTimeoutQC(ctx, req); err != nil {
-					return fmt.Errorf("x.consensus.PushTimeoutQC(): %w", err)
+				if err := x.state.PushTimeoutQC(ctx, req); err != nil {
+					return fmt.Errorf("x.state.PushTimeoutQC(): %w", err)
 				}
 			default:
 				return fmt.Errorf("unknown consensus request type: %T", req)

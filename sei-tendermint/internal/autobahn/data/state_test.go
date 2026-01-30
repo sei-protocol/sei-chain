@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"testing"
-	"time"
 
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 	"github.com/tendermint/tendermint/libs/utils"
@@ -42,94 +41,6 @@ func snapshot(s *State) Snapshot {
 	panic("unreachable")
 }
 
-func makeAppQC(keys []types.SecretKey, proposal *types.AppProposal) *types.AppQC {
-	vote := types.NewAppVote(proposal)
-	var votes []*types.Signed[*types.AppVote]
-	for _, k := range keys {
-		votes = append(votes, types.Sign(k, vote))
-	}
-	return types.NewAppQC(votes)
-}
-
-func makeLaneQC(keys []types.SecretKey, header *types.BlockHeader) *types.LaneQC {
-	vote := types.NewLaneVote(header)
-	votes := []*types.Signed[*types.LaneVote]{}
-	for _, k := range keys {
-		votes = append(votes, types.Sign(k, vote))
-	}
-	return types.NewLaneQC(votes)
-}
-
-func makeCommitQC(
-	rng utils.Rng,
-	committee *types.Committee,
-	keys []types.SecretKey,
-	prev utils.Option[*types.CommitQC],
-) (*types.FullCommitQC, []*types.Block) {
-	blocks := map[types.LaneID][]*types.Block{}
-	makeBlock := func(producer types.LaneID) *types.Block {
-		if bs := blocks[producer]; len(bs) > 0 {
-			parent := bs[len(bs)-1]
-			return types.NewBlock(
-				producer,
-				parent.Header().Next(),
-				parent.Header().Hash(),
-				types.GenPayload(rng),
-			)
-		}
-		return types.NewBlock(
-			producer,
-			types.LaneRangeOpt(prev, producer).Next(),
-			types.GenBlockHeaderHash(rng),
-			types.GenPayload(rng),
-		)
-	}
-	// Make some blocks
-	for range 10 {
-		producer := committee.Lanes().At(rng.Intn(committee.Lanes().Len()))
-		blocks[producer] = append(blocks[producer], makeBlock(producer))
-	}
-	// Construct a proposal.
-	laneQCs := map[types.LaneID]*types.LaneQC{}
-	var headers []*types.BlockHeader
-	var blockList []*types.Block
-	for _, lane := range committee.Lanes().All() {
-		if bs := blocks[lane]; len(bs) > 0 {
-			laneQCs[lane] = makeLaneQC(keys, bs[len(bs)-1].Header())
-			for _, b := range bs {
-				headers = append(headers, b.Header())
-				blockList = append(blockList, b)
-			}
-		}
-	}
-	viewSpec := types.ViewSpec{CommitQC: prev}
-	proposal, err := types.NewProposal(
-		types.GenSecretKey(rng),
-		committee,
-		viewSpec,
-		time.Now(),
-		laneQCs,
-		func() utils.Option[*types.AppQC] {
-			if n := types.GlobalRangeOpt(prev).Next; n > 0 {
-				p := types.NewAppProposal(n-1, viewSpec.View().Index, types.GenAppHash(rng))
-				return utils.Some(makeAppQC(keys, p))
-			}
-			return utils.None[*types.AppQC]()
-		}(),
-	)
-	if err != nil {
-		panic(err)
-	}
-	var votes []*types.Signed[*types.CommitVote]
-	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal.Proposal().Msg())))
-	}
-	return types.NewFullCommitQC(
-		types.NewCommitQC(votes),
-		headers,
-	), blockList
-}
-
 func TestState(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -146,7 +57,7 @@ func TestState(t *testing.T) {
 		prev := utils.None[*types.CommitQC]()
 		for i := range 3 {
 			t.Logf("iteration %v", i)
-			qc, blocks := makeCommitQC(rng, committee, keys, prev)
+			qc, blocks := TestCommitQC(rng, committee, keys, prev)
 			prev = utils.Some(qc.QC())
 			if err := state.PushQC(ctx, qc, blocks); err != nil {
 				return fmt.Errorf("state.PushQC(): %w", err)
@@ -212,7 +123,7 @@ func TestExecution(t *testing.T) {
 		prev := utils.None[*types.CommitQC]()
 		for i := range 3 {
 			t.Logf("iteration %v", i)
-			qc, blocks := makeCommitQC(rng, committee, keys, prev)
+			qc, blocks := TestCommitQC(rng, committee, keys, prev)
 			if err := state.PushQC(ctx, qc, blocks); err != nil {
 				return fmt.Errorf("state.PushQC(): %w", err)
 			}
