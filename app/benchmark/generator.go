@@ -320,16 +320,8 @@ func (g *Generator) generateLoadBlock() []*abci.TxRecord {
 	}
 
 	loadTxs := loadGen.GenerateN(g.txsPerBatch)
-	if len(loadTxs) == 0 {
-		return nil
-	}
-
 	txRecords := make([]*abci.TxRecord, 0, len(loadTxs))
 	for _, loadTx := range loadTxs {
-		if loadTx.EthTx == nil {
-			continue
-		}
-
 		txRecord, err := g.ethTxToTxRecord(loadTx.EthTx)
 		if err != nil {
 			panic(fmt.Sprintf("benchmark: Failed to convert load tx: %v", err))
