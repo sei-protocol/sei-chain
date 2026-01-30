@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 
 	"github.com/cockroachdb/pebble"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
@@ -25,9 +26,9 @@ type EVMDatabase struct {
 	storeType EVMStoreType
 	storage   *pebble.DB
 
-	// Version tracking
-	latestVersion   int64
-	earliestVersion int64
+	// Version tracking (atomic for concurrent access)
+	latestVersion   atomic.Int64
+	earliestVersion atomic.Int64
 }
 
 // OpenEVMDB opens a PebbleDB with default comparer for EVM data
@@ -44,11 +45,10 @@ func OpenEVMDB(dir string, storeType EVMStoreType) (*EVMDatabase, error) {
 	}
 
 	evmDB := &EVMDatabase{
-		storeType:       storeType,
-		storage:         db,
-		latestVersion:   0,
-		earliestVersion: 0,
+		storeType: storeType,
+		storage:   db,
 	}
+	// latestVersion and earliestVersion are zero-initialized by default
 
 	// Load version metadata
 	if err := evmDB.loadVersionMetadata(); err != nil {
@@ -63,7 +63,7 @@ func (db *EVMDatabase) loadVersionMetadata() error {
 	// Load latest version
 	val, closer, err := db.storage.Get([]byte(latestVersionKey))
 	if err == nil {
-		db.latestVersion = int64(binary.BigEndian.Uint64(val)) //nolint:gosec // version values are always valid int64
+		db.latestVersion.Store(int64(binary.BigEndian.Uint64(val))) //nolint:gosec // version values are always valid int64
 		_ = closer.Close()
 	} else if err != pebble.ErrNotFound {
 		return err
@@ -72,7 +72,7 @@ func (db *EVMDatabase) loadVersionMetadata() error {
 	// Load earliest version
 	val, closer, err = db.storage.Get([]byte(earliestVersionKey))
 	if err == nil {
-		db.earliestVersion = int64(binary.BigEndian.Uint64(val)) //nolint:gosec // version values are always valid int64
+		db.earliestVersion.Store(int64(binary.BigEndian.Uint64(val))) //nolint:gosec // version values are always valid int64
 		_ = closer.Close()
 	} else if err != pebble.ErrNotFound {
 		return err
@@ -192,7 +192,7 @@ func (db *EVMDatabase) ApplyBatch(pairs []*iavl.KVPair, version int64) error {
 }
 
 func (db *EVMDatabase) updateLatestVersion(version int64) error {
-	if version > db.latestVersion {
+	if version > db.latestVersion.Load() {
 		return db.SetLatestVersion(version)
 	}
 	return nil
@@ -200,7 +200,7 @@ func (db *EVMDatabase) updateLatestVersion(version int64) error {
 
 // GetLatestVersion returns the latest version in this database
 func (db *EVMDatabase) GetLatestVersion() int64 {
-	return db.latestVersion
+	return db.latestVersion.Load()
 }
 
 // SetLatestVersion updates the latest version (async write for performance)
@@ -210,13 +210,13 @@ func (db *EVMDatabase) SetLatestVersion(version int64) error {
 	if err := db.storage.Set([]byte(latestVersionKey), buf, defaultWriteOpts); err != nil {
 		return err
 	}
-	db.latestVersion = version
+	db.latestVersion.Store(version)
 	return nil
 }
 
 // GetEarliestVersion returns the earliest version in this database
 func (db *EVMDatabase) GetEarliestVersion() int64 {
-	return db.earliestVersion
+	return db.earliestVersion.Load()
 }
 
 // SetEarliestVersion updates the earliest version (async write for performance)
@@ -226,7 +226,7 @@ func (db *EVMDatabase) SetEarliestVersion(version int64) error {
 	if err := db.storage.Set([]byte(earliestVersionKey), buf, defaultWriteOpts); err != nil {
 		return err
 	}
-	db.earliestVersion = version
+	db.earliestVersion.Store(version)
 	return nil
 }
 
