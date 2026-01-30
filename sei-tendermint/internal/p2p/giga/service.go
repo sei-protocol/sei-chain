@@ -6,7 +6,7 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/internal/autobahn/data"
 	"github.com/tendermint/tendermint/internal/autobahn/consensus"
-	"github.com/tendermint/tendermint/internal/autobahn/consensus/avail"
+	"github.com/tendermint/tendermint/internal/autobahn/avail"
 	"github.com/tendermint/tendermint/internal/p2p/rpc"
 )
 

@@ -13,7 +13,7 @@ import (
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 )
 
-func TestClientServer(t *testing.T) {
+func TestDataClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {

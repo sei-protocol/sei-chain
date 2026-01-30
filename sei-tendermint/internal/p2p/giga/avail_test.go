@@ -1,4 +1,4 @@
-package avail
+package giga
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/tcp"
 )
 
-func TestClientServer(t *testing.T) {
+func TestAvailClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 4)
