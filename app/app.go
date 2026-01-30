@@ -172,7 +172,6 @@ import (
 	gigabankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	gigaevmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	gigaevmstate "github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
-	xevmtypes "github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -1149,17 +1148,7 @@ func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.Res
 		}
 	}
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
-	response := app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
-
-	// Initialize the Giga EVM keeper's genesis state when giga executor is enabled.
-	// The GigaEvmKeeper uses a separate GigaKVStore, so it needs its own InitGenesis
-	// to set up required state like the fee collector address mapping.
-	if app.GigaExecutorEnabled {
-		gigaGenState := xevmtypes.DefaultGenesis()
-		app.GigaEvmKeeper.InitGenesis(ctx, *gigaGenState)
-	}
-
-	return response
+	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
 }
 
 func (app *App) PrepareProposalHandler(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
@@ -1408,15 +1397,6 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		ctx.GigaMultiStore().WriteGiga()
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
-
-	// Commit giga state changes to the underlying store.
-	// The giga executor uses a separate GigaMultiStore, so we must call WriteGiga()
-	// to make state changes (including receipts) visible.
-	ctx.GigaMultiStore().WriteGiga()
-
-	// Finalize giga bank transfers. The giga executor uses GigaBankKeeper which
-	// has its own deferred balance tracking.
-	app.GigaBankKeeper.WriteDeferredBalances(ctx)
 
 	return txResults
 }
