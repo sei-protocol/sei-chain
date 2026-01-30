@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/internal/autobahn/consensus/avail"
+	"github.com/tendermint/tendermint/internal/autobahn/avail"
 	"github.com/tendermint/tendermint/internal/autobahn/data"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 	"github.com/tendermint/tendermint/libs/utils"
@@ -27,7 +27,7 @@ type Config struct {
 type State struct {
 	cfg     *Config
 	avail   *avail.State
-	metrics *Metrics
+	// metrics *Metrics
 	inner   utils.AtomicSend[inner]
 
 	timeoutVotes utils.Mutex[*timeoutVotes]
@@ -53,7 +53,7 @@ func (s *State) SubscribeTimeoutQC() utils.AtomicRecv[utils.Option[*types.Timeou
 func NewState(cfg *Config, data *data.State) *State {
 	return &State{
 		cfg:     cfg,
-		metrics: NewMetrics(),
+		// metrics: NewMetrics(),
 		avail:   avail.NewState(cfg.Key, data),
 		inner:   utils.NewAtomicSend(inner{}),
 
@@ -224,7 +224,7 @@ func (s *State) Run(ctx context.Context) error {
 		scope.SpawnNamed("storeCommitQC", func() error {
 			return s.commitQC().Iter(ctx, func(ctx context.Context, qc utils.Option[*types.CommitQC]) error {
 				if qc, ok := qc.Get(); ok {
-					s.metrics.ObserveCommitQC(qc)
+					// s.metrics.ObserveCommitQC(qc)
 					return s.avail.PushCommitQC(ctx, qc)
 				}
 				return nil
