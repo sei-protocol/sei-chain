@@ -9,7 +9,9 @@
     "Cancun/stEIP4844-blobtransactions/createBlobhashTx.json/GeneralStateTests/Cancun/stEIP4844-blobtransactions/createBlobhashTx.json::createBlobhashTx-fork_[Cancun-Prague]-d0g0v0": "error_mismatch",
     "Cancun/stEIP4844-blobtransactions/blobhashListBounds10.json/GeneralStateTests/Cancun/stEIP4844-blobtransactions/blobhashListBounds10.json::blobhashListBounds10-fork_[Cancun-Prague]-d0g0v0": "error_mismatch",
     "stEIP1559/tipTooHigh.json/GeneralStateTests/stEIP1559/tipTooHigh.json::tipTooHigh-fork_[Cancun-Prague]-d0g0v0": "tx_encoding_error",
-    "stEIP1559/lowGasLimit.json/GeneralStateTests/stEIP1559/lowGasLimit.json::lowGasLimit-fork_[Cancun-Prague]-d0g[0-3]v0/0": "error_mismatch"
+    "stEIP1559/lowGasLimit.json/GeneralStateTests/stEIP1559/lowGasLimit.json::lowGasLimit-fork_[Cancun-Prague]-d0g[0-3]v0/0": "gas_mismatch_on_rejected_tx: both V2 and Giga reject with code=11 (tx gas > block gas), but V2 reports Cosmos gas (~385k) while Giga reports 0",
+    "stEIP1559/lowGasLimit.json/GeneralStateTests/stEIP1559/lowGasLimit.json::lowGasLimit-fork_[Cancun-Prague]-d0g[0-3]v0/3": "gas_mismatch_on_rejected_tx: both V2 and Giga reject with code=1 (intrinsic gas too low), but V2 reports Cosmos gas (~385k) while Giga reports 0",
+    "stExample/invalidTr.json/GeneralStateTests/stExample/invalidTr.json::invalidTr-fork_[Cancun-Prague]-d0g0v0": "gas_mismatch_on_rejected_tx: both V2 and Giga reject with code=1 (intrinsic gas too low), but V2 reports Cosmos gas (~401k) while Giga reports 0"
   },
   "skipped_categories": [
     "VMTests",
@@ -17,7 +19,7 @@
     "stTimeConsuming"
   ],
   "skipped_category_reasons": {
-    "stExample": "ANALYZED: 39/39 tests pass. All passing.",
+    "stExample": "ENABLED: 38/39 tests pass. 1 failure skipped: gas_mismatch_on_rejected_tx(1).",
     "stSLoadTest": "ANALYZED: 1/1 tests pass. All passing.",
     "stChainId": "ANALYZED: 2/2 tests pass. All passing.",
     "stCodeCopyTest": "ANALYZED: 2/2 tests pass. All passing.",
@@ -64,7 +66,7 @@
     "stZeroCallsTest": "ENABLED: 24/24 tests pass. All passing.",
     "stZeroCallsRevert": "ENABLED: 16/16 tests pass. All passing.",
     "stStaticFlagEnabled": "ENABLED: 34/34 tests pass. All passing.",
-    "stEIP1559": "ENABLED: 1843/1846 tests pass. 3 failures skipped: tx_encoding_error(1), error_mismatch(1), fixed_by_fee_validation(1). Note: lowFeeCap and lowGasPriceOldTypes(x2) now passing after fee validation fix.",
+    "stEIP1559": "ENABLED: 1842/1846 tests pass. 4 failures skipped: tx_encoding_error(1), gas_mismatch_on_rejected_tx(2), fixed_by_fee_validation(1). Note: lowFeeCap and lowGasPriceOldTypes(x2) now passing after fee validation fix.",
     "stZeroKnowledge": "ENABLED: 945/945 tests pass. All passing.",
     "stZeroKnowledge2": "ENABLED: 520/520 tests pass. All passing.",
     "stPreCompiledContracts2": "ENABLED: 160/160 tests pass. All passing.",
@@ -75,7 +77,7 @@
     "Cancun": "ENABLED: 170/177 tests pass. 7 failures skipped: error_mismatch(7)",
     "Shanghai": "ENABLED: 27/27 tests pass. All passing (after PR #2780 fix).",
     "VMTests": "ANALYZED: 311/596 tests pass (52%). 285 failures: result_code. Too many to skip individually.",
-    "stQuadraticComplexityTest": "TIMED_OUT: needs re-run with longer timeout",
-    "stTimeConsuming": "TIMED_OUT: needs re-run with longer timeout"
+    "stQuadraticComplexityTest": "TIMEOUT: Tests exceed 30m timeout. Even single tests (Create1000.json) timeout at 10m. Contains stress tests for call depth (1024), large contracts (20KB), and precompile gas under load (50K calls). Not practical for CI.",
+    "stTimeConsuming": "TIMEOUT: Tests would exceed 60m+ timeout. Contains ~50MB of exhaustive SSTORE combination tests. Given stQuadraticComplexityTest timeouts, these would definitely not complete."
   }
 }

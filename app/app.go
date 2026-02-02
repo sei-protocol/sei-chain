@@ -1779,6 +1779,17 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		}, nil
 	}
 
+	// 4. TX gas limit > block gas limit check (GAS_ALLOWANCE_EXCEEDED)
+	// V2: x/evm/ante/basic.go lines 63-68
+	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
+		if cp.Block.MaxGas > 0 && ethTx.Gas() > uint64(cp.Block.MaxGas) { //nolint:gosec
+			return &abci.ExecTxResult{
+				Code: uint32(sdkerrors.ErrOutOfGas.ABCICode()),
+				Log:  fmt.Sprintf("tx gas limit %d exceeds block max gas %d", ethTx.Gas(), cp.Block.MaxGas),
+			}, nil
+		}
+	}
+
 	// Prepare context for EVM transaction (set infinite gas meter like original flow)
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 

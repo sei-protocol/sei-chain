@@ -197,7 +197,7 @@ func (stc *StateTestContext) SetupSender(sender common.Address) {
 }
 
 // SetupEnv configures the block environment from the test's env settings.
-// This sets the base fee to match the test's expected block conditions.
+// This sets the base fee and block gas limit to match the test's expected block conditions.
 func (stc *StateTestContext) SetupEnv(env harness.StateTestEnv) {
 	// Set base fee from test environment
 	if env.BaseFee != "" {
@@ -209,6 +209,21 @@ func (stc *StateTestContext) SetupEnv(env harness.StateTestEnv) {
 		// After PR #2780, both Giga and V2 executors share the same underlying data layer,
 		// so we only need to set it once via EvmKeeper - both paths will read the same value.
 		stc.TestApp.EvmKeeper.SetNextBaseFeePerGas(stc.Ctx, baseFeeSDK)
+	}
+
+	// Set block gas limit from test environment
+	// This is critical for tests like lowGasLimit.json where TX gas > block gas should fail
+	if env.GasLimit != "" {
+		gasLimit := harness.ParseHexBig(env.GasLimit).Int64()
+		cp := stc.Ctx.ConsensusParams()
+		if cp == nil {
+			cp = &tmproto.ConsensusParams{}
+		}
+		if cp.Block == nil {
+			cp.Block = &tmproto.BlockParams{}
+		}
+		cp.Block.MaxGas = gasLimit
+		stc.Ctx = stc.Ctx.WithConsensusParams(cp)
 	}
 }
 
@@ -269,24 +284,6 @@ func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harnes
 	if len(v2Results) > 0 && len(gigaResults) > 0 {
 		t.Logf("V2 result:   code=%d gas=%d log=%q", v2Results[0].Code, v2Results[0].GasUsed, v2Results[0].Log)
 		t.Logf("Giga result: code=%d gas=%d log=%q", gigaResults[0].Code, gigaResults[0].GasUsed, gigaResults[0].Log)
-	}
-
-	// --- Handle ExpectException cases ---
-	if post.ExpectException != "" {
-		// This test expects the transaction to fail
-		// Both executors should produce an error or a failed result
-		v2Failed := v2Err != nil || (len(v2Results) > 0 && v2Results[0].Code != 0)
-		gigaFailed := gigaErr != nil || (len(gigaResults) > 0 && gigaResults[0].Code != 0)
-
-		if !v2Failed && !gigaFailed {
-			return TestResult{
-				Passed:      false,
-				FailureType: FailureTypeErrorMismatch,
-				Message:     fmt.Sprintf("expected exception %q but both executors succeeded", post.ExpectException),
-			}
-		}
-		// Both should fail - that's expected
-		return TestResult{Passed: true}
 	}
 
 	// --- Compare execution errors ---
@@ -367,29 +364,48 @@ func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harnes
 		}
 	}
 
-	// --- Verify post-state against fixture (if configured and available) ---
-	if config.VerifyEthereumSpec && len(post.State) > 0 {
-		v2Diffs := verifyPostStateWithResult(t, v2Ctx.Ctx, v2Ctx.EvmKeeper(), v2Ctx.BankKeeper(), post.State, "V2")
-		gigaDiffs := verifyPostStateWithResult(t, gigaCtx.Ctx, gigaCtx.EvmKeeper(), gigaCtx.BankKeeper(), post.State, "Giga")
+	// --- Verify against Ethereum spec (if configured) ---
+	if config.VerifyEthereumSpec {
+		// Check ExpectException if set
+		if post.ExpectException != "" {
+			v2Failed := v2Err != nil || (len(v2Results) > 0 && v2Results[0].Code != 0)
+			gigaFailed := gigaErr != nil || (len(gigaResults) > 0 && gigaResults[0].Code != 0)
 
-		// Log any fixture verification differences
-		if len(v2Diffs) > 0 {
-			t.Logf("V2 vs fixture differences:")
-			for _, diff := range v2Diffs {
-				t.Logf("  %s", diff)
+			if !v2Failed || !gigaFailed {
+				return TestResult{
+					Passed:      false,
+					FailureType: FailureTypeErrorMismatch,
+					Message:     fmt.Sprintf("expected exception %q but V2 failed=%v, Giga failed=%v", post.ExpectException, v2Failed, gigaFailed),
+				}
 			}
+			// Both failed as expected by spec
+			return TestResult{Passed: true}
 		}
-		if len(gigaDiffs) > 0 {
-			t.Logf("Giga vs fixture differences:")
-			for _, diff := range gigaDiffs {
-				t.Logf("  %s", diff)
+
+		// Verify post-state against fixture
+		if len(post.State) > 0 {
+			v2Diffs := verifyPostStateWithResult(t, v2Ctx.Ctx, v2Ctx.EvmKeeper(), v2Ctx.BankKeeper(), post.State, "V2")
+			gigaDiffs := verifyPostStateWithResult(t, gigaCtx.Ctx, gigaCtx.EvmKeeper(), gigaCtx.BankKeeper(), post.State, "Giga")
+
+			// Log any fixture verification differences
+			if len(v2Diffs) > 0 {
+				t.Logf("V2 vs fixture differences:")
+				for _, diff := range v2Diffs {
+					t.Logf("  %s", diff)
+				}
 			}
-			// Return the first Giga diff as the failure
-			return TestResult{
-				Passed:      false,
-				FailureType: gigaDiffs[0].Type,
-				Message:     gigaDiffs[0].Summary,
-				Details:     formatStateDiffs(gigaDiffs),
+			if len(gigaDiffs) > 0 {
+				t.Logf("Giga vs fixture differences:")
+				for _, diff := range gigaDiffs {
+					t.Logf("  %s", diff)
+				}
+				// Return the first Giga diff as the failure
+				return TestResult{
+					Passed:      false,
+					FailureType: gigaDiffs[0].Type,
+					Message:     gigaDiffs[0].Summary,
+					Details:     formatStateDiffs(gigaDiffs),
+				}
 			}
 		}
 	}
