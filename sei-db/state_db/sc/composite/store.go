@@ -79,7 +79,18 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 		return nil, fmt.Errorf("failed to load cosmos version: %w", err)
 	}
 
-	return cosmosSC, nil
+	cosmosCommitter, ok := cosmosSC.(*memiavl.CommitStore)
+	if !ok {
+		return nil, fmt.Errorf("unexpected committer type from cosmos LoadVersion")
+	}
+	return &CompositeCommitStore{
+		logger:          cs.logger,
+		cosmosCommitter: cosmosCommitter,
+		homeDir:         cs.homeDir,
+		config:          cs.config,
+		// TODO: Also load evmCommitter for readOnly if enabled
+	}, nil
+
 }
 
 // ApplyChangeSets applies changesets to the appropriate backends based on config.
