@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 )
@@ -47,4 +49,15 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		MemIAVLConfig: memiavl.DefaultConfig(),
 		FlatKVConfig:  flatkv.DefaultConfig(),
 	}
+}
+
+// Validate checks if the StateCommitConfig is valid
+func (c StateCommitConfig) Validate() error {
+	if !c.WriteMode.IsValid() {
+		return fmt.Errorf("invalid write_mode: %s", c.WriteMode)
+	}
+	if !c.ReadMode.IsValid() {
+		return fmt.Errorf("invalid read_mode: %s", c.ReadMode)
+	}
+	return nil
 }
