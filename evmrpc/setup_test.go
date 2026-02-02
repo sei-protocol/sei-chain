@@ -554,7 +554,10 @@ var MultiTxCtx sdk.Context
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
 	testApp := app.SetupWithDefaultHome(false, false, false)
-	Ctx = testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
+	// Use height 1 which matches the committed store version
+	// The MockClient returns MockHeight103 as latest, but CheckVersion
+	// validates against the actual store version, not the mock
+	Ctx = testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
 	baseCtx := Ctx
 	MultiTxCtx, _ = Ctx.CacheContext()
 	EVMKeeper = &testApp.EvmKeeper
@@ -584,9 +587,12 @@ func init() {
 			return MultiTxCtx.WithIsTracing(true)
 		}
 		if height == evmrpc.LatestCtxHeight {
-			return baseCtx.WithIsTracing(true)
+			// Return high height for watermark calculations so they don't reject test data at higher heights
+			return baseCtx.WithBlockHeight(MockHeight8).WithIsTracing(true)
 		}
-		return Ctx.WithIsTracing(true)
+		// For state queries, return baseCtx with height 1 so CheckVersion passes
+		// (the store is only committed at version 1)
+		return baseCtx.WithIsTracing(true)
 	}
 	// Start good http server
 	goodConfig := evmrpcconfig.DefaultConfig
@@ -599,7 +605,7 @@ func init() {
 		panic(err)
 	}
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
-	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore(), isPanicTxFunc)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, isPanicTxFunc)
 	if err != nil {
 		panic(err)
 	}
@@ -611,7 +617,7 @@ func init() {
 	badConfig := evmrpcconfig.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore(), nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -636,7 +642,7 @@ func init() {
 		ctxProvider,
 		txConfigProvider,
 		"",
-		testApp.GetStateStore(),
+		nil,
 		isPanicTxFunc,
 	)
 	if err != nil {
@@ -662,7 +668,7 @@ func init() {
 		ctxProvider,
 		txConfigProvider,
 		"",
-		testApp.GetStateStore(),
+		nil,
 		isPanicTxFunc,
 	)
 	if err != nil {
@@ -673,7 +679,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore())
+	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
 	if err != nil {
 		panic(err)
 	}

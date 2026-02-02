@@ -15,6 +15,9 @@ func TestTraceTransaction(t *testing.T) {
 	// test callTracer
 	args["tracer"] = "callTracer"
 	resObj := sendRequestGoodWithNamespace(t, "debug", "traceTransaction", DebugTraceHashHex, args)
+	if errObj, ok := resObj["error"]; ok {
+		t.Fatalf("Unexpected error from debug_traceTransaction: %+v", errObj)
+	}
 	result := resObj["result"].(map[string]interface{})
 	require.Equal(t, "0x5b4eba929f3811980f5ae0c5d04fa200f837df4e", strings.ToLower(result["from"].(string)))
 	require.Equal(t, "0x3e8", result["gas"])
