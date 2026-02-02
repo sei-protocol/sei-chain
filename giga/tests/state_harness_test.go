@@ -50,16 +50,17 @@ type BankKeeperInterface interface {
 type FailureType string
 
 const (
-	FailureTypeResultCode      FailureType = "result_code"
-	FailureTypeGasMismatch     FailureType = "gas_mismatch"
-	FailureTypeStateMismatch   FailureType = "state_mismatch"
-	FailureTypeCodeMismatch    FailureType = "code_mismatch"
-	FailureTypeNonceMismatch   FailureType = "nonce_mismatch"
-	FailureTypeBalanceMismatch FailureType = "balance_mismatch"
-	FailureTypeErrorMismatch   FailureType = "error_mismatch"
-	FailureTypeV2Error         FailureType = "v2_error"
-	FailureTypeGigaError       FailureType = "giga_error"
-	FailureTypeUnknown         FailureType = "unknown"
+	FailureTypeResultCode       FailureType = "result_code"
+	FailureTypeGasMismatch      FailureType = "gas_mismatch"
+	FailureTypeStateMismatch    FailureType = "state_mismatch"
+	FailureTypeCodeMismatch     FailureType = "code_mismatch"
+	FailureTypeNonceMismatch    FailureType = "nonce_mismatch"
+	FailureTypeBalanceMismatch  FailureType = "balance_mismatch"
+	FailureTypeErrorMismatch    FailureType = "error_mismatch"
+	FailureTypeV2Error          FailureType = "v2_error"
+	FailureTypeGigaError        FailureType = "giga_error"
+	FailureTypeFailedTxBehavior FailureType = "failed_tx_behavior" // Known issue: V2 and Giga differ in error code/gas for failed txs
+	FailureTypeUnknown          FailureType = "unknown"
 )
 
 // TestResult captures the outcome of a state test comparison

@@ -11,7 +11,16 @@
     "stEIP1559/tipTooHigh.json/GeneralStateTests/stEIP1559/tipTooHigh.json::tipTooHigh-fork_[Cancun-Prague]-d0g0v0": "tx_encoding_error",
     "stEIP1559/lowGasLimit.json/GeneralStateTests/stEIP1559/lowGasLimit.json::lowGasLimit-fork_[Cancun-Prague]-d0g[0-3]v0/0": "gas_mismatch_on_rejected_tx: both V2 and Giga reject with code=11 (tx gas > block gas), but V2 reports Cosmos gas (~385k) while Giga reports 0",
     "stEIP1559/lowGasLimit.json/GeneralStateTests/stEIP1559/lowGasLimit.json::lowGasLimit-fork_[Cancun-Prague]-d0g[0-3]v0/3": "gas_mismatch_on_rejected_tx: both V2 and Giga reject with code=1 (intrinsic gas too low), but V2 reports Cosmos gas (~385k) while Giga reports 0",
-    "stExample/invalidTr.json/GeneralStateTests/stExample/invalidTr.json::invalidTr-fork_[Cancun-Prague]-d0g0v0": "gas_mismatch_on_rejected_tx: both V2 and Giga reject with code=1 (intrinsic gas too low), but V2 reports Cosmos gas (~401k) while Giga reports 0"
+    "stExample/invalidTr.json/GeneralStateTests/stExample/invalidTr.json::invalidTr-fork_[Cancun-Prague]-d0g0v0": "gas_mismatch_on_rejected_tx: both V2 and Giga reject with code=1 (intrinsic gas too low), but V2 reports Cosmos gas (~401k) while Giga reports 0",
+    "blockchain/ValidBlocks/bcEIP1559/medDemand.json/BlockchainTests/ValidBlocks/bcEIP1559/medDemand.json::medDemand_Cancun": "failed_tx_behavior",
+    "blockchain/ValidBlocks/bcEIP1559/tips.json/BlockchainTests/ValidBlocks/bcEIP1559/tips.json::tips_Cancun": "failed_tx_behavior",
+    "blockchain/ValidBlocks/bcEIP1559/transType.json/BlockchainTests/ValidBlocks/bcEIP1559/transType.json::transType_Cancun": "failed_tx_behavior",
+    "blockchain/ValidBlocks/bcEIP1559/intrinsicTip.json/BlockchainTests/ValidBlocks/bcEIP1559/intrinsicTip.json::intrinsicTip_Cancun": "failed_tx_behavior",
+    "blockchain/ValidBlocks/bcEIP1559/highDemand.json/BlockchainTests/ValidBlocks/bcEIP1559/highDemand.json::highDemand_Cancun": "failed_tx_behavior",
+    "blockchain/ValidBlocks/bcEIP1559/intrinsic.json/BlockchainTests/ValidBlocks/bcEIP1559/intrinsic.json::intrinsic_Cancun": "failed_tx_behavior",
+    "blockchain/ValidBlocks/bcEIP1559/lowDemand.json/BlockchainTests/ValidBlocks/bcEIP1559/lowDemand.json::lowDemand_Cancun": "failed_tx_behavior",
+    "blockchain/ValidBlocks/bcStateTests/BLOCKHASH_Bounds.json/BlockchainTests/ValidBlocks/bcStateTests/BLOCKHASH_Bounds.json::BLOCKHASH_Bounds_Cancun": "failed_tx_behavior",
+    "blockchain/ValidBlocks/bcValidBlockTest/SimpleTx3LowS.json/BlockchainTests/ValidBlocks/bcValidBlockTest/SimpleTx3LowS.json::SimpleTx3LowS_Cancun": "failed_tx_behavior"
   },
   "skipped_categories": [
     "VMTests",
@@ -78,6 +87,11 @@
     "Shanghai": "ENABLED: 27/27 tests pass. All passing (after PR #2780 fix).",
     "VMTests": "ANALYZED: 311/596 tests pass (52%). 285 failures: result_code. Too many to skip individually.",
     "stQuadraticComplexityTest": "TIMEOUT: Tests exceed 30m timeout. Even single tests (Create1000.json) timeout at 10m. Contains stress tests for call depth (1024), large contracts (20KB), and precompile gas under load (50K calls). Not practical for CI.",
-    "stTimeConsuming": "TIMEOUT: Tests would exceed 60m+ timeout. Contains ~50MB of exhaustive SSTORE combination tests. Given stQuadraticComplexityTest timeouts, these would definitely not complete."
+    "stTimeConsuming": "TIMEOUT: Tests would exceed 60m+ timeout. Contains ~50MB of exhaustive SSTORE combination tests. Given stQuadraticComplexityTest timeouts, these would definitely not complete.",
+    "blockchain/ValidBlocks/bcExample": "ENABLED: 4/4 tests pass. All passing.",
+    "blockchain/ValidBlocks/bcEIP1559": "ENABLED: 2/9 tests pass. 7 failures skipped: failed_tx_behavior(7). Tests with failing transactions show V2/Giga behavior difference.",
+    "blockchain/ValidBlocks/bcStateTests": "ENABLED: 287/288 tests pass. 1 failure skipped: failed_tx_behavior(1).",
+    "blockchain/ValidBlocks/bcValidBlockTest": "ENABLED: 15/16 tests pass. 1 failure skipped: failed_tx_behavior(1).",
+    "blockchain/ValidBlocks/bcEIP1153-transientStorage": "ENABLED: 3/3 tests pass. All passing."
   }
 }

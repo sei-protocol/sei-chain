@@ -14,7 +14,6 @@ import (
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
-	xevmtypes "github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
