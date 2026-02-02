@@ -22,7 +22,7 @@ func setupTestStores(t *testing.T) (*CompositeStateStore, string, func()) {
 		KeepRecent:       100000,
 	}
 
-	evmConfig := &config.EVMStateStoreConfig{
+	evmConfig := config.EVMStateStoreConfig{
 		Enable:      true,
 		EnableRead:  true,
 		EnableWrite: true,
@@ -30,7 +30,7 @@ func setupTestStores(t *testing.T) (*CompositeStateStore, string, func()) {
 		KeepRecent:  100000,
 	}
 
-	compositeStore, err := NewCompositeStateStore(ssConfig, *evmConfig, dir, logger.NewNopLogger())
+	compositeStore, err := NewCompositeStateStore(ssConfig, evmConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 
 	cleanup := func() {
