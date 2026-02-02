@@ -117,7 +117,7 @@ type ReceiptStoreConfig struct {
 	DBDirectory string `mapstructure:"db-directory"`
 
 	// Backend defines the backend used for receipt storage.
-	// Supported backends: pebble (aka pebbledb).
+	// Supported backends: pebble (aka pebbledb), parquet.
 	// defaults to pebble.
 	Backend string `mapstructure:"backend"`
 
