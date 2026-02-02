@@ -16,6 +16,11 @@ type StateCommitConfig struct {
 	// If not explicitly set, default to application home directory
 	Directory string `mapstructure:"directory"`
 
+	// AsyncCommitBuffer defines the size of asynchronous commit queue
+	// this greatly improve block catching-up performance, <= 0 means synchronous commit.
+	// defaults to 100
+	AsyncCommitBuffer int `mapstructure:"async-commit-buffer"`
+
 	// WriteMode defines the write routing mode for EVM data
 	// Valid values: cosmos_only, dual_write, split_write, evm_only
 	// defaults to cosmos_only
