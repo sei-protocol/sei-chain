@@ -33,8 +33,7 @@ func (m WriteMode) IsValid() bool {
 func ParseWriteMode(s string) (WriteMode, error) {
 	m := WriteMode(s)
 	if !m.IsValid() {
-		return "", fmt.Errorf("invalid write mode: %q, valid modes: %s, %s, %s, %s",
-			s, CosmosOnlyWrite, DualWrite, SplitWrite)
+		return "", fmt.Errorf("invalid write mode: %s", s)
 	}
 	return m, nil
 }
