@@ -36,6 +36,13 @@ const (
 	FlagSSPruneInterval     = "state-store.ss-prune-interval"
 	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
 
+	// EVM SS Store configs (optimized EVM storage layer)
+	FlagEVMSSEnable      = "state-store.evm-ss-enable"
+	FlagEVMSSEnableRead  = "state-store.evm-ss-enable-read"
+	FlagEVMSSEnableWrite = "state-store.evm-ss-enable-write"
+	FlagEVMSSDirectory   = "state-store.evm-ss-db-directory"
+	FlagEVMSSKeepRecent  = "state-store.evm-ss-keep-recent"
+
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
 	FlagMigrateIAVL      = "migrate-iavl"
@@ -58,8 +65,12 @@ func SetupSeiDB(
 	logger.Info("SeiDB SC is enabled, running node with StoreV2 commit store")
 	scConfig := parseSCConfigs(appOpts)
 	ssConfig := parseSSConfigs(appOpts)
+	evmSSConfig := parseEVMSSConfigs(appOpts)
 	if ssConfig.Enable {
 		logger.Info(fmt.Sprintf("SeiDB StateStore is enabled, running %s for historical state", ssConfig.Backend))
+	}
+	if evmSSConfig != nil && evmSSConfig.Enable {
+		logger.Info("SeiDB EVM StateStore optimization is enabled")
 	}
 	validateConfigs(appOpts)
 	gigaExecutorConfig, err := gigaconfig.ReadConfig(appOpts)
@@ -72,7 +83,7 @@ func SetupSeiDB(
 	}
 	// cms must be overridden before the other options, because they may use the cms,
 	// make sure the cms aren't be overridden by the other options later on.
-	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig, cast.ToBool(appOpts.Get("migrate-iavl")), gigaStoreKeys)
+	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig, evmSSConfig, cast.ToBool(appOpts.Get("migrate-iavl")), gigaStoreKeys)
 	migrationEnabled := cast.ToBool(appOpts.Get(FlagMigrateIAVL))
 	migrationHeight := cast.ToInt64(appOpts.Get(FlagMigrateHeight))
 	baseAppOptions = append([]func(*baseapp.BaseApp){
@@ -112,6 +123,19 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.ImportNumWorkers = cast.ToInt(appOpts.Get(FlagSSImportNumWorkers))
 	ssConfig.DBDirectory = cast.ToString(appOpts.Get(FlagSSDirectory))
 	return ssConfig
+}
+
+func parseEVMSSConfigs(appOpts servertypes.AppOptions) *config.EVMStateStoreConfig {
+	evmSSConfig := config.DefaultEVMStateStoreConfig()
+	evmSSConfig.Enable = cast.ToBool(appOpts.Get(FlagEVMSSEnable))
+	if !evmSSConfig.Enable {
+		return nil
+	}
+	evmSSConfig.EnableRead = cast.ToBool(appOpts.Get(FlagEVMSSEnableRead))
+	evmSSConfig.EnableWrite = cast.ToBool(appOpts.Get(FlagEVMSSEnableWrite))
+	evmSSConfig.DBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))
+	evmSSConfig.KeepRecent = cast.ToInt(appOpts.Get(FlagEVMSSKeepRecent))
+	return &evmSSConfig
 }
 
 func validateConfigs(appOpts servertypes.AppOptions) {

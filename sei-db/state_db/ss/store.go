@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
@@ -31,8 +32,34 @@ func RegisterBackend(backendType BackendType, initializer BackendInitializer) {
 	backends[backendType] = initializer
 }
 
-// NewStateStore Create a new state store with the specified backend type
+// NewStateStore creates a new state store with the specified backend type.
+// For backward compatibility - use NewStateStoreWithEVM when EVM optimization is needed.
 func NewStateStore(logger logger.Logger, homeDir string, ssConfig config.StateStoreConfig) (types.StateStore, error) {
+	return NewStateStoreWithEVM(logger, homeDir, ssConfig, nil)
+}
+
+// NewStateStoreWithEVM creates a new state store, optionally with EVM optimization layer.
+// When evmConfig is enabled, returns a CompositeStateStore that routes EVM data to
+// optimized separate databases while maintaining full compatibility with the StateStore interface.
+// When evmConfig is nil or disabled, returns a plain state store.
+func NewStateStoreWithEVM(
+	logger logger.Logger,
+	homeDir string,
+	ssConfig config.StateStoreConfig,
+	evmConfig *config.EVMStateStoreConfig,
+) (types.StateStore, error) {
+	// If EVM is enabled, use CompositeStateStore which handles everything internally
+	// (creates cosmos store, EVM stores, recovery, and pruning)
+	if evmConfig != nil && evmConfig.Enable {
+		return composite.NewCompositeStateStore(ssConfig, evmConfig, homeDir, logger)
+	}
+
+	// Otherwise, create plain state store with standard recovery and pruning
+	return newPlainStateStore(logger, homeDir, ssConfig)
+}
+
+// newPlainStateStore creates a plain state store without EVM optimization
+func newPlainStateStore(logger logger.Logger, homeDir string, ssConfig config.StateStoreConfig) (types.StateStore, error) {
 	initializer, ok := backends[BackendType(ssConfig.Backend)]
 	if !ok {
 		return nil, fmt.Errorf("unsupported backend: %s", ssConfig.Backend)
