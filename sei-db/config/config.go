@@ -198,3 +198,30 @@ func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 		UseDefaultComparer:   false, // TODO: flip to true once MVCCComparer is deprecated
 	}
 }
+
+// EVMStateStoreConfig defines configuration for the separate EVM state stores.
+// EVM stores use default comparer and separate PebbleDBs for each key type
+// (storage, nonce, code, codehash, codesize).
+type EVMStateStoreConfig struct {
+	// Enable defines if the EVM state stores should be enabled.
+	// When enabled, EVM data is dual-written to separate optimized databases.
+	// Reads check EVM_SS first, then fallback to Cosmos_SS.
+	// defaults to false
+	Enable bool `mapstructure:"enable"`
+
+	// DBDirectory defines the directory to store the EVM state store db files
+	// If not explicitly set, defaults to <home>/data/evm_ss
+	DBDirectory string `mapstructure:"db-directory"`
+
+	// KeepRecent defines the number of versions to keep in EVM state stores
+	// Setting it to 0 means keep everything.
+	// Default to keep the last 100,000 blocks
+	KeepRecent int `mapstructure:"keep-recent"`
+}
+
+func DefaultEVMStateStoreConfig() EVMStateStoreConfig {
+	return EVMStateStoreConfig{
+		Enable:     false, // Disabled by default, enable for optimized EVM storage
+		KeepRecent: DefaultSSKeepRecent,
+	}
+}
