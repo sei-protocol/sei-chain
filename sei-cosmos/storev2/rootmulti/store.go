@@ -230,12 +230,11 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 		store := types.KVStore(v)
 		stores[k] = store
 	}
-	gigaStores := make(map[types.StoreKey]types.KVStore, len(rs.gigaKeys))
+	gigaKeys := make([]types.StoreKey, 0, len(rs.gigaKeys))
 	for _, k := range rs.gigaKeys {
-		key := rs.storeKeys[k]
-		gigaStores[key] = rs.ckvStores[key]
+		gigaKeys = append(gigaKeys, rs.storeKeys[k])
 	}
-	return cachemulti.NewStore(nil, stores, rs.storeKeys, gigaStores, nil, nil)
+	return cachemulti.NewStore(nil, stores, rs.storeKeys, gigaKeys, nil, nil)
 }
 
 // CacheMultiStoreWithVersion Implements interface MultiStore
@@ -244,21 +243,25 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 	rs.mtx.RLock()
 	defer rs.mtx.RUnlock()
 	stores := make(map[types.StoreKey]types.CacheWrapper)
-	// add the transient/mem stores registered in current app.
-	for k, store := range rs.ckvStores {
-		if store.GetStoreType() != types.StoreTypeIAVL {
-			stores[k] = store
-		}
-	}
-	// TODO: May need to add historical SC store as well for nodes that doesn't enable ss but still need historical queries
-
-	// add SS stores for historical queries
+	// Serve from SS stores for ALL historical queries
 	if rs.ssStore != nil {
+		if version <= 0 {
+			version = rs.ssStore.GetLatestVersion()
+		}
+		// add the transient/mem stores registered in current app.
+		for k, store := range rs.ckvStores {
+			if store.GetStoreType() != types.StoreTypeIAVL {
+				stores[k] = store
+			}
+		}
 		for k, store := range rs.ckvStores {
 			if store.GetStoreType() == types.StoreTypeIAVL {
 				stores[k] = state.NewStore(rs.ssStore, k, version)
 			}
 		}
+	} else if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
+		// Only serve from SC when query latest version and SS not enabled
+		return rs.CacheMultiStore(), nil
 	}
 
 	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil), nil

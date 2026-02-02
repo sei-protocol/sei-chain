@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"io"
+	"sort"
 	"sync"
 
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
@@ -79,28 +80,48 @@ func (store *Store) Write() {
 	store.mtx.Lock()
 	defer store.mtx.Unlock()
 
-	store.cache.Range(func(k, value any) bool {
-		if value.(*types.CValue).Dirty() {
-			key := k.(string)
-			if store.isDeleted(key) {
-				// We use []byte(key) instead of conv.UnsafeStrToBytes because we cannot
-				// be sure if the underlying store might do a save with the byteslice or
-				// not. Once we get confirmation that .Delete is guaranteed not to
-				// save the byteslice, then we can assume only a read-only copy is sufficient.
-				store.parent.Delete([]byte(key))
-				return true
-			}
+	// We need a copy of all of the keys.
+	// Not the best, but probably not a bottleneck depending.
+	keys := []string{}
 
-			cacheValue, ok := store.cache.Load(key)
-			if ok && cacheValue.(*types.CValue).Value() != nil {
-				// It already exists in the parent, hence delete it.
-				store.parent.Set([]byte(key), cacheValue.(*types.CValue).Value())
-			}
+	store.cache.Range(func(key, value any) bool {
+		if value.(*types.CValue).Dirty() {
+			keys = append(keys, key.(string))
 		}
 		return true
 	})
+	sort.Strings(keys)
+	// TODO: Consider allowing usage of Batch, which would allow the write to
+	// at least happen atomically.
+	for _, key := range keys {
+		if store.isDeleted(key) {
+			// We use []byte(key) instead of conv.UnsafeStrToBytes because we cannot
+			// be sure if the underlying store might do a save with the byteslice or
+			// not. Once we get confirmation that .Delete is guaranteed not to
+			// save the byteslice, then we can assume only a read-only copy is sufficient.
+			store.parent.Delete([]byte(key))
+			continue
+		}
 
-	store.cache = &sync.Map{}
+		cacheValue, ok := store.cache.Load(key)
+		if ok && cacheValue.(*types.CValue).Value() != nil {
+			// It already exists in the parent, hence delete it.
+			store.parent.Set([]byte(key), cacheValue.(*types.CValue).Value())
+		}
+	}
+
+	// Mark all entries as clean (not dirty) instead of clearing the cache.
+	// This is important because the parent store (commitment.Store) doesn't make
+	// writes immediately visible until Commit(). By keeping the cache populated
+	// with clean entries, subsequent reads will still hit the cache instead of
+	// falling through to the parent which can't read uncommitted data.
+	store.cache.Range(func(key, value any) bool {
+		cv := value.(*types.CValue)
+		// Replace with a clean (non-dirty) version of the same value
+		store.cache.Store(key, types.NewCValue(cv.Value(), false))
+		return true
+	})
+	// Clear the deleted map since those deletes have been sent to parent
 	store.deleted = &sync.Map{}
 }
 

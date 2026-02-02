@@ -18,7 +18,9 @@ type Executor struct {
 
 func NewEvmoneExecutor(evmoneVM *evmc.VM, blockCtx vm.BlockContext, stateDB vm.StateDB, chainConfig *params.ChainConfig, config vm.Config, customPrecompiles map[common.Address]vm.PrecompiledContract) *Executor {
 	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, config, customPrecompiles)
-	hostContext := internal.NewHostContext(evmoneVM, evm)
+	// Pre-compute HostContext config from chain config (avoids per-SSTORE overhead)
+	hostConfig := internal.NewHostContextConfig(chainConfig)
+	hostContext := internal.NewHostContext(evmoneVM, evm, hostConfig)
 	evm.EVMInterpreter = internal.NewEVMInterpreter(hostContext, evm)
 	return &Executor{
 		evm: evm,

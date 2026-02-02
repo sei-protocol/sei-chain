@@ -2,6 +2,14 @@
 
 set -eu
 
+# Skip oracle price feeder when GIGA executor is enabled
+# GIGA executor OCC mode doesn't support oracle transactions yet
+GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
+if [ "$GIGA_EXECUTOR" = "true" ]; then
+  echo "GIGA executor is enabled - skipping oracle price feeder"
+  exit 0
+fi
+
 if ! command -v jq >/dev/null 2>&1; then
   echo "jq is required but not found in PATH" >&2
   exit 1

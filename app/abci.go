@@ -195,5 +195,8 @@ func (app *App) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchRequest) (
 func (app *App) Commit(ctx context.Context) (res *abci.ResponseCommit, err error) {
 	_, span := app.GetBaseApp().TracingInfo.StartWithContext("Commit", ctx)
 	defer span.End()
-	return app.BaseApp.Commit(ctx)
+	start := time.Now()
+	res, err = app.BaseApp.Commit(ctx)
+	app.RecordBenchmarkCommitTime(time.Since(start))
+	return res, err
 }

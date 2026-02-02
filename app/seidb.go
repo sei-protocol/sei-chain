@@ -42,7 +42,7 @@ const (
 	FlagMigrateHeight    = "migrate-height"
 )
 
-var GigaKeys = []string{"evm"}
+var GigaKeys = []string{"evm", "bank"}
 
 func SetupSeiDB(
 	logger log.Logger,

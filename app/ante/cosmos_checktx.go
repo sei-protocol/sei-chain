@@ -515,7 +515,7 @@ func UpdateSigners(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountK
 			sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 		evmKeeper.SetAddressMapping(ctx, signer, evmAddr)
 		associationHelper := helpers.NewAssociationHelper(evmKeeper, evmKeeper.BankKeeper(), accountKeeper)
-		if err := associationHelper.MigrateBalance(ctx, evmAddr, signer); err != nil {
+		if err := associationHelper.MigrateBalance(ctx, evmAddr, signer, false); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to migrate EVM address balance (%s) %s", evmAddr.Hex(), err))
 			return nil, err
 		}
