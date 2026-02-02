@@ -30,7 +30,7 @@ func setupTestStores(t *testing.T) (*CompositeStateStore, string, func()) {
 		KeepRecent:  100000,
 	}
 
-	compositeStore, err := NewCompositeStateStore(ssConfig, evmConfig, dir, logger.NewNopLogger())
+	compositeStore, err := NewCompositeStateStore(ssConfig, *evmConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 
 	cleanup := func() {
@@ -182,8 +182,9 @@ func TestCompositeStateStoreWithoutEVM(t *testing.T) {
 		KeepRecent:       100000,
 	}
 
-	// Create composite store with EVM disabled (nil config)
-	store, err := NewCompositeStateStore(ssConfig, nil, dir, logger.NewNopLogger())
+	// Create composite store with EVM disabled (Enable=false)
+	evmConfig := config.EVMStateStoreConfig{Enable: false}
+	store, err := NewCompositeStateStore(ssConfig, evmConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 

@@ -22,7 +22,7 @@ type CompositeStateStore struct {
 	cosmosStore types.StateStore   // Main MVCC PebbleDB for all modules
 	evmStore    *evm.EVMStateStore // Separate EVM DBs with default comparer (nil if disabled)
 	ssConfig    config.StateStoreConfig
-	evmConfig   *config.EVMStateStoreConfig
+	evmConfig   config.EVMStateStoreConfig
 	logger      logger.Logger
 }
 
@@ -30,11 +30,11 @@ type CompositeStateStore struct {
 // It initializes both stores internally and starts pruning on the composite store.
 //
 // ssConfig: configuration for the main Cosmos state store (required)
-// evmConfig: configuration for EVM state stores (optional - if nil or disabled, only Cosmos_SS is used)
+// evmConfig: configuration for EVM state stores (check Enable field to see if EVM optimization is active)
 // homeDir: base directory for data files
 func NewCompositeStateStore(
 	ssConfig config.StateStoreConfig,
-	evmConfig *config.EVMStateStoreConfig,
+	evmConfig config.EVMStateStoreConfig,
 	homeDir string,
 	log logger.Logger,
 ) (*CompositeStateStore, error) {
@@ -56,7 +56,7 @@ func NewCompositeStateStore(
 	}
 
 	// Initialize EVM stores if enabled
-	if evmConfig != nil && evmConfig.Enable {
+	if evmConfig.Enable {
 		evmDir := evmConfig.DBDirectory
 		if evmDir == "" {
 			evmDir = filepath.Join(homeDir, "data", "evm_ss")

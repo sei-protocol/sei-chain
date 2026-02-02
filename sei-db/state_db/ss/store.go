@@ -51,7 +51,7 @@ func NewStateStoreWithEVM(
 	// If EVM is enabled, use CompositeStateStore which handles everything internally
 	// (creates cosmos store, EVM stores, recovery, and pruning)
 	if evmConfig != nil && evmConfig.Enable {
-		return composite.NewCompositeStateStore(ssConfig, evmConfig, homeDir, logger)
+		return composite.NewCompositeStateStore(ssConfig, *evmConfig, homeDir, logger)
 	}
 
 	// Otherwise, create plain state store with standard recovery and pruning
