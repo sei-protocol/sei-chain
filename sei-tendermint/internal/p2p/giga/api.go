@@ -53,7 +53,7 @@ var Consensus = rpc.Register[API](6,
 	// * there are many stream (1 per message type)
 	// This is an artifact of how Consensus was initially implemented,
 	// but it can be made to be consistent with all other streaming RPCs.
-	rpc.Limit{Rate: 1, Concurrent: 10},
+	rpc.Limit{Rate: 10, Concurrent: 10},
 	rpc.Msg[*apb.ConsensusReq]{MsgSize: 10 * kB, Window: 1},
 	rpc.Msg[*pb.ConsensusResp]{MsgSize: kB, Window: 1},
 )

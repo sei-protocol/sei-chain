@@ -408,7 +408,7 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 
 // Run runs the background tasks of the state.
 func (s *State) Run(ctx context.Context) error {
-	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
+	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		// Task inserting FullCommitQCs and local blocks to data state.
 		scope.SpawnNamed("s.data.PushQC", func() error {
 			c := s.data.Committee()
@@ -442,5 +442,5 @@ func (s *State) Run(ctx context.Context) error {
 			}
 		})
 		return nil
-	}))
+	})
 }

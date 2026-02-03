@@ -93,7 +93,7 @@ func (s *State) PushToMempool(ctx context.Context, tx *pb.Transaction) error {
 
 // Run runs the background tasks of the producer state.
 func (s *State) Run(ctx context.Context) error {
-	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
+	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		// Construct blocks from mempool.
 		limit := rate.Inf
 		burst := 1
@@ -117,5 +117,5 @@ func (s *State) Run(ctx context.Context) error {
 				return fmt.Errorf("limiter(): %w", err)
 			}
 		}
-	}))
+	})
 }

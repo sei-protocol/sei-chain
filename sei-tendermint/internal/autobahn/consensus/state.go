@@ -216,7 +216,7 @@ func (s *State) runOutputs(ctx context.Context) error {
 
 // Run runs the background processes of the consensus state.
 func (s *State) Run(ctx context.Context) error {
-	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
+	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		scope.SpawnNamed("avail", func() error { return s.avail.Run(ctx) })
 		scope.SpawnNamed("propose", func() error { return s.runPropose(ctx) })
 		scope.SpawnNamed("outputs", func() error { return s.runOutputs(ctx) })
@@ -268,5 +268,5 @@ func (s *State) Run(ctx context.Context) error {
 			})
 		})
 		return nil
-	}))
+	})
 }

@@ -109,7 +109,9 @@ func (x *Service) runBlockFetcher(ctx context.Context) error {
 					if err:=utils.Send(ctx,x.getBlockReqs,req); err!=nil {
 						return err
 					}
-					<-req.done
+					if _,_,err := utils.RecvOrClosed(ctx,req.done); err!=nil {
+						return err
+					}
 				}
 			})
 		}

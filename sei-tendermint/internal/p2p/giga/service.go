@@ -3,7 +3,6 @@ package giga
 import (
 	"context"
 
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/internal/autobahn/consensus"
 	"github.com/tendermint/tendermint/internal/p2p/rpc"
@@ -19,7 +18,7 @@ func NewService(state *consensus.State) *Service {
 }
 
 func (x *Service) Run(ctx context.Context) error {
-	return utils.IgnoreCancel(x.runBlockFetcher(ctx))
+	return x.runBlockFetcher(ctx)
 }
 
 func (x *Service) RunServer(ctx context.Context, server rpc.Server[API]) error {

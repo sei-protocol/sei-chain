@@ -56,8 +56,8 @@ func (e *testEnv) AddNode(key types.SecretKey) *testNode {
 	n := newTestNode(e.committee,&consensus.Config{
 		Key: key,
 		ViewTimeout: func(view types.View) time.Duration {
-			if _,ok := e.nodes[e.committee.Leader(view)]; ok { return 0 }
-			return time.Hour
+			if _,ok := e.nodes[e.committee.Leader(view)]; ok { return time.Hour }
+			return 0
 		},
 	})
 	e.nodes[key.Public()] = n
@@ -65,21 +65,26 @@ func (e *testEnv) AddNode(key types.SecretKey) *testNode {
 }
 
 func (e *testEnv) Run(ctx context.Context) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for _,x := range e.nodes {
-			s.Spawn(func() error { return x.Run(ctx) })
+			s.SpawnNamed("node",func() error { return x.Run(ctx) })
 			for _,y := range e.nodes {
 				xConn,yConn := conn.NewTestConn()
 				server := rpc.NewServer[API]()
 				client := rpc.NewClient[API]()
-				s.Spawn(func() error { return server.Run(ctx,xConn) })
-				s.Spawn(func() error { return client.Run(ctx,yConn) })
-				s.Spawn(func() error { return x.service.RunServer(ctx,server) })
-				s.Spawn(func() error { return y.service.RunClient(ctx,client) })
+				s.SpawnNamed("mux server",func() error { return server.Run(ctx,xConn) })
+				s.SpawnNamed("mux client",func() error { return client.Run(ctx,yConn) })
+				s.SpawnNamed("RunServer", func() error { return x.service.RunServer(ctx,server) })
+				s.SpawnNamed("RunClient", func() error { return y.service.RunClient(ctx,client) })
 			}
 		}
 		return nil
 	})
+	if ctx.Err()!=nil {
+		// Ignore failures after env termination.
+		return nil
+	}
+	return err
 }
 
 func TestDataClientServer(t *testing.T) {

@@ -358,7 +358,7 @@ func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 // Run runs the background tasks of the data State.
 // TODO(gprusak): add support for starting execution from non-zero commit QC.
 func (s *State) Run(ctx context.Context) error {
-	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
+	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		if pruneAfter, ok := s.cfg.PruneAfter.Get(); ok {
 			scope.SpawnNamed("runPruning", func() error {
 				return s.runPruning(ctx, pruneAfter)
@@ -380,5 +380,5 @@ func (s *State) Run(ctx context.Context) error {
 			})
 		}
 		return nil
-	}))
+	})
 }

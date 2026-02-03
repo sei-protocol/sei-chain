@@ -27,9 +27,12 @@ func TestAvailClientServer(t *testing.T) {
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		t.Log("Spawn network.")
 		s.SpawnBg(func() error { return env.Run(ctx) })
-		t.Log("Spawn a fake node0 to generate some conflicting blocks and push them to node2.")
-		fakeNode0 := consensus.NewState(&consensus.Config{Key:keys[0]},nodes[0].data)
-		s.SpawnBg(func() error { return fakeNode0.Run(ctx) })
+		t.Log("Spawn a fake unconnected node0 to generate some conflicting blocks and push them to node2.")
+		fakeNode0 := consensus.NewState(&consensus.Config{
+			Key:keys[0],
+			ViewTimeout: defaultViewTimeout,
+		},nodes[0].data)
+		s.SpawnBgNamed("fakeNode0", func() error { return utils.IgnoreCancel(fakeNode0.Run(ctx)) })
 		for range min(avail.BlocksPerLane,4) {
 			b := utils.OrPanic1(fakeNode0.ProduceBlock(ctx, types.GenPayload(rng)))
 			utils.OrPanic(nodes[2].consensus.Avail().PushBlock(ctx,b))
