@@ -226,13 +226,19 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 
 	blockHash := common.Hash{}
 
-	inputs := make([]parquetReceiptInput, 0, len(receipts))
-	walEntries := make([]parquetWALEntry, 0, len(receipts))
+	// Group receipts by block for batched WAL writes
+	type blockBatch struct {
+		blockNumber   uint64
+		receiptBytes  [][]byte
+		inputs        []parquetReceiptInput
+	}
 
 	var (
 		currentBlock  uint64
 		logStartIndex uint
 		maxBlock      uint64
+		currentBatch  *blockBatch
+		batches       []*blockBatch
 	)
 
 	for _, record := range receipts {
@@ -246,10 +252,16 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 			maxBlock = blockNumber
 		}
 
-		if currentBlock == 0 {
-			currentBlock = blockNumber
-		}
-		if blockNumber != currentBlock {
+		// Start new batch when block changes
+		if currentBatch == nil || blockNumber != currentBlock {
+			if currentBatch != nil {
+				batches = append(batches, currentBatch)
+			}
+			currentBatch = &blockBatch{
+				blockNumber:  blockNumber,
+				receiptBytes: make([][]byte, 0, 100),
+				inputs:       make([]parquetReceiptInput, 0, 100),
+			}
 			currentBlock = blockNumber
 			logStartIndex = 0
 		}
@@ -258,9 +270,7 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 		if err != nil {
 			return err
 		}
-		walEntries = append(walEntries, parquetWALEntry{
-			ReceiptBytes: copyBytesOrEmpty(receiptBytes),
-		})
+		currentBatch.receiptBytes = append(currentBatch.receiptBytes, receiptBytes)
 
 		txLogs := getLogsForTx(receipt, logStartIndex)
 		logStartIndex += uint(len(txLogs))
@@ -268,28 +278,41 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 			lg.BlockHash = blockHash
 		}
 
-		inputs = append(inputs, parquetReceiptInput{
+		currentBatch.inputs = append(currentBatch.inputs, parquetReceiptInput{
 			blockNumber: blockNumber,
 			receipt: receiptRecord{
 				TxHash:       copyBytes(record.TxHash[:]),
 				BlockNumber:  blockNumber,
-				ReceiptBytes: copyBytesOrEmpty(receiptBytes),
+				ReceiptBytes: receiptBytes,
 			},
 			logs: buildLogRecords(txLogs, blockHash),
 		})
 	}
 
-	for i := range walEntries {
-		if err := s.wal.Write(walEntries[i]); err != nil {
+	// Add final batch
+	if currentBatch != nil {
+		batches = append(batches, currentBatch)
+	}
+
+	// Write one WAL entry per block (batched)
+	for _, batch := range batches {
+		walEntry := parquetWALEntry{
+			BlockNumber: batch.blockNumber,
+			Receipts:    batch.receiptBytes,
+		}
+		if err := s.wal.Write(walEntry); err != nil {
 			return err
 		}
 	}
 
+	// Apply to parquet buffers
 	s.mu.Lock()
-	for i := range inputs {
-		if err := s.applyReceiptLocked(inputs[i]); err != nil {
-			s.mu.Unlock()
-			return err
+	for _, batch := range batches {
+		for i := range batch.inputs {
+			if err := s.applyReceiptLocked(batch.inputs[i]); err != nil {
+				s.mu.Unlock()
+				return err
+			}
 		}
 	}
 	s.mu.Unlock()
@@ -616,63 +639,62 @@ func (s *parquetReceiptStore) replayWAL() error {
 	defer s.mu.Unlock()
 
 	var (
-		currentBlock  uint64
-		logStartIndex uint
-		maxBlock      uint64
-		dropOffset    uint64
+		maxBlock   uint64
+		dropOffset uint64
 	)
 
 	blockHash := common.Hash{}
 	fileStartBlock := s.fileStartBlock
 
 	err := s.wal.Replay(firstOffset, lastOffset, func(offset uint64, entry parquetWALEntry) error {
-		if len(entry.ReceiptBytes) == 0 {
-			return nil
-		}
-
-		receipt := &types.Receipt{}
-		if err := receipt.Unmarshal(entry.ReceiptBytes); err != nil {
-			return err
-		}
-
-		blockNumber := receipt.BlockNumber
-		if blockNumber < fileStartBlock {
+		// Skip blocks older than current file
+		if entry.BlockNumber < fileStartBlock {
 			dropOffset = offset
 			return nil
 		}
 
-		txHash := common.HexToHash(receipt.TxHashHex)
-		s.warmupCacheRecords = append(s.warmupCacheRecords, ReceiptRecord{
-			TxHash:  txHash,
-			Receipt: receipt,
-		})
-
-		if currentBlock == 0 {
-			currentBlock = blockNumber
-		}
-		if blockNumber != currentBlock {
-			currentBlock = blockNumber
-			logStartIndex = 0
+		if len(entry.Receipts) == 0 {
+			return nil
 		}
 
-		txLogs := getLogsForTx(receipt, logStartIndex)
-		logStartIndex += uint(len(txLogs))
-		for _, lg := range txLogs {
-			lg.BlockHash = blockHash
-		}
+		blockNumber := entry.BlockNumber
+		var logStartIndex uint
 
-		input := parquetReceiptInput{
-			blockNumber: blockNumber,
-			receipt: receiptRecord{
-				TxHash:       copyBytes(txHash[:]),
-				BlockNumber:  blockNumber,
-				ReceiptBytes: copyBytesOrEmpty(entry.ReceiptBytes),
-			},
-			logs: buildLogRecords(txLogs, blockHash),
-		}
+		for _, receiptBytes := range entry.Receipts {
+			if len(receiptBytes) == 0 {
+				continue
+			}
 
-		if err := s.applyReceiptLocked(input); err != nil {
-			return err
+			receipt := &types.Receipt{}
+			if err := receipt.Unmarshal(receiptBytes); err != nil {
+				return err
+			}
+
+			txHash := common.HexToHash(receipt.TxHashHex)
+			s.warmupCacheRecords = append(s.warmupCacheRecords, ReceiptRecord{
+				TxHash:  txHash,
+				Receipt: receipt,
+			})
+
+			txLogs := getLogsForTx(receipt, logStartIndex)
+			logStartIndex += uint(len(txLogs))
+			for _, lg := range txLogs {
+				lg.BlockHash = blockHash
+			}
+
+			input := parquetReceiptInput{
+				blockNumber: blockNumber,
+				receipt: receiptRecord{
+					TxHash:       copyBytes(txHash[:]),
+					BlockNumber:  blockNumber,
+					ReceiptBytes: receiptBytes,
+				},
+				logs: buildLogRecords(txLogs, blockHash),
+			}
+
+			if err := s.applyReceiptLocked(input); err != nil {
+				return err
+			}
 		}
 
 		if blockNumber > maxBlock {
