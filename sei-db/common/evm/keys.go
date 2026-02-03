@@ -25,7 +25,6 @@ const (
 	EVMKeyNonce
 	EVMKeyCodeHash
 	EVMKeyCode
-	EVMKeyCodeSize
 	EVMKeyStorage
 )
 
@@ -57,12 +56,6 @@ func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
 			return EVMKeyUnknown, nil
 		}
 		return EVMKeyCode, key[len(evmtypes.CodeKeyPrefix):]
-
-	case bytes.HasPrefix(key, evmtypes.CodeSizeKeyPrefix):
-		if len(key) != len(evmtypes.CodeSizeKeyPrefix)+addressLen {
-			return EVMKeyUnknown, nil
-		}
-		return EVMKeyCodeSize, key[len(evmtypes.CodeSizeKeyPrefix):]
 
 	case bytes.HasPrefix(key, evmtypes.StateKeyPrefix):
 		if len(key) != len(evmtypes.StateKeyPrefix)+addressLen+slotLen {

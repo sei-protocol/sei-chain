@@ -10,6 +10,7 @@ import (
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -277,4 +278,93 @@ func TestSetAndGetMinGasPrices(t *testing.T) {
 	require.Equal(t, 2, len(parsed))
 	require.Equal(t, "usei", parsed[0].Denom)
 	require.Equal(t, "uatom", parsed[1].Denom)
+}
+
+func TestGetConfigStateCommit(t *testing.T) {
+	v := viper.New()
+
+	// Set required base values
+	v.Set("minimum-gas-prices", DefaultMinGasPrices)
+	v.Set("telemetry.global-labels", []interface{}{})
+
+	// Set StateCommit values using the TOML key names (sc-* prefix)
+	v.Set("state-commit.sc-enable", true)
+	v.Set("state-commit.sc-directory", "/custom/path")
+	v.Set("state-commit.sc-write-mode", "dual_write")
+	v.Set("state-commit.sc-read-mode", "evm_first")
+	v.Set("state-commit.sc-async-commit-buffer", 200)
+	v.Set("state-commit.sc-keep-recent", 5)
+	v.Set("state-commit.sc-snapshot-interval", 5000)
+	v.Set("state-commit.sc-snapshot-min-time-interval", 1800)
+	v.Set("state-commit.sc-snapshot-writer-limit", 4)
+	v.Set("state-commit.sc-snapshot-prefetch-threshold", 0.9)
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+
+	// Verify StateCommit fields are correctly parsed
+	require.True(t, cfg.StateCommit.Enable)
+	require.Equal(t, "/custom/path", cfg.StateCommit.Directory)
+	require.Equal(t, seidbconfig.DualWrite, cfg.StateCommit.WriteMode)
+	require.Equal(t, seidbconfig.EVMFirstRead, cfg.StateCommit.ReadMode)
+
+	// Verify MemIAVLConfig fields
+	require.Equal(t, 200, cfg.StateCommit.MemIAVLConfig.AsyncCommitBuffer)
+	require.Equal(t, uint32(5), cfg.StateCommit.MemIAVLConfig.SnapshotKeepRecent)
+	require.Equal(t, uint32(5000), cfg.StateCommit.MemIAVLConfig.SnapshotInterval)
+	require.Equal(t, uint32(1800), cfg.StateCommit.MemIAVLConfig.SnapshotMinTimeInterval)
+	require.Equal(t, 4, cfg.StateCommit.MemIAVLConfig.SnapshotWriterLimit)
+	require.Equal(t, 0.9, cfg.StateCommit.MemIAVLConfig.SnapshotPrefetchThreshold)
+}
+
+func TestGetConfigStateStore(t *testing.T) {
+	v := viper.New()
+
+	// Set required base values
+	v.Set("minimum-gas-prices", DefaultMinGasPrices)
+	v.Set("telemetry.global-labels", []interface{}{})
+
+	// Set StateStore values using the TOML key names (ss-* prefix)
+	v.Set("state-store.ss-enable", true)
+	v.Set("state-store.ss-db-directory", "/custom/ss/path")
+	v.Set("state-store.ss-backend", "rocksdb")
+	v.Set("state-store.ss-async-write-buffer", 500)
+	v.Set("state-store.ss-keep-recent", 50000)
+	v.Set("state-store.ss-prune-interval", 1200)
+	v.Set("state-store.ss-import-num-workers", 4)
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+
+	// Verify StateStore fields are correctly parsed
+	require.True(t, cfg.StateStore.Enable)
+	require.Equal(t, "/custom/ss/path", cfg.StateStore.DBDirectory)
+	require.Equal(t, "rocksdb", cfg.StateStore.Backend)
+	require.Equal(t, 500, cfg.StateStore.AsyncWriteBuffer)
+	require.Equal(t, 50000, cfg.StateStore.KeepRecent)
+	require.Equal(t, 1200, cfg.StateStore.PruneIntervalSeconds)
+	require.Equal(t, 4, cfg.StateStore.ImportNumWorkers)
+}
+
+func TestDefaultStateCommitConfig(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// Verify default StateCommit values
+	require.True(t, cfg.StateCommit.Enable)
+	require.Empty(t, cfg.StateCommit.Directory)
+	require.Equal(t, seidbconfig.CosmosOnlyWrite, cfg.StateCommit.WriteMode)
+	require.Equal(t, seidbconfig.CosmosOnlyRead, cfg.StateCommit.ReadMode)
+}
+
+func TestDefaultStateStoreConfig(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// Verify default StateStore values
+	require.True(t, cfg.StateStore.Enable)
+	require.Empty(t, cfg.StateStore.DBDirectory)
+	require.Equal(t, "pebbledb", cfg.StateStore.Backend)
+	require.Equal(t, seidbconfig.DefaultSSAsyncBuffer, cfg.StateStore.AsyncWriteBuffer)
+	require.Equal(t, seidbconfig.DefaultSSKeepRecent, cfg.StateStore.KeepRecent)
+	require.Equal(t, seidbconfig.DefaultSSPruneInterval, cfg.StateStore.PruneIntervalSeconds)
+	require.Equal(t, seidbconfig.DefaultSSImportWorkers, cfg.StateStore.ImportNumWorkers)
 }
