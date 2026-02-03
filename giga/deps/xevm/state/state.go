@@ -53,16 +53,16 @@ func (s *DBImpl) GetTransientState(addr common.Address, key common.Hash) common.
 }
 
 func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
-	st, ok := s.tempState.transientStates[addr.Hex()]
+	st, ok := s.tempState.transientStates[addr]
 	if !ok {
-		st = make(map[string]common.Hash)
-		s.tempState.transientStates[addr.Hex()] = st
+		st = make(map[common.Hash]common.Hash)
+		s.tempState.transientStates[addr] = st
 	}
-	prev, ok := st[key.Hex()]
+	prev, ok := st[key]
 	if !ok {
 		prev = common.Hash{}
 	}
-	st[key.Hex()] = val
+	st[key] = val
 	s.journal = append(s.journal, &transientStorageChange{account: addr, key: key, prevalue: prev})
 }
 
@@ -137,11 +137,10 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 }
 
 func (s *DBImpl) handleResidualFundsInDestructedAccounts(st *TemporaryState) {
-	for a, status := range st.transientAccounts {
+	for acc, status := range st.transientAccounts {
 		if !bytes.Equal(status, AccountDeleted) {
 			continue
 		}
-		acc := common.HexToAddress(a)
 		residual := s.GetBalance(acc)
 		if residual.ToBig().Cmp(utils.Big0) == 0 {
 			continue
@@ -158,7 +157,7 @@ func (s *DBImpl) clearAccountStateIfDestructed(st *TemporaryState) {
 		if !bytes.Equal(status, AccountDeleted) {
 			continue
 		}
-		s.clearAccountState(common.HexToAddress(acc))
+		s.clearAccountState(acc)
 	}
 }
 
@@ -172,11 +171,8 @@ func (s *DBImpl) clearAccountState(acc common.Address) {
 }
 
 func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {
-	prev, ok := s.tempState.transientAccounts[acc.Hex()]
-	if !ok {
-		prev = nil
-	}
-	s.tempState.transientAccounts[acc.Hex()] = status
+	prev := s.tempState.transientAccounts[acc]
+	s.tempState.transientAccounts[acc] = status
 	s.journal = append(s.journal, &accountStatusChange{account: acc, prev: prev})
 }
 
@@ -196,7 +192,7 @@ func (s *DBImpl) SetStorage(addr common.Address, states map[common.Hash]common.H
 }
 
 func (s *DBImpl) getTransientAccount(acc common.Address) ([]byte, bool) {
-	val, found := s.tempState.transientAccounts[acc.Hex()]
+	val, found := s.tempState.transientAccounts[acc]
 	return val, found
 }
 
@@ -207,9 +203,9 @@ func (s *DBImpl) getTransientModule(key []byte) ([]byte, bool) {
 
 func (s *DBImpl) getTransientState(acc common.Address, key common.Hash) (common.Hash, bool) {
 	var val common.Hash
-	m, found := s.tempState.transientStates[acc.Hex()]
+	m, found := s.tempState.transientStates[acc]
 	if found {
-		val, found = m[key.Hex()]
+		val, found = m[key]
 	}
 	return val, found
 }

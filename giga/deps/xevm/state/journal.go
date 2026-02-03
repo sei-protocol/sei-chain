@@ -90,25 +90,25 @@ func (e *refundChange) revert(s *DBImpl) {
 }
 
 func (e *transientStorageChange) revert(s *DBImpl) {
-	states := s.tempState.transientStates[e.account.Hex()]
+	states := s.tempState.transientStates[e.account]
 	if e.prevalue.Cmp(common.Hash{}) == 0 {
 		// If the per-account transient map was already removed by a later revert,
 		// there is nothing to delete.
 		if states == nil {
 			return
 		}
-		delete(states, e.key.Hex())
+		delete(states, e.key)
 		if len(states) == 0 {
-			delete(s.tempState.transientStates, e.account.Hex())
+			delete(s.tempState.transientStates, e.account)
 		}
 	} else {
 		// A prior revert may have deleted the per-account map when it became empty.
 		// Re-create it so we can restore a non-zero prevalue.
 		if states == nil {
-			states = make(map[string]common.Hash)
-			s.tempState.transientStates[e.account.Hex()] = states
+			states = make(map[common.Hash]common.Hash, 4)
+			s.tempState.transientStates[e.account] = states
 		}
-		states[e.key.Hex()] = e.prevalue
+		states[e.key] = e.prevalue
 	}
 }
 
@@ -117,8 +117,8 @@ func (e *watermark) revert(s *DBImpl) {}
 func (e *accountStatusChange) revert(s *DBImpl) {
 	accts := s.tempState.transientAccounts
 	if e.prev == nil {
-		delete(accts, e.account.Hex())
+		delete(accts, e.account)
 	} else {
-		accts[e.account.Hex()] = e.prev
+		accts[e.account] = e.prev
 	}
 }
