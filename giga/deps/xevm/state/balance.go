@@ -1,5 +1,3 @@
-//go:build !mock_balances
-
 package state
 
 import (
@@ -29,6 +27,9 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	if s.eventsSuppressed {
 		ctx = ctx.WithEventManager(sdk.NewEventManager())
 	}
+
+	// Hook for mock balances (no-op in production builds)
+	s.ensureSufficientBalance(evmAddr, amt)
 
 	usei, wei := SplitUseiWeiAmount(amt)
 	addr := s.getSeiAddress(evmAddr)
@@ -100,6 +101,9 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 }
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *uint256.Int {
+	// Hook for mock balances (no-op in production builds)
+	s.ensureMinimumBalance(evmAddr)
+
 	seiAddr := s.getSeiAddress(evmAddr)
 	res, overflow := uint256.FromBig(s.k.GetBalance(s.ctx, seiAddr))
 	if overflow {
