@@ -26,8 +26,7 @@ func setupTestStores(t *testing.T) (*CompositeStateStore, string, func()) {
 
 	evmConfig := config.EVMStateStoreConfig{
 		Enable:      true,
-		EnableRead:  true,
-		EnableWrite: true,
+		WriteMode:   config.DualWrite,
 		DBDirectory: filepath.Join(dir, "evm_ss"),
 		KeepRecent:  100000,
 	}

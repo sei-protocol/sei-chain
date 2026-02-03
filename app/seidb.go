@@ -37,11 +37,9 @@ const (
 	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
 
 	// EVM SS Store configs (optimized EVM storage layer)
-	FlagEVMSSEnable      = "state-store.evm-ss-enable"
-	FlagEVMSSEnableRead  = "state-store.evm-ss-enable-read"
-	FlagEVMSSEnableWrite = "state-store.evm-ss-enable-write"
-	FlagEVMSSDirectory   = "state-store.evm-ss-db-directory"
-	FlagEVMSSKeepRecent  = "state-store.evm-ss-keep-recent"
+	FlagEVMSSEnable     = "state-store.evm-ss-enable"
+	FlagEVMSSDirectory  = "state-store.evm-ss-db-directory"
+	FlagEVMSSKeepRecent = "state-store.evm-ss-keep-recent"
 
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
@@ -131,8 +129,6 @@ func parseEVMSSConfigs(appOpts servertypes.AppOptions) *config.EVMStateStoreConf
 	if !evmSSConfig.Enable {
 		return nil
 	}
-	evmSSConfig.EnableRead = cast.ToBool(appOpts.Get(FlagEVMSSEnableRead))
-	evmSSConfig.EnableWrite = cast.ToBool(appOpts.Get(FlagEVMSSEnableWrite))
 	evmSSConfig.DBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))
 	evmSSConfig.KeepRecent = cast.ToInt(appOpts.Get(FlagEVMSSKeepRecent))
 	return &evmSSConfig

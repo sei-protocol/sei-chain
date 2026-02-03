@@ -19,8 +19,8 @@ import (
 )
 
 // CompositeStateStore routes operations between Cosmos_SS (main state store) and EVM_SS (optimized EVM stores).
-// - Reads check EVM_SS first for EVM keys (if EnableRead), then fallback to Cosmos_SS
-// - Writes go to both stores for EVM keys (if EnableWrite), only Cosmos_SS for others
+// - Reads check EVM_SS first for EVM keys, then fallback to Cosmos_SS
+// - Writes routing controlled by WriteMode (cosmos_only, dual_write, split_write)
 type CompositeStateStore struct {
 	cosmosStore types.StateStore   // Main MVCC PebbleDB for all modules
 	evmStore    *evm.EVMStateStore // Separate EVM DBs with default comparer (nil if disabled)
@@ -71,7 +71,7 @@ func NewCompositeStateStore(
 			return nil, fmt.Errorf("failed to create EVM store: %w", err)
 		}
 		cs.evmStore = evmStore
-		log.Info("EVM state store enabled", "dir", evmDir, "read", evmConfig.EnableRead, "write", evmConfig.EnableWrite)
+		log.Info("EVM state store enabled", "dir", evmDir, "writeMode", evmConfig.WriteMode)
 	}
 
 	// Recover from WAL if needed
@@ -151,11 +151,11 @@ func recoverFromWAL(log logger.Logger, changelogPath string, stateStore types.St
 }
 
 // Get retrieves a value for a key at a specific version
-// For EVM keys: check EVM_SS first (if EnableRead), fallback to Cosmos_SS
+// For EVM keys: check EVM_SS first, fallback to Cosmos_SS
 // For non-EVM keys: use Cosmos_SS directly
 func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
-	// Try EVM store first for EVM keys if read is enabled
-	if s.evmStore != nil && s.evmConfig.EnableRead && storeKey == evm.EVMStoreKey {
+	// Try EVM store first for EVM keys
+	if s.evmStore != nil && storeKey == evm.EVMStoreKey {
 		val, err := s.evmStore.Get(key, version)
 		if err != nil {
 			return nil, err
@@ -172,8 +172,8 @@ func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([
 
 // Has checks if a key exists at a specific version
 func (s *CompositeStateStore) Has(storeKey string, version int64, key []byte) (bool, error) {
-	// Try EVM store first for EVM keys if read is enabled
-	if s.evmStore != nil && s.evmConfig.EnableRead && storeKey == evm.EVMStoreKey {
+	// Try EVM store first for EVM keys
+	if s.evmStore != nil && storeKey == evm.EVMStoreKey {
 		has, err := s.evmStore.Has(key, version)
 		if err != nil {
 			return false, err
@@ -278,8 +278,8 @@ func (s *CompositeStateStore) SetEarliestVersion(version int64, ignoreVersion bo
 // ApplyChangesetSync applies changeset synchronously to both stores in parallel.
 // If either fails, returns error - caller should retry (writes are idempotent).
 func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {
-	// Fast path: if no EVM store, just apply to Cosmos
-	if s.evmStore == nil {
+	// Fast path: if no EVM store or cosmos-only write mode, just apply to Cosmos
+	if s.evmStore == nil || s.evmConfig.WriteMode == config.CosmosOnlyWrite {
 		return s.cosmosStore.ApplyChangesetSync(version, changesets)
 	}
 
@@ -320,8 +320,8 @@ func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*pr
 // ApplyChangesetAsync applies changeset asynchronously to both stores in parallel.
 // If either fails, returns error - caller should retry (writes are idempotent).
 func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
-	// Fast path: if no EVM store, just apply to Cosmos
-	if s.evmStore == nil {
+	// Fast path: if no EVM store or cosmos-only write mode, just apply to Cosmos
+	if s.evmStore == nil || s.evmConfig.WriteMode == config.CosmosOnlyWrite {
 		return s.cosmosStore.ApplyChangesetAsync(version, changesets)
 	}
 
