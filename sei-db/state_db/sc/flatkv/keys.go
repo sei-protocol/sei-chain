@@ -6,14 +6,54 @@ import (
 	"fmt"
 )
 
+// DBLocalMetaKey is the key for per-DB local metadata.
+// It is a single-byte key (0x00), which cannot collide with any valid user key
+// because all user keys have minimum length of 20 bytes (EVM address).
+//
+// Invariant: All user keys are >= 20 bytes (address=20, storage=52).
+var DBLocalMetaKey = []byte{0x00}
+
+// metaKeyLowerBound returns the iterator lower bound that excludes DBLocalMetaKey.
+// Lexicographically: 0x00 (1 byte) < 0x00,0x00 (2 bytes) < any user key (>=20 bytes).
+// This ensures metadata key is excluded while all user keys (even those starting
+// with 0x00) are included.
+func metaKeyLowerBound() []byte {
+	return []byte{0x00, 0x00}
+}
+
 const (
 	AddressLen  = 20
 	CodeHashLen = 32
 	SlotLen     = 32
 	BalanceLen  = 32
+	NonceLen    = 8
 
-	NonceLen = 8
+	// localMetaSize is the serialized size of LocalMeta (version = 8 bytes)
+	localMetaSize = 8
 )
+
+// LocalMeta stores per-DB version tracking metadata.
+// Stored inside each DB at DBLocalMetaKey (0x00).
+type LocalMeta struct {
+	CommittedVersion int64 // Current committed version in this DB
+}
+
+// MarshalLocalMeta encodes LocalMeta as fixed 8 bytes (big-endian).
+func MarshalLocalMeta(m *LocalMeta) []byte {
+	buf := make([]byte, localMetaSize)
+	binary.BigEndian.PutUint64(buf, uint64(m.CommittedVersion))
+	return buf
+}
+
+// UnmarshalLocalMeta decodes LocalMeta from bytes.
+func UnmarshalLocalMeta(data []byte) (*LocalMeta, error) {
+	if len(data) != localMetaSize {
+		return nil, fmt.Errorf("invalid LocalMeta size: got %d, want %d", len(data), localMetaSize)
+	}
+	return &LocalMeta{
+		CommittedVersion: int64(binary.BigEndian.Uint64(data)),
+	}, nil
+}
 
 // Address is an EVM address (20 bytes).
 type Address [AddressLen]byte
@@ -57,8 +97,7 @@ func SlotFromBytes(b []byte) (Slot, bool) {
 // AccountKey is a type-safe account DB key.
 type AccountKey struct{ b []byte }
 
-func (k AccountKey) isZero() bool  { return len(k.b) == 0 }
-func (k AccountKey) bytes() []byte { return k.b }
+func (k AccountKey) isZero() bool { return len(k.b) == 0 }
 
 // AccountKeyFor returns the account DB key for addr.
 func AccountKeyFor(addr Address) AccountKey {
@@ -70,8 +109,7 @@ func AccountKeyFor(addr Address) AccountKey {
 // CodeKey is a type-safe code DB key.
 type CodeKey struct{ b []byte }
 
-func (k CodeKey) isZero() bool  { return len(k.b) == 0 }
-func (k CodeKey) bytes() []byte { return k.b }
+func (k CodeKey) isZero() bool { return len(k.b) == 0 }
 
 // CodeKeyFor returns the code DB key for codeHash.
 func CodeKeyFor(codeHash CodeHash) CodeKey {
@@ -84,8 +122,7 @@ func CodeKeyFor(codeHash CodeHash) CodeKey {
 // Encodes: nil (unbounded), addr (prefix), or addr||slot (full key).
 type StorageKey struct{ b []byte }
 
-func (k StorageKey) isZero() bool  { return len(k.b) == 0 }
-func (k StorageKey) bytes() []byte { return k.b }
+func (k StorageKey) isZero() bool { return len(k.b) == 0 }
 
 // StoragePrefix returns the storage DB prefix key for addr.
 func StoragePrefix(addr Address) StorageKey {
@@ -142,6 +179,11 @@ const (
 // HasCode returns true if the account has code (is a contract).
 func (v AccountValue) HasCode() bool {
 	return v.CodeHash != CodeHash{}
+}
+
+// Encode encodes the AccountValue to bytes.
+func (v AccountValue) Encode() []byte {
+	return EncodeAccountValue(v)
 }
 
 // EncodeAccountValue encodes v into a variable-length slice.
