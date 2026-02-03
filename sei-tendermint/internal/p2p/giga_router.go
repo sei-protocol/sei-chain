@@ -78,10 +78,10 @@ func (r *GigaRouter) dialAndRunConn(ctx context.Context, key NodePublicKey, hp t
 			return fmt.Errorf("peer key = %v, want %v", got, key)
 		}
 		client := rpc.NewClient[giga.API]()
-		return r.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error { 
+		return r.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error {
 			return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 				s.Spawn(func() error { return client.Run(ctx, hConn.conn) })
-				return r.service.RunClient(ctx,client) 
+				return r.service.RunClient(ctx, client)
 			})
 		})
 	})

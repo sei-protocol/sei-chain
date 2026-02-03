@@ -17,8 +17,8 @@ func TestConsensusClientServer(t *testing.T) {
 	env := newTestEnv(committee)
 	// Run only a subset of replicas, to enforce timeouts.
 	var nodes []*testNode
-	for _,key := range keys[:committee.CommitQuorum()] {
-		nodes = append(nodes,env.AddNode(key))
+	for _, key := range keys[:committee.CommitQuorum()] {
+		nodes = append(nodes, env.AddNode(key))
 	}
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
@@ -41,7 +41,7 @@ func TestConsensusClientServer(t *testing.T) {
 				types.GenAppHash(rng),
 			)
 			wantAppProposal = utils.Some(p)
-			for _,n := range nodes {
+			for _, n := range nodes {
 				t.Logf("[%v] Wait for it to be final.", idx)
 				got, err := n.data.GlobalBlock(ctx, idx)
 				if err != nil {
@@ -54,7 +54,7 @@ func TestConsensusClientServer(t *testing.T) {
 					return fmt.Errorf("ds.PushAppProposal(): %w", err)
 				}
 			}
-			for _,n := range nodes {
+			for _, n := range nodes {
 				t.Logf("[%v] Wait for AppHash consensus.", idx)
 				got, _, err := n.consensus.Avail().WaitForAppQC(ctx, p.RoadIndex())
 				if err != nil {

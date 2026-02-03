@@ -398,7 +398,7 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 			parent = q.q[q.next-1].Msg().Block().Header().Hash()
 		}
 		p := types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, q.next, parent, payload)))
-		q.q[q.next] = p 
+		q.q[q.next] = p
 		q.next += 1
 		ctrl.Updated()
 		return p, nil

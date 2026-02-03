@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/tendermint/tendermint/internal/autobahn/consensus"
 	"github.com/tendermint/tendermint/internal/autobahn/avail"
+	"github.com/tendermint/tendermint/internal/autobahn/consensus"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
@@ -19,8 +19,8 @@ func TestAvailClientServer(t *testing.T) {
 	committee, keys := types.GenCommittee(rng, 4)
 	env := newTestEnv(committee)
 	var nodes []*testNode
-	for _,key := range keys[:3] {
-		nodes = append(nodes,env.AddNode(key))
+	for _, key := range keys[:3] {
+		nodes = append(nodes, env.AddNode(key))
 	}
 
 	totalBlocks := 3 * avail.BlocksPerLane
@@ -29,13 +29,13 @@ func TestAvailClientServer(t *testing.T) {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		t.Log("Spawn a fake unconnected node0 to generate some conflicting blocks and push them to node2.")
 		fakeNode0 := consensus.NewState(&consensus.Config{
-			Key:keys[0],
+			Key:         keys[0],
 			ViewTimeout: defaultViewTimeout,
-		},nodes[0].data)
+		}, nodes[0].data)
 		s.SpawnBgNamed("fakeNode0", func() error { return utils.IgnoreCancel(fakeNode0.Run(ctx)) })
-		for range min(avail.BlocksPerLane,4) {
+		for range min(avail.BlocksPerLane, 4) {
 			b := utils.OrPanic1(fakeNode0.ProduceBlock(ctx, types.GenPayload(rng)))
-			utils.OrPanic(nodes[2].consensus.Avail().PushBlock(ctx,b))
+			utils.OrPanic(nodes[2].consensus.Avail().PushBlock(ctx, b))
 		}
 		t.Logf("Run block production")
 		for _, node := range nodes {
@@ -50,18 +50,22 @@ func TestAvailClientServer(t *testing.T) {
 			})
 		}
 		t.Logf("Await sequenced blocks")
-		for n := range types.GlobalBlockNumber(totalBlocks*len(nodes)) {
-			want,err := nodes[0].data.GlobalBlock(ctx,n)
-			if err!=nil { return err }
+		for n := range types.GlobalBlockNumber(totalBlocks * len(nodes)) {
+			want, err := nodes[0].data.GlobalBlock(ctx, n)
+			if err != nil {
+				return err
+			}
 			h := types.GenAppHash(rng)
-			for _,node := range nodes {
-				got,err := node.data.GlobalBlock(ctx,n)
-				if err!=nil { return err }
-				if err:=utils.TestDiff(want,got); err!=nil {
+			for _, node := range nodes {
+				got, err := node.data.GlobalBlock(ctx, n)
+				if err != nil {
+					return err
+				}
+				if err := utils.TestDiff(want, got); err != nil {
 					return err
 				}
 				if err := node.data.PushAppHash(n, h); err != nil {
-					return fmt.Errorf("node.data.PushAppHash(): %w",err)
+					return fmt.Errorf("node.data.PushAppHash(): %w", err)
 				}
 			}
 		}

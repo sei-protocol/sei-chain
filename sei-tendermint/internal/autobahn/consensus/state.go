@@ -25,10 +25,10 @@ type Config struct {
 
 // State represents the current state of the consensus process.
 type State struct {
-	cfg     *Config
-	avail   *avail.State
+	cfg   *Config
+	avail *avail.State
 	// metrics *Metrics
-	inner   utils.AtomicSend[inner]
+	inner utils.AtomicSend[inner]
 
 	timeoutVotes utils.Mutex[*timeoutVotes]
 	prepareVotes utils.Mutex[*prepareVotes]
@@ -43,19 +43,29 @@ type State struct {
 }
 
 // TODO: replace with a single ConsensusMsg stream.
-func (s *State) SubscribeProposal() utils.AtomicRecv[utils.Option[*types.FullProposal]] { return s.myProposal.Subscribe() }
-func (s *State) SubscribePrepareVote() utils.AtomicRecv[utils.Option[*types.ConsensusReqPrepareVote]] { return s.myPrepareVote.Subscribe() }
-func (s *State) SubscribeCommitVote() utils.AtomicRecv[utils.Option[*types.ConsensusReqCommitVote]] { return s.myCommitVote.Subscribe() }
-func (s *State) SubscribeTimeoutVote() utils.AtomicRecv[utils.Option[*types.FullTimeoutVote]] { return s.myTimeoutVote.Subscribe() }
-func (s *State) SubscribeTimeoutQC() utils.AtomicRecv[utils.Option[*types.TimeoutQC]] { return s.myTimeoutQC.Subscribe() }
+func (s *State) SubscribeProposal() utils.AtomicRecv[utils.Option[*types.FullProposal]] {
+	return s.myProposal.Subscribe()
+}
+func (s *State) SubscribePrepareVote() utils.AtomicRecv[utils.Option[*types.ConsensusReqPrepareVote]] {
+	return s.myPrepareVote.Subscribe()
+}
+func (s *State) SubscribeCommitVote() utils.AtomicRecv[utils.Option[*types.ConsensusReqCommitVote]] {
+	return s.myCommitVote.Subscribe()
+}
+func (s *State) SubscribeTimeoutVote() utils.AtomicRecv[utils.Option[*types.FullTimeoutVote]] {
+	return s.myTimeoutVote.Subscribe()
+}
+func (s *State) SubscribeTimeoutQC() utils.AtomicRecv[utils.Option[*types.TimeoutQC]] {
+	return s.myTimeoutQC.Subscribe()
+}
 
 // NewState constructs a new state.
 func NewState(cfg *Config, data *data.State) *State {
 	return &State{
-		cfg:     cfg,
+		cfg: cfg,
 		// metrics: NewMetrics(),
-		avail:   avail.NewState(cfg.Key, data),
-		inner:   utils.NewAtomicSend(inner{}),
+		avail: avail.NewState(cfg.Key, data),
+		inner: utils.NewAtomicSend(inner{}),
 
 		timeoutVotes: utils.NewMutex(newTimeoutVotes()),
 		prepareVotes: utils.NewMutex(newPrepareVotes()),
@@ -147,7 +157,7 @@ func (s *State) PushTimeoutVote(vote *types.FullTimeoutVote) error {
 }
 
 // Data is the underlying data state.
-func (s *State) Data() *data.State { return s.avail.Data() }
+func (s *State) Data() *data.State   { return s.avail.Data() }
 func (s *State) Avail() *avail.State { return s.avail }
 
 // Constructs new proposals.

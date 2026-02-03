@@ -6,30 +6,30 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tendermint/tendermint/internal/autobahn/data"
 	"github.com/tendermint/tendermint/internal/autobahn/consensus"
-	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/internal/autobahn/data"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/internal/p2p/rpc"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
 type testNode struct {
-	data *data.State
+	data      *data.State
 	consensus *consensus.State
-	service *Service
+	service   *Service
 }
 
-func defaultViewTimeout(view types.View) time.Duration { return time.Hour } 
+func defaultViewTimeout(view types.View) time.Duration { return time.Hour }
 
 func newTestNode(committee *types.Committee, cfg *consensus.Config) *testNode {
 	dataState := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
-	consensusState := consensus.NewState(cfg,dataState)
-	return &testNode {
-		data: dataState,
+	consensusState := consensus.NewState(cfg, dataState)
+	return &testNode{
+		data:      dataState,
 		consensus: consensusState,
-		service: NewService(consensusState),
+		service:   NewService(consensusState),
 	}
 }
 
@@ -44,19 +44,21 @@ func (n *testNode) Run(ctx context.Context) error {
 
 type testEnv struct {
 	committee *types.Committee
-	nodes map[types.PublicKey]*testNode
+	nodes     map[types.PublicKey]*testNode
 }
 
 func newTestEnv(committee *types.Committee) *testEnv {
-	return &testEnv{committee,map[types.PublicKey]*testNode{}}
+	return &testEnv{committee, map[types.PublicKey]*testNode{}}
 }
 
 // Call AddNode BEFORE Run.
 func (e *testEnv) AddNode(key types.SecretKey) *testNode {
-	n := newTestNode(e.committee,&consensus.Config{
+	n := newTestNode(e.committee, &consensus.Config{
 		Key: key,
 		ViewTimeout: func(view types.View) time.Duration {
-			if _,ok := e.nodes[e.committee.Leader(view)]; ok { return time.Hour }
+			if _, ok := e.nodes[e.committee.Leader(view)]; ok {
+				return time.Hour
+			}
 			return 0
 		},
 	})
@@ -66,21 +68,21 @@ func (e *testEnv) AddNode(key types.SecretKey) *testNode {
 
 func (e *testEnv) Run(ctx context.Context) error {
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		for _,x := range e.nodes {
-			s.SpawnNamed("node",func() error { return x.Run(ctx) })
-			for _,y := range e.nodes {
-				xConn,yConn := conn.NewTestConn()
+		for _, x := range e.nodes {
+			s.SpawnNamed("node", func() error { return x.Run(ctx) })
+			for _, y := range e.nodes {
+				xConn, yConn := conn.NewTestConn()
 				server := rpc.NewServer[API]()
 				client := rpc.NewClient[API]()
-				s.SpawnNamed("mux server",func() error { return server.Run(ctx,xConn) })
-				s.SpawnNamed("mux client",func() error { return client.Run(ctx,yConn) })
-				s.SpawnNamed("RunServer", func() error { return x.service.RunServer(ctx,server) })
-				s.SpawnNamed("RunClient", func() error { return y.service.RunClient(ctx,client) })
+				s.SpawnNamed("mux server", func() error { return server.Run(ctx, xConn) })
+				s.SpawnNamed("mux client", func() error { return client.Run(ctx, yConn) })
+				s.SpawnNamed("RunServer", func() error { return x.service.RunServer(ctx, server) })
+				s.SpawnNamed("RunClient", func() error { return y.service.RunClient(ctx, client) })
 			}
 		}
 		return nil
 	})
-	if ctx.Err()!=nil {
+	if ctx.Err() != nil {
 		// Ignore failures after env termination.
 		return nil
 	}

@@ -1,8 +1,8 @@
 package giga
 
 import (
-	pb "github.com/tendermint/tendermint/internal/p2p/giga/pb"
 	apb "github.com/tendermint/tendermint/internal/autobahn/pb"
+	pb "github.com/tendermint/tendermint/internal/p2p/giga/pb"
 	"github.com/tendermint/tendermint/internal/p2p/rpc"
 )
 

@@ -1,19 +1,22 @@
-package giga 
+package giga
 
 import (
-	"fmt"
-	"time"
 	"context"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/internal/p2p/rpc"
-	"github.com/tendermint/tendermint/internal/p2p/giga/pb"
+	"fmt"
 	apb "github.com/tendermint/tendermint/internal/autobahn/pb"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
+	"github.com/tendermint/tendermint/internal/p2p/giga/pb"
+	"github.com/tendermint/tendermint/internal/p2p/rpc"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"time"
 )
 
 // Sends a consensus message to the peer whenever atomic watch is updated.
-func sendUpdates[T interface { comparable; types.ConsensusReq }](
+func sendUpdates[T interface {
+	comparable
+	types.ConsensusReq
+}](
 	ctx context.Context,
 	client rpc.Client[API],
 	w utils.AtomicRecv[utils.Option[T]],
@@ -32,7 +35,7 @@ func sendUpdates[T interface { comparable; types.ConsensusReq }](
 		if !ok {
 			continue
 		}
-		if err := stream.Send(ctx,types.ConsensusReqConv.Encode(last)); err != nil {
+		if err := stream.Send(ctx, types.ConsensusReqConv.Encode(last)); err != nil {
 			return fmt.Errorf("stream.Send(): %w", err)
 		}
 	}
@@ -48,13 +51,13 @@ func (x *Service) clientPing(ctx context.Context, client rpc.Client[API]) error 
 			return err
 		}
 		if err := utils.WithTimeout(ctx, pingTimeout, func(ctx context.Context) error {
-			stream, err := Ping.Call(ctx,client)
+			stream, err := Ping.Call(ctx, client)
 			if err != nil {
 				return fmt.Errorf("p.client.Ping(): %w", err)
 			}
 			defer stream.Close()
 			// TODO(gprusak): add random payload to actually verify roundtrip latency.
-			if err := stream.Send(ctx,&pb.PingReq{}); err != nil {
+			if err := stream.Send(ctx, &pb.PingReq{}); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
 			_, err = stream.Recv(ctx)
@@ -63,7 +66,7 @@ func (x *Service) clientPing(ctx context.Context, client rpc.Client[API]) error 
 			}
 			//
 			return nil
-		}); err!=nil {
+		}); err != nil {
 			return err
 		}
 	}
@@ -85,11 +88,11 @@ func (x *Service) clientConsensus(ctx context.Context, c rpc.Client[API]) error 
 // Ping implements pb.StreamAPIServer.
 // Note that we use streaming RPC, because unary RPC apparently causes 10ms extra delay on avg (empirically tested).
 func (x *Service) serverPing(ctx context.Context, server rpc.Server[API]) error {
-	return Ping.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.PingResp,*pb.PingReq]) error {
+	return Ping.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.PingResp, *pb.PingReq]) error {
 		if _, err := stream.Recv(ctx); err != nil {
 			return fmt.Errorf("stream.Recv(): %w", err)
 		}
-		if err := stream.Send(ctx,&pb.PingResp{}); err != nil {
+		if err := stream.Send(ctx, &pb.PingResp{}); err != nil {
 			return fmt.Errorf("stream.Send(): %w", err)
 		}
 		return nil
@@ -98,7 +101,7 @@ func (x *Service) serverPing(ctx context.Context, server rpc.Server[API]) error 
 
 // Consensus implements pb.StreaAPIServer.
 func (x *Service) serverConsensus(ctx context.Context, server rpc.Server[API]) error {
-	return Consensus.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.ConsensusResp,*apb.ConsensusReq]) error {
+	return Consensus.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.ConsensusResp, *apb.ConsensusReq]) error {
 		for {
 			reqRaw, err := stream.Recv(ctx)
 			if err != nil {

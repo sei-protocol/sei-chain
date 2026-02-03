@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 	"testing"
+	"time"
 
 	"github.com/tendermint/tendermint/internal/autobahn/data"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
@@ -35,7 +35,7 @@ func makeLaneVotes(keys []types.SecretKey, h *types.BlockHeader) []*types.Signed
 func makeCommitQC(
 	rng utils.Rng,
 	committee *types.Committee,
-keys []types.SecretKey,
+	keys []types.SecretKey,
 	prev utils.Option[*types.CommitQC],
 	laneQCs map[types.LaneID]*types.LaneQC,
 	appQC utils.Option[*types.AppQC],

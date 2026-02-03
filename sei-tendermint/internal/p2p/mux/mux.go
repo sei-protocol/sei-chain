@@ -202,7 +202,7 @@ func (r *runner) runSend(ctx context.Context, conn conn.Conn) error {
 			if f.Header.GetMsgEnd() {
 				// Notify sender about local buffer capacity.
 				for inner := range r.inner.RLock() {
-					if s,ok := inner.streams[id]; ok {
+					if s, ok := inner.streams[id]; ok {
 						for sInner, ctrl := range s.inner.Lock() {
 							sInner.send.bufBegin += 1
 							ctrl.Updated()

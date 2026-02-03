@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/autobahn/types"
+	"github.com/tendermint/tendermint/libs/utils"
 )
 
 type inner struct {
@@ -59,7 +59,7 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 	}
 	// TODO(gprusak): atomicity?
 	if qc.View().Less(i.View()) {
-		return nil 
+		return nil
 	}
 	i.viewSpec.TimeoutQC = utils.Some(qc)
 	s.inner.Store(inner{viewSpec: i.viewSpec})
@@ -84,7 +84,7 @@ func (s *State) pushProposal(ctx context.Context, proposal *types.FullProposal) 
 	// TODO: atomicity?
 	i := s.inner.Load()
 	if i.View() != proposal.View() || i.timeoutVote.IsPresent() || i.prepareVote.IsPresent() {
-		return nil 
+		return nil
 	}
 	v := types.Sign(s.cfg.Key, types.NewPrepareVote(proposal.Proposal().Msg()))
 	i.prepareVote = utils.Some(v)
@@ -107,7 +107,7 @@ func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 	}
 	// Update.
 	// TODO: atomicity?
-	i := s.inner.Load();
+	i := s.inner.Load()
 	if i.View() != qc.Proposal().View() || i.timeoutVote.IsPresent() || i.prepareQC.IsPresent() {
 		return nil
 	}
@@ -125,7 +125,7 @@ func (s *State) voteTimeout(ctx context.Context, view types.View) error {
 	}
 	i := s.inner.Load()
 	if i.View() != view || i.timeoutVote.IsPresent() {
-		return nil 
+		return nil
 	}
 	i.timeoutVote = utils.Some(types.NewFullTimeoutVote(s.cfg.Key, view, i.prepareQC))
 	s.inner.Store(i)
