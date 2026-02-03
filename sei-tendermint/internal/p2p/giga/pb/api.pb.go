@@ -146,136 +146,6 @@ func (*LaneQCsResp) Descriptor() ([]byte, []int) {
 	return file_p2p_giga_api_proto_rawDescGZIP(), []int{2}
 }
 
-type ConsensusReq struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Types that are valid to be assigned to T:
-	//
-	//	*ConsensusReq_Proposal
-	//	*ConsensusReq_PrepareVote
-	//	*ConsensusReq_CommitVote
-	//	*ConsensusReq_TimeoutVote
-	//	*ConsensusReq_TimeoutQc
-	T             isConsensusReq_T `protobuf_oneof:"t"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ConsensusReq) Reset() {
-	*x = ConsensusReq{}
-	mi := &file_p2p_giga_api_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ConsensusReq) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ConsensusReq) ProtoMessage() {}
-
-func (x *ConsensusReq) ProtoReflect() protoreflect.Message {
-	mi := &file_p2p_giga_api_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ConsensusReq.ProtoReflect.Descriptor instead.
-func (*ConsensusReq) Descriptor() ([]byte, []int) {
-	return file_p2p_giga_api_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *ConsensusReq) GetT() isConsensusReq_T {
-	if x != nil {
-		return x.T
-	}
-	return nil
-}
-
-func (x *ConsensusReq) GetProposal() *pb.FullProposal {
-	if x != nil {
-		if x, ok := x.T.(*ConsensusReq_Proposal); ok {
-			return x.Proposal
-		}
-	}
-	return nil
-}
-
-func (x *ConsensusReq) GetPrepareVote() *pb.SignedMsg {
-	if x != nil {
-		if x, ok := x.T.(*ConsensusReq_PrepareVote); ok {
-			return x.PrepareVote
-		}
-	}
-	return nil
-}
-
-func (x *ConsensusReq) GetCommitVote() *pb.SignedMsg {
-	if x != nil {
-		if x, ok := x.T.(*ConsensusReq_CommitVote); ok {
-			return x.CommitVote
-		}
-	}
-	return nil
-}
-
-func (x *ConsensusReq) GetTimeoutVote() *pb.FullTimeoutVote {
-	if x != nil {
-		if x, ok := x.T.(*ConsensusReq_TimeoutVote); ok {
-			return x.TimeoutVote
-		}
-	}
-	return nil
-}
-
-func (x *ConsensusReq) GetTimeoutQc() *pb.TimeoutQC {
-	if x != nil {
-		if x, ok := x.T.(*ConsensusReq_TimeoutQc); ok {
-			return x.TimeoutQc
-		}
-	}
-	return nil
-}
-
-type isConsensusReq_T interface {
-	isConsensusReq_T()
-}
-
-type ConsensusReq_Proposal struct {
-	Proposal *pb.FullProposal `protobuf:"bytes,1,opt,name=proposal,proto3,oneof"`
-}
-
-type ConsensusReq_PrepareVote struct {
-	PrepareVote *pb.SignedMsg `protobuf:"bytes,2,opt,name=prepare_vote,json=prepareVote,proto3,oneof"`
-}
-
-type ConsensusReq_CommitVote struct {
-	CommitVote *pb.SignedMsg `protobuf:"bytes,3,opt,name=commit_vote,json=commitVote,proto3,oneof"`
-}
-
-type ConsensusReq_TimeoutVote struct {
-	TimeoutVote *pb.FullTimeoutVote `protobuf:"bytes,4,opt,name=timeout_vote,json=timeoutVote,proto3,oneof"`
-}
-
-type ConsensusReq_TimeoutQc struct {
-	TimeoutQc *pb.TimeoutQC `protobuf:"bytes,5,opt,name=timeout_qc,json=timeoutQc,proto3,oneof"`
-}
-
-func (*ConsensusReq_Proposal) isConsensusReq_T() {}
-
-func (*ConsensusReq_PrepareVote) isConsensusReq_T() {}
-
-func (*ConsensusReq_CommitVote) isConsensusReq_T() {}
-
-func (*ConsensusReq_TimeoutVote) isConsensusReq_T() {}
-
-func (*ConsensusReq_TimeoutQc) isConsensusReq_T() {}
-
 type ConsensusResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -284,7 +154,7 @@ type ConsensusResp struct {
 
 func (x *ConsensusResp) Reset() {
 	*x = ConsensusResp{}
-	mi := &file_p2p_giga_api_proto_msgTypes[4]
+	mi := &file_p2p_giga_api_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -296,7 +166,7 @@ func (x *ConsensusResp) String() string {
 func (*ConsensusResp) ProtoMessage() {}
 
 func (x *ConsensusResp) ProtoReflect() protoreflect.Message {
-	mi := &file_p2p_giga_api_proto_msgTypes[4]
+	mi := &file_p2p_giga_api_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -309,7 +179,7 @@ func (x *ConsensusResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsensusResp.ProtoReflect.Descriptor instead.
 func (*ConsensusResp) Descriptor() ([]byte, []int) {
-	return file_p2p_giga_api_proto_rawDescGZIP(), []int{4}
+	return file_p2p_giga_api_proto_rawDescGZIP(), []int{3}
 }
 
 type PingReq struct {
@@ -320,7 +190,7 @@ type PingReq struct {
 
 func (x *PingReq) Reset() {
 	*x = PingReq{}
-	mi := &file_p2p_giga_api_proto_msgTypes[5]
+	mi := &file_p2p_giga_api_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -332,7 +202,7 @@ func (x *PingReq) String() string {
 func (*PingReq) ProtoMessage() {}
 
 func (x *PingReq) ProtoReflect() protoreflect.Message {
-	mi := &file_p2p_giga_api_proto_msgTypes[5]
+	mi := &file_p2p_giga_api_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -345,7 +215,7 @@ func (x *PingReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingReq.ProtoReflect.Descriptor instead.
 func (*PingReq) Descriptor() ([]byte, []int) {
-	return file_p2p_giga_api_proto_rawDescGZIP(), []int{5}
+	return file_p2p_giga_api_proto_rawDescGZIP(), []int{4}
 }
 
 type PingResp struct {
@@ -356,7 +226,7 @@ type PingResp struct {
 
 func (x *PingResp) Reset() {
 	*x = PingResp{}
-	mi := &file_p2p_giga_api_proto_msgTypes[6]
+	mi := &file_p2p_giga_api_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -368,7 +238,7 @@ func (x *PingResp) String() string {
 func (*PingResp) ProtoMessage() {}
 
 func (x *PingResp) ProtoReflect() protoreflect.Message {
-	mi := &file_p2p_giga_api_proto_msgTypes[6]
+	mi := &file_p2p_giga_api_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -381,7 +251,7 @@ func (x *PingResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingResp.ProtoReflect.Descriptor instead.
 func (*PingResp) Descriptor() ([]byte, []int) {
-	return file_p2p_giga_api_proto_rawDescGZIP(), []int{6}
+	return file_p2p_giga_api_proto_rawDescGZIP(), []int{5}
 }
 
 type LaneVote struct {
@@ -393,7 +263,7 @@ type LaneVote struct {
 
 func (x *LaneVote) Reset() {
 	*x = LaneVote{}
-	mi := &file_p2p_giga_api_proto_msgTypes[7]
+	mi := &file_p2p_giga_api_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -405,7 +275,7 @@ func (x *LaneVote) String() string {
 func (*LaneVote) ProtoMessage() {}
 
 func (x *LaneVote) ProtoReflect() protoreflect.Message {
-	mi := &file_p2p_giga_api_proto_msgTypes[7]
+	mi := &file_p2p_giga_api_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -418,7 +288,7 @@ func (x *LaneVote) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LaneVote.ProtoReflect.Descriptor instead.
 func (*LaneVote) Descriptor() ([]byte, []int) {
-	return file_p2p_giga_api_proto_rawDescGZIP(), []int{7}
+	return file_p2p_giga_api_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *LaneVote) GetLaneVote() *pb.SignedMsg {
@@ -437,7 +307,7 @@ type LaneProposal struct {
 
 func (x *LaneProposal) Reset() {
 	*x = LaneProposal{}
-	mi := &file_p2p_giga_api_proto_msgTypes[8]
+	mi := &file_p2p_giga_api_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -449,7 +319,7 @@ func (x *LaneProposal) String() string {
 func (*LaneProposal) ProtoMessage() {}
 
 func (x *LaneProposal) ProtoReflect() protoreflect.Message {
-	mi := &file_p2p_giga_api_proto_msgTypes[8]
+	mi := &file_p2p_giga_api_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -462,7 +332,7 @@ func (x *LaneProposal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LaneProposal.ProtoReflect.Descriptor instead.
 func (*LaneProposal) Descriptor() ([]byte, []int) {
-	return file_p2p_giga_api_proto_rawDescGZIP(), []int{8}
+	return file_p2p_giga_api_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *LaneProposal) GetLaneProposal() *pb.SignedMsg {
@@ -481,7 +351,7 @@ type AppVote struct {
 
 func (x *AppVote) Reset() {
 	*x = AppVote{}
-	mi := &file_p2p_giga_api_proto_msgTypes[9]
+	mi := &file_p2p_giga_api_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -493,7 +363,7 @@ func (x *AppVote) String() string {
 func (*AppVote) ProtoMessage() {}
 
 func (x *AppVote) ProtoReflect() protoreflect.Message {
-	mi := &file_p2p_giga_api_proto_msgTypes[9]
+	mi := &file_p2p_giga_api_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -506,7 +376,7 @@ func (x *AppVote) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppVote.ProtoReflect.Descriptor instead.
 func (*AppVote) Descriptor() ([]byte, []int) {
-	return file_p2p_giga_api_proto_rawDescGZIP(), []int{9}
+	return file_p2p_giga_api_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *AppVote) GetAppVote() *pb.SignedMsg {
@@ -525,7 +395,7 @@ type StreamLaneProposalsReq struct {
 
 func (x *StreamLaneProposalsReq) Reset() {
 	*x = StreamLaneProposalsReq{}
-	mi := &file_p2p_giga_api_proto_msgTypes[10]
+	mi := &file_p2p_giga_api_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -537,7 +407,7 @@ func (x *StreamLaneProposalsReq) String() string {
 func (*StreamLaneProposalsReq) ProtoMessage() {}
 
 func (x *StreamLaneProposalsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_p2p_giga_api_proto_msgTypes[10]
+	mi := &file_p2p_giga_api_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -550,7 +420,7 @@ func (x *StreamLaneProposalsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamLaneProposalsReq.ProtoReflect.Descriptor instead.
 func (*StreamLaneProposalsReq) Descriptor() ([]byte, []int) {
-	return file_p2p_giga_api_proto_rawDescGZIP(), []int{10}
+	return file_p2p_giga_api_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *StreamLaneProposalsReq) GetFirstBlockNumber() uint64 {
@@ -568,7 +438,7 @@ type StreamAppQCsReq struct {
 
 func (x *StreamAppQCsReq) Reset() {
 	*x = StreamAppQCsReq{}
-	mi := &file_p2p_giga_api_proto_msgTypes[11]
+	mi := &file_p2p_giga_api_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -580,7 +450,7 @@ func (x *StreamAppQCsReq) String() string {
 func (*StreamAppQCsReq) ProtoMessage() {}
 
 func (x *StreamAppQCsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_p2p_giga_api_proto_msgTypes[11]
+	mi := &file_p2p_giga_api_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -593,7 +463,7 @@ func (x *StreamAppQCsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamAppQCsReq.ProtoReflect.Descriptor instead.
 func (*StreamAppQCsReq) Descriptor() ([]byte, []int) {
-	return file_p2p_giga_api_proto_rawDescGZIP(), []int{11}
+	return file_p2p_giga_api_proto_rawDescGZIP(), []int{10}
 }
 
 type StreamAppQCsResp struct {
@@ -606,7 +476,7 @@ type StreamAppQCsResp struct {
 
 func (x *StreamAppQCsResp) Reset() {
 	*x = StreamAppQCsResp{}
-	mi := &file_p2p_giga_api_proto_msgTypes[12]
+	mi := &file_p2p_giga_api_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -618,7 +488,7 @@ func (x *StreamAppQCsResp) String() string {
 func (*StreamAppQCsResp) ProtoMessage() {}
 
 func (x *StreamAppQCsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_p2p_giga_api_proto_msgTypes[12]
+	mi := &file_p2p_giga_api_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -631,7 +501,7 @@ func (x *StreamAppQCsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamAppQCsResp.ProtoReflect.Descriptor instead.
 func (*StreamAppQCsResp) Descriptor() ([]byte, []int) {
-	return file_p2p_giga_api_proto_rawDescGZIP(), []int{12}
+	return file_p2p_giga_api_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *StreamAppQCsResp) GetAppQc() *pb.AppQC {
@@ -656,7 +526,7 @@ type StreamCommitQCsReq struct {
 
 func (x *StreamCommitQCsReq) Reset() {
 	*x = StreamCommitQCsReq{}
-	mi := &file_p2p_giga_api_proto_msgTypes[13]
+	mi := &file_p2p_giga_api_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -668,7 +538,7 @@ func (x *StreamCommitQCsReq) String() string {
 func (*StreamCommitQCsReq) ProtoMessage() {}
 
 func (x *StreamCommitQCsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_p2p_giga_api_proto_msgTypes[13]
+	mi := &file_p2p_giga_api_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -681,7 +551,7 @@ func (x *StreamCommitQCsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamCommitQCsReq.ProtoReflect.Descriptor instead.
 func (*StreamCommitQCsReq) Descriptor() ([]byte, []int) {
-	return file_p2p_giga_api_proto_rawDescGZIP(), []int{13}
+	return file_p2p_giga_api_proto_rawDescGZIP(), []int{12}
 }
 
 type StreamLaneVotesReq struct {
@@ -692,7 +562,7 @@ type StreamLaneVotesReq struct {
 
 func (x *StreamLaneVotesReq) Reset() {
 	*x = StreamLaneVotesReq{}
-	mi := &file_p2p_giga_api_proto_msgTypes[14]
+	mi := &file_p2p_giga_api_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -704,7 +574,7 @@ func (x *StreamLaneVotesReq) String() string {
 func (*StreamLaneVotesReq) ProtoMessage() {}
 
 func (x *StreamLaneVotesReq) ProtoReflect() protoreflect.Message {
-	mi := &file_p2p_giga_api_proto_msgTypes[14]
+	mi := &file_p2p_giga_api_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -717,7 +587,7 @@ func (x *StreamLaneVotesReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamLaneVotesReq.ProtoReflect.Descriptor instead.
 func (*StreamLaneVotesReq) Descriptor() ([]byte, []int) {
-	return file_p2p_giga_api_proto_rawDescGZIP(), []int{14}
+	return file_p2p_giga_api_proto_rawDescGZIP(), []int{13}
 }
 
 type StreamAppVotesReq struct {
@@ -728,7 +598,7 @@ type StreamAppVotesReq struct {
 
 func (x *StreamAppVotesReq) Reset() {
 	*x = StreamAppVotesReq{}
-	mi := &file_p2p_giga_api_proto_msgTypes[15]
+	mi := &file_p2p_giga_api_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -740,7 +610,7 @@ func (x *StreamAppVotesReq) String() string {
 func (*StreamAppVotesReq) ProtoMessage() {}
 
 func (x *StreamAppVotesReq) ProtoReflect() protoreflect.Message {
-	mi := &file_p2p_giga_api_proto_msgTypes[15]
+	mi := &file_p2p_giga_api_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -753,7 +623,7 @@ func (x *StreamAppVotesReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamAppVotesReq.ProtoReflect.Descriptor instead.
 func (*StreamAppVotesReq) Descriptor() ([]byte, []int) {
-	return file_p2p_giga_api_proto_rawDescGZIP(), []int{15}
+	return file_p2p_giga_api_proto_rawDescGZIP(), []int{14}
 }
 
 type GetBlockReq struct {
@@ -765,7 +635,7 @@ type GetBlockReq struct {
 
 func (x *GetBlockReq) Reset() {
 	*x = GetBlockReq{}
-	mi := &file_p2p_giga_api_proto_msgTypes[16]
+	mi := &file_p2p_giga_api_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -777,7 +647,7 @@ func (x *GetBlockReq) String() string {
 func (*GetBlockReq) ProtoMessage() {}
 
 func (x *GetBlockReq) ProtoReflect() protoreflect.Message {
-	mi := &file_p2p_giga_api_proto_msgTypes[16]
+	mi := &file_p2p_giga_api_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -790,7 +660,7 @@ func (x *GetBlockReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBlockReq.ProtoReflect.Descriptor instead.
 func (*GetBlockReq) Descriptor() ([]byte, []int) {
-	return file_p2p_giga_api_proto_rawDescGZIP(), []int{16}
+	return file_p2p_giga_api_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GetBlockReq) GetGlobalNumber() uint64 {
@@ -809,7 +679,7 @@ type GetBlockResp struct {
 
 func (x *GetBlockResp) Reset() {
 	*x = GetBlockResp{}
-	mi := &file_p2p_giga_api_proto_msgTypes[17]
+	mi := &file_p2p_giga_api_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -821,7 +691,7 @@ func (x *GetBlockResp) String() string {
 func (*GetBlockResp) ProtoMessage() {}
 
 func (x *GetBlockResp) ProtoReflect() protoreflect.Message {
-	mi := &file_p2p_giga_api_proto_msgTypes[17]
+	mi := &file_p2p_giga_api_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -834,7 +704,7 @@ func (x *GetBlockResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBlockResp.ProtoReflect.Descriptor instead.
 func (*GetBlockResp) Descriptor() ([]byte, []int) {
-	return file_p2p_giga_api_proto_rawDescGZIP(), []int{17}
+	return file_p2p_giga_api_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *GetBlockResp) GetBlock() *pb.Block {
@@ -853,7 +723,7 @@ type StreamFullCommitQCsReq struct {
 
 func (x *StreamFullCommitQCsReq) Reset() {
 	*x = StreamFullCommitQCsReq{}
-	mi := &file_p2p_giga_api_proto_msgTypes[18]
+	mi := &file_p2p_giga_api_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -865,7 +735,7 @@ func (x *StreamFullCommitQCsReq) String() string {
 func (*StreamFullCommitQCsReq) ProtoMessage() {}
 
 func (x *StreamFullCommitQCsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_p2p_giga_api_proto_msgTypes[18]
+	mi := &file_p2p_giga_api_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -878,7 +748,7 @@ func (x *StreamFullCommitQCsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamFullCommitQCsReq.ProtoReflect.Descriptor instead.
 func (*StreamFullCommitQCsReq) Descriptor() ([]byte, []int) {
-	return file_p2p_giga_api_proto_rawDescGZIP(), []int{18}
+	return file_p2p_giga_api_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *StreamFullCommitQCsReq) GetNextBlock() uint64 {
@@ -897,16 +767,7 @@ const file_p2p_giga_api_proto_rawDesc = "" +
 	"\rlane_proposal\x18\x01 \x01(\v2\x13.autobahn.SignedMsgR\flaneProposal\"<\n" +
 	"\bLaneResp\x120\n" +
 	"\tlane_vote\x18\x01 \x01(\v2\x13.autobahn.SignedMsgR\blaneVote\"\r\n" +
-	"\vLaneQCsResp\"\xb1\x02\n" +
-	"\fConsensusReq\x124\n" +
-	"\bproposal\x18\x01 \x01(\v2\x16.autobahn.FullProposalH\x00R\bproposal\x128\n" +
-	"\fprepare_vote\x18\x02 \x01(\v2\x13.autobahn.SignedMsgH\x00R\vprepareVote\x126\n" +
-	"\vcommit_vote\x18\x03 \x01(\v2\x13.autobahn.SignedMsgH\x00R\n" +
-	"commitVote\x12>\n" +
-	"\ftimeout_vote\x18\x04 \x01(\v2\x19.autobahn.FullTimeoutVoteH\x00R\vtimeoutVote\x124\n" +
-	"\n" +
-	"timeout_qc\x18\x05 \x01(\v2\x13.autobahn.TimeoutQCH\x00R\ttimeoutQcB\x03\n" +
-	"\x01t\"\x0f\n" +
+	"\vLaneQCsResp\"\x0f\n" +
 	"\rConsensusResp\"\t\n" +
 	"\aPingReq\"\n" +
 	"\n" +
@@ -947,54 +808,45 @@ func file_p2p_giga_api_proto_rawDescGZIP() []byte {
 	return file_p2p_giga_api_proto_rawDescData
 }
 
-var file_p2p_giga_api_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_p2p_giga_api_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_p2p_giga_api_proto_goTypes = []any{
 	(*LaneReq)(nil),                // 0: p2p.giga.LaneReq
 	(*LaneResp)(nil),               // 1: p2p.giga.LaneResp
 	(*LaneQCsResp)(nil),            // 2: p2p.giga.LaneQCsResp
-	(*ConsensusReq)(nil),           // 3: p2p.giga.ConsensusReq
-	(*ConsensusResp)(nil),          // 4: p2p.giga.ConsensusResp
-	(*PingReq)(nil),                // 5: p2p.giga.PingReq
-	(*PingResp)(nil),               // 6: p2p.giga.PingResp
-	(*LaneVote)(nil),               // 7: p2p.giga.LaneVote
-	(*LaneProposal)(nil),           // 8: p2p.giga.LaneProposal
-	(*AppVote)(nil),                // 9: p2p.giga.AppVote
-	(*StreamLaneProposalsReq)(nil), // 10: p2p.giga.StreamLaneProposalsReq
-	(*StreamAppQCsReq)(nil),        // 11: p2p.giga.StreamAppQCsReq
-	(*StreamAppQCsResp)(nil),       // 12: p2p.giga.StreamAppQCsResp
-	(*StreamCommitQCsReq)(nil),     // 13: p2p.giga.StreamCommitQCsReq
-	(*StreamLaneVotesReq)(nil),     // 14: p2p.giga.StreamLaneVotesReq
-	(*StreamAppVotesReq)(nil),      // 15: p2p.giga.StreamAppVotesReq
-	(*GetBlockReq)(nil),            // 16: p2p.giga.GetBlockReq
-	(*GetBlockResp)(nil),           // 17: p2p.giga.GetBlockResp
-	(*StreamFullCommitQCsReq)(nil), // 18: p2p.giga.StreamFullCommitQCsReq
-	(*pb.SignedMsg)(nil),           // 19: autobahn.SignedMsg
-	(*pb.FullProposal)(nil),        // 20: autobahn.FullProposal
-	(*pb.FullTimeoutVote)(nil),     // 21: autobahn.FullTimeoutVote
-	(*pb.TimeoutQC)(nil),           // 22: autobahn.TimeoutQC
-	(*pb.AppQC)(nil),               // 23: autobahn.AppQC
-	(*pb.CommitQC)(nil),            // 24: autobahn.CommitQC
-	(*pb.Block)(nil),               // 25: autobahn.Block
+	(*ConsensusResp)(nil),          // 3: p2p.giga.ConsensusResp
+	(*PingReq)(nil),                // 4: p2p.giga.PingReq
+	(*PingResp)(nil),               // 5: p2p.giga.PingResp
+	(*LaneVote)(nil),               // 6: p2p.giga.LaneVote
+	(*LaneProposal)(nil),           // 7: p2p.giga.LaneProposal
+	(*AppVote)(nil),                // 8: p2p.giga.AppVote
+	(*StreamLaneProposalsReq)(nil), // 9: p2p.giga.StreamLaneProposalsReq
+	(*StreamAppQCsReq)(nil),        // 10: p2p.giga.StreamAppQCsReq
+	(*StreamAppQCsResp)(nil),       // 11: p2p.giga.StreamAppQCsResp
+	(*StreamCommitQCsReq)(nil),     // 12: p2p.giga.StreamCommitQCsReq
+	(*StreamLaneVotesReq)(nil),     // 13: p2p.giga.StreamLaneVotesReq
+	(*StreamAppVotesReq)(nil),      // 14: p2p.giga.StreamAppVotesReq
+	(*GetBlockReq)(nil),            // 15: p2p.giga.GetBlockReq
+	(*GetBlockResp)(nil),           // 16: p2p.giga.GetBlockResp
+	(*StreamFullCommitQCsReq)(nil), // 17: p2p.giga.StreamFullCommitQCsReq
+	(*pb.SignedMsg)(nil),           // 18: autobahn.SignedMsg
+	(*pb.AppQC)(nil),               // 19: autobahn.AppQC
+	(*pb.CommitQC)(nil),            // 20: autobahn.CommitQC
+	(*pb.Block)(nil),               // 21: autobahn.Block
 }
 var file_p2p_giga_api_proto_depIdxs = []int32{
-	19, // 0: p2p.giga.LaneReq.lane_proposal:type_name -> autobahn.SignedMsg
-	19, // 1: p2p.giga.LaneResp.lane_vote:type_name -> autobahn.SignedMsg
-	20, // 2: p2p.giga.ConsensusReq.proposal:type_name -> autobahn.FullProposal
-	19, // 3: p2p.giga.ConsensusReq.prepare_vote:type_name -> autobahn.SignedMsg
-	19, // 4: p2p.giga.ConsensusReq.commit_vote:type_name -> autobahn.SignedMsg
-	21, // 5: p2p.giga.ConsensusReq.timeout_vote:type_name -> autobahn.FullTimeoutVote
-	22, // 6: p2p.giga.ConsensusReq.timeout_qc:type_name -> autobahn.TimeoutQC
-	19, // 7: p2p.giga.LaneVote.lane_vote:type_name -> autobahn.SignedMsg
-	19, // 8: p2p.giga.LaneProposal.lane_proposal:type_name -> autobahn.SignedMsg
-	19, // 9: p2p.giga.AppVote.app_vote:type_name -> autobahn.SignedMsg
-	23, // 10: p2p.giga.StreamAppQCsResp.app_qc:type_name -> autobahn.AppQC
-	24, // 11: p2p.giga.StreamAppQCsResp.commit_qc:type_name -> autobahn.CommitQC
-	25, // 12: p2p.giga.GetBlockResp.block:type_name -> autobahn.Block
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	18, // 0: p2p.giga.LaneReq.lane_proposal:type_name -> autobahn.SignedMsg
+	18, // 1: p2p.giga.LaneResp.lane_vote:type_name -> autobahn.SignedMsg
+	18, // 2: p2p.giga.LaneVote.lane_vote:type_name -> autobahn.SignedMsg
+	18, // 3: p2p.giga.LaneProposal.lane_proposal:type_name -> autobahn.SignedMsg
+	18, // 4: p2p.giga.AppVote.app_vote:type_name -> autobahn.SignedMsg
+	19, // 5: p2p.giga.StreamAppQCsResp.app_qc:type_name -> autobahn.AppQC
+	20, // 6: p2p.giga.StreamAppQCsResp.commit_qc:type_name -> autobahn.CommitQC
+	21, // 7: p2p.giga.GetBlockResp.block:type_name -> autobahn.Block
+	8,  // [8:8] is the sub-list for method output_type
+	8,  // [8:8] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_p2p_giga_api_proto_init() }
@@ -1002,21 +854,14 @@ func file_p2p_giga_api_proto_init() {
 	if File_p2p_giga_api_proto != nil {
 		return
 	}
-	file_p2p_giga_api_proto_msgTypes[3].OneofWrappers = []any{
-		(*ConsensusReq_Proposal)(nil),
-		(*ConsensusReq_PrepareVote)(nil),
-		(*ConsensusReq_CommitVote)(nil),
-		(*ConsensusReq_TimeoutVote)(nil),
-		(*ConsensusReq_TimeoutQc)(nil),
-	}
-	file_p2p_giga_api_proto_msgTypes[17].OneofWrappers = []any{}
+	file_p2p_giga_api_proto_msgTypes[16].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_p2p_giga_api_proto_rawDesc), len(file_p2p_giga_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   19,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
