@@ -16,7 +16,7 @@ func TestSnapshotTimeThrottling(t *testing.T) {
 
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
 		Config: Config{
-			SnapshotInterval:        100,        // Small interval for testing
+			SnapshotInterval:        100,     // Small interval for testing
 			SnapshotMinTimeInterval: 60 * 60, // 1 hour minimum time interval (in seconds)
 		},
 		Dir:             dir,
