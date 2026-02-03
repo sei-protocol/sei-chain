@@ -152,7 +152,7 @@ func (s *CommitStore) open() error {
 	dir := filepath.Join(s.homeDir, "flatkv")
 
 	// Create directory structure
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("failed to create base directory: %w", err)
 	}
 
@@ -251,14 +251,14 @@ func (s *CommitStore) open() error {
 	// Load committed state from metadataDB
 	globalVersion, err := s.loadGlobalVersion()
 	if err != nil {
-		s.Close()
+		_ = s.Close()
 		return fmt.Errorf("failed to load global version: %w", err)
 	}
 	s.committedVersion = globalVersion
 
 	globalLtHash, err := s.loadGlobalLtHash()
 	if err != nil {
-		s.Close()
+		_ = s.Close()
 		return fmt.Errorf("failed to load global LtHash: %w", err)
 	}
 	if globalLtHash != nil {
@@ -565,7 +565,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 	// When EnableAccountWrites=false, skip entirely (don't update LocalMeta to avoid false "synced" state)
 	if s.config.EnableAccountWrites && (len(s.accountWrites) > 0 || version > s.accountLocalMeta.CommittedVersion) {
 		batch := s.accountDB.NewBatch()
-		defer batch.Close()
+		defer func() { _ = batch.Close() }()
 
 		for _, paw := range s.accountWrites {
 			if paw.isDelete {
@@ -601,7 +601,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 	// When EnableCodeWrites=false, skip entirely (don't update LocalMeta)
 	if s.config.EnableCodeWrites && (len(s.codeWrites) > 0 || version > s.codeLocalMeta.CommittedVersion) {
 		batch := s.codeDB.NewBatch()
-		defer batch.Close()
+		defer func() { _ = batch.Close() }()
 
 		for _, pw := range s.codeWrites {
 			if pw.isDelete {
@@ -635,7 +635,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 	// When EnableStorageWrites=false, skip entirely (don't update LocalMeta)
 	if s.config.EnableStorageWrites && (len(s.storageWrites) > 0 || version > s.storageLocalMeta.CommittedVersion) {
 		batch := s.storageDB.NewBatch()
-		defer batch.Close()
+		defer func() { _ = batch.Close() }()
 
 		for _, pw := range s.storageWrites {
 			if pw.isDelete {

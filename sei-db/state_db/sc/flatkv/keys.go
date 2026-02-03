@@ -41,7 +41,7 @@ type LocalMeta struct {
 // MarshalLocalMeta encodes LocalMeta as fixed 8 bytes (big-endian).
 func MarshalLocalMeta(m *LocalMeta) []byte {
 	buf := make([]byte, localMetaSize)
-	binary.BigEndian.PutUint64(buf, uint64(m.CommittedVersion))
+	binary.BigEndian.PutUint64(buf, uint64(m.CommittedVersion)) //nolint:gosec // version is always non-negative
 	return buf
 }
 
@@ -51,7 +51,7 @@ func UnmarshalLocalMeta(data []byte) (*LocalMeta, error) {
 		return nil, fmt.Errorf("invalid LocalMeta size: got %d, want %d", len(data), localMetaSize)
 	}
 	return &LocalMeta{
-		CommittedVersion: int64(binary.BigEndian.Uint64(data)),
+		CommittedVersion: int64(binary.BigEndian.Uint64(data)), //nolint:gosec // version won't exceed int64 max
 	}, nil
 }
 

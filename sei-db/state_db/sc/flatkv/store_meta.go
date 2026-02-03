@@ -60,7 +60,7 @@ func (s *CommitStore) loadGlobalLtHash() (*lthash.LtHash, error) {
 // This is the global watermark written AFTER all per-DB commits succeed.
 func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) error {
 	batch := s.metadataDB.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 
 	// Encode version (version should always be non-negative in practice)
 	versionBuf := make([]byte, 8)

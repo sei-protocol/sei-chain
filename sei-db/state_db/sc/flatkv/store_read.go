@@ -43,10 +43,9 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		if !ok {
 			return nil, false
 		}
-		addrStr := string(addr[:])
 
 		// Check pending writes first
-		if paw, found := s.accountWrites[addrStr]; found {
+		if paw, found := s.accountWrites[string(addr[:])]; found {
 			if paw.isDelete {
 				return nil, false
 			}
@@ -222,10 +221,8 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 // Returns zero AccountValue if not found (new account).
 // Returns error if existing data is corrupted (decode fails) or I/O error occurs.
 func (s *CommitStore) getAccountValue(addr Address) (AccountValue, error) {
-	addrStr := string(addr[:])
-
 	// Check pending writes first
-	if paw, ok := s.accountWrites[addrStr]; ok {
+	if paw, ok := s.accountWrites[string(addr[:])]; ok {
 		return paw.value, nil
 	}
 
@@ -262,8 +259,7 @@ func (s *CommitStore) getAccountValueFromDB(addr Address) (AccountValue, error) 
 // Returns (nil, nil) if not found.
 // Returns (nil, error) if I/O error occurs.
 func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
-	keyStr := string(key)
-	if pw, ok := s.storageWrites[keyStr]; ok {
+	if pw, ok := s.storageWrites[string(key)]; ok {
 		if pw.isDelete {
 			return nil, nil
 		}
@@ -283,8 +279,7 @@ func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
 // Returns (nil, nil) if not found.
 // Returns (nil, error) if I/O error occurs.
 func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
-	keyStr := string(key)
-	if pw, ok := s.codeWrites[keyStr]; ok {
+	if pw, ok := s.codeWrites[string(key)]; ok {
 		if pw.isDelete {
 			return nil, nil
 		}
