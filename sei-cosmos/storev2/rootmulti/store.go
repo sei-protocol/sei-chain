@@ -11,6 +11,7 @@ import (
 
 	"cosmossdk.io/errors"
 	"github.com/armon/go-metrics"
+
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 	"github.com/cosmos/cosmos-sdk/store/mem"
@@ -25,7 +26,7 @@ import (
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
@@ -66,7 +67,12 @@ func NewStore(
 	migrateIavl bool,
 	gigaKeys []string,
 ) *Store {
-	scStore := sc.NewCommitStore(homeDir, logger, scConfig)
+	// Use custom directory if specified, otherwise use homeDir
+	scDir := homeDir
+	if scConfig.Directory != "" {
+		scDir = scConfig.Directory
+	}
+	scStore := memiavl.NewCommitStore(scDir, logger, scConfig.MemIAVLConfig)
 	store := &Store{
 		logger:       logger,
 		scStore:      scStore,
@@ -230,12 +236,11 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 		store := types.KVStore(v)
 		stores[k] = store
 	}
-	gigaStores := make(map[types.StoreKey]types.KVStore, len(rs.gigaKeys))
+	gigaKeys := make([]types.StoreKey, 0, len(rs.gigaKeys))
 	for _, k := range rs.gigaKeys {
-		key := rs.storeKeys[k]
-		gigaStores[key] = rs.ckvStores[key]
+		gigaKeys = append(gigaKeys, rs.storeKeys[k])
 	}
-	return cachemulti.NewStore(nil, stores, rs.storeKeys, gigaStores, nil, nil)
+	return cachemulti.NewStore(nil, stores, rs.storeKeys, gigaKeys, nil, nil)
 }
 
 // CacheMultiStoreWithVersion Implements interface MultiStore
@@ -287,7 +292,7 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 	}
 	for k, store := range rs.ckvStores {
 		if store.GetStoreType() == types.StoreTypeIAVL {
-			tree := scStore.GetModuleByName(k.Name())
+			tree := scStore.GetChildStoreByName(k.Name())
 			stores[k] = commitment.NewStore(tree, rs.logger)
 		}
 	}
@@ -451,7 +456,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, params storeParam
 	case types.StoreTypeMulti:
 		panic("recursive MultiStores not yet supported")
 	case types.StoreTypeIAVL:
-		tree := rs.scStore.GetModuleByName(key.Name())
+		tree := rs.scStore.GetChildStoreByName(key.Name())
 		if tree == nil {
 			return nil, fmt.Errorf("new store is not added in upgrades: %s", key.Name())
 		}
@@ -562,7 +567,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 			return sdkerrors.QueryResult(err)
 		}
 		defer scStore.Close()
-		store = types.Queryable(commitment.NewStore(scStore.GetModuleByName(storeName), rs.logger))
+		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName), rs.logger))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	}
@@ -728,7 +733,7 @@ loop:
 		switch item := snapshotItem.Item.(type) {
 		case *snapshottypes.SnapshotItem_Store:
 			storeKey = item.Store.Name
-			if err = scImporter.AddTree(storeKey); err != nil {
+			if err = scImporter.AddModule(storeKey); err != nil {
 				restoreErr = err
 				break loop
 			}

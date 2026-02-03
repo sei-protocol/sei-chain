@@ -98,6 +98,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/app/benchmark"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
@@ -409,8 +410,7 @@ type App struct {
 
 	txPrioritizer sdk.TxPrioritizer
 
-	benchmarkProposalCh <-chan *abci.ResponsePrepareProposal
-	benchmarkLogger     *benchmarkLogger
+	benchmarkManager *benchmark.Manager
 
 	// GigaExecutorEnabled controls whether to use the Giga executor (evmone-based)
 	// instead of geth's interpreter for EVM execution. Experimental feature.
@@ -958,8 +958,8 @@ func New(
 	// benchmarkEnabled is enabled via build flag (make install-bench)
 	if benchmarkEnabled {
 		evmChainID := evmconfig.GetEVMChainID(app.ChainID).Int64()
-		app.InitGenerator(context.Background(), app.ChainID, evmChainID, logger)
-		app.SetPrepareProposalHandler(app.PrepareProposalGeneratorHandler)
+		app.InitBenchmark(context.Background(), app.ChainID, evmChainID, logger)
+		app.SetPrepareProposalHandler(app.PrepareProposalBenchmarkHandler)
 	} else {
 		app.SetPrepareProposalHandler(app.PrepareProposalHandler)
 	}
@@ -1173,9 +1173,7 @@ func (app *App) ClearOptimisticProcessingInfo() {
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	// Start block processing timing (ends at FinalizeBlock)
-	if app.benchmarkLogger != nil {
-		app.benchmarkLogger.StartBlockProcessing()
-	}
+	app.StartBenchmarkBlockProcessing()
 
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
@@ -1253,9 +1251,9 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		duration := time.Since(startTime)
 		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
 		// End block processing timing (started at ProcessProposal)
-		if app.benchmarkLogger != nil {
-			app.benchmarkLogger.EndBlockProcessing()
-		}
+		app.EndBenchmarkBlockProcessing()
+		// Process receipts for benchmark deployment tracking
+		app.ProcessBenchmarkReceipts(ctx)
 	}()
 
 	// Get all optimistic processing info atomically
@@ -1363,6 +1361,9 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
 
+	ms := ctx.MultiStore().CacheMultiStore()
+	defer ms.Write()
+	ctx = ctx.WithMultiStore(ms)
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	for i, tx := range txs {
 		ctx = ctx.WithTxIndex(absoluteTxIndices[i])
@@ -1371,6 +1372,7 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		if evmMsg == nil {
 			result := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 			txResults[i] = result
+			ms.Write()
 			continue
 		}
 
@@ -1381,6 +1383,7 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 			if gigautils.ShouldExecutionAbort(execErr) {
 				res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 				txResults[i] = res
+				ms.Write()
 				continue
 			}
 			txResults[i] = &abci.ExecTxResult{
@@ -1391,6 +1394,7 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		}
 
 		txResults[i] = result
+		ctx.GigaMultiStore().WriteGiga()
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
 

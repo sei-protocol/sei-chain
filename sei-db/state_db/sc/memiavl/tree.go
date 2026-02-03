@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	ics23 "github.com/confio/ics23/go"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -15,7 +16,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 )
 
-var _ types.ModuleStore = (*Tree)(nil)
+var _ types.CommitKVStore = (*Tree)(nil)
 var emptyHash = sha256.New().Sum(nil)
 
 // Tree verify change sets by replay them to rebuild iavl tree and verify the root hashes

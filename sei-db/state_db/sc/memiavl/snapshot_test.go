@@ -5,11 +5,12 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	"github.com/stretchr/testify/require"
 )
 
 func TestSnapshotEncodingRoundTrip(t *testing.T) {
@@ -145,10 +146,10 @@ func TestDBSnapshotRestore(t *testing.T) {
 	initialStores := []string{"test", "test2"}
 
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:               dir,
-		CreateIfMissing:   true,
-		InitialStores:     initialStores,
-		AsyncCommitBuffer: -1,
+		Config:          Config{AsyncCommitBuffer: -1},
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   initialStores,
 	})
 	require.NoError(t, err)
 

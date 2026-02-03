@@ -103,11 +103,7 @@ func NewGigaTestContext(t testing.TB, testAccts []utils.TestAcct, blockTime time
 		sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)),
 	)
 	var bk bankKeeper
-	if gigaEnabled {
-		bk = testApp.GigaBankKeeper
-	} else {
-		bk = testApp.BankKeeper
-	}
+	bk = testApp.BankKeeper
 	for _, ta := range testAccts {
 		err := bk.MintCoins(ctx, "mint", amounts)
 		if err != nil {
@@ -142,13 +138,8 @@ func CreateEVMTransferTxs(t testing.TB, tCtx *GigaTestContext, transfers []EVMTr
 
 	var ek evmKeeper
 	var bk bankKeeper
-	if isGiga {
-		ek = &tCtx.TestApp.GigaEvmKeeper
-		bk = tCtx.TestApp.GigaBankKeeper
-	} else {
-		ek = &tCtx.TestApp.EvmKeeper
-		bk = tCtx.TestApp.BankKeeper
-	}
+	ek = &tCtx.TestApp.EvmKeeper
+	bk = tCtx.TestApp.BankKeeper
 	for _, transfer := range transfers {
 		// Associate the Cosmos address with the EVM address
 		// This is required for the Giga executor path which bypasses ante handlers
@@ -635,13 +626,8 @@ func CreateContractDeployTxs(t testing.TB, tCtx *GigaTestContext, deploys []EVMC
 
 	var ek evmKeeper
 	var bk bankKeeper
-	if isGiga {
-		ek = &tCtx.TestApp.GigaEvmKeeper
-		bk = tCtx.TestApp.GigaBankKeeper
-	} else {
-		ek = &tCtx.TestApp.EvmKeeper
-		bk = tCtx.TestApp.BankKeeper
-	}
+	ek = &tCtx.TestApp.EvmKeeper
+	bk = tCtx.TestApp.BankKeeper
 	for _, deploy := range deploys {
 		// Associate the Cosmos address with the EVM address
 		ek.SetAddressMapping(tCtx.Ctx, deploy.Signer.AccountAddress, deploy.Signer.EvmAddress)
@@ -697,13 +683,8 @@ func CreateContractCallTxs(t testing.TB, tCtx *GigaTestContext, calls []EVMContr
 
 	var ek evmKeeper
 	var bk bankKeeper
-	if isGiga {
-		ek = &tCtx.TestApp.GigaEvmKeeper
-		bk = tCtx.TestApp.GigaBankKeeper
-	} else {
-		ek = &tCtx.TestApp.EvmKeeper
-		bk = tCtx.TestApp.BankKeeper
-	}
+	ek = &tCtx.TestApp.EvmKeeper
+	bk = tCtx.TestApp.BankKeeper
 	for _, call := range calls {
 		// Associate the Cosmos address with the EVM address
 		ek.SetAddressMapping(tCtx.Ctx, call.Signer.AccountAddress, call.Signer.EvmAddress)
@@ -1451,4 +1432,100 @@ func TestLastResultsHash_DeterministicFieldsLogged(t *testing.T) {
 
 	// Still verify they match
 	CompareLastResultsHash(t, "DeterministicFieldsLogged", gethResults, gigaResults)
+}
+
+// TestGigaSequential_BalanceTransfer verifies that balance is actually transferred
+// when using the Giga Sequential executor mode
+func TestGigaSequential_BalanceTransfer(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+
+	// Create sender and recipient
+	sender := utils.NewSigner()
+	recipient := utils.NewSigner()
+
+	// Setup Giga Sequential context
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+
+	// Fund the sender account and set up address mapping
+	gigaCtx.TestApp.EvmKeeper.SetAddressMapping(gigaCtx.Ctx, sender.AccountAddress, sender.EvmAddress)
+	gigaCtx.TestApp.EvmKeeper.SetAddressMapping(gigaCtx.Ctx, recipient.AccountAddress, recipient.EvmAddress)
+
+	initialFunding := sdk.NewCoins(
+		sdk.NewCoin("usei", sdk.NewInt(1000000000000000000)), // 1e18 usei
+	)
+	err := gigaCtx.TestApp.BankKeeper.MintCoins(gigaCtx.Ctx, "mint", initialFunding)
+	require.NoError(t, err)
+	err = gigaCtx.TestApp.BankKeeper.SendCoinsFromModuleToAccount(gigaCtx.Ctx, "mint", sender.AccountAddress, initialFunding)
+	require.NoError(t, err)
+
+	// Get initial balances
+	senderInitialBalance := gigaCtx.TestApp.EvmKeeper.GetBalance(gigaCtx.Ctx, sender.AccountAddress)
+	recipientInitialBalance := gigaCtx.TestApp.EvmKeeper.GetBalance(gigaCtx.Ctx, recipient.AccountAddress)
+
+	t.Logf("Initial sender balance: %s", senderInitialBalance.String())
+	t.Logf("Initial recipient balance: %s", recipientInitialBalance.String())
+
+	require.True(t, senderInitialBalance.Sign() > 0, "Sender should have initial balance")
+	require.True(t, recipientInitialBalance.Sign() == 0, "Recipient should have zero initial balance")
+
+	// Transfer amount (1e12 wei = 1 microsei in EVM terms)
+	transferAmount := big.NewInt(1000000000000) // 1e12 wei
+
+	// Create the transfer transaction
+	transfers := []EVMTransfer{
+		{
+			Signer: sender,
+			To:     recipient.EvmAddress,
+			Value:  transferAmount,
+			Nonce:  0,
+		},
+	}
+
+	// Note: CreateEVMTransferTxs will fund sender again, so we track the balance after tx creation
+	txs := CreateEVMTransferTxs(t, gigaCtx, transfers, true)
+
+	// Get balances right before block execution
+	senderPreBlockBalance := gigaCtx.TestApp.EvmKeeper.GetBalance(gigaCtx.Ctx, sender.AccountAddress)
+	recipientPreBlockBalance := gigaCtx.TestApp.EvmKeeper.GetBalance(gigaCtx.Ctx, recipient.AccountAddress)
+
+	t.Logf("Pre-block sender balance: %s", senderPreBlockBalance.String())
+	t.Logf("Pre-block recipient balance: %s", recipientPreBlockBalance.String())
+
+	// Execute the block
+	_, results, err := RunBlock(t, gigaCtx, txs)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, uint32(0), results[0].Code, "Transfer should succeed: %s", results[0].Log)
+
+	// Get final balances - need to use the updated context after block execution
+	// Note: ProcessBlock updates state, so we query against the same context
+	senderFinalBalance := gigaCtx.TestApp.EvmKeeper.GetBalance(gigaCtx.Ctx, sender.AccountAddress)
+	recipientFinalBalance := gigaCtx.TestApp.EvmKeeper.GetBalance(gigaCtx.Ctx, recipient.AccountAddress)
+
+	t.Logf("Final sender balance: %s", senderFinalBalance.String())
+	t.Logf("Final recipient balance: %s", recipientFinalBalance.String())
+
+	// Calculate expected gas cost (21000 gas for simple transfer * gas price)
+	gasUsed := results[0].GasUsed
+	gasPrice := big.NewInt(100000000000) // From CreateEVMTransferTxs
+	gasCost := new(big.Int).Mul(big.NewInt(gasUsed), gasPrice)
+
+	t.Logf("Gas used: %d, Gas cost: %s", gasUsed, gasCost.String())
+
+	// Verify recipient received the transfer amount
+	recipientGained := new(big.Int).Sub(recipientFinalBalance, recipientPreBlockBalance)
+	require.Equal(t, 0, recipientGained.Cmp(transferAmount),
+		"Recipient should have gained exactly the transfer amount. Gained: %s, Expected: %s",
+		recipientGained.String(), transferAmount.String())
+
+	// Verify sender lost transfer amount + gas
+	senderLost := new(big.Int).Sub(senderPreBlockBalance, senderFinalBalance)
+	expectedSenderLoss := new(big.Int).Add(transferAmount, gasCost)
+	require.Equal(t, 0, senderLost.Cmp(expectedSenderLoss),
+		"Sender should have lost transfer amount + gas. Lost: %s, Expected: %s",
+		senderLost.String(), expectedSenderLoss.String())
+
+	t.Logf("Balance transfer verified: sender lost %s (transfer %s + gas %s), recipient gained %s",
+		senderLost.String(), transferAmount.String(), gasCost.String(), recipientGained.String())
 }
