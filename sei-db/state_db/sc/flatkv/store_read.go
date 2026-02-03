@@ -21,10 +21,8 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 	switch kind {
 	case evm.EVMKeyStorage:
 		// Storage: keyBytes = addr(20) || slot(32)
-		keyStr := string(keyBytes)
-
 		// Check pending writes first
-		if pw, ok := s.storageWrites[keyStr]; ok {
+		if pw, ok := s.storageWrites[string(keyBytes)]; ok {
 			if pw.isDelete {
 				return nil, false
 			}
@@ -89,10 +87,8 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 
 	case evm.EVMKeyCode:
 		// Code: keyBytes = addr(20) - per x/evm/types/keys.go
-		keyStr := string(keyBytes)
-
 		// Check pending writes first
-		if pw, ok := s.codeWrites[keyStr]; ok {
+		if pw, ok := s.codeWrites[string(keyBytes)]; ok {
 			if pw.isDelete {
 				return nil, false
 			}
@@ -109,10 +105,8 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 	case evm.EVMKeyCodeSize:
 		// CodeSize is computed from len(Code), not stored separately in FlatKV.
 		// keyBytes = addr(20)
-		keyStr := string(keyBytes)
-
 		// Check pending code writes first
-		if pw, ok := s.codeWrites[keyStr]; ok {
+		if pw, ok := s.codeWrites[string(keyBytes)]; ok {
 			if pw.isDelete {
 				return nil, false
 			}

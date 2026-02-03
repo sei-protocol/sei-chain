@@ -162,7 +162,7 @@ func (s *CommitStore) open() error {
 	metadataPath := filepath.Join(dir, metadataDir)
 
 	for _, path := range []string{accountPath, codePath, storagePath, metadataPath} {
-		if err := os.MkdirAll(path, 0755); err != nil {
+		if err := os.MkdirAll(path, 0750); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", path, err)
 		}
 	}
@@ -176,22 +176,22 @@ func (s *CommitStore) open() error {
 	// Open PebbleDB instances
 	accountDB, err := pebbledb.Open(accountPath, db_engine.OpenOptions{})
 	if err != nil {
-		metaDB.Close()
+		_ = metaDB.Close()
 		return fmt.Errorf("failed to open accountDB: %w", err)
 	}
 
 	codeDB, err := pebbledb.Open(codePath, db_engine.OpenOptions{})
 	if err != nil {
-		metaDB.Close()
-		accountDB.Close()
+		_ = metaDB.Close()
+		_ = accountDB.Close()
 		return fmt.Errorf("failed to open codeDB: %w", err)
 	}
 
 	storageDB, err := pebbledb.Open(storagePath, db_engine.OpenOptions{})
 	if err != nil {
-		metaDB.Close()
-		accountDB.Close()
-		codeDB.Close()
+		_ = metaDB.Close()
+		_ = accountDB.Close()
+		_ = codeDB.Close()
 		return fmt.Errorf("failed to open storageDB: %w", err)
 	}
 
@@ -203,39 +203,39 @@ func (s *CommitStore) open() error {
 		PruneInterval:   0,
 	})
 	if err != nil {
-		metaDB.Close()
-		accountDB.Close()
-		codeDB.Close()
-		storageDB.Close()
+		_ = metaDB.Close()
+		_ = accountDB.Close()
+		_ = codeDB.Close()
+		_ = storageDB.Close()
 		return fmt.Errorf("failed to open changelog: %w", err)
 	}
 
 	// Load per-DB local metadata (or initialize if not present)
 	storageLocalMeta, err := loadLocalMeta(storageDB)
 	if err != nil {
-		metaDB.Close()
-		accountDB.Close()
-		codeDB.Close()
-		storageDB.Close()
-		changelog.Close()
+		_ = metaDB.Close()
+		_ = accountDB.Close()
+		_ = codeDB.Close()
+		_ = storageDB.Close()
+		_ = changelog.Close()
 		return fmt.Errorf("failed to load storageDB local meta: %w", err)
 	}
 	accountLocalMeta, err := loadLocalMeta(accountDB)
 	if err != nil {
-		metaDB.Close()
-		accountDB.Close()
-		codeDB.Close()
-		storageDB.Close()
-		changelog.Close()
+		_ = metaDB.Close()
+		_ = accountDB.Close()
+		_ = codeDB.Close()
+		_ = storageDB.Close()
+		_ = changelog.Close()
 		return fmt.Errorf("failed to load accountDB local meta: %w", err)
 	}
 	codeLocalMeta, err := loadLocalMeta(codeDB)
 	if err != nil {
-		metaDB.Close()
-		accountDB.Close()
-		codeDB.Close()
-		storageDB.Close()
-		changelog.Close()
+		_ = metaDB.Close()
+		_ = accountDB.Close()
+		_ = codeDB.Close()
+		_ = storageDB.Close()
+		_ = changelog.Close()
 		return fmt.Errorf("failed to load codeDB local meta: %w", err)
 	}
 
@@ -431,7 +431,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	}
 
 	// Build account LtHash pairs based on full AccountValue changes
-	var accountPairs []lthash.KVPairWithLastValue
+	accountPairs := make([]lthash.KVPairWithLastValue, 0, len(modifiedAccounts))
 	for addrStr := range modifiedAccounts {
 		addr, ok := AddressFromBytes([]byte(addrStr))
 		if !ok {

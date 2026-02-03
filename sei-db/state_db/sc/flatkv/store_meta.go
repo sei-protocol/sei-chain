@@ -3,6 +3,7 @@ package flatkv
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 
 	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -35,7 +36,11 @@ func (s *CommitStore) loadGlobalVersion() (int64, error) {
 	if len(data) != 8 {
 		return 0, fmt.Errorf("invalid global version length: got %d, want 8", len(data))
 	}
-	return int64(binary.BigEndian.Uint64(data)), nil
+	v := binary.BigEndian.Uint64(data)
+	if v > math.MaxInt64 {
+		return 0, fmt.Errorf("global version overflow: %d exceeds max int64", v)
+	}
+	return int64(v), nil //nolint:gosec // overflow checked above
 }
 
 // loadGlobalLtHash reads the global committed LtHash from metadata DB.
@@ -57,9 +62,9 @@ func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) e
 	batch := s.metadataDB.NewBatch()
 	defer batch.Close()
 
-	// Encode version
+	// Encode version (version should always be non-negative in practice)
 	versionBuf := make([]byte, 8)
-	binary.BigEndian.PutUint64(versionBuf, uint64(version))
+	binary.BigEndian.PutUint64(versionBuf, uint64(version)) //nolint:gosec // version is always non-negative
 
 	// Write global metadata
 	if err := batch.Set([]byte(MetaGlobalVersion), versionBuf); err != nil {
