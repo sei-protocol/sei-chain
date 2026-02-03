@@ -52,9 +52,7 @@ func NewCompositeCommitStore(
 		config:          cfg,
 	}
 
-	if cfg.WriteMode != config.CosmosOnlyWrite {
-		// TODO: initialize FlatKV store for evmSC
-	}
+	// TODO: initialize FlatKV store for evmSC when cfg.WriteMode != config.CosmosOnlyWrite
 
 	return store
 }
