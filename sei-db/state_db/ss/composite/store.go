@@ -497,8 +497,11 @@ func (s *CompositeStateStore) Prune(version int64) error {
 // Recovery - WAL replay to sync both stores on startup
 // =============================================================================
 
-// RecoverCompositeStateStore recovers the composite state store from WAL.
-// If EVM_SS is behind Cosmos_SS, syncs it first, then replays any new WAL entries.
+// RecoverCompositeStateStore recovers the composite state store from WAL in a single pass.
+// Both Cosmos_SS and EVM_SS share the same changelog, so we replay once and route appropriately:
+//   - Entries that Cosmos needs: dual-write through CompositeStateStore
+//   - Entries that only EVM needs (catch-up): write only to EVM store
+//   - Entries both stores have: skip
 func RecoverCompositeStateStore(
 	logger logger.Logger,
 	changelogPath string,
@@ -506,8 +509,8 @@ func RecoverCompositeStateStore(
 ) error {
 	cosmosVersion := compositeStore.cosmosStore.GetLatestVersion()
 
+	// No EVM store - simple case, just replay to Cosmos
 	if compositeStore.evmStore == nil {
-		// No EVM store - just replay to composite (which delegates to cosmos)
 		return replayWAL(logger, changelogPath, cosmosVersion, -1, func(entry proto.ChangelogEntry) error {
 			if err := compositeStore.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
 				return fmt.Errorf("failed to apply changeset at version %d: %w", entry.Version, err)
@@ -517,35 +520,52 @@ func RecoverCompositeStateStore(
 	}
 
 	evmVersion := compositeStore.evmStore.GetLatestVersion()
+
+	// Start from whichever store is further behind
+	startVersion := cosmosVersion
+	if evmVersion < cosmosVersion {
+		startVersion = evmVersion
+	}
+
 	logger.Info("Recovering CompositeStateStore",
 		"cosmosVersion", cosmosVersion,
 		"evmVersion", evmVersion,
+		"startVersion", startVersion,
 		"changelogPath", changelogPath,
 	)
 
-	// Phase 1: Sync EVM_SS if behind Cosmos_SS (replay only to EVM store)
-	if evmVersion < cosmosVersion {
-		err := replayWAL(logger, changelogPath, evmVersion, cosmosVersion, func(entry proto.ChangelogEntry) error {
+	// Single-pass replay: route each entry to the stores that need it
+	return replayWAL(logger, changelogPath, startVersion, -1, func(entry proto.ChangelogEntry) error {
+		needsCosmos := entry.Version > cosmosVersion
+		needsEVM := entry.Version > evmVersion
+
+		if needsCosmos {
+			// Both stores need this entry - dual-write through CompositeStateStore
+			// (CompositeStateStore.ApplyChangesetSync writes to both Cosmos and EVM)
+			if err := compositeStore.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
+				return fmt.Errorf("failed to apply changeset at version %d: %w", entry.Version, err)
+			}
+			return compositeStore.SetLatestVersion(entry.Version)
+		}
+
+		if needsEVM {
+			// Only EVM needs this entry (Cosmos already has it) - EVM catch-up
+			// Errors here are non-fatal: EVM is an optimization layer
 			evmChanges := extractEVMChangesFromChangesets(entry.Changesets)
 			if len(evmChanges) > 0 {
 				if err := compositeStore.evmStore.ApplyChangesetParallel(entry.Version, evmChanges); err != nil {
-					return fmt.Errorf("failed to apply EVM changeset at version %d: %w", entry.Version, err)
+					logger.Error("Failed to apply EVM changeset during catch-up, continuing",
+						"version", entry.Version, "error", err)
 				}
 			}
-			return compositeStore.evmStore.SetLatestVersion(entry.Version)
-		})
-		if err != nil {
-			logger.Error("Failed to sync EVM store, continuing with degraded performance",
-				"error", err, "evmVersion", evmVersion, "cosmosVersion", cosmosVersion)
+			if err := compositeStore.evmStore.SetLatestVersion(entry.Version); err != nil {
+				logger.Error("Failed to set EVM version during catch-up, continuing",
+					"version", entry.Version, "error", err)
+			}
 		}
-	}
 
-	// Phase 2: Replay any new WAL entries through CompositeStateStore (dual-writes to both)
-	return replayWAL(logger, changelogPath, cosmosVersion, -1, func(entry proto.ChangelogEntry) error {
-		if err := compositeStore.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
-			return fmt.Errorf("failed to apply changeset at version %d: %w", entry.Version, err)
-		}
-		return compositeStore.SetLatestVersion(entry.Version)
+		// Both stores already have this entry - nothing to do
+		return nil
 	})
 }
 
