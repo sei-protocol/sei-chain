@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"fmt"
+	"github.com/tendermint/tendermint/internal/autobahn/consensus"
 	"github.com/tendermint/tendermint/internal/p2p/giga"
 	"github.com/tendermint/tendermint/internal/p2p/rpc"
 	"github.com/tendermint/tendermint/libs/utils"
@@ -15,6 +16,7 @@ import (
 type GigaRouterConfig struct {
 	InboundPeers  map[NodePublicKey]bool
 	OutboundPeers map[NodePublicKey]tcp.HostPort
+	State         *consensus.State
 }
 
 type GigaRouter struct {
@@ -25,11 +27,11 @@ type GigaRouter struct {
 	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
 }
 
-func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey, service *giga.Service) *GigaRouter {
+func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) *GigaRouter {
 	return &GigaRouter{
 		cfg:     cfg,
 		key:     key,
-		service: service,
+		service: giga.NewService(cfg.State),
 		poolIn:  giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 		poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
 	}

@@ -90,7 +90,7 @@ func NewRouter(
 		started:          make(chan struct{}),
 	}
 	if gigaCfg, ok := options.Giga.Get(); ok {
-		router.giga = utils.Some(NewGigaRouter(gigaCfg, privKey /*TODO*/, nil))
+		router.giga = utils.Some(NewGigaRouter(gigaCfg, privKey))
 	}
 	router.BaseService = service.NewBaseService(logger, "router", router)
 	return router, nil
