@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseMemIAVLEVMKey(t *testing.T) {
+func TestParseEVMKey(t *testing.T) {
 	addr := make([]byte, addressLen)
 	for i := range addr {
 		addr[i] = 0xAA
@@ -46,12 +46,6 @@ func TestParseMemIAVLEVMKey(t *testing.T) {
 			name:      "Code",
 			key:       concat(evmtypes.CodeKeyPrefix, addr),
 			wantKind:  EVMKeyCode,
-			wantBytes: addr,
-		},
-		{
-			name:      "CodeSize",
-			key:       concat(evmtypes.CodeSizeKeyPrefix, addr),
-			wantKind:  EVMKeyCodeSize,
 			wantBytes: addr,
 		},
 		{
@@ -99,7 +93,7 @@ func TestParseMemIAVLEVMKey(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			kind, keyBytes := ParseMemIAVLEVMKey(tc.key)
+			kind, keyBytes := ParseEVMKey(tc.key)
 			require.Equal(t, tc.wantKind, kind)
 			if kind != EVMKeyUnknown {
 				require.Equal(t, tc.wantBytes, keyBytes)

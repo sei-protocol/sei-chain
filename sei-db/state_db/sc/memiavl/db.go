@@ -294,7 +294,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		streamHandler:           streamHandler,
 		snapshotKeepRecent:      opts.SnapshotKeepRecent,
 		snapshotInterval:        opts.SnapshotInterval,
-		snapshotMinTimeInterval: opts.SnapshotMinTimeInterval,
+		snapshotMinTimeInterval: opts.SnapshotMinTimeDuration(),
 		lastSnapshotTime:        lastSnapshotTime,
 		snapshotWriterPool:      workerPool,
 		opts:                    opts,
@@ -892,7 +892,7 @@ func (db *DB) rewriteSnapshotBackground() error {
 		// commits and evicts hot pages from the active snapshot still being used by main chain.
 		// Use cloned.opts instead of db.opts to avoid race condition with Close()
 		loadOpts := cloned.opts
-		loadOpts.PrefetchThreshold = 0
+		loadOpts.SnapshotPrefetchThreshold = 0
 
 		mtree, err := LoadMultiTree(ctx, currentPath(cloned.dir), loadOpts)
 		if err != nil {
