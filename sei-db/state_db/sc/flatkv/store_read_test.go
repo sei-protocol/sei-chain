@@ -22,7 +22,7 @@ func TestStoreGetPendingWrites(t *testing.T) {
 	addr := Address{0x11}
 	slot := Slot{0x22}
 	value := []byte{0x33}
-	key := makeStorageKey(addr, slot)
+	key := memiavlStorageKey(addr, slot)
 
 	// No data initially
 	_, found := s.Get(key)
@@ -52,7 +52,7 @@ func TestStoreGetPendingDelete(t *testing.T) {
 
 	addr := Address{0x44}
 	slot := Slot{0x55}
-	key := makeStorageKey(addr, slot)
+	key := memiavlStorageKey(addr, slot)
 
 	// Write and commit
 	cs1 := makeChangeSet(key, []byte{0x66}, false)
@@ -142,7 +142,7 @@ func TestStoreHas(t *testing.T) {
 
 	addr := Address{0x88}
 	slot := Slot{0x99}
-	key := makeStorageKey(addr, slot)
+	key := memiavlStorageKey(addr, slot)
 
 	// Initially not found
 	require.False(t, s.Has(key))
@@ -166,7 +166,7 @@ func TestStoreDelete(t *testing.T) {
 
 	addr := Address{0x55}
 	slot := Slot{0x66}
-	key := makeStorageKey(addr, slot)
+	key := memiavlStorageKey(addr, slot)
 
 	// Write
 	cs1 := makeChangeSet(key, []byte{0x77}, false)
@@ -210,8 +210,8 @@ func TestStoreIteratorSingleKey(t *testing.T) {
 	addr := Address{0xAA}
 	slot := Slot{0xBB}
 	value := []byte{0xCC}
-	memiavlKey := makeStorageKey(addr, slot)
-	internalKey := append(addr[:], slot[:]...) // addr(20) || slot(32)
+	memiavlKey := memiavlStorageKey(addr, slot)
+	internalKey := StorageKey(addr, slot) // addr(20) || slot(32)
 
 	cs := makeChangeSet(memiavlKey, value, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -250,7 +250,7 @@ func TestStoreIteratorMultipleKeys(t *testing.T) {
 
 	pairs := make([]*iavl.KVPair, len(entries))
 	for i, e := range entries {
-		key := makeStorageKey(addr, e.slot)
+		key := memiavlStorageKey(addr, e.slot)
 		pairs[i] = &iavl.KVPair{Key: key, Value: []byte{e.value}}
 	}
 
@@ -304,7 +304,7 @@ func TestStoreStoragePrefixIteration(t *testing.T) {
 	// Write multiple slots
 	for i := byte(1); i <= 3; i++ {
 		slot := Slot{i}
-		key := makeStorageKey(addr, slot)
+		key := memiavlStorageKey(addr, slot)
 		cs := makeChangeSet(key, []byte{i * 10}, false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	}
@@ -334,7 +334,7 @@ func TestStoreIteratorByPrefixAddress(t *testing.T) {
 	// Write slots for addr1
 	for i := byte(1); i <= 3; i++ {
 		slot := Slot{i}
-		key := makeStorageKey(addr1, slot)
+		key := memiavlStorageKey(addr1, slot)
 		cs := makeChangeSet(key, []byte{i * 10}, false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	}
@@ -342,7 +342,7 @@ func TestStoreIteratorByPrefixAddress(t *testing.T) {
 	// Write slots for addr2
 	for i := byte(1); i <= 2; i++ {
 		slot := Slot{i}
-		key := makeStorageKey(addr2, slot)
+		key := memiavlStorageKey(addr2, slot)
 		cs := makeChangeSet(key, []byte{i * 20}, false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	}

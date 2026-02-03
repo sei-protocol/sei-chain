@@ -60,7 +60,7 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 
 	addr := Address{0x12}
 	slot := Slot{0x34}
-	key := makeStorageKey(addr, slot)
+	key := memiavlStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, []byte{0x56}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
