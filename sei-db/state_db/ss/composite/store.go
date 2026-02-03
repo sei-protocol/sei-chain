@@ -526,7 +526,13 @@ func RecoverCompositeStateStore(
 	cosmosVersion := compositeStore.cosmosStore.GetLatestVersion()
 
 	if compositeStore.evmStore == nil {
-		return recoverStandardWAL(logger, changelogPath, compositeStore, cosmosVersion)
+		// No EVM store - just replay to composite (which delegates to cosmos)
+		return replayWAL(logger, changelogPath, cosmosVersion, -1, func(entry proto.ChangelogEntry) error {
+			if err := compositeStore.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
+				return fmt.Errorf("failed to apply changeset at version %d: %w", entry.Version, err)
+			}
+			return compositeStore.SetLatestVersion(entry.Version)
+		})
 	}
 
 	evmVersion := compositeStore.evmStore.GetLatestVersion()
@@ -536,126 +542,101 @@ func RecoverCompositeStateStore(
 		"changelogPath", changelogPath,
 	)
 
-	// Sync EVM_SS if behind
+	// Phase 1: Sync EVM_SS if behind Cosmos_SS (replay only to EVM store)
 	if evmVersion < cosmosVersion {
-		if err := syncEVMStore(logger, changelogPath, compositeStore, evmVersion, cosmosVersion); err != nil {
+		err := replayWAL(logger, changelogPath, evmVersion, cosmosVersion, func(entry proto.ChangelogEntry) error {
+			evmChanges := extractEVMChangesFromChangesets(entry.Changesets)
+			if len(evmChanges) > 0 {
+				if err := compositeStore.evmStore.ApplyChangesetParallel(entry.Version, evmChanges); err != nil {
+					return fmt.Errorf("failed to apply EVM changeset at version %d: %w", entry.Version, err)
+				}
+			}
+			return compositeStore.evmStore.SetLatestVersion(entry.Version)
+		})
+		if err != nil {
 			logger.Error("Failed to sync EVM store, continuing with degraded performance",
 				"error", err, "evmVersion", evmVersion, "cosmosVersion", cosmosVersion)
 		}
 	}
 
-	return recoverStandardWAL(logger, changelogPath, compositeStore, cosmosVersion)
+	// Phase 2: Replay any new WAL entries through CompositeStateStore (dual-writes to both)
+	return replayWAL(logger, changelogPath, cosmosVersion, -1, func(entry proto.ChangelogEntry) error {
+		if err := compositeStore.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
+			return fmt.Errorf("failed to apply changeset at version %d: %w", entry.Version, err)
+		}
+		return compositeStore.SetLatestVersion(entry.Version)
+	})
 }
 
-// syncEVMStore replays WAL entries to catch up EVM_SS to Cosmos_SS version
-func syncEVMStore(
+// WALEntryHandler processes a single WAL entry during replay
+type WALEntryHandler func(entry proto.ChangelogEntry) error
+
+// replayWAL replays WAL entries from fromVersion (exclusive) to toVersion (inclusive).
+// If toVersion is -1, replays to the end of WAL.
+// This is the single consolidated function for all WAL replay operations.
+func replayWAL(
 	logger logger.Logger,
 	changelogPath string,
-	compositeStore *CompositeStateStore,
-	evmVersion int64,
-	cosmosVersion int64,
+	fromVersion int64,
+	toVersion int64, // -1 means replay to end of WAL
+	handler WALEntryHandler,
 ) error {
-	logger.Info("Syncing EVM store from WAL", "fromVersion", evmVersion, "toVersion", cosmosVersion)
-
 	streamHandler, err := wal.NewChangelogWAL(logger, changelogPath, wal.Config{})
 	if err != nil {
-		return fmt.Errorf("failed to open changelog WAL: %w", err)
+		return nil // No WAL to recover from
 	}
 	defer func() { _ = streamHandler.Close() }()
 
 	firstOffset, err := streamHandler.FirstOffset()
 	if err != nil || firstOffset <= 0 {
-		return fmt.Errorf("failed to get first WAL offset: %w", err)
+		return nil // Empty or invalid WAL
 	}
 
 	lastOffset, err := streamHandler.LastOffset()
 	if err != nil || lastOffset <= 0 {
-		return fmt.Errorf("failed to get last WAL offset: %w", err)
+		return nil // Empty or invalid WAL
 	}
 
-	startOffset, err := findReplayStartOffset(streamHandler, firstOffset, lastOffset, evmVersion)
-	if err != nil {
-		return fmt.Errorf("failed to find replay start offset: %w", err)
-	}
-
-	if startOffset > lastOffset {
-		logger.Info("No WAL entries to replay for EVM sync")
-		return nil
-	}
-
-	logger.Info("Replaying WAL to EVM store", "startOffset", startOffset, "endOffset", lastOffset)
-
-	return streamHandler.Replay(startOffset, lastOffset, func(index uint64, entry proto.ChangelogEntry) error {
-		if entry.Version > cosmosVersion {
-			return nil
-		}
-
-		evmChanges := extractEVMChangesFromChangesets(entry.Changesets)
-		if len(evmChanges) > 0 {
-			if err := compositeStore.evmStore.ApplyChangesetParallel(entry.Version, evmChanges); err != nil {
-				return fmt.Errorf("failed to apply EVM changeset at version %d: %w", entry.Version, err)
-			}
-		}
-
-		if err := compositeStore.evmStore.SetLatestVersion(entry.Version); err != nil {
-			return fmt.Errorf("failed to set EVM version %d: %w", entry.Version, err)
-		}
-		return nil
-	})
-}
-
-// recoverStandardWAL replays WAL entries through CompositeStateStore (dual-writes to both stores)
-func recoverStandardWAL(
-	logger logger.Logger,
-	changelogPath string,
-	stateStore types.StateStore,
-	latestVersion int64,
-) error {
-	streamHandler, err := wal.NewChangelogWAL(logger, changelogPath, wal.Config{})
-	if err != nil {
-		return fmt.Errorf("failed to open changelog WAL: %w", err)
-	}
-	defer func() { _ = streamHandler.Close() }()
-
-	firstOffset, errFirst := streamHandler.FirstOffset()
-	if firstOffset <= 0 || errFirst != nil {
-		return nil
-	}
-
-	lastOffset, errLast := streamHandler.LastOffset()
-	if lastOffset <= 0 || errLast != nil {
-		return nil
-	}
-
+	// Check if there's anything to replay
 	lastEntry, err := streamHandler.ReadAt(lastOffset)
 	if err != nil {
 		return fmt.Errorf("failed to read last WAL entry: %w", err)
 	}
 
-	if lastEntry.Version <= latestVersion {
+	// Determine effective end version
+	endVersion := toVersion
+	if endVersion < 0 {
+		endVersion = lastEntry.Version
+	}
+
+	// Nothing to replay if WAL doesn't have entries beyond fromVersion
+	if lastEntry.Version <= fromVersion {
 		return nil
 	}
 
-	startOffset, err := findReplayStartOffset(streamHandler, firstOffset, lastOffset, latestVersion)
+	// Find starting offset
+	startOffset, err := findReplayStartOffset(streamHandler, firstOffset, lastOffset, fromVersion)
 	if err != nil {
-		return fmt.Errorf("failed to find replay start: %w", err)
+		return fmt.Errorf("failed to find replay start offset: %w", err)
 	}
 
 	if startOffset > lastOffset {
-		return nil
+		return nil // No entries to replay
 	}
 
-	logger.Info("Replaying WAL to CompositeStateStore",
-		"startOffset", startOffset, "endOffset", lastOffset, "latestVersion", latestVersion)
+	logger.Info("Replaying WAL",
+		"fromVersion", fromVersion,
+		"toVersion", endVersion,
+		"startOffset", startOffset,
+		"endOffset", lastOffset,
+	)
 
 	return streamHandler.Replay(startOffset, lastOffset, func(index uint64, entry proto.ChangelogEntry) error {
-		if err := stateStore.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
-			return fmt.Errorf("failed to apply changeset at version %d: %w", entry.Version, err)
+		// Stop if we've reached the end version
+		if toVersion >= 0 && entry.Version > toVersion {
+			return nil
 		}
-		if err := stateStore.SetLatestVersion(entry.Version); err != nil {
-			return fmt.Errorf("failed to set version %d: %w", entry.Version, err)
-		}
-		return nil
+		return handler(entry)
 	})
 }
 
