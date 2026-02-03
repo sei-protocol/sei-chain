@@ -61,7 +61,7 @@ func TestStoreWriteAllDBs(t *testing.T) {
 	pairs := []*iavl.KVPair{
 		// Storage key
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, append(addr[:], slot[:]...)),
+			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
 			Value: []byte{0x11, 0x22},
 		},
 		// Account nonce key
@@ -111,7 +111,7 @@ func TestStoreWriteAllDBs(t *testing.T) {
 	require.Equal(t, int64(1), codeMeta.CommittedVersion)
 
 	// Verify storage data was written
-	storageData, err := s.storageDB.Get(append(addr[:], slot[:]...))
+	storageData, err := s.storageDB.Get(StorageKey(addr, slot))
 	require.NoError(t, err)
 	require.Equal(t, []byte{0x11, 0x22}, storageData)
 
@@ -148,7 +148,7 @@ func TestStoreWriteEmptyCommit(t *testing.T) {
 	// Commit version 2 with storage write only
 	addr := Address{0x99}
 	slot := Slot{0x88}
-	key := makeStorageKey(addr, slot)
+	key := memiavlStorageKey(addr, slot)
 	cs := makeChangeSet(key, []byte{0x77}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
@@ -241,7 +241,7 @@ func TestStoreWriteDelete(t *testing.T) {
 	// Note: Code is keyed by address per x/evm/types/keys.go
 	pairs := []*iavl.KVPair{
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, append(addr[:], slot[:]...)),
+			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
 			Value: []byte{0x11},
 		},
 		{
@@ -265,7 +265,7 @@ func TestStoreWriteDelete(t *testing.T) {
 	// For account, "delete" means setting fields to zero in AccountValue
 	deletePairs := []*iavl.KVPair{
 		{
-			Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, append(addr[:], slot[:]...)),
+			Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
 			Delete: true,
 		},
 		{
@@ -286,7 +286,7 @@ func TestStoreWriteDelete(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Verify storage is deleted
-	_, err := s.storageDB.Get(append(addr[:], slot[:]...))
+	_, err := s.storageDB.Get(StorageKey(addr, slot))
 	require.Error(t, err, "storage should be deleted")
 
 	// Verify nonce is set to 0 (delete in AccountValue context)
@@ -385,7 +385,7 @@ func TestStoreWriteToggles(t *testing.T) {
 
 		addr := Address{0xAA}
 		slot := Slot{0xBB}
-		key := makeStorageKey(addr, slot)
+		key := memiavlStorageKey(addr, slot)
 
 		cs := makeChangeSet(key, []byte{0xCC}, false)
 		require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -393,7 +393,7 @@ func TestStoreWriteToggles(t *testing.T) {
 
 		// Storage should NOT be written (toggle disabled)
 		require.Len(t, store.storageWrites, 0, "storage writes should be cleared after commit")
-		_, err = store.storageDB.Get(append(addr[:], slot[:]...))
+		_, err = store.storageDB.Get(StorageKey(addr, slot))
 		require.Error(t, err, "storage should not be written when toggle is disabled")
 
 		// LtHash should NOT be updated either (consistency: no DB write = no LtHash)
@@ -455,7 +455,7 @@ func TestStoreWriteToggles(t *testing.T) {
 
 		addr := Address{0xAA}
 		slot := Slot{0xBB}
-		key := makeStorageKey(addr, slot)
+		key := memiavlStorageKey(addr, slot)
 
 		// Write and commit with async writes
 		cs := makeChangeSet(key, []byte{0xCC}, false)
@@ -489,7 +489,7 @@ func TestStoreWriteToggles(t *testing.T) {
 		// Commit blocks 1, 2, 3
 		for i := 1; i <= 3; i++ {
 			slot := Slot{byte(i)}
-			key := makeStorageKey(addr, slot)
+			key := memiavlStorageKey(addr, slot)
 			cs := makeChangeSet(key, []byte{byte(i)}, false)
 			require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 			commitAndCheck(t, store)
@@ -506,7 +506,7 @@ func TestStoreWriteToggles(t *testing.T) {
 		// Commit blocks 4, 5 (not yet at flush interval)
 		for i := 4; i <= 5; i++ {
 			slot := Slot{byte(i)}
-			key := makeStorageKey(addr, slot)
+			key := memiavlStorageKey(addr, slot)
 			cs := makeChangeSet(key, []byte{byte(i)}, false)
 			require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 			commitAndCheck(t, store)
@@ -522,7 +522,7 @@ func TestStoreWriteToggles(t *testing.T) {
 
 		// Commit block 6 (reaches flush interval: 6-3=3)
 		slot := Slot{6}
-		key := makeStorageKey(addr, slot)
+		key := memiavlStorageKey(addr, slot)
 		cs := makeChangeSet(key, []byte{6}, false)
 		require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 		commitAndCheck(t, store)
@@ -538,7 +538,7 @@ func TestStoreWriteToggles(t *testing.T) {
 		// Data should still be readable from in-memory or DB
 		for i := 1; i <= 6; i++ {
 			slot := Slot{byte(i)}
-			key := makeStorageKey(addr, slot)
+			key := memiavlStorageKey(addr, slot)
 			got, found := store.Get(key)
 			require.True(t, found, "block %d data should be readable", i)
 			require.Equal(t, []byte{byte(i)}, got)

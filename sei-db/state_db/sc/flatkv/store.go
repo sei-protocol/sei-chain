@@ -457,7 +457,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 		}
 
 		accountPairs = append(accountPairs, lthash.KVPairWithLastValue{
-			Key:       addr[:],
+			Key:       AccountKey(addr),
 			Value:     newValue,
 			LastValue: oldValue,
 			Delete:    isDelete,
@@ -568,14 +568,15 @@ func (s *CommitStore) commitBatches(version int64) error {
 		defer func() { _ = batch.Close() }()
 
 		for _, paw := range s.accountWrites {
+			key := AccountKey(paw.addr)
 			if paw.isDelete {
-				if err := batch.Delete(paw.addr[:]); err != nil {
+				if err := batch.Delete(key); err != nil {
 					return fmt.Errorf("accountDB delete: %w", err)
 				}
 			} else {
 				// Encode AccountValue and store with addr as key
 				encoded := EncodeAccountValue(paw.value)
-				if err := batch.Set(paw.addr[:], encoded); err != nil {
+				if err := batch.Set(key, encoded); err != nil {
 					return fmt.Errorf("accountDB set: %w", err)
 				}
 			}

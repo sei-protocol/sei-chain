@@ -63,7 +63,7 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		}
 
 		// Read from accountDB
-		encoded, err := s.accountDB.Get(addr[:])
+		encoded, err := s.accountDB.Get(AccountKey(addr))
 		if err != nil {
 			return nil, false
 		}
@@ -227,7 +227,7 @@ func (s *CommitStore) getAccountValue(addr Address) (AccountValue, error) {
 	}
 
 	// Read from accountDB
-	value, err := s.accountDB.Get(addr[:])
+	value, err := s.accountDB.Get(AccountKey(addr))
 	if err != nil {
 		if db_engine.IsNotFound(err) {
 			return AccountValue{}, nil // New account
@@ -245,7 +245,7 @@ func (s *CommitStore) getAccountValue(addr Address) (AccountValue, error) {
 // getAccountValueFromDB loads AccountValue directly from DB (ignoring pending writes).
 // Used for LtHash computation to get the committed "old" value.
 func (s *CommitStore) getAccountValueFromDB(addr Address) (AccountValue, error) {
-	value, err := s.accountDB.Get(addr[:])
+	value, err := s.accountDB.Get(AccountKey(addr))
 	if err != nil {
 		if db_engine.IsNotFound(err) {
 			return AccountValue{}, nil

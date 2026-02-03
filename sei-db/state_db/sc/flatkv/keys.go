@@ -94,49 +94,35 @@ func SlotFromBytes(b []byte) (Slot, bool) {
 	return s, true
 }
 
-// AccountKey is a type-safe account DB key.
-type AccountKey struct{ b []byte }
+// =============================================================================
+// DB Key Builders
+// =============================================================================
 
-func (k AccountKey) isZero() bool { return len(k.b) == 0 }
-
-// AccountKeyFor returns the account DB key for addr.
-func AccountKeyFor(addr Address) AccountKey {
-	b := make([]byte, AddressLen)
-	copy(b, addr[:])
-	return AccountKey{b: b}
+// AccountKey returns the accountDB key for addr.
+// Key format: addr(20)
+func AccountKey(addr Address) []byte {
+	return addr[:]
 }
 
-// CodeKey is a type-safe code DB key.
-type CodeKey struct{ b []byte }
-
-func (k CodeKey) isZero() bool { return len(k.b) == 0 }
-
-// CodeKeyFor returns the code DB key for codeHash.
-func CodeKeyFor(codeHash CodeHash) CodeKey {
-	b := make([]byte, CodeHashLen)
-	copy(b, codeHash[:])
-	return CodeKey{b: b}
+// CodeKey returns the codeDB key for codeHash.
+// Key format: codeHash(32)
+func CodeKey(codeHash CodeHash) []byte {
+	return codeHash[:]
 }
 
-// StorageKey is a type-safe storage DB key (or prefix).
-// Encodes: nil (unbounded), addr (prefix), or addr||slot (full key).
-type StorageKey struct{ b []byte }
-
-func (k StorageKey) isZero() bool { return len(k.b) == 0 }
-
-// StoragePrefix returns the storage DB prefix key for addr.
-func StoragePrefix(addr Address) StorageKey {
-	b := make([]byte, AddressLen)
-	copy(b, addr[:])
-	return StorageKey{b: b}
+// StorageKey returns the storageDB key for (addr, slot).
+// Key format: addr(20) || slot(32) = 52 bytes
+func StorageKey(addr Address, slot Slot) []byte {
+	key := make([]byte, AddressLen+SlotLen)
+	copy(key[:AddressLen], addr[:])
+	copy(key[AddressLen:], slot[:])
+	return key
 }
 
-// StorageKeyFor returns the storage DB key for (addr, slot).
-func StorageKeyFor(addr Address, slot Slot) StorageKey {
-	b := make([]byte, 0, AddressLen+SlotLen)
-	b = append(b, addr[:]...)
-	b = append(b, slot[:]...)
-	return StorageKey{b: b}
+// StoragePrefix returns the storageDB prefix for iterating all slots of addr.
+// Prefix format: addr(20)
+func StoragePrefix(addr Address) []byte {
+	return addr[:]
 }
 
 // PrefixEnd returns the exclusive upper bound for prefix iteration (or nil).

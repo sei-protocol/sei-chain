@@ -34,9 +34,9 @@ func TestCommitStoreImplementsStore(t *testing.T) {
 // Test Helpers
 // =============================================================================
 
-// makeStorageKey creates a storage key
-func makeStorageKey(addr Address, slot Slot) []byte {
-	internal := append(addr[:], slot[:]...)
+// memiavlStorageKey builds a memiavl-format storage key for testing external API.
+func memiavlStorageKey(addr Address, slot Slot) []byte {
+	internal := StorageKey(addr, slot)
 	return evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, internal)
 }
 
@@ -125,7 +125,7 @@ func TestStoreCommitVersionAutoIncrement(t *testing.T) {
 
 	addr := Address{0xAA}
 	slot := Slot{0xBB}
-	key := makeStorageKey(addr, slot)
+	key := memiavlStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, []byte{0xCC}, false)
 
@@ -161,7 +161,7 @@ func TestStoreApplyAndCommit(t *testing.T) {
 	addr := Address{0x11}
 	slot := Slot{0x22}
 	value := []byte{0x33}
-	key := makeStorageKey(addr, slot)
+	key := memiavlStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, value, false)
 
@@ -197,7 +197,7 @@ func TestStoreMultipleWrites(t *testing.T) {
 	// Create multiple pairs in one changeset
 	pairs := make([]*iavl.KVPair, len(entries))
 	for i, e := range entries {
-		key := makeStorageKey(addr, e.slot)
+		key := memiavlStorageKey(addr, e.slot)
 		pairs[i] = &iavl.KVPair{Key: key, Value: []byte{e.value}}
 	}
 
@@ -213,7 +213,7 @@ func TestStoreMultipleWrites(t *testing.T) {
 
 	// Verify all entries
 	for _, e := range entries {
-		key := makeStorageKey(addr, e.slot)
+		key := memiavlStorageKey(addr, e.slot)
 		got, found := s.Get(key)
 		require.True(t, found)
 		require.Equal(t, []byte{e.value}, got)
@@ -242,7 +242,7 @@ func TestStoreClearsPendingAfterCommit(t *testing.T) {
 
 	addr := Address{0xAA}
 	slot := Slot{0xBB}
-	key := makeStorageKey(addr, slot)
+	key := memiavlStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, []byte{0xCC}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -268,7 +268,7 @@ func TestStoreVersioning(t *testing.T) {
 
 	addr := Address{0x88}
 	slot := Slot{0x99}
-	key := makeStorageKey(addr, slot)
+	key := memiavlStorageKey(addr, slot)
 
 	// Version 1
 	cs1 := makeChangeSet(key, []byte{0x01}, false)
@@ -296,7 +296,7 @@ func TestStorePersistence(t *testing.T) {
 	addr := Address{0xDD}
 	slot := Slot{0xEE}
 	value := []byte{0xFF}
-	key := makeStorageKey(addr, slot)
+	key := memiavlStorageKey(addr, slot)
 
 	// Write and close
 	s1 := NewCommitStore(dir, nil, config.DefaultFlatKVConfig())
@@ -337,7 +337,7 @@ func TestStoreRootHashChanges(t *testing.T) {
 	// Apply changeset
 	addr := Address{0xAB}
 	slot := Slot{0xCD}
-	key := makeStorageKey(addr, slot)
+	key := memiavlStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, []byte{0xEF}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -365,7 +365,7 @@ func TestStoreRootHashChangesOnApply(t *testing.T) {
 	// Apply changeset
 	addr := Address{0xEE}
 	slot := Slot{0xFF}
-	key := makeStorageKey(addr, slot)
+	key := memiavlStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, []byte{0x11}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -381,7 +381,7 @@ func TestStoreRootHashStableAfterCommit(t *testing.T) {
 
 	addr := Address{0x12}
 	slot := Slot{0x34}
-	key := makeStorageKey(addr, slot)
+	key := memiavlStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, []byte{0x56}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
