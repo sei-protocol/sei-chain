@@ -13,10 +13,29 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
+
+// newCompositeStateStoreWithStores is a test helper that creates a composite store
+// from pre-created stores without triggering auto-recovery or pruning.
+func newCompositeStateStoreWithStores(
+	cosmosStore types.StateStore,
+	evmStore *evm.EVMStateStore,
+	ssConfig config.StateStoreConfig,
+	evmConfig config.EVMStateStoreConfig,
+	log logger.Logger,
+) *CompositeStateStore {
+	return &CompositeStateStore{
+		cosmosStore: cosmosStore,
+		evmStore:    evmStore,
+		ssConfig:    ssConfig,
+		evmConfig:   evmConfig,
+		logger:      log,
+	}
+}
 
 func TestRecoverCompositeStateStore(t *testing.T) {
 	dir, err := os.MkdirTemp("", "composite_recovery_test")
