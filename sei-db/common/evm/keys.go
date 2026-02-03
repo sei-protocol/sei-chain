@@ -25,14 +25,16 @@ const (
 	EVMKeyNonce
 	EVMKeyCodeHash
 	EVMKeyCode
+	EVMKeyCodeSize
 	EVMKeyStorage
+	EVMKeyLegacy // Catch-all for other EVM keys (address mappings)
 )
 
 // ParseEVMKey parses an EVM key from the x/evm store keyspace.
 //
-// For non-storage keys, keyBytes is the 20-byte address.
-// For storage keys, keyBytes is addr||slot (20+32 bytes).
-// For unknown or malformed keys, returns (EVMKeyUnknown, nil).
+// For optimized keys (nonce, code, codehash, storage), keyBytes is the stripped key.
+// For legacy keys (all other EVM data), keyBytes is the full original key.
+// Only returns EVMKeyUnknown for empty keys.
 func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
 	if len(key) == 0 {
 		return EVMKeyUnknown, nil
@@ -41,28 +43,35 @@ func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
 	switch {
 	case bytes.HasPrefix(key, evmtypes.NonceKeyPrefix):
 		if len(key) != len(evmtypes.NonceKeyPrefix)+addressLen {
-			return EVMKeyUnknown, nil
+			return EVMKeyLegacy, key // Malformed but still EVM data
 		}
 		return EVMKeyNonce, key[len(evmtypes.NonceKeyPrefix):]
 
 	case bytes.HasPrefix(key, evmtypes.CodeHashKeyPrefix):
 		if len(key) != len(evmtypes.CodeHashKeyPrefix)+addressLen {
-			return EVMKeyUnknown, nil
+			return EVMKeyLegacy, key
 		}
 		return EVMKeyCodeHash, key[len(evmtypes.CodeHashKeyPrefix):]
 
 	case bytes.HasPrefix(key, evmtypes.CodeKeyPrefix):
 		if len(key) != len(evmtypes.CodeKeyPrefix)+addressLen {
-			return EVMKeyUnknown, nil
+			return EVMKeyLegacy, key
 		}
 		return EVMKeyCode, key[len(evmtypes.CodeKeyPrefix):]
 
+	case bytes.HasPrefix(key, evmtypes.CodeSizeKeyPrefix):
+		if len(key) != len(evmtypes.CodeSizeKeyPrefix)+addressLen {
+			return EVMKeyLegacy, key
+		}
+		return EVMKeyCodeSize, key[len(evmtypes.CodeSizeKeyPrefix):]
+
 	case bytes.HasPrefix(key, evmtypes.StateKeyPrefix):
 		if len(key) != len(evmtypes.StateKeyPrefix)+addressLen+slotLen {
-			return EVMKeyUnknown, nil
+			return EVMKeyLegacy, key
 		}
 		return EVMKeyStorage, key[len(evmtypes.StateKeyPrefix):]
 	}
 
-	return EVMKeyUnknown, nil
+	// All other EVM keys go to legacy store (address mappings: 0x01, 0x02)
+	return EVMKeyLegacy, key
 }

@@ -30,6 +30,7 @@ func TestParseEVMKey(t *testing.T) {
 		wantKind  EVMKeyKind
 		wantBytes []byte
 	}{
+		// Optimized keys - stripped
 		{
 			name:      "Nonce",
 			key:       concat(evmtypes.NonceKeyPrefix, addr),
@@ -54,40 +55,60 @@ func TestParseEVMKey(t *testing.T) {
 			wantKind:  EVMKeyStorage,
 			wantBytes: concat(addr, slot),
 		},
+		// Legacy keys - keep full key (address mappings, unknown prefix, malformed, etc.)
 		{
-			name:     "UnknownPrefix",
-			key:      []byte{0xFF, 0xAA},
-			wantKind: EVMKeyUnknown,
+			name:      "EVMAddressToSeiAddress goes to Legacy",
+			key:       concat(evmtypes.EVMAddressToSeiAddressKeyPrefix, addr),
+			wantKind:  EVMKeyLegacy,
+			wantBytes: concat(evmtypes.EVMAddressToSeiAddressKeyPrefix, addr), // Full key preserved
 		},
 		{
-			name:     "Empty",
-			key:      []byte{},
-			wantKind: EVMKeyUnknown,
+			name:      "SeiAddressToEVMAddress goes to Legacy",
+			key:       concat(evmtypes.SeiAddressToEVMAddressKeyPrefix, addr),
+			wantKind:  EVMKeyLegacy,
+			wantBytes: concat(evmtypes.SeiAddressToEVMAddressKeyPrefix, addr), // Full key preserved
 		},
 		{
-			name:     "NonceTooShort",
-			key:      evmtypes.NonceKeyPrefix,
-			wantKind: EVMKeyUnknown,
+			name:      "UnknownPrefix goes to Legacy",
+			key:       []byte{0xFF, 0xAA},
+			wantKind:  EVMKeyLegacy,
+			wantBytes: []byte{0xFF, 0xAA}, // Full key preserved
 		},
 		{
-			name:     "NonceWrongLenShort",
-			key:      concat(evmtypes.NonceKeyPrefix, addr[:addressLen-1]),
-			wantKind: EVMKeyUnknown,
+			name:      "Empty returns Unknown",
+			key:       []byte{},
+			wantKind:  EVMKeyUnknown,
+			wantBytes: nil,
 		},
 		{
-			name:     "NonceWrongLenLong",
-			key:      concat(evmtypes.NonceKeyPrefix, concat(addr, []byte{0x00})),
-			wantKind: EVMKeyUnknown,
+			name:      "NonceTooShort goes to Legacy",
+			key:       evmtypes.NonceKeyPrefix,
+			wantKind:  EVMKeyLegacy,
+			wantBytes: evmtypes.NonceKeyPrefix,
 		},
 		{
-			name:     "StorageTooShort",
-			key:      concat(evmtypes.StateKeyPrefix, addr),
-			wantKind: EVMKeyUnknown,
+			name:      "NonceWrongLenShort goes to Legacy",
+			key:       concat(evmtypes.NonceKeyPrefix, addr[:addressLen-1]),
+			wantKind:  EVMKeyLegacy,
+			wantBytes: concat(evmtypes.NonceKeyPrefix, addr[:addressLen-1]),
 		},
 		{
-			name:     "StorageWrongLenLong",
-			key:      concat(concat(concat(evmtypes.StateKeyPrefix, addr), slot), []byte{0x00}),
-			wantKind: EVMKeyUnknown,
+			name:      "NonceWrongLenLong goes to Legacy",
+			key:       concat(evmtypes.NonceKeyPrefix, concat(addr, []byte{0x00})),
+			wantKind:  EVMKeyLegacy,
+			wantBytes: concat(evmtypes.NonceKeyPrefix, concat(addr, []byte{0x00})),
+		},
+		{
+			name:      "StorageTooShort goes to Legacy",
+			key:       concat(evmtypes.StateKeyPrefix, addr),
+			wantKind:  EVMKeyLegacy,
+			wantBytes: concat(evmtypes.StateKeyPrefix, addr),
+		},
+		{
+			name:      "StorageWrongLenLong goes to Legacy",
+			key:       concat(concat(concat(evmtypes.StateKeyPrefix, addr), slot), []byte{0x00}),
+			wantKind:  EVMKeyLegacy,
+			wantBytes: concat(concat(concat(evmtypes.StateKeyPrefix, addr), slot), []byte{0x00}),
 		},
 	}
 
@@ -95,11 +116,7 @@ func TestParseEVMKey(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			kind, keyBytes := ParseEVMKey(tc.key)
 			require.Equal(t, tc.wantKind, kind)
-			if kind != EVMKeyUnknown {
-				require.Equal(t, tc.wantBytes, keyBytes)
-			} else {
-				require.Nil(t, keyBytes)
-			}
+			require.Equal(t, tc.wantBytes, keyBytes)
 		})
 	}
 }

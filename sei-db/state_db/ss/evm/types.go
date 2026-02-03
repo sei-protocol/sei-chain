@@ -12,8 +12,8 @@ const EVMStoreKey = "evm"
 type EVMStoreType = commonevm.EVMKeyKind
 
 // NumEVMStoreTypes is the number of active EVM store types with separate DBs.
-// Used for pre-allocating maps. Types: Nonce, CodeHash, Code, Storage.
-const NumEVMStoreTypes = 4
+// Used for pre-allocating maps. Types: Nonce, CodeHash, Code, Storage, Legacy.
+const NumEVMStoreTypes = 5
 
 // Re-export EVMKeyKind constants for convenience
 const (
@@ -22,6 +22,7 @@ const (
 	StoreCodeHash = commonevm.EVMKeyCodeHash
 	StoreCode     = commonevm.EVMKeyCode
 	StoreStorage  = commonevm.EVMKeyStorage
+	StoreLegacy   = commonevm.EVMKeyLegacy // Catch-all for other EVM data
 	// StoreBalance is reserved for future migration; balances currently use tendermint store
 	StoreBalance EVMStoreType = 100
 )
@@ -35,6 +36,7 @@ func AllEVMStoreTypes() []EVMStoreType {
 		StoreCodeHash,
 		StoreCode,
 		StoreStorage,
+		StoreLegacy,
 	}
 }
 
@@ -49,6 +51,8 @@ func StoreTypeName(st EVMStoreType) string {
 		return "code"
 	case StoreStorage:
 		return "storage"
+	case StoreLegacy:
+		return "legacy"
 	case StoreBalance:
 		return "balance"
 	default:
