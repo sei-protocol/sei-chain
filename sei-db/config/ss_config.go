@@ -67,6 +67,11 @@ type EVMStateStoreConfig struct {
 	// defaults to CosmosOnlyWrite
 	WriteMode WriteMode `mapstructure:"write-mode"`
 
+	// ReadMode controls how EVM data reads are routed.
+	// Uses ReadMode enum from read_mode.go (cosmos_only, evm_first, split_read).
+	// defaults to CosmosOnlyRead
+	ReadMode ReadMode `mapstructure:"read-mode"`
+
 	// DBDirectory defines the directory to store the EVM state store db files
 	// If not explicitly set, defaults to <home>/data/evm_ss
 	DBDirectory string `mapstructure:"db-directory"`
@@ -95,6 +100,7 @@ func DefaultEVMStateStoreConfig() EVMStateStoreConfig {
 	return EVMStateStoreConfig{
 		Enable:     false,           // Disabled by default, enable for optimized EVM storage
 		WriteMode:  CosmosOnlyWrite, // Default: write only to Cosmos_SS
+		ReadMode:   CosmosOnlyRead,  // Default: read only from Cosmos_SS
 		KeepRecent: DefaultSSKeepRecent,
 	}
 }

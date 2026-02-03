@@ -71,7 +71,7 @@ func NewCompositeStateStore(
 			return nil, fmt.Errorf("failed to create EVM store: %w", err)
 		}
 		cs.evmStore = evmStore
-		log.Info("EVM state store enabled", "dir", evmDir, "writeMode", evmConfig.WriteMode)
+		log.Info("EVM state store enabled", "dir", evmDir, "writeMode", evmConfig.WriteMode, "readMode", evmConfig.ReadMode)
 	}
 
 	// Recover from WAL if needed
@@ -151,11 +151,11 @@ func recoverFromWAL(log logger.Logger, changelogPath string, stateStore types.St
 }
 
 // Get retrieves a value for a key at a specific version
-// For EVM keys: check EVM_SS first, fallback to Cosmos_SS
+// For EVM keys: check EVM_SS first (if ReadMode allows), fallback to Cosmos_SS
 // For non-EVM keys: use Cosmos_SS directly
 func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
-	// Try EVM store first for EVM keys
-	if s.evmStore != nil && storeKey == evm.EVMStoreKey {
+	// Try EVM store first for EVM keys if read mode allows
+	if s.evmStore != nil && s.evmConfig.ReadMode != config.CosmosOnlyRead && storeKey == evm.EVMStoreKey {
 		val, err := s.evmStore.Get(key, version)
 		if err != nil {
 			return nil, err
@@ -172,8 +172,8 @@ func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([
 
 // Has checks if a key exists at a specific version
 func (s *CompositeStateStore) Has(storeKey string, version int64, key []byte) (bool, error) {
-	// Try EVM store first for EVM keys
-	if s.evmStore != nil && storeKey == evm.EVMStoreKey {
+	// Try EVM store first for EVM keys if read mode allows
+	if s.evmStore != nil && s.evmConfig.ReadMode != config.CosmosOnlyRead && storeKey == evm.EVMStoreKey {
 		has, err := s.evmStore.Has(key, version)
 		if err != nil {
 			return false, err
