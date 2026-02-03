@@ -75,8 +75,8 @@ func TestLoadMultiTreeWithPrefetchDisabled(t *testing.T) {
 
 	// Reload with prefetch disabled (simulating background load)
 	opts := Options{
-		Dir:               dir,
-		PrefetchThreshold: 0, // Disable prefetch
+		Config: Config{SnapshotPrefetchThreshold: 0}, // Disable prefetch
+		Dir:    dir,
 	}
 
 	db2, err := OpenDB(logger.NewNopLogger(), 0, opts)

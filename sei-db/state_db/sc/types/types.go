@@ -34,7 +34,7 @@ type Committer interface {
 
 	SetInitialVersion(initialVersion int64) error
 
-	GetModuleByName(name string) ModuleStore
+	GetChildStoreByName(name string) CommitKVStore
 
 	Importer(version int64) (Importer, error)
 
@@ -43,7 +43,7 @@ type Committer interface {
 	io.Closer
 }
 
-type ModuleStore interface {
+type CommitKVStore interface {
 	Get(key []byte) []byte
 
 	Has(key []byte) bool
@@ -61,4 +61,26 @@ type ModuleStore interface {
 	GetProof(key []byte) *ics23.CommitmentProof
 
 	io.Closer
+}
+
+type Importer interface {
+	AddModule(name string) error
+
+	AddNode(node *SnapshotNode)
+
+	io.Closer
+}
+
+type Exporter interface {
+	Next() (interface{}, error)
+
+	io.Closer
+}
+
+// SnapshotNode contains import/export node data.
+type SnapshotNode struct {
+	Key     []byte
+	Value   []byte
+	Version int64
+	Height  int8
 }

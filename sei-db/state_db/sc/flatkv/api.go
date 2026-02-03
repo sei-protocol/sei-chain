@@ -36,7 +36,7 @@ type Store interface {
 	ApplyChangeSets(cs []*proto.NamedChangeSet) error
 
 	// Commit persists buffered writes and advances the version.
-	Commit(version int64) error
+	Commit() (int64, error)
 
 	// Get returns the value for the x/evm memiavl key, or (nil, false) if not found.
 	Get(key []byte) ([]byte, bool)
@@ -61,7 +61,7 @@ type Store interface {
 	RootHash() []byte
 
 	// Version returns the latest committed version.
-	Version() (int64, error)
+	Version() int64
 
 	// Exporter creates an exporter for the given version (0 = current).
 	Exporter(version int64) (Exporter, error)

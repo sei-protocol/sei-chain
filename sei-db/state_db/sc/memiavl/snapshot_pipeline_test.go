@@ -5,10 +5,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/cosmos/iavl"
-	"github.com/stretchr/testify/require"
 )
 
 // TestSnapshotWriterPipeline tests the pipeline write mechanism

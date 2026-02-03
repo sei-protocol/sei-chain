@@ -11,41 +11,41 @@ type TestSeiDBAppOpts struct {
 }
 
 func (t TestSeiDBAppOpts) Get(s string) interface{} {
+	defaultSCConfig := config.DefaultStateCommitConfig()
+	defaultSSConfig := config.DefaultStateStoreConfig()
 	switch s {
 	case FlagSCEnable:
-		return config.DefaultStateCommitConfig().Enable
+		return defaultSCConfig.Enable
 	case FlagSCAsyncCommitBuffer:
-		return config.DefaultStateCommitConfig().AsyncCommitBuffer
+		return defaultSCConfig.MemIAVLConfig.AsyncCommitBuffer
 	case FlagSCDirectory:
-		return config.DefaultStateCommitConfig().Directory
-	case FlagSCCacheSize:
-		return config.DefaultStateCommitConfig().CacheSize
+		return defaultSCConfig.Directory
 	case FlagSCSnapshotInterval:
-		return config.DefaultStateCommitConfig().SnapshotInterval
+		return defaultSCConfig.MemIAVLConfig.SnapshotInterval
 	case FlagSCSnapshotKeepRecent:
-		return config.DefaultStateCommitConfig().SnapshotKeepRecent
+		return defaultSCConfig.MemIAVLConfig.SnapshotKeepRecent
 	case FlagSCSnapshotMinTimeInterval:
-		return config.DefaultStateCommitConfig().SnapshotMinTimeInterval
+		return defaultSCConfig.MemIAVLConfig.SnapshotMinTimeInterval
 	case FlagSCSnapshotWriterLimit:
-		return config.DefaultStateCommitConfig().SnapshotWriterLimit
+		return defaultSCConfig.MemIAVLConfig.SnapshotWriterLimit
 	case FlagSCSnapshotPrefetchThreshold:
-		return config.DefaultStateCommitConfig().SnapshotPrefetchThreshold
+		return defaultSCConfig.MemIAVLConfig.SnapshotPrefetchThreshold
 	case FlagSCSnapshotWriteRateMBps:
-		return config.DefaultStateCommitConfig().SnapshotWriteRateMBps
+		return defaultSCConfig.MemIAVLConfig.SnapshotWriteRateMBps
 	case FlagSSEnable:
-		return config.DefaultStateStoreConfig().Enable
+		return defaultSSConfig.Enable
 	case FlagSSBackend:
-		return config.DefaultStateStoreConfig().Backend
+		return defaultSSConfig.Backend
 	case FlagSSAsyncWriterBuffer:
-		return config.DefaultStateStoreConfig().AsyncWriteBuffer
+		return defaultSSConfig.AsyncWriteBuffer
 	case FlagSSDirectory:
-		return config.DefaultStateStoreConfig().DBDirectory
+		return defaultSSConfig.DBDirectory
 	case FlagSSKeepRecent:
-		return config.DefaultStateStoreConfig().KeepRecent
+		return defaultSSConfig.KeepRecent
 	case FlagSSPruneInterval:
-		return config.DefaultStateStoreConfig().PruneIntervalSeconds
+		return defaultSSConfig.PruneIntervalSeconds
 	case FlagSSImportNumWorkers:
-		return config.DefaultStateStoreConfig().ImportNumWorkers
+		return defaultSSConfig.ImportNumWorkers
 	}
 	return nil
 }

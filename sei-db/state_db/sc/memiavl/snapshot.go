@@ -16,6 +16,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"golang.org/x/sys/unix"
@@ -260,8 +261,8 @@ func OpenSnapshot(snapshotDir string, opts Options) (*Snapshot, error) {
 
 	// Preload nodes + leaves into page cache using file I/O with SEQUENTIAL+WILLNEED
 	// This eliminates random I/O during replay, relying on natural page cache for split keys
-	if opts.PrefetchThreshold > 0 {
-		snapshot.prefetchSnapshot(snapshotDir, opts.PrefetchThreshold)
+	if opts.SnapshotPrefetchThreshold > 0 {
+		snapshot.prefetchSnapshot(snapshotDir, opts.SnapshotPrefetchThreshold)
 	}
 
 	return snapshot, nil
@@ -1063,12 +1064,12 @@ func (snapshot *Snapshot) prefetchSnapshot(snapshotDir string, prefetchThreshold
 	}
 
 	if residentNodes < prefetchThreshold {
-		log.Info(fmt.Sprintf("ModuleStore %s nodes page cache residency ratio is %f, below threshold %f\n", treeName, residentNodes, prefetchThreshold))
+		log.Info(fmt.Sprintf("CommitKVStore %s nodes page cache residency ratio is %f, below threshold %f\n", treeName, residentNodes, prefetchThreshold))
 		_ = SequentialReadAndFillPageCache(log, filepath.Join(snapshotDir, FileNameNodes))
 	}
 
 	if residentLeaves < prefetchThreshold {
-		log.Info(fmt.Sprintf("ModuleStore %s leaves page cache residency ratio is %f, below threshold %f\n", treeName, residentLeaves, prefetchThreshold))
+		log.Info(fmt.Sprintf("CommitKVStore %s leaves page cache residency ratio is %f, below threshold %f\n", treeName, residentLeaves, prefetchThreshold))
 		_ = SequentialReadAndFillPageCache(log, filepath.Join(snapshotDir, FileNameLeaves))
 	}
 

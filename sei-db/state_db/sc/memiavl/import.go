@@ -67,13 +67,13 @@ func (mti *MultiTreeImporter) Add(item interface{}) error {
 		mti.AddNode(item)
 		return nil
 	case string:
-		return mti.AddTree(item)
+		return mti.AddModule(item)
 	default:
 		return fmt.Errorf("unknown item type: %T", item)
 	}
 }
 
-func (mti *MultiTreeImporter) AddTree(name string) error {
+func (mti *MultiTreeImporter) AddModule(name string) error {
 	if mti.importer != nil {
 		if err := mti.importer.Close(); err != nil {
 			return err
@@ -282,7 +282,7 @@ func updateMetadataFile(dir string, height int64) (returnErr error) {
 		return err
 	}
 	storeInfos := make([]proto.StoreInfo, 0, len(entries))
-	opts := Options{PrefetchThreshold: 0}
+	opts := Options{Config: Config{SnapshotPrefetchThreshold: 0}}
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue

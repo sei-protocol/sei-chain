@@ -1,4 +1,4 @@
-package sc
+package memiavl
 
 import (
 	"math"
@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
-	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/cosmos/iavl"
 )
@@ -27,11 +26,8 @@ func mustReadLastChangelogEntry(t *testing.T, cs *CommitStore) proto.ChangelogEn
 
 func TestNewCommitStore(t *testing.T) {
 	dir := t.TempDir()
-	cfg := config.StateCommitConfig{
-		ZeroCopy:         true,
-		SnapshotInterval: 10,
-	}
-
+	cfg := DefaultConfig()
+	cfg.SnapshotInterval = 10
 	cs := NewCommitStore(dir, logger.NewNopLogger(), cfg)
 	require.NotNil(t, cs)
 	require.NotNil(t, cs.logger)
@@ -41,20 +37,16 @@ func TestNewCommitStore(t *testing.T) {
 }
 
 func TestNewCommitStoreWithCustomDirectory(t *testing.T) {
-	homeDir := t.TempDir()
 	customDir := t.TempDir()
-	cfg := config.StateCommitConfig{
-		Directory: customDir,
-	}
 
-	cs := NewCommitStore(homeDir, logger.NewNopLogger(), cfg)
+	cs := NewCommitStore(customDir, logger.NewNopLogger(), Config{})
 	require.NotNil(t, cs)
 	require.Contains(t, cs.opts.Dir, customDir)
 }
 
 func TestInitialize(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 
 	stores := []string{"store1", "store2", "store3"}
 	cs.Initialize(stores)
@@ -64,7 +56,7 @@ func TestInitialize(t *testing.T) {
 
 func TestCommitStoreBasicOperations(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	// Load version 0 to initialize the DB
@@ -108,7 +100,7 @@ func TestCommitStoreBasicOperations(t *testing.T) {
 
 func TestApplyChangeSetsEmpty(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -128,7 +120,7 @@ func TestApplyChangeSetsEmpty(t *testing.T) {
 
 func TestApplyUpgrades(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -161,7 +153,7 @@ func TestApplyUpgrades(t *testing.T) {
 
 func TestApplyUpgradesEmpty(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -181,7 +173,7 @@ func TestApplyUpgradesEmpty(t *testing.T) {
 
 func TestLoadVersionCopyExisting(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	// First load to create the DB
@@ -219,7 +211,7 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 
 func TestCommitInfo(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -256,7 +248,7 @@ func TestCommitInfo(t *testing.T) {
 
 func TestGetModuleByName(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test", "other"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -267,17 +259,17 @@ func TestGetModuleByName(t *testing.T) {
 	}()
 
 	// Get existing module
-	module := cs.GetModuleByName("test")
+	module := cs.GetChildStoreByName("test")
 	require.NotNil(t, module)
 
 	// Get non-existing module
-	module = cs.GetModuleByName("nonexistent")
+	module = cs.GetChildStoreByName("nonexistent")
 	require.Nil(t, module)
 }
 
 func TestExporterVersionValidation(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -300,7 +292,7 @@ func TestExporterVersionValidation(t *testing.T) {
 
 func TestImporterVersionValidation(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 
 	// Negative version should fail
 	_, err := cs.Importer(-1)
@@ -313,9 +305,9 @@ func TestImporterVersionValidation(t *testing.T) {
 	require.Contains(t, err.Error(), "out of range")
 }
 
-func TestClose(t *testing.T) {
+func TestCommitStoreClose(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -333,9 +325,9 @@ func TestClose(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestRollback(t *testing.T) {
+func TestCommitStoreRollback(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -370,7 +362,7 @@ func TestRollback(t *testing.T) {
 
 func TestMultipleCommits(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -404,7 +396,7 @@ func TestMultipleCommits(t *testing.T) {
 
 func TestCommitWithUpgradesAndChangesets(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -445,7 +437,7 @@ func TestCommitWithUpgradesAndChangesets(t *testing.T) {
 
 func TestSetInitialVersion(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -462,7 +454,7 @@ func TestSetInitialVersion(t *testing.T) {
 
 func TestGetVersions(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -487,7 +479,7 @@ func TestGetVersions(t *testing.T) {
 	require.NoError(t, cs.Close())
 
 	// Create new CommitStore to test GetLatestVersion
-	cs2 := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs2 := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs2.Initialize([]string{"test"})
 
 	latestVersion, err := cs2.GetLatestVersion()
@@ -497,7 +489,7 @@ func TestGetVersions(t *testing.T) {
 
 func TestCreateWAL(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -513,7 +505,7 @@ func TestCreateWAL(t *testing.T) {
 
 func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	// First load to create the DB
@@ -570,7 +562,7 @@ func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
 
 func TestLoadVersionReadOnlyCreatesOwnWAL(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	// First load to create the DB
@@ -617,7 +609,7 @@ func TestWALPersistenceAcrossRestart(t *testing.T) {
 	dir := t.TempDir()
 
 	// First session: write data
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -658,7 +650,7 @@ func TestWALPersistenceAcrossRestart(t *testing.T) {
 	require.NoError(t, cs.Close())
 
 	// Second session: reload and verify WAL replay
-	cs2 := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs2 := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs2.Initialize([]string{"test"})
 
 	_, err = cs2.LoadVersion(0, false)
@@ -668,7 +660,7 @@ func TestWALPersistenceAcrossRestart(t *testing.T) {
 	require.Equal(t, int64(2), cs2.Version())
 
 	// Data should be accessible
-	tree := cs2.GetModuleByName("test")
+	tree := cs2.GetChildStoreByName("test")
 	require.NotNil(t, tree)
 
 	require.NoError(t, cs2.Close())
@@ -676,7 +668,7 @@ func TestWALPersistenceAcrossRestart(t *testing.T) {
 
 func TestRollbackWithWAL(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -713,7 +705,7 @@ func TestRollbackWithWAL(t *testing.T) {
 	require.NoError(t, cs.Close())
 
 	// Reopen and verify rollback persisted
-	cs2 := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs2 := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs2.Initialize([]string{"test"})
 
 	_, err = cs2.LoadVersion(0, false)
@@ -727,7 +719,7 @@ func TestRollbackWithWAL(t *testing.T) {
 
 func TestRollbackCreatesWALIfNeeded(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	// Load and commit
@@ -752,7 +744,7 @@ func TestRollbackCreatesWALIfNeeded(t *testing.T) {
 	require.NoError(t, cs.Close())
 
 	// After Close(), create a new CommitStore (WAL creation happens in NewCommitStore)
-	cs2 := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs2 := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs2.Initialize([]string{"test"})
 
 	// Rollback should work
@@ -762,7 +754,7 @@ func TestRollbackCreatesWALIfNeeded(t *testing.T) {
 
 func TestCloseReleasesWAL(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -780,7 +772,7 @@ func TestCloseReleasesWAL(t *testing.T) {
 
 func TestLoadVersionReusesExistingWAL(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	// First load
@@ -818,7 +810,7 @@ func TestLoadVersionReusesExistingWAL(t *testing.T) {
 
 func TestReadOnlyCopyCannotCommit(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	// First load
@@ -864,10 +856,9 @@ func TestWALTruncationOnCommit(t *testing.T) {
 	dir := t.TempDir()
 
 	// Configure with snapshot interval to trigger snapshot creation
-	cfg := config.StateCommitConfig{
-		SnapshotInterval:   2, // Create snapshot every 2 blocks
-		SnapshotKeepRecent: 1, // Keep only 1 recent snapshot
-	}
+	cfg := DefaultConfig()
+	cfg.SnapshotInterval = 2
+	cfg.SnapshotKeepRecent = 1
 	cs := NewCommitStore(dir, logger.NewNopLogger(), cfg)
 	cs.Initialize([]string{"test"})
 
@@ -928,7 +919,7 @@ func TestWALTruncationWithNoSnapshots(t *testing.T) {
 	dir := t.TempDir()
 
 	// No snapshot interval configured, so no snapshots will be created
-	cs := NewCommitStore(dir, logger.NewNopLogger(), config.StateCommitConfig{})
+	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -965,10 +956,9 @@ func TestWALTruncationWithNoSnapshots(t *testing.T) {
 func TestWALTruncationDelta(t *testing.T) {
 	dir := t.TempDir()
 
-	cfg := config.StateCommitConfig{
-		SnapshotInterval:   2,
-		SnapshotKeepRecent: 1,
-	}
+	cfg := DefaultConfig()
+	cfg.SnapshotInterval = 2
+	cfg.SnapshotKeepRecent = 1
 	cs := NewCommitStore(dir, logger.NewNopLogger(), cfg)
 	cs.Initialize([]string{"test"})
 

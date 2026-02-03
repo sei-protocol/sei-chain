@@ -294,7 +294,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		streamHandler:           streamHandler,
 		snapshotKeepRecent:      opts.SnapshotKeepRecent,
 		snapshotInterval:        opts.SnapshotInterval,
-		snapshotMinTimeInterval: opts.SnapshotMinTimeInterval,
+		snapshotMinTimeInterval: opts.SnapshotMinTimeDuration(),
 		lastSnapshotTime:        lastSnapshotTime,
 		snapshotWriterPool:      workerPool,
 		opts:                    opts,
@@ -902,8 +902,9 @@ func (db *DB) rewriteSnapshotBackground() error {
 		// checks mmap pages (not file cache) and reports low residency because mmap hasn't
 		// been accessed yet. Prefetch causes unnecessary I/O that competes with ongoing
 		// commits and evicts hot pages from the active snapshot still being used by main chain.
-		loadOpts := db.opts
-		loadOpts.PrefetchThreshold = 0
+		// Use cloned.opts instead of db.opts to avoid race condition with Close()
+		loadOpts := cloned.opts
+		loadOpts.SnapshotPrefetchThreshold = 0
 
 		mtree, err := LoadMultiTree(currentPath(cloned.dir), loadOpts)
 		if err != nil {

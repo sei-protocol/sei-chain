@@ -25,12 +25,12 @@ var (
 
 // Store Implements types.KVStore and CommitKVStore.
 type Store struct {
-	tree      sctypes.ModuleStore
+	tree      sctypes.CommitKVStore
 	logger    log.Logger
 	changeSet iavl.ChangeSet
 }
 
-func NewStore(tree sctypes.ModuleStore, logger log.Logger) *Store {
+func NewStore(tree sctypes.CommitKVStore, logger log.Logger) *Store {
 	return &Store{
 		tree:   tree,
 		logger: logger,

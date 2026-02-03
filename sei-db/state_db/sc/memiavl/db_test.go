@@ -58,10 +58,10 @@ func TestRemoveSnapshotDir(t *testing.T) {
 		t.Fatalf("Failed to create dummy snapshot directory: %v", err)
 	}
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:                dbDir,
-		CreateIfMissing:    true,
-		InitialStores:      []string{"test"},
-		SnapshotKeepRecent: 0,
+		Config:          Config{SnapshotKeepRecent: 0},
+		Dir:             dbDir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
@@ -94,10 +94,10 @@ func TestRemoveSnapshotDir(t *testing.T) {
 
 func TestRewriteSnapshotBackground(t *testing.T) {
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:                t.TempDir(),
-		CreateIfMissing:    true,
-		InitialStores:      []string{"test"},
-		SnapshotKeepRecent: 0, // only a single snapshot is kept
+		Config:          Config{SnapshotKeepRecent: 0}, // only a single snapshot is kept
+		Dir:             t.TempDir(),
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) }) // Ensure DB cleanup and goroutine termination
@@ -215,12 +215,14 @@ func RequireCommitWithNoError(t *testing.T, db *DB, key, val string) int64 {
 func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 	dir := t.TempDir()
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:                     dir,
-		CreateIfMissing:         true,
-		InitialStores:           []string{"test"},
-		SnapshotInterval:        5,
-		SnapshotKeepRecent:      0,
-		SnapshotMinTimeInterval: 1 * time.Second, // 1 second minimum time interval for testing
+		Config: Config{
+			SnapshotInterval:        5,
+			SnapshotKeepRecent:      0,
+			SnapshotMinTimeInterval: 1, // 1 second minimum time interval for testing
+		},
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
 
@@ -823,12 +825,14 @@ func TestFastCommit(t *testing.T) {
 	dir := t.TempDir()
 
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:                     dir,
-		CreateIfMissing:         true,
-		InitialStores:           []string{"test"},
-		SnapshotInterval:        3,
-		AsyncCommitBuffer:       10,
-		SnapshotMinTimeInterval: 1 * time.Second, // 1 second for testing
+		Config: Config{
+			SnapshotInterval:        3,
+			AsyncCommitBuffer:       10,
+			SnapshotMinTimeInterval: 1, // 1 second for testing
+		},
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
 	initialSnapshotTime := db.lastSnapshotTime
@@ -863,11 +867,13 @@ func TestFastCommit(t *testing.T) {
 
 func TestRepeatedApplyChangeSet(t *testing.T) {
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:               t.TempDir(),
-		CreateIfMissing:   true,
-		InitialStores:     []string{"test1", "test2"},
-		SnapshotInterval:  3,
-		AsyncCommitBuffer: 10,
+		Config: Config{
+			SnapshotInterval:  3,
+			AsyncCommitBuffer: 10,
+		},
+		Dir:             t.TempDir(),
+		CreateIfMissing: true,
+		InitialStores:   []string{"test1", "test2"},
 	})
 	require.NoError(t, err)
 
@@ -1016,10 +1022,10 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 func TestCloseWaitsForBackgroundSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:              dir,
-		CreateIfMissing:  true,
-		InitialStores:    []string{"test"},
-		SnapshotInterval: 1, // Trigger snapshot on every commit
+		Config:          Config{SnapshotInterval: 1}, // Trigger snapshot on every commit
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
 
@@ -1040,11 +1046,13 @@ func TestCloseWaitsForBackgroundSnapshot(t *testing.T) {
 func TestCloseWithSuccessfulBackgroundSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:                     dir,
-		CreateIfMissing:         true,
-		InitialStores:           []string{"test"},
-		SnapshotInterval:        0, // Disable auto snapshot
-		SnapshotMinTimeInterval: 0,
+		Config: Config{
+			SnapshotInterval:        0, // Disable auto snapshot
+			SnapshotMinTimeInterval: 0,
+		},
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
 

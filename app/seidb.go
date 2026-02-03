@@ -87,21 +87,15 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig := config.DefaultStateCommitConfig()
 	scConfig.Enable = cast.ToBool(appOpts.Get(FlagSCEnable))
 	scConfig.Directory = cast.ToString(appOpts.Get(FlagSCDirectory))
-	scConfig.ZeroCopy = cast.ToBool(appOpts.Get(FlagSCZeroCopy))
-	scConfig.AsyncCommitBuffer = cast.ToInt(appOpts.Get(FlagSCAsyncCommitBuffer))
-	scConfig.SnapshotKeepRecent = cast.ToUint32(appOpts.Get(FlagSCSnapshotKeepRecent))
-	scConfig.SnapshotInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotInterval))
-	scConfig.SnapshotMinTimeInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotMinTimeInterval))
-	scConfig.SnapshotWriterLimit = cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit))
-	scConfig.SnapshotPrefetchThreshold = cast.ToFloat64(appOpts.Get(FlagSCSnapshotPrefetchThreshold))
-	scConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
-	scConfig.OnlyAllowExportOnSnapshotVersion = cast.ToBool(appOpts.Get(FlagSCOnlyAllowExportOnSnapshotVersion))
-	if v := appOpts.Get(FlagSCHistoricalProofMaxInFlight); v != nil {
-		scConfig.HistoricalProofMaxInFlight = cast.ToInt(v)
-	}
-	if v := appOpts.Get(FlagSCHistoricalProofRateLimit); v != nil {
-		scConfig.HistoricalProofRateLimit = cast.ToFloat64(v)
-	}
+	scConfig.MemIAVLConfig.AsyncCommitBuffer = cast.ToInt(appOpts.Get(FlagSCAsyncCommitBuffer))
+	scConfig.MemIAVLConfig.SnapshotKeepRecent = cast.ToUint32(appOpts.Get(FlagSCSnapshotKeepRecent))
+	scConfig.MemIAVLConfig.SnapshotInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotInterval))
+	scConfig.MemIAVLConfig.SnapshotMinTimeInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotMinTimeInterval))
+	scConfig.MemIAVLConfig.SnapshotWriterLimit = cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit))
+	scConfig.MemIAVLConfig.SnapshotPrefetchThreshold = cast.ToFloat64(appOpts.Get(FlagSCSnapshotPrefetchThreshold))
+	scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
+	scConfig.HistoricalProofMaxInFlight = cast.ToInt(appOpts.Get(FlagSCHistoricalProofMaxInFlight))
+	scConfig.HistoricalProofRateLimit = cast.ToFloat64(appOpts.Get(FlagSCHistoricalProofRateLimit))
 	if v := appOpts.Get(FlagSCHistoricalProofBurst); v != nil {
 		scConfig.HistoricalProofBurst = cast.ToInt(v)
 	}

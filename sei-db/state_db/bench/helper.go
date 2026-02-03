@@ -13,10 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
-	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	"github.com/cosmos/iavl"
 )
 
 const (
@@ -181,16 +180,13 @@ func (p *ProgressReporter) report() {
 	}
 }
 
-func newCommitStore(b *testing.B) *sc.CommitStore {
+func newCommitStore(b *testing.B) *memiavl.CommitStore {
 	b.Helper()
 	dir := b.TempDir()
-
-	cfg := config.StateCommitConfig{
-		AsyncCommitBuffer: 10,
-		SnapshotInterval:  100,
-	}
-
-	cs := sc.NewCommitStore(dir, logger.NewNopLogger(), cfg)
+	cfg := memiavl.DefaultConfig()
+	cfg.AsyncCommitBuffer = 10
+	cfg.SnapshotInterval = 100
+	cs := memiavl.NewCommitStore(dir, logger.NewNopLogger(), cfg)
 	cs.Initialize([]string{EVMStoreName})
 
 	_, err := cs.LoadVersion(0, false)

@@ -118,7 +118,6 @@ func TestCacheMultiStoreWithVersion_OnlyUsesSSStores(t *testing.T) {
 			home := t.TempDir()
 			scCfg := config.DefaultStateCommitConfig()
 			scCfg.Enable = true
-			scCfg.AsyncCommitBuffer = 0
 			ssCfg := config.DefaultStateStoreConfig()
 			ssCfg.Enable = tc.ssEnabled
 			ssCfg.AsyncWriteBuffer = 0

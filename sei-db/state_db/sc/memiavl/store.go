@@ -1,16 +1,13 @@
-package sc
+package memiavl
 
 import (
 	"fmt"
 	"math"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -18,36 +15,23 @@ var _ types.Committer = (*CommitStore)(nil)
 
 type CommitStore struct {
 	logger  logger.Logger
-	db      *memiavl.DB
-	opts    memiavl.Options
+	db      *DB
+	opts    Options
 	homeDir string
-	cfg     config.StateCommitConfig
 }
 
-func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCommitConfig) *CommitStore {
-	scDir := homeDir
-	if config.Directory != "" {
-		scDir = config.Directory
-	}
-	commitDBPath := utils.GetCommitStorePath(scDir)
-	opts := memiavl.Options{
-		Dir:                              commitDBPath,
-		ZeroCopy:                         config.ZeroCopy,
-		AsyncCommitBuffer:                config.AsyncCommitBuffer,
-		SnapshotInterval:                 config.SnapshotInterval,
-		SnapshotKeepRecent:               config.SnapshotKeepRecent,
-		SnapshotMinTimeInterval:          time.Duration(config.SnapshotMinTimeInterval) * time.Second,
-		SnapshotWriterLimit:              config.SnapshotWriterLimit,
-		PrefetchThreshold:                config.SnapshotPrefetchThreshold,
-		SnapshotWriteRateMBps:            config.SnapshotWriteRateMBps,
-		CreateIfMissing:                  true,
-		OnlyAllowExportOnSnapshotVersion: config.OnlyAllowExportOnSnapshotVersion,
+func NewCommitStore(homeDir string, logger logger.Logger, config Config) *CommitStore {
+	commitDBPath := utils.GetCommitStorePath(homeDir)
+	opts := Options{
+		Config:          config, // Embed the config directly
+		Dir:             commitDBPath,
+		CreateIfMissing: true,
+		ZeroCopy:        true,
 	}
 	commitStore := &CommitStore{
 		logger:  logger,
 		opts:    opts,
 		homeDir: homeDir,
-		cfg:     config,
 	}
 	return commitStore
 }
@@ -69,7 +53,7 @@ func (cs *CommitStore) Rollback(targetVersion int64) error {
 	options := cs.opts
 	options.LoadForOverwriting = true
 
-	db, err := memiavl.OpenDB(cs.logger, targetVersion, options)
+	db, err := OpenDB(cs.logger, targetVersion, options)
 	if err != nil {
 		return err
 	}
@@ -79,17 +63,17 @@ func (cs *CommitStore) Rollback(targetVersion int64) error {
 
 // LoadVersion loads the specified version of the database.
 // If copyExisting is true, creates a read-only copy for querying.
-func (cs *CommitStore) LoadVersion(targetVersion int64, copyExisting bool) (types.Committer, error) {
-	cs.logger.Info(fmt.Sprintf("SeiDB load target memIAVL version %d, copyExisting = %v\n", targetVersion, copyExisting))
+func (cs *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Committer, error) {
+	cs.logger.Info(fmt.Sprintf("SeiDB load target memIAVL version %d, readOnly = %v\n", targetVersion, readOnly))
 
-	if copyExisting {
+	if readOnly {
 		// Create a read-only copy via NewCommitStore.
-		newCS := NewCommitStore(cs.homeDir, cs.logger, cs.cfg)
+		newCS := NewCommitStore(cs.homeDir, cs.logger, cs.opts.Config)
 		newCS.opts = cs.opts
 		newCS.opts.ReadOnly = true
 		newCS.opts.CreateIfMissing = false
 
-		db, err := memiavl.OpenDB(cs.logger, targetVersion, newCS.opts)
+		db, err := OpenDB(cs.logger, targetVersion, newCS.opts)
 		if err != nil {
 			return nil, err
 		}
@@ -103,7 +87,7 @@ func (cs *CommitStore) LoadVersion(targetVersion int64, copyExisting bool) (type
 	}
 
 	opts := cs.opts
-	db, err := memiavl.OpenDB(cs.logger, targetVersion, opts)
+	db, err := OpenDB(cs.logger, targetVersion, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -121,11 +105,11 @@ func (cs *CommitStore) Version() int64 {
 }
 
 func (cs *CommitStore) GetLatestVersion() (int64, error) {
-	return memiavl.GetLatestVersion(cs.opts.Dir)
+	return GetLatestVersion(cs.opts.Dir)
 }
 
 func (cs *CommitStore) GetEarliestVersion() (int64, error) {
-	return memiavl.GetEarliestVersion(cs.opts.Dir)
+	return GetEarliestVersion(cs.opts.Dir)
 }
 
 func (cs *CommitStore) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
@@ -154,7 +138,7 @@ func (cs *CommitStore) LastCommitInfo() *proto.CommitInfo {
 	return cs.db.LastCommitInfo()
 }
 
-func (cs *CommitStore) GetModuleByName(name string) types.ModuleStore {
+func (cs *CommitStore) GetChildStoreByName(name string) types.CommitKVStore {
 	return cs.db.TreeByName(name)
 }
 
@@ -162,14 +146,14 @@ func (cs *CommitStore) Exporter(version int64) (types.Exporter, error) {
 	if version < 0 || version > math.MaxUint32 {
 		return nil, fmt.Errorf("version %d out of range", version)
 	}
-	return memiavl.NewMultiTreeExporter(cs.opts.Dir, uint32(version), cs.opts.OnlyAllowExportOnSnapshotVersion)
+	return NewMultiTreeExporter(cs.opts.Dir, uint32(version), cs.opts.OnlyAllowExportOnSnapshotVersion)
 }
 
 func (cs *CommitStore) Importer(version int64) (types.Importer, error) {
 	if version < 0 || version > math.MaxUint32 {
 		return nil, fmt.Errorf("version %d out of range", version)
 	}
-	return memiavl.NewMultiTreeImporter(cs.opts.Dir, uint64(version))
+	return NewMultiTreeImporter(cs.opts.Dir, uint64(version))
 }
 
 func (cs *CommitStore) Close() error {

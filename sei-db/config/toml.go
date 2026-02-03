@@ -13,10 +13,15 @@ sc-enable = {{ .StateCommit.Enable }}
 # Defines the SC store directory, if not explicitly set, default to application home directory
 sc-directory = "{{ .StateCommit.Directory }}"
 
-# ZeroCopy defines if memiavl should return slices pointing to mmap-ed buffers directly (zero-copy),
-# the zero-copied slices must not be retained beyond current block's execution.
-# the sdk address cache will be disabled if zero-copy is enabled.
-sc-zero-copy = {{ .StateCommit.ZeroCopy }}
+# WriteMode defines how EVM data writes are routed between backends.
+# Valid values: cosmos_only, dual_write, split_write, evm_only
+# defaults to cosmos_only
+sc-write-mode = "{{ .StateCommit.WriteMode }}"
+
+# ReadMode defines how EVM data reads are routed between backends.
+# Valid values: cosmos_only, evm_first, split_read
+# defaults to cosmos_only
+sc-read-mode = "{{ .StateCommit.ReadMode }}"
 
 # Max concurrent historical proof queries (RPC /store path)
 sc-historical-proof-max-inflight = {{ .StateCommit.HistoricalProofMaxInFlight }}
@@ -29,35 +34,36 @@ sc-historical-proof-burst = {{ .StateCommit.HistoricalProofBurst }}
 
 # AsyncCommitBuffer defines the size of asynchronous commit queue, this greatly improve block catching-up
 # performance, setting to 0 means synchronous commit.
-sc-async-commit-buffer = {{ .StateCommit.AsyncCommitBuffer }}
+sc-async-commit-buffer = {{ .StateCommit.MemIAVLConfig.AsyncCommitBuffer }}
 
 # KeepRecent defines how many state-commit snapshots (besides the latest one) to keep
 # defaults to 0 to only keep one current snapshot
-sc-keep-recent = {{ .StateCommit.SnapshotKeepRecent }}
+sc-keep-recent = {{ .StateCommit.MemIAVLConfig.SnapshotKeepRecent }}
 
 # SnapshotInterval defines the block interval the snapshot is taken, default to 10000 blocks.
-sc-snapshot-interval = {{ .StateCommit.SnapshotInterval }}
+sc-snapshot-interval = {{ .StateCommit.MemIAVLConfig.SnapshotInterval }}
 
 # SnapshotMinTimeInterval defines the minimum time interval (in seconds) between snapshots.
 # This prevents excessive snapshot creation during catch-up and ensures snapshots don't overlap
 # (current snapshot creation takes 3+ hours). Default to 3600 seconds (1 hour).
 # Note: If you set a small sc-snapshot-interval (e.g., < 5000), you may want to reduce this value
 # to allow more frequent snapshots during normal operation.
-sc-snapshot-min-time-interval = {{ .StateCommit.SnapshotMinTimeInterval }}
+sc-snapshot-min-time-interval = {{ .StateCommit.MemIAVLConfig.SnapshotMinTimeInterval }}
+
+# SnapshotWriterLimit defines the max concurrency for taking commit store snapshot
+sc-snapshot-writer-limit = {{ .StateCommit.MemIAVLConfig.SnapshotWriterLimit }}
 
 # SnapshotPrefetchThreshold defines the page cache residency threshold (0.0-1.0) to trigger snapshot prefetch.
 # Prefetch sequentially reads nodes/leaves files into page cache for faster cold-start replay.
 # Only active trees (evm/bank/acc/wasm) are prefetched, skipping sparse kv files to save memory.
 # Skips prefetch if more than threshold of pages already resident (e.g., 0.8 = 80%).
-# Defaults to 0.8
-sc-snapshot-prefetch-threshold = {{ .StateCommit.SnapshotPrefetchThreshold }}
+# Setting to 0 disables prefetching. Defaults to 0.8
+sc-snapshot-prefetch-threshold = {{ .StateCommit.MemIAVLConfig.SnapshotPrefetchThreshold }}
 
-# Maximum snapshot write rate in MB/s (global across all trees). 0 = unlimited. Default 100.
-sc-snapshot-write-rate-mbps = {{ .StateCommit.SnapshotWriteRateMBps }}
+# SnapshotWriteRateMBps is the global snapshot write rate limit in MB/s.
+# 0 = unlimited. Default 100.
+sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBps }}
 
-# OnlyAllowExportOnSnapshotVersion defines whether we only allow state sync
-# snapshot creation happens after the memiavl snapshot is created.
-sc-only-allow-export-on-snapshot-version = {{ .StateCommit.OnlyAllowExportOnSnapshotVersion }}
 `
 
 // StateStoreConfigTemplate defines the configuration template for state-store

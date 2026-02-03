@@ -49,12 +49,6 @@ func TestParseEVMKey(t *testing.T) {
 			wantBytes: addr,
 		},
 		{
-			name:      "CodeSize",
-			key:       concat(evmtypes.CodeSizeKeyPrefix, addr),
-			wantKind:  EVMKeyCodeSize,
-			wantBytes: addr,
-		},
-		{
 			name:      "Storage",
 			key:       concat(concat(evmtypes.StateKeyPrefix, addr), slot),
 			wantKind:  EVMKeyStorage,
