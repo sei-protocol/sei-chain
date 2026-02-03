@@ -51,6 +51,31 @@ sc-snapshot-writer-limit = {{ .StateCommit.MemIAVLConfig.SnapshotWriterLimit }}
 # Setting to 0 disables prefetching. Defaults to 0.8
 sc-snapshot-prefetch-threshold = {{ .StateCommit.MemIAVLConfig.SnapshotPrefetchThreshold }}
 
+###############################################################################
+###                        FlatKV (EVM) Configuration                       ###
+###############################################################################
+
+[state-commit.flatkv]
+# EnableStorageWrites enables writes to EVM storage DB and its LtHash contribution.
+# When false, storage data is skipped entirely (no DB writes, no LtHash updates).
+enable-storage-writes = {{ .StateCommit.FlatKVConfig.EnableStorageWrites }}
+
+# EnableAccountWrites enables writes to EVM account DB and its LtHash contribution.
+# When false, account data is skipped entirely (no DB writes, no LtHash updates).
+enable-account-writes = {{ .StateCommit.FlatKVConfig.EnableAccountWrites }}
+
+# EnableCodeWrites enables writes to EVM code DB and its LtHash contribution.
+# When false, code data is skipped entirely (no DB writes, no LtHash updates).
+enable-code-writes = {{ .StateCommit.FlatKVConfig.EnableCodeWrites }}
+
+# AsyncWrites enables async writes to EVM data DBs for better performance.
+# When true: data DBs use Sync=false, then Flush() at FlushInterval.
+# WAL and metaDB always use sync writes regardless.
+async-writes = {{ .StateCommit.FlatKVConfig.AsyncWrites }}
+
+# FlushInterval controls how often to flush EVM data DBs (only when AsyncWrites=true).
+# 0 or 1: flush every block; N > 1: flush every N blocks
+flush-interval = {{ .StateCommit.FlatKVConfig.FlushInterval }}
 `
 
 // StateStoreConfigTemplate defines the configuration template for state-store
