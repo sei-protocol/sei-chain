@@ -1,6 +1,7 @@
 package types
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 
@@ -155,6 +156,8 @@ func verifyCommitBatch(
 	chainID string,
 	vals *ValidatorSet,
 	commit *Commit,
+	// misnamed argument - votingPowerNeeded is not enough for commit to be valid.
+	// It has to be MORE than votingPowerNeeded.
 	votingPowerNeeded int64,
 	ignoreSig func(CommitSig) bool,
 	countSig func(CommitSig) bool,
@@ -184,6 +187,9 @@ func verifyCommitBatch(
 		// them by index else we need to retrieve them by address
 		if lookUpByIndex {
 			val = vals.Validators[idx]
+			if !bytes.Equal(val.Address, commitSig.ValidatorAddress) {
+				return fmt.Errorf("commit.Signatures[%v].ValidatorAddress = %v, want %v", idx, commitSig.ValidatorAddress, val.Address)
+			}
 		} else {
 			valIdx, val = vals.GetByAddress(commitSig.ValidatorAddress)
 
@@ -254,6 +260,8 @@ func verifyCommitSingle(
 	chainID string,
 	vals *ValidatorSet,
 	commit *Commit,
+	// misnamed argument - votingPowerNeeded is not enough for commit to be valid.
+	// It has to be MORE than votingPowerNeeded.
 	votingPowerNeeded int64,
 	ignoreSig func(CommitSig) bool,
 	countSig func(CommitSig) bool,
@@ -276,6 +284,9 @@ func verifyCommitSingle(
 		// them by index else we need to retrieve them by address
 		if lookUpByIndex {
 			val = vals.Validators[idx]
+			if !bytes.Equal(val.Address, commitSig.ValidatorAddress) {
+				return fmt.Errorf("commit.Signatures[%v].ValidatorAddress = %v, want %v", idx, commitSig.ValidatorAddress, val.Address)
+			}
 		} else {
 			valIdx, val = vals.GetByAddress(commitSig.ValidatorAddress)
 
