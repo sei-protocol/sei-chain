@@ -55,8 +55,8 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 	// Create EVM store directly
 	evmConfig := config.EVMStateStoreConfig{
 		Enable:      true,
-		EnableRead:  true,
-		EnableWrite: true,
+		WriteMode:   config.DualWrite,
+		ReadMode:    config.EVMFirstRead,
 		DBDirectory: filepath.Join(dir, "evm_ss"),
 	}
 	evmStore, err := evm.NewEVMStateStore(evmConfig.DBDirectory)
@@ -187,8 +187,8 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 	// Create EVM store (fresh, at version 0)
 	evmConfig := config.EVMStateStoreConfig{
 		Enable:      true,
-		EnableRead:  true,
-		EnableWrite: true,
+		WriteMode:   config.DualWrite,
+		ReadMode:    config.EVMFirstRead,
 		DBDirectory: filepath.Join(dir, "evm_ss"),
 	}
 	evmStore, err := evm.NewEVMStateStore(evmConfig.DBDirectory)
