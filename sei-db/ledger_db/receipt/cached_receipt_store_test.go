@@ -98,12 +98,12 @@ func TestCachedReceiptStoreFilterLogsDelegates(t *testing.T) {
 	require.NoError(t, store.SetReceipts(ctx, []ReceiptRecord{{TxHash: txHash, Receipt: receipt}}))
 
 	backend.filterLogCalls = 0
-	// FilterLogs now delegates to the backend for range queries
+	// FilterLogs checks both backend and cache
 	logs, err := store.FilterLogs(ctx, 9, 9, filters.FilterCriteria{
 		Addresses: []common.Address{addr},
 		Topics:    [][]common.Hash{{topic}},
 	})
 	require.NoError(t, err)
-	require.Len(t, logs, 0) // fake backend returns empty
-	require.Equal(t, 1, backend.filterLogCalls)
+	require.Len(t, logs, 1)                     // cache has the log (backend returns empty)
+	require.Equal(t, 1, backend.filterLogCalls) // still delegates to backend
 }
