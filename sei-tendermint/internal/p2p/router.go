@@ -14,7 +14,6 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/im"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/types"
@@ -250,7 +249,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 							return nil
 						}
 						err = r.runConn(ctx, conn)
-						r.logger.Error("r.runConn(outbound)", "err", err)
+						r.logger.Error("r.runConn(%v)", "err", addr, err)
 						return nil
 					})
 				}
@@ -283,11 +282,13 @@ func (r *Router) storePeersRoutine(ctx context.Context) error {
 }
 
 func (r *Router) metricsRoutine(ctx context.Context) error {
-	_, err := r.peerManager.conns.Wait(ctx, func(conns im.Map[types.NodeID, *Connection]) bool {
+	for {
+		if err := utils.Sleep(ctx, 10*time.Second); err != nil {
+			return err
+		}
 		r.metrics.Peers.Set(float64(r.peerManager.Conns().Len()))
-		return false
-	})
-	return err
+		r.peerManager.LogState(r.logger)
+	}
 }
 
 // Evict reports a peer misbehavior and forces peer to be disconnected.
