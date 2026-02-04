@@ -185,7 +185,7 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 	}
 
 	if maxBlock > 0 {
-		s.store.UpdateLatestVersion(int64(maxBlock))
+		s.store.UpdateLatestVersion(int64(maxBlock)) //nolint:gosec // block numbers won't exceed int64 max
 	}
 
 	return nil
@@ -319,7 +319,7 @@ func (s *parquetReceiptStore) replayWAL() error {
 	}
 
 	if maxBlock > 0 {
-		s.store.UpdateLatestVersion(int64(maxBlock))
+		s.store.UpdateLatestVersion(int64(maxBlock)) //nolint:gosec // block numbers won't exceed int64 max
 	}
 	if dropOffset > 0 {
 		_ = wal.TruncateBefore(dropOffset + 1)
