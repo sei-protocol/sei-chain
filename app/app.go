@@ -1520,12 +1520,12 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 // ProcessTXsWithOCCGiga runs the transactions concurrently via OCC, using the Giga executor
 func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	evmEntries := make([]*sdk.DeliverTxEntry, 0, len(txs))
-	nonevmEntries := make([]*sdk.DeliverTxEntry, 0, len(txs))
+	v2Entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	for txIndex, tx := range txs {
 		if app.GetEVMMsg(typedTxs[txIndex]) != nil {
 			evmEntries = append(evmEntries, app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex]))
 		} else {
-			nonevmEntries = append(nonevmEntries, app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex]))
+			v2Entries = append(v2Entries, app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex]))
 		}
 	}
 
@@ -1558,9 +1558,9 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 		metrics.IncrGigaFallbackToV2Counter()
 		// Discard all EVM changes by skipping cache writes, then re-run all txs via DeliverTx.
 		evmBatchResult = nil
-		nonevmEntries = make([]*sdk.DeliverTxEntry, len(txs))
+		v2Entries = make([]*sdk.DeliverTxEntry, len(txs))
 		for txIndex, tx := range txs {
-			nonevmEntries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
+			v2Entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
 		}
 	} else {
 		// Commit EVM cache to main store before processing non-EVM txs.
@@ -1568,18 +1568,18 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 		evmCtx.GigaMultiStore().WriteGiga()
 	}
 
-	nonevmScheduler := tasks.NewScheduler(
+	v2Scheduler := tasks.NewScheduler(
 		app.ConcurrencyWorkers(),
 		app.TracingInfo,
 		app.DeliverTx,
 	)
-	nonevmBatchResult, nonevmSchedErr := nonevmScheduler.ProcessAll(ctx, nonevmEntries)
-	if nonevmSchedErr != nil {
-		ctx.Logger().Error("benchmark OCC scheduler error", "error", nonevmSchedErr, "height", ctx.BlockHeight(), "txCount", len(nonevmEntries))
+	v2BatchResult, v2SchedErr := v2Scheduler.ProcessAll(ctx, v2Entries)
+	if v2SchedErr != nil {
+		ctx.Logger().Error("benchmark OCC scheduler error", "error", v2SchedErr, "height", ctx.BlockHeight(), "txCount", len(v2Entries))
 		return nil, ctx
 	}
 
-	execResults := make([]*abci.ExecTxResult, 0, len(evmBatchResult)+len(nonevmBatchResult))
+	execResults := make([]*abci.ExecTxResult, 0, len(evmBatchResult)+len(v2BatchResult))
 	for _, r := range evmBatchResult {
 		execResults = append(execResults, &abci.ExecTxResult{
 			Code:      r.Code,
@@ -1593,7 +1593,7 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 			EvmTxInfo: r.EvmTxInfo,
 		})
 	}
-	for _, r := range nonevmBatchResult {
+	for _, r := range v2BatchResult {
 		execResults = append(execResults, &abci.ExecTxResult{
 			Code:      r.Code,
 			Data:      r.Data,
