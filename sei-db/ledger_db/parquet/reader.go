@@ -1,7 +1,7 @@
 //go:build duckdb
 // +build duckdb
 
-package receipt
+package parquet
 
 import (
 	"context"
@@ -18,7 +18,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-type parquetReader struct {
+// Reader provides DuckDB-based reading of parquet files.
+type Reader struct {
 	db                 *sql.DB
 	basePath           string
 	mu                 sync.RWMutex
@@ -26,7 +27,15 @@ type parquetReader struct {
 	closedLogFiles     []string
 }
 
-func newParquetReader(basePath string) (*parquetReader, error) {
+// FilePair represents a matched pair of receipt and log parquet files.
+type FilePair struct {
+	ReceiptFile string
+	LogFile     string
+	StartBlock  uint64
+}
+
+// NewReader creates a new parquet reader for the given base path.
+func NewReader(basePath string) (*Reader, error) {
 	connector, err := duckdb.NewConnector("", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DuckDB connector: %w", err)
@@ -45,7 +54,7 @@ func newParquetReader(basePath string) (*parquetReader, error) {
 	_, _ = db.Exec("SET enable_progress_bar = false")
 	_, _ = db.Exec("SET preserve_insertion_order = false")
 
-	reader := &parquetReader{
+	reader := &Reader{
 		db:       db,
 		basePath: basePath,
 	}
@@ -53,11 +62,12 @@ func newParquetReader(basePath string) (*parquetReader, error) {
 	return reader, nil
 }
 
-func (r *parquetReader) Close() error {
+// Close closes the reader.
+func (r *Reader) Close() error {
 	return r.db.Close()
 }
 
-func (r *parquetReader) scanExistingFiles() {
+func (r *Reader) scanExistingFiles() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -68,13 +78,13 @@ func (r *parquetReader) scanExistingFiles() {
 	r.closedLogFiles, _ = r.validateFiles(logFiles)
 }
 
-func (r *parquetReader) validateFiles(files []string) ([]string, string) {
+func (r *Reader) validateFiles(files []string) ([]string, string) {
 	if len(files) == 0 {
 		return nil, ""
 	}
 
 	sort.Slice(files, func(i, j int) bool {
-		return extractBlockNumber(files[i]) < extractBlockNumber(files[j])
+		return ExtractBlockNumber(files[i]) < ExtractBlockNumber(files[j])
 	})
 
 	lastFile := files[len(files)-1]
@@ -84,13 +94,14 @@ func (r *parquetReader) validateFiles(files []string) ([]string, string) {
 	return files[:len(files)-1], lastFile
 }
 
-func (r *parquetReader) isFileReadable(path string) bool {
+func (r *Reader) isFileReadable(path string) bool {
 	// #nosec G201 -- path comes from validated local files, not user input
 	_, err := r.db.Exec(fmt.Sprintf("SELECT 1 FROM read_parquet('%s') LIMIT 1", path))
 	return err == nil
 }
 
-func (r *parquetReader) onFileRotation(closedFileStartBlock uint64) {
+// OnFileRotation notifies the reader that a file has been rotated.
+func (r *Reader) OnFileRotation(closedFileStartBlock uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -100,51 +111,46 @@ func (r *parquetReader) onFileRotation(closedFileStartBlock uint64) {
 	r.closedLogFiles = append(r.closedLogFiles, logFile)
 }
 
-func (r *parquetReader) closedReceiptFileCount() int {
+// ClosedReceiptFileCount returns the number of closed receipt files.
+func (r *Reader) ClosedReceiptFileCount() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.closedReceiptFiles)
 }
 
-type parquetFilePair struct {
-	receiptFile string
-	logFile     string
-	startBlock  uint64
-}
-
-// getFilesBeforeBlock returns files whose start block is before the given block.
+// GetFilesBeforeBlock returns files whose start block is before the given block.
 // These files contain only data older than the prune threshold.
-func (r *parquetReader) getFilesBeforeBlock(pruneBeforeBlock uint64) []parquetFilePair {
+func (r *Reader) GetFilesBeforeBlock(pruneBeforeBlock uint64) []FilePair {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var result []parquetFilePair
+	var result []FilePair
 	for _, f := range r.closedReceiptFiles {
-		startBlock := extractBlockNumber(f)
+		startBlock := ExtractBlockNumber(f)
 		// Only prune files that are entirely before the prune threshold
 		// We need to check that the NEXT file starts before pruneBeforeBlock,
 		// meaning this file's data is all older than the threshold
 		if startBlock+500 <= pruneBeforeBlock { // 500 = MaxBlocksPerFile
 			logFile := filepath.Join(r.basePath, fmt.Sprintf("logs_%d.parquet", startBlock))
-			result = append(result, parquetFilePair{
-				receiptFile: f,
-				logFile:     logFile,
-				startBlock:  startBlock,
+			result = append(result, FilePair{
+				ReceiptFile: f,
+				LogFile:     logFile,
+				StartBlock:  startBlock,
 			})
 		}
 	}
 	return result
 }
 
-// removeFilesBeforeBlock removes files from tracking that are before the given block.
-func (r *parquetReader) removeFilesBeforeBlock(pruneBeforeBlock uint64) {
+// RemoveFilesBeforeBlock removes files from tracking that are before the given block.
+func (r *Reader) RemoveFilesBeforeBlock(pruneBeforeBlock uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	// Filter receipt files
 	newReceiptFiles := make([]string, 0, len(r.closedReceiptFiles))
 	for _, f := range r.closedReceiptFiles {
-		startBlock := extractBlockNumber(f)
+		startBlock := ExtractBlockNumber(f)
 		if startBlock+500 > pruneBeforeBlock {
 			newReceiptFiles = append(newReceiptFiles, f)
 		}
@@ -154,7 +160,7 @@ func (r *parquetReader) removeFilesBeforeBlock(pruneBeforeBlock uint64) {
 	// Filter log files
 	newLogFiles := make([]string, 0, len(r.closedLogFiles))
 	for _, f := range r.closedLogFiles {
-		startBlock := extractBlockNumber(f)
+		startBlock := ExtractBlockNumber(f)
 		if startBlock+500 > pruneBeforeBlock {
 			newLogFiles = append(newLogFiles, f)
 		}
@@ -162,7 +168,8 @@ func (r *parquetReader) removeFilesBeforeBlock(pruneBeforeBlock uint64) {
 	r.closedLogFiles = newLogFiles
 }
 
-func (r *parquetReader) maxReceiptBlockNumber(ctx context.Context) (uint64, bool, error) {
+// MaxReceiptBlockNumber returns the maximum block number in the receipt files.
+func (r *Reader) MaxReceiptBlockNumber(ctx context.Context) (uint64, bool, error) {
 	r.mu.RLock()
 	closedFiles := r.closedReceiptFiles
 	r.mu.RUnlock()
@@ -193,7 +200,8 @@ func (r *parquetReader) maxReceiptBlockNumber(ctx context.Context) (uint64, bool
 	return uint64(max.Int64), true, nil
 }
 
-func (r *parquetReader) getReceiptByTxHash(ctx context.Context, txHash common.Hash) (*receiptResult, error) {
+// GetReceiptByTxHash queries for a receipt by transaction hash.
+func (r *Reader) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*ReceiptResult, error) {
 	r.mu.RLock()
 	closedFiles := r.closedReceiptFiles
 	r.mu.RUnlock()
@@ -219,7 +227,7 @@ func (r *parquetReader) getReceiptByTxHash(ctx context.Context, txHash common.Ha
 	`, parquetFiles)
 
 	row := r.db.QueryRowContext(ctx, query, txHash[:])
-	var rec receiptResult
+	var rec ReceiptResult
 	if err := row.Scan(&rec.TxHash, &rec.BlockNumber, &rec.ReceiptBytes); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -229,7 +237,8 @@ func (r *parquetReader) getReceiptByTxHash(ctx context.Context, txHash common.Ha
 	return &rec, nil
 }
 
-func (r *parquetReader) getLogs(ctx context.Context, filter logFilter) ([]logResult, error) {
+// GetLogs queries logs matching the given filter.
+func (r *Reader) GetLogs(ctx context.Context, filter LogFilter) ([]LogResult, error) {
 	r.mu.RLock()
 	closedFiles := r.closedLogFiles
 	r.mu.RUnlock()
@@ -240,7 +249,7 @@ func (r *parquetReader) getLogs(ctx context.Context, filter logFilter) ([]logRes
 
 	files := make([]string, 0, len(closedFiles))
 	for _, f := range closedFiles {
-		startBlock := extractBlockNumber(f)
+		startBlock := ExtractBlockNumber(f)
 		if filter.ToBlock != nil && startBlock > *filter.ToBlock {
 			continue
 		}
@@ -253,7 +262,7 @@ func (r *parquetReader) getLogs(ctx context.Context, filter logFilter) ([]logRes
 	return r.queryLogFiles(ctx, files, filter)
 }
 
-func (r *parquetReader) queryLogFiles(ctx context.Context, files []string, filter logFilter) ([]logResult, error) {
+func (r *Reader) queryLogFiles(ctx context.Context, files []string, filter LogFilter) ([]LogResult, error) {
 	var parquetFiles string
 	if len(files) == 1 {
 		parquetFiles = fmt.Sprintf("'%s'", files[0])
@@ -330,9 +339,9 @@ func (r *parquetReader) queryLogFiles(ctx context.Context, files []string, filte
 	}
 	defer func() { _ = rows.Close() }()
 
-	var results []logResult
+	var results []LogResult
 	for rows.Next() {
-		var log logResult
+		var log LogResult
 		if err := rows.Scan(
 			&log.BlockNumber, &log.TxHash, &log.TxIndex, &log.LogIndex,
 			&log.Address, &log.Topic0, &log.Topic1, &log.Topic2, &log.Topic3,
@@ -346,7 +355,8 @@ func (r *parquetReader) queryLogFiles(ctx context.Context, files []string, filte
 	return results, rows.Err()
 }
 
-func extractBlockNumber(path string) uint64 {
+// ExtractBlockNumber extracts the block number from a parquet filename.
+func ExtractBlockNumber(path string) uint64 {
 	base := filepath.Base(path)
 	base = strings.TrimSuffix(base, ".parquet")
 	parts := strings.Split(base, "_")
