@@ -243,7 +243,6 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 							return nil
 						}
 						defer tcpConn.Close()
-						r.metrics.NewConnections.With("direction", "out").Add(1)
 						conn, err := r.handshake(ctx, tcpConn, utils.Some(addr))
 						if err != nil {
 							r.peerManager.DialFailed(addr)
@@ -302,7 +301,14 @@ func (r *Router) IsBlockSyncPeer(id types.NodeID) bool {
 }
 
 // dialPeer connects to a peer by dialing it.
-func (r *Router) dial(ctx context.Context, addr NodeAddress) (*net.TCPConn, error) {
+func (r *Router) dial(ctx context.Context, addr NodeAddress) (_ *net.TCPConn, err error) {
+	defer func() {
+		success := "true"
+		if err != nil {
+			success = "false"
+		}
+		r.metrics.NewConnections.With("direction", "out", "success", success).Add(1)
+	}()
 	resolveCtx := ctx
 	if d, ok := r.options.ResolveTimeout.Get(); ok {
 		var cancel context.CancelFunc
@@ -335,7 +341,6 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (*net.TCPConn, erro
 			r.logger.Debug("failed to dial endpoint", "peer", addr.NodeID, "endpoint", endpoint, "err", err)
 			continue
 		}
-		r.metrics.NewConnections.With("direction", "out").Add(1)
 		r.logger.Debug("dialed peer", "peer", addr.NodeID, "endpoint", endpoint)
 		return tcpConn.(*net.TCPConn), nil
 	}

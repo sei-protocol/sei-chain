@@ -10,6 +10,7 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
+	"golang.org/x/time/rate"
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/crypto"
@@ -218,6 +219,7 @@ func createRouter(
 	options := getRouterConfig(cfg, appClient)
 	options.Endpoint = ep
 	options.MaxConcurrentAccepts = utils.Some(int(cfg.P2P.MaxConnections))
+	options.MaxDialRate = utils.Some(rate.Every(cfg.P2P.DialRate))
 	options.Connection = conn.DefaultMConnConfig()
 	options.Connection.FlushThrottle = cfg.P2P.FlushThrottleTimeout
 	options.Connection.SendRate = cfg.P2P.SendRate

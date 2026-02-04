@@ -43,7 +43,7 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Subsystem: MetricsSubsystem,
 			Name:      "new_connections",
 			Help:      "Number of newly established connections.",
-		}, append(labels, "direction")).With(labelsAndValues...),
+		}, append(labels, "direction", "success")).With(labelsAndValues...),
 		RouterPeerQueueRecv: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
