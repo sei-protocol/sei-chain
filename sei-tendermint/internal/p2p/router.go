@@ -43,6 +43,7 @@ type Router struct {
 	nodeInfoProducer func() *types.NodeInfo
 
 	channels utils.RWMutex[map[ChannelID]*channel]
+	giga     utils.Option[*GigaRouter]
 
 	started chan struct{}
 }
@@ -87,6 +88,9 @@ func NewRouter(
 		channels:         utils.NewRWMutex(map[ChannelID]*channel{}),
 		peerDB:           utils.NewMutex(peerDB),
 		started:          make(chan struct{}),
+	}
+	if gigaCfg, ok := options.Giga.Get(); ok {
+		router.giga = utils.Some(NewGigaRouter(gigaCfg, privKey))
 	}
 	router.BaseService = service.NewBaseService(logger, "router", router)
 	return router, nil
@@ -186,23 +190,46 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 				return err
 			}
 			r.metrics.NewConnections.With("direction", "in").Add(1)
+			addr := tcpConn.RemoteAddr()
 			// Spawn a goroutine per connection.
 			s.Spawn(func() error {
-				addr := tcpConn.RemoteAddr()
+				defer tcpConn.Close()
+				release := sync.OnceFunc(func() { sem.Release(1) })
+				defer release()
 				err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-					s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-					release := sync.OnceFunc(func() { sem.Release(1) })
-					defer release()
+					if err := r.options.filterPeerByIP(ctx, addr); err != nil {
+						return fmt.Errorf("peer filtered by IP: %w", err)
+					}
 					if err := connTracker.AddConn(addr); err != nil {
 						return fmt.Errorf("rate limiting incoming: %w", err)
 					}
 					defer connTracker.RemoveConn(addr)
-					conn, err := r.handshake(ctx, tcpConn, utils.None[NodeAddress]())
+
+					s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+
+					handshakeCtx := ctx
+					if d, ok := r.options.HandshakeTimeout.Get(); ok {
+						var cancel context.CancelFunc
+						handshakeCtx, cancel = context.WithTimeout(ctx, d)
+						defer cancel()
+					}
+					hConn, err := handshake(handshakeCtx, tcpConn, r.privKey, r.giga.IsPresent())
 					if err != nil {
-						return fmt.Errorf("r.handshake(): %w", err)
+						return fmt.Errorf("handshake(): %w", err)
+					}
+					if giga, ok := r.giga.Get(); ok && hConn.msg.SeiGigaConnection {
+						release()
+						return giga.RunInboundConn(ctx, hConn)
+					}
+					if err := r.options.filterPeerByID(ctx, hConn.msg.NodeAuth.Key().NodeID()); err != nil {
+						return fmt.Errorf("peer filtered by ID: %w", err)
+					}
+					info, err := exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
+					if err != nil {
+						return fmt.Errorf("exchangeNodeInfo(): %w", err)
 					}
 					release()
-					return r.runConn(ctx, conn)
+					return r.runConn(ctx, hConn.conn, info, utils.None[NodeAddress]())
 				})
 				r.logger.Error("r.runConn(inbound)", "addr", addr, "err", err)
 				return nil
@@ -232,14 +259,31 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 								r.peerManager.DialFailed(addr)
 								return fmt.Errorf("r.dial(): %w", err)
 							}
-							s.SpawnBg(func() error { return tcpConn.Run(ctx) })
 							r.metrics.NewConnections.With("direction", "out").Add(1)
-							conn, err := r.handshake(ctx, tcpConn, utils.Some(addr))
+							s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+
+							var hConn *handshakedConn
+							var info types.NodeInfo
+							err = utils.WithOptTimeout(ctx, r.options.HandshakeTimeout, func(ctx context.Context) error {
+								var err error
+								hConn, err = handshake(ctx, tcpConn, r.privKey, false)
+								if err != nil {
+									return fmt.Errorf("handshake(): %w", err)
+								}
+								if got := hConn.msg.NodeAuth.Key().NodeID(); got != addr.NodeID {
+									return fmt.Errorf("peer NodeID = %v, want %v", got, addr.NodeID)
+								}
+								info, err = exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
+								if err != nil {
+									return fmt.Errorf("exchangeNodeInfo(): %w", err)
+								}
+								return nil
+							})
 							if err != nil {
 								r.peerManager.DialFailed(addr)
-								return fmt.Errorf("r.handshake(): %w", err)
+								return err
 							}
-							if err := r.runConn(ctx, conn); err != nil {
+							if err := r.runConn(ctx, hConn.conn, info, utils.Some(addr)); err != nil {
 								return fmt.Errorf("r.runConn(): %w", err)
 							}
 							return nil
@@ -340,6 +384,9 @@ func (r *Router) Run(ctx context.Context) error {
 		s.SpawnNamed("dialPeers", func() error { return r.dialPeersRoutine(ctx) })
 		s.SpawnNamed("storePeers", func() error { return r.storePeersRoutine(ctx) })
 		s.SpawnNamed("metrics", func() error { return r.metricsRoutine(ctx) })
+		if giga, ok := r.giga.Get(); ok {
+			s.SpawnNamed("giga", func() error { return giga.Run(ctx) })
+		}
 		return nil
 	})
 }

@@ -18,6 +18,10 @@ message TestonlyNested {
     string note = 1;
     uint32 value = 2;
   }
+  // Recursive field. Even without optional
+  // it can be missing - we need to ensure that
+  // canonical encoding works with it.
+  TestonlyNested recursive = 3;
 }
 
 message TestonlyMsg {

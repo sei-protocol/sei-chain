@@ -110,7 +110,7 @@ func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord) {
 	)
 	cacheEntries := make([]receiptCacheEntry, 0, len(receipts))
 
-	flushBatch := func(blockNumber uint64) {
+	fillCache := func(blockNumber uint64) {
 		if len(cacheEntries) == 0 && len(cacheLogs) == 0 {
 			return
 		}
@@ -135,7 +135,7 @@ func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord) {
 			hasBlock = true
 		}
 		if blockNumber != currentBlock {
-			flushBatch(currentBlock)
+			fillCache(currentBlock)
 			currentBlock = blockNumber
 			logStartIndex = 0
 		}
@@ -151,7 +151,7 @@ func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord) {
 	}
 
 	if hasBlock {
-		flushBatch(currentBlock)
+		fillCache(currentBlock)
 	}
 }
 
