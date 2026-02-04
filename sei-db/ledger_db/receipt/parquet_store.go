@@ -1,6 +1,3 @@
-//go:build duckdb
-// +build duckdb
-
 package receipt
 
 import (

@@ -1,6 +1,3 @@
-//go:build duckdb
-// +build duckdb
-
 package receipt
 
 import (
@@ -8,12 +5,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/testutil"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
+	pqgo "github.com/parquet-go/parquet-go"
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
@@ -24,36 +19,8 @@ import (
 func requireParquetEnabled(t *testing.T) {
 	t.Helper()
 	if !ParquetEnabled() {
-		t.Skip("duckdb disabled; build with -tags duckdb to run parquet tests")
+		t.Skip("parquet disabled")
 	}
-}
-
-func makeTestReceipt(txHash common.Hash, blockNumber uint64, txIndex uint32, addr common.Address, topics []common.Hash) *types.Receipt {
-	topicHex := make([]string, 0, len(topics))
-	for _, topic := range topics {
-		topicHex = append(topicHex, topic.Hex())
-	}
-
-	return &types.Receipt{
-		TxHashHex:        txHash.Hex(),
-		BlockNumber:      blockNumber,
-		TransactionIndex: txIndex,
-		Logs: []*types.Log{
-			{
-				Address: addr.Hex(),
-				Topics:  topicHex,
-				Data:    []byte{0x1},
-				Index:   0,
-			},
-		},
-	}
-}
-
-func newTestContext() (sdk.Context, storetypes.StoreKey) {
-	storeKey := storetypes.NewKVStoreKey("evm")
-	tkey := storetypes.NewTransientStoreKey("evm_transient")
-	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
-	return ctx, storeKey
 }
 
 func TestLedgerCacheReceiptsAndLogs(t *testing.T) {
@@ -396,8 +363,18 @@ func TestExtractBlockNumber(t *testing.T) {
 func createMockParquetFile(t *testing.T, dir, name string) {
 	t.Helper()
 	path := filepath.Join(dir, name)
-	// Create an empty file - for testing file existence and naming only
+
+	// Create a valid parquet file with minimal data that DuckDB can read
 	f, err := os.Create(path)
 	require.NoError(t, err)
+
+	// Use parquet-go to write a minimal valid file
+	type minimalRecord struct {
+		BlockNumber uint64 `parquet:"block_number"`
+	}
+	writer := pqgo.NewGenericWriter[minimalRecord](f)
+	_, err = writer.Write([]minimalRecord{{BlockNumber: 0}})
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
 	require.NoError(t, f.Close())
 }
