@@ -187,7 +187,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			r.metrics.NewConnections.With("direction", "in").Add(1)
+			r.metrics.NewConnections.With("direction", "in", "success", "true").Add(1)
 			// Spawn a goroutine per connection.
 			s.Spawn(func() error {
 				release := sync.OnceFunc(func() { sem.Release(1) })
