@@ -501,7 +501,10 @@ func (db *Database) WriteBlockRangeHash(storeKey string, beginBlockRange, endBlo
 
 func (db *Database) Close() error {
 	// Mark as closed first to signal pruning goroutine to stop
-	db.closed.Store(true)
+	// Use CompareAndSwap to ensure Close is idempotent
+	if !db.closed.CompareAndSwap(false, true) {
+		return nil
+	}
 
 	if db.streamHandler != nil {
 		// Close the pending changes channel to signal the background goroutine to stop

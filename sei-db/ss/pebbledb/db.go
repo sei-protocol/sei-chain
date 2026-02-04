@@ -189,7 +189,10 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 
 func (db *Database) Close() error {
 	// Mark as closed first to signal pruning to skip/return early
-	db.closed.Store(true)
+	// Use CompareAndSwap to ensure Close is idempotent
+	if !db.closed.CompareAndSwap(false, true) {
+		return nil
+	}
 
 	// Stop background metrics collection
 	if db.metricsCancel != nil {
