@@ -451,19 +451,21 @@ func TestParseKey(t *testing.T) {
 		require.Equal(t, addr, stripped)
 	})
 
-	t.Run("Unknown key prefix", func(t *testing.T) {
+	t.Run("Unknown key prefix goes to legacy", func(t *testing.T) {
 		key := []byte{0xff, 0x01, 0x02}
 
-		storeType, _ := commonevm.ParseEVMKey(key)
-		require.Equal(t, StoreUnknown, storeType)
+		storeType, keyBytes := commonevm.ParseEVMKey(key)
+		require.Equal(t, StoreLegacy, storeType)
+		require.Equal(t, key, keyBytes) // Legacy keys keep full key
 	})
 
-	t.Run("Malformed key (wrong length)", func(t *testing.T) {
+	t.Run("Malformed key goes to legacy", func(t *testing.T) {
 		// Storage key needs prefix + 20 + 32 bytes
 		key := []byte{0x03, 0x01, 0x02} // too short
 
-		storeType, _ := commonevm.ParseEVMKey(key)
-		require.Equal(t, StoreUnknown, storeType)
+		storeType, keyBytes := commonevm.ParseEVMKey(key)
+		require.Equal(t, StoreLegacy, storeType)
+		require.Equal(t, key, keyBytes) // Malformed keys go to legacy with full key
 	})
 }
 

@@ -366,14 +366,16 @@ func (s *CompositeStateStore) extractEVMChanges(changesets []*proto.NamedChangeS
 			continue
 		}
 		for _, kvPair := range changeset.Changeset.Pairs {
-			evmStoreType, strippedKey := commonevm.ParseEVMKey(kvPair.Key)
-			if evmStoreType != evm.StoreUnknown {
-				evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
-					Key:    strippedKey,
-					Value:  kvPair.Value,
-					Delete: kvPair.Delete,
-				})
+			evmStoreType, keyBytes := commonevm.ParseEVMKey(kvPair.Key)
+			if evmStoreType == evm.StoreUnknown {
+				continue // Empty key
 			}
+			// All EVM keys are routed: optimized keys use stripped key, legacy uses full key
+			evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
+				Key:    keyBytes,
+				Value:  kvPair.Value,
+				Delete: kvPair.Delete,
+			})
 		}
 	}
 
@@ -405,12 +407,12 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 		// Send to Cosmos
 		cosmosCh <- node
 
-		// Route EVM keys
+		// Route EVM keys to EVM-SS
 		if node.StoreKey == evm.EVMStoreKey {
-			evmStoreType, strippedKey := commonevm.ParseEVMKey(node.Key)
+			evmStoreType, keyBytes := commonevm.ParseEVMKey(node.Key)
 			if evmStoreType != evm.StoreUnknown {
 				evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
-					Key:   strippedKey,
+					Key:   keyBytes,
 					Value: node.Value,
 				})
 			}
@@ -454,16 +456,16 @@ func (s *CompositeStateStore) RawImport(ch <-chan types.RawSnapshotNode) error {
 		// Send to Cosmos
 		cosmosCh <- node
 
-		// Route EVM keys
+		// Route EVM keys to EVM-SS
 		if node.StoreKey == evm.EVMStoreKey {
-			evmStoreType, strippedKey := commonevm.ParseEVMKey(node.Key)
+			evmStoreType, keyBytes := commonevm.ParseEVMKey(node.Key)
 			if evmStoreType != evm.StoreUnknown {
 				if evmChangesByVersion[node.Version] == nil {
 					evmChangesByVersion[node.Version] = make(map[evm.EVMStoreType][]*iavl.KVPair, evm.NumEVMStoreTypes)
 				}
 				evmChangesByVersion[node.Version][evmStoreType] = append(
 					evmChangesByVersion[node.Version][evmStoreType],
-					&iavl.KVPair{Key: strippedKey, Value: node.Value},
+					&iavl.KVPair{Key: keyBytes, Value: node.Value},
 				)
 			}
 		}
@@ -661,14 +663,15 @@ func extractEVMChangesFromChangesets(changesets []*proto.NamedChangeSet) map[evm
 			continue
 		}
 		for _, kvPair := range changeset.Changeset.Pairs {
-			evmStoreType, strippedKey := commonevm.ParseEVMKey(kvPair.Key)
-			if evmStoreType != evm.StoreUnknown {
-				evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
-					Key:    strippedKey,
-					Value:  kvPair.Value,
-					Delete: kvPair.Delete,
-				})
+			evmStoreType, keyBytes := commonevm.ParseEVMKey(kvPair.Key)
+			if evmStoreType == evm.StoreUnknown {
+				continue // Empty key
 			}
+			evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
+				Key:    keyBytes,
+				Value:  kvPair.Value,
+				Delete: kvPair.Delete,
+			})
 		}
 	}
 	return evmChanges
