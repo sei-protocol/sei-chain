@@ -84,15 +84,11 @@ func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	require.NotNil(t, store)
 	require.NoError(t, store.Close())
 
-	if receipt.ParquetEnabled() {
-		cfg.Backend = "parquet"
-		store, err = receipt.NewReceiptStore(nil, cfg, storeKey)
-		require.NoError(t, err)
-		require.NotNil(t, store)
-		require.NoError(t, store.Close())
-	} else {
-		t.Log("duckdb disabled; skipping parquet backend test")
-	}
+	cfg.Backend = "parquet"
+	store, err = receipt.NewReceiptStore(nil, cfg, storeKey)
+	require.NoError(t, err)
+	require.NotNil(t, store)
+	require.NoError(t, store.Close())
 }
 
 func TestSetReceiptsAndGet(t *testing.T) {

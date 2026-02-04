@@ -16,13 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func requireParquetEnabled(t *testing.T) {
-	t.Helper()
-	if !ParquetEnabled() {
-		t.Skip("parquet disabled")
-	}
-}
-
 func TestLedgerCacheReceiptsAndLogs(t *testing.T) {
 	cache := newLedgerCache()
 	txHash := common.HexToHash("0x1")
@@ -78,7 +71,6 @@ func TestLedgerCacheRotatePrunes(t *testing.T) {
 }
 
 func TestParquetReceiptStoreCacheLogs(t *testing.T) {
-	requireParquetEnabled(t)
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.Backend = "parquet"
@@ -108,7 +100,6 @@ func TestParquetReceiptStoreCacheLogs(t *testing.T) {
 }
 
 func TestParquetReceiptStoreReopenQueries(t *testing.T) {
-	requireParquetEnabled(t)
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.Backend = "parquet"
@@ -146,7 +137,6 @@ func TestParquetReceiptStoreReopenQueries(t *testing.T) {
 }
 
 func TestParquetReceiptStoreWALReplay(t *testing.T) {
-	requireParquetEnabled(t)
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.Backend = "parquet"
@@ -187,7 +177,6 @@ func TestParquetReceiptStoreWALReplay(t *testing.T) {
 }
 
 func TestParquetFilePruning(t *testing.T) {
-	requireParquetEnabled(t)
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.Backend = "parquet"
@@ -234,7 +223,6 @@ func TestParquetFilePruning(t *testing.T) {
 }
 
 func TestParquetReaderGetFilesBeforeBlock(t *testing.T) {
-	requireParquetEnabled(t)
 	dir := t.TempDir()
 
 	// Create mock parquet files
@@ -268,7 +256,6 @@ func TestParquetReaderGetFilesBeforeBlock(t *testing.T) {
 }
 
 func TestParquetReaderRemoveFilesBeforeBlock(t *testing.T) {
-	requireParquetEnabled(t)
 	dir := t.TempDir()
 
 	// Create mock parquet files
@@ -300,7 +287,6 @@ func TestParquetReaderRemoveFilesBeforeBlock(t *testing.T) {
 }
 
 func TestParquetPruneOldFiles(t *testing.T) {
-	requireParquetEnabled(t)
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.Backend = "parquet"
