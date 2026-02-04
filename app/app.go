@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -1319,8 +1320,14 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 		// Only do expensive validation for potentially gasless transactions
 		isGasless, err := antedecorators.IsTxGasless(typedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
 		if err != nil {
-			ctx.Logger().Error("error checking if tx is gasless for metrics", "error", err)
-			// If we can't determine if it's gasless, record metrics to maintain existing behavior
+			if errors.Is(err, oracletypes.ErrAggregateVoteExist) {
+				// ErrAggregateVoteExist is expected when checking gasless status after tx processing
+				// since oracle votes will now exist in state. We know it was gasless, skip metrics.
+				skipMetrics = true
+			} else {
+				ctx.Logger().Error("error checking if tx is gasless for metrics", "error", err)
+				// If we can't determine if it's gasless, record metrics to maintain existing behavior
+			}
 		} else if isGasless {
 			skipMetrics = true // Skip metrics for confirmed gasless transactions
 		}
@@ -1487,8 +1494,14 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 				// Only do expensive validation for potentially gasless transactions
 				isGasless, err := antedecorators.IsTxGasless(typedTxs[i], ctx, app.OracleKeeper, &app.EvmKeeper)
 				if err != nil {
-					ctx.Logger().Error("error checking if tx is gasless for OCC metrics", "error", err, "txIndex", i)
-					// If we can't determine if it's gasless, record metrics to maintain existing behavior
+					if errors.Is(err, oracletypes.ErrAggregateVoteExist) {
+						// ErrAggregateVoteExist is expected when checking gasless status after tx processing
+						// since oracle votes will now exist in state. We know it was gasless, skip metrics.
+						recordGasMetrics = false
+					} else {
+						ctx.Logger().Error("error checking if tx is gasless for OCC metrics", "error", err, "txIndex", i)
+						// If we can't determine if it's gasless, record metrics to maintain existing behavior
+					}
 				} else if isGasless {
 					recordGasMetrics = false
 				}
