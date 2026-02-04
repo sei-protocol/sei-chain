@@ -287,7 +287,7 @@ docker-cluster-start: docker-cluster-stop build-docker-node
 		else \
 			DETACH_FLAG=""; \
 		fi; \
-		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} docker compose up $$DETACH_FLAG
+		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} GIGA_EXECUTOR=${GIGA_EXECUTOR} GIGA_OCC=${GIGA_OCC} docker compose up $$DETACH_FLAG
 
 .PHONY: localnet-start
 
@@ -308,6 +308,38 @@ docker-cluster-stop:
 	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose down
 .PHONY: localnet-stop
 
+# Run GIGA EVM integration tests with a GIGA-enabled cluster
+# This starts a fresh cluster with GIGA_EXECUTOR and GIGA_OCC enabled,
+# runs the EVM GIGA tests, then stops the cluster.
+giga-integration-test:
+	@echo "=== Starting GIGA Integration Tests ==="
+	@$(MAKE) docker-cluster-stop || true
+	@rm -rf $(PROJECT_HOME)/build/generated
+	@GIGA_EXECUTOR=true GIGA_OCC=true DOCKER_DETACH=true $(MAKE) docker-cluster-start
+	@echo "Waiting for cluster to be ready..."
+	@timeout=300; elapsed=0; \
+	while [ $$elapsed -lt $$timeout ]; do \
+		if [ -f "build/generated/launch.complete" ] && [ $$(cat build/generated/launch.complete | wc -l) -ge 4 ]; then \
+			echo "All 4 nodes are ready (took $${elapsed}s)"; \
+			break; \
+		fi; \
+		sleep 5; \
+		elapsed=$$((elapsed + 5)); \
+		echo "  Waiting... ($${elapsed}s elapsed)"; \
+	done; \
+	if [ $$elapsed -ge $$timeout ]; then \
+		echo "ERROR: Cluster failed to start within $${timeout}s"; \
+		$(MAKE) docker-cluster-stop; \
+		exit 1; \
+	fi
+	@echo "Waiting 10s for nodes to stabilize..."
+	@sleep 10
+	@echo "=== Running GIGA EVM Tests ==="
+	@./integration_test/evm_module/scripts/evm_giga_tests.sh || ($(MAKE) docker-cluster-stop && exit 1)
+	@echo "=== Stopping cluster ==="
+	@$(MAKE) docker-cluster-stop
+	@echo "=== GIGA Integration Tests Complete ==="
+.PHONY: giga-integration-test
 
 # Implements test splitting and running. This is pulled directly from
 # the github action workflows for better local reproducibility.

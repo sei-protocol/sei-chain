@@ -11,6 +11,7 @@ import (
 
 	"cosmossdk.io/errors"
 	"github.com/armon/go-metrics"
+
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 	"github.com/cosmos/cosmos-sdk/store/mem"
@@ -25,7 +26,7 @@ import (
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
@@ -49,6 +50,7 @@ type Store struct {
 	storesParams   map[types.StoreKey]storeParams
 	storeKeys      map[string]types.StoreKey
 	ckvStores      map[types.StoreKey]types.CommitKVStore
+	gigaKeys       []string
 	pruningManager *pruning.Manager
 }
 
@@ -63,14 +65,21 @@ func NewStore(
 	scConfig config.StateCommitConfig,
 	ssConfig config.StateStoreConfig,
 	migrateIavl bool,
+	gigaKeys []string,
 ) *Store {
-	scStore := sc.NewCommitStore(homeDir, logger, scConfig)
+	// Use custom directory if specified, otherwise use homeDir
+	scDir := homeDir
+	if scConfig.Directory != "" {
+		scDir = scConfig.Directory
+	}
+	scStore := memiavl.NewCommitStore(scDir, logger, scConfig.MemIAVLConfig)
 	store := &Store{
 		logger:       logger,
 		scStore:      scStore,
 		storesParams: make(map[types.StoreKey]storeParams),
 		storeKeys:    make(map[string]types.StoreKey),
 		ckvStores:    make(map[types.StoreKey]types.CommitKVStore),
+		gigaKeys:     gigaKeys,
 	}
 	if ssConfig.Enable {
 		ssStore, err := ss.NewStateStore(logger, homeDir, ssConfig)
@@ -227,7 +236,11 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 		store := types.KVStore(v)
 		stores[k] = store
 	}
-	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil)
+	gigaKeys := make([]types.StoreKey, 0, len(rs.gigaKeys))
+	for _, k := range rs.gigaKeys {
+		gigaKeys = append(gigaKeys, rs.storeKeys[k])
+	}
+	return cachemulti.NewStore(nil, stores, rs.storeKeys, gigaKeys, nil, nil)
 }
 
 // CacheMultiStoreWithVersion Implements interface MultiStore
@@ -236,24 +249,28 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 	rs.mtx.RLock()
 	defer rs.mtx.RUnlock()
 	stores := make(map[types.StoreKey]types.CacheWrapper)
-	// add the transient/mem stores registered in current app.
-	for k, store := range rs.ckvStores {
-		if store.GetStoreType() != types.StoreTypeIAVL {
-			stores[k] = store
-		}
-	}
-	// TODO: May need to add historical SC store as well for nodes that doesn't enable ss but still need historical queries
-
-	// add SS stores for historical queries
+	// Serve from SS stores for ALL historical queries
 	if rs.ssStore != nil {
+		if version <= 0 {
+			version = rs.ssStore.GetLatestVersion()
+		}
+		// add the transient/mem stores registered in current app.
+		for k, store := range rs.ckvStores {
+			if store.GetStoreType() != types.StoreTypeIAVL {
+				stores[k] = store
+			}
+		}
 		for k, store := range rs.ckvStores {
 			if store.GetStoreType() == types.StoreTypeIAVL {
 				stores[k] = state.NewStore(rs.ssStore, k, version)
 			}
 		}
+	} else if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
+		// Only serve from SC when query latest version and SS not enabled
+		return rs.CacheMultiStore(), nil
 	}
 
-	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil), nil
+	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil), nil
 }
 
 func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore, error) {
@@ -275,12 +292,12 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 	}
 	for k, store := range rs.ckvStores {
 		if store.GetStoreType() == types.StoreTypeIAVL {
-			tree := scStore.GetModuleByName(k.Name())
+			tree := scStore.GetChildStoreByName(k.Name())
 			stores[k] = commitment.NewStore(tree, rs.logger)
 		}
 	}
 	rs.mtx.RUnlock()
-	cacheMs := cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil)
+	cacheMs := cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil)
 	// We need this because we need to make sure sc is closed after being used to release the resources
 	cacheMs.AddCloser(scStore)
 	return cacheMs, nil
@@ -439,7 +456,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, params storeParam
 	case types.StoreTypeMulti:
 		panic("recursive MultiStores not yet supported")
 	case types.StoreTypeIAVL:
-		tree := rs.scStore.GetModuleByName(key.Name())
+		tree := rs.scStore.GetChildStoreByName(key.Name())
 		if tree == nil {
 			return nil, fmt.Errorf("new store is not added in upgrades: %s", key.Name())
 		}
@@ -550,7 +567,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 			return sdkerrors.QueryResult(err)
 		}
 		defer scStore.Close()
-		store = types.Queryable(commitment.NewStore(scStore.GetModuleByName(storeName), rs.logger))
+		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName), rs.logger))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	}
@@ -716,7 +733,7 @@ loop:
 		switch item := snapshotItem.Item.(type) {
 		case *snapshottypes.SnapshotItem_Store:
 			storeKey = item.Store.Name
-			if err = scImporter.AddTree(storeKey); err != nil {
+			if err = scImporter.AddModule(storeKey); err != nil {
 				restoreErr = err
 				break loop
 			}

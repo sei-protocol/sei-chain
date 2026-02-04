@@ -22,6 +22,7 @@ type (
 	CacheMultiStore           = types.CacheMultiStore
 	CommitMultiStore          = types.CommitMultiStore
 	MultiStorePersistentCache = types.MultiStorePersistentCache
+	GigaMultiStore            = types.GigaMultiStore
 	KVStore                   = types.KVStore
 	Iterator                  = types.Iterator
 )

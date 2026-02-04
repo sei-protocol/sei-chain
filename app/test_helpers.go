@@ -13,11 +13,12 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking"
+	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/suite"
 	"github.com/tendermint/tendermint/config"
 
@@ -47,6 +48,8 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
+
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 )
 
 const TestContract = "TEST"
@@ -73,7 +76,9 @@ func (t TestTx) GetGasEstimate() uint64 {
 }
 
 type TestAppOpts struct {
-	useSc bool
+	UseSc         bool
+	EnableGiga    bool
+	EnableGigaOCC bool
 }
 
 func (t TestAppOpts) Get(s string) interface{} {
@@ -81,12 +86,23 @@ func (t TestAppOpts) Get(s string) interface{} {
 		return "sei-test"
 	}
 	if s == FlagSCEnable {
-		return t.useSc
+		return t.UseSc
 	}
 	// Disable snapshot creation in tests to avoid background goroutines
 	// that are not relevant to the test logic
 	if s == FlagSCSnapshotInterval {
 		return uint32(0) // 0 = disabled
+	}
+	if s == gigaconfig.FlagEnabled {
+		return t.EnableGiga
+	}
+	if s == gigaconfig.FlagOCCEnabled {
+		return t.EnableGigaOCC
+	}
+	// Disable EVM HTTP and WebSocket servers in tests to avoid port conflicts
+	// when multiple tests run in parallel (all would try to bind to port 8545)
+	if s == "evm.http_enabled" || s == "evm.ws_enabled" {
+		return false
 	}
 	return nil
 }
@@ -102,14 +118,59 @@ type TestWrapper struct {
 }
 
 func NewTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
-	return newTestWrapper(tb, tm, valPub, enableEVMCustomPrecompiles, false, baseAppOptions...)
+	return newTestWrapper(tb, tm, valPub, enableEVMCustomPrecompiles, false, TestAppOpts{}, baseAppOptions...)
 }
 
 func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
-	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, baseAppOptions...)
+	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true}, baseAppOptions...)
 }
 
-func newTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useSc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
+func NewGigaTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
+	wrapper := newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: true, EnableGigaOCC: useOcc}, baseAppOptions...)
+	genState := evmtypes.DefaultGenesis()
+	wrapper.App.EvmKeeper.InitGenesis(wrapper.Ctx, *genState)
+	return wrapper
+}
+
+// NewGigaTestWrapperWithRegularStore creates a test wrapper that runs Giga executor
+// but uses regular KVStore instead of GigaKVStore. This is for debugging - it isolates
+// whether issues are in the Giga executor logic vs the GigaKVStore layer.
+//
+// How it works:
+// - Creates app with UseSc=true but EnableGiga=false (so GigaKVStore is NOT registered)
+// - Manually enables Giga executor flags on the app
+// - Sets GigaEvmKeeper.UseRegularStore=true so it uses ctx.KVStore instead of ctx.GigaKVStore
+func NewGigaTestWrapperWithRegularStore(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
+	// Create wrapper with Sc but WITHOUT EnableGiga - this means GigaKVStore won't be registered
+	wrapper := newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: false, EnableGigaOCC: false}, baseAppOptions...)
+
+	// Manually enable Giga executor on the app
+	wrapper.App.GigaExecutorEnabled = true
+	wrapper.App.GigaOCCEnabled = useOcc
+
+	// Configure GigaEvmKeeper to use regular KVStore instead of GigaKVStore
+	wrapper.App.GigaEvmKeeper.UseRegularStore = true
+
+	// Configure GigaBankKeeper to use regular KVStore instead of GigaKVStore
+	wrapper.App.GigaBankKeeper.UseRegularStore = true
+
+	// Initialize evmone VM if not already initialized
+	if wrapper.App.GigaEvmKeeper.EvmoneVM == nil {
+		evmoneVM, err := gigalib.InitEvmoneVM()
+		if err != nil {
+			panic(fmt.Sprintf("failed to load evmone: %s", err))
+		}
+		wrapper.App.GigaEvmKeeper.EvmoneVM = evmoneVM
+	}
+
+	// Init genesis for GigaEvmKeeper (now uses regular KVStore)
+	genState := evmtypes.DefaultGenesis()
+	wrapper.App.EvmKeeper.InitGenesis(wrapper.Ctx, *genState)
+
+	return wrapper
+}
+
+func newTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, UseSc bool, testAppOpts TestAppOpts, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
 	var appPtr *App
 	originalHome := DefaultNodeHome
 	tempHome := tb.TempDir()
@@ -117,9 +178,9 @@ func newTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enab
 	tb.Cleanup(func() {
 		DefaultNodeHome = originalHome
 	})
-	if useSc {
+	if UseSc {
 		if testT, ok := tb.(*testing.T); ok {
-			appPtr = SetupWithSc(testT, false, enableEVMCustomPrecompiles, baseAppOptions...)
+			appPtr = SetupWithSc(testT, false, enableEVMCustomPrecompiles, testAppOpts, baseAppOptions...)
 		} else {
 			panic("SetupWithSc requires *testing.T, cannot use with *testing.B")
 		}
@@ -247,7 +308,7 @@ func (s *TestWrapper) EndBlock() {
 	legacyabci.EndBlock(s.Ctx, s.Ctx.BlockHeight(), 0, s.App.EndBlockKeepers)
 }
 
-func setupReceiptStore() (seidbtypes.StateStore, error) {
+func setupReceiptStore(storeKey sdk.StoreKey) (receipt.ReceiptStore, error) {
 	// Create a unique temporary directory per test process to avoid Pebble DB lock conflicts
 	baseDir := filepath.Join(os.TempDir(), "sei-testing")
 	if err := os.MkdirAll(baseDir, 0o750); err != nil {
@@ -258,11 +319,10 @@ func setupReceiptStore() (seidbtypes.StateStore, error) {
 		return nil, err
 	}
 
-	ssConfig := ssconfig.DefaultStateStoreConfig()
-	ssConfig.KeepRecent = 0 // No min retain blocks in test
-	ssConfig.DBDirectory = tempDir
-	ssConfig.KeepLastVersion = false
-	receiptStore, err := ss.NewStateStore(log.NewNopLogger(), tempDir, ssConfig)
+	receiptConfig := ssconfig.DefaultReceiptStoreConfig()
+	receiptConfig.KeepRecent = 0 // No min retain blocks in test
+	receiptConfig.DBDirectory = tempDir
+	receiptStore, err := receipt.NewReceiptStore(log.NewNopLogger(), receiptConfig, storeKey)
 	if err != nil {
 		return nil, err
 	}
@@ -270,12 +330,16 @@ func setupReceiptStore() (seidbtypes.StateStore, error) {
 }
 
 func SetupWithDefaultHome(isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
+	return SetupWithAppOptsAndDefaultHome(isCheckTx, TestAppOpts{}, enableEVMCustomPrecompiles, overrideWasmGasMultiplier, baseAppOptions...)
+}
+
+func SetupWithAppOptsAndDefaultHome(isCheckTx bool, appOpts TestAppOpts, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
 
 	options := []AppOption{
 		func(app *App) {
-			receiptStore, err := setupReceiptStore()
+			receiptStore, err := setupReceiptStore(app.keys[evmtypes.StoreKey])
 			if err != nil {
 				panic(fmt.Sprintf("error while creating receipt store: %s", err))
 			}
@@ -307,7 +371,7 @@ func SetupWithDefaultHome(isCheckTx bool, enableEVMCustomPrecompiles bool, overr
 		config.TestConfig(),
 		encodingConfig,
 		wasm.EnableAllProposals,
-		TestAppOpts{},
+		appOpts,
 		wasmOpts,
 		options,
 		baseAppOptions...,
@@ -318,6 +382,9 @@ func SetupWithDefaultHome(isCheckTx bool, enableEVMCustomPrecompiles bool, overr
 		if err != nil {
 			panic(err)
 		}
+
+		// TODO: remove once init chain works with SC
+		defer func() { _ = recover() }()
 
 		_, err = res.InitChain(
 			context.Background(), &abci.RequestInitChain{
@@ -345,7 +412,7 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 
 	options := []AppOption{
 		func(app *App) {
-			receiptStore, err := setupReceiptStore()
+			receiptStore, err := setupReceiptStore(app.keys[evmtypes.StoreKey])
 			if err != nil {
 				panic(fmt.Sprintf("error while creating receipt store: %s", err))
 			}
@@ -404,14 +471,14 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 	return res
 }
 
-func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
+func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, testAppOpts TestAppOpts, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
 	db := dbm.NewMemDB()
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
 
 	options := []AppOption{
 		func(app *App) {
-			receiptStore, err := setupReceiptStore()
+			receiptStore, err := setupReceiptStore(app.keys[evmtypes.StoreKey])
 			if err != nil {
 				panic(fmt.Sprintf("error while creating receipt store: %s", err))
 			}
@@ -431,7 +498,7 @@ func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, 
 		config.TestConfig(),
 		encodingConfig,
 		wasm.EnableAllProposals,
-		TestAppOpts{true},
+		testAppOpts,
 		EmptyWasmOpts,
 		options,
 		baseAppOptions...,

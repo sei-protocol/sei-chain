@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/cosmos/cosmos-sdk/storev2/state"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -13,7 +14,7 @@ import (
 )
 
 func TestLastCommitID(t *testing.T) {
-	store := NewStore(t.TempDir(), log.NewNopLogger(), config.StateCommitConfig{}, config.StateStoreConfig{}, false)
+	store := NewStore(t.TempDir(), log.NewNopLogger(), config.StateCommitConfig{}, config.StateStoreConfig{}, false, []string{})
 	require.Equal(t, types.CommitID{}, store.LastCommitID())
 }
 
@@ -34,7 +35,7 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	ssCfg := config.DefaultStateStoreConfig()
 	ssCfg.Enable = true
 
-	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, false)
+	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, false, []string{})
 	defer func() { _ = store.Close() }()
 
 	// Mount one IAVL store and load
@@ -92,4 +93,99 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	})
 	require.EqualValues(t, 0, resp.Code)
 	require.Equal(t, valV1, resp.Value)
+}
+
+// TestCacheMultiStoreWithVersion_OnlyUsesSSStores verifies that CacheMultiStoreWithVersion
+// serves SS stores when enabled, and falls back to SC when SS is disabled, for
+// height=0 (latest) and explicit latest height.
+func TestCacheMultiStoreWithVersion_OnlyUsesSSStores(t *testing.T) {
+	testCases := []struct {
+		name      string
+		ssEnabled bool
+	}{
+		{"ss-enabled", true},
+		{"ss-disabled", false},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			scCfg := config.DefaultStateCommitConfig()
+			scCfg.Enable = true
+			ssCfg := config.DefaultStateStoreConfig()
+			ssCfg.Enable = tc.ssEnabled
+			ssCfg.AsyncWriteBuffer = 0
+
+			store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, false, []string{})
+			defer func() { _ = store.Close() }()
+
+			iavlKey1 := types.NewKVStoreKey("iavl_store1")
+			iavlKey2 := types.NewKVStoreKey("iavl_store2")
+			transientKey := types.NewTransientStoreKey("transient_store")
+			memKey := types.NewMemoryStoreKey("mem_store")
+
+			store.MountStoreWithDB(iavlKey1, types.StoreTypeIAVL, nil)
+			store.MountStoreWithDB(iavlKey2, types.StoreTypeIAVL, nil)
+			store.MountStoreWithDB(transientKey, types.StoreTypeTransient, nil)
+			store.MountStoreWithDB(memKey, types.StoreTypeMemory, nil)
+			require.NoError(t, store.LoadLatestVersion())
+
+			iavl1KV := store.GetStoreByName("iavl_store1").(types.KVStore)
+			iavl2KV := store.GetStoreByName("iavl_store2").(types.KVStore)
+			iavl1KV.Set([]byte("k1"), []byte("v1"))
+			iavl2KV.Set([]byte("k2"), []byte("v2"))
+			c1 := store.Commit(true)
+			require.Equal(t, int64(1), c1.Version)
+
+			iavl1KV = store.GetStoreByName("iavl_store1").(types.KVStore)
+			iavl2KV = store.GetStoreByName("iavl_store2").(types.KVStore)
+			iavl1KV.Set([]byte("k1"), []byte("v1_updated"))
+			iavl2KV.Set([]byte("k2"), []byte("v2_updated"))
+			c2 := store.Commit(true)
+			require.Equal(t, int64(2), c2.Version)
+
+			if tc.ssEnabled {
+				waitUntilSSVersion(t, store, c2.Version)
+			}
+
+			queryVersions := []int64{0, c2.Version}
+			for _, v := range queryVersions {
+				cms, err := store.CacheMultiStoreWithVersion(v)
+				require.NoError(t, err)
+
+				iavl1Store := cms.GetKVStore(iavlKey1)
+				iavl2Store := cms.GetKVStore(iavlKey2)
+				require.NotNil(t, iavl1Store)
+				require.NotNil(t, iavl2Store)
+
+				if tc.ssEnabled {
+					require.Equal(t, types.StoreType(state.StoreTypeSSStore), iavl1Store.GetStoreType())
+					require.Equal(t, types.StoreType(state.StoreTypeSSStore), iavl2Store.GetStoreType())
+				} else {
+					require.Equal(t, types.StoreTypeIAVL, iavl1Store.GetStoreType())
+					require.Equal(t, types.StoreTypeIAVL, iavl2Store.GetStoreType())
+				}
+
+				transientStore := cms.GetKVStore(transientKey)
+				memStore := cms.GetKVStore(memKey)
+				require.NotNil(t, transientStore)
+				require.NotNil(t, memStore)
+				require.Equal(t, types.StoreTypeTransient, transientStore.GetStoreType())
+				require.Equal(t, types.StoreTypeMemory, memStore.GetStoreType())
+
+				if v != 0 {
+					require.Equal(t, []byte("v1_updated"), iavl1Store.Get([]byte("k1")))
+					require.Equal(t, []byte("v2_updated"), iavl2Store.Get([]byte("k2")))
+				}
+			}
+
+			if !tc.ssEnabled {
+				cmsHistorical, err := store.CacheMultiStoreWithVersion(c1.Version)
+				require.NoError(t, err)
+				require.Panics(t, func() { _ = cmsHistorical.GetKVStore(iavlKey1) })
+				require.Panics(t, func() { _ = cmsHistorical.GetKVStore(iavlKey2) })
+			}
+		})
+	}
 }

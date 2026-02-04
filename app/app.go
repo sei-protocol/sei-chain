@@ -29,8 +29,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/tasks"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/types/occ"
@@ -92,10 +92,13 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/giga/deps/tasks"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/app/benchmark"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
@@ -104,9 +107,12 @@ import (
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaexecutor "github.com/sei-protocol/sei-chain/giga/executor"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
+	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
+	gigaprecompiles "github.com/sei-protocol/sei-chain/giga/executor/precompiles"
+	gigautils "github.com/sei-protocol/sei-chain/giga/executor/utils"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
+	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
@@ -133,7 +139,6 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
-	evmstate "github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/mint"
 	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
@@ -162,7 +167,11 @@ import (
 
 	// unnamed import of statik for openapi/swagger UI support
 	_ "github.com/sei-protocol/sei-chain/docs/swagger"
-	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
+	gigabankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
+	gigaevmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
+	gigaevmstate "github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -325,6 +334,7 @@ type App struct {
 	AccountKeeper    authkeeper.AccountKeeper
 	AuthzKeeper      authzkeeper.Keeper
 	BankKeeper       bankkeeper.Keeper
+	GigaBankKeeper   *gigabankkeeper.BaseKeeper
 	CapabilityKeeper *capabilitykeeper.Keeper
 	StakingKeeper    stakingkeeper.Keeper
 	SlashingKeeper   slashingkeeper.Keeper
@@ -341,6 +351,7 @@ type App struct {
 	WasmKeeper       wasm.Keeper
 	OracleKeeper     oraclekeeper.Keeper
 	EvmKeeper        evmkeeper.Keeper
+	GigaEvmKeeper    gigaevmkeeper.Keeper
 
 	// make scoped keepers public for test purposes
 	ScopedIBCKeeper      capabilitykeeper.ScopedKeeper
@@ -388,7 +399,7 @@ type App struct {
 	genesisImportConfig genesistypes.GenesisImportConfig
 
 	stateStore   seidb.StateStore
-	receiptStore seidb.StateStore
+	receiptStore receipt.ReceiptStore
 
 	forkInitializer func(sdk.Context)
 
@@ -399,8 +410,13 @@ type App struct {
 
 	txPrioritizer sdk.TxPrioritizer
 
-	benchmarkProposalCh <-chan *abci.ResponsePrepareProposal
-	benchmarkLogger     *benchmarkLogger
+	benchmarkManager *benchmark.Manager
+
+	// GigaExecutorEnabled controls whether to use the Giga executor (evmone-based)
+	// instead of geth's interpreter for EVM execution. Experimental feature.
+	GigaExecutorEnabled bool
+	// GigaOCCEnabled controls whether to use OCC with the Giga executor
+	GigaOCCEnabled bool
 }
 
 type AppOption func(*App)
@@ -496,6 +512,10 @@ func New(
 	app.BankKeeper = bankkeeper.NewBaseKeeperWithDeferredCache(
 		appCodec, keys[banktypes.StoreKey], app.AccountKeeper, app.GetSubspace(banktypes.ModuleName), app.ModuleAccountAddrs(), memKeys[banktypes.DeferredCacheStoreKey],
 	)
+	gigaBankKeeper := gigabankkeeper.NewBaseKeeperWithDeferredCache(
+		appCodec, keys[banktypes.StoreKey], app.AccountKeeper, app.GetSubspace(banktypes.ModuleName), app.ModuleAccountAddrs(), memKeys[banktypes.DeferredCacheStoreKey],
+	)
+	app.GigaBankKeeper = &gigaBankKeeper
 	stakingKeeper := stakingkeeper.NewKeeper(
 		appCodec, keys[stakingtypes.StoreKey], app.AccountKeeper, app.BankKeeper, app.GetSubspace(stakingtypes.ModuleName),
 	)
@@ -625,15 +645,15 @@ func New(
 	)
 
 	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
-	ssConfig := ssconfig.DefaultStateStoreConfig()
-	ssConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
-	ssConfig.DBDirectory = receiptStorePath
-	ssConfig.KeepLastVersion = false
+	receiptConfig := ssconfig.DefaultReceiptStoreConfig()
+	receiptConfig.DBDirectory = receiptStorePath
+	receiptConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
 	if app.receiptStore == nil {
-		app.receiptStore, err = ss.NewStateStore(logger, receiptStorePath, ssConfig)
+		receiptStore, err := receipt.NewReceiptStore(logger, receiptConfig, keys[evmtypes.StoreKey])
 		if err != nil {
 			panic(fmt.Sprintf("error while creating receipt store: %s", err))
 		}
+		app.receiptStore = receiptStore
 	}
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
@@ -671,14 +691,24 @@ func New(
 		app.EvmKeeper.EthClient = ethclient.NewClient(rpcclient)
 	}
 
+	app.GigaEvmKeeper = *gigaevmkeeper.NewKeeper(keys[evmtypes.StoreKey],
+		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.GigaBankKeeper,
+		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
+		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.UpgradeKeeper)
+	app.GigaBankKeeper.RegisterRecipientChecker(app.GigaEvmKeeper.CanAddressReceive)
 	// Read Giga Executor config
 	gigaExecutorConfig, err := gigaconfig.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading giga executor config due to %s", err))
 	}
-	app.EvmKeeper.GigaExecutorEnabled = gigaExecutorConfig.Enabled
-	app.EvmKeeper.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
+	app.GigaExecutorEnabled = gigaExecutorConfig.Enabled
+	app.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
 	if gigaExecutorConfig.Enabled {
+		evmoneVM, err := gigalib.InitEvmoneVM()
+		if err != nil {
+			panic(fmt.Sprintf("failed to load evmone: %s", err))
+		}
+		app.GigaEvmKeeper.EvmoneVM = evmoneVM
 		if gigaExecutorConfig.OCCEnabled {
 			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")
 		} else {
@@ -928,8 +958,8 @@ func New(
 	// benchmarkEnabled is enabled via build flag (make install-bench)
 	if benchmarkEnabled {
 		evmChainID := evmconfig.GetEVMChainID(app.ChainID).Int64()
-		app.InitGenerator(context.Background(), app.ChainID, evmChainID, logger)
-		app.SetPrepareProposalHandler(app.PrepareProposalGeneratorHandler)
+		app.InitBenchmark(context.Background(), app.ChainID, evmChainID, logger)
+		app.SetPrepareProposalHandler(app.PrepareProposalBenchmarkHandler)
 	} else {
 		app.SetPrepareProposalHandler(app.PrepareProposalHandler)
 	}
@@ -1142,6 +1172,9 @@ func (app *App) ClearOptimisticProcessingInfo() {
 }
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
+	// Start block processing timing (ends at FinalizeBlock)
+	app.StartBenchmarkBlockProcessing()
+
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
 
@@ -1217,6 +1250,10 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		app.ClearOptimisticProcessingInfo()
 		duration := time.Since(startTime)
 		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
+		// End block processing timing (started at ProcessProposal)
+		app.EndBenchmarkBlockProcessing()
+		// Process receipts for benchmark deployment tracking
+		app.ProcessBenchmarkReceipts(ctx)
 	}()
 
 	// Get all optimistic processing info atomically
@@ -1308,7 +1345,7 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 	}
 }
 
-func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
+func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
 
 	txResults := []*abci.ExecTxResult{}
@@ -1318,6 +1355,49 @@ func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte, typedTxs 
 		txResults = append(txResults, res)
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
+	return txResults
+}
+
+func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
+	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
+
+	ms := ctx.MultiStore().CacheMultiStore()
+	defer ms.Write()
+	ctx = ctx.WithMultiStore(ms)
+	txResults := make([]*abci.ExecTxResult, len(txs))
+	for i, tx := range txs {
+		ctx = ctx.WithTxIndex(absoluteTxIndices[i])
+		evmMsg := app.GetEVMMsg(typedTxs[i])
+		// If not an EVM tx, fall back to v2 processing
+		if evmMsg == nil {
+			result := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
+			txResults[i] = result
+			ms.Write()
+			continue
+		}
+
+		// Execute EVM transaction through giga executor
+		result, execErr := app.executeEVMTxWithGigaExecutor(ctx, evmMsg)
+		if execErr != nil {
+			// Check if this is a fail-fast error (Cosmos precompile interop detected)
+			if gigautils.ShouldExecutionAbort(execErr) {
+				res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
+				txResults[i] = res
+				ms.Write()
+				continue
+			}
+			txResults[i] = &abci.ExecTxResult{
+				Code: 1,
+				Log:  fmt.Sprintf("[BUG] giga executor error: %v", execErr),
+			}
+			continue
+		}
+
+		txResults[i] = result
+		ctx.GigaMultiStore().WriteGiga()
+		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
+	}
+
 	return txResults
 }
 
@@ -1363,12 +1443,16 @@ func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []
 
 // ExecuteTxsConcurrently calls the appropriate function for processing transacitons
 func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
-	// TODO after OCC release, remove this check and call ProcessTXsWithOCC directly
-	if ctx.IsOCCEnabled() {
-		return app.ProcessTXsWithOCC(ctx, txs, typedTxs, absoluteTxIndices)
+	// Giga only supports synchronous execution for now
+	if app.GigaExecutorEnabled {
+		results := app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs, absoluteTxIndices)
+		return results, ctx
+	} else if !ctx.IsOCCEnabled() {
+		results := app.ProcessTxsSynchronousV2(ctx, txs, typedTxs, absoluteTxIndices)
+		return results, ctx
 	}
-	results := app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
-	return results, ctx
+
+	return app.ProcessTXsWithOCC(ctx, txs, typedTxs, absoluteTxIndices)
 }
 
 func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex int, bz []byte, tx sdk.Tx) (res *sdk.DeliverTxEntry) {
@@ -1427,6 +1511,7 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 			Codespace: r.Response.Codespace,
 			EvmTxInfo: r.Response.EvmTxInfo,
 		})
+
 	}
 
 	return execResults, ctx
@@ -1462,12 +1547,9 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		}
 	}()
 
-	// Route to Giga Executor when enabled - bypasses Cosmos SDK transaction processing
-	if app.EvmKeeper.GigaExecutorEnabled {
-		if app.EvmKeeper.GigaOCCEnabled {
-			return app.ProcessBlockWithGigaExecutorOCC(ctx, txs, req, lastCommit, simulate)
-		}
-		return app.ProcessBlockWithGigaExecutor(ctx, txs, req, lastCommit, simulate)
+	// TODO: for now Giga OCC calls ProcessBlockWithGigaExecutorOCC, WIP
+	if app.GigaExecutorEnabled && app.GigaOCCEnabled {
+		return app.ProcessBlockWithGigaExecutorOCC(ctx, txs, req, lastCommit, simulate)
 	}
 
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
@@ -1530,6 +1612,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 // ProcessBlockWithGigaExecutor executes block transactions using the Giga executor,
 // bypassing the standard Cosmos SDK transaction processing flow.
 // This is an experimental path for improved EVM throughput.
+// NOTE: This is not currently used in the codebase, but might be in the future.
 func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
 	// Panic recovery like original ProcessBlock
 	defer func() {
@@ -1580,23 +1663,26 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 		// Check if this is an EVM transaction
 		evmMsg := app.GetEVMMsg(decodedTx)
 		if evmMsg == nil {
-			// Non-EVM transaction - for now, fall back to standard processing
-			// TODO: Handle or reject non-EVM txs in giga mode
-			txResults[i] = &abci.ExecTxResult{
-				Code: 1,
-				Log:  "non-EVM transactions not supported in giga executor mode",
-			}
+			res := app.DeliverTxWithResult(ctx, txBytes, decodedTx)
+			// Non-EVM transaction - fall back to standard processing
+			txResults[i] = res
 			continue
 		}
 
 		evmTxs[i] = evmMsg
 
 		// Execute EVM transaction through giga executor
-		result, execErr := app.executeEVMTxWithGigaExecutor(ctx, i, evmMsg)
+		result, execErr := app.executeEVMTxWithGigaExecutor(ctx, evmMsg)
 		if execErr != nil {
+			// Check if this is a fail-fast error (Cosmos precompile interop detected)
+			if gigautils.ShouldExecutionAbort(execErr) {
+				res := app.DeliverTxWithResult(ctx, txBytes, decodedTx)
+				txResults[i] = res
+				continue
+			}
 			txResults[i] = &abci.ExecTxResult{
 				Code: 1,
-				Log:  fmt.Sprintf("giga executor error: %v", execErr),
+				Log:  fmt.Sprintf("[BUG] giga executor error: %v", execErr),
 			}
 			continue
 		}
@@ -1606,12 +1692,13 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 			evmTotalGasUsed += result.GasUsed
 		}
 	}
+	ctx.GigaMultiStore().WriteGiga()
 
 	app.EvmKeeper.SetTxResults(txResults)
 	app.EvmKeeper.SetMsgs(evmTxs)
 
 	// Finalize bank transfers
-	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
+	lazyWriteEvents := app.GigaBankKeeper.WriteDeferredBalances(ctx)
 	events = append(events, lazyWriteEvents...)
 
 	// EndBlock
@@ -1623,14 +1710,14 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 
 // executeEVMTxWithGigaExecutor executes a single EVM transaction using the giga executor.
 // The sender address is recovered directly from the transaction signature - no Cosmos SDK ante handlers needed.
-func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *evmtypes.MsgEVMTransaction) (*abci.ExecTxResult, error) {
+func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgEVMTransaction) (*abci.ExecTxResult, error) {
 	// Get the Ethereum transaction from the message
 	ethTx, txData := msg.AsTransaction()
 	if ethTx == nil || txData == nil {
 		return nil, fmt.Errorf("failed to convert to eth transaction")
 	}
 
-	chainID := app.EvmKeeper.ChainID(ctx)
+	chainID := app.GigaEvmKeeper.ChainID(ctx)
 
 	// Recover sender using the same logic as preprocess.go (version-based signer selection)
 	sender, seiAddr, pubkey, recoverErr := evmante.RecoverSenderFromEthTx(ctx, ethTx, chainID)
@@ -1642,9 +1729,9 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	}
 
 	// Associate the address if not already associated (same as EVMPreprocessDecorator)
-	if _, isAssociated := app.EvmKeeper.GetEVMAddress(ctx, seiAddr); !isAssociated {
-		associateHelper := helpers.NewAssociationHelper(&app.EvmKeeper, app.BankKeeper, &app.AccountKeeper)
-		if err := associateHelper.AssociateAddresses(ctx, seiAddr, sender, pubkey); err != nil {
+	if _, isAssociated := app.GigaEvmKeeper.GetEVMAddress(ctx, seiAddr); !isAssociated {
+		associateHelper := helpers.NewAssociationHelper(&app.GigaEvmKeeper, app.GigaBankKeeper, &app.AccountKeeper)
+		if err := associateHelper.AssociateAddresses(ctx, seiAddr, sender, pubkey, false); err != nil {
 			return &abci.ExecTxResult{
 				Code: 1,
 				Log:  fmt.Sprintf("failed to associate addresses: %v", err),
@@ -1654,17 +1741,16 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 
 	// Prepare context for EVM transaction (set infinite gas meter like original flow)
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
-	ctx = ctx.WithTxIndex(txIndex)
 
 	// Create state DB for this transaction
-	stateDB := evmstate.NewDBImpl(ctx, &app.EvmKeeper, false)
+	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)
 	defer stateDB.Cleanup()
 
 	// Get gas pool
-	gp := app.EvmKeeper.GetGasPool()
+	gp := app.GigaEvmKeeper.GetGasPool()
 
 	// Get block context
-	blockCtx, blockCtxErr := app.EvmKeeper.GetVMBlockContext(ctx, gp)
+	blockCtx, blockCtxErr := app.GigaEvmKeeper.GetVMBlockContext(ctx, gp)
 	if blockCtxErr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
@@ -1673,19 +1759,25 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	}
 
 	// Get chain config
-	sstore := app.EvmKeeper.GetParams(ctx).SeiSstoreSetGasEip2200
-	cfg := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(app.EvmKeeper.ChainID(ctx), &sstore)
+	sstore := app.GigaEvmKeeper.GetParams(ctx).SeiSstoreSetGasEip2200
+	cfg := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(app.GigaEvmKeeper.ChainID(ctx), &sstore)
 
-	// Create Giga executor VM (wraps evmone)
-	gigaExecutor := gigaexecutor.NewEvmoneExecutor(*blockCtx, stateDB, cfg, vm.Config{}, app.EvmKeeper.CustomPrecompiles(ctx))
+	// Create Giga executor VM
+	gigaExecutor := gigaexecutor.NewGethExecutor(*blockCtx, stateDB, cfg, vm.Config{}, gigaprecompiles.AllCustomPrecompilesFailFast)
 
 	// Execute the transaction through giga VM
-	execResult, execErr := gigaExecutor.ExecuteTransaction(ethTx, sender, app.EvmKeeper.GetBaseFee(ctx), &gp)
+	execResult, execErr := gigaExecutor.ExecuteTransaction(ethTx, sender, app.GigaEvmKeeper.GetBaseFee(ctx), &gp)
 	if execErr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
 			Log:  fmt.Sprintf("giga executor apply message error: %v", execErr),
 		}, nil
+	}
+
+	// Check if the execution hit a fail-fast precompile (Cosmos interop detected)
+	// Return the error to the caller so it can handle accordingly (e.g., fallback to standard execution)
+	if execResult.Err != nil && gigautils.ShouldExecutionAbort(execResult.Err) {
+		return nil, execResult.Err
 	}
 
 	// Finalize state changes
@@ -1716,7 +1808,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 		Data:      ethTx.Data(),
 		From:      sender,
 	}
-	receipt, rerr := app.EvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError)
+	receipt, rerr := app.GigaEvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError)
 	if rerr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
@@ -1735,20 +1827,55 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, txIndex int, msg *
 	// Determine result code based on VM error
 	code := uint32(0)
 	if execResult.Err != nil {
-		code = 1
+		code = sdkerrors.ErrEVMVMError.ABCICode()
 	}
 
-	// Serialize receipt to include in response Data field.
-	// In OCC mode, transient store writes are lost because the CacheMultiStore
-	// isn't committed, so we pass the receipt through the response for later processing.
-	receiptBytes, _ := receipt.Marshal()
+	// GasWanted should be set to the transaction's gas limit to match standard executor behavior.
+	// This is critical for LastResultsHash computation which uses Code, Data, GasWanted, and GasUsed.
+	gasWanted := int64(ethTx.Gas())      //nolint:gosec // G115: safe, Gas() won't exceed int64 max
+	gasUsed := int64(execResult.UsedGas) //nolint:gosec // G115: safe, UsedGas won't exceed int64 max
 
-	//nolint:gosec // G115: safe, UsedGas won't exceed int64 max
+	// Build Data field to match standard executor format.
+	// Standard path wraps MsgEVMTransactionResponse in TxMsgData.
+	// This is critical for LastResultsHash to match.
+	evmResponse := &evmtypes.MsgEVMTransactionResponse{
+		GasUsed:    execResult.UsedGas,
+		VmError:    vmError,
+		ReturnData: execResult.ReturnData,
+		Hash:       ethTx.Hash().Hex(),
+		Logs:       evmtypes.NewLogsFromEth(stateDB.GetAllLogs()),
+	}
+	evmResponseBytes, marshalErr := evmResponse.Marshal()
+	if marshalErr != nil {
+		return &abci.ExecTxResult{
+			Code: 1,
+			Log:  fmt.Sprintf("failed to marshal evm response: %v", marshalErr),
+		}, nil
+	}
+
+	// Wrap in TxMsgData like the standard path does
+	txMsgData := &sdk.TxMsgData{
+		Data: []*sdk.MsgData{
+			{
+				MsgType: sdk.MsgTypeURL(msg),
+				Data:    evmResponseBytes,
+			},
+		},
+	}
+	txMsgDataBytes, txMarshalErr := proto.Marshal(txMsgData)
+	if txMarshalErr != nil {
+		return &abci.ExecTxResult{
+			Code: 1,
+			Log:  fmt.Sprintf("failed to marshal tx msg data: %v", txMarshalErr),
+		}, nil
+	}
+
 	return &abci.ExecTxResult{
-		Code:    code,
-		Data:    receiptBytes,
-		GasUsed: int64(execResult.UsedGas),
-		Log:     vmError,
+		Code:      code,
+		Data:      txMsgDataBytes,
+		GasWanted: gasWanted,
+		GasUsed:   gasUsed,
+		Log:       vmError,
 		EvmTxInfo: &abci.EvmTxInfo{
 			TxHash:  ethTx.Hash().Hex(),
 			VmError: vmError,
@@ -1844,19 +1971,22 @@ func (app *App) ProcessBlockWithGigaExecutorOCC(ctx sdk.Context, txs [][]byte, r
 		evmTotalGasUsed += resp.GasUsed
 
 		// Restore transient store data using main context
-		if resp.Code == 0 && len(resp.Data) > 0 && evmTxs[idx] != nil {
-			receipt := &evmtypes.Receipt{}
-			if err := receipt.Unmarshal(resp.Data); err == nil {
-				ethTx, _ := evmTxs[idx].AsTransaction()
-				if ethTx != nil {
-					txHash := ethTx.Hash()
-					// Write receipt to transient store using main context
-					_ = app.EvmKeeper.SetTransientReceipt(ctx.WithTxIndex(idx), txHash, receipt)
-					// Write deferred info using main context
-					bloom := ethtypes.Bloom{}
-					bloom.SetBytes(receipt.LogsBloom)
-					app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(idx), bloom, txHash, sdk.ZeroInt())
+		// In OCC mode, the Data field contains TxMsgData (standard format) for correct LastResultsHash.
+		// We need to extract the receipt info from the response or reconstruct it.
+		if resp.Code == 0 && evmTxs[idx] != nil {
+			ethTx, _ := evmTxs[idx].AsTransaction()
+			if ethTx != nil {
+				txHash := ethTx.Hash()
+				// In OCC mode, the receipt was written during execution but may have been lost.
+				// We can reconstruct minimal receipt info from the response for deferred processing.
+				// The full receipt details would need to be fetched from transient store if it exists.
+				bloom := ethtypes.Bloom{}
+				// Try to get receipt from transient store (may exist if execution succeeded)
+				existingReceipt, receiptErr := app.EvmKeeper.GetTransientReceipt(ctx.WithTxIndex(idx), txHash, uint64(idx)) //nolint:gosec // G115: idx is a valid tx index, always non-negative
+				if receiptErr == nil && existingReceipt != nil {
+					bloom.SetBytes(existingReceipt.LogsBloom)
 				}
+				app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(idx), bloom, txHash, sdk.ZeroInt())
 			}
 		}
 	}
@@ -1871,11 +2001,13 @@ func (app *App) ProcessBlockWithGigaExecutorOCC(ctx sdk.Context, txs [][]byte, r
 		}
 	}
 
+	ctx.GigaMultiStore().WriteGiga()
+
 	app.EvmKeeper.SetTxResults(txResults)
 	app.EvmKeeper.SetMsgs(evmTxs)
 
 	// Finalize bank transfers
-	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
+	lazyWriteEvents := app.GigaBankKeeper.WriteDeferredBalances(ctx)
 	events = append(events, lazyWriteEvents...)
 
 	// EndBlock
@@ -1903,8 +2035,14 @@ func (app *App) gigaDeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 		return abci.ResponseDeliverTx{Code: 1, Log: "not an EVM transaction"}
 	}
 
-	result, err := app.executeEVMTxWithGigaExecutor(ctx, ctx.TxIndex(), evmMsg)
+	result, err := app.executeEVMTxWithGigaExecutor(ctx, evmMsg)
 	if err != nil {
+		// Check if this is a fail-fast error (Cosmos precompile interop detected)
+		if gigautils.ShouldExecutionAbort(err) {
+			// Transaction requires Cosmos interop - not supported in giga mode
+			// TODO: implement fallback to standard execution path
+			return abci.ResponseDeliverTx{Code: 1, Log: fmt.Sprintf("giga executor: cosmos interop not supported: %v", err)}
+		}
 		return abci.ResponseDeliverTx{Code: 1, Log: fmt.Sprintf("giga executor error: %v", err)}
 	}
 

@@ -32,6 +32,9 @@ func TestRollbackIntegration(t *testing.T) {
 		require.True(t, node.IsRunning())
 
 		time.Sleep(3 * time.Second)
+		for !app.CanRollback() {
+			time.Sleep(time.Second)
+		}
 		t.Cleanup(func() {
 			node.Wait()
 			require.False(t, node.IsRunning())

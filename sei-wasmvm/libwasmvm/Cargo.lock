@@ -255,7 +255,7 @@ dependencies = [
 [[package]]
 name = "cosmwasm-crypto"
 version = "1.5.12"
-source = "git+https://github.com/sei-protocol/cosmwasm.git?rev=v1.5.12#876555b37e48a66857df3fc23faa801ef73e176e"
+source = "git+https://github.com/sei-protocol/cosmwasm.git?rev=v1.5.13#cd3c4399b8c0ea0d08b2068a893ed2973685fe30"
 dependencies = [
  "digest 0.10.7",
  "ed25519-zebra",
@@ -267,7 +267,7 @@ dependencies = [
 [[package]]
 name = "cosmwasm-derive"
 version = "1.5.12"
-source = "git+https://github.com/sei-protocol/cosmwasm.git?rev=v1.5.12#876555b37e48a66857df3fc23faa801ef73e176e"
+source = "git+https://github.com/sei-protocol/cosmwasm.git?rev=v1.5.13#cd3c4399b8c0ea0d08b2068a893ed2973685fe30"
 dependencies = [
  "syn 1.0.109",
 ]
@@ -275,7 +275,7 @@ dependencies = [
 [[package]]
 name = "cosmwasm-std"
 version = "1.5.12"
-source = "git+https://github.com/sei-protocol/cosmwasm.git?rev=v1.5.12#876555b37e48a66857df3fc23faa801ef73e176e"
+source = "git+https://github.com/sei-protocol/cosmwasm.git?rev=v1.5.13#cd3c4399b8c0ea0d08b2068a893ed2973685fe30"
 dependencies = [
  "base64",
  "bech32",
@@ -296,7 +296,7 @@ dependencies = [
 [[package]]
 name = "cosmwasm-vm"
 version = "1.5.12"
-source = "git+https://github.com/sei-protocol/cosmwasm.git?rev=v1.5.12#876555b37e48a66857df3fc23faa801ef73e176e"
+source = "git+https://github.com/sei-protocol/cosmwasm.git?rev=v1.5.13#cd3c4399b8c0ea0d08b2068a893ed2973685fe30"
 dependencies = [
  "bitflags",
  "bytecheck",
@@ -2093,8 +2093,7 @@ dependencies = [
 [[package]]
 name = "wasmparser"
 version = "0.95.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2ea896273ea99b15132414be1da01ab0d8836415083298ecaffbe308eaac87a"
+source = "git+https://github.com/sei-protocol/wasm-tools?rev=wasmparser-0.95.1#97f347ace2c3747ed57b7d00e532d85a73282893"
 dependencies = [
  "indexmap",
  "url",

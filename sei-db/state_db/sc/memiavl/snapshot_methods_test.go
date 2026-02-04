@@ -4,8 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
 // TestSnapshotLeaf tests the Leaf method
@@ -122,7 +123,7 @@ func TestPrefetchSnapshot(t *testing.T) {
 	// Test with prefetch enabled
 	opts := Options{}
 	opts.FillDefaults()
-	opts.PrefetchThreshold = 0.0 // Always prefetch for testing
+	opts.SnapshotPrefetchThreshold = 0.0 // Always prefetch for testing
 
 	snapshot, err := OpenSnapshot(snapshotDir, opts)
 	require.NoError(t, err)

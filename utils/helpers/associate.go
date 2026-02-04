@@ -9,16 +9,29 @@ import (
 )
 
 type AssociationHelper struct {
-	evmKeeper     utils.EVMKeeper
-	bankKeeper    utils.BankKeeper
+	evmKeeper     evmKeeper
+	bankKeeper    bankKeeper
 	accountKeeper utils.AccountKeeper
 }
 
-func NewAssociationHelper(evmKeeper utils.EVMKeeper, bankKeeper utils.BankKeeper, accountKeeper utils.AccountKeeper) *AssociationHelper {
+type evmKeeper interface {
+	SetAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, evmAddress common.Address)
+}
+
+type bankKeeper interface {
+	SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
+	SendCoins(sdk.Context, sdk.AccAddress, sdk.AccAddress, sdk.Coins) error
+	GetWeiBalance(ctx sdk.Context, addr sdk.AccAddress) sdk.Int
+	SendCoinsAndWei(ctx sdk.Context, from sdk.AccAddress, to sdk.AccAddress, amt sdk.Int, wei sdk.Int) error
+	LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
+	GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin
+}
+
+func NewAssociationHelper(evmKeeper evmKeeper, bankKeeper bankKeeper, accountKeeper utils.AccountKeeper) *AssociationHelper {
 	return &AssociationHelper{evmKeeper: evmKeeper, bankKeeper: bankKeeper, accountKeeper: accountKeeper}
 }
 
-func (p AssociationHelper) AssociateAddresses(ctx sdk.Context, seiAddr sdk.AccAddress, evmAddr common.Address, pubkey cryptotypes.PubKey) error {
+func (p AssociationHelper) AssociateAddresses(ctx sdk.Context, seiAddr sdk.AccAddress, evmAddr common.Address, pubkey cryptotypes.PubKey, migrateUseiOnly bool) error {
 	p.evmKeeper.SetAddressMapping(ctx, seiAddr, evmAddr)
 	if acc := p.accountKeeper.GetAccount(ctx, seiAddr); acc.GetPubKey() == nil {
 		if err := acc.SetPubKey(pubkey); err != nil {
@@ -26,12 +39,17 @@ func (p AssociationHelper) AssociateAddresses(ctx sdk.Context, seiAddr sdk.AccAd
 		}
 		p.accountKeeper.SetAccount(ctx, acc)
 	}
-	return p.MigrateBalance(ctx, evmAddr, seiAddr)
+	return p.MigrateBalance(ctx, evmAddr, seiAddr, migrateUseiOnly)
 }
 
-func (p AssociationHelper) MigrateBalance(ctx sdk.Context, evmAddr common.Address, seiAddr sdk.AccAddress) error {
+func (p AssociationHelper) MigrateBalance(ctx sdk.Context, evmAddr common.Address, seiAddr sdk.AccAddress, migrateUseiOnly bool) error {
 	castAddr := sdk.AccAddress(evmAddr[:])
-	castAddrBalances := p.bankKeeper.SpendableCoins(ctx, castAddr)
+	var castAddrBalances sdk.Coins
+	if migrateUseiOnly {
+		castAddrBalances = sdk.Coins{p.bankKeeper.GetBalance(ctx, castAddr, "usei")}
+	} else {
+		castAddrBalances = p.bankKeeper.SpendableCoins(ctx, castAddr)
+	}
 	if !castAddrBalances.IsZero() {
 		if err := p.bankKeeper.SendCoins(ctx, castAddr, seiAddr, castAddrBalances); err != nil {
 			return err

@@ -16,6 +16,8 @@ services:
       - INVARIANT_CHECK_INTERVAL
       - UPGRADE_VERSION_LIST
       - MOCK_BALANCES
+      - GIGA_EXECUTOR
+      - GIGA_OCC
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
       - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
@@ -44,6 +46,8 @@ services:
       - SKIP_BUILD
       - INVARIANT_CHECK_INTERVAL
       - UPGRADE_VERSION_LIST
+      - GIGA_EXECUTOR
+      - GIGA_OCC
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
       - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
@@ -68,6 +72,8 @@ services:
       - SKIP_BUILD
       - INVARIANT_CHECK_INTERVAL
       - UPGRADE_VERSION_LIST
+      - GIGA_EXECUTOR
+      - GIGA_OCC
     ports:
       - "26662-26664:26656-26658"
       - "9094-9095:9090-9091"
@@ -96,6 +102,8 @@ services:
       - SKIP_BUILD
       - INVARIANT_CHECK_INTERVAL
       - UPGRADE_VERSION_LIST
+      - GIGA_EXECUTOR
+      - GIGA_OCC
     ports:
       - "26665-26667:26656-26658"
       - "9096-9097:9090-9091"

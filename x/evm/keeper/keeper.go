@@ -30,7 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/tests"
 	"github.com/holiman/uint256"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -81,12 +81,6 @@ type Keeper struct {
 	EthBlockTestConfig blocktest.Config
 	BlockTest          *tests.BlockTest
 
-	// GigaExecutorEnabled controls whether to use the Giga executor (evmone-based)
-	// instead of geth's interpreter for EVM execution. Experimental feature.
-	GigaExecutorEnabled bool
-	// GigaOCCEnabled controls whether to use OCC with the Giga executor
-	GigaOCCEnabled bool
-
 	// used for both ETH replay and block tests. Not used in chain critical path.
 	Trie        ethstate.Trie
 	DB          ethstate.Database
@@ -94,7 +88,7 @@ type Keeper struct {
 	Root        common.Hash
 	ReplayBlock *ethtypes.Block
 
-	receiptStore seidbtypes.StateStore
+	receiptStore receipt.ReceiptStore
 
 	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
@@ -136,7 +130,7 @@ func (ctx *ReplayChainContext) Config() *params.ChainConfig {
 }
 
 func NewKeeper(
-	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStateStore seidbtypes.StateStore,
+	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStore receipt.ReceiptStore,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
 	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper) *Keeper {
 
@@ -158,7 +152,7 @@ func NewKeeper(
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*AddressNoncePair),
-		receiptStore:                 receiptStateStore,
+		receiptStore:                 receiptStore,
 	}
 	return k
 }
@@ -219,7 +213,7 @@ func (k *Keeper) BankKeeper() bankkeeper.Keeper {
 	return k.bankKeeper
 }
 
-func (k *Keeper) ReceiptStore() seidbtypes.StateStore {
+func (k *Keeper) ReceiptStore() receipt.ReceiptStore {
 	return k.receiptStore
 }
 
