@@ -208,12 +208,12 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					return nil
 				}
 				if err := r.options.filterPeerByID(ctx, conn.PeerInfo().ID()); err != nil {
-					r.logger.Error("peer filtered by IP", "ip", remoteAddr, "err", err)
+					r.logger.Error("peer filtered by NodeID", "node", conn.PeerInfo().ID(), "err", err)
 					return nil
 				}
 				release()
 				err = r.runConn(ctx, conn)
-				r.logger.Error("r.runConn(inbound)", "err", err)
+				r.logger.Error("r.runConn(inbound)", "node", conn.PeerInfo().ID(), "err", err)
 				return nil
 			})
 		}
@@ -238,18 +238,18 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 						tcpConn, err := r.dial(ctx, addr)
 						if err != nil {
 							r.peerManager.DialFailed(addr)
-							r.logger.Error("r.dial()", "addr", addr, "err", err)
+							r.logger.Error("r.dial()", "addr", addr.String(), "err", err)
 							return nil
 						}
 						defer tcpConn.Close()
 						conn, err := r.handshake(ctx, tcpConn, utils.Some(addr))
 						if err != nil {
 							r.peerManager.DialFailed(addr)
-							r.logger.Error("r.handshake()", "addr", addr, "err", err)
+							r.logger.Error("r.handshake()", "addr", addr.String(), "err", err)
 							return nil
 						}
 						err = r.runConn(ctx, conn)
-						r.logger.Error("r.runConn(%v)", "err", addr, err)
+						r.logger.Error("r.runConn(outbound)", "addr", addr.String(), "err", err)
 						return nil
 					})
 				}
