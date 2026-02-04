@@ -634,6 +634,11 @@ func (db *Database) writeAsyncInBackground() {
 // it has been updated. This occurs when that module's keys are updated in between pruning runs, the node after is restarted.
 // This is not a large issue given the next time that module is updated, it will be properly pruned thereafter.
 func (db *Database) Prune(version int64) (_err error) {
+	// Defensive check: ensure database is not closed
+	if db.storage == nil {
+		return errors.New("pebbledb: database is closed")
+	}
+
 	startTime := time.Now()
 	defer func() {
 		otelMetrics.pruneLatency.Record(
