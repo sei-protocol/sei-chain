@@ -2,6 +2,7 @@ package ss
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
@@ -31,6 +32,30 @@ func RegisterBackend(backendType BackendType, initializer BackendInitializer) {
 	backends[backendType] = initializer
 }
 
+// PrunableStateStore wraps a StateStore with pruning lifecycle management.
+// When Close() is called, it first stops the pruning goroutine, then closes the underlying store.
+type PrunableStateStore struct {
+	types.StateStore
+	pruningManager *pruning.Manager
+	closeOnce      sync.Once
+	closeErr       error
+}
+
+// Close stops the pruning goroutine and then closes the underlying state store.
+// This ensures no pruning operations are in progress when the store is closed.
+// Safe to call multiple times (idempotent).
+func (p *PrunableStateStore) Close() error {
+	p.closeOnce.Do(func() {
+		// First, stop the pruning goroutine and wait for it to exit
+		if p.pruningManager != nil {
+			p.pruningManager.Stop()
+		}
+		// Then close the underlying store
+		p.closeErr = p.StateStore.Close()
+	})
+	return p.closeErr
+}
+
 // NewStateStore Create a new state store with the specified backend type
 func NewStateStore(logger logger.Logger, homeDir string, ssConfig config.StateStoreConfig) (types.StateStore, error) {
 	initializer, ok := backends[BackendType(ssConfig.Backend)]
@@ -51,10 +76,15 @@ func NewStateStore(logger logger.Logger, homeDir string, ssConfig config.StateSt
 		return nil, err
 	}
 
-	// Start the pruning manager for DB
+	// Create pruning manager
 	pruningManager := pruning.NewPruningManager(logger, stateStore, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds))
 	pruningManager.Start()
-	return stateStore, nil
+
+	// Return wrapped store with pruning lifecycle management
+	return &PrunableStateStore{
+		StateStore:     stateStore,
+		pruningManager: pruningManager,
+	}, nil
 }
 
 // RecoverStateStore will be called during initialization to recover the state from rlog
