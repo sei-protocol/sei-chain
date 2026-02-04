@@ -100,7 +100,7 @@ func newCacheMultiStoreFromCMS(cms Store) Store {
 		gigaStores[k] = v
 	}
 
-	return NewFromKVStore(cms.db, stores, gigaStores, nil, cms.gigaKeys, cms.traceWriter, cms.traceContext)
+	return NewFromKVStore(cms.db, stores, gigaStores, cms.keys, cms.gigaKeys, cms.traceWriter, cms.traceContext)
 }
 
 // SetTracer sets the tracer for the MultiStore that the underlying
