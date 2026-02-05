@@ -33,7 +33,7 @@ func NewStore(parent types.KVStore, storeKey types.StoreKey, cacheSize int) *Sto
 		cache:         &sync.Map{},
 		deleted:       &sync.Map{},
 		unsortedCache: &sync.Map{},
-		sortedCache:   dbm.NewMemDB(),
+		sortedCache:   nil,
 		parent:        parent,
 		storeKey:      storeKey,
 		cacheSize:     cacheSize,
@@ -120,7 +120,7 @@ func (store *Store) Write() {
 	store.cache = &sync.Map{}
 	store.deleted = &sync.Map{}
 	store.unsortedCache = &sync.Map{}
-	store.sortedCache = dbm.NewMemDB()
+	store.sortedCache = nil
 }
 
 // CacheWrap implements CacheWrapper.
@@ -146,6 +146,12 @@ func (store *Store) ReverseIterator(start, end []byte) types.Iterator {
 	return store.iterator(start, end, false)
 }
 
+func (store *Store) ensureSortedCache() {
+	if store.sortedCache == nil {
+		store.sortedCache = dbm.NewMemDB()
+	}
+}
+
 func (store *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 	store.mtx.Lock()
 	defer store.mtx.Unlock()
@@ -167,6 +173,7 @@ func (store *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 			panic(err)
 		}
 	}()
+	store.ensureSortedCache()
 	store.dirtyItems(start, end)
 	cache = newMemIterator(start, end, store.sortedCache, store.deleted, ascending)
 	return NewCacheMergeIterator(parent, cache, ascending, store.storeKey)
