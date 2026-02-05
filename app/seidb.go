@@ -21,7 +21,6 @@ const (
 	FlagSCSnapshotKeepRecent               = "state-commit.sc-keep-recent"
 	FlagSCSnapshotInterval                 = "state-commit.sc-snapshot-interval"
 	FlagSCSnapshotMinTimeInterval          = "state-commit.sc-snapshot-min-time-interval"
-	FlagSCSnapshotWriterLimit              = "state-commit.sc-snapshot-writer-limit"
 	FlagSCSnapshotPrefetchThreshold        = "state-commit.sc-snapshot-prefetch-threshold"
 	FlagSCSnapshotWriteRateMBps            = "state-commit.sc-snapshot-write-rate-mbps"
 	FlagSCCacheSize                        = "state-commit.sc-cache-size"
@@ -89,7 +88,6 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.SnapshotKeepRecent = cast.ToUint32(appOpts.Get(FlagSCSnapshotKeepRecent))
 	scConfig.SnapshotInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotInterval))
 	scConfig.SnapshotMinTimeInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotMinTimeInterval))
-	scConfig.SnapshotWriterLimit = cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit))
 	scConfig.SnapshotPrefetchThreshold = cast.ToFloat64(appOpts.Get(FlagSCSnapshotPrefetchThreshold))
 	scConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
 	scConfig.OnlyAllowExportOnSnapshotVersion = cast.ToBool(appOpts.Get(FlagSCOnlyAllowExportOnSnapshotVersion))

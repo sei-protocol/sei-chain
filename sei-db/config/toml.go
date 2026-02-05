@@ -36,9 +36,6 @@ sc-snapshot-interval = {{ .StateCommit.SnapshotInterval }}
 # to allow more frequent snapshots during normal operation.
 sc-snapshot-min-time-interval = {{ .StateCommit.SnapshotMinTimeInterval }}
 
-# SnapshotWriterLimit defines the max concurrency for taking commit store snapshot
-sc-snapshot-writer-limit = {{ .StateCommit.SnapshotWriterLimit }}
-
 # SnapshotPrefetchThreshold defines the page cache residency threshold (0.0-1.0) to trigger snapshot prefetch.
 # Prefetch sequentially reads nodes/leaves files into page cache for faster cold-start replay.
 # Only active trees (evm/bank/acc) are prefetched, skipping sparse kv files to save memory.
@@ -50,8 +47,8 @@ sc-snapshot-prefetch-threshold = {{ .StateCommit.SnapshotPrefetchThreshold }}
 # This is a GLOBAL limit shared across all trees and files in a single snapshot operation.
 # This helps prevent page cache eviction on machines with limited RAM, which can cause
 # block execution cache misses and consensus delays.
-# Setting to 0 means unlimited (default, for high-end machines).
-# Recommended: 300 for validators with 128GB RAM, 100-200 for more conservative setups.
+# Default: 300 MB/s (balanced for most validators with 128GB RAM).
+# Recommended: 100 MB/s for more conservative setups, 0 for unlimited (high-end machines only).
 sc-snapshot-write-rate-mbps = {{ .StateCommit.SnapshotWriteRateMBps }}
 
 # OnlyAllowExportOnSnapshotVersion defines whether we only allow state sync

@@ -6,7 +6,7 @@ const (
 	DefaultSnapshotMinTimeInterval   = 60 * 60 // 1 hour in seconds
 	DefaultAsyncCommitBuffer         = 100
 	DefaultSnapshotPrefetchThreshold = 0.8 // prefetch if <80% pages in cache
-	DefaultSnapshotWriteRateMBps     = 0   // 0 means unlimited, recommended 300 for validators with 128GB RAM
+	DefaultSnapshotWriteRateMBps     = 300 // 300 MB/s to prevent page cache eviction on most validators
 	DefaultSSKeepRecent              = 100000
 	DefaultSSPruneInterval           = 600
 	DefaultSSImportWorkers           = 1
@@ -46,7 +46,9 @@ type StateCommitConfig struct {
 	// This prevents excessive snapshot creation during catch-up. Default to 3600 seconds (1 hour).
 	SnapshotMinTimeInterval uint32 `mapstructure:"snapshot-min-time-interval"`
 
-	// SnapshotWriterLimit defines the concurrency for taking commit store snapshot
+	// SnapshotWriterLimit defines the concurrency for taking commit store snapshot.
+	// This is an internal config (not exposed in app.toml), hardcoded to 4 for optimal balance.
+	// With rate limiting enabled, this mainly affects CPU/goroutine overhead rather than I/O.
 	SnapshotWriterLimit int `mapstructure:"snapshot-writer-limit"`
 
 	// SnapshotPrefetchThreshold defines the page cache residency threshold (0.0-1.0)
@@ -60,7 +62,8 @@ type StateCommitConfig struct {
 	// SnapshotWriteRateMBps defines the maximum write rate (MB/s) for snapshot creation.
 	// This is a GLOBAL limit shared across all trees and files in a single snapshot operation.
 	// This helps prevent page cache eviction on machines with limited RAM.
-	// Setting to 0 means unlimited (default). Recommended: 300 for validators with 128GB RAM.
+	// Default: 300 MB/s (balanced for most validators with 128GB RAM).
+	// Recommended: 100 for more conservative setups, 0 for unlimited (high-end machines only).
 	SnapshotWriteRateMBps int `mapstructure:"snapshot-write-rate-mbps"`
 
 	// CacheSize defines the size of the cache for each memiavl store.

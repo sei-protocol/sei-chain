@@ -2,7 +2,6 @@ package memiavl
 
 import (
 	"errors"
-	"runtime"
 	"time"
 
 	"github.com/sei-protocol/sei-db/common/logger"
@@ -51,7 +50,7 @@ type Options struct {
 
 	// SnapshotWriteRateMBps defines the maximum write rate (MB/s) for snapshot creation.
 	// This is a GLOBAL limit shared across all trees and files.
-	// 0 means unlimited (default). Recommended: 300 for validators with 128GB RAM.
+	// Default: 300. Recommended: 100 for more conservative setups, 0 for unlimited (high-end machines).
 	SnapshotWriteRateMBps int
 }
 
@@ -73,7 +72,7 @@ func (opts *Options) FillDefaults() {
 	}
 
 	if opts.SnapshotWriterLimit <= 0 {
-		opts.SnapshotWriterLimit = runtime.NumCPU()
+		opts.SnapshotWriterLimit = 4 // Fixed at 4 for optimal balance
 	}
 
 	if opts.SnapshotMinTimeInterval <= 0 {
