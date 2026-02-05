@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alitto/pond"
@@ -69,8 +70,6 @@ type DB struct {
 	// timestamp of the last successful snapshot creation
 	// Protected by db.mtx (only accessed in Commit call chain)
 	lastSnapshotTime time.Time
-	// make sure only one snapshot rewrite is running
-	pruneSnapshotLock sync.Mutex
 
 	// the changelog stream persists all the changesets
 	streamHandler types.Stream[proto.ChangelogEntry]
@@ -88,6 +87,9 @@ type DB struct {
 	mtx sync.Mutex
 	// worker goroutine IdleTimeout = 5s
 	snapshotWriterPool *pond.WorkerPool
+
+	// pruningInProgress guards concurrent prune operations (CAS-based)
+	pruningInProgress atomic.Bool
 }
 
 const (
@@ -481,7 +483,7 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		TotalMemNodeSize.Store(0)
 		TotalNumOfMemNode.Store(0)
 		db.logger.Info("switched to new memiavl snapshot", "version", db.MultiTree.Version())
-		db.pruneSnapshots()
+		go db.pruneSnapshots()
 
 	default:
 	}
@@ -491,9 +493,16 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 
 // pruneSnapshot prune the old snapshots
 func (db *DB) pruneSnapshots() {
-	// wait until last prune finish
-	db.pruneSnapshotLock.Lock()
-	defer db.pruneSnapshotLock.Unlock()
+	// CAS: only one prune can run at a time
+	if !db.pruningInProgress.CompareAndSwap(false, true) {
+		return
+	}
+	defer db.pruningInProgress.Store(false)
+
+	startTime := time.Now()
+	defer func() {
+		db.logger.Info("pruneSnapshots completed", "duration", time.Since(startTime))
+	}()
 
 	currentVersion, err := currentVersion(db.dir)
 	if err != nil {
@@ -532,6 +541,9 @@ func (db *DB) pruneSnapshots() {
 		db.logger.Error("failed to find first snapshot", "err", err)
 	}
 
+	if db.streamHandler == nil {
+		return
+	}
 	if err := db.streamHandler.TruncateBefore(utils.VersionToIndex(earliestVersion+1, db.initialVersion.Load())); err != nil {
 		db.logger.Error("failed to truncate rlog", "err", err, "version", earliestVersion+1)
 	}
@@ -833,9 +845,11 @@ func (db *DB) Close() error {
 	db.logger.Info("Closing memiavl db...")
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
+	// Wait for any ongoing prune to finish, then block new prunes
+	for !db.pruningInProgress.CompareAndSwap(false, true) {
+		time.Sleep(time.Millisecond)
+	}
 	errs := []error{}
-	db.pruneSnapshotLock.Lock()
-	defer db.pruneSnapshotLock.Unlock()
 	// Close stream handler
 	db.logger.Info("Closing stream handler...")
 	if db.streamHandler != nil {
