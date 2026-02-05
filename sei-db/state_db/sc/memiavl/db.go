@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/alitto/pond"
@@ -76,9 +75,9 @@ type DB struct {
 	// Protected by db.mtx (only accessed in Commit call chain)
 	lastSnapshotTime time.Time
 
-	// pruningInProgress guards concurrent prune operations (CAS-based)
-	pruningInProgress atomic.Bool
-	// closed ensures Close() is idempotent, protected by db.mtx
+	// pruneSnapshotLock guards concurrent prune operations; use TryLock in pruneSnapshots
+	pruneSnapshotLock sync.Mutex
+	// closed guards against double Close(), protected by db.mtx
 	closed bool
 
 	// walIndexDelta is the difference: version - walIndex for any entry.
@@ -514,17 +513,16 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 // pruneSnapshots prunes old snapshots, keeping only snapshotKeepRecent recent ones.
 // Note: WAL truncation is now handled by CommitStore after each commit.
 func (db *DB) pruneSnapshots() {
-	// CAS: only one prune can run at a time
-	if !db.pruningInProgress.CompareAndSwap(false, true) {
+	if !db.pruneSnapshotLock.TryLock() {
 		db.logger.Info("pruneSnapshots skipped, previous prune still in progress")
 		return
 	}
-	defer db.pruningInProgress.Store(false)
+	defer db.pruneSnapshotLock.Unlock()
 
 	db.logger.Info("pruneSnapshots started")
 	startTime := time.Now()
 	defer func() {
-		db.logger.Info("pruneSnapshots completed", "duration", fmt.Sprintf("%.2fs", time.Since(startTime).Seconds()))
+		db.logger.Info("pruneSnapshots completed", "duration_sec", fmt.Sprintf("%.2fs", time.Since(startTime).Seconds()))
 	}()
 
 	currentVersion, err := currentVersion(db.dir)
@@ -942,15 +940,13 @@ func (db *DB) Close() error {
 	db.logger.Info("Closing memiavl db...")
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
-	// Idempotent: prevent double-close spinning on pruningInProgress CAS
 	if db.closed {
 		return nil
 	}
 	db.closed = true
 	// Wait for any ongoing prune to finish, then block new prunes
-	for !db.pruningInProgress.CompareAndSwap(false, true) {
-		time.Sleep(time.Millisecond)
-	}
+	db.pruneSnapshotLock.Lock()
+	defer db.pruneSnapshotLock.Unlock()
 	errs := []error{}
 
 	// Close rewrite channel first - must wait for background goroutine before closing WAL
