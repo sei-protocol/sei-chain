@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alitto/pond"
@@ -90,6 +91,9 @@ type DB struct {
 	mtx sync.Mutex
 	// worker goroutine IdleTimeout = 5s
 	snapshotWriterPool *pond.WorkerPool
+
+	// pruningInProgress indicates the DB is shutting down
+	pruningInProgress uint32
 }
 
 const (
@@ -484,7 +488,7 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		TotalMemNodeSize.Store(0)
 		TotalNumOfMemNode.Store(0)
 		db.logger.Info("switched to new memiavl snapshot", "version", db.MultiTree.Version())
-		db.pruneSnapshots()
+		go db.pruneSnapshots()
 
 	default:
 	}
@@ -494,9 +498,15 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 
 // pruneSnapshot prune the old snapshots
 func (db *DB) pruneSnapshots() {
+	if atomic.LoadUint32(&db.pruningInProgress) == 1 {
+		return
+	}
 	// wait until last prune finish
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
+	if atomic.LoadUint32(&db.pruningInProgress) == 1 {
+		return
+	}
 
 	currentVersion, err := currentVersion(db.dir)
 	if err != nil {
@@ -535,6 +545,9 @@ func (db *DB) pruneSnapshots() {
 		db.logger.Error("failed to find first snapshot", "err", err)
 	}
 
+	if db.streamHandler == nil {
+		return
+	}
 	if err := db.streamHandler.TruncateBefore(utils.VersionToIndex(earliestVersion+1, db.initialVersion.Load())); err != nil {
 		db.logger.Error("failed to truncate rlog", "err", err, "version", earliestVersion+1)
 	}
@@ -837,6 +850,7 @@ func (db *DB) Close() error {
 	db.logger.Info("Closing memiavl db...")
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
+	atomic.StoreUint32(&db.pruningInProgress, 1)
 	errs := []error{}
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
