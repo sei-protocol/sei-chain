@@ -48,6 +48,11 @@ type Options struct {
 	// Minimum time interval between snapshots
 	// This prevents excessive snapshot creation during catch-up. Default is 1 hour.
 	SnapshotMinTimeInterval time.Duration
+
+	// SnapshotWriteRateMBps defines the maximum write rate (MB/s) for snapshot creation.
+	// This is a GLOBAL limit shared across all trees and files.
+	// 0 means unlimited (default). Recommended: 300 for validators with 128GB RAM.
+	SnapshotWriteRateMBps int
 }
 
 func (opts Options) Validate() error {

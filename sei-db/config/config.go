@@ -6,6 +6,7 @@ const (
 	DefaultSnapshotMinTimeInterval   = 60 * 60 // 1 hour in seconds
 	DefaultAsyncCommitBuffer         = 100
 	DefaultSnapshotPrefetchThreshold = 0.8 // prefetch if <80% pages in cache
+	DefaultSnapshotWriteRateMBps     = 0   // 0 means unlimited, recommended 300 for validators with 128GB RAM
 	DefaultSSKeepRecent              = 100000
 	DefaultSSPruneInterval           = 600
 	DefaultSSImportWorkers           = 1
@@ -55,6 +56,12 @@ type StateCommitConfig struct {
 	// Skips prefetch if >threshold of pages already resident (e.g., 0.8 = 80%).
 	// Setting to 0 disables prefetching. Defaults to 0.8
 	SnapshotPrefetchThreshold float64 `mapstructure:"snapshot-prefetch-threshold"`
+
+	// SnapshotWriteRateMBps defines the maximum write rate (MB/s) for snapshot creation.
+	// This is a GLOBAL limit shared across all trees and files in a single snapshot operation.
+	// This helps prevent page cache eviction on machines with limited RAM.
+	// Setting to 0 means unlimited (default). Recommended: 300 for validators with 128GB RAM.
+	SnapshotWriteRateMBps int `mapstructure:"snapshot-write-rate-mbps"`
 
 	// CacheSize defines the size of the cache for each memiavl store.
 	// Deprecated: this is removed, we will just rely on mmap page cache
@@ -115,6 +122,7 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		SnapshotKeepRecent:        DefaultSnapshotKeepRecent,
 		SnapshotMinTimeInterval:   DefaultSnapshotMinTimeInterval,
 		SnapshotPrefetchThreshold: DefaultSnapshotPrefetchThreshold,
+		SnapshotWriteRateMBps:     DefaultSnapshotWriteRateMBps,
 	}
 }
 

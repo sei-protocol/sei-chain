@@ -71,6 +71,8 @@ type DB struct {
 	lastSnapshotTime time.Time
 	// make sure only one snapshot rewrite is running
 	pruneSnapshotLock sync.Mutex
+	// snapshot write rate limit in MB/s, 0 means unlimited
+	snapshotWriteRateMBps int
 
 	// the changelog stream persists all the changesets
 	streamHandler types.Stream[proto.ChangelogEntry]
@@ -273,6 +275,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		snapshotInterval:        opts.SnapshotInterval,
 		snapshotMinTimeInterval: opts.SnapshotMinTimeInterval,
 		lastSnapshotTime:        lastSnapshotTime,
+		snapshotWriteRateMBps:   opts.SnapshotWriteRateMBps,
 		snapshotWriterPool:      workerPool,
 		opts:                    opts,
 	}
@@ -594,11 +597,12 @@ func (db *DB) copy() *DB {
 	mtree := db.MultiTree.Copy()
 
 	return &DB{
-		MultiTree:          *mtree,
-		logger:             db.logger,
-		dir:                db.dir,
-		snapshotWriterPool: db.snapshotWriterPool,
-		opts:               db.opts,
+		MultiTree:             *mtree,
+		logger:                db.logger,
+		dir:                   db.dir,
+		snapshotWriteRateMBps: db.snapshotWriteRateMBps,
+		snapshotWriterPool:    db.snapshotWriterPool,
+		opts:                  db.opts,
 	}
 }
 
@@ -633,7 +637,7 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	path := filepath.Clean(filepath.Join(db.dir, tmpDir))
 
 	writeStart := time.Now()
-	err := db.MultiTree.WriteSnapshot(ctx, path, db.snapshotWriterPool)
+	err := db.MultiTree.WriteSnapshotWithRateLimit(ctx, path, db.snapshotWriterPool, db.snapshotWriteRateMBps)
 	writeElapsed := time.Since(writeStart).Seconds()
 
 	if err != nil {

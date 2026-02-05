@@ -30,6 +30,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return config.DefaultStateCommitConfig().SnapshotWriterLimit
 	case FlagSCSnapshotPrefetchThreshold:
 		return config.DefaultStateCommitConfig().SnapshotPrefetchThreshold
+	case FlagSCSnapshotWriteRateMBps:
+		return config.DefaultStateCommitConfig().SnapshotWriteRateMBps
 	case FlagSSEnable:
 		return config.DefaultStateStoreConfig().Enable
 	case FlagSSBackend:

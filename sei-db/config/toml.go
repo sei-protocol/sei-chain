@@ -46,6 +46,14 @@ sc-snapshot-writer-limit = {{ .StateCommit.SnapshotWriterLimit }}
 # Setting to 0 disables prefetching. Defaults to 0.8
 sc-snapshot-prefetch-threshold = {{ .StateCommit.SnapshotPrefetchThreshold }}
 
+# SnapshotWriteRateMBps defines the maximum write rate (MB/s) for snapshot creation.
+# This is a GLOBAL limit shared across all trees and files in a single snapshot operation.
+# This helps prevent page cache eviction on machines with limited RAM, which can cause
+# block execution cache misses and consensus delays.
+# Setting to 0 means unlimited (default, for high-end machines).
+# Recommended: 300 for validators with 128GB RAM, 100-200 for more conservative setups.
+sc-snapshot-write-rate-mbps = {{ .StateCommit.SnapshotWriteRateMBps }}
+
 # OnlyAllowExportOnSnapshotVersion defines whether we only allow state sync
 # snapshot creation happens after the memiavl snapshot is created.
 sc-only-allow-export-on-snapshot-version = {{ .StateCommit.OnlyAllowExportOnSnapshotVersion }}
