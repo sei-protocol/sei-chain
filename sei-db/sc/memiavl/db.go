@@ -70,8 +70,6 @@ type DB struct {
 	// timestamp of the last successful snapshot creation
 	// Protected by db.mtx (only accessed in Commit call chain)
 	lastSnapshotTime time.Time
-	// make sure only one snapshot rewrite is running
-	pruneSnapshotLock sync.Mutex
 	// snapshot write rate limit in MB/s, 0 means unlimited
 	snapshotWriteRateMBps int
 
@@ -92,8 +90,8 @@ type DB struct {
 	// worker goroutine IdleTimeout = 5s
 	snapshotWriterPool *pond.WorkerPool
 
-	// pruningInProgress indicates the DB is shutting down
-	pruningInProgress uint32
+	// pruningInProgress guards concurrent prune operations (CAS-based)
+	pruningInProgress atomic.Bool
 }
 
 const (
@@ -498,15 +496,16 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 
 // pruneSnapshot prune the old snapshots
 func (db *DB) pruneSnapshots() {
-	if atomic.LoadUint32(&db.pruningInProgress) == 1 {
+	// CAS: only one prune can run at a time
+	if !db.pruningInProgress.CompareAndSwap(false, true) {
 		return
 	}
-	// wait until last prune finish
-	db.pruneSnapshotLock.Lock()
-	defer db.pruneSnapshotLock.Unlock()
-	if atomic.LoadUint32(&db.pruningInProgress) == 1 {
-		return
-	}
+	defer db.pruningInProgress.Store(false)
+
+	startTime := time.Now()
+	defer func() {
+		db.logger.Info("pruneSnapshots completed", "duration", time.Since(startTime))
+	}()
 
 	currentVersion, err := currentVersion(db.dir)
 	if err != nil {
@@ -850,10 +849,11 @@ func (db *DB) Close() error {
 	db.logger.Info("Closing memiavl db...")
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
-	atomic.StoreUint32(&db.pruningInProgress, 1)
+	// Wait for any ongoing prune to finish, then block new prunes
+	for !db.pruningInProgress.CompareAndSwap(false, true) {
+		time.Sleep(time.Millisecond)
+	}
 	errs := []error{}
-	db.pruneSnapshotLock.Lock()
-	defer db.pruneSnapshotLock.Unlock()
 	// Close stream handler
 	db.logger.Info("Closing stream handler...")
 	if db.streamHandler != nil {
