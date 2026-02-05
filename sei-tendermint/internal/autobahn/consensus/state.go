@@ -28,7 +28,8 @@ type State struct {
 	cfg   *Config
 	avail *avail.State
 	// metrics *Metrics
-	inner utils.AtomicSend[inner]
+	inner     utils.Mutex[*utils.AtomicSend[inner]]
+	innerRecv utils.AtomicRecv[inner]
 
 	timeoutVotes utils.Mutex[*timeoutVotes]
 	prepareVotes utils.Mutex[*prepareVotes]
@@ -61,11 +62,13 @@ func (s *State) SubscribeTimeoutQC() utils.AtomicRecv[utils.Option[*types.Timeou
 
 // NewState constructs a new state.
 func NewState(cfg *Config, data *data.State) *State {
+	inner := utils.Alloc(utils.NewAtomicSend(inner{}))
 	return &State{
 		cfg: cfg,
 		// metrics: NewMetrics(),
-		avail: avail.NewState(cfg.Key, data),
-		inner: utils.NewAtomicSend(inner{}),
+		avail:     avail.NewState(cfg.Key, data),
+		inner:     utils.NewMutex(inner),
+		innerRecv: inner.Subscribe(),
 
 		timeoutVotes: utils.NewMutex(newTimeoutVotes()),
 		prepareVotes: utils.NewMutex(newPrepareVotes()),
@@ -203,7 +206,7 @@ func updateOutput[T types.ConsensusReq](w *utils.AtomicSend[utils.Option[T]], v 
 
 // Updates the outputs based on the inner state.
 func (s *State) runOutputs(ctx context.Context) error {
-	return s.inner.Iter(ctx, func(ctx context.Context, i inner) error {
+	return s.innerRecv.Iter(ctx, func(ctx context.Context, i inner) error {
 		old := s.myView.Load()
 		if old.View().Less(i.viewSpec.View()) {
 			s.myView.Store(i.viewSpec)

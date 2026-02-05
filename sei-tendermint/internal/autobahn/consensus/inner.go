@@ -23,22 +23,23 @@ func (i *inner) View() types.View {
 }
 
 func (s *State) pushCommitQC(qc *types.CommitQC) error {
-	if i := s.inner.Load(); i.viewSpec.View().Index > qc.Proposal().Index() {
+	if i := s.innerRecv.Load(); i.viewSpec.View().Index > qc.Proposal().Index() {
 		return nil
 	}
 	if err := qc.Verify(s.Data().Committee()); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
-	i := s.inner.Load()
-	if qc.Proposal().Index() < types.NextIndexOpt(i.viewSpec.CommitQC) {
-		return nil
+	for i := range s.inner.Lock() {
+		if qc.Proposal().Index() < types.NextIndexOpt(i.Load().viewSpec.CommitQC) {
+			return nil
+		}
+		i.Store(inner{
+			viewSpec: types.ViewSpec{
+				CommitQC:  utils.Some(qc),
+				TimeoutQC: utils.None[*types.TimeoutQC](),
+			},
+		})
 	}
-	s.inner.Store(inner{
-		viewSpec: types.ViewSpec{
-			CommitQC:  utils.Some(qc),
-			TimeoutQC: utils.None[*types.TimeoutQC](),
-		},
-	})
 	return nil
 }
 
@@ -47,7 +48,7 @@ func (s *State) waitForView(ctx context.Context, view types.View) (types.ViewSpe
 }
 
 func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
-	i, err := s.inner.Wait(ctx, func(i inner) bool { return i.View().Index >= qc.View().Index })
+	i, err := s.innerRecv.Wait(ctx, func(i inner) bool { return i.View().Index >= qc.View().Index })
 	if err != nil {
 		return err
 	}
@@ -57,12 +58,14 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 	if err := qc.Verify(s.Data().Committee(), i.viewSpec.CommitQC); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
-	// TODO(gprusak): atomicity?
-	if qc.View().Less(i.View()) {
-		return nil
+	for isend := range s.inner.Lock() {
+		i := isend.Load()
+		if qc.View().Less(i.View()) {
+			return nil
+		}
+		i.viewSpec.TimeoutQC = utils.Some(qc)
+		isend.Store(inner{viewSpec: i.viewSpec})
 	}
-	i.viewSpec.TimeoutQC = utils.Some(qc)
-	s.inner.Store(inner{viewSpec: i.viewSpec})
 	return nil
 }
 
@@ -81,14 +84,15 @@ func (s *State) pushProposal(ctx context.Context, proposal *types.FullProposal) 
 		return fmt.Errorf("proposal.Verify(): %w", err)
 	}
 	// Update.
-	// TODO: atomicity?
-	i := s.inner.Load()
-	if i.View() != proposal.View() || i.timeoutVote.IsPresent() || i.prepareVote.IsPresent() {
-		return nil
+	for isend := range s.inner.Lock() {
+		i := isend.Load()
+		if i.View() != proposal.View() || i.timeoutVote.IsPresent() || i.prepareVote.IsPresent() {
+			return nil
+		}
+		v := types.Sign(s.cfg.Key, types.NewPrepareVote(proposal.Proposal().Msg()))
+		i.prepareVote = utils.Some(v)
+		isend.Store(i)
 	}
-	v := types.Sign(s.cfg.Key, types.NewPrepareVote(proposal.Proposal().Msg()))
-	i.prepareVote = utils.Some(v)
-	s.inner.Store(i)
 	return nil
 }
 
@@ -106,15 +110,16 @@ func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	// Update.
-	// TODO: atomicity?
-	i := s.inner.Load()
-	if i.View() != qc.Proposal().View() || i.timeoutVote.IsPresent() || i.prepareQC.IsPresent() {
-		return nil
+	for isend := range s.inner.Lock() {
+		i := isend.Load()
+		if i.View() != qc.Proposal().View() || i.timeoutVote.IsPresent() || i.prepareQC.IsPresent() {
+			return nil
+		}
+		i.prepareQC = utils.Some(qc)
+		v := types.Sign(s.cfg.Key, types.NewCommitVote(qc.Proposal()))
+		i.commitVote = utils.Some(v)
+		isend.Store(i)
 	}
-	i.prepareQC = utils.Some(qc)
-	v := types.Sign(s.cfg.Key, types.NewCommitVote(qc.Proposal()))
-	i.commitVote = utils.Some(v)
-	s.inner.Store(i)
 	return nil
 }
 
@@ -123,11 +128,13 @@ func (s *State) voteTimeout(ctx context.Context, view types.View) error {
 	if _, err := s.waitForView(ctx, view); err != nil {
 		return err
 	}
-	i := s.inner.Load()
-	if i.View() != view || i.timeoutVote.IsPresent() {
-		return nil
+	for isend := range s.inner.Lock() {
+		i := isend.Load()
+		if i.View() != view || i.timeoutVote.IsPresent() {
+			return nil
+		}
+		i.timeoutVote = utils.Some(types.NewFullTimeoutVote(s.cfg.Key, view, i.prepareQC))
+		isend.Store(i)
 	}
-	i.timeoutVote = utils.Some(types.NewFullTimeoutVote(s.cfg.Key, view, i.prepareQC))
-	s.inner.Store(i)
 	return nil
 }
