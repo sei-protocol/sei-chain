@@ -951,6 +951,7 @@ func (db *DB) Close() error {
 	// Wait for any ongoing prune to finish, then block new prunes
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
+	errs := []error{}
 
 	errs := []error{}
 	// Close rewrite channel first - must wait for background goroutine before closing WAL
