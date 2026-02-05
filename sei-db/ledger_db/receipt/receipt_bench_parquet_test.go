@@ -37,6 +37,10 @@ func benchmarkParquetWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) 
 	ps.config.BlockFlushInterval = 25
 
 	var seed uint64
+	totalReceipts := receiptsPerBlock * blocks
+	bytesPerReceipt := receiptBytesPerReceipt(b)
+	totalBytes := int64(bytesPerReceipt * totalReceipts)
+	b.SetBytes(totalBytes)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -57,7 +61,7 @@ func benchmarkParquetWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) 
 	}
 	b.StopTimer()
 
-	reportBenchMetrics(b, receiptsPerBlock*blocks, blocks)
+	reportBenchMetrics(b, totalReceipts, totalBytes, blocks)
 }
 
 // benchmarkParquetWriteNoWAL benchmarks parquet writes bypassing WAL entirely.
@@ -87,6 +91,10 @@ func benchmarkParquetWriteNoWAL(b *testing.B, receiptsPerBlock int, blocks int) 
 	ps.config.BlockFlushInterval = 10000
 
 	var seed uint64
+	totalReceipts := receiptsPerBlock * blocks
+	bytesPerReceipt := receiptBytesPerReceipt(b)
+	totalBytes := int64(bytesPerReceipt * totalReceipts)
+	b.SetBytes(totalBytes)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -109,7 +117,7 @@ func benchmarkParquetWriteNoWAL(b *testing.B, receiptsPerBlock int, blocks int) 
 	}
 	b.StopTimer()
 
-	reportBenchMetrics(b, receiptsPerBlock*blocks, blocks)
+	reportBenchMetrics(b, totalReceipts, totalBytes, blocks)
 }
 
 // writeParquetNoWAL writes receipts directly to parquet buffers, bypassing WAL.
@@ -125,9 +133,13 @@ func writeParquetNoWAL(ps *parquetReceiptStore, blockNumber uint64, records []Re
 		}
 
 		receipt := record.Receipt
-		receiptBytes, err := receipt.Marshal()
-		if err != nil {
-			return err
+		receiptBytes := record.ReceiptBytes
+		if len(receiptBytes) == 0 {
+			var err error
+			receiptBytes, err = receipt.Marshal()
+			if err != nil {
+				return err
+			}
 		}
 
 		txLogs := getLogsForTx(receipt, 0)

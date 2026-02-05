@@ -228,9 +228,9 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 
 	// Group receipts by block for batched WAL writes
 	type blockBatch struct {
-		blockNumber   uint64
-		receiptBytes  [][]byte
-		inputs        []parquetReceiptInput
+		blockNumber  uint64
+		receiptBytes [][]byte
+		inputs       []parquetReceiptInput
 	}
 
 	var (
@@ -266,9 +266,13 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 			logStartIndex = 0
 		}
 
-		receiptBytes, err := receipt.Marshal()
-		if err != nil {
-			return err
+		receiptBytes := record.ReceiptBytes
+		if len(receiptBytes) == 0 {
+			var err error
+			receiptBytes, err = receipt.Marshal()
+			if err != nil {
+				return err
+			}
 		}
 		currentBatch.receiptBytes = append(currentBatch.receiptBytes, receiptBytes)
 

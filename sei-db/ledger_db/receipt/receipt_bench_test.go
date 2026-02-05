@@ -14,14 +14,13 @@ import (
 )
 
 // BenchmarkReceiptWriteAsync compares async write throughput between pebble and parquet.
-// Writes total receipts across 100 blocks (realistic block distribution).
+// Writes total receipts across 100 blocks.
 func BenchmarkReceiptWriteAsync(b *testing.B) {
 	const blocks = 100
 	// Total receipts spread across 100 blocks
-	// 1,000 total = 10 receipts/block
-	// 10,000 total = 100 receipts/block
 	// 100,000 total = 1,000 receipts/block
-	totalReceipts := []int{1_000, 10_000}
+	// 1,000,000 total = 10,000 receipts/block
+	totalReceipts := []int{100_000, 1_000_000}
 	for _, total := range totalReceipts {
 		receiptsPerBlock := total / blocks
 		b.Run(fmt.Sprintf("blocks=%d/receipts=%d/per_block=%d", blocks, total, receiptsPerBlock), func(b *testing.B) {
@@ -66,6 +65,10 @@ func benchmarkPebbleWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) {
 	}
 
 	var seed uint64
+	totalReceipts := receiptsPerBlock * blocks
+	bytesPerReceipt := receiptBytesPerReceipt(b)
+	totalBytes := int64(bytesPerReceipt * totalReceipts)
+	b.SetBytes(totalBytes)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -82,7 +85,7 @@ func benchmarkPebbleWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) {
 	}
 	b.StopTimer()
 
-	reportBenchMetrics(b, receiptsPerBlock*blocks, blocks)
+	reportBenchMetrics(b, totalReceipts, totalBytes, blocks)
 }
 
 // applyReceiptsAsync writes receipts to pebble with async durability.
@@ -92,9 +95,13 @@ func applyReceiptsAsync(store *receiptStore, version int64, receipts []ReceiptRe
 		if record.Receipt == nil {
 			continue
 		}
-		marshalledReceipt, err := record.Receipt.Marshal()
-		if err != nil {
-			return err
+		marshalledReceipt := record.ReceiptBytes
+		if len(marshalledReceipt) == 0 {
+			var err error
+			marshalledReceipt, err = record.Receipt.Marshal()
+			if err != nil {
+				return err
+			}
 		}
 		kvPair := &iavl.KVPair{
 			Key:   types.ReceiptKey(record.TxHash),
@@ -131,12 +138,12 @@ func makeDummyReceiptBatch(blockNumber uint64, count int, seed uint64) []Receipt
 	for i := 0; i < count; i++ {
 		txHash := hashFromUint64(seed + uint64(i))
 		receipt := &types.Receipt{
-			TxHashHex:        txHash.Hex(),
-			BlockNumber:      blockNumber,
-			TransactionIndex: uint32(i),
-			GasUsed:          52000, // Typical ERC20 transfer gas
+			TxHashHex:         txHash.Hex(),
+			BlockNumber:       blockNumber,
+			TransactionIndex:  uint32(i),
+			GasUsed:           52000, // Typical ERC20 transfer gas
 			CumulativeGasUsed: uint64(52000 * (i + 1)),
-			Status:           1, // Success
+			Status:            1, // Success
 			Logs: []*types.Log{
 				{
 					Address: tokenAddress,
@@ -146,9 +153,14 @@ func makeDummyReceiptBatch(blockNumber uint64, count int, seed uint64) []Receipt
 				},
 			},
 		}
+		receiptBytes, err := receipt.Marshal()
+		if err != nil {
+			panic(fmt.Sprintf("failed to marshal receipt in benchmark setup: %v", err))
+		}
 		records[i] = ReceiptRecord{
-			TxHash:  txHash,
-			Receipt: receipt,
+			TxHash:       txHash,
+			Receipt:      receipt,
+			ReceiptBytes: receiptBytes,
 		}
 	}
 	return records
@@ -160,7 +172,23 @@ func hashFromUint64(value uint64) common.Hash {
 	return common.BytesToHash(buf[:])
 }
 
-func reportBenchMetrics(b *testing.B, totalReceipts int, blocks int) {
+func receiptBytesPerReceipt(b *testing.B) int {
+	b.Helper()
+	records := makeDummyReceiptBatch(1, 1, 0)
+	if len(records) == 0 || records[0].Receipt == nil {
+		b.Fatalf("failed to build receipt for size calculation")
+	}
+	if len(records[0].ReceiptBytes) > 0 {
+		return len(records[0].ReceiptBytes)
+	}
+	data, err := records[0].Receipt.Marshal()
+	if err != nil {
+		b.Fatalf("failed to marshal receipt for size calculation: %v", err)
+	}
+	return len(data)
+}
+
+func reportBenchMetrics(b *testing.B, totalReceipts int, totalBytes int64, blocks int) {
 	b.Helper()
 	elapsed := b.Elapsed()
 	if elapsed > 0 && b.N > 0 {
@@ -168,8 +196,11 @@ func reportBenchMetrics(b *testing.B, totalReceipts int, blocks int) {
 		if perOpSeconds > 0 {
 			receiptsPerSecond := float64(totalReceipts) / perOpSeconds
 			b.ReportMetric(receiptsPerSecond, "receipts/s")
+			bytesPerSecond := float64(totalBytes) / perOpSeconds
+			b.ReportMetric(bytesPerSecond, "bytes/s")
 		}
 	}
 	b.ReportMetric(float64(totalReceipts), "receipts/op")
+	b.ReportMetric(float64(totalBytes), "bytes/op")
 	b.ReportMetric(float64(blocks), "blocks/op")
 }
