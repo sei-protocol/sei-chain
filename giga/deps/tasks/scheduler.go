@@ -174,9 +174,7 @@ func (s *scheduler) findConflicts(task *deliverTxTask) (bool, []int) {
 	var conflicts []int
 	uniq := conflictMapPool.Get().(map[int]struct{})
 	// Clear the map for reuse
-	for k := range uniq {
-		delete(uniq, k)
-	}
+	clear(uniq)
 	defer conflictMapPool.Put(uniq)
 
 	valid := true
