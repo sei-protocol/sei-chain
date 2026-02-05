@@ -319,13 +319,15 @@ func newEVMIterator(db *pebble.DB, start, end []byte, version int64, reverse boo
 	defer func() { _ = iter.Close() }()
 
 	for iter.First(); iter.Valid(); iter.Next() {
-		rawKey, keyVersion := decodeKey(iter.Key())
+		iterKey := iter.Key()
 
-		// Skip metadata keys
-		keyStr := string(rawKey)
-		if keyStr == latestVersionKey || keyStr == earliestVersionKey {
+		// Skip metadata keys (check raw key before decoding, since metadata keys don't have version suffix)
+		if bytes.Equal(iterKey, []byte(latestVersionKey)) || bytes.Equal(iterKey, []byte(earliestVersionKey)) {
 			continue
 		}
+
+		rawKey, keyVersion := decodeKey(iterKey)
+		keyStr := string(rawKey)
 
 		// Skip if version is too new
 		if keyVersion > version {
