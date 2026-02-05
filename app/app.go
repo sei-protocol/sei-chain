@@ -2106,7 +2106,7 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 				ctx.Logger().Error(fmt.Sprintf("error decoding transaction at index %d due to %s", idx, err))
 				typedTxs[idx] = nil
 			} else {
-				if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM {
+				if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM && !app.GigaExecutorEnabled {
 					msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
 					if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.ChainID(ctx), app.EvmKeeper.EthBlockTestConfig.Enabled); err != nil {
 						ctx.Logger().Error(fmt.Sprintf("error preprocessing EVM tx due to %s", err))
