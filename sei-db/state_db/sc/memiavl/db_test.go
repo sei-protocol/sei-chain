@@ -153,8 +153,10 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 	close(stopCh)
 	wg.Wait()
 
-	db.pruneSnapshotLock.Lock()
-	defer db.pruneSnapshotLock.Unlock()
+	// Wait for any ongoing prune to finish
+	require.Eventually(t, func() bool {
+		return !db.pruningInProgress.Load()
+	}, time.Second, 10*time.Millisecond, "prune should complete")
 
 	entries, err := os.ReadDir(db.dir)
 	require.NoError(t, err)

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alitto/pond"
@@ -74,8 +75,11 @@ type DB struct {
 	// timestamp of the last successful snapshot creation
 	// Protected by db.mtx (only accessed in Commit call chain)
 	lastSnapshotTime time.Time
-	// make sure only one snapshot rewrite is running
-	pruneSnapshotLock sync.Mutex
+
+	// pruningInProgress guards concurrent prune operations (CAS-based)
+	pruningInProgress atomic.Bool
+	// closed ensures Close() is idempotent, protected by db.mtx
+	closed bool
 
 	// walIndexDelta is the difference: version - walIndex for any entry.
 	// Since both WAL indices and versions are strictly contiguous, this delta is constant.
@@ -499,7 +503,7 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		TotalMemNodeSize.Store(0)
 		TotalNumOfMemNode.Store(0)
 		db.logger.Info("switched to new memiavl snapshot", "version", db.MultiTree.Version())
-		db.pruneSnapshots()
+		go db.pruneSnapshots()
 
 	default:
 	}
@@ -510,9 +514,18 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 // pruneSnapshots prunes old snapshots, keeping only snapshotKeepRecent recent ones.
 // Note: WAL truncation is now handled by CommitStore after each commit.
 func (db *DB) pruneSnapshots() {
-	// wait until last prune finish
-	db.pruneSnapshotLock.Lock()
-	defer db.pruneSnapshotLock.Unlock()
+	// CAS: only one prune can run at a time
+	if !db.pruningInProgress.CompareAndSwap(false, true) {
+		db.logger.Info("pruneSnapshots skipped, previous prune still in progress")
+		return
+	}
+	defer db.pruningInProgress.Store(false)
+
+	db.logger.Info("pruneSnapshots started")
+	startTime := time.Now()
+	defer func() {
+		db.logger.Info("pruneSnapshots completed", "duration", fmt.Sprintf("%.2fs", time.Since(startTime).Seconds()))
+	}()
 
 	currentVersion, err := currentVersion(db.dir)
 	if err != nil {
@@ -929,9 +942,16 @@ func (db *DB) Close() error {
 	db.logger.Info("Closing memiavl db...")
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
+	// Idempotent: prevent double-close spinning on pruningInProgress CAS
+	if db.closed {
+		return nil
+	}
+	db.closed = true
+	// Wait for any ongoing prune to finish, then block new prunes
+	for !db.pruningInProgress.CompareAndSwap(false, true) {
+		time.Sleep(time.Millisecond)
+	}
 	errs := []error{}
-	db.pruneSnapshotLock.Lock()
-	defer db.pruneSnapshotLock.Unlock()
 
 	// Close rewrite channel first - must wait for background goroutine before closing WAL
 	db.logger.Info("Closing rewrite channel...")
