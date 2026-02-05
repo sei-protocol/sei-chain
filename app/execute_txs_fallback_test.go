@@ -22,9 +22,9 @@ func TestExecuteTxsFallbackTestSuite(t *testing.T) {
 	suite.Run(t, new(ExecuteTxsFallbackTestSuite))
 }
 
-// TestProcessTxsSynchronousGiga_NonEVMTxTriggersError tests that a non-EVM transaction
-// causes ProcessTxsSynchronousGiga to return ErrGigaFallbackToV2
-func (suite *ExecuteTxsFallbackTestSuite) TestProcessTxsSynchronousGiga_NonEVMTxTriggersError() {
+// TestProcessTxsSynchronousGiga_NonEVMTxTriggersFallback tests that a non-EVM transaction
+// causes ProcessTxsSynchronousGiga to return ok=false (fallback needed)
+func (suite *ExecuteTxsFallbackTestSuite) TestProcessTxsSynchronousGiga_NonEVMTxTriggersFallback() {
 	t := suite.T()
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
@@ -52,15 +52,15 @@ func (suite *ExecuteTxsFallbackTestSuite) TestProcessTxsSynchronousGiga_NonEVMTx
 	ctx := testWrapper.Ctx.WithGiga(true)
 
 	// Call ProcessTxsSynchronousGiga with a non-EVM transaction
-	results, execErr := testWrapper.App.ProcessTxsSynchronousGiga(
+	results, ok := testWrapper.App.ProcessTxsSynchronousGiga(
 		ctx,
 		[][]byte{txBz},
 		[]sdk.Tx{tx},
 		[]int{0},
 	)
 
-	// Should return ErrGigaFallbackToV2 because it's a non-EVM transaction
-	require.ErrorIs(t, execErr, gigautils.ErrGigaFallbackToV2)
+	// Should return ok=false because it's a non-EVM transaction (fallback needed)
+	require.False(t, ok)
 	require.Nil(t, results)
 }
 
@@ -74,7 +74,7 @@ func (suite *ExecuteTxsFallbackTestSuite) TestProcessTxsSynchronousGiga_EmptyTxs
 	ctx := testWrapper.Ctx.WithGiga(true)
 
 	// Call with empty transaction list
-	results, execErr := testWrapper.App.ProcessTxsSynchronousGiga(
+	results, ok := testWrapper.App.ProcessTxsSynchronousGiga(
 		ctx,
 		[][]byte{},
 		[]sdk.Tx{},
@@ -82,7 +82,7 @@ func (suite *ExecuteTxsFallbackTestSuite) TestProcessTxsSynchronousGiga_EmptyTxs
 	)
 
 	// Should succeed with empty results
-	require.NoError(t, execErr)
+	require.True(t, ok)
 	require.Empty(t, results)
 }
 
@@ -117,7 +117,7 @@ func (suite *ExecuteTxsFallbackTestSuite) TestProcessTXsWithOCCGiga_NonEVMTxProc
 
 	// Call ProcessTXsWithOCCGiga with a non-EVM transaction
 	// Non-EVM txs should be processed via the v2Scheduler path within the function
-	results, _, execErr := testWrapper.App.ProcessTXsWithOCCGiga(
+	results, _, ok := testWrapper.App.ProcessTXsWithOCCGiga(
 		ctx,
 		[][]byte{txBz},
 		[]sdk.Tx{tx},
@@ -125,8 +125,7 @@ func (suite *ExecuteTxsFallbackTestSuite) TestProcessTXsWithOCCGiga_NonEVMTxProc
 	)
 
 	// Should succeed because non-EVM txs go through v2 scheduler in OCC giga mode
-	// (The tx itself may fail validation, but we shouldn't get ErrGigaFallbackToV2)
-	require.NoError(t, execErr)
+	require.True(t, ok)
 	require.Len(t, results, 1)
 }
 
@@ -140,7 +139,7 @@ func (suite *ExecuteTxsFallbackTestSuite) TestProcessTXsWithOCCGiga_EmptyTxsSucc
 	ctx := testWrapper.Ctx.WithGiga(true).WithIsOCCEnabled(true)
 
 	// Call with empty transaction list
-	results, _, execErr := testWrapper.App.ProcessTXsWithOCCGiga(
+	results, _, ok := testWrapper.App.ProcessTXsWithOCCGiga(
 		ctx,
 		[][]byte{},
 		[]sdk.Tx{},
@@ -148,7 +147,7 @@ func (suite *ExecuteTxsFallbackTestSuite) TestProcessTXsWithOCCGiga_EmptyTxsSucc
 	)
 
 	// Should succeed with empty results
-	require.NoError(t, execErr)
+	require.True(t, ok)
 	require.Empty(t, results)
 }
 
@@ -335,15 +334,6 @@ func (suite *ExecuteTxsFallbackTestSuite) TestGigaAbortCodeAndCodespace() {
 	require.Equal(t, gigautils.GigaAbortInfo, result.Info)
 }
 
-// TestErrGigaFallbackToV2 verifies the sentinel error behavior
-func (suite *ExecuteTxsFallbackTestSuite) TestErrGigaFallbackToV2() {
-	t := suite.T()
-
-	err := gigautils.ErrGigaFallbackToV2
-	require.Error(t, err)
-	require.Equal(t, "giga execution requires fallback to v2", err.Error())
-}
-
 // Test that ProcessTxsSynchronousV2 works correctly (baseline)
 func (suite *ExecuteTxsFallbackTestSuite) TestProcessTxsSynchronousV2_Baseline() {
 	t := suite.T()
@@ -415,13 +405,6 @@ func TestGigaErrorsTestSuite(t *testing.T) {
 func (suite *GigaErrorsTestSuite) TestShouldExecutionAbort_NilError() {
 	t := suite.T()
 	result := gigautils.ShouldExecutionAbort(nil)
-	require.False(t, result)
-}
-
-func (suite *GigaErrorsTestSuite) TestShouldExecutionAbort_NonAbortError() {
-	t := suite.T()
-	err := gigautils.ErrGigaFallbackToV2
-	result := gigautils.ShouldExecutionAbort(err)
 	require.False(t, result)
 }
 

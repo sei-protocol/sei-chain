@@ -1359,9 +1359,9 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 }
 
 // ProcessTxsSynchronousGiga executes transactions synchronously using the Giga executor.
-// Returns ErrGigaFallbackToV2 if any transaction requires fallback to v2 execution.
-// The caller is responsible for handling fallback. On error, no changes are committed.
-func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, error) {
+// Returns (results, true) on success, or (nil, false) if fallback to v2 is needed.
+// The caller is responsible for handling fallback. On ok=false, no changes are committed.
+func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, bool) {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
 
 	ms := ctx.MultiStore().CacheMultiStore()
@@ -1372,8 +1372,8 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		evmMsg := app.GetEVMMsg(typedTxs[i])
 		// If not an EVM tx, we need to fallback to v2 processing for the entire batch
 		if evmMsg == nil {
-			// Return error - caller handles fallback. Cache is not written, so changes are discarded.
-			return nil, gigautils.ErrGigaFallbackToV2
+			// Return false - caller handles fallback. Cache is not written, so changes are discarded.
+			return nil, false
 		}
 
 		// Execute EVM transaction through giga executor
@@ -1381,8 +1381,8 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		if execErr != nil {
 			// Check if this is a fail-fast error (Cosmos precompile interop detected)
 			if gigautils.ShouldExecutionAbort(execErr) {
-				// Return error - caller handles fallback. Cache is not written, so changes are discarded.
-				return nil, gigautils.ErrGigaFallbackToV2
+				// Return false - caller handles fallback. Cache is not written, so changes are discarded.
+				return nil, false
 			}
 			txResults[i] = &abci.ExecTxResult{
 				Code: 1,
@@ -1398,7 +1398,7 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 
 	// Commit all changes only on success
 	ms.Write()
-	return txResults, nil
+	return txResults, true
 }
 
 type ChannelResult struct {
@@ -1448,22 +1448,22 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs [
 	// Try giga execution first if enabled
 	if app.GigaExecutorEnabled {
 		var results []*abci.ExecTxResult
-		var err error
+		var ok bool
 		var newCtx sdk.Context
 
 		if app.GigaOCCEnabled {
-			results, newCtx, err = app.ProcessTXsWithOCCGiga(ctx.WithGiga(true), txs, typedTxs, absoluteTxIndices)
+			results, newCtx, ok = app.ProcessTXsWithOCCGiga(ctx.WithGiga(true), txs, typedTxs, absoluteTxIndices)
 		} else {
-			results, err = app.ProcessTxsSynchronousGiga(ctx.WithGiga(true), txs, typedTxs, absoluteTxIndices)
+			results, ok = app.ProcessTxsSynchronousGiga(ctx.WithGiga(true), txs, typedTxs, absoluteTxIndices)
 			newCtx = ctx
 		}
 
-		if err == nil {
+		if ok {
 			return results, newCtx
 		}
 
 		// Log and track fallback
-		ctx.Logger().Info("giga execution falling back to v2", "error", err, "height", ctx.BlockHeight())
+		ctx.Logger().Info("giga execution falling back to v2", "height", ctx.BlockHeight())
 		metrics.IncrGigaFallbackToV2Counter()
 		// Fall through to v2 execution below
 	}
@@ -1539,9 +1539,9 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 }
 
 // ProcessTXsWithOCCGiga runs the transactions concurrently via OCC, using the Giga executor.
-// Returns ErrGigaFallbackToV2 if any transaction requires fallback to v2 execution.
+// Returns (results, ctx, true) on success, or (nil, ctx, false) if fallback to v2 is needed.
 // The caller is responsible for handling fallback and cleanup.
-func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context, error) {
+func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context, bool) {
 	evmEntries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	v2Entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	for txIndex, tx := range txs {
@@ -1567,14 +1567,14 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 		evmBatchResult, evmSchedErr = evmScheduler.ProcessAll(evmCtx, evmEntries)
 		if evmSchedErr != nil {
 			ctx.Logger().Error("giga OCC scheduler error (EVM txs)", "error", evmSchedErr, "height", ctx.BlockHeight(), "txCount", len(evmEntries))
-			return nil, ctx, evmSchedErr
+			return nil, ctx, false
 		}
 
 		// Check if any transaction requires fallback to v2
 		for _, r := range evmBatchResult {
 			if r.Code == gigautils.GigaAbortCode && r.Codespace == gigautils.GigaAbortCodespace {
-				// Return error - caller handles fallback. Cache is not written, so changes are discarded.
-				return nil, ctx, gigautils.ErrGigaFallbackToV2
+				// Return false - caller handles fallback. Cache is not written, so changes are discarded.
+				return nil, ctx, false
 			}
 		}
 
@@ -1595,7 +1595,7 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 		v2BatchResult, v2SchedErr = v2Scheduler.ProcessAll(ctx.WithGiga(false), v2Entries)
 		if v2SchedErr != nil {
 			ctx.Logger().Error("giga OCC scheduler error (non-EVM txs)", "error", v2SchedErr, "height", ctx.BlockHeight(), "txCount", len(v2Entries))
-			return nil, ctx, v2SchedErr
+			return nil, ctx, false
 		}
 	}
 
@@ -1627,7 +1627,7 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 		})
 	}
 
-	return execResults, ctx, nil
+	return execResults, ctx, true
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
