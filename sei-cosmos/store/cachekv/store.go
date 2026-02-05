@@ -146,10 +146,11 @@ func (store *Store) ReverseIterator(start, end []byte) types.Iterator {
 	return store.iterator(start, end, false)
 }
 
-func (store *Store) ensureSortedCache() {
+func (store *Store) getOrInitSortedCache() *dbm.MemDB {
 	if store.sortedCache == nil {
 		store.sortedCache = dbm.NewMemDB()
 	}
+	return store.sortedCache
 }
 
 func (store *Store) iterator(start, end []byte, ascending bool) types.Iterator {
@@ -173,9 +174,8 @@ func (store *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 			panic(err)
 		}
 	}()
-	store.ensureSortedCache()
 	store.dirtyItems(start, end)
-	cache = newMemIterator(start, end, store.sortedCache, store.deleted, ascending)
+	cache = newMemIterator(start, end, store.getOrInitSortedCache(), store.deleted, ascending)
 	return NewCacheMergeIterator(parent, cache, ascending, store.storeKey)
 }
 
@@ -308,13 +308,13 @@ func (store *Store) clearUnsortedCacheSubset(unsorted []*kv.Pair, sortState sort
 		if item.Value == nil {
 			// deleted element, tracked by store.deleted
 			// setting arbitrary value
-			if err := store.sortedCache.Set(item.Key, []byte{}); err != nil {
+			if err := store.getOrInitSortedCache().Set(item.Key, []byte{}); err != nil {
 				panic(err)
 			}
 
 			continue
 		}
-		if err := store.sortedCache.Set(item.Key, item.Value); err != nil {
+		if err := store.getOrInitSortedCache().Set(item.Key, item.Value); err != nil {
 			panic(err)
 		}
 	}
