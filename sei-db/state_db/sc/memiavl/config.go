@@ -7,7 +7,7 @@ const (
 	DefaultAsyncCommitBuffer         = 100
 	DefaultSnapshotPrefetchThreshold = 0.8 // prefetch if <80% pages in cache
 	DefaultSnapshotWriteRateMBps     = 100 // 100 MB/s default
-	DefaultSnapshotWriterLimit       = 4   // hardcoded to 4 for optimal performance
+	DefaultSnapshotWriterLimit       = 4   // controls tree concurrency but not I/O rate (use SnapshotWriteRateMBps for that)
 )
 
 type Config struct {
@@ -38,10 +38,7 @@ type Config struct {
 	// Setting to 0 disables prefetching. Defaults to 0.8
 	SnapshotPrefetchThreshold float64 `mapstructure:"snapshot-prefetch-threshold"`
 
-	// SnapshotWriteRateMBps defines the maximum write rate (MB/s) for snapshot creation.
-	// This is a GLOBAL limit shared across all trees and files in a single snapshot operation.
-	// This helps prevent page cache eviction on machines with limited RAM.
-	// Setting to 0 means unlimited. Defaults to 300 for validators with 128GB RAM.
+	// SnapshotWriteRateMBps is the global snapshot write rate limit in MB/s. 0 = unlimited. Default 100.
 	SnapshotWriteRateMBps int `mapstructure:"snapshot-write-rate-mbps"`
 }
 

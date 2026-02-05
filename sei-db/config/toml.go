@@ -48,12 +48,7 @@ sc-snapshot-min-time-interval = {{ .StateCommit.MemIAVLConfig.SnapshotMinTimeInt
 # Setting to 0 disables prefetching. Defaults to 0.8
 sc-snapshot-prefetch-threshold = {{ .StateCommit.MemIAVLConfig.SnapshotPrefetchThreshold }}
 
-# SnapshotWriteRateMBps defines the maximum write rate (MB/s) for snapshot creation.
-# This is a GLOBAL limit shared across all trees and files in a single snapshot operation.
-# This helps prevent page cache eviction on machines with limited RAM, which can cause
-# block execution cache misses and consensus delays.
-# Setting to 0 means unlimited (for high-end machines).
-# Defaults to 300. Recommended: 100-200 for more conservative setups.
+# Maximum snapshot write rate in MB/s (global across all trees). 0 = unlimited. Default 100.
 sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBps }}
 
 `

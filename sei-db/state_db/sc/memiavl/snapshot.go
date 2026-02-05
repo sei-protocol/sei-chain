@@ -69,9 +69,11 @@ func NewGlobalRateLimiter(rateMBps int) *rate.Limiter {
 	if rateMBps <= 0 {
 		return nil
 	}
-	// Convert MB/s to bytes/s, use rate.Limiter with burst = 4MB (allows some batching)
-	bytesPerSec := rate.Limit(rateMBps * 1024 * 1024)
-	burstBytes := 4 * 1024 * 1024 // 4MB burst for better batching
+	const mb = 1024 * 1024
+	bytesPerSec := rate.Limit(rateMBps * mb)
+	// Burst = 4MB: small enough to spread large bufio flushes (128MB) across
+	// many smaller IO ops, preventing page cache eviction spikes.
+	burstBytes := 4 * mb
 	return rate.NewLimiter(bytesPerSec, burstBytes)
 }
 
