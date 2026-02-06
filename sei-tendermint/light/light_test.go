@@ -2,6 +2,7 @@ package light_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -148,11 +149,11 @@ func TestClientIntegration_VerifyLightBlockAtHeight(t *testing.T) {
 func waitForBlock(ctx context.Context, p provider.Provider, height int64) (*types.LightBlock, error) {
 	for {
 		block, err := p.LightBlock(ctx, height)
-		switch err {
-		case nil:
+		switch {
+		case err == nil:
 			return block, nil
-		// node isn't running yet, wait 1 second and repeat
-		case provider.ErrNoResponse, provider.ErrHeightTooHigh:
+			// node isn't running yet, wait 1 second and repeat
+		case errors.Is(err, provider.ErrNoResponse), errors.Is(err, provider.ErrHeightTooHigh):
 			timer := time.NewTimer(1 * time.Second)
 			select {
 			case <-ctx.Done():
