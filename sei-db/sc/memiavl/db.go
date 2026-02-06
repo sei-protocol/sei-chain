@@ -73,6 +73,9 @@ type DB struct {
 	// snapshot write rate limit in MB/s, 0 means unlimited
 	snapshotWriteRateMBps int
 
+	// closed guards against double Close(), protected by db.mtx
+	closed bool
+
 	// the changelog stream persists all the changesets
 	streamHandler types.Stream[proto.ChangelogEntry]
 
@@ -504,8 +507,10 @@ func (db *DB) pruneSnapshots() {
 
 	startTime := time.Now()
 	defer func() {
-		db.logger.Info("pruneSnapshots completed", "duration", time.Since(startTime))
+		db.logger.Info("pruneSnapshots completed", "duration_sec", fmt.Sprintf("%.2fs", time.Since(startTime).Seconds()))
 	}()
+
+	db.logger.Info("pruneSnapshots started")
 
 	currentVersion, err := currentVersion(db.dir)
 	if err != nil {
@@ -849,6 +854,10 @@ func (db *DB) Close() error {
 	db.logger.Info("Closing memiavl db...")
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
+	if db.closed {
+		return nil
+	}
+	db.closed = true
 	// Wait for any ongoing prune to finish, then block new prunes
 	for !db.pruningInProgress.CompareAndSwap(false, true) {
 		time.Sleep(time.Millisecond)

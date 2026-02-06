@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/im"
 	"github.com/tendermint/tendermint/types"
@@ -283,6 +284,15 @@ type peerManager[C peerConn] struct {
 	// without taking lock on inner.
 	conns utils.AtomicRecv[connSet[C]]
 	inner utils.Watch[*peerManagerInner[C]]
+}
+
+func (p *peerManager[C]) LogState(logger log.Logger) {
+	for inner := range p.inner.Lock() {
+		logger.Info("p2p connections",
+			"regular", fmt.Sprintf("%v/%v", inner.conditionalConns, p.options.maxConns()),
+			"unconditional", inner.conns.Load().Len()-inner.conditionalConns,
+		)
+	}
 }
 
 // PeerUpdatesRecv.
