@@ -64,6 +64,7 @@ func NewStore(
 	logger log.Logger,
 	scConfig config.StateCommitConfig,
 	ssConfig config.StateStoreConfig,
+	evmSSConfig *config.EVMStateStoreConfig,
 	migrateIavl bool,
 	gigaKeys []string,
 ) *Store {
@@ -82,7 +83,9 @@ func NewStore(
 		gigaKeys:     gigaKeys,
 	}
 	if ssConfig.Enable {
-		ssStore, err := ss.NewStateStore(logger, homeDir, ssConfig)
+		// NewStateStoreWithEVM returns CompositeStateStore when EVM is enabled,
+		// otherwise returns plain state store. Both implement the same interface.
+		ssStore, err := ss.NewStateStoreWithEVM(logger, homeDir, ssConfig, evmSSConfig)
 		if err != nil {
 			panic(err)
 		}
