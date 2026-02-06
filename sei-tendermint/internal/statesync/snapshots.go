@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // snapshotKey is a snapshot key used for lookups.

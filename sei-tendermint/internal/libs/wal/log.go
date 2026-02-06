@@ -19,7 +19,7 @@ import (
 	"golang.org/x/sys/unix"
 	"os"
 
-	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 const headerSize int64 = 8

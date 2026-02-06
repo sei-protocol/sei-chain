@@ -3,7 +3,7 @@ package types_test
 import (
 	"time"
 
-	tmtypes "github.com/tendermint/tendermint/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
 	client "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"

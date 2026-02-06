@@ -9,8 +9,8 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
-	"github.com/tendermint/tendermint/rpc/coretypes"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 var errNoHeightSource = errors.New("unable to determine height information")

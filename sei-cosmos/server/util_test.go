@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/spf13/cobra"
-	"github.com/tendermint/tendermint/libs/log"
 	"go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"

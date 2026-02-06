@@ -431,7 +431,7 @@ const file_p2p_p2p_proto_rawDesc = "" +
 	"\tHandshake\x126\n" +
 	"\rnode_auth_key\x18\x01 \x01(\v2\x12.p2p.NodePublicKeyR\vnodeAuthKey\x12\"\n" +
 	"\rnode_auth_sig\x18\x02 \x01(\fR\vnodeAuthSig\x12.\n" +
-	"\x13sei_giga_connection\x18\x03 \x01(\bR\x11seiGigaConnectionB2Z0github.com/tendermint/tendermint/internal/p2p/pbb\x06proto3"
+	"\x13sei_giga_connection\x18\x03 \x01(\bR\x11seiGigaConnectionBBZ@github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pbb\x06proto3"
 
 var (
 	file_p2p_p2p_proto_rawDescOnce sync.Once
