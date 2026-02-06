@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 )
 
@@ -37,7 +36,7 @@ type StateCommitConfig struct {
 	MemIAVLConfig memiavl.Config
 
 	// FlatKVConfig is the configuration for the FlatKV (EVM) backend
-	FlatKVConfig flatkv.Config
+	FlatKVConfig FlatKVConfig
 }
 
 // DefaultStateCommitConfig returns the default StateCommitConfig
@@ -47,7 +46,7 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		WriteMode:     CosmosOnlyWrite,
 		ReadMode:      CosmosOnlyRead,
 		MemIAVLConfig: memiavl.DefaultConfig(),
-		FlatKVConfig:  flatkv.DefaultConfig(),
+		FlatKVConfig:  DefaultFlatKVConfig(),
 	}
 }
 
