@@ -495,6 +495,11 @@ func (c Context) WithIsTracing(it bool) Context {
 	if it {
 		c.storeTracer = NewStoreTracer()
 	}
+	// Invalidate gaskv cache — tracing state affects store wrapping.
+	if c.gaskvStoresMu != nil {
+		c.gaskvStores = make(map[StoreKey]KVStore)
+		c.gaskvStoresMu = &sync.RWMutex{}
+	}
 	return c
 }
 
