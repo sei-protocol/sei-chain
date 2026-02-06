@@ -3,6 +3,7 @@ package cachemulti
 import (
 	"fmt"
 	"io"
+	"sync"
 
 	dbm "github.com/tendermint/tm-db"
 
@@ -21,6 +22,7 @@ import (
 // NOTE: a Store (and MultiStores in general) should never expose the
 // keys for the substores.
 type Store struct {
+	mu               *sync.RWMutex
 	db               types.CacheKVStore
 	stores           map[types.StoreKey]types.CacheWrap
 	storeParents     map[types.StoreKey]types.CacheWrapper // lazy: not yet wrapped in cachekv
@@ -63,6 +65,7 @@ func NewFromKVStore(
 
 func newStoreWithoutGiga(store types.KVStore, stores map[types.StoreKey]types.CacheWrapper, keys map[string]types.StoreKey, gigaKeys []types.StoreKey, traceWriter io.Writer, traceContext types.TraceContext) Store {
 	cms := Store{
+		mu:           &sync.RWMutex{},
 		db:           cachekv.NewStore(store, nil, types.DefaultCacheSizeLimit),
 		stores:       make(map[types.StoreKey]types.CacheWrap, len(stores)),
 		storeParents: make(map[types.StoreKey]types.CacheWrapper, len(stores)),
@@ -91,15 +94,17 @@ func NewStore(
 }
 
 func newCacheMultiStoreFromCMS(cms Store) Store {
+	cms.mu.Lock()
+
 	// Materialize all lazy parents on the parent CMS first.
 	// This ensures the child CMS wraps cachekv stores (not raw stores),
 	// so child.Write() writes to the parent's cachekv — not directly to the
 	// underlying commit store, which would bypass the parent's caching layer.
 	for k := range cms.storeParents {
-		cms.ensureStore(k)
+		cms.ensureStoreLocked(k)
 	}
 	for k := range cms.gigaStoreParents {
-		cms.ensureGigaStore(k)
+		cms.ensureGigaStoreLocked(k)
 	}
 
 	stores := make(map[types.StoreKey]types.CacheWrapper, len(cms.stores))
@@ -112,11 +117,34 @@ func newCacheMultiStoreFromCMS(cms Store) Store {
 		gigaStores[k] = v
 	}
 
+	cms.mu.Unlock()
+
 	return NewFromKVStore(cms.db, stores, gigaStores, cms.keys, cms.gigaKeys, cms.traceWriter, cms.traceContext)
 }
 
 // ensureStore lazily creates a cachekv wrapper for a store key on first access.
+// Thread-safe: uses double-checked locking so the common path (already materialized)
+// only takes an RLock.
 func (cms Store) ensureStore(key types.StoreKey) types.CacheWrap {
+	if cms.mu == nil {
+		// No lazy initialization possible (zero-value or eager store).
+		s := cms.stores[key]
+		return s
+	}
+	cms.mu.RLock()
+	if s, ok := cms.stores[key]; ok {
+		cms.mu.RUnlock()
+		return s
+	}
+	cms.mu.RUnlock()
+
+	cms.mu.Lock()
+	defer cms.mu.Unlock()
+	return cms.ensureStoreLocked(key)
+}
+
+// ensureStoreLocked materializes a store. Caller must hold cms.mu write lock.
+func (cms Store) ensureStoreLocked(key types.StoreKey) types.CacheWrap {
 	if s, ok := cms.stores[key]; ok {
 		return s
 	}
@@ -135,7 +163,26 @@ func (cms Store) ensureStore(key types.StoreKey) types.CacheWrap {
 }
 
 // ensureGigaStore lazily creates a giga cachekv wrapper on first access.
+// Thread-safe: uses double-checked locking.
 func (cms Store) ensureGigaStore(key types.StoreKey) types.KVStore {
+	if cms.mu == nil {
+		s := cms.gigaStores[key]
+		return s
+	}
+	cms.mu.RLock()
+	if s, ok := cms.gigaStores[key]; ok {
+		cms.mu.RUnlock()
+		return s
+	}
+	cms.mu.RUnlock()
+
+	cms.mu.Lock()
+	defer cms.mu.Unlock()
+	return cms.ensureGigaStoreLocked(key)
+}
+
+// ensureGigaStoreLocked materializes a giga store. Caller must hold cms.mu write lock.
+func (cms Store) ensureGigaStoreLocked(key types.StoreKey) types.KVStore {
 	if s, ok := cms.gigaStores[key]; ok {
 		return s
 	}
@@ -185,16 +232,20 @@ func (cms Store) GetStoreType() types.StoreType {
 // Write calls Write on each underlying store.
 // Only materialized (accessed) stores need writing — lazy stores have no dirty data.
 func (cms Store) Write() {
+	cms.mu.RLock()
 	cms.db.Write()
 	for _, store := range cms.stores {
 		store.Write()
 	}
+	cms.mu.RUnlock()
 }
 
 func (cms Store) WriteGiga() {
+	cms.mu.RLock()
 	for _, store := range cms.gigaStores {
 		store.(types.CacheKVStore).Write()
 	}
+	cms.mu.RUnlock()
 }
 
 // Implements CacheWrapper.
@@ -248,6 +299,8 @@ func (cms Store) GetGigaKVStore(key types.StoreKey) types.KVStore {
 }
 
 func (cms Store) IsStoreGiga(key types.StoreKey) bool {
+	cms.mu.RLock()
+	defer cms.mu.RUnlock()
 	if _, ok := cms.gigaStores[key]; ok {
 		return true
 	}
@@ -270,6 +323,8 @@ func (cms Store) StoreKeys() []types.StoreKey {
 
 // SetKVStores sets the underlying KVStores via a handler for each key
 func (cms Store) SetKVStores(handler func(sk types.StoreKey, s types.KVStore) types.CacheWrap) types.MultiStore {
+	cms.mu.Lock()
+	defer cms.mu.Unlock()
 	// Process already-materialized stores
 	for k, s := range cms.stores {
 		cms.stores[k] = handler(k, s.(types.KVStore))
@@ -288,6 +343,8 @@ func (cms Store) SetKVStores(handler func(sk types.StoreKey, s types.KVStore) ty
 }
 
 func (cms Store) SetGigaKVStores(handler func(sk types.StoreKey, s types.KVStore) types.KVStore) types.MultiStore {
+	cms.mu.Lock()
+	defer cms.mu.Unlock()
 	// Process already-materialized giga stores
 	for k, s := range cms.gigaStores {
 		cms.gigaStores[k] = handler(k, s)
