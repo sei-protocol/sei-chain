@@ -102,6 +102,15 @@ func IncrTxProcessTypeCounter(processType string) {
 	)
 }
 
+// sei_giga_fallback_to_v2_count
+func IncrGigaFallbackToV2Counter() {
+	SafeMetricsIncrCounterWithLabels(
+		[]string{"sei", "giga", "fallback", "to", "v2", "count"},
+		1,
+		[]metrics.Label{},
+	)
+}
+
 // Measures the time taken to process a block by the process type
 // Metric Names:
 //

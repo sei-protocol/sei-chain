@@ -153,14 +153,13 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 	close(stopCh)
 	wg.Wait()
 
-	db.pruneSnapshotLock.Lock()
-	defer db.pruneSnapshotLock.Unlock()
-
-	entries, err := os.ReadDir(db.dir)
-	require.NoError(t, err)
-
+	// Wait for async prune to finish by checking the actual directory state.
+	// After prune completes, only 4 entries should remain:
 	// snapshot, current link, LOCK, changelog WAL dir
-	require.Equal(t, 4, len(entries))
+	require.Eventually(t, func() bool {
+		entries, err := os.ReadDir(db.dir)
+		return err == nil && len(entries) == 4
+	}, 3*time.Second, 50*time.Millisecond, "prune should complete and leave exactly 4 entries")
 	// stopCh is closed by defer above
 }
 
