@@ -1844,7 +1844,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 
 	// Create state DB for this transaction
-	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)
+	stateDB := gigaevmstate.NewDBImplWithoutSnapshot(ctx, &app.GigaEvmKeeper, false)
 	defer stateDB.Cleanup()
 
 	// Get gas pool
