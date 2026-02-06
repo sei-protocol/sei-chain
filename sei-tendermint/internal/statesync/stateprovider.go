@@ -31,7 +31,7 @@ const (
 	consensusParamsResponseTimeout = 5 * time.Second
 )
 
-//go:generate ../scripts/mockery_generate.sh StateProvider
+//go:generate ../../scripts/mockery_generate.sh StateProvider
 
 // StateProvider is a provider of trusted state data for bootstrapping a node. This refers
 // to the state.State object, not the state machine. There are two implementations. One

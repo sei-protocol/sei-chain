@@ -20,7 +20,15 @@ type StateProvider struct {
 func (_m *StateProvider) AppHash(ctx context.Context, height uint64) ([]byte, error) {
 	ret := _m.Called(ctx, height)
 
+	if len(ret) == 0 {
+		panic("no return value specified for AppHash")
+	}
+
 	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) ([]byte, error)); ok {
+		return rf(ctx, height)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, uint64) []byte); ok {
 		r0 = rf(ctx, height)
 	} else {
@@ -29,7 +37,6 @@ func (_m *StateProvider) AppHash(ctx context.Context, height uint64) ([]byte, er
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, uint64) error); ok {
 		r1 = rf(ctx, height)
 	} else {
@@ -43,7 +50,15 @@ func (_m *StateProvider) AppHash(ctx context.Context, height uint64) ([]byte, er
 func (_m *StateProvider) Commit(ctx context.Context, height uint64) (*types.Commit, error) {
 	ret := _m.Called(ctx, height)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Commit")
+	}
+
 	var r0 *types.Commit
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) (*types.Commit, error)); ok {
+		return rf(ctx, height)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, uint64) *types.Commit); ok {
 		r0 = rf(ctx, height)
 	} else {
@@ -52,7 +67,6 @@ func (_m *StateProvider) Commit(ctx context.Context, height uint64) (*types.Comm
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, uint64) error); ok {
 		r1 = rf(ctx, height)
 	} else {
@@ -66,14 +80,21 @@ func (_m *StateProvider) Commit(ctx context.Context, height uint64) (*types.Comm
 func (_m *StateProvider) State(ctx context.Context, height uint64) (state.State, error) {
 	ret := _m.Called(ctx, height)
 
+	if len(ret) == 0 {
+		panic("no return value specified for State")
+	}
+
 	var r0 state.State
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) (state.State, error)); ok {
+		return rf(ctx, height)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, uint64) state.State); ok {
 		r0 = rf(ctx, height)
 	} else {
 		r0 = ret.Get(0).(state.State)
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, uint64) error); ok {
 		r1 = rf(ctx, height)
 	} else {
@@ -83,13 +104,12 @@ func (_m *StateProvider) State(ctx context.Context, height uint64) (state.State,
 	return r0, r1
 }
 
-type mockConstructorTestingTNewStateProvider interface {
+// NewStateProvider creates a new instance of StateProvider. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewStateProvider(t interface {
 	mock.TestingT
 	Cleanup(func())
-}
-
-// NewStateProvider creates a new instance of StateProvider. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-func NewStateProvider(t mockConstructorTestingTNewStateProvider) *StateProvider {
+}) *StateProvider {
 	mock := &StateProvider{}
 	mock.Mock.Test(t)
 
