@@ -50,7 +50,8 @@ type Options struct {
 
 	// SnapshotWriteRateMBps defines the maximum write rate (MB/s) for snapshot creation.
 	// This is a GLOBAL limit shared across all trees and files.
-	// Default: 300. Recommended: 100 for more conservative setups, 0 for unlimited (high-end machines).
+	// Default: 100. Set to a very high value (e.g., 10000) for effectively unlimited.
+	// 0 or unset will use the default.
 	SnapshotWriteRateMBps int
 }
 
@@ -72,11 +73,15 @@ func (opts *Options) FillDefaults() {
 	}
 
 	if opts.SnapshotWriterLimit <= 0 {
-		opts.SnapshotWriterLimit = 4 // Fixed at 4 for optimal balance
+		opts.SnapshotWriterLimit = 2 // Default to 2 for lower I/O pressure on most validators
 	}
 
 	if opts.SnapshotMinTimeInterval <= 0 {
 		opts.SnapshotMinTimeInterval = 1 * time.Hour
+	}
+
+	if opts.SnapshotWriteRateMBps <= 0 {
+		opts.SnapshotWriteRateMBps = config.DefaultSnapshotWriteRateMBps
 	}
 
 	opts.PrefetchThreshold = 0.8

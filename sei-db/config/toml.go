@@ -47,8 +47,9 @@ sc-snapshot-prefetch-threshold = {{ .StateCommit.SnapshotPrefetchThreshold }}
 # This is a GLOBAL limit shared across all trees and files in a single snapshot operation.
 # This helps prevent page cache eviction on machines with limited RAM, which can cause
 # block execution cache misses and consensus delays.
-# Default: 300 MB/s (balanced for most validators with 128GB RAM).
-# Recommended: 100 MB/s for more conservative setups, 0 for unlimited (high-end machines only).
+# Default: 100 MB/s (conservative for most validators including 64GB RAM machines).
+# Set to a very high value (e.g., 10000) for effectively unlimited.
+# 0 or unset will use the default (100 MB/s).
 sc-snapshot-write-rate-mbps = {{ .StateCommit.SnapshotWriteRateMBps }}
 
 # OnlyAllowExportOnSnapshotVersion defines whether we only allow state sync
