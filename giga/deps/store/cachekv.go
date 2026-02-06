@@ -13,8 +13,8 @@ import (
 // Store wraps an in-memory cache around an underlying types.KVStore.
 type Store struct {
 	mtx       sync.RWMutex
-	cache     *sync.Map
-	deleted   *sync.Map
+	cache     map[string]*types.CValue
+	deleted   map[string]struct{}
 	parent    types.KVStore
 	storeKey  types.StoreKey
 	cacheSize int
@@ -25,8 +25,8 @@ var _ types.CacheKVStore = (*Store)(nil)
 // NewStore creates a new Store object
 func NewStore(parent types.KVStore, storeKey types.StoreKey, cacheSize int) *Store {
 	return &Store{
-		cache:     &sync.Map{},
-		deleted:   &sync.Map{},
+		cache:     make(map[string]*types.CValue),
+		deleted:   make(map[string]struct{}),
 		parent:    parent,
 		storeKey:  storeKey,
 		cacheSize: cacheSize,
@@ -44,8 +44,8 @@ func (store *Store) GetStoreType() types.StoreType {
 
 // getFromCache queries the write-through cache for a value by key.
 func (store *Store) getFromCache(key []byte) []byte {
-	if cv, ok := store.cache.Load(UnsafeBytesToStr(key)); ok {
-		return cv.(*types.CValue).Value()
+	if cv, ok := store.cache[UnsafeBytesToStr(key)]; ok {
+		return cv.Value()
 	}
 	return store.parent.Get(key)
 }
@@ -84,12 +84,11 @@ func (store *Store) Write() {
 	// Not the best, but probably not a bottleneck depending.
 	keys := []string{}
 
-	store.cache.Range(func(key, value any) bool {
-		if value.(*types.CValue).Dirty() {
-			keys = append(keys, key.(string))
+	for key, value := range store.cache {
+		if value.Dirty() {
+			keys = append(keys, key)
 		}
-		return true
-	})
+	}
 	sort.Strings(keys)
 	// TODO: Consider allowing usage of Batch, which would allow the write to
 	// at least happen atomically.
@@ -103,10 +102,10 @@ func (store *Store) Write() {
 			continue
 		}
 
-		cacheValue, ok := store.cache.Load(key)
-		if ok && cacheValue.(*types.CValue).Value() != nil {
+		cacheValue, ok := store.cache[key]
+		if ok && cacheValue.Value() != nil {
 			// It already exists in the parent, hence delete it.
-			store.parent.Set([]byte(key), cacheValue.(*types.CValue).Value())
+			store.parent.Set([]byte(key), cacheValue.Value())
 		}
 	}
 
@@ -115,14 +114,12 @@ func (store *Store) Write() {
 	// writes immediately visible until Commit(). By keeping the cache populated
 	// with clean entries, subsequent reads will still hit the cache instead of
 	// falling through to the parent which can't read uncommitted data.
-	store.cache.Range(func(key, value any) bool {
-		cv := value.(*types.CValue)
+	for key, cv := range store.cache {
 		// Replace with a clean (non-dirty) version of the same value
-		store.cache.Store(key, types.NewCValue(cv.Value(), false))
-		return true
-	})
+		store.cache[key] = types.NewCValue(cv.Value(), false)
+	}
 	// Clear the deleted map since those deletes have been sent to parent
-	store.deleted = &sync.Map{}
+	store.deleted = make(map[string]struct{})
 }
 
 // CacheWrap implements CacheWrapper.
@@ -144,16 +141,16 @@ func (store *Store) setCacheValue(key, value []byte, deleted bool, dirty bool) {
 	types.AssertValidKey(key)
 
 	keyStr := UnsafeBytesToStr(key)
-	store.cache.Store(keyStr, types.NewCValue(value, dirty))
+	store.cache[keyStr] = types.NewCValue(value, dirty)
 	if deleted {
-		store.deleted.Store(keyStr, struct{}{})
+		store.deleted[keyStr] = struct{}{}
 	} else {
-		store.deleted.Delete(keyStr)
+		delete(store.deleted, keyStr)
 	}
 }
 
 func (store *Store) isDeleted(key string) bool {
-	_, ok := store.deleted.Load(key)
+	_, ok := store.deleted[key]
 	return ok
 }
 
@@ -173,20 +170,18 @@ func (store *Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
 	for _, pk := range store.parent.GetAllKeyStrsInRange(start, end) {
 		keyStrs[pk] = struct{}{}
 	}
-	store.cache.Range(func(key, value any) bool {
-		kbz := []byte(key.(string))
+	for key, cv := range store.cache {
+		kbz := []byte(key)
 		if bytes.Compare(kbz, start) < 0 || bytes.Compare(kbz, end) >= 0 {
 			// we don't want to break out of the iteration since cache isn't sorted
-			return true
+			continue
 		}
-		cv := value.(*types.CValue)
 		if cv.Value() == nil {
-			delete(keyStrs, key.(string))
+			delete(keyStrs, key)
 		} else {
-			keyStrs[key.(string)] = struct{}{}
+			keyStrs[key] = struct{}{}
 		}
-		return true
-	})
+	}
 	for k := range keyStrs {
 		res = append(res, k)
 	}
