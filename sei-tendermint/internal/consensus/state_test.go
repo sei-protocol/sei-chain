@@ -2471,6 +2471,109 @@ func TestGossipTransactionKeyOnlyConfig(t *testing.T) {
 	}
 }
 
+func TestProposalBlockIsNotRecreatedAfterCommitMismatch(t *testing.T) {
+	config := configSetup(t)
+	ctx := t.Context()
+
+	cs, vss := makeState(ctx, t, makeStateArgs{config: config})
+	cs.config.GossipTransactionKeyOnly = true
+
+	height, round := cs.roundState.Height(), cs.roundState.Round()
+	round++
+	incrementRound(vss[1:]...)
+	startTestRound(ctx, cs, height, round)
+
+	proposal, _ := decideProposal(ctx, t, cs, vss[1], height, round)
+	peerID, err := types.NewNodeID("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	require.NoError(t, err)
+
+	cs.handleMsg(ctx, msgInfo{&ProposalMessage{proposal}, peerID, tmtime.Now()}, false)
+	rs := cs.GetRoundState()
+	require.NotNil(t, rs.ProposalBlock, "expected proposal block to be created from tx keys")
+	originalPartSetHeader := rs.ProposalBlockParts.Header()
+
+	wrongParts := types.NewPartSetFromData(tmrand.Bytes(256), types.BlockPartSizeBytes)
+	wrongBlockID := types.BlockID{
+		Hash:          tmrand.Bytes(crypto.HashSize),
+		PartSetHeader: wrongParts.Header(),
+	}
+
+	for _, vs := range vss[1:] {
+		vs.Height = height
+		vs.Round = round
+		precommit := signVote(ctx, t, vs, tmproto.PrecommitType, config.ChainID(), wrongBlockID)
+		cs.handleMsg(ctx, msgInfo{&VoteMessage{precommit}, peerID, tmtime.Now()}, false)
+	}
+
+	rs = cs.GetRoundState()
+	require.Nil(t, rs.Proposal, "proposal metadata should be cleared after commit mismatch")
+	require.Nil(t, rs.ProposalBlock, "proposal block should be cleared when commit cert mismatches")
+	require.Equal(t, wrongBlockID.PartSetHeader, rs.ProposalBlockParts.Header(), "part set header should match commit certificate")
+
+	cs.handleMsg(ctx, msgInfo{&ProposalMessage{proposal}, peerID, tmtime.Now()}, false)
+
+	rs = cs.GetRoundState()
+	require.Nil(t, rs.Proposal, "proposal metadata should be ignored when it mismatches commit certificate")
+	require.Nil(t, rs.ProposalBlock, "proposal block must stay nil until matching commit block parts arrive")
+	require.Equal(t, wrongBlockID.PartSetHeader, rs.ProposalBlockParts.Header(), "part set header should keep pointing to commit certificate despite duplicate proposals")
+	require.NotEqual(t, originalPartSetHeader, rs.ProposalBlockParts.Header(), "should not revert back to mismatching proposal block parts")
+}
+
+func TestTryCreateProposalBlockSkipsOnPartSetHeaderMismatch(t *testing.T) {
+	config := configSetup(t)
+	ctx := t.Context()
+
+	cs, vss := makeState(ctx, t, makeStateArgs{config: config})
+	cs.config.GossipTransactionKeyOnly = true
+
+	height, round := cs.roundState.Height(), cs.roundState.Round()
+	round++
+	incrementRound(vss[1:]...)
+	startTestRound(ctx, cs, height, round)
+
+	proposal, block := decideProposal(ctx, t, cs, vss[1], height, round)
+	cs.roundState.SetProposal(proposal)
+
+	parts, err := block.MakePartSet(types.BlockPartSizeBytes)
+	require.NoError(t, err)
+	cs.roundState.SetProposalBlockParts(types.NewPartSetFromHeader(parts.Header()))
+	cs.roundState.SetProposalBlock(nil)
+
+	mismatchedParts := types.NewPartSetFromData(tmrand.Bytes(256), types.BlockPartSizeBytes)
+	cs.roundState.SetProposalBlockParts(mismatchedParts)
+
+	created := cs.tryCreateProposalBlock(ctx)
+	require.False(t, created, "tryCreateProposalBlock should fail when part set header differs from proposal")
+	require.Nil(t, cs.roundState.ProposalBlock(), "proposal block should remain nil when header mismatches")
+}
+
+func TestTryCreateProposalBlockSkipsOnHashMismatch(t *testing.T) {
+	config := configSetup(t)
+	ctx := t.Context()
+
+	cs, vss := makeState(ctx, t, makeStateArgs{config: config})
+	cs.config.GossipTransactionKeyOnly = true
+
+	height, round := cs.roundState.Height(), cs.roundState.Round()
+	round++
+	incrementRound(vss[1:]...)
+	startTestRound(ctx, cs, height, round)
+
+	proposal, block := decideProposal(ctx, t, cs, vss[1], height, round)
+	cs.roundState.SetProposal(proposal)
+
+	parts, err := block.MakePartSet(types.BlockPartSizeBytes)
+	require.NoError(t, err)
+	cs.roundState.SetProposalBlockParts(parts)
+	cs.roundState.SetProposalBlock(nil)
+
+	proposal.BlockID.Hash = tmrand.Bytes(crypto.HashSize)
+
+	created := cs.tryCreateProposalBlock(ctx)
+	require.False(t, created, "tryCreateProposalBlock should fail when rebuilt block hash mismatches proposal hash")
+	require.Nil(t, cs.roundState.ProposalBlock(), "proposal block should remain nil when hash mismatches")
+}
+
 func TestStateOutputVoteStats(t *testing.T) {
 	config := configSetup(t)
 	ctx := t.Context()
