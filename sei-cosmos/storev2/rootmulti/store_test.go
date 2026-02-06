@@ -118,7 +118,7 @@ func TestCacheMultiStoreWithVersion_OnlyUsesSSStores(t *testing.T) {
 			ssCfg.Enable = tc.ssEnabled
 			ssCfg.AsyncWriteBuffer = 0
 
-			store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, false, []string{})
+			store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, false)
 			defer func() { _ = store.Close() }()
 
 			iavlKey1 := types.NewKVStoreKey("iavl_store1")

@@ -69,8 +69,11 @@ type DB struct {
 	// timestamp of the last successful snapshot creation
 	// Protected by db.mtx (only accessed in Commit call chain)
 	lastSnapshotTime time.Time
-	// make sure only one snapshot rewrite is running
+
+	// pruneSnapshotLock guards concurrent prune operations; use TryLock in pruneSnapshots
 	pruneSnapshotLock sync.Mutex
+	// closed guards against double Close(), protected by db.mtx
+	closed bool
 
 	// the changelog stream persists all the changesets
 	streamHandler types.Stream[proto.ChangelogEntry]
@@ -481,7 +484,7 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		TotalMemNodeSize.Store(0)
 		TotalNumOfMemNode.Store(0)
 		db.logger.Info("switched to new memiavl snapshot", "version", db.MultiTree.Version())
-		db.pruneSnapshots()
+		go db.pruneSnapshots()
 
 	default:
 	}
@@ -491,9 +494,17 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 
 // pruneSnapshot prune the old snapshots
 func (db *DB) pruneSnapshots() {
-	// wait until last prune finish
-	db.pruneSnapshotLock.Lock()
+	if !db.pruneSnapshotLock.TryLock() {
+		db.logger.Info("pruneSnapshots skipped, previous prune still in progress")
+		return
+	}
 	defer db.pruneSnapshotLock.Unlock()
+
+	db.logger.Info("pruneSnapshots started")
+	startTime := time.Now()
+	defer func() {
+		db.logger.Info("pruneSnapshots completed", "duration_sec", fmt.Sprintf("%.2fs", time.Since(startTime).Seconds()))
+	}()
 
 	currentVersion, err := currentVersion(db.dir)
 	if err != nil {
@@ -833,9 +844,14 @@ func (db *DB) Close() error {
 	db.logger.Info("Closing memiavl db...")
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
-	errs := []error{}
+	if db.closed {
+		return nil
+	}
+	db.closed = true
+	// Wait for any ongoing prune to finish, then block new prunes
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
+	errs := []error{}
 	// Close stream handler
 	db.logger.Info("Closing stream handler...")
 	if db.streamHandler != nil {
