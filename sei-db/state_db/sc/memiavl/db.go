@@ -738,7 +738,7 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	path := filepath.Clean(filepath.Join(db.dir, tmpDir))
 
 	writeStart := time.Now()
-	err := db.MultiTree.WriteSnapshot(ctx, path, db.snapshotWriterPool)
+	err := db.WriteSnapshotWithRateLimit(ctx, path, db.snapshotWriterPool, db.opts.SnapshotWriteRateMBps)
 	writeElapsed := time.Since(writeStart).Seconds()
 
 	if err != nil {
@@ -1054,7 +1054,7 @@ func (db *DB) WriteSnapshot(dir string) error {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 
-	return db.MultiTree.WriteSnapshot(context.Background(), dir, db.snapshotWriterPool)
+	return db.WriteSnapshotWithRateLimit(context.Background(), dir, db.snapshotWriterPool, db.opts.SnapshotWriteRateMBps)
 }
 
 func snapshotName(version int64) string {

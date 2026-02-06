@@ -2,7 +2,6 @@ package memiavl
 
 import (
 	"errors"
-	"runtime"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
@@ -60,8 +59,9 @@ func (opts *Options) FillDefaults() {
 		opts.SnapshotInterval = DefaultSnapshotInterval
 	}
 
+	// SnapshotWriterLimit controls tree concurrency but not I/O rate (use SnapshotWriteRateMBps for that)
 	if opts.SnapshotWriterLimit <= 0 {
-		opts.SnapshotWriterLimit = runtime.NumCPU()
+		opts.SnapshotWriterLimit = DefaultSnapshotWriterLimit
 	}
 
 	// Convert SnapshotMinTimeInterval (seconds) to Duration
@@ -69,6 +69,10 @@ func (opts *Options) FillDefaults() {
 		opts.snapshotMinTimeIntervalDuration = time.Duration(opts.SnapshotMinTimeInterval) * time.Second
 	} else {
 		opts.snapshotMinTimeIntervalDuration = 1 * time.Hour
+	}
+
+	if opts.SnapshotWriteRateMBps <= 0 {
+		opts.SnapshotWriteRateMBps = DefaultSnapshotWriteRateMBps
 	}
 
 	if opts.SnapshotPrefetchThreshold < 0 || opts.SnapshotPrefetchThreshold > 1 {
