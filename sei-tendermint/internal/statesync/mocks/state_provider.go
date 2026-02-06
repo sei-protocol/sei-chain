@@ -5,8 +5,8 @@ package mocks
 import (
 	context "context"
 
-	mock "github.com/stretchr/testify/mock"
 	state "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	mock "github.com/stretchr/testify/mock"
 
 	types "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
