@@ -3,9 +3,9 @@ package ica_test
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
 	ica "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts"

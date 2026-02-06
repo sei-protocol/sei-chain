@@ -8,9 +8,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/07-tendermint/types"
 	ibctesting "github.com/sei-protocol/sei-chain/sei-ibc-go/testing"
 	ibctestingmock "github.com/sei-protocol/sei-chain/sei-ibc-go/testing/mock"
-	"github.com/tendermint/tendermint/crypto/tmhash"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	tmtypes "github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/tmhash"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func (suite *TendermintTestSuite) TestMisbehaviour() {

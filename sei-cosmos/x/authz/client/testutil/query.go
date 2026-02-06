@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	tmcli "github.com/tendermint/tendermint/libs/cli"
+	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"

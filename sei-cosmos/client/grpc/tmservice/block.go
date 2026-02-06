@@ -3,8 +3,8 @@ package tmservice
 import (
 	"context"
 
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	ctypes "github.com/tendermint/tendermint/rpc/coretypes"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	ctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 
 	"github.com/cosmos/cosmos-sdk/client"
 )

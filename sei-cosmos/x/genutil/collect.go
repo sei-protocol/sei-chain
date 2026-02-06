@@ -13,8 +13,8 @@ import (
 	"sort"
 	"strings"
 
-	cfg "github.com/tendermint/tendermint/config"
-	tmtypes "github.com/tendermint/tendermint/types"
+	cfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"

@@ -9,9 +9,9 @@ import (
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 type ForkTestSuite struct {

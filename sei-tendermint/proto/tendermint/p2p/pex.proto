@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package tendermint.p2p;
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/p2p";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/p2p";
 
 message PexAddress {
   reserved 2, 3; // See https://github.com/tendermint/spec/pull/352

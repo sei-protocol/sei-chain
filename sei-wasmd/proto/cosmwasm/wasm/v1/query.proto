@@ -169,7 +169,7 @@ message CodeInfoResponse {
     (gogoproto.jsontag) = "id"
   ]; // id for legacy support
   string creator = 2;
-  bytes data_hash = 3 [(gogoproto.casttype) = "github.com/tendermint/tendermint/libs/bytes.HexBytes"];
+  bytes data_hash = 3 [(gogoproto.casttype) = "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes.HexBytes"];
   // Used in v1beta1
   reserved 4, 5;
   AccessConfig instantiate_permission = 6 [(gogoproto.nullable) = false];

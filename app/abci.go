@@ -11,8 +11,8 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
-	abci "github.com/tendermint/tendermint/abci/types"
 )
 
 func (app *App) BeginBlock(

@@ -2,7 +2,7 @@ package ed25519
 
 import (
 	"encoding/json"
-	"github.com/tendermint/tendermint/internal/jsontypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
 )
 
 const SecretKeyName = "tendermint/PrivKeyEd25519"

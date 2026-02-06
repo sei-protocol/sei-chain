@@ -16,9 +16,9 @@ import (
 	gomock "github.com/golang/mock/gomock"
 	mux "github.com/gorilla/mux"
 	runtime "github.com/grpc-ecosystem/grpc-gateway/runtime"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	types1 "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	cobra "github.com/spf13/cobra"
-	abci "github.com/tendermint/tendermint/abci/types"
-	types1 "github.com/tendermint/tendermint/abci/types"
 )
 
 // MockAppModuleBasic is a mock of AppModuleBasic interface.

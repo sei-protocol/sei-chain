@@ -8,7 +8,7 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
-	log "github.com/tendermint/tendermint/libs/log"
+	log "github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
 // MockLogger is a mock of Logger interface.

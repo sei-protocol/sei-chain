@@ -8,7 +8,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/evidence/exported"
 	"github.com/cosmos/cosmos-sdk/x/evidence/types"
 
-	tmbytes "github.com/tendermint/tendermint/libs/bytes"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 )
 
 func (suite *KeeperTestSuite) TestQueryEvidence() {

@@ -9,12 +9,12 @@ import (
 
 	"github.com/go-kit/kit/metrics"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	"github.com/tendermint/tendermint/abci/example/kvstore"
-	"github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
-	e2e "github.com/tendermint/tendermint/test/e2e/app"
+	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/app"
 )
 
 // ClientFactory returns a client object, which will create a local

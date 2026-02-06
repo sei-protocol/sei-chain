@@ -14,9 +14,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/go-bip39"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	types2 "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	types2 "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func newInfoAPIWithWatermarks(ctxProvider func(int64) sdk.Context) *evmrpc.InfoAPI {

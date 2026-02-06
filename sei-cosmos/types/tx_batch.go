@@ -1,7 +1,7 @@
 package types
 
 import (
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
 // DeliverTxEntry represents an individual transaction's request within a batch.

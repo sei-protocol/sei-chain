@@ -19,10 +19,10 @@ import (
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
 
 type SendAPI struct {

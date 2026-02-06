@@ -7,14 +7,14 @@ import (
 	"time"
 
 	"github.com/gogo/protobuf/proto"
-	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
-	tmos "github.com/tendermint/tendermint/libs/os"
-	"github.com/tendermint/tendermint/types"
+	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
+	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
-	"github.com/tendermint/tendermint/internal/libs/wal"
-	"github.com/tendermint/tendermint/libs/utils"
-	tmcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/wal"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmcons "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 const (

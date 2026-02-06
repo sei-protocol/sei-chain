@@ -13,8 +13,8 @@ import (
 	"github.com/99designs/keyring"
 	bip39 "github.com/cosmos/go-bip39"
 	"github.com/pkg/errors"
+	tmcrypto "github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/tendermint/crypto/bcrypt"
-	tmcrypto "github.com/tendermint/tendermint/crypto"
 
 	"github.com/cosmos/cosmos-sdk/client/input"
 	"github.com/cosmos/cosmos-sdk/codec/legacy"

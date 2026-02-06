@@ -10,7 +10,6 @@ coverage:
         target: 40%
         paths:
           - "!sei-cosmos/**"
-          - "!sei-tendermint/**"
         flags:
           - sei-chain
       sei-cosmos:
@@ -19,12 +18,6 @@ coverage:
           - "sei-cosmos/**"
         flags:
           - sei-cosmos
-      sei-tendermint:
-        target: 40%
-        paths:
-          - "sei-tendermint/**"
-        flags:
-          - sei-tendermint
     patch:
       default:
         target: auto

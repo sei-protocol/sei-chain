@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
-	abci "github.com/tendermint/tendermint/abci/types"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 

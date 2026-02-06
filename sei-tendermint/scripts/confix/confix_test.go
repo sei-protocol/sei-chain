@@ -8,7 +8,7 @@ import (
 	"github.com/creachadair/tomledit"
 	"github.com/google/go-cmp/cmp"
 
-	confix "github.com/tendermint/tendermint/scripts/confix"
+	confix "github.com/sei-protocol/sei-chain/sei-tendermint/scripts/confix"
 )
 
 func mustParseConfig(t *testing.T, path string) *tomledit.Document {

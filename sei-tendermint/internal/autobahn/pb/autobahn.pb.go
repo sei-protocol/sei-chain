@@ -7,7 +7,7 @@
 package pb
 
 import (
-	_ "github.com/tendermint/tendermint/internal/hashable/pb"
+	_ "github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable/pb"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -2654,7 +2654,7 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\rglobal_number\x18\x01 \x01(\x04R\fglobalNumber\"7\n" +
 	"\x16StreamFullCommitQCsReq\x12\x1d\n" +
 	"\n" +
-	"next_block\x18\x01 \x01(\x04R\tnextBlockB7Z5github.com/tendermint/tendermint/internal/autobahn/pbb\x06proto3"
+	"next_block\x18\x01 \x01(\x04R\tnextBlockBGZEgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pbb\x06proto3"
 
 var (
 	file_autobahn_autobahn_proto_rawDescOnce sync.Once

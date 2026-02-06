@@ -10,9 +10,9 @@ import (
 	"github.com/sei-protocol/sei-chain/app/params"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
-	tmcfg "github.com/tendermint/tendermint/config"
 )
 
 // TestInitModeConfiguration tests that mode-based configuration works end-to-end

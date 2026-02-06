@@ -9,8 +9,8 @@ import (
 	"text/template"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
+	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	"github.com/spf13/viper"
-	tmcli "github.com/tendermint/tendermint/libs/cli"
 )
 
 const defaultConfigTemplate = `# This is a TOML config file.

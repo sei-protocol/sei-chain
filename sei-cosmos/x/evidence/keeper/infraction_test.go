@@ -8,7 +8,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/slashing"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
-	abcitypes "github.com/tendermint/tendermint/abci/types"
+	abcitypes "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
 func (suite *KeeperTestSuite) TestHandleDoubleSign() {

@@ -6,10 +6,10 @@ import (
 	"context"
 	"fmt"
 
+	pvm "github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	tversion "github.com/sei-protocol/sei-chain/sei-tendermint/version"
 	"github.com/spf13/cobra"
-	pvm "github.com/tendermint/tendermint/privval"
-	tmproto "github.com/tendermint/tendermint/types"
-	tversion "github.com/tendermint/tendermint/version"
 	yaml "gopkg.in/yaml.v2"
 
 	"github.com/cosmos/cosmos-sdk/client"

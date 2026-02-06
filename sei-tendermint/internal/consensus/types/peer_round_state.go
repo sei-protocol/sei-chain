@@ -4,8 +4,8 @@ import (
 	"cmp"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/bits"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bits"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 //-----------------------------------------------------------------------------

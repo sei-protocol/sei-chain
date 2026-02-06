@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // errDone is returned by chunkQueue.Next() when all chunks have been returned.

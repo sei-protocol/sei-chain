@@ -4,11 +4,11 @@ inputs:
 plugins:
   - remote: buf.build/protocolbuffers/go:v1.36.10
     out: ./sei-tendermint/internal
-    opt: [module=github.com/tendermint/tendermint/internal]
+    opt: [module=github.com/sei-protocol/sei-chain/sei-tendermint/internal]
   - local:
       - go
       - run
       - ./sei-tendermint/internal/hashable/plugin
     strategy: all
     out: ./sei-tendermint/internal
-    opt: [module=github.com/tendermint/tendermint/internal]
+    opt: [module=github.com/sei-protocol/sei-chain/sei-tendermint/internal]

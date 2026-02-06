@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"io/ioutil"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/tendermint/crypto/bcrypt"
-	"github.com/tendermint/tendermint/crypto"
 	"golang.org/x/crypto/nacl/secretbox"
 	"golang.org/x/crypto/openpgp/armor"
 

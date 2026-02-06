@@ -18,7 +18,7 @@ import (
 	"github.com/creachadair/tomledit/transform"
 	"github.com/spf13/viper"
 
-	"github.com/tendermint/tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 )
 
 func init() {

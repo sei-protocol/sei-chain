@@ -2,19 +2,19 @@ package light_test
 
 import (
 	"errors"
-	"github.com/tendermint/tendermint/light/provider"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
 	"testing"
 	"time"
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/tendermint/tendermint/abci/example/kvstore"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/light"
-	httpp "github.com/tendermint/tendermint/light/provider/http"
-	dbs "github.com/tendermint/tendermint/light/store/db"
-	rpctest "github.com/tendermint/tendermint/rpc/test"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
+	httpp "github.com/sei-protocol/sei-chain/sei-tendermint/light/provider/http"
+	dbs "github.com/sei-protocol/sei-chain/sei-tendermint/light/store/db"
+	rpctest "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/test"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // Manually getting light blocks and verifying them.

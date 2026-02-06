@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	e2e "github.com/tendermint/tendermint/test/e2e/pkg"
+	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
 )
 
 // Test runs test cases under tests/

@@ -8,7 +8,7 @@ import "google/protobuf/timestamp.proto";
 import "tendermint/consensus/types.proto";
 import "tendermint/types/events.proto";
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/consensus";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus";
 
 // MsgInfo are msgs from the reactor which may update the state
 message MsgInfo {

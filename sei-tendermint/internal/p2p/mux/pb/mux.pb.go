@@ -254,7 +254,7 @@ const file_p2p_mux_mux_proto_rawDesc = "" +
 	"\r_payload_sizeB\n" +
 	"\n" +
 	"\b_msg_endB\b\n" +
-	"\x06_closeB6Z4github.com/tendermint/tendermint/internal/p2p/mux/pbb\x06proto3"
+	"\x06_closeBFZDgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/mux/pbb\x06proto3"
 
 var (
 	file_p2p_mux_mux_proto_rawDescOnce sync.Once

@@ -4,7 +4,7 @@ package tendermint.version;
 
 import "gogoproto/gogo.proto";
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/version";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/version";
 
 // Consensus captures the consensus rules for processing a block in the
 // blockchain, including all blockchain data structures and the rules of the

@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	metricsgen "github.com/sei-protocol/sei-chain/sei-tendermint/scripts/metricsgen"
 	"github.com/stretchr/testify/require"
-	metricsgen "github.com/tendermint/tendermint/scripts/metricsgen"
 )
 
 const testDataDir = "./testdata"

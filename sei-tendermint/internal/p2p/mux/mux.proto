@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package mux;
 
-option go_package = "github.com/tendermint/tendermint/internal/p2p/mux/pb";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/mux/pb";
 
 message StreamKindConfig {
   uint64 kind = 1;

@@ -7,10 +7,10 @@ import (
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
+	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
 	"github.com/stretchr/testify/suite"
-	tmcli "github.com/tendermint/tendermint/libs/cli"
-	"github.com/tendermint/tendermint/proto/tendermint/crypto"
-	"github.com/tendermint/tendermint/rpc/client/http"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"

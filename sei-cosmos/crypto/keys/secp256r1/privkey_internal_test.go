@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/stretchr/testify/suite"
-	"github.com/tendermint/tendermint/crypto"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"

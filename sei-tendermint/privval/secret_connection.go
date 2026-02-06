@@ -22,11 +22,11 @@ import (
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/nacl/box"
 
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/internal/libs/async"
-	"github.com/tendermint/tendermint/internal/libs/protoio"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/crypto"
-	tmprivval "github.com/tendermint/tendermint/proto/tendermint/privval"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/async"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/protoio"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
+	tmprivval "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/privval"
 )
 
 // This code has been duplicated from p2p/conn prior to the P2P refactor.

@@ -9,7 +9,7 @@ import "tendermint/crypto/proof.proto";
 import "tendermint/types/params.proto";
 import "tendermint/types/types.proto";
 
-option go_package = "github.com/tendermint/tendermint/abci/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types";
 
 // This file is copied from http://github.com/tendermint/abci
 // NOTE: When using custom types, mind the warnings.

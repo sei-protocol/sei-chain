@@ -3,9 +3,9 @@ package types_test
 import (
 	"fmt"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	crypto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	crypto "github.com/tendermint/tendermint/proto/tendermint/crypto"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/23-commitment/types"
 )

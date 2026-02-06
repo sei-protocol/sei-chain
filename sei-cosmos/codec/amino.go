@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"io"
 
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	amino "github.com/tendermint/go-amino"
-	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/codec/types"
 )

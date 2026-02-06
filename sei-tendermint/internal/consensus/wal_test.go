@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tendermint/tendermint/crypto/merkle"
-	"github.com/tendermint/tendermint/internal/consensus/types"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/require"
-	tmtypes "github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func TestWAL_AppendRead(t *testing.T) {

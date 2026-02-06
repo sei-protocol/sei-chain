@@ -6,7 +6,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/grpc/reflection"
 
 	gogogrpc "github.com/gogo/protobuf/grpc"
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding"
 	"google.golang.org/grpc/encoding/proto"

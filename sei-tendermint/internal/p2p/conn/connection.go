@@ -3,7 +3,7 @@ package conn
 import (
 	"context"
 	"errors"
-	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"io"
 	"net"
 	"net/netip"

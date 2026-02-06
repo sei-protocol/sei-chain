@@ -5,7 +5,7 @@ import (
 	"sort"
 	"sync"
 
-	tmmath "github.com/tendermint/tendermint/libs/math"
+	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 )
 
 var _ heap.Interface = (*TxPriorityQueue)(nil)

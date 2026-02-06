@@ -4,10 +4,10 @@ import (
 	"testing"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	abcitypes "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmprotostate "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/state"
+	tmstate "github.com/sei-protocol/sei-chain/sei-tendermint/state"
 	"github.com/stretchr/testify/suite"
-	abcitypes "github.com/tendermint/tendermint/abci/types"
-	tmprotostate "github.com/tendermint/tendermint/proto/tendermint/state"
-	tmstate "github.com/tendermint/tendermint/state"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/host/types"
 	ibctesting "github.com/sei-protocol/sei-chain/sei-ibc-go/testing"

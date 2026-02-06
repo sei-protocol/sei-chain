@@ -11,8 +11,8 @@ import (
 	"sort"
 
 	"github.com/armon/go-metrics"
-	"github.com/tendermint/tendermint/libs/log"
-	tmos "github.com/tendermint/tendermint/libs/os"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/store/prefix"

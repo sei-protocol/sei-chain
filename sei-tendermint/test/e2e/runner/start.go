@@ -6,8 +6,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/log"
-	e2e "github.com/tendermint/tendermint/test/e2e/pkg"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
 )
 
 func Start(ctx context.Context, logger log.Logger, testnet *e2e.Testnet) error {

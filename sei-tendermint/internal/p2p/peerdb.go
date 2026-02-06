@@ -11,9 +11,9 @@ import (
 	"github.com/google/orderedcode"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/tendermint/tendermint/libs/utils"
-	p2pproto "github.com/tendermint/tendermint/proto/tendermint/p2p"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	p2pproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // peerInfoFromProto converts a Protobuf PeerInfo message to a peerInfo,

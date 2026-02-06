@@ -1,7 +1,7 @@
 package hashable
 
 import (
-	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 func GenHash[T Hashable](rng utils.Rng) Hash[T] {

@@ -1,7 +1,7 @@
 package capability_test
 
 import (
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"

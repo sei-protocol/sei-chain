@@ -6,8 +6,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmtypes "github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"

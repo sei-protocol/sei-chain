@@ -11,9 +11,9 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
+	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
-	tmos "github.com/tendermint/tendermint/libs/os"
-	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"

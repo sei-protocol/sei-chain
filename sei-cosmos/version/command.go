@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	"github.com/spf13/cobra"
-	"github.com/tendermint/tendermint/libs/cli"
 	yaml "gopkg.in/yaml.v2"
 )
 

@@ -3,7 +3,7 @@ package testutil
 import (
 	"fmt"
 
-	"github.com/tendermint/tendermint/libs/cli"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/testutil"

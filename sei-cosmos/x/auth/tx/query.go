@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	ctypes "github.com/tendermint/tendermint/rpc/coretypes"
+	ctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"

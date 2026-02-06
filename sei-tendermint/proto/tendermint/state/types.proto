@@ -10,7 +10,7 @@ import "tendermint/types/types.proto";
 import "tendermint/types/validator.proto";
 import "tendermint/version/types.proto";
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/state";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/state";
 
 message ABCIResponses {
   repeated tendermint.abci.ResponseDeliverTx deliver_txs = 1;

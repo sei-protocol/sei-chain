@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 
 	"github.com/gogo/protobuf/jsonpb"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/internal/jsontypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
 )
 
 const (

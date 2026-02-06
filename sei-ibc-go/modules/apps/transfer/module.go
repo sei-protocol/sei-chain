@@ -14,8 +14,8 @@ import (
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/spf13/cobra"
-	abci "github.com/tendermint/tendermint/abci/types"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/client/cli"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"

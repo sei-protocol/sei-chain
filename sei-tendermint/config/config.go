@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	tmjson "github.com/tendermint/tendermint/libs/json"
-	"github.com/tendermint/tendermint/libs/log"
-	tmos "github.com/tendermint/tendermint/libs/os"
-	"github.com/tendermint/tendermint/types"
+	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const (

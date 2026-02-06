@@ -10,11 +10,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/tools/migration/sc"
 	"github.com/sei-protocol/sei-chain/tools/migration/ss"
 	"github.com/sei-protocol/sei-chain/tools/utils"
 	"github.com/spf13/cobra"
-	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 )
 

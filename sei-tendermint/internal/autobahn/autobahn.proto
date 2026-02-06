@@ -4,7 +4,7 @@ package autobahn;
 
 import "hashable/hashable.proto";
 
-option go_package = "github.com/tendermint/tendermint/internal/autobahn/pb";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb";
 
 // Timestamp represented as seconds + nanoseconds since UNIX epoch.
 // Equivalent of `google.protobuf.Timestamp` but supports canonical encoding.

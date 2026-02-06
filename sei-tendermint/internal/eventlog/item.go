@@ -3,9 +3,9 @@ package eventlog
 import (
 	"strings"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/internal/eventlog/cursor"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventlog/cursor"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // Cached constants for the pieces of reserved event names.

@@ -4,7 +4,7 @@ import (
 	srvconfig "github.com/cosmos/cosmos-sdk/server/config"
 	"github.com/cosmos/cosmos-sdk/types/address"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
-	tmcfg "github.com/tendermint/tendermint/config"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"

@@ -43,7 +43,7 @@ var File_hashable_hashable_proto protoreflect.FileDescriptor
 const file_hashable_hashable_proto_rawDesc = "" +
 	"\n" +
 	"\x17hashable/hashable.proto\x12\bhashable\x1a google/protobuf/descriptor.proto:?\n" +
-	"\bhashable\x12\x1f.google.protobuf.MessageOptions\x18\x89\xa1\xbc\xc5\x01 \x01(\bR\bhashableB7Z5github.com/tendermint/tendermint/internal/hashable/pbb\x06proto3"
+	"\bhashable\x12\x1f.google.protobuf.MessageOptions\x18\x89\xa1\xbc\xc5\x01 \x01(\bR\bhashableBGZEgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable/pbb\x06proto3"
 
 var file_hashable_hashable_proto_goTypes = []any{
 	(*descriptorpb.MessageOptions)(nil), // 0: google.protobuf.MessageOptions

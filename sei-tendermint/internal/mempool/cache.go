@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/patrickmn/go-cache"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // TxCache defines an interface for raw transaction caching in a mempool.

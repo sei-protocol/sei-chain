@@ -3,7 +3,7 @@ package debug
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/tendermint/tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
 const (

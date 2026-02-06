@@ -11,8 +11,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	gogotypes "github.com/gogo/protobuf/types"
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestMigrate2to3(t *testing.T) {

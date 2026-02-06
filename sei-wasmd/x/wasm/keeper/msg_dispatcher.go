@@ -5,8 +5,8 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
-	abci "github.com/tendermint/tendermint/abci/types"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )

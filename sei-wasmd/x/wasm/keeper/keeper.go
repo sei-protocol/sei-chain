@@ -21,9 +21,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
-	"github.com/tendermint/tendermint/libs/log"
 
 	v152 "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/artifacts/v152"
 	v155 "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/artifacts/v155"

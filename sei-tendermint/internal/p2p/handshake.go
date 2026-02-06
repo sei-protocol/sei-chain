@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	gogoproto "github.com/gogo/protobuf/proto"
-	"github.com/tendermint/tendermint/internal/p2p/conn"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 
-	gogopb "github.com/tendermint/tendermint/proto/tendermint/p2p"
-	"github.com/tendermint/tendermint/types"
+	gogopb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type handshakedConn struct {

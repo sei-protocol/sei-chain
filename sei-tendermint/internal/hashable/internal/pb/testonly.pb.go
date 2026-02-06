@@ -7,7 +7,7 @@
 package pb
 
 import (
-	_ "github.com/tendermint/tendermint/internal/hashable/pb"
+	_ "github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable/pb"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -436,7 +436,7 @@ const file_hashable_internal_testonly_proto_rawDesc = "" +
 	"\fTestonlyEnum\x12\x1d\n" +
 	"\x19TESTONLY_ENUM_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13TESTONLY_ENUM_ALPHA\x10\x01\x12\x16\n" +
-	"\x12TESTONLY_ENUM_BETA\x10\x02B@Z>github.com/tendermint/tendermint/internal/hashable/internal/pbb\x06proto3"
+	"\x12TESTONLY_ENUM_BETA\x10\x02BPZNgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable/internal/pbb\x06proto3"
 
 var (
 	file_hashable_internal_testonly_proto_rawDescOnce sync.Once

@@ -10,7 +10,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 
-	"github.com/tendermint/tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 )
 
 // TestMsgCreateDenom tests if valid/invalid create denom messages are properly validated/invalidated

@@ -15,12 +15,10 @@ import (
 func TestSubscribeNewHeads(t *testing.T) {
 	t.Parallel()
 	recvCh, done := sendWSRequestGood(t, "subscribe", "newHeads")
-	NewHeadsCalled <- struct{}{}
 	defer func() { done <- struct{}{} }()
 
-	receivedSubMsg := false
-	receivedEvents := false
-	timer := time.NewTimer(1 * time.Second)
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
 
 	expectedKeys := []string{
 		"parentHash", "sha3Uncles", "miner", "stateRoot", "transactionsRoot",
@@ -39,20 +37,21 @@ func TestSubscribeNewHeads(t *testing.T) {
 	}
 	var subscriptionId string
 
-	for {
+	for t.Context().Err() == nil {
 		select {
 		case resObj := <-recvCh:
 			_, ok := resObj["error"]
 			if ok {
 				t.Fatal("Received error:", resObj["error"])
 			}
-			if !receivedSubMsg {
+			if subscriptionId == "" {
 				// get subscriptionId from first message
 				subscriptionId = resObj["result"].(string)
-				receivedSubMsg = true
+				// Reset timer now that subscription is confirmed, then trigger new heads
+				timer.Reset(5 * time.Second)
+				NewHeadsCalled <- struct{}{}
 				continue
 			}
-			receivedEvents = true
 			method := resObj["method"].(string)
 			if method != "eth_subscription" {
 				t.Fatal("Method is not eth_subscription")
@@ -74,15 +73,13 @@ func TestSubscribeNewHeads(t *testing.T) {
 					}
 				}
 			}
-		case <-timer.C:
-			if !receivedSubMsg || !receivedEvents {
-				t.Fatal("No message received within 5 seconds")
-			}
+			// Event validated successfully, no need to wait further
 			return
+		case <-timer.C:
+			t.Fatal("No event received within 5 seconds")
 		}
 	}
 }
-
 func TestSubscribeEmptyLogs(t *testing.T) {
 	t.Parallel()
 	recvCh, done := sendWSRequestGood(t, "subscribe", "logs")

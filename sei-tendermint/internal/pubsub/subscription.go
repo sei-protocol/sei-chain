@@ -6,9 +6,9 @@ import (
 
 	"github.com/google/uuid"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/internal/libs/queue"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/queue"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var (

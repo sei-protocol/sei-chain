@@ -13,12 +13,12 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/version"
 
-	abcitypes "github.com/tendermint/tendermint/abci/types"
+	abcitypes "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
 	rosettatypes "github.com/coinbase/rosetta-sdk-go/types"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/tendermint/tendermint/rpc/client/http"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
 	"google.golang.org/grpc"
 
 	crgerrs "github.com/cosmos/cosmos-sdk/server/rosetta/lib/errors"
@@ -30,7 +30,7 @@ import (
 	auth "github.com/cosmos/cosmos-sdk/x/auth/types"
 	bank "github.com/cosmos/cosmos-sdk/x/bank/types"
 
-	tmrpc "github.com/tendermint/tendermint/rpc/client"
+	tmrpc "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 )
 
 // interface assertion

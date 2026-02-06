@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func Validator(ctx context.Context, votingPower int64) (*types.Validator, types.PrivValidator, error) {
