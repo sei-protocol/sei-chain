@@ -6,7 +6,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 	"github.com/stretchr/testify/require"
 )
@@ -361,93 +360,29 @@ func TestAccountValueStorage(t *testing.T) {
 	codeHashValue, found := s.Get(codeHashKey)
 	require.True(t, found, "CodeHash should be found")
 	require.Equal(t, expectedCodeHash[:], codeHashValue, "CodeHash should match")
-
-	t.Logf("SUCCESS: AccountValue stores both Nonce and CodeHash together!")
-	t.Logf("  Nonce: %d", av.Nonce)
-	t.Logf("  CodeHash: %x", av.CodeHash)
 }
 
 // =============================================================================
-// Write Toggle Tests
+// Fsync Config Tests
 // =============================================================================
 
-func TestStoreWriteToggles(t *testing.T) {
-	t.Run("DisableStorageWrites", func(t *testing.T) {
+func TestStoreFsyncConfig(t *testing.T) {
+	t.Run("DefaultConfig", func(t *testing.T) {
 		dir := t.TempDir()
-		store := NewCommitStore(dir, nil, config.FlatKVConfig{
-			EnableStorageWrites: false,
-			EnableAccountWrites: true,
-			EnableCodeWrites:    true,
-		})
-		_, err := store.LoadVersion(0, false)
-		require.NoError(t, err)
-		defer store.Close()
-
-		addr := Address{0xAA}
-		slot := Slot{0xBB}
-		key := memiavlStorageKey(addr, slot)
-
-		cs := makeChangeSet(key, []byte{0xCC}, false)
-		require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		commitAndCheck(t, store)
-
-		// Storage should NOT be written (toggle disabled)
-		require.Len(t, store.storageWrites, 0, "storage writes should be cleared after commit")
-		_, err = store.storageDB.Get(StorageKey(addr, slot))
-		require.Error(t, err, "storage should not be written when toggle is disabled")
-
-		// LtHash should NOT be updated either (consistency: no DB write = no LtHash)
-		hash := store.RootHash()
-		emptyHash := lthash.New().Checksum()
-		require.Equal(t, emptyHash[:], hash, "LtHash should not update when writes disabled")
-	})
-
-	t.Run("DisableAccountWrites", func(t *testing.T) {
-		dir := t.TempDir()
-		store := NewCommitStore(dir, nil, config.FlatKVConfig{
-			EnableStorageWrites: true,
-			EnableAccountWrites: false,
-			EnableCodeWrites:    true,
-		})
-		_, err := store.LoadVersion(0, false)
-		require.NoError(t, err)
-		defer store.Close()
-
-		addr := Address{0xAA}
-		nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-
-		cs := makeChangeSet(nonceKey, []byte{0, 0, 0, 0, 0, 0, 0, 42}, false)
-		require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		commitAndCheck(t, store)
-
-		// Account should NOT be written (toggle disabled)
-		require.Len(t, store.accountWrites, 0, "account writes should be cleared after commit")
-		_, err = store.accountDB.Get(addr[:])
-		require.Error(t, err, "account should not be written when toggle is disabled")
-	})
-
-	t.Run("AllTogglesDefault", func(t *testing.T) {
-		dir := t.TempDir()
-		// Use default config
 		store := NewCommitStore(dir, nil, config.DefaultFlatKVConfig())
 		_, err := store.LoadVersion(0, false)
 		require.NoError(t, err)
 		defer store.Close()
 
-		// Verify defaults are applied (all enabled)
-		require.True(t, store.config.EnableStorageWrites)
-		require.True(t, store.config.EnableAccountWrites)
-		require.True(t, store.config.EnableCodeWrites)
+		// Verify defaults
+		require.True(t, store.config.Fsync)
+		require.Equal(t, 0, store.config.AsyncWriteBuffer)
 	})
 
-	t.Run("AsyncWrites", func(t *testing.T) {
+	t.Run("FsyncDisabled", func(t *testing.T) {
 		dir := t.TempDir()
 		store := NewCommitStore(dir, nil, config.FlatKVConfig{
-			EnableStorageWrites: true,
-			EnableAccountWrites: true,
-			EnableCodeWrites:    true,
-			AsyncWrites:         true,
-			FlushInterval:       1, // Flush every block for this test
+			Fsync: false,
 		})
 		_, err := store.LoadVersion(0, false)
 		require.NoError(t, err)
@@ -457,91 +392,17 @@ func TestStoreWriteToggles(t *testing.T) {
 		slot := Slot{0xBB}
 		key := memiavlStorageKey(addr, slot)
 
-		// Write and commit with async writes
+		// Write and commit with fsync disabled
 		cs := makeChangeSet(key, []byte{0xCC}, false)
 		require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 		commitAndCheck(t, store)
 
-		// Data should be readable (Flush ensures durability)
+		// Data should be readable
 		got, found := store.Get(key)
 		require.True(t, found)
 		require.Equal(t, []byte{0xCC}, got)
 
 		// Version should be updated
 		require.Equal(t, int64(1), store.Version())
-	})
-
-	t.Run("FlushInterval", func(t *testing.T) {
-		dir := t.TempDir()
-		store := NewCommitStore(dir, nil, config.FlatKVConfig{
-			EnableStorageWrites: true,
-			EnableAccountWrites: true,
-			EnableCodeWrites:    true,
-			AsyncWrites:         true,
-			FlushInterval:       3, // Flush every 3 blocks
-		})
-		_, err := store.LoadVersion(0, false)
-		require.NoError(t, err)
-		defer store.Close()
-
-		addr := Address{0xAA}
-
-		// Commit blocks 1, 2, 3
-		for i := 1; i <= 3; i++ {
-			slot := Slot{byte(i)}
-			key := memiavlStorageKey(addr, slot)
-			cs := makeChangeSet(key, []byte{byte(i)}, false)
-			require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-			commitAndCheck(t, store)
-		}
-
-		// After 3 commits, should have flushed
-		require.Equal(t, int64(3), store.lastFlushedVersion)
-
-		// metaDB should have version 3
-		globalVersion, err := store.loadGlobalVersion()
-		require.NoError(t, err)
-		require.Equal(t, int64(3), globalVersion)
-
-		// Commit blocks 4, 5 (not yet at flush interval)
-		for i := 4; i <= 5; i++ {
-			slot := Slot{byte(i)}
-			key := memiavlStorageKey(addr, slot)
-			cs := makeChangeSet(key, []byte{byte(i)}, false)
-			require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-			commitAndCheck(t, store)
-		}
-
-		// lastFlushedVersion should still be 3 (haven't reached interval yet)
-		require.Equal(t, int64(3), store.lastFlushedVersion)
-
-		// metaDB should still have version 3
-		globalVersion, err = store.loadGlobalVersion()
-		require.NoError(t, err)
-		require.Equal(t, int64(3), globalVersion)
-
-		// Commit block 6 (reaches flush interval: 6-3=3)
-		slot := Slot{6}
-		key := memiavlStorageKey(addr, slot)
-		cs := makeChangeSet(key, []byte{6}, false)
-		require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		commitAndCheck(t, store)
-
-		// Now should have flushed
-		require.Equal(t, int64(6), store.lastFlushedVersion)
-
-		// metaDB should have version 6
-		globalVersion, err = store.loadGlobalVersion()
-		require.NoError(t, err)
-		require.Equal(t, int64(6), globalVersion)
-
-		// Data should still be readable from in-memory or DB
-		for i := 1; i <= 6; i++ {
-			slot := Slot{byte(i)}
-			key := memiavlStorageKey(addr, slot)
-			got, found := store.Get(key)
-			require.True(t, found, "block %d data should be readable", i)
-			require.Equal(t, []byte{byte(i)}, got)
-		}
 	})
 }

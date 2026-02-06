@@ -58,9 +58,9 @@ func NewCompositeCommitStore(
 		config:          cfg,
 	}
 
-	// Initialize FlatKV store struct if write mode is not cosmos_only
+	// Initialize FlatKV store struct if write mode requires it
 	// Note: DB is NOT opened here, will be opened in LoadVersion
-	if cfg.WriteMode != config.CosmosOnlyWrite {
+	if cfg.WriteMode == config.DualWrite || cfg.WriteMode == config.SplitWrite {
 		store.evmCommitter = flatkv.NewCommitStore(homeDir, logger, cfg.FlatKVConfig)
 	}
 
@@ -99,10 +99,10 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 		config:          cs.config,
 	}
 
-	// Also load evmCommitter if enabled
-	if cs.config.WriteMode != config.CosmosOnlyWrite && cs.evmCommitter != nil {
-		// Use LoadVersion on existing evmCommitter (matches memiavl pattern)
-		// This properly handles readOnly flag and avoids resource leaks
+	// Load evmCommitter if initialized (nil when WriteMode is CosmosOnlyWrite).
+	// This is the single entry point for evmCommitter.LoadVersion — CMS calls
+	// CompositeCommitStore.LoadVersion(), which internally loads both backends.
+	if cs.evmCommitter != nil {
 		evmStore, err := cs.evmCommitter.LoadVersion(targetVersion, readOnly)
 		if err != nil {
 			// FlatKV doesn't support read-only mode yet - fall back to Cosmos-only

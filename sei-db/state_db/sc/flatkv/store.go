@@ -1,12 +1,10 @@
 package flatkv
 
 import (
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
@@ -21,11 +19,12 @@ const (
 	accountDBDir = "account"
 	codeDBDir    = "code"
 	storageDBDir = "storage"
+	legacyDBDir  = "legacy"
 	metadataDir  = "metadata"
 
 	// Metadata DB keys
-	MetaGlobalVersion = "v" // Global committed version watermark (8 bytes)
-	MetaGlobalLtHash  = "h" // Global LtHash (2048 bytes)
+	MetaGlobalVersion = "_meta/version" // Global committed version watermark (8 bytes)
+	MetaGlobalLtHash  = "_meta/hash"    // Global LtHash (2048 bytes)
 )
 
 // pendingKVWrite tracks a buffered key-value write for code/storage DBs.
@@ -50,11 +49,12 @@ type CommitStore struct {
 	config  config.FlatKVConfig
 	homeDir string
 
-	// Four separate PebbleDB instances
+	// Five separate PebbleDB instances
 	metadataDB db_engine.DB // Global version + LtHash watermark
 	accountDB  db_engine.DB // addr(20) → AccountValue (40 or 72 bytes)
 	codeDB     db_engine.DB // addr(20) → bytecode
 	storageDB  db_engine.DB // addr(20)||slot(32) → value(32)
+	legacyDB   db_engine.DB // Legacy data for backward compatibility
 
 	// Per-DB local metadata (stored inside each DB at 0x00)
 	// Tracks committed version for recovery and consistency checks
@@ -63,10 +63,9 @@ type CommitStore struct {
 	codeLocalMeta    *LocalMeta
 
 	// LtHash state for integrity checking
-	committedVersion   int64
-	committedLtHash    *lthash.LtHash
-	workingLtHash      *lthash.LtHash
-	lastFlushedVersion int64 // Last version that was flushed to disk (for AsyncWrites)
+	committedVersion int64
+	committedLtHash  *lthash.LtHash
+	workingLtHash    *lthash.LtHash
 
 	// Pending writes buffer
 	// accountWrites: key = address string (20 bytes), value = AccountValue
@@ -89,18 +88,6 @@ var _ Store = (*CommitStore)(nil)
 // Note: The store is NOT opened yet. Call LoadVersion to open and initialize the DB.
 // This matches the memiavl.NewCommitStore pattern.
 func NewCommitStore(homeDir string, log logger.Logger, cfg config.FlatKVConfig) *CommitStore {
-	// Apply defaults: if all write toggles are false (zero value), enable all
-	if !cfg.EnableStorageWrites && !cfg.EnableAccountWrites && !cfg.EnableCodeWrites {
-		cfg.EnableStorageWrites = true
-		cfg.EnableAccountWrites = true
-		cfg.EnableCodeWrites = true
-	}
-
-	// Default FlushInterval to 100 if not set
-	if cfg.FlushInterval <= 0 {
-		cfg.FlushInterval = 100
-	}
-
 	if log == nil {
 		log = logger.NewNopLogger()
 	}
@@ -147,7 +134,7 @@ func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (Store, er
 	return s, nil
 }
 
-// open opens all database instances. Called by NewCommitStore.
+// open opens all database instances. Called by LoadVersion.
 func (s *CommitStore) open() error {
 	dir := filepath.Join(s.homeDir, "flatkv")
 
@@ -159,9 +146,10 @@ func (s *CommitStore) open() error {
 	accountPath := filepath.Join(dir, accountDBDir)
 	codePath := filepath.Join(dir, codeDBDir)
 	storagePath := filepath.Join(dir, storageDBDir)
+	legacyPath := filepath.Join(dir, legacyDBDir)
 	metadataPath := filepath.Join(dir, metadataDir)
 
-	for _, path := range []string{accountPath, codePath, storagePath, metadataPath} {
+	for _, path := range []string{accountPath, codePath, storagePath, legacyPath, metadataPath} {
 		if err := os.MkdirAll(path, 0750); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", path, err)
 		}
@@ -195,6 +183,15 @@ func (s *CommitStore) open() error {
 		return fmt.Errorf("failed to open storageDB: %w", err)
 	}
 
+	legacyDB, err := pebbledb.Open(legacyPath, db_engine.OpenOptions{})
+	if err != nil {
+		_ = metaDB.Close()
+		_ = accountDB.Close()
+		_ = codeDB.Close()
+		_ = storageDB.Close()
+		return fmt.Errorf("failed to open legacyDB: %w", err)
+	}
+
 	// Open changelog WAL
 	changelogPath := filepath.Join(dir, "changelog")
 	changelog, err := wal.NewChangelogWAL(s.log, changelogPath, wal.Config{
@@ -207,6 +204,7 @@ func (s *CommitStore) open() error {
 		_ = accountDB.Close()
 		_ = codeDB.Close()
 		_ = storageDB.Close()
+		_ = legacyDB.Close()
 		return fmt.Errorf("failed to open changelog: %w", err)
 	}
 
@@ -217,6 +215,7 @@ func (s *CommitStore) open() error {
 		_ = accountDB.Close()
 		_ = codeDB.Close()
 		_ = storageDB.Close()
+		_ = legacyDB.Close()
 		_ = changelog.Close()
 		return fmt.Errorf("failed to load storageDB local meta: %w", err)
 	}
@@ -226,6 +225,7 @@ func (s *CommitStore) open() error {
 		_ = accountDB.Close()
 		_ = codeDB.Close()
 		_ = storageDB.Close()
+		_ = legacyDB.Close()
 		_ = changelog.Close()
 		return fmt.Errorf("failed to load accountDB local meta: %w", err)
 	}
@@ -235,6 +235,7 @@ func (s *CommitStore) open() error {
 		_ = accountDB.Close()
 		_ = codeDB.Close()
 		_ = storageDB.Close()
+		_ = legacyDB.Close()
 		_ = changelog.Close()
 		return fmt.Errorf("failed to load codeDB local meta: %w", err)
 	}
@@ -243,6 +244,7 @@ func (s *CommitStore) open() error {
 	s.accountDB = accountDB
 	s.codeDB = codeDB
 	s.storageDB = storageDB
+	s.legacyDB = legacyDB
 	s.storageLocalMeta = storageLocalMeta
 	s.accountLocalMeta = accountLocalMeta
 	s.codeLocalMeta = codeLocalMeta
@@ -271,401 +273,8 @@ func (s *CommitStore) open() error {
 
 	// TODO: Run catchup to recover from any incomplete commits
 	// Catchup will be added in a future PR with state-sync support.
-	// if err := s.catchup(); err != nil {
-	// 	s.Close()
-	// 	return fmt.Errorf("catchup failed: %w", err)
-	// }
 
 	s.log.Info("FlatKV store opened", "dir", dir, "version", s.committedVersion)
-	return nil
-}
-
-// ApplyChangeSets buffers EVM changesets and updates LtHash.
-// Respects EnableStorageWrites/EnableAccountWrites/EnableCodeWrites toggles.
-//
-// LtHash is computed based on actual storage format (internal keys):
-// - storageDB: key=addr||slot, value=storage_value
-// - accountDB: key=addr, value=AccountValue (balance(32)||nonce(8)||codehash(32)
-// - codeDB: key=addr, value=bytecode
-func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
-	// Save original changesets for changelog
-	s.pendingChangeSets = append(s.pendingChangeSets, cs...)
-
-	// Collect LtHash pairs per DB (using internal key format)
-	var storagePairs []lthash.KVPairWithLastValue
-	var codePairs []lthash.KVPairWithLastValue
-	// Account pairs are collected at the end after all account changes are processed
-
-	// Track which accounts were modified (for LtHash computation)
-	modifiedAccounts := make(map[string]bool)
-
-	for _, namedCS := range cs {
-		if namedCS.Changeset.Pairs == nil {
-			continue
-		}
-
-		for _, pair := range namedCS.Changeset.Pairs {
-			// Parse memiavl key to determine type
-			kind, keyBytes := evm.ParseEVMKey(pair.Key)
-			if kind == evm.EVMKeyUnknown {
-				// Skip non-EVM keys silently
-				continue
-			}
-
-			// Route to appropriate DB based on key type
-			switch kind {
-			case evm.EVMKeyStorage:
-				if s.config.EnableStorageWrites {
-					// Get old value for LtHash
-					oldValue, err := s.getStorageValue(keyBytes)
-					if err != nil {
-						return fmt.Errorf("failed to get storage value: %w", err)
-					}
-
-					// Storage: keyBytes = addr(20) || slot(32)
-					keyStr := string(keyBytes)
-					if pair.Delete {
-						s.storageWrites[keyStr] = &pendingKVWrite{
-							key:      keyBytes,
-							isDelete: true,
-						}
-					} else {
-						s.storageWrites[keyStr] = &pendingKVWrite{
-							key:   keyBytes,
-							value: pair.Value,
-						}
-					}
-
-					// LtHash pair: internal key directly
-					storagePairs = append(storagePairs, lthash.KVPairWithLastValue{
-						Key:       keyBytes,
-						Value:     pair.Value,
-						LastValue: oldValue,
-						Delete:    pair.Delete,
-					})
-				}
-
-			case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
-				if s.config.EnableAccountWrites {
-					// Account data: keyBytes = addr(20)
-					addr, ok := AddressFromBytes(keyBytes)
-					if !ok {
-						return fmt.Errorf("invalid address length %d for key kind %d", len(keyBytes), kind)
-					}
-					addrStr := string(addr[:])
-
-					// Track this account as modified for LtHash
-					modifiedAccounts[addrStr] = true
-					// Get or create pending account write
-					paw := s.accountWrites[addrStr]
-					if paw == nil {
-						// Load existing value from DB
-						existingValue, err := s.getAccountValue(addr)
-						if err != nil {
-							return fmt.Errorf("failed to load existing account value: %w", err)
-						}
-						paw = &pendingAccountWrite{
-							addr:  addr,
-							value: existingValue,
-						}
-						s.accountWrites[addrStr] = paw
-					}
-
-					if pair.Delete {
-						if kind == evm.EVMKeyNonce {
-							paw.value.Nonce = 0
-						} else {
-							paw.value.CodeHash = CodeHash{}
-						}
-					} else {
-						if kind == evm.EVMKeyNonce {
-							if len(pair.Value) != NonceLen {
-								return fmt.Errorf("invalid nonce value length: got %d, expected %d", len(pair.Value), NonceLen)
-							}
-							paw.value.Nonce = binary.BigEndian.Uint64(pair.Value)
-						} else {
-							if len(pair.Value) != CodeHashLen {
-								return fmt.Errorf("invalid codehash value length: got %d, expected %d", len(pair.Value), CodeHashLen)
-							}
-							copy(paw.value.CodeHash[:], pair.Value)
-						}
-					}
-				}
-
-			case evm.EVMKeyCode:
-				if s.config.EnableCodeWrites {
-					// Get old value for LtHash
-					oldValue, err := s.getCodeValue(keyBytes)
-					if err != nil {
-						return fmt.Errorf("failed to get code value: %w", err)
-					}
-
-					// Code: keyBytes = addr(20) - per x/evm/types/keys.go
-					keyStr := string(keyBytes)
-					if pair.Delete {
-						s.codeWrites[keyStr] = &pendingKVWrite{
-							key:      keyBytes,
-							isDelete: true,
-						}
-					} else {
-						s.codeWrites[keyStr] = &pendingKVWrite{
-							key:   keyBytes,
-							value: pair.Value,
-						}
-					}
-
-					// LtHash pair: internal key directly
-					codePairs = append(codePairs, lthash.KVPairWithLastValue{
-						Key:       keyBytes,
-						Value:     pair.Value,
-						LastValue: oldValue,
-						Delete:    pair.Delete,
-					})
-				}
-
-			case evm.EVMKeyCodeSize:
-				// CodeSize is computed from len(Code), not stored in FlatKV - skip
-				continue
-			}
-		}
-	}
-
-	// Build account LtHash pairs based on full AccountValue changes
-	accountPairs := make([]lthash.KVPairWithLastValue, 0, len(modifiedAccounts))
-	for addrStr := range modifiedAccounts {
-		addr, ok := AddressFromBytes([]byte(addrStr))
-		if !ok {
-			return fmt.Errorf("invalid address in modifiedAccounts: %x", addrStr)
-		}
-
-		// Get old AccountValue from DB (committed state)
-		oldAV, err := s.getAccountValueFromDB(addr)
-		if err != nil {
-			return fmt.Errorf("failed to get old account value for addr %x: %w", addr, err)
-		}
-		oldValue := oldAV.Encode()
-
-		// Get new AccountValue (from pending writes or DB)
-		var newValue []byte
-		var isDelete bool
-		if paw, ok := s.accountWrites[addrStr]; ok {
-			newValue = paw.value.Encode()
-			isDelete = paw.isDelete
-		} else {
-			// No pending write means no change (shouldn't happen, but be safe)
-			continue
-		}
-
-		accountPairs = append(accountPairs, lthash.KVPairWithLastValue{
-			Key:       AccountKey(addr),
-			Value:     newValue,
-			LastValue: oldValue,
-			Delete:    isDelete,
-		})
-	}
-
-	// Combine all pairs and update working LtHash
-	allPairs := append(storagePairs, accountPairs...)
-	allPairs = append(allPairs, codePairs...)
-
-	if len(allPairs) > 0 {
-		newLtHash, _ := lthash.ComputeLtHash(s.workingLtHash, allPairs)
-		s.workingLtHash = newLtHash
-	}
-
-	return nil
-}
-
-// Commit persists buffered writes and advances the version.
-// Protocol: WAL → per-DB batch (with LocalMeta) → flush at interval → update metaDB.
-// On crash, catchup replays WAL to recover incomplete commits.
-func (s *CommitStore) Commit() (int64, error) {
-	// Auto-increment version
-	version := s.committedVersion + 1
-
-	// Step 1: Write Changelog (WAL) - source of truth (always sync)
-	changelogEntry := proto.ChangelogEntry{
-		Version:    version,
-		Changesets: s.pendingChangeSets,
-	}
-	if err := s.changelog.Write(changelogEntry); err != nil {
-		return 0, fmt.Errorf("changelog write: %w", err)
-	}
-
-	// Step 2: Commit to each DB (data + LocalMeta.CommittedVersion atomically)
-	if err := s.commitBatches(version); err != nil {
-		return 0, fmt.Errorf("db commit: %w", err)
-	}
-
-	// Step 3: Update in-memory committed state
-	s.committedVersion = version
-	s.committedLtHash = s.workingLtHash.Clone()
-
-	// Step 4: Flush and update metaDB based on flush interval
-	// - Sync writes: always flush (implicit) and update metaDB
-	// - Async writes: only flush and update metaDB at FlushInterval
-	shouldFlush := !s.config.AsyncWrites || // Sync mode: always "flush"
-		s.config.FlushInterval <= 1 || // FlushInterval=1: flush every block
-		(version-s.lastFlushedVersion) >= int64(s.config.FlushInterval) // Interval reached
-
-	if shouldFlush {
-		// Flush data DBs if using async writes
-		if s.config.AsyncWrites {
-			if err := s.flushAllDBs(); err != nil {
-				return 0, fmt.Errorf("flush: %w", err)
-			}
-		}
-
-		// Persist global metadata to metadata DB (watermark)
-		if err := s.commitGlobalMetadata(version, s.committedLtHash); err != nil {
-			return 0, fmt.Errorf("metadata DB commit: %w", err)
-		}
-
-		s.lastFlushedVersion = version
-	}
-
-	// Step 5: Clear pending buffers
-	s.clearPendingWrites()
-
-	s.log.Info("Committed version", "version", version, "flushed", shouldFlush)
-	return version, nil
-}
-
-// flushAllDBs flushes all data DBs to ensure data is on disk.
-func (s *CommitStore) flushAllDBs() error {
-	if err := s.accountDB.Flush(); err != nil {
-		return fmt.Errorf("accountDB flush: %w", err)
-	}
-	if err := s.codeDB.Flush(); err != nil {
-		return fmt.Errorf("codeDB flush: %w", err)
-	}
-	if err := s.storageDB.Flush(); err != nil {
-		return fmt.Errorf("storageDB flush: %w", err)
-	}
-	return nil
-}
-
-// clearPendingWrites clears all pending write buffers
-func (s *CommitStore) clearPendingWrites() {
-	s.accountWrites = make(map[string]*pendingAccountWrite)
-	s.codeWrites = make(map[string]*pendingKVWrite)
-	s.storageWrites = make(map[string]*pendingKVWrite)
-	s.pendingChangeSets = make([]*proto.NamedChangeSet, 0)
-}
-
-// commitBatches commits pending writes to their respective DBs atomically.
-// Each DB batch includes LocalMeta update for crash recovery.
-// Also called by catchup to replay WAL without re-writing changelog.
-func (s *CommitStore) commitBatches(version int64) error {
-	// Sync option: false for async (faster), true for sync (safer)
-	syncOpt := db_engine.WriteOptions{Sync: !s.config.AsyncWrites}
-
-	// Commit to accountDB (only if writes are enabled)
-	// accountDB uses AccountValue structure: key=addr(20), value=balance(32)||nonce(8)||codehash(32)
-	// When EnableAccountWrites=false, skip entirely (don't update LocalMeta to avoid false "synced" state)
-	if s.config.EnableAccountWrites && (len(s.accountWrites) > 0 || version > s.accountLocalMeta.CommittedVersion) {
-		batch := s.accountDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-
-		for _, paw := range s.accountWrites {
-			key := AccountKey(paw.addr)
-			if paw.isDelete {
-				if err := batch.Delete(key); err != nil {
-					return fmt.Errorf("accountDB delete: %w", err)
-				}
-			} else {
-				// Encode AccountValue and store with addr as key
-				encoded := EncodeAccountValue(paw.value)
-				if err := batch.Set(key, encoded); err != nil {
-					return fmt.Errorf("accountDB set: %w", err)
-				}
-			}
-		}
-
-		// Update local meta atomically with data (same batch)
-		newLocalMeta := &LocalMeta{
-			CommittedVersion: version,
-		}
-		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
-			return fmt.Errorf("accountDB local meta set: %w", err)
-		}
-
-		if err := batch.Commit(syncOpt); err != nil {
-			return fmt.Errorf("accountDB commit: %w", err)
-		}
-
-		// Update in-memory local meta after successful commit
-		s.accountLocalMeta = newLocalMeta
-	}
-
-	// Commit to codeDB (only if writes are enabled)
-	// When EnableCodeWrites=false, skip entirely (don't update LocalMeta)
-	if s.config.EnableCodeWrites && (len(s.codeWrites) > 0 || version > s.codeLocalMeta.CommittedVersion) {
-		batch := s.codeDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-
-		for _, pw := range s.codeWrites {
-			if pw.isDelete {
-				if err := batch.Delete(pw.key); err != nil {
-					return fmt.Errorf("codeDB delete: %w", err)
-				}
-			} else {
-				if err := batch.Set(pw.key, pw.value); err != nil {
-					return fmt.Errorf("codeDB set: %w", err)
-				}
-			}
-		}
-
-		// Update local meta atomically with data (same batch)
-		newLocalMeta := &LocalMeta{
-			CommittedVersion: version,
-		}
-		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
-			return fmt.Errorf("codeDB local meta set: %w", err)
-		}
-
-		if err := batch.Commit(syncOpt); err != nil {
-			return fmt.Errorf("codeDB commit: %w", err)
-		}
-
-		// Update in-memory local meta after successful commit
-		s.codeLocalMeta = newLocalMeta
-	}
-
-	// Commit to storageDB (only if writes are enabled)
-	// When EnableStorageWrites=false, skip entirely (don't update LocalMeta)
-	if s.config.EnableStorageWrites && (len(s.storageWrites) > 0 || version > s.storageLocalMeta.CommittedVersion) {
-		batch := s.storageDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-
-		for _, pw := range s.storageWrites {
-			if pw.isDelete {
-				if err := batch.Delete(pw.key); err != nil {
-					return fmt.Errorf("storageDB delete: %w", err)
-				}
-			} else {
-				if err := batch.Set(pw.key, pw.value); err != nil {
-					return fmt.Errorf("storageDB set: %w", err)
-				}
-			}
-		}
-
-		// Update local meta atomically with data (same batch)
-		newLocalMeta := &LocalMeta{
-			CommittedVersion: version,
-		}
-		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
-			return fmt.Errorf("storageDB local meta set: %w", err)
-		}
-
-		if err := batch.Commit(syncOpt); err != nil {
-			return fmt.Errorf("storageDB commit: %w", err)
-		}
-
-		// Update in-memory local meta after successful commit
-		s.storageLocalMeta = newLocalMeta
-	}
-
 	return nil
 }
 

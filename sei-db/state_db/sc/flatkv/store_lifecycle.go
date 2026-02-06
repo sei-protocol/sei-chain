@@ -37,6 +37,12 @@ func (s *CommitStore) Close() error {
 		}
 	}
 
+	if s.legacyDB != nil {
+		if err := s.legacyDB.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("legacyDB close: %w", err))
+		}
+	}
+
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
