@@ -36,7 +36,6 @@ func MockApp(t *testing.T) (*app.App, sdk.Context) {
 func MockEVMKeeper(t *testing.T) (*evmkeeper.Keeper, sdk.Context) {
 	testApp, ctx := MockApp(t)
 	k := testApp.GigaEvmKeeper
-	ctx = ctx.WithMultiStore(ctx.MultiStore().CacheMultiStore())
 	k.InitGenesis(ctx, *evmtypes.DefaultGenesis())
 
 	// mint some coins to a sei address

@@ -4,11 +4,22 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/giga/deps/store"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 )
 
 func (k *Keeper) GetState(ctx sdk.Context, addr common.Address, hash common.Hash) common.Hash {
 	val := k.PrefixStore(ctx, types.StateKey(addr)).Get(hash[:])
+	if val == nil {
+		return common.Hash{}
+	}
+	return common.BytesToHash(val)
+}
+
+func (k *Keeper) GetCommittedState(ctx sdk.Context, addr common.Address, hash common.Hash) common.Hash {
+	store := k.GetKVStore(ctx).(*store.Store)
+	key := append(types.StateKey(addr), hash[:]...)
+	val := store.GetCommitted(key)
 	if val == nil {
 		return common.Hash{}
 	}
