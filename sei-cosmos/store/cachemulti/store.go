@@ -91,25 +91,25 @@ func NewStore(
 }
 
 func newCacheMultiStoreFromCMS(cms Store) Store {
-	// Collect all parents: materialized stores + lazy parents
-	stores := make(map[types.StoreKey]types.CacheWrapper, len(cms.stores)+len(cms.storeParents))
+	// Materialize all lazy parents on the parent CMS first.
+	// This ensures the child CMS wraps cachekv stores (not raw stores),
+	// so child.Write() writes to the parent's cachekv — not directly to the
+	// underlying commit store, which would bypass the parent's caching layer.
+	for k := range cms.storeParents {
+		cms.ensureStore(k)
+	}
+	for k := range cms.gigaStoreParents {
+		cms.ensureGigaStore(k)
+	}
+
+	stores := make(map[types.StoreKey]types.CacheWrapper, len(cms.stores))
 	for k, v := range cms.stores {
 		stores[k] = v
 	}
-	for k, v := range cms.storeParents {
-		if _, exists := stores[k]; !exists {
-			stores[k] = v
-		}
-	}
 
-	gigaStores := make(map[types.StoreKey]types.KVStore, len(cms.gigaStores)+len(cms.gigaStoreParents))
+	gigaStores := make(map[types.StoreKey]types.KVStore, len(cms.gigaStores))
 	for k, v := range cms.gigaStores {
 		gigaStores[k] = v
-	}
-	for k, v := range cms.gigaStoreParents {
-		if _, exists := gigaStores[k]; !exists {
-			gigaStores[k] = v
-		}
 	}
 
 	return NewFromKVStore(cms.db, stores, gigaStores, cms.keys, cms.gigaKeys, cms.traceWriter, cms.traceContext)
