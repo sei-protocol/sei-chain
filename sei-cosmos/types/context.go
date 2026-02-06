@@ -3,6 +3,7 @@ package types
 import (
 	"context"
 	fmt "fmt"
+	"sync"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -71,7 +72,8 @@ type Context struct {
 	isTracing   bool
 	storeTracer gaskv.IStoreTracer
 
-	gaskvStores map[StoreKey]KVStore // cached gaskv wrappers per store key
+	gaskvStores   map[StoreKey]KVStore // cached gaskv wrappers per store key
+	gaskvStoresMu *sync.RWMutex
 }
 
 // Proposed rename, not done to avoid API breakage
@@ -271,6 +273,7 @@ func NewContext(ms MultiStore, header tmproto.Header, isCheckTx bool, logger log
 		eventManager:    NewEventManager(),
 		evmEventManager: NewEVMEventManager(),
 		gaskvStores:     make(map[StoreKey]KVStore, 8),
+		gaskvStoresMu:   &sync.RWMutex{},
 	}
 }
 
@@ -284,6 +287,7 @@ func (c Context) WithContext(ctx context.Context) Context {
 func (c Context) WithMultiStore(ms MultiStore) Context {
 	c.ms = ms
 	c.gaskvStores = make(map[StoreKey]KVStore, 8)
+	c.gaskvStoresMu = &sync.RWMutex{}
 	return c
 }
 
@@ -359,6 +363,7 @@ func (c Context) WithVoteInfos(voteInfo []abci.VoteInfo) Context {
 func (c Context) WithGasMeter(meter GasMeter) Context {
 	c.gasMeter = meter
 	c.gaskvStores = make(map[StoreKey]KVStore, 8)
+	c.gaskvStoresMu = &sync.RWMutex{}
 	return c
 }
 
@@ -538,10 +543,13 @@ func (c Context) Value(key interface{}) interface{} {
 
 // KVStore fetches a KVStore from the MultiStore.
 func (c Context) KVStore(key StoreKey) KVStore {
-	if c.gaskvStores != nil {
+	if c.gaskvStoresMu != nil {
+		c.gaskvStoresMu.RLock()
 		if cached, ok := c.gaskvStores[key]; ok {
+			c.gaskvStoresMu.RUnlock()
 			return cached
 		}
+		c.gaskvStoresMu.RUnlock()
 	}
 	if c.isTracing {
 		if _, ok := c.nextStoreKeys[key.Name()]; ok {
@@ -549,8 +557,10 @@ func (c Context) KVStore(key StoreKey) KVStore {
 		}
 	}
 	store := gaskv.NewStore(c.MultiStore().GetKVStore(key), c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
-	if c.gaskvStores != nil {
+	if c.gaskvStoresMu != nil {
+		c.gaskvStoresMu.Lock()
 		c.gaskvStores[key] = store
+		c.gaskvStoresMu.Unlock()
 	}
 	return store
 }
@@ -561,10 +571,13 @@ func (c Context) GigaKVStore(key StoreKey) KVStore {
 
 // TransientStore fetches a TransientStore from the MultiStore.
 func (c Context) TransientStore(key StoreKey) KVStore {
-	if c.gaskvStores != nil {
+	if c.gaskvStoresMu != nil {
+		c.gaskvStoresMu.RLock()
 		if cached, ok := c.gaskvStores[key]; ok {
+			c.gaskvStoresMu.RUnlock()
 			return cached
 		}
+		c.gaskvStoresMu.RUnlock()
 	}
 	if c.isTracing {
 		if _, ok := c.nextStoreKeys[key.Name()]; ok {
@@ -572,8 +585,10 @@ func (c Context) TransientStore(key StoreKey) KVStore {
 		}
 	}
 	store := gaskv.NewStore(c.MultiStore().GetKVStore(key), c.GasMeter(), stypes.TransientGasConfig(), key.Name(), c.StoreTracer())
-	if c.gaskvStores != nil {
+	if c.gaskvStoresMu != nil {
+		c.gaskvStoresMu.Lock()
 		c.gaskvStores[key] = store
+		c.gaskvStoresMu.Unlock()
 	}
 	return store
 }
