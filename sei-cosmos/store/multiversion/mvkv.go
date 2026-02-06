@@ -82,9 +82,6 @@ type VersionIndexedStore struct {
 	iterateset Iterateset
 	// TODO: need to add iterateset here as well
 
-	// used for iterators - populated at the time of iterator instantiation
-	// TODO: when we want to perform iteration, we need to move all the dirty keys (writeset and readset) into the sortedTree and then combine with the iterators for the underlying stores
-	sortedStore *dbm.MemDB // always ascending sorted
 	// parent stores (both multiversion and underlying parent store)
 	multiVersionStore MultiVersionStore
 	parent            types.KVStore
@@ -104,7 +101,6 @@ func NewVersionIndexedStore(parent types.KVStore, multiVersionStore MultiVersion
 		readset:           make(map[string][][]byte),
 		writeset:          make(map[string][]byte),
 		iterateset:        []*iterationTracker{},
-		sortedStore:       dbm.NewMemDB(),
 		parent:            parent,
 		multiVersionStore: multiVersionStore,
 		transactionIndex:  transactionIndex,
