@@ -7,6 +7,24 @@ This directory contains state tests that compare Giga vs V2 EVM execution.
 - **Test data location:** `giga/tests/data/`
 - **Skip list:** `giga/tests/data/skip_list.json`
 
+## Known Issues
+
+### Failed Transaction Behavior Difference (failed_tx_behavior)
+
+**IMPORTANT:** V2 and Giga handle failed/reverted transactions differently:
+
+| Aspect | V2 (Geth-based) | Giga |
+|--------|-----------------|------|
+| Error codes | Cosmos SDK codes (e.g., 32 for sequence mismatch) | EVM-style codes (e.g., 1 for generic failure) |
+| Gas reporting | Reports Cosmos gas consumed (~47k for failed tx) | Reports 0 gas |
+
+This means tests with transactions that fail (nonce errors, insufficient balance, etc.) will show as `failed_tx_behavior` failures even though both executors correctly reject the transaction.
+
+**How to handle:**
+- Tests with `failed_tx_behavior` failures should be added to the skip list
+- The skip reason should be `failed_tx_behavior`
+- These tests are valid for catching regressions once the behavior is unified
+
 ## Running Tests
 
 ### Basic Commands
