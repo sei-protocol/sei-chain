@@ -49,6 +49,7 @@ type VersionedChangesets struct {
 
 type Database struct {
 	storage  *grocksdb.DB
+	closed   atomic.Bool // Set to true when Close() is called, checked by Prune()
 	config   config.StateStoreConfig
 	cfHandle *grocksdb.ColumnFamilyHandle
 
@@ -293,6 +294,11 @@ func (db *Database) writeAsyncInBackground() {
 // lazy prune. Future compactions will honor the increased full_history_ts_low
 // and trim history when possible.
 func (db *Database) Prune(version int64) error {
+	// Check if database is closed
+	if db.closed.Load() {
+		return fmt.Errorf("rocksdb: database is closed")
+	}
+
 	tsLow := version + 1 // we increment by 1 to include the provided version
 
 	var ts [TimestampSize]byte
@@ -494,6 +500,12 @@ func (db *Database) WriteBlockRangeHash(storeKey string, beginBlockRange, endBlo
 }
 
 func (db *Database) Close() error {
+	// Mark as closed first to signal pruning goroutine to stop
+	// Use CompareAndSwap to ensure Close is idempotent
+	if !db.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+
 	if db.streamHandler != nil {
 		// Close the pending changes channel to signal the background goroutine to stop
 		close(db.pendingChanges)
@@ -504,6 +516,7 @@ func (db *Database) Close() error {
 		// Only set to nil after background goroutine has finished
 		db.streamHandler = nil
 	}
+
 	db.cfHandle = nil
 	if db.storage != nil {
 		db.storage.Close()

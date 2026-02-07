@@ -59,6 +59,7 @@ var (
 
 type Database struct {
 	storage      *pebble.DB
+	closed       atomic.Bool // Set to true when Close() is called, checked by Prune()
 	asyncWriteWG sync.WaitGroup
 	config       config.StateStoreConfig
 	// Earliest version for db after pruning
@@ -187,6 +188,12 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 }
 
 func (db *Database) Close() error {
+	// Mark as closed first to signal pruning to skip/return early
+	// Use CompareAndSwap to ensure Close is idempotent
+	if !db.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+
 	// Stop background metrics collection
 	if db.metricsCancel != nil {
 		db.metricsCancel()
@@ -201,6 +208,7 @@ func (db *Database) Close() error {
 		_ = db.streamHandler.Close()
 		db.streamHandler = nil
 	}
+
 	var err error
 	if db.storage != nil {
 		err = db.storage.Close()
@@ -634,6 +642,11 @@ func (db *Database) writeAsyncInBackground() {
 // it has been updated. This occurs when that module's keys are updated in between pruning runs, the node after is restarted.
 // This is not a large issue given the next time that module is updated, it will be properly pruned thereafter.
 func (db *Database) Prune(version int64) (_err error) {
+	// Check if database is closed
+	if db.closed.Load() {
+		return errors.New("pebbledb: database is closed")
+	}
+
 	startTime := time.Now()
 	defer func() {
 		otelMetrics.pruneLatency.Record(
