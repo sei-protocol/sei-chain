@@ -2,7 +2,6 @@ package memiavl
 
 import (
 	"errors"
-	"runtime"
 	"time"
 
 	"github.com/sei-protocol/sei-db/common/logger"
@@ -48,6 +47,12 @@ type Options struct {
 	// Minimum time interval between snapshots
 	// This prevents excessive snapshot creation during catch-up. Default is 1 hour.
 	SnapshotMinTimeInterval time.Duration
+
+	// SnapshotWriteRateMBps defines the maximum write rate (MB/s) for snapshot creation.
+	// This is a GLOBAL limit shared across all trees and files.
+	// Default: 100. Set to a very high value (e.g., 10000) for effectively unlimited.
+	// 0 or unset will use the default.
+	SnapshotWriteRateMBps int
 }
 
 func (opts Options) Validate() error {
@@ -68,11 +73,15 @@ func (opts *Options) FillDefaults() {
 	}
 
 	if opts.SnapshotWriterLimit <= 0 {
-		opts.SnapshotWriterLimit = runtime.NumCPU()
+		opts.SnapshotWriterLimit = 2 // Default to 2 for lower I/O pressure on most validators
 	}
 
 	if opts.SnapshotMinTimeInterval <= 0 {
 		opts.SnapshotMinTimeInterval = 1 * time.Hour
+	}
+
+	if opts.SnapshotWriteRateMBps <= 0 {
+		opts.SnapshotWriteRateMBps = config.DefaultSnapshotWriteRateMBps
 	}
 
 	opts.PrefetchThreshold = 0.8

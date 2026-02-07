@@ -34,6 +34,7 @@ func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCom
 		SnapshotKeepRecent:               config.SnapshotKeepRecent,
 		SnapshotMinTimeInterval:          time.Duration(config.SnapshotMinTimeInterval) * time.Second,
 		SnapshotWriterLimit:              config.SnapshotWriterLimit,
+		SnapshotWriteRateMBps:            config.SnapshotWriteRateMBps,
 		PrefetchThreshold:                config.SnapshotPrefetchThreshold,
 		CreateIfMissing:                  true,
 		OnlyAllowExportOnSnapshotVersion: config.OnlyAllowExportOnSnapshotVersion,

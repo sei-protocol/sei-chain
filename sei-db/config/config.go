@@ -6,6 +6,7 @@ const (
 	DefaultSnapshotMinTimeInterval   = 60 * 60 // 1 hour in seconds
 	DefaultAsyncCommitBuffer         = 100
 	DefaultSnapshotPrefetchThreshold = 0.8 // prefetch if <80% pages in cache
+	DefaultSnapshotWriteRateMBps     = 100 // 100 MB/s to prevent page cache eviction on most validators
 	DefaultSSKeepRecent              = 100000
 	DefaultSSPruneInterval           = 600
 	DefaultSSImportWorkers           = 1
@@ -45,7 +46,9 @@ type StateCommitConfig struct {
 	// This prevents excessive snapshot creation during catch-up. Default to 3600 seconds (1 hour).
 	SnapshotMinTimeInterval uint32 `mapstructure:"snapshot-min-time-interval"`
 
-	// SnapshotWriterLimit defines the concurrency for taking commit store snapshot
+	// SnapshotWriterLimit defines the concurrency for taking commit store snapshot.
+	// Default to 2 for lower I/O pressure. Higher values speed up snapshot but increase page cache eviction.
+	// With rate limiting enabled, this mainly affects CPU/goroutine overhead rather than I/O.
 	SnapshotWriterLimit int `mapstructure:"snapshot-writer-limit"`
 
 	// SnapshotPrefetchThreshold defines the page cache residency threshold (0.0-1.0)
@@ -55,6 +58,14 @@ type StateCommitConfig struct {
 	// Skips prefetch if >threshold of pages already resident (e.g., 0.8 = 80%).
 	// Setting to 0 disables prefetching. Defaults to 0.8
 	SnapshotPrefetchThreshold float64 `mapstructure:"snapshot-prefetch-threshold"`
+
+	// SnapshotWriteRateMBps defines the maximum write rate (MB/s) for snapshot creation.
+	// This is a GLOBAL limit shared across all trees and files in a single snapshot operation.
+	// This helps prevent page cache eviction on machines with limited RAM.
+	// Default: 100 MB/s (conservative for most validators including 64GB RAM machines).
+	// Set to a very high value (e.g., 10000) for effectively unlimited.
+	// 0 or unset will use the default (100 MB/s).
+	SnapshotWriteRateMBps int `mapstructure:"snapshot-write-rate-mbps"`
 
 	// CacheSize defines the size of the cache for each memiavl store.
 	// Deprecated: this is removed, we will just rely on mmap page cache
@@ -115,6 +126,7 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		SnapshotKeepRecent:        DefaultSnapshotKeepRecent,
 		SnapshotMinTimeInterval:   DefaultSnapshotMinTimeInterval,
 		SnapshotPrefetchThreshold: DefaultSnapshotPrefetchThreshold,
+		SnapshotWriteRateMBps:     DefaultSnapshotWriteRateMBps,
 	}
 }
 

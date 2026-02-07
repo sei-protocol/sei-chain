@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alitto/pond"
@@ -69,9 +70,9 @@ type DB struct {
 	// timestamp of the last successful snapshot creation
 	// Protected by db.mtx (only accessed in Commit call chain)
 	lastSnapshotTime time.Time
+	// snapshot write rate limit in MB/s, 0 means unlimited
+	snapshotWriteRateMBps int
 
-	// pruneSnapshotLock guards concurrent prune operations; use TryLock in pruneSnapshots
-	pruneSnapshotLock sync.Mutex
 	// closed guards against double Close(), protected by db.mtx
 	closed bool
 
@@ -91,6 +92,9 @@ type DB struct {
 	mtx sync.Mutex
 	// worker goroutine IdleTimeout = 5s
 	snapshotWriterPool *pond.WorkerPool
+
+	// pruningInProgress guards concurrent prune operations (CAS-based)
+	pruningInProgress atomic.Bool
 }
 
 const (
@@ -276,6 +280,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		snapshotInterval:        opts.SnapshotInterval,
 		snapshotMinTimeInterval: opts.SnapshotMinTimeInterval,
 		lastSnapshotTime:        lastSnapshotTime,
+		snapshotWriteRateMBps:   opts.SnapshotWriteRateMBps,
 		snapshotWriterPool:      workerPool,
 		opts:                    opts,
 	}
@@ -494,17 +499,18 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 
 // pruneSnapshot prune the old snapshots
 func (db *DB) pruneSnapshots() {
-	if !db.pruneSnapshotLock.TryLock() {
-		db.logger.Info("pruneSnapshots skipped, previous prune still in progress")
+	// CAS: only one prune can run at a time
+	if !db.pruningInProgress.CompareAndSwap(false, true) {
 		return
 	}
-	defer db.pruneSnapshotLock.Unlock()
+	defer db.pruningInProgress.Store(false)
 
-	db.logger.Info("pruneSnapshots started")
 	startTime := time.Now()
 	defer func() {
 		db.logger.Info("pruneSnapshots completed", "duration_sec", fmt.Sprintf("%.2fs", time.Since(startTime).Seconds()))
 	}()
+
+	db.logger.Info("pruneSnapshots started")
 
 	currentVersion, err := currentVersion(db.dir)
 	if err != nil {
@@ -543,6 +549,9 @@ func (db *DB) pruneSnapshots() {
 		db.logger.Error("failed to find first snapshot", "err", err)
 	}
 
+	if db.streamHandler == nil {
+		return
+	}
 	if err := db.streamHandler.TruncateBefore(utils.VersionToIndex(earliestVersion+1, db.initialVersion.Load())); err != nil {
 		db.logger.Error("failed to truncate rlog", "err", err, "version", earliestVersion+1)
 	}
@@ -605,11 +614,12 @@ func (db *DB) copy() *DB {
 	mtree := db.MultiTree.Copy()
 
 	return &DB{
-		MultiTree:          *mtree,
-		logger:             db.logger,
-		dir:                db.dir,
-		snapshotWriterPool: db.snapshotWriterPool,
-		opts:               db.opts,
+		MultiTree:             *mtree,
+		logger:                db.logger,
+		dir:                   db.dir,
+		snapshotWriteRateMBps: db.snapshotWriteRateMBps,
+		snapshotWriterPool:    db.snapshotWriterPool,
+		opts:                  db.opts,
 	}
 }
 
@@ -644,7 +654,7 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	path := filepath.Clean(filepath.Join(db.dir, tmpDir))
 
 	writeStart := time.Now()
-	err := db.MultiTree.WriteSnapshot(ctx, path, db.snapshotWriterPool)
+	err := db.MultiTree.WriteSnapshotWithRateLimit(ctx, path, db.snapshotWriterPool, db.snapshotWriteRateMBps)
 	writeElapsed := time.Since(writeStart).Seconds()
 
 	if err != nil {
@@ -817,6 +827,20 @@ func (db *DB) rewriteSnapshotBackground() error {
 			ch <- snapshotResult{err: err}
 			return
 		}
+
+		// Switch mmap hints from SEQUENTIAL to RANDOM for tree operations.
+		// NewMmap() applies MADV_SEQUENTIAL by default for cold-start replay performance,
+		// but after loading we need MADV_RANDOM for random tree access patterns.
+		// Without this, the kernel aggressively discards accessed pages and does wrong-direction
+		// readahead, which is catastrophic on high-latency storage (e.g. NAS).
+		// This matches the behavior in OpenDB() which also calls PrepareForRandomRead().
+		for _, tree := range mtree.trees {
+			if tree.snapshot != nil {
+				tree.snapshot.nodesMap.PrepareForRandomRead()
+				tree.snapshot.leavesMap.PrepareForRandomRead()
+			}
+		}
+
 		cloned.logger.Info("loaded multitree after snapshot", "elapsed", time.Since(loadStart).Seconds())
 
 		// do a best effort catch-up, will do another final catch-up in main thread.
@@ -849,8 +873,9 @@ func (db *DB) Close() error {
 	}
 	db.closed = true
 	// Wait for any ongoing prune to finish, then block new prunes
-	db.pruneSnapshotLock.Lock()
-	defer db.pruneSnapshotLock.Unlock()
+	for !db.pruningInProgress.CompareAndSwap(false, true) {
+		time.Sleep(time.Millisecond)
+	}
 	errs := []error{}
 	// Close stream handler
 	db.logger.Info("Closing stream handler...")

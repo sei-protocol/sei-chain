@@ -36,15 +36,21 @@ sc-snapshot-interval = {{ .StateCommit.SnapshotInterval }}
 # to allow more frequent snapshots during normal operation.
 sc-snapshot-min-time-interval = {{ .StateCommit.SnapshotMinTimeInterval }}
 
-# SnapshotWriterLimit defines the max concurrency for taking commit store snapshot
-sc-snapshot-writer-limit = {{ .StateCommit.SnapshotWriterLimit }}
-
 # SnapshotPrefetchThreshold defines the page cache residency threshold (0.0-1.0) to trigger snapshot prefetch.
 # Prefetch sequentially reads nodes/leaves files into page cache for faster cold-start replay.
 # Only active trees (evm/bank/acc) are prefetched, skipping sparse kv files to save memory.
 # Skips prefetch if more than threshold of pages already resident (e.g., 0.8 = 80%).
 # Setting to 0 disables prefetching. Defaults to 0.8
 sc-snapshot-prefetch-threshold = {{ .StateCommit.SnapshotPrefetchThreshold }}
+
+# SnapshotWriteRateMBps defines the maximum write rate (MB/s) for snapshot creation.
+# This is a GLOBAL limit shared across all trees and files in a single snapshot operation.
+# This helps prevent page cache eviction on machines with limited RAM, which can cause
+# block execution cache misses and consensus delays.
+# Default: 100 MB/s (conservative for most validators including 64GB RAM machines).
+# Set to a very high value (e.g., 10000) for effectively unlimited.
+# 0 or unset will use the default (100 MB/s).
+sc-snapshot-write-rate-mbps = {{ .StateCommit.SnapshotWriteRateMBps }}
 
 # OnlyAllowExportOnSnapshotVersion defines whether we only allow state sync
 # snapshot creation happens after the memiavl snapshot is created.

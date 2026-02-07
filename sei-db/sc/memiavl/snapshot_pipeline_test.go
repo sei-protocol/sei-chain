@@ -2,7 +2,10 @@ package memiavl
 
 import (
 	"context"
+	"io"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-db/common/logger"
@@ -139,6 +142,7 @@ func TestWriteSnapshotWithBuffer(t *testing.T) {
 		tree.version,
 		1024*1024, // 1MB buffer
 		int64(tree.root.Size()),
+		nil, // no rate limit
 		logger.NewNopLogger(),
 		func(w *snapshotWriter) (uint32, error) {
 			if tree.root == nil {
@@ -151,6 +155,44 @@ func TestWriteSnapshotWithBuffer(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
+}
+
+func TestGlobalRateLimiterSharedAcrossWriters(t *testing.T) {
+	ctx := context.Background()
+	// Use NewGlobalRateLimiter to test the actual API surface
+	limiter := NewGlobalRateLimiter(1) // 1MB/s with 4MB burst
+
+	w1 := newRateLimitedWriter(ctx, io.Discard, limiter)
+	w2 := newRateLimitedWriter(ctx, io.Discard, limiter)
+
+	// Write 5MB total (more than burst) to ensure rate limiting kicks in
+	payload := make([]byte, 2*1024*1024+512*1024) // 2.5MB each = 5MB total
+
+	start := time.Now()
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, err := w1.Write(payload)
+		require.NoError(t, err)
+	}()
+	go func() {
+		defer wg.Done()
+		_, err := w2.Write(payload)
+		require.NoError(t, err)
+	}()
+	wg.Wait()
+
+	// 5MB total at 1MB/s should take ~5s, but with 4MB burst initial writes are fast.
+	// After burst is consumed, remaining 1MB is rate-limited.
+	// Use conservative threshold: at least 800ms (allows for burst + some jitter)
+	elapsed := time.Since(start)
+	require.GreaterOrEqual(t, elapsed, 800*time.Millisecond,
+		"Expected rate limiting to slow down writes (5MB at 1MB/s should take >800ms after burst)")
+
+	// Also sanity check it didn't take unreasonably long (e.g., >10s indicates a bug)
+	require.LessOrEqual(t, elapsed, 10*time.Second,
+		"Write took too long, possible deadlock or excessive rate limiting")
 }
 
 // TestPipelineMetrics tests pipeline metrics reporting
