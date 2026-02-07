@@ -318,7 +318,7 @@ func (c *Client) initializeWithTrustOptions(ctx context.Context, options TrustOp
 	}
 
 	// 2) Assert that the hashes match
-	if !bytes.Equal(l.Header.Hash(), options.Hash) {
+	if !bytes.Equal(l.Hash(), options.Hash) {
 		return fmt.Errorf("expected header's hash %X, but got %X", options.Hash, l.Hash())
 	}
 

@@ -2,9 +2,10 @@ package conn
 
 import (
 	"context"
+	"net/netip"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
-	"net/netip"
 )
 
 type buf struct {

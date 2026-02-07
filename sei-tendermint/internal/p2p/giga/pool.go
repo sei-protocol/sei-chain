@@ -2,6 +2,7 @@ package giga
 
 import (
 	"context"
+
 	"github.com/google/btree"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"

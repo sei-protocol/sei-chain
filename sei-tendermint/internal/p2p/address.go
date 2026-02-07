@@ -77,7 +77,7 @@ func ParseNodeAddress(urlString string) (NodeAddress, error) {
 	}
 	// For some reasons, missing or 0 port on parsing is interpretented as the default port.
 	if address.Port == 0 {
-		address.Port = uint16(defaultPort)
+		address.Port = defaultPort
 	}
 	return address, address.Validate()
 }

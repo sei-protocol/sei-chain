@@ -51,7 +51,7 @@ if enabled.`,
 			}
 
 			if _, err := os.Stat(outDir); os.IsNotExist(err) {
-				if err := os.Mkdir(outDir, os.ModePerm); err != nil {
+				if err := os.Mkdir(outDir, 0750); err != nil {
 					return fmt.Errorf("failed to create output directory: %w", err)
 				}
 			}
@@ -113,7 +113,7 @@ func dumpDebugData(ctx context.Context, logger log.Logger, rpc *rpchttp.HTTP, ar
 		logger.Error("failed to create temporary directory", "dir", tmpDir, "error", err)
 		return
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	logger.Info("getting node status...")
 	if err := dumpStatus(ctx, rpc, tmpDir, "status.json"); err != nil {

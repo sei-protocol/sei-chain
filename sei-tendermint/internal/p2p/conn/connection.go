@@ -3,10 +3,11 @@ package conn
 import (
 	"context"
 	"errors"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"io"
 	"net"
 	"net/netip"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 type Conn interface {

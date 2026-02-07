@@ -6,8 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"strings"
+
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 )
 
 // Bytes converts the public key or signature to bytes.

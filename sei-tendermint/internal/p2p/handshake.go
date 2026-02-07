@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"fmt"
+
 	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"

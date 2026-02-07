@@ -434,7 +434,9 @@ func (r *Reactor) Sync(ctx context.Context) (sm.State, error) {
 	if r.cfg.UseLocalSnapshot {
 		snapshotList, _ := r.recentSnapshots(context.Background(), recentSnapshots)
 		for _, snap := range snapshotList {
-			r.syncer.AddSnapshot("self", snap)
+			if _, err := r.syncer.AddSnapshot("self", snap); err != nil {
+				return sm.State{}, fmt.Errorf("failed to add snapshot at height %d: %w", snap.Height, err)
+			}
 		}
 	}
 
@@ -623,7 +625,7 @@ func (r *Reactor) backfill(
 			}
 
 			// check if there has been a change in the validator set
-			if lastValidatorSet != nil && !bytes.Equal(resp.block.Header.ValidatorsHash, resp.block.Header.NextValidatorsHash) {
+			if lastValidatorSet != nil && !bytes.Equal(resp.block.ValidatorsHash, resp.block.NextValidatorsHash) {
 				// save all the heights that the last validator set was the same
 				if err := r.stateStore.SaveValidatorSets(resp.block.Height+1, lastChangeHeight, lastValidatorSet); err != nil {
 					return err

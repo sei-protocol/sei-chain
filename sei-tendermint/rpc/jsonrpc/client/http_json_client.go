@@ -211,7 +211,7 @@ func (c *Client) Call(ctx context.Context, method string, params, result interfa
 	}
 
 	responseBytes, err := io.ReadAll(httpResponse.Body)
-	httpResponse.Body.Close()
+	_ = httpResponse.Body.Close()
 	if err != nil {
 		return fmt.Errorf("reading response body: %w", err)
 	}
@@ -258,7 +258,7 @@ func (c *Client) sendBatch(ctx context.Context, requests []*jsonRPCBufferedReque
 	}
 
 	responseBytes, err := io.ReadAll(httpResponse.Body)
-	httpResponse.Body.Close()
+	_ = httpResponse.Body.Close()
 	if err != nil {
 		return nil, fmt.Errorf("reading response body: %w", err)
 	}

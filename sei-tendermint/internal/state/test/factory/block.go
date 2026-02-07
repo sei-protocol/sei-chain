@@ -68,8 +68,8 @@ func makeBlockAndPartSet(
 		vote, err := factory.MakeVote(
 			ctx,
 			privVal,
-			lastBlock.Header.ChainID,
-			1, lastBlock.Header.Height, 0, 2,
+			lastBlock.ChainID,
+			1, lastBlock.Height, 0, 2,
 			lastBlockMeta.BlockID,
 			time.Now())
 		require.NoError(t, err)

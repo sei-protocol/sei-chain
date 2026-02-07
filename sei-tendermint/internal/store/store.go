@@ -50,7 +50,7 @@ func (bs *BlockStore) Base() int64 {
 	if err != nil {
 		panic(err)
 	}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	if iter.Valid() {
 		height, err := decodeBlockMetaKey(iter.Key())
@@ -75,7 +75,7 @@ func (bs *BlockStore) Height() int64 {
 	if err != nil {
 		panic(err)
 	}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	if iter.Valid() {
 		height, err := decodeBlockMetaKey(iter.Key())
@@ -107,7 +107,7 @@ func (bs *BlockStore) LoadBaseMeta() *types.BlockMeta {
 	if err != nil {
 		return nil
 	}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	if iter.Valid() {
 		var pbbm = new(tmproto.BlockMeta)
@@ -370,7 +370,7 @@ func (bs *BlockStore) pruneRange(
 	)
 
 	batch := bs.db.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 
 	pruned, start, err = bs.batchDelete(batch, start, end, preDeletionHook)
 	if err != nil {
@@ -418,7 +418,7 @@ func (bs *BlockStore) batchDelete(
 	if err != nil {
 		return pruned, start, err
 	}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	for ; iter.Valid(); iter.Next() {
 		key := iter.Key()

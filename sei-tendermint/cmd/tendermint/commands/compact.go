@@ -57,7 +57,7 @@ func compactGoLevelDBs(rootDir string, logger log.Logger) {
 				logger.Error("failed to initialize tendermint db", "path", dbPath, "err", err)
 				return
 			}
-			defer store.Close()
+			defer func() { _ = store.Close() }()
 
 			logger.Info("starting compaction...", "db", dbPath)
 

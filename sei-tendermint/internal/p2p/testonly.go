@@ -56,8 +56,8 @@ type TestNodeOptions struct {
 
 func TestAddress(r *Router) NodeAddress {
 	e := r.Endpoint()
-	addr := e.AddrPort.Addr()
-	port := e.AddrPort.Port()
+	addr := e.Addr()
+	port := e.Port()
 	switch addr {
 	case netip.IPv4Unspecified():
 		addr = tcp.IPv4Loopback()
@@ -96,7 +96,8 @@ func (n *TestNetwork) ConnectCycle(ctx context.Context, t *testing.T) {
 	nodes := n.Nodes()
 	N := len(nodes)
 	for i := range nodes {
-		nodes[i].Router.peerManager.AddAddrs(utils.Slice(nodes[(i+1)%len(nodes)].NodeAddress))
+		err := nodes[i].Router.peerManager.AddAddrs(utils.Slice(nodes[(i+1)%len(nodes)].NodeAddress))
+		require.NoError(t, err)
 	}
 	for i := range n.Nodes() {
 		nodes[i].WaitForConn(ctx, nodes[(i+1)%N].NodeID, true)
@@ -112,7 +113,8 @@ func (n *TestNetwork) Start(t *testing.T) {
 	// Populate peer managers.
 	for i, source := range nodes {
 		for _, target := range nodes[i+1:] { // nodes <i already connected
-			source.Router.peerManager.AddAddrs(utils.Slice(target.NodeAddress))
+			err := source.Router.peerManager.AddAddrs(utils.Slice(target.NodeAddress))
+			require.NoError(t, err)
 		}
 	}
 	t.Log("Await connections.")
@@ -259,7 +261,7 @@ func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status 
 }
 
 func (n *TestNode) Connect(ctx context.Context, target *TestNode) {
-	n.Router.peerManager.AddAddrs(utils.Slice(target.NodeAddress))
+	_ = n.Router.peerManager.AddAddrs(utils.Slice(target.NodeAddress))
 	n.WaitForConn(ctx, target.NodeID, true)
 	target.WaitForConn(ctx, n.NodeID, true)
 }

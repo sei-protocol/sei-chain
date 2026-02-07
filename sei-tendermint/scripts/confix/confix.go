@@ -71,7 +71,7 @@ func main() {
 	}
 
 	if *outPath == "" {
-		os.Stdout.Write(buf.Bytes())
+		_, _ = os.Stdout.Write(buf.Bytes())
 	} else if err := atomicfile.WriteData(*outPath, buf.Bytes(), 0600); err != nil {
 		log.Fatalf("Writing output: %v", err)
 	}
@@ -99,7 +99,7 @@ func LoadConfig(path string) (*tomledit.Document, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return tomledit.Parse(f)
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
 	"net/netip"
 	"strings"
 	"time"
@@ -38,8 +39,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
-
-	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
 
 	_ "github.com/grafana/pyroscope-go/godeltaprof/http/pprof"
 
@@ -479,7 +478,11 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 
 	if n.config.RPC.PprofListenAddress != "" {
 		signal := make(chan struct{})
-		srv := &http.Server{Addr: n.config.RPC.PprofListenAddress, Handler: nil}
+		srv := &http.Server{
+			Addr:              n.config.RPC.PprofListenAddress,
+			Handler:           nil,
+			ReadHeaderTimeout: 10 * time.Second,
+		}
 		go func() {
 			select {
 			case <-ctx.Done():

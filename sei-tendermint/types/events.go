@@ -141,7 +141,7 @@ func (EventDataNewBlock) TypeTag() string { return "tendermint/event/NewBlock_ne
 
 // ABCIEvents implements the eventlog.ABCIEventer interface.
 func (e EventDataNewBlock) ABCIEvents() []abci.Event {
-	base := []abci.Event{eventWithAttr(BlockHeightKey, fmt.Sprint(e.Block.Header.Height))}
+	base := []abci.Event{eventWithAttr(BlockHeightKey, fmt.Sprint(e.Block.Height))}
 	return append(base, e.ResultFinalizeBlock.Events...)
 }
 

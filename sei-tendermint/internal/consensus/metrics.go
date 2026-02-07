@@ -175,8 +175,8 @@ type Metrics struct {
 
 // RecordConsMetrics uses for recording the block related metrics during fast-sync.
 func (m *Metrics) RecordConsMetrics(block *types.Block) {
-	m.NumTxs.Set(float64(len(block.Data.Txs)))
-	m.TotalTxs.Add(float64(len(block.Data.Txs)))
+	m.NumTxs.Set(float64(len(block.Txs)))
+	m.TotalTxs.Add(float64(len(block.Txs)))
 	m.BlockSizeBytes.Observe(float64(block.Size()))
 	m.CommittedHeight.Set(float64(block.Height))
 }

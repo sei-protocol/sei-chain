@@ -169,7 +169,7 @@ func newTimeoutConn(conn net.Conn, timeout time.Duration) *timeoutConn {
 func (c timeoutConn) Read(b []byte) (n int, err error) {
 	// Reset deadline
 	deadline := time.Now().Add(c.timeout)
-	err = c.Conn.SetReadDeadline(deadline)
+	err = c.SetReadDeadline(deadline)
 	if err != nil {
 		return
 	}
@@ -181,7 +181,7 @@ func (c timeoutConn) Read(b []byte) (n int, err error) {
 func (c timeoutConn) Write(b []byte) (n int, err error) {
 	// Reset deadline
 	deadline := time.Now().Add(c.timeout)
-	err = c.Conn.SetWriteDeadline(deadline)
+	err = c.SetWriteDeadline(deadline)
 	if err != nil {
 		return
 	}

@@ -117,7 +117,7 @@ func TestConfig() *Config {
 
 // SetRoot sets the RootDir for all Config structs
 func (cfg *Config) SetRoot(root string) *Config {
-	cfg.BaseConfig.RootDir = root
+	cfg.RootDir = root
 	cfg.RPC.RootDir = root
 	cfg.P2P.RootDir = root
 	cfg.Mempool.RootDir = root

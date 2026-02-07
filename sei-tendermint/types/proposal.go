@@ -211,7 +211,7 @@ func ProposalFromProto(pp *tmproto.Proposal) (*Proposal, error) {
 	p.Timestamp = pp.Timestamp
 	sig, err := crypto.SigFromBytes(pp.Signature)
 	if err != nil {
-		return nil, fmt.Errorf("Signature: %w", err)
+		return nil, fmt.Errorf("signature: %w", err)
 	}
 	p.Signature = sig
 	txKeys, err := TxKeysListFromProto(pp.TxKeys)
@@ -225,9 +225,14 @@ func ProposalFromProto(pp *tmproto.Proposal) (*Proposal, error) {
 	}
 	p.Header = header
 	lastCommit, err := CommitFromProto(pp.LastCommit)
+	if err != nil {
+		return nil, err
+	}
 	p.LastCommit = lastCommit
 	eviD := new(EvidenceList)
-	eviD.FromProto(pp.Evidence)
+	if err := eviD.FromProto(pp.Evidence); err != nil {
+		return nil, err
+	}
 	p.Evidence = *eviD
 	p.ProposerAddress = pp.ProposerAddress
 

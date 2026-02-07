@@ -115,7 +115,7 @@ func newPeerDB(db dbm.DB, maxRows int) (*peerDB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("db.Iterator(): %w", err)
 	}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		r, err := peerDBRowFromBytes(iter.Value())
 		if err != nil {
@@ -142,7 +142,7 @@ func newPeerDB(db dbm.DB, maxRows int) (*peerDB, error) {
 }
 
 func (db *peerDB) Close() {
-	db.db.Close()
+	_ = db.db.Close()
 }
 
 func (db *peerDB) All() iter.Seq[NodeAddress] {

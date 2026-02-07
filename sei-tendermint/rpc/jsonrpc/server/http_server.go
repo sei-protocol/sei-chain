@@ -125,7 +125,7 @@ func ServeTLS(ctx context.Context, listener net.Listener, handler http.Handler, 
 func writeError(w http.ResponseWriter, statusCode int, err error) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(statusCode)
-	fmt.Fprintln(w, err.Error())
+	_, _ = fmt.Fprintln(w, err.Error())
 }
 
 // writeHTTPResponse writes a JSON-RPC response to w. If rsp encodes an error,

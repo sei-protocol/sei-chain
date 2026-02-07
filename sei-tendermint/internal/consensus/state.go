@@ -401,7 +401,7 @@ func (cs *State) startRoutines(ctx context.Context, maxSteps int) {
 			cs.logger.Error("cs.timeoutTicker.Run()", "err", err)
 		}
 	}()
-	go cs.receiveRoutine(ctx, maxSteps)
+	go func() { _ = cs.receiveRoutine(ctx, maxSteps) }()
 }
 
 //------------------------------------------------------------
@@ -1261,7 +1261,7 @@ func (cs *State) decideProposal(ctx context.Context, height int64, round int32, 
 
 	// Make proposal
 	propBlockID := types.BlockID{Hash: block.Hash(), PartSetHeader: blockParts.Header()}
-	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), propBlockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, privValidatorPubKey.Address())
+	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), propBlockID, block.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, privValidatorPubKey.Address())
 	p := proposal.ToProto()
 
 	// wait the max amount we would wait for a proposal
@@ -1459,7 +1459,7 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 		}
 	}
 
-	if !cs.roundState.Proposal().Timestamp.Equal(cs.roundState.ProposalBlock().Header.Time) {
+	if !cs.roundState.Proposal().Timestamp.Equal(cs.roundState.ProposalBlock().Time) {
 		logger.Info("prevote step: proposal timestamp not equal; prevoting nil")
 		cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
 		return
@@ -1697,7 +1697,7 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32, 
 	}
 
 	// If the proposal time does not match the block time, precommit nil.
-	if !cs.roundState.Proposal().Timestamp.Equal(cs.roundState.ProposalBlock().Header.Time) {
+	if !cs.roundState.Proposal().Timestamp.Equal(cs.roundState.ProposalBlock().Time) {
 		logger.Info("precommit step: proposal timestamp not equal; precommitting nil")
 		cs.signAddVote(ctx, tmproto.PrecommitType, nil, types.PartSetHeader{})
 		return
@@ -2124,8 +2124,8 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 			}
 		}
 	}
-	cs.metrics.NumTxs.Set(float64(len(block.Data.Txs)))
-	cs.metrics.TotalTxs.Add(float64(len(block.Data.Txs)))
+	cs.metrics.NumTxs.Set(float64(len(block.Txs)))
+	cs.metrics.TotalTxs.Add(float64(len(block.Txs)))
 	cs.metrics.BlockSizeBytes.Observe(float64(block.Size()))
 	cs.metrics.CommittedHeight.Set(float64(block.Height))
 }
@@ -2303,10 +2303,10 @@ func (cs *State) buildProposalBlock(height int64, header types.Header, lastCommi
 	}
 	block := cs.state.MakeBlock(height, txs, lastCommit, evidence, proposerAddress)
 	block.Version = header.Version
-	block.Data.Txs = txs
+	block.Txs = txs
 	block.DataHash = block.Data.Hash(true)
-	block.Header.Time = header.Time
-	block.Header.ProposerAddress = header.ProposerAddress
+	block.Time = header.Time
+	block.ProposerAddress = header.ProposerAddress
 	return block
 }
 

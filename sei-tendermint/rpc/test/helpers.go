@@ -128,7 +128,7 @@ func StartTendermint(
 	return tmNode, func(ctx context.Context) error {
 		cancel()
 		tmNode.Wait()
-		os.RemoveAll(conf.RootDir)
+		_ = os.RemoveAll(conf.RootDir)
 		return nil
 	}, nil
 }

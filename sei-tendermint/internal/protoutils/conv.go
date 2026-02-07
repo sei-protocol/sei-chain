@@ -3,6 +3,7 @@ package protoutils
 import (
 	"errors"
 	"fmt"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 

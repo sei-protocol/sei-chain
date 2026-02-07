@@ -33,7 +33,7 @@ func (env *Environment) Tx(ctx context.Context, req *coretypes.RequestTx) (*core
 			var proof types.TxProof
 			if req.Prove {
 				block := env.BlockStore.LoadBlock(r.Height)
-				proof = block.Data.Txs.Proof(int(r.Index))
+				proof = block.Txs.Proof(int(r.Index))
 			}
 
 			return &coretypes.ResultTx{
@@ -111,7 +111,7 @@ func (env *Environment) TxSearch(ctx context.Context, req *coretypes.RequestTxSe
 				var proof types.TxProof
 				if req.Prove {
 					block := env.BlockStore.LoadBlock(r.Height)
-					proof = block.Data.Txs.Proof(int(r.Index))
+					proof = block.Txs.Proof(int(r.Index))
 				}
 
 				apiResults = append(apiResults, &coretypes.ResultTx{

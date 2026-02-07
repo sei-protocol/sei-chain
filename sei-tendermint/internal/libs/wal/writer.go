@@ -43,7 +43,7 @@ func sync(path string) error {
 	if err != nil {
 		return err
 	}
-	defer dirFile.Close()
+	defer func() { _ = dirFile.Close() }()
 	return dirFile.Sync()
 }
 
@@ -66,7 +66,7 @@ func openLogWriter(path string) (res *logWriter, resErr error) {
 	}
 	defer func() {
 		if resErr != nil {
-			f.Close()
+			_ = f.Close()
 		}
 	}()
 	// Truncate the file to non-corrupted prefix and sync.
@@ -112,5 +112,5 @@ func (w *logWriter) Sync() (err error) {
 
 // Close unconditionally releases all the resources.
 func (w *logWriter) Close() {
-	w.file.Close()
+	_ = w.file.Close()
 }

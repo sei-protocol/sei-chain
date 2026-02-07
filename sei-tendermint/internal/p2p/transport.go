@@ -3,14 +3,15 @@ package p2p
 import (
 	"context"
 	"fmt"
+	"math"
+	"net/netip"
+	"time"
+
 	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	"math"
-	"net/netip"
-	"time"
 )
 
 const queueBufferDefault = 1024

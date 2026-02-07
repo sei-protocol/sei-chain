@@ -155,7 +155,7 @@ func (txs *TxStore) IsTxRemoved(wtx *WrappedTx) bool {
 	defer txs.mtx.RUnlock()
 
 	// if this instance has already been marked, return true
-	if wtx.removed == true {
+	if wtx.removed {
 		return true
 	}
 

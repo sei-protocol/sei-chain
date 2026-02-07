@@ -59,7 +59,7 @@ func (cfg Config) Validate() error {
 	switch {
 	case cfg.ChainID == "":
 		return errors.New("chain_id parameter is required")
-	case cfg.Listen == "" && cfg.Protocol != "builtin":
+	case cfg.Listen == "" && cfg.Protocol != builtinProtocol:
 		return errors.New("listen parameter is required")
 	default:
 		return nil

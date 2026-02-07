@@ -102,7 +102,7 @@ Example:
 				nValidators+nNonValidators,
 			)
 		}
-		ResetAll(conf.DBDir(), conf.PrivValidator.KeyFile(),
+		_ = ResetAll(conf.DBDir(), conf.PrivValidator.KeyFile(),
 			conf.PrivValidator.StateFile(), logger, keyType, conf.RootDir)
 
 		// set mode to validator for testnet
@@ -199,7 +199,7 @@ Example:
 		// Write genesis file.
 		for i := 0; i < nValidators+nNonValidators; i++ {
 			nodeDir := filepath.Join(outputDir, fmt.Sprintf("%s%d", nodeDirPrefix, i))
-			if err := genDoc.SaveAs(filepath.Join(nodeDir, config.BaseConfig.Genesis)); err != nil {
+			if err := genDoc.SaveAs(filepath.Join(nodeDir, config.Genesis)); err != nil {
 				_ = os.RemoveAll(outputDir)
 				return err
 			}

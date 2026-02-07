@@ -214,7 +214,7 @@ func extractTestnetStats(intervals []time.Duration) testnetStats {
 
 	for _, interval := range intervals {
 		diff := (interval - mean).Seconds()
-		std += math.Pow(diff, 2)
+		std += diff * diff
 	}
 	std = math.Sqrt(std / float64(len(intervals)))
 

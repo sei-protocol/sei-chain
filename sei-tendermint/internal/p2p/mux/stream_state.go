@@ -2,6 +2,7 @@ package mux
 
 import (
 	"fmt"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 

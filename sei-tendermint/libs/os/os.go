@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 )
 
@@ -31,7 +32,7 @@ func CopyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer srcfile.Close()
+	defer func() { _ = srcfile.Close() }()
 
 	info, err := srcfile.Stat()
 	if err != nil {
@@ -46,7 +47,7 @@ func CopyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer dstfile.Close()
+	defer func() { _ = dstfile.Close() }()
 
 	_, err = io.Copy(dstfile, srcfile)
 	return err
@@ -86,8 +87,8 @@ func Exit(s string) {
 	os.Exit(1)
 }
 
-func ReadFile(filePath string) ([]byte, error) {
-	return ioutil.ReadFile(filePath)
+func ReadFile(p string) ([]byte, error) {
+	return os.ReadFile(filepath.Clean(p))
 }
 
 func MustReadFile(filePath string) []byte {

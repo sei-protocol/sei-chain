@@ -2,6 +2,7 @@ package protoutils
 
 import (
 	"fmt"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"google.golang.org/protobuf/proto"
 )

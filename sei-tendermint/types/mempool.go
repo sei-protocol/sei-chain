@@ -20,9 +20,7 @@ func (txKey *TxKey) ToProto() *tmproto.TxKey {
 
 	txBzs := make([]byte, len(txKey))
 	if len(txKey) > 0 {
-		for i := range txKey {
-			txBzs[i] = txKey[i]
-		}
+		copy(txBzs, txKey[:])
 		tp.TxKey = txBzs
 	}
 
@@ -36,9 +34,7 @@ func TxKeyFromProto(dp *tmproto.TxKey) (TxKey, error) {
 		return TxKey{}, errors.New("nil data")
 	}
 	var txBzs [sha256.Size]byte
-	for i := range dp.TxKey {
-		txBzs[i] = dp.TxKey[i]
-	}
+	copy(txBzs[:], dp.TxKey)
 
 	return txBzs, nil
 }

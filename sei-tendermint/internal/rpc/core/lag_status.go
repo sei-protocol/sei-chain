@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 

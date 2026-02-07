@@ -54,6 +54,9 @@ either or both arguments.
 	`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			home, err := cmd.Flags().GetString(cli.HomeFlag)
+			if err != nil {
+				return fmt.Errorf("%s: %w", reindexFailed, err)
+			}
 			conf.RootDir = home
 			bs, ss, err := loadStateAndBlockStore(conf)
 			if err != nil {
@@ -211,11 +214,11 @@ func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
 			if e.NumTxs > 0 {
 				batch = indexer.NewBatch(e.NumTxs)
 
-				for i := range b.Data.Txs {
+				for i := range b.Txs {
 					tr := abcitypes.TxResultV2{
 						Height: b.Height,
 						Index:  uint32(i),
-						Tx:     b.Data.Txs[i],
+						Tx:     b.Txs[i],
 						Result: *(r.TxResults[i]),
 					}
 

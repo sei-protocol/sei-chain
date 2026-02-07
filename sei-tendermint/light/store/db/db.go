@@ -74,7 +74,7 @@ func (s *dbs) SaveLightBlock(lb *types.LightBlock) error {
 	defer s.mtx.Unlock()
 
 	b := s.db.NewBatch()
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 	if err = b.Set(s.lbKey(lb.Height), lbBz); err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func (s *dbs) DeleteLightBlock(height int64) error {
 	defer s.mtx.Unlock()
 
 	b := s.db.NewBatch()
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 	if err := b.Delete(s.lbKey(height)); err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func (s *dbs) LastLightBlockHeight() (int64, error) {
 	if err != nil {
 		panic(err)
 	}
-	defer itr.Close()
+	defer func() { _ = itr.Close() }()
 
 	if itr.Valid() {
 		return s.decodeLbKey(itr.Key())
@@ -178,7 +178,7 @@ func (s *dbs) FirstLightBlockHeight() (int64, error) {
 	if err != nil {
 		panic(err)
 	}
-	defer itr.Close()
+	defer func() { _ = itr.Close() }()
 
 	if itr.Valid() {
 		return s.decodeLbKey(itr.Key())
@@ -203,7 +203,7 @@ func (s *dbs) LightBlockBefore(height int64) (*types.LightBlock, error) {
 	if err != nil {
 		panic(err)
 	}
-	defer itr.Close()
+	defer func() { _ = itr.Close() }()
 
 	if itr.Valid() {
 		var lbpb tmproto.LightBlock
@@ -241,7 +241,7 @@ func (s *dbs) Prune(size uint16) error {
 	numToPrune := sSize - size
 
 	b := s.db.NewBatch()
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 
 	// 2) use an iterator to batch together all the blocks that need to be deleted
 	if err := s.batchDelete(b, numToPrune); err != nil {
@@ -275,7 +275,7 @@ func (s *dbs) batchDelete(batch dbm.Batch, numToPrune uint16) error {
 	if err != nil {
 		return err
 	}
-	defer itr.Close()
+	defer func() { _ = itr.Close() }()
 
 	for itr.Valid() && numToPrune > 0 {
 		if err = batch.Delete(itr.Key()); err != nil {

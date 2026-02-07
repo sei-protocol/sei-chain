@@ -504,9 +504,9 @@ func (c *Client) HeaderByHash(ctx context.Context, hash tmbytes.HexBytes) (*core
 		return nil, err
 	}
 
-	if !bytes.Equal(lb.Header.Hash(), res.Header.Hash()) {
+	if !bytes.Equal(lb.Hash(), res.Header.Hash()) {
 		return nil, fmt.Errorf("primary header hash does not match trusted header hash. (%X != %X)",
-			lb.Header.Hash(), res.Header.Hash())
+			lb.Hash(), res.Header.Hash())
 	}
 
 	return res, nil

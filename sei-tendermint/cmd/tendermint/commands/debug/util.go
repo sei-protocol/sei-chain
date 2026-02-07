@@ -71,12 +71,12 @@ func dumpProfile(dir, addr, profile string, debug int) error {
 	if err != nil {
 		return fmt.Errorf("failed to query for %s profile: %w", profile, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read %s profile response body: %w", profile, err)
 	}
 
-	return os.WriteFile(path.Join(dir, fmt.Sprintf("%s.out", profile)), body, os.ModePerm)
+	return os.WriteFile(path.Join(dir, fmt.Sprintf("%s.out", profile)), body, 0600)
 }

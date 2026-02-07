@@ -2,9 +2,10 @@ package im
 
 import (
 	"cmp"
-	"github.com/benbjohnson/immutable"
 	"hash/maphash"
 	"iter"
+
+	"github.com/benbjohnson/immutable"
 )
 
 type Map[K comparable, V any] struct{ m *immutable.Map[K, V] }

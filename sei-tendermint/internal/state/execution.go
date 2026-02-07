@@ -171,11 +171,11 @@ func (blockExec *BlockExecutor) ProcessProposal(
 	block *types.Block,
 	state State,
 ) (bool, error) {
-	txs := block.Data.Txs.ToSliceOfBytes()
+	txs := block.Txs.ToSliceOfBytes()
 	resp, err := blockExec.appClient.ProcessProposal(ctx, &abci.RequestProcessProposal{
 		Hash:                  block.Header.Hash(),
-		Height:                block.Header.Height,
-		Time:                  block.Header.Time,
+		Height:                block.Height,
+		Time:                  block.Time,
 		Txs:                   txs,
 		ProposedLastCommit:    buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
 		ByzantineValidators:   block.Evidence.ToABCI(),
@@ -266,14 +266,14 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		_, finalizeBlockSpan = tracer.Start(ctx, "cs.state.ApplyBlock.FinalizeBlock")
 		defer finalizeBlockSpan.End()
 	}
-	txs := block.Data.Txs.ToSliceOfBytes()
+	txs := block.Txs.ToSliceOfBytes()
 	finalizeBlockStartTime := time.Now()
 	fBlockRes, err := blockExec.appClient.FinalizeBlock(
 		ctx,
 		&abci.RequestFinalizeBlock{
 			Hash:                  block.Hash(),
-			Height:                block.Header.Height,
-			Time:                  block.Header.Time,
+			Height:                block.Height,
+			Time:                  block.Time,
 			Txs:                   txs,
 			DecidedLastCommit:     buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
 			ByzantineValidators:   block.Evidence.ToABCI(),
@@ -789,12 +789,12 @@ func FireEvents(
 	}
 
 	// sanity check
-	if len(finalizeBlockResponse.TxResults) != len(block.Data.Txs) {
+	if len(finalizeBlockResponse.TxResults) != len(block.Txs) {
 		panic(fmt.Sprintf("number of TXs (%d) and ABCI TX responses (%d) do not match",
-			len(block.Data.Txs), len(finalizeBlockResponse.TxResults)))
+			len(block.Txs), len(finalizeBlockResponse.TxResults)))
 	}
 
-	for i, tx := range block.Data.Txs {
+	for i, tx := range block.Txs {
 		if err := eventBus.PublishEventTx(types.EventDataTx{
 			TxResultV2: abci.TxResultV2{
 				Height: block.Height,

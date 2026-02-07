@@ -69,7 +69,7 @@ func (s *Subscription) stop(err error) {
 		panic("nil stop error")
 	}
 	s.stopErr = err
-	s.queue.Close()
+	_ = s.queue.Close()
 }
 
 // Message glues data and events together.

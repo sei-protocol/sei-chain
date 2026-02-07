@@ -50,8 +50,8 @@ type Block struct {
 }
 
 func (b *Block) GetTxKeys() []TxKey {
-	txKeys := make([]TxKey, len(b.Data.Txs))
-	for i := range b.Data.Txs {
+	txKeys := make([]TxKey, len(b.Txs))
+	for i := range b.Txs {
 		txKeys[i] = b.Data.Txs[i].Key()
 	}
 	return txKeys
@@ -86,7 +86,7 @@ func (b *Block) ValidateBasic() error {
 
 	// NOTE: b.Data.Txs may be nil, but b.Data.Hash() still works fine.
 	if w, g := b.Data.Hash(false), b.DataHash; !bytes.Equal(w, g) {
-		return fmt.Errorf("wrong Header.DataHash. Expected %X, got %X. Len of txs %d", w, g, len(b.Data.Txs))
+		return fmt.Errorf("wrong Header.DataHash. Expected %X, got %X. Len of txs %d", w, g, len(b.Txs))
 	}
 
 	// NOTE: b.Evidence may be nil, but we're just looping.

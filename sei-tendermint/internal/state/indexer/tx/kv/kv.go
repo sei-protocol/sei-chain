@@ -66,7 +66,7 @@ func (txi *TxIndex) Get(hash []byte) (*abci.TxResultV2, error) {
 // Any event with an empty type is not indexed.
 func (txi *TxIndex) Index(results []*abci.TxResultV2) error {
 	b := txi.store.NewBatch()
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 
 	for _, result := range results {
 		hash := types.Tx(result.Tx).Hash()
@@ -279,13 +279,13 @@ func (txi *TxIndex) match(
 
 	tmpHashes := make(map[string][]byte)
 
-	switch {
-	case c.Op == syntax.TEq:
+	switch c.Op {
+	case syntax.TEq:
 		it, err := dbm.IteratePrefix(txi.store, startKeyBz)
 		if err != nil {
 			panic(err)
 		}
-		defer it.Close()
+		defer func() { _ = it.Close() }()
 
 	iterEqual:
 		for ; it.Valid(); it.Next() {
@@ -302,14 +302,14 @@ func (txi *TxIndex) match(
 			panic(err)
 		}
 
-	case c.Op == syntax.TExists:
+	case syntax.TExists:
 		// XXX: can't use startKeyBz here because c.Operand is nil
 		// (e.g. "account.owner/<nil>/" won't match w/ a single row)
 		it, err := dbm.IteratePrefix(txi.store, prefixFromCompositeKey(c.Tag))
 		if err != nil {
 			panic(err)
 		}
-		defer it.Close()
+		defer func() { _ = it.Close() }()
 
 	iterExists:
 		for ; it.Valid(); it.Next() {
@@ -326,7 +326,7 @@ func (txi *TxIndex) match(
 			panic(err)
 		}
 
-	case c.Op == syntax.TContains:
+	case syntax.TContains:
 		// XXX: startKey does not apply here.
 		// For example, if startKey = "account.owner/an/" and search query = "account.owner CONTAINS an"
 		// we can't iterate with prefix "account.owner/an/" because we might miss keys like "account.owner/Ulan/"
@@ -334,7 +334,7 @@ func (txi *TxIndex) match(
 		if err != nil {
 			panic(err)
 		}
-		defer it.Close()
+		defer func() { _ = it.Close() }()
 
 	iterContains:
 		for ; it.Valid(); it.Next() {
@@ -357,12 +357,12 @@ func (txi *TxIndex) match(
 			panic(err)
 		}
 
-	case c.Op == syntax.TMatches:
+	case syntax.TMatches:
 		it, err := dbm.IteratePrefix(txi.store, prefixFromCompositeKey(c.Tag))
 		if err != nil {
 			panic(err)
 		}
-		defer it.Close()
+		defer func() { _ = it.Close() }()
 
 	iterMatches:
 		for ; it.Valid(); it.Next() {
@@ -443,7 +443,7 @@ func (txi *TxIndex) matchRange(
 	if err != nil {
 		panic(err)
 	}
-	defer it.Close()
+	defer func() { _ = it.Close() }()
 
 iter:
 	for ; it.Valid(); it.Next() {

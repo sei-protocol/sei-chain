@@ -28,6 +28,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/mux/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
@@ -65,7 +66,7 @@ type handshake struct {
 
 var handshakeConv = protoutils.Conv[*handshake, *pb.Handshake]{
 	Encode: func(h *handshake) *pb.Handshake {
-		var kinds []*pb.StreamKindConfig
+		kinds := make([]*pb.StreamKindConfig, 0, len(h.Kinds))
 		for kind, c := range h.Kinds {
 			kinds = append(kinds, &pb.StreamKindConfig{
 				Kind:        uint64(kind),

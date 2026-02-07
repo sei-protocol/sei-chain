@@ -188,7 +188,7 @@ for applications built w/ Cosmos SDK).
 
 			go func() {
 				<-ctx.Done()
-				p.Listener.Close()
+				_ = p.Listener.Close()
 			}()
 
 			logger.Info("Starting proxy...", "laddr", listenAddr)

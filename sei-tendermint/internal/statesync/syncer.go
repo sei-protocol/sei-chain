@@ -168,7 +168,7 @@ func (s *syncer) SyncAny(
 			if err != nil {
 				return sm.State{}, nil, fmt.Errorf("failed to create chunk queue: %w", err)
 			}
-			defer chunks.Close() // in case we forget to close it elsewhere
+			defer func() { _ = chunks.Close() }() // in case we forget to close it elsewhere
 		}
 
 		s.processingSnapshot = snapshot
@@ -254,7 +254,7 @@ func (s *syncer) Sync(ctx context.Context, snapshot *snapshot, chunks *chunkQueu
 			return sm.State{}, nil, ctx.Err()
 		}
 		// catch the case where all the light client providers have been exhausted
-		if err == light.ErrNoWitnesses {
+		if errors.Is(err, light.ErrNoWitnesses) {
 			return sm.State{}, nil,
 				fmt.Errorf("failed to get app hash at height %d. No witnesses remaining", snapshot.Height)
 		}
@@ -292,7 +292,7 @@ func (s *syncer) Sync(ctx context.Context, snapshot *snapshot, chunks *chunkQueu
 		if ctx.Err() != nil {
 			return sm.State{}, nil, ctx.Err()
 		}
-		if err == light.ErrNoWitnesses {
+		if errors.Is(err, light.ErrNoWitnesses) {
 			return sm.State{}, nil,
 				fmt.Errorf("failed to get tendermint state at height %d. No witnesses remaining", snapshot.Height)
 		}
@@ -302,11 +302,11 @@ func (s *syncer) Sync(ctx context.Context, snapshot *snapshot, chunks *chunkQueu
 	}
 	commit, err := s.stateProvider.Commit(pctx, snapshot.Height)
 	if err != nil {
-		// check if the provider context exceeded the 10 second deadline
+		// check if the provider context exceeded the 10 seconds deadline
 		if ctx.Err() != nil {
 			return sm.State{}, nil, ctx.Err()
 		}
-		if err == light.ErrNoWitnesses {
+		if errors.Is(err, light.ErrNoWitnesses) {
 			return sm.State{}, nil,
 				fmt.Errorf("failed to get commit at height %d. No witnesses remaining", snapshot.Height)
 		}
@@ -432,28 +432,25 @@ func (s *syncer) applyChunks(ctx context.Context, chunks *chunkQueue, start time
 
 func (s *syncer) fetchLocalChunks(ctx context.Context, snapshot *snapshot, chunks *chunkQueue) {
 	var (
-		next  = true
 		index uint32
 		err   error
 	)
 
 	for {
-		if next {
-			index, err = chunks.Allocate()
-			if errors.Is(err, errDone) {
-				// Keep checking until the context is canceled (restore is done), in case any
-				// chunks need to be refetched.
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(2 * time.Second):
-					continue
-				}
-			}
-			if err != nil {
-				s.logger.Error("Failed to allocate chunk from queue", "err", err)
+		index, err = chunks.Allocate()
+		if errors.Is(err, errDone) {
+			// Keep checking until the context is canceled (restore is done), in case any
+			// chunks need to be refetched.
+			select {
+			case <-ctx.Done():
 				return
+			case <-time.After(2 * time.Second):
+				continue
 			}
+		}
+		if err != nil {
+			s.logger.Error("Failed to allocate chunk from queue", "err", err)
+			return
 		}
 		s.logger.Info("Fetching local snapshot chunks", "height", snapshot.Height, "chunk", index, "total", chunks.Size())
 		msg, err := s.conn.LoadSnapshotChunk(ctx, &abci.RequestLoadSnapshotChunk{

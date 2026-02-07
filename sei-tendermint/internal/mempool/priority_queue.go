@@ -106,7 +106,7 @@ func (pq *TxPriorityQueue) GetEvictableTxs(priority, txSize, totalSize, cap int6
 	pq.mtx.RLock()
 	defer pq.mtx.RUnlock()
 
-	txs := []*WrappedTx{}
+	txs := make([]*WrappedTx, 0, len(pq.txs))
 	txs = append(txs, pq.txs...)
 	for _, queue := range pq.evmQueue {
 		txs = append(txs, queue[1:]...)

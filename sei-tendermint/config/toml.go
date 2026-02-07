@@ -3,11 +3,12 @@ package config
 import (
 	"bytes"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"os"
 	"path/filepath"
 	"strings"
 	"text/template"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"

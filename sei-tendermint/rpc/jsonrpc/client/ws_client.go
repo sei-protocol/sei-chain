@@ -345,7 +345,7 @@ func (c *WSClient) writeRoutine(ctx context.Context) {
 
 	defer func() {
 		ticker.Stop()
-		c.conn.Close()
+		_ = c.conn.Close()
 		c.wg.Done()
 	}()
 
@@ -393,7 +393,7 @@ func (c *WSClient) writeRoutine(ctx context.Context) {
 // executing all reads from this goroutine.
 func (c *WSClient) readRoutine(ctx context.Context) {
 	defer func() {
-		c.conn.Close()
+		_ = c.conn.Close()
 		c.wg.Done()
 	}()
 

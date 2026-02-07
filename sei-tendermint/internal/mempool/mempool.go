@@ -873,13 +873,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 
 	// Search through the remaining list of tx to recheck for a transaction that matches
 	// the one we received from the ABCI application.
-	for {
-		if bytes.Equal(tx, wtx.tx) {
-			// We've found a tx in the recheck list that matches the tx that we
-			// received from the ABCI application.
-			// Break, and use this transaction for further checks.
-			break
-		}
+	for !bytes.Equal(tx, wtx.tx) {
 
 		txmp.logger.Debug(
 			"re-CheckTx transaction mismatch",

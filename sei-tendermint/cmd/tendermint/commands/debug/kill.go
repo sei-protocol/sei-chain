@@ -63,7 +63,7 @@ $ tendermint debug kill 34255 /path/to/tm-debug.zip`,
 			if err != nil {
 				return fmt.Errorf("failed to create temporary directory: %w", err)
 			}
-			defer os.RemoveAll(tmpDir)
+			defer func() { _ = os.RemoveAll(tmpDir) }()
 
 			logger.Info("getting node status...")
 			if err := dumpStatus(ctx, rpc, tmpDir, "status.json"); err != nil {
@@ -122,7 +122,7 @@ func killProc(pid int, dir string) error {
 	if err != nil {
 		return err
 	}
-	defer outFile.Close()
+	defer func() { _ = outFile.Close() }()
 
 	cmd.Stdout = outFile
 	cmd.Stderr = outFile
@@ -137,9 +137,9 @@ func killProc(pid int, dir string) error {
 		// a goroutine stacktrace.
 		p, err := os.FindProcess(pid)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to find PID to kill Tendermint process: %s", err)
+			_, _ = fmt.Fprintf(os.Stderr, "failed to find PID to kill Tendermint process: %s", err)
 		} else if err = p.Signal(syscall.SIGABRT); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to kill Tendermint process: %s", err)
+			_, _ = fmt.Fprintf(os.Stderr, "failed to kill Tendermint process: %s", err)
 		}
 
 		// allow some time to allow the Tendermint process to be killed
@@ -149,13 +149,14 @@ func killProc(pid int, dir string) error {
 		time.Sleep(5 * time.Second)
 
 		if err := cmd.Process.Kill(); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to kill Tendermint process output redirection: %s", err)
+			_, _ = fmt.Fprintf(os.Stderr, "failed to kill Tendermint process output redirection: %s", err)
 		}
 	}()
 
 	if err := cmd.Wait(); err != nil {
 		// only return an error not invoked by a manual kill
-		if _, ok := err.(*exec.ExitError); !ok {
+		var exitError *exec.ExitError
+		if !errors.As(err, &exitError) {
 			return err
 		}
 	}

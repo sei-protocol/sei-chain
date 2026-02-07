@@ -3,13 +3,14 @@ package p2p
 import (
 	"context"
 	"fmt"
+	"log"
+	"time"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
-	"log"
-	"time"
 )
 
 type GigaRouterConfig struct {

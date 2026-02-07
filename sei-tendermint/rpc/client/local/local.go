@@ -243,7 +243,7 @@ func (c *Local) Subscribe(ctx context.Context, subscriber, queryString string, c
 		Quota:    quota,
 		Limit:    limit,
 	}
-	sub, err := c.EventBus.SubscribeWithArgs(ctx, subArgs)
+	sub, err := c.SubscribeWithArgs(ctx, subArgs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to subscribe: %w", err)
 	}
@@ -293,7 +293,7 @@ func (c *Local) resubscribe(ctx context.Context, subArgs pubsub.SubscribeArgs) e
 			return nil
 		}
 
-		sub, err := c.EventBus.SubscribeWithArgs(ctx, subArgs)
+		sub, err := c.SubscribeWithArgs(ctx, subArgs)
 		if err == nil {
 			return sub
 		}

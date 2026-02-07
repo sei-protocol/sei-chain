@@ -465,7 +465,7 @@ func (r *Reactor) pickSendVote(ps *PeerState, votes types.VoteSetReader) bool {
 		return false
 	}
 
-	if r.cfg.BaseConfig.LogLevel == log.LogLevelDebug {
+	if r.cfg.LogLevel == log.LogLevelDebug {
 		psJson, err := ps.ToJSON() // expensive, so we only want to call if debug is on
 		if err != nil {
 			panic(fmt.Errorf("ps.ToJSON(): %w", err))
