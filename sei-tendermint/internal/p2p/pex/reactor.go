@@ -47,7 +47,7 @@ const (
 	maxAddresses = 100
 )
 
-var NoPeersAvailableError = errors.New("no available peers to send a PEX request to (retrying)")
+var ErrNoPeersAvailable = errors.New("no available peers to send a PEX request to (retrying)")
 
 // TODO: We should decide whether we want channel descriptors to be housed
 // within each reactor (as they are now) or, considering that the reactor doesn't

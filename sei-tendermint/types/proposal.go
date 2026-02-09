@@ -99,11 +99,14 @@ func (p *Proposal) IsTimely(recvTime time.Time, sp SynchronyParams, round int32)
 	// proceed in the case that the chosen value was too small for the given network conditions.
 	// For more information and discussion on this mechanism, see the relevant github issue:
 	// https://github.com/tendermint/spec/issues/371
-	maxShift := bits.LeadingZeros64(uint64(sp.MessageDelay)) - 1
-	nShift := int((round / 10))
+	if round < 0 {
+		return false
+	}
+	maxShift := bits.LeadingZeros64(uint64(sp.MessageDelay)) - 1 //nolint:gosec // message delay is non zero
+	nShift := int(round / 10)                                    //nolint:gosec // round is validated non-negative above
 
 	if nShift > maxShift {
-		// if the number of 'doublings' would would overflow the size of the int, use the
+		// if the number of 'doublings' would overflow the size of the int, use the
 		// maximum instead.
 		nShift = maxShift
 	}

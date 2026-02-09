@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -161,7 +162,7 @@ func (cfg *Config) DeprecatedFieldWarning() error {
 // BaseConfig
 
 // BaseConfig defines the base configuration for a Tendermint node
-type BaseConfig struct { //nolint: maligned
+type BaseConfig struct {
 	// chainID is unexposed and immutable but here for convenience
 	chainID string
 
@@ -623,7 +624,7 @@ func (cfg RPCConfig) IsTLSEnabled() bool {
 // P2PConfig
 
 // P2PConfig defines the configuration options for the Tendermint peer-to-peer networking layer
-type P2PConfig struct { //nolint: maligned
+type P2PConfig struct {
 	RootDir string `mapstructure:"home"`
 
 	// Address to listen for incoming connections
@@ -912,9 +913,7 @@ func (cfg *MempoolConfig) ValidateBasic() error {
 	if cfg.TTLNumBlocks < 0 {
 		return errors.New("ttl-num-blocks can't be negative")
 	}
-	if cfg.TxNotifyThreshold < 0 {
-		return errors.New("tx-notify-threshold can't be negative")
-	}
+	// cfg.TxNotifyThreshold is a uint64; no need to check for less than zero.
 	if cfg.CheckTxErrorThreshold < 0 {
 		return errors.New("check-tx-error-threshold can't be negative")
 	}
@@ -1417,6 +1416,21 @@ func TestSelfRemediationConfig() *SelfRemediationConfig {
 
 // ValidateBasic performs basic validation (checking param bounds, etc.) and
 // returns an error if any check fails.
-func (cfg *SelfRemediationConfig) ValidateBasic() error {
+func (cfg SelfRemediationConfig) ValidateBasic() error {
+	if cfg.P2pNoPeersRestarWindowSeconds > math.MaxInt64 {
+		return errors.New("p2p-no-peers-available-window-seconds exceeds max int64")
+	}
+	if cfg.StatesyncNoPeersRestartWindowSeconds > math.MaxInt64 {
+		return errors.New("statesync-no-peers-available-window-seconds exceeds max int64")
+	}
+	if cfg.BlocksBehindThreshold > math.MaxInt64 {
+		return errors.New("blocks-behind-threshold exceeds max int64")
+	}
+	if cfg.BlocksBehindCheckIntervalSeconds > math.MaxInt64 {
+		return errors.New("blocks-behind-check-interval-seconds exceeds max int64")
+	}
+	if cfg.RestartCooldownSeconds > math.MaxInt64 {
+		return errors.New("restart-cooldown-seconds exceeds max int64")
+	}
 	return nil
 }

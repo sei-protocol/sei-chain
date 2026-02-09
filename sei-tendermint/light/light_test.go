@@ -12,6 +12,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
 	httpp "github.com/sei-protocol/sei-chain/sei-tendermint/light/provider/http"
@@ -149,18 +150,16 @@ func TestClientIntegration_VerifyLightBlockAtHeight(t *testing.T) {
 func waitForBlock(ctx context.Context, p provider.Provider, height int64) (*types.LightBlock, error) {
 	for {
 		block, err := p.LightBlock(ctx, height)
-		switch {
-		case err == nil:
+		if err == nil {
 			return block, nil
-			// node isn't running yet, wait 1 second and repeat
-		case errors.Is(err, provider.ErrNoResponse), errors.Is(err, provider.ErrHeightTooHigh):
-			timer := time.NewTimer(1 * time.Second)
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-timer.C:
-			}
-		default:
+		}
+		ok := errors.Is(err, provider.ErrNoResponse)
+		ok = ok || errors.Is(err, provider.ErrHeightTooHigh)
+		ok = ok || utils.ErrorAs[provider.ErrUnreliableProvider](err).IsPresent()
+		if !ok {
+			return nil, err
+		}
+		if err := utils.Sleep(ctx, time.Second); err != nil {
 			return nil, err
 		}
 	}

@@ -100,7 +100,7 @@ func NewRPCStateProvider(
 func (s *stateProviderRPC) verifyLightBlockAtHeight(ctx context.Context, height uint64, ts time.Time) (*types.LightBlock, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.verifyLightBlockTimeout)
 	defer cancel()
-	return s.lc.VerifyLightBlockAtHeight(ctx, int64(height), ts)
+	return s.lc.VerifyLightBlockAtHeight(ctx, int64(height), ts) //nolint:gosec // height validated by Message.Validate() upstream
 }
 
 // AppHash implements part of StateProvider. It calls the application to verify the
@@ -258,7 +258,7 @@ func NewP2PStateProvider(
 func (s *StateProviderP2P) verifyLightBlockAtHeight(ctx context.Context, height uint64, ts time.Time) (*types.LightBlock, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.verifyLightBlockTimeout)
 	defer cancel()
-	return s.lc.VerifyLightBlockAtHeight(ctx, int64(height), ts)
+	return s.lc.VerifyLightBlockAtHeight(ctx, int64(height), ts) //nolint:gosec // height validated by Message.Validate() upstream
 }
 
 // AppHash implements StateProvider.
@@ -400,11 +400,11 @@ func (s *StateProviderP2P) consensusParams(ctx context.Context, height int64) (t
 					if err != nil {
 						return fmt.Errorf("invalid provider (%v) node id: %w", p, err)
 					}
-					s.paramsSendCh.Send(wrap(&pb.ParamsRequest{Height: uint64(height)}), peer)
+					s.paramsSendCh.Send(wrap(&pb.ParamsRequest{Height: uint64(height)}), peer) //nolint:gosec // height is a validated positive block height
 				}
 				// jitter+backoff the retry loop
 				timeout := time.Duration(iterCount)*consensusParamsResponseTimeout +
-					time.Duration(100*rand.Int63n(iterCount))*time.Millisecond // nolint:gosec
+					time.Duration(100*rand.Int63n(iterCount))*time.Millisecond //nolint:gosec
 				if err := utils.Sleep(ctx, timeout); err != nil {
 					return nil
 				}

@@ -369,7 +369,7 @@ func (c *baseRPCClient) Genesis(ctx context.Context) (*coretypes.ResultGenesis, 
 func (c *baseRPCClient) GenesisChunked(ctx context.Context, id uint) (*coretypes.ResultGenesisChunk, error) {
 	result := new(coretypes.ResultGenesisChunk)
 	if err := c.caller.Call(ctx, "genesis_chunked", &coretypes.RequestGenesisChunked{
-		Chunk: coretypes.Int64(id),
+		Chunk: coretypes.Int64(id), //nolint:gosec // id is a small genesis chunk index
 	}, result); err != nil {
 		return nil, err
 	}

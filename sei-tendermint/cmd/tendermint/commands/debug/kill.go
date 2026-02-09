@@ -118,7 +118,7 @@ func killProc(pid int, dir string) error {
 	// NOTE: This will only work on UNIX systems.
 	cmd := exec.Command("tail", "-f", fmt.Sprintf("/proc/%d/fd/2", pid)) // nolint: gosec
 
-	outFile, err := os.Create(filepath.Join(dir, "stacktrace.out"))
+	outFile, err := os.Create(filepath.Join(filepath.Clean(dir), "stacktrace.out"))
 	if err != nil {
 		return err
 	}

@@ -3,6 +3,7 @@ package e2e
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 
 	"github.com/BurntSushi/toml"
@@ -157,7 +158,7 @@ func (m ManifestNode) Stateless() bool {
 
 // Save saves the testnet manifest to a file.
 func (m Manifest) Save(file string) error {
-	f, err := os.Create(file)
+	f, err := os.Create(filepath.Clean(file))
 	if err != nil {
 		return fmt.Errorf("failed to create manifest file %q: %w", file, err)
 	}

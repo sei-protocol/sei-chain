@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"runtime/debug"
 	"sort"
 	"sync"
@@ -277,7 +278,7 @@ func NewReactor(
 		paramsChannel:                 paramsChannel,
 		lastNoAvailablePeers:          time.Time{},
 		restartCh:                     restartCh,
-		restartNoAvailablePeersWindow: time.Duration(selfRemediationConfig.StatesyncNoPeersRestartWindowSeconds) * time.Second,
+		restartNoAvailablePeersWindow: time.Duration(selfRemediationConfig.StatesyncNoPeersRestartWindowSeconds) * time.Second, //nolint:gosec // validated in config.ValidateBasic against MaxInt64
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "StateSync", r)
@@ -876,11 +877,16 @@ func (r *Reactor) handleLightBlockMessage(ctx context.Context, m p2p.RecvMsg[*pb
 
 func (r *Reactor) handleParamsMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message]) (err error) {
 	defer r.recoverToErr(&err)
+
 	switch msg := m.Message.Sum.(type) {
 	case *pb.Message_ParamsRequest:
 		req := msg.ParamsRequest
+		if req.GetHeight() > math.MaxInt64 {
+			r.logger.Error("invalid height in params request", "height", req.GetHeight())
+			return nil
+		}
 		r.logger.Debug("received consensus params request", "height", req.GetHeight())
-		cp, err := r.stateStore.LoadConsensusParams(int64(req.GetHeight()))
+		cp, err := r.stateStore.LoadConsensusParams(int64(req.GetHeight())) //nolint:gosec // height from peer is validated above
 		if err != nil {
 			r.logger.Error("failed to fetch requested consensus params", "err", err, "height", req.GetHeight())
 			return nil
@@ -1105,7 +1111,7 @@ func (r *Reactor) recentSnapshots(ctx context.Context, n uint32) ([]*snapshot, e
 // fetchLightBlock works out whether the node has a light block at a particular
 // height and if so returns it so it can be gossiped to peers
 func (r *Reactor) fetchLightBlock(height uint64) (*types.LightBlock, error) {
-	h := int64(height)
+	h := int64(height) //nolint:gosec // height validated by Message.Validate() upstream
 
 	blockMeta := r.blockStore.LoadBlockMeta(h)
 	if blockMeta == nil {

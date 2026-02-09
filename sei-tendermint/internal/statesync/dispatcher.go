@@ -73,6 +73,9 @@ func (d *Dispatcher) LightBlock(ctx context.Context, height int64, peer types.No
 // dispatch takes a peer and allocates it a channel so long as it's not already
 // busy and the receiving channel is still running. It then dispatches the message
 func (d *Dispatcher) dispatch(ctx context.Context, peer types.NodeID, height int64) (chan *types.LightBlock, error) {
+	if height < 0 {
+		return nil, fmt.Errorf("invalid height: %d", height)
+	}
 	for calls := range d.calls.Lock() {
 		if ctx.Err() != nil {
 			return nil, ErrDisconnected
@@ -87,7 +90,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, peer types.NodeID, height int
 		calls[peer] = ch
 
 		// send request
-		d.requestCh.Send(wrap(&pb.LightBlockRequest{Height: uint64(height)}), peer)
+		d.requestCh.Send(wrap(&pb.LightBlockRequest{Height: uint64(height)}), peer) //nolint:gosec // height is a validated positive block height
 		return ch, nil
 	}
 	panic("unreachable")

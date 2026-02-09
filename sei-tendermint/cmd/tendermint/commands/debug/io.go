@@ -15,7 +15,7 @@ import (
 // directories, into a destination file dest. It returns an error upon failure.
 // It assumes src is a directory.
 func zipDir(src, dest string) error {
-	zipFile, err := os.Create(dest)
+	zipFile, err := os.Create(filepath.Clean(dest))
 	if err != nil {
 		return err
 	}
@@ -58,7 +58,7 @@ func zipDir(src, dest string) error {
 			return nil
 		}
 
-		file, err := os.Open(path)
+		file, err := os.Open(filepath.Clean(path))
 		if err != nil {
 			return err
 		}
@@ -77,7 +77,7 @@ func copyFile(src, dest string) error {
 		return err
 	}
 
-	srcFile, err := os.Open(src)
+	srcFile, err := os.Open(filepath.Clean(src))
 	if err != nil {
 		return err
 	}

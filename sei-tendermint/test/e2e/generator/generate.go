@@ -144,7 +144,7 @@ func generateTestnet(r *rand.Rand, opt map[string]interface{}) (e2e.Manifest, er
 		numValidators = 4
 	case "large":
 		// FIXME Networks are kept small since large ones use too much CPU.
-		numSeeds = r.Intn(1)
+		numSeeds = r.Intn(2)
 		numLightClients = r.Intn(2)
 		numValidators = 4 + r.Intn(4)
 		numFulls = r.Intn(4)
@@ -294,9 +294,9 @@ func generateNode(
 		Database:         nodeDatabases.Choose(r),
 		PrivvalProtocol:  nodePrivvalProtocols.Choose(r),
 		StateSync:        e2e.StateSyncDisabled,
-		PersistInterval:  ptrUint64(uint64(nodePersistIntervals.Choose(r).(int))),
-		SnapshotInterval: uint64(nodeSnapshotIntervals.Choose(r).(int)),
-		RetainBlocks:     uint64(nodeRetainBlocks.Choose(r).(int)),
+		PersistInterval:  ptrUint64(uint64(nodePersistIntervals.Choose(r).(int))), //nolint:gosec // test generator values are small non-negative ints
+		SnapshotInterval: uint64(nodeSnapshotIntervals.Choose(r).(int)),           //nolint:gosec // test generator values are small non-negative ints
+		RetainBlocks:     uint64(nodeRetainBlocks.Choose(r).(int)),                //nolint:gosec // test generator values are small non-negative ints
 		Perturb:          nodePerturbations.Choose(r),
 	}
 

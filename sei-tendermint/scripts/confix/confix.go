@@ -95,7 +95,7 @@ func ApplyFixes(ctx context.Context, doc *tomledit.Document) error {
 
 // LoadConfig loads and parses the TOML document from path.
 func LoadConfig(path string) (*tomledit.Document, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return nil, err
 	}

@@ -72,7 +72,7 @@ func VoteFromProto(pv *tmproto.Vote) (*Vote, error) {
 	if len(pv.Signature) > 0 {
 		sig, err := crypto.SigFromBytes(pv.Signature)
 		if err != nil {
-			return nil, fmt.Errorf("Signature: %w", err)
+			return nil, fmt.Errorf("signature: %w", err)
 		}
 		signature = utils.Some(sig)
 	}

@@ -178,7 +178,7 @@ func (s *syncer) SyncAny(
 		switch {
 		case err == nil:
 			s.metrics.SnapshotHeight.Set(float64(snapshot.Height))
-			s.lastSyncedSnapshotHeight = int64(snapshot.Height)
+			s.lastSyncedSnapshotHeight = int64(snapshot.Height) //nolint:gosec // snapshot.Height is a valid block height
 			return newState, commit, nil
 
 		case errors.Is(err, errAbort):
@@ -578,7 +578,7 @@ func (s *syncer) verifyApp(ctx context.Context, snapshot *snapshot, appVersion u
 		return errVerifyFailed
 	}
 
-	if uint64(resp.LastBlockHeight) != snapshot.Height {
+	if uint64(resp.LastBlockHeight) != snapshot.Height { //nolint:gosec // LastBlockHeight is a non-negative block height
 		s.logger.Error(
 			"ABCI app reported unexpected last block height",
 			"expected", snapshot.Height,

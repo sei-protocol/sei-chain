@@ -150,7 +150,7 @@ func NewReactor(
 		restartCh:                 restartCh,
 		lastRestartTime:           time.Now(),
 		blocksBehindThreshold:     selfRemediationConfig.BlocksBehindThreshold,
-		blocksBehindCheckInterval: time.Duration(selfRemediationConfig.BlocksBehindCheckIntervalSeconds) * time.Second,
+		blocksBehindCheckInterval: time.Duration(selfRemediationConfig.BlocksBehindCheckIntervalSeconds) * time.Second, //nolint:gosec // validated in config.ValidateBasic against MaxInt64
 		restartCooldownSeconds:    selfRemediationConfig.RestartCooldownSeconds,
 	}
 
@@ -310,7 +310,7 @@ func (r *Reactor) autoRestartIfBehind(ctx context.Context) {
 		case <-time.After(r.blocksBehindCheckInterval):
 			selfHeight := r.store.Height()
 			maxPeerHeight := r.pool.MaxPeerHeight()
-			threshold := int64(r.blocksBehindThreshold)
+			threshold := int64(r.blocksBehindThreshold) //nolint:gosec // validated in config.ValidateBasic against MaxInt64
 			behindHeight := maxPeerHeight - selfHeight
 			blockSyncIsSet := r.blockSync.IsSet()
 			if maxPeerHeight > r.previousMaxPeerHeight {

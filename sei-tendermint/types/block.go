@@ -139,6 +139,9 @@ func (b *Block) MakePartSet(partSize uint32) (*PartSet, error) {
 	if b == nil {
 		return nil, errors.New("nil block")
 	}
+	if partSize == 0 {
+		return nil, errors.New("partSize must be greater than zero")
+	}
 	b.mtx.Lock()
 	defer b.mtx.Unlock()
 
@@ -245,8 +248,9 @@ func (b *Block) ToReqBeginBlock(vals []*Validator) abci.RequestBeginBlock {
 			SignedLastBlock: commitSig.BlockIDFlag != BlockIDFlagAbsent,
 		})
 	}
-	var byzantineValidators []abci.Evidence
-	for _, e := range b.Evidence.ToABCI() {
+	abciEvidence := b.Evidence.ToABCI()
+	byzantineValidators := make([]abci.Evidence, 0, len(abciEvidence))
+	for _, e := range abciEvidence {
 		byzantineValidators = append(byzantineValidators, abci.Evidence(e))
 	}
 	return abci.RequestBeginBlock{
@@ -342,10 +346,6 @@ func MaxDataBytesNoEvidence(maxBytes int64, valsCount int) int64 {
 // computed from itself.
 // It populates the same set of fields validated by ValidateBasic.
 func MakeBlock(height int64, txs []Tx, lastCommit *Commit, evidence []Evidence) *Block {
-	txKeys := make([]TxKey, 0, len(txs))
-	for _, tx := range txs {
-		txKeys = append(txKeys, tx.Key())
-	}
 	block := &Block{
 		Header: Header{
 			Version: version.Consensus{Block: version.BlockProtocol, App: 0},
@@ -761,7 +761,7 @@ func (cs *CommitSig) FromProto(csp tmproto.CommitSig) error {
 	if len(csp.Signature) > 0 {
 		sig, err := crypto.SigFromBytes(csp.Signature)
 		if err != nil {
-			return fmt.Errorf("Signature: %w", err)
+			return fmt.Errorf("signature: %w", err)
 		}
 		cs.Signature = utils.Some(sig)
 	} else {
@@ -980,7 +980,7 @@ func (commit *Commit) ToVoteSet(chainID string, vals *ValidatorSet) *VoteSet {
 		if cs.BlockIDFlag == BlockIDFlagAbsent {
 			continue // OK, some precommits can be missing.
 		}
-		vote := commit.GetVote(int32(idx))
+		vote := commit.GetVote(int32(idx)) //nolint:gosec // idx is bounded by commit.Signatures length which fits in int32
 		if err := vote.ValidateBasic(); err != nil {
 			panic(fmt.Errorf("failed to validate vote reconstructed from commit: %w", err))
 		}

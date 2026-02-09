@@ -798,7 +798,7 @@ func FireEvents(
 		if err := eventBus.PublishEventTx(types.EventDataTx{
 			TxResultV2: abci.TxResultV2{
 				Height: block.Height,
-				Index:  uint32(i),
+				Index:  uint32(i), //nolint:gosec // i is bounded by block.Txs length which fits in uint32
 				Tx:     tx,
 				Result: *(finalizeBlockResponse.TxResults[i]),
 			},

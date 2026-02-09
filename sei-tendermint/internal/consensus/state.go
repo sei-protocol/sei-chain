@@ -2066,7 +2066,6 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 					cs.metrics.ValidatorMissedBlocks.With(label...).Add(float64(1))
 				}
 			}
-
 		}
 	}
 	cs.metrics.MissingValidators.Set(float64(missingValidators))
@@ -2084,7 +2083,6 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 				byzantineValidatorsPower += val.VotingPower
 			}
 		}
-
 	}
 	cs.metrics.ByzantineValidators.Set(float64(byzantineValidatorsCount))
 	cs.metrics.ByzantineValidatorsPower.Set(float64(byzantineValidatorsPower))
@@ -2106,11 +2104,11 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 	if proposal != nil {
 		cs.metrics.MarkFinalRound(roundState.Round, proposal.ProposerAddress.String())
 		cs.metrics.MarkProposeLatency(proposal.ProposerAddress.String(), proposal.Timestamp.Sub(roundState.StartTime))
-		for roundId := 0; int32(roundId) <= roundState.ValidRound; roundId++ {
-			preVotes := roundState.Votes.Prevotes(int32(roundId))
+		for roundID := int32(0); roundID <= roundState.ValidRound; roundID++ { //nolint:gosec // ValidRound is a small consensus round number
+			preVotes := roundState.Votes.Prevotes(roundID)
 			pl := preVotes.List()
 			if len(pl) == 0 {
-				cs.logger.Info("no prevotes to emit latency metrics for", "height", height, "round", roundId)
+				cs.logger.Info("no prevotes to emit latency metrics for", "height", height, "round", roundID)
 				continue
 			}
 			sort.Slice(pl, func(i, j int) bool {

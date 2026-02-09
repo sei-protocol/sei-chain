@@ -114,8 +114,9 @@ func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], han
 					if err != nil {
 						return err
 					}
-					defer s.Close()
-					if err := handler(ctx, Stream[Resp, Req]{inner: s}); err != nil {
+					err = handler(ctx, Stream[Resp, Req]{inner: s})
+					s.Close()
+					if err != nil {
 						return err
 					}
 				}

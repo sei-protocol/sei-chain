@@ -158,7 +158,7 @@ func (c *Local) Genesis(ctx context.Context) (*coretypes.ResultGenesis, error) {
 }
 
 func (c *Local) GenesisChunked(ctx context.Context, id uint) (*coretypes.ResultGenesisChunk, error) {
-	return c.env.GenesisChunked(ctx, &coretypes.RequestGenesisChunked{Chunk: coretypes.Int64(id)})
+	return c.env.GenesisChunked(ctx, &coretypes.RequestGenesisChunked{Chunk: coretypes.Int64(id)}) //nolint:gosec // id is a small genesis chunk index
 }
 
 func (c *Local) Block(ctx context.Context, height *int64) (*coretypes.ResultBlock, error) {
@@ -299,7 +299,7 @@ func (c *Local) resubscribe(ctx context.Context, subArgs pubsub.SubscribeArgs) e
 		}
 
 		attempts++
-		timer.Reset((10 << uint(attempts)) * time.Millisecond) // 10ms -> 20ms -> 40ms
+		timer.Reset((10 << min(uint(attempts), 31)) * time.Millisecond) //nolint:gosec // attempts is a small non-negative counter
 		select {
 		case <-timer.C:
 			continue

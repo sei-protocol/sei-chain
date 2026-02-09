@@ -5,10 +5,12 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"os"
+	"path/filepath"
 	"time"
 
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -39,7 +41,8 @@ func DefaultDialOptions(
 		grpc_retry.WithBackoff(grpc_retry.BackoffExponential(timeout)),
 	}
 
-	dialOpts := []grpc.DialOption{
+	dialOpts := make([]grpc.DialOption, 0, 3+len(extraOpts))
+	dialOpts = append(dialOpts,
 		grpc.WithKeepaliveParams(kacp),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(maxCallRecvMsgSize),
@@ -48,7 +51,7 @@ func DefaultDialOptions(
 		grpc.WithUnaryInterceptor(
 			grpc_retry.UnaryClientInterceptor(opts...),
 		),
-	}
+	)
 
 	dialOpts = append(dialOpts, extraOpts...)
 
@@ -66,7 +69,7 @@ func GenerateTLS(certPath, keyPath, ca string, log log.Logger) grpc.DialOption {
 	}
 
 	certPool := x509.NewCertPool()
-	bs, err := os.ReadFile(ca)
+	bs, err := os.ReadFile(filepath.Clean(ca))
 	if err != nil {
 		log.Error("failed to read ca cert:", "error", err)
 		os.Exit(1)
@@ -100,7 +103,7 @@ func DialRemoteSigner(
 		transportSecurity = GenerateTLS(cfg.ClientCertificateFile(),
 			cfg.ClientKeyFile(), cfg.RootCAFile(), logger)
 	} else {
-		transportSecurity = grpc.WithInsecure()
+		transportSecurity = grpc.WithTransportCredentials(insecure.NewCredentials())
 		logger.Info("Using an insecure gRPC connection!")
 	}
 

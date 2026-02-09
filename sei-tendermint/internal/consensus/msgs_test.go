@@ -3,10 +3,11 @@ package consensus
 import (
 	"encoding/hex"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 	"math"
 	"testing"
 	"time"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/assert"
@@ -429,7 +430,7 @@ func TestVoteSetMaj23MessageValidateBasic(t *testing.T) {
 		},
 	}
 
-	testCases := []struct { // nolint: maligned
+	testCases := []struct {
 		expectErr      bool
 		messageRound   int32
 		messageHeight  int64
@@ -499,7 +500,7 @@ func TestVoteSetBitsMessageValidateBasic(t *testing.T) {
 }
 
 func TestNewRoundStepMessageValidateBasic(t *testing.T) {
-	testCases := []struct { // nolint: maligned
+	testCases := []struct {
 		expectErr              bool
 		messageRound           int32
 		messageLastCommitRound int32
@@ -539,7 +540,7 @@ func TestNewRoundStepMessageValidateBasic(t *testing.T) {
 
 func TestNewRoundStepMessageValidateHeight(t *testing.T) {
 	initialHeight := int64(10)
-	testCases := []struct { // nolint: maligned
+	testCases := []struct {
 		expectErr              bool
 		messageLastCommitRound int32
 		messageHeight          int64
@@ -687,7 +688,7 @@ func TestHasVoteMessageValidateBasic(t *testing.T) {
 		invalidSignedMsgType tmproto.SignedMsgType = 0x03
 	)
 
-	testCases := []struct { // nolint: maligned
+	testCases := []struct {
 		expectErr     bool
 		messageRound  int32
 		messageIndex  int32

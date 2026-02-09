@@ -105,7 +105,8 @@ func makeSeedNode(
 
 	proxyApp := proxy.New(client, logger.With("module", "proxy"), nodeMetrics.proxy)
 
-	closers := []closer{convertCancelCloser(cancel)}
+	closers := make([]closer, 0, 2)
+	closers = append(closers, convertCancelCloser(cancel))
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
 	if err != nil {
 		return nil, combineCloseError(err, dbCloser)
@@ -157,7 +158,11 @@ func (n *seedNodeImpl) OnStart(ctx context.Context) error {
 
 	if n.config.RPC.PprofListenAddress != "" {
 		rpcCtx, rpcCancel := context.WithCancel(ctx)
-		srv := &http.Server{Addr: n.config.RPC.PprofListenAddress, Handler: nil}
+		srv := &http.Server{
+			Addr:              n.config.RPC.PprofListenAddress,
+			Handler:           nil,
+			ReadHeaderTimeout: 10 * time.Second, //nolint:gosec // G112: mitigate slowloris attacks
+		}
 		go func() {
 			select {
 			case <-ctx.Done():

@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -16,11 +17,13 @@ import (
 type GigaRouterConfig struct {
 	InboundPeers  map[NodePublicKey]bool
 	OutboundPeers map[NodePublicKey]tcp.HostPort
+	State         *consensus.State
 }
 
 type GigaRouter struct {
 	cfg     *GigaRouterConfig
 	key     NodeSecretKey
+	service *giga.Service
 	poolIn  *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
 }
@@ -29,6 +32,7 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) *GigaRouter {
 	return &GigaRouter{
 		cfg:     cfg,
 		key:     key,
+		service: giga.NewService(cfg.State),
 		poolIn:  giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 		poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
 	}
@@ -49,14 +53,6 @@ func (r *GigaRouter) Run(ctx context.Context) error {
 		}
 		return nil
 	})
-}
-
-func (r *GigaRouter) RunClients(ctx context.Context, task func(context.Context, rpc.Client[giga.API]) error) error {
-	return r.poolOut.RunForEach(ctx, task)
-}
-
-func (r *GigaRouter) RunServers(ctx context.Context, task func(context.Context, rpc.Server[giga.API]) error) error {
-	return r.poolIn.RunForEach(ctx, task)
 }
 
 func (r *GigaRouter) dialAndRunConn(ctx context.Context, key NodePublicKey, hp tcp.HostPort) error {
@@ -85,7 +81,12 @@ func (r *GigaRouter) dialAndRunConn(ctx context.Context, key NodePublicKey, hp t
 			return fmt.Errorf("peer key = %v, want %v", got, key)
 		}
 		client := rpc.NewClient[giga.API]()
-		return r.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error { return client.Run(ctx, hConn.conn) })
+		return r.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error {
+			return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+				s.Spawn(func() error { return client.Run(ctx, hConn.conn) })
+				return r.service.RunClient(ctx, client)
+			})
+		})
 	})
 }
 
@@ -99,5 +100,10 @@ func (r *GigaRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) 
 		return fmt.Errorf("peer not whitelisted")
 	}
 	server := rpc.NewServer[giga.API]()
-	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error { return server.Run(ctx, hConn.conn) })
+	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {
+		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			s.Spawn(func() error { return server.Run(ctx, hConn.conn) })
+			return r.service.RunServer(ctx, server)
+		})
+	})
 }

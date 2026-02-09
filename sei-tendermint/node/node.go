@@ -620,6 +620,7 @@ func (n *nodeImpl) startPrometheusServer(ctx context.Context, addr string) *http
 				promhttp.HandlerOpts{MaxRequestsInFlight: n.config.Instrumentation.MaxOpenConnections},
 			),
 		),
+		ReadHeaderTimeout: 10 * time.Second, //nolint:gosec // G112: mitigate slowloris attacks
 	}
 
 	signal := make(chan struct{})
