@@ -166,8 +166,12 @@ func (s *Store) GetLogs(ctx context.Context, filter LogFilter) ([]LogResult, err
 
 // WriteReceipt writes a receipt to the WAL and buffer.
 func (s *Store) WriteReceipt(input ReceiptInput) error {
-	// Write to WAL first
-	if err := s.wal.Write(WALEntry{ReceiptBytes: input.ReceiptBytes}); err != nil {
+	// Write to WAL as a single-receipt batch
+	entry := WALEntry{
+		BlockNumber: input.BlockNumber,
+		Receipts:    [][]byte{input.ReceiptBytes},
+	}
+	if err := s.wal.Write(entry); err != nil {
 		return err
 	}
 
@@ -177,15 +181,41 @@ func (s *Store) WriteReceipt(input ReceiptInput) error {
 	return s.applyReceiptLocked(input)
 }
 
-// WriteReceipts writes multiple receipts.
+// WriteReceipts writes multiple receipts, batching WAL writes per block.
 func (s *Store) WriteReceipts(inputs []ReceiptInput) error {
 	if len(inputs) == 0 {
 		return nil
 	}
 
-	// Write all to WAL first
+	// Group receipt bytes by block number for batched WAL writes.
+	// Preserve encounter order so WAL entries are written in block order.
+	type blockBatch struct {
+		blockNumber uint64
+		receipts    [][]byte
+	}
+	var batches []blockBatch
+	batchIdx := make(map[uint64]int)
+
 	for i := range inputs {
-		if err := s.wal.Write(WALEntry{ReceiptBytes: inputs[i].ReceiptBytes}); err != nil {
+		bn := inputs[i].BlockNumber
+		if idx, ok := batchIdx[bn]; ok {
+			batches[idx].receipts = append(batches[idx].receipts, inputs[i].ReceiptBytes)
+		} else {
+			batchIdx[bn] = len(batches)
+			batches = append(batches, blockBatch{
+				blockNumber: bn,
+				receipts:    [][]byte{inputs[i].ReceiptBytes},
+			})
+		}
+	}
+
+	// Write one WAL entry per block
+	for _, b := range batches {
+		entry := WALEntry{
+			BlockNumber: b.blockNumber,
+			Receipts:    b.receipts,
+		}
+		if err := s.wal.Write(entry); err != nil {
 			return err
 		}
 	}

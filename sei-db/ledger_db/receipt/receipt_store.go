@@ -46,8 +46,9 @@ type ReceiptStore interface {
 }
 
 type ReceiptRecord struct {
-	TxHash  common.Hash
-	Receipt *types.Receipt
+	TxHash       common.Hash
+	Receipt      *types.Receipt
+	ReceiptBytes []byte // optional pre-marshaled bytes; skips Marshal() when set
 }
 
 type receiptStore struct {
