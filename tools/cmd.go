@@ -3,7 +3,9 @@ package tools
 import (
 	"github.com/spf13/cobra"
 
+	apphash "github.com/sei-protocol/sei-chain/tools/app_hash"
 	hasher "github.com/sei-protocol/sei-chain/tools/hash_verification/cmd"
+	lastresultshash "github.com/sei-protocol/sei-chain/tools/last_results_hash"
 	migration "github.com/sei-protocol/sei-chain/tools/migration/cmd"
 	scanner "github.com/sei-protocol/sei-chain/tools/tx-scanner/cmd"
 )
@@ -19,5 +21,7 @@ func ToolCmd() *cobra.Command {
 	toolsCmd.AddCommand(migration.GenerateStats())
 	toolsCmd.AddCommand(hasher.GenerateIavlHashCmd())
 	toolsCmd.AddCommand(hasher.GeneratePebbleHashCmd())
+	toolsCmd.AddCommand(lastresultshash.GetLastResultsHashCmd())
+	toolsCmd.AddCommand(apphash.GetAppHashCmd())
 	return toolsCmd
 }
