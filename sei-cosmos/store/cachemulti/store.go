@@ -94,48 +94,57 @@ func NewStore(
 }
 
 func newCacheMultiStoreFromCMS(cms Store) Store {
-	cms.mu.Lock()
+	cms.mu.RLock()
 
-	// Materialize all lazy parents on the parent CMS first.
-	// This ensures the child CMS wraps cachekv stores (not raw stores),
-	// so child.Write() writes to the parent's cachekv — not directly to the
-	// underlying commit store, which would bypass the parent's caching layer.
-	for k := range cms.storeParents {
-		cms.ensureStoreLocked(k)
-	}
-	for k := range cms.gigaStoreParents {
-		cms.ensureGigaStoreLocked(k)
-	}
-
-	// Build child CMS directly instead of going through NewFromKVStore.
-	// This avoids creating a cachekv.NewStore for the db field — the child's
-	// db is never read/written (all access goes through module stores), and
-	// eliminating it saves ~10 GB of allocations per 30s.
-	storeParents := make(map[types.StoreKey]types.CacheWrapper, len(cms.stores))
+	// Skip force-materialization of lazy parents. Instead, merge both
+	// already-materialized stores and lazy storeParents into the child's
+	// storeParents. This is safe because:
+	//
+	// - Materialized stores (in cms.stores): child wraps them, so
+	//   child.Write() propagates through the parent's cache layer.
+	// - Lazy stores (in cms.storeParents): the parent hasn't created a
+	//   cachekv for them yet, so there's no stale cache. The child wraps
+	//   the raw parent directly; child.Write() writes to the raw parent,
+	//   and the parent's eventual cachekv (created on first access) will
+	//   read through and see the child's writes.
+	//
+	// This eliminates ~13 GB of allocations per 30s from creating cachekv
+	// stores that are either immediately replaced (OCC SetKVStores) or
+	// never accessed (nested EVM Snapshots touching only 3-5 of ~20 stores).
+	storeParents := make(map[types.StoreKey]types.CacheWrapper, len(cms.stores)+len(cms.storeParents))
 	for k, v := range cms.stores {
 		storeParents[k] = v
 	}
+	for k, v := range cms.storeParents {
+		if _, exists := storeParents[k]; !exists {
+			storeParents[k] = v
+		}
+	}
 
-	// Replicate the fallback logic from NewFromKVStore: for giga keys not in
-	// gigaStores, fall back to the regular store (which wraps the same parent).
+	// Merge giga stores: prefer materialized, fall back to lazy parents,
+	// then fall back to regular stores/storeParents.
 	gigaStoreParents := make(map[types.StoreKey]types.KVStore, len(cms.gigaKeys))
 	for _, key := range cms.gigaKeys {
 		if gigaStore, ok := cms.gigaStores[key]; ok {
 			gigaStoreParents[key] = gigaStore
+		} else if gigaParent, ok := cms.gigaStoreParents[key]; ok {
+			gigaStoreParents[key] = gigaParent
 		} else if store, ok := cms.stores[key]; ok {
 			gigaStoreParents[key] = store.(types.KVStore)
+		} else if parent, ok := cms.storeParents[key]; ok {
+			gigaStoreParents[key] = parent.(types.KVStore)
 		}
 	}
 
-	cms.mu.Unlock()
+	cms.mu.RUnlock()
 
 	return Store{
 		mu:               &sync.RWMutex{},
 		db:               nil,
-		stores:           make(map[types.StoreKey]types.CacheWrap),
+		stores:           make(map[types.StoreKey]types.CacheWrap, len(storeParents)),
 		storeParents:     storeParents,
 		keys:             cms.keys,
-		gigaStores:       make(map[types.StoreKey]types.KVStore),
+		gigaStores:       make(map[types.StoreKey]types.KVStore, len(gigaStoreParents)),
 		gigaStoreParents: gigaStoreParents,
 		gigaKeys:         cms.gigaKeys,
 		traceWriter:      cms.traceWriter,
