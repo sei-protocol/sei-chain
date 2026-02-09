@@ -1,7 +1,6 @@
 package tasks
 
 import (
-	"context"
 	"crypto/sha256"
 	"fmt"
 	"sort"
@@ -132,16 +131,11 @@ func (s *scheduler) invalidateTask(task *deliverTxTask) {
 	}
 }
 
-func start(ctx context.Context, ch chan func(), workers int) {
+func start(ch chan func(), workers int) {
 	for i := 0; i < workers; i++ {
 		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case work := <-ch:
-					work()
-				}
+			for work := range ch {
+				work()
 			}
 		}()
 	}
@@ -214,14 +208,14 @@ func (s *scheduler) collectResponses(tasks []*deliverTxTask) []types.ResponseDel
 	return res
 }
 
-func (s *scheduler) tryInitMultiVersionStore(ctx sdk.Context) {
+func (s *scheduler) tryInitMultiVersionStore(ctx sdk.Context, numTxSlots int) {
 	if s.multiVersionStores != nil {
 		return
 	}
 	mvs := make(map[sdk.StoreKey]multiversion.MultiVersionStore)
 	keys := ctx.MultiStore().StoreKeys()
 	for _, sk := range keys {
-		mvs[sk] = multiversion.NewMultiVersionStore(ctx.MultiStore().GetKVStore(sk))
+		mvs[sk] = multiversion.NewMultiVersionStoreWithSize(ctx.MultiStore().GetKVStore(sk), numTxSlots)
 	}
 	s.multiVersionStores = mvs
 }
@@ -273,7 +267,13 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 	startTime := time.Now()
 	var iterations int
 	// initialize mutli-version stores if they haven't been initialized yet
-	s.tryInitMultiVersionStore(ctx)
+	numTxSlots := len(reqs)
+	for _, r := range reqs {
+		if r.AbsoluteIndex+1 > numTxSlots {
+			numTxSlots = r.AbsoluteIndex + 1
+		}
+	}
+	s.tryInitMultiVersionStore(ctx, numTxSlots)
 	tasks, tasksMap := toTasks(reqs)
 	s.allTasks = tasks
 	s.allTasksMap = tasksMap
@@ -287,14 +287,13 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 		workers = len(tasks)
 	}
 
-	workerCtx, cancel := context.WithCancel(ctx.Context())
-	defer cancel()
-
 	// execution tasks are limited by workers
-	start(workerCtx, s.executeCh, workers)
+	start(s.executeCh, workers)
+	defer close(s.executeCh)
 
 	// validation tasks uses length of tasks to avoid blocking on validation
-	start(workerCtx, s.validateCh, len(tasks))
+	start(s.validateCh, len(tasks))
+	defer close(s.validateCh)
 
 	toExecute := tasks
 	for !allValidated(tasks) {

@@ -16,6 +16,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -418,6 +419,10 @@ type App struct {
 	GigaExecutorEnabled bool
 	// GigaOCCEnabled controls whether to use OCC with the Giga executor
 	GigaOCCEnabled bool
+
+	// evmPool reuses giga executor instances within a block to avoid per-tx allocation.
+	evmPool       sync.Pool
+	evmPoolHeight atomic.Int64
 }
 
 type AppOption func(*App)
@@ -1852,21 +1857,33 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	// Get gas pool
 	gp := app.GigaEvmKeeper.GetGasPool()
 
-	// Get block context
-	blockCtx, blockCtxErr := app.GigaEvmKeeper.GetVMBlockContext(ctx, gp)
-	if blockCtxErr != nil {
-		return &abci.ExecTxResult{
-			Code: 1,
-			Log:  fmt.Sprintf("failed to get block context: %v", blockCtxErr),
-		}, nil
+	// Get or reuse a Giga executor VM from the pool
+	var gigaExecutor *gigaexecutor.Executor
+	blockHeight := ctx.BlockHeight()
+	if app.evmPoolHeight.Load() == blockHeight {
+		if pooled := app.evmPool.Get(); pooled != nil {
+			gigaExecutor = pooled.(*gigaexecutor.Executor)
+			gigaExecutor.Reset(stateDB)
+		}
+	} else {
+		// New block: update height. Stale pool entries from previous blocks
+		// have different blockCtx and will be GC'd by sync.Pool.
+		app.evmPoolHeight.Store(blockHeight)
+	}
+	if gigaExecutor == nil {
+		blockCtx, blockCtxErr := app.GigaEvmKeeper.GetVMBlockContext(ctx, gp)
+		if blockCtxErr != nil {
+			return &abci.ExecTxResult{
+				Code: 1,
+				Log:  fmt.Sprintf("failed to get block context: %v", blockCtxErr),
+			}, nil
+		}
+		sstore := app.GigaEvmKeeper.GetParams(ctx).SeiSstoreSetGasEip2200
+		cfg := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(app.GigaEvmKeeper.ChainID(ctx), &sstore)
+		gigaExecutor = gigaexecutor.NewGethExecutor(*blockCtx, stateDB, cfg, vm.Config{}, gigaprecompiles.AllCustomPrecompilesFailFast)
 	}
 
-	// Get chain config
-	sstore := app.GigaEvmKeeper.GetParams(ctx).SeiSstoreSetGasEip2200
-	cfg := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(app.GigaEvmKeeper.ChainID(ctx), &sstore)
-
-	// Create Giga executor VM
-	gigaExecutor := gigaexecutor.NewGethExecutor(*blockCtx, stateDB, cfg, vm.Config{}, gigaprecompiles.AllCustomPrecompilesFailFast)
+	defer app.evmPool.Put(gigaExecutor)
 
 	// Execute the transaction through giga VM
 	execResult, execErr := gigaExecutor.ExecuteTransaction(ethTx, sender, app.GigaEvmKeeper.GetBaseFee(ctx), &gp)

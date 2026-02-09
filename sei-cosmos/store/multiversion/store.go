@@ -37,29 +37,42 @@ type Iterateset []*iterationTracker
 
 var _ MultiVersionStore = (*Store)(nil)
 
+// txSlot holds per-transaction data with its own lock to eliminate cross-tx contention.
+type txSlot struct {
+	mu           sync.RWMutex
+	writesetKeys []string
+	readset      ReadSet
+	iterateset   Iterateset
+}
+
 type Store struct {
 	multiVersionMap *sync.Map // key string -> MultiVersionValue (lock-free reads for OCC workers)
 
-	writesetKeysMtx sync.RWMutex
-	txWritesetKeys  map[int][]string
-
-	readSetsMtx sync.RWMutex
-	txReadSets  map[int]ReadSet
-
-	iterateSetsMtx sync.RWMutex
-	txIterateSets  map[int]Iterateset
+	txSlots []txSlot // pre-allocated, indexed by tx index
 
 	parentStore types.KVStore
 }
 
 func NewMultiVersionStore(parentStore types.KVStore) *Store {
+	return NewMultiVersionStoreWithSize(parentStore, 16)
+}
+
+func NewMultiVersionStoreWithSize(parentStore types.KVStore, numTxs int) *Store {
+	if numTxs < 1 {
+		numTxs = 16
+	}
 	return &Store{
 		multiVersionMap: &sync.Map{},
-		txWritesetKeys:  make(map[int][]string),
-		txReadSets:      make(map[int]ReadSet),
-		txIterateSets:   make(map[int]Iterateset),
+		txSlots:         make([]txSlot, numTxs),
 		parentStore:     parentStore,
 	}
+}
+
+// slot returns the txSlot for the given index. Panics if index is out of bounds.
+// In production, NewMultiVersionStoreWithSize is called with a sufficient size.
+// In tests, NewMultiVersionStore defaults to 16 slots which covers typical test indices.
+func (s *Store) slot(index int) *txSlot {
+	return &s.txSlots[index]
 }
 
 // VersionedIndexedStore creates a new versioned index store for a given incarnation and transaction index
@@ -111,17 +124,17 @@ func (s *Store) Has(index int, key []byte) bool {
 	return foundVal
 }
 
-// removeOldWriteset must be called with writesetKeysMtx held for writing.
-func (s *Store) removeOldWriteset(index int, newWriteSet WriteSet) {
+// removeOldWriteset must be called with the slot's mu held for writing.
+func (s *Store) removeOldWriteset(sl *txSlot, index int, newWriteSet WriteSet) {
 	writeset := make(map[string][]byte)
 	if newWriteSet != nil {
 		// if non-nil writeset passed in, we can use that to optimize removals
 		writeset = newWriteSet
 	}
 	// if there is already a writeset existing, we should remove that fully
-	keys, loaded := s.txWritesetKeys[index]
-	if loaded {
-		delete(s.txWritesetKeys, index)
+	keys := sl.writesetKeys
+	if len(keys) > 0 {
+		sl.writesetKeys = nil
 		// we need to delete all of the keys in the writeset from the multiversion store
 		for _, key := range keys {
 			// small optimization to check if the new writeset is going to write this key, if so, we can leave it behind
@@ -142,9 +155,10 @@ func (s *Store) removeOldWriteset(index int, newWriteSet WriteSet) {
 
 // SetWriteset sets a writeset for a transaction index, and also writes all of the multiversion items in the writeset to the multiversion store.
 func (s *Store) SetWriteset(index int, incarnation int, writeset WriteSet) {
-	s.writesetKeysMtx.Lock()
-	s.removeOldWriteset(index, writeset)
-	s.writesetKeysMtx.Unlock()
+	sl := s.slot(index)
+	sl.mu.Lock()
+	s.removeOldWriteset(sl, index, writeset)
+	sl.mu.Unlock()
 
 	writeSetKeys := make([]string, 0, len(writeset))
 	for key, value := range writeset {
@@ -157,18 +171,18 @@ func (s *Store) SetWriteset(index int, incarnation int, writeset WriteSet) {
 			mvVal.Set(index, incarnation, value)
 		}
 	}
-	sort.Strings(writeSetKeys)
-	s.writesetKeysMtx.Lock()
-	s.txWritesetKeys[index] = writeSetKeys
-	s.writesetKeysMtx.Unlock()
+	sl.mu.Lock()
+	sl.writesetKeys = writeSetKeys
+	sl.mu.Unlock()
 }
 
 // InvalidateWriteset iterates over the keys for the given index and incarnation writeset and replaces with ESTIMATEs
 func (s *Store) InvalidateWriteset(index int, incarnation int) {
-	s.writesetKeysMtx.RLock()
-	keys, found := s.txWritesetKeys[index]
-	s.writesetKeysMtx.RUnlock()
-	if !found {
+	sl := s.slot(index)
+	sl.mu.RLock()
+	keys := sl.writesetKeys
+	sl.mu.RUnlock()
+	if len(keys) == 0 {
 		return
 	}
 	for _, key := range keys {
@@ -180,9 +194,10 @@ func (s *Store) InvalidateWriteset(index int, incarnation int) {
 
 // SetEstimatedWriteset is used to directly write estimates instead of writing a writeset and later invalidating
 func (s *Store) SetEstimatedWriteset(index int, incarnation int, writeset WriteSet) {
-	s.writesetKeysMtx.Lock()
-	s.removeOldWriteset(index, writeset)
-	s.writesetKeysMtx.Unlock()
+	sl := s.slot(index)
+	sl.mu.Lock()
+	s.removeOldWriteset(sl, index, writeset)
+	sl.mu.Unlock()
 
 	writeSetKeys := make([]string, 0, len(writeset))
 	// still need to save the writeset so we can remove the elements later:
@@ -192,83 +207,86 @@ func (s *Store) SetEstimatedWriteset(index int, incarnation int, writeset WriteS
 		mvVal, _ := s.multiVersionMap.LoadOrStore(key, NewMultiVersionItem())
 		mvVal.(MultiVersionValue).SetEstimate(index, incarnation)
 	}
-	sort.Strings(writeSetKeys)
-	s.writesetKeysMtx.Lock()
-	s.txWritesetKeys[index] = writeSetKeys
-	s.writesetKeysMtx.Unlock()
+	sl.mu.Lock()
+	sl.writesetKeys = writeSetKeys
+	sl.mu.Unlock()
 }
 
 // GetAllWritesetKeys implements MultiVersionStore.
 func (s *Store) GetAllWritesetKeys() map[int][]string {
-	s.writesetKeysMtx.RLock()
-	writesetKeys := make(map[int][]string, len(s.txWritesetKeys))
-	for index, keys := range s.txWritesetKeys {
-		writesetKeys[index] = keys
+	writesetKeys := make(map[int][]string)
+	for i := range s.txSlots {
+		sl := &s.txSlots[i]
+		sl.mu.RLock()
+		if len(sl.writesetKeys) > 0 {
+			writesetKeys[i] = sl.writesetKeys
+		}
+		sl.mu.RUnlock()
 	}
-	s.writesetKeysMtx.RUnlock()
 	return writesetKeys
 }
 
 func (s *Store) SetReadset(index int, readset ReadSet) {
-	s.readSetsMtx.Lock()
-	s.txReadSets[index] = readset
-	s.readSetsMtx.Unlock()
+	sl := s.slot(index)
+	sl.mu.Lock()
+	sl.readset = readset
+	sl.mu.Unlock()
 }
 
 func (s *Store) GetReadset(index int) ReadSet {
-	s.readSetsMtx.RLock()
-	readset, found := s.txReadSets[index]
-	s.readSetsMtx.RUnlock()
-	if !found {
-		return nil
-	}
+	sl := s.slot(index)
+	sl.mu.RLock()
+	readset := sl.readset
+	sl.mu.RUnlock()
 	return readset
 }
 
 func (s *Store) SetIterateset(index int, iterateset Iterateset) {
-	s.iterateSetsMtx.Lock()
-	s.txIterateSets[index] = iterateset
-	s.iterateSetsMtx.Unlock()
+	sl := s.slot(index)
+	sl.mu.Lock()
+	sl.iterateset = iterateset
+	sl.mu.Unlock()
 }
 
 func (s *Store) GetIterateset(index int) Iterateset {
-	s.iterateSetsMtx.RLock()
-	iterateset, found := s.txIterateSets[index]
-	s.iterateSetsMtx.RUnlock()
-	if !found {
-		return nil
-	}
+	sl := s.slot(index)
+	sl.mu.RLock()
+	iterateset := sl.iterateset
+	sl.mu.RUnlock()
 	return iterateset
 }
 
 func (s *Store) ClearReadset(index int) {
-	s.readSetsMtx.Lock()
-	delete(s.txReadSets, index)
-	s.readSetsMtx.Unlock()
+	sl := s.slot(index)
+	sl.mu.Lock()
+	sl.readset = nil
+	sl.mu.Unlock()
 }
 
 func (s *Store) ClearIterateset(index int) {
-	s.iterateSetsMtx.Lock()
-	delete(s.txIterateSets, index)
-	s.iterateSetsMtx.Unlock()
+	sl := s.slot(index)
+	sl.mu.Lock()
+	sl.iterateset = nil
+	sl.mu.Unlock()
 }
 
 // CollectIteratorItems implements MultiVersionStore. It will return a memDB containing all of the keys present in the multiversion store within the iteration range prior to (exclusive of) the index.
 func (s *Store) CollectIteratorItems(index int) *db.MemDB {
 	sortedItems := db.NewMemDB()
 
-	s.writesetKeysMtx.RLock()
 	// get all writeset keys prior to index
-	for i := 0; i < index; i++ {
-		indexedWriteset, found := s.txWritesetKeys[i]
-		if !found {
-			continue
-		}
-		for _, key := range indexedWriteset {
+	limit := index
+	if limit > len(s.txSlots) {
+		limit = len(s.txSlots)
+	}
+	for i := 0; i < limit; i++ {
+		sl := &s.txSlots[i]
+		sl.mu.RLock()
+		for _, key := range sl.writesetKeys {
 			sortedItems.Set([]byte(key), []byte{})
 		}
+		sl.mu.RUnlock()
 	}
-	s.writesetKeysMtx.RUnlock()
 	return sortedItems
 }
 
@@ -332,10 +350,8 @@ func (s *Store) validateIterator(index int, tracker iterationTracker) bool {
 
 func (s *Store) checkIteratorAtIndex(index int) bool {
 	valid := true
-	s.iterateSetsMtx.RLock()
-	iterateset, found := s.txIterateSets[index]
-	s.iterateSetsMtx.RUnlock()
-	if !found {
+	iterateset := s.GetIterateset(index)
+	if iterateset == nil {
 		return true
 	}
 	for _, iterationTracker := range iterateset {
@@ -349,10 +365,8 @@ func (s *Store) checkReadsetAtIndex(index int) (bool, []int) {
 	conflictSet := make(map[int]struct{})
 	valid := true
 
-	s.readSetsMtx.RLock()
-	readset, found := s.txReadSets[index]
-	s.readSetsMtx.RUnlock()
-	if !found {
+	readset := s.GetReadset(index)
+	if readset == nil {
 		return true, []int{}
 	}
 	// iterate over readset and check if the value is the same as the latest value relateive to txIndex in the multiversion store
