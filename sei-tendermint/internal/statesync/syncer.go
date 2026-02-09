@@ -149,6 +149,14 @@ func (s *syncer) SyncAny(
 		chunks   *chunkQueue
 		err      error
 	)
+
+	// Ensure chunks is always closed on function exit
+	defer func() {
+		if chunks != nil {
+			_ = chunks.Close()
+		}
+	}()
+
 	for {
 		// If not nil, we're going to retry restoration of the same snapshot.
 		if snapshot == nil {
@@ -168,7 +176,6 @@ func (s *syncer) SyncAny(
 			if err != nil {
 				return sm.State{}, nil, fmt.Errorf("failed to create chunk queue: %w", err)
 			}
-			defer func() { _ = chunks.Close() }() // in case we forget to close it elsewhere
 		}
 
 		s.processingSnapshot = snapshot
@@ -217,8 +224,7 @@ func (s *syncer) SyncAny(
 		}
 
 		// Discard snapshot and chunks for next iteration
-		err = chunks.Close()
-		if err != nil {
+		if err := chunks.Close(); err != nil {
 			s.logger.Error("Failed to clean up chunk queue", "err", err)
 		}
 		snapshot = nil
