@@ -1416,7 +1416,10 @@ func TestSelfRemediationConfig() *SelfRemediationConfig {
 
 // ValidateBasic performs basic validation (checking param bounds, etc.) and
 // returns an error if any check fails.
-func (cfg SelfRemediationConfig) ValidateBasic() error {
+func (cfg *SelfRemediationConfig) ValidateBasic() error {
+	if cfg == nil {
+		return nil
+	}
 	if cfg.P2pNoPeersRestarWindowSeconds > math.MaxInt64 {
 		return errors.New("p2p-no-peers-available-window-seconds exceeds max int64")
 	}
