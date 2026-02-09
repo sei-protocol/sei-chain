@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -1319,8 +1320,14 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 		// Only do expensive validation for potentially gasless transactions
 		isGasless, err := antedecorators.IsTxGasless(typedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
 		if err != nil {
-			ctx.Logger().Error("error checking if tx is gasless for metrics", "error", err)
-			// If we can't determine if it's gasless, record metrics to maintain existing behavior
+			if errors.Is(err, oracletypes.ErrAggregateVoteExist) {
+				// ErrAggregateVoteExist is expected when checking gasless status after tx processing
+				// since oracle votes will now exist in state. We know it was gasless, skip metrics.
+				skipMetrics = true
+			} else {
+				ctx.Logger().Error("error checking if tx is gasless for metrics", "error", err)
+				// If we can't determine if it's gasless, record metrics to maintain existing behavior
+			}
 		} else if isGasless {
 			skipMetrics = true // Skip metrics for confirmed gasless transactions
 		}
@@ -1444,15 +1451,15 @@ func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []
 // ExecuteTxsConcurrently calls the appropriate function for processing transacitons
 func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	// Giga only supports synchronous execution for now
-	if app.GigaExecutorEnabled {
-		results := app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs, absoluteTxIndices)
-		return results, ctx
+	if app.GigaExecutorEnabled && app.GigaOCCEnabled {
+		return app.ProcessTXsWithOCCGiga(ctx, txs, typedTxs, absoluteTxIndices)
+	} else if app.GigaExecutorEnabled {
+		return app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs, absoluteTxIndices), ctx
 	} else if !ctx.IsOCCEnabled() {
-		results := app.ProcessTxsSynchronousV2(ctx, txs, typedTxs, absoluteTxIndices)
-		return results, ctx
+		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs, absoluteTxIndices), ctx
 	}
 
-	return app.ProcessTXsWithOCC(ctx, txs, typedTxs, absoluteTxIndices)
+	return app.ProcessTXsWithOCCV2(ctx, txs, typedTxs, absoluteTxIndices)
 }
 
 func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex int, bz []byte, tx sdk.Tx) (res *sdk.DeliverTxEntry) {
@@ -1465,8 +1472,8 @@ func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex i
 	return
 }
 
-// ProcessTXsWithOCC runs the transactions concurrently via OCC
-func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+// ProcessTXsWithOCCV2 runs the transactions concurrently via OCC, using the V2 executor
+func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
 	for txIndex, tx := range txs {
 		entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
@@ -1487,8 +1494,14 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 				// Only do expensive validation for potentially gasless transactions
 				isGasless, err := antedecorators.IsTxGasless(typedTxs[i], ctx, app.OracleKeeper, &app.EvmKeeper)
 				if err != nil {
-					ctx.Logger().Error("error checking if tx is gasless for OCC metrics", "error", err, "txIndex", i)
-					// If we can't determine if it's gasless, record metrics to maintain existing behavior
+					if errors.Is(err, oracletypes.ErrAggregateVoteExist) {
+						// ErrAggregateVoteExist is expected when checking gasless status after tx processing
+						// since oracle votes will now exist in state. We know it was gasless, skip metrics.
+						recordGasMetrics = false
+					} else {
+						ctx.Logger().Error("error checking if tx is gasless for OCC metrics", "error", err, "txIndex", i)
+						// If we can't determine if it's gasless, record metrics to maintain existing behavior
+					}
 				} else if isGasless {
 					recordGasMetrics = false
 				}
@@ -1512,6 +1525,99 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 			EvmTxInfo: r.Response.EvmTxInfo,
 		})
 
+	}
+
+	return execResults, ctx
+}
+
+// ProcessTXsWithOCCGiga runs the transactions concurrently via OCC, using the Giga executor
+func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+	evmEntries := make([]*sdk.DeliverTxEntry, 0, len(txs))
+	v2Entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
+	for txIndex, tx := range txs {
+		if app.GetEVMMsg(typedTxs[txIndex]) != nil {
+			evmEntries = append(evmEntries, app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex]))
+		} else {
+			v2Entries = append(v2Entries, app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex]))
+		}
+	}
+
+	// Create OCC scheduler with giga executor deliverTx.
+	evmScheduler := tasks.NewScheduler(
+		app.ConcurrencyWorkers(),
+		app.TracingInfo,
+		app.gigaDeliverTx,
+	)
+
+	// Run EVM txs against a cache so we can discard all changes on fallback.
+	evmCtx, evmCache := app.CacheContext(ctx)
+	evmBatchResult, evmSchedErr := evmScheduler.ProcessAll(evmCtx, evmEntries)
+	if evmSchedErr != nil {
+		// TODO: DeliverTxBatch panics in this case
+		// TODO: detect if it was interop, and use v2 if so
+		ctx.Logger().Error("benchmark OCC scheduler error (EVM txs)", "error", evmSchedErr, "height", ctx.BlockHeight(), "txCount", len(evmEntries))
+		return nil, ctx
+	}
+
+	fallbackToV2 := false
+	for _, r := range evmBatchResult {
+		if r.Code == gigautils.GigaAbortCode && r.Codespace == gigautils.GigaAbortCodespace {
+			fallbackToV2 = true
+			break
+		}
+	}
+
+	if fallbackToV2 {
+		metrics.IncrGigaFallbackToV2Counter()
+		// Discard all EVM changes by skipping cache writes, then re-run all txs via DeliverTx.
+		evmBatchResult = nil
+		v2Entries = make([]*sdk.DeliverTxEntry, len(txs))
+		for txIndex, tx := range txs {
+			v2Entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
+		}
+	} else {
+		// Commit EVM cache to main store before processing non-EVM txs.
+		evmCache.Write()
+		evmCtx.GigaMultiStore().WriteGiga()
+	}
+
+	v2Scheduler := tasks.NewScheduler(
+		app.ConcurrencyWorkers(),
+		app.TracingInfo,
+		app.DeliverTx,
+	)
+	v2BatchResult, v2SchedErr := v2Scheduler.ProcessAll(ctx, v2Entries)
+	if v2SchedErr != nil {
+		ctx.Logger().Error("benchmark OCC scheduler error", "error", v2SchedErr, "height", ctx.BlockHeight(), "txCount", len(v2Entries))
+		return nil, ctx
+	}
+
+	execResults := make([]*abci.ExecTxResult, 0, len(evmBatchResult)+len(v2BatchResult))
+	for _, r := range evmBatchResult {
+		execResults = append(execResults, &abci.ExecTxResult{
+			Code:      r.Code,
+			Data:      r.Data,
+			Log:       r.Log,
+			Info:      r.Info,
+			GasWanted: r.GasWanted,
+			GasUsed:   r.GasUsed,
+			Events:    r.Events,
+			Codespace: r.Codespace,
+			EvmTxInfo: r.EvmTxInfo,
+		})
+	}
+	for _, r := range v2BatchResult {
+		execResults = append(execResults, &abci.ExecTxResult{
+			Code:      r.Code,
+			Data:      r.Data,
+			Log:       r.Log,
+			Info:      r.Info,
+			GasWanted: r.GasWanted,
+			GasUsed:   r.GasUsed,
+			Events:    r.Events,
+			Codespace: r.Codespace,
+			EvmTxInfo: r.EvmTxInfo,
+		})
 	}
 
 	return execResults, ctx
@@ -1546,11 +1652,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			app.wsServerStartSignal <- struct{}{}
 		}
 	}()
-
-	// TODO: for now Giga OCC calls ProcessBlockWithGigaExecutorOCC, WIP
-	if app.GigaExecutorEnabled && app.GigaOCCEnabled {
-		return app.ProcessBlockWithGigaExecutorOCC(ctx, txs, req, lastCommit, simulate)
-	}
 
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
@@ -2039,10 +2140,15 @@ func (app *App) gigaDeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 	if err != nil {
 		// Check if this is a fail-fast error (Cosmos precompile interop detected)
 		if gigautils.ShouldExecutionAbort(err) {
-			// Transaction requires Cosmos interop - not supported in giga mode
-			// TODO: implement fallback to standard execution path
-			return abci.ResponseDeliverTx{Code: 1, Log: fmt.Sprintf("giga executor: cosmos interop not supported: %v", err)}
+			// Return a sentinel response so the caller can fall back to v2.
+			return abci.ResponseDeliverTx{
+				Code:      gigautils.GigaAbortCode,
+				Codespace: gigautils.GigaAbortCodespace,
+				Info:      gigautils.GigaAbortInfo,
+				Log:       "giga executor abort: fall back to v2",
+			}
 		}
+
 		return abci.ResponseDeliverTx{Code: 1, Log: fmt.Sprintf("giga executor error: %v", err)}
 	}
 
