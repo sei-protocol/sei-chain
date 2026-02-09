@@ -123,15 +123,23 @@ func (s *EVMStateStore) ApplyChangesetParallel(version int64, changes map[EVMSto
 	return nil
 }
 
-// GetLatestVersion returns the maximum latest version across all databases
+// GetLatestVersion returns the minimum latest version across all databases.
+// Using min ensures crash-recovery correctness: if a crash interrupts
+// SetLatestVersion mid-loop, some DBs may be one version ahead of others.
+// min() guarantees WAL replay starts from the furthest-behind DB, and
+// replaying to an already-current DB is harmless (writes are idempotent).
+// Under normal operation all DBs are at the same version, so min == max.
 func (s *EVMStateStore) GetLatestVersion() int64 {
-	var maxVersion int64
+	var minVersion int64 = -1
 	for _, db := range s.databases {
-		if v := db.GetLatestVersion(); v > maxVersion {
-			maxVersion = v
+		if v := db.GetLatestVersion(); minVersion < 0 || v < minVersion {
+			minVersion = v
 		}
 	}
-	return maxVersion
+	if minVersion < 0 {
+		return 0
+	}
+	return minVersion
 }
 
 // SetLatestVersion sets the latest version on all databases
