@@ -1,38 +1,51 @@
 {
-  "name": "sei-chain",
+  "name": "sei-chain-contracts",
   "version": "1.0.0",
-  "description": "\"Contracts for Sei Chain\"",
+  "description": "High-performance smart contracts for Sei Chain with advanced staking event handling",
   "main": "index.js",
-  "directories": {
-    "lib": "lib",
-    "test": "test"
-  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    /* --- Core Testing & Event Simulation --- */
+    "test": "hardhat test",
+    "test:foundry": "forge test",
     "listen:staking": "tsx test/staking-event-listener.ts",
     "trigger:staking": "tsx test/staking-event-trigger.ts",
-    "e2e:staking": "tsx test/run-staking-test.ts"
+    "e2e:staking": "tsx test/run-staking-test.ts",
+    
+    /* --- Development Utilities --- */
+    "compile": "hardhat compile",
+    "deploy:sei": "hardhat run scripts/deploy.ts --network sei",
+    "lint": "solhint 'contracts/**/*.sol'",
+    "clean": "rimraf cache artifacts out"
   },
-  "author": "",
+  "author": "Sei Ecosystem Developer",
   "license": "ISC",
   "devDependencies": {
+    /* Frameworks & Tooling */
+    "hardhat": "^2.20.1",
     "@nomicfoundation/hardhat-foundry": "^1.1.1",
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    
+    /* Security & Upgradeability Helpers */
     "@openzeppelin/hardhat-upgrades": "^3.0.2",
     "@openzeppelin/test-helpers": "^0.5.16",
-    "@types/node": "^24.2.0",
-    "dotenv": "^16.3.1",
-    "ethers": "^v6.14.4",
-    "hardhat": "^2.20.1",
+    
+    /* TypeScript Stack */
     "tsx": "^4.20.3",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "@types/node": "^24.2.0",
+    "dotenv": "^16.3.1"
   },
   "dependencies": {
+    /* Smart Contract Standards */
     "@openzeppelin/contracts": "^5.0.1",
     "@openzeppelin/upgrades-core": "^1.32.3",
+    
+    /* Blockchain Interaction: Viem for speed, Ethers for compatibility */
+    "viem": "^2.31.4",
+    "ethers": "^6.10.0", 
+    
+    /* Logic & Math Utilities */
     "bignumber.js": "^9.1.2",
-    "dotenv": "^16.3.1",
-    "lodash": "^4.17.21",
-    "viem": "^2.31.4"
+    "lodash": "^4.17.21"
   }
 }
