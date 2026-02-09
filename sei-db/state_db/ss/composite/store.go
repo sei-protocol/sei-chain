@@ -545,3 +545,187 @@ func (s *CompositeStateStore) Prune(version int64) error {
 	}
 	return s.cosmosStore.Prune(version)
 }
+
+// =============================================================================
+// Recovery - WAL replay to sync both stores on startup
+// =============================================================================
+
+// RecoverCompositeStateStore recovers the composite state store from WAL in a single pass.
+// Both Cosmos_SS and EVM_SS share the same changelog, so we replay once and route appropriately:
+//   - Entries that Cosmos needs: dual-write through CompositeStateStore
+//   - Entries that only EVM needs (catch-up): write only to EVM store
+//   - Entries both stores have: skip
+func RecoverCompositeStateStore(
+	logger logger.Logger,
+	changelogPath string,
+	compositeStore *CompositeStateStore,
+) error {
+	cosmosVersion := compositeStore.cosmosStore.GetLatestVersion()
+
+	// No EVM store - simple case, just replay to Cosmos
+	if compositeStore.evmStore == nil {
+		return replayWAL(logger, changelogPath, cosmosVersion, -1, func(entry proto.ChangelogEntry) error {
+			if err := compositeStore.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
+				return fmt.Errorf("failed to apply changeset at version %d: %w", entry.Version, err)
+			}
+			return compositeStore.SetLatestVersion(entry.Version)
+		})
+	}
+
+	evmVersion := compositeStore.evmStore.GetLatestVersion()
+	evmWriteActive := compositeStore.evmConfig.WriteMode != config.CosmosOnlyWrite
+
+	// Start from whichever store is further behind.
+	// In CosmosOnlyWrite mode, ignore EVM version (we won't write to EVM).
+	startVersion := cosmosVersion
+	if evmWriteActive && evmVersion < cosmosVersion {
+		startVersion = evmVersion
+	}
+
+	logger.Info("Recovering CompositeStateStore",
+		"cosmosVersion", cosmosVersion,
+		"evmVersion", evmVersion,
+		"startVersion", startVersion,
+		"writeMode", compositeStore.evmConfig.WriteMode,
+		"changelogPath", changelogPath,
+	)
+
+	// Single-pass replay: route each entry to the stores that need it
+	return replayWAL(logger, changelogPath, startVersion, -1, func(entry proto.ChangelogEntry) error {
+		needsCosmos := entry.Version > cosmosVersion
+		needsEVM := evmWriteActive && entry.Version > evmVersion
+
+		if needsCosmos {
+			// Both stores need this entry - dual-write through CompositeStateStore
+			// (CompositeStateStore.ApplyChangesetSync routes by WriteMode)
+			if err := compositeStore.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
+				return fmt.Errorf("failed to apply changeset at version %d: %w", entry.Version, err)
+			}
+			return compositeStore.SetLatestVersion(entry.Version)
+		}
+
+		if needsEVM {
+			// Only EVM needs this entry (Cosmos already has it) - EVM catch-up
+			// Errors here are non-fatal: EVM is an optimization layer
+			evmChanges := extractEVMChangesFromChangesets(entry.Changesets)
+			if len(evmChanges) > 0 {
+				if err := compositeStore.evmStore.ApplyChangesetParallel(entry.Version, evmChanges); err != nil {
+					logger.Error("Failed to apply EVM changeset during catch-up, continuing",
+						"version", entry.Version, "error", err)
+				}
+			}
+			if err := compositeStore.evmStore.SetLatestVersion(entry.Version); err != nil {
+				logger.Error("Failed to set EVM version during catch-up, continuing",
+					"version", entry.Version, "error", err)
+			}
+		}
+
+		// Both stores already have this entry - nothing to do
+		return nil
+	})
+}
+
+// WALEntryHandler processes a single WAL entry during replay
+type WALEntryHandler func(entry proto.ChangelogEntry) error
+
+// replayWAL replays WAL entries from fromVersion (exclusive) to toVersion (inclusive).
+// If toVersion is -1, replays to the end of WAL.
+// This is the single consolidated function for all WAL replay operations.
+func replayWAL(
+	logger logger.Logger,
+	changelogPath string,
+	fromVersion int64,
+	toVersion int64, // -1 means replay to end of WAL
+	handler WALEntryHandler,
+) error {
+	streamHandler, err := wal.NewChangelogWAL(logger, changelogPath, wal.Config{})
+	if err != nil {
+		return nil // No WAL to recover from
+	}
+	defer func() { _ = streamHandler.Close() }()
+
+	firstOffset, err := streamHandler.FirstOffset()
+	if err != nil || firstOffset <= 0 {
+		return nil // Empty or invalid WAL
+	}
+
+	lastOffset, err := streamHandler.LastOffset()
+	if err != nil || lastOffset <= 0 {
+		return nil // Empty or invalid WAL
+	}
+
+	// Check if there's anything to replay
+	lastEntry, err := streamHandler.ReadAt(lastOffset)
+	if err != nil {
+		return fmt.Errorf("failed to read last WAL entry: %w", err)
+	}
+
+	// Determine effective end version
+	endVersion := toVersion
+	if endVersion < 0 {
+		endVersion = lastEntry.Version
+	}
+
+	// Nothing to replay if WAL doesn't have entries beyond fromVersion
+	if lastEntry.Version <= fromVersion {
+		return nil
+	}
+
+	// Find starting offset
+	startOffset, err := findReplayStartOffset(streamHandler, firstOffset, lastOffset, fromVersion)
+	if err != nil {
+		return fmt.Errorf("failed to find replay start offset: %w", err)
+	}
+
+	if startOffset > lastOffset {
+		return nil // No entries to replay
+	}
+
+	logger.Info("Replaying WAL",
+		"fromVersion", fromVersion,
+		"toVersion", endVersion,
+		"startOffset", startOffset,
+		"endOffset", lastOffset,
+	)
+
+	return streamHandler.Replay(startOffset, lastOffset, func(index uint64, entry proto.ChangelogEntry) error {
+		// Stop if we've reached the end version
+		if toVersion >= 0 && entry.Version > toVersion {
+			return nil
+		}
+		return handler(entry)
+	})
+}
+
+func findReplayStartOffset(streamHandler wal.ChangelogWAL, firstOffset, lastOffset uint64, targetVersion int64) (uint64, error) {
+	for offset := firstOffset; offset <= lastOffset; offset++ {
+		entry, err := streamHandler.ReadAt(offset)
+		if err != nil {
+			return 0, err
+		}
+		if entry.Version > targetVersion {
+			return offset, nil
+		}
+	}
+	return lastOffset + 1, nil
+}
+
+func extractEVMChangesFromChangesets(changesets []*proto.NamedChangeSet) map[evm.EVMStoreType][]*iavl.KVPair {
+	evmChanges := make(map[evm.EVMStoreType][]*iavl.KVPair, evm.NumEVMStoreTypes)
+	for _, changeset := range changesets {
+		if changeset.Name != evm.EVMStoreKey {
+			continue
+		}
+		for _, kvPair := range changeset.Changeset.Pairs {
+			evmStoreType, strippedKey := commonevm.ParseEVMKey(kvPair.Key)
+			if evmStoreType != evm.StoreUnknown {
+				evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
+					Key:    strippedKey,
+					Value:  kvPair.Value,
+					Delete: kvPair.Delete,
+				})
+			}
+		}
+	}
+	return evmChanges
+}
