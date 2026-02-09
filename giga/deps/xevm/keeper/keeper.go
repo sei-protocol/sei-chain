@@ -144,6 +144,7 @@ func NewKeeper(
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*AddressNoncePair),
 		receiptStore:                 receiptStateStore,
+		UseRegularStore: true,
 	}
 	return k
 }

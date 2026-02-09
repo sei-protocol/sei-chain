@@ -41,6 +41,7 @@ func NewBaseViewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey, ak types.Ac
 		cdc:      cdc,
 		storeKey: storeKey,
 		ak:       ak,
+		UseRegularStore: true,
 	}
 }
 
