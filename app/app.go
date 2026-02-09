@@ -89,6 +89,7 @@ import (
 	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -173,6 +174,7 @@ import (
 	gigabankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	gigaevmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	gigaevmstate "github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
+	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types/ethtx"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -1830,6 +1832,53 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		}
 	}
 
+	// ============================================================================
+	// Fee validation (mirrors V2's ante handler checks in evm_checktx.go)
+	// These checks must happen BEFORE state changes (stateDB creation) so that
+	// failed transactions don't affect state (no nonce increment, no balance change).
+	// ============================================================================
+	baseFee := app.GigaEvmKeeper.GetBaseFee(ctx)
+
+	// 1. Fee cap < base fee check (INSUFFICIENT_MAX_FEE_PER_GAS)
+	// V2: evm_checktx.go line 284-286
+	if txData.GetGasFeeCap().Cmp(baseFee) < 0 {
+		return &abci.ExecTxResult{
+			Code: uint32(sdkerrors.ErrInsufficientFee.ABCICode()),
+			Log:  "max fee per gas less than block base fee",
+		}, nil
+	}
+
+	// 2. Tip > fee cap check (PRIORITY_GREATER_THAN_MAX_FEE_PER_GAS)
+	// This is checked in txData.Validate() for DynamicFeeTx, but we also check here
+	// to ensure consistent rejection before execution.
+	if txData.GetGasTipCap().Cmp(txData.GetGasFeeCap()) > 0 {
+		return &abci.ExecTxResult{
+			Code: 1,
+			Log:  "max priority fee per gas higher than max fee per gas",
+		}, nil
+	}
+
+	// 3. Gas limit * gas price overflow check (GASLIMIT_PRICE_PRODUCT_OVERFLOW)
+	// V2: Uses IsValidInt256(tx.Fee()) in dynamic_fee_tx.go Validate()
+	// Fee = GasFeeCap * GasLimit, must fit in 256 bits
+	if !ethtx.IsValidInt256(txData.Fee()) {
+		return &abci.ExecTxResult{
+			Code: 1,
+			Log:  "fee out of bound",
+		}, nil
+	}
+
+	// 4. TX gas limit > block gas limit check (GAS_ALLOWANCE_EXCEEDED)
+	// V2: x/evm/ante/basic.go lines 63-68
+	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
+		if cp.Block.MaxGas > 0 && ethTx.Gas() > uint64(cp.Block.MaxGas) { //nolint:gosec
+			return &abci.ExecTxResult{
+				Code: uint32(sdkerrors.ErrOutOfGas.ABCICode()),
+				Log:  fmt.Sprintf("tx gas limit %d exceeds block max gas %d", ethTx.Gas(), cp.Block.MaxGas),
+			}, nil
+		}
+	}
+
 	// Prepare context for EVM transaction (set infinite gas meter like original flow)
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 
@@ -1857,8 +1906,19 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	gigaExecutor := gigaexecutor.NewGethExecutor(*blockCtx, stateDB, cfg, vm.Config{}, gigaprecompiles.AllCustomPrecompilesFailFast)
 
 	// Execute the transaction through giga VM
+	// Note: Execute() internally calls BuyGas() which deducts fees from sender's balance
 	execResult, execErr := gigaExecutor.ExecuteTransaction(ethTx, sender, app.GigaEvmKeeper.GetBaseFee(ctx), &gp)
 	if execErr != nil {
+
+		// Execution failed (e.g., intrinsic gas error, floor data gas error)
+		// BuyGas() was already called inside Execute(), so fees were deducted.
+		// We need to:
+		// 1. Increment the nonce (Execute() didn't get far enough to do this)
+		// 2. Finalize to commit the fee deduction and nonce increment
+		// This matches V2 behavior where fees and nonce are always updated for
+		// transactions that pass ante checks, even if execution fails.
+		stateDB.SetNonce(sender, stateDB.GetNonce(sender)+1, tracing.NonceChangeEoACall)
+		stateDB.Finalize() // Commit fee deduction and nonce increment
 		return &abci.ExecTxResult{
 			Code: 1,
 			Log:  fmt.Sprintf("giga executor apply message error: %v", execErr),
