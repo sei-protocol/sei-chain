@@ -1519,19 +1519,13 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 		return
 	}
 
+	// Attempt to reconstruct block, in case more transactions have arrived to mempool.
+	cs.tryCreateProposalBlock(ctx)
+
 	if cs.roundState.ProposalBlock() == nil {
-		block, err := cs.getBlockFromBlockParts()
-		if err != nil {
-			cs.logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
-			cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
-			return
-		}
-		if block == nil {
-			logger.Error("prevote step: ProposalBlock is nil")
-			cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
-			return
-		}
-		cs.roundState.SetProposalBlock(block)
+		logger.Error("prevote step: ProposalBlock is nil")
+		cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
+		return
 	}
 
 	if !cs.roundState.Proposal().Timestamp.Equal(cs.roundState.ProposalBlock().Header.Time) {
@@ -2352,22 +2346,41 @@ func (cs *State) getBlockFromBlockParts() (*types.Block, error) {
 }
 
 func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
-	if !cs.config.GossipTransactionKeyOnly {
-		return false
-	}
-	if key, ok := cs.privValidatorPubKey.Get(); !ok || cs.isProposer(key.Address()) {
-		return false
-	}
 	if cs.roundState.ProposalBlock() != nil {
 		// Block already constructed.
 		return false
 	}
+	defer func() {
+		if cs.roundState.ProposalBlock() != nil {
+			// NOTE: it's possible to receive complete proposal blocks for future rounds without having the proposal
+			cs.metrics.MarkBlockGossipComplete()
+		}
+	}()
+
 	parts := cs.roundState.ProposalBlockParts()
 	if parts == nil {
 		return false
 	}
-	
-	// Block is constructed based on tx keys from the proposal. 
+	// If we just have all the parts, reconstruct the block.
+	if parts.IsComplete() {
+		block, err := cs.getBlockFromBlockParts()
+		if err != nil {
+			// This can happen if the BlockParts header is broken.
+			cs.logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
+			return false
+		}
+		cs.roundState.SetProposalBlock(block)
+		return true
+	}
+
+	// Attempt to reconstruct from the Proposal.TxKeys.
+	if !cs.config.GossipTransactionKeyOnly {
+		return false
+	}
+	// For some reason we only attempt that on non-proposing validators.
+	if key, ok := cs.privValidatorPubKey.Get(); !ok || cs.isProposer(key.Address()) {
+		return false
+	}
 	proposal := cs.roundState.Proposal()
 	if proposal == nil {
 		return false
@@ -2403,11 +2416,9 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 	if !parts.Header().Equals(newParts.Header()) {
 		return false
 	}
-	
+
 	cs.roundState.SetProposalBlockParts(newParts)
 	cs.roundState.SetProposalBlock(block)
-	// NOTE: it's possible to receive complete proposal blocks for future rounds without having the proposal
-	cs.metrics.MarkBlockGossipComplete()
 	return true
 }
 

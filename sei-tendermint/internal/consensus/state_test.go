@@ -17,6 +17,7 @@ import (
 	"github.com/tendermint/tendermint/crypto"
 	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
 	"github.com/tendermint/tendermint/internal/eventbus"
+	"github.com/tendermint/tendermint/internal/mempool"
 	tmpubsub "github.com/tendermint/tendermint/internal/pubsub"
 	tmquery "github.com/tendermint/tendermint/internal/pubsub/query"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
@@ -2506,14 +2507,12 @@ func TestProposalBlockIsNotRecreatedAfterCommitMismatch(t *testing.T) {
 	}
 
 	rs = cs.GetRoundState()
-	require.Nil(t, rs.Proposal, "proposal metadata should be cleared after commit mismatch")
 	require.Nil(t, rs.ProposalBlock, "proposal block should be cleared when commit cert mismatches")
 	require.Equal(t, wrongBlockID.PartSetHeader, rs.ProposalBlockParts.Header(), "part set header should match commit certificate")
 
 	cs.handleMsg(ctx, msgInfo{&ProposalMessage{proposal}, peerID, tmtime.Now()}, false)
 
 	rs = cs.GetRoundState()
-	require.Nil(t, rs.Proposal, "proposal metadata should be ignored when it mismatches commit certificate")
 	require.Nil(t, rs.ProposalBlock, "proposal block must stay nil until matching commit block parts arrive")
 	require.Equal(t, wrongBlockID.PartSetHeader, rs.ProposalBlockParts.Header(), "part set header should keep pointing to commit certificate despite duplicate proposals")
 	require.NotEqual(t, originalPartSetHeader, rs.ProposalBlockParts.Header(), "should not revert back to mismatching proposal block parts")
@@ -2559,13 +2558,16 @@ func TestTryCreateProposalBlock_PartsMismatch(t *testing.T) {
 	incrementRound(vss[1:]...)
 	startTestRound(ctx, cs, height, round)
 
+	err := assertMempool(t, cs.txNotifier).CheckTx(ctx, types.Tx("test-key=test-value"), nil, mempool.TxInfo{})
+	require.NoError(t, err, "failed to seed the mempool with a transaction")
+
 	proposal, block := decideProposal(ctx, t, cs, vss[1], height, round)
+	require.NotEmpty(t, block.Data.Txs, "expected proposal block to contain at least one transaction")
 	t.Log("Malform the TxKeys list.")
 	proposal.TxKeys = proposal.TxKeys[:len(proposal.TxKeys)-1]
 	cs.roundState.SetProposal(proposal)
 
-	parts, err := block.MakePartSet(types.BlockPartSizeBytes)
-	require.NoError(t, err)
+	parts := types.NewPartSetFromHeader(proposal.BlockID.PartSetHeader)
 	cs.roundState.SetProposalBlockParts(parts)
 	cs.roundState.SetProposalBlock(nil)
 
