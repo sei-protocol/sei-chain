@@ -23,5 +23,6 @@ func ToolCmd() *cobra.Command {
 	toolsCmd.AddCommand(hasher.GeneratePebbleHashCmd())
 	toolsCmd.AddCommand(lastresultshash.GetLastResultsHashCmd())
 	toolsCmd.AddCommand(apphash.GetAppHashCmd())
+	toolsCmd.AddCommand(apphash.DumpStoreCmd())
 	return toolsCmd
 }
