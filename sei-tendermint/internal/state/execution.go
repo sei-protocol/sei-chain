@@ -225,6 +225,54 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 				"lastBlockID", state.LastBlockID.String(),
 				"numTxs", len(block.Txs),
 			)
+
+			// Load and print all fields that went into our LastResultsHash calculation
+			if state.LastBlockHeight > 0 {
+				fbResp, loadErr := blockExec.store.LoadFinalizeBlockResponses(state.LastBlockHeight)
+				if loadErr != nil {
+					blockExec.logger.Error("Failed to load FinalizeBlockResponses for LastResultsHash debugging",
+						"height", state.LastBlockHeight,
+						"error", loadErr,
+					)
+				} else if fbResp != nil {
+					// Recompute the hash to verify and print all inputs
+					rs, marshalErr := abci.MarshalTxResults(fbResp.TxResults)
+					if marshalErr != nil {
+						blockExec.logger.Error("Failed to marshal TxResults for LastResultsHash debugging",
+							"error", marshalErr,
+						)
+					} else {
+						recomputedHash := merkle.HashFromByteSlices(rs)
+						blockExec.logger.Error("LastResultsHash computation details",
+							"sourceHeight", state.LastBlockHeight,
+							"txCount", len(fbResp.TxResults),
+							"recomputedHash", fmt.Sprintf("%X", recomputedHash),
+							"storedStateHash", fmt.Sprintf("%X", state.LastResultsHash),
+						)
+
+						// Print each tx result's deterministic fields
+						for i, txRes := range fbResp.TxResults {
+							dataHex := ""
+							if txRes.Data != nil {
+								dataHex = fmt.Sprintf("%X", txRes.Data)
+							}
+							blockExec.logger.Error("LastResultsHash TxResult",
+								"sourceHeight", state.LastBlockHeight,
+								"txIndex", i,
+								"code", txRes.Code,
+								"dataLen", len(txRes.Data),
+								"dataHex", dataHex,
+								"gasWanted", txRes.GasWanted,
+								"gasUsed", txRes.GasUsed,
+							)
+						}
+					}
+				} else {
+					blockExec.logger.Error("FinalizeBlockResponses is nil for LastResultsHash debugging",
+						"height", state.LastBlockHeight,
+					)
+				}
+			}
 		}
 		return fmt.Errorf("validateBlock(): %w", err)
 	}
