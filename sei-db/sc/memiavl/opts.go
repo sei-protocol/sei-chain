@@ -48,6 +48,10 @@ type Options struct {
 	// Minimum time interval between snapshots
 	// This prevents excessive snapshot creation during catch-up. Default is 1 hour.
 	SnapshotMinTimeInterval time.Duration
+
+	// SnapshotWriteRateMBps is the global snapshot write rate limit in MB/s.
+	// 0 = unlimited. Default 100.
+	SnapshotWriteRateMBps int
 }
 
 func (opts Options) Validate() error {
@@ -73,6 +77,10 @@ func (opts *Options) FillDefaults() {
 
 	if opts.SnapshotMinTimeInterval <= 0 {
 		opts.SnapshotMinTimeInterval = 1 * time.Hour
+	}
+
+	if opts.SnapshotWriteRateMBps <= 0 {
+		opts.SnapshotWriteRateMBps = config.DefaultSnapshotWriteRateMBps
 	}
 
 	opts.PrefetchThreshold = 0.8
