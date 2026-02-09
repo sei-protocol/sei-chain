@@ -385,22 +385,19 @@ func (store *VersionIndexedStore) WriteEstimatesToMultiVersionStore() {
 }
 
 func (store *VersionIndexedStore) UpdateReadSet(key []byte, value []byte) {
-	// TODO: make readset a list of byte slices, and store the value if it's a new value
-	// add to readset
 	keyStr := string(key)
-	// TODO: maybe only add if not already existing?
-	if _, ok := store.readset[keyStr]; !ok {
-		// if the entry doesnt exist, make a new empty slice
-		store.readset[keyStr] = [][]byte{}
+	existing, ok := store.readset[keyStr]
+	if !ok {
+		// fast path: new key, store value directly (avoids empty slice + append)
+		store.readset[keyStr] = [][]byte{value}
+		return
 	}
-	for _, readsetVal := range store.readset[keyStr] {
+	for _, readsetVal := range existing {
 		if bytes.Equal(value, readsetVal) {
-			// this means we have already added this value to our readset, so we continue
 			return
 		}
 	}
-	// if we get here, that means we have a new readset val, so we append it to the slice
-	store.readset[keyStr] = append(store.readset[keyStr], value)
+	store.readset[keyStr] = append(existing, value)
 }
 
 // Write implements types.CacheWrap so this store can exist on the cache multi store
