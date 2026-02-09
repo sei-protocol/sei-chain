@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding"
 	"errors"
+	"sync/atomic"
 	"time"
 )
 
@@ -31,6 +32,14 @@ func WithDeadline(ctx context.Context, md Option[time.Time], f func(ctx context.
 func WithTimeout(ctx context.Context, d time.Duration, f func(ctx context.Context) error) error {
 	ctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
+	return f(ctx)
+}
+
+// WithTimeout executes a function with a timeout.
+func WithOptTimeout(ctx context.Context, d Option[time.Duration], f func(ctx context.Context) error) error {
+	if d, ok := d.Get(); ok {
+		return WithTimeout(ctx, d, f)
+	}
 	return f(ctx)
 }
 
@@ -128,4 +137,28 @@ func (d Duration) Duration() time.Duration {
 // Seconds returns the underlying time.Duration value in seconds.
 func (d Duration) Seconds() float64 {
 	return time.Duration(d).Seconds()
+}
+
+// Once is an idempotent signal.
+type Once struct {
+	_    NoCopy
+	ch   chan struct{}
+	done atomic.Bool
+}
+
+func NewOnce() (o Once) {
+	o.ch = make(chan struct{})
+	return
+}
+
+func (o *Once) Send() {
+	if o.done.Swap(true) {
+		return
+	}
+	close(o.ch)
+}
+
+func (o *Once) Recv(ctx context.Context) error {
+	_, _, err := RecvOrClosed(ctx, o.ch)
+	return err
 }

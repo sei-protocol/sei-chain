@@ -28,15 +28,9 @@ func BenchmarkReceiptWriteAsync(b *testing.B) {
 				benchmarkPebbleWriteAsync(b, receiptsPerBlock, blocks)
 			})
 			b.Run("parquet-async", func(b *testing.B) {
-				if !ParquetEnabled() {
-					b.Skip("duckdb disabled; build with -tags duckdb to run parquet benchmarks")
-				}
 				benchmarkParquetWriteAsync(b, receiptsPerBlock, blocks)
 			})
 			b.Run("parquet-no-wal", func(b *testing.B) {
-				if !ParquetEnabled() {
-					b.Skip("duckdb disabled; build with -tags duckdb to run parquet benchmarks")
-				}
 				benchmarkParquetWriteNoWAL(b, receiptsPerBlock, blocks)
 			})
 		})

@@ -369,10 +369,15 @@ func (app *Application) ProcessProposal(_ context.Context, req *abci.RequestProc
 	return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil
 }
 
+func (app *Application) CanRollback() bool {
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	return app.state.CanRollback()
+}
+
 func (app *Application) Rollback() error {
 	app.mu.Lock()
 	defer app.mu.Unlock()
-
 	return app.state.Rollback()
 }
 

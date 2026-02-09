@@ -166,6 +166,12 @@ func (s *State) Commit() (uint64, error) {
 	return s.Height, nil
 }
 
+// Checks if rollback will succeed.
+func (s *State) CanRollback() bool {
+	_, err := os.Stat(s.previousFile)
+	return err == nil
+}
+
 func (s *State) Rollback() error {
 	bz, err := os.ReadFile(s.previousFile)
 	if err != nil {

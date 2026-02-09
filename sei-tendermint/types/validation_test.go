@@ -159,6 +159,30 @@ func TestValidatorSet_VerifyCommit_All(t *testing.T) {
 	}
 }
 
+func TestValidatorSet_VerifyCommit_CheckValidatorAddresses(t *testing.T) {
+	const chainID = "test_chain_id"
+	const height = int64(5)
+	blockID := makeBlockIDRandom()
+	ctx := t.Context()
+
+	voteSet, valSet, vals := randVoteSet(ctx, t, height, 0, tmproto.PrecommitType, 3, 10)
+	commit := utils.OrPanic1(MakeCommit(ctx, blockID, height, 0, voteSet, vals, time.Now()))
+	// Set mismatching validator address on some signature.
+	otherVal, _, err := randValidator(ctx, false, 123)
+	require.NoError(t, err)
+	commit.Signatures[1].ValidatorAddress = otherVal.Address
+	// Check that this is detected.
+	ignore := func(c CommitSig) bool { return c.BlockIDFlag == BlockIDFlagAbsent }
+	count := func(c CommitSig) bool { return c.BlockIDFlag == BlockIDFlagCommit }
+	powerNeeded := valSet.TotalVotingPower() - 1
+	for _, countAllSigs := range []bool{true, false} {
+		for _, lookupByIndex := range []bool{true, false} {
+			require.Error(t, verifyCommitSingle(chainID, valSet, commit, powerNeeded, ignore, count, countAllSigs, lookupByIndex))
+			require.Error(t, verifyCommitBatch(chainID, valSet, commit, powerNeeded, ignore, count, countAllSigs, lookupByIndex))
+		}
+	}
+}
+
 func TestValidatorSet_VerifyCommit_CheckAllSignatures(t *testing.T) {
 	var (
 		chainID = "test_chain_id"

@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package mux;
+
+option go_package = "github.com/tendermint/tendermint/internal/p2p/mux/pb";
+
+message StreamKindConfig {
+  uint64 kind = 1;
+  uint64 max_connects = 2;
+  uint64 max_accepts = 3;
+}
+
+message Handshake {
+  repeated StreamKindConfig kinds = 1;
+}
+
+// Flat small message, representing a unit of multiplexer information.
+// The frames for the same id can be sent merged,
+// since they have disjoint field sets.
+//
+// OPEN = id,kind,max_msg_size
+// RESIZE = id,window_end
+// MSG = id,payload_size,[msg_end]
+// CLOSE = id,close
+message Header {
+  // TOTAL: 59B
+  uint64 id = 1; // 11B
+  optional uint64 kind = 2; //11B
+  optional uint64 max_msg_size = 3; // 11B
+  optional uint64 window_end = 4; // 11B
+  optional uint64 payload_size = 5; // 11B
+  optional bool msg_end = 6; // 2B
+  optional bool close = 7; // 2B
+}

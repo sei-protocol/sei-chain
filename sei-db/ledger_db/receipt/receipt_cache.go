@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/eth/filters"
 
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -213,4 +214,69 @@ func (c *ledgerCache) AddLogsForBlock(blockNumber uint64, logs []*ethtypes.Log) 
 		c.logChunks[slot].Store(chunk)
 	}
 	chunk.logs[blockNumber] = logsCopy
+}
+
+// FilterLogs returns cached logs matching the filter criteria.
+func (c *ledgerCache) FilterLogs(fromBlock, toBlock uint64, crit filters.FilterCriteria) []*ethtypes.Log {
+	c.logMu.RLock()
+	defer c.logMu.RUnlock()
+
+	var result []*ethtypes.Log
+	for i := 0; i < numCacheChunks; i++ {
+		chunk := c.logChunks[i].Load()
+		if chunk == nil {
+			continue
+		}
+		for blockNum, logs := range chunk.logs {
+			if blockNum < fromBlock || blockNum > toBlock {
+				continue
+			}
+			for _, lg := range logs {
+				if matchLog(lg, crit) {
+					logCopy := *lg
+					result = append(result, &logCopy)
+				}
+			}
+		}
+	}
+	return result
+}
+
+// matchLog checks if a log matches the filter criteria.
+func matchLog(lg *ethtypes.Log, crit filters.FilterCriteria) bool {
+	// Check address filter
+	if len(crit.Addresses) > 0 {
+		found := false
+		for _, addr := range crit.Addresses {
+			if lg.Address == addr {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	// Check topic filters
+	for i, topicList := range crit.Topics {
+		if len(topicList) == 0 {
+			continue
+		}
+		if i >= len(lg.Topics) {
+			return false
+		}
+		found := false
+		for _, topic := range topicList {
+			if lg.Topics[i] == topic {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	return true
 }

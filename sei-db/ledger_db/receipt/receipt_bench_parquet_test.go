@@ -1,15 +1,12 @@
-//go:build duckdb
-// +build duckdb
-
 package receipt
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
 )
 
 func benchmarkParquetWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) {
@@ -28,13 +25,17 @@ func benchmarkParquetWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) 
 	}
 	b.Cleanup(func() { _ = store.Close() })
 
-	ps, ok := store.(*parquetReceiptStore)
+	ps, ok := store.(*cachedReceiptStore)
 	if !ok {
-		b.Fatalf("expected parquet receipt store, got %T", store)
+		b.Fatalf("expected cached receipt store, got %T", store)
+	}
+	pqs, ok := ps.backend.(*parquetReceiptStore)
+	if !ok {
+		b.Fatalf("expected parquet receipt store backend, got %T", ps.backend)
 	}
 
 	// Use batched flush interval (every 25 blocks) instead of per-block
-	ps.config.BlockFlushInterval = 25
+	pqs.store.SetBlockFlushInterval(25)
 
 	var seed uint64
 	totalReceipts := receiptsPerBlock * blocks
@@ -50,12 +51,11 @@ func benchmarkParquetWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) 
 			records := makeDummyReceiptBatch(blockNumber, receiptsPerBlock, seed)
 			seed += uint64(receiptsPerBlock)
 			b.StartTimer()
-			if err := ps.SetReceipts(ctx.WithBlockHeight(int64(blockNumber)), records); err != nil {
+			if err := pqs.SetReceipts(ctx.WithBlockHeight(int64(blockNumber)), records); err != nil {
 				b.Fatalf("failed to write receipts: %v", err)
 			}
 		}
-		// Flush remaining data at end of iteration (ensures all blocks are written)
-		if err := flushParquetFiles(ps); err != nil {
+		if err := pqs.store.Flush(); err != nil {
 			b.Fatalf("failed to flush parquet files: %v", err)
 		}
 	}
@@ -65,7 +65,6 @@ func benchmarkParquetWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) 
 }
 
 // benchmarkParquetWriteNoWAL benchmarks parquet writes bypassing WAL entirely.
-// This shows the true parquet write performance without WAL overhead.
 func benchmarkParquetWriteNoWAL(b *testing.B, receiptsPerBlock int, blocks int) {
 	b.Helper()
 
@@ -82,13 +81,17 @@ func benchmarkParquetWriteNoWAL(b *testing.B, receiptsPerBlock int, blocks int) 
 	}
 	b.Cleanup(func() { _ = store.Close() })
 
-	ps, ok := store.(*parquetReceiptStore)
+	ps, ok := store.(*cachedReceiptStore)
 	if !ok {
-		b.Fatalf("expected parquet receipt store, got %T", store)
+		b.Fatalf("expected cached receipt store, got %T", store)
+	}
+	pqs, ok := ps.backend.(*parquetReceiptStore)
+	if !ok {
+		b.Fatalf("expected parquet receipt store backend, got %T", ps.backend)
 	}
 
 	// Disable intermediate flushes - only flush at end of iteration
-	ps.config.BlockFlushInterval = 10000
+	pqs.store.SetBlockFlushInterval(10000)
 
 	var seed uint64
 	totalReceipts := receiptsPerBlock * blocks
@@ -105,13 +108,11 @@ func benchmarkParquetWriteNoWAL(b *testing.B, receiptsPerBlock int, blocks int) 
 			seed += uint64(receiptsPerBlock)
 			b.StartTimer()
 
-			// Bypass WAL - directly write to parquet buffers
-			if err := writeParquetNoWAL(ps, blockNumber, records); err != nil {
+			if err := writeParquetNoWAL(pqs, blockNumber, records); err != nil {
 				b.Fatalf("failed to write receipts: %v", err)
 			}
 		}
-		// Flush remaining data at end of iteration
-		if err := flushParquetFiles(ps); err != nil {
+		if err := pqs.store.Flush(); err != nil {
 			b.Fatalf("failed to flush parquet files: %v", err)
 		}
 	}
@@ -124,9 +125,7 @@ func benchmarkParquetWriteNoWAL(b *testing.B, receiptsPerBlock int, blocks int) 
 func writeParquetNoWAL(ps *parquetReceiptStore, blockNumber uint64, records []ReceiptRecord) error {
 	blockHash := common.Hash{}
 
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-
+	inputs := make([]parquet.ReceiptInput, 0, len(records))
 	for _, record := range records {
 		if record.Receipt == nil {
 			continue
@@ -147,54 +146,17 @@ func writeParquetNoWAL(ps *parquetReceiptStore, blockNumber uint64, records []Re
 			lg.BlockHash = blockHash
 		}
 
-		input := parquetReceiptInput{
-			blockNumber: blockNumber,
-			receipt: receiptRecord{
-				TxHash:       copyBytes(record.TxHash[:]),
+		inputs = append(inputs, parquet.ReceiptInput{
+			BlockNumber: blockNumber,
+			Receipt: parquet.ReceiptRecord{
+				TxHash:       parquet.CopyBytes(record.TxHash[:]),
 				BlockNumber:  blockNumber,
-				ReceiptBytes: receiptBytes,
+				ReceiptBytes: parquet.CopyBytesOrEmpty(receiptBytes),
 			},
-			logs: buildLogRecords(txLogs, blockHash),
-		}
-
-		if err := ps.applyReceiptLocked(input); err != nil {
-			return err
-		}
+			Logs:         buildParquetLogRecords(txLogs, blockHash),
+			ReceiptBytes: parquet.CopyBytesOrEmpty(receiptBytes),
+		})
 	}
 
-	return nil
-}
-
-// flushParquetFiles flushes buffered data to parquet files (no fsync).
-func flushParquetFiles(ps *parquetReceiptStore) error {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-	return ps.flushLocked()
-}
-
-// syncParquetFiles ensures parquet data is durably written to disk.
-func syncParquetFiles(ps *parquetReceiptStore) error {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-
-	// Flush any buffered data first
-	if err := ps.flushLocked(); err != nil {
-		return err
-	}
-
-	// Sync receipt file
-	if ps.receiptFile != nil {
-		if err := ps.receiptFile.Sync(); err != nil {
-			return fmt.Errorf("failed to sync receipt file: %w", err)
-		}
-	}
-
-	// Sync log file
-	if ps.logFile != nil {
-		if err := ps.logFile.Sync(); err != nil {
-			return fmt.Errorf("failed to sync log file: %w", err)
-		}
-	}
-
-	return nil
+	return ps.store.WriteReceiptsDirect(inputs)
 }
