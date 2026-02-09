@@ -408,6 +408,27 @@ func (cms Store) Close() {
 	}
 }
 
+// Release returns all pooled child stores back to their sync.Pools.
+func (cms Store) Release() {
+	cms.mu.Lock()
+	for _, s := range cms.stores {
+		if ckv, ok := s.(*cachekv.Store); ok {
+			ckv.Release()
+		}
+	}
+	if cms.db != nil {
+		if ckv, ok := cms.db.(*cachekv.Store); ok {
+			ckv.Release()
+		}
+	}
+	for _, s := range cms.gigaStores {
+		if gkv, ok := s.(*gigacachekv.Store); ok {
+			gkv.Release()
+		}
+	}
+	cms.mu.Unlock()
+}
+
 func (cms Store) GetEarliestVersion() int64 {
 	panic("not implemented")
 }
