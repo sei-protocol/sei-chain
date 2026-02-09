@@ -2547,7 +2547,7 @@ func TestTryCreateProposalBlockSkipsOnPartSetHeaderMismatch(t *testing.T) {
 	require.Nil(t, cs.roundState.ProposalBlock(), "proposal block should remain nil when header mismatches")
 }
 
-func TestTryCreateProposalBlockSkipsOnHashMismatch(t *testing.T) {
+func TestTryCreateProposalBlock_PartsMismatch(t *testing.T) {
 	config := configSetup(t)
 	ctx := t.Context()
 
@@ -2560,6 +2560,8 @@ func TestTryCreateProposalBlockSkipsOnHashMismatch(t *testing.T) {
 	startTestRound(ctx, cs, height, round)
 
 	proposal, block := decideProposal(ctx, t, cs, vss[1], height, round)
+	t.Log("Malform the TxKeys list.")
+	proposal.TxKeys = proposal.TxKeys[:len(proposal.TxKeys)-1]
 	cs.roundState.SetProposal(proposal)
 
 	parts, err := block.MakePartSet(types.BlockPartSizeBytes)
@@ -2570,7 +2572,7 @@ func TestTryCreateProposalBlockSkipsOnHashMismatch(t *testing.T) {
 	proposal.BlockID.Hash = tmrand.Bytes(crypto.HashSize)
 
 	created := cs.tryCreateProposalBlock(ctx)
-	require.False(t, created, "tryCreateProposalBlock should fail when rebuilt block hash mismatches proposal hash")
+	require.False(t, created, "tryCreateProposalBlock should fail when rebuilt block hash mismatches the block parts")
 	require.Nil(t, cs.roundState.ProposalBlock(), "proposal block should remain nil when hash mismatches")
 }
 
