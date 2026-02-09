@@ -40,6 +40,8 @@ const (
 	FlagEVMSSEnable     = "state-store.evm-ss-enable"
 	FlagEVMSSDirectory  = "state-store.evm-ss-db-directory"
 	FlagEVMSSKeepRecent = "state-store.evm-ss-keep-recent"
+	FlagEVMSSWriteMode  = "state-store.evm-ss-write-mode"
+	FlagEVMSSReadMode   = "state-store.evm-ss-read-mode"
 
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
@@ -131,6 +133,20 @@ func parseEVMSSConfigs(appOpts servertypes.AppOptions) *config.EVMStateStoreConf
 	}
 	evmSSConfig.DBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))
 	evmSSConfig.KeepRecent = cast.ToInt(appOpts.Get(FlagEVMSSKeepRecent))
+	if wm := cast.ToString(appOpts.Get(FlagEVMSSWriteMode)); wm != "" {
+		parsedWM, err := config.ParseWriteMode(wm)
+		if err != nil {
+			panic(fmt.Sprintf("invalid EVM SS write mode %q: %s", wm, err))
+		}
+		evmSSConfig.WriteMode = parsedWM
+	}
+	if rm := cast.ToString(appOpts.Get(FlagEVMSSReadMode)); rm != "" {
+		parsedRM, err := config.ParseReadMode(rm)
+		if err != nil {
+			panic(fmt.Sprintf("invalid EVM SS read mode %q: %s", rm, err))
+		}
+		evmSSConfig.ReadMode = parsedRM
+	}
 	return &evmSSConfig
 }
 

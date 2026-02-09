@@ -163,7 +163,11 @@ func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([
 		if val != nil {
 			return val, nil
 		}
-		// Fall through to Cosmos_SS if not found in EVM_SS
+		// SplitRead: EVM keys come exclusively from EVM_SS, no Cosmos fallback
+		if s.evmConfig.ReadMode == config.SplitRead {
+			return nil, nil
+		}
+		// EVMFirstRead: fall through to Cosmos_SS if not found in EVM_SS
 	}
 
 	// Fallback to Cosmos store
@@ -181,7 +185,11 @@ func (s *CompositeStateStore) Has(storeKey string, version int64, key []byte) (b
 		if has {
 			return true, nil
 		}
-		// Fall through to check Cosmos_SS
+		// SplitRead: EVM keys come exclusively from EVM_SS, no Cosmos fallback
+		if s.evmConfig.ReadMode == config.SplitRead {
+			return false, nil
+		}
+		// EVMFirstRead: fall through to check Cosmos_SS
 	}
 
 	// Fallback to Cosmos store
@@ -248,12 +256,14 @@ func (s *CompositeStateStore) Close() error {
 // Write path methods - dual-write to both Cosmos_SS and EVM_SS
 // =============================================================================
 
-// SetLatestVersion sets the latest version on both stores
+// SetLatestVersion sets the latest version on both stores.
+// Only advances EVM version when EVM writes are active (not CosmosOnlyWrite),
+// so that WAL catch-up can later backfill the EVM store if the operator switches modes.
 func (s *CompositeStateStore) SetLatestVersion(version int64) error {
 	if err := s.cosmosStore.SetLatestVersion(version); err != nil {
 		return err
 	}
-	if s.evmStore != nil {
+	if s.evmStore != nil && s.evmConfig.WriteMode != config.CosmosOnlyWrite {
 		if err := s.evmStore.SetLatestVersion(version); err != nil {
 			s.logger.Error("failed to set EVM store latest version", "error", err)
 			// Non-fatal: EVM store is optimization layer
@@ -276,7 +286,10 @@ func (s *CompositeStateStore) SetEarliestVersion(version int64, ignoreVersion bo
 }
 
 // ApplyChangesetSync applies changeset synchronously to both stores in parallel.
-// If either fails, returns error - caller should retry (writes are idempotent).
+// Write routing by WriteMode:
+//   - CosmosOnlyWrite: all data to Cosmos only
+//   - DualWrite: full changeset to Cosmos + EVM data to EVM
+//   - SplitWrite: non-EVM data to Cosmos, EVM data to EVM only
 func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {
 	// Fast path: if no EVM store or cosmos-only write mode, just apply to Cosmos
 	if s.evmStore == nil || s.evmConfig.WriteMode == config.CosmosOnlyWrite {
@@ -286,6 +299,13 @@ func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*pr
 	// Extract EVM changes
 	evmChanges := s.extractEVMChanges(changesets)
 
+	// SplitWrite: strip EVM data from Cosmos changeset
+	// DualWrite: send full changeset to both stores
+	cosmosChangesets := changesets
+	if s.evmConfig.WriteMode == config.SplitWrite {
+		cosmosChangesets = stripEVMFromChangesets(changesets)
+	}
+
 	// Write to both stores in parallel - both must succeed
 	// If either fails, return error. Caller can retry safely (idempotent writes).
 	var wg sync.WaitGroup
@@ -294,7 +314,7 @@ func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*pr
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		cosmosErr = s.cosmosStore.ApplyChangesetSync(version, changesets)
+		cosmosErr = s.cosmosStore.ApplyChangesetSync(version, cosmosChangesets)
 	}()
 
 	if len(evmChanges) > 0 {
@@ -318,7 +338,7 @@ func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*pr
 }
 
 // ApplyChangesetAsync applies changeset asynchronously to both stores in parallel.
-// If either fails, returns error - caller should retry (writes are idempotent).
+// Write routing follows the same rules as ApplyChangesetSync (see WriteMode docs).
 func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
 	// Fast path: if no EVM store or cosmos-only write mode, just apply to Cosmos
 	if s.evmStore == nil || s.evmConfig.WriteMode == config.CosmosOnlyWrite {
@@ -328,6 +348,12 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 	// Extract EVM changes
 	evmChanges := s.extractEVMChanges(changesets)
 
+	// SplitWrite: strip EVM data from Cosmos changeset
+	cosmosChangesets := changesets
+	if s.evmConfig.WriteMode == config.SplitWrite {
+		cosmosChangesets = stripEVMFromChangesets(changesets)
+	}
+
 	// Write to both stores in parallel
 	var wg sync.WaitGroup
 	var cosmosErr, evmErr error
@@ -335,7 +361,7 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		cosmosErr = s.cosmosStore.ApplyChangesetAsync(version, changesets)
+		cosmosErr = s.cosmosStore.ApplyChangesetAsync(version, cosmosChangesets)
 	}()
 
 	if len(evmChanges) > 0 {
@@ -380,11 +406,27 @@ func (s *CompositeStateStore) extractEVMChanges(changesets []*proto.NamedChangeS
 	return evmChanges
 }
 
-// Import imports initial state to both stores
+// stripEVMFromChangesets returns a new changeset slice with the EVM module's
+// changeset removed. Used in SplitWrite mode to keep EVM data out of Cosmos_SS.
+func stripEVMFromChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedChangeSet {
+	stripped := make([]*proto.NamedChangeSet, 0, len(changesets))
+	for _, cs := range changesets {
+		if cs.Name != evm.EVMStoreKey {
+			stripped = append(stripped, cs)
+		}
+	}
+	return stripped
+}
+
+// Import imports initial state to both stores.
+// Respects WriteMode: CosmosOnlyWrite sends all data to Cosmos only,
+// DualWrite fans out to both, SplitWrite routes EVM data exclusively to EVM.
 func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
-	if s.evmStore == nil {
+	if s.evmStore == nil || s.evmConfig.WriteMode == config.CosmosOnlyWrite {
 		return s.cosmosStore.Import(version, ch)
 	}
+
+	splitWrite := s.evmConfig.WriteMode == config.SplitWrite
 
 	// Fan out to both stores
 	cosmosCh := make(chan types.SnapshotNode, 100)
@@ -402,11 +444,15 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 
 	// Process incoming nodes
 	for node := range ch {
-		// Send to Cosmos
-		cosmosCh <- node
+		isEVM := node.StoreKey == evm.EVMStoreKey
+
+		// SplitWrite: skip EVM data for Cosmos; DualWrite: send everything
+		if !isEVM || !splitWrite {
+			cosmosCh <- node
+		}
 
 		// Route EVM keys
-		if node.StoreKey == evm.EVMStoreKey {
+		if isEVM {
 			evmStoreType, strippedKey := commonevm.ParseEVMKey(node.Key)
 			if evmStoreType != evm.StoreUnknown {
 				evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
@@ -429,11 +475,14 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 	return cosmosErr
 }
 
-// RawImport imports raw key-value entries to both stores
+// RawImport imports raw key-value entries to both stores.
+// Respects WriteMode (same routing as Import).
 func (s *CompositeStateStore) RawImport(ch <-chan types.RawSnapshotNode) error {
-	if s.evmStore == nil {
+	if s.evmStore == nil || s.evmConfig.WriteMode == config.CosmosOnlyWrite {
 		return s.cosmosStore.RawImport(ch)
 	}
+
+	splitWrite := s.evmConfig.WriteMode == config.SplitWrite
 
 	// Fan out to both stores
 	cosmosCh := make(chan types.RawSnapshotNode, 100)
@@ -451,11 +500,15 @@ func (s *CompositeStateStore) RawImport(ch <-chan types.RawSnapshotNode) error {
 
 	// Process incoming nodes
 	for node := range ch {
-		// Send to Cosmos
-		cosmosCh <- node
+		isEVM := node.StoreKey == evm.EVMStoreKey
+
+		// SplitWrite: skip EVM data for Cosmos; DualWrite: send everything
+		if !isEVM || !splitWrite {
+			cosmosCh <- node
+		}
 
 		// Route EVM keys
-		if node.StoreKey == evm.EVMStoreKey {
+		if isEVM {
 			evmStoreType, strippedKey := commonevm.ParseEVMKey(node.Key)
 			if evmStoreType != evm.StoreUnknown {
 				if evmChangesByVersion[node.Version] == nil {
