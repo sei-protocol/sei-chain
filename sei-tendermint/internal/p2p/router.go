@@ -14,7 +14,6 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/im"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/types"
@@ -187,7 +186,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			r.metrics.NewConnections.With("direction", "in").Add(1)
+			r.metrics.NewConnections.With("direction", "in", "success", "true").Add(1)
 			// Spawn a goroutine per connection.
 			s.Spawn(func() error {
 				release := sync.OnceFunc(func() { sem.Release(1) })
@@ -209,12 +208,12 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					return nil
 				}
 				if err := r.options.filterPeerByID(ctx, conn.PeerInfo().ID()); err != nil {
-					r.logger.Error("peer filtered by IP", "ip", remoteAddr, "err", err)
+					r.logger.Error("peer filtered by NodeID", "node", conn.PeerInfo().ID(), "err", err)
 					return nil
 				}
 				release()
 				err = r.runConn(ctx, conn)
-				r.logger.Error("r.runConn(inbound)", "err", err)
+				r.logger.Error("r.runConn(inbound)", "node", conn.PeerInfo().ID(), "err", err)
 				return nil
 			})
 		}
@@ -239,19 +238,18 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 						tcpConn, err := r.dial(ctx, addr)
 						if err != nil {
 							r.peerManager.DialFailed(addr)
-							r.logger.Error("r.dial()", "addr", addr, "err", err)
+							r.logger.Error("r.dial()", "addr", addr.String(), "err", err)
 							return nil
 						}
 						defer tcpConn.Close()
-						r.metrics.NewConnections.With("direction", "out").Add(1)
 						conn, err := r.handshake(ctx, tcpConn, utils.Some(addr))
 						if err != nil {
 							r.peerManager.DialFailed(addr)
-							r.logger.Error("r.handshake()", "addr", addr, "err", err)
+							r.logger.Error("r.handshake()", "addr", addr.String(), "err", err)
 							return nil
 						}
 						err = r.runConn(ctx, conn)
-						r.logger.Error("r.runConn(outbound)", "err", err)
+						r.logger.Error("r.runConn(outbound)", "addr", addr.String(), "err", err)
 						return nil
 					})
 				}
@@ -284,11 +282,13 @@ func (r *Router) storePeersRoutine(ctx context.Context) error {
 }
 
 func (r *Router) metricsRoutine(ctx context.Context) error {
-	_, err := r.peerManager.conns.Wait(ctx, func(conns im.Map[types.NodeID, *Connection]) bool {
+	for {
+		if err := utils.Sleep(ctx, 10*time.Second); err != nil {
+			return err
+		}
 		r.metrics.Peers.Set(float64(r.peerManager.Conns().Len()))
-		return false
-	})
-	return err
+		r.peerManager.LogState(r.logger)
+	}
 }
 
 // Evict reports a peer misbehavior and forces peer to be disconnected.
@@ -302,7 +302,14 @@ func (r *Router) IsBlockSyncPeer(id types.NodeID) bool {
 }
 
 // dialPeer connects to a peer by dialing it.
-func (r *Router) dial(ctx context.Context, addr NodeAddress) (*net.TCPConn, error) {
+func (r *Router) dial(ctx context.Context, addr NodeAddress) (_ *net.TCPConn, err error) {
+	defer func() {
+		success := "true"
+		if err != nil {
+			success = "false"
+		}
+		r.metrics.NewConnections.With("direction", "out", "success", success).Add(1)
+	}()
 	resolveCtx := ctx
 	if d, ok := r.options.ResolveTimeout.Get(); ok {
 		var cancel context.CancelFunc
@@ -335,7 +342,6 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (*net.TCPConn, erro
 			r.logger.Debug("failed to dial endpoint", "peer", addr.NodeID, "endpoint", endpoint, "err", err)
 			continue
 		}
-		r.metrics.NewConnections.With("direction", "out").Add(1)
 		r.logger.Debug("dialed peer", "peer", addr.NodeID, "endpoint", endpoint)
 		return tcpConn.(*net.TCPConn), nil
 	}
