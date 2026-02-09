@@ -23,17 +23,18 @@ func (i *inner) View() types.View {
 }
 
 func (s *State) pushCommitQC(qc *types.CommitQC) error {
-	if i := s.innerRecv.Load(); i.viewSpec.View().Index > qc.Proposal().Index() {
+	if i := s.innerRecv.Load(); qc.Proposal().Index() < i.viewSpec.View().Index {
 		return nil
 	}
 	if err := qc.Verify(s.Data().Committee()); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
-	for i := range s.inner.Lock() {
-		if qc.Proposal().Index() < types.NextIndexOpt(i.Load().viewSpec.CommitQC) {
+	for iSend := range s.inner.Lock() {
+		i := iSend.Load()
+		if qc.Proposal().Index() < i.viewSpec.View().Index {
 			return nil
 		}
-		i.Store(inner{
+		iSend.Store(inner{
 			viewSpec: types.ViewSpec{
 				CommitQC:  utils.Some(qc),
 				TimeoutQC: utils.None[*types.TimeoutQC](),
