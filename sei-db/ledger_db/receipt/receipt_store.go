@@ -48,7 +48,7 @@ type ReceiptStore interface {
 type ReceiptRecord struct {
 	TxHash       common.Hash
 	Receipt      *types.Receipt
-	ReceiptBytes []byte // optional pre-marshaled bytes; skips Marshal() when set
+	ReceiptBytes []byte // Optional pre-marshaled receipt (must match Receipt if set)
 }
 
 type receiptStore struct {
@@ -189,9 +189,13 @@ func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) er
 		if record.Receipt == nil {
 			continue
 		}
-		marshalledReceipt, err := record.Receipt.Marshal()
-		if err != nil {
-			return err
+		marshalledReceipt := record.ReceiptBytes
+		if len(marshalledReceipt) == 0 {
+			var err error
+			marshalledReceipt, err = record.Receipt.Marshal()
+			if err != nil {
+				return err
+			}
 		}
 		kvPair := &iavl.KVPair{
 			Key:   types.ReceiptKey(record.TxHash),

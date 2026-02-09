@@ -537,6 +537,50 @@ func Uint32FromUint(value uint) uint32 {
 	return uint32(value)
 }
 
+// SetBlockFlushInterval sets the block flush interval.
+func (s *Store) SetBlockFlushInterval(n uint64) {
+	s.config.BlockFlushInterval = n
+}
+
+// Flush flushes buffered data to parquet writers.
+func (s *Store) Flush() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.flushLocked()
+}
+
+// WriteReceiptsDirect writes receipts directly to parquet buffers, bypassing WAL.
+func (s *Store) WriteReceiptsDirect(inputs []ReceiptInput) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range inputs {
+		if err := s.applyReceiptLocked(inputs[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SyncFiles syncs parquet data files to disk.
+func (s *Store) SyncFiles() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.flushLocked(); err != nil {
+		return err
+	}
+	if s.receiptFile != nil {
+		if err := s.receiptFile.Sync(); err != nil {
+			return fmt.Errorf("failed to sync receipt file: %w", err)
+		}
+	}
+	if s.logFile != nil {
+		if err := s.logFile.Sync(); err != nil {
+			return fmt.Errorf("failed to sync log file: %w", err)
+		}
+	}
+	return nil
+}
+
 // CopyBytes creates a copy of a byte slice.
 func CopyBytes(src []byte) []byte {
 	if len(src) == 0 {
