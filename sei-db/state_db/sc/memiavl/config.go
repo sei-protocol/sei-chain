@@ -6,7 +6,8 @@ const (
 	DefaultSnapshotMinTimeInterval   = 60 * 60 // 1 hour in seconds
 	DefaultAsyncCommitBuffer         = 100
 	DefaultSnapshotPrefetchThreshold = 0.8 // prefetch if <80% pages in cache
-	DefaultSnapshotWriteRateMBps     = 100
+	DefaultSnapshotWriteRateMBps     = 100 // 100 MB/s default
+	DefaultSnapshotWriterLimit       = 4   // controls tree concurrency but not I/O rate (use SnapshotWriteRateMBps for that)
 )
 
 type Config struct {
@@ -37,8 +38,7 @@ type Config struct {
 	// Setting to 0 disables prefetching. Defaults to 0.8
 	SnapshotPrefetchThreshold float64 `mapstructure:"snapshot-prefetch-threshold"`
 
-	// SnapshotWriteRateMBps is the global snapshot write rate limit in MB/s.
-	// 0 = unlimited. Default 100.
+	// SnapshotWriteRateMBps is the global snapshot write rate limit in MB/s. 0 = unlimited. Default 100.
 	SnapshotWriteRateMBps int `mapstructure:"snapshot-write-rate-mbps"`
 }
 
@@ -50,5 +50,6 @@ func DefaultConfig() Config {
 		SnapshotMinTimeInterval:   DefaultSnapshotMinTimeInterval,
 		SnapshotPrefetchThreshold: DefaultSnapshotPrefetchThreshold,
 		SnapshotWriteRateMBps:     DefaultSnapshotWriteRateMBps,
+		SnapshotWriterLimit:       DefaultSnapshotWriterLimit,
 	}
 }

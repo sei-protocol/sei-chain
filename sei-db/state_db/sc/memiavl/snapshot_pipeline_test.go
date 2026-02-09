@@ -408,7 +408,7 @@ func TestRateLimitedWriterNilLimiterPassthrough(t *testing.T) {
 
 // TestDefaultConfigSnapshotWriteRateMBps verifies the default config value.
 func TestDefaultConfigSnapshotWriteRateMBps(t *testing.T) {
-	opts := Options{}
-	opts.FillDefaults()
-	require.Equal(t, 100, opts.SnapshotWriteRateMBps, "default rate should be 100 MB/s")
+	cfg := DefaultConfig()
+	require.Equal(t, 100, cfg.SnapshotWriteRateMBps, "default rate should be 100 MB/s")
+	require.Equal(t, 4, cfg.SnapshotWriterLimit, "default writer limit should be 4")
 }

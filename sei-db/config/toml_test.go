@@ -45,8 +45,12 @@ func TestStateCommitConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "sc-keep-recent =", "Missing sc-keep-recent")
 	require.Contains(t, output, "sc-snapshot-interval =", "Missing sc-snapshot-interval")
 	require.Contains(t, output, "sc-snapshot-min-time-interval =", "Missing sc-snapshot-min-time-interval")
-	require.Contains(t, output, "sc-snapshot-writer-limit =", "Missing sc-snapshot-writer-limit")
 	require.Contains(t, output, "sc-snapshot-prefetch-threshold =", "Missing sc-snapshot-prefetch-threshold")
+	require.Contains(t, output, "sc-snapshot-write-rate-mbps =", "Missing sc-snapshot-write-rate-mbps")
+
+	// sc-snapshot-writer-limit is intentionally removed from template (hardcoded to 4)
+	// but old configs with this field still parse fine via mapstructure
+	require.NotContains(t, output, "sc-snapshot-writer-limit", "sc-snapshot-writer-limit should not be in template")
 }
 
 // TestStateStoreConfigTemplate verifies that all field paths in the StateStore TOML template
