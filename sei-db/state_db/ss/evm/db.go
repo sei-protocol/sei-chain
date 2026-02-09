@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"sync/atomic"
 
-	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/v2"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
@@ -34,8 +34,21 @@ type EVMDatabase struct {
 // OpenDB opens a PebbleDB with default comparer for EVM data
 func OpenDB(dir string, storeType EVMStoreType) (*EVMDatabase, error) {
 	opts := &pebble.Options{
-		Comparer:                 pebble.DefaultComparer,
-		MaxConcurrentCompactions: func() int { return runtime.NumCPU() },
+		Comparer: pebble.DefaultComparer,
+		// CompactionConcurrencyRange configures the range of allowed concurrent
+		// compactions. The upper bound is capped at 3, leaving at least one CPU
+		// for foreground work (reads, writes, flushes). Beyond 3 concurrent
+		// compactions, gains are marginal as compactions tend to be I/O bound.
+		// Increasing it further needs evidence that higher compaction parallelism
+		// is indeed beneficial first.
+		//
+		// See:
+		//   - https://github.com/cockroachdb/cockroach/blob/52845e0da33b0ac987ec5517cc7b230563f255c1/pkg/storage/pebble.go#L1086
+		CompactionConcurrencyRange: func() (lower, upper int) {
+			const maxUpper = 3
+			cpus := runtime.NumCPU()
+			return 1, max(min(cpus-1, maxUpper), 1)
+		},
 	}
 
 	dbPath := filepath.Join(dir, StoreTypeName(storeType))

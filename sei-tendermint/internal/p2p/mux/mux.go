@@ -202,12 +202,19 @@ func (r *runner) runSend(ctx context.Context, conn conn.Conn) error {
 			if f.Header.GetMsgEnd() {
 				// Notify sender about local buffer capacity.
 				for inner := range r.inner.RLock() {
-					for sInner, ctrl := range inner.streams[id].inner.Lock() {
-						sInner.send.bufBegin += 1
-						ctrl.Updated()
+					if s, ok := inner.streams[id]; ok {
+						for sInner, ctrl := range s.inner.Lock() {
+							sInner.send.bufBegin += 1
+							ctrl.Updated()
+						}
 					}
 				}
 			}
+			// TODO(gprusak): this is counterintuitive asymmetric behavior:
+			// * tryPrune in runRecv follows immediately remote close
+			// * tryPrune in runSend happens with a delay (local close happens in Stream.close() call).
+			// As a result runRecv might still be sending frames on behalf of a pruned stream.
+			// Ownership of r.inner.streams should be clearer.
 			if f.Header.GetClose() {
 				r.tryPrune(id)
 			}
