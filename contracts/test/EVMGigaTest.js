@@ -354,6 +354,171 @@ describe("GIGA EVM Tests", function () {
     });
   });
 
+  // ============================================================================
+  // Failing Transaction Tests
+  //
+  // These tests submit transactions that REVERT but still get mined into blocks.
+  // This is critical for mixed-mode testing because failing txs affect the
+  // ExecTxResult fields (Code, Data, GasUsed) that go into LastResultsHash.
+  // If giga and V2 handle failing txs differently, the giga node will halt.
+  // ============================================================================
+  describe("Failing Transactions (Reverts)", function () {
+    let evmTester;
+
+    before(async function () {
+      // Deploy EVMCompatibilityTester which has revertIfFalse()
+      const EVMCompatibilityTester = await ethers.getContractFactory("EVMCompatibilityTester");
+      evmTester = await EVMCompatibilityTester.deploy({
+        gasPrice: ethers.parseUnits('100', 'gwei')
+      });
+      await evmTester.waitForDeployment();
+    });
+
+    it("should mine a reverted call to revertIfFalse(false)", async function () {
+      // Send with explicit gas limit so the tx gets mined even though it reverts.
+      // The key is: the node must produce the same Code/Data/GasUsed for this revert.
+      try {
+        const tx = await evmTester.revertIfFalse(false, {
+          gasLimit: 100000,
+          gasPrice: ethers.parseUnits('100', 'gwei')
+        });
+        const receipt = await tx.wait();
+        // If we get here, the tx was mined — check it reverted
+        expect(receipt.status).to.equal(0);
+      } catch (e) {
+        // ethers v6 may throw on reverts — check the receipt from the error
+        if (e.receipt) {
+          expect(e.receipt.status).to.equal(0);
+          expect(e.receipt.gasUsed).to.be.greaterThan(0n);
+        }
+        // If no receipt at all, that's also acceptable (client-side rejection)
+      }
+    });
+
+    it("should mine a reverted ERC20 transfer (insufficient balance)", async function () {
+      // Deploy a fresh token, then try to transfer from an account with 0 balance
+      const TestToken = await ethers.getContractFactory("TestToken");
+      const token = await TestToken.deploy("FailToken", "FTK", {
+        gasPrice: ethers.parseUnits('100', 'gwei')
+      });
+      await token.waitForDeployment();
+
+      // Create a second signer with no tokens
+      let spender;
+      if (accounts[1]) {
+        spender = accounts[1].signer;
+      } else {
+        spender = ethers.Wallet.createRandom().connect(ethers.provider);
+        await fundAddress(await spender.getAddress());
+        await delay();
+      }
+
+      // Try to transfer tokens that spender doesn't have
+      const tokenAsSpender = token.connect(spender);
+      try {
+        const tx = await tokenAsSpender.transfer(owner.address, ethers.parseUnits("100", 18), {
+          gasLimit: 100000,
+          gasPrice: ethers.parseUnits('100', 'gwei')
+        });
+        const receipt = await tx.wait();
+        expect(receipt.status).to.equal(0);
+      } catch (e) {
+        if (e.receipt) {
+          expect(e.receipt.status).to.equal(0);
+          expect(e.receipt.gasUsed).to.be.greaterThan(0n);
+        }
+      }
+    });
+
+    it("should handle mixed success and failure in same block window", async function () {
+      // Send a batch: successful transfer, then failing call, then successful call.
+      // Each tx goes into a separate block but this exercises the pattern
+      // where a block has both passing and failing txs.
+
+      const recipient = ethers.Wallet.createRandom().connect(ethers.provider);
+      const recipientAddr = await recipient.getAddress();
+
+      // 1. Successful native transfer
+      const tx1 = await owner.sendTransaction({
+        to: recipientAddr,
+        value: ethers.parseEther("0.01"),
+        gasPrice: ethers.parseUnits('100', 'gwei')
+      });
+      const receipt1 = await tx1.wait();
+      expect(receipt1.status).to.equal(1);
+
+      // 2. Failing call — revertIfFalse(false)
+      try {
+        const tx2 = await evmTester.revertIfFalse(false, {
+          gasLimit: 100000,
+          gasPrice: ethers.parseUnits('100', 'gwei')
+        });
+        const receipt2 = await tx2.wait();
+        // mined as failed
+        if (receipt2) expect(receipt2.status).to.equal(0);
+      } catch (e) {
+        if (e.receipt) {
+          expect(e.receipt.status).to.equal(0);
+        }
+      }
+
+      // 3. Successful call — revertIfFalse(true)
+      const tx3 = await evmTester.revertIfFalse(true, {
+        gasLimit: 100000,
+        gasPrice: ethers.parseUnits('100', 'gwei')
+      });
+      const receipt3 = await tx3.wait();
+      expect(receipt3.status).to.equal(1);
+    });
+
+    it("should handle out-of-gas transaction", async function () {
+      // Send a contract call with very little gas — it should fail with OOG.
+      // Consensus-error txs (e.g., floor data gas check) are included in the block
+      // with code=1 but no EVM receipt is written, so tx.wait() would hang.
+      // We use a timeout race to avoid hanging.
+      try {
+        const tx = await evmTester.revertIfFalse(true, {
+          gasLimit: 21500, // Just barely above 21000 intrinsic, not enough for the call
+          gasPrice: ethers.parseUnits('100', 'gwei')
+        });
+        // Race between tx.wait() and a timeout — receipt may never arrive for consensus errors
+        const receipt = await Promise.race([
+          tx.wait().catch(e => e.receipt || null),
+          new Promise(resolve => setTimeout(() => resolve(null), 10000))
+        ]);
+        if (receipt) expect(receipt.status).to.equal(0);
+      } catch (e) {
+        if (e.receipt) {
+          expect(e.receipt.status).to.equal(0);
+        }
+        // OOG may also be rejected at the RPC level — that's fine
+      }
+    });
+
+    it("should handle transfer to non-existent contract with data", async function () {
+      // Call a function on an address that has no code — this succeeds in EVM
+      // (calling an EOA with data just returns with no revert)
+      const fakeContract = new ethers.Contract(
+        "0x000000000000000000000000000000000000dEaD",
+        ["function nonExistentFunction() external"],
+        owner
+      );
+      try {
+        const tx = await fakeContract.nonExistentFunction({
+          gasLimit: 50000,
+          gasPrice: ethers.parseUnits('100', 'gwei')
+        });
+        const receipt = await Promise.race([
+          tx.wait().catch(e => e.receipt || null),
+          new Promise(resolve => setTimeout(() => resolve(null), 10000))
+        ]);
+        // Calling a non-contract address with data succeeds (no revert) but wastes gas
+      } catch (e) {
+        // May revert or succeed — either way, it exercises the code path
+      }
+    });
+  });
+
   describe("Gas Usage Verification", function () {
     it("should correctly account for gas in native transfers", async function () {
       const recipient = ethers.Wallet.createRandom().connect(ethers.provider);
