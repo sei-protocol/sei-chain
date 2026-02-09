@@ -295,7 +295,7 @@ func (s *State) headers(ctx context.Context, lr *types.LaneRange) ([]*types.Bloc
 	for inner, ctrl := range s.inner.Lock() {
 		q := inner.votes[lr.Lane()]
 		for i := range headers {
-			n := lr.Next() - types.BlockNumber(i) - 1
+			n := lr.Next() - types.BlockNumber(i) - 1 //nolint:gosec // i is bounded by len(headers) which is a small block range; no overflow risk
 			for {
 				// If pruned, then give up.
 				if q.first > lr.First() {

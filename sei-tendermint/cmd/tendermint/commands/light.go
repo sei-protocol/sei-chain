@@ -138,7 +138,7 @@ for applications built w/ Cosmos SDK).
 				return fmt.Errorf("can't parse trust level: %w", err)
 			}
 
-			options := []light.Option{light.Logger(logger)}
+			options := []light.Option{light.Logger(logger)} //nolint:prealloc
 
 			vo := light.SkippingVerification(trustLevel)
 			if sequential {

@@ -7,6 +7,7 @@ import (
 	"hash/crc32"
 	"io"
 	"os"
+	"path/filepath"
 )
 
 var errEOF = errors.New("EOF")
@@ -21,7 +22,7 @@ type logReader struct {
 }
 
 func openLogReader(path string) (*logReader, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDONLY, filePerms)
+	f, err := os.OpenFile(filepath.Clean(path), os.O_CREATE|os.O_RDONLY, filePerms)
 	if err != nil {
 		return nil, err
 	}

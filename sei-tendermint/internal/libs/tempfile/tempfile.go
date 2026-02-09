@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -42,7 +41,7 @@ func writeFileRandReseed() uint64 {
 	// The important thing here is that now for a seed conflict, they would both have to be on
 	// the correct nanosecond offset, and second-based offset, which is much less likely than
 	// just a conflict with the correct nanosecond offset.
-	return uint64(time.Now().UnixNano() + int64(os.Getpid()<<20))
+	return uint64(time.Now().UnixNano() + int64(os.Getpid())<<20) //nolint:gosec // PID shifted left 20 fits in int64; final sum reinterpreted as uint64 for seed
 }
 
 // Use a fast thread safe LCG for atomic write file names.
@@ -61,11 +60,11 @@ func randWriteFileSuffix() string {
 	atomicWriteFileRand = r
 	atomicWriteFileRandMu.Unlock()
 	// Can have a negative name, replace this in the following
-	suffix := strconv.Itoa(int(r))
-	if string(suffix[0]) == "-" {
+	suffix := strconv.Itoa(int(r)) //nolint:gosec // intentional reinterpretation of random bits; negative values handled below
+	if suffix[0] == '-' {
 		// Replace first "-" with "0". This is purely for UI clarity,
 		// as otherwise there would be two `-` in a row.
-		suffix = strings.Replace(suffix, "-", "0", 1)
+		suffix = "0" + suffix[1:]
 	}
 	return suffix
 }
@@ -91,7 +90,7 @@ func WriteFileAtomic(filename string, data []byte, perm os.FileMode) (err error)
 	i := 0
 	for ; i < atomicWriteFileMaxNumWriteAttempts; i++ {
 		name := filepath.Join(dir, atomicWriteFilePrefix+randWriteFileSuffix())
-		f, err = os.OpenFile(name, atomicWriteFileFlag, perm)
+		f, err = os.OpenFile(filepath.Clean(name), atomicWriteFileFlag, perm)
 		// If the file already exists, try a new file
 		if os.IsExist(err) {
 			// If the files exist too many times, start reseeding as we've

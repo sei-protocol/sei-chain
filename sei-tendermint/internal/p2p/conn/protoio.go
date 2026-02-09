@@ -54,8 +54,8 @@ func ReadSizedMsg(ctx context.Context, conn Conn, maxSize uint64) ([]byte, error
 // Length is encoded as varint.
 func UnmarshalSizedProto(data []byte, msg proto.Message) error {
 	size, n := binary.Uvarint(data)
-	if n <= 0 || uint64(len(data)) < uint64(n)+size {
+	if n <= 0 || uint64(len(data)) < uint64(n)+size { //nolint:gosec // n is positive (checked above); len(data) is always non-negative
 		return errors.New("invalid size")
 	}
-	return proto.Unmarshal(data[n:n+int(size)], msg)
+	return proto.Unmarshal(data[n:n+int(size)], msg) //nolint:gosec // size is bounded by len(data) which fits in int
 }

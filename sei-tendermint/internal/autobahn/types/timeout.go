@@ -101,7 +101,7 @@ type TimeoutQC struct {
 // NewTimeoutQC creates a new TimeoutQC.
 func NewTimeoutQC(fullVotes []*FullTimeoutVote) *TimeoutQC {
 	latestPrepareQC := utils.None[*PrepareQC]()
-	var votes []*Signed[*TimeoutVote]
+	votes := make([]*Signed[*TimeoutVote], 0, len(fullVotes))
 	for _, v := range fullVotes {
 		votes = append(votes, v.Vote())
 		if qc := v.latestPrepareQC; NextViewOpt(latestPrepareQC).Less(NextViewOpt(qc)) {

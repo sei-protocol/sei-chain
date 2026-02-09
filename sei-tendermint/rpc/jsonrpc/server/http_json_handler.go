@@ -133,7 +133,7 @@ func writeListOfEndpoints(w http.ResponseWriter, funcMap map[string]*RPCFunc) {
 			noArgs[name] = name
 			continue
 		}
-		var query []string
+		query := make([]string, 0, len(rf.args))
 		for _, arg := range rf.args {
 			query = append(query, arg.name+"=_")
 		}

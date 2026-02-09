@@ -352,7 +352,7 @@ func (p *PendingTxs) popTxsAtIndices(indices []int) {
 	if len(indices) == 0 {
 		return
 	}
-	newTxs := []TxWithResponse{}
+	newTxs := make([]TxWithResponse, 0, len(p.txs)-len(indices))
 	start := 0
 	for _, idx := range indices {
 		if idx <= start-1 {
@@ -361,7 +361,7 @@ func (p *PendingTxs) popTxsAtIndices(indices []int) {
 		if idx >= len(p.txs) {
 			panic("indices popped from pending tx store out of range")
 		}
-		p.sizeBytes -= uint64(p.txs[idx].tx.Size())
+		p.sizeBytes -= uint64(p.txs[idx].tx.Size()) //nolint:gosec // Size() is non-negative
 		newTxs = append(newTxs, p.txs[start:idx]...)
 		start = idx + 1
 	}
@@ -373,7 +373,7 @@ func (p *PendingTxs) Insert(tx *WrappedTx, resCheckTx *abci.ResponseCheckTxV2, t
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
-	if len(p.txs) >= p.config.PendingSize || uint64(tx.Size())+p.sizeBytes > uint64(p.config.MaxPendingTxsBytes) {
+	if len(p.txs) >= p.config.PendingSize || uint64(tx.Size())+p.sizeBytes > uint64(p.config.MaxPendingTxsBytes) { //nolint:gosec // Size() and MaxPendingTxsBytes are non-negative validated values
 		return errors.New("pending store is full")
 	}
 
@@ -382,7 +382,7 @@ func (p *PendingTxs) Insert(tx *WrappedTx, resCheckTx *abci.ResponseCheckTxV2, t
 		checkTxResponse: resCheckTx,
 		txInfo:          txInfo,
 	})
-	p.sizeBytes += uint64(tx.Size())
+	p.sizeBytes += uint64(tx.Size()) //nolint:gosec // Size() is non-negative
 	return nil
 }
 
@@ -426,7 +426,7 @@ func (p *PendingTxs) PurgeExpired(blockHeight int64, now time.Time, cb func(wtx 
 				break
 			} else {
 				cb(ptx.tx)
-				p.sizeBytes -= uint64(ptx.tx.Size())
+				p.sizeBytes -= uint64(ptx.tx.Size()) //nolint:gosec // Size() is non-negative
 			}
 		}
 		p.txs = p.txs[idxFirstNotExpiredTx:]
@@ -445,7 +445,7 @@ func (p *PendingTxs) PurgeExpired(blockHeight int64, now time.Time, cb func(wtx 
 				break
 			} else {
 				cb(ptx.tx)
-				p.sizeBytes -= uint64(ptx.tx.Size())
+				p.sizeBytes -= uint64(ptx.tx.Size()) //nolint:gosec // Size() is non-negative
 			}
 		}
 		p.txs = p.txs[idxFirstNotExpiredTx:]

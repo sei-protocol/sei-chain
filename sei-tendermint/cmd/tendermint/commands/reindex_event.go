@@ -206,7 +206,7 @@ func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
 
 			e := types.EventDataNewBlockHeader{
 				Header:              b.Header,
-				NumTxs:              int64(len(b.Txs)),
+				NumTxs:              int64(len(b.Txs)), //nolint:gosec // int to int64 is always safe; len() is non-negative
 				ResultFinalizeBlock: *r,
 			}
 
@@ -214,15 +214,17 @@ func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
 			if e.NumTxs > 0 {
 				batch = indexer.NewBatch(e.NumTxs)
 
-				for i := range b.Txs {
+				for j := range b.Txs {
 					tr := abcitypes.TxResultV2{
 						Height: b.Height,
-						Index:  uint32(i),
-						Tx:     b.Txs[i],
-						Result: *(r.TxResults[i]),
+						Index:  uint32(j), //nolint:gosec // j is bounded by len(b.Txs) which is bounded by block tx limits
+						Tx:     b.Txs[j],
+						Result: *(r.TxResults[j]),
 					}
 
-					_ = batch.Add(&tr)
+					if err := batch.Add(&tr); err != nil {
+						return fmt.Errorf("batch.Add tx result %d at height %d: %w", j, i, err)
+					}
 				}
 			}
 

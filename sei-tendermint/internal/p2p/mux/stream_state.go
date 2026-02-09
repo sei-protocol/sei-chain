@@ -100,7 +100,7 @@ func (s *streamState) RemotePayloadSize(payloadSize uint64) error {
 		if inner.recv.used == inner.recv.end {
 			return errTooManyMsgs
 		}
-		i := int(inner.recv.used) % len(inner.recv.msgs)
+		i := int(inner.recv.used) % len(inner.recv.msgs) //nolint:gosec // recv.used is bounded by recv.end which is bounded by len(recv.msgs)
 		if inner.recv.maxMsgSize-uint64(len(inner.recv.msgs[i])) < payloadSize {
 			return errTooLargeMsg
 		}
@@ -110,7 +110,7 @@ func (s *streamState) RemotePayloadSize(payloadSize uint64) error {
 
 func (s *streamState) RemotePayload(payload []byte) {
 	for inner := range s.inner.Lock() {
-		i := int(inner.recv.used) % len(inner.recv.msgs)
+		i := int(inner.recv.used) % len(inner.recv.msgs) //nolint:gosec // recv.used is bounded by recv.end which is bounded by len(recv.msgs)
 		inner.recv.msgs[i] = append(inner.recv.msgs[i], payload...)
 	}
 }
@@ -120,7 +120,7 @@ func (s *streamState) RemoteMsgEnd() error {
 		if inner.recv.used == inner.recv.end {
 			return fmt.Errorf("buffer full")
 		}
-		inner.recv.used += 1
+		inner.recv.used++
 		ctrl.Updated()
 	}
 	return nil

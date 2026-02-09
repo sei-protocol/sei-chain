@@ -102,7 +102,7 @@ func (r *RPC[API, Req, Resp]) Call(ctx context.Context, client Client[API]) (Str
 }
 
 func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], handler func(context.Context, Stream[Resp, Req]) error) error {
-	limiter := rate.NewLimiter(r.Limit.Rate, int(r.Limit.Concurrent))
+	limiter := rate.NewLimiter(r.Limit.Rate, int(r.Limit.Concurrent)) //nolint:gosec // Concurrent is a bounded config value
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for range r.Limit.Concurrent {
 			s.Spawn(func() error {
@@ -110,12 +110,12 @@ func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], han
 					if err := limiter.Wait(ctx); err != nil {
 						return err
 					}
-					s, err := server.mux.Connect(ctx, r.Kind, uint64(r.Req.MsgSize), uint64(r.Req.Window))
+					stream, err := server.mux.Connect(ctx, r.Kind, uint64(r.Req.MsgSize), uint64(r.Req.Window)) //nolint:gosec // MsgSize and Window are validated config values
 					if err != nil {
 						return err
 					}
-					err = handler(ctx, Stream[Resp, Req]{inner: s})
-					s.Close()
+					err = handler(ctx, Stream[Resp, Req]{inner: stream})
+					stream.Close()
 					if err != nil {
 						return err
 					}

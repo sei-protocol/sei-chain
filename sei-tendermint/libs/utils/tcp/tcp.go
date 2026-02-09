@@ -333,9 +333,9 @@ func TestReservePort(ip netip.Addr) netip.AddrPort {
 	}
 	var port uint16
 	if ip.Is4() {
-		port = uint16(addrRaw.(*unix.SockaddrInet4).Port)
+		port = uint16(addrRaw.(*unix.SockaddrInet4).Port) //nolint:gosec // OS-assigned port is always in valid uint16 range [0, 65535]
 	} else {
-		port = uint16(addrRaw.(*unix.SockaddrInet6).Port)
+		port = uint16(addrRaw.(*unix.SockaddrInet6).Port) //nolint:gosec // OS-assigned port is always in valid uint16 range [0, 65535]
 	}
 	addr := netip.AddrPortFrom(ip, port)
 	for addrs := range reservedAddrs.Lock() {

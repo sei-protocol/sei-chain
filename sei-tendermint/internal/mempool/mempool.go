@@ -224,7 +224,7 @@ func (txmp *TxMempool) BytesNotPending() int64 {
 }
 
 func (txmp *TxMempool) TotalTxsBytesSize() int64 {
-	return txmp.BytesNotPending() + int64(txmp.pendingTxs.SizeBytes())
+	return txmp.BytesNotPending() + int64(txmp.pendingTxs.SizeBytes()) //nolint:gosec // mempool size is bounded by configured limits; no overflow risk
 }
 
 // PendingSize returns the number of pending transactions in the mempool.
@@ -461,7 +461,7 @@ func (txmp *TxMempool) incrementBlacklistCounter(nodeID types.NodeID) {
 	txmp.mtxFailedCheckTxCounts.Lock()
 	defer txmp.mtxFailedCheckTxCounts.Unlock()
 	txmp.failedCheckTxCounts[nodeID]++
-	if txmp.failedCheckTxCounts[nodeID] > uint64(txmp.config.CheckTxErrorThreshold) {
+	if txmp.failedCheckTxCounts[nodeID] > uint64(txmp.config.CheckTxErrorThreshold) { //nolint:gosec // CheckTxErrorThreshold is a validated non-negative config value
 		txmp.router.Evict(nodeID, errors.New("mempool: checkTx error exceeded threshold"))
 	}
 }
@@ -562,14 +562,15 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 		totalSize         int64
 	)
 
-	var evmTxs []types.Tx
-	var nonEvmTxs []types.Tx
 	numTxs := 0
 	encounteredGasUnfit := false
-	if uint64(txmp.NumTxsNotPending()) < txmp.config.TxNotifyThreshold {
+	if uint64(txmp.NumTxsNotPending()) < txmp.config.TxNotifyThreshold { //nolint:gosec // NumTxsNotPending returns non-negative value
 		// do not reap anything if threshold is not met
 		return []types.Tx{}
 	}
+	totalTxs := txmp.priorityIndex.NumTxs()
+	evmTxs := make([]types.Tx, 0, totalTxs)
+	nonEvmTxs := make([]types.Tx, 0, totalTxs)
 	txmp.priorityIndex.ForEachTx(func(wtx *WrappedTx) bool {
 		size := types.ComputeProtoSizeForTxs([]types.Tx{wtx.tx})
 

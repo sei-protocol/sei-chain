@@ -173,7 +173,7 @@ func (ps *PeerState) PickVoteToSend(votes types.VoteSetReader) (*types.Vote, boo
 	var (
 		height    = votes.GetHeight()
 		round     = votes.GetRound()
-		votesType = tmproto.SignedMsgType(votes.Type())
+		votesType = tmproto.SignedMsgType(votes.Type()) //nolint:gosec // Type() returns a small enum value; no overflow risk
 		size      = votes.Size()
 	)
 
@@ -190,7 +190,7 @@ func (ps *PeerState) PickVoteToSend(votes types.VoteSetReader) (*types.Vote, boo
 	}
 
 	if index, ok := votes.BitArray().Sub(psVotes).PickRandom(); ok {
-		vote := votes.GetByIndex(int32(index))
+		vote := votes.GetByIndex(int32(index)) //nolint:gosec // index is bounded by validator set size which fits in int32
 		if vote != nil {
 			return vote, true
 		}

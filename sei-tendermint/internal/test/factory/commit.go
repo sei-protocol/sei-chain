@@ -20,7 +20,7 @@ func MakeCommit(ctx context.Context, blockID types.BlockID, height int64, round 
 		}
 		vote := &types.Vote{
 			ValidatorAddress: pubKey.Address(),
-			ValidatorIndex:   int32(i),
+			ValidatorIndex:   int32(i), //nolint:gosec // i is bounded by len(validators) which is bounded by MaxValidators
 			Height:           height,
 			Round:            round,
 			Type:             tmproto.PrecommitType,

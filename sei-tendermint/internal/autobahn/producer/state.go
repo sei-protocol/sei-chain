@@ -99,7 +99,7 @@ func (s *State) Run(ctx context.Context) error {
 		burst := 1
 		if l, ok := s.cfg.MaxTxsPerSecond.Get(); ok {
 			limit = rate.Limit(l)
-			burst = int(l + s.cfg.MaxTxsPerBlock)
+			burst = int(l + s.cfg.MaxTxsPerBlock) // nolint:gosec
 		}
 		limiter := rate.NewLimiter(limit, burst)
 		for {

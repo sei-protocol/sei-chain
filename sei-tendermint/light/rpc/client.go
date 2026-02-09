@@ -54,8 +54,6 @@ type Client struct {
 	closers []func()
 }
 
-var _ rpcclient.Client = (*Client)(nil)
-
 // Option allow you to tweak Client.
 type Option func(*Client)
 
@@ -590,7 +588,7 @@ func (c *Client) Validators(
 	}
 
 	skipCount := validateSkipCount(page, perPage)
-	v := l.ValidatorSet.Validators[skipCount : skipCount+tmmath.MinInt(int(perPage), totalCount-skipCount)]
+	v := l.ValidatorSet.Validators[skipCount : skipCount+tmmath.MinInt(int(perPage), totalCount-skipCount)] //nolint:gosec // perPage is bounded to maxPerPage (100); no overflow risk
 
 	return &coretypes.ResultValidators{
 		BlockHeight: l.Height,
@@ -647,6 +645,7 @@ func (c *Client) SubscribeWS(ctx context.Context, query string) (*coretypes.Resu
 	callInfo := rpctypes.GetCallInfo(ctx)
 	out, err := c.next.Subscribe(bctx, callInfo.RemoteAddr(), query) //nolint:staticcheck
 	if err != nil {
+		bcancel()
 		return nil, err
 	}
 
@@ -699,7 +698,7 @@ func validatePage(pagePtr *int, perPage uint, totalCount int) (int, error) {
 		return 1, nil
 	}
 
-	pages := ((totalCount - 1) / int(perPage)) + 1
+	pages := ((totalCount - 1) / int(perPage)) + 1 //nolint:gosec // perPage is bounded to maxPerPage (100); no overflow risk
 	if pages == 0 {
 		pages = 1 // one page (even if it's empty)
 	}
@@ -722,11 +721,11 @@ func validatePerPage(perPagePtr *int) uint {
 	} else if perPage > maxPerPage {
 		return maxPerPage
 	}
-	return uint(perPage)
+	return uint(perPage) //nolint:gosec // perPage is bounds-checked above to [1, maxPerPage]
 }
 
 func validateSkipCount(page int, perPage uint) int {
-	skipCount := (page - 1) * int(perPage)
+	skipCount := (page - 1) * int(perPage) //nolint:gosec // perPage is bounded to maxPerPage (100) and page is validated; no overflow risk
 	if skipCount < 0 {
 		return 0
 	}

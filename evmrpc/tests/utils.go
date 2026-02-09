@@ -277,7 +277,11 @@ func encodeEvmTx(txData ethtypes.TxData, signed *ethtypes.Transaction) []byte {
 }
 
 func signAndEncodeCosmosTx(msg sdk.Msg, mnemonic string, acctN uint64, seq uint64) []byte {
-	tx := signCosmosTxWithMnemonic(msg, mnemonic, acctN, seq)
+	tx, err := signCosmosTxWithMnemonic(msg, mnemonic, acctN, seq)
+	if err != nil {
+		// TODO: pass in testing.T and assert no error instead
+		panic(err)
+	}
 	return encodeCosmosTx(tx)
 }
 

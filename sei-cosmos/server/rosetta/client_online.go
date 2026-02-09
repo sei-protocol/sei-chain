@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/version"
+	"google.golang.org/grpc/credentials/insecure"
 
 	abcitypes "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
@@ -99,7 +100,7 @@ func NewClient(cfg *Config) (*Client, error) {
 
 // Bootstrap is gonna connect the client to the endpoints
 func (c *Client) Bootstrap() error {
-	grpcConn, err := grpc.Dial(c.config.GRPCEndpoint, grpc.WithInsecure())
+	grpcConn, err := grpc.Dial(c.config.GRPCEndpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return err
 	}

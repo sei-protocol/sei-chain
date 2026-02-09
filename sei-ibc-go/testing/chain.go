@@ -177,8 +177,8 @@ func NewTestChain(t *testing.T, coord *Coordinator, chainID string) *TestChain {
 	// or, if equal, by address lexical order
 	valSet := tmtypes.NewValidatorSet(validators)
 
-	// create signers indexed by the valSet validators's order
-	signers := []tmtypes.PrivValidator{}
+	// create signers indexed by the valSet validators' order
+	signers := make([]tmtypes.PrivValidator, 0, len(valSet.Validators))
 	for _, val := range valSet.Validators {
 		signers = append(signers, signersByAddress[val.PubKey.Address().String()])
 	}

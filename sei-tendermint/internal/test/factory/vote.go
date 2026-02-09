@@ -32,7 +32,7 @@ func MakeVote(
 		ValidatorIndex:   valIndex,
 		Height:           height,
 		Round:            round,
-		Type:             tmproto.SignedMsgType(step),
+		Type:             tmproto.SignedMsgType(step), //nolint:gosec // step is a small enum value (prevote/precommit/commit); no overflow risk
 		BlockID:          blockID,
 		Timestamp:        time,
 	}

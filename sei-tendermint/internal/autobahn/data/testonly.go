@@ -14,7 +14,7 @@ import (
 
 func TestAppQC(keys []types.SecretKey, proposal *types.AppProposal) *types.AppQC {
 	vote := types.NewAppVote(proposal)
-	var votes []*types.Signed[*types.AppVote]
+	votes := make([]*types.Signed[*types.AppVote], 0, len(keys))
 	for _, k := range keys {
 		votes = append(votes, types.Sign(k, vote))
 	}
@@ -23,7 +23,7 @@ func TestAppQC(keys []types.SecretKey, proposal *types.AppProposal) *types.AppQC
 
 func TestLaneQC(keys []types.SecretKey, header *types.BlockHeader) *types.LaneQC {
 	vote := types.NewLaneVote(header)
-	votes := []*types.Signed[*types.LaneVote]{}
+	votes := make([]*types.Signed[*types.LaneVote], 0, len(keys))
 	for _, k := range keys {
 		votes = append(votes, types.Sign(k, vote))
 	}
@@ -90,7 +90,7 @@ func TestCommitQC(
 	if err != nil {
 		panic(err)
 	}
-	var votes []*types.Signed[*types.CommitVote]
+	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
 	for _, k := range keys {
 		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal.Proposal().Msg())))
 	}

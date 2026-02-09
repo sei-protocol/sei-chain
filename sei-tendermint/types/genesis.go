@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -162,7 +163,7 @@ func GenesisDocFromJSON(jsonBlob []byte) (*GenesisDoc, error) {
 
 // GenesisDocFromFile reads JSON data from a file and unmarshalls it into a GenesisDoc.
 func GenesisDocFromFile(genDocFile string) (*GenesisDoc, error) {
-	jsonBlob, err := os.ReadFile(genDocFile)
+	jsonBlob, err := os.ReadFile(filepath.Clean(genDocFile))
 	if err != nil {
 		return nil, fmt.Errorf("couldn't read GenesisDoc file: %w", err)
 	}

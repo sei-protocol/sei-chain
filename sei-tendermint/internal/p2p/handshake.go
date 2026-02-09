@@ -64,7 +64,7 @@ func exchangeNodeInfo(ctx context.Context, hConn *handshakedConn, nodeInfo types
 			}
 			return hConn.conn.Flush(ctx)
 		})
-		nodeInfoBytes, err := conn.ReadSizedMsg(ctx, hConn.conn, uint64(types.MaxNodeInfoSize()))
+		nodeInfoBytes, err := conn.ReadSizedMsg(ctx, hConn.conn, uint64(types.MaxNodeInfoSize())) //nolint:gosec // MaxNodeInfoSize() returns a small positive constant
 		if err != nil {
 			return types.NodeInfo{}, fmt.Errorf("conn.ReadSizedMsg(): %w", err)
 		}

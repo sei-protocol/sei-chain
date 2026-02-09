@@ -340,7 +340,11 @@ func ProcessBlockDirect(testCtx *TestContext, txs [][]byte, occ bool) ([]types.E
 }
 
 func JoinMsgs(msgsList ...[]*TestMessage) []*TestMessage {
-	var result []*TestMessage
+	n := 0
+	for _, testMsg := range msgsList {
+		n += len(testMsg)
+	}
+	result := make([]*TestMessage, 0, n)
 	for _, testMsg := range msgsList {
 		result = append(result, testMsg...)
 	}

@@ -65,7 +65,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	}
 	ctx.Logger().Info("Migrating mint params from v2 to v3", "v2TokenReleaseSchedules", v2TokenReleaseSchedules, "v2MintDenom", v2MintDenom)
 
-	v3TokenReleaseSchedule := []types.ScheduledTokenRelease{}
+	v3TokenReleaseSchedule := make([]types.ScheduledTokenRelease, 0, len(v2TokenReleaseSchedules))
 	for _, v2TokenReleaseSchedule := range v2TokenReleaseSchedules {
 		v3Schedule := types.ScheduledTokenRelease{
 			TokenReleaseAmount: uint64(v2TokenReleaseSchedule.GetTokenReleaseAmount()), //nolint:gosec

@@ -59,7 +59,7 @@ func main() {
 }
 
 func mustParse(path string) *tomledit.Document {
-	f, err := os.Open(path)
+	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		log.Fatalf("Opening TOML input: %v", err)
 	}

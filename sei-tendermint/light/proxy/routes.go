@@ -89,7 +89,7 @@ func (p proxyService) Genesis(ctx context.Context) (*coretypes.ResultGenesis, er
 }
 
 func (p proxyService) GenesisChunked(ctx context.Context, req *coretypes.RequestGenesisChunked) (*coretypes.ResultGenesisChunk, error) {
-	return p.Client.GenesisChunked(ctx, uint(req.Chunk))
+	return p.Client.GenesisChunked(ctx, uint(req.Chunk)) //nolint:gosec // chunk index is validated upstream by the RPC layer; no negative values expected
 }
 
 func (p proxyService) GetConsensusState(ctx context.Context) (*coretypes.ResultConsensusState, error) {

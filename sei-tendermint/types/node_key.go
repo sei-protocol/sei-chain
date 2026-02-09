@@ -3,6 +3,7 @@ package types
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
@@ -96,7 +97,7 @@ func GenNodeKey() NodeKey {
 
 // LoadNodeKey loads NodeKey located in filePath.
 func LoadNodeKey(filePath string) (NodeKey, error) {
-	jsonBytes, err := os.ReadFile(filePath)
+	jsonBytes, err := os.ReadFile(filepath.Clean(filePath))
 	if err != nil {
 		return NodeKey{}, err
 	}

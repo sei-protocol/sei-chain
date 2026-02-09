@@ -83,7 +83,7 @@ func MakeTestNetwork(t *testing.T, opts TestNetworkOptions) *TestNetwork {
 }
 
 func (n *TestNetwork) Nodes() []*TestNode {
-	var res []*TestNode
+	var res []*TestNode //nolint:prealloc
 	for nodes := range n.nodes.Lock() {
 		for _, node := range nodes {
 			res = append(res, node)
@@ -138,7 +138,7 @@ func (n *TestNetwork) Start(t *testing.T) {
 
 // NodeIDs returns the network's node IDs.
 func (n *TestNetwork) NodeIDs() []types.NodeID {
-	ids := []types.NodeID{}
+	ids := []types.NodeID{} //nolint:prealloc
 	for nodes := range n.nodes.Lock() {
 		for id := range nodes {
 			ids = append(ids, id)
@@ -208,7 +208,7 @@ func (n *TestNetwork) Peers(id types.NodeID) []*TestNode {
 // nodes to pick up the disconnection.
 func (n *TestNetwork) Remove(t *testing.T, id types.NodeID) {
 	var node *TestNode
-	var peers []*TestNode
+	var peers []*TestNode //nolint:prealloc
 	for nodes := range n.nodes.Lock() {
 		require.Contains(t, nodes, id)
 		node = nodes[id]

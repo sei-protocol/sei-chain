@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -301,7 +302,7 @@ func MakeGenesisStateFromFile(genDocFile string) (State, error) {
 
 // MakeGenesisDocFromFile reads and unmarshals genesis doc from the given file.
 func MakeGenesisDocFromFile(genDocFile string) (*types.GenesisDoc, error) {
-	genDocJSON, err := os.ReadFile(genDocFile)
+	genDocJSON, err := os.ReadFile(filepath.Clean(genDocFile))
 	if err != nil {
 		return nil, fmt.Errorf("couldn't read GenesisDoc file: %w", err)
 	}

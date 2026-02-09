@@ -75,12 +75,18 @@ if enabled.`,
 			}
 			dumpDebugData(ctx, logger, rpc, dumpArgs)
 
-			ticker := time.NewTicker(time.Duration(frequency) * time.Second)
-			for range ticker.C {
-				dumpDebugData(ctx, logger, rpc, dumpArgs)
-			}
+			ticker := time.NewTicker(time.Duration(frequency) * time.Second) //nolint: gosec
+			defer ticker.Stop()
 
-			return nil
+			for ctx.Err() == nil {
+				select {
+				case <-ticker.C:
+					dumpDebugData(ctx, logger, rpc, dumpArgs)
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			return ctx.Err()
 		},
 	}
 	cmd.Flags().Uint(
@@ -96,7 +102,6 @@ if enabled.`,
 	)
 
 	return cmd
-
 }
 
 type dumpDebugDataArgs struct {

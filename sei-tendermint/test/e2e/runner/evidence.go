@@ -237,7 +237,7 @@ func getRandomValidatorIndex(privVals []types.MockPV, vals *types.ValidatorSet) 
 }
 
 func readPrivKey(keyFilePath string) (crypto.PrivKey, error) {
-	keyJSONBytes, err := os.ReadFile(keyFilePath)
+	keyJSONBytes, err := os.ReadFile(filepath.Clean(keyFilePath))
 	if err != nil {
 		return crypto.PrivKey{}, err
 	}

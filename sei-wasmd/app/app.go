@@ -702,9 +702,8 @@ func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBl
 	evidence.BeginBlocker(ctx, []abci.Misbehavior{}, app.evidenceKeeper)
 	staking.BeginBlocker(ctx, app.stakingKeeper)
 	ibcclient.BeginBlocker(ctx, app.ibcKeeper.ClientKeeper)
-	events := []abci.Event{}
 
-	typedTxs := []sdk.Tx{}
+	typedTxs := make([]sdk.Tx, 0, len(req.Txs))
 	for _, tx := range req.Txs {
 		typedTx, err := app.txDecoder(tx)
 		if err != nil {
@@ -714,7 +713,7 @@ func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBl
 		}
 	}
 
-	txResults := []*abci.ExecTxResult{}
+	txResults := make([]*abci.ExecTxResult, 0, len(req.Txs))
 	for i, tx := range req.Txs {
 		ctx = ctx.WithTxIndex(i)
 		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTxV2{
@@ -732,7 +731,7 @@ func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBl
 		})
 	}
 	vals := app.EndBlocker(ctx)
-	events = append(events, sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents)...)
+	events := sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents)
 	cpUpdates := legacytm.ABCIToLegacyConsensusParams(app.GetConsensusParams(ctx))
 
 	app.SetDeliverStateToCommit()

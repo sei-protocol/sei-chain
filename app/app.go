@@ -1355,7 +1355,7 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
 
-	txResults := []*abci.ExecTxResult{}
+	txResults := make([]*abci.ExecTxResult, 0, len(txs))
 	for i, tx := range txs {
 		ctx = ctx.WithTxIndex(absoluteTxIndices[i])
 		res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
@@ -1660,7 +1660,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	blockSpan.SetAttributes(attribute.Int64("height", req.GetHeight()))
 	ctx = ctx.WithTraceSpanContext(blockSpanCtx)
 
-	events = []abci.Event{}
 	beginBlockResp := app.BeginBlock(ctx, req.GetHeight(), lastCommit.Votes, req.GetByzantineValidators(), true)
 	events = append(events, beginBlockResp.Events...)
 
@@ -1697,7 +1696,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	events = append(events, lazyWriteEvents...)
 
 	// Sum up total used per block only for evm transactions
-	evmTotalGasUsed := int64(0)
+	var evmTotalGasUsed int64
 	for _, txResult := range txResults {
 		if txResult.EvmTxInfo != nil {
 			evmTotalGasUsed += txResult.GasUsed
@@ -1714,7 +1713,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 // bypassing the standard Cosmos SDK transaction processing flow.
 // This is an experimental path for improved EVM throughput.
 // NOTE: This is not currently used in the codebase, but might be in the future.
-func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
+func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, _ bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
 	// Panic recovery like original ProcessBlock
 	defer func() {
 		if r := recover(); r != nil {
@@ -1735,8 +1734,6 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 	blockSpan.SetAttributes(attribute.Int64("height", req.GetHeight()))
 	ctx = ctx.WithTraceSpanContext(blockSpanCtx)
 
-	events = []abci.Event{}
-
 	// BeginBlock - still needed for validator updates, etc.
 	beginBlockResp := app.BeginBlock(ctx, req.GetHeight(), lastCommit.Votes, req.GetByzantineValidators(), true)
 	events = append(events, beginBlockResp.Events...)
@@ -1747,7 +1744,7 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 
 	// TODO: This is where the giga executor will process transactions directly
 	// For now, decode and execute each transaction through the giga executor
-	evmTotalGasUsed := int64(0)
+	var evmTotalGasUsed int64
 
 	for i, txBytes := range txs {
 		// Decode as Cosmos SDK tx first to extract EVM message
