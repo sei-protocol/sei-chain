@@ -132,6 +132,12 @@ jobs:
               "./integration_test/evm_module/scripts/evm_giga_tests.sh"
             ]
           },
+          {
+            name: "EVM GIGA Mixed (Determinism)",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_giga_mixed_tests.sh"
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3

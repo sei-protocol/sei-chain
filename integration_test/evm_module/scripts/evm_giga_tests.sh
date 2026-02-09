@@ -12,6 +12,13 @@
 
 set -e
 
+# Ensure Node.js >= 18 (required by hardhat and esbuild)
+if [ -s "$HOME/.nvm/nvm.sh" ]; then
+  source "$HOME/.nvm/nvm.sh"
+  nvm use 22 2>/dev/null || nvm use 20 2>/dev/null || nvm use 18 2>/dev/null || true
+fi
+echo "Using Node.js $(node --version)"
+
 echo "=== Running GIGA EVM Tests ==="
 
 cd contracts
