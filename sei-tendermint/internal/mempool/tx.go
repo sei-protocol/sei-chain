@@ -352,7 +352,7 @@ func (p *PendingTxs) popTxsAtIndices(indices []int) {
 	if len(indices) == 0 {
 		return
 	}
-	newTxs := make([]TxWithResponse, 0, len(p.txs)-len(indices))
+	newTxs := make([]TxWithResponse, 0, max(0, len(p.txs)-len(indices)))
 	start := 0
 	for _, idx := range indices {
 		if idx <= start-1 {

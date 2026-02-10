@@ -120,7 +120,7 @@ func (s *streamState) RemoteMsgEnd() error {
 		if inner.recv.used == inner.recv.end {
 			return fmt.Errorf("buffer full")
 		}
-		inner.recv.used++
+		inner.recv.used += 1
 		ctrl.Updated()
 	}
 	return nil
