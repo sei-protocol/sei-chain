@@ -1365,7 +1365,6 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 		txResults = append(txResults, res)
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
-
 	return txResults
 }
 
@@ -1681,11 +1680,8 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		evmTxs[originalIndex] = app.GetEVMMsg(prioritizedTypedTxs[relativePrioritizedIndex])
 	}
 
-	// When using the giga executor via ProcessTxsSynchronousGiga, balance changes go through
-	// the giga KV store (via GigaBankKeeper). ProcessTxsSynchronousGiga flushes its cache-layer
-	// giga stores to the deliver state's giga stores, but the deliver state's giga stores must
-	// also be flushed so that subsequent operations (WriteDeferredBalances, EndBlock) that use
-	// the standard BankKeeper can see the correct balances via read-through to the committed store.
+	// Flush giga stores so WriteDeferredBalances (which uses the standard BankKeeper)
+	// can see balance changes made by the giga executor via GigaBankKeeper.
 	if app.GigaExecutorEnabled {
 		ctx.GigaMultiStore().WriteGiga()
 	}
@@ -1703,7 +1699,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		evmTxs[originalIndex] = app.GetEVMMsg(otherTypedTxs[relativeOtherIndex])
 	}
 
-	// Flush giga stores after the second round of tx processing (same reason as above)
+	// Flush giga stores after second round (same reason as above)
 	if app.GigaExecutorEnabled {
 		ctx.GigaMultiStore().WriteGiga()
 	}
@@ -1862,57 +1858,23 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	// Prepare context for EVM transaction (set infinite gas meter like original flow)
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 
-	// Create a SINGLE state DB for both fee charging and execution.
-	// Using one stateDB ensures all balance changes (fee deduction + execution) go through
-	// the same store layer and are committed together in a single Finalize call.
-	// This matches V2's effective behavior where ante charges fees, then msg_server executes
-	// with feeAlreadyCharged=true on a stateDB that already reflects the fee deduction.
+	// Create state DB for this transaction
 	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)
 	defer stateDB.Cleanup()
 
-	// Charge gas fee before execution (like V2's EVMFeeCheckDecorator ante handler).
-	// V2 uses feeAlreadyCharged=true during execution, meaning fees are charged separately
-	// by the ante handler. We replicate this by charging fees on the stateDB first,
-	// then executing with feeAlreadyCharged=true so Execute() skips buyGas/refund/coinbase.
+	// Pre-charge gas fee (like V2's ante handler), then execute with feeAlreadyCharged=true.
+	// This is the critical fix: V2 charges fees in the ante handler, then runs the EVM with
+	// feeAlreadyCharged=true which skips buyGas/refundGas/coinbase. Without this, GasUsed
+	// differs between Giga and V2, causing LastResultsHash → AppHash divergence.
 	baseFee := app.GigaEvmKeeper.GetBaseFee(ctx)
 	if baseFee == nil {
-		baseFee = new(big.Int) // default to 0 when base fee is unset
+		baseFee = new(big.Int)
 	}
 	effectiveGasPrice := new(big.Int).Add(new(big.Int).Set(ethTx.GasTipCap()), baseFee)
 	if effectiveGasPrice.Cmp(ethTx.GasFeeCap()) > 0 {
 		effectiveGasPrice.Set(ethTx.GasFeeCap())
 	}
 	gasFee := new(big.Int).Mul(new(big.Int).SetUint64(ethTx.Gas()), effectiveGasPrice)
-
-	// Balance check: sender must have enough for gasFeeCap * gasLimit + value (worst-case fee)
-	// This matches go-ethereum's BuyGas balance check behavior
-	balanceCheck := new(big.Int).Mul(new(big.Int).SetUint64(ethTx.Gas()), ethTx.GasFeeCap())
-	if ethTx.Value() != nil {
-		balanceCheck.Add(balanceCheck, ethTx.Value())
-	}
-	senderBalance := stateDB.GetBalance(sender)
-	if senderBalance.Cmp(uint256.MustFromBig(balanceCheck)) < 0 {
-		// In V2, when the fee ante handler fails (insufficient funds), the ante handler
-		// returns error and the ante cache is discarded. But the BasicDecorator's
-		// DeliverTxCallback (which fires in a defer even on ante failure) still bumps the
-		// nonce. We replicate: increment nonce and finalize to commit it to the store.
-		stateDB.SetNonce(sender, stateDB.GetNonce(sender)+1, tracing.NonceChangeEoACall)
-		if _, ferr := stateDB.Finalize(); ferr != nil {
-			ctx.Logger().Error("giga: failed to finalize stateDB on balance check failure",
-				"txHash", ethTx.Hash().Hex(),
-				"error", ferr,
-			)
-		}
-		return &abci.ExecTxResult{
-			Code:      1,
-			GasWanted: int64(ethTx.Gas()), //nolint:gosec
-			Log:       fmt.Sprintf("insufficient balance for gas: address %v have %v want %v", sender.Hex(), senderBalance, balanceCheck),
-		}, nil
-	}
-
-	// Charge the fee (SubBalance, like BuyGas does).
-	// This deducts gasLimit * effectiveGasPrice from the sender's balance in the stateDB.
-	// The EVM will see the post-fee balance during execution.
 	stateDB.SubBalance(sender, uint256.MustFromBig(gasFee), tracing.BalanceDecreaseGasBuy)
 
 	// Get gas pool
@@ -1931,23 +1893,14 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	sstore := app.GigaEvmKeeper.GetParams(ctx).SeiSstoreSetGasEip2200
 	cfg := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(app.GigaEvmKeeper.ChainID(ctx), &sstore)
 
-	// Create Giga executor VM with the SAME stateDB that has the fee deduction.
-	// The EVM sees the sender's post-fee balance, matching V2 behavior.
+	// Create Giga executor VM
 	gigaExecutor := gigaexecutor.NewGethExecutor(*blockCtx, stateDB, cfg, vm.Config{}, gigaprecompiles.AllCustomPrecompilesFailFast)
 
-	// Execute with feeAlreadyCharged=true (matching V2 msg_server behavior).
-	// Since we already charged the fee above via SubBalance, Execute() skips
-	// buyGas/refundGas/coinbasePayment, matching V2's StateTransition(feeAlreadyCharged=true).
+	// Execute with feeAlreadyCharged=true — matching V2's msg_server behavior
 	execResult, execErr := gigaExecutor.ExecuteTransactionFeeCharged(ethTx, sender, baseFee, &gp)
 	if execErr != nil {
-		// In V2, even when Execute() returns an error (e.g., intrinsic gas too low),
-		// the ante handler already committed the fee deduction, and the BasicDecorator's
-		// DeliverTxCallback bumps the nonce. We must replicate both:
-		//
-		// 1. Increment the nonce (V2's BasicDecorator callback does this for failed txs)
+		// A: nonce bump + Finalize + surplus tracking
 		stateDB.SetNonce(sender, stateDB.GetNonce(sender)+1, tracing.NonceChangeEoACall)
-
-		// 2. Finalize to commit fee deduction + nonce increment to the store
 		surplus, ferr := stateDB.Finalize()
 		if ferr != nil {
 			ctx.Logger().Error("giga: failed to finalize stateDB on consensus error",
@@ -1955,12 +1908,10 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 				"error", ferr,
 			)
 		}
-
-		// 3. Store surplus so EndBlock credits the fee to the EVM module account
-		//    (matches V2's AddAnteSurplus path which also credits the module account)
 		bloom := ethtypes.Bloom{}
 		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, ethTx.Hash(), surplus)
 
+		// B: GasWanted
 		return &abci.ExecTxResult{
 			Code:      1,
 			GasWanted: int64(ethTx.Gas()), //nolint:gosec
@@ -1974,8 +1925,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		return nil, execResult.Err
 	}
 
-	// Finalize state changes — single Finalize for both fee + execution.
-	// The surplus includes the fee deduction (positive) plus any execution balance changes.
+	// Finalize state changes
 	surplus, ferr := stateDB.Finalize()
 	if ferr != nil {
 		return &abci.ExecTxResult{
@@ -2011,9 +1961,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		}, nil
 	}
 
-	// Append deferred info for EndBlock processing.
-	// The surplus from the single Finalize includes both the fee deduction surplus and
-	// any execution balance changes, equivalent to V2's anteSurplus + executionSurplus.
+	// Append deferred info for EndBlock processing
 	bloom := ethtypes.Bloom{}
 	bloom.SetBytes(receipt.LogsBloom)
 	app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, ethTx.Hash(), surplus)
