@@ -185,11 +185,11 @@ func TestMultiVersionStoreValidateState(t *testing.T) {
 	mvs.SetWriteset(1, 2, writeset)
 
 	readset := make(multiversion.ReadSet)
-	readset["key1"] = [][]byte{[]byte("value1")}
-	readset["key2"] = [][]byte{[]byte("value2")}
-	readset["key3"] = [][]byte{nil}
-	readset["key4"] = [][]byte{[]byte("value4")}
-	readset["key5"] = [][]byte{[]byte("value5")}
+	readset["key1"] = multiversion.ReadSetEntry{Value: []byte("value1")}
+	readset["key2"] = multiversion.ReadSetEntry{Value: []byte("value2")}
+	readset["key3"] = multiversion.ReadSetEntry{Value: nil}
+	readset["key4"] = multiversion.ReadSetEntry{Value: []byte("value4")}
+	readset["key5"] = multiversion.ReadSetEntry{Value: []byte("value5")}
 	mvs.SetReadset(5, readset)
 
 	// assert no readset is valid
@@ -249,11 +249,11 @@ func TestMultiVersionStoreParentValidationMismatch(t *testing.T) {
 	mvs.SetWriteset(1, 2, writeset)
 
 	readset := make(multiversion.ReadSet)
-	readset["key1"] = [][]byte{[]byte("value1")}
-	readset["key2"] = [][]byte{[]byte("value2")}
-	readset["key3"] = [][]byte{nil}
-	readset["key4"] = [][]byte{[]byte("value4")}
-	readset["key5"] = [][]byte{[]byte("value5")}
+	readset["key1"] = multiversion.ReadSetEntry{Value: []byte("value1")}
+	readset["key2"] = multiversion.ReadSetEntry{Value: []byte("value2")}
+	readset["key3"] = multiversion.ReadSetEntry{Value: nil}
+	readset["key4"] = multiversion.ReadSetEntry{Value: []byte("value4")}
+	readset["key5"] = multiversion.ReadSetEntry{Value: []byte("value5")}
 	mvs.SetReadset(5, readset)
 
 	// assert no readset is valid
@@ -294,11 +294,11 @@ func TestMultiVersionStoreMultipleReadsetValueValidationFailure(t *testing.T) {
 	mvs.SetWriteset(1, 2, writeset)
 
 	readset := make(multiversion.ReadSet)
-	readset["key1"] = [][]byte{[]byte("value1")}
-	readset["key2"] = [][]byte{[]byte("value2")}
-	readset["key3"] = [][]byte{nil}
-	readset["key4"] = [][]byte{[]byte("value4")}
-	readset["key5"] = [][]byte{[]byte("value5"), []byte("value5b")}
+	readset["key1"] = multiversion.ReadSetEntry{Value: []byte("value1")}
+	readset["key2"] = multiversion.ReadSetEntry{Value: []byte("value2")}
+	readset["key3"] = multiversion.ReadSetEntry{Value: nil}
+	readset["key4"] = multiversion.ReadSetEntry{Value: []byte("value4")}
+	readset["key5"] = multiversion.ReadSetEntry{Conflict: true}
 	mvs.SetReadset(5, readset)
 
 	// assert readset index 5 is invalid due to multiple values in readset
@@ -323,11 +323,11 @@ func TestMVSValidationWithOnlyEstimate(t *testing.T) {
 	mvs.SetWriteset(1, 2, writeset)
 
 	readset := make(multiversion.ReadSet)
-	readset["key1"] = [][]byte{[]byte("value1")}
-	readset["key2"] = [][]byte{[]byte("value2")}
-	readset["key3"] = [][]byte{nil}
-	readset["key4"] = [][]byte{[]byte("value4")}
-	readset["key5"] = [][]byte{[]byte("value5")}
+	readset["key1"] = multiversion.ReadSetEntry{Value: []byte("value1")}
+	readset["key2"] = multiversion.ReadSetEntry{Value: []byte("value2")}
+	readset["key3"] = multiversion.ReadSetEntry{Value: nil}
+	readset["key4"] = multiversion.ReadSetEntry{Value: []byte("value4")}
+	readset["key5"] = multiversion.ReadSetEntry{Value: []byte("value5")}
 	mvs.SetReadset(5, readset)
 
 	// add a conflict due to estimate
@@ -525,11 +525,11 @@ func TestMVSIteratorValidationWithWritesetValuesSetAfterIteration(t *testing.T) 
 	mvs.SetWriteset(1, 2, writeset)
 
 	readset := make(multiversion.ReadSet)
-	readset["key1"] = [][]byte{[]byte("value1")}
-	readset["key2"] = [][]byte{[]byte("value2")}
-	readset["key3"] = [][]byte{nil}
-	readset["key4"] = [][]byte{[]byte("value4")}
-	readset["key5"] = [][]byte{[]byte("value5")}
+	readset["key1"] = multiversion.ReadSetEntry{Value: []byte("value1")}
+	readset["key2"] = multiversion.ReadSetEntry{Value: []byte("value2")}
+	readset["key3"] = multiversion.ReadSetEntry{Value: nil}
+	readset["key4"] = multiversion.ReadSetEntry{Value: []byte("value4")}
+	readset["key5"] = multiversion.ReadSetEntry{Value: []byte("value5")}
 	mvs.SetReadset(5, readset)
 
 	// no key6 because the iteration was performed BEFORE the write
@@ -565,11 +565,11 @@ func TestMVSIteratorValidationReverse(t *testing.T) {
 	mvs.SetWriteset(1, 2, writeset)
 
 	readset := make(multiversion.ReadSet)
-	readset["key1"] = [][]byte{[]byte("value1")}
-	readset["key2"] = [][]byte{[]byte("value2")}
-	readset["key3"] = [][]byte{nil}
-	readset["key4"] = [][]byte{[]byte("value4")}
-	readset["key5"] = [][]byte{[]byte("value5")}
+	readset["key1"] = multiversion.ReadSetEntry{Value: []byte("value1")}
+	readset["key2"] = multiversion.ReadSetEntry{Value: []byte("value2")}
+	readset["key3"] = multiversion.ReadSetEntry{Value: nil}
+	readset["key4"] = multiversion.ReadSetEntry{Value: []byte("value4")}
+	readset["key5"] = multiversion.ReadSetEntry{Value: []byte("value5")}
 	mvs.SetReadset(5, readset)
 
 	// set a key BEFORE iteration occurred
@@ -604,10 +604,10 @@ func TestMVSIteratorValidationEarlyStop(t *testing.T) {
 	mvs.SetWriteset(1, 2, writeset)
 
 	readset := make(multiversion.ReadSet)
-	readset["key1"] = [][]byte{[]byte("value1")}
-	readset["key2"] = [][]byte{[]byte("value2")}
-	readset["key3"] = [][]byte{nil}
-	readset["key4"] = [][]byte{[]byte("value4")}
+	readset["key1"] = multiversion.ReadSetEntry{Value: []byte("value1")}
+	readset["key2"] = multiversion.ReadSetEntry{Value: []byte("value2")}
+	readset["key3"] = multiversion.ReadSetEntry{Value: nil}
+	readset["key4"] = multiversion.ReadSetEntry{Value: []byte("value4")}
 	mvs.SetReadset(5, readset)
 
 	iter := vis.Iterator([]byte("key1"), []byte("key7"))
@@ -647,9 +647,9 @@ func TestMVSIteratorValidationEarlyStopEarlierKeyRemoved(t *testing.T) {
 	mvs.SetWriteset(1, 2, writeset)
 
 	readset := make(multiversion.ReadSet)
-	readset["key1"] = [][]byte{[]byte("value1")}
-	readset["key3"] = [][]byte{nil}
-	readset["key4"] = [][]byte{[]byte("value4")}
+	readset["key1"] = multiversion.ReadSetEntry{Value: []byte("value1")}
+	readset["key3"] = multiversion.ReadSetEntry{Value: nil}
+	readset["key4"] = multiversion.ReadSetEntry{Value: []byte("value4")}
 	mvs.SetReadset(5, readset)
 
 	i := 0
@@ -692,9 +692,9 @@ func TestMVSIteratorValidationEarlyStopEarlierKeyRemovedAndOtherReplaced(t *test
 	mvs.SetWriteset(1, 2, writeset)
 
 	readset := make(multiversion.ReadSet)
-	readset["key1"] = [][]byte{[]byte("value1")}
-	readset["key3"] = [][]byte{nil}
-	readset["key4"] = [][]byte{[]byte("value4")}
+	readset["key1"] = multiversion.ReadSetEntry{Value: []byte("value1")}
+	readset["key3"] = multiversion.ReadSetEntry{Value: nil}
+	readset["key4"] = multiversion.ReadSetEntry{Value: []byte("value4")}
 	mvs.SetReadset(5, readset)
 
 	i := 0

@@ -32,7 +32,7 @@ func TestVersionIndexedStoreGetters(t *testing.T) {
 	require.Equal(t, []byte("value1"), val2)
 	require.True(t, vis.Has([]byte("key1")))
 	// verify value now in readset
-	require.Equal(t, [][]byte{[]byte("value1")}, vis.GetReadset()["key1"])
+	require.Equal(t, multiversion.ReadSetEntry{Value: []byte("value1")}, vis.GetReadset()["key1"])
 
 	// read the same key that should now be served from the readset (can be verified by setting a different value for the key in the parent store)
 	parentKVStore.Set([]byte("key1"), []byte("value2")) // realistically shouldn't happen, modifying to verify readset access
@@ -92,7 +92,8 @@ func TestVersionIndexedStoreGetters(t *testing.T) {
 	// verify that its in the writeset
 	require.Equal(t, []byte("value4"), vis.GetWriteset()["key4"])
 	// verify that its not in the readset
-	require.Nil(t, vis.GetReadset()["key4"])
+	_, inReadset := vis.GetReadset()["key4"]
+	require.False(t, inReadset)
 }
 
 func TestVersionIndexedStoreSetters(t *testing.T) {
@@ -432,9 +433,9 @@ func TestIteratorReadsetRace(t *testing.T) {
 	require.Equal(t, []string{"value1", "value2", "value4"}, vals)
 	iter.Close()
 
-	// verify that key4 has two elements in the readset
+	// verify that key4 has a conflict in the readset (read different values)
 	readset := vis.GetReadset()
-	require.Len(t, readset["key4"], 2)
+	require.True(t, readset["key4"].Conflict)
 }
 
 func TestRemoveLastEntry(t *testing.T) {

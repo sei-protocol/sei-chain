@@ -25,6 +25,7 @@ type MultiVersionStore interface {
 	GetReadset(index int) ReadSet
 	ClearReadset(index int)
 	VersionedIndexedStore(index int, incarnation int, abortChannel chan occ.Abort) *VersionIndexedStore
+	ReleaseVersionIndexedStore(vis *VersionIndexedStore)
 	SetIterateset(index int, iterateset Iterateset)
 	GetIterateset(index int) Iterateset
 	ClearIterateset(index int)
@@ -32,7 +33,15 @@ type MultiVersionStore interface {
 }
 
 type WriteSet map[string][]byte
-type ReadSet map[string][][]byte
+
+// ReadSetEntry stores a single read value per key. If the same key is read
+// with different values, Conflict is set to true (indicating validation failure).
+type ReadSetEntry struct {
+	Value    []byte
+	Conflict bool
+}
+
+type ReadSet map[string]ReadSetEntry
 type Iterateset []*iterationTracker
 
 var _ MultiVersionStore = (*Store)(nil)
@@ -51,6 +60,8 @@ type Store struct {
 	txSlots []txSlot // pre-allocated, indexed by tx index
 
 	parentStore types.KVStore
+
+	visPool sync.Pool // pools *VersionIndexedStore for reuse
 }
 
 func NewMultiVersionStore(parentStore types.KVStore) *Store {
@@ -75,9 +86,20 @@ func (s *Store) slot(index int) *txSlot {
 	return &s.txSlots[index]
 }
 
-// VersionedIndexedStore creates a new versioned index store for a given incarnation and transaction index
+// VersionedIndexedStore creates a new versioned index store for a given incarnation and transaction index.
+// It reuses pooled instances when available to reduce allocations.
 func (s *Store) VersionedIndexedStore(index int, incarnation int, abortChannel chan occ.Abort) *VersionIndexedStore {
+	if v := s.visPool.Get(); v != nil {
+		vis := v.(*VersionIndexedStore)
+		vis.Reset(s.parentStore, s, index, incarnation, abortChannel)
+		return vis
+	}
 	return NewVersionIndexedStore(s.parentStore, s, index, incarnation, abortChannel)
+}
+
+// ReleaseVersionIndexedStore returns a VersionIndexedStore to the pool for reuse.
+func (s *Store) ReleaseVersionIndexedStore(vis *VersionIndexedStore) {
+	s.visPool.Put(vis)
 }
 
 // GetLatest implements MultiVersionStore.
@@ -369,13 +391,13 @@ func (s *Store) checkReadsetAtIndex(index int) (bool, []int) {
 	if readset == nil {
 		return true, []int{}
 	}
-	// iterate over readset and check if the value is the same as the latest value relateive to txIndex in the multiversion store
-	for key, valueArr := range readset {
-		if len(valueArr) != 1 {
+	// iterate over readset and check if the value is the same as the latest value relative to txIndex in the multiversion store
+	for key, entry := range readset {
+		if entry.Conflict {
 			valid = false
 			continue
 		}
-		value := valueArr[0]
+		value := entry.Value
 		// get the latest value from the multiversion store
 		latestValue := s.GetLatestBeforeIndex(index, []byte(key))
 		if latestValue == nil {

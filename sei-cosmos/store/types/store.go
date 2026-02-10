@@ -463,4 +463,8 @@ type GigaMultiStore interface {
 	WriteGiga()
 	IsStoreGiga(key StoreKey) bool
 	SetGigaKVStores(handler func(sk StoreKey, s KVStore) KVStore) MultiStore
+	CacheMultiStoreForOCC(
+		kvHandler func(sk StoreKey, kvs KVStore) CacheWrap,
+		gigaHandler func(sk StoreKey, kvs KVStore) KVStore,
+	) MultiStore
 }
