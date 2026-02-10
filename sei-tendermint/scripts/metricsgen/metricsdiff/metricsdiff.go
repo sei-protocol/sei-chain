@@ -15,6 +15,7 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 )
 
 func init() {
@@ -80,7 +81,7 @@ func main() {
 // DiffFromReaders parses the metrics present in the readers a and b and
 // determines which metrics were added and removed in b.
 func DiffFromReaders(a, b io.Reader) (Diff, error) {
-	var parser expfmt.TextParser
+	parser := expfmt.NewTextParser(model.UTF8Validation)
 	amf, err := parser.TextToMetricFamilies(a)
 	if err != nil {
 		return Diff{}, err

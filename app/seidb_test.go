@@ -30,6 +30,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSCConfig.MemIAVLConfig.SnapshotWriterLimit
 	case FlagSCSnapshotPrefetchThreshold:
 		return defaultSCConfig.MemIAVLConfig.SnapshotPrefetchThreshold
+	case FlagSCSnapshotWriteRateMBps:
+		return defaultSCConfig.MemIAVLConfig.SnapshotWriteRateMBps
 	case FlagSSEnable:
 		return defaultSSConfig.Enable
 	case FlagSSBackend:
