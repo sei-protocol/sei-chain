@@ -54,8 +54,6 @@ type Client struct {
 	closers []func()
 }
 
-var _ rpcclient.Client = (*Client)(nil)
-
 // Option allow you to tweak Client.
 type Option func(*Client)
 
