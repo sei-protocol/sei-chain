@@ -74,8 +74,11 @@ type DB struct {
 	// timestamp of the last successful snapshot creation
 	// Protected by db.mtx (only accessed in Commit call chain)
 	lastSnapshotTime time.Time
-	// make sure only one snapshot rewrite is running
+
+	// pruneSnapshotLock guards concurrent prune operations; use TryLock in pruneSnapshots
 	pruneSnapshotLock sync.Mutex
+	// closed guards against double Close(), protected by db.mtx
+	closed bool
 
 	// walIndexDelta is the difference: version - walIndex for any entry.
 	// Since both WAL indices and versions are strictly contiguous, this delta is constant.
@@ -499,7 +502,7 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		TotalMemNodeSize.Store(0)
 		TotalNumOfMemNode.Store(0)
 		db.logger.Info("switched to new memiavl snapshot", "version", db.MultiTree.Version())
-		db.pruneSnapshots()
+		go db.pruneSnapshots()
 
 	default:
 	}
@@ -510,9 +513,17 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 // pruneSnapshots prunes old snapshots, keeping only snapshotKeepRecent recent ones.
 // Note: WAL truncation is now handled by CommitStore after each commit.
 func (db *DB) pruneSnapshots() {
-	// wait until last prune finish
-	db.pruneSnapshotLock.Lock()
+	if !db.pruneSnapshotLock.TryLock() {
+		db.logger.Info("pruneSnapshots skipped, previous prune still in progress")
+		return
+	}
 	defer db.pruneSnapshotLock.Unlock()
+
+	db.logger.Info("pruneSnapshots started")
+	startTime := time.Now()
+	defer func() {
+		db.logger.Info("pruneSnapshots completed", "duration_sec", fmt.Sprintf("%.2fs", time.Since(startTime).Seconds()))
+	}()
 
 	currentVersion, err := currentVersion(db.dir)
 	if err != nil {
@@ -727,7 +738,7 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	path := filepath.Clean(filepath.Join(db.dir, tmpDir))
 
 	writeStart := time.Now()
-	err := db.MultiTree.WriteSnapshot(ctx, path, db.snapshotWriterPool)
+	err := db.WriteSnapshotWithRateLimit(ctx, path, db.snapshotWriterPool, db.opts.SnapshotWriteRateMBps)
 	writeElapsed := time.Since(writeStart).Seconds()
 
 	if err != nil {
@@ -900,6 +911,20 @@ func (db *DB) rewriteSnapshotBackground() error {
 			ch <- snapshotResult{err: err}
 			return
 		}
+
+		// Switch mmap hints from SEQUENTIAL to RANDOM for tree operations.
+		// NewMmap() applies MADV_SEQUENTIAL by default for cold-start replay performance,
+		// but after loading we need MADV_RANDOM for random tree access patterns.
+		// Without this, the kernel aggressively discards accessed pages and does wrong-direction
+		// readahead, which is catastrophic on high-latency storage (e.g. NAS).
+		// This matches the behavior in OpenDB() which also calls PrepareForRandomRead().
+		for _, tree := range mtree.trees {
+			if tree.snapshot != nil {
+				tree.snapshot.nodesMap.PrepareForRandomRead()
+				tree.snapshot.leavesMap.PrepareForRandomRead()
+			}
+		}
+
 		cloned.logger.Info("loaded multitree after snapshot", "elapsed", time.Since(loadStart).Seconds())
 
 		// do a best effort catch-up, will do another final catch-up in main thread.
@@ -929,9 +954,14 @@ func (db *DB) Close() error {
 	db.logger.Info("Closing memiavl db...")
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
-	errs := []error{}
+	if db.closed {
+		return nil
+	}
+	db.closed = true
+	// Wait for any ongoing prune to finish, then block new prunes
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
+	errs := []error{}
 
 	// Close rewrite channel first - must wait for background goroutine before closing WAL
 	db.logger.Info("Closing rewrite channel...")
@@ -1038,7 +1068,7 @@ func (db *DB) WriteSnapshot(dir string) error {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 
-	return db.MultiTree.WriteSnapshot(context.Background(), dir, db.snapshotWriterPool)
+	return db.WriteSnapshotWithRateLimit(context.Background(), dir, db.snapshotWriterPool, db.opts.SnapshotWriteRateMBps)
 }
 
 func snapshotName(version int64) string {
