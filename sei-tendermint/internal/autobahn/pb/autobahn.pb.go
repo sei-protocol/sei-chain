@@ -1630,130 +1630,7 @@ func (x *SignedMsg) GetSig() *Signature {
 	return nil
 }
 
-type LaneReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	LaneProposal  *SignedMsg             `protobuf:"bytes,1,opt,name=lane_proposal,json=laneProposal,proto3" json:"lane_proposal,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *LaneReq) Reset() {
-	*x = LaneReq{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[26]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *LaneReq) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*LaneReq) ProtoMessage() {}
-
-func (x *LaneReq) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[26]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use LaneReq.ProtoReflect.Descriptor instead.
-func (*LaneReq) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{26}
-}
-
-func (x *LaneReq) GetLaneProposal() *SignedMsg {
-	if x != nil {
-		return x.LaneProposal
-	}
-	return nil
-}
-
-type LaneResp struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	LaneVote      *SignedMsg             `protobuf:"bytes,1,opt,name=lane_vote,json=laneVote,proto3" json:"lane_vote,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *LaneResp) Reset() {
-	*x = LaneResp{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[27]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *LaneResp) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*LaneResp) ProtoMessage() {}
-
-func (x *LaneResp) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[27]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use LaneResp.ProtoReflect.Descriptor instead.
-func (*LaneResp) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{27}
-}
-
-func (x *LaneResp) GetLaneVote() *SignedMsg {
-	if x != nil {
-		return x.LaneVote
-	}
-	return nil
-}
-
-type LaneQCsResp struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *LaneQCsResp) Reset() {
-	*x = LaneQCsResp{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[28]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *LaneQCsResp) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*LaneQCsResp) ProtoMessage() {}
-
-func (x *LaneQCsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[28]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use LaneQCsResp.ProtoReflect.Descriptor instead.
-func (*LaneQCsResp) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{28}
-}
-
+// TODO(gprusak): rename to ConsensusMsg
 type ConsensusReq struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to T:
@@ -1770,7 +1647,7 @@ type ConsensusReq struct {
 
 func (x *ConsensusReq) Reset() {
 	*x = ConsensusReq{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[29]
+	mi := &file_autobahn_autobahn_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1782,7 +1659,7 @@ func (x *ConsensusReq) String() string {
 func (*ConsensusReq) ProtoMessage() {}
 
 func (x *ConsensusReq) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[29]
+	mi := &file_autobahn_autobahn_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1795,7 +1672,7 @@ func (x *ConsensusReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsensusReq.ProtoReflect.Descriptor instead.
 func (*ConsensusReq) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{29}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ConsensusReq) GetT() isConsensusReq_T {
@@ -1883,574 +1760,6 @@ func (*ConsensusReq_CommitVote) isConsensusReq_T() {}
 func (*ConsensusReq_TimeoutVote) isConsensusReq_T() {}
 
 func (*ConsensusReq_TimeoutQc) isConsensusReq_T() {}
-
-type LaneVote struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	LaneVote      *SignedMsg             `protobuf:"bytes,1,opt,name=lane_vote,json=laneVote,proto3" json:"lane_vote,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *LaneVote) Reset() {
-	*x = LaneVote{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[30]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *LaneVote) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*LaneVote) ProtoMessage() {}
-
-func (x *LaneVote) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[30]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use LaneVote.ProtoReflect.Descriptor instead.
-func (*LaneVote) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{30}
-}
-
-func (x *LaneVote) GetLaneVote() *SignedMsg {
-	if x != nil {
-		return x.LaneVote
-	}
-	return nil
-}
-
-type LaneProposal struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	LaneProposal  *SignedMsg             `protobuf:"bytes,1,opt,name=lane_proposal,json=laneProposal,proto3" json:"lane_proposal,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *LaneProposal) Reset() {
-	*x = LaneProposal{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[31]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *LaneProposal) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*LaneProposal) ProtoMessage() {}
-
-func (x *LaneProposal) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[31]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use LaneProposal.ProtoReflect.Descriptor instead.
-func (*LaneProposal) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{31}
-}
-
-func (x *LaneProposal) GetLaneProposal() *SignedMsg {
-	if x != nil {
-		return x.LaneProposal
-	}
-	return nil
-}
-
-type AppVote struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AppVote       *SignedMsg             `protobuf:"bytes,1,opt,name=app_vote,json=appVote,proto3" json:"app_vote,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *AppVote) Reset() {
-	*x = AppVote{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[32]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AppVote) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AppVote) ProtoMessage() {}
-
-func (x *AppVote) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[32]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use AppVote.ProtoReflect.Descriptor instead.
-func (*AppVote) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{32}
-}
-
-func (x *AppVote) GetAppVote() *SignedMsg {
-	if x != nil {
-		return x.AppVote
-	}
-	return nil
-}
-
-type ConsensusResp struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ConsensusResp) Reset() {
-	*x = ConsensusResp{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[33]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ConsensusResp) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ConsensusResp) ProtoMessage() {}
-
-func (x *ConsensusResp) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[33]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ConsensusResp.ProtoReflect.Descriptor instead.
-func (*ConsensusResp) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{33}
-}
-
-type PingReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *PingReq) Reset() {
-	*x = PingReq{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[34]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *PingReq) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*PingReq) ProtoMessage() {}
-
-func (x *PingReq) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[34]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use PingReq.ProtoReflect.Descriptor instead.
-func (*PingReq) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{34}
-}
-
-type PingResp struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *PingResp) Reset() {
-	*x = PingResp{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[35]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *PingResp) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*PingResp) ProtoMessage() {}
-
-func (x *PingResp) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[35]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use PingResp.ProtoReflect.Descriptor instead.
-func (*PingResp) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{35}
-}
-
-type StreamLaneProposalsReq struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	FirstBlockNumber uint64                 `protobuf:"varint,1,opt,name=first_block_number,json=firstBlockNumber,proto3" json:"first_block_number,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
-}
-
-func (x *StreamLaneProposalsReq) Reset() {
-	*x = StreamLaneProposalsReq{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[36]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StreamLaneProposalsReq) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StreamLaneProposalsReq) ProtoMessage() {}
-
-func (x *StreamLaneProposalsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[36]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StreamLaneProposalsReq.ProtoReflect.Descriptor instead.
-func (*StreamLaneProposalsReq) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{36}
-}
-
-func (x *StreamLaneProposalsReq) GetFirstBlockNumber() uint64 {
-	if x != nil {
-		return x.FirstBlockNumber
-	}
-	return 0
-}
-
-type StreamAppQCsReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StreamAppQCsReq) Reset() {
-	*x = StreamAppQCsReq{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[37]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StreamAppQCsReq) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StreamAppQCsReq) ProtoMessage() {}
-
-func (x *StreamAppQCsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[37]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StreamAppQCsReq.ProtoReflect.Descriptor instead.
-func (*StreamAppQCsReq) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{37}
-}
-
-type StreamAppQCsResp struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AppQc         *AppQC                 `protobuf:"bytes,1,opt,name=app_qc,json=appQc,proto3" json:"app_qc,omitempty"`
-	CommitQc      *CommitQC              `protobuf:"bytes,2,opt,name=commit_qc,json=commitQc,proto3" json:"commit_qc,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StreamAppQCsResp) Reset() {
-	*x = StreamAppQCsResp{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[38]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StreamAppQCsResp) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StreamAppQCsResp) ProtoMessage() {}
-
-func (x *StreamAppQCsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[38]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StreamAppQCsResp.ProtoReflect.Descriptor instead.
-func (*StreamAppQCsResp) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{38}
-}
-
-func (x *StreamAppQCsResp) GetAppQc() *AppQC {
-	if x != nil {
-		return x.AppQc
-	}
-	return nil
-}
-
-func (x *StreamAppQCsResp) GetCommitQc() *CommitQC {
-	if x != nil {
-		return x.CommitQc
-	}
-	return nil
-}
-
-type StreamCommitQCsReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StreamCommitQCsReq) Reset() {
-	*x = StreamCommitQCsReq{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[39]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StreamCommitQCsReq) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StreamCommitQCsReq) ProtoMessage() {}
-
-func (x *StreamCommitQCsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[39]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StreamCommitQCsReq.ProtoReflect.Descriptor instead.
-func (*StreamCommitQCsReq) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{39}
-}
-
-type StreamLaneVotesReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StreamLaneVotesReq) Reset() {
-	*x = StreamLaneVotesReq{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[40]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StreamLaneVotesReq) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StreamLaneVotesReq) ProtoMessage() {}
-
-func (x *StreamLaneVotesReq) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[40]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StreamLaneVotesReq.ProtoReflect.Descriptor instead.
-func (*StreamLaneVotesReq) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{40}
-}
-
-type StreamAppVotesReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StreamAppVotesReq) Reset() {
-	*x = StreamAppVotesReq{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[41]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StreamAppVotesReq) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StreamAppVotesReq) ProtoMessage() {}
-
-func (x *StreamAppVotesReq) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[41]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StreamAppVotesReq.ProtoReflect.Descriptor instead.
-func (*StreamAppVotesReq) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{41}
-}
-
-type GetBlockReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	GlobalNumber  uint64                 `protobuf:"varint,1,opt,name=global_number,json=globalNumber,proto3" json:"global_number,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GetBlockReq) Reset() {
-	*x = GetBlockReq{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[42]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GetBlockReq) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GetBlockReq) ProtoMessage() {}
-
-func (x *GetBlockReq) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[42]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GetBlockReq.ProtoReflect.Descriptor instead.
-func (*GetBlockReq) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{42}
-}
-
-func (x *GetBlockReq) GetGlobalNumber() uint64 {
-	if x != nil {
-		return x.GlobalNumber
-	}
-	return 0
-}
-
-type StreamFullCommitQCsReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	NextBlock     uint64                 `protobuf:"varint,1,opt,name=next_block,json=nextBlock,proto3" json:"next_block,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StreamFullCommitQCsReq) Reset() {
-	*x = StreamFullCommitQCsReq{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[43]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StreamFullCommitQCsReq) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StreamFullCommitQCsReq) ProtoMessage() {}
-
-func (x *StreamFullCommitQCsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[43]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StreamFullCommitQCsReq.ProtoReflect.Descriptor instead.
-func (*StreamFullCommitQCsReq) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{43}
-}
-
-func (x *StreamFullCommitQCsReq) GetNextBlock() uint64 {
-	if x != nil {
-		return x.NextBlock
-	}
-	return 0
-}
 
 var File_autobahn_autobahn_proto protoreflect.FileDescriptor
 
@@ -2616,12 +1925,7 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x01t\"S\n" +
 	"\tSignedMsg\x12\x1f\n" +
 	"\x03msg\x18\x01 \x01(\v2\r.autobahn.MsgR\x03msg\x12%\n" +
-	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureR\x03sig\"C\n" +
-	"\aLaneReq\x128\n" +
-	"\rlane_proposal\x18\x01 \x01(\v2\x13.autobahn.SignedMsgR\flaneProposal\"<\n" +
-	"\bLaneResp\x120\n" +
-	"\tlane_vote\x18\x01 \x01(\v2\x13.autobahn.SignedMsgR\blaneVote\"\r\n" +
-	"\vLaneQCsResp\"\xb1\x02\n" +
+	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureR\x03sig\"\xb1\x02\n" +
 	"\fConsensusReq\x124\n" +
 	"\bproposal\x18\x01 \x01(\v2\x16.autobahn.FullProposalH\x00R\bproposal\x128\n" +
 	"\fprepare_vote\x18\x02 \x01(\v2\x13.autobahn.SignedMsgH\x00R\vprepareVote\x126\n" +
@@ -2630,31 +1934,7 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\ftimeout_vote\x18\x04 \x01(\v2\x19.autobahn.FullTimeoutVoteH\x00R\vtimeoutVote\x124\n" +
 	"\n" +
 	"timeout_qc\x18\x05 \x01(\v2\x13.autobahn.TimeoutQCH\x00R\ttimeoutQcB\x03\n" +
-	"\x01t\"<\n" +
-	"\bLaneVote\x120\n" +
-	"\tlane_vote\x18\x01 \x01(\v2\x13.autobahn.SignedMsgR\blaneVote\"H\n" +
-	"\fLaneProposal\x128\n" +
-	"\rlane_proposal\x18\x01 \x01(\v2\x13.autobahn.SignedMsgR\flaneProposal\"9\n" +
-	"\aAppVote\x12.\n" +
-	"\bapp_vote\x18\x01 \x01(\v2\x13.autobahn.SignedMsgR\aappVote\"\x0f\n" +
-	"\rConsensusResp\"\t\n" +
-	"\aPingReq\"\n" +
-	"\n" +
-	"\bPingResp\"F\n" +
-	"\x16StreamLaneProposalsReq\x12,\n" +
-	"\x12first_block_number\x18\x01 \x01(\x04R\x10firstBlockNumber\"\x11\n" +
-	"\x0fStreamAppQCsReq\"k\n" +
-	"\x10StreamAppQCsResp\x12&\n" +
-	"\x06app_qc\x18\x01 \x01(\v2\x0f.autobahn.AppQCR\x05appQc\x12/\n" +
-	"\tcommit_qc\x18\x02 \x01(\v2\x12.autobahn.CommitQCR\bcommitQc\"\x14\n" +
-	"\x12StreamCommitQCsReq\"\x14\n" +
-	"\x12StreamLaneVotesReq\"\x13\n" +
-	"\x11StreamAppVotesReq\"2\n" +
-	"\vGetBlockReq\x12#\n" +
-	"\rglobal_number\x18\x01 \x01(\x04R\fglobalNumber\"7\n" +
-	"\x16StreamFullCommitQCsReq\x12\x1d\n" +
-	"\n" +
-	"next_block\x18\x01 \x01(\x04R\tnextBlockB7Z5github.com/tendermint/tendermint/internal/autobahn/pbb\x06proto3"
+	"\x01tB7Z5github.com/tendermint/tendermint/internal/autobahn/pbb\x06proto3"
 
 var (
 	file_autobahn_autobahn_proto_rawDescOnce sync.Once
@@ -2668,56 +1948,39 @@ func file_autobahn_autobahn_proto_rawDescGZIP() []byte {
 	return file_autobahn_autobahn_proto_rawDescData
 }
 
-var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
+var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_autobahn_autobahn_proto_goTypes = []any{
-	(*Timestamp)(nil),              // 0: autobahn.Timestamp
-	(*Duration)(nil),               // 1: autobahn.Duration
-	(*TransactionTimestamps)(nil),  // 2: autobahn.TransactionTimestamps
-	(*TransactionHeader)(nil),      // 3: autobahn.TransactionHeader
-	(*Transaction)(nil),            // 4: autobahn.Transaction
-	(*TransactionResp)(nil),        // 5: autobahn.TransactionResp
-	(*PublicKey)(nil),              // 6: autobahn.PublicKey
-	(*Signature)(nil),              // 7: autobahn.Signature
-	(*BlockHeader)(nil),            // 8: autobahn.BlockHeader
-	(*Payload)(nil),                // 9: autobahn.Payload
-	(*Block)(nil),                  // 10: autobahn.Block
-	(*LaneQC)(nil),                 // 11: autobahn.LaneQC
-	(*LaneRange)(nil),              // 12: autobahn.LaneRange
-	(*View)(nil),                   // 13: autobahn.View
-	(*Proposal)(nil),               // 14: autobahn.Proposal
-	(*FullProposal)(nil),           // 15: autobahn.FullProposal
-	(*PrepareQC)(nil),              // 16: autobahn.PrepareQC
-	(*CommitQC)(nil),               // 17: autobahn.CommitQC
-	(*FullCommitQC)(nil),           // 18: autobahn.FullCommitQC
-	(*TimeoutVote)(nil),            // 19: autobahn.TimeoutVote
-	(*TimeoutQC)(nil),              // 20: autobahn.TimeoutQC
-	(*FullTimeoutVote)(nil),        // 21: autobahn.FullTimeoutVote
-	(*AppQC)(nil),                  // 22: autobahn.AppQC
-	(*AppProposal)(nil),            // 23: autobahn.AppProposal
-	(*Msg)(nil),                    // 24: autobahn.Msg
-	(*SignedMsg)(nil),              // 25: autobahn.SignedMsg
-	(*LaneReq)(nil),                // 26: autobahn.LaneReq
-	(*LaneResp)(nil),               // 27: autobahn.LaneResp
-	(*LaneQCsResp)(nil),            // 28: autobahn.LaneQCsResp
-	(*ConsensusReq)(nil),           // 29: autobahn.ConsensusReq
-	(*LaneVote)(nil),               // 30: autobahn.LaneVote
-	(*LaneProposal)(nil),           // 31: autobahn.LaneProposal
-	(*AppVote)(nil),                // 32: autobahn.AppVote
-	(*ConsensusResp)(nil),          // 33: autobahn.ConsensusResp
-	(*PingReq)(nil),                // 34: autobahn.PingReq
-	(*PingResp)(nil),               // 35: autobahn.PingResp
-	(*StreamLaneProposalsReq)(nil), // 36: autobahn.StreamLaneProposalsReq
-	(*StreamAppQCsReq)(nil),        // 37: autobahn.StreamAppQCsReq
-	(*StreamAppQCsResp)(nil),       // 38: autobahn.StreamAppQCsResp
-	(*StreamCommitQCsReq)(nil),     // 39: autobahn.StreamCommitQCsReq
-	(*StreamLaneVotesReq)(nil),     // 40: autobahn.StreamLaneVotesReq
-	(*StreamAppVotesReq)(nil),      // 41: autobahn.StreamAppVotesReq
-	(*GetBlockReq)(nil),            // 42: autobahn.GetBlockReq
-	(*StreamFullCommitQCsReq)(nil), // 43: autobahn.StreamFullCommitQCsReq
-	nil,                            // 44: autobahn.TransactionHeader.PropertiesEntry
+	(*Timestamp)(nil),             // 0: autobahn.Timestamp
+	(*Duration)(nil),              // 1: autobahn.Duration
+	(*TransactionTimestamps)(nil), // 2: autobahn.TransactionTimestamps
+	(*TransactionHeader)(nil),     // 3: autobahn.TransactionHeader
+	(*Transaction)(nil),           // 4: autobahn.Transaction
+	(*TransactionResp)(nil),       // 5: autobahn.TransactionResp
+	(*PublicKey)(nil),             // 6: autobahn.PublicKey
+	(*Signature)(nil),             // 7: autobahn.Signature
+	(*BlockHeader)(nil),           // 8: autobahn.BlockHeader
+	(*Payload)(nil),               // 9: autobahn.Payload
+	(*Block)(nil),                 // 10: autobahn.Block
+	(*LaneQC)(nil),                // 11: autobahn.LaneQC
+	(*LaneRange)(nil),             // 12: autobahn.LaneRange
+	(*View)(nil),                  // 13: autobahn.View
+	(*Proposal)(nil),              // 14: autobahn.Proposal
+	(*FullProposal)(nil),          // 15: autobahn.FullProposal
+	(*PrepareQC)(nil),             // 16: autobahn.PrepareQC
+	(*CommitQC)(nil),              // 17: autobahn.CommitQC
+	(*FullCommitQC)(nil),          // 18: autobahn.FullCommitQC
+	(*TimeoutVote)(nil),           // 19: autobahn.TimeoutVote
+	(*TimeoutQC)(nil),             // 20: autobahn.TimeoutQC
+	(*FullTimeoutVote)(nil),       // 21: autobahn.FullTimeoutVote
+	(*AppQC)(nil),                 // 22: autobahn.AppQC
+	(*AppProposal)(nil),           // 23: autobahn.AppProposal
+	(*Msg)(nil),                   // 24: autobahn.Msg
+	(*SignedMsg)(nil),             // 25: autobahn.SignedMsg
+	(*ConsensusReq)(nil),          // 26: autobahn.ConsensusReq
+	nil,                           // 27: autobahn.TransactionHeader.PropertiesEntry
 }
 var file_autobahn_autobahn_proto_depIdxs = []int32{
-	44, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
+	27, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
 	2,  // 1: autobahn.TransactionHeader.timestamps:type_name -> autobahn.TransactionTimestamps
 	3,  // 2: autobahn.Transaction.header:type_name -> autobahn.TransactionHeader
 	6,  // 3: autobahn.Signature.key:type_name -> autobahn.PublicKey
@@ -2758,23 +2021,16 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	23, // 38: autobahn.Msg.app_vote:type_name -> autobahn.AppProposal
 	24, // 39: autobahn.SignedMsg.msg:type_name -> autobahn.Msg
 	7,  // 40: autobahn.SignedMsg.sig:type_name -> autobahn.Signature
-	25, // 41: autobahn.LaneReq.lane_proposal:type_name -> autobahn.SignedMsg
-	25, // 42: autobahn.LaneResp.lane_vote:type_name -> autobahn.SignedMsg
-	15, // 43: autobahn.ConsensusReq.proposal:type_name -> autobahn.FullProposal
-	25, // 44: autobahn.ConsensusReq.prepare_vote:type_name -> autobahn.SignedMsg
-	25, // 45: autobahn.ConsensusReq.commit_vote:type_name -> autobahn.SignedMsg
-	21, // 46: autobahn.ConsensusReq.timeout_vote:type_name -> autobahn.FullTimeoutVote
-	20, // 47: autobahn.ConsensusReq.timeout_qc:type_name -> autobahn.TimeoutQC
-	25, // 48: autobahn.LaneVote.lane_vote:type_name -> autobahn.SignedMsg
-	25, // 49: autobahn.LaneProposal.lane_proposal:type_name -> autobahn.SignedMsg
-	25, // 50: autobahn.AppVote.app_vote:type_name -> autobahn.SignedMsg
-	22, // 51: autobahn.StreamAppQCsResp.app_qc:type_name -> autobahn.AppQC
-	17, // 52: autobahn.StreamAppQCsResp.commit_qc:type_name -> autobahn.CommitQC
-	53, // [53:53] is the sub-list for method output_type
-	53, // [53:53] is the sub-list for method input_type
-	53, // [53:53] is the sub-list for extension type_name
-	53, // [53:53] is the sub-list for extension extendee
-	0,  // [0:53] is the sub-list for field type_name
+	15, // 41: autobahn.ConsensusReq.proposal:type_name -> autobahn.FullProposal
+	25, // 42: autobahn.ConsensusReq.prepare_vote:type_name -> autobahn.SignedMsg
+	25, // 43: autobahn.ConsensusReq.commit_vote:type_name -> autobahn.SignedMsg
+	21, // 44: autobahn.ConsensusReq.timeout_vote:type_name -> autobahn.FullTimeoutVote
+	20, // 45: autobahn.ConsensusReq.timeout_qc:type_name -> autobahn.TimeoutQC
+	46, // [46:46] is the sub-list for method output_type
+	46, // [46:46] is the sub-list for method input_type
+	46, // [46:46] is the sub-list for extension type_name
+	46, // [46:46] is the sub-list for extension extendee
+	0,  // [0:46] is the sub-list for field type_name
 }
 
 func init() { file_autobahn_autobahn_proto_init() }
@@ -2806,7 +2062,7 @@ func file_autobahn_autobahn_proto_init() {
 		(*Msg_TimeoutVote)(nil),
 		(*Msg_AppVote)(nil),
 	}
-	file_autobahn_autobahn_proto_msgTypes[29].OneofWrappers = []any{
+	file_autobahn_autobahn_proto_msgTypes[26].OneofWrappers = []any{
 		(*ConsensusReq_Proposal)(nil),
 		(*ConsensusReq_PrepareVote)(nil),
 		(*ConsensusReq_CommitVote)(nil),
@@ -2819,7 +2075,7 @@ func file_autobahn_autobahn_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_autobahn_autobahn_proto_rawDesc), len(file_autobahn_autobahn_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   45,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
