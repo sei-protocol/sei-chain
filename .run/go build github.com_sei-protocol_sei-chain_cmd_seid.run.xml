@@ -1,0 +1,18 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="go build github.com/sei-protocol/sei-chain/cmd/seid" type="GoApplicationRunConfiguration" factoryName="Go Application" nameIsGenerated="true">
+    <module name="sei-chain" />
+    <working_directory value="$PROJECT_DIR$" />
+    <go_parameters value="-tags &quot;netgo ledger&quot; -ldflags '-X github.com/cosmos/cosmos-sdk/version.Name=sei -X github.com/cosmos/cosmos-sdk/version.ServerName=seid -X github.com/cosmos/cosmos-sdk/version.Version=v6.1.6-11-g0340685a0 -X github.com/cosmos/cosmos-sdk/version.Commit=0340685a033213c75e9af491fab3640aaf0da9c9 -X &quot;github.com/cosmos/cosmos-sdk/version.BuildTags=netgo,ledger&quot; -checklinkname=0'" />
+    <parameters value="start --trace --chain-id sei-chain" />
+    <envs>
+      <env name="GORACE" value="&quot;log_path=/tmp/race/seid_race&quot;" />
+    </envs>
+    <kind value="PACKAGE" />
+    <package value="github.com/sei-protocol/sei-chain/cmd/seid" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$/../sei-chain|$PROJECT_DIR$/cmd/seid/main.go" />
+    <method v="2">
+      <option name="RunConfigurationTask" enabled="true" run_configuration_name="prepare" run_configuration_type="ShConfigurationType" />
+    </method>
+  </configuration>
+</component>
