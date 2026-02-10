@@ -99,6 +99,10 @@ func (s *DBImpl) SetEVM(evm *vm.EVM) {}
 func (s *DBImpl) AddPreimage(_ common.Hash, _ []byte) {}
 
 func (s *DBImpl) Cleanup() {
+	if s.tempState != nil {
+		releaseAccessList(s.tempState.transientAccessLists)
+		s.tempState.transientAccessLists = nil
+	}
 	s.tempState = nil
 	s.logger = nil
 	s.snapshottedCtxs = nil
@@ -111,6 +115,10 @@ func (s *DBImpl) CleanupForTracer() {
 	}
 	feeCollector, _ := s.k.GetFeeCollectorAddress(s.Ctx())
 	s.coinbaseEvmAddress = feeCollector
+	if s.tempState != nil {
+		releaseAccessList(s.tempState.transientAccessLists)
+		s.tempState.transientAccessLists = nil
+	}
 	s.tempState = NewTemporaryState()
 	s.journal = []journalEntry{}
 	s.snapshottedCtxs = []sdk.Context{}
@@ -276,7 +284,7 @@ func NewTemporaryState() *TemporaryState {
 		transientStates:       make(map[string]map[string]common.Hash),
 		transientAccounts:     make(map[string][]byte),
 		transientModuleStates: make(map[string][]byte),
-		transientAccessLists:  &accessList{Addresses: make(map[common.Address]int), Slots: []map[common.Hash]struct{}{}},
+		transientAccessLists:  newAccessList(),
 		surplus:               utils.Sdk0,
 	}
 }
