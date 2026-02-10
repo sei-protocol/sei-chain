@@ -333,13 +333,18 @@ func (s *Store) startPruning(pruneIntervalSeconds int64) {
 }
 
 func (s *Store) pruneOldFiles(pruneBeforeBlock uint64) int {
-	prunedCount := 0
-
 	// Get list of files to prune from the reader
 	filesToPrune := s.Reader.GetFilesBeforeBlock(pruneBeforeBlock)
+	if len(filesToPrune) == 0 {
+		return 0
+	}
 
+	// Remove from reader tracking BEFORE deleting from disk so that
+	// concurrent queries won't reference files that are being deleted.
+	s.Reader.RemoveFilesBeforeBlock(pruneBeforeBlock)
+
+	prunedCount := 0
 	for _, filePair := range filesToPrune {
-		// Remove receipt file
 		if filePair.ReceiptFile != "" {
 			if err := os.Remove(filePair.ReceiptFile); err != nil && !os.IsNotExist(err) {
 				if s.log != nil {
@@ -348,7 +353,6 @@ func (s *Store) pruneOldFiles(pruneBeforeBlock uint64) int {
 				continue
 			}
 		}
-		// Remove log file
 		if filePair.LogFile != "" {
 			if err := os.Remove(filePair.LogFile); err != nil && !os.IsNotExist(err) {
 				if s.log != nil {
@@ -358,11 +362,6 @@ func (s *Store) pruneOldFiles(pruneBeforeBlock uint64) int {
 			}
 		}
 		prunedCount++
-	}
-
-	// Update reader's file lists
-	if prunedCount > 0 {
-		s.Reader.RemoveFilesBeforeBlock(pruneBeforeBlock)
 	}
 
 	return prunedCount
