@@ -13,14 +13,6 @@ import (
 // Keep in sync with the parquet default max blocks per file to retain a similar cache window.
 const defaultReceiptCacheRotateInterval = 500
 
-type cacheRotateIntervalProvider interface {
-	cacheRotateInterval() uint64
-}
-
-type cacheWarmupProvider interface {
-	warmupReceipts() []ReceiptRecord
-}
-
 type cachedReceiptStore struct {
 	backend             ReceiptStore
 	cache               *ledgerCache
@@ -33,19 +25,10 @@ func newCachedReceiptStore(backend ReceiptStore) ReceiptStore {
 	if backend == nil {
 		return nil
 	}
-	interval := uint64(defaultReceiptCacheRotateInterval)
-	if provider, ok := backend.(cacheRotateIntervalProvider); ok {
-		if v := provider.cacheRotateInterval(); v > 0 {
-			interval = v
-		}
-	}
 	store := &cachedReceiptStore{
 		backend:             backend,
 		cache:               newLedgerCache(),
-		cacheRotateInterval: interval,
-	}
-	if provider, ok := backend.(cacheWarmupProvider); ok {
-		store.cacheReceipts(provider.warmupReceipts())
+		cacheRotateInterval: defaultReceiptCacheRotateInterval,
 	}
 	return store
 }
@@ -103,24 +86,18 @@ func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord) {
 	defer s.cacheMu.Unlock()
 
 	var (
-		currentBlock  uint64
-		hasBlock      bool
-		logStartIndex uint
-		cacheLogs     []*ethtypes.Log
+		currentBlock uint64
+		hasBlock     bool
 	)
 	cacheEntries := make([]receiptCacheEntry, 0, len(receipts))
 
 	fillCache := func(blockNumber uint64) {
-		if len(cacheEntries) == 0 && len(cacheLogs) == 0 {
+		if len(cacheEntries) == 0 {
 			return
 		}
 		s.maybeRotateCacheLocked(blockNumber)
 		s.cache.AddReceiptsBatch(blockNumber, cacheEntries)
-		if len(cacheLogs) > 0 {
-			s.cache.AddLogsForBlock(blockNumber, cacheLogs)
-		}
 		cacheEntries = cacheEntries[:0]
-		cacheLogs = cacheLogs[:0]
 	}
 
 	for _, record := range receipts {
@@ -137,17 +114,12 @@ func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord) {
 		if blockNumber != currentBlock {
 			fillCache(currentBlock)
 			currentBlock = blockNumber
-			logStartIndex = 0
 		}
-
-		txLogs := getLogsForTx(receipt, logStartIndex)
-		logStartIndex += uint(len(txLogs))
 
 		cacheEntries = append(cacheEntries, receiptCacheEntry{
 			TxHash:  record.TxHash,
 			Receipt: receipt,
 		})
-		cacheLogs = append(cacheLogs, txLogs...)
 	}
 
 	if hasBlock {

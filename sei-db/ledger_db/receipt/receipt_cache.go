@@ -5,7 +5,6 @@ import (
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -17,22 +16,14 @@ type receiptCacheEntry struct {
 	Receipt *types.Receipt
 }
 
-type logChunk struct {
-	logs map[uint64][]*ethtypes.Log // blockNum -> logs
-}
-
 type receiptChunk struct {
 	receipts     map[uint64]map[common.Hash]*types.Receipt // blockNum -> (txHash -> receipt)
 	receiptIndex map[common.Hash]uint64                    // txHash -> blockNum
 }
 
-// ledgerCache stores recent receipts and logs in rotating chunks.
+// ledgerCache stores recent receipts in rotating chunks.
 // It keeps two most-recent chunks and prunes the oldest on rotation.
 type ledgerCache struct {
-	logChunks    [numCacheChunks]atomic.Pointer[logChunk]
-	logWriteSlot atomic.Int32
-	logMu        sync.RWMutex
-
 	receiptChunks    [numCacheChunks]atomic.Pointer[receiptChunk]
 	receiptWriteSlot atomic.Int32
 	receiptMu        sync.RWMutex
@@ -40,12 +31,6 @@ type ledgerCache struct {
 
 func newLedgerCache() *ledgerCache {
 	c := &ledgerCache{}
-
-	firstLogChunk := &logChunk{
-		logs: make(map[uint64][]*ethtypes.Log),
-	}
-	c.logChunks[0].Store(firstLogChunk)
-	c.logWriteSlot.Store(0)
 
 	firstReceiptChunk := &receiptChunk{
 		receipts:     make(map[uint64]map[common.Hash]*types.Receipt),
@@ -58,20 +43,6 @@ func newLedgerCache() *ledgerCache {
 }
 
 func (c *ledgerCache) Rotate() {
-	// Rotate logs
-	c.logMu.Lock()
-	oldLogSlot := c.logWriteSlot.Load()
-	newLogSlot := (oldLogSlot + 1) % numCacheChunks
-	pruneLogSlot := (newLogSlot + 1) % numCacheChunks
-
-	newLogChunk := &logChunk{
-		logs: make(map[uint64][]*ethtypes.Log),
-	}
-	c.logChunks[newLogSlot].Store(newLogChunk)
-	c.logWriteSlot.Store(newLogSlot)
-	c.logChunks[pruneLogSlot].Store(nil)
-	c.logMu.Unlock()
-
 	// Rotate receipts
 	c.receiptMu.Lock()
 	oldReceiptSlot := c.receiptWriteSlot.Load()
@@ -141,29 +112,4 @@ func (c *ledgerCache) AddReceiptsBatch(blockNumber uint64, receipts []receiptCac
 		chunk.receipts[blockNumber][receipts[i].TxHash] = receipts[i].Receipt
 		chunk.receiptIndex[receipts[i].TxHash] = blockNumber
 	}
-}
-
-func (c *ledgerCache) AddLogsForBlock(blockNumber uint64, logs []*ethtypes.Log) {
-	if len(logs) == 0 {
-		return
-	}
-
-	logsCopy := make([]*ethtypes.Log, len(logs))
-	for i, lg := range logs {
-		logCopy := *lg
-		logsCopy[i] = &logCopy
-	}
-
-	c.logMu.Lock()
-	defer c.logMu.Unlock()
-
-	slot := c.logWriteSlot.Load()
-	chunk := c.logChunks[slot].Load()
-	if chunk == nil {
-		chunk = &logChunk{
-			logs: make(map[uint64][]*ethtypes.Log),
-		}
-		c.logChunks[slot].Store(chunk)
-	}
-	chunk.logs[blockNumber] = logsCopy
 }

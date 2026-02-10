@@ -948,11 +948,11 @@ func (f *LogFetcher) tryFilterLogsRange(_ context.Context, fromBlock, toBlock ui
 // Pooled version that reuses slice allocation
 func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, result *[]*ethtypes.Log) {
 	collector := &pooledCollector{logs: result}
-	f.collectLogs(block, crit, collector, true) // Apply exact matching
+	f.collectLogs(block, crit, collector)
 }
 
 // Unified log collection logic - fallback path that fetches receipts individually
-func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, collector logCollector, applyExactMatch bool) {
+func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, collector logCollector) {
 	ctx := f.ctxProvider(block.Block.Height)
 
 	txHashes := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
@@ -1004,11 +1004,8 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 			}
 			logIndex++
 
-			// Apply filtering if needed
-			if applyExactMatch {
-				if !matchesCriteria(ethLog, crit) {
-					continue
-				}
+			if !matchesCriteria(ethLog, crit) {
+				continue
 			}
 			collector.Append(ethLog)
 		}
