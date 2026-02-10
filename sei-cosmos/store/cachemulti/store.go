@@ -30,11 +30,35 @@ type Store struct {
 	gigaStores       map[types.StoreKey]types.KVStore
 	gigaStoreParents map[types.StoreKey]types.KVStore // lazy: not yet wrapped in giga cachekv
 	gigaKeys         []types.StoreKey
+	pooled           *pooledCMS // non-nil if maps came from cmsPool
 
 	traceWriter  io.Writer
 	traceContext types.TraceContext
 
 	closers []io.Closer
+}
+
+// pooledCMS holds reusable map allocations for a CacheMultiStore created
+// by newCacheMultiStoreFromCMS (the EVM Snapshot path). Returned to cmsPool
+// on Release() to avoid re-allocating maps on every Snapshot call.
+type pooledCMS struct {
+	mu               *sync.RWMutex
+	stores           map[types.StoreKey]types.CacheWrap
+	storeParents     map[types.StoreKey]types.CacheWrapper
+	gigaStores       map[types.StoreKey]types.KVStore
+	gigaStoreParents map[types.StoreKey]types.KVStore
+}
+
+var cmsPool = sync.Pool{
+	New: func() any {
+		return &pooledCMS{
+			mu:               &sync.RWMutex{},
+			stores:           make(map[types.StoreKey]types.CacheWrap, 24),
+			storeParents:     make(map[types.StoreKey]types.CacheWrapper, 24),
+			gigaStores:       make(map[types.StoreKey]types.KVStore, 8),
+			gigaStoreParents: make(map[types.StoreKey]types.KVStore, 8),
+		}
+	},
 }
 
 var _ types.CacheMultiStore = Store{}
@@ -96,57 +120,46 @@ func NewStore(
 func newCacheMultiStoreFromCMS(cms Store) Store {
 	cms.mu.RLock()
 
-	// Skip force-materialization of lazy parents. Instead, merge both
-	// already-materialized stores and lazy storeParents into the child's
-	// storeParents. This is safe because:
-	//
-	// - Materialized stores (in cms.stores): child wraps them, so
-	//   child.Write() propagates through the parent's cache layer.
-	// - Lazy stores (in cms.storeParents): the parent hasn't created a
-	//   cachekv for them yet, so there's no stale cache. The child wraps
-	//   the raw parent directly; child.Write() writes to the raw parent,
-	//   and the parent's eventual cachekv (created on first access) will
-	//   read through and see the child's writes.
-	//
-	// This eliminates ~13 GB of allocations per 30s from creating cachekv
-	// stores that are either immediately replaced (OCC SetKVStores) or
-	// never accessed (nested EVM Snapshots touching only 3-5 of ~20 stores).
-	storeParents := make(map[types.StoreKey]types.CacheWrapper, len(cms.stores)+len(cms.storeParents))
+	// Get pre-allocated maps from pool to avoid per-Snapshot map allocation.
+	pm := cmsPool.Get().(*pooledCMS)
+
+	// Merge materialized stores and lazy storeParents into the child's
+	// storeParents (same lazy-init strategy as before, but using pooled maps).
 	for k, v := range cms.stores {
-		storeParents[k] = v
+		pm.storeParents[k] = v
 	}
 	for k, v := range cms.storeParents {
-		if _, exists := storeParents[k]; !exists {
-			storeParents[k] = v
+		if _, exists := pm.storeParents[k]; !exists {
+			pm.storeParents[k] = v
 		}
 	}
 
 	// Merge giga stores: prefer materialized, fall back to lazy parents,
 	// then fall back to regular stores/storeParents.
-	gigaStoreParents := make(map[types.StoreKey]types.KVStore, len(cms.gigaKeys))
 	for _, key := range cms.gigaKeys {
 		if gigaStore, ok := cms.gigaStores[key]; ok {
-			gigaStoreParents[key] = gigaStore
+			pm.gigaStoreParents[key] = gigaStore
 		} else if gigaParent, ok := cms.gigaStoreParents[key]; ok {
-			gigaStoreParents[key] = gigaParent
+			pm.gigaStoreParents[key] = gigaParent
 		} else if store, ok := cms.stores[key]; ok {
-			gigaStoreParents[key] = store.(types.KVStore)
+			pm.gigaStoreParents[key] = store.(types.KVStore)
 		} else if parent, ok := cms.storeParents[key]; ok {
-			gigaStoreParents[key] = parent.(types.KVStore)
+			pm.gigaStoreParents[key] = parent.(types.KVStore)
 		}
 	}
 
 	cms.mu.RUnlock()
 
 	return Store{
-		mu:               &sync.RWMutex{},
+		mu:               pm.mu,
 		db:               nil,
-		stores:           make(map[types.StoreKey]types.CacheWrap, len(storeParents)),
-		storeParents:     storeParents,
+		stores:           pm.stores,
+		storeParents:     pm.storeParents,
 		keys:             cms.keys,
-		gigaStores:       make(map[types.StoreKey]types.KVStore, len(gigaStoreParents)),
-		gigaStoreParents: gigaStoreParents,
+		gigaStores:       pm.gigaStores,
+		gigaStoreParents: pm.gigaStoreParents,
 		gigaKeys:         cms.gigaKeys,
+		pooled:           pm,
 		traceWriter:      cms.traceWriter,
 		traceContext:     cms.traceContext,
 	}
@@ -459,7 +472,9 @@ func (cms Store) Close() {
 	}
 }
 
-// Release returns all pooled child stores back to their sync.Pools.
+// Release returns all pooled child stores back to their sync.Pools,
+// and returns the CMS's own maps to cmsPool if this Store was created
+// by newCacheMultiStoreFromCMS.
 func (cms Store) Release() {
 	cms.mu.Lock()
 	for _, s := range cms.stores {
@@ -477,7 +492,16 @@ func (cms Store) Release() {
 			gkv.Release()
 		}
 	}
+	pm := cms.pooled
 	cms.mu.Unlock()
+
+	if pm != nil {
+		clear(pm.stores)
+		clear(pm.storeParents)
+		clear(pm.gigaStores)
+		clear(pm.gigaStoreParents)
+		cmsPool.Put(pm)
+	}
 }
 
 func (cms Store) GetEarliestVersion() int64 {
