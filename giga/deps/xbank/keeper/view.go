@@ -38,9 +38,9 @@ type BaseViewKeeper struct {
 // NewBaseViewKeeper returns a new BaseViewKeeper.
 func NewBaseViewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey, ak types.AccountKeeper) BaseViewKeeper {
 	return BaseViewKeeper{
-		cdc:      cdc,
-		storeKey: storeKey,
-		ak:       ak,
+		cdc:             cdc,
+		storeKey:        storeKey,
+		ak:              ak,
 		UseRegularStore: true,
 	}
 }
@@ -97,18 +97,48 @@ func (k BaseViewKeeper) LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Co
 	return sdk.NewCoins()
 }
 
+// IterateAccountBalances iterates over the balances of a single account and
+// provides the token balance to a callback. If true is returned from the
+// callback, iteration is halted.
+func (k BaseViewKeeper) IterateAccountBalances(ctx sdk.Context, addr sdk.AccAddress, cb func(sdk.Coin) bool) {
+	accountStore := k.getAccountStore(ctx, addr)
+
+	iterator := accountStore.Iterator(nil, nil)
+	defer iterator.Close()
+
+	for ; iterator.Valid(); iterator.Next() {
+		var balance sdk.Coin
+		k.cdc.MustUnmarshal(iterator.Value(), &balance)
+
+		if cb(balance) {
+			break
+		}
+	}
+}
+
+// GetAllBalances returns all the balances for a given account address.
+func (k BaseViewKeeper) GetAllBalances(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins {
+	balances := sdk.NewCoins()
+	k.IterateAccountBalances(ctx, addr, func(balance sdk.Coin) bool {
+		balances = append(balances, balance)
+		return false
+	})
+
+	return balances.Sort()
+}
+
 // SpendableCoins returns the total balances of spendable coins for an account
 // by address. If the account has no spendable coins, an empty Coins slice is
 // returned.
 func (k BaseViewKeeper) SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins {
-	total := k.GetBalance(ctx, addr, "usei").Amount
-	locked := k.LockedCoins(ctx, addr).AmountOf("usei")
+	total := k.GetAllBalances(ctx, addr)
+	locked := k.LockedCoins(ctx, addr)
 
-	spendable := total.Sub(locked)
-	if spendable.IsNegative() {
+	spendable, hasNeg := total.SafeSub(locked)
+	if hasNeg {
 		return sdk.NewCoins()
 	}
-	return sdk.NewCoins(sdk.NewCoin("usei", spendable))
+	return spendable
 }
 
 // getAccountStore gets the account store of the given address.
