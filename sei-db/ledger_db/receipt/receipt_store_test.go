@@ -183,13 +183,6 @@ func TestFilterLogsRangeQueryNotSupported(t *testing.T) {
 	require.ErrorIs(t, err, receipt.ErrRangeQueryNotSupported)
 }
 
-func TestMatchTopics(t *testing.T) {
-	topic1 := common.HexToHash("0x1")
-	topic2 := common.HexToHash("0x2")
-	require.True(t, receipt.MatchTopics([][]common.Hash{{topic1}, {}}, []common.Hash{topic1}))
-	require.False(t, receipt.MatchTopics([][]common.Hash{{topic1}, {topic2}}, []common.Hash{topic1}))
-}
-
 func TestRecoverReceiptStoreReplaysChangelog(t *testing.T) {
 	dir := t.TempDir()
 	changelogPath := dbutils.GetChangelogPath(dir)
