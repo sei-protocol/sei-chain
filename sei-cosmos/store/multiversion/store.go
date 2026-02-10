@@ -21,7 +21,7 @@ type MultiVersionStore interface {
 	SetEstimatedWriteset(index int, incarnation int, writeset WriteSet)
 	GetAllWritesetKeys() map[int][]string
 	CollectIteratorItems(index int) *db.MemDB
-	SetReadset(index int, readset ReadSet)
+	SetReadset(index int, readset ReadSet) ReadSet
 	GetReadset(index int) ReadSet
 	ClearReadset(index int)
 	VersionedIndexedStore(index int, incarnation int, abortChannel chan occ.Abort) *VersionIndexedStore
@@ -248,16 +248,16 @@ func (s *Store) GetAllWritesetKeys() map[int][]string {
 	return writesetKeys
 }
 
-func (s *Store) SetReadset(index int, readset ReadSet) {
-	// Clone the readset so the caller (VIS) can reuse its map via clear().
-	clone := make(ReadSet, len(readset))
-	for k, v := range readset {
-		clone[k] = v
-	}
+func (s *Store) SetReadset(index int, readset ReadSet) ReadSet {
+	// Swap ownership: take the caller's readset directly (no clone) and
+	// return the old one for the caller to reuse. This eliminates the
+	// per-call clone allocation (~5.6 GB / 30s).
 	sl := s.slot(index)
 	sl.mu.Lock()
-	sl.readset = clone
+	old := sl.readset
+	sl.readset = readset
 	sl.mu.Unlock()
+	return old
 }
 
 func (s *Store) GetReadset(index int) ReadSet {

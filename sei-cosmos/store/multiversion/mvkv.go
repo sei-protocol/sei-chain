@@ -391,7 +391,14 @@ func (store *VersionIndexedStore) WriteToMultiVersionStore() {
 	// defer store.mtx.Unlock()
 	// defer telemetry.MeasureSince(time.Now(), "store", "mvkv", "write_mvs")
 	store.multiVersionStore.SetWriteset(store.transactionIndex, store.incarnation, store.writeset)
-	store.multiVersionStore.SetReadset(store.transactionIndex, store.readset)
+	// Swap readset with the slot's old one — avoids clone allocation.
+	// The old readset (if any) has stale data; Reset will clear it.
+	old := store.multiVersionStore.SetReadset(store.transactionIndex, store.readset)
+	if old != nil {
+		store.readset = old
+	} else {
+		store.readset = make(ReadSet)
+	}
 	store.multiVersionStore.SetIterateset(store.transactionIndex, store.iterateset)
 }
 
