@@ -330,10 +330,7 @@ func (t *Tree) ReplaceWith(other *Tree) error {
 	t.cowVersion = other.cowVersion
 	t.zeroCopy = other.zeroCopy
 
-	// Safety net: ensure the new snapshot uses MADV_RANDOM for tree operations.
-	// NewMmap() defaults to MADV_SEQUENTIAL for cold-start replay, but tree access
-	// patterns are random. Without this, the kernel aggressively discards accessed
-	// pages, which is catastrophic on high-latency storage (e.g. NAS).
+	// Safety net: ensure MADV_RANDOM is set on the new snapshot's mmap files.
 	if t.snapshot != nil {
 		t.snapshot.nodesMap.PrepareForRandomRead()
 		t.snapshot.leavesMap.PrepareForRandomRead()

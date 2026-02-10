@@ -179,13 +179,15 @@ func OpenSnapshot(snapshotDir string, opts Options) (*Snapshot, error) {
 		return errors.Join(errs...)
 	}
 
-	if nodesMap, err = NewMmap(filepath.Join(snapshotDir, FileNameNodes)); err != nil {
+	// Load snapshot mmap files with MADV_RANDOM and without MADV_WILLNEED.
+	// Snapshot prefetch is handled separately by prefetchSnapshot() below.
+	if nodesMap, err = NewMmapRandom(filepath.Join(snapshotDir, FileNameNodes)); err != nil {
 		return nil, cleanupHandles(err)
 	}
-	if leavesMap, err = NewMmap(filepath.Join(snapshotDir, FileNameLeaves)); err != nil {
+	if leavesMap, err = NewMmapRandom(filepath.Join(snapshotDir, FileNameLeaves)); err != nil {
 		return nil, cleanupHandles(err)
 	}
-	if kvsMap, err = NewMmap(filepath.Join(snapshotDir, FileNameKVs)); err != nil {
+	if kvsMap, err = NewMmapRandom(filepath.Join(snapshotDir, FileNameKVs)); err != nil {
 		return nil, cleanupHandles(err)
 	}
 
