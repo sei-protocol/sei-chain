@@ -109,41 +109,10 @@ func (c *ledgerCache) GetReceipt(txHash common.Hash) (*types.Receipt, bool) {
 		}
 		receipt, found := blockReceipts[txHash]
 		if found {
-			// Callers (e.g. RPC response formatting) may normalize TransactionIndex in-place.
-			// Clone to avoid mutating the cached receipt and corrupting future lookups.
-			return cloneReceipt(receipt), true
+			return receipt, true
 		}
 	}
 	return nil, false
-}
-
-// cloneReceipt makes a deep copy to keep cached receipts immutable to callers.
-func cloneReceipt(r *types.Receipt) *types.Receipt {
-	if r == nil {
-		return nil
-	}
-	c := *r
-	if r.Logs != nil {
-		logs := make([]*types.Log, len(r.Logs))
-		for i, lg := range r.Logs {
-			if lg == nil {
-				continue
-			}
-			logCopy := *lg
-			if lg.Topics != nil {
-				logCopy.Topics = append([]string(nil), lg.Topics...)
-			}
-			if lg.Data != nil {
-				logCopy.Data = append([]byte(nil), lg.Data...)
-			}
-			logs[i] = &logCopy
-		}
-		c.Logs = logs
-	}
-	if r.LogsBloom != nil {
-		c.LogsBloom = append([]byte(nil), r.LogsBloom...)
-	}
-	return &c
 }
 
 func (c *ledgerCache) AddReceiptsBatch(blockNumber uint64, receipts []receiptCacheEntry) {
