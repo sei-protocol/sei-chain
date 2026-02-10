@@ -892,6 +892,32 @@ describe("GIGA EVM Tests", function () {
       // Router should have 0 proxy tokens (all passed through)
       expect(routerBalAfter).to.equal(0n);
     });
+
+    it("should handle V3 callback swap reading state from prior block", async function () {
+      // Wait for a new block so the swap's STATICCALL balance checks
+      // read committed (cross-block) state from the pools.
+      await delay();
+
+      const swapAmt = ethers.parseUnits("1000", 18);
+      await (await tokenA.approve(await router.getAddress(), swapAmt * 2n, { gasPrice: ethers.parseUnits('100', 'gwei') })).wait();
+
+      // Do 2 sequential swaps — each reads state written by the previous one
+      for (let i = 0; i < 2; i++) {
+        const tx = await router.executeMultiHopSwap(
+          swapAmt,
+          await tokenA.getAddress(),
+          await proxyToken.getAddress(),
+          await tokenB.getAddress(),
+          await v3Pool1.getAddress(),
+          await v3Pool2.getAddress(),
+          await v2Pool.getAddress(),
+          owner.address,
+          { gasPrice: ethers.parseUnits('100', 'gwei'), gasLimit: 3000000 }
+        );
+        const receipt = await tx.wait();
+        expect(receipt.status).to.equal(1);
+      }
+    });
   });
 
   describe("Gas Usage Verification", function () {
@@ -957,18 +983,21 @@ describe("GIGA EVM Tests", function () {
   // ============================================================================
   describe("Cross-Block State Consistency", function () {
     const SUPPLY = ethers.parseUnits("10000000", 18);
+    let pToken;
 
-    it("should correctly read proxy token balance written in previous block", async function () {
-      // Deploy proxy token
+    before(async function () {
+      // Deploy a single proxy token for both cross-block tests
       const TokenImplementation = await ethers.getContractFactory("TokenImplementation");
       const impl = await TokenImplementation.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
       await impl.waitForDeployment();
       const ProxyToken = await ethers.getContractFactory("ProxyToken");
       const proxy = await ProxyToken.deploy(await impl.getAddress(), { gasPrice: ethers.parseUnits('100', 'gwei') });
       await proxy.waitForDeployment();
-      const pToken = await ethers.getContractAt("TokenImplementation", await proxy.getAddress());
+      pToken = await ethers.getContractAt("TokenImplementation", await proxy.getAddress());
       await (await pToken.mint(owner.address, SUPPLY, { gasPrice: ethers.parseUnits('100', 'gwei') })).wait();
+    });
 
+    it("should correctly read proxy token balance written in previous block", async function () {
       // Block N: Transfer to a fresh address (goes through delegatecall storage write)
       const recipient = ethers.Wallet.createRandom().connect(ethers.provider);
       const amount = ethers.parseUnits("12345", 18);
@@ -979,7 +1008,6 @@ describe("GIGA EVM Tests", function () {
       const blockN = receipt.blockNumber;
 
       // Block N+1: Read the balance — must see the write from block N
-      // Wait for next block to ensure we're reading committed state
       await delay();
       const bal = await pToken.balanceOf(await recipient.getAddress());
       expect(bal).to.equal(amount);
@@ -988,118 +1016,27 @@ describe("GIGA EVM Tests", function () {
     });
 
     it("should maintain consistency across multiple blocks of proxy token ops", async function () {
-      const TokenImplementation = await ethers.getContractFactory("TokenImplementation");
-      const impl = await TokenImplementation.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
-      await impl.waitForDeployment();
-      const ProxyToken = await ethers.getContractFactory("ProxyToken");
-      const proxy = await ProxyToken.deploy(await impl.getAddress(), { gasPrice: ethers.parseUnits('100', 'gwei') });
-      await proxy.waitForDeployment();
-      const pToken = await ethers.getContractAt("TokenImplementation", await proxy.getAddress());
-      await (await pToken.mint(owner.address, SUPPLY, { gasPrice: ethers.parseUnits('100', 'gwei') })).wait();
-
       // Do 3 rounds of: transfer, wait, verify
       // Each round depends on the previous round's committed state
-      let running = SUPPLY;
       const addr = ethers.Wallet.createRandom().connect(ethers.provider);
       const addrHex = await addr.getAddress();
       let recipientBal = 0n;
       const transferAmt = ethers.parseUnits("1000", 18);
 
       for (let round = 0; round < 3; round++) {
+        const ownerBalBefore = await pToken.balanceOf(owner.address);
         const tx = await pToken.transfer(addrHex, transferAmt, {
           gasPrice: ethers.parseUnits('100', 'gwei'),
         });
         await tx.wait();
-        running -= transferAmt;
         recipientBal += transferAmt;
 
-        // Verify in the same or next block
         const ownerBal = await pToken.balanceOf(owner.address);
         const rBal = await pToken.balanceOf(addrHex);
-        expect(ownerBal).to.equal(running);
+        expect(ownerBal).to.equal(ownerBalBefore - transferAmt);
         expect(rBal).to.equal(recipientBal);
       }
       console.log(`        3 rounds of proxy token transfer+verify completed`);
-    });
-
-    it("should handle V3 callback swap where pool reads state from prior block", async function () {
-      // This test sets up pool state in block N, then does a callback swap
-      // in block N+1. The swap's STATICCALL balance check must read committed
-      // state from block N.
-      //
-      // Path: tokenA --(V3 pool1)--> proxyToken --(V3 pool2)--> tokenB --(V2 pool)--> tokenA
-
-      const SimpleToken = await ethers.getContractFactory("SimpleToken");
-      const tokenA = await SimpleToken.deploy("CrossA", "CRA", SUPPLY, { gasPrice: ethers.parseUnits('100', 'gwei') });
-      await tokenA.waitForDeployment();
-      const tokenB = await SimpleToken.deploy("CrossB", "CRB", SUPPLY, { gasPrice: ethers.parseUnits('100', 'gwei') });
-      await tokenB.waitForDeployment();
-
-      const TokenImplementation = await ethers.getContractFactory("TokenImplementation");
-      const impl = await TokenImplementation.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
-      await impl.waitForDeployment();
-      const ProxyToken = await ethers.getContractFactory("ProxyToken");
-      const proxy = await ProxyToken.deploy(await impl.getAddress(), { gasPrice: ethers.parseUnits('100', 'gwei') });
-      await proxy.waitForDeployment();
-      const pToken = await ethers.getContractAt("TokenImplementation", await proxy.getAddress());
-      await (await pToken.mint(owner.address, SUPPLY, { gasPrice: ethers.parseUnits('100', 'gwei') })).wait();
-
-      // Deploy pools with correct token pairs
-      const CallbackPool = await ethers.getContractFactory("CallbackPool");
-      // V3 Pool 1: tokenA (token0) / proxyToken (token1)
-      const pool1 = await CallbackPool.deploy(
-        await tokenA.getAddress(), await pToken.getAddress(),
-        { gasPrice: ethers.parseUnits('100', 'gwei') }
-      );
-      await pool1.waitForDeployment();
-      // V3 Pool 2: proxyToken (token0) / tokenB (token1)
-      const pool2 = await CallbackPool.deploy(
-        await pToken.getAddress(), await tokenB.getAddress(),
-        { gasPrice: ethers.parseUnits('100', 'gwei') }
-      );
-      await pool2.waitForDeployment();
-      // V2 Pool: tokenB (token0) / tokenA (token1)
-      const SimpleV2Pool = await ethers.getContractFactory("SimpleV2Pool");
-      const v2Pool = await SimpleV2Pool.deploy(
-        await tokenB.getAddress(), await tokenA.getAddress(),
-        { gasPrice: ethers.parseUnits('100', 'gwei') }
-      );
-      await v2Pool.waitForDeployment();
-
-      // Block N: Seed all pools with liquidity
-      const LIQ = ethers.parseUnits("1000000", 18);
-      await (await pToken.transfer(await pool1.getAddress(), LIQ, { gasPrice: ethers.parseUnits('100', 'gwei') })).wait();
-      await (await tokenB.transfer(await pool2.getAddress(), LIQ, { gasPrice: ethers.parseUnits('100', 'gwei') })).wait();
-      await (await tokenB.transfer(await v2Pool.getAddress(), LIQ, { gasPrice: ethers.parseUnits('100', 'gwei') })).wait();
-      await (await tokenA.transfer(await v2Pool.getAddress(), LIQ, { gasPrice: ethers.parseUnits('100', 'gwei') })).wait();
-      await (await v2Pool.addLiquidity({ gasPrice: ethers.parseUnits('100', 'gwei') })).wait();
-
-      // Block N+1: Do V3 callback swaps — pool balance checks read committed state from block N
-      await delay();
-
-      const CallbackRouter = await ethers.getContractFactory("CallbackRouter");
-      const rtr = await CallbackRouter.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
-      await rtr.waitForDeployment();
-      await (await tokenA.approve(await rtr.getAddress(), SUPPLY, { gasPrice: ethers.parseUnits('100', 'gwei') })).wait();
-
-      // Do 2 sequential swaps, each reading state written by the previous swap
-      for (let i = 0; i < 2; i++) {
-        const swapAmt = ethers.parseUnits("1000", 18);
-        const tx = await rtr.executeMultiHopSwap(
-          swapAmt,
-          await tokenA.getAddress(),
-          await pToken.getAddress(),
-          await tokenB.getAddress(),
-          await pool1.getAddress(),
-          await pool2.getAddress(),
-          await v2Pool.getAddress(),
-          owner.address,
-          { gasPrice: ethers.parseUnits('100', 'gwei'), gasLimit: 3000000 }
-        );
-        await tx.wait();
-      }
-
-      console.log(`        2 sequential cross-block V3 callback swaps completed`);
     });
   });
 });
