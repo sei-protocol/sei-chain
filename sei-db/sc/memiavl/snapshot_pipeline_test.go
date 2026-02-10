@@ -1,6 +1,7 @@
 package memiavl
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -132,13 +133,14 @@ func TestWriteSnapshotWithBuffer(t *testing.T) {
 
 	snapshotDir := t.TempDir()
 
-	// Test with custom buffer size
+	// Test with custom buffer size (no rate limiting)
 	err := writeSnapshotWithBuffer(
 		context.Background(),
 		snapshotDir,
 		tree.version,
 		1024*1024, // 1MB buffer
 		int64(tree.root.Size()),
+		nil, // no rate limiting
 		logger.NewNopLogger(),
 		func(w *snapshotWriter) (uint32, error) {
 			if tree.root == nil {
@@ -294,4 +296,118 @@ func TestImportWithContext(t *testing.T) {
 	if err != nil {
 		require.Contains(t, err.Error(), "context")
 	}
+}
+
+// TestGlobalRateLimiterSharedAcrossWriters tests that a single global rate limiter
+// is shared across all writers in a snapshot operation.
+func TestGlobalRateLimiterSharedAcrossWriters(t *testing.T) {
+	// Create a rate limiter with 1 MB/s limit
+	limiter := NewGlobalRateLimiter(1)
+	require.NotNil(t, limiter)
+
+	// Verify the limiter has the expected burst size (4MB)
+	require.Equal(t, 4*1024*1024, limiter.Burst())
+
+	// Create a tree with some data
+	tree := New(0)
+	for _, changes := range ChangeSets {
+		tree.ApplyChangeSet(changes)
+		_, _, err := tree.SaveVersion(true)
+		require.NoError(t, err)
+	}
+
+	snapshotDir := t.TempDir()
+
+	// Write snapshot with rate limiting
+	err := tree.WriteSnapshotWithRateLimit(context.Background(), snapshotDir, limiter)
+	require.NoError(t, err)
+
+	// Verify snapshot is valid
+	opts := Options{}
+	opts.FillDefaults()
+	snapshot, err := OpenSnapshot(snapshotDir, opts)
+	require.NoError(t, err)
+	defer snapshot.Close()
+
+	// Verify data integrity
+	require.Equal(t, uint32(tree.Version()), snapshot.Version())
+}
+
+// TestNewGlobalRateLimiterDisabled tests that nil limiter means no rate limiting
+func TestNewGlobalRateLimiterDisabled(t *testing.T) {
+	// 0 means unlimited
+	limiter := NewGlobalRateLimiter(0)
+	require.Nil(t, limiter)
+
+	// Negative values also mean unlimited
+	limiter = NewGlobalRateLimiter(-1)
+	require.Nil(t, limiter)
+}
+
+// TestRateLimitedWriterCorrectness verifies that rate-limited writes produce
+// the exact same output as the underlying writer (no data corruption).
+func TestRateLimitedWriterCorrectness(t *testing.T) {
+	var buf bytes.Buffer
+	limiter := NewGlobalRateLimiter(1) // 1 MB/s to exercise the limiter path
+
+	w := newRateLimitedWriter(context.Background(), &buf, limiter)
+
+	// Write known data
+	data := []byte("hello world, this is a rate-limited write test")
+	n, err := w.Write(data)
+	require.NoError(t, err)
+	require.Equal(t, len(data), n)
+	require.Equal(t, data, buf.Bytes())
+}
+
+// TestRateLimitedWriterLargeWrite verifies that writes larger than burst size
+// are correctly split and fully written.
+func TestRateLimitedWriterLargeWrite(t *testing.T) {
+	var buf bytes.Buffer
+	limiter := NewGlobalRateLimiter(1) // 1 MB/s, burst = 4MB
+
+	w := newRateLimitedWriter(context.Background(), &buf, limiter)
+
+	// Write 8MB (> 4MB burst) to force multiple wait rounds
+	data := make([]byte, 8*1024*1024)
+	for i := range data {
+		data[i] = byte(i % 256)
+	}
+	n, err := w.Write(data)
+	require.NoError(t, err)
+	require.Equal(t, len(data), n)
+	require.Equal(t, data, buf.Bytes())
+}
+
+// TestRateLimitedWriterContextCancellation verifies that a cancelled context
+// causes writes to fail promptly.
+func TestRateLimitedWriterContextCancellation(t *testing.T) {
+	var buf bytes.Buffer
+	limiter := NewGlobalRateLimiter(1) // 1 MB/s
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	w := newRateLimitedWriter(ctx, &buf, limiter)
+
+	// Write should fail due to cancelled context
+	data := make([]byte, 8*1024*1024) // large enough to require WaitN
+	_, err := w.Write(data)
+	require.Error(t, err)
+}
+
+// TestRateLimitedWriterNilLimiterPassthrough verifies that nil limiter
+// returns the original writer without wrapping.
+func TestRateLimitedWriterNilLimiterPassthrough(t *testing.T) {
+	var buf bytes.Buffer
+	w := newRateLimitedWriter(context.Background(), &buf, nil)
+	// Should be the original writer, not wrapped
+	require.Equal(t, &buf, w)
+}
+
+// TestDefaultConfigSnapshotWriteRateMBps verifies the default config value.
+func TestDefaultConfigSnapshotWriteRateMBps(t *testing.T) {
+	opts := Options{}
+	opts.FillDefaults()
+	require.Equal(t, 100, opts.SnapshotWriteRateMBps, "default rate should be 100 MB/s")
 }
