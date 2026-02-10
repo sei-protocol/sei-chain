@@ -1875,6 +1875,9 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	// by the ante handler. We replicate this by charging fees on the stateDB first,
 	// then executing with feeAlreadyCharged=true so Execute() skips buyGas/refund/coinbase.
 	baseFee := app.GigaEvmKeeper.GetBaseFee(ctx)
+	if baseFee == nil {
+		baseFee = new(big.Int) // default to 0 when base fee is unset
+	}
 	effectiveGasPrice := new(big.Int).Add(new(big.Int).Set(ethTx.GasTipCap()), baseFee)
 	if effectiveGasPrice.Cmp(ethTx.GasFeeCap()) > 0 {
 		effectiveGasPrice.Set(ethTx.GasFeeCap())
