@@ -28,6 +28,9 @@ describe("Uniswap Test", function () {
     let originalSeidConfig;
     before(async function () {
         const accounts = hre.config.networks[testChain].accounts
+        if (!accounts || !accounts.mnemonic) {
+            throw new Error("DAPP_TESTS_MNEMONIC environment variable is not set. Please export it before running tests.");
+        }
         const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
         deployer = deployerWallet.connect(hre.ethers.provider);
 
@@ -298,8 +301,10 @@ describe("Uniswap Test", function () {
     after(async function () {
         // Set the chain back to regular state
         console.log("Resetting")
-        await execute(`seid config chain-id ${originalSeidConfig["chain-id"]}`)
-        await execute(`seid config node ${originalSeidConfig["node"]}`)
-        await execute(`seid config keyring-backend ${originalSeidConfig["keyring-backend"]}`)
+        if (originalSeidConfig) {
+            await execute(`seid config chain-id ${originalSeidConfig["chain-id"]}`)
+            await execute(`seid config node ${originalSeidConfig["node"]}`)
+            await execute(`seid config keyring-backend ${originalSeidConfig["keyring-backend"]}`)
+        }
     })
 })
