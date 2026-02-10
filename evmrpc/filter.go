@@ -963,12 +963,25 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	blockHeight := block.Block.Height
 	blockHash := common.BytesToHash(block.BlockID.Hash)
 
+	// Pre-encode bloom filter indexes for fast per-receipt filtering
+	hasFilters := len(crit.Addresses) != 0 || len(crit.Topics) != 0
+	var filterIndexes [][]bloomIndexes
+	if hasFilters {
+		filterIndexes = EncodeFilters(crit.Addresses, crit.Topics)
+	}
+
 	// Fetch receipts individually and filter logs locally
 	var logIndex uint
 	for txIdx, txHashEntry := range txHashes {
 		rcpt, err := f.k.GetReceipt(ctx, txHashEntry.hash)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s: %v", txHashEntry.hash.Hex(), err))
+			continue
+		}
+
+		// Skip receipt if its bloom filter doesn't match the criteria
+		if hasFilters && len(rcpt.LogsBloom) > 0 && !MatchFilters(ethtypes.Bloom(rcpt.LogsBloom), filterIndexes) {
+			logIndex += uint(len(rcpt.Logs))
 			continue
 		}
 
