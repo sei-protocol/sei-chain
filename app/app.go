@@ -89,6 +89,7 @@ import (
 	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -1867,8 +1868,18 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	gigaExecutor := gigaexecutor.NewGethExecutor(*blockCtx, stateDB, cfg, vm.Config{}, gigaprecompiles.AllCustomPrecompilesFailFast)
 
 	// Execute the transaction through giga VM
+	// Note: Execute() internally calls BuyGas() which deducts fees from sender's balance
 	execResult, execErr := gigaExecutor.ExecuteTransaction(ethTx, sender, app.GigaEvmKeeper.GetBaseFee(ctx), &gp)
 	if execErr != nil {
+		// Execution failed (e.g., intrinsic gas error, floor data gas error)
+		// BuyGas() was already called inside Execute(), so fees were deducted.
+		// We need to:
+		// 1. Increment the nonce (Execute() didn't get far enough to do this)
+		// 2. Finalize to commit the fee deduction and nonce increment
+		// This matches V2 behavior where fees and nonce are always updated for
+		// transactions that pass ante checks, even if execution fails.
+		stateDB.SetNonce(sender, stateDB.GetNonce(sender)+1, tracing.NonceChangeEoACall)
+		stateDB.Finalize() // Commit fee deduction and nonce increment
 		return &abci.ExecTxResult{
 			Code: 1,
 			Log:  fmt.Sprintf("giga executor apply message error: %v", execErr),
