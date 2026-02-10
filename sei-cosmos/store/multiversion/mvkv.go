@@ -110,13 +110,20 @@ func NewVersionIndexedStore(parent types.KVStore, multiVersionStore MultiVersion
 }
 
 // Reset reinitializes the store for reuse from a pool.
-// We allocate fresh maps and slices instead of clearing/reusing because the old
-// data may have been handed off to the multiversion store (via SetReadset/
-// SetWriteset/SetIterateset) and is still referenced for validation.
+// SetReadset/SetWriteset/SetIterateset now clone data before storing, so we can
+// safely clear and reuse the maps/slices here instead of allocating fresh ones.
 func (store *VersionIndexedStore) Reset(parent types.KVStore, mvs MultiVersionStore, index, incarnation int, abortCh chan scheduler.Abort) {
-	store.readset = make(ReadSet)
-	store.writeset = make(map[string][]byte)
-	store.iterateset = nil
+	if store.readset != nil {
+		clear(store.readset)
+	} else {
+		store.readset = make(ReadSet)
+	}
+	if store.writeset != nil {
+		clear(store.writeset)
+	} else {
+		store.writeset = make(map[string][]byte)
+	}
+	store.iterateset = store.iterateset[:0]
 	store.parent = parent
 	store.multiVersionStore = mvs
 	store.transactionIndex = index
