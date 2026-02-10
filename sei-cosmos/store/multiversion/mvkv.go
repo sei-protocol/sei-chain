@@ -77,8 +77,8 @@ type VersionIndexedStore struct {
 	// mtx sync.Mutex
 	// used for tracking reads and writes for eventual validation + persistence into multi-version store
 	// TODO: does this need sync.Map?
-	readset    map[string][][]byte // contains the key -> []value mapping for all keys read from the store (not mvkv, underlying store)
-	writeset   map[string][]byte   // contains the key -> value mapping for all keys written to the store
+	readset    ReadSet           // contains the key -> value mapping for all keys read from the store (not mvkv, underlying store)
+	writeset   map[string][]byte // contains the key -> value mapping for all keys written to the store
 	iterateset Iterateset
 	// TODO: need to add iterateset here as well
 
@@ -98,7 +98,7 @@ var _ IterateSetHandler = (*VersionIndexedStore)(nil)
 
 func NewVersionIndexedStore(parent types.KVStore, multiVersionStore MultiVersionStore, transactionIndex, incarnation int, abortChannel chan scheduler.Abort) *VersionIndexedStore {
 	return &VersionIndexedStore{
-		readset:           make(map[string][][]byte),
+		readset:           make(ReadSet),
 		writeset:          make(map[string][]byte),
 		iterateset:        []*iterationTracker{},
 		parent:            parent,
@@ -109,8 +109,23 @@ func NewVersionIndexedStore(parent types.KVStore, multiVersionStore MultiVersion
 	}
 }
 
+// Reset reinitializes the store for reuse from a pool.
+// We allocate fresh maps and slices instead of clearing/reusing because the old
+// data may have been handed off to the multiversion store (via SetReadset/
+// SetWriteset/SetIterateset) and is still referenced for validation.
+func (store *VersionIndexedStore) Reset(parent types.KVStore, mvs MultiVersionStore, index, incarnation int, abortCh chan scheduler.Abort) {
+	store.readset = make(ReadSet)
+	store.writeset = make(map[string][]byte)
+	store.iterateset = nil
+	store.parent = parent
+	store.multiVersionStore = mvs
+	store.transactionIndex = index
+	store.incarnation = incarnation
+	store.abortChannel = abortCh
+}
+
 // GetReadset returns the readset
-func (store *VersionIndexedStore) GetReadset() map[string][][]byte {
+func (store *VersionIndexedStore) GetReadset() ReadSet {
 	return store.readset
 }
 
@@ -149,8 +164,7 @@ func (store *VersionIndexedStore) Get(key []byte) []byte {
 	}
 	// read the readset to see if the value exists - and return if applicable
 	if readsetVal, ok := store.readset[strKey]; ok {
-		// just return the first one, if there is more than one, we will fail the validation anyways
-		return readsetVal[0]
+		return readsetVal.Value
 	}
 
 	// if we didn't find it, then we want to check the multivalue store + add to readset if applicable
@@ -198,12 +212,11 @@ func (store *VersionIndexedStore) ValidateReadset() bool {
 	// iterate over readset keys and values
 	for _, strKey := range readsetKeys {
 		key := []byte(strKey)
-		valueArr := store.readset[strKey]
-		if len(valueArr) != 1 {
-			// if we have more than one value, we will fail the validation since we dedup when adding to readset
+		entry := store.readset[strKey]
+		if entry.Conflict {
 			return false
 		}
-		value := valueArr[0]
+		value := entry.Value
 		mvsValue := store.multiVersionStore.GetLatestBeforeIndex(store.transactionIndex, key)
 		if mvsValue != nil {
 			if mvsValue.IsEstimate() {
@@ -388,16 +401,12 @@ func (store *VersionIndexedStore) UpdateReadSet(key []byte, value []byte) {
 	keyStr := string(key)
 	existing, ok := store.readset[keyStr]
 	if !ok {
-		// fast path: new key, store value directly (avoids empty slice + append)
-		store.readset[keyStr] = [][]byte{value}
+		store.readset[keyStr] = ReadSetEntry{Value: value}
 		return
 	}
-	for _, readsetVal := range existing {
-		if bytes.Equal(value, readsetVal) {
-			return
-		}
+	if !existing.Conflict && !bytes.Equal(value, existing.Value) {
+		store.readset[keyStr] = ReadSetEntry{Conflict: true}
 	}
-	store.readset[keyStr] = append(existing, value)
 }
 
 // Write implements types.CacheWrap so this store can exist on the cache multi store
