@@ -99,6 +99,16 @@ func (s *DBImpl) SetEVM(evm *vm.EVM) {}
 func (s *DBImpl) AddPreimage(_ common.Hash, _ []byte) {}
 
 func (s *DBImpl) Cleanup() {
+	// Release CMS resources from contexts created by Snapshot (indices > 0)
+	// and the current context. Index 0 is the original caller context
+	// (e.g., the OCC task context) and must NOT be released by us.
+	if len(s.snapshottedCtxs) > 0 {
+		s.releaseCtxResources(s.ctx)
+		for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
+			s.releaseCtxResources(s.snapshottedCtxs[i])
+		}
+	}
+
 	if s.tempState != nil {
 		releaseAccessList(s.tempState.transientAccessLists)
 		s.tempState.transientAccessLists = nil
@@ -110,6 +120,12 @@ func (s *DBImpl) Cleanup() {
 
 func (s *DBImpl) CleanupForTracer() {
 	s.flushCtxs()
+	// Release CMS resources from non-base contexts (they've been written).
+	// The base context (index 0) is kept as s.ctx for the next trace.
+	s.releaseCtxResources(s.ctx)
+	for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
+		s.releaseCtxResources(s.snapshottedCtxs[i])
+	}
 	if len(s.snapshottedCtxs) > 0 {
 		s.ctx = s.snapshottedCtxs[0]
 	}
