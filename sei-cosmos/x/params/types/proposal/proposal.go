@@ -3,7 +3,7 @@ package proposal
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"strings"
 
 	yaml "gopkg.in/yaml.v2"

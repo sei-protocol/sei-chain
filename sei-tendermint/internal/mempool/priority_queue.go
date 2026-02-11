@@ -5,7 +5,7 @@ import (
 	"sort"
 	"sync"
 
-	tmmath "github.com/tendermint/tendermint/libs/math"
+	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 )
 
 var _ heap.Interface = (*TxPriorityQueue)(nil)
@@ -106,7 +106,7 @@ func (pq *TxPriorityQueue) GetEvictableTxs(priority, txSize, totalSize, cap int6
 	pq.mtx.RLock()
 	defer pq.mtx.RUnlock()
 
-	txs := []*WrappedTx{}
+	txs := make([]*WrappedTx, 0, len(pq.txs))
 	txs = append(txs, pq.txs...)
 	for _, queue := range pq.evmQueue {
 		txs = append(txs, queue[1:]...)

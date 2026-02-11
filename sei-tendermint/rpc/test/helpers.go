@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/log"
-	tmnet "github.com/tendermint/tendermint/libs/net"
-	"github.com/tendermint/tendermint/libs/service"
-	"github.com/tendermint/tendermint/node"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	rpcclient "github.com/tendermint/tendermint/rpc/jsonrpc/client"
+	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/client"
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -128,7 +128,7 @@ func StartTendermint(
 	return tmNode, func(ctx context.Context) error {
 		cancel()
 		tmNode.Wait()
-		os.RemoveAll(conf.RootDir)
+		_ = os.RemoveAll(conf.RootDir)
 		return nil
 	}, nil
 }

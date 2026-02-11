@@ -18,7 +18,7 @@ import (
 	"github.com/creachadair/tomledit/transform"
 	"github.com/spf13/viper"
 
-	"github.com/tendermint/tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 )
 
 func init() {
@@ -71,7 +71,7 @@ func main() {
 	}
 
 	if *outPath == "" {
-		os.Stdout.Write(buf.Bytes())
+		_, _ = os.Stdout.Write(buf.Bytes())
 	} else if err := atomicfile.WriteData(*outPath, buf.Bytes(), 0600); err != nil {
 		log.Fatalf("Writing output: %v", err)
 	}
@@ -95,11 +95,11 @@ func ApplyFixes(ctx context.Context, doc *tomledit.Document) error {
 
 // LoadConfig loads and parses the TOML document from path.
 func LoadConfig(path string) (*tomledit.Document, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return tomledit.Parse(f)
 }
 

@@ -97,26 +97,22 @@ func BenchmarkDBWrite(db types.StateStore, inputKVDir string, numVersions int, c
 	// Write each version sequentially
 	totalTime := time.Duration(0)
 	writeCount := 0
-	v := 1
-	for ; v < (numVersions + 1); v++ {
+	for v := 1; v < numVersions+1; v++ {
 		// Write shuffled entries to RocksDB concurrently
 		fmt.Printf("On Version %+v\n", v)
-		totalLatencies := []time.Duration{}
 		startTime := time.Now()
 		latencies := writeToDBConcurrently(db, kvData, concurrency, int64(v), batchSize)
 		endTime := time.Now()
 		totalTime += endTime.Sub(startTime)
-		totalLatencies = append(totalLatencies, latencies...)
 		writeCount += len(latencies)
 
-		sort.Slice(totalLatencies, func(i, j int) bool { return totalLatencies[i] < totalLatencies[j] })
+		sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
 		// Latencies per version
-		fmt.Printf("P50 Latency: %v\n", utils.CalculatePercentile(totalLatencies, 50))
-		fmt.Printf("P75 Latency: %v\n", utils.CalculatePercentile(totalLatencies, 75))
-		fmt.Printf("P99 Latency: %v\n", utils.CalculatePercentile(totalLatencies, 99))
+		fmt.Printf("P50 Latency: %v\n", utils.CalculatePercentile(latencies, 50))
+		fmt.Printf("P75 Latency: %v\n", utils.CalculatePercentile(latencies, 75))
+		fmt.Printf("P99 Latency: %v\n", utils.CalculatePercentile(latencies, 99))
 		fmt.Printf("Total time: %v\n", totalTime)
 		fmt.Printf("Total Successfully Written %d\n", writeCount)
-		totalLatencies = nil
 		runtime.GC()
 	}
 

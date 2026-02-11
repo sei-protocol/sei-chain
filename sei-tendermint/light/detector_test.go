@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	provider_mocks "github.com/tendermint/tendermint/light/provider/mocks"
+	provider_mocks "github.com/sei-protocol/sei-chain/sei-tendermint/light/provider/mocks"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -13,11 +13,11 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/light"
-	"github.com/tendermint/tendermint/light/provider"
-	dbs "github.com/tendermint/tendermint/light/store/db"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
+	dbs "github.com/sei-protocol/sei-chain/sei-tendermint/light/store/db"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func TestLightClientAttackEvidence_Lunatic(t *testing.T) {

@@ -3,7 +3,7 @@ package multisig
 import (
 	fmt "fmt"
 
-	tmcrypto "github.com/tendermint/tendermint/crypto"
+	tmcrypto "github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"

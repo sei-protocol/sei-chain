@@ -39,11 +39,11 @@ func realFileSize(path string) (int64, error) {
 }
 
 func sync(path string) error {
-	dirFile, err := os.Open(path)
+	dirFile, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return err
 	}
-	defer dirFile.Close()
+	defer func() { _ = dirFile.Close() }()
 	return dirFile.Sync()
 }
 
@@ -60,13 +60,13 @@ func openLogWriter(path string) (res *logWriter, resErr error) {
 	if err := sync(filepath.Dir(path)); err != nil {
 		return nil, fmt.Errorf("sync(directory): %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY, filePerms)
+	f, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY, filePerms)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
 		if resErr != nil {
-			f.Close()
+			_ = f.Close()
 		}
 	}()
 	// Truncate the file to non-corrupted prefix and sync.
@@ -92,7 +92,7 @@ func openLogWriter(path string) (res *logWriter, resErr error) {
 func (w *logWriter) AppendEntry(entry []byte) (err error) {
 	var header [headerSize]byte
 	binary.BigEndian.PutUint32(header[0:4], crc32.Checksum(entry, crc32c))
-	binary.BigEndian.PutUint32(header[4:8], uint32(len(entry)))
+	binary.BigEndian.PutUint32(header[4:8], uint32(len(entry))) //nolint:gosec // WAL entries are bounded by max message size; no overflow risk
 	if _, err := w.buf.Write(header[:]); err != nil {
 		return err
 	}
@@ -112,5 +112,5 @@ func (w *logWriter) Sync() (err error) {
 
 // Close unconditionally releases all the resources.
 func (w *logWriter) Close() {
-	w.file.Close()
+	_ = w.file.Close()
 }
