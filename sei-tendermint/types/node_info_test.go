@@ -172,11 +172,11 @@ func TestNodeInfoAddChannel(t *testing.T) {
 	nodeInfo.Channels = []byte{}
 	require.Empty(t, nodeInfo.Channels)
 
-	nodeInfo.AddChannel(2)
+	nodeInfo = nodeInfo.AddChannel(2)
 	require.Contains(t, nodeInfo.Channels, byte(0x02))
 
 	// adding the same channel again shouldn't be a problem
-	nodeInfo.AddChannel(2)
+	nodeInfo = nodeInfo.AddChannel(2)
 	require.Contains(t, nodeInfo.Channels, byte(0x02))
 }
 
