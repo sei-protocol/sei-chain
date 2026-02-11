@@ -1,7 +1,7 @@
-package config
+package flatkv
 
-// FlatKVConfig defines configuration for the FlatKV (EVM) commit store.
-type FlatKVConfig struct {
+// Config defines configuration for the FlatKV (EVM) commit store.
+type Config struct {
 	// Fsync controls whether data DB writes use fsync for durability.
 	// When true (default): all data DB writes use Sync=true for maximum durability.
 	// When false: data DBs use Sync=false for better performance.
@@ -15,9 +15,9 @@ type FlatKVConfig struct {
 	AsyncWriteBuffer int `mapstructure:"async-write-buffer"`
 }
 
-// DefaultFlatKVConfig returns FlatKVConfig with safe default values.
-func DefaultFlatKVConfig() FlatKVConfig {
-	return FlatKVConfig{
+// DefaultConfig returns Config with safe default values.
+func DefaultConfig() Config {
+	return Config{
 		Fsync:            true,
 		AsyncWriteBuffer: 0,
 	}

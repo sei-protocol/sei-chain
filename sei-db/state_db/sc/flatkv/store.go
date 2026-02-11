@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
-	"github.com/sei-protocol/sei-chain/sei-db/config"
 	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -46,7 +45,7 @@ type pendingAccountWrite struct {
 // NOT thread-safe; callers must serialize all operations.
 type CommitStore struct {
 	log     logger.Logger
-	config  config.FlatKVConfig
+	config  Config
 	homeDir string
 
 	// Five separate PebbleDB instances
@@ -87,7 +86,7 @@ var _ Store = (*CommitStore)(nil)
 // NewCommitStore creates a new FlatKV commit store.
 // Note: The store is NOT opened yet. Call LoadVersion to open and initialize the DB.
 // This matches the memiavl.NewCommitStore pattern.
-func NewCommitStore(homeDir string, log logger.Logger, cfg config.FlatKVConfig) *CommitStore {
+func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore {
 	if log == nil {
 		log = logger.NewNopLogger()
 	}

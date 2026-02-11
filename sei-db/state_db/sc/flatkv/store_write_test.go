@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 	"github.com/stretchr/testify/require"
@@ -369,7 +368,7 @@ func TestAccountValueStorage(t *testing.T) {
 func TestStoreFsyncConfig(t *testing.T) {
 	t.Run("DefaultConfig", func(t *testing.T) {
 		dir := t.TempDir()
-		store := NewCommitStore(dir, nil, config.DefaultFlatKVConfig())
+		store := NewCommitStore(dir, nil, DefaultConfig())
 		_, err := store.LoadVersion(0, false)
 		require.NoError(t, err)
 		defer store.Close()
@@ -381,7 +380,7 @@ func TestStoreFsyncConfig(t *testing.T) {
 
 	t.Run("FsyncDisabled", func(t *testing.T) {
 		dir := t.TempDir()
-		store := NewCommitStore(dir, nil, config.FlatKVConfig{
+		store := NewCommitStore(dir, nil, Config{
 			Fsync: false,
 		})
 		_, err := store.LoadVersion(0, false)

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -65,14 +64,14 @@ func setupTestDB(t *testing.T) db_engine.DB {
 func setupTestStore(t *testing.T) *CommitStore {
 	t.Helper()
 	dir := t.TempDir()
-	s := NewCommitStore(dir, nil, config.DefaultFlatKVConfig())
+	s := NewCommitStore(dir, nil, DefaultConfig())
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	return s
 }
 
 // setupTestStoreWithConfig creates a test store with custom config
-func setupTestStoreWithConfig(t *testing.T, cfg config.FlatKVConfig) *CommitStore {
+func setupTestStoreWithConfig(t *testing.T, cfg Config) *CommitStore {
 	t.Helper()
 	dir := t.TempDir()
 	s := NewCommitStore(dir, nil, cfg)
@@ -95,7 +94,7 @@ func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 
 func TestStoreOpenClose(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(dir, nil, config.DefaultFlatKVConfig())
+	s := NewCommitStore(dir, nil, DefaultConfig())
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -104,7 +103,7 @@ func TestStoreOpenClose(t *testing.T) {
 
 func TestStoreClose(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(dir, nil, config.DefaultFlatKVConfig())
+	s := NewCommitStore(dir, nil, DefaultConfig())
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -299,7 +298,7 @@ func TestStorePersistence(t *testing.T) {
 	key := memiavlStorageKey(addr, slot)
 
 	// Write and close
-	s1 := NewCommitStore(dir, nil, config.DefaultFlatKVConfig())
+	s1 := NewCommitStore(dir, nil, DefaultConfig())
 	_, err := s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -309,7 +308,7 @@ func TestStorePersistence(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Reopen and verify
-	s2 := NewCommitStore(dir, nil, config.DefaultFlatKVConfig())
+	s2 := NewCommitStore(dir, nil, DefaultConfig())
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s2.Close()

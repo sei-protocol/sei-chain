@@ -7,7 +7,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -311,7 +310,7 @@ func TestStoreStoragePrefixIteration(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Iterate by address prefix
-	prefix := append(evmtypes.StateKeyPrefix, addr[:]...)
+	prefix := append(evm.StateKeyPrefix(), addr[:]...)
 	iter := s.IteratorByPrefix(prefix)
 	defer iter.Close()
 
@@ -350,7 +349,7 @@ func TestStoreIteratorByPrefixAddress(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Iterate by addr1 prefix
-	prefix1 := append(evmtypes.StateKeyPrefix, addr1[:]...)
+	prefix1 := append(evm.StateKeyPrefix(), addr1[:]...)
 	iter1 := s.IteratorByPrefix(prefix1)
 	defer iter1.Close()
 
@@ -361,7 +360,7 @@ func TestStoreIteratorByPrefixAddress(t *testing.T) {
 	require.Equal(t, 3, count1, "should find 3 slots for addr1")
 
 	// Iterate by addr2 prefix
-	prefix2 := append(evmtypes.StateKeyPrefix, addr2[:]...)
+	prefix2 := append(evm.StateKeyPrefix(), addr2[:]...)
 	iter2 := s.IteratorByPrefix(prefix2)
 	defer iter2.Close()
 

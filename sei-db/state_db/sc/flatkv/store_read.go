@@ -7,7 +7,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // Get returns the value for the given memiavl key.
@@ -181,12 +180,13 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 	// ParseMemIAVLEVMKey requires full key length (prefix + addr + slot = 53 bytes),
 	// but a storage prefix is only (prefix + addr = 21 bytes).
 	// Detect storage prefix: 0x03 || addr(20) = 21 bytes
-	if len(prefix) == len(evmtypes.StateKeyPrefix)+AddressLen &&
-		bytes.HasPrefix(prefix, evmtypes.StateKeyPrefix) {
+	statePrefix := evm.StateKeyPrefix()
+	if len(prefix) == len(statePrefix)+AddressLen &&
+		bytes.HasPrefix(prefix, statePrefix) {
 		// Storage address prefix: iterate all slots for this address
 		// Internal key format: addr(20) || slot(32)
 		// For prefix scan: use addr(20) as prefix
-		addrBytes := prefix[len(evmtypes.StateKeyPrefix):]
+		addrBytes := prefix[len(statePrefix):]
 		internalEnd := PrefixEnd(addrBytes)
 
 		return s.newStoragePrefixIterator(addrBytes, internalEnd, prefix)
