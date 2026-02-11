@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/internal/libs/protoio"
-	tmbytes "github.com/tendermint/tendermint/libs/bytes"
-	"github.com/tendermint/tendermint/libs/utils"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/protoio"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 const (
@@ -72,7 +72,7 @@ func VoteFromProto(pv *tmproto.Vote) (*Vote, error) {
 	if len(pv.Signature) > 0 {
 		sig, err := crypto.SigFromBytes(pv.Signature)
 		if err != nil {
-			return nil, fmt.Errorf("Signature: %w", err)
+			return nil, fmt.Errorf("signature: %w", err)
 		}
 		signature = utils.Some(sig)
 	}

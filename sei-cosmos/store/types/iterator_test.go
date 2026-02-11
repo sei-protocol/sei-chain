@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	iavltree "github.com/sei-protocol/sei-chain/sei-iavl"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/store/iavl"

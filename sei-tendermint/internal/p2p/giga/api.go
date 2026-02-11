@@ -1,9 +1,9 @@
 package giga
 
 import (
-	apb "github.com/tendermint/tendermint/internal/autobahn/pb"
-	pb "github.com/tendermint/tendermint/internal/p2p/giga/pb"
-	"github.com/tendermint/tendermint/internal/p2p/rpc"
+	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 )
 
 const kB rpc.InBytes = 1024

@@ -276,7 +276,7 @@ func (p *GateProvider) SubscribeCurrencyPairs(cps ...types.CurrencyPair) error {
 
 // subscribeTickers subscribes to the ticker channels for all pairs at once.
 func (p *GateProvider) subscribeTickers(cps ...types.CurrencyPair) error {
-	topics := []string{}
+	topics := make([]string, 0, len(cps))
 
 	for _, cp := range cps {
 		topics = append(topics, currencyPairToGatePair(cp))

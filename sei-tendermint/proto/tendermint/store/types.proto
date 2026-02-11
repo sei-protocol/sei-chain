@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package tendermint.store;
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/store";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/store";
 
 message BlockStoreState {
   int64 base = 1;

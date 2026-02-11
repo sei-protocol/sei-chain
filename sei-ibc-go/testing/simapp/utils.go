@@ -8,7 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/kv"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/tendermint/tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/simapp/helpers"

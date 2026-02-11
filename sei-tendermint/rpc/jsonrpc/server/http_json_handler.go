@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/tendermint/tendermint/libs/log"
-	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
 
 // HTTP + JSON handler
@@ -89,7 +89,7 @@ func makeJSONRPCHandler(funcMap map[string]*RPCFunc, logger log.Logger) http.Han
 
 func ensureBodyClose(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
+		defer func() { _ = r.Body.Close() }()
 		next(w, r)
 	}
 }
@@ -133,7 +133,7 @@ func writeListOfEndpoints(w http.ResponseWriter, funcMap map[string]*RPCFunc) {
 			noArgs[name] = name
 			continue
 		}
-		var query []string
+		query := make([]string, 0, len(rf.args))
 		for _, arg := range rf.args {
 			query = append(query, arg.name+"=_")
 		}

@@ -3,9 +3,9 @@ package giga
 import (
 	"context"
 
-	"github.com/tendermint/tendermint/internal/autobahn/consensus"
-	"github.com/tendermint/tendermint/internal/p2p/rpc"
-	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 type Service struct {

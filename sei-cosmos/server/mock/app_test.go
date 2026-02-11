@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/types"
 )
 
 // TestInitApp makes sure we can initialize this thing without an error

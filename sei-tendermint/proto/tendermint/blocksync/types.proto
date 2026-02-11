@@ -4,7 +4,7 @@ package tendermint.blocksync;
 
 import "tendermint/types/block.proto";
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/blocksync";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/blocksync";
 
 // BlockRequest requests a block for a specific height
 message BlockRequest {

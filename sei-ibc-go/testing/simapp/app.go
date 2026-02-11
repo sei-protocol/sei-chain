@@ -10,12 +10,12 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/spf13/cast"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmcfg "github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/log"
-	tmos "github.com/tendermint/tendermint/libs/os"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -491,10 +491,9 @@ func NewSimApp(
 func (app *SimApp) Name() string { return app.BaseApp.Name() }
 
 func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
-	events := []abci.Event{}
 	app.BeginBlocker(ctx)
 
-	typedTxs := []sdk.Tx{}
+	typedTxs := make([]sdk.Tx, 0, len(req.Txs))
 	for _, tx := range req.Txs {
 		typedTx, err := app.txDecoder(tx)
 		if err != nil {
@@ -504,7 +503,7 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 		}
 	}
 
-	txResults := []*abci.ExecTxResult{}
+	txResults := make([]*abci.ExecTxResult, 0, len(req.Txs))
 	for i, tx := range req.Txs {
 		ctx = ctx.WithTxIndex(i)
 		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTxV2{
@@ -522,7 +521,7 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 		})
 	}
 	vals := app.EndBlocker(ctx)
-	events = append(events, sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents)...)
+	events := sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents)
 	cpUpdates := legacytm.ABCIToLegacyConsensusParams(app.GetConsensusParams(ctx))
 
 	app.SetDeliverStateToCommit()

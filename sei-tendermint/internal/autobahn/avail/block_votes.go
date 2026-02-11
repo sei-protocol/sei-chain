@@ -1,7 +1,7 @@
 package avail
 
 import (
-	"github.com/tendermint/tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 )
 
 type blockVotes struct {

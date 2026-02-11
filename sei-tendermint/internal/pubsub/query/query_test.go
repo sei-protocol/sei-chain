@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/internal/pubsub/query"
-	"github.com/tendermint/tendermint/internal/pubsub/query/syntax"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query/syntax"
 )
 
 // Example events from the OpenAPI documentation:

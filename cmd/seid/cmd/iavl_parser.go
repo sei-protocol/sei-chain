@@ -24,7 +24,7 @@ var ModuleParserMap = map[string]ModuleParser{
 }
 
 func MintParser(key []byte) ([]string, error) {
-	keyItems := []string{}
+	var keyItems []string
 	switch {
 	case bytes.HasPrefix(key, minttypes.MinterKey):
 		keyItems = append(keyItems, "MinterKey")
@@ -35,7 +35,7 @@ func MintParser(key []byte) ([]string, error) {
 }
 
 func AccountParser(key []byte) ([]string, error) {
-	keyItems := []string{}
+	var keyItems []string
 	switch {
 	case bytes.HasPrefix(key, authtypes.AddressStoreKeyPrefix):
 		keyItems = append(keyItems, "AddressStore")
@@ -52,7 +52,7 @@ func AccountParser(key []byte) ([]string, error) {
 }
 
 func BankParser(key []byte) ([]string, error) {
-	keyItems := []string{}
+	var keyItems []string
 	switch {
 	case bytes.HasPrefix(key, banktypes.SupplyKey):
 		keyItems = append(keyItems, "Supply")
@@ -82,46 +82,61 @@ func BankParser(key []byte) ([]string, error) {
 }
 
 func parseLengthPrefixedAddress(remainingKey []byte) ([]string, []byte, error) {
-	keyItems := []string{}
-	lengthPrefix, remaining := int(remainingKey[0]), remainingKey[1:]
-	accountAddr := remaining[0:lengthPrefix]
+	if len(remainingKey) < 1 {
+		return nil, remainingKey, fmt.Errorf("remaining key is empty")
+	}
+	lengthPrefix := int(remainingKey[0]) //nolint:gosec // byte to int is always safe (0-255)
+	remaining := remainingKey[1:]
+	if len(remaining) < lengthPrefix {
+		return nil, remaining, fmt.Errorf("remaining key too short: need %d bytes, have %d", lengthPrefix, len(remaining))
+	}
+	accountAddr := remaining[:lengthPrefix]
 	remaining = remaining[lengthPrefix:]
 	bech32Addr, err := sdk.Bech32ifyAddressBytes(params.Bech32PrefixAccAddr, accountAddr)
 	if err != nil {
-		return keyItems, remaining, err
+		return nil, remaining, err
 	}
-	keyItems = append(keyItems, fmt.Sprintf("AddrBech32: %s", bech32Addr))
-	return keyItems, remaining, nil
+	return []string{fmt.Sprintf("AddrBech32: %s", bech32Addr)}, remaining, nil
 }
 
 func parseLengthPrefixedOperAddress(remainingKey []byte) ([]string, []byte, error) {
-	keyItems := []string{}
-	lengthPrefix, remaining := int(remainingKey[0]), remainingKey[1:]
-	accountAddr := remaining[0:lengthPrefix]
+	if len(remainingKey) < 1 {
+		return nil, remainingKey, fmt.Errorf("remaining key is empty")
+	}
+	lengthPrefix := int(remainingKey[0]) //nolint:gosec // byte to int is always safe (0-255)
+	remaining := remainingKey[1:]
+	if len(remaining) < lengthPrefix {
+		return nil, remaining, fmt.Errorf("remaining key too short: need %d bytes, have %d", lengthPrefix, len(remaining))
+	}
+	accountAddr := remaining[:lengthPrefix]
 	remaining = remaining[lengthPrefix:]
 	bech32Addr, err := sdk.Bech32ifyAddressBytes(params.Bech32PrefixValAddr, accountAddr)
 	if err != nil {
-		return keyItems, remaining, err
+		return nil, remaining, err
 	}
-	keyItems = append(keyItems, fmt.Sprintf("ValBech32: %s", bech32Addr))
-	return keyItems, remaining, nil
+	return []string{fmt.Sprintf("ValBech32: %s", bech32Addr)}, remaining, nil
 }
 
 func parseLengthPrefixedConsAddress(remainingKey []byte) ([]string, []byte, error) {
-	keyItems := []string{}
-	lengthPrefix, remaining := int(remainingKey[0]), remainingKey[1:]
-	accountAddr := remaining[0:lengthPrefix]
+	if len(remainingKey) < 1 {
+		return nil, remainingKey, fmt.Errorf("remaining key is empty")
+	}
+	lengthPrefix := int(remainingKey[0]) //nolint:gosec // byte to int is always safe (0-255)
+	remaining := remainingKey[1:]
+	if len(remaining) < lengthPrefix {
+		return nil, remaining, fmt.Errorf("remaining key too short: need %d bytes, have %d", lengthPrefix, len(remaining))
+	}
+	accountAddr := remaining[:lengthPrefix]
 	remaining = remaining[lengthPrefix:]
 	bech32Addr, err := sdk.Bech32ifyAddressBytes(params.Bech32PrefixConsAddr, accountAddr)
 	if err != nil {
-		return keyItems, remaining, err
+		return nil, remaining, err
 	}
-	keyItems = append(keyItems, fmt.Sprintf("ConsBech32: %s", bech32Addr))
-	return keyItems, remaining, nil
+	return []string{fmt.Sprintf("ConsBech32: %s", bech32Addr)}, remaining, nil
 }
 
 func StakingParser(key []byte) ([]string, error) {
-	keyItems := []string{}
+	var keyItems []string
 	switch {
 	case bytes.HasPrefix(key, stakingtypes.LastValidatorPowerKey):
 		keyItems = append(keyItems, "LastValidatorPower")

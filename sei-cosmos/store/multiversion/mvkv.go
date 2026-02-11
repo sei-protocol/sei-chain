@@ -6,7 +6,7 @@ import (
 	"io"
 	"sort"
 
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
 	scheduler "github.com/cosmos/cosmos-sdk/types/occ"

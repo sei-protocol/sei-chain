@@ -13,9 +13,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v600"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
-	"github.com/tendermint/tendermint/libs/log"
 )
 
 const (

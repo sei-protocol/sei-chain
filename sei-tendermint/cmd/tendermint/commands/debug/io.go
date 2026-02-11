@@ -15,14 +15,14 @@ import (
 // directories, into a destination file dest. It returns an error upon failure.
 // It assumes src is a directory.
 func zipDir(src, dest string) error {
-	zipFile, err := os.Create(dest)
+	zipFile, err := os.Create(filepath.Clean(dest))
 	if err != nil {
 		return err
 	}
-	defer zipFile.Close()
+	defer func() { _ = zipFile.Close() }()
 
 	zipWriter := zip.NewWriter(zipFile)
-	defer zipWriter.Close()
+	defer func() { _ = zipWriter.Close() }()
 
 	dirName := filepath.Base(dest)
 	baseDir := strings.TrimSuffix(dirName, filepath.Ext(dirName))
@@ -58,11 +58,11 @@ func zipDir(src, dest string) error {
 			return nil
 		}
 
-		file, err := os.Open(path)
+		file, err := os.Open(filepath.Clean(path))
 		if err != nil {
 			return err
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		_, err = io.Copy(headerWriter, file)
 		return err
@@ -77,17 +77,17 @@ func copyFile(src, dest string) error {
 		return err
 	}
 
-	srcFile, err := os.Open(src)
+	srcFile, err := os.Open(filepath.Clean(src))
 	if err != nil {
 		return err
 	}
-	defer srcFile.Close()
+	defer func() { _ = srcFile.Close() }()
 
 	destFile, err := os.Create(dest)
 	if err != nil {
 		return err
 	}
-	defer destFile.Close()
+	defer func() { _ = destFile.Close() }()
 
 	if _, err = io.Copy(destFile, srcFile); err != nil {
 		return err
@@ -110,5 +110,5 @@ func writeStateJSONToFile(state interface{}, dir, filename string) error {
 		return fmt.Errorf("failed to encode state dump: %w", err)
 	}
 
-	return os.WriteFile(path.Join(dir, filename), stateJSON, os.ModePerm)
+	return os.WriteFile(path.Join(dir, filename), stateJSON, 0600)
 }

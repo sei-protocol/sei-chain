@@ -28,11 +28,12 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/tendermint/tendermint/internal/p2p/conn"
-	"github.com/tendermint/tendermint/internal/p2p/mux/pb"
-	"github.com/tendermint/tendermint/internal/protoutils"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/mux/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -65,7 +66,7 @@ type handshake struct {
 
 var handshakeConv = protoutils.Conv[*handshake, *pb.Handshake]{
 	Encode: func(h *handshake) *pb.Handshake {
-		var kinds []*pb.StreamKindConfig
+		kinds := make([]*pb.StreamKindConfig, 0, len(h.Kinds))
 		for kind, c := range h.Kinds {
 			kinds = append(kinds, &pb.StreamKindConfig{
 				Kind:        uint64(kind),
@@ -308,23 +309,20 @@ func (r *runner) runRecv(ctx context.Context, conn conn.Conn) error {
 
 // Run runs the multiplexer for the given connection.
 // It closes the connection before return.
-func (m *Mux) Run(ctx context.Context, conn conn.Conn) (err error) {
+func (m *Mux) Run(ctx context.Context, conn conn.Conn) error {
 	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Handshake exchange.
 		handshake, err := scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*handshake, error) {
 			s.Spawn(func() error {
 				handshakeRaw := handshakeConv.Marshal(&handshake{Kinds: m.cfg.Kinds})
-				sizeRaw := binary.LittleEndian.AppendUint32(nil, uint32(len(handshakeRaw)))
+				sizeRaw := binary.LittleEndian.AppendUint32(nil, uint32(len(handshakeRaw))) //nolint:gosec // handshake size bounded by handshakeMaxSize
 				if err := conn.Write(ctx, sizeRaw); err != nil {
 					return err
 				}
 				if err := conn.Write(ctx, handshakeRaw); err != nil {
 					return err
 				}
-				if err := conn.Flush(ctx); err != nil {
-					return err
-				}
-				return nil
+				return conn.Flush(ctx)
 			})
 			var sizeRaw [4]byte
 			if err := conn.Read(ctx, sizeRaw[:]); err != nil {
@@ -335,7 +333,7 @@ func (m *Mux) Run(ctx context.Context, conn conn.Conn) (err error) {
 				return nil, fmt.Errorf("handshake too large")
 			}
 			handshakeRaw := make([]byte, size)
-			if err := conn.Read(ctx, handshakeRaw[:]); err != nil {
+			if err := conn.Read(ctx, handshakeRaw); err != nil {
 				return nil, err
 			}
 			return handshakeConv.Unmarshal(handshakeRaw)

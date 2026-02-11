@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/log"
-	e2e "github.com/tendermint/tendermint/test/e2e/pkg"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // Benchmark is a simple function for fetching, calculating and printing
@@ -214,7 +214,7 @@ func extractTestnetStats(intervals []time.Duration) testnetStats {
 
 	for _, interval := range intervals {
 		diff := (interval - mean).Seconds()
-		std += math.Pow(diff, 2)
+		std += diff * diff
 	}
 	std = math.Sqrt(std / float64(len(intervals)))
 

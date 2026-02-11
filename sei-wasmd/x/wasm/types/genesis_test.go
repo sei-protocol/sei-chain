@@ -9,8 +9,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	"github.com/stretchr/testify/assert"
-	"github.com/tendermint/tendermint/libs/rand"
 
 	"github.com/stretchr/testify/require"
 )

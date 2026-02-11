@@ -19,11 +19,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/tendermint/tendermint/libs/log"
-	tmnet "github.com/tendermint/tendermint/libs/net"
-	"github.com/tendermint/tendermint/privval"
-	grpcprivval "github.com/tendermint/tendermint/privval/grpc"
-	privvalproto "github.com/tendermint/tendermint/proto/tendermint/privval"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	grpcprivval "github.com/sei-protocol/sei-chain/sei-tendermint/privval/grpc"
+	privvalproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/privval"
 )
 
 var (
@@ -161,11 +161,15 @@ func registerPrometheus(addr string, s *grpc.Server) *http.Server {
 	// Initialize all metrics.
 	grpcMetrics.InitializeMetrics(s)
 	// create http server to serve prometheus
-	httpServer := &http.Server{Handler: promhttp.HandlerFor(reg, promhttp.HandlerOpts{}), Addr: addr}
+	httpServer := &http.Server{
+		Handler:           promhttp.HandlerFor(reg, promhttp.HandlerOpts{}),
+		Addr:              addr,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 
 	go func() {
 		if err := httpServer.ListenAndServe(); err != nil {
-			fmt.Fprintf(os.Stderr, "Unable to start a http server: %v", err)
+			_, _ = fmt.Fprintf(os.Stderr, "Unable to start a http server: %v", err)
 			os.Exit(1)
 		}
 	}()
