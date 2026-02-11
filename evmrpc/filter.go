@@ -18,12 +18,14 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	tmtypes "github.com/tendermint/tendermint/types"
 	"golang.org/x/time/rate"
 )
 
@@ -761,6 +763,16 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		return nil, 0, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, f.filterConfig.maxBlock)
 	}
 
+	// Try efficient range query first (supported by parquet/DuckDB backend)
+	// #nosec G115 -- begin and end are validated to be positive block heights above
+	if logs, rangeErr := f.tryFilterLogsRange(ctx, uint64(begin), uint64(end), crit); rangeErr == nil {
+		return logs, end, nil
+	} else if !errors.Is(rangeErr, receipt.ErrRangeQueryNotSupported) {
+		// If it's a real error (not just unsupported), return it
+		return nil, 0, rangeErr
+	}
+	// Fall back to block-by-block querying for backends that don't support range queries
+
 	bloomIndexes := EncodeFilters(crit.Addresses, crit.Topics)
 	blocks, end, applyOpenEndedLogLimit, err := f.fetchBlocksByCrit(ctx, crit, lastToHeight, bloomIndexes)
 	if err != nil {
@@ -906,34 +918,138 @@ func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
 	return f.watermarks.EarliestHeight(ctx)
 }
 
+// tryFilterLogsRange attempts to use the efficient range query if supported by the backend.
+// Returns ErrRangeQueryNotSupported if the backend doesn't support range queries.
+func (f *LogFetcher) tryFilterLogsRange(_ context.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+	store := f.k.ReceiptStore()
+	if store == nil {
+		return nil, receipt.ErrRangeQueryNotSupported
+	}
+
+	// Use a context at the toBlock height for the query
+	// #nosec G115 -- toBlock is a block height which fits in int64
+	sdkCtx := f.ctxProvider(int64(toBlock))
+
+	logs, err := store.FilterLogs(sdkCtx, fromBlock, toBlock, crit)
+	if err != nil {
+		return nil, err
+	}
+
+	// Sort logs by block number and index (should already be sorted from DuckDB, but ensure consistency)
+	sort.Slice(logs, func(i, j int) bool {
+		if logs[i].BlockNumber != logs[j].BlockNumber {
+			return logs[i].BlockNumber < logs[j].BlockNumber
+		}
+		return logs[i].Index < logs[j].Index
+	})
+
+	return logs, nil
+}
+
 // Pooled version that reuses slice allocation
 func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, result *[]*ethtypes.Log) {
 	collector := &pooledCollector{logs: result}
-	f.collectLogs(block, crit, collector, true) // Apply exact matching
+	f.collectLogs(block, crit, collector)
 }
 
-// Unified log collection logic
-func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, collector logCollector, applyExactMatch bool) {
+// Unified log collection logic - fallback path that fetches receipts individually
+func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, collector logCollector) {
 	ctx := f.ctxProvider(block.Block.Height)
-	store := f.k.ReceiptStore()
-	if store == nil {
-		return
-	}
 
 	txHashes := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
-	hashes := make([]common.Hash, 0, len(txHashes))
-	for _, hash := range txHashes {
-		hashes = append(hashes, hash.hash)
-	}
-
-	logs, err := store.FilterLogs(ctx, block.Block.Height, common.BytesToHash(block.BlockID.Hash), hashes, crit, applyExactMatch)
-	if err != nil {
-		ctx.Logger().Error(fmt.Sprintf("collectLogs: %s", err.Error()))
+	if len(txHashes) == 0 {
 		return
 	}
-	for _, log := range logs {
-		collector.Append(log)
+
+	blockHeight := block.Block.Height
+	blockHash := common.BytesToHash(block.BlockID.Hash)
+
+	// Pre-encode bloom filter indexes for fast per-receipt filtering
+	hasFilters := len(crit.Addresses) != 0 || len(crit.Topics) != 0
+	var filterIndexes [][]bloomIndexes
+	if hasFilters {
+		filterIndexes = EncodeFilters(crit.Addresses, crit.Topics)
 	}
+
+	// Fetch receipts individually and filter logs locally
+	var logIndex uint
+	for txIdx, txHashEntry := range txHashes {
+		rcpt, err := f.k.GetReceipt(ctx, txHashEntry.hash)
+		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s: %v", txHashEntry.hash.Hex(), err))
+			continue
+		}
+
+		// Skip receipt if its bloom filter doesn't match the criteria
+		if hasFilters && len(rcpt.LogsBloom) > 0 && !MatchFilters(ethtypes.Bloom(rcpt.LogsBloom), filterIndexes) {
+			logIndex += uint(len(rcpt.Logs))
+			continue
+		}
+
+		// Extract logs from receipt
+		for _, log := range rcpt.Logs {
+			// #nosec G115 -- blockHeight and txIdx are validated non-negative
+			ethLog := &ethtypes.Log{
+				Address:     common.HexToAddress(log.Address),
+				Data:        log.Data,
+				BlockNumber: uint64(blockHeight),
+				TxHash:      txHashEntry.hash,
+				TxIndex:     uint(txIdx),
+				BlockHash:   blockHash,
+				Index:       logIndex,
+				Removed:     false,
+			}
+			ethLog.Topics = make([]common.Hash, len(log.Topics))
+			for i, topic := range log.Topics {
+				ethLog.Topics[i] = common.HexToHash(topic)
+			}
+			logIndex++
+
+			if !matchesCriteria(ethLog, crit) {
+				continue
+			}
+			collector.Append(ethLog)
+		}
+	}
+}
+
+// matchesCriteria checks if a log matches the filter criteria
+func matchesCriteria(log *ethtypes.Log, crit filters.FilterCriteria) bool {
+	// Check address filter
+	if len(crit.Addresses) > 0 {
+		found := false
+		for _, addr := range crit.Addresses {
+			if log.Address == addr {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	// Check topics filter
+	for i, topicList := range crit.Topics {
+		if len(topicList) == 0 {
+			continue
+		}
+		if i >= len(log.Topics) {
+			return false
+		}
+		found := false
+		for _, topic := range topicList {
+			if log.Topics[i] == topic {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	return true
 }
 
 // Optimized fetchBlocksByCrit with batch processing

@@ -6,9 +6,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/eth/filters"
-	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -542,59 +539,47 @@ func TestGetLogsTransactionIndexConsistency(t *testing.T) {
 func TestCollectLogsEvmTransactionIndex(t *testing.T) {
 	t.Parallel()
 
-	// This is a unit test for the core logic that collectLogs implements
-	// It tests that transaction indices are set correctly for EVM transactions
-
-	// Set up the test environment - use the correct return values from MockEVMKeeper
-	k, ctx := testkeeper.MockEVMKeeper(t)
-
-	// Create a mock block with mixed transaction types (similar to block 2 in our test data)
-	// We'll simulate the transaction hashes that getTxHashesFromBlock would return
-	evmTxHashes := []common.Hash{
-		common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"), // EVM tx index 0
-		common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222"), // EVM tx index 1
-		common.HexToHash("0x3333333333333333333333333333333333333333333333333333333333333333"), // EVM tx index 2
+	// Block 2 fixture includes mixed tx types.
+	// Receipt.TransactionIndex values are absolute positions (1, 3, 4), but eth_getLogs
+	// must return EVM-only transaction indexes (0, 1, 2).
+	filterCriteria := map[string]interface{}{
+		"fromBlock": "0x2",
+		"toBlock":   "0x2",
 	}
+	resObj := sendRequestGood(t, "getLogs", filterCriteria)
+	logs := resObj["result"].([]interface{})
+	require.Greater(t, len(logs), 0, "block 2 should have logs")
 
-	// Create mock receipts with logs
-	for i, txHash := range evmTxHashes {
-		receipt := &evmtypes.Receipt{
-			TxHashHex:        txHash.Hex(),
-			TransactionIndex: uint32(i + 10), // Use high absolute indices to simulate mixed tx types
-			BlockNumber:      2,
-			Logs: []*evmtypes.Log{
-				{
-					Address: "0x1111111111111111111111111111111111111112",
-					Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123"},
-					Data:    []byte("test data"),
-					Index:   0,
-				},
-			},
-			LogsBloom: make([]byte, 256), // Empty bloom for simplicity
+	expectedByHash := map[string]int64{
+		multiTxBlockTx1.Hash().Hex(): 0,
+		multiTxBlockTx2.Hash().Hex(): 1,
+		multiTxBlockTx3.Hash().Hex(): 2,
+	}
+	absoluteIndexByHash := map[string]int64{
+		multiTxBlockTx1.Hash().Hex(): 1,
+		multiTxBlockTx2.Hash().Hex(): 3,
+		multiTxBlockTx3.Hash().Hex(): 4,
+	}
+	seen := map[string]bool{}
+
+	for i, logInterface := range logs {
+		logObj := logInterface.(map[string]interface{})
+		txHash := logObj["transactionHash"].(string)
+		gotHex := logObj["transactionIndex"].(string)
+		gotIndex, err := strconv.ParseInt(gotHex[2:], 16, 64)
+		require.NoError(t, err, "log %d has invalid transactionIndex %q", i, gotHex)
+
+		expectedIndex, tracked := expectedByHash[txHash]
+		if !tracked {
+			continue
 		}
 
-		// Fill bloom filter to match our test filters
-		receipt.LogsBloom[0] = 0xFF // Simple bloom that will match any filter
-
-		testkeeper.MustMockReceipt(t, k, ctx, txHash, receipt)
+		seen[txHash] = true
+		require.Equal(t, expectedIndex, gotIndex,
+			"log %d tx %s should use EVM tx index %d", i, txHash, expectedIndex)
+		require.NotEqual(t, absoluteIndexByHash[txHash], gotIndex,
+			"log %d tx %s should not use absolute transaction index %d", i, txHash, absoluteIndexByHash[txHash])
 	}
 
-	store := k.ReceiptStore()
-	require.NotNil(t, store)
-	collectedLogs, err := store.FilterLogs(ctx, 2, common.HexToHash("0x2"), evmTxHashes, filters.FilterCriteria{}, true)
-	require.NoError(t, err)
-
-	// Verify that the transaction indices are set correctly
-	require.Equal(t, len(evmTxHashes), len(collectedLogs), "should have one log per transaction")
-
-	for i, log := range collectedLogs {
-		// This is the main assertion: TxIndex should be the EVM transaction index (0, 1, 2)
-		// NOT the absolute transaction index (10, 11, 12)
-		require.Equal(t, uint(i), log.TxIndex,
-			"log %d should have EVM transaction index %d, but got %d", i, i, log.TxIndex)
-
-		// Verify it's NOT using the absolute transaction index
-		require.NotEqual(t, uint(i+10), log.TxIndex,
-			"log %d should not use absolute transaction index %d", i, i+10)
-	}
+	require.Len(t, seen, len(expectedByHash), "should observe logs for all expected EVM txs in block 2")
 }

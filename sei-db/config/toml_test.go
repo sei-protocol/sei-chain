@@ -89,13 +89,15 @@ func TestStateStoreConfigTemplate(t *testing.T) {
 // TestDefaultConfigTemplate verifies the combined template works correctly
 func TestDefaultConfigTemplate(t *testing.T) {
 	type TemplateConfig struct {
-		StateCommit StateCommitConfig
-		StateStore  StateStoreConfig
+		StateCommit  StateCommitConfig
+		StateStore   StateStoreConfig
+		ReceiptStore ReceiptStoreConfig
 	}
 
 	cfg := TemplateConfig{
-		StateCommit: DefaultStateCommitConfig(),
-		StateStore:  DefaultStateStoreConfig(),
+		StateCommit:  DefaultStateCommitConfig(),
+		StateStore:   DefaultStateStoreConfig(),
+		ReceiptStore: DefaultReceiptStoreConfig(),
 	}
 
 	tmpl, err := template.New("default").Parse(DefaultConfigTemplate)
@@ -107,9 +109,10 @@ func TestDefaultConfigTemplate(t *testing.T) {
 
 	output := buf.String()
 
-	// Both sections should be present
+	// All sections should be present
 	require.Contains(t, output, "[state-commit]")
 	require.Contains(t, output, "[state-store]")
+	require.Contains(t, output, "[receipt-store]")
 }
 
 // TestWriteModeValues verifies WriteMode enum values match template output

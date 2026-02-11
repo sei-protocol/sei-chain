@@ -439,8 +439,10 @@ func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedCh
 	if err := b.Write(); err != nil {
 		return err
 	}
-	// Update latest version after all writes succeed
-	db.latestVersion.Store(version)
+	// Update latest version after all writes succeed (only if higher to avoid lowering it when writing out of order)
+	if version > db.latestVersion.Load() {
+		db.latestVersion.Store(version)
+	}
 	return nil
 }
 
