@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,7 +19,12 @@ import (
 const (
 	maxInt64  = int64(^uint64(0) >> 1)
 	maxUint32 = ^uint32(0)
+
+	defaultBlockFlushInterval uint64 = 1
+	defaultMaxBlocksPerFile   uint64 = 500
 )
+
+var removeFile = os.Remove
 
 // StoreConfig configures the parquet store.
 type StoreConfig struct {
@@ -32,8 +38,8 @@ type StoreConfig struct {
 // DefaultStoreConfig returns the default store configuration.
 func DefaultStoreConfig() StoreConfig {
 	return StoreConfig{
-		BlockFlushInterval: 1,
-		MaxBlocksPerFile:   500,
+		BlockFlushInterval: defaultBlockFlushInterval,
+		MaxBlocksPerFile:   defaultMaxBlocksPerFile,
 	}
 }
 
@@ -77,11 +83,13 @@ type Store struct {
 
 // NewStore creates a new parquet store.
 func NewStore(log dbLogger.Logger, cfg StoreConfig) (*Store, error) {
+	storeCfg := resolveStoreConfig(cfg)
+
 	if err := os.MkdirAll(cfg.DBDirectory, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create parquet base directory: %w", err)
 	}
 
-	reader, err := NewReader(cfg.DBDirectory)
+	reader, err := NewReaderWithMaxBlocksPerFile(cfg.DBDirectory, storeCfg.MaxBlocksPerFile)
 	if err != nil {
 		return nil, err
 	}
@@ -91,11 +99,6 @@ func NewStore(log dbLogger.Logger, cfg StoreConfig) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	storeCfg := DefaultStoreConfig()
-	storeCfg.DBDirectory = cfg.DBDirectory
-	storeCfg.KeepRecent = cfg.KeepRecent
-	storeCfg.PruneIntervalSeconds = cfg.PruneIntervalSeconds
 
 	store := &Store{
 		basePath:       cfg.DBDirectory,
@@ -134,6 +137,20 @@ func NewStore(log dbLogger.Logger, cfg StoreConfig) (*Store, error) {
 	return store, nil
 }
 
+func resolveStoreConfig(cfg StoreConfig) StoreConfig {
+	resolved := DefaultStoreConfig()
+	resolved.DBDirectory = cfg.DBDirectory
+	resolved.KeepRecent = cfg.KeepRecent
+	resolved.PruneIntervalSeconds = cfg.PruneIntervalSeconds
+	if cfg.BlockFlushInterval > 0 {
+		resolved.BlockFlushInterval = cfg.BlockFlushInterval
+	}
+	if cfg.MaxBlocksPerFile > 0 {
+		resolved.MaxBlocksPerFile = cfg.MaxBlocksPerFile
+	}
+	return resolved
+}
+
 // LatestVersion returns the latest version stored.
 func (s *Store) LatestVersion() int64 {
 	return s.latestVersion.Load()
@@ -162,23 +179,6 @@ func (s *Store) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*Re
 // GetLogs retrieves logs matching the filter.
 func (s *Store) GetLogs(ctx context.Context, filter LogFilter) ([]LogResult, error) {
 	return s.Reader.GetLogs(ctx, filter)
-}
-
-// WriteReceipt writes a receipt to the WAL and buffer.
-func (s *Store) WriteReceipt(input ReceiptInput) error {
-	// Write to WAL as a single-receipt batch
-	entry := WALEntry{
-		BlockNumber: input.BlockNumber,
-		Receipts:    [][]byte{input.ReceiptBytes},
-	}
-	if err := s.wal.Write(entry); err != nil {
-		return err
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.applyReceiptLocked(input)
 }
 
 // WriteReceipts writes multiple receipts, batching WAL writes per block.
@@ -288,19 +288,25 @@ func (s *Store) FileStartBlock() uint64 {
 }
 
 // ClearWAL truncates the WAL after a successful file rotation.
-func (s *Store) ClearWAL() {
+func (s *Store) ClearWAL() error {
 	firstOffset, errFirst := s.wal.FirstOffset()
 	if errFirst != nil || firstOffset <= 0 {
-		return
+		return nil
 	}
 	lastOffset, errLast := s.wal.LastOffset()
 	if errLast != nil || lastOffset <= 0 {
-		return
+		return nil
 	}
 	if lastOffset < firstOffset {
-		return
+		return nil
 	}
-	_ = s.wal.TruncateBefore(lastOffset + 1)
+	if err := s.wal.TruncateBefore(lastOffset + 1); err != nil {
+		if strings.Contains(err.Error(), "out of range") {
+			return nil
+		}
+		return fmt.Errorf("failed to truncate parquet WAL before offset %d: %w", lastOffset+1, err)
+	}
+	return nil
 }
 
 func (s *Store) startPruning(pruneIntervalSeconds int64) {
@@ -339,29 +345,37 @@ func (s *Store) pruneOldFiles(pruneBeforeBlock uint64) int {
 		return 0
 	}
 
-	// Remove from reader tracking BEFORE deleting from disk so that
-	// concurrent queries won't reference files that are being deleted.
-	s.Reader.RemoveFilesBeforeBlock(pruneBeforeBlock)
-
 	prunedCount := 0
 	for _, filePair := range filesToPrune {
+		receiptRemoved := filePair.ReceiptFile == ""
 		if filePair.ReceiptFile != "" {
-			if err := os.Remove(filePair.ReceiptFile); err != nil && !os.IsNotExist(err) {
+			s.Reader.RemoveTrackedReceiptFile(filePair.StartBlock)
+			if err := removeFile(filePair.ReceiptFile); err != nil && !os.IsNotExist(err) {
+				s.Reader.AddTrackedReceiptFile(filePair.StartBlock)
 				if s.log != nil {
 					s.log.Error("failed to prune receipt file", "file", filePair.ReceiptFile, "err", err)
 				}
-				continue
+			} else {
+				receiptRemoved = true
 			}
 		}
+
+		logRemoved := filePair.LogFile == ""
 		if filePair.LogFile != "" {
-			if err := os.Remove(filePair.LogFile); err != nil && !os.IsNotExist(err) {
+			s.Reader.RemoveTrackedLogFile(filePair.StartBlock)
+			if err := removeFile(filePair.LogFile); err != nil && !os.IsNotExist(err) {
+				s.Reader.AddTrackedLogFile(filePair.StartBlock)
 				if s.log != nil {
 					s.log.Error("failed to prune log file", "file", filePair.LogFile, "err", err)
 				}
-				continue
+			} else {
+				logRemoved = true
 			}
 		}
-		prunedCount++
+
+		if receiptRemoved && logRemoved {
+			prunedCount++
+		}
 	}
 
 	return prunedCount
@@ -417,7 +431,9 @@ func (s *Store) rotateFileLocked(newBlockNumber uint64) error {
 	}
 
 	s.Reader.OnFileRotation(oldStartBlock)
-	s.ClearWAL()
+	if err := s.ClearWAL(); err != nil {
+		return err
+	}
 
 	s.fileStartBlock = newBlockNumber
 	s.blocksInFile = 0
@@ -534,50 +550,6 @@ func Uint32FromUint(value uint) uint32 {
 		return maxUint32
 	}
 	return uint32(value)
-}
-
-// SetBlockFlushInterval sets the block flush interval.
-func (s *Store) SetBlockFlushInterval(n uint64) {
-	s.config.BlockFlushInterval = n
-}
-
-// Flush flushes buffered data to parquet writers.
-func (s *Store) Flush() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.flushLocked()
-}
-
-// WriteReceiptsDirect writes receipts directly to parquet buffers, bypassing WAL.
-func (s *Store) WriteReceiptsDirect(inputs []ReceiptInput) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i := range inputs {
-		if err := s.applyReceiptLocked(inputs[i]); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// SyncFiles syncs parquet data files to disk.
-func (s *Store) SyncFiles() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.flushLocked(); err != nil {
-		return err
-	}
-	if s.receiptFile != nil {
-		if err := s.receiptFile.Sync(); err != nil {
-			return fmt.Errorf("failed to sync receipt file: %w", err)
-		}
-	}
-	if s.logFile != nil {
-		if err := s.logFile.Sync(); err != nil {
-			return fmt.Errorf("failed to sync log file: %w", err)
-		}
-	}
-	return nil
 }
 
 // CopyBytes creates a copy of a byte slice.

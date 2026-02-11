@@ -2,6 +2,7 @@ package receipt
 
 import (
 	"fmt"
+	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -17,7 +18,6 @@ import (
 type parquetReceiptStore struct {
 	store    *parquet.Store
 	storeKey sdk.StoreKey
-	log      dbLogger.Logger
 }
 
 func newParquetReceiptStore(log dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
@@ -35,7 +35,6 @@ func newParquetReceiptStore(log dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig
 	wrapper := &parquetReceiptStore{
 		store:    store,
 		storeKey: storeKey,
-		log:      log,
 	}
 
 	if err := wrapper.replayWAL(); err != nil {
@@ -331,8 +330,21 @@ func (s *parquetReceiptStore) replayWAL() error {
 	if maxBlock > 0 {
 		s.store.UpdateLatestVersion(int64(maxBlock)) //nolint:gosec // block numbers won't exceed int64 max
 	}
-	if dropOffset > 0 {
-		_ = wal.TruncateBefore(dropOffset + 1)
+	if err := truncateReplayWAL(wal, dropOffset); err != nil {
+		return err
+	}
+	return nil
+}
+
+func truncateReplayWAL(w interface{ TruncateBefore(offset uint64) error }, dropOffset uint64) error {
+	if dropOffset == 0 {
+		return nil
+	}
+	if err := w.TruncateBefore(dropOffset + 1); err != nil {
+		if strings.Contains(err.Error(), "out of range") {
+			return nil
+		}
+		return fmt.Errorf("failed to truncate replay WAL before offset %d: %w", dropOffset+1, err)
 	}
 	return nil
 }

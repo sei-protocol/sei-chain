@@ -11,7 +11,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
@@ -330,119 +329,6 @@ func startReceiptPruning(log dbLogger.Logger, db *mvcc.Database, keepRecent int6
 			}
 		}
 	}()
-}
-
-var receiptStoreBitMasks = [8]uint8{1, 2, 4, 8, 16, 32, 64, 128}
-
-type bloomIndexes [3]uint
-
-func calcBloomIndexes(b []byte) bloomIndexes {
-	b = crypto.Keccak256(b)
-
-	var idxs bloomIndexes
-	for i := 0; i < len(idxs); i++ {
-		idxs[i] = (uint(b[2*i])<<8)&2047 + uint(b[2*i+1])
-	}
-	return idxs
-}
-
-// res: AND on outer level, OR on mid level, AND on inner level (i.e. all 3 bits)
-func encodeFilters(addresses []common.Address, topics [][]common.Hash) (res [][]bloomIndexes) {
-	filters := make([][][]byte, 1+len(topics))
-	if len(addresses) > 0 {
-		filter := make([][]byte, len(addresses))
-		for i, address := range addresses {
-			filter[i] = address.Bytes()
-		}
-		filters = append(filters, filter)
-	}
-	for _, topicList := range topics {
-		filter := make([][]byte, len(topicList))
-		for i, topic := range topicList {
-			filter[i] = topic.Bytes()
-		}
-		filters = append(filters, filter)
-	}
-	for _, filter := range filters {
-		if len(filter) == 0 {
-			continue
-		}
-		bloomBits := make([]bloomIndexes, len(filter))
-		for i, clause := range filter {
-			if clause == nil {
-				bloomBits = nil
-				break
-			}
-			bloomBits[i] = calcBloomIndexes(clause)
-		}
-		if bloomBits != nil {
-			res = append(res, bloomBits)
-		}
-	}
-	return
-}
-
-func matchFilters(bloom ethtypes.Bloom, filters [][]bloomIndexes) bool {
-	for _, filter := range filters {
-		if !matchFilter(bloom, filter) {
-			return false
-		}
-	}
-	return true
-}
-
-func matchFilter(bloom ethtypes.Bloom, filter []bloomIndexes) bool {
-	for _, possibility := range filter {
-		if matchBloomIndexes(bloom, possibility) {
-			return true
-		}
-	}
-	return false
-}
-
-func matchBloomIndexes(bloom ethtypes.Bloom, idx bloomIndexes) bool {
-	for _, bit := range idx {
-		// big endian
-		whichByte := bloom[ethtypes.BloomByteLength-1-bit/8]
-		mask := receiptStoreBitMasks[bit%8]
-		if whichByte&mask == 0 {
-			return false
-		}
-	}
-	return true
-}
-
-func isLogExactMatch(log *ethtypes.Log, crit filters.FilterCriteria) bool {
-	addrMatch := len(crit.Addresses) == 0
-	for _, addrFilter := range crit.Addresses {
-		if log.Address == addrFilter {
-			addrMatch = true
-			break
-		}
-	}
-	return addrMatch && matchTopics(crit.Topics, log.Topics)
-}
-
-func matchTopics(topics [][]common.Hash, eventTopics []common.Hash) bool {
-	for i, topicList := range topics {
-		if len(topicList) == 0 {
-			continue
-		}
-		if i >= len(eventTopics) {
-			return false
-		}
-		matched := false
-		for _, topic := range topicList {
-			if topic == eventTopics[i] {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return false
-		}
-	}
-	return true
 }
 
 func getLogsForTx(receipt *types.Receipt, logStartIndex uint) []*ethtypes.Log {
