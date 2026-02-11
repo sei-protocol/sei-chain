@@ -65,8 +65,8 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 		require.Empty(t, res.VmError)
 		require.NotEmpty(t, res.Logs)
 
-		// Verify the event
-		require.Len(t, res.Logs, 1)
+		// Verify the events (Delegate event + DelegationRewardsWithdrawn event)
+		require.Len(t, res.Logs, 2)
 		log := res.Logs[0]
 
 		// Check event signature
@@ -86,6 +86,51 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 		amountBytes := log.Data[32:64]
 		amount := new(big.Int).SetBytes(amountBytes)
 		require.Equal(t, delegateAmount, amount)
+	})
+
+	// Test rewards withdrawn event emitted during delegate
+	t.Run("TestDelegateRewardsWithdrawnEvent", func(t *testing.T) {
+		// Delegate again to the same validator to trigger reward withdrawal
+		abi := pcommon.MustGetABI(f, "abi.json")
+		args, err := abi.Pack("delegate", valStr)
+		require.NoError(t, err)
+
+		addr := common.HexToAddress(staking.StakingAddress)
+		delegateAmount := big.NewInt(100_000_000_000_000) // 100 usei in wei
+
+		tx := createEVMTx(t, k, ctx, privKey, &addr, args, delegateAmount)
+		res := executeEVMTx(t, testApp, ctx, tx, privKey)
+
+		require.Empty(t, res.VmError)
+		require.NotEmpty(t, res.Logs)
+
+		// Verify we have 2 logs: Delegate event and DelegationRewardsWithdrawn event
+		require.Len(t, res.Logs, 2)
+
+		// The second log should be the DelegationRewardsWithdrawn event
+		rewardsLog := res.Logs[1]
+
+		// Check event signature for DelegationRewardsWithdrawn
+		expectedSig := pcommon.DelegationRewardsWithdrawnEventSig
+		require.Equal(t, expectedSig.Hex(), rewardsLog.Topics[0])
+
+		// Check indexed delegator address
+		require.Equal(t, common.BytesToHash(evmAddr.Bytes()).Hex(), rewardsLog.Topics[1])
+
+		// Decode the event data
+		// Data layout: offset for string (32 bytes), amount (32 bytes), string length (32 bytes), string data
+		require.GreaterOrEqual(t, len(rewardsLog.Data), 96) // At least 3 * 32 bytes
+
+		// Verify the amount is encoded in the data (at position 32-64)
+		// Note: In a test without block progression, rewards should be 0
+		amountBytes := rewardsLog.Data[32:64]
+		rewardsAmount := new(big.Int).SetBytes(amountBytes)
+		require.True(t, rewardsAmount.Sign() >= 0, "rewards amount should be non-negative")
+
+		// Verify the validator string is encoded in the data
+		strLen := new(big.Int).SetBytes(rewardsLog.Data[64:96]).Int64()
+		validatorStr := string(rewardsLog.Data[96 : 96+strLen])
+		require.Equal(t, valStr, validatorStr)
 	})
 
 	// Test redelegate event
@@ -111,8 +156,8 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 		require.Empty(t, res.VmError)
 		require.NotEmpty(t, res.Logs)
 
-		// Verify the event
-		require.Len(t, res.Logs, 2)
+		// Verify the events (Redelegate event + src DelegationRewardsWithdrawn + dst DelegationRewardsWithdrawn)
+		require.Len(t, res.Logs, 3)
 		log := res.Logs[0]
 
 		// Check event signature
@@ -131,6 +176,70 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 		amountBytes := log.Data[64:96]
 		amount := new(big.Int).SetBytes(amountBytes)
 		require.Equal(t, redelegateAmount, amount)
+	})
+
+	// Test rewards withdrawn events emitted during redelegate
+	t.Run("TestRedelegateRewardsWithdrawnEvents", func(t *testing.T) {
+		// At this point from prior tests, there is an existing delegation to valStr2
+		// (from the redelegate test above). We delegate more to valStr and then
+		// redelegate from valStr to valStr2, which should trigger reward withdrawal
+		// from both src (valStr) and dst (valStr2).
+		addr := common.HexToAddress(staking.StakingAddress)
+
+		// Delegate to valStr to have funds to redelegate
+		delegateArgs, err := pcommon.MustGetABI(f, "abi.json").Pack("delegate", valStr)
+		require.NoError(t, err)
+		delegateTx := createEVMTx(t, k, ctx, privKey, &addr, delegateArgs, big.NewInt(100_000_000_000_000))
+		delegateRes := executeEVMTx(t, testApp, ctx, delegateTx, privKey)
+		require.Empty(t, delegateRes.VmError)
+
+		// Redelegate from valStr to valStr2 (valStr2 already has a delegation)
+		abi := pcommon.MustGetABI(f, "abi.json")
+		redelegateAmount := big.NewInt(50) // 50 usei
+		args, err := abi.Pack("redelegate", valStr, valStr2, redelegateAmount)
+		require.NoError(t, err)
+
+		tx := createEVMTx(t, k, ctx, privKey, &addr, args, big.NewInt(0))
+		res := executeEVMTx(t, testApp, ctx, tx, privKey)
+
+		require.Empty(t, res.VmError)
+		require.NotEmpty(t, res.Logs)
+
+		// Verify we have 3 logs: Redelegate event + src RewardsWithdrawn + dst RewardsWithdrawn
+		require.Len(t, res.Logs, 3)
+
+		// Log[0]: Redelegate event
+		require.Equal(t, pcommon.RedelegateEventSig.Hex(), res.Logs[0].Topics[0])
+
+		// Log[1]: DelegationRewardsWithdrawn for src validator
+		srcRewardsLog := res.Logs[1]
+		require.Equal(t, pcommon.DelegationRewardsWithdrawnEventSig.Hex(), srcRewardsLog.Topics[0])
+		require.Equal(t, common.BytesToHash(evmAddr.Bytes()).Hex(), srcRewardsLog.Topics[1])
+		require.GreaterOrEqual(t, len(srcRewardsLog.Data), 96)
+
+		// Verify src validator string
+		srcStrLen := new(big.Int).SetBytes(srcRewardsLog.Data[64:96]).Int64()
+		srcValidatorStr := string(srcRewardsLog.Data[96 : 96+srcStrLen])
+		require.Equal(t, valStr, srcValidatorStr)
+
+		// Verify src rewards amount is non-negative
+		srcAmount := new(big.Int).SetBytes(srcRewardsLog.Data[32:64])
+		require.True(t, srcAmount.Sign() >= 0, "src rewards amount should be non-negative")
+
+		// Log[2]: DelegationRewardsWithdrawn for dst validator
+		dstRewardsLog := res.Logs[2]
+		require.Equal(t, pcommon.DelegationRewardsWithdrawnEventSig.Hex(), dstRewardsLog.Topics[0])
+		require.Equal(t, common.BytesToHash(evmAddr.Bytes()).Hex(), dstRewardsLog.Topics[1])
+		require.GreaterOrEqual(t, len(dstRewardsLog.Data), 96)
+
+		// Verify dst validator string
+		dstStrLen := new(big.Int).SetBytes(dstRewardsLog.Data[64:96]).Int64()
+		dstValidatorStr := string(dstRewardsLog.Data[96 : 96+dstStrLen])
+		require.Equal(t, valStr2, dstValidatorStr)
+
+		// Verify dst rewards amount is non-negative
+		dstAmount := new(big.Int).SetBytes(dstRewardsLog.Data[32:64])
+		require.True(t, dstAmount.Sign() >= 0, "dst rewards amount should be non-negative")
 	})
 
 	// Test undelegate event
