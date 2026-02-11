@@ -7,13 +7,13 @@ import (
 
 	"github.com/rs/cors"
 
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/internal/pubsub"
-	"github.com/tendermint/tendermint/internal/rpc/core"
-	"github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/state/indexer"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/rpc/jsonrpc/server"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/server"
 )
 
 // Server defines parameters for running an Inspector rpc server.
@@ -98,7 +98,7 @@ func (srv *Server) ListenAndServe(ctx context.Context) error {
 	}
 	go func() {
 		<-ctx.Done()
-		listener.Close()
+		_ = listener.Close()
 	}()
 
 	return server.Serve(ctx, listener, srv.Handler, srv.Logger, serverRPCConfig(srv.Config))
@@ -113,7 +113,7 @@ func (srv *Server) ListenAndServeTLS(ctx context.Context, certFile, keyFile stri
 	}
 	go func() {
 		<-ctx.Done()
-		listener.Close()
+		_ = listener.Close()
 	}()
 	return server.ServeTLS(ctx, listener, srv.Handler, certFile, keyFile, srv.Logger, serverRPCConfig(srv.Config))
 }

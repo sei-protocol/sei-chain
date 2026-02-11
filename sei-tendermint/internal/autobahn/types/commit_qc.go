@@ -3,9 +3,9 @@ package types
 import (
 	"fmt"
 
-	"github.com/tendermint/tendermint/internal/autobahn/pb"
-	"github.com/tendermint/tendermint/internal/protoutils"
-	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // CommitQC .
@@ -60,7 +60,7 @@ type FullCommitQC struct {
 
 // NewFullCommitQC constructs a new FullCommitQC.
 func NewFullCommitQC(qc *CommitQC, headers []*BlockHeader) *FullCommitQC {
-	if gr := qc.GlobalRange(); len(headers) != int(gr.Next-gr.First) {
+	if gr := qc.GlobalRange(); len(headers) != int(gr.Next-gr.First) { //nolint:gosec // global range is a small bounded value representing block count in a QC
 		panic(fmt.Sprintf("headers length %d != global range %d", len(headers), gr.Next-gr.First))
 	}
 	return &FullCommitQC{qc: qc, headers: headers}
@@ -83,7 +83,7 @@ func (m *FullCommitQC) Verify(c *Committee) error {
 		return fmt.Errorf("qC: %w", err)
 	}
 	n := uint64(0)
-	if want, got := int(m.qc.GlobalRange().Len()), len(m.headers); want != got {
+	if want, got := int(m.qc.GlobalRange().Len()), len(m.headers); want != got { //nolint:gosec // global range len is a small bounded value representing block count in a QC
 		return fmt.Errorf("len(headers) = %d, want %d", got, want)
 	}
 	for _, lane := range c.Lanes().All() {

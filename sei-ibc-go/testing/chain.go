@@ -25,14 +25,14 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/tmhash"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	tmversion "github.com/sei-protocol/sei-chain/sei-tendermint/version"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/tmhash"
-	"github.com/tendermint/tendermint/libs/utils"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	tmtypes "github.com/tendermint/tendermint/types"
-	tmversion "github.com/tendermint/tendermint/version"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	commitmenttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/23-commitment/types"
@@ -177,8 +177,8 @@ func NewTestChain(t *testing.T, coord *Coordinator, chainID string) *TestChain {
 	// or, if equal, by address lexical order
 	valSet := tmtypes.NewValidatorSet(validators)
 
-	// create signers indexed by the valSet validators's order
-	signers := []tmtypes.PrivValidator{}
+	// create signers indexed by the valSet validators' order
+	signers := make([]tmtypes.PrivValidator, 0, len(valSet.Validators))
 	for _, val := range valSet.Validators {
 		signers = append(signers, signersByAddress[val.PubKey.Address().String()])
 	}

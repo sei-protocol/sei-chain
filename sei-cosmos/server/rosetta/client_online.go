@@ -12,13 +12,14 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/version"
+	"google.golang.org/grpc/credentials/insecure"
 
-	abcitypes "github.com/tendermint/tendermint/abci/types"
+	abcitypes "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
 	rosettatypes "github.com/coinbase/rosetta-sdk-go/types"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/tendermint/tendermint/rpc/client/http"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
 	"google.golang.org/grpc"
 
 	crgerrs "github.com/cosmos/cosmos-sdk/server/rosetta/lib/errors"
@@ -30,7 +31,7 @@ import (
 	auth "github.com/cosmos/cosmos-sdk/x/auth/types"
 	bank "github.com/cosmos/cosmos-sdk/x/bank/types"
 
-	tmrpc "github.com/tendermint/tendermint/rpc/client"
+	tmrpc "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 )
 
 // interface assertion
@@ -99,7 +100,7 @@ func NewClient(cfg *Config) (*Client, error) {
 
 // Bootstrap is gonna connect the client to the endpoints
 func (c *Client) Bootstrap() error {
-	grpcConn, err := grpc.Dial(c.config.GRPCEndpoint, grpc.WithInsecure())
+	grpcConn, err := grpc.Dial(c.config.GRPCEndpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return err
 	}

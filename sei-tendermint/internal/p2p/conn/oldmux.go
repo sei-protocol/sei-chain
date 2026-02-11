@@ -12,11 +12,11 @@ import (
 	gogoproto "github.com/gogo/protobuf/proto"
 	"golang.org/x/time/rate"
 
-	"github.com/tendermint/tendermint/internal/p2p/pb"
-	"github.com/tendermint/tendermint/internal/protoutils"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 // ChannelID is an arbitrary channel ID.
@@ -341,7 +341,7 @@ func (c *MConnection) popSendQueue(ctx context.Context) (*pb.Packet, error) {
 // sendRoutine polls for packets to send from channels.
 func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 	maxPacketMsgSize := c.maxPacketMsgSize()
-	limiter := rate.NewLimiter(c.config.getSendRateLimit(), int(max(maxPacketMsgSize, uint64(c.config.SendRate))))
+	limiter := rate.NewLimiter(c.config.getSendRateLimit(), int(max(maxPacketMsgSize, uint64(c.config.SendRate)))) //nolint:gosec // burst size is bounded by config values; no overflow risk
 	for {
 		msg, err := c.popSendQueue(ctx)
 		if err != nil {
@@ -370,7 +370,7 @@ func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 // It also handles ping/pong messages.
 func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 	maxPacketMsgSize := c.maxPacketMsgSize()
-	limiter := rate.NewLimiter(c.config.getRecvRateLimit(), int(max(maxPacketMsgSize, uint64(c.config.RecvRate))))
+	limiter := rate.NewLimiter(c.config.getRecvRateLimit(), int(max(maxPacketMsgSize, uint64(c.config.RecvRate)))) //nolint:gosec // burst size is bounded by config values; no overflow risk
 	channels := map[ChannelID]*recvChannel{}
 	for q := range c.sendQueue.Lock() {
 		for _, ch := range q.channels {

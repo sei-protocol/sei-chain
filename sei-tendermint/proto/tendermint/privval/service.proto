@@ -4,7 +4,7 @@ package tendermint.privval;
 
 import "tendermint/privval/types.proto";
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/privval";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/privval";
 
 //----------------------------------------
 // Service Definition

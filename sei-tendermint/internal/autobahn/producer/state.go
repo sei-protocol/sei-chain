@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/internal/autobahn/consensus"
-	"github.com/tendermint/tendermint/internal/autobahn/pb"
-	"github.com/tendermint/tendermint/internal/autobahn/types"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"golang.org/x/time/rate"
 )
 
@@ -99,7 +99,7 @@ func (s *State) Run(ctx context.Context) error {
 		burst := 1
 		if l, ok := s.cfg.MaxTxsPerSecond.Get(); ok {
 			limit = rate.Limit(l)
-			burst = int(l + s.cfg.MaxTxsPerBlock)
+			burst = int(l + s.cfg.MaxTxsPerBlock) // nolint:gosec
 		}
 		limiter := rate.NewLimiter(limit, burst)
 		for {

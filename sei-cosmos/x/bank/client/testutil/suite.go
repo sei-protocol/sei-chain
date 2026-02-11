@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/gogo/protobuf/proto"
+	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	"github.com/stretchr/testify/suite"
-	tmcli "github.com/tendermint/tendermint/libs/cli"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"

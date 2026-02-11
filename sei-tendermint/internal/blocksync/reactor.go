@@ -8,16 +8,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/internal/consensus"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/p2p"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/store"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
-	pb "github.com/tendermint/tendermint/proto/tendermint/blocksync"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/blocksync"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var _ service.Service = (*Reactor)(nil)
@@ -150,7 +150,7 @@ func NewReactor(
 		restartCh:                 restartCh,
 		lastRestartTime:           time.Now(),
 		blocksBehindThreshold:     selfRemediationConfig.BlocksBehindThreshold,
-		blocksBehindCheckInterval: time.Duration(selfRemediationConfig.BlocksBehindCheckIntervalSeconds) * time.Second,
+		blocksBehindCheckInterval: time.Duration(selfRemediationConfig.BlocksBehindCheckIntervalSeconds) * time.Second, //nolint:gosec // validated in config.ValidateBasic against MaxInt64
 		restartCooldownSeconds:    selfRemediationConfig.RestartCooldownSeconds,
 	}
 
@@ -310,7 +310,7 @@ func (r *Reactor) autoRestartIfBehind(ctx context.Context) {
 		case <-time.After(r.blocksBehindCheckInterval):
 			selfHeight := r.store.Height()
 			maxPeerHeight := r.pool.MaxPeerHeight()
-			threshold := int64(r.blocksBehindThreshold)
+			threshold := int64(r.blocksBehindThreshold) //nolint:gosec // validated in config.ValidateBasic against MaxInt64
 			behindHeight := maxPeerHeight - selfHeight
 			blockSyncIsSet := r.blockSync.IsSet()
 			if maxPeerHeight > r.previousMaxPeerHeight {

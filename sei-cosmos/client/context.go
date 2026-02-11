@@ -12,7 +12,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/gogo/protobuf/proto"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"

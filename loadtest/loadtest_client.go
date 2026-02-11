@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
+	"google.golang.org/grpc/credentials/insecure"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/types"
@@ -109,7 +110,7 @@ func BuildGrpcClients(config *Config) ([]typestx.ServiceClient, []*grpc.ClientCo
 	if config.TLS {
 		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true}))) //nolint:gosec // Use insecure skip verify.
 	} else {
-		dialOptions = append(dialOptions, grpc.WithInsecure())
+		dialOptions = append(dialOptions, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 	for i, endpoint := range grpcEndpoints {
 		grpcConn, _ := grpc.Dial(
@@ -202,7 +203,11 @@ func (c *LoadTestClient) BuildTxs(
 				EvmTxHashes = append(EvmTxHashes, signedTx.EvmTx.Hash())
 			default:
 				msgTypeCount := atomic.LoadInt64(producedCountPerMsgType[messageType])
-				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(keyIndex, messageType, msgTypeCount), MsgType: messageType}
+				txs, err := c.generateSignedCosmosTxs(keyIndex, messageType, msgTypeCount)
+				if err != nil {
+					panic(err)
+				}
+				signedTx = SignedTx{TxBytes: txs, MsgType: messageType}
 			}
 
 			select {
@@ -219,19 +224,26 @@ func (c *LoadTestClient) generateSignedEvmTx(keyIndex int, msgType string) *etht
 	return c.EvmTxClients[keyIndex].GetTxForMsgType(msgType)
 }
 
-func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string, msgTypeCount int64) []byte {
+func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string, msgTypeCount int64) ([]byte, error) {
 	key := c.AccountKeys[keyIndex]
 	msgs, _, _, gas, fee := c.generateMessage(key, msgType)
 	txBuilder := TestConfig.TxConfig.NewTxBuilder()
-	_ = txBuilder.SetMsgs(msgs...)
+	if err := txBuilder.SetMsgs(msgs...); err != nil {
+		return nil, fmt.Errorf("setMsgs: %w", err)
+	}
 	txBuilder.SetGasLimit(gas)
 	txBuilder.SetFeeAmount([]types.Coin{
 		types.NewCoin("usei", types.NewInt(fee)),
 	})
 	// Use random seqno to get around txs that might already be seen in mempool
-	c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(msgTypeCount)) //nolint:gosec
-	txBytes, _ := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
-	return txBytes
+	if err := c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(msgTypeCount)); err != nil { //nolint:gosec // msgTypeCount is a small positive counter; no overflow risk
+		return nil, fmt.Errorf("signTx: %w", err)
+	}
+	txBytes, err := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
+	if err != nil {
+		return nil, fmt.Errorf("txEncoder: %w", err)
+	}
+	return txBytes, nil
 }
 
 func (c *LoadTestClient) SendTxs(

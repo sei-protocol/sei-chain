@@ -11,14 +11,14 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/internal/test/factory"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/privval"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	e2e "github.com/tendermint/tendermint/test/e2e/pkg"
-	"github.com/tendermint/tendermint/types"
-	"github.com/tendermint/tendermint/version"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 // 1 in 4 evidence is light client evidence, the rest is duplicate vote evidence
@@ -237,7 +237,7 @@ func getRandomValidatorIndex(privVals []types.MockPV, vals *types.ValidatorSet) 
 }
 
 func readPrivKey(keyFilePath string) (crypto.PrivKey, error) {
-	keyJSONBytes, err := os.ReadFile(keyFilePath)
+	keyJSONBytes, err := os.ReadFile(filepath.Clean(keyFilePath))
 	if err != nil {
 		return crypto.PrivKey{}, err
 	}

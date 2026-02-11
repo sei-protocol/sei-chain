@@ -11,10 +11,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
-	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/app"

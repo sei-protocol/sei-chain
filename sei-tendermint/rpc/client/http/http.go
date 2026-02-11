@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/bytes"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	jsonrpcclient "github.com/tendermint/tendermint/rpc/jsonrpc/client"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	jsonrpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 /*
@@ -369,7 +369,7 @@ func (c *baseRPCClient) Genesis(ctx context.Context) (*coretypes.ResultGenesis, 
 func (c *baseRPCClient) GenesisChunked(ctx context.Context, id uint) (*coretypes.ResultGenesisChunk, error) {
 	result := new(coretypes.ResultGenesisChunk)
 	if err := c.caller.Call(ctx, "genesis_chunked", &coretypes.RequestGenesisChunked{
-		Chunk: coretypes.Int64(id),
+		Chunk: coretypes.Int64(id), //nolint:gosec // id is a small genesis chunk index
 	}, result); err != nil {
 		return nil, err
 	}

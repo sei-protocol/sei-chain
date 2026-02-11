@@ -11,17 +11,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	clientmocks "github.com/tendermint/tendermint/abci/client/mocks"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/internal/proxy"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/statesync/mocks"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/require"
-	"github.com/tendermint/tendermint/libs/utils/scope"
-	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
-	"github.com/tendermint/tendermint/types"
-	"github.com/tendermint/tendermint/version"
+	clientmocks "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client/mocks"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync/mocks"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	ssproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 func TestSyncer_SyncAny(t *testing.T) {

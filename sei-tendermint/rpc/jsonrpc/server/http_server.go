@@ -14,8 +14,8 @@ import (
 
 	"golang.org/x/net/netutil"
 
-	"github.com/tendermint/tendermint/libs/log"
-	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
 
 // Config is a RPC server configuration.
@@ -125,7 +125,7 @@ func ServeTLS(ctx context.Context, listener net.Listener, handler http.Handler, 
 func writeError(w http.ResponseWriter, statusCode int, err error) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(statusCode)
-	fmt.Fprintln(w, err.Error())
+	_, _ = fmt.Fprintln(w, err.Error())
 }
 
 // writeHTTPResponse writes a JSON-RPC response to w. If rsp encodes an error,
