@@ -82,6 +82,15 @@ func runGetAppHash(cmd *cobra.Command, args []string) error {
 	return runGetAppHashIAVL(dataDir, height)
 }
 
+// memoryStoreKeys are the memory store keys used by the Sei app.
+// These stores are not persisted in memiavl but are included in the app hash
+// computation with empty hashes (matching amendCommitInfo in storev2/rootmulti/store.go).
+var memoryStoreKeys = []string{
+	"mem_capability", // capabilitytypes.MemStoreKey
+	"deferredcache",  // banktypes.DeferredCacheStoreKey
+	"oracle_mem",     // oracletypes.MemStoreKey
+}
+
 func runGetAppHashSeiDB(committerPath string, height int64) error {
 	// Create a nop logger for the memiavl store
 	log := logger.NewNopLogger()
@@ -124,7 +133,50 @@ func runGetAppHashSeiDB(committerPath string, height int64) error {
 		StoreInfos: storeInfos,
 	}
 
+	// Add memory stores with empty hashes to match runtime behavior
+	// (see amendCommitInfo in sei-cosmos/storev2/rootmulti/store.go)
+	sdkCommitInfo = amendCommitInfoWithMemStores(sdkCommitInfo)
+
 	return printAppHashDetails(sdkCommitInfo, height)
+}
+
+// amendCommitInfoWithMemStores adds memory store entries with empty hashes to the commit info.
+// This matches the behavior of amendCommitInfo in sei-cosmos/storev2/rootmulti/store.go
+// which adds non-IAVL, non-Transient stores (i.e., memory stores) with empty CommitIDs.
+func amendCommitInfoWithMemStores(commitInfo *storetypes.CommitInfo) *storetypes.CommitInfo {
+	// Create a set of existing store names for quick lookup
+	existingStores := make(map[string]bool)
+	for _, si := range commitInfo.StoreInfos {
+		existingStores[si.Name] = true
+	}
+
+	// Add memory stores that don't already exist
+	var extraStoreInfos []storetypes.StoreInfo
+	for _, memKey := range memoryStoreKeys {
+		if !existingStores[memKey] {
+			extraStoreInfos = append(extraStoreInfos, storetypes.StoreInfo{
+				Name:     memKey,
+				CommitId: storetypes.CommitID{}, // Empty hash
+			})
+		}
+	}
+
+	if len(extraStoreInfos) == 0 {
+		return commitInfo
+	}
+
+	// Merge and sort by name
+	allInfos := make([]storetypes.StoreInfo, 0, len(commitInfo.StoreInfos)+len(extraStoreInfos))
+	allInfos = append(allInfos, commitInfo.StoreInfos...)
+	allInfos = append(allInfos, extraStoreInfos...)
+	sort.SliceStable(allInfos, func(i, j int) bool {
+		return allInfos[i].Name < allInfos[j].Name
+	})
+
+	return &storetypes.CommitInfo{
+		Version:    commitInfo.Version,
+		StoreInfos: allInfos,
+	}
 }
 
 func runGetAppHashIAVL(dataDir string, height int64) error {
