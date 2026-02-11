@@ -83,6 +83,12 @@ func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, store)
 	require.NoError(t, store.Close())
+
+	cfg.Backend = "parquet"
+	store, err = receipt.NewReceiptStore(nil, cfg, storeKey)
+	require.NoError(t, err)
+	require.NotNil(t, store)
+	require.NoError(t, store.Close())
 }
 
 func TestSetReceiptsAndGet(t *testing.T) {
@@ -181,6 +187,13 @@ func TestFilterLogsRangeQueryNotSupported(t *testing.T) {
 	// Pebble backend does not support range queries, so FilterLogs returns ErrRangeQueryNotSupported.
 	_, err := store.FilterLogs(ctx, 1, 10, filters.FilterCriteria{})
 	require.ErrorIs(t, err, receipt.ErrRangeQueryNotSupported)
+}
+
+func TestMatchTopics(t *testing.T) {
+	topic1 := common.HexToHash("0x1")
+	topic2 := common.HexToHash("0x2")
+	require.True(t, receipt.MatchTopics([][]common.Hash{{topic1}, {}}, []common.Hash{topic1}))
+	require.False(t, receipt.MatchTopics([][]common.Hash{{topic1}, {topic2}}, []common.Hash{topic1}))
 }
 
 func TestRecoverReceiptStoreReplaysChangelog(t *testing.T) {
