@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -36,6 +35,7 @@ import (
 	"github.com/tendermint/tendermint/libs/service"
 	tmtime "github.com/tendermint/tendermint/libs/time"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/privval"
 	"github.com/tendermint/tendermint/types"
 
@@ -49,7 +49,6 @@ import (
 // nodeImpl is the highest level interface to a full Tendermint node.
 // It includes all configuration information and running services.
 type nodeImpl struct {
-	service.BaseService
 	logger log.Logger
 
 	// config
@@ -74,7 +73,6 @@ type nodeImpl struct {
 	indexerService *indexer.Service
 	services       []service.Service
 	rpcListeners   []net.Listener // rpc servers
-	shutdownOps    closer
 	rpcEnv         *rpccore.Environment
 	prometheusSrv  *http.Server
 }
@@ -128,7 +126,21 @@ func newDefaultNode(
 		logger,
 		[]trace.TracerProviderOption{},
 		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
-	)
+	), nil
+}
+
+type nodeSpec struct {
+	service.BaseService
+	cfg                   *config.Config
+	restartCh             chan struct{}
+	filePrivval           *privval.FilePV
+	nodeKey               types.NodeKey
+	client                abciclient.Client
+	genesisDocProvider    genesisDocProvider
+	dbProvider            config.DBProvider
+	logger                log.Logger
+	tracerProviderOptions []trace.TracerProviderOption
+	nodeMetrics           *NodeMetrics
 }
 
 // makeNode returns a new, ready to go, Tendermint Node.
@@ -144,288 +156,303 @@ func makeNode(
 	logger log.Logger,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
-) (service.Service, error) {
-
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
-
-	closers := []closer{convertCancelCloser(cancel)}
-
-	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
-	if err != nil {
-		return nil, combineCloseError(err, dbCloser)
+) service.Service {
+	ns := &nodeSpec{
+		cfg:                   cfg,
+		restartCh:             restartCh,
+		filePrivval:           filePrivval,
+		nodeKey:               nodeKey,
+		client:                client,
+		genesisDocProvider:    genesisDocProvider,
+		dbProvider:            dbProvider,
+		logger:                logger,
+		tracerProviderOptions: tracerProviderOptions,
+		nodeMetrics:           nodeMetrics,
 	}
-	closers = append(closers, dbCloser)
+	ns.BaseService = *service.NewBaseService(logger, "Node", ns)
+	return ns
+}
 
-	stateStore := sm.NewStore(stateDB)
+func (ns *nodeSpec) OnStart(ctx context.Context) error {
+	ns.SpawnCritical("Run", func(ctx context.Context) error { return ns.Run(ctx) })
+	return nil
+}
 
-	genDoc, err := genesisDocProvider()
-	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
-	}
+func (ns *nodeSpec) OnStop() {}
 
-	if err = genDoc.ValidateAndComplete(); err != nil {
-		return nil, combineCloseError(fmt.Errorf("error in genesis doc: %w", err), makeCloser(closers))
-	}
+func (ns *nodeSpec) Run(ctx context.Context) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		blockStore, stateDB, dbCloser, err := initDBs(ns.cfg, ns.dbProvider)
+		defer dbCloser()
+		if err != nil {
+			return fmt.Errorf("initDBs(): %w", err)
+		}
 
-	state, err := LoadStateFromDBOrGenesisDocProvider(stateStore, genDoc)
-	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
-	}
+		stateStore := sm.NewStore(stateDB)
+		genDoc, err := ns.genesisDocProvider()
+		if err != nil {
+			return fmt.Errorf("genesisDocProvider(): %w", err)
+		}
 
-	proxyApp := proxy.New(client, logger.With("module", "proxy"), nodeMetrics.proxy)
-	eventBus := eventbus.NewDefault(logger.With("module", "events"))
+		if err := genDoc.ValidateAndComplete(); err != nil {
+			return fmt.Errorf("error in genesis doc: %w", err)
+		}
 
-	var eventLog *eventlog.Log
-	if w := cfg.RPC.EventLogWindowSize; w > 0 {
-		var err error
-		eventLog, err = eventlog.New(eventlog.LogSettings{
-			WindowSize: w,
-			MaxItems:   cfg.RPC.EventLogMaxItems,
-			Metrics:    nodeMetrics.eventlog,
+		state, err := LoadStateFromDBOrGenesisDocProvider(stateStore, genDoc)
+		if err != nil {
+			return fmt.Errorf("LoadStateFromDBOrGenesisDocProvider(): %w", err)
+		}
+
+		proxyApp := proxy.New(ns.client, ns.logger.With("module", "proxy"), ns.nodeMetrics.proxy)
+		eventBus := eventbus.NewDefault(ns.logger.With("module", "events"))
+
+		var eventLog *eventlog.Log
+		if w := ns.cfg.RPC.EventLogWindowSize; w > 0 {
+			var err error
+			eventLog, err = eventlog.New(eventlog.LogSettings{
+				WindowSize: w,
+				MaxItems:   ns.cfg.RPC.EventLogMaxItems,
+				Metrics:    ns.nodeMetrics.eventlog,
+			})
+			if err != nil {
+				return fmt.Errorf("initializing event log: %w", err)
+			}
+		}
+		eventSinks, err := sink.EventSinksFromConfig(ns.cfg, ns.dbProvider, genDoc.ChainID)
+		if err != nil {
+			return fmt.Errorf("sink.EventSingsFromConfig(): %w", err)
+		}
+		indexerService := indexer.NewService(indexer.ServiceArgs{
+			Sinks:    eventSinks,
+			EventBus: eventBus,
+			Logger:   ns.logger.With("module", "txindex"),
+			Metrics:  ns.nodeMetrics.indexer,
 		})
+
+		privValidator, err := createPrivval(ctx, ns.logger, ns.cfg, genDoc, ns.filePrivval)
 		if err != nil {
-			return nil, combineCloseError(fmt.Errorf("initializing event log: %w", err), makeCloser(closers))
+			return fmt.Errorf("createPrivval(): %w", err)
 		}
-	}
-	eventSinks, err := sink.EventSinksFromConfig(cfg, dbProvider, genDoc.ChainID)
-	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
-	}
-	indexerService := indexer.NewService(indexer.ServiceArgs{
-		Sinks:    eventSinks,
-		EventBus: eventBus,
-		Logger:   logger.With("module", "txindex"),
-		Metrics:  nodeMetrics.indexer,
-	})
 
-	privValidator, err := createPrivval(ctx, logger, cfg, genDoc, filePrivval)
-	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
-	}
+		pubKey := utils.None[crypto.PubKey]()
+		if ns.cfg.Mode == config.ModeValidator {
+			key, err := privValidator.GetPubKey(ctx)
+			if err != nil {
+				return fmt.Errorf("can't get pubkey: %w", err)
+			}
+			pubKey = utils.Some(key)
+		}
+		// TODO construct node here:
+		node := &nodeImpl{
+			config:        ns.cfg,
+			logger:        ns.logger,
+			genesisDoc:    genDoc,
+			privValidator: privValidator,
 
-	pubKey := utils.None[crypto.PubKey]()
-	if cfg.Mode == config.ModeValidator {
-		key, err := privValidator.GetPubKey(ctx)
+			nodeKey: ns.nodeKey,
+
+			eventSinks:     eventSinks,
+			indexerService: indexerService,
+			services:       []service.Service{eventBus},
+
+			initialState: state,
+			stateStore:   stateStore,
+			blockStore:   blockStore,
+
+			rpcEnv: &rpccore.Environment{
+				ProxyApp: proxyApp,
+
+				StateStore: stateStore,
+				BlockStore: blockStore,
+				GenDoc:     genDoc,
+				EventSinks: eventSinks,
+				EventBus:   eventBus,
+				EventLog:   eventLog,
+				Logger:     ns.logger.With("module", "rpc"),
+				Config:     *ns.cfg.RPC,
+			},
+		}
+
+		router, peerCloser, err := createRouter(ns.logger, ns.nodeMetrics.p2p, node.NodeInfo, ns.nodeKey, ns.cfg, proxyApp, ns.dbProvider)
+		defer peerCloser()
 		if err != nil {
-			return nil, combineCloseError(fmt.Errorf("can't get pubkey: %w", err),
-				makeCloser(closers))
+			return fmt.Errorf("failed to create router: %w", err)
 		}
-		pubKey = utils.Some(key)
-	}
-	// TODO construct node here:
-	node := &nodeImpl{
-		config:        cfg,
-		logger:        logger,
-		genesisDoc:    genDoc,
-		privValidator: privValidator,
+		node.router = router
+		node.rpcEnv.PeerManager = router
 
-		nodeKey: nodeKey,
+		evReactor, evPool, edbCloser, err := createEvidenceReactor(ns.logger, ns.cfg, ns.dbProvider,
+			stateStore, blockStore, node.router, ns.nodeMetrics.evidence, eventBus)
+		defer edbCloser()
+		if err != nil {
+			return fmt.Errorf("createEvidenceReactor(): %w", err)
+		}
+		node.services = append(node.services, evReactor)
+		node.rpcEnv.EvidencePool = evPool
+		node.evPool = evPool
 
-		eventSinks:     eventSinks,
-		indexerService: indexerService,
-		services:       []service.Service{eventBus},
+		mpReactor, mp, err := createMempoolReactor(ns.logger, ns.cfg, proxyApp, stateStore, ns.nodeMetrics.mempool, node.router)
+		if err != nil {
+			return fmt.Errorf("createMempoolReactor(): %w", err)
+		}
+		mpReactor.MarkReadyToStart()
 
-		initialState: state,
-		stateStore:   stateStore,
-		blockStore:   blockStore,
+		node.rpcEnv.Mempool = mp
+		node.services = append(node.services, mpReactor)
 
-		rpcEnv: &rpccore.Environment{
-			ProxyApp: proxyApp,
+		// make block executor for consensus and blockchain reactors to execute blocks
+		blockExec := sm.NewBlockExecutor(
+			stateStore,
+			ns.logger.With("module", "state"),
+			proxyApp,
+			mp,
+			evPool,
+			blockStore,
+			eventBus,
+			ns.nodeMetrics.state,
+		)
 
-			StateStore: stateStore,
-			BlockStore: blockStore,
-			GenDoc:     genDoc,
-			EventSinks: eventSinks,
-			EventBus:   eventBus,
-			EventLog:   eventLog,
-			Logger:     logger.With("module", "rpc"),
-			Config:     *cfg.RPC,
-		},
-	}
+		// Determine whether we should attempt state sync.
+		stateSync := ns.cfg.StateSync.Enable && !onlyValidatorIsUs(state, pubKey)
+		if stateSync && state.LastBlockHeight > 0 {
+			ns.logger.Info("Found local state with non-zero height, skipping state sync")
+			stateSync = false
+		}
 
-	router, peerCloser, err := createRouter(logger, nodeMetrics.p2p, node.NodeInfo, nodeKey, cfg, proxyApp, dbProvider)
-	closers = append(closers, peerCloser)
-	if err != nil {
-		return nil, combineCloseError(
-			fmt.Errorf("failed to create router: %w", err),
-			makeCloser(closers))
-	}
-	node.router = router
-	node.rpcEnv.PeerManager = router
-	node.shutdownOps = makeCloser(closers)
+		// Determine whether we should do block sync. This must happen after the handshake, since the
+		// app may modify the validator set, specifying ourself as the only validator.
+		blockSync := !onlyValidatorIsUs(state, pubKey)
+		waitSync := stateSync || blockSync
 
-	evReactor, evPool, edbCloser, err := createEvidenceReactor(logger, cfg, dbProvider,
-		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
-	closers = append(closers, edbCloser)
-	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
-	}
-	node.services = append(node.services, evReactor)
-	node.rpcEnv.EvidencePool = evPool
-	node.evPool = evPool
-
-	mpReactor, mp, err := createMempoolReactor(logger, cfg, proxyApp, stateStore, nodeMetrics.mempool, node.router)
-	if err != nil {
-		return nil, fmt.Errorf("createMempoolReactor(): %w", err)
-	}
-	mpReactor.MarkReadyToStart()
-
-	node.rpcEnv.Mempool = mp
-	node.services = append(node.services, mpReactor)
-
-	// make block executor for consensus and blockchain reactors to execute blocks
-	blockExec := sm.NewBlockExecutor(
-		stateStore,
-		logger.With("module", "state"),
-		proxyApp,
-		mp,
-		evPool,
-		blockStore,
-		eventBus,
-		nodeMetrics.state,
-	)
-
-	// Determine whether we should attempt state sync.
-	stateSync := cfg.StateSync.Enable && !onlyValidatorIsUs(state, pubKey)
-	if stateSync && state.LastBlockHeight > 0 {
-		logger.Info("Found local state with non-zero height, skipping state sync")
-		stateSync = false
-	}
-
-	// Determine whether we should do block sync. This must happen after the handshake, since the
-	// app may modify the validator set, specifying ourself as the only validator.
-	blockSync := !onlyValidatorIsUs(state, pubKey)
-	waitSync := stateSync || blockSync
-
-	csState, err := consensus.NewState(logger.With("module", "consensus"),
-		cfg.Consensus,
-		stateStore,
-		blockExec,
-		blockStore,
-		mp,
-		evPool,
-		eventBus,
-		tracerProviderOptions,
-		consensus.StateMetrics(nodeMetrics.consensus),
-		consensus.SkipStateStoreBootstrap,
-	)
-	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
-	}
-	node.rpcEnv.ConsensusState = csState
-
-	csReactor, err := consensus.NewReactor(
-		logger,
-		csState,
-		node.router,
-		eventBus,
-		waitSync,
-		nodeMetrics.consensus,
-		cfg,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("consensus.NewReactor(): %w", err)
-	}
-
-	node.services = append(node.services, csReactor)
-	node.rpcEnv.ConsensusReactor = csReactor
-
-	// Create the blockchain reactor. Note, we do not start block sync if we're
-	// doing a state sync first.
-	bcReactor, err := blocksync.NewReactor(
-		logger.With("module", "blockchain"),
-		stateStore,
-		blockExec,
-		blockStore,
-		csReactor,
-		node.router,
-		blockSync && !stateSync,
-		nodeMetrics.consensus,
-		eventBus,
-		restartCh,
-		cfg.SelfRemediation,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("blocksync.NewReactor(): %w", err)
-	}
-	node.services = append(node.services, bcReactor)
-	node.rpcEnv.BlockSyncReactor = bcReactor
-
-	// Make ConsensusReactor. Don't enable fully if doing a state sync and/or block sync first.
-	// FIXME We need to update metrics here, since other reactors don't have access to them.
-	if stateSync {
-		nodeMetrics.consensus.StateSyncing.Set(1)
-	} else if blockSync {
-		nodeMetrics.consensus.BlockSyncing.Set(1)
-	}
-
-	if cfg.P2P.PexReactor {
-		pxReactor, err := pex.NewReactor(
-			logger,
-			node.router,
-			pex.DefaultSendInterval,
+		csState, err := consensus.NewState(ns.logger.With("module", "consensus"),
+			ns.cfg.Consensus,
+			stateStore,
+			blockExec,
+			blockStore,
+			mp,
+			evPool,
+			eventBus,
+			ns.tracerProviderOptions,
+			consensus.StateMetrics(ns.nodeMetrics.consensus),
+			consensus.SkipStateStoreBootstrap,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("pex.NewReactor(): %w", err)
+			return fmt.Errorf("consensus.NewState(): %w", err)
 		}
-		node.services = append(node.services, pxReactor)
-	}
+		node.rpcEnv.ConsensusState = csState
 
-	postSyncHook := func(ctx context.Context, state sm.State) error {
-		csReactor.SetStateSyncingMetrics(0)
-
-		// TODO: Some form of orchestrator is needed here between the state
-		// advancing reactors to be able to control which one of the three
-		// is running
-		// FIXME Very ugly to have these metrics bleed through here.
-		csReactor.SetBlockSyncingMetrics(1)
-		if err := bcReactor.SwitchToBlockSync(ctx, state); err != nil {
-			logger.Error("failed to switch to block sync", "err", err)
-			return err
+		csReactor, err := consensus.NewReactor(
+			ns.logger,
+			csState,
+			node.router,
+			eventBus,
+			waitSync,
+			ns.nodeMetrics.consensus,
+			ns.cfg,
+		)
+		if err != nil {
+			return fmt.Errorf("consensus.NewReactor(): %w", err)
 		}
 
+		node.services = append(node.services, csReactor)
+		node.rpcEnv.ConsensusReactor = csReactor
+
+		// Create the blockchain reactor. Note, we do not start block sync if we're
+		// doing a state sync first.
+		bcReactor, err := blocksync.NewReactor(
+			ns.logger.With("module", "blockchain"),
+			stateStore,
+			blockExec,
+			blockStore,
+			csReactor,
+			node.router,
+			blockSync && !stateSync,
+			ns.nodeMetrics.consensus,
+			eventBus,
+			ns.restartCh,
+			ns.cfg.SelfRemediation,
+		)
+		if err != nil {
+			return fmt.Errorf("blocksync.NewReactor(): %w", err)
+		}
+		node.services = append(node.services, bcReactor)
+		node.rpcEnv.BlockSyncReactor = bcReactor
+
+		// Make ConsensusReactor. Don't enable fully if doing a state sync and/or block sync first.
+		// FIXME We need to update metrics here, since other reactors don't have access to them.
+		if stateSync {
+			ns.nodeMetrics.consensus.StateSyncing.Set(1)
+		} else if blockSync {
+			ns.nodeMetrics.consensus.BlockSyncing.Set(1)
+		}
+
+		if ns.cfg.P2P.PexReactor {
+			pxReactor, err := pex.NewReactor(
+				ns.logger,
+				node.router,
+				pex.DefaultSendInterval,
+			)
+			if err != nil {
+				return fmt.Errorf("pex.NewReactor(): %w", err)
+			}
+			node.services = append(node.services, pxReactor)
+		}
+
+		postSyncHook := func(ctx context.Context, state sm.State) error {
+			csReactor.SetStateSyncingMetrics(0)
+
+			// TODO: Some form of orchestrator is needed here between the state
+			// advancing reactors to be able to control which one of the three
+			// is running
+			// FIXME Very ugly to have these metrics bleed through here.
+			csReactor.SetBlockSyncingMetrics(1)
+			if err := bcReactor.SwitchToBlockSync(ctx, state); err != nil {
+				ns.logger.Error("failed to switch to block sync", "err", err)
+				return err
+			}
+
+			return nil
+		}
+		// Set up state sync reactor, and schedule a sync if requested.
+		// FIXME The way we do phased startups (e.g. replay -> block sync -> consensus) is very messy,
+		// we should clean this whole thing up. See:
+		// https://github.com/tendermint/tendermint/issues/4644
+		ssReactor, err := statesync.NewReactor(
+			genDoc.ChainID,
+			genDoc.InitialHeight,
+			*ns.cfg.StateSync,
+			ns.logger.With("module", "statesync"),
+			proxyApp,
+			node.router,
+			stateStore,
+			blockStore,
+			ns.cfg.StateSync.TempDir,
+			ns.nodeMetrics.statesync,
+			eventBus,
+			// the post-sync operation
+			postSyncHook,
+			stateSync,
+			ns.restartCh,
+			ns.cfg.SelfRemediation,
+		)
+		if err != nil {
+			return fmt.Errorf("statesync.NewReactor(): %w", err)
+		}
+
+		node.shouldHandshake = !stateSync
+		node.services = append(node.services, ssReactor)
+
+		if ns.cfg.Mode == config.ModeValidator {
+			if privValidator != nil {
+				csState.SetPrivValidator(ctx, utils.Some(privValidator))
+			}
+		}
+		node.rpcEnv.PubKey = pubKey
+		s.SpawnBg(func() error { return node.OnStart(ctx) })
+		<-ctx.Done()
+		node.OnStop()
 		return nil
-	}
-	// Set up state sync reactor, and schedule a sync if requested.
-	// FIXME The way we do phased startups (e.g. replay -> block sync -> consensus) is very messy,
-	// we should clean this whole thing up. See:
-	// https://github.com/tendermint/tendermint/issues/4644
-	ssReactor, err := statesync.NewReactor(
-		genDoc.ChainID,
-		genDoc.InitialHeight,
-		*cfg.StateSync,
-		logger.With("module", "statesync"),
-		proxyApp,
-		node.router,
-		stateStore,
-		blockStore,
-		cfg.StateSync.TempDir,
-		nodeMetrics.statesync,
-		eventBus,
-		// the post-sync operation
-		postSyncHook,
-		stateSync,
-		restartCh,
-		cfg.SelfRemediation,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("statesync.NewReactor(): %w", err)
-	}
-
-	node.shouldHandshake = !stateSync
-	node.services = append(node.services, ssReactor)
-
-	if cfg.Mode == config.ModeValidator {
-		if privValidator != nil {
-			csState.SetPrivValidator(ctx, utils.Some(privValidator))
-		}
-	}
-	node.rpcEnv.PubKey = pubKey
-
-	node.BaseService = *service.NewBaseService(logger, "Node", node)
-
-	return node, nil
+	})
 }
 
 // OnStart starts the Node. It implements service.Service.
@@ -586,12 +613,6 @@ func (n *nodeImpl) OnStop() {
 		if err := n.prometheusSrv.Shutdown(context.Background()); err != nil {
 			// Error from closing listeners, or context timeout:
 			n.logger.Error("Prometheus HTTP server Shutdown", "err", err)
-		}
-
-	}
-	if err := n.shutdownOps(); err != nil {
-		if strings.TrimSpace(err.Error()) != "" {
-			n.logger.Error("problem shutting down additional services", "err", err)
 		}
 	}
 	if n.blockStore != nil {

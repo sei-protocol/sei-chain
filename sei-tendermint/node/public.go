@@ -75,7 +75,7 @@ func New(
 			logger,
 			tracerProviderOptions,
 			nodeMetrics,
-		)
+		), nil
 	case config.ModeSeed:
 		return makeSeedNode(
 			ctx,

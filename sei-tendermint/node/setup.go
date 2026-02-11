@@ -240,15 +240,10 @@ func createRouter(
 		privatePeerIDs = append(privatePeerIDs, types.NodeID(id))
 	}
 
-	var maxConns int
-
-	switch {
-	case cfg.P2P.MaxConnections > 0:
+	maxConns := 64
+	if cfg.P2P.MaxConnections > 0 {
 		maxConns = int(cfg.P2P.MaxConnections)
-	default:
-		maxConns = 64
 	}
-
 	options.MaxConnected = utils.Some(maxConns)
 	options.MaxPeers = utils.Some(2 * maxConns)
 	options.PrivatePeers = privatePeerIDs
