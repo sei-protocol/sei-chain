@@ -15,24 +15,26 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/libs/log"
-	tmnet "github.com/tendermint/tendermint/libs/net"
-	"github.com/tendermint/tendermint/light"
-	lproxy "github.com/tendermint/tendermint/light/proxy"
-	lrpc "github.com/tendermint/tendermint/light/rpc"
-	dbs "github.com/tendermint/tendermint/light/store/db"
-	"github.com/tendermint/tendermint/node"
-	"github.com/tendermint/tendermint/privval"
-	grpcprivval "github.com/tendermint/tendermint/privval/grpc"
-	privvalproto "github.com/tendermint/tendermint/proto/tendermint/privval"
-	rpcserver "github.com/tendermint/tendermint/rpc/jsonrpc/server"
-	"github.com/tendermint/tendermint/test/e2e/app"
-	e2e "github.com/tendermint/tendermint/test/e2e/pkg"
+	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
+	lproxy "github.com/sei-protocol/sei-chain/sei-tendermint/light/proxy"
+	lrpc "github.com/sei-protocol/sei-chain/sei-tendermint/light/rpc"
+	dbs "github.com/sei-protocol/sei-chain/sei-tendermint/light/store/db"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	grpcprivval "github.com/sei-protocol/sei-chain/sei-tendermint/privval/grpc"
+	privvalproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/privval"
+	rpcserver "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/server"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/app"
+	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
 )
+
+const builtinProtocol = "builtin"
 
 // main is the binary entrypoint.
 func main() {
@@ -64,7 +66,7 @@ func run(ctx context.Context, configFile string) error {
 	if err != nil {
 		// have print here because we can't log (yet), use the logger
 		// everywhere else.
-		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		_, _ = fmt.Fprintln(os.Stderr, "ERROR:", err)
 		return err
 	}
 
@@ -79,14 +81,14 @@ func run(ctx context.Context, configFile string) error {
 					"err", err)
 				return err
 			}
-			if cfg.Protocol == "builtin" {
+			if cfg.Protocol == builtinProtocol {
 				time.Sleep(1 * time.Second)
 			}
 		}
 
 		// Start app server.
 		switch cfg.Protocol {
-		case "builtin":
+		case builtinProtocol:
 			if cfg.Mode == string(e2e.ModeSeed) {
 				err = startSeedNode(ctx)
 			} else {

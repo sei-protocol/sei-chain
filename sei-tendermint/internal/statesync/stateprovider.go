@@ -11,27 +11,27 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/tendermint/tendermint/internal/p2p"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/light"
-	lightprovider "github.com/tendermint/tendermint/light/provider"
-	lighthttp "github.com/tendermint/tendermint/light/provider/http"
-	lightrpc "github.com/tendermint/tendermint/light/rpc"
-	lightdb "github.com/tendermint/tendermint/light/store/db"
-	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
-	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
-	"github.com/tendermint/tendermint/types"
-	"github.com/tendermint/tendermint/version"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
+	lightprovider "github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
+	lighthttp "github.com/sei-protocol/sei-chain/sei-tendermint/light/provider/http"
+	lightrpc "github.com/sei-protocol/sei-chain/sei-tendermint/light/rpc"
+	lightdb "github.com/sei-protocol/sei-chain/sei-tendermint/light/store/db"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
+	rpchttp "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 const (
 	consensusParamsResponseTimeout = 5 * time.Second
 )
 
-//go:generate ../scripts/mockery_generate.sh StateProvider
+//go:generate ../../scripts/mockery_generate.sh StateProvider
 
 // StateProvider is a provider of trusted state data for bootstrapping a node. This refers
 // to the state.State object, not the state machine. There are two implementations. One
@@ -100,7 +100,7 @@ func NewRPCStateProvider(
 func (s *stateProviderRPC) verifyLightBlockAtHeight(ctx context.Context, height uint64, ts time.Time) (*types.LightBlock, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.verifyLightBlockTimeout)
 	defer cancel()
-	return s.lc.VerifyLightBlockAtHeight(ctx, int64(height), ts)
+	return s.lc.VerifyLightBlockAtHeight(ctx, int64(height), ts) //nolint:gosec // height validated by Message.Validate() upstream
 }
 
 // AppHash implements part of StateProvider. It calls the application to verify the
@@ -258,7 +258,7 @@ func NewP2PStateProvider(
 func (s *StateProviderP2P) verifyLightBlockAtHeight(ctx context.Context, height uint64, ts time.Time) (*types.LightBlock, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.verifyLightBlockTimeout)
 	defer cancel()
-	return s.lc.VerifyLightBlockAtHeight(ctx, int64(height), ts)
+	return s.lc.VerifyLightBlockAtHeight(ctx, int64(height), ts) //nolint:gosec // height validated by Message.Validate() upstream
 }
 
 // AppHash implements StateProvider.
@@ -400,11 +400,11 @@ func (s *StateProviderP2P) consensusParams(ctx context.Context, height int64) (t
 					if err != nil {
 						return fmt.Errorf("invalid provider (%v) node id: %w", p, err)
 					}
-					s.paramsSendCh.Send(wrap(&pb.ParamsRequest{Height: uint64(height)}), peer)
+					s.paramsSendCh.Send(wrap(&pb.ParamsRequest{Height: uint64(height)}), peer) //nolint:gosec // height is a validated positive block height
 				}
 				// jitter+backoff the retry loop
 				timeout := time.Duration(iterCount)*consensusParamsResponseTimeout +
-					time.Duration(100*rand.Int63n(iterCount))*time.Millisecond // nolint:gosec
+					time.Duration(100*rand.Int63n(iterCount))*time.Millisecond //nolint:gosec
 				if err := utils.Sleep(ctx, timeout); err != nil {
 					return nil
 				}

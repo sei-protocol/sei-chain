@@ -3,9 +3,10 @@ package utils
 import (
 	"errors"
 	"fmt"
+	"sync"
+
 	"github.com/gogo/protobuf/proto"
 	"golang.org/x/exp/constraints"
-	"sync"
 )
 
 func ErrorAs[T error](err error) Option[T] {

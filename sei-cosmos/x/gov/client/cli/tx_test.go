@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/gogo/protobuf/proto"
-	abci "github.com/tendermint/tendermint/abci/types"
-	rpcclientmock "github.com/tendermint/tendermint/rpc/client/mock"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	rpcclientmock "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"io"
 	"testing"
 

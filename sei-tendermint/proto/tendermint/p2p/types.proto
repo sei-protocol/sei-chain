@@ -5,7 +5,7 @@ package tendermint.p2p;
 import "gogoproto/gogo.proto";
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/p2p";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/p2p";
 
 message ProtocolVersion {
   uint64 p2p = 1 [(gogoproto.customname) = "P2P"];
