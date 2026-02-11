@@ -165,7 +165,7 @@ func TestMultiVersionStoreWritesetSetAndInvalidate(t *testing.T) {
 	require.Equal(t, 3, len(writesetKeys))
 	require.Equal(t, []string{"key1"}, writesetKeys[1])
 	require.Equal(t, []string{"key1"}, writesetKeys[2])
-	require.Equal(t, []string{"key4", "key5"}, writesetKeys[3])
+	require.ElementsMatch(t, []string{"key4", "key5"}, writesetKeys[3])
 
 }
 

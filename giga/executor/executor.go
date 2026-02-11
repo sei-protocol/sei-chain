@@ -34,6 +34,11 @@ func NewGethExecutor(blockCtx vm.BlockContext, stateDB vm.StateDB, chainConfig *
 	}
 }
 
+// Reset reuses the executor for a new transaction by resetting per-tx EVM state.
+func (e *Executor) Reset(stateDB vm.StateDB) {
+	e.evm.Reset(stateDB)
+}
+
 func (e *Executor) ExecuteTransaction(tx *types.Transaction, sender common.Address, baseFee *big.Int, gasPool *core.GasPool) (*core.ExecutionResult, error) {
 	message, err := core.TransactionToMessage(tx, &internal.Signer{From: sender}, baseFee)
 	if err != nil {
