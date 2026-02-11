@@ -2,6 +2,7 @@ package tests
 
 import (
 	"encoding/hex"
+	"fmt"
 	"math/big"
 
 	clienttx "github.com/cosmos/cosmos-sdk/client/tx"
@@ -36,14 +37,18 @@ func signTxWithMnemonic(txData ethtypes.TxData, mnemonic string) *ethtypes.Trans
 	return tx
 }
 
-func signCosmosTxWithMnemonic(msg sdk.Msg, mnemonic string, accountNumber uint64, sequenceNumber uint64) sdk.Tx {
-	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
+func signCosmosTxWithMnemonic(msg sdk.Msg, mnemonic string, accountNumber uint64, sequenceNumber uint64) (sdk.Tx, error) {
+	derivedPriv, err := hd.Secp256k1.Derive()(mnemonic, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("derive: %w", err)
+	}
 	privKey := hd.Secp256k1.Generate()(derivedPriv)
 	txBuilder := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
-	_ = txBuilder.SetMsgs(msg)
+	if err := txBuilder.SetMsgs(msg); err != nil {
+		return nil, fmt.Errorf("s: %w", err)
+	}
 	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000))))
 	txBuilder.SetGasLimit(300000)
-	var sigsV2 []signing.SignatureV2
 	sigV2 := signing.SignatureV2{
 		PubKey: privKey.PubKey(),
 		Data: &signing.SingleSignatureData{
@@ -52,15 +57,15 @@ func signCosmosTxWithMnemonic(msg sdk.Msg, mnemonic string, accountNumber uint64
 		},
 		Sequence: sequenceNumber,
 	}
-	sigsV2 = append(sigsV2, sigV2)
-	_ = txBuilder.SetSignatures(sigsV2...)
-	sigsV2 = []signing.SignatureV2{}
+	if err := txBuilder.SetSignatures(sigV2); err != nil {
+		return nil, fmt.Errorf("setSignatures (placeholder): %w", err)
+	}
 	signerData := xauthsigning.SignerData{
 		ChainID:       "sei-test",
 		AccountNumber: accountNumber,
 		Sequence:      sequenceNumber,
 	}
-	sigV2, _ = clienttx.SignWithPrivKey(
+	sigV2, err = clienttx.SignWithPrivKey(
 		testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(),
 		signerData,
 		txBuilder,
@@ -68,9 +73,13 @@ func signCosmosTxWithMnemonic(msg sdk.Msg, mnemonic string, accountNumber uint64
 		testkeeper.EVMTestApp.GetTxConfig(),
 		sequenceNumber,
 	)
-	sigsV2 = append(sigsV2, sigV2)
-	_ = txBuilder.SetSignatures(sigsV2...)
-	return txBuilder.GetTx()
+	if err != nil {
+		return nil, fmt.Errorf("signWithPrivKey: %w", err)
+	}
+	if err := txBuilder.SetSignatures(sigV2); err != nil {
+		return nil, fmt.Errorf("SetSignatures (final): %w", err)
+	}
+	return txBuilder.GetTx(), nil
 }
 
 func getAddrWithMnemonic(mnemonic string) common.Address {

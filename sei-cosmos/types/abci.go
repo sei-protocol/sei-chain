@@ -2,7 +2,7 @@ package types
 
 import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
 // InitChainer initializes application state at genesis

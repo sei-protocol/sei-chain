@@ -32,8 +32,8 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/websocket"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/stretchr/testify/assert"
-	"github.com/tendermint/tendermint/libs/log"
 )
 
 const testMethod = "rpc_modules"

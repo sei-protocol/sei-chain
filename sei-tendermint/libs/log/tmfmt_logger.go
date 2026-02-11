@@ -114,7 +114,9 @@ KeyvalueLoop:
 
 		err := enc.EncodeKeyval(keyvals[i], keyvals[i+1])
 		if err == logfmt.ErrUnsupportedValueType {
-			enc.EncodeKeyval(keyvals[i], fmt.Sprintf("%+v", keyvals[i+1])) //nolint:errcheck // no need to check error again
+			if err := enc.EncodeKeyval(keyvals[i], fmt.Sprintf("%+v", keyvals[i+1])); err != nil {
+				return err
+			}
 		} else if err != nil {
 			return err
 		}

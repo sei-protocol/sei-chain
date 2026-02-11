@@ -11,9 +11,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/assert"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/types"
 )
 
 type testPeer struct {

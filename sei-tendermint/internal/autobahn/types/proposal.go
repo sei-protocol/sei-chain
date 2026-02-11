@@ -6,10 +6,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/tendermint/tendermint/internal/autobahn/pb"
-	"github.com/tendermint/tendermint/internal/protoutils"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 // LaneRange represents a range [first,next) of blocks of a lane.
@@ -390,7 +390,7 @@ var LaneRangeConv = protoutils.Conv[*LaneRange, *pb.LaneRange]{
 			lane:     lane,
 			first:    BlockNumber(*m.First),
 			next:     BlockNumber(*m.Next),
-			lastHash: BlockHeaderHash(lastHash),
+			lastHash: lastHash,
 		}, nil
 	},
 }
@@ -408,10 +408,10 @@ var ViewConv = protoutils.Conv[View, *pb.View]{
 			return View{}, nil
 		}
 		if m.Index == nil {
-			return View{}, fmt.Errorf("Index: missing")
+			return View{}, fmt.Errorf("index: missing")
 		}
 		if m.Number == nil {
-			return View{}, fmt.Errorf("Number: missing")
+			return View{}, fmt.Errorf("number: missing")
 		}
 		return View{
 			Index:  RoadIndex(*m.Index),
@@ -423,7 +423,7 @@ var ViewConv = protoutils.Conv[View, *pb.View]{
 // ProposalConv is the protobuf converter for Proposal.
 var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 	Encode: func(m *Proposal) *pb.Proposal {
-		var laneRanges []*LaneRange
+		laneRanges := make([]*LaneRange, 0, len(m.laneRanges))
 		for _, r := range m.laneRanges {
 			laneRanges = append(laneRanges, r)
 		}
@@ -464,7 +464,7 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 // FullProposalConv is the protobuf converter for FullProposal.
 var FullProposalConv = protoutils.Conv[*FullProposal, *pb.FullProposal]{
 	Encode: func(m *FullProposal) *pb.FullProposal {
-		var laneQCs []*LaneQC
+		laneQCs := make([]*LaneQC, 0, len(m.laneQCs))
 		for _, qc := range m.laneQCs {
 			laneQCs = append(laneQCs, qc)
 		}

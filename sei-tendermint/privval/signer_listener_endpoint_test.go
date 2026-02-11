@@ -10,11 +10,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/libs/log"
-	tmnet "github.com/tendermint/tendermint/libs/net"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
+	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var (

@@ -13,8 +13,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/testutil/network"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmdb "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/app"

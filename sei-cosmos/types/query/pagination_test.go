@@ -7,8 +7,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"

@@ -23,8 +23,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/gogo/protobuf/proto"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )

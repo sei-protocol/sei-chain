@@ -12,11 +12,11 @@ import (
 	"github.com/google/orderedcode"
 	dbm "github.com/tendermint/tm-db"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/internal/pubsub/query"
-	"github.com/tendermint/tendermint/internal/pubsub/query/syntax"
-	"github.com/tendermint/tendermint/internal/state/indexer"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query/syntax"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var _ indexer.BlockIndexer = (*BlockerIndexer)(nil)
@@ -52,7 +52,7 @@ func (idx *BlockerIndexer) Has(height int64) (bool, error) {
 // FinalizeBlock events: encode(eventType.eventAttr|eventValue|height|finalize_block) => encode(height)
 func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockHeader) error {
 	batch := idx.store.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 
 	height := bh.Header.Height
 
@@ -232,7 +232,7 @@ func (idx *BlockerIndexer) matchRange(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create prefix iterator: %w", err)
 	}
-	defer it.Close()
+	defer func() { _ = it.Close() }()
 
 iter:
 	for ; it.Valid(); it.Next() {
@@ -334,13 +334,13 @@ func (idx *BlockerIndexer) match(
 
 	tmpHeights := make(map[string][]byte)
 
-	switch {
-	case c.Op == syntax.TEq:
+	switch c.Op {
+	case syntax.TEq:
 		it, err := dbm.IteratePrefix(idx.store, startKeyBz)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create prefix iterator: %w", err)
 		}
-		defer it.Close()
+		defer func() { _ = it.Close() }()
 
 		for ; it.Valid(); it.Next() {
 			tmpHeights[string(it.Value())] = it.Value()
@@ -354,7 +354,7 @@ func (idx *BlockerIndexer) match(
 			return nil, err
 		}
 
-	case c.Op == syntax.TExists:
+	case syntax.TExists:
 		prefix, err := orderedcode.Append(nil, c.Tag)
 		if err != nil {
 			return nil, err
@@ -364,7 +364,7 @@ func (idx *BlockerIndexer) match(
 		if err != nil {
 			return nil, fmt.Errorf("failed to create prefix iterator: %w", err)
 		}
-		defer it.Close()
+		defer func() { _ = it.Close() }()
 
 	iterExists:
 		for ; it.Valid(); it.Next() {
@@ -382,7 +382,7 @@ func (idx *BlockerIndexer) match(
 			return nil, err
 		}
 
-	case c.Op == syntax.TContains:
+	case syntax.TContains:
 		prefix, err := orderedcode.Append(nil, c.Tag)
 		if err != nil {
 			return nil, err
@@ -392,7 +392,7 @@ func (idx *BlockerIndexer) match(
 		if err != nil {
 			return nil, fmt.Errorf("failed to create prefix iterator: %w", err)
 		}
-		defer it.Close()
+		defer func() { _ = it.Close() }()
 
 	iterContains:
 		for ; it.Valid(); it.Next() {
@@ -416,7 +416,7 @@ func (idx *BlockerIndexer) match(
 			return nil, err
 		}
 
-	case c.Op == syntax.TMatches:
+	case syntax.TMatches:
 		prefix, err := orderedcode.Append(nil, c.Tag)
 		if err != nil {
 			return nil, err
@@ -426,7 +426,7 @@ func (idx *BlockerIndexer) match(
 		if err != nil {
 			return nil, fmt.Errorf("failed to create prefix iterator: %w", err)
 		}
-		defer it.Close()
+		defer func() { _ = it.Close() }()
 
 	iterMatches:
 		for ; it.Valid(); it.Next() {

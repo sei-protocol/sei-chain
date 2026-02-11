@@ -16,11 +16,11 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmservice "github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	tmclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/log"
-	tmservice "github.com/tendermint/tendermint/libs/service"
-	tmclient "github.com/tendermint/tendermint/rpc/client"
 	"google.golang.org/grpc"
 
 	"github.com/cosmos/cosmos-sdk/client"

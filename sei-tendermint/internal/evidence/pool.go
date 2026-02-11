@@ -14,12 +14,12 @@ import (
 	"github.com/google/orderedcode"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/tendermint/tendermint/internal/eventbus"
-	clist "github.com/tendermint/tendermint/internal/libs/clist"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	clist "github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // key prefixes
@@ -275,7 +275,8 @@ func (evpool *Pool) Start(state sm.State) error {
 		return err
 	}
 
-	atomic.StoreUint32(&evpool.evidenceSize, uint32(len(evList)))
+	atomic.StoreUint32(&evpool.evidenceSize, uint32(len(evList))) //nolint:gosec // evidence list is bounded by block limits; no overflow risk
+
 	evpool.Metrics.NumEvidence.Set(float64(evpool.evidenceSize))
 
 	for _, ev := range evList {
@@ -359,7 +360,7 @@ func (evpool *Pool) addPendingEvidence(ctx context.Context, ev types.Evidence) e
 func (evpool *Pool) markEvidenceAsCommitted(evidence types.EvidenceList, height int64) {
 	blockEvidenceMap := make(map[string]struct{}, len(evidence))
 	batch := evpool.evidenceStore.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 
 	for _, ev := range evidence {
 		if evpool.isPending(ev) {
@@ -402,7 +403,7 @@ func (evpool *Pool) markEvidenceAsCommitted(evidence types.EvidenceList, height 
 	evpool.removeEvidenceFromList(blockEvidenceMap)
 
 	// update the evidence size
-	atomic.AddUint32(&evpool.evidenceSize, ^uint32(len(blockEvidenceMap)-1))
+	atomic.AddUint32(&evpool.evidenceSize, ^uint32(len(blockEvidenceMap)-1)) //nolint:gosec // len(blockEvidenceMap) is guaranteed > 0 by early return above; atomic subtract idiom
 	evpool.Metrics.NumEvidence.Set(float64(evpool.evidenceSize))
 }
 
@@ -421,7 +422,7 @@ func (evpool *Pool) listEvidence(prefixKey int64, maxBytes int64) ([]types.Evide
 		return nil, totalSize, fmt.Errorf("database error: %w", err)
 	}
 
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	for ; iter.Valid(); iter.Next() {
 		var evpb tmproto.Evidence
@@ -459,7 +460,7 @@ func (evpool *Pool) listEvidence(prefixKey int64, maxBytes int64) ([]types.Evide
 func (evpool *Pool) removeExpiredPendingEvidence() (int64, time.Time) {
 
 	batch := evpool.evidenceStore.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 
 	height, time, blockEvidenceMap := evpool.batchExpiredPendingEvidence(batch)
 
@@ -483,7 +484,7 @@ func (evpool *Pool) removeExpiredPendingEvidence() (int64, time.Time) {
 	// remove evidence from the clist
 	evpool.removeEvidenceFromList(blockEvidenceMap)
 	// update the evidence size
-	atomic.AddUint32(&evpool.evidenceSize, ^uint32(len(blockEvidenceMap)-1))
+	atomic.AddUint32(&evpool.evidenceSize, ^uint32(len(blockEvidenceMap)-1)) //nolint:gosec // len(blockEvidenceMap) is guaranteed > 0 by early return above; atomic subtract idiom
 
 	return height, time
 }
@@ -495,7 +496,7 @@ func (evpool *Pool) batchExpiredPendingEvidence(batch dbm.Batch) (int64, time.Ti
 		evpool.logger.Error("failed to iterate over pending evidence", "err", err)
 		return evpool.State().LastBlockHeight, evpool.State().LastBlockTime, blockEvidenceMap
 	}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	for ; iter.Valid(); iter.Next() {
 		ev, err := bytesToEv(iter.Value())

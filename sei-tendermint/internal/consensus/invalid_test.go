@@ -10,16 +10,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/libs/bytes"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
-	tmtime "github.com/tendermint/tendermint/libs/time"
-	"github.com/tendermint/tendermint/libs/utils"
-	tmcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
+	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmcons "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func TestReactorInvalidPrecommit(t *testing.T) {

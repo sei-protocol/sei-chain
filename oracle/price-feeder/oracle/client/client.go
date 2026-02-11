@@ -21,8 +21,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/sei-protocol/sei-chain/app"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
-	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
-	tmjsonclient "github.com/tendermint/tendermint/rpc/jsonrpc/client"
+	rpchttp "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
+	tmjsonclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/client"
 )
 
 type (

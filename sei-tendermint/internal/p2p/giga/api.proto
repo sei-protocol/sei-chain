@@ -4,7 +4,7 @@ package p2p.giga;
 
 import "autobahn/autobahn.proto";
 
-option go_package = "github.com/tendermint/tendermint/internal/p2p/giga/pb";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb";
 
 message LaneReq {
   autobahn.SignedMsg lane_proposal = 1;

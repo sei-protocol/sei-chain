@@ -3,10 +3,10 @@ package crypto
 import (
 	"fmt"
 
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/internal/jsontypes"
-	"github.com/tendermint/tendermint/libs/utils"
-	pb "github.com/tendermint/tendermint/proto/tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 )
 
 func init() {

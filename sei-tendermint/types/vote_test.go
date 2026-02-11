@@ -8,12 +8,12 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/internal/libs/protoio"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/require"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/protoio"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 func examplePrevote(t *testing.T) *Vote {

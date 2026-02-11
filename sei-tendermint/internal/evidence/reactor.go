@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
-	clist "github.com/tendermint/tendermint/internal/libs/clist"
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
-	pb "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	clist "github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var _ service.Service = (*Reactor)(nil)
@@ -93,7 +93,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 
 // OnStop stops the reactor by signaling to all spawned goroutines to exit and
 // blocking until they all exit.
-func (r *Reactor) OnStop() { r.evpool.Close() }
+func (r *Reactor) OnStop() { _ = r.evpool.Close() }
 
 // handleEvidenceMessage handles envelopes sent from peers on the EvidenceChannel.
 // It returns an error only if the Envelope.Message is unknown for this channel

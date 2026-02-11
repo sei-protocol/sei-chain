@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package tendermint.libs.bits;
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/libs/bits";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/libs/bits";
 
 message BitArray {
   int64 bits = 1;

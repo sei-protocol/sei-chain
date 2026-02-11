@@ -4,7 +4,7 @@ package hashable.internal;
 
 import "hashable/hashable.proto";
 
-option go_package = "github.com/tendermint/tendermint/internal/hashable/internal/pb";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable/internal/pb";
 
 enum TestonlyEnum {
   TESTONLY_ENUM_UNSPECIFIED = 0;

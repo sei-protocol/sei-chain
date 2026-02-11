@@ -17,10 +17,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/suite"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 const (
