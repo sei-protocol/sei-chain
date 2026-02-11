@@ -27,17 +27,36 @@ type Store struct {
 
 var _ types.CacheKVStore = (*Store)(nil)
 
+var storePool = sync.Pool{
+	New: func() any {
+		return &Store{
+			cache:         make(map[string]*types.CValue),
+			deleted:       make(map[string]struct{}),
+			unsortedCache: make(map[string]struct{}),
+		}
+	},
+}
+
 // NewStore creates a new Store object
 func NewStore(parent types.KVStore, storeKey types.StoreKey, cacheSize int) *Store {
-	return &Store{
-		cache:         make(map[string]*types.CValue),
-		deleted:       make(map[string]struct{}),
-		unsortedCache: make(map[string]struct{}),
-		sortedCache:   nil,
-		parent:        parent,
-		storeKey:      storeKey,
-		cacheSize:     cacheSize,
-	}
+	s := storePool.Get().(*Store)
+	s.parent = parent
+	s.storeKey = storeKey
+	s.cacheSize = cacheSize
+	return s
+}
+
+// Release clears all state and returns the store to the pool for reuse.
+func (store *Store) Release() {
+	store.mtx.Lock()
+	clear(store.cache)
+	clear(store.deleted)
+	clear(store.unsortedCache)
+	store.sortedCache = nil
+	store.parent = nil
+	store.storeKey = nil
+	store.mtx.Unlock()
+	storePool.Put(store)
 }
 
 func (store *Store) GetWorkingHash() ([]byte, error) {
@@ -116,9 +135,9 @@ func (store *Store) Write() {
 		}
 	}
 
-	store.cache = make(map[string]*types.CValue)
-	store.deleted = make(map[string]struct{})
-	store.unsortedCache = make(map[string]struct{})
+	clear(store.cache)
+	clear(store.deleted)
+	clear(store.unsortedCache)
 	store.sortedCache = nil
 }
 
