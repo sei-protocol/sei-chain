@@ -107,19 +107,40 @@ func newCacheMultiStoreFromCMS(cms Store) Store {
 		cms.ensureGigaStoreLocked(k)
 	}
 
-	stores := make(map[types.StoreKey]types.CacheWrapper, len(cms.stores))
+	// Build child CMS directly instead of going through NewFromKVStore.
+	// This avoids creating a cachekv.NewStore for the db field — the child's
+	// db is never read/written (all access goes through module stores), and
+	// eliminating it saves ~10 GB of allocations per 30s.
+	storeParents := make(map[types.StoreKey]types.CacheWrapper, len(cms.stores))
 	for k, v := range cms.stores {
-		stores[k] = v
+		storeParents[k] = v
 	}
 
-	gigaStores := make(map[types.StoreKey]types.KVStore, len(cms.gigaStores))
-	for k, v := range cms.gigaStores {
-		gigaStores[k] = v
+	// Replicate the fallback logic from NewFromKVStore: for giga keys not in
+	// gigaStores, fall back to the regular store (which wraps the same parent).
+	gigaStoreParents := make(map[types.StoreKey]types.KVStore, len(cms.gigaKeys))
+	for _, key := range cms.gigaKeys {
+		if gigaStore, ok := cms.gigaStores[key]; ok {
+			gigaStoreParents[key] = gigaStore
+		} else if store, ok := cms.stores[key]; ok {
+			gigaStoreParents[key] = store.(types.KVStore)
+		}
 	}
 
 	cms.mu.Unlock()
 
-	return NewFromKVStore(cms.db, stores, gigaStores, cms.keys, cms.gigaKeys, cms.traceWriter, cms.traceContext)
+	return Store{
+		mu:               &sync.RWMutex{},
+		db:               nil,
+		stores:           make(map[types.StoreKey]types.CacheWrap),
+		storeParents:     storeParents,
+		keys:             cms.keys,
+		gigaStores:       make(map[types.StoreKey]types.KVStore),
+		gigaStoreParents: gigaStoreParents,
+		gigaKeys:         cms.gigaKeys,
+		traceWriter:      cms.traceWriter,
+		traceContext:     cms.traceContext,
+	}
 }
 
 // ensureStore lazily creates a cachekv wrapper for a store key on first access.
@@ -233,7 +254,9 @@ func (cms Store) GetStoreType() types.StoreType {
 // Only materialized (accessed) stores need writing — lazy stores have no dirty data.
 func (cms Store) Write() {
 	cms.mu.RLock()
-	cms.db.Write()
+	if cms.db != nil {
+		cms.db.Write()
+	}
 	for _, store := range cms.stores {
 		store.Write()
 	}
