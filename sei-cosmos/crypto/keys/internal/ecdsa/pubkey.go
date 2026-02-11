@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"math/big"
 
-	tmcrypto "github.com/tendermint/tendermint/crypto"
+	tmcrypto "github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 
 	"github.com/cosmos/cosmos-sdk/types/address"
 	"github.com/cosmos/cosmos-sdk/types/errors"

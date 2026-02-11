@@ -9,9 +9,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/tendermint/tendermint/internal/hashable/internal/pb"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable/internal/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 // Test checking that the canonical encoding is a valid proto encoding and that it is stable.

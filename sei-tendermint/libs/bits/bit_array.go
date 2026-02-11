@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	tmmath "github.com/tendermint/tendermint/libs/math"
-	tmprotobits "github.com/tendermint/tendermint/proto/tendermint/libs/bits"
+	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	tmprotobits "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/libs/bits"
 )
 
 // BitArray is a thread-safe implementation of a bit array.
@@ -64,10 +64,10 @@ func (bA *BitArray) GetIndex(i int) bool {
 }
 
 func (bA *BitArray) getIndex(i int) bool {
-	if i >= bA.Bits {
+	if i < 0 || i >= bA.Bits {
 		return false
 	}
-	return bA.Elems[i/64]&(uint64(1)<<uint(i%64)) > 0
+	return bA.Elems[i/64]&(uint64(1)<<uint(i%64)) > 0 //nolint:gosec // i is bounds-checked above; i%64 is always in [0, 63]
 }
 
 // SetIndex sets the bit at index i within the bit array.
@@ -86,9 +86,9 @@ func (bA *BitArray) setIndex(i int, v bool) bool {
 		return false
 	}
 	if v {
-		bA.Elems[i/64] |= (uint64(1) << uint(i%64))
+		bA.Elems[i/64] |= (uint64(1) << uint(i%64)) //nolint:gosec // i is bounds-checked above; i%64 is always in [0, 63]
 	} else {
-		bA.Elems[i/64] &= ^(uint64(1) << uint(i%64))
+		bA.Elems[i/64] &= ^(uint64(1) << uint(i%64)) //nolint:gosec // i is bounds-checked above; i%64 is always in [0, 63]
 	}
 	return true
 }
@@ -255,7 +255,7 @@ func (bA *BitArray) getTrueIndices() []int {
 			continue
 		}
 		for j := range 64 {
-			if (elem & (uint64(1) << uint64(j))) > 0 {
+			if (elem & (uint64(1) << uint64(j))) > 0 { //nolint:gosec // j is in [0, 63]; always safe for uint64
 				trueIndices = append(trueIndices, curBit)
 			}
 			curBit++
@@ -265,7 +265,7 @@ func (bA *BitArray) getTrueIndices() []int {
 	lastElem := bA.Elems[numElems-1]
 	numFinalBits := bA.Bits - curBit
 	for i := range numFinalBits {
-		if (lastElem & (uint64(1) << uint64(i))) > 0 {
+		if (lastElem & (uint64(1) << uint64(i))) > 0 { //nolint:gosec // i is in [0, 63]; always safe for uint64
 			trueIndices = append(trueIndices, curBit)
 		}
 		curBit++

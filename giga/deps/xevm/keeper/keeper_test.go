@@ -20,10 +20,10 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types/ethtx"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/rand"
-	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 func TestPurgePrefixNotHang(t *testing.T) {

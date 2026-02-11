@@ -9,7 +9,7 @@ import (
 	"math/big"
 
 	secp256k1 "github.com/btcsuite/btcd/btcec/v2"
-	"github.com/tendermint/tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"golang.org/x/crypto/ripemd160" // nolint: staticcheck // necessary for Bitcoin address format
 
 	"github.com/cosmos/cosmos-sdk/codec"

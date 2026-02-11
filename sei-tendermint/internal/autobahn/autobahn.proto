@@ -4,7 +4,7 @@ package autobahn;
 
 import "hashable/hashable.proto";
 
-option go_package = "github.com/tendermint/tendermint/internal/autobahn/pb";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb";
 
 // Timestamp represented as seconds + nanoseconds since UNIX epoch.
 // Equivalent of `google.protobuf.Timestamp` but supports canonical encoding.
@@ -194,16 +194,7 @@ message SignedMsg {
   Signature sig = 2;
 }
 
-message LaneReq {
-  SignedMsg lane_proposal = 1;
-}
-
-message LaneResp {
-  SignedMsg lane_vote = 1;
-}
-
-message LaneQCsResp {}
-
+// TODO(gprusak): rename to ConsensusMsg
 message ConsensusReq {
   oneof t {
     FullProposal proposal = 1;
@@ -212,43 +203,4 @@ message ConsensusReq {
     FullTimeoutVote timeout_vote = 4;
     TimeoutQC timeout_qc = 5;
   }
-}
-
-message LaneVote {
-  SignedMsg lane_vote = 1;
-}
-
-message LaneProposal {
-  SignedMsg lane_proposal = 1;
-}
-
-message AppVote {
-  SignedMsg app_vote = 1;
-}
-
-message ConsensusResp {}
-
-message PingReq {}
-message PingResp {}
-
-message StreamLaneProposalsReq {
-  uint64 first_block_number = 1;
-}
-
-message StreamAppQCsReq {}
-message StreamAppQCsResp {
-  AppQC app_qc = 1;
-  CommitQC commit_qc = 2;
-}
-
-message StreamCommitQCsReq {}
-message StreamLaneVotesReq {}
-message StreamAppVotesReq {}
-
-message GetBlockReq {
-  uint64 global_number = 1;
-}
-
-message StreamFullCommitQCsReq {
-  uint64 next_block = 1;
 }

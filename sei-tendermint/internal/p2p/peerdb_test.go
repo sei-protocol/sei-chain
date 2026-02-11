@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"slices"
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/tendermint/tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 func justKeys[K comparable, V any](m map[K]V) map[K]bool {

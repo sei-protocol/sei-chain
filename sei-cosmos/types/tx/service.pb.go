@@ -12,7 +12,7 @@ import (
 	grpc1 "github.com/gogo/protobuf/grpc"
 	proto "github.com/gogo/protobuf/proto"
 	golang_proto "github.com/golang/protobuf/proto"
-	types1 "github.com/tendermint/tendermint/proto/tendermint/types"
+	types1 "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"

@@ -6,9 +6,9 @@ import (
 
 	"github.com/go-kit/kit/metrics"
 
-	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const (
@@ -175,8 +175,8 @@ type Metrics struct {
 
 // RecordConsMetrics uses for recording the block related metrics during fast-sync.
 func (m *Metrics) RecordConsMetrics(block *types.Block) {
-	m.NumTxs.Set(float64(len(block.Data.Txs)))
-	m.TotalTxs.Add(float64(len(block.Data.Txs)))
+	m.NumTxs.Set(float64(len(block.Txs)))
+	m.TotalTxs.Add(float64(len(block.Txs)))
 	m.BlockSizeBytes.Observe(float64(block.Size()))
 	m.CommittedHeight.Set(float64(block.Height))
 }

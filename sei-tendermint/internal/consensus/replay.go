@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"reflect"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto/merkle"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/proxy"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/types"
+	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // Functionality to replay blocks and messages on recovery from a crash.
@@ -317,7 +317,8 @@ func (h *Handshaker) ReplayBlocks(
 	var err error
 	// Now either store is equal to state, or one ahead.
 	// For each, consider all cases of where the app could be, given app <= store
-	if storeBlockHeight == stateBlockHeight {
+	switch storeBlockHeight {
+	case stateBlockHeight:
 		// Tendermint ran Commit and saved the state.
 		// Either the app is asking for replay, or we're all synced up.
 		if appBlockHeight < storeBlockHeight {
@@ -336,7 +337,7 @@ func (h *Handshaker) ReplayBlocks(
 			return appHash, nil
 		}
 
-	} else if storeBlockHeight == stateBlockHeight+1 {
+	case stateBlockHeight + 1:
 		// We saved the block in the store but haven't updated the state,
 		// so we'll need to replay a block using the WAL.
 		switch {

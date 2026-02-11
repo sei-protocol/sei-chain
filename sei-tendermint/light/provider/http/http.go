@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tendermint/tendermint/light/provider"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
-	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
+	rpchttp "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var defaultOptions = Options{

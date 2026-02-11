@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/23-commitment/types"
 )

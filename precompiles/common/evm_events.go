@@ -67,7 +67,11 @@ var (
 func BuildDelegateEvent(delegator common.Address, validator string, amount *big.Int) ([]common.Hash, []byte, error) {
 	// Pack the non-indexed data: validator string and amount
 	// For strings in events, we need to encode: offset, length, and actual string data
-	data := make([]byte, 0)
+	valBytes := []byte(validator)
+	paddedLen := ((len(valBytes) + 31) / 32) * 32
+
+	// 32 (offset) + 32 (amount) + 32 (string length) + paddedLen (string data)
+	data := make([]byte, 0, 32+32+32+paddedLen)
 
 	// Offset for string (always 64 for first dynamic param when second param is uint256)
 	data = append(data, common.LeftPadBytes(big.NewInt(64).Bytes(), 32)...)
@@ -76,11 +80,10 @@ func BuildDelegateEvent(delegator common.Address, validator string, amount *big.
 	data = append(data, common.LeftPadBytes(amount.Bytes(), 32)...)
 
 	// String length
-	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(validator))).Bytes(), 32)...)
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(valBytes))).Bytes(), 32)...) //nolint:gosec // validator names are short strings; no overflow risk
 
 	// String data (padded to 32 bytes)
-	valBytes := []byte(validator)
-	data = append(data, common.RightPadBytes(valBytes, ((len(valBytes)+31)/32)*32)...)
+	data = append(data, common.RightPadBytes(valBytes, paddedLen)...)
 
 	topics := []common.Hash{
 		DelegateEventSig,
@@ -99,7 +102,14 @@ func EmitDelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator com
 
 func BuildRedelegateEvent(delegator common.Address, srcValidator, dstValidator string, amount *big.Int) ([]common.Hash, []byte, error) {
 	// Pack the non-indexed data: srcValidator, dstValidator, amount
-	var data []byte
+	srcBytes := []byte(srcValidator)
+	dstBytes := []byte(dstValidator)
+	paddedSrcLen := ((len(srcBytes) + 31) / 32) * 32
+	paddedDstLen := ((len(dstBytes) + 31) / 32) * 32
+
+	// 3*32 (static) + 32 (srcLen) + paddedSrc + 32 (dstLen) + paddedDst
+	data := make([]byte, 0, 3*32+32+paddedSrcLen+32+paddedDstLen)
+
 	// offset for srcValidator. Static part is 3 * 32 = 96 bytes.
 	data = append(data, common.LeftPadBytes(big.NewInt(96).Bytes(), 32)...)
 	// placeholder offset for dstValidator, to be updated after we know the length of srcValidator
@@ -108,23 +118,21 @@ func BuildRedelegateEvent(delegator common.Address, srcValidator, dstValidator s
 	data = append(data, common.LeftPadBytes(amount.Bytes(), 32)...)
 
 	// srcValidator data part
-	srcBytes := []byte(srcValidator)
 	// length of srcValidator
-	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(srcBytes))).Bytes(), 32)...)
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(srcBytes))).Bytes(), 32)...) //nolint:gosec // validator names are short strings; no overflow risk
 	// data of srcValidator
-	paddedSrcBytes := common.RightPadBytes(srcBytes, ((len(srcBytes)+31)/32)*32)
+	paddedSrcBytes := common.RightPadBytes(srcBytes, paddedSrcLen)
 	data = append(data, paddedSrcBytes...)
 
 	// now calculate and update dstValidator offset
 	dstOffset := 96 + 32 + len(paddedSrcBytes)
-	copy(data[32:64], common.LeftPadBytes(big.NewInt(int64(dstOffset)).Bytes(), 32))
+	copy(data[32:64], common.LeftPadBytes(big.NewInt(int64(dstOffset)).Bytes(), 32)) //nolint:gosec // offset is bounded by validator name lengths; no overflow risk
 
 	// dstValidator data part
-	dstBytes := []byte(dstValidator)
 	// length of dstValidator
-	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(dstBytes))).Bytes(), 32)...)
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(dstBytes))).Bytes(), 32)...) //nolint:gosec // validator names are short strings; no overflow risk
 	// data of dstValidator
-	data = append(data, common.RightPadBytes(dstBytes, ((len(dstBytes)+31)/32)*32)...)
+	data = append(data, common.RightPadBytes(dstBytes, paddedDstLen)...)
 
 	topics := []common.Hash{
 		RedelegateEventSig,
@@ -143,7 +151,10 @@ func EmitRedelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator c
 
 func BuildUndelegateEvent(delegator common.Address, validator string, amount *big.Int) ([]common.Hash, []byte, error) {
 	// Pack the non-indexed data: validator string and amount
-	data := make([]byte, 0)
+	valBytes := []byte(validator)
+	paddedLen := ((len(valBytes) + 31) / 32) * 32
+
+	data := make([]byte, 0, 32+32+32+paddedLen)
 
 	// Offset for string
 	data = append(data, common.LeftPadBytes(big.NewInt(64).Bytes(), 32)...)
@@ -152,9 +163,8 @@ func BuildUndelegateEvent(delegator common.Address, validator string, amount *bi
 	data = append(data, common.LeftPadBytes(amount.Bytes(), 32)...)
 
 	// String length and data
-	valBytes := []byte(validator)
-	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(valBytes))).Bytes(), 32)...)
-	data = append(data, common.RightPadBytes(valBytes, ((len(valBytes)+31)/32)*32)...)
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(valBytes))).Bytes(), 32)...) //nolint:gosec // unlikely for validator string to approach int64
+	data = append(data, common.RightPadBytes(valBytes, paddedLen)...)
 
 	topics := []common.Hash{
 		UndelegateEventSig,
@@ -173,26 +183,30 @@ func EmitUndelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator c
 
 func BuildValidatorCreatedEvent(creator common.Address, validatorAddr string, moniker string) ([]common.Hash, []byte, error) {
 	// Pack the non-indexed data: validatorAddr string and moniker string
-	data := make([]byte, 0)
+	valAddrBytes := []byte(validatorAddr)
+	monikerBytes := []byte(moniker)
+	paddedAddrLen := ((len(valAddrBytes) + 31) / 32) * 32
+	paddedMonikerLen := ((len(monikerBytes) + 31) / 32) * 32
+
+	// 32 (offset1) + 32 (offset2) + 32 (addrLen) + paddedAddr + 32 (monikerLen) + paddedMoniker
+	data := make([]byte, 0, 32+32+32+paddedAddrLen+32+paddedMonikerLen)
 
 	// Offsets for two strings
 	data = append(data, common.LeftPadBytes(big.NewInt(64).Bytes(), 32)...)  // offset for validatorAddr
-	data = append(data, common.LeftPadBytes(big.NewInt(128).Bytes(), 32)...) // offset for moniker (approximate)
+	data = append(data, common.LeftPadBytes(big.NewInt(128).Bytes(), 32)...) // placeholder offset for moniker
 
 	// validatorAddr string
-	valAddrBytes := []byte(validatorAddr)
-	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(valAddrBytes))).Bytes(), 32)...)
-	data = append(data, common.RightPadBytes(valAddrBytes, ((len(valAddrBytes)+31)/32)*32)...)
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(valAddrBytes))).Bytes(), 32)...) //nolint:gosec // validator address is a short string; no overflow risk
+	data = append(data, common.RightPadBytes(valAddrBytes, paddedAddrLen)...)
 
 	// Adjust offset for moniker based on actual validatorAddr length
-	monikerOffset := 64 + 32 + ((len(valAddrBytes)+31)/32)*32
+	monikerOffset := 64 + 32 + paddedAddrLen
 	// Update the moniker offset in data
-	copy(data[32:64], common.LeftPadBytes(big.NewInt(int64(monikerOffset)).Bytes(), 32))
+	copy(data[32:64], common.LeftPadBytes(big.NewInt(int64(monikerOffset)).Bytes(), 32)) //nolint:gosec // offset is bounded by string lengths; no overflow risk
 
 	// moniker string
-	monikerBytes := []byte(moniker)
-	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(monikerBytes))).Bytes(), 32)...)
-	data = append(data, common.RightPadBytes(monikerBytes, ((len(monikerBytes)+31)/32)*32)...)
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(monikerBytes))).Bytes(), 32)...) //nolint:gosec // moniker is a short string; no overflow risk
+	data = append(data, common.RightPadBytes(monikerBytes, paddedMonikerLen)...)
 
 	topics := []common.Hash{
 		ValidatorCreatedEventSig,
@@ -211,26 +225,30 @@ func EmitValidatorCreatedEvent(evm *vm.EVM, precompileAddr common.Address, creat
 
 func BuildValidatorEditedEvent(editor common.Address, validatorAddr string, moniker string) ([]common.Hash, []byte, error) {
 	// Pack the non-indexed data: validatorAddr string and moniker string
-	data := make([]byte, 0)
+	valAddrBytes := []byte(validatorAddr)
+	monikerBytes := []byte(moniker)
+	paddedAddrLen := ((len(valAddrBytes) + 31) / 32) * 32
+	paddedMonikerLen := ((len(monikerBytes) + 31) / 32) * 32
+
+	// 32 (offset1) + 32 (offset2) + 32 (addrLen) + paddedAddr + 32 (monikerLen) + paddedMoniker
+	data := make([]byte, 0, 32+32+32+paddedAddrLen+32+paddedMonikerLen)
 
 	// Offsets for two strings
 	data = append(data, common.LeftPadBytes(big.NewInt(64).Bytes(), 32)...)  // offset for validatorAddr
-	data = append(data, common.LeftPadBytes(big.NewInt(128).Bytes(), 32)...) // offset for moniker (approximate)
+	data = append(data, common.LeftPadBytes(big.NewInt(128).Bytes(), 32)...) // placeholder offset for moniker
 
 	// validatorAddr string
-	valAddrBytes := []byte(validatorAddr)
-	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(valAddrBytes))).Bytes(), 32)...)
-	data = append(data, common.RightPadBytes(valAddrBytes, ((len(valAddrBytes)+31)/32)*32)...)
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(valAddrBytes))).Bytes(), 32)...) //nolint:gosec // validator address is a short string; no overflow risk
+	data = append(data, common.RightPadBytes(valAddrBytes, paddedAddrLen)...)
 
 	// Adjust offset for moniker based on actual validatorAddr length
-	monikerOffset := 64 + 32 + ((len(valAddrBytes)+31)/32)*32
+	monikerOffset := 64 + 32 + paddedAddrLen
 	// Update the moniker offset in data
-	copy(data[32:64], common.LeftPadBytes(big.NewInt(int64(monikerOffset)).Bytes(), 32))
+	copy(data[32:64], common.LeftPadBytes(big.NewInt(int64(monikerOffset)).Bytes(), 32)) //nolint:gosec // offset is bounded by string lengths; no overflow risk
 
 	// moniker string
-	monikerBytes := []byte(moniker)
-	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(monikerBytes))).Bytes(), 32)...)
-	data = append(data, common.RightPadBytes(monikerBytes, ((len(monikerBytes)+31)/32)*32)...)
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(monikerBytes))).Bytes(), 32)...) //nolint:gosec // moniker is a short string; no overflow risk
+	data = append(data, common.RightPadBytes(monikerBytes, paddedMonikerLen)...)
 
 	topics := []common.Hash{
 		ValidatorEditedEventSig,
@@ -250,7 +268,11 @@ func EmitValidatorEditedEvent(evm *vm.EVM, precompileAddr common.Address, editor
 func BuildDelegationRewardsWithdrawnEvent(delegator common.Address, validator string, amount *big.Int) ([]common.Hash, []byte, error) {
 	// Pack the non-indexed data: validator string and amount
 	// For strings in events, we need to encode: offset, length, and actual string data
-	data := make([]byte, 0)
+	valBytes := []byte(validator)
+	paddedLen := ((len(valBytes) + 31) / 32) * 32
+
+	// 32 (offset) + 32 (amount) + 32 (string length) + paddedLen (string data)
+	data := make([]byte, 0, 32+32+32+paddedLen)
 
 	// Offset for string (always 64 for first dynamic param when second param is uint256)
 	data = append(data, common.LeftPadBytes(big.NewInt(64).Bytes(), 32)...)
@@ -259,11 +281,10 @@ func BuildDelegationRewardsWithdrawnEvent(delegator common.Address, validator st
 	data = append(data, common.LeftPadBytes(amount.Bytes(), 32)...)
 
 	// String length
-	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(validator))).Bytes(), 32)...)
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(valBytes))).Bytes(), 32)...) //nolint:gosec // validator names are short strings; no overflow risk
 
 	// String data (padded to 32 bytes)
-	valBytes := []byte(validator)
-	data = append(data, common.RightPadBytes(valBytes, ((len(valBytes)+31)/32)*32)...)
+	data = append(data, common.RightPadBytes(valBytes, paddedLen)...)
 
 	topics := []common.Hash{
 		DelegationRewardsWithdrawnEventSig,

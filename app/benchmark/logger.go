@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
 // Logger tracks benchmark metrics and periodically logs statistics.
@@ -120,6 +120,16 @@ func calculateAvgBlockTime(totalBlockTime time.Duration, blockTimeCount int64) i
 	return avgBlockTime.Milliseconds()
 }
 
+// calculateTheoreticalTPS computes the maximum possible TPS if blocks arrived instantly.
+// It divides average transactions per block by average block processing time.
+func calculateTheoreticalTPS(txCount, blockCount, avgBlockProcessMs int64) float64 {
+	if blockCount <= 0 || avgBlockProcessMs <= 0 {
+		return 0.0
+	}
+	avgTxsPerBlock := float64(txCount) / float64(blockCount)
+	return avgTxsPerBlock * 1000 / float64(avgBlockProcessMs)
+}
+
 // flushStats holds the statistics for a flush window.
 type flushStats struct {
 	txCount           int64
@@ -132,6 +142,7 @@ type flushStats struct {
 	maxBlockProcessMs int64
 	avgBlockProcessMs int64
 	tps               float64
+	theoreticalTps    float64 // TPS based on blockProcessAvg (if blocks arrived instantly)
 }
 
 // getAndResetStats atomically reads current stats and resets counters for next window.
@@ -190,6 +201,10 @@ func (l *Logger) getAndResetStats(now time.Time) (flushStats, time.Time) {
 		stats.avgBlockProcessMs = (totalBlockProcessTime / time.Duration(blockProcessCount)).Milliseconds()
 	}
 
+	// Calculate theoretical TPS based on block processing time
+	// This is the TPS we could achieve if blocks arrived instantly
+	stats.theoreticalTps = calculateTheoreticalTPS(stats.txCount, stats.blockCount, stats.avgBlockProcessMs)
+
 	return stats, prevTime
 }
 
@@ -209,6 +224,7 @@ func (l *Logger) FlushLog() {
 		"blockProcessMax", stats.maxBlockProcessMs,
 		"blockProcessAvg", stats.avgBlockProcessMs,
 		"tps", stats.tps,
+		"theoreticalTps", stats.theoreticalTps,
 	)
 }
 
