@@ -1,7 +1,9 @@
 package genesis
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
@@ -17,11 +19,16 @@ var expectedGenesisDigests = map[string]string{
 }
 
 func genesisDocDigest(chainID string) ([]byte, error) {
-	data, err := EmbeddedGenesis(chainID)
+	genDoc, err := EmbeddedGenesisDoc(chainID)
 	if err != nil {
 		return nil, err
 	}
-	return GenesisDocDigest(data)
+	ser, err := json.Marshal(genDoc)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling genesis doc: %w", err)
+	}
+	hash := sha256.Sum256(ser)
+	return hash[:], nil
 }
 
 func TestPrintGenesisDigestsForUpdate(t *testing.T) {

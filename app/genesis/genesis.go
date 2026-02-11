@@ -1,9 +1,7 @@
 package genesis
 
 import (
-	"crypto/sha256"
 	"embed"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"slices"
@@ -72,20 +70,4 @@ func EmbeddedGenesisDoc(chainID string) (*types.GenesisDoc, error) {
 		return nil, fmt.Errorf("embedded genesis %s.json has chain_id %q (expected %q)", chainID, genDoc.ChainID, chainID)
 	}
 	return genDoc, nil
-}
-
-// GenesisDocDigest returns the SHA-256 hash of genesis JSON after parsing into
-// GenesisDoc and re-marshaling. Used to compare two genesis files for semantic equality
-// (formatting and key order do not affect the digest).
-func GenesisDocDigest(genesisJSON []byte) ([]byte, error) {
-	genDoc, err := types.GenesisDocFromJSON(genesisJSON)
-	if err != nil {
-		return nil, fmt.Errorf("parsing genesis: %w", err)
-	}
-	ser, err := json.Marshal(genDoc)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling genesis doc: %w", err)
-	}
-	hash := sha256.Sum256(ser)
-	return hash[:], nil
 }
