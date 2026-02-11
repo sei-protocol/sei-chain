@@ -1,6 +1,8 @@
 package state
 
 import (
+	"sync"
+
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
@@ -14,6 +16,31 @@ var CustomPrecompileStartingAddr = common.HexToAddress("0x0000000000000000000000
 type accessList struct {
 	Addresses map[common.Address]int
 	Slots     []map[common.Hash]struct{}
+}
+
+// accessListPool reuses accessList structs across transactions to avoid
+// repeated map allocation. Typical EVM txs add ~20 addresses (precompiles +
+// sender + dest + coinbase).
+var accessListPool = sync.Pool{
+	New: func() any {
+		return &accessList{
+			Addresses: make(map[common.Address]int, 24),
+			Slots:     make([]map[common.Hash]struct{}, 0, 4),
+		}
+	},
+}
+
+func newAccessList() *accessList {
+	return accessListPool.Get().(*accessList)
+}
+
+func releaseAccessList(al *accessList) {
+	if al == nil {
+		return
+	}
+	clear(al.Addresses)
+	al.Slots = al.Slots[:0]
+	accessListPool.Put(al)
 }
 
 func (s *DBImpl) AddressInAccessList(addr common.Address) bool {

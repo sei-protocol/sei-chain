@@ -74,7 +74,15 @@ type Context struct {
 
 	gaskvStores   map[StoreKey]KVStore // cached gaskv wrappers per store key
 	gaskvStoresMu *sync.RWMutex
+
+	// accountCache caches deserialized accounts (types.AccountI as any) keyed by
+	// string(sdk.AccAddress) to avoid repeated protobuf unmarshal in hot paths
+	// like LockedCoins. Reset on WithMultiStore so snapshot/revert is correct.
+	accountCache map[string]any
 }
+
+// accountCacheSentinel is stored for addresses known to have no account.
+var accountCacheSentinel = &struct{}{}
 
 // Proposed rename, not done to avoid API breakage
 type Request = Context
@@ -274,6 +282,7 @@ func NewContext(ms MultiStore, header tmproto.Header, isCheckTx bool, logger log
 		evmEventManager: NewEVMEventManager(),
 		gaskvStores:     make(map[StoreKey]KVStore, 8),
 		gaskvStoresMu:   &sync.RWMutex{},
+		accountCache:    make(map[string]any, 8),
 	}
 }
 
@@ -288,6 +297,7 @@ func (c Context) WithMultiStore(ms MultiStore) Context {
 	c.ms = ms
 	c.gaskvStores = make(map[StoreKey]KVStore, 8)
 	c.gaskvStoresMu = &sync.RWMutex{}
+	c.accountCache = make(map[string]any, 8)
 	return c
 }
 
@@ -596,6 +606,41 @@ func (c Context) TransientStore(key StoreKey) KVStore {
 		c.gaskvStoresMu.Unlock()
 	}
 	return store
+}
+
+// GetCachedAccount returns a cached deserialized account for the given address.
+// Returns (account, true) on cache hit. account may be nil if the address is
+// known to have no account. Returns (nil, false) on cache miss.
+func (c Context) GetCachedAccount(addr string) (any, bool) {
+	if c.accountCache == nil {
+		return nil, false
+	}
+	v, ok := c.accountCache[addr]
+	if !ok {
+		return nil, false
+	}
+	if v == accountCacheSentinel {
+		return nil, true // known non-existent
+	}
+	return v, true
+}
+
+// SetCachedAccount stores a deserialized account in the per-context cache.
+// Pass nil to record that the address has no account (negative cache).
+func (c Context) SetCachedAccount(addr string, acc any) {
+	if c.accountCache == nil {
+		return
+	}
+	if acc == nil {
+		c.accountCache[addr] = accountCacheSentinel
+	} else {
+		c.accountCache[addr] = acc
+	}
+}
+
+// DeleteCachedAccount removes an address from the account cache.
+func (c Context) DeleteCachedAccount(addr string) {
+	delete(c.accountCache, addr)
 }
 
 // CacheContext returns a new Context with the multi-store cached and a new
