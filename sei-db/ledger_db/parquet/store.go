@@ -521,11 +521,17 @@ func (s *Store) closeWritersLocked() error {
 		}
 	}
 	if s.receiptFile != nil {
+		if err := s.receiptFile.Sync(); err != nil {
+			errs = append(errs, fmt.Errorf("receipt file sync: %w", err))
+		}
 		if err := s.receiptFile.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("receipt file: %w", err))
 		}
 	}
 	if s.logFile != nil {
+		if err := s.logFile.Sync(); err != nil {
+			errs = append(errs, fmt.Errorf("log file sync: %w", err))
+		}
 		if err := s.logFile.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("log file: %w", err))
 		}
