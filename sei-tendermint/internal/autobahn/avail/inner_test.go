@@ -53,7 +53,7 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	require.Contains(t, err.Error(), "mismatched QCs")
 
 	// Get the inner state
-	for inner, _ := range state.inner.Lock() {
+	for inner := range state.inner.Lock() {
 		// Now call prune with mismatched QCs directly to test the safety check
 		updated, err := inner.prune(appQC1, qc0)
 
