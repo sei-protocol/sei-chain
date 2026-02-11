@@ -17,6 +17,15 @@ var ErrBadLane = errors.New("bad lane")
 const BlocksPerLane = 3 * BlocksPerLanePerCommit
 const BlocksPerLanePerCommit = 10
 
+// State represents the Data Availability Plane and Ordered Event Log.
+// Although it resides in a sub-package, it serves as the "source of truth" for:
+// - Block data: storing and disseminating raw transaction payloads (lanes).
+// - Finality tracking: acting as a persistent buffer for CommitQCs and AppQCs.
+// - Pruning: managing memory by deleting data once enough execution proofs (AppVotes) are seen.
+//
+// NOTE: This component is more than an observer; it actively aggregates AppVotes
+// to trigger internal pruning, which allows it to manage memory independently
+// of the main consensus loop.
 // State is the block availability state provided by the node for consensus.
 // It contains:
 // * commitQCs
