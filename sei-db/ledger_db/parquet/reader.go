@@ -43,13 +43,21 @@ func NewReader(basePath string) (*Reader, error) {
 	db.SetMaxOpenConns(numCPU * 2)
 	db.SetMaxIdleConns(numCPU)
 
-	_, _ = db.Exec(fmt.Sprintf("SET threads TO %d", numCPU))
-	_, _ = db.Exec("SET memory_limit = '1GB'")
-	_, _ = db.Exec("SET enable_object_cache = true")
-	_, _ = db.Exec("SET parquet_metadata_cache_size = 500")
-	_, _ = db.Exec("SET access_mode = 'READ_ONLY'")
-	_, _ = db.Exec("SET enable_progress_bar = false")
-	_, _ = db.Exec("SET preserve_insertion_order = false")
+	settings := []string{
+		fmt.Sprintf("SET threads TO %d", numCPU),
+		"SET memory_limit = '1GB'",
+		"SET enable_object_cache = true",
+		"SET parquet_metadata_cache_size = 500",
+		"SET access_mode = 'READ_ONLY'",
+		"SET enable_progress_bar = false",
+		"SET preserve_insertion_order = false",
+	}
+	for _, statement := range settings {
+		if _, err = db.Exec(statement); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("failed to configure duckdb (%s): %w", statement, err)
+		}
+	}
 
 	reader := &Reader{
 		db:       db,
