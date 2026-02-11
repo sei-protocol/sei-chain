@@ -1,39 +1,70 @@
 package genesis
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-// SHA-256
+// SHA-256(genDoc)
 var expectedGenesisDigests = map[string]string{
-	"arctic-1":   "a8b60161e345d8afb0d9b0c524b6541e6135f5eda4092fae287d8496e14554d8",
-	"atlantic-2": "3c135db9177a428893353d7889149ca2ed9c075d6846be07af60354022b81318",
-	"pacific-1":  "4304cf1c7f46d153b79f1195b2d334f7f7cf02f26e02a3bb77c544a4987c1432",
+	"arctic-1":   "6d091f04f578537a1715d605ec2efc120f743a0d26a2ae3738bbe2ffbab652c3",
+	"atlantic-2": "d9291825bcdc6c333dbcb2232d38bfb89cbd03f75932bbf1c9738842e34a2315",
+	"pacific-1":  "3a1f5d87df75f4fdb85eaf1b506e080cbcee3a748048e1e80721f68eb2193e43",
+}
+
+func genesisDocDigest(chainID string) ([]byte, error) {
+	data, err := EmbeddedGenesis(chainID)
+	if err != nil {
+		return nil, err
+	}
+	return GenesisDocDigest(data)
+}
+
+func TestPrintGenesisDigestsForUpdate(t *testing.T) {
+	if os.Getenv("UPDATE_GENESIS_DIGESTS") == "" {
+		t.Skip("run with UPDATE_GENESIS_DIGESTS=1 to print expected digests after adding or modifying chains/*.json")
+	}
+	ids, err := WellKnownChainIDs()
+	require.NoError(t, err)
+	fmt.Println("// Copy the following into expectedGenesisDigests:")
+	fmt.Println("var expectedGenesisDigests = map[string]string{")
+	for _, chainID := range ids {
+		digest, err := genesisDocDigest(chainID)
+		require.NoError(t, err)
+		fmt.Printf("\t%q: %q,\n", chainID, hex.EncodeToString(digest))
+	}
+	fmt.Println("}")
 }
 
 func TestEmbeddedGenesisDigests(t *testing.T) {
-	for _, chainID := range WellKnownChainIDs() {
+	ids, err := WellKnownChainIDs()
+	require.NoError(t, err)
+	for _, chainID := range ids {
 		t.Run(chainID, func(t *testing.T) {
-			data, err := EmbeddedGenesis(chainID)
+			digest, err := genesisDocDigest(chainID)
 			require.NoError(t, err)
-			digest := sha256.Sum256(data)
-			got := hex.EncodeToString(digest[:])
+			got := hex.EncodeToString(digest)
 			require.Equal(t, expectedGenesisDigests[chainID], got, "embedded genesis %s.json was modified; update expected digest or restore file", chainID)
 		})
 	}
 }
 
 func TestWellKnownChainIDs(t *testing.T) {
-	ids := WellKnownChainIDs()
-	require.EqualValues(t, wellKnownChainIDs, ids)
+	ids, err := WellKnownChainIDs()
+	require.NoError(t, err)
+	for chainID := range expectedGenesisDigests {
+		require.Contains(t, ids, chainID)
+	}
 }
 
 func TestEmbeddedGenesisDoc(t *testing.T) {
-	for _, chainID := range WellKnownChainIDs() {
+	ids, err := WellKnownChainIDs()
+	require.NoError(t, err)
+	for _, chainID := range ids {
 		genDoc, err := EmbeddedGenesisDoc(chainID)
 		require.NoError(t, err)
 		require.NotNil(t, genDoc)
@@ -43,8 +74,7 @@ func TestEmbeddedGenesisDoc(t *testing.T) {
 
 func TestEmbeddedGenesisUnknownChain(t *testing.T) {
 	_, err := EmbeddedGenesis("unknown")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unknown chain-id")
+	require.ErrorContains(t, err, "unknown chain-id")
 
 	_, err = EmbeddedGenesisDoc("unknown")
 	require.Error(t, err)

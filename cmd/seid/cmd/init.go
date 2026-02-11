@@ -162,11 +162,14 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 					return errors.Wrap(err, "Failed to marshall default genesis state")
 				}
 				genDoc = &types.GenesisDoc{}
-				if _, err := os.Stat(genFile); err != nil {
+				if fi, err := os.Stat(genFile); err != nil {
 					if !os.IsNotExist(err) {
 						return err
 					}
 				} else {
+					if fi.IsDir() {
+						return fmt.Errorf("genesis path is a directory, not a file: %s", genFile)
+					}
 					genDoc, err = types.GenesisDocFromFile(genFile)
 					if err != nil {
 						return errors.Wrap(err, "Failed to read genesis doc from file")
