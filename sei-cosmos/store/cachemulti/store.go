@@ -394,6 +394,57 @@ func (cms Store) SetGigaKVStores(handler func(sk types.StoreKey, s types.KVStore
 	return cms
 }
 
+// CacheMultiStoreForOCC creates a child CMS optimized for OCC scheduler use.
+// Instead of copying storeParents maps and then immediately overriding via
+// SetKVStores/SetGigaKVStores, this directly builds the stores/gigaStores maps
+// using the provided handler functions, eliminating intermediate allocations.
+func (cms Store) CacheMultiStoreForOCC(
+	kvHandler func(sk types.StoreKey, kvs types.KVStore) types.CacheWrap,
+	gigaHandler func(sk types.StoreKey, kvs types.KVStore) types.KVStore,
+) types.MultiStore {
+	cms.mu.RLock()
+
+	// Build stores map directly from overrides — no storeParents copy
+	stores := make(map[types.StoreKey]types.CacheWrap, len(cms.stores)+len(cms.storeParents))
+	for k, s := range cms.stores {
+		stores[k] = kvHandler(k, s.(types.KVStore))
+	}
+	for k, parent := range cms.storeParents {
+		if _, exists := stores[k]; !exists {
+			stores[k] = kvHandler(k, parent.(types.KVStore))
+		}
+	}
+
+	gigaStores := make(map[types.StoreKey]types.KVStore, len(cms.gigaKeys))
+	for _, key := range cms.gigaKeys {
+		var parent types.KVStore
+		if gs, ok := cms.gigaStores[key]; ok {
+			parent = gs
+		} else if gp, ok := cms.gigaStoreParents[key]; ok {
+			parent = gp
+		} else if s, ok := cms.stores[key]; ok {
+			parent = s.(types.KVStore)
+		} else if p, ok := cms.storeParents[key]; ok {
+			parent = p.(types.KVStore)
+		}
+		if parent != nil {
+			gigaStores[key] = gigaHandler(key, parent)
+		}
+	}
+
+	cms.mu.RUnlock()
+
+	return Store{
+		mu:           &sync.RWMutex{},
+		stores:       stores,
+		gigaStores:   gigaStores,
+		keys:         cms.keys,
+		gigaKeys:     cms.gigaKeys,
+		traceWriter:  cms.traceWriter,
+		traceContext: cms.traceContext,
+	}
+}
+
 func (cms Store) CacheMultiStoreForExport(_ int64) (types.CacheMultiStore, error) {
 	panic("Not implemented")
 }

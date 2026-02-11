@@ -5,3 +5,5 @@ use (
 	./sei-cosmos
 	./sei-tendermint
 )
+
+replace github.com/ethereum/go-ethereum => /Users/pdrobnjak/sei/go-ethereum

@@ -55,6 +55,9 @@ type deliverTxTask struct {
 	Response      *types.ResponseDeliverTx
 	VersionStores map[sdk.StoreKey]*multiversion.VersionIndexedStore
 	TxTracer      sdk.TxTracer
+
+	// Pre-allocated buffer reused across incarnations to reduce allocations.
+	versionStoresBuf map[sdk.StoreKey]*multiversion.VersionIndexedStore
 }
 
 // AppendDependencies appends the given indexes to the task's dependencies
@@ -483,25 +486,42 @@ func (s *scheduler) prepareTask(task *deliverTxTask) {
 	_, span := s.traceSpan(ctx, "SchedulerPrepare", task)
 	defer span.End()
 
-	// initialize the context
-	abortCh := make(chan occ.Abort, len(s.multiVersionStores))
+	numStores := len(s.multiVersionStores)
+	abortCh := make(chan occ.Abort, numStores)
 
 	// if there are no stores, don't try to wrap, because there's nothing to wrap
-	if len(s.multiVersionStores) > 0 {
-		// non-blocking
-		cms := ctx.MultiStore().CacheMultiStore()
-
-		// init version stores by store key
-		vs := make(map[store.StoreKey]*multiversion.VersionIndexedStore)
+	if numStores > 0 {
+		// Reuse version stores map across incarnations
+		if task.versionStoresBuf == nil {
+			task.versionStoresBuf = make(map[store.StoreKey]*multiversion.VersionIndexedStore, numStores)
+		} else {
+			clear(task.versionStoresBuf)
+		}
+		vs := task.versionStoresBuf
 		for storeKey, mvs := range s.multiVersionStores {
 			vs[storeKey] = mvs.VersionedIndexedStore(task.AbsoluteIndex, task.Incarnation, abortCh)
 		}
 
 		// save off version store so we can ask it things later
 		task.VersionStores = vs
-		ms := cms.SetKVStores(func(k store.StoreKey, kvs sdk.KVStore) store.CacheWrap {
+
+		kvHandler := func(k store.StoreKey, kvs sdk.KVStore) store.CacheWrap {
 			return vs[k]
-		})
+		}
+		gigaHandler := func(k store.StoreKey, kvs sdk.KVStore) store.KVStore {
+			return vs[k]
+		}
+
+		var ms store.MultiStore
+		if gms, ok := ctx.MultiStore().(store.GigaMultiStore); ok {
+			// OCC fast path: build child CMS directly with version stores,
+			// avoiding intermediate storeParents map copy + SetKVStores iteration
+			ms = gms.CacheMultiStoreForOCC(kvHandler, gigaHandler)
+		} else {
+			// Fallback: use CacheMultiStore + SetKVStores
+			cms := ctx.MultiStore().CacheMultiStore()
+			ms = cms.SetKVStores(kvHandler)
+		}
 
 		ctx = ctx.WithMultiStore(ms)
 	}
@@ -546,9 +566,10 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 		task.SetStatus(statusAborted)
 		task.Abort = &abort
 		task.AppendDependencies([]int{abort.DependentTxIdx})
-		// write from version store to multiversion stores
-		for _, v := range task.VersionStores {
+		// write from version store to multiversion stores and release back to pool
+		for sk, v := range task.VersionStores {
 			v.WriteEstimatesToMultiVersionStore()
+			s.multiVersionStores[sk].ReleaseVersionIndexedStore(v)
 		}
 		return
 	}
@@ -556,8 +577,9 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 	task.SetStatus(statusExecuted)
 	task.Response = &resp
 
-	// write from version store to multiversion stores
-	for _, v := range task.VersionStores {
+	// write from version store to multiversion stores and release back to pool
+	for sk, v := range task.VersionStores {
 		v.WriteToMultiVersionStore()
+		s.multiVersionStores[sk].ReleaseVersionIndexedStore(v)
 	}
 }
