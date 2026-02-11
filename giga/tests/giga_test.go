@@ -1529,3 +1529,133 @@ func TestGigaSequential_BalanceTransfer(t *testing.T) {
 	t.Logf("Balance transfer verified: sender lost %s (transfer %s + gas %s), recipient gained %s",
 		senderLost.String(), transferAmount.String(), gasCost.String(), recipientGained.String())
 }
+
+// bad() function selector - this function reverts unconditionally
+var badFunctionSelector = common.Hex2Bytes("9c3674fc")
+
+// TestLastResultsHash_GigaVsGeth_MixedBlock verifies LastResultsHash matches for a block
+// containing a realistic mix of transaction types:
+//   - Simple ETH transfers (succeed)
+//   - Contract deployment (succeeds)
+//   - Contract storage writes via set() (succeed)
+//   - Reverting calls via bad() (VM error - gas still charged)
+//
+// This is the critical test that proves the surplus fix is correct:
+// the giga path must produce identical LastResultsHash as the standard path
+// for blocks containing both successful and failing transactions.
+func TestLastResultsHash_GigaVsGeth_MixedBlock(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+
+	deployer := utils.NewSigner()
+	caller1 := utils.NewSigner()
+	caller2 := utils.NewSigner()
+	transferSender1 := utils.NewSigner()
+	transferSender2 := utils.NewSigner()
+	contractAddr := crypto.CreateAddress(deployer.EvmAddress, 0)
+
+	// --- Build transactions for the mixed block ---
+	// We'll build the same logical transactions for both V2 and Giga contexts
+
+	buildMixedBlockTxs := func(t *testing.T, tCtx *GigaTestContext, isGiga bool) [][]byte {
+		var allTxs [][]byte
+
+		// Tx 0: Simple ETH transfer (succeeds)
+		transferTxs1 := CreateEVMTransferTxs(t, tCtx, []EVMTransfer{
+			{Signer: transferSender1, To: accts[1].EvmAddress, Value: big.NewInt(1000), Nonce: 0},
+		}, isGiga)
+		allTxs = append(allTxs, transferTxs1...)
+
+		// Tx 1: Contract deployment (succeeds)
+		deployTxs := CreateContractDeployTxs(t, tCtx, []EVMContractDeploy{
+			{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
+		}, isGiga)
+		allTxs = append(allTxs, deployTxs...)
+
+		// Tx 2: Another simple ETH transfer (succeeds)
+		transferTxs2 := CreateEVMTransferTxs(t, tCtx, []EVMTransfer{
+			{Signer: transferSender2, To: accts[2].EvmAddress, Value: big.NewInt(2000), Nonce: 0},
+		}, isGiga)
+		allTxs = append(allTxs, transferTxs2...)
+
+		// Tx 3: Contract call to set(42) (succeeds)
+		callTxs1 := CreateContractCallTxs(t, tCtx, []EVMContractCall{
+			{Signer: caller1, Contract: contractAddr, Data: encodeSetCall(big.NewInt(42)), Nonce: 0},
+		}, isGiga)
+		allTxs = append(allTxs, callTxs1...)
+
+		// Tx 4: Contract call to bad() (REVERTS - VM error, gas still charged)
+		callTxs2 := CreateContractCallTxs(t, tCtx, []EVMContractCall{
+			{Signer: caller2, Contract: contractAddr, Data: badFunctionSelector, Nonce: 0},
+		}, isGiga)
+		allTxs = append(allTxs, callTxs2...)
+
+		// Tx 5: Another successful set() call after the revert
+		callTxs3 := CreateContractCallTxs(t, tCtx, []EVMContractCall{
+			{Signer: caller1, Contract: contractAddr, Data: encodeSetCall(big.NewInt(99)), Nonce: 1},
+		}, isGiga)
+		allTxs = append(allTxs, callTxs3...)
+
+		return allTxs
+	}
+
+	// --- Run with V2 (standard path, baseline) ---
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	gethTxs := buildMixedBlockTxs(t, gethCtx, false)
+	_, gethResults, gethErr := RunBlock(t, gethCtx, gethTxs)
+	require.NoError(t, gethErr, "V2 execution failed")
+	require.Len(t, gethResults, 6)
+
+	// --- Run with Giga Sequential ---
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	gigaTxs := buildMixedBlockTxs(t, gigaCtx, true)
+	_, gigaResults, gigaErr := RunBlock(t, gigaCtx, gigaTxs)
+	require.NoError(t, gigaErr, "Giga execution failed")
+	require.Len(t, gigaResults, 6)
+
+	// --- Log all results for debugging ---
+	txLabels := []string{
+		"ETH transfer 1",
+		"Contract deploy",
+		"ETH transfer 2",
+		"set(42) call",
+		"bad() revert",
+		"set(99) call",
+	}
+	for i, label := range txLabels {
+		t.Logf("tx[%d] %-18s  V2: Code=%d GasWanted=%d GasUsed=%d | Giga: Code=%d GasWanted=%d GasUsed=%d",
+			i, label,
+			gethResults[i].Code, gethResults[i].GasWanted, gethResults[i].GasUsed,
+			gigaResults[i].Code, gigaResults[i].GasWanted, gigaResults[i].GasUsed)
+	}
+
+	// --- Verify expected outcomes ---
+	// Tx 0, 2: transfers should succeed
+	require.Equal(t, uint32(0), gethResults[0].Code, "V2 transfer 1 should succeed")
+	require.Equal(t, uint32(0), gethResults[2].Code, "V2 transfer 2 should succeed")
+
+	// Tx 1: deploy should succeed
+	require.Equal(t, uint32(0), gethResults[1].Code, "V2 deploy should succeed")
+
+	// Tx 3: set(42) should succeed
+	require.Equal(t, uint32(0), gethResults[3].Code, "V2 set(42) should succeed")
+
+	// Tx 4: bad() should revert (non-zero code)
+	require.NotEqual(t, uint32(0), gethResults[4].Code, "V2 bad() should revert")
+	require.NotEqual(t, uint32(0), gigaResults[4].Code, "Giga bad() should revert")
+	t.Logf("bad() revert confirmed - V2 code=%d, Giga code=%d", gethResults[4].Code, gigaResults[4].Code)
+
+	// Tx 5: set(99) should succeed after the revert
+	require.Equal(t, uint32(0), gethResults[5].Code, "V2 set(99) should succeed after revert")
+
+	// --- The critical check: LastResultsHash must match ---
+	CompareLastResultsHash(t, "MixedBlock_GigaVsGeth", gethResults, gigaResults)
+	CompareDeterministicFields(t, "MixedBlock_DeterministicFields", gethResults, gigaResults)
+
+	gethHash, _ := ComputeLastResultsHash(gethResults)
+	gigaHash, _ := ComputeLastResultsHash(gigaResults)
+	t.Logf("Mixed block LastResultsHash verified identical:")
+	t.Logf("  V2 hash:   %X", gethHash)
+	t.Logf("  Giga hash: %X", gigaHash)
+	t.Logf("  Tx count:  %d (including %d reverting)", len(gethResults), 1)
+}
