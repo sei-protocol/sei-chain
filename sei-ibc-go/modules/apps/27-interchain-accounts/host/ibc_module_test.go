@@ -8,10 +8,10 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 	"github.com/gogo/protobuf/proto"
+	abcitypes "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmprotostate "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/state"
+	tmstate "github.com/sei-protocol/sei-chain/sei-tendermint/state"
 	"github.com/stretchr/testify/suite"
-	abcitypes "github.com/tendermint/tendermint/abci/types"
-	tmprotostate "github.com/tendermint/tendermint/proto/tendermint/state"
-	tmstate "github.com/tendermint/tendermint/state"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/host/types"
 	icatypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/types"

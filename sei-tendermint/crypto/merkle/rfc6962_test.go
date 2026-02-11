@@ -20,7 +20,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/tendermint/tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 )
 
 func TestRFC6962Hasher(t *testing.T) {

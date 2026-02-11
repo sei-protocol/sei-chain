@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmtypes "github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"

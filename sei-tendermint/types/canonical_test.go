@@ -4,9 +4,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tendermint/tendermint/crypto"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 func TestCanonicalizeBlockID(t *testing.T) {

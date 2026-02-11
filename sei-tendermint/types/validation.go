@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/tendermint/tendermint/crypto"
-	tmmath "github.com/tendermint/tendermint/libs/math"
-	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 const batchVerifyThreshold = 2
@@ -107,11 +107,11 @@ func VerifyCommitLightTrusting(chainID string, vals *ValidatorSet, commit *Commi
 	}
 
 	// safely calculate voting power needed.
-	totalVotingPowerMulByNumerator, overflow := safeMul(vals.TotalVotingPower(), int64(trustLevel.Numerator))
+	totalVotingPowerMulByNumerator, overflow := safeMul(vals.TotalVotingPower(), int64(trustLevel.Numerator)) //nolint:gosec // trustLevel.Numerator is a small trusted config value; no overflow risk
 	if overflow {
 		return errors.New("int64 overflow while calculating voting power needed. please provide smaller trustLevel numerator")
 	}
-	votingPowerNeeded := totalVotingPowerMulByNumerator / int64(trustLevel.Denominator)
+	votingPowerNeeded := totalVotingPowerMulByNumerator / int64(trustLevel.Denominator) //nolint:gosec // trustLevel.Denominator is a small trusted config value; no overflow risk
 
 	// ignore all commit signatures that are not for the block
 	ignore := func(c CommitSig) bool { return c.BlockIDFlag != BlockIDFlagCommit }
@@ -209,7 +209,7 @@ func verifyCommitBatch(
 		}
 
 		// Validate signature.
-		voteSignBytes := commit.VoteSignBytes(chainID, int32(idx))
+		voteSignBytes := commit.VoteSignBytes(chainID, int32(idx)) //nolint:gosec // idx is bounded by len(commit.Signatures) which is validated against validator set size
 
 		// add the key, sig and message to the verifier
 		sig, ok := commitSig.Signature.Get()
@@ -305,7 +305,7 @@ func verifyCommitSingle(
 			seenVals[valIdx] = idx
 		}
 
-		voteSignBytes = commit.VoteSignBytes(chainID, int32(idx))
+		voteSignBytes = commit.VoteSignBytes(chainID, int32(idx)) //nolint:gosec // idx is bounded by len(commit.Signatures) which is validated against validator set size
 		sig, ok := commitSig.Signature.Get()
 		if !ok {
 			return fmt.Errorf("missing signature at idx %v", idx)

@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/tendermint/tendermint/internal/autobahn/pb"
-	"github.com/tendermint/tendermint/internal/protoutils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 )
 
 // ConsensusReq is the interface for all consensus messages.

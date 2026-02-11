@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/im"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/im"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const maxAddrsPerPeer = 10
@@ -503,6 +503,7 @@ func (m *peerManager[C]) Advertise(maxAddrs int) []NodeAddress {
 func (m *peerManager[C]) Peers() []types.NodeID {
 	var ids []types.NodeID
 	for inner := range m.inner.Lock() {
+		ids = make([]types.NodeID, 0, len(inner.persistentAddrs)+len(inner.addrs))
 		for id := range inner.persistentAddrs {
 			ids = append(ids, id)
 		}

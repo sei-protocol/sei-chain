@@ -13,14 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/crypto/merkle"
-	sm "github.com/tendermint/tendermint/internal/state"
-	statefactory "github.com/tendermint/tendermint/internal/state/test/factory"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	statefactory "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // setupTestCase does setup common to all test cases.

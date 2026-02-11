@@ -12,13 +12,13 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	seiutils "github.com/sei-protocol/sei-chain/utils"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmbytes "github.com/tendermint/tendermint/libs/bytes"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/rpc/client/mock"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 type MockClient struct {

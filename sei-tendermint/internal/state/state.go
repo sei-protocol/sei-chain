@@ -5,16 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
 
-	tmtime "github.com/tendermint/tendermint/libs/time"
+	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 
-	tmstate "github.com/tendermint/tendermint/proto/tendermint/state"
-	tmversion "github.com/tendermint/tendermint/proto/tendermint/version"
-	"github.com/tendermint/tendermint/types"
-	"github.com/tendermint/tendermint/version"
+	tmstate "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/state"
+	tmversion "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/version"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 //-----------------------------------------------------------------------------
@@ -273,7 +274,7 @@ func (state State) MakeBlock(
 	block := types.MakeBlock(height, txs, commit, evidence)
 
 	// Fill rest of header with state data.
-	block.Header.Populate(
+	block.Populate(
 		state.Version.Consensus, state.ChainID,
 		tmtime.Now(), state.LastBlockID,
 		state.Validators.Hash(), state.NextValidators.Hash(),
@@ -301,7 +302,7 @@ func MakeGenesisStateFromFile(genDocFile string) (State, error) {
 
 // MakeGenesisDocFromFile reads and unmarshals genesis doc from the given file.
 func MakeGenesisDocFromFile(genDocFile string) (*types.GenesisDoc, error) {
-	genDocJSON, err := os.ReadFile(genDocFile)
+	genDocJSON, err := os.ReadFile(filepath.Clean(genDocFile))
 	if err != nil {
 		return nil, fmt.Errorf("couldn't read GenesisDoc file: %w", err)
 	}

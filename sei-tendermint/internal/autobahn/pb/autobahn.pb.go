@@ -7,7 +7,7 @@
 package pb
 
 import (
-	_ "github.com/tendermint/tendermint/internal/hashable/pb"
+	_ "github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable/pb"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -1934,7 +1934,7 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\ftimeout_vote\x18\x04 \x01(\v2\x19.autobahn.FullTimeoutVoteH\x00R\vtimeoutVote\x124\n" +
 	"\n" +
 	"timeout_qc\x18\x05 \x01(\v2\x13.autobahn.TimeoutQCH\x00R\ttimeoutQcB\x03\n" +
-	"\x01tB7Z5github.com/tendermint/tendermint/internal/autobahn/pbb\x06proto3"
+	"\x01tBGZEgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pbb\x06proto3"
 
 var (
 	file_autobahn_autobahn_proto_rawDescOnce sync.Once

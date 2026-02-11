@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	tmcli "github.com/tendermint/tendermint/libs/cli"
+	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 
 	"github.com/spf13/cobra"
 

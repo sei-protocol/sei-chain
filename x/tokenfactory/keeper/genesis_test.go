@@ -2,7 +2,7 @@ package keeper_test
 
 import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )

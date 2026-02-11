@@ -6,7 +6,7 @@ import (
 	"sort"
 
 	gogotypes "github.com/gogo/protobuf/types"
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"

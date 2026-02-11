@@ -6,7 +6,7 @@ import "gogoproto/gogo.proto";
 import "google/protobuf/timestamp.proto";
 import "tendermint/types/types.proto";
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types";
 
 message CanonicalBlockID {
   bytes hash = 1;

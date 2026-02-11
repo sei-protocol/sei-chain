@@ -11,13 +11,13 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	cfg "github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/bytes"
-	"github.com/tendermint/tendermint/libs/log"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
-	tmtime "github.com/tendermint/tendermint/libs/time"
-	"github.com/tendermint/tendermint/privval"
-	"github.com/tendermint/tendermint/types"
+	cfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
+	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const (
@@ -102,7 +102,7 @@ Example:
 				nValidators+nNonValidators,
 			)
 		}
-		ResetAll(conf.DBDir(), conf.PrivValidator.KeyFile(),
+		_ = ResetAll(conf.DBDir(), conf.PrivValidator.KeyFile(),
 			conf.PrivValidator.StateFile(), logger, keyType, conf.RootDir)
 
 		// set mode to validator for testnet
@@ -199,7 +199,7 @@ Example:
 		// Write genesis file.
 		for i := 0; i < nValidators+nNonValidators; i++ {
 			nodeDir := filepath.Join(outputDir, fmt.Sprintf("%s%d", nodeDirPrefix, i))
-			if err := genDoc.SaveAs(filepath.Join(nodeDir, config.BaseConfig.Genesis)); err != nil {
+			if err := genDoc.SaveAs(filepath.Join(nodeDir, config.Genesis)); err != nil {
 				_ = os.RemoveAll(outputDir)
 				return err
 			}
