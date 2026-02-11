@@ -119,6 +119,10 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 		panic("invalid revision number")
 	}
 
+	// Save references to contexts being discarded before updating state
+	discardedCtx := s.ctx
+	discardedSnapshots := s.snapshottedCtxs[rev+1:]
+
 	s.ctx = s.snapshottedCtxs[rev]
 	s.snapshottedCtxs = s.snapshottedCtxs[:rev]
 
@@ -136,6 +140,12 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 	// Truncate the journal to remove reverted entries
 	if watermarkIndex >= 0 {
 		s.journal = s.journal[:watermarkIndex]
+	}
+
+	// Release resources from discarded contexts after all state updates
+	s.releaseCtxResources(discardedCtx)
+	for i := len(discardedSnapshots) - 1; i >= 0; i-- {
+		s.releaseCtxResources(discardedSnapshots[i])
 	}
 }
 
@@ -215,6 +225,15 @@ func (s *DBImpl) getTransientState(acc common.Address, key common.Hash) (common.
 		val, found = m[key.Hex()]
 	}
 	return val, found
+}
+
+// releaseCtxResources returns poolable resources (EventManager, CMS stores) from
+// a snapshot context back to their respective sync.Pools.
+func (s *DBImpl) releaseCtxResources(ctx sdk.Context) {
+	sdk.ReleaseEventManager(ctx.EventManager())
+	if cms, ok := ctx.MultiStore().(interface{ Release() }); ok {
+		cms.Release()
+	}
 }
 
 func deleteIfExists(store storetypes.KVStore, key []byte) bool {

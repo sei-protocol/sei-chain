@@ -131,30 +131,31 @@ func (s *eventsTestSuite) TestStringifyEvents() {
 }
 
 func (s *eventsTestSuite) TestMarkEventsToIndex() {
-	events := []abci.Event{
-		{
-			Type: "message",
-			Attributes: []abci.EventAttribute{
-				{Key: []byte("sender"), Value: []byte("foo")},
-				{Key: []byte("recipient"), Value: []byte("bar")},
+	// Helper to create fresh events for each subtest since MarkEventsToIndex modifies in-place.
+	newEvents := func() []abci.Event {
+		return []abci.Event{
+			{
+				Type: "message",
+				Attributes: []abci.EventAttribute{
+					{Key: []byte("sender"), Value: []byte("foo")},
+					{Key: []byte("recipient"), Value: []byte("bar")},
+				},
 			},
-		},
-		{
-			Type: "staking",
-			Attributes: []abci.EventAttribute{
-				{Key: []byte("deposit"), Value: []byte("5")},
-				{Key: []byte("unbond"), Value: []byte("10")},
+			{
+				Type: "staking",
+				Attributes: []abci.EventAttribute{
+					{Key: []byte("deposit"), Value: []byte("5")},
+					{Key: []byte("unbond"), Value: []byte("10")},
+				},
 			},
-		},
+		}
 	}
 
 	testCases := map[string]struct {
-		events   []abci.Event
 		indexSet map[string]struct{}
 		expected []abci.Event
 	}{
 		"empty index set": {
-			events: events,
 			expected: []abci.Event{
 				{
 					Type: "message",
@@ -174,7 +175,6 @@ func (s *eventsTestSuite) TestMarkEventsToIndex() {
 			indexSet: map[string]struct{}{},
 		},
 		"index some events": {
-			events: events,
 			expected: []abci.Event{
 				{
 					Type: "message",
@@ -197,7 +197,6 @@ func (s *eventsTestSuite) TestMarkEventsToIndex() {
 			},
 		},
 		"index all events": {
-			events: events,
 			expected: []abci.Event{
 				{
 					Type: "message",
@@ -226,7 +225,8 @@ func (s *eventsTestSuite) TestMarkEventsToIndex() {
 	for name, tc := range testCases {
 		tc := tc
 		s.T().Run(name, func(_ *testing.T) {
-			legacyEvents := sdk.MarkEventsToIndex(tc.events, tc.indexSet)
+			events := newEvents()
+			legacyEvents := sdk.MarkEventsToIndex(events, tc.indexSet)
 			s.Require().Equal(tc.expected, legacyEvents)
 		})
 	}

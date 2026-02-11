@@ -45,14 +45,28 @@ const (
 	AttributeKeyAccessTypeRead  = "read"
 )
 
+var eventManagerPool = sync.Pool{
+	New: func() any {
+		return &EventManager{
+			events: make(Events, 0, 8),
+		}
+	},
+}
+
 func NewEventManager() *EventManager {
-	em := EventManager{
-		mtx: sync.RWMutex{},
+	em := eventManagerPool.Get().(*EventManager)
+	em.events = em.events[:0]
+	return em
+}
+
+// ReleaseEventManager returns an EventManager to the pool for reuse.
+// The caller must not use the EventManager after calling this.
+func ReleaseEventManager(em *EventManager) {
+	if em == nil {
+		return
 	}
-	em.mtx.Lock()
-	defer em.mtx.Unlock()
-	em.events = EmptyEvents()
-	return &em
+	em.events = em.events[:0]
+	eventManagerPool.Put(em)
 }
 
 func (em *EventManager) Events() Events { return em.events }
@@ -191,12 +205,10 @@ type (
 // NewEvent creates a new Event object with a given type and slice of one or more
 // attributes.
 func NewEvent(ty string, attrs ...Attribute) Event {
-	e := Event{Type: ty}
-
-	for _, attr := range attrs {
-		e.Attributes = append(e.Attributes, attr.ToKVPair())
+	e := Event{Type: ty, Attributes: make([]abci.EventAttribute, len(attrs))}
+	for i, attr := range attrs {
+		e.Attributes[i] = attr.ToKVPair()
 	}
-
 	return e
 }
 
@@ -344,33 +356,23 @@ func StringifyEvents(events []abci.Event) StringEvents {
 	return res.Flatten()
 }
 
-// MarkEventsToIndex returns the set of ABCI events, where each event's attribute
-// has it's index value marked based on the provided set of events to index.
+// MarkEventsToIndex modifies the ABCI events in-place, setting each attribute's
+// Index field based on the provided set of events to index.
 func MarkEventsToIndex(events []abci.Event, indexSet map[string]struct{}) []abci.Event {
 	indexAll := len(indexSet) == 0
-	updatedEvents := make([]abci.Event, len(events))
 
-	for i, e := range events {
-		updatedEvent := abci.Event{
-			Type:       e.Type,
-			Attributes: make([]abci.EventAttribute, len(e.Attributes)),
-		}
-
-		for j, attr := range e.Attributes {
-			_, index := indexSet[fmt.Sprintf("%s.%s", e.Type, attr.Key)]
-			updatedAttr := abci.EventAttribute{
-				Key:   attr.Key,
-				Value: attr.Value,
-				Index: index || indexAll,
+	for i := range events {
+		e := &events[i]
+		for j := range e.Attributes {
+			if indexAll {
+				e.Attributes[j].Index = true
+			} else {
+				_, e.Attributes[j].Index = indexSet[fmt.Sprintf("%s.%s", e.Type, e.Attributes[j].Key)]
 			}
-
-			updatedEvent.Attributes[j] = updatedAttr
 		}
-
-		updatedEvents[i] = updatedEvent
 	}
 
-	return updatedEvents
+	return events
 }
 
 type EVMEventManager struct {

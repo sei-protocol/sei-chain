@@ -249,9 +249,14 @@ func (s *Store) GetAllWritesetKeys() map[int][]string {
 }
 
 func (s *Store) SetReadset(index int, readset ReadSet) {
+	// Clone the readset so the caller (VIS) can reuse its map via clear().
+	clone := make(ReadSet, len(readset))
+	for k, v := range readset {
+		clone[k] = v
+	}
 	sl := s.slot(index)
 	sl.mu.Lock()
-	sl.readset = readset
+	sl.readset = clone
 	sl.mu.Unlock()
 }
 
@@ -264,9 +269,12 @@ func (s *Store) GetReadset(index int) ReadSet {
 }
 
 func (s *Store) SetIterateset(index int, iterateset Iterateset) {
+	// Clone the iterateset so the caller (VIS) can reuse its slice via [:0].
+	clone := make(Iterateset, len(iterateset))
+	copy(clone, iterateset)
 	sl := s.slot(index)
 	sl.mu.Lock()
-	sl.iterateset = iterateset
+	sl.iterateset = clone
 	sl.mu.Unlock()
 }
 
