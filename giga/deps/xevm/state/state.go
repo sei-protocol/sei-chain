@@ -23,6 +23,9 @@ func (s *DBImpl) CreateAccount(acc common.Address) {
 }
 
 func (s *DBImpl) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
+	if len(s.snapshottedCtxs) == 0 {
+		return s.getState(s.ctx, addr, hash)
+	}
 	return s.getState(s.snapshottedCtxs[0], addr, hash)
 }
 

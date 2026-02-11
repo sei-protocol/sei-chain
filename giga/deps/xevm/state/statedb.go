@@ -58,6 +58,25 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 	return s
 }
 
+// NewDBImplWithoutSnapshot creates a DBImpl without the initial Snapshot() call.
+// Use this only when the caller guarantees that Prepare() (which calls Snapshot)
+// will be called before any state reads/writes — e.g. in the OCC executor path
+// where core.ApplyMessage always calls Prepare before EVM execution.
+// This avoids creating a redundant CacheMultiStore layer.
+func NewDBImplWithoutSnapshot(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
+	feeCollector, _ := k.GetFeeCollectorAddress(ctx)
+	return &DBImpl{
+		ctx:                ctx,
+		k:                  k,
+		snapshottedCtxs:    []sdk.Context{},
+		coinbaseAddress:    GetCoinbaseAddress(ctx.TxIndex()),
+		simulation:         simulation,
+		tempState:          NewTemporaryState(),
+		journal:            []journalEntry{},
+		coinbaseEvmAddress: feeCollector,
+	}
+}
+
 func (s *DBImpl) DisableEvents() {
 	s.eventsSuppressed = true
 }
@@ -141,6 +160,9 @@ func (s *DBImpl) flushCtx(ctx sdk.Context) {
 }
 
 func (s *DBImpl) flushEvents(ctx sdk.Context) {
+	if len(s.snapshottedCtxs) == 0 {
+		return
+	}
 	s.snapshottedCtxs[0].EventManager().EmitEvents(ctx.EventManager().Events())
 }
 
