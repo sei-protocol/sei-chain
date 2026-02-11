@@ -89,6 +89,7 @@ import (
 	upgradeclient "github.com/cosmos/cosmos-sdk/x/upgrade/client"
 	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -1357,8 +1358,20 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 	txResults := []*abci.ExecTxResult{}
 	for i, tx := range txs {
 		ctx = ctx.WithTxIndex(absoluteTxIndices[i])
+
+		// Debug log BEFORE each tx
+		app.debugLogTxBalances(ctx, "V2_BEFORE_TX", absoluteTxIndices[i], typedTxs[i], "V2")
+
 		res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 		txResults = append(txResults, res)
+
+		// Debug log AFTER each tx with result
+		if ctx.BlockHeight() == DebugHeight {
+			ctx.Logger().Error(fmt.Sprintf("[DEBUG-V2] V2_AFTER_TX tx=%d code=%d gasUsed=%d log=%s",
+				absoluteTxIndices[i], res.Code, res.GasUsed, res.Log))
+		}
+		app.debugLogTxBalances(ctx, "V2_AFTER_TX", absoluteTxIndices[i], typedTxs[i], "V2")
+
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
 	return txResults
@@ -1373,11 +1386,23 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	for i, tx := range txs {
 		ctx = ctx.WithTxIndex(absoluteTxIndices[i])
+
+		// Debug log BEFORE each tx
+		app.debugLogTxBalances(ctx, "GIGA_BEFORE_TX", absoluteTxIndices[i], typedTxs[i], "GIGA")
+
 		evmMsg := app.GetEVMMsg(typedTxs[i])
 		// If not an EVM tx, fall back to v2 processing
 		if evmMsg == nil {
 			result := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 			txResults[i] = result
+
+			// Debug log AFTER non-EVM tx
+			if ctx.BlockHeight() == DebugHeight {
+				ctx.Logger().Error(fmt.Sprintf("[DEBUG-GIGA] GIGA_AFTER_TX (non-EVM fallback) tx=%d code=%d gasUsed=%d log=%s",
+					absoluteTxIndices[i], result.Code, result.GasUsed, result.Log))
+			}
+			app.debugLogTxBalances(ctx, "GIGA_AFTER_TX", absoluteTxIndices[i], typedTxs[i], "GIGA")
+
 			ms.Write()
 			continue
 		}
@@ -1389,6 +1414,14 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 			if gigautils.ShouldExecutionAbort(execErr) {
 				res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 				txResults[i] = res
+
+				// Debug log AFTER fallback tx
+				if ctx.BlockHeight() == DebugHeight {
+					ctx.Logger().Error(fmt.Sprintf("[DEBUG-GIGA] GIGA_AFTER_TX (abort fallback) tx=%d code=%d gasUsed=%d log=%s",
+						absoluteTxIndices[i], res.Code, res.GasUsed, res.Log))
+				}
+				app.debugLogTxBalances(ctx, "GIGA_AFTER_TX", absoluteTxIndices[i], typedTxs[i], "GIGA")
+
 				ms.Write()
 				continue
 			}
@@ -1396,10 +1429,26 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 				Code: 1,
 				Log:  fmt.Sprintf("[BUG] giga executor error: %v", execErr),
 			}
+
+			// Debug log AFTER error tx
+			if ctx.BlockHeight() == DebugHeight {
+				ctx.Logger().Error(fmt.Sprintf("[DEBUG-GIGA] GIGA_AFTER_TX (error) tx=%d execErr=%v",
+					absoluteTxIndices[i], execErr))
+			}
+			app.debugLogTxBalances(ctx, "GIGA_AFTER_TX", absoluteTxIndices[i], typedTxs[i], "GIGA")
+
 			continue
 		}
 
 		txResults[i] = result
+
+		// Debug log AFTER successful giga tx
+		if ctx.BlockHeight() == DebugHeight {
+			ctx.Logger().Error(fmt.Sprintf("[DEBUG-GIGA] GIGA_AFTER_TX tx=%d code=%d gasUsed=%d log=%s",
+				absoluteTxIndices[i], result.Code, result.GasUsed, result.Log))
+		}
+		app.debugLogTxBalances(ctx, "GIGA_AFTER_TX", absoluteTxIndices[i], typedTxs[i], "GIGA")
+
 		ctx.GigaMultiStore().WriteGiga()
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
@@ -1473,6 +1522,15 @@ func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex i
 
 // ProcessTXsWithOCCV2 runs the transactions concurrently via OCC, using the V2 executor
 func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+	// Debug log BEFORE OCC batch execution
+	if ctx.BlockHeight() == DebugHeight {
+		ctx.Logger().Error(fmt.Sprintf("[DEBUG-V2-OCC] ========== BEFORE_OCC_BATCH height=%d numTxs=%d ==========", ctx.BlockHeight(), len(txs)))
+		for i, typedTx := range typedTxs {
+			absIndex := absoluteTxIndices[i]
+			app.debugLogTxBalances(ctx, "V2_OCC_BEFORE", absIndex, typedTx, "V2-OCC")
+		}
+	}
+
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
 	for txIndex, tx := range txs {
 		entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
@@ -1526,13 +1584,40 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 
 	}
 
+	// Debug log AFTER OCC batch execution
+	if ctx.BlockHeight() == DebugHeight {
+		ctx.Logger().Error(fmt.Sprintf("[DEBUG-V2-OCC] ========== AFTER_OCC_BATCH height=%d numTxs=%d ==========", ctx.BlockHeight(), len(txs)))
+		for i, typedTx := range typedTxs {
+			absIndex := absoluteTxIndices[i]
+			// Log transaction result
+			if i < len(execResults) {
+				ctx.Logger().Error(fmt.Sprintf("[DEBUG-V2-OCC] V2_OCC_RESULT tx=%d code=%d gasUsed=%d log=%s",
+					absIndex, execResults[i].Code, execResults[i].GasUsed, execResults[i].Log))
+			}
+			app.debugLogTxBalances(ctx, "V2_OCC_AFTER", absIndex, typedTx, "V2-OCC")
+		}
+	}
+
 	return execResults, ctx
 }
 
 // ProcessTXsWithOCCGiga runs the transactions concurrently via OCC, using the Giga executor
 func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+	// Debug log BEFORE OCC batch execution
+	if ctx.BlockHeight() == DebugHeight {
+		ctx.Logger().Error(fmt.Sprintf("[DEBUG-GIGA-OCC] ========== BEFORE_OCC_BATCH height=%d numTxs=%d ==========", ctx.BlockHeight(), len(txs)))
+		for i, typedTx := range typedTxs {
+			absIndex := absoluteTxIndices[i]
+			app.debugLogTxBalances(ctx, "GIGA_OCC_BEFORE", absIndex, typedTx, "GIGA-OCC")
+		}
+	}
+
 	evmEntries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	v2Entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
+	evmTypedTxs := make([]sdk.Tx, 0, len(txs))
+	evmAbsIndices := make([]int, 0, len(txs))
+	v2TypedTxs := make([]sdk.Tx, 0, len(txs))
+	v2AbsIndices := make([]int, 0, len(txs))
 	firstCosmosSeen := false
 	for txIndex, tx := range txs {
 		if app.GetEVMMsg(typedTxs[txIndex]) != nil {
@@ -1542,11 +1627,15 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 			}
 
 			evmEntries = append(evmEntries, app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex]))
+			evmTypedTxs = append(evmTypedTxs, typedTxs[txIndex])
+			evmAbsIndices = append(evmAbsIndices, absoluteTxIndices[txIndex])
 		} else {
 			if !firstCosmosSeen {
 				firstCosmosSeen = true
 			}
 			v2Entries = append(v2Entries, app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex]))
+			v2TypedTxs = append(v2TypedTxs, typedTxs[txIndex])
+			v2AbsIndices = append(v2AbsIndices, absoluteTxIndices[txIndex])
 		}
 	}
 
@@ -1569,6 +1658,19 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 			return nil, ctx
 		}
 
+		// Debug log AFTER EVM batch execution
+		if ctx.BlockHeight() == DebugHeight {
+			ctx.Logger().Error(fmt.Sprintf("[DEBUG-GIGA-OCC] ========== AFTER_EVM_BATCH height=%d numEvmTxs=%d ==========", ctx.BlockHeight(), len(evmEntries)))
+			for i, typedTx := range evmTypedTxs {
+				absIndex := evmAbsIndices[i]
+				if i < len(evmBatchResult) {
+					ctx.Logger().Error(fmt.Sprintf("[DEBUG-GIGA-OCC] GIGA_OCC_EVM_RESULT tx=%d code=%d gasUsed=%d log=%s",
+						absIndex, evmBatchResult[i].Code, evmBatchResult[i].GasUsed, evmBatchResult[i].Log))
+				}
+				app.debugLogTxBalances(evmCtx, "GIGA_OCC_EVM_AFTER", absIndex, typedTx, "GIGA-OCC")
+			}
+		}
+
 		for _, r := range evmBatchResult {
 			if r.Code == gigautils.GigaAbortCode && r.Codespace == gigautils.GigaAbortCodespace {
 				fallbackToV2 = true
@@ -1577,10 +1679,15 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 		}
 
 		if fallbackToV2 {
+			if ctx.BlockHeight() == DebugHeight {
+				ctx.Logger().Error(fmt.Sprintf("[DEBUG-GIGA-OCC] ========== FALLBACK_TO_V2 height=%d ==========", ctx.BlockHeight()))
+			}
 			metrics.IncrGigaFallbackToV2Counter()
 			// Discard all EVM changes by skipping cache writes, then re-run all txs via DeliverTx.
 			evmBatchResult = nil
 			v2Entries = make([]*sdk.DeliverTxEntry, len(txs))
+			v2TypedTxs = typedTxs
+			v2AbsIndices = absoluteTxIndices
 			for txIndex, tx := range txs {
 				v2Entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
 			}
@@ -1604,6 +1711,19 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 		if v2SchedErr != nil {
 			ctx.Logger().Error("benchmark OCC scheduler error", "error", v2SchedErr, "height", ctx.BlockHeight(), "txCount", len(v2Entries))
 			return nil, ctx
+		}
+
+		// Debug log AFTER V2 batch execution
+		if ctx.BlockHeight() == DebugHeight {
+			ctx.Logger().Error(fmt.Sprintf("[DEBUG-GIGA-OCC] ========== AFTER_V2_BATCH height=%d numV2Txs=%d fallback=%v ==========", ctx.BlockHeight(), len(v2Entries), fallbackToV2))
+			for i, typedTx := range v2TypedTxs {
+				absIndex := v2AbsIndices[i]
+				if i < len(v2BatchResult) {
+					ctx.Logger().Error(fmt.Sprintf("[DEBUG-GIGA-OCC] GIGA_OCC_V2_RESULT tx=%d code=%d gasUsed=%d log=%s",
+						absIndex, v2BatchResult[i].Code, v2BatchResult[i].GasUsed, v2BatchResult[i].Log))
+				}
+				app.debugLogTxBalances(ctx, "GIGA_OCC_V2_AFTER", absIndex, typedTx, "GIGA-OCC")
+			}
 		}
 	}
 
@@ -1685,12 +1805,24 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs, typedTxs)
 
+	// Determine executor type for debug logging
+	executorType := "V2"
+	if app.GigaExecutorEnabled {
+		executorType = "GIGA"
+	}
+
+	// Debug log BEFORE prioritized txs
+	app.debugLogAllTxBalances(ctx, "BEFORE_PRIORITIZED", prioritizedTxs, prioritizedTypedTxs, prioritizedIndices, executorType)
+
 	// run the prioritized txs
 	prioritizedResults, ctx := app.ExecuteTxsConcurrently(ctx, prioritizedTxs, prioritizedTypedTxs, prioritizedIndices)
 	for relativePrioritizedIndex, originalIndex := range prioritizedIndices {
 		txResults[originalIndex] = prioritizedResults[relativePrioritizedIndex]
 		evmTxs[originalIndex] = app.GetEVMMsg(prioritizedTypedTxs[relativePrioritizedIndex])
 	}
+
+	// Debug log AFTER prioritized txs
+	app.debugLogAllTxBalances(ctx, "AFTER_PRIORITIZED", prioritizedTxs, prioritizedTypedTxs, prioritizedIndices, executorType)
 
 	// Flush giga stores so WriteDeferredBalances (which uses the standard BankKeeper)
 	// can see balance changes made by the giga executor via GigaBankKeeper.
@@ -1705,11 +1837,17 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
 
+	// Debug log BEFORE other txs
+	app.debugLogAllTxBalances(ctx, "BEFORE_OTHER", otherTxs, otherTypedTxs, otherIndices, executorType)
+
 	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs, otherTypedTxs, otherIndices)
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
 		evmTxs[originalIndex] = app.GetEVMMsg(otherTypedTxs[relativeOtherIndex])
 	}
+
+	// Debug log AFTER other txs
+	app.debugLogAllTxBalances(ctx, "AFTER_OTHER", otherTxs, otherTypedTxs, otherIndices, executorType)
 
 	// Flush giga stores after second round (same reason as above)
 	if app.GigaExecutorEnabled {
@@ -1855,7 +1993,6 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 			Log:  fmt.Sprintf("failed to recover sender from signature: %v", recoverErr),
 		}, nil
 	}
-
 
 	_, isAssociated := app.GigaEvmKeeper.GetEVMAddress(ctx, seiAddr)
 
@@ -2804,6 +2941,105 @@ func (app *App) inplacetestnetInitializer(pk cryptotypes.PubKey) error {
 		)
 	}
 	return nil
+}
+
+// DebugHeight is the block height at which debug logging is enabled
+const DebugHeight = 195539779
+
+// debugLogTxBalances logs the balance and state of sender/recipient for debugging mismatch issues
+func (app *App) debugLogTxBalances(ctx sdk.Context, phase string, txIndex int, typedTx sdk.Tx, executorType string) {
+	if ctx.BlockHeight() != DebugHeight {
+		return
+	}
+
+	logger := ctx.Logger()
+
+	// Get EVM message if this is an EVM transaction
+	evmMsg := app.GetEVMMsg(typedTx)
+	if evmMsg == nil {
+		// For non-EVM transactions, try to extract sender from FeeTx
+		if feeTx, ok := typedTx.(sdk.FeeTx); ok {
+			if len(feeTx.GetMsgs()) > 0 {
+				for _, msg := range feeTx.GetMsgs() {
+					signers := msg.GetSigners()
+					for _, signer := range signers {
+						balance := app.BankKeeper.GetAllBalances(ctx, signer)
+						weiBalance := app.BankKeeper.GetWeiBalance(ctx, signer)
+						logger.Error(fmt.Sprintf("[DEBUG-%s] %s tx=%d NON-EVM signer=%s balance=%s wei=%s",
+							executorType, phase, txIndex, signer.String(), balance.String(), weiBalance.String()))
+					}
+				}
+			}
+		}
+		return
+	}
+
+	// Get the Ethereum transaction
+	ethTx, _ := evmMsg.AsTransaction()
+	if ethTx == nil {
+		return
+	}
+
+	// Recover sender
+	chainID := app.EvmKeeper.ChainID(ctx)
+	sender, seiAddr, _, err := evmante.RecoverSenderFromEthTx(ctx, ethTx, chainID)
+	if err != nil {
+		logger.Error(fmt.Sprintf("[DEBUG-%s] %s tx=%d failed to recover sender: %v", executorType, phase, txIndex, err))
+		return
+	}
+
+	// Get sender balances
+	senderBalance := app.BankKeeper.GetAllBalances(ctx, seiAddr)
+	senderWei := app.BankKeeper.GetWeiBalance(ctx, seiAddr)
+	senderNonce := app.EvmKeeper.GetNonce(ctx, sender)
+
+	// Get sender account sequence
+	senderAcc := app.AccountKeeper.GetAccount(ctx, seiAddr)
+	var senderSeq uint64
+	if senderAcc != nil {
+		senderSeq = senderAcc.GetSequence()
+	}
+
+	logger.Error(fmt.Sprintf("[DEBUG-%s] %s tx=%d sender_evm=%s sender_sei=%s balance=%s wei=%s nonce=%d seq=%d txHash=%s",
+		executorType, phase, txIndex, sender.Hex(), seiAddr.String(), senderBalance.String(), senderWei.String(), senderNonce, senderSeq, ethTx.Hash().Hex()))
+
+	// Get recipient if not a contract creation
+	if ethTx.To() != nil {
+		recipientEvm := *ethTx.To()
+		recipientSei := app.EvmKeeper.GetSeiAddressOrDefault(ctx, recipientEvm)
+
+		recipientBalance := app.BankKeeper.GetAllBalances(ctx, recipientSei)
+		recipientWei := app.BankKeeper.GetWeiBalance(ctx, recipientSei)
+		recipientNonce := app.EvmKeeper.GetNonce(ctx, recipientEvm)
+
+		// Check if it's a contract
+		codeHash := app.EvmKeeper.GetCodeHash(ctx, recipientEvm)
+		isContract := codeHash != (common.Hash{}) && codeHash != ethtypes.EmptyCodeHash
+
+		logger.Error(fmt.Sprintf("[DEBUG-%s] %s tx=%d recipient_evm=%s recipient_sei=%s balance=%s wei=%s nonce=%d isContract=%v value=%s",
+			executorType, phase, txIndex, recipientEvm.Hex(), recipientSei.String(), recipientBalance.String(), recipientWei.String(), recipientNonce, isContract, ethTx.Value().String()))
+	} else {
+		logger.Error(fmt.Sprintf("[DEBUG-%s] %s tx=%d CONTRACT_CREATION value=%s",
+			executorType, phase, txIndex, ethTx.Value().String()))
+	}
+}
+
+// debugLogAllTxBalances logs balances for all transactions in a batch
+func (app *App) debugLogAllTxBalances(ctx sdk.Context, phase string, txs [][]byte, typedTxs []sdk.Tx, indices []int, executorType string) {
+	if ctx.BlockHeight() != DebugHeight {
+		return
+	}
+
+	ctx.Logger().Error(fmt.Sprintf("[DEBUG-%s] ========== %s height=%d numTxs=%d ==========",
+		executorType, phase, ctx.BlockHeight(), len(txs)))
+
+	for i, typedTx := range typedTxs {
+		absIndex := i
+		if indices != nil && i < len(indices) {
+			absIndex = indices[i]
+		}
+		app.debugLogTxBalances(ctx, phase, absIndex, typedTx, executorType)
+	}
 }
 
 func init() {
