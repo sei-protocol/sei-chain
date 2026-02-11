@@ -59,11 +59,11 @@ func main() {
 }
 
 func mustParse(path string) *tomledit.Document {
-	f, err := os.Open(path)
+	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		log.Fatalf("Opening TOML input: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	doc, err := tomledit.Parse(f)
 	if err != nil {
 		log.Fatalf("Parsing %q: %v", path, err)
@@ -99,12 +99,12 @@ func diffDocs(w io.Writer, lhs, rhs *tomledit.Document) {
 	i, j := 0, 0
 	for i < len(lsec) && j < len(rsec) {
 		if lsec[i].Name.Before(rsec[j].Name) {
-			fmt.Fprintln(w, delSection, lsec[i].Name)
-			fmt.Fprintln(w, delMapping, strings.Join(allKeys(lsec[i]), delMapSep))
+			_, _ = fmt.Fprintln(w, delSection, lsec[i].Name)
+			_, _ = fmt.Fprintln(w, delMapping, strings.Join(allKeys(lsec[i]), delMapSep))
 			i++
 		} else if rsec[j].Name.Before(lsec[i].Name) {
-			fmt.Fprintln(w, addSection, rsec[j].Name)
-			fmt.Fprintln(w, addMapping, strings.Join(allKeys(rsec[j]), addMapSep))
+			_, _ = fmt.Fprintln(w, addSection, rsec[j].Name)
+			_, _ = fmt.Fprintln(w, addMapping, strings.Join(allKeys(rsec[j]), addMapSep))
 			j++
 		} else {
 			diffSections(w, lsec[i], rsec[j])
@@ -113,12 +113,12 @@ func diffDocs(w io.Writer, lhs, rhs *tomledit.Document) {
 		}
 	}
 	for ; i < len(lsec); i++ {
-		fmt.Fprintln(w, delSection, lsec[i].Name)
-		fmt.Fprintln(w, delMapping, strings.Join(allKeys(lsec[i]), delMapSep))
+		_, _ = fmt.Fprintln(w, delSection, lsec[i].Name)
+		_, _ = fmt.Fprintln(w, delMapping, strings.Join(allKeys(lsec[i]), delMapSep))
 	}
 	for ; j < len(rsec); j++ {
-		fmt.Fprintln(w, addSection, rsec[j].Name)
-		fmt.Fprintln(w, addMapping, strings.Join(allKeys(rsec[j]), addMapSep))
+		_, _ = fmt.Fprintln(w, addSection, rsec[j].Name)
+		_, _ = fmt.Fprintln(w, addMapping, strings.Join(allKeys(rsec[j]), addMapSep))
 	}
 }
 
@@ -133,10 +133,10 @@ func diffKeys(w io.Writer, lhs, rhs []string) {
 	i, j := 0, 0
 	for i < len(lhs) && j < len(rhs) {
 		if lhs[i] < rhs[j] {
-			fmt.Fprintln(w, delMapping, lhs[i])
+			_, _ = fmt.Fprintln(w, delMapping, lhs[i])
 			i++
 		} else if lhs[i] > rhs[j] {
-			fmt.Fprintln(w, addMapping, rhs[j])
+			_, _ = fmt.Fprintln(w, addMapping, rhs[j])
 			j++
 		} else {
 			i++
@@ -144,9 +144,9 @@ func diffKeys(w io.Writer, lhs, rhs []string) {
 		}
 	}
 	for ; i < len(lhs); i++ {
-		fmt.Fprintln(w, delMapping, lhs[i])
+		_, _ = fmt.Fprintln(w, delMapping, lhs[i])
 	}
 	for ; j < len(rhs); j++ {
-		fmt.Fprintln(w, addMapping, rhs[j])
+		_, _ = fmt.Fprintln(w, addMapping, rhs[j])
 	}
 }

@@ -238,10 +238,10 @@ func (p *CryptoProvider) getCandlePrices(key string) ([]CandlePrice, error) {
 
 	candles, ok := p.candles[key]
 	if !ok {
-		return []CandlePrice{}, fmt.Errorf("%s candle not found for %s", config.ProviderCrypto, key)
+		return nil, fmt.Errorf("%s candle not found for %s", config.ProviderCrypto, key)
 	}
 
-	candleList := []CandlePrice{}
+	candleList := make([]CandlePrice, 0, len(candles))
 	candleList = append(candleList, candles...)
 
 	return candleList, nil

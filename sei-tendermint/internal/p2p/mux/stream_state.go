@@ -2,7 +2,8 @@ package mux
 
 import (
 	"fmt"
-	"github.com/tendermint/tendermint/libs/utils"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 type streamID uint64
@@ -99,7 +100,7 @@ func (s *streamState) RemotePayloadSize(payloadSize uint64) error {
 		if inner.recv.used == inner.recv.end {
 			return errTooManyMsgs
 		}
-		i := int(inner.recv.used) % len(inner.recv.msgs)
+		i := int(inner.recv.used) % len(inner.recv.msgs) //nolint:gosec // recv.used is bounded by recv.end which is bounded by len(recv.msgs)
 		if inner.recv.maxMsgSize-uint64(len(inner.recv.msgs[i])) < payloadSize {
 			return errTooLargeMsg
 		}
@@ -109,7 +110,7 @@ func (s *streamState) RemotePayloadSize(payloadSize uint64) error {
 
 func (s *streamState) RemotePayload(payload []byte) {
 	for inner := range s.inner.Lock() {
-		i := int(inner.recv.used) % len(inner.recv.msgs)
+		i := int(inner.recv.used) % len(inner.recv.msgs) //nolint:gosec // recv.used is bounded by recv.end which is bounded by len(recv.msgs)
 		inner.recv.msgs[i] = append(inner.recv.msgs[i], payload...)
 	}
 }

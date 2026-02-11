@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
-	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/server"

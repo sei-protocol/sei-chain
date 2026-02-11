@@ -3,12 +3,13 @@ package p2p
 import (
 	"context"
 	"fmt"
-	"github.com/tendermint/tendermint/internal/p2p/conn"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/types"
-	"golang.org/x/time/rate"
 	"net/netip"
 	"time"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"golang.org/x/time/rate"
 )
 
 type DialFailuresError struct {

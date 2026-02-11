@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/tendermint/tendermint/internal/autobahn/data"
-	apb "github.com/tendermint/tendermint/internal/autobahn/pb"
-	"github.com/tendermint/tendermint/internal/autobahn/types"
-	"github.com/tendermint/tendermint/internal/p2p/giga/pb"
-	"github.com/tendermint/tendermint/internal/p2p/rpc"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 )
 
 func (x *Service) serverStreamLaneProposals(ctx context.Context, server rpc.Server[API]) error {

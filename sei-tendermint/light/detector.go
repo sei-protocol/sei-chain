@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/light/provider"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // The detector component of the light client detects and handles attacks on the light client.
@@ -23,10 +23,10 @@ import (
 // trace that was produced from the primary. If successful, it produces two sets of evidence
 // and sends them to the opposite provider before halting.
 //
-// If there are no conflictinge headers, the light client deems the verified target header
+// If there are no conflicting headers, the light client deems the verified target header
 // trusted and saves it to the trusted store.
 func (c *Client) detectDivergence(ctx context.Context, primaryTrace []*types.LightBlock, now time.Time) error {
-	if primaryTrace == nil || len(primaryTrace) < 2 {
+	if len(primaryTrace) < 2 {
 		return errors.New("nil or single block primary trace")
 	}
 	var (
@@ -202,7 +202,7 @@ func (c *Client) compareNewLightBlockWithWitness(ctx context.Context, errc chan 
 		return
 	}
 
-	if !bytes.Equal(l.Header.Hash(), lightBlock.Header.Hash()) {
+	if !bytes.Equal(l.Hash(), lightBlock.Hash()) {
 		errc <- ErrConflictingHeaders{Block: lightBlock, WitnessIndex: witnessIndex}
 		return
 	}

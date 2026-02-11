@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package p2p;
 
-option go_package = "github.com/tendermint/tendermint/internal/p2p/pb";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pb";
 
 message PacketPing {}
 
