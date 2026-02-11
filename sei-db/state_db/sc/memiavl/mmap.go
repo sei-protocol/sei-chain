@@ -18,22 +18,11 @@ type MmapFile struct {
 	handle *[mmap.MaxMapSize]byte
 }
 
-// NewMmap opens the file and creates a read-only memory mapping.
-// Applies MADV_SEQUENTIAL + MADV_WILLNEED to enable aggressive kernel readahead.
-// This significantly improves cold-start replay performance (5-6x speedup).
-// Currently unused but retained for future potential sequential-access scenarios
+// NewMmap opens the file and creates a read-only memory mapping with MADV_RANDOM.
+// MADV_RANDOM disables kernel readahead, which is optimal for the B+ tree random
+// access patterns used during WAL replay and normal serving.
+// Page cache warming is handled separately by prefetchSnapshot() using file I/O.
 func NewMmap(path string) (*MmapFile, error) {
-	mmapFile, err := newMmapFile(path)
-	if err != nil {
-		return nil, err
-	}
-	mmapFile.PrepareForSequentialRead()
-	return mmapFile, nil
-}
-
-// NewMmapRandom opens the file and creates a read-only memory mapping with MADV_RANDOM.
-// Does not apply MADV_WILLNEED; pages are loaded on-demand.
-func NewMmapRandom(path string) (*MmapFile, error) {
 	mmapFile, err := newMmapFile(path)
 	if err != nil {
 		return nil, err
@@ -60,14 +49,6 @@ func newMmapFile(path string) (*MmapFile, error) {
 		data:   data,
 		handle: handle,
 	}, nil
-}
-
-func (m *MmapFile) PrepareForSequentialRead() {
-	if len(m.data) > 0 {
-		// Set SEQUENTIAL + WILLNEED for optimal sequential access with kernel readahead
-		_ = unix.Madvise(m.data, unix.MADV_SEQUENTIAL)
-		_ = unix.Madvise(m.data, unix.MADV_WILLNEED)
-	}
 }
 
 func (m *MmapFile) PrepareForRandomRead() {
