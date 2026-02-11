@@ -25,14 +25,12 @@ func newCompositeStateStoreWithStores(
 	cosmosStore types.StateStore,
 	evmStore *evm.EVMStateStore,
 	ssConfig config.StateStoreConfig,
-	evmConfig config.EVMStateStoreConfig,
 	log logger.Logger,
 ) *CompositeStateStore {
 	return &CompositeStateStore{
 		cosmosStore: cosmosStore,
 		evmStore:    evmStore,
-		ssConfig:    ssConfig,
-		evmConfig:   evmConfig,
+		config:      ssConfig,
 		logger:      log,
 	}
 }
@@ -47,24 +45,22 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 	// Create cosmos store directly (without pruning for testing)
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = "pebbledb"
+	ssConfig.WriteMode = config.DualWrite
+	ssConfig.ReadMode = config.EVMFirstRead
+	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
+
 	dbHome := utils.GetStateStorePath(dir, ssConfig.Backend)
 	cosmosStore, err := mvcc.OpenDB(dbHome, ssConfig)
 	require.NoError(t, err)
 	defer cosmosStore.Close()
 
 	// Create EVM store directly
-	evmConfig := config.EVMStateStoreConfig{
-		Enable:      true,
-		WriteMode:   config.DualWrite,
-		ReadMode:    config.EVMFirstRead,
-		DBDirectory: filepath.Join(dir, "evm_ss"),
-	}
-	evmStore, err := evm.NewEVMStateStore(evmConfig.DBDirectory)
+	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory)
 	require.NoError(t, err)
 	defer evmStore.Close()
 
 	// Create composite store using test helper (no auto-recovery)
-	compositeStore := newCompositeStateStoreWithStores(cosmosStore, evmStore, ssConfig, evmConfig, log)
+	compositeStore := newCompositeStateStoreWithStores(cosmosStore, evmStore, ssConfig, log)
 	defer compositeStore.Close()
 
 	// Create WAL and write some entries
@@ -109,17 +105,14 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify data was recovered to both stores
-	// Check cosmos store
 	cosmosVal, err := compositeStore.cosmosStore.Get(evm.EVMStoreKey, 5, evmKey)
 	require.NoError(t, err)
 	require.Equal(t, evmValue, cosmosVal)
 
-	// Check EVM store (via composite)
 	evmVal, err := compositeStore.Get(evm.EVMStoreKey, 5, evmKey)
 	require.NoError(t, err)
 	require.Equal(t, evmValue, evmVal)
 
-	// Verify versions
 	require.Equal(t, int64(5), compositeStore.GetLatestVersion())
 }
 
@@ -130,9 +123,12 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 
 	log := logger.NewNopLogger()
 
-	// Create cosmos store directly
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = "pebbledb"
+	ssConfig.WriteMode = config.DualWrite
+	ssConfig.ReadMode = config.EVMFirstRead
+	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
+
 	dbHome := utils.GetStateStorePath(dir, ssConfig.Backend)
 	cosmosStore, err := mvcc.OpenDB(dbHome, ssConfig)
 	require.NoError(t, err)
@@ -185,20 +181,13 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 	walLog.Close()
 
 	// Create EVM store (fresh, at version 0)
-	evmConfig := config.EVMStateStoreConfig{
-		Enable:      true,
-		WriteMode:   config.DualWrite,
-		ReadMode:    config.EVMFirstRead,
-		DBDirectory: filepath.Join(dir, "evm_ss"),
-	}
-	evmStore, err := evm.NewEVMStateStore(evmConfig.DBDirectory)
+	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory)
 	require.NoError(t, err)
 
 	// Create composite store using test helper - EVM store starts at version 0
-	compositeStore := newCompositeStateStoreWithStores(cosmosStore, evmStore, ssConfig, evmConfig, log)
+	compositeStore := newCompositeStateStoreWithStores(cosmosStore, evmStore, ssConfig, log)
 	defer compositeStore.Close()
 
-	// Verify EVM store is behind
 	require.Equal(t, int64(0), compositeStore.evmStore.GetLatestVersion())
 	require.Equal(t, int64(10), compositeStore.cosmosStore.GetLatestVersion())
 
@@ -206,17 +195,14 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 	err = RecoverCompositeStateStore(log, changelogDir, compositeStore)
 	require.NoError(t, err)
 
-	// Verify EVM store is now caught up
 	require.Equal(t, int64(10), compositeStore.evmStore.GetLatestVersion())
 
-	// Verify data in EVM store
 	val, err := compositeStore.evmStore.Get(evmKey, 10)
 	require.NoError(t, err)
 	require.Equal(t, []byte{10}, val)
 }
 
 func TestExtractEVMChanges(t *testing.T) {
-	// Create test keys
 	addr := make([]byte, 20)
 	slot := make([]byte, 32)
 	storageKey := append(evmtypes.StateKeyPrefix, append(addr, slot...)...)
@@ -234,7 +220,7 @@ func TestExtractEVMChanges(t *testing.T) {
 			},
 		},
 		{
-			Name: "bank", // non-EVM module
+			Name: "bank",
 			Changeset: iavl.ChangeSet{
 				Pairs: []*iavl.KVPair{
 					{Key: nonEvmKey, Value: []byte("bank_val")},
@@ -245,12 +231,10 @@ func TestExtractEVMChanges(t *testing.T) {
 
 	evmChanges := extractEVMChangesFromChangesets(changesets)
 
-	// Should have storage and nonce changes
 	require.Len(t, evmChanges, 2)
 	require.Len(t, evmChanges[evm.StoreStorage], 1)
 	require.Len(t, evmChanges[evm.StoreNonce], 1)
 
-	// Verify keys are stripped of prefix
 	require.Equal(t, append(addr, slot...), evmChanges[evm.StoreStorage][0].Key)
 	require.Equal(t, addr, evmChanges[evm.StoreNonce][0].Key)
 }

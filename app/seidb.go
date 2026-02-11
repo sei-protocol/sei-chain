@@ -37,12 +37,10 @@ const (
 	FlagSSPruneInterval     = "state-store.ss-prune-interval"
 	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
 
-	// EVM SS Store configs (optimized EVM storage layer)
-	FlagEVMSSEnable     = "state-store.evm-ss-enable"
-	FlagEVMSSDirectory  = "state-store.evm-ss-db-directory"
-	FlagEVMSSKeepRecent = "state-store.evm-ss-keep-recent"
-	FlagEVMSSWriteMode  = "state-store.evm-ss-write-mode"
-	FlagEVMSSReadMode   = "state-store.evm-ss-read-mode"
+	// EVM SS optimization (embedded in SS config, controlled via write/read mode)
+	FlagEVMSSDirectory = "state-store.evm-ss-db-directory"
+	FlagEVMSSWriteMode = "state-store.evm-ss-write-mode"
+	FlagEVMSSReadMode  = "state-store.evm-ss-read-mode"
 
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
@@ -66,12 +64,12 @@ func SetupSeiDB(
 	logger.Info("SeiDB SC is enabled, running node with StoreV2 commit store")
 	scConfig := parseSCConfigs(appOpts)
 	ssConfig := parseSSConfigs(appOpts)
-	evmSSConfig := parseEVMSSConfigs(appOpts)
 	if ssConfig.Enable {
 		logger.Info(fmt.Sprintf("SeiDB StateStore is enabled, running %s for historical state", ssConfig.Backend))
 	}
-	if evmSSConfig != nil && evmSSConfig.Enable {
-		logger.Info("SeiDB EVM StateStore optimization is enabled")
+	if ssConfig.EVMEnabled() {
+		logger.Info("SeiDB EVM StateStore optimization is enabled",
+			"writeMode", ssConfig.WriteMode, "readMode", ssConfig.ReadMode)
 	}
 	validateConfigs(appOpts)
 	gigaExecutorConfig, err := gigaconfig.ReadConfig(appOpts)
@@ -84,7 +82,7 @@ func SetupSeiDB(
 	}
 	// cms must be overridden before the other options, because they may use the cms,
 	// make sure the cms aren't be overridden by the other options later on.
-	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig, evmSSConfig, cast.ToBool(appOpts.Get("migrate-iavl")), gigaStoreKeys)
+	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig, cast.ToBool(appOpts.Get("migrate-iavl")), gigaStoreKeys)
 	migrationEnabled := cast.ToBool(appOpts.Get(FlagMigrateIAVL))
 	migrationHeight := cast.ToInt64(appOpts.Get(FlagMigrateHeight))
 	baseAppOptions = append([]func(*baseapp.BaseApp){
@@ -124,32 +122,24 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.PruneIntervalSeconds = cast.ToInt(appOpts.Get(FlagSSPruneInterval))
 	ssConfig.ImportNumWorkers = cast.ToInt(appOpts.Get(FlagSSImportNumWorkers))
 	ssConfig.DBDirectory = cast.ToString(appOpts.Get(FlagSSDirectory))
-	return ssConfig
-}
 
-func parseEVMSSConfigs(appOpts servertypes.AppOptions) *config.EVMStateStoreConfig {
-	evmSSConfig := config.DefaultEVMStateStoreConfig()
-	evmSSConfig.Enable = cast.ToBool(appOpts.Get(FlagEVMSSEnable))
-	if !evmSSConfig.Enable {
-		return nil
-	}
-	evmSSConfig.DBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))
-	evmSSConfig.KeepRecent = cast.ToInt(appOpts.Get(FlagEVMSSKeepRecent))
+	// EVM optimization fields (embedded in SS config)
+	ssConfig.EVMDBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))
 	if wm := cast.ToString(appOpts.Get(FlagEVMSSWriteMode)); wm != "" {
 		parsedWM, err := config.ParseWriteMode(wm)
 		if err != nil {
 			panic(fmt.Sprintf("invalid EVM SS write mode %q: %s", wm, err))
 		}
-		evmSSConfig.WriteMode = parsedWM
+		ssConfig.WriteMode = parsedWM
 	}
 	if rm := cast.ToString(appOpts.Get(FlagEVMSSReadMode)); rm != "" {
 		parsedRM, err := config.ParseReadMode(rm)
 		if err != nil {
 			panic(fmt.Sprintf("invalid EVM SS read mode %q: %s", rm, err))
 		}
-		evmSSConfig.ReadMode = parsedRM
+		ssConfig.ReadMode = parsedRM
 	}
-	return &evmSSConfig
+	return ssConfig
 }
 
 func validateConfigs(appOpts servertypes.AppOptions) {

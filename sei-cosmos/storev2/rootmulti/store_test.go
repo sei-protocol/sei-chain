@@ -14,7 +14,7 @@ import (
 )
 
 func TestLastCommitID(t *testing.T) {
-	store := NewStore(t.TempDir(), log.NewNopLogger(), config.StateCommitConfig{}, config.StateStoreConfig{}, nil, false, []string{})
+	store := NewStore(t.TempDir(), log.NewNopLogger(), config.StateCommitConfig{}, config.StateStoreConfig{}, false, []string{})
 	require.Equal(t, types.CommitID{}, store.LastCommitID())
 }
 
@@ -35,7 +35,7 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	ssCfg := config.DefaultStateStoreConfig()
 	ssCfg.Enable = true
 
-	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, nil, false, []string{})
+	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, false, []string{})
 	defer func() { _ = store.Close() }()
 
 	// Mount one IAVL store and load
@@ -117,7 +117,7 @@ func TestCacheMultiStoreWithVersion_OnlyUsesSSStores(t *testing.T) {
 			ssCfg.Enable = tc.ssEnabled
 			ssCfg.AsyncWriteBuffer = 0
 
-			store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, nil, false, []string{})
+			store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, false, []string{})
 			defer func() { _ = store.Close() }()
 
 			iavlKey1 := types.NewKVStoreKey("iavl_store1")

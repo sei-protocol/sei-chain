@@ -22,16 +22,11 @@ func setupTestStores(t *testing.T) (*CompositeStateStore, string, func()) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0, // Sync writes for tests
 		KeepRecent:       100000,
+		WriteMode:        config.DualWrite,
+		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
-	evmConfig := config.EVMStateStoreConfig{
-		Enable:      true,
-		WriteMode:   config.DualWrite,
-		DBDirectory: filepath.Join(dir, "evm_ss"),
-		KeepRecent:  100000,
-	}
-
-	compositeStore, err := NewCompositeStateStore(ssConfig, evmConfig, dir, logger.NewNopLogger())
+	compositeStore, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 
 	cleanup := func() {
@@ -184,8 +179,8 @@ func TestCompositeStateStoreWithoutEVM(t *testing.T) {
 	}
 
 	// Create composite store with EVM disabled (Enable=false)
-	evmConfig := config.EVMStateStoreConfig{Enable: false}
-	store, err := NewCompositeStateStore(ssConfig, evmConfig, dir, logger.NewNopLogger())
+	// Default WriteMode=CosmosOnlyWrite → no EVM stores opened
+	store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 

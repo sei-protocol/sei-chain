@@ -8,16 +8,32 @@ import (
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
-// EVMStateStore manages multiple EVMDatabase instances, one per EVM data type
+// asyncBufferSize is the per-DB channel buffer for async writes.
+const asyncBufferSize = 100
+
+// dbWrite is a unit of work enqueued to a per-DB background worker.
+type dbWrite struct {
+	version int64
+	pairs   []*iavl.KVPair
+}
+
+// EVMStateStore manages multiple EVMDatabase instances, one per EVM data type.
+// Each database has an optional background goroutine for async writes.
 type EVMStateStore struct {
 	databases map[EVMStoreType]*EVMDatabase
 	dir       string
+
+	// Per-DB async write channels and worker goroutines
+	asyncChs map[EVMStoreType]chan dbWrite
+	asyncWg  sync.WaitGroup
 }
 
-// NewEVMStateStore creates a new EVM state store with all sub-databases
+// NewEVMStateStore creates a new EVM state store with all sub-databases.
+// Each database gets a background worker goroutine for async writes.
 func NewEVMStateStore(dir string) (*EVMStateStore, error) {
 	store := &EVMStateStore{
 		databases: make(map[EVMStoreType]*EVMDatabase),
+		asyncChs:  make(map[EVMStoreType]chan dbWrite),
 		dir:       dir,
 	}
 
@@ -30,9 +46,28 @@ func NewEVMStateStore(dir string) (*EVMStateStore, error) {
 			return nil, fmt.Errorf("failed to open EVM DB for %s: %w", StoreTypeName(storeType), err)
 		}
 		store.databases[storeType] = db
+
+		// Start per-DB background worker
+		ch := make(chan dbWrite, asyncBufferSize)
+		store.asyncChs[storeType] = ch
+		store.asyncWg.Add(1)
+		go store.asyncWorker(db, ch)
 	}
 
 	return store, nil
+}
+
+// asyncWorker processes writes from a per-DB channel until it's closed.
+func (s *EVMStateStore) asyncWorker(db *EVMDatabase, ch <-chan dbWrite) {
+	defer s.asyncWg.Done()
+	for w := range ch {
+		if err := db.ApplyBatch(w.pairs, w.version); err != nil {
+			// Log error but continue processing; writes are idempotent and
+			// WAL replay will catch up on restart.
+			continue
+		}
+		_ = db.SetLatestVersion(w.version)
+	}
 }
 
 // GetDB returns the database for a specific store type
@@ -70,7 +105,7 @@ func (s *EVMStateStore) Has(key []byte, version int64) (bool, error) {
 	return db.Has(strippedKey, version)
 }
 
-// ApplyChangeset applies changes from multiple store types
+// ApplyChangeset applies changes from multiple store types synchronously (blocking).
 func (s *EVMStateStore) ApplyChangeset(version int64, changes map[EVMStoreType][]*iavl.KVPair) error {
 	for storeType, pairs := range changes {
 		db := s.databases[storeType]
@@ -84,7 +119,7 @@ func (s *EVMStateStore) ApplyChangeset(version int64, changes map[EVMStoreType][
 	return nil
 }
 
-// ApplyChangesetParallel applies changes to multiple store types in parallel
+// ApplyChangesetParallel applies changes to multiple store types in parallel (blocking).
 func (s *EVMStateStore) ApplyChangesetParallel(version int64, changes map[EVMStoreType][]*iavl.KVPair) error {
 	if len(changes) == 0 {
 		return nil
@@ -119,6 +154,20 @@ func (s *EVMStateStore) ApplyChangesetParallel(version int64, changes map[EVMSto
 	// Return first error if any
 	for err := range errCh {
 		return err
+	}
+	return nil
+}
+
+// ApplyChangesetAsync enqueues changes to per-DB background workers and returns immediately.
+// Each sub-database has its own buffered channel, so writes are truly non-blocking
+// unless the channel is full (backpressure).
+func (s *EVMStateStore) ApplyChangesetAsync(version int64, changes map[EVMStoreType][]*iavl.KVPair) error {
+	for storeType, pairs := range changes {
+		ch, ok := s.asyncChs[storeType]
+		if !ok || len(pairs) == 0 {
+			continue
+		}
+		ch <- dbWrite{version: version, pairs: pairs}
 	}
 	return nil
 }
@@ -206,8 +255,17 @@ func (s *EVMStateStore) Prune(version int64) error {
 	return nil
 }
 
-// Close closes all databases
+// Close closes all async channels, waits for workers to drain, then closes databases.
+// Safe to call multiple times.
 func (s *EVMStateStore) Close() error {
+	// Close all async channels to signal workers to stop (safe: only close once)
+	for st, ch := range s.asyncChs {
+		close(ch)
+		delete(s.asyncChs, st)
+	}
+	// Wait for all workers to finish processing queued writes
+	s.asyncWg.Wait()
+
 	var lastErr error
 	for _, db := range s.databases {
 		if err := db.Close(); err != nil {

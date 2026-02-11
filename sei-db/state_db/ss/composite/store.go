@@ -21,23 +21,20 @@ import (
 // CompositeStateStore routes operations between Cosmos_SS (main state store) and EVM_SS (optimized EVM stores).
 // - Reads check EVM_SS first for EVM keys, then fallback to Cosmos_SS
 // - Writes routing controlled by WriteMode (cosmos_only, dual_write, split_write)
+// Always created by NewStateStore; when WriteMode==CosmosOnlyWrite && ReadMode==CosmosOnlyRead,
+// evmStore is nil and the composite store behaves identically to a plain state store.
 type CompositeStateStore struct {
 	cosmosStore types.StateStore   // Main MVCC PebbleDB for all modules
 	evmStore    *evm.EVMStateStore // Separate EVM DBs with default comparer (nil if disabled)
-	ssConfig    config.StateStoreConfig
-	evmConfig   config.EVMStateStoreConfig
+	config      config.StateStoreConfig
 	logger      logger.Logger
 }
 
 // NewCompositeStateStore creates a new composite state store that manages both Cosmos_SS and EVM_SS.
 // It initializes both stores internally and starts pruning on the composite store.
-//
-// ssConfig: configuration for the main Cosmos state store (required)
-// evmConfig: configuration for EVM state stores (check Enable field to see if EVM optimization is active)
-// homeDir: base directory for data files
+// EVM stores are opened when ssConfig.EVMEnabled() returns true (derived from WriteMode/ReadMode).
 func NewCompositeStateStore(
 	ssConfig config.StateStoreConfig,
-	evmConfig config.EVMStateStoreConfig,
 	homeDir string,
 	log logger.Logger,
 ) (*CompositeStateStore, error) {
@@ -53,14 +50,13 @@ func NewCompositeStateStore(
 
 	cs := &CompositeStateStore{
 		cosmosStore: cosmosStore,
-		ssConfig:    ssConfig,
-		evmConfig:   evmConfig,
+		config:      ssConfig,
 		logger:      log,
 	}
 
-	// Initialize EVM stores if enabled
-	if evmConfig.Enable {
-		evmDir := evmConfig.DBDirectory
+	// Initialize EVM stores if WriteMode/ReadMode require them
+	if ssConfig.EVMEnabled() {
+		evmDir := ssConfig.EVMDBDirectory
 		if evmDir == "" {
 			evmDir = filepath.Join(homeDir, "data", "evm_ss")
 		}
@@ -71,12 +67,12 @@ func NewCompositeStateStore(
 			return nil, fmt.Errorf("failed to create EVM store: %w", err)
 		}
 		cs.evmStore = evmStore
-		log.Info("EVM state store enabled", "dir", evmDir, "writeMode", evmConfig.WriteMode, "readMode", evmConfig.ReadMode)
+		log.Info("EVM state store enabled", "dir", evmDir, "writeMode", ssConfig.WriteMode, "readMode", ssConfig.ReadMode)
 	}
 
-	// Recover from WAL if needed
+	// Recover from WAL if needed (handles EVM_SS being behind Cosmos_SS)
 	changelogPath := utils.GetChangelogPath(dbHome)
-	if err := recoverFromWAL(log, changelogPath, cs); err != nil {
+	if err := RecoverCompositeStateStore(log, changelogPath, cs); err != nil {
 		_ = cs.Close()
 		return nil, fmt.Errorf("failed to recover state store: %w", err)
 	}
@@ -90,64 +86,9 @@ func NewCompositeStateStore(
 // StartPruning starts the pruning manager for this composite store.
 // Pruning removes old versions from both Cosmos_SS and EVM_SS.
 func (s *CompositeStateStore) StartPruning() *pruning.Manager {
-	pm := pruning.NewPruningManager(s.logger, s, int64(s.ssConfig.KeepRecent), int64(s.ssConfig.PruneIntervalSeconds))
+	pm := pruning.NewPruningManager(s.logger, s, int64(s.config.KeepRecent), int64(s.config.PruneIntervalSeconds))
 	pm.Start()
 	return pm
-}
-
-// recoverFromWAL replays WAL entries to recover state after crash/restart
-func recoverFromWAL(log logger.Logger, changelogPath string, stateStore types.StateStore) error {
-	ssLatestVersion := stateStore.GetLatestVersion()
-	log.Info(fmt.Sprintf("Recovering from changelog %s with latest SS version %d", changelogPath, ssLatestVersion))
-
-	streamHandler, err := wal.NewChangelogWAL(log, changelogPath, wal.Config{})
-	if err != nil {
-		return nil // No WAL to recover from
-	}
-
-	firstOffset, errFirst := streamHandler.FirstOffset()
-	if firstOffset <= 0 || errFirst != nil {
-		return nil
-	}
-
-	lastOffset, errLast := streamHandler.LastOffset()
-	if lastOffset <= 0 || errLast != nil {
-		return nil
-	}
-
-	lastEntry, errRead := streamHandler.ReadAt(lastOffset)
-	if errRead != nil {
-		return nil
-	}
-
-	// Find replay start offset
-	curVersion := lastEntry.Version
-	curOffset := lastOffset
-	if ssLatestVersion > 0 {
-		for curVersion > ssLatestVersion && curOffset > firstOffset {
-			curOffset--
-			curEntry, err := streamHandler.ReadAt(curOffset)
-			if err != nil {
-				return err
-			}
-			curVersion = curEntry.Version
-		}
-	} else {
-		curOffset = firstOffset
-	}
-
-	targetStartOffset := curOffset
-	log.Info(fmt.Sprintf("Replaying changelog to recover StateStore from offset %d to %d", targetStartOffset, lastOffset))
-
-	if targetStartOffset < lastOffset {
-		return streamHandler.Replay(targetStartOffset, lastOffset, func(index uint64, entry proto.ChangelogEntry) error {
-			if err := stateStore.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
-				return err
-			}
-			return stateStore.SetLatestVersion(entry.Version)
-		})
-	}
-	return nil
 }
 
 // Get retrieves a value for a key at a specific version
@@ -155,7 +96,7 @@ func recoverFromWAL(log logger.Logger, changelogPath string, stateStore types.St
 // For non-EVM keys: use Cosmos_SS directly
 func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
 	// Try EVM store first for EVM keys if read mode allows
-	if s.evmStore != nil && s.evmConfig.ReadMode != config.CosmosOnlyRead && storeKey == evm.EVMStoreKey {
+	if s.evmStore != nil && s.config.ReadMode != config.CosmosOnlyRead && storeKey == evm.EVMStoreKey {
 		val, err := s.evmStore.Get(key, version)
 		if err != nil {
 			return nil, err
@@ -164,7 +105,7 @@ func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([
 			return val, nil
 		}
 		// SplitRead: EVM keys come exclusively from EVM_SS, no Cosmos fallback
-		if s.evmConfig.ReadMode == config.SplitRead {
+		if s.config.ReadMode == config.SplitRead {
 			return nil, nil
 		}
 		// EVMFirstRead: fall through to Cosmos_SS if not found in EVM_SS
@@ -177,7 +118,7 @@ func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([
 // Has checks if a key exists at a specific version
 func (s *CompositeStateStore) Has(storeKey string, version int64, key []byte) (bool, error) {
 	// Try EVM store first for EVM keys if read mode allows
-	if s.evmStore != nil && s.evmConfig.ReadMode != config.CosmosOnlyRead && storeKey == evm.EVMStoreKey {
+	if s.evmStore != nil && s.config.ReadMode != config.CosmosOnlyRead && storeKey == evm.EVMStoreKey {
 		has, err := s.evmStore.Has(key, version)
 		if err != nil {
 			return false, err
@@ -186,7 +127,7 @@ func (s *CompositeStateStore) Has(storeKey string, version int64, key []byte) (b
 			return true, nil
 		}
 		// SplitRead: EVM keys come exclusively from EVM_SS, no Cosmos fallback
-		if s.evmConfig.ReadMode == config.SplitRead {
+		if s.config.ReadMode == config.SplitRead {
 			return false, nil
 		}
 		// EVMFirstRead: fall through to check Cosmos_SS
@@ -263,7 +204,7 @@ func (s *CompositeStateStore) SetLatestVersion(version int64) error {
 	if err := s.cosmosStore.SetLatestVersion(version); err != nil {
 		return err
 	}
-	if s.evmStore != nil && s.evmConfig.WriteMode != config.CosmosOnlyWrite {
+	if s.evmStore != nil && s.config.WriteMode != config.CosmosOnlyWrite {
 		if err := s.evmStore.SetLatestVersion(version); err != nil {
 			s.logger.Error("failed to set EVM store latest version", "error", err)
 			// Non-fatal: EVM store is optimization layer
@@ -285,14 +226,16 @@ func (s *CompositeStateStore) SetEarliestVersion(version int64, ignoreVersion bo
 	return nil
 }
 
-// ApplyChangesetSync applies changeset synchronously to both stores in parallel.
+// ApplyChangesetSync applies changeset synchronously and sequentially to both stores.
+// Cosmos is written first, then EVM. Both must succeed; caller can retry safely (idempotent).
+//
 // Write routing by WriteMode:
 //   - CosmosOnlyWrite: all data to Cosmos only
 //   - DualWrite: full changeset to Cosmos + EVM data to EVM
 //   - SplitWrite: non-EVM data to Cosmos, EVM data to EVM only
 func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {
 	// Fast path: if no EVM store or cosmos-only write mode, just apply to Cosmos
-	if s.evmStore == nil || s.evmConfig.WriteMode == config.CosmosOnlyWrite {
+	if s.evmStore == nil || s.config.WriteMode == config.CosmosOnlyWrite {
 		return s.cosmosStore.ApplyChangesetSync(version, changesets)
 	}
 
@@ -302,46 +245,31 @@ func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*pr
 	// SplitWrite: strip EVM data from Cosmos changeset
 	// DualWrite: send full changeset to both stores
 	cosmosChangesets := changesets
-	if s.evmConfig.WriteMode == config.SplitWrite {
+	if s.config.WriteMode == config.SplitWrite {
 		cosmosChangesets = stripEVMFromChangesets(changesets)
 	}
 
-	// Write to both stores in parallel - both must succeed
-	// If either fails, return error. Caller can retry safely (idempotent writes).
-	var wg sync.WaitGroup
-	var cosmosErr, evmErr error
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		cosmosErr = s.cosmosStore.ApplyChangesetSync(version, cosmosChangesets)
-	}()
+	// Write sequentially: Cosmos first, then EVM
+	if err := s.cosmosStore.ApplyChangesetSync(version, cosmosChangesets); err != nil {
+		return fmt.Errorf("cosmos store failed: %w", err)
+	}
 
 	if len(evmChanges) > 0 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			evmErr = s.evmStore.ApplyChangesetParallel(version, evmChanges)
-		}()
-	}
-
-	wg.Wait()
-
-	// Return first error encountered - caller should retry
-	if cosmosErr != nil {
-		return fmt.Errorf("cosmos store failed: %w", cosmosErr)
-	}
-	if evmErr != nil {
-		return fmt.Errorf("evm store failed: %w", evmErr)
+		if err := s.evmStore.ApplyChangeset(version, evmChanges); err != nil {
+			return fmt.Errorf("evm store failed: %w", err)
+		}
 	}
 	return nil
 }
 
-// ApplyChangesetAsync applies changeset asynchronously to both stores in parallel.
+// ApplyChangesetAsync applies changeset asynchronously to both stores.
+// Cosmos changeset is enqueued via cosmosStore.ApplyChangesetAsync.
+// EVM changes are enqueued to per-DB channels inside EVMStateStore.ApplyChangesetAsync,
+// which returns immediately after routing to the background workers.
 // Write routing follows the same rules as ApplyChangesetSync (see WriteMode docs).
 func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
 	// Fast path: if no EVM store or cosmos-only write mode, just apply to Cosmos
-	if s.evmStore == nil || s.evmConfig.WriteMode == config.CosmosOnlyWrite {
+	if s.evmStore == nil || s.config.WriteMode == config.CosmosOnlyWrite {
 		return s.cosmosStore.ApplyChangesetAsync(version, changesets)
 	}
 
@@ -350,36 +278,22 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 
 	// SplitWrite: strip EVM data from Cosmos changeset
 	cosmosChangesets := changesets
-	if s.evmConfig.WriteMode == config.SplitWrite {
+	if s.config.WriteMode == config.SplitWrite {
 		cosmosChangesets = stripEVMFromChangesets(changesets)
 	}
 
-	// Write to both stores in parallel
-	var wg sync.WaitGroup
-	var cosmosErr, evmErr error
+	// Enqueue Cosmos changeset (non-blocking)
+	if err := s.cosmosStore.ApplyChangesetAsync(version, cosmosChangesets); err != nil {
+		return fmt.Errorf("cosmos store failed: %w", err)
+	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		cosmosErr = s.cosmosStore.ApplyChangesetAsync(version, cosmosChangesets)
-	}()
-
+	// Enqueue EVM changes to per-DB channels (non-blocking)
 	if len(evmChanges) > 0 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			evmErr = s.evmStore.ApplyChangesetParallel(version, evmChanges)
-		}()
+		if err := s.evmStore.ApplyChangesetAsync(version, evmChanges); err != nil {
+			return fmt.Errorf("evm store async enqueue failed: %w", err)
+		}
 	}
 
-	wg.Wait()
-
-	if cosmosErr != nil {
-		return fmt.Errorf("cosmos store failed: %w", cosmosErr)
-	}
-	if evmErr != nil {
-		return fmt.Errorf("evm store failed: %w", evmErr)
-	}
 	return nil
 }
 
@@ -392,14 +306,16 @@ func (s *CompositeStateStore) extractEVMChanges(changesets []*proto.NamedChangeS
 			continue
 		}
 		for _, kvPair := range changeset.Changeset.Pairs {
-			evmStoreType, strippedKey := commonevm.ParseEVMKey(kvPair.Key)
-			if evmStoreType != evm.StoreUnknown {
-				evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
-					Key:    strippedKey,
-					Value:  kvPair.Value,
-					Delete: kvPair.Delete,
-				})
+			evmStoreType, keyBytes := commonevm.ParseEVMKey(kvPair.Key)
+			if evmStoreType == evm.StoreUnknown {
+				continue // Skip zero-length keys
 			}
+			// All EVM keys are routed: optimized keys use stripped key, legacy uses full key
+			evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
+				Key:    keyBytes,
+				Value:  kvPair.Value,
+				Delete: kvPair.Delete,
+			})
 		}
 	}
 
@@ -418,19 +334,24 @@ func stripEVMFromChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedCh
 	return stripped
 }
 
+// evmImportFlushThreshold is the number of EVM key-value pairs to buffer before
+// flushing to the EVM store. Prevents OOM on large state sync imports.
+const evmImportFlushThreshold = 10000
+
 // Import imports initial state to both stores.
-// Respects WriteMode: CosmosOnlyWrite sends all data to Cosmos only,
+// WriteMode is respected: CosmosOnlyWrite sends all data to Cosmos only,
 // DualWrite fans out to both, SplitWrite routes EVM data exclusively to EVM.
 func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
-	if s.evmStore == nil || s.evmConfig.WriteMode == config.CosmosOnlyWrite {
+	if s.evmStore == nil || s.config.WriteMode == config.CosmosOnlyWrite {
 		return s.cosmosStore.Import(version, ch)
 	}
 
-	splitWrite := s.evmConfig.WriteMode == config.SplitWrite
+	splitWrite := s.config.WriteMode == config.SplitWrite
 
 	// Fan out to both stores
 	cosmosCh := make(chan types.SnapshotNode, 100)
 	evmChanges := make(map[evm.EVMStoreType][]*iavl.KVPair, evm.NumEVMStoreTypes)
+	evmPendingCount := 0
 
 	var wg sync.WaitGroup
 	var cosmosErr error
@@ -442,6 +363,17 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 		cosmosErr = s.cosmosStore.Import(version, cosmosCh)
 	}()
 
+	// flushEVM writes buffered EVM changes to the EVM store and resets the buffer.
+	flushEVM := func() {
+		if len(evmChanges) > 0 {
+			if err := s.evmStore.ApplyChangesetParallel(version, evmChanges); err != nil {
+				s.logger.Error("failed to flush EVM import batch", "error", err)
+			}
+			evmChanges = make(map[evm.EVMStoreType][]*iavl.KVPair, evm.NumEVMStoreTypes)
+			evmPendingCount = 0
+		}
+	}
+
 	// Process incoming nodes
 	for node := range ch {
 		isEVM := node.StoreKey == evm.EVMStoreKey
@@ -451,42 +383,45 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 			cosmosCh <- node
 		}
 
-		// Route EVM keys
+		// Route EVM keys to EVM-SS
 		if isEVM {
-			evmStoreType, strippedKey := commonevm.ParseEVMKey(node.Key)
+			evmStoreType, keyBytes := commonevm.ParseEVMKey(node.Key)
 			if evmStoreType != evm.StoreUnknown {
 				evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
-					Key:   strippedKey,
+					Key:   keyBytes,
 					Value: node.Value,
 				})
+				evmPendingCount++
+
+				// Periodically flush to avoid OOM on large imports
+				if evmPendingCount >= evmImportFlushThreshold {
+					flushEVM()
+				}
 			}
 		}
 	}
 	close(cosmosCh)
 
-	// Apply EVM changes
-	if len(evmChanges) > 0 {
-		if err := s.evmStore.ApplyChangesetParallel(version, evmChanges); err != nil {
-			s.logger.Error("failed to import EVM data", "error", err)
-		}
-	}
+	// Flush any remaining EVM changes
+	flushEVM()
 
 	wg.Wait()
 	return cosmosErr
 }
 
 // RawImport imports raw key-value entries to both stores.
-// Respects WriteMode (same routing as Import).
+// WriteMode is respected (same routing as Import).
 func (s *CompositeStateStore) RawImport(ch <-chan types.RawSnapshotNode) error {
-	if s.evmStore == nil || s.evmConfig.WriteMode == config.CosmosOnlyWrite {
+	if s.evmStore == nil || s.config.WriteMode == config.CosmosOnlyWrite {
 		return s.cosmosStore.RawImport(ch)
 	}
 
-	splitWrite := s.evmConfig.WriteMode == config.SplitWrite
+	splitWrite := s.config.WriteMode == config.SplitWrite
 
 	// Fan out to both stores
 	cosmosCh := make(chan types.RawSnapshotNode, 100)
 	evmChangesByVersion := make(map[int64]map[evm.EVMStoreType][]*iavl.KVPair)
+	evmPendingCount := 0
 
 	var wg sync.WaitGroup
 	var cosmosErr error
@@ -498,6 +433,17 @@ func (s *CompositeStateStore) RawImport(ch <-chan types.RawSnapshotNode) error {
 		cosmosErr = s.cosmosStore.RawImport(cosmosCh)
 	}()
 
+	// flushEVM writes all buffered EVM changes (grouped by version) and resets.
+	flushEVM := func() {
+		for version, evmChanges := range evmChangesByVersion {
+			if err := s.evmStore.ApplyChangesetParallel(version, evmChanges); err != nil {
+				s.logger.Error("failed to flush EVM raw import batch", "version", version, "error", err)
+			}
+		}
+		evmChangesByVersion = make(map[int64]map[evm.EVMStoreType][]*iavl.KVPair)
+		evmPendingCount = 0
+	}
+
 	// Process incoming nodes
 	for node := range ch {
 		isEVM := node.StoreKey == evm.EVMStoreKey
@@ -507,36 +453,38 @@ func (s *CompositeStateStore) RawImport(ch <-chan types.RawSnapshotNode) error {
 			cosmosCh <- node
 		}
 
-		// Route EVM keys
+		// Route EVM keys to EVM-SS
 		if isEVM {
-			evmStoreType, strippedKey := commonevm.ParseEVMKey(node.Key)
+			evmStoreType, keyBytes := commonevm.ParseEVMKey(node.Key)
 			if evmStoreType != evm.StoreUnknown {
 				if evmChangesByVersion[node.Version] == nil {
 					evmChangesByVersion[node.Version] = make(map[evm.EVMStoreType][]*iavl.KVPair, evm.NumEVMStoreTypes)
 				}
 				evmChangesByVersion[node.Version][evmStoreType] = append(
 					evmChangesByVersion[node.Version][evmStoreType],
-					&iavl.KVPair{Key: strippedKey, Value: node.Value},
+					&iavl.KVPair{Key: keyBytes, Value: node.Value},
 				)
+				evmPendingCount++
+
+				// Periodically flush to avoid OOM on large imports
+				if evmPendingCount >= evmImportFlushThreshold {
+					flushEVM()
+				}
 			}
 		}
 	}
 	close(cosmosCh)
 
-	// Apply EVM changes by version
-	for version, evmChanges := range evmChangesByVersion {
-		if err := s.evmStore.ApplyChangesetParallel(version, evmChanges); err != nil {
-			s.logger.Error("failed to raw import EVM data", "version", version, "error", err)
-		}
-	}
+	// Flush any remaining EVM changes
+	flushEVM()
 
 	wg.Wait()
 	return cosmosErr
 }
 
-// Prune removes old versions from both stores
+// Prune removes old versions from both stores.
+// EVM_SS uses its own KeepRecent setting if configured, otherwise uses the same version as Cosmos.
 func (s *CompositeStateStore) Prune(version int64) error {
-	// Prune both stores
 	if s.evmStore != nil {
 		if err := s.evmStore.Prune(version); err != nil {
 			s.logger.Error("failed to prune EVM store", "error", err)
@@ -564,7 +512,7 @@ func RecoverCompositeStateStore(
 
 	// No EVM store - simple case, just replay to Cosmos
 	if compositeStore.evmStore == nil {
-		return replayWAL(logger, changelogPath, cosmosVersion, -1, func(entry proto.ChangelogEntry) error {
+		return ReplayWAL(logger, changelogPath, cosmosVersion, -1, func(entry proto.ChangelogEntry) error {
 			if err := compositeStore.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
 				return fmt.Errorf("failed to apply changeset at version %d: %w", entry.Version, err)
 			}
@@ -573,7 +521,7 @@ func RecoverCompositeStateStore(
 	}
 
 	evmVersion := compositeStore.evmStore.GetLatestVersion()
-	evmWriteActive := compositeStore.evmConfig.WriteMode != config.CosmosOnlyWrite
+	evmWriteActive := compositeStore.config.WriteMode != config.CosmosOnlyWrite
 
 	// Start from whichever store is further behind.
 	// In CosmosOnlyWrite mode, ignore EVM version (we won't write to EVM).
@@ -586,12 +534,12 @@ func RecoverCompositeStateStore(
 		"cosmosVersion", cosmosVersion,
 		"evmVersion", evmVersion,
 		"startVersion", startVersion,
-		"writeMode", compositeStore.evmConfig.WriteMode,
+		"writeMode", compositeStore.config.WriteMode,
 		"changelogPath", changelogPath,
 	)
 
 	// Single-pass replay: route each entry to the stores that need it
-	return replayWAL(logger, changelogPath, startVersion, -1, func(entry proto.ChangelogEntry) error {
+	return ReplayWAL(logger, changelogPath, startVersion, -1, func(entry proto.ChangelogEntry) error {
 		needsCosmos := entry.Version > cosmosVersion
 		needsEVM := evmWriteActive && entry.Version > evmVersion
 
@@ -628,10 +576,13 @@ func RecoverCompositeStateStore(
 // WALEntryHandler processes a single WAL entry during replay
 type WALEntryHandler func(entry proto.ChangelogEntry) error
 
-// replayWAL replays WAL entries from fromVersion (exclusive) to toVersion (inclusive).
+// ReplayWAL replays WAL entries from fromVersion (exclusive) to toVersion (inclusive).
 // If toVersion is -1, replays to the end of WAL.
 // This is the single consolidated function for all WAL replay operations.
-func replayWAL(
+//
+// Returns nil if the WAL is empty (no entries to replay).
+// Returns an error for actual failures (IO errors, corrupt WAL, read failures).
+func ReplayWAL(
 	logger logger.Logger,
 	changelogPath string,
 	fromVersion int64,
@@ -640,18 +591,24 @@ func replayWAL(
 ) error {
 	streamHandler, err := wal.NewChangelogWAL(logger, changelogPath, wal.Config{})
 	if err != nil {
-		return nil // No WAL to recover from
+		return fmt.Errorf("failed to open WAL at %s: %w", changelogPath, err)
 	}
 	defer func() { _ = streamHandler.Close() }()
 
 	firstOffset, err := streamHandler.FirstOffset()
-	if err != nil || firstOffset <= 0 {
-		return nil // Empty or invalid WAL
+	if err != nil {
+		return fmt.Errorf("failed to read WAL first offset: %w", err)
+	}
+	if firstOffset <= 0 {
+		return nil // Empty WAL, nothing to replay
 	}
 
 	lastOffset, err := streamHandler.LastOffset()
-	if err != nil || lastOffset <= 0 {
-		return nil // Empty or invalid WAL
+	if err != nil {
+		return fmt.Errorf("failed to read WAL last offset: %w", err)
+	}
+	if lastOffset <= 0 {
+		return nil // Empty WAL, nothing to replay
 	}
 
 	// Check if there's anything to replay
@@ -697,17 +654,30 @@ func replayWAL(
 	})
 }
 
+// findReplayStartOffset uses binary search to find the first WAL offset whose
+// version is greater than targetVersion. WAL entries have monotonically
+// increasing versions, so binary search gives O(log N) instead of O(N).
 func findReplayStartOffset(streamHandler wal.ChangelogWAL, firstOffset, lastOffset uint64, targetVersion int64) (uint64, error) {
-	for offset := firstOffset; offset <= lastOffset; offset++ {
-		entry, err := streamHandler.ReadAt(offset)
+	lo, hi := firstOffset, lastOffset
+	result := lastOffset + 1 // default: nothing to replay
+
+	for lo <= hi {
+		mid := lo + (hi-lo)/2
+		entry, err := streamHandler.ReadAt(mid)
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("failed to read WAL at offset %d: %w", mid, err)
 		}
 		if entry.Version > targetVersion {
-			return offset, nil
+			result = mid // candidate; search left for an earlier one
+			if mid == firstOffset {
+				break // can't go further left
+			}
+			hi = mid - 1
+		} else {
+			lo = mid + 1
 		}
 	}
-	return lastOffset + 1, nil
+	return result, nil
 }
 
 func extractEVMChangesFromChangesets(changesets []*proto.NamedChangeSet) map[evm.EVMStoreType][]*iavl.KVPair {
@@ -717,14 +687,15 @@ func extractEVMChangesFromChangesets(changesets []*proto.NamedChangeSet) map[evm
 			continue
 		}
 		for _, kvPair := range changeset.Changeset.Pairs {
-			evmStoreType, strippedKey := commonevm.ParseEVMKey(kvPair.Key)
-			if evmStoreType != evm.StoreUnknown {
-				evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
-					Key:    strippedKey,
-					Value:  kvPair.Value,
-					Delete: kvPair.Delete,
-				})
+			evmStoreType, keyBytes := commonevm.ParseEVMKey(kvPair.Key)
+			if evmStoreType == evm.StoreUnknown {
+				continue // Skip zero-length keys
 			}
+			evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
+				Key:    keyBytes,
+				Value:  kvPair.Value,
+				Delete: kvPair.Delete,
+			})
 		}
 	}
 	return evmChanges

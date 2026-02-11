@@ -6,14 +6,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDefaultEVMStoreConfig(t *testing.T) {
-	cfg := DefaultEVMStoreConfig()
-
-	// Default should be disabled
-	require.False(t, cfg.Enable)
-	require.Greater(t, cfg.KeepRecent, 0)
-}
-
 func TestAllEVMStoreTypes(t *testing.T) {
 	types := AllEVMStoreTypes()
 
