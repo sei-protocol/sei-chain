@@ -146,7 +146,7 @@ func TestNodeSetAppVersion(t *testing.T) {
 	assert.Equal(t, state.Version.Consensus.App, appVersion)
 
 	// check version is set in node info
-	assert.Equal(t, n.nodeInfo.ProtocolVersion.App, appVersion)
+	assert.Equal(t, n.router.NodeInfo().ProtocolVersion.App, appVersion)
 }
 
 func TestNodeSetPrivValTCP(t *testing.T) {
@@ -519,7 +519,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	voteSet := types.NewVoteSet(state.ChainID, math.MaxInt64-1, math.MaxInt32, tmproto.PrecommitType, state.Validators)
 
 	// add maximum amount of signatures to a single commit
-	for i := 0; i < types.MaxVotesCount; i++ {
+	for i := range types.MaxVotesCount {
 		pubKey, err := privVals[i].GetPubKey(ctx)
 		require.NoError(t, err)
 		valIdx, val := state.Validators.GetByAddress(pubKey.Address())
@@ -623,7 +623,7 @@ func TestNodeSetEventSink(t *testing.T) {
 
 	logger := log.NewNopLogger()
 
-	setupTest := func(t *testing.T, conf *config.Config) []indexer.EventSink {
+	setupTest := func(t *testing.T) []indexer.EventSink {
 		eventBus := eventbus.NewDefault(logger.With("module", "events"))
 		require.NoError(t, eventBus.Start(ctx))
 
@@ -652,18 +652,18 @@ func TestNodeSetEventSink(t *testing.T) {
 		}
 	}
 
-	eventSinks := setupTest(t, cfg)
+	eventSinks := setupTest(t)
 	assert.Equal(t, 1, len(eventSinks))
 	assert.Equal(t, indexer.KV, eventSinks[0].Type())
 
 	cfg.TxIndex.Indexer = []string{"null"}
-	eventSinks = setupTest(t, cfg)
+	eventSinks = setupTest(t)
 
 	assert.Equal(t, 1, len(eventSinks))
 	assert.Equal(t, indexer.NULL, eventSinks[0].Type())
 
 	cfg.TxIndex.Indexer = []string{"null", "kv"}
-	eventSinks = setupTest(t, cfg)
+	eventSinks = setupTest(t)
 
 	assert.Equal(t, 1, len(eventSinks))
 	assert.Equal(t, indexer.NULL, eventSinks[0].Type())
@@ -675,7 +675,7 @@ func TestNodeSetEventSink(t *testing.T) {
 	t.Cleanup(cleanup(ns))
 
 	cfg.TxIndex.Indexer = []string{}
-	eventSinks = setupTest(t, cfg)
+	eventSinks = setupTest(t)
 
 	assert.Equal(t, 1, len(eventSinks))
 	assert.Equal(t, indexer.NULL, eventSinks[0].Type())
@@ -707,7 +707,7 @@ func state(t *testing.T, nVals int, height int64) (sm.State, dbm.DB, []types.Pri
 	t.Helper()
 	privVals := make([]types.PrivValidator, nVals)
 	vals := make([]types.GenesisValidator, nVals)
-	for i := 0; i < nVals; i++ {
+	for i := range nVals {
 		privVal := types.NewMockPV()
 		privVals[i] = privVal
 		vals[i] = types.GenesisValidator{

@@ -32,7 +32,7 @@ func (r *Router) handshakeV2(ctx context.Context, conn tcp.Conn, dialAddr utils.
 	if dialAddr, ok := dialAddr.Get(); ok && dialAddr.NodeID != hConn.msg.NodeAuth.Key().NodeID() {
 		return nil, types.NodeInfo{}, fmt.Errorf("unexpected peer NodeID")
 	}
-	info, err := exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
+	info, err := exchangeNodeInfo(ctx, hConn, r.NodeInfo())
 	if err != nil {
 		return nil, types.NodeInfo{}, err
 	}
@@ -234,7 +234,7 @@ func makeRouterWithOptionsAndKey(logger log.Logger, opts *RouterOptions, key Nod
 		logger.With("node", info.NodeID),
 		NopMetrics(),
 		key,
-		func() *types.NodeInfo { return &info },
+		info,
 		dbm.NewMemDB(),
 		opts,
 	)

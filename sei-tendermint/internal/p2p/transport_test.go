@@ -162,7 +162,7 @@ func TestHandshake_NodeInfo(t *testing.T) {
 		if err != nil {
 			return fmt.Errorf("handshake(): %v", err)
 		}
-		if err := utils.TestDiff(*r.nodeInfoProducer(), info); err != nil {
+		if err := utils.TestDiff(r.NodeInfo(), info); err != nil {
 			t.Fatalf("conn.PeerInfo(): %v", err)
 		}
 		return nil

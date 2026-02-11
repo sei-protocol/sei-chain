@@ -31,8 +31,6 @@ type seedNodeImpl struct {
 	config     *config.Config
 	genesisDoc *types.GenesisDoc // initial validator set
 
-	nodeInfo types.NodeInfo
-
 	// network
 	router      *p2p.Router
 	nodeKey     types.NodeKey // our node privkey
@@ -78,7 +76,7 @@ func makeSeedNode(
 		return nil, err
 	}
 
-	router, peerCloser, err := createRouter(logger, nodeMetrics.p2p, func() *types.NodeInfo { return &nodeInfo }, nodeKey, cfg, nil, dbProvider)
+	router, peerCloser, err := createRouter(logger, nodeMetrics.p2p, nodeInfo, nodeKey, cfg, nil, dbProvider)
 	if err != nil {
 		return nil, combineCloseError(
 			fmt.Errorf("failed to create router: %w", err),
@@ -145,7 +143,6 @@ func makeSeedNode(
 			Logger:     logger.With("module", "rpc"),
 			Config:     *cfg.RPC,
 		},
-		nodeInfo: nodeInfo,
 	}
 	node.BaseService = *service.NewBaseService(logger, "SeedNode", node)
 
@@ -223,8 +220,4 @@ func (n *seedNodeImpl) EventBus() *eventbus.EventBus {
 // RPCEnvironment makes sure RPC has all the objects it needs to operate.
 func (n *seedNodeImpl) RPCEnvironment() *rpccore.Environment {
 	return n.rpcEnv
-}
-
-func (n *seedNodeImpl) NodeInfo() *types.NodeInfo {
-	return &n.nodeInfo
 }

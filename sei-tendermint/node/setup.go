@@ -209,7 +209,7 @@ func createEvidenceReactor(
 func createRouter(
 	logger log.Logger,
 	p2pMetrics *p2p.Metrics,
-	nodeInfoProducer func() *types.NodeInfo,
+	nodeInfo types.NodeInfo,
 	nodeKey types.NodeKey,
 	cfg *config.Config,
 	appClient abciclient.Client,
@@ -290,7 +290,7 @@ func createRouter(
 		logger.With("module", "p2p"),
 		p2pMetrics,
 		p2p.NodeSecretKey(nodeKey.PrivKey),
-		nodeInfoProducer,
+		nodeInfo,
 		peerDB,
 		options,
 	)

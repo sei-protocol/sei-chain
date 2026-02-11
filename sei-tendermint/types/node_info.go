@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"strings"
 
 	"github.com/tendermint/tendermint/libs/bytes"
@@ -142,15 +143,14 @@ func (info NodeInfo) CompatibleWith(other NodeInfo) error {
 }
 
 // AddChannel is used by the router when a channel is opened to add it to the node info
-func (info *NodeInfo) AddChannel(channel uint16) {
+func (info NodeInfo) AddChannel(channel uint16) NodeInfo {
 	// check that the channel doesn't already exist
-	for _, ch := range info.Channels {
-		if ch == byte(channel) {
-			return
-		}
+	if slices.Contains(info.Channels, byte(channel)) {
+		return info
 	}
-
-	info.Channels = append(info.Channels, byte(channel))
+	// Deep copy info.
+	info.Channels = append(slices.Clone(info.Channels), byte(channel))
+	return info
 }
 
 func (info NodeInfo) ToProto() *tmp2p.NodeInfo {

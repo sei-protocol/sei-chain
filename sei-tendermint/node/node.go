@@ -62,7 +62,6 @@ type nodeImpl struct {
 	router           *p2p.Router
 	routerRestartCh  chan struct{} // Used to signal a restart the node on the application level
 	ServiceRestartCh chan []string
-	nodeInfo         types.NodeInfo
 	nodeKey          types.NodeKey // our node privkey
 
 	// services
@@ -244,7 +243,14 @@ func makeNode(
 		},
 	}
 
-	router, peerCloser, err := createRouter(logger, nodeMetrics.p2p, node.NodeInfo, nodeKey, cfg, proxyApp, dbProvider)
+	// TODO: Fetch and provide real options and do proper p2p bootstrapping.
+	// TODO: Use a persistent peer database.
+	nodeInfo, err := makeNodeInfo(cfg, nodeKey, eventSinks, genDoc, state.Version.Consensus)
+	if err != nil {
+		return nil, combineCloseError(fmt.Errorf("makeNodeInfo(): %w", err), makeCloser(closers))
+	}
+
+	router, peerCloser, err := createRouter(logger, nodeMetrics.p2p, nodeInfo, nodeKey, cfg, proxyApp, dbProvider)
 	closers = append(closers, peerCloser)
 	if err != nil {
 		return nil, combineCloseError(
@@ -469,12 +475,6 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 
 	logNodeStartupInfo(state, n.rpcEnv.PubKey, n.logger, n.config.Mode)
 
-	// TODO: Fetch and provide real options and do proper p2p bootstrapping.
-	// TODO: Use a persistent peer database.
-	n.nodeInfo, err = makeNodeInfo(n.config, n.nodeKey, n.eventSinks, n.genesisDoc, state.Version.Consensus)
-	if err != nil {
-		return err
-	}
 	// Start Internal Services
 
 	if n.config.RPC.PprofListenAddress != "" {
@@ -538,7 +538,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		}
 	}
 
-	n.rpcEnv.NodeInfo = n.nodeInfo
+	n.rpcEnv.NodeInfo = n.router.NodeInfo()
 	// Start the RPC server before the P2P server
 	// so we can eg. receive txs for the first block
 	if n.config.RPC.ListenAddress != "" {
@@ -638,10 +638,6 @@ func (n *nodeImpl) startPrometheusServer(ctx context.Context, addr string) *http
 	}()
 
 	return srv
-}
-
-func (n *nodeImpl) NodeInfo() *types.NodeInfo {
-	return &n.nodeInfo
 }
 
 // EventBus returns the Node's EventBus.

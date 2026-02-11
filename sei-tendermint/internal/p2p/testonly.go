@@ -65,7 +65,7 @@ func TestAddress(r *Router) NodeAddress {
 		addr = netip.IPv6Loopback()
 	}
 	return Endpoint{netip.AddrPortFrom(addr, port)}.
-		NodeAddress(r.nodeInfoProducer().NodeID)
+		NodeAddress(r.NodeInfo().NodeID)
 }
 
 // MakeNetwork creates a test network with the given number of nodes and
@@ -303,7 +303,7 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 		logger,
 		NopMetrics(),
 		privKey,
-		func() *types.NodeInfo { return &nodeInfo },
+		nodeInfo,
 		dbm.NewMemDB(),
 		routerOpts,
 	)

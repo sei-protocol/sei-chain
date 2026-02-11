@@ -39,13 +39,20 @@ type Router struct {
 	privKey     NodeSecretKey
 	peerManager *PeerManager
 
-	peerDB           utils.Mutex[*peerDB]
-	nodeInfoProducer func() *types.NodeInfo
+	peerDB   utils.Mutex[*peerDB]
+	nodeInfo utils.RWMutex[*types.NodeInfo]
 
 	channels utils.RWMutex[map[ChannelID]*channel]
 	giga     utils.Option[*GigaRouter]
 
 	started chan struct{}
+}
+
+func (r *Router) NodeInfo() types.NodeInfo {
+	for ni := range r.nodeInfo.RLock() {
+		return *ni
+	}
+	panic("unreachable")
 }
 
 func (r *Router) getChannelDescs() []*conn.ChannelDescriptor {
@@ -64,7 +71,7 @@ func NewRouter(
 	logger log.Logger,
 	metrics *Metrics,
 	privKey NodeSecretKey,
-	nodeInfoProducer func() *types.NodeInfo,
+	nodeInfo types.NodeInfo,
 	db dbm.DB,
 	options *RouterOptions,
 ) (*Router, error) {
@@ -78,16 +85,16 @@ func NewRouter(
 		return nil, fmt.Errorf("newPeerDB(): %w", err)
 	}
 	router := &Router{
-		logger:           logger,
-		metrics:          metrics,
-		lc:               newMetricsLabelCache(),
-		privKey:          privKey,
-		nodeInfoProducer: nodeInfoProducer,
-		peerManager:      peerManager,
-		options:          options,
-		channels:         utils.NewRWMutex(map[ChannelID]*channel{}),
-		peerDB:           utils.NewMutex(peerDB),
-		started:          make(chan struct{}),
+		logger:      logger,
+		metrics:     metrics,
+		lc:          newMetricsLabelCache(),
+		privKey:     privKey,
+		nodeInfo:    utils.NewRWMutex(&nodeInfo),
+		peerManager: peerManager,
+		options:     options,
+		channels:    utils.NewRWMutex(map[ChannelID]*channel{}),
+		peerDB:      utils.NewMutex(peerDB),
+		started:     make(chan struct{}),
 	}
 	if gigaCfg, ok := options.Giga.Get(); ok {
 		router.giga = utils.Some(NewGigaRouter(gigaCfg, privKey))
@@ -152,7 +159,9 @@ func OpenChannel[T gogoproto.Message](r *Router, chDesc ChannelDescriptor[T]) (*
 		}
 		channels[id] = newChannel(chDesc.ToGeneric())
 		// add the channel to the nodeInfo if it's not already there.
-		r.nodeInfoProducer().AddChannel(uint16(chDesc.ID))
+		for ni := range r.nodeInfo.Lock() {
+			*ni = ni.AddChannel(uint16(chDesc.ID))
+		}
 		return &Channel[T]{
 			router:  r,
 			channel: channels[id],
@@ -224,7 +233,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					if err := r.options.filterPeerByID(ctx, hConn.msg.NodeAuth.Key().NodeID()); err != nil {
 						return fmt.Errorf("peer filtered by ID: %w", err)
 					}
-					info, err := exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
+					info, err := exchangeNodeInfo(ctx, hConn, r.NodeInfo())
 					if err != nil {
 						return fmt.Errorf("exchangeNodeInfo(): %w", err)
 					}
@@ -273,7 +282,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 								if got := hConn.msg.NodeAuth.Key().NodeID(); got != addr.NodeID {
 									return fmt.Errorf("peer NodeID = %v, want %v", got, addr.NodeID)
 								}
-								info, err = exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
+								info, err = exchangeNodeInfo(ctx, hConn, r.NodeInfo())
 								if err != nil {
 									return fmt.Errorf("exchangeNodeInfo(): %w", err)
 								}
