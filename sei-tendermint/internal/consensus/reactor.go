@@ -259,7 +259,7 @@ func (r *Reactor) broadcastValidBlockRoutine(ctx context.Context) error {
 	const interval = time.Second
 	return r.state.eventValidBlock.Iter(ctx, func(ctx context.Context, mrs utils.Option[*cstypes.RoundState]) error {
 		rs, ok := mrs.Get()
-		if !ok {
+		if !ok || rs.ProposalBlockParts == nil {
 			return nil
 		}
 		for {
