@@ -443,7 +443,7 @@ func (t *MultiTree) Catchup(ctx context.Context, stream wal.ChangelogWAL, delta 
 	if replayCount > 0 {
 		t.UpdateCommitInfo()
 		replayElapsed := time.Since(startTime).Seconds()
-		t.logger.Info(fmt.Sprintf("Total replayed %d entries in %.1fs (%.1f entries/sec).\n",
+		t.logger.Info(fmt.Sprintf("Total replayed %d entries in %.1fs (%.1f entries/sec).",
 			replayCount, replayElapsed, float64(replayCount)/replayElapsed))
 	}
 

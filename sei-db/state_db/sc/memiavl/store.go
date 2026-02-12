@@ -64,7 +64,7 @@ func (cs *CommitStore) Rollback(targetVersion int64) error {
 // LoadVersion loads the specified version of the database.
 // If copyExisting is true, creates a read-only copy for querying.
 func (cs *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Committer, error) {
-	cs.logger.Info(fmt.Sprintf("SeiDB load target memIAVL version %d, readOnly = %v\n", targetVersion, readOnly))
+	cs.logger.Info(fmt.Sprintf("SeiDB load target memIAVL version %d, readOnly = %v", targetVersion, readOnly))
 
 	if readOnly {
 		// Create a read-only copy via NewCommitStore.

@@ -1063,12 +1063,12 @@ func (snapshot *Snapshot) prefetchSnapshot(snapshotDir string, prefetchThreshold
 	}
 
 	if residentNodes < prefetchThreshold {
-		log.Info(fmt.Sprintf("CommitKVStore %s nodes page cache residency ratio is %f, below threshold %f\n", treeName, residentNodes, prefetchThreshold))
+		log.Info(fmt.Sprintf("Tree %s nodes page cache residency ratio is %f, below threshold %f", treeName, residentNodes, prefetchThreshold))
 		_ = SequentialReadAndFillPageCache(log, filepath.Join(snapshotDir, FileNameNodes))
 	}
 
 	if residentLeaves < prefetchThreshold {
-		log.Info(fmt.Sprintf("CommitKVStore %s leaves page cache residency ratio is %f, below threshold %f\n", treeName, residentLeaves, prefetchThreshold))
+		log.Info(fmt.Sprintf("Tree %s leaves page cache residency ratio is %f, below threshold %f", treeName, residentLeaves, prefetchThreshold))
 		_ = SequentialReadAndFillPageCache(log, filepath.Join(snapshotDir, FileNameLeaves))
 	}
 

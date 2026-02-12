@@ -913,18 +913,7 @@ func (db *DB) rewriteSnapshotBackground() error {
 			return
 		}
 
-		// Switch mmap hints from SEQUENTIAL to RANDOM for tree operations.
-		// NewMmap() applies MADV_SEQUENTIAL by default for cold-start replay performance,
-		// but after loading we need MADV_RANDOM for random tree access patterns.
-		// Without this, the kernel aggressively discards accessed pages and does wrong-direction
-		// readahead, which is catastrophic on high-latency storage (e.g. NAS).
-		// This matches the behavior in OpenDB() which also calls PrepareForRandomRead().
-		for _, tree := range mtree.trees {
-			if tree.snapshot != nil {
-				tree.snapshot.nodesMap.PrepareForRandomRead()
-				tree.snapshot.leavesMap.PrepareForRandomRead()
-			}
-		}
+		// Snapshot mmap files are loaded with MADV_RANDOM in OpenSnapshot().
 
 		cloned.logger.Info("loaded multitree after snapshot", "elapsed", time.Since(loadStart).Seconds())
 
