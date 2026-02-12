@@ -2329,11 +2329,11 @@ func (cs *State) buildProposalBlock(proposal *types.Proposal) *types.Block {
 		return nil
 	}
 	block := cs.state.MakeBlock(proposal.Height, txs, proposal.LastCommit, proposal.Evidence, proposal.ProposerAddress)
-	block.Version = proposal.Header.Version
-	block.Data.Txs = txs
+	block.Version = proposal.Version
+	block.Txs = txs
 	block.DataHash = block.Data.Hash(true)
-	block.Header.Time = proposal.Header.Time
-	block.Header.ProposerAddress = proposal.Header.ProposerAddress
+	block.Time = proposal.Time
+	block.ProposerAddress = proposal.ProposerAddress
 	return block
 }
 
