@@ -11,6 +11,12 @@ var (
 	otelMetrics = struct {
 		RestartLatency          metric.Float64Histogram
 		SnapshotCreationLatency metric.Float64Histogram
+		SnapshotRewriteLatency  metric.Float64Histogram
+		SnapshotCreationCount   metric.Int64Counter
+		SnapshotPruneLatency    metric.Float64Histogram
+		CatchupReplayLatency    metric.Float64Histogram
+		CatchupReplayNumBlocks  metric.Int64Counter
+		CurrentSnapshotHeight   metric.Int64Gauge
 		CommitLatency           metric.Float64Histogram
 		ApplyChangesetLatency   metric.Float64Histogram
 		NumOfKVPairs            metric.Int64Counter
@@ -24,8 +30,36 @@ var (
 		)),
 		SnapshotCreationLatency: must(meter.Float64Histogram(
 			"memiavl_snapshot_creation_latency",
-			metric.WithDescription("Time taken to create memiavl snapshot"),
+			metric.WithDescription("Total time taken to create memiavl snapshot + replay"),
 			metric.WithUnit("s"),
+		)),
+		SnapshotRewriteLatency: must(meter.Float64Histogram(
+			"memiavl_snapshot_rewrite_latency",
+			metric.WithDescription("Time taken to write to the new memiavl snapshot"),
+			metric.WithUnit("s"),
+		)),
+		SnapshotCreationCount: must(meter.Int64Counter(
+			"memiavl_snapshot_creation_count",
+			metric.WithDescription("Total num of times memiavl snapshot creation happens"),
+			metric.WithUnit("By"))),
+		SnapshotPruneLatency: must(meter.Float64Histogram(
+			"memiavl_snapshot_prune_latency",
+			metric.WithDescription("Time taken to prune memiavl snapshot"),
+			metric.WithUnit("s"),
+		)),
+		CatchupReplayLatency: must(meter.Float64Histogram(
+			"memiavl_snapshot_catchup_replay_latency",
+			metric.WithDescription("Time taken to catchup and replay after snapshot rewrite"),
+			metric.WithUnit("s"),
+		)),
+		CatchupReplayNumBlocks: must(meter.Int64Counter(
+			"memiavl_snapshot_catchup_replay_num_blocks",
+			metric.WithDescription("Num of blocks memIAVL has replayed after snapshot creation"),
+			metric.WithUnit("{count}"),
+		)),
+		CurrentSnapshotHeight: must(meter.Int64Gauge(
+			"memiavl_current_snapshot_height",
+			metric.WithDescription("Current snapshot height"),
 		)),
 		CommitLatency: must(meter.Float64Histogram(
 			"memiavl_commit_latency",

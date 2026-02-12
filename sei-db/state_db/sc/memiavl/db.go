@@ -654,6 +654,7 @@ func (db *DB) Commit() (version int64, _err error) {
 	// Rewrite tree snapshot if applicable
 	db.rewriteIfApplicable(v)
 	db.tryTruncateWAL()
+	otelMetrics.CurrentSnapshotHeight.Record(context.Background(), db.MultiTree.SnapshotVersion())
 
 	return v, nil
 }
@@ -740,7 +741,10 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	writeStart := time.Now()
 	err := db.WriteSnapshotWithRateLimit(ctx, path, db.snapshotWriterPool, db.opts.SnapshotWriteRateMBps)
 	writeElapsed := time.Since(writeStart).Seconds()
-
+	otelMetrics.SnapshotRewriteLatency.Record(
+		context.Background(),
+		writeElapsed,
+	)
 	if err != nil {
 		db.logger.Error("snapshot write failed, cleaning up temporary directory",
 			"tmpDir", tmpDir,
@@ -884,7 +888,7 @@ func (db *DB) rewriteSnapshotBackground() error {
 		defer close(ch)
 		startTime := time.Now()
 		cloned.logger.Info("start rewriting snapshot", "version", cloned.Version())
-
+		otelMetrics.SnapshotCreationCount.Add(context.Background(), 1)
 		rewriteStart := time.Now()
 		if err := cloned.RewriteSnapshot(ctx); err != nil {
 			cloned.logger.Error("failed to rewrite snapshot", "error", err, "elapsed", time.Since(rewriteStart).Seconds())
@@ -928,6 +932,7 @@ func (db *DB) rewriteSnapshotBackground() error {
 		cloned.logger.Info("loaded multitree after snapshot", "elapsed", time.Since(loadStart).Seconds())
 
 		// do a best effort catch-up, will do another final catch-up in main thread.
+		replayStartTime := time.Now()
 		if wal := db.GetWAL(); wal != nil {
 			catchupStart := time.Now()
 			if err := mtree.Catchup(ctx, wal, db.walIndexDelta, 0); err != nil {
@@ -939,6 +944,8 @@ func (db *DB) rewriteSnapshotBackground() error {
 		}
 
 		ch <- snapshotResult{mtree: mtree}
+		replayTimeElapsed := time.Since(replayStartTime).Seconds()
+		otelMetrics.CatchupReplayLatency.Record(context.Background(), replayTimeElapsed)
 		totalElapsed := time.Since(startTime).Seconds()
 		cloned.logger.Info("snapshot rewrite process completed", "duration_sec", totalElapsed, "duration_min", totalElapsed/60)
 		otelMetrics.SnapshotCreationLatency.Record(
