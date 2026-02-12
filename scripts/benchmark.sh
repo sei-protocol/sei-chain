@@ -8,6 +8,8 @@ GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
 GIGA_OCC=${GIGA_OCC:-false}
 BENCHMARK_TXS_PER_BATCH=${BENCHMARK_TXS_PER_BATCH:-1000}
 DISABLE_INDEXER=${DISABLE_INDEXER:-true}
+# Zero base fee - if true, overwrite blockCtx.BaseFee to zero for benchmarking
+ZERO_BASE_FEE=${ZERO_BASE_FEE:-false}
 # Debug mode - if true, prints all log output without filtering
 DEBUG=${DEBUG:-false}
 # Benchmark scenario config (path to JSON file, see scripts/scenarios/)
@@ -38,6 +40,7 @@ echo "  GIGA_OCC:                $GIGA_OCC"
 echo "  DB_BACKEND:              $DB_BACKEND"
 echo "  BENCHMARK_TXS_PER_BATCH: $BENCHMARK_TXS_PER_BATCH"
 echo "  DISABLE_INDEXER:         $DISABLE_INDEXER"
+echo "  ZERO_BASE_FEE:           $ZERO_BASE_FEE"
 echo "  DEBUG:                   $DEBUG"
 echo "  BENCHMARK_CONFIG:        ${BENCHMARK_CONFIG:-(default: EVMTransfer)}"
 echo ""
@@ -222,8 +225,8 @@ echo "============================================================"
 echo ""
 if [ "$DEBUG" = true ]; then
   # Debug mode: print all output
-  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH ~/go/bin/seid start --chain-id sei-chain
+  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH ZERO_BASE_FEE=$ZERO_BASE_FEE ~/go/bin/seid start --chain-id sei-chain
 else
   # Normal mode: filter to benchmark-related output only
-  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH ~/go/bin/seid start --chain-id sei-chain 2>&1 | grep -E "(benchmark|Benchmark|deployed|transitioning)"
+  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH ZERO_BASE_FEE=$ZERO_BASE_FEE ~/go/bin/seid start --chain-id sei-chain 2>&1 | grep -E "(benchmark|Benchmark|deployed|transitioning)"
 fi
