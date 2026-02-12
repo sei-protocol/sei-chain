@@ -9,29 +9,24 @@ var (
 	meter = otel.Meter("seidb_memiavl")
 
 	otelMetrics = struct {
-		RestartLatency          metric.Float64Histogram
-		SnapshotCreationLatency metric.Float64Histogram
-		SnapshotRewriteLatency  metric.Float64Histogram
-		SnapshotCreationCount   metric.Int64Counter
-		SnapshotPruneLatency    metric.Float64Histogram
-		SnapshotPruneCount      metric.Int64Counter
-		CatchupReplayLatency    metric.Float64Histogram
-		CatchupReplayNumBlocks  metric.Int64Counter
-		CurrentSnapshotHeight   metric.Int64Gauge
-		CommitLatency           metric.Float64Histogram
-		ApplyChangesetLatency   metric.Float64Histogram
-		NumOfKVPairs            metric.Int64Counter
-		MemNodeTotalSize        metric.Int64Gauge
-		NumOfMemNode            metric.Int64Gauge
+		RestartLatency             metric.Float64Histogram
+		SnapshotRewriteLatency     metric.Float64Histogram
+		SnapshotRewriteCount       metric.Int64Counter
+		SnapshotPruneLatency       metric.Float64Histogram
+		SnapshotPruneCount         metric.Int64Counter
+		CatchupAfterRewriteLatency metric.Float64Histogram
+		CatchupBeforeReloadLatency metric.Float64Histogram
+		CatchupReplayNumBlocks     metric.Int64Counter
+		CurrentSnapshotHeight      metric.Int64Gauge
+		CommitLatency              metric.Float64Histogram
+		ApplyChangesetLatency      metric.Float64Histogram
+		NumOfKVPairs               metric.Int64Counter
+		MemNodeTotalSize           metric.Int64Gauge
+		NumOfMemNode               metric.Int64Gauge
 	}{
 		RestartLatency: must(meter.Float64Histogram(
 			"memiavl_restart_latency",
 			metric.WithDescription("Time taken to restart the memiavl database"),
-			metric.WithUnit("s"),
-		)),
-		SnapshotCreationLatency: must(meter.Float64Histogram(
-			"memiavl_snapshot_creation_latency",
-			metric.WithDescription("Total time taken to create memiavl snapshot + replay"),
 			metric.WithUnit("s"),
 		)),
 		SnapshotRewriteLatency: must(meter.Float64Histogram(
@@ -39,9 +34,9 @@ var (
 			metric.WithDescription("Time taken to write to the new memiavl snapshot"),
 			metric.WithUnit("s"),
 		)),
-		SnapshotCreationCount: must(meter.Int64Counter(
-			"memiavl_snapshot_creation_count",
-			metric.WithDescription("Total num of times memiavl snapshot creation happens"),
+		SnapshotRewriteCount: must(meter.Int64Counter(
+			"memiavl_snapshot_rewrite_count",
+			metric.WithDescription("Total num of times memiavl snapshot rewrite attempts"),
 			metric.WithUnit("{count}"))),
 		SnapshotPruneLatency: must(meter.Float64Histogram(
 			"memiavl_snapshot_prune_latency",
@@ -50,12 +45,17 @@ var (
 		)),
 		SnapshotPruneCount: must(meter.Int64Counter(
 			"memiavl_snapshot_prune_count",
-			metric.WithDescription("Total number of snapshots pruned successfully"),
+			metric.WithDescription("Total number of snapshot prune attempts"),
 			metric.WithUnit("{count}"),
 		)),
-		CatchupReplayLatency: must(meter.Float64Histogram(
-			"memiavl_snapshot_catchup_replay_latency",
+		CatchupAfterRewriteLatency: must(meter.Float64Histogram(
+			"memiavl_snapshot_catchup_after_rewrite_latency",
 			metric.WithDescription("Time taken to catchup and replay after snapshot rewrite"),
+			metric.WithUnit("s"),
+		)),
+		CatchupBeforeReloadLatency: must(meter.Float64Histogram(
+			"memiavl_snapshot_catchup_before_reload_latency",
+			metric.WithDescription("Time taken to catchup and replay before switch to new snapshot"),
 			metric.WithUnit("s"),
 		)),
 		CatchupReplayNumBlocks: must(meter.Int64Counter(
