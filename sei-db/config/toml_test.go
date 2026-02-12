@@ -47,10 +47,7 @@ func TestStateCommitConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "sc-snapshot-min-time-interval =", "Missing sc-snapshot-min-time-interval")
 	require.Contains(t, output, "sc-snapshot-prefetch-threshold =", "Missing sc-snapshot-prefetch-threshold")
 	require.Contains(t, output, "sc-snapshot-write-rate-mbps =", "Missing sc-snapshot-write-rate-mbps")
-
-	// sc-snapshot-writer-limit is intentionally removed from template (hardcoded to 4)
-	// but old configs with this field still parse fine via mapstructure
-	require.NotContains(t, output, "sc-snapshot-writer-limit", "sc-snapshot-writer-limit should not be in template")
+	require.Contains(t, output, "sc-snapshot-writer-limit =", "Missing sc-snapshot-writer-limit")
 }
 
 // TestStateStoreConfigTemplate verifies that all field paths in the StateStore TOML template
@@ -248,13 +245,15 @@ func TestStateCommitConfigValidate(t *testing.T) {
 // and renamed fields.
 func TestTemplateFieldPathsExist(t *testing.T) {
 	type TemplateConfig struct {
-		StateCommit StateCommitConfig
-		StateStore  StateStoreConfig
+		StateCommit  StateCommitConfig
+		StateStore   StateStoreConfig
+		ReceiptStore ReceiptStoreConfig
 	}
 
 	cfg := TemplateConfig{
-		StateCommit: DefaultStateCommitConfig(),
-		StateStore:  DefaultStateStoreConfig(),
+		StateCommit:  DefaultStateCommitConfig(),
+		StateStore:   DefaultStateStoreConfig(),
+		ReceiptStore: DefaultReceiptStoreConfig(),
 	}
 
 	templates := []struct {
@@ -263,6 +262,7 @@ func TestTemplateFieldPathsExist(t *testing.T) {
 	}{
 		{"StateCommitConfigTemplate", StateCommitConfigTemplate},
 		{"StateStoreConfigTemplate", StateStoreConfigTemplate},
+		{"ReceiptStoreConfigTemplate", ReceiptStoreConfigTemplate},
 	}
 
 	for _, tt := range templates {
