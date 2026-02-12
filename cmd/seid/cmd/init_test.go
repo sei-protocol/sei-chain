@@ -240,7 +240,7 @@ func TestModeConfigurationMatrix(t *testing.T) {
 func TestLoadOrWriteGenesis_ExplicitConfigWins(t *testing.T) {
 	dir := t.TempDir()
 	genFile := filepath.Join(dir, "genesis.json")
-	chainID := "atlantic-2"
+	const chainID = "atlantic-2"
 
 	// a minimal valid genesis with matching chain_id
 	existing := &types.GenesisDoc{ChainID: chainID, AppState: json.RawMessage(`{}`)}
@@ -291,7 +291,7 @@ func TestLoadOrWriteGenesis_PathIsDirectory(t *testing.T) {
 func TestLoadOrWriteGenesis_WellKnownWritesEmbedded(t *testing.T) {
 	dir := t.TempDir()
 	genFile := filepath.Join(dir, "genesis.json")
-	chainID := "atlantic-2"
+	const chainID = "atlantic-2"
 	require.True(t, genesis.IsWellKnown(chainID), "atlantic-2 should be well-known")
 	encCfg := app.MakeEncodingConfig()
 
@@ -310,7 +310,7 @@ func TestLoadOrWriteGenesis_WellKnownWritesEmbedded(t *testing.T) {
 func TestLoadOrWriteGenesis_OverwriteReplacesFile(t *testing.T) {
 	dir := t.TempDir()
 	genFile := filepath.Join(dir, "genesis.json")
-	chainID := "atlantic-2"
+	const chainID = "atlantic-2"
 	existing := &types.GenesisDoc{ChainID: chainID, AppState: json.RawMessage(`{"old":true}`)}
 	require.NoError(t, existing.SaveAs(genFile))
 
@@ -326,7 +326,7 @@ func TestLoadOrWriteGenesis_OverwriteReplacesFile(t *testing.T) {
 func TestLoadOrWriteGenesis_UnknownChainWritesDefault(t *testing.T) {
 	dir := t.TempDir()
 	genFile := filepath.Join(dir, "genesis.json")
-	chainID := "custom-chain-1"
+	const chainID = "custom-chain-1"
 	require.False(t, genesis.IsWellKnown(chainID), "custom-chain-1 should not be well-known")
 
 	encCfg := app.MakeEncodingConfig()

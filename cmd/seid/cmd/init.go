@@ -204,12 +204,8 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 // loadOrWriteGenesis loads existing genesis at genFile if present and !overwrite, else writes embedded (well-known) or default.
 func loadOrWriteGenesis(logger log.Logger, genFile, chainID string, overwrite bool, mbm module.BasicManager, cdc codec.JSONCodec) (*types.GenesisDoc, error) {
 	if !overwrite && tmos.FileExists(genFile) {
-		fi, err := os.Stat(genFile)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to stat genesis file %s", genFile)
-		}
-		if fi.IsDir() {
-			return nil, fmt.Errorf("genesis path is a directory, not a file: %s", genFile)
+		if err := ensureGenesisPathIsFile(genFile); err != nil {
+			return nil, err
 		}
 		genDoc, err := types.GenesisDocFromFile(genFile)
 		if err != nil {
@@ -243,10 +239,11 @@ func loadOrWriteGenesis(logger log.Logger, genFile, chainID string, overwrite bo
 		return nil, errors.Wrap(err, "Failed to marshall default genesis state")
 	}
 	genDoc := &types.GenesisDoc{ChainID: chainID, AppState: appState}
-	if fi, err := os.Stat(genFile); err == nil {
-		if fi.IsDir() {
-			return nil, fmt.Errorf("genesis path is a directory, not a file: %s", genFile)
+	if tmos.FileExists(genFile) {
+		if err := ensureGenesisPathIsFile(genFile); err != nil {
+			return nil, err
 		}
+		var err error
 		genDoc, err = types.GenesisDocFromFile(genFile)
 		if err != nil {
 			return nil, errors.Wrap(err, "Failed to read genesis doc from file")
@@ -263,4 +260,18 @@ func loadOrWriteGenesis(logger log.Logger, genFile, chainID string, overwrite bo
 		return nil, errors.Wrap(err, "Failed to export genesis file")
 	}
 	return genDoc, nil
+}
+
+func ensureGenesisPathIsFile(genFile string) error {
+	fi, err := os.Stat(genFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return errors.Wrapf(err, "failed to stat genesis file %s", genFile)
+	}
+	if fi.IsDir() {
+		return fmt.Errorf("genesis path is a directory, not a file: %s", genFile)
+	}
+	return nil
 }
