@@ -331,13 +331,6 @@ func (t *Tree) ReplaceWith(other *Tree) error {
 	t.cowVersion = other.cowVersion
 	t.zeroCopy = other.zeroCopy
 
-	// Safety net: ensure MADV_RANDOM is set on the new snapshot's mmap files.
-	if t.snapshot != nil {
-		t.snapshot.nodesMap.PrepareForRandomRead()
-		t.snapshot.leavesMap.PrepareForRandomRead()
-		t.snapshot.kvsMap.PrepareForRandomRead()
-	}
-
 	if snapshot != nil {
 		return snapshot.Close()
 	}
