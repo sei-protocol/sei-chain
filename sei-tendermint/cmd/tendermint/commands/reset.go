@@ -15,6 +15,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+const wasmDirName = "wasm"
+
 // MakeResetCommand constructs a command that removes the database of
 // the specified Tendermint core instance.
 func MakeResetCommand(conf *config.Config, logger log.Logger) *cobra.Command {
@@ -98,6 +100,13 @@ func ResetAll(dbDir, privValKeyFile, privValStateFile string, logger log.Logger,
 		logger.Error("unable to recreate dbDir", "err", err)
 	} else {
 		logger.Info("Removed dbDir")
+	}
+
+	wasmDir := filepath.Join(homeDir, wasmDirName)
+	if err := os.RemoveAll(wasmDir); err == nil {
+		logger.Info("Removed wasm directory", "dir", wasmDir)
+	} else {
+		logger.Error("error removing wasm directory", "dir", wasmDir, "err", err)
 	}
 
 	// recreate the dbDir since the privVal state needs to live there
@@ -198,8 +207,8 @@ func MakeUnsafeResetAllCommand(conf *config.Config, logger log.Logger) *cobra.Co
 
 	resetAllCmd := &cobra.Command{
 		Use:   "unsafe-reset-all",
-		Short: "Removes all tendermint data including signing state",
-		Long: `Removes all tendermint data including signing state.
+		Short: "Removes all tendermint data, wasm directory, and signing state",
+		Long: `Removes all tendermint data including signing state, and the wasm directory (contract blobs and compiled modules).
 Only use in testing. This can cause the node to double sign`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Get the --home flag value from the command
