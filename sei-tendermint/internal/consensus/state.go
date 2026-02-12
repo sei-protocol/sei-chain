@@ -2333,7 +2333,7 @@ func (cs *State) buildProposalBlock(proposal *types.Proposal) *types.Block {
 	block.Txs = txs
 	block.DataHash = block.Data.Hash(true)
 	block.Time = proposal.Time
-	block.ProposerAddress = proposal.ProposerAddress
+	block.ProposerAddress = proposal.Header.ProposerAddress
 	return block
 }
 
