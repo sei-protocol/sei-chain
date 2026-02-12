@@ -3,6 +3,7 @@ package cachemulti
 import (
 	"fmt"
 	"io"
+	"sync"
 
 	dbm "github.com/tendermint/tm-db"
 
@@ -31,6 +32,8 @@ type Store struct {
 
 	traceWriter  io.Writer
 	traceContext types.TraceContext
+
+	materializeOnce *sync.Once
 
 	closers []io.Closer
 }
@@ -64,14 +67,15 @@ func NewFromKVStore(
 
 func newStoreWithoutGiga(store types.KVStore, stores map[types.StoreKey]types.CacheWrapper, keys map[string]types.StoreKey, gigaKeys []types.StoreKey, traceWriter io.Writer, traceContext types.TraceContext) Store {
 	cms := Store{
-		db:           cachekv.NewStore(store, nil, types.DefaultCacheSizeLimit),
-		stores:       make(map[types.StoreKey]types.CacheWrap, len(stores)),
-		parents:      make(map[types.StoreKey]types.CacheWrapper, len(stores)),
-		keys:         keys,
-		gigaKeys:     gigaKeys,
-		traceWriter:  traceWriter,
-		traceContext: traceContext,
-		closers:      []io.Closer{},
+		db:              cachekv.NewStore(store, nil, types.DefaultCacheSizeLimit),
+		stores:          make(map[types.StoreKey]types.CacheWrap, len(stores)),
+		parents:         make(map[types.StoreKey]types.CacheWrapper, len(stores)),
+		keys:            keys,
+		gigaKeys:        gigaKeys,
+		traceWriter:     traceWriter,
+		traceContext:    traceContext,
+		materializeOnce: &sync.Once{},
+		closers:         []io.Closer{},
 	}
 
 	for key, store := range stores {
@@ -91,12 +95,17 @@ func NewStore(
 }
 
 func newCacheMultiStoreFromCMS(cms Store) Store {
-	// Materialize all lazy stores to preserve cache layering.
-	// Children must wrap our cachekv stores, not raw parents.
-	for k := range cms.parents {
-		cms.getOrCreateStore(k)
-	}
+	// Thread-safe materialization: the OCC scheduler calls CacheMultiStore()
+	// concurrently from multiple goroutines on the same block CMS.
+	// sync.Once ensures exactly one goroutine materializes, others wait.
+	cms.materializeOnce.Do(func() {
+		for k := range cms.parents {
+			cms.getOrCreateStore(k)
+		}
+	})
 
+	// After Do returns, cms.parents is empty and cms.stores has all entries.
+	// No concurrent writes, so reading is safe.
 	stores := make(map[types.StoreKey]types.CacheWrapper, len(cms.stores))
 	for k, v := range cms.stores {
 		stores[k] = v
