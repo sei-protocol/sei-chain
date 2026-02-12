@@ -149,7 +149,9 @@ type State struct {
 	setProposal func(proposal *types.Proposal, t time.Time) error
 
 	// synchronous pubsub between consensus state and reactor.
-	eventValidBlock   func(state *cstypes.RoundState)
+	// eventValidBlock is emitting a copy of round state, in which the
+	// block parts will be collected, so it should not be treated as immutable.
+	eventValidBlock   utils.AtomicSend[utils.Option[*cstypes.RoundState]]
 	eventNewRoundStep func(state *cstypes.RoundState)
 	eventVote         func(vote *types.Vote)
 	eventMsg          func(msgInfo)
@@ -210,7 +212,7 @@ func NewState(
 		evpool:            evpool,
 		metrics:           NopMetrics(),
 		wal:               wal,
-		eventValidBlock:   func(*cstypes.RoundState) {},
+		eventValidBlock:   utils.NewAtomicSend(utils.None[*cstypes.RoundState]()),
 		eventNewRoundStep: func(*cstypes.RoundState) {},
 		eventVote:         func(*types.Vote) {},
 		eventMsg:          func(msgInfo) {},
@@ -1816,7 +1818,7 @@ func (cs *State) enterCommit(ctx context.Context, height int64, commitRound int3
 			logger.Error("failed publishing valid block", "err", err)
 		}
 
-		cs.eventValidBlock(cs.roundState.CopyInternal())
+		cs.eventValidBlock.Store(utils.Some(cs.roundState.CopyInternal()))
 	}
 }
 
@@ -2532,8 +2534,8 @@ func (cs *State) addVote(
 				}
 
 				roundState := cs.roundState.CopyInternal()
-				cs.eventValidBlock(roundState)
-				if err := cs.eventBus.PublishEventValidBlock(cs.roundState.RoundStateEvent()); err != nil {
+				cs.eventValidBlock.Store(utils.Some(roundState))
+				if err := cs.eventBus.PublishEventValidBlock(roundState.RoundStateEvent()); err != nil {
 					return added, err
 				}
 			}

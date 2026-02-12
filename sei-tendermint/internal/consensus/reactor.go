@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -102,9 +102,8 @@ type Reactor struct {
 	Metrics  *Metrics
 
 	peers       utils.RWMutex[map[types.NodeID]*PeerState]
-	mtx         sync.RWMutex
-	rs          *cstypes.RoundState
-	readySignal chan struct{} // closed when the node is ready to start consensus
+	rs          atomic.Pointer[cstypes.RoundState]
+	readySignal utils.AtomicSend[bool] // closed when the node is ready to start consensus
 }
 
 // NewReactor returns a reference to a new consensus reactor, which implements
@@ -139,12 +138,11 @@ func NewReactor(
 	r := &Reactor{
 		logger:      logger,
 		state:       cs,
-		rs:          cs.GetRoundState(),
 		peers:       utils.NewRWMutex(map[types.NodeID]*PeerState{}),
 		eventBus:    eventBus,
 		Metrics:     metrics,
 		router:      router,
-		readySignal: make(chan struct{}),
+		readySignal: utils.NewAtomicSend(!waitSync),
 		channels: channelBundle{
 			state:  stateCh,
 			data:   dataCh,
@@ -153,14 +151,11 @@ func NewReactor(
 		},
 		cfg: cfg,
 	}
+	r.rs.Store(cs.GetRoundState())
 	cs.eventNewRoundStep = r.broadcastNewRoundStepMessage
-	cs.eventValidBlock = r.broadcastNewValidBlockMessage
 	cs.eventVote = r.broadcastHasVoteMessage
 	cs.eventMsg = r.recordPeerMsg
 	r.BaseService = *service.NewBaseService(logger, "Consensus", r)
-	if !waitSync {
-		close(r.readySignal)
-	}
 
 	return r, nil
 }
@@ -190,11 +185,11 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	r.SpawnCritical("processVoteCh", r.processVoteCh)
 	r.SpawnCritical("processVoteSetBitsCh", r.processVoteSetBitsCh)
 	r.SpawnCritical("state.Run", func(ctx context.Context) error {
-		if _, _, err := utils.RecvOrClosed(ctx, r.readySignal); err != nil {
+		if _, err := r.readySignal.Wait(ctx, func(ready bool) bool { return ready }); err != nil {
 			return err
 		}
 		r.SpawnCritical("processPeerUpdates", r.processPeerUpdates)
-		r.SpawnCritical("rebroadcastValidBlock", r.rebroadcastValidBlockRoutine)
+		r.SpawnCritical("broadcastValidBlock", r.broadcastValidBlockRoutine)
 		return r.state.Run(ctx)
 	})
 	return nil
@@ -207,12 +202,7 @@ func (r *Reactor) OnStop() {}
 
 // WaitSync returns whether the consensus reactor is waiting for state/block sync.
 func (r *Reactor) WaitSync() bool {
-	select {
-	case <-r.readySignal:
-		return false
-	default:
-		return true
-	}
+	return !r.readySignal.Load()
 }
 
 // SwitchToConsensus switches from block-sync mode to consensus mode. It resets
@@ -238,9 +228,7 @@ func (r *Reactor) SwitchToConsensus(ctx context.Context, state sm.State, skipWAL
 	}
 	r.state.mtx.Unlock()
 
-	r.mtx.Lock()
-	close(r.readySignal)
-	r.mtx.Unlock()
+	r.readySignal.Store(true)
 }
 
 // String returns a string representation of the Reactor.
@@ -261,31 +249,34 @@ func (r *Reactor) broadcastNewRoundStepMessage(rs *cstypes.RoundState) {
 	r.channels.state.Broadcast(MsgToProto(makeRoundStepMessage(rs)))
 }
 
-func (r *Reactor) broadcastNewValidBlockMessage(rs *cstypes.RoundState) {
-	r.channels.state.Broadcast(MsgToProto(&NewValidBlockMessage{
-		Height:             rs.Height,
-		Round:              rs.Round,
-		BlockPartSetHeader: rs.ProposalBlockParts.Header(),
-		BlockParts:         rs.ProposalBlockParts.BitArray(),
-		IsCommit:           rs.Step == cstypes.RoundStepCommit,
-	}))
-}
-
-// Rebroadcasts NewValidBlockMessage to ensure that peers know which parts
+// Broadcasts NewValidBlockMessage whenever new valid block is reported.
+// It rebroadcasts the NewValidBlockMessage periodically to ensure that peers know which parts
 // we are missing. It is critical in case we have small number of peers (for example just 1),
 // and they are overloaded (they drop messages a lot).
-func (r *Reactor) rebroadcastValidBlockRoutine(ctx context.Context) error {
-	// This is a fallback mechanism, no need to expose the frequency as
+func (r *Reactor) broadcastValidBlockRoutine(ctx context.Context) error {
+	// Rebroadcasting is a fallback mechanism, no need to expose the frequency as
 	// a config parameter.
 	const interval = time.Second
-	for {
-		if err := utils.Sleep(ctx, interval); err != nil {
-			return err
+	return r.state.eventValidBlock.Iter(ctx, func(ctx context.Context, mrs utils.Option[*cstypes.RoundState]) error {
+		rs, ok := mrs.Get()
+		if !ok {
+			return nil
 		}
-		if rs := r.getRoundState(); rs.ProposalBlockParts != nil && !rs.ProposalBlockParts.IsComplete() {
-			r.broadcastNewValidBlockMessage(rs)
+		for {
+			r.channels.state.Broadcast(MsgToProto(&NewValidBlockMessage{
+				Height:             rs.Height,
+				Round:              rs.Round,
+				BlockPartSetHeader: rs.ProposalBlockParts.Header(),
+				// Block parts bit array might be updated between iterations,
+				// so we need to reconstruct the message each time.
+				BlockParts: rs.ProposalBlockParts.BitArray(),
+				IsCommit:   rs.Step == cstypes.RoundStepCommit,
+			}))
+			if err := utils.Sleep(ctx, interval); err != nil {
+				return err
+			}
 		}
-	}
+	})
 }
 
 func (r *Reactor) broadcastHasVoteMessage(vote *types.Vote) {
@@ -315,18 +306,11 @@ func (r *Reactor) updateRoundStateRoutine(ctx context.Context) error {
 		if _, err := utils.Recv(ctx, t.C); err != nil {
 			return err
 		}
-		rs := r.state.GetRoundState()
-		r.mtx.Lock()
-		r.rs = rs
-		r.mtx.Unlock()
+		r.rs.Store(r.state.GetRoundState())
 	}
 }
 
-func (r *Reactor) getRoundState() *cstypes.RoundState {
-	r.mtx.RLock()
-	defer r.mtx.RUnlock()
-	return r.rs
-}
+func (r *Reactor) getRoundState() *cstypes.RoundState { return r.rs.Load() }
 
 func (r *Reactor) gossipDataForCatchup(rs *cstypes.RoundState, prs *cstypes.PeerRoundState, ps *PeerState) {
 	logger := r.logger.With("height", prs.Height).With("peer", ps.peerID)
