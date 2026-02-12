@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"errors"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
-	sdktypes "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdktypes "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // cacheMergeIterator merges a parent Iterator and a cache Iterator.

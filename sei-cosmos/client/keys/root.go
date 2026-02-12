@@ -4,7 +4,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 )
 
 // Commands registers a sub-tree of commands to interact with

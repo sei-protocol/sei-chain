@@ -5,7 +5,7 @@ package types
 
 import (
 	fmt "fmt"
-	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
+	github_com_cosmos_cosmos_sdk_types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	io "io"
@@ -36,7 +36,7 @@ type Params struct {
 	// ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
 	//   string chain_id = 6 [
 	//   (gogoproto.moretags)   = "yaml:\"chain_id\"",
-	//   (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+	//   (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
 	//   (gogoproto.nullable)   = false,
 	//   (gogoproto.jsontag) = "chain_id"
 	// ];
@@ -135,7 +135,7 @@ type ParamsPreV580 struct {
 	//
 	//	string chain_id = 6 [
 	//	(gogoproto.moretags)   = "yaml:\"chain_id\"",
-	//	(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+	//	(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
 	//	(gogoproto.nullable)   = false,
 	//	(gogoproto.jsontag) = "chain_id"
 	//
@@ -203,7 +203,7 @@ type ParamsPreV600 struct {
 	//
 	//	string chain_id = 6 [
 	//	(gogoproto.moretags)   = "yaml:\"chain_id\"",
-	//	(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+	//	(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
 	//	(gogoproto.nullable)   = false,
 	//	(gogoproto.jsontag) = "chain_id"
 	//
@@ -277,7 +277,7 @@ type ParamsPreV601 struct {
 	//
 	//	string chain_id = 6 [
 	//	(gogoproto.moretags)   = "yaml:\"chain_id\"",
-	//	(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+	//	(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
 	//	(gogoproto.nullable)   = false,
 	//	(gogoproto.jsontag) = "chain_id"
 	//
@@ -362,7 +362,7 @@ type ParamsPreV606 struct {
 	//
 	//	string chain_id = 6 [
 	//	(gogoproto.moretags)   = "yaml:\"chain_id\"",
-	//	(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+	//	(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
 	//	(gogoproto.nullable)   = false,
 	//	(gogoproto.jsontag) = "chain_id"
 	//

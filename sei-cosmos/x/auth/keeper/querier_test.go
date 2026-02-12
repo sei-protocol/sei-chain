@@ -4,15 +4,15 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 
 	"github.com/stretchr/testify/require"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
-	"github.com/cosmos/cosmos-sdk/testutil/testdata"
-	keep "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	"github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
+	keep "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 )
 
 func TestQueryAccount(t *testing.T) {

@@ -3,9 +3,9 @@ package ante
 import (
 	"math"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 )
 
 var BaseDenomGasPriceAmplfier = sdk.NewInt(1_000_000_000_000)

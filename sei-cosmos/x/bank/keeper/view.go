@@ -5,12 +5,12 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/store/prefix"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	vestexported "github.com/cosmos/cosmos-sdk/x/auth/vesting/exported"
-	"github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	vestexported "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/exported"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
 var _ ViewKeeper = (*BaseViewKeeper)(nil)

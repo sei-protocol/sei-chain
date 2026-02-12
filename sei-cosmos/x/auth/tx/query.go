@@ -10,9 +10,9 @@ import (
 
 	ctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // QueryTxsByEvents performs a search for transactions for a given set of events

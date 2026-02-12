@@ -3,7 +3,7 @@ package utils
 import (
 	"strings"
 
-	"github.com/cosmos/cosmos-sdk/x/gov/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
 
 // NormalizeVoteOption - normalize user specified vote option

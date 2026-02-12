@@ -3,11 +3,11 @@ package multiversion_test
 import (
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/dbadapter"
-	"github.com/cosmos/cosmos-sdk/store/multiversion"
-	"github.com/cosmos/cosmos-sdk/store/types"
-	scheduler "github.com/cosmos/cosmos-sdk/types/occ"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/dbadapter"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/multiversion"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	scheduler "github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 )

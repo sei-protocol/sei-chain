@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 
 	ibcclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
 	v100 "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/legacy/v100"

@@ -3,8 +3,8 @@ package keeper_test
 import (
 	"strings"
 
-	"github.com/cosmos/cosmos-sdk/x/evidence/exported"
-	"github.com/cosmos/cosmos-sdk/x/evidence/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/exported"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/types"
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"

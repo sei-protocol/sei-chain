@@ -5,9 +5,9 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/types/occ"
-	occtypes "github.com/cosmos/cosmos-sdk/types/occ"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
+	occtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
 	db "github.com/tendermint/tm-db"
 )
 

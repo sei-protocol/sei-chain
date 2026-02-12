@@ -10,8 +10,8 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	ctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 )
 
 var cdc = codec.NewLegacyAmino()

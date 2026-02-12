@@ -7,11 +7,11 @@ import (
 
 	yaml "gopkg.in/yaml.v2"
 
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	vestexported "github.com/cosmos/cosmos-sdk/x/auth/vesting/exported"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	vestexported "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/exported"
 )
 
 // Compile-time type assertions

@@ -15,10 +15,10 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/codec/legacy"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/legacy"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 const (

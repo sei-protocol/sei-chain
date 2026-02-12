@@ -10,13 +10,13 @@ import (
 
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/server"
-	"github.com/cosmos/cosmos-sdk/types"
-	bankexported "github.com/cosmos/cosmos-sdk/x/bank/exported"
-	"github.com/cosmos/cosmos-sdk/x/genutil"
-	gtypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	cdctypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	bankexported "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/exported"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
+	gtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/types"
 )
 
 type doNothingUnmarshalJSON struct {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/testutil"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 )
 
 // ExecTestCLICmd builds the client context, mocks the output and executes the command.

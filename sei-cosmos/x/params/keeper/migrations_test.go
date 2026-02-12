@@ -3,8 +3,8 @@ package keeper_test
 import (
 	"testing"
 
-	pk "github.com/cosmos/cosmos-sdk/x/params/keeper"
-	"github.com/cosmos/cosmos-sdk/x/params/types"
+	pk "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 
 	"github.com/stretchr/testify/require"
 )

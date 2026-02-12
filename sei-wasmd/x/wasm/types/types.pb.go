@@ -6,7 +6,7 @@ package types
 import (
 	bytes "bytes"
 	fmt "fmt"
-	types "github.com/cosmos/cosmos-sdk/codec/types"
+	types "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	_ "github.com/regen-network/cosmos-proto"

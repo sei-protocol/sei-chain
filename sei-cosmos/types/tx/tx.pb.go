@@ -5,11 +5,11 @@ package tx
 
 import (
 	fmt "fmt"
-	types "github.com/cosmos/cosmos-sdk/codec/types"
-	types1 "github.com/cosmos/cosmos-sdk/crypto/types"
-	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
-	types2 "github.com/cosmos/cosmos-sdk/types"
-	signing "github.com/cosmos/cosmos-sdk/types/tx/signing"
+	types "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	types1 "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	github_com_cosmos_cosmos_sdk_types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	types2 "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	signing "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	io "io"

@@ -12,10 +12,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"golang.org/x/crypto/ripemd160" // nolint: staticcheck // necessary for Bitcoin address format
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	cosmoscryptoutils "github.com/cosmos/cosmos-sdk/crypto/utils"
-	"github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	cosmoscryptoutils "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/utils"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 var _ cryptotypes.PrivKey = &PrivKey{}

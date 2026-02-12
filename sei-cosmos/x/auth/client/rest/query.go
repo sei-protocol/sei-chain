@@ -8,14 +8,14 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	clientrest "github.com/cosmos/cosmos-sdk/client/rest"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/rest"
-	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
-	"github.com/cosmos/cosmos-sdk/x/auth/types"
-	genutilrest "github.com/cosmos/cosmos-sdk/x/genutil/client/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	clientrest "github.com/sei-protocol/sei-chain/sei-cosmos/client/rest"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	authtx "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/tx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	genutilrest "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/client/rest"
 )
 
 // QueryAccountRequestHandlerFn is the query accountREST Handler.

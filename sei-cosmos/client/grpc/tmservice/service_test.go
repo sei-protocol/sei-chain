@@ -7,13 +7,13 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/cosmos-sdk/client/grpc/tmservice"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/testutil/network"
-	qtypes "github.com/cosmos/cosmos-sdk/types/query"
-	"github.com/cosmos/cosmos-sdk/types/rest"
-	"github.com/cosmos/cosmos-sdk/version"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/grpc/tmservice"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/network"
+	qtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
 )
 
 type IntegrationTestSuite struct {
@@ -47,7 +47,7 @@ func (s *IntegrationTestSuite) TearDownSuite() {
 	s.network.Cleanup()
 }
 
-func (s IntegrationTestSuite) TestQueryNodeInfo() {
+func (s *IntegrationTestSuite) TestQueryNodeInfo() {
 	val := s.network.Validators[0]
 
 	res, err := s.queryClient.GetNodeInfo(context.Background(), &tmservice.GetNodeInfoRequest{})
@@ -62,7 +62,7 @@ func (s IntegrationTestSuite) TestQueryNodeInfo() {
 	s.Require().Equal(getInfoRes.ApplicationVersion.AppName, version.NewInfo().AppName)
 }
 
-func (s IntegrationTestSuite) TestQuerySyncing() {
+func (s *IntegrationTestSuite) TestQuerySyncing() {
 	val := s.network.Validators[0]
 
 	_, err := s.queryClient.GetSyncing(context.Background(), &tmservice.GetSyncingRequest{})
@@ -74,7 +74,7 @@ func (s IntegrationTestSuite) TestQuerySyncing() {
 	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(restRes, &syncingRes))
 }
 
-func (s IntegrationTestSuite) TestQueryLatestBlock() {
+func (s *IntegrationTestSuite) TestQueryLatestBlock() {
 	val := s.network.Validators[0]
 
 	_, err := s.queryClient.GetLatestBlock(context.Background(), &tmservice.GetLatestBlockRequest{})
@@ -86,7 +86,7 @@ func (s IntegrationTestSuite) TestQueryLatestBlock() {
 	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(restRes, &blockInfoRes))
 }
 
-func (s IntegrationTestSuite) TestQueryBlockByHeight() {
+func (s *IntegrationTestSuite) TestQueryBlockByHeight() {
 	val := s.network.Validators[0]
 	_, err := s.queryClient.GetBlockByHeight(context.Background(), &tmservice.GetBlockByHeightRequest{Height: 1})
 	s.Require().NoError(err)
@@ -97,7 +97,7 @@ func (s IntegrationTestSuite) TestQueryBlockByHeight() {
 	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(restRes, &blockInfoRes))
 }
 
-func (s IntegrationTestSuite) TestQueryLatestValidatorSet() {
+func (s *IntegrationTestSuite) TestQueryLatestValidatorSet() {
 	val := s.network.Validators[0]
 
 	// nil pagination
@@ -132,7 +132,7 @@ func (s IntegrationTestSuite) TestQueryLatestValidatorSet() {
 	s.Require().Equal(validatorSetRes.Validators[0].PubKey, anyPub)
 }
 
-func (s IntegrationTestSuite) TestLatestValidatorSet_GRPC() {
+func (s *IntegrationTestSuite) TestLatestValidatorSet_GRPC() {
 	vals := s.network.Validators
 	testCases := []struct {
 		name      string
@@ -163,7 +163,7 @@ func (s IntegrationTestSuite) TestLatestValidatorSet_GRPC() {
 	}
 }
 
-func (s IntegrationTestSuite) TestLatestValidatorSet_GRPCGateway() {
+func (s *IntegrationTestSuite) TestLatestValidatorSet_GRPCGateway() {
 	vals := s.network.Validators
 	testCases := []struct {
 		name      string
@@ -195,7 +195,7 @@ func (s IntegrationTestSuite) TestLatestValidatorSet_GRPCGateway() {
 	}
 }
 
-func (s IntegrationTestSuite) TestValidatorSetByHeight_GRPC() {
+func (s *IntegrationTestSuite) TestValidatorSetByHeight_GRPC() {
 	vals := s.network.Validators
 	testCases := []struct {
 		name      string
@@ -224,7 +224,7 @@ func (s IntegrationTestSuite) TestValidatorSetByHeight_GRPC() {
 	}
 }
 
-func (s IntegrationTestSuite) TestValidatorSetByHeight_GRPCGateway() {
+func (s *IntegrationTestSuite) TestValidatorSetByHeight_GRPCGateway() {
 	vals := s.network.Validators
 	testCases := []struct {
 		name      string

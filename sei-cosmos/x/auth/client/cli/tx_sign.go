@@ -4,15 +4,15 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/client/tx"
-	kmultisig "github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
-	"github.com/cosmos/cosmos-sdk/types/errors"
-	authclient "github.com/cosmos/cosmos-sdk/x/auth/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
+	kmultisig "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/multisig"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	authclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/client"
 )
 
 const (

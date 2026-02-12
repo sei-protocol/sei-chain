@@ -6,8 +6,8 @@ package tmservice
 import (
 	context "context"
 	fmt "fmt"
-	types "github.com/cosmos/cosmos-sdk/codec/types"
-	query "github.com/cosmos/cosmos-sdk/types/query"
+	types "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	query "github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 	grpc1 "github.com/gogo/protobuf/grpc"
 	proto "github.com/gogo/protobuf/proto"
 	p2p "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/p2p"

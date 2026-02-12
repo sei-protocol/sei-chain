@@ -6,15 +6,15 @@ package rest_test
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/testutil/network"
-	"github.com/cosmos/cosmos-sdk/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/rest"
-	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	bankrest "github.com/cosmos/cosmos-sdk/x/bank/client/rest"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/network"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/legacy/legacytx"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	bankrest "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/client/rest"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
 func (s *IntegrationTestSuite) TestCoinSend() {

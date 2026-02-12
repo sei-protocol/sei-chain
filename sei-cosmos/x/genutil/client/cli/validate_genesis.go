@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/server"
-	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
 )
 
 const (

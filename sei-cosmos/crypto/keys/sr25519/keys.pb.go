@@ -5,7 +5,7 @@ package sr25519
 
 import (
 	fmt "fmt"
-	github_com_cosmos_cosmos_sdk_crypto_keys_sr25519_internal "github.com/cosmos/cosmos-sdk/crypto/keys/sr25519/internal"
+	github_com_cosmos_cosmos_sdk_crypto_keys_sr25519_internal "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/sr25519/internal"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	io "io"

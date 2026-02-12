@@ -1,8 +1,8 @@
 package keys
 
 import (
-	"github.com/cosmos/cosmos-sdk/codec"
-	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
 )
 
 // TODO: remove this file https://github.com/cosmos/cosmos-sdk/issues/8047

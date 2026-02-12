@@ -3,8 +3,8 @@ package multiversion
 import (
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
-	occtypes "github.com/cosmos/cosmos-sdk/types/occ"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	occtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
 )
 
 // Iterates over iterKVCache items.

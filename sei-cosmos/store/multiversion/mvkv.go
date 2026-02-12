@@ -8,8 +8,8 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
-	scheduler "github.com/cosmos/cosmos-sdk/types/occ"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	scheduler "github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
 	dbm "github.com/tendermint/tm-db"
 )
 
