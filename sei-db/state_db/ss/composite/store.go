@@ -61,7 +61,7 @@ func NewCompositeStateStore(
 			evmDir = filepath.Join(homeDir, "data", "evm_ss")
 		}
 
-		evmStore, err := evm.NewEVMStateStore(evmDir)
+		evmStore, err := evm.NewEVMStateStore(evmDir, log)
 		if err != nil {
 			_ = cosmosStore.Close()
 			return nil, fmt.Errorf("failed to create EVM store: %w", err)

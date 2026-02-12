@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
@@ -22,6 +23,7 @@ type dbWrite struct {
 type EVMStateStore struct {
 	databases map[EVMStoreType]*EVMDatabase
 	dir       string
+	logger    logger.Logger
 
 	// Per-DB async write channels and worker goroutines
 	asyncChs map[EVMStoreType]chan dbWrite
@@ -30,11 +32,12 @@ type EVMStateStore struct {
 
 // NewEVMStateStore creates a new EVM state store with all sub-databases.
 // Each database gets a background worker goroutine for async writes.
-func NewEVMStateStore(dir string) (*EVMStateStore, error) {
+func NewEVMStateStore(dir string, log logger.Logger) (*EVMStateStore, error) {
 	store := &EVMStateStore{
 		databases: make(map[EVMStoreType]*EVMDatabase),
 		asyncChs:  make(map[EVMStoreType]chan dbWrite),
 		dir:       dir,
+		logger:    log,
 	}
 
 	// Open a database for each EVM store type
@@ -62,8 +65,7 @@ func (s *EVMStateStore) asyncWorker(db *EVMDatabase, ch <-chan dbWrite) {
 	defer s.asyncWg.Done()
 	for w := range ch {
 		if err := db.ApplyBatch(w.pairs, w.version); err != nil {
-			// Log error but continue processing; writes are idempotent and
-			// WAL replay will catch up on restart.
+			s.logger.Error("async EVM write failed", "storeType", StoreTypeName(db.storeType), "version", w.version, "error", err)
 			continue
 		}
 		_ = db.SetLatestVersion(w.version)

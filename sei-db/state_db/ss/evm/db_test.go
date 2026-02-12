@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 )
@@ -168,7 +169,7 @@ func TestEVMStateStore(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	store, err := NewEVMStateStore(dir)
+	store, err := NewEVMStateStore(dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -220,7 +221,7 @@ func TestEVMStateStoreParallel(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	store, err := NewEVMStateStore(dir)
+	store, err := NewEVMStateStore(dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 

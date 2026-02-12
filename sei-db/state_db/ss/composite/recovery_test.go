@@ -55,7 +55,7 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 	defer cosmosStore.Close()
 
 	// Create EVM store directly
-	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory)
+	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, log)
 	require.NoError(t, err)
 	defer evmStore.Close()
 
@@ -181,7 +181,7 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 	walLog.Close()
 
 	// Create EVM store (fresh, at version 0)
-	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory)
+	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, log)
 	require.NoError(t, err)
 
 	// Create composite store using test helper - EVM store starts at version 0
