@@ -33,6 +33,7 @@ type Store struct {
 	traceWriter  io.Writer
 	traceContext types.TraceContext
 
+	mu              *sync.RWMutex // protects stores and parents during lazy creation
 	materializeOnce *sync.Once
 
 	closers []io.Closer
@@ -74,6 +75,7 @@ func newStoreWithoutGiga(store types.KVStore, stores map[types.StoreKey]types.Ca
 		gigaKeys:        gigaKeys,
 		traceWriter:     traceWriter,
 		traceContext:    traceContext,
+		mu:              &sync.RWMutex{},
 		materializeOnce: &sync.Once{},
 		closers:         []io.Closer{},
 	}
@@ -99,17 +101,28 @@ func newCacheMultiStoreFromCMS(cms Store) Store {
 	// concurrently from multiple goroutines on the same block CMS.
 	// sync.Once ensures exactly one goroutine materializes, others wait.
 	cms.materializeOnce.Do(func() {
+		// Lock held for bulk materialization to avoid per-key lock overhead.
+		cms.mu.Lock()
 		for k := range cms.parents {
-			cms.getOrCreateStore(k)
+			// Inline the creation here — we already hold the write lock.
+			parent := cms.parents[k]
+			var cw types.CacheWrapper = parent
+			if cms.TracingEnabled() {
+				cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
+			}
+			cms.stores[k] = cachekv.NewStore(cw.(types.KVStore), k, types.DefaultCacheSizeLimit)
+			delete(cms.parents, k)
 		}
+		cms.mu.Unlock()
 	})
 
 	// After Do returns, cms.parents is empty and cms.stores has all entries.
-	// No concurrent writes, so reading is safe.
+	cms.mu.RLock()
 	stores := make(map[types.StoreKey]types.CacheWrapper, len(cms.stores))
 	for k, v := range cms.stores {
 		stores[k] = v
 	}
+	cms.mu.RUnlock()
 	// cms.parents is now empty — all moved to cms.stores by getOrCreateStore
 	gigaStores := make(map[types.StoreKey]types.KVStore, len(cms.gigaStores))
 	for k, v := range cms.gigaStores {
@@ -120,7 +133,22 @@ func newCacheMultiStoreFromCMS(cms Store) Store {
 }
 
 // getOrCreateStore lazily creates a cachekv store from its parent on first access.
+// Thread-safe: concurrent callers (e.g. slashing BeginBlocker goroutines) may
+// call GetKVStore on the same CMS simultaneously.
 func (cms Store) getOrCreateStore(key types.StoreKey) types.CacheWrap {
+	// Fast path: store already materialized, read-only check.
+	cms.mu.RLock()
+	if s, ok := cms.stores[key]; ok {
+		cms.mu.RUnlock()
+		return s
+	}
+	cms.mu.RUnlock()
+
+	// Slow path: acquire write lock and create.
+	cms.mu.Lock()
+	defer cms.mu.Unlock()
+
+	// Double-check after acquiring write lock.
 	if s, ok := cms.stores[key]; ok {
 		return s
 	}
@@ -246,7 +274,7 @@ func (cms Store) GetWorkingHash() ([]byte, error) {
 
 // StoreKeys returns a list of all store keys
 func (cms Store) StoreKeys() []types.StoreKey {
-	keys := make([]types.StoreKey, 0, len(cms.stores))
+	keys := make([]types.StoreKey, 0, len(cms.keys))
 	for _, key := range cms.keys {
 		keys = append(keys, key)
 	}
