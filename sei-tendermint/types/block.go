@@ -22,6 +22,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
+// SkipLastResultsHashValidation controls whether LastResultsHash validation
+// is skipped during block validation. This is set to true when the Giga
+// executor is enabled, since it may produce different gas used values.
+var SkipLastResultsHashValidation bool
+
 const (
 	// MaxHeaderBytes is a maximum header size.
 	// NOTE: Because app hash can be of arbitrary size, the header is therefore not
