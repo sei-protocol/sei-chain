@@ -91,13 +91,17 @@ func NewStore(
 }
 
 func newCacheMultiStoreFromCMS(cms Store) Store {
-	stores := make(map[types.StoreKey]types.CacheWrapper)
+	// Materialize all lazy stores to preserve cache layering.
+	// Children must wrap our cachekv stores, not raw parents.
+	for k := range cms.parents {
+		cms.getOrCreateStore(k)
+	}
+
+	stores := make(map[types.StoreKey]types.CacheWrapper, len(cms.stores))
 	for k, v := range cms.stores {
 		stores[k] = v
 	}
-	for k, v := range cms.parents {
-		stores[k] = v
-	}
+	// cms.parents is now empty — all moved to cms.stores by getOrCreateStore
 	gigaStores := make(map[types.StoreKey]types.KVStore, len(cms.gigaStores))
 	for k, v := range cms.gigaStores {
 		gigaStores[k] = v
