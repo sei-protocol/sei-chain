@@ -4,7 +4,7 @@ import (
 	"bytes"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/tendermint/tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 )
 
 const PubKeyName = "tendermint/PubKeySr25519"

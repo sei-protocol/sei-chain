@@ -148,7 +148,8 @@ func convertInnerOps(path PathToLeaf) []*ics23.InnerOp {
 			// prepend the length prefix for child
 			prefix = append(prefix, lengthByte)
 			// length-prefixed right side
-			suffix = []byte{lengthByte}
+			suffix = make([]byte, 0, 1+len(path[i].Right))
+			suffix = append(suffix, lengthByte)
 			suffix = append(suffix, path[i].Right...)
 		}
 

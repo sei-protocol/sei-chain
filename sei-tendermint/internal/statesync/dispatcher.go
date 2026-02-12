@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/light/provider"
-	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var (
@@ -73,6 +73,9 @@ func (d *Dispatcher) LightBlock(ctx context.Context, height int64, peer types.No
 // dispatch takes a peer and allocates it a channel so long as it's not already
 // busy and the receiving channel is still running. It then dispatches the message
 func (d *Dispatcher) dispatch(ctx context.Context, peer types.NodeID, height int64) (chan *types.LightBlock, error) {
+	if height < 0 {
+		return nil, fmt.Errorf("invalid height: %d", height)
+	}
 	for calls := range d.calls.Lock() {
 		if ctx.Err() != nil {
 			return nil, ErrDisconnected
@@ -87,7 +90,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, peer types.NodeID, height int
 		calls[peer] = ch
 
 		// send request
-		d.requestCh.Send(wrap(&pb.LightBlockRequest{Height: uint64(height)}), peer)
+		d.requestCh.Send(wrap(&pb.LightBlockRequest{Height: uint64(height)}), peer) //nolint:gosec // height is a validated positive block height
 		return ch, nil
 	}
 	panic("unreachable")

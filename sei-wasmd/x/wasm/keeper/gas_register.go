@@ -155,13 +155,13 @@ func (g WasmGasRegister) InstantiateContractCosts(pinned bool, msgLen int) sdk.G
 	return g.c.InstanceCost + dataCosts
 }
 
-// ReplyCosts costs to to handle a message reply
+// ReplyCosts costs to handle a message reply
 func (g WasmGasRegister) ReplyCosts(pinned bool, reply wasmvmtypes.Reply) sdk.Gas {
 	var eventGas sdk.Gas
 	msgLen := len(reply.Result.Err)
 	if reply.Result.Ok != nil {
 		msgLen += len(reply.Result.Ok.Data)
-		var attrs []wasmvmtypes.EventAttribute
+		var attrs []wasmvmtypes.EventAttribute //nolint:prealloc // not worth it
 		for _, e := range reply.Result.Ok.Events {
 			eventGas += sdk.Gas(len(e.Type)) * g.c.EventAttributeDataCost
 			attrs = append(attrs, e.Attributes...)

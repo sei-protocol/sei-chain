@@ -4,7 +4,7 @@ import (
 	fmt "fmt"
 
 	ics23 "github.com/confio/ics23/go"
-	tmcrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"
+	tmcrypto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 
 	sdkmaps "github.com/cosmos/cosmos-sdk/store/internal/maps"
 	sdkproofs "github.com/cosmos/cosmos-sdk/store/internal/proofs"

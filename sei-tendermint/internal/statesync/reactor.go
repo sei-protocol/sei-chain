@@ -5,24 +5,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/p2p"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/store"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
-	"github.com/tendermint/tendermint/light"
-	"github.com/tendermint/tendermint/light/provider"
-	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
-	"github.com/tendermint/tendermint/types"
+	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var (
@@ -277,7 +278,7 @@ func NewReactor(
 		paramsChannel:                 paramsChannel,
 		lastNoAvailablePeers:          time.Time{},
 		restartCh:                     restartCh,
-		restartNoAvailablePeersWindow: time.Duration(selfRemediationConfig.StatesyncNoPeersRestartWindowSeconds) * time.Second,
+		restartNoAvailablePeersWindow: time.Duration(selfRemediationConfig.StatesyncNoPeersRestartWindowSeconds) * time.Second, //nolint:gosec // validated in config.ValidateBasic against MaxInt64
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "StateSync", r)
@@ -434,7 +435,9 @@ func (r *Reactor) Sync(ctx context.Context) (sm.State, error) {
 	if r.cfg.UseLocalSnapshot {
 		snapshotList, _ := r.recentSnapshots(context.Background(), recentSnapshots)
 		for _, snap := range snapshotList {
-			r.syncer.AddSnapshot("self", snap)
+			if _, err := r.syncer.AddSnapshot("self", snap); err != nil {
+				return sm.State{}, fmt.Errorf("failed to add snapshot at height %d: %w", snap.Height, err)
+			}
 		}
 	}
 
@@ -623,7 +626,7 @@ func (r *Reactor) backfill(
 			}
 
 			// check if there has been a change in the validator set
-			if lastValidatorSet != nil && !bytes.Equal(resp.block.Header.ValidatorsHash, resp.block.Header.NextValidatorsHash) {
+			if lastValidatorSet != nil && !bytes.Equal(resp.block.ValidatorsHash, resp.block.NextValidatorsHash) {
 				// save all the heights that the last validator set was the same
 				if err := r.stateStore.SaveValidatorSets(resp.block.Height+1, lastChangeHeight, lastValidatorSet); err != nil {
 					return err
@@ -874,11 +877,16 @@ func (r *Reactor) handleLightBlockMessage(ctx context.Context, m p2p.RecvMsg[*pb
 
 func (r *Reactor) handleParamsMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message]) (err error) {
 	defer r.recoverToErr(&err)
+
 	switch msg := m.Message.Sum.(type) {
 	case *pb.Message_ParamsRequest:
 		req := msg.ParamsRequest
+		if req.GetHeight() > math.MaxInt64 {
+			r.logger.Error("invalid height in params request", "height", req.GetHeight())
+			return nil
+		}
 		r.logger.Debug("received consensus params request", "height", req.GetHeight())
-		cp, err := r.stateStore.LoadConsensusParams(int64(req.GetHeight()))
+		cp, err := r.stateStore.LoadConsensusParams(int64(req.GetHeight())) //nolint:gosec // height from peer is validated above
 		if err != nil {
 			r.logger.Error("failed to fetch requested consensus params", "err", err, "height", req.GetHeight())
 			return nil
@@ -1103,7 +1111,7 @@ func (r *Reactor) recentSnapshots(ctx context.Context, n uint32) ([]*snapshot, e
 // fetchLightBlock works out whether the node has a light block at a particular
 // height and if so returns it so it can be gossiped to peers
 func (r *Reactor) fetchLightBlock(height uint64) (*types.LightBlock, error) {
-	h := int64(height)
+	h := int64(height) //nolint:gosec // height validated by Message.Validate() upstream
 
 	blockMeta := r.blockStore.LoadBlockMeta(h)
 	if blockMeta == nil {

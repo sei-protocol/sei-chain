@@ -90,19 +90,19 @@ import (
 	porttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/05-port/types"
 	ibchost "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/x/mint"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
-	tmcfg "github.com/tendermint/tendermint/config"
 
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/spf13/cast"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmjson "github.com/tendermint/tendermint/libs/json"
-	"github.com/tendermint/tendermint/libs/log"
-	tmos "github.com/tendermint/tendermint/libs/os"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
 	wasmappparams "github.com/sei-protocol/sei-chain/sei-wasmd/app/params"
@@ -702,9 +702,8 @@ func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBl
 	evidence.BeginBlocker(ctx, []abci.Misbehavior{}, app.evidenceKeeper)
 	staking.BeginBlocker(ctx, app.stakingKeeper)
 	ibcclient.BeginBlocker(ctx, app.ibcKeeper.ClientKeeper)
-	events := []abci.Event{}
 
-	typedTxs := []sdk.Tx{}
+	typedTxs := make([]sdk.Tx, 0, len(req.Txs))
 	for _, tx := range req.Txs {
 		typedTx, err := app.txDecoder(tx)
 		if err != nil {
@@ -714,7 +713,7 @@ func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBl
 		}
 	}
 
-	txResults := []*abci.ExecTxResult{}
+	txResults := make([]*abci.ExecTxResult, 0, len(req.Txs))
 	for i, tx := range req.Txs {
 		ctx = ctx.WithTxIndex(i)
 		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTxV2{
@@ -732,7 +731,7 @@ func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBl
 		})
 	}
 	vals := app.EndBlocker(ctx)
-	events = append(events, sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents)...)
+	events := sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents)
 	cpUpdates := legacytm.ABCIToLegacyConsensusParams(app.GetConsensusParams(ctx))
 
 	app.SetDeliverStateToCommit()

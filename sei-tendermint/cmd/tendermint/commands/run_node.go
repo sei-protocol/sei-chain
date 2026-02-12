@@ -4,14 +4,15 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
-	"github.com/spf13/cobra"
 	"io"
 	"os"
 	"os/signal"
 	"syscall"
 
-	cfg "github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/log"
+	"github.com/spf13/cobra"
+
+	cfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
 var (
@@ -150,7 +151,7 @@ func checkGenesisHash(config *cfg.Config) error {
 	if err != nil {
 		return fmt.Errorf("can't open genesis file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return fmt.Errorf("error when hashing genesis file: %w", err)

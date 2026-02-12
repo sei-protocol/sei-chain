@@ -1,8 +1,8 @@
 package codec
 
 import (
-	"github.com/tendermint/tendermint/crypto"
-	pb "github.com/tendermint/tendermint/proto/tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"

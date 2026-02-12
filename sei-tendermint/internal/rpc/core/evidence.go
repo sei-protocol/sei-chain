@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/tendermint/tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 // BroadcastEvidence broadcasts evidence of the misbehavior.

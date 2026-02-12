@@ -12,8 +12,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/tendermint/tendermint/libs/log"
-	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
 
 // wsOptions carries optional settings for a websocket connection.
@@ -36,7 +36,7 @@ var defaultWSOptions = wsOptions{
 // the remote server.
 //
 // WSClient is safe for concurrent use by multiple goroutines.
-type WSClient struct { // nolint: maligned
+type WSClient struct {
 	Logger log.Logger
 	conn   *websocket.Conn
 
@@ -345,7 +345,7 @@ func (c *WSClient) writeRoutine(ctx context.Context) {
 
 	defer func() {
 		ticker.Stop()
-		c.conn.Close()
+		_ = c.conn.Close()
 		c.wg.Done()
 	}()
 
@@ -393,7 +393,7 @@ func (c *WSClient) writeRoutine(ctx context.Context) {
 // executing all reads from this goroutine.
 func (c *WSClient) readRoutine(ctx context.Context) {
 	defer func() {
-		c.conn.Close()
+		_ = c.conn.Close()
 		c.wg.Done()
 	}()
 

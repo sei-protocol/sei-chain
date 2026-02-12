@@ -7,10 +7,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	"github.com/tendermint/tendermint/abci/example/code"
-	"github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
+	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
 const (

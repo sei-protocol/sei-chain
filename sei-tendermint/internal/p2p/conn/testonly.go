@@ -2,9 +2,10 @@ package conn
 
 import (
 	"context"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"net/netip"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 )
 
 type buf struct {
@@ -14,24 +15,24 @@ type buf struct {
 }
 
 func (b *buf) capacity() int {
-	return len(b.data) - int(b.end-b.begin)
+	return len(b.data) - int(b.end-b.begin) //nolint:gosec // b.end-b.begin is bounded by len(b.data) which fits in int
 }
 
 func (b *buf) push(data []byte) int {
 	n := min(len(data), b.capacity())
-	for i := range uint64(n) {
-		b.data[(b.end+i)%uint64(len(b.data))] = data[i]
+	for i := range uint64(n) { //nolint:gosec // n is non-negative, derived from min of two non-negative values
+		b.data[(b.end+i)%uint64(len(b.data))] = data[i] //nolint:gosec // len(b.data) is always non-negative
 	}
-	b.end += uint64(n)
+	b.end += uint64(n) //nolint:gosec // n is non-negative
 	return n
 }
 
 func (b *buf) pop(data []byte) int {
-	n := min(int(b.flushed-b.begin), len(data))
-	for i := range uint64(n) {
-		data[i] = b.data[(b.begin+i)%uint64(len(b.data))]
+	n := min(int(b.flushed-b.begin), len(data)) //nolint:gosec // flushed-begin represents buffered data size, expected to fit in int
+	for i := range uint64(n) {                  //nolint:gosec // n is non-negative, derived from min of two non-negative values
+		data[i] = b.data[(b.begin+i)%uint64(len(b.data))] //nolint:gosec // len(b.data) is always non-negative
 	}
-	b.begin += uint64(n)
+	b.begin += uint64(n) //nolint:gosec // n is non-negative
 	return n
 }
 

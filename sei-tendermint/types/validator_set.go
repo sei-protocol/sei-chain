@@ -10,10 +10,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tendermint/tendermint/crypto/merkle"
-	"github.com/tendermint/tendermint/crypto/tmhash"
-	tmmath "github.com/tendermint/tendermint/libs/math"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/tmhash"
+	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 const (
@@ -98,7 +98,7 @@ func (vals *ValidatorSet) ValidateBasic() error {
 	}
 
 	if err := vals.Proposer.ValidateBasic(); err != nil {
-		return fmt.Errorf("Proposer: %w", err)
+		return fmt.Errorf("proposer: %w", err)
 	}
 
 	for _, val := range vals.Validators {
@@ -131,7 +131,7 @@ func (vals *ValidatorSet) IncrementProposerPriority(times int32) {
 		panic("empty validator set")
 	}
 	if times <= 0 {
-		panic("Cannot call IncrementProposerPriority with non-positive times")
+		panic("cannot call IncrementProposerPriority with non-positive times")
 	}
 
 	// Cap the difference between priorities to be proportional to 2*totalPower by
@@ -280,7 +280,7 @@ func (vals *ValidatorSet) HasAddress(address []byte) bool {
 func (vals *ValidatorSet) GetByAddress(address []byte) (index int32, val *Validator) {
 	for idx, val := range vals.Validators {
 		if bytes.Equal(val.Address, address) {
-			return int32(idx), val.Copy()
+			return int32(idx), val.Copy() //nolint:gosec // validator set size is consensus-bounded, fits in int32
 		}
 	}
 	return -1, nil

@@ -132,7 +132,7 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "check_tx_priority_distribution",
-			Help:      "CheckTxPriorityDistribution is a histogram of the priority of transactions submitted via CheckTx, labeled by whether a priority hint was provided, whether the transaction was submitted locally (i.e. no sender node ID), and whether an error occured during transaction priority determination.  Note that the priority is normalized as a float64 value between zero and maximum tx priority.",
+			Help:      "CheckTxPriorityDistribution is a histogram of the priority of transactions submitted via CheckTx, labeled by whether a priority hint was provided, whether the transaction was submitted locally (i.e. no sender node ID), and whether an error occurred during transaction priority determination.  Note that the priority is normalized as a float64 value between zero and maximum tx priority.",
 
 			Buckets: stdprometheus.ExponentialBucketsRange(0.000001, 1.0, 20),
 		}, append(labels, "hint", "local", "error")).With(labelsAndValues...),

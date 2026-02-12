@@ -10,15 +10,15 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/tendermint/tendermint/abci/example/kvstore"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/light"
-	"github.com/tendermint/tendermint/light/provider"
-	httpp "github.com/tendermint/tendermint/light/provider/http"
-	dbs "github.com/tendermint/tendermint/light/store/db"
-	rpctest "github.com/tendermint/tendermint/rpc/test"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
+	httpp "github.com/sei-protocol/sei-chain/sei-tendermint/light/provider/http"
+	dbs "github.com/sei-protocol/sei-chain/sei-tendermint/light/store/db"
+	rpctest "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/test"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // NOTE: these are ports of the tests from example_test.go but

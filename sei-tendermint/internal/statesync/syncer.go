@@ -8,15 +8,15 @@ import (
 	"sync"
 	"time"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/proxy"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/light"
-	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
-	"github.com/tendermint/tendermint/types"
+	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const (
@@ -149,6 +149,14 @@ func (s *syncer) SyncAny(
 		chunks   *chunkQueue
 		err      error
 	)
+
+	// Ensure chunks is always closed on function exit
+	defer func() {
+		if chunks != nil {
+			_ = chunks.Close()
+		}
+	}()
+
 	for {
 		// If not nil, we're going to retry restoration of the same snapshot.
 		if snapshot == nil {
@@ -168,7 +176,6 @@ func (s *syncer) SyncAny(
 			if err != nil {
 				return sm.State{}, nil, fmt.Errorf("failed to create chunk queue: %w", err)
 			}
-			defer chunks.Close() // in case we forget to close it elsewhere
 		}
 
 		s.processingSnapshot = snapshot
@@ -178,7 +185,7 @@ func (s *syncer) SyncAny(
 		switch {
 		case err == nil:
 			s.metrics.SnapshotHeight.Set(float64(snapshot.Height))
-			s.lastSyncedSnapshotHeight = int64(snapshot.Height)
+			s.lastSyncedSnapshotHeight = int64(snapshot.Height) //nolint:gosec // snapshot.Height is a valid block height
 			return newState, commit, nil
 
 		case errors.Is(err, errAbort):
@@ -217,8 +224,7 @@ func (s *syncer) SyncAny(
 		}
 
 		// Discard snapshot and chunks for next iteration
-		err = chunks.Close()
-		if err != nil {
+		if err := chunks.Close(); err != nil {
 			s.logger.Error("Failed to clean up chunk queue", "err", err)
 		}
 		snapshot = nil
@@ -254,7 +260,7 @@ func (s *syncer) Sync(ctx context.Context, snapshot *snapshot, chunks *chunkQueu
 			return sm.State{}, nil, ctx.Err()
 		}
 		// catch the case where all the light client providers have been exhausted
-		if err == light.ErrNoWitnesses {
+		if errors.Is(err, light.ErrNoWitnesses) {
 			return sm.State{}, nil,
 				fmt.Errorf("failed to get app hash at height %d. No witnesses remaining", snapshot.Height)
 		}
@@ -292,7 +298,7 @@ func (s *syncer) Sync(ctx context.Context, snapshot *snapshot, chunks *chunkQueu
 		if ctx.Err() != nil {
 			return sm.State{}, nil, ctx.Err()
 		}
-		if err == light.ErrNoWitnesses {
+		if errors.Is(err, light.ErrNoWitnesses) {
 			return sm.State{}, nil,
 				fmt.Errorf("failed to get tendermint state at height %d. No witnesses remaining", snapshot.Height)
 		}
@@ -302,11 +308,11 @@ func (s *syncer) Sync(ctx context.Context, snapshot *snapshot, chunks *chunkQueu
 	}
 	commit, err := s.stateProvider.Commit(pctx, snapshot.Height)
 	if err != nil {
-		// check if the provider context exceeded the 10 second deadline
+		// check if the provider context exceeded the 10 seconds deadline
 		if ctx.Err() != nil {
 			return sm.State{}, nil, ctx.Err()
 		}
-		if err == light.ErrNoWitnesses {
+		if errors.Is(err, light.ErrNoWitnesses) {
 			return sm.State{}, nil,
 				fmt.Errorf("failed to get commit at height %d. No witnesses remaining", snapshot.Height)
 		}
@@ -432,28 +438,25 @@ func (s *syncer) applyChunks(ctx context.Context, chunks *chunkQueue, start time
 
 func (s *syncer) fetchLocalChunks(ctx context.Context, snapshot *snapshot, chunks *chunkQueue) {
 	var (
-		next  = true
 		index uint32
 		err   error
 	)
 
 	for {
-		if next {
-			index, err = chunks.Allocate()
-			if errors.Is(err, errDone) {
-				// Keep checking until the context is canceled (restore is done), in case any
-				// chunks need to be refetched.
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(2 * time.Second):
-					continue
-				}
-			}
-			if err != nil {
-				s.logger.Error("Failed to allocate chunk from queue", "err", err)
+		index, err = chunks.Allocate()
+		if errors.Is(err, errDone) {
+			// Keep checking until the context is canceled (restore is done), in case any
+			// chunks need to be refetched.
+			select {
+			case <-ctx.Done():
 				return
+			case <-time.After(2 * time.Second):
+				continue
 			}
+		}
+		if err != nil {
+			s.logger.Error("Failed to allocate chunk from queue", "err", err)
+			return
 		}
 		s.logger.Info("Fetching local snapshot chunks", "height", snapshot.Height, "chunk", index, "total", chunks.Size())
 		msg, err := s.conn.LoadSnapshotChunk(ctx, &abci.RequestLoadSnapshotChunk{
@@ -581,7 +584,7 @@ func (s *syncer) verifyApp(ctx context.Context, snapshot *snapshot, appVersion u
 		return errVerifyFailed
 	}
 
-	if uint64(resp.LastBlockHeight) != snapshot.Height {
+	if uint64(resp.LastBlockHeight) != snapshot.Height { //nolint:gosec // LastBlockHeight is a non-negative block height
 		s.logger.Error(
 			"ABCI app reported unexpected last block height",
 			"expected", snapshot.Height,

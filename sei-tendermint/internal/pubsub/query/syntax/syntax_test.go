@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tendermint/tendermint/internal/pubsub/query/syntax"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query/syntax"
 )
 
 func TestScanner(t *testing.T) {
