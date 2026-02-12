@@ -21,9 +21,11 @@ import (
 // NOTE: a Store (and MultiStores in general) should never expose the
 // keys for the substores.
 type Store struct {
-	db         types.CacheKVStore
-	stores     map[types.StoreKey]types.CacheWrap
-	keys       map[string]types.StoreKey
+	db      types.CacheKVStore
+	stores  map[types.StoreKey]types.CacheWrap
+	parents map[types.StoreKey]types.CacheWrapper
+	keys    map[string]types.StoreKey
+
 	gigaStores map[types.StoreKey]types.KVStore
 	gigaKeys   []types.StoreKey
 
@@ -64,6 +66,7 @@ func newStoreWithoutGiga(store types.KVStore, stores map[types.StoreKey]types.Ca
 	cms := Store{
 		db:           cachekv.NewStore(store, nil, types.DefaultCacheSizeLimit),
 		stores:       make(map[types.StoreKey]types.CacheWrap, len(stores)),
+		parents:      make(map[types.StoreKey]types.CacheWrapper, len(stores)),
 		keys:         keys,
 		gigaKeys:     gigaKeys,
 		traceWriter:  traceWriter,
@@ -72,10 +75,7 @@ func newStoreWithoutGiga(store types.KVStore, stores map[types.StoreKey]types.Ca
 	}
 
 	for key, store := range stores {
-		if cms.TracingEnabled() {
-			store = tracekv.NewStore(store.(types.KVStore), cms.traceWriter, cms.traceContext)
-		}
-		cms.stores[key] = cachekv.NewStore(store.(types.KVStore), key, types.DefaultCacheSizeLimit)
+		cms.parents[key] = store
 	}
 	return cms
 }
@@ -95,12 +95,34 @@ func newCacheMultiStoreFromCMS(cms Store) Store {
 	for k, v := range cms.stores {
 		stores[k] = v
 	}
+	for k, v := range cms.parents {
+		stores[k] = v
+	}
 	gigaStores := make(map[types.StoreKey]types.KVStore, len(cms.gigaStores))
 	for k, v := range cms.gigaStores {
 		gigaStores[k] = v
 	}
 
 	return NewFromKVStore(cms.db, stores, gigaStores, cms.keys, cms.gigaKeys, cms.traceWriter, cms.traceContext)
+}
+
+// getOrCreateStore lazily creates a cachekv store from its parent on first access.
+func (cms Store) getOrCreateStore(key types.StoreKey) types.CacheWrap {
+	if s, ok := cms.stores[key]; ok {
+		return s
+	}
+	parent, ok := cms.parents[key]
+	if !ok {
+		return nil
+	}
+	var cw types.CacheWrapper = parent
+	if cms.TracingEnabled() {
+		cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
+	}
+	s := cachekv.NewStore(cw.(types.KVStore), key, types.DefaultCacheSizeLimit)
+	cms.stores[key] = s
+	delete(cms.parents, key)
+	return s
 }
 
 // SetTracer sets the tracer for the MultiStore that the underlying
@@ -176,7 +198,7 @@ func (cms Store) CacheMultiStoreWithVersion(_ int64) (types.CacheMultiStore, err
 
 // GetStore returns an underlying Store by key.
 func (cms Store) GetStore(key types.StoreKey) types.Store {
-	s := cms.stores[key]
+	s := cms.getOrCreateStore(key)
 	if key == nil || s == nil {
 		panic(fmt.Sprintf("kv store with key %v has not been registered in stores", key))
 	}
@@ -185,11 +207,11 @@ func (cms Store) GetStore(key types.StoreKey) types.Store {
 
 // GetKVStore returns an underlying KVStore by key.
 func (cms Store) GetKVStore(key types.StoreKey) types.KVStore {
-	store := cms.stores[key]
-	if key == nil || store == nil {
+	s := cms.getOrCreateStore(key)
+	if key == nil || s == nil {
 		panic(fmt.Sprintf("kv store with key %v has not been registered in stores", key))
 	}
-	return store.(types.KVStore)
+	return s.(types.KVStore)
 }
 
 func (cms Store) GetGigaKVStore(key types.StoreKey) types.KVStore {
@@ -220,6 +242,10 @@ func (cms Store) StoreKeys() []types.StoreKey {
 
 // SetKVStores sets the underlying KVStores via a handler for each key
 func (cms Store) SetKVStores(handler func(sk types.StoreKey, s types.KVStore) types.CacheWrap) types.MultiStore {
+	// Force-create any lazy stores
+	for k := range cms.parents {
+		cms.getOrCreateStore(k)
+	}
 	for k, s := range cms.stores {
 		cms.stores[k] = handler(k, s.(types.KVStore))
 	}
