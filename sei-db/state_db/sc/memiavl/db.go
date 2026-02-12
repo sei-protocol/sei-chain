@@ -522,7 +522,9 @@ func (db *DB) pruneSnapshots() {
 	db.logger.Info("pruneSnapshots started")
 	startTime := time.Now()
 	defer func() {
-		db.logger.Info("pruneSnapshots completed", "duration_sec", fmt.Sprintf("%.2fs", time.Since(startTime).Seconds()))
+		pruneLatency := time.Since(startTime).Seconds()
+		otelMetrics.SnapshotPruneLatency.Record(context.Background(), pruneLatency)
+		db.logger.Info("pruneSnapshots completed", "duration_sec", fmt.Sprintf("%.2fs", pruneLatency))
 	}()
 
 	currentVersion, err := currentVersion(db.dir)
