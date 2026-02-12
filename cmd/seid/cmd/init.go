@@ -9,6 +9,7 @@ import (
 
 	"github.com/cosmos/go-bip39"
 	"github.com/pkg/errors"
+	"github.com/sei-protocol/sei-chain/app/genesis"
 	"github.com/sei-protocol/sei-chain/app/params"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
@@ -144,26 +145,40 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			if !overwrite && tmos.FileExists(genFile) {
 				return fmt.Errorf("genesis.json file already exists: %v", genFile)
 			}
-			appState, err := json.MarshalIndent(mbm.DefaultGenesis(cdc), "", " ")
-			if err != nil {
-				return errors.Wrap(err, "Failed to marshall default genesis state")
-			}
 
-			genDoc := &types.GenesisDoc{}
-			if _, err := os.Stat(genFile); err != nil {
-				if !os.IsNotExist(err) {
-					return err
-				}
-			} else {
-				genDoc, err = types.GenesisDocFromFile(genFile)
+			var genDoc *types.GenesisDoc
+			var appState json.RawMessage
+			if genesis.IsWellKnown(chainID) {
+				var err error
+				genDoc, err = genesis.EmbeddedGenesisDoc(chainID)
 				if err != nil {
-					return errors.Wrap(err, "Failed to read genesis doc from file")
+					return errors.Wrapf(err, "failed to load embedded genesis for %s", chainID)
 				}
+				appState = genDoc.AppState
+			} else {
+				var err error
+				appState, err = json.MarshalIndent(mbm.DefaultGenesis(cdc), "", " ")
+				if err != nil {
+					return errors.Wrap(err, "Failed to marshall default genesis state")
+				}
+				genDoc = &types.GenesisDoc{}
+				if fi, err := os.Stat(genFile); err != nil {
+					if !os.IsNotExist(err) {
+						return err
+					}
+				} else {
+					if fi.IsDir() {
+						return fmt.Errorf("genesis path is a directory, not a file: %s", genFile)
+					}
+					genDoc, err = types.GenesisDocFromFile(genFile)
+					if err != nil {
+						return errors.Wrap(err, "Failed to read genesis doc from file")
+					}
+				}
+				genDoc.ChainID = chainID
+				genDoc.Validators = nil
+				genDoc.AppState = appState
 			}
-
-			genDoc.ChainID = chainID
-			genDoc.Validators = nil
-			genDoc.AppState = appState
 			if err = genutil.ExportGenesisFile(genDoc, genFile); err != nil {
 				return errors.Wrap(err, "Failed to export genesis file")
 			}
