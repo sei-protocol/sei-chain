@@ -2836,7 +2836,8 @@ func (app *App) inplacetestnetInitializer(pk cryptotypes.PubKey) error {
 }
 
 // DebugHeight is the block height at which debug logging is enabled
-const DebugHeight = 193119398
+const DebugHeight = 193146655
+
 
 // debugLogTxBalances logs the balance and state of sender/recipient for debugging mismatch issues
 func (app *App) debugLogTxBalances(ctx sdk.Context, phase string, txIndex int, typedTx sdk.Tx, executorType string) {
