@@ -546,10 +546,12 @@ func (db *DB) pruneSnapshots() {
 		}
 
 		name := snapshotName(version)
-		db.logger.Info("prune snapshot", "name", name)
 
 		if err := atomicRemoveDir(filepath.Join(db.dir, name)); err != nil {
 			db.logger.Error("failed to prune snapshot", "err", err)
+		} else {
+			db.logger.Info("successfully pruned snapshot", "name", name)
+			otelMetrics.SnapshotPruneCount.Add(context.Background(), 1)
 		}
 
 		return false, nil
