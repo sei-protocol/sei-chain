@@ -69,10 +69,10 @@ type RouterOptions struct {
 	// return an error to reject the peer.
 	FilterPeerByID utils.Option[func(context.Context, types.NodeID) error]
 
-	// MaxDialRate limits the rate at which router is dialing peers. Defaults to 1/1.5s (copied over from old impl).
+	// MaxDialRate limits the rate at which router is dialing peers. Defaults to 0.1/s.
 	MaxDialRate utils.Option[rate.Limit]
 
-	// MaxAcceptRate limits the rate at which router is accepting TCP connections. Defaults to 2/s.
+	// MaxAcceptRate limits the rate at which router is accepting TCP connections. Defaults to 1/s.
 	MaxAcceptRate utils.Option[rate.Limit]
 
 	// ResolveTimeout is the timeout for resolving NodeAddress URLs.
@@ -173,11 +173,11 @@ func (o *RouterOptions) Validate() error {
 }
 
 func (o *RouterOptions) maxDialRate() rate.Limit {
-	return o.MaxDialRate.Or(rate.Every(1500 * time.Millisecond))
+	return o.MaxDialRate.Or(rate.Every(10 * time.Second))
 }
 
 func (o *RouterOptions) maxAcceptRate() rate.Limit {
-	return o.MaxDialRate.Or(rate.Every(500 * time.Millisecond))
+	return o.MaxAcceptRate.Or(rate.Every(time.Second))
 }
 
 func (o *RouterOptions) incomingConnectionWindow() time.Duration {

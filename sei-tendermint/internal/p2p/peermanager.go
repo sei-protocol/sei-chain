@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/im"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -283,6 +284,15 @@ type peerManager[C peerConn] struct {
 	// without taking lock on inner.
 	conns utils.AtomicRecv[connSet[C]]
 	inner utils.Watch[*peerManagerInner[C]]
+}
+
+func (p *peerManager[C]) LogState(logger log.Logger) {
+	for inner := range p.inner.Lock() {
+		logger.Info("p2p connections",
+			"regular", fmt.Sprintf("%v/%v", inner.conditionalConns, p.options.maxConns()),
+			"unconditional", inner.conns.Load().Len()-inner.conditionalConns,
+		)
+	}
 }
 
 // PeerUpdatesRecv.
