@@ -3,6 +3,7 @@ package parquet
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -324,8 +325,8 @@ func (s *Store) startPruning(pruneIntervalSeconds int64) {
 				}
 			}
 
-			// Add jitter to avoid thundering herd
-			jitter := time.Duration(float64(pruneIntervalSeconds)*0.5) * time.Second
+			// Add random jitter (up to 50% of base interval) to avoid thundering herd
+			jitter := time.Duration(rand.Float64()*float64(pruneIntervalSeconds)*0.5) * time.Second
 			sleepDuration := time.Duration(pruneIntervalSeconds)*time.Second + jitter
 
 			select {

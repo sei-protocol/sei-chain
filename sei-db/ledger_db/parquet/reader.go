@@ -139,7 +139,7 @@ func (r *Reader) validateFiles(files []string) []string {
 
 func (r *Reader) isFileReadable(path string) bool {
 	// #nosec G201 -- path comes from validated local files, not user input
-	_, err := r.db.Exec(fmt.Sprintf("SELECT 1 FROM read_parquet('%s') LIMIT 1", path))
+	_, err := r.db.Exec(fmt.Sprintf("SELECT 1 FROM read_parquet(%s) LIMIT 1", quoteSQLString(path)))
 	return err == nil
 }
 
@@ -258,7 +258,7 @@ func (r *Reader) MaxReceiptBlockNumber(ctx context.Context) (uint64, bool, error
 
 	var parquetFiles string
 	if len(closedFiles) == 1 {
-		parquetFiles = fmt.Sprintf("'%s'", closedFiles[0])
+		parquetFiles = quoteSQLString(closedFiles[0])
 	} else {
 		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(closedFiles))
 	}
@@ -291,7 +291,7 @@ func (r *Reader) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*R
 
 	var parquetFiles string
 	if len(closedFiles) == 1 {
-		parquetFiles = fmt.Sprintf("'%s'", closedFiles[0])
+		parquetFiles = quoteSQLString(closedFiles[0])
 	} else {
 		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(closedFiles))
 	}
@@ -344,7 +344,7 @@ func (r *Reader) GetLogs(ctx context.Context, filter LogFilter) ([]LogResult, er
 func (r *Reader) queryLogFiles(ctx context.Context, files []string, filter LogFilter) ([]LogResult, error) {
 	var parquetFiles string
 	if len(files) == 1 {
-		parquetFiles = fmt.Sprintf("'%s'", files[0])
+		parquetFiles = quoteSQLString(files[0])
 	} else {
 		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(files))
 	}
@@ -449,7 +449,11 @@ func ExtractBlockNumber(path string) uint64 {
 func joinQuoted(files []string) string {
 	quoted := make([]string, len(files))
 	for i, f := range files {
-		quoted[i] = fmt.Sprintf("'%s'", f)
+		quoted[i] = quoteSQLString(f)
 	}
 	return strings.Join(quoted, ", ")
+}
+
+func quoteSQLString(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
