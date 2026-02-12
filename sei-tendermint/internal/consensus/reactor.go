@@ -102,8 +102,8 @@ type Reactor struct {
 	Metrics  *Metrics
 
 	peers       utils.RWMutex[map[types.NodeID]*PeerState]
-	rs          atomic.Pointer[cstypes.RoundState]
-	readySignal utils.AtomicSend[bool] // closed when the node is ready to start consensus
+	roundState  atomic.Pointer[cstypes.RoundState]
+	readySignal utils.AtomicSend[bool]
 }
 
 // NewReactor returns a reference to a new consensus reactor, which implements
@@ -151,7 +151,7 @@ func NewReactor(
 		},
 		cfg: cfg,
 	}
-	r.rs.Store(cs.GetRoundState())
+	r.roundState.Store(cs.GetRoundState())
 	cs.eventNewRoundStep = r.broadcastNewRoundStepMessage
 	cs.eventVote = r.broadcastHasVoteMessage
 	cs.eventMsg = r.recordPeerMsg
@@ -297,7 +297,7 @@ func makeRoundStepMessage(rs *cstypes.RoundState) *NewRoundStepMessage {
 }
 
 func (r *Reactor) sendNewRoundStepMessage(peerID types.NodeID) {
-	r.channels.state.Send(MsgToProto(makeRoundStepMessage(r.getRoundState())), peerID)
+	r.channels.state.Send(MsgToProto(makeRoundStepMessage(r.roundState.Load())), peerID)
 }
 
 func (r *Reactor) updateRoundStateRoutine(ctx context.Context) error {
@@ -306,11 +306,9 @@ func (r *Reactor) updateRoundStateRoutine(ctx context.Context) error {
 		if _, err := utils.Recv(ctx, t.C); err != nil {
 			return err
 		}
-		r.rs.Store(r.state.GetRoundState())
+		r.roundState.Store(r.state.GetRoundState())
 	}
 }
-
-func (r *Reactor) getRoundState() *cstypes.RoundState { return r.rs.Load() }
 
 func (r *Reactor) gossipDataForCatchup(rs *cstypes.RoundState, prs *cstypes.PeerRoundState, ps *PeerState) {
 	logger := r.logger.With("height", prs.Height).With("peer", ps.peerID)
@@ -378,7 +376,7 @@ OUTER_LOOP:
 			return err
 		}
 
-		rs := r.getRoundState()
+		rs := r.roundState.Load()
 		prs := ps.GetRoundState()
 
 		// Send proposal Block parts?
@@ -551,7 +549,7 @@ func (r *Reactor) gossipVotesRoutine(ctx context.Context, ps *PeerState) error {
 	defer timer.Stop()
 
 	for ctx.Err() == nil {
-		rs := r.getRoundState()
+		rs := r.roundState.Load()
 		prs := ps.GetRoundState()
 
 		// if height matches, then send LastCommit, Prevotes, and Precommits
@@ -602,7 +600,7 @@ func (r *Reactor) queryMaj23Routine(ctx context.Context, ps *PeerState) error {
 	for {
 		// TODO create more reliable copies of these
 		// structures so the following go routines don't race
-		rs := r.getRoundState()
+		rs := r.roundState.Load()
 		prs := ps.GetRoundState()
 
 		if rs.Height == prs.Height {
