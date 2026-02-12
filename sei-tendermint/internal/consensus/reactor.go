@@ -194,6 +194,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 			return err
 		}
 		r.SpawnCritical("processPeerUpdates", r.processPeerUpdates)
+		r.SpawnCritical("rebroadcastValidBlock", r.rebroadcastValidBlockRoutine)
 		return r.state.Run(ctx)
 	})
 	return nil
@@ -261,14 +262,30 @@ func (r *Reactor) broadcastNewRoundStepMessage(rs *cstypes.RoundState) {
 }
 
 func (r *Reactor) broadcastNewValidBlockMessage(rs *cstypes.RoundState) {
-	psHeader := rs.ProposalBlockParts.Header()
 	r.channels.state.Broadcast(MsgToProto(&NewValidBlockMessage{
 		Height:             rs.Height,
 		Round:              rs.Round,
-		BlockPartSetHeader: psHeader,
+		BlockPartSetHeader: rs.ProposalBlockParts.Header(),
 		BlockParts:         rs.ProposalBlockParts.BitArray(),
 		IsCommit:           rs.Step == cstypes.RoundStepCommit,
 	}))
+}
+
+// Rebroadcasts NewValidBlockMessage to ensure that peers know which parts
+// we are missing. It is critical in case we have small number of peers (for example just 1),
+// and they are overloaded (they drop messages a lot).
+func (r *Reactor) rebroadcastValidBlockRoutine(ctx context.Context) error {
+	// This is a fallback mechanism, no need to expose the frequency as
+	// a config parameter.
+	const interval = time.Second
+	for {
+		if err := utils.Sleep(ctx, interval); err != nil {
+			return err
+		}
+		if rs := r.getRoundState(); rs.ProposalBlockParts != nil && !rs.ProposalBlockParts.IsComplete() {
+			r.broadcastNewValidBlockMessage(rs)
+		}
+	}
 }
 
 func (r *Reactor) broadcastHasVoteMessage(vote *types.Vote) {
