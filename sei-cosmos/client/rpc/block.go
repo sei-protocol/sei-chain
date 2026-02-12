@@ -70,7 +70,7 @@ func getBlock(clientCtx client.Context, height *int64) ([]byte, error) {
 		return nil, err
 	}
 
-	return legacy.Cdc.MarshalJSON(res)
+	return legacy.Cdc.MarshalAsJSON(res)
 }
 
 // get the current blockchain height

@@ -43,7 +43,7 @@ func queryParams(ctx sdk.Context, k Keeper, legacyQuerierCdc *codec.LegacyAmino)
 func querySigningInfo(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QuerySigningInfoRequest
 
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
@@ -64,7 +64,7 @@ func querySigningInfo(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQu
 func querySigningInfos(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QuerySigningInfosParams
 
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}

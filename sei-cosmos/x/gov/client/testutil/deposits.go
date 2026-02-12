@@ -140,7 +140,7 @@ func (s *DepositTestSuite) TestRejectedProposalDeposits() {
 	cmd := cli.GetCmdQueryDeposits()
 	out, err := clitestutil.ExecTestCLICmd(val.ClientCtx, cmd, args)
 	s.Require().NoError(err)
-	s.Require().NoError(val.ClientCtx.LegacyAmino.UnmarshalJSON(out.Bytes(), &deposits))
+	s.Require().NoError(val.ClientCtx.LegacyAmino.UnmarshalAsJSON(out.Bytes(), &deposits))
 	s.Require().Equal(len(deposits.Deposits), 1)
 	// verify initial deposit
 	s.Require().Equal(deposits.Deposits[0].Amount.String(), sdk.NewCoin(s.cfg.BondDenom, types.DefaultMinDepositTokens).String())
@@ -174,7 +174,7 @@ func (s *DepositTestSuite) queryDeposits(val *network.Validator, proposalID stri
 		return nil
 	}
 	s.Require().NoError(err)
-	s.Require().NoError(val.ClientCtx.LegacyAmino.UnmarshalJSON(out.Bytes(), &depositsRes))
+	s.Require().NoError(val.ClientCtx.LegacyAmino.UnmarshalAsJSON(out.Bytes(), &depositsRes))
 	return depositsRes
 }
 
@@ -188,6 +188,6 @@ func (s *DepositTestSuite) queryDeposit(val *network.Validator, proposalID strin
 		return nil
 	}
 	s.Require().NoError(err)
-	s.Require().NoError(val.ClientCtx.LegacyAmino.UnmarshalJSON(out.Bytes(), &depositRes))
+	s.Require().NoError(val.ClientCtx.LegacyAmino.UnmarshalAsJSON(out.Bytes(), &depositRes))
 	return &depositRes
 }

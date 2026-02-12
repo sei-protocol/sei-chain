@@ -45,7 +45,7 @@ func submitSendReq(val *network.Validator, req bankrest.SendReq) (legacytx.StdTx
 	url := fmt.Sprintf("%s/bank/accounts/%s/transfers", val.APIAddress, val.Address)
 
 	// NOTE: this uses amino explicitly, don't migrate it!
-	bz, err := val.ClientCtx.LegacyAmino.MarshalJSON(req)
+	bz, err := val.ClientCtx.LegacyAmino.MarshalAsJSON(req)
 	if err != nil {
 		return legacytx.StdTx{}, errors.Wrap(err, "error encoding SendReq to json")
 	}
@@ -57,7 +57,7 @@ func submitSendReq(val *network.Validator, req bankrest.SendReq) (legacytx.StdTx
 
 	var tx legacytx.StdTx
 	// NOTE: this uses amino explicitly, don't migrate it!
-	err = val.ClientCtx.LegacyAmino.UnmarshalJSON(res, &tx)
+	err = val.ClientCtx.LegacyAmino.UnmarshalAsJSON(res, &tx)
 	if err != nil {
 		return legacytx.StdTx{}, errors.Wrap(err, "error unmarshaling to StdTx SendReq response")
 	}
@@ -99,7 +99,7 @@ func getAccountInfo(val *network.Validator) (authtypes.AccountI, error) {
 	}
 
 	var acc authtypes.AccountI
-	err = val.ClientCtx.LegacyAmino.UnmarshalJSON(bz, &acc)
+	err = val.ClientCtx.LegacyAmino.UnmarshalAsJSON(bz, &acc)
 	if err != nil {
 		return nil, err
 	}

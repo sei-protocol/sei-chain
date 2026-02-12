@@ -35,7 +35,7 @@ func QueryGenesisTxs(clientCtx client.Context, w http.ResponseWriter) {
 	genState := types.GetGenesisStateFromAppState(clientCtx.Codec, appState)
 	genTxs := make([]sdk.Tx, len(genState.GenTxs))
 	for i, tx := range genState.GenTxs {
-		err := clientCtx.LegacyAmino.UnmarshalJSON(tx, &genTxs[i])
+		err := clientCtx.LegacyAmino.UnmarshalAsJSON(tx, &genTxs[i])
 		if err != nil {
 			rest.WriteErrorResponse(
 				w, http.StatusInternalServerError,

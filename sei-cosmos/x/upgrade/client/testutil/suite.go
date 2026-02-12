@@ -92,7 +92,7 @@ func (s *IntegrationTestSuite) TestModuleVersionsCLI() {
 				pm := types.QueryModuleVersionsResponse{
 					ModuleVersions: expect,
 				}
-				jsonVM, _ := clientCtx.Codec.MarshalJSON(&pm)
+				jsonVM, _ := clientCtx.Codec.MarshalAsJSON(&pm)
 				expectedRes := string(jsonVM)
 				// append new line to match behaviour of PrintProto
 				expectedRes += "\n"

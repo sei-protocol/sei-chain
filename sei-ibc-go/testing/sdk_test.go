@@ -198,7 +198,7 @@ func (s *IntegrationTestSuite) TestLegacyRestErrMessages() {
 			out, err := clitestutil.ExecTestCLICmd(val.ClientCtx, tc.cmd, tc.args)
 			s.Require().NoError(err)
 			var txRes sdk.TxResponse
-			s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
+			s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &txRes))
 			s.Require().Equal(tc.code, txRes.Code)
 
 			s.Require().NoError(s.network.WaitForNextBlock())
@@ -240,7 +240,7 @@ func (s *IntegrationTestSuite) testQueryIBCTx(txRes sdk.TxResponse, cmd *cobra.C
 			s.Require().NoError(err)
 
 			var errResp rest.ErrorResponse
-			s.Require().NoError(val.ClientCtx.LegacyAmino.UnmarshalJSON(txJSON, &errResp))
+			s.Require().NoError(val.ClientCtx.LegacyAmino.UnmarshalAsJSON(txJSON, &errResp))
 
 			s.Require().Contains(errResp.Error, errMsg)
 		})
@@ -251,7 +251,7 @@ func (s *IntegrationTestSuite) testQueryIBCTx(txRes sdk.TxResponse, cmd *cobra.C
 	s.Require().NoError(err)
 
 	var getTxRes txtypes.GetTxResponse
-	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(grpcJSON, &getTxRes))
+	s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(grpcJSON, &getTxRes))
 	s.Require().Equal(getTxRes.Tx.Body.Memo, "foobar")
 
 	// generate broadcast only txn.
@@ -266,7 +266,7 @@ func (s *IntegrationTestSuite) testQueryIBCTx(txRes sdk.TxResponse, cmd *cobra.C
 	out, err = clitestutil.ExecTestCLICmd(val.ClientCtx, authcli.GetEncodeCommand(), []string{txFileName})
 	s.Require().NoError(err)
 
-	bz, err := val.ClientCtx.LegacyAmino.MarshalJSON(authrest.DecodeReq{Tx: string(out.Bytes())})
+	bz, err := val.ClientCtx.LegacyAmino.MarshalAsJSON(authrest.DecodeReq{Tx: string(out.Bytes())})
 	s.Require().NoError(err)
 
 	// try to decode the txn using legacy rest, it fails.
@@ -274,6 +274,6 @@ func (s *IntegrationTestSuite) testQueryIBCTx(txRes sdk.TxResponse, cmd *cobra.C
 	s.Require().NoError(err)
 
 	var errResp rest.ErrorResponse
-	s.Require().NoError(val.ClientCtx.LegacyAmino.UnmarshalJSON(res, &errResp))
+	s.Require().NoError(val.ClientCtx.LegacyAmino.UnmarshalAsJSON(res, &errResp))
 	s.Require().Contains(errResp.Error, errMsg)
 }

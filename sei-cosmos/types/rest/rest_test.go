@@ -206,11 +206,11 @@ func TestProcessPostResponse(t *testing.T) {
 	ctx = ctx.WithLegacyAmino(cdc)
 
 	// setup expected results
-	jsonNoIndent, err := ctx.LegacyAmino.MarshalJSON(acc)
+	jsonNoIndent, err := ctx.LegacyAmino.MarshalAsJSON(acc)
 	require.Nil(t, err)
 
 	respNoIndent := rest.NewResponseWithHeight(height, jsonNoIndent)
-	expectedNoIndent, err := ctx.LegacyAmino.MarshalJSON(respNoIndent)
+	expectedNoIndent, err := ctx.LegacyAmino.MarshalAsJSON(respNoIndent)
 	require.Nil(t, err)
 
 	// check that negative height writes an error
@@ -402,7 +402,7 @@ func runPostProcessResponse(t *testing.T, ctx client.Context, obj interface{}, e
 	require.Nil(t, err)
 	require.Equal(t, expectedBody, body)
 
-	marshalled, err := ctx.LegacyAmino.MarshalJSON(obj)
+	marshalled, err := ctx.LegacyAmino.MarshalAsJSON(obj)
 	require.NoError(t, err)
 
 	// test using marshalled struct

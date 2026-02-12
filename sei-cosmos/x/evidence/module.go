@@ -67,7 +67,7 @@ func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
 // ValidateGenesis performs genesis state validation for the evidence module.
 func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, config client.TxEncodingConfig, bz json.RawMessage) error {
 	var gs types.GenesisState
-	if err := cdc.UnmarshalJSON(bz, &gs); err != nil {
+	if err := cdc.UnmarshalAsJSON(bz, &gs); err != nil {
 		return fmt.Errorf("failed to unmarshal %s genesis state: %w", types.ModuleName, err)
 	}
 
@@ -171,7 +171,7 @@ func (am AppModule) RegisterInvariants(ir sdk.InvariantRegistry) {}
 // no validator updates.
 func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, bz json.RawMessage) []abci.ValidatorUpdate {
 	var gs types.GenesisState
-	err := cdc.UnmarshalJSON(bz, &gs)
+	err := cdc.UnmarshalAsJSON(bz, &gs)
 	if err != nil {
 		panic(fmt.Sprintf("failed to unmarshal %s genesis state: %s", types.ModuleName, err))
 	}

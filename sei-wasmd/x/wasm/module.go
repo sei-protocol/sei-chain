@@ -69,7 +69,7 @@ func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
 // ValidateGenesis performs genesis state validation for the wasm module.
 func (b AppModuleBasic) ValidateGenesis(marshaler codec.JSONCodec, config client.TxEncodingConfig, message json.RawMessage) error {
 	var data GenesisState
-	err := marshaler.UnmarshalJSON(message, &data)
+	err := marshaler.UnmarshalAsJSON(message, &data)
 	if err != nil {
 		return err
 	}
@@ -88,7 +88,7 @@ func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config clien
 		defer close(genesisStateCh)
 		for genesis := range genesisCh {
 			var data GenesisState
-			err_ := cdc.UnmarshalJSON(genesis, &data)
+			err_ := cdc.UnmarshalAsJSON(genesis, &data)
 			if err_ != nil {
 				err = err_
 				doneCh <- struct{}{}

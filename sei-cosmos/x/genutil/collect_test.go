@@ -23,7 +23,7 @@ type doNothingUnmarshalJSON struct {
 	codec.JSONCodec
 }
 
-func (dnj *doNothingUnmarshalJSON) UnmarshalJSON(_ []byte, _ proto.Message) error {
+func (dnj *doNothingUnmarshalJSON) UnmarshalAsJSON(_ []byte, _ proto.Message) error {
 	return nil
 }
 

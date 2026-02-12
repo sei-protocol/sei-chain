@@ -124,12 +124,12 @@ func (suite *SubspaceTestSuite) TestUpdate() {
 
 	bad := time.Minute * 5
 
-	bz, err := suite.amino.MarshalJSON(bad)
+	bz, err := suite.amino.MarshalAsJSON(bad)
 	suite.Require().NoError(err)
 	suite.Require().Error(suite.ss.Update(suite.ctx, keyUnbondingTime, bz))
 
 	good := time.Hour * 360
-	bz, err = suite.amino.MarshalJSON(good)
+	bz, err = suite.amino.MarshalAsJSON(good)
 	suite.Require().NoError(err)
 	suite.Require().NoError(suite.ss.Update(suite.ctx, keyUnbondingTime, bz))
 

@@ -129,7 +129,7 @@ func (g config) MarshalSignatureJSON(sigs []signing.SignatureV2) ([]byte, error)
 
 func (g config) UnmarshalSignatureJSON(bz []byte) ([]signing.SignatureV2, error) {
 	var sigDescs signing.SignatureDescriptors
-	err := g.protoCodec.UnmarshalJSON(bz, &sigDescs)
+	err := g.protoCodec.UnmarshalAsJSON(bz, &sigDescs)
 	if err != nil {
 		return nil, err
 	}

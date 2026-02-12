@@ -160,7 +160,7 @@ func TestParamsUnmarshalJson(t *testing.T) {
 			interfaceRegistry := codectypes.NewInterfaceRegistry()
 			marshaler := codec.NewProtoCodec(interfaceRegistry)
 
-			err := marshaler.UnmarshalJSON([]byte(spec.src), &val)
+			err := marshaler.UnmarshalAsJSON([]byte(spec.src), &val)
 			require.NoError(t, err)
 			assert.Equal(t, spec.exp, val)
 		})

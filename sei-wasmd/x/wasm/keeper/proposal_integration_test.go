@@ -557,7 +557,7 @@ func TestUpdateParamsProposal(t *testing.T) {
 			t.Log(string(bz))
 
 			var jsonProposal utils.ParamChangeProposalJSON
-			require.NoError(t, legacyAmino.UnmarshalJSON(bz, &jsonProposal))
+			require.NoError(t, legacyAmino.UnmarshalAsJSON(bz, &jsonProposal))
 			proposal := proposal.ParameterChangeProposal{
 				Title:       jsonProposal.Title,
 				Description: jsonProposal.Description,

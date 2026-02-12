@@ -20,7 +20,7 @@ func RandomizedGenState(simstate *module.SimulationState) {
 		GenMsgs: nil,
 	}
 
-	_, err := simstate.Cdc.MarshalJSON(&wasmGenesis)
+	_, err := simstate.Cdc.MarshalAsJSON(&wasmGenesis)
 	if err != nil {
 		panic(err)
 	}

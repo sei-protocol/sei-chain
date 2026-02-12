@@ -34,7 +34,7 @@ func getCurrentPlanHandler(clientCtx client.Context) func(http.ResponseWriter, *
 		}
 
 		var plan types.Plan
-		err = clientCtx.LegacyAmino.UnmarshalJSON(res, &plan)
+		err = clientCtx.LegacyAmino.UnmarshalAsJSON(res, &plan)
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}
@@ -48,7 +48,7 @@ func getDonePlanHandler(clientCtx client.Context) func(http.ResponseWriter, *htt
 		name := mux.Vars(r)["name"]
 
 		params := types.QueryAppliedPlanRequest{Name: name}
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}

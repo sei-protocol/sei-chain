@@ -50,7 +50,7 @@ func TestQueryParams(t *testing.T) {
 	res, err := querier(ctx, []string{types.QueryParameters}, query)
 	require.NoError(t, err)
 
-	err = cdc.UnmarshalJSON(res, &params)
+	err = cdc.UnmarshalAsJSON(res, &params)
 	require.NoError(t, err)
 	require.Equal(t, app.SlashingKeeper.GetParams(ctx), params)
 }

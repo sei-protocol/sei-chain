@@ -47,7 +47,7 @@ func NewResponseWithHeight(height int64, result json.RawMessage) ResponseWithHei
 // ResponseWithHeight object.
 func ParseResponseWithHeight(cdc *codec.LegacyAmino, bz []byte) ([]byte, error) {
 	r := ResponseWithHeight{}
-	if err := cdc.UnmarshalJSON(bz, &r); err != nil {
+	if err := cdc.UnmarshalAsJSON(bz, &r); err != nil {
 		return nil, err
 	}
 
@@ -140,7 +140,7 @@ func ReadRESTReq(w http.ResponseWriter, r *http.Request, cdc *codec.LegacyAmino,
 		return false
 	}
 
-	err = cdc.UnmarshalJSON(body, req)
+	err = cdc.UnmarshalAsJSON(body, req)
 	if err != nil {
 		WriteErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("failed to decode JSON payload: %s", err))
 		return false
@@ -202,7 +202,7 @@ func WriteErrorResponse(w http.ResponseWriter, status int, err string) {
 func WriteSimulationResponse(w http.ResponseWriter, cdc *codec.LegacyAmino, gas uint64) {
 	gasEst := GasEstimateResponse{GasEstimate: gas}
 
-	resp, err := cdc.MarshalJSON(gasEst)
+	resp, err := cdc.MarshalAsJSON(gasEst)
 	if CheckInternalServerError(w, err) {
 		return
 	}
@@ -279,7 +279,7 @@ func PostProcessResponseBare(w http.ResponseWriter, ctx client.Context, body int
 		resp = b
 
 	default:
-		resp, err = ctx.LegacyAmino.MarshalJSON(body)
+		resp, err = ctx.LegacyAmino.MarshalAsJSON(body)
 		if CheckInternalServerError(w, err) {
 			return
 		}
@@ -311,7 +311,7 @@ func PostProcessResponse(w http.ResponseWriter, ctx client.Context, resp interfa
 		result = res
 
 	default:
-		result, err = marshaler.MarshalJSON(resp)
+		result, err = marshaler.MarshalAsJSON(resp)
 		if CheckInternalServerError(w, err) {
 			return
 		}
@@ -319,7 +319,7 @@ func PostProcessResponse(w http.ResponseWriter, ctx client.Context, resp interfa
 
 	wrappedResp := NewResponseWithHeight(ctx.Height, result)
 
-	output, err := marshaler.MarshalJSON(wrappedResp)
+	output, err := marshaler.MarshalAsJSON(wrappedResp)
 	if CheckInternalServerError(w, err) {
 		return
 	}

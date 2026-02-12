@@ -219,11 +219,11 @@ func (c converter) Msg(meta map[string]interface{}, msg sdk.Msg) error {
 	if err != nil {
 		return err
 	}
-	return c.cdc.UnmarshalJSON(metaBytes, msg)
+	return c.cdc.UnmarshalAsJSON(metaBytes, msg)
 }
 
 func (c converter) Meta(msg sdk.Msg) (meta map[string]interface{}, err error) {
-	b, err := c.cdc.MarshalJSON(msg)
+	b, err := c.cdc.MarshalAsJSON(msg)
 	if err != nil {
 		return nil, crgerrs.WrapError(crgerrs.ErrCodec, err.Error())
 	}

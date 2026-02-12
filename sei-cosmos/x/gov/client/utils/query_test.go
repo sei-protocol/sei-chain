@@ -183,7 +183,7 @@ func TestGetPaginatedVotes(t *testing.T) {
 			votesData, err := utils.QueryVotesByTxQuery(clientCtx, params)
 			require.NoError(t, err)
 			votes := []types.Vote{}
-			require.NoError(t, clientCtx.LegacyAmino.UnmarshalJSON(votesData, &votes))
+			require.NoError(t, clientCtx.LegacyAmino.UnmarshalAsJSON(votesData, &votes))
 			require.Equal(t, len(tc.votes), len(votes))
 			for i := range votes {
 				require.Equal(t, tc.votes[i], votes[i])

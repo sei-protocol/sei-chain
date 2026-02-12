@@ -36,7 +36,7 @@ func NewQuerier(k Keeper, legacyQuerierCdc *codec.LegacyAmino) sdk.Querier {
 func queryEvidence(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryEvidenceRequest
 
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
@@ -57,7 +57,7 @@ func queryEvidence(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQueri
 func queryAllEvidence(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryAllEvidenceParams
 
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}

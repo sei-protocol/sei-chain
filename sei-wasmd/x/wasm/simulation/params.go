@@ -16,7 +16,7 @@ func ParamChanges(r *rand.Rand, cdc codec.Codec) []simtypes.ParamChange {
 	return []simtypes.ParamChange{
 		simulation.NewSimParamChange(types.ModuleName, string(types.ParamStoreKeyUploadAccess),
 			func(r *rand.Rand) string {
-				jsonBz, err := cdc.MarshalJSON(&params.CodeUploadAccess)
+				jsonBz, err := cdc.MarshalAsJSON(&params.CodeUploadAccess)
 				if err != nil {
 					panic(err)
 				}

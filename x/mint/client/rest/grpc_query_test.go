@@ -32,14 +32,14 @@ func (s *IntegrationTestSuite) SetupSuite() {
 	cfg.NumValidators = 1
 
 	var mintData minttypes.GenesisState
-	s.Require().NoError(cfg.Codec.UnmarshalJSON(genesisState[minttypes.ModuleName], &mintData))
+	s.Require().NoError(cfg.Codec.UnmarshalAsJSON(genesisState[minttypes.ModuleName], &mintData))
 
 	inflation := sdk.MustNewDecFromStr("1.0")
 	mintData.Minter.Inflation = inflation
 	mintData.Params.InflationMin = inflation
 	mintData.Params.InflationMax = inflation
 
-	mintDataBz, err := cfg.Codec.MarshalJSON(&mintData)
+	mintDataBz, err := cfg.Codec.MarshalAsJSON(&mintData)
 	s.Require().NoError(err)
 	genesisState[minttypes.ModuleName] = mintDataBz
 	cfg.GenesisState = genesisState

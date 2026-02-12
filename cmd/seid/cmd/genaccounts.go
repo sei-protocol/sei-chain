@@ -141,7 +141,7 @@ The association between the sei address and the eth address will also be created
 					EthAddress: ethAddr.Hex(),
 				}
 				evmGenState.AddressAssociations = append(evmGenState.AddressAssociations, &seiEthAddrAssociation)
-				evmGenStateBz, err := cdc.MarshalJSON(evmGenState)
+				evmGenStateBz, err := cdc.MarshalAsJSON(evmGenState)
 				if err != nil {
 					return fmt.Errorf("failed to marshal evm genesis state: %w", err)
 				}
@@ -170,7 +170,7 @@ The association between the sei address and the eth address will also be created
 			}
 			authGenState.Accounts = genAccs
 
-			authGenStateBz, err := cdc.MarshalJSON(&authGenState)
+			authGenStateBz, err := cdc.MarshalAsJSON(&authGenState)
 			if err != nil {
 				return fmt.Errorf("failed to marshal auth genesis state: %w", err)
 			}
@@ -181,7 +181,7 @@ The association between the sei address and the eth address will also be created
 			bankGenState.Balances = append(bankGenState.Balances, balances)
 			bankGenState.Balances = banktypes.SanitizeGenesisBalances(bankGenState.Balances)
 
-			bankGenStateBz, err := cdc.MarshalJSON(bankGenState)
+			bankGenStateBz, err := cdc.MarshalAsJSON(bankGenState)
 			if err != nil {
 				return fmt.Errorf("failed to marshal bank genesis state: %w", err)
 			}

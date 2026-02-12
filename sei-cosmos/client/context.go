@@ -276,7 +276,7 @@ func (ctx Context) PrintBytes(o []byte) error {
 // will be JSON encoded using ctx.Codec. An error is returned upon failure.
 func (ctx Context) PrintProto(toPrint proto.Message) error {
 	// always serialize JSON initially because proto json can't be directly YAML encoded
-	out, err := ctx.Codec.MarshalJSON(toPrint)
+	out, err := ctx.Codec.MarshalAsJSON(toPrint)
 	if err != nil {
 		return err
 	}
@@ -287,7 +287,7 @@ func (ctx Context) PrintProto(toPrint proto.Message) error {
 // and uses amino JSON encoding.
 // Deprecated: It will be removed in the near future!
 func (ctx Context) PrintObjectLegacy(toPrint interface{}) error {
-	out, err := ctx.LegacyAmino.MarshalJSON(toPrint)
+	out, err := ctx.LegacyAmino.MarshalAsJSON(toPrint)
 	if err != nil {
 		return err
 	}

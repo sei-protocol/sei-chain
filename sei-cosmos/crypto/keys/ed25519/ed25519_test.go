@@ -172,11 +172,11 @@ func TestMarshalAmino(t *testing.T) {
 			require.Equal(t, tc.msg, tc.typ)
 
 			// Do a round trip of encoding/decoding JSON.
-			bz, err = aminoCdc.MarshalJSON(tc.msg)
+			bz, err = aminoCdc.MarshalAsJSON(tc.msg)
 			require.NoError(t, err)
 			require.Equal(t, tc.expJSON, string(bz))
 
-			err = aminoCdc.UnmarshalJSON(bz, tc.typ)
+			err = aminoCdc.UnmarshalAsJSON(bz, tc.typ)
 			require.NoError(t, err)
 
 			require.Equal(t, tc.msg, tc.typ)
@@ -209,7 +209,7 @@ func TestMarshalAmino_BackwardsCompatibility(t *testing.T) {
 			"ed25519 private key, JSON",
 			tmPrivKey,
 			privKey,
-			aminoCdc.MarshalJSON,
+			aminoCdc.MarshalAsJSON,
 		},
 		{
 			"ed25519 public key, binary",
@@ -221,7 +221,7 @@ func TestMarshalAmino_BackwardsCompatibility(t *testing.T) {
 			"ed25519 public key, JSON",
 			tmPubKey,
 			pubKey,
-			aminoCdc.MarshalJSON,
+			aminoCdc.MarshalAsJSON,
 		},
 	}
 

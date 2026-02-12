@@ -61,7 +61,7 @@ func StdSignBytes(chainID string, accnum, sequence, timeout uint64, fee StdFee, 
 		msgsBytes = append(msgsBytes, json.RawMessage(legacyMsg.GetSignBytes()))
 	}
 
-	bz, err := legacy.Cdc.MarshalJSON(StdSignDoc{
+	bz, err := legacy.Cdc.MarshalAsJSON(StdSignDoc{
 		AccountNumber: accnum,
 		ChainID:       chainID,
 		Fee:           json.RawMessage(fee.Bytes()),

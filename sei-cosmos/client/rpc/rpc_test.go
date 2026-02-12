@@ -52,7 +52,7 @@ func (s *IntegrationTestSuite) TestLatestBlocks() {
 	s.Require().NoError(err)
 
 	var result ctypes.ResultBlock
-	err = legacy.Cdc.UnmarshalJSON(res, &result)
+	err = legacy.Cdc.UnmarshalAsJSON(res, &result)
 	s.Require().NoError(err)
 }
 

@@ -75,7 +75,7 @@ func queryParams(ctx sdk.Context, path []string, req abci.RequestQuery, keeper K
 // nolint: unparam
 func queryProposal(ctx sdk.Context, path []string, req abci.RequestQuery, keeper Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryProposalParams
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
@@ -96,7 +96,7 @@ func queryProposal(ctx sdk.Context, path []string, req abci.RequestQuery, keeper
 // nolint: unparam
 func queryDeposit(ctx sdk.Context, path []string, req abci.RequestQuery, keeper Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryDepositParams
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
@@ -113,7 +113,7 @@ func queryDeposit(ctx sdk.Context, path []string, req abci.RequestQuery, keeper 
 // nolint: unparam
 func queryVote(ctx sdk.Context, path []string, req abci.RequestQuery, keeper Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryVoteParams
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
@@ -130,7 +130,7 @@ func queryVote(ctx sdk.Context, path []string, req abci.RequestQuery, keeper Kee
 // nolint: unparam
 func queryDeposits(ctx sdk.Context, path []string, req abci.RequestQuery, keeper Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryProposalParams
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
@@ -151,7 +151,7 @@ func queryDeposits(ctx sdk.Context, path []string, req abci.RequestQuery, keeper
 // nolint: unparam
 func queryTally(ctx sdk.Context, path []string, req abci.RequestQuery, keeper Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryProposalParams
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
@@ -188,7 +188,7 @@ func queryTally(ctx sdk.Context, path []string, req abci.RequestQuery, keeper Ke
 // nolint: unparam
 func queryVotes(ctx sdk.Context, path []string, req abci.RequestQuery, keeper Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryProposalVotesParams
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
@@ -215,7 +215,7 @@ func queryVotes(ctx sdk.Context, path []string, req abci.RequestQuery, keeper Ke
 
 func queryProposals(ctx sdk.Context, _ []string, req abci.RequestQuery, keeper Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryProposalsParams
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}

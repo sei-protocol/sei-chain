@@ -140,7 +140,7 @@ func displayParseKeyInfo(w io.Writer, stringer fmt.Stringer, output string) {
 		out, err = yaml.Marshal(&stringer)
 
 	case OutputFormatJSON:
-		out, err = KeysCdc.MarshalJSON(stringer)
+		out, err = KeysCdc.MarshalAsJSON(stringer)
 	}
 
 	if err != nil {

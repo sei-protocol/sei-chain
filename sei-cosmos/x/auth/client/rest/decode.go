@@ -37,7 +37,7 @@ func DecodeTxRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		// NOTE: amino is used intentionally here, don't migrate it
-		err = clientCtx.LegacyAmino.UnmarshalJSON(body, &req)
+		err = clientCtx.LegacyAmino.UnmarshalAsJSON(body, &req)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}

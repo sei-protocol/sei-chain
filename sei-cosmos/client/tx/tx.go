@@ -212,7 +212,7 @@ func WriteGeneratedTxResponse(
 		return
 	}
 
-	output, err := clientCtx.LegacyAmino.MarshalJSON(stdTx)
+	output, err := clientCtx.LegacyAmino.MarshalAsJSON(stdTx)
 	if rest.CheckInternalServerError(w, err) {
 		return
 	}

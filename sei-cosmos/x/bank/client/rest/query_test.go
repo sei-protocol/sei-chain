@@ -31,7 +31,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 	cfg.NumValidators = 1
 
 	var bankGenesis types.GenesisState
-	s.Require().NoError(cfg.Codec.UnmarshalJSON(genesisState[types.ModuleName], &bankGenesis))
+	s.Require().NoError(cfg.Codec.UnmarshalAsJSON(genesisState[types.ModuleName], &bankGenesis))
 
 	bankGenesis.DenomMetadata = []types.Metadata{
 		{
@@ -55,7 +55,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 		},
 	}
 
-	bankGenesisBz, err := cfg.Codec.MarshalJSON(&bankGenesis)
+	bankGenesisBz, err := cfg.Codec.MarshalAsJSON(&bankGenesis)
 	s.Require().NoError(err)
 	genesisState[types.ModuleName] = bankGenesisBz
 	cfg.GenesisState = genesisState

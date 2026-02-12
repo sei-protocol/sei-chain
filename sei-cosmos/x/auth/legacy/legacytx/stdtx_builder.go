@@ -108,12 +108,12 @@ func (s StdTxConfig) TxDecoder() sdk.TxDecoder {
 
 func (s StdTxConfig) TxJSONEncoder() sdk.TxEncoder {
 	return func(tx sdk.Tx) ([]byte, error) {
-		return s.Cdc.MarshalJSON(tx)
+		return s.Cdc.MarshalAsJSON(tx)
 	}
 }
 
 func (s StdTxConfig) TxJSONDecoder() sdk.TxDecoder {
-	return mkDecoder(s.Cdc.UnmarshalJSON)
+	return mkDecoder(s.Cdc.UnmarshalAsJSON)
 }
 
 func (s StdTxConfig) MarshalSignatureJSON(sigs []signing.SignatureV2) ([]byte, error) {
@@ -126,12 +126,12 @@ func (s StdTxConfig) MarshalSignatureJSON(sigs []signing.SignatureV2) ([]byte, e
 
 		stdSigs[i] = stdSig
 	}
-	return s.Cdc.MarshalJSON(stdSigs)
+	return s.Cdc.MarshalAsJSON(stdSigs)
 }
 
 func (s StdTxConfig) UnmarshalSignatureJSON(bz []byte) ([]signing.SignatureV2, error) {
 	var stdSigs []StdSignature
-	err := s.Cdc.UnmarshalJSON(bz, &stdSigs)
+	err := s.Cdc.UnmarshalAsJSON(bz, &stdSigs)
 	if err != nil {
 		return nil, err
 	}

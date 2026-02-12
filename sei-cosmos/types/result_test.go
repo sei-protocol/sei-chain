@@ -46,7 +46,7 @@ func (s *resultTestSuite) TestABCIMessageLog() {
 	events := sdk.Events{sdk.NewEvent("transfer", sdk.NewAttribute("sender", "foo"))}
 	msgLog := sdk.NewABCIMessageLog(0, "", events)
 	msgLogs := sdk.ABCIMessageLogs{msgLog}
-	bz, err := cdc.MarshalJSON(msgLogs)
+	bz, err := cdc.MarshalAsJSON(msgLogs)
 
 	s.Require().NoError(err)
 	s.Require().Equal(string(bz), msgLogs.String())

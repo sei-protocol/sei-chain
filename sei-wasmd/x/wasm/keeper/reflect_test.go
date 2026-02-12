@@ -581,7 +581,7 @@ func toReflectRawMsg(cdc codec.Codec, msg sdk.Msg) (wasmvmtypes.CosmosMsg, error
 	if err != nil {
 		return wasmvmtypes.CosmosMsg{}, err
 	}
-	rawBz, err := cdc.MarshalJSON(any)
+	rawBz, err := cdc.MarshalAsJSON(any)
 	if err != nil {
 		return wasmvmtypes.CosmosMsg{}, sdkerrors.Wrap(sdkerrors.ErrJSONMarshal, err.Error())
 	}
@@ -612,7 +612,7 @@ func fromReflectRawMsg(cdc codec.Codec) CustomEncoder {
 		}
 		if custom.Raw != nil {
 			var any codectypes.Any
-			if err := cdc.UnmarshalJSON(custom.Raw, &any); err != nil {
+			if err := cdc.UnmarshalAsJSON(custom.Raw, &any); err != nil {
 				return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 			}
 			var msg sdk.Msg

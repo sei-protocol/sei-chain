@@ -79,12 +79,12 @@ func (suite *TypesTestSuite) TestMarshalClientUpdateProposalProposal() {
 
 	// marshal message
 	content := proposal.(*types.ClientUpdateProposal)
-	bz, err := cdc.MarshalJSON(content)
+	bz, err := cdc.MarshalAsJSON(content)
 	suite.Require().NoError(err)
 
 	// unmarshal proposal
 	newProposal := &types.ClientUpdateProposal{}
-	err = cdc.UnmarshalJSON(bz, newProposal)
+	err = cdc.UnmarshalAsJSON(bz, newProposal)
 	suite.Require().NoError(err)
 }
 
@@ -187,12 +187,12 @@ func (suite *TypesTestSuite) TestMarshalUpgradeProposal() {
 	cdc := codec.NewProtoCodec(ir)
 
 	// marshal message
-	bz, err := cdc.MarshalJSON(up)
+	bz, err := cdc.MarshalAsJSON(up)
 	suite.Require().NoError(err)
 
 	// unmarshal proposal
 	newUp := &types.UpgradeProposal{}
-	err = cdc.UnmarshalJSON(bz, newUp)
+	err = cdc.UnmarshalAsJSON(bz, newUp)
 	suite.Require().NoError(err)
 
 	// unpack client state

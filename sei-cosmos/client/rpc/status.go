@@ -71,7 +71,7 @@ func StatusCommand() *cobra.Command {
 				},
 			}
 
-			output, err := clientCtx.LegacyAmino.MarshalJSON(statusWithPk)
+			output, err := clientCtx.LegacyAmino.MarshalAsJSON(statusWithPk)
 			if err != nil {
 				return err
 			}

@@ -31,7 +31,7 @@ func NewMetadata(version, controllerConnectionID, hostConnectionID, accAddress, 
 // It ensures all fields are equal except the Address string
 func IsPreviousMetadataEqual(previousVersion string, metadata Metadata) bool {
 	var previousMetadata Metadata
-	if err := ModuleCdc.UnmarshalJSON([]byte(previousVersion), &previousMetadata); err != nil {
+	if err := ModuleCdc.UnmarshalAsJSON([]byte(previousVersion), &previousMetadata); err != nil {
 		return false
 	}
 

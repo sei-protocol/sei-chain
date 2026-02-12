@@ -35,7 +35,7 @@ func printKeyInfo(w io.Writer, keyInfo cryptokeyring.Info, bechKeyOut bechKeyOut
 		printTextInfos(w, []cryptokeyring.KeyOutput{ko})
 
 	case OutputFormatJSON:
-		out, err := KeysCdc.MarshalJSON(ko)
+		out, err := KeysCdc.MarshalAsJSON(ko)
 		if err != nil {
 			panic(err)
 		}
@@ -55,7 +55,7 @@ func printInfos(w io.Writer, infos []cryptokeyring.Info, output string) {
 		printTextInfos(w, kos)
 
 	case OutputFormatJSON:
-		out, err := KeysCdc.MarshalJSON(kos)
+		out, err := KeysCdc.MarshalAsJSON(kos)
 		if err != nil {
 			panic(err)
 		}

@@ -481,7 +481,7 @@ func (k Keeper) AcknowledgePacket(
 	packetCommitment := types.CommitPacket(k.cdc, packet)
 
 	var ack types.Acknowledgement
-	err := types.SubModuleCdc.UnmarshalJSON(acknowledgement, &ack)
+	err := types.SubModuleCdc.UnmarshalAsJSON(acknowledgement, &ack)
 	if err == nil {
 		ackBz := ack.Acknowledgement()
 		if !bytes.Equal(ackBz, acknowledgement) {

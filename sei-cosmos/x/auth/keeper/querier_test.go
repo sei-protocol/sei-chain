@@ -60,6 +60,6 @@ func TestQueryAccount(t *testing.T) {
 	require.NotNil(t, res)
 
 	var account types.AccountI
-	err2 := legacyQuerierCdc.LegacyAmino.UnmarshalJSON(res, &account)
+	err2 := legacyQuerierCdc.LegacyAmino.UnmarshalAsJSON(res, &account)
 	require.Nil(t, err2)
 }

@@ -33,12 +33,12 @@ func DefaultJSONTxEncoder(cdc codec.ProtoCodecMarshaler) sdk.TxEncoder {
 	return func(tx sdk.Tx) ([]byte, error) {
 		txWrapper, ok := tx.(*wrapper)
 		if ok {
-			return cdc.MarshalJSON(txWrapper.tx)
+			return cdc.MarshalAsJSON(txWrapper.tx)
 		}
 
 		protoTx, ok := tx.(*txtypes.Tx)
 		if ok {
-			return cdc.MarshalJSON(protoTx)
+			return cdc.MarshalAsJSON(protoTx)
 		}
 
 		return nil, fmt.Errorf("expected %T, got %T", &wrapper{}, tx)

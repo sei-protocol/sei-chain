@@ -138,7 +138,7 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 			}
 			authGenState.Accounts = genAccs
 
-			authGenStateBz, err := cdc.MarshalJSON(&authGenState)
+			authGenStateBz, err := cdc.MarshalAsJSON(&authGenState)
 			if err != nil {
 				return fmt.Errorf("failed to marshal auth genesis state: %w", err)
 			}
@@ -150,7 +150,7 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 			bankGenState.Balances = banktypes.SanitizeGenesisBalances(bankGenState.Balances)
 			bankGenState.Supply = bankGenState.Supply.Add(balances.Coins...)
 
-			bankGenStateBz, err := cdc.MarshalJSON(bankGenState)
+			bankGenStateBz, err := cdc.MarshalAsJSON(bankGenState)
 			if err != nil {
 				return fmt.Errorf("failed to marshal bank genesis state: %w", err)
 			}

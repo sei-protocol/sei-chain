@@ -166,7 +166,7 @@ func makeMultiSignCmd() func(cmd *cobra.Command, args []string) (err error) {
 				Mode: "block|sync|async",
 			}
 
-			json, _ = clientCtx.LegacyAmino.MarshalJSON(req)
+			json, _ = clientCtx.LegacyAmino.MarshalAsJSON(req)
 
 		} else {
 			json, err = marshalSignatureJSON(txCfg, txBuilder, sigOnly)
@@ -349,7 +349,7 @@ func makeBatchMultisignCmd() func(cmd *cobra.Command, args []string) error {
 					Mode: "block|sync|async",
 				}
 
-				json, _ = clientCtx.LegacyAmino.MarshalJSON(req)
+				json, _ = clientCtx.LegacyAmino.MarshalAsJSON(req)
 
 			} else {
 				json, err = marshalSignatureJSON(txCfg, txBldr, sigOnly)

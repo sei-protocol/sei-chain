@@ -725,6 +725,6 @@ func loadModuleState(t *testing.T, homeDir string) types.GenesisState {
 
 	appCodec := keeper.MakeEncodingConfig(t).Marshaler
 	var moduleState types.GenesisState
-	require.NoError(t, appCodec.UnmarshalJSON(appState[types.ModuleName], &moduleState))
+	require.NoError(t, appCodec.UnmarshalAsJSON(appState[types.ModuleName], &moduleState))
 	return moduleState
 }

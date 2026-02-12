@@ -75,7 +75,7 @@ func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
 // ValidateGenesis performs genesis state validation for the feegrant module.
 func (a AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, config sdkclient.TxEncodingConfig, bz json.RawMessage) error {
 	var data feegrant.GenesisState
-	if err := cdc.UnmarshalJSON(bz, &data); err != nil {
+	if err := cdc.UnmarshalAsJSON(bz, &data); err != nil {
 		sdkerrors.Wrapf(err, "failed to unmarshal %s genesis state", feegrant.ModuleName)
 	}
 

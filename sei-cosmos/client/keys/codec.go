@@ -18,10 +18,10 @@ func init() {
 
 // marshal keys
 func MarshalJSON(o interface{}) ([]byte, error) {
-	return KeysCdc.MarshalJSON(o)
+	return KeysCdc.MarshalAsJSON(o)
 }
 
 // unmarshal json
 func UnmarshalJSON(bz []byte, ptr interface{}) error {
-	return KeysCdc.UnmarshalJSON(bz, ptr)
+	return KeysCdc.UnmarshalAsJSON(bz, ptr)
 }

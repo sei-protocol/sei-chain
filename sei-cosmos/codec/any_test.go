@@ -68,11 +68,11 @@ func TestMarshalProtoPubKey(t *testing.T) {
 
 	pkAny, err := codectypes.NewAnyWithValue(pk)
 	require.NoError(err)
-	bz, err := ccfg.Marshaler.MarshalJSON(pkAny)
+	bz, err := ccfg.Marshaler.MarshalAsJSON(pkAny)
 	require.NoError(err)
 
 	var pkAny2 codectypes.Any
-	err = ccfg.Marshaler.UnmarshalJSON(bz, &pkAny2)
+	err = ccfg.Marshaler.UnmarshalAsJSON(bz, &pkAny2)
 	require.NoError(err)
 	// Before getting a cached value we need to unpack it.
 	// Normally this happens in types which implement UnpackInterfaces
@@ -119,7 +119,7 @@ func TestMarshalProtoInterfacePubKey(t *testing.T) {
 	// Any can't implement UnpackInterfacesMessage interface. So Any is not
 	// automatically unpacked and we won't get a value.
 	var pkAny codectypes.Any
-	err = ccfg.Marshaler.UnmarshalJSON(bz, &pkAny)
+	err = ccfg.Marshaler.UnmarshalAsJSON(bz, &pkAny)
 	require.NoError(err)
 	ifc := pkAny.GetCachedValue()
 	require.Nil(ifc)

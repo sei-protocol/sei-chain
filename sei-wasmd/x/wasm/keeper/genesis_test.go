@@ -103,7 +103,7 @@ func TestGenesisExportImport(t *testing.T) {
 	rand.Shuffle(len(exportedState.Sequences), func(i, j int) {
 		exportedState.Sequences[i], exportedState.Sequences[j] = exportedState.Sequences[j], exportedState.Sequences[i]
 	})
-	exportedGenesis, err := wasmKeeper.cdc.MarshalJSON(exportedState)
+	exportedGenesis, err := wasmKeeper.cdc.MarshalAsJSON(exportedState)
 	require.NoError(t, err)
 
 	// setup new instances
@@ -129,7 +129,7 @@ func TestGenesisExportImport(t *testing.T) {
 
 	// re-import
 	var importState wasmTypes.GenesisState
-	err = dstKeeper.cdc.UnmarshalJSON(exportedGenesis, &importState)
+	err = dstKeeper.cdc.UnmarshalAsJSON(exportedGenesis, &importState)
 	require.NoError(t, err)
 	InitGenesis(dstCtx, dstKeeper, importState, &StakingKeeperMock{}, TestHandler(contractKeeper))
 
@@ -507,7 +507,7 @@ func TestImportContractWithCodeHistoryReset(t *testing.T) {
 	genesisStr := fmt.Sprintf(genesisTemplate, enc64(wasmCodeHash[:]), enc64(wasmCode))
 
 	var importState wasmTypes.GenesisState
-	err = keeper.cdc.UnmarshalJSON([]byte(genesisStr), &importState)
+	err = keeper.cdc.UnmarshalAsJSON([]byte(genesisStr), &importState)
 	require.NoError(t, err)
 	require.NoError(t, importState.ValidateBasic(), genesisStr)
 

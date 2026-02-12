@@ -53,7 +53,7 @@ func (fee StdFee) Bytes() []byte {
 		fee.Amount = sdk.NewCoins()
 	}
 
-	bz, err := legacy.Cdc.MarshalJSON(fee)
+	bz, err := legacy.Cdc.MarshalAsJSON(fee)
 	if err != nil {
 		panic(err)
 	}

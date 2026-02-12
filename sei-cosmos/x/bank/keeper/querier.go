@@ -34,7 +34,7 @@ func NewQuerier(k Keeper, legacyQuerierCdc *codec.LegacyAmino) sdk.Querier {
 func queryBalance(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryBalanceRequest
 
-	if err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params); err != nil {
+	if err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params); err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
 
@@ -56,7 +56,7 @@ func queryBalance(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerie
 func queryAllBalance(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryAllBalancesRequest
 
-	if err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params); err != nil {
+	if err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params); err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
 
@@ -78,7 +78,7 @@ func queryAllBalance(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQue
 func queryTotalSupply(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryTotalSupplyRequest
 
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
@@ -104,7 +104,7 @@ func queryTotalSupply(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQu
 func querySupplyOf(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QuerySupplyOfParams
 
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}

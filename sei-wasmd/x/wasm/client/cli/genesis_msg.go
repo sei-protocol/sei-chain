@@ -437,7 +437,7 @@ func (x DefaultGenesisIO) AlterWasmModuleState(cmd *cobra.Command, callback func
 		return err
 	}
 	clientCtx := client.GetClientContextFromCmd(cmd)
-	wasmGenStateBz, err := clientCtx.Codec.MarshalJSON(g.WasmModuleState)
+	wasmGenStateBz, err := clientCtx.Codec.MarshalAsJSON(g.WasmModuleState)
 	if err != nil {
 		return sdkerrors.Wrap(err, "marshal wasm genesis state")
 	}

@@ -36,7 +36,7 @@ func queryCurrent(ctx sdk.Context, _ abci.RequestQuery, k Keeper, legacyQuerierC
 		return nil, nil
 	}
 
-	res, err := legacyQuerierCdc.MarshalJSON(&plan)
+	res, err := legacyQuerierCdc.MarshalAsJSON(&plan)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONMarshal, err.Error())
 	}
@@ -47,7 +47,7 @@ func queryCurrent(ctx sdk.Context, _ abci.RequestQuery, k Keeper, legacyQuerierC
 func queryApplied(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryAppliedPlanRequest
 
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}

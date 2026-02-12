@@ -291,7 +291,7 @@ func makeSignCmd() func(cmd *cobra.Command, args []string) error {
 				Tx:   stdTx,
 				Mode: "block|sync|async",
 			}
-			json, err = clientCtx.LegacyAmino.MarshalJSON(req)
+			json, err = clientCtx.LegacyAmino.MarshalAsJSON(req)
 			if err != nil {
 				return err
 			}

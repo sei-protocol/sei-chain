@@ -170,7 +170,7 @@ func (suite *LegacyTestSuite) TestMigrateGenesisSolomachine() {
 	expectedIBCGenState := types.DefaultGenesisState()
 	expectedIBCGenState.ClientGenesis = expectedClientGenState
 
-	bz, err := clientCtx.Codec.MarshalJSON(expectedIBCGenState)
+	bz, err := clientCtx.Codec.MarshalAsJSON(expectedIBCGenState)
 	suite.Require().NoError(err)
 	expectedAppState[host.ModuleName] = bz
 

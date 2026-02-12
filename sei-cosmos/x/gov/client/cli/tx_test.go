@@ -148,7 +148,7 @@ func (s *CLITestSuite) TestNewCmdSubmitLegacyProposal() {
 				s.Require().Error(err)
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(s.clientCtx.Codec.UnmarshalJSON(out.Bytes(), tc.respType), out.String())
+				s.Require().NoError(s.clientCtx.Codec.UnmarshalAsJSON(out.Bytes(), tc.respType), out.String())
 			}
 		})
 	}
@@ -218,7 +218,7 @@ func (s *CLITestSuite) TestNewCmdVote() {
 				s.Require().Error(err)
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(s.clientCtx.Codec.UnmarshalJSON(out.Bytes(), &txResp), out.String())
+				s.Require().NoError(s.clientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &txResp), out.String())
 			}
 		})
 	}
@@ -280,7 +280,7 @@ func (s *CLITestSuite) TestNewCmdDeposit() {
 				s.Require().Error(err)
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(s.clientCtx.Codec.UnmarshalJSON(out.Bytes(), &resp), out.String())
+				s.Require().NoError(s.clientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &resp), out.String())
 			}
 		})
 	}
@@ -362,7 +362,7 @@ func (s *CLITestSuite) TestNewCmdWeightedVote() {
 				s.Require().Error(err)
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(s.clientCtx.Codec.UnmarshalJSON(out.Bytes(), &txResp), out.String())
+				s.Require().NoError(s.clientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &txResp), out.String())
 			}
 		})
 	}

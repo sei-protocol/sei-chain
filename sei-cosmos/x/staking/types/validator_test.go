@@ -199,12 +199,12 @@ func TestPossibleOverflow(t *testing.T) {
 
 func TestValidatorMarshalUnmarshalJSON(t *testing.T) {
 	validator := newValidator(t, valAddr1, pk1)
-	js, err := legacy.Cdc.MarshalJSON(validator)
+	js, err := legacy.Cdc.MarshalAsJSON(validator)
 	require.NoError(t, err)
 	require.NotEmpty(t, js)
 	require.Contains(t, string(js), "\"consensus_pubkey\":{\"type\":\"tendermint/PubKeyEd25519\"")
 	got := &types.Validator{}
-	err = legacy.Cdc.UnmarshalJSON(js, got)
+	err = legacy.Cdc.UnmarshalAsJSON(js, got)
 	assert.NoError(t, err)
 	assert.True(t, validator.Equal(got))
 }

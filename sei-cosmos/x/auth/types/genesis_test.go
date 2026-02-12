@@ -62,7 +62,7 @@ func TestGenesisAccountIterator(t *testing.T) {
 	authGenState.Accounts = accounts
 
 	appGenesis := make(map[string]json.RawMessage)
-	authGenStateBz, err := appCodec.MarshalJSON(authGenState)
+	authGenStateBz, err := appCodec.MarshalAsJSON(authGenState)
 	require.NoError(t, err)
 
 	appGenesis[types.ModuleName] = authGenStateBz

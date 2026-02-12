@@ -59,7 +59,7 @@ func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
 // ValidateGenesis performs genesis state validation for the evm module.
 func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, _ client.TxEncodingConfig, bz json.RawMessage) error {
 	var genState types.GenesisState
-	if err := cdc.UnmarshalJSON(bz, &genState); err != nil {
+	if err := cdc.UnmarshalAsJSON(bz, &genState); err != nil {
 		return fmt.Errorf("failed to unmarshal %s genesis state: %w", types.ModuleName, err)
 	}
 	return genState.Validate()
@@ -78,7 +78,7 @@ func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config clien
 		defer close(genesisStateCh)
 		for genesis := range genesisCh {
 			var data types.GenesisState
-			err_ := cdc.UnmarshalJSON(genesis, &data)
+			err_ := cdc.UnmarshalAsJSON(genesis, &data)
 			if err_ != nil {
 				err = err_
 				doneCh <- struct{}{}

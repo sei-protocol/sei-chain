@@ -376,7 +376,7 @@ func TestAminoBinary(t *testing.T) {
 func TestAminoMarshalJSON(t *testing.T) {
 	pubkeys := generatePubKeys(2)
 	multisigKey := kmultisig.NewLegacyAminoPubKey(2, pubkeys)
-	bz, err := legacy.Cdc.MarshalJSON(multisigKey)
+	bz, err := legacy.Cdc.MarshalAsJSON(multisigKey)
 	require.NoError(t, err)
 
 	// Note the quotes around `"2"`. They are present because we are overriding
@@ -424,7 +424,7 @@ func TestAminoUnmarshalJSON(t *testing.T) {
 	cryptocodec.RegisterCrypto(cdc)
 
 	var pk cryptotypes.PubKey
-	err := cdc.UnmarshalJSON([]byte(pkJSON), &pk)
+	err := cdc.UnmarshalAsJSON([]byte(pkJSON), &pk)
 	require.NoError(t, err)
 	lpk := pk.(*kmultisig.LegacyAminoPubKey)
 	require.Equal(t, uint32(3), lpk.Threshold)

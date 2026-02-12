@@ -84,7 +84,7 @@ func (m *LegacyAminoPubKey) UnmarshalAminoJSON(tmPk tmMultisig) error {
 	for i := range m.PubKeys {
 		if m.PubKeys[i] == nil {
 			// create the compat jsonBz value
-			bz, err := AminoCdc.MarshalJSON(tmPk.PubKeys[i])
+			bz, err := AminoCdc.MarshalAsJSON(tmPk.PubKeys[i])
 			if err != nil {
 				return err
 			}

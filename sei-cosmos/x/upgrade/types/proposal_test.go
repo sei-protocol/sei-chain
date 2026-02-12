@@ -95,11 +95,11 @@ func TestMarshalSoftwareUpdateProposal(t *testing.T) {
 	cdc := codec.NewProtoCodec(ir)
 
 	// marshal message
-	bz, err := cdc.MarshalJSON(sup)
+	bz, err := cdc.MarshalAsJSON(sup)
 	require.NoError(t, err)
 
 	// unmarshal proposal
 	newSup := &types.SoftwareUpgradeProposal{}
-	err = cdc.UnmarshalJSON(bz, newSup)
+	err = cdc.UnmarshalAsJSON(bz, newSup)
 	require.NoError(t, err)
 }

@@ -204,7 +204,7 @@ func checkAminoMarshalError(ctx client.Context, resp interface{}, grpcEndPoint s
 	// LegacyAmino used intentionally here to handle the SignMode errors
 	marshaler := ctx.LegacyAmino
 
-	_, err := marshaler.MarshalJSON(resp)
+	_, err := marshaler.MarshalAsJSON(resp)
 	if err != nil {
 
 		// If there's an unmarshalling error, we assume that it's because we're

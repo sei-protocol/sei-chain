@@ -22,7 +22,7 @@ func QueryDelegationRewards(clientCtx client.Context, delAddr, valAddr string) (
 	}
 
 	params := types.NewQueryDelegationRewardsParams(delegatorAddr, validatorAddr)
-	bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+	bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to marshal params: %w", err)
 	}
@@ -61,7 +61,7 @@ func WithdrawAllDelegatorRewards(clientCtx client.Context, delegatorAddr sdk.Acc
 	}
 
 	var validators []sdk.ValAddress
-	if err := clientCtx.LegacyAmino.UnmarshalJSON(bz, &validators); err != nil {
+	if err := clientCtx.LegacyAmino.UnmarshalAsJSON(bz, &validators); err != nil {
 		return nil, err
 	}
 

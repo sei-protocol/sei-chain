@@ -52,7 +52,7 @@ func (k Keeper) RegisterInterchainAccount(ctx sdk.Context, connectionID, owner s
 		icatypes.TxTypeSDKMultiMsg,
 	)
 
-	versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+	versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 	if err != nil {
 		return err
 	}
