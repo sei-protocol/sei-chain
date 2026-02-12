@@ -75,7 +75,7 @@ func (opts *Options) FillDefaults() {
 		opts.SnapshotWriteRateMBps = DefaultSnapshotWriteRateMBps
 	}
 
-	if opts.SnapshotPrefetchThreshold < 0 || opts.SnapshotPrefetchThreshold > 1 {
+	if opts.SnapshotPrefetchThreshold <= 0 || opts.SnapshotPrefetchThreshold > 1 {
 		opts.SnapshotPrefetchThreshold = DefaultSnapshotPrefetchThreshold
 	}
 
