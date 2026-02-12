@@ -88,6 +88,7 @@ import (
 	upgradeclient "github.com/cosmos/cosmos-sdk/x/upgrade/client"
 	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -378,6 +379,10 @@ type App struct {
 
 	optimisticProcessingInfo      OptimisticProcessingInfo
 	optimisticProcessingInfoMutex sync.RWMutex
+
+	senderRecoverer      *SenderRecoverer
+	senderRecovererMutex sync.RWMutex
+	senderRecovererPool  *SenderRecovererPool
 
 	txDecoder         sdk.TxDecoder
 	AnteHandler       sdk.AnteHandler
@@ -704,6 +709,7 @@ func New(
 	}
 	app.GigaExecutorEnabled = gigaExecutorConfig.Enabled
 	app.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
+	app.senderRecovererPool = NewSenderRecovererPool()
 	if gigaExecutorConfig.Enabled {
 		evmoneVM, err := gigalib.InitEvmoneVM()
 		if err != nil {
@@ -1172,19 +1178,43 @@ func (app *App) ClearOptimisticProcessingInfo() {
 	app.optimisticProcessingInfo = OptimisticProcessingInfo{}
 }
 
+func (app *App) getSenderRecoverer() *SenderRecoverer {
+	app.senderRecovererMutex.RLock()
+	defer app.senderRecovererMutex.RUnlock()
+	return app.senderRecoverer
+}
+
+func (app *App) clearSenderRecoverer() {
+	app.senderRecovererMutex.Lock()
+	r := app.senderRecoverer
+	app.senderRecoverer = nil
+	app.senderRecovererMutex.Unlock()
+	if r != nil {
+		r.WaitAll()
+		app.senderRecovererPool.Put(r)
+	}
+}
+
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	// Start block processing timing (ends at FinalizeBlock)
 	app.StartBenchmarkBlockProcessing()
 
-	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
-	// by recording the decoding results and avoid decoding again later on.
+	// Create a sender recoverer to run ECDSA recovery in parallel during gas checking.
+	recoverer := app.senderRecovererPool.Get(req.Height, len(req.Txs))
 
-	if !app.checkTotalBlockGas(ctx, req.Txs) {
+	if !app.checkTotalBlockGas(ctx, req.Txs, recoverer) {
+		recoverer.WaitAll()
+		app.senderRecovererPool.Put(recoverer)
 		metrics.IncrFailedTotalGasWantedCheck(string(req.GetProposerAddress()))
 		return &abci.ResponseProcessProposal{
 			Status: abci.ResponseProcessProposal_REJECT,
 		}, nil
 	}
+
+	// Store recoverer for downstream giga executor consumers.
+	app.senderRecovererMutex.Lock()
+	app.senderRecoverer = recoverer
+	app.senderRecovererMutex.Unlock()
 
 	app.optimisticProcessingInfoMutex.Lock()
 	shouldStartOptimisticProcessing := app.optimisticProcessingInfo.Completion == nil
@@ -1249,6 +1279,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	startTime := time.Now()
 	defer func() {
 		app.ClearOptimisticProcessingInfo()
+		app.clearSenderRecoverer()
 		duration := time.Since(startTime)
 		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
 		// End block processing timing (started at ProcessProposal)
@@ -1368,6 +1399,8 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
 
+	recoverer := app.getSenderRecoverer()
+
 	ms := ctx.MultiStore().CacheMultiStore()
 	defer ms.Write()
 	ctx = ctx.WithMultiStore(ms)
@@ -1383,8 +1416,11 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 			continue
 		}
 
+		// Use pre-recovered sender via absolute tx index.
+		recovered := recoverer.Get(absoluteTxIndices[i])
+
 		// Execute EVM transaction through giga executor
-		result, execErr := app.executeEVMTxWithGigaExecutor(ctx, evmMsg)
+		result, execErr := app.executeEVMTxWithGigaExecutor(ctx, evmMsg, recovered)
 		if execErr != nil {
 			// Check if this is a fail-fast error (Cosmos precompile interop detected)
 			if gigautils.ShouldExecutionAbort(execErr) {
@@ -1738,17 +1774,17 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 	beginBlockResp := app.BeginBlock(ctx, req.GetHeight(), lastCommit.Votes, req.GetByzantineValidators(), true)
 	events = append(events, beginBlockResp.Events...)
 
+	// Get or create sender recoverer for parallel ECDSA recovery.
+	recoverer := app.getSenderRecoverer()
+
 	// Initialize results array
 	txResults = make([]*abci.ExecTxResult, len(txs))
 	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs))
+	decodedTxs := make([]sdk.Tx, len(txs))
 
-	// TODO: This is where the giga executor will process transactions directly
-	// For now, decode and execute each transaction through the giga executor
-	var evmTotalGasUsed int64
-
+	// Decode all transactions and fire sender recovery for EVM txs in parallel with BeginBlock.
+	chainID := app.GigaEvmKeeper.ChainID(ctx)
 	for i, txBytes := range txs {
-		// Decode as Cosmos SDK tx first to extract EVM message
-		// TODO: In full implementation, decode directly as Ethereum tx
 		decodedTx, decodeErr := app.txDecoder(txBytes)
 		if decodeErr != nil {
 			txResults[i] = &abci.ExecTxResult{
@@ -1757,24 +1793,44 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 			}
 			continue
 		}
+		decodedTxs[i] = decodedTx
 
-		// Check if this is an EVM transaction
 		evmMsg := app.GetEVMMsg(decodedTx)
 		if evmMsg == nil {
-			res := app.DeliverTxWithResult(ctx, txBytes, decodedTx)
-			// Non-EVM transaction - fall back to standard processing
+			continue
+		}
+		evmTxs[i] = evmMsg
+
+		// Fire sender recovery if not already recovering from ProcessProposal.
+		if !recoverer.IsRecovering(i) {
+			etx, _ := evmMsg.AsTransaction()
+			if etx != nil {
+				recoverer.Recover(i, ctx, etx, chainID)
+			}
+		}
+	}
+
+	// Execute transactions sequentially, blocking per-tx on recovery.
+	var evmTotalGasUsed int64
+	for i, txBytes := range txs {
+		if txResults[i] != nil {
+			continue // decode error already recorded
+		}
+
+		evmMsg := evmTxs[i]
+		if evmMsg == nil {
+			res := app.DeliverTxWithResult(ctx, txBytes, decodedTxs[i])
 			txResults[i] = res
 			continue
 		}
 
-		evmTxs[i] = evmMsg
+		// Block only until this specific tx's recovery completes.
+		recovered := recoverer.Get(i)
 
-		// Execute EVM transaction through giga executor
-		result, execErr := app.executeEVMTxWithGigaExecutor(ctx, evmMsg)
+		result, execErr := app.executeEVMTxWithGigaExecutor(ctx, evmMsg, recovered)
 		if execErr != nil {
-			// Check if this is a fail-fast error (Cosmos precompile interop detected)
 			if gigautils.ShouldExecutionAbort(execErr) {
-				res := app.DeliverTxWithResult(ctx, txBytes, decodedTx)
+				res := app.DeliverTxWithResult(ctx, txBytes, decodedTxs[i])
 				txResults[i] = res
 				continue
 			}
@@ -1808,22 +1864,35 @@ func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req 
 
 // executeEVMTxWithGigaExecutor executes a single EVM transaction using the giga executor.
 // The sender address is recovered directly from the transaction signature - no Cosmos SDK ante handlers needed.
-func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgEVMTransaction) (*abci.ExecTxResult, error) {
+func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgEVMTransaction, recovered *senderRecoveryResult) (*abci.ExecTxResult, error) {
 	// Get the Ethereum transaction from the message
 	ethTx, txData := msg.AsTransaction()
 	if ethTx == nil || txData == nil {
 		return nil, fmt.Errorf("failed to convert to eth transaction")
 	}
 
-	chainID := app.GigaEvmKeeper.ChainID(ctx)
-
-	// Recover sender using the same logic as preprocess.go (version-based signer selection)
-	sender, seiAddr, pubkey, recoverErr := evmante.RecoverSenderFromEthTx(ctx, ethTx, chainID)
-	if recoverErr != nil {
-		return &abci.ExecTxResult{
-			Code: 1,
-			Log:  fmt.Sprintf("failed to recover sender from signature: %v", recoverErr),
-		}, nil
+	// Use pre-recovered sender if available, otherwise recover inline.
+	var sender common.Address
+	var seiAddr sdk.AccAddress
+	var pubkey cryptotypes.PubKey
+	if recovered != nil {
+		if recovered.err != nil {
+			return &abci.ExecTxResult{
+				Code: 1,
+				Log:  fmt.Sprintf("failed to recover sender from signature: %v", recovered.err),
+			}, nil
+		}
+		sender, seiAddr, pubkey = recovered.sender, recovered.seiAddr, recovered.pubkey
+	} else {
+		chainID := app.GigaEvmKeeper.ChainID(ctx)
+		var recoverErr error
+		sender, seiAddr, pubkey, recoverErr = evmante.RecoverSenderFromEthTx(ctx, ethTx, chainID)
+		if recoverErr != nil {
+			return &abci.ExecTxResult{
+				Code: 1,
+				Log:  fmt.Sprintf("failed to recover sender from signature: %v", recoverErr),
+			}, nil
+		}
 	}
 
 	// Associate the address if not already associated (same as EVMPreprocessDecorator)
@@ -2133,7 +2202,12 @@ func (app *App) gigaDeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 		return abci.ResponseDeliverTx{Code: 1, Log: "not an EVM transaction"}
 	}
 
-	result, err := app.executeEVMTxWithGigaExecutor(ctx, evmMsg)
+	// Use pre-recovered sender via tx index. Returns nil on OCC re-execution
+	// (channel already consumed), causing a safe inline fallback.
+	recoverer := app.getSenderRecoverer()
+	recovered := recoverer.Get(ctx.TxIndex())
+
+	result, err := app.executeEVMTxWithGigaExecutor(ctx, evmMsg, recovered)
 	if err != nil {
 		// Check if this is a fail-fast error (Cosmos precompile interop detected)
 		if gigautils.ShouldExecutionAbort(err) {
@@ -2412,7 +2486,7 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 // checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of
 // the total gas by the txs in the block. The gas of a tx is either the gas estimate if it's an EVM tx,
 // or the gas wanted if it's a Cosmos tx.
-func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) {
+func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte, recoverer *SenderRecoverer) (result bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			ctx.Logger().Error("panic recovered in checkTotalBlockGas", "panic", r)
@@ -2420,9 +2494,10 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) 
 		}
 	}()
 
+	chainID := app.GigaEvmKeeper.ChainID(ctx)
 	totalGas, totalGasWanted := uint64(0), uint64(0)
 	nonzeroTxsCnt := 0
-	for _, tx := range txs {
+	for i, tx := range txs {
 		decodedTx, err := app.txDecoder(tx)
 		if err != nil {
 			// such tx will not be processed and thus won't consume gas. Skipping
@@ -2457,6 +2532,11 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) 
 			}
 			etx, _ := msg.AsTransaction()
 			gasWanted = etx.Gas()
+
+			// Fire non-blocking sender recovery while we continue checking gas.
+			if recoverer != nil && etx != nil {
+				recoverer.Recover(i, ctx, etx, chainID)
+			}
 		} else {
 			feeTx, ok := decodedTx.(sdk.FeeTx)
 			if !ok {
