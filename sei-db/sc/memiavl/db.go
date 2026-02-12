@@ -197,10 +197,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		return nil, err
 	}
 
-	for _, tree := range mtree.trees {
-		tree.snapshot.nodesMap.PrepareForRandomRead()
-		tree.snapshot.leavesMap.PrepareForRandomRead()
-	}
+	// Snapshot mmap files are loaded with MADV_RANDOM in OpenSnapshot().
 
 	// Create rlog manager and open the rlog file
 	streamHandler, err := changelog.NewStream(logger, utils.GetChangelogPath(opts.Dir), changelog.Config{
@@ -448,6 +445,10 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		db.snapshotRewriteChan = nil
 		db.snapshotRewriteCancelFunc = nil
 
+		// Always attempt pruning when a rewrite completes, regardless of outcome.
+		// Old snapshots from prior successful rewrites may still need cleanup.
+		defer func() { go db.pruneSnapshots() }()
+
 		if !ok {
 			// channel was closed without sending a result
 			return errors.New("snapshot rewrite channel closed unexpectedly")
@@ -484,7 +485,6 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		TotalMemNodeSize.Store(0)
 		TotalNumOfMemNode.Store(0)
 		db.logger.Info("switched to new memiavl snapshot", "version", db.MultiTree.Version())
-		go db.pruneSnapshots()
 
 	default:
 	}

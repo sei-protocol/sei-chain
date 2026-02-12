@@ -3,6 +3,7 @@ package memiavl
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -659,4 +660,56 @@ func TestRepeatedApplyChangeSet(t *testing.T) {
 		},
 	})
 	require.Error(t, err)
+}
+
+// TestPruneRunsAfterFailedRewrite verifies that old snapshots are cleaned up
+// even when a background snapshot rewrite fails. The defer in
+// checkBackgroundSnapshotRewrite ensures pruneSnapshots runs on all exit paths.
+func TestPruneRunsAfterFailedRewrite(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		SnapshotInterval:   0, // Disable auto snapshot
+		SnapshotKeepRecent: 0, // Keep only current snapshot
+		Dir:                dir,
+		CreateIfMissing:    true,
+		InitialStores:      []string{"test"},
+	})
+	require.NoError(t, err)
+	defer db.Close()
+
+	// Commit data and create a successful snapshot so we have a "current" symlink
+	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "test", Changeset: iavl.ChangeSet{
+			Pairs: []*iavl.KVPair{{Key: []byte("k1"), Value: []byte("v1")}},
+		}},
+	}))
+	_, err = db.Commit()
+	require.NoError(t, err)
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	require.NoError(t, db.Reload())
+
+	// Plant a fake old snapshot directory that should be pruned
+	fakeOldSnapshot := filepath.Join(dir, snapshotName(0))
+	require.NoError(t, os.MkdirAll(fakeOldSnapshot, 0o755))
+
+	// Verify the fake snapshot exists
+	_, err = os.Stat(fakeOldSnapshot)
+	require.NoError(t, err, "fake old snapshot should exist before test")
+
+	// Inject a failed rewrite result into the channel
+	ch := make(chan snapshotResult, 1)
+	ch <- snapshotResult{mtree: nil, err: fmt.Errorf("simulated rewrite failure")}
+	db.snapshotRewriteChan = ch
+
+	// Process the failed rewrite — should return an error
+	db.mtx.Lock()
+	err = db.checkAsyncTasks()
+	db.mtx.Unlock()
+	require.Error(t, err, "checkAsyncTasks should propagate the rewrite failure")
+
+	// Despite the failure, the deferred pruneSnapshots goroutine should clean up
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(fakeOldSnapshot)
+		return os.IsNotExist(err)
+	}, 3*time.Second, 50*time.Millisecond, "fake old snapshot should be pruned after failed rewrite")
 }
