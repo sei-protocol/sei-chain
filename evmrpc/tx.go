@@ -135,6 +135,7 @@ func getTransactionReceipt(
 	// Fill in the receipt if the transaction has failed and used 0 gas
 	// This case is for when a tx fails before it makes it to the VM
 	if receipt.Status == 0 && receipt.GasUsed == 0 {
+		receipt = cloneReceiptForMutation(receipt)
 		// Get the block
 		height := int64(receipt.BlockNumber) //nolint:gosec
 		block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &height, 1)
@@ -453,8 +454,9 @@ func encodeReceipt(
 	if !foundTx {
 		return nil, errors.New("failed to find transaction in block")
 	}
-	receipt.TransactionIndex = uint32(evmTxIndex)              //nolint:gosec
-	logs := keeper.GetLogsForTx(receipt, uint(logIndexOffset)) //nolint:gosec
+	normalizedReceipt := cloneReceiptForMutation(receipt)
+	normalizedReceipt.TransactionIndex = uint32(evmTxIndex)              //nolint:gosec
+	logs := keeper.GetLogsForTx(normalizedReceipt, uint(logIndexOffset)) //nolint:gosec
 	for _, log := range logs {
 		log.BlockHash = bh
 	}
@@ -500,4 +502,12 @@ func txIndexToUint32(txIndex hexutil.Uint) (uint32, error) {
 		return 0, errors.New("invalid tx index")
 	}
 	return uint32(txIndex), nil //nolint:gosec
+}
+
+func cloneReceiptForMutation(receipt *types.Receipt) *types.Receipt {
+	if receipt == nil {
+		return nil
+	}
+	cloned := *receipt
+	return &cloned
 }
