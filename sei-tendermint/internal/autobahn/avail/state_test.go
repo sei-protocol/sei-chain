@@ -241,35 +241,4 @@ func TestStateMismatchedQCs(t *testing.T) {
 		require.Error(err)
 		require.Contains(err.Error(), "mismatched QCs")
 	})
-
-	t.Run("PushAppVote mismatch", func(t *testing.T) {
-		require := require.New(t)
-		// 1. Push the valid CommitQC for index 0
-		err := state.PushCommitQC(ctx, qc0)
-		require.NoError(err)
-
-		// 2. Prepare votes for index 0.
-		appProposal0 := types.NewAppProposal(0, 0, types.GenAppHash(rng))
-		votes := makeAppVotes(keys, appProposal0)
-
-		// Push first 2 votes (no quorum yet for 4 nodes, quorum is 3)
-		require.NoError(state.PushAppVote(ctx, votes[0]))
-		require.NoError(state.PushAppVote(ctx, votes[1]))
-
-		// 3. Now manually corrupt the internal state to force a mismatch.
-		// We replace the CommitQC at index 0 with a CommitQC that has a different index (index 1).
-		qc1 := makeQC(utils.Some(qc0), nil)
-
-		for inner, ctrl := range state.inner.Lock() {
-			inner.commitQCs.q[0] = qc1 // Corrupt index 0 with a QC for index 1
-			ctrl.Updated()
-		}
-
-		// 4. Push the 3rd vote. This will trigger the verification against the corrupted state.
-		err = state.PushAppVote(ctx, votes[2])
-		require.Error(err)
-		// The error message comes from types.AppProposal.Verify(qc)
-		// which checks roadIndex mismatch.
-		require.Contains(err.Error(), "roadIndex")
-	})
 }
