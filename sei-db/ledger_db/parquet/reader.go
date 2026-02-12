@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -105,10 +106,18 @@ func (r *Reader) scanExistingFiles() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	receiptFiles, _ := filepath.Glob(filepath.Join(r.basePath, "receipts_*.parquet"))
+	receiptPattern := filepath.Join(r.basePath, "receipts_*.parquet")
+	receiptFiles, err := filepath.Glob(receiptPattern)
+	if err != nil {
+		log.Printf("failed to glob receipt parquet files with pattern %q: %v", receiptPattern, err)
+	}
 	r.closedReceiptFiles = r.validateFiles(receiptFiles)
 
-	logFiles, _ := filepath.Glob(filepath.Join(r.basePath, "logs_*.parquet"))
+	logPattern := filepath.Join(r.basePath, "logs_*.parquet")
+	logFiles, err := filepath.Glob(logPattern)
+	if err != nil {
+		log.Printf("failed to glob log parquet files with pattern %q: %v", logPattern, err)
+	}
 	r.closedLogFiles = r.validateFiles(logFiles)
 }
 
