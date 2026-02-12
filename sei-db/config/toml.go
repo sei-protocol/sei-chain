@@ -38,9 +38,9 @@ sc-snapshot-min-time-interval = {{ .StateCommit.SnapshotMinTimeInterval }}
 
 # SnapshotPrefetchThreshold defines the page cache residency threshold (0.0-1.0) to trigger snapshot prefetch.
 # Prefetch sequentially reads nodes/leaves files into page cache for faster cold-start replay.
-# Only active trees (evm/bank/acc) are prefetched, skipping sparse kv files to save memory.
+# Only active trees (evm/bank/acc/wasm) are prefetched, skipping sparse kv files to save memory.
 # Skips prefetch if more than threshold of pages already resident (e.g., 0.8 = 80%).
-# Setting to 0 disables prefetching. Defaults to 0.8
+# Defaults to 0.8
 sc-snapshot-prefetch-threshold = {{ .StateCommit.SnapshotPrefetchThreshold }}
 
 # Maximum snapshot write rate in MB/s (global across all trees). 0 = unlimited. Default 100.
