@@ -2016,6 +2016,31 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		}
 	}
 
+	// 5. Insufficient balance check for gas * price + value (INSUFFICIENT_FUNDS_FOR_TRANSFER)
+	// V2: x/evm/ante/fee.go BuyGas() - checks if sender has enough balance
+	// to cover gas * effectiveGasPrice + value before allowing execution.
+	// If insufficient, V2 returns ErrInsufficientFunds but still bumps nonce via DeliverTxCallback.
+	if validationErr == nil {
+		// Calculate effective gas price (min of gasFeeCap and baseFee + tip)
+		effectiveGasPrice := new(big.Int).Add(new(big.Int).Set(ethTx.GasTipCap()), baseFee)
+		if effectiveGasPrice.Cmp(ethTx.GasFeeCap()) > 0 {
+			effectiveGasPrice.Set(ethTx.GasFeeCap())
+		}
+		gasFee := new(big.Int).Mul(new(big.Int).SetUint64(ethTx.Gas()), effectiveGasPrice)
+		totalNeeded := new(big.Int).Add(gasFee, ethTx.Value())
+
+		// Get sender's current balance (usei + wei combined as wei)
+		// GigaEvmKeeper.GetBalance takes sdk.AccAddress and returns total wei balance
+		senderBalance := app.GigaEvmKeeper.GetBalance(ctx, seiAddr)
+
+		if senderBalance.Cmp(totalNeeded) < 0 {
+			validationErr = &abci.ExecTxResult{
+				Code: uint32(sdkerrors.ErrInsufficientFunds.ABCICode()),
+				Log:  fmt.Sprintf("insufficient funds for gas * price + value: address %s have %v want %v: insufficient funds", sender.Hex(), senderBalance, totalNeeded),
+			}
+		}
+	}
+
 	// Prepare context for EVM transaction (set infinite gas meter like original flow)
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 
