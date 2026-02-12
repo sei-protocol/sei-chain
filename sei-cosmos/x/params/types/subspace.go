@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/store/prefix"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 const (
@@ -105,7 +105,7 @@ func (s Subspace) Get(ctx sdk.Context, key []byte, ptr interface{}) {
 	store := s.kvStore(ctx)
 	bz := store.Get(key)
 
-	if err := s.legacyAmino.UnmarshalJSON(bz, ptr); err != nil {
+	if err := s.legacyAmino.UnmarshalAsJSON(bz, ptr); err != nil {
 		panic(err)
 	}
 }
@@ -122,7 +122,7 @@ func (s Subspace) GetIfExists(ctx sdk.Context, key []byte, ptr interface{}) {
 
 	s.checkType(key, ptr)
 
-	if err := s.legacyAmino.UnmarshalJSON(bz, ptr); err != nil {
+	if err := s.legacyAmino.UnmarshalAsJSON(bz, ptr); err != nil {
 		panic(err)
 	}
 }
@@ -171,7 +171,7 @@ func (s Subspace) checkType(key []byte, value interface{}) {
 func (s Subspace) Set(ctx sdk.Context, key []byte, value interface{}) {
 	s.checkType(key, value)
 
-	bz, err := s.legacyAmino.MarshalJSON(value)
+	bz, err := s.legacyAmino.MarshalAsJSON(value)
 	if err != nil {
 		panic(err)
 	}
@@ -203,7 +203,7 @@ func (s Subspace) Update(ctx sdk.Context, key, value []byte) error {
 	dest := reflect.New(ty).Interface()
 	s.GetIfExists(ctx, key, dest)
 
-	if err := s.legacyAmino.UnmarshalJSON(value, dest); err != nil {
+	if err := s.legacyAmino.UnmarshalAsJSON(value, dest); err != nil {
 		return err
 	}
 

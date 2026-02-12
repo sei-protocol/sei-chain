@@ -12,8 +12,8 @@ import (
 	"golang.org/x/crypto/nacl/secretbox"
 	"golang.org/x/crypto/openpgp/armor"
 
-	cosmoscrypto "github.com/cosmos/cosmos-sdk/crypto/utils"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	cosmoscrypto "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/utils"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 const (

@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/armon/go-metrics"
-	"github.com/cosmos/cosmos-sdk/telemetry"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 )
 
 // Gas consumption descriptors.

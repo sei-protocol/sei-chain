@@ -1,10 +1,10 @@
 package ante
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
-	signing "github.com/cosmos/cosmos-sdk/types/tx/signing"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
+	signing "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 )
 
 // EVMNoCosmosFieldsDecorator ensures all Cosmos tx fields are empty for EVM txs.

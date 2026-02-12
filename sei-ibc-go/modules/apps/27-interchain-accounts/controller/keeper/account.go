@@ -1,9 +1,9 @@
 package keeper
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 
 	icatypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/types"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
@@ -52,7 +52,7 @@ func (k Keeper) RegisterInterchainAccount(ctx sdk.Context, connectionID, owner s
 		icatypes.TxTypeSDKMultiMsg,
 	)
 
-	versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+	versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 	if err != nil {
 		return err
 	}

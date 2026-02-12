@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	distrcli "github.com/cosmos/cosmos-sdk/x/distribution/client/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	distrcli "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/client/cli"
 )
 
 func MsgWithdrawDelegatorRewardExec(clientCtx client.Context, valAddr fmt.Stringer, extraArgs ...string) ([]byte, error) {

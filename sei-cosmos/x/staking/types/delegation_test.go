@@ -7,9 +7,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 func TestDelegationEqual(t *testing.T) {
@@ -90,7 +90,7 @@ func TestDelegationResponses(t *testing.T) {
 	bz1, err := json.Marshal(dr1)
 	require.NoError(t, err)
 
-	bz2, err := cdc.MarshalJSON(dr1)
+	bz2, err := cdc.MarshalAsJSON(dr1)
 	require.NoError(t, err)
 
 	require.Equal(t, bz1, bz2)
@@ -98,13 +98,13 @@ func TestDelegationResponses(t *testing.T) {
 	bz1, err = json.Marshal(drs)
 	require.NoError(t, err)
 
-	bz2, err = cdc.MarshalJSON(drs)
+	bz2, err = cdc.MarshalAsJSON(drs)
 	require.NoError(t, err)
 
 	require.Equal(t, bz1, bz2)
 
 	var drs2 types.DelegationResponses
-	require.NoError(t, cdc.UnmarshalJSON(bz2, &drs2))
+	require.NoError(t, cdc.UnmarshalAsJSON(bz2, &drs2))
 	require.Equal(t, drs, drs2)
 }
 
@@ -121,7 +121,7 @@ func TestRedelegationResponses(t *testing.T) {
 	bz1, err := json.Marshal(rdr1)
 	require.NoError(t, err)
 
-	bz2, err := cdc.MarshalJSON(rdr1)
+	bz2, err := cdc.MarshalAsJSON(rdr1)
 	require.NoError(t, err)
 
 	require.Equal(t, bz1, bz2)
@@ -129,15 +129,15 @@ func TestRedelegationResponses(t *testing.T) {
 	bz1, err = json.Marshal(rdrs)
 	require.NoError(t, err)
 
-	bz2, err = cdc.MarshalJSON(rdrs)
+	bz2, err = cdc.MarshalAsJSON(rdrs)
 	require.NoError(t, err)
 
 	require.Equal(t, bz1, bz2)
 
 	var rdrs2 types.RedelegationResponses
-	require.NoError(t, cdc.UnmarshalJSON(bz2, &rdrs2))
+	require.NoError(t, cdc.UnmarshalAsJSON(bz2, &rdrs2))
 
-	bz3, err := cdc.MarshalJSON(rdrs2)
+	bz3, err := cdc.MarshalAsJSON(rdrs2)
 	require.NoError(t, err)
 
 	require.Equal(t, bz2, bz3)

@@ -6,30 +6,30 @@ import (
 	"fmt"
 	"reflect"
 
-	cosmoscrypto "github.com/cosmos/cosmos-sdk/crypto/utils"
-	auth "github.com/cosmos/cosmos-sdk/x/auth/types"
+	cosmoscrypto "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/utils"
+	auth "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	tmcoretypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
-	crgtypes "github.com/cosmos/cosmos-sdk/server/rosetta/lib/types"
+	crgtypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta/lib/types"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 
 	rosettatypes "github.com/coinbase/rosetta-sdk-go/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
-	crgerrs "github.com/cosmos/cosmos-sdk/server/rosetta/lib/errors"
+	crgerrs "github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta/lib/errors"
 
-	sdkclient "github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	sdkclient "github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
 // Converter is a utility that can be used to convert
@@ -219,11 +219,11 @@ func (c converter) Msg(meta map[string]interface{}, msg sdk.Msg) error {
 	if err != nil {
 		return err
 	}
-	return c.cdc.UnmarshalJSON(metaBytes, msg)
+	return c.cdc.UnmarshalAsJSON(metaBytes, msg)
 }
 
 func (c converter) Meta(msg sdk.Msg) (meta map[string]interface{}, err error) {
-	b, err := c.cdc.MarshalJSON(msg)
+	b, err := c.cdc.MarshalAsJSON(msg)
 	if err != nil {
 		return nil, crgerrs.WrapError(crgerrs.ErrCodec, err.Error())
 	}

@@ -30,7 +30,7 @@ go run github.com/bufbuild/buf/cmd/buf@v1.58.0 generate --template sei-tendermin
 # So we just copy the files we want to the right places manually.
 # The repo restructure should help this in the future.
 cp -rf ./build/proto/gocosmos/github.com/sei-protocol/sei-chain/* ./
-cp -rf ./build/proto/gocosmos/github.com/cosmos/cosmos-sdk/* ./sei-cosmos
+cp -rf ./build/proto/gocosmos/github.com/sei-protocol/sei-chain/sei-cosmos/* ./sei-cosmos
 cp -rf ./build/proto/gocosmos/github.com/sei-protocol/sei-chain/sei-wasmd/* ./sei-wasmd
 
 # Use gogofaster for tendermint and iavl because that's the generator they used originally. 

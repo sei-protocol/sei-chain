@@ -7,7 +7,7 @@ import (
 	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 )
 
 const (

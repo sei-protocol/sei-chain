@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/go-playground/validator/v10"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 const (

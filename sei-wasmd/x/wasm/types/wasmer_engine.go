@@ -1,7 +1,7 @@
 package types
 
 import (
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )

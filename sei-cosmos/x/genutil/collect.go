@@ -16,12 +16,12 @@ import (
 	cfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	bankexported "github.com/cosmos/cosmos-sdk/x/bank/exported"
-	"github.com/cosmos/cosmos-sdk/x/genutil/types"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	bankexported "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/exported"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 // GenAppStateFromConfig gets the genesis app state from the config

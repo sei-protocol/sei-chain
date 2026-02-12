@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 
 	clientutils "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/client/utils"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
@@ -168,13 +168,13 @@ func QueryConnectionConsensusState(
 // If the input is not a JSON, it looks for a path to the JSON file
 func ParseClientState(cdc *codec.LegacyAmino, arg string) (exported.ClientState, error) {
 	var clientState exported.ClientState
-	if err := cdc.UnmarshalJSON([]byte(arg), &clientState); err != nil {
+	if err := cdc.UnmarshalAsJSON([]byte(arg), &clientState); err != nil {
 		// check for file path if JSON input is not provided
 		contents, err := os.ReadFile(filepath.Clean(arg))
 		if err != nil {
 			return nil, errors.New("either JSON input nor path to .json file were provided")
 		}
-		if err := cdc.UnmarshalJSON(contents, &clientState); err != nil {
+		if err := cdc.UnmarshalAsJSON(contents, &clientState); err != nil {
 			return nil, fmt.Errorf("error unmarshalling client state: %w", err)
 		}
 	}
@@ -185,13 +185,13 @@ func ParseClientState(cdc *codec.LegacyAmino, arg string) (exported.ClientState,
 // Prefix. If the input is not a JSON, it looks for a path to the JSON file.
 func ParsePrefix(cdc *codec.LegacyAmino, arg string) (commitmenttypes.MerklePrefix, error) {
 	var prefix commitmenttypes.MerklePrefix
-	if err := cdc.UnmarshalJSON([]byte(arg), &prefix); err != nil {
+	if err := cdc.UnmarshalAsJSON([]byte(arg), &prefix); err != nil {
 		// check for file path if JSON input is not provided
 		contents, err := os.ReadFile(filepath.Clean(arg))
 		if err != nil {
 			return commitmenttypes.MerklePrefix{}, errors.New("neither JSON input nor path to .json file were provided")
 		}
-		if err := cdc.UnmarshalJSON(contents, &prefix); err != nil {
+		if err := cdc.UnmarshalAsJSON(contents, &prefix); err != nil {
 			return commitmenttypes.MerklePrefix{}, fmt.Errorf("error unmarshalling commitment prefix: %w", err)
 		}
 	}
@@ -203,13 +203,13 @@ func ParsePrefix(cdc *codec.LegacyAmino, arg string) (commitmenttypes.MerklePref
 // then marshals the commitment proof into a proto encoded byte array.
 func ParseProof(cdc *codec.LegacyAmino, arg string) ([]byte, error) {
 	var merkleProof commitmenttypes.MerkleProof
-	if err := cdc.UnmarshalJSON([]byte(arg), &merkleProof); err != nil {
+	if err := cdc.UnmarshalAsJSON([]byte(arg), &merkleProof); err != nil {
 		// check for file path if JSON input is not provided
 		contents, err := os.ReadFile(filepath.Clean(arg))
 		if err != nil {
 			return nil, errors.New("neither JSON input nor path to .json file were provided")
 		}
-		if err := cdc.UnmarshalJSON(contents, &merkleProof); err != nil {
+		if err := cdc.UnmarshalAsJSON(contents, &merkleProof); err != nil {
 			return nil, fmt.Errorf("error unmarshalling commitment proof: %w", err)
 		}
 	}

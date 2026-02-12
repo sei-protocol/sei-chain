@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/rpc"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"

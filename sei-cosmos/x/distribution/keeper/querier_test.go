@@ -8,15 +8,15 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/cosmos/cosmos-sdk/x/distribution/keeper"
-	"github.com/cosmos/cosmos-sdk/x/distribution/types"
-	"github.com/cosmos/cosmos-sdk/x/staking"
-	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/teststaking"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 const custom = "custom"
@@ -26,7 +26,7 @@ func getQueriedParams(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, que
 
 	bz, err := querier(ctx, []string{types.QueryParams}, abci.RequestQuery{})
 	require.Nil(t, err)
-	require.Nil(t, cdc.UnmarshalJSON(bz, &params))
+	require.Nil(t, cdc.UnmarshalAsJSON(bz, &params))
 
 	return params
 }
@@ -40,7 +40,7 @@ func getQueriedValidatorOutstandingRewards(t *testing.T, ctx sdk.Context, cdc *c
 	bz, err := querier(ctx, []string{types.QueryValidatorOutstandingRewards}, query)
 	require.Nil(t, err)
 	outstandingRewards := types.ValidatorOutstandingRewards{}
-	require.Nil(t, cdc.UnmarshalJSON(bz, &outstandingRewards))
+	require.Nil(t, cdc.UnmarshalAsJSON(bz, &outstandingRewards))
 
 	return outstandingRewards.GetRewards()
 }
@@ -54,7 +54,7 @@ func getQueriedValidatorCommission(t *testing.T, ctx sdk.Context, cdc *codec.Leg
 	bz, err := querier(ctx, []string{types.QueryValidatorCommission}, query)
 	require.Nil(t, err)
 	validatorCommission := types.ValidatorAccumulatedCommission{}
-	require.Nil(t, cdc.UnmarshalJSON(bz, &validatorCommission))
+	require.Nil(t, cdc.UnmarshalAsJSON(bz, &validatorCommission))
 
 	return validatorCommission.GetCommission()
 }
@@ -67,7 +67,7 @@ func getQueriedValidatorSlashes(t *testing.T, ctx sdk.Context, cdc *codec.Legacy
 
 	bz, err := querier(ctx, []string{types.QueryValidatorSlashes}, query)
 	require.Nil(t, err)
-	require.Nil(t, cdc.UnmarshalJSON(bz, &slashes))
+	require.Nil(t, cdc.UnmarshalAsJSON(bz, &slashes))
 
 	return
 }
@@ -80,7 +80,7 @@ func getQueriedDelegationRewards(t *testing.T, ctx sdk.Context, cdc *codec.Legac
 
 	bz, err := querier(ctx, []string{types.QueryDelegationRewards}, query)
 	require.Nil(t, err)
-	require.Nil(t, cdc.UnmarshalJSON(bz, &rewards))
+	require.Nil(t, cdc.UnmarshalAsJSON(bz, &rewards))
 
 	return
 }
@@ -93,7 +93,7 @@ func getQueriedDelegatorTotalRewards(t *testing.T, ctx sdk.Context, cdc *codec.L
 
 	bz, err := querier(ctx, []string{types.QueryDelegatorTotalRewards}, query)
 	require.Nil(t, err)
-	require.Nil(t, cdc.UnmarshalJSON(bz, &response))
+	require.Nil(t, cdc.UnmarshalAsJSON(bz, &response))
 
 	return
 }
@@ -106,7 +106,7 @@ func getQueriedCommunityPool(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmi
 
 	cp, err := querier(ctx, []string{types.QueryCommunityPool}, query)
 	require.Nil(t, err)
-	require.Nil(t, cdc.UnmarshalJSON(cp, &ptr))
+	require.Nil(t, cdc.UnmarshalAsJSON(cp, &ptr))
 
 	return
 }

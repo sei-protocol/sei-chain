@@ -1,11 +1,11 @@
 package keeper
 
 import (
-	"github.com/cosmos/cosmos-sdk/internal/conv"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/address"
-	"github.com/cosmos/cosmos-sdk/types/kv"
-	"github.com/cosmos/cosmos-sdk/x/authz"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/internal/conv"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 )
 
 // Keys for store prefixes

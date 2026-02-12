@@ -1,9 +1,9 @@
 package multisig
 
 import (
-	types "github.com/cosmos/cosmos-sdk/codec/types"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	types "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 // tmMultisig implements a K of N threshold multisig. It is used for
@@ -84,7 +84,7 @@ func (m *LegacyAminoPubKey) UnmarshalAminoJSON(tmPk tmMultisig) error {
 	for i := range m.PubKeys {
 		if m.PubKeys[i] == nil {
 			// create the compat jsonBz value
-			bz, err := AminoCdc.MarshalJSON(tmPk.PubKeys[i])
+			bz, err := AminoCdc.MarshalAsJSON(tmPk.PubKeys[i])
 			if err != nil {
 				return err
 			}

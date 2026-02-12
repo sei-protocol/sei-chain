@@ -6,12 +6,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authante "github.com/cosmos/cosmos-sdk/x/auth/ante"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authante "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"

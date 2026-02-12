@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 var (
@@ -1015,12 +1015,12 @@ func (s *coinTestSuite) TestMarshalJSONCoins() {
 	}
 
 	for _, tc := range testCases {
-		bz, err := cdc.MarshalJSON(tc.input)
+		bz, err := cdc.MarshalAsJSON(tc.input)
 		s.Require().NoError(err)
 		s.Require().Equal(tc.strOutput, string(bz))
 
 		var newCoins sdk.Coins
-		s.Require().NoError(cdc.UnmarshalJSON(bz, &newCoins))
+		s.Require().NoError(cdc.UnmarshalAsJSON(bz, &newCoins))
 
 		if tc.input.Empty() {
 			s.Require().Nil(newCoins)

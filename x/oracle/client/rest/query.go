@@ -9,9 +9,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
 )
 
 func registerQueryRoutes(cliCtx client.Context, rtr *mux.Router) {
@@ -39,7 +39,7 @@ func queryExchangeRateHandlerFunction(cliCtx client.Context) http.HandlerFunc {
 		}
 
 		params := types.NewQueryExchangeRateParams(denom)
-		bz, err := cliCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := cliCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -100,7 +100,7 @@ func queryTwapsHandlerFunction(cliCtx client.Context) http.HandlerFunc {
 		}
 
 		params := types.NewQueryTwapsParams(lookbackSeconds)
-		bz, err := cliCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := cliCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -162,7 +162,7 @@ func queryFeederDelegationHandlerFunction(cliCtx client.Context) http.HandlerFun
 		}
 
 		params := types.NewQueryFeederDelegationParams(voterAddr)
-		bz, err := cliCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := cliCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -189,7 +189,7 @@ func queryVotePenaltyCounterHandlerFunction(cliCtx client.Context) http.HandlerF
 		}
 
 		params := types.NewQueryVotePenaltyCounterParams(voterAddr)
-		bz, err := cliCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := cliCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}

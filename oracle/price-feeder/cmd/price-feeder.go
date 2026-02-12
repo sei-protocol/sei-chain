@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	input "github.com/cosmos/cosmos-sdk/client/input"
 	"github.com/mitchellh/mapstructure"
+	input "github.com/sei-protocol/sei-chain/sei-cosmos/client/input"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
@@ -25,8 +25,8 @@ import (
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/client"
 	v1 "github.com/sei-protocol/sei-chain/oracle/price-feeder/router/v1"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 const (

@@ -3,8 +3,8 @@ package cli
 import (
 	"io/ioutil"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/x/distribution/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 )
 
 // ParseCommunityPoolSpendProposalWithDeposit reads and parses a CommunityPoolSpendProposalWithDeposit from a file.
@@ -16,7 +16,7 @@ func ParseCommunityPoolSpendProposalWithDeposit(cdc codec.JSONCodec, proposalFil
 		return proposal, err
 	}
 
-	if err = cdc.UnmarshalJSON(contents, &proposal); err != nil {
+	if err = cdc.UnmarshalAsJSON(contents, &proposal); err != nil {
 		return proposal, err
 	}
 

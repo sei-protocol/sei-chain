@@ -9,7 +9,7 @@ import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "tendermint/types/types.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/x/staking/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types";
 
 // HistoricalInfo contains header and validator information for a given block.
 // It is stored as part of staking module's state, which persists the `n` most
@@ -28,19 +28,19 @@ message CommissionRates {
 
   // rate is the commission rate charged to delegators, as a fraction.
   string rate = 1 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false
   ];
   // max_rate defines the maximum commission rate which validator can ever charge, as a fraction.
   string max_rate = 2 [
     (gogoproto.moretags) = "yaml:\"max_rate\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false
   ];
   // max_change_rate defines the maximum daily increase of the validator commission, as a fraction.
   string max_change_rate = 3 [
     (gogoproto.moretags) = "yaml:\"max_change_rate\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false
   ];
 }
@@ -106,13 +106,13 @@ message Validator {
   BondStatus status = 4;
   // tokens define the delegated tokens (incl. self-delegation).
   string tokens = 5 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.nullable) = false
   ];
   // delegator_shares defines total shares issued to a validator's delegators.
   string delegator_shares = 6 [
     (gogoproto.moretags) = "yaml:\"delegator_shares\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false
   ];
   // description defines the description terms for the validator.
@@ -130,7 +130,7 @@ message Validator {
   // min_self_delegation is the validator's self declared minimum self delegation.
   string min_self_delegation = 11 [
     (gogoproto.moretags) = "yaml:\"min_self_delegation\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.nullable) = false
   ];
 }
@@ -207,7 +207,7 @@ message Delegation {
   string validator_address = 2 [(gogoproto.moretags) = "yaml:\"validator_address\""];
   // shares define the delegation shares received.
   string shares = 3 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false
   ];
 }
@@ -242,13 +242,13 @@ message UnbondingDelegationEntry {
   ];
   // initial_balance defines the tokens initially scheduled to receive at completion.
   string initial_balance = 3 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.nullable) = false,
     (gogoproto.moretags) = "yaml:\"initial_balance\""
   ];
   // balance defines the tokens to receive at completion.
   string balance = 4 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.nullable) = false
   ];
 }
@@ -268,13 +268,13 @@ message RedelegationEntry {
   ];
   // initial_balance defines the initial balance when redelegation started.
   string initial_balance = 3 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.nullable) = false,
     (gogoproto.moretags) = "yaml:\"initial_balance\""
   ];
   // shares_dst is the amount of destination-validator shares created by redelegation.
   string shares_dst = 4 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false
   ];
 }
@@ -318,20 +318,20 @@ message Params {
   // min_commission_rate is the chain-wide minimum commission rate that a validator can charge their delegators
   string min_commission_rate = 6 [
     (gogoproto.moretags) = "yaml:\"min_commission_rate\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false
   ];
   // max_voting_power_ratio defines the maximal allowable voting power ratio delegated to a validator.
   string max_voting_power_ratio = 7 [
     (gogoproto.moretags) = "yaml:\"max_voting_power_ratio\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "max_voting_power_ratio"
   ];
   // max_voting_power_enforcement_threshold defines the minimal bonded voting power of the max voting power ratio enforcement
   string max_voting_power_enforcement_threshold = 8 [
     (gogoproto.moretags) = "yaml:\"max_voting_power_enforcement_threshold\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "max_voting_power_enforcement_threshold"
   ];
@@ -356,7 +356,7 @@ message RedelegationEntryResponse {
 
   RedelegationEntry redelegation_entry = 1 [(gogoproto.nullable) = false];
   string balance = 4 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.nullable) = false
   ];
 }
@@ -377,13 +377,13 @@ message Pool {
   option (gogoproto.description) = true;
   option (gogoproto.equal) = true;
   string not_bonded_tokens = 1 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.jsontag) = "not_bonded_tokens",
     (gogoproto.nullable) = false
   ];
   string bonded_tokens = 2 [
     (gogoproto.jsontag) = "bonded_tokens",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.nullable) = false,
     (gogoproto.moretags) = "yaml:\"bonded_tokens\""
   ];

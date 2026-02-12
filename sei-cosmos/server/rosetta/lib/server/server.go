@@ -9,8 +9,8 @@ import (
 	"github.com/coinbase/rosetta-sdk-go/server"
 	"github.com/coinbase/rosetta-sdk-go/types"
 
-	"github.com/cosmos/cosmos-sdk/server/rosetta/lib/internal/service"
-	crgtypes "github.com/cosmos/cosmos-sdk/server/rosetta/lib/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta/lib/internal/service"
+	crgtypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta/lib/types"
 )
 
 const DefaultRetries = 5

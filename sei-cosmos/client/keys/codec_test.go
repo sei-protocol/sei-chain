@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/client/keys"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/keys"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 )
 
 type testCases struct {
@@ -19,14 +19,14 @@ type testCases struct {
 func getTestCases() testCases {
 	return testCases{
 		// nolint:govet
-		[]keyring.KeyOutput{
-			{"A", "B", "C", "", "D", "E"},
-			{"A", "B", "C", "", "D", ""},
-			{"", "B", "C", "", "D", ""},
-			{"", "", "", "", "", ""},
+		Keys: []keyring.KeyOutput{
+			{Name: "A", Type: "B", Address: "C", PubKey: "D", Mnemonic: "E"},
+			{Name: "A", Type: "B", Address: "C", PubKey: "D"},
+			{Type: "B", Address: "C", PubKey: "D"},
+			{},
 		},
-		make([]keyring.KeyOutput, 4),
-		[][]byte{
+		Answers: make([]keyring.KeyOutput, 4),
+		JSON: [][]byte{
 			[]byte(`{"name":"A","type":"B","address":"C","evm_address":"","pubkey":"D","mnemonic":"E"}`),
 			[]byte(`{"name":"A","type":"B","address":"C","evm_address":"","pubkey":"D"}`),
 			[]byte(`{"name":"","type":"B","address":"C","evm_address":"","pubkey":"D"}`),

@@ -3,9 +3,9 @@ package v100
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	genutiltypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
 	clientv100 "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/legacy/v100"

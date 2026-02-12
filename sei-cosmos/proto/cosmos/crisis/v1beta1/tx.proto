@@ -3,7 +3,7 @@ package cosmos.crisis.v1beta1;
 
 import "gogoproto/gogo.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/x/crisis/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis/types";
 
 // Msg defines the bank Msg service.
 service Msg {

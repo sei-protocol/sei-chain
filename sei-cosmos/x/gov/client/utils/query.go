@@ -3,11 +3,11 @@ package utils
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
-	"github.com/cosmos/cosmos-sdk/x/gov/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	authtx "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/tx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
 
 const (
@@ -79,7 +79,7 @@ func QueryDepositsByTxQuery(clientCtx client.Context, params types.QueryProposal
 		}
 	}
 
-	bz, err := clientCtx.LegacyAmino.MarshalJSON(deposits)
+	bz, err := clientCtx.LegacyAmino.MarshalAsJSON(deposits)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +159,7 @@ func QueryVotesByTxQuery(clientCtx client.Context, params types.QueryProposalVot
 		votes = votes[start:end]
 	}
 
-	bz, err := clientCtx.LegacyAmino.MarshalJSON(votes)
+	bz, err := clientCtx.LegacyAmino.MarshalAsJSON(votes)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +221,7 @@ func QueryVoteByTxQuery(clientCtx client.Context, params types.QueryVoteParams) 
 			}
 
 			if vote != nil {
-				bz, err := clientCtx.Codec.MarshalJSON(vote)
+				bz, err := clientCtx.Codec.MarshalAsJSON(vote)
 				if err != nil {
 					return nil, err
 				}
@@ -245,7 +245,7 @@ func QueryDepositByTxQuery(clientCtx client.Context, params types.QueryDepositPa
 	}
 
 	if !initialDeposit.Amount.IsZero() {
-		bz, err := clientCtx.Codec.MarshalJSON(&initialDeposit)
+		bz, err := clientCtx.Codec.MarshalAsJSON(&initialDeposit)
 		if err != nil {
 			return nil, err
 		}
@@ -282,7 +282,7 @@ func QueryDepositByTxQuery(clientCtx client.Context, params types.QueryDepositPa
 					Amount:     depMsg.Amount,
 				}
 
-				bz, err := clientCtx.Codec.MarshalJSON(&deposit)
+				bz, err := clientCtx.Codec.MarshalAsJSON(&deposit)
 				if err != nil {
 					return nil, err
 				}
@@ -331,7 +331,7 @@ func QueryProposerByTxQuery(clientCtx client.Context, proposalID uint64) (Propos
 // QueryProposalByID takes a proposalID and returns a proposal
 func QueryProposalByID(proposalID uint64, clientCtx client.Context, queryRoute string) ([]byte, error) {
 	params := types.NewQueryProposalParams(proposalID)
-	bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+	bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 	if err != nil {
 		return nil, err
 	}

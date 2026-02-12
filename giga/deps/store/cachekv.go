@@ -6,8 +6,8 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/cosmos/cosmos-sdk/store/tracekv"
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 // Store wraps an in-memory cache around an underlying types.KVStore.

@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 )
 
 type byter interface {
@@ -14,7 +14,7 @@ type byter interface {
 
 func checkAminoJSON(t *testing.T, src interface{}, dst interface{}, isNil bool) {
 	// Marshal to JSON bytes.
-	js, err := cdc.MarshalJSON(src)
+	js, err := cdc.MarshalAsJSON(src)
 	require.Nil(t, err, "%+v", err)
 	if isNil {
 		require.Equal(t, string(js), `null`)
@@ -23,7 +23,7 @@ func checkAminoJSON(t *testing.T, src interface{}, dst interface{}, isNil bool) 
 		require.Contains(t, string(js), `"value":`)
 	}
 	// Unmarshal.
-	err = cdc.UnmarshalJSON(js, dst)
+	err = cdc.UnmarshalAsJSON(js, dst)
 	require.Nil(t, err, "%+v", err)
 }
 

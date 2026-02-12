@@ -3,14 +3,14 @@ package keeper
 import (
 	"encoding/binary"
 
-	"github.com/cosmos/cosmos-sdk/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 
-	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 // NewQuerier creates a querier for upgrade cli and REST endpoints
@@ -36,7 +36,7 @@ func queryCurrent(ctx sdk.Context, _ abci.RequestQuery, k Keeper, legacyQuerierC
 		return nil, nil
 	}
 
-	res, err := legacyQuerierCdc.MarshalJSON(&plan)
+	res, err := legacyQuerierCdc.MarshalAsJSON(&plan)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONMarshal, err.Error())
 	}
@@ -47,7 +47,7 @@ func queryCurrent(ctx sdk.Context, _ abci.RequestQuery, k Keeper, legacyQuerierC
 func queryApplied(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryAppliedPlanRequest
 
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}

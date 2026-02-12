@@ -3,7 +3,7 @@ package codec
 import (
 	"github.com/gogo/protobuf/proto"
 
-	"github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 )
 
 type (
@@ -57,7 +57,7 @@ type (
 
 	JSONCodec interface {
 		// MarshalJSON returns JSON encoding of v.
-		MarshalJSON(o proto.Message) ([]byte, error)
+		MarshalAsJSON(o proto.Message) ([]byte, error)
 		// MustMarshalJSON calls MarshalJSON and panics if error is returned.
 		MustMarshalJSON(o proto.Message) []byte
 		// MarshalInterfaceJSON is a helper method which will wrap `i` into `Any` for correct
@@ -70,7 +70,7 @@ type (
 
 		// UnmarshalJSON parses the data encoded with MarshalJSON method and stores the result
 		// in the value pointed to by v.
-		UnmarshalJSON(bz []byte, ptr proto.Message) error
+		UnmarshalAsJSON(bz []byte, ptr proto.Message) error
 		// MustUnmarshalJSON calls Unmarshal and panics if error is returned.
 		MustUnmarshalJSON(bz []byte, ptr proto.Message)
 	}

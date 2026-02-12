@@ -6,7 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/provider"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 var minimumTimeWeight = sdk.MustNewDecFromStr("0.2")

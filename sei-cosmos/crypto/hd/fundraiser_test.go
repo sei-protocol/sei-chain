@@ -13,8 +13,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 )
 
 type addrData struct {

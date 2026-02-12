@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/crypto/codec"
-	tmtime "github.com/cosmos/cosmos-sdk/std"
-	"github.com/cosmos/cosmos-sdk/telemetry"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
+	tmtime "github.com/sei-protocol/sei-chain/sei-cosmos/std"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
@@ -16,13 +16,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/cosmos/cosmos-sdk/server/api"
-	servergrpc "github.com/cosmos/cosmos-sdk/server/grpc"
-	srvtypes "github.com/cosmos/cosmos-sdk/server/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/cosmos/cosmos-sdk/x/genutil"
-	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
+	servergrpc "github.com/sei-protocol/sei-chain/sei-cosmos/server/grpc"
+	srvtypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
+	genutiltypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/types"
 )
 
 func startInProcess(cfg Config, val *Validator) error {

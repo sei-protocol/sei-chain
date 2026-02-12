@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
 func TestMetadataValidate(t *testing.T) {
@@ -257,12 +257,12 @@ func TestMarshalJSONMetaData(t *testing.T) {
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			bz, err := cdc.MarshalJSON(tc.input)
+			bz, err := cdc.MarshalAsJSON(tc.input)
 			require.NoError(t, err)
 			require.Equal(t, tc.strOutput, string(bz))
 
 			var newMetadata []types.Metadata
-			require.NoError(t, cdc.UnmarshalJSON(bz, &newMetadata))
+			require.NoError(t, cdc.UnmarshalAsJSON(bz, &newMetadata))
 
 			if len(tc.input) == 0 {
 				require.Nil(t, newMetadata)

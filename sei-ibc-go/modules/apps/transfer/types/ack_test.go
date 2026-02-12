@@ -3,7 +3,7 @@ package types_test
 import (
 	"testing"
 
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	abcitypes "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmprotostate "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/state"
 	tmstate "github.com/sei-protocol/sei-chain/sei-tendermint/state"

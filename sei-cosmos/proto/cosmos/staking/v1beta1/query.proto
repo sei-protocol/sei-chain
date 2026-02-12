@@ -6,7 +6,7 @@ import "cosmos/staking/v1beta1/staking.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/x/staking/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types";
 
 // Query defines the gRPC querier service.
 service Query {
