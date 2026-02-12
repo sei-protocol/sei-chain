@@ -255,9 +255,9 @@ func keyFromIndex(index int64) []byte {
 	if index < 0 {
 		panic(fmt.Sprintf("negative key index: %d", index))
 	}
-	binary.LittleEndian.PutUint64(input[1:], uint64(index))
+	binary.LittleEndian.PutUint64(input[1:], uint64(index)) //nolint:gosec // index validated non-negative above
 	sum1 := sha256.Sum256(input[:])
-	input[0] = 1
+	input[0] = 1 //nolint:gosec
 	sum2 := sha256.Sum256(input[:])
 	copy(key[2:], sum1[:])
 	copy(key[2+len(sum1):], sum2[:len(key)-2-len(sum1)])

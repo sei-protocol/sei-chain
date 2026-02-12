@@ -5,8 +5,8 @@ import (
 	"io"
 	"testing"
 
+	metricsdiff "github.com/sei-protocol/sei-chain/sei-tendermint/scripts/metricsgen/metricsdiff"
 	"github.com/stretchr/testify/require"
-	metricsdiff "github.com/tendermint/tendermint/scripts/metricsgen/metricsdiff"
 )
 
 func TestDiff(t *testing.T) {

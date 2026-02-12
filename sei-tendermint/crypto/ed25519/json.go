@@ -2,10 +2,11 @@ package ed25519
 
 import (
 	"encoding/json"
-	"github.com/tendermint/tendermint/internal/jsontypes"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
 )
 
-const SecretKeyName = "tendermint/PrivKeyEd25519"
+const SecretKeyName = "tendermint/PrivKeyEd25519" //nolint:gosec // G101 not a hardcoded secret
 const PublicKeyName = "tendermint/PubKeyEd25519"
 const KeyType = "ed25519"
 

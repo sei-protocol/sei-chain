@@ -2,9 +2,10 @@ package im
 
 import (
 	"cmp"
-	"github.com/benbjohnson/immutable"
 	"hash/maphash"
 	"iter"
+
+	"github.com/benbjohnson/immutable"
 )
 
 type Map[K comparable, V any] struct{ m *immutable.Map[K, V] }
@@ -12,7 +13,7 @@ type Map[K comparable, V any] struct{ m *immutable.Map[K, V] }
 type hasher[K comparable] struct{ seed maphash.Seed }
 
 func (h hasher[K]) Hash(key K) uint32 {
-	return uint32(maphash.Comparable(h.seed, key))
+	return uint32(maphash.Comparable(h.seed, key)) //nolint:gosec // intentional truncation; only lower 32 bits needed for hash bucketing
 }
 
 func (h hasher[K]) Equal(a, b K) bool {

@@ -20,8 +20,8 @@ import (
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	ethtests "github.com/ethereum/go-ethereum/tests"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
-	"github.com/tendermint/tendermint/libs/log"
 )
 
 func BlocktestCmd(defaultNodeHome string) *cobra.Command {

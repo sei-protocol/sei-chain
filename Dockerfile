@@ -20,7 +20,6 @@ RUN mkdir -p /go/lib && \
 
 COPY go.* ./
 COPY sei-cosmos/go.* ./sei-cosmos/
-COPY sei-tendermint/go.* ./sei-tendermint/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go mod download

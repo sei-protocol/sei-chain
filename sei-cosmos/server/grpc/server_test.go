@@ -58,7 +58,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 	val0 := s.network.Validators[0]
 	s.conn, err = grpc.Dial(
 		val0.AppConfig.GRPC.Address,
-		grpc.WithInsecure(), // Or else we get "no transport security set"
+		grpc.WithTransportCredentials(insecure.NewCredentials()), // Or else we get "no transport security set"
 	)
 	s.Require().NoError(err)
 }

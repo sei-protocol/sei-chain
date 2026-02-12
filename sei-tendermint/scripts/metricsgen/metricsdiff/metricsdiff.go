@@ -65,12 +65,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("Open: %v", err)
 	}
-	defer fa.Close()
+	defer func() { _ = fa.Close() }()
 	fb, err := os.Open(flag.Arg(1))
 	if err != nil {
 		log.Fatalf("Open: %v", err)
 	}
-	defer fb.Close()
+	defer func() { _ = fb.Close() }()
 	md, err := DiffFromReaders(fa, fb)
 	if err != nil {
 		log.Fatalf("Generating diff: %v", err)
@@ -170,27 +170,27 @@ func (m metricsList) Swap(i, j int)      { m[i], m[j] = m[j], m[i] }
 func (m Diff) String() string {
 	var s strings.Builder
 	if len(m.Adds) > 0 || len(m.Removes) > 0 {
-		fmt.Fprintln(&s, "Metric changes:")
+		_, _ = fmt.Fprintln(&s, "Metric changes:")
 	}
 	if len(m.Adds) > 0 {
 		for _, add := range m.Adds {
-			fmt.Fprintf(&s, "+++ %s\n", add)
+			_, _ = fmt.Fprintf(&s, "+++ %s\n", add)
 		}
 	}
 	if len(m.Removes) > 0 {
 		for _, rem := range m.Removes {
-			fmt.Fprintf(&s, "--- %s\n", rem)
+			_, _ = fmt.Fprintf(&s, "--- %s\n", rem)
 		}
 	}
 	if len(m.Changes) > 0 {
-		fmt.Fprintln(&s, "Label changes:")
+		_, _ = fmt.Fprintln(&s, "Label changes:")
 		for _, ld := range m.Changes {
-			fmt.Fprintf(&s, "Metric: %s\n", ld.Metric)
+			_, _ = fmt.Fprintf(&s, "Metric: %s\n", ld.Metric)
 			for _, add := range ld.Adds {
-				fmt.Fprintf(&s, "+++ %s\n", add)
+				_, _ = fmt.Fprintf(&s, "+++ %s\n", add)
 			}
 			for _, rem := range ld.Removes {
-				fmt.Fprintf(&s, "--- %s\n", rem)
+				_, _ = fmt.Fprintf(&s, "--- %s\n", rem)
 			}
 		}
 	}

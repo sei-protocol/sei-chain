@@ -6,19 +6,18 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/test/bufconn"
-
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
+	tmgrpc "github.com/sei-protocol/sei-chain/sei-tendermint/privval/grpc"
+	privvalproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/privval"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/libs/log"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
-	tmgrpc "github.com/tendermint/tendermint/privval/grpc"
-	privvalproto "github.com/tendermint/tendermint/proto/tendermint/privval"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 const chainID = "chain-id"
@@ -49,7 +48,7 @@ func TestSignerClient_GetPubKey(t *testing.T) {
 	defer srv.Stop()
 
 	conn, err := grpc.DialContext(ctx, "",
-		grpc.WithInsecure(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(dialer),
 	)
 	require.NoError(t, err)
@@ -72,7 +71,7 @@ func TestSignerClient_SignVote(t *testing.T) {
 	defer srv.Stop()
 
 	conn, err := grpc.DialContext(ctx, "",
-		grpc.WithInsecure(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(dialer),
 	)
 	require.NoError(t, err)
@@ -126,7 +125,7 @@ func TestSignerClient_SignProposal(t *testing.T) {
 	defer srv.Stop()
 
 	conn, err := grpc.DialContext(ctx, "",
-		grpc.WithInsecure(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(dialer),
 	)
 	require.NoError(t, err)

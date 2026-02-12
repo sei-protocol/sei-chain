@@ -20,11 +20,11 @@ import (
 	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/bytes"
-	"github.com/tendermint/tendermint/rpc/client/mock"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	tmtypes "github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func TestWatermarksAggregatesSources(t *testing.T) {
@@ -264,8 +264,8 @@ func (f *fakeReceiptStore) SetReceipts(sdk.Context, []receipt.ReceiptRecord) err
 	return nil
 }
 
-func (f *fakeReceiptStore) FilterLogs(sdk.Context, int64, common.Hash, []common.Hash, filters.FilterCriteria, bool) ([]*ethtypes.Log, error) {
-	return []*ethtypes.Log{}, nil
+func (f *fakeReceiptStore) FilterLogs(sdk.Context, uint64, uint64, filters.FilterCriteria) ([]*ethtypes.Log, error) {
+	return nil, receipt.ErrRangeQueryNotSupported
 }
 
 func (f *fakeReceiptStore) Close() error { return nil }

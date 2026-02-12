@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/codec"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	ibc "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
