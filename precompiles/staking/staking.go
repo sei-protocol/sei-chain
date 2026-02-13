@@ -210,7 +210,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		if readOnly {
 			return nil, 0, errors.New("cannot call staking precompile from staticcall")
 		}
-		return p.unjail(ctx, method, args, value)
+		return p.unjail(ctx, method, caller, args, value)
 	}
 	return
 }
@@ -715,22 +715,23 @@ func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, c
 	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) unjail(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+func (p PrecompileExecutor) unjail(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
 
-	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+	if err := pcommon.ValidateArgsLength(args, 0); err != nil {
 		return nil, 0, err
 	}
 
-	validatorBech32 := args[0].(string)
-	valAddr, err := sdk.ValAddressFromBech32(validatorBech32)
-	if err != nil {
-		return nil, 0, err
+	// Derive the validator address from the caller's associated Sei address
+	seiAddr, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !associated {
+		return nil, 0, types.NewAssociationMissingErr(caller.Hex())
 	}
+	valAddr := sdk.ValAddress(seiAddr)
 
-	err = p.slashingKeeper.Unjail(ctx, valAddr)
+	err := p.slashingKeeper.Unjail(ctx, valAddr)
 	if err != nil {
 		return nil, 0, err
 	}

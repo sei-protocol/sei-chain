@@ -2482,7 +2482,7 @@ func TestStakingPrecompileDelegateCallPrevention(t *testing.T) {
 		{
 			name:   "unjail",
 			method: "unjail",
-			args:   []interface{}{"seivaloper1test"},
+			args:   []interface{}{},
 			value:  nil,
 		},
 	}
@@ -2567,7 +2567,7 @@ func TestStakingPrecompileStaticCallPrevention(t *testing.T) {
 		{
 			name:   "unjail",
 			method: "unjail",
-			args:   []interface{}{"seivaloper1test"},
+			args:   []interface{}{},
 			value:  nil,
 		},
 	}
@@ -2625,15 +2625,16 @@ func TestUnjail(t *testing.T) {
 	valPub := ed25519.GenPrivKey().PubKey()
 	val := setupValidator(t, ctx, testApp, stakingtypes.Bonded, valPub)
 
-	// Set up caller (does not need to be the validator)
+	// Set up caller whose Sei address maps to the validator's operator address
 	privKey := testkeeper.MockPrivateKey()
-	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	valAccAddr := sdk.AccAddress(val)
+	k.SetAddressMapping(ctx, valAccAddr, evmAddr)
 
 	// Fund the caller account
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(2_000_000)))
 	require.NoError(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
-	require.NoError(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
+	require.NoError(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, valAccAddr, amt))
 
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
@@ -2650,7 +2651,7 @@ func TestUnjail(t *testing.T) {
 
 	t.Run("fails when validator is not jailed", func(t *testing.T) {
 		// Validator is bonded but not jailed, so unjail should fail
-		args, err := abiData.Pack("unjail", val.String())
+		args, err := abiData.Pack("unjail")
 		require.NoError(t, err)
 
 		txData := ethtypes.LegacyTx{
@@ -2690,7 +2691,7 @@ func TestUnjail(t *testing.T) {
 		require.True(t, found)
 		require.True(t, validator.IsJailed(), "Validator should be jailed")
 
-		args, err := abiData.Pack("unjail", val.String())
+		args, err := abiData.Pack("unjail")
 		require.NoError(t, err)
 
 		txData := ethtypes.LegacyTx{
@@ -2720,33 +2721,5 @@ func TestUnjail(t *testing.T) {
 		validator, found = testApp.StakingKeeper.GetValidator(ctx, val)
 		require.True(t, found)
 		require.False(t, validator.IsJailed(), "Validator should be unjailed")
-	})
-
-	t.Run("fails with invalid validator address", func(t *testing.T) {
-		args, err := abiData.Pack("unjail", "invalid_address")
-		require.NoError(t, err)
-
-		txData := ethtypes.LegacyTx{
-			GasPrice: big.NewInt(1000000000000),
-			Gas:      200000,
-			To:       &addr,
-			Value:    big.NewInt(0),
-			Data:     args,
-			Nonce:    2,
-		}
-
-		tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
-		require.NoError(t, err)
-
-		txwrapper, err := ethtx.NewLegacyTx(tx)
-		require.NoError(t, err)
-
-		req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
-		require.NoError(t, err)
-
-		ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-		res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
-		require.NoError(t, err)
-		require.NotEmpty(t, res.VmError, "Should fail with invalid validator address")
 	})
 }
