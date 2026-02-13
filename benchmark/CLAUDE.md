@@ -179,7 +179,7 @@ Full iteration cycle for profiling, optimizing, and validating performance chang
 
 1. **Profile:** Run `benchmark/benchmark.sh` (auto-captures all 6 profile types, extracts TPS, exits)
 2. **Analyze:** Inspect profiles with `go tool pprof -top -cum /tmp/sei-bench/pprof/cpu.pb.gz` (repeat for fgprof, heap with `-alloc_space`, goroutine, block, mutex)
-3. **Flamegraphs:** Open interactive UIs: `go tool pprof -http=:8080 /tmp/sei-bench/pprof/cpu.pb.gz &`
+3. **Flamegraphs:** Open interactive UIs for cpu, fgprof, and heap on separate ports: `go tool pprof -http=:8080 /tmp/sei-bench/pprof/cpu.pb.gz &`, `go tool pprof -http=:8081 /tmp/sei-bench/pprof/fgprof.pb.gz &`, `go tool pprof -http=:8082 /tmp/sei-bench/pprof/heap.pb.gz &`
 4. **Summarize:** Present findings to user — biggest bottleneck, candidate optimizations, expected impact, and trade-offs
 5. **Discuss:** Ask the user which optimization direction to pursue before writing any code. The user picks the approach or suggests an alternative
 6. **Implement:** Make the optimization, commit
