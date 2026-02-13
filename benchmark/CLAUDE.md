@@ -1,5 +1,21 @@
 # Benchmark
 
+## Pre-run analysis check
+
+Before running `benchmark.sh` or `benchmark-compare.sh`, read any relevant docs in `benchmark/analysis/` for the target function or path first. This keeps each run tied to prior findings and reduces repeated experimentation.
+
+```bash
+ls benchmark/analysis/*.md
+```
+
+For example, for `executeEVMTxWithGigaExecutor`, review:
+
+```bash
+sed -n '1,220p' benchmark/analysis/executeEVMTxWithGigaExecutor.md
+```
+
+Use the analysis notes to define your baseline, expected bottlenecks, and pass/fail criteria before launching a new benchmark.
+
 ## Single scenario
 
 ```bash
@@ -178,7 +194,7 @@ Run `go tool pprof` from the sei-chain repo root so that `list` and `web` comman
 Full iteration cycle for profiling, optimizing, and validating performance changes:
 
 1. **Profile:** Run `benchmark/benchmark.sh` (auto-captures all 6 profile types, extracts TPS, exits)
-2. **Analyze:** Inspect profiles with `go tool pprof -top -cum /tmp/sei-bench/pprof/cpu.pb.gz` (repeat for fgprof, heap with `-alloc_space`, goroutine, block, mutex)
+2. **Analyze:** Read the relevant entry in `benchmark/analysis/` for context, then inspect profiles with `go tool pprof -top -cum /tmp/sei-bench/pprof/cpu.pb.gz` (repeat for fgprof, heap with `-alloc_space`, goroutine, block, mutex)
 3. **Flamegraphs:** Open interactive UIs for cpu, fgprof, and heap on separate ports: `go tool pprof -http=:8080 /tmp/sei-bench/pprof/cpu.pb.gz &`, `go tool pprof -http=:8081 /tmp/sei-bench/pprof/fgprof.pb.gz &`, `go tool pprof -http=:8082 /tmp/sei-bench/pprof/heap.pb.gz &`
 4. **Summarize:** Present findings to user — biggest bottleneck, candidate optimizations, expected impact, and trade-offs
 5. **Discuss:** Ask the user which optimization direction to pursue before writing any code. The user picks the approach or suggests an alternative
