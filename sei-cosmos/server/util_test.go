@@ -407,30 +407,7 @@ func TestInterceptConfigsWithBadPermissions(t *testing.T) {
 }
 
 func TestWaitForQuitSignals(t *testing.T) {
-	t.Run("WithRestartChannelAndCanRestartAfterNotReached", func(t *testing.T) {
-		restartCh := make(chan struct{})
-		go func() {
-			time.Sleep(100 * time.Millisecond)
-			restartCh <- struct{}{}
-		}()
-
-		go func() {
-			time.Sleep(200 * time.Millisecond)
-			syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
-		}()
-
-		errCode := server.WaitForQuitSignals(
-			&server.Context{Logger: log.NewNopLogger()},
-			restartCh,
-			time.Now().Add(500*time.Millisecond),
-		)
-		expectedCode := int(syscall.SIGTERM) + 128
-		if errCode.Code != expectedCode {
-			t.Errorf("Expected error code %d, got %d", expectedCode, errCode.Code)
-		}
-	})
-
-	t.Run("WithRestartChannelAndCanRestartAfterReached", func(t *testing.T) {
+	t.Run("WithRestartChannelAndCanRestart", func(t *testing.T) {
 		restartCh := make(chan struct{})
 		go func() {
 			time.Sleep(100 * time.Millisecond)
@@ -440,7 +417,6 @@ func TestWaitForQuitSignals(t *testing.T) {
 		errCode := server.WaitForQuitSignals(
 			&server.Context{Logger: log.NewNopLogger()},
 			restartCh,
-			time.Now().Add(-100*time.Millisecond),
 		)
 		if errCode.Code != server.RestartErrorCode {
 			t.Errorf("Expected error code %d, got %d", server.RestartErrorCode, errCode.Code)
@@ -459,7 +435,6 @@ func TestWaitForQuitSignals(t *testing.T) {
 		errCode := server.WaitForQuitSignals(
 			&server.Context{Logger: log.NewNopLogger()},
 			make(chan struct{}),
-			time.Now(),
 		)
 		expectedCode := int(syscall.SIGINT) + 128
 		if errCode.Code != expectedCode {
@@ -476,7 +451,6 @@ func TestWaitForQuitSignals(t *testing.T) {
 		errCode := server.WaitForQuitSignals(
 			&server.Context{Logger: log.NewNopLogger()},
 			make(chan struct{}),
-			time.Now(),
 		)
 		expectedCode := int(syscall.SIGTERM) + 128
 		if errCode.Code != expectedCode {

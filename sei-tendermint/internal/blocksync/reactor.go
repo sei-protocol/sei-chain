@@ -115,7 +115,6 @@ type Reactor struct {
 	lastRestartTime           time.Time
 	blocksBehindThreshold     uint64
 	blocksBehindCheckInterval time.Duration
-	restartCooldownSeconds    uint64
 }
 
 // NewReactor returns new reactor instance.
@@ -151,7 +150,6 @@ func NewReactor(
 		lastRestartTime:           time.Now(),
 		blocksBehindThreshold:     selfRemediationConfig.BlocksBehindThreshold,
 		blocksBehindCheckInterval: time.Duration(selfRemediationConfig.BlocksBehindCheckIntervalSeconds) * time.Second, //nolint:gosec // validated in config.ValidateBasic against MaxInt64
-		restartCooldownSeconds:    selfRemediationConfig.RestartCooldownSeconds,
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "BlockSync", r)
@@ -298,6 +296,7 @@ func (r *Reactor) processBlockSyncCh(ctx context.Context) {
 
 // autoRestartIfBehind will check if the node is behind the max peer height by
 // a certain threshold. If it is, the node will attempt to restart itself
+// TODO(gprusak): this should be a sub task of the consensus reactor instead.
 func (r *Reactor) autoRestartIfBehind(ctx context.Context) {
 	if r.blocksBehindThreshold == 0 || r.blocksBehindCheckInterval <= 0 {
 		r.logger.Info("Auto remediation is disabled")
@@ -323,17 +322,16 @@ func (r *Reactor) autoRestartIfBehind(ctx context.Context) {
 				continue
 			}
 
-			// Check if we have met cooldown time
-			if time.Since(r.lastRestartTime).Seconds() < float64(r.restartCooldownSeconds) {
-				r.logger.Debug("we are lagging behind, going to trigger a restart after cooldown time passes")
-				continue
-			}
-
 			r.logger.Info("Blocks behind threshold, restarting node", "threshold", threshold, "behindHeight", behindHeight, "maxPeerHeight", maxPeerHeight, "selfHeight", selfHeight)
 
 			// Send signal to restart the node
+			// TODO(gprusak): here we assume that this is the ONLY task that is eligible to send a message over this channel AND that someone is actually
+			// waiting for it. This is a very fragile assumption - utils.AtomicSend[bool] would provide better guarantees here.
+			// Even better - this task should just return an error which should be propagated up the stack to eventually terminate
+			// the nodeImpl and the whole process.
 			r.blockSync.Set()
 			r.restartCh <- struct{}{}
+			return
 		case <-ctx.Done():
 			return
 		}
