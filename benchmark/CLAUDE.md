@@ -72,9 +72,52 @@ Each scenario gets its own binary, home dir, and port set (offset by 100). Resul
 
 **Important:** Cross-session benchmark numbers (TPS, total allocs) are not directly comparable. Only comparisons within the same `benchmark-compare.sh` run are valid, since all scenarios share identical conditions.
 
-## Comparing pprof profiles
+## Profiling
 
-`benchmark-compare.sh` automatically captures pprof profiles (CPU and heap) midway through the run. Single-scenario runs only enable the pprof HTTP endpoint — capture profiles manually with `curl` or `go tool pprof`.
+### Available profile types
+
+`benchmark-compare.sh` automatically captures all profile types midway through the run. Profiles are saved to `/tmp/sei-bench/<label>/pprof/`.
+
+| Profile | File | What it shows |
+|---------|------|---------------|
+| CPU | `cpu.pb.gz` | On-CPU time only (computation, hashing, EVM execution) |
+| fgprof | `fgprof.pb.gz` | Wall-clock time: on-CPU + off-CPU (I/O, blocking, GC pauses) |
+| Heap | `heap.pb.gz` | Memory allocations (analyzable with multiple metrics, see below) |
+| Goroutine | `goroutine.pb.gz` | Goroutine stacks (find pileups and leaks) |
+| Block | `block.pb.gz` | Time waiting on channel ops and mutex locks |
+| Mutex | `mutex.pb.gz` | Mutex contention (where goroutines fight over locks) |
+
+**CPU vs fgprof:** Go's built-in CPU profiler uses OS-level `SIGPROF` signals delivered only to running threads — goroutines waiting on I/O, channels, or locks are invisible. fgprof samples all goroutines via `runtime.GoroutineProfile` regardless of scheduling state, showing the full wall-clock picture. Use CPU when you suspect pure computation is the bottleneck; use fgprof when TPS is low but CPU utilization is also low (points to I/O or contention).
+
+**Block and mutex profiles** require `runtime.SetBlockProfileRate` and `runtime.SetMutexProfileFraction` to be enabled. Both are automatically enabled when seid is built with the `benchmark` build tag (`make install-bench`). They are disabled in production builds.
+
+### Capturing profiles during single-scenario runs
+
+Single-scenario `benchmark.sh` runs enable the pprof HTTP endpoint but don't auto-capture profiles. Capture manually in another terminal:
+
+```bash
+PPROF_PORT=6060  # adjust with PORT_OFFSET if set
+
+# 30-second CPU profile
+go tool pprof -http=:8080 "http://localhost:$PPROF_PORT/debug/pprof/profile?seconds=30"
+
+# 30-second fgprof (wall-clock)
+go tool pprof -http=:8080 "http://localhost:$PPROF_PORT/debug/fgprof?seconds=30"
+
+# Heap snapshot
+go tool pprof -http=:8080 "http://localhost:$PPROF_PORT/debug/pprof/heap"
+
+# Goroutine dump
+go tool pprof -http=:8080 "http://localhost:$PPROF_PORT/debug/pprof/goroutine"
+
+# Block profile
+go tool pprof -http=:8080 "http://localhost:$PPROF_PORT/debug/pprof/block"
+
+# Mutex contention
+go tool pprof -http=:8080 "http://localhost:$PPROF_PORT/debug/pprof/mutex"
+```
+
+### Comparing profiles (diff)
 
 Always use `pprof -diff_base` to compare profiles between benchmark runs. Never compare profiles side-by-side manually.
 
@@ -82,6 +125,46 @@ Always use `pprof -diff_base` to compare profiles between benchmark runs. Never 
 # CPU diff (positive = regression, negative = improvement)
 go tool pprof -top -diff_base /tmp/sei-bench/<baseline>/pprof/cpu.pb.gz /tmp/sei-bench/<candidate>/pprof/cpu.pb.gz
 
-# Allocation diff
+# Wall-clock diff (fgprof)
+go tool pprof -top -diff_base /tmp/sei-bench/<baseline>/pprof/fgprof.pb.gz /tmp/sei-bench/<candidate>/pprof/fgprof.pb.gz
+
+# Allocation diff (total bytes allocated over time)
 go tool pprof -alloc_space -top -diff_base /tmp/sei-bench/<baseline>/pprof/heap.pb.gz /tmp/sei-bench/<candidate>/pprof/heap.pb.gz
+
+# Heap escape diff (objects that should be stack-allocated)
+go tool pprof -alloc_objects -top -diff_base /tmp/sei-bench/<baseline>/pprof/heap.pb.gz /tmp/sei-bench/<candidate>/pprof/heap.pb.gz
 ```
+
+### Heap profile metrics
+
+The heap profile contains multiple metrics. Choose the right one for your question:
+
+| Metric | Flag | Use when |
+|--------|------|----------|
+| Active memory | `-inuse_space` | Finding memory leaks or high RSS |
+| Active objects | `-inuse_objects` | Finding what's holding memory right now |
+| Total allocated bytes | `-alloc_space` | Finding hot allocation paths (GC pressure) |
+| Total allocated objects | `-alloc_objects` | Finding heap escapes (objects that should live on the stack) |
+
+### Interactive analysis and flamegraphs
+
+Text output (`-top`) is useful for quick comparisons, but the web UI with flamegraphs is far more effective for navigating large profiles.
+
+```bash
+# Interactive web UI with flamegraphs
+go tool pprof -http=:8080 /tmp/sei-bench/<label>/pprof/cpu.pb.gz
+
+# Diff flamegraph (red = regression, blue = improvement)
+go tool pprof -http=:8080 -diff_base /tmp/sei-bench/<baseline>/pprof/cpu.pb.gz /tmp/sei-bench/<candidate>/pprof/cpu.pb.gz
+```
+
+For drilling into specific functions, use the interactive CLI:
+
+```bash
+go tool pprof /tmp/sei-bench/<label>/pprof/cpu.pb.gz
+(pprof) top20 --cum          # sort by cumulative time (default flat hides expensive callees)
+(pprof) list DeliverTx       # line-by-line source attribution
+(pprof) web DeliverTx        # SVG graph focused on one function's callers/callees
+```
+
+Run `go tool pprof` from the sei-chain repo root so that `list` and `web` commands can resolve source file paths.

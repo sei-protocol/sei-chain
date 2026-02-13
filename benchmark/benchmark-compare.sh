@@ -190,7 +190,7 @@ echo "  Waiting ${PPROF_WAIT}s before capturing pprof profiles..."
 sleep "$PPROF_WAIT" || true
 
 echo ""
-echo "=== Capturing pprof profiles (30s CPU + heap allocs) ==="
+echo "=== Capturing profiles (30s CPU + 30s fgprof + heap + goroutine + block + mutex) ==="
 PPROF_PIDS=()
 for i in $(seq 0 $((NUM-1))); do
   label="${LABELS[$i]}"
@@ -199,32 +199,56 @@ for i in $(seq 0 $((NUM-1))); do
   profile_dir="$BASE_DIR/$label/pprof"
   mkdir -p "$profile_dir"
 
-  # CPU profile (30s)
+  # CPU profile (30s) — on-CPU time only
   curl -s "http://localhost:${PPROF_PORT}/debug/pprof/profile?seconds=30" \
     -o "$profile_dir/cpu.pb.gz" &
   PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
 
-  # Heap (alloc_objects — total allocations)
+  # fgprof (30s) — wall-clock time (on-CPU + off-CPU/I/O/blocking)
+  curl -s "http://localhost:${PPROF_PORT}/debug/fgprof?seconds=30" \
+    -o "$profile_dir/fgprof.pb.gz" &
+  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
+
+  # Heap snapshot
   curl -s "http://localhost:${PPROF_PORT}/debug/pprof/heap?debug=0" \
     -o "$profile_dir/heap.pb.gz" &
+  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
+
+  # Goroutine dump
+  curl -s "http://localhost:${PPROF_PORT}/debug/pprof/goroutine?debug=0" \
+    -o "$profile_dir/goroutine.pb.gz" &
+  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
+
+  # Block profile (time waiting on channels/mutexes)
+  curl -s "http://localhost:${PPROF_PORT}/debug/pprof/block?debug=0" \
+    -o "$profile_dir/block.pb.gz" &
+  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
+
+  # Mutex contention profile
+  curl -s "http://localhost:${PPROF_PORT}/debug/pprof/mutex?debug=0" \
+    -o "$profile_dir/mutex.pb.gz" &
   PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
 
   echo "  [$label] capturing from localhost:${PPROF_PORT} -> $profile_dir/"
 done
 
-# Wait for all pprof captures to finish
+# Wait for all profile captures to finish
 for pid in "${PPROF_PIDS[@]}"; do
   wait "$pid" 2>/dev/null || true
 done
-echo "  pprof capture complete."
+echo "  profile capture complete."
 
 # Verify profile sizes
 for i in $(seq 0 $((NUM-1))); do
   label="${LABELS[$i]}"
   profile_dir="$BASE_DIR/$label/pprof"
-  cpu_size=$(wc -c < "$profile_dir/cpu.pb.gz" 2>/dev/null || echo 0)
-  heap_size=$(wc -c < "$profile_dir/heap.pb.gz" 2>/dev/null || echo 0)
-  echo "  [$label] cpu=${cpu_size}B heap=${heap_size}B"
+  cpu_size=$(wc -c < "$profile_dir/cpu.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  fgprof_size=$(wc -c < "$profile_dir/fgprof.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  heap_size=$(wc -c < "$profile_dir/heap.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  goroutine_size=$(wc -c < "$profile_dir/goroutine.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  block_size=$(wc -c < "$profile_dir/block.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  mutex_size=$(wc -c < "$profile_dir/mutex.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  echo "  [$label] cpu=${cpu_size}B fgprof=${fgprof_size}B heap=${heap_size}B goroutine=${goroutine_size}B block=${block_size}B mutex=${mutex_size}B"
 done
 
 # Wait remaining time
@@ -289,9 +313,13 @@ done
 
 echo "Raw data:  $BASE_DIR/<label>/tps.txt"
 echo "Full logs: $BASE_DIR/<label>/output.log"
-echo "Profiles:  $BASE_DIR/<label>/pprof/{cpu,heap}.pb.gz"
+echo "Profiles:  $BASE_DIR/<label>/pprof/{cpu,fgprof,heap,goroutine,block,mutex}.pb.gz"
 echo ""
+echo "Compare CPU (on-CPU only):"
+echo "  go tool pprof -top -diff_base $BASE_DIR/<baseline>/pprof/cpu.pb.gz $BASE_DIR/<candidate>/pprof/cpu.pb.gz"
+echo "Compare wall-clock (on-CPU + off-CPU/I/O):"
+echo "  go tool pprof -top -diff_base $BASE_DIR/<baseline>/pprof/fgprof.pb.gz $BASE_DIR/<candidate>/pprof/fgprof.pb.gz"
 echo "Compare allocs:"
 echo "  go tool pprof -alloc_space -top -diff_base $BASE_DIR/<baseline>/pprof/heap.pb.gz $BASE_DIR/<candidate>/pprof/heap.pb.gz"
-echo "Compare CPU:"
-echo "  go tool pprof -top -diff_base $BASE_DIR/<baseline>/pprof/cpu.pb.gz $BASE_DIR/<candidate>/pprof/cpu.pb.gz"
+echo "Interactive flamegraph (pick any profile):"
+echo "  go tool pprof -http=:8080 -diff_base $BASE_DIR/<baseline>/pprof/cpu.pb.gz $BASE_DIR/<candidate>/pprof/cpu.pb.gz"
