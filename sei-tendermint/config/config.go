@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1432,23 +1431,5 @@ func TestSelfRemediationConfig() *SelfRemediationConfig {
 // ValidateBasic performs basic validation (checking param bounds, etc.) and
 // returns an error if any check fails.
 func (cfg *SelfRemediationConfig) ValidateBasic() error {
-	if cfg == nil {
-		return nil
-	}
-	if cfg.P2pNoPeersRestarWindowSeconds > math.MaxInt64 {
-		return errors.New("p2p-no-peers-available-window-seconds exceeds max int64")
-	}
-	if cfg.StatesyncNoPeersRestartWindowSeconds > math.MaxInt64 {
-		return errors.New("statesync-no-peers-available-window-seconds exceeds max int64")
-	}
-	if cfg.BlocksBehindThreshold > math.MaxInt64 {
-		return errors.New("blocks-behind-threshold exceeds max int64")
-	}
-	if cfg.BlocksBehindCheckIntervalSeconds > math.MaxInt64 {
-		return errors.New("blocks-behind-check-interval exceeds max int64")
-	}
-	if cfg.RestartCooldownSeconds > math.MaxInt64 {
-		return errors.New("restart-cooldown-seconds exceeds max int64")
-	}
 	return nil
 }
