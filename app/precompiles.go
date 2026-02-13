@@ -19,6 +19,7 @@ type PrecompileKeepers struct {
 	putils.WasmdViewKeeper
 	putils.StakingKeeper
 	putils.StakingQuerier
+	putils.SlashingKeeper
 	putils.GovKeeper
 	putils.GovMsgServer
 	putils.DistributionKeeper
@@ -40,6 +41,7 @@ func NewPrecompileKeepers(a *App) *PrecompileKeepers {
 		WasmdViewKeeper:    a.WasmKeeper,
 		StakingKeeper:      stakingkeeper.NewMsgServerImpl(a.StakingKeeper),
 		StakingQuerier:     stakingkeeper.Querier{Keeper: a.StakingKeeper},
+		SlashingKeeper:     a.SlashingKeeper,
 		GovKeeper:          a.GovKeeper,
 		GovMsgServer:       govkeeper.NewMsgServerImpl(a.GovKeeper),
 		DistributionKeeper: a.DistrKeeper,
@@ -60,6 +62,7 @@ func (pk *PrecompileKeepers) WasmdK() putils.WasmdKeeper               { return 
 func (pk *PrecompileKeepers) WasmdVK() putils.WasmdViewKeeper          { return pk.WasmdViewKeeper }
 func (pk *PrecompileKeepers) StakingK() putils.StakingKeeper           { return pk.StakingKeeper }
 func (pk *PrecompileKeepers) StakingQ() putils.StakingQuerier          { return pk.StakingQuerier }
+func (pk *PrecompileKeepers) SlashingK() putils.SlashingKeeper         { return pk.SlashingKeeper }
 func (pk *PrecompileKeepers) GovK() putils.GovKeeper                   { return pk.GovKeeper }
 func (pk *PrecompileKeepers) GovMS() putils.GovMsgServer               { return pk.GovMsgServer }
 func (pk *PrecompileKeepers) DistributionK() putils.DistributionKeeper { return pk.DistributionKeeper }

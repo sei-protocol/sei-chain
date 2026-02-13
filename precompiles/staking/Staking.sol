@@ -150,6 +150,17 @@ interface IStaking {
         uint256 minSelfDelegation
     ) external returns (bool success);
 
+    /**
+     * @notice Unjail a jailed validator
+     * @dev The validator must have been jailed and the jail period must have concluded.
+     *      The validator must also meet the minimum self-delegation requirement.
+     * @param validatorAddress The bech32-encoded validator address to unjail
+     * @return success True if the unjail was successful
+     */
+    function unjail(
+        string memory validatorAddress
+    ) external returns (bool success);
+
     // Queries
 
     /**

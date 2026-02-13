@@ -40,6 +40,7 @@ const (
 	HistoricalInfoMethod                = "historicalInfo"
 	PoolMethod                          = "pool"
 	ParamsMethod                        = "params"
+	UnjailMethod                        = "unjail"
 )
 
 const (
@@ -57,6 +58,7 @@ type PrecompileExecutor struct {
 	evmKeeper          utils.EVMKeeper
 	bankKeeper         utils.BankKeeper
 	distributionKeeper utils.DistributionKeeper
+	slashingKeeper     utils.SlashingKeeper
 	address            common.Address
 
 	DelegateID                      []byte
@@ -78,6 +80,7 @@ type PrecompileExecutor struct {
 	HistoricalInfoID                []byte
 	PoolID                          []byte
 	ParamsID                        []byte
+	UnjailID                        []byte
 }
 
 func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
@@ -89,6 +92,7 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 		evmKeeper:          keepers.EVMK(),
 		bankKeeper:         keepers.BankK(),
 		distributionKeeper: keepers.DistributionK(),
+		slashingKeeper:     keepers.SlashingK(),
 		address:            common.HexToAddress(StakingAddress),
 	}
 
@@ -132,6 +136,8 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 			p.PoolID = m.ID
 		case ParamsMethod:
 			p.ParamsID = m.ID
+		case UnjailMethod:
+			p.UnjailID = m.ID
 		}
 	}
 
@@ -200,6 +206,11 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		return p.pool(ctx, method, args, value)
 	case ParamsMethod:
 		return p.params(ctx, method, args, value)
+	case UnjailMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call staking precompile from staticcall")
+		}
+		return p.unjail(ctx, method, args, value)
 	}
 	return
 }
@@ -695,6 +706,33 @@ func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, c
 	if emitErr := pcommon.EmitValidatorEditedEvent(evm, p.address, caller, sdk.ValAddress(valAddress).String(), moniker); emitErr != nil {
 		// Log error but don't fail the transaction
 		ctx.Logger().Error("Failed to emit EVM validator edited event", "error", emitErr)
+	}
+
+	bz, err := method.Outputs.Pack(true)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
+
+func (p PrecompileExecutor) unjail(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, 0, err
+	}
+
+	validatorBech32 := args[0].(string)
+	valAddr, err := sdk.ValAddressFromBech32(validatorBech32)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	err = p.slashingKeeper.Unjail(ctx, valAddr)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	bz, err := method.Outputs.Pack(true)
