@@ -508,11 +508,6 @@ func (s *scheduler) prepareTask(task *deliverTxTask) {
 			return vs[k]
 		})
 
-		// Release the db store since OCC scheduler doesn't use it
-		if r, ok := ms.(interface{ ReleaseDB() }); ok {
-			r.ReleaseDB()
-		}
-
 		ctx = ctx.WithMultiStore(ms)
 	}
 

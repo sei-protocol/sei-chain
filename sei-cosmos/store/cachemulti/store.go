@@ -281,66 +281,21 @@ func (cms Store) StoreKeys() []types.StoreKey {
 	return keys
 }
 
-// Release returns all cachekv stores to their pools.
-func (cms Store) Release() {
-	type releasable interface{ Release() }
-	if r, ok := cms.db.(releasable); ok {
-		r.Release()
-	}
-	for k, s := range cms.stores {
-		if r, ok := s.(releasable); ok {
-			r.Release()
-		}
-		delete(cms.stores, k)
-	}
-	for k, s := range cms.gigaStores {
-		if r, ok := s.(releasable); ok {
-			r.Release()
-		}
-		delete(cms.gigaStores, k)
-	}
-	for k := range cms.parents {
-		delete(cms.parents, k)
-	}
-}
-
-// ReleaseDB releases the db cachekv store back to its pool.
-func (cms Store) ReleaseDB() {
-	type releasable interface{ Release() }
-	if r, ok := cms.db.(releasable); ok {
-		r.Release()
-	}
-}
-
 // SetKVStores sets the underlying KVStores via a handler for each key
 func (cms Store) SetKVStores(handler func(sk types.StoreKey, s types.KVStore) types.CacheWrap) types.MultiStore {
 	// Force-create any lazy stores
 	for k := range cms.parents {
 		cms.getOrCreateStore(k)
 	}
-	type releasable interface{ Release() }
 	for k, s := range cms.stores {
-		newStore := handler(k, s.(types.KVStore))
-		if newStore != s {
-			if r, ok := s.(releasable); ok {
-				r.Release()
-			}
-		}
-		cms.stores[k] = newStore
+		cms.stores[k] = handler(k, s.(types.KVStore))
 	}
 	return cms
 }
 
 func (cms Store) SetGigaKVStores(handler func(sk types.StoreKey, s types.KVStore) types.KVStore) types.MultiStore {
-	type releasable interface{ Release() }
 	for k, s := range cms.gigaStores {
-		newStore := handler(k, s)
-		if newStore != s {
-			if r, ok := s.(releasable); ok {
-				r.Release()
-			}
-		}
-		cms.gigaStores[k] = newStore
+		cms.gigaStores[k] = handler(k, s)
 	}
 	return cms
 }
