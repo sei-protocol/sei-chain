@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/cockroachdb/pebble"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
+	"github.com/cosmos/iavl"
 )
 
 const (

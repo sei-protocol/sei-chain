@@ -6,7 +6,8 @@ import (
 	"testing"
 
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/cosmos/iavl"
 	"github.com/stretchr/testify/require"
 )
 
@@ -168,7 +169,7 @@ func TestEVMStateStore(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	store, err := NewEVMStateStore(dir)
+	store, err := NewEVMStateStore(dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -220,7 +221,7 @@ func TestEVMStateStoreParallel(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	store, err := NewEVMStateStore(dir)
+	store, err := NewEVMStateStore(dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -451,20 +452,59 @@ func TestParseKey(t *testing.T) {
 		require.Equal(t, addr, stripped)
 	})
 
-	t.Run("Unknown key prefix", func(t *testing.T) {
+	t.Run("Unknown key prefix goes to legacy", func(t *testing.T) {
 		key := []byte{0xff, 0x01, 0x02}
 
-		storeType, _ := commonevm.ParseEVMKey(key)
-		require.Equal(t, StoreUnknown, storeType)
+		storeType, keyBytes := commonevm.ParseEVMKey(key)
+		require.Equal(t, StoreLegacy, storeType)
+		require.Equal(t, key, keyBytes) // Legacy keys keep full key
 	})
 
-	t.Run("Malformed key (wrong length)", func(t *testing.T) {
+	t.Run("Malformed key goes to legacy", func(t *testing.T) {
 		// Storage key needs prefix + 20 + 32 bytes
 		key := []byte{0x03, 0x01, 0x02} // too short
 
-		storeType, _ := commonevm.ParseEVMKey(key)
-		require.Equal(t, StoreUnknown, storeType)
+		storeType, keyBytes := commonevm.ParseEVMKey(key)
+		require.Equal(t, StoreLegacy, storeType)
+		require.Equal(t, key, keyBytes) // Malformed keys go to legacy with full key
 	})
+
+	t.Run("Parse codesize key goes to legacy", func(t *testing.T) {
+		// CodeSizeKeyPrefix = 0x09, addr (20 bytes)
+		// CodeSize is routed to legacy store (not its own optimized DB)
+		addr := make([]byte, 20)
+		addr[0] = 0x42
+		key := append([]byte{0x09}, addr...)
+
+		storeType, keyBytes := commonevm.ParseEVMKey(key)
+		require.Equal(t, StoreLegacy, storeType)
+		require.Equal(t, key, keyBytes) // Legacy preserves the full key
+	})
+}
+
+func TestCodeSizeGoesToLegacyDB(t *testing.T) {
+	dir, err := os.MkdirTemp("", "evm_codesize_legacy_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	store, err := NewEVMStateStore(dir, logger.NewNopLogger())
+	require.NoError(t, err)
+	defer store.Close()
+
+	// CodeSize should be routed to the Legacy DB, not its own DB
+	legacyDB := store.GetDB(StoreLegacy)
+	require.NotNil(t, legacyDB, "Legacy database should exist")
+
+	// Write a codesize key through the store (using full key since it goes to legacy)
+	addr := make([]byte, 20)
+	addr[0] = 0x42
+	codeSizeKey := append([]byte{0x09}, addr...)
+	err = legacyDB.Set(codeSizeKey, []byte{0x00, 0x10}, 1)
+	require.NoError(t, err)
+
+	val, err := legacyDB.Get(codeSizeKey, 1)
+	require.NoError(t, err)
+	require.Equal(t, []byte{0x00, 0x10}, val)
 }
 
 func TestPrune(t *testing.T) {

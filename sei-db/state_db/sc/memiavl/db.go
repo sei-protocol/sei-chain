@@ -952,8 +952,6 @@ func (db *DB) Close() error {
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
 	errs := []error{}
-
-	errs := []error{}
 	// Close rewrite channel first - must wait for background goroutine before closing WAL
 	db.logger.Info("Closing rewrite channel...")
 	if db.snapshotRewriteChan != nil {

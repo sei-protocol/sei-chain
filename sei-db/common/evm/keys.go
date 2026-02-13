@@ -21,48 +21,50 @@ var (
 type EVMKeyKind uint8
 
 const (
-	EVMKeyUnknown EVMKeyKind = iota
-	EVMKeyNonce
-	EVMKeyCodeHash
-	EVMKeyCode
-	EVMKeyStorage
+	EVMKeyEmpty    EVMKeyKind = iota // Returned only for zero-length keys
+	EVMKeyNonce                      // Stripped key: 20-byte address
+	EVMKeyCodeHash                   // Stripped key: 20-byte address
+	EVMKeyCode                       // Stripped key: 20-byte address
+	EVMKeyStorage                    // Stripped key: addr||slot (20+32 bytes)
+	EVMKeyLegacy                     // Full original key preserved (address mappings, codesize, etc.)
 )
 
 // ParseEVMKey parses an EVM key from the x/evm store keyspace.
 //
-// For non-storage keys, keyBytes is the 20-byte address.
-// For storage keys, keyBytes is addr||slot (20+32 bytes).
-// For unknown or malformed keys, returns (EVMKeyUnknown, nil).
+// For optimized keys (nonce, code, codehash, storage), keyBytes is the stripped key.
+// For legacy keys (all other EVM data), keyBytes is the full original key.
+// Only returns EVMKeyEmpty for zero-length keys.
 func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
 	if len(key) == 0 {
-		return EVMKeyUnknown, nil
+		return EVMKeyEmpty, nil
 	}
 
 	switch {
 	case bytes.HasPrefix(key, evmtypes.NonceKeyPrefix):
 		if len(key) != len(evmtypes.NonceKeyPrefix)+addressLen {
-			return EVMKeyUnknown, nil
+			return EVMKeyLegacy, key // Malformed but still EVM data
 		}
 		return EVMKeyNonce, key[len(evmtypes.NonceKeyPrefix):]
 
 	case bytes.HasPrefix(key, evmtypes.CodeHashKeyPrefix):
 		if len(key) != len(evmtypes.CodeHashKeyPrefix)+addressLen {
-			return EVMKeyUnknown, nil
+			return EVMKeyLegacy, key
 		}
 		return EVMKeyCodeHash, key[len(evmtypes.CodeHashKeyPrefix):]
 
 	case bytes.HasPrefix(key, evmtypes.CodeKeyPrefix):
 		if len(key) != len(evmtypes.CodeKeyPrefix)+addressLen {
-			return EVMKeyUnknown, nil
+			return EVMKeyLegacy, key
 		}
 		return EVMKeyCode, key[len(evmtypes.CodeKeyPrefix):]
 
 	case bytes.HasPrefix(key, evmtypes.StateKeyPrefix):
 		if len(key) != len(evmtypes.StateKeyPrefix)+addressLen+slotLen {
-			return EVMKeyUnknown, nil
+			return EVMKeyLegacy, key
 		}
 		return EVMKeyStorage, key[len(evmtypes.StateKeyPrefix):]
 	}
 
-	return EVMKeyUnknown, nil
+	// All other EVM keys go to legacy store (address mappings, codesize, etc.)
+	return EVMKeyLegacy, key
 }

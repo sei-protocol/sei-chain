@@ -46,6 +46,12 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSSConfig.PruneIntervalSeconds
 	case FlagSSImportNumWorkers:
 		return defaultSSConfig.ImportNumWorkers
+	case FlagEVMSSDirectory:
+		return defaultSSConfig.EVMDBDirectory
+	case FlagEVMSSWriteMode:
+		return "" // empty means use default
+	case FlagEVMSSReadMode:
+		return "" // empty means use default
 	}
 	return nil
 }

@@ -39,6 +39,11 @@ const (
 	FlagSSPruneInterval     = "state-store.ss-prune-interval"
 	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
 
+	// EVM SS optimization (embedded in SS config, controlled via write/read mode)
+	FlagEVMSSDirectory = "state-store.evm-ss-db-directory"
+	FlagEVMSSWriteMode = "state-store.evm-ss-write-mode"
+	FlagEVMSSReadMode  = "state-store.evm-ss-read-mode"
+
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
 	FlagMigrateIAVL      = "migrate-iavl"
@@ -61,6 +66,10 @@ func SetupSeiDB(
 	ssConfig := parseSSConfigs(appOpts)
 	if ssConfig.Enable {
 		logger.Info(fmt.Sprintf("SeiDB StateStore is enabled, running %s for historical state", ssConfig.Backend))
+	}
+	if ssConfig.EVMEnabled() {
+		logger.Info("SeiDB EVM StateStore optimization is enabled",
+			"writeMode", ssConfig.WriteMode, "readMode", ssConfig.ReadMode)
 	}
 	validateConfigs(appOpts)
 
@@ -111,6 +120,23 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.PruneIntervalSeconds = cast.ToInt(appOpts.Get(FlagSSPruneInterval))
 	ssConfig.ImportNumWorkers = cast.ToInt(appOpts.Get(FlagSSImportNumWorkers))
 	ssConfig.DBDirectory = cast.ToString(appOpts.Get(FlagSSDirectory))
+
+	// EVM optimization fields (embedded in SS config)
+	ssConfig.EVMDBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))
+	if wm := cast.ToString(appOpts.Get(FlagEVMSSWriteMode)); wm != "" {
+		parsedWM, err := config.ParseWriteMode(wm)
+		if err != nil {
+			panic(fmt.Sprintf("invalid EVM SS write mode %q: %s", wm, err))
+		}
+		ssConfig.WriteMode = parsedWM
+	}
+	if rm := cast.ToString(appOpts.Get(FlagEVMSSReadMode)); rm != "" {
+		parsedRM, err := config.ParseReadMode(rm)
+		if err != nil {
+			panic(fmt.Sprintf("invalid EVM SS read mode %q: %s", rm, err))
+		}
+		ssConfig.ReadMode = parsedRM
+	}
 	return ssConfig
 }
 
