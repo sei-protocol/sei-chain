@@ -33,6 +33,7 @@ type Keepers interface {
 	WasmdVK() WasmdViewKeeper
 	StakingK() StakingKeeper
 	StakingQ() StakingQuerier
+	SlashingK() SlashingKeeper
 	GovK() GovKeeper
 	GovMS() GovMsgServer
 	DistributionK() DistributionKeeper
@@ -54,6 +55,7 @@ func (ek *EmptyKeepers) WasmdK() WasmdKeeper               { return nil }
 func (ek *EmptyKeepers) WasmdVK() WasmdViewKeeper          { return nil }
 func (ek *EmptyKeepers) StakingK() StakingKeeper           { return nil }
 func (ek *EmptyKeepers) StakingQ() StakingQuerier          { return nil }
+func (ek *EmptyKeepers) SlashingK() SlashingKeeper         { return nil }
 func (ek *EmptyKeepers) GovK() GovKeeper                   { return nil }
 func (ek *EmptyKeepers) GovMS() GovMsgServer               { return nil }
 func (ek *EmptyKeepers) DistributionK() DistributionKeeper { return nil }
@@ -162,6 +164,10 @@ type StakingQuerier interface {
 	HistoricalInfo(c context.Context, req *stakingtypes.QueryHistoricalInfoRequest) (*stakingtypes.QueryHistoricalInfoResponse, error)
 	Pool(c context.Context, req *stakingtypes.QueryPoolRequest) (*stakingtypes.QueryPoolResponse, error)
 	Params(c context.Context, req *stakingtypes.QueryParamsRequest) (*stakingtypes.QueryParamsResponse, error)
+}
+
+type SlashingKeeper interface {
+	Unjail(ctx sdk.Context, validatorAddr sdk.ValAddress) error
 }
 
 type GovKeeper interface {
