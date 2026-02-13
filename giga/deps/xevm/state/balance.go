@@ -33,13 +33,40 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 
 	usei, wei := SplitUseiWeiAmount(amt)
 	addr := s.getSeiAddress(evmAddr)
+
+	currentBalance := s.k.BankKeeper().GetBalance(ctx, addr, s.k.GetBaseDenom(s.ctx))
+	spendable := s.k.BankKeeper().SpendableCoins(ctx, addr)
+	ctx.Logger().Info("giga: stateDB.SubBalance",
+		"evmAddr", evmAddr.Hex(),
+		"seiAddr", addr.String(),
+		"amt", amt,
+		"usei", usei,
+		"wei", wei,
+		"currentBalance", currentBalance,
+		"spendable", spendable,
+		"reason", fmt.Sprintf("%d", reason),
+	)
+
 	err := s.k.BankKeeper().SubUnlockedCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
 	if err != nil {
+		ctx.Logger().Error("giga: stateDB.SubBalance FAILED (SubUnlockedCoins)",
+			"evmAddr", evmAddr.Hex(),
+			"seiAddr", addr.String(),
+			"error", err,
+			"amtUsei", usei,
+			"currentBalance", currentBalance,
+			"spendable", spendable,
+		)
 		s.err = err
 		return *ZeroInt
 	}
 	err = s.k.BankKeeper().SubWei(ctx, addr, wei)
 	if err != nil {
+		ctx.Logger().Error("giga: stateDB.SubBalance FAILED (SubWei)",
+			"evmAddr", evmAddr.Hex(),
+			"error", err,
+			"weiAmt", wei,
+		)
 		s.err = err
 		return *ZeroInt
 	}

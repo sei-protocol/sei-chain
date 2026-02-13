@@ -1999,14 +1999,16 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 
 // gigaDeliverTx is the OCC-compatible deliverTx function for the giga executor.
 // The ctx.MultiStore() is already wrapped with VersionIndexedStore by the scheduler.
-func (app *App) gigaDeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
+func (app *App) gigaDeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (resp abci.ResponseDeliverTx) {
 	defer func() {
 		if r := recover(); r != nil {
 			// OCC abort panics are expected - the scheduler uses them to detect conflicts
-			// and reschedule transactions. Don't log these as errors.
-			if _, isOCCAbort := r.(occ.Abort); !isOCCAbort {
-				ctx.Logger().Error("benchmark panic in gigaDeliverTx", "panic", r, "stack", string(debug.Stack()))
+			// and reschedule transactions. Re-panic so the scheduler can handle them.
+			if _, isOCCAbort := r.(occ.Abort); isOCCAbort {
+				panic(r)
 			}
+			ctx.Logger().Error("benchmark panic in gigaDeliverTx", "panic", r, "stack", string(debug.Stack()))
+			resp = abci.ResponseDeliverTx{Code: 1, Log: fmt.Sprintf("gigaDeliverTx panic: %v", r)}
 		}
 	}()
 

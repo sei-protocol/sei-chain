@@ -129,15 +129,19 @@ func (k BaseViewKeeper) GetAllBalances(ctx sdk.Context, addr sdk.AccAddress) sdk
 // SpendableCoins returns the total balances of spendable coins for an account
 // by address. If the account has no spendable coins, an empty Coins slice is
 // returned.
+//
+// NOTE: This implementation uses direct key lookups (GetBalance) instead of
+// iteration (GetAllBalances) because the giga cachekv store does not support
+// iterators. Only "usei" is relevant for EVM accounts.
 func (k BaseViewKeeper) SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins {
-	total := k.GetAllBalances(ctx, addr)
-	locked := k.LockedCoins(ctx, addr)
+	total := k.GetBalance(ctx, addr, "usei").Amount
+	locked := k.LockedCoins(ctx, addr).AmountOf("usei")
 
-	spendable, hasNeg := total.SafeSub(locked)
-	if hasNeg {
+	spendable := total.Sub(locked)
+	if spendable.IsNegative() {
 		return sdk.NewCoins()
 	}
-	return spendable
+	return sdk.NewCoins(sdk.NewCoin("usei", spendable))
 }
 
 // getAccountStore gets the account store of the given address.

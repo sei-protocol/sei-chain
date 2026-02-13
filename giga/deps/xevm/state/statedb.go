@@ -104,6 +104,7 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	}
 	if s.err != nil {
 		err = s.err
+		surplus = sdk.ZeroInt()
 		return
 	}
 
