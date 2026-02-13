@@ -51,7 +51,7 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 		coinbaseAddress:    GetCoinbaseAddress(ctx.TxIndex()),
 		simulation:         simulation,
 		tempState:          NewTemporaryState(),
-		journal:            []journalEntry{},
+		journal:            make([]journalEntry, 0, 16), // Pre-allocate for typical journal size
 		coinbaseEvmAddress: feeCollector,
 	}
 	s.Snapshot() // take an initial snapshot for GetCommitted
@@ -241,8 +241,8 @@ func (s *DBImpl) WithCtx(ctx sdk.Context) {
 // EVM snapshot in a single transaction
 type TemporaryState struct {
 	logs                  []*ethtypes.Log
-	transientStates       map[string]map[string]common.Hash
-	transientAccounts     map[string][]byte
+	transientStates       map[common.Address]map[common.Hash]common.Hash
+	transientAccounts     map[common.Address][]byte
 	transientModuleStates map[string][]byte
 	transientAccessLists  *accessList
 	surplus               sdk.Int // in wei
@@ -251,8 +251,8 @@ type TemporaryState struct {
 func NewTemporaryState() *TemporaryState {
 	return &TemporaryState{
 		logs:                  []*ethtypes.Log{},
-		transientStates:       make(map[string]map[string]common.Hash),
-		transientAccounts:     make(map[string][]byte),
+		transientStates:       make(map[common.Address]map[common.Hash]common.Hash),
+		transientAccounts:     make(map[common.Address][]byte),
 		transientModuleStates: make(map[string][]byte),
 		transientAccessLists:  &accessList{Addresses: make(map[common.Address]int), Slots: []map[common.Hash]struct{}{}},
 		surplus:               utils.Sdk0,
@@ -260,37 +260,41 @@ func NewTemporaryState() *TemporaryState {
 }
 
 func (ts *TemporaryState) DeepCopy() *TemporaryState {
-	res := &TemporaryState{}
-	res.logs = make([]*ethtypes.Log, len(ts.logs))
-	copy(res.logs, ts.logs)
-	res.transientStates = make(map[string]map[string]common.Hash, len(ts.transientStates))
-	for k, v := range ts.transientStates {
-		res.transientStates[k] = make(map[string]common.Hash, len(v))
-		for k2, v2 := range v {
-			res.transientStates[k][k2] = v2
-		}
+	res := &TemporaryState{
+		logs:                  make([]*ethtypes.Log, len(ts.logs), cap(ts.logs)),
+		transientStates:       make(map[common.Address]map[common.Hash]common.Hash, len(ts.transientStates)),
+		transientAccounts:     make(map[common.Address][]byte, len(ts.transientAccounts)),
+		transientModuleStates: make(map[string][]byte, len(ts.transientModuleStates)),
+		transientAccessLists: &accessList{
+			Addresses: make(map[common.Address]int, len(ts.transientAccessLists.Addresses)),
+			Slots:     make([]map[common.Hash]struct{}, len(ts.transientAccessLists.Slots)),
+		},
 	}
-	res.transientAccounts = make(map[string][]byte, len(ts.transientAccounts))
+	copy(res.logs, ts.logs)
+	for k, v := range ts.transientStates {
+		innerMap := make(map[common.Hash]common.Hash, len(v))
+		for k2, v2 := range v {
+			innerMap[k2] = v2
+		}
+		res.transientStates[k] = innerMap
+	}
 	for k, v := range ts.transientAccounts {
 		res.transientAccounts[k] = v
 	}
-	res.transientModuleStates = make(map[string][]byte, len(ts.transientModuleStates))
 	for k, v := range ts.transientModuleStates {
 		res.transientModuleStates[k] = v
 	}
-	res.transientAccessLists = &accessList{}
-	res.transientAccessLists.Addresses = make(map[common.Address]int, len(ts.transientAccessLists.Addresses))
 	for k, v := range ts.transientAccessLists.Addresses {
 		res.transientAccessLists.Addresses[k] = v
 	}
-	res.transientAccessLists.Slots = make([]map[common.Hash]struct{}, len(ts.transientAccessLists.Slots))
 	for i, v := range ts.transientAccessLists.Slots {
-		res.transientAccessLists.Slots[i] = make(map[common.Hash]struct{}, len(v))
+		slotMap := make(map[common.Hash]struct{}, len(v))
 		for k2, v2 := range v {
-			res.transientAccessLists.Slots[i][k2] = v2
+			slotMap[k2] = v2
 		}
+		res.transientAccessLists.Slots[i] = slotMap
 	}
-	res.surplus = sdk.NewIntFromBigInt(ts.surplus.BigInt())
+	res.surplus = ts.surplus
 	return res
 }
 
