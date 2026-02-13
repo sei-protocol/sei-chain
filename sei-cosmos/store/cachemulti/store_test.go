@@ -2,6 +2,7 @@ package cachemulti
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
@@ -13,7 +14,7 @@ import (
 func TestStoreGetKVStore(t *testing.T) {
 	require := require.New(t)
 
-	s := Store{stores: map[types.StoreKey]types.CacheWrap{}}
+	s := Store{stores: map[types.StoreKey]types.CacheWrap{}, mu: &sync.RWMutex{}}
 	key := types.NewKVStoreKey("abc")
 	errMsg := fmt.Sprintf("kv store with key %v has not been registered in stores", key)
 
