@@ -1,9 +1,19 @@
 # Profiling Analysis: executeEVMTxWithGigaExecutor
 
 **Date:** 2026-02-13
-**Branch:** pd/benchmark-profiling-improvements (commit dcbfd5a02)
-**Scenario:** benchmark/scenarios/evm.json
-**Config:** GIGA_EXECUTOR=true GIGA_OCC=true DURATION=120
+**Branch:** pd/benchmark-profiling-improvements
+**Function:** `github.com/sei-protocol/sei-chain/app.(*App).executeEVMTxWithGigaExecutor`
+**Scenario:** `benchmark/scenarios/evm.json`
+**Config:** `GIGA_EXECUTOR=true GIGA_OCC=true DURATION=300 BENCHMARK_TXS_PER_BATCH=1000`
+
+## Benchmark Experiment Note
+
+The latest 300s compare run and its outcome are tracked separately in:
+`benchmark/analysis/executeEVMTxWithGigaExecutor-decision-log.md`.
+
+## Historical baseline (DURATION=120)
+
+Prior detailed investigation with shorter duration identified Snapshot + cache-store materialization as a major allocation and contention hotspot.
 
 ## Baseline
 
