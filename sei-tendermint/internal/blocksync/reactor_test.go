@@ -402,18 +402,21 @@ func TestAutoRestartShouldNotGetStuck(t *testing.T) {
 		maxPeerHeight: 200,
 	}
 
+	cooldownSeconds := uint64(300) // 5 minute cooldown — large enough to never expire during the test
 	restartChan := make(chan struct{}, 1)
 	r := &Reactor{
 		logger:                 log.TestingLogger(),
 		store:                  mockBlockStore,
 		pool:                   blockPool,
 		blocksBehindThreshold:  50,
-		restartCooldownSeconds: 0,
+		restartCooldownSeconds: cooldownSeconds,
+		lastRestartTime:        time.Time{}, // zero value — cooldown is already expired
 		restartCh:              restartChan,
 		blockSync:              newAtomicBool(false),
 	}
 
-	// Step 1: First check — node is behind, signal is sent.
+	// Step 1: First check — cooldown has expired (lastRestartTime is zero),
+	// node is behind threshold, signal is sent.
 	signaled := r.checkBehindAndSignalRestart()
 	assert.True(t, signaled, "Expected restart signal on first check")
 	assert.Equal(t, 1, len(restartChan), "Signal should be in the channel")
@@ -422,20 +425,26 @@ func TestAutoRestartShouldNotGetStuck(t *testing.T) {
 	assert.False(t, r.blockSync.IsSet(),
 		"checkBehindAndSignalRestart must not set blockSync; doing so would permanently disable retries")
 
-	// Step 3: Simulate the app-level cooldown dropping the signal (consume and ignore).
-	<-restartChan
-
-	// Step 4: Second check — because blockSync was NOT set, a retry signal fires.
+	// Step 3: Cooldown is now active (lastRestartTime was set to time.Now() by
+	// the check). Subsequent checks should be blocked by cooldown.
+	<-restartChan // consume the signal — simulating app-level cooldown dropping it
 	signaled = r.checkBehindAndSignalRestart()
-	assert.True(t, signaled, "Expected retry signal — self-remediation must not be stuck")
-	assert.Equal(t, 1, len(restartChan), "Retry signal should be in the channel")
+	assert.False(t, signaled, "Should not signal while reactor-level cooldown is active")
+	assert.Equal(t, 0, len(restartChan), "No signal should be sent during cooldown")
 
-	// Step 5: blockSync must still be false after the retry.
-	assert.False(t, r.blockSync.IsSet(),
-		"blockSync should remain false after retry signal")
+	// Step 4: Simulate cooldown expiring by backdating lastRestartTime.
+	r.lastRestartTime = time.Now().Add(-time.Duration(cooldownSeconds+1) * time.Second)
+
+	// Step 5: Now the check fires again — because blockSync was NOT set and
+	// cooldown has expired, self-remediation is not stuck.
+	signaled = r.checkBehindAndSignalRestart()
+	assert.True(t, signaled, "Expected retry signal after cooldown expired — self-remediation must not be stuck")
+	assert.Equal(t, 1, len(restartChan), "Retry signal should be in the channel")
+	assert.False(t, r.blockSync.IsSet(), "blockSync should remain false after retry")
 
 	// Step 6: Non-blocking send — if the channel is already full, the check
 	// should not block and should still return true.
+	r.lastRestartTime = time.Time{} // reset cooldown so the check reaches the send
 	signaled = r.checkBehindAndSignalRestart()
 	assert.True(t, signaled, "Should still attempt signal even when channel is full")
 	assert.Equal(t, 1, len(restartChan), "Channel should still have exactly 1 signal (non-blocking)")
@@ -446,12 +455,13 @@ func TestAutoRestartShouldNotGetStuck(t *testing.T) {
 	// newly constructed reactor starts with blockSync=true so it enters block
 	// sync mode to catch up.
 	restartedReactor := &Reactor{
-		logger:                log.TestingLogger(),
-		store:                 mockBlockStore,
-		pool:                  blockPool,
-		blocksBehindThreshold: 50,
-		restartCh:             make(chan struct{}, 1),
-		blockSync:             newAtomicBool(true), // node.go sets this true for non-validator
+		logger:                 log.TestingLogger(),
+		store:                  mockBlockStore,
+		pool:                   blockPool,
+		blocksBehindThreshold:  50,
+		restartCooldownSeconds: cooldownSeconds,
+		restartCh:              make(chan struct{}, 1),
+		blockSync:              newAtomicBool(true), // node.go sets this true for non-validator
 	}
 	assert.True(t, restartedReactor.blockSync.IsSet(),
 		"After restart, reactor must be in block sync mode so the node catches up")
