@@ -68,7 +68,7 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 	require.Equal(t, int64(1), v)
 
 	// LocalMeta should be updated
-	require.Equal(t, int64(1), s.storageLocalMeta.CommittedVersion)
+	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
 
 	// Verify it's persisted in DB
 	data, err := s.storageDB.Get(DBLocalMetaKey)

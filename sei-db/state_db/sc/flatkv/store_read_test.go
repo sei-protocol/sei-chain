@@ -222,7 +222,6 @@ func TestStoreIteratorSingleKey(t *testing.T) {
 
 	require.True(t, iter.First())
 	require.True(t, iter.Valid())
-	require.Equal(t, evm.EVMKeyStorage, iter.Kind())
 	require.Equal(t, internalKey, iter.Key()) // internal key format
 	require.Equal(t, value, iter.Value())
 

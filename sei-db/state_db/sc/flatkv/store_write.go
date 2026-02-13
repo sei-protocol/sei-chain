@@ -273,7 +273,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 
 	// Commit to accountDB
 	// accountDB uses AccountValue structure: key=addr(20), value=balance(32)||nonce(8)||codehash(32)
-	if len(s.accountWrites) > 0 || version > s.accountLocalMeta.CommittedVersion {
+	if len(s.accountWrites) > 0 || version > s.localMeta[accountDBDir].CommittedVersion {
 		batch := s.accountDB.NewBatch()
 		defer func() { _ = batch.Close() }()
 
@@ -305,11 +305,11 @@ func (s *CommitStore) commitBatches(version int64) error {
 		}
 
 		// Update in-memory local meta after successful commit
-		s.accountLocalMeta = newLocalMeta
+		s.localMeta[accountDBDir] = newLocalMeta
 	}
 
 	// Commit to codeDB
-	if len(s.codeWrites) > 0 || version > s.codeLocalMeta.CommittedVersion {
+	if len(s.codeWrites) > 0 || version > s.localMeta[codeDBDir].CommittedVersion {
 		batch := s.codeDB.NewBatch()
 		defer func() { _ = batch.Close() }()
 
@@ -338,11 +338,11 @@ func (s *CommitStore) commitBatches(version int64) error {
 		}
 
 		// Update in-memory local meta after successful commit
-		s.codeLocalMeta = newLocalMeta
+		s.localMeta[codeDBDir] = newLocalMeta
 	}
 
 	// Commit to storageDB
-	if len(s.storageWrites) > 0 || version > s.storageLocalMeta.CommittedVersion {
+	if len(s.storageWrites) > 0 || version > s.localMeta[storageDBDir].CommittedVersion {
 		batch := s.storageDB.NewBatch()
 		defer func() { _ = batch.Close() }()
 
@@ -371,7 +371,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 		}
 
 		// Update in-memory local meta after successful commit
-		s.storageLocalMeta = newLocalMeta
+		s.localMeta[storageDBDir] = newLocalMeta
 	}
 
 	return nil

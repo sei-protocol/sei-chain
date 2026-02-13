@@ -85,9 +85,9 @@ func TestStoreWriteAllDBs(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Verify all three DBs have their LocalMeta updated to version 1
-	require.Equal(t, int64(1), s.storageLocalMeta.CommittedVersion, "storageDB should be at version 1")
-	require.Equal(t, int64(1), s.accountLocalMeta.CommittedVersion, "accountDB should be at version 1")
-	require.Equal(t, int64(1), s.codeLocalMeta.CommittedVersion, "codeDB should be at version 1")
+	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion, "storageDB should be at version 1")
+	require.Equal(t, int64(1), s.localMeta[accountDBDir].CommittedVersion, "accountDB should be at version 1")
+	require.Equal(t, int64(1), s.localMeta[codeDBDir].CommittedVersion, "codeDB should be at version 1")
 
 	// Verify LocalMeta is persisted in each DB
 	storageMetaBytes, err := s.storageDB.Get(DBLocalMetaKey)
@@ -139,9 +139,9 @@ func TestStoreWriteEmptyCommit(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// All DBs should have LocalMeta at version 1
-	require.Equal(t, int64(1), s.storageLocalMeta.CommittedVersion)
-	require.Equal(t, int64(1), s.accountLocalMeta.CommittedVersion)
-	require.Equal(t, int64(1), s.codeLocalMeta.CommittedVersion)
+	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
+	require.Equal(t, int64(1), s.localMeta[accountDBDir].CommittedVersion)
+	require.Equal(t, int64(1), s.localMeta[codeDBDir].CommittedVersion)
 
 	// Commit version 2 with storage write only
 	addr := Address{0x99}
@@ -152,9 +152,9 @@ func TestStoreWriteEmptyCommit(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// All DBs should have LocalMeta at version 2, even though only storage had data
-	require.Equal(t, int64(2), s.storageLocalMeta.CommittedVersion)
-	require.Equal(t, int64(2), s.accountLocalMeta.CommittedVersion)
-	require.Equal(t, int64(2), s.codeLocalMeta.CommittedVersion)
+	require.Equal(t, int64(2), s.localMeta[storageDBDir].CommittedVersion)
+	require.Equal(t, int64(2), s.localMeta[accountDBDir].CommittedVersion)
+	require.Equal(t, int64(2), s.localMeta[codeDBDir].CommittedVersion)
 }
 
 func TestStoreWriteAccountAndCode(t *testing.T) {
@@ -196,9 +196,9 @@ func TestStoreWriteAccountAndCode(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Verify LocalMeta is updated in all DBs for version consistency
-	require.Equal(t, int64(1), s.accountLocalMeta.CommittedVersion)
-	require.Equal(t, int64(1), s.codeLocalMeta.CommittedVersion)
-	require.Equal(t, int64(1), s.storageLocalMeta.CommittedVersion)
+	require.Equal(t, int64(1), s.localMeta[accountDBDir].CommittedVersion)
+	require.Equal(t, int64(1), s.localMeta[codeDBDir].CommittedVersion)
+	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
 
 	// Verify account data was written
 	nonceKey1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr1[:])
@@ -299,9 +299,9 @@ func TestStoreWriteDelete(t *testing.T) {
 	require.False(t, found, "code should be deleted")
 
 	// LocalMeta should still be at version 2
-	require.Equal(t, int64(2), s.storageLocalMeta.CommittedVersion)
-	require.Equal(t, int64(2), s.accountLocalMeta.CommittedVersion)
-	require.Equal(t, int64(2), s.codeLocalMeta.CommittedVersion)
+	require.Equal(t, int64(2), s.localMeta[storageDBDir].CommittedVersion)
+	require.Equal(t, int64(2), s.localMeta[accountDBDir].CommittedVersion)
+	require.Equal(t, int64(2), s.localMeta[codeDBDir].CommittedVersion)
 }
 
 func TestAccountValueStorage(t *testing.T) {

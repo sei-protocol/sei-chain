@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -56,10 +57,9 @@ type CommitStore struct {
 	legacyDB   db_engine.DB // Legacy data for backward compatibility
 
 	// Per-DB local metadata (stored inside each DB at 0x00)
-	// Tracks committed version for recovery and consistency checks
-	storageLocalMeta *LocalMeta
-	accountLocalMeta *LocalMeta
-	codeLocalMeta    *LocalMeta
+	// Tracks committed version for recovery and consistency checks.
+	// Keyed by DB directory name (accountDBDir, codeDBDir, storageDBDir).
+	localMeta map[string]*LocalMeta
 
 	// LtHash state for integrity checking
 	committedVersion int64
@@ -95,6 +95,7 @@ func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore 
 		log:               log,
 		config:            cfg,
 		homeDir:           homeDir,
+		localMeta:         make(map[string]*LocalMeta),
 		accountWrites:     make(map[string]*pendingAccountWrite),
 		codeWrites:        make(map[string]*pendingKVWrite),
 		storageWrites:     make(map[string]*pendingKVWrite),
@@ -134,7 +135,8 @@ func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (Store, er
 }
 
 // open opens all database instances. Called by LoadVersion.
-func (s *CommitStore) open() error {
+// On failure, all already-opened resources are closed via deferred cleanup.
+func (s *CommitStore) open() (retErr error) {
 	dir := filepath.Join(s.homeDir, "flatkv")
 
 	// Create directory structure
@@ -154,42 +156,55 @@ func (s *CommitStore) open() error {
 		}
 	}
 
+	// Track opened resources for cleanup on failure
+	var toClose []io.Closer
+	defer func() {
+		if retErr != nil {
+			for _, c := range toClose {
+				_ = c.Close()
+			}
+			// Clear fields to avoid dangling references to closed handles
+			s.metadataDB = nil
+			s.accountDB = nil
+			s.codeDB = nil
+			s.storageDB = nil
+			s.legacyDB = nil
+			s.changelog = nil
+			s.localMeta = make(map[string]*LocalMeta)
+		}
+	}()
+
 	// Open metadata DB first (needed for catchup)
 	metaDB, err := pebbledb.Open(metadataPath, db_engine.OpenOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to open metadata DB: %w", err)
 	}
+	toClose = append(toClose, metaDB)
 
 	// Open PebbleDB instances
 	accountDB, err := pebbledb.Open(accountPath, db_engine.OpenOptions{})
 	if err != nil {
-		_ = metaDB.Close()
 		return fmt.Errorf("failed to open accountDB: %w", err)
 	}
+	toClose = append(toClose, accountDB)
 
 	codeDB, err := pebbledb.Open(codePath, db_engine.OpenOptions{})
 	if err != nil {
-		_ = metaDB.Close()
-		_ = accountDB.Close()
 		return fmt.Errorf("failed to open codeDB: %w", err)
 	}
+	toClose = append(toClose, codeDB)
 
 	storageDB, err := pebbledb.Open(storagePath, db_engine.OpenOptions{})
 	if err != nil {
-		_ = metaDB.Close()
-		_ = accountDB.Close()
-		_ = codeDB.Close()
 		return fmt.Errorf("failed to open storageDB: %w", err)
 	}
+	toClose = append(toClose, storageDB)
 
 	legacyDB, err := pebbledb.Open(legacyPath, db_engine.OpenOptions{})
 	if err != nil {
-		_ = metaDB.Close()
-		_ = accountDB.Close()
-		_ = codeDB.Close()
-		_ = storageDB.Close()
 		return fmt.Errorf("failed to open legacyDB: %w", err)
 	}
+	toClose = append(toClose, legacyDB)
 
 	// Open changelog WAL
 	changelogPath := filepath.Join(dir, "changelog")
@@ -199,67 +214,41 @@ func (s *CommitStore) open() error {
 		PruneInterval:   0,
 	})
 	if err != nil {
-		_ = metaDB.Close()
-		_ = accountDB.Close()
-		_ = codeDB.Close()
-		_ = storageDB.Close()
-		_ = legacyDB.Close()
 		return fmt.Errorf("failed to open changelog: %w", err)
 	}
+	toClose = append(toClose, changelog)
 
 	// Load per-DB local metadata (or initialize if not present)
-	storageLocalMeta, err := loadLocalMeta(storageDB)
-	if err != nil {
-		_ = metaDB.Close()
-		_ = accountDB.Close()
-		_ = codeDB.Close()
-		_ = storageDB.Close()
-		_ = legacyDB.Close()
-		_ = changelog.Close()
-		return fmt.Errorf("failed to load storageDB local meta: %w", err)
+	dataDBs := map[string]db_engine.DB{
+		accountDBDir: accountDB,
+		codeDBDir:    codeDB,
+		storageDBDir: storageDB,
 	}
-	accountLocalMeta, err := loadLocalMeta(accountDB)
-	if err != nil {
-		_ = metaDB.Close()
-		_ = accountDB.Close()
-		_ = codeDB.Close()
-		_ = storageDB.Close()
-		_ = legacyDB.Close()
-		_ = changelog.Close()
-		return fmt.Errorf("failed to load accountDB local meta: %w", err)
-	}
-	codeLocalMeta, err := loadLocalMeta(codeDB)
-	if err != nil {
-		_ = metaDB.Close()
-		_ = accountDB.Close()
-		_ = codeDB.Close()
-		_ = storageDB.Close()
-		_ = legacyDB.Close()
-		_ = changelog.Close()
-		return fmt.Errorf("failed to load codeDB local meta: %w", err)
+	for name, db := range dataDBs {
+		meta, err := loadLocalMeta(db)
+		if err != nil {
+			return fmt.Errorf("failed to load %s local meta: %w", name, err)
+		}
+		s.localMeta[name] = meta
 	}
 
+	// Assign to store fields
 	s.metadataDB = metaDB
 	s.accountDB = accountDB
 	s.codeDB = codeDB
 	s.storageDB = storageDB
 	s.legacyDB = legacyDB
-	s.storageLocalMeta = storageLocalMeta
-	s.accountLocalMeta = accountLocalMeta
-	s.codeLocalMeta = codeLocalMeta
 	s.changelog = changelog
 
 	// Load committed state from metadataDB
 	globalVersion, err := s.loadGlobalVersion()
 	if err != nil {
-		_ = s.Close()
 		return fmt.Errorf("failed to load global version: %w", err)
 	}
 	s.committedVersion = globalVersion
 
 	globalLtHash, err := s.loadGlobalLtHash()
 	if err != nil {
-		_ = s.Close()
 		return fmt.Errorf("failed to load global LtHash: %w", err)
 	}
 	if globalLtHash != nil {

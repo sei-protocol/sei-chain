@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io"
 
-	evm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
@@ -90,7 +89,8 @@ type Store interface {
 // Follows PebbleDB semantics: not positioned on creation.
 //
 // Keys are returned in internal format (without memiavl prefix).
-// Use Kind() to determine the key type.
+// Concrete implementations (e.g. dbIterator) expose Kind() for callers
+// that need to distinguish key types.
 type Iterator interface {
 	Domain() (start, end []byte)
 	Valid() bool
@@ -103,9 +103,6 @@ type Iterator interface {
 	SeekLT(key []byte) bool
 	Next() bool
 	Prev() bool
-
-	// Kind returns the type of the current key (Storage, Nonce, Code, CodeHash).
-	Kind() evm.EVMKeyKind
 
 	// Key returns the current key in internal format (valid until next move).
 	// Internal formats:
