@@ -116,18 +116,6 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 		panic("invalid revision number")
 	}
 
-	// Release current ctx's CMS (being abandoned)
-	type releasable interface{ Release() }
-	if r, ok := s.ctx.MultiStore().(releasable); ok {
-		r.Release()
-	}
-	// Release abandoned snapshots (rev+1..end), but not rev (becomes new ctx)
-	for i := len(s.snapshottedCtxs) - 1; i > rev; i-- {
-		if r, ok := s.snapshottedCtxs[i].MultiStore().(releasable); ok {
-			r.Release()
-		}
-	}
-
 	s.ctx = s.snapshottedCtxs[rev]
 	s.snapshottedCtxs = s.snapshottedCtxs[:rev]
 

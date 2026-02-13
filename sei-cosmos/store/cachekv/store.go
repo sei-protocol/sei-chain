@@ -27,39 +27,17 @@ type Store struct {
 
 var _ types.CacheKVStore = (*Store)(nil)
 
-var storePool = sync.Pool{
-	New: func() any {
-		return &Store{
-			cache:         &sync.Map{},
-			deleted:       &sync.Map{},
-			unsortedCache: &sync.Map{},
-		}
-	},
-}
-
 // NewStore creates a new Store object
 func NewStore(parent types.KVStore, storeKey types.StoreKey, cacheSize int) *Store {
-	s := storePool.Get().(*Store)
-	s.parent = parent
-	s.storeKey = storeKey
-	s.cacheSize = cacheSize
-	return s
-}
-
-// Reset clears all cached state, making the store ready for reuse.
-func (store *Store) Reset() {
-	store.cache = &sync.Map{}
-	store.deleted = &sync.Map{}
-	store.unsortedCache = &sync.Map{}
-	store.sortedCache = nil
-	store.parent = nil
-	store.storeKey = nil
-}
-
-// Release resets the store and returns it to the pool.
-func (store *Store) Release() {
-	store.Reset()
-	storePool.Put(store)
+	return &Store{
+		cache:         &sync.Map{},
+		deleted:       &sync.Map{},
+		unsortedCache: &sync.Map{},
+		sortedCache:   nil,
+		parent:        parent,
+		storeKey:      storeKey,
+		cacheSize:     cacheSize,
+	}
 }
 
 func (store *Store) GetWorkingHash() ([]byte, error) {
