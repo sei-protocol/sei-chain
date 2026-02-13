@@ -681,6 +681,9 @@ type P2PConfig struct {
 	HandshakeTimeout time.Duration `mapstructure:"handshake-timeout"`
 	DialTimeout      time.Duration `mapstructure:"dial-timeout"`
 
+	// How often node should dial a new peer.
+	DialInterval time.Duration `mapstructure:"dial-interval"`
+
 	// Testing params.
 	// Force dial to fail
 	TestDialFail bool `mapstructure:"test-dial-fail"`
@@ -710,6 +713,7 @@ func DefaultP2PConfig() *P2PConfig {
 		AllowDuplicateIP:              false,
 		HandshakeTimeout:              10 * time.Second,
 		DialTimeout:                   3 * time.Second,
+		DialInterval:                  10 * time.Second,
 		TestDialFail:                  false,
 		QueueType:                     "simple-priority",
 	}
@@ -1391,7 +1395,7 @@ type SelfRemediationConfig struct {
 	BlocksBehindThreshold uint64 `mapstructure:"blocks-behind-threshold"`
 
 	// How often to check if node is behind in seconds
-	BlocksBehindCheckIntervalSeconds uint64 `mapstructure:"blocks-behind-check-interval-seconds"`
+	BlocksBehindCheckIntervalSeconds uint64 `mapstructure:"blocks-behind-check-interval"`
 
 	// Cooldown between each restart
 	RestartCooldownSeconds uint64 `mapstructure:"restart-cooldown-seconds"`
@@ -1430,7 +1434,7 @@ func (cfg *SelfRemediationConfig) ValidateBasic() error {
 		return errors.New("blocks-behind-threshold exceeds max int64")
 	}
 	if cfg.BlocksBehindCheckIntervalSeconds > math.MaxInt64 {
-		return errors.New("blocks-behind-check-interval-seconds exceeds max int64")
+		return errors.New("blocks-behind-check-interval exceeds max int64")
 	}
 	if cfg.RestartCooldownSeconds > math.MaxInt64 {
 		return errors.New("restart-cooldown-seconds exceeds max int64")

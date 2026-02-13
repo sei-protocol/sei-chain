@@ -1,16 +1,21 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	srvconfig "github.com/cosmos/cosmos-sdk/server/config"
+	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/genesis"
 	"github.com/sei-protocol/sei-chain/app/params"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 )
@@ -229,4 +234,155 @@ func TestModeConfigurationMatrix(t *testing.T) {
 			require.Equal(t, expected.evmEnable, evmConfig.WSEnabled)
 		})
 	}
+}
+
+// TestCheckConfigOverwrite verifies that init refuses to overwrite existing config unless --overwrite is set.
+func TestCheckConfigOverwrite(t *testing.T) {
+	t.Run("no config files", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config")
+		require.NoError(t, os.MkdirAll(configPath, 0755))
+		require.NoError(t, checkConfigOverwrite(configPath, false))
+		require.NoError(t, checkConfigOverwrite(configPath, true))
+	})
+
+	t.Run("config.toml exists without overwrite", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config")
+		require.NoError(t, os.MkdirAll(configPath, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(configPath, "config.toml"), []byte("# test"), 0644))
+
+		err := checkConfigOverwrite(configPath, false)
+		require.ErrorContains(t, err, "configuration files already exist")
+		require.ErrorContains(t, err, "--overwrite")
+		require.NoError(t, checkConfigOverwrite(configPath, true))
+	})
+
+	t.Run("app.toml exists without overwrite", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config")
+		require.NoError(t, os.MkdirAll(configPath, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(configPath, "app.toml"), []byte("# test"), 0644))
+
+		err := checkConfigOverwrite(configPath, false)
+		require.ErrorContains(t, err, "configuration files already exist")
+		require.NoError(t, checkConfigOverwrite(configPath, true))
+	})
+
+	t.Run("both exist with overwrite", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config")
+		require.NoError(t, os.MkdirAll(configPath, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(configPath, "config.toml"), []byte("# test"), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(configPath, "app.toml"), []byte("# test"), 0644))
+		require.NoError(t, checkConfigOverwrite(configPath, true))
+	})
+}
+
+// TestLoadOrWriteGenesis_ExplicitConfigWins: existing genesis + no overwrite leaves file unchanged.
+func TestLoadOrWriteGenesis_ExplicitConfigWins(t *testing.T) {
+	dir := t.TempDir()
+	genFile := filepath.Join(dir, "genesis.json")
+	const chainID = "atlantic-2"
+
+	// a minimal valid genesis with matching chain_id
+	existing := &types.GenesisDoc{ChainID: chainID, AppState: json.RawMessage(`{}`)}
+	err := existing.SaveAs(genFile)
+	require.NoError(t, err)
+	origContent, err := os.ReadFile(genFile)
+	require.NoError(t, err)
+
+	encCfg := app.MakeEncodingConfig()
+	genDoc, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
+	require.NoError(t, err)
+	require.NotNil(t, genDoc)
+	require.Equal(t, chainID, genDoc.ChainID)
+
+	// File must be unchanged
+	afterContent, err := os.ReadFile(genFile)
+	require.NoError(t, err)
+	require.Equal(t, string(origContent), string(afterContent), "genesis file should not be overwritten")
+}
+
+// TestLoadOrWriteGenesis_WrongChainID: wrong chain_id in file returns error.
+func TestLoadOrWriteGenesis_WrongChainID(t *testing.T) {
+	dir := t.TempDir()
+	genFile := filepath.Join(dir, "genesis.json")
+	existing := &types.GenesisDoc{ChainID: "wrong-chain", AppState: json.RawMessage(`{}`)}
+	err := existing.SaveAs(genFile)
+	require.NoError(t, err)
+
+	encCfg := app.MakeEncodingConfig()
+	_, err = loadOrWriteGenesis(log.NewNopLogger(), genFile, "atlantic-2", false, app.ModuleBasics, encCfg.Marshaler)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "chain_id")
+}
+
+// TestLoadOrWriteGenesis_PathIsDirectory: path is directory returns error.
+func TestLoadOrWriteGenesis_PathIsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	genFile := filepath.Join(dir, "genesis.json")
+	require.NoError(t, os.MkdirAll(genFile, 0755))
+
+	encCfg := app.MakeEncodingConfig()
+	_, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, "atlantic-2", false, app.ModuleBasics, encCfg.Marshaler)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "directory")
+}
+
+// TestLoadOrWriteGenesis_WellKnownWritesEmbedded: well-known chain gets embedded genesis.
+func TestLoadOrWriteGenesis_WellKnownWritesEmbedded(t *testing.T) {
+	dir := t.TempDir()
+	genFile := filepath.Join(dir, "genesis.json")
+	const chainID = "atlantic-2"
+	require.True(t, genesis.IsWellKnown(chainID), "atlantic-2 should be well-known")
+	encCfg := app.MakeEncodingConfig()
+
+	genDoc, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
+	require.NoError(t, err)
+	require.NotNil(t, genDoc)
+	require.Equal(t, chainID, genDoc.ChainID)
+	require.NotEmpty(t, genDoc.AppState)
+
+	embedded, err := genesis.EmbeddedGenesisDoc(chainID)
+	require.NoError(t, err)
+	require.Equal(t, embedded.ChainID, genDoc.ChainID)
+}
+
+// TestLoadOrWriteGenesis_OverwriteReplacesFile: overwrite=true replaces existing file.
+func TestLoadOrWriteGenesis_OverwriteReplacesFile(t *testing.T) {
+	dir := t.TempDir()
+	genFile := filepath.Join(dir, "genesis.json")
+	const chainID = "atlantic-2"
+	existing := &types.GenesisDoc{ChainID: chainID, AppState: json.RawMessage(`{"old":true}`)}
+	require.NoError(t, existing.SaveAs(genFile))
+
+	encCfg := app.MakeEncodingConfig()
+	genDoc, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, chainID, true, app.ModuleBasics, encCfg.Marshaler)
+	require.NoError(t, err)
+	require.NotNil(t, genDoc)
+	// Should be overwritten
+	require.NotEqual(t, `{"old":true}`, string(genDoc.AppState))
+}
+
+// TestLoadOrWriteGenesis_UnknownChainWritesDefault: unknown chain gets default genesis.
+func TestLoadOrWriteGenesis_UnknownChainWritesDefault(t *testing.T) {
+	dir := t.TempDir()
+	genFile := filepath.Join(dir, "genesis.json")
+	const chainID = "custom-chain-1"
+	require.False(t, genesis.IsWellKnown(chainID), "custom-chain-1 should not be well-known")
+
+	encCfg := app.MakeEncodingConfig()
+	genDoc, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
+	require.NoError(t, err)
+	require.NotNil(t, genDoc)
+	require.Equal(t, chainID, genDoc.ChainID)
+	require.NotEmpty(t, genDoc.AppState)
+
+	// Should contain known module keys
+	var state map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(genDoc.AppState, &state))
+	require.Contains(t, state, "bank")
+	require.Contains(t, state, "staking")
+	require.Contains(t, state, "genutil")
 }
