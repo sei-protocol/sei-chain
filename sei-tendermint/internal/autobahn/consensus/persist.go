@@ -105,8 +105,8 @@ func newPersister(dir string, prefix string) (*persister, utils.Option[[]byte], 
 	if err != nil {
 		return nil, none, fmt.Errorf("state dir %q is not writable: %w", dir, err)
 	}
-	probe.Close()
-	os.Remove(probe.Name())
+	_ = probe.Close()
+	_ = os.Remove(probe.Name())
 
 	wrapper, err := loadPersisted(dir, prefix)
 	if err != nil && !errors.Is(err, ErrNoData) {
@@ -118,20 +118,20 @@ func newPersister(dir string, prefix string) (*persister, utils.Option[[]byte], 
 	// so they won't interfere with loading on restart.
 	for _, suffix := range []string{suffixA, suffixB} {
 		path := filepath.Join(dir, prefix+suffix)
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0600)
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0600) //nolint:gosec // path is stateDir + hardcoded suffix; not user-controlled
 		if err != nil {
 			return nil, none, fmt.Errorf("state file %q is not writable: %w", path, err)
 		}
-		f.Close()
+		_ = f.Close()
 	}
 	// Sync directory to make file entries durable (harmless if files already existed).
-	if d, err := os.Open(dir); err != nil {
+	if d, err := os.Open(dir); err != nil { //nolint:gosec // dir is operator-configured stateDir; not user-controlled
 		return nil, none, fmt.Errorf("open directory %s: %w", dir, err)
 	} else if err := d.Sync(); err != nil {
-		d.Close()
+		_ = d.Close()
 		return nil, none, fmt.Errorf("sync directory %s: %w", dir, err)
 	} else {
-		d.Close()
+		_ = d.Close()
 	}
 
 	// wrapper is nil on fresh start (ErrNoData); protobuf Get methods return zero values for nil.
@@ -182,7 +182,7 @@ func (w *persister) Persist(data []byte) error {
 // stateDir must be an existing directory (we do not create it).
 func loadWrapped(stateDir, filename string) (*pb.PersistedWrapper, error) {
 	path := filepath.Join(stateDir, filename)
-	bz, err := os.ReadFile(path)
+	bz, err := os.ReadFile(path) //nolint:gosec // path is constructed from operator-configured stateDir + hardcoded filename suffix; no user-controlled input
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, os.ErrNotExist
 	}
@@ -258,7 +258,7 @@ func loadPersisted(dir string, prefix string) (*pb.PersistedWrapper, error) {
 // newPersister pre-creates both A/B files at startup.
 func writeAndSync(stateDir string, filename string, data []byte) error {
 	path := filepath.Join(stateDir, filename)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600) //nolint:gosec // path is stateDir + hardcoded suffix; not user-controlled
 	if err != nil {
 		return err
 	}
