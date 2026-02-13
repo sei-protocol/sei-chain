@@ -325,7 +325,7 @@ fi
 
 if [ "$DURATION" -gt 0 ] 2>/dev/null; then
   # ---- Timed run: background seid, capture profiles, extract TPS ----
-  BASE_DIR="/tmp/sei-bench"
+  BASE_DIR="${BASE_DIR:-/tmp/sei-bench}"
   PROFILE_DIR="$BASE_DIR/pprof"
   mkdir -p "$PROFILE_DIR"
 
@@ -352,46 +352,36 @@ if [ "$DURATION" -gt 0 ] 2>/dev/null; then
   sleep "$PPROF_WAIT" || true
 
   echo ""
-  echo "=== Capturing profiles (30s CPU + 30s fgprof + heap + goroutine + block + mutex) ==="
-  PPROF_PIDS=()
+  echo "=== Capturing profiles (30s CPU + 30s fgprof + others) ==="
+  set +e
+  PROFILE_CAPTURE_START=$(date +%s)
 
-  # CPU profile (30s)
+  # Capture sequentially to avoid runtime conflicts:
+  # Go pprof CPU and fgprof profiling cannot run at the same time.
+  echo "  capturing cpu profile ..."
   curl -s "http://localhost:${PPROF_PORT}/debug/pprof/profile?seconds=30" \
-    -o "$PROFILE_DIR/cpu.pb.gz" &
-  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
+    -o "$PROFILE_DIR/cpu.pb.gz"
 
-  # fgprof (30s) — wall-clock time
+  echo "  capturing fgprof ..."
   curl -s "http://localhost:${PPROF_PORT}/debug/fgprof?seconds=30" \
-    -o "$PROFILE_DIR/fgprof.pb.gz" &
-  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
+    -o "$PROFILE_DIR/fgprof.pb.gz"
 
-  # Heap snapshot
+  echo "  capturing heap/goroutine/block/mutex ..."
   curl -s "http://localhost:${PPROF_PORT}/debug/pprof/heap?debug=0" \
-    -o "$PROFILE_DIR/heap.pb.gz" &
-  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
-
-  # Goroutine dump
+    -o "$PROFILE_DIR/heap.pb.gz"
   curl -s "http://localhost:${PPROF_PORT}/debug/pprof/goroutine?debug=0" \
-    -o "$PROFILE_DIR/goroutine.pb.gz" &
-  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
-
-  # Block profile
+    -o "$PROFILE_DIR/goroutine.pb.gz"
   curl -s "http://localhost:${PPROF_PORT}/debug/pprof/block?debug=0" \
-    -o "$PROFILE_DIR/block.pb.gz" &
-  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
-
-  # Mutex contention profile
+    -o "$PROFILE_DIR/block.pb.gz"
   curl -s "http://localhost:${PPROF_PORT}/debug/pprof/mutex?debug=0" \
-    -o "$PROFILE_DIR/mutex.pb.gz" &
-  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
+    -o "$PROFILE_DIR/mutex.pb.gz"
 
-  echo "  Capturing from localhost:${PPROF_PORT} -> $PROFILE_DIR/"
-
-  # Wait for all profile captures to finish
-  for pid in "${PPROF_PIDS[@]}"; do
-    wait "$pid" 2>/dev/null || true
-  done
+  echo "  capturing from localhost:${PPROF_PORT} -> $PROFILE_DIR/"
   echo "  Profile capture complete."
+
+  PROFILE_CAPTURE_END=$(date +%s)
+  PROFILE_CAPTURE_SECS=$(( PROFILE_CAPTURE_END - PROFILE_CAPTURE_START ))
+  set -e
 
   # Verify profile sizes
   cpu_size=$(wc -c < "$PROFILE_DIR/cpu.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
@@ -403,7 +393,7 @@ if [ "$DURATION" -gt 0 ] 2>/dev/null; then
   echo "  cpu=${cpu_size}B fgprof=${fgprof_size}B heap=${heap_size}B goroutine=${goroutine_size}B block=${block_size}B mutex=${mutex_size}B"
 
   # Wait remaining time
-  REMAINING=$(( DURATION - PPROF_WAIT - 30 ))
+  REMAINING=$(( DURATION - PPROF_WAIT - PROFILE_CAPTURE_SECS ))
   if [ "$REMAINING" -gt 0 ]; then
     echo ""
     echo "  Continuing benchmark for ${REMAINING}s..."
