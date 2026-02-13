@@ -25,7 +25,10 @@ func defaultViewTimeout(view types.View) time.Duration { return time.Hour }
 
 func newTestNode(committee *types.Committee, cfg *consensus.Config) *testNode {
 	dataState := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
-	consensusState := consensus.NewState(cfg, dataState)
+	consensusState, err := consensus.NewState(cfg, dataState)
+	if err != nil {
+		panic(fmt.Sprintf("consensus.NewState(): %v", err))
+	}
 	return &testNode{
 		data:      dataState,
 		consensus: consensusState,

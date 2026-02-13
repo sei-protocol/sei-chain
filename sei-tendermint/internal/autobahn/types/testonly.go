@@ -157,6 +157,11 @@ func GenProposal(rng utils.Rng) *Proposal {
 	return newProposal(GenView(rng), time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)))
 }
 
+// GenProposalAt generates a Proposal at a specific view.
+func GenProposalAt(rng utils.Rng, view View) *Proposal {
+	return newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)))
+}
+
 // GenAppHash generates a random AppHash.
 func GenAppHash(rng utils.Rng) AppHash {
 	return AppHash(utils.GenBytes(rng, 32))
