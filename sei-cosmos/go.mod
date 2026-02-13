@@ -174,7 +174,7 @@ require (
 	github.com/sagikazarmark/locafero v0.9.0 // indirect
 	github.com/sasha-s/go-deadlock v0.3.1 // indirect
 	github.com/sei-protocol/goutils v0.0.2 // indirect
-	github.com/sei-protocol/sei-load v0.0.0-20251007135253-78fbdc141082 // indirect
+	github.com/sei-protocol/sei-load v0.0.0-20260212060740-96a581d66024 // indirect
 	github.com/shirou/gopsutil v3.21.11+incompatible // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.14.0 // indirect
