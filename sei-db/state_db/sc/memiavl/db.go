@@ -468,10 +468,10 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 
 		if result.mtree == nil {
 			// background snapshot rewrite failed
-			otelMetrics.SnapshotRewriteCount.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
+			otelMetrics.NumSnapshotRewriteAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
 			return fmt.Errorf("background snapshot rewriting failed: %w", result.err)
 		} else {
-			otelMetrics.SnapshotRewriteCount.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "true")))
+			otelMetrics.NumSnapshotRewriteAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "true")))
 		}
 
 		// wait for potential pending writes to finish, to make sure we catch up to latest state.
@@ -553,16 +553,16 @@ func (db *DB) pruneSnapshots() {
 
 		if err := atomicRemoveDir(filepath.Join(db.dir, name)); err != nil {
 			db.logger.Error("failed to prune snapshot", "err", err)
-			otelMetrics.SnapshotPruneCount.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
+			otelMetrics.NumSnapshotPruneAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
 		} else {
 			db.logger.Info("successfully pruned snapshot", "name", name)
-			otelMetrics.SnapshotPruneCount.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "true")))
+			otelMetrics.NumSnapshotPruneAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "true")))
 		}
 
 		return false, nil
 	}); err != nil {
 		db.logger.Error("fail to prune snapshots", "err", err)
-		otelMetrics.SnapshotPruneCount.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
+		otelMetrics.NumSnapshotPruneAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
 		return
 	}
 }
@@ -664,7 +664,7 @@ func (db *DB) Commit() (version int64, _err error) {
 	// Rewrite tree snapshot if applicable
 	db.rewriteIfApplicable(v)
 	db.tryTruncateWAL()
-	otelMetrics.CurrentSnapshotHeight.Record(context.Background(), db.MultiTree.SnapshotVersion())
+	otelMetrics.CurrentSnapshotHeight.Record(context.Background(), db.SnapshotVersion())
 
 	return v, nil
 }
@@ -854,7 +854,7 @@ func (db *DB) rewriteIfApplicable(height int64) {
 
 		if err := db.rewriteSnapshotBackground(); err != nil {
 			db.logger.Error("failed to rewrite snapshot in background", "err", err)
-			otelMetrics.SnapshotRewriteCount.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
+			otelMetrics.NumSnapshotRewriteAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
 		}
 	}
 }

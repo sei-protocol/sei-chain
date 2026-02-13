@@ -203,7 +203,7 @@ func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 			return db.snapshotRewriteChan != nil
 		}, 100*time.Millisecond, 10*time.Millisecond, "rewrite should not start at height %d", i)
 		// snapshot version should remain 0 until rewrite
-		require.EqualValues(t, 0, db.MultiTree.SnapshotVersion())
+		require.EqualValues(t, 0, db.SnapshotVersion())
 	}
 
 	// Wait for minimum time interval to elapse (1 second + buffer)
@@ -223,7 +223,7 @@ func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 	}, 5*time.Second, 100*time.Millisecond)
 
 	// After completion, snapshot version should be 5
-	require.EqualValues(t, 5, db.MultiTree.SnapshotVersion())
+	require.EqualValues(t, 5, db.SnapshotVersion())
 
 	require.NoError(t, db.Close())
 }
