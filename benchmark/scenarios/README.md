@@ -1,18 +1,18 @@
 # Benchmark Scenarios
 
-This folder contains benchmark scenario configurations for `scripts/benchmark.sh`.
+This folder contains benchmark scenario configurations for `benchmark/benchmark.sh`.
 
 ## Usage
 
 ```bash
 # Use default scenario (EVMTransfer)
-./scripts/benchmark.sh
+./benchmark/benchmark.sh
 
 # Use ERC20 scenario
-BENCHMARK_CONFIG=scripts/scenarios/erc20.json ./scripts/benchmark.sh
+BENCHMARK_CONFIG=benchmark/scenarios/erc20.json ./benchmark/benchmark.sh
 
 # Use mixed scenario (EVMTransfer + ERC20)
-BENCHMARK_CONFIG=scripts/scenarios/mixed.json ./scripts/benchmark.sh
+BENCHMARK_CONFIG=benchmark/scenarios/mixed.json ./benchmark/benchmark.sh
 ```
 
 ## Available Scenarios
