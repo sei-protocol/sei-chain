@@ -29,7 +29,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GIGA_EXECUTOR=${GIGA_EXECUTOR:-true}
 GIGA_OCC=${GIGA_OCC:-true}
 BENCHMARK_TXS_PER_BATCH=${BENCHMARK_TXS_PER_BATCH:-1000}
-DURATION=${DURATION:-600}
+DURATION=${DURATION:-120}
 BENCHMARK_CONFIG=${BENCHMARK_CONFIG:-"$SCRIPT_DIR/scenarios/evm.json"}
 DB_BACKEND=${DB_BACKEND:-goleveldb}
 BASE_DIR="/tmp/sei-bench"
@@ -101,6 +101,7 @@ for i in $(seq 0 $((NUM-1))); do
   mkdir -p "$BASE_DIR/$label"
 
   echo -n "  Building [$label] from ${commit}... "
+  git -C "$REPO_ROOT" checkout -- go.work.sum 2>/dev/null || true
   git -C "$REPO_ROOT" checkout "$commit" --detach 2>/dev/null
   # Forward DB_BACKEND build tags if needed
   BUILD_TAGS=""

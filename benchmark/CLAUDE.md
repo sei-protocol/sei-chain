@@ -48,7 +48,7 @@ Inherits all benchmark.sh vars via delegation. Additionally:
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `DURATION` | `600` | How long (seconds) to run each node before stopping |
+| `DURATION` | `120` | How long (seconds) to run each node before stopping |
 | `GIGA_EXECUTOR` | **`true`** | Overrides benchmark.sh default (false) |
 | `GIGA_OCC` | **`true`** | Overrides benchmark.sh default (false) |
 | `DB_BACKEND` | `goleveldb` | Forwarded to build and init phases |
