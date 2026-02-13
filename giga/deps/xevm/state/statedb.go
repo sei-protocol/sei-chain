@@ -80,13 +80,29 @@ func (s *DBImpl) SetEVM(evm *vm.EVM) {}
 func (s *DBImpl) AddPreimage(_ common.Hash, _ []byte) {}
 
 func (s *DBImpl) Cleanup() {
+	s.releaseIntermediateStores()
 	s.tempState = nil
 	s.logger = nil
 	s.snapshottedCtxs = nil
 }
 
+// releaseIntermediateStores returns cachekv stores from intermediate CMS snapshots
+// back to their pools. Never releases snapshottedCtxs[0] — it belongs to the caller.
+func (s *DBImpl) releaseIntermediateStores() {
+	type releasable interface{ Release() }
+	if r, ok := s.ctx.MultiStore().(releasable); ok {
+		r.Release()
+	}
+	for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
+		if r, ok := s.snapshottedCtxs[i].MultiStore().(releasable); ok {
+			r.Release()
+		}
+	}
+}
+
 func (s *DBImpl) CleanupForTracer() {
 	s.flushCtxs()
+	s.releaseIntermediateStores()
 	if len(s.snapshottedCtxs) > 0 {
 		s.ctx = s.snapshottedCtxs[0]
 	}
