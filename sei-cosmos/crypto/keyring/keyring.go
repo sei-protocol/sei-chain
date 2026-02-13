@@ -592,6 +592,11 @@ func SignWithLedger(info Info, msg []byte) (sig []byte, pub types.PubKey, err er
 		return nil, nil, fmt.Errorf("ledger signing failed: %w", err)
 	}
 
+	// Validate that the public key from the device matches the cached key in the keyring
+	if !pub.Equals(info.GetPubKey()) {
+		return nil, nil, errors.New("the public key from the Ledger device does not match the cached key in the keyring")
+	}
+
 	return sig, pub, nil
 }
 
