@@ -3,8 +3,17 @@ package evm
 import (
 	"testing"
 
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
+)
+
+// Test-local copies of x/evm/types key prefixes.
+// Kept here (rather than importing evmtypes) to avoid a circular dependency:
+//
+//	common/evm (test) -> x/evm/types -> cosmos-sdk/server/config
+//	-> sei-db/config -> sei-db/state_db/sc/flatkv -> common/evm
+var (
+	testEVMAddrToSeiPrefix = []byte{0x01}
+	testSeiAddrToEVMPrefix = []byte{0x02}
 )
 
 func TestParseEVMKey(t *testing.T) {
@@ -24,13 +33,6 @@ func TestParseEVMKey(t *testing.T) {
 		return out
 	}
 
-	// Sanity-check: inlined prefixes match the canonical evmtypes values.
-	require.Equal(t, stateKeyPrefix, evmtypes.StateKeyPrefix)
-	require.Equal(t, codeKeyPrefix, evmtypes.CodeKeyPrefix)
-	require.Equal(t, codeHashKeyPrefix, evmtypes.CodeHashKeyPrefix)
-	require.Equal(t, codeSizeKeyPrefix, evmtypes.CodeSizeKeyPrefix)
-	require.Equal(t, nonceKeyPrefix, evmtypes.NonceKeyPrefix)
-
 	tests := []struct {
 		name      string
 		key       []byte
@@ -40,46 +42,46 @@ func TestParseEVMKey(t *testing.T) {
 		// Optimized keys - stripped
 		{
 			name:      "Nonce",
-			key:       concat(evmtypes.NonceKeyPrefix, addr),
+			key:       concat(nonceKeyPrefix, addr),
 			wantKind:  EVMKeyNonce,
 			wantBytes: addr,
 		},
 		{
 			name:      "CodeHash",
-			key:       concat(evmtypes.CodeHashKeyPrefix, addr),
+			key:       concat(codeHashKeyPrefix, addr),
 			wantKind:  EVMKeyCodeHash,
 			wantBytes: addr,
 		},
 		{
 			name:      "CodeSize",
-			key:       concat(evmtypes.CodeSizeKeyPrefix, addr),
+			key:       concat(codeSizeKeyPrefix, addr),
 			wantKind:  EVMKeyCodeSize,
 			wantBytes: addr,
 		},
 		{
 			name:      "Code",
-			key:       concat(evmtypes.CodeKeyPrefix, addr),
+			key:       concat(codeKeyPrefix, addr),
 			wantKind:  EVMKeyCode,
 			wantBytes: addr,
 		},
 		{
 			name:      "Storage",
-			key:       concat(concat(evmtypes.StateKeyPrefix, addr), slot),
+			key:       concat(concat(stateKeyPrefix, addr), slot),
 			wantKind:  EVMKeyStorage,
 			wantBytes: concat(addr, slot),
 		},
 		// Legacy keys - keep full key (address mappings, unknown prefix, malformed, etc.)
 		{
 			name:      "EVMAddressToSeiAddress goes to Legacy",
-			key:       concat(evmtypes.EVMAddressToSeiAddressKeyPrefix, addr),
+			key:       concat(testEVMAddrToSeiPrefix, addr),
 			wantKind:  EVMKeyLegacy,
-			wantBytes: concat(evmtypes.EVMAddressToSeiAddressKeyPrefix, addr), // Full key preserved
+			wantBytes: concat(testEVMAddrToSeiPrefix, addr), // Full key preserved
 		},
 		{
 			name:      "SeiAddressToEVMAddress goes to Legacy",
-			key:       concat(evmtypes.SeiAddressToEVMAddressKeyPrefix, addr),
+			key:       concat(testSeiAddrToEVMPrefix, addr),
 			wantKind:  EVMKeyLegacy,
-			wantBytes: concat(evmtypes.SeiAddressToEVMAddressKeyPrefix, addr), // Full key preserved
+			wantBytes: concat(testSeiAddrToEVMPrefix, addr), // Full key preserved
 		},
 		{
 			name:      "UnknownPrefix goes to Legacy",
@@ -95,33 +97,33 @@ func TestParseEVMKey(t *testing.T) {
 		},
 		{
 			name:      "NonceTooShort goes to Legacy",
-			key:       evmtypes.NonceKeyPrefix,
+			key:       nonceKeyPrefix,
 			wantKind:  EVMKeyLegacy,
-			wantBytes: evmtypes.NonceKeyPrefix,
+			wantBytes: nonceKeyPrefix,
 		},
 		{
 			name:      "NonceWrongLenShort goes to Legacy",
-			key:       concat(evmtypes.NonceKeyPrefix, addr[:addressLen-1]),
+			key:       concat(nonceKeyPrefix, addr[:addressLen-1]),
 			wantKind:  EVMKeyLegacy,
-			wantBytes: concat(evmtypes.NonceKeyPrefix, addr[:addressLen-1]),
+			wantBytes: concat(nonceKeyPrefix, addr[:addressLen-1]),
 		},
 		{
 			name:      "NonceWrongLenLong goes to Legacy",
-			key:       concat(evmtypes.NonceKeyPrefix, concat(addr, []byte{0x00})),
+			key:       concat(nonceKeyPrefix, concat(addr, []byte{0x00})),
 			wantKind:  EVMKeyLegacy,
-			wantBytes: concat(evmtypes.NonceKeyPrefix, concat(addr, []byte{0x00})),
+			wantBytes: concat(nonceKeyPrefix, concat(addr, []byte{0x00})),
 		},
 		{
 			name:      "StorageTooShort goes to Legacy",
-			key:       concat(evmtypes.StateKeyPrefix, addr),
+			key:       concat(stateKeyPrefix, addr),
 			wantKind:  EVMKeyLegacy,
-			wantBytes: concat(evmtypes.StateKeyPrefix, addr),
+			wantBytes: concat(stateKeyPrefix, addr),
 		},
 		{
 			name:      "StorageWrongLenLong goes to Legacy",
-			key:       concat(concat(concat(evmtypes.StateKeyPrefix, addr), slot), []byte{0x00}),
+			key:       concat(concat(concat(stateKeyPrefix, addr), slot), []byte{0x00}),
 			wantKind:  EVMKeyLegacy,
-			wantBytes: concat(concat(concat(evmtypes.StateKeyPrefix, addr), slot), []byte{0x00}),
+			wantBytes: concat(concat(concat(stateKeyPrefix, addr), slot), []byte{0x00}),
 		},
 	}
 
