@@ -307,7 +307,7 @@ func (s *CompositeStateStore) extractEVMChanges(changesets []*proto.NamedChangeS
 		}
 		for _, kvPair := range changeset.Changeset.Pairs {
 			evmStoreType, keyBytes := commonevm.ParseEVMKey(kvPair.Key)
-			if evmStoreType == evm.StoreUnknown {
+			if evmStoreType == evm.StoreEmpty {
 				continue // Skip zero-length keys
 			}
 			// All EVM keys are routed: optimized keys use stripped key, legacy uses full key
@@ -386,7 +386,7 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 		// Route EVM keys to EVM-SS
 		if isEVM {
 			evmStoreType, keyBytes := commonevm.ParseEVMKey(node.Key)
-			if evmStoreType != evm.StoreUnknown {
+			if evmStoreType != evm.StoreEmpty {
 				evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{
 					Key:   keyBytes,
 					Value: node.Value,
@@ -456,7 +456,7 @@ func (s *CompositeStateStore) RawImport(ch <-chan types.RawSnapshotNode) error {
 		// Route EVM keys to EVM-SS
 		if isEVM {
 			evmStoreType, keyBytes := commonevm.ParseEVMKey(node.Key)
-			if evmStoreType != evm.StoreUnknown {
+			if evmStoreType != evm.StoreEmpty {
 				if evmChangesByVersion[node.Version] == nil {
 					evmChangesByVersion[node.Version] = make(map[evm.EVMStoreType][]*iavl.KVPair, evm.NumEVMStoreTypes)
 				}
@@ -688,7 +688,7 @@ func extractEVMChangesFromChangesets(changesets []*proto.NamedChangeSet) map[evm
 		}
 		for _, kvPair := range changeset.Changeset.Pairs {
 			evmStoreType, keyBytes := commonevm.ParseEVMKey(kvPair.Key)
-			if evmStoreType == evm.StoreUnknown {
+			if evmStoreType == evm.StoreEmpty {
 				continue // Skip zero-length keys
 			}
 			evmChanges[evmStoreType] = append(evmChanges[evmStoreType], &iavl.KVPair{

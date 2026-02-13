@@ -80,7 +80,7 @@ func (s *EVMStateStore) GetDB(storeType EVMStoreType) *EVMDatabase {
 // Get retrieves a value using the full EVM key (with prefix)
 func (s *EVMStateStore) Get(key []byte, version int64) ([]byte, error) {
 	storeType, strippedKey := commonevm.ParseEVMKey(key)
-	if storeType == StoreUnknown {
+	if storeType == StoreEmpty {
 		return nil, nil
 	}
 
@@ -95,7 +95,7 @@ func (s *EVMStateStore) Get(key []byte, version int64) ([]byte, error) {
 // Has checks if a key exists
 func (s *EVMStateStore) Has(key []byte, version int64) (bool, error) {
 	storeType, strippedKey := commonevm.ParseEVMKey(key)
-	if storeType == StoreUnknown {
+	if storeType == StoreEmpty {
 		return false, nil
 	}
 

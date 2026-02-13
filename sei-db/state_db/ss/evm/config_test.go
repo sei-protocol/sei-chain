@@ -21,6 +21,7 @@ func TestAllEVMStoreTypes(t *testing.T) {
 	require.True(t, typeSet[StoreCodeHash], "StoreCodeHash should be in AllEVMStoreTypes")
 	require.True(t, typeSet[StoreCode], "StoreCode should be in AllEVMStoreTypes")
 	require.True(t, typeSet[StoreStorage], "StoreStorage should be in AllEVMStoreTypes")
+	require.True(t, typeSet[StoreLegacy], "StoreLegacy should be in AllEVMStoreTypes")
 
 	// Balance should NOT be present (reserved for future)
 	require.False(t, typeSet[StoreBalance], "StoreBalance should not be in AllEVMStoreTypes yet")
@@ -35,8 +36,9 @@ func TestStoreTypeName(t *testing.T) {
 		{StoreCodeHash, "codehash"},
 		{StoreCode, "code"},
 		{StoreStorage, "storage"},
+		{StoreLegacy, "legacy"},
 		{StoreBalance, "balance"},
-		{StoreUnknown, "unknown"},
+		{StoreEmpty, "unknown"},
 	}
 
 	for _, tt := range tests {
