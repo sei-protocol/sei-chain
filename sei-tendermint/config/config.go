@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1431,8 +1432,6 @@ func TestSelfRemediationConfig() *SelfRemediationConfig {
 // ValidateBasic performs basic validation (checking param bounds, etc.) and
 // returns an error if any check fails.
 func (cfg *SelfRemediationConfig) ValidateBasic() error {
-<<<<<<< HEAD
-=======
 	if cfg == nil {
 		return nil
 	}
@@ -1451,6 +1450,5 @@ func (cfg *SelfRemediationConfig) ValidateBasic() error {
 	if cfg.RestartCooldownSeconds > math.MaxInt64 {
 		return errors.New("restart-cooldown-seconds exceeds max int64")
 	}
->>>>>>> 7fb1494 (Fix inconsistent config for self remediation behind interval (#2883))
 	return nil
 }
