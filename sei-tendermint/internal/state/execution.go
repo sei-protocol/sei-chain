@@ -8,15 +8,15 @@ import (
 	"math"
 	"time"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/merkle"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/mempool"
-	"github.com/tendermint/tendermint/libs/log"
-	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	otrace "go.opentelemetry.io/otel/trace"
 )
 
@@ -171,11 +171,11 @@ func (blockExec *BlockExecutor) ProcessProposal(
 	block *types.Block,
 	state State,
 ) (bool, error) {
-	txs := block.Data.Txs.ToSliceOfBytes()
+	txs := block.Txs.ToSliceOfBytes()
 	resp, err := blockExec.appClient.ProcessProposal(ctx, &abci.RequestProcessProposal{
 		Hash:                  block.Header.Hash(),
-		Height:                block.Header.Height,
-		Time:                  block.Header.Time,
+		Height:                block.Height,
+		Time:                  block.Time,
 		Txs:                   txs,
 		ProposedLastCommit:    buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
 		ByzantineValidators:   block.Evidence.ToABCI(),
@@ -215,7 +215,7 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 	err := validateBlock(state, block)
 	if err != nil {
 		// Check if this is a LastResultsHash mismatch and log detailed info
-		if !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
+		if !types.SkipLastResultsHashValidation.Load() && !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
 			blockExec.logger.Error("LastResultsHash mismatch detected",
 				"height", block.Height,
 				"expectedHash", fmt.Sprintf("%X", state.LastResultsHash),
@@ -266,14 +266,14 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		_, finalizeBlockSpan = tracer.Start(ctx, "cs.state.ApplyBlock.FinalizeBlock")
 		defer finalizeBlockSpan.End()
 	}
-	txs := block.Data.Txs.ToSliceOfBytes()
+	txs := block.Txs.ToSliceOfBytes()
 	finalizeBlockStartTime := time.Now()
 	fBlockRes, err := blockExec.appClient.FinalizeBlock(
 		ctx,
 		&abci.RequestFinalizeBlock{
 			Hash:                  block.Hash(),
-			Height:                block.Header.Height,
-			Time:                  block.Header.Time,
+			Height:                block.Height,
+			Time:                  block.Time,
 			Txs:                   txs,
 			DecidedLastCommit:     buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
 			ByzantineValidators:   block.Evidence.ToABCI(),
@@ -789,16 +789,16 @@ func FireEvents(
 	}
 
 	// sanity check
-	if len(finalizeBlockResponse.TxResults) != len(block.Data.Txs) {
+	if len(finalizeBlockResponse.TxResults) != len(block.Txs) {
 		panic(fmt.Sprintf("number of TXs (%d) and ABCI TX responses (%d) do not match",
-			len(block.Data.Txs), len(finalizeBlockResponse.TxResults)))
+			len(block.Txs), len(finalizeBlockResponse.TxResults)))
 	}
 
-	for i, tx := range block.Data.Txs {
+	for i, tx := range block.Txs {
 		if err := eventBus.PublishEventTx(types.EventDataTx{
 			TxResultV2: abci.TxResultV2{
 				Height: block.Height,
-				Index:  uint32(i),
+				Index:  uint32(i), //nolint:gosec // i is bounded by block.Txs length which fits in uint32
 				Tx:     tx,
 				Result: *(finalizeBlockResponse.TxResults[i]),
 			},

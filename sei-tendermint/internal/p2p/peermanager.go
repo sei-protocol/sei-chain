@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/im"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/im"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const maxAddrsPerPeer = 10
@@ -285,6 +286,15 @@ type peerManager[C peerConn] struct {
 	inner utils.Watch[*peerManagerInner[C]]
 }
 
+func (p *peerManager[C]) LogState(logger log.Logger) {
+	for inner := range p.inner.Lock() {
+		logger.Info("p2p connections",
+			"regular", fmt.Sprintf("%v/%v", inner.conditionalConns, p.options.maxConns()),
+			"unconditional", inner.conns.Load().Len()-inner.conditionalConns,
+		)
+	}
+}
+
 // PeerUpdatesRecv.
 // NOT THREAD-SAFE.
 type peerUpdatesRecv[C peerConn] struct {
@@ -503,6 +513,7 @@ func (m *peerManager[C]) Advertise(maxAddrs int) []NodeAddress {
 func (m *peerManager[C]) Peers() []types.NodeID {
 	var ids []types.NodeID
 	for inner := range m.inner.Lock() {
+		ids = make([]types.NodeID, 0, len(inner.persistentAddrs)+len(inner.addrs))
 		for id := range inner.persistentAddrs {
 			ids = append(ids, id)
 		}

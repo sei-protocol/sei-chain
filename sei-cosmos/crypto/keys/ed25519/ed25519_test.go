@@ -5,10 +5,10 @@ import (
 	"encoding/base64"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	tmed25519 "github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/crypto"
-	tmed25519 "github.com/tendermint/tendermint/crypto/ed25519"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"

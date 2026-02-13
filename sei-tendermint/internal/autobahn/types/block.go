@@ -8,10 +8,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
-	"github.com/tendermint/tendermint/internal/autobahn/pb"
-	"github.com/tendermint/tendermint/internal/hashable"
-	"github.com/tendermint/tendermint/internal/protoutils"
-	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // LaneID represents a lane identifier (currently it is the same as NodeID,
@@ -270,8 +270,8 @@ var BlockConv = protoutils.Conv[*Block, *pb.Block]{
 // CalculateBlockHash calculates the hash of a block.
 func (b *GlobalBlock) CalculateBlockHash() common.Hash {
 	header := &ethtypes.Header{
-		Time:       uint64(b.Payload.CreatedAt().Unix()),
-		Number:     big.NewInt(int64(b.GlobalNumber)),
+		Time:       uint64(b.Payload.CreatedAt().Unix()), //nolint:gosec // block timestamps are always positive post-epoch values
+		Number:     big.NewInt(int64(b.GlobalNumber)),    //nolint:gosec // block numbers are within int64 range for all practical chain heights
 		GasUsed:    b.Payload.TotalGas(),
 		Difficulty: big.NewInt(0),
 		BaseFee:    big.NewInt(0),

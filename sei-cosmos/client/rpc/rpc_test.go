@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	ctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/stretchr/testify/suite"
-	ctypes "github.com/tendermint/tendermint/rpc/coretypes"
 
 	"github.com/cosmos/cosmos-sdk/client/rpc"
 	"github.com/cosmos/cosmos-sdk/codec/legacy"

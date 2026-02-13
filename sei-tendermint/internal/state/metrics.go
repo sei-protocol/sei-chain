@@ -31,10 +31,10 @@ type Metrics struct {
 	// committing application state
 	FlushAppConnectionTime metrics.Histogram
 
-	// ApplicationCommitTime meaures how long it takes to commit application state
+	// ApplicationCommitTime measures how long it takes to commit application state
 	ApplicationCommitTime metrics.Histogram
 
-	// UpdateMempoolTime meaures how long it takes to update mempool after commiting, including
+	// UpdateMempoolTime measures how long it takes to update mempool after committing, including
 	// reCheckTx
 	UpdateMempoolTime metrics.Histogram
 

@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/tendermint/tendermint/internal/autobahn/data"
-	"github.com/tendermint/tendermint/internal/autobahn/types"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 // ErrBadLane .
@@ -17,6 +17,15 @@ var ErrBadLane = errors.New("bad lane")
 const BlocksPerLane = 3 * BlocksPerLanePerCommit
 const BlocksPerLanePerCommit = 10
 
+// State represents the Data Availability Plane and Ordered Event Log.
+// Although it resides in a sub-package, it serves as the "source of truth" for:
+// - Block data: storing and disseminating raw transaction payloads (lanes).
+// - Finality tracking: acting as a persistent buffer for CommitQCs and AppQCs.
+// - Pruning: managing memory by deleting data once enough execution proofs (AppVotes) are seen.
+//
+// NOTE: This component is more than an observer; it actively aggregates AppVotes
+// to trigger internal pruning, which allows it to manage memory independently
+// of the main consensus loop.
 // State is the block availability state provided by the node for consensus.
 // It contains:
 // * commitQCs
@@ -160,7 +169,11 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		if !ok {
 			return nil
 		}
-		if inner.prune(appQC, qc) {
+		updated, err := inner.prune(appQC, qc)
+		if err != nil {
+			return err
+		}
+		if updated {
 			ctrl.Updated()
 		}
 	}
@@ -177,13 +190,20 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 		}
 	}
 	if err := appQC.Verify(s.data.Committee()); err != nil {
-		return fmt.Errorf("appQC.Proposal().VerifyAgainstCommitQC(commitQC): %w", err)
+		return fmt.Errorf("appQC.Verify(): %w", err)
 	}
 	if err := commitQC.Verify(s.data.Committee()); err != nil {
 		return fmt.Errorf("commitQC.Verify(): %w", err)
 	}
+	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
+		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
+	}
 	for inner, ctrl := range s.inner.Lock() {
-		if inner.prune(appQC, commitQC) {
+		updated, err := inner.prune(appQC, commitQC)
+		if err != nil {
+			return err
+		}
+		if updated {
 			ctrl.Updated()
 		}
 	}
@@ -295,7 +315,7 @@ func (s *State) headers(ctx context.Context, lr *types.LaneRange) ([]*types.Bloc
 	for inner, ctrl := range s.inner.Lock() {
 		q := inner.votes[lr.Lane()]
 		for i := range headers {
-			n := lr.Next() - types.BlockNumber(i) - 1
+			n := lr.Next() - types.BlockNumber(i) - 1 //nolint:gosec // i is bounded by len(headers) which is a small block range; no overflow risk
 			for {
 				// If pruned, then give up.
 				if q.first > lr.First() {

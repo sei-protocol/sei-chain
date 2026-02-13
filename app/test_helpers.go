@@ -16,21 +16,21 @@ import (
 	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/suite"
-	"github.com/tendermint/tendermint/config"
 
 	"bytes"
 	"encoding/hex"
 	"strconv"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	tmtypes "github.com/tendermint/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
 	bam "github.com/cosmos/cosmos-sdk/baseapp"
@@ -147,6 +147,7 @@ func NewGigaTestWrapperWithRegularStore(t *testing.T, tm time.Time, valPub crypt
 	// Manually enable Giga executor on the app
 	wrapper.App.GigaExecutorEnabled = true
 	wrapper.App.GigaOCCEnabled = useOcc
+	tmtypes.SkipLastResultsHashValidation.Store(true)
 
 	// Configure GigaEvmKeeper to use regular KVStore instead of GigaKVStore
 	wrapper.App.GigaEvmKeeper.UseRegularStore = true

@@ -20,12 +20,12 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	seiutils "github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
 )
 
 const testAddr = "127.0.0.1"
@@ -277,7 +277,11 @@ func encodeEvmTx(txData ethtypes.TxData, signed *ethtypes.Transaction) []byte {
 }
 
 func signAndEncodeCosmosTx(msg sdk.Msg, mnemonic string, acctN uint64, seq uint64) []byte {
-	tx := signCosmosTxWithMnemonic(msg, mnemonic, acctN, seq)
+	tx, err := signCosmosTxWithMnemonic(msg, mnemonic, acctN, seq)
+	if err != nil {
+		// TODO: pass in testing.T and assert no error instead
+		panic(err)
+	}
 	return encodeCosmosTx(tx)
 }
 

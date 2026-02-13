@@ -22,11 +22,11 @@ import (
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/nacl/box"
 
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/internal/libs/async"
-	"github.com/tendermint/tendermint/internal/libs/protoio"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/crypto"
-	tmprivval "github.com/tendermint/tendermint/proto/tendermint/privval"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/async"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/protoio"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
+	tmprivval "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/privval"
 )
 
 // This code has been duplicated from p2p/conn prior to the P2P refactor.
@@ -206,7 +206,7 @@ func (sc *SecretConnection) Write(data []byte) (n int, err error) {
 				data = nil
 			}
 			chunkLength := len(chunk)
-			binary.LittleEndian.PutUint32(frame, uint32(chunkLength))
+			binary.LittleEndian.PutUint32(frame, uint32(chunkLength)) //nolint:gosec // chunkLength bounded by dataMaxSize which fits in uint32
 			copy(frame[dataLenSize:], chunk)
 
 			// encrypt the frame
@@ -425,7 +425,7 @@ func shareAuthSignature(sc io.ReadWriter, pubKey ed25519.PublicKey, signature ed
 			}
 			sig, err := ed25519.SignatureFromBytes(pba.Sig)
 			if err != nil {
-				return nil, true, fmt.Errorf("Sig: %w", err)
+				return nil, true, fmt.Errorf("sig: %w", err)
 			}
 			return authSigMessage{key, sig}, false, nil
 		},

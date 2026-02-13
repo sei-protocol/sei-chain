@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
-	"github.com/tendermint/tendermint/libs/log"
 )
 
 func LogIfNotDoneAfter[R any](logger log.Logger, task func() (R, error), after time.Duration, label string) (R, error) {

@@ -4,12 +4,12 @@ import (
 	"errors"
 	"fmt"
 
-	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
-	"github.com/tendermint/tendermint/libs/bits"
-	"github.com/tendermint/tendermint/libs/utils"
-	tmcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bits"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmcons "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // Message defines an interface that the consensus domain types implement. When
@@ -336,7 +336,7 @@ func newValidBlockMessageFromProto(pb *tmcons.NewValidBlock) (*NewValidBlockMess
 func proposalMessageFromProto(pb *tmcons.Proposal) (*ProposalMessage, error) {
 	proposal, err := types.ProposalFromProto(&pb.Proposal)
 	if err != nil {
-		return nil, fmt.Errorf("Proposal: %w", err)
+		return nil, fmt.Errorf("proposal: %w", err)
 	}
 	msg := &ProposalMessage{
 		Proposal: proposal,
@@ -360,7 +360,7 @@ func proposalPOLMessageFromProto(pb *tmcons.ProposalPOL) (*ProposalPOLMessage, e
 func blockPartMessageFromProto(pb *tmcons.BlockPart) (*BlockPartMessage, error) {
 	part, err := types.PartFromProto(&pb.Part)
 	if err != nil {
-		return nil, fmt.Errorf("Part: %w", err)
+		return nil, fmt.Errorf("part: %w", err)
 	}
 	msg := &BlockPartMessage{
 		Height: pb.Height,
@@ -373,7 +373,7 @@ func blockPartMessageFromProto(pb *tmcons.BlockPart) (*BlockPartMessage, error) 
 func voteMessageFromProto(pb *tmcons.Vote) (*VoteMessage, error) {
 	vote, err := types.VoteFromProto(pb.Vote)
 	if err != nil {
-		return nil, fmt.Errorf("Vote: %w", err)
+		return nil, fmt.Errorf("vote: %w", err)
 	}
 	msg := &VoteMessage{
 		Vote: vote,
