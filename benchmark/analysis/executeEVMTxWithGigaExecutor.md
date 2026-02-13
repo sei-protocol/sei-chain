@@ -11,6 +11,8 @@
 The latest 300s compare run and its outcome are tracked separately in:
 `benchmark/analysis/executeEVMTxWithGigaExecutor-decision-log.md`.
 
+The plain-map giga cachekv experiment was not retained. It was reverted in commit `a8e96318d` after validation showed the TPS delta was within noise.
+
 ## Historical baseline (DURATION=120)
 
 Prior detailed investigation with shorter duration identified Snapshot + cache-store materialization as a major allocation and contention hotspot.
@@ -136,7 +138,9 @@ This happens at minimum once per tx (NewDBImpl's initial Snapshot), plus additio
 
 `ChainID()` is called at lines 1721 and 1764. `DefaultChainConfig()` is called inside `RecoverSenderFromEthTx` and again implicitly at line 1764. Minor but free to fix.
 
-## Candidate Optimizations
+## Candidate Optimizations (historical proposals)
+
+These options are historical hypotheses from earlier profiling; they are preserved for planning and were **not all implemented** in the current branch run.
 
 ### A. Pool/reuse cachekv.Store objects (high impact)
 
@@ -155,6 +159,8 @@ Currently `materializeOnce.Do` creates cachekv.Store for ALL module stores when 
 ### C. Replace sync.Map with regular map in giga cachekv (medium impact)
 
 The giga `cachekv.Store` uses `sync.Map` but within OCC, each store belongs to a single goroutine's execution. Regular maps are ~10x cheaper to allocate and access.
+
+Tested in this pass as `0244baf53...`, then reverted in `a8e96318d` because gains were not statistically robust.
 
 **Expected impact:** 5-10% TPS improvement
 **Risk:** Low — need to verify no concurrent access in OCC path

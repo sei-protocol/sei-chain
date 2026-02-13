@@ -8,6 +8,13 @@
 
 Pick a concrete optimization direction for `executeEVMTxWithGigaExecutor` and validate whether it produces a meaningful TPS gain before implementing changes.
 
+## Status update
+
+- The sync.Map-to-plain-map cachekv change (`0244baf53...`, previously recorded as `87c97e7b2...` in earlier notes) is now formally closed.
+- The branch now contains commit `a8e96318d` reverting that change.
+- Reason: 300s benchmark evidence remained within noise (`~+0.5%` to `~+0.7%`, high variance, mixed deltas), so we did not retain the optimization in-tree.
+- Current active code has returned to the previous sync.Map state with pool-based optimization already reverted.
+
 ### Pool-change history reference (preserved)
 
 - The earlier pool experiment commit is `dbd6ad52ff10e003bed8ba2b5744f39b867fb876`.
@@ -16,9 +23,13 @@ Pick a concrete optimization direction for `executeEVMTxWithGigaExecutor` and va
 
 ### What was actually optimized in this run
 
-- The comparison targeted one concrete code change: commit `87c97e7b2faa4a9e08d50fdde32ffbabd84a38cb` changes `giga/deps/store/cachekv.go` from `sync.Map` + `sync.Map`-based deleted tracking to regular maps (`map[string]*types.CValue` and `map[string]struct{}`), with mutex protection added around map access.
+- The comparison targeted one concrete code change: commit `0244baf53...` (`giga/deps/store/cachekv.go`) changed from `sync.Map` + `sync.Map`-based deleted tracking to regular maps (`map[string]*types.CValue` and `map[string]struct{}`), with mutex protection added around map access.
 - The baseline commit `ebddcb9cea7d8bf2696911c49dcb11023a0350fb` is the direct predecessor where `cachekv.Store` pooling (`sync.Pool`) was reverted, so this run specifically tests the map-vs-pool design for giga cachekv in the existing snapshot/cache-heavy execution path.
 - No additional optimization passes were applied during this validation pass beyond the above candidate-vs-baseline diff.
+
+### Closure decision
+
+- `0244baf53...` is no longer part of this branch; it was reverted by `a8e96318d` after the validation pass due insufficient signal.
 
 ## What we committed to in this validation pass
 
@@ -32,7 +43,7 @@ Pick a concrete optimization direction for `executeEVMTxWithGigaExecutor` and va
 ## Candidate selected for check
 
 - Baseline: `ebddcb9cea7d8bf2696911c49dcb11023a0350fb`
-- Candidate: `87c97e7b2faa4a9e08d50fdde32ffbabd84a38cb`
+- Candidate: `0244baf53...`
 
 ## Method used
 
