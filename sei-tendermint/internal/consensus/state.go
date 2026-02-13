@@ -685,6 +685,10 @@ func (cs *State) updateToState(state sm.State) {
 
 	cs.state = state
 
+	// Reset the valid block message, since we no longer need block parts
+	// from the previous height. This is just for clarity - it wouldn't hurt
+	// to just keep the value from the previous height.
+	cs.eventValidBlock.Store(utils.None[*cstypes.RoundState]())
 	// Finally, broadcast RoundState
 	cs.newStep()
 }
