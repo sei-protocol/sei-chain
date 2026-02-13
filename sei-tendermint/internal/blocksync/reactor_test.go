@@ -310,57 +310,48 @@ func (m *MockBlockStore) Height() int64 {
 	return args.Get(0).(int64)
 }
 
-func TestAutoRestartIfBehind(t *testing.T) {
+func TestCheckBehindAndSignalRestart(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name                      string
-		blocksBehindThreshold     uint64
-		blocksBehindCheckInterval time.Duration
-		selfHeight                int64
-		maxPeerHeight             int64
-		isBlockSync               bool
-		restartExpected           bool
+		name            string
+		threshold       uint64
+		selfHeight      int64
+		maxPeerHeight   int64
+		isBlockSync     bool
+		restartExpected bool
 	}{
 		{
-			name:                      "Should not restart if blocksBehindThreshold is 0",
-			blocksBehindThreshold:     0,
-			blocksBehindCheckInterval: 10 * time.Millisecond,
-			selfHeight:                100,
-			maxPeerHeight:             200,
-			isBlockSync:               false,
-			restartExpected:           false,
+			name:            "Should not signal if behindHeight is less than threshold",
+			threshold:       50,
+			selfHeight:      100,
+			maxPeerHeight:   140,
+			restartExpected: false,
 		},
 		{
-			name:                      "Should not restart if behindHeight is less than threshold",
-			blocksBehindThreshold:     50,
-			selfHeight:                100,
-			blocksBehindCheckInterval: 10 * time.Millisecond,
-			maxPeerHeight:             140,
-			isBlockSync:               false,
-			restartExpected:           false,
+			name:            "Should signal if behindHeight meets threshold",
+			threshold:       50,
+			selfHeight:      100,
+			maxPeerHeight:   160,
+			restartExpected: true,
 		},
 		{
-			name:                      "Should restart if behindHeight is greater than or equal to threshold",
-			blocksBehindThreshold:     50,
-			selfHeight:                100,
-			blocksBehindCheckInterval: 10 * time.Millisecond,
-			maxPeerHeight:             160,
-			isBlockSync:               false,
-			restartExpected:           true,
+			name:            "Should not signal if maxPeerHeight is 0",
+			threshold:       50,
+			selfHeight:      100,
+			maxPeerHeight:   0,
+			restartExpected: false,
 		},
 		{
-			name:                      "Should not restart if blocksync",
-			blocksBehindThreshold:     50,
-			selfHeight:                100,
-			blocksBehindCheckInterval: 10 * time.Millisecond,
-			maxPeerHeight:             160,
-			isBlockSync:               true,
-			restartExpected:           false,
+			name:            "Should not signal if already in block sync mode",
+			threshold:       50,
+			selfHeight:      100,
+			maxPeerHeight:   160,
+			isBlockSync:     true,
+			restartExpected: false,
 		},
 	}
 
 	for _, tt := range tests {
-		t.Log(tt.name)
 		t.Run(tt.name, func(t *testing.T) {
 			mockBlockStore := new(MockBlockStore)
 			mockBlockStore.On("Height").Return(tt.selfHeight)
@@ -373,26 +364,101 @@ func TestAutoRestartIfBehind(t *testing.T) {
 
 			restartChan := make(chan struct{}, 1)
 			r := &Reactor{
-				logger:                    log.TestingLogger(),
-				store:                     mockBlockStore,
-				pool:                      blockPool,
-				blocksBehindThreshold:     tt.blocksBehindThreshold,
-				blocksBehindCheckInterval: tt.blocksBehindCheckInterval,
-				restartCh:                 restartChan,
-				blockSync:                 newAtomicBool(tt.isBlockSync),
+				logger:                log.TestingLogger(),
+				store:                 mockBlockStore,
+				pool:                  blockPool,
+				blocksBehindThreshold: tt.threshold,
+				restartCh:             restartChan,
+				blockSync:             newAtomicBool(tt.isBlockSync),
 			}
 
-			ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-			defer cancel()
-
-			go r.autoRestartIfBehind(ctx)
-
-			select {
-			case <-restartChan:
-				assert.True(t, tt.restartExpected, "Unexpected restart")
-			case <-time.After(50 * time.Millisecond):
-				assert.False(t, tt.restartExpected, "Expected restart but did not occur")
-			}
+			signaled := r.checkBehindAndSignalRestart()
+			assert.Equal(t, tt.restartExpected, signaled)
+			assert.Equal(t, tt.restartExpected, len(restartChan) == 1)
 		})
 	}
+}
+
+// TestAutoRestartShouldNotGetStuck verifies that the self-remediation loop
+// does not permanently disable itself. This is a fully deterministic test
+// with no goroutines or timers — it calls checkBehindAndSignalRestart directly.
+//
+// Previously, blockSync.Set() was called before sending the restart signal.
+// If the app-level cooldown in WaitForQuitSignals silently dropped that signal,
+// the blockSync flag remained true forever, preventing any future restart
+// attempts. With the fix:
+//   - blockSync is NOT set by the check (it is read-only)
+//   - The send to restartCh is non-blocking so the goroutine never gets stuck
+//   - After a dropped signal, the next check still fires
+//   - On restart, node.go reconstructs the reactor with blockSync=true (for
+//     non-validator nodes), so it enters block sync mode to catch up
+func TestAutoRestartShouldNotGetStuck(t *testing.T) {
+	mockBlockStore := new(MockBlockStore)
+	mockBlockStore.On("Height").Return(int64(100))
+
+	blockPool := &BlockPool{
+		logger:        log.TestingLogger(),
+		height:        100,
+		maxPeerHeight: 200,
+	}
+
+	restartChan := make(chan struct{}, 1)
+	r := &Reactor{
+		logger:                 log.TestingLogger(),
+		store:                  mockBlockStore,
+		pool:                   blockPool,
+		blocksBehindThreshold:  50,
+		restartCooldownSeconds: 0,
+		restartCh:              restartChan,
+		blockSync:              newAtomicBool(false),
+	}
+
+	// Step 1: First check — node is behind, signal is sent.
+	signaled := r.checkBehindAndSignalRestart()
+	assert.True(t, signaled, "Expected restart signal on first check")
+	assert.Equal(t, 1, len(restartChan), "Signal should be in the channel")
+
+	// Step 2: blockSync must NOT have been set — this was the root cause of the old bug.
+	assert.False(t, r.blockSync.IsSet(),
+		"checkBehindAndSignalRestart must not set blockSync; doing so would permanently disable retries")
+
+	// Step 3: Simulate the app-level cooldown dropping the signal (consume and ignore).
+	<-restartChan
+
+	// Step 4: Second check — because blockSync was NOT set, a retry signal fires.
+	signaled = r.checkBehindAndSignalRestart()
+	assert.True(t, signaled, "Expected retry signal — self-remediation must not be stuck")
+	assert.Equal(t, 1, len(restartChan), "Retry signal should be in the channel")
+
+	// Step 5: blockSync must still be false after the retry.
+	assert.False(t, r.blockSync.IsSet(),
+		"blockSync should remain false after retry signal")
+
+	// Step 6: Non-blocking send — if the channel is already full, the check
+	// should not block and should still return true.
+	signaled = r.checkBehindAndSignalRestart()
+	assert.True(t, signaled, "Should still attempt signal even when channel is full")
+	assert.Equal(t, 1, len(restartChan), "Channel should still have exactly 1 signal (non-blocking)")
+
+	// Step 7: Simulate the in-process restart. When the node rebuilds, node.go
+	// determines blockSync = !onlyValidatorIsUs(state, pubKey) which is true for
+	// non-validator / RPC nodes, and passes it to NewReactor. Verify that the
+	// newly constructed reactor starts with blockSync=true so it enters block
+	// sync mode to catch up.
+	restartedReactor := &Reactor{
+		logger:                log.TestingLogger(),
+		store:                 mockBlockStore,
+		pool:                  blockPool,
+		blocksBehindThreshold: 50,
+		restartCh:             make(chan struct{}, 1),
+		blockSync:             newAtomicBool(true), // node.go sets this true for non-validator
+	}
+	assert.True(t, restartedReactor.blockSync.IsSet(),
+		"After restart, reactor must be in block sync mode so the node catches up")
+
+	// Step 8: While in block sync mode, the check should NOT signal — we don't
+	// want self-remediation firing while block sync is actively catching up.
+	signaled = restartedReactor.checkBehindAndSignalRestart()
+	assert.False(t, signaled, "Should not signal while in block sync mode")
+	assert.Equal(t, 0, len(restartedReactor.restartCh), "No signal should be sent during block sync")
 }

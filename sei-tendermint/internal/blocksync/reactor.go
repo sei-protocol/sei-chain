@@ -304,40 +304,62 @@ func (r *Reactor) autoRestartIfBehind(ctx context.Context) {
 		return
 	}
 
-	r.logger.Info("checking if node is behind threshold, auto restarting if its behind", "threshold", r.blocksBehindThreshold, "interval", r.blocksBehindCheckInterval)
 	for {
 		select {
 		case <-time.After(r.blocksBehindCheckInterval):
-			selfHeight := r.store.Height()
-			maxPeerHeight := r.pool.MaxPeerHeight()
-			threshold := int64(r.blocksBehindThreshold) //nolint:gosec // validated in config.ValidateBasic against MaxInt64
-			behindHeight := maxPeerHeight - selfHeight
-			blockSyncIsSet := r.blockSync.IsSet()
-			if maxPeerHeight > r.previousMaxPeerHeight {
-				r.previousMaxPeerHeight = maxPeerHeight
-			}
-
-			// We do not restart if we are not lagging behind, or we are already in block sync mode
-			if maxPeerHeight == 0 || behindHeight < threshold || blockSyncIsSet {
-				r.logger.Debug("does not exceed threshold or is already in block sync mode", "threshold", threshold, "behindHeight", behindHeight, "maxPeerHeight", maxPeerHeight, "selfHeight", selfHeight, "blockSyncIsSet", blockSyncIsSet)
-				continue
-			}
-
-			// Check if we have met cooldown time
-			if time.Since(r.lastRestartTime).Seconds() < float64(r.restartCooldownSeconds) {
-				r.logger.Debug("we are lagging behind, going to trigger a restart after cooldown time passes")
-				continue
-			}
-
-			r.logger.Info("Blocks behind threshold, restarting node", "threshold", threshold, "behindHeight", behindHeight, "maxPeerHeight", maxPeerHeight, "selfHeight", selfHeight)
-
-			// Send signal to restart the node
-			r.blockSync.Set()
-			r.restartCh <- struct{}{}
+			r.logger.Info("checking if node is behind threshold, auto restarting if its behind", "threshold", r.blocksBehindThreshold, "interval", r.blocksBehindCheckInterval)
+			r.checkBehindAndSignalRestart()
 		case <-ctx.Done():
 			return
 		}
 	}
+}
+
+// checkBehindAndSignalRestart checks whether the node is behind the max peer
+// height by the configured threshold, and if so, attempts to send a restart
+// signal. Returns true if a restart signal was attempted (sent or dropped due
+// to a full channel).
+func (r *Reactor) checkBehindAndSignalRestart() bool {
+	selfHeight := r.store.Height()
+	maxPeerHeight := r.pool.MaxPeerHeight()
+	threshold := int64(r.blocksBehindThreshold) //nolint:gosec // validated in config.ValidateBasic against MaxInt64
+	behindHeight := maxPeerHeight - selfHeight
+	blockSyncIsSet := r.blockSync.IsSet()
+	if maxPeerHeight > r.previousMaxPeerHeight {
+		r.previousMaxPeerHeight = maxPeerHeight
+	}
+
+	// We do not restart if we are not lagging behind, or we are already in block sync mode
+	if maxPeerHeight == 0 || behindHeight < threshold || blockSyncIsSet {
+		r.logger.Debug("does not exceed threshold or is already in block sync mode", "threshold", threshold, "behindHeight", behindHeight, "maxPeerHeight", maxPeerHeight, "selfHeight", selfHeight, "blockSyncIsSet", blockSyncIsSet)
+		return false
+	}
+
+	// Check if we have met cooldown time
+	if time.Since(r.lastRestartTime).Seconds() < float64(r.restartCooldownSeconds) {
+		r.logger.Debug("we are lagging behind, going to trigger a restart after cooldown time passes")
+		return false
+	}
+
+	r.logger.Info("Node is behind lagging threshold, restarting node", "threshold", threshold, "behindHeight", behindHeight, "maxPeerHeight", maxPeerHeight, "selfHeight", selfHeight)
+
+	// Reset cooldown timer before sending to prevent rapid-fire signals
+	// regardless of whether the app-level restart accepts or rejects this signal
+	r.lastRestartTime = time.Now()
+
+	// Non-blocking send to avoid goroutine getting stuck if no reader
+	// or if the app-level cooldown silently drops the signal.
+	// Note: we do NOT set blockSync here — blockSync is only managed by
+	// the block sync lifecycle (poolRoutine sets/unsets it). Setting it here
+	// would permanently disable self-remediation if the app-level cooldown
+	// in WaitForQuitSignals silently drops the restart signal.
+	select {
+	case r.restartCh <- struct{}{}:
+		r.logger.Info("Restart signal sent successfully")
+	default:
+		r.logger.Error("Failed to send restart signal, will retry after cooldown")
+	}
+	return true
 }
 
 // processPeerUpdate processes a PeerUpdate.
