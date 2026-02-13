@@ -1405,7 +1405,7 @@ type SelfRemediationConfig struct {
 	BlocksBehindThreshold uint64 `mapstructure:"blocks-behind-threshold"`
 
 	// How often to check if node is behind in seconds
-	BlocksBehindCheckIntervalSeconds uint64 `mapstructure:"blocks-behind-check-interval-seconds"`
+	BlocksBehindCheckIntervalSeconds uint64 `mapstructure:"blocks-behind-check-interval"`
 
 	// Cooldown between each restart
 	RestartCooldownSeconds uint64 `mapstructure:"restart-cooldown-seconds"`
