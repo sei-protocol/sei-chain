@@ -1398,7 +1398,7 @@ type SelfRemediationConfig struct {
 	BlocksBehindCheckIntervalSeconds uint64 `mapstructure:"blocks-behind-check-interval"`
 
 	// Cooldown between each restart
-	// DEPRECATED
+	// Deprecated: The cooldown mechanism is completely removed. As a result this configuration has no effect.
 	RestartCooldownSeconds uint64 `mapstructure:"restart-cooldown-seconds"`
 }
 
