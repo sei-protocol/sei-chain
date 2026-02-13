@@ -3,16 +3,17 @@
 ## Single scenario
 
 ```bash
-GIGA_EXECUTOR=true GIGA_OCC=true DEBUG=true benchmark/benchmark.sh
+GIGA_EXECUTOR=true GIGA_OCC=true benchmark/benchmark.sh
 ```
 
-TPS is logged every 5s as `tps=<value>` (with ANSI color codes). To capture output and extract TPS:
+By default, the benchmark runs for `DURATION=120` seconds, auto-captures all 6 profile types, extracts TPS stats, and exits. Profiles are saved to `/tmp/sei-bench/pprof/`, TPS data to `/tmp/sei-bench/tps.txt`, and the full log to `/tmp/sei-bench/output.log`.
+
+Use `DURATION=0` to run forever (manual capture, original behavior).
+
+TPS is logged every 5s as `tps=<value>` (with ANSI color codes). For manual extraction:
 
 ```bash
-LOG_FILE=/tmp/bench.log DEBUG=true benchmark/benchmark.sh
-
-# Extract TPS values
-sed 's/\x1b\[[0-9;]*m//g' /tmp/bench.log | sed -n 's/.*tps=\([0-9.]*\).*/\1/p'
+sed 's/\x1b\[[0-9;]*m//g' /tmp/sei-bench/output.log | sed -n 's/.*tps=\([0-9.]*\).*/\1/p'
 ```
 
 Available scenarios in `benchmark/scenarios/`: `evm.json` (default), `erc20.json`, `mixed.json`, `default.json`.
@@ -41,6 +42,7 @@ BENCHMARK_CONFIG=benchmark/scenarios/erc20.json benchmark/benchmark.sh
 | `MOCK_BALANCES` | `true` | Use mock balances during benchmark |
 | `DISABLE_INDEXER` | `true` | Disable indexer for benchmark (reduces I/O overhead) |
 | `DEBUG` | `false` | Print all log output without filtering |
+| `DURATION` | `120` | Auto-stop after N seconds (0 = run forever) |
 
 ### benchmark-compare.sh
 
@@ -76,7 +78,7 @@ Each scenario gets its own binary, home dir, and port set (offset by 100). Resul
 
 ### Available profile types
 
-`benchmark-compare.sh` automatically captures all profile types midway through the run. Profiles are saved to `/tmp/sei-bench/<label>/pprof/`.
+Both `benchmark.sh` (when `DURATION > 0`) and `benchmark-compare.sh` automatically capture all profile types midway through the run. Profiles are saved to `/tmp/sei-bench/pprof/` (single-scenario) or `/tmp/sei-bench/<label>/pprof/` (compare).
 
 | Profile | File | What it shows |
 |---------|------|---------------|
@@ -93,7 +95,9 @@ Each scenario gets its own binary, home dir, and port set (offset by 100). Resul
 
 ### Capturing profiles during single-scenario runs
 
-Single-scenario `benchmark.sh` runs enable the pprof HTTP endpoint but don't auto-capture profiles. Capture manually in another terminal:
+When `DURATION > 0` (default), `benchmark.sh` automatically captures all 6 profile types midway through the run. Profiles are saved to `/tmp/sei-bench/pprof/`.
+
+When `DURATION=0` (run-forever mode), capture manually in another terminal:
 
 ```bash
 PPROF_PORT=6060  # adjust with PORT_OFFSET if set
@@ -168,3 +172,17 @@ go tool pprof /tmp/sei-bench/<label>/pprof/cpu.pb.gz
 ```
 
 Run `go tool pprof` from the sei-chain repo root so that `list` and `web` commands can resolve source file paths.
+
+## Optimization loop
+
+Full iteration cycle for profiling, optimizing, and validating performance changes:
+
+1. **Profile:** Run `benchmark/benchmark.sh` (auto-captures all 6 profile types, extracts TPS, exits)
+2. **Analyze:** Inspect profiles with `go tool pprof -top -cum /tmp/sei-bench/pprof/cpu.pb.gz` (repeat for fgprof, heap with `-alloc_space`, goroutine, block, mutex)
+3. **Flamegraphs:** Open interactive UIs: `go tool pprof -http=:8080 /tmp/sei-bench/pprof/cpu.pb.gz &`
+4. **Summarize:** Present findings to user — biggest bottleneck, candidate optimizations, expected impact, and trade-offs
+5. **Discuss:** Ask the user which optimization direction to pursue before writing any code. The user picks the approach or suggests an alternative
+6. **Implement:** Make the optimization, commit
+7. **Compare:** Run `benchmark/benchmark-compare.sh baseline=<before-commit> candidate=<after-commit>`
+8. **Validate:** Open diff flamegraphs for the user (`go tool pprof -http=:808X -diff_base <baseline> <candidate> &` for cpu, fgprof, heap). Present a CLI summary of TPS delta and profile regressions/improvements. Ask the user whether to open a PR
+9. **PR** if user approves

@@ -29,6 +29,8 @@ SEID_BIN=${SEID_BIN:-""}
 BENCHMARK_PHASE=${BENCHMARK_PHASE:-all}
 # Redirect seid output to file
 LOG_FILE=${LOG_FILE:-""}
+# Auto-stop after N seconds (0 = run forever, for backward compat)
+DURATION=${DURATION:-120}
 
 # Portable path resolution
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -73,6 +75,7 @@ echo "  SEI_HOME:                $SEI_HOME"
 echo "  PORT_OFFSET:             $PORT_OFFSET"
 echo "  SEID_BIN:                ${SEID_BIN:-(build from source)}"
 echo "  BENCHMARK_PHASE:         $BENCHMARK_PHASE"
+echo "  DURATION:                $DURATION (0=forever)"
 echo ""
 echo "Available scenarios in $SCRIPT_DIR/scenarios/:"
 ls -1 "$SCRIPT_DIR"/scenarios/*.json 2>/dev/null | sed 's/^/    /' || echo "    (none found)"
@@ -309,6 +312,8 @@ echo "To capture 30s CPU profile during benchmark:"
 echo "  go tool pprof http://localhost:${PPROF_PORT}/debug/pprof/profile?seconds=30"
 echo "To capture heap profile:"
 echo "  go tool pprof http://localhost:${PPROF_PORT}/debug/pprof/heap"
+echo "To capture 30s fgprof (wall-clock):"
+echo "  go tool pprof http://localhost:${PPROF_PORT}/debug/fgprof?seconds=30"
 echo "============================================================"
 echo ""
 
@@ -318,15 +323,147 @@ if [ "$SEI_HOME" != "$HOME/.sei" ]; then
   SEID_ARGS+=(--home "$SEI_HOME")
 fi
 
-if [ -n "$LOG_FILE" ]; then
-  # Redirect all output to log file
-  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH "$SEID" "${SEID_ARGS[@]}" > "$LOG_FILE" 2>&1
-elif [ "$DEBUG" = true ]; then
-  # Debug mode: print all output
-  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH "$SEID" "${SEID_ARGS[@]}"
+if [ "$DURATION" -gt 0 ] 2>/dev/null; then
+  # ---- Timed run: background seid, capture profiles, extract TPS ----
+  BASE_DIR="/tmp/sei-bench"
+  PROFILE_DIR="$BASE_DIR/pprof"
+  mkdir -p "$PROFILE_DIR"
+
+  # Auto-generate log file if not set
+  if [ -z "$LOG_FILE" ]; then
+    LOG_FILE="$BASE_DIR/output.log"
+  fi
+
+  echo "Running for ${DURATION}s (log: $LOG_FILE)"
+  echo ""
+
+  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH \
+    "$SEID" "${SEID_ARGS[@]}" > "$LOG_FILE" 2>&1 &
+  SEID_PID=$!
+
+  cleanup_seid() {
+    kill "$SEID_PID" 2>/dev/null || true
+  }
+  trap cleanup_seid EXIT
+
+  # Wait until midway, then capture profiles
+  PPROF_WAIT=$(( DURATION / 2 ))
+  echo "  Waiting ${PPROF_WAIT}s before capturing profiles..."
+  sleep "$PPROF_WAIT" || true
+
+  echo ""
+  echo "=== Capturing profiles (30s CPU + 30s fgprof + heap + goroutine + block + mutex) ==="
+  PPROF_PIDS=()
+
+  # CPU profile (30s)
+  curl -s "http://localhost:${PPROF_PORT}/debug/pprof/profile?seconds=30" \
+    -o "$PROFILE_DIR/cpu.pb.gz" &
+  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
+
+  # fgprof (30s) — wall-clock time
+  curl -s "http://localhost:${PPROF_PORT}/debug/fgprof?seconds=30" \
+    -o "$PROFILE_DIR/fgprof.pb.gz" &
+  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
+
+  # Heap snapshot
+  curl -s "http://localhost:${PPROF_PORT}/debug/pprof/heap?debug=0" \
+    -o "$PROFILE_DIR/heap.pb.gz" &
+  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
+
+  # Goroutine dump
+  curl -s "http://localhost:${PPROF_PORT}/debug/pprof/goroutine?debug=0" \
+    -o "$PROFILE_DIR/goroutine.pb.gz" &
+  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
+
+  # Block profile
+  curl -s "http://localhost:${PPROF_PORT}/debug/pprof/block?debug=0" \
+    -o "$PROFILE_DIR/block.pb.gz" &
+  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
+
+  # Mutex contention profile
+  curl -s "http://localhost:${PPROF_PORT}/debug/pprof/mutex?debug=0" \
+    -o "$PROFILE_DIR/mutex.pb.gz" &
+  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
+
+  echo "  Capturing from localhost:${PPROF_PORT} -> $PROFILE_DIR/"
+
+  # Wait for all profile captures to finish
+  for pid in "${PPROF_PIDS[@]}"; do
+    wait "$pid" 2>/dev/null || true
+  done
+  echo "  Profile capture complete."
+
+  # Verify profile sizes
+  cpu_size=$(wc -c < "$PROFILE_DIR/cpu.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  fgprof_size=$(wc -c < "$PROFILE_DIR/fgprof.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  heap_size=$(wc -c < "$PROFILE_DIR/heap.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  goroutine_size=$(wc -c < "$PROFILE_DIR/goroutine.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  block_size=$(wc -c < "$PROFILE_DIR/block.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  mutex_size=$(wc -c < "$PROFILE_DIR/mutex.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  echo "  cpu=${cpu_size}B fgprof=${fgprof_size}B heap=${heap_size}B goroutine=${goroutine_size}B block=${block_size}B mutex=${mutex_size}B"
+
+  # Wait remaining time
+  REMAINING=$(( DURATION - PPROF_WAIT - 30 ))
+  if [ "$REMAINING" -gt 0 ]; then
+    echo ""
+    echo "  Continuing benchmark for ${REMAINING}s..."
+    sleep "$REMAINING" || true
+  fi
+
+  echo ""
+  echo "Stopping seid..."
+  kill "$SEID_PID" 2>/dev/null || true
+  wait "$SEID_PID" 2>/dev/null || true
+  trap - EXIT
+
+  # ---- Extract TPS stats ----
+  TPS_FILE="$BASE_DIR/tps.txt"
+  sed 's/\x1b\[[0-9;]*m//g' "$LOG_FILE" \
+    | sed -n 's/.*tps=\([0-9.]*\).*/\1/p' > "$TPS_FILE"
+
+  HEIGHT=$(sed 's/\x1b\[[0-9;]*m//g' "$LOG_FILE" \
+    | sed -n 's/.*height=\([0-9]*\).*/\1/p' | tail -1)
+
+  STATS=$(sort -n "$TPS_FILE" | awk '
+    NR>3 && $1>1000 {
+      sum += $1; count++
+      a[count] = $1
+    }
+    END {
+      if (count == 0) { printf "NO DATA"; exit }
+      median = (count % 2 == 1) ? a[int(count/2)+1] : (a[int(count/2)] + a[int(count/2)+1]) / 2
+      printf "Readings: %d | Median: %.0f | Avg: %.0f | Min: %.0f | Max: %.0f", \
+        count, median, sum/count, a[1], a[count]
+    }')
+
+  echo ""
+  echo "======================================================="
+  echo "=== Benchmark Results (${DURATION}s run) ==="
+  echo "======================================================="
+  echo ""
+  echo "  Height: ${HEIGHT:-N/A}"
+  echo "  $STATS"
+  echo ""
+  echo "Raw TPS:   $TPS_FILE"
+  echo "Full log:  $LOG_FILE"
+  echo "Profiles:  $PROFILE_DIR/{cpu,fgprof,heap,goroutine,block,mutex}.pb.gz"
+  echo ""
+  echo "Quick analysis:"
+  echo "  go tool pprof -top $PROFILE_DIR/cpu.pb.gz"
+  echo "  go tool pprof -top $PROFILE_DIR/fgprof.pb.gz"
+  echo "  go tool pprof -alloc_space -top $PROFILE_DIR/heap.pb.gz"
+  echo "Interactive flamegraph:"
+  echo "  go tool pprof -http=:8080 $PROFILE_DIR/cpu.pb.gz"
+
 else
-  # Normal mode: filter to benchmark-related output only
-  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH "$SEID" "${SEID_ARGS[@]}" 2>&1 | grep -E "(benchmark|Benchmark|deployed|transitioning)"
+  # ---- DURATION=0: run forever (original behavior) ----
+  if [ -n "$LOG_FILE" ]; then
+    BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH "$SEID" "${SEID_ARGS[@]}" > "$LOG_FILE" 2>&1
+  elif [ "$DEBUG" = true ]; then
+    BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH "$SEID" "${SEID_ARGS[@]}"
+  else
+    BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH "$SEID" "${SEID_ARGS[@]}" 2>&1 | grep -E "(benchmark|Benchmark|deployed|transitioning)"
+  fi
 fi
 
 fi # end BENCHMARK_PHASE=start
