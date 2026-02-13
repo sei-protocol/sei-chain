@@ -1405,7 +1405,7 @@ type SelfRemediationConfig struct {
 	BlocksBehindThreshold uint64 `mapstructure:"blocks-behind-threshold"`
 
 	// How often to check if node is behind in seconds
-	BlocksBehindCheckIntervalSeconds uint64 `mapstructure:"blocks-behind-check-interval-seconds"`
+	BlocksBehindCheckIntervalSeconds uint64 `mapstructure:"blocks-behind-check-interval"`
 
 	// Cooldown between each restart
 	RestartCooldownSeconds uint64 `mapstructure:"restart-cooldown-seconds"`
@@ -1431,5 +1431,26 @@ func TestSelfRemediationConfig() *SelfRemediationConfig {
 // ValidateBasic performs basic validation (checking param bounds, etc.) and
 // returns an error if any check fails.
 func (cfg *SelfRemediationConfig) ValidateBasic() error {
+<<<<<<< HEAD
+=======
+	if cfg == nil {
+		return nil
+	}
+	if cfg.P2pNoPeersRestarWindowSeconds > math.MaxInt64 {
+		return errors.New("p2p-no-peers-available-window-seconds exceeds max int64")
+	}
+	if cfg.StatesyncNoPeersRestartWindowSeconds > math.MaxInt64 {
+		return errors.New("statesync-no-peers-available-window-seconds exceeds max int64")
+	}
+	if cfg.BlocksBehindThreshold > math.MaxInt64 {
+		return errors.New("blocks-behind-threshold exceeds max int64")
+	}
+	if cfg.BlocksBehindCheckIntervalSeconds > math.MaxInt64 {
+		return errors.New("blocks-behind-check-interval exceeds max int64")
+	}
+	if cfg.RestartCooldownSeconds > math.MaxInt64 {
+		return errors.New("restart-cooldown-seconds exceeds max int64")
+	}
+>>>>>>> 7fb1494 (Fix inconsistent config for self remediation behind interval (#2883))
 	return nil
 }
