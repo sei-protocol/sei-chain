@@ -209,6 +209,13 @@ directory to avoid long cross-module test suites.
   files were found in this repository.
 - If that changes in the future, update this document before large agentic runs.
 
+## AGENTS.md and CLAUDE.md convention
+
+- All agent-facing instructions must live in `AGENTS.md` files, never in `CLAUDE.md`.
+- Each `CLAUDE.md` must contain only a reference to its co-located `AGENTS.md` (e.g., `See [AGENTS.md](AGENTS.md)`).
+- When adding new agent instructions for a directory, create or update the `AGENTS.md` in that directory and ensure a corresponding `CLAUDE.md` exists that points to it.
+- Do not put instructional content directly in `CLAUDE.md` files.
+
 ## Quick pre-change checklist for agents
 
 1. Identify target module(s) from changed paths.
