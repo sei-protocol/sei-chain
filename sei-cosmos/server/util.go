@@ -408,26 +408,14 @@ func TrapSignal(cleanupFunc func()) {
 }
 
 // WaitForQuitSignals waits for SIGINT and SIGTERM and returns.
-func WaitForQuitSignals(ctx *Context, restartCh chan struct{}, canRestartAfter time.Time) ErrorCode {
+func WaitForQuitSignals(ctx *Context, restartCh chan struct{}) ErrorCode {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	if restartCh != nil {
-		for {
-			select {
-			case sig := <-sigs:
-				return ErrorCode{Code: int(sig.(syscall.Signal)) + 128}
-			case <-restartCh:
-				// If it's in the restart cooldown period
-				if time.Now().Before(canRestartAfter) {
-					ctx.Logger.Info("Restarting too frequently, can only restart after %s", canRestartAfter)
-					continue
-				}
-				return ErrorCode{Code: RestartErrorCode}
-			}
-		}
-	} else {
-		sig := <-sigs
+	select {
+	case sig := <-sigs:
 		return ErrorCode{Code: int(sig.(syscall.Signal)) + 128}
+	case <-restartCh: // blocks forever on a nil channel
+		return ErrorCode{Code: RestartErrorCode}
 	}
 }
 
