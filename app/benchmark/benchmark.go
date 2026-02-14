@@ -17,7 +17,7 @@
 //	proposalCh := gen.StartProposalChannel(ctx, benchLogger)
 //
 // The generator can be configured via JSON config files that follow the sei-load
-// LoadConfig format. See scripts/scenarios/ for example configurations.
+// LoadConfig format. See benchmark/scenarios/ for example configurations.
 package benchmark
 
 import (
