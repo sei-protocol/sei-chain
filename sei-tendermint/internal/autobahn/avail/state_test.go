@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	"github.com/stretchr/testify/require"
 )
 
 type byLane[T any] map[types.LaneID][]T
@@ -41,7 +42,7 @@ func makeCommitQC(
 	appQC utils.Option[*types.AppQC],
 ) *types.CommitQC {
 	fullProposal, err := types.NewProposal(
-		types.TestSecretKey(types.GenNodeID(rng)),
+		keys[0],
 		committee,
 		types.ViewSpec{CommitQC: prev},
 		time.Now(),
@@ -182,4 +183,62 @@ func TestState(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestStateMismatchedQCs(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 4)
+
+	ds := data.NewState(&data.Config{
+		Committee: committee,
+	}, utils.None[data.BlockStore]())
+	state := NewState(keys[0], ds)
+	ctx := context.Background()
+
+	// Helper to create a CommitQC for a specific index
+	makeQC := func(prev utils.Option[*types.CommitQC], laneQCs map[types.LaneID]*types.LaneQC) *types.CommitQC {
+		fullProposal, err := types.NewProposal(
+			keys[0],
+			committee,
+			types.ViewSpec{CommitQC: prev},
+			time.Now(),
+			laneQCs,
+			utils.None[*types.AppQC](),
+		)
+		if err != nil {
+			panic(err)
+		}
+		vote := types.NewCommitVote(fullProposal.Proposal().Msg())
+		var votes []*types.Signed[*types.CommitVote]
+		for _, k := range keys {
+			votes = append(votes, types.Sign(k, vote))
+		}
+		return types.NewCommitQC(votes)
+	}
+
+	// 1. Produce a block so we have a non-empty range
+	lane := keys[0].Public()
+	p := types.GenPayload(rng)
+	b, err := state.ProduceBlock(ctx, p)
+	require.NoError(t, err)
+
+	// 2. Form a LaneQC for it
+	laneVotes := makeLaneVotes(keys, b.Msg().Block().Header())
+	laneQC := types.NewLaneQC(laneVotes[:2]) // f+1 = 2 for 4 nodes
+
+	// 3. Create CommitQC for index 0 (finalizes block 0)
+	qc0 := makeQC(utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{lane: laneQC})
+	require.Equal(t, types.GlobalBlockNumber(0), qc0.GlobalRange().First)
+	require.Equal(t, types.GlobalBlockNumber(1), qc0.GlobalRange().Next)
+
+	t.Run("PushAppQC mismatch", func(t *testing.T) {
+		require := require.New(t)
+		// AppQC for index 1, but paired with CommitQC for index 0
+		appProposal1 := types.NewAppProposal(0, 1, types.GenAppHash(rng))
+		appQC1 := types.NewAppQC(makeAppVotes(keys, appProposal1))
+
+		err := state.PushAppQC(appQC1, qc0)
+		require.Error(err)
+		require.Contains(err.Error(), "mismatched QCs")
+	})
 }
