@@ -150,6 +150,18 @@ func TestVerifyAdjacentHeaders(t *testing.T) {
 			nil,
 			"old header has expired",
 		},
+		// trusted header expired but untrusted header is fresh -> error
+		// (regression: trusting period must be checked against the trusted header,
+		// not the untrusted header; an attacker can always supply a fresh untrusted header)
+		11: {
+			keys.GenSignedHeader(t, chainID, nextHeight, bTime.Add(1*time.Hour), nil, vals, vals,
+				hash("app_hash"), hash("cons_hash"), hash("results_hash"), 0, len(keys)),
+			vals,
+			1 * time.Hour,
+			bTime.Add(1*time.Hour + 30*time.Minute),
+			nil,
+			"old header has expired",
+		},
 	}
 
 	for i, tc := range testCases {
@@ -262,6 +274,18 @@ func TestVerifyNonAdjacentHeaders(t *testing.T) {
 			bTime.Add(2 * time.Hour),
 			light.ErrNewValSetCantBeTrusted{types.ErrNotEnoughVotingPowerSigned{Got: 20, Needed: 46}},
 			"",
+		},
+		// trusted header expired but untrusted header is fresh -> error
+		// (regression: trusting period must be checked against the trusted header,
+		// not the untrusted header; an attacker can always supply a fresh untrusted header)
+		6: {
+			keys.GenSignedHeader(t, chainID, 3, bTime.Add(1*time.Hour), nil, vals, vals,
+				hash("app_hash"), hash("cons_hash"), hash("results_hash"), 0, len(keys)),
+			vals,
+			1 * time.Hour,
+			bTime.Add(1*time.Hour + 30*time.Minute),
+			nil,
+			"old header has expired",
 		},
 	}
 
