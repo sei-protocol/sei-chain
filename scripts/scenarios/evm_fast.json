@@ -1,0 +1,13 @@
+{
+    "accounts": {
+      "count": 5000,
+      "newAccountRate": 0.0
+    },
+    "scenarios": [
+      {
+        "name": "EVMTransferFast",
+        "weight": 1
+      }
+    ]
+  }
+  

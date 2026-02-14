@@ -1761,6 +1761,11 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		}, nil
 	}
 
+	// Overwrite BaseFee to zero if ZERO_BASE_FEE is enabled (for benchmarking)
+	if app.benchmarkManager != nil && app.benchmarkManager.ZeroBaseFee {
+		blockCtx.BaseFee = utils.Big0
+	}
+
 	// Get chain config
 	sstore := app.GigaEvmKeeper.GetParams(ctx).SeiSstoreSetGasEip2200
 	cfg := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(app.GigaEvmKeeper.ChainID(ctx), &sstore)

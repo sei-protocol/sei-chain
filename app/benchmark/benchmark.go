@@ -37,6 +37,9 @@ type Manager struct {
 	Generator  *Generator
 	Logger     *Logger
 	proposalCh <-chan *abci.ResponsePrepareProposal
+
+	// ZeroBaseFee overrides blockCtx.BaseFee to zero during tx execution.
+	ZeroBaseFee bool
 }
 
 // NewManager creates a new benchmark manager from configuration.
@@ -46,8 +49,9 @@ func NewManager(ctx context.Context, txConfig client.TxConfig, chainID string, e
 		panic("benchmark not allowed on live chains")
 	}
 
-	// Load config from environment variable or use default
+	// Load config from environment variables or use defaults
 	configPath := os.Getenv("BENCHMARK_CONFIG")
+	zeroBaseFee := os.Getenv("ZERO_BASE_FEE") == "true"
 
 	cfg, err := LoadConfig(configPath, evmChainID, chainID)
 	if err != nil {
@@ -67,12 +71,14 @@ func NewManager(ctx context.Context, txConfig client.TxConfig, chainID string, e
 	logger.Info("Benchmark manager initialized",
 		"configPath", configPath,
 		"scenarios", len(cfg.Scenarios),
+		"zeroBaseFee", zeroBaseFee,
 	)
 
 	return &Manager{
-		Generator:  gen,
-		Logger:     benchLogger,
-		proposalCh: proposalCh,
+		Generator:   gen,
+		Logger:      benchLogger,
+		proposalCh:  proposalCh,
+		ZeroBaseFee: zeroBaseFee,
 	}, nil
 }
 

@@ -62,7 +62,7 @@ require (
 	github.com/rs/zerolog v1.33.0
 	github.com/sasha-s/go-deadlock v0.3.1
 	github.com/sei-protocol/goutils v0.0.2
-	github.com/sei-protocol/sei-load v0.0.0-20251007135253-78fbdc141082
+	github.com/sei-protocol/sei-load v0.0.0-20260212060740-96a581d66024
 	github.com/sirkon/goproxy v1.4.8
 	github.com/snikch/goodman v0.0.0-20171125024755-10e37e294daa
 	github.com/spf13/cast v1.9.2
