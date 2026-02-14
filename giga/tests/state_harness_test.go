@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -42,22 +43,24 @@ type BankKeeperInterface interface {
 	SendCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
 	AddWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int) error
 	GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin
+	GetWeiBalance(ctx sdk.Context, addr sdk.AccAddress) sdk.Int
 }
 
 // FailureType categorizes the type of test failure
 type FailureType string
 
 const (
-	FailureTypeResultCode      FailureType = "result_code"
-	FailureTypeGasMismatch     FailureType = "gas_mismatch"
-	FailureTypeStateMismatch   FailureType = "state_mismatch"
-	FailureTypeCodeMismatch    FailureType = "code_mismatch"
-	FailureTypeNonceMismatch   FailureType = "nonce_mismatch"
-	FailureTypeBalanceMismatch FailureType = "balance_mismatch"
-	FailureTypeErrorMismatch   FailureType = "error_mismatch"
-	FailureTypeV2Error         FailureType = "v2_error"
-	FailureTypeGigaError       FailureType = "giga_error"
-	FailureTypeUnknown         FailureType = "unknown"
+	FailureTypeResultCode       FailureType = "result_code"
+	FailureTypeGasMismatch      FailureType = "gas_mismatch"
+	FailureTypeStateMismatch    FailureType = "state_mismatch"
+	FailureTypeCodeMismatch     FailureType = "code_mismatch"
+	FailureTypeNonceMismatch    FailureType = "nonce_mismatch"
+	FailureTypeBalanceMismatch  FailureType = "balance_mismatch"
+	FailureTypeErrorMismatch    FailureType = "error_mismatch"
+	FailureTypeV2Error          FailureType = "v2_error"
+	FailureTypeGigaError        FailureType = "giga_error"
+	FailureTypeFailedTxBehavior FailureType = "failed_tx_behavior" // Known issue: V2 and Giga differ in error code/gas for failed txs
+	FailureTypeUnknown          FailureType = "unknown"
 )
 
 // TestResult captures the outcome of a state test comparison
@@ -134,21 +137,17 @@ func (stc *StateTestContext) IsGigaMode() bool {
 	return stc.Mode == ModeGigaSequential || stc.Mode == ModeGigaOCC
 }
 
-// EvmKeeper returns the appropriate EVM keeper based on mode.
-// For Giga modes, returns GigaEvmKeeper; for V2 modes, returns EvmKeeper.
+// EvmKeeper returns the EVM keeper.
+// After PR #2780, both Giga and V2 executors share the same underlying data layer,
+// so we always use the regular EvmKeeper for pre/post state setup.
 func (stc *StateTestContext) EvmKeeper() EvmKeeperInterface {
-	if stc.IsGigaMode() {
-		return &stc.TestApp.GigaEvmKeeper
-	}
 	return &stc.TestApp.EvmKeeper
 }
 
-// BankKeeper returns the appropriate bank keeper based on mode.
-// For Giga modes, returns GigaBankKeeper; for V2 modes, returns BankKeeper.
+// BankKeeper returns the bank keeper.
+// After PR #2780, both Giga and V2 executors share the same underlying data layer,
+// so we always use the regular BankKeeper for pre/post state setup.
 func (stc *StateTestContext) BankKeeper() BankKeeperInterface {
-	if stc.IsGigaMode() {
-		return stc.TestApp.GigaBankKeeper
-	}
 	return stc.TestApp.BankKeeper
 }
 
@@ -198,6 +197,37 @@ func (stc *StateTestContext) SetupSender(sender common.Address) {
 	evmKeeper.SetAddressMapping(stc.Ctx, seiAddr, sender)
 }
 
+// SetupEnv configures the block environment from the test's env settings.
+// This sets the base fee and block gas limit to match the test's expected block conditions.
+func (stc *StateTestContext) SetupEnv(env harness.StateTestEnv) {
+	// Set base fee from test environment
+	if env.BaseFee != "" {
+		baseFee := harness.ParseHexBig(env.BaseFee)
+		baseFeeSDK := sdk.NewDecFromBigInt(baseFee)
+
+		// Set the next base fee in EvmKeeper
+		// This is what GetBaseFee() actually reads, not params.BaseFeePerGas
+		// After PR #2780, both Giga and V2 executors share the same underlying data layer,
+		// so we only need to set it once via EvmKeeper - both paths will read the same value.
+		stc.TestApp.EvmKeeper.SetNextBaseFeePerGas(stc.Ctx, baseFeeSDK)
+	}
+
+	// Set block gas limit from test environment
+	// This is critical for tests like lowGasLimit.json where TX gas > block gas should fail
+	if env.GasLimit != "" {
+		gasLimit := harness.ParseHexBig(env.GasLimit).Int64()
+		cp := stc.Ctx.ConsensusParams()
+		if cp == nil {
+			cp = &tmproto.ConsensusParams{}
+		}
+		if cp.Block == nil {
+			cp.Block = &tmproto.BlockParams{}
+		}
+		cp.Block.MaxGas = gasLimit
+		stc.Ctx = stc.Ctx.WithConsensusParams(cp)
+	}
+}
+
 // RunStateTestBlock executes a state test transaction and returns results
 func RunStateTestBlock(stc *StateTestContext, txs [][]byte) ([]abci.Event, []*abci.ExecTxResult, error) {
 	app.EnableOCC = stc.Mode == ModeV2withOCC || stc.Mode == ModeGigaOCC
@@ -237,6 +267,7 @@ func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harnes
 
 	// --- Run with V2 Sequential (baseline) ---
 	v2Ctx := NewStateTestContext(t, blockTime, 1, ModeV2Sequential)
+	v2Ctx.SetupEnv(st.Env)
 	v2Ctx.SetupPreState(t, st.Pre)
 	v2Ctx.SetupSender(sender)
 
@@ -244,27 +275,16 @@ func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harnes
 
 	// --- Run with Giga (mode from config) ---
 	gigaCtx := NewStateTestContext(t, blockTime, 1, config.GigaMode)
+	gigaCtx.SetupEnv(st.Env)
 	gigaCtx.SetupPreState(t, st.Pre)
 	gigaCtx.SetupSender(sender)
 
 	_, gigaResults, gigaErr := RunStateTestBlock(gigaCtx, [][]byte{txBytes})
 
-	// --- Handle ExpectException cases ---
-	if post.ExpectException != "" {
-		// This test expects the transaction to fail
-		// Both executors should produce an error or a failed result
-		v2Failed := v2Err != nil || (len(v2Results) > 0 && v2Results[0].Code != 0)
-		gigaFailed := gigaErr != nil || (len(gigaResults) > 0 && gigaResults[0].Code != 0)
-
-		if !v2Failed && !gigaFailed {
-			return TestResult{
-				Passed:      false,
-				FailureType: FailureTypeErrorMismatch,
-				Message:     fmt.Sprintf("expected exception %q but both executors succeeded", post.ExpectException),
-			}
-		}
-		// Both should fail - that's expected
-		return TestResult{Passed: true}
+	// Debug: log result codes and gas used
+	if len(v2Results) > 0 && len(gigaResults) > 0 {
+		t.Logf("V2 result:   code=%d gas=%d log=%q", v2Results[0].Code, v2Results[0].GasUsed, v2Results[0].Log)
+		t.Logf("Giga result: code=%d gas=%d log=%q", gigaResults[0].Code, gigaResults[0].GasUsed, gigaResults[0].Log)
 	}
 
 	// --- Compare execution errors ---
@@ -345,29 +365,48 @@ func runStateTestComparison(t *testing.T, st *harness.StateTestJSON, post harnes
 		}
 	}
 
-	// --- Verify post-state against fixture (if configured and available) ---
-	if config.VerifyEthereumSpec && len(post.State) > 0 {
-		v2Diffs := verifyPostStateWithResult(t, v2Ctx.Ctx, v2Ctx.EvmKeeper(), v2Ctx.BankKeeper(), post.State, "V2")
-		gigaDiffs := verifyPostStateWithResult(t, gigaCtx.Ctx, gigaCtx.EvmKeeper(), gigaCtx.BankKeeper(), post.State, "Giga")
+	// --- Verify against Ethereum spec (if configured) ---
+	if config.VerifyEthereumSpec {
+		// Check ExpectException if set
+		if post.ExpectException != "" {
+			v2Failed := v2Err != nil || (len(v2Results) > 0 && v2Results[0].Code != 0)
+			gigaFailed := gigaErr != nil || (len(gigaResults) > 0 && gigaResults[0].Code != 0)
 
-		// Log any fixture verification differences
-		if len(v2Diffs) > 0 {
-			t.Logf("V2 vs fixture differences:")
-			for _, diff := range v2Diffs {
-				t.Logf("  %s", diff)
+			if !v2Failed || !gigaFailed {
+				return TestResult{
+					Passed:      false,
+					FailureType: FailureTypeErrorMismatch,
+					Message:     fmt.Sprintf("expected exception %q but V2 failed=%v, Giga failed=%v", post.ExpectException, v2Failed, gigaFailed),
+				}
 			}
+			// Both failed as expected by spec
+			return TestResult{Passed: true}
 		}
-		if len(gigaDiffs) > 0 {
-			t.Logf("Giga vs fixture differences:")
-			for _, diff := range gigaDiffs {
-				t.Logf("  %s", diff)
+
+		// Verify post-state against fixture
+		if len(post.State) > 0 {
+			v2Diffs := verifyPostStateWithResult(t, v2Ctx.Ctx, v2Ctx.EvmKeeper(), v2Ctx.BankKeeper(), post.State, "V2")
+			gigaDiffs := verifyPostStateWithResult(t, gigaCtx.Ctx, gigaCtx.EvmKeeper(), gigaCtx.BankKeeper(), post.State, "Giga")
+
+			// Log any fixture verification differences
+			if len(v2Diffs) > 0 {
+				t.Logf("V2 vs fixture differences:")
+				for _, diff := range v2Diffs {
+					t.Logf("  %s", diff)
+				}
 			}
-			// Return the first Giga diff as the failure
-			return TestResult{
-				Passed:      false,
-				FailureType: gigaDiffs[0].Type,
-				Message:     gigaDiffs[0].Summary,
-				Details:     formatStateDiffs(gigaDiffs),
+			if len(gigaDiffs) > 0 {
+				t.Logf("Giga vs fixture differences:")
+				for _, diff := range gigaDiffs {
+					t.Logf("  %s", diff)
+				}
+				// Return the first Giga diff as the failure
+				return TestResult{
+					Passed:      false,
+					FailureType: gigaDiffs[0].Type,
+					Message:     gigaDiffs[0].Summary,
+					Details:     formatStateDiffs(gigaDiffs),
+				}
 			}
 		}
 	}
@@ -401,7 +440,7 @@ func formatStateDiffs(diffs []StateDiff) []string {
 }
 
 // comparePostStates compares state between V2 and Giga contexts
-func comparePostStates(_ *testing.T, v2Ctx, gigaCtx *StateTestContext, preState ethtypes.GenesisAlloc) []StateDiff {
+func comparePostStates(t *testing.T, v2Ctx, gigaCtx *StateTestContext, preState ethtypes.GenesisAlloc) []StateDiff {
 	var diffs []StateDiff
 	v2Keeper := v2Ctx.EvmKeeper()
 	gigaKeeper := gigaCtx.EvmKeeper()
@@ -413,16 +452,34 @@ func comparePostStates(_ *testing.T, v2Ctx, gigaCtx *StateTestContext, preState 
 		// Get Sei address from EVM address
 		seiAddr := v2Keeper.GetSeiAddressOrDefault(v2Ctx.Ctx, addr)
 
-		// Compare balance (usei)
-		v2Balance := v2Bank.GetBalance(v2Ctx.Ctx, seiAddr, "usei")
-		gigaBalance := gigaBank.GetBalance(gigaCtx.Ctx, seiAddr, "usei")
-		if !v2Balance.Amount.Equal(gigaBalance.Amount) {
+		// Compare balance (usei + wei)
+		// Total balance = usei × 10^12 + wei
+		v2Usei := v2Bank.GetBalance(v2Ctx.Ctx, seiAddr, "usei").Amount
+		v2Wei := v2Bank.GetWeiBalance(v2Ctx.Ctx, seiAddr)
+		gigaUsei := gigaBank.GetBalance(gigaCtx.Ctx, seiAddr, "usei").Amount
+		gigaWei := gigaBank.GetWeiBalance(gigaCtx.Ctx, seiAddr)
+
+		// Calculate total balance in wei for comparison
+		weiPerUsei := new(big.Int).Exp(big.NewInt(10), big.NewInt(12), nil) // 10^12
+		v2Total := new(big.Int).Mul(v2Usei.BigInt(), weiPerUsei)
+		v2Total.Add(v2Total, v2Wei.BigInt())
+		gigaTotal := new(big.Int).Mul(gigaUsei.BigInt(), weiPerUsei)
+		gigaTotal.Add(gigaTotal, gigaWei.BigInt())
+
+		if v2Total.Cmp(gigaTotal) != 0 {
+			// Log detailed balance breakdown for debugging
+			t.Logf("Balance mismatch for %s:", addr.Hex())
+			t.Logf("  V2:   usei=%s wei=%s (total=%s)", v2Usei.String(), v2Wei.String(), v2Total.String())
+			t.Logf("  Giga: usei=%s wei=%s (total=%s)", gigaUsei.String(), gigaWei.String(), gigaTotal.String())
+			diff := new(big.Int).Sub(v2Total, gigaTotal)
+			t.Logf("  Diff (V2-Giga): %s wei", diff.String())
+
 			diffs = append(diffs, StateDiff{
 				Type:     FailureTypeBalanceMismatch,
 				Address:  addr,
-				Summary:  fmt.Sprintf("balance V2=%s, Giga=%s", v2Balance.String(), gigaBalance.String()),
-				Expected: v2Balance.String(),
-				Actual:   gigaBalance.String(),
+				Summary:  fmt.Sprintf("balance V2(usei=%s,wei=%s) != Giga(usei=%s,wei=%s)", v2Usei.String(), v2Wei.String(), gigaUsei.String(), gigaWei.String()),
+				Expected: fmt.Sprintf("total=%s (usei=%s, wei=%s)", v2Total.String(), v2Usei.String(), v2Wei.String()),
+				Actual:   fmt.Sprintf("total=%s (usei=%s, wei=%s)", gigaTotal.String(), gigaUsei.String(), gigaWei.String()),
 			})
 		}
 
@@ -574,6 +631,17 @@ func runStateTestSuite(t *testing.T, config ComparisonConfig, summaryName string
 	// Allow filtering to specific test name via STATE_TEST_NAME env var
 	specificTestName := os.Getenv("STATE_TEST_NAME")
 
+	// Allow filtering to specific test index via STATE_TEST_INDEX env var
+	specificIndexStr := os.Getenv("STATE_TEST_INDEX")
+	specificIndex := -1
+	if specificIndexStr != "" {
+		var parseErr error
+		specificIndex, parseErr = strconv.Atoi(specificIndexStr)
+		if parseErr != nil {
+			t.Fatalf("Invalid STATE_TEST_INDEX: %s", specificIndexStr)
+		}
+	}
+
 	// Allow bypassing skip list for analysis purposes
 	ignoreSkipList := os.Getenv("IGNORE_SKIP_LIST") == "true"
 
@@ -622,6 +690,11 @@ func runStateTestSuite(t *testing.T, config ComparisonConfig, summaryName string
 		}
 
 		for i, post := range cancunPosts {
+			// Filter by specific index if specified
+			if specificIndex >= 0 && i != specificIndex {
+				continue
+			}
+
 			subtestName := testName
 			if len(cancunPosts) > 1 {
 				subtestName = fmt.Sprintf("%s/%d", testName, i)
