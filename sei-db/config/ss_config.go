@@ -8,6 +8,9 @@ const (
 )
 
 // StateStoreConfig defines configuration for the state store (SS) layer.
+// EVM optimization is controlled via WriteMode/ReadMode (no separate Enable flag):
+//   - WriteMode == CosmosOnlyWrite && ReadMode == CosmosOnlyRead → EVM stores not opened
+//   - Any other mode → EVM stores opened and used per the mode semantics
 type StateStoreConfig struct {
 	// Enable defines if the state-store should be enabled for historical queries.
 	Enable bool `mapstructure:"enable"`
@@ -27,7 +30,7 @@ type StateStoreConfig struct {
 	// defaults to 100
 	AsyncWriteBuffer int `mapstructure:"async-write-buffer"`
 
-	// KeepRecent defines the number of versions to keep in state store
+	// KeepRecent defines the number of versions to keep in state store (shared by Cosmos and EVM).
 	// Setting it to 0 means keep everything.
 	// Default to keep the last 100,000 blocks
 	KeepRecent int `mapstructure:"keep-recent"`
@@ -47,30 +50,41 @@ type StateStoreConfig struct {
 	// UseDefaultComparer uses Pebble's default lexicographic byte comparer instead of
 	// the custom MVCCComparer. This is NOT backwards compatible with existing databases
 	// that were created with MVCCComparer - only use this for NEW databases.
-	// The MVCC key encoding uses big-endian version bytes, so ordering is compatible,
-	// but existing databases will fail to open due to comparer name mismatch.
 	// defaults to false (use MVCCComparer for backwards compatibility)
 	UseDefaultComparer bool `mapstructure:"use-default-comparer"`
+
+	// --- EVM optimization fields (embedded, matching SC pattern) ---
+
+	// WriteMode controls how EVM data writes are routed between backends.
+	// cosmos_only: all writes to Cosmos only (default, no EVM stores opened)
+	// dual_write: EVM data written to both Cosmos and EVM stores
+	// split_write: EVM data only to EVM stores, non-EVM to Cosmos
+	WriteMode WriteMode `mapstructure:"write-mode"`
+
+	// ReadMode controls how EVM data reads are routed.
+	// cosmos_only: all reads from Cosmos only (default)
+	// evm_first: try EVM store first, fall back to Cosmos
+	// split_read: EVM data exclusively from EVM store
+	ReadMode ReadMode `mapstructure:"read-mode"`
+
+	// EVMDBDirectory defines the directory for EVM state store db files.
+	// If not set, defaults to <home>/data/evm_ss
+	EVMDBDirectory string `mapstructure:"evm-db-directory"`
 }
 
-// EVMStateStoreConfig defines configuration for the separate EVM state stores.
-// EVM stores use default comparer and separate PebbleDBs for each key type
-// (storage, nonce, code, codehash, codesize).
-type EVMStateStoreConfig struct {
-	// Enable defines if the EVM state stores should be enabled.
-	// When enabled, EVM data is dual-written to separate optimized databases.
-	// Reads check EVM_SS first, then fallback to Cosmos_SS.
-	// defaults to false
-	Enable bool `mapstructure:"enable"`
-
-	// DBDirectory defines the directory to store the EVM state store db files
-	// If not explicitly set, defaults to <home>/data/evm_ss
-	DBDirectory string `mapstructure:"db-directory"`
-
-	// KeepRecent defines the number of versions to keep in EVM state stores
-	// Setting it to 0 means keep everything.
-	// Default to keep the last 100,000 blocks
-	KeepRecent int `mapstructure:"keep-recent"`
+// EVMEnabled returns true if EVM state stores should be opened.
+// Derived from WriteMode/ReadMode — no separate Enable flag needed.
+// Treats zero-value (empty string) as CosmosOnly (the default).
+func (c StateStoreConfig) EVMEnabled() bool {
+	writeMode := c.WriteMode
+	if writeMode == "" {
+		writeMode = CosmosOnlyWrite
+	}
+	readMode := c.ReadMode
+	if readMode == "" {
+		readMode = CosmosOnlyRead
+	}
+	return writeMode != CosmosOnlyWrite || readMode != CosmosOnlyRead
 }
 
 // DefaultStateStoreConfig returns the default StateStoreConfig
@@ -84,12 +98,7 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		ImportNumWorkers:     DefaultSSImportWorkers,
 		KeepLastVersion:      true,
 		UseDefaultComparer:   false,
-	}
-}
-
-func DefaultEVMStateStoreConfig() EVMStateStoreConfig {
-	return EVMStateStoreConfig{
-		Enable:     false, // Disabled by default, enable for optimized EVM storage
-		KeepRecent: DefaultSSKeepRecent,
+		WriteMode:            CosmosOnlyWrite,
+		ReadMode:             CosmosOnlyRead,
 	}
 }
