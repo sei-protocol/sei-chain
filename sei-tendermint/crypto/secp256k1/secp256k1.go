@@ -189,10 +189,7 @@ func (pubKey PubKey) Type() string {
 func (privKey PrivKey) Sign(msg []byte) ([]byte, error) {
 	priv, pub := secp256k1.PrivKeyFromBytes(privKey)
 	seed := sha256.Sum256(msg)
-	sigBytes, err := ecdsa.SignCompact(priv, seed[:], len(pub.SerializeCompressed()) == 33)
-	if err != nil {
-		return nil, err
-	}
+	sigBytes := ecdsa.SignCompact(priv, seed[:], len(pub.SerializeCompressed()) == 33)
 	return sigBytes[1:], nil
 }
 
