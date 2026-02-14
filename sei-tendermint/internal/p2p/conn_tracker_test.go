@@ -25,6 +25,15 @@ func randLocalAddr() netip.AddrPort {
 	)
 }
 
+// uniqueLocalAddr generates a unique IP address based on the index.
+// This is used in tests that require guaranteed unique IPs to avoid flakiness.
+func uniqueLocalAddr(i int) netip.AddrPort {
+	return netip.AddrPortFrom(
+		netip.AddrFrom4([4]byte{127, byte(i / 65536), byte((i / 256) % 256), byte(i % 256)}),
+		uint16(i),
+	)
+}
+
 func TestConnTracker(t *testing.T) {
 	for name, factory := range map[string]func() *connTracker{
 		"BaseSmall": func() *connTracker {
@@ -59,7 +68,7 @@ func TestConnTracker(t *testing.T) {
 			t.Run("Cycle", func(t *testing.T) {
 				ct := factory()
 				for i := 0; i < 100; i++ {
-					ip := randLocalAddr()
+					ip := uniqueLocalAddr(i)
 					require.NoError(t, ct.AddConn(ip))
 					ct.RemoveConn(ip)
 				}
