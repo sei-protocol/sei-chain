@@ -146,9 +146,9 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 					Delete:    pair.Delete,
 				})
 
-			case evm.EVMKeyCodeSize:
-				// CodeSize is computed from len(Code), not stored in FlatKV - skip
-				continue
+			default:
+				// EVMKeyLegacy (including CodeSize) and other unhandled kinds
+				// are silently ignored — FlatKV only stores optimized key types.
 			}
 		}
 	}

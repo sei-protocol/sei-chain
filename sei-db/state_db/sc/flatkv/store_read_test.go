@@ -1,7 +1,6 @@
 package flatkv
 
 import (
-	"encoding/binary"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
@@ -95,44 +94,6 @@ func TestStoreGetNonStorageKeys(t *testing.T) {
 		_, found := s.Get(key)
 		require.False(t, found, "non-storage keys should not be found before write")
 	}
-}
-
-func TestStoreGetCodeSize(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	addr := Address{0xAA, 0xBB}
-	bytecode := []byte{0x60, 0x80, 0x60, 0x40, 0x52} // 5 bytes
-
-	// Write code
-	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
-	cs := makeChangeSet(codeKey, bytecode, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-
-	// CodeSize should be available from pending writes
-	codeSizeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeSize, addr[:])
-	sizeValue, found := s.Get(codeSizeKey)
-	require.True(t, found, "CodeSize should be found from pending writes")
-	require.Len(t, sizeValue, 8, "CodeSize should be 8 bytes")
-
-	// Verify the size is correct (big-endian uint64)
-	size := binary.BigEndian.Uint64(sizeValue)
-	require.Equal(t, uint64(len(bytecode)), size, "CodeSize should equal len(bytecode)")
-
-	// Commit
-	commitAndCheck(t, s)
-
-	// CodeSize should still be available after commit
-	sizeValue, found = s.Get(codeSizeKey)
-	require.True(t, found, "CodeSize should be found after commit")
-	size = binary.BigEndian.Uint64(sizeValue)
-	require.Equal(t, uint64(5), size, "CodeSize should be 5")
-
-	// CodeSize for non-existent address should not be found
-	nonExistentAddr := Address{0xFF, 0xFF}
-	nonExistentSizeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeSize, nonExistentAddr[:])
-	_, found = s.Get(nonExistentSizeKey)
-	require.False(t, found, "CodeSize for non-existent code should not be found")
 }
 
 func TestStoreHas(t *testing.T) {

@@ -100,31 +100,6 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		}
 		return value, true
 
-	case evm.EVMKeyCodeSize:
-		// CodeSize is computed from len(Code), not stored separately in FlatKV.
-		// keyBytes = addr(20)
-		// Check pending code writes first
-		if pw, ok := s.codeWrites[string(keyBytes)]; ok {
-			if pw.isDelete {
-				return nil, false
-			}
-			// Return 8-byte big-endian length
-			length := make([]byte, 8)
-			binary.BigEndian.PutUint64(length, uint64(len(pw.value)))
-			return length, true
-		}
-
-		// Read from codeDB
-		code, err := s.codeDB.Get(keyBytes)
-		if err != nil {
-			return nil, false
-		}
-
-		// Return 8-byte big-endian length
-		length := make([]byte, 8)
-		binary.BigEndian.PutUint64(length, uint64(len(code)))
-		return length, true
-
 	default:
 		return nil, false
 	}

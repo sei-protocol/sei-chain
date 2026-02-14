@@ -53,10 +53,10 @@ func TestParseEVMKey(t *testing.T) {
 			wantBytes: addr,
 		},
 		{
-			name:      "CodeSize",
+			name:      "CodeSize goes to Legacy",
 			key:       concat(codeSizeKeyPrefix, addr),
-			wantKind:  EVMKeyCodeSize,
-			wantBytes: addr,
+			wantKind:  EVMKeyLegacy,
+			wantBytes: concat(codeSizeKeyPrefix, addr), // Full key preserved
 		},
 		{
 			name:      "Code",
@@ -178,12 +178,6 @@ func TestBuildMemIAVLEVMKey(t *testing.T) {
 			want:     concat(codeKeyPrefix, addr),
 		},
 		{
-			name:     "CodeSize",
-			kind:     EVMKeyCodeSize,
-			keyBytes: addr,
-			want:     concat(codeSizeKeyPrefix, addr),
-		},
-		{
 			name:     "Storage",
 			kind:     EVMKeyStorage,
 			keyBytes: concat(addr, slot),
@@ -210,7 +204,6 @@ func TestInternalKeyLen(t *testing.T) {
 	require.Equal(t, addressLen, InternalKeyLen(EVMKeyNonce))
 	require.Equal(t, addressLen, InternalKeyLen(EVMKeyCodeHash))
 	require.Equal(t, addressLen, InternalKeyLen(EVMKeyCode))
-	require.Equal(t, addressLen, InternalKeyLen(EVMKeyCodeSize))
 	require.Equal(t, 0, InternalKeyLen(EVMKeyUnknown))
 }
 

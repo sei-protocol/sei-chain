@@ -40,8 +40,7 @@ const (
 	EVMKeyCodeHash                   // Stripped key: 20-byte address
 	EVMKeyCode                       // Stripped key: 20-byte address
 	EVMKeyStorage                    // Stripped key: addr||slot (20+32 bytes)
-	EVMKeyCodeSize                   // Parsed but not stored by FlatKV (computed from len(Code))
-	EVMKeyLegacy                     // Full original key preserved (address mappings, etc.)
+	EVMKeyLegacy                     // Full original key preserved (address mappings, codesize, etc.)
 )
 
 // EVMKeyUnknown is an alias for EVMKeyEmpty, used by FlatKV to test for
@@ -51,7 +50,7 @@ const EVMKeyUnknown = EVMKeyEmpty
 // ParseEVMKey parses an EVM key from the x/evm store keyspace.
 //
 // For optimized keys (nonce, code, codehash, storage), keyBytes is the stripped key.
-// For legacy keys (all other EVM data), keyBytes is the full original key.
+// For legacy keys (all other EVM data including codesize), keyBytes is the full original key.
 // Only returns EVMKeyEmpty for zero-length keys.
 func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
 	if len(key) == 0 {
@@ -71,12 +70,6 @@ func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
 		}
 		return EVMKeyCodeHash, key[len(codeHashKeyPrefix):]
 
-	case bytes.HasPrefix(key, codeSizeKeyPrefix):
-		if len(key) != len(codeSizeKeyPrefix)+addressLen {
-			return EVMKeyLegacy, key
-		}
-		return EVMKeyCodeSize, key[len(codeSizeKeyPrefix):]
-
 	case bytes.HasPrefix(key, codeKeyPrefix):
 		if len(key) != len(codeKeyPrefix)+addressLen {
 			return EVMKeyLegacy, key
@@ -90,17 +83,16 @@ func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
 		return EVMKeyStorage, key[len(stateKeyPrefix):]
 	}
 
-	// All other EVM keys go to legacy store (address mappings, etc.)
+	// All other EVM keys go to legacy store (address mappings, codesize, etc.)
 	return EVMKeyLegacy, key
 }
 
 // BuildMemIAVLEVMKey builds a memiavl key from internal bytes.
-// This is the reverse of ParseEVMKey.
+// This is the reverse of ParseEVMKey for optimized key types.
 //
 // NOTE: This is primarily used for tests and temporary compatibility.
 // FlatKV stores data in internal format; this function converts back to
-// memiavl format for Iterator/Exporter output. In a future refactor,
-// FlatKV may use its own export format and this function could be removed.
+// memiavl format for Iterator/Exporter output.
 func BuildMemIAVLEVMKey(kind EVMKeyKind, keyBytes []byte) []byte {
 	var prefix []byte
 	switch kind {
@@ -112,8 +104,6 @@ func BuildMemIAVLEVMKey(kind EVMKeyKind, keyBytes []byte) []byte {
 		prefix = codeHashKeyPrefix
 	case EVMKeyCode:
 		prefix = codeKeyPrefix
-	case EVMKeyCodeSize:
-		prefix = codeSizeKeyPrefix
 	default:
 		return nil
 	}
@@ -130,7 +120,7 @@ func InternalKeyLen(kind EVMKeyKind) int {
 	switch kind {
 	case EVMKeyStorage:
 		return addressLen + slotLen // 52 bytes
-	case EVMKeyNonce, EVMKeyCodeHash, EVMKeyCodeSize, EVMKeyCode:
+	case EVMKeyNonce, EVMKeyCodeHash, EVMKeyCode:
 		return addressLen // 20 bytes
 	default:
 		return 0
