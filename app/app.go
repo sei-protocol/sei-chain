@@ -130,6 +130,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/helpers"
@@ -704,6 +705,7 @@ func New(
 	}
 	app.GigaExecutorEnabled = gigaExecutorConfig.Enabled
 	app.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
+	tmtypes.SkipLastResultsHashValidation.Store(gigaExecutorConfig.Enabled)
 	if gigaExecutorConfig.Enabled {
 		evmoneVM, err := gigalib.InitEvmoneVM()
 		if err != nil {
@@ -1709,103 +1711,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	return events, txResults, endBlockResp, nil
 }
 
-// ProcessBlockWithGigaExecutor executes block transactions using the Giga executor,
-// bypassing the standard Cosmos SDK transaction processing flow.
-// This is an experimental path for improved EVM throughput.
-// NOTE: This is not currently used in the codebase, but might be in the future.
-func (app *App) ProcessBlockWithGigaExecutor(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, _ bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
-	// Panic recovery like original ProcessBlock
-	defer func() {
-		if r := recover(); r != nil {
-			stack := string(debug.Stack())
-			ctx.Logger().Error("benchmark panic in ProcessBlockWithGigaExecutor", "panic", r, "stack", stack)
-			err = fmt.Errorf("ProcessBlockWithGigaExecutor panic: %v", r)
-			events = nil
-			txResults = nil
-			endBlockResp = abci.ResponseEndBlock{}
-		}
-	}()
-
-	// Setup context like original ProcessBlock
-	ctx = ctx.WithIsOCCEnabled(false) // Disable OCC for giga executor path
-
-	blockSpanCtx, blockSpan := app.GetBaseApp().TracingInfo.Start("GigaBlock")
-	defer blockSpan.End()
-	blockSpan.SetAttributes(attribute.Int64("height", req.GetHeight()))
-	ctx = ctx.WithTraceSpanContext(blockSpanCtx)
-
-	// BeginBlock - still needed for validator updates, etc.
-	beginBlockResp := app.BeginBlock(ctx, req.GetHeight(), lastCommit.Votes, req.GetByzantineValidators(), true)
-	events = append(events, beginBlockResp.Events...)
-
-	// Initialize results array
-	txResults = make([]*abci.ExecTxResult, len(txs))
-	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs))
-
-	// TODO: This is where the giga executor will process transactions directly
-	// For now, decode and execute each transaction through the giga executor
-	var evmTotalGasUsed int64
-
-	for i, txBytes := range txs {
-		// Decode as Cosmos SDK tx first to extract EVM message
-		// TODO: In full implementation, decode directly as Ethereum tx
-		decodedTx, decodeErr := app.txDecoder(txBytes)
-		if decodeErr != nil {
-			txResults[i] = &abci.ExecTxResult{
-				Code: 1,
-				Log:  fmt.Sprintf("failed to decode transaction: %v", decodeErr),
-			}
-			continue
-		}
-
-		// Check if this is an EVM transaction
-		evmMsg := app.GetEVMMsg(decodedTx)
-		if evmMsg == nil {
-			res := app.DeliverTxWithResult(ctx, txBytes, decodedTx)
-			// Non-EVM transaction - fall back to standard processing
-			txResults[i] = res
-			continue
-		}
-
-		evmTxs[i] = evmMsg
-
-		// Execute EVM transaction through giga executor
-		result, execErr := app.executeEVMTxWithGigaExecutor(ctx, evmMsg)
-		if execErr != nil {
-			// Check if this is a fail-fast error (Cosmos precompile interop detected)
-			if gigautils.ShouldExecutionAbort(execErr) {
-				res := app.DeliverTxWithResult(ctx, txBytes, decodedTx)
-				txResults[i] = res
-				continue
-			}
-			txResults[i] = &abci.ExecTxResult{
-				Code: 1,
-				Log:  fmt.Sprintf("[BUG] giga executor error: %v", execErr),
-			}
-			continue
-		}
-
-		txResults[i] = result
-		if result.EvmTxInfo != nil {
-			evmTotalGasUsed += result.GasUsed
-		}
-	}
-	ctx.GigaMultiStore().WriteGiga()
-
-	app.EvmKeeper.SetTxResults(txResults)
-	app.EvmKeeper.SetMsgs(evmTxs)
-
-	// Finalize bank transfers
-	lazyWriteEvents := app.GigaBankKeeper.WriteDeferredBalances(ctx)
-	events = append(events, lazyWriteEvents...)
-
-	// EndBlock
-	endBlockResp = app.EndBlock(ctx, req.GetHeight(), evmTotalGasUsed)
-	events = append(events, endBlockResp.Events...)
-
-	return events, txResults, endBlockResp, nil
-}
-
 // executeEVMTxWithGigaExecutor executes a single EVM transaction using the giga executor.
 // The sender address is recovered directly from the transaction signature - no Cosmos SDK ante handlers needed.
 func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgEVMTransaction) (*abci.ExecTxResult, error) {
@@ -1980,139 +1885,6 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 			Nonce:   ethTx.Nonce(),
 		},
 	}, nil
-}
-
-// ProcessBlockWithGigaExecutorOCC executes block transactions using the Giga executor with OCC.
-// This combines the lean giga executor path with parallel execution and conflict detection.
-func (app *App) ProcessBlockWithGigaExecutorOCC(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
-	// Panic recovery
-	defer func() {
-		if r := recover(); r != nil {
-			stack := string(debug.Stack())
-			ctx.Logger().Error("benchmark panic in ProcessBlockWithGigaExecutorOCC", "panic", r, "height", req.GetHeight(), "txCount", len(txs), "stack", stack)
-			err = fmt.Errorf("ProcessBlockWithGigaExecutorOCC panic: %v", r)
-			events = nil
-			txResults = nil
-			endBlockResp = abci.ResponseEndBlock{}
-		}
-	}()
-
-	// Setup context - OCC is enabled for this path
-	ctx = ctx.WithIsOCCEnabled(true)
-
-	blockSpanCtx, blockSpan := app.GetBaseApp().TracingInfo.Start("GigaBlockOCC")
-	defer blockSpan.End()
-	blockSpan.SetAttributes(attribute.Int64("height", req.GetHeight()))
-	ctx = ctx.WithTraceSpanContext(blockSpanCtx)
-
-	events = []abci.Event{}
-
-	// BeginBlock
-	beginBlockResp := app.BeginBlock(ctx, req.GetHeight(), lastCommit.Votes, req.GetByzantineValidators(), true)
-	events = append(events, beginBlockResp.Events...)
-
-	// Build DeliverTxEntry list for OCC scheduler
-	txEntries := make([]*sdk.DeliverTxEntry, 0, len(txs))
-	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs))
-
-	for i, txBytes := range txs {
-		decodedTx, decodeErr := app.txDecoder(txBytes)
-		if decodeErr != nil {
-			continue
-		}
-		evmMsg := app.GetEVMMsg(decodedTx)
-		if evmMsg == nil {
-			continue
-		}
-		evmTxs[i] = evmMsg
-		checksum := sha256.Sum256(txBytes)
-		txEntries = append(txEntries, &sdk.DeliverTxEntry{
-			Request:       abci.RequestDeliverTxV2{Tx: txBytes},
-			SdkTx:         decodedTx,
-			Checksum:      checksum,
-			AbsoluteIndex: i,
-		})
-	}
-
-	// Create OCC scheduler with giga executor deliverTx
-	scheduler := tasks.NewScheduler(
-		app.ConcurrencyWorkers(),
-		app.TracingInfo,
-		app.gigaDeliverTx,
-	)
-
-	responses, schedErr := scheduler.ProcessAll(ctx, txEntries)
-	if schedErr != nil {
-		ctx.Logger().Error("benchmark OCC scheduler error", "error", schedErr, "height", req.GetHeight(), "txCount", len(txEntries))
-		return nil, nil, abci.ResponseEndBlock{}, schedErr
-	}
-
-	// Convert responses to ExecTxResult and restore transient store data
-	// In OCC mode, transient store writes (receipts, deferred info) are lost because the
-	// CacheMultiStore isn't committed. We pass receipt data through response.Data and
-	// write to transient store here using the main context.
-	txResults = make([]*abci.ExecTxResult, len(txs))
-	evmTotalGasUsed := int64(0)
-	for i, resp := range responses {
-		idx := txEntries[i].AbsoluteIndex
-		txResults[idx] = &abci.ExecTxResult{
-			Code:      resp.Code,
-			Data:      resp.Data,
-			Log:       resp.Log,
-			Info:      resp.Info,
-			GasWanted: resp.GasWanted,
-			GasUsed:   resp.GasUsed,
-			Events:    resp.Events,
-			Codespace: resp.Codespace,
-			EvmTxInfo: resp.EvmTxInfo,
-		}
-		evmTotalGasUsed += resp.GasUsed
-
-		// Restore transient store data using main context
-		// In OCC mode, the Data field contains TxMsgData (standard format) for correct LastResultsHash.
-		// We need to extract the receipt info from the response or reconstruct it.
-		if resp.Code == 0 && evmTxs[idx] != nil {
-			ethTx, _ := evmTxs[idx].AsTransaction()
-			if ethTx != nil {
-				txHash := ethTx.Hash()
-				// In OCC mode, the receipt was written during execution but may have been lost.
-				// We can reconstruct minimal receipt info from the response for deferred processing.
-				// The full receipt details would need to be fetched from transient store if it exists.
-				bloom := ethtypes.Bloom{}
-				// Try to get receipt from transient store (may exist if execution succeeded)
-				existingReceipt, receiptErr := app.EvmKeeper.GetTransientReceipt(ctx.WithTxIndex(idx), txHash, uint64(idx)) //nolint:gosec // G115: idx is a valid tx index, always non-negative
-				if receiptErr == nil && existingReceipt != nil {
-					bloom.SetBytes(existingReceipt.LogsBloom)
-				}
-				app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(idx), bloom, txHash, sdk.ZeroInt())
-			}
-		}
-	}
-
-	// Fill in nil results for non-EVM or failed decode txs
-	for i := range txResults {
-		if txResults[i] == nil {
-			txResults[i] = &abci.ExecTxResult{
-				Code: 1,
-				Log:  "transaction not processed by giga executor OCC",
-			}
-		}
-	}
-
-	ctx.GigaMultiStore().WriteGiga()
-
-	app.EvmKeeper.SetTxResults(txResults)
-	app.EvmKeeper.SetMsgs(evmTxs)
-
-	// Finalize bank transfers
-	lazyWriteEvents := app.GigaBankKeeper.WriteDeferredBalances(ctx)
-	events = append(events, lazyWriteEvents...)
-
-	// EndBlock
-	endBlockResp = app.EndBlock(ctx, req.GetHeight(), evmTotalGasUsed)
-	events = append(events, endBlockResp.Events...)
-
-	return events, txResults, endBlockResp, nil
 }
 
 // gigaDeliverTx is the OCC-compatible deliverTx function for the giga executor.

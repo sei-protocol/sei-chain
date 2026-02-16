@@ -12,7 +12,7 @@ require (
 	github.com/aws/aws-sdk-go v1.44.327
 	github.com/benbjohnson/immutable v0.4.3
 	github.com/bgentry/speakeasy v0.1.0
-	github.com/btcsuite/btcd/btcec/v2 v2.3.2
+	github.com/btcsuite/btcd/btcec/v2 v2.3.5
 	github.com/cockroachdb/pebble/v2 v2.1.3
 	github.com/coinbase/rosetta-sdk-go v0.7.0
 	github.com/confio/ics23/go v0.9.0

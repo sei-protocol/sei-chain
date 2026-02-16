@@ -149,7 +149,9 @@ type State struct {
 	setProposal func(proposal *types.Proposal, t time.Time) error
 
 	// synchronous pubsub between consensus state and reactor.
-	eventValidBlock   func(state *cstypes.RoundState)
+	// eventValidBlock is emitting a copy of round state, in which the
+	// block parts will be collected, so it should not be treated as immutable.
+	eventValidBlock   utils.AtomicSend[utils.Option[*cstypes.RoundState]]
 	eventNewRoundStep func(state *cstypes.RoundState)
 	eventVote         func(vote *types.Vote)
 	eventMsg          func(msgInfo)
@@ -210,7 +212,7 @@ func NewState(
 		evpool:            evpool,
 		metrics:           NopMetrics(),
 		wal:               wal,
-		eventValidBlock:   func(*cstypes.RoundState) {},
+		eventValidBlock:   utils.NewAtomicSend(utils.None[*cstypes.RoundState]()),
 		eventNewRoundStep: func(*cstypes.RoundState) {},
 		eventVote:         func(*types.Vote) {},
 		eventMsg:          func(msgInfo) {},
@@ -683,6 +685,10 @@ func (cs *State) updateToState(state sm.State) {
 
 	cs.state = state
 
+	// Reset the valid block message, since we no longer need block parts
+	// from the previous height. This is just for clarity - it wouldn't hurt
+	// to just keep the value from the previous height.
+	cs.eventValidBlock.Store(utils.None[*cstypes.RoundState]())
 	// Finally, broadcast RoundState
 	cs.newStep()
 }
@@ -827,15 +833,12 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 
 		// will not cause transition.
 		// once proposal is set, we can receive block parts
-		if err = cs.setProposal(msg.Proposal, mi.ReceiveTime); err == nil {
-			if key, ok := cs.privValidatorPubKey.Get(); ok && cs.config.GossipTransactionKeyOnly {
-				if !cs.isProposer(key.Address()) && cs.roundState.ProposalBlock() == nil {
-					created := cs.tryCreateProposalBlock(spanCtx, msg.Proposal.Height, msg.Proposal.Round, msg.Proposal.Header, msg.Proposal.LastCommit, msg.Proposal.Evidence, msg.Proposal.ProposerAddress)
-					if created {
-						cs.fsyncAndCompleteProposal(ctx, fsyncUponCompletion, msg.Proposal.Height, span, true)
-					}
-				}
-			}
+		err = cs.setProposal(msg.Proposal, mi.ReceiveTime)
+		if err != nil {
+			break
+		}
+		if cs.tryCreateProposalBlock(spanCtx) {
+			cs.fsyncAndCompleteProposal(ctx, fsyncUponCompletion, msg.Proposal.Height, span, true)
 		}
 
 	case *BlockPartMessage:
@@ -1420,43 +1423,13 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 		return
 	}
 
-	if cs.config.GossipTransactionKeyOnly {
-		if cs.roundState.ProposalBlock() == nil {
-			// If we're not the proposer, we need to build the block
-			txKeys := cs.roundState.Proposal().TxKeys
-			if cs.roundState.ProposalBlockParts().IsComplete() {
-				block, err := cs.getBlockFromBlockParts()
-				if err != nil {
-					cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
-					return
-				}
-				// We have full proposal block and txs. Build proposal block with txKeys
-				proposalBlock := cs.buildProposalBlock(height, block.Header, block.LastCommit, block.Evidence, block.ProposerAddress, txKeys)
-				if proposalBlock == nil {
-					cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
-					return
-				}
-				cs.roundState.SetProposalBlock(proposalBlock)
-			} else {
-				cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
-				return
-			}
-		}
-	} else {
-		if cs.roundState.ProposalBlock() == nil {
-			block, err := cs.getBlockFromBlockParts()
-			if err != nil {
-				cs.logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
-				cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
-				return
-			}
-			if block == nil {
-				logger.Error("prevote step: ProposalBlock is nil")
-				cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
-				return
-			}
-			cs.roundState.SetProposalBlock(block)
-		}
+	// Attempt to reconstruct block, in case more transactions have arrived to mempool.
+	cs.tryCreateProposalBlock(ctx)
+
+	if cs.roundState.ProposalBlock() == nil {
+		logger.Error("prevote step: ProposalBlock is nil")
+		cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
+		return
 	}
 
 	if !cs.roundState.Proposal().Timestamp.Equal(cs.roundState.ProposalBlock().Time) {
@@ -1827,31 +1800,29 @@ func (cs *State) enterCommit(ctx context.Context, height int64, commitRound int3
 	// otherwise they'll be cleared in updateToState.
 	if cs.roundState.LockedBlock().HashesTo(blockID.Hash) {
 		logger.Info("commit is for a locked block; set ProposalBlock=LockedBlock", "block_hash", blockID.Hash)
-		cs.roundState.SetProposalBlock(cs.roundState.LockedBlock())
 		cs.roundState.SetProposalBlockParts(cs.roundState.LockedBlockParts())
+		cs.roundState.SetProposalBlock(cs.roundState.LockedBlock())
 	}
 
 	// If we don't have the block being committed, set up to get it.
-	if !cs.roundState.ProposalBlock().HashesTo(blockID.Hash) {
-		if !cs.roundState.ProposalBlockParts().HasHeader(blockID.PartSetHeader) {
-			logger.Info(
-				"commit is for a block we do not know about; set ProposalBlock=nil",
-				"proposal", cs.roundState.ProposalBlock().Hash(),
-				"commit", blockID.Hash,
-			)
+	if !cs.roundState.ProposalBlockParts().HasHeader(blockID.PartSetHeader) {
+		logger.Info(
+			"commit is for a block we do not know about; set ProposalBlock=nil",
+			"proposal", cs.roundState.ProposalBlock().Hash(),
+			"commit", blockID.Hash,
+		)
 
-			// We're getting the wrong block.
-			// Set up ProposalBlockParts and keep waiting.
-			cs.roundState.SetProposalBlock(nil)
-			cs.metrics.MarkBlockGossipStarted()
-			cs.roundState.SetProposalBlockParts(types.NewPartSetFromHeader(blockID.PartSetHeader))
+		// We're getting the wrong block.
+		// Set up ProposalBlockParts, clear ProposalBlock and keep waiting for the parts.
+		cs.metrics.MarkBlockGossipStarted()
+		cs.roundState.SetProposalBlockParts(types.NewPartSetFromHeader(blockID.PartSetHeader))
+		cs.roundState.SetProposalBlock(nil)
 
-			if err := cs.eventBus.PublishEventValidBlock(cs.roundState.RoundStateEvent()); err != nil {
-				logger.Error("failed publishing valid block", "err", err)
-			}
-
-			cs.eventValidBlock(cs.roundState.CopyInternal())
+		if err := cs.eventBus.PublishEventValidBlock(cs.roundState.RoundStateEvent()); err != nil {
+			logger.Error("failed publishing valid block", "err", err)
 		}
+
+		cs.eventValidBlock.Store(utils.Some(cs.roundState.CopyInternal()))
 	}
 }
 
@@ -2142,6 +2113,22 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 		return nil
 	}
 
+	// If we already know the commit block for this height, ignore proposals that don't match it.
+	if commitRound := cs.roundState.CommitRound(); commitRound >= 0 && cs.roundState.Step() == cstypes.RoundStepCommit {
+		blockID, ok := cs.roundState.Votes().Precommits(commitRound).TwoThirdsMajority()
+		if ok && !blockID.IsNil() && !proposal.BlockID.Equals(blockID) {
+			cs.logger.Debug(
+				"ignoring proposal that mismatches commit certificate",
+				"height", proposal.Height,
+				"round", proposal.Round,
+				"proposal_hash", proposal.BlockID.Hash,
+				"commit_hash", blockID.Hash,
+				"proposer", proposal.ProposerAddress.String(),
+			)
+			return nil
+		}
+	}
+
 	// Verify POLRound, which must be -1 or in range [0, proposal.Round).
 	if proposal.POLRound < -1 ||
 		(proposal.POLRound >= 0 && proposal.POLRound >= proposal.Round) {
@@ -2169,6 +2156,7 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 		}
 		cs.metrics.MarkBlockGossipStarted()
 		cs.roundState.SetProposalBlockParts(types.NewPartSetFromHeader(proposal.BlockID.PartSetHeader))
+		cs.roundState.SetProposalBlock(nil)
 	}
 
 	cs.logger.Debug("received proposal", "proposal", proposal)
@@ -2260,51 +2248,98 @@ func (cs *State) getBlockFromBlockParts() (*types.Block, error) {
 	return block, nil
 }
 
-func (cs *State) tryCreateProposalBlock(ctx context.Context, height int64, round int32, header types.Header, lastCommit *types.Commit, evidence []types.Evidence, proposerAddress types.Address) bool {
+func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
+	if cs.roundState.ProposalBlock() != nil {
+		// Block already constructed.
+		return false
+	}
+	defer func() {
+		if cs.roundState.ProposalBlock() != nil {
+			// NOTE: it's possible to receive complete proposal blocks for future rounds without having the proposal
+			cs.metrics.MarkBlockGossipComplete()
+		}
+	}()
+
+	parts := cs.roundState.ProposalBlockParts()
+	if parts == nil {
+		return false
+	}
+	// If we just have all the parts, reconstruct the block.
+	if parts.IsComplete() {
+		block, err := cs.getBlockFromBlockParts()
+		if err != nil {
+			// This can happen if the BlockParts header is broken.
+			cs.logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
+			return false
+		}
+		cs.roundState.SetProposalBlock(block)
+		return true
+	}
+
+	// Attempt to reconstruct from the Proposal.TxKeys.
+	if !cs.config.GossipTransactionKeyOnly {
+		return false
+	}
+	// For some reason we only attempt that on non-proposing validators.
+	if key, ok := cs.privValidatorPubKey.Get(); !ok || cs.isProposer(key.Address()) {
+		return false
+	}
+	proposal := cs.roundState.Proposal()
+	if proposal == nil {
+		return false
+	}
 	_, span := cs.tracer.Start(ctx, "cs.state.tryCreateProposalBlock")
-	span.SetAttributes(attribute.Int("round", int(round)))
+	span.SetAttributes(attribute.Int("round", int(proposal.Round)))
 	defer span.End()
 
-	// Blocks might be reused, so round mismatch is OK
-	if cs.roundState.Height() != height {
-		cs.logger.Info("received block part from wrong height", "height", height, "round", round)
-		cs.metrics.BlockGossipPartsReceived.With("matches_current", "false").Add(1)
+	// Constructed block needs to match the expected parts.
+	// This check is optimistic, because proposer may provide mismatching PartSetHeader.
+	if !parts.Header().Equals(proposal.BlockID.PartSetHeader) {
+		cs.logger.Error(
+			"skipping tx-key reconstruction; current part set header differs from proposal",
+			"height", proposal.Height,
+			"round", proposal.Round,
+			"current_header", parts.Header(),
+			"proposal_header", proposal.BlockID.PartSetHeader,
+		)
 		return false
 	}
-	// We may not have a valid proposal yet (e.g. only received proposal for a wrong height)
-	if cs.roundState.Proposal() == nil {
-		return false
-	}
-	block := cs.buildProposalBlock(height, header, lastCommit, evidence, proposerAddress, cs.roundState.Proposal().TxKeys)
+
+	// Construct block and block parts.
+	block := cs.buildProposalBlock(proposal)
 	if block == nil {
 		return false
 	}
-	cs.roundState.SetProposalBlock(block)
-	partSet, err := block.MakePartSet(types.BlockPartSizeBytes)
+	newParts, err := block.MakePartSet(types.BlockPartSizeBytes)
 	if err != nil {
 		return false
 	}
-	cs.roundState.SetProposalBlockParts(partSet)
-	// NOTE: it's possible to receive complete proposal blocks for future rounds without having the proposal
-	cs.metrics.MarkBlockGossipComplete()
+
+	// Now check if parts were actually expected.
+	if !parts.Header().Equals(newParts.Header()) {
+		return false
+	}
+
+	cs.roundState.SetProposalBlockParts(newParts)
+	cs.roundState.SetProposalBlock(block)
 	return true
 }
 
 // Build a proposal block from mempool txs. If cs.config.GossipTransactionKeyOnly=true
 // proposals only contain txKeys so we rebuild the block using mempool txs
-func (cs *State) buildProposalBlock(height int64, header types.Header, lastCommit *types.Commit, evidence []types.Evidence, proposerAddress types.Address, txKeys []types.TxKey) *types.Block {
-	txs, missingTxs := cs.blockExec.SafeGetTxsByKeys(txKeys)
+func (cs *State) buildProposalBlock(proposal *types.Proposal) *types.Block {
+	txs, missingTxs := cs.blockExec.SafeGetTxsByKeys(proposal.TxKeys)
 	if len(missingTxs) > 0 {
 		cs.metrics.ProposalMissingTxs.Set(float64(len(missingTxs)))
-		cs.logger.Debug("Missing txs when trying to build block", "missing_txs", cs.blockExec.GetMissingTxs(txKeys))
+		cs.logger.Debug("Missing txs when trying to build block", "missing_txs", cs.blockExec.GetMissingTxs(proposal.TxKeys))
 		return nil
 	}
-	block := cs.state.MakeBlock(height, txs, lastCommit, evidence, proposerAddress)
-	block.Version = header.Version
+	block := cs.state.MakeBlock(proposal.Height, txs, proposal.LastCommit, proposal.Evidence, proposal.ProposerAddress)
+	block.Version = proposal.Version
 	block.Txs = txs
 	block.DataHash = block.Data.Hash(true)
-	block.Time = header.Time
-	block.ProposerAddress = header.ProposerAddress
+	block.Time = proposal.Time
+	block.ProposerAddress = proposal.Header.ProposerAddress
 	return block
 }
 
@@ -2503,8 +2538,8 @@ func (cs *State) addVote(
 				}
 
 				roundState := cs.roundState.CopyInternal()
-				cs.eventValidBlock(roundState)
-				if err := cs.eventBus.PublishEventValidBlock(cs.roundState.RoundStateEvent()); err != nil {
+				cs.eventValidBlock.Store(utils.Some(roundState))
+				if err := cs.eventBus.PublishEventValidBlock(roundState.RoundStateEvent()); err != nil {
 					return added, err
 				}
 			}

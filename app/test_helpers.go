@@ -147,6 +147,7 @@ func NewGigaTestWrapperWithRegularStore(t *testing.T, tm time.Time, valPub crypt
 	// Manually enable Giga executor on the app
 	wrapper.App.GigaExecutorEnabled = true
 	wrapper.App.GigaOCCEnabled = useOcc
+	tmtypes.SkipLastResultsHashValidation.Store(true)
 
 	// Configure GigaEvmKeeper to use regular KVStore instead of GigaKVStore
 	wrapper.App.GigaEvmKeeper.UseRegularStore = true

@@ -4,26 +4,44 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// Persisted state file prefix.
+const innerFile = "inner"
+
 type inner struct {
-	viewSpec types.ViewSpec
-
-	prepareVote utils.Option[*types.Signed[*types.PrepareVote]]
-	timeoutVote utils.Option[*types.FullTimeoutVote]
-
-	prepareQC  utils.Option[*types.PrepareQC]
-	commitVote utils.Option[*types.Signed[*types.CommitVote]]
+	persistedInner
 }
 
-func (i *inner) View() types.View {
-	return i.viewSpec.View()
+// newInner creates the inner state from persisted data loaded by newPersister.
+// data is None on fresh start (persistence disabled or no prior state).
+// Returns error if persisted state is corrupt (see persistedInner.validate).
+func newInner(data utils.Option[[]byte], committee *types.Committee) (inner, error) {
+	var persisted persistedInner
+
+	if bz, ok := data.Get(); ok {
+		decoded, err := innerProtoConv.Unmarshal(bz)
+		if err != nil {
+			return inner{}, fmt.Errorf("corrupt persisted state: %w", err)
+		}
+		persisted = *decoded
+	}
+
+	if err := persisted.validate(committee); err != nil {
+		return inner{}, err
+	}
+
+	log.Info().Str("state", innerProtoConv.Encode(&persisted).String()).Msg("restored consensus state")
+
+	return inner{persistedInner: persisted}, nil
 }
 
 func (s *State) pushCommitQC(qc *types.CommitQC) error {
-	if i := s.innerRecv.Load(); qc.Proposal().Index() < i.viewSpec.View().Index {
+	if i := s.innerRecv.Load(); qc.Proposal().Index() < i.View().Index {
 		return nil
 	}
 	if err := qc.Verify(s.Data().Committee()); err != nil {
@@ -31,15 +49,13 @@ func (s *State) pushCommitQC(qc *types.CommitQC) error {
 	}
 	for iSend := range s.inner.Lock() {
 		i := iSend.Load()
-		if qc.Proposal().Index() < i.viewSpec.View().Index {
+		if qc.Proposal().Index() < i.View().Index {
 			return nil
 		}
-		iSend.Store(inner{
-			viewSpec: types.ViewSpec{
-				CommitQC:  utils.Some(qc),
-				TimeoutQC: utils.None[*types.TimeoutQC](),
-			},
-		})
+		// CommitQC advances to new index; clear all state for new view
+		iSend.Store(inner{persistedInner{
+			CommitQC: utils.Some(qc),
+		}})
 	}
 	return nil
 }
@@ -56,7 +72,8 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 	if qc.View().Less(i.View()) {
 		return nil
 	}
-	if err := qc.Verify(s.Data().Committee(), i.viewSpec.CommitQC); err != nil {
+	// Verify checks the invariant: TimeoutQC.View().Index == CommitQC.Index + 1
+	if err := qc.Verify(s.Data().Committee(), i.CommitQC); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for isend := range s.inner.Lock() {
@@ -64,8 +81,11 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 		if qc.View().Less(i.View()) {
 			return nil
 		}
-		i.viewSpec.TimeoutQC = utils.Some(qc)
-		isend.Store(inner{viewSpec: i.viewSpec})
+		// TimeoutQC advances view number; clear votes and prepareQC (stale view).
+		isend.Store(inner{persistedInner{
+			CommitQC:  i.CommitQC,
+			TimeoutQC: utils.Some(qc),
+		}})
 	}
 	return nil
 }
@@ -87,11 +107,11 @@ func (s *State) pushProposal(ctx context.Context, proposal *types.FullProposal) 
 	// Update.
 	for isend := range s.inner.Lock() {
 		i := isend.Load()
-		if i.View() != proposal.View() || i.timeoutVote.IsPresent() || i.prepareVote.IsPresent() {
+		if i.View() != proposal.View() || i.TimeoutVote.IsPresent() || i.PrepareVote.IsPresent() {
 			return nil
 		}
 		v := types.Sign(s.cfg.Key, types.NewPrepareVote(proposal.Proposal().Msg()))
-		i.prepareVote = utils.Some(v)
+		i.PrepareVote = utils.Some(v)
 		isend.Store(i)
 	}
 	return nil
@@ -113,12 +133,12 @@ func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 	// Update.
 	for isend := range s.inner.Lock() {
 		i := isend.Load()
-		if i.View() != qc.Proposal().View() || i.timeoutVote.IsPresent() || i.prepareQC.IsPresent() {
+		if i.View() != qc.Proposal().View() || i.TimeoutVote.IsPresent() || i.PrepareQC.IsPresent() {
 			return nil
 		}
-		i.prepareQC = utils.Some(qc)
+		i.PrepareQC = utils.Some(qc)
 		v := types.Sign(s.cfg.Key, types.NewCommitVote(qc.Proposal()))
-		i.commitVote = utils.Some(v)
+		i.CommitVote = utils.Some(v)
 		isend.Store(i)
 	}
 	return nil
@@ -131,10 +151,11 @@ func (s *State) voteTimeout(ctx context.Context, view types.View) error {
 	}
 	for isend := range s.inner.Lock() {
 		i := isend.Load()
-		if i.View() != view || i.timeoutVote.IsPresent() {
+		if i.View() != view || i.TimeoutVote.IsPresent() {
 			return nil
 		}
-		i.timeoutVote = utils.Some(types.NewFullTimeoutVote(s.cfg.Key, view, i.prepareQC))
+		v := types.NewFullTimeoutVote(s.cfg.Key, view, i.PrepareQC)
+		i.TimeoutVote = utils.Some(v)
 		isend.Store(i)
 	}
 	return nil

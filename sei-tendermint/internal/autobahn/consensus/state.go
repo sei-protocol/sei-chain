@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
@@ -21,15 +23,28 @@ type ViewTimeoutFunc = func(types.View) time.Duration
 type Config struct {
 	Key         types.SecretKey
 	ViewTimeout ViewTimeoutFunc
+	// PersistentStateDir is the directory where the consensus state is persisted.
+	// If None, persistence is disabled - DANGEROUS, may lead to SLASHING on restart.
+	PersistentStateDir utils.Option[string]
 }
 
-// State represents the current state of the consensus process.
+// State represents the high-level Consensus Control Plane.
+// It is responsible for:
+// - View management: tracking rounds and leader election.
+// - Voting: aggregating signatures for Prepare, Commit, and Timeout phases.
+// - Proposals: constructing and verifying block proposals.
+//
+// NOTE: While this is the "brain", it relies on the "avail" package as its
+// primary data store and synchronization sequencer.
 type State struct {
 	cfg   *Config
 	avail *avail.State
 	// metrics *Metrics
 	inner     utils.Mutex[*utils.AtomicSend[inner]]
 	innerRecv utils.AtomicRecv[inner]
+
+	// persister writes inner's persistedInner to disk when PersistentStateDir is set; None when disabled.
+	persister utils.Option[Persister]
 
 	timeoutVotes utils.Mutex[*timeoutVotes]
 	prepareVotes utils.Mutex[*prepareVotes]
@@ -61,14 +76,33 @@ func (s *State) SubscribeTimeoutQC() utils.AtomicRecv[utils.Option[*types.Timeou
 }
 
 // NewState constructs a new state.
-func NewState(cfg *Config, data *data.State) *State {
-	inner := utils.Alloc(utils.NewAtomicSend(inner{}))
-	return &State{
+func NewState(cfg *Config, data *data.State) (*State, error) {
+	// Create persister first so newInner can receive the loaded data
+	// instead of reading the files directly.
+	var pers utils.Option[Persister]
+	var persistedData utils.Option[[]byte]
+	if dir, ok := cfg.PersistentStateDir.Get(); ok {
+		p, d, err := newPersister(dir, innerFile)
+		if err != nil {
+			return nil, fmt.Errorf("newPersister: %w", err)
+		}
+		pers = utils.Some[Persister](p)
+		persistedData = d
+	}
+
+	initialInner, err := newInner(persistedData, data.Committee())
+	if err != nil {
+		return nil, fmt.Errorf("newInner: %w", err)
+	}
+
+	innerSend := utils.Alloc(utils.NewAtomicSend(initialInner))
+	s := &State{
 		cfg: cfg,
 		// metrics: NewMetrics(),
 		avail:     avail.NewState(cfg.Key, data),
-		inner:     utils.NewMutex(inner),
-		innerRecv: inner.Subscribe(),
+		inner:     utils.NewMutex(innerSend),
+		innerRecv: innerSend.Subscribe(),
+		persister: pers,
 
 		timeoutVotes: utils.NewMutex(newTimeoutVotes()),
 		prepareVotes: utils.NewMutex(newPrepareVotes()),
@@ -81,6 +115,7 @@ func NewState(cfg *Config, data *data.State) *State {
 		myTimeoutVote: utils.NewAtomicSend(utils.None[*types.FullTimeoutVote]()),
 		myTimeoutQC:   utils.NewAtomicSend(utils.None[*types.TimeoutQC]()),
 	}
+	return s, nil
 }
 
 func (s *State) timeoutQC() utils.AtomicRecv[utils.Option[*types.TimeoutQC]] {
@@ -205,22 +240,38 @@ func updateOutput[T types.ConsensusReq](w *utils.AtomicSend[utils.Option[T]], v 
 }
 
 // Updates the outputs based on the inner state.
+// Persists state to disk before broadcasting votes to ensure votes are durable
+// before dissemination (prevents double-voting on crash).
+// myView update is safe before persist — it only triggers proposing and timeout
+// timers, neither of which constitutes a vote.
 func (s *State) runOutputs(ctx context.Context) error {
 	return s.innerRecv.Iter(ctx, func(ctx context.Context, i inner) error {
+		vs := types.ViewSpec{CommitQC: i.CommitQC, TimeoutQC: i.TimeoutQC}
 		old := s.myView.Load()
-		if old.View().Less(i.viewSpec.View()) {
-			s.myView.Store(i.viewSpec)
+		if old.View().Less(vs.View()) {
+			s.myView.Store(vs)
 		}
-		if v, ok := i.prepareVote.Get(); ok {
+		// Persist to disk before broadcasting votes to the network.
+		if p, ok := s.persister.Get(); ok {
+			pb := innerProtoConv.Encode(&i.persistedInner)
+			data, err := proto.Marshal(pb)
+			if err != nil {
+				return fmt.Errorf("marshal persisted inner: %w", err)
+			}
+			if err := p.Persist(data); err != nil {
+				return fmt.Errorf("persist inner: %w", err)
+			}
+		}
+		if v, ok := i.PrepareVote.Get(); ok {
 			updateOutput(&s.myPrepareVote, &types.ConsensusReqPrepareVote{Signed: v})
 		}
-		if v, ok := i.commitVote.Get(); ok {
+		if v, ok := i.CommitVote.Get(); ok {
 			updateOutput(&s.myCommitVote, &types.ConsensusReqCommitVote{Signed: v})
 		}
-		if v, ok := i.timeoutVote.Get(); ok {
+		if v, ok := i.TimeoutVote.Get(); ok {
 			updateOutput(&s.myTimeoutVote, v)
 		}
-		if v, ok := i.viewSpec.TimeoutQC.Get(); ok {
+		if v, ok := i.TimeoutQC.Get(); ok {
 			updateOutput(&s.myTimeoutQC, v)
 		}
 		return nil
@@ -237,12 +288,17 @@ func (s *State) Run(ctx context.Context) error {
 			return s.commitQC().Iter(ctx, func(ctx context.Context, qc utils.Option[*types.CommitQC]) error {
 				if qc, ok := qc.Get(); ok {
 					// s.metrics.ObserveCommitQC(qc)
+					// We push the locally generated CommitQC into "avail" to act as a
+					// sequencer and to trigger data pruning.
 					return s.avail.PushCommitQC(ctx, qc)
 				}
 				return nil
 			})
 		})
 		scope.SpawnNamed("pushCommitQC", func() error {
+			// We pull the CommitQC back from "avail" for dissemination. This ensures
+			// that we only push CommitQCs that have been successfully "logged" and
+			// sequenced by the availability layer.
 			return s.avail.LastCommitQC().Iter(ctx, func(ctx context.Context, last utils.Option[*types.CommitQC]) error {
 				if qc, ok := last.Get(); ok {
 					return s.pushCommitQC(qc)
