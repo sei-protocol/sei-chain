@@ -1,8 +1,13 @@
 package consensus
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -23,7 +28,7 @@ func testCommittee(keys ...types.SecretKey) *types.Committee {
 
 // seedPersistedInner is a test helper that persists a persistedInner using the public API.
 func seedPersistedInner(dir string, state *persistedInner) {
-	p, _, err := newPersister(dir, innerFile)
+	p, _, err := persist.NewPersister(dir, innerFile)
 	if err != nil {
 		panic(err)
 	}
@@ -33,9 +38,9 @@ func seedPersistedInner(dir string, state *persistedInner) {
 }
 
 // loadInner is a test helper that loads persisted data and creates inner.
-// Mirrors what NewState does: newPersister → newInner.
+// Mirrors what NewState does: NewPersister → newInner.
 func loadInner(dir string, committee *types.Committee) (inner, error) {
-	_, data, err := newPersister(dir, innerFile)
+	_, data, err := persist.NewPersister(dir, innerFile)
 	if err != nil {
 		return inner{}, err
 	}
@@ -919,4 +924,35 @@ func TestPushTimeoutQCClearsStaleState(t *testing.T) {
 	require.False(t, newInner.PrepareVote.IsPresent(), "prepareVote should be cleared")
 	require.False(t, newInner.CommitVote.IsPresent(), "commitVote should be cleared")
 	require.False(t, newInner.TimeoutVote.IsPresent(), "timeoutVote should be cleared")
+}
+
+// failPersister is a Persister that always returns an error.
+type failPersister struct{ err error }
+
+func (f failPersister) Persist([]byte) error { return f.err }
+
+func TestRunOutputsPersistErrorPropagates(t *testing.T) {
+	// Verify that a persist error in runOutputs propagates
+	// and terminates the consensus component (instead of panicking).
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 4)
+	ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+
+	cs, err := NewState(&Config{
+		Key:         keys[0],
+		ViewTimeout: func(types.View) time.Duration { return time.Hour },
+	}, ds)
+	require.NoError(t, err)
+
+	// Inject a persister that always fails.
+	wantErr := errors.New("disk on fire")
+	cs.persister = utils.Some[persist.Persister](failPersister{err: wantErr})
+
+	// runOutputs should fail on the first Iter callback when it tries to persist.
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	err = cs.runOutputs(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "persist inner")
+	require.ErrorIs(t, err, wantErr)
 }

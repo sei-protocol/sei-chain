@@ -16,14 +16,22 @@ type inner struct {
 	votes          map[types.LaneID]*queue[types.BlockNumber, blockVotes]
 }
 
-func newInner(c *types.Committee) *inner {
+// loadedAvailState holds data loaded from disk on restart.
+// nil means fresh start (no persisted data).
+type loadedAvailState struct {
+	appQC  utils.Option[*types.AppQC]
+	blocks map[types.LaneID]map[types.BlockNumber]*types.Signed[*types.LaneProposal]
+}
+
+func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
 	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{}
 	for _, lane := range c.Lanes().All() {
 		votes[lane] = newQueue[types.BlockNumber, blockVotes]()
 		blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
 	}
-	return &inner{
+
+	i := &inner{
 		latestAppQC:    utils.None[*types.AppQC](),
 		latestCommitQC: utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		appVotes:       newQueue[types.GlobalBlockNumber, appVotes](),
@@ -31,6 +39,61 @@ func newInner(c *types.Committee) *inner {
 		blocks:         blocks,
 		votes:          votes,
 	}
+
+	if loaded == nil {
+		return i
+	}
+
+	// Restore AppQC and advance queues past already-processed indices.
+	i.latestAppQC = loaded.appQC
+	if aq, ok := loaded.appQC.Get(); ok {
+		// CommitQCs through this index have been processed; skip them.
+		i.commitQCs.first = aq.Proposal().RoadIndex() + 1
+		i.commitQCs.next = i.commitQCs.first
+		// AppVotes through this global block number have been processed.
+		i.appVotes.first = aq.Proposal().GlobalNumber() + 1
+		i.appVotes.next = i.appVotes.first
+	}
+
+	// Restore persisted blocks into their lane queues.
+	for lane, bs := range loaded.blocks {
+		q, ok := i.blocks[lane]
+		if !ok {
+			continue // skip blocks for unknown lanes
+		}
+		if len(bs) == 0 {
+			continue
+		}
+		// Find the minimum block number.
+		first := true
+		var minN types.BlockNumber
+		for n := range bs {
+			if first || n < minN {
+				minN = n
+			}
+			first = false
+		}
+		// Load contiguous blocks starting from minN. Stop at the first gap
+		// (e.g. a corrupt file that was skipped during load). Blocks after
+		// the gap will be re-fetched from peers.
+		q.first = minN
+		q.next = minN
+		for {
+			b, ok := bs[q.next]
+			if !ok {
+				break
+			}
+			q.q[q.next] = b
+			q.next++
+		}
+		// Advance the votes queue to match so headers() returns ErrPruned
+		// for already-committed blocks instead of blocking forever.
+		vq := i.votes[lane]
+		vq.first = minN
+		vq.next = minN
+	}
+
+	return i
 }
 
 func (i *inner) laneQC(c *types.Committee, lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {

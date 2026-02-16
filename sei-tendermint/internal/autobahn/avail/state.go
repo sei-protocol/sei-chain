@@ -6,11 +6,14 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog/log"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 )
 
 // ErrBadLane .
@@ -38,15 +41,65 @@ type State struct {
 	key   types.SecretKey
 	data  *data.State
 	inner utils.Watch[*inner]
+
+	// persister writes avail inner state to disk using A/B files; None when persistence is disabled.
+	persister utils.Option[persist.Persister]
+	// blockPersist writes/deletes individual block files; nil when persistence is disabled.
+	blockPersist *persist.BlockPersister
 }
 
+// innerFile is the A/B file prefix for avail inner state persistence.
+const innerFile = "avail_inner"
+
 // NewState constructs a new availability state.
-func NewState(key types.SecretKey, data *data.State) *State {
-	return &State{
-		key:   key,
-		data:  data,
-		inner: utils.NewWatch(newInner(data.Committee())),
+// stateDir is None when persistence is disabled (testing only).
+func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[string]) (*State, error) {
+	var loaded *loadedAvailState
+	var p utils.Option[persist.Persister]
+	var bp *persist.BlockPersister
+
+	if dir, ok := stateDir.Get(); ok {
+		// Create A/B persister for inner state.
+		persister, persistedData, err := persist.NewPersister(dir, innerFile)
+		if err != nil {
+			return nil, fmt.Errorf("NewPersister %s: %w", innerFile, err)
+		}
+		p = utils.Some[persist.Persister](persister)
+
+		// Decode persisted AppQC.
+		var appQC utils.Option[*types.AppQC]
+		if bz, ok := persistedData.Get(); ok {
+			qc, err := types.AppQCConv.Unmarshal(bz)
+			if err != nil {
+				return nil, fmt.Errorf("unmarshal persisted AppQC: %w", err)
+			}
+			log.Info().
+				Uint64("roadIndex", uint64(qc.Proposal().RoadIndex())).
+				Uint64("globalNumber", uint64(qc.Proposal().GlobalNumber())).
+				Msg("loaded persisted AppQC")
+			appQC = utils.Some(qc)
+		}
+
+		// Load persisted blocks from the blocks/ subdirectory.
+		var blocks map[types.LaneID]map[types.BlockNumber]*types.Signed[*types.LaneProposal]
+		bp, blocks, err = persist.NewBlockPersister(dir)
+		if err != nil {
+			return nil, fmt.Errorf("NewBlockPersister: %w", err)
+		}
+
+		loaded = &loadedAvailState{
+			appQC:  appQC,
+			blocks: blocks,
+		}
 	}
+
+	return &State{
+		key:          key,
+		data:         data,
+		inner:        utils.NewWatch(newInner(data.Committee(), loaded)),
+		persister:    p,
+		blockPersist: bp,
+	}, nil
 }
 
 func (s *State) FirstCommitQC() types.RoadIndex {
@@ -151,6 +204,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 	if err := s.waitForCommitQC(ctx, idx); err != nil {
 		return err
 	}
+	var laneFirsts map[types.LaneID]types.BlockNumber
 	for inner, ctrl := range s.inner.Lock() {
 		// Early exit if not useful (we collect <=1 AppQC per road index).
 		if idx < types.NextOpt(inner.latestAppQC) {
@@ -176,8 +230,15 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 			return err
 		}
 		if updated {
+			if err := s.persistAppQC(appQC); err != nil {
+				return err
+			}
+			laneFirsts = snapshotLaneFirsts(inner)
 			ctrl.Updated()
 		}
+	}
+	if s.blockPersist != nil {
+		s.blockPersist.DeleteBefore(laneFirsts)
 	}
 	return nil
 }
@@ -200,16 +261,46 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
 	}
+	var laneFirsts map[types.LaneID]types.BlockNumber
 	for inner, ctrl := range s.inner.Lock() {
 		updated, err := inner.prune(appQC, commitQC)
 		if err != nil {
 			return err
 		}
 		if updated {
+			if err := s.persistAppQC(appQC); err != nil {
+				return err
+			}
+			laneFirsts = snapshotLaneFirsts(inner)
 			ctrl.Updated()
 		}
 	}
+	if s.blockPersist != nil {
+		s.blockPersist.DeleteBefore(laneFirsts)
+	}
 	return nil
+}
+
+func snapshotLaneFirsts(inner *inner) map[types.LaneID]types.BlockNumber {
+	m := make(map[types.LaneID]types.BlockNumber, len(inner.blocks))
+	for lane, q := range inner.blocks {
+		m[lane] = q.first
+	}
+	return m
+}
+
+// persistAppQC writes the AppQC to the A/B file. Called under the inner lock
+// so the checkpoint is durable before ctrl.Updated() notifies watchers.
+func (s *State) persistAppQC(appQC *types.AppQC) error {
+	p, ok := s.persister.Get()
+	if !ok {
+		return nil
+	}
+	bz, err := proto.Marshal(types.AppQCConv.Encode(appQC))
+	if err != nil {
+		return fmt.Errorf("marshal AppQC: %w", err)
+	}
+	return p.Persist(bz)
 }
 
 // NextBlock returns the index of the next missing block in local storage for the given lane.
@@ -288,6 +379,12 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 					Hex("want", prevHash.Bytes()).
 					Msg("parent hash mismatch (producer equivocation)")
 				return nil
+			}
+		}
+		// Persist block to disk before adding to in-memory state.
+		if bp := s.blockPersist; bp != nil {
+			if err := bp.PersistBlock(h.Lane(), h.BlockNumber(), p); err != nil {
+				return fmt.Errorf("persist block %s/%d: %w", h.Lane(), h.BlockNumber(), err)
 			}
 		}
 		q.pushBack(p)
@@ -444,6 +541,12 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 			parent = q.q[q.next-1].Msg().Block().Header().Hash()
 		}
 		p := types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, q.next, parent, payload)))
+		// Persist block to disk before adding to in-memory state.
+		if bp := s.blockPersist; bp != nil {
+			if err := bp.PersistBlock(lane, q.next, p); err != nil {
+				return nil, fmt.Errorf("persist block %s/%d: %w", lane, q.next, err)
+			}
+		}
 		q.q[q.next] = p
 		q.next += 1
 		ctrl.Updated()

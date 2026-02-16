@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -88,7 +91,8 @@ func TestState(t *testing.T) {
 		s.SpawnBgNamed("data.State.Run()", func() error {
 			return utils.IgnoreCancel(ds.Run(ctx))
 		})
-		state := NewState(keys[0], ds)
+		state, err := NewState(keys[0], ds, utils.None[string]())
+		require.NoError(t, err)
 		s.SpawnBgNamed("da.State.Run()", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
@@ -200,7 +204,8 @@ func TestStateMismatchedQCs(t *testing.T) {
 	ds := data.NewState(&data.Config{
 		Committee: committee,
 	}, utils.None[data.BlockStore]())
-	state := NewState(keys[0], ds)
+	state, err := NewState(keys[0], ds, utils.None[string]())
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	// Helper to create a CommitQC for a specific index
@@ -291,4 +296,135 @@ func TestPushBlockRejectsWrongSigner(t *testing.T) {
 
 	err := state.PushBlock(ctx, prop)
 	require.Error(t, err)
+}
+
+func TestNewStateWithPersistence(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 4)
+
+	t.Run("empty dir loads fresh state", func(t *testing.T) {
+		dir := t.TempDir()
+		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+
+		state, err := NewState(keys[0], ds, utils.Some(dir))
+		require.NoError(t, err)
+
+		// No persisted AppQC → None.
+		require.False(t, state.LastAppQC().IsPresent())
+		// Queues start at 0.
+		require.Equal(t, types.RoadIndex(0), state.FirstCommitQC())
+	})
+
+	t.Run("loads persisted AppQC", func(t *testing.T) {
+		dir := t.TempDir()
+		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+
+		// Persist an AppQC to the A/B file.
+		roadIdx := types.RoadIndex(7)
+		globalNum := types.GlobalBlockNumber(50)
+		appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng))
+		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
+
+		persister, _, err := persist.NewPersister(dir, innerFile)
+		require.NoError(t, err)
+		bz, err := proto.Marshal(types.AppQCConv.Encode(appQC))
+		require.NoError(t, err)
+		require.NoError(t, persister.Persist(bz))
+
+		// Now construct state — it should load the AppQC.
+		state, err := NewState(keys[0], ds, utils.Some(dir))
+		require.NoError(t, err)
+
+		aq := state.LastAppQC()
+		got, ok := aq.Get()
+		require.True(t, ok)
+		require.Equal(t, roadIdx, got.Proposal().RoadIndex())
+		require.Equal(t, globalNum, got.Proposal().GlobalNumber())
+
+		// commitQCs queue should be advanced past the AppQC's road index.
+		require.Equal(t, roadIdx+1, state.FirstCommitQC())
+	})
+
+	t.Run("loads persisted blocks", func(t *testing.T) {
+		dir := t.TempDir()
+		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+		lane := keys[0].Public()
+
+		// Persist blocks using BlockPersister.
+		bp, _, err := persist.NewBlockPersister(dir)
+		require.NoError(t, err)
+
+		var parent types.BlockHeaderHash
+		for n := types.BlockNumber(0); n < 3; n++ {
+			block := types.NewBlock(lane, n, parent, types.GenPayload(rng))
+			signed := types.Sign(keys[0], types.NewLaneProposal(block))
+			parent = block.Header().Hash()
+			require.NoError(t, bp.PersistBlock(lane, n, signed))
+		}
+
+		// Now construct state — it should load the blocks.
+		state, err := NewState(keys[0], ds, utils.Some(dir))
+		require.NoError(t, err)
+
+		require.Equal(t, types.BlockNumber(3), state.NextBlock(lane))
+	})
+
+	t.Run("loads persisted AppQC and blocks together", func(t *testing.T) {
+		dir := t.TempDir()
+		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+		lane := keys[0].Public()
+
+		// Persist AppQC.
+		roadIdx := types.RoadIndex(2)
+		globalNum := types.GlobalBlockNumber(5)
+		appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng))
+		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
+
+		persister, _, err := persist.NewPersister(dir, innerFile)
+		require.NoError(t, err)
+		bz, err := proto.Marshal(types.AppQCConv.Encode(appQC))
+		require.NoError(t, err)
+		require.NoError(t, persister.Persist(bz))
+
+		// Persist blocks.
+		bp, _, err := persist.NewBlockPersister(dir)
+		require.NoError(t, err)
+
+		var parent types.BlockHeaderHash
+		for n := types.BlockNumber(10); n < 13; n++ {
+			block := types.NewBlock(lane, n, parent, types.GenPayload(rng))
+			signed := types.Sign(keys[0], types.NewLaneProposal(block))
+			parent = block.Header().Hash()
+			require.NoError(t, bp.PersistBlock(lane, n, signed))
+		}
+
+		// Construct state.
+		state, err := NewState(keys[0], ds, utils.Some(dir))
+		require.NoError(t, err)
+
+		// AppQC loaded.
+		got, ok := state.LastAppQC().Get()
+		require.True(t, ok)
+		require.Equal(t, roadIdx, got.Proposal().RoadIndex())
+
+		// Blocks loaded.
+		require.Equal(t, types.BlockNumber(13), state.NextBlock(lane))
+
+		// commitQCs advanced.
+		require.Equal(t, roadIdx+1, state.FirstCommitQC())
+	})
+
+	t.Run("corrupt AppQC data returns error", func(t *testing.T) {
+		dir := t.TempDir()
+		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+
+		// Write garbage data as the "AppQC".
+		persister, _, err := persist.NewPersister(dir, innerFile)
+		require.NoError(t, err)
+		require.NoError(t, persister.Persist([]byte("not a valid protobuf")))
+
+		_, err = NewState(keys[0], ds, utils.Some(dir))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unmarshal persisted AppQC")
+	})
 }
