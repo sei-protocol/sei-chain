@@ -207,7 +207,7 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
 	}()
 
-	gInfo, result, anteEvents, _, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum).WithVoteInfos(app.voteInfos), runTxModeDeliver, tx, checksum)
+	gInfo, result, anteEvents, _, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum).WithVoteInfos(app.voteInfos), runTxModeDeliver, tx, checksum) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
 	if err != nil {
 		resultStr = "failed"
 		// if we have a result, use those events instead of just the anteEvents
@@ -761,7 +761,7 @@ func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
 	if err != nil {
 		return sdk.GasInfo{}, nil, err
 	}
-	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeSimulate, tx, sha256.Sum256(txBytes))
+	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeSimulate, tx, sha256.Sum256(txBytes)) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
 	return gasInfo, result, err
 }
 

@@ -292,7 +292,6 @@ func (store *Store) dirtyItems(start, end []byte) {
 		return true
 	})
 	store.clearUnsortedCacheSubset(unsorted, stateUnsorted)
-	return
 }
 
 func (store *Store) clearUnsortedCacheSubset(unsorted []*kv.Pair, sortState sortState) {

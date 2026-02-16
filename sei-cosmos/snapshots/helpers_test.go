@@ -6,12 +6,11 @@ import (
 	"compress/zlib"
 	"crypto/sha256"
 	"errors"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"io"
-	"io/ioutil"
-	"os"
 	"testing"
 	"time"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 
 	protoio "github.com/gogo/protobuf/io"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
@@ -44,7 +43,7 @@ func hash(chunks [][]byte) []byte {
 func makeChunks(chunks [][]byte) <-chan io.ReadCloser {
 	ch := make(chan io.ReadCloser, len(chunks))
 	for _, chunk := range chunks {
-		ch <- ioutil.NopCloser(bytes.NewReader(chunk))
+		ch <- io.NopCloser(bytes.NewReader(chunk))
 	}
 	close(ch)
 	return ch
@@ -53,7 +52,7 @@ func makeChunks(chunks [][]byte) <-chan io.ReadCloser {
 func readChunks(chunks <-chan io.ReadCloser) [][]byte {
 	bodies := [][]byte{}
 	for chunk := range chunks {
-		body, err := ioutil.ReadAll(chunk)
+		body, err := io.ReadAll(chunk)
 		if err != nil {
 			panic(err)
 		}
@@ -146,13 +145,10 @@ func (m *mockSnapshotter) SupportedFormats() []uint32 {
 // setupBusyManager creates a manager with an empty store that is busy creating a snapshot at height 1.
 // The snapshot will complete when the returned closer is called.
 func setupBusyManager(t *testing.T) *snapshots.Manager {
-	// ioutil.TempDir() is used instead of testing.T.TempDir()
+	// io.TempDir() is used instead of testing.T.TempDir()
 	// see https://github.com/cosmos/cosmos-sdk/pull/8475 for
 	// this change's rationale.
-	tempdir, err := ioutil.TempDir("", "")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(tempdir) })
-
+	tempdir := t.TempDir()
 	store, err := snapshots.NewStore(db.NewMemDB(), tempdir)
 	require.NoError(t, err)
 	hung := newHungSnapshotter()

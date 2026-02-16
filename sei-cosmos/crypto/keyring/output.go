@@ -2,6 +2,7 @@ package keyring
 
 import (
 	"encoding/hex"
+
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 
 	"github.com/ethereum/go-ethereum/crypto"

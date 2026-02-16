@@ -155,7 +155,7 @@ func (rs *Store) flush() error {
 			}
 		}
 	}
-	if changeSets != nil && len(changeSets) > 0 {
+	if len(changeSets) > 0 {
 		sort.SliceStable(changeSets, func(i, j int) bool {
 			return changeSets[i].Name < changeSets[j].Name
 		})

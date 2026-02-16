@@ -12,7 +12,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	sdkclient "github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	cdctypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -73,7 +72,7 @@ func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
 }
 
 // ValidateGenesis performs genesis state validation for the feegrant module.
-func (a AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, config sdkclient.TxEncodingConfig, bz json.RawMessage) error {
+func (a AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, config client.TxEncodingConfig, bz json.RawMessage) error {
 	var data feegrant.GenesisState
 	if err := cdc.UnmarshalAsJSON(bz, &data); err != nil {
 		sdkerrors.Wrapf(err, "failed to unmarshal %s genesis state", feegrant.ModuleName)
@@ -93,10 +92,10 @@ func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config clien
 }
 
 // RegisterRESTRoutes registers the REST routes for the feegrant module.
-func (AppModuleBasic) RegisterRESTRoutes(ctx sdkclient.Context, rtr *mux.Router) {}
+func (AppModuleBasic) RegisterRESTRoutes(ctx client.Context, rtr *mux.Router) {}
 
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the feegrant module.
-func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx sdkclient.Context, mux *runtime.ServeMux) {
+func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {
 	feegrant.RegisterQueryHandlerClient(context.Background(), mux, feegrant.NewQueryClient(clientCtx))
 }
 

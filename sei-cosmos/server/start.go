@@ -4,8 +4,10 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+
 	//nolint:gosec,G108
 	_ "net/http/pprof"
 	"os"
@@ -176,7 +178,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			}
 
 			// amino is needed here for backwards compatibility of REST routes
-			exitCode := RestartErrorCode
+			var exitCode int
 
 			serverCtx.Logger.Info("Creating node metrics provider")
 			nodeMetricsProvider := node.DefaultMetricsProvider(serverCtx.Config.Instrumentation)(clientCtx.ChainID)
@@ -208,7 +210,8 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 					apiMetrics,
 					canRestartAfter,
 				)
-				errCode, ok := err.(ErrorCode)
+				var errCode ErrorCode
+				ok := errors.As(err, &errCode)
 				exitCode = errCode.Code
 				if !ok {
 					return err

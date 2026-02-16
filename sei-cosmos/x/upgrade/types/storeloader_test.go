@@ -3,7 +3,6 @@ package types
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -78,7 +77,7 @@ func TestSetLoader(t *testing.T) {
 	data, err := json.Marshal(upgradeInfo)
 	require.NoError(t, err)
 
-	err = ioutil.WriteFile(upgradeInfoFilePath, data, 0644)
+	err = os.WriteFile(upgradeInfoFilePath, data, 0644)
 	require.NoError(t, err)
 
 	// make sure it exists before running everything

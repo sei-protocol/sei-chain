@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"

@@ -157,7 +157,7 @@ go.sum: go.mod
 		@go mod verify
 
 lint:
-	golangci-lint run
+	go run github.com/golangci/golangci-lint/cmd/golangci-lint@v2.8.0 run
 	find . -name '*.go' -type f -not -path "./vendor*" -not -path "*.git*" | xargs gofmt -d -s
 	go mod verify
 

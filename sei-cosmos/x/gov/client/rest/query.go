@@ -119,7 +119,7 @@ func queryDepositsHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		// For inactive proposals we must query the txs directly to get the deposits
 		// as they're no longer in state.
 		propStatus := proposal.Status
-		if !(propStatus == types.StatusVotingPeriod || propStatus == types.StatusDepositPeriod) {
+		if propStatus != types.StatusVotingPeriod && propStatus != types.StatusDepositPeriod {
 			res, err = gcutils.QueryDepositsByTxQuery(clientCtx, params)
 		} else {
 			res, _, err = clientCtx.QueryWithData("custom/gov/deposits", bz)
@@ -357,7 +357,7 @@ func queryVotesOnProposalHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		params := types.NewQueryProposalVotesParams(proposalID, page, limit)
 
 		propStatus := proposal.Status
-		if !(propStatus == types.StatusVotingPeriod || propStatus == types.StatusDepositPeriod) {
+		if propStatus != types.StatusVotingPeriod && propStatus != types.StatusDepositPeriod {
 			res, err = gcutils.QueryVotesByTxQuery(clientCtx, params)
 		} else {
 			bz, err = clientCtx.LegacyAmino.MarshalAsJSON(params)

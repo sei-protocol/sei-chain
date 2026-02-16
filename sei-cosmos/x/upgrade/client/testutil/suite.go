@@ -30,7 +30,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 	s.T().Log("setting up integration test suite")
 	app := seiapp.Setup(s.T(), false, false, false)
 	s.app = app
-	s.ctx = app.BaseApp.NewContext(false, tmproto.Header{})
+	s.ctx = app.NewContext(false, tmproto.Header{})
 
 	cfg := network.DefaultConfig(s.T())
 	cfg.NumValidators = 1

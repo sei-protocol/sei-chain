@@ -49,7 +49,7 @@ func newMemIterator(
 }
 
 func (mi *memIterator) Value() []byte {
-	key := mi.Iterator.Key()
+	key := mi.Key()
 	// We need to handle the case where deleted is modified and includes our current key
 	// We handle this by maintaining a lastKey object in the iterator.
 	// If the current key is the same as the last key (and last key is not nil / the start)

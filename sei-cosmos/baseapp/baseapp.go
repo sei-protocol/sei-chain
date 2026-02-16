@@ -943,7 +943,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 			// the instantiated gas meter in the AnteHandler, so we update the context
 			// prior to returning.
 			//
-			// This also replaces the GasMeter in the context where GasUsed was initalized 0
+			// This also replaces the GasMeter in the context where GasUsed was initialized 0
 			// and updated with gas consumed in the ante handler runs
 			// The GasMeter is a pointer and its passed to the RunMsg and tracks the consumed
 			// gas there too.
@@ -1002,7 +1002,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 				VmError:       result.EvmError,
 			}
 		}
-		var events []abci.Event = []abci.Event{}
+		var events = []abci.Event{}
 		if result != nil {
 			events = sdk.MarkEventsToIndex(result.Events, app.IndexEvents)
 		}
@@ -1151,7 +1151,7 @@ func (app *BaseApp) Close() error {
 	// and metadata in a non-atomic way
 	app.commitLock.Lock()
 	defer app.commitLock.Unlock()
-	if err := app.appStore.db.Close(); err != nil {
+	if err := app.db.Close(); err != nil {
 		return err
 	}
 	// close the underline database for storeV2

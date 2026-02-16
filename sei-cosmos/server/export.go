@@ -5,7 +5,6 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"time"
 
@@ -75,7 +74,7 @@ func ExportCmd(appExporter types.AppExporter, defaultNodeHome string) *cobra.Com
 					return err
 				}
 
-				genesis, err := ioutil.ReadFile(config.GenesisFile())
+				genesis, err := os.ReadFile(config.GenesisFile())
 				if err != nil {
 					return err
 				}

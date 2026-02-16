@@ -292,7 +292,7 @@ $ %[1]s query gov votes 1 --page=2 --limit=100
 			}
 
 			propStatus := proposalRes.GetProposal().Status
-			if !(propStatus == types.StatusVotingPeriod || propStatus == types.StatusDepositPeriod) {
+			if propStatus != types.StatusVotingPeriod && propStatus != types.StatusDepositPeriod {
 				page, _ := cmd.Flags().GetInt(flags.FlagPage)
 				limit, _ := cmd.Flags().GetInt(flags.FlagLimit)
 
@@ -381,7 +381,7 @@ $ %s query gov deposit 1 cosmos1skjwj5whet0lpe65qaq4rpq03hjxlwd9nf39lk
 
 			var deposit types.Deposit
 			propStatus := proposalRes.Proposal.Status
-			if !(propStatus == types.StatusVotingPeriod || propStatus == types.StatusDepositPeriod) {
+			if propStatus != types.StatusVotingPeriod && propStatus != types.StatusDepositPeriod {
 				params := types.NewQueryDepositParams(proposalID, depositorAddr)
 				resByTxQuery, err := gcutils.QueryDepositByTxQuery(clientCtx, params)
 				if err != nil {
@@ -448,7 +448,7 @@ $ %s query gov deposits 1
 			}
 
 			propStatus := proposalRes.GetProposal().Status
-			if !(propStatus == types.StatusVotingPeriod || propStatus == types.StatusDepositPeriod) {
+			if propStatus != types.StatusVotingPeriod && propStatus != types.StatusDepositPeriod {
 				params := types.NewQueryProposalParams(proposalID)
 				resByTxQuery, err := gcutils.QueryDepositsByTxQuery(clientCtx, params)
 				if err != nil {

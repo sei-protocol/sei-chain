@@ -139,7 +139,7 @@ func (iter *mvsMergeIterator) Value() []byte {
 	if !iter.cache.Valid() {
 		value := iter.parent.Value()
 		// add values read from parent to readset
-		iter.ReadsetHandler.UpdateReadSet(iter.parent.Key(), value)
+		iter.UpdateReadSet(iter.parent.Key(), value)
 		return value
 	}
 
@@ -151,7 +151,7 @@ func (iter *mvsMergeIterator) Value() []byte {
 	case -1: // parent < cache
 		value := iter.parent.Value()
 		// add values read from parent to readset
-		iter.ReadsetHandler.UpdateReadSet(iter.parent.Key(), value)
+		iter.UpdateReadSet(iter.parent.Key(), value)
 		return value
 	case 0, 1: // parent >= cache
 		value := iter.cache.Value()

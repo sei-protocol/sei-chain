@@ -160,7 +160,7 @@ func ParseTypedEvent(event abci.Event) (proto.Message, error) {
 
 	attrMap := make(map[string]json.RawMessage)
 	for _, attr := range event.Attributes {
-		attrMap[string(attr.Key)] = []byte(attr.Value)
+		attrMap[string(attr.Key)] = attr.Value
 	}
 
 	attrBytes, err := json.Marshal(attrMap)

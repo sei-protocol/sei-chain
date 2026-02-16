@@ -378,10 +378,7 @@ func (s *scheduler) validateTask(ctx sdk.Context, task *deliverTxTask) bool {
 	_, span := s.traceSpan(ctx, "SchedulerValidate", task)
 	defer span.End()
 
-	if s.shouldRerun(task) {
-		return false
-	}
-	return true
+	return !s.shouldRerun(task)
 }
 
 func (s *scheduler) findFirstNonValidated() (int, bool) {
@@ -522,7 +519,7 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 
 	// in the synchronous case, we only want to re-execute tasks that need re-executing
 	if s.synchronous {
-		// even if already validated, it could become invalid again due to preceeding
+		// even if already validated, it could become invalid again due to preceding
 		// reruns. Make sure previous writes are invalidated before rerunning.
 		if task.IsStatus(statusValidated) {
 			s.invalidateTask(task)

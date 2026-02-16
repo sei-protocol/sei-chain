@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,8 +47,8 @@ func ApplyMockIODiscardOutErr(c *cobra.Command) BufferReader {
 	mockIn := strings.NewReader("")
 
 	c.SetIn(mockIn)
-	c.SetOut(ioutil.Discard)
-	c.SetErr(ioutil.Discard)
+	c.SetOut(io.Discard)
+	c.SetErr(io.Discard)
 
 	return mockIn
 }

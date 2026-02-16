@@ -201,7 +201,7 @@ func New(t *testing.T, cfg Config) *Network {
 
 		ctx := server.NewDefaultContext()
 		tmCfg := ctx.Config
-		tmCfg.BaseConfig.Mode = config.ModeValidator
+		tmCfg.Mode = config.ModeValidator
 		tmCfg.Consensus.UnsafeCommitTimeoutOverride = cfg.TimeoutCommit
 		tmCfg.TxIndex = config.TestTxIndexConfig()
 

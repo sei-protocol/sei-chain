@@ -2,7 +2,7 @@ package network
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	os "os"
 	"path/filepath"
 	"time"
 
@@ -216,7 +216,7 @@ func writeFile(name string, dir string, contents []byte) error {
 		return err
 	}
 
-	err = ioutil.WriteFile(file, contents, 0644)
+	err = os.WriteFile(file, contents, 0644)
 	if err != nil {
 		return err
 	}

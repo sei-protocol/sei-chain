@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	tmcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"

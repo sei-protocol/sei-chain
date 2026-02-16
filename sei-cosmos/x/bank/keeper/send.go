@@ -519,7 +519,7 @@ func (a AllowedAddresses) contains(address sdk.AccAddress) bool {
 
 func (k BaseSendKeeper) buildAllowedAddressesMap(allowList types.AllowList) AllowedAddresses {
 	allowedAddressesMap := make(map[string]struct{})
-	if allowList.Addresses != nil && len(allowList.Addresses) > 0 {
+	if len(allowList.Addresses) > 0 {
 		for _, addr := range allowList.Addresses {
 			allowedAddressesMap[addr] = struct{}{}
 		}

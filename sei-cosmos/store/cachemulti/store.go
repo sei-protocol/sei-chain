@@ -106,7 +106,7 @@ func newCacheMultiStoreFromCMS(cms Store) Store {
 		for k := range cms.parents {
 			// Inline the creation here — we already hold the write lock.
 			parent := cms.parents[k]
-			var cw types.CacheWrapper = parent
+			var cw = parent
 			if cms.TracingEnabled() {
 				cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
 			}
@@ -156,7 +156,7 @@ func (cms Store) getOrCreateStore(key types.StoreKey) types.CacheWrap {
 	if !ok {
 		return nil
 	}
-	var cw types.CacheWrapper = parent
+	var cw = parent
 	if cms.TracingEnabled() {
 		cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
 	}
