@@ -9,11 +9,11 @@ import (
 	math "math"
 	math_bits "math/bits"
 
-	github_com_cosmos_cosmos_sdk_types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	_ "github.com/regen-network/cosmos-proto"
+	github_com_cosmos_cosmos_sdk_types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.

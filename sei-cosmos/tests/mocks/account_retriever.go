@@ -7,10 +7,10 @@ package mocks
 import (
 	reflect "reflect"
 
+	gomock "github.com/golang/mock/gomock"
 	client "github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	types "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	types0 "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	gomock "github.com/golang/mock/gomock"
 )
 
 // MockAccount is a mock of Account interface.
