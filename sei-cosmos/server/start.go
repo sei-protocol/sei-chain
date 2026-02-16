@@ -4,8 +4,10 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	//nolint:gosec,G108
 	_ "net/http/pprof"
 	"os"
@@ -191,14 +193,20 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			}
 
 			serverCtx.Logger.Info("Starting Process")
-			return startInProcess(
-				serverCtx,
-				clientCtx,
-				appCreator,
-				tracerProviderOptions,
-				nodeMetricsProvider,
-				apiMetrics,
-			)
+			for {
+				err := startInProcess(
+					serverCtx,
+					clientCtx,
+					appCreator,
+					tracerProviderOptions,
+					nodeMetricsProvider,
+					apiMetrics,
+				)
+				if !errors.Is(err, ErrShouldRestart) {
+					return err
+				}
+				serverCtx.Logger.Info("restarting node...")
+			}
 		},
 	}
 
@@ -308,13 +316,20 @@ func startInProcess(
 	}
 	app := appCreator(ctx.Logger, db, traceWriter, ctx.Config, ctx.Viper)
 
-	var (
-		tmNode    service.Service
-		restartCh chan struct{}
-		gRPCOnly  = ctx.Viper.GetBool(flagGRPCOnly)
-	)
+	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
+	var tmNode service.Service
 
-	restartCh = make(chan struct{})
+	var restartMtx sync.Mutex
+	restartCh := make(chan struct{})
+	restartEvent := func() {
+		restartMtx.Lock()
+		defer restartMtx.Unlock()
+		select {
+		case <-restartCh:
+		default:
+			close(restartCh)
+		}
+	}
 
 	if gRPCOnly {
 		ctx.Logger.Info("starting node in gRPC only mode; Tendermint is disabled")
@@ -339,7 +354,7 @@ func startInProcess(
 			goCtx,
 			ctx.Config,
 			ctx.Logger,
-			restartCh,
+			restartEvent,
 			abciclient.NewLocalClient(ctx.Logger, app),
 			gen,
 			tracerProviderOptions,

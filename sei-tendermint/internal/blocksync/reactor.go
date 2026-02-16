@@ -111,10 +111,11 @@ type Reactor struct {
 
 	syncStartTime time.Time
 
-	restartCh                 chan struct{}
+	restartEvent              func()
 	lastRestartTime           time.Time
 	blocksBehindThreshold     uint64
 	blocksBehindCheckInterval time.Duration
+	restartCooldownSeconds    uint64
 }
 
 // NewReactor returns new reactor instance.
@@ -128,7 +129,7 @@ func NewReactor(
 	blockSync bool,
 	metrics *consensus.Metrics,
 	eventBus *eventbus.EventBus,
-	restartCh chan struct{},
+	restartEvent func(), // should be idempotent and non-blocking
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) (*Reactor, error) {
 	channel, err := p2p.OpenChannel(router, GetChannelDescriptor())
@@ -146,10 +147,11 @@ func NewReactor(
 		channel:                   channel,
 		metrics:                   metrics,
 		eventBus:                  eventBus,
-		restartCh:                 restartCh,
+		restartEvent:              restartEvent,
 		lastRestartTime:           time.Now(),
 		blocksBehindThreshold:     selfRemediationConfig.BlocksBehindThreshold,
 		blocksBehindCheckInterval: time.Duration(selfRemediationConfig.BlocksBehindCheckIntervalSeconds) * time.Second, //nolint:gosec // validated in config.ValidateBasic against MaxInt64
+		restartCooldownSeconds:    selfRemediationConfig.RestartCooldownSeconds,
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "BlockSync", r)
@@ -321,16 +323,16 @@ func (r *Reactor) autoRestartIfBehind(ctx context.Context) {
 				r.logger.Debug("does not exceed threshold or is already in block sync mode", "threshold", threshold, "behindHeight", behindHeight, "maxPeerHeight", maxPeerHeight, "selfHeight", selfHeight, "blockSyncIsSet", blockSyncIsSet)
 				continue
 			}
-
+			// Check if we have met cooldown time
+			if time.Since(r.lastRestartTime).Seconds() < float64(r.restartCooldownSeconds) {
+				r.logger.Debug("we are lagging behind, going to trigger a restart after cooldown time passes")
+				continue
+			}
 			r.logger.Info("Blocks behind threshold, restarting node", "threshold", threshold, "behindHeight", behindHeight, "maxPeerHeight", maxPeerHeight, "selfHeight", selfHeight)
 
 			// Send signal to restart the node
-			// TODO(gprusak): here we assume that this is the ONLY task that is eligible to send a message over this channel AND that someone is actually
-			// waiting for it. This is a very fragile assumption - utils.AtomicSend[bool] would provide better guarantees here.
-			// Even better - this task should just return an error which should be propagated up the stack to eventually terminate
-			// the nodeImpl and the whole process.
 			r.blockSync.Set()
-			r.restartCh <- struct{}{}
+			r.restartEvent()
 			return
 		case <-ctx.Done():
 			return

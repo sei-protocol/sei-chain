@@ -49,7 +49,6 @@ func makeSeedNode(
 	ctx context.Context,
 	logger log.Logger,
 	cfg *config.Config,
-	restartCh chan struct{},
 	dbProvider config.DBProvider,
 	nodeKey types.NodeKey,
 	genesisDocProvider genesisDocProvider,
@@ -84,19 +83,6 @@ func makeSeedNode(
 			fmt.Errorf("failed to create router: %w", err),
 			peerCloser)
 	}
-	// Register a listener to restart router if signalled to do so
-	go func() {
-		for range restartCh {
-			logger.Info("Received signal to restart router, restarting...")
-			router.OnStop()
-			router.Wait()
-			logger.Info("Router successfully stopped. Restarting...")
-			// Start the transport.
-			if err := router.Start(ctx); err != nil {
-				logger.Error("Unable to start router, retrying...", err)
-			}
-		}
-	}()
 
 	pexReactor, err := pex.NewReactor(logger, router, pex.DefaultSendInterval)
 	if err != nil {

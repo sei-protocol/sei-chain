@@ -103,8 +103,7 @@ func TestInterceptConfigsPreRunHandlerReadsConfigToml(t *testing.T) {
 		t.Fatalf("creating config.toml file failed: %v", err)
 	}
 
-	_, err = writer.WriteString(fmt.Sprintf("db-backend = '%s'\n", testDbBackend))
-	if err != nil {
+	if _, err := fmt.Fprintf(writer, "db-backend = '%s'\n", testDbBackend); err != nil {
 		t.Fatalf("Failed writing string to config.toml: %v", err)
 	}
 
@@ -144,8 +143,7 @@ func TestInterceptConfigsPreRunHandlerReadsAppToml(t *testing.T) {
 		t.Fatalf("creating app.toml file failed: %v", err)
 	}
 
-	_, err = writer.WriteString(fmt.Sprintf("halt-time = %d\n", testHaltTime))
-	if err != nil {
+	if _, err := fmt.Fprintf(writer, "halt-time = %d\n", testHaltTime); err != nil {
 		t.Fatalf("Failed writing string to app.toml: %v", err)
 	}
 
@@ -308,8 +306,7 @@ func (v precedenceCommon) setAll(t *testing.T, setFlag *string, setEnvVar *strin
 			t.Fatalf("creating config.toml file failed: %v", err)
 		}
 
-		_, err = writer.WriteString(fmt.Sprintf("[rpc]\nladdr = \"%s\"\n", *setConfigFile))
-		if err != nil {
+		if _, err := fmt.Fprintf(writer, "[rpc]\nladdr = \"%s\"\n", *setConfigFile); err != nil {
 			t.Fatalf("Failed writing string to config.toml: %v", err)
 		}
 
@@ -414,12 +411,12 @@ func TestWaitForQuitSignals(t *testing.T) {
 			restartCh <- struct{}{}
 		}()
 
-		errCode := server.WaitForQuitSignals(
+		err := server.WaitForQuitSignals(
 			&server.Context{Logger: log.NewNopLogger()},
 			restartCh,
 		)
-		if errCode.Code != server.RestartErrorCode {
-			t.Errorf("Expected error code %d, got %d", server.RestartErrorCode, errCode.Code)
+		if !errors.Is(err, server.ErrShouldRestart) {
+			t.Errorf("Expected ErrShouldRestart, got %v", err)
 		}
 	})
 
@@ -432,13 +429,13 @@ func TestWaitForQuitSignals(t *testing.T) {
 			syscall.Kill(syscall.Getpid(), syscall.SIGINT)
 		}()
 
-		errCode := server.WaitForQuitSignals(
+		err := server.WaitForQuitSignals(
 			&server.Context{Logger: log.NewNopLogger()},
 			make(chan struct{}),
-		)
+		).(server.ErrorCode)
 		expectedCode := int(syscall.SIGINT) + 128
-		if errCode.Code != expectedCode {
-			t.Errorf("Expected error code %d, got %d", expectedCode, errCode.Code)
+		if err.Code != expectedCode {
+			t.Errorf("Expected error code %d, got %d", expectedCode, err.Code)
 		}
 	})
 
@@ -448,13 +445,13 @@ func TestWaitForQuitSignals(t *testing.T) {
 			syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
 		}()
 
-		errCode := server.WaitForQuitSignals(
+		err := server.WaitForQuitSignals(
 			&server.Context{Logger: log.NewNopLogger()},
 			make(chan struct{}),
-		)
+		).(server.ErrorCode)
 		expectedCode := int(syscall.SIGTERM) + 128
-		if errCode.Code != expectedCode {
-			t.Errorf("Expected error code %d, got %d", expectedCode, errCode.Code)
+		if err.Code != expectedCode {
+			t.Errorf("Expected error code %d, got %d", expectedCode, err.Code)
 		}
 	})
 }

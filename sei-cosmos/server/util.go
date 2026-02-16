@@ -39,8 +39,7 @@ import (
 // a command's Context.
 const ServerContextKey = sdk.ContextKey("server.context")
 
-// Error code reserved for signalled
-const RestartErrorCode = 100
+var ErrShouldRestart = errors.New("node should be restarted")
 
 // server context
 type Context struct {
@@ -135,7 +134,7 @@ func InterceptConfigs(cmd *cobra.Command) (*tmcfg.Config, error) {
 // is used to read and parse the application configuration. Command handlers can
 // fetch the server Context to get the Tendermint configuration or to get access
 // to Viper.
-func InterceptConfigsPreRunHandler(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig interface{}) error {
+func InterceptConfigsPreRunHandler(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
 	serverCtx := NewDefaultContext()
 
 	// Get the executable name and configure the viper instance so that environmental
@@ -221,7 +220,7 @@ func SetCmdServerContext(cmd *cobra.Command, serverCtx *Context) error {
 // configuration file. The Tendermint configuration file is parsed given a root
 // Viper object, whereas the application is parsed with the private package-aware
 // viperCfg object.
-func interceptConfigs(rootViper *viper.Viper, customAppTemplate string, customConfig interface{}) (*tmcfg.Config, error) {
+func interceptConfigs(rootViper *viper.Viper, customAppTemplate string, customConfig any) (*tmcfg.Config, error) {
 	rootDir := rootViper.GetString(flags.FlagHome)
 	configPath := filepath.Join(rootDir, "config")
 	tmCfgFile := filepath.Join(configPath, "config.toml")
@@ -408,14 +407,15 @@ func TrapSignal(cleanupFunc func()) {
 }
 
 // WaitForQuitSignals waits for SIGINT and SIGTERM and returns.
-func WaitForQuitSignals(ctx *Context, restartCh chan struct{}) ErrorCode {
+func WaitForQuitSignals(ctx *Context, restartCh chan struct{}) error {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	select {
 	case sig := <-sigs:
+		// TODO: why +128?
 		return ErrorCode{Code: int(sig.(syscall.Signal)) + 128}
 	case <-restartCh: // blocks forever on a nil channel
-		return ErrorCode{Code: RestartErrorCode}
+		return ErrShouldRestart
 	}
 }
 

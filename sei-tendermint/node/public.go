@@ -22,9 +22,9 @@ func NewDefault(
 	ctx context.Context,
 	conf *config.Config,
 	logger log.Logger,
-	restartCh chan struct{},
+	restartEvent func(),
 ) (service.Service, error) {
-	return newDefaultNode(ctx, conf, logger, restartCh)
+	return newDefaultNode(ctx, conf, logger, restartEvent)
 }
 
 // New constructs a tendermint node. The ClientCreator makes it
@@ -37,7 +37,7 @@ func New(
 	ctx context.Context,
 	conf *config.Config,
 	logger log.Logger,
-	restartCh chan struct{},
+	restartEvent func(),
 	cf abciclient.Client,
 	gen *types.GenesisDoc,
 	tracerProviderOptions []trace.TracerProviderOption,
@@ -66,7 +66,7 @@ func New(
 		return makeNode(
 			ctx,
 			conf,
-			restartCh,
+			restartEvent,
 			pval,
 			nodeKey,
 			cf,
@@ -81,7 +81,6 @@ func New(
 			ctx,
 			logger,
 			conf,
-			restartCh,
 			config.DefaultDBProvider,
 			nodeKey,
 			genProvider,
