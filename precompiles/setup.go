@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/addr"
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
+	"github.com/sei-protocol/sei-chain/precompiles/bls"
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
 	"github.com/sei-protocol/sei-chain/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/precompiles/ibc"
@@ -44,7 +45,7 @@ func GetCustomPrecompiles(
 	latestUpgrade string,
 	keepers utils.Keepers,
 ) map[ecommon.Address]utils.VersionedPrecompiles {
-	return map[ecommon.Address]utils.VersionedPrecompiles{
+	m := map[ecommon.Address]utils.VersionedPrecompiles{
 		ecommon.HexToAddress(bank.BankAddress):               bank.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(wasmd.WasmdAddress):             wasmd.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(json.JSONAddress):               json.GetVersioned(latestUpgrade, keepers),
@@ -59,6 +60,12 @@ func GetCustomPrecompiles(
 		ecommon.HexToAddress(p256.P256VerifyAddress):         p256.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(solo.SoloAddress):               solo.GetVersioned(latestUpgrade, keepers),
 	}
+
+	for _, op := range bls.AllOps() {
+		m[ecommon.HexToAddress(op.Addr)] = bls.GetVersioned(op)
+	}
+
+	return m
 }
 
 func InitializePrecompiles(
@@ -146,8 +153,17 @@ func InitializePrecompiles(
 		addPrecompileToVM(pointerp)
 		addPrecompileToVM(pointerviewp)
 		addPrecompileToVM(p256p)
-		Initialized = true
 	}
+
+	for _, op := range bls.AllOps() {
+		p := bls.NewPrecompile(op)
+		PrecompileNamesToInfo[p.GetName()] = PrecompileInfo{ABI: p.GetABI(), Address: p.Address()}
+		if !dryRun {
+			addPrecompileToVM(p)
+		}
+	}
+
+	Initialized = true
 	return nil
 }
 
