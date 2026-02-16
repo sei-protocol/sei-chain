@@ -32,7 +32,7 @@ const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 //
 // Since: cosmos-sdk 0.43
 type SendAuthorization struct {
-	SpendLimit github_com_cosmos_cosmos_sdk_types.Coins `protobuf:"bytes,1,rep,name=spend_limit,json=spendLimit,proto3,castrepeated=github.com/cosmos/cosmos-sdk/types.Coins" json:"spend_limit"`
+	SpendLimit github_com_cosmos_cosmos_sdk_types.Coins `protobuf:"bytes,1,rep,name=spend_limit,json=spendLimit,proto3,castrepeated=github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins" json:"spend_limit"`
 }
 
 func (m *SendAuthorization) Reset()         { *m = SendAuthorization{} }
