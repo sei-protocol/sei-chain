@@ -46,7 +46,6 @@ type seedNodeImpl struct {
 
 // makeSeedNode returns a new seed node, containing only p2p, pex reactor
 func makeSeedNode(
-	ctx context.Context,
 	logger log.Logger,
 	cfg *config.Config,
 	dbProvider config.DBProvider,
@@ -55,9 +54,6 @@ func makeSeedNode(
 	client abciclient.Client,
 	nodeMetrics *NodeMetrics,
 ) (service.Service, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	if !cfg.P2P.PexReactor {
 		return nil, errors.New("cannot run seed nodes with PEX disabled")
 	}
@@ -92,7 +88,6 @@ func makeSeedNode(
 	proxyApp := proxy.New(client, logger.With("module", "proxy"), nodeMetrics.proxy)
 
 	closers := make([]closer, 0, 2)
-	closers = append(closers, convertCancelCloser(cancel))
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
 	if err != nil {
 		return nil, combineCloseError(err, dbCloser)

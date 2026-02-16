@@ -99,7 +99,6 @@ func newDefaultNode(
 
 	if cfg.Mode == config.ModeSeed {
 		return makeSeedNode(
-			ctx,
 			logger,
 			cfg,
 			config.DefaultDBProvider,

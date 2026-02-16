@@ -78,7 +78,6 @@ func New(
 		)
 	case config.ModeSeed:
 		return makeSeedNode(
-			ctx,
 			logger,
 			conf,
 			config.DefaultDBProvider,
