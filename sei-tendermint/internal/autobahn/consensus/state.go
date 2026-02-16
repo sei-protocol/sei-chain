@@ -23,7 +23,14 @@ type Config struct {
 	ViewTimeout ViewTimeoutFunc
 }
 
-// State represents the current state of the consensus process.
+// State represents the high-level Consensus Control Plane.
+// It is responsible for:
+// - View management: tracking rounds and leader election.
+// - Voting: aggregating signatures for Prepare, Commit, and Timeout phases.
+// - Proposals: constructing and verifying block proposals.
+//
+// NOTE: While this is the "brain", it relies on the "avail" package as its
+// primary data store and synchronization sequencer.
 type State struct {
 	cfg   *Config
 	avail *avail.State
@@ -237,12 +244,17 @@ func (s *State) Run(ctx context.Context) error {
 			return s.commitQC().Iter(ctx, func(ctx context.Context, qc utils.Option[*types.CommitQC]) error {
 				if qc, ok := qc.Get(); ok {
 					// s.metrics.ObserveCommitQC(qc)
+					// We push the locally generated CommitQC into "avail" to act as a
+					// sequencer and to trigger data pruning.
 					return s.avail.PushCommitQC(ctx, qc)
 				}
 				return nil
 			})
 		})
 		scope.SpawnNamed("pushCommitQC", func() error {
+			// We pull the CommitQC back from "avail" for dissemination. This ensures
+			// that we only push CommitQCs that have been successfully "logged" and
+			// sequenced by the availability layer.
 			return s.avail.LastCommitQC().Iter(ctx, func(ctx context.Context, last utils.Option[*types.CommitQC]) error {
 				if qc, ok := last.Get(); ok {
 					return s.pushCommitQC(qc)

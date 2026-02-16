@@ -583,20 +583,21 @@ func SignWithLedger(info Info, msg []byte) (sig []byte, pub types.PubKey, err er
 
 	path, err := info.GetPath()
 	if err != nil {
-		return
+		return nil, nil, fmt.Errorf("failed to get BIP44 path from ledger info: %w", err)
 	}
 
-	priv, err := ledger.NewPrivKeySecp256k1Unsafe(*path)
+	// Use single-connection signing to avoid race conditions from multiple device open/close cycles
+	sig, pub, err = ledger.SignWithPath(*path, msg)
 	if err != nil {
-		return
+		return nil, nil, fmt.Errorf("ledger signing failed: %w", err)
 	}
 
-	sig, err = priv.Sign(msg)
-	if err != nil {
-		return nil, nil, err
+	// Validate that the public key from the device matches the cached key in the keyring
+	if !pub.Equals(info.GetPubKey()) {
+		return nil, nil, errors.New("the public key from the Ledger device does not match the cached key in the keyring")
 	}
 
-	return sig, priv.PubKey(), nil
+	return sig, pub, nil
 }
 
 func newOSBackendKeyringConfig(appName, dir string, buf io.Reader) keyring.Config {
