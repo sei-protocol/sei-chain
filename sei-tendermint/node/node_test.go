@@ -585,7 +585,6 @@ func TestNodeNewSeedNode(t *testing.T) {
 	logger := log.NewNopLogger()
 
 	ns, err := makeSeedNode(
-		ctx,
 		logger,
 		cfg,
 		config.DefaultDBProvider,
@@ -622,7 +621,7 @@ func TestNodeSetEventSink(t *testing.T) {
 
 	logger := log.NewNopLogger()
 
-	setupTest := func(t *testing.T, conf *config.Config) []indexer.EventSink {
+	setupTest := func(t *testing.T) []indexer.EventSink {
 		eventBus := eventbus.NewDefault(logger.With("module", "events"))
 		require.NoError(t, eventBus.Start(ctx))
 
@@ -651,18 +650,18 @@ func TestNodeSetEventSink(t *testing.T) {
 		}
 	}
 
-	eventSinks := setupTest(t, cfg)
+	eventSinks := setupTest(t)
 	assert.Equal(t, 1, len(eventSinks))
 	assert.Equal(t, indexer.KV, eventSinks[0].Type())
 
 	cfg.TxIndex.Indexer = []string{"null"}
-	eventSinks = setupTest(t, cfg)
+	eventSinks = setupTest(t)
 
 	assert.Equal(t, 1, len(eventSinks))
 	assert.Equal(t, indexer.NULL, eventSinks[0].Type())
 
 	cfg.TxIndex.Indexer = []string{"null", "kv"}
-	eventSinks = setupTest(t, cfg)
+	eventSinks = setupTest(t)
 
 	assert.Equal(t, 1, len(eventSinks))
 	assert.Equal(t, indexer.NULL, eventSinks[0].Type())
@@ -674,7 +673,7 @@ func TestNodeSetEventSink(t *testing.T) {
 	t.Cleanup(cleanup(ns))
 
 	cfg.TxIndex.Indexer = []string{}
-	eventSinks = setupTest(t, cfg)
+	eventSinks = setupTest(t)
 
 	assert.Equal(t, 1, len(eventSinks))
 	assert.Equal(t, indexer.NULL, eventSinks[0].Type())
