@@ -5,6 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -141,7 +142,7 @@ func (p *persistedInner) validate(committee *types.Committee) error {
 }
 
 // innerProtoConv is a protobuf converter for persistedInner.
-var innerProtoConv = utils.ProtoConv[*persistedInner, *pb.PersistedInner]{
+var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 	Encode: func(m *persistedInner) *pb.PersistedInner {
 		p := &pb.PersistedInner{}
 		if v, ok := m.CommitQC.Get(); ok {

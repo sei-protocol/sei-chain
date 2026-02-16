@@ -3,8 +3,6 @@ package consensus
 import (
 	"testing"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -29,12 +27,7 @@ func seedPersistedInner(dir string, state *persistedInner) {
 	if err != nil {
 		panic(err)
 	}
-	pb := innerProtoConv.Encode(state)
-	data, err := proto.Marshal(pb)
-	if err != nil {
-		panic(err)
-	}
-	if err := p.Persist(data); err != nil {
+	if err := p.Persist(innerProtoConv.Marshal(state)); err != nil {
 		panic(err)
 	}
 }

@@ -5,9 +5,7 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog/log"
-	"google.golang.org/protobuf/proto"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -26,13 +24,9 @@ func newInner(data utils.Option[[]byte], committee *types.Committee) (inner, err
 	var persisted persistedInner
 
 	if bz, ok := data.Get(); ok {
-		var p pb.PersistedInner
-		if err := proto.Unmarshal(bz, &p); err != nil {
-			return inner{}, fmt.Errorf("corrupt persisted state: failed to unmarshal: %w", err)
-		}
-		decoded, err := innerProtoConv.Decode(&p)
+		decoded, err := innerProtoConv.Unmarshal(bz)
 		if err != nil {
-			return inner{}, fmt.Errorf("corrupt persisted state: failed to decode: %w", err)
+			return inner{}, fmt.Errorf("corrupt persisted state: %w", err)
 		}
 		persisted = *decoded
 	}
