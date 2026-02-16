@@ -66,7 +66,9 @@ func runConfigCmd(cmd *cobra.Command, args []string) error {
 	case 2:
 		// it's set
 		key, value := args[0], args[1]
-		SetClientConfig(key, value, configPath, conf)
+		if err := SetClientConfig(key, value, configPath, conf); err != nil {
+			return err
+		}
 	default:
 		panic("cound not execute config command")
 	}
