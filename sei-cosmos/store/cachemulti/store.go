@@ -316,6 +316,63 @@ func (cms Store) CacheMultiStoreGiga() types.CacheMultiStore {
 	return newFastCacheMultiStoreFromCMS(cms)
 }
 
+// CacheMultiStoreForOCC creates a hollow CMS where all stores are directly
+// provided by the caller via handler functions. Unlike CacheMultiStoreGiga,
+// this skips creating intermediate cachekv/FastStore instances, avoiding
+// allocations that would be immediately discarded when the OCC scheduler
+// replaces all stores with VersionIndexedStores.
+func (cms Store) CacheMultiStoreForOCC(
+	kvHandler func(sk types.StoreKey) types.CacheWrap,
+	gigaHandler func(sk types.StoreKey) types.KVStore,
+) types.CacheMultiStore {
+	// Trigger materialization of parent stores so we know all store keys.
+	cms.materializeOnce.Do(func() {
+		cms.mu.Lock()
+		for k := range cms.parents {
+			parent := cms.parents[k]
+			var cw types.CacheWrapper = parent
+			if cms.TracingEnabled() {
+				cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
+			}
+			cms.stores[k] = cachekv.NewStore(cw.(types.KVStore), k, types.DefaultCacheSizeLimit)
+			delete(cms.parents, k)
+		}
+		cms.mu.Unlock()
+	})
+
+	// Collect all known store keys.
+	cms.mu.RLock()
+	storeKeys := make([]types.StoreKey, 0, len(cms.stores))
+	for k := range cms.stores {
+		storeKeys = append(storeKeys, k)
+	}
+	cms.mu.RUnlock()
+
+	// Build a minimal CMS with stores populated directly from handlers.
+	result := Store{
+		db:              cachekv.NewFastStore(cms.db, nil),
+		stores:          make(map[types.StoreKey]types.CacheWrap, len(storeKeys)),
+		parents:         make(map[types.StoreKey]types.CacheWrapper),
+		keys:            cms.keys,
+		gigaKeys:        cms.gigaKeys,
+		gigaStores:      make(map[types.StoreKey]types.KVStore, len(cms.gigaKeys)),
+		traceWriter:     cms.traceWriter,
+		traceContext:    cms.traceContext,
+		mu:              &sync.RWMutex{},
+		materializeOnce: &sync.Once{},
+		fast:            true,
+	}
+
+	for _, k := range storeKeys {
+		result.stores[k] = kvHandler(k)
+	}
+	for _, k := range cms.gigaKeys {
+		result.gigaStores[k] = gigaHandler(k)
+	}
+
+	return result
+}
+
 // CacheMultiStoreWithVersion implements the MultiStore interface. It will panic
 // as an already cached multi-store cannot load previous versions.
 //

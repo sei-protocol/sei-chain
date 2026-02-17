@@ -1569,6 +1569,17 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 
 // ProcessTXsWithOCCGiga runs the transactions concurrently via OCC, using the Giga executor
 func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+	// Disable percentage-based GC trigger and use a memory limit instead.
+	// With GOGC=off + GOMEMLIMIT, GC only runs when approaching the limit,
+	// dramatically reducing GC frequency during the allocation-heavy OCC path.
+	// The default GOGC=100 causes ~25% CPU on GC with the high allocation rate.
+	prevGOGC := debug.SetGCPercent(-1)
+	prevLimit := debug.SetMemoryLimit(16 << 30) // 16 GB soft limit
+	defer func() {
+		debug.SetMemoryLimit(prevLimit)
+		debug.SetGCPercent(prevGOGC)
+	}()
+
 	evmEntries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	v2Entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	for txIndex, tx := range txs {
