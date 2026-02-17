@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
-	abciclientmocks "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client/mocks"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	abcimocks "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -40,8 +38,7 @@ var (
 func TestApplyBlock(t *testing.T) {
 	app := &testApp{}
 	logger := log.NewNopLogger()
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
+	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 
 	ctx := t.Context()
 
@@ -89,8 +86,7 @@ func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 
 	logger := log.NewNopLogger()
 	app := &testApp{}
-	cc := abciclient.NewLocalClient(logger, app)
-	appClient := proxy.New(cc, logger, proxy.NopMetrics())
+	appClient := proxy.New(app, logger, proxy.NopMetrics())
 
 	err := appClient.Start(ctx)
 	require.NoError(t, err)
@@ -164,8 +160,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 
 	app := &testApp{}
 	logger := log.NewNopLogger()
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
+	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 	err := proxyApp.Start(ctx)
 	require.NoError(t, err)
 
@@ -285,8 +280,7 @@ func TestProcessProposal(t *testing.T) {
 
 	app := abcimocks.NewApplication(t)
 	logger := log.NewNopLogger()
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
+	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 	err := proxyApp.Start(ctx)
 	require.NoError(t, err)
 
@@ -501,8 +495,7 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 
 	app := &testApp{}
 	logger := log.NewNopLogger()
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
+	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 	err := proxyApp.Start(ctx)
 	require.NoError(t, err)
 
@@ -585,8 +578,7 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 
 	app := &testApp{}
 	logger := log.NewNopLogger()
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
+	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 	err := proxyApp.Start(ctx)
 	require.NoError(t, err)
 
@@ -636,8 +628,7 @@ func TestEmptyPrepareProposal(t *testing.T) {
 
 	app := abcimocks.NewApplication(t)
 	app.On("PrepareProposal", mock.Anything, mock.Anything).Return(&abci.ResponsePrepareProposal{}, nil)
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
+	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 	err := proxyApp.Start(ctx)
 	require.NoError(t, err)
 
@@ -708,8 +699,7 @@ func TestPrepareProposalErrorOnNonExistingRemoved(t *testing.T) {
 	}
 	app.On("PrepareProposal", mock.Anything, mock.Anything).Return(rpp, nil)
 
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
+	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 	err := proxyApp.Start(ctx)
 	require.NoError(t, err)
 
@@ -761,8 +751,7 @@ func TestPrepareProposalReorderTxs(t *testing.T) {
 		TxRecords: trs,
 	}, nil)
 
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
+	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 	err := proxyApp.Start(ctx)
 	require.NoError(t, err)
 
@@ -820,8 +809,7 @@ func TestPrepareProposalErrorOnTooManyTxs(t *testing.T) {
 		TxRecords: trs,
 	}, nil)
 
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
+	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 	err := proxyApp.Start(ctx)
 	require.NoError(t, err)
 
@@ -864,15 +852,8 @@ func TestPrepareProposalErrorOnPrepareProposalError(t *testing.T) {
 	mp := &mpmocks.Mempool{}
 	mp.On("ReapMaxBytesMaxGas", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(types.Txs(txs))
 
-	cm := &abciclientmocks.Client{}
-	cm.On("IsRunning").Return(true)
-	cm.On("Error").Return(nil)
-	cm.On("Start", mock.Anything).Return(nil).Once()
-	cm.On("Wait").Return(nil).Once()
-	cm.On("Stop").Return(nil).Once()
-	cm.On("PrepareProposal", mock.Anything, mock.Anything).Return(nil, errors.New("an injected error")).Once()
-
-	proxyApp := proxy.New(cm, logger, proxy.NopMetrics())
+	app := &failingPrepareProposalApp{}
+	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 	err := proxyApp.Start(ctx)
 	require.NoError(t, err)
 
@@ -893,6 +874,14 @@ func TestPrepareProposalErrorOnPrepareProposalError(t *testing.T) {
 	require.ErrorContains(t, err, "an injected error")
 
 	mp.AssertExpectations(t)
+}
+
+type failingPrepareProposalApp struct {
+	abci.BaseApplication
+}
+
+func (f failingPrepareProposalApp) PrepareProposal(context.Context, *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
+	return nil, errors.New("an injected error")
 }
 
 func makeBlockID(hash []byte, partSetSize uint32, partSetHash []byte) types.BlockID {
@@ -947,8 +936,7 @@ func TestCreateProposalBlockPanicRecovery(t *testing.T) {
 
 	// Create the panicking app
 	app := &panicApp{}
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
+	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 	require.NoError(t, proxyApp.Start(ctx))
 	defer proxyApp.Stop()
 

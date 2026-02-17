@@ -74,10 +74,10 @@ func newMockProxyApp(
 	appHash []byte,
 	finalizeBlockResponses *abci.ResponseFinalizeBlock,
 ) (abciclient.Client, error) {
-	return proxy.New(abciclient.NewLocalClient(logger, &mockProxyApp{
+	return proxy.New(&mockProxyApp{
 		appHash:                appHash,
 		finalizeBlockResponses: finalizeBlockResponses,
-	}), logger, proxy.NopMetrics()), nil
+	}, logger, proxy.NopMetrics()), nil
 }
 
 type mockProxyApp struct {

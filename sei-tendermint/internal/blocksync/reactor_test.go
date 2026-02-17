@@ -96,7 +96,7 @@ func makeReactor(
 
 	logger := log.NewNopLogger()
 
-	app := proxy.New(abciclient.NewLocalClient(logger, &abci.BaseApplication{}), logger, proxy.NopMetrics())
+	app := proxy.New(abci.NewBaseApplication(), logger, proxy.NopMetrics())
 	require.NoError(t, app.Start(ctx))
 
 	blockDB := dbm.NewMemDB()
@@ -167,7 +167,7 @@ func (rts *reactorTestSuite) addNode(
 	logger := log.NewNopLogger()
 
 	rts.nodes = append(rts.nodes, nodeID)
-	rts.app[nodeID] = proxy.New(abciclient.NewLocalClient(logger, &abci.BaseApplication{}), logger, proxy.NopMetrics())
+	rts.app[nodeID] = proxy.New(abci.NewBaseApplication(), logger, proxy.NopMetrics())
 	require.NoError(t, rts.app[nodeID].Start(ctx))
 
 	remediationConfig := config.DefaultSelfRemediationConfig()

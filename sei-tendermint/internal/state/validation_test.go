@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
@@ -34,7 +33,7 @@ const validationTestsStopHeight int64 = 10
 func TestValidateBlockHeader(t *testing.T) {
 	ctx := t.Context()
 	logger := log.NewNopLogger()
-	proxyApp := proxy.New(abciclient.NewLocalClient(logger, &testApp{}), logger, proxy.NopMetrics())
+	proxyApp := proxy.New(&testApp{}, logger, proxy.NopMetrics())
 	require.NoError(t, proxyApp.Start(ctx))
 
 	eventBus := eventbus.NewDefault(logger)
@@ -141,7 +140,7 @@ func TestValidateBlockCommit(t *testing.T) {
 	ctx := t.Context()
 
 	logger := log.NewNopLogger()
-	proxyApp := proxy.New(abciclient.NewLocalClient(logger, &testApp{}), logger, proxy.NopMetrics())
+	proxyApp := proxy.New(&testApp{}, logger, proxy.NopMetrics())
 	require.NoError(t, proxyApp.Start(ctx))
 
 	eventBus := eventbus.NewDefault(logger)
@@ -284,7 +283,7 @@ func TestValidateBlockEvidence(t *testing.T) {
 	ctx := t.Context()
 
 	logger := log.NewNopLogger()
-	proxyApp := proxy.New(abciclient.NewLocalClient(logger, &testApp{}), logger, proxy.NopMetrics())
+	proxyApp := proxy.New(&testApp{}, logger, proxy.NopMetrics())
 	require.NoError(t, proxyApp.Start(ctx))
 
 	state, stateDB, privVals := makeState(t, 4, 1)

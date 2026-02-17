@@ -696,11 +696,11 @@ func testHandshakeReplay(
 	eventBus := eventbus.NewDefault(logger)
 	require.NoError(t, eventBus.Start(ctx))
 
-	client := abciclient.NewLocalClient(logger, kvstore.NewApplication())
+	app := kvstore.NewApplication()
 	if nBlocks > 0 {
 		// run nBlocks against a new client to build up the app state.
 		// use a throwaway tendermint state
-		proxyApp := proxy.New(client, logger, proxy.NopMetrics())
+		proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 		stateDB1 := dbm.NewMemDB()
 		stateStore := sm.NewStore(stateDB1)
 		err := stateStore.Save(genesisState)
@@ -721,7 +721,7 @@ func testHandshakeReplay(
 	genDoc, err := sm.MakeGenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
 	handshaker := NewHandshaker(logger, stateStore, state, store, eventBus, genDoc)
-	proxyApp := proxy.New(client, logger, proxy.NopMetrics())
+	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 	require.NoError(t, proxyApp.Start(ctx), "Error starting proxy app connections")
 	require.True(t, proxyApp.IsRunning())
 	require.NotNil(t, proxyApp)
@@ -848,9 +848,9 @@ func buildTMStateFromChain(
 	t.Helper()
 
 	// run the whole chain against this client to build up the tendermint state
-	client := abciclient.NewLocalClient(logger, kvstore.NewApplication())
+	app := kvstore.NewApplication()
 
-	proxyApp := proxy.New(client, logger, proxy.NopMetrics())
+	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 	require.NoError(t, proxyApp.Start(ctx))
 
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
@@ -926,8 +926,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 	//		- 0x03
 	{
 		app := &badApp{numBlocks: 3, allHashesAreWrong: true}
-		client := abciclient.NewLocalClient(logger, app)
-		proxyApp := proxy.New(client, logger, proxy.NopMetrics())
+		proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 		err := proxyApp.Start(ctx)
 		require.NoError(t, err)
 		t.Cleanup(func() { proxyApp.Wait() })
@@ -942,8 +941,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 	//		- RANDOM HASH
 	{
 		app := &badApp{numBlocks: 3, onlyLastHashIsWrong: true}
-		client := abciclient.NewLocalClient(logger, app)
-		proxyApp := proxy.New(client, logger, proxy.NopMetrics())
+		proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 		err := proxyApp.Start(ctx)
 		require.NoError(t, err)
 		t.Cleanup(func() { proxyApp.Wait() })
@@ -1150,7 +1148,6 @@ func TestHandshakeUpdatesValidators(t *testing.T) {
 	require.NoError(t, err)
 	vals := types.NewValidatorSet([]*types.Validator{val})
 	app := &initChainApp{vals: types.TM2PB.ValidatorUpdates(vals)}
-	client := abciclient.NewLocalClient(logger, app)
 
 	eventBus := eventbus.NewDefault(logger)
 	require.NoError(t, eventBus.Start(ctx))
@@ -1173,7 +1170,7 @@ func TestHandshakeUpdatesValidators(t *testing.T) {
 	require.NoError(t, err)
 
 	handshaker := NewHandshaker(logger, stateStore, state, store, eventBus, genDoc)
-	proxyApp := proxy.New(client, logger, proxy.NopMetrics())
+	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 	require.NoError(t, proxyApp.Start(ctx), "Error starting proxy app connections")
 
 	require.NoError(t, handshaker.Handshake(ctx, proxyApp), "error on abci handshake")

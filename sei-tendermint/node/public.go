@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
@@ -56,7 +55,7 @@ func New(
 			restartEvent,
 			pval,
 			nodeKey,
-			abciclient.NewLocalClient(logger, app),
+			app,
 			genProvider,
 			config.DefaultDBProvider,
 			logger,

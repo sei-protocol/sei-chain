@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -58,8 +57,6 @@ func makeSeedNode(
 		return nil, errors.New("cannot run seed nodes with PEX disabled")
 	}
 
-	client := abciclient.NewLocalClient(logger, abci.NewBaseApplication())
-
 	genDoc, err := genesisDocProvider()
 	if err != nil {
 		return nil, err
@@ -87,7 +84,7 @@ func makeSeedNode(
 		return nil, fmt.Errorf("pex.NewReactor(): %w", err)
 	}
 
-	proxyApp := proxy.New(client, logger.With("module", "proxy"), nodeMetrics.proxy)
+	proxyApp := proxy.New(abci.NewBaseApplication(), logger.With("module", "proxy"), nodeMetrics.proxy)
 
 	closers := make([]closer, 0, 2)
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)

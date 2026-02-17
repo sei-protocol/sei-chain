@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"io"
 	"os"
 	"syscall"
 	"time"
@@ -10,42 +9,10 @@ import (
 	"github.com/go-kit/kit/metrics"
 
 	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
-	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/app"
 )
-
-// ClientFactory returns a client object, which will create a local
-// client if addr is one of: 'kvstore', 'persistent_kvstore', 'e2e',
-// or 'noop', otherwise - a remote client.
-//
-// The Closer is a noop except for persistent_kvstore applications,
-// which will clean up the store.
-func ClientFactory(logger log.Logger, addr, transport, dbDir string) (abciclient.Client, io.Closer, error) {
-	switch addr {
-	case "kvstore":
-		return abciclient.NewLocalClient(logger, kvstore.NewApplication()), noopCloser{}, nil
-	case "persistent_kvstore":
-		app := kvstore.NewPersistentKVStoreApplication(logger, dbDir)
-		return abciclient.NewLocalClient(logger, app), app, nil
-	case "e2e":
-		app, err := e2e.NewApplication(e2e.DefaultConfig(dbDir))
-		if err != nil {
-			return nil, noopCloser{}, err
-		}
-		return abciclient.NewLocalClient(logger, app), noopCloser{}, nil
-	case "noop":
-		return abciclient.NewLocalClient(logger, types.NewBaseApplication()), noopCloser{}, nil
-	default:
-		panic("unknown client type")
-	}
-}
-
-type noopCloser struct{}
-
-func (noopCloser) Close() error { return nil }
 
 // proxyClient provides the application connection.
 type proxyClient struct {
@@ -56,8 +23,9 @@ type proxyClient struct {
 	metrics *Metrics
 }
 
-// New creates a proxy application interface.
-func New(client abciclient.Client, logger log.Logger, metrics *Metrics) abciclient.Client {
+// New creates a proxy application interface around the provided ABCI application.
+func New(app types.Application, logger log.Logger, metrics *Metrics) abciclient.Client {
+	client := abciclient.NewLocalClient(logger, app)
 	conn := &proxyClient{
 		logger:  logger,
 		metrics: metrics,

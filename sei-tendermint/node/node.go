@@ -78,55 +78,6 @@ type nodeImpl struct {
 	prometheusSrv  *http.Server
 }
 
-// newDefaultNode returns a Tendermint node with default settings for the
-// PrivValidator, ClientCreator, GenesisDoc, and DBProvider.
-// It implements NodeProvider.
-func newDefaultNode(
-	ctx context.Context,
-	cfg *config.Config,
-	logger log.Logger,
-	restartEvent func(),
-) (service.Service, error) {
-	nodeKey, err := types.LoadOrGenNodeKey(cfg.NodeKeyFile())
-	if err != nil {
-		return nil, fmt.Errorf("failed to load or gen node key %s: %w", cfg.NodeKeyFile(), err)
-	}
-
-	appClient, _, err := proxy.ClientFactory(logger, cfg.ProxyApp, cfg.ABCI, cfg.DBDir())
-	if err != nil {
-		return nil, err
-	}
-
-	if cfg.Mode == config.ModeSeed {
-		return makeSeedNode(
-			logger,
-			cfg,
-			config.DefaultDBProvider,
-			nodeKey,
-			defaultGenesisDocProviderFunc(cfg),
-			DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
-		)
-	}
-	pval, err := makeDefaultPrivval(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	return makeNode(
-		ctx,
-		cfg,
-		restartEvent,
-		pval,
-		nodeKey,
-		appClient,
-		defaultGenesisDocProviderFunc(cfg),
-		config.DefaultDBProvider,
-		logger,
-		[]trace.TracerProviderOption{},
-		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
-	)
-}
-
 // makeNode returns a new, ready to go, Tendermint Node.
 func makeNode(
 	ctx context.Context,
@@ -134,14 +85,13 @@ func makeNode(
 	restartEvent func(),
 	filePrivval *privval.FilePV,
 	nodeKey types.NodeKey,
-	client abciclient.Client,
+	app abci.Application,
 	genesisDocProvider genesisDocProvider,
 	dbProvider config.DBProvider,
 	logger log.Logger,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
 ) (service.Service, error) {
-
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 
@@ -169,7 +119,7 @@ func makeNode(
 		return nil, combineCloseError(err, makeCloser(closers))
 	}
 
-	proxyApp := proxy.New(client, logger.With("module", "proxy"), nodeMetrics.proxy)
+	proxyApp := proxy.New(app, logger.With("module", "proxy"), nodeMetrics.proxy)
 	eventBus := eventbus.NewDefault(logger.With("module", "events"))
 
 	var eventLog *eventlog.Log
