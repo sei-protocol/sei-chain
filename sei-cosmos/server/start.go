@@ -7,27 +7,16 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-
 	//nolint:gosec,G108
 	_ "net/http/pprof"
 	"os"
 	"path"
 	"runtime/pprof"
+	"sync"
 	"time"
 
-	clientconfig "github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
-	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
-	tcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	"github.com/spf13/cobra"
-	"go.opentelemetry.io/otel/sdk/trace"
-	"google.golang.org/grpc"
-
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	clientconfig "github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
@@ -38,7 +27,17 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
+	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	tcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel/sdk/trace"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -177,9 +176,6 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 				tracerProviderOptions = []trace.TracerProviderOption{}
 			}
 
-			// amino is needed here for backwards compatibility of REST routes
-			var exitCode int
-
 			serverCtx.Logger.Info("Creating node metrics provider")
 			nodeMetricsProvider := node.DefaultMetricsProvider(serverCtx.Config.Instrumentation)(clientCtx.ChainID)
 
@@ -195,34 +191,21 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 				}
 			}
 
-			restartCoolDownDuration := time.Second * time.Duration(serverCtx.Config.SelfRemediation.RestartCooldownSeconds)
-			// Set the first restart time to be now - restartCoolDownDuration so that the first restart can trigger whenever
-			canRestartAfter := time.Now().Add(-restartCoolDownDuration)
-
 			serverCtx.Logger.Info("Starting Process")
 			for {
-				err = startInProcess(
+				err := startInProcess(
 					serverCtx,
 					clientCtx,
 					appCreator,
 					tracerProviderOptions,
 					nodeMetricsProvider,
 					apiMetrics,
-					canRestartAfter,
 				)
-				var errCode ErrorCode
-				ok := errors.As(err, &errCode)
-				exitCode = errCode.Code
-				if !ok {
+				if !errors.Is(err, ErrShouldRestart) {
 					return err
 				}
-				if exitCode != RestartErrorCode {
-					break
-				}
 				serverCtx.Logger.Info("restarting node...")
-				canRestartAfter = time.Now().Add(restartCoolDownDuration)
 			}
-			return nil
 		},
 	}
 
@@ -286,7 +269,6 @@ func startInProcess(
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetricsProvider *node.NodeMetrics,
 	apiMetrics *telemetry.Metrics,
-	canRestartAfter time.Time,
 ) error {
 	cfg := ctx.Config
 	home := cfg.RootDir
@@ -333,13 +315,20 @@ func startInProcess(
 	}
 	app := appCreator(ctx.Logger, db, traceWriter, ctx.Config, ctx.Viper)
 
-	var (
-		tmNode    service.Service
-		restartCh chan struct{}
-		gRPCOnly  = ctx.Viper.GetBool(flagGRPCOnly)
-	)
+	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
+	var tmNode service.Service
 
-	restartCh = make(chan struct{})
+	var restartMtx sync.Mutex
+	restartCh := make(chan struct{})
+	restartEvent := func() {
+		restartMtx.Lock()
+		defer restartMtx.Unlock()
+		select {
+		case <-restartCh:
+		default:
+			close(restartCh)
+		}
+	}
 
 	if gRPCOnly {
 		ctx.Logger.Info("starting node in gRPC only mode; Tendermint is disabled")
@@ -364,7 +353,7 @@ func startInProcess(
 			goCtx,
 			ctx.Config,
 			ctx.Logger,
-			restartCh,
+			restartEvent,
 			abciclient.NewLocalClient(ctx.Logger, app),
 			gen,
 			tracerProviderOptions,
@@ -437,7 +426,7 @@ func startInProcess(
 	// we do not need to start Rosetta or handle any Tendermint related processes.
 	if gRPCOnly {
 		// wait for signal capture and gracefully return
-		return WaitForQuitSignals(ctx, restartCh, canRestartAfter)
+		return WaitForQuitSignals(goCtx, restartCh)
 	}
 
 	var rosettaSrv crgserver.Server
@@ -510,5 +499,5 @@ func startInProcess(
 	}()
 
 	// wait for signal capture and gracefully return
-	return WaitForQuitSignals(ctx, restartCh, canRestartAfter)
+	return WaitForQuitSignals(goCtx, restartCh)
 }

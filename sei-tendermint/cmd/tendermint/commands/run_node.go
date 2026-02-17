@@ -13,6 +13,7 @@ import (
 
 	cfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 var (
@@ -100,7 +101,7 @@ func addDBFlags(cmd *cobra.Command, conf *cfg.Config) {
 
 // NewRunNodeCmd returns the command that allows the CLI to start a node.
 // It can be used with a custom PrivValidator and in-process ABCI application.
-func NewRunNodeCmd(nodeProvider cfg.ServiceProvider, conf *cfg.Config, logger log.Logger, restartCh chan struct{}) *cobra.Command {
+func NewRunNodeCmd(nodeProvider cfg.ServiceProvider, conf *cfg.Config, logger log.Logger) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "start",
 		Aliases: []string{"node", "run"},
@@ -113,7 +114,9 @@ func NewRunNodeCmd(nodeProvider cfg.ServiceProvider, conf *cfg.Config, logger lo
 			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
 
-			n, err := nodeProvider(ctx, conf, logger, restartCh)
+			restart := utils.NewAtomicSend(false)
+
+			n, err := nodeProvider(ctx, conf, logger, func() { restart.Store(true) })
 			if err != nil {
 				return fmt.Errorf("failed to create node: %w", err)
 			}
@@ -124,16 +127,15 @@ func NewRunNodeCmd(nodeProvider cfg.ServiceProvider, conf *cfg.Config, logger lo
 
 			logger.Info("started node", "chain", conf.ChainID())
 
-			for {
-				select {
-				case <-ctx.Done():
-					return nil
-				case <-restartCh:
-					logger.Info("Received signal to restart node.")
-					n.Stop()
-					os.Exit(1)
-				}
+			if _, err := restart.Wait(ctx, func(x bool) bool { return x }); err != nil {
+				// Context canceled.
+				// TODO(gprusak): shouldn't we stop the node either way though?
+				return nil
 			}
+			logger.Info("Received signal to restart node.")
+			n.Stop()
+			os.Exit(1)
+			panic("unreachable")
 		},
 	}
 

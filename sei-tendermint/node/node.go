@@ -85,7 +85,7 @@ func newDefaultNode(
 	ctx context.Context,
 	cfg *config.Config,
 	logger log.Logger,
-	restartCh chan struct{},
+	restartEvent func(),
 ) (service.Service, error) {
 	nodeKey, err := types.LoadOrGenNodeKey(cfg.NodeKeyFile())
 	if err != nil {
@@ -99,10 +99,8 @@ func newDefaultNode(
 
 	if cfg.Mode == config.ModeSeed {
 		return makeSeedNode(
-			ctx,
 			logger,
 			cfg,
-			restartCh,
 			config.DefaultDBProvider,
 			nodeKey,
 			defaultGenesisDocProviderFunc(cfg),
@@ -118,7 +116,7 @@ func newDefaultNode(
 	return makeNode(
 		ctx,
 		cfg,
-		restartCh,
+		restartEvent,
 		pval,
 		nodeKey,
 		appClient,
@@ -134,7 +132,7 @@ func newDefaultNode(
 func makeNode(
 	ctx context.Context,
 	cfg *config.Config,
-	restartCh chan struct{},
+	restartEvent func(),
 	filePrivval *privval.FilePV,
 	nodeKey types.NodeKey,
 	client abciclient.Client,
@@ -342,7 +340,7 @@ func makeNode(
 		blockSync && !stateSync,
 		nodeMetrics.consensus,
 		eventBus,
-		restartCh,
+		restartEvent,
 		cfg.SelfRemediation,
 	)
 	if err != nil {
@@ -405,7 +403,7 @@ func makeNode(
 		// the post-sync operation
 		postSyncHook,
 		stateSync,
-		restartCh,
+		restartEvent,
 		cfg.SelfRemediation,
 	)
 	if err != nil {

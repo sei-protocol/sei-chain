@@ -2,7 +2,7 @@ package network
 
 import (
 	"encoding/json"
-	os "os"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -56,7 +56,7 @@ func startInProcess(cfg Config, val *Validator) error {
 		val.GoCtx,
 		tmCfg,
 		logger,
-		make(chan struct{}),
+		func() {},
 		abciclient.NewLocalClient(logger, app),
 		defaultGensis,
 		[]trace.TracerProviderOption{},
@@ -211,15 +211,9 @@ func writeFile(name string, dir string, contents []byte) error {
 	writePath := filepath.Join(dir)
 	file := filepath.Join(writePath, name)
 
-	err := tmos.EnsureDir(writePath, 0755)
-	if err != nil {
+	if err := tmos.EnsureDir(writePath, 0755); err != nil {
 		return err
 	}
 
-	err = os.WriteFile(file, contents, 0644)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return os.WriteFile(file, contents, 0644)
 }
