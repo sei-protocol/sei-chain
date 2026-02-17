@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+
 	//nolint:gosec,G108
 	_ "net/http/pprof"
 	"os"

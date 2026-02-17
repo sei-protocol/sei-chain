@@ -291,11 +291,11 @@ func (aa AccAddress) String() string {
 func (aa AccAddress) Format(s fmt.State, verb rune) {
 	switch verb {
 	case 's':
-		s.Write([]byte(aa.String()))
+		_, _ = s.Write([]byte(aa.String()))
 	case 'p':
-		fmt.Fprintf(s, "%p", aa)
+		_, _ = fmt.Fprintf(s, "%p", aa)
 	default:
-		fmt.Fprintf(s, "%X", []byte(aa))
+		_, _ = fmt.Fprintf(s, "%X", []byte(aa))
 	}
 }
 
@@ -441,11 +441,11 @@ func (va ValAddress) String() string {
 func (va ValAddress) Format(s fmt.State, verb rune) {
 	switch verb {
 	case 's':
-		s.Write([]byte(va.String()))
+		_, _ = s.Write([]byte(va.String()))
 	case 'p':
-		fmt.Fprintf(s, "%p", va)
+		_, _ = fmt.Fprintf(s, "%p", va)
 	default:
-		fmt.Fprintf(s, "%X", []byte(va))
+		_, _ = fmt.Fprintf(s, "%X", []byte(va))
 	}
 }
 
@@ -620,11 +620,11 @@ func MustBech32ifyAddressBytes(prefix string, bs []byte) string {
 func (ca ConsAddress) Format(s fmt.State, verb rune) {
 	switch verb {
 	case 's':
-		s.Write([]byte(ca.String()))
+		_, _ = s.Write([]byte(ca.String()))
 	case 'p':
-		fmt.Fprintf(s, "%p", ca)
+		_, _ = fmt.Fprintf(s, "%p", ca)
 	default:
-		fmt.Fprintf(s, "%X", []byte(ca))
+		_, _ = fmt.Fprintf(s, "%X", []byte(ca))
 	}
 }
 

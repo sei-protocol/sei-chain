@@ -19,6 +19,7 @@ import (
 	types3 "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	types "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	io "io"
+	io_ioutil "io/ioutil"
 	math "math"
 	math_bits "math/bits"
 	reflect "reflect"
@@ -2051,7 +2052,7 @@ func StakingDescription() (desc *github_com_gogo_protobuf_protoc_gen_gogo_descri
 	if err != nil {
 		panic(err)
 	}
-	ungzipped, err := io.ReadAll(gzipr)
+	ungzipped, err := io_ioutil.ReadAll(gzipr)
 	if err != nil {
 		panic(err)
 	}

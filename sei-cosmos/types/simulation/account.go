@@ -39,7 +39,7 @@ func RandomAccounts(r *rand.Rand, n int) []Account {
 	for i := 0; i < n; i++ {
 		// don't need that much entropy for simulation
 		privkeySeed := make([]byte, 15)
-		r.Read(privkeySeed)
+		_, _ = r.Read(privkeySeed)
 
 		accs[i].PrivKey = secp256k1.GenPrivKeyFromSecret(privkeySeed)
 		accs[i].PubKey = accs[i].PrivKey.PubKey()

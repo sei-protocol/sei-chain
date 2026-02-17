@@ -159,19 +159,25 @@ func GetValidatorQueueKey(timestamp time.Time, height int64) []byte {
 // from GetValidatorQueueKey.
 func ParseValidatorQueueKey(bz []byte) (time.Time, int64, error) {
 	prefixL := len(ValidatorQueueKey)
+	if len(bz) < prefixL+8 {
+		return time.Time{}, 0, fmt.Errorf("key too short; expected at least %d bytes, got %d", prefixL+8, len(bz))
+	}
 	if prefix := bz[:prefixL]; !bytes.Equal(prefix, ValidatorQueueKey) {
 		return time.Time{}, 0, fmt.Errorf("invalid prefix; expected: %X, got: %X", ValidatorQueueKey, prefix)
 	}
 
 	timeBzL := sdk.BigEndianToUint64(bz[prefixL : prefixL+8])
-	ts, err := sdk.ParseTimeBytes(bz[prefixL+8 : prefixL+8+int(timeBzL)])
+	if timeBzL > uint64(len(bz)-prefixL-8) {
+		return time.Time{}, 0, fmt.Errorf("invalid time bytes length %d exceeds remaining key length", timeBzL)
+	}
+	ts, err := sdk.ParseTimeBytes(bz[prefixL+8 : prefixL+8+int(timeBzL)]) //#nosec G115 -- timeBzL bounds checked above
 	if err != nil {
 		return time.Time{}, 0, err
 	}
 
-	height := sdk.BigEndianToUint64(bz[prefixL+8+int(timeBzL):])
+	height := sdk.BigEndianToUint64(bz[prefixL+8+int(timeBzL):]) //#nosec G115 -- timeBzL bounds checked above
 
-	return ts, int64(height), nil
+	return ts, int64(height), nil //#nosec G115 -- height from trusted store data
 }
 
 // GetDelegationKey creates the key for delegator bond with validator

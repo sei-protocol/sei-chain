@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -148,9 +149,15 @@ func makeMultiSignCmd() func(cmd *cobra.Command, args []string) (err error) {
 			return err
 		}
 
-		sigOnly, _ := cmd.Flags().GetBool(flagSigOnly)
+		sigOnly, err := cmd.Flags().GetBool(flagSigOnly)
+		if err != nil {
+			return err
+		}
 
-		aminoJSON, _ := cmd.Flags().GetBool(flagAmino)
+		aminoJSON, err := cmd.Flags().GetBool(flagAmino)
+		if err != nil {
+			return err
+		}
 
 		var json []byte
 
@@ -165,7 +172,10 @@ func makeMultiSignCmd() func(cmd *cobra.Command, args []string) (err error) {
 				Mode: "block|sync|async",
 			}
 
-			json, _ = clientCtx.LegacyAmino.MarshalAsJSON(req)
+			json, err = clientCtx.LegacyAmino.MarshalAsJSON(req)
+			if err != nil {
+				return err
+			}
 
 		} else {
 			json, err = marshalSignatureJSON(txCfg, txBuilder, sigOnly)
@@ -174,13 +184,18 @@ func makeMultiSignCmd() func(cmd *cobra.Command, args []string) (err error) {
 			}
 		}
 
-		outputDoc, _ := cmd.Flags().GetString(flags.FlagOutputDocument)
+		outputDoc, err := cmd.Flags().GetString(flags.FlagOutputDocument)
+		if err != nil {
+			return err
+		}
+
 		if outputDoc == "" {
 			cmd.Printf("%s\n", json)
 			return
 		}
 
-		fp, err := os.OpenFile(outputDoc, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+		outputDoc = filepath.Clean(outputDoc)
+		fp, err := os.OpenFile(outputDoc, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 		if err != nil {
 			return err
 		}

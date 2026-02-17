@@ -2,6 +2,7 @@ package cache
 
 import (
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
@@ -48,7 +49,10 @@ type (
 )
 
 func NewCommitKVStoreCache(store types.CommitKVStore, size uint, cacheKVSize int) *CommitKVStoreCache {
-	cache, err := lru.New2Q[string, []byte](int(size))
+	if size > uint(math.MaxInt32) {
+		panic(fmt.Sprintf("cache size %d exceeds max int", size))
+	}
+	cache, err := lru.New2Q[string, []byte](int(size)) //#nosec G115 -- bounds checked above
 	if err != nil {
 		panic(fmt.Errorf("failed to create KVStore cache: %s", err))
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -22,7 +23,7 @@ func IngestGenesisFileLineByLine(filename string) <-chan string {
 	go func() {
 		defer close(lines)
 
-		file, err := os.Open(filename)
+		file, err := os.Open(filepath.Clean(filename))
 		if err != nil {
 			fmt.Println("Error opening file:", err)
 			return

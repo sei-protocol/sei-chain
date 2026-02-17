@@ -471,20 +471,24 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 
 	// Determine if pruneHeight height needs to be added to the list of heights to
 	// be pruned, where pruneHeight = (commitHeight - 1) - KeepRecent.
-	if rs.pruningOpts.Interval > 0 && int64(rs.pruningOpts.KeepRecent) < previousHeight {
-		pruneHeight := previousHeight - int64(rs.pruningOpts.KeepRecent)
+	keepRecent := int64(rs.pruningOpts.KeepRecent) //#nosec G115 -- pruning config values are small, won't overflow int64
+	keepEvery := int64(rs.pruningOpts.KeepEvery)   //#nosec G115 -- pruning config values are small, won't overflow int64
+	interval := int64(rs.pruningOpts.Interval)     //#nosec G115 -- pruning config values are small, won't overflow int64
+
+	if interval > 0 && keepRecent < previousHeight {
+		pruneHeight := previousHeight - keepRecent
 		// We consider this height to be pruned iff:
 		//
 		// - KeepEvery is zero as that means that all heights should be pruned.
 		// - KeepEvery % (height - KeepRecent) != 0 as that means the height is not
 		// a 'snapshot' height.
-		if rs.pruningOpts.KeepEvery == 0 || pruneHeight%int64(rs.pruningOpts.KeepEvery) != 0 {
+		if keepEvery == 0 || pruneHeight%keepEvery != 0 {
 			rs.pruneHeights = append(rs.pruneHeights, pruneHeight)
 		}
 	}
 
 	// batch prune if the current height is a pruning interval height
-	if rs.pruningOpts.Interval > 0 && version%int64(rs.pruningOpts.Interval) == 0 {
+	if interval > 0 && version%interval == 0 {
 		rs.PruneStores(true, nil)
 	}
 
@@ -738,6 +742,9 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 	if height == 0 {
 		return sdkerrors.Wrap(sdkerrors.ErrLogic, "cannot snapshot height 0")
 	}
+	if height > uint64(math.MaxInt64) {
+		return sdkerrors.Wrapf(sdkerrors.ErrLogic, "snapshot height %d exceeds max int64", height)
+	}
 	if height > uint64(rs.LastCommitID().Version) {
 		return sdkerrors.Wrapf(sdkerrors.ErrLogic, "cannot snapshot future height %v", height)
 	}
@@ -772,7 +779,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 		totalKeyBytes := int64(0)
 		totalValueBytes := int64(0)
 		totalNumKeys := int64(0)
-		exporter, err := store.Export(int64(height))
+		exporter, err := store.Export(int64(height)) //#nosec G115 -- bounds checked at function entry
 		if err != nil {
 			return err
 		}
@@ -800,7 +807,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 					IAVL: &snapshottypes.SnapshotIAVLItem{
 						Key:     node.Key,
 						Value:   node.Value,
-						Height:  int32(node.Height),
+						Height:  int32(node.Height), //#nosec G115 -- IAVL tree heights are small, well within int32 range
 						Version: node.Version,
 					},
 				},
@@ -840,6 +847,10 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 func (rs *Store) Restore(
 	height uint64, format uint32, protoReader protoio.Reader,
 ) (snapshottypes.SnapshotItem, error) {
+	if height > uint64(math.MaxInt64) {
+		return snapshottypes.SnapshotItem{}, sdkerrors.Wrapf(sdkerrors.ErrLogic, "snapshot height %d exceeds max int64", height)
+	}
+
 	// Import nodes into stores. The first item is expected to be a SnapshotItem containing
 	// a SnapshotStoreItem, telling us which store to import into. The following items will contain
 	// SnapshotNodeItem (i.e. ExportNode) until we reach the next SnapshotStoreItem or EOF.
@@ -868,7 +879,7 @@ loop:
 			if !ok || store == nil {
 				return snapshottypes.SnapshotItem{}, sdkerrors.Wrapf(sdkerrors.ErrLogic, "cannot import into non-IAVL store %q", item.Store.Name)
 			}
-			importer, err = store.Import(int64(height))
+			importer, err = store.Import(int64(height)) //#nosec G115 -- bounds checked at function entry
 			if err != nil {
 				return snapshottypes.SnapshotItem{}, sdkerrors.Wrap(err, "import failed")
 			}
@@ -885,7 +896,7 @@ loop:
 			node := &iavltree.ExportNode{
 				Key:     item.IAVL.Key,
 				Value:   item.IAVL.Value,
-				Height:  int8(item.IAVL.Height),
+				Height:  int8(item.IAVL.Height), //#nosec G115 -- bounds checked above against MaxInt8
 				Version: item.IAVL.Version,
 			}
 			// Protobuf does not differentiate between []byte{} as nil, but fortunately IAVL does
@@ -914,7 +925,7 @@ loop:
 		importer.Close()
 	}
 
-	rs.flushMetadata(rs.db, int64(height), rs.buildCommitInfo(int64(height)))
+	rs.flushMetadata(rs.db, int64(height), rs.buildCommitInfo(int64(height))) //#nosec G115 -- bounds checked at function entry
 	return snapshotItem, rs.LoadLatestVersion()
 }
 
@@ -932,7 +943,10 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 	} else if rs.shouldUseArchivalDb(id.Version) {
 		tag := []byte("s/k:" + params.key.Name() + "/")
 		prefix := make([]byte, 8, 8+len(tag))
-		binary.BigEndian.PutUint64(prefix, uint64(id.Version))
+		if id.Version < 0 {
+			return nil, fmt.Errorf("negative version not allowed: %d", id.Version)
+		}
+		binary.BigEndian.PutUint64(prefix, uint64(id.Version)) //#nosec G115 -- bounds checked above
 		prefix = append(prefix, tag...)
 		db = dbm.NewPrefixDB(rs.archivalDb, prefix)
 		params.typ = types.StoreTypeDB

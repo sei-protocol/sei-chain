@@ -35,7 +35,7 @@ func NewStore(db db.DB, dir string) (*Store, error) {
 	if dir == "" {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "snapshot directory not given")
 	}
-	err := os.MkdirAll(dir, 0755)
+	err := os.MkdirAll(dir, 0750)
 	if err != nil {
 		return nil, sdkerrors.Wrapf(err, "failed to create snapshot directory %q", dir)
 	}
@@ -165,7 +165,7 @@ func (s *Store) Load(height uint64, format uint32) (*types.Snapshot, <-chan io.R
 // Close() on it when done.
 func (s *Store) LoadChunk(height uint64, format uint32, chunk uint32) (io.ReadCloser, error) {
 	path := s.pathChunk(height, format, chunk)
-	file, err := os.Open(path)
+	file, err := os.Open(filepath.Clean(path))
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -175,7 +175,7 @@ func (s *Store) LoadChunk(height uint64, format uint32, chunk uint32) (io.ReadCl
 // loadChunkFile loads a chunk from disk, and errors if it does not exist.
 func (s *Store) loadChunkFile(height uint64, format uint32, chunk uint32) (io.ReadCloser, error) {
 	path := s.pathChunk(height, format, chunk)
-	return os.Open(path)
+	return os.Open(filepath.Clean(path))
 }
 
 // Prune removes old snapshots. The given number of most recent heights (regardless of format) are retained.
@@ -260,7 +260,7 @@ func (s *Store) Save(
 	for chunkBody := range chunks {
 		defer chunkBody.Close() // nolint: staticcheck
 		dir := s.pathSnapshot(height, format)
-		err = os.MkdirAll(dir, 0755)
+		err = os.MkdirAll(dir, 0750)
 		if err != nil {
 			return nil, sdkerrors.Wrapf(err, "failed to create snapshot directory %q", dir)
 		}
