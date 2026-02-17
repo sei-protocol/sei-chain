@@ -326,6 +326,7 @@ type gigaBlockCache struct {
 	blockCtx    vm.BlockContext
 	chainConfig *ethparams.ChainConfig
 	baseFee     *big.Int
+	evmPool     *gigaexecutor.EVMPool
 }
 
 func newGigaBlockCache(ctx sdk.Context, keeper *gigaevmkeeper.Keeper) (*gigaBlockCache, error) {
@@ -338,11 +339,13 @@ func newGigaBlockCache(ctx sdk.Context, keeper *gigaevmkeeper.Keeper) (*gigaBloc
 	sstore := keeper.GetParams(ctx).SeiSstoreSetGasEip2200
 	chainConfig := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(chainID, &sstore)
 	baseFee := keeper.GetBaseFee(ctx)
+	evmPool := gigaexecutor.NewEVMPool(*blockCtx, chainConfig, vm.Config{}, gigaprecompiles.AllCustomPrecompilesFailFast)
 	return &gigaBlockCache{
 		chainID:     chainID,
 		blockCtx:    *blockCtx,
 		chainConfig: chainConfig,
 		baseFee:     baseFee,
+		evmPool:     evmPool,
 	}, nil
 }
 
@@ -1807,12 +1810,9 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	// Get gas pool (mutated per tx, cannot be cached)
 	gp := app.GigaEvmKeeper.GetGasPool()
 
-	// Use cached block-level constants
-	blockCtx := cache.blockCtx
-	cfg := cache.chainConfig
-
-	// Create Giga executor VM
-	gigaExecutor := gigaexecutor.NewGethExecutor(blockCtx, stateDB, cfg, vm.Config{}, gigaprecompiles.AllCustomPrecompilesFailFast)
+	// Get a pooled EVM executor (reuses EVM struct + interpreter + precompile maps)
+	gigaExecutor := cache.evmPool.GetExecutor(stateDB)
+	defer cache.evmPool.PutExecutor(gigaExecutor)
 
 	// Execute the transaction through giga VM
 	execResult, execErr := gigaExecutor.ExecuteTransaction(ethTx, sender, cache.baseFee, &gp)
