@@ -104,7 +104,6 @@ func newDefaultNode(
 			config.DefaultDBProvider,
 			nodeKey,
 			defaultGenesisDocProviderFunc(cfg),
-			appClient,
 			DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
 		)
 	}

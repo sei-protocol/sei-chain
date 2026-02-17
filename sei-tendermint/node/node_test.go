@@ -590,7 +590,6 @@ func TestNodeNewSeedNode(t *testing.T) {
 		config.DefaultDBProvider,
 		nodeKey,
 		defaultGenesisDocProviderFunc(cfg),
-		abciclient.NewLocalClient(logger, kvstore.NewApplication()),
 		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
 	)
 	t.Cleanup(ns.Wait)

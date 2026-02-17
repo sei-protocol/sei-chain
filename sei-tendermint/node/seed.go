@@ -9,6 +9,7 @@ import (
 	"time"
 
 	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
@@ -51,12 +52,13 @@ func makeSeedNode(
 	dbProvider config.DBProvider,
 	nodeKey types.NodeKey,
 	genesisDocProvider genesisDocProvider,
-	client abciclient.Client,
 	nodeMetrics *NodeMetrics,
 ) (service.Service, error) {
 	if !cfg.P2P.PexReactor {
 		return nil, errors.New("cannot run seed nodes with PEX disabled")
 	}
+
+	client := abciclient.NewLocalClient(logger, abci.NewBaseApplication())
 
 	genDoc, err := genesisDocProvider()
 	if err != nil {
