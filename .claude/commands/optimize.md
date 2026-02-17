@@ -92,3 +92,4 @@ Execute the optimization loop from benchmark/CLAUDE.md section "Optimization loo
 - Cross-session benchmark numbers are NOT comparable. Only compare within the same `benchmark-compare.sh` run.
 - Run `gofmt -s -w` on all modified Go files before committing
 - If `$ARGUMENTS` is empty or not found, ask the user to provide the function name
+- GC tuning (GOGC, GOMEMLIMIT, debug.SetGCPercent, debug.SetMemoryLimit) is NOT a valid optimization. Do not modify GC parameters or memory limits. Focus on reducing allocations and improving algorithmic efficiency instead.
