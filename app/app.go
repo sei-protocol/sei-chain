@@ -1800,8 +1800,9 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		}
 	}
 
-	// Prepare context for EVM transaction (set infinite gas meter like original flow)
-	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+	// Prepare context for EVM transaction (set infinite gas meter like original flow).
+	// Skip gaskv wrapping since gas metering is infinite - saves ~3GB allocs per 30s.
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)).WithSkipGasKV()
 
 	// Create state DB for this transaction
 	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)

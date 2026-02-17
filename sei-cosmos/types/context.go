@@ -70,6 +70,8 @@ type Context struct {
 
 	isTracing   bool
 	storeTracer gaskv.IStoreTracer
+
+	skipGasKV bool // skip gaskv wrapping in KVStore() (used by giga executor with infinite gas)
 }
 
 // Proposed rename, not done to avoid API breakage
@@ -357,6 +359,13 @@ func (c Context) WithGasMeter(meter GasMeter) Context {
 	return c
 }
 
+// WithSkipGasKV returns a Context that bypasses gaskv wrapping in KVStore().
+// Use this in hot paths like the giga executor where gas metering is infinite.
+func (c Context) WithSkipGasKV() Context {
+	c.skipGasKV = true
+	return c
+}
+
 // WithGasEstimate returns a Context with an updated gas estimate.
 func (c Context) WithGasEstimate(gasEstimate uint64) Context {
 	c.gasEstimate = gasEstimate
@@ -533,6 +542,9 @@ func (c Context) Value(key interface{}) interface{} {
 
 // KVStore fetches a KVStore from the MultiStore.
 func (c Context) KVStore(key StoreKey) KVStore {
+	if c.skipGasKV {
+		return c.MultiStore().GetKVStore(key)
+	}
 	if c.isTracing {
 		if _, ok := c.nextStoreKeys[key.Name()]; ok {
 			return gaskv.NewStore(c.nextMs.GetKVStore(key), c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
@@ -547,6 +559,9 @@ func (c Context) GigaKVStore(key StoreKey) KVStore {
 
 // TransientStore fetches a TransientStore from the MultiStore.
 func (c Context) TransientStore(key StoreKey) KVStore {
+	if c.skipGasKV {
+		return c.MultiStore().GetKVStore(key)
+	}
 	if c.isTracing {
 		if _, ok := c.nextStoreKeys[key.Name()]; ok {
 			return gaskv.NewStore(c.nextMs.GetKVStore(key), c.GasMeter(), stypes.TransientGasConfig(), key.Name(), c.StoreTracer())
