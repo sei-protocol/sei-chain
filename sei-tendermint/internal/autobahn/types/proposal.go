@@ -304,6 +304,10 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 				return nil
 			}
 		}
+		// Verify the proposal contains exactly the committee lanes (no extra non-committee lanes).
+		if got, want := len(m.proposal.Msg().laneRanges), c.Lanes().Len(); got != want {
+			return fmt.Errorf("proposal has %d lanes, committee has %d", got, want)
+		}
 		// Verify the proposal lane ranges.
 		for _, lane := range c.Lanes().All() {
 			r := m.proposal.Msg().LaneRange(lane)
