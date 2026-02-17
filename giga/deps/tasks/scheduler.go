@@ -1,7 +1,6 @@
 package tasks
 
 import (
-	"context"
 	"crypto/sha256"
 	"fmt"
 	"sort"
@@ -132,16 +131,11 @@ func (s *scheduler) invalidateTask(task *deliverTxTask) {
 	}
 }
 
-func start(ctx context.Context, ch chan func(), workers int) {
+func start(ch chan func(), workers int) {
 	for i := 0; i < workers; i++ {
 		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case work := <-ch:
-					work()
-				}
+			for work := range ch {
+				work()
 			}
 		}()
 	}
@@ -291,14 +285,14 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 		workers = len(tasks)
 	}
 
-	workerCtx, cancel := context.WithCancel(ctx.Context())
-	defer cancel()
+	defer close(s.executeCh)
+	defer close(s.validateCh)
 
 	// execution tasks are limited by workers
-	start(workerCtx, s.executeCh, workers)
+	start(s.executeCh, workers)
 
 	// validation tasks uses length of tasks to avoid blocking on validation
-	start(workerCtx, s.validateCh, len(tasks))
+	start(s.validateCh, len(tasks))
 
 	toExecute := tasks
 	for !allValidated(tasks) {
