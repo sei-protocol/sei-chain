@@ -40,27 +40,46 @@ var _ MultiVersionStore = (*Store)(nil)
 type Store struct {
 	// map that stores the key string -> MultiVersionValue mapping for accessing from a given key
 	multiVersionMap *sync.Map
-	// TODO: do we need to support iterators as well similar to how cachekv does it - yes
 
-	txWritesetKeys *sync.Map // map of tx index -> writeset keys []string
-	txReadSets     *sync.Map // map of tx index -> readset ReadSet
-	txIterateSets  *sync.Map // map of tx index -> iterateset Iterateset
+	// Per-tx data indexed by tx absolute index. Pre-allocated as slices
+	// instead of sync.Map to avoid internal hash-trie node allocations
+	// (~90 sync.Map instances eliminated per block across all stores).
+	txWritesetKeys [][]string   // tx index -> writeset keys
+	txReadSets     []ReadSet    // tx index -> readset
+	txIterateSets  []Iterateset // tx index -> iterateset
 
 	parentStore types.KVStore
 }
 
 func NewMultiVersionStore(parentStore types.KVStore) *Store {
+	return NewMultiVersionStoreWithTxCount(parentStore, 0)
+}
+
+func NewMultiVersionStoreWithTxCount(parentStore types.KVStore, txCount int) *Store {
 	return &Store{
 		multiVersionMap: &sync.Map{},
-		txWritesetKeys:  &sync.Map{},
-		txReadSets:      &sync.Map{},
-		txIterateSets:   &sync.Map{},
+		txWritesetKeys:  make([][]string, txCount),
+		txReadSets:      make([]ReadSet, txCount),
+		txIterateSets:   make([]Iterateset, txCount),
 		parentStore:     parentStore,
 	}
 }
 
+// growSlices ensures per-tx slices can hold index. Called only on the
+// fallback path when NewMultiVersionStore was used without a tx count.
+func (s *Store) growSlices(index int) {
+	need := index + 1
+	if need <= len(s.txWritesetKeys) {
+		return
+	}
+	s.txWritesetKeys = append(s.txWritesetKeys, make([][]string, need-len(s.txWritesetKeys))...)
+	s.txReadSets = append(s.txReadSets, make([]ReadSet, need-len(s.txReadSets))...)
+	s.txIterateSets = append(s.txIterateSets, make([]Iterateset, need-len(s.txIterateSets))...)
+}
+
 // VersionedIndexedStore creates a new versioned index store for a given incarnation and transaction index
 func (s *Store) VersionedIndexedStore(index int, incarnation int, abortChannel chan occ.Abort) *VersionIndexedStore {
+	s.growSlices(index)
 	return NewVersionIndexedStore(s.parentStore, s, index, incarnation, abortChannel)
 }
 
@@ -116,9 +135,12 @@ func (s *Store) removeOldWriteset(index int, newWriteSet WriteSet) {
 		writeset = newWriteSet
 	}
 	// if there is already a writeset existing, we should remove that fully
-	oldKeys, loaded := s.txWritesetKeys.LoadAndDelete(index)
-	if loaded {
-		keys := oldKeys.([]string)
+	if index >= len(s.txWritesetKeys) {
+		return
+	}
+	keys := s.txWritesetKeys[index]
+	s.txWritesetKeys[index] = nil
+	if keys != nil {
 		// we need to delete all of the keys in the writeset from the multiversion store
 		for _, key := range keys {
 			// small optimization to check if the new writeset is going to write this key, if so, we can leave it behind
@@ -138,9 +160,8 @@ func (s *Store) removeOldWriteset(index int, newWriteSet WriteSet) {
 }
 
 // SetWriteset sets a writeset for a transaction index, and also writes all of the multiversion items in the writeset to the multiversion store.
-// TODO: returns a list of NEW keys added
 func (s *Store) SetWriteset(index int, incarnation int, writeset WriteSet) {
-	// TODO: add telemetry spans
+	s.growSlices(index)
 	// remove old writeset if it exists
 	s.removeOldWriteset(index, writeset)
 
@@ -150,39 +171,37 @@ func (s *Store) SetWriteset(index int, incarnation int, writeset WriteSet) {
 		loadVal, _ := s.multiVersionMap.LoadOrStore(key, NewMultiVersionItem()) // init if necessary
 		mvVal := loadVal.(MultiVersionValue)
 		if value == nil {
-			// delete if nil value
-			// TODO: sync map
 			mvVal.Delete(index, incarnation)
 		} else {
 			mvVal.Set(index, incarnation, value)
 		}
 	}
-	sort.Strings(writeSetKeys) // TODO: if we're sorting here anyways, maybe we just put it into a btree instead of a slice
-	s.txWritesetKeys.Store(index, writeSetKeys)
+	sort.Strings(writeSetKeys)
+	s.txWritesetKeys[index] = writeSetKeys
 }
 
 // InvalidateWriteset iterates over the keys for the given index and incarnation writeset and replaces with ESTIMATEs
 func (s *Store) InvalidateWriteset(index int, incarnation int) {
-	keysAny, found := s.txWritesetKeys.Load(index)
-	if !found {
+	if index >= len(s.txWritesetKeys) {
 		return
 	}
-	keys := keysAny.([]string)
+	keys := s.txWritesetKeys[index]
+	if keys == nil {
+		return
+	}
 	for _, key := range keys {
-		// invalidate all of the writeset items - is this suboptimal? - we could potentially do concurrently if slow because locking is on an item specific level
 		val, _ := s.multiVersionMap.LoadOrStore(key, NewMultiVersionItem())
 		val.(MultiVersionValue).SetEstimate(index, incarnation)
 	}
-	// we leave the writeset in place because we'll need it for key removal later if/when we replace with a new writeset
 }
 
 // SetEstimatedWriteset is used to directly write estimates instead of writing a writeset and later invalidating
 func (s *Store) SetEstimatedWriteset(index int, incarnation int, writeset WriteSet) {
+	s.growSlices(index)
 	// remove old writeset if it exists
 	s.removeOldWriteset(index, writeset)
 
 	writeSetKeys := make([]string, 0, len(writeset))
-	// still need to save the writeset so we can remove the elements later:
 	for key := range writeset {
 		writeSetKeys = append(writeSetKeys, key)
 
@@ -190,53 +209,54 @@ func (s *Store) SetEstimatedWriteset(index int, incarnation int, writeset WriteS
 		mvVal.(MultiVersionValue).SetEstimate(index, incarnation)
 	}
 	sort.Strings(writeSetKeys)
-	s.txWritesetKeys.Store(index, writeSetKeys)
+	s.txWritesetKeys[index] = writeSetKeys
 }
 
 // GetAllWritesetKeys implements MultiVersionStore.
 func (s *Store) GetAllWritesetKeys() map[int][]string {
 	writesetKeys := make(map[int][]string)
-	// TODO: is this safe?
-	s.txWritesetKeys.Range(func(key, value interface{}) bool {
-		index := key.(int)
-		keys := value.([]string)
-		writesetKeys[index] = keys
-		return true
-	})
-
+	for i, keys := range s.txWritesetKeys {
+		if keys != nil {
+			writesetKeys[i] = keys
+		}
+	}
 	return writesetKeys
 }
 
 func (s *Store) SetReadset(index int, readset ReadSet) {
-	s.txReadSets.Store(index, readset)
+	s.growSlices(index)
+	s.txReadSets[index] = readset
 }
 
 func (s *Store) GetReadset(index int) ReadSet {
-	readsetAny, found := s.txReadSets.Load(index)
-	if !found {
+	if index >= len(s.txReadSets) {
 		return nil
 	}
-	return readsetAny.(ReadSet)
+	return s.txReadSets[index]
 }
 
 func (s *Store) SetIterateset(index int, iterateset Iterateset) {
-	s.txIterateSets.Store(index, iterateset)
+	s.growSlices(index)
+	s.txIterateSets[index] = iterateset
 }
 
 func (s *Store) GetIterateset(index int) Iterateset {
-	iteratesetAny, found := s.txIterateSets.Load(index)
-	if !found {
+	if index >= len(s.txIterateSets) {
 		return nil
 	}
-	return iteratesetAny.(Iterateset)
+	return s.txIterateSets[index]
 }
 
 func (s *Store) ClearReadset(index int) {
-	s.txReadSets.Delete(index)
+	if index < len(s.txReadSets) {
+		s.txReadSets[index] = nil
+	}
 }
 
 func (s *Store) ClearIterateset(index int) {
-	s.txIterateSets.Delete(index)
+	if index < len(s.txIterateSets) {
+		s.txIterateSets[index] = nil
+	}
 }
 
 // CollectIteratorItems implements MultiVersionStore. It will return a memDB containing all of the keys present in the multiversion store within the iteration range prior to (exclusive of) the index.
@@ -244,15 +264,16 @@ func (s *Store) CollectIteratorItems(index int) *db.MemDB {
 	sortedItems := db.NewMemDB()
 
 	// get all writeset keys prior to index
-	for i := 0; i < index; i++ {
-		writesetAny, found := s.txWritesetKeys.Load(i)
-		if !found {
+	limit := index
+	if limit > len(s.txWritesetKeys) {
+		limit = len(s.txWritesetKeys)
+	}
+	for i := 0; i < limit; i++ {
+		indexedWriteset := s.txWritesetKeys[i]
+		if indexedWriteset == nil {
 			continue
 		}
-		indexedWriteset := writesetAny.([]string)
-		// TODO: do we want to exclude keys out of the range or just let the iterator handle it?
 		for _, key := range indexedWriteset {
-			// TODO: inefficient because (logn) for each key + rebalancing? maybe theres a better way to add to a tree to reduce rebalancing overhead
 			sortedItems.Set([]byte(key), []byte{})
 		}
 	}
@@ -319,13 +340,14 @@ func (s *Store) validateIterator(index int, tracker iterationTracker) bool {
 
 func (s *Store) checkIteratorAtIndex(index int) bool {
 	valid := true
-	iterateSetAny, found := s.txIterateSets.Load(index)
-	if !found {
+	if index >= len(s.txIterateSets) {
 		return true
 	}
-	iterateset := iterateSetAny.(Iterateset)
+	iterateset := s.txIterateSets[index]
+	if iterateset == nil {
+		return true
+	}
 	for _, iterationTracker := range iterateset {
-		// TODO: if the value of the key is nil maybe we need to exclude it? - actually it should
 		iteratorValid := s.validateIterator(index, *iterationTracker)
 		valid = valid && iteratorValid
 	}
@@ -336,11 +358,13 @@ func (s *Store) checkReadsetAtIndex(index int) (bool, []int) {
 	conflictSet := make(map[int]struct{})
 	valid := true
 
-	readSetAny, found := s.txReadSets.Load(index)
-	if !found {
+	if index >= len(s.txReadSets) {
 		return true, []int{}
 	}
-	readset := readSetAny.(ReadSet)
+	readset := s.txReadSets[index]
+	if readset == nil {
+		return true, []int{}
+	}
 	// iterate over readset and check if the value is the same as the latest value relateive to txIndex in the multiversion store
 	for key, valueArr := range readset {
 		if len(valueArr) != 1 {

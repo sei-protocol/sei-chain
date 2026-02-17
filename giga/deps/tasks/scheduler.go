@@ -208,7 +208,7 @@ func (s *scheduler) collectResponses(tasks []*deliverTxTask) []types.ResponseDel
 	return res
 }
 
-func (s *scheduler) tryInitMultiVersionStore(ctx sdk.Context) {
+func (s *scheduler) tryInitMultiVersionStore(ctx sdk.Context, txCount int) {
 	if s.multiVersionStores != nil {
 		return
 	}
@@ -216,9 +216,9 @@ func (s *scheduler) tryInitMultiVersionStore(ctx sdk.Context) {
 	keys := ctx.MultiStore().StoreKeys()
 	for _, sk := range keys {
 		if ctx.GigaMultiStore().IsStoreGiga(sk) {
-			mvs[sk] = multiversion.NewMultiVersionStore(ctx.GigaKVStore(sk))
+			mvs[sk] = multiversion.NewMultiVersionStoreWithTxCount(ctx.GigaKVStore(sk), txCount)
 		} else {
-			mvs[sk] = multiversion.NewMultiVersionStore(ctx.MultiStore().GetKVStore(sk))
+			mvs[sk] = multiversion.NewMultiVersionStoreWithTxCount(ctx.MultiStore().GetKVStore(sk), txCount)
 		}
 	}
 	s.multiVersionStores = mvs
@@ -270,9 +270,15 @@ func (s *scheduler) emitMetrics() {
 func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]types.ResponseDeliverTx, error) {
 	startTime := time.Now()
 	var iterations int
-	// initialize mutli-version stores if they haven't been initialized yet
-	s.tryInitMultiVersionStore(ctx)
 	tasks, tasksMap := toTasks(reqs)
+	// Compute max absolute index for pre-allocating per-tx slices in multiversion stores
+	maxIdx := 0
+	for _, t := range tasks {
+		if t.AbsoluteIndex > maxIdx {
+			maxIdx = t.AbsoluteIndex
+		}
+	}
+	s.tryInitMultiVersionStore(ctx, maxIdx+1)
 	s.allTasks = tasks
 	s.allTasksMap = tasksMap
 	s.executeCh = make(chan func(), len(tasks))
