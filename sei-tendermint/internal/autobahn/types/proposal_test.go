@@ -215,39 +215,6 @@ func TestVerifyRejectsExtraLane(t *testing.T) {
 	require.Contains(t, err.Error(), "lanes")
 }
 
-func TestVerifyRejectsExtraLaneInflatesGlobalRange(t *testing.T) {
-	rng := utils.TestRng()
-	committee, keys := GenCommittee(rng, 4)
-	vs := ViewSpec{}
-	proposerKey := leaderKey(committee, keys, vs.View())
-
-	fp, err := NewProposal(proposerKey, committee, vs, time.Now(), nil, utils.None[*AppQC]())
-	require.NoError(t, err)
-
-	extraLane := GenSecretKey(rng).Public()
-	fakeHeader := GenBlockHeader(rng)
-	origProposal := fp.Proposal().Msg()
-	tamperedRanges := make([]*LaneRange, 0, len(origProposal.laneRanges)+1)
-	for _, r := range origProposal.laneRanges {
-		tamperedRanges = append(tamperedRanges, r)
-	}
-	tamperedRanges = append(tamperedRanges, NewLaneRange(extraLane, 0, utils.Some(fakeHeader)))
-
-	tamperedProposal := newProposal(origProposal.view, origProposal.createdAt, tamperedRanges, origProposal.app)
-	require.True(t, tamperedProposal.GlobalRange().Len() > origProposal.GlobalRange().Len(),
-		"tampered proposal should inflate GlobalRange")
-
-	maliciousFP := &FullProposal{
-		proposal:  Sign(proposerKey, tamperedProposal),
-		laneQCs:   fp.laneQCs,
-		appQC:     fp.appQC,
-		timeoutQC: fp.timeoutQC,
-	}
-	err = maliciousFP.Verify(committee, vs)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "lanes")
-}
-
 func TestVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
