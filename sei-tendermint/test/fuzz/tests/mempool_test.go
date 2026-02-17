@@ -3,10 +3,8 @@
 package tests
 
 import (
-	"context"
 	"testing"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
@@ -29,16 +27,10 @@ func (e *TestPeerEvictor) Evict(id types.NodeID, _ error) {
 func FuzzMempool(f *testing.F) {
 	app := kvstore.NewApplication()
 	logger := log.NewNopLogger()
-	conn := abciclient.NewLocalClient(logger, app)
-	err := conn.Start(context.TODO())
-	if err != nil {
-		panic(err)
-	}
-
 	cfg := config.DefaultMempoolConfig()
 	cfg.Broadcast = false
 
-	mp := mempool.NewTxMempool(logger, cfg, conn, NewTestPeerEvictor())
+	mp := mempool.NewTxMempool(logger, cfg, app, NewTestPeerEvictor())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		_ = mp.CheckTx(t.Context(), data, nil, mempool.TxInfo{})
