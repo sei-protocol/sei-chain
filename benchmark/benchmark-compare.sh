@@ -37,12 +37,14 @@ DB_BACKEND=${DB_BACKEND:-goleveldb}
 RUN_ID=${RUN_ID:-$$}
 BASE_DIR="/tmp/sei-bench-${RUN_ID}"
 
-# Auto-claim a port offset slot using atomic mkdir if not explicitly set
+# Auto-claim a port offset slot using atomic mkdir if not explicitly set.
+# Slots start at offset 1000 (not 0) so compare runs never collide with
+# standalone benchmark.sh which uses the default PORT_OFFSET=0 ports.
 PORT_SLOT_DIR=""
 if [ -z "${RUN_PORT_OFFSET+x}" ]; then
   for slot in $(seq 0 29); do
     if mkdir "/tmp/sei-bench-port-slot-${slot}" 2>/dev/null; then
-      RUN_PORT_OFFSET=$((slot * 1000))
+      RUN_PORT_OFFSET=$((1000 + slot * 1000))
       PORT_SLOT_DIR="/tmp/sei-bench-port-slot-${slot}"
       break
     fi
