@@ -30,8 +30,8 @@ BENCHMARK_CONFIG=benchmark/scenarios/erc20.json benchmark/benchmark.sh
 | Var | Default | Purpose |
 |-----|---------|---------|
 | `BENCHMARK_PHASE` | `all` | `init` (build+init+configure), `start` (run node), `all` (both) |
-| `SEI_HOME` | `$HOME/.sei` | Final chain data dir. Init uses a temp staging dir, then moves here |
-| `PORT_OFFSET` | `0` | Added to all ports (RPC, P2P, pprof, gRPC, etc.) |
+| `SEI_HOME` | `$HOME/.sei` (or `$HOME/.sei-bench-<offset>` when auto-claimed) | Final chain data dir. Init uses a temp staging dir, then moves here |
+| `PORT_OFFSET` | auto-claimed | Added to all ports (RPC, P2P, pprof, gRPC, etc.). Auto-claimed via atomic `mkdir` slots when not set, same mechanism as benchmark-compare.sh |
 | `SEID_BIN` | `""` | Pre-built binary path. If set, skip build step |
 | `LOG_FILE` | `""` | Redirect seid output to file |
 | `BENCHMARK_CONFIG` | `$SCRIPT_DIR/scenarios/evm.json` | Scenario config file (absolute path resolved from script location) |
