@@ -557,8 +557,8 @@ statesync-no-peers-available-window-seconds = 0
 # Set to 0 to disable
 blocks-behind-threshold = 0
 
-# How often to check if node is behind
-blocks-behind-check-interval = 60
+# How often to check if node is behind (in seconds)
+blocks-behind-check-interval-seconds = 60
 
 # Cooldown between each restart
 restart-cooldown-seconds = 600

@@ -1395,7 +1395,7 @@ type SelfRemediationConfig struct {
 	BlocksBehindThreshold uint64 `mapstructure:"blocks-behind-threshold"`
 
 	// How often to check if node is behind in seconds
-	BlocksBehindCheckIntervalSeconds uint64 `mapstructure:"blocks-behind-check-interval"`
+	BlocksBehindCheckIntervalSeconds uint64 `mapstructure:"blocks-behind-check-interval-seconds"`
 
 	// Cooldown between each restart
 	RestartCooldownSeconds uint64 `mapstructure:"restart-cooldown-seconds"`
@@ -1434,7 +1434,7 @@ func (cfg *SelfRemediationConfig) ValidateBasic() error {
 		return errors.New("blocks-behind-threshold exceeds max int64")
 	}
 	if cfg.BlocksBehindCheckIntervalSeconds > math.MaxInt64 {
-		return errors.New("blocks-behind-check-interval exceeds max int64")
+		return errors.New("blocks-behind-check-interval-seconds exceeds max int64")
 	}
 	if cfg.RestartCooldownSeconds > math.MaxInt64 {
 		return errors.New("restart-cooldown-seconds exceeds max int64")
