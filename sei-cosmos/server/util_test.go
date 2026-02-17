@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/signal"
 	"path"
 	"path/filepath"
 	"strings"
@@ -13,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/sdk/trace"
 
@@ -411,31 +409,21 @@ func TestWaitForQuitSignals(t *testing.T) {
 			restartCh <- struct{}{}
 		}()
 
-		err := server.WaitForQuitSignals(
-			&server.Context{Logger: log.NewNopLogger()},
-			restartCh,
-		)
+		err := server.WaitForQuitSignals(t.Context(),restartCh)
 		if !errors.Is(err, server.ErrShouldRestart) {
 			t.Errorf("Expected ErrShouldRestart, got %v", err)
 		}
 	})
 
 	t.Run("WithSIGINT", func(t *testing.T) {
-		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGINT)
-
 		go func() {
 			time.Sleep(100 * time.Millisecond)
 			syscall.Kill(syscall.Getpid(), syscall.SIGINT)
 		}()
 
-		err := server.WaitForQuitSignals(
-			&server.Context{Logger: log.NewNopLogger()},
-			make(chan struct{}),
-		).(server.ErrorCode)
-		expectedCode := int(syscall.SIGINT) + 128
-		if err.Code != expectedCode {
-			t.Errorf("Expected error code %d, got %d", expectedCode, err.Code)
+		err := server.WaitForQuitSignals(t.Context(),make(chan struct{}))
+		if err!=nil {
+			t.Fatal(err)
 		}
 	})
 
@@ -445,13 +433,9 @@ func TestWaitForQuitSignals(t *testing.T) {
 			syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
 		}()
 
-		err := server.WaitForQuitSignals(
-			&server.Context{Logger: log.NewNopLogger()},
-			make(chan struct{}),
-		).(server.ErrorCode)
-		expectedCode := int(syscall.SIGTERM) + 128
-		if err.Code != expectedCode {
-			t.Errorf("Expected error code %d, got %d", expectedCode, err.Code)
+		err := server.WaitForQuitSignals(t.Context(),make(chan struct{}))
+		if err!=nil {
+			t.Fatal(err)
 		}
 	})
 }

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -407,14 +408,12 @@ func TrapSignal(cleanupFunc func()) {
 }
 
 // WaitForQuitSignals waits for SIGINT and SIGTERM and returns.
-func WaitForQuitSignals(ctx *Context, restartCh chan struct{}) error {
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigs)
+func WaitForQuitSignals(ctx context.Context, restartCh chan struct{}) error {
+	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 	select {
-	case sig := <-sigs:
-		// TODO: why +128?
-		return ErrorCode{Code: int(sig.(syscall.Signal)) + 128}
+	case <-ctx.Done():
+		return nil
 	case <-restartCh: // blocks forever on a nil channel
 		return ErrShouldRestart
 	}
