@@ -28,7 +28,8 @@ import (
 type EventManager struct {
 	events Events
 
-	mtx sync.RWMutex
+	mtx  sync.RWMutex
+	noop bool // when true, all emit operations are no-ops (used for OCC tasks where events aren't collected)
 }
 
 // Common Event Types and Attributes
@@ -55,11 +56,20 @@ func NewEventManager() *EventManager {
 	return &em
 }
 
+// NewNoopEventManager creates an EventManager that discards all events.
+// Used in OCC task execution where events are never collected into the response.
+func NewNoopEventManager() *EventManager {
+	return &EventManager{noop: true}
+}
+
 func (em *EventManager) Events() Events { return em.events }
 
 // EmitEvent stores a single Event object.
 // Deprecated: Use EmitTypedEvent
 func (em *EventManager) EmitEvent(event Event) {
+	if em.noop {
+		return
+	}
 	em.mtx.Lock()
 	defer em.mtx.Unlock()
 	em.events = em.events.AppendEvent(event)
@@ -68,6 +78,9 @@ func (em *EventManager) EmitEvent(event Event) {
 // EmitEvents stores a series of Event objects.
 // Deprecated: Use EmitTypedEvents
 func (em *EventManager) EmitEvents(events Events) {
+	if em.noop {
+		return
+	}
 	em.mtx.Lock()
 	defer em.mtx.Unlock()
 	em.events = em.events.AppendEvents(events)
@@ -82,6 +95,9 @@ func (em *EventManager) ABCIEvents() []abci.Event {
 
 // EmitTypedEvent takes typed event and emits converting it into Event
 func (em *EventManager) EmitTypedEvent(tev proto.Message) error {
+	if em.noop {
+		return nil
+	}
 	event, err := TypedEventToEvent(tev)
 	if err != nil {
 		return err
@@ -93,6 +109,9 @@ func (em *EventManager) EmitTypedEvent(tev proto.Message) error {
 
 // EmitTypedEvents takes series of typed events and emit
 func (em *EventManager) EmitTypedEvents(tevs ...proto.Message) error {
+	if em.noop {
+		return nil
+	}
 	events := make(Events, len(tevs))
 	for i, tev := range tevs {
 		res, err := TypedEventToEvent(tev)
