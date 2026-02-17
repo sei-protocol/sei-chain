@@ -14,7 +14,7 @@ func loadLocalMeta(db db_engine.DB) (*LocalMeta, error) {
 	val, err := db.Get(DBLocalMetaKey)
 	// Check for real errors first to avoid masking I/O issues
 	if err != nil && !db_engine.IsNotFound(err) {
-		return nil, err
+		return nil, fmt.Errorf("could not get DBLocalMetaKey: %w", err)
 	}
 	// Only return default for truly missing keys
 	if db_engine.IsNotFound(err) || val == nil {

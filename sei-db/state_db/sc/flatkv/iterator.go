@@ -61,7 +61,7 @@ func newDBIterator(db db_engine.DB, kind evm.EVMKeyKind, start, end []byte) Iter
 		UpperBound: internalEnd,
 	})
 	if err != nil {
-		return &emptyIterator{}
+		return &emptyIterator{err: err}
 	}
 
 	return &dbIterator{
@@ -86,7 +86,7 @@ func newDBPrefixIterator(db db_engine.DB, kind evm.EVMKeyKind, internalPrefix []
 		UpperBound: internalEnd,
 	})
 	if err != nil {
-		return &emptyIterator{}
+		return &emptyIterator{err: err}
 	}
 
 	externalEnd := PrefixEnd(externalPrefix)
@@ -214,12 +214,15 @@ func (s *CommitStore) newCodeIterator(start, end []byte) Iterator {
 	return newDBIterator(s.codeDB, evm.EVMKeyCode, start, end)
 }
 
-// emptyIterator is used when no data matches the query
-type emptyIterator struct{}
+// emptyIterator is used when no data matches the query.
+// If err is set, it indicates a creation failure (e.g. PebbleDB error).
+type emptyIterator struct {
+	err error
+}
 
 func (it *emptyIterator) Domain() ([]byte, []byte) { return nil, nil }
 func (it *emptyIterator) Valid() bool              { return false }
-func (it *emptyIterator) Error() error             { return nil }
+func (it *emptyIterator) Error() error             { return it.err }
 func (it *emptyIterator) Close() error             { return nil }
 func (it *emptyIterator) First() bool              { return false }
 func (it *emptyIterator) Last() bool               { return false }
