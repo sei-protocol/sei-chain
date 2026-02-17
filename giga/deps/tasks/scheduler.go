@@ -490,8 +490,17 @@ func (s *scheduler) prepareTask(task *deliverTxTask) {
 
 	// if there are no stores, don't try to wrap, because there's nothing to wrap
 	if len(s.multiVersionStores) > 0 {
-		// non-blocking
-		cms := ctx.MultiStore().CacheMultiStore()
+		// non-blocking — use fast plain-map CMS when available (giga executor path)
+		parentMS := ctx.MultiStore()
+		var cms store.CacheMultiStore
+		type gigaCMS interface {
+			CacheMultiStoreGiga() store.CacheMultiStore
+		}
+		if gms, ok := parentMS.(gigaCMS); ok {
+			cms = gms.CacheMultiStoreGiga()
+		} else {
+			cms = parentMS.CacheMultiStore()
+		}
 
 		// init version stores by store key
 		vs := make(map[store.StoreKey]*multiversion.VersionIndexedStore)
