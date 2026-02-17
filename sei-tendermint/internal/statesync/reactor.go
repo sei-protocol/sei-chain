@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -169,7 +168,7 @@ type Reactor struct {
 	stateStore    sm.Store
 	blockStore    *store.BlockStore
 
-	conn         abciclient.Client
+	conn         abci.Application
 	tempDir      string
 	router       *p2p.Router
 	evict        func(types.NodeID, error)
@@ -228,7 +227,7 @@ func NewReactor(
 	initialHeight int64,
 	cfg config.StateSyncConfig,
 	logger log.Logger,
-	conn abciclient.Client,
+	conn abci.Application,
 	router *p2p.Router,
 	stateStore sm.Store,
 	blockStore *store.BlockStore,

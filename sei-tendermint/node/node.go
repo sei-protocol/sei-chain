@@ -14,7 +14,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -376,10 +375,6 @@ func makeNode(
 
 // OnStart starts the Node. It implements service.Service.
 func (n *nodeImpl) OnStart(ctx context.Context) error {
-	if err := n.rpcEnv.ProxyApp.Start(ctx); err != nil {
-		return fmt.Errorf("error starting proxy app connections: %w", err)
-	}
-
 	// EventBus and IndexerService must be started before the handshake because
 	// we might need to index the txs of the replayed block as this might not have happened
 	// when the node stopped last time (i.e. the node stopped or crashed after it saved the block
@@ -704,7 +699,7 @@ func LoadStateFromDBOrGenesisDocProvider(stateStore sm.Store, genDoc *types.Gene
 	return state, nil
 }
 
-func getRouterConfig(conf *config.Config, appClient abciclient.Client) *p2p.RouterOptions {
+func getRouterConfig(conf *config.Config, appClient abci.Application) *p2p.RouterOptions {
 	opts := p2p.RouterOptions{}
 
 	if conf.FilterPeers && appClient != nil {

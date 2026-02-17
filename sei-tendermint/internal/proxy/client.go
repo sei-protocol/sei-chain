@@ -12,7 +12,7 @@ import (
 
 // proxyClient provides the application connection.
 type proxyClient struct {
-	app types.Application 
+	app     types.Application
 	metrics *Metrics
 }
 
@@ -20,7 +20,7 @@ type proxyClient struct {
 func New(app types.Application, _ log.Logger, metrics *Metrics) types.Application {
 	return &proxyClient{
 		metrics: metrics,
-		app: app,
+		app:     app,
 	}
 }
 
@@ -54,15 +54,9 @@ func (app *proxyClient) Commit(ctx context.Context) (*types.ResponseCommit, erro
 	return app.app.Commit(ctx)
 }
 
-func (app *proxyClient) Flush(ctx context.Context) error { return nil }
-
 func (app *proxyClient) CheckTx(ctx context.Context, req *types.RequestCheckTxV2) (*types.ResponseCheckTxV2, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "check_tx", "type", "sync"))()
 	return app.app.CheckTx(ctx, req)
-}
-
-func (app *proxyClient) Echo(ctx context.Context, msg string) (*types.ResponseEcho, error) {
-	return &types.ResponseEcho{Message: msg}, nil
 }
 
 func (app *proxyClient) Info(ctx context.Context, req *types.RequestInfo) (*types.ResponseInfo, error) {

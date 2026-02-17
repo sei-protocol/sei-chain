@@ -8,7 +8,6 @@ import (
 	"math"
 	"time"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
@@ -34,7 +33,7 @@ type BlockExecutor struct {
 	blockStore BlockStore
 
 	// execute the app against this
-	appClient abciclient.Client
+	appClient abci.Application
 
 	// events
 	eventBus types.BlockEventPublisher
@@ -55,7 +54,7 @@ type BlockExecutor struct {
 func NewBlockExecutor(
 	stateStore Store,
 	logger log.Logger,
-	appClient abciclient.Client,
+	appClient abci.Application,
 	pool mempool.Mempool,
 	evpool EvidencePool,
 	blockStore BlockStore,
@@ -823,7 +822,7 @@ func FireEvents(
 func ExecCommitBlock(
 	ctx context.Context,
 	be *BlockExecutor,
-	appConn abciclient.Client,
+	appConn abci.Application,
 	block *types.Block,
 	logger log.Logger,
 	store Store,

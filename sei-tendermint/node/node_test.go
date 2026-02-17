@@ -283,8 +283,6 @@ func TestCreateProposalBlock(t *testing.T) {
 
 	app := kvstore.NewApplication()
 	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
-	err = proxyApp.Start(ctx)
-	require.NoError(t, err)
 
 	const height int64 = 1
 	state, stateDB, privVals := state(t, 1, height)
@@ -384,8 +382,6 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 
 	app := kvstore.NewApplication()
 	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
-	err = proxyApp.Start(ctx)
-	require.NoError(t, err)
 
 	const height int64 = 1
 	state, stateDB, _ := state(t, 1, height)
@@ -456,8 +452,6 @@ func TestMaxProposalBlockSize(t *testing.T) {
 
 	app := kvstore.NewApplication()
 	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
-	err = proxyApp.Start(ctx)
-	require.NoError(t, err)
 
 	state, stateDB, privVals := state(t, types.MaxVotesCount, int64(1))
 

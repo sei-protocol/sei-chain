@@ -3,7 +3,6 @@ package consensus
 import (
 	"context"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
@@ -73,7 +72,7 @@ func newMockProxyApp(
 	logger log.Logger,
 	appHash []byte,
 	finalizeBlockResponses *abci.ResponseFinalizeBlock,
-) (abciclient.Client, error) {
+) (abci.Application, error) {
 	return proxy.New(&mockProxyApp{
 		appHash:                appHash,
 		finalizeBlockResponses: finalizeBlockResponses,

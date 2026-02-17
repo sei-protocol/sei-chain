@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
@@ -37,7 +36,6 @@ type reactorTestSuite struct {
 	nodes   []types.NodeID
 
 	reactors map[types.NodeID]*Reactor
-	app      map[types.NodeID]abciclient.Client
 }
 
 func setup(
@@ -62,7 +60,6 @@ func setup(
 		network:  p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numNodes}),
 		nodes:    make([]types.NodeID, 0, numNodes),
 		reactors: make(map[types.NodeID]*Reactor, numNodes),
-		app:      make(map[types.NodeID]abciclient.Client, numNodes),
 	}
 
 	for i, nodeID := range rts.network.NodeIDs() {
@@ -74,7 +71,6 @@ func setup(
 		for _, nodeID := range rts.nodes {
 			if rts.reactors[nodeID].IsRunning() {
 				rts.reactors[nodeID].Wait()
-				rts.app[nodeID].Wait()
 
 				require.False(t, rts.reactors[nodeID].IsRunning())
 			}
@@ -97,7 +93,6 @@ func makeReactor(
 	logger := log.NewNopLogger()
 
 	app := proxy.New(abci.NewBaseApplication(), logger, proxy.NopMetrics())
-	require.NoError(t, app.Start(ctx))
 
 	blockDB := dbm.NewMemDB()
 	stateDB := dbm.NewMemDB()
@@ -164,11 +159,7 @@ func (rts *reactorTestSuite) addNode(
 ) {
 	t.Helper()
 
-	logger := log.NewNopLogger()
-
 	rts.nodes = append(rts.nodes, nodeID)
-	rts.app[nodeID] = proxy.New(abci.NewBaseApplication(), logger, proxy.NopMetrics())
-	require.NoError(t, rts.app[nodeID].Start(ctx))
 
 	remediationConfig := config.DefaultSelfRemediationConfig()
 	remediationConfig.BlocksBehindThreshold = 1000

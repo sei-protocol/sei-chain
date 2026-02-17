@@ -34,7 +34,6 @@ func TestValidateBlockHeader(t *testing.T) {
 	ctx := t.Context()
 	logger := log.NewNopLogger()
 	proxyApp := proxy.New(&testApp{}, logger, proxy.NopMetrics())
-	require.NoError(t, proxyApp.Start(ctx))
 
 	eventBus := eventbus.NewDefault(logger)
 	require.NoError(t, eventBus.Start(ctx))
@@ -141,7 +140,6 @@ func TestValidateBlockCommit(t *testing.T) {
 
 	logger := log.NewNopLogger()
 	proxyApp := proxy.New(&testApp{}, logger, proxy.NopMetrics())
-	require.NoError(t, proxyApp.Start(ctx))
 
 	eventBus := eventbus.NewDefault(logger)
 	require.NoError(t, eventBus.Start(ctx))
@@ -284,7 +282,6 @@ func TestValidateBlockEvidence(t *testing.T) {
 
 	logger := log.NewNopLogger()
 	proxyApp := proxy.New(&testApp{}, logger, proxy.NopMetrics())
-	require.NoError(t, proxyApp.Start(ctx))
 
 	state, stateDB, privVals := makeState(t, 4, 1)
 	stateStore := sm.NewStore(stateDB)

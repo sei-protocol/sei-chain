@@ -42,8 +42,6 @@ func TestApplyBlock(t *testing.T) {
 
 	ctx := t.Context()
 
-	require.NoError(t, proxyApp.Start(ctx))
-
 	eventBus := eventbus.NewDefault(logger)
 	require.NoError(t, eventBus.Start(ctx))
 
@@ -87,9 +85,6 @@ func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 	logger := log.NewNopLogger()
 	app := &testApp{}
 	appClient := proxy.New(app, logger, proxy.NopMetrics())
-
-	err := appClient.Start(ctx)
-	require.NoError(t, err)
 
 	state, stateDB, privVals := makeState(t, 7, 1)
 	stateStore := sm.NewStore(stateDB)
@@ -161,8 +156,6 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 	app := &testApp{}
 	logger := log.NewNopLogger()
 	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
 
 	state, stateDB, privVals := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
@@ -281,8 +274,6 @@ func TestProcessProposal(t *testing.T) {
 	app := abcimocks.NewApplication(t)
 	logger := log.NewNopLogger()
 	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
 
 	state, stateDB, privVals := makeState(t, 1, height)
 	stateStore := sm.NewStore(stateDB)
@@ -496,8 +487,6 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 	app := &testApp{}
 	logger := log.NewNopLogger()
 	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
 
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
@@ -579,8 +568,6 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 	app := &testApp{}
 	logger := log.NewNopLogger()
 	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
 
 	eventBus := eventbus.NewDefault(logger)
 	require.NoError(t, eventBus.Start(ctx))
@@ -620,6 +607,7 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 func TestEmptyPrepareProposal(t *testing.T) {
 	const height = 2
 	ctx := t.Context()
+	var err error
 
 	logger := log.NewNopLogger()
 
@@ -629,8 +617,6 @@ func TestEmptyPrepareProposal(t *testing.T) {
 	app := abcimocks.NewApplication(t)
 	app.On("PrepareProposal", mock.Anything, mock.Anything).Return(&abci.ResponsePrepareProposal{}, nil)
 	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
 
 	state, stateDB, privVals := makeState(t, 1, height)
 	stateStore := sm.NewStore(stateDB)
@@ -700,8 +686,6 @@ func TestPrepareProposalErrorOnNonExistingRemoved(t *testing.T) {
 	app.On("PrepareProposal", mock.Anything, mock.Anything).Return(rpp, nil)
 
 	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
@@ -727,6 +711,7 @@ func TestPrepareProposalErrorOnNonExistingRemoved(t *testing.T) {
 func TestPrepareProposalReorderTxs(t *testing.T) {
 	const height = 2
 	ctx := t.Context()
+	var err error
 
 	logger := log.NewNopLogger()
 	eventBus := eventbus.NewDefault(logger)
@@ -752,8 +737,6 @@ func TestPrepareProposalReorderTxs(t *testing.T) {
 	}, nil)
 
 	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
@@ -782,6 +765,7 @@ func TestPrepareProposalReorderTxs(t *testing.T) {
 func TestPrepareProposalErrorOnTooManyTxs(t *testing.T) {
 	const height = 2
 	ctx := t.Context()
+	var err error
 
 	logger := log.NewNopLogger()
 	eventBus := eventbus.NewDefault(logger)
@@ -810,8 +794,6 @@ func TestPrepareProposalErrorOnTooManyTxs(t *testing.T) {
 	}, nil)
 
 	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
@@ -837,6 +819,7 @@ func TestPrepareProposalErrorOnTooManyTxs(t *testing.T) {
 func TestPrepareProposalErrorOnPrepareProposalError(t *testing.T) {
 	const height = 2
 	ctx := t.Context()
+	var err error
 
 	logger := log.NewNopLogger()
 	eventBus := eventbus.NewDefault(logger)
@@ -854,8 +837,6 @@ func TestPrepareProposalErrorOnPrepareProposalError(t *testing.T) {
 
 	app := &failingPrepareProposalApp{}
 	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
@@ -937,8 +918,6 @@ func TestCreateProposalBlockPanicRecovery(t *testing.T) {
 	// Create the panicking app
 	app := &panicApp{}
 	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
-	require.NoError(t, proxyApp.Start(ctx))
-	defer proxyApp.Stop()
 
 	// Create test state and executor
 	state, stateDB, _ := makeState(t, 1, 1)
