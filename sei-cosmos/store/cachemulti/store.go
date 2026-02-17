@@ -137,27 +137,23 @@ func newCacheMultiStoreFromCMS(cms Store) Store {
 // newFastCacheMultiStoreFromCMS creates a lightweight child CMS using plain-map
 // based stores instead of sync.Map-based stores. The child CMS is intended for
 // single-goroutine use only (giga executor snapshot path).
+//
+// Stores are created lazily: only when actually accessed by the transaction.
+// This avoids allocating ~50 cachekv/FastStore wrappers per Snapshot when
+// only 3-4 stores are typically touched.
 func newFastCacheMultiStoreFromCMS(cms Store) Store {
-	// Trigger materialization of parent stores exactly like the normal path.
-	cms.materializeOnce.Do(func() {
-		cms.mu.Lock()
-		for k := range cms.parents {
-			parent := cms.parents[k]
-			var cw types.CacheWrapper = parent
-			if cms.TracingEnabled() {
-				cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
-			}
-			cms.stores[k] = cachekv.NewStore(cw.(types.KVStore), k, types.DefaultCacheSizeLimit)
-			delete(cms.parents, k)
-		}
-		cms.mu.Unlock()
-	})
-
-	// Collect parent store references.
+	// Collect both materialized stores and unmaterialized parents as parents
+	// for the child CMS. The child's getOrCreateStore will create FastStores
+	// lazily on demand, avoiding the cost of eagerly creating wrappers for
+	// all ~50 store keys.
 	cms.mu.RLock()
-	stores := make(map[types.StoreKey]types.CacheWrapper, len(cms.stores))
+	parentCount := len(cms.stores) + len(cms.parents)
+	parents := make(map[types.StoreKey]types.CacheWrapper, parentCount)
 	for k, v := range cms.stores {
-		stores[k] = v
+		parents[k] = v
+	}
+	for k, v := range cms.parents {
+		parents[k] = v
 	}
 	cms.mu.RUnlock()
 
@@ -166,7 +162,7 @@ func newFastCacheMultiStoreFromCMS(cms Store) Store {
 		gigaStores[k] = v
 	}
 
-	return newFastFromKVStore(cms.db, stores, gigaStores, cms.keys, cms.gigaKeys, cms.traceWriter, cms.traceContext)
+	return newFastFromKVStore(cms.db, parents, gigaStores, cms.keys, cms.gigaKeys, cms.traceWriter, cms.traceContext)
 }
 
 // newFastFromKVStore is like NewFromKVStore but uses plain-map FastStore types
