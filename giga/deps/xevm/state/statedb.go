@@ -15,6 +15,7 @@ import (
 // Initialized for each transaction individually
 type DBImpl struct {
 	ctx             sdk.Context
+	committedCtx    sdk.Context // original ctx for GetCommittedState (avoids one CMS clone)
 	snapshottedCtxs []sdk.Context
 
 	tempState *TemporaryState
@@ -46,6 +47,7 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 	feeCollector, _ := k.GetFeeCollectorAddress(ctx)
 	s := &DBImpl{
 		ctx:                ctx,
+		committedCtx:       ctx, // store committed state reference directly
 		k:                  k,
 		snapshottedCtxs:    []sdk.Context{},
 		coinbaseAddress:    GetCoinbaseAddress(ctx.TxIndex()),
@@ -54,7 +56,8 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 		journal:            []journalEntry{},
 		coinbaseEvmAddress: feeCollector,
 	}
-	s.Snapshot() // take an initial snapshot for GetCommitted
+	// No initial Snapshot() — committed state is accessed via committedCtx.
+	// The first real Snapshot() happens in Prepare() during EVM execution.
 	return s
 }
 
@@ -87,14 +90,13 @@ func (s *DBImpl) Cleanup() {
 
 func (s *DBImpl) CleanupForTracer() {
 	s.flushCtxs()
-	if len(s.snapshottedCtxs) > 0 {
-		s.ctx = s.snapshottedCtxs[0]
-	}
+	s.ctx = s.committedCtx
 	feeCollector, _ := s.k.GetFeeCollectorAddress(s.Ctx())
 	s.coinbaseEvmAddress = feeCollector
 	s.tempState = NewTemporaryState()
 	s.journal = []journalEntry{}
 	s.snapshottedCtxs = []sdk.Context{}
+	// For tracing, take an initial snapshot so the committed state is preserved.
 	s.Snapshot()
 }
 
@@ -112,11 +114,13 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	s.clearAccountStateIfDestructed(s.tempState)
 
 	s.flushCtxs()
-	// write all events in order
+	// write all events in order (skip [0] which is the base/committed ctx)
 	for i := 1; i < len(s.snapshottedCtxs); i++ {
 		s.flushEvents(s.snapshottedCtxs[i])
 	}
-	s.flushEvents(s.ctx)
+	if len(s.snapshottedCtxs) > 0 {
+		s.flushEvents(s.ctx)
+	}
 
 	surplus = s.tempState.surplus
 	return
@@ -141,7 +145,7 @@ func (s *DBImpl) flushCtx(ctx sdk.Context) {
 }
 
 func (s *DBImpl) flushEvents(ctx sdk.Context) {
-	s.snapshottedCtxs[0].EventManager().EmitEvents(ctx.EventManager().Events())
+	s.committedCtx.EventManager().EmitEvents(ctx.EventManager().Events())
 }
 
 // Backward-compatibility functions
