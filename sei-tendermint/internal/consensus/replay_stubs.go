@@ -50,11 +50,10 @@ func (emptyMempool) Update(
 ) error {
 	return nil
 }
-func (emptyMempool) Flush()                                 {}
-func (emptyMempool) FlushAppConn(ctx context.Context) error { return nil }
-func (emptyMempool) TxsAvailable() <-chan struct{}          { return make(chan struct{}) }
-func (emptyMempool) EnableTxsAvailable()                    {}
-func (emptyMempool) SizeBytes() int64                       { return 0 }
+func (emptyMempool) Flush()                        {}
+func (emptyMempool) TxsAvailable() <-chan struct{} { return make(chan struct{}) }
+func (emptyMempool) EnableTxsAvailable()           {}
+func (emptyMempool) SizeBytes() int64              { return 0 }
 
 func (emptyMempool) TxsFront() *clist.CElement    { return nil }
 func (emptyMempool) TxsWaitChan() <-chan struct{} { return nil }

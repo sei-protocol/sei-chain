@@ -105,7 +105,6 @@ func makeReactor(
 	mp := &mpmocks.Mempool{}
 	mp.On("Lock").Return()
 	mp.On("Unlock").Return()
-	mp.On("FlushAppConn", mock.Anything).Return(nil)
 	mp.On("Update",
 		mock.Anything,
 		mock.Anything,

@@ -241,13 +241,6 @@ func (txmp *TxMempool) PendingSizeBytes() int64 {
 	return atomic.LoadInt64(&txmp.pendingSizeBytes)
 }
 
-// FlushAppConn is kept for compatibility; it no longer needs to flush the application.
-//
-// NOTE: The caller must obtain a write-lock prior to execution.
-func (txmp *TxMempool) FlushAppConn(context.Context) error {
-	return nil
-}
-
 // WaitForNextTx returns a blocking channel that will be closed when the next
 // valid transaction is available to gossip. It is thread-safe.
 func (txmp *TxMempool) WaitForNextTx() <-chan struct{} {
