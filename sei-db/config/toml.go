@@ -111,7 +111,7 @@ const ReceiptStoreConfigTemplate = `
 
 [receipt-store]
 # Backend defines the receipt store backend.
-# Supported backends: pebble (aka pebbledb)
+# Supported backends: pebble (aka pebbledb), parquet
 # defaults to pebbledb
 rs-backend = "{{ .ReceiptStore.Backend }}"
 `
