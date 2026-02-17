@@ -28,7 +28,8 @@ import (
 type EventManager struct {
 	events Events
 
-	mtx sync.RWMutex
+	mtx        sync.RWMutex
+	suppressed bool
 }
 
 // Common Event Types and Attributes
@@ -55,11 +56,22 @@ func NewEventManager() *EventManager {
 	return &em
 }
 
+// NewSuppressedEventManager returns an EventManager that silently discards all
+// emitted events. Use this on hot paths where events are constructed but never
+// consumed (e.g. the giga executor) to avoid mutex contention, bech32 encoding
+// in event attributes, and allocation overhead.
+func NewSuppressedEventManager() *EventManager {
+	return &EventManager{suppressed: true}
+}
+
 func (em *EventManager) Events() Events { return em.events }
 
 // EmitEvent stores a single Event object.
 // Deprecated: Use EmitTypedEvent
 func (em *EventManager) EmitEvent(event Event) {
+	if em.suppressed {
+		return
+	}
 	em.mtx.Lock()
 	defer em.mtx.Unlock()
 	em.events = em.events.AppendEvent(event)
@@ -68,6 +80,9 @@ func (em *EventManager) EmitEvent(event Event) {
 // EmitEvents stores a series of Event objects.
 // Deprecated: Use EmitTypedEvents
 func (em *EventManager) EmitEvents(events Events) {
+	if em.suppressed {
+		return
+	}
 	em.mtx.Lock()
 	defer em.mtx.Unlock()
 	em.events = em.events.AppendEvents(events)

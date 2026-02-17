@@ -327,6 +327,10 @@ type gigaBlockCache struct {
 	blockCtx    vm.BlockContext
 	chainConfig *ethparams.ChainConfig
 	baseFee     *big.Int
+
+	// when true, Cosmos-level events (coin_spent, coin_received, etc.) are
+	// discarded during giga executor tx execution.  EVM logs are unaffected.
+	suppressCosmosEvents bool
 }
 
 func newGigaBlockCache(ctx sdk.Context, keeper *gigaevmkeeper.Keeper) (*gigaBlockCache, error) {
@@ -340,10 +344,11 @@ func newGigaBlockCache(ctx sdk.Context, keeper *gigaevmkeeper.Keeper) (*gigaBloc
 	chainConfig := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(chainID, &sstore)
 	baseFee := keeper.GetBaseFee(ctx)
 	return &gigaBlockCache{
-		chainID:     chainID,
-		blockCtx:    *blockCtx,
-		chainConfig: chainConfig,
-		baseFee:     baseFee,
+		chainID:              chainID,
+		blockCtx:             *blockCtx,
+		chainConfig:          chainConfig,
+		baseFee:              baseFee,
+		suppressCosmosEvents: os.Getenv("GIGA_SUPPRESS_COSMOS_EVENTS") == "true",
 	}, nil
 }
 
@@ -1793,6 +1798,9 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 
 	// Create state DB for this transaction
 	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)
+	if cache.suppressCosmosEvents {
+		stateDB.SuppressCosmosEvents()
+	}
 	defer stateDB.Cleanup()
 
 	// Get gas pool (mutated per tx, cannot be cached)
