@@ -50,7 +50,7 @@ func TestNodeStartStop(t *testing.T) {
 
 	logger := log.NewNopLogger()
 	// create & start node
-	ns, err := newDefaultNode(ctx, cfg, logger, make(chan struct{}))
+	ns, err := newDefaultNode(ctx, cfg, logger, func() {})
 	require.NoError(t, err)
 
 	n, ok := ns.(*nodeImpl)
@@ -83,7 +83,7 @@ func TestNodeStartStop(t *testing.T) {
 func getTestNode(ctx context.Context, t *testing.T, conf *config.Config, logger log.Logger) *nodeImpl {
 	t.Helper()
 
-	ns, err := newDefaultNode(ctx, conf, logger, make(chan struct{}))
+	ns, err := newDefaultNode(ctx, conf, logger, func() {})
 	require.NoError(t, err)
 
 	n, ok := ns.(*nodeImpl)
@@ -200,7 +200,7 @@ func TestPrivValidatorListenAddrNoProtocol(t *testing.T) {
 
 	logger := log.NewNopLogger()
 
-	n, err := newDefaultNode(ctx, cfg, logger, make(chan struct{}))
+	n, err := newDefaultNode(ctx, cfg, logger, func() {})
 
 	assert.Error(t, err)
 
@@ -585,10 +585,8 @@ func TestNodeNewSeedNode(t *testing.T) {
 	logger := log.NewNopLogger()
 
 	ns, err := makeSeedNode(
-		ctx,
 		logger,
 		cfg,
-		make(chan struct{}),
 		config.DefaultDBProvider,
 		nodeKey,
 		defaultGenesisDocProviderFunc(cfg),
@@ -623,7 +621,7 @@ func TestNodeSetEventSink(t *testing.T) {
 
 	logger := log.NewNopLogger()
 
-	setupTest := func(t *testing.T, conf *config.Config) []indexer.EventSink {
+	setupTest := func(t *testing.T) []indexer.EventSink {
 		eventBus := eventbus.NewDefault(logger.With("module", "events"))
 		require.NoError(t, eventBus.Start(ctx))
 
@@ -652,36 +650,36 @@ func TestNodeSetEventSink(t *testing.T) {
 		}
 	}
 
-	eventSinks := setupTest(t, cfg)
+	eventSinks := setupTest(t)
 	assert.Equal(t, 1, len(eventSinks))
 	assert.Equal(t, indexer.KV, eventSinks[0].Type())
 
 	cfg.TxIndex.Indexer = []string{"null"}
-	eventSinks = setupTest(t, cfg)
+	eventSinks = setupTest(t)
 
 	assert.Equal(t, 1, len(eventSinks))
 	assert.Equal(t, indexer.NULL, eventSinks[0].Type())
 
 	cfg.TxIndex.Indexer = []string{"null", "kv"}
-	eventSinks = setupTest(t, cfg)
+	eventSinks = setupTest(t)
 
 	assert.Equal(t, 1, len(eventSinks))
 	assert.Equal(t, indexer.NULL, eventSinks[0].Type())
 
 	cfg.TxIndex.Indexer = []string{"kvv"}
-	ns, err := newDefaultNode(ctx, cfg, logger, make(chan struct{}))
+	ns, err := newDefaultNode(ctx, cfg, logger, func() {})
 	assert.Nil(t, ns)
 	assert.Contains(t, err.Error(), "unsupported event sink type")
 	t.Cleanup(cleanup(ns))
 
 	cfg.TxIndex.Indexer = []string{}
-	eventSinks = setupTest(t, cfg)
+	eventSinks = setupTest(t)
 
 	assert.Equal(t, 1, len(eventSinks))
 	assert.Equal(t, indexer.NULL, eventSinks[0].Type())
 
 	cfg.TxIndex.Indexer = []string{"psql"}
-	ns, err = newDefaultNode(ctx, cfg, logger, make(chan struct{}))
+	ns, err = newDefaultNode(ctx, cfg, logger, func() {})
 	assert.Nil(t, ns)
 	assert.Contains(t, err.Error(), "the psql connection settings cannot be empty")
 	t.Cleanup(cleanup(ns))
@@ -691,13 +689,13 @@ func TestNodeSetEventSink(t *testing.T) {
 
 	var e = errors.New("found duplicated sinks, please check the tx-index section in the config.toml")
 	cfg.TxIndex.Indexer = []string{"null", "kv", "Kv"}
-	ns, err = newDefaultNode(ctx, cfg, logger, make(chan struct{}))
+	ns, err = newDefaultNode(ctx, cfg, logger, func() {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), e.Error())
 	t.Cleanup(cleanup(ns))
 
 	cfg.TxIndex.Indexer = []string{"Null", "kV", "kv", "nUlL"}
-	ns, err = newDefaultNode(ctx, cfg, logger, make(chan struct{}))
+	ns, err = newDefaultNode(ctx, cfg, logger, func() {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), e.Error())
 	t.Cleanup(cleanup(ns))

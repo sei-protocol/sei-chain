@@ -25,9 +25,6 @@ func main() {
 		panic(err)
 	}
 
-	// A stop gap solution to restart the node for certain failures (such as network partition)
-	restartCh := make(chan struct{})
-
 	rcmd := commands.RootCommand(conf, logger)
 	rcmd.AddCommand(
 		commands.MakeGenValidatorCommand(),
@@ -60,7 +57,7 @@ func main() {
 	nodeFunc := node.NewDefault
 
 	// Create & start node
-	rcmd.AddCommand(commands.NewRunNodeCmd(nodeFunc, conf, logger, restartCh))
+	rcmd.AddCommand(commands.NewRunNodeCmd(nodeFunc, conf, logger))
 
 	if err := cli.RunWithTrace(ctx, rcmd); err != nil {
 		panic(err)

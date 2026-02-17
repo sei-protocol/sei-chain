@@ -17,6 +17,15 @@ var ErrBadLane = errors.New("bad lane")
 const BlocksPerLane = 3 * BlocksPerLanePerCommit
 const BlocksPerLanePerCommit = 10
 
+// State represents the Data Availability Plane and Ordered Event Log.
+// Although it resides in a sub-package, it serves as the "source of truth" for:
+// - Block data: storing and disseminating raw transaction payloads (lanes).
+// - Finality tracking: acting as a persistent buffer for CommitQCs and AppQCs.
+// - Pruning: managing memory by deleting data once enough execution proofs (AppVotes) are seen.
+//
+// NOTE: This component is more than an observer; it actively aggregates AppVotes
+// to trigger internal pruning, which allows it to manage memory independently
+// of the main consensus loop.
 // State is the block availability state provided by the node for consensus.
 // It contains:
 // * commitQCs
@@ -160,7 +169,11 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		if !ok {
 			return nil
 		}
-		if inner.prune(appQC, qc) {
+		updated, err := inner.prune(appQC, qc)
+		if err != nil {
+			return err
+		}
+		if updated {
 			ctrl.Updated()
 		}
 	}
@@ -177,13 +190,20 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 		}
 	}
 	if err := appQC.Verify(s.data.Committee()); err != nil {
-		return fmt.Errorf("appQC.Proposal().VerifyAgainstCommitQC(commitQC): %w", err)
+		return fmt.Errorf("appQC.Verify(): %w", err)
 	}
 	if err := commitQC.Verify(s.data.Committee()); err != nil {
 		return fmt.Errorf("commitQC.Verify(): %w", err)
 	}
+	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
+		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
+	}
 	for inner, ctrl := range s.inner.Lock() {
-		if inner.prune(appQC, commitQC) {
+		updated, err := inner.prune(appQC, commitQC)
+		if err != nil {
+			return err
+		}
+		if updated {
 			ctrl.Updated()
 		}
 	}

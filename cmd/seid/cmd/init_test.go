@@ -236,6 +236,49 @@ func TestModeConfigurationMatrix(t *testing.T) {
 	}
 }
 
+// TestCheckConfigOverwrite verifies that init refuses to overwrite existing config unless --overwrite is set.
+func TestCheckConfigOverwrite(t *testing.T) {
+	t.Run("no config files", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config")
+		require.NoError(t, os.MkdirAll(configPath, 0755))
+		require.NoError(t, checkConfigOverwrite(configPath, false))
+		require.NoError(t, checkConfigOverwrite(configPath, true))
+	})
+
+	t.Run("config.toml exists without overwrite", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config")
+		require.NoError(t, os.MkdirAll(configPath, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(configPath, "config.toml"), []byte("# test"), 0644))
+
+		err := checkConfigOverwrite(configPath, false)
+		require.ErrorContains(t, err, "configuration files already exist")
+		require.ErrorContains(t, err, "--overwrite")
+		require.NoError(t, checkConfigOverwrite(configPath, true))
+	})
+
+	t.Run("app.toml exists without overwrite", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config")
+		require.NoError(t, os.MkdirAll(configPath, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(configPath, "app.toml"), []byte("# test"), 0644))
+
+		err := checkConfigOverwrite(configPath, false)
+		require.ErrorContains(t, err, "configuration files already exist")
+		require.NoError(t, checkConfigOverwrite(configPath, true))
+	})
+
+	t.Run("both exist with overwrite", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config")
+		require.NoError(t, os.MkdirAll(configPath, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(configPath, "config.toml"), []byte("# test"), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(configPath, "app.toml"), []byte("# test"), 0644))
+		require.NoError(t, checkConfigOverwrite(configPath, true))
+	})
+}
+
 // TestLoadOrWriteGenesis_ExplicitConfigWins: existing genesis + no overwrite leaves file unchanged.
 func TestLoadOrWriteGenesis_ExplicitConfigWins(t *testing.T) {
 	dir := t.TempDir()

@@ -215,7 +215,7 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 	err := validateBlock(state, block)
 	if err != nil {
 		// Check if this is a LastResultsHash mismatch and log detailed info
-		if !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
+		if !types.SkipLastResultsHashValidation.Load() && !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
 			blockExec.logger.Error("LastResultsHash mismatch detected",
 				"height", block.Height,
 				"expectedHash", fmt.Sprintf("%X", state.LastResultsHash),
