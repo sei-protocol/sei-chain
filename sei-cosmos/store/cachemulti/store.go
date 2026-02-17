@@ -39,6 +39,12 @@ type Store struct {
 	closers []io.Closer
 
 	fast bool // when true, lazy store creation uses FastStore (plain maps)
+
+	// Lazy OCC handlers: when set, stores/gigaStores are created on-demand
+	// rather than eagerly for all keys. Only stores actually accessed during
+	// transaction execution are materialized.
+	kvHandler   func(types.StoreKey) types.CacheWrap
+	gigaHandler func(types.StoreKey) types.KVStore
 }
 
 var _ types.CacheMultiStore = Store{}
@@ -223,6 +229,16 @@ func (cms Store) getOrCreateStore(key types.StoreKey) types.CacheWrap {
 	if s, ok := cms.stores[key]; ok {
 		return s
 	}
+
+	// OCC lazy handler path: create VersionIndexedStore on demand.
+	if cms.kvHandler != nil {
+		s := cms.kvHandler(key)
+		if s != nil {
+			cms.stores[key] = s
+		}
+		return s
+	}
+
 	parent, ok := cms.parents[key]
 	if !ok {
 		return nil
@@ -311,42 +327,17 @@ func (cms Store) CacheMultiStoreGiga() types.CacheMultiStore {
 	return newFastCacheMultiStoreFromCMS(cms)
 }
 
-// CacheMultiStoreForOCC creates a hollow CMS where all stores are directly
-// provided by the caller via handler functions. Unlike CacheMultiStoreGiga,
-// this skips creating intermediate cachekv/FastStore instances, avoiding
-// allocations that would be immediately discarded when the OCC scheduler
-// replaces all stores with VersionIndexedStores.
+// CacheMultiStoreForOCC creates a hollow CMS where stores are created lazily
+// on first access via the provided handler functions. Unlike the previous
+// eager approach, this avoids creating VersionIndexedStores for all ~30 store
+// keys when only 3-4 are actually accessed per EVM transaction.
 func (cms Store) CacheMultiStoreForOCC(
 	kvHandler func(sk types.StoreKey) types.CacheWrap,
 	gigaHandler func(sk types.StoreKey) types.KVStore,
 ) types.CacheMultiStore {
-	// Trigger materialization of parent stores so we know all store keys.
-	cms.materializeOnce.Do(func() {
-		cms.mu.Lock()
-		for k := range cms.parents {
-			parent := cms.parents[k]
-			var cw types.CacheWrapper = parent
-			if cms.TracingEnabled() {
-				cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
-			}
-			cms.stores[k] = cachekv.NewStore(cw.(types.KVStore), k, types.DefaultCacheSizeLimit)
-			delete(cms.parents, k)
-		}
-		cms.mu.Unlock()
-	})
-
-	// Collect all known store keys.
-	cms.mu.RLock()
-	storeKeys := make([]types.StoreKey, 0, len(cms.stores))
-	for k := range cms.stores {
-		storeKeys = append(storeKeys, k)
-	}
-	cms.mu.RUnlock()
-
-	// Build a minimal CMS with stores populated directly from handlers.
-	result := Store{
+	return Store{
 		db:              cachekv.NewFastStore(cms.db, nil),
-		stores:          make(map[types.StoreKey]types.CacheWrap, len(storeKeys)),
+		stores:          make(map[types.StoreKey]types.CacheWrap, 8),
 		parents:         make(map[types.StoreKey]types.CacheWrapper),
 		keys:            cms.keys,
 		gigaKeys:        cms.gigaKeys,
@@ -356,16 +347,9 @@ func (cms Store) CacheMultiStoreForOCC(
 		mu:              &sync.RWMutex{},
 		materializeOnce: &sync.Once{},
 		fast:            true,
+		kvHandler:       kvHandler,
+		gigaHandler:     gigaHandler,
 	}
-
-	for _, k := range storeKeys {
-		result.stores[k] = kvHandler(k)
-	}
-	for _, k := range cms.gigaKeys {
-		result.gigaStores[k] = gigaHandler(k)
-	}
-
-	return result
 }
 
 // CacheMultiStoreWithVersion implements the MultiStore interface. It will panic
@@ -397,15 +381,37 @@ func (cms Store) GetKVStore(key types.StoreKey) types.KVStore {
 
 func (cms Store) GetGigaKVStore(key types.StoreKey) types.KVStore {
 	store := cms.gigaStores[key]
-	if key == nil || store == nil {
+	if store != nil {
+		return store
+	}
+	// Lazy OCC handler path: create on demand.
+	if cms.gigaHandler != nil {
+		s := cms.gigaHandler(key)
+		if s != nil {
+			cms.gigaStores[key] = s
+			return s
+		}
+	}
+	if key == nil {
 		panic(fmt.Sprintf("giga kv store with key %v has not been registered in stores", key))
 	}
-	return store
+	panic(fmt.Sprintf("giga kv store with key %v has not been registered in stores", key))
 }
 
 func (cms Store) IsStoreGiga(key types.StoreKey) bool {
-	_, ok := cms.gigaStores[key]
-	return ok
+	if _, ok := cms.gigaStores[key]; ok {
+		return true
+	}
+	// With lazy OCC stores, gigaStores may not be populated yet.
+	// Check gigaKeys list if a gigaHandler is set.
+	if cms.gigaHandler != nil {
+		for _, gk := range cms.gigaKeys {
+			if gk == key {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (cms Store) GetWorkingHash() ([]byte, error) {

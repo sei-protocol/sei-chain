@@ -484,17 +484,27 @@ func (s *scheduler) prepareTask(task *deliverTxTask) {
 
 	// if there are no stores, don't try to wrap, because there's nothing to wrap
 	if len(s.multiVersionStores) > 0 {
-		// init version stores by store key
-		vs := make(map[store.StoreKey]*multiversion.VersionIndexedStore)
-		for storeKey, mvs := range s.multiVersionStores {
-			vs[storeKey] = mvs.VersionedIndexedStore(task.AbsoluteIndex, task.Incarnation, abortCh)
+		// Lazy VersionIndexedStore creation: only create stores that are
+		// actually accessed during tx execution (typically 3-4 out of ~30).
+		vs := make(map[store.StoreKey]*multiversion.VersionIndexedStore, 8)
+		getOrCreateVS := func(k store.StoreKey) *multiversion.VersionIndexedStore {
+			if v, ok := vs[k]; ok {
+				return v
+			}
+			mvs, ok := s.multiVersionStores[k]
+			if !ok {
+				return nil
+			}
+			v := mvs.VersionedIndexedStore(task.AbsoluteIndex, task.Incarnation, abortCh)
+			vs[k] = v
+			return v
 		}
 
-		// save off version store so we can ask it things later
+		// save off version store map so we can ask it things later
 		task.VersionStores = vs
 
 		// Try the fast OCC path: create a hollow CMS with stores populated
-		// directly from VersionIndexedStores, skipping intermediate store creation.
+		// lazily from VersionIndexedStores on first access.
 		type occPreparer interface {
 			CacheMultiStoreForOCC(
 				func(store.StoreKey) store.CacheWrap,
@@ -504,12 +514,15 @@ func (s *scheduler) prepareTask(task *deliverTxTask) {
 		parentMS := ctx.MultiStore()
 		if occ, ok := parentMS.(occPreparer); ok {
 			ms := occ.CacheMultiStoreForOCC(
-				func(k store.StoreKey) store.CacheWrap { return vs[k] },
-				func(k store.StoreKey) store.KVStore { return vs[k] },
+				func(k store.StoreKey) store.CacheWrap { return getOrCreateVS(k) },
+				func(k store.StoreKey) store.KVStore { return getOrCreateVS(k) },
 			)
 			ctx = ctx.WithMultiStore(ms)
 		} else {
-			// Fallback: create full CMS and replace stores
+			// Fallback: eagerly create all stores
+			for storeKey, mvs := range s.multiVersionStores {
+				vs[storeKey] = mvs.VersionedIndexedStore(task.AbsoluteIndex, task.Incarnation, abortCh)
+			}
 			cms := parentMS.CacheMultiStore()
 			ms := cms.SetKVStores(func(k store.StoreKey, kvs sdk.KVStore) store.CacheWrap {
 				return vs[k]
