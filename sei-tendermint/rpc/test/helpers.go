@@ -104,7 +104,7 @@ func StartTendermint(
 		ctx,
 		conf,
 		logger,
-		make(chan struct{}),
+		func() {},
 		papp,
 		nil,
 		[]trace.TracerProviderOption{},
