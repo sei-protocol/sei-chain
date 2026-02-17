@@ -40,6 +40,19 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+func newLocalNodeService(ctx context.Context, cfg *config.Config, logger log.Logger) (service.Service, error) {
+	return New(
+		ctx,
+		cfg,
+		logger,
+		func() {},
+		kvstore.NewApplication(),
+		nil,
+		nil,
+		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
+	)
+}
+
 func TestNodeStartStop(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_node_test")
 	require.NoError(t, err)
@@ -50,7 +63,7 @@ func TestNodeStartStop(t *testing.T) {
 
 	logger := log.NewNopLogger()
 	// create & start node
-	ns, err := newDefaultNode(ctx, cfg, logger, func() {})
+	ns, err := newLocalNodeService(ctx, cfg, logger)
 	require.NoError(t, err)
 
 	n, ok := ns.(*nodeImpl)
@@ -83,7 +96,7 @@ func TestNodeStartStop(t *testing.T) {
 func getTestNode(ctx context.Context, t *testing.T, conf *config.Config, logger log.Logger) *nodeImpl {
 	t.Helper()
 
-	ns, err := newDefaultNode(ctx, conf, logger, func() {})
+	ns, err := newLocalNodeService(ctx, conf, logger)
 	require.NoError(t, err)
 
 	n, ok := ns.(*nodeImpl)
@@ -200,7 +213,9 @@ func TestPrivValidatorListenAddrNoProtocol(t *testing.T) {
 
 	logger := log.NewNopLogger()
 
-	n, err := newDefaultNode(ctx, cfg, logger, func() {})
+	ns, err := newLocalNodeService(ctx, cfg, logger)
+
+	n, _ := ns.(*nodeImpl)
 
 	assert.Error(t, err)
 
@@ -666,7 +681,7 @@ func TestNodeSetEventSink(t *testing.T) {
 	assert.Equal(t, indexer.NULL, eventSinks[0].Type())
 
 	cfg.TxIndex.Indexer = []string{"kvv"}
-	ns, err := newDefaultNode(ctx, cfg, logger, func() {})
+	ns, err := newLocalNodeService(ctx, cfg, logger)
 	assert.Nil(t, ns)
 	assert.Contains(t, err.Error(), "unsupported event sink type")
 	t.Cleanup(cleanup(ns))
@@ -678,7 +693,7 @@ func TestNodeSetEventSink(t *testing.T) {
 	assert.Equal(t, indexer.NULL, eventSinks[0].Type())
 
 	cfg.TxIndex.Indexer = []string{"psql"}
-	ns, err = newDefaultNode(ctx, cfg, logger, func() {})
+	ns, err = newLocalNodeService(ctx, cfg, logger)
 	assert.Nil(t, ns)
 	assert.Contains(t, err.Error(), "the psql connection settings cannot be empty")
 	t.Cleanup(cleanup(ns))
@@ -688,13 +703,13 @@ func TestNodeSetEventSink(t *testing.T) {
 
 	var e = errors.New("found duplicated sinks, please check the tx-index section in the config.toml")
 	cfg.TxIndex.Indexer = []string{"null", "kv", "Kv"}
-	ns, err = newDefaultNode(ctx, cfg, logger, func() {})
+	ns, err = newLocalNodeService(ctx, cfg, logger)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), e.Error())
 	t.Cleanup(cleanup(ns))
 
 	cfg.TxIndex.Indexer = []string{"Null", "kV", "kv", "nUlL"}
-	ns, err = newDefaultNode(ctx, cfg, logger, func() {})
+	ns, err = newLocalNodeService(ctx, cfg, logger)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), e.Error())
 	t.Cleanup(cleanup(ns))
