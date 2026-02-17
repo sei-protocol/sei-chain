@@ -37,6 +37,8 @@ type Store struct {
 	materializeOnce *sync.Once
 
 	closers []io.Closer
+
+	fast bool // when true, lazy store creation uses FastStore (plain maps)
 }
 
 var _ types.CacheMultiStore = Store{}
@@ -132,6 +134,75 @@ func newCacheMultiStoreFromCMS(cms Store) Store {
 	return NewFromKVStore(cms.db, stores, gigaStores, cms.keys, cms.gigaKeys, cms.traceWriter, cms.traceContext)
 }
 
+// newFastCacheMultiStoreFromCMS creates a lightweight child CMS using plain-map
+// based stores instead of sync.Map-based stores. The child CMS is intended for
+// single-goroutine use only (giga executor snapshot path).
+//
+// Stores are created lazily: only when actually accessed by the transaction.
+// This avoids allocating ~50 cachekv/FastStore wrappers per Snapshot when
+// only 3-4 stores are typically touched.
+func newFastCacheMultiStoreFromCMS(cms Store) Store {
+	// Collect both materialized stores and unmaterialized parents as parents
+	// for the child CMS. The child's getOrCreateStore will create FastStores
+	// lazily on demand, avoiding the cost of eagerly creating wrappers for
+	// all ~50 store keys.
+	cms.mu.RLock()
+	parentCount := len(cms.stores) + len(cms.parents)
+	parents := make(map[types.StoreKey]types.CacheWrapper, parentCount)
+	for k, v := range cms.stores {
+		parents[k] = v
+	}
+	for k, v := range cms.parents {
+		parents[k] = v
+	}
+	cms.mu.RUnlock()
+
+	gigaStores := make(map[types.StoreKey]types.KVStore, len(cms.gigaStores))
+	for k, v := range cms.gigaStores {
+		gigaStores[k] = v
+	}
+
+	return newFastFromKVStore(cms.db, parents, gigaStores, cms.keys, cms.gigaKeys, cms.traceWriter, cms.traceContext)
+}
+
+// newFastFromKVStore is like NewFromKVStore but uses plain-map FastStore types
+// instead of sync.Map-based stores. Single-goroutine use only.
+func newFastFromKVStore(
+	store types.KVStore, stores map[types.StoreKey]types.CacheWrapper,
+	gigaStores map[types.StoreKey]types.KVStore,
+	keys map[string]types.StoreKey, gigaKeys []types.StoreKey,
+	traceWriter io.Writer, traceContext types.TraceContext,
+) Store {
+	cms := Store{
+		db:              cachekv.NewFastStore(store, nil),
+		stores:          make(map[types.StoreKey]types.CacheWrap, len(stores)),
+		parents:         make(map[types.StoreKey]types.CacheWrapper, len(stores)),
+		keys:            keys,
+		gigaKeys:        gigaKeys,
+		traceWriter:     traceWriter,
+		traceContext:    traceContext,
+		mu:              &sync.RWMutex{},
+		materializeOnce: &sync.Once{},
+		fast:            true,
+	}
+
+	for key, s := range stores {
+		cms.parents[key] = s
+	}
+
+	cms.gigaStores = make(map[types.StoreKey]types.KVStore, len(gigaKeys))
+	for _, key := range gigaKeys {
+		if gigaStore, ok := gigaStores[key]; ok {
+			cms.gigaStores[key] = gigacachekv.NewFastStore(gigaStore, key)
+		} else {
+			parent := stores[key].(types.KVStore)
+			cms.gigaStores[key] = gigacachekv.NewFastStore(parent, key)
+		}
+	}
+
+	return cms
+}
+
 // getOrCreateStore lazily creates a cachekv store from its parent on first access.
 // Thread-safe: concurrent callers (e.g. slashing BeginBlocker goroutines) may
 // call GetKVStore on the same CMS simultaneously.
@@ -160,7 +231,12 @@ func (cms Store) getOrCreateStore(key types.StoreKey) types.CacheWrap {
 	if cms.TracingEnabled() {
 		cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
 	}
-	s := cachekv.NewStore(cw.(types.KVStore), key, types.DefaultCacheSizeLimit)
+	var s types.CacheWrap
+	if cms.fast {
+		s = cachekv.NewFastStore(cw.(types.KVStore), key)
+	} else {
+		s = cachekv.NewStore(cw.(types.KVStore), key, types.DefaultCacheSizeLimit)
+	}
 	cms.stores[key] = s
 	delete(cms.parents, key)
 	return s
@@ -226,6 +302,70 @@ func (cms Store) CacheWrapWithTrace(storeKey types.StoreKey, _ io.Writer, _ type
 // Implements MultiStore.
 func (cms Store) CacheMultiStore() types.CacheMultiStore {
 	return newCacheMultiStoreFromCMS(cms)
+}
+
+// CacheMultiStoreGiga creates a lightweight CMS using plain-map stores.
+// Only safe when the returned CMS will be used by a single goroutine (e.g.
+// giga executor snapshots within a single OCC task).
+func (cms Store) CacheMultiStoreGiga() types.CacheMultiStore {
+	return newFastCacheMultiStoreFromCMS(cms)
+}
+
+// CacheMultiStoreForOCC creates a hollow CMS where all stores are directly
+// provided by the caller via handler functions. Unlike CacheMultiStoreGiga,
+// this skips creating intermediate cachekv/FastStore instances, avoiding
+// allocations that would be immediately discarded when the OCC scheduler
+// replaces all stores with VersionIndexedStores.
+func (cms Store) CacheMultiStoreForOCC(
+	kvHandler func(sk types.StoreKey) types.CacheWrap,
+	gigaHandler func(sk types.StoreKey) types.KVStore,
+) types.CacheMultiStore {
+	// Trigger materialization of parent stores so we know all store keys.
+	cms.materializeOnce.Do(func() {
+		cms.mu.Lock()
+		for k := range cms.parents {
+			parent := cms.parents[k]
+			var cw types.CacheWrapper = parent
+			if cms.TracingEnabled() {
+				cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
+			}
+			cms.stores[k] = cachekv.NewStore(cw.(types.KVStore), k, types.DefaultCacheSizeLimit)
+			delete(cms.parents, k)
+		}
+		cms.mu.Unlock()
+	})
+
+	// Collect all known store keys.
+	cms.mu.RLock()
+	storeKeys := make([]types.StoreKey, 0, len(cms.stores))
+	for k := range cms.stores {
+		storeKeys = append(storeKeys, k)
+	}
+	cms.mu.RUnlock()
+
+	// Build a minimal CMS with stores populated directly from handlers.
+	result := Store{
+		db:              cachekv.NewFastStore(cms.db, nil),
+		stores:          make(map[types.StoreKey]types.CacheWrap, len(storeKeys)),
+		parents:         make(map[types.StoreKey]types.CacheWrapper),
+		keys:            cms.keys,
+		gigaKeys:        cms.gigaKeys,
+		gigaStores:      make(map[types.StoreKey]types.KVStore, len(cms.gigaKeys)),
+		traceWriter:     cms.traceWriter,
+		traceContext:    cms.traceContext,
+		mu:              &sync.RWMutex{},
+		materializeOnce: &sync.Once{},
+		fast:            true,
+	}
+
+	for _, k := range storeKeys {
+		result.stores[k] = kvHandler(k)
+	}
+	for _, k := range cms.gigaKeys {
+		result.gigaStores[k] = gigaHandler(k)
+	}
+
+	return result
 }
 
 // CacheMultiStoreWithVersion implements the MultiStore interface. It will panic
