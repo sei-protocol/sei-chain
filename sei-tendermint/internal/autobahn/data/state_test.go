@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"maps"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
@@ -106,6 +108,76 @@ func TestState(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+	state := NewState(&Config{
+		Committee: committee,
+	}, utils.None[BlockStore]())
+
+	// Push a valid QC to advance inner.nextQC.
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
+	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
+	nextQC := qc1.QC().GlobalRange().Next
+
+	// Construct a malicious QC signed by non-committee keys.
+	// It starts from block 0 (stale) but extends beyond nextQC.
+	badKeys := make([]types.SecretKey, len(keys))
+	for i := range badKeys {
+		badKeys[i] = types.GenSecretKey(rng)
+	}
+	blocksPerLane := int(nextQC/types.GlobalBlockNumber(committee.Lanes().Len())) + 2
+	laneBlocks := map[types.LaneID][]*types.Block{}
+	for _, lane := range committee.Lanes().All() {
+		for range blocksPerLane {
+			var b *types.Block
+			if bs := laneBlocks[lane]; len(bs) > 0 {
+				parent := bs[len(bs)-1]
+				b = types.NewBlock(lane, parent.Header().Next(), parent.Header().Hash(), types.GenPayload(rng))
+			} else {
+				b = types.NewBlock(lane, 0, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+			}
+			laneBlocks[lane] = append(laneBlocks[lane], b)
+		}
+	}
+	laneQCs := map[types.LaneID]*types.LaneQC{}
+	var headers []*types.BlockHeader
+	for _, lane := range committee.Lanes().All() {
+		bs := laneBlocks[lane]
+		laneQCs[lane] = TestLaneQC(badKeys, bs[len(bs)-1].Header())
+		for _, b := range bs {
+			headers = append(headers, b.Header())
+		}
+	}
+	viewSpec := types.ViewSpec{CommitQC: utils.None[*types.CommitQC]()}
+	proposal, _ := types.NewProposal(
+		types.GenSecretKey(rng),
+		committee,
+		viewSpec,
+		time.Now(),
+		laneQCs,
+		utils.None[*types.AppQC](),
+	)
+	malGR := proposal.Proposal().Msg().GlobalRange()
+	require.Less(t, malGR.First, nextQC, "test setup: malicious gr.First must be < nextQC")
+	require.Greater(t, malGR.Next, nextQC, "test setup: malicious gr.Next must be > nextQC")
+
+	votes := make([]*types.Signed[*types.CommitVote], 0, len(badKeys))
+	for _, k := range badKeys {
+		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal.Proposal().Msg())))
+	}
+	maliciousQC := types.NewFullCommitQC(types.NewCommitQC(votes), headers)
+
+	// Stale QC is silently ignored (verification is skipped, insert guard prevents
+	// advancing nextQC). No error is returned.
+	require.NoError(t, state.PushQC(ctx, maliciousQC, nil))
+
+	// Verify state is not corrupted: the next valid QC should still be accepted.
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
+	require.NoError(t, state.PushQC(ctx, qc2, blocks2))
 }
 
 func TestExecution(t *testing.T) {

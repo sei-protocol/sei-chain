@@ -144,12 +144,12 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	}
 	// Atomically insert QC and blocks.
 	for inner, ctrl := range s.inner.Lock() {
-		if inner.nextQC < gr.Next {
+		if needQC {
+			for inner.nextQC < gr.Next {
+				inner.qcs[inner.nextQC] = qc
+				inner.nextQC += 1
+			}
 			ctrl.Updated()
-		}
-		for inner.nextQC < gr.Next {
-			inner.qcs[inner.nextQC] = qc
-			inner.nextQC += 1
 		}
 		if len(byHash) == 0 {
 			break
