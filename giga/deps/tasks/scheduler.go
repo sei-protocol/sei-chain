@@ -476,7 +476,10 @@ func (s *scheduler) traceSpan(ctx sdk.Context, name string, task *deliverTxTask)
 
 // prepareTask initializes the context and version stores for a task
 func (s *scheduler) prepareTask(task *deliverTxTask) {
-	ctx := task.Ctx.WithTxIndex(task.AbsoluteIndex)
+	// Each task gets its own EventManager to avoid contention on the shared
+	// parent context's EventManager. Without this, all 24 worker goroutines
+	// fight over a single RWMutex for every EmitEvent call (~60% of mutex contention).
+	ctx := task.Ctx.WithTxIndex(task.AbsoluteIndex).WithEventManager(sdk.NewEventManager())
 
 	_, span := s.traceSpan(ctx, "SchedulerPrepare", task)
 	defer span.End()
