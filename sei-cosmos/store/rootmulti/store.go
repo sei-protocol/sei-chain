@@ -918,14 +918,22 @@ loop:
 	return snapshotItem, rs.LoadLatestVersion()
 }
 
-func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID, params storeParams) (types.CommitKVStore, error) {
+func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID, params storeParams) (_ types.CommitKVStore, _err error) {
 	var db dbm.DB
+
+	defer func() {
+		if db != nil && _err != nil {
+			_ = db.Close()
+		}
+	}()
+
 	if params.db != nil {
 		db = dbm.NewPrefixDB(params.db, []byte("s/_/"))
 	} else if rs.shouldUseArchivalDb(id.Version) {
-		prefix := make([]byte, 8)
+		tag := []byte("s/k:" + params.key.Name() + "/")
+		prefix := make([]byte, 8, 8+len(tag))
 		binary.BigEndian.PutUint64(prefix, uint64(id.Version))
-		prefix = append(prefix, []byte("s/k:"+params.key.Name()+"/")...)
+		prefix = append(prefix, tag...)
 		db = dbm.NewPrefixDB(rs.archivalDb, prefix)
 		params.typ = types.StoreTypeDB
 	} else {
@@ -985,7 +993,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 
 func (rs *Store) buildCommitInfo(version int64) *types.CommitInfo {
 	keys := keysForStoreKeyMap(rs.stores)
-	storeInfos := []types.StoreInfo{}
+	storeInfos := make([]types.StoreInfo, 0, len(keys))
 	for _, key := range keys {
 		store := rs.stores[key]
 		if store.GetStoreType() == types.StoreTypeTransient {
@@ -1176,18 +1184,18 @@ func flushLatestVersion(batch dbm.Batch, version int64) {
 		panic(err)
 	}
 
-	batch.Set([]byte(latestVersionKey), bz)
+	_ = batch.Set([]byte(latestVersionKey), bz)
 }
 
 func flushPruningHeights(batch dbm.Batch, pruneHeights []int64) {
-	bz := make([]byte, 0)
+	bz := make([]byte, 0, len(pruneHeights)*8)
 	for _, ph := range pruneHeights {
 		buf := make([]byte, 8)
 		binary.BigEndian.PutUint64(buf, uint64(ph))
 		bz = append(bz, buf...)
 	}
 
-	batch.Set([]byte(pruneHeightsKey), bz)
+	_ = batch.Set([]byte(pruneHeightsKey), bz)
 }
 
 func (rs *Store) Close() error {
@@ -1199,7 +1207,7 @@ func (rs *Store) SetKVStores(handler func(key types.StoreKey, s types.KVStore) t
 }
 
 func (rs *Store) StoreKeys() []types.StoreKey {
-	res := make([]types.StoreKey, len(rs.keysByName))
+	res := make([]types.StoreKey, 0, len(rs.keysByName))
 	for _, sk := range rs.keysByName {
 		res = append(res, sk)
 	}

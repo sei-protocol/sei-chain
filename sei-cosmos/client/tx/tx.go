@@ -379,7 +379,7 @@ func Sign(txf Factory, name string, txBuilder client.TxBuilder, overwriteSig boo
 		Data:     &sigData,
 		Sequence: txf.Sequence(),
 	}
-	var prevSignatures []signing.SignatureV2
+	var prevSignatures []signing.SignatureV2 //nolint:prealloc // It's behind a flag.
 	if !overwriteSig {
 		prevSignatures, err = txBuilder.GetTx().GetSignaturesV2()
 		if err != nil {

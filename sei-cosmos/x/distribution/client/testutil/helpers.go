@@ -16,7 +16,8 @@ func MsgWithdrawDelegatorRewardExec(clientCtx client.Context, valAddr fmt.String
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, client.ClientContextKey, &clientCtx)
 
-	args := []string{valAddr.String()}
+	args := make([]string, 0, 1+len(extraArgs))
+	args = append(args, valAddr.String())
 	args = append(args, extraArgs...)
 
 	cmd := distrcli.NewWithdrawRewardsCmd()

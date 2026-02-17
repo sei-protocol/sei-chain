@@ -21,7 +21,7 @@ var _ SignModeHandler = SignModeHandlerMap{}
 // NewSignModeHandlerMap returns a new SignModeHandlerMap with the provided defaultMode and handlers
 func NewSignModeHandlerMap(defaultMode signing.SignMode, handlers []SignModeHandler) SignModeHandlerMap {
 	handlerMap := make(map[signing.SignMode]SignModeHandler)
-	var modes []signing.SignMode
+	var modes []signing.SignMode //nolint:prealloc // Not worth pre-allocation, considering the nested loop
 
 	for _, h := range handlers {
 		for _, m := range h.Modes() {

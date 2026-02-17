@@ -10,7 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/tendermint/crypto/bcrypt"
 	"golang.org/x/crypto/nacl/secretbox"
-	"golang.org/x/crypto/openpgp/armor"
+	"golang.org/x/crypto/openpgp/armor" //nolint:staticcheck // SA1019: not worth fixing
 
 	cosmoscrypto "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/utils"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"

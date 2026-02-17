@@ -1350,12 +1350,14 @@ func (s *IntegrationTestSuite) TestSignWithMultiSignersAminoJSON() {
 }
 
 func (s *IntegrationTestSuite) createBankMsg(val *network.Validator, toAddr sdk.AccAddress, amount sdk.Coins, extraFlags ...string) (testutil.BufferWriter, error) {
-	flags := []string{fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
+	flagArgs := make([]string, 0, 3+len(extraFlags))
+	flagArgs = append(flagArgs,
+		fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 		fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
 		fmt.Sprintf("--%s=%s", flags.FlagFees,
 			sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(10))).String()),
-	}
+	)
 
-	flags = append(flags, extraFlags...)
-	return bankcli.MsgSendExec(val.ClientCtx, val.Address, toAddr, amount, flags...)
+	flagArgs = append(flagArgs, extraFlags...)
+	return bankcli.MsgSendExec(val.ClientCtx, val.Address, toAddr, amount, flagArgs...)
 }
