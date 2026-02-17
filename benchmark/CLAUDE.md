@@ -30,9 +30,9 @@ BENCHMARK_CONFIG=benchmark/scenarios/erc20.json benchmark/benchmark.sh
 | Var | Default | Purpose |
 |-----|---------|---------|
 | `BENCHMARK_PHASE` | `all` | `init` (build+init+configure), `start` (run node), `all` (both) |
-| `SEI_HOME` | `$HOME/.sei` | Final chain data dir. If != ~/.sei, init in ~/.sei then `mv` |
+| `SEI_HOME` | `$HOME/.sei` | Final chain data dir. Init uses a temp staging dir, then moves here |
 | `PORT_OFFSET` | `0` | Added to all ports (RPC, P2P, pprof, gRPC, etc.) |
-| `SEID_BIN` | `""` | Pre-built binary path. If set, skip build + copy to ~/go/bin/seid |
+| `SEID_BIN` | `""` | Pre-built binary path. If set, skip build step |
 | `LOG_FILE` | `""` | Redirect seid output to file |
 | `BENCHMARK_CONFIG` | `$SCRIPT_DIR/scenarios/evm.json` | Scenario config file (absolute path resolved from script location) |
 | `BENCHMARK_TXS_PER_BATCH` | `1000` | Transactions per batch |
@@ -54,6 +54,8 @@ Inherits all benchmark.sh vars via delegation. Additionally:
 | `GIGA_EXECUTOR` | **`true`** | Overrides benchmark.sh default (false) |
 | `GIGA_OCC` | **`true`** | Overrides benchmark.sh default (false) |
 | `DB_BACKEND` | `goleveldb` | Forwarded to build and init phases |
+| `RUN_ID` | `$$` (PID) | Namespaces `BASE_DIR` as `/tmp/sei-bench-${RUN_ID}/` |
+| `RUN_PORT_OFFSET` | auto-claimed | Added to all per-scenario port offsets (auto-claimed via atomic `mkdir` slots) |
 
 **Note:** `GIGA_EXECUTOR` and `GIGA_OCC` default to `true` in the compare script but `false` in benchmark.sh. The compare script is designed for performance comparison where Giga Executor is typically enabled.
 
@@ -68,7 +70,26 @@ benchmark/benchmark-compare.sh \
   lazy-cms-fix=37a17fd02
 ```
 
-Each scenario gets its own binary, home dir, and port set (offset by 100). Results are printed at the end with median/avg/min/max TPS. Raw data in `/tmp/sei-bench/<label>/tps.txt`.
+Each scenario gets its own binary, home dir, and port set (offset by 100). Results are printed at the end with median/avg/min/max TPS. Raw data in `/tmp/sei-bench-<PID>/<label>/tps.txt`.
+
+### Running multiple comparisons concurrently
+
+Port offsets are auto-claimed, so the simplest parallel usage is just:
+
+```bash
+benchmark/benchmark-compare.sh baseline=abc123 opt=def456 &
+benchmark/benchmark-compare.sh baseline=abc123 fix=789abc &
+benchmark/benchmark-compare.sh baseline=abc123 alt=aabbcc &
+```
+
+Each instance gets its own `RUN_ID` (PID), `BASE_DIR`, and port range. No coordination needed.
+
+Manual override is available if needed:
+
+```bash
+RUN_PORT_OFFSET=0    benchmark/benchmark-compare.sh baseline=abc123 opt=def456 &
+RUN_PORT_OFFSET=1000 benchmark/benchmark-compare.sh baseline=abc123 fix=789abc &
+```
 
 ## Comparing results across sessions
 
