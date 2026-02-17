@@ -77,21 +77,20 @@ const (
 var (
 	// AccAddress.String() is expensive and if unoptimized dominantly showed up in profiles,
 	// yet has no mechanisms to trivially cache the result given that AccAddress is a []byte type.
-	accAddrMu     sync.Mutex
-	accAddrCache  *simplelru.LRU[string, string]
-	consAddrMu    sync.Mutex
-	consAddrCache *simplelru.LRU[string, string]
-	valAddrMu     sync.Mutex
-	valAddrCache  *simplelru.LRU[string, string]
+	//
+	// accAddrCacheMap uses sync.Map for lock-free concurrent reads. This eliminates
+	// the mutex contention that was causing ~35s of delay with 24 OCC workers.
+	// Trade-off: no LRU eviction (grows unbounded), but in practice the number of
+	// unique addresses is bounded by the number of accounts on chain.
+	accAddrCacheMap sync.Map
+	consAddrMu      sync.Mutex
+	consAddrCache   *simplelru.LRU[string, string]
+	valAddrMu       sync.Mutex
+	valAddrCache    *simplelru.LRU[string, string]
 )
 
 func init() {
 	var err error
-	// in total the cache size is 61k entries. Key is 32 bytes and value is around 50-70 bytes.
-	// That will make around 92 * 61k * 2 (LRU) bytes ~ 11 MB
-	if accAddrCache, err = simplelru.NewLRU[string, string](60000, nil); err != nil {
-		panic(err)
-	}
 	if consAddrCache, err = simplelru.NewLRU[string, string](500, nil); err != nil {
 		panic(err)
 	}
@@ -276,14 +275,17 @@ func (aa AccAddress) String() string {
 		return ""
 	}
 
-	var key = conv.UnsafeBytesToStr(aa)
-	accAddrMu.Lock()
-	defer accAddrMu.Unlock()
-	addr, ok := accAddrCache.Get(key)
-	if ok {
-		return addr
+	key := conv.UnsafeBytesToStr(aa)
+	if v, ok := accAddrCacheMap.Load(key); ok {
+		return v.(string)
 	}
-	return cacheBech32Addr(GetConfig().GetBech32AccountAddrPrefix(), aa, accAddrCache, key)
+	bech32Addr, err := bech32.ConvertAndEncode(GetConfig().GetBech32AccountAddrPrefix(), aa)
+	if err != nil {
+		panic(err)
+	}
+	// Store with a safe copy of the key (UnsafeBytesToStr shares underlying array)
+	accAddrCacheMap.Store(string(aa), bech32Addr)
+	return bech32Addr
 }
 
 // Format implements the fmt.Formatter interface.
