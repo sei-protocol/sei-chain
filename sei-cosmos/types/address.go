@@ -77,8 +77,10 @@ const (
 var (
 	// AccAddress.String() is expensive and if unoptimized dominantly showed up in profiles,
 	// yet has no mechanisms to trivially cache the result given that AccAddress is a []byte type.
-	accAddrMu     sync.Mutex
-	accAddrCache  *simplelru.LRU[string, string]
+	// accAddrMap uses sync.Map for lock-free reads; the key is string(AccAddress) and the
+	// value is the bech32-encoded string.  Unlike the LRU it has no eviction, but practical
+	// address cardinality is bounded by on-chain accounts (similar order as the old 60k cap).
+	accAddrMap    sync.Map
 	consAddrMu    sync.Mutex
 	consAddrCache *simplelru.LRU[string, string]
 	valAddrMu     sync.Mutex
@@ -87,11 +89,7 @@ var (
 
 func init() {
 	var err error
-	// in total the cache size is 61k entries. Key is 32 bytes and value is around 50-70 bytes.
-	// That will make around 92 * 61k * 2 (LRU) bytes ~ 11 MB
-	if accAddrCache, err = simplelru.NewLRU[string, string](60000, nil); err != nil {
-		panic(err)
-	}
+	// consAddrCache and valAddrCache use LRU caches (low cardinality, minimal contention).
 	if consAddrCache, err = simplelru.NewLRU[string, string](500, nil); err != nil {
 		panic(err)
 	}
@@ -276,14 +274,18 @@ func (aa AccAddress) String() string {
 		return ""
 	}
 
-	var key = conv.UnsafeBytesToStr(aa)
-	accAddrMu.Lock()
-	defer accAddrMu.Unlock()
-	addr, ok := accAddrCache.Get(key)
-	if ok {
-		return addr
+	// Fast path: lock-free lookup (zero allocations for cache hits).
+	if addr, ok := accAddrMap.Load(conv.UnsafeBytesToStr(aa)); ok {
+		return addr.(string)
 	}
-	return cacheBech32Addr(GetConfig().GetBech32AccountAddrPrefix(), aa, accAddrCache, key)
+
+	// Slow path: compute bech32 and store with a stable key copy.
+	bech32Addr, err := bech32.ConvertAndEncode(GetConfig().GetBech32AccountAddrPrefix(), aa)
+	if err != nil {
+		panic(err)
+	}
+	accAddrMap.Store(string(aa), bech32Addr)
+	return bech32Addr
 }
 
 // Format implements the fmt.Formatter interface.
