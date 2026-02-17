@@ -20,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	mpmocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	sf "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
@@ -92,7 +91,7 @@ func makeReactor(
 
 	logger := log.NewNopLogger()
 
-	app := proxy.New(abci.NewBaseApplication(), logger, proxy.NopMetrics())
+	app := abci.NewBaseApplication()
 
 	blockDB := dbm.NewMemDB()
 	stateDB := dbm.NewMemDB()

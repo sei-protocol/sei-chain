@@ -22,7 +22,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
@@ -282,7 +281,6 @@ func TestCreateProposalBlock(t *testing.T) {
 	logger := log.NewNopLogger()
 
 	app := kvstore.NewApplication()
-	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 
 	const height int64 = 1
 	state, stateDB, privVals := state(t, 1, height)
@@ -297,7 +295,7 @@ func TestCreateProposalBlock(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		logger.With("module", "mempool"),
 		cfg.Mempool,
-		proxyApp,
+		app,
 		nil,
 	)
 
@@ -335,7 +333,7 @@ func TestCreateProposalBlock(t *testing.T) {
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
-		proxyApp,
+		app,
 		mp,
 		evidencePool,
 		blockStore,
@@ -381,7 +379,6 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	logger := log.NewNopLogger()
 
 	app := kvstore.NewApplication()
-	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 
 	const height int64 = 1
 	state, stateDB, _ := state(t, 1, height)
@@ -397,7 +394,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		logger.With("module", "mempool"),
 		cfg.Mempool,
-		proxyApp,
+		app,
 		nil,
 	)
 
@@ -413,7 +410,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -451,7 +448,6 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	logger := log.NewNopLogger()
 
 	app := kvstore.NewApplication()
-	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 
 	state, stateDB, privVals := state(t, types.MaxVotesCount, int64(1))
 
@@ -465,7 +461,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		logger.With("module", "mempool"),
 		cfg.Mempool,
-		proxyApp,
+		app,
 		nil,
 	)
 
@@ -487,7 +483,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,

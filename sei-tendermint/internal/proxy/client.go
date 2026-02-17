@@ -7,7 +7,6 @@ import (
 	"github.com/go-kit/kit/metrics"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
 // proxyClient provides the application connection.
@@ -17,7 +16,7 @@ type proxyClient struct {
 }
 
 // New creates a proxy application interface around the provided ABCI application.
-func New(app types.Application, _ log.Logger, metrics *Metrics) types.Application {
+func New(app types.Application, metrics *Metrics) types.Application {
 	return &proxyClient{
 		metrics: metrics,
 		app:     app,

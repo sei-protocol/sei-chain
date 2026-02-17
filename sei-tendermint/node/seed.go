@@ -13,7 +13,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink"
@@ -84,8 +83,6 @@ func makeSeedNode(
 		return nil, fmt.Errorf("pex.NewReactor(): %w", err)
 	}
 
-	proxyApp := proxy.New(abci.NewBaseApplication(), logger.With("module", "proxy"), nodeMetrics.proxy)
-
 	closers := make([]closer, 0, 2)
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
 	if err != nil {
@@ -113,7 +110,7 @@ func makeSeedNode(
 
 		pexReactor: pexReactor,
 		rpcEnv: &rpccore.Environment{
-			ProxyApp: proxyApp,
+			ProxyApp: abci.NewBaseApplication(),
 
 			StateStore: stateStore,
 			BlockStore: blockStore,

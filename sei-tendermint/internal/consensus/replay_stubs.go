@@ -6,8 +6,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -68,14 +66,13 @@ func (emptyMempool) CloseWAL()      {}
 // the real app.
 
 func newMockProxyApp(
-	logger log.Logger,
 	appHash []byte,
 	finalizeBlockResponses *abci.ResponseFinalizeBlock,
-) (abci.Application, error) {
-	return proxy.New(&mockProxyApp{
+) abci.Application {
+	return &mockProxyApp{
 		appHash:                appHash,
 		finalizeBlockResponses: finalizeBlockResponses,
-	}, logger, proxy.NopMetrics()), nil
+	}
 }
 
 type mockProxyApp struct {

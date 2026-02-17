@@ -17,7 +17,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	mpmocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/mocks"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
@@ -38,7 +37,6 @@ var (
 func TestApplyBlock(t *testing.T) {
 	app := &testApp{}
 	logger := log.NewNopLogger()
-	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 
 	ctx := t.Context()
 
@@ -60,7 +58,7 @@ func TestApplyBlock(t *testing.T) {
 		mock.Anything,
 		mock.Anything).Return(nil)
 	mp.On("TxStore").Return(nil)
-	blockExec := sm.NewBlockExecutor(stateStore, logger, proxyApp, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(stateStore, logger, app, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
 	bps, err := block.MakePartSet(testPartSize)
@@ -83,7 +81,6 @@ func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 
 	logger := log.NewNopLogger()
 	app := &testApp{}
-	appClient := proxy.New(app, logger, proxy.NopMetrics())
 
 	state, stateDB, privVals := makeState(t, 7, 1)
 	stateStore := sm.NewStore(stateDB)
@@ -121,7 +118,7 @@ func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 			eventBus := eventbus.NewDefault(logger)
 			require.NoError(t, eventBus.Start(ctx))
 
-			blockExec := sm.NewBlockExecutor(stateStore, log.NewNopLogger(), appClient, mp, evpool, blockStore, eventBus, sm.NopMetrics())
+			blockExec := sm.NewBlockExecutor(stateStore, log.NewNopLogger(), app, mp, evpool, blockStore, eventBus, sm.NopMetrics())
 			state, _, lastCommit := makeAndCommitGoodBlock(ctx, t, state, 1, new(types.Commit), state.NextValidators.Validators[0].Address, blockExec, privVals, nil)
 
 			for idx, isAbsent := range tc.absentCommitSigs {
@@ -153,7 +150,6 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 
 	app := &testApp{}
 	logger := log.NewNopLogger()
-	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 
 	state, stateDB, privVals := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
@@ -246,7 +242,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 
-	blockExec := sm.NewBlockExecutor(stateStore, log.NewNopLogger(), proxyApp, mp, evpool, blockStore, eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(stateStore, log.NewNopLogger(), app, mp, evpool, blockStore, eventBus, sm.NopMetrics())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
 	block.Evidence = ev
@@ -270,7 +266,6 @@ func TestProcessProposal(t *testing.T) {
 
 	app := abcimocks.NewApplication(t)
 	logger := log.NewNopLogger()
-	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 
 	state, stateDB, privVals := makeState(t, 1, height)
 	stateStore := sm.NewStore(stateDB)
@@ -284,7 +279,7 @@ func TestProcessProposal(t *testing.T) {
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -483,7 +478,6 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 
 	app := &testApp{}
 	logger := log.NewNopLogger()
-	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
@@ -508,7 +502,7 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -563,7 +557,6 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 
 	app := &testApp{}
 	logger := log.NewNopLogger()
-	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 
 	eventBus := eventbus.NewDefault(logger)
 	require.NoError(t, eventBus.Start(ctx))
@@ -576,7 +569,7 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		log.NewNopLogger(),
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -612,7 +605,6 @@ func TestEmptyPrepareProposal(t *testing.T) {
 
 	app := abcimocks.NewApplication(t)
 	app.On("PrepareProposal", mock.Anything, mock.Anything).Return(&abci.ResponsePrepareProposal{}, nil)
-	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 
 	state, stateDB, privVals := makeState(t, 1, height)
 	stateStore := sm.NewStore(stateDB)
@@ -633,7 +625,7 @@ func TestEmptyPrepareProposal(t *testing.T) {
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		nil,
@@ -680,12 +672,10 @@ func TestPrepareProposalErrorOnNonExistingRemoved(t *testing.T) {
 	}
 	app.On("PrepareProposal", mock.Anything, mock.Anything).Return(rpp, nil)
 
-	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
-
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
-		proxyApp,
+		app,
 		mp,
 		evpool,
 		nil,
@@ -731,12 +721,10 @@ func TestPrepareProposalReorderTxs(t *testing.T) {
 		TxRecords: trs,
 	}, nil)
 
-	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
-
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
-		proxyApp,
+		app,
 		mp,
 		evpool,
 		nil,
@@ -788,12 +776,10 @@ func TestPrepareProposalErrorOnTooManyTxs(t *testing.T) {
 		TxRecords: trs,
 	}, nil)
 
-	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
-
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
-		proxyApp,
+		app,
 		mp,
 		evpool,
 		nil,
@@ -831,12 +817,11 @@ func TestPrepareProposalErrorOnPrepareProposalError(t *testing.T) {
 	mp.On("ReapMaxBytesMaxGas", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(types.Txs(txs))
 
 	app := &failingPrepareProposalApp{}
-	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
-		proxyApp,
+		app,
 		mp,
 		evpool,
 		nil,
@@ -912,7 +897,6 @@ func TestCreateProposalBlockPanicRecovery(t *testing.T) {
 
 	// Create the panicking app
 	app := &panicApp{}
-	proxyApp := proxy.New(app, logger, proxy.NopMetrics())
 
 	// Create test state and executor
 	state, stateDB, _ := makeState(t, 1, 1)
@@ -929,7 +913,7 @@ func TestCreateProposalBlockPanicRecovery(t *testing.T) {
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,

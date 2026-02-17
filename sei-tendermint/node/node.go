@@ -118,7 +118,7 @@ func makeNode(
 		return nil, combineCloseError(err, makeCloser(closers))
 	}
 
-	proxyApp := proxy.New(app, logger.With("module", "proxy"), nodeMetrics.proxy)
+	proxyApp := proxy.New(app, nodeMetrics.proxy)
 	eventBus := eventbus.NewDefault(logger.With("module", "events"))
 
 	var eventLog *eventlog.Log
