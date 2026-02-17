@@ -409,7 +409,7 @@ func TestWaitForQuitSignals(t *testing.T) {
 			restartCh <- struct{}{}
 		}()
 
-		err := server.WaitForQuitSignals(t.Context(),restartCh)
+		err := server.WaitForQuitSignals(t.Context(), restartCh)
 		if !errors.Is(err, server.ErrShouldRestart) {
 			t.Errorf("Expected ErrShouldRestart, got %v", err)
 		}
@@ -421,8 +421,8 @@ func TestWaitForQuitSignals(t *testing.T) {
 			syscall.Kill(syscall.Getpid(), syscall.SIGINT)
 		}()
 
-		err := server.WaitForQuitSignals(t.Context(),make(chan struct{}))
-		if err!=nil {
+		err := server.WaitForQuitSignals(t.Context(), make(chan struct{}))
+		if err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -433,8 +433,8 @@ func TestWaitForQuitSignals(t *testing.T) {
 			syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
 		}()
 
-		err := server.WaitForQuitSignals(t.Context(),make(chan struct{}))
-		if err!=nil {
+		err := server.WaitForQuitSignals(t.Context(), make(chan struct{}))
+		if err != nil {
 			t.Fatal(err)
 		}
 	})
