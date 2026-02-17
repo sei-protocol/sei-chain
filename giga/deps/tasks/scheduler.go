@@ -291,8 +291,10 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 	// execution tasks are limited by workers
 	start(s.executeCh, workers)
 
-	// validation tasks uses length of tasks to avoid blocking on validation
-	start(s.validateCh, len(tasks))
+	// validation workers: match execution workers instead of len(tasks).
+	// Validation is lightweight (readset comparison), and creating 1000
+	// goroutines per block causes significant scheduling overhead.
+	start(s.validateCh, workers)
 
 	toExecute := tasks
 	for !allValidated(tasks) {
