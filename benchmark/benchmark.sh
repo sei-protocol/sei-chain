@@ -19,16 +19,42 @@ DEBUG=${DEBUG:-false}
 DB_BACKEND=${DB_BACKEND:-goleveldb}
 
 # --- New env vars for phase gating / multi-instance support ---
-# Final chain data dir. If != ~/.sei, init in ~/.sei then mv.
-SEI_HOME=${SEI_HOME:-"$HOME/.sei"}
-# Added to all ports (RPC, P2P, pprof, gRPC, etc.)
-PORT_OFFSET=${PORT_OFFSET:-0}
-# Pre-built binary path. If set, skip build + copy to ~/go/bin/seid.
+# Pre-built binary path. If set, skip build.
 SEID_BIN=${SEID_BIN:-""}
+
+# Auto-claim a port offset slot when PORT_OFFSET is not explicitly set,
+# so multiple uncoordinated benchmark.sh runs don't collide on ports.
+# Same atomic mkdir mechanism as benchmark-compare.sh.
+PORT_SLOT_DIR=""
+if [ -z "${PORT_OFFSET+x}" ]; then
+  for slot in $(seq 0 29); do
+    if mkdir "/tmp/sei-bench-port-slot-${slot}" 2>/dev/null; then
+      PORT_OFFSET=$((slot * 1000))
+      PORT_SLOT_DIR="/tmp/sei-bench-port-slot-${slot}"
+      break
+    fi
+  done
+  if [ -z "$PORT_SLOT_DIR" ]; then
+    echo "ERROR: Could not claim a port offset slot (all 30 slots in use)"
+    exit 1
+  fi
+else
+  PORT_OFFSET=${PORT_OFFSET:-0}
+fi
+
+# Final chain data dir. Init is done in a temp staging dir then moved here.
+# When auto-claiming ports, isolate data dirs too to avoid collisions.
+if [ -n "$PORT_SLOT_DIR" ] && [ -z "${SEI_HOME+x}" ]; then
+  SEI_HOME="$HOME/.sei-bench-${PORT_OFFSET}"
+else
+  SEI_HOME=${SEI_HOME:-"$HOME/.sei"}
+fi
 # Phase control: "init" (build+init+configure), "start" (run node), "all" (both)
 BENCHMARK_PHASE=${BENCHMARK_PHASE:-all}
 # Redirect seid output to file
 LOG_FILE=${LOG_FILE:-""}
+# Auto-stop after N seconds (0 = run forever, for backward compat)
+DURATION=${DURATION:-120}
 
 # Portable path resolution
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -73,20 +99,29 @@ echo "  SEI_HOME:                $SEI_HOME"
 echo "  PORT_OFFSET:             $PORT_OFFSET"
 echo "  SEID_BIN:                ${SEID_BIN:-(build from source)}"
 echo "  BENCHMARK_PHASE:         $BENCHMARK_PHASE"
+echo "  DURATION:                $DURATION (0=forever)"
 echo ""
 echo "Available scenarios in $SCRIPT_DIR/scenarios/:"
 ls -1 "$SCRIPT_DIR"/scenarios/*.json 2>/dev/null | sed 's/^/    /' || echo "    (none found)"
 echo "================================"
 
-# clean up old sei directory
-rm -rf ~/.sei
+# Create isolated staging directory for chain init
+STAGING_DIR=$(mktemp -d "${TMPDIR:-/tmp}/sei-bench-init.XXXXXX")
+release_port_slot() {
+  if [ -n "$PORT_SLOT_DIR" ] && [ -d "$PORT_SLOT_DIR" ]; then
+    rmdir "$PORT_SLOT_DIR" 2>/dev/null || true
+  fi
+}
+staging_cleanup() {
+  rm -rf "$STAGING_DIR" 2>/dev/null || true
+  release_port_slot
+}
+trap staging_cleanup EXIT
+
 echo "Building..."
 
 if [ -n "$SEID_BIN" ]; then
-  # Use pre-built binary: copy to ~/go/bin/seid so downstream tools find it
   echo "Using pre-built binary: $SEID_BIN"
-  mkdir -p ~/go/bin
-  cp "$SEID_BIN" ~/go/bin/seid
 else
   # Determine build options based on DB_BACKEND
   BUILD_TAGS=""
@@ -118,50 +153,50 @@ else
 fi
 
 # initialize chain with chain ID and add the first key
-"$SEID" init demo --chain-id sei-chain
-"$SEID" keys add $keyname --keyring-backend test
+"$SEID" init demo --chain-id sei-chain --home "$STAGING_DIR"
+"$SEID" keys add $keyname --keyring-backend test --home "$STAGING_DIR"
 # add the key as a genesis account with massive balances of several different tokens
-"$SEID" add-genesis-account $("$SEID" keys show $keyname -a --keyring-backend test) 100000000000000000000usei,100000000000000000000uusdc,100000000000000000000uatom --keyring-backend test
+"$SEID" add-genesis-account $("$SEID" keys show $keyname -a --keyring-backend test --home "$STAGING_DIR") 100000000000000000000usei,100000000000000000000uusdc,100000000000000000000uatom --keyring-backend test --home "$STAGING_DIR"
 # gentx for account
-"$SEID" gentx $keyname 7000000000000000usei --chain-id sei-chain --keyring-backend test
+"$SEID" gentx $keyname 7000000000000000usei --chain-id sei-chain --keyring-backend test --home "$STAGING_DIR"
 # add validator information to genesis file
-KEY=$(jq '.pub_key' ~/.sei/config/priv_validator_key.json -c)
-jq '.validators = [{}]' ~/.sei/config/genesis.json > ~/.sei/config/tmp_genesis.json
-jq '.validators[0] += {"power":"7000000000"}' ~/.sei/config/tmp_genesis.json > ~/.sei/config/tmp_genesis_2.json
-jq '.validators[0] += {"pub_key":'$KEY'}' ~/.sei/config/tmp_genesis_2.json > ~/.sei/config/tmp_genesis_3.json
-mv ~/.sei/config/tmp_genesis_3.json ~/.sei/config/genesis.json && rm ~/.sei/config/tmp_genesis.json && rm ~/.sei/config/tmp_genesis_2.json
+KEY=$(jq '.pub_key' "$STAGING_DIR/config/priv_validator_key.json" -c)
+jq '.validators = [{}]' "$STAGING_DIR/config/genesis.json" > "$STAGING_DIR/config/tmp_genesis.json"
+jq '.validators[0] += {"power":"7000000000"}' "$STAGING_DIR/config/tmp_genesis.json" > "$STAGING_DIR/config/tmp_genesis_2.json"
+jq '.validators[0] += {"pub_key":'$KEY'}' "$STAGING_DIR/config/tmp_genesis_2.json" > "$STAGING_DIR/config/tmp_genesis_3.json"
+mv "$STAGING_DIR/config/tmp_genesis_3.json" "$STAGING_DIR/config/genesis.json" && rm "$STAGING_DIR/config/tmp_genesis.json" && rm "$STAGING_DIR/config/tmp_genesis_2.json"
 
 echo "Creating Accounts"
 # create 10 test accounts + fund them
-python3  "$REPO_ROOT/loadtest/scripts/populate_genesis_accounts.py" 20 loc
+SEI_HOME_DIR="$STAGING_DIR" SEID_BIN="$SEID" python3 "$REPO_ROOT/loadtest/scripts/populate_genesis_accounts.py" 20 loc
 
-"$SEID" collect-gentxs
+"$SEID" collect-gentxs --home "$STAGING_DIR"
 # update some params in genesis file for easier use of the chain localls (make gov props faster)
-cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["deposit_params"]["max_deposit_period"]="60s"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["voting_params"]["voting_period"]="30s"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["voting_params"]["expedited_voting_period"]="10s"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.app_state["oracle"]["params"]["vote_period"]="2"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.app_state["evm"]["params"]["target_gas_used_per_block"]="1000000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.app_state["oracle"]["params"]["whitelist"]=[{"name": "ueth"},{"name": "ubtc"},{"name": "uusdc"},{"name": "uusdt"},{"name": "uosmo"},{"name": "uatom"},{"name": "usei"}]' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.app_state["distribution"]["params"]["community_tax"]="0.000000000000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["max_gas"]="100000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["min_txs_in_block"]="2"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["max_gas_wanted"]="150000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.app_state["staking"]["params"]["max_voting_power_ratio"]="1.000000000000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.app_state["bank"]["denom_metadata"]=[{"denom_units":[{"denom":"usei","exponent":0,"aliases":["USEI"]}],"base":"usei","display":"usei","name":"USEI","symbol":"USEI"}]' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat "$STAGING_DIR/config/genesis.json" | jq '.app_state["gov"]["deposit_params"]["max_deposit_period"]="60s"' > "$STAGING_DIR/config/tmp_genesis.json" && mv "$STAGING_DIR/config/tmp_genesis.json" "$STAGING_DIR/config/genesis.json"
+cat "$STAGING_DIR/config/genesis.json" | jq '.app_state["gov"]["voting_params"]["voting_period"]="30s"' > "$STAGING_DIR/config/tmp_genesis.json" && mv "$STAGING_DIR/config/tmp_genesis.json" "$STAGING_DIR/config/genesis.json"
+cat "$STAGING_DIR/config/genesis.json" | jq '.app_state["gov"]["voting_params"]["expedited_voting_period"]="10s"' > "$STAGING_DIR/config/tmp_genesis.json" && mv "$STAGING_DIR/config/tmp_genesis.json" "$STAGING_DIR/config/genesis.json"
+cat "$STAGING_DIR/config/genesis.json" | jq '.app_state["oracle"]["params"]["vote_period"]="2"' > "$STAGING_DIR/config/tmp_genesis.json" && mv "$STAGING_DIR/config/tmp_genesis.json" "$STAGING_DIR/config/genesis.json"
+cat "$STAGING_DIR/config/genesis.json" | jq '.app_state["evm"]["params"]["target_gas_used_per_block"]="1000000000000"' > "$STAGING_DIR/config/tmp_genesis.json" && mv "$STAGING_DIR/config/tmp_genesis.json" "$STAGING_DIR/config/genesis.json"
+cat "$STAGING_DIR/config/genesis.json" | jq '.app_state["oracle"]["params"]["whitelist"]=[{"name": "ueth"},{"name": "ubtc"},{"name": "uusdc"},{"name": "uusdt"},{"name": "uosmo"},{"name": "uatom"},{"name": "usei"}]' > "$STAGING_DIR/config/tmp_genesis.json" && mv "$STAGING_DIR/config/tmp_genesis.json" "$STAGING_DIR/config/genesis.json"
+cat "$STAGING_DIR/config/genesis.json" | jq '.app_state["distribution"]["params"]["community_tax"]="0.000000000000000000"' > "$STAGING_DIR/config/tmp_genesis.json" && mv "$STAGING_DIR/config/tmp_genesis.json" "$STAGING_DIR/config/genesis.json"
+cat "$STAGING_DIR/config/genesis.json" | jq '.consensus_params["block"]["max_gas"]="100000000"' > "$STAGING_DIR/config/tmp_genesis.json" && mv "$STAGING_DIR/config/tmp_genesis.json" "$STAGING_DIR/config/genesis.json"
+cat "$STAGING_DIR/config/genesis.json" | jq '.consensus_params["block"]["min_txs_in_block"]="2"' > "$STAGING_DIR/config/tmp_genesis.json" && mv "$STAGING_DIR/config/tmp_genesis.json" "$STAGING_DIR/config/genesis.json"
+cat "$STAGING_DIR/config/genesis.json" | jq '.consensus_params["block"]["max_gas_wanted"]="150000000"' > "$STAGING_DIR/config/tmp_genesis.json" && mv "$STAGING_DIR/config/tmp_genesis.json" "$STAGING_DIR/config/genesis.json"
+cat "$STAGING_DIR/config/genesis.json" | jq '.app_state["staking"]["params"]["max_voting_power_ratio"]="1.000000000000000000"' > "$STAGING_DIR/config/tmp_genesis.json" && mv "$STAGING_DIR/config/tmp_genesis.json" "$STAGING_DIR/config/genesis.json"
+cat "$STAGING_DIR/config/genesis.json" | jq '.app_state["bank"]["denom_metadata"]=[{"denom_units":[{"denom":"usei","exponent":0,"aliases":["USEI"]}],"base":"usei","display":"usei","name":"USEI","symbol":"USEI"}]' > "$STAGING_DIR/config/tmp_genesis.json" && mv "$STAGING_DIR/config/tmp_genesis.json" "$STAGING_DIR/config/genesis.json"
 
 # Use the Python command to get the dates
 START_DATE=$($PYTHON_CMD -c "from datetime import datetime; print(datetime.now().strftime('%Y-%m-%d'))")
 END_DATE_3DAYS=$($PYTHON_CMD -c "from datetime import datetime, timedelta; print((datetime.now() + timedelta(days=3)).strftime('%Y-%m-%d'))")
 END_DATE_5DAYS=$($PYTHON_CMD -c "from datetime import datetime, timedelta; print((datetime.now() + timedelta(days=5)).strftime('%Y-%m-%d'))")
 
-cat ~/.sei/config/genesis.json | jq --arg start_date "$START_DATE" --arg end_date "$END_DATE_3DAYS" '.app_state["mint"]["params"]["token_release_schedule"]=[{"start_date": $start_date, "end_date": $end_date, "token_release_amount": "999999999999"}]' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq --arg start_date "$END_DATE_3DAYS" --arg end_date "$END_DATE_5DAYS" '.app_state["mint"]["params"]["token_release_schedule"] += [{"start_date": $start_date, "end_date": $end_date, "token_release_amount": "999999999999"}]' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat "$STAGING_DIR/config/genesis.json" | jq --arg start_date "$START_DATE" --arg end_date "$END_DATE_3DAYS" '.app_state["mint"]["params"]["token_release_schedule"]=[{"start_date": $start_date, "end_date": $end_date, "token_release_amount": "999999999999"}]' > "$STAGING_DIR/config/tmp_genesis.json" && mv "$STAGING_DIR/config/tmp_genesis.json" "$STAGING_DIR/config/genesis.json"
+cat "$STAGING_DIR/config/genesis.json" | jq --arg start_date "$END_DATE_3DAYS" --arg end_date "$END_DATE_5DAYS" '.app_state["mint"]["params"]["token_release_schedule"] += [{"start_date": $start_date, "end_date": $end_date, "token_release_amount": "999999999999"}]' > "$STAGING_DIR/config/tmp_genesis.json" && mv "$STAGING_DIR/config/tmp_genesis.json" "$STAGING_DIR/config/genesis.json"
 
 if [ ! -z "$2" ]; then
   APP_TOML_PATH="$2"
 else
-  APP_TOML_PATH="$HOME/.sei/config/app.toml"
+  APP_TOML_PATH="$STAGING_DIR/config/app.toml"
 fi
 # Enable OCC and SeiDB
 sed -i.bak -e 's/# concurrency-workers = .*/concurrency-workers = 500/' "$APP_TOML_PATH"
@@ -209,13 +244,13 @@ fi
 if [ ! -z "$1" ]; then
   CONFIG_PATH="$1"
 else
-  CONFIG_PATH="$HOME/.sei/config/config.toml"
+  CONFIG_PATH="$STAGING_DIR/config/config.toml"
 fi
 
 if [ ! -z "$2" ]; then
   APP_PATH="$2"
 else
-  APP_PATH="$HOME/.sei/config/app.toml"
+  APP_PATH="$STAGING_DIR/config/app.toml"
 fi
 
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -284,13 +319,14 @@ if [ "$PORT_OFFSET" -ne 0 ] 2>/dev/null; then
   fi
 fi
 
-"$SEID" config keyring-backend test
+"$SEID" config keyring-backend test --home "$STAGING_DIR"
 
-# If SEI_HOME is not ~/.sei, move the data dir
-if [ "$SEI_HOME" != "$HOME/.sei" ]; then
-  mkdir -p "$(dirname "$SEI_HOME")"
-  mv ~/.sei "$SEI_HOME"
-fi
+# Move staging dir to final SEI_HOME
+rm -rf "$SEI_HOME"
+mkdir -p "$(dirname "$SEI_HOME")"
+mv "$STAGING_DIR" "$SEI_HOME"
+# Staging dir is gone; downgrade trap to port slot release only
+trap release_port_slot EXIT
 
 fi # end BENCHMARK_PHASE=init
 
@@ -309,6 +345,8 @@ echo "To capture 30s CPU profile during benchmark:"
 echo "  go tool pprof http://localhost:${PPROF_PORT}/debug/pprof/profile?seconds=30"
 echo "To capture heap profile:"
 echo "  go tool pprof http://localhost:${PPROF_PORT}/debug/pprof/heap"
+echo "To capture 30s fgprof (wall-clock):"
+echo "  go tool pprof http://localhost:${PPROF_PORT}/debug/fgprof?seconds=30"
 echo "============================================================"
 echo ""
 
@@ -318,15 +356,139 @@ if [ "$SEI_HOME" != "$HOME/.sei" ]; then
   SEID_ARGS+=(--home "$SEI_HOME")
 fi
 
-if [ -n "$LOG_FILE" ]; then
-  # Redirect all output to log file
-  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH "$SEID" "${SEID_ARGS[@]}" > "$LOG_FILE" 2>&1
-elif [ "$DEBUG" = true ]; then
-  # Debug mode: print all output
-  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH "$SEID" "${SEID_ARGS[@]}"
+if [ "$DURATION" -gt 0 ] 2>/dev/null; then
+  # ---- Timed run: background seid, capture profiles, extract TPS ----
+  BASE_DIR="${BASE_DIR:-/tmp/sei-bench}"
+  PROFILE_DIR="$BASE_DIR/pprof"
+  mkdir -p "$PROFILE_DIR"
+
+  # Auto-generate log file if not set
+  if [ -z "$LOG_FILE" ]; then
+    LOG_FILE="$BASE_DIR/output.log"
+  fi
+
+  echo "Running for ${DURATION}s (log: $LOG_FILE)"
+  echo ""
+
+  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH \
+    "$SEID" "${SEID_ARGS[@]}" > "$LOG_FILE" 2>&1 &
+  SEID_PID=$!
+
+  cleanup_seid() {
+    kill "$SEID_PID" 2>/dev/null || true
+    release_port_slot
+  }
+  trap cleanup_seid EXIT
+
+  # Wait until midway, then capture profiles
+  PPROF_WAIT=$(( DURATION / 2 ))
+  echo "  Waiting ${PPROF_WAIT}s before capturing profiles..."
+  sleep "$PPROF_WAIT" || true
+
+  echo ""
+  echo "=== Capturing profiles (30s CPU + 30s fgprof + others) ==="
+  set +e
+  PROFILE_CAPTURE_START=$(date +%s)
+
+  # Capture sequentially to avoid runtime conflicts:
+  # Go pprof CPU and fgprof profiling cannot run at the same time.
+  echo "  capturing cpu profile ..."
+  curl -s "http://localhost:${PPROF_PORT}/debug/pprof/profile?seconds=30" \
+    -o "$PROFILE_DIR/cpu.pb.gz"
+
+  echo "  capturing fgprof ..."
+  curl -s "http://localhost:${PPROF_PORT}/debug/fgprof?seconds=30" \
+    -o "$PROFILE_DIR/fgprof.pb.gz"
+
+  echo "  capturing heap/goroutine/block/mutex ..."
+  curl -s "http://localhost:${PPROF_PORT}/debug/pprof/heap?debug=0" \
+    -o "$PROFILE_DIR/heap.pb.gz"
+  curl -s "http://localhost:${PPROF_PORT}/debug/pprof/goroutine?debug=0" \
+    -o "$PROFILE_DIR/goroutine.pb.gz"
+  curl -s "http://localhost:${PPROF_PORT}/debug/pprof/block?debug=0" \
+    -o "$PROFILE_DIR/block.pb.gz"
+  curl -s "http://localhost:${PPROF_PORT}/debug/pprof/mutex?debug=0" \
+    -o "$PROFILE_DIR/mutex.pb.gz"
+
+  echo "  capturing from localhost:${PPROF_PORT} -> $PROFILE_DIR/"
+  echo "  Profile capture complete."
+
+  PROFILE_CAPTURE_END=$(date +%s)
+  PROFILE_CAPTURE_SECS=$(( PROFILE_CAPTURE_END - PROFILE_CAPTURE_START ))
+  set -e
+
+  # Verify profile sizes
+  cpu_size=$(wc -c < "$PROFILE_DIR/cpu.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  fgprof_size=$(wc -c < "$PROFILE_DIR/fgprof.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  heap_size=$(wc -c < "$PROFILE_DIR/heap.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  goroutine_size=$(wc -c < "$PROFILE_DIR/goroutine.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  block_size=$(wc -c < "$PROFILE_DIR/block.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  mutex_size=$(wc -c < "$PROFILE_DIR/mutex.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  echo "  cpu=${cpu_size}B fgprof=${fgprof_size}B heap=${heap_size}B goroutine=${goroutine_size}B block=${block_size}B mutex=${mutex_size}B"
+
+  # Wait remaining time
+  REMAINING=$(( DURATION - PPROF_WAIT - PROFILE_CAPTURE_SECS ))
+  if [ "$REMAINING" -gt 0 ]; then
+    echo ""
+    echo "  Continuing benchmark for ${REMAINING}s..."
+    sleep "$REMAINING" || true
+  fi
+
+  echo ""
+  echo "Stopping seid..."
+  kill "$SEID_PID" 2>/dev/null || true
+  wait "$SEID_PID" 2>/dev/null || true
+  release_port_slot
+  trap - EXIT
+
+  # ---- Extract TPS stats ----
+  TPS_FILE="$BASE_DIR/tps.txt"
+  sed 's/\x1b\[[0-9;]*m//g' "$LOG_FILE" \
+    | sed -n 's/.*tps=\([0-9.]*\).*/\1/p' > "$TPS_FILE"
+
+  HEIGHT=$(sed 's/\x1b\[[0-9;]*m//g' "$LOG_FILE" \
+    | sed -n 's/.*height=\([0-9]*\).*/\1/p' | tail -1)
+
+  STATS=$(sort -n "$TPS_FILE" | awk '
+    NR>3 && $1>1000 {
+      sum += $1; count++
+      a[count] = $1
+    }
+    END {
+      if (count == 0) { printf "NO DATA"; exit }
+      median = (count % 2 == 1) ? a[int(count/2)+1] : (a[int(count/2)] + a[int(count/2)+1]) / 2
+      printf "Readings: %d | Median: %.0f | Avg: %.0f | Min: %.0f | Max: %.0f", \
+        count, median, sum/count, a[1], a[count]
+    }')
+
+  echo ""
+  echo "======================================================="
+  echo "=== Benchmark Results (${DURATION}s run) ==="
+  echo "======================================================="
+  echo ""
+  echo "  Height: ${HEIGHT:-N/A}"
+  echo "  $STATS"
+  echo ""
+  echo "Raw TPS:   $TPS_FILE"
+  echo "Full log:  $LOG_FILE"
+  echo "Profiles:  $PROFILE_DIR/{cpu,fgprof,heap,goroutine,block,mutex}.pb.gz"
+  echo ""
+  echo "Quick analysis:"
+  echo "  go tool pprof -top $PROFILE_DIR/cpu.pb.gz"
+  echo "  go tool pprof -top $PROFILE_DIR/fgprof.pb.gz"
+  echo "  go tool pprof -alloc_space -top $PROFILE_DIR/heap.pb.gz"
+  echo "Interactive flamegraph:"
+  echo "  go tool pprof -http=:8080 $PROFILE_DIR/cpu.pb.gz"
+
 else
-  # Normal mode: filter to benchmark-related output only
-  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH "$SEID" "${SEID_ARGS[@]}" 2>&1 | grep -E "(benchmark|Benchmark|deployed|transitioning)"
+  # ---- DURATION=0: run forever (original behavior) ----
+  if [ -n "$LOG_FILE" ]; then
+    BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH "$SEID" "${SEID_ARGS[@]}" > "$LOG_FILE" 2>&1
+  elif [ "$DEBUG" = true ]; then
+    BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH "$SEID" "${SEID_ARGS[@]}"
+  else
+    BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH "$SEID" "${SEID_ARGS[@]}" 2>&1 | grep -E "(benchmark|Benchmark|deployed|transitioning)"
+  fi
 fi
 
 fi # end BENCHMARK_PHASE=start

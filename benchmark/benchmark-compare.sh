@@ -11,7 +11,7 @@
 #     lazy-cms-fix=37a17fd02
 #
 # Each scenario gets its own seid binary, data dir, port set, and log file.
-# Init is sequential (fast, uses ~/.sei then moves). Run is parallel.
+# Init is sequential (fast, uses mktemp staging). Run is parallel.
 # After DURATION seconds (default 600), all nodes stop and TPS stats are printed.
 #
 # Environment variables (same as benchmark.sh):
@@ -20,6 +20,8 @@
 #   BENCHMARK_TXS_PER_BATCH   (default: 1000)
 #   DURATION                   (default: 600 seconds)
 #   BENCHMARK_CONFIG           (default: benchmark/scenarios/evm.json)
+#   RUN_ID                     (default: $$ PID — namespaces BASE_DIR)
+#   RUN_PORT_OFFSET            (default: auto-claimed slot — added to all port offsets)
 
 set -e
 
@@ -29,10 +31,31 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GIGA_EXECUTOR=${GIGA_EXECUTOR:-true}
 GIGA_OCC=${GIGA_OCC:-true}
 BENCHMARK_TXS_PER_BATCH=${BENCHMARK_TXS_PER_BATCH:-1000}
-DURATION=${DURATION:-600}
+DURATION=${DURATION:-120}
 BENCHMARK_CONFIG=${BENCHMARK_CONFIG:-"$SCRIPT_DIR/scenarios/evm.json"}
 DB_BACKEND=${DB_BACKEND:-goleveldb}
-BASE_DIR="/tmp/sei-bench"
+RUN_ID=${RUN_ID:-$$}
+BASE_DIR="/tmp/sei-bench-${RUN_ID}"
+
+# Auto-claim a port offset slot using atomic mkdir if not explicitly set.
+# Slots start at offset 1000 (not 0) so compare runs never collide with
+# standalone benchmark.sh which uses the default PORT_OFFSET=0 ports.
+PORT_SLOT_DIR=""
+if [ -z "${RUN_PORT_OFFSET+x}" ]; then
+  for slot in $(seq 0 29); do
+    if mkdir "/tmp/sei-bench-port-slot-${slot}" 2>/dev/null; then
+      RUN_PORT_OFFSET=$((1000 + slot * 1000))
+      PORT_SLOT_DIR="/tmp/sei-bench-port-slot-${slot}"
+      break
+    fi
+  done
+  if [ -z "$PORT_SLOT_DIR" ]; then
+    echo "ERROR: Could not claim a port offset slot (all 30 slots in use)"
+    exit 1
+  fi
+else
+  RUN_PORT_OFFSET=${RUN_PORT_OFFSET}
+fi
 
 if [ $# -lt 2 ]; then
   echo "Usage: $0 <label1>=<commit1> <label2>=<commit2> [...]"
@@ -59,20 +82,21 @@ done
 NUM=${#LABELS[@]}
 
 echo "=== Parallel Benchmark Comparison ==="
-echo "  Scenarios:      $NUM"
-echo "  Duration:       ${DURATION}s"
-echo "  GIGA_EXECUTOR:  $GIGA_EXECUTOR"
-echo "  GIGA_OCC:       $GIGA_OCC"
-echo "  TXS_PER_BATCH:  $BENCHMARK_TXS_PER_BATCH"
+echo "  Scenarios:        $NUM"
+echo "  Duration:         ${DURATION}s"
+echo "  GIGA_EXECUTOR:    $GIGA_EXECUTOR"
+echo "  GIGA_OCC:         $GIGA_OCC"
+echo "  TXS_PER_BATCH:    $BENCHMARK_TXS_PER_BATCH"
+echo "  RUN_ID:           $RUN_ID"
+echo "  RUN_PORT_OFFSET:  $RUN_PORT_OFFSET"
+echo "  BASE_DIR:         $BASE_DIR"
 echo ""
 for i in $(seq 0 $((NUM-1))); do
   echo "  [$((i+1))] ${LABELS[$i]} = ${COMMITS[$i]}"
 done
 echo ""
 
-# Save current ref to restore later
-ORIGINAL_BRANCH=$(git -C "$REPO_ROOT" symbolic-ref --short HEAD 2>/dev/null || echo "")
-ORIGINAL_REF=$(git -C "$REPO_ROOT" rev-parse HEAD)
+WORKTREE_DIRS=()
 
 cleanup() {
   echo ""
@@ -82,10 +106,15 @@ cleanup() {
     pkill -f "seid-${label}" 2>/dev/null || true
   done
   sleep 2
-  if [ -n "$ORIGINAL_BRANCH" ]; then
-    git -C "$REPO_ROOT" checkout "$ORIGINAL_BRANCH" 2>/dev/null || true
-  else
-    git -C "$REPO_ROOT" checkout "$ORIGINAL_REF" --detach 2>/dev/null || true
+  # Remove any leftover worktrees
+  for wt in "${WORKTREE_DIRS[@]}"; do
+    if [ -d "$wt" ]; then
+      git -C "$REPO_ROOT" worktree remove --force "$wt" 2>/dev/null || true
+    fi
+  done
+  # Release port slot lock
+  if [ -n "$PORT_SLOT_DIR" ] && [ -d "$PORT_SLOT_DIR" ]; then
+    rmdir "$PORT_SLOT_DIR" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
@@ -100,30 +129,33 @@ for i in $(seq 0 $((NUM-1))); do
   commit="${COMMITS[$i]}"
   mkdir -p "$BASE_DIR/$label"
 
+  WORKTREE_DIR="$BASE_DIR/$label/worktree"
   echo -n "  Building [$label] from ${commit}... "
-  git -C "$REPO_ROOT" checkout "$commit" --detach 2>/dev/null
+  git -C "$REPO_ROOT" worktree add --detach "$WORKTREE_DIR" "$commit" 2>/dev/null
+  WORKTREE_DIRS=("${WORKTREE_DIRS[@]}" "$WORKTREE_DIR")
+
   # Forward DB_BACKEND build tags if needed
   BUILD_TAGS=""
   case "$DB_BACKEND" in
     cleveldb) BUILD_TAGS="cleveldb" ;;
     rocksdb)  BUILD_TAGS="rocksdb" ;;
   esac
+
+  GOBIN_DIR="$BASE_DIR/$label/bin"
+  mkdir -p "$GOBIN_DIR"
   if [ -n "$BUILD_TAGS" ]; then
-    COSMOS_BUILD_OPTIONS="$BUILD_TAGS" make -C "$REPO_ROOT" install-bench > /dev/null 2>&1
+    GOBIN="$GOBIN_DIR" COSMOS_BUILD_OPTIONS="$BUILD_TAGS" make -C "$WORKTREE_DIR" install-bench > /dev/null 2>&1
   else
-    make -C "$REPO_ROOT" install-bench > /dev/null 2>&1
+    GOBIN="$GOBIN_DIR" make -C "$WORKTREE_DIR" install-bench > /dev/null 2>&1
   fi
-  cp ~/go/bin/seid "$BASE_DIR/$label/seid-${label}"
+  mv "$GOBIN_DIR/seid" "$BASE_DIR/$label/seid-${label}"
+  rm -rf "$GOBIN_DIR"
+
   echo "done"
 done
+# Worktrees are kept alive — the seid binary's @rpath references libwasmvm.dylib
+# inside the worktree. The EXIT trap cleans them up when the script finishes.
 echo ""
-
-# Restore to original ref so benchmark.sh can find scenario files
-if [ -n "$ORIGINAL_BRANCH" ]; then
-  git -C "$REPO_ROOT" checkout "$ORIGINAL_BRANCH" 2>/dev/null
-else
-  git -C "$REPO_ROOT" checkout "$ORIGINAL_REF" --detach 2>/dev/null
-fi
 
 # ============================================================
 # Phase 2: Initialize chains (sequential — delegates to benchmark.sh)
@@ -134,7 +166,7 @@ for i in $(seq 0 $((NUM-1))); do
   label="${LABELS[$i]}"
   seid="$BASE_DIR/$label/seid-${label}"
   home_dir="$BASE_DIR/$label/data"
-  port_offset=$((i * 100))
+  port_offset=$((RUN_PORT_OFFSET + i * 100))
 
   echo -n "  Initializing [$label]... "
 
@@ -166,10 +198,12 @@ for i in $(seq 0 $((NUM-1))); do
   seid="$BASE_DIR/$label/seid-${label}"
   home_dir="$BASE_DIR/$label/data"
   log_file="$BASE_DIR/$label/output.log"
-  port_offset=$((i * 100))
+  port_offset=$((RUN_PORT_OFFSET + i * 100))
 
   BENCHMARK_PHASE=start \
+  DURATION=0 \
   SEI_HOME="$home_dir" \
+  BASE_DIR="$BASE_DIR/$label" \
   SEID_BIN="$seid" \
   PORT_OFFSET="$port_offset" \
   LOG_FILE="$log_file" \
@@ -190,45 +224,86 @@ echo "  Waiting ${PPROF_WAIT}s before capturing pprof profiles..."
 sleep "$PPROF_WAIT" || true
 
 echo ""
-echo "=== Capturing pprof profiles (30s CPU + heap allocs) ==="
-PPROF_PIDS=()
+echo "=== Capturing profiles (30s CPU + 30s fgprof + heap + goroutine + block + mutex) ==="
+set +e
+PROFILE_CAPTURE_START=$(date +%s)
+
+# Capture CPU across all nodes first, then fgprof, then remaining profiles.
+# CPU and fgprof cannot run together on the same process.
 for i in $(seq 0 $((NUM-1))); do
   label="${LABELS[$i]}"
-  port_offset=$((i * 100))
+  port_offset=$((RUN_PORT_OFFSET + i * 100))
   PPROF_PORT=$((6060 + port_offset))
   profile_dir="$BASE_DIR/$label/pprof"
   mkdir -p "$profile_dir"
 
-  # CPU profile (30s)
+  # CPU profile (30s) — on-CPU time only
+  echo "  [$label] capturing cpu"
   curl -s "http://localhost:${PPROF_PORT}/debug/pprof/profile?seconds=30" \
-    -o "$profile_dir/cpu.pb.gz" &
-  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
+    -o "$profile_dir/cpu.pb.gz"
+done
 
-  # Heap (alloc_objects — total allocations)
+for i in $(seq 0 $((NUM-1))); do
+  label="${LABELS[$i]}"
+  port_offset=$((RUN_PORT_OFFSET + i * 100))
+  PPROF_PORT=$((6060 + port_offset))
+  profile_dir="$BASE_DIR/$label/pprof"
+
+  # fgprof (30s) — wall-clock time (on-CPU + off-CPU/I/O/blocking)
+  echo "  [$label] capturing fgprof"
+  curl -s "http://localhost:${PPROF_PORT}/debug/fgprof?seconds=30" \
+    -o "$profile_dir/fgprof.pb.gz"
+done
+
+for i in $(seq 0 $((NUM-1))); do
+  label="${LABELS[$i]}"
+  port_offset=$((RUN_PORT_OFFSET + i * 100))
+  PPROF_PORT=$((6060 + port_offset))
+  profile_dir="$BASE_DIR/$label/pprof"
+
+  echo "  [$label] capturing heap/goroutine/block/mutex"
+
+  # Heap snapshot
   curl -s "http://localhost:${PPROF_PORT}/debug/pprof/heap?debug=0" \
-    -o "$profile_dir/heap.pb.gz" &
-  PPROF_PIDS=("${PPROF_PIDS[@]}" $!)
+    -o "$profile_dir/heap.pb.gz"
+
+  # Goroutine dump
+  curl -s "http://localhost:${PPROF_PORT}/debug/pprof/goroutine?debug=0" \
+    -o "$profile_dir/goroutine.pb.gz"
+
+  # Block profile (time waiting on channels/mutexes)
+  curl -s "http://localhost:${PPROF_PORT}/debug/pprof/block?debug=0" \
+    -o "$profile_dir/block.pb.gz"
+
+  # Mutex contention profile
+  curl -s "http://localhost:${PPROF_PORT}/debug/pprof/mutex?debug=0" \
+    -o "$profile_dir/mutex.pb.gz"
 
   echo "  [$label] capturing from localhost:${PPROF_PORT} -> $profile_dir/"
 done
 
-# Wait for all pprof captures to finish
-for pid in "${PPROF_PIDS[@]}"; do
-  wait "$pid" 2>/dev/null || true
-done
-echo "  pprof capture complete."
+echo "  profile capture complete."
+
+set -e
+
+PROFILE_CAPTURE_END=$(date +%s)
+PROFILE_CAPTURE_SECS=$(( PROFILE_CAPTURE_END - PROFILE_CAPTURE_START ))
 
 # Verify profile sizes
 for i in $(seq 0 $((NUM-1))); do
   label="${LABELS[$i]}"
   profile_dir="$BASE_DIR/$label/pprof"
-  cpu_size=$(wc -c < "$profile_dir/cpu.pb.gz" 2>/dev/null || echo 0)
-  heap_size=$(wc -c < "$profile_dir/heap.pb.gz" 2>/dev/null || echo 0)
-  echo "  [$label] cpu=${cpu_size}B heap=${heap_size}B"
+  cpu_size=$(wc -c < "$profile_dir/cpu.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  fgprof_size=$(wc -c < "$profile_dir/fgprof.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  heap_size=$(wc -c < "$profile_dir/heap.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  goroutine_size=$(wc -c < "$profile_dir/goroutine.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  block_size=$(wc -c < "$profile_dir/block.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  mutex_size=$(wc -c < "$profile_dir/mutex.pb.gz" 2>/dev/null | tr -d ' ' || echo 0)
+  echo "  [$label] cpu=${cpu_size}B fgprof=${fgprof_size}B heap=${heap_size}B goroutine=${goroutine_size}B block=${block_size}B mutex=${mutex_size}B"
 done
 
 # Wait remaining time
-REMAINING=$(( DURATION - PPROF_WAIT - 30 ))
+REMAINING=$(( DURATION - PPROF_WAIT - PROFILE_CAPTURE_SECS ))
 if [ "$REMAINING" -gt 0 ]; then
   echo ""
   echo "  Continuing benchmark for ${REMAINING}s..."
@@ -289,9 +364,13 @@ done
 
 echo "Raw data:  $BASE_DIR/<label>/tps.txt"
 echo "Full logs: $BASE_DIR/<label>/output.log"
-echo "Profiles:  $BASE_DIR/<label>/pprof/{cpu,heap}.pb.gz"
+echo "Profiles:  $BASE_DIR/<label>/pprof/{cpu,fgprof,heap,goroutine,block,mutex}.pb.gz"
 echo ""
+echo "Compare CPU (on-CPU only):"
+echo "  go tool pprof -top -diff_base $BASE_DIR/<baseline>/pprof/cpu.pb.gz $BASE_DIR/<candidate>/pprof/cpu.pb.gz"
+echo "Compare wall-clock (on-CPU + off-CPU/I/O):"
+echo "  go tool pprof -top -diff_base $BASE_DIR/<baseline>/pprof/fgprof.pb.gz $BASE_DIR/<candidate>/pprof/fgprof.pb.gz"
 echo "Compare allocs:"
 echo "  go tool pprof -alloc_space -top -diff_base $BASE_DIR/<baseline>/pprof/heap.pb.gz $BASE_DIR/<candidate>/pprof/heap.pb.gz"
-echo "Compare CPU:"
-echo "  go tool pprof -top -diff_base $BASE_DIR/<baseline>/pprof/cpu.pb.gz $BASE_DIR/<candidate>/pprof/cpu.pb.gz"
+echo "Interactive flamegraph (pick any profile):"
+echo "  go tool pprof -http=:8080 -diff_base $BASE_DIR/<baseline>/pprof/cpu.pb.gz $BASE_DIR/<candidate>/pprof/cpu.pb.gz"
