@@ -25,7 +25,7 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 
 	// this avoids emitting cosmos events for ephemeral bookkeeping transfers like send_native
 	if s.eventsSuppressed {
-		ctx = ctx.WithEventManager(sdk.NewEventManager())
+		ctx = ctx.WithEventManager(sdk.NewNoopEventManager())
 	}
 
 	// Hook for mock balances (no-op in production builds)
@@ -70,7 +70,7 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	ctx := s.ctx
 	// this avoids emitting cosmos events for ephemeral bookkeeping transfers like send_native
 	if s.eventsSuppressed {
-		ctx = ctx.WithEventManager(sdk.NewEventManager())
+		ctx = ctx.WithEventManager(sdk.NewNoopEventManager())
 	}
 
 	usei, wei := SplitUseiWeiAmount(amt)

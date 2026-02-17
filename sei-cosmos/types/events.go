@@ -64,6 +64,10 @@ func NewNoopEventManager() *EventManager {
 
 func (em *EventManager) Events() Events { return em.events }
 
+// IsNoop returns true if this EventManager discards all events.
+// Callers can use this to skip expensive event object creation.
+func (em *EventManager) IsNoop() bool { return em.noop }
+
 // EmitEvent stores a single Event object.
 // Deprecated: Use EmitTypedEvent
 func (em *EventManager) EmitEvent(event Event) {

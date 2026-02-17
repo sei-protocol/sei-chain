@@ -113,12 +113,14 @@ func (k BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.Input, 
 			return err
 		}
 
-		ctx.EventManager().EmitEvent(
-			sdk.NewEvent(
-				sdk.EventTypeMessage,
-				sdk.NewAttribute(types.AttributeKeySender, in.Address),
-			),
-		)
+		if !ctx.EventManager().IsNoop() {
+			ctx.EventManager().EmitEvent(
+				sdk.NewEvent(
+					sdk.EventTypeMessage,
+					sdk.NewAttribute(types.AttributeKeySender, in.Address),
+				),
+			)
+		}
 	}
 
 	for _, out := range outputs {
@@ -131,13 +133,15 @@ func (k BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.Input, 
 			return err
 		}
 
-		ctx.EventManager().EmitEvent(
-			sdk.NewEvent(
-				types.EventTypeTransfer,
-				sdk.NewAttribute(types.AttributeKeyRecipient, out.Address),
-				sdk.NewAttribute(sdk.AttributeKeyAmount, out.Coins.String()),
-			),
-		)
+		if !ctx.EventManager().IsNoop() {
+			ctx.EventManager().EmitEvent(
+				sdk.NewEvent(
+					types.EventTypeTransfer,
+					sdk.NewAttribute(types.AttributeKeyRecipient, out.Address),
+					sdk.NewAttribute(sdk.AttributeKeyAmount, out.Coins.String()),
+				),
+			)
+		}
 
 		// Create account if recipient does not exist.
 		//
@@ -188,18 +192,20 @@ func (k BaseSendKeeper) sendCoinsWithoutAccCreation(ctx sdk.Context, fromAddr sd
 		return err
 	}
 
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			types.EventTypeTransfer,
-			sdk.NewAttribute(types.AttributeKeyRecipient, toAddr.String()),
-			sdk.NewAttribute(types.AttributeKeySender, fromAddr.String()),
-			sdk.NewAttribute(sdk.AttributeKeyAmount, amt.String()),
-		),
-		sdk.NewEvent(
-			sdk.EventTypeMessage,
-			sdk.NewAttribute(types.AttributeKeySender, fromAddr.String()),
-		),
-	})
+	if !ctx.EventManager().IsNoop() {
+		ctx.EventManager().EmitEvents(sdk.Events{
+			sdk.NewEvent(
+				types.EventTypeTransfer,
+				sdk.NewAttribute(types.AttributeKeyRecipient, toAddr.String()),
+				sdk.NewAttribute(types.AttributeKeySender, fromAddr.String()),
+				sdk.NewAttribute(sdk.AttributeKeyAmount, amt.String()),
+			),
+			sdk.NewEvent(
+				sdk.EventTypeMessage,
+				sdk.NewAttribute(types.AttributeKeySender, fromAddr.String()),
+			),
+		})
+	}
 
 	return nil
 }
@@ -238,9 +244,11 @@ func (k BaseSendKeeper) SubUnlockedCoins(ctx sdk.Context, addr sdk.AccAddress, a
 	}
 
 	// emit coin spent event
-	ctx.EventManager().EmitEvent(
-		types.NewCoinSpentEvent(addr, amt),
-	)
+	if !ctx.EventManager().IsNoop() {
+		ctx.EventManager().EmitEvent(
+			types.NewCoinSpentEvent(addr, amt),
+		)
+	}
 	return nil
 }
 
@@ -265,9 +273,11 @@ func (k BaseSendKeeper) AddCoins(ctx sdk.Context, addr sdk.AccAddress, amt sdk.C
 	}
 
 	// emit coin received event
-	ctx.EventManager().EmitEvent(
-		types.NewCoinReceivedEvent(addr, amt),
-	)
+	if !ctx.EventManager().IsNoop() {
+		ctx.EventManager().EmitEvent(
+			types.NewCoinReceivedEvent(addr, amt),
+		)
+	}
 
 	return nil
 }
@@ -358,7 +368,7 @@ func (k BaseSendKeeper) SubWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int
 		return nil
 	}
 	defer func() {
-		if err == nil {
+		if err == nil && !ctx.EventManager().IsNoop() {
 			ctx.EventManager().EmitEvent(
 				types.NewWeiSpentEvent(addr, amt),
 			)
@@ -390,7 +400,7 @@ func (k BaseSendKeeper) AddWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int
 		return nil
 	}
 	defer func() {
-		if err == nil {
+		if err == nil && !ctx.EventManager().IsNoop() {
 			ctx.EventManager().EmitEvent(
 				types.NewWeiReceivedEvent(addr, amt),
 			)
@@ -417,14 +427,16 @@ func (k BaseSendKeeper) SendCoinsAndWei(ctx sdk.Context, from sdk.AccAddress, to
 	if err := k.AddWei(ctx, to, wei); err != nil {
 		return err
 	}
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			types.EventTypeWeiTransfer,
-			sdk.NewAttribute(types.AttributeKeyRecipient, to.String()),
-			sdk.NewAttribute(types.AttributeKeySender, from.String()),
-			sdk.NewAttribute(sdk.AttributeKeyAmount, wei.String()),
-		),
-	})
+	if !ctx.EventManager().IsNoop() {
+		ctx.EventManager().EmitEvents(sdk.Events{
+			sdk.NewEvent(
+				types.EventTypeWeiTransfer,
+				sdk.NewAttribute(types.AttributeKeyRecipient, to.String()),
+				sdk.NewAttribute(types.AttributeKeySender, from.String()),
+				sdk.NewAttribute(sdk.AttributeKeyAmount, wei.String()),
+			),
+		})
+	}
 	if amt.GT(sdk.ZeroInt()) {
 		return k.SendCoinsWithoutAccCreation(ctx, from, to, sdk.NewCoins(sdk.NewCoin(sdk.MustGetBaseDenom(), amt)))
 	}
