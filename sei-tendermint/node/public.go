@@ -15,19 +15,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
-// NewDefault constructs a tendermint node service for use in go
-// process that host their own process-local tendermint node. This is
-// equivalent to running tendermint in it's own process communicating
-// to an external ABCI application.
-func NewDefault(
-	ctx context.Context,
-	conf *config.Config,
-	logger log.Logger,
-	restartEvent func(),
-) (service.Service, error) {
-	return newDefaultNode(ctx, conf, logger, restartEvent)
-}
-
 // New constructs a tendermint node. The provided app runs in the same
 // process as the tendermint node and will be wrapped in a local ABCI client
 // inside this function. The final option is a pointer to a Genesis document:
