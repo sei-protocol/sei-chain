@@ -59,8 +59,6 @@ func makeAppQCFor(keys []SecretKey, globalNum GlobalBlockNumber, roadIdx RoadInd
 	return NewAppQC(votes)
 }
 
-// --- Happy-path tests ---
-
 func TestVerifyFreshProposalEmptyRanges(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
@@ -88,8 +86,6 @@ func TestVerifyFreshProposalWithBlocks(t *testing.T) {
 	require.NoError(t, fp.Verify(committee, vs))
 }
 
-// --- View mismatch ---
-
 func TestVerifyRejectsViewMismatch(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
@@ -98,7 +94,6 @@ func TestVerifyRejectsViewMismatch(t *testing.T) {
 	vs := ViewSpec{}
 	otherView := View{Index: 5, Number: 0}
 	otherKey := leaderKey(committee, keys, otherView)
-	_ = rng
 
 	otherProposal := newProposal(otherView, time.Now(), nil, utils.None[*AppProposal]())
 	fp := &FullProposal{
@@ -108,8 +103,6 @@ func TestVerifyRejectsViewMismatch(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "view")
 }
-
-// --- Forged proposal signature ---
 
 func TestVerifyRejectsForgedProposalSignature(t *testing.T) {
 	rng := utils.TestRng()
@@ -134,8 +127,6 @@ func TestVerifyRejectsForgedProposalSignature(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "proposal signature")
 }
-
-// --- Wrong proposer ---
 
 func TestVerifyRejectsWrongProposer(t *testing.T) {
 	rng := utils.TestRng()
@@ -165,8 +156,6 @@ func TestVerifyRejectsWrongProposer(t *testing.T) {
 	require.Contains(t, err.Error(), "proposer")
 }
 
-// --- Inconsistent timeoutQC ---
-
 func TestVerifyRejectsInconsistentTimeoutQC(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
@@ -193,8 +182,6 @@ func TestVerifyRejectsInconsistentTimeoutQC(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "inconsistent timeoutQC")
 }
-
-// --- Extra non-committee lane (the bug fix) ---
 
 func TestVerifyRejectsExtraLane(t *testing.T) {
 	rng := utils.TestRng()
@@ -261,8 +248,6 @@ func TestVerifyRejectsExtraLaneInflatesGlobalRange(t *testing.T) {
 	require.Contains(t, err.Error(), "lanes")
 }
 
-// --- Lane range continuity with previous CommitQC ---
-
 func TestVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
@@ -289,8 +274,6 @@ func TestVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "First()")
 }
-
-// --- Missing LaneQC for non-empty range ---
 
 func TestVerifyRejectsMissingLaneQC(t *testing.T) {
 	rng := utils.TestRng()
@@ -319,8 +302,6 @@ func TestVerifyRejectsMissingLaneQC(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "missing qc")
 }
-
-// --- LaneQC block number mismatch ---
 
 func TestVerifyRejectsLaneQCBlockNumberMismatch(t *testing.T) {
 	rng := utils.TestRng()
@@ -353,8 +334,6 @@ func TestVerifyRejectsLaneQCBlockNumberMismatch(t *testing.T) {
 	require.Contains(t, err.Error(), "BlockNumber()")
 }
 
-// --- LaneQC verification failure (invalid signatures) ---
-
 func TestVerifyRejectsInvalidLaneQCSignature(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
@@ -384,8 +363,6 @@ func TestVerifyRejectsInvalidLaneQCSignature(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "qc[")
 }
-
-// --- AppProposal lower than previous CommitQC ---
 
 func TestVerifyRejectsAppProposalLowerThanPrevious(t *testing.T) {
 	rng := utils.TestRng()
@@ -423,8 +400,6 @@ func TestVerifyRejectsAppProposalLowerThanPrevious(t *testing.T) {
 	require.Contains(t, err.Error(), "AppProposal lower")
 }
 
-// --- Unnecessary appQC ---
-
 func TestVerifyRejectsUnnecessaryAppQC(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
@@ -446,8 +421,6 @@ func TestVerifyRejectsUnnecessaryAppQC(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unnecessary appQC")
 }
-
-// --- Missing appQC when AppProposal advances ---
 
 func TestVerifyRejectsMissingAppQC(t *testing.T) {
 	rng := utils.TestRng()
@@ -472,8 +445,6 @@ func TestVerifyRejectsMissingAppQC(t *testing.T) {
 	require.Contains(t, err.Error(), "appQC missing")
 }
 
-// --- AppQC doesn't match proposal ---
-
 func TestVerifyRejectsAppQCMismatch(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
@@ -497,8 +468,6 @@ func TestVerifyRejectsAppQCMismatch(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "appQC doesn't match")
 }
-
-// --- AppQC invalid signature ---
 
 func TestVerifyRejectsInvalidAppQCSignature(t *testing.T) {
 	rng := utils.TestRng()
@@ -530,10 +499,6 @@ func TestVerifyRejectsInvalidAppQCSignature(t *testing.T) {
 	require.Contains(t, err.Error(), "appQC")
 }
 
-// --- LaneQC header hash mismatch ---
-
-// TestVerifyRejectsLaneQCHeaderHashMismatch verifies that a malicious proposer cannot
-// present a valid LaneQC for header H1 but set the proposal's LaneRange.LastHash to H2.
 func TestVerifyRejectsLaneQCHeaderHashMismatch(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
@@ -578,8 +543,6 @@ func TestVerifyRejectsLaneQCHeaderHashMismatch(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Hash()")
 }
-
-// --- Reproposal tests ---
 
 func TestVerifyValidReproposal(t *testing.T) {
 	rng := utils.TestRng()
@@ -696,8 +659,6 @@ func TestVerifyRejectsReproposalHashMismatch(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "reproposal")
 }
-
-// --- TimeoutQC verification failure ---
 
 func TestVerifyRejectsInvalidTimeoutQCSignature(t *testing.T) {
 	rng := utils.TestRng()
