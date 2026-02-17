@@ -410,6 +410,7 @@ func TrapSignal(cleanupFunc func()) {
 func WaitForQuitSignals(ctx *Context, restartCh chan struct{}) error {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigs)
 	select {
 	case sig := <-sigs:
 		// TODO: why +128?
