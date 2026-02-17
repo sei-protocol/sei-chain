@@ -280,6 +280,10 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 		if got, want := m.proposal.sig.key, c.Leader(vs.View()); got != want {
 			return fmt.Errorf("proposer %q, want %q", got, want)
 		}
+		// Verify the proposer's signature.
+		if err := m.proposal.VerifySig(c); err != nil {
+			return fmt.Errorf("proposal signature: %w", err)
+		}
 		// Do we have the required timeoutQC?
 		if got, want := NextViewOpt(vs.TimeoutQC), NextViewOpt(m.timeoutQC); got != want {
 			return errors.New("inconsistent timeoutQC")

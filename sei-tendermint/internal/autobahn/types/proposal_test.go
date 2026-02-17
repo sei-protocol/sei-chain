@@ -109,6 +109,32 @@ func TestVerifyRejectsViewMismatch(t *testing.T) {
 	require.Contains(t, err.Error(), "view")
 }
 
+// --- Forged proposal signature ---
+
+func TestVerifyRejectsForgedProposalSignature(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	vs := ViewSpec{}
+	proposerKey := leaderKey(committee, keys, vs.View())
+
+	// Build a valid proposal.
+	fp, err := NewProposal(proposerKey, committee, vs, time.Now(), nil, utils.None[*AppQC]())
+	require.NoError(t, err)
+
+	// Tamper: build a different proposal and attach the original signature.
+	// The claimed key is still the leader's, but the signature doesn't match.
+	differentProposal := newProposal(vs.View(), time.Now().Add(time.Hour), nil, utils.None[*AppProposal]())
+	forgedFP := &FullProposal{
+		proposal: &Signed[*Proposal]{
+			hashed: NewHashed(differentProposal),
+			sig:    fp.proposal.sig, // reuse leader's sig from the original proposal
+		},
+	}
+	err = forgedFP.Verify(committee, vs)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "proposal signature")
+}
+
 // --- Wrong proposer ---
 
 func TestVerifyRejectsWrongProposer(t *testing.T) {
