@@ -19,12 +19,36 @@ DEBUG=${DEBUG:-false}
 DB_BACKEND=${DB_BACKEND:-goleveldb}
 
 # --- New env vars for phase gating / multi-instance support ---
-# Final chain data dir. Init is done in a temp staging dir then moved here.
-SEI_HOME=${SEI_HOME:-"$HOME/.sei"}
-# Added to all ports (RPC, P2P, pprof, gRPC, etc.)
-PORT_OFFSET=${PORT_OFFSET:-0}
 # Pre-built binary path. If set, skip build.
 SEID_BIN=${SEID_BIN:-""}
+
+# Auto-claim a port offset slot when PORT_OFFSET is not explicitly set,
+# so multiple uncoordinated benchmark.sh runs don't collide on ports.
+# Same atomic mkdir mechanism as benchmark-compare.sh.
+PORT_SLOT_DIR=""
+if [ -z "${PORT_OFFSET+x}" ]; then
+  for slot in $(seq 0 29); do
+    if mkdir "/tmp/sei-bench-port-slot-${slot}" 2>/dev/null; then
+      PORT_OFFSET=$((slot * 1000))
+      PORT_SLOT_DIR="/tmp/sei-bench-port-slot-${slot}"
+      break
+    fi
+  done
+  if [ -z "$PORT_SLOT_DIR" ]; then
+    echo "ERROR: Could not claim a port offset slot (all 30 slots in use)"
+    exit 1
+  fi
+else
+  PORT_OFFSET=${PORT_OFFSET:-0}
+fi
+
+# Final chain data dir. Init is done in a temp staging dir then moved here.
+# When auto-claiming ports, isolate data dirs too to avoid collisions.
+if [ -n "$PORT_SLOT_DIR" ] && [ -z "${SEI_HOME+x}" ]; then
+  SEI_HOME="$HOME/.sei-bench-${PORT_OFFSET}"
+else
+  SEI_HOME=${SEI_HOME:-"$HOME/.sei"}
+fi
 # Phase control: "init" (build+init+configure), "start" (run node), "all" (both)
 BENCHMARK_PHASE=${BENCHMARK_PHASE:-all}
 # Redirect seid output to file
@@ -83,8 +107,14 @@ echo "================================"
 
 # Create isolated staging directory for chain init
 STAGING_DIR=$(mktemp -d "${TMPDIR:-/tmp}/sei-bench-init.XXXXXX")
+release_port_slot() {
+  if [ -n "$PORT_SLOT_DIR" ] && [ -d "$PORT_SLOT_DIR" ]; then
+    rmdir "$PORT_SLOT_DIR" 2>/dev/null || true
+  fi
+}
 staging_cleanup() {
   rm -rf "$STAGING_DIR" 2>/dev/null || true
+  release_port_slot
 }
 trap staging_cleanup EXIT
 
@@ -295,7 +325,8 @@ fi
 rm -rf "$SEI_HOME"
 mkdir -p "$(dirname "$SEI_HOME")"
 mv "$STAGING_DIR" "$SEI_HOME"
-trap - EXIT
+# Staging dir is gone; downgrade trap to port slot release only
+trap release_port_slot EXIT
 
 fi # end BENCHMARK_PHASE=init
 
@@ -345,6 +376,7 @@ if [ "$DURATION" -gt 0 ] 2>/dev/null; then
 
   cleanup_seid() {
     kill "$SEID_PID" 2>/dev/null || true
+    release_port_slot
   }
   trap cleanup_seid EXIT
 
@@ -406,6 +438,7 @@ if [ "$DURATION" -gt 0 ] 2>/dev/null; then
   echo "Stopping seid..."
   kill "$SEID_PID" 2>/dev/null || true
   wait "$SEID_PID" 2>/dev/null || true
+  release_port_slot
   trap - EXIT
 
   # ---- Extract TPS stats ----
