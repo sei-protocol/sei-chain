@@ -102,7 +102,11 @@ func (s *DBImpl) HasSelfDestructed(acc common.Address) bool {
 }
 
 func (s *DBImpl) Snapshot() int {
-	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
+	em := sdk.NewEventManager()
+	if s.cosmosEventsSuppressed {
+		em = sdk.NewSuppressedEventManager()
+	}
+	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(em)
 	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
 	s.ctx = newCtx
 	version := len(s.snapshottedCtxs) - 1

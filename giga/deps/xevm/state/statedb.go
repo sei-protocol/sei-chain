@@ -39,6 +39,11 @@ type DBImpl struct {
 	// for cases like bank.send_native, we want to suppress transfer events
 	eventsSuppressed bool
 
+	// when true, all Cosmos-level events (coin_spent, coin_received, etc.)
+	// are discarded. EVM logs are unaffected. Use this on the giga executor
+	// path where Cosmos events are constructed but never consumed.
+	cosmosEventsSuppressed bool
+
 	logger *tracing.Hooks
 }
 
@@ -64,6 +69,10 @@ func (s *DBImpl) DisableEvents() {
 
 func (s *DBImpl) EnableEvents() {
 	s.eventsSuppressed = false
+}
+
+func (s *DBImpl) SuppressCosmosEvents() {
+	s.cosmosEventsSuppressed = true
 }
 
 func (s *DBImpl) SetLogger(logger *tracing.Hooks) {
@@ -112,11 +121,14 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	s.clearAccountStateIfDestructed(s.tempState)
 
 	s.flushCtxs()
-	// write all events in order
-	for i := 1; i < len(s.snapshottedCtxs); i++ {
-		s.flushEvents(s.snapshottedCtxs[i])
+	// write all events in order (skip when cosmos events are suppressed —
+	// the EventManagers are no-ops so there is nothing to consolidate)
+	if !s.cosmosEventsSuppressed {
+		for i := 1; i < len(s.snapshottedCtxs); i++ {
+			s.flushEvents(s.snapshottedCtxs[i])
+		}
+		s.flushEvents(s.ctx)
 	}
-	s.flushEvents(s.ctx)
 
 	surplus = s.tempState.surplus
 	return
