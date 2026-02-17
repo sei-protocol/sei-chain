@@ -26,7 +26,6 @@ func makeLaneQC(
 	committee *Committee,
 	keys []SecretKey,
 	lane LaneID,
-	laneKey SecretKey,
 	blockNum BlockNumber,
 	parent BlockHeaderHash,
 ) (*LaneQC, *BlockHeader) {
@@ -81,7 +80,7 @@ func TestVerifyFreshProposalWithBlocks(t *testing.T) {
 
 	// Produce a LaneQC for the proposer's lane.
 	lane := proposerKey.Public()
-	laneQC, _ := makeLaneQC(rng, committee, keys, lane, proposerKey, 0, BlockHeaderHash{})
+	laneQC, _ := makeLaneQC(rng, committee, keys, lane, 0, BlockHeaderHash{})
 
 	fp, err := NewProposal(proposerKey, committee, vs, time.Now(),
 		map[LaneID]*LaneQC{lane: laneQC}, utils.None[*AppQC]())
@@ -306,7 +305,7 @@ func TestVerifyRejectsLaneQCBlockNumberMismatch(t *testing.T) {
 	lane := keys[0].Public()
 
 	// Build a LaneQC for block 0.
-	laneQC, _ := makeLaneQC(rng, committee, keys, lane, keys[0], 0, BlockHeaderHash{})
+	laneQC, _ := makeLaneQC(rng, committee, keys, lane, 0, BlockHeaderHash{})
 
 	// But create a proposal claiming blocks 0..2 (next=2), so it expects QC for block 1.
 	block1 := NewBlock(lane, 1, BlockHeaderHash{}, GenPayload(rng))
@@ -370,7 +369,7 @@ func TestVerifyRejectsAppProposalLowerThanPrevious(t *testing.T) {
 	vs0 := ViewSpec{}
 	leader0 := leaderKey(committee, keys, vs0.View())
 	lane := leader0.Public()
-	laneQC, _ := makeLaneQC(rng, committee, keys, lane, leader0, 0, BlockHeaderHash{})
+	laneQC, _ := makeLaneQC(rng, committee, keys, lane, 0, BlockHeaderHash{})
 	appQC := makeAppQCFor(keys, 0, 0, GenAppHash(rng))
 	fp0, err := NewProposal(leader0, committee, vs0, time.Now(),
 		map[LaneID]*LaneQC{lane: laneQC}, utils.Some(appQC))
@@ -505,6 +504,55 @@ func TestVerifyRejectsInvalidAppQCSignature(t *testing.T) {
 	require.Contains(t, err.Error(), "appQC")
 }
 
+// --- LaneQC header hash mismatch ---
+
+// TestVerifyRejectsLaneQCHeaderHashMismatch verifies that a malicious proposer cannot
+// present a valid LaneQC for header H1 but set the proposal's LaneRange.LastHash to H2.
+func TestVerifyRejectsLaneQCHeaderHashMismatch(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	vs := ViewSpec{}
+	proposerKey := leaderKey(committee, keys, vs.View())
+
+	lane := proposerKey.Public()
+
+	// Build a valid LaneQC for block 0 with header H1.
+	realQC, realHeader := makeLaneQC(rng, committee, keys, lane, 0, BlockHeaderHash{})
+
+	// Build a DIFFERENT block 0 on the same lane → header H2 with a different payload hash.
+	differentBlock := NewBlock(lane, 0, BlockHeaderHash{}, GenPayload(rng))
+	differentHeader := differentBlock.Header()
+
+	// Sanity: the two headers have the same BlockNumber but different hashes.
+	require.Equal(t, realHeader.BlockNumber(), differentHeader.BlockNumber())
+	require.NotEqual(t, realHeader.Hash(), differentHeader.Hash())
+
+	// Construct a LaneRange using the DIFFERENT header (LastHash = H2).
+	var allRanges []*LaneRange
+	for _, l := range committee.Lanes().All() {
+		if l == lane {
+			allRanges = append(allRanges, NewLaneRange(lane, 0, utils.Some(differentHeader)))
+		} else {
+			allRanges = append(allRanges, NewLaneRange(l, 0, utils.None[*BlockHeader]()))
+		}
+	}
+
+	tamperedProposal := newProposal(vs.View(), time.Now(), allRanges, utils.None[*AppProposal]())
+	fp := &FullProposal{
+		proposal: Sign(proposerKey, tamperedProposal),
+		laneQCs:  map[LaneID]*LaneQC{lane: realQC}, // QC signs H1, but proposal says H2
+	}
+
+	// Confirm the mismatch exists.
+	lr := fp.Proposal().Msg().LaneRange(lane)
+	require.NotEqual(t, realQC.Header().Hash(), lr.LastHash(),
+		"LaneQC header hash should differ from LaneRange.LastHash()")
+
+	err := fp.Verify(committee, vs)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Hash()")
+}
+
 // --- Reproposal tests ---
 
 func TestVerifyValidReproposal(t *testing.T) {
@@ -571,7 +619,7 @@ func TestVerifyRejectsReproposalWithUnnecessaryData(t *testing.T) {
 	require.NoError(t, err)
 
 	lane := keys[0].Public()
-	laneQC, _ := makeLaneQC(rng, committee, keys, lane, keys[0], 0, BlockHeaderHash{})
+	laneQC, _ := makeLaneQC(rng, committee, keys, lane, 0, BlockHeaderHash{})
 	tamperedFP := &FullProposal{
 		proposal:  reproposal.proposal,
 		laneQCs:   map[LaneID]*LaneQC{lane: laneQC},

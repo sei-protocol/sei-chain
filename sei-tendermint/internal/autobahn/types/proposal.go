@@ -327,6 +327,9 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 				if got, want := qc.Header().BlockNumber(), r.Next()-1; got != want {
 					return fmt.Errorf("qc[%v].BlockNumber() = %v, want %v", r.Lane(), got, want)
 				}
+				if got, want := qc.Header().Hash(), r.LastHash(); got != want {
+					return fmt.Errorf("qc[%v].Header().Hash() = %v, want %v", r.Lane(), got, want)
+				}
 				s.Spawn(func() error {
 					if err := qc.Verify(c); err != nil {
 						return fmt.Errorf("qc[%v]: %w", r.Lane(), err)
