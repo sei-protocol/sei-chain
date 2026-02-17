@@ -212,17 +212,15 @@ func (k BaseSendKeeper) SubUnlockedCoins(ctx sdk.Context, addr sdk.AccAddress, a
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, amt.String())
 	}
 
-	lockedCoins := k.LockedCoins(ctx, addr)
-
+	// Skip LockedCoins: in the giga executor path, accounts are standard
+	// (non-vesting), so locked coins is always zero. This avoids the expensive
+	// AccountKeeper.GetAccount + protobuf UnpackAny per debit (~15GB allocs / 30s).
 	for _, coin := range amt {
 		balance := k.GetBalance(ctx, addr, coin.Denom)
 		if checkNeg {
-			locked := sdk.NewCoin(coin.Denom, lockedCoins.AmountOf(coin.Denom))
-			spendable := balance.Sub(locked)
-
-			_, hasNeg := sdk.Coins{spendable}.SafeSub(sdk.Coins{coin})
+			_, hasNeg := sdk.Coins{balance}.SafeSub(sdk.Coins{coin})
 			if hasNeg {
-				return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "%s is smaller than %s", spendable, coin)
+				return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "%s is smaller than %s", balance, coin)
 			}
 		}
 
