@@ -37,9 +37,15 @@ type Iterateset []*iterationTracker
 
 var _ MultiVersionStore = (*Store)(nil)
 
+// mvShardCount is the number of shards for the multiVersionMap.
+// Must be a power of two so the mask works correctly.
+const mvShardCount = 64
+
 type Store struct {
-	// map that stores the key string -> MultiVersionValue mapping for accessing from a given key
-	multiVersionMap *sync.Map
+	// Sharded maps that store the key string -> MultiVersionValue mapping.
+	// Sharding reduces sync.Map contention when 24 OCC workers write
+	// concurrently, pushing the batch-size cliff from ~4500 to higher.
+	mvShards [mvShardCount]sync.Map
 
 	// Per-tx data indexed by tx absolute index. Pre-allocated as slices
 	// instead of sync.Map to avoid internal hash-trie node allocations
@@ -51,17 +57,26 @@ type Store struct {
 	parentStore types.KVStore
 }
 
+// mvShard returns the shard index for a given key using FNV-1a hash.
+func mvShard(key string) uint32 {
+	h := uint32(2166136261)
+	for i := 0; i < len(key); i++ {
+		h ^= uint32(key[i])
+		h *= 16777619
+	}
+	return h & (mvShardCount - 1)
+}
+
 func NewMultiVersionStore(parentStore types.KVStore) *Store {
 	return NewMultiVersionStoreWithTxCount(parentStore, 0)
 }
 
 func NewMultiVersionStoreWithTxCount(parentStore types.KVStore, txCount int) *Store {
 	return &Store{
-		multiVersionMap: &sync.Map{},
-		txWritesetKeys:  make([][]string, txCount),
-		txReadSets:      make([]ReadSet, txCount),
-		txIterateSets:   make([]Iterateset, txCount),
-		parentStore:     parentStore,
+		txWritesetKeys: make([][]string, txCount),
+		txReadSets:     make([]ReadSet, txCount),
+		txIterateSets:  make([]Iterateset, txCount),
+		parentStore:    parentStore,
 	}
 }
 
@@ -86,7 +101,7 @@ func (s *Store) VersionedIndexedStore(index int, incarnation int, abortChannel c
 // GetLatest implements MultiVersionStore.
 func (s *Store) GetLatest(key []byte) (value MultiVersionValueItem) {
 	keyString := string(key)
-	mvVal, found := s.multiVersionMap.Load(keyString)
+	mvVal, found := s.mvShards[mvShard(keyString)].Load(keyString)
 	// if the key doesn't exist in the overall map, return nil
 	if !found {
 		return nil
@@ -101,7 +116,7 @@ func (s *Store) GetLatest(key []byte) (value MultiVersionValueItem) {
 // GetLatestBeforeIndex implements MultiVersionStore.
 func (s *Store) GetLatestBeforeIndex(index int, key []byte) (value MultiVersionValueItem) {
 	keyString := string(key)
-	mvVal, found := s.multiVersionMap.Load(keyString)
+	mvVal, found := s.mvShards[mvShard(keyString)].Load(keyString)
 	// if the key doesn't exist in the overall map, return nil
 	if !found {
 		return nil
@@ -119,7 +134,7 @@ func (s *Store) GetLatestBeforeIndex(index int, key []byte) (value MultiVersionV
 func (s *Store) Has(index int, key []byte) bool {
 
 	keyString := string(key)
-	mvVal, found := s.multiVersionMap.Load(keyString)
+	mvVal, found := s.mvShards[mvShard(keyString)].Load(keyString)
 	// if the key doesn't exist in the overall map, return nil
 	if !found {
 		return false // this is okay because the caller of this will THEN need to access the parent store to verify that the key doesnt exist there
@@ -149,7 +164,7 @@ func (s *Store) removeOldWriteset(index int, newWriteSet WriteSet) {
 				continue
 			}
 			// remove from the appropriate item if present in multiVersionMap
-			mvVal, found := s.multiVersionMap.Load(key)
+			mvVal, found := s.mvShards[mvShard(key)].Load(key)
 			// if the key doesn't exist in the overall map, return nil
 			if !found {
 				continue
@@ -168,7 +183,8 @@ func (s *Store) SetWriteset(index int, incarnation int, writeset WriteSet) {
 	writeSetKeys := make([]string, 0, len(writeset))
 	for key, value := range writeset {
 		writeSetKeys = append(writeSetKeys, key)
-		loadVal, _ := s.multiVersionMap.LoadOrStore(key, NewMultiVersionItem()) // init if necessary
+		shard := &s.mvShards[mvShard(key)]
+		loadVal, _ := shard.LoadOrStore(key, NewMultiVersionItem()) // init if necessary
 		mvVal := loadVal.(MultiVersionValue)
 		if value == nil {
 			mvVal.Delete(index, incarnation)
@@ -190,7 +206,8 @@ func (s *Store) InvalidateWriteset(index int, incarnation int) {
 		return
 	}
 	for _, key := range keys {
-		val, _ := s.multiVersionMap.LoadOrStore(key, NewMultiVersionItem())
+		shard := &s.mvShards[mvShard(key)]
+		val, _ := shard.LoadOrStore(key, NewMultiVersionItem())
 		val.(MultiVersionValue).SetEstimate(index, incarnation)
 	}
 }
@@ -205,7 +222,8 @@ func (s *Store) SetEstimatedWriteset(index int, incarnation int, writeset WriteS
 	for key := range writeset {
 		writeSetKeys = append(writeSetKeys, key)
 
-		mvVal, _ := s.multiVersionMap.LoadOrStore(key, NewMultiVersionItem()) // init if necessary
+		shard := &s.mvShards[mvShard(key)]
+		mvVal, _ := shard.LoadOrStore(key, NewMultiVersionItem()) // init if necessary
 		mvVal.(MultiVersionValue).SetEstimate(index, incarnation)
 	}
 	sort.Strings(writeSetKeys)
@@ -421,16 +439,18 @@ func (s *Store) ValidateTransactionState(index int) (bool, []int) {
 }
 
 func (s *Store) WriteLatestToStore() {
-	// sort the keys
+	// collect all keys from all shards
 	keys := []string{}
-	s.multiVersionMap.Range(func(key, value interface{}) bool {
-		keys = append(keys, key.(string))
-		return true
-	})
+	for i := range s.mvShards {
+		s.mvShards[i].Range(func(key, value interface{}) bool {
+			keys = append(keys, key.(string))
+			return true
+		})
+	}
 	sort.Strings(keys)
 
 	for _, key := range keys {
-		val, ok := s.multiVersionMap.Load(key)
+		val, ok := s.mvShards[mvShard(key)].Load(key)
 		if !ok {
 			continue
 		}
