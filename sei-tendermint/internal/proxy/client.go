@@ -2,163 +2,97 @@ package proxy
 
 import (
 	"context"
-	"os"
-	"syscall"
 	"time"
 
 	"github.com/go-kit/kit/metrics"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 )
 
 // proxyClient provides the application connection.
 type proxyClient struct {
-	service.BaseService
-	logger log.Logger
-
-	client  abciclient.Client
+	app types.Application 
 	metrics *Metrics
 }
 
 // New creates a proxy application interface around the provided ABCI application.
-func New(app types.Application, logger log.Logger, metrics *Metrics) abciclient.Client {
-	client := abciclient.NewLocalClient(logger, app)
-	conn := &proxyClient{
-		logger:  logger,
+func New(app types.Application, _ log.Logger, metrics *Metrics) types.Application {
+	return &proxyClient{
 		metrics: metrics,
-		client:  client,
+		app: app,
 	}
-	conn.BaseService = *service.NewBaseService(logger, "proxyClient", conn)
-	return conn
-}
-
-func (app *proxyClient) OnStop()      { tryCallStop(app.client) }
-func (app *proxyClient) Error() error { return app.client.Error() }
-
-func tryCallStop(client abciclient.Client) {
-	if c, ok := client.(interface{ Stop() }); ok {
-		c.Stop()
-	}
-}
-
-func (app *proxyClient) OnStart(ctx context.Context) error {
-	var err error
-	defer func() {
-		if err != nil {
-			tryCallStop(app.client)
-		}
-	}()
-
-	// Kill Tendermint if the ABCI application crashes.
-	go func() {
-		if !app.client.IsRunning() {
-			return
-		}
-		app.client.Wait()
-		if ctx.Err() != nil {
-			return
-		}
-
-		if err := app.client.Error(); err != nil {
-			app.logger.Error("client connection terminated. Did the application crash? Please restart tendermint",
-				"err", err)
-
-			if killErr := kill(); killErr != nil {
-				app.logger.Error("Failed to kill this process - please do so manually",
-					"err", killErr)
-			}
-		}
-
-	}()
-
-	return app.client.Start(ctx)
-}
-
-func kill() error {
-	p, err := os.FindProcess(os.Getpid())
-	if err != nil {
-		return err
-	}
-
-	return p.Signal(syscall.SIGABRT)
 }
 
 func (app *proxyClient) InitChain(ctx context.Context, req *types.RequestInitChain) (*types.ResponseInitChain, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "init_chain", "type", "sync"))()
-	return app.client.InitChain(ctx, req)
+	return app.app.InitChain(ctx, req)
 }
 
 func (app *proxyClient) PrepareProposal(ctx context.Context, req *types.RequestPrepareProposal) (*types.ResponsePrepareProposal, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "prepare_proposal", "type", "sync"))()
-	return app.client.PrepareProposal(ctx, req)
+	return app.app.PrepareProposal(ctx, req)
 }
 
 func (app *proxyClient) ProcessProposal(ctx context.Context, req *types.RequestProcessProposal) (*types.ResponseProcessProposal, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "process_proposal", "type", "sync"))()
-	return app.client.ProcessProposal(ctx, req)
+	return app.app.ProcessProposal(ctx, req)
 }
 
 func (app *proxyClient) FinalizeBlock(ctx context.Context, req *types.RequestFinalizeBlock) (*types.ResponseFinalizeBlock, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "finalize_block", "type", "sync"))()
-	return app.client.FinalizeBlock(ctx, req)
+	return app.app.FinalizeBlock(ctx, req)
 }
 
 func (app *proxyClient) GetTxPriorityHint(ctx context.Context, req *types.RequestGetTxPriorityHintV2) (*types.ResponseGetTxPriorityHint, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "get_tx_priority", "type", "sync"))()
-	return app.client.GetTxPriorityHint(ctx, req)
+	return app.app.GetTxPriorityHint(ctx, req)
 }
 
 func (app *proxyClient) Commit(ctx context.Context) (*types.ResponseCommit, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "commit", "type", "sync"))()
-	return app.client.Commit(ctx)
+	return app.app.Commit(ctx)
 }
 
-func (app *proxyClient) Flush(ctx context.Context) error {
-	defer addTimeSample(app.metrics.MethodTiming.With("method", "flush", "type", "sync"))()
-	return app.client.Flush(ctx)
-}
+func (app *proxyClient) Flush(ctx context.Context) error { return nil }
 
 func (app *proxyClient) CheckTx(ctx context.Context, req *types.RequestCheckTxV2) (*types.ResponseCheckTxV2, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "check_tx", "type", "sync"))()
-	return app.client.CheckTx(ctx, req)
+	return app.app.CheckTx(ctx, req)
 }
 
 func (app *proxyClient) Echo(ctx context.Context, msg string) (*types.ResponseEcho, error) {
-	defer addTimeSample(app.metrics.MethodTiming.With("method", "echo", "type", "sync"))()
-	return app.client.Echo(ctx, msg)
+	return &types.ResponseEcho{Message: msg}, nil
 }
 
 func (app *proxyClient) Info(ctx context.Context, req *types.RequestInfo) (*types.ResponseInfo, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "info", "type", "sync"))()
-	return app.client.Info(ctx, req)
+	return app.app.Info(ctx, req)
 }
 
 func (app *proxyClient) Query(ctx context.Context, req *types.RequestQuery) (*types.ResponseQuery, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "query", "type", "sync"))()
-	return app.client.Query(ctx, req)
+	return app.app.Query(ctx, req)
 }
 
 func (app *proxyClient) ListSnapshots(ctx context.Context, req *types.RequestListSnapshots) (*types.ResponseListSnapshots, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "list_snapshots", "type", "sync"))()
-	return app.client.ListSnapshots(ctx, req)
+	return app.app.ListSnapshots(ctx, req)
 }
 
 func (app *proxyClient) OfferSnapshot(ctx context.Context, req *types.RequestOfferSnapshot) (*types.ResponseOfferSnapshot, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "offer_snapshot", "type", "sync"))()
-	return app.client.OfferSnapshot(ctx, req)
+	return app.app.OfferSnapshot(ctx, req)
 }
 
 func (app *proxyClient) LoadSnapshotChunk(ctx context.Context, req *types.RequestLoadSnapshotChunk) (*types.ResponseLoadSnapshotChunk, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "load_snapshot_chunk", "type", "sync"))()
-	return app.client.LoadSnapshotChunk(ctx, req)
+	return app.app.LoadSnapshotChunk(ctx, req)
 }
 
 func (app *proxyClient) ApplySnapshotChunk(ctx context.Context, req *types.RequestApplySnapshotChunk) (*types.ResponseApplySnapshotChunk, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "apply_snapshot_chunk", "type", "sync"))()
-	return app.client.ApplySnapshotChunk(ctx, req)
+	return app.app.ApplySnapshotChunk(ctx, req)
 }
 
 // addTimeSample returns a function that, when called, adds an observation to m.
