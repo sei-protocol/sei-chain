@@ -7,10 +7,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"testing"
-
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
-	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
@@ -18,6 +16,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_runAddCmdLedgerWithCustomCoinType(t *testing.T) {

@@ -9,13 +9,12 @@ import (
 	"math/big"
 
 	secp256k1 "github.com/btcsuite/btcd/btcec/v2"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	"golang.org/x/crypto/ripemd160" // nolint: staticcheck // necessary for Bitcoin address format
-
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	cosmoscryptoutils "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/utils"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"golang.org/x/crypto/ripemd160" //nolint:staticcheck // necessary for Bitcoin address format
 )
 
 var _ cryptotypes.PrivKey = &PrivKey{}
