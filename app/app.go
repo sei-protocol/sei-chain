@@ -1375,6 +1375,7 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 }
 
 func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
+	fmt.Println("ProcessTxsSynchronousGiga")
 	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
 
 	ms := ctx.MultiStore().CacheMultiStore()
