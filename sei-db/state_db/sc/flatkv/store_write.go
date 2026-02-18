@@ -239,6 +239,12 @@ func (s *CommitStore) Commit() (int64, error) {
 	// Step 6: Clear pending buffers
 	s.clearPendingWrites()
 
+	// Step 7: Best-effort WAL truncation to prevent unbounded growth.
+	// Throttled to every 1000 blocks to avoid ReadDir syscall overhead.
+	if version%1000 == 0 {
+		s.tryTruncateWAL()
+	}
+
 	s.log.Info("Committed version", "version", version)
 	return version, nil
 }

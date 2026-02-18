@@ -419,20 +419,21 @@ func TestStoreExporterNotImplemented(t *testing.T) {
 // Lifecycle (WriteSnapshot, Rollback)
 // =============================================================================
 
-func TestStoreWriteSnapshotNotImplemented(t *testing.T) {
+func TestStoreWriteSnapshotRequiresCommit(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	err := s.WriteSnapshot(t.TempDir())
+	// Cannot snapshot at version 0 (nothing committed)
+	err := s.WriteSnapshot("")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not implemented")
+	require.Contains(t, err.Error(), "uncommitted")
 }
 
-func TestStoreRollbackNoOp(t *testing.T) {
+func TestStoreRollbackNoSnapshot(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	// Rollback is currently a no-op - doesn't error
+	// Rollback with no snapshots should fail (no snapshot found)
 	err := s.Rollback(1)
-	require.NoError(t, err)
+	require.Error(t, err)
 }

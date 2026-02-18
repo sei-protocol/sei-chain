@@ -55,6 +55,12 @@ type Batch interface {
 	io.Closer
 }
 
+// Checkpointable is an optional capability for DB engines that support
+// efficient point-in-time snapshots via filesystem hardlinks.
+type Checkpointable interface {
+	Checkpoint(destDir string) error
+}
+
 // Iterator provides ordered iteration over keyspace with seek primitives.
 //
 // Zero-copy contract:
