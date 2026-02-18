@@ -45,7 +45,7 @@ const mvShardCount = 64
 // guarded by a mutex. This avoids sync.Map's internal hash-trie node
 // allocations (~5.4 GB per 120s benchmark with sync.Map).
 type mvMapShard struct {
-	mu sync.RWMutex
+	mu sync.Mutex
 	m  map[string]MultiVersionValue
 }
 
@@ -114,9 +114,9 @@ func (s *Store) VersionedIndexedStore(index int, incarnation int, abortChannel c
 func (s *Store) GetLatest(key []byte) (value MultiVersionValueItem) {
 	keyString := string(key)
 	shard := &s.mvShards[mvShardIdx(keyString)]
-	shard.mu.RLock()
+	shard.mu.Lock()
 	mvVal, found := shard.m[keyString]
-	shard.mu.RUnlock()
+	shard.mu.Unlock()
 	if !found {
 		return nil
 	}
@@ -131,9 +131,9 @@ func (s *Store) GetLatest(key []byte) (value MultiVersionValueItem) {
 func (s *Store) GetLatestBeforeIndex(index int, key []byte) (value MultiVersionValueItem) {
 	keyString := string(key)
 	shard := &s.mvShards[mvShardIdx(keyString)]
-	shard.mu.RLock()
+	shard.mu.Lock()
 	mvVal, found := shard.m[keyString]
-	shard.mu.RUnlock()
+	shard.mu.Unlock()
 	if !found {
 		return nil
 	}
@@ -148,9 +148,9 @@ func (s *Store) GetLatestBeforeIndex(index int, key []byte) (value MultiVersionV
 func (s *Store) Has(index int, key []byte) bool {
 	keyString := string(key)
 	shard := &s.mvShards[mvShardIdx(keyString)]
-	shard.mu.RLock()
+	shard.mu.Lock()
 	mvVal, found := shard.m[keyString]
-	shard.mu.RUnlock()
+	shard.mu.Unlock()
 	if !found {
 		return false
 	}
@@ -174,9 +174,9 @@ func (s *Store) removeOldWriteset(index int, newWriteSet WriteSet) {
 				continue
 			}
 			shard := &s.mvShards[mvShardIdx(key)]
-			shard.mu.RLock()
+			shard.mu.Lock()
 			mvVal, found := shard.m[key]
-			shard.mu.RUnlock()
+			shard.mu.Unlock()
 			if !found {
 				continue
 			}
@@ -469,19 +469,19 @@ func (s *Store) WriteLatestToStore() {
 	keys := make([]string, 0, 256)
 	for i := range s.mvShards {
 		shard := &s.mvShards[i]
-		shard.mu.RLock()
+		shard.mu.Lock()
 		for k := range shard.m {
 			keys = append(keys, k)
 		}
-		shard.mu.RUnlock()
+		shard.mu.Unlock()
 	}
 	sort.Strings(keys)
 
 	for _, key := range keys {
 		shard := &s.mvShards[mvShardIdx(key)]
-		shard.mu.RLock()
+		shard.mu.Lock()
 		mvVal := shard.m[key]
-		shard.mu.RUnlock()
+		shard.mu.Unlock()
 		mvValue, found := mvVal.GetLatestNonEstimate()
 		if !found {
 			continue
