@@ -51,6 +51,34 @@ type State struct {
 // innerFile is the A/B file prefix for avail inner state persistence.
 const innerFile = "avail_inner"
 
+// loadPersistedState loads persisted avail state from disk and creates persisters for ongoing writes.
+func loadPersistedState(dir string) (*loadedAvailState, persist.Persister, *persist.BlockPersister, error) {
+	persister, persistedData, err := persist.NewPersister(dir, innerFile)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("NewPersister %s: %w", innerFile, err)
+	}
+
+	var appQC utils.Option[*types.AppQC]
+	if bz, ok := persistedData.Get(); ok {
+		qc, err := types.AppQCConv.Unmarshal(bz)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("unmarshal persisted AppQC: %w", err)
+		}
+		log.Info().
+			Uint64("roadIndex", uint64(qc.Proposal().RoadIndex())).
+			Uint64("globalNumber", uint64(qc.Proposal().GlobalNumber())).
+			Msg("loaded persisted AppQC")
+		appQC = utils.Some(qc)
+	}
+
+	bp, blocks, err := persist.NewBlockPersister(dir)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("NewBlockPersister: %w", err)
+	}
+
+	return &loadedAvailState{appQC: appQC, blocks: blocks}, persister, bp, nil
+}
+
 // NewState constructs a new availability state.
 // stateDir is None when persistence is disabled (testing only).
 func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[string]) (*State, error) {
@@ -59,38 +87,13 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	var bp *persist.BlockPersister
 
 	if dir, ok := stateDir.Get(); ok {
-		// Create A/B persister for inner state.
-		persister, persistedData, err := persist.NewPersister(dir, innerFile)
+		var persister persist.Persister
+		var err error
+		loaded, persister, bp, err = loadPersistedState(dir)
 		if err != nil {
-			return nil, fmt.Errorf("NewPersister %s: %w", innerFile, err)
+			return nil, err
 		}
-		p = utils.Some[persist.Persister](persister)
-
-		// Decode persisted AppQC.
-		var appQC utils.Option[*types.AppQC]
-		if bz, ok := persistedData.Get(); ok {
-			qc, err := types.AppQCConv.Unmarshal(bz)
-			if err != nil {
-				return nil, fmt.Errorf("unmarshal persisted AppQC: %w", err)
-			}
-			log.Info().
-				Uint64("roadIndex", uint64(qc.Proposal().RoadIndex())).
-				Uint64("globalNumber", uint64(qc.Proposal().GlobalNumber())).
-				Msg("loaded persisted AppQC")
-			appQC = utils.Some(qc)
-		}
-
-		// Load persisted blocks from the blocks/ subdirectory.
-		var blocks map[types.LaneID]map[types.BlockNumber]*types.Signed[*types.LaneProposal]
-		bp, blocks, err = persist.NewBlockPersister(dir)
-		if err != nil {
-			return nil, fmt.Errorf("NewBlockPersister: %w", err)
-		}
-
-		loaded = &loadedAvailState{
-			appQC:  appQC,
-			blocks: blocks,
-		}
+		p = utils.Some(persister)
 	}
 
 	return &State{
