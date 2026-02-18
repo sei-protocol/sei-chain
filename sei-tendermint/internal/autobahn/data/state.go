@@ -195,7 +195,7 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		return fmt.Errorf("block.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return n <= inner.nextQC }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextQC }); err != nil {
 			return err
 		}
 		// Early exit if we already have the block.
@@ -205,7 +205,11 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		if _, ok := inner.blocks[n]; ok {
 			return nil
 		}
+		// Defense in depth: QC must exist after WaitUntil(n < nextQC).
 		qc := inner.qcs[n]
+		if qc == nil {
+			return fmt.Errorf("internal error: no QC for block %v (nextQC=%v)", n, inner.nextQC)
+		}
 		want := qc.Headers()[n-qc.QC().GlobalRange().First].Hash()
 		if got := block.Header().Hash(); want != got {
 			return fmt.Errorf("block header hash mismatch: want %v, got %v", want, got)
