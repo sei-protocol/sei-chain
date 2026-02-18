@@ -47,3 +47,19 @@ func (e *Executor) ExecuteTransaction(tx *types.Transaction, sender common.Addre
 
 	return executionResult, nil
 }
+
+// ExecuteTransactionFeeCharged executes a transaction assuming the gas fee has already been charged
+// (like V2's msg_server path where the ante handler charges fees separately).
+// This ensures the EVM does NOT charge/refund gas fees during execution, matching V2's behavior
+// where feeAlreadyCharged=true is passed to StateTransition.Execute().
+func (e *Executor) ExecuteTransactionFeeCharged(tx *types.Transaction, sender common.Address, baseFee *big.Int, gasPool *core.GasPool) (*core.ExecutionResult, error) {
+	message, err := core.TransactionToMessage(tx, &internal.Signer{From: sender}, baseFee)
+	if err != nil {
+		return nil, err
+	}
+
+	e.evm.SetTxContext(core.NewEVMTxContext(message))
+	// feeAlreadyCharged=true: skip buyGas/refund (fees charged separately, like V2 ante handler)
+	// shouldIncrementNonce=true: increment nonce during execution (same as V2 msg_server)
+	return core.NewStateTransition(e.evm, message, gasPool, true, true).Execute()
+}
