@@ -107,6 +107,8 @@ func setValidatorTypeTendermintConfig(config *tmcfg.Config) {
 // setFullnodeTypeTendermintConfig sets common Tendermint config for fullnode-like nodes
 func setFullnodeTypeTendermintConfig(config *tmcfg.Config) {
 	config.TxIndex.Indexer = []string{"kv"} // Full nodes need tx indexing for queries
+	config.RPC.ListenAddress = "tcp://0.0.0.0:26657"
+	config.P2P.ListenAddress = "tcp://0.0.0.0:26656"
 }
 
 // SetTendermintConfigByMode sets Tendermint config values based on node mode
