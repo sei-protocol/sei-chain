@@ -83,11 +83,10 @@ func (store *FastStore) Write() {
 		}
 	}
 
-	// Mark all entries as clean instead of clearing — parent store may not
-	// make writes visible until Commit().
-	for k, v := range store.cache {
-		store.cache[k] = types.NewCValue(v.Value(), false)
-	}
+	// Clear both maps — in the FastStore snapshot chain, parents are either
+	// another FastStore or a VIS, both of which make writes immediately
+	// visible. Reads after Write() fall through to the parent.
+	clear(store.cache)
 	clear(store.deleted)
 }
 
