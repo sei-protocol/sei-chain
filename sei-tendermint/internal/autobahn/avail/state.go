@@ -269,13 +269,16 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		}
 		// Verify parent hash chain to prevent a malicious proposer from
 		// breaking the block chain, which would deadlock header reconstruction.
+		// A mismatch is not an error: it can happen legitimately when a
+		// producer equivocates (restarts and produces a different chain).
+		// We simply ignore the block since it doesn't extend our local chain.
 		// NOTE: after pruning (q.first >= q.next), we cannot verify the parent
 		// hash because the previous block is gone. This is safe because
 		// headers() never follows the first block's parentHash in a LaneRange.
 		if q.first < q.next {
 			prevHash := q.q[q.next-1].Msg().Block().Header().Hash()
 			if h.ParentHash() != prevHash {
-				return fmt.Errorf("parent hash mismatch for block %v on lane %v", h.BlockNumber(), h.Lane())
+				return nil
 			}
 		}
 		q.pushBack(p)

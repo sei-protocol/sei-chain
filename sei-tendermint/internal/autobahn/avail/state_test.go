@@ -249,7 +249,7 @@ func TestStateMismatchedQCs(t *testing.T) {
 	})
 }
 
-func TestPushBlockRejectsBadParentHash(t *testing.T) {
+func TestPushBlockIgnoresBadParentHash(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 3)
@@ -268,8 +268,10 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	fakeBlock := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
 	fakeProp := types.Sign(keys[0], types.NewLaneProposal(fakeBlock))
 
-	err = state.PushBlock(ctx, fakeProp)
-	require.Error(t, err)
+	// Block is silently ignored (equivocation), not an error.
+	require.NoError(t, state.PushBlock(ctx, fakeProp))
+	// Queue did not advance — the bad block was dropped.
+	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
 }
 
 func TestPushBlockRejectsWrongSigner(t *testing.T) {
