@@ -490,9 +490,6 @@ func (s *scheduler) prepareTask(task *deliverTxTask) {
 
 	// if there are no stores, don't try to wrap, because there's nothing to wrap
 	if len(s.multiVersionStores) > 0 {
-		// non-blocking
-		cms := ctx.MultiStore().CacheMultiStore()
-
 		// init version stores by store key
 		vs := make(map[store.StoreKey]*multiversion.VersionIndexedStore)
 		for storeKey, mvs := range s.multiVersionStores {
@@ -501,14 +498,33 @@ func (s *scheduler) prepareTask(task *deliverTxTask) {
 
 		// save off version store so we can ask it things later
 		task.VersionStores = vs
-		ms := cms.SetKVStores(func(k store.StoreKey, kvs sdk.KVStore) store.CacheWrap {
-			return vs[k]
-		})
-		ms = ms.(store.GigaMultiStore).SetGigaKVStores(func(k store.StoreKey, kvs sdk.KVStore) store.KVStore {
-			return vs[k]
-		})
 
-		ctx = ctx.WithMultiStore(ms)
+		// Try the fast OCC path: create a hollow CMS with stores populated
+		// directly from VersionIndexedStores, skipping intermediate store creation.
+		type occPreparer interface {
+			CacheMultiStoreForOCC(
+				func(store.StoreKey) store.CacheWrap,
+				func(store.StoreKey) store.KVStore,
+			) store.CacheMultiStore
+		}
+		parentMS := ctx.MultiStore()
+		if occ, ok := parentMS.(occPreparer); ok {
+			ms := occ.CacheMultiStoreForOCC(
+				func(k store.StoreKey) store.CacheWrap { return vs[k] },
+				func(k store.StoreKey) store.KVStore { return vs[k] },
+			)
+			ctx = ctx.WithMultiStore(ms)
+		} else {
+			// Fallback: create full CMS and replace stores
+			cms := parentMS.CacheMultiStore()
+			ms := cms.SetKVStores(func(k store.StoreKey, kvs sdk.KVStore) store.CacheWrap {
+				return vs[k]
+			})
+			ms = ms.(store.GigaMultiStore).SetGigaKVStores(func(k store.StoreKey, kvs sdk.KVStore) store.KVStore {
+				return vs[k]
+			})
+			ctx = ctx.WithMultiStore(ms)
+		}
 	}
 
 	if task.TxTracer != nil {
