@@ -163,12 +163,32 @@ func newFastCacheMultiStoreFromCMS(cms Store) Store {
 	}
 	cms.mu.RUnlock()
 
-	gigaStores := make(map[types.StoreKey]types.KVStore, len(cms.gigaStores))
-	for k, v := range cms.gigaStores {
-		gigaStores[k] = v
+	// Capture parent's giga stores and handler for the child's lazy resolution.
+	// The parent may have a gigaHandler (e.g. OCC lazy stores) that can create
+	// giga stores not yet populated in cms.gigaStores.
+	parentGigaStores := cms.gigaStores
+	parentGigaHandler := cms.gigaHandler
+
+	child := newFastFromKVStore(cms.db, parents, parentGigaStores, cms.keys, cms.gigaKeys, cms.traceWriter, cms.traceContext)
+
+	// Chain the parent's gigaHandler so the child can resolve giga stores
+	// that the parent hasn't lazily created yet.
+	if parentGigaHandler != nil {
+		childHandler := child.gigaHandler
+		child.gigaHandler = func(sk types.StoreKey) types.KVStore {
+			if s := childHandler(sk); s != nil {
+				return s
+			}
+			// Parent store not yet populated - create via parent's handler
+			if gs := parentGigaHandler(sk); gs != nil {
+				parentGigaStores[sk] = gs // cache in parent for future snapshots
+				return gigacachekv.NewFastStore(gs, sk)
+			}
+			return nil
+		}
 	}
 
-	return newFastFromKVStore(cms.db, parents, gigaStores, cms.keys, cms.gigaKeys, cms.traceWriter, cms.traceContext)
+	return child
 }
 
 // newFastFromKVStore is like NewFromKVStore but uses plain-map FastStore types
@@ -196,14 +216,18 @@ func newFastFromKVStore(
 		cms.parents[key] = s
 	}
 
-	cms.gigaStores = make(map[types.StoreKey]types.KVStore, len(gigaKeys))
-	for _, key := range gigaKeys {
-		if gigaStore, ok := gigaStores[key]; ok {
-			cms.gigaStores[key] = gigacachekv.NewFastStore(gigaStore, key)
-		} else {
-			parent := stores[key].(types.KVStore)
-			cms.gigaStores[key] = gigacachekv.NewFastStore(parent, key)
+	// Lazy giga store creation: wrap parent giga stores in FastStore only
+	// when first accessed. EVM snapshots typically touch only 3-4 stores out
+	// of ~20 giga keys, saving ~1.5GB of allocations.
+	cms.gigaStores = make(map[types.StoreKey]types.KVStore, 4)
+	cms.gigaHandler = func(sk types.StoreKey) types.KVStore {
+		if gs, ok := gigaStores[sk]; ok {
+			return gigacachekv.NewFastStore(gs, sk)
 		}
+		if parent, ok := stores[sk]; ok {
+			return gigacachekv.NewFastStore(parent.(types.KVStore), sk)
+		}
+		return nil
 	}
 
 	return cms
