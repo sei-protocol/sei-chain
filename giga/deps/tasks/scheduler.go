@@ -439,7 +439,9 @@ func (s *scheduler) executeAll(ctx sdk.Context, tasks []*deliverTxTask) error {
 		return nil
 	}
 	ctx, span := s.traceSpan(ctx, "SchedulerExecuteAll", nil)
-	span.SetAttributes(attribute.Bool("synchronous", s.synchronous))
+	if span.IsRecording() {
+		span.SetAttributes(attribute.Bool("synchronous", s.synchronous))
+	}
 	defer span.End()
 
 	// validationWg waits for all validations to complete
@@ -471,6 +473,9 @@ func (s *scheduler) prepareAndRunTask(wg *sync.WaitGroup, ctx sdk.Context, task 
 
 func (s *scheduler) traceSpan(ctx sdk.Context, name string, task *deliverTxTask) (sdk.Context, trace.Span) {
 	spanCtx, span := s.tracingInfo.StartWithContext(name, ctx.TraceSpanContext())
+	if !span.IsRecording() {
+		return ctx, span
+	}
 	if task != nil {
 		span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", sha256.Sum256(task.Request.Tx))))
 		span.SetAttributes(attribute.Int("absoluteIndex", task.AbsoluteIndex))

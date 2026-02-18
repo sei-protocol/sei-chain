@@ -51,9 +51,7 @@ func (k *Keeper) GetLegacyBlockBloom(ctx sdk.Context, height int64) (res ethtype
 func (k *Keeper) SetEvmOnlyBlockBloom(ctx sdk.Context, blooms []ethtypes.Bloom) {
 	blockBloom := make([]byte, ethtypes.BloomByteLength)
 	for _, bloom := range blooms {
-		or := make([]byte, ethtypes.BloomByteLength)
-		bitutil.ORBytes(or, blockBloom, bloom[:])
-		blockBloom = or
+		bitutil.ORBytes(blockBloom, blockBloom, bloom[:])
 	}
 	store := ctx.KVStore(k.storeKey)
 	store.Set(types.EvmOnlyBlockBloomPrefix, blockBloom)
@@ -62,9 +60,7 @@ func (k *Keeper) SetEvmOnlyBlockBloom(ctx sdk.Context, blooms []ethtypes.Bloom) 
 func (k *Keeper) SetBlockBloom(ctx sdk.Context, blooms []ethtypes.Bloom) {
 	blockBloom := make([]byte, ethtypes.BloomByteLength)
 	for _, bloom := range blooms {
-		or := make([]byte, ethtypes.BloomByteLength)
-		bitutil.ORBytes(or, blockBloom, bloom[:])
-		blockBloom = or
+		bitutil.ORBytes(blockBloom, blockBloom, bloom[:])
 	}
 	store := ctx.KVStore(k.storeKey)
 	store.Set(types.BlockBloomPrefix, blockBloom)
