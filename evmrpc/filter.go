@@ -935,6 +935,14 @@ func (f *LogFetcher) tryFilterLogsRange(_ context.Context, fromBlock, toBlock ui
 		return nil, err
 	}
 
+	// Sort logs by block number and index (should already be sorted from DuckDB, but ensure consistency)
+	sort.Slice(logs, func(i, j int) bool {
+		if logs[i].BlockNumber != logs[j].BlockNumber {
+			return logs[i].BlockNumber < logs[j].BlockNumber
+		}
+		return logs[i].Index < logs[j].Index
+	})
+
 	return logs, nil
 }
 
