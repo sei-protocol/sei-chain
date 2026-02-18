@@ -14,7 +14,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -78,56 +77,6 @@ type nodeImpl struct {
 	prometheusSrv  *http.Server
 }
 
-// newDefaultNode returns a Tendermint node with default settings for the
-// PrivValidator, ClientCreator, GenesisDoc, and DBProvider.
-// It implements NodeProvider.
-func newDefaultNode(
-	ctx context.Context,
-	cfg *config.Config,
-	logger log.Logger,
-	restartEvent func(),
-) (service.Service, error) {
-	nodeKey, err := types.LoadOrGenNodeKey(cfg.NodeKeyFile())
-	if err != nil {
-		return nil, fmt.Errorf("failed to load or gen node key %s: %w", cfg.NodeKeyFile(), err)
-	}
-
-	appClient, _, err := proxy.ClientFactory(logger, cfg.ProxyApp, cfg.ABCI, cfg.DBDir())
-	if err != nil {
-		return nil, err
-	}
-
-	if cfg.Mode == config.ModeSeed {
-		return makeSeedNode(
-			logger,
-			cfg,
-			config.DefaultDBProvider,
-			nodeKey,
-			defaultGenesisDocProviderFunc(cfg),
-			appClient,
-			DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
-		)
-	}
-	pval, err := makeDefaultPrivval(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	return makeNode(
-		ctx,
-		cfg,
-		restartEvent,
-		pval,
-		nodeKey,
-		appClient,
-		defaultGenesisDocProviderFunc(cfg),
-		config.DefaultDBProvider,
-		logger,
-		[]trace.TracerProviderOption{},
-		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
-	)
-}
-
 // makeNode returns a new, ready to go, Tendermint Node.
 func makeNode(
 	ctx context.Context,
@@ -135,14 +84,13 @@ func makeNode(
 	restartEvent func(),
 	filePrivval *privval.FilePV,
 	nodeKey types.NodeKey,
-	client abciclient.Client,
+	app abci.Application,
 	genesisDocProvider genesisDocProvider,
 	dbProvider config.DBProvider,
 	logger log.Logger,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
 ) (service.Service, error) {
-
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 
@@ -170,7 +118,7 @@ func makeNode(
 		return nil, combineCloseError(err, makeCloser(closers))
 	}
 
-	proxyApp := proxy.New(client, logger.With("module", "proxy"), nodeMetrics.proxy)
+	proxyApp := proxy.New(app, nodeMetrics.proxy)
 	eventBus := eventbus.NewDefault(logger.With("module", "events"))
 
 	var eventLog *eventlog.Log
@@ -427,10 +375,6 @@ func makeNode(
 
 // OnStart starts the Node. It implements service.Service.
 func (n *nodeImpl) OnStart(ctx context.Context) error {
-	if err := n.rpcEnv.ProxyApp.Start(ctx); err != nil {
-		return fmt.Errorf("error starting proxy app connections: %w", err)
-	}
-
 	// EventBus and IndexerService must be started before the handshake because
 	// we might need to index the txs of the replayed block as this might not have happened
 	// when the node stopped last time (i.e. the node stopped or crashed after it saved the block
@@ -755,7 +699,7 @@ func LoadStateFromDBOrGenesisDocProvider(stateStore sm.Store, genDoc *types.Gene
 	return state, nil
 }
 
-func getRouterConfig(conf *config.Config, appClient abciclient.Client) *p2p.RouterOptions {
+func getRouterConfig(conf *config.Config, appClient abci.Application) *p2p.RouterOptions {
 	opts := p2p.RouterOptions{}
 
 	if conf.FilterPeers && appClient != nil {
