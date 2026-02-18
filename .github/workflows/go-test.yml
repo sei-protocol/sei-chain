@@ -56,6 +56,4 @@ jobs:
         run: |
           go test \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
-            -p=${GOMAXPROCS:-$(nproc)} \
-            -parallel=${GOMAXPROCS:-$(nproc)} \
             ${{ steps.test-packages.outputs.packages || './...' }}
