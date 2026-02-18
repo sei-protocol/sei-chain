@@ -178,7 +178,7 @@ func newFastFromKVStore(
 	traceWriter io.Writer, traceContext types.TraceContext,
 ) Store {
 	cms := Store{
-		db:              cachekv.NewFastStore(store, nil),
+		db:              gigacachekv.NewFastStore(store, nil),
 		stores:          make(map[types.StoreKey]types.CacheWrap, len(stores)),
 		parents:         make(map[types.StoreKey]types.CacheWrapper, len(stores)),
 		keys:            keys,
@@ -237,7 +237,7 @@ func (cms Store) getOrCreateStore(key types.StoreKey) types.CacheWrap {
 	}
 	var s types.CacheWrap
 	if cms.fast {
-		s = cachekv.NewFastStore(cw.(types.KVStore), key)
+		s = gigacachekv.NewFastStore(cw.(types.KVStore), key)
 	} else {
 		s = cachekv.NewStore(cw.(types.KVStore), key, types.DefaultCacheSizeLimit)
 	}
