@@ -45,9 +45,8 @@ type ReceiptStore interface {
 }
 
 type ReceiptRecord struct {
-	TxHash       common.Hash
-	Receipt      *types.Receipt
-	ReceiptBytes []byte // Optional pre-marshaled receipt (must match Receipt if set)
+	TxHash  common.Hash
+	Receipt *types.Receipt
 }
 
 type receiptStore struct {
@@ -57,17 +56,12 @@ type receiptStore struct {
 	closeOnce   sync.Once
 }
 
-const (
-	receiptBackendPebble  = "pebble"
-	receiptBackendParquet = "parquet"
-)
+const receiptBackendPebble = "pebble"
 
 func normalizeReceiptBackend(backend string) string {
 	switch strings.ToLower(strings.TrimSpace(backend)) {
 	case "", "pebbledb", receiptBackendPebble:
 		return receiptBackendPebble
-	case receiptBackendParquet:
-		return receiptBackendParquet
 	default:
 		return strings.ToLower(strings.TrimSpace(backend))
 	}
@@ -91,8 +85,6 @@ func newReceiptBackend(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, 
 
 	backend := normalizeReceiptBackend(config.Backend)
 	switch backend {
-	case receiptBackendParquet:
-		return newParquetReceiptStore(log, config, storeKey)
 	case receiptBackendPebble:
 		ssConfig := dbconfig.DefaultStateStoreConfig()
 		ssConfig.DBDirectory = config.DBDirectory
@@ -188,13 +180,9 @@ func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) er
 		if record.Receipt == nil {
 			continue
 		}
-		marshalledReceipt := record.ReceiptBytes
-		if len(marshalledReceipt) == 0 {
-			var err error
-			marshalledReceipt, err = record.Receipt.Marshal()
-			if err != nil {
-				return err
-			}
+		marshalledReceipt, err := record.Receipt.Marshal()
+		if err != nil {
+			return err
 		}
 		kvPair := &iavl.KVPair{
 			Key:   types.ReceiptKey(record.TxHash),
