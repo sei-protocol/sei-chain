@@ -116,7 +116,13 @@ func (s *DBImpl) Snapshot() int {
 	} else {
 		cms = ms.CacheMultiStore()
 	}
-	newCtx := s.ctx.WithMultiStore(cms).WithEventManager(sdk.NewEventManager())
+	var em *sdk.EventManager
+	if s.ctx.EventManager().IsNoop() {
+		em = sdk.NewNoopEventManager()
+	} else {
+		em = sdk.NewEventManager()
+	}
+	newCtx := s.ctx.WithMultiStore(cms).WithEventManager(em)
 	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
 	s.ctx = newCtx
 	version := len(s.snapshottedCtxs) - 1

@@ -188,7 +188,13 @@ func (s *DBImpl) GetStorageRoot(common.Address) common.Hash {
 }
 
 func (s *DBImpl) Copy() vm.StateDB {
-	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
+	var em *sdk.EventManager
+	if s.ctx.EventManager().IsNoop() {
+		em = sdk.NewNoopEventManager()
+	} else {
+		em = sdk.NewEventManager()
+	}
+	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(em)
 	journal := make([]journalEntry, len(s.journal))
 	copy(journal, s.journal)
 	return &DBImpl{
