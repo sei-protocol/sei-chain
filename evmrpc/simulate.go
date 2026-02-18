@@ -718,8 +718,11 @@ func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) (retur
 		TxHash: tx.Hash().Hex(),
 	}
 	prepareStart := time.Now()
+	prepareStats.PrepareStart = prepareStart
 	defer func() {
-		prepareStats.TotalDur = time.Since(prepareStart)
+		prepareEnd := time.Now()
+		prepareStats.PrepareEnd = prepareEnd
+		prepareStats.TotalDur = prepareEnd.Sub(prepareStart)
 		if returnErr != nil {
 			prepareStats.Error = returnErr.Error()
 		}

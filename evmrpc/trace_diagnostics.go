@@ -59,9 +59,12 @@ type traceStateAtTxStats struct {
 }
 
 type tracePrepareTxStats struct {
+	Seq          int
 	TxHash       string
 	AnteDur      time.Duration
 	TotalDur     time.Duration
+	PrepareStart time.Time
+	PrepareEnd   time.Time
 	HasSignature bool
 	Error        string
 }
@@ -78,6 +81,8 @@ type traceDiagnostics struct {
 	replayStats    []traceReplayStats
 	stateAtTxStats map[int]traceStateAtTxStats
 	prepareTxStats map[string]tracePrepareTxStats
+	prepareOrdered []tracePrepareTxStats
+	prepareSeq     int
 }
 
 func IsTraceDiagnosticsEnabled() bool {
@@ -143,7 +148,10 @@ func (d *traceDiagnostics) RecordPrepareTxStats(stats tracePrepareTxStats) {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.prepareSeq++
+	stats.Seq = d.prepareSeq
 	d.prepareTxStats[strings.ToLower(stats.TxHash)] = stats
+	d.prepareOrdered = append(d.prepareOrdered, stats)
 }
 
 func (d *traceDiagnostics) Finish(resultCount int, err error) {
@@ -163,6 +171,7 @@ func (d *traceDiagnostics) Finish(resultCount int, err error) {
 	for _, v := range d.prepareTxStats {
 		prepareByHash = append(prepareByHash, v)
 	}
+	prepareOrdered := append([]tracePrepareTxStats(nil), d.prepareOrdered...)
 	d.mu.Unlock()
 	prepareByHashMap := make(map[string]tracePrepareTxStats, len(prepareByHash))
 	for _, v := range prepareByHash {
@@ -253,6 +262,31 @@ func (d *traceDiagnostics) Finish(resultCount int, err error) {
 			d.id,
 			s.TxHash,
 			s.HasSignature,
+			durationMs(s.TotalDur),
+			durationMs(s.AnteDur),
+			s.Error,
+		)
+	}
+
+	sort.Slice(prepareOrdered, func(i, j int) bool {
+		return prepareOrdered[i].Seq < prepareOrdered[j].Seq
+	})
+	for i, s := range prepareOrdered {
+		var execEstimate time.Duration
+		if i+1 < len(prepareOrdered) {
+			execEstimate = prepareOrdered[i+1].PrepareStart.Sub(s.PrepareEnd)
+		} else {
+			execEstimate = d.startTime.Add(total).Sub(s.PrepareEnd)
+		}
+		if execEstimate < 0 {
+			execEstimate = 0
+		}
+		traceDiagPrintf(
+			"req=%d tx_exec tx_seq=%d tx_hash=%s execution_ms=%.3f prepare_ms=%.3f ante_ms=%.3f err=%q",
+			d.id,
+			s.Seq,
+			s.TxHash,
+			durationMs(execEstimate),
 			durationMs(s.TotalDur),
 			durationMs(s.AnteDur),
 			s.Error,
