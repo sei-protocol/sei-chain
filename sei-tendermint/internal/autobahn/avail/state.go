@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
 

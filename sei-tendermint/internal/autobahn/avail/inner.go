@@ -3,6 +3,7 @@ package avail
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -18,9 +19,10 @@ type inner struct {
 
 // loadedAvailState holds data loaded from disk on restart.
 // nil means fresh start (no persisted data).
+// blocks are sorted by number and contiguous (gaps already resolved by loader).
 type loadedAvailState struct {
 	appQC  utils.Option[*types.AppQC]
-	blocks map[types.LaneID]map[types.BlockNumber]*types.Signed[*types.LaneProposal]
+	blocks map[types.LaneID][]persist.LoadedBlock
 }
 
 func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
@@ -58,39 +60,21 @@ func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
 	// Restore persisted blocks into their lane queues.
 	for lane, bs := range loaded.blocks {
 		q, ok := i.blocks[lane]
-		if !ok {
-			continue // skip blocks for unknown lanes
-		}
-		if len(bs) == 0 {
+		if !ok || len(bs) == 0 {
 			continue
 		}
-		// Find the minimum block number.
-		first := true
-		var minN types.BlockNumber
-		for n := range bs {
-			if first || n < minN {
-				minN = n
-			}
-			first = false
-		}
-		// Load contiguous blocks starting from minN. Stop at the first gap
-		// (e.g. a corrupt file that was skipped during load). Blocks after
-		// the gap will be re-fetched from peers.
-		q.first = minN
-		q.next = minN
-		for {
-			b, ok := bs[q.next]
-			if !ok {
-				break
-			}
-			q.q[q.next] = b
+		first := bs[0].Number
+		q.first = first
+		q.next = first
+		for _, b := range bs {
+			q.q[q.next] = b.Proposal
 			q.next++
 		}
 		// Advance the votes queue to match so headers() returns ErrPruned
 		// for already-committed blocks instead of blocking forever.
 		vq := i.votes[lane]
-		vq.first = minN
-		vq.next = minN
+		vq.first = first
+		vq.next = first
 	}
 
 	return i

@@ -43,14 +43,15 @@ func TestPersistBlockAndLoad(t *testing.T) {
 	require.NoError(t, bp.PersistBlock(lane, 0, b0))
 	require.NoError(t, bp.PersistBlock(lane, 1, b1))
 
-	// Reload from disk
 	bp2, blocks, err := NewBlockPersister(dir)
 	require.NoError(t, err)
 	require.NotNil(t, bp2)
 	require.Equal(t, 1, len(blocks), "should have 1 lane")
 	require.Equal(t, 2, len(blocks[lane]), "should have 2 blocks")
-	require.NoError(t, utils.TestDiff(b0, blocks[lane][0]))
-	require.NoError(t, utils.TestDiff(b1, blocks[lane][1]))
+	require.Equal(t, types.BlockNumber(0), blocks[lane][0].Number)
+	require.Equal(t, types.BlockNumber(1), blocks[lane][1].Number)
+	require.NoError(t, utils.TestDiff(b0, blocks[lane][0].Proposal))
+	require.NoError(t, utils.TestDiff(b1, blocks[lane][1].Proposal))
 }
 
 func TestPersistBlockMultipleLanes(t *testing.T) {
@@ -72,8 +73,10 @@ func TestPersistBlockMultipleLanes(t *testing.T) {
 	_, blocks, err := NewBlockPersister(dir)
 	require.NoError(t, err)
 	require.Equal(t, 2, len(blocks), "should have 2 lanes")
-	require.NoError(t, utils.TestDiff(b1, blocks[lane1][0]))
-	require.NoError(t, utils.TestDiff(b2, blocks[lane2][0]))
+	require.Equal(t, 1, len(blocks[lane1]))
+	require.Equal(t, 1, len(blocks[lane2]))
+	require.NoError(t, utils.TestDiff(b1, blocks[lane1][0].Proposal))
+	require.NoError(t, utils.TestDiff(b2, blocks[lane2][0].Proposal))
 }
 
 func TestLoadSkipsCorruptBlockFile(t *testing.T) {
@@ -93,11 +96,56 @@ func TestLoadSkipsCorruptBlockFile(t *testing.T) {
 	corruptName := blockFilename(lane, 1)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "blocks", corruptName), []byte("corrupt"), 0600))
 
-	// Reload — should load b0 and skip the corrupt one
 	_, blocks, err := NewBlockPersister(dir)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(blocks[lane]), "should only load the valid block")
-	require.NoError(t, utils.TestDiff(b0, blocks[lane][0]))
+	require.NoError(t, utils.TestDiff(b0, blocks[lane][0].Proposal))
+}
+
+func TestLoadCorruptMidSequenceTruncatesAtGap(t *testing.T) {
+	rng := utils.TestRng()
+	dir := t.TempDir()
+
+	key := types.GenSecretKey(rng)
+	lane := key.Public()
+	bp, _, err := NewBlockPersister(dir)
+	require.NoError(t, err)
+
+	// Persist blocks 0, 2 (valid) and corrupt block 1.
+	// After skipping corrupt-1, raw has {0, 2} → gap at 1 → contiguous prefix [0].
+	b0 := testSignedProposal(rng, key, 0)
+	b2 := testSignedProposal(rng, key, 2)
+	require.NoError(t, bp.PersistBlock(lane, 0, b0))
+	require.NoError(t, bp.PersistBlock(lane, 2, b2))
+	corruptName := blockFilename(lane, 1)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "blocks", corruptName), []byte("corrupt"), 0600))
+
+	_, blocks, err := NewBlockPersister(dir)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(blocks[lane]), "corrupt mid-sequence creates gap; only block 0 survives")
+	require.Equal(t, types.BlockNumber(0), blocks[lane][0].Number)
+	require.NoError(t, utils.TestDiff(b0, blocks[lane][0].Proposal))
+}
+
+func TestLoadTruncatesAtGap(t *testing.T) {
+	rng := utils.TestRng()
+	dir := t.TempDir()
+
+	key := types.GenSecretKey(rng)
+	lane := key.Public()
+	bp, _, err := NewBlockPersister(dir)
+	require.NoError(t, err)
+
+	// Persist blocks 3, 4, 6, 7 (gap at 5).
+	for _, n := range []types.BlockNumber{3, 4, 6, 7} {
+		require.NoError(t, bp.PersistBlock(lane, n, testSignedProposal(rng, key, n)))
+	}
+
+	_, blocks, err := NewBlockPersister(dir)
+	require.NoError(t, err)
+	require.Equal(t, 2, len(blocks[lane]), "should have contiguous prefix [3, 4]")
+	require.Equal(t, types.BlockNumber(3), blocks[lane][0].Number)
+	require.Equal(t, types.BlockNumber(4), blocks[lane][1].Number)
 }
 
 func TestLoadSkipsMismatchedHeader(t *testing.T) {
@@ -161,20 +209,11 @@ func TestDeleteBeforeRemovesOldKeepsNew(t *testing.T) {
 	// Delete blocks before 3
 	bp.DeleteBefore(map[types.LaneID]types.BlockNumber{lane: 3})
 
-	// Reload and verify only 3, 4 remain
 	_, blocks, err := NewBlockPersister(dir)
 	require.NoError(t, err)
 	require.Equal(t, 2, len(blocks[lane]), "should have blocks 3 and 4")
-	_, has0 := blocks[lane][0]
-	_, has1 := blocks[lane][1]
-	_, has2 := blocks[lane][2]
-	_, has3 := blocks[lane][3]
-	_, has4 := blocks[lane][4]
-	require.False(t, has0)
-	require.False(t, has1)
-	require.False(t, has2)
-	require.True(t, has3)
-	require.True(t, has4)
+	require.Equal(t, types.BlockNumber(3), blocks[lane][0].Number)
+	require.Equal(t, types.BlockNumber(4), blocks[lane][1].Number)
 }
 
 func TestDeleteBeforeMultipleLanes(t *testing.T) {
@@ -200,7 +239,10 @@ func TestDeleteBeforeMultipleLanes(t *testing.T) {
 	_, blocks, err := NewBlockPersister(dir)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(blocks[lane1]), "lane1 should have block 2")
+	require.Equal(t, types.BlockNumber(2), blocks[lane1][0].Number)
 	require.Equal(t, 2, len(blocks[lane2]), "lane2 should have blocks 1,2")
+	require.Equal(t, types.BlockNumber(1), blocks[lane2][0].Number)
+	require.Equal(t, types.BlockNumber(2), blocks[lane2][1].Number)
 }
 
 func TestDeleteBeforeEmptyMap(t *testing.T) {

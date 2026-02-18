@@ -8,8 +8,10 @@ package persist
 import (
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -19,6 +21,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 )
 
+// LoadedBlock is a block loaded from disk during state restoration.
+type LoadedBlock struct {
+	Number   types.BlockNumber
+	Proposal *types.Signed[*types.LaneProposal]
+}
+
 // BlockPersister manages individual block files in a blocks/ subdirectory.
 // Each block is stored as <lane_hex>_<blocknum>.pb.
 type BlockPersister struct {
@@ -26,8 +34,10 @@ type BlockPersister struct {
 }
 
 // NewBlockPersister creates the blocks/ subdirectory if it doesn't exist and
-// returns a block persister. Loads all persisted blocks from disk.
-func NewBlockPersister(stateDir string) (*BlockPersister, map[types.LaneID]map[types.BlockNumber]*types.Signed[*types.LaneProposal], error) {
+// returns a block persister. Loads all persisted blocks from disk as sorted,
+// contiguous slices per lane. Gaps from corrupt or missing files are resolved
+// by truncating at the first gap; blocks after the gap will be re-fetched.
+func NewBlockPersister(stateDir string) (*BlockPersister, map[types.LaneID][]LoadedBlock, error) {
 	dir := filepath.Join(stateDir, "blocks")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, nil, fmt.Errorf("create blocks dir %s: %w", dir, err)
@@ -109,13 +119,14 @@ func (bp *BlockPersister) DeleteBefore(laneFirsts map[types.LaneID]types.BlockNu
 }
 
 // loadAll loads all persisted blocks from the blocks/ directory.
-func (bp *BlockPersister) loadAll() (map[types.LaneID]map[types.BlockNumber]*types.Signed[*types.LaneProposal], error) {
+// Returns sorted, contiguous slices per lane (truncated at the first gap).
+func (bp *BlockPersister) loadAll() (map[types.LaneID][]LoadedBlock, error) {
 	entries, err := os.ReadDir(bp.dir)
 	if err != nil {
 		return nil, fmt.Errorf("read blocks dir %s: %w", bp.dir, err)
 	}
 
-	result := map[types.LaneID]map[types.BlockNumber]*types.Signed[*types.LaneProposal]{}
+	raw := map[types.LaneID]map[types.BlockNumber]*types.Signed[*types.LaneProposal]{}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".pb") {
 			continue
@@ -144,11 +155,29 @@ func (bp *BlockPersister) loadAll() (map[types.LaneID]map[types.BlockNumber]*typ
 				Msg("skipping block file with mismatched header")
 			continue
 		}
-		if result[lane] == nil {
-			result[lane] = map[types.BlockNumber]*types.Signed[*types.LaneProposal]{}
+		if raw[lane] == nil {
+			raw[lane] = map[types.BlockNumber]*types.Signed[*types.LaneProposal]{}
 		}
-		result[lane][n] = proposal
+		raw[lane][n] = proposal
 		log.Info().Str("lane", lane.String()).Uint64("block", uint64(n)).Msg("loaded persisted block")
+	}
+
+	result := map[types.LaneID][]LoadedBlock{}
+	for lane, bs := range raw {
+		sorted := slices.Sorted(maps.Keys(bs))
+		var contiguous []LoadedBlock
+		for i, n := range sorted {
+			if i > 0 && n != sorted[i-1]+1 {
+				log.Warn().
+					Str("lane", lane.String()).
+					Uint64("gapAt", uint64(sorted[i-1]+1)).
+					Int("skipped", len(sorted)-i).
+					Msg("truncating loaded blocks at gap; remaining will be re-fetched")
+				break
+			}
+			contiguous = append(contiguous, LoadedBlock{Number: n, Proposal: bs[n]})
+		}
+		result[lane] = contiguous
 	}
 	return result, nil
 }
