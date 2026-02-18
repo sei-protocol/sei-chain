@@ -15,6 +15,10 @@ type inner struct {
 	commitQCs      *queue[types.RoadIndex, *types.CommitQC]
 	blocks         map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	votes          map[types.LaneID]*queue[types.BlockNumber, blockVotes]
+	// blockPersisted tracks per-lane how far block persistence has progressed.
+	// RecvBatch only yields blocks below this cursor for voting.
+	// nil when persistence is disabled (testing); RecvBatch then uses q.next.
+	blockPersisted map[types.LaneID]types.BlockNumber
 }
 
 // loadedAvailState holds data loaded from disk on restart.
@@ -25,12 +29,20 @@ type loadedAvailState struct {
 	blocks map[types.LaneID][]persist.LoadedBlock
 }
 
-func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
+func newInner(c *types.Committee, loaded *loadedAvailState, persistEnabled bool) *inner {
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
 	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{}
 	for _, lane := range c.Lanes().All() {
 		votes[lane] = newQueue[types.BlockNumber, blockVotes]()
 		blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
+	}
+
+	var blockPersisted map[types.LaneID]types.BlockNumber
+	if persistEnabled {
+		blockPersisted = make(map[types.LaneID]types.BlockNumber, c.Lanes().Len())
+		for _, lane := range c.Lanes().All() {
+			blockPersisted[lane] = 0
+		}
 	}
 
 	i := &inner{
@@ -40,6 +52,7 @@ func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
 		commitQCs:      newQueue[types.RoadIndex, *types.CommitQC](),
 		blocks:         blocks,
 		votes:          votes,
+		blockPersisted: blockPersisted,
 	}
 
 	if loaded == nil {
@@ -69,6 +82,9 @@ func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
 		for _, b := range bs {
 			q.q[q.next] = b.Proposal
 			q.next++
+		}
+		if i.blockPersisted != nil {
+			i.blockPersisted[lane] = q.next
 		}
 		// Advance the votes queue to match so headers() returns ErrPruned
 		// for already-committed blocks instead of blocking forever.

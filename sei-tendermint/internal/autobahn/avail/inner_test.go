@@ -73,7 +73,7 @@ func TestNewInnerFreshStart(t *testing.T) {
 	rng := utils.TestRng()
 	committee, _ := types.GenCommittee(rng, 4)
 
-	i := newInner(committee, nil)
+	i := newInner(committee, nil, false)
 
 	require.False(t, i.latestAppQC.IsPresent())
 	require.Equal(t, types.RoadIndex(0), i.commitQCs.first)
@@ -101,7 +101,7 @@ func TestNewInnerLoadedAppQCAdvancesQueues(t *testing.T) {
 		appQC: utils.Some[*types.AppQC](appQC),
 	}
 
-	i := newInner(committee, loaded)
+	i := newInner(committee, loaded, false)
 
 	// latestAppQC should be restored.
 	aq, ok := i.latestAppQC.Get()
@@ -126,7 +126,7 @@ func TestNewInnerLoadedAppQCNone(t *testing.T) {
 		appQC: utils.None[*types.AppQC](),
 	}
 
-	i := newInner(committee, loaded)
+	i := newInner(committee, loaded, false)
 
 	// No AppQC loaded, queues should start at 0.
 	require.False(t, i.latestAppQC.IsPresent())
@@ -153,7 +153,7 @@ func TestNewInnerLoadedBlocksContiguous(t *testing.T) {
 		blocks: map[types.LaneID][]persist.LoadedBlock{lane: bs},
 	}
 
-	i := newInner(committee, loaded)
+	i := newInner(committee, loaded, false)
 
 	q := i.blocks[lane]
 	require.Equal(t, types.BlockNumber(5), q.first)
@@ -187,7 +187,7 @@ func TestNewInnerLoadedBlocksContiguousPrefix(t *testing.T) {
 		blocks: map[types.LaneID][]persist.LoadedBlock{lane: bs},
 	}
 
-	i := newInner(committee, loaded)
+	i := newInner(committee, loaded, false)
 
 	q := i.blocks[lane]
 	require.Equal(t, types.BlockNumber(3), q.first)
@@ -206,7 +206,7 @@ func TestNewInnerLoadedBlocksEmptySlice(t *testing.T) {
 		blocks: map[types.LaneID][]persist.LoadedBlock{lane: {}},
 	}
 
-	i := newInner(committee, loaded)
+	i := newInner(committee, loaded, false)
 
 	q := i.blocks[lane]
 	require.Equal(t, types.BlockNumber(0), q.first)
@@ -226,7 +226,7 @@ func TestNewInnerLoadedBlocksUnknownLane(t *testing.T) {
 		blocks: map[types.LaneID][]persist.LoadedBlock{unknownLane: {{Number: 0, Proposal: b}}},
 	}
 
-	i := newInner(committee, loaded)
+	i := newInner(committee, loaded, false)
 
 	for _, lane := range committee.Lanes().All() {
 		q := i.blocks[lane]
@@ -259,7 +259,7 @@ func TestNewInnerLoadedAppQCAndBlocks(t *testing.T) {
 		blocks: map[types.LaneID][]persist.LoadedBlock{lane: bs},
 	}
 
-	i := newInner(committee, loaded)
+	i := newInner(committee, loaded, false)
 
 	aq, ok := i.latestAppQC.Get()
 	require.True(t, ok)
@@ -304,7 +304,7 @@ func TestNewInnerLoadedBlocksMultipleLanes(t *testing.T) {
 		blocks: map[types.LaneID][]persist.LoadedBlock{lane0: bs0, lane1: bs1},
 	}
 
-	i := newInner(committee, loaded)
+	i := newInner(committee, loaded, false)
 
 	q0 := i.blocks[lane0]
 	require.Equal(t, types.BlockNumber(2), q0.first)

@@ -45,6 +45,15 @@ type State struct {
 	persister utils.Option[persist.Persister]
 	// blockPersist writes/deletes individual block files; nil when persistence is disabled.
 	blockPersist *persist.BlockPersister
+	// persistCh carries blocks to the background writer for async fsync.
+	// nil when persistence is disabled (testing).
+	persistCh chan persistJob
+}
+
+type persistJob struct {
+	lane     types.LaneID
+	number   types.BlockNumber
+	proposal *types.Signed[*types.LaneProposal]
 }
 
 // innerFile is the A/B file prefix for avail inner state persistence.
@@ -95,12 +104,18 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		p = utils.Some(persister)
 	}
 
+	var persistCh chan persistJob
+	if bp != nil {
+		persistCh = make(chan persistJob, BlocksPerLane)
+	}
+
 	return &State{
 		key:          key,
 		data:         data,
-		inner:        utils.NewWatch(newInner(data.Committee(), loaded)),
+		inner:        utils.NewWatch(newInner(data.Committee(), loaded, bp != nil)),
 		persister:    p,
 		blockPersist: bp,
+		persistCh:    persistCh,
 	}, nil
 }
 
@@ -383,14 +398,15 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 				return nil
 			}
 		}
-		// Persist block to disk before adding to in-memory state.
-		if bp := s.blockPersist; bp != nil {
-			if err := bp.PersistBlock(h.Lane(), h.BlockNumber(), p); err != nil {
-				return fmt.Errorf("persist block %s/%d: %w", h.Lane(), h.BlockNumber(), err)
-			}
-		}
 		q.pushBack(p)
 		ctrl.Updated()
+	}
+	if s.persistCh != nil {
+		select {
+		case s.persistCh <- persistJob{lane: h.Lane(), number: h.BlockNumber(), proposal: p}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	return nil
 }
@@ -530,6 +546,8 @@ func (s *State) ProduceBlock(ctx context.Context, payload *types.Payload) (*type
 // TODO: produceBlock is a separate function for testing - consider improving the tests to use ProduceBlock only.
 func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
 	lane := key.Public()
+	var result *types.Signed[*types.LaneProposal]
+	var blockNum types.BlockNumber
 	for inner, ctrl := range s.inner.Lock() {
 		q, ok := inner.blocks[lane]
 		if !ok {
@@ -542,24 +560,30 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 		if q.first < q.next {
 			parent = q.q[q.next-1].Msg().Block().Header().Hash()
 		}
-		p := types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, q.next, parent, payload)))
-		// Persist block to disk before adding to in-memory state.
-		if bp := s.blockPersist; bp != nil {
-			if err := bp.PersistBlock(lane, q.next, p); err != nil {
-				return nil, fmt.Errorf("persist block %s/%d: %w", lane, q.next, err)
-			}
-		}
-		q.q[q.next] = p
+		blockNum = q.next
+		result = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, blockNum, parent, payload)))
+		q.q[q.next] = result
 		q.next += 1
 		ctrl.Updated()
-		return p, nil
 	}
-	panic("unreachable")
+	if s.persistCh != nil {
+		select {
+		case s.persistCh <- persistJob{lane: lane, number: blockNum, proposal: result}:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return result, nil
 }
 
 // Run runs the background tasks of the state.
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
+		if s.persistCh != nil {
+			scope.SpawnNamed("blockPersistWriter", func() error {
+				return s.runBlockPersistWriter(ctx)
+			})
+		}
 		// Task inserting FullCommitQCs and local blocks to data state.
 		scope.SpawnNamed("s.data.PushQC", func() error {
 			c := s.data.Committee()
@@ -594,4 +618,25 @@ func (s *State) Run(ctx context.Context) error {
 		})
 		return nil
 	})
+}
+
+// runBlockPersistWriter drains persistCh and fsyncs each block to disk,
+// then advances the per-lane blockPersisted cursor under the inner lock.
+func (s *State) runBlockPersistWriter(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case job := <-s.persistCh:
+			if err := s.blockPersist.PersistBlock(job.lane, job.number, job.proposal); err != nil {
+				return fmt.Errorf("persist block %s/%d: %w", job.lane, job.number, err)
+			}
+			for inner, ctrl := range s.inner.Lock() {
+				if inner.blockPersisted[job.lane] == job.number {
+					inner.blockPersisted[job.lane] = job.number + 1
+				}
+				ctrl.Updated()
+			}
+		}
+	}
 }
