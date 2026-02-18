@@ -1,6 +1,7 @@
 package rootmulti
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -186,10 +187,9 @@ func TestCacheMultiStoreWithVersion_OnlyUsesSSStores(t *testing.T) {
 			}
 
 			if !tc.ssEnabled {
-				cmsHistorical, err := store.CacheMultiStoreWithVersion(c1.Version)
-				require.NoError(t, err)
-				require.Panics(t, func() { _ = cmsHistorical.GetKVStore(iavlKey1) })
-				require.Panics(t, func() { _ = cmsHistorical.GetKVStore(iavlKey2) })
+				_, err := store.CacheMultiStoreWithVersion(c1.Version)
+				require.Error(t, err)
+				require.Contains(t, err.Error(), fmt.Sprintf("unable to load historical state with SS disabled for version: %d", c1.Version))
 			}
 		})
 	}

@@ -272,16 +272,15 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 		for k, store := range rs.ckvStores {
 			if store.GetStoreType() != types.StoreTypeIAVL {
 				stores[k] = store
-			}
-		}
-		for k, store := range rs.ckvStores {
-			if store.GetStoreType() == types.StoreTypeIAVL {
+			} else {
 				stores[k] = state.NewStore(rs.ssStore, k, version)
 			}
 		}
 	} else if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
 		// Only serve from SC when query latest version and SS not enabled
 		return rs.CacheMultiStore(), nil
+	} else {
+		return nil, fmt.Errorf("unable to load historical state with SS disabled for version: %d", version)
 	}
 
 	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil), nil
