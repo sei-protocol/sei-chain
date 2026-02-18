@@ -500,7 +500,7 @@ func (db *Database) writeAsyncInBackground() {
 // This is not a large issue given the next time that module is updated, it will be properly pruned thereafter.
 func (db *Database) Prune(version int64) (_err error) {
 	// Defensive check: ensure database is not closed
-	if db.closed.Load() {
+	if db.storage == nil {
 		return errors.New("pebbledb: database is closed")
 	}
 
