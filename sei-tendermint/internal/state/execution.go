@@ -64,7 +64,7 @@ func NewBlockExecutor(
 	return &BlockExecutor{
 		eventBus:   eventBus,
 		store:      stateStore,
-		app:  app,
+		app:        app,
 		mempool:    pool,
 		evpool:     evpool,
 		logger:     logger,
