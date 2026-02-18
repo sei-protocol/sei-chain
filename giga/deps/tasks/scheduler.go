@@ -1,7 +1,6 @@
 package tasks
 
 import (
-	"context"
 	"crypto/sha256"
 	"fmt"
 	"sort"
@@ -132,16 +131,11 @@ func (s *scheduler) invalidateTask(task *deliverTxTask) {
 	}
 }
 
-func start(ctx context.Context, ch chan func(), workers int) {
+func start(ch chan func(), workers int) {
 	for i := 0; i < workers; i++ {
 		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case work := <-ch:
-					work()
-				}
+			for work := range ch {
+				work()
 			}
 		}()
 	}
@@ -214,7 +208,7 @@ func (s *scheduler) collectResponses(tasks []*deliverTxTask) []types.ResponseDel
 	return res
 }
 
-func (s *scheduler) tryInitMultiVersionStore(ctx sdk.Context) {
+func (s *scheduler) tryInitMultiVersionStore(ctx sdk.Context, txCount int) {
 	if s.multiVersionStores != nil {
 		return
 	}
@@ -222,9 +216,9 @@ func (s *scheduler) tryInitMultiVersionStore(ctx sdk.Context) {
 	keys := ctx.MultiStore().StoreKeys()
 	for _, sk := range keys {
 		if ctx.GigaMultiStore().IsStoreGiga(sk) {
-			mvs[sk] = multiversion.NewMultiVersionStore(ctx.GigaKVStore(sk))
+			mvs[sk] = multiversion.NewMultiVersionStoreWithTxCount(ctx.GigaKVStore(sk), txCount)
 		} else {
-			mvs[sk] = multiversion.NewMultiVersionStore(ctx.MultiStore().GetKVStore(sk))
+			mvs[sk] = multiversion.NewMultiVersionStoreWithTxCount(ctx.MultiStore().GetKVStore(sk), txCount)
 		}
 	}
 	s.multiVersionStores = mvs
@@ -276,9 +270,15 @@ func (s *scheduler) emitMetrics() {
 func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]types.ResponseDeliverTx, error) {
 	startTime := time.Now()
 	var iterations int
-	// initialize mutli-version stores if they haven't been initialized yet
-	s.tryInitMultiVersionStore(ctx)
 	tasks, tasksMap := toTasks(reqs)
+	// Compute max absolute index for pre-allocating per-tx slices in multiversion stores
+	maxIdx := 0
+	for _, t := range tasks {
+		if t.AbsoluteIndex > maxIdx {
+			maxIdx = t.AbsoluteIndex
+		}
+	}
+	s.tryInitMultiVersionStore(ctx, maxIdx+1)
 	s.allTasks = tasks
 	s.allTasksMap = tasksMap
 	s.executeCh = make(chan func(), len(tasks))
@@ -291,14 +291,16 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 		workers = len(tasks)
 	}
 
-	workerCtx, cancel := context.WithCancel(ctx.Context())
-	defer cancel()
+	defer close(s.executeCh)
+	defer close(s.validateCh)
 
 	// execution tasks are limited by workers
-	start(workerCtx, s.executeCh, workers)
+	start(s.executeCh, workers)
 
-	// validation tasks uses length of tasks to avoid blocking on validation
-	start(workerCtx, s.validateCh, len(tasks))
+	// validation workers: match execution workers instead of len(tasks).
+	// Validation is lightweight (readset comparison), and creating 1000
+	// goroutines per block causes significant scheduling overhead.
+	start(s.validateCh, workers)
 
 	toExecute := tasks
 	for !allValidated(tasks) {
@@ -437,7 +439,9 @@ func (s *scheduler) executeAll(ctx sdk.Context, tasks []*deliverTxTask) error {
 		return nil
 	}
 	ctx, span := s.traceSpan(ctx, "SchedulerExecuteAll", nil)
-	span.SetAttributes(attribute.Bool("synchronous", s.synchronous))
+	if span.IsRecording() {
+		span.SetAttributes(attribute.Bool("synchronous", s.synchronous))
+	}
 	defer span.End()
 
 	// validationWg waits for all validations to complete
@@ -469,6 +473,9 @@ func (s *scheduler) prepareAndRunTask(wg *sync.WaitGroup, ctx sdk.Context, task 
 
 func (s *scheduler) traceSpan(ctx sdk.Context, name string, task *deliverTxTask) (sdk.Context, trace.Span) {
 	spanCtx, span := s.tracingInfo.StartWithContext(name, ctx.TraceSpanContext())
+	if !span.IsRecording() {
+		return ctx, span
+	}
 	if task != nil {
 		span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", sha256.Sum256(task.Request.Tx))))
 		span.SetAttributes(attribute.Int("absoluteIndex", task.AbsoluteIndex))
@@ -480,35 +487,70 @@ func (s *scheduler) traceSpan(ctx sdk.Context, name string, task *deliverTxTask)
 
 // prepareTask initializes the context and version stores for a task
 func (s *scheduler) prepareTask(task *deliverTxTask) {
-	ctx := task.Ctx.WithTxIndex(task.AbsoluteIndex)
+	// Each task gets a noop EventManager: events emitted during OCC execution
+	// are never collected into the response, so we skip all event allocation
+	// and lock contention entirely (~8.4GB allocs + 60% of mutex contention).
+	ctx := task.Ctx.WithTxIndex(task.AbsoluteIndex).WithEventManager(sdk.NewNoopEventManager())
 
 	_, span := s.traceSpan(ctx, "SchedulerPrepare", task)
 	defer span.End()
 
 	// initialize the context
-	abortCh := make(chan occ.Abort, len(s.multiVersionStores))
+	// Capacity 1: only the first abort is consumed (executeTask reads once
+	// after close). WriteAbort uses select/default so subsequent aborts are
+	// silently dropped. Saves ~29 element slots per channel allocation.
+	abortCh := make(chan occ.Abort, 1)
 
 	// if there are no stores, don't try to wrap, because there's nothing to wrap
 	if len(s.multiVersionStores) > 0 {
-		// non-blocking
-		cms := ctx.MultiStore().CacheMultiStore()
-
-		// init version stores by store key
-		vs := make(map[store.StoreKey]*multiversion.VersionIndexedStore)
-		for storeKey, mvs := range s.multiVersionStores {
-			vs[storeKey] = mvs.VersionedIndexedStore(task.AbsoluteIndex, task.Incarnation, abortCh)
+		// Lazy VersionIndexedStore creation: only create stores that are
+		// actually accessed during tx execution (typically 3-4 out of ~30).
+		vs := make(map[store.StoreKey]*multiversion.VersionIndexedStore, 8)
+		getOrCreateVS := func(k store.StoreKey) *multiversion.VersionIndexedStore {
+			if v, ok := vs[k]; ok {
+				return v
+			}
+			mvs, ok := s.multiVersionStores[k]
+			if !ok {
+				return nil
+			}
+			v := mvs.VersionedIndexedStore(task.AbsoluteIndex, task.Incarnation, abortCh)
+			vs[k] = v
+			return v
 		}
 
-		// save off version store so we can ask it things later
+		// save off version store map so we can ask it things later
 		task.VersionStores = vs
-		ms := cms.SetKVStores(func(k store.StoreKey, kvs sdk.KVStore) store.CacheWrap {
-			return vs[k]
-		})
-		ms = ms.(store.GigaMultiStore).SetGigaKVStores(func(k store.StoreKey, kvs sdk.KVStore) store.KVStore {
-			return vs[k]
-		})
 
-		ctx = ctx.WithMultiStore(ms)
+		// Try the fast OCC path: create a hollow CMS with stores populated
+		// lazily from VersionIndexedStores on first access.
+		type occPreparer interface {
+			CacheMultiStoreForOCC(
+				func(store.StoreKey) store.CacheWrap,
+				func(store.StoreKey) store.KVStore,
+			) store.CacheMultiStore
+		}
+		parentMS := ctx.MultiStore()
+		if occ, ok := parentMS.(occPreparer); ok {
+			ms := occ.CacheMultiStoreForOCC(
+				func(k store.StoreKey) store.CacheWrap { return getOrCreateVS(k) },
+				func(k store.StoreKey) store.KVStore { return getOrCreateVS(k) },
+			)
+			ctx = ctx.WithMultiStore(ms)
+		} else {
+			// Fallback: eagerly create all stores
+			for storeKey, mvs := range s.multiVersionStores {
+				vs[storeKey] = mvs.VersionedIndexedStore(task.AbsoluteIndex, task.Incarnation, abortCh)
+			}
+			cms := parentMS.CacheMultiStore()
+			ms := cms.SetKVStores(func(k store.StoreKey, kvs sdk.KVStore) store.CacheWrap {
+				return vs[k]
+			})
+			ms = ms.(store.GigaMultiStore).SetGigaKVStores(func(k store.StoreKey, kvs sdk.KVStore) store.KVStore {
+				return vs[k]
+			})
+			ctx = ctx.WithMultiStore(ms)
+		}
 	}
 
 	if task.TxTracer != nil {

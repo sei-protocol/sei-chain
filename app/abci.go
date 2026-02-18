@@ -59,7 +59,7 @@ func (app *App) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) (res
 	defer span.End()
 	ctx = ctx.WithTraceSpanContext(spanCtx)
 	defer telemetry.MeasureSince(time.Now(), "abci", "end_block")
-	ctx = ctx.WithEventManager(sdk.NewEventManager())
+	ctx = ctx.WithEventManager(sdk.NewEventManager()).WithSkipGasKV()
 	defer telemetry.MeasureSince(time.Now(), "module", "total_end_block")
 	res.ValidatorUpdates = legacyabci.EndBlock(ctx, height, blockGasUsed, app.EndBlockKeepers)
 	res.Events = sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents)

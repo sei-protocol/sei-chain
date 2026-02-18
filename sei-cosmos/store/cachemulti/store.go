@@ -37,6 +37,14 @@ type Store struct {
 	materializeOnce *sync.Once
 
 	closers []io.Closer
+
+	fast bool // when true, lazy store creation uses FastStore (plain maps)
+
+	// Lazy OCC handlers: when set, stores/gigaStores are created on-demand
+	// rather than eagerly for all keys. Only stores actually accessed during
+	// transaction execution are materialized.
+	kvHandler   func(types.StoreKey) types.CacheWrap
+	gigaHandler func(types.StoreKey) types.KVStore
 }
 
 var _ types.CacheMultiStore = Store{}
@@ -132,6 +140,99 @@ func newCacheMultiStoreFromCMS(cms Store) Store {
 	return NewFromKVStore(cms.db, stores, gigaStores, cms.keys, cms.gigaKeys, cms.traceWriter, cms.traceContext)
 }
 
+// newFastCacheMultiStoreFromCMS creates a lightweight child CMS using plain-map
+// based stores instead of sync.Map-based stores. The child CMS is intended for
+// single-goroutine use only (giga executor snapshot path).
+//
+// Stores are created lazily: only when actually accessed by the transaction.
+// This avoids allocating ~50 cachekv/FastStore wrappers per Snapshot when
+// only 3-4 stores are typically touched.
+func newFastCacheMultiStoreFromCMS(cms Store) Store {
+	// Collect both materialized stores and unmaterialized parents as parents
+	// for the child CMS. The child's getOrCreateStore will create FastStores
+	// lazily on demand, avoiding the cost of eagerly creating wrappers for
+	// all ~50 store keys.
+	cms.mu.RLock()
+	parentCount := len(cms.stores) + len(cms.parents)
+	parents := make(map[types.StoreKey]types.CacheWrapper, parentCount)
+	for k, v := range cms.stores {
+		parents[k] = v
+	}
+	for k, v := range cms.parents {
+		parents[k] = v
+	}
+	cms.mu.RUnlock()
+
+	// Capture parent's giga stores and handler for the child's lazy resolution.
+	// The parent may have a gigaHandler (e.g. OCC lazy stores) that can create
+	// giga stores not yet populated in cms.gigaStores.
+	parentGigaStores := cms.gigaStores
+	parentGigaHandler := cms.gigaHandler
+
+	child := newFastFromKVStore(cms.db, parents, parentGigaStores, cms.keys, cms.gigaKeys, cms.traceWriter, cms.traceContext)
+
+	// Chain the parent's gigaHandler so the child can resolve giga stores
+	// that the parent hasn't lazily created yet.
+	if parentGigaHandler != nil {
+		childHandler := child.gigaHandler
+		child.gigaHandler = func(sk types.StoreKey) types.KVStore {
+			if s := childHandler(sk); s != nil {
+				return s
+			}
+			// Parent store not yet populated - create via parent's handler
+			if gs := parentGigaHandler(sk); gs != nil {
+				parentGigaStores[sk] = gs // cache in parent for future snapshots
+				return gigacachekv.NewFastStore(gs, sk)
+			}
+			return nil
+		}
+	}
+
+	return child
+}
+
+// newFastFromKVStore is like NewFromKVStore but uses plain-map FastStore types
+// instead of sync.Map-based stores. Single-goroutine use only.
+func newFastFromKVStore(
+	store types.KVStore, stores map[types.StoreKey]types.CacheWrapper,
+	gigaStores map[types.StoreKey]types.KVStore,
+	keys map[string]types.StoreKey, gigaKeys []types.StoreKey,
+	traceWriter io.Writer, traceContext types.TraceContext,
+) Store {
+	cms := Store{
+		db:              cachekv.NewFastStore(store, nil),
+		stores:          make(map[types.StoreKey]types.CacheWrap, len(stores)),
+		parents:         make(map[types.StoreKey]types.CacheWrapper, len(stores)),
+		keys:            keys,
+		gigaKeys:        gigaKeys,
+		traceWriter:     traceWriter,
+		traceContext:    traceContext,
+		mu:              &sync.RWMutex{},
+		materializeOnce: &sync.Once{},
+		fast:            true,
+	}
+
+	for key, s := range stores {
+		cms.parents[key] = s
+	}
+
+	// Lazy giga store creation: wrap parent giga stores in FastStore only
+	// when first accessed. EVM snapshots typically touch only 3-4 stores out
+	// of ~20 giga keys, saving ~1.5GB of allocations.
+	cms.gigaStores = make(map[types.StoreKey]types.KVStore, 4)
+	cms.gigaHandler = func(sk types.StoreKey) types.KVStore {
+		if gs, ok := gigaStores[sk]; ok {
+			return gigacachekv.NewFastStore(gs, sk)
+		}
+		if parent, ok := stores[sk]; ok {
+			return gigacachekv.NewFastStore(parent.(types.KVStore), sk)
+		}
+		return nil
+	}
+
+	return cms
+}
+
 // getOrCreateStore lazily creates a cachekv store from its parent on first access.
 // Thread-safe: concurrent callers (e.g. slashing BeginBlocker goroutines) may
 // call GetKVStore on the same CMS simultaneously.
@@ -152,6 +253,16 @@ func (cms Store) getOrCreateStore(key types.StoreKey) types.CacheWrap {
 	if s, ok := cms.stores[key]; ok {
 		return s
 	}
+
+	// OCC lazy handler path: create VersionIndexedStore on demand.
+	if cms.kvHandler != nil {
+		s := cms.kvHandler(key)
+		if s != nil {
+			cms.stores[key] = s
+		}
+		return s
+	}
+
 	parent, ok := cms.parents[key]
 	if !ok {
 		return nil
@@ -160,7 +271,12 @@ func (cms Store) getOrCreateStore(key types.StoreKey) types.CacheWrap {
 	if cms.TracingEnabled() {
 		cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
 	}
-	s := cachekv.NewStore(cw.(types.KVStore), key, types.DefaultCacheSizeLimit)
+	var s types.CacheWrap
+	if cms.fast {
+		s = cachekv.NewFastStore(cw.(types.KVStore), key)
+	} else {
+		s = cachekv.NewStore(cw.(types.KVStore), key, types.DefaultCacheSizeLimit)
+	}
 	cms.stores[key] = s
 	delete(cms.parents, key)
 	return s
@@ -228,6 +344,38 @@ func (cms Store) CacheMultiStore() types.CacheMultiStore {
 	return newCacheMultiStoreFromCMS(cms)
 }
 
+// CacheMultiStoreGiga creates a lightweight CMS using plain-map stores.
+// Only safe when the returned CMS will be used by a single goroutine (e.g.
+// giga executor snapshots within a single OCC task).
+func (cms Store) CacheMultiStoreGiga() types.CacheMultiStore {
+	return newFastCacheMultiStoreFromCMS(cms)
+}
+
+// CacheMultiStoreForOCC creates a hollow CMS where stores are created lazily
+// on first access via the provided handler functions. Unlike the previous
+// eager approach, this avoids creating VersionIndexedStores for all ~30 store
+// keys when only 3-4 are actually accessed per EVM transaction.
+func (cms Store) CacheMultiStoreForOCC(
+	kvHandler func(sk types.StoreKey) types.CacheWrap,
+	gigaHandler func(sk types.StoreKey) types.KVStore,
+) types.CacheMultiStore {
+	return Store{
+		db:              cachekv.NewFastStore(cms.db, nil),
+		stores:          make(map[types.StoreKey]types.CacheWrap, 8),
+		parents:         make(map[types.StoreKey]types.CacheWrapper),
+		keys:            cms.keys,
+		gigaKeys:        cms.gigaKeys,
+		gigaStores:      make(map[types.StoreKey]types.KVStore, len(cms.gigaKeys)),
+		traceWriter:     cms.traceWriter,
+		traceContext:    cms.traceContext,
+		mu:              &sync.RWMutex{},
+		materializeOnce: &sync.Once{},
+		fast:            true,
+		kvHandler:       kvHandler,
+		gigaHandler:     gigaHandler,
+	}
+}
+
 // CacheMultiStoreWithVersion implements the MultiStore interface. It will panic
 // as an already cached multi-store cannot load previous versions.
 //
@@ -257,15 +405,37 @@ func (cms Store) GetKVStore(key types.StoreKey) types.KVStore {
 
 func (cms Store) GetGigaKVStore(key types.StoreKey) types.KVStore {
 	store := cms.gigaStores[key]
-	if key == nil || store == nil {
+	if store != nil {
+		return store
+	}
+	// Lazy OCC handler path: create on demand.
+	if cms.gigaHandler != nil {
+		s := cms.gigaHandler(key)
+		if s != nil {
+			cms.gigaStores[key] = s
+			return s
+		}
+	}
+	if key == nil {
 		panic(fmt.Sprintf("giga kv store with key %v has not been registered in stores", key))
 	}
-	return store
+	panic(fmt.Sprintf("giga kv store with key %v has not been registered in stores", key))
 }
 
 func (cms Store) IsStoreGiga(key types.StoreKey) bool {
-	_, ok := cms.gigaStores[key]
-	return ok
+	if _, ok := cms.gigaStores[key]; ok {
+		return true
+	}
+	// With lazy OCC stores, gigaStores may not be populated yet.
+	// Check gigaKeys list if a gigaHandler is set.
+	if cms.gigaHandler != nil {
+		for _, gk := range cms.gigaKeys {
+			if gk == key {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (cms Store) GetWorkingHash() ([]byte, error) {

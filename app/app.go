@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -92,6 +93,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/ethclient"
+	ethparams "github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/giga/deps/tasks"
 
@@ -318,6 +320,36 @@ func GetWasmEnabledProposals() []wasm.ProposalType {
 // App extends an ABCI application, but with most of its parameters exported.
 // They are exported for convenience in creating helper functions, as object
 // capabilities aren't needed for testing.
+// gigaBlockCache holds block-constant values that are identical for all txs in a block.
+// Populated once before block execution, read-only during parallel execution, cleared after.
+type gigaBlockCache struct {
+	chainID     *big.Int
+	blockCtx    vm.BlockContext
+	chainConfig *ethparams.ChainConfig
+	baseFee     *big.Int
+	evmPool     *gigaexecutor.EVMPool
+}
+
+func newGigaBlockCache(ctx sdk.Context, keeper *gigaevmkeeper.Keeper) (*gigaBlockCache, error) {
+	chainID := keeper.ChainID(ctx)
+	gp := keeper.GetGasPool()
+	blockCtx, err := keeper.GetVMBlockContext(ctx, gp)
+	if err != nil {
+		return nil, err
+	}
+	sstore := keeper.GetParams(ctx).SeiSstoreSetGasEip2200
+	chainConfig := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(chainID, &sstore)
+	baseFee := keeper.GetBaseFee(ctx)
+	evmPool := gigaexecutor.NewEVMPool(*blockCtx, chainConfig, vm.Config{}, gigaprecompiles.AllCustomPrecompilesFailFast)
+	return &gigaBlockCache{
+		chainID:     chainID,
+		blockCtx:    *blockCtx,
+		chainConfig: chainConfig,
+		baseFee:     baseFee,
+		evmPool:     evmPool,
+	}, nil
+}
+
 type App struct {
 	*baseapp.BaseApp
 
@@ -1373,6 +1405,14 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 	ms := ctx.MultiStore().CacheMultiStore()
 	defer ms.Write()
 	ctx = ctx.WithMultiStore(ms)
+
+	// Cache block-level constants (identical for all txs in this block).
+	cache, cacheErr := newGigaBlockCache(ctx, &app.GigaEvmKeeper)
+	if cacheErr != nil {
+		ctx.Logger().Error("failed to build giga block cache", "error", cacheErr, "height", ctx.BlockHeight())
+		return nil
+	}
+
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	for i, tx := range txs {
 		ctx = ctx.WithTxIndex(absoluteTxIndices[i])
@@ -1386,7 +1426,7 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		}
 
 		// Execute EVM transaction through giga executor
-		result, execErr := app.executeEVMTxWithGigaExecutor(ctx, evmMsg)
+		result, execErr := app.executeEVMTxWithGigaExecutor(ctx, evmMsg, cache)
 		if execErr != nil {
 			// Check if this is a fail-fast error (Cosmos precompile interop detected)
 			if gigautils.ShouldExecutionAbort(execErr) {
@@ -1544,15 +1584,24 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 		}
 	}
 
-	// Create OCC scheduler with giga executor deliverTx.
+	// Run EVM txs against a cache so we can discard all changes on fallback.
+	evmCtx, evmCache := app.CacheContext(ctx)
+
+	// Cache block-level constants (identical for all txs in this block).
+	// Must use evmCtx (not ctx) because giga KV stores are registered in CacheContext.
+	cache, cacheErr := newGigaBlockCache(evmCtx, &app.GigaEvmKeeper)
+	if cacheErr != nil {
+		ctx.Logger().Error("failed to build giga block cache", "error", cacheErr, "height", ctx.BlockHeight())
+		return nil, ctx
+	}
+
+	// Create OCC scheduler with giga executor deliverTx capturing the cache.
 	evmScheduler := tasks.NewScheduler(
 		app.ConcurrencyWorkers(),
 		app.TracingInfo,
-		app.gigaDeliverTx,
+		app.makeGigaDeliverTx(cache),
 	)
 
-	// Run EVM txs against a cache so we can discard all changes on fallback.
-	evmCtx, evmCache := app.CacheContext(ctx)
 	evmBatchResult, evmSchedErr := evmScheduler.ProcessAll(evmCtx, evmEntries)
 	if evmSchedErr != nil {
 		// TODO: DeliverTxBatch panics in this case
@@ -1713,14 +1762,14 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 // executeEVMTxWithGigaExecutor executes a single EVM transaction using the giga executor.
 // The sender address is recovered directly from the transaction signature - no Cosmos SDK ante handlers needed.
-func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgEVMTransaction) (*abci.ExecTxResult, error) {
+func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgEVMTransaction, cache *gigaBlockCache) (*abci.ExecTxResult, error) {
 	// Get the Ethereum transaction from the message
 	ethTx, txData := msg.AsTransaction()
 	if ethTx == nil || txData == nil {
 		return nil, fmt.Errorf("failed to convert to eth transaction")
 	}
 
-	chainID := app.GigaEvmKeeper.ChainID(ctx)
+	chainID := cache.chainID
 
 	// Recover sender using the same logic as preprocess.go (version-based signer selection)
 	sender, seiAddr, pubkey, recoverErr := evmante.RecoverSenderFromEthTx(ctx, ethTx, chainID)
@@ -1742,34 +1791,23 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		}
 	}
 
-	// Prepare context for EVM transaction (set infinite gas meter like original flow)
-	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+	// Prepare context for EVM transaction (set infinite gas meter like original flow).
+	// Skip gaskv wrapping since gas metering is infinite - saves ~3GB allocs per 30s.
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)).WithSkipGasKV()
 
 	// Create state DB for this transaction
 	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)
 	defer stateDB.Cleanup()
 
-	// Get gas pool
+	// Get gas pool (mutated per tx, cannot be cached)
 	gp := app.GigaEvmKeeper.GetGasPool()
 
-	// Get block context
-	blockCtx, blockCtxErr := app.GigaEvmKeeper.GetVMBlockContext(ctx, gp)
-	if blockCtxErr != nil {
-		return &abci.ExecTxResult{
-			Code: 1,
-			Log:  fmt.Sprintf("failed to get block context: %v", blockCtxErr),
-		}, nil
-	}
-
-	// Get chain config
-	sstore := app.GigaEvmKeeper.GetParams(ctx).SeiSstoreSetGasEip2200
-	cfg := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(app.GigaEvmKeeper.ChainID(ctx), &sstore)
-
-	// Create Giga executor VM
-	gigaExecutor := gigaexecutor.NewGethExecutor(*blockCtx, stateDB, cfg, vm.Config{}, gigaprecompiles.AllCustomPrecompilesFailFast)
+	// Get a pooled EVM executor (reuses EVM struct + interpreter + precompile maps)
+	gigaExecutor := cache.evmPool.GetExecutor(stateDB)
+	defer cache.evmPool.PutExecutor(gigaExecutor)
 
 	// Execute the transaction through giga VM
-	execResult, execErr := gigaExecutor.ExecuteTransaction(ethTx, sender, app.GigaEvmKeeper.GetBaseFee(ctx), &gp)
+	execResult, execErr := gigaExecutor.ExecuteTransaction(ethTx, sender, cache.baseFee, &gp)
 	if execErr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
@@ -1888,49 +1926,52 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 }
 
 // gigaDeliverTx is the OCC-compatible deliverTx function for the giga executor.
-// The ctx.MultiStore() is already wrapped with VersionIndexedStore by the scheduler.
-func (app *App) gigaDeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
-	defer func() {
-		if r := recover(); r != nil {
-			// OCC abort panics are expected - the scheduler uses them to detect conflicts
-			// and reschedule transactions. Don't log these as errors.
-			if _, isOCCAbort := r.(occ.Abort); !isOCCAbort {
-				ctx.Logger().Error("benchmark panic in gigaDeliverTx", "panic", r, "stack", string(debug.Stack()))
+// makeGigaDeliverTx returns an OCC-compatible deliverTx callback that captures the given
+// block cache, avoiding mutable state on App for cache lifecycle management.
+func (app *App) makeGigaDeliverTx(cache *gigaBlockCache) func(sdk.Context, abci.RequestDeliverTxV2, sdk.Tx, [32]byte) abci.ResponseDeliverTx {
+	return func(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
+		defer func() {
+			if r := recover(); r != nil {
+				// OCC abort panics are expected - the scheduler uses them to detect conflicts
+				// and reschedule transactions. Don't log these as errors.
+				if _, isOCCAbort := r.(occ.Abort); !isOCCAbort {
+					ctx.Logger().Error("benchmark panic in gigaDeliverTx", "panic", r, "stack", string(debug.Stack()))
+				}
 			}
-		}
-	}()
+		}()
 
-	evmMsg := app.GetEVMMsg(tx)
-	if evmMsg == nil {
-		return abci.ResponseDeliverTx{Code: 1, Log: "not an EVM transaction"}
-	}
-
-	result, err := app.executeEVMTxWithGigaExecutor(ctx, evmMsg)
-	if err != nil {
-		// Check if this is a fail-fast error (Cosmos precompile interop detected)
-		if gigautils.ShouldExecutionAbort(err) {
-			// Return a sentinel response so the caller can fall back to v2.
-			return abci.ResponseDeliverTx{
-				Code:      gigautils.GigaAbortCode,
-				Codespace: gigautils.GigaAbortCodespace,
-				Info:      gigautils.GigaAbortInfo,
-				Log:       "giga executor abort: fall back to v2",
-			}
+		evmMsg := app.GetEVMMsg(tx)
+		if evmMsg == nil {
+			return abci.ResponseDeliverTx{Code: 1, Log: "not an EVM transaction"}
 		}
 
-		return abci.ResponseDeliverTx{Code: 1, Log: fmt.Sprintf("giga executor error: %v", err)}
-	}
+		result, err := app.executeEVMTxWithGigaExecutor(ctx, evmMsg, cache)
+		if err != nil {
+			// Check if this is a fail-fast error (Cosmos precompile interop detected)
+			if gigautils.ShouldExecutionAbort(err) {
+				// Return a sentinel response so the caller can fall back to v2.
+				return abci.ResponseDeliverTx{
+					Code:      gigautils.GigaAbortCode,
+					Codespace: gigautils.GigaAbortCodespace,
+					Info:      gigautils.GigaAbortInfo,
+					Log:       "giga executor abort: fall back to v2",
+				}
+			}
 
-	return abci.ResponseDeliverTx{
-		Code:      result.Code,
-		Data:      result.Data,
-		Log:       result.Log,
-		Info:      result.Info,
-		GasWanted: result.GasWanted,
-		GasUsed:   result.GasUsed,
-		Events:    result.Events,
-		Codespace: result.Codespace,
-		EvmTxInfo: result.EvmTxInfo,
+			return abci.ResponseDeliverTx{Code: 1, Log: fmt.Sprintf("giga executor error: %v", err)}
+		}
+
+		return abci.ResponseDeliverTx{
+			Code:      result.Code,
+			Data:      result.Data,
+			Log:       result.Log,
+			Info:      result.Info,
+			GasWanted: result.GasWanted,
+			GasUsed:   result.GasUsed,
+			Events:    result.Events,
+			Codespace: result.Codespace,
+			EvmTxInfo: result.EvmTxInfo,
+		}
 	}
 }
 

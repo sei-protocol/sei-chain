@@ -2,6 +2,7 @@ package executor
 
 import (
 	"math/big"
+	"sync"
 
 	"github.com/ethereum/evmc/v12/bindings/go/evmc"
 	"github.com/ethereum/go-ethereum/common"
@@ -46,4 +47,34 @@ func (e *Executor) ExecuteTransaction(tx *types.Transaction, sender common.Addre
 	}
 
 	return executionResult, nil
+}
+
+// EVMPool pools vm.EVM instances for reuse within a single block.
+// All pooled EVMs share the same block context, chain config, and precompiles.
+type EVMPool struct {
+	pool sync.Pool
+}
+
+// NewEVMPool creates a pool of EVM instances pre-configured for the given block.
+func NewEVMPool(blockCtx vm.BlockContext, chainConfig *params.ChainConfig, config vm.Config, customPrecompiles map[common.Address]vm.PrecompiledContract) *EVMPool {
+	return &EVMPool{
+		pool: sync.Pool{
+			New: func() interface{} {
+				return vm.NewEVM(blockCtx, nil, chainConfig, config, customPrecompiles)
+			},
+		},
+	}
+}
+
+// GetExecutor obtains a pooled EVM, resets it for the given stateDB, and
+// returns an Executor wrapping it. Call PutExecutor when done.
+func (p *EVMPool) GetExecutor(stateDB vm.StateDB) *Executor {
+	evm := p.pool.Get().(*vm.EVM)
+	evm.Reset(stateDB)
+	return &Executor{evm: evm}
+}
+
+// PutExecutor returns the EVM to the pool for reuse.
+func (p *EVMPool) PutExecutor(e *Executor) {
+	p.pool.Put(e.evm)
 }

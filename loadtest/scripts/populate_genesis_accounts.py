@@ -13,12 +13,14 @@ PARALLEISM=64
 # Does not need to be thread safe, each thread should only be writing to its own index
 global_accounts_mapping = {}
 home_path = os.path.expanduser('~')
+seid_bin = os.environ.get('SEID_BIN', os.path.join(home_path, 'go', 'bin', 'seid'))
+sei_home_dir = os.environ.get('SEI_HOME_DIR', os.path.join(home_path, '.sei'))
 
 def add_key(account_name, local=False):
     if local:
-        add_key_cmd = f"yes | ~/go/bin/seid keys add {account_name} --keyring-backend test"
+        add_key_cmd = f"yes | {seid_bin} keys add {account_name} --keyring-backend test --home {sei_home_dir}"
     else:
-        add_key_cmd = f"printf '12345678\n' | ~/go/bin/seid keys add {account_name}"
+        add_key_cmd = f"printf '12345678\n' | {seid_bin} keys add {account_name} --home {sei_home_dir}"
     add_key_output = subprocess.check_output(
         [add_key_cmd],
         stderr=subprocess.STDOUT,
@@ -94,7 +96,7 @@ def main():
     if len(args) > 1 and args[1] == "loc":
         is_local = True
 
-    genesis_json_file_path = f"{home_path}/.sei/config/genesis.json"
+    genesis_json_file_path = os.path.join(sei_home_dir, 'config', 'genesis.json')
     genesis_file = read_genesis_file(genesis_json_file_path)
 
     num_threads = max(1, number_of_accounts // PARALLEISM)

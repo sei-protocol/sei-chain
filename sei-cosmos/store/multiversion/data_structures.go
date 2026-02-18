@@ -4,11 +4,6 @@ import (
 	"sync"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/google/btree"
-)
-
-const (
-	multiVersionBTreeDegree = 2
 )
 
 type MultiVersionValue interface {
@@ -29,75 +24,60 @@ type MultiVersionValueItem interface {
 	Index() int
 }
 
+// multiVersionItem stores versioned values for a single key as a sorted
+// slice instead of a btree. Most keys are touched by only 1-3 transactions,
+// making a flat slice faster and far cheaper to allocate than a btree with
+// its FreeList and internal nodes (~392 bytes overhead per btree).
 type multiVersionItem struct {
-	valueTree *btree.BTree // contains versions values written to this key
-	mtx       sync.RWMutex // manages read + write accesses
+	items []*valueItem // sorted by index ascending
+	mtx   sync.RWMutex
 }
 
 var _ MultiVersionValue = (*multiVersionItem)(nil)
 
 func NewMultiVersionItem() *multiVersionItem {
 	return &multiVersionItem{
-		valueTree: btree.New(multiVersionBTreeDegree),
+		items: make([]*valueItem, 0, 2),
 	}
 }
 
-// GetLatest returns the latest written value to the btree, and returns a boolean indicating whether it was found.
+// GetLatest returns the latest written value (highest index).
 func (item *multiVersionItem) GetLatest() (MultiVersionValueItem, bool) {
 	item.mtx.RLock()
 	defer item.mtx.RUnlock()
 
-	bTreeItem := item.valueTree.Max()
-	if bTreeItem == nil {
+	if len(item.items) == 0 {
 		return nil, false
 	}
-	valueItem := bTreeItem.(*valueItem)
-	return valueItem, true
+	return item.items[len(item.items)-1], true
 }
 
-// GetLatestNonEstimate returns the latest written value that isn't an ESTIMATE and returns a boolean indicating whether it was found.
-// This can be used when we want to write finalized values, since ESTIMATEs can be considered to be irrelevant at that point
+// GetLatestNonEstimate returns the latest written value that isn't an ESTIMATE.
 func (item *multiVersionItem) GetLatestNonEstimate() (MultiVersionValueItem, bool) {
 	item.mtx.RLock()
 	defer item.mtx.RUnlock()
 
-	var vItem *valueItem
-	var found bool
-	item.valueTree.Descend(func(bTreeItem btree.Item) bool {
-		// only return if non-estimate
-		item := bTreeItem.(*valueItem)
-		if item.IsEstimate() {
-			// if estimate, continue
-			return true
+	for i := len(item.items) - 1; i >= 0; i-- {
+		if !item.items[i].estimate {
+			return item.items[i], true
 		}
-		// else we want to return
-		vItem = item
-		found = true
-		return false
-	})
-	return vItem, found
+	}
+	return nil, false
 }
 
-// GetLatest returns the latest written value to the btree prior to the index passed in, and returns a boolean indicating whether it was found.
-//
-// A `nil` value along with `found=true` indicates a deletion that has occurred and the underlying parent store doesn't need to be hit.
+// GetLatestBeforeIndex returns the latest value with index strictly less than
+// the given index. No temporary pivot object is allocated (unlike the btree
+// DescendLessOrEqual approach which allocated 34M pivot objects).
 func (item *multiVersionItem) GetLatestBeforeIndex(index int) (MultiVersionValueItem, bool) {
 	item.mtx.RLock()
 	defer item.mtx.RUnlock()
 
-	// we want to find the value at the index that is LESS than the current index
-	pivot := &valueItem{index: index - 1}
-
-	var vItem *valueItem
-	var found bool
-	// start from pivot which contains our current index, and return on first item we hit.
-	// This will ensure we get the latest indexed value relative to our current index
-	item.valueTree.DescendLessOrEqual(pivot, func(bTreeItem btree.Item) bool {
-		vItem = bTreeItem.(*valueItem)
-		found = true
-		return false
-	})
-	return vItem, found
+	for i := len(item.items) - 1; i >= 0; i-- {
+		if item.items[i].index < index {
+			return item.items[i], true
+		}
+	}
+	return nil, false
 }
 
 func (item *multiVersionItem) Set(index int, incarnation int, value []byte) {
@@ -105,31 +85,69 @@ func (item *multiVersionItem) Set(index int, incarnation int, value []byte) {
 	item.mtx.Lock()
 	defer item.mtx.Unlock()
 
-	valueItem := NewValueItem(index, incarnation, value)
-	item.valueTree.ReplaceOrInsert(valueItem)
+	item.replaceOrInsert(&valueItem{
+		index:       index,
+		incarnation: incarnation,
+		value:       value,
+	})
 }
 
 func (item *multiVersionItem) Delete(index int, incarnation int) {
 	item.mtx.Lock()
 	defer item.mtx.Unlock()
 
-	deletedItem := NewDeletedItem(index, incarnation)
-	item.valueTree.ReplaceOrInsert(deletedItem)
+	item.replaceOrInsert(&valueItem{
+		index:       index,
+		incarnation: incarnation,
+	})
 }
 
 func (item *multiVersionItem) Remove(index int) {
 	item.mtx.Lock()
 	defer item.mtx.Unlock()
 
-	item.valueTree.Delete(&valueItem{index: index})
+	for i, v := range item.items {
+		if v.index == index {
+			item.items = append(item.items[:i], item.items[i+1:]...)
+			return
+		}
+	}
 }
 
 func (item *multiVersionItem) SetEstimate(index int, incarnation int) {
 	item.mtx.Lock()
 	defer item.mtx.Unlock()
 
-	estimateItem := NewEstimateItem(index, incarnation)
-	item.valueTree.ReplaceOrInsert(estimateItem)
+	item.replaceOrInsert(&valueItem{
+		index:       index,
+		incarnation: incarnation,
+		estimate:    true,
+	})
+}
+
+// replaceOrInsert inserts vi into the sorted slice, replacing any existing
+// item with the same index.
+func (item *multiVersionItem) replaceOrInsert(vi *valueItem) {
+	n := len(item.items)
+	// Fast path: append if vi has the highest index (common case when
+	// transactions are processed in order).
+	if n == 0 || item.items[n-1].index < vi.index {
+		item.items = append(item.items, vi)
+		return
+	}
+	// Linear scan for the correct position.
+	for i := 0; i < n; i++ {
+		if item.items[i].index == vi.index {
+			item.items[i] = vi
+			return
+		}
+		if item.items[i].index > vi.index {
+			item.items = append(item.items, nil)
+			copy(item.items[i+1:], item.items[i:])
+			item.items[i] = vi
+			return
+		}
+	}
 }
 
 type valueItem struct {
@@ -141,34 +159,24 @@ type valueItem struct {
 
 var _ MultiVersionValueItem = (*valueItem)(nil)
 
-// Index implements MultiVersionValueItem.
 func (v *valueItem) Index() int {
 	return v.index
 }
 
-// Incarnation implements MultiVersionValueItem.
 func (v *valueItem) Incarnation() int {
 	return v.incarnation
 }
 
-// IsDeleted implements MultiVersionValueItem.
 func (v *valueItem) IsDeleted() bool {
 	return v.value == nil && !v.estimate
 }
 
-// IsEstimate implements MultiVersionValueItem.
 func (v *valueItem) IsEstimate() bool {
 	return v.estimate
 }
 
-// Value implements MultiVersionValueItem.
 func (v *valueItem) Value() []byte {
 	return v.value
-}
-
-// implement Less for btree.Item for valueItem
-func (i *valueItem) Less(other btree.Item) bool {
-	return i.index < other.(*valueItem).index
 }
 
 func NewValueItem(index int, incarnation int, value []byte) *valueItem {
@@ -176,7 +184,6 @@ func NewValueItem(index int, incarnation int, value []byte) *valueItem {
 		index:       index,
 		incarnation: incarnation,
 		value:       value,
-		estimate:    false,
 	}
 }
 
@@ -184,7 +191,6 @@ func NewEstimateItem(index int, incarnation int) *valueItem {
 	return &valueItem{
 		index:       index,
 		incarnation: incarnation,
-		value:       nil,
 		estimate:    true,
 	}
 }
@@ -193,7 +199,5 @@ func NewDeletedItem(index int, incarnation int) *valueItem {
 	return &valueItem{
 		index:       index,
 		incarnation: incarnation,
-		value:       nil,
-		estimate:    false,
 	}
 }

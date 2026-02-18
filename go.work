@@ -4,3 +4,5 @@ use (
 	.
 	./sei-cosmos
 )
+
+replace github.com/ethereum/go-ethereum => ../go-ethereum
