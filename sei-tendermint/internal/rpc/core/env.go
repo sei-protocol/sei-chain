@@ -10,7 +10,7 @@ import (
 
 	"github.com/rs/cors"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
@@ -69,7 +69,7 @@ type peerManager interface {
 // to be setup once during startup.
 type Environment struct {
 	// external, thread safe interfaces
-	ProxyApp abciclient.Client
+	ProxyApp abci.Application
 
 	// interfaces defined in types and above
 	StateStore       sm.Store
