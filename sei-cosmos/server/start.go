@@ -362,7 +362,7 @@ func startInProcess(
 			ctx.Config,
 			ctx.Logger,
 			restartEvent,
-			abciclient.NewLocalClient(ctx.Logger, app),
+			app,
 			gen,
 			tracerProviderOptions,
 			nodeMetricsProvider,

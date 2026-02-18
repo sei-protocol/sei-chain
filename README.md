@@ -72,7 +72,7 @@ make install
 
 * Install seid binary
 
-* Initialize node: `seid init <moniker> --chain-id sei-testnet-1`
+* Initialize node (use `--mode validator` so RPC/P2P bind to localhost): `seid init <moniker> --chain-id sei-testnet-1 --mode validator`
 
 * Download the Genesis file: `wget https://github.com/sei-protocol/testnet/raw/main/sei-testnet-1/genesis.json -P $HOME/.sei/config/`
  
