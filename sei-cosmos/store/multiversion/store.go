@@ -41,11 +41,19 @@ var _ MultiVersionStore = (*Store)(nil)
 // Must be a power of two so the mask works correctly.
 const mvShardCount = 64
 
+// mvShard is a single shard of the multiversion map, using a plain map
+// guarded by a mutex. This avoids sync.Map's internal hash-trie node
+// allocations (~5.4 GB per 120s benchmark with sync.Map).
+type mvMapShard struct {
+	mu sync.Mutex
+	m  map[string]MultiVersionValue
+}
+
 type Store struct {
 	// Sharded maps that store the key string -> MultiVersionValue mapping.
-	// Sharding reduces sync.Map contention when 24 OCC workers write
-	// concurrently, pushing the batch-size cliff from ~4500 to higher.
-	mvShards [mvShardCount]sync.Map
+	// Sharding reduces mutex contention when 24 OCC workers write
+	// concurrently.
+	mvShards [mvShardCount]mvMapShard
 
 	// Per-tx data indexed by tx absolute index. Pre-allocated as slices
 	// instead of sync.Map to avoid internal hash-trie node allocations
@@ -57,8 +65,8 @@ type Store struct {
 	parentStore types.KVStore
 }
 
-// mvShard returns the shard index for a given key using FNV-1a hash.
-func mvShard(key string) uint32 {
+// mvShardIdx returns the shard index for a given key using FNV-1a hash.
+func mvShardIdx(key string) uint32 {
 	h := uint32(2166136261)
 	for i := 0; i < len(key); i++ {
 		h ^= uint32(key[i])
@@ -72,12 +80,16 @@ func NewMultiVersionStore(parentStore types.KVStore) *Store {
 }
 
 func NewMultiVersionStoreWithTxCount(parentStore types.KVStore, txCount int) *Store {
-	return &Store{
+	s := &Store{
 		txWritesetKeys: make([][]string, txCount),
 		txReadSets:     make([]ReadSet, txCount),
 		txIterateSets:  make([]Iterateset, txCount),
 		parentStore:    parentStore,
 	}
+	for i := range s.mvShards {
+		s.mvShards[i].m = make(map[string]MultiVersionValue)
+	}
+	return s
 }
 
 // growSlices ensures per-tx slices can hold index. Called only on the
@@ -101,14 +113,16 @@ func (s *Store) VersionedIndexedStore(index int, incarnation int, abortChannel c
 // GetLatest implements MultiVersionStore.
 func (s *Store) GetLatest(key []byte) (value MultiVersionValueItem) {
 	keyString := string(key)
-	mvVal, found := s.mvShards[mvShard(keyString)].Load(keyString)
-	// if the key doesn't exist in the overall map, return nil
+	shard := &s.mvShards[mvShardIdx(keyString)]
+	shard.mu.Lock()
+	mvVal, found := shard.m[keyString]
+	shard.mu.Unlock()
 	if !found {
 		return nil
 	}
-	latestVal, found := mvVal.(MultiVersionValue).GetLatest()
+	latestVal, found := mvVal.GetLatest()
 	if !found {
-		return nil // this is possible IF there is are writeset that are then removed for that key
+		return nil
 	}
 	return latestVal
 }
@@ -116,60 +130,57 @@ func (s *Store) GetLatest(key []byte) (value MultiVersionValueItem) {
 // GetLatestBeforeIndex implements MultiVersionStore.
 func (s *Store) GetLatestBeforeIndex(index int, key []byte) (value MultiVersionValueItem) {
 	keyString := string(key)
-	mvVal, found := s.mvShards[mvShard(keyString)].Load(keyString)
-	// if the key doesn't exist in the overall map, return nil
+	shard := &s.mvShards[mvShardIdx(keyString)]
+	shard.mu.Lock()
+	mvVal, found := shard.m[keyString]
+	shard.mu.Unlock()
 	if !found {
 		return nil
 	}
-	val, found := mvVal.(MultiVersionValue).GetLatestBeforeIndex(index)
-	// otherwise, we may have found a value for that key, but its not written before the index passed in
+	val, found := mvVal.GetLatestBeforeIndex(index)
 	if !found {
 		return nil
 	}
-	// found a value prior to the passed in index, return that value (could be estimate OR deleted, but it is a definitive value)
 	return val
 }
 
 // Has implements MultiVersionStore. It checks if the key exists in the multiversion store at or before the specified index.
 func (s *Store) Has(index int, key []byte) bool {
-
 	keyString := string(key)
-	mvVal, found := s.mvShards[mvShard(keyString)].Load(keyString)
-	// if the key doesn't exist in the overall map, return nil
+	shard := &s.mvShards[mvShardIdx(keyString)]
+	shard.mu.Lock()
+	mvVal, found := shard.m[keyString]
+	shard.mu.Unlock()
 	if !found {
-		return false // this is okay because the caller of this will THEN need to access the parent store to verify that the key doesnt exist there
+		return false
 	}
-	_, foundVal := mvVal.(MultiVersionValue).GetLatestBeforeIndex(index)
+	_, foundVal := mvVal.GetLatestBeforeIndex(index)
 	return foundVal
 }
 
 func (s *Store) removeOldWriteset(index int, newWriteSet WriteSet) {
 	writeset := make(map[string][]byte)
 	if newWriteSet != nil {
-		// if non-nil writeset passed in, we can use that to optimize removals
 		writeset = newWriteSet
 	}
-	// if there is already a writeset existing, we should remove that fully
 	if index >= len(s.txWritesetKeys) {
 		return
 	}
 	keys := s.txWritesetKeys[index]
 	s.txWritesetKeys[index] = nil
 	if keys != nil {
-		// we need to delete all of the keys in the writeset from the multiversion store
 		for _, key := range keys {
-			// small optimization to check if the new writeset is going to write this key, if so, we can leave it behind
 			if _, ok := writeset[key]; ok {
-				// we don't need to remove this key because it will be overwritten anyways - saves the operation of removing + rebalancing underlying btree
 				continue
 			}
-			// remove from the appropriate item if present in multiVersionMap
-			mvVal, found := s.mvShards[mvShard(key)].Load(key)
-			// if the key doesn't exist in the overall map, return nil
+			shard := &s.mvShards[mvShardIdx(key)]
+			shard.mu.Lock()
+			mvVal, found := shard.m[key]
+			shard.mu.Unlock()
 			if !found {
 				continue
 			}
-			mvVal.(MultiVersionValue).Remove(index)
+			mvVal.Remove(index)
 		}
 	}
 }
@@ -177,15 +188,19 @@ func (s *Store) removeOldWriteset(index int, newWriteSet WriteSet) {
 // SetWriteset sets a writeset for a transaction index, and also writes all of the multiversion items in the writeset to the multiversion store.
 func (s *Store) SetWriteset(index int, incarnation int, writeset WriteSet) {
 	s.growSlices(index)
-	// remove old writeset if it exists
 	s.removeOldWriteset(index, writeset)
 
 	writeSetKeys := make([]string, 0, len(writeset))
 	for key, value := range writeset {
 		writeSetKeys = append(writeSetKeys, key)
-		shard := &s.mvShards[mvShard(key)]
-		loadVal, _ := shard.LoadOrStore(key, NewMultiVersionItem()) // init if necessary
-		mvVal := loadVal.(MultiVersionValue)
+		shard := &s.mvShards[mvShardIdx(key)]
+		shard.mu.Lock()
+		mvVal, ok := shard.m[key]
+		if !ok {
+			mvVal = NewMultiVersionItem()
+			shard.m[key] = mvVal
+		}
+		shard.mu.Unlock()
 		if value == nil {
 			mvVal.Delete(index, incarnation)
 		} else {
@@ -206,25 +221,36 @@ func (s *Store) InvalidateWriteset(index int, incarnation int) {
 		return
 	}
 	for _, key := range keys {
-		shard := &s.mvShards[mvShard(key)]
-		val, _ := shard.LoadOrStore(key, NewMultiVersionItem())
-		val.(MultiVersionValue).SetEstimate(index, incarnation)
+		shard := &s.mvShards[mvShardIdx(key)]
+		shard.mu.Lock()
+		mvVal, ok := shard.m[key]
+		if !ok {
+			mvVal = NewMultiVersionItem()
+			shard.m[key] = mvVal
+		}
+		shard.mu.Unlock()
+		mvVal.SetEstimate(index, incarnation)
 	}
 }
 
 // SetEstimatedWriteset is used to directly write estimates instead of writing a writeset and later invalidating
 func (s *Store) SetEstimatedWriteset(index int, incarnation int, writeset WriteSet) {
 	s.growSlices(index)
-	// remove old writeset if it exists
 	s.removeOldWriteset(index, writeset)
 
 	writeSetKeys := make([]string, 0, len(writeset))
 	for key := range writeset {
 		writeSetKeys = append(writeSetKeys, key)
 
-		shard := &s.mvShards[mvShard(key)]
-		mvVal, _ := shard.LoadOrStore(key, NewMultiVersionItem()) // init if necessary
-		mvVal.(MultiVersionValue).SetEstimate(index, incarnation)
+		shard := &s.mvShards[mvShardIdx(key)]
+		shard.mu.Lock()
+		mvVal, ok := shard.m[key]
+		if !ok {
+			mvVal = NewMultiVersionItem()
+			shard.m[key] = mvVal
+		}
+		shard.mu.Unlock()
+		mvVal.SetEstimate(index, incarnation)
 	}
 	sort.Strings(writeSetKeys)
 	s.txWritesetKeys[index] = writeSetKeys
@@ -440,35 +466,30 @@ func (s *Store) ValidateTransactionState(index int) (bool, []int) {
 
 func (s *Store) WriteLatestToStore() {
 	// collect all keys from all shards
-	keys := []string{}
+	keys := make([]string, 0, 256)
 	for i := range s.mvShards {
-		s.mvShards[i].Range(func(key, value interface{}) bool {
-			keys = append(keys, key.(string))
-			return true
-		})
+		shard := &s.mvShards[i]
+		shard.mu.Lock()
+		for k := range shard.m {
+			keys = append(keys, k)
+		}
+		shard.mu.Unlock()
 	}
 	sort.Strings(keys)
 
 	for _, key := range keys {
-		val, ok := s.mvShards[mvShard(key)].Load(key)
-		if !ok {
-			continue
-		}
-		mvValue, found := val.(MultiVersionValue).GetLatestNonEstimate()
+		shard := &s.mvShards[mvShardIdx(key)]
+		shard.mu.Lock()
+		mvVal := shard.m[key]
+		shard.mu.Unlock()
+		mvValue, found := mvVal.GetLatestNonEstimate()
 		if !found {
-			// this means that at some point, there was an estimate, but we have since removed it so there isn't anything writeable at the key, so we can skip
 			continue
 		}
-		// we shouldn't have any ESTIMATE values when performing the write, because we read the latest non-estimate values only
 		if mvValue.IsEstimate() {
 			panic("should not have any estimate values when writing to parent store")
 		}
-		// if the value is deleted, then delete it from the parent store
 		if mvValue.IsDeleted() {
-			// We use []byte(key) instead of conv.UnsafeStrToBytes because we cannot
-			// be sure if the underlying store might do a save with the byteslice or
-			// not. Once we get confirmation that .Delete is guaranteed not to
-			// save the byteslice, then we can assume only a read-only copy is sufficient.
 			s.parentStore.Delete([]byte(key))
 			continue
 		}
