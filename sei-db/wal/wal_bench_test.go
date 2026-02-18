@@ -33,6 +33,7 @@ func BenchmarkTidwallWALWrite(b *testing.B) {
 		for _, fm := range fsyncModes {
 			name := fmt.Sprintf("entry=%dB/%s", es, fm.name)
 			noSync := fm.noSync
+			payload := makePayload(es)
 
 			b.Run(name, func(b *testing.B) {
 				dir := b.TempDir()
@@ -49,7 +50,6 @@ func BenchmarkTidwallWALWrite(b *testing.B) {
 				start := time.Now()
 
 				for i := 0; i < b.N; i++ {
-					payload := makePayload(es)
 					if err := log.Write(uint64(i+1), payload); err != nil {
 						b.Fatal(err)
 					}
@@ -82,6 +82,7 @@ func BenchmarkWALWrapperWrite(b *testing.B) {
 		for _, wm := range writeModes {
 			name := fmt.Sprintf("entry=%dB/%s", es, wm.name)
 			bufSize := wm.bufferSize
+			payload := makePayload(es)
 
 			b.Run(name, func(b *testing.B) {
 				dir := b.TempDir()
@@ -96,7 +97,6 @@ func BenchmarkWALWrapperWrite(b *testing.B) {
 				start := time.Now()
 
 				for i := 0; i < b.N; i++ {
-					payload := makePayload(es)
 					if err := w.Write(payload); err != nil {
 						b.Fatal(err)
 					}
