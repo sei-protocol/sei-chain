@@ -218,7 +218,12 @@ func New(t *testing.T, cfg Config) *Network {
 
 			apiURL, err := url.Parse(apiListenAddr)
 			require.NoError(t, err)
-			apiAddr = fmt.Sprintf("http://%s:%s", apiURL.Hostname(), apiURL.Port())
+
+			host := apiURL.Hostname()
+			if host == "" || host == "0.0.0.0" || host == "::" {
+				host = "127.0.0.1"
+			}
+			apiAddr = fmt.Sprintf("http://%s:%s", host, apiURL.Port())
 
 			rpcAddr, _, err := server.FreeTCPAddr()
 			require.NoError(t, err)
@@ -226,12 +231,12 @@ func New(t *testing.T, cfg Config) *Network {
 
 			_, grpcPort, err := server.FreeTCPAddr()
 			require.NoError(t, err)
-			appCfg.GRPC.Address = fmt.Sprintf("0.0.0.0:%s", grpcPort)
+			appCfg.GRPC.Address = fmt.Sprintf("127.0.0.1:%s", grpcPort)
 			appCfg.GRPC.Enable = true
 
 			_, grpcWebPort, err := server.FreeTCPAddr()
 			require.NoError(t, err)
-			appCfg.GRPCWeb.Address = fmt.Sprintf("0.0.0.0:%s", grpcWebPort)
+			appCfg.GRPCWeb.Address = fmt.Sprintf("127.0.0.1:%s", grpcWebPort)
 			appCfg.GRPCWeb.Enable = true
 		}
 

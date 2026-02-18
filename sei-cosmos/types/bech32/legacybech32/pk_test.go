@@ -1,3 +1,5 @@
+//go:build ledger || test_ledger_mock
+
 package legacybech32
 
 import (

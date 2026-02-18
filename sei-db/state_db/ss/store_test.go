@@ -2,7 +2,6 @@ package ss
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -14,7 +13,7 @@ import (
 )
 
 func TestNewStateStore(t *testing.T) {
-	tempDir := os.TempDir()
+	tempDir := t.TempDir()
 	homeDir := filepath.Join(tempDir, "pebbledb")
 	ssConfig := config.StateStoreConfig{
 		Backend:          string(PebbleDBBackend),
