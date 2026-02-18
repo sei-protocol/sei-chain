@@ -493,36 +493,28 @@ func (s *Store) ValidateTransactionState(index int) (bool, []int) {
 }
 
 func (s *Store) WriteLatestToStore() {
-	// collect all keys from all shards
-	keys := make([]string, 0, 256)
+	// Single-pass: iterate each shard once, writing directly to parent store.
+	// The parent (cachekv) sorts internally during Write(), so key ordering
+	// here is unnecessary. This avoids the key-collection slice, sort.Strings,
+	// and the double shard lookup of the previous two-pass approach.
 	for i := range s.mvShards {
 		shard := &s.mvShards[i]
 		shard.mu.Lock()
-		for k := range shard.m {
-			keys = append(keys, k)
+		for key, mvVal := range shard.m {
+			mvValue, found := mvVal.GetLatestNonEstimate()
+			if !found {
+				continue
+			}
+			if mvValue.IsEstimate() {
+				shard.mu.Unlock()
+				panic("should not have any estimate values when writing to parent store")
+			}
+			if mvValue.IsDeleted() {
+				s.parentStore.Delete([]byte(key))
+			} else if mvValue.Value() != nil {
+				s.parentStore.Set([]byte(key), mvValue.Value())
+			}
 		}
 		shard.mu.Unlock()
-	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
-		shard := &s.mvShards[mvShardIdx(key)]
-		shard.mu.Lock()
-		mvVal := shard.m[key]
-		shard.mu.Unlock()
-		mvValue, found := mvVal.GetLatestNonEstimate()
-		if !found {
-			continue
-		}
-		if mvValue.IsEstimate() {
-			panic("should not have any estimate values when writing to parent store")
-		}
-		if mvValue.IsDeleted() {
-			s.parentStore.Delete([]byte(key))
-			continue
-		}
-		if mvValue.Value() != nil {
-			s.parentStore.Set([]byte(key), mvValue.Value())
-		}
 	}
 }

@@ -496,7 +496,10 @@ func (s *scheduler) prepareTask(task *deliverTxTask) {
 	defer span.End()
 
 	// initialize the context
-	abortCh := make(chan occ.Abort, len(s.multiVersionStores))
+	// Capacity 1: only the first abort is consumed (executeTask reads once
+	// after close). WriteAbort uses select/default so subsequent aborts are
+	// silently dropped. Saves ~29 element slots per channel allocation.
+	abortCh := make(chan occ.Abort, 1)
 
 	// if there are no stores, don't try to wrap, because there's nothing to wrap
 	if len(s.multiVersionStores) > 0 {

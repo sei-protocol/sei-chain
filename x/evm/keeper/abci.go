@@ -111,9 +111,10 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 		}
 		idx := int(deferredInfo.TxIndex)
 		coinbaseAddress := state.GetCoinbaseAddress(idx)
-		useiBalance := k.BankKeeper().GetBalance(ctx, coinbaseAddress, denom).Amount
-		lockedUseiBalance := k.BankKeeper().LockedCoins(ctx, coinbaseAddress).AmountOf(denom)
-		balance := useiBalance.Sub(lockedUseiBalance)
+		// Per-tx coinbase addresses are temporary accounts created during OCC
+		// execution; they are never vesting accounts, so LockedCoins is always
+		// zero. Skip the expensive GetAccount + protobuf unmarshal per tx.
+		balance := k.BankKeeper().GetBalance(ctx, coinbaseAddress, denom).Amount
 		weiBalance := k.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
 		if !balance.IsZero() || !weiBalance.IsZero() {
 			if err := k.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, coinbase, balance, weiBalance); err != nil {
