@@ -29,7 +29,7 @@ type loadedAvailState struct {
 	blocks map[types.LaneID][]persist.LoadedBlock
 }
 
-func newInner(c *types.Committee, loaded *loadedAvailState, persistEnabled bool) *inner {
+func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
 	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{}
 	for _, lane := range c.Lanes().All() {
@@ -38,7 +38,7 @@ func newInner(c *types.Committee, loaded *loadedAvailState, persistEnabled bool)
 	}
 
 	var blockPersisted map[types.LaneID]types.BlockNumber
-	if persistEnabled {
+	if loaded != nil {
 		blockPersisted = make(map[types.LaneID]types.BlockNumber, c.Lanes().Len())
 		for _, lane := range c.Lanes().All() {
 			blockPersisted[lane] = 0
@@ -83,9 +83,7 @@ func newInner(c *types.Committee, loaded *loadedAvailState, persistEnabled bool)
 			q.q[q.next] = b.Proposal
 			q.next++
 		}
-		if i.blockPersisted != nil {
-			i.blockPersisted[lane] = q.next
-		}
+		i.blockPersisted[lane] = q.next
 		// Advance the votes queue to match so headers() returns ErrPruned
 		// for already-committed blocks instead of blocking forever.
 		vq := i.votes[lane]

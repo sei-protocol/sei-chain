@@ -112,7 +112,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	return &State{
 		key:          key,
 		data:         data,
-		inner:        utils.NewWatch(newInner(data.Committee(), loaded, bp != nil)),
+		inner:        utils.NewWatch(newInner(data.Committee(), loaded)),
 		persister:    p,
 		blockPersist: bp,
 		persistCh:    persistCh,
