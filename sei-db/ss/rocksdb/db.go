@@ -293,6 +293,11 @@ func (db *Database) writeAsyncInBackground() {
 // lazy prune. Future compactions will honor the increased full_history_ts_low
 // and trim history when possible.
 func (db *Database) Prune(version int64) error {
+	// Defensive check: ensure database is not closed
+	if db.storage == nil {
+		return fmt.Errorf("rocksdb: database is closed")
+	}
+
 	tsLow := version + 1 // we increment by 1 to include the provided version
 
 	var ts [TimestampSize]byte
