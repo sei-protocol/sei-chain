@@ -9,7 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
 	tmtime "github.com/sei-protocol/sei-chain/sei-cosmos/std"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"

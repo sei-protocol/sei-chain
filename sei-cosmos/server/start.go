@@ -29,7 +29,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	tcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
