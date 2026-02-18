@@ -98,6 +98,7 @@ func ExportCmd(appExporter types.AppExporter, defaultNodeHome string) *cobra.Com
 				if err != nil {
 					return err
 				}
+				defer func() { _ = file.Close() }()
 				exported, err := appExporter(serverCtx.Logger, db, traceWriter, height, forZeroHeight, jailAllowedAddrs, serverCtx.Viper, file)
 				if err != nil {
 					return fmt.Errorf("error exporting state: %v", err)
@@ -140,8 +141,8 @@ func ExportCmd(appExporter types.AppExporter, defaultNodeHome string) *cobra.Com
 					return err
 				}
 
-				file.Write([]byte(fmt.Sprintf("%s", string(sdk.MustSortJSON(encoded)))))
-				return nil
+				_, err = file.Write([]byte(fmt.Sprintf("%s", string(sdk.MustSortJSON(encoded)))))
+				return fmt.Errorf("error writing genesis state to file: %v", err)
 			}
 
 			exported, err := appExporter(serverCtx.Logger, db, traceWriter, height, forZeroHeight, jailAllowedAddrs, serverCtx.Viper, nil)

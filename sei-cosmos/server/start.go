@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"net/http"
 
-	//nolint:gosec,G108
+	//nolint:gosec G108
 	_ "net/http/pprof"
 	"os"
 	"path"
@@ -134,7 +134,9 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 
 			// Bind flags to the Context's Viper so the app construction can set
 			// options accordingly.
-			serverCtx.Viper.BindPFlags(cmd.Flags())
+			if err := serverCtx.Viper.BindPFlags(cmd.Flags()); err != nil {
+				return err
+			}
 
 			_, err := GetPruningOptionsFromFlags(serverCtx.Viper)
 			return err
@@ -289,7 +291,7 @@ func startInProcess(
 		cpuProfileCleanup = func() {
 			ctx.Logger.Info("stopping CPU profiler", "profile", cpuProfile)
 			pprof.StopCPUProfile()
-			f.Close()
+			_ = f.Close()
 		}
 	}
 
@@ -489,7 +491,7 @@ func startInProcess(
 		if grpcSrv != nil {
 			grpcSrv.Stop()
 			if grpcWebSrv != nil {
-				grpcWebSrv.Close()
+				_ = grpcWebSrv.Close()
 			}
 		}
 

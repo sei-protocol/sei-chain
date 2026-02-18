@@ -242,7 +242,7 @@ $ %s query txs --%s 'message.sender=cosmos1...&message.action=withdraw_delegator
 	cmd.Flags().Int(flags.FlagPage, rest.DefaultPage, "Query a specific page of paginated results")
 	cmd.Flags().Int(flags.FlagLimit, rest.DefaultLimit, "Query number of transactions results per page returned")
 	cmd.Flags().String(flagEvents, "", fmt.Sprintf("list of transaction events in the form of %s", eventFormat))
-	cmd.MarkFlagRequired(flagEvents)
+	_ = cmd.MarkFlagRequired(flagEvents)
 
 	return cmd
 }

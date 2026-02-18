@@ -165,7 +165,7 @@ func (iter *mvsMergeIterator) Value() []byte {
 func (iter *mvsMergeIterator) Close() error {
 	if err := iter.parent.Close(); err != nil {
 		// still want to close cache iterator regardless
-		iter.cache.Close()
+		_ = iter.cache.Close()
 		return err
 	}
 

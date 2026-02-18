@@ -154,7 +154,7 @@ func setOutputFile(cmd *cobra.Command) (func(), error) {
 
 	cmd.SetOut(fp)
 
-	return func() { fp.Close() }, nil
+	return func() { _ = fp.Close() }, nil
 }
 
 // GetSignCommand returns the transaction sign command.

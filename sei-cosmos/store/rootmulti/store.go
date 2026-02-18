@@ -335,7 +335,7 @@ func deleteKVStore(kv types.KVStore) {
 	// Note that we cannot write while iterating, so load all keys here, delete below
 	var keys [][]byte
 	itr := kv.Iterator(nil, nil)
-	defer itr.Close()
+	defer func() { _ = itr.Close() }()
 	for itr.Valid() {
 		keys = append(keys, itr.Key())
 		itr.Next()
@@ -350,7 +350,7 @@ func deleteKVStore(kv types.KVStore) {
 func moveKVStoreData(oldDB types.KVStore, newDB types.KVStore) {
 	// we read from one and write to another
 	itr := oldDB.Iterator(nil, nil)
-	defer itr.Close()
+	defer func() { _ = itr.Close() }()
 	for itr.Valid() {
 		newDB.Set(itr.Key(), itr.Value())
 		itr.Next()
@@ -1050,7 +1050,7 @@ func (rs *Store) RollbackToVersion(target int64) error {
 
 func (rs *Store) flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo) {
 	batch := db.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 	if cInfo != nil {
 		flushCommitInfo(batch, version, cInfo)
 	}
@@ -1059,7 +1059,9 @@ func (rs *Store) flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo
 	if err := batch.WriteSync(); err != nil {
 		panic(fmt.Errorf("error on batch write %w", err))
 	}
-	rs.logger.Info("App State Saved height=%d hash=%X\n", cInfo.CommitID().Version, cInfo.CommitID().Hash)
+	if cInfo != nil {
+		rs.logger.Info("App State Saved height=%d hash=%X\n", cInfo.CommitID().Version, cInfo.CommitID().Hash)
+	}
 }
 
 func (rs *Store) SetOrphanConfig(opts *iavltree.Options) {
@@ -1189,7 +1191,7 @@ func flushCommitInfo(batch dbm.Batch, version int64, cInfo *types.CommitInfo) {
 	}
 
 	cInfoKey := fmt.Sprintf(commitInfoKeyFmt, version)
-	batch.Set([]byte(cInfoKey), bz)
+	_ = batch.Set([]byte(cInfoKey), bz)
 }
 
 func flushLatestVersion(batch dbm.Batch, version int64) {

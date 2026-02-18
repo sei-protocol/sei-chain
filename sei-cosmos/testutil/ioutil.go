@@ -74,6 +74,6 @@ func TempFile(t testing.TB) *os.File {
 
 	fp, err := os.Create(filepath.Join(t.TempDir(), fmt.Sprintf("tmpfile-%d", tmpFileCounter.Add(1))))
 	require.NoError(t, err)
-
+	t.Cleanup(func() { _ = fp.Close() })
 	return fp
 }

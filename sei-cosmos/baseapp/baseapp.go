@@ -1196,5 +1196,5 @@ func (app *BaseApp) RegisterDeliverTxHook(hook DeliverTxHook) {
 }
 
 func (app *BaseApp) InplaceTestnetInitialize(pk cryptotypes.PubKey) {
-	app.inplaceTestnetInitializer(pk)
+	_ = app.inplaceTestnetInitializer(pk)
 }

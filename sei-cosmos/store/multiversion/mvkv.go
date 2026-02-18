@@ -288,11 +288,11 @@ func (store *VersionIndexedStore) iterator(start []byte, end []byte, ascending b
 	// TODO: ideally we persist writeset keys into a sorted btree for later use
 	// make a set of total keys across mvkv and mvs to iterate
 	for key := range store.writeset {
-		memDB.Set([]byte(key), []byte{})
+		_ = memDB.Set([]byte(key), []byte{})
 	}
 	// also add readset elements such that they fetch from readset instead of parent
 	for key := range store.readset {
-		memDB.Set([]byte(key), []byte{})
+		_ = memDB.Set([]byte(key), []byte{})
 	}
 
 	var parent, memIterator types.Iterator

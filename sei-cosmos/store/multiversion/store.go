@@ -252,7 +252,7 @@ func (s *Store) CollectIteratorItems(index int) *db.MemDB {
 		// TODO: do we want to exclude keys out of the range or just let the iterator handle it?
 		for _, key := range indexedWriteset {
 			// TODO: inefficient because (logn) for each key + rebalancing? maybe theres a better way to add to a tree to reduce rebalancing overhead
-			sortedItems.Set([]byte(key), []byte{})
+			_ = sortedItems.Set([]byte(key), []byte{})
 		}
 	}
 	return sortedItems
@@ -263,7 +263,7 @@ func (s *Store) validateIterator(index int, tracker iterationTracker) bool {
 	sortedItems := s.CollectIteratorItems(index)
 	// add the iterationtracker writeset keys to the sorted items
 	for key := range tracker.writeset {
-		sortedItems.Set([]byte(key), []byte{})
+		_ = sortedItems.Set([]byte(key), []byte{})
 	}
 	validChannel := make(chan bool, 1)
 	abortChannel := make(chan occ.Abort, 1)
@@ -281,7 +281,7 @@ func (s *Store) validateIterator(index int, tracker iterationTracker) bool {
 		}
 		// create a new MVSMergeiterator
 		mergeIterator := NewMVSMergeIterator(parentIter, iter, iterationTracker.ascending, NoOpHandler{})
-		defer mergeIterator.Close()
+		defer func() { _ = mergeIterator.Close() }()
 		for ; mergeIterator.Valid(); mergeIterator.Next() {
 			if (len(expectedKeys) - foundKeys) == 0 {
 				// if we have no more expected keys, then the iterator is invalid

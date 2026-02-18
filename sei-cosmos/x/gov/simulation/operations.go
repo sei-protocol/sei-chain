@@ -19,8 +19,8 @@ var initialProposalID = uint64(100000000000000)
 
 // Simulation operation weights constants
 const (
-	OpWeightMsgDeposit      = "op_weight_msg_deposit"
-	OpWeightMsgVote         = "op_weight_msg_vote"
+	OpWeightMsgDeposit      = "op_weight_msg_deposit" //nolint:gosec
+	OpWeightMsgVote         = "op_weight_msg_vote"    //nolint:gosec
 	OpWeightMsgVoteWeighted = "op_weight_msg_weighted_vote"
 )
 
@@ -409,10 +409,13 @@ func randomProposalID(r *rand.Rand, k keeper.Keeper,
 	switch {
 	case proposalID > initialProposalID:
 		// select a random ID between [initialProposalID, proposalID]
-		proposalID = uint64(simtypes.RandIntBetween(r, int(initialProposalID), int(proposalID)))
+		if initialProposalID > uint64(math.MaxInt) || proposalID > uint64(math.MaxInt) {
+			return proposalID, false
+		}
+		proposalID = uint64(simtypes.RandIntBetween(r, int(initialProposalID), int(proposalID))) //#nosec G115 -- bounds checked above
 
 	default:
-		// This is called on the first call to this funcion
+		// This is called on the first call to this function
 		// in order to update the global variable
 		initialProposalID = proposalID
 	}

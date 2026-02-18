@@ -187,7 +187,7 @@ func (m *Manager) createSnapshot(height uint64, ch chan<- io.ReadCloser) {
 	if streamWriter == nil {
 		return
 	}
-	defer streamWriter.Close()
+	defer func() { _ = streamWriter.Close() }()
 	if err := m.multistore.Snapshot(height, streamWriter); err != nil {
 		m.logger.Error("Snapshot creation failed", "err", err)
 		streamWriter.CloseWithError(err)
@@ -230,7 +230,7 @@ func (m *Manager) LoadChunk(height uint64, format uint32, chunk uint32) ([]byte,
 	if reader == nil {
 		return nil, nil
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	return io.ReadAll(reader)
 }
@@ -304,7 +304,7 @@ func (m *Manager) restoreSnapshot(snapshot types.Snapshot, chChunks <-chan io.Re
 	if err != nil {
 		return err
 	}
-	defer streamReader.Close()
+	defer func() { _ = streamReader.Close() }()
 
 	next, err := m.multistore.Restore(snapshot.Height, snapshot.Format, streamReader)
 	if err != nil {

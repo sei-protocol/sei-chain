@@ -75,7 +75,7 @@ func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
 func (a AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, config client.TxEncodingConfig, bz json.RawMessage) error {
 	var data feegrant.GenesisState
 	if err := cdc.UnmarshalAsJSON(bz, &data); err != nil {
-		sdkerrors.Wrapf(err, "failed to unmarshal %s genesis state", feegrant.ModuleName)
+		return sdkerrors.Wrapf(err, "failed to unmarshal %s genesis state", feegrant.ModuleName)
 	}
 
 	return feegrant.ValidateGenesis(data)
@@ -96,7 +96,7 @@ func (AppModuleBasic) RegisterRESTRoutes(ctx client.Context, rtr *mux.Router) {}
 
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the feegrant module.
 func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {
-	feegrant.RegisterQueryHandlerClient(context.Background(), mux, feegrant.NewQueryClient(clientCtx))
+	_ = feegrant.RegisterQueryHandlerClient(context.Background(), mux, feegrant.NewQueryClient(clientCtx))
 }
 
 // GetTxCmd returns the root tx command for the feegrant module.

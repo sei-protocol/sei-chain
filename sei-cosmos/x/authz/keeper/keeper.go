@@ -57,7 +57,7 @@ func (k Keeper) update(ctx sdk.Context, grantee sdk.AccAddress, granter sdk.AccA
 
 	msg, ok := updated.(proto.Message)
 	if !ok {
-		sdkerrors.ErrPackAny.Wrapf("cannot proto marshal %T", updated)
+		return sdkerrors.ErrPackAny.Wrapf("cannot proto marshal %T", updated)
 	}
 
 	any, err := codectypes.NewAnyWithValue(msg)
@@ -199,7 +199,7 @@ func (k Keeper) GetCleanAuthorization(ctx sdk.Context, grantee sdk.AccAddress, g
 		return nil, time.Time{}
 	}
 	if grant.Expiration.Before(ctx.BlockHeader().Time) {
-		k.DeleteGrant(ctx, grantee, granter, msgType)
+		_ = k.DeleteGrant(ctx, grantee, granter, msgType)
 		return nil, time.Time{}
 	}
 

@@ -169,7 +169,7 @@ func (store *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 		if err := recover(); err != nil {
 			// close out parent iterator, then reraise panic
 			if parent != nil {
-				parent.Close()
+				_ = parent.Close()
 			}
 			panic(err)
 		}

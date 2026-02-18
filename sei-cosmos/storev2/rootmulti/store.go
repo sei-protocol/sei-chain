@@ -566,7 +566,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		if err != nil {
 			return sdkerrors.QueryResult(err)
 		}
-		defer scStore.Close()
+		defer func() { _ = scStore.Close() }()
 		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName), rs.logger))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
@@ -803,7 +803,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer exporter.Close()
+	defer func() { _ = exporter.Close() }()
 	keySizePerStore := map[string]int64{}
 	valueSizePerStore := map[string]int64{}
 	numKeysPerStore := map[string]int64{}

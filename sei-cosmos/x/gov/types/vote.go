@@ -143,8 +143,8 @@ func (vo *VoteOption) Unmarshal(data []byte) error {
 func (vo VoteOption) Format(s fmt.State, verb rune) {
 	switch verb {
 	case 's':
-		s.Write([]byte(vo.String()))
+		_, _ = s.Write([]byte(vo.String()))
 	default:
-		fmt.Fprintf(s, "%v", byte(vo))
+		_, _ = fmt.Fprintf(s, "%v", byte(vo))
 	}
 }

@@ -310,7 +310,7 @@ func (cms *Store) AddCloser(closer io.Closer) {
 
 func (cms Store) Close() {
 	for _, closer := range cms.closers {
-		closer.Close()
+		_ = closer.Close()
 	}
 }
 

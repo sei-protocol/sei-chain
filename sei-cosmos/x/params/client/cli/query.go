@@ -76,7 +76,9 @@ func NewQueryFeeParamsCmd() *cobra.Command {
 			}
 
 			feeParams := types.FeesParams{}
-			clientCtx.Codec.UnmarshalAsJSON([]byte(res.Param.Value), &feeParams)
+			if err := clientCtx.Codec.UnmarshalAsJSON([]byte(res.Param.Value), &feeParams); err != nil {
+				return err
+			}
 
 			return clientCtx.PrintProto(&feeParams)
 		},
@@ -105,7 +107,9 @@ func NewQueryCosmosGasParamsCmd() *cobra.Command {
 			}
 
 			cosmosGasParams := types.CosmosGasParams{}
-			clientCtx.Codec.UnmarshalAsJSON([]byte(res.Param.Value), &cosmosGasParams)
+			if err := clientCtx.Codec.UnmarshalAsJSON([]byte(res.Param.Value), &cosmosGasParams); err != nil {
+				return err
+			}
 
 			return clientCtx.PrintProto(&cosmosGasParams)
 		},
@@ -134,7 +138,9 @@ func NewQueryBlockParamsCmd() *cobra.Command {
 			}
 
 			blockParams := tmproto.BlockParams{}
-			clientCtx.Codec.UnmarshalAsJSON([]byte(res.Param.Value), &blockParams)
+			if err := clientCtx.Codec.UnmarshalAsJSON([]byte(res.Param.Value), &blockParams); err != nil {
+				return err
+			}
 
 			return clientCtx.PrintProto(&blockParams)
 		},

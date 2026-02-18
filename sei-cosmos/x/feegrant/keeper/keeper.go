@@ -159,7 +159,7 @@ func (k Keeper) UseGrantedFees(ctx sdk.Context, granter, grantee sdk.AccAddress,
 
 	if remove {
 		// Ignoring the `revokeFeeAllowance` error, because the user has enough grants to perform this transaction.
-		k.revokeAllowance(ctx, granter, grantee)
+		err := k.revokeAllowance(ctx, granter, grantee)
 		if err != nil {
 			return err
 		}

@@ -86,7 +86,7 @@ func (AppModuleBasic) RegisterRESTRoutes(clientCtx sdkclient.Context, r *mux.Rou
 
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the authz module.
 func (a AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx sdkclient.Context, mux *runtime.ServeMux) {
-	authz.RegisterQueryHandlerClient(context.Background(), mux, authz.NewQueryClient(clientCtx))
+	_ = authz.RegisterQueryHandlerClient(context.Background(), mux, authz.NewQueryClient(clientCtx))
 }
 
 // GetQueryCmd returns the cli query commands for the authz module

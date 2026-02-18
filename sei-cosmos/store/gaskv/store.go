@@ -138,7 +138,7 @@ func (gs *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 	defer func() {
 		if err := recover(); err != nil {
 			// if there is a panic, we close the iterator then reraise
-			gi.Close()
+			_ = gi.Close()
 			panic(err)
 		}
 	}()

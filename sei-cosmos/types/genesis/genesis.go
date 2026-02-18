@@ -28,7 +28,7 @@ func IngestGenesisFileLineByLine(filename string) <-chan string {
 			fmt.Println("Error opening file:", err)
 			return
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		reader := bufio.NewReader(file)
 

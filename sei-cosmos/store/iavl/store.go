@@ -226,7 +226,7 @@ func (st *Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc typ
 func (st *Store) Set(key, value []byte) {
 	types.AssertValidKey(key)
 	types.AssertValidValue(value)
-	st.tree.Set(key, value)
+	_, _ = st.tree.Set(key, value)
 }
 
 // Implements types.KVStore.
@@ -252,7 +252,7 @@ func (st *Store) Has(key []byte) (exists bool) {
 // Implements types.KVStore.
 func (st *Store) Delete(key []byte) {
 	defer telemetry.MeasureSince(time.Now(), "store", "iavl", "delete")
-	st.tree.Remove(key)
+	_, _, _ = st.tree.Remove(key)
 }
 
 // DeleteVersions deletes a series of versions from the MutableTree. An error
