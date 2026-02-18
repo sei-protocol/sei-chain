@@ -6,54 +6,14 @@ import (
 	"fmt"
 )
 
-// DBLocalMetaKey is the key for per-DB local metadata.
-// It is a single-byte key (0x00), which cannot collide with any valid user key
-// because all user keys have minimum length of 20 bytes (EVM address).
-//
-// Invariant: All user keys are >= 20 bytes (address=20, storage=52).
-var DBLocalMetaKey = []byte{0x00}
-
-// metaKeyLowerBound returns the iterator lower bound that excludes DBLocalMetaKey.
-// Lexicographically: 0x00 (1 byte) < 0x00,0x00 (2 bytes) < any user key (>=20 bytes).
-// This ensures metadata key is excluded while all user keys (even those starting
-// with 0x00) are included.
-func metaKeyLowerBound() []byte {
-	return []byte{0x00, 0x00}
-}
-
 const (
 	AddressLen  = 20
 	CodeHashLen = 32
 	SlotLen     = 32
 	BalanceLen  = 32
-	NonceLen    = 8
 
-	// localMetaSize is the serialized size of LocalMeta (version = 8 bytes)
-	localMetaSize = 8
+	NonceLen = 8
 )
-
-// LocalMeta stores per-DB version tracking metadata.
-// Stored inside each DB at DBLocalMetaKey (0x00).
-type LocalMeta struct {
-	CommittedVersion int64 // Current committed version in this DB
-}
-
-// MarshalLocalMeta encodes LocalMeta as fixed 8 bytes (big-endian).
-func MarshalLocalMeta(m *LocalMeta) []byte {
-	buf := make([]byte, localMetaSize)
-	binary.BigEndian.PutUint64(buf, uint64(m.CommittedVersion)) //nolint:gosec // version is always non-negative
-	return buf
-}
-
-// UnmarshalLocalMeta decodes LocalMeta from bytes.
-func UnmarshalLocalMeta(data []byte) (*LocalMeta, error) {
-	if len(data) != localMetaSize {
-		return nil, fmt.Errorf("invalid LocalMeta size: got %d, want %d", len(data), localMetaSize)
-	}
-	return &LocalMeta{
-		CommittedVersion: int64(binary.BigEndian.Uint64(data)), //nolint:gosec // version won't exceed int64 max
-	}, nil
-}
 
 // Address is an EVM address (20 bytes).
 type Address [AddressLen]byte
@@ -94,35 +54,52 @@ func SlotFromBytes(b []byte) (Slot, bool) {
 	return s, true
 }
 
-// =============================================================================
-// DB Key Builders
-// =============================================================================
+// AccountKey is a type-safe account DB key.
+type AccountKey struct{ b []byte }
 
-// AccountKey returns the accountDB key for addr.
-// Key format: addr(20)
-func AccountKey(addr Address) []byte {
-	return addr[:]
+func (k AccountKey) isZero() bool  { return len(k.b) == 0 }
+func (k AccountKey) bytes() []byte { return k.b }
+
+// AccountKeyFor returns the account DB key for addr.
+func AccountKeyFor(addr Address) AccountKey {
+	b := make([]byte, AddressLen)
+	copy(b, addr[:])
+	return AccountKey{b: b}
 }
 
-// CodeKey returns the codeDB key for codeHash.
-// Key format: codeHash(32)
-func CodeKey(codeHash CodeHash) []byte {
-	return codeHash[:]
+// CodeKey is a type-safe code DB key.
+type CodeKey struct{ b []byte }
+
+func (k CodeKey) isZero() bool  { return len(k.b) == 0 }
+func (k CodeKey) bytes() []byte { return k.b }
+
+// CodeKeyFor returns the code DB key for codeHash.
+func CodeKeyFor(codeHash CodeHash) CodeKey {
+	b := make([]byte, CodeHashLen)
+	copy(b, codeHash[:])
+	return CodeKey{b: b}
 }
 
-// StorageKey returns the storageDB key for (addr, slot).
-// Key format: addr(20) || slot(32) = 52 bytes
-func StorageKey(addr Address, slot Slot) []byte {
-	key := make([]byte, AddressLen+SlotLen)
-	copy(key[:AddressLen], addr[:])
-	copy(key[AddressLen:], slot[:])
-	return key
+// StorageKey is a type-safe storage DB key (or prefix).
+// Encodes: nil (unbounded), addr (prefix), or addr||slot (full key).
+type StorageKey struct{ b []byte }
+
+func (k StorageKey) isZero() bool  { return len(k.b) == 0 }
+func (k StorageKey) bytes() []byte { return k.b }
+
+// StoragePrefix returns the storage DB prefix key for addr.
+func StoragePrefix(addr Address) StorageKey {
+	b := make([]byte, AddressLen)
+	copy(b, addr[:])
+	return StorageKey{b: b}
 }
 
-// StoragePrefix returns the storageDB prefix for iterating all slots of addr.
-// Prefix format: addr(20)
-func StoragePrefix(addr Address) []byte {
-	return addr[:]
+// StorageKeyFor returns the storage DB key for (addr, slot).
+func StorageKeyFor(addr Address, slot Slot) StorageKey {
+	b := make([]byte, 0, AddressLen+SlotLen)
+	b = append(b, addr[:]...)
+	b = append(b, slot[:]...)
+	return StorageKey{b: b}
 }
 
 // PrefixEnd returns the exclusive upper bound for prefix iteration (or nil).
@@ -165,11 +142,6 @@ const (
 // HasCode returns true if the account has code (is a contract).
 func (v AccountValue) HasCode() bool {
 	return v.CodeHash != CodeHash{}
-}
-
-// Encode encodes the AccountValue to bytes.
-func (v AccountValue) Encode() []byte {
-	return EncodeAccountValue(v)
 }
 
 // EncodeAccountValue encodes v into a variable-length slice.

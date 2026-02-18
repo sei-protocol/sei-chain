@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
@@ -92,6 +93,12 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 			}
 			if err := client.SetCmdClientContextHandler(initClientCtx, cmd); err != nil {
 				return err
+			}
+
+			// Skip creating config.toml/app.toml when running "init"; init creates them itself.
+			// Otherwise the PreRun would create them in the init home, and init would then error
+			if strings.HasPrefix(cmd.Use, "init") {
+				return nil
 			}
 
 			customAppTemplate, customAppConfig := initAppConfig()
