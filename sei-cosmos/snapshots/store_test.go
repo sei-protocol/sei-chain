@@ -24,7 +24,6 @@ func setupStore(t *testing.T) *snapshots.Store {
 	// see https://github.com/cosmos/cosmos-sdk/pull/8475 for
 	// this change's rationale.
 	tempdir := os.TempDir()
-	t.Cleanup(func() { _ = os.RemoveAll(tempdir) })
 
 	store, err := snapshots.NewStore(db.NewMemDB(), tempdir)
 	require.NoError(t, err)

@@ -151,7 +151,6 @@ func setupBusyManager(t *testing.T) *snapshots.Manager {
 	// this change's rationale.
 	t.Helper()
 	tempdir := os.TempDir()
-	t.Cleanup(func() { _ = os.RemoveAll(tempdir) })
 	store, err := snapshots.NewStore(db.NewMemDB(), tempdir)
 	require.NoError(t, err)
 	hung := newHungSnapshotter()
