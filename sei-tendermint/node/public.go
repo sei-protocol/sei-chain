@@ -5,45 +5,31 @@ import (
 	"context"
 	"fmt"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
-// NewDefault constructs a tendermint node service for use in go
-// process that host their own process-local tendermint node. This is
-// equivalent to running tendermint in it's own process communicating
-// to an external ABCI application.
-func NewDefault(
-	ctx context.Context,
-	conf *config.Config,
-	logger log.Logger,
-	restartEvent func(),
-) (service.Service, error) {
-	return newDefaultNode(ctx, conf, logger, restartEvent)
-}
-
-// New constructs a tendermint node. The ClientCreator makes it
-// possible to construct an ABCI application that runs in the same
-// process as the tendermint node.  The final option is a pointer to a
-// Genesis document: if the value is nil, the genesis document is read
-// from the file specified in the config, and otherwise the node uses
-// value of the final argument.
+// New constructs a tendermint node. The provided app runs in the same
+// process as the tendermint node and will be wrapped in a local ABCI client
+// inside this function. The final option is a pointer to a Genesis document:
+// if the value is nil, the genesis document is read from the file specified
+// in the config, and otherwise the node uses value of the final argument.
 func New(
 	ctx context.Context,
 	conf *config.Config,
 	logger log.Logger,
 	restartEvent func(),
-	cf abciclient.Client,
-	gen *types.GenesisDoc,
+	app abci.Application,
+	gen *tmtypes.GenesisDoc,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
 ) (service.Service, error) {
-	nodeKey, err := types.LoadOrGenNodeKey(conf.NodeKeyFile())
+	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
 		return nil, fmt.Errorf("failed to load or gen node key %s: %w", conf.NodeKeyFile(), err)
 	}
@@ -53,7 +39,7 @@ func New(
 	case nil:
 		genProvider = defaultGenesisDocProviderFunc(conf)
 	default:
-		genProvider = func() (*types.GenesisDoc, error) { return gen, nil }
+		genProvider = func() (*tmtypes.GenesisDoc, error) { return gen, nil }
 	}
 
 	switch conf.Mode {
@@ -69,7 +55,7 @@ func New(
 			restartEvent,
 			pval,
 			nodeKey,
-			cf,
+			app,
 			genProvider,
 			config.DefaultDBProvider,
 			logger,
@@ -83,7 +69,6 @@ func New(
 			config.DefaultDBProvider,
 			nodeKey,
 			genProvider,
-			cf,
 			nodeMetrics,
 		)
 	default:
