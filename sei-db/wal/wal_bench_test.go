@@ -102,10 +102,10 @@ func BenchmarkWALWrapperWrite(b *testing.B) {
 					}
 				}
 
-				b.StopTimer()
 				if err := w.Close(); err != nil {
 					b.Fatal(err)
 				}
+				b.StopTimer()
 
 				elapsed := time.Since(start)
 				totalBytes := float64(b.N) * float64(es)
