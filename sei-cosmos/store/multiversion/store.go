@@ -39,7 +39,8 @@ var _ MultiVersionStore = (*Store)(nil)
 
 // mvShardCount is the number of shards for the multiVersionMap.
 // Must be a power of two so the mask works correctly.
-const mvShardCount = 64
+// 256 shards (up from 64) reduces mutex contention ~4x with 24 OCC workers.
+const mvShardCount = 256
 
 // mvShard is a single shard of the multiversion map, using a plain map
 // guarded by a mutex. This avoids sync.Map's internal hash-trie node
@@ -65,8 +66,19 @@ type Store struct {
 	parentStore types.KVStore
 }
 
-// mvShardIdx returns the shard index for a given key using FNV-1a hash.
+// mvShardIdx returns the shard index for a given string key using FNV-1a hash.
 func mvShardIdx(key string) uint32 {
+	h := uint32(2166136261)
+	for i := 0; i < len(key); i++ {
+		h ^= uint32(key[i])
+		h *= 16777619
+	}
+	return h & (mvShardCount - 1)
+}
+
+// mvShardIdxBytes returns the shard index for a byte-slice key using FNV-1a hash.
+// This avoids a string allocation when computing the shard for []byte keys.
+func mvShardIdxBytes(key []byte) uint32 {
 	h := uint32(2166136261)
 	for i := 0; i < len(key); i++ {
 		h ^= uint32(key[i])
@@ -112,10 +124,11 @@ func (s *Store) VersionedIndexedStore(index int, incarnation int, abortChannel c
 
 // GetLatest implements MultiVersionStore.
 func (s *Store) GetLatest(key []byte) (value MultiVersionValueItem) {
-	keyString := string(key)
-	shard := &s.mvShards[mvShardIdx(keyString)]
+	shard := &s.mvShards[mvShardIdxBytes(key)]
 	shard.mu.Lock()
-	mvVal, found := shard.m[keyString]
+	// Go compiler optimizes m[string(b)] to avoid allocation when used
+	// directly as a map index expression.
+	mvVal, found := shard.m[string(key)]
 	shard.mu.Unlock()
 	if !found {
 		return nil
@@ -129,10 +142,9 @@ func (s *Store) GetLatest(key []byte) (value MultiVersionValueItem) {
 
 // GetLatestBeforeIndex implements MultiVersionStore.
 func (s *Store) GetLatestBeforeIndex(index int, key []byte) (value MultiVersionValueItem) {
-	keyString := string(key)
-	shard := &s.mvShards[mvShardIdx(keyString)]
+	shard := &s.mvShards[mvShardIdxBytes(key)]
 	shard.mu.Lock()
-	mvVal, found := shard.m[keyString]
+	mvVal, found := shard.m[string(key)]
 	shard.mu.Unlock()
 	if !found {
 		return nil
@@ -146,10 +158,9 @@ func (s *Store) GetLatestBeforeIndex(index int, key []byte) (value MultiVersionV
 
 // Has implements MultiVersionStore. It checks if the key exists in the multiversion store at or before the specified index.
 func (s *Store) Has(index int, key []byte) bool {
-	keyString := string(key)
-	shard := &s.mvShards[mvShardIdx(keyString)]
+	shard := &s.mvShards[mvShardIdxBytes(key)]
 	shard.mu.Lock()
-	mvVal, found := shard.m[keyString]
+	mvVal, found := shard.m[string(key)]
 	shard.mu.Unlock()
 	if !found {
 		return false
@@ -398,6 +409,23 @@ func (s *Store) checkIteratorAtIndex(index int) bool {
 	return valid
 }
 
+// getLatestBeforeIndexStr is like GetLatestBeforeIndex but takes a string key,
+// avoiding the string→[]byte→string round-trip in checkReadsetAtIndex.
+func (s *Store) getLatestBeforeIndexStr(index int, key string) MultiVersionValueItem {
+	shard := &s.mvShards[mvShardIdx(key)]
+	shard.mu.Lock()
+	mvVal, found := shard.m[key]
+	shard.mu.Unlock()
+	if !found {
+		return nil
+	}
+	val, found := mvVal.GetLatestBeforeIndex(index)
+	if !found {
+		return nil
+	}
+	return val
+}
+
 func (s *Store) checkReadsetAtIndex(index int) (bool, []int) {
 	conflictSet := make(map[int]struct{})
 	valid := true
@@ -417,7 +445,7 @@ func (s *Store) checkReadsetAtIndex(index int) (bool, []int) {
 		}
 		value := valueArr[0]
 		// get the latest value from the multiversion store
-		latestValue := s.GetLatestBeforeIndex(index, []byte(key))
+		latestValue := s.getLatestBeforeIndexStr(index, key)
 		if latestValue == nil {
 			// this is possible if we previously read a value from a transaction write that was later reverted, so this time we read from parent store
 			parentVal := s.parentStore.Get([]byte(key))
