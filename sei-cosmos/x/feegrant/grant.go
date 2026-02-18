@@ -13,8 +13,6 @@ var (
 )
 
 // NewGrant creates a new FeeAllowanceGrant.
-//
-//nolint:interfacer
 func NewGrant(granter, grantee sdk.AccAddress, feeAllowance FeeAllowanceI) (Grant, error) {
 	msg, ok := feeAllowance.(proto.Message)
 	if !ok {
