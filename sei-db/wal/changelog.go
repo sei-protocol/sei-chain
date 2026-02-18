@@ -13,6 +13,12 @@ type ChangelogWAL = GenericWAL[proto.ChangelogEntry]
 // NewChangelogWAL creates a new WAL for ChangelogEntry.
 // This is a convenience wrapper that handles serialization automatically.
 func NewChangelogWAL(logger logger.Logger, dir string, config Config) (ChangelogWAL, error) {
+
+	if config.BufferSize > 0 {
+		// Emulate legacy behavior. Originally, buffer size >0 enabled async writes.
+		config.AsyncWrites = true
+	}
+
 	return NewWAL(
 		context.Background(),
 		func(e proto.ChangelogEntry) ([]byte, error) { return e.Marshal() },
