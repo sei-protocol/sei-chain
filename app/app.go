@@ -2862,7 +2862,7 @@ func (app *App) inplacetestnetInitializer(pk cryptotypes.PubKey) error {
 }
 
 // DebugHeight is the block height at which debug logging is enabled
-const DebugHeight = 193303662
+const DebugHeight = 194174881
 
 
 // debugLogTxBalances logs the balance and state of sender/recipient for debugging mismatch issues
