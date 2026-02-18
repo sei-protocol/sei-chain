@@ -258,10 +258,7 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 		for k, store := range rs.ckvStores {
 			if store.GetStoreType() != types.StoreTypeIAVL {
 				stores[k] = store
-			}
-		}
-		for k, store := range rs.ckvStores {
-			if store.GetStoreType() == types.StoreTypeIAVL {
+			} else {
 				stores[k] = state.NewStore(rs.ssStore, k, version)
 			}
 		}
