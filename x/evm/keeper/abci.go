@@ -98,6 +98,11 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 	evmTxDeferredInfoList := k.GetAllEVMTxDeferredInfo(ctx)
 	denom := k.GetBaseDenom(ctx)
 	surplus := k.GetAnteSurplusSum(ctx)
+	// Suppress events during coinbase sweep: per-tx coinbase transfers are
+	// internal bookkeeping (thousands of individual sends per block). These
+	// events are not user-visible and eliminating them avoids ~4GB of event
+	// allocations per benchmark run.
+	sweepCtx := ctx.WithEventManager(sdk.NewNoopEventManager())
 	for _, deferredInfo := range evmTxDeferredInfoList {
 		txHash := common.BytesToHash(deferredInfo.TxHash)
 		if deferredInfo.Error != "" && txHash.Cmp(ethtypes.EmptyTxsHash) != 0 {
@@ -114,10 +119,10 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 		// Per-tx coinbase addresses are temporary accounts created during OCC
 		// execution; they are never vesting accounts, so LockedCoins is always
 		// zero. Skip the expensive GetAccount + protobuf unmarshal per tx.
-		balance := k.BankKeeper().GetBalance(ctx, coinbaseAddress, denom).Amount
-		weiBalance := k.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
+		balance := k.BankKeeper().GetBalance(sweepCtx, coinbaseAddress, denom).Amount
+		weiBalance := k.BankKeeper().GetWeiBalance(sweepCtx, coinbaseAddress)
 		if !balance.IsZero() || !weiBalance.IsZero() {
-			if err := k.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, coinbase, balance, weiBalance); err != nil {
+			if err := k.BankKeeper().SendCoinsAndWei(sweepCtx, coinbaseAddress, coinbase, balance, weiBalance); err != nil {
 				ctx.Logger().Error(fmt.Sprintf("failed to send usei surplus from %s to coinbase account due to %s", coinbaseAddress.String(), err))
 			}
 		}
