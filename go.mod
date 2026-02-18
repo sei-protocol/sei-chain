@@ -58,7 +58,7 @@ require (
 	github.com/ledgerwatch/erigon-lib v0.0.0-20230210071639-db0e7ed11263
 	github.com/lib/pq v1.10.9
 	github.com/libp2p/go-buffer-pool v0.1.0
-	github.com/linxGnu/grocksdb v1.8.11
+	github.com/linxGnu/grocksdb v1.8.14
 	github.com/magiconair/properties v1.8.10
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mitchellh/mapstructure v1.5.0
@@ -89,7 +89,7 @@ require (
 	github.com/tendermint/crypto v0.0.0-20191022145703-50d29ede1e15
 	github.com/tendermint/go-amino v0.16.0
 	github.com/tendermint/tm-db v0.6.8-0.20220519162814-e24b96538a12
-	github.com/tidwall/btree v1.6.0
+	github.com/tidwall/btree v1.7.0
 	github.com/tidwall/gjson v1.14.2
 	github.com/tidwall/wal v1.2.1
 	github.com/zbiljic/go-filelock v0.0.0-20170914061330-1dbf7103ab7d
@@ -127,9 +127,7 @@ require (
 
 require (
 	4d63.com/gochecknoglobals v0.1.0 // indirect
-	cosmossdk.io/errors v1.0.0 // indirect
-	filippo.io/edwards25519 v1.0.0-rc.1 // indirect
-	dario.cat/mergo v1.0.2 // indirect
+	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4 // indirect
 	github.com/Abirdcfly/dupword v0.0.7 // indirect
 	github.com/Antonboom/errname v0.1.7 // indirect
@@ -190,8 +188,9 @@ require (
 	github.com/dgraph-io/badger/v3 v3.2103.2 // indirect
 	github.com/dgraph-io/ristretto v0.2.0 // indirect
 	github.com/dlclark/regexp2 v1.7.0 // indirect
+	github.com/docker/cli v24.0.7+incompatible // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
-	github.com/docker/go-units v0.4.0 // indirect
+	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dop251/goja v0.0.0-20230605162241-28ee0ee714f3 // indirect
 	github.com/duckdb/duckdb-go-bindings v0.1.23 // indirect
 	github.com/duckdb/duckdb-go-bindings/darwin-amd64 v0.1.23 // indirect
@@ -292,7 +291,6 @@ require (
 	github.com/maratori/testpackage v1.1.0 // indirect
 	github.com/matoous/godox v0.0.0-20210227103229-6504466cf951 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/mbilski/exhaustivestruct v1.2.0 // indirect
 	github.com/mgechev/revive v1.2.4 // indirect
@@ -309,7 +307,7 @@ require (
 	github.com/nxadm/tail v1.4.11 // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
-	github.com/opencontainers/image-spec v1.0.2 // indirect
+	github.com/opencontainers/image-spec v1.1.0-rc2 // indirect
 	github.com/opencontainers/runc v1.1.14 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/petermattis/goid v0.0.0-20260113132338-7c7de50cc741 // indirect
@@ -376,7 +374,6 @@ require (
 	go.etcd.io/bbolt v1.4.0-alpha.0.0.20240404170359-43604f3112c5 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/otel/exporters/jaeger v1.9.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect

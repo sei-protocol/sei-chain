@@ -46,11 +46,11 @@ build_tags_comma_sep := $(subst $(whitespace),$(comma),$(build_tags))
 
 # process linker flags
 
-ldflags = -X github.com/cosmos/cosmos-sdk/version.Name=sei \
-			-X github.com/cosmos/cosmos-sdk/version.AppName=seid \
-			-X github.com/cosmos/cosmos-sdk/version.Version=$(VERSION) \
-			-X github.com/cosmos/cosmos-sdk/version.Commit=$(COMMIT) \
-			-X "github.com/cosmos/cosmos-sdk/version.BuildTags=$(build_tags_comma_sep)"
+ldflags = -X github.com/sei-protocol/sei-chain/sei-cosmos/version.Name=sei \
+			-X github.com/sei-protocol/sei-chain/sei-cosmos/version.AppName=seid \
+			-X github.com/sei-protocol/sei-chain/sei-cosmos/version.Version=$(VERSION) \
+			-X github.com/sei-protocol/sei-chain/sei-cosmos/version.Commit=$(COMMIT) \
+			-X "github.com/sei-protocol/sei-chain/sei-cosmos/version.BuildTags=$(build_tags_comma_sep)"
 
 # go 1.23+ needs a workaround to link memsize (see https://github.com/fjl/memsize).
 # NOTE: this is a terribly ugly and unstable way of comparing version numbers,
