@@ -31,7 +31,7 @@ func (store *VersionIndexedStore) newMemIterator(
 
 	if err != nil {
 		if iter != nil {
-			iter.Close()
+			_ = iter.Close()
 		}
 		panic(err)
 	}
@@ -80,7 +80,7 @@ func (store *Store) newMVSValidationIterator(
 
 	if err != nil {
 		if iter != nil {
-			iter.Close()
+			_ = iter.Close()
 		}
 		panic(err)
 	}

@@ -99,7 +99,9 @@ func (dsa Store) DeleteAll(start, end []byte) error {
 	for ; iter.Valid(); iter.Next() {
 		keys = append(keys, iter.Key())
 	}
-	iter.Close()
+	if err := iter.Close(); err != nil {
+		return err
+	}
 	for _, key := range keys {
 		dsa.Delete(key)
 	}
@@ -108,7 +110,7 @@ func (dsa Store) DeleteAll(start, end []byte) error {
 
 func (dsa Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
 	iter := dsa.Iterator(start, end)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		res = append(res, string(iter.Key()))
 	}

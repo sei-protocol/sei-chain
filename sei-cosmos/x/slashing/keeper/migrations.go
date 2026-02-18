@@ -77,20 +77,22 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 		// last 8 bytes are the index
 		// remove the store prefix + length prefix
 		key := iter.Key()
+		if len(key) < 10 {
+			return fmt.Errorf("invalid missed block bit array key: too short (%d bytes)", len(key))
+		}
 		consAddrBytes, indexBytes := key[2:len(key)-8], key[len(key)-8:]
 
 		consAddr := sdk.ConsAddress(consAddrBytes)
-		index := int64(binary.LittleEndian.Uint64(indexBytes))
+		index := int64(binary.LittleEndian.Uint64(indexBytes)) //nolint:gosec // index represents a block index, stored as uint64
 		// load legacy signing info type
 		var signInfo types.ValidatorSigningInfoLegacyMissedHeights
 		signInfoKey := types.ValidatorSigningInfoKey(consAddr)
 		bz := store.Get(signInfoKey)
+		if bz == nil {
+			return fmt.Errorf("signing info not found for validator %s", consAddr.String())
+		}
 
 		m.keeper.cdc.MustUnmarshal(bz, &signInfo)
-		// signInfo, found := m.keeper.GetValidatorSigningInfo(ctx, consAddr)
-		// if !found {
-		// 	return fmt.Errorf("signing info not found")
-		// }
 		arr, ok := valMissedMap[consAddr.String()]
 		if !ok {
 			ctx.Logger().Info(fmt.Sprintf("Migrating for next validator with consAddr: %s\n", consAddr.String()))
@@ -108,7 +110,10 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 		valMissedMap[consAddr.String()] = arr
 		keysToDelete = append(keysToDelete, iter.Key())
 	}
-	iter.Close()
+
+	if err := iter.Close(); err != nil {
+		return err
+	}
 
 	ctx.Logger().Info(fmt.Sprintf("Starting deletion of missed bit array keys (total %d)", len(keysToDelete)))
 	interval := len(keysToDelete) / 50
@@ -123,7 +128,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	}
 
 	ctx.Logger().Info("Writing new validator missed heights")
-	valKeys := []string{}
+	var valKeys []string
 	for key := range valMissedMap {
 		valKeys = append(valKeys, key)
 	}
@@ -131,10 +136,10 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	for _, key := range valKeys {
 		missedBlockArray := valMissedMap[key]
 		consAddrKey, err := sdk.ConsAddressFromBech32(key)
-		ctx.Logger().Info(fmt.Sprintf("Writing missed heights for validator: %s\n", consAddrKey.String()))
 		if err != nil {
 			return err
 		}
+		ctx.Logger().Info(fmt.Sprintf("Writing missed heights for validator: %s\n", consAddrKey.String()))
 		bz := m.keeper.cdc.MustMarshal(&missedBlockArray)
 		store.Set(types.ValidatorMissedBlockBitArrayKey(consAddrKey), bz)
 	}
@@ -192,11 +197,17 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 	for ; iter.Valid(); iter.Next() {
 		var missedInfo types.ValidatorMissedBlockArrayLegacyMissedHeights
 		key := iter.Key()
+		if len(key) < 3 {
+			return fmt.Errorf("invalid missed block bit array key: too short (%d bytes)", len(key))
+		}
 		consAddrBytes := key[2:]
 
 		consAddr := sdk.ConsAddress(consAddrBytes)
 		ctx.Logger().Info(fmt.Sprintf("Migrating for next validator with consAddr: %s\n", consAddr.String()))
 
+		if window <= 0 {
+			return fmt.Errorf("invalid signed blocks window: %d", window)
+		}
 		newBoolArray := make([]bool, window)
 		m.keeper.cdc.MustUnmarshal(iter.Value(), &missedInfo)
 		heights := missedInfo.MissedHeights
@@ -204,8 +215,11 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 			if height < startWindowHeight {
 				continue
 			}
-			index := height - startWindowHeight
-			newBoolArray[index] = true
+			idx := height - startWindowHeight
+			if idx < 0 || idx >= window {
+				continue
+			}
+			newBoolArray[idx] = true
 		}
 
 		valMissedMap[consAddr.String()] = types.ValidatorMissedBlockArray{

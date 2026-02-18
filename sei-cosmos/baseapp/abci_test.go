@@ -116,7 +116,9 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		})
 
 		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tc.expected, tc.bapp.GetBlockRetentionHeight(tc.commitHeight))
+			height, err := tc.bapp.GetBlockRetentionHeight(tc.commitHeight)
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, height)
 		})
 	}
 }

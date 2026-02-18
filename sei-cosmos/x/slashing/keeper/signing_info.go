@@ -43,7 +43,7 @@ func (k Keeper) IterateValidatorSigningInfos(ctx sdk.Context,
 
 	store := ctx.KVStore(k.storeKey)
 	iter := sdk.KVStorePrefixIterator(store, types.ValidatorSigningInfoKeyPrefix)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		address := types.ValidatorSigningInfoAddress(iter.Key())
 		var info types.ValidatorSigningInfo

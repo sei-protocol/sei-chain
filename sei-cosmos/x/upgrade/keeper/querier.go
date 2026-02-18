@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"encoding/binary"
+	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 
@@ -57,8 +58,12 @@ func queryApplied(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerie
 		return nil, nil
 	}
 
+	if applied < 0 {
+		return nil, fmt.Errorf("negative applied height: %d", applied)
+	}
+
 	bz := make([]byte, 8)
-	binary.BigEndian.PutUint64(bz, uint64(applied))
+	binary.BigEndian.PutUint64(bz, uint64(applied)) //nolint:gosec // bounds checked above
 
 	return bz, nil
 }

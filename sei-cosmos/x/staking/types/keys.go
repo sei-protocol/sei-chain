@@ -136,7 +136,10 @@ func ParseValidatorPowerRankKey(key []byte) (operAddr []byte) {
 // GetValidatorQueueKey returns the prefix key used for getting a set of unbonding
 // validators whose unbonding completion occurs at the given time and height.
 func GetValidatorQueueKey(timestamp time.Time, height int64) []byte {
-	heightBz := sdk.Uint64ToBigEndian(uint64(height))
+	if height < 0 {
+		panic(fmt.Sprintf("negative height not allowed: %d", height))
+	}
+	heightBz := sdk.Uint64ToBigEndian(uint64(height)) //nolint:gosec // bounds checked above
 	timeBz := sdk.FormatTimeBytes(timestamp)
 	timeBzL := len(timeBz)
 	prefixL := len(ValidatorQueueKey)
@@ -147,7 +150,7 @@ func GetValidatorQueueKey(timestamp time.Time, height int64) []byte {
 	copy(bz[:prefixL], ValidatorQueueKey)
 
 	// copy the encoded time bytes length
-	copy(bz[prefixL:prefixL+8], sdk.Uint64ToBigEndian(uint64(timeBzL)))
+	copy(bz[prefixL:prefixL+8], sdk.Uint64ToBigEndian(uint64(timeBzL))) //nolint:gosec // len() is always non-negative
 
 	// copy the encoded time bytes
 	copy(bz[prefixL+8:prefixL+8+timeBzL], timeBz)
@@ -170,7 +173,8 @@ func ParseValidatorQueueKey(bz []byte) (time.Time, int64, error) {
 	}
 
 	timeBzL := sdk.BigEndianToUint64(bz[prefixL : prefixL+8])
-	if timeBzL > uint64(len(bz)-prefixL-8) {
+	remaining := len(bz) - prefixL - 8
+	if remaining < 0 || timeBzL > uint64(remaining) { //nolint:gosec // remaining is validated non-negative
 		return time.Time{}, 0, fmt.Errorf("invalid time bytes length %d exceeds remaining key length", timeBzL)
 	}
 	ts, err := sdk.ParseTimeBytes(bz[prefixL+8 : prefixL+8+int(timeBzL)]) //nolint:gosec // timeBzL bounds checked above

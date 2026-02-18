@@ -127,7 +127,7 @@ func (k Keeper) getGrant(ctx sdk.Context, granter sdk.AccAddress, grantee sdk.Ac
 func (k Keeper) IterateAllFeeAllowances(ctx sdk.Context, cb func(grant feegrant.Grant) bool) error {
 	store := ctx.KVStore(k.storeKey)
 	iter := sdk.KVStorePrefixIterator(store, feegrant.FeeAllowanceKeyPrefix)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	stop := false
 	for ; iter.Valid() && !stop; iter.Next() {

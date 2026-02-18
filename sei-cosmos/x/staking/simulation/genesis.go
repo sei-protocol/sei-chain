@@ -33,7 +33,7 @@ func genMaxValidators(r *rand.Rand) (maxValidators uint32) {
 
 // getHistEntries returns randomized HistoricalEntries between 0-100.
 func getHistEntries(r *rand.Rand) uint32 {
-	return uint32(r.Intn(int(types.DefaultHistoricalEntries + 1)))
+	return uint32(r.Intn(int(types.DefaultHistoricalEntries + 1))) //nolint:gosec // DefaultHistoricalEntries is a small constant, result always fits in uint32
 }
 
 // RandomizedGenState generates a random GenesisState for staking

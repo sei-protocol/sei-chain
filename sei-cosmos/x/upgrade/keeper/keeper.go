@@ -250,14 +250,14 @@ func (k Keeper) GetUpgradedConsensusState(ctx sdk.Context, lastHeight int64) ([]
 // GetLastCompletedUpgrade returns the last applied upgrade name and height.
 func (k Keeper) GetLastCompletedUpgrade(ctx sdk.Context) (string, int64) {
 	iter := sdk.KVStoreReversePrefixIterator(ctx.KVStore(k.storeKey), []byte{types.DoneByte})
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	var (
 		latest upgrade
 		found  bool
 	)
 	for ; iter.Valid(); iter.Next() {
-		upgradeHeight := int64(sdk.BigEndianToUint64(iter.Value()))
+		upgradeHeight := int64(sdk.BigEndianToUint64(iter.Value())) //nolint:gosec // stored by SetDone from block heights which are always non-negative
 		if !found || upgradeHeight >= latest.BlockHeight {
 			found = true
 			name := parseDoneKey(iter.Key())
@@ -285,19 +285,19 @@ func (k Keeper) GetDoneHeight(ctx sdk.Context, name string) int64 {
 		return 0
 	}
 
-	return int64(binary.BigEndian.Uint64(bz))
+	return int64(binary.BigEndian.Uint64(bz)) //nolint:gosec // stored by SetDone from block heights which are always non-negative
 }
 
 func (k Keeper) GetClosestUpgrade(ctx sdk.Context, height int64) (string, int64) {
 	iter := sdk.KVStoreReversePrefixIterator(ctx.KVStore(k.storeKey), []byte{types.DoneByte})
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	var (
 		closest upgrade
 		found   bool
 	)
 	for ; iter.Valid(); iter.Next() {
-		upgradeHeight := int64(sdk.BigEndianToUint64(iter.Value()))
+		upgradeHeight := int64(sdk.BigEndianToUint64(iter.Value())) //nolint:gosec // stored by SetDone from block heights which are always non-negative
 		if !found || (upgradeHeight >= height && upgradeHeight < closest.BlockHeight) {
 			found = true
 			name := parseDoneKey(iter.Key())
@@ -350,7 +350,7 @@ func (k Keeper) GetUpgradePlan(ctx sdk.Context) (plan types.Plan, havePlan bool)
 func (k Keeper) SetDone(ctx sdk.Context, name string) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), []byte{types.DoneByte})
 	bz := make([]byte, 8)
-	binary.BigEndian.PutUint64(bz, uint64(ctx.BlockHeight()))
+	binary.BigEndian.PutUint64(bz, uint64(ctx.BlockHeight())) //nolint:gosec // block heights are always non-negative
 	store.Set([]byte(name), bz)
 }
 

@@ -327,7 +327,7 @@ func TestIterator(t *testing.T) {
 	require.Equal(t, []byte("key5"), end)
 
 	vals := []string{}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		vals = append(vals, string(iter.Value()))
 	}
@@ -424,7 +424,7 @@ func TestIteratorReadsetRace(t *testing.T) {
 	require.Equal(t, []byte("value4NEW"), val)
 
 	vals := []string{}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		vals = append(vals, string(iter.Value()))
 	}

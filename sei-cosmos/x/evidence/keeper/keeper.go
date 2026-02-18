@@ -125,7 +125,7 @@ func (k Keeper) IterateEvidence(ctx sdk.Context, cb func(exported.Evidence) bool
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.KeyPrefixEvidence)
 	iterator := sdk.KVStorePrefixIterator(store, nil)
 
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 	for ; iterator.Valid(); iterator.Next() {
 		evidence := k.MustUnmarshalEvidence(iterator.Value())
 

@@ -181,7 +181,7 @@ func (k Keeper) GetAuthorizations(ctx sdk.Context, grantee sdk.AccAddress, grant
 	store := ctx.KVStore(k.storeKey)
 	key := grantStoreKey(grantee, granter, "")
 	iter := sdk.KVStorePrefixIterator(store, key)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	var authorization authz.Grant
 	for ; iter.Valid(); iter.Next() {
 		k.cdc.MustUnmarshal(iter.Value(), &authorization)
@@ -214,7 +214,7 @@ func (k Keeper) IterateGrants(ctx sdk.Context,
 ) {
 	store := ctx.KVStore(k.storeKey)
 	iter := sdk.KVStorePrefixIterator(store, GrantKey)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		var grant authz.Grant
 		granterAddr, granteeAddr := addressesFromGrantStoreKey(iter.Key())

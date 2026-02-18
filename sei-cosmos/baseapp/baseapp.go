@@ -1134,7 +1134,7 @@ func (app *BaseApp) startCompactionRoutine(db dbm.DB) {
 	go func() {
 		if goleveldb, ok := db.(*dbm.GoLevelDB); ok {
 			for {
-				time.Sleep(time.Duration(app.compactionInterval) * time.Second)
+				time.Sleep(time.Duration(app.compactionInterval) * time.Second) //nolint:gosec // compactionInterval is a small config value
 				if err := goleveldb.DB().CompactRange(leveldbutils.Range{Start: nil, Limit: nil}); err != nil {
 					app.Logger().Error(fmt.Sprintf("error compacting DB: %s", err))
 				}

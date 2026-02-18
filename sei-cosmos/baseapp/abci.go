@@ -281,7 +281,10 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 		panic("no state to commit")
 	}
 	header := app.stateToCommit.ctx.BlockHeader()
-	retainHeight := app.GetBlockRetentionHeight(header.Height)
+	retainHeight, err := app.GetBlockRetentionHeight(header.Height)
+	if err != nil {
+		return nil, fmt.Errorf("getting block retention height: %w", err)
+	}
 
 	if app.preCommitHandler != nil {
 		if err := app.preCommitHandler(app.stateToCommit.ctx); err != nil {
@@ -332,7 +335,11 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 
 func (app *BaseApp) SnapshotIfApplicable(height uint64) {
 	if app.snapshotInterval > 0 && height%app.snapshotInterval == 0 {
-		go app.Snapshot(int64(height))
+		if height > uint64(math.MaxInt64) {
+			app.logger.Error("snapshot height exceeds max int64", "height", height)
+			return
+		}
+		go app.Snapshot(int64(height)) //nolint:gosec // bounds checked above
 	}
 }
 
@@ -697,10 +704,10 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 // all blocks, e.g. via a local config option min-retain-blocks. There may also
 // be a need to vary retention for other nodes, e.g. sentry nodes which do not
 // need historical blocks.
-func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) int64 {
+func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) (int64, error) {
 	// pruning is disabled if minRetainBlocks is zero
 	if app.minRetainBlocks == 0 {
-		return 0
+		return 0, nil
 	}
 
 	minNonZero := func(x, y int64) int64 {
@@ -733,7 +740,11 @@ func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) int64 {
 
 	// Define the state pruning offset, i.e. the block offset at which the
 	// underlying logical database is persisted to disk.
-	statePruningOffset := int64(app.cms.GetPruning().KeepEvery)
+	keepEvery := app.cms.GetPruning().KeepEvery
+	if keepEvery > uint64(math.MaxInt64) {
+		return 0, fmt.Errorf("KeepEvery %d exceeds max int64", keepEvery)
+	}
+	statePruningOffset := int64(keepEvery) //nolint:gosec // bounds checked above
 	if statePruningOffset > 0 {
 		if commitHeight > statePruningOffset {
 			v := commitHeight - (commitHeight % statePruningOffset)
@@ -743,24 +754,34 @@ func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) int64 {
 			// a height in which we persist state, so we return zero regardless of other
 			// conditions. Otherwise, we could end up pruning blocks without having
 			// any state committed to disk.
-			return 0
+			return 0, nil
 		}
 	}
 
 	if app.snapshotInterval > 0 && app.snapshotKeepRecent > 0 {
-		v := commitHeight - int64((app.snapshotInterval * uint64(app.snapshotKeepRecent)))
+		snapshotRetain := app.snapshotInterval * uint64(app.snapshotKeepRecent) //nolint:gosec // snapshotKeepRecent is a small config value
+		if snapshotRetain/app.snapshotInterval != uint64(app.snapshotKeepRecent) {
+			return 0, fmt.Errorf("snapshot retention calculation overflowed")
+		}
+		if snapshotRetain > uint64(math.MaxInt64) {
+			return 0, fmt.Errorf("snapshot retention %d exceeds max int64", snapshotRetain)
+		}
+		v := commitHeight - int64(snapshotRetain) //nolint:gosec // bounds checked above
 		retentionHeight = minNonZero(retentionHeight, v)
 	}
 
-	v := commitHeight - int64(app.minRetainBlocks)
+	if app.minRetainBlocks > uint64(math.MaxInt64) {
+		return 0, fmt.Errorf("minRetainBlocks %d exceeds max int64", app.minRetainBlocks)
+	}
+	v := commitHeight - int64(app.minRetainBlocks) //nolint:gosec // bounds checked above
 	retentionHeight = minNonZero(retentionHeight, v)
 
 	if retentionHeight <= 0 {
 		// prune nothing in the case of a non-positive height
-		return 0
+		return 0, nil
 	}
 
-	return retentionHeight
+	return retentionHeight, nil
 }
 
 func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {

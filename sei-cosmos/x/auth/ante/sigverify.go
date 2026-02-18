@@ -377,7 +377,7 @@ func (vscd ValidateSigCountDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, sim
 	sigCount := 0
 	for _, pk := range pubKeys {
 		sigCount += CountSubKeys(pk)
-		if uint64(sigCount) > params.TxSigLimit {
+		if uint64(sigCount) > params.TxSigLimit { //nolint:gosec // sigCount is incremented from 0 and checked each iteration, always non-negative
 			return ctx, sdkerrors.Wrapf(sdkerrors.ErrTooManySignatures,
 				"signatures: %d, limit: %d", sigCount, params.TxSigLimit)
 		}

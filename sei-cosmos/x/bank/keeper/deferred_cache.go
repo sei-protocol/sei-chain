@@ -96,7 +96,7 @@ func (d *DeferredCache) IterateDeferredBalances(ctx sdk.Context, cb func(moduleA
 	deferredStore := prefix.NewStore(ctx.KVStore(d.storeKey), types.DeferredCachePrefix)
 
 	iterator := deferredStore.Iterator(nil, nil)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid(); iterator.Next() {
 		var balance sdk.Coin
@@ -118,7 +118,7 @@ func (d *DeferredCache) Clear(ctx sdk.Context) {
 	store := prefix.NewStore(ctx.KVStore(d.storeKey), types.DeferredCachePrefix)
 
 	iterator := store.Iterator(nil, nil)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid(); iterator.Next() {
 		store.Delete(iterator.Key())

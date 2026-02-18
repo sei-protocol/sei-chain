@@ -133,7 +133,7 @@ func TestProcessAll(t *testing.T) {
 					// just write so we have more writes going on
 					kv.Set(req.Tx, req.Tx)
 					iterator := kv.Iterator(nil, nil)
-					defer iterator.Close()
+					defer func() { _ = iterator.Close() }()
 					for ; iterator.Valid(); iterator.Next() {
 						// Do nothing, just iterate
 					}

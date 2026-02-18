@@ -101,7 +101,7 @@ func (k Keeper) updateValidatorSlashFraction(ctx sdk.Context, valAddr sdk.ValAdd
 	k.incrementReferenceCount(ctx, valAddr, newPeriod)
 
 	slashEvent := types.NewValidatorSlashEvent(newPeriod, fraction)
-	height := uint64(ctx.BlockHeight())
+	height := uint64(ctx.BlockHeight()) //nolint:gosec // block heights are always non-negative
 
 	k.SetValidatorSlashEvent(ctx, valAddr, height, newPeriod, slashEvent)
 }

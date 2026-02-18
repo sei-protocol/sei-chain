@@ -64,10 +64,10 @@ func getDonePlanHandler(clientCtx client.Context) func(http.ResponseWriter, *htt
 		}
 		if len(res) != 8 {
 			rest.WriteErrorResponse(w, http.StatusInternalServerError, "unknown format for applied-upgrade")
+			return
 		}
 
-		applied := int64(binary.BigEndian.Uint64(res))
-		fmt.Println(applied)
+		applied := int64(binary.BigEndian.Uint64(res)) //nolint:gosec // stored by SetDone from block heights which are always non-negative
 		rest.PostProcessResponse(w, clientCtx, applied)
 	}
 }

@@ -330,7 +330,7 @@ func (v *VersionIndexedStore) DeleteAll(start, end []byte) error {
 
 func (v *VersionIndexedStore) GetAllKeyStrsInRange(start, end []byte) (res []string) {
 	iter := v.Iterator(start, end)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		res = append(res, string(iter.Key()))
 	}

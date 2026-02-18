@@ -2,6 +2,7 @@ package pruning
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 
@@ -76,9 +77,14 @@ func PruningCmd(appCreator servertypes.AppCreator) *cobra.Command {
 				return fmt.Errorf("the database has no valid heights to prune, the latest height: %v", latestHeight)
 			}
 
+			if pruningOptions.KeepRecent > uint64(math.MaxInt64) {
+				return fmt.Errorf("KeepRecent %d exceeds max int64", pruningOptions.KeepRecent)
+			}
+			keepRecent := int64(pruningOptions.KeepRecent) //nolint:gosec // bounds checked above
+
 			var pruningHeights []int64
 			for height := int64(1); height < latestHeight; height++ {
-				if height < latestHeight-int64(pruningOptions.KeepRecent) {
+				if height < latestHeight-keepRecent {
 					pruningHeights = append(pruningHeights, height)
 				}
 			}
@@ -93,9 +99,6 @@ func PruningCmd(appCreator servertypes.AppCreator) *cobra.Command {
 			)
 
 			rootMultiStore.PruneStores(false, pruningHeights)
-			if err != nil {
-				return err
-			}
 			fmt.Printf("successfully pruned the application root multi stores\n")
 			return nil
 		},
