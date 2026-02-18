@@ -184,7 +184,7 @@ func TestCacheMultiStoreWithVersion_OnlyUsesSSStores(t *testing.T) {
 			if !tc.ssEnabled {
 				_, err := store.CacheMultiStoreWithVersion(c1.Version)
 				require.Error(t, err)
-				require.Contains(t, err.Error(), fmt.Sprintf("unable load historical state with SS disabled for version: %d", c1.Version))
+				require.Contains(t, err.Error(), fmt.Sprintf("unable to load historical state with SS disabled for version: %d", c1.Version))
 			}
 		})
 	}
