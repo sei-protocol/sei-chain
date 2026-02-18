@@ -248,3 +248,45 @@ func TestStateMismatchedQCs(t *testing.T) {
 		require.Contains(err.Error(), "mismatched QCs")
 	})
 }
+
+func TestPushBlockRejectsBadParentHash(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+
+	ds := data.NewState(&data.Config{
+		Committee: committee,
+	}, utils.None[data.BlockStore]())
+	state := NewState(keys[0], ds)
+
+	// Produce a valid first block on our lane.
+	_, err := state.ProduceBlock(ctx, types.GenPayload(rng))
+	require.NoError(t, err)
+
+	// Create a second block with a fake parentHash.
+	lane := keys[0].Public()
+	fakeBlock := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+	fakeProp := types.Sign(keys[0], types.NewLaneProposal(fakeBlock))
+
+	err = state.PushBlock(ctx, fakeProp)
+	require.Error(t, err)
+}
+
+func TestPushBlockRejectsWrongSigner(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+
+	ds := data.NewState(&data.Config{
+		Committee: committee,
+	}, utils.None[data.BlockStore]())
+	state := NewState(keys[0], ds)
+
+	// Create a block on keys[0]'s lane but sign it with keys[1].
+	lane := keys[0].Public()
+	block := types.NewBlock(lane, 0, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+	prop := types.Sign(keys[1], types.NewLaneProposal(block))
+
+	err := state.PushBlock(ctx, prop)
+	require.Error(t, err)
+}

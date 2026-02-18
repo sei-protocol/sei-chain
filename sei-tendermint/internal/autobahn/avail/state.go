@@ -243,13 +243,16 @@ func (s *State) Block(ctx context.Context, lane types.LaneID, n types.BlockNumbe
 // PushBlock pushes a block to the state.
 // Waits until all previous blocks are available.
 func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LaneProposal]) error {
+	h := p.Msg().Block().Header()
+	if p.Key() != h.Lane() {
+		return fmt.Errorf("signer %v does not match lane %v", p.Key(), h.Lane())
+	}
 	if err := p.Msg().Verify(s.data.Committee()); err != nil {
 		return fmt.Errorf("block.Verify(): %w", err)
 	}
 	if err := p.VerifySig(s.data.Committee()); err != nil {
 		return fmt.Errorf("p.VerifySig(): %w", err)
 	}
-	h := p.Msg().Block().Header()
 	for inner, ctrl := range s.inner.Lock() {
 		q, ok := inner.blocks[h.Lane()]
 		if !ok {
@@ -263,6 +266,17 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		// not needed any more
 		if q.next != h.BlockNumber() {
 			return nil
+		}
+		// Verify parent hash chain to prevent a malicious proposer from
+		// breaking the block chain, which would deadlock header reconstruction.
+		// NOTE: after pruning (q.first >= q.next), we cannot verify the parent
+		// hash because the previous block is gone. This is safe because
+		// headers() never follows the first block's parentHash in a LaneRange.
+		if q.first < q.next {
+			prevHash := q.q[q.next-1].Msg().Block().Header().Hash()
+			if h.ParentHash() != prevHash {
+				return fmt.Errorf("parent hash mismatch for block %v on lane %v", h.BlockNumber(), h.Lane())
+			}
 		}
 		q.pushBack(p)
 		ctrl.Updated()
