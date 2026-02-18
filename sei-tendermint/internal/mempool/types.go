@@ -82,13 +82,6 @@ type Mempool interface {
 		recheck bool,
 	) error
 
-	// FlushAppConn flushes the mempool connection to ensure async callback calls
-	// are done, e.g. from CheckTx.
-	//
-	// NOTE:
-	// 1. Lock/Unlock must be managed by caller.
-	FlushAppConn(context.Context) error
-
 	// Flush removes all transactions from the mempool and caches.
 	Flush()
 
