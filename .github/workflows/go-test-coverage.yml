@@ -24,9 +24,6 @@ jobs:
           - name: sei-chain
             path: ./
             tags: ledger test_ledger_mock
-          - name: sei-cosmos
-            path: ./sei-cosmos
-            tags: ledger test_ledger_mock
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
