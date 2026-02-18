@@ -186,6 +186,13 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 
 	startTime := time.Now()
 	defer recordMetricsWithError("sei_traceBlockByNumberExcludeTraceFail", api.connectionType, startTime, returnErr)
+	traceCount := 0
+	ctx, traceDiag := startTraceDiagnostics(ctx, "sei_traceBlockByNumberExcludeTraceFail", fmt.Sprintf("%d", number.Int64()), tracerName(getTraceConfigTracer(config)))
+	defer func() {
+		if traceDiag != nil {
+			traceDiag.Finish(traceCount, returnErr)
+		}
+	}()
 	// Accessing tracersAPI from the embedded DebugAPI
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
 	if returnErr != nil {
@@ -195,6 +202,7 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 	if !ok {
 		return nil, fmt.Errorf("unexpected type: %T", result)
 	}
+	traceCount = len(traces)
 	finalTraces := make([]*tracers.TxTraceResult, 0, len(traces))
 	for _, trace := range traces {
 		if len(trace.Error) > 0 {
@@ -214,6 +222,13 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 
 	startTime := time.Now()
 	defer recordMetricsWithError("sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr)
+	traceCount := 0
+	ctx, traceDiag := startTraceDiagnostics(ctx, "sei_traceBlockByHashExcludeTraceFail", hash.Hex(), tracerName(getTraceConfigTracer(config)))
+	defer func() {
+		if traceDiag != nil {
+			traceDiag.Finish(traceCount, returnErr)
+		}
+	}()
 	// Accessing tracersAPI from the embedded DebugAPI
 	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
 	if returnErr != nil {
@@ -223,6 +238,7 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 	if !ok {
 		return nil, fmt.Errorf("unexpected type: %T", result)
 	}
+	traceCount = len(traces)
 	finalTraces := make([]*tracers.TxTraceResult, 0, len(traces))
 	for _, trace := range traces {
 		if len(trace.Error) > 0 {
@@ -254,6 +270,13 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 	}
 
 	callTracer := "callTracer"
+	traceCount := 0
+	ctx, traceDiag := startTraceDiagnostics(ctx, "isPanicOrSyntheticTx.traceBlockByNumber", fmt.Sprintf("%d", height), callTracer)
+	defer func() {
+		if traceDiag != nil {
+			traceDiag.Finish(traceCount, err)
+		}
+	}()
 	// This internal trace call is not directly acquiring the DebugAPI's semaphore.
 	tracersResult, err := api.tracersAPI.TraceBlockByNumber(ctx, rpc.BlockNumber(height), &tracers.TraceConfig{ //nolint:gosec
 		Tracer: &callTracer,
@@ -261,6 +284,7 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 	if err != nil {
 		return false, err
 	}
+	traceCount = len(tracersResult)
 
 	found := false
 	result := false
@@ -300,7 +324,17 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceBlockByNumber", api.connectionType, startTime, returnErr)
+	traceCount := 0
+	ctx, traceDiag := startTraceDiagnostics(ctx, "debug_traceBlockByNumber", fmt.Sprintf("%d", number.Int64()), tracerName(getTraceConfigTracer(config)))
+	defer func() {
+		if traceDiag != nil {
+			traceDiag.Finish(traceCount, returnErr)
+		}
+	}()
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	if traces, ok := result.([]*tracers.TxTraceResult); ok {
+		traceCount = len(traces)
+	}
 	return
 }
 
@@ -313,7 +347,17 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceBlockByHash", api.connectionType, startTime, returnErr)
+	traceCount := 0
+	ctx, traceDiag := startTraceDiagnostics(ctx, "debug_traceBlockByHash", hash.Hex(), tracerName(getTraceConfigTracer(config)))
+	defer func() {
+		if traceDiag != nil {
+			traceDiag.Finish(traceCount, returnErr)
+		}
+	}()
 	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	if traces, ok := result.([]*tracers.TxTraceResult); ok {
+		traceCount = len(traces)
+	}
 	return
 }
 
@@ -334,6 +378,13 @@ type StateAccessResponse struct {
 	AppState        json.RawMessage `json:"app"`
 	TendermintState json.RawMessage `json:"tendermint"`
 	Receipt         json.RawMessage `json:"receipt"`
+}
+
+func getTraceConfigTracer(config *tracers.TraceConfig) *string {
+	if config == nil {
+		return nil
+	}
+	return config.Tracer
 }
 
 func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (result interface{}, returnErr error) {

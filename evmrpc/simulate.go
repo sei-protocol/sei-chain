@@ -324,32 +324,51 @@ func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) int64 {
 	return blockNum
 }
 
-func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
+func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (block *ethtypes.Block, metadata []tracersutils.TraceBlockMetadata, returnErr error) {
 	blockNum := b.ConvertBlockNumber(bn)
+	diag := traceDiagnosticsFromContext(ctx)
+	stats := traceBlockByNumberStats{BlockNumber: blockNum}
+	blockByNumberStart := time.Now()
+	defer func() {
+		stats.TotalDur = time.Since(blockByNumberStart)
+		if diag != nil {
+			diag.RecordBlockStats(stats)
+		}
+	}()
+
+	fetchBlockStart := time.Now()
 	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNum, 1)
+	stats.FetchBlockDur = time.Since(fetchBlockStart)
 	if err != nil {
 		return nil, nil, err
 	}
+	fetchBlockResultsStart := time.Now()
 	blockRes, err := b.tmClient.BlockResults(ctx, &tmBlock.Block.Height)
+	stats.FetchBlockResultsDur = time.Since(fetchBlockResultsStart)
 	if err != nil {
 		return nil, nil, err
 	}
 	TraceTendermintIfApplicable(ctx, "BlockResults", []string{stringifyInt64Ptr(&tmBlock.Block.Height)}, blockRes)
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
 	var txs []*ethtypes.Transaction
-	var metadata []tracersutils.TraceBlockMetadata
+	stats.TxResults = len(blockRes.TxsResults)
+	filterTxsStart := time.Now()
 	msgs := filterTransactions(b.keeper, b.ctxProvider, b.txConfigProvider, tmBlock, false, false, b.cacheCreationMutex, b.globalBlockCache)
+	stats.FilterTransactionsDur = time.Since(filterTxsStart)
 	idxToMsgs := make(map[int]sdk.Msg, len(msgs))
 	for _, msg := range msgs {
 		idxToMsgs[msg.index] = msg.msg
 	}
+	buildMetadataStart := time.Now()
 	for i := range blockRes.TxsResults {
 		decoded, err := b.txConfigProvider(blockRes.Height).TxDecoder()(tmBlock.Block.Txs[i])
 		if err != nil {
+			stats.DecodeErrors++
 			return nil, nil, err
 		}
 		isPrioritized := utils.IsTxPrioritized(decoded)
 		if isPrioritized {
+			stats.SkippedPrioritized++
 			continue
 		}
 		shouldTrace := false
@@ -357,6 +376,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 			switch m := msg.(type) {
 			case *types.MsgEVMTransaction:
 				if m.IsAssociateTx() {
+					stats.SkippedAssociate++
 					continue
 				}
 				ethtx, _ := m.AsTransaction()
@@ -366,6 +386,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 				}
 				receipt, err := b.keeper.GetReceipt(sdkCtx, ethtx.Hash())
 				if err != nil { //nolint:gosec
+					stats.ReceiptLookupErrors++
 					continue
 				}
 				TraceReceiptIfApplicable(ctx, receipt)
@@ -375,6 +396,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 					IdxInEthBlock:              len(txs),
 				})
 				txs = append(txs, ethtx)
+				stats.EVMTxCount++
 			}
 		}
 		if !shouldTrace {
@@ -386,10 +408,12 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 					_ = b.app.DeliverTx(typedStateDB.Ctx(), abci.RequestDeliverTxV2{}, decoded, sha256.Sum256(tmBlock.Block.Txs[i]))
 				},
 			})
+			stats.RunnableNonEVM++
 		}
 	}
+	stats.BuildMetadataDur = time.Since(buildMetadataStart)
 	header := b.getHeader(big.NewInt(blockNum))
-	block := &ethtypes.Block{
+	block = &ethtypes.Block{
 		Header_: header,
 		Txs:     txs,
 	}
@@ -440,13 +464,33 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 	return b.getHeader(big.NewInt(height)), nil
 }
 
-func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
+func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (txResult *ethtypes.Transaction, blockContext vm.BlockContext, stateDB vm.StateDB, release tracers.StateReleaseFunc, returnErr error) {
 	emptyRelease := func() {}
+	diag := traceDiagnosticsFromContext(ctx)
+	stateStats := traceStateAtTxStats{TxIndex: txIndex}
+	stateAtTxStart := time.Now()
+	defer func() {
+		stateStats.TotalDur = time.Since(stateAtTxStart)
+		if txResult != nil {
+			stateStats.TxHash = txResult.Hash().Hex()
+		}
+		if returnErr != nil {
+			stateStats.Error = returnErr.Error()
+		}
+		if diag != nil {
+			diag.RecordStateAtTxStats(stateStats)
+		}
+	}()
+
+	replayStart := time.Now()
 	stateDB, txs, err := b.ReplayTransactionTillIndex(ctx, block, txIndex-1)
+	stateStats.ReplayDur = time.Since(replayStart)
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, emptyRelease, err
 	}
-	blockContext, err := b.keeper.GetVMBlockContext(stateDB.(*state.DBImpl).Ctx(), b.keeper.GetGasPool())
+	blockContextStart := time.Now()
+	blockContextPtr, err := b.keeper.GetVMBlockContext(stateDB.(*state.DBImpl).Ctx(), b.keeper.GetGasPool())
+	stateStats.VMContextDur = time.Since(blockContextStart)
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, emptyRelease, err
 	}
@@ -454,7 +498,9 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		return nil, vm.BlockContext{}, nil, emptyRelease, errors.New("transaction not found")
 	}
 	tx := txs[txIndex]
+	decodeStart := time.Now()
 	sdkTx, err := b.txConfigProvider(block.Number().Int64()).TxDecoder()(tx)
+	stateStats.DecodeTxDur = time.Since(decodeStart)
 	if err != nil {
 		panic(err)
 	}
@@ -470,15 +516,33 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		evmMsg = msg
 	}
 	ethTx, _ := evmMsg.AsTransaction()
-	return ethTx, *blockContext, stateDB, emptyRelease, nil
+	txResult = ethTx
+	blockContext = *blockContextPtr
+	release = emptyRelease
+	return txResult, blockContext, stateDB, release, nil
 }
 
-func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtypes.Block, txIndex int) (vm.StateDB, tmtypes.Txs, error) {
+func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtypes.Block, txIndex int) (stateDB vm.StateDB, txs tmtypes.Txs, returnErr error) {
+	diag := traceDiagnosticsFromContext(ctx)
+	replayStats := traceReplayStats{UptoTxIndex: txIndex}
+	replayStart := time.Now()
+	defer func() {
+		replayStats.TotalDur = time.Since(replayStart)
+		if returnErr != nil {
+			replayStats.Error = returnErr.Error()
+		}
+		if diag != nil {
+			diag.RecordReplayStats(replayStats)
+		}
+	}()
+
 	// Short circuit if it's genesis block.
 	if block.Number().Int64() == 0 {
 		return nil, nil, errors.New("no transaction in genesis")
 	}
+	initializeStart := time.Now()
 	sdkCtx, tmBlock, err := b.initializeBlock(ctx, block)
+	replayStats.InitDur = time.Since(initializeStart)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -488,6 +552,7 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 	if txIndex < 0 {
 		return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, nil
 	}
+	loopStart := time.Now()
 	for idx, tx := range tmBlock.Block.Txs {
 		if idx > txIndex {
 			break
@@ -497,10 +562,15 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 			panic(err)
 		}
 		if utils.IsTxPrioritized(sdkTx) {
+			replayStats.SkippedPriority++
 			continue
 		}
+		deliverStart := time.Now()
 		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTxV2{Tx: tx}, sdkTx, sha256.Sum256(tx))
+		replayStats.DeliverTxDur += time.Since(deliverStart)
+		replayStats.ReplayedTxCount++
 	}
+	replayStats.LoopDur = time.Since(loopStart)
 	return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, nil
 }
 
@@ -530,7 +600,7 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block) (s
 	TraceTendermintIfApplicable(ctx, "Validators", []string{stringifyInt64Ptr(&prevBlockHeight)}, res)
 	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(res.Validators)
 	reqBeginBlock.Simulate = true
-	sdkCtx := b.ctxProvider(prevBlockHeight).WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
+	sdkCtx := b.ctxProvider(prevBlockHeight).WithContext(ctx).WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
 	legacyabci.BeginBlock(sdkCtx, blockNumber, reqBeginBlock.LastCommitInfo.Votes, tmBlock.Block.Evidence.ToABCI(), b.beginBlockKeepers)
 	sdkCtx = sdkCtx.WithNextMs(
 		b.ctxProvider(sdkCtx.BlockHeight()).MultiStore(),
@@ -641,15 +711,32 @@ func (b *Backend) GetCustomPrecompiles(h int64) map[common.Address]vm.Precompile
 	return b.keeper.CustomPrecompiles(b.ctxProvider(h))
 }
 
-func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error {
+func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) (returnErr error) {
 	typedStateDB := state.GetDBImpl(statedb)
+	diag := traceDiagnosticsFromContext(typedStateDB.Ctx().Context())
+	prepareStats := tracePrepareTxStats{
+		TxHash: tx.Hash().Hex(),
+	}
+	prepareStart := time.Now()
+	defer func() {
+		prepareStats.TotalDur = time.Since(prepareStart)
+		if returnErr != nil {
+			prepareStats.Error = returnErr.Error()
+		}
+		if diag != nil {
+			diag.RecordPrepareTxStats(prepareStats)
+		}
+	}()
+
 	typedStateDB.CleanupForTracer()
 	ctx, _ := b.keeper.PrepareCtxForEVMTransaction(typedStateDB.Ctx(), tx)
 	ctx = ctx.WithIsEVM(true)
 	if noSignatureSet(tx) {
 		// skip ante if no signature is set
+		prepareStats.HasSignature = false
 		return nil
 	}
+	prepareStats.HasSignature = true
 	txData, err := ethtx.NewTxDataFromTx(tx)
 	if err != nil {
 		return fmt.Errorf("transaction cannot be converted to TxData due to %s", err)
@@ -660,7 +747,9 @@ func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error 
 	}
 	tb := b.txConfigProvider(ctx.BlockHeight()).NewTxBuilder()
 	_ = tb.SetMsgs(msg)
+	anteStart := time.Now()
 	newCtx, err := b.antehandler(ctx, tb.GetTx(), false)
+	prepareStats.AnteDur = time.Since(anteStart)
 	if err != nil {
 		return fmt.Errorf("transaction failed ante handler due to %s", err)
 	}
