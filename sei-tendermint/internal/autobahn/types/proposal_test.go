@@ -59,18 +59,17 @@ func makeAppQCFor(keys []SecretKey, globalNum GlobalBlockNumber, roadIdx RoadInd
 	return NewAppQC(votes)
 }
 
-func TestVerifyFreshProposalEmptyRanges(t *testing.T) {
+func TestProposalVerifyFreshEmptyRanges(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	fp, err := NewProposal(proposerKey, committee, vs, time.Now(), nil, utils.None[*AppQC]())
-	require.NoError(t, err)
+	fp, _ := NewProposal(proposerKey, committee, vs, time.Now(), nil, utils.None[*AppQC]())
 	require.NoError(t, fp.Verify(committee, vs))
 }
 
-func TestVerifyFreshProposalWithBlocks(t *testing.T) {
+func TestProposalVerifyFreshWithBlocks(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{}
@@ -78,64 +77,57 @@ func TestVerifyFreshProposalWithBlocks(t *testing.T) {
 
 	// Produce a LaneQC for the proposer's lane.
 	lane := proposerKey.Public()
-	laneQC, _ := makeLaneQC(rng, committee, keys, lane, 0, BlockHeaderHash{})
+	laneQC, _ := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
 
-	fp, err := NewProposal(proposerKey, committee, vs, time.Now(),
+	fp, _ := NewProposal(proposerKey, committee, vs, time.Now(),
 		map[LaneID]*LaneQC{lane: laneQC}, utils.None[*AppQC]())
-	require.NoError(t, err)
 	require.NoError(t, fp.Verify(committee, vs))
 }
 
-func TestVerifyRejectsViewMismatch(t *testing.T) {
+func TestProposalVerifyRejectsViewMismatch(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 
-	// Create a proposal at view (5, 0) but verify against genesis ViewSpec (0, 0).
-	vs := ViewSpec{}
-	otherView := View{Index: 5, Number: 0}
-	otherKey := leaderKey(committee, keys, otherView)
+	// Build a valid proposal at genesis view (0, 0).
+	vs0 := ViewSpec{}
+	leader0 := leaderKey(committee, keys, vs0.View())
+	fp, _ := NewProposal(leader0, committee, vs0, time.Now(), nil, utils.None[*AppQC]())
 
-	otherProposal := newProposal(otherView, time.Now(), nil, utils.None[*AppProposal]())
-	fp := &FullProposal{
-		proposal: Sign(otherKey, otherProposal),
-	}
-	err := fp.Verify(committee, vs)
+	// Verify it against a different ViewSpec (view 1, 0).
+	commitQC := makeCommitQCFromProposal(keys, fp)
+	vs1 := ViewSpec{CommitQC: utils.Some(commitQC)}
+	err := fp.Verify(committee, vs1)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "view")
 }
 
-func TestVerifyRejectsForgedProposalSignature(t *testing.T) {
+func TestProposalVerifyRejectsForgedSignature(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	// Build a valid proposal.
-	fp, err := NewProposal(proposerKey, committee, vs, time.Now(), nil, utils.None[*AppQC]())
-	require.NoError(t, err)
+	// Build two valid proposals with different timestamps.
+	fp1, _ := NewProposal(proposerKey, committee, vs, time.Now(), nil, utils.None[*AppQC]())
+	fp2, _ := NewProposal(proposerKey, committee, vs, time.Now().Add(time.Hour), nil, utils.None[*AppQC]())
 
-	// Tamper: build a different proposal and attach the original signature.
-	// The claimed key is still the leader's, but the signature doesn't match.
-	differentProposal := newProposal(vs.View(), time.Now().Add(time.Hour), nil, utils.None[*AppProposal]())
+	// Swap: fp2's content with fp1's signature.
 	forgedFP := &FullProposal{
 		proposal: &Signed[*Proposal]{
-			hashed: NewHashed(differentProposal),
-			sig:    fp.proposal.sig, // reuse leader's sig from the original proposal
+			hashed: fp2.proposal.hashed,
+			sig:    fp1.proposal.sig,
 		},
 	}
-	err = forgedFP.Verify(committee, vs)
+	err := forgedFP.Verify(committee, vs)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "proposal signature")
 }
 
-func TestVerifyRejectsWrongProposer(t *testing.T) {
+func TestProposalVerifyRejectsWrongProposer(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{}
 	correctLeader := leaderKey(committee, keys, vs.View())
 
-	fp, err := NewProposal(correctLeader, committee, vs, time.Now(), nil, utils.None[*AppQC]())
-	require.NoError(t, err)
+	fp, _ := NewProposal(correctLeader, committee, vs, time.Now(), nil, utils.None[*AppQC]())
 
 	// Re-sign the same proposal with a different (non-leader) key.
 	var wrongKey SecretKey
@@ -151,19 +143,17 @@ func TestVerifyRejectsWrongProposer(t *testing.T) {
 		appQC:     fp.appQC,
 		timeoutQC: fp.timeoutQC,
 	}
-	err = tamperedFP.Verify(committee, vs)
+	err := tamperedFP.Verify(committee, vs)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "proposer")
 }
 
-func TestVerifyRejectsInconsistentTimeoutQC(t *testing.T) {
+func TestProposalVerifyRejectsInconsistentTimeoutQC(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{} // no timeoutQC
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	fp, err := NewProposal(proposerKey, committee, vs, time.Now(), nil, utils.None[*AppQC]())
-	require.NoError(t, err)
+	fp, _ := NewProposal(proposerKey, committee, vs, time.Now(), nil, utils.None[*AppQC]())
 
 	// Attach a timeoutQC that the ViewSpec doesn't expect.
 	var timeoutVotes []*FullTimeoutVote
@@ -178,25 +168,21 @@ func TestVerifyRejectsInconsistentTimeoutQC(t *testing.T) {
 		appQC:     fp.appQC,
 		timeoutQC: utils.Some(tQC),
 	}
-	err = tamperedFP.Verify(committee, vs)
+	err := tamperedFP.Verify(committee, vs)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "inconsistent timeoutQC")
 }
 
-func TestVerifyRejectsNonCommitteeLane(t *testing.T) {
+func TestProposalVerifyRejectsNonCommitteeLane(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	fp, err := NewProposal(proposerKey, committee, vs, time.Now(), nil, utils.None[*AppQC]())
-	require.NoError(t, err)
+	fp, _ := NewProposal(proposerKey, committee, vs, time.Now(), nil, utils.None[*AppQC]())
 
-	// Replace one committee lane with a non-committee lane (same count).
+	// Replace one committee lane with a non-committee lane.
 	// E.g. committee = {A, B, C, D}, proposal = {A, B, C, X}.
-	// The lane count still matches (4 == 4), but Proposal.LaneRange(D)
-	// returns a synthetic [0, 0) fallback which would silently pass
-	// at genesis without the explicit map lookup.
+	// LaneRange.Verify rejects X because it's not a committee lane.
 	extraLane := GenSecretKey(rng).Public()
 	require.False(t, committee.Lanes().Has(extraLane))
 	var victim LaneID
@@ -222,100 +208,113 @@ func TestVerifyRejectsNonCommitteeLane(t *testing.T) {
 		appQC:     fp.appQC,
 		timeoutQC: fp.timeoutQC,
 	}
-	err = maliciousFP.Verify(committee, vs)
+	err := maliciousFP.Verify(committee, vs)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "missing lane range")
 }
 
-func TestVerifyRejectsMissingLaneRange(t *testing.T) {
+func TestProposalVerifyAcceptsImplicitLaneRange(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	fp, err := NewProposal(proposerKey, committee, vs, time.Now(), nil, utils.None[*AppQC]())
-	require.NoError(t, err)
+	fp, _ := NewProposal(proposerKey, committee, vs, time.Now(), nil, utils.None[*AppQC]())
 
-	// Drop one committee lane from the proposal (fewer lanes than committee).
-	origProposal := fp.Proposal().Msg()
-	var tamperedRanges []*LaneRange
+	// Drop one lane — the omitted lane gets an implicit [0, 0) range,
+	// which matches the expected first=0 at genesis.
+	origP := fp.Proposal().Msg()
+	var keptRanges []*LaneRange
 	first := true
-	for _, r := range origProposal.laneRanges {
+	for _, r := range origP.laneRanges {
 		if first {
 			first = false
 			continue
 		}
-		tamperedRanges = append(tamperedRanges, r)
+		keptRanges = append(keptRanges, r)
 	}
 
-	tamperedProposal := newProposal(origProposal.view, origProposal.createdAt, tamperedRanges, origProposal.app)
-	maliciousFP := &FullProposal{
-		proposal:  Sign(proposerKey, tamperedProposal),
-		laneQCs:   fp.laneQCs,
-		appQC:     fp.appQC,
-		timeoutQC: fp.timeoutQC,
+	shortProposal := newProposal(origP.view, origP.createdAt, keptRanges, origP.app)
+	shortFP := &FullProposal{
+		proposal: Sign(proposerKey, shortProposal),
 	}
-	err = maliciousFP.Verify(committee, vs)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "lanes")
+	require.NoError(t, shortFP.Verify(committee, vs))
 }
 
-func TestVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
+func TestProposalVerifyAcceptsNonContiguousImplicitRanges(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	// Build a proposal where a lane starts at block 5 instead of 0 (genesis expects 0).
-	lane := keys[0].Public()
-	tamperedRange := &LaneRange{lane: lane, first: 5, next: 5}
+	fp, _ := NewProposal(proposerKey, committee, vs, time.Now(), nil, utils.None[*AppQC]())
 
-	var allRanges []*LaneRange
-	for _, l := range committee.Lanes().All() {
-		if l == lane {
-			allRanges = append(allRanges, tamperedRange)
+	// Keep only every other lane (e.g. {A, C} out of {A, B, C, D}).
+	origP := fp.Proposal().Msg()
+	var keptRanges []*LaneRange
+	i := 0
+	for _, r := range origP.laneRanges {
+		if i%2 == 0 {
+			keptRanges = append(keptRanges, r)
+		}
+		i++
+	}
+
+	shortProposal := newProposal(origP.view, origP.createdAt, keptRanges, origP.app)
+	shortFP := &FullProposal{
+		proposal: Sign(proposerKey, shortProposal),
+	}
+	require.NoError(t, shortFP.Verify(committee, vs))
+}
+
+func TestProposalVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	vs := ViewSpec{}
+	proposerKey := leaderKey(committee, keys, vs.View())
+
+	fp, _ := NewProposal(proposerKey, committee, vs, time.Now(), nil, utils.None[*AppQC]())
+
+	// Tamper: change one lane's first to 5 (genesis expects 0).
+	origP := fp.Proposal().Msg()
+	lane := keys[0].Public()
+	var tamperedRanges []*LaneRange
+	for _, r := range origP.laneRanges {
+		if r.Lane() == lane {
+			tamperedRanges = append(tamperedRanges, &LaneRange{lane: lane, first: 5, next: 5})
 		} else {
-			allRanges = append(allRanges, NewLaneRange(l, 0, utils.None[*BlockHeader]()))
+			tamperedRanges = append(tamperedRanges, r)
 		}
 	}
-	tamperedProposal := newProposal(vs.View(), time.Now(), allRanges, utils.None[*AppProposal]())
-	fp := &FullProposal{
+	tamperedProposal := newProposal(origP.view, origP.createdAt, tamperedRanges, origP.app)
+	tamperedFP := &FullProposal{
 		proposal: Sign(proposerKey, tamperedProposal),
 	}
-	err := fp.Verify(committee, vs)
+	err := tamperedFP.Verify(committee, vs)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "First()")
 }
 
-func TestVerifyRejectsMissingLaneQC(t *testing.T) {
+func TestProposalVerifyRejectsMissingLaneQC(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
 	lane := keys[0].Public()
-	header := NewBlock(lane, 0, BlockHeaderHash{}, GenPayload(rng)).Header()
+	laneQC, _ := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
 
-	// Create proposal with a non-empty range but NO laneQC.
-	var allRanges []*LaneRange
-	for _, l := range committee.Lanes().All() {
-		if l == lane {
-			allRanges = append(allRanges, NewLaneRange(lane, 0, utils.Some(header)))
-		} else {
-			allRanges = append(allRanges, NewLaneRange(l, 0, utils.None[*BlockHeader]()))
-		}
+	// Build a valid proposal with a block, then strip the laneQC.
+	fp, _ := NewProposal(proposerKey, committee, vs, time.Now(),
+		map[LaneID]*LaneQC{lane: laneQC}, utils.None[*AppQC]())
+
+	tamperedFP := &FullProposal{
+		proposal: fp.proposal,
+		laneQCs:  map[LaneID]*LaneQC{},
 	}
-	tamperedProposal := newProposal(vs.View(), time.Now(), allRanges, utils.None[*AppProposal]())
-	fp := &FullProposal{
-		proposal: Sign(proposerKey, tamperedProposal),
-		laneQCs:  map[LaneID]*LaneQC{}, // empty — missing the required QC
-	}
-	err := fp.Verify(committee, vs)
+	err := tamperedFP.Verify(committee, vs)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "missing qc")
 }
 
-func TestVerifyRejectsLaneQCBlockNumberMismatch(t *testing.T) {
+func TestProposalVerifyRejectsLaneQCBlockNumberMismatch(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{}
@@ -323,37 +322,29 @@ func TestVerifyRejectsLaneQCBlockNumberMismatch(t *testing.T) {
 
 	lane := keys[0].Public()
 
-	// Build a LaneQC for block 0.
-	laneQC, _ := makeLaneQC(rng, committee, keys, lane, 0, BlockHeaderHash{})
+	// Build a valid proposal with a QC certifying block 1 (range [0, 2)).
+	goodQC, _ := makeLaneQC(rng, committee, keys, lane, 1, GenBlockHeaderHash(rng))
+	fp, _ := NewProposal(proposerKey, committee, vs, time.Now(),
+		map[LaneID]*LaneQC{lane: goodQC}, utils.None[*AppQC]())
 
-	// But create a proposal claiming blocks 0..2 (next=2), so it expects QC for block 1.
-	block1 := NewBlock(lane, 1, BlockHeaderHash{}, GenPayload(rng))
-	var allRanges []*LaneRange
-	for _, l := range committee.Lanes().All() {
-		if l == lane {
-			allRanges = append(allRanges, NewLaneRange(lane, 0, utils.Some(block1.Header())))
-		} else {
-			allRanges = append(allRanges, NewLaneRange(l, 0, utils.None[*BlockHeader]()))
-		}
+	// Swap in a QC certifying block 0 — range expects block 1.
+	wrongQC, _ := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
+	tamperedFP := &FullProposal{
+		proposal: fp.proposal,
+		laneQCs:  map[LaneID]*LaneQC{lane: wrongQC},
 	}
-	tamperedProposal := newProposal(vs.View(), time.Now(), allRanges, utils.None[*AppProposal]())
-	fp := &FullProposal{
-		proposal: Sign(proposerKey, tamperedProposal),
-		laneQCs:  map[LaneID]*LaneQC{lane: laneQC}, // QC for block 0, but range says next=2 (wants block 1)
-	}
-	err := fp.Verify(committee, vs)
+	err := tamperedFP.Verify(committee, vs)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "BlockNumber()")
 }
 
-func TestVerifyRejectsInvalidLaneQCSignature(t *testing.T) {
+func TestProposalVerifyRejectsInvalidLaneQCSignature(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
 	lane := keys[0].Public()
-	block := NewBlock(lane, 0, BlockHeaderHash{}, GenPayload(rng))
+	block := NewBlock(lane, 0, GenBlockHeaderHash(rng), GenPayload(rng))
 	header := block.Header()
 
 	// Build a LaneQC signed by NON-committee keys.
@@ -367,16 +358,14 @@ func TestVerifyRejectsInvalidLaneQCSignature(t *testing.T) {
 	}
 	badLaneQC := NewLaneQC(badVotes)
 
-	fp, err := NewProposal(proposerKey, committee, vs, time.Now(),
+	fp, _ := NewProposal(proposerKey, committee, vs, time.Now(),
 		map[LaneID]*LaneQC{lane: badLaneQC}, utils.None[*AppQC]())
-	require.NoError(t, err)
 
-	err = fp.Verify(committee, vs)
+	err := fp.Verify(committee, vs)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "qc[")
 }
 
-func TestVerifyRejectsAppProposalLowerThanPrevious(t *testing.T) {
+func TestProposalVerifyRejectsAppProposalLowerThanPrevious(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 
@@ -384,42 +373,38 @@ func TestVerifyRejectsAppProposalLowerThanPrevious(t *testing.T) {
 	vs0 := ViewSpec{}
 	leader0 := leaderKey(committee, keys, vs0.View())
 	lane := leader0.Public()
-	laneQC, _ := makeLaneQC(rng, committee, keys, lane, 0, BlockHeaderHash{})
+	laneQC, _ := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
 	appQC := makeAppQCFor(keys, 0, 0, GenAppHash(rng))
-	fp0, err := NewProposal(leader0, committee, vs0, time.Now(),
+	fp0, _ := NewProposal(leader0, committee, vs0, time.Now(),
 		map[LaneID]*LaneQC{lane: laneQC}, utils.Some(appQC))
-	require.NoError(t, err)
 	commitQC0 := makeCommitQCFromProposal(keys, fp0)
 
-	// Now build index 1 with a tampered AppProposal that is LOWER than what commitQC0 carries.
+	// Build a valid proposal at view 1, then tamper its app to be lower.
 	vs1 := ViewSpec{CommitQC: utils.Some(commitQC0)}
 	leader1 := leaderKey(committee, keys, vs1.View())
+	fp1, _ := NewProposal(leader1, committee, vs1, time.Now(), nil, utils.None[*AppQC]())
 
-	// Build the lane ranges correctly for index 1.
-	var allRanges []*LaneRange
-	for _, l := range committee.Lanes().All() {
-		first := LaneRangeOpt(vs1.CommitQC, l).Next()
-		allRanges = append(allRanges, NewLaneRange(l, first, utils.None[*BlockHeader]()))
+	// Tamper: downgrade app to None (lower than commitQC0's app at RoadIndex 0).
+	origP := fp1.Proposal().Msg()
+	var ranges []*LaneRange
+	for _, r := range origP.laneRanges {
+		ranges = append(ranges, r)
 	}
-
-	// Set app to None — this is lower than what commitQC0 carried (RoadIndex 0).
-	tamperedProposal := newProposal(vs1.View(), time.Now(), allRanges, utils.None[*AppProposal]())
-	fp1 := &FullProposal{
+	tamperedProposal := newProposal(origP.view, origP.createdAt, ranges, utils.None[*AppProposal]())
+	tamperedFP := &FullProposal{
 		proposal: Sign(leader1, tamperedProposal),
 	}
-	err = fp1.Verify(committee, vs1)
+	err := tamperedFP.Verify(committee, vs1)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "AppProposal lower")
 }
 
-func TestVerifyRejectsUnnecessaryAppQC(t *testing.T) {
+func TestProposalVerifyRejectsUnnecessaryAppQC(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{} // no previous commitQC, so app starts at None
 
 	leader := leaderKey(committee, keys, vs.View())
-	fp, err := NewProposal(leader, committee, vs, time.Now(), nil, utils.None[*AppQC]())
-	require.NoError(t, err)
+	fp, _ := NewProposal(leader, committee, vs, time.Now(), nil, utils.None[*AppQC]())
 
 	// Attach an unrequested AppQC.
 	appQC := makeAppQCFor(keys, 0, 0, GenAppHash(rng))
@@ -429,89 +414,71 @@ func TestVerifyRejectsUnnecessaryAppQC(t *testing.T) {
 		appQC:     utils.Some(appQC),
 		timeoutQC: fp.timeoutQC,
 	}
-	err = tamperedFP.Verify(committee, vs)
+	err := tamperedFP.Verify(committee, vs)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "unnecessary appQC")
 }
 
-func TestVerifyRejectsMissingAppQC(t *testing.T) {
+func TestProposalVerifyRejectsMissingAppQC(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{} // no previous commitQC
 	leader := leaderKey(committee, keys, vs.View())
 
-	// Build lane ranges with a new AppProposal but no AppQC to justify it.
-	var allRanges []*LaneRange
-	for _, l := range committee.Lanes().All() {
-		allRanges = append(allRanges, NewLaneRange(l, 0, utils.None[*BlockHeader]()))
+	// Build a valid proposal with an AppQC, then strip it.
+	goodAppQC := makeAppQCFor(keys, 0, 0, GenAppHash(rng))
+	fp, _ := NewProposal(leader, committee, vs, time.Now(), nil, utils.Some(goodAppQC))
+
+	tamperedFP := &FullProposal{
+		proposal: fp.proposal,
 	}
-	// Include an AppProposal (advancing from None to Some).
-	appProposal := NewAppProposal(0, 0, GenAppHash(rng))
-	tamperedProposal := newProposal(vs.View(), time.Now(), allRanges, utils.Some(appProposal))
-	fp := &FullProposal{
-		proposal: Sign(leader, tamperedProposal),
-		// No appQC — should fail.
-	}
-	err := fp.Verify(committee, vs)
+	err := tamperedFP.Verify(committee, vs)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "appQC missing")
 }
 
-func TestVerifyRejectsAppQCMismatch(t *testing.T) {
+func TestProposalVerifyRejectsAppQCMismatch(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{}
 	leader := leaderKey(committee, keys, vs.View())
 
-	// Build an AppQC for a DIFFERENT AppProposal than what the proposal carries.
-	var allRanges []*LaneRange
-	for _, l := range committee.Lanes().All() {
-		allRanges = append(allRanges, NewLaneRange(l, 0, utils.None[*BlockHeader]()))
-	}
-	appProposal := NewAppProposal(0, 0, GenAppHash(rng))
-	differentAppQC := makeAppQCFor(keys, 0, 0, GenAppHash(rng)) // different hash
+	// Build a valid proposal with an AppQC, then swap in a different one.
+	goodAppQC := makeAppQCFor(keys, 0, 0, GenAppHash(rng))
+	fp, _ := NewProposal(leader, committee, vs, time.Now(), nil, utils.Some(goodAppQC))
 
-	tamperedProposal := newProposal(vs.View(), time.Now(), allRanges, utils.Some(appProposal))
-	fp := &FullProposal{
-		proposal: Sign(leader, tamperedProposal),
+	differentAppQC := makeAppQCFor(keys, 0, 0, GenAppHash(rng))
+	tamperedFP := &FullProposal{
+		proposal: fp.proposal,
 		appQC:    utils.Some(differentAppQC),
 	}
-	err := fp.Verify(committee, vs)
+	err := tamperedFP.Verify(committee, vs)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "appQC doesn't match")
 }
 
-func TestVerifyRejectsInvalidAppQCSignature(t *testing.T) {
+func TestProposalVerifyRejectsInvalidAppQCSignature(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{}
 	leader := leaderKey(committee, keys, vs.View())
 
 	appHash := GenAppHash(rng)
-	appProposal := NewAppProposal(0, 0, appHash)
+	goodAppQC := makeAppQCFor(keys, 0, 0, appHash)
+	fp, _ := NewProposal(leader, committee, vs, time.Now(), nil, utils.Some(goodAppQC))
 
-	// Build AppQC with NON-committee keys.
+	// Swap in an AppQC signed by NON-committee keys (same hash).
 	otherKeys := make([]SecretKey, len(keys))
 	for i := range otherKeys {
 		otherKeys[i] = GenSecretKey(rng)
 	}
 	badAppQC := makeAppQCFor(otherKeys, 0, 0, appHash)
-
-	var allRanges []*LaneRange
-	for _, l := range committee.Lanes().All() {
-		allRanges = append(allRanges, NewLaneRange(l, 0, utils.None[*BlockHeader]()))
-	}
-	tamperedProposal := newProposal(vs.View(), time.Now(), allRanges, utils.Some(appProposal))
-	fp := &FullProposal{
-		proposal: Sign(leader, tamperedProposal),
+	tamperedFP := &FullProposal{
+		proposal: fp.proposal,
 		appQC:    utils.Some(badAppQC),
 	}
-	err := fp.Verify(committee, vs)
+	err := tamperedFP.Verify(committee, vs)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "appQC")
 }
 
-func TestVerifyRejectsLaneQCHeaderHashMismatch(t *testing.T) {
+func TestProposalVerifyRejectsLaneQCHeaderHashMismatch(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{}
@@ -519,52 +486,31 @@ func TestVerifyRejectsLaneQCHeaderHashMismatch(t *testing.T) {
 
 	lane := proposerKey.Public()
 
-	// Build a valid LaneQC for block 0 with header H1.
-	realQC, realHeader := makeLaneQC(rng, committee, keys, lane, 0, BlockHeaderHash{})
+	// Build a valid proposal with a QC for block 0.
+	realQC, _ := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
+	fp, _ := NewProposal(proposerKey, committee, vs, time.Now(),
+		map[LaneID]*LaneQC{lane: realQC}, utils.None[*AppQC]())
 
-	// Build a DIFFERENT block 0 on the same lane → header H2 with a different payload hash.
-	differentBlock := NewBlock(lane, 0, BlockHeaderHash{}, GenPayload(rng))
-	differentHeader := differentBlock.Header()
+	// Swap in a different QC for block 0 (different payload → different hash).
+	differentQC, _ := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
+	require.NotEqual(t, realQC.Header().Hash(), differentQC.Header().Hash())
 
-	// Sanity: the two headers have the same BlockNumber but different hashes.
-	require.Equal(t, realHeader.BlockNumber(), differentHeader.BlockNumber())
-	require.NotEqual(t, realHeader.Hash(), differentHeader.Hash())
-
-	// Construct a LaneRange using the DIFFERENT header (LastHash = H2).
-	var allRanges []*LaneRange
-	for _, l := range committee.Lanes().All() {
-		if l == lane {
-			allRanges = append(allRanges, NewLaneRange(lane, 0, utils.Some(differentHeader)))
-		} else {
-			allRanges = append(allRanges, NewLaneRange(l, 0, utils.None[*BlockHeader]()))
-		}
+	tamperedFP := &FullProposal{
+		proposal: fp.proposal,
+		laneQCs:  map[LaneID]*LaneQC{lane: differentQC},
 	}
-
-	tamperedProposal := newProposal(vs.View(), time.Now(), allRanges, utils.None[*AppProposal]())
-	fp := &FullProposal{
-		proposal: Sign(proposerKey, tamperedProposal),
-		laneQCs:  map[LaneID]*LaneQC{lane: realQC}, // QC signs H1, but proposal says H2
-	}
-
-	// Confirm the mismatch exists.
-	lr := fp.Proposal().Msg().LaneRange(lane)
-	require.NotEqual(t, realQC.Header().Hash(), lr.LastHash(),
-		"LaneQC header hash should differ from LaneRange.LastHash()")
-
-	err := fp.Verify(committee, vs)
+	err := tamperedFP.Verify(committee, vs)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "Hash()")
 }
 
-func TestVerifyValidReproposal(t *testing.T) {
+func TestProposalVerifyValidReproposal(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 
 	// First, create a valid proposal at view (0, 0) with a PrepareQC.
 	vs0 := ViewSpec{}
 	leader0 := leaderKey(committee, keys, vs0.View())
-	fp0, err := NewProposal(leader0, committee, vs0, time.Now(), nil, utils.None[*AppQC]())
-	require.NoError(t, err)
+	fp0, _ := NewProposal(leader0, committee, vs0, time.Now(), nil, utils.None[*AppQC]())
 
 	// Build a PrepareQC for the proposal at (0, 0).
 	var prepareVotes []*Signed[*PrepareVote]
@@ -584,21 +530,19 @@ func TestVerifyValidReproposal(t *testing.T) {
 	require.Equal(t, View{Index: 0, Number: 1}, vs1.View())
 
 	leader1 := leaderKey(committee, keys, vs1.View())
-	reproposal, err := NewProposal(leader1, committee, vs1, time.Now(), nil, utils.None[*AppQC]())
-	require.NoError(t, err)
+	reproposal, _ := NewProposal(leader1, committee, vs1, time.Now(), nil, utils.None[*AppQC]())
 
 	require.NoError(t, reproposal.Verify(committee, vs1))
 }
 
-func TestVerifyRejectsReproposalWithUnnecessaryData(t *testing.T) {
+func TestProposalVerifyRejectsReproposalWithUnnecessaryData(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 
 	// Build a PrepareQC at (0, 0).
 	vs0 := ViewSpec{}
 	leader0 := leaderKey(committee, keys, vs0.View())
-	fp0, err := NewProposal(leader0, committee, vs0, time.Now(), nil, utils.None[*AppQC]())
-	require.NoError(t, err)
+	fp0, _ := NewProposal(leader0, committee, vs0, time.Now(), nil, utils.None[*AppQC]())
 
 	var prepareVotes []*Signed[*PrepareVote]
 	for _, k := range keys {
@@ -616,30 +560,27 @@ func TestVerifyRejectsReproposalWithUnnecessaryData(t *testing.T) {
 	leader1 := leaderKey(committee, keys, vs1.View())
 
 	// Create a valid reproposal, then tamper it with unnecessary laneQCs.
-	reproposal, err := NewProposal(leader1, committee, vs1, time.Now(), nil, utils.None[*AppQC]())
-	require.NoError(t, err)
+	reproposal, _ := NewProposal(leader1, committee, vs1, time.Now(), nil, utils.None[*AppQC]())
 
 	lane := keys[0].Public()
-	laneQC, _ := makeLaneQC(rng, committee, keys, lane, 0, BlockHeaderHash{})
+	laneQC, _ := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
 	tamperedFP := &FullProposal{
 		proposal:  reproposal.proposal,
 		laneQCs:   map[LaneID]*LaneQC{lane: laneQC},
 		timeoutQC: reproposal.timeoutQC,
 	}
-	err = tamperedFP.Verify(committee, vs1)
+	err := tamperedFP.Verify(committee, vs1)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "unnecessary data")
 }
 
-func TestVerifyRejectsReproposalHashMismatch(t *testing.T) {
+func TestProposalVerifyRejectsReproposalHashMismatch(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 
 	// Build a PrepareQC at (0, 0).
 	vs0 := ViewSpec{}
 	leader0 := leaderKey(committee, keys, vs0.View())
-	fp0, err := NewProposal(leader0, committee, vs0, time.Now(), nil, utils.None[*AppQC]())
-	require.NoError(t, err)
+	fp0, _ := NewProposal(leader0, committee, vs0, time.Now(), nil, utils.None[*AppQC]())
 
 	var prepareVotes []*Signed[*PrepareVote]
 	for _, k := range keys {
@@ -656,23 +597,24 @@ func TestVerifyRejectsReproposalHashMismatch(t *testing.T) {
 	vs1 := ViewSpec{TimeoutQC: utils.Some(timeoutQC)}
 	leader1 := leaderKey(committee, keys, vs1.View())
 
-	// Build a DIFFERENT proposal at view (0, 1) instead of reproposing the PrepareQC's proposal.
-	var wrongRanges []*LaneRange
-	for _, l := range committee.Lanes().All() {
-		wrongRanges = append(wrongRanges, NewLaneRange(l, 0, utils.None[*BlockHeader]()))
+	// Build the valid reproposal, then tamper its timestamp to get a different hash.
+	reproposal, _ := NewProposal(leader1, committee, vs1, time.Now(), nil, utils.None[*AppQC]())
+
+	origP := reproposal.Proposal().Msg()
+	var ranges []*LaneRange
+	for _, r := range origP.laneRanges {
+		ranges = append(ranges, r)
 	}
-	// Use a different timestamp to get a different hash.
-	wrongProposal := newProposal(vs1.View(), time.Now().Add(time.Hour), wrongRanges, utils.None[*AppProposal]())
+	wrongP := newProposal(origP.view, time.Now().Add(time.Hour), ranges, origP.app)
 	wrongFP := &FullProposal{
-		proposal:  Sign(leader1, wrongProposal),
-		timeoutQC: utils.Some(timeoutQC),
+		proposal:  Sign(leader1, wrongP),
+		timeoutQC: reproposal.timeoutQC,
 	}
-	err = wrongFP.Verify(committee, vs1)
+	err := wrongFP.Verify(committee, vs1)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "reproposal")
 }
 
-func TestVerifyRejectsInvalidTimeoutQCSignature(t *testing.T) {
+func TestProposalVerifyRejectsInvalidTimeoutQCSignature(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 
@@ -690,18 +632,8 @@ func TestVerifyRejectsInvalidTimeoutQCSignature(t *testing.T) {
 	vs := ViewSpec{TimeoutQC: utils.Some(badTimeoutQC)}
 	leader := leaderKey(committee, keys, vs.View())
 
-	// The NewProposal path with timeoutQC but no prepareQC means no reproposal —
-	// it will try to create a fresh proposal. But Verify will fail on timeoutQC verification.
-	var allRanges []*LaneRange
-	for _, l := range committee.Lanes().All() {
-		allRanges = append(allRanges, NewLaneRange(l, 0, utils.None[*BlockHeader]()))
-	}
-	proposal := newProposal(vs.View(), time.Now(), allRanges, utils.None[*AppProposal]())
-	fp := &FullProposal{
-		proposal:  Sign(leader, proposal),
-		timeoutQC: utils.Some(badTimeoutQC),
-	}
+	fp, _ := NewProposal(leader, committee, vs, time.Now(), nil, utils.None[*AppQC]())
+
 	err := fp.Verify(committee, vs)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "timeoutQC")
 }

@@ -169,17 +169,11 @@ func (m *Proposal) GlobalRange() GlobalRange {
 	return g
 }
 
-// Verify checks that the proposal contains exactly the committee lanes
-// and that each lane range is internally valid.
+// Verify checks that every present lane range belongs to the committee
+// and is internally valid. Lanes may be omitted — omitted lanes are
+// treated as implicit empty ranges by FullProposal.Verify.
 func (m *Proposal) Verify(c *Committee) error {
-	if got, want := len(m.laneRanges), c.Lanes().Len(); got != want {
-		return fmt.Errorf("proposal has %d lanes, committee has %d", got, want)
-	}
-	for _, lane := range c.Lanes().All() {
-		r, ok := m.laneRanges[lane]
-		if !ok {
-			return fmt.Errorf("missing lane range for committee lane %v", lane)
-		}
+	for _, r := range m.laneRanges {
 		if err := r.Verify(c); err != nil {
 			return fmt.Errorf("laneRange[%v]: %w", r.Lane(), err)
 		}
