@@ -126,7 +126,7 @@ func runShowCmd(cmd *cobra.Command, args []string) (err error) {
 		if isShowPubKey {
 			out = ko.PubKey
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), out)
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), out)
 	default:
 		printKeyInfo(cmd.OutOrStdout(), info, bechKeyOut, clientCtx.OutputFormat)
 	}

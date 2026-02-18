@@ -16,7 +16,7 @@ const index = "index"
 
 // GenIndex returns a random global index between 1-1000
 func GenIndex(r *rand.Rand) uint64 {
-	return uint64(r.Int63n(1000)) + 1
+	return uint64(r.Int63n(1000)) + 1 //nolint:gosec // Int63n returns non-negative values
 }
 
 // RandomizedGenState generates a random GenesisState for capability

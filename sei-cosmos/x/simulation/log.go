@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"time"
 )
 
@@ -52,7 +53,7 @@ func createLogFile() *os.File {
 
 	fileName := fmt.Sprintf("%s.log", time.Now().Format("2006-01-02_15:04:05"))
 	folderPath := path.Join(os.ExpandEnv("$HOME"), ".simapp", "simulations")
-	filePath := path.Join(folderPath, fileName)
+	filePath := filepath.Clean(filepath.Join(folderPath, fileName))
 
 	err := os.MkdirAll(folderPath, 0750)
 	if err != nil {

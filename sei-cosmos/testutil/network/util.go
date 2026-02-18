@@ -211,9 +211,9 @@ func writeFile(name string, dir string, contents []byte) error {
 	writePath := filepath.Join(dir)
 	file := filepath.Join(writePath, name)
 
-	if err := tmos.EnsureDir(writePath, 0755); err != nil {
+	if err := tmos.EnsureDir(writePath, 0750); err != nil {
 		return err
 	}
 
-	return os.WriteFile(file, contents, 0644)
+	return os.WriteFile(file, contents, 0600)
 }

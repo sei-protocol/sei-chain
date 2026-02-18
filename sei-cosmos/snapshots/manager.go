@@ -251,9 +251,10 @@ func (m *Manager) Restore(snapshot types.Snapshot) error {
 	if snapshot.Chunks == 0 {
 		return sdkerrors.Wrap(types.ErrInvalidMetadata, "no chunks")
 	}
-	if uint32(len(snapshot.Metadata.ChunkHashes)) != snapshot.Chunks { //#nosec G115 -- ChunkHashes length is bounded by Chunks which is uint32
+	uLen := uint32(len(snapshot.Metadata.ChunkHashes)) //nolint:gosec // ChunkHashes length is bounded by Chunks which is uint32
+	if uLen != snapshot.Chunks {
 		return sdkerrors.Wrapf(types.ErrInvalidMetadata, "snapshot has %v chunk hashes, but %v chunks",
-			uint32(len(snapshot.Metadata.ChunkHashes)),
+			uLen,
 			snapshot.Chunks)
 	}
 	m.mtx.Lock()

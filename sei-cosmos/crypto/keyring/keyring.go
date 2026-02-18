@@ -653,7 +653,7 @@ func newFileBackendKeyringConfig(name, dir string, buf io.Reader) keyring.Config
 func newRealPrompt(dir string, buf io.Reader) func(string) (string, error) {
 	return func(prompt string) (string, error) {
 		keyhashStored := false
-		keyhashFilePath := filepath.Join(dir, "keyhash")
+		keyhashFilePath := filepath.Clean(filepath.Join(dir, "keyhash"))
 
 		var keyhash []byte
 
@@ -690,13 +690,13 @@ func newRealPrompt(dir string, buf io.Reader) func(string) (string, error) {
 				// but we only log the error.
 				//
 				// lgtm [go/clear-text-logging]
-				fmt.Fprintln(os.Stderr, err)
+				_, _ = fmt.Fprintln(os.Stderr, err)
 				continue
 			}
 
 			if keyhashStored {
 				if err := bcrypt.CompareHashAndPassword(keyhash, []byte(pass)); err != nil {
-					fmt.Fprintln(os.Stderr, "incorrect passphrase")
+					_, _ = fmt.Fprintln(os.Stderr, "incorrect passphrase")
 					continue
 				}
 
@@ -709,23 +709,24 @@ func newRealPrompt(dir string, buf io.Reader) func(string) (string, error) {
 				// but we only log the error.
 				//
 				// lgtm [go/clear-text-logging]
-				fmt.Fprintln(os.Stderr, err)
+				_, _ = fmt.Fprintln(os.Stderr, err)
 				continue
 			}
 
 			if pass != reEnteredPass {
-				fmt.Fprintln(os.Stderr, "passphrase do not match")
+				_, _ = fmt.Fprintln(os.Stderr, "passphrase do not match")
 				continue
 			}
 
 			saltBytes := tmcrypto.CRandBytes(16)
 			passwordHash, err := bcrypt.GenerateFromPassword(saltBytes, []byte(pass), 2)
 			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
+				_, _ = fmt.Fprintln(os.Stderr, err)
 				continue
 			}
 
-			if err := os.WriteFile(dir+"/keyhash", passwordHash, 0555); err != nil {
+			name := filepath.Clean(filepath.Join(dir, "keyhash"))
+			if err := os.WriteFile(name, passwordHash, 0600); err != nil {
 				return "", err
 			}
 

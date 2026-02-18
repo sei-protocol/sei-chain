@@ -83,17 +83,18 @@ func (w *ChunkWriter) Write(data []byte) (int, error) {
 		}
 
 		var writeSize uint64
+		lenAsUint64 := uint64(len(data)) //nolint:gosec
 		if w.chunkSize == 0 {
-			writeSize = uint64(len(data))
+			writeSize = lenAsUint64
 		} else {
 			writeSize = w.chunkSize - w.written
 		}
-		if writeSize > uint64(len(data)) {
-			writeSize = uint64(len(data))
+		if writeSize > lenAsUint64 {
+			writeSize = lenAsUint64
 		}
 
 		n, err := w.pipe.Write(data[:writeSize])
-		w.written += uint64(n)
+		w.written += uint64(n) //nolint:gosec
 		nTotal += n
 		if err != nil {
 			return nTotal, err

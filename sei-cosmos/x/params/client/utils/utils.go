@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -70,7 +71,7 @@ func (pcj ParamChangesJSON) ToParamChanges() []proposal.ParamChange {
 func ParseParamChangeProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (ParamChangeProposalJSON, error) {
 	proposal := ParamChangeProposalJSON{}
 
-	contents, err := os.ReadFile(proposalFile)
+	contents, err := os.ReadFile(filepath.Clean(proposalFile))
 	if err != nil {
 		return proposal, err
 	}

@@ -3,6 +3,7 @@ package tx
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 
 	"github.com/spf13/pflag"
@@ -212,7 +213,10 @@ func (f Factory) BuildUnsignedTx(msgs ...sdk.Msg) (client.TxBuilder, error) {
 			return nil, errors.New("cannot provide both fees and gas prices")
 		}
 
-		glDec := sdk.NewDec(int64(f.gas))
+		if f.gas > uint64(math.MaxInt64) {
+			return nil, fmt.Errorf("gas %d exceeds max int64", f.gas)
+		}
+		glDec := sdk.NewDec(int64(f.gas)) //nolint:gosec // bounds checked above
 
 		// Derive the fees based on the provided gas prices, where
 		// fee = ceil(gasPrice * gasLimit).

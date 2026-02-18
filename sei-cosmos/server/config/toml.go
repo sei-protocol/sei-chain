@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"text/template"
 
 	"github.com/spf13/viper"
@@ -302,7 +303,7 @@ func WriteConfigFile(configFilePath string, config interface{}) {
 		panic(err)
 	}
 
-	if err := os.WriteFile(configFilePath, buffer.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(filepath.Clean(configFilePath), buffer.Bytes(), 0600); err != nil {
 		fmt.Printf("MustWriteFile failed: %v\n", err)
 		os.Exit(1)
 	}

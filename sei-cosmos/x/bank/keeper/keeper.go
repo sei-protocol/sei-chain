@@ -422,7 +422,10 @@ func (k BaseKeeper) DeferredSendCoinsFromAccountToModule(
 	}
 	// get txIndex
 	txIndex := ctx.TxIndex()
-	err = k.deferredCache.UpsertBalances(ctx, moduleAcc.GetAddress(), uint64(txIndex), amount)
+	if txIndex < 0 {
+		return fmt.Errorf("negative tx index: %d", txIndex)
+	}
+	err = k.deferredCache.UpsertBalances(ctx, moduleAcc.GetAddress(), uint64(txIndex), amount) //nolint:gosec // bounds checked above
 	if err != nil {
 		return err
 	}
@@ -440,7 +443,7 @@ func (k BaseKeeper) WriteDeferredBalances(ctx sdk.Context) []abci.Event {
 	// maps between bech32 stringified module account address and balance
 	moduleAddrBalanceMap := make(map[string]sdk.Coins)
 	// slice of modules to be sorted for consistent write order later
-	moduleList := []string{}
+	var moduleList []string
 
 	// iterate over deferred cache and accumulate totals per module
 	k.deferredCache.IterateDeferredBalances(ctx, func(moduleAddr sdk.AccAddress, amount sdk.Coin) bool {

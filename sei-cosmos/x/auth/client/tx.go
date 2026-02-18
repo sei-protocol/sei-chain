@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/gogo/protobuf/jsonpb"
@@ -98,7 +99,7 @@ func ReadTxFromFile(ctx client.Context, filename string) (tx sdk.Tx, err error) 
 	if filename == "-" {
 		bytes, err = io.ReadAll(os.Stdin)
 	} else {
-		bytes, err = os.ReadFile(filename)
+		bytes, err = os.ReadFile(filepath.Clean(filename))
 	}
 
 	if err != nil {

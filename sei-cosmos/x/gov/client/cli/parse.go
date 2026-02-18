@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/pflag"
 
@@ -12,7 +13,10 @@ import (
 
 func parseSubmitProposalFlags(fs *pflag.FlagSet) (*proposal, error) {
 	proposal := &proposal{}
-	proposalFile, _ := fs.GetString(FlagProposal)
+	proposalFile, err := fs.GetString(FlagProposal)
+	if err != nil {
+		return nil, err
+	}
 
 	if proposalFile == "" {
 		proposalType, _ := fs.GetString(FlagProposalType)
@@ -30,7 +34,7 @@ func parseSubmitProposalFlags(fs *pflag.FlagSet) (*proposal, error) {
 			return nil, fmt.Errorf("--%s flag provided alongside --proposal, which is a noop", flag)
 		}
 	}
-
+	proposalFile = filepath.Clean(proposalFile)
 	contents, err := os.ReadFile(proposalFile)
 	if err != nil {
 		return nil, err

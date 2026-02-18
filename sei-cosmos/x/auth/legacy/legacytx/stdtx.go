@@ -1,6 +1,9 @@
 package legacytx
 
 import (
+	"fmt"
+	"math"
+
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/legacy"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
@@ -67,7 +70,10 @@ func (fee StdFee) Bytes() []byte {
 // originally part of the submitted transaction because the fee is computed
 // as fee = ceil(gasWanted * gasPrices).
 func (fee StdFee) GasPrices() sdk.DecCoins {
-	return sdk.NewDecCoinsFromCoins(fee.Amount...).QuoDec(sdk.NewDec(int64(fee.Gas)))
+	if fee.Gas > uint64(math.MaxInt64) {
+		panic(fmt.Sprintf("gas %d exceeds max int64", fee.Gas))
+	}
+	return sdk.NewDecCoinsFromCoins(fee.Amount...).QuoDec(sdk.NewDec(int64(fee.Gas))) //nolint:gosec G115 -- bounds checked above
 }
 
 // StdTx is the legacy transaction format for wrapping a Msg with Fee and Signatures.

@@ -166,7 +166,7 @@ func New(t *testing.T, cfg Config) *Network {
 	lock.Lock()
 
 	baseDir := filepath.Join(t.TempDir(), cfg.ChainID)
-	require.NoError(t, os.MkdirAll(baseDir, os.ModePerm))
+	require.NoError(t, os.MkdirAll(baseDir, 0750))
 	t.Logf("created temporary directory: %s", baseDir)
 
 	network := &Network{
@@ -247,8 +247,8 @@ func New(t *testing.T, cfg Config) *Network {
 		clientDir := filepath.Join(network.BaseDir, nodeDirName, "simcli")
 		gentxsDir := filepath.Join(network.BaseDir, "gentxs")
 
-		require.NoError(t, os.MkdirAll(filepath.Join(nodeDir, "config"), 0755))
-		require.NoError(t, os.MkdirAll(clientDir, 0755))
+		require.NoError(t, os.MkdirAll(filepath.Join(nodeDir, "config"), 0750))
+		require.NoError(t, os.MkdirAll(clientDir, 0750))
 
 		tmCfg.SetRoot(nodeDir)
 		tmCfg.Moniker = nodeDirName

@@ -40,7 +40,7 @@ func printKeyInfo(w io.Writer, keyInfo cryptokeyring.Info, bechKeyOut bechKeyOut
 			panic(err)
 		}
 
-		fmt.Fprintln(w, string(out))
+		_, _ = fmt.Fprintln(w, string(out))
 	}
 }
 
@@ -60,7 +60,7 @@ func printInfos(w io.Writer, infos []cryptokeyring.Info, output string) {
 			panic(err)
 		}
 
-		fmt.Fprintf(w, "%s", out)
+		_, _ = fmt.Fprintf(w, "%s", out)
 	}
 }
 
@@ -69,5 +69,5 @@ func printTextInfos(w io.Writer, kos []cryptokeyring.KeyOutput) {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Fprintln(w, string(out))
+	_, _ = fmt.Fprintln(w, string(out))
 }

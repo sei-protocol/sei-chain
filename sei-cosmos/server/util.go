@@ -72,7 +72,7 @@ func NewContext(v *viper.Viper, config *tmcfg.Config, logger tmlog.Logger) *Cont
 
 func bindFlags(basename string, cmd *cobra.Command, v *viper.Viper) (err error) {
 	defer func() {
-		recover()
+		_ = recover() //handled by named return value.
 	}()
 
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
@@ -153,8 +153,13 @@ func InterceptConfigsPreRunHandler(cmd *cobra.Command, customAppConfigTemplate s
 	basename := path.Base(executableName)
 
 	// Configure the viper instance
-	serverCtx.Viper.BindPFlags(cmd.Flags())
-	serverCtx.Viper.BindPFlags(cmd.PersistentFlags())
+
+	if err := serverCtx.Viper.BindPFlags(cmd.Flags()); err != nil {
+		return err
+	}
+	if err := serverCtx.Viper.BindPFlags(cmd.PersistentFlags()); err != nil {
+		return err
+	}
 	serverCtx.Viper.SetEnvPrefix(basename)
 	serverCtx.Viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	serverCtx.Viper.AutomaticEnv()
@@ -460,9 +465,10 @@ func openTraceWriter(traceWriterFile string) (w io.Writer, err error) {
 	if traceWriterFile == "" {
 		return
 	}
+	traceWriterFile = filepath.Clean(traceWriterFile)
 	return os.OpenFile(
 		traceWriterFile,
 		os.O_WRONLY|os.O_APPEND|os.O_CREATE,
-		0666,
+		0600,
 	)
 }

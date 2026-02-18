@@ -36,7 +36,7 @@ func newMemIterator(
 
 	if err != nil {
 		if iter != nil {
-			iter.Close()
+			_ = iter.Close()
 		}
 		panic(err)
 	}

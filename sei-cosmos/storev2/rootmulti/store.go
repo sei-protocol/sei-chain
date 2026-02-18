@@ -686,12 +686,15 @@ func (rs *Store) ResetEvents() {
 func (rs *Store) Restore(
 	height uint64, format uint32, protoReader protoio.Reader,
 ) (snapshottypes.SnapshotItem, error) {
+	if height > uint64(math.MaxInt64) {
+		return snapshottypes.SnapshotItem{}, fmt.Errorf("snapshot height %d exceeds max int64", height)
+	}
 	if rs.scStore != nil {
 		if err := rs.scStore.Close(); err != nil {
 			return snapshottypes.SnapshotItem{}, fmt.Errorf("failed to close db: %w", err)
 		}
 	}
-	item, err := rs.restore(int64(height), protoReader)
+	item, err := rs.restore(int64(height), protoReader) //nolint:gosec // bounds checked above
 	if err != nil {
 		return snapshottypes.SnapshotItem{}, err
 	}
@@ -747,7 +750,7 @@ loop:
 			node := &sctypes.SnapshotNode{
 				Key:     item.IAVL.Key,
 				Value:   item.IAVL.Value,
-				Height:  int8(item.IAVL.Height),
+				Height:  int8(item.IAVL.Height), //nolint:gosec // bounds checked above against math.MaxInt8
 				Version: item.IAVL.Version,
 			}
 			// Protobuf does not differentiate between []byte{} as nil, but fortunately IAVL does

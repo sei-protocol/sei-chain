@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
@@ -94,6 +95,7 @@ func ExportCmd(appExporter types.AppExporter, defaultNodeHome string) *cobra.Com
 			jailAllowedAddrs, _ := cmd.Flags().GetStringSlice(FlagJailAllowedAddrs)
 
 			if isStreaming {
+				streamingFile = filepath.Clean(streamingFile)
 				file, err := os.Create(streamingFile)
 				if err != nil {
 					return err
@@ -141,7 +143,7 @@ func ExportCmd(appExporter types.AppExporter, defaultNodeHome string) *cobra.Com
 					return err
 				}
 
-				_, err = file.Write([]byte(fmt.Sprintf("%s", string(sdk.MustSortJSON(encoded)))))
+				_, err = fmt.Fprintf(file, "%s", string(sdk.MustSortJSON(encoded)))
 				return fmt.Errorf("error writing genesis state to file: %v", err)
 			}
 

@@ -61,7 +61,7 @@ func RandomGenesisAccounts(simState *module.SimulationState) types.GenesisAccoun
 
 // GenMaxMemoChars randomized MaxMemoChars
 func GenMaxMemoChars(r *rand.Rand) uint64 {
-	return uint64(simulation.RandIntBetween(r, 100, 200))
+	return uint64(simulation.RandIntBetween(r, 100, 200)) //nolint:gosec // always returns a positive value
 }
 
 // GenTxSigLimit randomized TxSigLimit
@@ -69,22 +69,22 @@ func GenMaxMemoChars(r *rand.Rand) uint64 {
 // so that arbitrarily simulated messages from other
 // modules can still create valid transactions
 func GenTxSigLimit(r *rand.Rand) uint64 {
-	return uint64(r.Intn(7) + 5)
+	return uint64(r.Intn(7) + 5) //nolint:gosec // always returns a positive value
 }
 
 // GenTxSizeCostPerByte randomized TxSizeCostPerByte
 func GenTxSizeCostPerByte(r *rand.Rand) uint64 {
-	return uint64(simulation.RandIntBetween(r, 5, 15))
+	return uint64(simulation.RandIntBetween(r, 5, 15)) //nolint:gosec // always returns a positive value
 }
 
 // GenSigVerifyCostED25519 randomized SigVerifyCostED25519
 func GenSigVerifyCostED25519(r *rand.Rand) uint64 {
-	return uint64(simulation.RandIntBetween(r, 500, 1000))
+	return uint64(simulation.RandIntBetween(r, 500, 1000)) //nolint:gosec // always returns a positive value
 }
 
 // GenSigVerifyCostSECP256K1 randomized SigVerifyCostSECP256K1
 func GenSigVerifyCostSECP256K1(r *rand.Rand) uint64 {
-	return uint64(simulation.RandIntBetween(r, 500, 1000))
+	return uint64(simulation.RandIntBetween(r, 500, 1000)) //nolint:gosec // always returns a positive value
 }
 
 // RandomizedGenState generates a random GenesisState for auth

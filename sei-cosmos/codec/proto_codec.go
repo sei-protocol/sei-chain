@@ -60,7 +60,7 @@ func (pc *ProtoCodec) MarshalLengthPrefixed(o ProtoMarshaler) ([]byte, error) {
 	}
 
 	var sizeBuf [binary.MaxVarintLen64]byte
-	n := binary.PutUvarint(sizeBuf[:], uint64(o.Size()))
+	n := binary.PutUvarint(sizeBuf[:], uint64(o.Size())) //nolint:gosec // Size() returns the serialized size which is always non-negative
 	return append(sizeBuf[:n], bz...), nil
 }
 
@@ -105,10 +105,15 @@ func (pc *ProtoCodec) UnmarshalLengthPrefixed(bz []byte, ptr ProtoMarshaler) err
 		return fmt.Errorf("invalid number of bytes read from length-prefixed encoding: %d", n)
 	}
 
-	if size > uint64(len(bz)-n) {
-		return fmt.Errorf("not enough bytes to read; want: %v, got: %v", size, len(bz)-n)
-	} else if size < uint64(len(bz)-n) {
-		return fmt.Errorf("too many bytes to read; want: %v, got: %v", size, len(bz)-n)
+	remaining := len(bz) - n
+	if remaining < 0 {
+		return fmt.Errorf("length prefix exceeds buffer size")
+	}
+
+	if size > uint64(remaining) { //nolint:gosec // remaining is validated non-negative above
+		return fmt.Errorf("not enough bytes to read; want: %v, got: %v", size, remaining)
+	} else if size < uint64(remaining) { //nolint:gosec // remaining is validated non-negative above
+		return fmt.Errorf("too many bytes to read; want: %v, got: %v", size, remaining)
 	}
 
 	bz = bz[n:]

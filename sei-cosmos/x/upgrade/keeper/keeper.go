@@ -119,7 +119,7 @@ func (k Keeper) SetModuleVersionMap(ctx sdk.Context, vm module.VersionMap) {
 func (k Keeper) GetModuleVersionMap(ctx sdk.Context) module.VersionMap {
 	store := ctx.KVStore(k.storeKey)
 	it := sdk.KVStorePrefixIterator(store, []byte{types.VersionMapByte})
-	defer it.Close()
+	defer func() { _ = it.Close() }()
 
 	vm := make(module.VersionMap)
 	for ; it.Valid(); it.Next() {
@@ -137,7 +137,7 @@ func (k Keeper) GetModuleVersionMap(ctx sdk.Context) module.VersionMap {
 func (k Keeper) GetModuleVersions(ctx sdk.Context) []*types.ModuleVersion {
 	store := ctx.KVStore(k.storeKey)
 	it := sdk.KVStorePrefixIterator(store, []byte{types.VersionMapByte})
-	defer it.Close()
+	defer func() { _ = it.Close() }()
 
 	mv := make([]*types.ModuleVersion, 0)
 	for ; it.Valid(); it.Next() {
@@ -156,7 +156,7 @@ func (k Keeper) GetModuleVersions(ctx sdk.Context) []*types.ModuleVersion {
 func (k Keeper) getModuleVersion(ctx sdk.Context, name string) (uint64, bool) {
 	store := ctx.KVStore(k.storeKey)
 	it := sdk.KVStorePrefixIterator(store, []byte{types.VersionMapByte})
-	defer it.Close()
+	defer func() { _ = it.Close() }()
 
 	for ; it.Valid(); it.Next() {
 		moduleName := string(it.Key()[1:])
@@ -453,7 +453,7 @@ func (k Keeper) ReadUpgradeInfoFromDisk() (store.UpgradeInfo, error) {
 		return upgradeInfo, err
 	}
 
-	data, err := os.ReadFile(upgradeInfoPath)
+	data, err := os.ReadFile(filepath.Clean(upgradeInfoPath))
 	if err != nil {
 		// if file does not exist, assume there are no upgrades
 		if os.IsNotExist(err) {

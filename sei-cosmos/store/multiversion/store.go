@@ -305,7 +305,7 @@ func (s *Store) validateIterator(index int, tracker iterationTracker) bool {
 			}
 		}
 		// return whether we found the exact number of expected keys
-		returnChan <- !((len(expectedKeys) - foundKeys) > 0)
+		returnChan <- foundKeys >= len(expectedKeys)
 	}(tracker, sortedItems, validChannel, abortChannel)
 	select {
 	case <-abortChannel:

@@ -34,12 +34,9 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 
 	ctx.Logger().Info("Migrating Signing Info")
 	signInfoIter := sdk.KVStorePrefixIterator(store, types.ValidatorSigningInfoKeyPrefix)
-	newSignInfoKeys := [][]byte{}
-	newSignInfoVals := []types.ValidatorSigningInfoLegacyMissedHeights{}
-	// Note that we close the iterator twice. 2 iterators cannot be open at the same time due to mutex on the storage
-	// This close within defer is a safety net, while the close() after iteration is to close the iterator before opening
-	// a new one.
-	defer signInfoIter.Close()
+	var newSignInfoKeys [][]byte
+	var newSignInfoVals []types.ValidatorSigningInfoLegacyMissedHeights
+
 	for ; signInfoIter.Valid(); signInfoIter.Next() {
 		ctx.Logger().Info(fmt.Sprintf("Migrating Signing Info for key: %v\n", signInfoIter.Key()))
 		var oldInfo types.ValidatorSigningInfo
@@ -55,7 +52,9 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 		newSignInfoKeys = append(newSignInfoKeys, signInfoIter.Key())
 		newSignInfoVals = append(newSignInfoVals, newInfo)
 	}
-	signInfoIter.Close()
+	if err := signInfoIter.Close(); err != nil {
+		return err
+	}
 
 	if len(newSignInfoKeys) != len(newSignInfoVals) {
 		return fmt.Errorf("new sign info data length doesn't match up")
@@ -72,7 +71,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	// Note that we close the iterator twice. 2 iterators cannot be open at the same time due to mutex on the storage
 	// This close within defer is a safety net, while the close() after iteration is to close the iterator before opening
 	// a new one.
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		// need to use the key to extract validator cons addr
 		// last 8 bytes are the index
@@ -150,15 +149,12 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 	valMissedMap := make(map[string]types.ValidatorMissedBlockArray)
 	ctx.Logger().Info("Migrating Signing Info")
 	signInfoIter := sdk.KVStorePrefixIterator(store, types.ValidatorSigningInfoKeyPrefix)
-	newSignInfoKeys := [][]byte{}
-	newSignInfoVals := []types.ValidatorSigningInfo{}
+	var newSignInfoKeys [][]byte
+	var newSignInfoVals []types.ValidatorSigningInfo
 	// use previous height to calculate index offset
 	window := m.keeper.SignedBlocksWindow(ctx)
 	index := window - 1
-	// Note that we close the iterator twice. 2 iterators cannot be open at the same time due to mutex on the storage
-	// This close within defer is a safety net, while the close() after iteration is to close the iterator before opening
-	// a new one.
-	defer signInfoIter.Close()
+
 	for ; signInfoIter.Valid(); signInfoIter.Next() {
 		ctx.Logger().Info(fmt.Sprintf("Migrating Signing Info for key: %v\n", signInfoIter.Key()))
 		var oldInfo types.ValidatorSigningInfoLegacyMissedHeights
@@ -175,7 +171,9 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 		newSignInfoKeys = append(newSignInfoKeys, signInfoIter.Key())
 		newSignInfoVals = append(newSignInfoVals, newInfo)
 	}
-	signInfoIter.Close()
+	if err := signInfoIter.Close(); err != nil {
+		return err
+	}
 
 	if len(newSignInfoKeys) != len(newSignInfoVals) {
 		return fmt.Errorf("new sign info data length doesn't match up")
@@ -190,7 +188,7 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 	ctx.Logger().Info("Migrating Missed Block Bit Array")
 	startWindowHeight := ctx.BlockHeight() - window
 	iter := sdk.KVStorePrefixIterator(store, types.ValidatorMissedBlockBitArrayKeyPrefix)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		var missedInfo types.ValidatorMissedBlockArrayLegacyMissedHeights
 		key := iter.Key()
@@ -218,7 +216,7 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 	}
 
 	ctx.Logger().Info("Writing new validator missed blocks infos")
-	valKeys := []string{}
+	var valKeys []string
 	for key := range valMissedMap {
 		valKeys = append(valKeys, key)
 	}
@@ -226,10 +224,10 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 	for _, key := range valKeys {
 		missedBlockArray := valMissedMap[key]
 		consAddr, err := sdk.ConsAddressFromBech32(key)
-		ctx.Logger().Info(fmt.Sprintf("Writing missed heights for validator: %s\n", consAddr.String()))
 		if err != nil {
 			return err
 		}
+		ctx.Logger().Info(fmt.Sprintf("Writing missed heights for validator: %s\n", consAddr.String()))
 		m.keeper.SetValidatorMissedBlocks(ctx, consAddr, missedBlockArray)
 	}
 	ctx.Logger().Info("Done migrating")

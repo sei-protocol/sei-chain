@@ -402,13 +402,13 @@ func (k Keeper) UnbondAllMatureValidators(ctx sdk.Context) {
 	blockTime := ctx.BlockTime()
 	blockHeight := ctx.BlockHeight()
 
-	// unbondingValIterator will contains all validator addresses indexed under
+	// unbondingValIterator will contain all validator addresses indexed under
 	// the ValidatorQueueKey prefix. Note, the entire index key is composed as
 	// ValidatorQueueKey | timeBzLen (8-byte big endian) | timeBz | heightBz (8-byte big endian),
 	// so it may be possible that certain validator addresses that are iterated
 	// over are not ready to unbond, so an explicit check is required.
 	unbondingValIterator := k.ValidatorQueueIterator(ctx, blockTime, blockHeight)
-	defer unbondingValIterator.Close()
+	defer func() { _ = unbondingValIterator.Close() }()
 
 	for ; unbondingValIterator.Valid(); unbondingValIterator.Next() {
 		key := unbondingValIterator.Key()

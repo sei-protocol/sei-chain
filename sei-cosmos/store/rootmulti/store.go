@@ -275,7 +275,10 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 
 		// If it has been added, set the initial version
 		if upgrades.IsAdded(key.Name()) {
-			storeParams.initialVersion = uint64(ver) + 1
+			if ver < 0 {
+				return fmt.Errorf("negative version not allowed: %d", ver)
+			}
+			storeParams.initialVersion = uint64(ver) + 1 //nolint:gosec // bounds checked above
 		}
 
 		store, err := rs.loadCommitStoreFromParams(key, commitID, storeParams)
@@ -425,7 +428,7 @@ func (rs *Store) LastCommitID() types.CommitID {
 }
 
 func (rs *Store) GetWorkingHash() ([]byte, error) {
-	storeInfos := []types.StoreInfo{}
+	var storeInfos []types.StoreInfo
 	for key, store := range rs.stores {
 		if store.GetStoreType() == types.StoreTypeTransient {
 			continue
@@ -469,19 +472,12 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 	rs.SetLastCommitInfo(commitStores(version, rs.stores, bumpVersion))
 	defer rs.flushMetadata(rs.db, version, rs.LastCommitInfo())
 
-	// Determine if pruneHeight height needs to be added to the list of heights to
-	// be pruned, where pruneHeight = (commitHeight - 1) - KeepRecent.
-	keepRecent := int64(rs.pruningOpts.KeepRecent) //#nosec G115 -- pruning config values are small, won't overflow int64
-	keepEvery := int64(rs.pruningOpts.KeepEvery)   //#nosec G115 -- pruning config values are small, won't overflow int64
-	interval := int64(rs.pruningOpts.Interval)     //#nosec G115 -- pruning config values are small, won't overflow int64
+	keepRecent := int64(rs.pruningOpts.KeepRecent) //nolint:gosec // pruning config values are small, won't overflow int64
+	keepEvery := int64(rs.pruningOpts.KeepEvery)   //nolint:gosec // pruning config values are small, won't overflow int64
+	interval := int64(rs.pruningOpts.Interval)     //nolint:gosec // pruning config values are small, won't overflow int64
 
 	if interval > 0 && keepRecent < previousHeight {
 		pruneHeight := previousHeight - keepRecent
-		// We consider this height to be pruned iff:
-		//
-		// - KeepEvery is zero as that means that all heights should be pruned.
-		// - KeepEvery % (height - KeepRecent) != 0 as that means the height is not
-		// a 'snapshot' height.
 		if keepEvery == 0 || pruneHeight%keepEvery != 0 {
 			rs.pruneHeights = append(rs.pruneHeights, pruneHeight)
 		}
@@ -745,7 +741,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 	if height > uint64(math.MaxInt64) {
 		return sdkerrors.Wrapf(sdkerrors.ErrLogic, "snapshot height %d exceeds max int64", height)
 	}
-	if height > uint64(rs.LastCommitID().Version) {
+	if rs.LastCommitID().Version < 0 || height > uint64(rs.LastCommitID().Version) { //nolint:gosec // Version validated non-negative
 		return sdkerrors.Wrapf(sdkerrors.ErrLogic, "cannot snapshot future height %v", height)
 	}
 
@@ -754,7 +750,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 		*iavl.Store
 		name string
 	}
-	stores := []namedStore{}
+	var stores []namedStore
 	for key := range rs.stores {
 		switch store := rs.GetCommitKVStore(key).(type) {
 		case *iavl.Store:
@@ -779,7 +775,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 		totalKeyBytes := int64(0)
 		totalValueBytes := int64(0)
 		totalNumKeys := int64(0)
-		exporter, err := store.Export(int64(height)) //#nosec G115 -- bounds checked at function entry
+		exporter, err := store.Export(int64(height)) //nolint:gosec // bounds checked at function entry
 		if err != nil {
 			return err
 		}
@@ -797,7 +793,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 		rs.logger.Info(fmt.Sprintf("Exporting snapshot for store %s", store.name))
 		for {
 			node, err := exporter.Next()
-			if err == iavltree.ExportDone {
+			if errors.Is(err, iavltree.ExportDone) {
 				break
 			} else if err != nil {
 				return err
@@ -807,7 +803,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 					IAVL: &snapshottypes.SnapshotIAVLItem{
 						Key:     node.Key,
 						Value:   node.Value,
-						Height:  int32(node.Height), //#nosec G115 -- IAVL tree heights are small, well within int32 range
+						Height:  int32(node.Height), //nolint:gosec // IAVL tree heights are small, well within int32 range
 						Version: node.Version,
 					},
 				},
@@ -879,7 +875,7 @@ loop:
 			if !ok || store == nil {
 				return snapshottypes.SnapshotItem{}, sdkerrors.Wrapf(sdkerrors.ErrLogic, "cannot import into non-IAVL store %q", item.Store.Name)
 			}
-			importer, err = store.Import(int64(height)) //#nosec G115 -- bounds checked at function entry
+			importer, err = store.Import(int64(height)) //nolint:gosec // bounds checked at function entry
 			if err != nil {
 				return snapshottypes.SnapshotItem{}, sdkerrors.Wrap(err, "import failed")
 			}
@@ -896,11 +892,9 @@ loop:
 			node := &iavltree.ExportNode{
 				Key:     item.IAVL.Key,
 				Value:   item.IAVL.Value,
-				Height:  int8(item.IAVL.Height), //#nosec G115 -- bounds checked above against MaxInt8
+				Height:  int8(item.IAVL.Height), //nolint:gosec // bounds checked above against MaxInt8
 				Version: item.IAVL.Version,
 			}
-			// Protobuf does not differentiate between []byte{} as nil, but fortunately IAVL does
-			// not allow nil keys nor nil values for leaf nodes, so we can always set them to empty.
 			if node.Key == nil {
 				node.Key = []byte{}
 			}
@@ -925,7 +919,7 @@ loop:
 		importer.Close()
 	}
 
-	rs.flushMetadata(rs.db, int64(height), rs.buildCommitInfo(int64(height))) //#nosec G115 -- bounds checked at function entry
+	rs.flushMetadata(rs.db, int64(height), rs.buildCommitInfo(int64(height))) //nolint:gosec // bounds checked at function entry
 	return snapshotItem, rs.LoadLatestVersion()
 }
 
@@ -946,7 +940,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 		if id.Version < 0 {
 			return nil, fmt.Errorf("negative version not allowed: %d", id.Version)
 		}
-		binary.BigEndian.PutUint64(prefix, uint64(id.Version)) //#nosec G115 -- bounds checked above
+		binary.BigEndian.PutUint64(prefix, uint64(id.Version)) //nolint:gosec // bounds checked above
 		prefix = append(prefix, tag...)
 		db = dbm.NewPrefixDB(rs.archivalDb, prefix)
 		params.typ = types.StoreTypeDB
@@ -974,9 +968,6 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 		}
 
 		if rs.interBlockCache != nil {
-			// Wrap and get a CommitKVStore with inter-block caching. Note, this should
-			// only wrap the primary CommitKVStore, not any store that is already
-			// branched as that will create unexpected behavior.
 			store = rs.interBlockCache.GetStoreCache(key, store)
 		}
 
@@ -1176,7 +1167,7 @@ func getPruningHeights(db dbm.DB) ([]int64, error) {
 	prunedHeights := make([]int64, len(bz)/8)
 	i, offset := 0, 0
 	for offset < len(bz) {
-		prunedHeights[i] = int64(binary.BigEndian.Uint64(bz[offset : offset+8]))
+		prunedHeights[i] = int64(binary.BigEndian.Uint64(bz[offset : offset+8])) //nolint:gosec // deserialized block heights stored by flushPruningHeights, always non-negative
 		i++
 		offset += 8
 	}
@@ -1207,7 +1198,7 @@ func flushPruningHeights(batch dbm.Batch, pruneHeights []int64) {
 	bz := make([]byte, 0, len(pruneHeights)*8)
 	for _, ph := range pruneHeights {
 		buf := make([]byte, 8)
-		binary.BigEndian.PutUint64(buf, uint64(ph))
+		binary.BigEndian.PutUint64(buf, uint64(ph)) //nolint:gosec // pruning heights are always non-negative block heights
 		bz = append(bz, buf...)
 	}
 

@@ -13,7 +13,7 @@ import (
 func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyEndBlocker)
 
-	if k.InvCheckPeriod() == 0 || ctx.BlockHeight()%int64(k.InvCheckPeriod()) != 0 {
+	if k.InvCheckPeriod() == 0 || ctx.BlockHeight()%int64(k.InvCheckPeriod()) != 0 { //nolint:gosec // InvCheckPeriod is a small config value, won't overflow int64
 		// skip running the invariant check
 		return
 	}

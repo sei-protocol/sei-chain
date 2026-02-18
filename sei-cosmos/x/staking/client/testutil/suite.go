@@ -1351,7 +1351,7 @@ func (s *IntegrationTestSuite) TestBlockResults() {
 			break
 		}
 
-		s.network.WaitForNextBlock()
+		require.NoError(s.network.WaitForNextBlock())
 	}
 }
 

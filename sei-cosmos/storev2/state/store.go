@@ -108,7 +108,7 @@ func (st *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 		for ; iterator.Valid(); iterator.Next() {
 			pairs.Pairs = append(pairs.Pairs, kv.Pair{Key: iterator.Key(), Value: iterator.Value()})
 		}
-		iterator.Close()
+		_ = iterator.Close()
 
 		bz, err := pairs.Marshal()
 		if err != nil {
@@ -129,11 +129,11 @@ func (st *Store) VersionExists(version int64) bool {
 
 func (st *Store) DeleteAll(start, end []byte) error {
 	iter := st.Iterator(start, end)
-	keys := [][]byte{}
+	var keys [][]byte
 	for ; iter.Valid(); iter.Next() {
 		keys = append(keys, iter.Key())
 	}
-	iter.Close()
+	_ = iter.Close()
 	for _, key := range keys {
 		st.Delete(key)
 	}
@@ -142,7 +142,7 @@ func (st *Store) DeleteAll(start, end []byte) error {
 
 func (st *Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
 	iter := st.Iterator(start, end)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		res = append(res, string(iter.Key()))
 	}

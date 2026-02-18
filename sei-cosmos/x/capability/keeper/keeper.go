@@ -117,7 +117,7 @@ func (k *Keeper) InitMemStore(ctx sdk.Context) {
 		iterator := sdk.KVStorePrefixIterator(prefixStore, nil)
 
 		// initialize the in-memory store for all persisted capabilities
-		defer iterator.Close()
+		defer func() { _ = iterator.Close() }()
 
 		for ; iterator.Valid(); iterator.Next() {
 			index := types.IndexFromKey(iterator.Key())

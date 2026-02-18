@@ -10,7 +10,7 @@ import (
 // Gets the first item.
 func First(st KVStore, start, end []byte) (kv sdkkv.Pair, ok bool) {
 	iter := st.Iterator(start, end)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	if !iter.Valid() {
 		return kv, false
 	}
@@ -27,7 +27,7 @@ func Last(st KVStore, start, end []byte) (kv sdkkv.Pair, ok bool) {
 		}
 		return kv, false
 	}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	if bytes.Equal(iter.Key(), end) {
 		// Skip this one, end is exclusive.

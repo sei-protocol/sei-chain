@@ -87,7 +87,7 @@ func (AppModuleBasic) RegisterRESTRoutes(clientCtx client.Context, rtr *mux.Rout
 
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the slashig module.
 func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {
-	types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx))
+	_ = types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx))
 }
 
 // GetTxCmd returns the root tx command for the slashing module.
@@ -150,9 +150,9 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
 
 	m := keeper.NewMigrator(am.keeper)
-	cfg.RegisterMigration(types.ModuleName, 1, m.Migrate1to2)
-	cfg.RegisterMigration(types.ModuleName, 2, m.Migrate2to3)
-	cfg.RegisterMigration(types.ModuleName, 3, m.Migrate3to4)
+	_ = cfg.RegisterMigration(types.ModuleName, 1, m.Migrate1to2)
+	_ = cfg.RegisterMigration(types.ModuleName, 2, m.Migrate2to3)
+	_ = cfg.RegisterMigration(types.ModuleName, 3, m.Migrate3to4)
 }
 
 // InitGenesis performs genesis initialization for the slashing module. It returns

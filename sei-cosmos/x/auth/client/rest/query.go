@@ -105,7 +105,14 @@ func QueryTxsRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		for _, txRes := range searchResult.Txs {
-			packStdTxResponse(w, clientCtx, txRes)
+			err := packStdTxResponse(w, clientCtx, txRes)
+			if err != nil {
+				rest.WriteErrorResponse(
+					w, http.StatusBadRequest,
+					fmt.Sprintf("failed to convert to standard tx: %s", err),
+				)
+				return
+			}
 		}
 
 		err = checkAminoMarshalError(clientCtx, searchResult, "/cosmos/tx/v1beta1/txs")

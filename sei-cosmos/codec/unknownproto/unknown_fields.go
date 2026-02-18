@@ -72,7 +72,7 @@ func rejectUnknownFieldsWithDepth(bz []byte, msg proto.Message, allowUnknownNonC
 			return hasUnknownNonCriticals, errors.New("invalid length")
 		}
 
-		fieldDescProto, ok := fieldDescProtoFromTagNum[int32(tagNum)]
+		fieldDescProto, ok := fieldDescProtoFromTagNum[int32(tagNum)] //nolint:gosec // protobuf field numbers are within int32 range by spec
 		switch {
 		case ok:
 			// Assert that the wireTypes match.
@@ -81,7 +81,7 @@ func rejectUnknownFieldsWithDepth(bz []byte, msg proto.Message, allowUnknownNonC
 					Type:         reflect.ValueOf(msg).Type().String(),
 					TagNum:       tagNum,
 					GotWireType:  wireType,
-					WantWireType: protowire.Type(fieldDescProto.WireType()),
+					WantWireType: protowire.Type(fieldDescProto.WireType()), //nolint:gosec // checked by wire type conversion
 				}
 			}
 

@@ -74,7 +74,7 @@ func writeConfigToFile(configFilePath string, config *ClientConfig) error {
 
 // ensureConfigPath creates a directory configPath if it does not exist
 func ensureConfigPath(configPath string) error {
-	return os.MkdirAll(configPath, os.ModePerm)
+	return os.MkdirAll(configPath, 0750)
 }
 
 // getClientConfig reads values from client.toml file and unmarshalls them into ClientConfig

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"strings"
@@ -218,8 +219,8 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 	}
 
 	res = abci.ResponseDeliverTx{
-		GasWanted: int64(gInfo.GasWanted), // TODO: Should type accept unsigned ints?
-		GasUsed:   int64(gInfo.GasUsed),   // TODO: Should type accept unsigned ints?
+		GasWanted: int64(gInfo.GasWanted), //nolint:gosec // gas values are practically bounded; TODO: Should type accept unsigned ints?
+		GasUsed:   int64(gInfo.GasUsed),   //nolint:gosec // gas values are practically bounded; TODO: Should type accept unsigned ints?
 		Log:       result.Log,
 		Data:      result.Data,
 		Events:    sdk.MarkEventsToIndex(result.Events, app.IndexEvents),
@@ -304,10 +305,10 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 	var halt bool
 
 	switch {
-	case app.haltHeight > 0 && uint64(header.Height) >= app.haltHeight:
+	case app.haltHeight > 0 && uint64(header.Height) >= app.haltHeight: //nolint:gosec // block heights are always non-negative
 		halt = true
 
-	case app.haltTime > 0 && header.Time.Unix() >= int64(app.haltTime):
+	case app.haltTime > 0 && header.Time.Unix() >= int64(app.haltTime): //nolint:gosec // haltTime is a small config value, won't overflow int64
 		halt = true
 	}
 
@@ -319,7 +320,10 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 		app.halt()
 	}
 
-	app.SnapshotIfApplicable(uint64(header.Height))
+	if header.Height < 0 {
+		panic(fmt.Sprintf("negative block height: %d", header.Height))
+	}
+	app.SnapshotIfApplicable(uint64(header.Height)) //nolint:gosec // bounds checked above
 
 	return &abci.ResponseCommit{
 		RetainHeight: retainHeight,
@@ -361,9 +365,14 @@ func (app *BaseApp) Snapshot(height int64) {
 		return
 	}
 
+	if height < 0 {
+		app.logger.Error("cannot create snapshot for negative height", "height", height)
+		return
+	}
+
 	app.logger.Info("creating state snapshot", "height", height)
 
-	snapshot, err := app.snapshotManager.Create(uint64(height))
+	snapshot, err := app.snapshotManager.Create(uint64(height)) //nolint:gosec // bounds checked above
 	if err != nil {
 		app.logger.Error("failed to create state snapshot", "height", height, "err", err)
 		return
@@ -920,6 +929,10 @@ func splitPath(requestPath string) (path []string) {
 func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepareProposal) (resp *abci.ResponsePrepareProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "prepare_proposal")
 
+	if req.LastBlockPartSetTotal < 0 || req.LastBlockPartSetTotal > math.MaxUint32 {
+		return nil, fmt.Errorf("LastBlockPartSetTotal %d out of uint32 range", req.LastBlockPartSetTotal)
+	}
+
 	header := tmproto.Header{
 		ChainID:            app.ChainID,
 		Height:             req.Height,
@@ -936,7 +949,7 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 		LastBlockId: tmproto.BlockID{
 			Hash: req.LastBlockHash,
 			PartSetHeader: tmproto.PartSetHeader{
-				Total: uint32(req.LastBlockPartSetTotal),
+				Total: uint32(req.LastBlockPartSetTotal), //nolint:gosec // bounds checked above
 				Hash:  req.LastBlockPartSetHash,
 			},
 		},
@@ -987,6 +1000,10 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "process_proposal")
 
+	if req.LastBlockPartSetTotal < 0 || req.LastBlockPartSetTotal > math.MaxUint32 {
+		return nil, fmt.Errorf("LastBlockPartSetTotal %d out of uint32 range", req.LastBlockPartSetTotal)
+	}
+
 	header := tmproto.Header{
 		ChainID:            app.ChainID,
 		Height:             req.Height,
@@ -1003,7 +1020,7 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 		LastBlockId: tmproto.BlockID{
 			Hash: req.LastBlockHash,
 			PartSetHeader: tmproto.PartSetHeader{
-				Total: uint32(req.LastBlockPartSetTotal),
+				Total: uint32(req.LastBlockPartSetTotal), //nolint:gosec // bounds checked above
 				Hash:  req.LastBlockPartSetHash,
 			},
 		},
@@ -1059,6 +1076,10 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		))
 	}
 
+	if req.LastBlockPartSetTotal < 0 || req.LastBlockPartSetTotal > math.MaxUint32 {
+		return nil, fmt.Errorf("LastBlockPartSetTotal %d out of uint32 range", req.LastBlockPartSetTotal)
+	}
+
 	// Initialize the DeliverTx state. If this is the first block, it should
 	// already be initialized in InitChain. Otherwise app.deliverState will be
 	// nil, since it is reset on Commit.
@@ -1078,7 +1099,7 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		LastBlockId: tmproto.BlockID{
 			Hash: req.LastBlockHash,
 			PartSetHeader: tmproto.PartSetHeader{
-				Total: uint32(req.LastBlockPartSetTotal),
+				Total: uint32(req.LastBlockPartSetTotal), //nolint:gosec // bounds checked above
 				Hash:  req.LastBlockPartSetHash,
 			},
 		},
@@ -1101,19 +1122,18 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		app.checkState.SetContext(app.checkState.ctx.WithHeaderHash(req.Hash))
 	}
 
-	if app.finalizeBlocker != nil {
-		res, err := app.finalizeBlocker(app.deliverState.ctx, req)
-		if err != nil {
-			return nil, err
-		}
-		res.Events = sdk.MarkEventsToIndex(res.Events, app.IndexEvents)
-		// set the signed validators for addition to context in deliverTx
-		app.setVotesInfo(req.DecidedLastCommit.GetVotes())
-
-		return res, nil
-	} else {
+	if app.finalizeBlocker == nil {
 		return nil, errors.New("finalize block handler not set")
 	}
+	res, err := app.finalizeBlocker(app.deliverState.ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	res.Events = sdk.MarkEventsToIndex(res.Events, app.IndexEvents)
+	// set the signed validators for addition to context in deliverTx
+	app.setVotesInfo(req.DecidedLastCommit.GetVotes())
+
+	return res, nil
 }
 
 func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxPriorityHintV2) (_resp *abci.ResponseGetTxPriorityHint, _err error) {

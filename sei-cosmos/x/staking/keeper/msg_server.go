@@ -96,7 +96,10 @@ func (k msgServer) CreateValidator(goCtx context.Context, msg *types.MsgCreateVa
 	validator.MinSelfDelegation = msg.MinSelfDelegation
 
 	k.SetValidator(ctx, validator)
-	k.SetValidatorByConsAddr(ctx, validator)
+
+	if err := k.SetValidatorByConsAddr(ctx, validator); err != nil {
+		return nil, err
+	}
 	k.SetNewValidatorByPowerIndex(ctx, validator)
 
 	// call the after-creation hook

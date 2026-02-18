@@ -86,7 +86,7 @@ func (AppModuleBasic) RegisterRESTRoutes(clientCtx client.Context, rtr *mux.Rout
 
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the staking module.
 func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {
-	types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx))
+	_ = types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx))
 }
 
 // GetTxCmd returns the root tx command for the staking module.
@@ -148,7 +148,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterQueryServer(cfg.QueryServer(), querier)
 
 	m := keeper.NewMigrator(am.keeper)
-	cfg.RegisterMigration(types.ModuleName, 1, m.Migrate1to2)
+	_ = cfg.RegisterMigration(types.ModuleName, 1, m.Migrate1to2)
 }
 
 // InitGenesis performs genesis initialization for the staking module. It returns

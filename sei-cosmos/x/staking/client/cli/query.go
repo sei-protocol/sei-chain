@@ -185,19 +185,27 @@ $ %s query staking hex-address A0F18FCE3DA235FE18845CDD50302A44A5CD9A3C
 				switch {
 				case strings.Contains(pk.TypeUrl, ed25519.GenPrivKey().PubKey().Type()):
 					actualPk := &ed25519.PubKey{}
-					proto.Unmarshal(pk.Value, actualPk)
+					if err := proto.Unmarshal(pk.Value, actualPk); err != nil {
+						return fmt.Errorf("failed to unmarshal ed25519 public key: %w", err)
+					}
 					valConsAddr = sdk.ConsAddress(actualPk.Address())
 				case strings.Contains(pk.TypeUrl, sr25519.GenPrivKey().PubKey().Type()):
 					actualPk := &sr25519.PubKey{}
-					proto.Unmarshal(pk.Value, actualPk)
+					if err := proto.Unmarshal(pk.Value, actualPk); err != nil {
+						return fmt.Errorf("failed to unmarshal sr25519 public key: %w", err)
+					}
 					valConsAddr = sdk.ConsAddress(actualPk.Address())
 				case strings.Contains(pk.TypeUrl, secp256k1.GenPrivKey().PubKey().Type()):
 					actualPk := &secp256k1.PubKey{}
-					proto.Unmarshal(pk.Value, actualPk)
+					if err := proto.Unmarshal(pk.Value, actualPk); err != nil {
+						return fmt.Errorf("failed to unmarshal secp256k1 public key: %w", err)
+					}
 					valConsAddr = sdk.ConsAddress(actualPk.Address())
 				case strings.Contains(pk.TypeUrl, scp256r1Type.PubKey().Type()):
 					actualPk := &secp256r1.PubKey{}
-					proto.Unmarshal(pk.Value, actualPk)
+					if err := proto.Unmarshal(pk.Value, actualPk); err != nil {
+						return fmt.Errorf("failed to unmarshal secp256r1 public key: %w", err)
+					}
 					valConsAddr = sdk.ConsAddress(actualPk.Address())
 				default:
 					return fmt.Errorf("invalid key type found=%s", pk.TypeUrl)
@@ -205,8 +213,7 @@ $ %s query staking hex-address A0F18FCE3DA235FE18845CDD50302A44A5CD9A3C
 
 				if valConsAddr.Equals(hexAddr) {
 					res := types.QueryValidatorResponse{Validator: val}
-					clientCtx.PrintProto(&res)
-					return nil
+					return clientCtx.PrintProto(&res)
 				}
 
 			}

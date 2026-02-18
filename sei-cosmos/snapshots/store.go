@@ -193,7 +193,7 @@ func (s *Store) Prune(retain uint32) (uint64, error) {
 		if err != nil {
 			return 0, sdkerrors.Wrap(err, "failed to prune snapshots")
 		}
-		if skip[height] || uint32(len(skip)) < retain {
+		if skip[height] || uint32(len(skip)) < retain { //nolint:gosec // len(skip) is bounded by number of distinct snapshot heights, practically small
 			skip[height] = true
 			continue
 		}
@@ -263,7 +263,7 @@ func (s *Store) Save(
 			_ = chunkBody.Close()
 			return nil, sdkerrors.Wrapf(err, "failed to create snapshot directory %q", dir)
 		}
-		path := s.pathChunk(height, format, index)
+		path := filepath.Clean(s.pathChunk(height, format, index))
 		file, err := os.Create(path)
 		if err != nil {
 			_ = chunkBody.Close()

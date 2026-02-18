@@ -79,7 +79,7 @@ func (AppModuleBasic) RegisterRESTRoutes(clientCtx sdkclient.Context, rtr *mux.R
 
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the distribution module.
 func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx sdkclient.Context, mux *runtime.ServeMux) {
-	types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx))
+	_ = types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx))
 }
 
 // GetTxCmd returns the root tx command for the distribution module.
@@ -150,7 +150,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
 
 	m := keeper.NewMigrator(am.keeper)
-	cfg.RegisterMigration(types.ModuleName, 1, m.Migrate1to2)
+	_ = cfg.RegisterMigration(types.ModuleName, 1, m.Migrate1to2)
 }
 
 // InitGenesis performs genesis initialization for the distribution module. It returns

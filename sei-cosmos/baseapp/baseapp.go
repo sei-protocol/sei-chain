@@ -1105,7 +1105,7 @@ func (app *BaseApp) RunMsgs(ctx sdk.Context, msgs []sdk.Msg) (*sdk.Result, error
 		events = events.AppendEvents(msgEvents)
 
 		txMsgData.Data = append(txMsgData.Data, &sdk.MsgData{MsgType: sdk.MsgTypeURL(msg), Data: msgResult.Data})
-		msgLogs = append(msgLogs, sdk.NewABCIMessageLog(uint32(i), msgResult.Log, msgEvents))
+		msgLogs = append(msgLogs, sdk.NewABCIMessageLog(uint32(i), msgResult.Log, msgEvents)) //nolint:gosec // loop range index
 
 		msgMsCache.Write()
 

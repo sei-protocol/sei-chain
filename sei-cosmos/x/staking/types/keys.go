@@ -83,8 +83,11 @@ func GetValidatorsByPowerIndexKey(validator Validator, powerReduction sdk.Int) [
 	// NOTE the larger values are of higher value
 
 	consensusPower := sdk.TokensToConsensusPower(validator.Tokens, powerReduction)
+	if consensusPower < 0 {
+		panic(fmt.Sprintf("negative consensus power: %d", consensusPower))
+	}
 	consensusPowerBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(consensusPowerBytes, uint64(consensusPower))
+	binary.BigEndian.PutUint64(consensusPowerBytes, uint64(consensusPower)) //nolint:gosec // bounds checked above
 
 	powerBytes := consensusPowerBytes
 	powerBytesLen := len(powerBytes) // 8
@@ -105,7 +108,7 @@ func GetValidatorsByPowerIndexKey(validator Validator, powerReduction sdk.Int) [
 
 	key[0] = ValidatorsByPowerIndexKey[0]
 	copy(key[1:powerBytesLen+1], powerBytes)
-	key[powerBytesLen+1] = byte(addrLen)
+	key[powerBytesLen+1] = byte(addrLen) //nolint:gosec // address length is always <= 255 bytes per address.MaxAddrLen
 	copy(key[powerBytesLen+2:], operAddrInvr)
 
 	return key
@@ -170,14 +173,14 @@ func ParseValidatorQueueKey(bz []byte) (time.Time, int64, error) {
 	if timeBzL > uint64(len(bz)-prefixL-8) {
 		return time.Time{}, 0, fmt.Errorf("invalid time bytes length %d exceeds remaining key length", timeBzL)
 	}
-	ts, err := sdk.ParseTimeBytes(bz[prefixL+8 : prefixL+8+int(timeBzL)]) //#nosec G115 -- timeBzL bounds checked above
+	ts, err := sdk.ParseTimeBytes(bz[prefixL+8 : prefixL+8+int(timeBzL)]) //nolint:gosec // timeBzL bounds checked above
 	if err != nil {
 		return time.Time{}, 0, err
 	}
 
-	height := sdk.BigEndianToUint64(bz[prefixL+8+int(timeBzL):]) //#nosec G115 -- timeBzL bounds checked above
+	height := sdk.BigEndianToUint64(bz[prefixL+8+int(timeBzL):]) //nolint:gosec // timeBzL bounds checked above
 
-	return ts, int64(height), nil //#nosec G115 -- height from trusted store data
+	return ts, int64(height), nil //nolint:gosec // height from trusted store data
 }
 
 // GetDelegationKey creates the key for delegator bond with validator

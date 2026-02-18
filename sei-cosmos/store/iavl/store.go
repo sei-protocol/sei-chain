@@ -252,7 +252,7 @@ func (st *Store) Has(key []byte) (exists bool) {
 // Implements types.KVStore.
 func (st *Store) Delete(key []byte) {
 	defer telemetry.MeasureSince(time.Now(), "store", "iavl", "delete")
-	_, _, _ = st.tree.Remove(key)
+	_, _, _ = st.tree.Remove(key) //nolint:dogsled
 }
 
 // DeleteVersions deletes a series of versions from the MutableTree. An error
@@ -273,7 +273,7 @@ func (st *Store) Iterator(start, end []byte) types.Iterator {
 	iterator, err := st.tree.Iterator(start, end, true)
 	if err != nil {
 		if iterator != nil {
-			iterator.Close()
+			_ = iterator.Close()
 		}
 		panic(err)
 	}
@@ -285,7 +285,7 @@ func (st *Store) ReverseIterator(start, end []byte) types.Iterator {
 	iterator, err := st.tree.Iterator(start, end, false)
 	if err != nil {
 		if iterator != nil {
-			iterator.Close()
+			_ = iterator.Close()
 		}
 		panic(err)
 	}

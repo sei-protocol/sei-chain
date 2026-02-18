@@ -137,7 +137,7 @@ func GetValidators(ctx context.Context, clientCtx client.Context, height *int64,
 	out := ResultValidatorsOutput{
 		BlockHeight: validatorsRes.BlockHeight,
 		Validators:  make([]ValidatorOutput, len(validatorsRes.Validators)),
-		Total:       uint64(total),
+		Total:       uint64(total), //nolint:gosec // total is guaranteed non-negative by the check above
 	}
 	for i := 0; i < len(validatorsRes.Validators); i++ {
 		out.Validators[i], err = validatorOutput(validatorsRes.Validators[i])

@@ -97,10 +97,10 @@ func (s *Server) Start(cfg config.Config, apiMetrics *telemetry.Metrics) error {
 	}
 
 	tmCfg := tmrpcserver.DefaultConfig()
-	tmCfg.MaxOpenConnections = int(cfg.API.MaxOpenConnections)
-	tmCfg.ReadTimeout = time.Duration(cfg.API.RPCReadTimeout) * time.Second
-	tmCfg.WriteTimeout = time.Duration(cfg.API.RPCWriteTimeout) * time.Second
-	tmCfg.MaxBodyBytes = int64(cfg.API.RPCMaxBodyBytes)
+	tmCfg.MaxOpenConnections = int(cfg.API.MaxOpenConnections)                //nolint:gosec // config value, validated at startup
+	tmCfg.ReadTimeout = time.Duration(cfg.API.RPCReadTimeout) * time.Second   //nolint:gosec // config value, validated at startup
+	tmCfg.WriteTimeout = time.Duration(cfg.API.RPCWriteTimeout) * time.Second //nolint:gosec // config value, validated at startup
+	tmCfg.MaxBodyBytes = int64(cfg.API.RPCMaxBodyBytes)                       //nolint:gosec // config value, validated at startup
 
 	listener, err := tmrpcserver.Listen(cfg.API.Address, tmCfg.MaxOpenConnections)
 	if err != nil {

@@ -28,7 +28,7 @@ func genUnbondingTime(r *rand.Rand) (ubdTime time.Duration) {
 
 // genMaxValidators returns randomized MaxValidators
 func genMaxValidators(r *rand.Rand) (maxValidators uint32) {
-	return uint32(r.Intn(250) + 1)
+	return uint32(r.Intn(250) + 1) //nolint:gosec // Intn(250)+1 always returns a value in [1, 250], fits in uint32
 }
 
 // getHistEntries returns randomized HistoricalEntries between 0-100.

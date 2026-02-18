@@ -7,11 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-
-	//nolint:gosec G108
-	_ "net/http/pprof"
+	_ "net/http/pprof" //nolint:gosec
 	"os"
 	"path"
+	"path/filepath"
 	"runtime/pprof"
 	"sync"
 	"time"
@@ -147,7 +146,13 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			if enableProfile, _ := cmd.Flags().GetBool(FlagProfile); enableProfile {
 				go func() {
 					serverCtx.Logger.Info("Listening for profiling at http://localhost:6060/debug/pprof/")
-					err := http.ListenAndServe(":6060", nil)
+					// TODO: Should this be bound to all interfaces?
+					server := &http.Server{
+						Addr:              "localhost:6060",
+						ReadHeaderTimeout: 10 * time.Second,
+						//nolint:gosec // no read/write timeout to allow long running pprofs for debugging
+					}
+					err := server.ListenAndServe()
 					if err != nil {
 						serverCtx.Logger.Error("Error from profiling server", "error", err)
 					}
@@ -279,7 +284,7 @@ func startInProcess(
 	defer cancel()
 	var cpuProfileCleanup func()
 	if cpuProfile := ctx.Viper.GetString(flagCPUProfile); cpuProfile != "" {
-		f, err := os.Create(cpuProfile)
+		f, err := os.Create(filepath.Clean(cpuProfile))
 		if err != nil {
 			return fmt.Errorf("failed to create cpuProfile file %w", err)
 		}

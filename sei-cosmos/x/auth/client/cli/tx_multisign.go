@@ -390,6 +390,7 @@ func makeBatchMultisignCmd() func(cmd *cobra.Command, args []string) error {
 
 func unmarshalSignatureJSON(clientCtx client.Context, filename string) (sigs []signingtypes.SignatureV2, err error) {
 	var bytes []byte
+	filename = filepath.Clean(filename)
 	if bytes, err = os.ReadFile(filename); err != nil {
 		return
 	}
@@ -397,6 +398,7 @@ func unmarshalSignatureJSON(clientCtx client.Context, filename string) (sigs []s
 }
 
 func readSignaturesFromFile(ctx client.Context, filename string) (sigs []signingtypes.SignatureV2, err error) {
+	filename = filepath.Clean(filename)
 	bz, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err

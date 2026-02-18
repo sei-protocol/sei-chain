@@ -29,7 +29,7 @@ func NewLegacyAminoPubKey(threshold int, pubKeys []cryptotypes.PubKey) *LegacyAm
 	if err != nil {
 		panic(err)
 	}
-	return &LegacyAminoPubKey{Threshold: uint32(threshold), PubKeys: anyPubKeys}
+	return &LegacyAminoPubKey{Threshold: uint32(threshold), PubKeys: anyPubKeys} //nolint:gosec // threshold is validated positive above and practically small
 }
 
 // Address implements cryptotypes.PubKey Address method
