@@ -266,7 +266,7 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 		// Only serve from SC when query latest version and SS not enabled
 		return rs.CacheMultiStore(), nil
 	} else {
-		return nil, fmt.Errorf("unable load historical state with SS disabled for version: %d", version)
+		return nil, fmt.Errorf("unable to load historical state with SS disabled for version: %d", version)
 	}
 
 	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil), nil
