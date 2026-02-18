@@ -86,9 +86,6 @@ func IsTraceDiagnosticsEnabled() bool {
 }
 
 func startTraceDiagnostics(ctx context.Context, op, blockRef, tracer string) (context.Context, *traceDiagnostics) {
-	if !IsTraceDiagnosticsEnabled() {
-		return ctx, nil
-	}
 	diag := &traceDiagnostics{
 		id:             traceDiagnosticsCounter.Add(1),
 		op:             op,
@@ -275,8 +272,5 @@ func tracerName(configTracer *string) string {
 }
 
 func traceDiagPrintf(format string, args ...interface{}) {
-	if !IsTraceDiagnosticsEnabled() {
-		return
-	}
-	fmt.Printf("JEREMYDEBUG [evmrpc-trace-diagnostics] "+format+"\n", args...)
+	fmt.Printf("[JEREMYDEBUG] "+format+"\n", args...)
 }
