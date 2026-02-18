@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"io"
+	"os"
 	"testing"
 	"time"
 
@@ -148,7 +149,9 @@ func setupBusyManager(t *testing.T) *snapshots.Manager {
 	// io.TempDir() is used instead of testing.T.TempDir()
 	// see https://github.com/cosmos/cosmos-sdk/pull/8475 for
 	// this change's rationale.
-	tempdir := t.TempDir()
+	t.Helper()
+	tempdir := os.TempDir()
+	t.Cleanup(func() { _ = os.RemoveAll(tempdir) })
 	store, err := snapshots.NewStore(db.NewMemDB(), tempdir)
 	require.NoError(t, err)
 	hung := newHungSnapshotter()
