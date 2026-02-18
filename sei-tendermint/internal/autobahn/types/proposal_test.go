@@ -183,7 +183,7 @@ func TestVerifyRejectsInconsistentTimeoutQC(t *testing.T) {
 	require.Contains(t, err.Error(), "inconsistent timeoutQC")
 }
 
-func TestVerifyRejectsExtraLane(t *testing.T) {
+func TestVerifyRejectsNonCommitteeLane(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := ViewSpec{}
@@ -192,16 +192,61 @@ func TestVerifyRejectsExtraLane(t *testing.T) {
 	fp, err := NewProposal(proposerKey, committee, vs, time.Now(), nil, utils.None[*AppQC]())
 	require.NoError(t, err)
 
-	// Inject an extra non-committee lane.
+	// Replace one committee lane with a non-committee lane (same count).
+	// E.g. committee = {A, B, C, D}, proposal = {A, B, C, X}.
+	// The lane count still matches (4 == 4), but Proposal.LaneRange(D)
+	// returns a synthetic [0, 0) fallback which would silently pass
+	// at genesis without the explicit map lookup.
 	extraLane := GenSecretKey(rng).Public()
 	require.False(t, committee.Lanes().Has(extraLane))
+	var victim LaneID
+	for _, l := range committee.Lanes().All() {
+		victim = l
+		break
+	}
 
 	origProposal := fp.Proposal().Msg()
-	tamperedRanges := make([]*LaneRange, 0, len(origProposal.laneRanges)+1)
+	var tamperedRanges []*LaneRange
 	for _, r := range origProposal.laneRanges {
+		if r.Lane() == victim {
+			tamperedRanges = append(tamperedRanges, NewLaneRange(extraLane, 0, utils.None[*BlockHeader]()))
+		} else {
+			tamperedRanges = append(tamperedRanges, r)
+		}
+	}
+
+	tamperedProposal := newProposal(origProposal.view, origProposal.createdAt, tamperedRanges, origProposal.app)
+	maliciousFP := &FullProposal{
+		proposal:  Sign(proposerKey, tamperedProposal),
+		laneQCs:   fp.laneQCs,
+		appQC:     fp.appQC,
+		timeoutQC: fp.timeoutQC,
+	}
+	err = maliciousFP.Verify(committee, vs)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing lane range")
+}
+
+func TestVerifyRejectsMissingLaneRange(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	vs := ViewSpec{}
+	proposerKey := leaderKey(committee, keys, vs.View())
+
+	fp, err := NewProposal(proposerKey, committee, vs, time.Now(), nil, utils.None[*AppQC]())
+	require.NoError(t, err)
+
+	// Drop one committee lane from the proposal (fewer lanes than committee).
+	origProposal := fp.Proposal().Msg()
+	var tamperedRanges []*LaneRange
+	first := true
+	for _, r := range origProposal.laneRanges {
+		if first {
+			first = false
+			continue
+		}
 		tamperedRanges = append(tamperedRanges, r)
 	}
-	tamperedRanges = append(tamperedRanges, NewLaneRange(extraLane, 0, utils.None[*BlockHeader]()))
 
 	tamperedProposal := newProposal(origProposal.view, origProposal.createdAt, tamperedRanges, origProposal.app)
 	maliciousFP := &FullProposal{

@@ -169,6 +169,24 @@ func (m *Proposal) GlobalRange() GlobalRange {
 	return g
 }
 
+// Verify checks that the proposal contains exactly the committee lanes
+// and that each lane range is internally valid.
+func (m *Proposal) Verify(c *Committee) error {
+	if got, want := len(m.laneRanges), c.Lanes().Len(); got != want {
+		return fmt.Errorf("proposal has %d lanes, committee has %d", got, want)
+	}
+	for _, lane := range c.Lanes().All() {
+		r, ok := m.laneRanges[lane]
+		if !ok {
+			return fmt.Errorf("missing lane range for committee lane %v", lane)
+		}
+		if err := r.Verify(c); err != nil {
+			return fmt.Errorf("laneRange[%v]: %w", r.Lane(), err)
+		}
+	}
+	return nil
+}
+
 // LaneRange returns the range of blocks of the given lane.
 func (m *Proposal) LaneRange(lane LaneID) *LaneRange {
 	if r, ok := m.laneRanges[lane]; ok {
@@ -308,16 +326,14 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 				return nil
 			}
 		}
-		// Verify the proposal contains exactly the committee lanes (no extra non-committee lanes).
-		if got, want := len(m.proposal.Msg().laneRanges), c.Lanes().Len(); got != want {
-			return fmt.Errorf("proposal has %d lanes, committee has %d", got, want)
+		// Verify the proposal's lane structure against the committee.
+		proposal := m.proposal.Msg()
+		if err := proposal.Verify(c); err != nil {
+			return fmt.Errorf("proposal: %w", err)
 		}
-		// Verify the proposal lane ranges.
+		// Verify each lane range against the previous commitQC and its laneQC justification.
 		for _, lane := range c.Lanes().All() {
-			r := m.proposal.Msg().LaneRange(lane)
-			if err := r.Verify(c); err != nil {
-				return fmt.Errorf("laneRange[%v]: %w", r.Lane(), err)
-			}
+			r := proposal.LaneRange(lane)
 			// Verify that range matches previous commitQC.
 			if got, want := r.First(), LaneRangeOpt(vs.CommitQC, r.Lane()).Next(); got != want {
 				return fmt.Errorf("laneRange[%v].First() = %v, want %v", r.Lane(), got, want)
