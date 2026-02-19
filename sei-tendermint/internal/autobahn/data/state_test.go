@@ -301,6 +301,27 @@ func TestExecution(t *testing.T) {
 	}
 }
 
+func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+
+	state := NewState(&Config{
+		Committee: committee,
+	}, utils.None[BlockStore]())
+
+	// Push QC without blocks.
+	qc, blocks := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
+	require.NoError(t, state.PushQC(ctx, qc, nil))
+	gr := qc.QC().GlobalRange()
+
+	// PushBlock for a block whose QC is already present succeeds immediately.
+	require.NoError(t, state.PushBlock(ctx, gr.First, blocks[0]))
+	got, err := state.TryBlock(gr.First)
+	require.NoError(t, err)
+	require.Equal(t, blocks[0], got)
+}
+
 func TestPushBlockWaitsForQC(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := t.Context()
