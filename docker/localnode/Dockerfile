@@ -1,5 +1,7 @@
 # Application image: base + scripts. Rebuild when scripts or base tag change.
-FROM sei-chain/localnode-base:go1.25.6
+
+ARG GHCR_ORG=sei-protocol
+FROM ghcr.io/${GHCR_ORG}/sei-chain-localnode-base:go1.25.6
 ENV PATH="/root/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
 SHELL ["/bin/bash", "-c"]
 WORKDIR /sei-protocol/sei-chain

@@ -53,6 +53,7 @@ jobs:
           DOCKER_BUILDKIT: 1
           DOCKER_BUILD_CACHE_FROM: type=gha
           DOCKER_BUILD_CACHE_TO: type=gha,mode=max
+          GHCR_ORG: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
           # Pull base from GHCR or build and push
