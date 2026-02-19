@@ -16,30 +16,6 @@ option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types
 // https://github.com/gogo/protobuf/blob/master/custom_types.md#warnings-and-issues
 
 //----------------------------------------
-// Request types
-
-message Request {
-  oneof value {
-    RequestEcho echo = 1;
-    RequestFlush flush = 2;
-    RequestInfo info = 3;
-    RequestInitChain init_chain = 4;
-    RequestQuery query = 5;
-    RequestCommit commit = 10;
-    // field 11 (RequestListSnapshots) reserved
-    // field 12 (RequestOfferSnapshot) reserved
-    // field 13 (RequestLoadSnapshotChunk) reserved
-    // field 14 (RequestApplySnapshotChunk) reserved
-    RequestPrepareProposal prepare_proposal = 15;
-    RequestProcessProposal process_proposal = 16;
-    RequestFinalizeBlock finalize_block = 19;
-    RequestBeginBlock begin_block = 20;
-    RequestEndBlock end_block = 22;
-  }
-  reserved 6, 8, 9, 11, 12, 13, 14, 17, 18, 7, 21, 23, 24; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestListSnapshots, RequestOfferSnapshot, RequestLoadSnapshotChunk, RequestApplySnapshotChunk, RequestExtendVote, RequestVerifyVoteExtension, RequestCheckTx, RequestDeliverTx, RequestLoadLatest, RequestGetTxPriorityHint
-  reserved "extend_vote", "verify_vote_extension", "check_tx", "deliver_tx", "list_snapshots", "offer_snapshot", "load_snapshot_chunk", "apply_snapshot_chunk", "load_latest", "get_tx_priority_hint";
-}
-
 message RequestEcho {
   string message = 1;
 }
@@ -170,34 +146,6 @@ message RequestEndBlock {
 }
 
 //----------------------------------------
-// Response types
-
-message Response {
-  oneof value {
-    ResponseException exception = 1;
-    ResponseEcho echo = 2;
-    ResponseFlush flush = 3;
-    ResponseInfo info = 4;
-    ResponseInitChain init_chain = 5;
-    ResponseQuery query = 6;
-    ResponseCheckTx check_tx = 8;
-    ResponseCommit commit = 11;
-    // field 12 reserved for ResponseListSnapshots
-    // field 13 reserved for ResponseOfferSnapshot
-    // field 14 reserved for ResponseLoadSnapshotChunk
-    // field 15 reserved for ResponseApplySnapshotChunk
-    ResponsePrepareProposal prepare_proposal = 16;
-    ResponseProcessProposal process_proposal = 17;
-    ResponseFinalizeBlock finalize_block = 20;
-    ResponseBeginBlock begin_block = 21;
-    ResponseDeliverTx deliver_tx = 22;
-    ResponseEndBlock end_block = 23;
-    ResponseGetTxPriorityHint get_tx_priority_hint = 25;
-  }
-  reserved 7, 9, 10, 12, 13, 14, 15, 18, 19, 24; // ResponseBeginBlock, ResponseDeliverTx, ResponseListSnapshots, ResponseOfferSnapshot, ResponseLoadSnapshotChunk, ResponseApplySnapshotChunk, ResponseEndBlock, ResponseExtendVote, ResponseVerifyVoteExtension, ResponseLoadLatest
-  reserved "extend_vote", "verify_vote_extension", "list_snapshots", "offer_snapshot", "load_snapshot_chunk", "apply_snapshot_chunk", "load_latest";
-}
-
 // nondeterministic
 message ResponseException {
   string error = 1;

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/assert"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -554,7 +555,7 @@ func TestClientMethodCalls(t *testing.T) {
 					require.True(t, qres.IsOK())
 
 					var v abci.ValidatorUpdate
-					err = abci.ReadMessage(bytes.NewReader(qres.Value), &v)
+					err = proto.Unmarshal(qres.Value, &v)
 					require.NoError(t, err, "Error reading query result, value %v", qres.Value)
 
 					pk, err := crypto.PubKeyFromProto(v.PubKey)
