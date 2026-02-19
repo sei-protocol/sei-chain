@@ -443,6 +443,60 @@ func TestReplaySingleEntry(t *testing.T) {
 	require.Equal(t, 1, count)
 }
 
+// TestBatchWrite exercises the batch write path by writing many entries quickly so they
+// are processed in batches, then verifies all entries were written correctly.
+func TestBatchWrite(t *testing.T) {
+	const (
+		batchSize = 8
+		numWrites = 32
+	)
+	dir := t.TempDir()
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir,
+		Config{
+			WriteBatchSize: batchSize,
+			AsyncWrites:    true,
+			BufferSize:     64,
+		})
+	require.NoError(t, err)
+
+	// Pump writes quickly so the main loop batches them (handleBatchedWrite drains up to batchSize).
+	for i := 0; i < numWrites; i++ {
+		entry := &proto.ChangelogEntry{}
+		entry.Changesets = []*proto.NamedChangeSet{{
+			Name:      fmt.Sprintf("batch-%d", i),
+			Changeset: iavl.ChangeSet{Pairs: MockKVPairs(fmt.Sprintf("key-%d", i), fmt.Sprintf("val-%d", i))},
+		}}
+		require.NoError(t, changelog.Write(*entry))
+	}
+
+	require.NoError(t, changelog.Close())
+
+	// Reopen and verify all entries
+	changelog2, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, changelog2.Close()) })
+
+	first, err := changelog2.FirstOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), first)
+	last, err := changelog2.LastOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(numWrites), last)
+
+	var replayed int
+	err = changelog2.Replay(1, uint64(numWrites), func(index uint64, entry proto.ChangelogEntry) error {
+		replayed++
+		require.Len(t, entry.Changesets, 1)
+		require.Equal(t, fmt.Sprintf("batch-%d", index-1), entry.Changesets[0].Name)
+		require.Len(t, entry.Changesets[0].Changeset.Pairs, 1)
+		require.Equal(t, []byte(fmt.Sprintf("key-%d", index-1)), entry.Changesets[0].Changeset.Pairs[0].Key)
+		require.Equal(t, []byte(fmt.Sprintf("val-%d", index-1)), entry.Changesets[0].Changeset.Pairs[0].Value)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, numWrites, replayed)
+}
+
 func TestWriteMultipleChangesets(t *testing.T) {
 	dir := t.TempDir()
 	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})

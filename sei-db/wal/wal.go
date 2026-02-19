@@ -27,6 +27,9 @@ type WAL[T any] struct {
 	unmarshal UnmarshalFn[T]
 	mtx       sync.RWMutex // guards WAL state: lazy init/close of writeChannel, isClosed checks
 
+	// The size of write batches.
+	writeBatchSize int
+
 	writeChan     chan *writeRequest[T]
 	truncateChan  chan *truncateRequest
 	getOffsetChan chan *getOffsetRequest
@@ -42,14 +45,20 @@ type WAL[T any] struct {
 type Config struct {
 	// The number of recent entries to keep in the log.
 	KeepRecent uint64
+
 	// The interval at which to prune the log.
 	PruneInterval time.Duration
+
 	// If true, the writes are asynchronous, and will return immediately without waiting for the write to be durable
 	AsyncWrites bool
+
 	// The size of internal buffers.
 	//
 	// In order to support legacy configuration, if BufferSize is 0, then the buffer size is set to 1024.
 	BufferSize int
+
+	// The size of write batches. If less than or equal to 1, then no batching is done.
+	WriteBatchSize int
 
 	// If true, do an fsync after each write.
 	FsyncEnabled bool
@@ -93,24 +102,30 @@ func NewWAL[T any](
 		bufferSize = 1024
 	}
 
+	writeBatchSize := config.WriteBatchSize
+	if writeBatchSize <= 1 {
+		writeBatchSize = 0
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 
 	w := &WAL[T]{
-		ctx:           ctx,
-		cancel:        cancel,
-		dir:           dir,
-		log:           log,
-		config:        config,
-		logger:        logger,
-		marshal:       marshal,
-		unmarshal:     unmarshal,
-		closeReqChan:  make(chan struct{}),
-		closeErrChan:  make(chan error, 1),
-		writeChan:     make(chan *writeRequest[T], bufferSize),
-		truncateChan:  make(chan *truncateRequest, bufferSize),
-		getOffsetChan: make(chan *getOffsetRequest, bufferSize),
-		readAtChan:    make(chan *readAtRequest[T], bufferSize),
-		replayChan:    make(chan *replayRequest[T], bufferSize),
+		ctx:            ctx,
+		cancel:         cancel,
+		dir:            dir,
+		log:            log,
+		config:         config,
+		logger:         logger,
+		marshal:        marshal,
+		unmarshal:      unmarshal,
+		writeBatchSize: writeBatchSize,
+		closeReqChan:   make(chan struct{}),
+		closeErrChan:   make(chan error, 1),
+		writeChan:      make(chan *writeRequest[T], bufferSize),
+		truncateChan:   make(chan *truncateRequest, bufferSize),
+		getOffsetChan:  make(chan *getOffsetRequest, bufferSize),
+		readAtChan:     make(chan *readAtRequest[T], bufferSize),
+		replayChan:     make(chan *replayRequest[T], bufferSize),
 	}
 
 	go w.mainLoop()
@@ -168,6 +183,16 @@ func (walLog *WAL[T]) Write(entry T) error {
 
 // This method is called asyncronously in response to a call to Write.
 func (walLog *WAL[T]) handleWrite(req *writeRequest[T]) {
+	if walLog.writeBatchSize <= 1 {
+		walLog.handleUnbatchedWrite(req)
+	} else {
+		walLog.handleBatchedWrite(req)
+	}
+}
+
+// handleUnbatchedWrite is called when no batching is enabled. Processes a single write request.
+func (walLog *WAL[T]) handleUnbatchedWrite(req *writeRequest[T]) {
+
 	bz, err := walLog.marshal(req.entry)
 	if err != nil {
 		req.errChan <- fmt.Errorf("marsalling error: %v", err)
@@ -183,6 +208,62 @@ func (walLog *WAL[T]) handleWrite(req *writeRequest[T]) {
 	}
 
 	req.errChan <- nil
+}
+
+// handleBatchedWrite is called when batching is enabled. This method may pop pending writes from the writeChan and
+// include them in the batch.
+func (walLog *WAL[T]) handleBatchedWrite(req *writeRequest[T]) {
+
+	requests := make([]*writeRequest[T], 0)
+	requests = append(requests, req)
+
+	keepLooking := true
+	for keepLooking && len(requests) < walLog.writeBatchSize {
+		select {
+		case req := <-walLog.writeChan:
+			requests = append(requests, req)
+		default:
+			// No more pending writes immediately available, so process the batch we have so far.
+			keepLooking = false
+		}
+	}
+
+	lastOffset, err := walLog.log.LastIndex()
+	if err != nil {
+		err = fmt.Errorf("error fetching last index: %v", err)
+		for _, req := range requests {
+			req.errChan <- err
+		}
+		return
+	}
+
+	batch := &wal.Batch{}
+
+	for _, req := range requests {
+		bz, err := walLog.marshal(req.entry)
+		if err != nil {
+			// TODO: this can torpedo the entire batch, need to handle this better
+			err = fmt.Errorf("marsalling error: %v", err)
+			for _, req := range requests {
+				req.errChan <- err
+			}
+			return
+		}
+		batch.Write(lastOffset+1, bz)
+		lastOffset++
+	}
+
+	if err := walLog.log.WriteBatch(batch); err != nil {
+		err = fmt.Errorf("failed to write batch: %v", err)
+		for _, r := range requests {
+			r.errChan <- err
+		}
+		return
+	}
+
+	for _, r := range requests {
+		r.errChan <- nil
+	}
 }
 
 // A request to truncate the log.
