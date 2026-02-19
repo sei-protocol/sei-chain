@@ -35,10 +35,9 @@ message Request {
     RequestFinalizeBlock finalize_block = 19;
     RequestBeginBlock begin_block = 20;
     RequestEndBlock end_block = 22;
-    RequestLoadLatest load_latest = 23;
   }
-  reserved 6, 8, 9, 17, 18, 7, 21, 24; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestExtendVote, RequestVerifyVoteExtension, RequestCheckTx, RequestDeliverTx, RequestGetTxPriorityHint
-  reserved "extend_vote", "verify_vote_extension", "check_tx", "deliver_tx", "get_tx_priority_hint";
+  reserved 6, 8, 9, 17, 18, 7, 21, 23, 24; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestExtendVote, RequestVerifyVoteExtension, RequestCheckTx, RequestDeliverTx, RequestLoadLatest, RequestGetTxPriorityHint
+  reserved "extend_vote", "verify_vote_extension", "check_tx", "deliver_tx", "load_latest", "get_tx_priority_hint";
 }
 
 message RequestEcho {
@@ -193,8 +192,6 @@ message RequestEndBlock {
   int64 block_gas_used = 2;
 }
 
-message RequestLoadLatest {}
-
 //----------------------------------------
 // Response types
 
@@ -218,11 +215,10 @@ message Response {
     ResponseBeginBlock begin_block = 21;
     ResponseDeliverTx deliver_tx = 22;
     ResponseEndBlock end_block = 23;
-    ResponseLoadLatest load_latest = 24;
     ResponseGetTxPriorityHint get_tx_priority_hint = 25;
   }
-  reserved 7, 9, 10, 18, 19; // ResponseBeginBlock, ResponseDeliverTx, ResponseEndBlock, ResponseExtendVote, ResponseVerifyVoteExtension
-  reserved "extend_vote", "verify_vote_extension";
+  reserved 7, 9, 10, 18, 19, 24; // ResponseBeginBlock, ResponseDeliverTx, ResponseEndBlock, ResponseExtendVote, ResponseVerifyVoteExtension, ResponseLoadLatest
+  reserved "extend_vote", "verify_vote_extension", "load_latest";
 }
 
 // nondeterministic
@@ -384,8 +380,6 @@ message ResponseFinalizeBlock {
   tendermint.types.ConsensusParams consensus_param_updates = 4;
   bytes app_hash = 5;
 }
-
-message ResponseLoadLatest {}
 
 message ResponseGetTxPriorityHint {
   int64 priority = 1; // higher is better
