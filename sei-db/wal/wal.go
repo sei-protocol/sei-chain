@@ -242,7 +242,6 @@ func (walLog *WAL[T]) handleBatchedWrite(req *writeRequest[T]) {
 	for _, req := range requests {
 		bz, err := walLog.marshal(req.entry)
 		if err != nil {
-			// TODO: this can torpedo the entire batch, need to handle this better
 			err = fmt.Errorf("marsalling error: %v", err)
 			for _, req := range requests {
 				req.errChan <- err
