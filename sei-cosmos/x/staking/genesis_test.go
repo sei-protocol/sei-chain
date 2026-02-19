@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -108,7 +107,7 @@ func TestInitGenesis(t *testing.T) {
 
 func TestInitGenesis_PoolsBalanceMismatch(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.NewContext(false, tmproto.Header{})
+	ctx := app.NewContext(false, sdk.Header{})
 
 	consPub, err := codectypes.NewAnyWithValue(PKs[0])
 	require.NoError(t, err)

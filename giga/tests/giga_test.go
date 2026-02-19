@@ -18,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -91,7 +90,7 @@ func NewGigaTestContext(t testing.TB, testAccts []utils.TestAcct, blockTime time
 	}
 	testApp := wrapper.App
 	ctx := wrapper.Ctx
-	ctx = ctx.WithBlockHeader(tmproto.Header{
+	ctx = ctx.WithBlockHeader(sdk.Header{
 		Height:  ctx.BlockHeader().Height,
 		ChainID: ctx.BlockHeader().ChainID,
 		Time:    blockTime,

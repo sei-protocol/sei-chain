@@ -16,7 +16,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
 
@@ -44,7 +43,7 @@ func TestSnapshotter(t *testing.T) {
 			srcWasmApp, genesisAddr := newWasmExampleApp(t)
 
 			// store wasm codes on chain
-			ctx := srcWasmApp.NewUncachedContext(false, tmproto.Header{
+			ctx := srcWasmApp.NewUncachedContext(false, sdk.Header{
 				ChainID: "foo",
 				Height:  srcWasmApp.LastBlockHeight() + 1,
 				Time:    time.Now(),
@@ -85,7 +84,7 @@ func TestSnapshotter(t *testing.T) {
 
 			// then all wasm contracts are imported
 			wasmKeeper = app.NewTestSupport(t, destWasmApp).WasmKeeper()
-			ctx = destWasmApp.NewUncachedContext(false, tmproto.Header{
+			ctx = destWasmApp.NewUncachedContext(false, sdk.Header{
 				ChainID: "foo",
 				Height:  destWasmApp.LastBlockHeight() + 1,
 				Time:    time.Now(),

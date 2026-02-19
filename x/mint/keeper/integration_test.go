@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/app"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
@@ -14,7 +13,7 @@ import (
 func createTestApp(t *testing.T, isCheckTx bool) (*app.App, sdk.Context) {
 	app := app.Setup(t, isCheckTx, false, false)
 
-	ctx := app.BaseApp.NewContext(isCheckTx, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(isCheckTx, sdk.Header{})
 	app.MintKeeper.SetParams(ctx, types.DefaultParams())
 	app.MintKeeper.SetMinter(ctx, types.DefaultInitialMinter())
 

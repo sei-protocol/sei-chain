@@ -15,7 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -28,7 +27,7 @@ import (
 
 func TestStakingPrecompileEventsEmission(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
 	// Setup validators - make them Bonded so they can accept delegations

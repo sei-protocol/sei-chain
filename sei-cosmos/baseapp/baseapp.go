@@ -157,7 +157,6 @@ type BaseApp struct {
 
 	ChainID string
 
-	votesInfoLock    sync.RWMutex
 	commitLock       *sync.Mutex
 	checkTxStateLock *sync.RWMutex
 
@@ -197,9 +196,6 @@ type abciData struct {
 	initChainer sdk.InitChainer // initialize state with validators and state blob
 	midBlocker  sdk.MidBlocker  // logic to run after all txs, and to determine valset changes
 	endBlocker  sdk.EndBlocker  // logic to run after all txs, and to determine valset changes
-
-	// absent validators from begin block
-	voteInfos []abci.VoteInfo
 }
 
 type baseappVersions struct {
@@ -458,7 +454,7 @@ func (app *BaseApp) LoadVersion(version int64) error {
 // specifically used by export genesis command.
 func (app *BaseApp) LoadVersionWithoutInit(version int64) error {
 	err := app.cms.LoadVersion(version)
-	app.setCheckState(tmproto.Header{})
+	app.setCheckState(sdk.Header{})
 	return err
 }
 
@@ -478,7 +474,7 @@ func (app *BaseApp) init() error {
 	}
 
 	// needed for the export command which inits from store but never calls initchain
-	app.setCheckState(tmproto.Header{})
+	app.setCheckState(sdk.Header{})
 	app.Seal()
 
 	return nil
@@ -544,7 +540,7 @@ func (app *BaseApp) IsSealed() bool { return app.sealed }
 // (i.e. a CacheMultiStore) and a new Context with the same multi-store branch,
 // provided header, and minimum gas prices set. It is set on InitChain and reset
 // on Commit.
-func (app *BaseApp) setCheckState(header tmproto.Header) {
+func (app *BaseApp) setCheckState(header sdk.Header) {
 	ms := app.cms.CacheMultiStore()
 	ctx := sdk.NewContext(ms, header, true, app.logger).WithMinGasPrices(app.minGasPrices)
 	app.checkTxStateLock.Lock()
@@ -565,7 +561,7 @@ func (app *BaseApp) setCheckState(header tmproto.Header) {
 // (i.e. a CacheMultiStore) and a new Context with the same multi-store branch,
 // and provided header. It is set on InitChain and BeginBlock and set to nil on
 // Commit.
-func (app *BaseApp) setDeliverState(header tmproto.Header) {
+func (app *BaseApp) setDeliverState(header sdk.Header) {
 	ms := app.cms.CacheMultiStore()
 	ctx := sdk.NewContext(ms, header, false, app.logger)
 	if app.deliverState == nil {
@@ -580,7 +576,7 @@ func (app *BaseApp) setDeliverState(header tmproto.Header) {
 	app.deliverState.SetContext(ctx)
 }
 
-func (app *BaseApp) setPrepareProposalState(header tmproto.Header) {
+func (app *BaseApp) setPrepareProposalState(header sdk.Header) {
 	ms := app.cms.CacheMultiStore()
 	ctx := sdk.NewContext(ms, header, false, app.logger)
 	if app.prepareProposalState == nil {
@@ -595,7 +591,7 @@ func (app *BaseApp) setPrepareProposalState(header tmproto.Header) {
 	app.prepareProposalState.SetContext(ctx)
 }
 
-func (app *BaseApp) setProcessProposalState(header tmproto.Header) {
+func (app *BaseApp) setProcessProposalState(header sdk.Header) {
 	ms := app.cms.CacheMultiStore()
 	ctx := sdk.NewContext(ms, header, false, app.logger)
 	if app.processProposalState == nil {
@@ -617,15 +613,15 @@ func (app *BaseApp) resetStatesExceptCheckState() {
 	app.stateToCommit = nil
 }
 
-func (app *BaseApp) setPrepareProposalHeader(header tmproto.Header) {
+func (app *BaseApp) setPrepareProposalHeader(header sdk.Header) {
 	app.prepareProposalState.SetContext(app.prepareProposalState.Context().WithBlockHeader(header))
 }
 
-func (app *BaseApp) setProcessProposalHeader(header tmproto.Header) {
+func (app *BaseApp) setProcessProposalHeader(header sdk.Header) {
 	app.processProposalState.SetContext(app.processProposalState.Context().WithBlockHeader(header))
 }
 
-func (app *BaseApp) setDeliverStateHeader(header tmproto.Header) {
+func (app *BaseApp) setDeliverStateHeader(header sdk.Header) {
 	app.deliverState.SetContext(app.deliverState.Context().WithBlockHeader(header).WithBlockHeight(header.Height))
 }
 
@@ -649,17 +645,6 @@ func (app *BaseApp) prepareDeliverState(headerHash []byte) {
 	app.deliverState.SetContext(app.deliverState.Context().
 		WithHeaderHash(headerHash).
 		WithConsensusParams(app.GetConsensusParams(app.deliverState.Context())))
-}
-
-func (app *BaseApp) setVotesInfo(votes []abci.VoteInfo) {
-	app.votesInfoLock.Lock()
-	defer app.votesInfoLock.Unlock()
-
-	app.voteInfos = votes
-}
-
-func (app *BaseApp) UnsafeGetVoteInfos() []abci.VoteInfo {
-	return app.voteInfos
 }
 
 // GetConsensusParams returns the current consensus parameters from the BaseApp's
@@ -804,11 +789,8 @@ func (app *BaseApp) getState(mode runTxMode) *state {
 
 // retrieve the context for the tx w/ txBytes and other memoized values.
 func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context {
-	app.votesInfoLock.RLock()
-	defer app.votesInfoLock.RUnlock()
 	ctx := app.getState(mode).Context().
-		WithTxBytes(txBytes).
-		WithVoteInfos(app.voteInfos)
+		WithTxBytes(txBytes)
 
 	ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 
@@ -824,15 +806,12 @@ func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context 
 }
 
 func (app *BaseApp) GetCheckTxContext(txBytes []byte, recheck bool) sdk.Context {
-	app.votesInfoLock.RLock()
-	defer app.votesInfoLock.RUnlock()
 	mode := runTxModeCheck
 	if recheck {
 		mode = runTxModeReCheck
 	}
 	ctx := app.getState(mode).Context().
-		WithTxBytes(txBytes).
-		WithVoteInfos(app.voteInfos)
+		WithTxBytes(txBytes)
 
 	return ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 }

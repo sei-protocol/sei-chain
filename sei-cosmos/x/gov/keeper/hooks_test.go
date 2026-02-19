@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -45,7 +44,7 @@ func (h *MockGovHooksReceiver) AfterProposalVotingPeriodEnded(ctx sdk.Context, p
 
 func TestHooks(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	minDeposit := app.GovKeeper.GetDepositParams(ctx).MinDeposit
 	addrs := seiapp.AddTestAddrs(app, ctx, 1, minDeposit[0].Amount)

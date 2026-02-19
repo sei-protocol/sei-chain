@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -18,7 +17,7 @@ import (
 
 func TestAllocateTokensToValidatorWithCommission(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	addrs := seiapp.AddTestAddrs(app, ctx, 3, sdk.NewInt(1234))
 	valAddrs := seiapp.ConvertAddrsToValAddrs(addrs)
@@ -47,7 +46,7 @@ func TestAllocateTokensToValidatorWithCommission(t *testing.T) {
 
 func TestAllocateTokensToManyValidators(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 	params := app.StakingKeeper.GetParams(ctx)
 	params.MinCommissionRate = sdk.NewDec(0)
 	app.StakingKeeper.SetParams(ctx, params)
@@ -132,7 +131,7 @@ func TestAllocateTokensToManyValidators(t *testing.T) {
 
 func TestAllocateTokensTruncation(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	addrs := seiapp.AddTestAddrs(app, ctx, 3, sdk.NewInt(1234))
 	valAddrs := seiapp.ConvertAddrsToValAddrs(addrs)

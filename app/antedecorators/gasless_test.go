@@ -7,7 +7,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletestutils "github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
@@ -137,7 +136,7 @@ func TestNonGaslessMsg(t *testing.T) {
 	// this needs to be updated if its changed from constant true
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil).WithIsCheckTx(true), &oracletypes.MsgDelegateFeedConsent{}, oraclekeeper.Keeper{}, nil)
+	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, sdk.Header{}, false, nil).WithIsCheckTx(true), &oracletypes.MsgDelegateFeedConsent{}, oraclekeeper.Keeper{}, nil)
 	require.NoError(t, err)
 	require.False(t, gasless)
 }

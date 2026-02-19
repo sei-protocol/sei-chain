@@ -9,7 +9,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	"github.com/sei-protocol/sei-chain/app"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,7 +38,7 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 		testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 
 		// No optimistic processing with upgrade scheduled
-		testCtx := testWrapper.App.BaseApp.NewContext(false, tmproto.Header{Height: 3, ChainID: "sei-test", Time: tm})
+		testCtx := testWrapper.App.BaseApp.NewContext(false, sdk.Header{Height: 3, ChainID: "sei-test", Time: tm})
 
 		testWrapper.App.UpgradeKeeper.ScheduleUpgrade(testWrapper.Ctx, types.Plan{
 			Name:   "test-plan",
@@ -60,7 +59,7 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 		tm := time.Now().UTC()
 		valPub := secp256k1.GenPrivKey().PubKey()
 		testWrapper := app.NewTestWrapper(t, tm, valPub, false)
-		testCtx := testWrapper.App.BaseApp.NewContext(false, tmproto.Header{Height: 3, ChainID: "sei-test", Time: tm})
+		testCtx := testWrapper.App.BaseApp.NewContext(false, sdk.Header{Height: 3, ChainID: "sei-test", Time: tm})
 
 		testWrapper.App.UpgradeKeeper.ScheduleUpgrade(testWrapper.Ctx, types.Plan{
 			Name:   "test-plan",

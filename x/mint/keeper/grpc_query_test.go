@@ -8,7 +8,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -26,7 +25,7 @@ type MintTestSuite struct {
 
 func (suite *MintTestSuite) SetupTest() {
 	app := app.Setup(suite.T(), false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	queryHelper := baseapp.NewQueryServerTestHelper(ctx, app.InterfaceRegistry())
 

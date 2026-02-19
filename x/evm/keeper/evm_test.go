@@ -8,7 +8,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -25,7 +24,7 @@ func TestInternalCallCreateContract(t *testing.T) {
 	contractData := append(bytecode, args...)
 
 	k := testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2).WithTxSum([32]byte{1, 2, 3})
+	ctx := testkeeper.EVMTestApp.NewContext(false, sdk.Header{}).WithBlockHeight(2).WithTxSum([32]byte{1, 2, 3})
 	testAddr, _ := testkeeper.MockAddressPair()
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
 	require.Nil(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))))
@@ -59,7 +58,7 @@ func TestInternalCall(t *testing.T) {
 	contractData := append(bytecode, args...)
 
 	k := testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testkeeper.EVMTestApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	testAddr, senderEvmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, testAddr, senderEvmAddr)
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
@@ -110,7 +109,7 @@ func TestStaticCall(t *testing.T) {
 	contractData := append(bytecode, args...)
 
 	k := testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testkeeper.EVMTestApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	testAddr, senderEvmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, testAddr, senderEvmAddr)
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(2000)))
@@ -142,7 +141,7 @@ func TestNegativeTransfer(t *testing.T) {
 	steal_amount := int64(1_000_000_000_000)
 
 	k := testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testkeeper.EVMTestApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	attackerAddr, attackerEvmAddr := testkeeper.MockAddressPair()
 	victimAddr, victimEvmAddr := testkeeper.MockAddressPair()
 
@@ -192,7 +191,7 @@ func TestNegativeTransfer(t *testing.T) {
 
 func TestHandleInternalEVMDelegateCall_AssociationError(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testkeeper.EVMTestApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	testAddr, _ := testkeeper.MockAddressPair()
 	cwAddr, contractAddr := testkeeper.MockAddressPair()
 	castedAddr := common.BytesToAddress(cwAddr.Bytes())

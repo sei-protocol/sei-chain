@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -16,7 +15,7 @@ import (
 func TestLogger(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
 
-	ctx := app.NewContext(true, tmproto.Header{})
+	ctx := app.NewContext(true, sdk.Header{})
 	require.Equal(t, ctx.Logger().With("module", "x/"+types.ModuleName), app.CrisisKeeper.Logger(ctx))
 }
 
@@ -38,7 +37,7 @@ func TestAssertInvariants(t *testing.T) {
 	app.Commit(context.Background())
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
-	ctx := app.NewContext(true, tmproto.Header{})
+	ctx := app.NewContext(true, sdk.Header{})
 
 	app.CrisisKeeper.RegisterRoute("testModule", "testRoute1", func(sdk.Context) (string, bool) { return "", false })
 	require.NotPanics(t, func() { app.CrisisKeeper.AssertInvariants(ctx) })

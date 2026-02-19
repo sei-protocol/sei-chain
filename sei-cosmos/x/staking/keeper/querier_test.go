@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -33,7 +32,7 @@ func TestNewQuerier(t *testing.T) {
 		app.StakingKeeper.SetValidatorByPowerIndex(ctx, validators[i])
 	}
 
-	header := tmproto.Header{
+	header := sdk.Header{
 		ChainID: "HelloChain",
 		Height:  5,
 	}
@@ -720,7 +719,7 @@ func TestQueryHistoricalInfo(t *testing.T) {
 	app.StakingKeeper.SetValidator(ctx, val1)
 	app.StakingKeeper.SetValidator(ctx, val2)
 
-	header := tmproto.Header{
+	header := sdk.Header{
 		ChainID: "HelloChain",
 		Height:  5,
 	}

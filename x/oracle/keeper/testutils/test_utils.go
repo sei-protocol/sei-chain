@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -148,7 +147,7 @@ func CreateTestInput(t *testing.T) TestInput {
 
 	db := dbm.NewMemDB()
 	ms := store.NewCommitMultiStore(db)
-	ctx := sdk.NewContext(ms, tmproto.Header{Time: time.Now().UTC()}, false, log.NewNopLogger())
+	ctx := sdk.NewContext(ms, sdk.Header{Time: time.Now().UTC()}, false, log.NewNopLogger())
 	encodingConfig := MakeEncodingConfig(t)
 	appCodec, legacyAmino := encodingConfig.Marshaler, encodingConfig.Amino
 

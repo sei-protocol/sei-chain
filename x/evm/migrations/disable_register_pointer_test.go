@@ -3,7 +3,7 @@ package migrations_test
 import (
 	"testing"
 
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/migrations"
 	"github.com/stretchr/testify/require"
@@ -11,7 +11,7 @@ import (
 
 func TestMigrateDisableRegisterPointer(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.NewContext(false, tmtypes.Header{})
+	ctx := testkeeper.EVMTestApp.NewContext(false, sdk.Header{})
 	migrations.MigrateDisableRegisterPointer(ctx, &k)
 	require.NotPanics(t, func() { k.GetParams(ctx) })
 }

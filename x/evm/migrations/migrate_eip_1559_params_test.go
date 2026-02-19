@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/migrations"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -13,7 +12,7 @@ import (
 
 func TestMigrateEip1559Params(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.NewContext(false, tmtypes.Header{})
+	ctx := testkeeper.EVMTestApp.NewContext(false, sdk.Header{})
 
 	keeperParams := k.GetParams(ctx)
 	keeperParams.BaseFeePerGas = sdk.NewDec(123)

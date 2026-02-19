@@ -12,7 +12,6 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	typesparams "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/mint/keeper"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
@@ -57,7 +56,7 @@ func TestMigrate2to3(t *testing.T) {
 		memStoreKey,
 		"MintParams",
 	)
-	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
+	ctx := sdk.NewContext(stateStore, sdk.Header{}, false, log.NewNopLogger())
 	if !paramsSubspace.HasKeyTable() {
 		paramsSubspace = paramsSubspace.WithKeyTable(paramtypes.NewKeyTable().RegisterParamSet(&types.Version2Params{}))
 	}

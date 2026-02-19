@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -117,7 +116,7 @@ func TestQueries(t *testing.T) {
 	banktypes.RegisterLegacyAminoCodec(cdc)
 
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	addr := seiapp.AddTestAddrs(app, ctx, 1, sdk.NewInt(1000000000))
 	valAddrs := seiapp.ConvertAddrsToValAddrs(addr)

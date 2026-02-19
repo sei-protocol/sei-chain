@@ -304,7 +304,7 @@ func TestAddr(addr string, bech string) (sdk.AccAddress, error) {
 
 // CheckBalance checks the balance of an account.
 func CheckBalance(t *testing.T, app *WasmApp, addr sdk.AccAddress, balances sdk.Coins) {
-	ctxCheck := app.NewContext(true, tmproto.Header{})
+	ctxCheck := app.NewContext(true, sdk.Header{})
 	require.True(t, balances.IsEqual(app.bankKeeper.GetAllBalances(ctxCheck, addr)))
 }
 
@@ -315,7 +315,7 @@ const DefaultGas = 1200000
 // the parameter 'expPass' against the result. A corresponding result is
 // returned.
 func SignCheckDeliver(
-	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp, header tmproto.Header, msgs []sdk.Msg,
+	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp, header sdk.Header, msgs []sdk.Msg,
 	chainID string, accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
 ) (sdk.GasInfo, *sdk.Result, error) {
 	tx, err := seiapp.GenTx(
@@ -366,7 +366,7 @@ func SignCheckDeliver(
 // ibc testing package causes checkState and deliverState to diverge in block time.
 func SignAndDeliver(
 	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp,
-	ibcKeeper *ibckeeper.Keeper, stakingKeeper stakingkeeper.Keeper, capabilityKeeper *capabilitykeeper.Keeper, distrKeeper *distrkeeper.Keeper, slashingKeeper *slashingkeeper.Keeper, evidenceKeeper *evidencekeeper.Keeper, header tmproto.Header, msgs []sdk.Msg,
+	ibcKeeper *ibckeeper.Keeper, stakingKeeper stakingkeeper.Keeper, capabilityKeeper *capabilitykeeper.Keeper, distrKeeper *distrkeeper.Keeper, slashingKeeper *slashingkeeper.Keeper, evidenceKeeper *evidencekeeper.Keeper, header sdk.Header, msgs []sdk.Msg,
 	chainID string, accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
 ) (sdk.GasInfo, *sdk.Result, error) {
 	tx, err := seiapp.GenTx(

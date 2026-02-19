@@ -3,7 +3,6 @@ package keeper_test
 import (
 	"testing"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
@@ -24,7 +23,7 @@ type KeeperTestSuite struct {
 
 func (suite *KeeperTestSuite) SetupTest() {
 	app := seiapp.Setup(suite.T(), false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	queryHelper := baseapp.NewQueryServerTestHelper(ctx, app.InterfaceRegistry())
 	types.RegisterQueryServer(queryHelper, app.GovKeeper)
@@ -38,7 +37,7 @@ func (suite *KeeperTestSuite) SetupTest() {
 
 func TestIncrementProposalNumber(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	tp := TestProposal
 	_, err := app.GovKeeper.SubmitProposal(ctx, tp)
@@ -59,7 +58,7 @@ func TestIncrementProposalNumber(t *testing.T) {
 
 func TestProposalQueues(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	// create test proposals
 	tp := TestProposal

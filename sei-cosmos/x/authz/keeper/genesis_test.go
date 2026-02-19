@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
@@ -25,7 +24,7 @@ func (suite *GenesisTestSuite) SetupTest() {
 	checkTx := false
 	app := app.Setup(suite.T(), checkTx, false, false)
 
-	suite.ctx = app.BaseApp.NewContext(checkTx, tmproto.Header{Height: 1})
+	suite.ctx = app.BaseApp.NewContext(checkTx, sdk.Header{Height: 1})
 	suite.keeper = app.AuthzKeeper
 }
 

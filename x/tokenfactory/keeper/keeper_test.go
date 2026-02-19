@@ -1,11 +1,10 @@
 package keeper_test
 
 import (
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/sei-protocol/sei-chain/app/apptesting"
@@ -50,7 +49,7 @@ func (suite *KeeperTestSuite) TestCreateModuleAccount() {
 	app.AccountKeeper.RemoveAccount(suite.Ctx, tokenfactoryModuleAccount)
 
 	// ensure module account was removed
-	suite.Ctx = app.BaseApp.NewContext(false, tmproto.Header{})
+	suite.Ctx = app.BaseApp.NewContext(false, sdk.Header{})
 	tokenfactoryModuleAccount = app.AccountKeeper.GetAccount(suite.Ctx, app.AccountKeeper.GetModuleAddress(types.ModuleName))
 	suite.Require().Nil(tokenfactoryModuleAccount)
 

@@ -11,13 +11,12 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	gogotypes "github.com/gogo/protobuf/types"
 	seiapp "github.com/sei-protocol/sei-chain/app"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMigrate2to3(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 2, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
@@ -134,7 +133,7 @@ func TestMigrate2to3(t *testing.T) {
 
 func TestMigrate2to4(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 2, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
@@ -285,7 +284,7 @@ func TestMigrate2to4(t *testing.T) {
 
 func TestMigrate3to4(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 2, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)

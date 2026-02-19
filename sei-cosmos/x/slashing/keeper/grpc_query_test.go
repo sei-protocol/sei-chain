@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -29,7 +28,7 @@ type SlashingTestSuite struct {
 
 func (suite *SlashingTestSuite) SetupTest() {
 	app := seiapp.Setup(suite.T(), false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	app.AccountKeeper.SetParams(ctx, authtypes.DefaultParams())
 	app.BankKeeper.SetParams(ctx, banktypes.DefaultParams())

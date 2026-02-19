@@ -214,7 +214,7 @@ func TestWithRouter(t *testing.T) {
 	txPerHeight := 5
 
 	for blockN := 0; blockN < nBlocks; blockN++ {
-		header := tmproto.Header{Height: int64(blockN) + 1}
+		header := sdk.Header{Height: int64(blockN) + 1}
 		app.setDeliverState(header)
 
 		for i := 0; i < txPerHeight; i++ {
@@ -262,7 +262,7 @@ func TestBaseApp_EndBlock(t *testing.T) {
 	})
 	app.Seal()
 
-	app.setDeliverState(tmproto.Header{})
+	app.setDeliverState(sdk.Header{})
 	res := app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
 	require.Len(t, res.GetValidatorUpdates(), 1)
 	require.Equal(t, int64(100), res.GetValidatorUpdates()[0].Power)
@@ -314,7 +314,7 @@ func TestQuery(t *testing.T) {
 	require.Equal(t, 0, len(res.Value))
 
 	// query is still empty after a DeliverTx before we commit
-	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
+	header := sdk.Header{Height: app.LastBlockHeight() + 1}
 	app.setDeliverState(header)
 
 	_, resTx, err = app.Deliver(aminoTxEncoder(), tx)
@@ -341,7 +341,7 @@ func TestGRPCQuery(t *testing.T) {
 	app := setupBaseApp(t, grpcQueryOpt)
 
 	app.InitChain(context.Background(), &abci.RequestInitChain{})
-	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
+	header := sdk.Header{Height: app.LastBlockHeight() + 1}
 	app.setDeliverState(header)
 	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
@@ -421,7 +421,7 @@ func TestMultiMsgDeliverTx(t *testing.T) {
 	// run a multi-msg tx
 	// with all msgs the same route
 
-	header := tmproto.Header{Height: 1}
+	header := sdk.Header{Height: 1}
 	app.setDeliverState(header)
 	tx := newTxCounter(0, 0, 1, 2)
 	txBytes, err := codec.Marshal(tx)
@@ -504,7 +504,7 @@ func TestSimulateTx(t *testing.T) {
 	nBlocks := 3
 	for blockN := 0; blockN < nBlocks; blockN++ {
 		count := int64(blockN + 1)
-		header := tmproto.Header{Height: count}
+		header := sdk.Header{Height: count}
 		app.setDeliverState(header)
 
 		tx := newTxCounter(count, count)
@@ -561,7 +561,7 @@ func TestRunInvalidTransaction(t *testing.T) {
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
 
-	header := tmproto.Header{Height: 1}
+	header := sdk.Header{Height: 1}
 	app.setDeliverState(header)
 
 	// transaction with no messages
@@ -687,7 +687,7 @@ func TestTxGasLimits(t *testing.T) {
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
 
-	header := tmproto.Header{Height: 1}
+	header := sdk.Header{Height: 1}
 	app.setDeliverState(header)
 
 	testCases := []struct {
@@ -801,7 +801,7 @@ func TestTxGasLimits(t *testing.T) {
 // 		tx := tc.tx
 
 // 		// reset the block gas
-// 		header := tmproto.Header{Height: app.LastBlockHeight() + 1}
+// 		header := sdk.Header{Height: app.LastBlockHeight() + 1}
 // 		app.setDeliverState(header)
 // 		app.deliverState.ctx = app.deliverState.ctx.WithBlockGasMeter(sdk.NewGasMeter(app.getMaximumBlockGas(app.deliverState.ctx), 1, 1))
 // 		app.BeginBlock(app.deliverState.ctx, abci.RequestBeginBlock{Header: header})
@@ -856,7 +856,7 @@ func TestCustomRunTxPanicHandler(t *testing.T) {
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
 
-	header := tmproto.Header{Height: 1}
+	header := sdk.Header{Height: 1}
 	app.setDeliverState(header)
 
 	app.AddRunTxRecoveryHandler(func(recoveryObj interface{}) error {
@@ -905,7 +905,7 @@ func TestBaseAppAnteHandler(t *testing.T) {
 	app.InitChain(context.Background(), &abci.RequestInitChain{})
 	registerTestCodec(cdc)
 
-	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
+	header := sdk.Header{Height: app.LastBlockHeight() + 1}
 	app.setDeliverState(header)
 
 	// execute a tx that will fail ante handler execution
@@ -993,7 +993,7 @@ func TestPrecommitHandlerPanic(t *testing.T) {
 	app.InitChain(context.Background(), &abci.RequestInitChain{})
 	registerTestCodec(cdc)
 
-	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
+	header := sdk.Header{Height: app.LastBlockHeight() + 1}
 	app.setDeliverState(header)
 
 	// execute a tx that will fail ante handler execution
@@ -1109,7 +1109,7 @@ func TestGasConsumptionBadTx(t *testing.T) {
 
 	app.InitChain(context.Background(), &abci.RequestInitChain{})
 
-	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
+	header := sdk.Header{Height: app.LastBlockHeight() + 1}
 	app.setDeliverState(header)
 
 	tx := newTxCounter(5, 0)
@@ -1198,7 +1198,7 @@ func TestInitChainer(t *testing.T) {
 	require.Equal(t, value, res.Value)
 
 	// commit and ensure we can still query
-	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
+	header := sdk.Header{Height: app.LastBlockHeight() + 1}
 	app.setDeliverState(header)
 	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
@@ -1475,7 +1475,7 @@ func TestDeliverTx(t *testing.T) {
 	txPerHeight := 5
 
 	for blockN := 0; blockN < nBlocks; blockN++ {
-		header := tmproto.Header{Height: int64(blockN) + 1}
+		header := sdk.Header{Height: int64(blockN) + 1}
 		app.setDeliverState(header)
 
 		for i := 0; i < txPerHeight; i++ {
@@ -1534,7 +1534,7 @@ func TestDeliverTxHooks(t *testing.T) {
 	codec := codec.NewLegacyAmino()
 	registerTestCodec(codec)
 
-	header := tmproto.Header{Height: 1}
+	header := sdk.Header{Height: 1}
 	app.setDeliverState(header)
 
 	// every even i is an evm tx
@@ -1686,7 +1686,7 @@ func TestLoadVersionInvalid(t *testing.T) {
 	err = app.LoadVersion(-1)
 	require.Error(t, err)
 
-	header := tmproto.Header{Height: 1}
+	header := sdk.Header{Height: 1}
 	app.setDeliverState(header)
 	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
@@ -1732,7 +1732,7 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 	r := rand.New(rand.NewSource(3920758213583))
 	keyCounter := 0
 	for height := int64(1); height <= int64(blocks); height++ {
-		app.setDeliverState(tmproto.Header{Height: height})
+		app.setDeliverState(sdk.Header{Height: height})
 		for txNum := 0; txNum < blockTxs; txNum++ {
 			tx := txTest{Msgs: []sdk.Msg{}}
 			for msgNum := 0; msgNum < 100; msgNum++ {
@@ -1806,13 +1806,13 @@ func TestLoadVersion(t *testing.T) {
 	require.Equal(t, emptyCommitID, lastID)
 
 	// execute a block, collect commit ID
-	header := tmproto.Header{Height: 1}
+	header := sdk.Header{Height: 1}
 	app.setDeliverState(header)
 	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 
 	// execute a block, collect commit ID
-	header = tmproto.Header{Height: 2}
+	header = sdk.Header{Height: 2}
 	app.setDeliverState(header)
 	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
@@ -1895,7 +1895,7 @@ func TestSetLoader(t *testing.T) {
 			require.Nil(t, err)
 
 			// "execute" one block
-			app.setDeliverState(tmproto.Header{Height: 2})
+			app.setDeliverState(sdk.Header{Height: 2})
 			app.SetDeliverStateToCommit()
 			app.Commit(context.Background())
 

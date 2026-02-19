@@ -3,7 +3,7 @@ package migrations_test
 import (
 	"testing"
 
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/migrations"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -12,7 +12,7 @@ import (
 
 func TestRemoveTxHashes(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.NewContext(false, tmtypes.Header{})
+	ctx := testkeeper.EVMTestApp.NewContext(false, sdk.Header{})
 	store := ctx.KVStore(k.GetStoreKey())
 	store.Set(types.TxHashesKey(1), []byte{1})
 	store.Set(types.TxHashesKey(2), []byte{2})

@@ -4,14 +4,13 @@ import (
 	"testing"
 	"time"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
-
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 func getGenesisTime() time.Time {
@@ -34,9 +33,9 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 
 	t.Run("Initial should be zero", func(t *testing.T) {
 		seiApp := keepertest.TestApp(t)
-		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+		ctx := seiApp.BaseApp.NewContext(false, sdk.Header{Time: time.Now()})
 
-		header := tmproto.Header{
+		header := sdk.Header{
 			Height: seiApp.LastBlockHeight() + 1,
 			Time:   time.Now().UTC(),
 		}
@@ -46,9 +45,9 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 
 	t.Run("even full release", func(t *testing.T) {
 		seiApp := keepertest.TestApp(t)
-		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+		ctx := seiApp.BaseApp.NewContext(false, sdk.Header{Time: time.Now()})
 
-		header := tmproto.Header{
+		header := sdk.Header{
 			Height: seiApp.LastBlockHeight() + 1,
 			Time:   time.Now().UTC(),
 		}
@@ -91,9 +90,9 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 
 	t.Run("uneven full release", func(t *testing.T) {
 		seiApp := keepertest.TestApp(t)
-		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+		ctx := seiApp.BaseApp.NewContext(false, sdk.Header{Time: time.Now()})
 
-		header := tmproto.Header{
+		header := sdk.Header{
 			Height: seiApp.LastBlockHeight() + 1,
 			Time:   time.Now().UTC(),
 		}
@@ -137,9 +136,9 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 
 	t.Run("multiple full releases", func(t *testing.T) {
 		seiApp := keepertest.TestApp(t)
-		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+		ctx := seiApp.BaseApp.NewContext(false, sdk.Header{Time: time.Now()})
 
-		header := tmproto.Header{
+		header := sdk.Header{
 			Height: seiApp.LastBlockHeight() + 1,
 			Time:   time.Now().UTC(),
 		}
@@ -195,9 +194,9 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 
 	t.Run("outage during release", func(t *testing.T) {
 		seiApp := keepertest.TestApp(t)
-		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+		ctx := seiApp.BaseApp.NewContext(false, sdk.Header{Time: time.Now()})
 
-		header := tmproto.Header{
+		header := sdk.Header{
 			Height: seiApp.LastBlockHeight() + 1,
 			Time:   time.Now().UTC(),
 		}
@@ -269,9 +268,9 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 
 func TestNoEpochPassedNoDistribution(t *testing.T) {
 	seiApp := keepertest.TestApp(t)
-	ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx := seiApp.BaseApp.NewContext(false, sdk.Header{Time: time.Now()})
 
-	header := tmproto.Header{Height: seiApp.LastBlockHeight() + 1}
+	header := sdk.Header{Height: seiApp.LastBlockHeight() + 1}
 	legacyabci.BeginBlock(ctx, header.Height, []abci.VoteInfo{}, []abci.Misbehavior{}, seiApp.BeginBlockKeepers)
 	// Get mint params
 	mintParams := seiApp.MintKeeper.GetParams(ctx)

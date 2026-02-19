@@ -10,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
@@ -29,7 +28,7 @@ func TestSimple(t *testing.T) {
 	contractData := append(bytecode, args...)
 
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())

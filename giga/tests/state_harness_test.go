@@ -17,7 +17,6 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/tests/harness"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
 )
@@ -104,7 +103,7 @@ func NewStateTestContext(t testing.TB, blockTime time.Time, workers int, mode Ex
 	}
 	testApp := wrapper.App
 	ctx := wrapper.Ctx
-	ctx = ctx.WithBlockHeader(tmproto.Header{
+	ctx = ctx.WithBlockHeader(sdk.Header{
 		Height:  ctx.BlockHeader().Height,
 		ChainID: ctx.BlockHeader().ChainID,
 		Time:    blockTime,

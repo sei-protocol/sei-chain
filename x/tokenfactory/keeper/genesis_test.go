@@ -1,8 +1,8 @@
 package keeper_test
 
 import (
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
@@ -31,7 +31,7 @@ func (suite *KeeperTestSuite) TestGenesis() {
 		},
 	}
 	app := suite.App
-	suite.Ctx = app.BaseApp.NewContext(false, tmproto.Header{})
+	suite.Ctx = app.BaseApp.NewContext(false, sdk.Header{})
 	// Test both with bank denom metadata set, and not set.
 	for i, denom := range genesisState.FactoryDenoms {
 		// hacky, sets bank metadata to exist if i != 0, to cover both cases.

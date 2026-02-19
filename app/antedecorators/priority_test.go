@@ -12,7 +12,6 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/sei-protocol/sei-chain/x/oracle"
@@ -24,7 +23,7 @@ func TestPriorityAnteDecorator(t *testing.T) {
 	anteDecorators := []sdk.AnteDecorator{
 		antedecorators.NewPriorityDecorator(),
 	}
-	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
+	ctx := sdk.NewContext(nil, sdk.Header{}, false, nil)
 	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 	// test with normal priority
 	newCtx, err := chainedHandler(
@@ -41,7 +40,7 @@ func TestPriorityAnteDecoratorTooHighPriority(t *testing.T) {
 	anteDecorators := []sdk.AnteDecorator{
 		antedecorators.NewPriorityDecorator(),
 	}
-	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
+	ctx := sdk.NewContext(nil, sdk.Header{}, false, nil)
 	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 	// test with too high priority, should be auto capped
 	newCtx, err := chainedHandler(
@@ -62,7 +61,7 @@ func TestPriorityAnteDecoratorOracleMsg(t *testing.T) {
 	anteDecorators := []sdk.AnteDecorator{
 		antedecorators.NewPriorityDecorator(),
 	}
-	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
+	ctx := sdk.NewContext(nil, sdk.Header{}, false, nil)
 	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 	// test with zero priority, should be bumped up to oracle priority
 	newCtx, err := chainedHandler(
@@ -90,7 +89,7 @@ func (d PriorityCaptureDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 
 func TestPriorityWithExactAnteChain_BankSend(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
-	ctx := testApp.NewContext(false, tmproto.Header{ChainID: "sei-test"}).WithBlockHeight(2).WithIsCheckTx(true)
+	ctx := testApp.NewContext(false, sdk.Header{ChainID: "sei-test"}).WithBlockHeight(2).WithIsCheckTx(true)
 	testApp.ParamsKeeper.SetCosmosGasParams(ctx, *paramtypes.DefaultCosmosGasParams())
 	testApp.ParamsKeeper.SetFeesParams(ctx, paramtypes.DefaultGenesis().GetFeesParams())
 
@@ -157,7 +156,7 @@ func (d PrioritySetterDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 
 func TestPrioritySetterWithAnteHandlers(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
-	ctx := testApp.NewContext(false, tmproto.Header{}).WithBlockHeight(2).WithIsCheckTx(true)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2).WithIsCheckTx(true)
 	testApp.ParamsKeeper.SetCosmosGasParams(ctx, *paramtypes.DefaultCosmosGasParams())
 	testApp.ParamsKeeper.SetFeesParams(ctx, paramtypes.DefaultGenesis().GetFeesParams())
 

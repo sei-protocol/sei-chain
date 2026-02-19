@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"testing"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
@@ -42,7 +41,7 @@ func TestKeeperTestSuite(t *testing.T) {
 // returns context and app
 func createTestApp(t *testing.T, isCheckTx bool) (*seiapp.App, sdk.Context) {
 	app := seiapp.Setup(t, isCheckTx, false, false)
-	ctx := app.BaseApp.NewContext(isCheckTx, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(isCheckTx, sdk.Header{})
 
 	return app, ctx
 }

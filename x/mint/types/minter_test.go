@@ -4,8 +4,6 @@ import (
 	"testing"
 	"time"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app"
 	epochTypes "github.com/sei-protocol/sei-chain/x/epoch/types"
@@ -422,7 +420,7 @@ func TestRecordSuccessfulMint(t *testing.T) {
 		1000,
 	)
 	app := app.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 	currentTime := time.Now().UTC()
 
 	epoch := epochTypes.Epoch{

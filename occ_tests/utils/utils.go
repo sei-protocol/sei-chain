@@ -25,7 +25,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	wasmxtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/stretchr/testify/require"
@@ -165,7 +164,7 @@ func NewTestContext(tb testing.TB, testAccts []TestAcct, blockTime time.Time, wo
 	})
 	testApp := wrapper.App
 	ctx := wrapper.Ctx
-	ctx = ctx.WithBlockHeader(tmproto.Header{Height: ctx.BlockHeader().Height, ChainID: ctx.BlockHeader().ChainID, Time: blockTime})
+	ctx = ctx.WithBlockHeader(sdk.Header{Height: ctx.BlockHeader().Height, ChainID: ctx.BlockHeader().ChainID, Time: blockTime})
 	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)))
 	bankkeeper := testApp.BankKeeper
 	wasmKeeper := testApp.WasmKeeper

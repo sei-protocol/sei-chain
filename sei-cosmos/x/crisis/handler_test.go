@@ -3,7 +3,6 @@ package crisis_test
 import (
 	"testing"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/crisis/types"
@@ -20,7 +19,7 @@ var (
 
 func createTestApp(t *testing.T) (*seiapp.App, sdk.Context, []sdk.AccAddress) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.NewContext(false, tmproto.Header{})
+	ctx := app.NewContext(false, sdk.Header{})
 
 	constantFee := sdk.NewInt64Coin(sdk.DefaultBondDenom, 10)
 	app.CrisisKeeper.SetConstantFee(ctx, constantFee)

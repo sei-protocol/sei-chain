@@ -17,7 +17,6 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/suite"
 )
@@ -95,7 +94,7 @@ func (suite *IntegrationTestSuite) SetupTest() {
 	})
 	a := wrapper.App
 	ctx := wrapper.Ctx
-	ctx = ctx.WithBlockHeader(tmproto.Header{
+	ctx = ctx.WithBlockHeader(sdk.Header{
 		Height:  ctx.BlockHeader().Height,
 		ChainID: ctx.BlockHeader().ChainID,
 		Time:    blockTime,
@@ -403,7 +402,7 @@ func (suite *IntegrationTestSuite) TestHasBalance() {
 func (suite *IntegrationTestSuite) TestSpendableCoins() {
 	app, ctx := suite.app, suite.ctx
 	now := tmtime.Now()
-	ctx = ctx.WithBlockHeader(tmproto.Header{Time: now})
+	ctx = ctx.WithBlockHeader(sdk.Header{Time: now})
 	endTime := now.Add(24 * time.Hour)
 
 	origCoins := sdk.NewCoins(sdk.NewInt64Coin("usei", 100))
@@ -434,7 +433,7 @@ func (suite *IntegrationTestSuite) TestSpendableCoins() {
 func (suite *IntegrationTestSuite) TestVestingAccountSend() {
 	app, ctx := suite.app, suite.ctx
 	now := tmtime.Now()
-	ctx = ctx.WithBlockHeader(tmproto.Header{Time: now})
+	ctx = ctx.WithBlockHeader(sdk.Header{Time: now})
 	endTime := now.Add(24 * time.Hour)
 
 	origCoins := sdk.NewCoins(sdk.NewInt64Coin("usei", 100))
@@ -462,7 +461,7 @@ func (suite *IntegrationTestSuite) TestVestingAccountSend() {
 func (suite *IntegrationTestSuite) TestPeriodicVestingAccountSend() {
 	app, ctx := suite.app, suite.ctx
 	now := tmtime.Now()
-	ctx = ctx.WithBlockHeader(tmproto.Header{Time: now})
+	ctx = ctx.WithBlockHeader(sdk.Header{Time: now})
 	origCoins := sdk.NewCoins(sdk.NewInt64Coin("usei", 100))
 	sendCoins := sdk.NewCoins(sdk.NewInt64Coin("usei", 50))
 

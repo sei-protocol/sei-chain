@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -109,7 +108,7 @@ func TestDeliverTxBatch(t *testing.T) {
 	txPerHeight := 5
 
 	for blockN := 0; blockN < nBlocks; blockN++ {
-		header := tmproto.Header{Height: int64(blockN) + 1}
+		header := sdk.Header{Height: int64(blockN) + 1}
 		app.setDeliverState(header)
 
 		var requests []*sdk.DeliverTxEntry
@@ -166,7 +165,7 @@ func TestDeliverTxBatchEmpty(t *testing.T) {
 
 	nBlocks := 3
 	for blockN := 0; blockN < nBlocks; blockN++ {
-		header := tmproto.Header{Height: int64(blockN) + 1}
+		header := sdk.Header{Height: int64(blockN) + 1}
 		app.setDeliverState(header)
 
 		var requests []*sdk.DeliverTxEntry

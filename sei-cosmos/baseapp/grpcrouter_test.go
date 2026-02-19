@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/app"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
@@ -25,7 +24,7 @@ func TestGRPCGatewayRouter(t *testing.T) {
 	testdata.RegisterQueryServer(qr, testdata.QueryImpl{})
 	helper := &baseapp.QueryServiceTestHelper{
 		GRPCQueryRouter: qr,
-		Ctx:             sdk.NewContext(nil, tmproto.Header{}, false, nil).WithContext(context.Background()),
+		Ctx:             sdk.NewContext(nil, sdk.Header{}, false, nil).WithContext(context.Background()),
 	}
 	client := testdata.NewQueryClient(helper)
 

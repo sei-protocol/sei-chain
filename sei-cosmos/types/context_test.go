@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -72,7 +71,7 @@ func (s *contextTestSuite) TestLogContext() {
 
 type dummy int64 //nolint:unused
 
-func (d dummy) Clone() interface{} {
+func (d dummy) Clone() any {
 	return d
 }
 
@@ -84,14 +83,13 @@ func (s *contextTestSuite) TestContextWithCustom() {
 	ctrl := gomock.NewController(s.T())
 	s.T().Cleanup(ctrl.Finish)
 
-	header := tmproto.Header{}
+	header := types.Header{}
 	height := int64(1)
 	chainid := "chainid"
 	ischeck := true
 	isOCC := true
 	txbytes := []byte("txbytes")
 	logger := mocks.NewMockLogger(ctrl)
-	voteinfos := []abci.VoteInfo{{}}
 	meter := types.NewGasMeterWithMultiplier(ctx, 10000)
 	minGasPrices := types.DecCoins{types.NewInt64DecCoin("feetoken", 1)}
 	headerHash := []byte("headerHash")
@@ -103,7 +101,6 @@ func (s *contextTestSuite) TestContextWithCustom() {
 		WithBlockHeight(height).
 		WithChainID(chainid).
 		WithTxBytes(txbytes).
-		WithVoteInfos(voteinfos).
 		WithGasMeter(meter).
 		WithMinGasPrices(minGasPrices).
 		WithHeaderHash(headerHash).
@@ -115,7 +112,6 @@ func (s *contextTestSuite) TestContextWithCustom() {
 	s.Require().Equal(isOCC, ctx.IsOCCEnabled())
 	s.Require().Equal(txbytes, ctx.TxBytes())
 	s.Require().Equal(logger, ctx.Logger())
-	s.Require().Equal(voteinfos, ctx.VoteInfos())
 	s.Require().Equal(meter, ctx.GasMeter())
 	s.Require().Equal(minGasPrices, ctx.MinGasPrices())
 	s.Require().Equal(headerHash, ctx.HeaderHash().Bytes())
@@ -147,7 +143,7 @@ func (s *contextTestSuite) TestContextHeader() {
 	addr := secp256k1.GenPrivKey().PubKey().Address()
 	proposer := types.ConsAddress(addr)
 
-	ctx = types.NewContext(nil, tmproto.Header{}, false, nil)
+	ctx = types.NewContext(nil, types.Header{}, false, nil)
 
 	fmt.Printf("Start ctx\n")
 
@@ -164,35 +160,35 @@ func (s *contextTestSuite) TestContextHeader() {
 
 func (s *contextTestSuite) TestContextHeaderClone() {
 	cases := map[string]struct {
-		h tmproto.Header
+		h types.Header
 	}{
 		"empty": {
-			h: tmproto.Header{},
+			h: types.Header{},
 		},
 		"height": {
-			h: tmproto.Header{
+			h: types.Header{
 				Height: 77,
 			},
 		},
 		"time": {
-			h: tmproto.Header{
+			h: types.Header{
 				Time: time.Unix(12345677, 12345),
 			},
 		},
 		"zero time": {
-			h: tmproto.Header{
+			h: types.Header{
 				Time: time.Unix(0, 0),
 			},
 		},
 		"many items": {
-			h: tmproto.Header{
+			h: types.Header{
 				Height:  823,
 				Time:    time.Unix(9999999999, 0),
 				ChainID: "silly-demo",
 			},
 		},
 		"many items with hash": {
-			h: tmproto.Header{
+			h: types.Header{
 				Height:        823,
 				Time:          time.Unix(9999999999, 0),
 				ChainID:       "silly-demo",
@@ -203,7 +199,6 @@ func (s *contextTestSuite) TestContextHeaderClone() {
 	}
 
 	for name, tc := range cases {
-		tc := tc
 		s.T().Run(name, func(t *testing.T) {
 			ctx := types.NewContext(nil, tc.h, false, nil)
 			s.Require().Equal(tc.h.Height, ctx.BlockHeight())
@@ -219,7 +214,7 @@ func (s *contextTestSuite) TestContextHeaderClone() {
 }
 
 func (s *contextTestSuite) TestUnwrapSDKContext() {
-	sdkCtx := types.NewContext(nil, tmproto.Header{}, false, nil)
+	sdkCtx := types.NewContext(nil, types.Header{}, false, nil)
 	ctx := types.WrapSDKContext(sdkCtx)
 	sdkCtx2 := types.UnwrapSDKContext(ctx)
 	s.Require().Equal(sdkCtx, sdkCtx2)

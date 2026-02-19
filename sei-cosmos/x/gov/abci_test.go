@@ -7,7 +7,6 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -20,7 +19,7 @@ import (
 
 func TestTickExpiredDepositPeriod(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 	addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
@@ -71,7 +70,7 @@ func TestTickExpiredDepositPeriod(t *testing.T) {
 
 func TestTickMultipleExpiredDepositPeriod(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 	addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
@@ -147,7 +146,7 @@ func TestTickMultipleExpiredDepositPeriod(t *testing.T) {
 
 func TestTickPassedDepositPeriod(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 	addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
@@ -203,7 +202,7 @@ func TestTickPassedDepositPeriod(t *testing.T) {
 
 func TestTickPassedVotingPeriod(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 	addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 
 	SortAddresses(addrs)
@@ -291,7 +290,7 @@ func TestProposalPassedEndblocker(t *testing.T) {
 					depositMultiplier := getDepositMultiplier(tc.isExpedited)
 
 					app := seiapp.Setup(t, false, false, false)
-					ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+					ctx := app.BaseApp.NewContext(false, sdk.Header{})
 					addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens.Mul(sdk.NewInt(depositMultiplier)))
 					params := app.StakingKeeper.GetParams(ctx)
 					params.MinCommissionRate = sdk.NewDec(0)
@@ -301,7 +300,7 @@ func TestProposalPassedEndblocker(t *testing.T) {
 					handler := gov.NewHandler(app.GovKeeper)
 					stakingHandler := staking.NewHandler(app.StakingKeeper)
 
-					header := tmproto.Header{Height: app.LastBlockHeight() + 1}
+					header := sdk.Header{Height: app.LastBlockHeight() + 1}
 					legacyabci.BeginBlock(ctx, header.Height, []abci.VoteInfo{}, []abci.Misbehavior{}, app.BeginBlockKeepers)
 
 					valAddr := sdk.ValAddress(addrs[0])
@@ -376,13 +375,13 @@ func TestExpeditedProposalPassAndConvertToRegular(t *testing.T) {
 			testProposal := types.NewTextProposal("TestTitle", "description", isExpedited)
 
 			app := seiapp.Setup(t, false, false, false)
-			ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+			ctx := app.BaseApp.NewContext(false, sdk.Header{})
 			addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 			params := app.StakingKeeper.GetParams(ctx)
 			params.MinCommissionRate = sdk.NewDec(0)
 			app.StakingKeeper.SetParams(ctx, params)
 			SortAddresses(addrs)
-			header := tmproto.Header{Height: app.LastBlockHeight() + 1}
+			header := sdk.Header{Height: app.LastBlockHeight() + 1}
 			legacyabci.BeginBlock(ctx, header.Height, []abci.VoteInfo{}, []abci.Misbehavior{}, app.BeginBlockKeepers)
 
 			valAddr := sdk.ValAddress(addrs[0])
@@ -564,7 +563,7 @@ func TestExpeditedProposalPassAndConvertToRegular(t *testing.T) {
 
 func TestEndBlockerProposalHandlerFailed(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 	addrs := seiapp.AddTestAddrs(app, ctx, 1, valTokens)
 	params := app.StakingKeeper.GetParams(ctx)
 	params.MinCommissionRate = sdk.NewDec(0)

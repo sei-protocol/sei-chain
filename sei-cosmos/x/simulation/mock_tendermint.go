@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 type mockValidator struct {
@@ -119,10 +119,10 @@ func updateValidators(
 func RandomRequestBeginBlock(r *rand.Rand, params Params,
 	validators mockValidators, pastTimes []time.Time,
 	pastVoteInfos [][]abci.VoteInfo,
-	event func(route, op, evResult string), header tmproto.Header) abci.RequestBeginBlock {
+	event func(route, op, evResult string), header sdk.Header) abci.RequestBeginBlock {
 	if len(validators) == 0 {
 		return abci.RequestBeginBlock{
-			Header: header,
+			Header: header.ToProto(),
 		}
 	}
 
@@ -166,7 +166,7 @@ func RandomRequestBeginBlock(r *rand.Rand, params Params,
 	// return if no past times
 	if len(pastTimes) == 0 {
 		return abci.RequestBeginBlock{
-			Header: header,
+			Header: header.ToProto(),
 			LastCommitInfo: abci.LastCommitInfo{
 				Votes: voteInfos,
 			},
@@ -209,7 +209,7 @@ func RandomRequestBeginBlock(r *rand.Rand, params Params,
 	}
 
 	return abci.RequestBeginBlock{
-		Header: header,
+		Header: header.ToProto(),
 		LastCommitInfo: abci.LastCommitInfo{
 			Votes: voteInfos,
 		},

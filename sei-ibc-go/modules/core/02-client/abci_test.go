@@ -3,8 +3,8 @@ package client_test
 import (
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 
 	client "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
@@ -73,7 +73,7 @@ func (suite *ClientTestSuite) TestBeginBlockerConsensusState() {
 	store.Set(upgradetypes.PlanKey(), bz)
 
 	nextValsHash := []byte("nextValsHash")
-	newCtx := suite.chainA.GetContext().WithBlockHeader(tmproto.Header{
+	newCtx := suite.chainA.GetContext().WithBlockHeader(sdk.Header{
 		Height:             suite.chainA.GetContext().BlockHeight(),
 		NextValidatorsHash: nextValsHash,
 	})

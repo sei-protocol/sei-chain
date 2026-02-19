@@ -19,7 +19,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -46,7 +45,7 @@ func (tx mockTx) GetGasEstimate() uint64                          { return 0 }
 
 func TestRun(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 	upgradeKeeper := &testApp.UpgradeKeeper
 
@@ -263,7 +262,7 @@ func TestRun(t *testing.T) {
 
 func TestSendForUnlinkedReceiver(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
 	// Setup sender addresses and environment

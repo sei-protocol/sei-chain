@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -19,7 +18,7 @@ func TestGrant(t *testing.T) {
 	addr2, err := sdk.AccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")
 	require.NoError(t, err)
 	atom := sdk.NewCoins(sdk.NewInt64Coin("atom", 555))
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{
+	ctx := app.BaseApp.NewContext(false, sdk.Header{
 		Time: time.Now(),
 	})
 	now := ctx.BlockTime()

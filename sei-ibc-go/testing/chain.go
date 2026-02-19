@@ -63,7 +63,7 @@ type TestChain struct {
 	App           TestingApp
 	ChainID       string
 	LastHeader    *ibctmtypes.Header // header for last block height committed
-	CurrentHeader tmproto.Header     // header for current block height
+	CurrentHeader sdk.Header     // header for current block height
 	QueryServer   types.QueryServer
 	TxConfig      client.TxConfig
 	Codec         codec.BinaryCodec
@@ -124,7 +124,7 @@ func NewTestChainWithValSet(t *testing.T, coord *Coordinator, chainID string, va
 	app := NewTestingAppDecorator(t, simapp.SetupWithGenesisValSet(t, valSet, genAccs, chainID, sdk.DefaultPowerReduction, genBals...))
 
 	// create current header and call begin block
-	header := tmproto.Header{
+	header := sdk.Header{
 		ChainID: chainID,
 		Height:  1,
 		Time:    coord.CurrentTime.UTC(),
@@ -279,7 +279,7 @@ func (chain *TestChain) NextBlock() {
 	chain.LastHeader = chain.CurrentTMClientHeader()
 
 	// increment the current header
-	chain.CurrentHeader = tmproto.Header{
+	chain.CurrentHeader = sdk.Header{
 		ChainID: chain.ChainID,
 		Height:  chain.App.LastBlockHeight() + 1,
 		AppHash: chain.App.LastCommitID().Hash,

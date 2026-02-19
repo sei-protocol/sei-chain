@@ -24,7 +24,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/gogo/protobuf/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )
@@ -34,14 +33,14 @@ import (
 func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (res *abci.ResponseInitChain, err error) {
 	// On a new chain, we consider the init chain block height as 0, even though
 	// req.InitialHeight is 1 by default.
-	initHeader := tmproto.Header{ChainID: req.ChainId, Time: req.Time}
+	initHeader := sdk.Header{ChainID: req.ChainId, Time: req.Time}
 	app.ChainID = req.ChainId
 
 	// If req.InitialHeight is > 1, then we set the initial version in the
 	// stores.
 	if req.InitialHeight > 1 {
 		app.initialHeight = req.InitialHeight
-		initHeader = tmproto.Header{ChainID: req.ChainId, Height: req.InitialHeight, Time: req.Time}
+		initHeader = sdk.Header{ChainID: req.ChainId, Height: req.InitialHeight, Time: req.Time}
 		err := app.cms.SetInitialVersion(req.InitialHeight)
 		if err != nil {
 			return nil, err
@@ -207,7 +206,7 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
 	}()
 
-	gInfo, result, anteEvents, _, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum).WithVoteInfos(app.voteInfos), runTxModeDeliver, tx, checksum)
+	gInfo, result, anteEvents, _, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum), runTxModeDeliver, tx, checksum)
 	if err != nil {
 		resultStr = "failed"
 		// if we have a result, use those events instead of just the anteEvents
@@ -755,7 +754,7 @@ func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) int64 {
 }
 
 func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
-	ctx := app.checkState.ctx.WithTxBytes(txBytes).WithVoteInfos(app.voteInfos).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx))
+	ctx := app.checkState.ctx.WithTxBytes(txBytes).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx))
 	ctx, _ = ctx.CacheContext()
 	tx, err := app.txDecoder(txBytes)
 	if err != nil {
@@ -920,7 +919,7 @@ func splitPath(requestPath string) (path []string) {
 func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepareProposal) (resp *abci.ResponsePrepareProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "prepare_proposal")
 
-	header := tmproto.Header{
+	header := sdk.Header{
 		ChainID:            app.ChainID,
 		Height:             req.Height,
 		Time:               req.Time,
@@ -933,9 +932,9 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 		ValidatorsHash:     req.ValidatorsHash,
 		LastCommitHash:     req.LastCommitHash,
 		LastResultsHash:    req.LastResultsHash,
-		LastBlockId: tmproto.BlockID{
+		LastBlockId: sdk.BlockID{
 			Hash: req.LastBlockHash,
-			PartSetHeader: tmproto.PartSetHeader{
+			PartSetHeader: sdk.PartSetHeader{
 				Total: uint32(req.LastBlockPartSetTotal),
 				Hash:  req.LastBlockPartSetHash,
 			},
@@ -987,7 +986,7 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "process_proposal")
 
-	header := tmproto.Header{
+	header := sdk.Header{
 		ChainID:            app.ChainID,
 		Height:             req.Height,
 		Time:               req.Time,
@@ -1000,9 +999,9 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 		ValidatorsHash:     req.ValidatorsHash,
 		LastCommitHash:     req.LastCommitHash,
 		LastResultsHash:    req.LastResultsHash,
-		LastBlockId: tmproto.BlockID{
+		LastBlockId: sdk.BlockID{
 			Hash: req.LastBlockHash,
-			PartSetHeader: tmproto.PartSetHeader{
+			PartSetHeader: sdk.PartSetHeader{
 				Total: uint32(req.LastBlockPartSetTotal),
 				Hash:  req.LastBlockPartSetHash,
 			},
@@ -1062,7 +1061,7 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 	// Initialize the DeliverTx state. If this is the first block, it should
 	// already be initialized in InitChain. Otherwise app.deliverState will be
 	// nil, since it is reset on Commit.
-	header := tmproto.Header{
+	header := sdk.Header{
 		ChainID:            app.ChainID,
 		Height:             req.Height,
 		Time:               req.Time,
@@ -1075,9 +1074,9 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		ValidatorsHash:     req.ValidatorsHash,
 		LastCommitHash:     req.LastCommitHash,
 		LastResultsHash:    req.LastResultsHash,
-		LastBlockId: tmproto.BlockID{
+		LastBlockId: sdk.BlockID{
 			Hash: req.LastBlockHash,
-			PartSetHeader: tmproto.PartSetHeader{
+			PartSetHeader: sdk.PartSetHeader{
 				Total: uint32(req.LastBlockPartSetTotal),
 				Hash:  req.LastBlockPartSetHash,
 			},
@@ -1107,9 +1106,6 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 			return nil, err
 		}
 		res.Events = sdk.MarkEventsToIndex(res.Events, app.IndexEvents)
-		// set the signed validators for addition to context in deliverTx
-		app.setVotesInfo(req.DecidedLastCommit.GetVotes())
-
 		return res, nil
 	} else {
 		return nil, errors.New("finalize block handler not set")

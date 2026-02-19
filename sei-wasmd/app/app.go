@@ -667,7 +667,7 @@ func NewWasmApp(
 		if err := app.LoadLatestVersion(); err != nil {
 			tmos.Exit(fmt.Sprintf("failed to load latest version: %s", err))
 		}
-		ctx := app.NewUncachedContext(true, tmproto.Header{})
+		ctx := app.NewUncachedContext(true, sdk.Header{})
 
 		// Initialize pinned codes in wasmvm as they are not persisted there
 		if err := app.wasmKeeper.InitializePinnedCodes(ctx); err != nil {

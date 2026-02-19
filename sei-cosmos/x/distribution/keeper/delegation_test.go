@@ -3,7 +3,6 @@ package keeper_test
 import (
 	"testing"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -16,7 +15,7 @@ import (
 
 func TestCalculateRewardsBasic(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
 	addr := seiapp.AddTestAddrs(app, ctx, 2, sdk.NewInt(1000))
@@ -70,7 +69,7 @@ func TestCalculateRewardsBasic(t *testing.T) {
 
 func TestCalculateRewardsAfterSlash(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	addr := seiapp.AddTestAddrs(app, ctx, 2, sdk.NewInt(100000000))
 	valAddrs := seiapp.ConvertAddrsToValAddrs(addr)
@@ -133,7 +132,7 @@ func TestCalculateRewardsAfterSlash(t *testing.T) {
 
 func TestCalculateRewardsAfterManySlashes(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 	addr := seiapp.AddTestAddrs(app, ctx, 2, sdk.NewInt(100000000))
@@ -208,7 +207,7 @@ func TestCalculateRewardsAfterManySlashes(t *testing.T) {
 
 func TestCalculateRewardsMultiDelegator(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 	addr := seiapp.AddTestAddrs(app, ctx, 2, sdk.NewInt(100000000))
@@ -271,7 +270,7 @@ func TestCalculateRewardsMultiDelegator(t *testing.T) {
 
 func TestWithdrawDelegationRewardsBasic(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	balancePower := int64(1000)
 	balanceTokens := app.StakingKeeper.TokensFromConsensusPower(ctx, balancePower)
@@ -335,7 +334,7 @@ func TestWithdrawDelegationRewardsBasic(t *testing.T) {
 
 func TestCalculateRewardsAfterManySlashesInSameBlock(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	addr := seiapp.AddTestAddrs(app, ctx, 1, sdk.NewInt(1000000000))
 	valAddrs := seiapp.ConvertAddrsToValAddrs(addr)
@@ -403,7 +402,7 @@ func TestCalculateRewardsAfterManySlashesInSameBlock(t *testing.T) {
 
 func TestCalculateRewardsMultiDelegatorMultiSlash(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 	addr := seiapp.AddTestAddrs(app, ctx, 2, sdk.NewInt(1000000000))
@@ -477,7 +476,7 @@ func TestCalculateRewardsMultiDelegatorMultiSlash(t *testing.T) {
 
 func TestCalculateRewardsMultiDelegatorMultWithdraw(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 	addr := seiapp.AddTestAddrs(app, ctx, 2, sdk.NewInt(1000000000))

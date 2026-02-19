@@ -3,7 +3,6 @@ package keeper_test
 import (
 	"testing"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -24,7 +23,7 @@ type GenesisTestSuite struct {
 func (suite *GenesisTestSuite) SetupTest() {
 	checkTx := false
 	app := seiapp.Setup(suite.T(), checkTx, false, false)
-	suite.ctx = app.BaseApp.NewContext(checkTx, tmproto.Header{Height: 1})
+	suite.ctx = app.BaseApp.NewContext(checkTx, sdk.Header{Height: 1})
 	suite.keeper = app.FeeGrantKeeper
 }
 

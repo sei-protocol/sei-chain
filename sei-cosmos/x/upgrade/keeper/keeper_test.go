@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
@@ -35,7 +34,7 @@ func (s *KeeperTestSuite) SetupTest() {
 	s.T().Log("home dir:", homeDir)
 	s.homeDir = homeDir
 	s.app = app
-	s.ctx = app.BaseApp.NewContext(false, tmproto.Header{
+	s.ctx = app.BaseApp.NewContext(false, sdk.Header{
 		Time:   time.Now(),
 		Height: 10,
 	})

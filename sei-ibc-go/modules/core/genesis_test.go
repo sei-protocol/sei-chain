@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/codec"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/suite"
 
 	ibc "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core"
@@ -320,7 +320,7 @@ func (suite *IBCTestSuite) TestInitGenesis() {
 		app := simapp.Setup(false)
 
 		suite.NotPanics(func() {
-			ibc.InitGenesis(app.BaseApp.NewContext(false, tmproto.Header{Height: 1}), *app.IBCKeeper, true, tc.genState)
+			ibc.InitGenesis(app.BaseApp.NewContext(false, sdk.Header{Height: 1}), *app.IBCKeeper, true, tc.genState)
 		})
 	}
 }

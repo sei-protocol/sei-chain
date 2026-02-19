@@ -29,7 +29,6 @@ import (
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -45,7 +44,7 @@ var f embed.FS
 
 func TestStaking(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 	valPub1 := ed25519.GenPrivKey().PubKey()
 	valPub2 := ed25519.GenPrivKey().PubKey()
@@ -155,7 +154,7 @@ func TestStaking(t *testing.T) {
 
 func TestStakingError(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 	valPub1 := ed25519.GenPrivKey().PubKey()
 	valPub2 := ed25519.GenPrivKey().PubKey()
@@ -516,7 +515,7 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
 			stateDb := state.NewDBImpl(ctx, k, true)
@@ -663,7 +662,7 @@ func TestPrecompile_Run_Validators(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			stateDb := state.NewDBImpl(ctx, k, true)
 			evm := vm.EVM{
@@ -790,7 +789,7 @@ func TestPrecompile_Run_Validator(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			stateDb := state.NewDBImpl(ctx, k, true)
 			evm := vm.EVM{
@@ -899,7 +898,7 @@ func TestPrecompile_Run_ValidatorDelegations(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			stateDb := state.NewDBImpl(ctx, k, true)
 			evm := vm.EVM{
@@ -1009,7 +1008,7 @@ func TestPrecompile_Run_ValidatorUnbondingDelegations(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			stateDb := state.NewDBImpl(ctx, k, true)
 			evm := vm.EVM{
@@ -1112,7 +1111,7 @@ func TestPrecompile_Run_UnbondingDelegation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
 			stateDb := state.NewDBImpl(ctx, k, true)
@@ -1222,7 +1221,7 @@ func TestPrecompile_Run_DelegatorDelegations(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
 			stateDb := state.NewDBImpl(ctx, k, true)
@@ -1317,7 +1316,7 @@ func TestPrecompile_Run_DelegatorValidator(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
 			stateDb := state.NewDBImpl(ctx, k, true)
@@ -1428,7 +1427,7 @@ func TestPrecompile_Run_DelegatorUnbondingDelegations(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
 			stateDb := state.NewDBImpl(ctx, k, true)
@@ -1552,7 +1551,7 @@ func TestPrecompile_Run_Redelegations(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			stateDb := state.NewDBImpl(ctx, k, true)
 			evm := vm.EVM{
@@ -1653,7 +1652,7 @@ func TestPrecompile_Run_DelegatorValidators(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
 			stateDb := state.NewDBImpl(ctx, k, true)
@@ -1691,8 +1690,9 @@ func TestPrecompile_Run_HistoricalInfo(t *testing.T) {
 	historicalInfoMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).HistoricalInfoID)
 
 	val := createTestValidator()
+	header := sdk.Header{Height: 100}
 	historicalInfo := stakingtypes.HistoricalInfo{
-		Header: tmtypes.Header{Height: 100},
+		Header: header.ToProto(),
 		Valset: []stakingtypes.Validator{val},
 	}
 
@@ -1757,7 +1757,7 @@ func TestPrecompile_Run_HistoricalInfo(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			stateDb := state.NewDBImpl(ctx, k, true)
 			evm := vm.EVM{
@@ -1842,7 +1842,7 @@ func TestPrecompile_Run_Pool(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			stateDb := state.NewDBImpl(ctx, k, true)
 			evm := vm.EVM{
@@ -1939,7 +1939,7 @@ func TestPrecompile_Run_Params(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			stateDb := state.NewDBImpl(ctx, k, true)
 			evm := vm.EVM{
@@ -1987,7 +1987,7 @@ type createValidatorTestSetup struct {
 // setupCreateValidatorTest creates a common test setup for createValidator tests
 func setupCreateValidatorTest(t *testing.T) *createValidatorTestSetup {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
 	abi := pcommon.MustGetABI(f, "abi.json")
@@ -2247,7 +2247,7 @@ func TestCreateValidator_UnassociatedAddress(t *testing.T) {
 
 func TestEditValidator_ErorrIfDoesNotExist(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
 	abi := pcommon.MustGetABI(f, "abi.json")
@@ -2304,7 +2304,7 @@ func TestEditValidator_ErorrIfDoesNotExist(t *testing.T) {
 
 func TestEditValidator(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
 	abi := pcommon.MustGetABI(f, "abi.json")
@@ -2418,7 +2418,7 @@ func TestEditValidator(t *testing.T) {
 
 func TestStakingPrecompileDelegateCallPrevention(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
 	// Setup staking precompile
@@ -2500,7 +2500,7 @@ func TestStakingPrecompileDelegateCallPrevention(t *testing.T) {
 
 func TestStakingPrecompileStaticCallPrevention(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
 	// Setup staking precompile

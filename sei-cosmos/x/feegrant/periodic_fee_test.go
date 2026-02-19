@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -15,7 +14,7 @@ import (
 
 func TestPeriodicFeeValidAllow(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{
+	ctx := app.BaseApp.NewContext(false, sdk.Header{
 		Time: time.Now(),
 	})
 
@@ -192,7 +191,7 @@ func TestPeriodicFeeValidAllow(t *testing.T) {
 			}
 			require.NoError(t, err)
 
-			ctx := app.BaseApp.NewContext(false, tmproto.Header{}).WithBlockTime(tc.blockTime)
+			ctx := app.BaseApp.NewContext(false, sdk.Header{}).WithBlockTime(tc.blockTime)
 			// now try to deduct
 			remove, err := tc.allow.Accept(ctx, tc.fee, []sdk.Msg{})
 			if !tc.accept {

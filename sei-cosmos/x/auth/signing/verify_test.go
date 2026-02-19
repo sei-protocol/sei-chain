@@ -5,7 +5,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -99,7 +98,7 @@ func TestVerifySignature(t *testing.T) {
 // returns context and app with params set on account keeper
 func createTestApp(t *testing.T, isCheckTx bool) (*app.App, sdk.Context) {
 	app := app.Setup(t, isCheckTx, false, false)
-	ctx := app.BaseApp.NewContext(isCheckTx, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(isCheckTx, sdk.Header{})
 	app.AccountKeeper.SetParams(ctx, types.DefaultParams())
 
 	return app, ctx

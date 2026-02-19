@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/testutil/nullify"
 
 	"github.com/sei-protocol/sei-chain/x/mint/types"
@@ -14,7 +14,7 @@ import (
 
 func TestGenesis(t *testing.T) {
 	app := app.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	now := time.Now()
 

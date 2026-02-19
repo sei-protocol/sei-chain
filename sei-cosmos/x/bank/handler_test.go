@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
@@ -22,7 +21,7 @@ import (
 func TestInvalidMsg(t *testing.T) {
 	h := bank.NewHandler(nil)
 
-	res, err := h(sdk.NewContext(nil, tmproto.Header{}, false, nil), testdata.NewTestMsg())
+	res, err := h(sdk.NewContext(nil, sdk.Header{}, false, nil), testdata.NewTestMsg())
 	require.Error(t, err)
 	require.Nil(t, res)
 
@@ -66,7 +65,7 @@ func TestSendToModuleAccount(t *testing.T) {
 	}
 
 	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	app.BankKeeper = bankkeeper.NewBaseKeeper(
 		app.AppCodec(), app.GetKey(types.StoreKey), app.AccountKeeper, app.GetSubspace(types.ModuleName), map[string]bool{

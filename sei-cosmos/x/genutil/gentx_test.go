@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"testing"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
@@ -45,7 +44,7 @@ type GenTxTestSuite struct {
 func (suite *GenTxTestSuite) SetupTest() {
 	checkTx := false
 	app := seiapp.Setup(suite.T(), checkTx, false, false)
-	suite.ctx = app.BaseApp.NewContext(checkTx, tmproto.Header{})
+	suite.ctx = app.BaseApp.NewContext(checkTx, sdk.Header{})
 	suite.app = app
 	suite.encodingConfig = seiapp.MakeEncodingConfig()
 

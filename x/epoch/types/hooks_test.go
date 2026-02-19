@@ -5,7 +5,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/stretchr/testify/require"
@@ -59,7 +58,7 @@ func TestMultiHooks(t *testing.T) {
 
 	db := tmdb.NewMemDB()
 	ms := store.NewCommitMultiStore(db)
-	ctx := sdk.NewContext(ms, tmproto.Header{}, false, nil)
+	ctx := sdk.NewContext(ms, sdk.Header{}, false, nil)
 	epoch := types.Epoch{}
 
 	multiHooks.AfterEpochEnd(ctx, epoch)
@@ -83,7 +82,7 @@ func TestMultiHooks_Panic(t *testing.T) {
 
 	db := tmdb.NewMemDB()
 	ms := store.NewCommitMultiStore(db)
-	ctx := sdk.NewContext(ms, tmproto.Header{}, false, nil)
+	ctx := sdk.NewContext(ms, sdk.Header{}, false, nil)
 	epoch := types.Epoch{}
 
 	multiHooks.AfterEpochEnd(ctx, epoch)

@@ -7,7 +7,6 @@ import (
 	tmtime "github.com/cosmos/cosmos-sdk/std"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -29,9 +28,9 @@ type TestSuite struct {
 
 func (s *TestSuite) SetupTest() {
 	a := app.Setup(s.T(), false, false, false)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := a.BaseApp.NewContext(false, sdk.Header{})
 	now := tmtime.Now()
-	ctx = ctx.WithBlockHeader(tmproto.Header{Time: now})
+	ctx = ctx.WithBlockHeader(sdk.Header{Time: now})
 	queryHelper := baseapp.NewQueryServerTestHelper(ctx, a.InterfaceRegistry())
 	authz.RegisterQueryServer(queryHelper, a.AuthzKeeper)
 	queryClient := authz.NewQueryClient(queryHelper)

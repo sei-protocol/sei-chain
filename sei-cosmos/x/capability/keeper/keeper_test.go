@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -32,7 +31,7 @@ func (suite *KeeperTestSuite) SetupTest() {
 	keeper := keeper.NewKeeper(cdc, app.GetKey(types.StoreKey), app.GetMemKey(types.MemStoreKey))
 
 	suite.app = app
-	suite.ctx = app.BaseApp.NewContext(checkTx, tmproto.Header{Height: 1})
+	suite.ctx = app.BaseApp.NewContext(checkTx, sdk.Header{Height: 1})
 	suite.keeper = keeper
 }
 

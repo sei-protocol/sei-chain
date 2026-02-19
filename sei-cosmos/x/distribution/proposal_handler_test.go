@@ -3,7 +3,6 @@ package distribution_test
 import (
 	"testing"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
@@ -27,7 +26,7 @@ func testProposal(recipient sdk.AccAddress, amount sdk.Coins) *types.CommunityPo
 
 func TestProposalHandlerPassed(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	recipient := delAddr1
 
@@ -56,7 +55,7 @@ func TestProposalHandlerPassed(t *testing.T) {
 
 func TestProposalHandlerFailed(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	recipient := delAddr1
 

@@ -5,7 +5,6 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -21,6 +20,6 @@ func TestTracedDecorator(t *testing.T) {
 		return antedecorators.NewTracedAnteDecorator(d, nil)
 	})
 	chainedHandler := sdk.ChainAnteDecorators(tracedDecorators...)
-	chainedHandler(sdk.NewContext(nil, tmproto.Header{}, false, nil), FakeTx{}, false)
+	chainedHandler(sdk.NewContext(nil, sdk.Header{}, false, nil), FakeTx{}, false)
 	require.Equal(t, "onetwothree", output)
 }
