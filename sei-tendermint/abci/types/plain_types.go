@@ -1,5 +1,7 @@
 package types
 
+import "time"
+
 // RequestLoadLatest is the plain Go replacement for the legacy protobuf message.
 type RequestLoadLatest struct{}
 
@@ -74,3 +76,151 @@ const (
 	ResponseApplySnapshotChunk_RETRY_SNAPSHOT  ResponseApplySnapshotChunk_Result = 4
 	ResponseApplySnapshotChunk_REJECT_SNAPSHOT ResponseApplySnapshotChunk_Result = 5
 )
+
+// RequestFinalizeBlock is the plain Go replacement for the legacy protobuf message.
+type RequestFinalizeBlock struct {
+	Txs                   [][]byte
+	DecidedLastCommit     CommitInfo
+	ByzantineValidators   []Misbehavior
+	Hash                  []byte
+	Height                int64
+	Time                  time.Time
+	NextValidatorsHash    []byte
+	ProposerAddress       []byte
+	AppHash               []byte
+	ValidatorsHash        []byte
+	ConsensusHash         []byte
+	DataHash              []byte
+	EvidenceHash          []byte
+	LastBlockHash         []byte
+	LastBlockPartSetTotal int64
+	LastBlockPartSetHash  []byte
+	LastCommitHash        []byte
+	LastResultsHash       []byte
+}
+
+func (m *RequestFinalizeBlock) GetTxs() [][]byte {
+	if m == nil {
+		return nil
+	}
+	return m.Txs
+}
+
+func (m *RequestFinalizeBlock) GetDecidedLastCommit() CommitInfo {
+	if m == nil {
+		return CommitInfo{}
+	}
+	return m.DecidedLastCommit
+}
+
+func (m *RequestFinalizeBlock) GetByzantineValidators() []Misbehavior {
+	if m == nil {
+		return nil
+	}
+	return m.ByzantineValidators
+}
+
+func (m *RequestFinalizeBlock) GetHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.Hash
+}
+
+func (m *RequestFinalizeBlock) GetHeight() int64 {
+	if m == nil {
+		return 0
+	}
+	return m.Height
+}
+
+func (m *RequestFinalizeBlock) GetTime() time.Time {
+	if m == nil {
+		return time.Time{}
+	}
+	return m.Time
+}
+
+func (m *RequestFinalizeBlock) GetNextValidatorsHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.NextValidatorsHash
+}
+
+func (m *RequestFinalizeBlock) GetProposerAddress() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.ProposerAddress
+}
+
+func (m *RequestFinalizeBlock) GetAppHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.AppHash
+}
+
+func (m *RequestFinalizeBlock) GetValidatorsHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.ValidatorsHash
+}
+
+func (m *RequestFinalizeBlock) GetConsensusHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.ConsensusHash
+}
+
+func (m *RequestFinalizeBlock) GetDataHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.DataHash
+}
+
+func (m *RequestFinalizeBlock) GetEvidenceHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.EvidenceHash
+}
+
+func (m *RequestFinalizeBlock) GetLastBlockHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.LastBlockHash
+}
+
+func (m *RequestFinalizeBlock) GetLastBlockPartSetTotal() int64 {
+	if m == nil {
+		return 0
+	}
+	return m.LastBlockPartSetTotal
+}
+
+func (m *RequestFinalizeBlock) GetLastBlockPartSetHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.LastBlockPartSetHash
+}
+
+func (m *RequestFinalizeBlock) GetLastCommitHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.LastCommitHash
+}
+
+func (m *RequestFinalizeBlock) GetLastResultsHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.LastResultsHash
+}
