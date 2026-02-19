@@ -12,7 +12,7 @@ func ConsensusParams() *types.ConsensusParams {
 	c := types.DefaultConsensusParams()
 	c.Timeout = types.TimeoutParams{
 		Commit:              10 * time.Millisecond,
-		Propose:             40 * time.Millisecond,
+		Propose:             500 * time.Millisecond,
 		ProposeDelta:        1 * time.Millisecond,
 		Vote:                10 * time.Millisecond,
 		VoteDelta:           1 * time.Millisecond,
