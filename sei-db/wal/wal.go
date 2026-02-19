@@ -35,10 +35,10 @@ type WAL[T any] struct {
 	writeBatchSize int
 	asyncWrites    bool
 
-	writeChan     chan *writeRequest[T]
-	truncateChan  chan *truncateRequest
-	closeReqChan  chan struct{}
-	closeErrChan  chan error
+	writeChan    chan *writeRequest[T]
+	truncateChan chan *truncateRequest
+	closeReqChan chan struct{}
+	closeErrChan chan error
 }
 
 // Configuration for the WAL.
@@ -508,6 +508,8 @@ func (walLog *WAL[T]) mainLoop() {
 		}
 	}
 
+	walLog.cancel()
+
 	// drain pending work, then tear down
 	walLog.drain()
 
@@ -517,6 +519,4 @@ func (walLog *WAL[T]) mainLoop() {
 	} else {
 		walLog.closeErrChan <- nil
 	}
-
-	walLog.cancel()
 }
