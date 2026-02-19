@@ -34,7 +34,6 @@ type Context struct {
 	txBytes           []byte
 	txSum             [32]byte
 	logger            log.Logger
-	voteInfo          []abci.VoteInfo
 	gasMeter          GasMeter
 	gasEstimate       uint64
 	occEnabled        bool
@@ -114,10 +113,6 @@ func (c Context) TxSum() [32]byte {
 
 func (c Context) Logger() log.Logger {
 	return c.logger
-}
-
-func (c Context) VoteInfos() []abci.VoteInfo {
-	return c.voteInfo
 }
 
 func (c Context) GasMeter() GasMeter {
@@ -342,12 +337,6 @@ func (c Context) WithTxSum(txSum [32]byte) Context {
 // WithLogger returns a Context with an updated logger.
 func (c Context) WithLogger(logger log.Logger) Context {
 	c.logger = logger
-	return c
-}
-
-// WithVoteInfos returns a Context with an updated consensus VoteInfo.
-func (c Context) WithVoteInfos(voteInfo []abci.VoteInfo) Context {
-	c.voteInfo = voteInfo
 	return c
 }
 
