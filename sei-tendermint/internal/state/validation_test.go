@@ -10,13 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	mpmocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/mocks"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
 	statefactory "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
@@ -34,8 +32,7 @@ const validationTestsStopHeight int64 = 10
 func TestValidateBlockHeader(t *testing.T) {
 	ctx := t.Context()
 	logger := log.NewNopLogger()
-	proxyApp := proxy.New(abciclient.NewLocalClient(logger, &testApp{}), logger, proxy.NopMetrics())
-	require.NoError(t, proxyApp.Start(ctx))
+	app := &testApp{}
 
 	eventBus := eventbus.NewDefault(logger)
 	require.NoError(t, eventBus.Start(ctx))
@@ -45,7 +42,6 @@ func TestValidateBlockHeader(t *testing.T) {
 	mp := &mpmocks.Mempool{}
 	mp.On("Lock").Return()
 	mp.On("Unlock").Return()
-	mp.On("FlushAppConn", mock.Anything).Return(nil)
 	mp.On("Update",
 		mock.Anything,
 		mock.Anything,
@@ -60,7 +56,7 @@ func TestValidateBlockHeader(t *testing.T) {
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -141,8 +137,7 @@ func TestValidateBlockCommit(t *testing.T) {
 	ctx := t.Context()
 
 	logger := log.NewNopLogger()
-	proxyApp := proxy.New(abciclient.NewLocalClient(logger, &testApp{}), logger, proxy.NopMetrics())
-	require.NoError(t, proxyApp.Start(ctx))
+	app := &testApp{}
 
 	eventBus := eventbus.NewDefault(logger)
 	require.NoError(t, eventBus.Start(ctx))
@@ -152,7 +147,6 @@ func TestValidateBlockCommit(t *testing.T) {
 	mp := &mpmocks.Mempool{}
 	mp.On("Lock").Return()
 	mp.On("Unlock").Return()
-	mp.On("FlushAppConn", mock.Anything).Return(nil)
 	mp.On("Update",
 		mock.Anything,
 		mock.Anything,
@@ -167,7 +161,7 @@ func TestValidateBlockCommit(t *testing.T) {
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -284,8 +278,7 @@ func TestValidateBlockEvidence(t *testing.T) {
 	ctx := t.Context()
 
 	logger := log.NewNopLogger()
-	proxyApp := proxy.New(abciclient.NewLocalClient(logger, &testApp{}), logger, proxy.NopMetrics())
-	require.NoError(t, proxyApp.Start(ctx))
+	app := &testApp{}
 
 	state, stateDB, privVals := makeState(t, 4, 1)
 	stateStore := sm.NewStore(stateDB)
@@ -303,7 +296,6 @@ func TestValidateBlockEvidence(t *testing.T) {
 	mp := &mpmocks.Mempool{}
 	mp.On("Lock").Return()
 	mp.On("Unlock").Return()
-	mp.On("FlushAppConn", mock.Anything).Return(nil)
 	mp.On("Update",
 		mock.Anything,
 		mock.Anything,
@@ -318,7 +310,7 @@ func TestValidateBlockEvidence(t *testing.T) {
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		log.NewNopLogger(),
-		proxyApp,
+		app,
 		mp,
 		evpool,
 		blockStore,

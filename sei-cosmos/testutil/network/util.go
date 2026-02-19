@@ -9,7 +9,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/codec"
 	tmtime "github.com/cosmos/cosmos-sdk/std"
 	"github.com/cosmos/cosmos-sdk/telemetry"
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
@@ -57,7 +56,7 @@ func startInProcess(cfg Config, val *Validator) error {
 		tmCfg,
 		logger,
 		func() {},
-		abciclient.NewLocalClient(logger, app),
+		app,
 		defaultGensis,
 		[]trace.TracerProviderOption{},
 		node.NoOpMetricsProvider(),

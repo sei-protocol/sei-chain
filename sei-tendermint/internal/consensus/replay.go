@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -167,7 +166,7 @@ func (h *Handshaker) NBlocks() int {
 }
 
 // TODO: retry the handshake/replay if it fails ?
-func (h *Handshaker) Handshake(ctx context.Context, appClient abciclient.Client) error {
+func (h *Handshaker) Handshake(ctx context.Context, appClient abci.Application) error {
 
 	// Handshake is done via ABCI Info on the query conn.
 	res, err := appClient.Info(ctx, &proxy.RequestInfo)
@@ -216,7 +215,7 @@ func (h *Handshaker) ReplayBlocks(
 	state sm.State,
 	appHash []byte,
 	appBlockHeight int64,
-	appClient abciclient.Client,
+	appClient abci.Application,
 ) ([]byte, error) {
 	storeBlockBase := h.store.Base()
 	storeBlockHeight := h.store.Height()
@@ -365,13 +364,7 @@ func (h *Handshaker) ReplayBlocks(
 			if err != nil {
 				return nil, err
 			}
-			mockApp, err := newMockProxyApp(h.logger, appHash, finalizeBlockResponses)
-			if err != nil {
-				return nil, err
-			}
-			if err := mockApp.Start(ctx); err != nil {
-				return nil, err
-			}
+			mockApp := newMockProxyApp(appHash, finalizeBlockResponses)
 
 			h.logger.Info("Replay last block using mock app")
 			state, err = h.replayBlock(ctx, state, storeBlockHeight, mockApp)
@@ -391,7 +384,7 @@ func (h *Handshaker) ReplayBlocks(
 func (h *Handshaker) replayBlocks(
 	ctx context.Context,
 	state sm.State,
-	appClient abciclient.Client,
+	appClient abci.Application,
 	appBlockHeight,
 	storeBlockHeight int64,
 	mutateState bool,
@@ -465,7 +458,7 @@ func (h *Handshaker) replayBlock(
 	ctx context.Context,
 	state sm.State,
 	height int64,
-	appClient abciclient.Client,
+	appClient abci.Application,
 ) (sm.State, error) {
 	block := h.store.LoadBlock(height)
 	meta := h.store.LoadBlockMeta(height)
