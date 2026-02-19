@@ -18,6 +18,8 @@ type inner struct {
 	// blockPersisted tracks per-lane how far block persistence has progressed.
 	// RecvBatch only yields blocks below this cursor for voting.
 	// nil when persistence is disabled (testing); RecvBatch then uses q.next.
+	// blockPersisted itself is not persisted to disk: on restart it is
+	// reconstructed from the blocks already on disk (see newInner).
 	blockPersisted map[types.LaneID]types.BlockNumber
 }
 
@@ -37,14 +39,6 @@ func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
 		blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
 	}
 
-	var blockPersisted map[types.LaneID]types.BlockNumber
-	if loaded != nil {
-		blockPersisted = make(map[types.LaneID]types.BlockNumber, c.Lanes().Len())
-		for _, lane := range c.Lanes().All() {
-			blockPersisted[lane] = 0
-		}
-	}
-
 	i := &inner{
 		latestAppQC:    utils.None[*types.AppQC](),
 		latestCommitQC: utils.NewAtomicSend(utils.None[*types.CommitQC]()),
@@ -52,7 +46,6 @@ func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
 		commitQCs:      newQueue[types.RoadIndex, *types.CommitQC](),
 		blocks:         blocks,
 		votes:          votes,
-		blockPersisted: blockPersisted,
 	}
 
 	if loaded == nil {
@@ -68,6 +61,12 @@ func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
 		// AppVotes through this global block number have been processed.
 		i.appVotes.first = aq.Proposal().GlobalNumber() + 1
 		i.appVotes.next = i.appVotes.first
+	}
+
+	// Reconstruct blockPersisted from the blocks on disk.
+	i.blockPersisted = make(map[types.LaneID]types.BlockNumber, c.Lanes().Len())
+	for _, lane := range c.Lanes().All() {
+		i.blockPersisted[lane] = 0
 	}
 
 	// Restore persisted blocks into their lane queues.
