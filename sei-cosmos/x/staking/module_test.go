@@ -1,8 +1,8 @@
 package staking_test
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"context"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"testing"
 
 	abcitypes "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
