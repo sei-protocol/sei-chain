@@ -128,7 +128,6 @@ require (
 require (
 	4d63.com/gochecknoglobals v0.1.0 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
-	github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4 // indirect
 	github.com/Abirdcfly/dupword v0.0.7 // indirect
 	github.com/Antonboom/errname v0.1.7 // indirect
 	github.com/Antonboom/nilnil v0.1.1 // indirect
@@ -272,6 +271,7 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/jmhodges/levigo v1.0.0 // indirect
 	github.com/julz/importas v0.1.0 // indirect
+	github.com/keybase/go-keychain v0.0.0-20190712205309-48d3d31d256d // indirect
 	github.com/kisielk/errcheck v1.6.2 // indirect
 	github.com/kisielk/gotool v1.0.0 // indirect
 	github.com/kkHAIKE/contextcheck v1.1.3 // indirect
@@ -398,17 +398,18 @@ require (
 )
 
 replace (
+	github.com/99designs/keyring => github.com/cosmos/keyring v1.1.7-0.20210622111912-ef00f8ac3d76
 	github.com/btcsuite/btcd => github.com/btcsuite/btcd v0.23.2
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
 	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.15.7-sei-16
+	github.com/gin-gonic/gin => github.com/gin-gonic/gin v1.7.0
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/keybase/go-keychain => github.com/keybase/go-keychain v0.0.0-20190712205309-48d3d31d256d
 	// Latest goleveldb is broken, we have to stick to this version
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	github.com/tendermint/tm-db => github.com/sei-protocol/tm-db v0.0.4
 	golang.org/x/crypto => golang.org/x/crypto v0.31.0
-
 	// The earliest version supporting reflection needed by cosmos; see:
 	//   - https://github.com/grpc/grpc-go/releases/tag/v1.57.0
-	google.golang.org/grpc => google.golang.org/grpc v1.57.0
+	google.golang.org/grpc => google.golang.org/grpc v1.57.1
 )
