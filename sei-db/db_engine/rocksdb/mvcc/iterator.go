@@ -5,6 +5,7 @@ package mvcc
 
 import (
 	"bytes"
+	"encoding/binary"
 
 	"github.com/linxGnu/grocksdb"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
@@ -21,7 +22,30 @@ type iterator struct {
 	invalid            bool
 }
 
-func NewRocksDBIterator(source *grocksdb.Iterator, cleanup func(), prefix, start, end []byte, version int64, earliestVersion int64, reverse bool) *iterator {
+// newIterator creates a versioned iterator. ReadOptions are created and owned
+// internally — destroyed when Close() is called.
+func newIterator(storage *grocksdb.DB, cfHandle *grocksdb.ColumnFamilyHandle, prefix, start, end []byte, version int64, earliestVersion int64, reverse bool) *iterator {
+	readOpts, cleanup := newTSReadOptions(version)
+	source := storage.NewIteratorCF(readOpts, cfHandle)
+	return buildIterator(source, cleanup, prefix, start, end, version, earliestVersion, reverse)
+}
+
+// newRangeIterator creates an iterator over a version range. ReadOptions are
+// created and owned internally — destroyed when Close() is called.
+func newRangeIterator(storage *grocksdb.DB, cfHandle *grocksdb.ColumnFamilyHandle, prefix, start, end []byte, startVersion, endVersion int64, earliestVersion int64) *iterator {
+	readOpts := grocksdb.NewDefaultReadOptions()
+	var startTs [TimestampSize]byte
+	binary.LittleEndian.PutUint64(startTs[:], uint64(startVersion))
+	var endTs [TimestampSize]byte
+	binary.LittleEndian.PutUint64(endTs[:], uint64(endVersion))
+	readOpts.SetIterStartTimestamp(startTs[:])
+	readOpts.SetTimestamp(endTs[:])
+
+	source := storage.NewIteratorCF(readOpts, cfHandle)
+	return buildIterator(source, func() { readOpts.Destroy() }, prefix, start, end, endVersion, earliestVersion, false)
+}
+
+func buildIterator(source *grocksdb.Iterator, cleanup func(), prefix, start, end []byte, version int64, earliestVersion int64, reverse bool) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &iterator{
@@ -139,6 +163,10 @@ func (itr *iterator) Key() []byte {
 func (itr *iterator) Value() []byte {
 	itr.assertIsValid()
 	return copyAndFreeSlice(itr.source.Value())
+}
+
+func (itr *iterator) Timestamp() *grocksdb.Slice {
+	return itr.source.Timestamp()
 }
 
 func (itr iterator) Next() {
