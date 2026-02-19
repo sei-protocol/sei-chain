@@ -6,11 +6,11 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
-	"github.com/cosmos/cosmos-sdk/testutil/network"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/auth/vesting/client/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	clitestutil "github.com/sei-protocol/sei-chain/sei-cosmos/testutil/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/network"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/client/cli"
 )
 
 type IntegrationTestSuite struct {
@@ -122,7 +122,7 @@ func (s *IntegrationTestSuite) TestNewMsgCreateVestingAccountCmd() {
 				s.Require().Error(err)
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(clientCtx.Codec.UnmarshalJSON(bw.Bytes(), tc.respType), bw.String())
+				s.Require().NoError(clientCtx.Codec.UnmarshalAsJSON(bw.Bytes(), tc.respType), bw.String())
 
 				txResp := tc.respType.(*sdk.TxResponse)
 				s.Require().Equal(tc.expectedCode, txResp.Code)

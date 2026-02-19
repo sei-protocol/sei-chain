@@ -8,10 +8,10 @@ import (
 	"math/rand"
 	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/module"
-	"github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 // Simulation parameter constants
@@ -28,12 +28,12 @@ func genUnbondingTime(r *rand.Rand) (ubdTime time.Duration) {
 
 // genMaxValidators returns randomized MaxValidators
 func genMaxValidators(r *rand.Rand) (maxValidators uint32) {
-	return uint32(r.Intn(250) + 1)
+	return uint32(r.Intn(250) + 1) //nolint:gosec // Intn(250)+1 always returns a value in [1, 250], fits in uint32
 }
 
 // getHistEntries returns randomized HistoricalEntries between 0-100.
 func getHistEntries(r *rand.Rand) uint32 {
-	return uint32(r.Intn(int(types.DefaultHistoricalEntries + 1)))
+	return uint32(r.Intn(int(types.DefaultHistoricalEntries + 1))) //nolint:gosec // DefaultHistoricalEntries is a small constant, result always fits in uint32
 }
 
 // RandomizedGenState generates a random GenesisState for staking

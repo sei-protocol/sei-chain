@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"

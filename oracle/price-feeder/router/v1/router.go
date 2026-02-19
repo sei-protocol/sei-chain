@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/pkg/httputil"

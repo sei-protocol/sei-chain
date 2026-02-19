@@ -6,9 +6,9 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/testutil/testdata"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 )
 
 type interfaceMarshaler struct {
@@ -120,9 +120,9 @@ func testMarshaling(t *testing.T, cdc codec.Codec) {
 		m1 := mustMarshaler{cdc.Marshal, cdc.MustMarshal, cdc.Unmarshal, cdc.MustUnmarshal}
 		m2 := mustMarshaler{cdc.MarshalLengthPrefixed, cdc.MustMarshalLengthPrefixed, cdc.UnmarshalLengthPrefixed, cdc.MustUnmarshalLengthPrefixed}
 		m3 := mustMarshaler{
-			func(i codec.ProtoMarshaler) ([]byte, error) { return cdc.MarshalJSON(i) },
+			func(i codec.ProtoMarshaler) ([]byte, error) { return cdc.MarshalAsJSON(i) },
 			func(i codec.ProtoMarshaler) []byte { return cdc.MustMarshalJSON(i) },
-			func(bz []byte, ptr codec.ProtoMarshaler) error { return cdc.UnmarshalJSON(bz, ptr) },
+			func(bz []byte, ptr codec.ProtoMarshaler) error { return cdc.UnmarshalAsJSON(bz, ptr) },
 			func(bz []byte, ptr codec.ProtoMarshaler) { cdc.MustUnmarshalJSON(bz, ptr) }}
 
 		t.Run(tc.name+"_BinaryBare",

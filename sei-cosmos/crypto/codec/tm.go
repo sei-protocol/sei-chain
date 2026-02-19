@@ -4,10 +4,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 // FromTmProtoPublicKey converts a TM's pb.PublicKey into our own PubKey.

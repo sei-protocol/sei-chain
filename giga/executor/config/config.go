@@ -1,7 +1,7 @@
 package config
 
 import (
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
+	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	"github.com/spf13/cast"
 )
 

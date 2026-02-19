@@ -1,9 +1,9 @@
 package client_test
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	distributiontypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 
 	client "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"

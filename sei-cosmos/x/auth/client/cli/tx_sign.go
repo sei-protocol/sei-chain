@@ -3,16 +3,17 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/client/tx"
-	kmultisig "github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
-	"github.com/cosmos/cosmos-sdk/types/errors"
-	authclient "github.com/cosmos/cosmos-sdk/x/auth/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
+	kmultisig "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/multisig"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	authclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/client"
 )
 
 const (
@@ -53,7 +54,7 @@ account key. It implies --signature-only.
 	cmd.Flags().String(flags.FlagOutputDocument, "", "The document will be written to the given file instead of STDOUT")
 	cmd.Flags().Bool(flagSigOnly, true, "Print only the generated signature, then exit")
 	cmd.Flags().String(flags.FlagChainID, "", "network chain ID")
-	cmd.MarkFlagRequired(flags.FlagFrom)
+	_ = cmd.MarkFlagRequired(flags.FlagFrom)
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd
@@ -147,14 +148,15 @@ func setOutputFile(cmd *cobra.Command) (func(), error) {
 		return func() {}, nil
 	}
 
-	fp, err := os.OpenFile(outputDoc, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	outputDoc = filepath.Clean(outputDoc)
+	fp, err := os.OpenFile(outputDoc, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return func() {}, err
 	}
 
 	cmd.SetOut(fp)
 
-	return func() { fp.Close() }, nil
+	return func() { _ = fp.Close() }, nil
 }
 
 // GetSignCommand returns the transaction sign command.
@@ -187,7 +189,7 @@ be generated via the 'multisign' command.
 	cmd.Flags().String(flags.FlagOutputDocument, "", "The document will be written to the given file instead of STDOUT")
 	cmd.Flags().String(flags.FlagChainID, "", "The network chain ID")
 	cmd.Flags().Bool(flagAmino, false, "Generate Amino encoded JSON suitable for submiting to the txs REST endpoint")
-	cmd.MarkFlagRequired(flags.FlagFrom)
+	_ = cmd.MarkFlagRequired(flags.FlagFrom)
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd
@@ -197,8 +199,8 @@ func preSignCmd(cmd *cobra.Command, _ []string) {
 	// Conditionally mark the account and sequence numbers required as no RPC
 	// query will be done.
 	if offline, _ := cmd.Flags().GetBool(flags.FlagOffline); offline {
-		cmd.MarkFlagRequired(flags.FlagAccountNumber)
-		cmd.MarkFlagRequired(flags.FlagSequence)
+		_ = cmd.MarkFlagRequired(flags.FlagAccountNumber)
+		_ = cmd.MarkFlagRequired(flags.FlagSequence)
 	}
 }
 
@@ -291,7 +293,7 @@ func makeSignCmd() func(cmd *cobra.Command, args []string) error {
 				Tx:   stdTx,
 				Mode: "block|sync|async",
 			}
-			json, err = clientCtx.LegacyAmino.MarshalJSON(req)
+			json, err = clientCtx.LegacyAmino.MarshalAsJSON(req)
 			if err != nil {
 				return err
 			}
@@ -307,8 +309,8 @@ func makeSignCmd() func(cmd *cobra.Command, args []string) error {
 			cmd.Printf("%s\n", json)
 			return nil
 		}
-
-		fp, err := os.OpenFile(outputDoc, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+		outputDoc = filepath.Clean(outputDoc)
+		fp, err := os.OpenFile(outputDoc, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 		if err != nil {
 			return err
 		}

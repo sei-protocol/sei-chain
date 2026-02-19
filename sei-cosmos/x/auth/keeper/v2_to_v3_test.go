@@ -1,8 +1,8 @@
 package keeper_test
 
 import (
-	"github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	"github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	"github.com/stretchr/testify/require"
 	"testing"
 )

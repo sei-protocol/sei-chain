@@ -5,14 +5,13 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math"
 	"sort"
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/snapshots/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
@@ -188,7 +187,7 @@ func (m *Manager) createSnapshot(height uint64, ch chan<- io.ReadCloser) {
 	if streamWriter == nil {
 		return
 	}
-	defer streamWriter.Close()
+	defer func() { _ = streamWriter.Close() }()
 	if err := m.multistore.Snapshot(height, streamWriter); err != nil {
 		m.logger.Error("Snapshot creation failed", "err", err)
 		streamWriter.CloseWithError(err)
@@ -231,9 +230,9 @@ func (m *Manager) LoadChunk(height uint64, format uint32, chunk uint32) ([]byte,
 	if reader == nil {
 		return nil, nil
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
-	return ioutil.ReadAll(reader)
+	return io.ReadAll(reader)
 }
 
 // Prune prunes snapshots, if no other operations are in progress.
@@ -252,9 +251,10 @@ func (m *Manager) Restore(snapshot types.Snapshot) error {
 	if snapshot.Chunks == 0 {
 		return sdkerrors.Wrap(types.ErrInvalidMetadata, "no chunks")
 	}
-	if uint32(len(snapshot.Metadata.ChunkHashes)) != snapshot.Chunks {
+	uLen := uint32(len(snapshot.Metadata.ChunkHashes)) //nolint:gosec // ChunkHashes length is bounded by Chunks which is uint32
+	if uLen != snapshot.Chunks {
 		return sdkerrors.Wrapf(types.ErrInvalidMetadata, "snapshot has %v chunk hashes, but %v chunks",
-			uint32(len(snapshot.Metadata.ChunkHashes)),
+			uLen,
 			snapshot.Chunks)
 	}
 	m.mtx.Lock()
@@ -305,17 +305,14 @@ func (m *Manager) restoreSnapshot(snapshot types.Snapshot, chChunks <-chan io.Re
 	if err != nil {
 		return err
 	}
-	defer streamReader.Close()
+	defer func() { _ = streamReader.Close() }()
 
 	next, err := m.multistore.Restore(snapshot.Height, snapshot.Format, streamReader)
 	if err != nil {
 		return sdkerrors.Wrap(err, "multistore restore")
 	}
-	for {
-		if next.Item == nil {
-			// end of stream
-			break
-		}
+	for next.Item != nil {
+
 		metadata := next.GetExtension()
 		if metadata == nil {
 			return sdkerrors.Wrapf(sdkerrors.ErrLogic, "unknown snapshot item %T", next.Item)
@@ -368,7 +365,7 @@ func (m *Manager) RestoreChunk(chunk []byte) (bool, error) {
 	}
 
 	// Pass the chunk to the restore, and wait for completion if it was the final one.
-	m.chRestore <- ioutil.NopCloser(bytes.NewReader(chunk))
+	m.chRestore <- io.NopCloser(bytes.NewReader(chunk))
 	m.restoreChunkIndex++
 
 	if int(m.restoreChunkIndex) >= len(m.restoreChunkHashes) {

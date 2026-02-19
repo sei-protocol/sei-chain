@@ -106,14 +106,8 @@ func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore 
 }
 
 // LoadVersion loads the specified version of the database.
-func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (Store, error) {
-	s.log.Info("FlatKV LoadVersion", "targetVersion", targetVersion, "readOnly", readOnly)
-
-	if readOnly {
-		// Read-only mode requires snapshot support (not yet implemented).
-		// Return sentinel error so callers can fall back to Cosmos-only mode.
-		return nil, ErrReadOnlyNotSupported
-	}
+func (s *CommitStore) LoadVersion(targetVersion int64) (Store, error) {
+	s.log.Info("FlatKV LoadVersion", "targetVersion", targetVersion)
 
 	// Close existing resources if already open
 	if s.metadataDB != nil {

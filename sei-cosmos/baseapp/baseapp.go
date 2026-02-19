@@ -8,14 +8,18 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
-
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/server/config"
-	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	"github.com/gogo/protobuf/proto"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/legacy/legacytx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
@@ -24,15 +28,10 @@ import (
 	"github.com/spf13/cast"
 	leveldbutils "github.com/syndtr/goleveldb/leveldb/util"
 	dbm "github.com/tendermint/tm-db"
-
-	"github.com/cosmos/cosmos-sdk/codec/types"
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/snapshots"
-	"github.com/cosmos/cosmos-sdk/store"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 const (
@@ -157,7 +156,6 @@ type BaseApp struct {
 
 	ChainID string
 
-	votesInfoLock    sync.RWMutex
 	commitLock       *sync.Mutex
 	checkTxStateLock *sync.RWMutex
 
@@ -197,9 +195,6 @@ type abciData struct {
 	initChainer sdk.InitChainer // initialize state with validators and state blob
 	midBlocker  sdk.MidBlocker  // logic to run after all txs, and to determine valset changes
 	endBlocker  sdk.EndBlocker  // logic to run after all txs, and to determine valset changes
-
-	// absent validators from begin block
-	voteInfos []abci.VoteInfo
 }
 
 type baseappVersions struct {
@@ -245,8 +240,8 @@ func NewBaseApp(
 	}
 
 	// Enable Tracing
-	tp := trace.NewNoopTracerProvider()
-	otel.SetTracerProvider(trace.NewNoopTracerProvider())
+	tp := noop.NewTracerProvider()
+	otel.SetTracerProvider(noop.NewTracerProvider())
 	tr := tp.Tracer("component-main")
 	tracingEnabled := cast.ToBool(appOpts.Get(tracing.FlagTracing))
 	if tracingEnabled {
@@ -651,17 +646,6 @@ func (app *BaseApp) prepareDeliverState(headerHash []byte) {
 		WithConsensusParams(app.GetConsensusParams(app.deliverState.Context())))
 }
 
-func (app *BaseApp) setVotesInfo(votes []abci.VoteInfo) {
-	app.votesInfoLock.Lock()
-	defer app.votesInfoLock.Unlock()
-
-	app.voteInfos = votes
-}
-
-func (app *BaseApp) UnsafeGetVoteInfos() []abci.VoteInfo {
-	return app.voteInfos
-}
-
 // GetConsensusParams returns the current consensus parameters from the BaseApp's
 // ParamStore. If the BaseApp has no ParamStore defined, nil is returned.
 func (app *BaseApp) GetConsensusParams(ctx sdk.Context) *tmproto.ConsensusParams {
@@ -804,11 +788,8 @@ func (app *BaseApp) getState(mode runTxMode) *state {
 
 // retrieve the context for the tx w/ txBytes and other memoized values.
 func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context {
-	app.votesInfoLock.RLock()
-	defer app.votesInfoLock.RUnlock()
 	ctx := app.getState(mode).Context().
-		WithTxBytes(txBytes).
-		WithVoteInfos(app.voteInfos)
+		WithTxBytes(txBytes)
 
 	ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 
@@ -824,15 +805,12 @@ func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context 
 }
 
 func (app *BaseApp) GetCheckTxContext(txBytes []byte, recheck bool) sdk.Context {
-	app.votesInfoLock.RLock()
-	defer app.votesInfoLock.RUnlock()
 	mode := runTxModeCheck
 	if recheck {
 		mode = runTxModeReCheck
 	}
 	ctx := app.getState(mode).Context().
-		WithTxBytes(txBytes).
-		WithVoteInfos(app.voteInfos)
+		WithTxBytes(txBytes)
 
 	return ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 }
@@ -943,7 +921,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 			// the instantiated gas meter in the AnteHandler, so we update the context
 			// prior to returning.
 			//
-			// This also replaces the GasMeter in the context where GasUsed was initalized 0
+			// This also replaces the GasMeter in the context where GasUsed was initialized 0
 			// and updated with gas consumed in the ante handler runs
 			// The GasMeter is a pointer and its passed to the RunMsg and tracks the consumed
 			// gas there too.
@@ -1002,7 +980,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 				VmError:       result.EvmError,
 			}
 		}
-		var events []abci.Event = []abci.Event{}
+		var events = []abci.Event{}
 		if result != nil {
 			events = sdk.MarkEventsToIndex(result.Events, app.IndexEvents)
 		}
@@ -1106,7 +1084,7 @@ func (app *BaseApp) RunMsgs(ctx sdk.Context, msgs []sdk.Msg) (*sdk.Result, error
 		events = events.AppendEvents(msgEvents)
 
 		txMsgData.Data = append(txMsgData.Data, &sdk.MsgData{MsgType: sdk.MsgTypeURL(msg), Data: msgResult.Data})
-		msgLogs = append(msgLogs, sdk.NewABCIMessageLog(uint32(i), msgResult.Log, msgEvents))
+		msgLogs = append(msgLogs, sdk.NewABCIMessageLog(uint32(i), msgResult.Log, msgEvents)) //nolint:gosec // loop range index
 
 		msgMsCache.Write()
 
@@ -1135,7 +1113,7 @@ func (app *BaseApp) startCompactionRoutine(db dbm.DB) {
 	go func() {
 		if goleveldb, ok := db.(*dbm.GoLevelDB); ok {
 			for {
-				time.Sleep(time.Duration(app.compactionInterval) * time.Second)
+				time.Sleep(time.Duration(app.compactionInterval) * time.Second) //nolint:gosec // compactionInterval is a small config value
 				if err := goleveldb.DB().CompactRange(leveldbutils.Range{Start: nil, Limit: nil}); err != nil {
 					app.Logger().Error(fmt.Sprintf("error compacting DB: %s", err))
 				}
@@ -1151,7 +1129,7 @@ func (app *BaseApp) Close() error {
 	// and metadata in a non-atomic way
 	app.commitLock.Lock()
 	defer app.commitLock.Unlock()
-	if err := app.appStore.db.Close(); err != nil {
+	if err := app.db.Close(); err != nil {
 		return err
 	}
 	// close the underline database for storeV2
@@ -1197,5 +1175,5 @@ func (app *BaseApp) RegisterDeliverTxHook(hook DeliverTxHook) {
 }
 
 func (app *BaseApp) InplaceTestnetInitialize(pk cryptotypes.PubKey) {
-	app.inplaceTestnetInitializer(pk)
+	_ = app.inplaceTestnetInitializer(pk)
 }
