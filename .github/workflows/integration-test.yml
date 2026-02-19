@@ -261,6 +261,23 @@ jobs:
           done
           sleep 5
 
+      - name: Wait for RPC to be ready
+        run: |
+          echo "Waiting for node RPC (localhost:26657) to accept connections..."
+          for i in $(seq 1 45); do
+            if docker exec sei-node-0 /sei-protocol/sei-chain/build/seid status 2>/dev/null | jq -e .SyncInfo.latest_block_height >/dev/null 2>&1; then
+              echo "RPC ready."
+              break
+            fi
+            if [ "$i" -eq 45 ]; then
+              echo "RPC did not become ready in time."
+              docker exec sei-node-0 /sei-protocol/sei-chain/build/seid status || true
+              exit 1
+            fi
+            echo "  attempt $i/45..."
+            sleep 2
+          done
+
       - name: Start rpc node
         run: make run-rpc-node-skipbuild &
 
