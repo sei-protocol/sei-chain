@@ -3,8 +3,8 @@ package types_test
 import (
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	"github.com/stretchr/testify/require"

@@ -8,16 +8,16 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/cosmos/cosmos-sdk/x/genutil"
-	"github.com/cosmos/cosmos-sdk/x/genutil/types"
-	"github.com/cosmos/cosmos-sdk/x/staking"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 	seiappparams "github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 var (
@@ -68,7 +68,7 @@ func (suite *GenTxTestSuite) setAccountBalance(addr sdk.AccAddress, amount int64
 	suite.Require().NoError(err)
 
 	bankGenesisState := suite.app.BankKeeper.ExportGenesis(suite.ctx)
-	bankGenesis, err := suite.encodingConfig.Amino.MarshalJSON(bankGenesisState) // TODO switch this to use Marshaler
+	bankGenesis, err := suite.encodingConfig.Amino.MarshalAsJSON(bankGenesisState) // TODO switch this to use Marshaler
 	suite.Require().NoError(err)
 
 	return bankGenesis
@@ -121,7 +121,7 @@ func (suite *GenTxTestSuite) TestSetGenTxsInAppGenesisState() {
 				suite.Require().NotNil(appGenesisState[types.ModuleName])
 
 				var genesisState types.GenesisState
-				err := cdc.UnmarshalJSON(appGenesisState[types.ModuleName], &genesisState)
+				err := cdc.UnmarshalAsJSON(appGenesisState[types.ModuleName], &genesisState)
 				suite.Require().NoError(err)
 				suite.Require().NotNil(genesisState.GenTxs)
 			} else {
@@ -182,7 +182,7 @@ func (suite *GenTxTestSuite) TestValidateAccountInGenesis() {
 			suite.app.StakingKeeper.SetParams(suite.ctx, stakingtypes.DefaultParams())
 			stakingGenesisState := staking.ExportGenesis(suite.ctx, suite.app.StakingKeeper)
 			suite.Require().Equal(stakingGenesisState.Params, stakingtypes.DefaultParams())
-			stakingGenesis, err := cdc.MarshalJSON(stakingGenesisState) // TODO switch this to use Marshaler
+			stakingGenesis, err := cdc.MarshalAsJSON(stakingGenesisState) // TODO switch this to use Marshaler
 			suite.Require().NoError(err)
 			appGenesisState[stakingtypes.ModuleName] = stakingGenesis
 

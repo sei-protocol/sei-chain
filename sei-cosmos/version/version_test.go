@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/testutil"
-	"github.com/cosmos/cosmos-sdk/version"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
 )
 
 func TestNewInfo(t *testing.T) {

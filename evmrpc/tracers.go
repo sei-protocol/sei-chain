@@ -9,9 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/js"     // run init()s to register JS tracers
@@ -21,6 +18,9 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"

@@ -2,12 +2,13 @@ package utils
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"os"
+	"path/filepath"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/rest"
-	"github.com/cosmos/cosmos-sdk/x/params/types/proposal"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
 )
 
 type (
@@ -70,12 +71,12 @@ func (pcj ParamChangesJSON) ToParamChanges() []proposal.ParamChange {
 func ParseParamChangeProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (ParamChangeProposalJSON, error) {
 	proposal := ParamChangeProposalJSON{}
 
-	contents, err := ioutil.ReadFile(proposalFile)
+	contents, err := os.ReadFile(filepath.Clean(proposalFile))
 	if err != nil {
 		return proposal, err
 	}
 
-	if err := cdc.UnmarshalJSON(contents, &proposal); err != nil {
+	if err := cdc.UnmarshalAsJSON(contents, &proposal); err != nil {
 		return proposal, err
 	}
 

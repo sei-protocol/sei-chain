@@ -3,9 +3,9 @@ package keeper
 import (
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
-	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
+	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/05-port/types"

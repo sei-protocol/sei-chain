@@ -7,9 +7,9 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/cosmos-sdk/testutil"
-	"github.com/cosmos/cosmos-sdk/testutil/network"
-	"github.com/cosmos/cosmos-sdk/x/params/types/proposal"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/network"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
 )
 
 type IntegrationTestSuite struct {
@@ -113,7 +113,7 @@ func (s *IntegrationTestSuite) TestQueryParamsGRPC() {
 			resp, err := testutil.GetRequestWithHeaders(tc.url, tc.headers)
 			s.Require().NoError(err)
 
-			err = val.ClientCtx.Codec.UnmarshalJSON(resp, tc.respType)
+			err = val.ClientCtx.Codec.UnmarshalAsJSON(resp, tc.respType)
 
 			if tc.expErr {
 				s.Require().Error(err)

@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/version"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	"google.golang.org/grpc/credentials/insecure"
 
 	abcitypes "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -22,14 +22,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
 	"google.golang.org/grpc"
 
-	crgerrs "github.com/cosmos/cosmos-sdk/server/rosetta/lib/errors"
-	crgtypes "github.com/cosmos/cosmos-sdk/server/rosetta/lib/types"
+	crgerrs "github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta/lib/errors"
+	crgtypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta/lib/types"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	grpctypes "github.com/cosmos/cosmos-sdk/types/grpc"
-	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
-	auth "github.com/cosmos/cosmos-sdk/x/auth/types"
-	bank "github.com/cosmos/cosmos-sdk/x/bank/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	grpctypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/grpc"
+	authtx "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/tx"
+	auth "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	bank "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 
 	tmrpc "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 )

@@ -6,10 +6,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/cosmos/cosmos-sdk/store/prefix"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/query"
-	"github.com/cosmos/cosmos-sdk/x/gov/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
 
 var _ types.QueryServer = Keeper{}
@@ -263,11 +263,11 @@ func (q Keeper) TallyResult(c context.Context, req *types.QueryTallyResultReques
 
 	var tallyResult types.TallyResult
 
-	switch {
-	case proposal.Status == types.StatusDepositPeriod:
+	switch proposal.Status {
+	case types.StatusDepositPeriod:
 		tallyResult = types.EmptyTallyResult()
 
-	case proposal.Status == types.StatusPassed || proposal.Status == types.StatusRejected:
+	case types.StatusPassed, types.StatusRejected:
 		tallyResult = proposal.FinalTallyResult
 
 	default:

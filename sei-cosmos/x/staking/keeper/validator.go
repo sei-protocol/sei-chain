@@ -6,8 +6,8 @@ import (
 
 	gogotypes "github.com/gogo/protobuf/types"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 // get a single validator
@@ -187,7 +187,7 @@ func (k Keeper) GetAllValidators(ctx sdk.Context) (validators []types.Validator)
 	store := ctx.KVStore(k.storeKey)
 
 	iterator := sdk.KVStorePrefixIterator(store, types.ValidatorsKey)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid(); iterator.Next() {
 		validator := types.MustUnmarshalValidator(k.cdc, iterator.Value())
@@ -203,7 +203,7 @@ func (k Keeper) GetValidators(ctx sdk.Context, maxRetrieve uint32) (validators [
 	validators = make([]types.Validator, maxRetrieve)
 
 	iterator := sdk.KVStorePrefixIterator(store, types.ValidatorsKey)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	i := 0
 	for ; iterator.Valid() && i < int(maxRetrieve); iterator.Next() {
@@ -221,7 +221,7 @@ func (k Keeper) GetBondedValidatorsByPower(ctx sdk.Context) []types.Validator {
 	validators := make([]types.Validator, maxValidators)
 
 	iterator := k.ValidatorsPowerStoreIterator(ctx)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	i := 0
 	for ; iterator.Valid() && i < int(maxValidators); iterator.Next() {
@@ -287,7 +287,7 @@ func (k Keeper) IterateLastValidatorPowers(ctx sdk.Context, handler func(operato
 	store := ctx.KVStore(k.storeKey)
 
 	iter := sdk.KVStorePrefixIterator(store, types.LastValidatorPowerKey)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	for ; iter.Valid(); iter.Next() {
 		addr := sdk.ValAddress(types.AddressFromLastValidatorPowerKey(iter.Key()))
@@ -310,7 +310,7 @@ func (k Keeper) GetLastValidators(ctx sdk.Context) (validators []types.Validator
 	validators = make([]types.Validator, maxValidators)
 
 	iterator := sdk.KVStorePrefixIterator(store, types.LastValidatorPowerKey)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	i := 0
 	for ; iterator.Valid(); iterator.Next() {
@@ -402,13 +402,13 @@ func (k Keeper) UnbondAllMatureValidators(ctx sdk.Context) {
 	blockTime := ctx.BlockTime()
 	blockHeight := ctx.BlockHeight()
 
-	// unbondingValIterator will contains all validator addresses indexed under
+	// unbondingValIterator will contain all validator addresses indexed under
 	// the ValidatorQueueKey prefix. Note, the entire index key is composed as
 	// ValidatorQueueKey | timeBzLen (8-byte big endian) | timeBz | heightBz (8-byte big endian),
 	// so it may be possible that certain validator addresses that are iterated
 	// over are not ready to unbond, so an explicit check is required.
 	unbondingValIterator := k.ValidatorQueueIterator(ctx, blockTime, blockHeight)
-	defer unbondingValIterator.Close()
+	defer func() { _ = unbondingValIterator.Close() }()
 
 	for ; unbondingValIterator.Valid(); unbondingValIterator.Next() {
 		key := unbondingValIterator.Key()

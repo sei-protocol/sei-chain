@@ -1,13 +1,14 @@
 package testutil_test
 
 import (
-	"io/ioutil"
+	"io"
+	"os"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/testutil"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 )
 
 func TestApplyMockIO(t *testing.T) {
@@ -28,7 +29,7 @@ func TestWriteToNewTempFile(t *testing.T) {
 	tempfile := testutil.WriteToNewTempFile(t, "test string")
 	tempfile.Close()
 
-	bs, err := ioutil.ReadFile(tempfile.Name())
+	bs, err := os.ReadFile(tempfile.Name())
 	require.NoError(t, err)
 	require.Equal(t, "test string", string(bs))
 }
@@ -39,6 +40,6 @@ func TestApplyMockIODiscardOutErr(t *testing.T) {
 
 	testutil.ApplyMockIODiscardOutErr(cmd)
 	require.NotEqual(t, cmd.InOrStdin(), oldStdin)
-	require.Equal(t, cmd.OutOrStdout(), ioutil.Discard)
-	require.Equal(t, cmd.ErrOrStderr(), ioutil.Discard)
+	require.Equal(t, cmd.OutOrStdout(), io.Discard)
+	require.Equal(t, cmd.ErrOrStderr(), io.Discard)
 }

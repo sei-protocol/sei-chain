@@ -8,14 +8,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	"github.com/cosmos/cosmos-sdk/testutil"
-	"github.com/cosmos/cosmos-sdk/testutil/testdata"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 func Test_runExportCmd(t *testing.T) {

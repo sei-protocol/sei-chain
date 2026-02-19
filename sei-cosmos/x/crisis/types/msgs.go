@@ -1,15 +1,13 @@
 package types
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // ensure Msg interface compliance at compile time
 var _ sdk.Msg = &MsgVerifyInvariant{}
 
 // NewMsgVerifyInvariant creates a new MsgVerifyInvariant object
-//
-//nolint:interfacer
 func NewMsgVerifyInvariant(sender sdk.AccAddress, invModeName, invRoute string) *MsgVerifyInvariant {
 	return &MsgVerifyInvariant{
 		Sender:              sender.String(),

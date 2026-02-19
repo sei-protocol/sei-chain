@@ -5,10 +5,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 )
 
 // GetQueryCmd returns the parent command for all x/upgrade CLi query commands.

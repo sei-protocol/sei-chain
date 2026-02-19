@@ -9,7 +9,7 @@ import (
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/gogo/protobuf/proto"
 
-	"github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 )
 
 // ProtoCodecMarshaler defines an interface for codecs that utilize Protobuf for both
@@ -60,7 +60,7 @@ func (pc *ProtoCodec) MarshalLengthPrefixed(o ProtoMarshaler) ([]byte, error) {
 	}
 
 	var sizeBuf [binary.MaxVarintLen64]byte
-	n := binary.PutUvarint(sizeBuf[:], uint64(o.Size()))
+	n := binary.PutUvarint(sizeBuf[:], uint64(o.Size())) //nolint:gosec // Size() returns the serialized size which is always non-negative
 	return append(sizeBuf[:n], bz...), nil
 }
 
@@ -105,10 +105,15 @@ func (pc *ProtoCodec) UnmarshalLengthPrefixed(bz []byte, ptr ProtoMarshaler) err
 		return fmt.Errorf("invalid number of bytes read from length-prefixed encoding: %d", n)
 	}
 
-	if size > uint64(len(bz)-n) {
-		return fmt.Errorf("not enough bytes to read; want: %v, got: %v", size, len(bz)-n)
-	} else if size < uint64(len(bz)-n) {
-		return fmt.Errorf("too many bytes to read; want: %v, got: %v", size, len(bz)-n)
+	remaining := len(bz) - n
+	if remaining < 0 {
+		return fmt.Errorf("length prefix exceeds buffer size")
+	}
+
+	if size > uint64(remaining) { //nolint:gosec // remaining is validated non-negative above
+		return fmt.Errorf("not enough bytes to read; want: %v, got: %v", size, remaining)
+	} else if size < uint64(remaining) { //nolint:gosec // remaining is validated non-negative above
+		return fmt.Errorf("too many bytes to read; want: %v, got: %v", size, remaining)
 	}
 
 	bz = bz[n:]
@@ -126,7 +131,7 @@ func (pc *ProtoCodec) MustUnmarshalLengthPrefixed(bz []byte, ptr ProtoMarshaler)
 // it marshals to JSON using proto codec.
 // NOTE: this function must be used with a concrete type which
 // implements proto.Message. For interface please use the codec.MarshalInterfaceJSON
-func (pc *ProtoCodec) MarshalJSON(o proto.Message) ([]byte, error) {
+func (pc *ProtoCodec) MarshalAsJSON(o proto.Message) ([]byte, error) {
 	m, ok := o.(ProtoMarshaler)
 	if !ok {
 		return nil, fmt.Errorf("cannot protobuf JSON encode unsupported type: %T", o)
@@ -140,7 +145,7 @@ func (pc *ProtoCodec) MarshalJSON(o proto.Message) ([]byte, error) {
 // NOTE: this function must be used with a concrete type which
 // implements proto.Message. For interface please use the codec.MarshalInterfaceJSON
 func (pc *ProtoCodec) MustMarshalJSON(o proto.Message) []byte {
-	bz, err := pc.MarshalJSON(o)
+	bz, err := pc.MarshalAsJSON(o)
 	if err != nil {
 		panic(err)
 	}
@@ -152,7 +157,7 @@ func (pc *ProtoCodec) MustMarshalJSON(o proto.Message) []byte {
 // it unmarshals from JSON using proto codec.
 // NOTE: this function must be used with a concrete type which
 // implements proto.Message. For interface please use the codec.UnmarshalInterfaceJSON
-func (pc *ProtoCodec) UnmarshalJSON(bz []byte, ptr proto.Message) error {
+func (pc *ProtoCodec) UnmarshalAsJSON(bz []byte, ptr proto.Message) error {
 	m, ok := ptr.(ProtoMarshaler)
 	if !ok {
 		return fmt.Errorf("cannot protobuf JSON decode unsupported type: %T", ptr)
@@ -172,7 +177,7 @@ func (pc *ProtoCodec) UnmarshalJSON(bz []byte, ptr proto.Message) error {
 // NOTE: this function must be used with a concrete type which
 // implements proto.Message. For interface please use the codec.UnmarshalInterfaceJSON
 func (pc *ProtoCodec) MustUnmarshalJSON(bz []byte, ptr proto.Message) {
-	if err := pc.UnmarshalJSON(bz, ptr); err != nil {
+	if err := pc.UnmarshalAsJSON(bz, ptr); err != nil {
 		panic(err)
 	}
 }
@@ -219,7 +224,7 @@ func (pc *ProtoCodec) MarshalInterfaceJSON(x proto.Message) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return pc.MarshalJSON(any)
+	return pc.MarshalAsJSON(any)
 }
 
 // UnmarshalInterfaceJSON is a convenience function for proto unmarshaling interfaces.
@@ -233,7 +238,7 @@ func (pc *ProtoCodec) MarshalInterfaceJSON(x proto.Message) ([]byte, error) {
 //	err := cdc.UnmarshalInterfaceJSON(&x, bz)
 func (pc *ProtoCodec) UnmarshalInterfaceJSON(bz []byte, iface interface{}) error {
 	any := &types.Any{}
-	err := pc.UnmarshalJSON(bz, any)
+	err := pc.UnmarshalAsJSON(bz, any)
 	if err != nil {
 		return err
 	}

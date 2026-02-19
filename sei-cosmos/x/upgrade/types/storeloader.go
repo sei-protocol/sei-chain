@@ -1,9 +1,9 @@
 package types
 
 import (
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	store "github.com/cosmos/cosmos-sdk/store/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	store "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // UpgradeStoreLoader is used to prepare baseapp with a fixed StoreLoader

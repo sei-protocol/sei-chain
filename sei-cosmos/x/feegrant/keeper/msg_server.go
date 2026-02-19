@@ -3,10 +3,10 @@ package keeper
 import (
 	"context"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/feegrant"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant"
 )
 
 type msgServer struct {
@@ -38,7 +38,7 @@ func (k msgServer) GrantAllowance(goCtx context.Context, msg *feegrant.MsgGrantA
 	}
 
 	// Checking for duplicate entry
-	if f, _ := k.Keeper.GetAllowance(ctx, granter, grantee); f != nil {
+	if f, _ := k.GetAllowance(ctx, granter, grantee); f != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee allowance already exists")
 	}
 
@@ -69,7 +69,7 @@ func (k msgServer) RevokeAllowance(goCtx context.Context, msg *feegrant.MsgRevok
 		return nil, err
 	}
 
-	err = k.Keeper.revokeAllowance(ctx, granter, grantee)
+	err = k.revokeAllowance(ctx, granter, grantee)
 	if err != nil {
 		return nil, err
 	}
