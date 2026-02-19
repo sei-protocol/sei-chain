@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"maps"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
-	"github.com/stretchr/testify/require"
 )
 
 type Snapshot struct {
@@ -302,40 +302,50 @@ func TestExecution(t *testing.T) {
 }
 
 func TestPushBlockWaitsForQC(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		rng := utils.TestRng()
+		committee, keys := types.GenCommittee(rng, 3)
 
-	state := NewState(&Config{
-		Committee: committee,
-	}, utils.None[BlockStore]())
+		state := NewState(&Config{
+			Committee: committee,
+		}, utils.None[BlockStore]())
 
-	// Push first QC covering [0, N).
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
-	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
+		// Push first QC covering [0, N).
+		qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
+		require.NoError(t, state.PushQC(ctx, qc1, blocks1))
 
-	// Prepare second QC covering [N, M) but don't push it yet.
-	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
-	gr2 := qc2.QC().GlobalRange()
+		// Prepare second QC covering [N, M) but don't push it yet.
+		qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
+		gr2 := qc2.QC().GlobalRange()
 
-	// Block gr2.First should not be in state yet.
-	_, err := state.TryBlock(gr2.First)
-	require.ErrorIs(t, err, ErrNotFound)
+		// Block gr2.First should not be in state yet.
+		_, err := state.TryBlock(gr2.First)
+		require.ErrorIs(t, err, ErrNotFound)
 
-	// PushBlock for a block in qc2's range. With the off-by-one bug
-	// (n <= inner.nextQC), this would immediately dereference a nil QC
-	// pointer and panic. With the fix, it waits for the QC.
-	errc := make(chan error, 1)
-	go func() {
-		errc <- state.PushBlock(ctx, gr2.First, blocks2[0])
-	}()
+		// PushBlock for a block in qc2's range. With the off-by-one bug
+		// (n <= inner.nextQC), this would immediately dereference a nil QC
+		// pointer and panic. With the fix, it waits for the QC.
+		var pushErr error
+		go func() {
+			pushErr = state.PushBlock(ctx, gr2.First, blocks2[0])
+		}()
 
-	// Now push qc2 so PushBlock can proceed.
-	require.NoError(t, state.PushQC(ctx, qc2, nil))
-	require.NoError(t, <-errc)
+		// Wait for PushBlock to become durably blocked on the QC channel.
+		synctest.Wait()
 
-	// Block gr2.First should now be in state.
-	got, err := state.TryBlock(gr2.First)
-	require.NoError(t, err)
-	require.Equal(t, blocks2[0], got)
+		// Block should still not be in state (PushBlock is blocked).
+		_, err = state.TryBlock(gr2.First)
+		require.ErrorIs(t, err, ErrNotFound)
+
+		// Push qc2 to unblock PushBlock.
+		require.NoError(t, state.PushQC(ctx, qc2, nil))
+		synctest.Wait()
+		require.NoError(t, pushErr)
+
+		// Block gr2.First should now be in state.
+		got, err := state.TryBlock(gr2.First)
+		require.NoError(t, err)
+		require.Equal(t, blocks2[0], got)
+	})
 }
