@@ -248,13 +248,15 @@ func TestStateCommitConfigValidate(t *testing.T) {
 // and renamed fields.
 func TestTemplateFieldPathsExist(t *testing.T) {
 	type TemplateConfig struct {
-		StateCommit StateCommitConfig
-		StateStore  StateStoreConfig
+		StateCommit  StateCommitConfig
+		StateStore   StateStoreConfig
+		ReceiptStore ReceiptStoreConfig
 	}
 
 	cfg := TemplateConfig{
-		StateCommit: DefaultStateCommitConfig(),
-		StateStore:  DefaultStateStoreConfig(),
+		StateCommit:  DefaultStateCommitConfig(),
+		StateStore:   DefaultStateStoreConfig(),
+		ReceiptStore: DefaultReceiptStoreConfig(),
 	}
 
 	templates := []struct {
@@ -263,6 +265,7 @@ func TestTemplateFieldPathsExist(t *testing.T) {
 	}{
 		{"StateCommitConfigTemplate", StateCommitConfigTemplate},
 		{"StateStoreConfigTemplate", StateStoreConfigTemplate},
+		{"ReceiptStoreConfigTemplate", ReceiptStoreConfigTemplate},
 	}
 
 	for _, tt := range templates {
