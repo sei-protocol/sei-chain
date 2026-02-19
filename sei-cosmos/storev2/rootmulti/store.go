@@ -27,7 +27,7 @@ import (
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
@@ -75,7 +75,8 @@ func NewStore(
 	if scConfig.Directory != "" {
 		scDir = scConfig.Directory
 	}
-	scStore := memiavl.NewCommitStore(scDir, logger, scConfig.MemIAVLConfig)
+
+	scStore := composite.NewCompositeCommitStore(scDir, logger, scConfig)
 
 	maxInFlight := scConfig.HistoricalProofMaxInFlight
 	if maxInFlight <= 0 {

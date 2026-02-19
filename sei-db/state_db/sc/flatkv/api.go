@@ -40,8 +40,7 @@ type Options struct {
 type Store interface {
 	// LoadVersion opens the database at the specified version.
 	// Note: FlatKV only stores latest state, so targetVersion is for verification only.
-	// readOnly=true is NOT YET SUPPORTED and returns an error (requires snapshot implementation).
-	LoadVersion(targetVersion int64, readOnly bool) (Store, error)
+	LoadVersion(targetVersion int64) (Store, error)
 
 	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
 	// Non-EVM modules are ignored. Call Commit to persist.

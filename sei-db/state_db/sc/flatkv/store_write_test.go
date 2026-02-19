@@ -369,7 +369,7 @@ func TestStoreFsyncConfig(t *testing.T) {
 	t.Run("DefaultConfig", func(t *testing.T) {
 		dir := t.TempDir()
 		store := NewCommitStore(dir, nil, DefaultConfig())
-		_, err := store.LoadVersion(0, false)
+		_, err := store.LoadVersion(0)
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -383,7 +383,7 @@ func TestStoreFsyncConfig(t *testing.T) {
 		store := NewCommitStore(dir, nil, Config{
 			Fsync: false,
 		})
-		_, err := store.LoadVersion(0, false)
+		_, err := store.LoadVersion(0)
 		require.NoError(t, err)
 		defer store.Close()
 
