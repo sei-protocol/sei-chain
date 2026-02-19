@@ -208,7 +208,7 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
 	}()
 
-	gInfo, result, anteEvents, _, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum).WithVoteInfos(app.voteInfos), runTxModeDeliver, tx, checksum) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
+	gInfo, result, anteEvents, _, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum), runTxModeDeliver, tx, checksum) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
 	if err != nil {
 		resultStr = "failed"
 		// if we have a result, use those events instead of just the anteEvents
@@ -785,7 +785,7 @@ func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) (int64, error) {
 }
 
 func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
-	ctx := app.checkState.ctx.WithTxBytes(txBytes).WithVoteInfos(app.voteInfos).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx))
+	ctx := app.checkState.ctx.WithTxBytes(txBytes).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx))
 	ctx, _ = ctx.CacheContext()
 	tx, err := app.txDecoder(txBytes)
 	if err != nil {
@@ -1143,18 +1143,16 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		app.checkState.SetContext(app.checkState.ctx.WithHeaderHash(req.Hash))
 	}
 
-	if app.finalizeBlocker == nil {
+	if app.finalizeBlocker != nil {
+		res, err := app.finalizeBlocker(app.deliverState.ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		res.Events = sdk.MarkEventsToIndex(res.Events, app.IndexEvents)
+		return res, nil
+	} else {
 		return nil, errors.New("finalize block handler not set")
 	}
-	res, err := app.finalizeBlocker(app.deliverState.ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	res.Events = sdk.MarkEventsToIndex(res.Events, app.IndexEvents)
-	// set the signed validators for addition to context in deliverTx
-	app.setVotesInfo(req.DecidedLastCommit.GetVotes())
-
-	return res, nil
 }
 
 func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxPriorityHintV2) (_resp *abci.ResponseGetTxPriorityHint, _err error) {
