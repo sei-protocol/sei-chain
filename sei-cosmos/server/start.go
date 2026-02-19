@@ -17,7 +17,6 @@ import (
 
 	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
 	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	tcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
@@ -355,7 +354,7 @@ func startInProcess(
 			ctx.Config,
 			ctx.Logger,
 			restartEvent,
-			abciclient.NewLocalClient(ctx.Logger, app),
+			app,
 			gen,
 			tracerProviderOptions,
 			nodeMetricsProvider,

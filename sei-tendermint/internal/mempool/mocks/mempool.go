@@ -44,24 +44,6 @@ func (_m *Mempool) Flush() {
 	_m.Called()
 }
 
-// FlushAppConn provides a mock function with given fields: _a0
-func (_m *Mempool) FlushAppConn(_a0 context.Context) error {
-	ret := _m.Called(_a0)
-
-	if len(ret) == 0 {
-		panic("no return value specified for FlushAppConn")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
-		r0 = rf(_a0)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
 // GetTxsForKeys provides a mock function with given fields: txKeys
 func (_m *Mempool) GetTxsForKeys(txKeys []types.TxKey) types.Txs {
 	ret := _m.Called(txKeys)
