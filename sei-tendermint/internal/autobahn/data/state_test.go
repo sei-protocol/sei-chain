@@ -153,14 +153,22 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 		}
 	}
 	viewSpec := types.ViewSpec{CommitQC: utils.None[*types.CommitQC]()}
-	proposal, _ := types.NewProposal(
-		types.GenSecretKey(rng),
+	leader := committee.Leader(viewSpec.View())
+	var leaderKey types.SecretKey
+	for _, k := range keys {
+		if k.Public() == leader {
+			leaderKey = k
+			break
+		}
+	}
+	proposal := utils.OrPanic1(types.NewProposal(
+		leaderKey,
 		committee,
 		viewSpec,
 		time.Now(),
 		laneQCs,
 		utils.None[*types.AppQC](),
-	)
+	))
 	malGR := proposal.Proposal().Msg().GlobalRange()
 	require.Less(t, malGR.First, nextQC, "test setup: malicious gr.First must be < nextQC")
 	require.Greater(t, malGR.Next, nextQC, "test setup: malicious gr.Next must be > nextQC")
@@ -171,13 +179,32 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 	}
 	maliciousQC := types.NewFullCommitQC(types.NewCommitQC(votes), headers)
 
-	// Stale QC is silently ignored (verification is skipped, insert guard prevents
-	// advancing nextQC). No error is returned.
-	require.NoError(t, state.PushQC(ctx, maliciousQC, nil))
+	// Push the malicious QC. Whether it returns an error is an implementation
+	// detail — what matters is that the state is unchanged afterward.
+	_ = state.PushQC(ctx, maliciousQC, nil)
 
-	// Verify state is not corrupted: the next valid QC should still be accepted.
+	// Verify state was not corrupted: all previously pushed QCs are intact.
+	gr1 := qc1.QC().GlobalRange()
+	for n := gr1.First; n < gr1.Next; n++ {
+		got, err := state.QC(ctx, n)
+		require.NoError(t, err)
+		require.Equal(t, qc1, got)
+	}
+
+	// Verify nextQC did not advance beyond the valid range.
+	for inner := range state.inner.Lock() {
+		require.Equal(t, nextQC, inner.nextQC)
+	}
+
+	// Verify state is still functional: the next valid QC is accepted and visible.
 	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
 	require.NoError(t, state.PushQC(ctx, qc2, blocks2))
+	gr2 := qc2.QC().GlobalRange()
+	for n := gr2.First; n < gr2.Next; n++ {
+		got, err := state.QC(ctx, n)
+		require.NoError(t, err)
+		require.Equal(t, qc2, got)
+	}
 }
 
 func TestExecution(t *testing.T) {
