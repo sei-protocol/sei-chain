@@ -1,16 +1,13 @@
 package rootmulti
 
 import (
-<<<<<<< HEAD
-	"github.com/cosmos/cosmos-sdk/storev2/state"
-=======
 	"fmt"
->>>>>>> 1bcbb0e (Return proper error message when SS disabled (#2911))
 	"testing"
 
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/cosmos/cosmos-sdk/storev2/state"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
