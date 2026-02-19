@@ -127,8 +127,8 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 }
 
 func (db *Database) getSlice(storeKey string, version int64, key []byte) (*grocksdb.Slice, error) {
-	readOpts := newTSReadOptions(version)
-	defer readOpts.Destroy()
+	readOpts, cleanup := newTSReadOptions(version)
+	defer cleanup()
 	return db.storage.GetCF(
 		readOpts,
 		db.cfHandle,
@@ -324,9 +324,9 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 	prefix := storePrefix(storeKey)
 	start, end = util.IterateWithPrefix(prefix, start, end)
 
-	readOpts := newTSReadOptions(version)
+	readOpts, cleanup := newTSReadOptions(version)
 	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
-	return NewRocksDBIterator(itr, readOpts, prefix, start, end, version, db.earliestVersion, false), nil
+	return NewRocksDBIterator(itr, cleanup, prefix, start, end, version, db.earliestVersion, false), nil
 }
 
 func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
@@ -341,9 +341,9 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	prefix := storePrefix(storeKey)
 	start, end = util.IterateWithPrefix(prefix, start, end)
 
-	readOpts := newTSReadOptions(version)
+	readOpts, cleanup := newTSReadOptions(version)
 	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
-	return NewRocksDBIterator(itr, readOpts, prefix, start, end, version, db.earliestVersion, true), nil
+	return NewRocksDBIterator(itr, cleanup, prefix, start, end, version, db.earliestVersion, true), nil
 }
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
@@ -416,7 +416,7 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 	readOpts.SetTimestamp(endTs[:])
 
 	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
-	rocksItr := NewRocksDBIterator(itr, readOpts, prefix, start, end, latestVersion, 1, false)
+	rocksItr := NewRocksDBIterator(itr, func() { readOpts.Destroy() }, prefix, start, end, latestVersion, 1, false)
 	defer func() { _ = rocksItr.Close() }()
 
 	for rocksItr.Valid() {
@@ -443,15 +443,17 @@ func (db *Database) GetLatestMigratedModule() (string, error) {
 	panic("not implemented")
 }
 
-// newTSReadOptions returns ReadOptions used in the RocksDB column family read.
-func newTSReadOptions(version int64) *grocksdb.ReadOptions {
+// newTSReadOptions returns ReadOptions used in the RocksDB column family read
+// and a cleanup function that destroys them. The caller must ensure cleanup is
+// called when the ReadOptions are no longer needed.
+func newTSReadOptions(version int64) (*grocksdb.ReadOptions, func()) {
 	var ts [TimestampSize]byte
 	binary.LittleEndian.PutUint64(ts[:], uint64(version))
 
 	readOpts := grocksdb.NewDefaultReadOptions()
 	readOpts.SetTimestamp(ts[:])
 
-	return readOpts
+	return readOpts, func() { readOpts.Destroy() }
 }
 
 func storePrefix(storeKey string) []byte {
