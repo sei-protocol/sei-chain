@@ -152,13 +152,9 @@ func (walLog *WAL[T]) Write(entry T) error {
 		errChan: make(chan error, 1),
 	}
 
-	select {
-	case _, ok := <-walLog.ctx.Done():
-		if !ok {
-			return fmt.Errorf("WAL is closed, cannot write")
-		}
-	case walLog.writeChan <- req:
-		// request submitted successfully
+	err := interuptablePush(walLog.ctx, walLog.writeChan, req)
+	if err != nil {
+		return fmt.Errorf("failed to push write request: %w", err)
 	}
 
 	if walLog.asyncWrites {
@@ -166,16 +162,12 @@ func (walLog *WAL[T]) Write(entry T) error {
 		return nil
 	}
 
-	select {
-	case _, ok := <-walLog.ctx.Done():
-		if !ok {
-			return fmt.Errorf("WAL was closed after write was submitted but before write was finalized, " +
-				"write may or may not be durable")
-		}
-	case err := <-req.errChan:
-		if err != nil {
-			return fmt.Errorf("failed to write data: %w", err)
-		}
+	err, pullErr := interuptablePull(walLog.ctx, req.errChan)
+	if pullErr != nil {
+		return fmt.Errorf("failed to pull write error: %w", pullErr)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to write data: %w", err)
 	}
 
 	return nil
@@ -296,24 +288,17 @@ func (walLog *WAL[T]) sendTruncate(before bool, index uint64) error {
 		errChan: make(chan error, 1),
 	}
 
-	select {
-	case _, ok := <-walLog.ctx.Done():
-		if !ok {
-			return fmt.Errorf("WAL is closed, cannot truncate")
-		}
-	case walLog.truncateChan <- req:
-		// request submitted successfully
+	err := interuptablePush(walLog.ctx, walLog.truncateChan, req)
+	if err != nil {
+		return fmt.Errorf("failed to push truncate request: %w", err)
 	}
 
-	select {
-	case _, ok := <-walLog.ctx.Done():
-		if !ok {
-			return fmt.Errorf("WAL was closed after truncate was submitted but before truncate was finalized")
-		}
-	case err := <-req.errChan:
-		if err != nil {
-			return fmt.Errorf("failed to truncate: %w", err)
-		}
+	err, pullErr := interuptablePull(walLog.ctx, req.errChan)
+	if pullErr != nil {
+		return fmt.Errorf("failed to pull truncate error: %w", pullErr)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to truncate: %w", err)
 	}
 
 	return nil
@@ -429,14 +414,12 @@ func (walLog *WAL[T]) drain() {
 // Shut down the WAL. Sends a close request to the main loop so in-flight writes (and other work)
 // can complete before teardown. Idempotent.
 func (walLog *WAL[T]) Close() error {
-	select {
-	case <-walLog.ctx.Done():
+	err := interuptablePush(walLog.ctx, walLog.closeReqChan, struct{}{})
+	if err != nil {
 		// already closed
-	case walLog.closeReqChan <- struct{}{}:
-		// close request sent
 	}
 
-	err := <-walLog.closeErrChan
+	err = <-walLog.closeErrChan
 
 	// "reload" error into channel to make Close() idempotent
 	walLog.closeErrChan <- err
@@ -518,5 +501,29 @@ func (walLog *WAL[T]) mainLoop() {
 		walLog.closeErrChan <- fmt.Errorf("wal returned error during shutdown: %w", err)
 	} else {
 		walLog.closeErrChan <- nil
+	}
+}
+
+// Push to a channel, returning an error if the context is cancelled before the value is pushed.
+func interuptablePush[T any](ctx context.Context, ch chan T, value T) error {
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("context cancelled: %w", ctx.Err())
+	case ch <- value:
+		return nil
+	}
+}
+
+// Pull from a channel, returning an error if the context is cancelled before the value is pulled.
+func interuptablePull[T any](ctx context.Context, ch <-chan T) (T, error) {
+	var zero T
+	select {
+	case <-ctx.Done():
+		return zero, fmt.Errorf("context cancelled: %w", ctx.Err())
+	case value, ok := <-ch:
+		if !ok {
+			return zero, fmt.Errorf("channel closed")
+		}
+		return value, nil
 	}
 }
