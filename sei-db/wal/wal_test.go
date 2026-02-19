@@ -679,6 +679,82 @@ func TestLogPath(t *testing.T) {
 	require.Equal(t, "/some/dir/changelog", path)
 }
 
+// batchTestEntry is a simple type for testing batch marshal failures.
+type batchTestEntry struct {
+	value string
+}
+
+func TestBatchWriteWithMarshalFailure(t *testing.T) {
+	dir := t.TempDir()
+
+	// Marshal fails for entries with value "fail"
+	marshalBatchTest := func(e batchTestEntry) ([]byte, error) {
+		if e.value == "fail" {
+			return nil, fmt.Errorf("mock marshal failure")
+		}
+		return []byte(e.value), nil
+	}
+	unmarshalBatchTest := func(b []byte) (batchTestEntry, error) {
+		return batchTestEntry{value: string(b)}, nil
+	}
+
+	// Use sync writes (WriteBufferSize 0) and batching (WriteBatchSize 4)
+	// so we can observe per-write errors. The channel buffer allows multiple
+	// goroutines to push before the handler runs, forming a batch.
+	config := Config{
+		WriteBufferSize: 0, // sync writes
+		WriteBatchSize:  4, // batch up to 4
+	}
+
+	w, err := NewWAL(t.Context(), marshalBatchTest, unmarshalBatchTest, logger.NewNopLogger(), dir, config)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, w.Close()) })
+
+	// Write 4 entries concurrently so they get batched. The second one will fail to marshal.
+	entries := []batchTestEntry{
+		{value: "ok1"},
+		{value: "fail"},
+		{value: "ok2"},
+		{value: "ok3"},
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, 4)
+	for i := range entries {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			errs[idx] = w.Write(entries[idx])
+		}(i)
+	}
+	wg.Wait()
+
+	// The "fail" entry should have errored
+	require.Error(t, errs[1])
+	require.Contains(t, errs[1].Error(), "mock marshal failure")
+
+	// The successful entries should have no error
+	require.NoError(t, errs[0])
+	require.NoError(t, errs[2])
+	require.NoError(t, errs[3])
+
+	// The WAL should contain exactly 3 entries (the successfully marshalled ones; "fail" is skipped)
+	lastOffset, err := w.LastOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), lastOffset)
+
+	// Goroutines may push in any order, so we collect the written values and verify we have ok1, ok2, ok3
+	written := make(map[string]bool)
+	for i := uint64(1); i <= 3; i++ {
+		e, err := w.ReadAt(i)
+		require.NoError(t, err)
+		written[e.value] = true
+	}
+	require.True(t, written["ok1"], "expected ok1 in WAL")
+	require.True(t, written["ok2"], "expected ok2 in WAL")
+	require.True(t, written["ok3"], "expected ok3 in WAL")
+	require.False(t, written["fail"], "fail should not be in WAL")
+}
 
 func TestMultipleCloseCalls(t *testing.T) {
 	changelog := prepareTestData(t)
