@@ -8,3 +8,8 @@ type ResponseLoadLatest struct{}
 
 // RequestListSnapshots is the plain Go replacement for the legacy protobuf message.
 type RequestListSnapshots struct{}
+
+// ResponseListSnapshots is the plain Go replacement for the legacy protobuf message.
+type ResponseListSnapshots struct {
+	Snapshots []*Snapshot
+}

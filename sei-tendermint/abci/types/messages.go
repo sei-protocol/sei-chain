@@ -63,12 +63,6 @@ func ToRequestInitChain(req *RequestInitChain) *Request {
 	}
 }
 
-func ToRequestListSnapshots(req *RequestListSnapshots) *Request {
-	return &Request{
-		Value: &Request_ListSnapshots{req},
-	}
-}
-
 func ToRequestOfferSnapshot(req *RequestOfferSnapshot) *Request {
 	return &Request{
 		Value: &Request_OfferSnapshot{req},
@@ -152,12 +146,6 @@ func ToResponseQuery(res *ResponseQuery) *Response {
 func ToResponseInitChain(res *ResponseInitChain) *Response {
 	return &Response{
 		Value: &Response_InitChain{res},
-	}
-}
-
-func ToResponseListSnapshots(res *ResponseListSnapshots) *Response {
-	return &Response{
-		Value: &Response_ListSnapshots{res},
 	}
 }
 

@@ -202,7 +202,7 @@ message Response {
     ResponseQuery query = 6;
     ResponseCheckTx check_tx = 8;
     ResponseCommit commit = 11;
-    ResponseListSnapshots list_snapshots = 12;
+    // field 12 reserved for ResponseListSnapshots
     ResponseOfferSnapshot offer_snapshot = 13;
     ResponseLoadSnapshotChunk load_snapshot_chunk = 14;
     ResponseApplySnapshotChunk apply_snapshot_chunk = 15;
@@ -214,8 +214,8 @@ message Response {
     ResponseEndBlock end_block = 23;
     ResponseGetTxPriorityHint get_tx_priority_hint = 25;
   }
-  reserved 7, 9, 10, 18, 19, 24; // ResponseBeginBlock, ResponseDeliverTx, ResponseEndBlock, ResponseExtendVote, ResponseVerifyVoteExtension, ResponseLoadLatest
-  reserved "extend_vote", "verify_vote_extension", "load_latest";
+  reserved 7, 9, 10, 12, 18, 19, 24; // ResponseBeginBlock, ResponseDeliverTx, ResponseListSnapshots, ResponseEndBlock, ResponseExtendVote, ResponseVerifyVoteExtension, ResponseLoadLatest
+  reserved "extend_vote", "verify_vote_extension", "list_snapshots", "load_latest";
 }
 
 // nondeterministic
@@ -307,10 +307,6 @@ message ResponseEndBlock {
 message ResponseCommit {
   // reserve 1
   int64 retain_height = 3;
-}
-
-message ResponseListSnapshots {
-  repeated Snapshot snapshots = 1;
 }
 
 message ResponseOfferSnapshot {
