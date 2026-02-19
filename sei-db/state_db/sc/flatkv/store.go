@@ -209,9 +209,9 @@ func (s *CommitStore) open() (retErr error) {
 	// Open changelog WAL
 	changelogPath := filepath.Join(dir, "changelog")
 	changelog, err := wal.NewChangelogWAL(s.log, changelogPath, wal.Config{
-		AsyncWrites:   false, // Synchronous writes for Phase 1
-		KeepRecent:    0,     // No pruning for Phase 1
-		PruneInterval: 0,
+		WriteBufferSize: 0, // Synchronous writes for Phase 1
+		KeepRecent:      0, // No pruning for Phase 1
+		PruneInterval:   0,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to open changelog: %w", err)

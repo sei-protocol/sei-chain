@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -297,7 +298,7 @@ func TestReplayWithError(t *testing.T) {
 		return nil
 	})
 	require.Error(t, err)
-	require.Equal(t, expectedErr, err)
+	require.True(t, strings.Contains(err.Error(), expectedErr.Error()))
 }
 
 func TestReopenAndContinueWrite(t *testing.T) {

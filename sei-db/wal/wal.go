@@ -37,9 +37,6 @@ type WAL[T any] struct {
 
 	writeChan     chan *writeRequest[T]
 	truncateChan  chan *truncateRequest
-	getOffsetChan chan *getOffsetRequest
-	readAtChan    chan *readAtRequest[T]
-	replayChan    chan *replayRequest[T]
 	closeReqChan  chan struct{}
 	closeErrChan  chan error
 }
@@ -129,9 +126,6 @@ func NewWAL[T any](
 		closeErrChan:   make(chan error, 1),
 		writeChan:      make(chan *writeRequest[T], bufferSize),
 		truncateChan:   make(chan *truncateRequest, bufferSize),
-		getOffsetChan:  make(chan *getOffsetRequest, bufferSize),
-		readAtChan:     make(chan *readAtRequest[T], bufferSize),
-		replayChan:     make(chan *replayRequest[T], bufferSize),
 	}
 
 	go w.mainLoop()
@@ -340,180 +334,55 @@ func (walLog *WAL[T]) handleTruncate(req *truncateRequest) {
 	req.errChan <- nil
 }
 
-// A request to get the first or last offset/index of the log.
-type getOffsetRequest struct {
-	// If true, get the first offset/index. Otherwise, get the last offset/index.
-	first bool
-	// The channel to send the response to.
-	responseChan chan *getOffsetResponse
-}
-
-// A response to a get offset request.
-type getOffsetResponse struct {
-	// The offset/index of the first or last entry in the log.
-	index uint64
-	// The error, if any, encountered while getting the offset.
-	err error
-}
-
 func (walLog *WAL[T]) FirstOffset() (uint64, error) {
-	return walLog.sendGetOffset(true)
+	val, err := walLog.log.FirstIndex()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get first offset: %w", err)
+	}
+	return val, nil
 }
 
 // LastOffset returns the last written offset/index of the log.
 func (walLog *WAL[T]) LastOffset() (uint64, error) {
-	return walLog.sendGetOffset(false)
-}
-
-// sendGetOffset sends a get-offset request to the main loop and waits for the response.
-func (walLog *WAL[T]) sendGetOffset(first bool) (uint64, error) {
-	req := &getOffsetRequest{
-		first:        first,
-		responseChan: make(chan *getOffsetResponse, 1),
+	val, err := walLog.log.LastIndex()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get last offset: %w", err)
 	}
-
-	select {
-	case _, ok := <-walLog.ctx.Done():
-		if !ok {
-			return 0, fmt.Errorf("WAL is closed, cannot get offset")
-		}
-	case walLog.getOffsetChan <- req:
-		// request submitted successfully
-	}
-
-	select {
-	case <-walLog.ctx.Done():
-		return 0, fmt.Errorf("WAL was closed after get offset was submitted but before response")
-	case resp := <-req.responseChan:
-		if resp.err != nil {
-			return 0, resp.err
-		}
-		return resp.index, nil
-	}
-}
-
-// handleGetOffset runs on the main loop and returns the first or last index.
-func (walLog *WAL[T]) handleGetOffset(req *getOffsetRequest) {
-	var index uint64
-	var err error
-	if req.first {
-		index, err = walLog.log.FirstIndex()
-	} else {
-		index, err = walLog.log.LastIndex()
-	}
-	req.responseChan <- &getOffsetResponse{index: index, err: err}
-}
-
-// A request to read an entry at a specific index.
-type readAtRequest[T any] struct {
-	index        uint64
-	responseChan chan *readAtResponse[T]
-}
-
-// A response to a read-at request.
-type readAtResponse[T any] struct {
-	entry T
-	err   error
+	return val, nil
 }
 
 // ReadAt will read the log entry at the provided index.
 func (walLog *WAL[T]) ReadAt(index uint64) (T, error) {
 	var zero T
-	req := &readAtRequest[T]{
-		index:        index,
-		responseChan: make(chan *readAtResponse[T], 1),
-	}
-
-	select {
-	case _, ok := <-walLog.ctx.Done():
-		if !ok {
-			return zero, fmt.Errorf("WAL is closed, cannot read")
-		}
-	case walLog.readAtChan <- req:
-		// request submitted successfully
-	}
-
-	select {
-	case <-walLog.ctx.Done():
-		return zero, fmt.Errorf("WAL was closed after read was submitted but before response")
-	case resp := <-req.responseChan:
-		if resp.err != nil {
-			return zero, resp.err
-		}
-		return resp.entry, nil
-	}
-}
-
-// handleReadAt runs on the main loop and reads and unmarshals the entry at the index.
-func (walLog *WAL[T]) handleReadAt(req *readAtRequest[T]) {
-	var zero T
-	bz, err := walLog.log.Read(req.index)
+	bz, err := walLog.log.Read(index)
 	if err != nil {
-		req.responseChan <- &readAtResponse[T]{entry: zero, err: fmt.Errorf("read log failed, %w", err)}
-		return
+		return zero, fmt.Errorf("read log failed, %w", err)
 	}
 	entry, err := walLog.unmarshal(bz)
 	if err != nil {
-		req.responseChan <- &readAtResponse[T]{entry: zero, err: fmt.Errorf("unmarshal log failed, %w", err)}
-		return
+		return zero, fmt.Errorf("unmarshal log failed, %w", err)
 	}
-	req.responseChan <- &readAtResponse[T]{entry: entry, err: nil}
-}
-
-// A request to replay a range of the log.
-type replayRequest[T any] struct {
-	start     uint64
-	end       uint64
-	processFn func(index uint64, entry T) error
-	errChan   chan error
+	return entry, nil
 }
 
 // Replay will read the replay log and process each log entry with the provided function.
 func (walLog *WAL[T]) Replay(start uint64, end uint64, processFn func(index uint64, entry T) error) error {
-	req := &replayRequest[T]{
-		start:     start,
-		end:       end,
-		processFn: processFn,
-		errChan:   make(chan error, 1),
-	}
-
-	select {
-	case _, ok := <-walLog.ctx.Done():
-		if !ok {
-			return fmt.Errorf("WAL is closed, cannot replay")
-		}
-	case walLog.replayChan <- req:
-		// request submitted successfully
-	}
-
-	select {
-	case <-walLog.ctx.Done():
-		return fmt.Errorf("WAL was closed after replay was submitted but before completion")
-	case err := <-req.errChan:
-		return err
-	}
-}
-
-// handleReplay runs on the main loop and replays the range, calling processFn for each entry.
-func (walLog *WAL[T]) handleReplay(req *replayRequest[T]) {
-	for i := req.start; i <= req.end; i++ {
+	for i := start; i <= end; i++ {
 		bz, err := walLog.log.Read(i)
 		if err != nil {
-			req.errChan <- fmt.Errorf("read log failed, %w", err)
-			return
+			return fmt.Errorf("read log failed, %w", err)
 		}
 		entry, err := walLog.unmarshal(bz)
 		if err != nil {
-			req.errChan <- fmt.Errorf("unmarshal log failed, %w", err)
-			return
+			return fmt.Errorf("unmarshal log failed, %w", err)
+
 		}
-		err = req.processFn(i, entry)
+		err = processFn(i, entry)
 		if err != nil {
-			req.errChan <- err
-			return
+			return fmt.Errorf("process log failed, %w", err)
 		}
 	}
-	req.errChan <- nil
+	return nil
 }
 
 func (walLog *WAL[T]) prune() {
@@ -551,12 +420,6 @@ func (walLog *WAL[T]) drain() {
 			walLog.handleWrite(req)
 		case req := <-walLog.truncateChan:
 			walLog.handleTruncate(req)
-		case req := <-walLog.getOffsetChan:
-			walLog.handleGetOffset(req)
-		case req := <-walLog.readAtChan:
-			walLog.handleReadAt(req)
-		case req := <-walLog.replayChan:
-			walLog.handleReplay(req)
 		default:
 			return
 		}
@@ -638,12 +501,6 @@ func (walLog *WAL[T]) mainLoop() {
 			walLog.handleWrite(req)
 		case req := <-walLog.truncateChan:
 			walLog.handleTruncate(req)
-		case req := <-walLog.getOffsetChan:
-			walLog.handleGetOffset(req)
-		case req := <-walLog.readAtChan:
-			walLog.handleReadAt(req)
-		case req := <-walLog.replayChan:
-			walLog.handleReplay(req)
 		case <-pruneChan:
 			walLog.prune()
 		case <-walLog.closeReqChan:
