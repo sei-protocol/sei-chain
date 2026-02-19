@@ -157,7 +157,6 @@ type BaseApp struct {
 
 	ChainID string
 
-	votesInfoLock    sync.RWMutex
 	commitLock       *sync.Mutex
 	checkTxStateLock *sync.RWMutex
 
@@ -197,9 +196,6 @@ type abciData struct {
 	initChainer sdk.InitChainer // initialize state with validators and state blob
 	midBlocker  sdk.MidBlocker  // logic to run after all txs, and to determine valset changes
 	endBlocker  sdk.EndBlocker  // logic to run after all txs, and to determine valset changes
-
-	// absent validators from begin block
-	voteInfos []abci.VoteInfo
 }
 
 type baseappVersions struct {
@@ -651,17 +647,6 @@ func (app *BaseApp) prepareDeliverState(headerHash []byte) {
 		WithConsensusParams(app.GetConsensusParams(app.deliverState.Context())))
 }
 
-func (app *BaseApp) setVotesInfo(votes []abci.VoteInfo) {
-	app.votesInfoLock.Lock()
-	defer app.votesInfoLock.Unlock()
-
-	app.voteInfos = votes
-}
-
-func (app *BaseApp) UnsafeGetVoteInfos() []abci.VoteInfo {
-	return app.voteInfos
-}
-
 // GetConsensusParams returns the current consensus parameters from the BaseApp's
 // ParamStore. If the BaseApp has no ParamStore defined, nil is returned.
 func (app *BaseApp) GetConsensusParams(ctx sdk.Context) *tmproto.ConsensusParams {
@@ -804,11 +789,8 @@ func (app *BaseApp) getState(mode runTxMode) *state {
 
 // retrieve the context for the tx w/ txBytes and other memoized values.
 func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context {
-	app.votesInfoLock.RLock()
-	defer app.votesInfoLock.RUnlock()
 	ctx := app.getState(mode).Context().
-		WithTxBytes(txBytes).
-		WithVoteInfos(app.voteInfos)
+		WithTxBytes(txBytes)
 
 	ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 
@@ -824,15 +806,12 @@ func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context 
 }
 
 func (app *BaseApp) GetCheckTxContext(txBytes []byte, recheck bool) sdk.Context {
-	app.votesInfoLock.RLock()
-	defer app.votesInfoLock.RUnlock()
 	mode := runTxModeCheck
 	if recheck {
 		mode = runTxModeReCheck
 	}
 	ctx := app.getState(mode).Context().
-		WithTxBytes(txBytes).
-		WithVoteInfos(app.voteInfos)
+		WithTxBytes(txBytes)
 
 	return ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 }
