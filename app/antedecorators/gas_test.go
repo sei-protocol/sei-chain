@@ -7,14 +7,13 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMultiplierGasSetter(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
-	ctx := testApp.NewContext(false, types.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	testApp.ParamsKeeper.SetCosmosGasParams(ctx, *paramtypes.DefaultCosmosGasParams())
 	testApp.ParamsKeeper.SetFeesParams(ctx, paramtypes.DefaultGenesis().GetFeesParams())
 	testMsg := wasmtypes.MsgExecuteContract{

@@ -611,7 +611,7 @@ func isSwaggerRouteAdded(router *mux.Router) bool {
 
 func TestGaslessTransactionExtremeGasValue(t *testing.T) {
 	sei := app.Setup(t, false, false, false)
-	ctx := sei.BaseApp.NewContext(false, types.Header{})
+	ctx := sei.BaseApp.NewContext(false, sdk.Header{})
 
 	testAddr := sdk.AccAddress([]byte("test_address_1234567"))
 
@@ -800,7 +800,7 @@ func TestProcessBlockUpgradePanicLogic(t *testing.T) {
 
 func TestDeliverTxWithNilTypedTxDoesNotPanic(t *testing.T) {
 	sei := app.Setup(t, false, false, false)
-	ctx := sei.BaseApp.NewContext(false, types.Header{})
+	ctx := sei.BaseApp.NewContext(false, sdk.Header{})
 
 	malformedTxBytes := []byte("invalid tx bytes that cannot be decoded")
 

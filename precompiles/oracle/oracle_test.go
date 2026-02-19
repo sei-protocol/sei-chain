@@ -8,7 +8,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/oracle"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -19,7 +18,7 @@ import (
 func TestGetExchangeRate(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	rate := sdk.NewDec(1700)
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	testApp.OracleKeeper.SetBaseExchangeRate(ctx, utils.MicroAtomDenom, rate)
 	k := &testApp.EvmKeeper
 
@@ -70,7 +69,7 @@ func TestGetExchangeRate(t *testing.T) {
 
 func TestGetOracleTwaps(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockTime(time.Unix(5400, 0))
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockTime(time.Unix(5400, 0))
 
 	priceSnapshots := types.PriceSnapshots{
 		types.NewPriceSnapshot(types.PriceSnapshotItems{

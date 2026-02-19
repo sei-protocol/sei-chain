@@ -10,7 +10,6 @@ import (
 	"github.com/sei-protocol/sei-chain/app/benchmark"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -19,7 +18,7 @@ func createTestContext() sdk.Context {
 	db := dbm.NewMemDB()
 	logger := log.NewNopLogger()
 	ms := rootmulti.NewStore(db, log.NewNopLogger())
-	return sdk.NewContext(ms, tmtypes.Header{}, false, logger)
+	return sdk.NewContext(ms, sdk.Header{}, false, logger)
 }
 
 func TestPrepareProposalBenchmarkHandler(t *testing.T) {

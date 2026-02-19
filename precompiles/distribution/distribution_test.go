@@ -28,7 +28,6 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -45,7 +44,7 @@ var f embed.FS
 
 func TestWithdraw(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	distrParams := testApp.DistrKeeper.GetParams(ctx)
 	distrParams.WithdrawAddrEnabled = true
 	testApp.DistrKeeper.SetParams(ctx, distrParams)
@@ -171,7 +170,7 @@ func TestWithdraw(t *testing.T) {
 
 func TestWithdrawMultipleDelegationRewards(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	distrParams := testApp.DistrKeeper.GetParams(ctx)
 	distrParams.WithdrawAddrEnabled = true
 	testApp.DistrKeeper.SetParams(ctx, distrParams)
@@ -501,7 +500,7 @@ func TestPrecompile_RunAndCalculateGas_WithdrawDelegationRewards(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			stateDb := state.NewDBImpl(ctx, k, true)
 			evm := vm.EVM{
@@ -662,7 +661,7 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			stateDb := state.NewDBImpl(ctx, k, true)
 			evm := vm.EVM{
@@ -836,7 +835,7 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
 			stateDb := state.NewDBImpl(ctx, k, true)
@@ -1141,7 +1140,7 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
 			stateDb := state.NewDBImpl(ctx, k, true)
@@ -1177,7 +1176,7 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 
 func TestWithdrawValidatorCommission_noCommissionToWithdrawRightAfterDelegation(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	distrParams := testApp.DistrKeeper.GetParams(ctx)
 	distrParams.WithdrawAddrEnabled = true
 	testApp.DistrKeeper.SetParams(ctx, distrParams)
@@ -1277,7 +1276,7 @@ func TestWithdrawValidatorCommission_noCommissionToWithdrawRightAfterDelegation(
 //  3. This unit test validates the happy path and ensures proper response formatting/unpacking
 func TestWithdrawValidatorCommission_UnitTest(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
 	// Set up caller
@@ -1329,7 +1328,7 @@ func TestWithdrawValidatorCommission_UnitTest(t *testing.T) {
 // TestWithdrawValidatorCommission_InputValidation tests various input validation scenarios
 func TestWithdrawValidatorCommission_InputValidation(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
 	// Set up caller

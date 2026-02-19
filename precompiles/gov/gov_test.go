@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
@@ -28,7 +27,7 @@ var f embed.FS
 
 func TestGovPrecompile(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(2)
 	content := govtypes.ContentFromProposalType("title", "description", govtypes.ProposalTypeText, false)
 	proposal, err := testApp.GovKeeper.SubmitProposal(ctx, content)
 	require.Nil(t, err)
@@ -700,7 +699,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			// Create a fresh testApp instance for each test
 			testApp := testkeeper.EVMTestApp
 			// Create a fresh context for each test
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(3)
+			ctx := testApp.NewContext(false, sdk.Header{}).WithBlockHeight(3)
 
 			// Dynamically determine the expected proposal ID for this test
 			proposals := testApp.GovKeeper.GetProposals(ctx)
