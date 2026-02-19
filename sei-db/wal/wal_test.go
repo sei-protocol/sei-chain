@@ -145,7 +145,7 @@ func TestSynchronousWrite(t *testing.T) {
 func TestAsyncWrite(t *testing.T) {
 	dir := t.TempDir()
 	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir,
-		Config{BufferSize: 10, AsyncWrites: true})
+		Config{WriteBufferSize: 10})
 	require.NoError(t, err)
 	for _, changes := range ChangeSets {
 		cs := []*proto.NamedChangeSet{
@@ -162,7 +162,7 @@ func TestAsyncWrite(t *testing.T) {
 	err = changelog.Close()
 	require.NoError(t, err)
 	changelog, err = NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir,
-		Config{BufferSize: 10, AsyncWrites: true})
+		Config{WriteBufferSize: 10})
 	require.NoError(t, err)
 	lastIndex, err := changelog.LastOffset()
 	require.NoError(t, err)
@@ -359,7 +359,7 @@ func TestEmptyLog(t *testing.T) {
 func TestCheckErrorNoError(t *testing.T) {
 	dir := t.TempDir()
 	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir,
-		Config{BufferSize: 10, AsyncWrites: true})
+		Config{WriteBufferSize: 10})
 	require.NoError(t, err)
 
 	// Write some data to initialize async mode
@@ -390,7 +390,7 @@ func TestAsyncWriteReopenAndContinue(t *testing.T) {
 
 	// Create with async write and write data
 	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir,
-		Config{BufferSize: 10, AsyncWrites: true})
+		Config{WriteBufferSize: 10})
 	require.NoError(t, err)
 
 	for _, changes := range ChangeSets {
@@ -405,7 +405,7 @@ func TestAsyncWriteReopenAndContinue(t *testing.T) {
 
 	// Reopen with async write and continue
 	changelog2, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir,
-		Config{BufferSize: 10, AsyncWrites: true})
+		Config{WriteBufferSize: 10})
 	require.NoError(t, err)
 
 	// Write more entries
@@ -453,9 +453,8 @@ func TestBatchWrite(t *testing.T) {
 	dir := t.TempDir()
 	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir,
 		Config{
-			WriteBatchSize: batchSize,
-			AsyncWrites:    true,
-			BufferSize:     64,
+			WriteBatchSize:  batchSize,
+			WriteBufferSize: 64,
 		})
 	require.NoError(t, err)
 
@@ -526,7 +525,7 @@ func TestWriteMultipleChangesets(t *testing.T) {
 func TestConcurrentCloseWithInFlightAsyncWrites(t *testing.T) {
 	dir := t.TempDir()
 	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir,
-		Config{BufferSize: 8, AsyncWrites: true})
+		Config{WriteBufferSize: 8})
 	require.NoError(t, err)
 
 	// Intentionally avoid t.Cleanup here: we want Close() to race with in-flight async writes.
@@ -593,10 +592,9 @@ func TestConcurrentCloseWithInFlightAsyncWrites(t *testing.T) {
 func TestConcurrentTruncateBeforeWithAsyncWrites(t *testing.T) {
 	dir := t.TempDir()
 	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{
-		BufferSize:    10,
-		KeepRecent:    10,
-		PruneInterval: 1 * time.Millisecond,
-		AsyncWrites:   true,
+		WriteBufferSize: 10,
+		KeepRecent:      10,
+		PruneInterval:   1 * time.Millisecond,
 	})
 	require.NoError(t, err)
 

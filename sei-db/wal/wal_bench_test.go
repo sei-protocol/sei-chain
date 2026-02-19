@@ -87,8 +87,7 @@ func BenchmarkWALWrapperWrite(b *testing.B) {
 			b.Run(name, func(b *testing.B) {
 				dir := b.TempDir()
 				w, err := NewWAL(b.Context(), marshal, unmarshal, logger.NewNopLogger(), dir, Config{
-					BufferSize:  bufSize,
-					AsyncWrites: bufSize > 0,
+					WriteBufferSize: bufSize,
 				})
 				if err != nil {
 					b.Fatal(err)

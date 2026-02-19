@@ -13,6 +13,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 )
 
+// The size of internal channel buffers if the provided buffer size is less than 1.
+const defaultBufferSize = 1024
+
+// The size of write batches if the provided write batch size is less than 1.
+const defaultWriteBatchSize = 64
+
 // WAL is a generic write-ahead log implementation.
 type WAL[T any] struct {
 	ctx    context.Context
@@ -27,16 +33,15 @@ type WAL[T any] struct {
 
 	// The size of write batches.
 	writeBatchSize int
+	asyncWrites    bool
 
 	writeChan     chan *writeRequest[T]
 	truncateChan  chan *truncateRequest
 	getOffsetChan chan *getOffsetRequest
 	readAtChan    chan *readAtRequest[T]
 	replayChan    chan *replayRequest[T]
-	// closeReqChan is sent on by Close() to request shutdown. Processed last so in-flight work can complete.
-	closeReqChan chan struct{}
-	// Once shut down, any errors encountered during closing are written to closeErrChan. If none, nil is written.
-	closeErrChan chan error
+	closeReqChan  chan struct{}
+	closeErrChan  chan error
 }
 
 // Configuration for the WAL.
@@ -47,13 +52,12 @@ type Config struct {
 	// The interval at which to prune the log.
 	PruneInterval time.Duration
 
-	// If true, the writes are asynchronous, and will return immediately without waiting for the write to be durable
-	AsyncWrites bool
-
-	// The size of internal buffers.
+	// The size of internal buffers. Also controls whether or not the Write method is asynchronous.
 	//
-	// In order to support legacy configuration, if BufferSize is 0, then the buffer size is set to 1024.
-	BufferSize int
+	// If BufferSize is greater than 0, then the Write method is asynchronous, and the size of internal
+	// buffers is set to the provided value. If Buffer size is less than 1, then the Write method is synchronous,
+	// and any internal buffers are set to a default size.
+	WriteBufferSize int
 
 	// The size of write batches. If less than or equal to 0, a default of 64 is used.
 	// If 1, no batching is done.
@@ -96,14 +100,16 @@ func NewWAL[T any](
 		return nil, err
 	}
 
-	bufferSize := config.BufferSize
-	if config.BufferSize == 0 {
-		bufferSize = 1024
+	bufferSize := config.WriteBufferSize
+	if config.WriteBufferSize == 0 {
+		bufferSize = defaultBufferSize
 	}
+
+	asyncWrites := config.WriteBufferSize > 0
 
 	writeBatchSize := config.WriteBatchSize
 	if writeBatchSize <= 0 {
-		writeBatchSize = 64
+		writeBatchSize = defaultWriteBatchSize
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -118,6 +124,7 @@ func NewWAL[T any](
 		marshal:        marshal,
 		unmarshal:      unmarshal,
 		writeBatchSize: writeBatchSize,
+		asyncWrites:    asyncWrites,
 		closeReqChan:   make(chan struct{}),
 		closeErrChan:   make(chan error, 1),
 		writeChan:      make(chan *writeRequest[T], bufferSize),
@@ -160,7 +167,7 @@ func (walLog *WAL[T]) Write(entry T) error {
 		// request submitted successfully
 	}
 
-	if walLog.config.AsyncWrites {
+	if walLog.asyncWrites {
 		// Do not wait for the write to be durable
 		return nil
 	}
@@ -512,7 +519,8 @@ func (walLog *WAL[T]) handleReplay(req *replayRequest[T]) {
 func (walLog *WAL[T]) prune() {
 	keepRecent := walLog.config.KeepRecent
 	if keepRecent <= 0 || walLog.config.PruneInterval <= 0 {
-		// pruning is disabled
+		// Pruning is disabled. This is a defensive check, since
+		// this method should only be called if pruning is enabled.
 		return
 	}
 
@@ -614,12 +622,12 @@ func open(dir string, opts *wal.Options) (*wal.Log, error) {
 // The main loop doing work in the background.
 func (walLog *WAL[T]) mainLoop() {
 
-	pruneInterval := walLog.config.PruneInterval
-	if pruneInterval < time.Second {
-		pruneInterval = time.Second
+	var pruneChan <-chan time.Time
+	if walLog.config.PruneInterval > 0 && walLog.config.KeepRecent > 0 {
+		pruneTicker := time.NewTicker(walLog.config.PruneInterval)
+		defer pruneTicker.Stop()
+		pruneChan = pruneTicker.C
 	}
-	pruneTicker := time.NewTicker(pruneInterval)
-	defer pruneTicker.Stop()
 
 	running := true
 	for running {
@@ -636,7 +644,7 @@ func (walLog *WAL[T]) mainLoop() {
 			walLog.handleReadAt(req)
 		case req := <-walLog.replayChan:
 			walLog.handleReplay(req)
-		case <-pruneTicker.C:
+		case <-pruneChan:
 			walLog.prune()
 		case <-walLog.closeReqChan:
 			running = false
