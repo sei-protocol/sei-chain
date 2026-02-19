@@ -5,6 +5,8 @@ build/
 .github
 assets
 docker
+# Include localnode scripts when building prebuilt app image (Dockerfile.prebuilt)
+!docker/localnode/scripts
 **/*.md
 **/README*
 **/LICENSE*
