@@ -414,12 +414,10 @@ func (walLog *WAL[T]) drain() {
 // Shut down the WAL. Sends a close request to the main loop so in-flight writes (and other work)
 // can complete before teardown. Idempotent.
 func (walLog *WAL[T]) Close() error {
-	err := interuptablePush(walLog.ctx, walLog.closeReqChan, struct{}{})
-	if err != nil {
-		// already closed
-	}
+	_ = interuptablePush(walLog.ctx, walLog.closeReqChan, struct{}{})
+	// If error is non-nil then this is not the first call to Close(), no problem since Close() is idempotent
 
-	err = <-walLog.closeErrChan
+	err := <-walLog.closeErrChan
 
 	// "reload" error into channel to make Close() idempotent
 	walLog.closeErrChan <- err
