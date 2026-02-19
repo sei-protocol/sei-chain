@@ -324,9 +324,7 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 	prefix := storePrefix(storeKey)
 	start, end = util.IterateWithPrefix(prefix, start, end)
 
-	readOpts, cleanup := newTSReadOptions(version)
-	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
-	return NewRocksDBIterator(itr, cleanup, prefix, start, end, version, db.earliestVersion, false), nil
+	return newIterator(db.storage, db.cfHandle, prefix, start, end, version, db.earliestVersion, false), nil
 }
 
 func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
@@ -341,9 +339,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	prefix := storePrefix(storeKey)
 	start, end = util.IterateWithPrefix(prefix, start, end)
 
-	readOpts, cleanup := newTSReadOptions(version)
-	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
-	return NewRocksDBIterator(itr, cleanup, prefix, start, end, version, db.earliestVersion, true), nil
+	return newIterator(db.storage, db.cfHandle, prefix, start, end, version, db.earliestVersion, true), nil
 }
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
@@ -404,25 +400,13 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 		return false, err
 	}
 
-	var startTs [TimestampSize]byte
-	binary.LittleEndian.PutUint64(startTs[:], uint64(0))
-
-	var endTs [TimestampSize]byte
-	binary.LittleEndian.PutUint64(endTs[:], uint64(latestVersion))
-
-	// Set timestamp lower and upper bound to iterate over all keys in db
-	readOpts := grocksdb.NewDefaultReadOptions()
-	readOpts.SetIterStartTimestamp(startTs[:])
-	readOpts.SetTimestamp(endTs[:])
-
-	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
-	rocksItr := NewRocksDBIterator(itr, func() { readOpts.Destroy() }, prefix, start, end, latestVersion, 1, false)
+	rocksItr := newRangeIterator(db.storage, db.cfHandle, prefix, start, end, 0, latestVersion, 1)
 	defer func() { _ = rocksItr.Close() }()
 
 	for rocksItr.Valid() {
 		key := rocksItr.Key()
 		value := rocksItr.Value()
-		version := int64(binary.LittleEndian.Uint64(itr.Timestamp().Data()))
+		version := int64(binary.LittleEndian.Uint64(rocksItr.Timestamp().Data()))
 
 		// Call callback fn
 		if fn(key, value, version) {
