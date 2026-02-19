@@ -27,7 +27,7 @@ message Request {
     RequestQuery query = 5;
     RequestCommit commit = 10;
     // field 11 (RequestListSnapshots) reserved
-    RequestOfferSnapshot offer_snapshot = 12;
+    // field 12 (RequestOfferSnapshot) reserved
     RequestLoadSnapshotChunk load_snapshot_chunk = 13;
     RequestApplySnapshotChunk apply_snapshot_chunk = 14;
     RequestPrepareProposal prepare_proposal = 15;
@@ -36,8 +36,8 @@ message Request {
     RequestBeginBlock begin_block = 20;
     RequestEndBlock end_block = 22;
   }
-  reserved 6, 8, 9, 11, 17, 18, 7, 21, 23, 24; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestListSnapshots, RequestExtendVote, RequestVerifyVoteExtension, RequestCheckTx, RequestDeliverTx, RequestLoadLatest, RequestGetTxPriorityHint
-  reserved "extend_vote", "verify_vote_extension", "check_tx", "deliver_tx", "list_snapshots", "load_latest", "get_tx_priority_hint";
+  reserved 6, 8, 9, 11, 12, 17, 18, 7, 21, 23, 24; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestListSnapshots, RequestOfferSnapshot, RequestExtendVote, RequestVerifyVoteExtension, RequestCheckTx, RequestDeliverTx, RequestLoadLatest, RequestGetTxPriorityHint
+  reserved "extend_vote", "verify_vote_extension", "check_tx", "deliver_tx", "list_snapshots", "offer_snapshot", "load_latest", "get_tx_priority_hint";
 }
 
 message RequestEcho {
@@ -73,12 +73,6 @@ message RequestQuery {
 }
 
 message RequestCommit {}
-
-// offers a snapshot to the application
-message RequestOfferSnapshot {
-  Snapshot snapshot = 1; // snapshot offered by peers
-  bytes app_hash = 2; // light client-verified app hash for snapshot height
-}
 
 // loads a snapshot chunk
 message RequestLoadSnapshotChunk {
@@ -203,7 +197,7 @@ message Response {
     ResponseCheckTx check_tx = 8;
     ResponseCommit commit = 11;
     // field 12 reserved for ResponseListSnapshots
-    ResponseOfferSnapshot offer_snapshot = 13;
+    // field 13 reserved for ResponseOfferSnapshot
     ResponseLoadSnapshotChunk load_snapshot_chunk = 14;
     ResponseApplySnapshotChunk apply_snapshot_chunk = 15;
     ResponsePrepareProposal prepare_proposal = 16;
@@ -214,8 +208,8 @@ message Response {
     ResponseEndBlock end_block = 23;
     ResponseGetTxPriorityHint get_tx_priority_hint = 25;
   }
-  reserved 7, 9, 10, 12, 18, 19, 24; // ResponseBeginBlock, ResponseDeliverTx, ResponseListSnapshots, ResponseEndBlock, ResponseExtendVote, ResponseVerifyVoteExtension, ResponseLoadLatest
-  reserved "extend_vote", "verify_vote_extension", "list_snapshots", "load_latest";
+  reserved 7, 9, 10, 12, 13, 18, 19, 24; // ResponseBeginBlock, ResponseDeliverTx, ResponseListSnapshots, ResponseOfferSnapshot, ResponseEndBlock, ResponseExtendVote, ResponseVerifyVoteExtension, ResponseLoadLatest
+  reserved "extend_vote", "verify_vote_extension", "list_snapshots", "offer_snapshot", "load_latest";
 }
 
 // nondeterministic
@@ -307,19 +301,6 @@ message ResponseEndBlock {
 message ResponseCommit {
   // reserve 1
   int64 retain_height = 3;
-}
-
-message ResponseOfferSnapshot {
-  Result result = 1;
-
-  enum Result {
-    UNKNOWN = 0; // Unknown result, abort all snapshot restoration
-    ACCEPT = 1; // Snapshot accepted, apply chunks
-    ABORT = 2; // Abort all snapshot restoration
-    REJECT = 3; // Reject this specific snapshot, try others
-    REJECT_FORMAT = 4; // Reject all snapshots of this format, try others
-    REJECT_SENDER = 5; // Reject all snapshots from the sender(s), try others
-  }
 }
 
 message ResponseLoadSnapshotChunk {
