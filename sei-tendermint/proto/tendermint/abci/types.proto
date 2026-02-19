@@ -28,16 +28,16 @@ message Request {
     RequestCommit commit = 10;
     // field 11 (RequestListSnapshots) reserved
     // field 12 (RequestOfferSnapshot) reserved
-    RequestLoadSnapshotChunk load_snapshot_chunk = 13;
-    RequestApplySnapshotChunk apply_snapshot_chunk = 14;
+    // field 13 (RequestLoadSnapshotChunk) reserved
+    // field 14 (RequestApplySnapshotChunk) reserved
     RequestPrepareProposal prepare_proposal = 15;
     RequestProcessProposal process_proposal = 16;
     RequestFinalizeBlock finalize_block = 19;
     RequestBeginBlock begin_block = 20;
     RequestEndBlock end_block = 22;
   }
-  reserved 6, 8, 9, 11, 12, 17, 18, 7, 21, 23, 24; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestListSnapshots, RequestOfferSnapshot, RequestExtendVote, RequestVerifyVoteExtension, RequestCheckTx, RequestDeliverTx, RequestLoadLatest, RequestGetTxPriorityHint
-  reserved "extend_vote", "verify_vote_extension", "check_tx", "deliver_tx", "list_snapshots", "offer_snapshot", "load_latest", "get_tx_priority_hint";
+  reserved 6, 8, 9, 11, 12, 13, 14, 17, 18, 7, 21, 23, 24; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestListSnapshots, RequestOfferSnapshot, RequestLoadSnapshotChunk, RequestApplySnapshotChunk, RequestExtendVote, RequestVerifyVoteExtension, RequestCheckTx, RequestDeliverTx, RequestLoadLatest, RequestGetTxPriorityHint
+  reserved "extend_vote", "verify_vote_extension", "check_tx", "deliver_tx", "list_snapshots", "offer_snapshot", "load_snapshot_chunk", "apply_snapshot_chunk", "load_latest", "get_tx_priority_hint";
 }
 
 message RequestEcho {
@@ -73,20 +73,6 @@ message RequestQuery {
 }
 
 message RequestCommit {}
-
-// loads a snapshot chunk
-message RequestLoadSnapshotChunk {
-  uint64 height = 1;
-  uint32 format = 2;
-  uint32 chunk = 3;
-}
-
-// Applies a snapshot chunk
-message RequestApplySnapshotChunk {
-  uint32 index = 1;
-  bytes chunk = 2;
-  string sender = 3;
-}
 
 message RequestPrepareProposal {
   // the modified transactions cannot exceed this size.
@@ -198,8 +184,8 @@ message Response {
     ResponseCommit commit = 11;
     // field 12 reserved for ResponseListSnapshots
     // field 13 reserved for ResponseOfferSnapshot
-    ResponseLoadSnapshotChunk load_snapshot_chunk = 14;
-    ResponseApplySnapshotChunk apply_snapshot_chunk = 15;
+    // field 14 reserved for ResponseLoadSnapshotChunk
+    // field 15 reserved for ResponseApplySnapshotChunk
     ResponsePrepareProposal prepare_proposal = 16;
     ResponseProcessProposal process_proposal = 17;
     ResponseFinalizeBlock finalize_block = 20;
@@ -208,8 +194,8 @@ message Response {
     ResponseEndBlock end_block = 23;
     ResponseGetTxPriorityHint get_tx_priority_hint = 25;
   }
-  reserved 7, 9, 10, 12, 13, 18, 19, 24; // ResponseBeginBlock, ResponseDeliverTx, ResponseListSnapshots, ResponseOfferSnapshot, ResponseEndBlock, ResponseExtendVote, ResponseVerifyVoteExtension, ResponseLoadLatest
-  reserved "extend_vote", "verify_vote_extension", "list_snapshots", "offer_snapshot", "load_latest";
+  reserved 7, 9, 10, 12, 13, 14, 15, 18, 19, 24; // ResponseBeginBlock, ResponseDeliverTx, ResponseListSnapshots, ResponseOfferSnapshot, ResponseLoadSnapshotChunk, ResponseApplySnapshotChunk, ResponseEndBlock, ResponseExtendVote, ResponseVerifyVoteExtension, ResponseLoadLatest
+  reserved "extend_vote", "verify_vote_extension", "list_snapshots", "offer_snapshot", "load_snapshot_chunk", "apply_snapshot_chunk", "load_latest";
 }
 
 // nondeterministic
@@ -301,25 +287,6 @@ message ResponseEndBlock {
 message ResponseCommit {
   // reserve 1
   int64 retain_height = 3;
-}
-
-message ResponseLoadSnapshotChunk {
-  bytes chunk = 1;
-}
-
-message ResponseApplySnapshotChunk {
-  Result result = 1;
-  repeated uint32 refetch_chunks = 2; // Chunks to refetch and reapply
-  repeated string reject_senders = 3; // Chunk senders to reject and ban
-
-  enum Result {
-    UNKNOWN = 0; // Unknown result, abort all snapshot restoration
-    ACCEPT = 1; // Chunk successfully accepted
-    ABORT = 2; // Abort all snapshot restoration
-    RETRY = 3; // Retry chunk (combine with refetch and reject)
-    RETRY_SNAPSHOT = 4; // Retry snapshot (combine with refetch and reject)
-    REJECT_SNAPSHOT = 5; // Reject this snapshot, try others
-  }
 }
 
 message ResponsePrepareProposal {
