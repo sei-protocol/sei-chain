@@ -3,19 +3,19 @@ package simulation
 import (
 	"math/rand"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/codec"
-	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/authz"
 	seiappparams "github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	cdctypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/authz/keeper"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/keeper"
 
-	banktype "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
+	banktype "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/simulation"
 )
 
 // authz message types
@@ -27,9 +27,9 @@ var (
 
 // Simulation operation weights constants
 const (
-	OpWeightMsgGrant = "op_weight_msg_grant"
-	OpWeightRevoke   = "op_weight_msg_revoke"
-	OpWeightExec     = "op_weight_msg_execute"
+	OpWeightMsgGrant = "op_weight_msg_grant"   //nolint:gosec
+	OpWeightRevoke   = "op_weight_msg_revoke"  //nolint:gosec
+	OpWeightExec     = "op_weight_msg_execute" //nolint:gosec
 )
 
 // authz operations weights

@@ -6,12 +6,12 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/cosmos/cosmos-sdk/x/distribution/client/common"
-	"github.com/cosmos/cosmos-sdk/x/distribution/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/client/common"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
 )
 
 func registerQueryRoutes(clientCtx client.Context, r *mux.Router) {
@@ -79,7 +79,7 @@ func delegatorRewardsHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		params := types.NewQueryDelegatorParams(delegatorAddr)
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 		if err != nil {
 			rest.WriteErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("failed to marshal params: %s", err))
 			return
@@ -180,7 +180,7 @@ func validatorInfoHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		var commission types.ValidatorAccumulatedCommission
-		if rest.CheckInternalServerError(w, clientCtx.LegacyAmino.UnmarshalJSON(bz, &commission)) {
+		if rest.CheckInternalServerError(w, clientCtx.LegacyAmino.UnmarshalAsJSON(bz, &commission)) {
 			return
 		}
 
@@ -192,11 +192,11 @@ func validatorInfoHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		var rewards sdk.DecCoins
-		if rest.CheckInternalServerError(w, clientCtx.LegacyAmino.UnmarshalJSON(bz, &rewards)) {
+		if rest.CheckInternalServerError(w, clientCtx.LegacyAmino.UnmarshalAsJSON(bz, &rewards)) {
 			return
 		}
 
-		bz, err = clientCtx.LegacyAmino.MarshalJSON(NewValidatorDistInfo(delAddr, rewards, commission))
+		bz, err = clientCtx.LegacyAmino.MarshalAsJSON(NewValidatorDistInfo(delAddr, rewards, commission))
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}
@@ -263,7 +263,7 @@ func communityPoolHandler(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		var result sdk.DecCoins
-		if rest.CheckInternalServerError(w, clientCtx.LegacyAmino.UnmarshalJSON(res, &result)) {
+		if rest.CheckInternalServerError(w, clientCtx.LegacyAmino.UnmarshalAsJSON(res, &result)) {
 			return
 		}
 

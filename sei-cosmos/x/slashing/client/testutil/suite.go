@@ -8,11 +8,11 @@ import (
 	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
-	"github.com/cosmos/cosmos-sdk/testutil/network"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/slashing/client/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	clitestutil "github.com/sei-protocol/sei-chain/sei-cosmos/testutil/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/network"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/client/cli"
 )
 
 type IntegrationTestSuite struct {
@@ -173,7 +173,7 @@ func (s *IntegrationTestSuite) TestNewUnjailTxCmd() {
 				s.Require().Error(err)
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(clientCtx.Codec.UnmarshalJSON(out.Bytes(), tc.respType), out.String())
+				s.Require().NoError(clientCtx.Codec.UnmarshalAsJSON(out.Bytes(), tc.respType), out.String())
 
 				txResp := tc.respType.(*sdk.TxResponse)
 				s.Require().Equal(tc.expectedCode, txResp.Code, out.String())

@@ -7,18 +7,17 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	"github.com/stretchr/testify/require"
-
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	"github.com/cosmos/cosmos-sdk/testutil"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 func Test_runAddCmdLedgerWithCustomCoinType(t *testing.T) {
@@ -179,7 +178,7 @@ func Test_runAddCmdLedgerDryRun(t *testing.T) {
 				_, err = kb.Key("testkey")
 				require.NoError(t, err)
 
-				out, err := ioutil.ReadAll(b)
+				out, err := io.ReadAll(b)
 				require.NoError(t, err)
 				require.Contains(t, string(out), "name: testkey")
 			} else {

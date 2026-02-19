@@ -1,9 +1,9 @@
 package feegrant
 
 import (
-	"github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/msgservice"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/msgservice"
 )
 
 // RegisterInterfaces registers the interfaces types with the interface registry

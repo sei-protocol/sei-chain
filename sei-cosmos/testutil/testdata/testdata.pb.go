@@ -5,12 +5,13 @@ package testdata
 
 import (
 	fmt "fmt"
-	types "github.com/cosmos/cosmos-sdk/codec/types"
-	_ "github.com/gogo/protobuf/gogoproto"
-	proto "github.com/gogo/protobuf/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
+
+	_ "github.com/gogo/protobuf/gogoproto"
+	proto "github.com/gogo/protobuf/proto"
+	types "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.

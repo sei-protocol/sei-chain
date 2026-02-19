@@ -7,14 +7,14 @@ import (
 	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
-	"github.com/cosmos/cosmos-sdk/testutil/network"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/query"
-	"github.com/cosmos/cosmos-sdk/x/bank/client/cli"
-	"github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	clitestutil "github.com/sei-protocol/sei-chain/sei-cosmos/testutil/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/network"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/client/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
 type IntegrationTestSuite struct {
@@ -33,7 +33,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 
 	genesisState := s.cfg.GenesisState
 	var bankGenesis types.GenesisState
-	s.Require().NoError(s.cfg.Codec.UnmarshalJSON(genesisState[types.ModuleName], &bankGenesis))
+	s.Require().NoError(s.cfg.Codec.UnmarshalAsJSON(genesisState[types.ModuleName], &bankGenesis))
 
 	bankGenesis.DenomMetadata = []types.Metadata{
 		{
@@ -75,7 +75,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 		},
 	}
 
-	bankGenesisBz, err := s.cfg.Codec.MarshalJSON(&bankGenesis)
+	bankGenesisBz, err := s.cfg.Codec.MarshalAsJSON(&bankGenesis)
 	s.Require().NoError(err)
 	genesisState[types.ModuleName] = bankGenesisBz
 	s.cfg.GenesisState = genesisState
@@ -155,7 +155,7 @@ func (s *IntegrationTestSuite) TestGetBalancesCmd() {
 				s.Require().Error(err)
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), tc.respType))
+				s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(out.Bytes(), tc.respType))
 				s.Require().Equal(tc.expected.String(), tc.respType.String())
 			}
 		})
@@ -227,7 +227,7 @@ func (s *IntegrationTestSuite) TestGetCmdQueryTotalSupply() {
 				s.Require().Error(err)
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(clientCtx.Codec.UnmarshalJSON(out.Bytes(), tc.respType))
+				s.Require().NoError(clientCtx.Codec.UnmarshalAsJSON(out.Bytes(), tc.respType))
 				s.Require().Equal(tc.expected, tc.respType)
 			}
 		})
@@ -354,7 +354,7 @@ func (s *IntegrationTestSuite) TestGetCmdQueryDenomsMetadata() {
 				s.Require().Error(err)
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(clientCtx.Codec.UnmarshalJSON(out.Bytes(), tc.respType))
+				s.Require().NoError(clientCtx.Codec.UnmarshalAsJSON(out.Bytes(), tc.respType))
 				s.Require().Equal(tc.expected, tc.respType)
 			}
 		})
@@ -462,7 +462,7 @@ func (s *IntegrationTestSuite) TestNewSendTxCmd() {
 			} else {
 				s.Require().NoError(err)
 
-				s.Require().NoError(clientCtx.Codec.UnmarshalJSON(bz.Bytes(), tc.respType), bz.String())
+				s.Require().NoError(clientCtx.Codec.UnmarshalAsJSON(bz.Bytes(), tc.respType), bz.String())
 				txResp := tc.respType.(*sdk.TxResponse)
 				s.Require().Equal(tc.expectedCode, txResp.Code)
 			}

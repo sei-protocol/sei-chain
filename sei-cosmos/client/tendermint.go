@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )

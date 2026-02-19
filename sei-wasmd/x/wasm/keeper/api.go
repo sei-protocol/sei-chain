@@ -1,7 +1,7 @@
 package keeper
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
