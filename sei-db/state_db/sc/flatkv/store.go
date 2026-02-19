@@ -162,8 +162,7 @@ func (s *CommitStore) openTo(catchupTarget int64) error {
 //
 //	flatkv/
 //	  current -> snapshot-NNNNN   (symlink to active snapshot dir)
-//	  snapshot-NNNNN/{account,code,storage,metadata}/
-//	  legacy/                      (top-level, not snapshotted)
+//	  snapshot-NNNNN/{account,code,storage,legacy,metadata}/
 //	  changelog/                   (WAL, shared across snapshots)
 //
 // On first run (or migration from the pre-snapshot flat layout), the existing
@@ -207,10 +206,10 @@ func (s *CommitStore) open() (retErr error) {
 	accountPath := filepath.Join(snapDir, accountDBDir)
 	codePath := filepath.Join(snapDir, codeDBDir)
 	storagePath := filepath.Join(snapDir, storageDBDir)
+	legacyPath := filepath.Join(snapDir, legacyDBDir)
 	metadataPath := filepath.Join(snapDir, metadataDir)
 
-	// Legacy and changelog live at the flatkv root (outside snapshots).
-	legacyPath := filepath.Join(dir, legacyDBDir)
+	// Changelog lives at the flatkv root (outside snapshots).
 	changelogPath := filepath.Join(dir, "changelog")
 
 	for _, p := range []string{accountPath, codePath, storagePath, metadataPath, legacyPath} {

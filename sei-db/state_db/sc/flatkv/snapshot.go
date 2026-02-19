@@ -141,7 +141,7 @@ func updateCurrentSymlink(root, snapshotDir string) error {
 }
 
 // snapshotDBDirs lists the DB subdirectory names included in a snapshot.
-var snapshotDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, metadataDir}
+var snapshotDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir, metadataDir}
 
 // removeTmpDirs removes any directories ending in "-tmp" or "-removing"
 // left over from interrupted snapshot writes or deletes.
@@ -322,6 +322,7 @@ func (s *CommitStore) WriteSnapshot(_ string) error {
 		{accountDBDir, s.accountDB},
 		{codeDBDir, s.codeDB},
 		{storageDBDir, s.storageDB},
+		{legacyDBDir, s.legacyDB},
 		{metadataDir, s.metadataDB},
 	}
 	for _, ndb := range dbs {
