@@ -252,6 +252,27 @@ build-docker-node-app:
 	fi
 .PHONY: build-docker-node-app
 
+# Build app image with prebuilt seid binary (context = repo root; requires build/seid and build/price-feeder to exist).
+# Used in CI: build seid in a container first, then run this target so the image contains the binary.
+build-docker-node-app-prebuilt:
+	@echo "Building localnode app image (with prebuilt binary)..."
+	@if [ ! -f build/seid ] || [ ! -f build/price-feeder ]; then \
+		echo "ERROR: build/seid and build/price-feeder must exist. Run the build step first."; exit 1; \
+	fi
+	@if [ -n "$(DOCKER_BUILD_CACHE_FROM)" ]; then \
+		docker buildx build --load \
+			--build-arg GHCR_ORG=$(GHCR_ORG) \
+			--cache-from $(DOCKER_BUILD_CACHE_FROM) \
+			$(if $(DOCKER_BUILD_CACHE_TO),--cache-to $(DOCKER_BUILD_CACHE_TO),) \
+			--tag sei-chain/localnode \
+			--platform $(DOCKER_PLATFORM) \
+			-f docker/localnode/Dockerfile.prebuilt \
+			.; \
+	else \
+		docker build --build-arg GHCR_ORG=$(GHCR_ORG) --tag sei-chain/localnode -f docker/localnode/Dockerfile.prebuilt . --platform $(DOCKER_PLATFORM); \
+	fi
+.PHONY: build-docker-node-app-prebuilt
+
 # Build docker image for detected platform (depends on base; app layer is quick)
 build-docker-node: build-docker-node-base
 	@$(MAKE) build-docker-node-app

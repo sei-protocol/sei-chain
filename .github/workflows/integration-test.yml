@@ -33,6 +33,14 @@ jobs:
       image_name: ${{ steps.image_name.outputs.image_name }}
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Set up Go (for GOCACHE/GOMODCACHE mounts when building seid in container)
+        uses: actions/setup-go@v3
+        with:
+          go-version: '1.25.6'
+          cache: false
 
       - name: Set image name (commit hash)
         id: image_name
@@ -48,15 +56,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Ensure base image and build app
-        env:
-          DOCKER_BUILDKIT: 1
-          DOCKER_BUILD_CACHE_FROM: type=gha
-          DOCKER_BUILD_CACHE_TO: type=gha,mode=max
-          GHCR_ORG: ${{ github.repository_owner }}
+      - name: Ensure base image
         run: |
           set -euo pipefail
-          # Pull base from GHCR or build and push
           if ! docker pull ${{ env.GHCR_BASE_IMAGE }}; then
             echo "Base image not found; building and pushing..."
             make build-docker-node-base
@@ -65,7 +67,24 @@ jobs:
           else
             docker tag ${{ env.GHCR_BASE_IMAGE }} ${{ env.LOCALNODE_BASE_TAG }}
           fi
-          make clean && make build-docker-node-app
+
+      - name: Build seid binary in container (for prebuilt app image)
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/sei-protocol/sei-chain:Z" \
+            -v "$(go env GOCACHE):/root/.cache/go-build:Z" \
+            -v "$(go env GOPATH)/pkg/mod:/root/go/pkg/mod:Z" \
+            ${{ env.LOCALNODE_BASE_TAG }} \
+            bash -c "cd /sei-protocol/sei-chain && make clean && make build-linux && make build-price-feeder-linux && mkdir -p build/generated && echo DONE > build/generated/build.complete"
+
+      - name: Build app image with prebuilt binary and push
+        env:
+          DOCKER_BUILDKIT: 1
+          DOCKER_BUILD_CACHE_FROM: type=gha
+          DOCKER_BUILD_CACHE_TO: type=gha,mode=max
+          GHCR_ORG: ${{ github.repository_owner }}
+        run: make build-docker-node-app-prebuilt
 
       - name: Push app image to ttl.sh
         run: |
@@ -233,11 +252,10 @@ jobs:
 
       - name: Wait for docker cluster to start
         run: |
-          until [ $(cat build/generated/launch.complete |wc -l) = 4 ]
-          do
-            sleep 10
+          until [ -f build/generated/launch.complete ] && [ "$(cat build/generated/launch.complete | wc -l)" = 4 ]; do
+            sleep 5
           done
-          sleep 10
+          sleep 5
 
       - name: Start rpc node
         run: make run-rpc-node-skipbuild &
