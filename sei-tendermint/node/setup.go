@@ -8,9 +8,7 @@ import (
 	"strings"
 	"time"
 
-	dbm "github.com/tendermint/tm-db"
-
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
@@ -33,6 +31,7 @@ import (
 	tmgrpc "github.com/sei-protocol/sei-chain/sei-tendermint/privval/grpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
+	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
@@ -148,7 +147,7 @@ func onlyValidatorIsUs(state sm.State, pubKey utils.Option[crypto.PubKey]) bool 
 func createMempoolReactor(
 	logger log.Logger,
 	cfg *config.Config,
-	appClient abciclient.Client,
+	appClient abci.Application,
 	store sm.Store,
 	memplMetrics *mempool.Metrics,
 	router *p2p.Router,
@@ -213,7 +212,7 @@ func createRouter(
 	nodeInfoProducer func() *types.NodeInfo,
 	nodeKey types.NodeKey,
 	cfg *config.Config,
-	appClient abciclient.Client,
+	appClient abci.Application,
 	dbProvider config.DBProvider,
 ) (*p2p.Router, closer, error) {
 	closer := func() error { return nil }
