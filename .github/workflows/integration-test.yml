@@ -76,7 +76,11 @@ jobs:
             -v "$(go env GOCACHE):/root/.cache/go-build:Z" \
             -v "$(go env GOPATH)/pkg/mod:/root/go/pkg/mod:Z" \
             ${{ env.LOCALNODE_BASE_TAG }} \
-            bash -c "cd /sei-protocol/sei-chain && make clean && make build-linux && make build-price-feeder-linux && mkdir -p build/generated && echo DONE > build/generated/build.complete"
+            bash -c '
+              git config --global --add safe.directory /sei-protocol/sei-chain
+              export PATH="/usr/local/go/bin:$PATH"
+              cd /sei-protocol/sei-chain && make clean && make build-linux && make build-price-feeder-linux && mkdir -p build/generated && echo DONE > build/generated/build.complete
+            '
 
       - name: Build app image with prebuilt binary and push
         env:
