@@ -17,8 +17,62 @@ defaults:
   run:
     shell: bash
 
+env:
+  GHCR_BASE_IMAGE: ghcr.io/${{ github.repository_owner }}/sei-chain-localnode-base:go1.25.6
+  LOCALNODE_BASE_TAG: sei-chain/localnode-base:go1.25.6
+
 jobs:
+  build-localnode:
+    name: Build localnode image
+    runs-on: ubuntu-large
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_name: ${{ steps.image_name.outputs.image_name }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set image name (commit hash)
+        id: image_name
+        run: echo "image_name=ttl.sh/sei-chain-localnode-${GITHUB_SHA:0:12}:24h" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Ensure base image and build app
+        env:
+          DOCKER_BUILDKIT: 1
+          DOCKER_BUILD_CACHE_FROM: type=gha
+          DOCKER_BUILD_CACHE_TO: type=gha,mode=max
+        run: |
+          set -euo pipefail
+          # Pull base from GHCR or build and push
+          if ! docker pull ${{ env.GHCR_BASE_IMAGE }}; then
+            echo "Base image not found; building and pushing..."
+            make build-docker-node-base
+            docker tag ${{ env.LOCALNODE_BASE_TAG }} ${{ env.GHCR_BASE_IMAGE }}
+            docker push ${{ env.GHCR_BASE_IMAGE }}
+          else
+            docker tag ${{ env.GHCR_BASE_IMAGE }} ${{ env.LOCALNODE_BASE_TAG }}
+          fi
+          make clean && make build-docker-node-app
+
+      - name: Push app image to ttl.sh
+        run: |
+          docker tag sei-chain/localnode ${{ steps.image_name.outputs.image_name }}
+          docker push ${{ steps.image_name.outputs.image_name }}
+
   integration-tests:
+    needs: build-localnode
     name: Integration Test (${{ matrix.test.name }})
     runs-on: ubuntu-large
     timeout-minutes: 30
@@ -167,8 +221,14 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Pull localnode image
+        run: |
+          docker pull ${{ needs.build-localnode.outputs.image_name }}
+          docker tag ${{ needs.build-localnode.outputs.image_name }} sei-chain/localnode
       - name: Start 4 node docker cluster
-        run: make clean && DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start
+        run: DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-up
 
       - name: Wait for docker cluster to start
         run: |

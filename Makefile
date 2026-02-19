@@ -212,10 +212,49 @@ build-price-feeder-linux:
 DOCKER_PLATFORM ?= $(shell if [ "$$(uname -m)" = "arm64" ]; then echo "linux/arm64"; else echo "linux/amd64"; fi)
 export DOCKER_PLATFORM
 
-# Build docker image for detected platform
-build-docker-node:
-	@echo "Building for $(DOCKER_PLATFORM)..."
-	@cd docker && docker build --tag sei-chain/localnode localnode --platform $(DOCKER_PLATFORM)
+# Optional: set DOCKER_BUILD_CACHE_FROM/DOCKER_BUILD_CACHE_TO (e.g. type=gha) to use Buildx layer cache
+DOCKER_BUILD_CACHE_FROM ?=
+DOCKER_BUILD_CACHE_TO ?=
+LOCALNODE_BASE_TAG := sei-chain/localnode-base:go1.25.6
+
+# Base image (Go, Foundry, Node). Rebuild only when tool versions or Dockerfile.base change.
+build-docker-node-base:
+	@echo "Building localnode base image..."
+	@cd docker && \
+	if [ -n "$(DOCKER_BUILD_CACHE_FROM)" ]; then \
+		docker buildx build --load \
+			--cache-from $(DOCKER_BUILD_CACHE_FROM) \
+			$(if $(DOCKER_BUILD_CACHE_TO),--cache-to $(DOCKER_BUILD_CACHE_TO),) \
+			--tag $(LOCALNODE_BASE_TAG) \
+			--platform $(DOCKER_PLATFORM) \
+			-f localnode/Dockerfile.base \
+			localnode; \
+	else \
+		docker build --tag $(LOCALNODE_BASE_TAG) -f localnode/Dockerfile.base localnode --platform $(DOCKER_PLATFORM); \
+	fi
+.PHONY: build-docker-node-base
+
+# Build only the app image (requires sei-chain/localnode-base:go1.25.6 to exist locally; used in CI when base is pulled or pre-built)
+build-docker-node-app:
+	@echo "Building localnode app image..."
+	@cd docker && \
+	if [ -n "$(DOCKER_BUILD_CACHE_FROM)" ]; then \
+		docker buildx build --load \
+			--cache-from $(DOCKER_BUILD_CACHE_FROM) \
+			--cache-from $(LOCALNODE_BASE_TAG) \
+			$(if $(DOCKER_BUILD_CACHE_TO),--cache-to $(DOCKER_BUILD_CACHE_TO),) \
+			--tag sei-chain/localnode \
+			--platform $(DOCKER_PLATFORM) \
+			-f localnode/Dockerfile \
+			localnode; \
+	else \
+		docker build --cache-from $(LOCALNODE_BASE_TAG) --tag sei-chain/localnode -f localnode/Dockerfile localnode --platform $(DOCKER_PLATFORM); \
+	fi
+.PHONY: build-docker-node-app
+
+# Build docker image for detected platform (depends on base; app layer is quick)
+build-docker-node: build-docker-node-base
+	@$(MAKE) build-docker-node-app
 .PHONY: build-docker-node
 
 build-rpc-node:
@@ -302,6 +341,29 @@ docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 		fi; \
 		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 SKIP_BUILD=true docker compose up $$DETACH_FLAG
 .PHONY: localnet-start
+
+# Start cluster without rebuilding image if sei-chain/localnode already exists (for local iteration)
+docker-cluster-start-if-cached: docker-cluster-stop
+	@if docker image inspect sei-chain/localnode >/dev/null 2>&1; then \
+		$(MAKE) docker-cluster-up; \
+	else \
+		$(MAKE) build-docker-node && $(MAKE) docker-cluster-up; \
+	fi
+.PHONY: docker-cluster-start-if-cached
+
+# Start 4-node cluster without building the image (image must already exist; used by CI after build with cache)
+docker-cluster-up: docker-cluster-stop
+	@rm -rf $(PROJECT_HOME)/build/generated
+	@mkdir -p $(shell go env GOPATH)/pkg/mod
+	@mkdir -p $(shell go env GOCACHE)
+	@cd docker && \
+		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
+			DETACH_FLAG="-d"; \
+		else \
+			DETACH_FLAG=""; \
+		fi; \
+		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} GIGA_EXECUTOR=${GIGA_EXECUTOR} GIGA_OCC=${GIGA_OCC} docker compose up $$DETACH_FLAG
+.PHONY: docker-cluster-up
 
 # Stop 4-node docker containers
 docker-cluster-stop:

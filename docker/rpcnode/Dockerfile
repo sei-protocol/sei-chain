@@ -1,7 +1,9 @@
-FROM ubuntu:latest
+FROM ubuntu:25.04
 ENV HOME="/root" PATH="/root/go/bin:$PATH"
-RUN apt-get update && \
-    apt-get install -y make git build-essential jq python3 curl vim uuid-runtime
+# BuildKit cache mounts speed up repeated builds (require DOCKER_BUILDKIT=1)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update && apt-get install -y make git build-essential jq python3 curl vim uuid-runtime
 RUN curl -L https://go.dev/dl/go1.25.6.linux-amd64.tar.gz | tar xvzf - -C /usr/local/
 RUN mkdir -p /root/go/pkg/mod && \
     mkdir -p /root/.cache && \
