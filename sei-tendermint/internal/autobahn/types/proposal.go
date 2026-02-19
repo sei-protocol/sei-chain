@@ -227,6 +227,9 @@ func NewProposal(
 	laneQCs map[LaneID]*LaneQC,
 	appQC utils.Option[*AppQC],
 ) (*FullProposal, error) {
+	if got, want := key.Public(), committee.Leader(viewSpec.View()); got != want {
+		return nil, fmt.Errorf("key %q is not the leader %q for view %v", got, want, viewSpec.View())
+	}
 	if p, ok := NewReproposal(key, viewSpec); ok {
 		return p, nil
 	}
