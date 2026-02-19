@@ -14,8 +14,9 @@ type ChangelogWAL = GenericWAL[proto.ChangelogEntry]
 // This is a convenience wrapper that handles serialization automatically.
 func NewChangelogWAL(logger logger.Logger, dir string, config Config) (ChangelogWAL, error) {
 
+	// Legacy compatibility: originally, BufferSize > 0 implied async writes. Preserve that for
+	// callers who set BufferSize without explicitly setting AsyncWrites.
 	if config.BufferSize > 0 {
-		// Emulate legacy behavior. Originally, buffer size >0 enabled async writes.
 		config.AsyncWrites = true
 	}
 

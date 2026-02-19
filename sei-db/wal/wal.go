@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/tidwall/wal"
@@ -25,7 +24,6 @@ type WAL[T any] struct {
 	logger    logger.Logger
 	marshal   MarshalFn[T]
 	unmarshal UnmarshalFn[T]
-	mtx       sync.RWMutex // guards WAL state: lazy init/close of writeChannel, isClosed checks
 
 	// The size of write batches.
 	writeBatchSize int
@@ -57,7 +55,8 @@ type Config struct {
 	// In order to support legacy configuration, if BufferSize is 0, then the buffer size is set to 1024.
 	BufferSize int
 
-	// The size of write batches. If less than or equal to 1, then no batching is done.
+	// The size of write batches. If less than or equal to 0, a default of 64 is used.
+	// If 1, no batching is done.
 	WriteBatchSize int
 
 	// If true, do an fsync after each write.
@@ -103,8 +102,8 @@ func NewWAL[T any](
 	}
 
 	writeBatchSize := config.WriteBatchSize
-	if writeBatchSize <= 1 {
-		writeBatchSize = 0
+	if writeBatchSize <= 0 {
+		writeBatchSize = 64
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -158,7 +157,7 @@ func (walLog *WAL[T]) Write(entry T) error {
 			return fmt.Errorf("WAL is closed, cannot write")
 		}
 	case walLog.writeChan <- req:
-		// request submitted sucessfully
+		// request submitted successfully
 	}
 
 	if walLog.config.AsyncWrites {
@@ -174,14 +173,14 @@ func (walLog *WAL[T]) Write(entry T) error {
 		}
 	case err := <-req.errChan:
 		if err != nil {
-			return fmt.Errorf("failed to write data: %v", err)
+			return fmt.Errorf("failed to write data: %w", err)
 		}
 	}
 
 	return nil
 }
 
-// This method is called asyncronously in response to a call to Write.
+// This method is called asynchronously in response to a call to Write.
 func (walLog *WAL[T]) handleWrite(req *writeRequest[T]) {
 	if walLog.writeBatchSize <= 1 {
 		walLog.handleUnbatchedWrite(req)
@@ -195,16 +194,17 @@ func (walLog *WAL[T]) handleUnbatchedWrite(req *writeRequest[T]) {
 
 	bz, err := walLog.marshal(req.entry)
 	if err != nil {
-		req.errChan <- fmt.Errorf("marsalling error: %v", err)
+		req.errChan <- fmt.Errorf("marshalling error: %w", err)
 		return
 	}
 	lastOffset, err := walLog.log.LastIndex()
 	if err != nil {
-		req.errChan <- fmt.Errorf("error fetching last index: %v", err)
+		req.errChan <- fmt.Errorf("error fetching last index: %w", err)
 		return
 	}
 	if err := walLog.log.Write(lastOffset+1, bz); err != nil {
-		req.errChan <- fmt.Errorf("failed to write: %v", err)
+		req.errChan <- fmt.Errorf("failed to write: %w", err)
+		return
 	}
 
 	req.errChan <- nil
@@ -230,7 +230,7 @@ func (walLog *WAL[T]) handleBatchedWrite(req *writeRequest[T]) {
 
 	lastOffset, err := walLog.log.LastIndex()
 	if err != nil {
-		err = fmt.Errorf("error fetching last index: %v", err)
+		err = fmt.Errorf("error fetching last index: %w", err)
 		for _, req := range requests {
 			req.errChan <- err
 		}
@@ -242,7 +242,7 @@ func (walLog *WAL[T]) handleBatchedWrite(req *writeRequest[T]) {
 	for _, req := range requests {
 		bz, err := walLog.marshal(req.entry)
 		if err != nil {
-			err = fmt.Errorf("marsalling error: %v", err)
+			err = fmt.Errorf("marshalling error: %w", err)
 			for _, req := range requests {
 				req.errChan <- err
 			}
@@ -253,7 +253,7 @@ func (walLog *WAL[T]) handleBatchedWrite(req *writeRequest[T]) {
 	}
 
 	if err := walLog.log.WriteBatch(batch); err != nil {
-		err = fmt.Errorf("failed to write batch: %v", err)
+		err = fmt.Errorf("failed to write batch: %w", err)
 		for _, r := range requests {
 			r.errChan <- err
 		}
@@ -447,7 +447,7 @@ func (walLog *WAL[T]) handleReadAt(req *readAtRequest[T]) {
 	}
 	entry, err := walLog.unmarshal(bz)
 	if err != nil {
-		req.responseChan <- &readAtResponse[T]{entry: zero, err: fmt.Errorf("unmarshal rlog failed, %w", err)}
+		req.responseChan <- &readAtResponse[T]{entry: zero, err: fmt.Errorf("unmarshal log failed, %w", err)}
 		return
 	}
 	req.responseChan <- &readAtResponse[T]{entry: entry, err: nil}
@@ -497,7 +497,7 @@ func (walLog *WAL[T]) handleReplay(req *replayRequest[T]) {
 		}
 		entry, err := walLog.unmarshal(bz)
 		if err != nil {
-			req.errChan <- fmt.Errorf("unmarshal rlog failed, %w", err)
+			req.errChan <- fmt.Errorf("unmarshal log failed, %w", err)
 			return
 		}
 		err = req.processFn(i, entry)
@@ -571,7 +571,7 @@ func (walLog *WAL[T]) Close() error {
 	walLog.closeErrChan <- err
 
 	if err != nil {
-		return fmt.Errorf("error encountered while shutting down %v", err)
+		return fmt.Errorf("error encountered while shutting down: %w", err)
 	}
 
 	return nil
@@ -648,7 +648,7 @@ func (walLog *WAL[T]) mainLoop() {
 
 	err := walLog.log.Close()
 	if err != nil {
-		walLog.closeErrChan <- fmt.Errorf("wal returned error during shutdown: %v", err)
+		walLog.closeErrChan <- fmt.Errorf("wal returned error during shutdown: %w", err)
 	} else {
 		walLog.closeErrChan <- nil
 	}
