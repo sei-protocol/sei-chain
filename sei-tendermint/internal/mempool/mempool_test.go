@@ -16,7 +16,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -173,7 +172,7 @@ func (app *application) GetTxPriorityHint(context.Context, *abci.RequestGetTxPri
 	}, nil
 }
 
-func setup(t testing.TB, app abciclient.Client, cacheSize int, options ...TxMempoolOption) *TxMempool {
+func setup(t testing.TB, app abci.Application, cacheSize int, options ...TxMempoolOption) *TxMempool {
 	t.Helper()
 
 	logger := log.NewNopLogger()
@@ -243,11 +242,7 @@ func (e *TestPeerEvictor) Evict(id types.NodeID, _ error) {
 func TestTxMempool_TxsAvailable(t *testing.T) {
 	ctx := t.Context()
 
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, client, 0)
 	txmp.EnableTxsAvailable()
@@ -305,11 +300,7 @@ func TestTxMempool_TxsAvailable(t *testing.T) {
 func TestTxMempool_Size(t *testing.T) {
 	ctx := t.Context()
 
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, client, 0)
 	txs := checkTxs(ctx, t, txmp, 100, 0)
@@ -338,11 +329,7 @@ func TestTxMempool_Size(t *testing.T) {
 func TestTxMempool_Flush(t *testing.T) {
 	ctx := t.Context()
 
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, client, 0)
 	txs := checkTxs(ctx, t, txmp, 100, 0)
@@ -372,11 +359,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	ctx := t.Context()
 
 	gasEstimated := int64(1) // gas estimated set to 1
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated}
 
 	txmp := setup(t, client, 0)
 	tTxs := checkTxs(ctx, t, txmp, 100, 0) // all txs request 1 gas unit
@@ -467,11 +450,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 	ctx := t.Context()
 
 	gasEstimated := int64(0) // gas estimated not set so fallback to gas wanted
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated}
 
 	txmp := setup(t, client, 0)
 	tTxs := checkTxs(ctx, t, txmp, 100, 0)
@@ -514,11 +493,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 func TestTxMempool_ReapMaxTxs(t *testing.T) {
 	ctx := t.Context()
 
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, client, 0)
 	tTxs := checkTxs(ctx, t, txmp, 100, 0)
@@ -590,11 +565,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_MinGasEVMTxThreshold(t *testing.T) {
 	// estimatedGas below MinGasEVMTx (21000), gasWanted above it
 	gasEstimated := int64(10000)
 	gasWanted := int64(50000)
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated, gasWanted: &gasWanted})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated, gasWanted: &gasWanted}
 
 	txmp := setup(t, client, 0)
 	peerID := uint16(1)
@@ -616,11 +587,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_MinGasEVMTxThreshold(t *testing.T) {
 func TestTxMempool_CheckTxExceedsMaxSize(t *testing.T) {
 	ctx := t.Context()
 
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 	txmp := setup(t, client, 0)
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -641,11 +608,7 @@ func TestTxMempool_Reap_SkipGasUnfitAndCollectMinTxs(t *testing.T) {
 	ctx := t.Context()
 
 	app := &application{Application: kvstore.NewApplication()}
-	client := abciclient.NewLocalClient(log.NewNopLogger(), app)
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := app
 
 	txmp := setup(t, client, 0)
 	peerID := uint16(1)
@@ -682,11 +645,7 @@ func TestTxMempool_Reap_SkipGasUnfitStopsAtMinEvenWithCapacity(t *testing.T) {
 	ctx := t.Context()
 
 	app := &application{Application: kvstore.NewApplication()}
-	client := abciclient.NewLocalClient(log.NewNopLogger(), app)
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := app
 
 	txmp := setup(t, client, 0)
 	peerID := uint16(1)
@@ -717,11 +676,7 @@ func TestTxMempool_Reap_SkipGasUnfitStopsAtMinEvenWithCapacity(t *testing.T) {
 func TestTxMempool_Prioritization(t *testing.T) {
 	ctx := t.Context()
 
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, client, 100)
 	peerID := uint16(1)
@@ -785,11 +740,7 @@ func TestTxMempool_Prioritization(t *testing.T) {
 func TestTxMempool_PendingStoreSize(t *testing.T) {
 	ctx := t.Context()
 
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, client, 100)
 	txmp.config.PendingSize = 1
@@ -806,11 +757,7 @@ func TestTxMempool_PendingStoreSize(t *testing.T) {
 func TestTxMempool_RemoveCacheWhenPendingTxIsFull(t *testing.T) {
 	ctx := t.Context()
 
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, client, 10)
 	txmp.config.PendingSize = 1
@@ -827,11 +774,7 @@ func TestTxMempool_RemoveCacheWhenPendingTxIsFull(t *testing.T) {
 func TestTxMempool_EVMEviction(t *testing.T) {
 	ctx := t.Context()
 
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, client, 100)
 	txmp.config.Size = 1
@@ -887,11 +830,7 @@ func TestTxMempool_EVMEviction(t *testing.T) {
 func TestTxMempool_CheckTxSamePeer(t *testing.T) {
 	ctx := t.Context()
 
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, client, 100)
 	peerID := uint16(1)
@@ -910,11 +849,7 @@ func TestTxMempool_CheckTxSamePeer(t *testing.T) {
 func TestTxMempool_CheckTxSameSender(t *testing.T) {
 	ctx := t.Context()
 
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, client, 100)
 	peerID := uint16(1)
@@ -940,11 +875,7 @@ func TestTxMempool_CheckTxSameSender(t *testing.T) {
 func TestTxMempool_ConcurrentTxs(t *testing.T) {
 	ctx := t.Context()
 
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, client, 100)
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -1012,11 +943,7 @@ func TestTxMempool_ConcurrentTxs(t *testing.T) {
 func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	ctx := t.Context()
 
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, client, 500)
 	txmp.height = 100
@@ -1085,11 +1012,7 @@ func TestTxMempool_CheckTxPostCheckError(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
 
-			client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-			if err := client.Start(ctx); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(client.Wait)
+			client := &application{Application: kvstore.NewApplication()}
 
 			postCheckFn := func(_ types.Tx, _ *abci.ResponseCheckTx) error {
 				return tc.err
@@ -1122,11 +1045,7 @@ func TestTxMempool_CheckTxPostCheckError(t *testing.T) {
 func TestTxMempool_FailedCheckTxCount(t *testing.T) {
 	ctx := t.Context()
 
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 
 	postCheckFn := func(_ types.Tx, _ *abci.ResponseCheckTx) error {
 		return nil
@@ -1167,14 +1086,7 @@ func TestTxMempool_FailedCheckTxCount(t *testing.T) {
 }
 
 func TestAppendCheckTxErr(t *testing.T) {
-	// Setup
-	ctx := t.Context()
-
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 	txmp := setup(t, client, 500)
 	existingLogData := "existing error log"
 	newLogData := "sample error log"
@@ -1194,11 +1106,7 @@ func TestAppendCheckTxErr(t *testing.T) {
 func TestMempoolExpiration(t *testing.T) {
 	ctx := t.Context()
 
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, client, 0)
 	txmp.config.TTLDuration = time.Nanosecond // we want tx to expire immediately
@@ -1219,11 +1127,7 @@ func TestMempoolExpiration(t *testing.T) {
 func TestReapMaxBytesMaxGas_EVMFirst(t *testing.T) {
 	ctx := t.Context()
 
-	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Wait)
+	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, client, 0)
 	peerID := uint16(1)

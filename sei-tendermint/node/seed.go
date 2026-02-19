@@ -8,12 +8,11 @@ import (
 	"strings"
 	"time"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink"
@@ -46,19 +45,13 @@ type seedNodeImpl struct {
 
 // makeSeedNode returns a new seed node, containing only p2p, pex reactor
 func makeSeedNode(
-	ctx context.Context,
 	logger log.Logger,
 	cfg *config.Config,
-	restartCh chan struct{},
 	dbProvider config.DBProvider,
 	nodeKey types.NodeKey,
 	genesisDocProvider genesisDocProvider,
-	client abciclient.Client,
 	nodeMetrics *NodeMetrics,
 ) (service.Service, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	if !cfg.P2P.PexReactor {
 		return nil, errors.New("cannot run seed nodes with PEX disabled")
 	}
@@ -84,29 +77,13 @@ func makeSeedNode(
 			fmt.Errorf("failed to create router: %w", err),
 			peerCloser)
 	}
-	// Register a listener to restart router if signalled to do so
-	go func() {
-		for range restartCh {
-			logger.Info("Received signal to restart router, restarting...")
-			router.OnStop()
-			router.Wait()
-			logger.Info("Router successfully stopped. Restarting...")
-			// Start the transport.
-			if err := router.Start(ctx); err != nil {
-				logger.Error("Unable to start router, retrying...", err)
-			}
-		}
-	}()
 
 	pexReactor, err := pex.NewReactor(logger, router, pex.DefaultSendInterval)
 	if err != nil {
 		return nil, fmt.Errorf("pex.NewReactor(): %w", err)
 	}
 
-	proxyApp := proxy.New(client, logger.With("module", "proxy"), nodeMetrics.proxy)
-
 	closers := make([]closer, 0, 2)
-	closers = append(closers, convertCancelCloser(cancel))
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
 	if err != nil {
 		return nil, combineCloseError(err, dbCloser)
@@ -133,7 +110,7 @@ func makeSeedNode(
 
 		pexReactor: pexReactor,
 		rpcEnv: &rpccore.Environment{
-			ProxyApp: proxyApp,
+			ProxyApp: abci.NewBaseApplication(),
 
 			StateStore: stateStore,
 			BlockStore: blockStore,

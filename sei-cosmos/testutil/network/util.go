@@ -2,14 +2,13 @@ package network
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/codec"
 	tmtime "github.com/cosmos/cosmos-sdk/std"
 	"github.com/cosmos/cosmos-sdk/telemetry"
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
@@ -56,8 +55,8 @@ func startInProcess(cfg Config, val *Validator) error {
 		val.GoCtx,
 		tmCfg,
 		logger,
-		make(chan struct{}),
-		abciclient.NewLocalClient(logger, app),
+		func() {},
+		app,
 		defaultGensis,
 		[]trace.TracerProviderOption{},
 		node.NoOpMetricsProvider(),
@@ -211,15 +210,9 @@ func writeFile(name string, dir string, contents []byte) error {
 	writePath := filepath.Join(dir)
 	file := filepath.Join(writePath, name)
 
-	err := tmos.EnsureDir(writePath, 0755)
-	if err != nil {
+	if err := tmos.EnsureDir(writePath, 0755); err != nil {
 		return err
 	}
 
-	err = ioutil.WriteFile(file, contents, 0644)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return os.WriteFile(file, contents, 0644)
 }
