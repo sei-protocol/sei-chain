@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -14,8 +16,11 @@ const EVMStoreName = "evm"
 type DBType string
 
 const (
-	MemIAVL DBType = "memiavl"
-	FlatKV  DBType = "flatkv"
+	MemIAVL         DBType = "MemIAVL"
+	FlatKV          DBType = "FlatKV"
+	CompositeDual   DBType = "CompositeDual"
+	CompositeSplit  DBType = "CompositeSplit"
+	CompositeCosmos DBType = "CompositeCosmos"
 )
 
 func newMemIAVLCommitStore(b *testing.B) DBWrapper {
@@ -53,6 +58,29 @@ func newFlatKVCommitStore(b *testing.B) DBWrapper {
 	return NewFlatKVWrapper(cs)
 }
 
+func newCompositeCommitStore(b *testing.B, writeMode config.WriteMode) DBWrapper {
+	b.Helper()
+	dir := b.TempDir()
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = writeMode
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 10
+	cfg.MemIAVLConfig.SnapshotInterval = 100
+
+	cs := composite.NewCompositeCommitStore(dir, logger.NewNopLogger(), cfg)
+	cs.Initialize([]string{EVMStoreName})
+
+	loaded, err := cs.LoadVersion(0, false)
+	require.NoError(b, err)
+
+	loadedStore := loaded.(*composite.CompositeCommitStore)
+
+	b.Cleanup(func() {
+		_ = loadedStore.Close()
+	})
+
+	return NewCompositeWrapper(loadedStore)
+}
+
 // Instantiates a new DBWrapper based on the given DBType.
 func NewDBImpl(
 	b *testing.B,
@@ -64,6 +92,12 @@ func NewDBImpl(
 		return newMemIAVLCommitStore(b)
 	case FlatKV:
 		return newFlatKVCommitStore(b)
+	case CompositeDual:
+		return newCompositeCommitStore(b, config.DualWrite)
+	case CompositeSplit:
+		return newCompositeCommitStore(b, config.SplitWrite)
+	case CompositeCosmos:
+		return newCompositeCommitStore(b, config.CosmosOnlyWrite)
 	default:
 		b.Fatalf("unsupported DB type: %s", dbType)
 		return nil
