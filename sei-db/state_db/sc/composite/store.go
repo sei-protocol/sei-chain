@@ -3,7 +3,6 @@
 package composite
 
 import (
-	"errors"
 	"fmt"
 	"math"
 
@@ -92,32 +91,30 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 		return nil, fmt.Errorf("unexpected committer type from cosmos LoadVersion")
 	}
 
-	newStore := &CompositeCommitStore{
-		logger:          cs.logger,
-		cosmosCommitter: cosmosCommitter,
-		homeDir:         cs.homeDir,
-		config:          cs.config,
+	// Read only mode should return a new SC
+	if readOnly {
+		newStore := &CompositeCommitStore{
+			logger:          cs.logger,
+			cosmosCommitter: cosmosCommitter,
+			homeDir:         cs.homeDir,
+			config:          cs.config,
+		}
+		// TODO: Support loading FlatKV at target version for read only
+		return newStore, nil
 	}
 
+	cs.cosmosCommitter = cosmosCommitter
 	// Load evmCommitter if initialized (nil when WriteMode is CosmosOnlyWrite).
 	// This is the single entry point for evmCommitter.LoadVersion — CMS calls
 	// CompositeCommitStore.LoadVersion(), which internally loads both backends.
 	if cs.evmCommitter != nil {
-		evmStore, err := cs.evmCommitter.LoadVersion(targetVersion, readOnly)
+		_, err := cs.evmCommitter.LoadVersion(targetVersion)
 		if err != nil {
-			// FlatKV doesn't support read-only mode yet - fall back to Cosmos-only
-			if errors.Is(err, flatkv.ErrReadOnlyNotSupported) {
-				cs.logger.Info("FlatKV read-only not supported, using Cosmos backend only")
-				// Leave evmCommitter nil for this read-only instance
-			} else {
-				return nil, fmt.Errorf("failed to load FlatKV version: %w", err)
-			}
-		} else {
-			newStore.evmCommitter = evmStore
+			return nil, fmt.Errorf("failed to load FlatKV version: %w", err)
 		}
 	}
 
-	return newStore, nil
+	return cs, nil
 }
 
 // ApplyChangeSets applies changesets to the appropriate backends based on config.
@@ -197,10 +194,12 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 
 // Version returns the current version
 func (cs *CompositeCommitStore) Version() int64 {
-	if cs.cosmosCommitter == nil {
-		return 0
+	if cs.cosmosCommitter != nil {
+		return cs.cosmosCommitter.Version()
+	} else if cs.evmCommitter != nil {
+		return cs.evmCommitter.Version()
 	}
-	return cs.cosmosCommitter.Version()
+	return 0
 }
 
 // GetLatestVersion returns the latest version
