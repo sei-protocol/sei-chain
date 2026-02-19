@@ -140,7 +140,6 @@ func TestSynchronousWrite(t *testing.T) {
 	lastIndex, err := changelog.LastOffset()
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), lastIndex)
-
 }
 
 func TestAsyncWrite(t *testing.T) {
@@ -678,4 +677,28 @@ func TestGetLastIndex(t *testing.T) {
 func TestLogPath(t *testing.T) {
 	path := LogPath("/some/dir")
 	require.Equal(t, "/some/dir/changelog", path)
+}
+
+
+func TestMultipleCloseCalls(t *testing.T) {
+	changelog := prepareTestData(t)
+	entry, err := changelog.ReadAt(2)
+	require.NoError(t, err)
+	require.Equal(t, []byte("hello1"), entry.Changesets[0].Changeset.Pairs[0].Key)
+	require.Equal(t, []byte("world1"), entry.Changesets[0].Changeset.Pairs[0].Value)
+	require.Equal(t, []byte("hello2"), entry.Changesets[0].Changeset.Pairs[1].Key)
+	require.Equal(t, []byte("world2"), entry.Changesets[0].Changeset.Pairs[1].Value)
+	entry, err = changelog.ReadAt(1)
+	require.NoError(t, err)
+	require.Equal(t, []byte("hello"), entry.Changesets[0].Changeset.Pairs[0].Key)
+	require.Equal(t, []byte("world"), entry.Changesets[0].Changeset.Pairs[0].Value)
+	entry, err = changelog.ReadAt(3)
+	require.NoError(t, err)
+	require.Equal(t, []byte("hello3"), entry.Changesets[0].Changeset.Pairs[0].Key)
+	require.Equal(t, []byte("world3"), entry.Changesets[0].Changeset.Pairs[0].Value)
+
+	// Calling close lots of times shouldn't cause any problems.
+	for i := 0; i < 10; i++ {
+		require.NoError(t, changelog.Close())
+	}
 }

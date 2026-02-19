@@ -41,6 +41,24 @@ type WAL[T any] struct {
 	closeErrChan chan error
 }
 
+// A request to truncate the log.
+type truncateRequest struct {
+	// If true, truncate before the provided index. Otherwise, truncate after the provided index.
+	before bool
+	// The index to truncate at.
+	index uint64
+	// Errors are returned over this channel, nil is written if completed with no error
+	errChan chan error
+}
+
+// A request to write to the WAL.
+type writeRequest[T any] struct {
+	// The data to write
+	entry T
+	// Errors are returned over this channel, nil is written if completed with no error
+	errChan chan error
+}
+
 // Configuration for the WAL.
 type Config struct {
 	// The number of recent entries to keep in the log.
@@ -98,7 +116,7 @@ func NewWAL[T any](
 	}
 
 	bufferSize := config.WriteBufferSize
-	if config.WriteBufferSize == 0 {
+	if config.WriteBufferSize <= 0 {
 		bufferSize = defaultBufferSize
 	}
 
@@ -132,14 +150,6 @@ func NewWAL[T any](
 
 	return w, nil
 
-}
-
-// A request to write to the WAL.
-type writeRequest[T any] struct {
-	// The data to write
-	entry T
-	// Errors are returned over this channel, nil is written if completed with no error
-	errChan chan error
 }
 
 // Write will append a new entry to the end of the log.
@@ -207,19 +217,7 @@ func (walLog *WAL[T]) handleUnbatchedWrite(req *writeRequest[T]) {
 // include them in the batch.
 func (walLog *WAL[T]) handleBatchedWrite(req *writeRequest[T]) {
 
-	requests := make([]*writeRequest[T], 0)
-	requests = append(requests, req)
-
-	keepLooking := true
-	for keepLooking && len(requests) < walLog.writeBatchSize {
-		select {
-		case req := <-walLog.writeChan:
-			requests = append(requests, req)
-		default:
-			// No more pending writes immediately available, so process the batch we have so far.
-			keepLooking = false
-		}
-	}
+	requests := walLog.gatherRequestsForBatch(req)
 
 	lastOffset, err := walLog.log.LastIndex()
 	if err != nil {
@@ -230,42 +228,71 @@ func (walLog *WAL[T]) handleBatchedWrite(req *writeRequest[T]) {
 		return
 	}
 
-	batch := &wal.Batch{}
+	binaryRequests := walLog.marshalRequests(requests)
 
-	for _, req := range requests {
-		bz, err := walLog.marshal(req.entry)
-		if err != nil {
-			err = fmt.Errorf("marshalling error: %w", err)
-			for _, req := range requests {
-				req.errChan <- err
-			}
-			return
-		}
-		batch.Write(lastOffset+1, bz)
+	batch := &wal.Batch{}
+	for _, binaryRequest := range binaryRequests {
+		batch.Write(lastOffset+1, binaryRequest)
 		lastOffset++
 	}
 
 	if err := walLog.log.WriteBatch(batch); err != nil {
 		err = fmt.Errorf("failed to write batch: %w", err)
 		for _, r := range requests {
-			r.errChan <- err
+			if r.errChan != nil {
+				r.errChan <- err
+			}
 		}
 		return
 	}
 
 	for _, r := range requests {
-		r.errChan <- nil
+		if r.errChan != nil {
+			r.errChan <- nil
+		}
 	}
 }
 
-// A request to truncate the log.
-type truncateRequest struct {
-	// If true, truncate before the provided index. Otherwise, truncate after the provided index.
-	before bool
-	// The index to truncate at.
-	index uint64
-	// Errors are returned over this channel, nil is written if completed with no error
-	errChan chan error
+// Gather the requests for a batch. When this method is called, we will already have the first request in the batch.
+func (walLog *WAL[T]) gatherRequestsForBatch(initialRequest *writeRequest[T]) []*writeRequest[T] {
+	requests := make([]*writeRequest[T], 0)
+	requests = append(requests, initialRequest)
+
+	keepLooking := true
+	for keepLooking && len(requests) < walLog.writeBatchSize {
+		select {
+		case next := <-walLog.writeChan:
+			requests = append(requests, next)
+		default:
+			// No more pending writes immediately available, so process the batch we have so far.
+			keepLooking = false
+		}
+	}
+
+	return requests
+}
+
+// Marshal the requests for a batch. If a request can't be marshalled, an error is immediately sent
+// to that request's caller.
+//
+// The requests slice passed into this method is modified if some requests
+// are not marshalled successfully. Any request that is not marshalled successfully has its errChan
+// set to nil to avoid sending more than one response to the caller.
+func (walLog *WAL[T]) marshalRequests(requests []*writeRequest[T]) [][]byte {
+	binaryRequests := make([][]byte, 0, len(requests))
+
+	for _, req := range requests {
+		bz, err := walLog.marshal(req.entry)
+		if err != nil {
+			err = fmt.Errorf("marshalling error: %w", err)
+			req.errChan <- err
+			req.errChan = nil // signal that we have already sent a response to the caller
+			continue
+		}
+		binaryRequests = append(binaryRequests, bz)
+	}
+
+	return binaryRequests
 }
 
 // TruncateAfter will remove all entries that are after the provided `index`.
