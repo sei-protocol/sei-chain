@@ -114,12 +114,8 @@ func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore 
 //   - targetVersion == 0: open latest (follow current symlink + catchup to end of WAL).
 //   - targetVersion > 0: seek the best snapshot <= targetVersion, open it, then
 //     catchup via WAL to reach targetVersion exactly.
-func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (Store, error) {
-	s.log.Info("FlatKV LoadVersion", "targetVersion", targetVersion, "readOnly", readOnly)
-
-	if readOnly {
-		return nil, ErrReadOnlyNotSupported
-	}
+func (s *CommitStore) LoadVersion(targetVersion int64) (Store, error) {
+	s.log.Info("FlatKV LoadVersion", "targetVersion", targetVersion)
 
 	// Close existing resources if already open
 	if s.metadataDB != nil {

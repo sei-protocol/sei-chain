@@ -65,7 +65,7 @@ func setupTestStore(t *testing.T) *CommitStore {
 	t.Helper()
 	dir := t.TempDir()
 	s := NewCommitStore(dir, nil, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
 	return s
 }
@@ -75,7 +75,7 @@ func setupTestStoreWithConfig(t *testing.T, cfg Config) *CommitStore {
 	t.Helper()
 	dir := t.TempDir()
 	s := NewCommitStore(dir, nil, cfg)
-	_, err := s.LoadVersion(0, false)
+	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
 	return s
 }
@@ -95,7 +95,7 @@ func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 func TestStoreOpenClose(t *testing.T) {
 	dir := t.TempDir()
 	s := NewCommitStore(dir, nil, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
 
 	require.NoError(t, s.Close())
@@ -104,7 +104,7 @@ func TestStoreOpenClose(t *testing.T) {
 func TestStoreClose(t *testing.T) {
 	dir := t.TempDir()
 	s := NewCommitStore(dir, nil, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
 
 	// Close should succeed
@@ -299,7 +299,7 @@ func TestStorePersistence(t *testing.T) {
 
 	// Write and close
 	s1 := NewCommitStore(dir, nil, DefaultConfig())
-	_, err := s1.LoadVersion(0, false)
+	_, err := s1.LoadVersion(0)
 	require.NoError(t, err)
 
 	cs := makeChangeSet(key, value, false)
@@ -309,7 +309,7 @@ func TestStorePersistence(t *testing.T) {
 
 	// Reopen and verify
 	s2 := NewCommitStore(dir, nil, DefaultConfig())
-	_, err = s2.LoadVersion(0, false)
+	_, err = s2.LoadVersion(0)
 	require.NoError(t, err)
 	defer s2.Close()
 

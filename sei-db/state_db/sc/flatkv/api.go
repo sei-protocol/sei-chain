@@ -1,15 +1,10 @@
 package flatkv
 
 import (
-	"errors"
 	"io"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
-
-// ErrReadOnlyNotSupported is returned when LoadVersion is called with readOnly=true.
-// Callers should fall back to Cosmos-only mode when this error is returned.
-var ErrReadOnlyNotSupported = errors.New("FlatKV read-only mode not yet supported")
 
 // Exporter streams FlatKV state for snapshots.
 // NOTE: Not yet implemented. Will be implemented with state-sync support.
@@ -40,8 +35,7 @@ type Options struct {
 type Store interface {
 	// LoadVersion opens the database at the specified version.
 	// Note: FlatKV only stores latest state, so targetVersion is for verification only.
-	// readOnly=true is NOT YET SUPPORTED and returns an error (requires snapshot implementation).
-	LoadVersion(targetVersion int64, readOnly bool) (Store, error)
+	LoadVersion(targetVersion int64) (Store, error)
 
 	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
 	// Non-EVM modules are ignored. Call Commit to persist.

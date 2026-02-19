@@ -31,7 +31,7 @@ func commitStorageEntry(t *testing.T, s *CommitStore, addr Address, slot Slot, v
 func TestSnapshotCreatesDir(t *testing.T) {
 	dir := t.TempDir()
 	s := NewCommitStore(dir, nil, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -58,7 +58,7 @@ func TestSnapshotCreatesDir(t *testing.T) {
 func TestSnapshotIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	s := NewCommitStore(dir, nil, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -78,7 +78,7 @@ func TestOpenFromSnapshot(t *testing.T) {
 
 	// Phase 1: create store, commit v1 and v2, snapshot at v2, commit v3
 	s1 := NewCommitStore(dir, nil, DefaultConfig())
-	_, err := s1.LoadVersion(0, false)
+	_, err := s1.LoadVersion(0)
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s1, Address{0x10}, Slot{0x01}, []byte{0x01})
@@ -95,7 +95,7 @@ func TestOpenFromSnapshot(t *testing.T) {
 
 	// Phase 2: reopen - should catchup from v2 snapshot + WAL entry for v3
 	s2 := NewCommitStore(dir, nil, DefaultConfig())
-	_, err = s2.LoadVersion(0, false)
+	_, err = s2.LoadVersion(0)
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -117,7 +117,7 @@ func TestCatchupUpdatesLtHash(t *testing.T) {
 	dir := t.TempDir()
 
 	s1 := NewCommitStore(dir, nil, DefaultConfig())
-	_, err := s1.LoadVersion(0, false)
+	_, err := s1.LoadVersion(0)
 	require.NoError(t, err)
 
 	// Commit 5 versions, snapshot at v2
@@ -135,7 +135,7 @@ func TestCatchupUpdatesLtHash(t *testing.T) {
 
 	// Reopen: catchup from v2 snapshot through v3,v4,v5 via WAL
 	s2 := NewCommitStore(dir, nil, DefaultConfig())
-	_, err = s2.LoadVersion(0, false)
+	_, err = s2.LoadVersion(0)
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -149,7 +149,7 @@ func TestRollbackRewindsState(t *testing.T) {
 	dir := t.TempDir()
 
 	s := NewCommitStore(dir, nil, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
 
 	// Commit v1..v5, snapshot at v3
@@ -186,7 +186,7 @@ func TestRollbackToSnapshotExact(t *testing.T) {
 	dir := t.TempDir()
 
 	s := NewCommitStore(dir, nil, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s, Address{0x40}, Slot{0x01}, []byte{0x01})
@@ -207,7 +207,7 @@ func TestRollbackToSnapshotExact(t *testing.T) {
 func TestPartialSnapshotCleanup(t *testing.T) {
 	dir := t.TempDir()
 	s := NewCommitStore(dir, nil, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s, Address{0x50}, Slot{0x01}, []byte{0x01})
@@ -264,7 +264,7 @@ func TestMigrationFromFlatLayout(t *testing.T) {
 
 	// Open the store - should trigger migration
 	s := NewCommitStore(dir, nil, DefaultConfig())
-	_, err = s.LoadVersion(0, false)
+	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -295,7 +295,7 @@ func TestOpenVersionValidation(t *testing.T) {
 
 	// Phase 1: create store, commit some data
 	s1 := NewCommitStore(dir, nil, DefaultConfig())
-	_, err := s1.LoadVersion(0, false)
+	_, err := s1.LoadVersion(0)
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s1, Address{0x60}, Slot{0x01}, []byte{0x11})
@@ -318,7 +318,7 @@ func TestOpenVersionValidation(t *testing.T) {
 
 	// Phase 3: reopen - should detect skew and catchup
 	s2 := NewCommitStore(dir, nil, DefaultConfig())
-	_, err = s2.LoadVersion(0, false)
+	_, err = s2.LoadVersion(0)
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -387,7 +387,7 @@ func TestLoadVersionWithTarget(t *testing.T) {
 	dir := t.TempDir()
 
 	s1 := NewCommitStore(dir, nil, DefaultConfig())
-	_, err := s1.LoadVersion(0, false)
+	_, err := s1.LoadVersion(0)
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s1, Address{0x70}, Slot{0x01}, []byte{0x01})
@@ -400,7 +400,7 @@ func TestLoadVersionWithTarget(t *testing.T) {
 
 	// Reopen at specific version 3
 	s2 := NewCommitStore(dir, nil, DefaultConfig())
-	_, err = s2.LoadVersion(3, false)
+	_, err = s2.LoadVersion(3)
 	require.NoError(t, err)
 	defer s2.Close()
 
