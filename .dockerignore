@@ -1,4 +1,7 @@
 build/
+# Include prebuilt binaries when building localnode app image (Dockerfile.prebuilt)
+!build/seid
+!build/price-feeder
 .github
 assets
 docker
