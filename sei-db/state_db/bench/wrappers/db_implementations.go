@@ -48,7 +48,7 @@ func newFlatKVCommitStore(b *testing.B) DBWrapper {
 	cfg := flatkv.DefaultConfig()
 	cs := flatkv.NewCommitStore(dir, logger.NewNopLogger(), cfg)
 
-	_, err := cs.LoadVersion(0, false)
+	_, err := cs.LoadVersion(0)
 	require.NoError(b, err)
 
 	b.Cleanup(func() {
