@@ -26,7 +26,7 @@ message Request {
     RequestInitChain init_chain = 4;
     RequestQuery query = 5;
     RequestCommit commit = 10;
-    RequestListSnapshots list_snapshots = 11;
+    // field 11 (RequestListSnapshots) reserved
     RequestOfferSnapshot offer_snapshot = 12;
     RequestLoadSnapshotChunk load_snapshot_chunk = 13;
     RequestApplySnapshotChunk apply_snapshot_chunk = 14;
@@ -36,8 +36,8 @@ message Request {
     RequestBeginBlock begin_block = 20;
     RequestEndBlock end_block = 22;
   }
-  reserved 6, 8, 9, 17, 18, 7, 21, 23, 24; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestExtendVote, RequestVerifyVoteExtension, RequestCheckTx, RequestDeliverTx, RequestLoadLatest, RequestGetTxPriorityHint
-  reserved "extend_vote", "verify_vote_extension", "check_tx", "deliver_tx", "load_latest", "get_tx_priority_hint";
+  reserved 6, 8, 9, 11, 17, 18, 7, 21, 23, 24; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestListSnapshots, RequestExtendVote, RequestVerifyVoteExtension, RequestCheckTx, RequestDeliverTx, RequestLoadLatest, RequestGetTxPriorityHint
+  reserved "extend_vote", "verify_vote_extension", "check_tx", "deliver_tx", "list_snapshots", "load_latest", "get_tx_priority_hint";
 }
 
 message RequestEcho {
@@ -73,9 +73,6 @@ message RequestQuery {
 }
 
 message RequestCommit {}
-
-// lists available snapshots
-message RequestListSnapshots {}
 
 // offers a snapshot to the application
 message RequestOfferSnapshot {
