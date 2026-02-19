@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -270,15 +272,22 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		// Verify parent hash chain to prevent a malicious producer from
 		// breaking the block chain, which would deadlock header reconstruction.
 		// A mismatch means the producer equivocated (produced a different
-		// chain than we already have). We report it as an error so it gets
-		// logged — useful for debugging stalled lanes.
+		// chain than we already have). We log it to aid debugging stalled
+		// lanes but do not return an error — the caller should not tear
+		// down the peer connection over an equivocating producer.
 		// NOTE: after pruning (q.first >= q.next), we cannot verify the parent
 		// hash because the previous block is gone. This is safe because
 		// headers() never follows the first block's parentHash in a LaneRange.
 		if q.first < q.next {
 			prevHash := q.q[q.next-1].Msg().Block().Header().Hash()
 			if h.ParentHash() != prevHash {
-				return fmt.Errorf("parent hash mismatch for lane %v block %v: got %v, want %v (producer equivocation)", h.Lane(), h.BlockNumber(), h.ParentHash(), prevHash)
+				log.Error().
+					Stringer("lane", h.Lane()).
+					Uint64("block", uint64(h.BlockNumber())).
+					Hex("got", h.ParentHash().Bytes()).
+					Hex("want", prevHash.Bytes()).
+					Msg("parent hash mismatch (producer equivocation)")
+				return nil
 			}
 		}
 		q.pushBack(p)
