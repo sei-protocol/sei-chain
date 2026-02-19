@@ -3,7 +3,6 @@ package keeper_test
 import (
 	"testing"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -63,11 +62,11 @@ func TestTrackHistoricalInfo(t *testing.T) {
 
 	// set historical info at 5, 4 which should be pruned
 	// and check that it has been stored
-	h4 := tmproto.Header{
+	h4 := sdk.Header{
 		ChainID: "HelloChain",
 		Height:  4,
 	}
-	h5 := tmproto.Header{
+	h5 := sdk.Header{
 		ChainID: "HelloChain",
 		Height:  5,
 	}
@@ -102,7 +101,7 @@ func TestTrackHistoricalInfo(t *testing.T) {
 	IsValSetSorted(vals, app.StakingKeeper.PowerReduction(ctx))
 
 	// Set Header for BeginBlock context
-	header := tmproto.Header{
+	header := sdk.Header{
 		ChainID: "HelloChain",
 		Height:  10,
 	}
@@ -112,7 +111,7 @@ func TestTrackHistoricalInfo(t *testing.T) {
 
 	// Check HistoricalInfo at height 10 is persisted
 	expected := types.HistoricalInfo{
-		Header: header,
+		Header: header.ToProto(),
 		Valset: vals,
 	}
 	recv, found = app.StakingKeeper.GetHistoricalInfo(ctx, 10)
@@ -139,13 +138,13 @@ func TestGetAllHistoricalInfo(t *testing.T) {
 		teststaking.NewValidator(t, addrVals[1], PKs[1]),
 	}
 
-	header1 := tmproto.Header{ChainID: "HelloChain", Height: 10}
-	header2 := tmproto.Header{ChainID: "HelloChain", Height: 11}
-	header3 := tmproto.Header{ChainID: "HelloChain", Height: 12}
+	header1 := sdk.Header{ChainID: "HelloChain", Height: 10}
+	header2 := sdk.Header{ChainID: "HelloChain", Height: 11}
+	header3 := sdk.Header{ChainID: "HelloChain", Height: 12}
 
-	hist1 := types.HistoricalInfo{Header: header1, Valset: valSet}
-	hist2 := types.HistoricalInfo{Header: header2, Valset: valSet}
-	hist3 := types.HistoricalInfo{Header: header3, Valset: valSet}
+	hist1 := types.HistoricalInfo{Header: header1.ToProto(), Valset: valSet}
+	hist2 := types.HistoricalInfo{Header: header2.ToProto(), Valset: valSet}
+	hist3 := types.HistoricalInfo{Header: header3.ToProto(), Valset: valSet}
 
 	expHistInfos := []types.HistoricalInfo{hist1, hist2, hist3}
 

@@ -289,7 +289,7 @@ func TestCreateDuplicate(t *testing.T) {
 func TestCreateWithSimulation(t *testing.T) {
 	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
 
-	ctx = ctx.WithBlockHeader(tmproto.Header{Height: 1}).
+	ctx = ctx.WithBlockHeader(sdk.Header{Height: 1}).
 		WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 
 	deposit := sdk.NewCoins(sdk.NewInt64Coin("denom", 100000))
@@ -321,15 +321,15 @@ func TestIsSimulationMode(t *testing.T) {
 		exp bool
 	}{
 		"genesis block": {
-			ctx: sdk.Context{}.WithBlockHeader(tmproto.Header{}).WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)),
+			ctx: sdk.Context{}.WithBlockHeader(sdk.Header{}).WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)),
 			exp: false,
 		},
 		"any regular block": {
-			ctx: sdk.Context{}.WithBlockHeader(tmproto.Header{Height: 1}).WithGasMeter(sdk.NewGasMeter(10000000, 1, 1)),
+			ctx: sdk.Context{}.WithBlockHeader(sdk.Header{Height: 1}).WithGasMeter(sdk.NewGasMeter(10000000, 1, 1)),
 			exp: false,
 		},
 		"simulation": {
-			ctx: sdk.Context{}.WithBlockHeader(tmproto.Header{Height: 1}).WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)),
+			ctx: sdk.Context{}.WithBlockHeader(sdk.Header{Height: 1}).WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)),
 			exp: true,
 		},
 	}

@@ -21,6 +21,6 @@ func TestTracedDecorator(t *testing.T) {
 		return antedecorators.NewTracedAnteDecorator(d, nil)
 	})
 	chainedHandler := sdk.ChainAnteDecorators(tracedDecorators...)
-	chainedHandler(sdk.NewContext(nil, tmproto.Header{}, false, nil), FakeTx{}, false)
+	chainedHandler(sdk.NewContext(nil, sdk.Header{}, false, nil), FakeTx{}, false)
 	require.Equal(t, "onetwothree", output)
 }

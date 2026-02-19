@@ -5,14 +5,13 @@ import (
 	"sort"
 	"testing"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
-var header = tmproto.Header{
+var header = sdk.Header{
 	ChainID: "hello",
 	Height:  5,
 }
@@ -48,7 +47,7 @@ func TestHistoricalInfo(t *testing.T) {
 func TestValidateBasic(t *testing.T) {
 	validators := createValidators(t)
 	hi := types.HistoricalInfo{
-		Header: header,
+		Header: header.ToProto(),
 	}
 	err := types.ValidateBasic(hi)
 	require.Error(t, err, "ValidateBasic passed on nil ValSet")
@@ -62,7 +61,7 @@ func TestValidateBasic(t *testing.T) {
 		})
 	}
 	hi = types.HistoricalInfo{
-		Header: header,
+		Header: header.ToProto(),
 		Valset: validators,
 	}
 	err = types.ValidateBasic(hi)

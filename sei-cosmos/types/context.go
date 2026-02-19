@@ -28,7 +28,7 @@ type Context struct {
 	ms                MultiStore
 	nextMs            MultiStore          // ms of the next height; only used in tracing
 	nextStoreKeys     map[string]struct{} // store key names that should use nextMs
-	header            tmproto.Header
+	header            Header
 	headerHash        tmbytes.HexBytes
 	chainID           string
 	txBytes           []byte
@@ -203,10 +203,9 @@ func (c Context) TxIndex() int {
 	return c.txIndex
 }
 
-// clone the header before returning
-func (c Context) BlockHeader() tmproto.Header {
-	msg := proto.Clone(&c.header).(*tmproto.Header)
-	return *msg
+// BlockHeader returns a cloned copy of the current block header to prevent mutation.
+func (c Context) BlockHeader() Header {
+	return c.header.Clone()
 }
 
 func (c Context) TraceSpanContext() context.Context {
@@ -249,13 +248,12 @@ func (c Context) ConsensusParams() *tmproto.ConsensusParams {
 }
 
 // create a new context
-func NewContext(ms MultiStore, header tmproto.Header, isCheckTx bool, logger log.Logger) Context {
-	// https://github.com/gogo/protobuf/issues/519
+func NewContext(ms MultiStore, header Header, isCheckTx bool, logger log.Logger) Context {
 	header.Time = header.Time.UTC()
 	return Context{
 		ctx:             context.Background(),
 		ms:              ms,
-		header:          header,
+		header:          header.Clone(),
 		chainID:         header.ChainID,
 		checkTx:         isCheckTx,
 		logger:          logger,
@@ -278,11 +276,10 @@ func (c Context) WithMultiStore(ms MultiStore) Context {
 	return c
 }
 
-// WithBlockHeader returns a Context with an updated tendermint block header in UTC time.
-func (c Context) WithBlockHeader(header tmproto.Header) Context {
-	// https://github.com/gogo/protobuf/issues/519
+// WithBlockHeader returns a Context with an updated block header in UTC time.
+func (c Context) WithBlockHeader(header Header) Context {
 	header.Time = header.Time.UTC()
-	c.header = header
+	c.header = header.Clone()
 	return c
 }
 

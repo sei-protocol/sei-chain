@@ -9,7 +9,6 @@ import (
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
@@ -50,7 +49,7 @@ func setupTest(t *testing.T, height int64, skip map[int64]bool) TestSuite {
 	)
 
 	s.keeper = app.UpgradeKeeper
-	s.ctx = app.BaseApp.NewContext(false, tmproto.Header{Height: height, Time: time.Now()})
+	s.ctx = app.BaseApp.NewContext(false, sdk.Header{Height: height, Time: time.Now()})
 
 	s.querier = upgrade.NewAppModule(s.keeper).LegacyQuerierHandler(app.LegacyAmino())
 	s.handler = upgrade.NewSoftwareUpgradeProposalHandler(s.keeper)
@@ -246,7 +245,7 @@ func TestBinaryVersion(t *testing.T) {
 		{
 			"test not panic: no scheduled upgrade or applied upgrade is present",
 			func() (sdk.Context, abci.RequestBeginBlock) {
-				req := abci.RequestBeginBlock{Header: s.ctx.BlockHeader()}
+				req := abci.RequestBeginBlock{Header: s.ctx.BlockHeader().ToProto()}
 				return s.ctx, req
 			},
 			false,
@@ -267,7 +266,7 @@ func TestBinaryVersion(t *testing.T) {
 					Height: 12,
 				})
 
-				req := abci.RequestBeginBlock{Header: newCtx.BlockHeader()}
+				req := abci.RequestBeginBlock{Header: newCtx.BlockHeader().ToProto()}
 				return newCtx, req
 			},
 			false,
@@ -279,7 +278,7 @@ func TestBinaryVersion(t *testing.T) {
 				require.NoError(t, err)
 
 				newCtx := s.ctx.WithBlockHeight(13)
-				req := abci.RequestBeginBlock{Header: newCtx.BlockHeader()}
+				req := abci.RequestBeginBlock{Header: newCtx.BlockHeader().ToProto()}
 				return newCtx, req
 			},
 			true,
@@ -294,7 +293,7 @@ func TestBinaryVersion(t *testing.T) {
 				require.NoError(t, err)
 
 				newCtx := s.ctx.WithBlockHeight(100)
-				req := abci.RequestBeginBlock{Header: newCtx.BlockHeader()}
+				req := abci.RequestBeginBlock{Header: newCtx.BlockHeader().ToProto()}
 				return newCtx, req
 			},
 			false,
@@ -309,7 +308,7 @@ func TestBinaryVersion(t *testing.T) {
 				require.NoError(t, err)
 
 				newCtx := s.ctx.WithBlockHeight(13)
-				req := abci.RequestBeginBlock{Header: newCtx.BlockHeader()}
+				req := abci.RequestBeginBlock{Header: newCtx.BlockHeader().ToProto()}
 				return newCtx, req
 			},
 			true,
@@ -333,7 +332,7 @@ func TestBinaryVersion(t *testing.T) {
 					Height: 12,
 				})
 
-				req := abci.RequestBeginBlock{Header: newCtx.BlockHeader()}
+				req := abci.RequestBeginBlock{Header: newCtx.BlockHeader().ToProto()}
 				return newCtx, req
 			},
 			false,
@@ -352,7 +351,7 @@ func TestBinaryVersion(t *testing.T) {
 				require.NoError(t, err)
 
 				newCtx := s.ctx.WithBlockHeight(12)
-				req := abci.RequestBeginBlock{Header: newCtx.BlockHeader()}
+				req := abci.RequestBeginBlock{Header: newCtx.BlockHeader().ToProto()}
 				return newCtx, req
 			},
 			false,

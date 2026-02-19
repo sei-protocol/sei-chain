@@ -20,7 +20,7 @@ func TestAuthzNestedEvmMessage(t *testing.T) {
 	anteDecorators := []sdk.AnteDecorator{
 		antedecorators.NewAuthzNestedMessageDecorator(),
 	}
-	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
+	ctx := sdk.NewContext(nil, sdk.Header{}, false, nil)
 	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 
 	nestedEvmMessage := authz.NewMsgExec(addr1, []sdk.Msg{&evmtypes.MsgEVMTransaction{}})

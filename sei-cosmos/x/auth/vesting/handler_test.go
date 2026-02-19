@@ -5,7 +5,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -29,7 +28,7 @@ func (suite *HandlerTestSuite) SetupTest() {
 }
 
 func (suite *HandlerTestSuite) TestMsgCreateVestingAccount() {
-	ctx := suite.app.BaseApp.NewContext(false, tmproto.Header{Height: suite.app.LastBlockHeight() + 1})
+	ctx := suite.app.BaseApp.NewContext(false, sdk.Header{Height: suite.app.LastBlockHeight() + 1})
 
 	balances := sdk.NewCoins(sdk.NewInt64Coin("test", 1000))
 	addr1 := sdk.AccAddress([]byte("addr1_______________"))

@@ -4,7 +4,6 @@ import (
 	"math/big"
 	"testing"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
@@ -38,7 +37,7 @@ var (
 // to avoid messing with the hooks.
 func getBaseSimappWithCustomKeeper(t *testing.T) (*codec.LegacyAmino, *seiapp.App, sdk.Context) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	appCodec := app.AppCodec()
 

@@ -104,7 +104,7 @@ func NewStateTestContext(t testing.TB, blockTime time.Time, workers int, mode Ex
 	}
 	testApp := wrapper.App
 	ctx := wrapper.Ctx
-	ctx = ctx.WithBlockHeader(tmproto.Header{
+	ctx = ctx.WithBlockHeader(sdk.Header{
 		Height:  ctx.BlockHeader().Height,
 		ChainID: ctx.BlockHeader().ChainID,
 		Time:    blockTime,

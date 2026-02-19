@@ -188,7 +188,7 @@ func newTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enab
 	} else {
 		appPtr = Setup(tb, false, enableEVMCustomPrecompiles, false, baseAppOptions...)
 	}
-	ctx := appPtr.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
+	ctx := appPtr.NewContext(false, sdk.Header{Height: 1, ChainID: "sei-test", Time: tm})
 	wrapper := &TestWrapper{
 		App:  appPtr,
 		Ctx:  ctx,
@@ -292,7 +292,7 @@ func (s *TestWrapper) BeginBlock() {
 
 	newBlockTime := s.Ctx.BlockTime().Add(2 * time.Second)
 
-	header := tmproto.Header{Height: s.Ctx.BlockHeight() + 1, Time: newBlockTime}
+	header := sdk.Header{Height: s.Ctx.BlockHeight() + 1, Time: newBlockTime}
 	newCtx := s.Ctx.WithBlockTime(newBlockTime).WithBlockHeight(s.Ctx.BlockHeight() + 1)
 	s.Ctx = newCtx
 	lastCommitInfo := abci.LastCommitInfo{
@@ -914,7 +914,7 @@ func GenTx(gen client.TxConfig, msgs []sdk.Msg, feeAmt sdk.Coins, gas uint64, ch
 }
 
 func SignCheckDeliver(
-	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp, header tmproto.Header, msgs []sdk.Msg,
+	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp, header sdk.Header, msgs []sdk.Msg,
 	chainID string, accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
 ) (sdk.GasInfo, *sdk.Result, error) {
 
@@ -992,7 +992,7 @@ func incrementAllSequenceNumbers(initSeqNums []uint64) {
 
 // CheckBalance checks the balance of an account.
 func CheckBalance(t *testing.T, app *App, addr sdk.AccAddress, balances sdk.Coins) {
-	ctxCheck := app.NewContext(true, tmproto.Header{})
+	ctxCheck := app.NewContext(true, sdk.Header{})
 	require.True(t, balances.IsEqual(app.BankKeeper.GetAllBalances(ctxCheck, addr)))
 }
 

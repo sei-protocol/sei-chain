@@ -7,7 +7,6 @@ import (
 
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -42,7 +41,7 @@ type AnteTestSuite struct {
 // returns context and app with params set on account keeper
 func createTestApp(t *testing.T, isCheckTx bool) (*app.App, sdk.Context) {
 	app := app.Setup(t, isCheckTx, false, false)
-	ctx := app.BaseApp.NewContext(isCheckTx, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(isCheckTx, sdk.Header{})
 	app.AccountKeeper.SetParams(ctx, authtypes.DefaultParams())
 
 	return app, ctx

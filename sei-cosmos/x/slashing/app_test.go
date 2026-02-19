@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
@@ -28,14 +27,14 @@ var (
 )
 
 func checkValidator(t *testing.T, app *seiapp.App, _ sdk.AccAddress, expFound bool) stakingtypes.Validator {
-	ctxCheck := app.BaseApp.NewContext(true, tmproto.Header{})
+	ctxCheck := app.BaseApp.NewContext(true, sdk.Header{})
 	validator, found := app.StakingKeeper.GetValidator(ctxCheck, sdk.ValAddress(addr1))
 	require.Equal(t, expFound, found)
 	return validator
 }
 
 func checkValidatorSigningInfo(t *testing.T, app *seiapp.App, addr sdk.ConsAddress, expFound bool) types.ValidatorSigningInfo {
-	ctxCheck := app.BaseApp.NewContext(true, tmproto.Header{})
+	ctxCheck := app.BaseApp.NewContext(true, sdk.Header{})
 	signingInfo, found := app.SlashingKeeper.GetValidatorSigningInfo(ctxCheck, addr)
 	require.Equal(t, expFound, found)
 	return signingInfo
@@ -69,13 +68,13 @@ func TestSlashingMsgs(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
+	header := sdk.Header{Height: app.LastBlockHeight() + 1}
 	txGen := seiapp.MakeEncodingConfig().TxConfig
 	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{createValidatorMsg}, "", []uint64{0}, []uint64{0}, true, true, priv1)
 	require.NoError(t, err)
 	seiapp.CheckBalance(t, app, addr1, sdk.Coins{genCoin.Sub(bondCoin)})
 
-	header = tmproto.Header{Height: app.LastBlockHeight() + 1}
+	header = sdk.Header{Height: app.LastBlockHeight() + 1}
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
 	validator := checkValidator(t, app, addr1, true)
@@ -87,7 +86,7 @@ func TestSlashingMsgs(t *testing.T) {
 	checkValidatorSigningInfo(t, app, sdk.ConsAddress(valAddr), true)
 
 	// unjail should fail with unknown validator
-	header = tmproto.Header{Height: app.LastBlockHeight() + 1}
+	header = sdk.Header{Height: app.LastBlockHeight() + 1}
 	_, res, err := seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{unjailMsg}, "", []uint64{0}, []uint64{1}, false, false, priv1)
 	require.Error(t, err)
 	require.Nil(t, res)

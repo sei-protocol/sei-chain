@@ -35,7 +35,7 @@ func TestOracleVoteAloneAnteHandler(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := anteHandler(sdk.NewContext(nil, tmproto.Header{}, false, nil), tc.tx, false)
+			_, err := anteHandler(sdk.NewContext(nil, sdk.Header{}, false, nil), tc.tx, false)
 			if tc.expErr {
 				require.Error(t, err)
 			} else {

@@ -165,7 +165,7 @@ func NewTestContext(tb testing.TB, testAccts []TestAcct, blockTime time.Time, wo
 	})
 	testApp := wrapper.App
 	ctx := wrapper.Ctx
-	ctx = ctx.WithBlockHeader(tmproto.Header{Height: ctx.BlockHeader().Height, ChainID: ctx.BlockHeader().ChainID, Time: blockTime})
+	ctx = ctx.WithBlockHeader(sdk.Header{Height: ctx.BlockHeader().Height, ChainID: ctx.BlockHeader().ChainID, Time: blockTime})
 	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)))
 	bankkeeper := testApp.BankKeeper
 	wasmKeeper := testApp.WasmKeeper

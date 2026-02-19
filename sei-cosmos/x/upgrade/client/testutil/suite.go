@@ -9,7 +9,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/upgrade/client/cli"
 	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	seiapp "github.com/sei-protocol/sei-chain/app"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -30,7 +29,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 	s.T().Log("setting up integration test suite")
 	app := seiapp.Setup(s.T(), false, false, false)
 	s.app = app
-	s.ctx = app.BaseApp.NewContext(false, tmproto.Header{})
+	s.ctx = app.BaseApp.NewContext(false, sdk.Header{})
 
 	cfg := network.DefaultConfig(s.T())
 	cfg.NumValidators = 1

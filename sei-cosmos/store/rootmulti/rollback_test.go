@@ -10,7 +10,6 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -55,7 +54,7 @@ func TestRollback(t *testing.T) {
 	ver0 := a.LastBlockHeight()
 	// commit 10 blocks
 	for i := int64(1); i <= 10; i++ {
-		header := tmproto.Header{
+		header := sdk.Header{
 			Height:  ver0 + i,
 			AppHash: a.LastCommitID().Hash,
 		}
@@ -67,7 +66,7 @@ func TestRollback(t *testing.T) {
 	}
 
 	require.Equal(t, ver0+10, a.LastBlockHeight())
-	store := a.NewContext(true, tmproto.Header{}).KVStore(a.GetKey("bank"))
+	store := a.NewContext(true, sdk.Header{}).KVStore(a.GetKey("bank"))
 	require.Equal(t, []byte("value10"), store.Get([]byte("key")))
 
 	// rollback 5 blocks
@@ -77,12 +76,12 @@ func TestRollback(t *testing.T) {
 
 	// recreate app to have clean check state
 	a = SetupWithDB(t, false, db)
-	store = a.NewContext(true, tmproto.Header{}).KVStore(a.GetKey("bank"))
+	store = a.NewContext(true, sdk.Header{}).KVStore(a.GetKey("bank"))
 	require.Equal(t, []byte("value5"), store.Get([]byte("key")))
 
 	// commit another 5 blocks with different values
 	for i := int64(6); i <= 10; i++ {
-		header := tmproto.Header{
+		header := sdk.Header{
 			Height:  ver0 + i,
 			AppHash: a.LastCommitID().Hash,
 		}
@@ -94,6 +93,6 @@ func TestRollback(t *testing.T) {
 	}
 
 	require.Equal(t, ver0+10, a.LastBlockHeight())
-	store = a.NewContext(true, tmproto.Header{}).KVStore(a.GetKey("bank"))
+	store = a.NewContext(true, sdk.Header{}).KVStore(a.GetKey("bank"))
 	require.Equal(t, []byte("VALUE10"), store.Get([]byte("key")))
 }

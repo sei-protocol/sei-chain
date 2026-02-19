@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/app"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -20,7 +19,7 @@ var (
 
 func TestSendAuthorization(t *testing.T) {
 	a := app.Setup(t, false, false, false)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := a.BaseApp.NewContext(false, sdk.Header{})
 	authorization := types.NewSendAuthorization(coins1000)
 
 	t.Log("verify authorization returns valid method name")

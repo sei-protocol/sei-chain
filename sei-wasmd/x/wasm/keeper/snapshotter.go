@@ -12,7 +12,6 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	protoio "github.com/gogo/protobuf/io"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/ioutils"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -58,7 +57,7 @@ func (ws *WasmSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer) e
 	}
 	defer cacheMS.Close()
 
-	ctx := sdk.NewContext(cacheMS, tmproto.Header{}, false, log.NewNopLogger())
+	ctx := sdk.NewContext(cacheMS, sdk.Header{}, false, log.NewNopLogger())
 	seenBefore := make(map[string]bool)
 	var rerr error
 
@@ -148,7 +147,7 @@ func (ws *WasmSnapshotter) processAllItems(
 		return snapshot.SnapshotItem{}, sdkerrors.Wrapf(sdkerrors.ErrInvalidHeight, "height %d exceeds max int64", height)
 	}
 	// #nosec G115 -- height is bounds checked above
-	ctx := sdk.NewContext(ws.cms, tmproto.Header{Height: int64(height)}, false, log.NewNopLogger())
+	ctx := sdk.NewContext(ws.cms, sdk.Header{Height: int64(height)}, false, log.NewNopLogger())
 
 	// keep the last item here... if we break, it will either be empty (if we hit io.EOF)
 	// or contain the last item (if we hit payload == nil)

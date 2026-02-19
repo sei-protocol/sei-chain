@@ -15,7 +15,7 @@ import (
 func TestNewProposalHandler(t *testing.T) {
 	app := app.Setup(t, false, false, false)
 
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 	app.MintKeeper.SetParams(ctx, types.DefaultParams())
 	app.MintKeeper.SetMinter(ctx, types.DefaultInitialMinter())
 

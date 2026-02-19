@@ -986,7 +986,7 @@ func New(
 			tmos.Exit(err.Error())
 		}
 
-		ctx := app.NewUncachedContext(true, tmproto.Header{})
+		ctx := app.NewUncachedContext(true, sdk.Header{})
 		if err := app.WasmKeeper.InitializePinnedCodes(ctx); err != nil {
 			tmos.Exit(fmt.Sprintf("failed initialize pinned codes %s", err))
 		}

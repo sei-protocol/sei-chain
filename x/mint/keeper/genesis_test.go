@@ -14,7 +14,7 @@ import (
 
 func TestGenesis(t *testing.T) {
 	app := app.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	now := time.Now()
 

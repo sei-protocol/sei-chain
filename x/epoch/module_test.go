@@ -61,7 +61,7 @@ func TestExportGenesis(t *testing.T) {
 		app.AccountKeeper,
 		app.BankKeeper,
 	)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	require.NotNil(t, appModule.ExportGenesis(ctx, app.AppCodec()))
 }
@@ -79,7 +79,7 @@ func TestBeginBlock(t *testing.T) {
 	t.Parallel()
 	// Create a mock context and keeper
 	app := app.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 	now := time.Now()
 	ctx = ctx.WithBlockTime(now)
 

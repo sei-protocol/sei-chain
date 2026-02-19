@@ -19,7 +19,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/suite"
 	dbm "github.com/tendermint/tm-db"
@@ -39,7 +38,7 @@ type KeeperTestHelper struct {
 // Setup sets up basic environment for suite (App, Ctx, and test accounts)
 func (s *KeeperTestHelper) Setup() {
 	s.App = app.Setup(s.T(), false, false, false)
-	s.Ctx = s.App.NewContext(false, tmtypes.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
+	s.Ctx = s.App.NewContext(false, sdk.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
 	s.QueryHelper = &baseapp.QueryServiceTestHelper{
 		GRPCQueryRouter: s.App.GRPCQueryRouter(),
 		Ctx:             s.Ctx,
@@ -55,7 +54,7 @@ func (s *KeeperTestHelper) CreateTestContext() sdk.Context {
 
 	ms := rootmulti.NewStore(db, log.NewNopLogger())
 
-	return sdk.NewContext(ms, tmtypes.Header{}, false, logger)
+	return sdk.NewContext(ms, sdk.Header{}, false, logger)
 }
 
 // CreateTestContext creates a test context.
@@ -66,7 +65,7 @@ func (s *KeeperTestHelper) Commit() {
 	if err != nil {
 		panic(err)
 	}
-	newHeader := tmtypes.Header{Height: oldHeight + 1, ChainID: oldHeader.ChainID, Time: time.Now().UTC()}
+	newHeader := sdk.Header{Height: oldHeight + 1, ChainID: oldHeader.ChainID, Time: time.Now().UTC()}
 	legacyabci.BeginBlock(s.Ctx, newHeader.Height, []abci.VoteInfo{}, []abci.Misbehavior{}, s.App.BeginBlockKeepers)
 	s.Ctx = s.App.GetBaseApp().NewContext(false, newHeader)
 }

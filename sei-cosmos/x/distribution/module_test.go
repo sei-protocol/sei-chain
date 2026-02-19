@@ -1,11 +1,11 @@
 package distribution_test
 
 import (
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"context"
 	"testing"
 
 	abcitypes "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -15,7 +15,7 @@ import (
 
 func TestItCreatesModuleAccountOnInitBlock(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	app.InitChain(
 		context.Background(), &abcitypes.RequestInitChain{

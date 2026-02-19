@@ -7,7 +7,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 	dbm "github.com/tendermint/tm-db"
 
@@ -293,7 +292,7 @@ func (s *paginationTestSuite) TestReversePagination() {
 
 func setupTest(t *testing.T) (*app.App, sdk.Context, codec.Codec) {
 	a := app.Setup(t, false, false, false)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{Height: 1})
+	ctx := a.BaseApp.NewContext(false, sdk.Header{Height: 1})
 	appCodec := a.AppCodec()
 
 	db := dbm.NewMemDB()

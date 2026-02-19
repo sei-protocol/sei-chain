@@ -36,7 +36,7 @@ func (suite *InterchainAccountsTestSuite) TestInitModule() {
 	appModule, ok := app.GetModuleManager().Modules[types.ModuleName].(ica.AppModule)
 	suite.Require().True(ok)
 
-	header := tmproto.Header{
+	header := sdk.Header{
 		ChainID: "testchain",
 		Height:  1,
 		Time:    suite.coordinator.CurrentTime.UTC(),
@@ -99,7 +99,7 @@ func (suite *InterchainAccountsTestSuite) TestInitModule() {
 
 			// reset app state
 			app = simapp.NewSimApp(log.NewNopLogger(), dbm.NewMemDB(), nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 5, nil, simapp.MakeTestEncodingConfig(), simapp.EmptyAppOptions{})
-			header := tmproto.Header{
+			header := sdk.Header{
 				ChainID: "testchain",
 				Height:  1,
 				Time:    suite.coordinator.CurrentTime.UTC(),

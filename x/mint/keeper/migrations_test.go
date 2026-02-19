@@ -57,7 +57,7 @@ func TestMigrate2to3(t *testing.T) {
 		memStoreKey,
 		"MintParams",
 	)
-	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
+	ctx := sdk.NewContext(stateStore, sdk.Header{}, false, log.NewNopLogger())
 	if !paramsSubspace.HasKeyTable() {
 		paramsSubspace = paramsSubspace.WithKeyTable(paramtypes.NewKeyTable().RegisterParamSet(&types.Version2Params{}))
 	}

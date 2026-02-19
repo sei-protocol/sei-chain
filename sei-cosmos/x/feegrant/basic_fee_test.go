@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -16,14 +15,14 @@ import (
 func TestBasicFeeValidAllow(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
 
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 	badTime := ctx.BlockTime().AddDate(0, 0, -1)
 	allowace := &feegrant.BasicAllowance{
 		Expiration: &badTime,
 	}
 	require.Error(t, allowace.ValidateBasic())
 
-	ctx = app.BaseApp.NewContext(false, tmproto.Header{
+	ctx = app.BaseApp.NewContext(false, sdk.Header{
 		Time: time.Now(),
 	})
 	eth := sdk.NewCoins(sdk.NewInt64Coin("eth", 10))
@@ -131,7 +130,7 @@ func TestBasicFeeValidAllow(t *testing.T) {
 			err := tc.allowance.ValidateBasic()
 			require.NoError(t, err)
 
-			ctx := app.BaseApp.NewContext(false, tmproto.Header{}).WithBlockTime(tc.blockTime)
+			ctx := app.BaseApp.NewContext(false, sdk.Header{}).WithBlockTime(tc.blockTime)
 
 			// now try to deduct
 			removed, err := tc.allowance.Accept(ctx, tc.fee, []sdk.Msg{})

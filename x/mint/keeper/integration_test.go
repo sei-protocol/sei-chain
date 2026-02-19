@@ -14,7 +14,7 @@ import (
 func createTestApp(t *testing.T, isCheckTx bool) (*app.App, sdk.Context) {
 	app := app.Setup(t, isCheckTx, false, false)
 
-	ctx := app.BaseApp.NewContext(isCheckTx, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(isCheckTx, sdk.Header{})
 	app.MintKeeper.SetParams(ctx, types.DefaultParams())
 	app.MintKeeper.SetMinter(ctx, types.DefaultInitialMinter())
 

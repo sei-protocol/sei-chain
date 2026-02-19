@@ -422,7 +422,7 @@ func TestRecordSuccessfulMint(t *testing.T) {
 		1000,
 	)
 	app := app.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 	currentTime := time.Now().UTC()
 
 	epoch := epochTypes.Epoch{

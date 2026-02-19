@@ -148,7 +148,7 @@ func TestSetOccEnabled(t *testing.T) {
 // func TestGetMaximumBlockGas(t *testing.T) {
 // 	app := setupBaseApp(t)
 // 	app.InitChain(context.Background(), &abci.RequestInitChain{})
-// 	ctx := app.NewContext(true, tmproto.Header{})
+// 	ctx := app.NewContext(true, sdk.Header{})
 
 // 	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: 0}})
 // 	require.Equal(t, uint64(0), app.getMaximumBlockGas(ctx))

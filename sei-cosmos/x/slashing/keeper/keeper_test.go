@@ -8,7 +8,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/stretchr/testify/assert"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -22,7 +21,7 @@ import (
 
 func TestUnJailNotBonded(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	p := app.StakingKeeper.GetParams(ctx)
 	p.MaxValidators = 5
@@ -86,7 +85,7 @@ func TestUnJailNotBonded(t *testing.T) {
 // and that they are not immediately jailed
 func TestHandleNewValidator(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
@@ -129,7 +128,7 @@ func TestHandleNewValidator(t *testing.T) {
 func TestHandleAlreadyJailed(t *testing.T) {
 	// initial setup
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
@@ -192,7 +191,7 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 	// initial setup
 	// TestParams set the SignedBlocksWindow to 1000 and MaxMissedBlocksPerWindow to 500
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 	app.SlashingKeeper.SetParams(ctx, testslashing.TestParams())
 
 	params := app.StakingKeeper.GetParams(ctx)
@@ -291,7 +290,7 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 
 func TestSlash(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 6, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 	keeper := app.SlashingKeeper
 

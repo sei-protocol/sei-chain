@@ -454,7 +454,7 @@ func (app *BaseApp) LoadVersion(version int64) error {
 // specifically used by export genesis command.
 func (app *BaseApp) LoadVersionWithoutInit(version int64) error {
 	err := app.cms.LoadVersion(version)
-	app.setCheckState(tmproto.Header{})
+	app.setCheckState(sdk.Header{})
 	return err
 }
 
@@ -474,7 +474,7 @@ func (app *BaseApp) init() error {
 	}
 
 	// needed for the export command which inits from store but never calls initchain
-	app.setCheckState(tmproto.Header{})
+	app.setCheckState(sdk.Header{})
 	app.Seal()
 
 	return nil
@@ -540,7 +540,7 @@ func (app *BaseApp) IsSealed() bool { return app.sealed }
 // (i.e. a CacheMultiStore) and a new Context with the same multi-store branch,
 // provided header, and minimum gas prices set. It is set on InitChain and reset
 // on Commit.
-func (app *BaseApp) setCheckState(header tmproto.Header) {
+func (app *BaseApp) setCheckState(header sdk.Header) {
 	ms := app.cms.CacheMultiStore()
 	ctx := sdk.NewContext(ms, header, true, app.logger).WithMinGasPrices(app.minGasPrices)
 	app.checkTxStateLock.Lock()
@@ -561,7 +561,7 @@ func (app *BaseApp) setCheckState(header tmproto.Header) {
 // (i.e. a CacheMultiStore) and a new Context with the same multi-store branch,
 // and provided header. It is set on InitChain and BeginBlock and set to nil on
 // Commit.
-func (app *BaseApp) setDeliverState(header tmproto.Header) {
+func (app *BaseApp) setDeliverState(header sdk.Header) {
 	ms := app.cms.CacheMultiStore()
 	ctx := sdk.NewContext(ms, header, false, app.logger)
 	if app.deliverState == nil {
@@ -576,7 +576,7 @@ func (app *BaseApp) setDeliverState(header tmproto.Header) {
 	app.deliverState.SetContext(ctx)
 }
 
-func (app *BaseApp) setPrepareProposalState(header tmproto.Header) {
+func (app *BaseApp) setPrepareProposalState(header sdk.Header) {
 	ms := app.cms.CacheMultiStore()
 	ctx := sdk.NewContext(ms, header, false, app.logger)
 	if app.prepareProposalState == nil {
@@ -591,7 +591,7 @@ func (app *BaseApp) setPrepareProposalState(header tmproto.Header) {
 	app.prepareProposalState.SetContext(ctx)
 }
 
-func (app *BaseApp) setProcessProposalState(header tmproto.Header) {
+func (app *BaseApp) setProcessProposalState(header sdk.Header) {
 	ms := app.cms.CacheMultiStore()
 	ctx := sdk.NewContext(ms, header, false, app.logger)
 	if app.processProposalState == nil {
@@ -613,15 +613,15 @@ func (app *BaseApp) resetStatesExceptCheckState() {
 	app.stateToCommit = nil
 }
 
-func (app *BaseApp) setPrepareProposalHeader(header tmproto.Header) {
+func (app *BaseApp) setPrepareProposalHeader(header sdk.Header) {
 	app.prepareProposalState.SetContext(app.prepareProposalState.Context().WithBlockHeader(header))
 }
 
-func (app *BaseApp) setProcessProposalHeader(header tmproto.Header) {
+func (app *BaseApp) setProcessProposalHeader(header sdk.Header) {
 	app.processProposalState.SetContext(app.processProposalState.Context().WithBlockHeader(header))
 }
 
-func (app *BaseApp) setDeliverStateHeader(header tmproto.Header) {
+func (app *BaseApp) setDeliverStateHeader(header sdk.Header) {
 	app.deliverState.SetContext(app.deliverState.Context().WithBlockHeader(header).WithBlockHeight(header.Height))
 }
 

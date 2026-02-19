@@ -1,7 +1,7 @@
 package capability_test
 
 import (
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	dbm "github.com/tendermint/tm-db"
 
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -37,7 +37,7 @@ func (suite *CapabilityTestSuite) TestGenesis() {
 	newKeeper := keeper.NewKeeper(suite.cdc, newApp.GetKey(types.StoreKey), newApp.GetMemKey(types.MemStoreKey))
 	newSk1 := newKeeper.ScopeToModule(banktypes.ModuleName)
 	newSk2 := newKeeper.ScopeToModule(stakingtypes.ModuleName)
-	deliverCtx, _ := newApp.BaseApp.NewUncachedContext(false, tmproto.Header{}).CacheContext()
+	deliverCtx, _ := newApp.BaseApp.NewUncachedContext(false, sdk.Header{}).CacheContext()
 
 	capability.InitGenesis(deliverCtx, *newKeeper, *genState)
 

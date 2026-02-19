@@ -44,7 +44,7 @@ func TestSnapshotter(t *testing.T) {
 			srcWasmApp, genesisAddr := newWasmExampleApp(t)
 
 			// store wasm codes on chain
-			ctx := srcWasmApp.NewUncachedContext(false, tmproto.Header{
+			ctx := srcWasmApp.NewUncachedContext(false, sdk.Header{
 				ChainID: "foo",
 				Height:  srcWasmApp.LastBlockHeight() + 1,
 				Time:    time.Now(),
@@ -85,7 +85,7 @@ func TestSnapshotter(t *testing.T) {
 
 			// then all wasm contracts are imported
 			wasmKeeper = app.NewTestSupport(t, destWasmApp).WasmKeeper()
-			ctx = destWasmApp.NewUncachedContext(false, tmproto.Header{
+			ctx = destWasmApp.NewUncachedContext(false, sdk.Header{
 				ChainID: "foo",
 				Height:  destWasmApp.LastBlockHeight() + 1,
 				Time:    time.Now(),

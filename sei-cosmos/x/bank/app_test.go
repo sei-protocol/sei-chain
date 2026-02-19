@@ -7,7 +7,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
@@ -87,7 +86,7 @@ func TestSendNotEnoughBalance(t *testing.T) {
 
 	genAccs := []authtypes.GenesisAccount{acc}
 	a := app.SetupWithGenesisAccounts(t, genAccs)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := a.BaseApp.NewContext(false, sdk.Header{})
 
 	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 67))))
 
@@ -101,14 +100,14 @@ func TestSendNotEnoughBalance(t *testing.T) {
 	origSeq := res1.GetSequence()
 
 	sendMsg := types.NewMsgSend(addr1, addr2, sdk.Coins{sdk.NewInt64Coin("foocoin", 100)})
-	header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+	header := sdk.Header{Height: a.LastBlockHeight() + 1}
 	txGen := app.MakeEncodingConfig().TxConfig
 	_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, "", []uint64{origAccNum}, []uint64{origSeq}, false, false, priv1)
 	require.Error(t, err)
 
 	app.CheckBalance(t, a, addr1, sdk.Coins{sdk.NewInt64Coin("foocoin", 67)})
 
-	res2 := a.AccountKeeper.GetAccount(a.NewContext(true, tmproto.Header{}), addr1)
+	res2 := a.AccountKeeper.GetAccount(a.NewContext(true, sdk.Header{}), addr1)
 	require.NotNil(t, res2)
 
 	require.Equal(t, res2.GetAccountNumber(), origAccNum)
@@ -122,7 +121,7 @@ func TestSendReceiverNotInAllowList(t *testing.T) {
 
 	genAccs := []authtypes.GenesisAccount{acc}
 	a := app.SetupWithGenesisAccounts(t, genAccs)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := a.BaseApp.NewContext(false, sdk.Header{})
 	testDenom := "testDenom"
 	factoryDenom := fmt.Sprintf("factory/%s/%s", addr1.String(), testDenom)
 
@@ -140,7 +139,7 @@ func TestSendReceiverNotInAllowList(t *testing.T) {
 	origSeq := res1.GetSequence()
 
 	sendMsg := types.NewMsgSend(addr1, addr2, sdk.Coins{sdk.NewInt64Coin(factoryDenom, 10)})
-	header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+	header := sdk.Header{Height: a.LastBlockHeight() + 1}
 	txGen := app.MakeEncodingConfig().TxConfig
 	_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, "", []uint64{origAccNum}, []uint64{origSeq}, false, false, priv1)
 	require.Error(t, err)
@@ -156,7 +155,7 @@ func TestSendSenderAndReceiverInAllowList(t *testing.T) {
 
 	genAccs := []authtypes.GenesisAccount{acc}
 	a := app.SetupWithGenesisAccounts(t, genAccs)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := a.BaseApp.NewContext(false, sdk.Header{})
 	testDenom := "testDenom"
 	factoryDenom := fmt.Sprintf("factory/%s/%s", addr1.String(), testDenom)
 
@@ -174,7 +173,7 @@ func TestSendSenderAndReceiverInAllowList(t *testing.T) {
 	origSeq := res1.GetSequence()
 
 	sendMsg := types.NewMsgSend(addr1, addr2, sdk.Coins{sdk.NewInt64Coin(factoryDenom, 10)})
-	header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+	header := sdk.Header{Height: a.LastBlockHeight() + 1}
 	txGen := app.MakeEncodingConfig().TxConfig
 	_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, "", []uint64{origAccNum}, []uint64{origSeq}, true, true, priv1)
 	require.NoError(t, err)
@@ -190,7 +189,7 @@ func TestSendWithEmptyAllowList(t *testing.T) {
 
 	genAccs := []authtypes.GenesisAccount{acc}
 	a := app.SetupWithGenesisAccounts(t, genAccs)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := a.BaseApp.NewContext(false, sdk.Header{})
 	testDenom := "testDenom"
 	factoryDenom := fmt.Sprintf("factory/%s/%s", addr1.String(), testDenom)
 
@@ -208,7 +207,7 @@ func TestSendWithEmptyAllowList(t *testing.T) {
 	origSeq := res1.GetSequence()
 
 	sendMsg := types.NewMsgSend(addr1, addr2, sdk.Coins{sdk.NewInt64Coin(factoryDenom, 10)})
-	header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+	header := sdk.Header{Height: a.LastBlockHeight() + 1}
 	txGen := app.MakeEncodingConfig().TxConfig
 	_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, "", []uint64{origAccNum}, []uint64{origSeq}, true, true, priv1)
 	require.NoError(t, err)
@@ -224,7 +223,7 @@ func TestSendSenderNotInAllowList(t *testing.T) {
 
 	genAccs := []authtypes.GenesisAccount{acc}
 	a := app.SetupWithGenesisAccounts(t, genAccs)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := a.BaseApp.NewContext(false, sdk.Header{})
 	testDenom := "testDenom"
 	factoryDenom := fmt.Sprintf("factory/%s/%s", addr1.String(), testDenom)
 
@@ -242,7 +241,7 @@ func TestSendSenderNotInAllowList(t *testing.T) {
 	origSeq := res1.GetSequence()
 
 	sendMsg := types.NewMsgSend(addr1, addr2, sdk.Coins{sdk.NewInt64Coin(factoryDenom, 10)})
-	header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+	header := sdk.Header{Height: a.LastBlockHeight() + 1}
 	txGen := app.MakeEncodingConfig().TxConfig
 	_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, "", []uint64{origAccNum}, []uint64{origSeq}, false, false, priv1)
 	require.Error(t, err)
@@ -258,7 +257,7 @@ func TestMsgMultiSendWithAccounts(t *testing.T) {
 
 	genAccs := []authtypes.GenesisAccount{acc}
 	a := app.SetupWithGenesisAccounts(t, genAccs)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := a.BaseApp.NewContext(false, sdk.Header{})
 
 	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 67))))
 
@@ -294,7 +293,7 @@ func TestMsgMultiSendWithAccounts(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+		header := sdk.Header{Height: a.LastBlockHeight() + 1}
 		txGen := app.MakeEncodingConfig().TxConfig
 		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, "", tc.accNums, tc.accSeqs, tc.expSimPass, tc.expPass, tc.privKeys...)
 		if tc.expPass {
@@ -319,7 +318,7 @@ func TestMsgMultiSendMultipleOut(t *testing.T) {
 
 	genAccs := []authtypes.GenesisAccount{acc1, acc2}
 	a := app.SetupWithGenesisAccounts(t, genAccs)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := a.BaseApp.NewContext(false, sdk.Header{})
 
 	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
 
@@ -344,7 +343,7 @@ func TestMsgMultiSendMultipleOut(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+		header := sdk.Header{Height: a.LastBlockHeight() + 1}
 		txGen := app.MakeEncodingConfig().TxConfig
 		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, "", tc.accNums, tc.accSeqs, tc.expSimPass, tc.expPass, tc.privKeys...)
 		require.NoError(t, err)
@@ -368,7 +367,7 @@ func TestMsgMultiSendMultipleInOut(t *testing.T) {
 
 	genAccs := []authtypes.GenesisAccount{acc1, acc2, acc4}
 	a := app.SetupWithGenesisAccounts(t, genAccs)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := a.BaseApp.NewContext(false, sdk.Header{})
 
 	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
 
@@ -396,7 +395,7 @@ func TestMsgMultiSendMultipleInOut(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+		header := sdk.Header{Height: a.LastBlockHeight() + 1}
 		txGen := app.MakeEncodingConfig().TxConfig
 		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, "", tc.accNums, tc.accSeqs, tc.expSimPass, tc.expPass, tc.privKeys...)
 		require.NoError(t, err)
@@ -415,7 +414,7 @@ func TestMsgMultiSendDependent(t *testing.T) {
 
 	genAccs := []authtypes.GenesisAccount{acc1, acc2}
 	a := app.SetupWithGenesisAccounts(t, genAccs)
-	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := a.BaseApp.NewContext(false, sdk.Header{})
 
 	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
 
@@ -448,7 +447,7 @@ func TestMsgMultiSendDependent(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+		header := sdk.Header{Height: a.LastBlockHeight() + 1}
 		txGen := app.MakeEncodingConfig().TxConfig
 		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, "", tc.accNums, tc.accSeqs, tc.expSimPass, tc.expPass, tc.privKeys...)
 		require.NoError(t, err)
@@ -653,7 +652,7 @@ func TestMultiSendAllowList(t *testing.T) {
 
 			genAccs := []authtypes.GenesisAccount{sender, receiver}
 			a := app.SetupWithGenesisAccounts(t, genAccs)
-			ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+			ctx := a.BaseApp.NewContext(false, sdk.Header{})
 
 			msgs := make([]sdk.Msg, 0)
 
@@ -673,7 +672,7 @@ func TestMultiSendAllowList(t *testing.T) {
 
 			a.Commit(context.Background())
 
-			header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+			header := sdk.Header{Height: a.LastBlockHeight() + 1}
 			txGen := app.MakeEncodingConfig().TxConfig
 			_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, msgs, "", tc.accNums, tc.accSeqs, !tc.expectedError, !tc.expectedError, tc.privKeys...)
 

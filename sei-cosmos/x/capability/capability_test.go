@@ -3,7 +3,6 @@ package capability_test
 import (
 	"testing"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -35,7 +34,7 @@ func (suite *CapabilityTestSuite) SetupTest() {
 	keeper := keeper.NewKeeper(cdc, app.GetKey(types.StoreKey), app.GetMemKey(types.MemStoreKey))
 
 	suite.app = app
-	suite.ctx = app.BaseApp.NewContext(checkTx, tmproto.Header{Height: 1})
+	suite.ctx = app.BaseApp.NewContext(checkTx, sdk.Header{Height: 1})
 	suite.keeper = keeper
 	suite.cdc = cdc
 	suite.module = capability.NewAppModule(cdc, *keeper)
@@ -53,12 +52,12 @@ func (suite *CapabilityTestSuite) TestInitializeMemStore() {
 	suite.Require().NotNil(cap1)
 
 	// Mock App startup
-	ctx := suite.app.BaseApp.NewUncachedContext(false, tmproto.Header{})
+	ctx := suite.app.BaseApp.NewUncachedContext(false, sdk.Header{})
 	newKeeper.Seal()
 	suite.Require().False(newKeeper.IsInitialized(ctx), "memstore initialized flag set before BeginBlock")
 
 	// Mock app beginblock and ensure that no gas has been consumed and memstore is initialized
-	ctx = suite.app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx = suite.app.BaseApp.NewContext(false, sdk.Header{})
 	capability.BeginBlocker(ctx, *newKeeper)
 	suite.Require().True(newKeeper.IsInitialized(ctx), "memstore initialized flag not set")
 
@@ -69,7 +68,7 @@ func (suite *CapabilityTestSuite) TestInitializeMemStore() {
 	suite.Require().True(ok)
 
 	// Ensure that the second transaction can still receive capability even if first tx fails.
-	ctx = suite.app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx = suite.app.BaseApp.NewContext(false, sdk.Header{})
 
 	cap1, ok = newSk1.GetCapability(ctx, "transfer")
 	suite.Require().True(ok)

@@ -20,7 +20,7 @@ func TestNewHandler(t *testing.T) {
 
 	// Test unrecognized message type
 	testMsg := testdata.NewTestMsg()
-	_, err := handler(app.BaseApp.NewContext(false, tmproto.Header{}), testMsg)
+	_, err := handler(app.BaseApp.NewContext(false, sdk.Header{}), testMsg)
 	require.Error(t, err)
 
 	expectedErrMsg := fmt.Sprintf("unrecognized %s message type", types.ModuleName)

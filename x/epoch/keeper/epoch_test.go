@@ -12,7 +12,7 @@ import (
 
 func TestEpochKeeper(t *testing.T) {
 	app := app.Setup(t, false, false, false) // Your setup function here
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	// Define an epoch
 	currentTime := time.Now().UTC()

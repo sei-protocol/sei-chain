@@ -6,7 +6,6 @@ import (
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1043,7 +1042,7 @@ func TestApplyAndReturnValidatorSetUpdatesBondTransition(t *testing.T) {
 
 func TestUpdateValidatorCommission(t *testing.T) {
 	app, ctx, _, addrVals := bootstrapValidatorTest(t, 1000, 20)
-	ctx = ctx.WithBlockHeader(tmproto.Header{Time: time.Now().UTC()})
+	ctx = ctx.WithBlockHeader(sdk.Header{Time: time.Now().UTC()})
 
 	// Set MinCommissionRate to 0.05
 	params := app.StakingKeeper.GetParams(ctx)

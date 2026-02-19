@@ -4,7 +4,6 @@ import (
 	"math/big"
 	"testing"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -25,7 +24,7 @@ func init() {
 // to avoid messing with the hooks.
 func createTestInput(t *testing.T) (*codec.LegacyAmino, *seiapp.App, sdk.Context) {
 	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 	app.StakingKeeper = keeper.NewKeeper(
 		app.AppCodec(),

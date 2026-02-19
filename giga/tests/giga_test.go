@@ -91,7 +91,7 @@ func NewGigaTestContext(t testing.TB, testAccts []utils.TestAcct, blockTime time
 	}
 	testApp := wrapper.App
 	ctx := wrapper.Ctx
-	ctx = ctx.WithBlockHeader(tmproto.Header{
+	ctx = ctx.WithBlockHeader(sdk.Header{
 		Height:  ctx.BlockHeader().Height,
 		ChainID: ctx.BlockHeader().ChainID,
 		Time:    blockTime,

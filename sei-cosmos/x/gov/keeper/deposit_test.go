@@ -6,7 +6,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/x/gov/types"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -27,7 +26,7 @@ func TestDeposits(t *testing.T) {
 
 	for _, tc := range testcases {
 		app := seiapp.Setup(t, false, false, false)
-		ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+		ctx := app.BaseApp.NewContext(false, sdk.Header{})
 
 		// With expedited proposals the minimum deposit is higer, so we must
 		// initialize and deposit an amount depositMultiplier times larger

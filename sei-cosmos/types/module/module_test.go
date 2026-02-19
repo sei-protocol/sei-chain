@@ -5,8 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-
 	"github.com/cosmos/cosmos-sdk/codec/types"
 
 	"github.com/golang/mock/gomock"
@@ -256,5 +254,5 @@ func TestManager_MidBlock(t *testing.T) {
 
 	mockAppModule1.EXPECT().MidBlock(gomock.Any(), gomock.Eq(height)).Times(1)
 	mockAppModule2.EXPECT().MidBlock(gomock.Any(), gomock.Eq(height)).Times(1)
-	mm.MidBlock(sdk.NewContext(nil, tmproto.Header{}, false, nil), height)
+	mm.MidBlock(sdk.NewContext(nil, sdk.Header{}, false, nil), height)
 }
