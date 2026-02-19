@@ -145,11 +145,13 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 	}
 	laneQCs := map[types.LaneID]*types.LaneQC{}
 	var headers []*types.BlockHeader
+	var malBlocks []*types.Block
 	for _, lane := range committee.Lanes().All() {
 		bs := laneBlocks[lane]
 		laneQCs[lane] = TestLaneQC(badKeys, bs[len(bs)-1].Header())
 		for _, b := range bs {
 			headers = append(headers, b.Header())
+			malBlocks = append(malBlocks, b)
 		}
 	}
 	viewSpec := types.ViewSpec{CommitQC: utils.None[*types.CommitQC]()}
@@ -179,16 +181,23 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 	}
 	maliciousQC := types.NewFullCommitQC(types.NewCommitQC(votes), headers)
 
-	// Push the malicious QC. Whether it returns an error is an implementation
-	// detail — what matters is that the state is unchanged afterward.
-	_ = state.PushQC(ctx, maliciousQC, nil)
+	// Push the malicious QC with its blocks. Whether it returns an error is an
+	// implementation detail — what matters is that the state is unchanged afterward.
+	// Passing blocks (not nil) exercises the min(gr.Next, inner.nextQC) cap that
+	// prevents out-of-bounds access when the malicious range extends beyond stored QCs.
+	_ = state.PushQC(ctx, maliciousQC, malBlocks)
 
-	// Verify state was not corrupted: all previously pushed QCs are intact.
+	// Verify state was not corrupted: all previously pushed QCs and blocks are intact.
 	gr1 := qc1.QC().GlobalRange()
 	for n := gr1.First; n < gr1.Next; n++ {
 		got, err := state.QC(ctx, n)
 		require.NoError(t, err)
 		require.Equal(t, qc1, got)
+	}
+	for n := gr1.First; n < gr1.Next; n++ {
+		got, err := state.TryBlock(n)
+		require.NoError(t, err)
+		require.Equal(t, blocks1[n-gr1.First], got)
 	}
 
 	// Verify nextQC did not advance beyond the valid range.
@@ -204,6 +213,51 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 		got, err := state.QC(ctx, n)
 		require.NoError(t, err)
 		require.Equal(t, qc2, got)
+	}
+}
+
+func TestPushQCIgnoresBlocksMatchingUnverifiedHeaders(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+	state := NewState(&Config{
+		Committee: committee,
+	}, utils.None[BlockStore]())
+
+	// Push qc1 with NO blocks — only the QC is stored.
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
+	require.NoError(t, state.PushQC(ctx, qc1, nil))
+	gr := qc1.QC().GlobalRange()
+
+	// Build a tampered FullCommitQC: same CommitQC (same range) but with
+	// different block headers (different payloads → different hashes).
+	var fakeHeaders []*types.BlockHeader
+	var fakeBlocks []*types.Block
+	for _, orig := range qc1.Headers() {
+		fb := types.NewBlock(orig.Lane(), orig.BlockNumber(), orig.ParentHash(), types.GenPayload(rng))
+		fakeHeaders = append(fakeHeaders, fb.Header())
+		fakeBlocks = append(fakeBlocks, fb)
+	}
+	tamperedQC := types.NewFullCommitQC(qc1.QC(), fakeHeaders)
+
+	// Push the tampered QC with blocks that match the tampered headers.
+	// needQC is false (range already covered), so the tampered QC is not
+	// verified. Blocks must be matched against the stored QC's headers.
+	_ = state.PushQC(ctx, tamperedQC, fakeBlocks)
+
+	// Verify no fake blocks were inserted.
+	for n := gr.First; n < gr.Next; n++ {
+		_, err := state.TryBlock(n)
+		require.ErrorIs(t, err, ErrNotFound)
+	}
+
+	// Push the real blocks (matching qc1's headers) and verify they work.
+	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
+	for i, n := 0, gr.First; n < gr.Next; n++ {
+		got, err := state.TryBlock(n)
+		require.NoError(t, err)
+		require.Equal(t, blocks1[i], got)
+		i++
 	}
 }
 

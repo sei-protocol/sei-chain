@@ -154,11 +154,15 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 		if len(byHash) == 0 {
 			break
 		}
-		for n := max(inner.nextBlock, gr.First); n < gr.Next; n += 1 {
+		// Match blocks against stored (already verified) QC headers.
+		// Cap at inner.nextQC: we have no verified QC beyond that point.
+		for n := max(inner.nextBlock, gr.First); n < min(gr.Next, inner.nextQC); n += 1 {
 			if _, ok := inner.blocks[n]; ok {
 				continue
 			}
-			if b, ok := byHash[qc.Headers()[n-gr.First].Hash()]; ok {
+			storedQC := inner.qcs[n]
+			storedGR := storedQC.QC().GlobalRange()
+			if b, ok := byHash[storedQC.Headers()[n-storedGR.First].Hash()]; ok {
 				inner.blocks[n] = b
 			}
 		}
