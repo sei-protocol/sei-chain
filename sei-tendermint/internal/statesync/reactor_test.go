@@ -293,12 +293,16 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
+			snapshots := make([]*abci.Snapshot, len(tc.snapshots))
+			for i, s := range tc.snapshots {
+				snapshots[i] = utils.ProtoClone(s)
+			}
 
 			// mock ABCI connection to return local snapshots
 			conn := &clientmocks.Client{}
-			conn.On("ListSnapshots", mock.Anything, &abci.RequestListSnapshots{}).Return(utils.ProtoClone(&abci.ResponseListSnapshots{
-				Snapshots: tc.snapshots,
-			}), nil)
+			conn.On("ListSnapshots", mock.Anything, &abci.RequestListSnapshots{}).Return(&abci.ResponseListSnapshots{
+				Snapshots: snapshots,
+			}, nil)
 
 			rts := setup(t, conn, nil, false)
 			n := rts.AddPeer(t)
