@@ -1,7 +1,6 @@
 package client_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"

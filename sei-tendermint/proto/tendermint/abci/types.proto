@@ -80,32 +80,6 @@ message RequestPrepareProposal {
   CommitInfo local_last_commit_info = 19 [(gogoproto.nullable) = false]; // meant to replace the deprecated ExtendedCommitInfo local_last_commit
 }
 
-message RequestProcessProposal {
-  repeated bytes txs = 1;
-  CommitInfo proposed_last_commit = 2 [(gogoproto.nullable) = false];
-  repeated Misbehavior byzantine_validators = 3 [(gogoproto.nullable) = false];
-  // hash is the merkle root hash of the fields of the proposed block.
-  bytes hash = 4;
-  int64 height = 5;
-  google.protobuf.Timestamp time = 6 [
-    (gogoproto.nullable) = false,
-    (gogoproto.stdtime) = true
-  ];
-  bytes next_validators_hash = 7;
-  // address of the public key of the original proposer of the block.
-  bytes proposer_address = 8;
-  bytes app_hash = 10;
-  bytes validators_hash = 11;
-  bytes consensus_hash = 12;
-  bytes data_hash = 13;
-  bytes evidence_hash = 14;
-  bytes last_block_hash = 15;
-  int64 last_block_part_set_total = 16;
-  bytes last_block_part_set_hash = 17;
-  bytes last_commit_hash = 18;
-  bytes last_results_hash = 19;
-}
-
 message RequestBeginBlock {
   bytes hash = 1;
   tendermint.types.Header header = 2 [(gogoproto.nullable) = false];

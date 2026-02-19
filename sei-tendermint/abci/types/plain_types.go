@@ -77,6 +77,154 @@ const (
 	ResponseApplySnapshotChunk_REJECT_SNAPSHOT ResponseApplySnapshotChunk_Result = 5
 )
 
+// RequestProcessProposal is the plain Go replacement for the legacy protobuf message.
+type RequestProcessProposal struct {
+	Txs                   [][]byte
+	ProposedLastCommit    CommitInfo
+	ByzantineValidators   []Misbehavior
+	Hash                  []byte
+	Height                int64
+	Time                  time.Time
+	NextValidatorsHash    []byte
+	ProposerAddress       []byte
+	AppHash               []byte
+	ValidatorsHash        []byte
+	ConsensusHash         []byte
+	DataHash              []byte
+	EvidenceHash          []byte
+	LastBlockHash         []byte
+	LastBlockPartSetTotal int64
+	LastBlockPartSetHash  []byte
+	LastCommitHash        []byte
+	LastResultsHash       []byte
+}
+
+func (m *RequestProcessProposal) GetTxs() [][]byte {
+	if m == nil {
+		return nil
+	}
+	return m.Txs
+}
+
+func (m *RequestProcessProposal) GetProposedLastCommit() CommitInfo {
+	if m == nil {
+		return CommitInfo{}
+	}
+	return m.ProposedLastCommit
+}
+
+func (m *RequestProcessProposal) GetByzantineValidators() []Misbehavior {
+	if m == nil {
+		return nil
+	}
+	return m.ByzantineValidators
+}
+
+func (m *RequestProcessProposal) GetHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.Hash
+}
+
+func (m *RequestProcessProposal) GetHeight() int64 {
+	if m == nil {
+		return 0
+	}
+	return m.Height
+}
+
+func (m *RequestProcessProposal) GetTime() time.Time {
+	if m == nil {
+		return time.Time{}
+	}
+	return m.Time
+}
+
+func (m *RequestProcessProposal) GetNextValidatorsHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.NextValidatorsHash
+}
+
+func (m *RequestProcessProposal) GetProposerAddress() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.ProposerAddress
+}
+
+func (m *RequestProcessProposal) GetAppHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.AppHash
+}
+
+func (m *RequestProcessProposal) GetValidatorsHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.ValidatorsHash
+}
+
+func (m *RequestProcessProposal) GetConsensusHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.ConsensusHash
+}
+
+func (m *RequestProcessProposal) GetDataHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.DataHash
+}
+
+func (m *RequestProcessProposal) GetEvidenceHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.EvidenceHash
+}
+
+func (m *RequestProcessProposal) GetLastBlockHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.LastBlockHash
+}
+
+func (m *RequestProcessProposal) GetLastBlockPartSetTotal() int64 {
+	if m == nil {
+		return 0
+	}
+	return m.LastBlockPartSetTotal
+}
+
+func (m *RequestProcessProposal) GetLastBlockPartSetHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.LastBlockPartSetHash
+}
+
+func (m *RequestProcessProposal) GetLastCommitHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.LastCommitHash
+}
+
+func (m *RequestProcessProposal) GetLastResultsHash() []byte {
+	if m == nil {
+		return nil
+	}
+	return m.LastResultsHash
+}
+
 // RequestFinalizeBlock is the plain Go replacement for the legacy protobuf message.
 type RequestFinalizeBlock struct {
 	Txs                   [][]byte
