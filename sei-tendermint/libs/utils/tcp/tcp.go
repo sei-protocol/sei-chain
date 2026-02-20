@@ -69,7 +69,7 @@ func (c Conn) Flush(_ context.Context) error { return nil }
 func (c Conn) Close()                        { _ = c.conn.Close() }
 
 func (c Conn) Run(ctx context.Context) error {
-	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error {
 			for {
 				call, err := utils.Recv(ctx, c.writes)
@@ -104,7 +104,7 @@ func (c Conn) Run(ctx context.Context) error {
 		s.Cancel(ctx.Err())
 		_ = c.conn.Close()
 		return nil
-	}))
+	})
 }
 
 func (c Conn) LocalAddr() netip.AddrPort {
