@@ -56,22 +56,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Ensure base image and build binaries (parallel)
+      - name: Ensure base image
         run: |
           set -euo pipefail
-          # Start "ensure base image" in background (needed later for app image build)
-          (
-            if ! docker pull ${{ env.GHCR_BASE_IMAGE }}; then
-              echo "Base image not found; building and pushing..."
-              make build-docker-node-base
-              docker tag ${{ env.LOCALNODE_BASE_TAG }} ${{ env.GHCR_BASE_IMAGE }}
-              docker push ${{ env.GHCR_BASE_IMAGE }}
-            else
-              docker tag ${{ env.GHCR_BASE_IMAGE }} ${{ env.LOCALNODE_BASE_TAG }}
-            fi
-          ) &
-          ensure_pid=$!
-          # Build seid and price-feeder in container (same env as runtime; has libwasmvm)
+          if ! docker pull ${{ env.GHCR_BASE_IMAGE }}; then
+            echo "Base image not found; building and pushing..."
+            make build-docker-node-base
+            docker tag ${{ env.LOCALNODE_BASE_TAG }} ${{ env.GHCR_BASE_IMAGE }}
+            docker push ${{ env.GHCR_BASE_IMAGE }}
+          else
+            docker tag ${{ env.GHCR_BASE_IMAGE }} ${{ env.LOCALNODE_BASE_TAG }}
+          fi
+
+      - name: Build seid and price-feeder in container
+        run: |
+          set -euo pipefail
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/sei-protocol/sei-chain:Z" \
             -v "$(go env GOCACHE):/root/.cache/go-build:Z" \
@@ -82,8 +81,6 @@ jobs:
               export PATH="/usr/local/go/bin:$PATH"
               cd /sei-protocol/sei-chain && make clean && (make build-linux & make build-price-feeder-linux & wait) && mkdir -p build/generated && echo DONE > build/generated/build.complete
             '
-          # Wait for base image to be ready before building app image
-          wait $ensure_pid
 
       - name: Build app image with prebuilt binary and push
         env:
