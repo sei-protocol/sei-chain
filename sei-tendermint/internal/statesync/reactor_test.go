@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	dbm "github.com/tendermint/tm-db"
 
-	clientmocks "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client/mocks"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
@@ -37,7 +36,7 @@ type reactorTestSuite struct {
 	node    *p2p.TestNode
 	reactor *Reactor
 
-	conn          *clientmocks.Client
+	conn          abci.Application
 	stateProvider *mocks.StateProvider
 
 	stateStore *smmocks.Store
@@ -46,7 +45,7 @@ type reactorTestSuite struct {
 
 func setup(
 	t *testing.T,
-	conn *clientmocks.Client,
+	conn abci.Application,
 	stateProvider *mocks.StateProvider,
 	setSyncer bool,
 ) *reactorTestSuite {
