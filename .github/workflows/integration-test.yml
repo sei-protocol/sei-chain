@@ -287,7 +287,12 @@ jobs:
             fi
             if [ "$i" -eq 60 ]; then
               echo "RPC or first block did not become ready in time (last height: ${height:-none})."
+              echo "--- Diagnostic: containers ---"
+              docker ps -a --filter "name=sei-node" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
+              echo "--- Diagnostic: sei-node-0 seid status ---"
               docker exec sei-node-0 /sei-protocol/sei-chain/build/seid status || true
+              echo "--- Diagnostic: tail of sei-node-0 seid log ---"
+              if [ -f "build/generated/logs/seid-0.log" ]; then tail -80 "build/generated/logs/seid-0.log"; else echo "No seid-0.log found"; fi
               exit 1
             fi
             echo "  attempt $i/60 (height=${height:-?})..."
