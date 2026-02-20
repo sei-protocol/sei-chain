@@ -407,3 +407,56 @@ func TestLoadVersionWithTarget(t *testing.T) {
 	require.Equal(t, int64(3), s2.Version())
 	require.Equal(t, hashAtV3, s2.RootHash())
 }
+
+// TestSnapshotBaselineRemainsStableAfterLaterCommits verifies that commits made
+// after a snapshot do not mutate that snapshot's view. This validates the
+// "checkpoint (hardlink SSTs) + replay" model: later writes should produce new
+// LSM files rather than in-place modifying snapshot baselines.
+func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
+	dir := t.TempDir()
+
+	addr := Address{0x7A}
+	slot := Slot{0x7B}
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+
+	// Phase 1: build baseline at v2 and snapshot it.
+	s1 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s1.LoadVersion(0)
+	require.NoError(t, err)
+
+	commitStorageEntry(t, s1, addr, slot, []byte{0x01})                // v1
+	commitStorageEntry(t, s1, Address{0x7A}, Slot{0x7C}, []byte{0xAA}) // v2
+	require.NoError(t, s1.WriteSnapshot(""))
+
+	// Record baseline value at v2 for the same key.
+	vAtV2, ok := s1.Get(key)
+	require.True(t, ok)
+	require.Equal(t, []byte{0x01}, vAtV2)
+
+	// Phase 2: advance state beyond the snapshot (v3..v4).
+	commitStorageEntry(t, s1, addr, slot, []byte{0x03}) // v3
+	commitStorageEntry(t, s1, addr, slot, []byte{0x04}) // v4
+	require.Equal(t, int64(4), s1.Version())
+	require.NoError(t, s1.Close())
+
+	// Phase 3: reopen exactly at v2. If later commits had mutated the snapshot
+	// baseline in place, we'd incorrectly read 0x04 here.
+	s2 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err = s2.LoadVersion(2)
+	require.NoError(t, err)
+	gotV2, ok := s2.Get(key)
+	require.True(t, ok)
+	require.Equal(t, []byte{0x01}, gotV2, "snapshot baseline should remain stable")
+	require.NoError(t, s2.Close())
+
+	// Phase 4: reopen latest again to ensure catchup/replay still reaches v4.
+	s3 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err = s3.LoadVersion(0)
+	require.NoError(t, err)
+	defer s3.Close()
+
+	require.Equal(t, int64(4), s3.Version())
+	gotLatest, ok := s3.Get(key)
+	require.True(t, ok)
+	require.Equal(t, []byte{0x04}, gotLatest)
+}

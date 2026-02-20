@@ -25,8 +25,10 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	var codePairs []lthash.KVPairWithLastValue
 	// Account pairs are collected at the end after all account changes are processed
 
-	// Track which accounts were modified (for LtHash computation)
-	modifiedAccounts := make(map[string]bool)
+	// Capture pre-modification AccountValue for each address touched in this call.
+	// Uses getAccountValue (cache-aware) so that across multiple ApplyChangeSets
+	// calls before Commit, the LtHash delta uses the correct "last" value.
+	oldAccountValues := make(map[string]AccountValue)
 
 	for _, namedCS := range cs {
 		if namedCS.Changeset.Pairs == nil {
@@ -80,9 +82,13 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 				}
 				addrStr := string(addr[:])
 
-				// Track this account as modified for LtHash
-				modifiedAccounts[addrStr] = true
-				// Get or create pending account write
+				if _, seen := oldAccountValues[addrStr]; !seen {
+					oldVal, err := s.getAccountValue(addr)
+					if err != nil {
+						return fmt.Errorf("failed to capture old account value: %w", err)
+					}
+					oldAccountValues[addrStr] = oldVal
+				}
 				paw := s.accountWrites[addrStr]
 				if paw == nil {
 					// Load existing value from DB
@@ -153,19 +159,13 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 		}
 	}
 
-	// Build account LtHash pairs based on full AccountValue changes
-	accountPairs := make([]lthash.KVPairWithLastValue, 0, len(modifiedAccounts))
-	for addrStr := range modifiedAccounts {
+	accountPairs := make([]lthash.KVPairWithLastValue, 0, len(oldAccountValues))
+	for addrStr, oldAV := range oldAccountValues {
 		addr, ok := AddressFromBytes([]byte(addrStr))
 		if !ok {
-			return fmt.Errorf("invalid address in modifiedAccounts: %x", addrStr)
+			return fmt.Errorf("invalid address in oldAccountValues: %x", addrStr)
 		}
 
-		// Get old AccountValue from DB (committed state)
-		oldAV, err := s.getAccountValueFromDB(addr)
-		if err != nil {
-			return fmt.Errorf("failed to get old account value for addr %x: %w", addr, err)
-		}
 		oldValue := oldAV.Encode()
 
 		// Get new AccountValue (from pending writes or DB)
@@ -206,7 +206,9 @@ func (s *CommitStore) Commit() (int64, error) {
 	// Auto-increment version
 	version := s.committedVersion + 1
 
-	// Step 1: Write Changelog (WAL) - source of truth (always sync)
+	// Step 1: Write Changelog (WAL) - source of truth for crash recovery.
+	// NOTE: the underlying WAL uses NoSync (no fsync); writes are blocking
+	// but not durable until the OS flushes its buffer cache.
 	changelogEntry := proto.ChangelogEntry{
 		Version:    version,
 		Changesets: s.pendingChangeSets,

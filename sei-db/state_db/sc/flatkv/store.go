@@ -171,6 +171,8 @@ func (s *CommitStore) openTo(catchupTarget int64) error {
 //
 // On failure, all already-opened resources are closed via deferred cleanup.
 func (s *CommitStore) open() (retErr error) {
+	s.clearPendingWrites()
+
 	dir := filepath.Join(s.homeDir, "flatkv")
 
 	if err := os.MkdirAll(dir, 0750); err != nil {
