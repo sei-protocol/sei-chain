@@ -45,3 +45,7 @@ ignore:
   # Project-specific exclusions
   - "precompiles/**/legacy/**/*"
   - "**/cli/**/*"
+
+flags:
+  sei-chain:
+    carryforward: true
