@@ -8,9 +8,12 @@ export GOPATH=$HOME/go
 export GOBIN=$GOPATH/bin
 export BUILD_PATH=/sei-protocol/sei-chain/build
 export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH
+# GIGA executor loads evmone .so from repo; path must be valid at runtime (e.g. container mount)
+export GIGA_EVMONE_LIB_DIR="/sei-protocol/sei-chain/giga/executor/lib"
 echo "export GOPATH=$HOME/go" >> "$HOME/.bashrc"
 echo "GOBIN=$GOPATH/bin" >> "$HOME/.bashrc"
 echo "export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH:$HOME/.foundry/bin" >> "$HOME/.bashrc"
+echo "export GIGA_EVMONE_LIB_DIR=\"/sei-protocol/sei-chain/giga/executor/lib\"" >> "$HOME/.bashrc"
 rm -rf build/generated
 /bin/bash -c "source $HOME/.bashrc"
 mkdir -p $GOBIN

@@ -6,6 +6,8 @@ FROM ghcr.io/${GHCR_ORG}/sei-chain-localnode-base:go1.25.6
 ENV PATH="/root/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
 # Prebuilt seid loads libwasmvm*.so from image (no mount required)
 ENV LD_LIBRARY_PATH="/opt/sei-wasmvm/lib"
+# GIGA executor loads evmone .so from repo mount at runtime
+ENV GIGA_EVMONE_LIB_DIR="/sei-protocol/sei-chain/giga/executor/lib"
 SHELL ["/bin/bash", "-c"]
 WORKDIR /sei-protocol/sei-chain
 EXPOSE 26656 26657 26658 9090 9091 7171
