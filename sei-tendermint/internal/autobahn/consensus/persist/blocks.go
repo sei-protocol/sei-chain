@@ -6,6 +6,7 @@
 package persist
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"maps"
@@ -31,7 +32,19 @@ type LoadedBlock struct {
 // Each block is stored as <lane_hex>_<blocknum>.pb.
 type BlockPersister struct {
 	dir string // full path to the blocks/ subdirectory
+	ch  chan persistJob
 }
+
+type persistJob struct {
+	lane     types.LaneID
+	number   types.BlockNumber
+	proposal *types.Signed[*types.LaneProposal]
+}
+
+// persistQueueSize is the buffer for async block persistence. With 40 validators,
+// a 1/3 Byzantine burst produces up to ~13 lanes × 30 blocks = 390 blocks at once.
+// 512 covers that with margin.
+const persistQueueSize = 512
 
 // NewBlockPersister creates the blocks/ subdirectory if it doesn't exist and
 // returns a block persister. Loads all persisted blocks from disk as sorted,
@@ -43,7 +56,7 @@ func NewBlockPersister(stateDir string) (*BlockPersister, map[types.LaneID][]Loa
 		return nil, nil, fmt.Errorf("create blocks dir %s: %w", dir, err)
 	}
 
-	bp := &BlockPersister{dir: dir}
+	bp := &BlockPersister{dir: dir, ch: make(chan persistJob, persistQueueSize)}
 	blocks, err := bp.loadAll()
 	if err != nil {
 		return nil, nil, err
@@ -114,6 +127,35 @@ func (bp *BlockPersister) DeleteBefore(laneFirsts map[types.LaneID]types.BlockNu
 		path := filepath.Join(bp.dir, entry.Name())
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			log.Warn().Err(err).Str("path", path).Msg("failed to delete block file")
+		}
+	}
+}
+
+// Queue enqueues a block for async persistence. Blocks if the queue is full
+// until space is available or ctx is cancelled. We must not drop blocks because
+// the blockPersisted cursor advances sequentially — a hole would permanently
+// stall voting on the affected lane.
+func (bp *BlockPersister) Queue(ctx context.Context, lane types.LaneID, n types.BlockNumber, proposal *types.Signed[*types.LaneProposal]) error {
+	select {
+	case bp.ch <- persistJob{lane: lane, number: n, proposal: proposal}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Run drains the internal queue, fsyncs each block to disk, and calls
+// onPersisted after each successful write. Blocks until ctx is cancelled.
+func (bp *BlockPersister) Run(ctx context.Context, onPersisted func(types.LaneID, types.BlockNumber)) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case job := <-bp.ch:
+			if err := bp.PersistBlock(job.lane, job.number, job.proposal); err != nil {
+				return fmt.Errorf("persist block %s/%d: %w", job.lane, job.number, err)
+			}
+			onPersisted(job.lane, job.number)
 		}
 	}
 }

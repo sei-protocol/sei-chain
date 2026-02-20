@@ -45,15 +45,6 @@ type State struct {
 	persister utils.Option[persist.Persister]
 	// blockPersist writes/deletes individual block files; nil when persistence is disabled.
 	blockPersist *persist.BlockPersister
-	// persistCh carries blocks to the background writer for async fsync.
-	// nil when persistence is disabled (testing).
-	persistCh chan persistJob
-}
-
-type persistJob struct {
-	lane     types.LaneID
-	number   types.BlockNumber
-	proposal *types.Signed[*types.LaneProposal]
 }
 
 // innerFile is the A/B file prefix for avail inner state persistence.
@@ -104,18 +95,12 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		p = utils.Some(persister)
 	}
 
-	var persistCh chan persistJob
-	if bp != nil {
-		persistCh = make(chan persistJob, BlocksPerLane)
-	}
-
 	return &State{
 		key:          key,
 		data:         data,
 		inner:        utils.NewWatch(newInner(data.Committee(), loaded)),
 		persister:    p,
 		blockPersist: bp,
-		persistCh:    persistCh,
 	}, nil
 }
 
@@ -401,12 +386,10 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		q.pushBack(p)
 		ctrl.Updated()
 	}
-	if s.persistCh != nil {
-		select {
-		case s.persistCh <- persistJob{lane: h.Lane(), number: h.BlockNumber(), proposal: p}:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+	if s.blockPersist != nil {
+		// Blocking: called outside the inner lock so only this goroutine stalls.
+		// See Queue() for why we must not drop blocks.
+		return utils.IgnoreAfterCancel(ctx, s.blockPersist.Queue(ctx, h.Lane(), h.BlockNumber(), p))
 	}
 	return nil
 }
@@ -566,11 +549,11 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 		q.next += 1
 		ctrl.Updated()
 	}
-	if s.persistCh != nil {
-		select {
-		case s.persistCh <- persistJob{lane: lane, number: blockNum, proposal: result}:
-		case <-ctx.Done():
-			return nil, ctx.Err()
+	if s.blockPersist != nil {
+		// Blocking: called outside the inner lock so only this goroutine stalls.
+		// See Queue() for why we must not drop blocks.
+		if err := utils.IgnoreAfterCancel(ctx, s.blockPersist.Queue(ctx, lane, blockNum, result)); err != nil {
+			return nil, err
 		}
 	}
 	return result, nil
@@ -579,9 +562,16 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 // Run runs the background tasks of the state.
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		if s.persistCh != nil {
+		if s.blockPersist != nil {
 			scope.SpawnNamed("blockPersistWriter", func() error {
-				return s.runBlockPersistWriter(ctx)
+				return s.blockPersist.Run(ctx, func(lane types.LaneID, n types.BlockNumber) {
+					for inner, ctrl := range s.inner.Lock() {
+						if inner.blockPersisted[lane] == n {
+							inner.blockPersisted[lane] = n + 1
+						}
+						ctrl.Updated()
+					}
+				})
 			})
 		}
 		// Task inserting FullCommitQCs and local blocks to data state.
@@ -618,25 +608,4 @@ func (s *State) Run(ctx context.Context) error {
 		})
 		return nil
 	})
-}
-
-// runBlockPersistWriter drains persistCh and fsyncs each block to disk,
-// then advances the per-lane blockPersisted cursor under the inner lock.
-func (s *State) runBlockPersistWriter(ctx context.Context) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case job := <-s.persistCh:
-			if err := s.blockPersist.PersistBlock(job.lane, job.number, job.proposal); err != nil {
-				return fmt.Errorf("persist block %s/%d: %w", job.lane, job.number, err)
-			}
-			for inner, ctrl := range s.inner.Lock() {
-				if inner.blockPersisted[job.lane] == job.number {
-					inner.blockPersisted[job.lane] = job.number + 1
-				}
-				ctrl.Updated()
-			}
-		}
-	}
 }
