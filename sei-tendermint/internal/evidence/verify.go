@@ -154,6 +154,7 @@ func (evpool *Pool) verify(ctx context.Context, evidence types.Evidence) error {
 //     the conflicting header's commit
 //   - 2/3+ of the conflicting validator set correctly signed the conflicting block
 //   - the nodes trusted header at the same height as the conflicting header has a different hash
+//   - all signatures must be checked as this will be used as evidence
 //
 // CONTRACT: must run ValidateBasic() on the evidence before verifying
 //
@@ -163,7 +164,7 @@ func VerifyLightClientAttack(e *types.LightClientAttackEvidence, commonHeader, t
 	// In the case of lunatic attack there will be a different commonHeader height. Therefore the node perform a single
 	// verification jump between the common header and the conflicting one
 	if commonHeader.Height != e.ConflictingBlock.Height {
-		err := commonVals.VerifyCommitLightTrusting(trustedHeader.ChainID, e.ConflictingBlock.Commit, light.DefaultTrustLevel)
+		err := commonVals.VerifyCommitLightTrustingAllSignatures(trustedHeader.ChainID, e.ConflictingBlock.Commit, light.DefaultTrustLevel)
 		if err != nil {
 			return fmt.Errorf("skipping verification of conflicting block failed: %w", err)
 		}
@@ -175,7 +176,7 @@ func VerifyLightClientAttack(e *types.LightClientAttackEvidence, commonHeader, t
 	}
 
 	// Verify that the 2/3+ commits from the conflicting validator set were for the conflicting header
-	if err := e.ConflictingBlock.ValidatorSet.VerifyCommitLight(trustedHeader.ChainID, e.ConflictingBlock.Commit.BlockID,
+	if err := e.ConflictingBlock.ValidatorSet.VerifyCommitLightAllSignatures(trustedHeader.ChainID, e.ConflictingBlock.Commit.BlockID,
 		e.ConflictingBlock.Height, e.ConflictingBlock.Commit); err != nil {
 		return fmt.Errorf("invalid commit from conflicting block: %w", err)
 	}

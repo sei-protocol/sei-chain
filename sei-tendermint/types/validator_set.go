@@ -694,15 +694,31 @@ func (vals *ValidatorSet) VerifyCommit(chainID string, blockID BlockID,
 // LIGHT CLIENT VERIFICATION METHODS
 
 // VerifyCommitLight verifies +2/3 of the set had signed the given commit.
+// It does NOT count all signatures.
 func (vals *ValidatorSet) VerifyCommitLight(chainID string, blockID BlockID,
 	height int64, commit *Commit) error {
 	return VerifyCommitLight(chainID, vals, blockID, height, commit)
 }
 
+// VerifyCommitLightAllSignatures verifies +2/3 of the set had signed the given commit.
+// It DOES count all signatures.
+func (vals *ValidatorSet) VerifyCommitLightAllSignatures(chainID string, blockID BlockID,
+	height int64, commit *Commit) error {
+	return VerifyCommitLightAllSignatures(chainID, vals, blockID, height, commit)
+}
+
 // VerifyCommitLightTrusting verifies that trustLevel of the validator set signed
 // this commit.
+// It does NOT count all signatures.
 func (vals *ValidatorSet) VerifyCommitLightTrusting(chainID string, commit *Commit, trustLevel tmmath.Fraction) error {
 	return VerifyCommitLightTrusting(chainID, vals, commit, trustLevel)
+}
+
+// VerifyCommitLightTrustingAllSignatures verifies that trustLevel of the validator set signed
+// this commit.
+// It DOES count all signatures.
+func (vals *ValidatorSet) VerifyCommitLightTrustingAllSignatures(chainID string, commit *Commit, trustLevel tmmath.Fraction) error {
+	return VerifyCommitLightTrustingAllSignatures(chainID, vals, commit, trustLevel)
 }
 
 // findPreviousProposer reverses the compare proposer priority function to find the validator
