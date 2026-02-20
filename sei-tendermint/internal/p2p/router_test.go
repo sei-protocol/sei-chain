@@ -312,7 +312,7 @@ func TestRouter_FilterByIP(t *testing.T) {
 			if err != nil {
 				return fmt.Errorf("peerTransport.dial(): %w", err)
 			}
-			s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+			s.SpawnBg(func() error { return utils.IgnoreCancel(tcpConn.Run(ctx)) })
 			if _, _, err := r2.handshakeV2(ctx, tcpConn, utils.Some(addr)); err != nil {
 				return fmt.Errorf("handshake(): %w", err)
 			}
@@ -347,8 +347,6 @@ func TestRouter_FilterByIP(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-
-func ignore(error) error { return nil }
 
 func blindHandshake(ctx context.Context, c tcp.Conn, key NodeSecretKey, info types.NodeInfo) error {
 	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -413,7 +411,7 @@ func TestRouter_AcceptPeers(t *testing.T) {
 				s.SpawnBg(func() error { return blindHandshake(ctx, tcpConn, tc.key, tc.info) })
 				if tc.ok {
 					t.Logf("Expect successful connect.")
-					s.SpawnBg(func() error { return ignore(tcpConn.Run(ctx)) })
+					s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, tcpConn.Run(ctx)) })
 					RequireUpdate(t, sub, PeerUpdate{
 						NodeID: tc.info.NodeID,
 						Status: PeerStatusUp,
@@ -459,7 +457,7 @@ func TestRouter_AcceptPeers_Parallel(t *testing.T) {
 			if err != nil {
 				return fmt.Errorf("x.dial(): %w", err)
 			}
-			s.SpawnBg(func() error { return conn.Run(ctx) })
+			s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, conn.Run(ctx)) })
 			conns = append(conns, conn)
 		}
 		t.Logf("Handshake the connections in reverse order.")
@@ -516,7 +514,7 @@ func TestRouter_dialPeer_Retry(t *testing.T) {
 		if err != nil {
 			return fmt.Errorf("peerTransport.dial(): %w", err)
 		}
-		s.SpawnBg(func() error { return conn.Run(ctx) })
+		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, conn.Run(ctx)) })
 		if _, _, err := x.handshakeV2(ctx, conn, utils.None[NodeAddress]()); err != nil {
 			return fmt.Errorf("handshake(): %w", err)
 		}
@@ -616,7 +614,7 @@ func TestRouter_dialPeers_Parallel(t *testing.T) {
 			if err != nil {
 				return fmt.Errorf("listener.AcceptOrClose(): %w", err)
 			}
-			s.SpawnBg(func() error { return conn.Run(ctx) })
+			s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, conn.Run(ctx)) })
 			conns = append(conns, conn)
 			peers = append(peers, peer)
 		}
@@ -711,7 +709,7 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 		if err != nil {
 			return fmt.Errorf("dial(): %w", err)
 		}
-		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, tcpConn.Run(ctx)) })
 		hConn, info, err := x.handshakeV2(ctx, tcpConn, utils.Some(addr))
 		if err != nil {
 			return fmt.Errorf("handshake(): %w", err)
