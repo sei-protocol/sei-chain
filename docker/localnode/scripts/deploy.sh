@@ -8,9 +8,12 @@ export GOPATH=$HOME/go
 export GOBIN=$GOPATH/bin
 export BUILD_PATH=/sei-protocol/sei-chain/build
 export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH
+# So prebuilt seid (built on runner) finds libwasmvm.x86_64.so in mounted repo at runtime
+export LD_LIBRARY_PATH="/sei-protocol/sei-chain/sei-wasmvm/internal/api${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 echo "export GOPATH=$HOME/go" >> "$HOME/.bashrc"
 echo "GOBIN=$GOPATH/bin" >> "$HOME/.bashrc"
 echo "export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH:$HOME/.foundry/bin" >> "$HOME/.bashrc"
+echo "export LD_LIBRARY_PATH=\"/sei-protocol/sei-chain/sei-wasmvm/internal/api:\$LD_LIBRARY_PATH\"" >> "$HOME/.bashrc"
 rm -rf build/generated
 /bin/bash -c "source $HOME/.bashrc"
 mkdir -p $GOBIN

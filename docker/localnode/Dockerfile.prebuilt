@@ -4,6 +4,8 @@
 ARG GHCR_ORG=sei-protocol
 FROM ghcr.io/${GHCR_ORG}/sei-chain-localnode-base:go1.25.6
 ENV PATH="/root/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
+# Prebuilt seid (built on runner) loads libwasmvm.x86_64.so from mounted repo at runtime
+ENV LD_LIBRARY_PATH="/sei-protocol/sei-chain/sei-wasmvm/internal/api"
 SHELL ["/bin/bash", "-c"]
 WORKDIR /sei-protocol/sei-chain
 EXPOSE 26656 26657 26658 9090 9091 7171

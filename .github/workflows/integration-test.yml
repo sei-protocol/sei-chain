@@ -56,31 +56,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Ensure base image
+      - name: Ensure base image and build binaries (parallel)
         run: |
           set -euo pipefail
-          if ! docker pull ${{ env.GHCR_BASE_IMAGE }}; then
-            echo "Base image not found; building and pushing..."
-            make build-docker-node-base
-            docker tag ${{ env.LOCALNODE_BASE_TAG }} ${{ env.GHCR_BASE_IMAGE }}
-            docker push ${{ env.GHCR_BASE_IMAGE }}
-          else
-            docker tag ${{ env.GHCR_BASE_IMAGE }} ${{ env.LOCALNODE_BASE_TAG }}
-          fi
-
-      - name: Build seid and price-feeder in container
-        run: |
-          set -euo pipefail
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/sei-protocol/sei-chain:Z" \
-            -v "$(go env GOCACHE):/root/.cache/go-build:Z" \
-            -v "$(go env GOPATH)/pkg/mod:/root/go/pkg/mod:Z" \
-            ${{ env.LOCALNODE_BASE_TAG }} \
-            bash -c '
-              git config --global --add safe.directory /sei-protocol/sei-chain
-              export PATH="/usr/local/go/bin:$PATH"
-              cd /sei-protocol/sei-chain && make clean && (make build-linux & make build-price-feeder-linux & wait) && mkdir -p build/generated && echo DONE > build/generated/build.complete
-            '
+          # Base image needed only for app image build; build on runner needs no Docker
+          (
+            if ! docker pull ${{ env.GHCR_BASE_IMAGE }}; then
+              echo "Base image not found; building and pushing..."
+              make build-docker-node-base
+              docker tag ${{ env.LOCALNODE_BASE_TAG }} ${{ env.GHCR_BASE_IMAGE }}
+              docker push ${{ env.GHCR_BASE_IMAGE }}
+            else
+              docker tag ${{ env.GHCR_BASE_IMAGE }} ${{ env.LOCALNODE_BASE_TAG }}
+            fi
+          ) &
+          ensure_pid=$!
+          make clean
+          make build-linux &
+          pid_build=$!
+          make build-price-feeder-linux &
+          pid_feeder=$!
+          wait $pid_build
+          wait $pid_feeder
+          mkdir -p build/generated && echo DONE > build/generated/build.complete
+          wait $ensure_pid
 
       - name: Build app image with prebuilt binary and push
         env:
