@@ -70,7 +70,7 @@ func (e *testEnv) AddNode(key types.SecretKey) *testNode {
 }
 
 func (e *testEnv) Run(ctx context.Context) error {
-	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	return utils.IgnoreAfterCancel(ctx, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for _, x := range e.nodes {
 			s.SpawnNamed("node", func() error { return x.Run(ctx) })
 			for _, y := range e.nodes {
@@ -84,12 +84,7 @@ func (e *testEnv) Run(ctx context.Context) error {
 			}
 		}
 		return nil
-	})
-	if ctx.Err() != nil {
-		// Ignore failures after env termination.
-		return nil
-	}
-	return err
+	}))
 }
 
 func TestDataClientServer(t *testing.T) {
