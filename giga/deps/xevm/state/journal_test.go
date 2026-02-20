@@ -63,11 +63,11 @@ func TestTransientStorageChangeRevert_Delete(t *testing.T) {
 	db := &DBImpl{tempState: NewTemporaryState()}
 	addr := common.Address{4}
 	key := common.Hash{5}
-	states := map[string]common.Hash{key.Hex(): {6}}
-	db.tempState.transientStates[addr.Hex()] = states
+	states := map[common.Hash]common.Hash{key: {6}}
+	db.tempState.transientStates[addr] = states
 	change := &transientStorageChange{account: addr, key: key, prevalue: common.Hash{}}
 	change.revert(db)
-	_, ok := db.tempState.transientStates[addr.Hex()]
+	_, ok := db.tempState.transientStates[addr]
 	require.False(t, ok)
 }
 
@@ -75,12 +75,12 @@ func TestTransientStorageChangeRevert_Update(t *testing.T) {
 	db := &DBImpl{tempState: NewTemporaryState()}
 	addr := common.Address{7}
 	key := common.Hash{8}
-	states := map[string]common.Hash{}
-	db.tempState.transientStates[addr.Hex()] = states
+	states := map[common.Hash]common.Hash{}
+	db.tempState.transientStates[addr] = states
 	prevalue := common.Hash{9}
 	change := &transientStorageChange{account: addr, key: key, prevalue: prevalue}
 	change.revert(db)
-	require.Equal(t, prevalue, db.tempState.transientStates[addr.Hex()][key.Hex()])
+	require.Equal(t, prevalue, db.tempState.transientStates[addr][key])
 }
 
 func TestWatermarkRevert(t *testing.T) {
@@ -92,10 +92,10 @@ func TestWatermarkRevert(t *testing.T) {
 func TestAccountStatusChangeRevert_Delete(t *testing.T) {
 	db := &DBImpl{tempState: NewTemporaryState()}
 	addr := common.Address{10}
-	db.tempState.transientAccounts[addr.Hex()] = []byte{1, 2, 3}
+	db.tempState.transientAccounts[addr] = []byte{1, 2, 3}
 	change := &accountStatusChange{account: addr, prev: nil}
 	change.revert(db)
-	_, ok := db.tempState.transientAccounts[addr.Hex()]
+	_, ok := db.tempState.transientAccounts[addr]
 	require.False(t, ok)
 }
 
@@ -105,5 +105,5 @@ func TestAccountStatusChangeRevert_Update(t *testing.T) {
 	prev := []byte{4, 5, 6}
 	change := &accountStatusChange{account: addr, prev: prev}
 	change.revert(db)
-	require.Equal(t, prev, db.tempState.transientAccounts[addr.Hex()])
+	require.Equal(t, prev, db.tempState.transientAccounts[addr])
 }
