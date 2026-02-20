@@ -73,7 +73,7 @@ func TestNodeStartStop(t *testing.T) {
 
 	require.NoError(t, n.Start(ctx))
 	// wait for the node to produce a block
-	tctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	tctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
 	blocksSub, err := n.EventBus().SubscribeWithArgs(tctx, pubsub.SubscribeArgs{

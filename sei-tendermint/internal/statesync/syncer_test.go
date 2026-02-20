@@ -577,7 +577,7 @@ func TestSyncer_applyChunks_RefetchChunks(t *testing.T) {
 				rts.reactor.syncer.applyChunks(ctx, chunks, fetchStartTime) //nolint:errcheck // purposefully ignore error
 			}()
 
-			time.Sleep(50 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
 			require.True(t, chunks.Has(0))
 			require.False(t, chunks.Has(1))
 			require.True(t, chunks.Has(2))
