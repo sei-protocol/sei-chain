@@ -48,6 +48,17 @@ var cmpOpts = []cmp.Option{
 	cmp.Comparer(cmpComparer[big.Int]),
 }
 
+func OrPanic(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+func OrPanic1[T any](v T, err error) T {
+	OrPanic(err)
+	return v
+}
+
 // TestDiff generates a human-readable diff between two objects.
 func TestDiff[T any](want, got T) error {
 	if diff := cmp.Diff(want, got, cmpOpts...); diff != "" {
@@ -74,6 +85,13 @@ func (rng Rng) Read(p []byte) (int, error) {
 func (rng Rng) Int63() int64 {
 	for inner := range rng.inner.Lock() {
 		return inner.Int63()
+	}
+	panic("unreachable")
+}
+
+func (rng Rng) Uint64() uint64 {
+	for inner := range rng.inner.Lock() {
+		return inner.Uint64()
 	}
 	panic("unreachable")
 }
@@ -105,7 +123,8 @@ func (rng Rng) Shuffle(n int, swap func(i, j int)) {
 	}
 }
 
-// TestRngSplit returns a new random number splitted from the given one.
+// Split returns a new random number splitted from the given one.
+// It should be used to provide deterministic rngs to independent goroutines.
 // This is a very primitive splitting, known to result with dependent randomness.
 // If that ever causes a problem, we can switch to SplitMix.
 func (rng Rng) Split() Rng {
