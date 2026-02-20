@@ -721,7 +721,7 @@ func New(
 		if gigaExecutorConfig.OCCEnabled {
 			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")
 		} else {
-			logger.Info("benchmark: Giga Executor (evmone-based) is ENABLED - using new EVM execution path (sequential)")
+			logger.Info("benchmark: Giga Executor is ENABLED - using new EVM execution path (sequential)")
 		}
 	} else {
 		logger.Info("benchmark: Giga Executor is DISABLED - using default GETH interpreter")
@@ -1368,22 +1368,22 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 	return txResults
 }
 
-func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
+// ProcessTxsSynchronousGiga executes transactions synchronously using the Giga executor.
+// Returns (results, true) on success, or (nil, false) if fallback to v2 is needed.
+// The caller is responsible for handling fallback. On ok=false, no changes are committed.
+func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, bool) {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
 
 	ms := ctx.MultiStore().CacheMultiStore()
-	defer ms.Write()
 	ctx = ctx.WithMultiStore(ms)
 	txResults := make([]*abci.ExecTxResult, len(txs))
-	for i, tx := range txs {
+	for i := range txs {
 		ctx = ctx.WithTxIndex(absoluteTxIndices[i])
 		evmMsg := app.GetEVMMsg(typedTxs[i])
-		// If not an EVM tx, fall back to v2 processing
+		// If not an EVM tx, we need to fallback to v2 processing for the entire batch
 		if evmMsg == nil {
-			result := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
-			txResults[i] = result
-			ms.Write()
-			continue
+			// Return false - caller handles fallback. Cache is not written, so changes are discarded.
+			return nil, false
 		}
 
 		// Execute EVM transaction through giga executor
@@ -1391,10 +1391,8 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		if execErr != nil {
 			// Check if this is a fail-fast error (Cosmos precompile interop detected)
 			if gigautils.ShouldExecutionAbort(execErr) {
-				res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
-				txResults[i] = res
-				ms.Write()
-				continue
+				// Return false - caller handles fallback. Cache is not written, so changes are discarded.
+				return nil, false
 			}
 			txResults[i] = &abci.ExecTxResult{
 				Code: 1,
@@ -1408,7 +1406,9 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
 
-	return txResults
+	// Commit all changes only on success
+	ms.Write()
+	return txResults, true
 }
 
 type ChannelResult struct {
@@ -1451,14 +1451,35 @@ func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []
 	return prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices
 }
 
-// ExecuteTxsConcurrently calls the appropriate function for processing transacitons
+// ExecuteTxsConcurrently calls the appropriate function for processing transactions.
+// If giga is enabled, it tries the giga approach first (OCC or synchronous based on config).
+// On giga failure, it falls back to the v2 approach (OCC if enabled, otherwise sequential).
 func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
-	// Giga only supports synchronous execution for now
-	if app.GigaExecutorEnabled && app.GigaOCCEnabled {
-		return app.ProcessTXsWithOCCGiga(ctx, txs, typedTxs, absoluteTxIndices)
-	} else if app.GigaExecutorEnabled {
-		return app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs, absoluteTxIndices), ctx
-	} else if !ctx.IsOCCEnabled() {
+	// Try giga execution first if enabled
+	if app.GigaExecutorEnabled {
+		var results []*abci.ExecTxResult
+		var ok bool
+		var newCtx sdk.Context
+
+		if app.GigaOCCEnabled {
+			results, newCtx, ok = app.ProcessTXsWithOCCGiga(ctx.WithGiga(true), txs, typedTxs, absoluteTxIndices)
+		} else {
+			results, ok = app.ProcessTxsSynchronousGiga(ctx.WithGiga(true), txs, typedTxs, absoluteTxIndices)
+			newCtx = ctx
+		}
+
+		if ok {
+			return results, newCtx
+		}
+
+		// Log and track fallback
+		ctx.Logger().Info("giga execution falling back to v2", "height", ctx.BlockHeight())
+		metrics.IncrGigaFallbackToV2Counter()
+		// Fall through to v2 execution below
+	}
+
+	// V2 execution path (also used as fallback from giga)
+	if !ctx.IsOCCEnabled() {
 		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs, absoluteTxIndices), ctx
 	}
 
@@ -1533,8 +1554,10 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 	return execResults, ctx
 }
 
-// ProcessTXsWithOCCGiga runs the transactions concurrently via OCC, using the Giga executor
-func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+// ProcessTXsWithOCCGiga runs the transactions concurrently via OCC, using the Giga executor.
+// Returns (results, ctx, true) on success, or (nil, ctx, false) if fallback to v2 is needed.
+// The caller is responsible for handling fallback and cleanup.
+func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context, bool) {
 	evmEntries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	v2Entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	for txIndex, tx := range txs {
@@ -1545,54 +1568,51 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 		}
 	}
 
-	// Create OCC scheduler with giga executor deliverTx.
-	evmScheduler := tasks.NewScheduler(
-		app.ConcurrencyWorkers(),
-		app.TracingInfo,
-		app.gigaDeliverTx,
-	)
+	var evmBatchResult []abci.ResponseDeliverTx
 
-	// Run EVM txs against a cache so we can discard all changes on fallback.
-	evmCtx, evmCache := app.CacheContext(ctx)
-	evmBatchResult, evmSchedErr := evmScheduler.ProcessAll(evmCtx, evmEntries)
-	if evmSchedErr != nil {
-		// TODO: DeliverTxBatch panics in this case
-		// TODO: detect if it was interop, and use v2 if so
-		ctx.Logger().Error("benchmark OCC scheduler error (EVM txs)", "error", evmSchedErr, "height", ctx.BlockHeight(), "txCount", len(evmEntries))
-		return nil, ctx
-	}
+	if len(evmEntries) > 0 {
+		evmScheduler := tasks.NewScheduler(
+			app.ConcurrencyWorkers(),
+			app.TracingInfo,
+			app.gigaDeliverTx,
+		)
 
-	fallbackToV2 := false
-	for _, r := range evmBatchResult {
-		if r.Code == gigautils.GigaAbortCode && r.Codespace == gigautils.GigaAbortCodespace {
-			fallbackToV2 = true
-			break
+		// Run EVM txs against a cache so caller can discard changes on fallback.
+		evmCtx, evmCache := app.CacheContext(ctx)
+		var evmSchedErr error
+		evmBatchResult, evmSchedErr = evmScheduler.ProcessAll(evmCtx, evmEntries)
+		if evmSchedErr != nil {
+			ctx.Logger().Error("giga OCC scheduler error (EVM txs)", "error", evmSchedErr, "height", ctx.BlockHeight(), "txCount", len(evmEntries))
+			return nil, ctx, false
 		}
-	}
 
-	if fallbackToV2 {
-		metrics.IncrGigaFallbackToV2Counter()
-		// Discard all EVM changes by skipping cache writes, then re-run all txs via DeliverTx.
-		evmBatchResult = nil
-		v2Entries = make([]*sdk.DeliverTxEntry, len(txs))
-		for txIndex, tx := range txs {
-			v2Entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
+		// Check if any transaction requires fallback to v2
+		for _, r := range evmBatchResult {
+			if r.Code == gigautils.GigaAbortCode && r.Codespace == gigautils.GigaAbortCodespace {
+				// Return false - caller handles fallback. Cache is not written, so changes are discarded.
+				return nil, ctx, false
+			}
 		}
-	} else {
+
 		// Commit EVM cache to main store before processing non-EVM txs.
 		evmCache.Write()
 		evmCtx.GigaMultiStore().WriteGiga()
 	}
 
-	v2Scheduler := tasks.NewScheduler(
-		app.ConcurrencyWorkers(),
-		app.TracingInfo,
-		app.DeliverTx,
-	)
-	v2BatchResult, v2SchedErr := v2Scheduler.ProcessAll(ctx, v2Entries)
-	if v2SchedErr != nil {
-		ctx.Logger().Error("benchmark OCC scheduler error", "error", v2SchedErr, "height", ctx.BlockHeight(), "txCount", len(v2Entries))
-		return nil, ctx
+	var v2BatchResult []abci.ResponseDeliverTx
+
+	if len(v2Entries) > 0 {
+		v2Scheduler := tasks.NewScheduler(
+			app.ConcurrencyWorkers(),
+			app.TracingInfo,
+			app.DeliverTx,
+		)
+		var v2SchedErr error
+		v2BatchResult, v2SchedErr = v2Scheduler.ProcessAll(ctx.WithGiga(false), v2Entries)
+		if v2SchedErr != nil {
+			ctx.Logger().Error("giga OCC scheduler error (non-EVM txs)", "error", v2SchedErr, "height", ctx.BlockHeight(), "txCount", len(v2Entries))
+			return nil, ctx, false
+		}
 	}
 
 	execResults := make([]*abci.ExecTxResult, 0, len(evmBatchResult)+len(v2BatchResult))
@@ -1623,7 +1643,7 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 		})
 	}
 
-	return execResults, ctx
+	return execResults, ctx, true
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {

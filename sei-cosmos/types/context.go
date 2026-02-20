@@ -70,6 +70,8 @@ type Context struct {
 
 	isTracing   bool
 	storeTracer gaskv.IStoreTracer
+
+	giga bool
 }
 
 // Proposed rename, not done to avoid API breakage
@@ -220,6 +222,10 @@ func (c Context) TraceSpanContext() context.Context {
 
 func (c Context) IsTracing() bool {
 	return c.isTracing
+}
+
+func (c Context) IsGiga() bool {
+	return c.giga
 }
 
 func (c Context) StoreTracer() gaskv.IStoreTracer {
@@ -485,6 +491,11 @@ func (c Context) WithIsTracing(it bool) Context {
 	if it {
 		c.storeTracer = NewStoreTracer()
 	}
+	return c
+}
+
+func (c Context) WithGiga(giga bool) Context {
+	c.giga = giga
 	return c
 }
 
