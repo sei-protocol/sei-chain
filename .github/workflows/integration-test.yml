@@ -74,8 +74,11 @@ jobs:
           # Build seid and price-feeder on runner (in parallel with base image)
           make clean
           make build-linux &
+          pid_build=$!
           make build-price-feeder-linux &
-          wait
+          pid_feeder=$!
+          wait $pid_build
+          wait $pid_feeder
           mkdir -p build/generated && echo DONE > build/generated/build.complete
           # Wait for base image to be ready before building app image
           wait $ensure_pid
