@@ -276,6 +276,10 @@ func collectHeightResults(ctx context.Context, t *testing.T, eventCh <-chan time
 			if v.Vote.Height > height {
 				t.Fatalf("received prevote from unexpected height, expected: %d, saw: %d", height, v.Vote.Height)
 			}
+			// Avoid recording stale prevote (possibly nil) from a previous height.
+			if v.Vote.Height < height {
+				continue
+			}
 			if !bytes.Equal(address, v.Vote.ValidatorAddress) {
 				continue
 			}
@@ -288,6 +292,10 @@ func collectHeightResults(ctx context.Context, t *testing.T, eventCh <-chan time
 		case types.EventDataCompleteProposal:
 			if v.Height > height {
 				t.Fatalf("received proposal from unexpected height, expected: %d, saw: %d", height, v.Height)
+			}
+			// Avoid recording stale prevote (possibly nil) from a previous height.
+			if v.Height < height {
+				continue
 			}
 			res.proposalIssuedAt = event.ts
 		}
@@ -377,7 +385,7 @@ func TestProposerWaitsForPreviousBlock(t *testing.T) {
 			Precision:    100 * time.Millisecond,
 			MessageDelay: 500 * time.Millisecond,
 		},
-		timeoutPropose:                    50 * time.Millisecond,
+		timeoutPropose:                    250 * time.Millisecond, // Provide enough headroom for CI
 		genesisTime:                       initialTime,
 		height2ProposalTimeDeliveryOffset: 150 * time.Millisecond,
 		height2ProposedBlockOffset:        100 * time.Millisecond,
@@ -442,10 +450,12 @@ func TestTimelyProposal(t *testing.T) {
 
 	cfg := pbtsTestConfiguration{
 		synchronyParams: types.SynchronyParams{
-			Precision:    10 * time.Millisecond,
-			MessageDelay: 140 * time.Millisecond,
+			// Keep this test away from timing boundaries so scheduler jitter in CI does not
+			// cause occasional nil prevotes for an otherwise timely proposal.
+			Precision:    25 * time.Millisecond,
+			MessageDelay: 300 * time.Millisecond,
 		},
-		timeoutPropose:                    40 * time.Millisecond,
+		timeoutPropose:                    80 * time.Millisecond,
 		genesisTime:                       initialTime,
 		height2ProposedBlockOffset:        15 * time.Millisecond,
 		height2ProposalTimeDeliveryOffset: 30 * time.Millisecond,

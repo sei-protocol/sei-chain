@@ -5,9 +5,9 @@ import (
 	"math/big"
 	"strings"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/config"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/utils"
 )
 

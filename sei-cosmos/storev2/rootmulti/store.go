@@ -12,17 +12,17 @@ import (
 	"cosmossdk.io/errors"
 	"github.com/armon/go-metrics"
 
-	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
-	"github.com/cosmos/cosmos-sdk/store/cachemulti"
-	"github.com/cosmos/cosmos-sdk/store/mem"
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
-	"github.com/cosmos/cosmos-sdk/store/transient"
-	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/storev2/commitment"
-	"github.com/cosmos/cosmos-sdk/storev2/state"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	protoio "github.com/gogo/protobuf/io"
+	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachemulti"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/mem"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/transient"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/commitment"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -155,7 +155,7 @@ func (rs *Store) flush() error {
 			}
 		}
 	}
-	if changeSets != nil && len(changeSets) > 0 {
+	if len(changeSets) > 0 {
 		sort.SliceStable(changeSets, func(i, j int) bool {
 			return changeSets[i].Name < changeSets[j].Name
 		})
@@ -565,7 +565,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		if err != nil {
 			return sdkerrors.QueryResult(err)
 		}
-		defer scStore.Close()
+		defer func() { _ = scStore.Close() }()
 		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName), rs.logger))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
@@ -685,12 +685,15 @@ func (rs *Store) ResetEvents() {
 func (rs *Store) Restore(
 	height uint64, format uint32, protoReader protoio.Reader,
 ) (snapshottypes.SnapshotItem, error) {
+	if height > uint64(math.MaxInt64) {
+		return snapshottypes.SnapshotItem{}, fmt.Errorf("snapshot height %d exceeds max int64", height)
+	}
 	if rs.scStore != nil {
 		if err := rs.scStore.Close(); err != nil {
 			return snapshottypes.SnapshotItem{}, fmt.Errorf("failed to close db: %w", err)
 		}
 	}
-	item, err := rs.restore(int64(height), protoReader)
+	item, err := rs.restore(int64(height), protoReader) //nolint:gosec // bounds checked above
 	if err != nil {
 		return snapshottypes.SnapshotItem{}, err
 	}
@@ -746,7 +749,7 @@ loop:
 			node := &sctypes.SnapshotNode{
 				Key:     item.IAVL.Key,
 				Value:   item.IAVL.Value,
-				Height:  int8(item.IAVL.Height),
+				Height:  int8(item.IAVL.Height), //nolint:gosec // bounds checked above against math.MaxInt8
 				Version: item.IAVL.Version,
 			}
 			// Protobuf does not differentiate between []byte{} as nil, but fortunately IAVL does
@@ -802,7 +805,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer exporter.Close()
+	defer func() { _ = exporter.Close() }()
 	keySizePerStore := map[string]int64{}
 	valueSizePerStore := map[string]int64{}
 	numKeysPerStore := map[string]int64{}
@@ -879,7 +882,7 @@ func (*Store) SetKVStores(handler func(key types.StoreKey, s types.KVStore) type
 
 // StoreKeys implements types.CommitMultiStore.
 func (rs *Store) StoreKeys() []types.StoreKey {
-	res := make([]types.StoreKey, len(rs.storeKeys))
+	res := make([]types.StoreKey, 0, len(rs.storeKeys))
 	for _, sk := range rs.storeKeys {
 		res = append(res, sk)
 	}

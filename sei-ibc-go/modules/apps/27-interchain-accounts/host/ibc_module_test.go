@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 	"github.com/gogo/protobuf/proto"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	abcitypes "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmprotostate "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/state"
 	tmstate "github.com/sei-protocol/sei-chain/sei-tendermint/state"

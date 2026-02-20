@@ -1,19 +1,18 @@
 package keeper
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/store/prefix"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/query"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	vestexported "github.com/cosmos/cosmos-sdk/x/auth/vesting/exported"
-	"github.com/cosmos/cosmos-sdk/x/bank/types"
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	vestexported "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/exported"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
@@ -324,7 +323,7 @@ func (k BaseKeeper) IterateAllDenomMetaData(ctx sdk.Context, cb func(types.Metad
 	denomMetaDataStore := prefix.NewStore(store, types.DenomMetadataPrefix)
 
 	iterator := denomMetaDataStore.Iterator(nil, nil)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid(); iterator.Next() {
 		var metadata types.Metadata
@@ -423,7 +422,10 @@ func (k BaseKeeper) DeferredSendCoinsFromAccountToModule(
 	}
 	// get txIndex
 	txIndex := ctx.TxIndex()
-	err = k.deferredCache.UpsertBalances(ctx, moduleAcc.GetAddress(), uint64(txIndex), amount)
+	if txIndex < 0 {
+		return fmt.Errorf("negative tx index: %d", txIndex)
+	}
+	err = k.deferredCache.UpsertBalances(ctx, moduleAcc.GetAddress(), uint64(txIndex), amount) //nolint:gosec // bounds checked above
 	if err != nil {
 		return err
 	}
@@ -441,7 +443,7 @@ func (k BaseKeeper) WriteDeferredBalances(ctx sdk.Context) []abci.Event {
 	// maps between bech32 stringified module account address and balance
 	moduleAddrBalanceMap := make(map[string]sdk.Coins)
 	// slice of modules to be sorted for consistent write order later
-	moduleList := []string{}
+	var moduleList []string
 
 	// iterate over deferred cache and accumulate totals per module
 	k.deferredCache.IterateDeferredBalances(ctx, func(moduleAddr sdk.AccAddress, amount sdk.Coin) bool {
@@ -466,7 +468,7 @@ func (k BaseKeeper) WriteDeferredBalances(ctx sdk.Context) []abci.Event {
 	for _, moduleBech32Addr := range moduleList {
 		amount, ok := moduleAddrBalanceMap[moduleBech32Addr]
 		if !ok {
-			err := fmt.Errorf("Failed to get module balance for writing deferred balances for address=%s", moduleBech32Addr)
+			err := fmt.Errorf("failed to get module balance for writing deferred balances for address=%s", moduleBech32Addr)
 			ctx.Logger().Error(err.Error())
 			panic(err)
 		}
@@ -570,7 +572,7 @@ func (k BaseKeeper) MintCoins(ctx sdk.Context, moduleName string, amounts sdk.Co
 	addFn := func(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
 		acc := k.ak.GetModuleAccount(ctx, moduleName)
 		if acc == nil {
-			return errors.New(fmt.Sprintf("module account for %s not found", moduleName))
+			return fmt.Errorf("module account for %s not found", moduleName)
 		}
 		return k.AddCoins(ctx, acc.GetAddress(), amounts, true)
 	}
@@ -698,7 +700,7 @@ func (k BaseViewKeeper) IterateTotalSupply(ctx sdk.Context, cb func(sdk.Coin) bo
 	supplyStore := prefix.NewStore(store, types.SupplyKey)
 
 	iterator := supplyStore.Iterator(nil, nil)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid(); iterator.Next() {
 		var amount sdk.Int

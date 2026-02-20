@@ -3,8 +3,8 @@ package types
 import (
 	"encoding/json"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 )
 
 // DONTCOVER

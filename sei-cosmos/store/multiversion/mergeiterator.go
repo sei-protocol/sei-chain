@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"errors"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 // mvsMergeIterator merges a parent Iterator and a cache Iterator.
@@ -139,7 +139,7 @@ func (iter *mvsMergeIterator) Value() []byte {
 	if !iter.cache.Valid() {
 		value := iter.parent.Value()
 		// add values read from parent to readset
-		iter.ReadsetHandler.UpdateReadSet(iter.parent.Key(), value)
+		iter.UpdateReadSet(iter.parent.Key(), value)
 		return value
 	}
 
@@ -151,7 +151,7 @@ func (iter *mvsMergeIterator) Value() []byte {
 	case -1: // parent < cache
 		value := iter.parent.Value()
 		// add values read from parent to readset
-		iter.ReadsetHandler.UpdateReadSet(iter.parent.Key(), value)
+		iter.UpdateReadSet(iter.parent.Key(), value)
 		return value
 	case 0, 1: // parent >= cache
 		value := iter.cache.Value()
@@ -165,7 +165,7 @@ func (iter *mvsMergeIterator) Value() []byte {
 func (iter *mvsMergeIterator) Close() error {
 	if err := iter.parent.Close(); err != nil {
 		// still want to close cache iterator regardless
-		iter.cache.Close()
+		_ = iter.cache.Close()
 		return err
 	}
 
