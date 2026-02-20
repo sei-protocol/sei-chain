@@ -7,7 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
+	"github.com/cosmos/iavl"
 	"github.com/stretchr/testify/require"
 )
 

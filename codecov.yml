@@ -82,3 +82,9 @@ ignore:
   # Project-specific exclusions
   - "precompiles/**/legacy/**/*"
   - "**/cli/**/*"
+
+  - "sei-db/state_db/bench"
+
+flags:
+  sei-chain:
+    carryforward: true

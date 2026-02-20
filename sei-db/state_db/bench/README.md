@@ -9,7 +9,7 @@ From the repo root:
 - Standard benchmarks:
   - `go test ./sei-db/state_db/bench -run ^$ -bench . -benchmem`
 - Run a single benchmark:
-  - `go test ./sei-db/state_db/bench -run ^$ -bench BenchmarkWriteWithDifferentBlockSize -benchmem`
+  - `go test ./sei-db/state_db/bench -run ^$ -bench BenchmarkMemIAVLWriteWithDifferentBlockSize -benchmem`
 
 ## Long running benchmark
 
@@ -29,6 +29,8 @@ Benchmarks are configured via `TestScenario`:
 - `TotalKeys`: total number of keys to write across all blocks
 - `NumBlocks`: number of blocks to commit
 - `DuplicateRatio`: fraction of keys that are updates instead of inserts
+- `Backend`: database backend (`wrappers.MemIAVL`, `wrappers.FlatKV`,
+  `wrappers.CompositeCosmos`, `wrappers.CompositeSplit`, `wrappers.CompositeDual`)
 - `Distribution`: per-block key distribution function
 
 Example:
@@ -40,6 +42,7 @@ scenario := TestScenario{
 	NumBlocks:      10_000,
 	DuplicateRatio: 0.25,
 	Distribution:   BurstyDistribution(1, 10, 5, 3),
+	Backend:        wrappers.MemIAVL,
 }
 ```
 

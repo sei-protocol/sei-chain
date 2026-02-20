@@ -10,12 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cosmos/iavl"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
-	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 )
 
 const (
@@ -27,14 +26,21 @@ const (
 	ValueSize = 32
 )
 
+type DBBackend string
+
+const (
+	DBBackendMemIAVL DBBackend = "memiavl"
+)
+
 // TestScenario bundles benchmark parameters and distribution.
 type TestScenario struct {
 	Name           string
 	TotalKeys      int64
 	NumBlocks      int64
 	DuplicateRatio float64 // 0.0 = all inserts, 1.0 = all updates
-	Backend        string  // TODO: add support for testing different db backends
-	Distribution   KeyDistribution
+	// The database backend to use for the benchmark.
+	Backend      wrappers.DBType
+	Distribution KeyDistribution
 }
 
 // KeyDistribution defines how many keys to generate per block.
@@ -180,25 +186,6 @@ func (p *ProgressReporter) report() {
 	}
 }
 
-func newCommitStore(b *testing.B) *memiavl.CommitStore {
-	b.Helper()
-	dir := b.TempDir()
-	cfg := memiavl.DefaultConfig()
-	cfg.AsyncCommitBuffer = 10
-	cfg.SnapshotInterval = 100
-	cs := memiavl.NewCommitStore(dir, logger.NewNopLogger(), cfg)
-	cs.Initialize([]string{EVMStoreName})
-
-	_, err := cs.LoadVersion(0, false)
-	require.NoError(b, err)
-
-	b.Cleanup(func() {
-		_ = cs.Close()
-	})
-
-	return cs
-}
-
 // startChangesetGenerator streams per-block changesets based on the scenario distribution.
 func startChangesetGenerator(scenario TestScenario) <-chan *proto.NamedChangeSet {
 	if scenario.Distribution == nil {
@@ -277,7 +264,8 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 	for range b.N {
 		func() {
 			b.StopTimer()
-			cs := newCommitStore(b)
+			cs := wrappers.NewDBImpl(b, scenario.Backend)
+			require.NotNil(b, cs)
 			changesetChannel := startChangesetGenerator(scenario)
 
 			var progress *ProgressReporter
@@ -295,9 +283,7 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 				}
 				err := cs.ApplyChangeSets([]*proto.NamedChangeSet{changeset})
 				require.NoError(b, err)
-				commitInfo := cs.WorkingCommitInfo()
-				require.NotNil(b, commitInfo)
-				require.Equal(b, block, commitInfo.Version)
+				require.Equal(b, block, cs.Version())
 				version, err := cs.Commit()
 				require.NoError(b, err)
 				require.Equal(b, block, version)

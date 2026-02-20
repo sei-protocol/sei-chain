@@ -5,7 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
+	"github.com/cosmos/iavl"
 	"github.com/stretchr/testify/require"
 )
 
