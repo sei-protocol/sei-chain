@@ -35,13 +35,32 @@ type ResponseOfferSnapshot struct {
 type ResponseOfferSnapshot_Result int32
 
 const (
-	ResponseOfferSnapshot_UNKNOWN       ResponseOfferSnapshot_Result = 0
-	ResponseOfferSnapshot_ACCEPT        ResponseOfferSnapshot_Result = 1
-	ResponseOfferSnapshot_ABORT         ResponseOfferSnapshot_Result = 2
-	ResponseOfferSnapshot_REJECT        ResponseOfferSnapshot_Result = 3
-	ResponseOfferSnapshot_REJECT_FORMAT ResponseOfferSnapshot_Result = 4
-	ResponseOfferSnapshot_REJECT_SENDER ResponseOfferSnapshot_Result = 5
+	ResponseOfferSnapshot_UNKNOWN ResponseOfferSnapshot_Result = iota
+	ResponseOfferSnapshot_ACCEPT
+	ResponseOfferSnapshot_ABORT
+	ResponseOfferSnapshot_REJECT
+	ResponseOfferSnapshot_REJECT_FORMAT
+	ResponseOfferSnapshot_REJECT_SENDER
 )
+
+func (r ResponseOfferSnapshot_Result) String() string {
+	switch r {
+	case ResponseOfferSnapshot_UNKNOWN:
+		return "UNKNOWN"
+	case ResponseOfferSnapshot_ACCEPT:
+		return "ACCEPT"
+	case ResponseOfferSnapshot_ABORT:
+		return "ABORT"
+	case ResponseOfferSnapshot_REJECT:
+		return "REJECT"
+	case ResponseOfferSnapshot_REJECT_FORMAT:
+		return "REJECT_FORMAT"
+	case ResponseOfferSnapshot_REJECT_SENDER:
+		return "REJECT_SENDER"
+	default:
+		return "UNKNOWN"
+	}
+}
 
 // RequestLoadSnapshotChunk is the plain Go replacement for the legacy protobuf message.
 type RequestLoadSnapshotChunk struct {
@@ -73,13 +92,32 @@ type ResponseApplySnapshotChunk struct {
 type ResponseApplySnapshotChunk_Result int32
 
 const (
-	ResponseApplySnapshotChunk_UNKNOWN         ResponseApplySnapshotChunk_Result = 0
-	ResponseApplySnapshotChunk_ACCEPT          ResponseApplySnapshotChunk_Result = 1
-	ResponseApplySnapshotChunk_ABORT           ResponseApplySnapshotChunk_Result = 2
-	ResponseApplySnapshotChunk_RETRY           ResponseApplySnapshotChunk_Result = 3
-	ResponseApplySnapshotChunk_RETRY_SNAPSHOT  ResponseApplySnapshotChunk_Result = 4
-	ResponseApplySnapshotChunk_REJECT_SNAPSHOT ResponseApplySnapshotChunk_Result = 5
+	ResponseApplySnapshotChunk_UNKNOWN ResponseApplySnapshotChunk_Result = iota
+	ResponseApplySnapshotChunk_ACCEPT
+	ResponseApplySnapshotChunk_ABORT
+	ResponseApplySnapshotChunk_RETRY
+	ResponseApplySnapshotChunk_RETRY_SNAPSHOT
+	ResponseApplySnapshotChunk_REJECT_SNAPSHOT
 )
+
+func (r ResponseApplySnapshotChunk_Result) String() string {
+	switch r {
+	case ResponseApplySnapshotChunk_UNKNOWN:
+		return "UNKNOWN"
+	case ResponseApplySnapshotChunk_ACCEPT:
+		return "ACCEPT"
+	case ResponseApplySnapshotChunk_ABORT:
+		return "ABORT"
+	case ResponseApplySnapshotChunk_RETRY:
+		return "RETRY"
+	case ResponseApplySnapshotChunk_RETRY_SNAPSHOT:
+		return "RETRY_SNAPSHOT"
+	case ResponseApplySnapshotChunk_REJECT_SNAPSHOT:
+		return "REJECT_SNAPSHOT"
+	default:
+		return "UNKNOWN"
+	}
+}
 
 // ResponseProcessProposal is the plain Go replacement for the legacy protobuf message.
 type ResponseProcessProposal struct {
@@ -94,9 +132,9 @@ type ResponseProcessProposal struct {
 type ResponseProcessProposal_ProposalStatus int32
 
 const (
-	ResponseProcessProposal_UNKNOWN ResponseProcessProposal_ProposalStatus = 0
-	ResponseProcessProposal_ACCEPT  ResponseProcessProposal_ProposalStatus = 1
-	ResponseProcessProposal_REJECT  ResponseProcessProposal_ProposalStatus = 2
+	ResponseProcessProposal_UNKNOWN ResponseProcessProposal_ProposalStatus = iota
+	ResponseProcessProposal_ACCEPT
+	ResponseProcessProposal_REJECT
 )
 
 func (s ResponseProcessProposal_ProposalStatus) String() string {
