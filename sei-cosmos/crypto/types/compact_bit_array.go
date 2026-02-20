@@ -33,7 +33,7 @@ func NewCompactBitArray(bits int) *CompactBitArray {
 		return nil
 	}
 	return &CompactBitArray{
-		ExtraBitsStored: uint32(bits % 8),
+		ExtraBitsStored: uint32(bits % 8), //nolint:gosec // bits is validated positive above, bits%8 is always 0-7
 		Elems:           make([]byte, nElems),
 	}
 }
@@ -59,7 +59,7 @@ func (bA *CompactBitArray) GetIndex(i int) bool {
 		return false
 	}
 
-	return bA.Elems[i>>3]&(1<<uint8(7-(i%8))) > 0
+	return bA.Elems[i>>3]&(1<<uint8(7-(i%8))) > 0 //nolint:gosec // i is validated non-negative above, and 7-(i%8) is always in range 0-7
 }
 
 // SetIndex sets the bit at index i within the bit array. Returns true if and only if the
@@ -74,9 +74,9 @@ func (bA *CompactBitArray) SetIndex(i int, v bool) bool {
 	}
 
 	if v {
-		bA.Elems[i>>3] |= (1 << uint8(7-(i%8)))
+		bA.Elems[i>>3] |= 1 << uint8(7-(i%8)) //nolint:gosec // i is validated non-negative above, and 7-(i%8) is always in range 0-7
 	} else {
-		bA.Elems[i>>3] &= ^(1 << uint8(7-(i%8)))
+		bA.Elems[i>>3] &= ^(1 << uint8(7-(i%8))) //nolint:gosec // same as above
 	}
 
 	return true
@@ -263,11 +263,17 @@ func CompactUnmarshal(bz []byte) (*CompactBitArray, error) {
 	}
 	bz = bz[n:]
 
-	if len(bz) != int(size+7)/8 {
+	if size > math.MaxInt {
+		return nil, fmt.Errorf("compact bit array: size %d exceeds max int", size)
+	}
+	if len(bz) != (int(size)+7)/8 { //nolint:gosec // bounds checked above
 		return nil, errors.New("compact bit array: invalid compact unmarshal size")
 	}
 
-	bA := &CompactBitArray{uint32(size % 8), bz}
+	if size%8 > math.MaxUint32 {
+		return nil, fmt.Errorf("compact bit array: extra bits %d exceeds max uint32", size%8)
+	}
+	bA := &CompactBitArray{uint32(size % 8), bz} //nolint:gosec // bounds checked above
 
 	return bA, nil
 }

@@ -3,12 +3,12 @@ package testutil
 import (
 	"fmt"
 
-	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
-	"github.com/cosmos/cosmos-sdk/testutil/network"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/client/cli"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	clitestutil "github.com/sei-protocol/sei-chain/sei-cosmos/testutil/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/network"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/client/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 )
@@ -30,7 +30,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 	s.T().Log("setting up integration test suite")
 	app := seiapp.Setup(s.T(), false, false, false)
 	s.app = app
-	s.ctx = app.BaseApp.NewContext(false, tmproto.Header{})
+	s.ctx = app.NewContext(false, tmproto.Header{})
 
 	cfg := network.DefaultConfig(s.T())
 	cfg.NumValidators = 1
@@ -92,7 +92,7 @@ func (s *IntegrationTestSuite) TestModuleVersionsCLI() {
 				pm := types.QueryModuleVersionsResponse{
 					ModuleVersions: expect,
 				}
-				jsonVM, _ := clientCtx.Codec.MarshalJSON(&pm)
+				jsonVM, _ := clientCtx.Codec.MarshalAsJSON(&pm)
 				expectedRes := string(jsonVM)
 				// append new line to match behaviour of PrintProto
 				expectedRes += "\n"

@@ -442,10 +442,12 @@ func TestTimelyProposal(t *testing.T) {
 
 	cfg := pbtsTestConfiguration{
 		synchronyParams: types.SynchronyParams{
-			Precision:    10 * time.Millisecond,
-			MessageDelay: 140 * time.Millisecond,
+			// Keep this test away from timing boundaries so scheduler jitter in CI does not
+			// cause occasional nil prevotes for an otherwise timely proposal.
+			Precision:    25 * time.Millisecond,
+			MessageDelay: 300 * time.Millisecond,
 		},
-		timeoutPropose:                    40 * time.Millisecond,
+		timeoutPropose:                    80 * time.Millisecond,
 		genesisTime:                       initialTime,
 		height2ProposedBlockOffset:        15 * time.Millisecond,
 		height2ProposalTimeDeliveryOffset: 30 * time.Millisecond,

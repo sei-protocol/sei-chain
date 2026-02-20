@@ -7,11 +7,11 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/rest"
-	gcutils "github.com/cosmos/cosmos-sdk/x/gov/client/utils"
-	"github.com/cosmos/cosmos-sdk/x/gov/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	gcutils "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/client/utils"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
 
 func registerQueryRoutes(clientCtx client.Context, r *mux.Router) {
@@ -69,7 +69,7 @@ func queryProposalHandlerFn(clientCtx client.Context) http.HandlerFunc {
 
 		params := types.NewQueryProposalParams(proposalID)
 
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -101,7 +101,7 @@ func queryDepositsHandlerFn(clientCtx client.Context) http.HandlerFunc {
 
 		params := types.NewQueryProposalParams(proposalID)
 
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -112,14 +112,14 @@ func queryDepositsHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		var proposal types.Proposal
-		if rest.CheckInternalServerError(w, clientCtx.LegacyAmino.UnmarshalJSON(res, &proposal)) {
+		if rest.CheckInternalServerError(w, clientCtx.LegacyAmino.UnmarshalAsJSON(res, &proposal)) {
 			return
 		}
 
 		// For inactive proposals we must query the txs directly to get the deposits
 		// as they're no longer in state.
 		propStatus := proposal.Status
-		if !(propStatus == types.StatusVotingPeriod || propStatus == types.StatusDepositPeriod) {
+		if propStatus != types.StatusVotingPeriod && propStatus != types.StatusDepositPeriod {
 			res, err = gcutils.QueryDepositsByTxQuery(clientCtx, params)
 		} else {
 			res, _, err = clientCtx.QueryWithData("custom/gov/deposits", bz)
@@ -192,7 +192,7 @@ func queryDepositHandlerFn(clientCtx client.Context) http.HandlerFunc {
 
 		params := types.NewQueryDepositParams(proposalID, depositorAddr)
 
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -203,7 +203,7 @@ func queryDepositHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		var deposit types.Deposit
-		if rest.CheckBadRequestError(w, clientCtx.LegacyAmino.UnmarshalJSON(res, &deposit)) {
+		if rest.CheckBadRequestError(w, clientCtx.LegacyAmino.UnmarshalAsJSON(res, &deposit)) {
 			return
 		}
 
@@ -211,7 +211,7 @@ func queryDepositHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		// which case the deposit would be removed from state and should be queried
 		// for directly via a txs query.
 		if deposit.Empty() {
-			bz, err := clientCtx.LegacyAmino.MarshalJSON(types.NewQueryProposalParams(proposalID))
+			bz, err := clientCtx.LegacyAmino.MarshalAsJSON(types.NewQueryProposalParams(proposalID))
 			if rest.CheckBadRequestError(w, err) {
 				return
 			}
@@ -269,7 +269,7 @@ func queryVoteHandlerFn(clientCtx client.Context) http.HandlerFunc {
 
 		params := types.NewQueryVoteParams(proposalID, voterAddr)
 
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -280,7 +280,7 @@ func queryVoteHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		var vote types.Vote
-		if rest.CheckBadRequestError(w, clientCtx.LegacyAmino.UnmarshalJSON(res, &vote)) {
+		if rest.CheckBadRequestError(w, clientCtx.LegacyAmino.UnmarshalAsJSON(res, &vote)) {
 			return
 		}
 
@@ -288,7 +288,7 @@ func queryVoteHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		// which case the vote would be removed from state and should be queried for
 		// directly via a txs query.
 		if vote.Empty() {
-			bz, err := clientCtx.LegacyAmino.MarshalJSON(types.NewQueryProposalParams(proposalID))
+			bz, err := clientCtx.LegacyAmino.MarshalAsJSON(types.NewQueryProposalParams(proposalID))
 			if rest.CheckBadRequestError(w, err) {
 				return
 			}
@@ -337,7 +337,7 @@ func queryVotesOnProposalHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			return
 		}
 
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(types.NewQueryProposalParams(proposalID))
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(types.NewQueryProposalParams(proposalID))
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -348,7 +348,7 @@ func queryVotesOnProposalHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		var proposal types.Proposal
-		if rest.CheckInternalServerError(w, clientCtx.LegacyAmino.UnmarshalJSON(res, &proposal)) {
+		if rest.CheckInternalServerError(w, clientCtx.LegacyAmino.UnmarshalAsJSON(res, &proposal)) {
 			return
 		}
 
@@ -357,10 +357,10 @@ func queryVotesOnProposalHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		params := types.NewQueryProposalVotesParams(proposalID, page, limit)
 
 		propStatus := proposal.Status
-		if !(propStatus == types.StatusVotingPeriod || propStatus == types.StatusDepositPeriod) {
+		if propStatus != types.StatusVotingPeriod && propStatus != types.StatusDepositPeriod {
 			res, err = gcutils.QueryVotesByTxQuery(clientCtx, params)
 		} else {
-			bz, err = clientCtx.LegacyAmino.MarshalJSON(params)
+			bz, err = clientCtx.LegacyAmino.MarshalAsJSON(params)
 			if rest.CheckBadRequestError(w, err) {
 				return
 			}
@@ -417,7 +417,7 @@ func queryProposalsWithParameterFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		params := types.NewQueryProposalsParams(page, limit, proposalStatus, voterAddr, depositorAddr)
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -457,7 +457,7 @@ func queryTallyOnProposalHandlerFn(clientCtx client.Context) http.HandlerFunc {
 
 		params := types.NewQueryProposalParams(proposalID)
 
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}

@@ -33,6 +33,16 @@ func makeLaneVotes(keys []types.SecretKey, h *types.BlockHeader) []*types.Signed
 	return votes
 }
 
+func leaderKey(committee *types.Committee, keys []types.SecretKey, view types.View) types.SecretKey {
+	leader := committee.Leader(view)
+	for _, k := range keys {
+		if k.Public() == leader {
+			return k
+		}
+	}
+	panic("leader not in keys")
+}
+
 func makeCommitQC(
 	rng utils.Rng,
 	committee *types.Committee,
@@ -41,17 +51,15 @@ func makeCommitQC(
 	laneQCs map[types.LaneID]*types.LaneQC,
 	appQC utils.Option[*types.AppQC],
 ) *types.CommitQC {
-	fullProposal, err := types.NewProposal(
-		keys[0],
+	vs := types.ViewSpec{CommitQC: prev}
+	fullProposal := utils.OrPanic1(types.NewProposal(
+		leaderKey(committee, keys, vs.View()),
 		committee,
-		types.ViewSpec{CommitQC: prev},
+		vs,
 		time.Now(),
 		laneQCs,
 		appQC,
-	)
-	if err != nil {
-		panic(err)
-	}
+	))
 	vote := types.NewCommitVote(fullProposal.Proposal().Msg())
 	var votes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
@@ -197,17 +205,15 @@ func TestStateMismatchedQCs(t *testing.T) {
 
 	// Helper to create a CommitQC for a specific index
 	makeQC := func(prev utils.Option[*types.CommitQC], laneQCs map[types.LaneID]*types.LaneQC) *types.CommitQC {
-		fullProposal, err := types.NewProposal(
-			keys[0],
+		vs := types.ViewSpec{CommitQC: prev}
+		fullProposal := utils.OrPanic1(types.NewProposal(
+			leaderKey(committee, keys, vs.View()),
 			committee,
-			types.ViewSpec{CommitQC: prev},
+			vs,
 			time.Now(),
 			laneQCs,
 			utils.None[*types.AppQC](),
-		)
-		if err != nil {
-			panic(err)
-		}
+		))
 		vote := types.NewCommitVote(fullProposal.Proposal().Msg())
 		var votes []*types.Signed[*types.CommitVote]
 		for _, k := range keys {

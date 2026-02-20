@@ -16,7 +16,7 @@ import (
 	proto "github.com/gogo/protobuf/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
-	"github.com/cosmos/cosmos-sdk/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 )
 
 // ----------------------------------------------------------------------------
@@ -160,7 +160,7 @@ func ParseTypedEvent(event abci.Event) (proto.Message, error) {
 
 	attrMap := make(map[string]json.RawMessage)
 	for _, attr := range event.Attributes {
-		attrMap[string(attr.Key)] = []byte(attr.Value)
+		attrMap[string(attr.Key)] = attr.Value
 	}
 
 	attrBytes, err := json.Marshal(attrMap)

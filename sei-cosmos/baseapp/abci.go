@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"strings"
@@ -13,16 +14,16 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
-	"github.com/cosmos/cosmos-sdk/codec"
-	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
-	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/tasks"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
-	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/gogo/protobuf/proto"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/tasks"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/legacytm"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/utils"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"google.golang.org/grpc/codes"
@@ -207,7 +208,7 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
 	}()
 
-	gInfo, result, anteEvents, _, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum).WithVoteInfos(app.voteInfos), runTxModeDeliver, tx, checksum)
+	gInfo, result, anteEvents, _, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum), runTxModeDeliver, tx, checksum) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
 	if err != nil {
 		resultStr = "failed"
 		// if we have a result, use those events instead of just the anteEvents
@@ -218,8 +219,8 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 	}
 
 	res = abci.ResponseDeliverTx{
-		GasWanted: int64(gInfo.GasWanted), // TODO: Should type accept unsigned ints?
-		GasUsed:   int64(gInfo.GasUsed),   // TODO: Should type accept unsigned ints?
+		GasWanted: int64(gInfo.GasWanted), //nolint:gosec // gas values are practically bounded; TODO: Should type accept unsigned ints?
+		GasUsed:   int64(gInfo.GasUsed),   //nolint:gosec // gas values are practically bounded; TODO: Should type accept unsigned ints?
 		Log:       result.Log,
 		Data:      result.Data,
 		Events:    sdk.MarkEventsToIndex(result.Events, app.IndexEvents),
@@ -280,7 +281,10 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 		panic("no state to commit")
 	}
 	header := app.stateToCommit.ctx.BlockHeader()
-	retainHeight := app.GetBlockRetentionHeight(header.Height)
+	retainHeight, err := app.GetBlockRetentionHeight(header.Height)
+	if err != nil {
+		return nil, fmt.Errorf("getting block retention height: %w", err)
+	}
 
 	if app.preCommitHandler != nil {
 		if err := app.preCommitHandler(app.stateToCommit.ctx); err != nil {
@@ -304,10 +308,10 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 	var halt bool
 
 	switch {
-	case app.haltHeight > 0 && uint64(header.Height) >= app.haltHeight:
+	case app.haltHeight > 0 && uint64(header.Height) >= app.haltHeight: //nolint:gosec // block heights are always non-negative
 		halt = true
 
-	case app.haltTime > 0 && header.Time.Unix() >= int64(app.haltTime):
+	case app.haltTime > 0 && header.Time.Unix() >= int64(app.haltTime): //nolint:gosec // haltTime is a small config value, won't overflow int64
 		halt = true
 	}
 
@@ -319,7 +323,10 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 		app.halt()
 	}
 
-	app.SnapshotIfApplicable(uint64(header.Height))
+	if header.Height < 0 {
+		panic(fmt.Sprintf("negative block height: %d", header.Height))
+	}
+	app.SnapshotIfApplicable(uint64(header.Height)) //nolint:gosec // bounds checked above
 
 	return &abci.ResponseCommit{
 		RetainHeight: retainHeight,
@@ -328,7 +335,11 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 
 func (app *BaseApp) SnapshotIfApplicable(height uint64) {
 	if app.snapshotInterval > 0 && height%app.snapshotInterval == 0 {
-		go app.Snapshot(int64(height))
+		if height > uint64(math.MaxInt64) {
+			app.logger.Error("snapshot height exceeds max int64", "height", height)
+			return
+		}
+		go app.Snapshot(int64(height)) //nolint:gosec // bounds checked above
 	}
 }
 
@@ -361,9 +372,14 @@ func (app *BaseApp) Snapshot(height int64) {
 		return
 	}
 
+	if height < 0 {
+		app.logger.Error("cannot create snapshot for negative height", "height", height)
+		return
+	}
+
 	app.logger.Info("creating state snapshot", "height", height)
 
-	snapshot, err := app.snapshotManager.Create(uint64(height))
+	snapshot, err := app.snapshotManager.Create(uint64(height)) //nolint:gosec // bounds checked above
 	if err != nil {
 		app.logger.Error("failed to create state snapshot", "height", height, "err", err)
 		return
@@ -688,10 +704,10 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 // all blocks, e.g. via a local config option min-retain-blocks. There may also
 // be a need to vary retention for other nodes, e.g. sentry nodes which do not
 // need historical blocks.
-func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) int64 {
+func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) (int64, error) {
 	// pruning is disabled if minRetainBlocks is zero
 	if app.minRetainBlocks == 0 {
-		return 0
+		return 0, nil
 	}
 
 	minNonZero := func(x, y int64) int64 {
@@ -724,7 +740,11 @@ func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) int64 {
 
 	// Define the state pruning offset, i.e. the block offset at which the
 	// underlying logical database is persisted to disk.
-	statePruningOffset := int64(app.cms.GetPruning().KeepEvery)
+	keepEvery := app.cms.GetPruning().KeepEvery
+	if keepEvery > uint64(math.MaxInt64) {
+		return 0, fmt.Errorf("KeepEvery %d exceeds max int64", keepEvery)
+	}
+	statePruningOffset := int64(keepEvery) //nolint:gosec // bounds checked above
 	if statePruningOffset > 0 {
 		if commitHeight > statePruningOffset {
 			v := commitHeight - (commitHeight % statePruningOffset)
@@ -734,34 +754,44 @@ func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) int64 {
 			// a height in which we persist state, so we return zero regardless of other
 			// conditions. Otherwise, we could end up pruning blocks without having
 			// any state committed to disk.
-			return 0
+			return 0, nil
 		}
 	}
 
 	if app.snapshotInterval > 0 && app.snapshotKeepRecent > 0 {
-		v := commitHeight - int64((app.snapshotInterval * uint64(app.snapshotKeepRecent)))
+		snapshotRetain := app.snapshotInterval * uint64(app.snapshotKeepRecent) //nolint:gosec // snapshotKeepRecent is a small config value
+		if snapshotRetain/app.snapshotInterval != uint64(app.snapshotKeepRecent) {
+			return 0, fmt.Errorf("snapshot retention calculation overflowed")
+		}
+		if snapshotRetain > uint64(math.MaxInt64) {
+			return 0, fmt.Errorf("snapshot retention %d exceeds max int64", snapshotRetain)
+		}
+		v := commitHeight - int64(snapshotRetain) //nolint:gosec // bounds checked above
 		retentionHeight = minNonZero(retentionHeight, v)
 	}
 
-	v := commitHeight - int64(app.minRetainBlocks)
+	if app.minRetainBlocks > uint64(math.MaxInt64) {
+		return 0, fmt.Errorf("minRetainBlocks %d exceeds max int64", app.minRetainBlocks)
+	}
+	v := commitHeight - int64(app.minRetainBlocks) //nolint:gosec // bounds checked above
 	retentionHeight = minNonZero(retentionHeight, v)
 
 	if retentionHeight <= 0 {
 		// prune nothing in the case of a non-positive height
-		return 0
+		return 0, nil
 	}
 
-	return retentionHeight
+	return retentionHeight, nil
 }
 
 func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
-	ctx := app.checkState.ctx.WithTxBytes(txBytes).WithVoteInfos(app.voteInfos).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx))
+	ctx := app.checkState.ctx.WithTxBytes(txBytes).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx))
 	ctx, _ = ctx.CacheContext()
 	tx, err := app.txDecoder(txBytes)
 	if err != nil {
 		return sdk.GasInfo{}, nil, err
 	}
-	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeSimulate, tx, sha256.Sum256(txBytes))
+	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeSimulate, tx, sha256.Sum256(txBytes)) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
 	return gasInfo, result, err
 }
 
@@ -920,6 +950,10 @@ func splitPath(requestPath string) (path []string) {
 func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepareProposal) (resp *abci.ResponsePrepareProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "prepare_proposal")
 
+	if req.LastBlockPartSetTotal < 0 || req.LastBlockPartSetTotal > math.MaxUint32 {
+		return nil, fmt.Errorf("LastBlockPartSetTotal %d out of uint32 range", req.LastBlockPartSetTotal)
+	}
+
 	header := tmproto.Header{
 		ChainID:            app.ChainID,
 		Height:             req.Height,
@@ -936,7 +970,7 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 		LastBlockId: tmproto.BlockID{
 			Hash: req.LastBlockHash,
 			PartSetHeader: tmproto.PartSetHeader{
-				Total: uint32(req.LastBlockPartSetTotal),
+				Total: uint32(req.LastBlockPartSetTotal), //nolint:gosec // bounds checked above
 				Hash:  req.LastBlockPartSetHash,
 			},
 		},
@@ -987,6 +1021,10 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "process_proposal")
 
+	if req.LastBlockPartSetTotal < 0 || req.LastBlockPartSetTotal > math.MaxUint32 {
+		return nil, fmt.Errorf("LastBlockPartSetTotal %d out of uint32 range", req.LastBlockPartSetTotal)
+	}
+
 	header := tmproto.Header{
 		ChainID:            app.ChainID,
 		Height:             req.Height,
@@ -1003,7 +1041,7 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 		LastBlockId: tmproto.BlockID{
 			Hash: req.LastBlockHash,
 			PartSetHeader: tmproto.PartSetHeader{
-				Total: uint32(req.LastBlockPartSetTotal),
+				Total: uint32(req.LastBlockPartSetTotal), //nolint:gosec // bounds checked above
 				Hash:  req.LastBlockPartSetHash,
 			},
 		},
@@ -1059,6 +1097,10 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		))
 	}
 
+	if req.LastBlockPartSetTotal < 0 || req.LastBlockPartSetTotal > math.MaxUint32 {
+		return nil, fmt.Errorf("LastBlockPartSetTotal %d out of uint32 range", req.LastBlockPartSetTotal)
+	}
+
 	// Initialize the DeliverTx state. If this is the first block, it should
 	// already be initialized in InitChain. Otherwise app.deliverState will be
 	// nil, since it is reset on Commit.
@@ -1078,7 +1120,7 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		LastBlockId: tmproto.BlockID{
 			Hash: req.LastBlockHash,
 			PartSetHeader: tmproto.PartSetHeader{
-				Total: uint32(req.LastBlockPartSetTotal),
+				Total: uint32(req.LastBlockPartSetTotal), //nolint:gosec // bounds checked above
 				Hash:  req.LastBlockPartSetHash,
 			},
 		},
@@ -1107,9 +1149,6 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 			return nil, err
 		}
 		res.Events = sdk.MarkEventsToIndex(res.Events, app.IndexEvents)
-		// set the signed validators for addition to context in deliverTx
-		app.setVotesInfo(req.DecidedLastCommit.GetVotes())
-
 		return res, nil
 	} else {
 		return nil, errors.New("finalize block handler not set")

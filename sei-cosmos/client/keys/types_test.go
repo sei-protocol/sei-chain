@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/client/keys"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/keys"
 )
 
 func TestConstructors(t *testing.T) {
