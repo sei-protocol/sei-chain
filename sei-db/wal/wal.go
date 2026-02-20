@@ -157,9 +157,10 @@ func NewWAL[T any](
 // For async writes, this also checks for any previous async write errors.
 func (walLog *WAL[T]) Write(entry T) error {
 
+	errChan := make(chan error, 1)
 	req := &writeRequest[T]{
 		entry:   entry,
-		errChan: make(chan error, 1),
+		errChan: errChan,
 	}
 
 	err := interuptablePush(walLog.ctx, walLog.writeChan, req)
@@ -172,7 +173,7 @@ func (walLog *WAL[T]) Write(entry T) error {
 		return nil
 	}
 
-	err, pullErr := interuptablePull(walLog.ctx, req.errChan)
+	err, pullErr := interuptablePull(walLog.ctx, errChan)
 	if pullErr != nil {
 		return fmt.Errorf("failed to pull write error: %w", pullErr)
 	}
