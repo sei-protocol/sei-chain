@@ -112,9 +112,6 @@ you want to test the upgrade handler itself.
 			if err != nil {
 				return fmt.Errorf("failed to initialize telemetry: %w", err)
 			}
-			restartCoolDownDuration := time.Second * time.Duration(serverCtx.Config.SelfRemediation.RestartCooldownSeconds)
-			// Set the first restart time to be now - restartCoolDownDuration so that the first restart can trigger whenever
-			canRestartAfter := time.Now().Add(-restartCoolDownDuration)
 			err = startInProcess(
 				serverCtx,
 				clientCtx,
@@ -128,7 +125,6 @@ you want to test the upgrade handler itself.
 				[]trace.TracerProviderOption{},
 				node.DefaultMetricsProvider(serverCtx.Config.Instrumentation)(clientCtx.ChainID),
 				apiMetrics,
-				canRestartAfter,
 			)
 
 			serverCtx.Logger.Debug("received quit signal")

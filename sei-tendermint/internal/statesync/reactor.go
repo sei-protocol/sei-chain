@@ -213,7 +213,7 @@ type Reactor struct {
 	lastNoAvailablePeers time.Time
 
 	// Used to signal a restart the node on the application level
-	restartCh                     chan struct{}
+	restartEvent                  func()
 	restartNoAvailablePeersWindow time.Duration
 }
 
@@ -236,7 +236,7 @@ func NewReactor(
 	eventBus *eventbus.EventBus,
 	postSyncHook func(context.Context, sm.State) error,
 	needsStateSync bool,
-	restartCh chan struct{},
+	restartEvent func(),
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) (*Reactor, error) {
 	snapshotChannel, err := p2p.OpenChannel(router, GetSnapshotChannelDescriptor())
@@ -276,8 +276,8 @@ func NewReactor(
 		lightBlockChannel:             lightBlockChannel,
 		paramsChannel:                 paramsChannel,
 		lastNoAvailablePeers:          time.Time{},
-		restartCh:                     restartCh,
-		restartNoAvailablePeersWindow: time.Duration(selfRemediationConfig.StatesyncNoPeersRestartWindowSeconds) * time.Second,
+		restartEvent:                  restartEvent,
+		restartNoAvailablePeersWindow: time.Duration(selfRemediationConfig.StatesyncNoPeersRestartWindowSeconds) * time.Second, //nolint:gosec // validated in config.ValidateBasic against MaxInt64
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "StateSync", r)
@@ -1012,7 +1012,7 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 			r.lastNoAvailablePeers = time.Now()
 		} else if time.Since(r.lastNoAvailablePeers) > r.restartNoAvailablePeersWindow {
 			r.logger.Error("no available peers left for statesync (restarting router)")
-			r.restartCh <- struct{}{}
+			r.restartEvent()
 		}
 	} else {
 		// Reset
