@@ -9,55 +9,43 @@ import (
 // Using MemIAVL, Tests throughput with fixed total keys,
 // varying keysPerBlock and numBlocks to find optimal block size.
 func BenchmarkMemIAVLWriteWithDifferentBlockSize(b *testing.B) {
-	const totalKeys int64 = 1_000_000
+	const totalKeys int64 = 100_000
 
 	scenarios := []TestScenario{
 		{
 			Name:      "1_key_per_block",
 			TotalKeys: totalKeys,
-			NumBlocks: totalKeys / 1,
+			NumBlocks: totalKeys, // 1 key per block
 			Backend:   wrappers.MemIAVL,
 		},
 		{
 			Name:      "2_keys_per_block",
 			TotalKeys: totalKeys,
-			NumBlocks: totalKeys / 2,
+			NumBlocks: totalKeys / 2, // 2 keys per block
 			Backend:   wrappers.MemIAVL,
 		},
 		{
 			Name:      "10_keys_per_block",
 			TotalKeys: totalKeys,
-			NumBlocks: totalKeys / 10,
+			NumBlocks: totalKeys / 10, // 10 keys per block
 			Backend:   wrappers.MemIAVL,
 		},
 		{
 			Name:      "20_keys_per_block",
 			TotalKeys: totalKeys,
-			NumBlocks: totalKeys / 20,
+			NumBlocks: totalKeys / 20, // 20 keys per block
 			Backend:   wrappers.MemIAVL,
 		},
 		{
 			Name:      "100_keys_per_block",
 			TotalKeys: totalKeys,
-			NumBlocks: totalKeys / 100,
+			NumBlocks: totalKeys / 100, // 100 keys per block
 			Backend:   wrappers.MemIAVL,
 		},
 		{
 			Name:      "200_keys_per_block",
 			TotalKeys: totalKeys,
-			NumBlocks: totalKeys / 200,
-			Backend:   wrappers.MemIAVL,
-		},
-		{
-			Name:      "1000_keys_per_block",
-			TotalKeys: totalKeys,
-			NumBlocks: totalKeys / 1000,
-			Backend:   wrappers.MemIAVL,
-		},
-		{
-			Name:      "2000_keys_per_block",
-			TotalKeys: totalKeys,
-			NumBlocks: totalKeys / 2000,
+			NumBlocks: totalKeys / 200, // 200 keys per block
 			Backend:   wrappers.MemIAVL,
 		},
 	}
