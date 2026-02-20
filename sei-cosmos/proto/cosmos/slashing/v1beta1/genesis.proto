@@ -4,7 +4,7 @@ package cosmos.slashing.v1beta1;
 import "cosmos/slashing/v1beta1/slashing.proto";
 import "gogoproto/gogo.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/x/slashing/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types";
 
 // GenesisState defines the slashing module's genesis state.
 message GenesisState {

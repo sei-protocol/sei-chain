@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/server"
-	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
 )
 
 const (
@@ -94,6 +94,8 @@ func validateGenesisStream(mbm module.BasicManager, cmd *cobra.Command, args []s
 	serverCtx := server.GetServerContextFromCmd(cmd)
 	clientCtx := client.GetClientContextFromCmd(cmd)
 
+	const genesisDocModule = "genesisDoc"
+
 	cdc := clientCtx.Codec
 
 	// Load default if passed no args, otherwise load passed file
@@ -123,7 +125,7 @@ func validateGenesisStream(mbm module.BasicManager, cmd *cobra.Command, args []s
 					errCh <- fmt.Errorf("error unmarshalling genesis doc %s: %s", genesis, err.Error())
 					return
 				}
-				moduleName = "genesisDoc"
+				moduleName = genesisDocModule
 			} else {
 				moduleName = moduleState.AppState.Module
 			}
@@ -132,11 +134,11 @@ func validateGenesisStream(mbm module.BasicManager, cmd *cobra.Command, args []s
 				return
 			}
 			if prevModule != moduleName { // new module
-				if prevModule != "" && prevModule != "genesisDoc" {
+				if prevModule != "" && prevModule != genesisDocModule {
 					doneCh <- struct{}{}
 				}
 				seenModules[prevModule] = true
-				if moduleName != "genesisDoc" {
+				if moduleName != genesisDocModule {
 					go mbm.ValidateGenesisStream(cdc, clientCtx.TxConfig, moduleName, genesisCh, doneCh, errCh)
 					genesisCh <- moduleState.AppState.Data
 				} else {

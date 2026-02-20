@@ -3,7 +3,7 @@ package multiversion_test
 import (
 	"testing"
 
-	mv "github.com/cosmos/cosmos-sdk/store/multiversion"
+	mv "github.com/sei-protocol/sei-chain/sei-cosmos/store/multiversion"
 	"github.com/stretchr/testify/require"
 )
 

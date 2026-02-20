@@ -8,8 +8,8 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
-	scheduler "github.com/cosmos/cosmos-sdk/types/occ"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	scheduler "github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -288,11 +288,11 @@ func (store *VersionIndexedStore) iterator(start []byte, end []byte, ascending b
 	// TODO: ideally we persist writeset keys into a sorted btree for later use
 	// make a set of total keys across mvkv and mvs to iterate
 	for key := range store.writeset {
-		memDB.Set([]byte(key), []byte{})
+		_ = memDB.Set([]byte(key), []byte{})
 	}
 	// also add readset elements such that they fetch from readset instead of parent
 	for key := range store.readset {
-		memDB.Set([]byte(key), []byte{})
+		_ = memDB.Set([]byte(key), []byte{})
 	}
 
 	var parent, memIterator types.Iterator
@@ -330,7 +330,7 @@ func (v *VersionIndexedStore) DeleteAll(start, end []byte) error {
 
 func (v *VersionIndexedStore) GetAllKeyStrsInRange(start, end []byte) (res []string) {
 	iter := v.Iterator(start, end)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		res = append(res, string(iter.Key()))
 	}
