@@ -3,6 +3,7 @@ package avail
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -14,16 +15,31 @@ type inner struct {
 	commitQCs      *queue[types.RoadIndex, *types.CommitQC]
 	blocks         map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	votes          map[types.LaneID]*queue[types.BlockNumber, blockVotes]
+	// blockPersisted tracks per-lane how far block persistence has progressed.
+	// RecvBatch only yields blocks below this cursor for voting.
+	// nil when persistence is disabled (testing); RecvBatch then uses q.next.
+	// blockPersisted itself is not persisted to disk: on restart it is
+	// reconstructed from the blocks already on disk (see newInner).
+	blockPersisted map[types.LaneID]types.BlockNumber
 }
 
-func newInner(c *types.Committee) *inner {
+// loadedAvailState holds data loaded from disk on restart.
+// nil means fresh start (no persisted data).
+// blocks are sorted by number and contiguous (gaps already resolved by loader).
+type loadedAvailState struct {
+	appQC  utils.Option[*types.AppQC]
+	blocks map[types.LaneID][]persist.LoadedBlock
+}
+
+func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
 	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{}
 	for _, lane := range c.Lanes().All() {
 		votes[lane] = newQueue[types.BlockNumber, blockVotes]()
 		blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
 	}
-	return &inner{
+
+	i := &inner{
 		latestAppQC:    utils.None[*types.AppQC](),
 		latestCommitQC: utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		appVotes:       newQueue[types.GlobalBlockNumber, appVotes](),
@@ -31,6 +47,50 @@ func newInner(c *types.Committee) *inner {
 		blocks:         blocks,
 		votes:          votes,
 	}
+
+	if loaded == nil {
+		return i
+	}
+
+	// Restore AppQC and advance queues past already-processed indices.
+	i.latestAppQC = loaded.appQC
+	if aq, ok := loaded.appQC.Get(); ok {
+		// CommitQCs through this index have been processed; skip them.
+		i.commitQCs.first = aq.Proposal().RoadIndex() + 1
+		i.commitQCs.next = i.commitQCs.first
+		// AppVotes through this global block number have been processed.
+		i.appVotes.first = aq.Proposal().GlobalNumber() + 1
+		i.appVotes.next = i.appVotes.first
+	}
+
+	// Reconstruct blockPersisted from the blocks on disk.
+	i.blockPersisted = make(map[types.LaneID]types.BlockNumber, c.Lanes().Len())
+	for _, lane := range c.Lanes().All() {
+		i.blockPersisted[lane] = 0
+	}
+
+	// Restore persisted blocks into their lane queues.
+	for lane, bs := range loaded.blocks {
+		q, ok := i.blocks[lane]
+		if !ok || len(bs) == 0 {
+			continue
+		}
+		first := bs[0].Number
+		q.first = first
+		q.next = first
+		for _, b := range bs {
+			q.q[q.next] = b.Proposal
+			q.next++
+		}
+		i.blockPersisted[lane] = q.next
+		// Advance the votes queue to match so headers() returns ErrPruned
+		// for already-committed blocks instead of blocking forever.
+		vq := i.votes[lane]
+		vq.first = first
+		vq.next = first
+	}
+
+	return i
 }
 
 func (i *inner) laneQC(c *types.Committee, lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {

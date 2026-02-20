@@ -1,29 +1,24 @@
-package consensus
+package persist
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
-	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 func TestPersisterAlternates(t *testing.T) {
 	dir := t.TempDir()
 
-	w, _, err := newPersister(dir, "test")
+	w, _, err := NewPersister(dir, "test")
 	require.NoError(t, err)
 
-	// Both files should be pre-created (empty) by newPersister for dir-sync optimization.
-	_, errA := os.Stat(filepath.Join(dir, "test"+suffixA))
-	_, errB := os.Stat(filepath.Join(dir, "test"+suffixB))
+	// Both files should be pre-created (empty) by NewPersister for dir-sync optimization.
+	_, errA := os.Stat(filepath.Join(dir, "test"+SuffixA))
+	_, errB := os.Stat(filepath.Join(dir, "test"+SuffixB))
 	require.NoError(t, errA, "A should be pre-created")
 	require.NoError(t, errB, "B should be pre-created")
 
@@ -45,7 +40,7 @@ func TestPersisterAlternates(t *testing.T) {
 func TestPersisterPicksHigherSeq(t *testing.T) {
 	dir := t.TempDir()
 
-	w, _, err := newPersister(dir, "test")
+	w, _, err := NewPersister(dir, "test")
 	require.NoError(t, err)
 
 	// Write three times: A(seq=1), B(seq=2), A(seq=3)
@@ -63,13 +58,13 @@ func TestLoadPersistedOneCorruptFileSucceeds(t *testing.T) {
 	dir := t.TempDir()
 
 	// Write to both files: A(seq=1), B(seq=2)
-	w, _, err := newPersister(dir, "test")
+	w, _, err := NewPersister(dir, "test")
 	require.NoError(t, err)
 	require.NoError(t, w.Persist([]byte("first")))  // seq=1, A
 	require.NoError(t, w.Persist([]byte("second"))) // seq=2, B
 
 	// Corrupt B (the winner) — should fall back to A
-	err = os.WriteFile(filepath.Join(dir, "test"+suffixB), []byte("corrupt"), 0600)
+	err = os.WriteFile(filepath.Join(dir, "test"+SuffixB), []byte("corrupt"), 0600)
 	require.NoError(t, err)
 
 	wrapper, err := loadPersisted(dir, "test")
@@ -81,12 +76,12 @@ func TestLoadPersistedBothCorruptError(t *testing.T) {
 	dir := t.TempDir()
 
 	// Write valid wrapped data to A only
-	w, _, err := newPersister(dir, "test")
+	w, _, err := NewPersister(dir, "test")
 	require.NoError(t, err)
 	require.NoError(t, w.Persist([]byte("valid"))) // seq=1, A
 
 	// Corrupt A (B is empty, treated as non-existent) — both files fail
-	err = os.WriteFile(filepath.Join(dir, "test"+suffixA), []byte("corrupt"), 0600)
+	err = os.WriteFile(filepath.Join(dir, "test"+SuffixA), []byte("corrupt"), 0600)
 	require.NoError(t, err)
 
 	_, err = loadPersisted(dir, "test")
@@ -98,16 +93,16 @@ func TestNewPersisterOneCorruptFileSucceeds(t *testing.T) {
 	dir := t.TempDir()
 
 	// Write to both files: A(seq=1), B(seq=2)
-	w1, _, err := newPersister(dir, "test")
+	w1, _, err := NewPersister(dir, "test")
 	require.NoError(t, err)
 	require.NoError(t, w1.Persist([]byte("first")))  // seq=1, A
 	require.NoError(t, w1.Persist([]byte("second"))) // seq=2, B
 
-	// Corrupt B (the winner) — newPersister should still succeed using A
-	err = os.WriteFile(filepath.Join(dir, "test"+suffixB), []byte("corrupt"), 0600)
+	// Corrupt B (the winner) — NewPersister should still succeed using A
+	err = os.WriteFile(filepath.Join(dir, "test"+SuffixB), []byte("corrupt"), 0600)
 	require.NoError(t, err)
 
-	w2, _, err := newPersister(dir, "test")
+	w2, _, err := NewPersister(dir, "test")
 	require.NoError(t, err)
 
 	// A won (seq=1), so next write goes to B (the corrupt/loser slot)
@@ -128,7 +123,7 @@ func TestLoadPersistedEmptyDir(t *testing.T) {
 
 func TestNewPersisterInvalidDirError(t *testing.T) {
 	// State dir must already exist; invalid (nonexistent or not a directory) returns error
-	_, _, err := newPersister("/nonexistent/path/that/does/not/exist", "test")
+	_, _, err := NewPersister("/nonexistent/path/that/does/not/exist", "test")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid state dir")
 }
@@ -140,12 +135,12 @@ func TestPersistWriteErrorReturnsError(t *testing.T) {
 		t.Skip("chmod 000 on directory not reliable on Windows")
 	}
 	dir := t.TempDir()
-	w, _, err := newPersister(dir, "test")
+	w, _, err := NewPersister(dir, "test")
 	require.NoError(t, err)
 	require.NoError(t, w.Persist([]byte("data1")))
 	// Remove all permissions from dir so OpenFile fails with EACCES
 	require.NoError(t, os.Chmod(dir, 0000))
-	defer os.Chmod(dir, 0700)
+	defer os.Chmod(dir, 0700) //nolint:errcheck
 	err = w.Persist([]byte("data2"))
 	require.Error(t, err)
 }
@@ -158,7 +153,7 @@ func TestPersistWriteErrorDoesNotAdvanceSeq(t *testing.T) {
 		t.Skip("chmod 000 on directory not reliable on Windows")
 	}
 	dir := t.TempDir()
-	w, _, err := newPersister(dir, "test")
+	w, _, err := NewPersister(dir, "test")
 	require.NoError(t, err)
 
 	// Successful write: seq=1 → A
@@ -191,15 +186,15 @@ func TestLoadPersistedOSErrorPropagates(t *testing.T) {
 	dir := t.TempDir()
 
 	// Write to both files: A(seq=1), B(seq=2)
-	w, _, err := newPersister(dir, "test")
+	w, _, err := NewPersister(dir, "test")
 	require.NoError(t, err)
 	require.NoError(t, w.Persist([]byte("first")))  // seq=1, A
 	require.NoError(t, w.Persist([]byte("second"))) // seq=2, B
 
 	// Make B unreadable (OS error, not corrupt data)
-	pathB := filepath.Join(dir, "test"+suffixB)
+	pathB := filepath.Join(dir, "test"+SuffixB)
 	require.NoError(t, os.Chmod(pathB, 0000))
-	defer os.Chmod(pathB, 0600)
+	defer os.Chmod(pathB, 0600) //nolint:errcheck
 
 	// loadPersisted should fail — not silently fall back to A
 	_, err = loadPersisted(dir, "test")
@@ -213,13 +208,13 @@ func TestLoadPersistedCorruptFallsBack(t *testing.T) {
 	// fall back to the other file — this is the crash recovery path.
 	dir := t.TempDir()
 
-	w, _, err := newPersister(dir, "test")
+	w, _, err := NewPersister(dir, "test")
 	require.NoError(t, err)
 	require.NoError(t, w.Persist([]byte("first")))  // seq=1, A
 	require.NoError(t, w.Persist([]byte("second"))) // seq=2, B
 
 	// Corrupt B (simulates crash mid-write)
-	err = os.WriteFile(filepath.Join(dir, "test"+suffixB), []byte("garbage"), 0600)
+	err = os.WriteFile(filepath.Join(dir, "test"+SuffixB), []byte("garbage"), 0600)
 	require.NoError(t, err)
 
 	// Should succeed using A, since B's error is ErrCorrupt (tolerable)
@@ -232,7 +227,7 @@ func TestNewPersisterResumeSeq(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create persister and write some data
-	w1, _, err := newPersister(dir, "test")
+	w1, _, err := NewPersister(dir, "test")
 	require.NoError(t, err)
 	require.NoError(t, w1.Persist([]byte("data1"))) // seq=1, A
 	require.NoError(t, w1.Persist([]byte("data2"))) // seq=2, B
@@ -240,7 +235,7 @@ func TestNewPersisterResumeSeq(t *testing.T) {
 
 	// Create new persister (simulates restart)
 	// A has seq=3 (winner), so new persister should write to B first to preserve A
-	w2, _, err := newPersister(dir, "test")
+	w2, _, err := NewPersister(dir, "test")
 	require.NoError(t, err)
 	require.NoError(t, w2.Persist([]byte("data4"))) // seq=4, B (preserves A)
 
@@ -254,13 +249,13 @@ func TestNewPersisterPreservesWinner(t *testing.T) {
 	dir := t.TempDir()
 
 	// Write to both files: A=seq1, B=seq2 (B wins)
-	w1, _, err := newPersister(dir, "test")
+	w1, _, err := NewPersister(dir, "test")
 	require.NoError(t, err)
 	require.NoError(t, w1.Persist([]byte("old")))    // seq=1, A
 	require.NoError(t, w1.Persist([]byte("winner"))) // seq=2, B (winner)
 
 	// New persister should write to A first (preserve B)
-	w2, _, err := newPersister(dir, "test")
+	w2, _, err := NewPersister(dir, "test")
 	require.NoError(t, err)
 	require.NoError(t, w2.Persist([]byte("new"))) // seq=3, A (preserves B)
 
@@ -268,35 +263,4 @@ func TestNewPersisterPreservesWinner(t *testing.T) {
 	wrapper, err := loadPersisted(dir, "test")
 	require.NoError(t, err)
 	require.Equal(t, []byte("new"), wrapper.GetData())
-}
-
-// failPersister is a Persister that always returns an error.
-type failPersister struct{ err error }
-
-func (f failPersister) Persist([]byte) error { return f.err }
-
-func TestRunOutputsPersistErrorPropagates(t *testing.T) {
-	// Verify that a persist error in runOutputs propagates
-	// and terminates the consensus component (instead of panicking).
-	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
-	ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
-
-	cs, err := NewState(&Config{
-		Key:         keys[0],
-		ViewTimeout: func(types.View) time.Duration { return time.Hour },
-	}, ds)
-	require.NoError(t, err)
-
-	// Inject a persister that always fails.
-	wantErr := errors.New("disk on fire")
-	cs.persister = utils.Some[Persister](failPersister{err: wantErr})
-
-	// runOutputs should fail on the first Iter callback when it tries to persist.
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	err = cs.runOutputs(ctx)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "persist inner")
-	require.ErrorIs(t, err, wantErr)
 }

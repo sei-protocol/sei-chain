@@ -6,7 +6,9 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog/log"
+	"google.golang.org/protobuf/proto"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -38,15 +40,68 @@ type State struct {
 	key   types.SecretKey
 	data  *data.State
 	inner utils.Watch[*inner]
+
+	// persister writes avail inner state to disk using A/B files; None when persistence is disabled.
+	persister utils.Option[persist.Persister]
+	// blockPersist writes/deletes individual block files; nil when persistence is disabled.
+	blockPersist *persist.BlockPersister
+}
+
+// innerFile is the A/B file prefix for avail inner state persistence.
+const innerFile = "avail_inner"
+
+// loadPersistedState loads persisted avail state from disk and creates persisters for ongoing writes.
+func loadPersistedState(dir string) (*loadedAvailState, persist.Persister, *persist.BlockPersister, error) {
+	persister, persistedData, err := persist.NewPersister(dir, innerFile)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("NewPersister %s: %w", innerFile, err)
+	}
+
+	var appQC utils.Option[*types.AppQC]
+	if bz, ok := persistedData.Get(); ok {
+		qc, err := types.AppQCConv.Unmarshal(bz)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("unmarshal persisted AppQC: %w", err)
+		}
+		log.Info().
+			Uint64("roadIndex", uint64(qc.Proposal().RoadIndex())).
+			Uint64("globalNumber", uint64(qc.Proposal().GlobalNumber())).
+			Msg("loaded persisted AppQC")
+		appQC = utils.Some(qc)
+	}
+
+	bp, blocks, err := persist.NewBlockPersister(dir)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("NewBlockPersister: %w", err)
+	}
+
+	return &loadedAvailState{appQC: appQC, blocks: blocks}, persister, bp, nil
 }
 
 // NewState constructs a new availability state.
-func NewState(key types.SecretKey, data *data.State) *State {
-	return &State{
-		key:   key,
-		data:  data,
-		inner: utils.NewWatch(newInner(data.Committee())),
+// stateDir is None when persistence is disabled (testing only).
+func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[string]) (*State, error) {
+	var loaded *loadedAvailState
+	var p utils.Option[persist.Persister]
+	var bp *persist.BlockPersister
+
+	if dir, ok := stateDir.Get(); ok {
+		var persister persist.Persister
+		var err error
+		loaded, persister, bp, err = loadPersistedState(dir)
+		if err != nil {
+			return nil, err
+		}
+		p = utils.Some(persister)
 	}
+
+	return &State{
+		key:          key,
+		data:         data,
+		inner:        utils.NewWatch(newInner(data.Committee(), loaded)),
+		persister:    p,
+		blockPersist: bp,
+	}, nil
 }
 
 func (s *State) FirstCommitQC() types.RoadIndex {
@@ -151,6 +206,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 	if err := s.waitForCommitQC(ctx, idx); err != nil {
 		return err
 	}
+	var laneFirsts map[types.LaneID]types.BlockNumber
 	for inner, ctrl := range s.inner.Lock() {
 		// Early exit if not useful (we collect <=1 AppQC per road index).
 		if idx < types.NextOpt(inner.latestAppQC) {
@@ -176,8 +232,15 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 			return err
 		}
 		if updated {
+			if err := s.persistAppQC(appQC); err != nil {
+				return err
+			}
+			laneFirsts = snapshotLaneFirsts(inner)
 			ctrl.Updated()
 		}
+	}
+	if s.blockPersist != nil {
+		s.blockPersist.DeleteBefore(laneFirsts)
 	}
 	return nil
 }
@@ -200,16 +263,46 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
 	}
+	var laneFirsts map[types.LaneID]types.BlockNumber
 	for inner, ctrl := range s.inner.Lock() {
 		updated, err := inner.prune(appQC, commitQC)
 		if err != nil {
 			return err
 		}
 		if updated {
+			if err := s.persistAppQC(appQC); err != nil {
+				return err
+			}
+			laneFirsts = snapshotLaneFirsts(inner)
 			ctrl.Updated()
 		}
 	}
+	if s.blockPersist != nil {
+		s.blockPersist.DeleteBefore(laneFirsts)
+	}
 	return nil
+}
+
+func snapshotLaneFirsts(inner *inner) map[types.LaneID]types.BlockNumber {
+	m := make(map[types.LaneID]types.BlockNumber, len(inner.blocks))
+	for lane, q := range inner.blocks {
+		m[lane] = q.first
+	}
+	return m
+}
+
+// persistAppQC writes the AppQC to the A/B file. Called under the inner lock
+// so the checkpoint is durable before ctrl.Updated() notifies watchers.
+func (s *State) persistAppQC(appQC *types.AppQC) error {
+	p, ok := s.persister.Get()
+	if !ok {
+		return nil
+	}
+	bz, err := proto.Marshal(types.AppQCConv.Encode(appQC))
+	if err != nil {
+		return fmt.Errorf("marshal AppQC: %w", err)
+	}
+	return p.Persist(bz)
 }
 
 // NextBlock returns the index of the next missing block in local storage for the given lane.
@@ -292,6 +385,11 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		}
 		q.pushBack(p)
 		ctrl.Updated()
+	}
+	if s.blockPersist != nil {
+		// Blocking: called outside the inner lock so only this goroutine stalls.
+		// See Queue() for why we must not drop blocks.
+		return utils.IgnoreAfterCancel(ctx, s.blockPersist.Queue(ctx, h.Lane(), h.BlockNumber(), p))
 	}
 	return nil
 }
@@ -431,6 +529,8 @@ func (s *State) ProduceBlock(ctx context.Context, payload *types.Payload) (*type
 // TODO: produceBlock is a separate function for testing - consider improving the tests to use ProduceBlock only.
 func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
 	lane := key.Public()
+	var result *types.Signed[*types.LaneProposal]
+	var blockNum types.BlockNumber
 	for inner, ctrl := range s.inner.Lock() {
 		q, ok := inner.blocks[lane]
 		if !ok {
@@ -443,18 +543,37 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 		if q.first < q.next {
 			parent = q.q[q.next-1].Msg().Block().Header().Hash()
 		}
-		p := types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, q.next, parent, payload)))
-		q.q[q.next] = p
+		blockNum = q.next
+		result = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, blockNum, parent, payload)))
+		q.q[q.next] = result
 		q.next += 1
 		ctrl.Updated()
-		return p, nil
 	}
-	panic("unreachable")
+	if s.blockPersist != nil {
+		// Blocking: called outside the inner lock so only this goroutine stalls.
+		// See Queue() for why we must not drop blocks.
+		if err := utils.IgnoreAfterCancel(ctx, s.blockPersist.Queue(ctx, lane, blockNum, result)); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
 }
 
 // Run runs the background tasks of the state.
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
+		if s.blockPersist != nil {
+			scope.SpawnNamed("blockPersistWriter", func() error {
+				return s.blockPersist.Run(ctx, func(lane types.LaneID, n types.BlockNumber) {
+					for inner, ctrl := range s.inner.Lock() {
+						if inner.blockPersisted[lane] == n {
+							inner.blockPersisted[lane] = n + 1
+						}
+						ctrl.Updated()
+					}
+				})
+			})
+		}
 		// Task inserting FullCommitQCs and local blocks to data state.
 		scope.SpawnNamed("s.data.PushQC", func() error {
 			c := s.data.Committee()

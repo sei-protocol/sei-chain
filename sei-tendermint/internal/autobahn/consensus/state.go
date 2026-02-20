@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -44,7 +45,7 @@ type State struct {
 	innerRecv utils.AtomicRecv[inner]
 
 	// persister writes inner's persistedInner to disk when PersistentStateDir is set; None when disabled.
-	persister utils.Option[Persister]
+	persister utils.Option[persist.Persister]
 
 	timeoutVotes utils.Mutex[*timeoutVotes]
 	prepareVotes utils.Mutex[*prepareVotes]
@@ -79,14 +80,14 @@ func (s *State) SubscribeTimeoutQC() utils.AtomicRecv[utils.Option[*types.Timeou
 func NewState(cfg *Config, data *data.State) (*State, error) {
 	// Create persister first so newInner can receive the loaded data
 	// instead of reading the files directly.
-	var pers utils.Option[Persister]
+	var pers utils.Option[persist.Persister]
 	var persistedData utils.Option[[]byte]
 	if dir, ok := cfg.PersistentStateDir.Get(); ok {
-		p, d, err := newPersister(dir, innerFile)
+		p, d, err := persist.NewPersister(dir, innerFile)
 		if err != nil {
-			return nil, fmt.Errorf("newPersister: %w", err)
+			return nil, fmt.Errorf("NewPersister: %w", err)
 		}
-		pers = utils.Some[Persister](p)
+		pers = utils.Some[persist.Persister](p)
 		persistedData = d
 	}
 
@@ -95,11 +96,16 @@ func NewState(cfg *Config, data *data.State) (*State, error) {
 		return nil, fmt.Errorf("newInner: %w", err)
 	}
 
+	availState, err := avail.NewState(cfg.Key, data, cfg.PersistentStateDir)
+	if err != nil {
+		return nil, fmt.Errorf("avail.NewState: %w", err)
+	}
+
 	innerSend := utils.Alloc(utils.NewAtomicSend(initialInner))
 	s := &State{
 		cfg: cfg,
 		// metrics: NewMetrics(),
-		avail:     avail.NewState(cfg.Key, data),
+		avail:     availState,
 		inner:     utils.NewMutex(innerSend),
 		innerRecv: innerSend.Subscribe(),
 		persister: pers,

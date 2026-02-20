@@ -1,14 +1,5 @@
 // Crash-safe A/B file persistence.
 //
-// # stateDir Configuration
-//
-// At config level, stateDir is an Option[string]. NewState creates a persister when
-// stateDir is Some(path). When None, no persister is created (persistence
-// disabled — DANGEROUS, may lead to SLASHING if the node restarts and double-votes;
-// only use for testing). When Some(path), the path must already exist and be
-// writable (verified by writing a temp file at startup); returns error otherwise.
-// TODO: surface the None warning in CLI --help (e.g. stream command or config docs).
-//
 // # A/B File Strategy
 //
 // We use an A/B file pair (<prefix>_a.pb/<prefix>_b.pb) instead of the traditional
@@ -40,7 +31,7 @@
 //   - Writes are synchronous (fsync after each write).
 //   - Writes are idempotent, so retries on next state change are safe.
 //   - Seq is only advanced after a successful write (rollback on failure).
-package consensus
+package persist
 
 import (
 	"errors"
@@ -55,9 +46,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// A/B file suffixes.
 const (
-	suffixA = "_a.pb"
-	suffixB = "_b.pb"
+	SuffixA = "_a.pb"
+	SuffixB = "_b.pb"
 )
 
 // ErrNoData is returned by loadPersisted when no persisted files exist for the prefix.
@@ -84,11 +76,11 @@ type persister struct {
 	seq    uint64
 }
 
-// newPersister creates a crash-safe persister for the given directory and prefix.
+// NewPersister creates a crash-safe persister for the given directory and prefix.
 // dir must already exist and be a directory (we do not create it); returns error otherwise.
-// Also returns the loaded data (None on fresh start) for the caller to pass to newInner.
+// Also returns the loaded data (None on fresh start) for the caller to decode.
 // This encapsulates all on-disk format details (A/B files, seq wrapper) in one place.
-func newPersister(dir string, prefix string) (*persister, utils.Option[[]byte], error) {
+func NewPersister(dir string, prefix string) (Persister, utils.Option[[]byte], error) {
 	none := utils.None[[]byte]()
 
 	fi, err := os.Stat(dir)
@@ -116,7 +108,7 @@ func newPersister(dir string, prefix string) (*persister, utils.Option[[]byte], 
 	// Ensure both A/B files exist and are writable so Persist never creates new
 	// directory entries. Empty files are treated as non-existent by loadWrapped,
 	// so they won't interfere with loading on restart.
-	for _, suffix := range []string{suffixA, suffixB} {
+	for _, suffix := range []string{SuffixA, SuffixB} {
 		path := filepath.Join(dir, prefix+suffix)
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0600) //nolint:gosec // path is stateDir + hardcoded suffix; not user-controlled
 		if err != nil {
@@ -153,9 +145,9 @@ func (w *persister) Persist(data []byte) error {
 	seq := w.seq + 1
 
 	// Odd seq → A, even seq → B.
-	suffix := suffixB
+	suffix := SuffixB
 	if seq%2 == 1 {
-		suffix = suffixA
+		suffix = SuffixA
 	}
 	filename := w.prefix + suffix
 
@@ -168,7 +160,7 @@ func (w *persister) Persist(data []byte) error {
 		return fmt.Errorf("marshal wrapper: %w", err)
 	}
 
-	if err := writeAndSync(w.dir, filename, bz); err != nil {
+	if err := WriteAndSync(filepath.Join(w.dir, filename), bz); err != nil {
 		return fmt.Errorf("persist to %s: %w", filename, err)
 	}
 	w.seq = seq
@@ -192,7 +184,7 @@ func loadWrapped(stateDir, filename string) (*pb.PersistedWrapper, error) {
 		return nil, fmt.Errorf("read %s: %w", filename, err)
 	}
 	// Treat empty files as non-existent. A valid wrapper must contain at least
-	// a seq number. Empty files are created by newPersister to pre-populate
+	// a seq number. Empty files are created by NewPersister to pre-populate
 	// directory entries so that Persist never needs to dir-sync.
 	if len(bz) == 0 {
 		return nil, os.ErrNotExist
@@ -209,7 +201,7 @@ func loadWrapped(stateDir, filename string) (*pb.PersistedWrapper, error) {
 // so the validator can restart. Returns ErrNoData when no persisted files exist (use errors.Is).
 // Returns other error only when both files fail to load or state is inconsistent (same seq).
 func loadPersisted(dir string, prefix string) (*pb.PersistedWrapper, error) {
-	fileA, fileB := prefix+suffixA, prefix+suffixB
+	fileA, fileB := prefix+SuffixA, prefix+SuffixB
 	wrapperA, errA := loadWrapped(dir, fileA)
 	wrapperB, errB := loadWrapped(dir, fileB)
 
@@ -254,10 +246,9 @@ func loadPersisted(dir string, prefix string) (*pb.PersistedWrapper, error) {
 	}
 }
 
-// writeAndSync writes data to file and fsyncs. No dir sync needed because
-// newPersister pre-creates both A/B files at startup.
-func writeAndSync(stateDir string, filename string, data []byte) error {
-	path := filepath.Join(stateDir, filename)
+// WriteAndSync writes data to a file path and fsyncs. No dir sync needed because
+// NewPersister pre-creates both A/B files at startup.
+func WriteAndSync(path string, data []byte) error {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600) //nolint:gosec // path is stateDir + hardcoded suffix; not user-controlled
 	if err != nil {
 		return err
