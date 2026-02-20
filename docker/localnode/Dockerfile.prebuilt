@@ -1,12 +1,10 @@
-# Application image with prebuilt seid binary (for CI: build once, push to ttl.sh/GHCR; no in-container build).
-# Build with context = repo root so build/seid and build/price-feeder exist (produced by a prior container build step).
-
+# App image with prebuilt seid (CI: build once, push to GHCR).
 ARG GHCR_ORG=sei-protocol
 FROM ghcr.io/${GHCR_ORG}/sei-chain-localnode-base:go1.25.6
 ENV PATH="/root/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
-# Prebuilt seid loads libwasmvm*.so from image (no mount required)
+# Wasm libs for prebuilt seid
 ENV LD_LIBRARY_PATH="/opt/sei-wasmvm/lib"
-# GIGA executor loads evmone .so from repo mount at runtime
+# GIGA evmone path in container
 ENV GIGA_EVMONE_LIB_DIR="/sei-protocol/sei-chain/giga/executor/lib"
 SHELL ["/bin/bash", "-c"]
 WORKDIR /sei-protocol/sei-chain
@@ -14,7 +12,6 @@ EXPOSE 26656 26657 26658 9090 9091 7171
 CMD ["/usr/bin/deploy.sh"]
 STOPSIGNAL SIGTERM
 
-# Copy wasm VM libs into image so binary works without repo mount for libs
 RUN mkdir -p /opt/sei-wasmvm/lib
 COPY sei-wasmvm/internal/api/libwasmvm.x86_64.so /opt/sei-wasmvm/lib/
 COPY sei-wasmd/x/wasm/artifacts/v152/api/libwasmvm152.x86_64.so /opt/sei-wasmvm/lib/

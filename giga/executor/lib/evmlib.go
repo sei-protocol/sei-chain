@@ -13,8 +13,7 @@ import (
 
 // InitEvmoneVM initializes the EVMC VM by loading the platform-specific evmone library.
 // It does not verify that the loaded version is compatible with evmc version.
-// If GIGA_EVMONE_LIB_DIR is set, the library is loaded from that directory (for containers
-// where the build-time path from runtime.Caller is wrong).
+// If GIGA_EVMONE_LIB_DIR is set, load from env (containers); else path from runtime.Caller(0).
 func InitEvmoneVM() (*evmc.VM, error) {
 	var libPath string
 	if dir := os.Getenv("GIGA_EVMONE_LIB_DIR"); dir != "" {

@@ -42,7 +42,7 @@ jobs:
           go-version: '1.25.6'
           cache: true
 
-      - name: Set image name (GHCR, commit hash)
+      - name: Set image name
         id: image_name
         run: echo "image_name=ghcr.io/${{ github.repository_owner }}/sei-chain-localnode:${GITHUB_SHA:0:12}" >> $GITHUB_OUTPUT
 
@@ -59,7 +59,7 @@ jobs:
       - name: Ensure base image and build binaries (parallel)
         run: |
           set -euo pipefail
-          # Base image needed only for app image build; build on runner needs no Docker
+          # Ensure base (for app image); build binaries on runner
           (
             if ! docker pull ${{ env.GHCR_BASE_IMAGE }}; then
               echo "Base image not found; building and pushing..."
@@ -81,7 +81,7 @@ jobs:
           mkdir -p build/generated && echo DONE > build/generated/build.complete
           wait $ensure_pid
 
-      - name: Build app image with prebuilt binary and push
+      - name: Build app image with prebuilt binary
         env:
           DOCKER_BUILDKIT: 1
           DOCKER_BUILD_CACHE_FROM: type=gha
@@ -261,13 +261,9 @@ jobs:
             if [ "$elapsed" -ge "$timeout" ]; then
               echo "Cluster did not start within ${timeout} * 5s. Node logs:"
               for c in sei-node-0 sei-node-1 sei-node-2 sei-node-3; do
-                echo "==================== ${c} (docker logs tail) ===================="
-                docker logs --tail 150 "${c}" 2>&1 || true
+                docker logs --tail 100 "${c}" 2>&1 || true
                 NODE_ID=${c#sei-node-}
-                if [ -f "build/generated/logs/seid-${NODE_ID}.log" ]; then
-                  echo "==================== ${c} (seid log tail) ===================="
-                  tail -100 "build/generated/logs/seid-${NODE_ID}.log" 2>&1 || true
-                fi
+                [ -f "build/generated/logs/seid-${NODE_ID}.log" ] && tail -50 "build/generated/logs/seid-${NODE_ID}.log" 2>&1 || true
               done
               exit 1
             fi
@@ -287,12 +283,8 @@ jobs:
             fi
             if [ "$i" -eq 60 ]; then
               echo "RPC or first block did not become ready in time (last height: ${height:-none})."
-              echo "--- Diagnostic: containers ---"
-              docker ps -a --filter "name=sei-node" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
-              echo "--- Diagnostic: sei-node-0 seid status ---"
               docker exec sei-node-0 /sei-protocol/sei-chain/build/seid status || true
-              echo "--- Diagnostic: tail of sei-node-0 seid log ---"
-              if [ -f "build/generated/logs/seid-0.log" ]; then tail -80 "build/generated/logs/seid-0.log"; else echo "No seid-0.log found"; fi
+              [ -f "build/generated/logs/seid-0.log" ] && tail -80 "build/generated/logs/seid-0.log" || echo "No seid-0.log"
               exit 1
             fi
             echo "  attempt $i/60 (height=${height:-?})..."
