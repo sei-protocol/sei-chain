@@ -1,7 +1,7 @@
 package channel
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/keeper"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"

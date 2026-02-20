@@ -3,11 +3,11 @@ package keeper_test
 import (
 	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/evidence/types"
-	"github.com/cosmos/cosmos-sdk/x/slashing"
-	"github.com/cosmos/cosmos-sdk/x/staking"
-	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/teststaking"
 	abcitypes "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 

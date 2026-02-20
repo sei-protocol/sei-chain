@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -23,29 +24,33 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/tx"
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/server"
-	"github.com/cosmos/cosmos-sdk/server/api"
-	srvconfig "github.com/cosmos/cosmos-sdk/server/config"
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/testutil"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/utils"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/cosmos/cosmos-sdk/x/genutil"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
+	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/utils"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
-// package-wide network lock to only allow one test network at a time
-var lock = new(sync.Mutex)
+// package-wide lock (in-process) + file lock (cross-process) so that
+// multiple go test binaries don't race on port preallocation.
+var (
+	lock     = new(sync.Mutex)
+	lockPath = filepath.Join(os.TempDir(), "sei-cosmos-test-network.lock")
+)
 
 // AppConstructor defines a function which accepts a network configuration and
 // creates an ABCI Application to provide to Tendermint.
@@ -68,7 +73,7 @@ type Config struct {
 	TxConfig         client.TxConfig
 	AccountRetriever client.AccountRetriever
 	AppConstructor   AppConstructor             // the ABCI application constructor
-	GenesisState     map[string]json.RawMessage // custom gensis state to provide
+	GenesisState     map[string]json.RawMessage // custom genesis state to provide
 	TimeoutCommit    time.Duration              // the consensus commitment timeout
 	ChainID          string                     // the network chain-id
 	NumValidators    int                        // the total number of validators to create and bond
@@ -82,7 +87,9 @@ type Config struct {
 	EnableLogging    bool                       // enable Tendermint logging to STDOUT
 	CleanupDir       bool                       // remove base temporary directory during cleanup
 	SigningAlgo      string                     // signing algorithm for keys
-	KeyringOptions   []keyring.Option
+	EnableGRPCWeb    bool                       // enable gRPC-Web server (off by default)
+
+	KeyringOptions []keyring.Option
 }
 
 // DefaultConfig returns a sane default configuration suitable for nearly all
@@ -109,6 +116,7 @@ func DefaultConfig(t *testing.T) Config {
 		PruningStrategy:   storetypes.PruningOptionNothing,
 		CleanupDir:        true,
 		SigningAlgo:       string(hd.Secp256k1Type),
+		EnableGRPCWeb:     false,
 		KeyringOptions:    []keyring.Option{},
 	}
 }
@@ -129,7 +137,8 @@ type (
 		BaseDir    string
 		Validators []*Validator
 
-		Config Config
+		Config   Config
+		fileLock *flock.Flock
 	}
 
 	// Validator defines an in-process Tendermint validator node. Through this object,
@@ -165,8 +174,19 @@ func New(t *testing.T, cfg Config) *Network {
 	t.Log("acquiring test network lock")
 	lock.Lock()
 
+	fl := flock.New(lockPath)
+	acquired := false
+	defer func() {
+		if !acquired {
+			_ = fl.Unlock()
+			lock.Unlock()
+		}
+	}()
+	require.NoError(t, fl.Lock())
+	t.Logf("acquired inter-process test network lock: %s", lockPath)
+
 	baseDir := filepath.Join(t.TempDir(), cfg.ChainID)
-	require.NoError(t, os.MkdirAll(baseDir, os.ModePerm))
+	require.NoError(t, os.MkdirAll(baseDir, 0750))
 	t.Logf("created temporary directory: %s", baseDir)
 
 	network := &Network{
@@ -174,6 +194,7 @@ func New(t *testing.T, cfg Config) *Network {
 		BaseDir:    baseDir,
 		Validators: make([]*Validator, cfg.NumValidators),
 		Config:     cfg,
+		fileLock:   fl,
 	}
 
 	t.Log("preparing test network...")
@@ -201,7 +222,7 @@ func New(t *testing.T, cfg Config) *Network {
 
 		ctx := server.NewDefaultContext()
 		tmCfg := ctx.Config
-		tmCfg.BaseConfig.Mode = config.ModeValidator
+		tmCfg.Mode = config.ModeValidator
 		tmCfg.Consensus.UnsafeCommitTimeoutOverride = cfg.TimeoutCommit
 		tmCfg.TxIndex = config.TestTxIndexConfig()
 
@@ -218,7 +239,12 @@ func New(t *testing.T, cfg Config) *Network {
 
 			apiURL, err := url.Parse(apiListenAddr)
 			require.NoError(t, err)
-			apiAddr = fmt.Sprintf("http://%s:%s", apiURL.Hostname(), apiURL.Port())
+
+			host := apiURL.Hostname()
+			if host == "" || host == "0.0.0.0" || host == "::" {
+				host = "127.0.0.1"
+			}
+			apiAddr = fmt.Sprintf("http://%s:%s", host, apiURL.Port())
 
 			rpcAddr, _, err := server.FreeTCPAddr()
 			require.NoError(t, err)
@@ -226,13 +252,15 @@ func New(t *testing.T, cfg Config) *Network {
 
 			_, grpcPort, err := server.FreeTCPAddr()
 			require.NoError(t, err)
-			appCfg.GRPC.Address = fmt.Sprintf("0.0.0.0:%s", grpcPort)
+			appCfg.GRPC.Address = fmt.Sprintf("127.0.0.1:%s", grpcPort)
 			appCfg.GRPC.Enable = true
 
-			_, grpcWebPort, err := server.FreeTCPAddr()
-			require.NoError(t, err)
-			appCfg.GRPCWeb.Address = fmt.Sprintf("0.0.0.0:%s", grpcWebPort)
-			appCfg.GRPCWeb.Enable = true
+			if cfg.EnableGRPCWeb {
+				_, grpcWebPort, err := server.FreeTCPAddr()
+				require.NoError(t, err)
+				appCfg.GRPCWeb.Address = fmt.Sprintf("127.0.0.1:%s", grpcWebPort)
+				appCfg.GRPCWeb.Enable = true
+			}
 		}
 
 		logger := log.NewNopLogger()
@@ -247,8 +275,8 @@ func New(t *testing.T, cfg Config) *Network {
 		clientDir := filepath.Join(network.BaseDir, nodeDirName, "simcli")
 		gentxsDir := filepath.Join(network.BaseDir, "gentxs")
 
-		require.NoError(t, os.MkdirAll(filepath.Join(nodeDir, "config"), 0755))
-		require.NoError(t, os.MkdirAll(clientDir, 0755))
+		require.NoError(t, os.MkdirAll(filepath.Join(nodeDir, "config"), 0750))
+		require.NoError(t, os.MkdirAll(clientDir, 0750))
 
 		tmCfg.SetRoot(nodeDir)
 		tmCfg.Moniker = nodeDirName
@@ -384,6 +412,7 @@ func New(t *testing.T, cfg Config) *Network {
 	// defer in a test would not be called.
 	server.TrapSignal(network.Cleanup)
 
+	acquired = true
 	return network
 }
 
@@ -448,10 +477,6 @@ func (n *Network) WaitForNextBlock() error {
 	}
 
 	_, err = n.WaitForHeight(lastBlock + 1)
-	if err != nil {
-		return err
-	}
-
 	return err
 }
 
@@ -465,11 +490,17 @@ func (n *Network) Cleanup() {
 		n.T.Log("released test network lock")
 	}()
 
+	if n.fileLock != nil {
+		_ = n.fileLock.Unlock()
+	}
+
 	n.T.Log("cleaning up test network...")
 
 	for _, v := range n.Validators {
+		// Always cancel the context to avoid leaks, regardless of node state.
+		v.cancelFn()
+
 		if v.tmNode != nil && v.tmNode.IsRunning() {
-			v.cancelFn()
 			v.tmNode.Wait()
 		}
 

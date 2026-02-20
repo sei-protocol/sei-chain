@@ -3,12 +3,11 @@ package config
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"text/template"
 
-	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	"github.com/spf13/viper"
 )
@@ -70,12 +69,12 @@ func writeConfigToFile(configFilePath string, config *ClientConfig) error {
 		return err
 	}
 
-	return ioutil.WriteFile(configFilePath, buffer.Bytes(), 0600)
+	return os.WriteFile(configFilePath, buffer.Bytes(), 0600)
 }
 
 // ensureConfigPath creates a directory configPath if it does not exist
 func ensureConfigPath(configPath string) error {
-	return os.MkdirAll(configPath, os.ModePerm)
+	return os.MkdirAll(configPath, 0750)
 }
 
 // getClientConfig reads values from client.toml file and unmarshalls them into ClientConfig

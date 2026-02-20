@@ -1,8 +1,8 @@
 package types_test
 
 import (
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/06-solomachine/types"
 	solomachinetypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/06-solomachine/types"
