@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           # Depth 0 for PRs so sei-iavl change detection against main works.
-          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
       - uses: actions/setup-go@v6
         with:
@@ -71,7 +71,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           # Depth 0 for PRs so sei-iavl change detection against main works.
-          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
       - uses: actions/setup-go@v6
         with:
@@ -90,26 +90,32 @@ jobs:
       - name: Download modules
         run: go mod download
 
-      - name: Determine test packages
-        id: test-packages
+      - name: Determine coverage packages (PR)
+        id: cov-pkgs
         if: github.event_name == 'pull_request'
         run: |
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- sei-iavl/ | wc -l)
-          if [[ "$CHANGED" -eq 0 ]]; then
-            echo "No changes in sei-iavl/, excluding from tests"
-            echo "packages=$(go list ./... | grep -v '/sei-iavl' | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)
+
+          CHANGED_GO=$(printf "%s\n" "$CHANGED" | rg '\.go$' || true)
+          if [[ -z "$CHANGED_GO" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "packages=./..." >> "$GITHUB_OUTPUT"
+
+          PKGS=$(printf "%s\n" "$CHANGED_GO" | xargs -r -n1 dirname | sort -u | xargs -r go list | tr '\n' ' ')
+          echo "packages=$PKGS" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Go test with coverage (PR fast path)
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.cov-pkgs.outputs.skip != 'true'
         run: |
           go test \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             -covermode=count \
             -coverprofile=coverage.out \
-            ${{ steps.test-packages.outputs.packages || './...' }}
+            ${{ steps.cov-pkgs.outputs.packages }}
 
       - name: Go test with coverage (full path)
         if: github.event_name != 'pull_request'
