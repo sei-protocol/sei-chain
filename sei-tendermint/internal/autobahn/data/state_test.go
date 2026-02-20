@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
@@ -298,4 +299,74 @@ func TestExecution(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+
+	state := NewState(&Config{
+		Committee: committee,
+	}, utils.None[BlockStore]())
+
+	// Push QC without blocks.
+	qc, blocks := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
+	require.NoError(t, state.PushQC(ctx, qc, nil))
+	gr := qc.QC().GlobalRange()
+
+	// PushBlock for a block whose QC is already present succeeds immediately.
+	require.NoError(t, state.PushBlock(ctx, gr.First, blocks[0]))
+	got, err := state.TryBlock(gr.First)
+	require.NoError(t, err)
+	require.Equal(t, blocks[0], got)
+}
+
+func TestPushBlockWaitsForQC(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		rng := utils.TestRng()
+		committee, keys := types.GenCommittee(rng, 3)
+
+		state := NewState(&Config{
+			Committee: committee,
+		}, utils.None[BlockStore]())
+
+		// Push first QC covering [0, N).
+		qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
+		require.NoError(t, state.PushQC(ctx, qc1, blocks1))
+
+		// Prepare second QC covering [N, M) but don't push it yet.
+		qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
+		gr2 := qc2.QC().GlobalRange()
+
+		// Block gr2.First should not be in state yet.
+		_, err := state.TryBlock(gr2.First)
+		require.ErrorIs(t, err, ErrNotFound)
+
+		// PushBlock for a block in qc2's range. With the off-by-one bug
+		// (n <= inner.nextQC), this would immediately dereference a nil QC
+		// pointer and panic. With the fix, it waits for the QC.
+		var pushErr error
+		go func() {
+			pushErr = state.PushBlock(ctx, gr2.First, blocks2[0])
+		}()
+
+		// Wait for PushBlock to become durably blocked on the QC channel.
+		synctest.Wait()
+
+		// Block should still not be in state (PushBlock is blocked).
+		_, err = state.TryBlock(gr2.First)
+		require.ErrorIs(t, err, ErrNotFound)
+
+		// Push qc2 to unblock PushBlock.
+		require.NoError(t, state.PushQC(ctx, qc2, nil))
+		synctest.Wait()
+		require.NoError(t, pushErr)
+
+		// Block gr2.First should now be in state.
+		got, err := state.TryBlock(gr2.First)
+		require.NoError(t, err)
+		require.Equal(t, blocks2[0], got)
+	})
 }
