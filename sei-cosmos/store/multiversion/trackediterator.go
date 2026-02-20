@@ -1,7 +1,7 @@
 package multiversion
 
 import (
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 // tracked iterator is a wrapper around an existing iterator to track the iterator progress and monitor which keys are iterated.

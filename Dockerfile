@@ -19,7 +19,6 @@ RUN mkdir -p /go/lib && \
     cp /tmp/wasmvm-libs/libwasmvm.${ARCH_SUFFIX}.so /go/lib/
 
 COPY go.* ./
-COPY sei-cosmos/go.* ./sei-cosmos/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go mod download
@@ -32,7 +31,7 @@ ARG GO_BUILD_ARGS=""
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     BUILD_TAGS="netgo ledger ${GO_BUILD_TAGS}" && \
-    VERSION_PKG="github.com/cosmos/cosmos-sdk/version" && \
+    VERSION_PKG="github.com/sei-protocol/sei-chain/sei-cosmos/version" && \
     LDFLAGS="\
       -X ${VERSION_PKG}.Name=sei \
       -X ${VERSION_PKG}.AppName=seid \

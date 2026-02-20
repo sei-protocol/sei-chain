@@ -3,8 +3,8 @@ package keeper
 import (
 	"math/big"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 func (k *Keeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress) *big.Int {

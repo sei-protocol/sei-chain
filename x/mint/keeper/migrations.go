@@ -3,8 +3,8 @@ package keeper
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
@@ -52,14 +52,14 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 
 	var v2TokenReleaseSchedules []types.Version2ScheduledTokenRelease
 	v2TokenReleaseSchedulesBytes := m.keeper.GetParamSpace().GetRaw(ctx, types.KeyTokenReleaseSchedule)
-	err := codec.NewLegacyAmino().UnmarshalJSON(v2TokenReleaseSchedulesBytes, &v2TokenReleaseSchedules)
+	err := codec.NewLegacyAmino().UnmarshalAsJSON(v2TokenReleaseSchedulesBytes, &v2TokenReleaseSchedules)
 	if err != nil {
 		panic(fmt.Sprintf("Key not found or error: %s", err))
 	}
 
 	var v2MintDenom string
 	v2MintDenomBytes := m.keeper.GetParamSpace().GetRaw(ctx, types.KeyMintDenom)
-	err = codec.NewLegacyAmino().UnmarshalJSON(v2MintDenomBytes, &v2MintDenom)
+	err = codec.NewLegacyAmino().UnmarshalAsJSON(v2MintDenomBytes, &v2MintDenom)
 	if err != nil {
 		panic(fmt.Sprintf("Key not found or error: %s", err))
 	}

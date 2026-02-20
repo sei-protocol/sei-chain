@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
@@ -9,7 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 )
 
 var _ client.TendermintRPC = (*MockTendermintRPC)(nil)

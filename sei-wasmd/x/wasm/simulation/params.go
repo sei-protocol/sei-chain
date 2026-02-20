@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/simulation"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
@@ -16,7 +16,7 @@ func ParamChanges(r *rand.Rand, cdc codec.Codec) []simtypes.ParamChange {
 	return []simtypes.ParamChange{
 		simulation.NewSimParamChange(types.ModuleName, string(types.ParamStoreKeyUploadAccess),
 			func(r *rand.Rand) string {
-				jsonBz, err := cdc.MarshalJSON(&params.CodeUploadAccess)
+				jsonBz, err := cdc.MarshalAsJSON(&params.CodeUploadAccess)
 				if err != nil {
 					panic(err)
 				}

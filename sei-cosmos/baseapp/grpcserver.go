@@ -12,9 +12,9 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	grpctypes "github.com/cosmos/cosmos-sdk/types/grpc"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	grpctypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/grpc"
 )
 
 // GRPCQueryRouter returns the GRPCQueryRouter of a BaseApp.
@@ -61,7 +61,7 @@ func (app *BaseApp) RegisterGRPCServer(server gogogrpc.Server) {
 		grpcCtx = context.WithValue(grpcCtx, sdk.SdkContextKey, sdkCtx)
 
 		md = metadata.Pairs(grpctypes.GRPCBlockHeightHeader, strconv.FormatInt(height, 10))
-		grpc.SetHeader(grpcCtx, md)
+		_ = grpc.SetHeader(grpcCtx, md)
 
 		return handler(grpcCtx, req)
 	}
