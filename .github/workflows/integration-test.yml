@@ -257,8 +257,24 @@ jobs:
 
       - name: Wait for docker cluster to start
         run: |
+          timeout=72
+          elapsed=0
           until [ -f build/generated/launch.complete ] && [ "$(cat build/generated/launch.complete | wc -l)" = 4 ]; do
+            if [ "$elapsed" -ge "$timeout" ]; then
+              echo "Cluster did not start within ${timeout} * 5s. Node logs:"
+              for c in sei-node-0 sei-node-1 sei-node-2 sei-node-3; do
+                echo "==================== ${c} (docker logs tail) ===================="
+                docker logs --tail 150 "${c}" 2>&1 || true
+                NODE_ID=${c#sei-node-}
+                if [ -f "build/generated/logs/seid-${NODE_ID}.log" ]; then
+                  echo "==================== ${c} (seid log tail) ===================="
+                  tail -100 "build/generated/logs/seid-${NODE_ID}.log" 2>&1 || true
+                fi
+              done
+              exit 1
+            fi
             sleep 5
+            elapsed=$((elapsed + 1))
           done
           sleep 5
 
