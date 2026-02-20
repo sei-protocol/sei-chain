@@ -18,8 +18,8 @@ mkdir -p $GOBIN
 # Use prebuilt binaries from the image when present (CI: binary baked in; no in-container build)
 if [ -f /prebuilt/seid ]; then
   mkdir -p build/generated
-  cp /prebuilt/seid build/seid
-  cp /prebuilt/price-feeder build/price-feeder
+  cp -f /prebuilt/seid build/seid
+  cp -f /prebuilt/price-feeder build/price-feeder
   echo "DONE" > build/generated/build.complete
   export SKIP_BUILD=1
 fi
