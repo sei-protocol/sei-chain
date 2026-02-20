@@ -262,7 +262,7 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	ds := data.NewState(&data.Config{
 		Committee: committee,
 	}, utils.None[data.BlockStore]())
-	state := NewState(keys[0], ds)
+	state := utils.OrPanic1(NewState(keys[0], ds, utils.None[string]()))
 
 	// Produce a valid first block on our lane.
 	_, err := state.ProduceBlock(ctx, types.GenPayload(rng))
@@ -287,7 +287,7 @@ func TestPushBlockRejectsWrongSigner(t *testing.T) {
 	ds := data.NewState(&data.Config{
 		Committee: committee,
 	}, utils.None[data.BlockStore]())
-	state := NewState(keys[0], ds)
+	state := utils.OrPanic1(NewState(keys[0], ds, utils.None[string]()))
 
 	// Create a block on keys[0]'s lane but sign it with keys[1].
 	lane := keys[0].Public()
