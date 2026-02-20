@@ -278,8 +278,9 @@ build-docker-node: build-docker-node-base
 	@$(MAKE) build-docker-node-app
 .PHONY: build-docker-node
 
+# RPC node image (context = repo root so we can COPY wasm libs)
 build-rpc-node:
-	@cd docker && docker build --tag sei-chain/rpcnode rpcnode --platform linux/x86_64
+	@docker build --tag sei-chain/rpcnode -f docker/rpcnode/Dockerfile . --platform linux/x86_64
 .PHONY: build-rpc-node
 
 # Run a single node docker container

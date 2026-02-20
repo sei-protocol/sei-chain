@@ -4,13 +4,19 @@
 ARG GHCR_ORG=sei-protocol
 FROM ghcr.io/${GHCR_ORG}/sei-chain-localnode-base:go1.25.6
 ENV PATH="/root/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
-# Prebuilt seid (built on runner) loads all libwasmvm*.so from mounted repo at runtime
-ENV LD_LIBRARY_PATH="/sei-protocol/sei-chain/sei-wasmvm/internal/api:/sei-protocol/sei-chain/sei-wasmd/x/wasm/artifacts/v152/api:/sei-protocol/sei-chain/sei-wasmd/x/wasm/artifacts/v155/api"
+# Prebuilt seid loads libwasmvm*.so from image (no mount required)
+ENV LD_LIBRARY_PATH="/opt/sei-wasmvm/lib"
 SHELL ["/bin/bash", "-c"]
 WORKDIR /sei-protocol/sei-chain
 EXPOSE 26656 26657 26658 9090 9091 7171
 CMD ["/usr/bin/deploy.sh"]
 STOPSIGNAL SIGTERM
+
+# Copy wasm VM libs into image so binary works without repo mount for libs
+RUN mkdir -p /opt/sei-wasmvm/lib
+COPY sei-wasmvm/internal/api/libwasmvm.x86_64.so /opt/sei-wasmvm/lib/
+COPY sei-wasmd/x/wasm/artifacts/v152/api/libwasmvm152.x86_64.so /opt/sei-wasmvm/lib/
+COPY sei-wasmd/x/wasm/artifacts/v155/api/libwasmvm155.x86_64.so /opt/sei-wasmvm/lib/
 
 # Context is repo root; scripts live under docker/localnode/scripts/
 COPY docker/localnode/scripts/deploy.sh /usr/bin/deploy.sh
