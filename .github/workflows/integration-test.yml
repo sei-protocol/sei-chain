@@ -40,7 +40,7 @@ jobs:
         uses: actions/setup-go@v3
         with:
           go-version: '1.25.6'
-          cache: 'go'
+          cache: true
 
       - name: Set image name (commit hash)
         id: image_name
