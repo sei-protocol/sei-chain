@@ -5,11 +5,11 @@ import (
 
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/codec/unknownproto"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/tx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/unknownproto"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 )
 
 // DefaultTxDecoder returns a default protobuf TxDecoder using the provided Marshaler.
@@ -79,7 +79,7 @@ func DefaultTxDecoder(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
 func DefaultJSONTxDecoder(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
 	return func(txBytes []byte) (sdk.Tx, error) {
 		var theTx tx.Tx
-		err := cdc.UnmarshalJSON(txBytes, &theTx)
+		err := cdc.UnmarshalAsJSON(txBytes, &theTx)
 		if err != nil {
 			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}

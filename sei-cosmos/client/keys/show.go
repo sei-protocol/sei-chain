@@ -7,13 +7,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
-	"github.com/cosmos/cosmos-sdk/crypto/ledger"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerr "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/multisig"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/ledger"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerr "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 const (
@@ -126,7 +126,7 @@ func runShowCmd(cmd *cobra.Command, args []string) (err error) {
 		if isShowPubKey {
 			out = ko.PubKey
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), out)
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), out)
 	default:
 		printKeyInfo(cmd.OutOrStdout(), info, bechKeyOut, clientCtx.OutputFormat)
 	}

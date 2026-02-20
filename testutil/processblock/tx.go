@@ -1,14 +1,14 @@
 package processblock
 
 import (
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
-	xauthsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
-	"github.com/cosmos/cosmos-sdk/x/auth/tx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	xauthsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/tx"
 )
 
 var InterfaceReg = types.NewInterfaceRegistry()

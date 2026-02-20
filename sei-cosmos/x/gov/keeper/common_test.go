@@ -5,12 +5,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/cosmos/cosmos-sdk/x/staking"
-	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
+	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 var (

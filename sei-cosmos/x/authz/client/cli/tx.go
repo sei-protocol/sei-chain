@@ -8,15 +8,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/client/tx"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/version"
-	authclient "github.com/cosmos/cosmos-sdk/x/auth/client"
-	"github.com/cosmos/cosmos-sdk/x/authz"
-	bank "github.com/cosmos/cosmos-sdk/x/bank/types"
-	staking "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
+	authclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
+	bank "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	staking "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 // Flag names and values

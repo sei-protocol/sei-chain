@@ -5,9 +5,9 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/dbadapter"
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/dbadapter"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 var sink interface{}
@@ -34,7 +34,7 @@ func benchmarkBlankParentIteratorNext(b *testing.B, keysize int) {
 	b.ResetTimer()
 
 	iter := kvstore.Iterator(keys[0], keys[b.N])
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	for _ = iter.Key(); iter.Valid(); iter.Next() {
 		// deadcode elimination stub
@@ -81,7 +81,7 @@ func benchmarkRandomSet(b *testing.B, keysize int) {
 	}
 
 	iter := kvstore.Iterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	for _ = iter.Key(); iter.Valid(); iter.Next() {
 		// deadcode elimination stub
@@ -120,7 +120,7 @@ func benchmarkIteratorOnParentWithManyDeletes(b *testing.B, numDeletes int) {
 	b.ResetTimer()
 
 	iter := kvstore.Iterator(keys[0], keys[b.N])
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	for _ = iter.Key(); iter.Valid(); iter.Next() {
 		// deadcode elimination stub

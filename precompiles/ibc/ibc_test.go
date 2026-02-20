@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/precompiles/ibc"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"

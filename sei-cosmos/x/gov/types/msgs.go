@@ -7,9 +7,9 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 
-	"github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 // Governance message types and routes
@@ -137,8 +137,6 @@ func (m MsgSubmitProposal) UnpackInterfaces(unpacker types.AnyUnpacker) error {
 }
 
 // NewMsgDeposit creates a new MsgDeposit instance
-//
-//nolint:interfacer
 func NewMsgDeposit(depositor sdk.AccAddress, proposalID uint64, amount sdk.Coins) *MsgDeposit {
 	return &MsgDeposit{proposalID, depositor.String(), amount}
 }
@@ -183,8 +181,6 @@ func (msg MsgDeposit) GetSigners() []sdk.AccAddress {
 }
 
 // NewMsgVote creates a message to cast a vote on an active proposal
-//
-//nolint:interfacer
 func NewMsgVote(voter sdk.AccAddress, proposalID uint64, option VoteOption) *MsgVote {
 	return &MsgVote{proposalID, voter.String(), option}
 }
@@ -227,8 +223,6 @@ func (msg MsgVote) GetSigners() []sdk.AccAddress {
 }
 
 // NewMsgVoteWeighted creates a message to cast a vote on an active proposal
-//
-//nolint:interfacer
 func NewMsgVoteWeighted(voter sdk.AccAddress, proposalID uint64, options WeightedVoteOptions) *MsgVoteWeighted {
 	return &MsgVoteWeighted{proposalID, voter.String(), options}
 }

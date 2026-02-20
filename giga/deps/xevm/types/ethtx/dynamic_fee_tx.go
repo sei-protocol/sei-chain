@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"math/big"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 func NewDynamicFeeTx(tx *ethtypes.Transaction) (*DynamicFeeTx, error) {

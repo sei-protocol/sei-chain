@@ -3,9 +3,9 @@ package keeper
 import (
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/gov/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
 
 // AddVote adds a vote on a specific proposal
@@ -94,7 +94,7 @@ func (keeper Keeper) IterateAllVotes(ctx sdk.Context, cb func(vote types.Vote) (
 	store := ctx.KVStore(keeper.storeKey)
 	iterator := sdk.KVStorePrefixIterator(store, types.VotesKeyPrefix)
 
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 	for ; iterator.Valid(); iterator.Next() {
 		var vote types.Vote
 		keeper.cdc.MustUnmarshal(iterator.Value(), &vote)
@@ -111,7 +111,7 @@ func (keeper Keeper) IterateVotes(ctx sdk.Context, proposalID uint64, cb func(vo
 	store := ctx.KVStore(keeper.storeKey)
 	iterator := sdk.KVStorePrefixIterator(store, types.VotesKey(proposalID))
 
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 	for ; iterator.Valid(); iterator.Next() {
 		var vote types.Vote
 		keeper.cdc.MustUnmarshal(iterator.Value(), &vote)

@@ -3,7 +3,7 @@ package utils
 import (
 	"strings"
 
-	"github.com/cosmos/cosmos-sdk/x/gov/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
 
 // NormalizeVoteOption - normalize user specified vote option
@@ -28,8 +28,9 @@ func NormalizeVoteOption(option string) string {
 
 // NormalizeWeightedVoteOptions - normalize vote options param string
 func NormalizeWeightedVoteOptions(options string) string {
-	newOptions := []string{}
-	for _, option := range strings.Split(options, ",") {
+	parts := strings.Split(options, ",")
+	newOptions := make([]string, 0, len(parts))
+	for _, option := range parts {
 		fields := strings.Split(option, "=")
 		fields[0] = NormalizeVoteOption(fields[0])
 		if len(fields) < 2 {

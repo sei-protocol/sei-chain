@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/x/evidence/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/types"
 
 	"github.com/spf13/cobra"
 )

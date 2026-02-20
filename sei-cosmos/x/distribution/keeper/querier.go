@@ -5,11 +5,11 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/distribution/types"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 func NewQuerier(k Keeper, legacyQuerierCdc *codec.LegacyAmino) sdk.Querier {
@@ -61,7 +61,7 @@ func queryParams(ctx sdk.Context, _ []string, _ abci.RequestQuery, k Keeper, leg
 
 func queryValidatorOutstandingRewards(ctx sdk.Context, _ []string, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryValidatorOutstandingRewardsParams
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
@@ -81,7 +81,7 @@ func queryValidatorOutstandingRewards(ctx sdk.Context, _ []string, req abci.Requ
 
 func queryValidatorCommission(ctx sdk.Context, _ []string, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryValidatorCommissionParams
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
@@ -101,7 +101,7 @@ func queryValidatorCommission(ctx sdk.Context, _ []string, req abci.RequestQuery
 
 func queryValidatorSlashes(ctx sdk.Context, _ []string, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryValidatorSlashesParams
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
@@ -124,7 +124,7 @@ func queryValidatorSlashes(ctx sdk.Context, _ []string, req abci.RequestQuery, k
 
 func queryDelegationRewards(ctx sdk.Context, _ []string, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryDelegationRewardsParams
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
@@ -158,7 +158,7 @@ func queryDelegationRewards(ctx sdk.Context, _ []string, req abci.RequestQuery, 
 
 func queryDelegatorTotalRewards(ctx sdk.Context, _ []string, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryDelegatorParams
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
@@ -196,7 +196,7 @@ func queryDelegatorTotalRewards(ctx sdk.Context, _ []string, req abci.RequestQue
 
 func queryDelegatorValidators(ctx sdk.Context, _ []string, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryDelegatorParams
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
@@ -224,7 +224,7 @@ func queryDelegatorValidators(ctx sdk.Context, _ []string, req abci.RequestQuery
 
 func queryDelegatorWithdrawAddress(ctx sdk.Context, _ []string, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryDelegatorWithdrawAddrParams
-	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalAsJSON(req.Data, &params)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
@@ -247,7 +247,7 @@ func queryCommunityPool(ctx sdk.Context, _ []string, _ abci.RequestQuery, k Keep
 		pool = sdk.DecCoins{}
 	}
 
-	bz, err := legacyQuerierCdc.MarshalJSON(pool)
+	bz, err := legacyQuerierCdc.MarshalAsJSON(pool)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONMarshal, err.Error())
 	}
