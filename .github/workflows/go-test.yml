@@ -87,24 +87,33 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Download modules
-        run: go mod download
-
       - name: Determine coverage packages (PR)
         id: cov-pkgs
         if: github.event_name == 'pull_request'
         run: |
           set -euo pipefail
           git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
-          CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)
 
-          CHANGED_GO=$(printf "%s\n" "$CHANGED" | rg '\.go$' || true)
+          CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)
+          CHANGED_GO=$(printf "%s\n" "$CHANGED" | grep -E '\.go$' || true)
+
           if [[ -z "$CHANGED_GO" ]]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          PKGS=$(printf "%s\n" "$CHANGED_GO" | xargs -r -n1 dirname | sort -u | xargs -r go list | tr '\n' ' ')
+          PKGS=$(printf "%s\n" "$CHANGED_GO" \
+            | xargs -r -n1 dirname \
+            | sort -u \
+            | while read -r d; do go list "./$d" 2>/dev/null || true; done \
+            | sort -u \
+            | tr '\n' ' ')
+
+          if [[ -z "$PKGS" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           echo "packages=$PKGS" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
