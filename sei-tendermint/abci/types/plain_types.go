@@ -1,6 +1,10 @@
 package types
 
-import "time"
+import (
+	"time"
+
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+)
 
 // RequestLoadLatest is the plain Go replacement for the legacy protobuf message.
 type RequestLoadLatest struct{}
@@ -76,6 +80,37 @@ const (
 	ResponseApplySnapshotChunk_RETRY_SNAPSHOT  ResponseApplySnapshotChunk_Result = 4
 	ResponseApplySnapshotChunk_REJECT_SNAPSHOT ResponseApplySnapshotChunk_Result = 5
 )
+
+// ResponseProcessProposal is the plain Go replacement for the legacy protobuf message.
+type ResponseProcessProposal struct {
+	Status                ResponseProcessProposal_ProposalStatus
+	AppHash               []byte
+	TxResults             []*ExecTxResult
+	ValidatorUpdates      []ValidatorUpdate
+	ConsensusParamUpdates *tmproto.ConsensusParams
+}
+
+// ResponseProcessProposal_ProposalStatus mirrors the historical protobuf enum.
+type ResponseProcessProposal_ProposalStatus int32
+
+const (
+	ResponseProcessProposal_UNKNOWN ResponseProcessProposal_ProposalStatus = 0
+	ResponseProcessProposal_ACCEPT  ResponseProcessProposal_ProposalStatus = 1
+	ResponseProcessProposal_REJECT  ResponseProcessProposal_ProposalStatus = 2
+)
+
+func (s ResponseProcessProposal_ProposalStatus) String() string {
+	switch s {
+	case ResponseProcessProposal_UNKNOWN:
+		return "UNKNOWN"
+	case ResponseProcessProposal_ACCEPT:
+		return "ACCEPT"
+	case ResponseProcessProposal_REJECT:
+		return "REJECT"
+	default:
+		return "UNKNOWN"
+	}
+}
 
 // RequestProcessProposal is the plain Go replacement for the legacy protobuf message.
 type RequestProcessProposal struct {
