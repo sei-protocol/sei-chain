@@ -8,10 +8,10 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/authz/keeper"
-	bank "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/keeper"
+	bank "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
 type GenesisTestSuite struct {

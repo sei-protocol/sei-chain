@@ -10,14 +10,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -933,14 +933,6 @@ func (f *LogFetcher) tryFilterLogsRange(_ context.Context, fromBlock, toBlock ui
 	if err != nil {
 		return nil, err
 	}
-
-	// Sort logs by block number and index (should already be sorted from DuckDB, but ensure consistency)
-	sort.Slice(logs, func(i, j int) bool {
-		if logs[i].BlockNumber != logs[j].BlockNumber {
-			return logs[i].BlockNumber < logs[j].BlockNumber
-		}
-		return logs[i].Index < logs[j].Index
-	})
 
 	return logs, nil
 }

@@ -8,33 +8,34 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/config"
-	"github.com/cosmos/cosmos-sdk/client/debug"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/client/keys"
-	"github.com/cosmos/cosmos-sdk/client/pruning"
-	"github.com/cosmos/cosmos-sdk/client/rpc"
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/server"
-	serverconfig "github.com/cosmos/cosmos-sdk/server/config"
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/snapshots"
-	"github.com/cosmos/cosmos-sdk/store"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/utils/tracing"
-	authcmd "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
-	"github.com/cosmos/cosmos-sdk/x/auth/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/cosmos/cosmos-sdk/x/crisis"
-	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/debug"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/keys"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/pruning"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/rpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	serverconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
+	authcmd "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/client/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis"
+	genutilcli "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/client/cli"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
@@ -93,6 +94,12 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 			}
 			if err := client.SetCmdClientContextHandler(initClientCtx, cmd); err != nil {
 				return err
+			}
+
+			// Skip creating config.toml/app.toml when running "init"; init creates them itself.
+			// Otherwise the PreRun would create them in the init home, and init would then error
+			if strings.HasPrefix(cmd.Use, "init") {
+				return nil
 			}
 
 			customAppTemplate, customAppConfig := initAppConfig()

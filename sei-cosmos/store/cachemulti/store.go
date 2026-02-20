@@ -3,14 +3,15 @@ package cachemulti
 import (
 	"fmt"
 	"io"
+	"sync"
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/dbadapter"
-	"github.com/cosmos/cosmos-sdk/store/tracekv"
-	"github.com/cosmos/cosmos-sdk/store/types"
 	gigacachekv "github.com/sei-protocol/sei-chain/giga/deps/store"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/dbadapter"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 //----------------------------------------
@@ -21,14 +22,19 @@ import (
 // NOTE: a Store (and MultiStores in general) should never expose the
 // keys for the substores.
 type Store struct {
-	db         types.CacheKVStore
-	stores     map[types.StoreKey]types.CacheWrap
-	keys       map[string]types.StoreKey
+	db      types.CacheKVStore
+	stores  map[types.StoreKey]types.CacheWrap
+	parents map[types.StoreKey]types.CacheWrapper
+	keys    map[string]types.StoreKey
+
 	gigaStores map[types.StoreKey]types.KVStore
 	gigaKeys   []types.StoreKey
 
 	traceWriter  io.Writer
 	traceContext types.TraceContext
+
+	mu              *sync.RWMutex // protects stores and parents during lazy creation
+	materializeOnce *sync.Once
 
 	closers []io.Closer
 }
@@ -62,20 +68,20 @@ func NewFromKVStore(
 
 func newStoreWithoutGiga(store types.KVStore, stores map[types.StoreKey]types.CacheWrapper, keys map[string]types.StoreKey, gigaKeys []types.StoreKey, traceWriter io.Writer, traceContext types.TraceContext) Store {
 	cms := Store{
-		db:           cachekv.NewStore(store, nil, types.DefaultCacheSizeLimit),
-		stores:       make(map[types.StoreKey]types.CacheWrap, len(stores)),
-		keys:         keys,
-		gigaKeys:     gigaKeys,
-		traceWriter:  traceWriter,
-		traceContext: traceContext,
-		closers:      []io.Closer{},
+		db:              cachekv.NewStore(store, nil, types.DefaultCacheSizeLimit),
+		stores:          make(map[types.StoreKey]types.CacheWrap, len(stores)),
+		parents:         make(map[types.StoreKey]types.CacheWrapper, len(stores)),
+		keys:            keys,
+		gigaKeys:        gigaKeys,
+		traceWriter:     traceWriter,
+		traceContext:    traceContext,
+		mu:              &sync.RWMutex{},
+		materializeOnce: &sync.Once{},
+		closers:         []io.Closer{},
 	}
 
 	for key, store := range stores {
-		if cms.TracingEnabled() {
-			store = tracekv.NewStore(store.(types.KVStore), cms.traceWriter, cms.traceContext)
-		}
-		cms.stores[key] = cachekv.NewStore(store.(types.KVStore), key, types.DefaultCacheSizeLimit)
+		cms.parents[key] = store
 	}
 	return cms
 }
@@ -91,16 +97,73 @@ func NewStore(
 }
 
 func newCacheMultiStoreFromCMS(cms Store) Store {
-	stores := make(map[types.StoreKey]types.CacheWrapper)
+	// Thread-safe materialization: the OCC scheduler calls CacheMultiStore()
+	// concurrently from multiple goroutines on the same block CMS.
+	// sync.Once ensures exactly one goroutine materializes, others wait.
+	cms.materializeOnce.Do(func() {
+		// Lock held for bulk materialization to avoid per-key lock overhead.
+		cms.mu.Lock()
+		for k := range cms.parents {
+			// Inline the creation here — we already hold the write lock.
+			parent := cms.parents[k]
+			var cw = parent
+			if cms.TracingEnabled() {
+				cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
+			}
+			cms.stores[k] = cachekv.NewStore(cw.(types.KVStore), k, types.DefaultCacheSizeLimit)
+			delete(cms.parents, k)
+		}
+		cms.mu.Unlock()
+	})
+
+	// After Do returns, cms.parents is empty and cms.stores has all entries.
+	cms.mu.RLock()
+	stores := make(map[types.StoreKey]types.CacheWrapper, len(cms.stores))
 	for k, v := range cms.stores {
 		stores[k] = v
 	}
+	cms.mu.RUnlock()
+	// cms.parents is now empty — all moved to cms.stores by getOrCreateStore
 	gigaStores := make(map[types.StoreKey]types.KVStore, len(cms.gigaStores))
 	for k, v := range cms.gigaStores {
 		gigaStores[k] = v
 	}
 
 	return NewFromKVStore(cms.db, stores, gigaStores, cms.keys, cms.gigaKeys, cms.traceWriter, cms.traceContext)
+}
+
+// getOrCreateStore lazily creates a cachekv store from its parent on first access.
+// Thread-safe: concurrent callers (e.g. slashing BeginBlocker goroutines) may
+// call GetKVStore on the same CMS simultaneously.
+func (cms Store) getOrCreateStore(key types.StoreKey) types.CacheWrap {
+	// Fast path: store already materialized, read-only check.
+	cms.mu.RLock()
+	if s, ok := cms.stores[key]; ok {
+		cms.mu.RUnlock()
+		return s
+	}
+	cms.mu.RUnlock()
+
+	// Slow path: acquire write lock and create.
+	cms.mu.Lock()
+	defer cms.mu.Unlock()
+
+	// Double-check after acquiring write lock.
+	if s, ok := cms.stores[key]; ok {
+		return s
+	}
+	parent, ok := cms.parents[key]
+	if !ok {
+		return nil
+	}
+	var cw = parent
+	if cms.TracingEnabled() {
+		cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
+	}
+	s := cachekv.NewStore(cw.(types.KVStore), key, types.DefaultCacheSizeLimit)
+	cms.stores[key] = s
+	delete(cms.parents, key)
+	return s
 }
 
 // SetTracer sets the tracer for the MultiStore that the underlying
@@ -176,7 +239,7 @@ func (cms Store) CacheMultiStoreWithVersion(_ int64) (types.CacheMultiStore, err
 
 // GetStore returns an underlying Store by key.
 func (cms Store) GetStore(key types.StoreKey) types.Store {
-	s := cms.stores[key]
+	s := cms.getOrCreateStore(key)
 	if key == nil || s == nil {
 		panic(fmt.Sprintf("kv store with key %v has not been registered in stores", key))
 	}
@@ -185,11 +248,11 @@ func (cms Store) GetStore(key types.StoreKey) types.Store {
 
 // GetKVStore returns an underlying KVStore by key.
 func (cms Store) GetKVStore(key types.StoreKey) types.KVStore {
-	store := cms.stores[key]
-	if key == nil || store == nil {
+	s := cms.getOrCreateStore(key)
+	if key == nil || s == nil {
 		panic(fmt.Sprintf("kv store with key %v has not been registered in stores", key))
 	}
-	return store.(types.KVStore)
+	return s.(types.KVStore)
 }
 
 func (cms Store) GetGigaKVStore(key types.StoreKey) types.KVStore {
@@ -211,7 +274,7 @@ func (cms Store) GetWorkingHash() ([]byte, error) {
 
 // StoreKeys returns a list of all store keys
 func (cms Store) StoreKeys() []types.StoreKey {
-	keys := make([]types.StoreKey, 0, len(cms.stores))
+	keys := make([]types.StoreKey, 0, len(cms.keys))
 	for _, key := range cms.keys {
 		keys = append(keys, key)
 	}
@@ -220,6 +283,10 @@ func (cms Store) StoreKeys() []types.StoreKey {
 
 // SetKVStores sets the underlying KVStores via a handler for each key
 func (cms Store) SetKVStores(handler func(sk types.StoreKey, s types.KVStore) types.CacheWrap) types.MultiStore {
+	// Force-create any lazy stores
+	for k := range cms.parents {
+		cms.getOrCreateStore(k)
+	}
 	for k, s := range cms.stores {
 		cms.stores[k] = handler(k, s.(types.KVStore))
 	}
@@ -243,7 +310,7 @@ func (cms *Store) AddCloser(closer io.Closer) {
 
 func (cms Store) Close() {
 	for _, closer := range cms.closers {
-		closer.Close()
+		_ = closer.Close()
 	}
 }
 

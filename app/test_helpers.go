@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
-	"github.com/cosmos/cosmos-sdk/x/staking"
 	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
 	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -33,20 +33,20 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	bam "github.com/cosmos/cosmos-sdk/baseapp"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
-	authsign "github.com/cosmos/cosmos-sdk/x/auth/signing"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
+	bam "github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	authsign "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
@@ -147,6 +147,7 @@ func NewGigaTestWrapperWithRegularStore(t *testing.T, tm time.Time, valPub crypt
 	// Manually enable Giga executor on the app
 	wrapper.App.GigaExecutorEnabled = true
 	wrapper.App.GigaOCCEnabled = useOcc
+	tmtypes.SkipLastResultsHashValidation.Store(true)
 
 	// Configure GigaEvmKeeper to use regular KVStore instead of GigaKVStore
 	wrapper.App.GigaEvmKeeper.UseRegularStore = true

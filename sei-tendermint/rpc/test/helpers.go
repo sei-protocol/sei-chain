@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
@@ -99,13 +98,12 @@ func StartTendermint(
 		}
 
 	}
-	papp := abciclient.NewLocalClient(logger, app)
 	tmNode, err := node.New(
 		ctx,
 		conf,
 		logger,
-		make(chan struct{}),
-		papp,
+		func() {},
+		app,
 		nil,
 		[]trace.TracerProviderOption{},
 		node.NoOpMetricsProvider(),

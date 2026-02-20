@@ -1,17 +1,26 @@
 package receipt
 
 import (
+	"sort"
 	"sync"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // Keep in sync with the parquet default max blocks per file to retain a similar cache window.
 const defaultReceiptCacheRotateInterval = 500
+
+type cacheRotateIntervalProvider interface {
+	cacheRotateInterval() uint64
+}
+
+type cacheWarmupProvider interface {
+	warmupReceipts() []ReceiptRecord
+}
 
 type cachedReceiptStore struct {
 	backend             ReceiptStore
@@ -25,10 +34,19 @@ func newCachedReceiptStore(backend ReceiptStore) ReceiptStore {
 	if backend == nil {
 		return nil
 	}
+	interval := uint64(defaultReceiptCacheRotateInterval)
+	if provider, ok := backend.(cacheRotateIntervalProvider); ok {
+		if v := provider.cacheRotateInterval(); v > 0 {
+			interval = v
+		}
+	}
 	store := &cachedReceiptStore{
 		backend:             backend,
 		cache:               newLedgerCache(),
-		cacheRotateInterval: defaultReceiptCacheRotateInterval,
+		cacheRotateInterval: interval,
+	}
+	if provider, ok := backend.(cacheWarmupProvider); ok {
+		store.cacheReceipts(provider.warmupReceipts())
 	}
 	return store
 }
@@ -68,9 +86,60 @@ func (s *cachedReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptReco
 }
 
 // FilterLogs queries logs across a range of blocks.
-// Delegates to the backend which may use efficient range queries (parquet/DuckDB).
+// Checks the cache first for recent blocks, then delegates to the backend.
 func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
-	return s.backend.FilterLogs(ctx, fromBlock, toBlock, crit)
+	// First get logs from backend (parquet closed files)
+	backendLogs, err := s.backend.FilterLogs(ctx, fromBlock, toBlock, crit)
+	if err != nil {
+		return nil, err
+	}
+
+	// Then check cache for blocks that might not be in closed files yet
+	cacheLogs := s.cache.FilterLogs(fromBlock, toBlock, crit)
+
+	// Merge results, avoiding duplicates by tracking seen (blockNum, txIndex, logIndex)
+	if len(cacheLogs) == 0 {
+		return backendLogs, nil
+	}
+	if len(backendLogs) == 0 {
+		sortLogs(cacheLogs)
+		return cacheLogs, nil
+	}
+
+	// Build set of backend log keys to deduplicate
+	type logKey struct {
+		blockNum uint64
+		txIndex  uint
+		logIndex uint
+	}
+	seen := make(map[logKey]struct{}, len(backendLogs))
+	for _, lg := range backendLogs {
+		seen[logKey{lg.BlockNumber, lg.TxIndex, lg.Index}] = struct{}{}
+	}
+
+	// Add cache logs that aren't already in backend results
+	result := backendLogs
+	for _, lg := range cacheLogs {
+		key := logKey{lg.BlockNumber, lg.TxIndex, lg.Index}
+		if _, exists := seen[key]; !exists {
+			result = append(result, lg)
+		}
+	}
+
+	sortLogs(result)
+	return result, nil
+}
+
+func sortLogs(logs []*ethtypes.Log) {
+	sort.Slice(logs, func(i, j int) bool {
+		if logs[i].BlockNumber != logs[j].BlockNumber {
+			return logs[i].BlockNumber < logs[j].BlockNumber
+		}
+		if logs[i].TxIndex != logs[j].TxIndex {
+			return logs[i].TxIndex < logs[j].TxIndex
+		}
+		return logs[i].Index < logs[j].Index
+	})
 }
 
 func (s *cachedReceiptStore) Close() error {
@@ -86,18 +155,24 @@ func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord) {
 	defer s.cacheMu.Unlock()
 
 	var (
-		currentBlock uint64
-		hasBlock     bool
+		currentBlock  uint64
+		hasBlock      bool
+		logStartIndex uint
+		cacheLogs     []*ethtypes.Log
 	)
 	cacheEntries := make([]receiptCacheEntry, 0, len(receipts))
 
 	fillCache := func(blockNumber uint64) {
-		if len(cacheEntries) == 0 {
+		if len(cacheEntries) == 0 && len(cacheLogs) == 0 {
 			return
 		}
 		s.maybeRotateCacheLocked(blockNumber)
 		s.cache.AddReceiptsBatch(blockNumber, cacheEntries)
+		if len(cacheLogs) > 0 {
+			s.cache.AddLogsForBlock(blockNumber, cacheLogs)
+		}
 		cacheEntries = cacheEntries[:0]
+		cacheLogs = cacheLogs[:0]
 	}
 
 	for _, record := range receipts {
@@ -114,12 +189,17 @@ func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord) {
 		if blockNumber != currentBlock {
 			fillCache(currentBlock)
 			currentBlock = blockNumber
+			logStartIndex = 0
 		}
+
+		txLogs := getLogsForTx(receipt, logStartIndex)
+		logStartIndex += uint(len(txLogs))
 
 		cacheEntries = append(cacheEntries, receiptCacheEntry{
 			TxHash:  record.TxHash,
 			Receipt: receipt,
 		})
+		cacheLogs = append(cacheLogs, txLogs...)
 	}
 
 	if hasBlock {

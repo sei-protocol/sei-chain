@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
@@ -52,7 +51,7 @@ type TxMempool struct {
 	logger       log.Logger
 	metrics      *Metrics
 	config       *config.MempoolConfig
-	proxyAppConn abciclient.Client
+	proxyAppConn abci.Application
 
 	// txsAvailable fires once for each height when the mempool is not empty
 	txsAvailable         chan struct{}
@@ -128,7 +127,7 @@ type TxMempool struct {
 func NewTxMempool(
 	logger log.Logger,
 	cfg *config.MempoolConfig,
-	proxyAppConn abciclient.Client,
+	proxyAppConn abci.Application,
 	router router,
 	options ...TxMempoolOption,
 ) *TxMempool {
@@ -242,13 +241,6 @@ func (txmp *TxMempool) PendingSizeBytes() int64 {
 	return atomic.LoadInt64(&txmp.pendingSizeBytes)
 }
 
-// FlushAppConn executes FlushSync on the mempool's proxyAppConn.
-//
-// NOTE: The caller must obtain a write-lock prior to execution.
-func (txmp *TxMempool) FlushAppConn(ctx context.Context) error {
-	return txmp.proxyAppConn.Flush(ctx)
-}
-
 // WaitForNextTx returns a blocking channel that will be closed when the next
 // valid transaction is available to gossip. It is thread-safe.
 func (txmp *TxMempool) WaitForNextTx() <-chan struct{} {
@@ -340,10 +332,6 @@ func (txmp *TxMempool) CheckTx(
 			txmp.incrementBlacklistCounter(txInfo.SenderNodeID)
 			return types.ErrPreCheck{Reason: err}
 		}
-	}
-
-	if err := txmp.proxyAppConn.Error(); err != nil {
-		return err
 	}
 
 	txHash := tx.Key()
@@ -982,9 +970,6 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 		}
 	}
 
-	if err := txmp.proxyAppConn.Flush(ctx); err != nil {
-		txmp.logger.Error("failed to flush transactions during rechecking", "err", err)
-	}
 }
 
 // canAddTx returns an error if we cannot insert the provided *WrappedTx into

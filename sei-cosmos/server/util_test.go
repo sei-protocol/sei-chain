@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/signal"
 	"path"
 	"path/filepath"
 	"strings"
@@ -13,12 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/server"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 )
 
 var cancelledInPreRun = errors.New("Cancelled in prerun")
@@ -103,8 +101,7 @@ func TestInterceptConfigsPreRunHandlerReadsConfigToml(t *testing.T) {
 		t.Fatalf("creating config.toml file failed: %v", err)
 	}
 
-	_, err = writer.WriteString(fmt.Sprintf("db-backend = '%s'\n", testDbBackend))
-	if err != nil {
+	if _, err := fmt.Fprintf(writer, "db-backend = '%s'\n", testDbBackend); err != nil {
 		t.Fatalf("Failed writing string to config.toml: %v", err)
 	}
 
@@ -144,8 +141,7 @@ func TestInterceptConfigsPreRunHandlerReadsAppToml(t *testing.T) {
 		t.Fatalf("creating app.toml file failed: %v", err)
 	}
 
-	_, err = writer.WriteString(fmt.Sprintf("halt-time = %d\n", testHaltTime))
-	if err != nil {
+	if _, err := fmt.Fprintf(writer, "halt-time = %d\n", testHaltTime); err != nil {
 		t.Fatalf("Failed writing string to app.toml: %v", err)
 	}
 
@@ -308,8 +304,7 @@ func (v precedenceCommon) setAll(t *testing.T, setFlag *string, setEnvVar *strin
 			t.Fatalf("creating config.toml file failed: %v", err)
 		}
 
-		_, err = writer.WriteString(fmt.Sprintf("[rpc]\nladdr = \"%s\"\n", *setConfigFile))
-		if err != nil {
+		if _, err := fmt.Fprintf(writer, "[rpc]\nladdr = \"%s\"\n", *setConfigFile); err != nil {
 			t.Fatalf("Failed writing string to config.toml: %v", err)
 		}
 
@@ -407,63 +402,28 @@ func TestInterceptConfigsWithBadPermissions(t *testing.T) {
 }
 
 func TestWaitForQuitSignals(t *testing.T) {
-	t.Run("WithRestartChannelAndCanRestartAfterNotReached", func(t *testing.T) {
+	t.Run("WithRestartChannelAndCanRestart", func(t *testing.T) {
 		restartCh := make(chan struct{})
 		go func() {
 			time.Sleep(100 * time.Millisecond)
 			restartCh <- struct{}{}
 		}()
 
-		go func() {
-			time.Sleep(200 * time.Millisecond)
-			syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
-		}()
-
-		errCode := server.WaitForQuitSignals(
-			&server.Context{Logger: log.NewNopLogger()},
-			restartCh,
-			time.Now().Add(500*time.Millisecond),
-		)
-		expectedCode := int(syscall.SIGTERM) + 128
-		if errCode.Code != expectedCode {
-			t.Errorf("Expected error code %d, got %d", expectedCode, errCode.Code)
-		}
-	})
-
-	t.Run("WithRestartChannelAndCanRestartAfterReached", func(t *testing.T) {
-		restartCh := make(chan struct{})
-		go func() {
-			time.Sleep(100 * time.Millisecond)
-			restartCh <- struct{}{}
-		}()
-
-		errCode := server.WaitForQuitSignals(
-			&server.Context{Logger: log.NewNopLogger()},
-			restartCh,
-			time.Now().Add(-100*time.Millisecond),
-		)
-		if errCode.Code != server.RestartErrorCode {
-			t.Errorf("Expected error code %d, got %d", server.RestartErrorCode, errCode.Code)
+		err := server.WaitForQuitSignals(t.Context(), restartCh)
+		if !errors.Is(err, server.ErrShouldRestart) {
+			t.Errorf("Expected ErrShouldRestart, got %v", err)
 		}
 	})
 
 	t.Run("WithSIGINT", func(t *testing.T) {
-		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGINT)
-
 		go func() {
 			time.Sleep(100 * time.Millisecond)
 			syscall.Kill(syscall.Getpid(), syscall.SIGINT)
 		}()
 
-		errCode := server.WaitForQuitSignals(
-			&server.Context{Logger: log.NewNopLogger()},
-			make(chan struct{}),
-			time.Now(),
-		)
-		expectedCode := int(syscall.SIGINT) + 128
-		if errCode.Code != expectedCode {
-			t.Errorf("Expected error code %d, got %d", expectedCode, errCode.Code)
+		err := server.WaitForQuitSignals(t.Context(), make(chan struct{}))
+		if err != nil {
+			t.Fatal(err)
 		}
 	})
 
@@ -473,14 +433,9 @@ func TestWaitForQuitSignals(t *testing.T) {
 			syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
 		}()
 
-		errCode := server.WaitForQuitSignals(
-			&server.Context{Logger: log.NewNopLogger()},
-			make(chan struct{}),
-			time.Now(),
-		)
-		expectedCode := int(syscall.SIGTERM) + 128
-		if errCode.Code != expectedCode {
-			t.Errorf("Expected error code %d, got %d", expectedCode, errCode.Code)
+		err := server.WaitForQuitSignals(t.Context(), make(chan struct{}))
+		if err != nil {
+			t.Fatal(err)
 		}
 	})
 }

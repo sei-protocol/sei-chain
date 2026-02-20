@@ -5,12 +5,11 @@ import (
 	"testing"
 	"time"
 
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/testutil"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -57,13 +56,6 @@ func makeReceipt(txHash common.Hash, addr common.Address, topics []common.Hash, 
 	}
 }
 
-func withBloom(r *types.Receipt) *types.Receipt {
-	logs := receipt.GetLogsForTx(r, 0)
-	bloom := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: logs})
-	r.LogsBloom = bloom.Bytes()
-	return r
-}
-
 func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	storeKey := storetypes.NewKVStoreKey("evm")
 	cfg := dbconfig.DefaultReceiptStoreConfig()
@@ -79,6 +71,12 @@ func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	require.Nil(t, store)
 
 	cfg.Backend = "pebble"
+	store, err = receipt.NewReceiptStore(nil, cfg, storeKey)
+	require.NoError(t, err)
+	require.NotNil(t, store)
+	require.NoError(t, store.Close())
+
+	cfg.Backend = "parquet"
 	store, err = receipt.NewReceiptStore(nil, cfg, storeKey)
 	require.NoError(t, err)
 	require.NotNil(t, store)

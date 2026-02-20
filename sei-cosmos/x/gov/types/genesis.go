@@ -3,7 +3,7 @@ package types
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 )
 
 // NewGenesisState creates a new genesis state for the governance module
@@ -51,7 +51,9 @@ func ValidateGenesis(data *GenesisState) error {
 		return fmt.Errorf("governance genesis state cannot be nil")
 	}
 
-	validateTallyParams(data.TallyParams)
+	if err := validateTallyParams(data.TallyParams); err != nil {
+		return err
+	}
 
 	if !data.DepositParams.MinDeposit.IsValid() {
 		return fmt.Errorf("governance deposit amount must be a valid sdk.Coins amount, is %s",

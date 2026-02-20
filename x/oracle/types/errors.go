@@ -3,8 +3,8 @@ package types
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 // Oracle Errors

@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -14,15 +13,15 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/store/prefix"
-	store "github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/module"
-	xp "github.com/cosmos/cosmos-sdk/x/upgrade/exported"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	store "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
+	xp "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/exported"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 )
 
 // UpgradeInfoFileName file to store upgrade information
@@ -120,7 +119,7 @@ func (k Keeper) SetModuleVersionMap(ctx sdk.Context, vm module.VersionMap) {
 func (k Keeper) GetModuleVersionMap(ctx sdk.Context) module.VersionMap {
 	store := ctx.KVStore(k.storeKey)
 	it := sdk.KVStorePrefixIterator(store, []byte{types.VersionMapByte})
-	defer it.Close()
+	defer func() { _ = it.Close() }()
 
 	vm := make(module.VersionMap)
 	for ; it.Valid(); it.Next() {
@@ -138,7 +137,7 @@ func (k Keeper) GetModuleVersionMap(ctx sdk.Context) module.VersionMap {
 func (k Keeper) GetModuleVersions(ctx sdk.Context) []*types.ModuleVersion {
 	store := ctx.KVStore(k.storeKey)
 	it := sdk.KVStorePrefixIterator(store, []byte{types.VersionMapByte})
-	defer it.Close()
+	defer func() { _ = it.Close() }()
 
 	mv := make([]*types.ModuleVersion, 0)
 	for ; it.Valid(); it.Next() {
@@ -157,7 +156,7 @@ func (k Keeper) GetModuleVersions(ctx sdk.Context) []*types.ModuleVersion {
 func (k Keeper) getModuleVersion(ctx sdk.Context, name string) (uint64, bool) {
 	store := ctx.KVStore(k.storeKey)
 	it := sdk.KVStorePrefixIterator(store, []byte{types.VersionMapByte})
-	defer it.Close()
+	defer func() { _ = it.Close() }()
 
 	for ; it.Valid(); it.Next() {
 		moduleName := string(it.Key()[1:])
@@ -251,14 +250,14 @@ func (k Keeper) GetUpgradedConsensusState(ctx sdk.Context, lastHeight int64) ([]
 // GetLastCompletedUpgrade returns the last applied upgrade name and height.
 func (k Keeper) GetLastCompletedUpgrade(ctx sdk.Context) (string, int64) {
 	iter := sdk.KVStoreReversePrefixIterator(ctx.KVStore(k.storeKey), []byte{types.DoneByte})
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	var (
 		latest upgrade
 		found  bool
 	)
 	for ; iter.Valid(); iter.Next() {
-		upgradeHeight := int64(sdk.BigEndianToUint64(iter.Value()))
+		upgradeHeight := int64(sdk.BigEndianToUint64(iter.Value())) //nolint:gosec // stored by SetDone from block heights which are always non-negative
 		if !found || upgradeHeight >= latest.BlockHeight {
 			found = true
 			name := parseDoneKey(iter.Key())
@@ -286,19 +285,19 @@ func (k Keeper) GetDoneHeight(ctx sdk.Context, name string) int64 {
 		return 0
 	}
 
-	return int64(binary.BigEndian.Uint64(bz))
+	return int64(binary.BigEndian.Uint64(bz)) //nolint:gosec // stored by SetDone from block heights which are always non-negative
 }
 
 func (k Keeper) GetClosestUpgrade(ctx sdk.Context, height int64) (string, int64) {
 	iter := sdk.KVStoreReversePrefixIterator(ctx.KVStore(k.storeKey), []byte{types.DoneByte})
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	var (
 		closest upgrade
 		found   bool
 	)
 	for ; iter.Valid(); iter.Next() {
-		upgradeHeight := int64(sdk.BigEndianToUint64(iter.Value()))
+		upgradeHeight := int64(sdk.BigEndianToUint64(iter.Value())) //nolint:gosec // stored by SetDone from block heights which are always non-negative
 		if !found || (upgradeHeight >= height && upgradeHeight < closest.BlockHeight) {
 			found = true
 			name := parseDoneKey(iter.Key())
@@ -351,7 +350,7 @@ func (k Keeper) GetUpgradePlan(ctx sdk.Context) (plan types.Plan, havePlan bool)
 func (k Keeper) SetDone(ctx sdk.Context, name string) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), []byte{types.DoneByte})
 	bz := make([]byte, 8)
-	binary.BigEndian.PutUint64(bz, uint64(ctx.BlockHeight()))
+	binary.BigEndian.PutUint64(bz, uint64(ctx.BlockHeight())) //nolint:gosec // block heights are always non-negative
 	store.Set([]byte(name), bz)
 }
 
@@ -454,7 +453,7 @@ func (k Keeper) ReadUpgradeInfoFromDisk() (store.UpgradeInfo, error) {
 		return upgradeInfo, err
 	}
 
-	data, err := ioutil.ReadFile(upgradeInfoPath)
+	data, err := os.ReadFile(filepath.Clean(upgradeInfoPath))
 	if err != nil {
 		// if file does not exist, assume there are no upgrades
 		if os.IsNotExist(err) {

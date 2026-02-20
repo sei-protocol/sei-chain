@@ -7,10 +7,10 @@ import (
 	"io"
 	"math"
 
-	snapshot "github.com/cosmos/cosmos-sdk/snapshots/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	protoio "github.com/gogo/protobuf/io"
+	snapshot "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -26,11 +27,11 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/server/config"
-	"github.com/cosmos/cosmos-sdk/server/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/version"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
 )
 
 // DONTCOVER
@@ -39,8 +40,7 @@ import (
 // a command's Context.
 const ServerContextKey = sdk.ContextKey("server.context")
 
-// Error code reserved for signalled
-const RestartErrorCode = 100
+var ErrShouldRestart = errors.New("node should be restarted")
 
 // server context
 type Context struct {
@@ -72,7 +72,7 @@ func NewContext(v *viper.Viper, config *tmcfg.Config, logger tmlog.Logger) *Cont
 
 func bindFlags(basename string, cmd *cobra.Command, v *viper.Viper) (err error) {
 	defer func() {
-		recover()
+		_ = recover() //handled by named return value.
 	}()
 
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
@@ -115,8 +115,12 @@ func InterceptConfigs(cmd *cobra.Command) (*tmcfg.Config, error) {
 	basename := path.Base(executableName)
 
 	// Configure the viper instance
-	serverCtx.Viper.BindPFlags(cmd.Flags())
-	serverCtx.Viper.BindPFlags(cmd.PersistentFlags())
+	if err := serverCtx.Viper.BindPFlags(cmd.Flags()); err != nil {
+		return nil, err
+	}
+	if err := serverCtx.Viper.BindPFlags(cmd.PersistentFlags()); err != nil {
+		return nil, err
+	}
 	serverCtx.Viper.SetEnvPrefix(basename)
 	serverCtx.Viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	serverCtx.Viper.AutomaticEnv()
@@ -135,7 +139,7 @@ func InterceptConfigs(cmd *cobra.Command) (*tmcfg.Config, error) {
 // is used to read and parse the application configuration. Command handlers can
 // fetch the server Context to get the Tendermint configuration or to get access
 // to Viper.
-func InterceptConfigsPreRunHandler(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig interface{}) error {
+func InterceptConfigsPreRunHandler(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
 	serverCtx := NewDefaultContext()
 
 	// Get the executable name and configure the viper instance so that environmental
@@ -149,8 +153,13 @@ func InterceptConfigsPreRunHandler(cmd *cobra.Command, customAppConfigTemplate s
 	basename := path.Base(executableName)
 
 	// Configure the viper instance
-	serverCtx.Viper.BindPFlags(cmd.Flags())
-	serverCtx.Viper.BindPFlags(cmd.PersistentFlags())
+
+	if err := serverCtx.Viper.BindPFlags(cmd.Flags()); err != nil {
+		return err
+	}
+	if err := serverCtx.Viper.BindPFlags(cmd.PersistentFlags()); err != nil {
+		return err
+	}
 	serverCtx.Viper.SetEnvPrefix(basename)
 	serverCtx.Viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	serverCtx.Viper.AutomaticEnv()
@@ -221,7 +230,7 @@ func SetCmdServerContext(cmd *cobra.Command, serverCtx *Context) error {
 // configuration file. The Tendermint configuration file is parsed given a root
 // Viper object, whereas the application is parsed with the private package-aware
 // viperCfg object.
-func interceptConfigs(rootViper *viper.Viper, customAppTemplate string, customConfig interface{}) (*tmcfg.Config, error) {
+func interceptConfigs(rootViper *viper.Viper, customAppTemplate string, customConfig any) (*tmcfg.Config, error) {
 	rootDir := rootViper.GetString(flags.FlagHome)
 	configPath := filepath.Join(rootDir, "config")
 	tmCfgFile := filepath.Join(configPath, "config.toml")
@@ -408,26 +417,14 @@ func TrapSignal(cleanupFunc func()) {
 }
 
 // WaitForQuitSignals waits for SIGINT and SIGTERM and returns.
-func WaitForQuitSignals(ctx *Context, restartCh chan struct{}, canRestartAfter time.Time) ErrorCode {
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	if restartCh != nil {
-		for {
-			select {
-			case sig := <-sigs:
-				return ErrorCode{Code: int(sig.(syscall.Signal)) + 128}
-			case <-restartCh:
-				// If it's in the restart cooldown period
-				if time.Now().Before(canRestartAfter) {
-					ctx.Logger.Info("Restarting too frequently, can only restart after %s", canRestartAfter)
-					continue
-				}
-				return ErrorCode{Code: RestartErrorCode}
-			}
-		}
-	} else {
-		sig := <-sigs
-		return ErrorCode{Code: int(sig.(syscall.Signal)) + 128}
+func WaitForQuitSignals(ctx context.Context, restartCh chan struct{}) error {
+	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-restartCh: // blocks forever on a nil channel
+		return ErrShouldRestart
 	}
 }
 
@@ -468,9 +465,10 @@ func openTraceWriter(traceWriterFile string) (w io.Writer, err error) {
 	if traceWriterFile == "" {
 		return
 	}
+	traceWriterFile = filepath.Clean(traceWriterFile)
 	return os.OpenFile(
 		traceWriterFile,
 		os.O_WRONLY|os.O_APPEND|os.O_CREATE,
-		0666,
+		0600,
 	)
 }

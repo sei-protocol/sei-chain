@@ -11,13 +11,13 @@ import (
 	"github.com/stretchr/testify/suite"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/store"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/query"
-	"github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
 const (

@@ -7,12 +7,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/query"
-	"github.com/cosmos/cosmos-sdk/x/staking/keeper"
-	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
-	"github.com/cosmos/cosmos-sdk/x/staking/types"
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/teststaking"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 func (suite *KeeperTestSuite) TestGRPCQueryValidators() {
