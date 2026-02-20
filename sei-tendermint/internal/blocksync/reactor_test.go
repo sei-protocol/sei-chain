@@ -27,6 +27,7 @@ import (
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/internal/test/factory"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -89,7 +90,7 @@ func makeReactor(
 	t *testing.T,
 	genDoc *types.GenesisDoc,
 	router *p2p.Router,
-	restartChan chan struct{},
+	restartEvent func(),
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) *Reactor {
 
@@ -144,7 +145,7 @@ func makeReactor(
 		true,
 		consensus.NopMetrics(),
 		nil, // eventbus, can be nil
-		restartChan,
+		restartEvent,
 		selfRemediationConfig,
 	)
 	if err != nil {
@@ -169,7 +170,6 @@ func (rts *reactorTestSuite) addNode(
 	rts.app[nodeID] = proxy.New(abciclient.NewLocalClient(logger, &abci.BaseApplication{}), logger, proxy.NopMetrics())
 	require.NoError(t, rts.app[nodeID].Start(ctx))
 
-	restartChan := make(chan struct{})
 	remediationConfig := config.DefaultSelfRemediationConfig()
 	remediationConfig.BlocksBehindThreshold = 1000
 
@@ -178,7 +178,7 @@ func (rts *reactorTestSuite) addNode(
 		t,
 		genDoc,
 		rts.network.Node(nodeID).Router,
-		restartChan,
+		func() {},
 		config.DefaultSelfRemediationConfig(),
 	)
 	lastCommit := &types.Commit{}
@@ -371,27 +371,26 @@ func TestAutoRestartIfBehind(t *testing.T) {
 				maxPeerHeight: tt.maxPeerHeight,
 			}
 
-			restartChan := make(chan struct{}, 1)
+			restart := utils.NewAtomicSend(false)
 			r := &Reactor{
 				logger:                    log.TestingLogger(),
 				store:                     mockBlockStore,
 				pool:                      blockPool,
 				blocksBehindThreshold:     tt.blocksBehindThreshold,
 				blocksBehindCheckInterval: tt.blocksBehindCheckInterval,
-				restartCh:                 restartChan,
+				restartEvent:              func() { restart.Store(true) },
 				blockSync:                 newAtomicBool(tt.isBlockSync),
 			}
 
-			ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-			defer cancel()
-
-			go r.autoRestartIfBehind(ctx)
-
-			select {
-			case <-restartChan:
-				assert.True(t, tt.restartExpected, "Unexpected restart")
-			case <-time.After(50 * time.Millisecond):
-				assert.False(t, tt.restartExpected, "Expected restart but did not occur")
+			ctx := t.Context()
+			if tt.restartExpected {
+				r.autoRestartIfBehind(ctx)
+				assert.True(t, restart.Load(), "Expected restart but did not occur")
+			} else {
+				ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+				defer cancel()
+				r.autoRestartIfBehind(ctx)
+				assert.False(t, restart.Load(), "Unexpected restart")
 			}
 		})
 	}

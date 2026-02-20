@@ -86,7 +86,7 @@ func setup(
 		nil,   // eventbus can be nil
 		nil,   // post-sync-hook
 		false, // run Sync during Start()
-		make(chan struct{}),
+		func() {},
 		config.DefaultSelfRemediationConfig(),
 	)
 	require.NoError(t, err)
