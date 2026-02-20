@@ -276,20 +276,21 @@ jobs:
           done
           sleep 5
 
-      - name: Wait for RPC to be ready
+      - name: Wait for RPC and first block
         run: |
-          echo "Waiting for node RPC (localhost:26657) to accept connections..."
-          for i in $(seq 1 45); do
-            if docker exec sei-node-0 /sei-protocol/sei-chain/build/seid status 2>/dev/null | jq -e .SyncInfo.latest_block_height >/dev/null 2>&1; then
-              echo "RPC ready."
+          echo "Waiting for node RPC and first block (block height > 0)..."
+          for i in $(seq 1 60); do
+            height=$(docker exec sei-node-0 /sei-protocol/sei-chain/build/seid status 2>/dev/null | jq -r .SyncInfo.latest_block_height // "")
+            if [ -n "$height" ] && [ "$height" -gt 0 ] 2>/dev/null; then
+              echo "RPC ready, block height $height."
               break
             fi
-            if [ "$i" -eq 45 ]; then
-              echo "RPC did not become ready in time."
+            if [ "$i" -eq 60 ]; then
+              echo "RPC or first block did not become ready in time (last height: ${height:-none})."
               docker exec sei-node-0 /sei-protocol/sei-chain/build/seid status || true
               exit 1
             fi
-            echo "  attempt $i/45..."
+            echo "  attempt $i/60 (height=${height:-?})..."
             sleep 2
           done
 
