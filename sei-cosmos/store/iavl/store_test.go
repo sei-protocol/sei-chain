@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/store/cachekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
 
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/types/kv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
 )
 
 var (

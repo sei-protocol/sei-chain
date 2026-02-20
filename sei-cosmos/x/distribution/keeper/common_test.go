@@ -1,10 +1,10 @@
 package keeper_test
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	"github.com/cosmos/cosmos-sdk/x/distribution/types"
 	"github.com/sei-protocol/sei-chain/app"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 )
 
 var (

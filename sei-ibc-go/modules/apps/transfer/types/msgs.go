@@ -3,8 +3,8 @@ package types
 import (
 	"strings"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
@@ -17,8 +17,6 @@ const (
 )
 
 // NewMsgTransfer creates a new MsgTransfer instance
-//
-//nolint:interfacer
 func NewMsgTransfer(
 	sourcePort, sourceChannel string,
 	token sdk.Coin, sender, receiver string,

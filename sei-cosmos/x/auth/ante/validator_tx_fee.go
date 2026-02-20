@@ -3,9 +3,9 @@ package ante
 import (
 	"math"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 )
 
 var BaseDenomGasPriceAmplfier = sdk.NewInt(1_000_000_000_000)
@@ -23,6 +23,10 @@ func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.Tx, simulate bo
 	feeCoins = feeCoins.NonZeroAmountsOf(append([]string{sdk.DefaultBondDenom}, feeParams.GetAllowedFeeDenoms()...))
 	gas := feeTx.GetGas()
 
+	if gas > uint64(math.MaxInt64) {
+		return nil, 0, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "gas %d exceeds max int64", gas)
+	}
+
 	// Ensure that the provided fees meet a minimum threshold for the validator,
 	// if this is a CheckTx. This is only for local mempool purposes, and thus
 	// is only ran on check tx.
@@ -33,7 +37,7 @@ func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.Tx, simulate bo
 
 			// Determine the required fees by multiplying each required minimum gas
 			// price by the gas limit, where fee = ceil(minGasPrice * gasLimit).
-			glDec := sdk.NewDec(int64(gas))
+			glDec := sdk.NewDec(int64(gas)) //nolint:gosec // bounds checked above
 			for i, gp := range minGasPrices {
 				fee := gp.Amount.Mul(glDec)
 				requiredFees[i] = sdk.NewCoin(gp.Denom, fee.Ceil().RoundInt())
@@ -49,7 +53,7 @@ func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.Tx, simulate bo
 	// realistically, if the gas limit IS set to 0, the tx will run out of gas anyways.
 	priority := int64(0)
 	if gas > 0 {
-		priority = GetTxPriority(feeCoins, int64(gas))
+		priority = GetTxPriority(feeCoins, int64(gas)) //nolint:gosec // bounds checked above
 	}
 	return feeCoins, priority, nil
 }

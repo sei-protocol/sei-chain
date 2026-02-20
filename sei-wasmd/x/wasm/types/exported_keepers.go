@@ -1,8 +1,8 @@
 package types
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 

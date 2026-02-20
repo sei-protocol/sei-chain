@@ -11,15 +11,15 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/module"
-	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/capability/keeper"
-	"github.com/cosmos/cosmos-sdk/x/capability/simulation"
-	"github.com/cosmos/cosmos-sdk/x/capability/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	cdctypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
+	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/simulation"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 )
 
 var (
@@ -60,7 +60,7 @@ func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
 // ValidateGenesis performs genesis state validation for the capability module.
 func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, config client.TxEncodingConfig, bz json.RawMessage) error {
 	var genState types.GenesisState
-	if err := cdc.UnmarshalJSON(bz, &genState); err != nil {
+	if err := cdc.UnmarshalAsJSON(bz, &genState); err != nil {
 		return fmt.Errorf("failed to unmarshal %s genesis state: %w", types.ModuleName, err)
 	}
 	return genState.Validate()

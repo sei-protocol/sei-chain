@@ -3,9 +3,6 @@ package keeper
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/store/prefix"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -14,6 +11,9 @@ import (
 	"github.com/ethereum/go-ethereum/triedb"
 	"github.com/ethereum/go-ethereum/triedb/hashdb"
 	"github.com/ethereum/go-ethereum/triedb/pathdb"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"

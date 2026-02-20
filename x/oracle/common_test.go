@@ -9,8 +9,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/staking"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
 )
 
 var (
