@@ -70,7 +70,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # Depth 0 for PRs so sei-iavl change detection against main works.
+          # Depth 0 for PRs so merge-base diff against the base branch works.
           fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
       - uses: actions/setup-go@v6
@@ -92,10 +92,19 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
 
-          CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)
-          CHANGED_GO=$(printf "%s\n" "$CHANGED" | grep -E '\.go$' || true)
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          # Use explicit SHAs instead of branch refs — works regardless of
+          # checkout depth and avoids merge-base lookup issues.
+          CHANGED=$(git diff --name-only "$BASE_SHA"..."$HEAD_SHA")
+
+          # Keep only existing .go files (filters out deletions).
+          CHANGED_GO=$(printf "%s\n" "$CHANGED" \
+            | grep -E '\.go$' \
+            | while read -r f; do [ -f "$f" ] && echo "$f"; done \
+            || true)
 
           if [[ -z "$CHANGED_GO" ]]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -122,8 +131,9 @@ jobs:
         run: |
           go test \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
-            -covermode=count \
+            -covermode=atomic \
             -coverprofile=coverage.out \
+            -coverpkg=${{ steps.cov-pkgs.outputs.packages }} \
             ${{ steps.cov-pkgs.outputs.packages }}
 
       - name: Go test with coverage (full path)
@@ -137,6 +147,7 @@ jobs:
             ./...
 
       - name: Upload coverage to Codecov
+        if: github.event_name != 'pull_request' || steps.cov-pkgs.outputs.skip != 'true'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
