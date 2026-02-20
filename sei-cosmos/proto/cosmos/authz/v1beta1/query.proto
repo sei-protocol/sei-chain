@@ -6,7 +6,7 @@ import "cosmos/authz/v1beta1/authz.proto";
 import "cosmos/base/query/v1beta1/pagination.proto";
 import "google/api/annotations.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/x/authz";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz";
 
 // Query defines the gRPC querier service.
 service Query {

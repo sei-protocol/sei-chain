@@ -8,16 +8,8 @@ coverage:
         threshold: 3% # allow this much decrease on project
       sei-chain:
         target: 40%
-        paths:
-          - "!sei-cosmos/**"
         flags:
           - sei-chain
-      sei-cosmos:
-        target: 35%
-        paths:
-          - "sei-cosmos/**"
-        flags:
-          - sei-cosmos
     patch:
       default:
         target: auto
@@ -54,3 +46,7 @@ ignore:
   - "precompiles/**/legacy/**/*"
   - "**/cli/**/*"
   - "sei-db/state_db/bench"
+
+flags:
+  sei-chain:
+    carryforward: true

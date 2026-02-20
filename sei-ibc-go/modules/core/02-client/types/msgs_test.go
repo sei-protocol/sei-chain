@@ -73,12 +73,12 @@ func (suite *TypesTestSuite) TestMarshalMsgCreateClient() {
 			cdc := suite.chainA.App.AppCodec()
 
 			// marshal message
-			bz, err := cdc.MarshalJSON(msg)
+			bz, err := cdc.MarshalAsJSON(msg)
 			suite.Require().NoError(err)
 
 			// unmarshal message
 			newMsg := &types.MsgCreateClient{}
-			err = cdc.UnmarshalJSON(bz, newMsg)
+			err = cdc.UnmarshalAsJSON(bz, newMsg)
 			suite.Require().NoError(err)
 
 			suite.Require().True(proto.Equal(msg, newMsg))
@@ -226,12 +226,12 @@ func (suite *TypesTestSuite) TestMarshalMsgUpdateClient() {
 			cdc := suite.chainA.App.AppCodec()
 
 			// marshal message
-			bz, err := cdc.MarshalJSON(msg)
+			bz, err := cdc.MarshalAsJSON(msg)
 			suite.Require().NoError(err)
 
 			// unmarshal message
 			newMsg := &types.MsgUpdateClient{}
-			err = cdc.UnmarshalJSON(bz, newMsg)
+			err = cdc.UnmarshalAsJSON(bz, newMsg)
 			suite.Require().NoError(err)
 
 			suite.Require().True(proto.Equal(msg, newMsg))
@@ -365,12 +365,12 @@ func (suite *TypesTestSuite) TestMarshalMsgUpgradeClient() {
 			cdc := suite.chainA.App.AppCodec()
 
 			// marshal message
-			bz, err := cdc.MarshalJSON(msg)
+			bz, err := cdc.MarshalAsJSON(msg)
 			suite.Require().NoError(err)
 
 			// unmarshal message
 			newMsg := &types.MsgUpgradeClient{}
-			err = cdc.UnmarshalJSON(bz, newMsg)
+			err = cdc.UnmarshalAsJSON(bz, newMsg)
 			suite.Require().NoError(err)
 		})
 	}
@@ -510,12 +510,12 @@ func (suite *TypesTestSuite) TestMarshalMsgSubmitMisbehaviour() {
 			cdc := suite.chainA.App.AppCodec()
 
 			// marshal message
-			bz, err := cdc.MarshalJSON(msg)
+			bz, err := cdc.MarshalAsJSON(msg)
 			suite.Require().NoError(err)
 
 			// unmarshal message
 			newMsg := &types.MsgSubmitMisbehaviour{}
-			err = cdc.UnmarshalJSON(bz, newMsg)
+			err = cdc.UnmarshalAsJSON(bz, newMsg)
 			suite.Require().NoError(err)
 
 			suite.Require().True(proto.Equal(msg, newMsg))

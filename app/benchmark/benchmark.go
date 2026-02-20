@@ -24,8 +24,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	evmcfg "github.com/sei-protocol/sei-chain/x/evm/config"

@@ -3,9 +3,9 @@ package mock
 import (
 	"context"
 
-	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
