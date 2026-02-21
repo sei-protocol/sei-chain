@@ -101,8 +101,22 @@ func (s *DBImpl) HasSelfDestructed(acc common.Address) bool {
 	return bytes.Equal(val, AccountDeleted)
 }
 
+// gigaCacheMultiStorer is implemented by cachemulti.Store to provide a
+// lightweight CMS that uses plain maps instead of sync.Map. This is safe
+// for single-goroutine use in the giga executor snapshot path.
+type gigaCacheMultiStorer interface {
+	CacheMultiStoreGiga() storetypes.CacheMultiStore
+}
+
 func (s *DBImpl) Snapshot() int {
-	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
+	ms := s.ctx.MultiStore()
+	var cms storetypes.CacheMultiStore
+	if gms, ok := ms.(gigaCacheMultiStorer); ok {
+		cms = gms.CacheMultiStoreGiga()
+	} else {
+		cms = ms.CacheMultiStore()
+	}
+	newCtx := s.ctx.WithMultiStore(cms).WithEventManager(sdk.NewEventManager())
 	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
 	s.ctx = newCtx
 	version := len(s.snapshottedCtxs) - 1
