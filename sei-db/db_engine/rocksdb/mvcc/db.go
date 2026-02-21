@@ -127,8 +127,10 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 }
 
 func (db *Database) getSlice(storeKey string, version int64, key []byte) (*grocksdb.Slice, error) {
+	readOpts := newTSReadOptions(version)
+	defer readOpts.Destroy()
 	return db.storage.GetCF(
-		newTSReadOptions(version),
+		readOpts,
 		db.cfHandle,
 		prependStoreKey(storeKey, key),
 	)
@@ -322,8 +324,9 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 	prefix := storePrefix(storeKey)
 	start, end = util.IterateWithPrefix(prefix, start, end)
 
-	itr := db.storage.NewIteratorCF(newTSReadOptions(version), db.cfHandle)
-	return NewRocksDBIterator(itr, prefix, start, end, version, db.earliestVersion, false), nil
+	readOpts := newTSReadOptions(version)
+	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
+	return NewRocksDBIterator(itr, readOpts, prefix, start, end, version, db.earliestVersion, false), nil
 }
 
 func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
@@ -338,8 +341,9 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	prefix := storePrefix(storeKey)
 	start, end = util.IterateWithPrefix(prefix, start, end)
 
-	itr := db.storage.NewIteratorCF(newTSReadOptions(version), db.cfHandle)
-	return NewRocksDBIterator(itr, prefix, start, end, version, db.earliestVersion, true), nil
+	readOpts := newTSReadOptions(version)
+	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
+	return NewRocksDBIterator(itr, readOpts, prefix, start, end, version, db.earliestVersion, true), nil
 }
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
@@ -410,10 +414,9 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 	readOpts := grocksdb.NewDefaultReadOptions()
 	readOpts.SetIterStartTimestamp(startTs[:])
 	readOpts.SetTimestamp(endTs[:])
-	defer readOpts.Destroy()
 
 	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
-	rocksItr := NewRocksDBIterator(itr, prefix, start, end, latestVersion, 1, false)
+	rocksItr := NewRocksDBIterator(itr, readOpts, prefix, start, end, latestVersion, 1, false)
 	defer func() { _ = rocksItr.Close() }()
 
 	for rocksItr.Valid() {
