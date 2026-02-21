@@ -120,6 +120,10 @@ type RouterOptions struct {
 
 	// Per-connection config.
 	Connection conn.MConnConfig
+
+	// Frequency of dumping connected peers list to the db.
+	// Defaults to 10s.
+	PeerStoreInterval utils.Option[time.Duration]
 }
 
 func (o *RouterOptions) maxDials() int {
@@ -136,6 +140,10 @@ func (o *RouterOptions) maxConns() int {
 
 func (o *RouterOptions) maxPeers() int {
 	return o.MaxPeers.Or(128)
+}
+
+func (o *RouterOptions) peerStoreInterval() time.Duration {
+	return o.PeerStoreInterval.Or(10 * time.Second)
 }
 
 // Validate validates the options.
