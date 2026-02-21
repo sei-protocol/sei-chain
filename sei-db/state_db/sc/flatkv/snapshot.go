@@ -3,6 +3,7 @@ package flatkv
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,6 +12,7 @@ import (
 
 	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 const (
@@ -19,6 +21,10 @@ const (
 
 	currentLink    = "current"
 	currentTmpLink = "current-tmp"
+
+	// workingDirName is cloned from the baseline snapshot on each open().
+	// Mutable DB operations go here, keeping snapshot dirs immutable.
+	workingDirName = "working"
 )
 
 func snapshotName(version int64) string {
@@ -93,7 +99,7 @@ func traverseSnapshots(dir string, ascending bool, fn func(int64) (bool, error))
 		return err
 	}
 
-	var versions []int64
+	versions := make([]int64, 0, len(entries))
 	for _, e := range entries {
 		if !e.IsDir() || !isSnapshotName(e.Name()) {
 			continue
@@ -152,18 +158,101 @@ func removeTmpDirs(dir string) error {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() && (strings.HasSuffix(name, "-tmp") || strings.HasSuffix(name, "-removing")) {
+		if e.IsDir() && (strings.HasSuffix(name, tmpSuffix) || strings.HasSuffix(name, removingSuffix)) {
 			_ = os.RemoveAll(filepath.Join(dir, name))
 		}
 	}
 	return nil
 }
 
+// createWorkingDir clones a snapshot into a fresh working directory.
+// Immutable .sst files are hard-linked; all others are byte-copied.
+func createWorkingDir(snapDir, workDir string) error {
+	_ = os.RemoveAll(workDir)
+
+	if err := os.MkdirAll(workDir, 0750); err != nil {
+		return err
+	}
+
+	for _, sub := range snapshotDBDirs {
+		srcPath := filepath.Join(snapDir, sub)
+		dstPath := filepath.Join(workDir, sub)
+
+		if _, err := os.Stat(srcPath); os.IsNotExist(err) {
+			if mkErr := os.MkdirAll(dstPath, 0750); mkErr != nil {
+				return fmt.Errorf("create empty %s: %w", sub, mkErr)
+			}
+			continue
+		}
+
+		if err := cloneDir(srcPath, dstPath); err != nil {
+			return fmt.Errorf("clone %s: %w", sub, err)
+		}
+	}
+	return nil
+}
+
+// cloneDir copies a single PebbleDB directory. Immutable .sst files are
+// hard-linked; everything else is byte-copied. LOCK files are skipped.
+func cloneDir(src, dst string) error {
+	if err := os.MkdirAll(dst, 0750); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if name == "LOCK" {
+			continue
+		}
+
+		srcPath := filepath.Join(src, name)
+		dstPath := filepath.Join(dst, name)
+
+		if strings.HasSuffix(name, ".sst") {
+			if linkErr := os.Link(srcPath, dstPath); linkErr == nil {
+				continue
+			}
+			// Fall back to copy if hardlink fails (e.g. cross-device).
+		}
+
+		if err := copyFile(srcPath, dstPath); err != nil {
+			return fmt.Errorf("copy %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src) //nolint:gosec // path built from internal snapshot layout
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+
+	out, err := os.Create(dst) //nolint:gosec // path built from internal snapshot layout
+	if err != nil {
+		return err
+	}
+	defer func() { _ = out.Close() }()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
+}
+
 // atomicRemoveDir renames the directory to a trash name then removes it,
-// so a crash mid-delete doesn't leave a half-deleted snapshot.
-// Uses "-removing" suffix to avoid collision with "-tmp" used during writes.
+// preventing half-deleted snapshots on crash.
 func atomicRemoveDir(path string) error {
-	trashPath := path + "-removing"
+	trashPath := path + removingSuffix
 	_ = os.RemoveAll(trashPath)
 	if err := os.Rename(path, trashPath); err != nil {
 		return err
@@ -171,11 +260,11 @@ func atomicRemoveDir(path string) error {
 	return os.RemoveAll(trashPath)
 }
 
-// ensureSnapshotDir returns the full path to the active snapshot directory,
-// performing migration or initialization as needed. It also detects and
-// recovers from partial migrations where the process crashed after moving
-// some directories but before creating the current symlink.
-func (s *CommitStore) ensureSnapshotDir(flatkvDir string) (string, error) {
+// resolveSnapshotDir returns the full path to the active snapshot directory.
+// It handles four cases: (1) current symlink exists, (2) migration from
+// pre-snapshot flat layout, (3) recovery from a partial migration crash,
+// or (4) initialization of a fresh empty snapshot.
+func (s *CommitStore) resolveSnapshotDir(flatkvDir string) (string, error) {
 	snapDir, _, err := currentSnapshotDir(flatkvDir)
 	if err == nil {
 		return snapDir, nil
@@ -184,9 +273,6 @@ func (s *CommitStore) ensureSnapshotDir(flatkvDir string) (string, error) {
 		return "", fmt.Errorf("read current symlink: %w", err)
 	}
 
-	// current symlink does not exist.
-
-	// Check for pre-snapshot flat layout (any DB subdir at the flat level).
 	hasFlatDirs := false
 	for _, sub := range snapshotDBDirs {
 		if _, err := os.Stat(filepath.Join(flatkvDir, sub)); err == nil {
@@ -215,7 +301,6 @@ func (s *CommitStore) ensureSnapshotDir(flatkvDir string) (string, error) {
 		return filepath.Join(flatkvDir, snapName), nil
 	}
 
-	// Fresh node: create an initial empty snapshot directory.
 	initSnap := snapshotName(0)
 	initDir := filepath.Join(flatkvDir, initSnap)
 	for _, sub := range snapshotDBDirs {
@@ -247,7 +332,7 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 		verData, verErr := tmpMeta.Get([]byte(MetaGlobalVersion))
 		_ = tmpMeta.Close()
 		if verErr == nil && len(verData) == 8 {
-			version = int64(binary.BigEndian.Uint64(verData))
+			version = int64(binary.BigEndian.Uint64(verData)) //nolint:gosec // block height, always < MaxInt64
 		}
 	} else {
 		// Metadata already moved — look for the snapshot dir from a prior attempt.
@@ -292,19 +377,17 @@ func (s *CommitStore) WriteSnapshot(_ string) error {
 		return fmt.Errorf("cannot snapshot uncommitted store (version %d)", version)
 	}
 
-	flatkvDir := filepath.Join(s.homeDir, "flatkv")
+	dir := s.flatkvDir()
 	snapDir := snapshotName(version)
-	finalPath := filepath.Join(flatkvDir, snapDir)
-	tmpPath := finalPath + "-tmp"
+	finalPath := filepath.Join(dir, snapDir)
+	tmpPath := finalPath + tmpSuffix
 
-	// Clean up any stale tmp dir from a prior failed attempt
 	_ = os.RemoveAll(tmpPath)
 
 	if err := os.MkdirAll(tmpPath, 0750); err != nil {
 		return fmt.Errorf("create snapshot tmp dir: %w", err)
 	}
 
-	// On any failure, remove the tmp directory
 	success := false
 	defer func() {
 		if !success {
@@ -312,8 +395,7 @@ func (s *CommitStore) WriteSnapshot(_ string) error {
 		}
 	}()
 
-	// Checkpoint each snapshotted DB into its subdirectory.
-	// Order is deterministic (slice, not map) for easier debugging.
+	// Deterministic order (slice, not map) for reproducibility.
 	type namedDB struct {
 		name string
 		db   db_engine.DB
@@ -336,13 +418,12 @@ func (s *CommitStore) WriteSnapshot(_ string) error {
 		}
 	}
 
-	// Atomic rename tmp -> final (idempotent: remove stale final if it exists)
-	_ = atomicRemoveDir(finalPath)
+	_ = atomicRemoveDir(finalPath) // idempotent: stale final may exist
 	if err := os.Rename(tmpPath, finalPath); err != nil {
 		return fmt.Errorf("rename snapshot dir: %w", err)
 	}
 
-	if err := updateCurrentSymlink(flatkvDir, snapDir); err != nil {
+	if err := updateCurrentSymlink(dir, snapDir); err != nil {
 		return fmt.Errorf("update current symlink: %w", err)
 	}
 
@@ -356,38 +437,34 @@ func (s *CommitStore) WriteSnapshot(_ string) error {
 // Rollback restores state to targetVersion by rewinding to the highest
 // snapshot <= targetVersion, replaying WAL to reach the target, and
 // truncating all WAL entries and snapshots beyond that point.
+//
+// Crash safety: the WAL is truncated BEFORE catchup writes any data to
+// PebbleDB. If the process crashes after truncation but before catchup
+// completes, the next restart will simply re-run catchup against the
+// already-truncated WAL, converging to targetVersion.
 func (s *CommitStore) Rollback(targetVersion int64) error {
 	s.log.Info("FlatKV Rollback", "targetVersion", targetVersion)
 
-	flatkvDir := filepath.Join(s.homeDir, "flatkv")
+	dir := s.flatkvDir()
 
-	// Close all open handles so we can reopen from a different snapshot.
-	if err := s.Close(); err != nil {
+	if err := s.closeDBsOnly(); err != nil {
 		return fmt.Errorf("close before rollback: %w", err)
 	}
 
-	// Find the best snapshot baseline (<= target).
-	baseVersion, err := seekSnapshot(flatkvDir, targetVersion)
+	baseVersion, err := seekSnapshot(dir, targetVersion)
 	if err != nil {
 		return fmt.Errorf("seek snapshot for rollback: %w", err)
 	}
 
-	// Point current at the baseline snapshot.
-	if err := updateCurrentSymlink(flatkvDir, snapshotName(baseVersion)); err != nil {
+	if err := updateCurrentSymlink(dir, snapshotName(baseVersion)); err != nil {
 		return fmt.Errorf("update current symlink for rollback: %w", err)
 	}
 
-	// Reopen from the baseline snapshot and catch up to targetVersion only.
-	if err := s.openTo(targetVersion); err != nil {
-		return fmt.Errorf("reopen after rollback: %w", err)
+	if err := s.open(); err != nil {
+		return fmt.Errorf("open for rollback: %w", err)
 	}
 
-	if s.committedVersion != targetVersion {
-		return fmt.Errorf("rollback failed: wanted version %d but reached %d (WAL may be incomplete)",
-			targetVersion, s.committedVersion)
-	}
-
-	// Truncate WAL entries beyond targetVersion.
+	// Truncate WAL beyond targetVersion BEFORE catchup (crash safety).
 	if s.changelog != nil {
 		off, err := s.walOffsetForVersion(targetVersion)
 		if err != nil {
@@ -397,13 +474,34 @@ func (s *CommitStore) Rollback(targetVersion int64) error {
 			if err := s.changelog.TruncateAfter(off); err != nil {
 				return fmt.Errorf("truncate WAL after version %d (offset %d): %w", targetVersion, off, err)
 			}
+			if err := s.verifyWALTail(targetVersion); err != nil {
+				return err
+			}
+		} else {
+			// Target predates all WAL entries; clear the entire WAL to
+			// prevent re-application. tidwall/wal cannot truncate to empty,
+			// so we close, delete, and reopen.
+			lastOff, lErr := s.changelog.LastOffset()
+			if lErr == nil && lastOff > 0 {
+				if err := s.clearChangelog(); err != nil {
+					return fmt.Errorf("clear WAL (target %d predates first entry): %w", targetVersion, err)
+				}
+			}
 		}
 	}
 
-	// Prune snapshot directories with version > targetVersion.
-	_ = traverseSnapshots(flatkvDir, true, func(v int64) (bool, error) {
+	if err := s.catchup(targetVersion); err != nil {
+		return fmt.Errorf("catchup after rollback: %w", err)
+	}
+
+	if s.committedVersion != targetVersion {
+		return fmt.Errorf("rollback failed: wanted version %d but reached %d (WAL may be incomplete)",
+			targetVersion, s.committedVersion)
+	}
+
+	_ = traverseSnapshots(dir, true, func(v int64) (bool, error) {
 		if v > targetVersion {
-			if err := atomicRemoveDir(filepath.Join(flatkvDir, snapshotName(v))); err != nil {
+			if err := atomicRemoveDir(filepath.Join(dir, snapshotName(v))); err != nil {
 				s.log.Error("failed to remove snapshot", "version", v, "err", err)
 			}
 		}
@@ -411,6 +509,25 @@ func (s *CommitStore) Rollback(targetVersion int64) error {
 	})
 
 	s.log.Info("FlatKV Rollback complete", "version", s.committedVersion)
+	return nil
+}
+
+// verifyWALTail checks that the last WAL entry has the expected version.
+func (s *CommitStore) verifyWALTail(expectedVersion int64) error {
+	lastOff, err := s.changelog.LastOffset()
+	if err != nil {
+		return fmt.Errorf("verify WAL last offset: %w", err)
+	}
+	var lastVer int64
+	if err := s.changelog.Replay(lastOff, lastOff, func(_ uint64, entry proto.ChangelogEntry) error {
+		lastVer = entry.Version
+		return nil
+	}); err != nil {
+		return fmt.Errorf("verify WAL last entry: %w", err)
+	}
+	if lastVer != expectedVersion {
+		return fmt.Errorf("WAL integrity check failed: last entry is version %d, expected %d", lastVer, expectedVersion)
+	}
 	return nil
 }
 
@@ -422,12 +539,12 @@ func (s *CommitStore) tryTruncateWAL() {
 		return
 	}
 
-	flatkvDir := filepath.Join(s.homeDir, "flatkv")
+	dir := s.flatkvDir()
 
 	// Find the earliest (lowest-version) snapshot — we must keep WAL entries
 	// from that point onward so rollback to it is possible.
 	var earliestSnapVersion int64
-	_ = traverseSnapshots(flatkvDir, true, func(v int64) (bool, error) {
+	_ = traverseSnapshots(dir, true, func(v int64) (bool, error) {
 		earliestSnapVersion = v
 		return true, nil
 	})

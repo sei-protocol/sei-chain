@@ -31,7 +31,21 @@ func (s *CommitStore) walOffsetForVersion(version int64) (uint64, error) {
 	if firstVersion <= 0 || version < firstVersion {
 		return 0, nil
 	}
-	return firstOff + uint64(version-firstVersion), nil
+	off := firstOff + uint64(version-firstVersion) //nolint:gosec // version >= firstVersion checked above
+
+	// Verify the entry at the computed offset actually has the expected version
+	// to guard against WAL corruption or gaps.
+	var gotVersion int64
+	if err := s.changelog.Replay(off, off, func(_ uint64, entry proto.ChangelogEntry) error {
+		gotVersion = entry.Version
+		return nil
+	}); err != nil {
+		return 0, fmt.Errorf("verify WAL offset %d for version %d: %w", off, version, err)
+	}
+	if gotVersion != version {
+		return 0, fmt.Errorf("WAL offset mismatch: offset %d has version %d, expected %d", off, gotVersion, version)
+	}
+	return off, nil
 }
 
 // catchup replays WAL entries from the current committedVersion up to (and
@@ -59,9 +73,6 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 		return nil
 	}
 
-	// Compute optimal start offset using the version-to-offset mapping so
-	// we skip WAL entries that are already applied rather than scanning from
-	// the beginning.
 	startOff := firstOff
 	if s.committedVersion > 0 {
 		if off, err := s.walOffsetForVersion(s.committedVersion + 1); err == nil && off > startOff {
@@ -72,8 +83,21 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 		}
 	}
 
+	// Bound end offset to avoid deserializing entries past the target:
+	// O(target - snapshot) instead of O(WAL_size).
+	endOff := lastOff
+	if targetVersion > 0 {
+		off, err := s.walOffsetForVersion(targetVersion)
+		if err != nil {
+			return fmt.Errorf("catchup: resolve WAL offset for target version %d: %w", targetVersion, err)
+		}
+		if off > 0 && off < endOff {
+			endOff = off
+		}
+	}
+
 	var replayed int
-	err = s.changelog.Replay(startOff, lastOff, func(_ uint64, entry proto.ChangelogEntry) error {
+	err = s.changelog.Replay(startOff, endOff, func(_ uint64, entry proto.ChangelogEntry) error {
 		if entry.Version <= s.committedVersion {
 			return nil
 		}

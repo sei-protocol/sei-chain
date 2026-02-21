@@ -39,7 +39,7 @@ func TestSnapshotCreatesDir(t *testing.T) {
 
 	require.NoError(t, s.WriteSnapshot(""))
 
-	flatkvDir := filepath.Join(dir, "flatkv")
+	flatkvDir := filepath.Join(dir, flatkvRootDir)
 
 	// Verify snapshot directory exists with all 4 DB subdirs
 	snapDir := filepath.Join(flatkvDir, snapshotName(1))
@@ -67,7 +67,7 @@ func TestSnapshotIdempotent(t *testing.T) {
 	require.NoError(t, s.WriteSnapshot(""))
 	require.NoError(t, s.WriteSnapshot(""))
 
-	flatkvDir := filepath.Join(dir, "flatkv")
+	flatkvDir := filepath.Join(dir, flatkvRootDir)
 	target, err := os.Readlink(currentPath(flatkvDir))
 	require.NoError(t, err)
 	require.Equal(t, snapshotName(1), target)
@@ -215,7 +215,7 @@ func TestPartialSnapshotCleanup(t *testing.T) {
 	// Take a valid snapshot first
 	require.NoError(t, s.WriteSnapshot(""))
 
-	flatkvDir := filepath.Join(dir, "flatkv")
+	flatkvDir := filepath.Join(dir, flatkvRootDir)
 	prevTarget, err := os.Readlink(currentPath(flatkvDir))
 	require.NoError(t, err)
 
@@ -235,7 +235,7 @@ func TestPartialSnapshotCleanup(t *testing.T) {
 	require.Equal(t, prevTarget, target)
 
 	// tmp dir should be cleaned up
-	tmpPath := filepath.Join(flatkvDir, snapshotName(2)+"-tmp")
+	tmpPath := filepath.Join(flatkvDir, snapshotName(2)+tmpSuffix)
 	_, statErr := os.Stat(tmpPath)
 	require.True(t, os.IsNotExist(statErr), "tmp dir should be cleaned up on failure")
 
@@ -246,7 +246,7 @@ func TestPartialSnapshotCleanup(t *testing.T) {
 
 func TestMigrationFromFlatLayout(t *testing.T) {
 	dir := t.TempDir()
-	flatkvDir := filepath.Join(dir, "flatkv")
+	flatkvDir := filepath.Join(dir, flatkvRootDir)
 
 	// Simulate the old flat layout by creating DB dirs directly
 	for _, sub := range []string{accountDBDir, codeDBDir, storageDBDir, metadataDir, legacyDBDir} {
@@ -305,7 +305,7 @@ func TestOpenVersionValidation(t *testing.T) {
 
 	// Phase 2: tamper with one DB's local meta to simulate an incomplete commit
 	// (accountDB thinks it's at v1, but global says v2)
-	flatkvDir := filepath.Join(dir, "flatkv")
+	flatkvDir := filepath.Join(dir, flatkvRootDir)
 	snapDir, _, err := currentSnapshotDir(flatkvDir)
 	require.NoError(t, err)
 
@@ -408,10 +408,8 @@ func TestLoadVersionWithTarget(t *testing.T) {
 	require.Equal(t, hashAtV3, s2.RootHash())
 }
 
-// TestSnapshotBaselineRemainsStableAfterLaterCommits verifies that commits made
-// after a snapshot do not mutate that snapshot's view. This validates the
-// "checkpoint (hardlink SSTs) + replay" model: later writes should produce new
-// LSM files rather than in-place modifying snapshot baselines.
+// TestSnapshotThenCatchupThenVerifyCorrectness verifies that commits after a
+// snapshot do not mutate the snapshot's baseline.
 func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 	dir := t.TempDir()
 
@@ -459,4 +457,109 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 	gotLatest, ok := s3.Get(key)
 	require.True(t, ok)
 	require.Equal(t, []byte{0x04}, gotLatest)
+}
+
+// TestLoadVersionMixedSequence: load-old -> load-latest -> load-old-again.
+// Ensures the working directory keeps snapshots immutable across mixed loads.
+func TestLoadVersionMixedSequence(t *testing.T) {
+	dir := t.TempDir()
+
+	addr := Address{0x80}
+	slot := Slot{0x81}
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+
+	commitStorageEntry(t, s, addr, slot, []byte{0x01})
+	commitStorageEntry(t, s, addr, slot, []byte{0x02})
+	hashAtV2 := s.RootHash()
+	require.NoError(t, s.WriteSnapshot(""))
+
+	commitStorageEntry(t, s, addr, slot, []byte{0x03})
+	commitStorageEntry(t, s, addr, slot, []byte{0x04})
+	hashAtV4 := s.RootHash()
+	require.NoError(t, s.Close())
+
+	// Round 1: load exactly v2
+	s1 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err = s1.LoadVersion(2)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), s1.Version())
+	require.Equal(t, hashAtV2, s1.RootHash())
+	v, ok := s1.Get(key)
+	require.True(t, ok)
+	require.Equal(t, []byte{0x02}, v)
+	require.NoError(t, s1.Close())
+
+	// Round 2: load latest (catches up through v3, v4)
+	s2 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err = s2.LoadVersion(0)
+	require.NoError(t, err)
+	require.Equal(t, int64(4), s2.Version())
+	require.Equal(t, hashAtV4, s2.RootHash())
+	v, ok = s2.Get(key)
+	require.True(t, ok)
+	require.Equal(t, []byte{0x04}, v)
+	require.NoError(t, s2.Close())
+
+	// Round 3: load v2 AGAIN — snapshot must still be clean.
+	s3 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err = s3.LoadVersion(2)
+	require.NoError(t, err, "LoadVersion(2) must succeed after LoadVersion(0) dirtied working dir")
+	require.Equal(t, int64(2), s3.Version())
+	require.Equal(t, hashAtV2, s3.RootHash())
+	v, ok = s3.Get(key)
+	require.True(t, ok)
+	require.Equal(t, []byte{0x02}, v)
+	require.NoError(t, s3.Close())
+}
+
+// TestRollbackTargetBeforeWALStart: rollback to a version predating all WAL
+// entries. The WAL must be cleared entirely to prevent re-application.
+func TestRollbackTargetBeforeWALStart(t *testing.T) {
+	dir := t.TempDir()
+
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+
+	// Build: v1..v5, snapshot at v2
+	commitStorageEntry(t, s, Address{0x90}, Slot{0x01}, []byte{0x01})
+	commitStorageEntry(t, s, Address{0x90}, Slot{0x02}, []byte{0x02})
+	hashAtV2 := s.RootHash()
+	require.NoError(t, s.WriteSnapshot(""))
+
+	commitStorageEntry(t, s, Address{0x90}, Slot{0x03}, []byte{0x03})
+	commitStorageEntry(t, s, Address{0x90}, Slot{0x04}, []byte{0x04})
+	commitStorageEntry(t, s, Address{0x90}, Slot{0x05}, []byte{0x05})
+
+	// Front-truncate WAL so first entry is now v4 (simulates prior pruning).
+	off, err := s.walOffsetForVersion(4)
+	require.NoError(t, err)
+	require.NoError(t, s.changelog.TruncateBefore(off))
+
+	// Rollback to v2: target predates first WAL entry; should clear WAL
+	// and land at the v2 snapshot exactly.
+	require.NoError(t, s.Rollback(2))
+	require.Equal(t, int64(2), s.Version())
+	require.Equal(t, hashAtV2, s.RootHash())
+
+	// Verify WAL is empty so a restart won't re-apply v4/v5.
+	firstOff, err := s.changelog.FirstOffset()
+	require.NoError(t, err)
+	lastOff, err := s.changelog.LastOffset()
+	require.NoError(t, err)
+	require.True(t, lastOff == 0 || firstOff > lastOff, "WAL should be empty after rollback past WAL start")
+
+	// Simulate restart: should stay at v2.
+	require.NoError(t, s.Close())
+	s2 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err = s2.LoadVersion(0)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, int64(2), s2.Version())
+	require.Equal(t, hashAtV2, s2.RootHash())
 }

@@ -16,12 +16,21 @@ import (
 )
 
 const (
-	// DB subdirectories
+	// Top-level directory names
+	flatkvRootDir = "flatkv"
+	changelogDir  = "changelog"
+	lockFileName  = "LOCK"
+
+	// DB subdirectories (inside each snapshot)
 	accountDBDir = "account"
 	codeDBDir    = "code"
 	storageDBDir = "storage"
 	legacyDBDir  = "legacy"
 	metadataDir  = "metadata"
+
+	// Suffixes for atomic directory operations
+	tmpSuffix      = "-tmp"
+	removingSuffix = "-removing"
 
 	// Metadata DB keys
 	MetaGlobalVersion = "_meta/version" // Global committed version watermark (8 bytes)
@@ -57,9 +66,7 @@ type CommitStore struct {
 	storageDB  db_engine.DB // addr(20)||slot(32) → value(32)
 	legacyDB   db_engine.DB // Legacy data for backward compatibility
 
-	// Per-DB local metadata (stored inside each DB at 0x00)
-	// Tracks committed version for recovery and consistency checks.
-	// Keyed by DB directory name (accountDBDir, codeDBDir, storageDBDir).
+	// Per-DB committed version, keyed by DB dir name (e.g. accountDBDir).
 	localMeta map[string]*LocalMeta
 
 	// LtHash state for integrity checking
@@ -67,29 +74,22 @@ type CommitStore struct {
 	committedLtHash  *lthash.LtHash
 	workingLtHash    *lthash.LtHash
 
-	// Pending writes buffer
-	// accountWrites: key = address string (20 bytes), value = AccountValue
-	// codeWrites/storageWrites: key = internal DB key string, value = raw bytes
+	// Pending writes, keyed by internal DB key (address or addr||slot).
 	accountWrites map[string]*pendingAccountWrite
 	codeWrites    map[string]*pendingKVWrite
 	storageWrites map[string]*pendingKVWrite
 
-	// Changelog WAL for atomic writes and replay
-	changelog wal.ChangelogWAL
-
-	// Pending changesets (for changelog)
+	changelog         wal.ChangelogWAL
 	pendingChangeSets []*proto.NamedChangeSet
 
 	// File lock prevents multiple processes from opening the same DB.
 	fileLock filelock.TryLockerSafe
 }
 
-// Compile-time check: CommitStore implements Store interface
 var _ Store = (*CommitStore)(nil)
 
-// NewCommitStore creates a new FlatKV commit store.
-// Note: The store is NOT opened yet. Call LoadVersion to open and initialize the DB.
-// This matches the memiavl.NewCommitStore pattern.
+// NewCommitStore creates a new (unopened) FlatKV commit store.
+// Call LoadVersion to open and initialize.
 func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore {
 	if log == nil {
 		log = logger.NewNopLogger()
@@ -109,6 +109,10 @@ func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore 
 	}
 }
 
+func (s *CommitStore) flatkvDir() string {
+	return filepath.Join(s.homeDir, flatkvRootDir)
+}
+
 // LoadVersion loads the specified version of the database.
 //
 //   - targetVersion == 0: open latest (follow current symlink + catchup to end of WAL).
@@ -117,20 +121,20 @@ func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore 
 func (s *CommitStore) LoadVersion(targetVersion int64) (Store, error) {
 	s.log.Info("FlatKV LoadVersion", "targetVersion", targetVersion)
 
-	// Close existing resources if already open
-	if s.metadataDB != nil {
-		_ = s.Close()
-	}
+	_ = s.closeDBsOnly()
 
-	flatkvDir := filepath.Join(s.homeDir, "flatkv")
+	dir := s.flatkvDir()
 
-	// If a specific version is requested and a better baseline snapshot exists,
-	// point current at it before opening.
 	if targetVersion > 0 {
-		if err := os.MkdirAll(flatkvDir, 0750); err == nil {
-			if baseVer, err := seekSnapshot(flatkvDir, targetVersion); err == nil {
-				_ = updateCurrentSymlink(flatkvDir, snapshotName(baseVer))
+		if err := os.MkdirAll(dir, 0750); err != nil {
+			return nil, fmt.Errorf("create flatkv dir: %w", err)
+		}
+		if baseVer, err := seekSnapshot(dir, targetVersion); err == nil {
+			if err := updateCurrentSymlink(dir, snapshotName(baseVer)); err != nil {
+				return nil, fmt.Errorf("update current symlink for target version %d: %w", targetVersion, err)
 			}
+		} else {
+			s.log.Debug("no snapshot found, will open current", "target", targetVersion, "err", err)
 		}
 	}
 
@@ -158,29 +162,70 @@ func (s *CommitStore) openTo(catchupTarget int64) error {
 
 // open opens all database instances.
 //
-// Directory layout:
+// Layout:
 //
 //	flatkv/
-//	  current -> snapshot-NNNNN   (symlink to active snapshot dir)
-//	  snapshot-NNNNN/{account,code,storage,legacy,metadata}/
-//	  changelog/                   (WAL, shared across snapshots)
+//	  current -> snapshot-NNNNN
+//	  snapshot-NNNNN/{account,code,...}/  (immutable)
+//	  working/{account,code,...}/          (mutable clone)
+//	  changelog/                           (WAL, shared)
 //
-// On first run (or migration from the pre-snapshot flat layout), the existing
-// DB directories are moved into a snapshot directory and the current symlink
-// is created.
-//
-// On failure, all already-opened resources are closed via deferred cleanup.
+// The baseline snapshot is cloned into working/ on every open so that
+// PebbleDB writes never mutate snapshot directories. On first run,
+// existing flat DB directories are migrated into a snapshot.
 func (s *CommitStore) open() (retErr error) {
 	s.clearPendingWrites()
 
-	dir := filepath.Join(s.homeDir, "flatkv")
-
+	dir := s.flatkvDir()
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("failed to create base directory: %w", err)
 	}
 
-	// Acquire exclusive file lock to prevent concurrent access.
-	lockPath, err := filepath.Abs(filepath.Join(dir, "LOCK"))
+	acquiredLock := false
+	if s.fileLock == nil {
+		if err := s.acquireFileLock(dir); err != nil {
+			return err
+		}
+		acquiredLock = true
+	}
+	defer func() {
+		if retErr != nil {
+			_ = s.closeDBsOnly()
+			if acquiredLock && s.fileLock != nil {
+				_ = s.fileLock.Unlock()
+				s.fileLock = nil
+			}
+		}
+	}()
+
+	if err := removeTmpDirs(dir); err != nil {
+		return fmt.Errorf("cleanup tmp dirs: %w", err)
+	}
+
+	snapDir, err := s.resolveSnapshotDir(dir)
+	if err != nil {
+		return fmt.Errorf("resolve snapshot dir: %w", err)
+	}
+
+	workDir := filepath.Join(dir, workingDirName)
+	if err := createWorkingDir(snapDir, workDir); err != nil {
+		return fmt.Errorf("create working dir: %w", err)
+	}
+
+	if err := s.openAllDBs(workDir, dir); err != nil {
+		return err
+	}
+
+	if err := s.loadGlobalMetadata(); err != nil {
+		return err
+	}
+
+	s.log.Info("FlatKV store opened", "dir", dir, "version", s.committedVersion)
+	return nil
+}
+
+func (s *CommitStore) acquireFileLock(dir string) error {
+	lockPath, err := filepath.Abs(filepath.Join(dir, lockFileName))
 	if err != nil {
 		return fmt.Errorf("abs lock path: %w", err)
 	}
@@ -192,35 +237,31 @@ func (s *CommitStore) open() (retErr error) {
 		return fmt.Errorf("acquire file lock (another process may be using this DB): %w", err)
 	}
 	s.fileLock = fl
+	return nil
+}
 
-	// Clean up any stale tmp directories left by a previous crash.
-	if err := removeTmpDirs(dir); err != nil {
-		return fmt.Errorf("cleanup tmp dirs: %w", err)
+// openAllDBs opens the 5 PebbleDBs from the snapshot directory, the changelog
+// WAL from the flatkv root, and loads per-DB local metadata. On failure all
+// already-opened handles are closed.
+func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
+	type namedPath struct {
+		name string
+		path string
+	}
+	dbPaths := []namedPath{
+		{accountDBDir, filepath.Join(snapDir, accountDBDir)},
+		{codeDBDir, filepath.Join(snapDir, codeDBDir)},
+		{storageDBDir, filepath.Join(snapDir, storageDBDir)},
+		{legacyDBDir, filepath.Join(snapDir, legacyDBDir)},
+		{metadataDir, filepath.Join(snapDir, metadataDir)},
 	}
 
-	// Resolve (or create) the active snapshot directory.
-	snapDir, err := s.ensureSnapshotDir(dir)
-	if err != nil {
-		return fmt.Errorf("resolve snapshot dir: %w", err)
-	}
-
-	// Paths inside the active snapshot directory.
-	accountPath := filepath.Join(snapDir, accountDBDir)
-	codePath := filepath.Join(snapDir, codeDBDir)
-	storagePath := filepath.Join(snapDir, storageDBDir)
-	legacyPath := filepath.Join(snapDir, legacyDBDir)
-	metadataPath := filepath.Join(snapDir, metadataDir)
-
-	// Changelog lives at the flatkv root (outside snapshots).
-	changelogPath := filepath.Join(dir, "changelog")
-
-	for _, p := range []string{accountPath, codePath, storagePath, metadataPath, legacyPath} {
-		if err := os.MkdirAll(p, 0750); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", p, err)
+	for _, np := range dbPaths {
+		if err := os.MkdirAll(np.path, 0750); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", np.path, err)
 		}
 	}
 
-	// Track opened resources for cleanup on failure
 	var toClose []io.Closer
 	defer func() {
 		if retErr != nil {
@@ -234,44 +275,37 @@ func (s *CommitStore) open() (retErr error) {
 			s.legacyDB = nil
 			s.changelog = nil
 			s.localMeta = make(map[string]*LocalMeta)
-			if s.fileLock != nil {
-				_ = s.fileLock.Unlock()
-				s.fileLock = nil
-			}
 		}
 	}()
 
-	metaDB, err := pebbledb.Open(metadataPath, db_engine.OpenOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to open metadata DB: %w", err)
+	openDB := func(np namedPath) (db_engine.DB, error) {
+		db, err := pebbledb.Open(np.path, db_engine.OpenOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to open %s: %w", np.name, err)
+		}
+		toClose = append(toClose, db)
+		return db, nil
 	}
-	toClose = append(toClose, metaDB)
 
-	accountDB, err := pebbledb.Open(accountPath, db_engine.OpenOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to open accountDB: %w", err)
+	var err error
+	if s.accountDB, err = openDB(dbPaths[0]); err != nil {
+		return err
 	}
-	toClose = append(toClose, accountDB)
-
-	codeDB, err := pebbledb.Open(codePath, db_engine.OpenOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to open codeDB: %w", err)
+	if s.codeDB, err = openDB(dbPaths[1]); err != nil {
+		return err
 	}
-	toClose = append(toClose, codeDB)
-
-	storageDB, err := pebbledb.Open(storagePath, db_engine.OpenOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to open storageDB: %w", err)
+	if s.storageDB, err = openDB(dbPaths[2]); err != nil {
+		return err
 	}
-	toClose = append(toClose, storageDB)
-
-	legacyDB, err := pebbledb.Open(legacyPath, db_engine.OpenOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to open legacyDB: %w", err)
+	if s.legacyDB, err = openDB(dbPaths[3]); err != nil {
+		return err
 	}
-	toClose = append(toClose, legacyDB)
+	if s.metadataDB, err = openDB(dbPaths[4]); err != nil {
+		return err
+	}
 
-	changelog, err := wal.NewChangelogWAL(s.log, changelogPath, wal.Config{
+	changelogPath := filepath.Join(flatkvRoot, changelogDir)
+	s.changelog, err = wal.NewChangelogWAL(s.log, changelogPath, wal.Config{
 		WriteBufferSize: 0,
 		KeepRecent:      0,
 		PruneInterval:   0,
@@ -279,15 +313,18 @@ func (s *CommitStore) open() (retErr error) {
 	if err != nil {
 		return fmt.Errorf("failed to open changelog: %w", err)
 	}
-	toClose = append(toClose, changelog)
+	toClose = append(toClose, s.changelog)
 
-	// Load per-DB local metadata
-	dataDBs := map[string]db_engine.DB{
-		accountDBDir: accountDB,
-		codeDBDir:    codeDB,
-		storageDBDir: storageDB,
-	}
-	for name, db := range dataDBs {
+	for _, name := range []string{accountDBDir, codeDBDir, storageDBDir} {
+		var db db_engine.DB
+		switch name {
+		case accountDBDir:
+			db = s.accountDB
+		case codeDBDir:
+			db = s.codeDB
+		case storageDBDir:
+			db = s.storageDB
+		}
 		meta, err := loadLocalMeta(db)
 		if err != nil {
 			return fmt.Errorf("failed to load %s local meta: %w", name, err)
@@ -295,15 +332,10 @@ func (s *CommitStore) open() (retErr error) {
 		s.localMeta[name] = meta
 	}
 
-	// Assign to store fields
-	s.metadataDB = metaDB
-	s.accountDB = accountDB
-	s.codeDB = codeDB
-	s.storageDB = storageDB
-	s.legacyDB = legacyDB
-	s.changelog = changelog
+	return nil
+}
 
-	// Load committed state from metadataDB
+func (s *CommitStore) loadGlobalMetadata() error {
 	globalVersion, err := s.loadGlobalVersion()
 	if err != nil {
 		return fmt.Errorf("failed to load global version: %w", err)
@@ -321,12 +353,32 @@ func (s *CommitStore) open() (retErr error) {
 		s.committedLtHash = lthash.New()
 		s.workingLtHash = lthash.New()
 	}
-
-	s.log.Info("FlatKV store opened", "dir", dir, "version", s.committedVersion)
 	return nil
 }
 
-// Version returns the latest committed version.
+// clearChangelog closes the WAL, removes its directory, and reopens an empty
+// WAL. Used by Rollback when the target version predates all WAL entries and
+// the entire log must be discarded to prevent re-application on restart.
+func (s *CommitStore) clearChangelog() error {
+	if s.changelog == nil {
+		return nil
+	}
+	dir := filepath.Join(s.flatkvDir(), changelogDir)
+	if err := s.changelog.Close(); err != nil {
+		return fmt.Errorf("close changelog: %w", err)
+	}
+	s.changelog = nil
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("remove changelog dir: %w", err)
+	}
+	var err error
+	s.changelog, err = wal.NewChangelogWAL(s.log, dir, wal.Config{})
+	if err != nil {
+		return fmt.Errorf("reopen changelog: %w", err)
+	}
+	return nil
+}
+
 func (s *CommitStore) Version() int64 {
 	return s.committedVersion
 }

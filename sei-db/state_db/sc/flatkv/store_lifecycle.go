@@ -5,8 +5,9 @@ import (
 	"fmt"
 )
 
-// Close closes all database instances.
-func (s *CommitStore) Close() error {
+// closeDBsOnly closes all database handles and the WAL but retains the
+// file lock, preventing a race window during Rollback or LoadVersion.
+func (s *CommitStore) closeDBsOnly() error {
 	var errs []error
 
 	if s.changelog != nil {
@@ -49,15 +50,27 @@ func (s *CommitStore) Close() error {
 		s.legacyDB = nil
 	}
 
+	s.localMeta = make(map[string]*LocalMeta)
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
+}
+
+// Close closes all database instances and releases the file lock.
+func (s *CommitStore) Close() error {
+	err := s.closeDBsOnly()
+
 	if s.fileLock != nil {
-		if err := s.fileLock.Unlock(); err != nil {
-			errs = append(errs, fmt.Errorf("file lock release: %w", err))
+		if lockErr := s.fileLock.Unlock(); lockErr != nil {
+			err = errors.Join(err, fmt.Errorf("file lock release: %w", lockErr))
 		}
 		s.fileLock = nil
 	}
 
-	if len(errs) > 0 {
-		return errors.Join(errs...)
+	if err != nil {
+		return err
 	}
 
 	s.log.Info("FlatKV store closed")
@@ -65,8 +78,7 @@ func (s *CommitStore) Close() error {
 }
 
 // Exporter creates an exporter for the given version.
-// NOTE: Not yet implemented. Will be added with state-sync support.
-// The future implementation will export each DB separately with internal key format.
+// TODO: not yet implemented; will be added with state-sync support.
 func (s *CommitStore) Exporter(version int64) (Exporter, error) {
 	return &notImplementedExporter{}, nil
 }
