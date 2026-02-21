@@ -31,6 +31,19 @@ func RegisterBackend(backendType BackendType, initializer BackendInitializer) {
 	backends[backendType] = initializer
 }
 
+// PrunableStateStore wraps a StateStore with a pruning manager that is
+// stopped before the underlying store is closed. This ensures no pruning
+// operations are in progress when the database is shut down.
+type PrunableStateStore struct {
+	types.StateStore
+	pruningManager *pruning.Manager
+}
+
+func (s *PrunableStateStore) Close() error {
+	s.pruningManager.Stop()
+	return s.StateStore.Close()
+}
+
 // NewStateStore Create a new state store with the specified backend type
 func NewStateStore(logger logger.Logger, homeDir string, ssConfig config.StateStoreConfig) (types.StateStore, error) {
 	initializer, ok := backends[BackendType(ssConfig.Backend)]
@@ -51,10 +64,14 @@ func NewStateStore(logger logger.Logger, homeDir string, ssConfig config.StateSt
 		return nil, err
 	}
 
-	// Start the pruning manager for DB
-	pruningManager := pruning.NewPruningManager(logger, stateStore, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds))
-	pruningManager.Start()
-	return stateStore, nil
+	// Start the pruning manager; the PrunableStateStore wrapper ensures
+	// Stop() is called before the underlying store is closed.
+	pm := pruning.NewPruningManager(logger, stateStore, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds))
+	pm.Start()
+	return &PrunableStateStore{
+		StateStore:     stateStore,
+		pruningManager: pm,
+	}, nil
 }
 
 // RecoverStateStore will be called during initialization to recover the state from rlog
