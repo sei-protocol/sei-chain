@@ -1,7 +1,14 @@
 build/
+# Include prebuilt binaries when building localnode app image (Dockerfile.prebuilt)
+!build/seid
+!build/price-feeder
 .github
 assets
 docker
+# Include localnode scripts when building prebuilt app image (Dockerfile.prebuilt)
+!docker/localnode/scripts
+# Include rpcnode scripts when building rpc node image (context = repo root)
+!docker/rpcnode/scripts
 **/*.md
 **/README*
 **/LICENSE*

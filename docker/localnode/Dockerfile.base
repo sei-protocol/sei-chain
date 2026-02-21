@@ -1,0 +1,16 @@
+# Base image with Go, Foundry, and Node only. Rebuild when tool versions change.
+# Tag: sei-chain/localnode-base:go1.25.6
+FROM ubuntu:25.04
+ENV HOME="/root" PATH="/root/go/bin:$PATH"
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update && apt-get install -y make build-essential git jq python3 curl vim uuid-runtime
+RUN curl -L https://go.dev/dl/go1.25.6.linux-amd64.tar.gz | tar xvzf - -C /usr/local/
+RUN curl -L https://foundry.paradigm.xyz | bash
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    curl -sL https://deb.nodesource.com/setup_16.x | bash - && apt-get install -y nodejs
+RUN /root/.foundry/bin/foundryup
+RUN mkdir -p /root/go/pkg/mod && \
+    mkdir -p /root/.cache && \
+    chmod -R a+rwX /root

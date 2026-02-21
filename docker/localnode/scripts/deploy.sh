@@ -8,13 +8,26 @@ export GOPATH=$HOME/go
 export GOBIN=$GOPATH/bin
 export BUILD_PATH=/sei-protocol/sei-chain/build
 export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH
+# GIGA evmone lib path (container mount)
+export GIGA_EVMONE_LIB_DIR="/sei-protocol/sei-chain/giga/executor/lib"
 echo "export GOPATH=$HOME/go" >> "$HOME/.bashrc"
 echo "GOBIN=$GOPATH/bin" >> "$HOME/.bashrc"
 echo "export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH:$HOME/.foundry/bin" >> "$HOME/.bashrc"
+echo "export GIGA_EVMONE_LIB_DIR=\"/sei-protocol/sei-chain/giga/executor/lib\"" >> "$HOME/.bashrc"
 rm -rf build/generated
 /bin/bash -c "source $HOME/.bashrc"
 mkdir -p $GOBIN
-# Step 0: Build on node 0
+
+# Use prebuilt binaries from the image when present (CI: binary baked in; no in-container build)
+if [ -f /prebuilt/seid ]; then
+  mkdir -p build/generated
+  cp -f /prebuilt/seid build/seid
+  cp -f /prebuilt/price-feeder build/price-feeder
+  echo "DONE" > build/generated/build.complete
+  export SKIP_BUILD=1
+fi
+
+# Step 0: Build on node 0 (skipped when SKIP_BUILD is set from prebuilt above)
 if [ "$NODE_ID" = 0 ] && [ -z "$SKIP_BUILD" ]
 then
   /usr/bin/build.sh $MOCK_BALANCES
