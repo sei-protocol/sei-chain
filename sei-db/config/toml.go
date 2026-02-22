@@ -18,6 +18,15 @@ sc-directory = "{{ .StateCommit.Directory }}"
 # the sdk address cache will be disabled if zero-copy is enabled.
 sc-zero-copy = {{ .StateCommit.ZeroCopy }}
 
+# Max concurrent historical proof queries (RPC /store path)
+sc-historical-proof-max-inflight = {{ .StateCommit.HistoricalProofMaxInFlight }}
+
+# Historical proof query rate limit in req/sec (<=0 disables rate limiting)
+sc-historical-proof-rate-limit = {{ .StateCommit.HistoricalProofRateLimit }}
+
+# Historical proof query burst size
+sc-historical-proof-burst = {{ .StateCommit.HistoricalProofBurst }}
+
 # AsyncCommitBuffer defines the size of asynchronous commit queue, this greatly improve block catching-up
 # performance, setting to 0 means synchronous commit.
 sc-async-commit-buffer = {{ .StateCommit.AsyncCommitBuffer }}
