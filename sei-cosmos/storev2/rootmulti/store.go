@@ -556,24 +556,26 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 	var store types.Queryable
 	var commitInfo *types.CommitInfo
 
-	if (!req.Prove || !rootmulti.RequireProof(subPath)) && rs.ssStore != nil {
+	if rs.ssStore != nil {
 		// Serve abci query from ss store if no proofs needed and ss enabled
 		store = types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version))
+	} else {
+		// Serve abci query from SC only when SS disabled
+		store = types.Queryable(commitment.NewStore(rs.scStore.GetChildStoreByName(storeName), rs.logger))
+	}
+
+	if !req.Prove || !rootmulti.RequireProof(subPath) {
+		// Reaching here means proof not needed
 		req.Path = subPath
 		res := store.Query(req)
 		return res
 	}
-
 	if req.Height <= 0 || req.Height == rs.scStore.Version() {
-		// Serve abci query from SC only for latest height to avoid loading historical MemIAVL snapshot
-		store = types.Queryable(commitment.NewStore(rs.scStore.GetChildStoreByName(storeName), rs.logger))
-		commitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
-		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
+		// Reaching here means proof needed and we are at latest height
 		req.Path = subPath
 		res := store.Query(req)
-		if !req.Prove || !rootmulti.RequireProof(subPath) {
-			return res
-		}
+		commitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
+		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 		if commitInfo != nil {
 			// Restore origin path and append proof op.
 			res.ProofOps.Ops = append(res.ProofOps.Ops, commitInfo.ProofOp(storeName))
@@ -582,7 +584,6 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 			return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
 		}
 		return res
-
 	}
 
 	// We don't support historical proofs until we have a better solution
