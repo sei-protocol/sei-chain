@@ -548,49 +548,40 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 	if version <= 0 || version > rs.lastCommitInfo.Version {
 		version = rs.scStore.Version()
 	}
-	path := req.Path
-	storeName, subPath, err := parsePath(path)
+	storeName, subPath, err := parsePath(req.Path)
 	if err != nil {
 		return sdkerrors.QueryResult(err)
 	}
-	var store types.Queryable
-	var commitInfo *types.CommitInfo
+	req.Path = subPath
+	needProof := req.Prove && rootmulti.RequireProof(subPath)
 
-	if rs.ssStore != nil {
-		// Serve abci query from ss store if no proofs needed and ss enabled
-		store = types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version))
-	} else if req.Height <= 0 || req.Height == rs.scStore.Version() {
-		// Serve abci query from SC only when SS disabled
-		store = types.Queryable(commitment.NewStore(rs.scStore.GetChildStoreByName(storeName), rs.logger))
-	} else {
-		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "only support ABCI on latest height when ss disabled"))
+	if !needProof {
+		var store types.Queryable
+		if rs.ssStore != nil {
+			store = state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version)
+		} else if req.Height <= 0 || req.Height == rs.scStore.Version() {
+			store = commitment.NewStore(rs.scStore.GetChildStoreByName(storeName), rs.logger)
+		} else {
+			return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "only support query on latest height when ss disabled"))
+		}
+		return store.Query(req)
 	}
 
-	if !req.Prove || !rootmulti.RequireProof(subPath) {
-		// Reaching here means proof not needed
-		req.Path = subPath
-		res := store.Query(req)
-		return res
-	} else {
-		// Reaching here means proof needed and we are at latest height
-		req.Path = subPath
-		res := store.Query(req)
-		commitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
-		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
-		if commitInfo != nil {
-			// Restore origin path and append proof op.
-			res.ProofOps.Ops = append(res.ProofOps.Ops, commitInfo.ProofOp(storeName))
-		}
-		if res.ProofOps == nil || len(res.ProofOps.Ops) == 0 {
-			return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
-		}
-		return res
+	// Proofs are only available at the latest height via SC
+	if req.Height > 0 && req.Height != rs.scStore.Version() {
+		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof only supported on latest height"))
 	}
-
-	// We don't support historical proofs until we have a better solution
-	rs.logger.Error("unable to serve ABCI request with proof=true", "request_height", req.Height, "latest_height", rs.scStore.Version())
-	return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof only supported on latest height"))
-
+	store := types.Queryable(commitment.NewStore(rs.scStore.GetChildStoreByName(storeName), rs.logger))
+	res := store.Query(req)
+	commitInfo := convertCommitInfo(rs.scStore.LastCommitInfo())
+	commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
+	if commitInfo != nil {
+		res.ProofOps.Ops = append(res.ProofOps.Ops, commitInfo.ProofOp(storeName))
+	}
+	if res.ProofOps == nil || len(res.ProofOps.Ops) == 0 {
+		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
+	}
+	return res
 }
 
 // parsePath expects a format like /<storeName>[/<subpath>]
