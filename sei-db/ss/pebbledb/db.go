@@ -61,6 +61,7 @@ type Database struct {
 	storage      *pebble.DB
 	asyncWriteWG sync.WaitGroup
 	config       config.StateStoreConfig
+	closed       atomic.Bool
 	// Earliest version for db after pruning
 	earliestVersion atomic.Int64
 	// Latest version for db
@@ -187,6 +188,8 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 }
 
 func (db *Database) Close() error {
+	db.closed.Store(true)
+
 	// Stop background metrics collection
 	if db.metricsCancel != nil {
 		db.metricsCancel()
@@ -635,7 +638,7 @@ func (db *Database) writeAsyncInBackground() {
 // This is not a large issue given the next time that module is updated, it will be properly pruned thereafter.
 func (db *Database) Prune(version int64) (_err error) {
 	// Defensive check: ensure database is not closed
-	if db.storage == nil {
+	if db.closed.Load() {
 		return errors.New("pebbledb: database is closed")
 	}
 
