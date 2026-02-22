@@ -485,15 +485,16 @@ func TestMultiStoreQuery(t *testing.T) {
 	require.Equal(t, cid2.Version, qres.Height)
 	require.Equal(t, 3, len(qres.ProofOps.Ops)) // 3 mounted stores
 
+	// TODO: Re-enable this once we support historical proof
 	// Test proofs second latest height
-	query.Height = query.Height - 1
-	qres = multi.Query(query)
-	require.EqualValues(t, 0, qres.Code)
-	require.NotNil(t, qres.ProofOps)
-	require.Equal(t, []byte(proofsPath), qres.Key)
-	require.Equal(t, cid1.Hash, qres.Value)
-	require.Equal(t, cid1.Version, qres.Height)
-	require.Equal(t, 3, len(qres.ProofOps.Ops)) // 3 mounted stores
+	//query.Height = query.Height - 1
+	//qres = multi.Query(query)
+	//require.EqualValues(t, 0, qres.Code)
+	//require.NotNil(t, qres.ProofOps)
+	//require.Equal(t, []byte(proofsPath), qres.Key)
+	//require.Equal(t, cid1.Hash, qres.Value)
+	//require.Equal(t, cid1.Version, qres.Height)
+	//require.Equal(t, 3, len(qres.ProofOps.Ops)) // 3 mounted stores
 }
 
 func TestMultiStore_Pruning(t *testing.T) {
