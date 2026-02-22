@@ -63,11 +63,12 @@ func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
 		i.appVotes.next = i.appVotes.first
 	}
 
-	// Reconstruct blockPersisted from the blocks on disk.
+	// blockPersisted gates RecvBatch: only blocks below this cursor are
+	// eligible for voting. Lanes without loaded blocks start at 0, which
+	// is safe — an empty queue has nothing to vote on. New blocks must
+	// arrive in order via PushBlock, get persisted, and the callback will
+	// advance blockPersisted accordingly.
 	i.blockPersisted = make(map[types.LaneID]types.BlockNumber, c.Lanes().Len())
-	for _, lane := range c.Lanes().All() {
-		i.blockPersisted[lane] = 0
-	}
 
 	// Restore persisted blocks into their lane queues.
 	for lane, bs := range loaded.blocks {
@@ -82,6 +83,7 @@ func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
 			q.q[q.next] = b.Proposal
 			q.next++
 		}
+		// Loaded blocks are already on disk, so immediately consider them persisted.
 		i.blockPersisted[lane] = q.next
 		// Advance the votes queue to match so headers() returns ErrPruned
 		// for already-committed blocks instead of blocking forever.
