@@ -83,7 +83,10 @@ func (opts *Options) FillDefaults() {
 		opts.SnapshotWriteRateMBps = config.DefaultSnapshotWriteRateMBps
 	}
 
-	opts.PrefetchThreshold = 0.8
-	opts.Logger = logger.NewNopLogger()
-	opts.SnapshotKeepRecent = config.DefaultSnapshotKeepRecent
+	if opts.PrefetchThreshold <= 0 || opts.PrefetchThreshold > 1 {
+		opts.PrefetchThreshold = 0.8
+	}
+	if opts.Logger == nil {
+		opts.Logger = logger.NewNopLogger()
+	}
 }
