@@ -1,7 +1,7 @@
 // TODO: Block file persistence is a temporary solution. It does not handle many
-// corner cases (e.g. disk full, partial directory listings, orphaned files after
-// lane changes, no garbage collection on unclean shutdown). This will be replaced
-// by proper storage solution before launch.
+// corner cases (e.g. disk full, partial directory listings, no garbage collection
+// on unclean shutdown). This will be replaced by proper storage solution before
+// launch.
 
 package persist
 
@@ -114,9 +114,11 @@ func (bp *BlockPersister) PersistBlock(lane types.LaneID, n types.BlockNumber, p
 	return WriteAndSync(path, data)
 }
 
-// DeleteBefore removes all persisted block files for lanes in the given map
-// where the block number is below the map value. Scans the directory once.
-// Best-effort: logs warnings on individual failures.
+// DeleteBefore removes persisted block files that are no longer needed.
+// For lanes in laneFirsts, deletes files with block number below the map value.
+// For lanes NOT in laneFirsts (orphaned from a previous committee/epoch),
+// deletes all files — old blocks are not reusable after a committee change.
+// Scans the directory once. Best-effort: logs warnings on individual failures.
 func (bp *BlockPersister) DeleteBefore(laneFirsts map[types.LaneID]types.BlockNumber) {
 	if len(laneFirsts) == 0 {
 		return
@@ -135,7 +137,7 @@ func (bp *BlockPersister) DeleteBefore(laneFirsts map[types.LaneID]types.BlockNu
 			continue
 		}
 		first, ok := laneFirsts[lane]
-		if !ok || fileN >= first {
+		if ok && fileN >= first {
 			continue
 		}
 		path := filepath.Join(bp.dir, entry.Name())

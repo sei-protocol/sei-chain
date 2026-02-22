@@ -264,6 +264,38 @@ func TestDeleteBeforeEmptyMap(t *testing.T) {
 	require.Equal(t, 1, len(blocks[lane]))
 }
 
+func TestDeleteBeforeRemovesOrphanedLanes(t *testing.T) {
+	rng := utils.TestRng()
+	dir := t.TempDir()
+
+	key1 := types.GenSecretKey(rng)
+	lane1 := key1.Public()
+	key2 := types.GenSecretKey(rng)
+	lane2 := key2.Public()
+
+	bp, _, err := NewBlockPersister(dir)
+	require.NoError(t, err)
+
+	// Persist blocks on both lanes.
+	for n := types.BlockNumber(0); n < 3; n++ {
+		require.NoError(t, bp.PersistBlock(lane1, n, testSignedProposal(rng, key1, n)))
+		require.NoError(t, bp.PersistBlock(lane2, n, testSignedProposal(rng, key2, n)))
+	}
+
+	// Only lane1 is in the current committee; lane2 is orphaned.
+	bp.DeleteBefore(map[types.LaneID]types.BlockNumber{lane1: 1})
+
+	_, blocks, err := NewBlockPersister(dir)
+	require.NoError(t, err)
+
+	// lane1: block 0 deleted, blocks 1-2 kept.
+	require.Equal(t, 2, len(blocks[lane1]))
+	require.Equal(t, types.BlockNumber(1), blocks[lane1][0].Number)
+
+	// lane2: all blocks deleted (orphaned lane).
+	require.Equal(t, 0, len(blocks[lane2]))
+}
+
 func TestBlockFilenameRoundTrip(t *testing.T) {
 	rng := utils.TestRng()
 	lane := types.GenSecretKey(rng).Public()
