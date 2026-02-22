@@ -3,6 +3,7 @@ package memiavl
 import (
 	"fmt"
 	"math"
+	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
@@ -11,13 +12,17 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
+var errHistoricalReadLimit = fmt.Errorf("too many pending historical reads, try again later")
+
 var _ types.Committer = (*CommitStore)(nil)
 
 type CommitStore struct {
-	logger  logger.Logger
-	db      *DB
-	opts    Options
-	homeDir string
+	logger           logger.Logger
+	db               *DB
+	opts             Options
+	homeDir          string
+	loadVersionQueue chan struct{}
+	loadVersionMu    sync.Mutex
 }
 
 func NewCommitStore(homeDir string, logger logger.Logger, config Config) *CommitStore {
@@ -28,10 +33,15 @@ func NewCommitStore(homeDir string, logger logger.Logger, config Config) *Commit
 		CreateIfMissing: true,
 		ZeroCopy:        true,
 	}
+	maxConcurrency := config.MaxInFlightLoadVersion
+	if maxConcurrency <= 0 {
+		maxConcurrency = DefaultMaxInFlightLoadVersion
+	}
 	commitStore := &CommitStore{
-		logger:  logger,
-		opts:    opts,
-		homeDir: homeDir,
+		logger:           logger,
+		opts:             opts,
+		homeDir:          homeDir,
+		loadVersionQueue: make(chan struct{}, maxConcurrency),
 	}
 	return commitStore
 }
@@ -61,27 +71,34 @@ func (cs *CommitStore) Rollback(targetVersion int64) error {
 	return nil
 }
 
-// LoadVersion loads the specified version of the database.
-// If copyExisting is true, creates a read-only copy for querying.
+// LoadVersionForExport opens a read-only DB at the target version for state export.
+func (cs *CommitStore) LoadVersionForExport(targetVersion int64) (types.Committer, error) {
+	return cs.openForHistoricalRead(targetVersion)
+}
+
+// LoadVersion loads the DB at the target version. When readOnly is true, requests are
+// queued up to MaxInFlightLoadVersion and executed serially to limit disk I/O.
+// If the queue is full, it fails fast with an error.
 func (cs *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Committer, error) {
-	cs.logger.Info(fmt.Sprintf("SeiDB load target memIAVL version %d, readOnly = %v", targetVersion, readOnly))
-
 	if readOnly {
-		// Create a read-only copy via NewCommitStore.
-		newCS := NewCommitStore(cs.homeDir, cs.logger, cs.opts.Config)
-		newCS.opts = cs.opts
-		newCS.opts.ReadOnly = true
-		newCS.opts.CreateIfMissing = false
+		select {
+		case cs.loadVersionQueue <- struct{}{}:
+		default:
+			return nil, errHistoricalReadLimit
+		}
 
-		db, err := OpenDB(cs.logger, targetVersion, newCS.opts)
+		cs.loadVersionMu.Lock()
+		result, err := cs.openForHistoricalRead(targetVersion)
+		cs.loadVersionMu.Unlock()
+		<-cs.loadVersionQueue
+
 		if err != nil {
 			return nil, err
 		}
-		newCS.db = db
-		return newCS, nil
+		return result, nil
 	}
 
-	// Close existing resources
+	// This happens during initialization or store upgrades.
 	if cs.db != nil {
 		_ = cs.db.Close()
 	}
@@ -94,6 +111,21 @@ func (cs *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Co
 
 	cs.db = db
 	return cs, nil
+}
+
+func (cs *CommitStore) openForHistoricalRead(targetVersion int64) (*CommitStore, error) {
+	cs.logger.Info(fmt.Sprintf("SeiDB open memIAVL for read at version %d", targetVersion))
+	newCS := NewCommitStore(cs.homeDir, cs.logger, cs.opts.Config)
+	newCS.opts = cs.opts
+	newCS.opts.ReadOnly = true
+	newCS.opts.CreateIfMissing = false
+
+	db, err := OpenDB(cs.logger, targetVersion, newCS.opts)
+	if err != nil {
+		return nil, err
+	}
+	newCS.db = db
+	return newCS, nil
 }
 
 func (cs *CommitStore) Commit() (int64, error) {

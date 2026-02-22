@@ -76,6 +76,11 @@ func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 	return cs.cosmosCommitter.SetInitialVersion(initialVersion)
 }
 
+func (cs *CompositeCommitStore) LoadVersionForExport(targetVersion int64) (types.Committer, error) {
+	// TODO: Add EVM exporter
+	return cs.cosmosCommitter.LoadVersionForExport(targetVersion)
+}
+
 // LoadVersion loads the specified version of the database.
 // Being used for two scenarios:
 // ReadOnly: Either for state sync or for historical proof

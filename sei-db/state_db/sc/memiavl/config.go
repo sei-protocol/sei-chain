@@ -8,6 +8,7 @@ const (
 	DefaultSnapshotPrefetchThreshold = 0.8 // prefetch if <80% pages in cache
 	DefaultSnapshotWriteRateMBps     = 100 // 100 MB/s default
 	DefaultSnapshotWriterLimit       = 4   // controls tree concurrency but not I/O rate (use SnapshotWriteRateMBps for that)
+	DefaultMaxInFlightLoadVersion    = 4
 )
 
 type Config struct {
@@ -40,6 +41,11 @@ type Config struct {
 
 	// SnapshotWriteRateMBps is the global snapshot write rate limit in MB/s. 0 = unlimited. Default 100.
 	SnapshotWriteRateMBps int `mapstructure:"snapshot-write-rate-mbps"`
+
+	// MaxInFlightLoadVersion limits the number of concurrent LoadVersion calls.
+	// Each historical read opens a full read-only DB, which is expensive in disk I/O.
+	// Requests beyond this limit fail fast. 0 means use the default (4).
+	MaxInFlightLoadVersion int `mapstructure:"max-historical-read-concurrency"`
 }
 
 func DefaultConfig() Config {
@@ -51,5 +57,6 @@ func DefaultConfig() Config {
 		SnapshotPrefetchThreshold: DefaultSnapshotPrefetchThreshold,
 		SnapshotWriteRateMBps:     DefaultSnapshotWriteRateMBps,
 		SnapshotWriterLimit:       DefaultSnapshotWriterLimit,
+		MaxInFlightLoadVersion:    DefaultMaxInFlightLoadVersion,
 	}
 }

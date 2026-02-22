@@ -277,7 +277,7 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 		return rs.CacheMultiStore(), nil
 	}
 	// Open SC stores for wasm snapshot, this op is blocking and could take a long time
-	scStore, err := rs.scStore.LoadVersion(version, true)
+	scStore, err := rs.scStore.LoadVersionForExport(version)
 	if err != nil {
 		return nil, err
 	}

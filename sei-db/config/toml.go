@@ -51,6 +51,12 @@ sc-snapshot-prefetch-threshold = {{ .StateCommit.MemIAVLConfig.SnapshotPrefetchT
 # Maximum snapshot write rate in MB/s (global across all trees). 0 = unlimited. Default 100.
 sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBps }}
 
+# MaxInFlightLoadVersion limits the number of queued read-only LoadVersion calls.
+# Each historical read opens a full read-only DB, which is expensive in disk I/O.
+# Requests are executed serially; when the queue is full, new requests fail fast.
+# Default 4.
+sc-max-in-flight-load-version = {{ .StateCommit.MemIAVLConfig.MaxInFlightLoadVersion }}
+
 ###############################################################################
 ###                        FlatKV (EVM) Configuration                       ###
 ###############################################################################
