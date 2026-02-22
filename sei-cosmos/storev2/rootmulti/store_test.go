@@ -85,15 +85,25 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	require.EqualValues(t, 0, resp.Code)
 	require.Equal(t, valV1, resp.Value)
 
-	// Query API with proof at v1 should still return v1 (served by SC historical)
+	// Query API with proof at historical height should fail (only latest supported)
 	resp = store.Query(abci.RequestQuery{
 		Path:   "/store1/key",
 		Data:   keyBytes,
 		Height: c1.Version,
 		Prove:  true,
 	})
+	require.NotEqual(t, uint32(0), resp.Code)
+	require.Contains(t, resp.Log, "proof only supported on latest height")
+
+	// Query API with proof at latest height should succeed
+	resp = store.Query(abci.RequestQuery{
+		Path:   "/store1/key",
+		Data:   keyBytes,
+		Height: c2.Version,
+		Prove:  true,
+	})
 	require.EqualValues(t, 0, resp.Code)
-	require.Equal(t, valV1, resp.Value)
+	require.Equal(t, valV2, resp.Value)
 }
 
 // TestCacheMultiStoreWithVersion_OnlyUsesSSStores verifies that CacheMultiStoreWithVersion
