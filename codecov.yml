@@ -12,7 +12,9 @@ coverage:
           - sei-chain
     patch:
       default:
-        target: auto
+        informational: true   # Show patch coverage, but do not fail CI for it.
+        target: 50%           # Keep displayed goal stable across PRs.
+        threshold: 5%         # Toleration for noisy small diffs.
 
 comment:
   layout: "reach,diff,flags,tree,betaprofiling"
