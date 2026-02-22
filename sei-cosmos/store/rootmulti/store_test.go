@@ -417,6 +417,7 @@ func TestMultiStoreQuery(t *testing.T) {
 	// v3 := []byte("is cold")
 
 	cid1 := multi.Commit(true)
+	require.NotNil(t, cid1)
 
 	// Make sure we can get by name.
 	garbage := multi.GetStoreByName("bad-name")
