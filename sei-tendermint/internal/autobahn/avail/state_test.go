@@ -414,6 +414,37 @@ func TestNewStateWithPersistence(t *testing.T) {
 		require.Equal(t, roadIdx+1, state.FirstCommitQC())
 	})
 
+	t.Run("headers returns ErrPruned for blocks before loaded range", func(t *testing.T) {
+		dir := t.TempDir()
+		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+
+		bp, _, err := persist.NewBlockPersister(dir)
+		require.NoError(t, err)
+
+		// Persist blocks 5-7 on lane0 directly to disk.
+		lane := keys[0].Public()
+		var parent types.BlockHeaderHash
+		for n := types.BlockNumber(5); n < 8; n++ {
+			b := testSignedBlock(keys[0], lane, n, parent, rng)
+			parent = b.Msg().Block().Header().Hash()
+			require.NoError(t, bp.PersistBlock(lane, n, b))
+		}
+
+		state, err := NewState(keys[0], ds, utils.Some(dir))
+		require.NoError(t, err)
+
+		// Build a LaneRange [0, 3) — entirely before the loaded blocks.
+		fakeBlock := testSignedBlock(keys[0], lane, 2, types.BlockHeaderHash{}, rng)
+		lr := types.NewLaneRange(lane, 0, utils.Some(fakeBlock.Msg().Block().Header()))
+
+		// headers() should return ErrPruned immediately (not hang) because
+		// the votes queue was advanced past block 0 on restart.
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_, err = state.headers(ctx, lr)
+		require.ErrorIs(t, err, data.ErrPruned)
+	})
+
 	t.Run("corrupt AppQC data returns error", func(t *testing.T) {
 		dir := t.TempDir()
 		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())

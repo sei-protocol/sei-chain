@@ -85,8 +85,11 @@ func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
 		}
 		// Loaded blocks are already on disk, so immediately consider them persisted.
 		i.blockPersisted[lane] = q.next
-		// Advance the votes queue to match so headers() returns ErrPruned
-		// for already-committed blocks instead of blocking forever.
+		// Votes are not persisted (cheap to re-gossip, short-lived, and
+		// high-volume per block × validator). Advance the votes queue past
+		// loaded blocks so that headers() returns ErrPruned for blocks
+		// before `first` instead of blocking forever waiting for votes
+		// that will never arrive.
 		vq := i.votes[lane]
 		vq.first = first
 		vq.next = first

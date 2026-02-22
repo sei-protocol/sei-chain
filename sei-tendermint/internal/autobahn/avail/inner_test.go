@@ -76,6 +76,7 @@ func TestNewInnerFreshStart(t *testing.T) {
 	i := newInner(committee, nil)
 
 	require.False(t, i.latestAppQC.IsPresent())
+	require.Nil(t, i.blockPersisted)
 	require.Equal(t, types.RoadIndex(0), i.commitQCs.first)
 	require.Equal(t, types.RoadIndex(0), i.commitQCs.next)
 	require.Equal(t, types.GlobalBlockNumber(0), i.appVotes.first)
@@ -166,34 +167,15 @@ func TestNewInnerLoadedBlocksContiguous(t *testing.T) {
 	vq := i.votes[lane]
 	require.Equal(t, types.BlockNumber(5), vq.first)
 	require.Equal(t, types.BlockNumber(5), vq.next)
-}
 
-func TestNewInnerLoadedBlocksContiguousPrefix(t *testing.T) {
-	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
-	lane := keys[0].Public()
-
-	// Loader already resolved the gap: only contiguous prefix [3, 4] is passed.
-	var parent types.BlockHeaderHash
-	var bs []persist.LoadedBlock
-	for _, n := range []types.BlockNumber{3, 4} {
-		b := testSignedBlock(keys[0], lane, n, parent, rng)
-		parent = b.Msg().Block().Header().Hash()
-		bs = append(bs, persist.LoadedBlock{Number: n, Proposal: b})
+	// blockPersisted: loaded lane at q.next, other lanes at 0 (map zero-value).
+	require.NotNil(t, i.blockPersisted)
+	require.Equal(t, types.BlockNumber(8), i.blockPersisted[lane])
+	for _, other := range committee.Lanes().All() {
+		if other != lane {
+			require.Equal(t, types.BlockNumber(0), i.blockPersisted[other])
+		}
 	}
-
-	loaded := &loadedAvailState{
-		appQC:  utils.None[*types.AppQC](),
-		blocks: map[types.LaneID][]persist.LoadedBlock{lane: bs},
-	}
-
-	i := newInner(committee, loaded)
-
-	q := i.blocks[lane]
-	require.Equal(t, types.BlockNumber(3), q.first)
-	require.Equal(t, types.BlockNumber(5), q.next)
-	require.Equal(t, bs[0].Proposal, q.q[types.BlockNumber(3)])
-	require.Equal(t, bs[1].Proposal, q.q[types.BlockNumber(4)])
 }
 
 func TestNewInnerLoadedBlocksEmptySlice(t *testing.T) {
@@ -316,4 +298,8 @@ func TestNewInnerLoadedBlocksMultipleLanes(t *testing.T) {
 
 	require.Equal(t, types.BlockNumber(2), i.votes[lane0].first)
 	require.Equal(t, types.BlockNumber(0), i.votes[lane1].first)
+
+	// blockPersisted reflects q.next per loaded lane.
+	require.Equal(t, types.BlockNumber(4), i.blockPersisted[lane0])
+	require.Equal(t, types.BlockNumber(3), i.blockPersisted[lane1])
 }
