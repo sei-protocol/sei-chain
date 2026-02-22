@@ -7,6 +7,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 )
 
+const (
+	DefaultSCHistoricalProofMaxInFlight = 1
+	DefaultSCHistoricalProofRateLimit   = 1.0 // req/s, <=0 disables rate limit
+	DefaultSCHistoricalProofBurst       = 1
+)
+
 // StateCommitConfig defines configuration for the state commit (SC) layer.
 type StateCommitConfig struct {
 	// Enable defines if the state-commit(SeiDB) should be enabled.
@@ -38,6 +44,16 @@ type StateCommitConfig struct {
 
 	// FlatKVConfig is the configuration for the FlatKV (EVM) backend
 	FlatKVConfig flatkv.Config
+
+	// Max concurrent historical proof queries (RPC /store path).
+	HistoricalProofMaxInFlight int `mapstructure:"historical-proof-max-inflight"`
+
+	// Token bucket rate (req/sec) for historical proof queries.
+	// <= 0 disables rate limiting.
+	HistoricalProofRateLimit float64 `mapstructure:"historical-proof-rate-limit"`
+
+	// Token bucket burst for historical proof queries.
+	HistoricalProofBurst int `mapstructure:"historical-proof-burst"`
 }
 
 // DefaultStateCommitConfig returns the default StateCommitConfig
@@ -48,6 +64,10 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		ReadMode:      CosmosOnlyRead,
 		MemIAVLConfig: memiavl.DefaultConfig(),
 		FlatKVConfig:  flatkv.DefaultConfig(),
+
+		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,
+		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,
+		HistoricalProofBurst:       DefaultSCHistoricalProofBurst,
 	}
 }
 
