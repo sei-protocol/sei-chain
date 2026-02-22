@@ -147,8 +147,9 @@ func (bp *BlockPersister) DeleteBefore(laneFirsts map[types.LaneID]types.BlockNu
 
 // Queue enqueues a block for async persistence. Blocks if the queue is full
 // until space is available or ctx is cancelled. We must not drop blocks because
-// the blockPersisted cursor advances sequentially — a hole would permanently
-// stall voting on the affected lane.
+// the blockPersisted cursor advances sequentially — a hole would stall voting
+// on the affected lane until restart (which reconstructs the cursor from disk).
+// TODO: add retry on persistence failure to avoid restart-only recovery.
 func (bp *BlockPersister) Queue(ctx context.Context, lane types.LaneID, n types.BlockNumber, proposal *types.Signed[*types.LaneProposal]) error {
 	select {
 	case bp.ch <- persistJob{lane: lane, number: n, proposal: proposal}:
