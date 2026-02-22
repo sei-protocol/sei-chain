@@ -76,19 +76,19 @@ func NewStore(
 	if scConfig.Directory != "" {
 		scDir = scConfig.Directory
 	}
-	maxInFlight := ssConfig.HistoricalProofMaxInFlight
+	maxInFlight := scConfig.HistoricalProofMaxInFlight
 	if maxInFlight <= 0 {
 		maxInFlight = 1
 	}
 
-	burst := ssConfig.HistoricalProofBurst
+	burst := scConfig.HistoricalProofBurst
 	if burst <= 0 {
 		burst = 1
 	}
 
 	var limiter *rate.Limiter
-	if ssConfig.HistoricalProofRateLimit > 0 {
-		limiter = rate.NewLimiter(rate.Limit(ssConfig.HistoricalProofRateLimit), burst)
+	if scConfig.HistoricalProofRateLimit > 0 {
+		limiter = rate.NewLimiter(rate.Limit(scConfig.HistoricalProofRateLimit), burst)
 	}
 	scStore := composite.NewCompositeCommitStore(scDir, logger, scConfig)
 	store := &Store{
@@ -574,6 +574,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		return sdkerrors.QueryResult(err)
 	}
 	req.Path = subPath
+	req.Height = version // keep downstream store.Query height consistent
 
 	needProof := req.Prove && rootmulti.RequireProof(subPath)
 	latest := version == rs.scStore.Version()
@@ -587,9 +588,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 	var (
 		store      types.Queryable
 		commitInfo *types.CommitInfo
-		closeFn    func()
 	)
-
 	if latest {
 		// latest never needs historical LoadVersion clone
 		store = types.Queryable(commitment.NewStore(rs.scStore.GetChildStoreByName(storeName), rs.logger))
@@ -597,47 +596,47 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	} else {
 		// historical path (this is where RPC pressure happens)
-		if needProof {
-			if err := rs.tryAcquireHistProofPermit(); err != nil {
-				return sdkerrors.QueryResult(err)
-			}
+		if err := rs.tryAcquireHistProofPermit(); err != nil {
+			rs.logger.Debug("Failed to acquire historical proof permit", "err", err)
+			return sdkerrors.QueryResult(err)
 		}
+		defer rs.releaseHistProofPermit()
 
 		scStore, err := rs.scStore.LoadVersion(version, true)
 		if err != nil {
-			if needProof {
-				rs.releaseHistProofPermit()
-			}
 			return sdkerrors.QueryResult(err)
 		}
-
-		closeFn = func() {
-			_ = scStore.Close()
-			if needProof {
-				rs.releaseHistProofPermit()
-			}
-		}
+		defer func() { _ = scStore.Close() }()
 
 		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName), rs.logger))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	}
 
-	if closeFn != nil {
-		defer closeFn()
+	res := store.Query(req)
+
+	// If underlying query failed (e.g. invalid height/path), return as-is.
+	if res.Code != 0 {
+		return res
 	}
 
-	res := store.Query(req)
 	if !needProof {
 		return res
+	}
+
+	// Must have proof ops from underlying store query before appending commit proof.
+	if res.ProofOps == nil {
+		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
 	}
 
 	if commitInfo != nil {
 		res.ProofOps.Ops = append(res.ProofOps.Ops, commitInfo.ProofOp(storeName))
 	}
-	if res.ProofOps == nil || len(res.ProofOps.Ops) == 0 {
+
+	if len(res.ProofOps.Ops) == 0 {
 		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
 	}
+
 	return res
 }
 

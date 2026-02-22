@@ -27,10 +27,9 @@ const (
 	FlagSCSnapshotWriteRateMBps            = "state-commit.sc-snapshot-write-rate-mbps"
 	FlagSCCacheSize                        = "state-commit.sc-cache-size"
 	FlagSCOnlyAllowExportOnSnapshotVersion = "state-commit.sc-only-allow-export-on-snapshot-version"
-
-	FlagSSHistoricalProofMaxInFlight = "state-store.ss-historical-proof-max-inflight"
-	FlagSSHistoricalProofRateLimit   = "state-store.ss-historical-proof-rate-limit"
-	FlagSSHistoricalProofBurst       = "state-store.ss-historical-proof-burst"
+	FlagSCHistoricalProofMaxInFlight       = "state-commit.sc-historical-proof-max-inflight"
+	FlagSCHistoricalProofRateLimit         = "state-commit.sc-historical-proof-rate-limit"
+	FlagSCHistoricalProofBurst             = "state-commit.sc-historical-proof-burst"
 
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
@@ -144,13 +143,13 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 		ssConfig.ReadMode = parsedRM
 	}
 
-	if v := appOpts.Get(FlagSSHistoricalProofMaxInFlight); v != nil {
+	if v := appOpts.Get(FlagSCHistoricalProofMaxInFlight); v != nil {
 		ssConfig.HistoricalProofMaxInFlight = cast.ToInt(v)
 	}
-	if v := appOpts.Get(FlagSSHistoricalProofRateLimit); v != nil {
+	if v := appOpts.Get(FlagSCHistoricalProofRateLimit); v != nil {
 		ssConfig.HistoricalProofRateLimit = cast.ToFloat64(v)
 	}
-	if v := appOpts.Get(FlagSSHistoricalProofBurst); v != nil {
+	if v := appOpts.Get(FlagSCHistoricalProofBurst); v != nil {
 		ssConfig.HistoricalProofBurst = cast.ToInt(v)
 	}
 
