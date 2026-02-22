@@ -561,15 +561,28 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 
 	// trim the path and execute the query
 	req.Path = subPath
+	req.Height = version
 	res := store.Query(req)
 
-	if !req.Prove || !rootmulti.RequireProof(subPath) {
+	needProof := req.Prove && rootmulti.RequireProof(subPath)
+	if !needProof {
 		return res
-	} else if commitInfo != nil {
+	}
+
+	// Underlying query failed (e.g. invalid height/path), return the error as-is.
+	if res.Code != 0 {
+		return res
+	}
+
+	if res.ProofOps == nil {
+		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
+	}
+
+	if commitInfo != nil {
 		// Restore origin path and append proof op.
 		res.ProofOps.Ops = append(res.ProofOps.Ops, commitInfo.ProofOp(storeName))
 	}
-	if res.ProofOps == nil || len(res.ProofOps.Ops) == 0 {
+	if len(res.ProofOps.Ops) == 0 {
 		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
 	}
 	return res

@@ -1,6 +1,7 @@
 package rootmulti
 
 import (
+	ics23 "github.com/confio/ics23/go"
 	"github.com/cosmos/cosmos-sdk/storev2/state"
 	"testing"
 
@@ -8,9 +9,12 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/sei-protocol/sei-db/config"
+	dbproto "github.com/sei-protocol/sei-db/proto"
+	sctypes "github.com/sei-protocol/sei-db/sc/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
+	dbm "github.com/tendermint/tm-db"
 )
 
 func TestLastCommitID(t *testing.T) {
@@ -94,6 +98,96 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	require.EqualValues(t, 0, resp.Code)
 	require.Equal(t, valV1, resp.Value)
 }
+
+func TestQuery_ProofWithOversizedHeight_DoesNotPanic(t *testing.T) {
+	tree := &mockQueryTree{
+		version: 10,
+		values:  map[string][]byte{"k": []byte("v")},
+	}
+	committer := &mockQueryCommitter{
+		version: 10,
+		tree:    tree,
+		lastInfo: &dbproto.CommitInfo{
+			Version: 10,
+			StoreInfos: []dbproto.StoreInfo{
+				{
+					Name: "store1",
+					CommitId: dbproto.CommitID{
+						Version: 10,
+						Hash:    []byte{0x01},
+					},
+				},
+			},
+		},
+	}
+	store := &Store{
+		logger:         log.NewNopLogger(),
+		scStore:        committer,
+		lastCommitInfo: &types.CommitInfo{Version: 10},
+		storesParams:   map[types.StoreKey]storeParams{},
+	}
+
+	keyBytes := []byte("k")
+	var resp abci.ResponseQuery
+	require.NotPanics(t, func() {
+		resp = store.Query(abci.RequestQuery{
+			Path:   "/store1/key",
+			Data:   keyBytes,
+			Height: 9999,
+			Prove:  true,
+		})
+	})
+
+	require.EqualValues(t, 0, resp.Code)
+	require.Equal(t, []byte("v"), resp.Value)
+	require.NotNil(t, resp.ProofOps)
+	require.NotEmpty(t, resp.ProofOps.Ops)
+}
+
+type mockQueryTree struct {
+	version int64
+	values  map[string][]byte
+}
+
+func (m *mockQueryTree) Get(key []byte) []byte                 { return m.values[string(key)] }
+func (m *mockQueryTree) Has(key []byte) bool                   { _, ok := m.values[string(key)]; return ok }
+func (m *mockQueryTree) Set(key, value []byte)                 { m.values[string(key)] = value }
+func (m *mockQueryTree) Remove(key []byte)                     { delete(m.values, string(key)) }
+func (m *mockQueryTree) Version() int64                        { return m.version }
+func (m *mockQueryTree) RootHash() []byte                      { return []byte{0xAB} }
+func (m *mockQueryTree) Iterator(_, _ []byte, _ bool) dbm.Iterator { return nil }
+func (m *mockQueryTree) GetProof(_ []byte) *ics23.CommitmentProof {
+	return &ics23.CommitmentProof{}
+}
+func (m *mockQueryTree) Close() error { return nil }
+
+type mockQueryCommitter struct {
+	version  int64
+	tree     sctypes.Tree
+	lastInfo *dbproto.CommitInfo
+}
+
+func (m *mockQueryCommitter) Initialize(_ []string)                                 {}
+func (m *mockQueryCommitter) Commit() (int64, error)                                { return m.version, nil }
+func (m *mockQueryCommitter) Version() int64                                         { return m.version }
+func (m *mockQueryCommitter) GetLatestVersion() (int64, error)                       { return m.version, nil }
+func (m *mockQueryCommitter) GetEarliestVersion() (int64, error)                     { return 1, nil }
+func (m *mockQueryCommitter) ApplyChangeSets(_ []*dbproto.NamedChangeSet) error      { return nil }
+func (m *mockQueryCommitter) ApplyUpgrades(_ []*dbproto.TreeNameUpgrade) error       { return nil }
+func (m *mockQueryCommitter) WorkingCommitInfo() *dbproto.CommitInfo                 { return m.lastInfo }
+func (m *mockQueryCommitter) LastCommitInfo() *dbproto.CommitInfo                    { return m.lastInfo }
+func (m *mockQueryCommitter) LoadVersion(_ int64, _ bool) (sctypes.Committer, error) { return m, nil }
+func (m *mockQueryCommitter) Rollback(_ int64) error                                 { return nil }
+func (m *mockQueryCommitter) SetInitialVersion(_ int64) error                        { return nil }
+func (m *mockQueryCommitter) GetTreeByName(name string) sctypes.Tree {
+	if name == "store1" {
+		return m.tree
+	}
+	return nil
+}
+func (m *mockQueryCommitter) Importer(_ int64) (sctypes.Importer, error) { return nil, nil }
+func (m *mockQueryCommitter) Exporter(_ int64) (sctypes.Exporter, error) { return nil, nil }
+func (m *mockQueryCommitter) Close() error                                { return nil }
 
 // TestCacheMultiStoreWithVersion_OnlyUsesSSStores verifies that CacheMultiStoreWithVersion
 // serves SS stores when enabled, and falls back to SC when SS is disabled, for
