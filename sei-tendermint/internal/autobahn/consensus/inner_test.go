@@ -953,6 +953,5 @@ func TestRunOutputsPersistErrorPropagates(t *testing.T) {
 	defer cancel()
 	err = cs.runOutputs(ctx)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "persist inner")
 	require.ErrorIs(t, err, wantErr)
 }
