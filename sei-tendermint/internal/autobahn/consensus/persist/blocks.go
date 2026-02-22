@@ -1,7 +1,16 @@
-// TODO: Block file persistence is a temporary solution. It does not handle many
-// corner cases (e.g. disk full, partial directory listings, no garbage collection
-// on unclean shutdown). This will be replaced by proper storage solution before
-// launch.
+// TODO: Block file persistence is a temporary solution that will be replaced by
+// a WAL (Write-Ahead Log) library before launch. With a WAL, atomic appends
+// eliminate several complexities in this file:
+//   - Gap detection / contiguous prefix truncation in loadAll (WAL replay is
+//     always contiguous).
+//   - Corrupt file handling (WAL handles its own integrity).
+//   - Per-block file naming, parsing, and directory scanning.
+//   - Orphaned file cleanup (WAL truncation replaces DeleteBefore).
+//   - The blocking Queue (holes become impossible with sequential atomic
+//     appends, so dropping on overflow is safe).
+//
+// What survives: the async channel, the persisted watermark callback, and the
+// BlockPersister abstraction (Queue/Run/onPersisted contract).
 
 package persist
 
