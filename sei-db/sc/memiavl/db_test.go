@@ -163,6 +163,40 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 	// stopCh is closed by defer above
 }
 
+func TestCloseDuringRewriteSnapshotBackground(t *testing.T) {
+	for i := 0; i < 5; i++ {
+		db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+			Dir:                t.TempDir(),
+			CreateIfMissing:    true,
+			InitialStores:      []string{"test"},
+			SnapshotKeepRecent: 0,
+		})
+		require.NoError(t, err)
+
+		// Use a larger value to keep snapshot rewrite running long enough so Close()
+		// can overlap with the background catchup/cleanup path.
+		largeValue := make([]byte, 4*1024*1024)
+		for j := 0; j < 3; j++ {
+			cs := []*proto.NamedChangeSet{
+				{
+					Name: "test",
+					Changeset: iavl.ChangeSet{
+						Pairs: []*iavl.KVPair{
+							{Key: []byte("k" + strconv.Itoa(j)), Value: largeValue},
+						},
+					},
+				},
+			}
+			require.NoError(t, db.ApplyChangeSets(cs))
+			_, err = db.Commit()
+			require.NoError(t, err)
+		}
+
+		require.NoError(t, db.RewriteSnapshotBackground())
+		require.NoError(t, db.Close())
+	}
+}
+
 // helper to commit one change to bump height
 func RequireCommitWithNoError(t *testing.T, db *DB, key, val string) int64 {
 	pairs := []*iavl.KVPair{{Key: []byte(key), Value: []byte(val)}}

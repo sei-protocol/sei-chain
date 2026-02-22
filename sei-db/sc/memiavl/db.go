@@ -825,7 +825,12 @@ func (db *DB) rewriteSnapshotBackground() error {
 
 		// do a best effort catch-up, will do another final catch-up in main thread.
 		catchupStart := time.Now()
-		if err := mtree.Catchup(db.streamHandler, 0); err != nil {
+		sh := db.streamHandler
+		if sh == nil {
+			ch <- snapshotResult{err: errors.New("stream handler closed during snapshot catchup")}
+			return
+		}
+		if err := mtree.Catchup(sh, 0); err != nil {
 			cloned.logger.Error("failed to catchup after snapshot", "error", err)
 			ch <- snapshotResult{err: err}
 			return
@@ -856,15 +861,7 @@ func (db *DB) Close() error {
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
 	errs := []error{}
-	// Close stream handler
-	db.logger.Info("Closing stream handler...")
-	if db.streamHandler != nil {
-		err := db.streamHandler.Close()
-		errs = append(errs, err)
-		db.streamHandler = nil
-	}
-
-	// Close rewrite channel
+	// Close rewrite channel first - wait for background goroutine to finish before closing stream handler
 	db.logger.Info("Closing rewrite channel...")
 	if db.snapshotRewriteChan != nil {
 		db.snapshotRewriteCancelFunc()
@@ -873,12 +870,30 @@ func (db *DB) Close() error {
 			if result.err != nil {
 				db.logger.Error("snapshot rewrite failed during close", "error", result.err)
 			}
+			// Close the returned mtree if it wasn't switched in, to avoid resource leaks.
+			if result.mtree != nil {
+				errs = append(errs, result.mtree.Close())
+			}
 		}
 		db.snapshotRewriteChan = nil
 		db.snapshotRewriteCancelFunc = nil
 	}
 
+	// Close stream handler after snapshot rewrite goroutine has fully exited
+	db.logger.Info("Closing stream handler...")
+	if db.streamHandler != nil {
+		err := db.streamHandler.Close()
+		errs = append(errs, err)
+		db.streamHandler = nil
+	}
+
 	errs = append(errs, db.MultiTree.Close())
+
+	// Stop snapshot writer workers
+	if db.snapshotWriterPool != nil {
+		db.snapshotWriterPool.StopAndWait()
+		db.snapshotWriterPool = nil
+	}
 
 	// Close file lock
 	db.logger.Info("Closing file lock...")
