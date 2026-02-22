@@ -564,11 +564,9 @@ func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		if s.blockPersist != nil {
 			scope.SpawnNamed("blockPersistWriter", func() error {
-				return s.blockPersist.Run(ctx, func(lane types.LaneID, n types.BlockNumber) {
+				return s.blockPersist.Run(ctx, func(lane types.LaneID, next types.BlockNumber) {
 					for inner, ctrl := range s.inner.Lock() {
-						if inner.blockPersisted[lane] == n {
-							inner.blockPersisted[lane] = n + 1
-						}
+						inner.blockPersisted[lane] = next
 						ctrl.Updated()
 					}
 				})

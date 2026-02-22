@@ -33,6 +33,11 @@ type LoadedBlock struct {
 type BlockPersister struct {
 	dir string // full path to the blocks/ subdirectory
 	ch  chan persistJob
+	// persisted tracks the exclusive upper bound of contiguously persisted
+	// blocks per lane. With the current FIFO queue, this simply advances on
+	// every write. For future parallel storage, this would need to track
+	// individual completions and compute the contiguous prefix.
+	persisted map[types.LaneID]types.BlockNumber
 }
 
 type persistJob struct {
@@ -56,10 +61,19 @@ func NewBlockPersister(stateDir string) (*BlockPersister, map[types.LaneID][]Loa
 		return nil, nil, fmt.Errorf("create blocks dir %s: %w", dir, err)
 	}
 
-	bp := &BlockPersister{dir: dir, ch: make(chan persistJob, persistQueueSize)}
+	bp := &BlockPersister{
+		dir:       dir,
+		ch:        make(chan persistJob, persistQueueSize),
+		persisted: make(map[types.LaneID]types.BlockNumber),
+	}
 	blocks, err := bp.loadAll()
 	if err != nil {
 		return nil, nil, err
+	}
+	for lane, bs := range blocks {
+		if len(bs) > 0 {
+			bp.persisted[lane] = bs[len(bs)-1].Number + 1
+		}
 	}
 	return bp, blocks, nil
 }
@@ -145,7 +159,8 @@ func (bp *BlockPersister) Queue(ctx context.Context, lane types.LaneID, n types.
 }
 
 // Run drains the internal queue, fsyncs each block to disk, and calls
-// onPersisted after each successful write. Blocks until ctx is cancelled.
+// onPersisted with the exclusive upper bound of contiguously persisted blocks
+// for the lane. Blocks until ctx is cancelled.
 func (bp *BlockPersister) Run(ctx context.Context, onPersisted func(types.LaneID, types.BlockNumber)) error {
 	for {
 		select {
@@ -155,7 +170,13 @@ func (bp *BlockPersister) Run(ctx context.Context, onPersisted func(types.LaneID
 			if err := bp.PersistBlock(job.lane, job.number, job.proposal); err != nil {
 				return fmt.Errorf("persist block %s/%d: %w", job.lane, job.number, err)
 			}
-			onPersisted(job.lane, job.number)
+			// FIFO queue guarantees per-lane order, so n+1 is always the
+			// contiguous watermark. For parallel persistence, this would need
+			// to track individual completions and advance past the longest
+			// contiguous prefix.
+			next := job.number + 1
+			bp.persisted[job.lane] = next
+			onPersisted(job.lane, next)
 		}
 	}
 }
