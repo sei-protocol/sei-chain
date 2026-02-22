@@ -225,9 +225,8 @@ func (p *pbtsTestHarness) nextHeight(ctx context.Context, t *testing.T, proposer
 		t.Fatalf("error signing proposal: %s", err)
 	}
 
-	time.Sleep(time.Until(deliverTime))
 	prop.Signature = utils.OrPanic1(crypto.SigFromBytes(tp.Signature))
-	if err := p.observedState.SetProposalAndBlock(ctx, prop, b, ps, "peerID"); err != nil {
+	if err := p.sendProposalAndPartsAt(ctx, prop, ps, deliverTime); err != nil {
 		t.Fatal(err)
 	}
 	ensureProposal(t, p.ensureProposalCh, p.currentHeight, 0, bid)
@@ -246,6 +245,35 @@ func (p *pbtsTestHarness) nextHeight(ctx context.Context, t *testing.T, proposer
 	p.currentHeight++
 	incrementHeight(p.otherValidators...)
 	return res
+}
+
+func (p *pbtsTestHarness) sendProposalAndPartsAt(
+	ctx context.Context,
+	prop *types.Proposal,
+	ps *types.PartSet,
+	recvTime time.Time,
+) error {
+	peerID := types.NodeID("peerID")
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case p.observedState.peerMsgQueue <- msgInfo{&ProposalMessage{prop}, peerID, recvTime}:
+	}
+
+	for i := 0; i < int(ps.Total()); i++ {
+		part := ps.GetPart(i)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case p.observedState.peerMsgQueue <- msgInfo{
+			&BlockPartMessage{prop.Height, prop.Round, part},
+			peerID,
+			recvTime,
+		}:
+		}
+	}
+	return nil
 }
 
 func timestampedCollector(ctx context.Context, t *testing.T, eb *eventbus.EventBus) <-chan timestampedEvent {
