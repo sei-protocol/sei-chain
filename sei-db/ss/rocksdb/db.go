@@ -51,6 +51,7 @@ type Database struct {
 	storage  *grocksdb.DB
 	config   config.StateStoreConfig
 	cfHandle *grocksdb.ColumnFamilyHandle
+	closed   atomic.Bool
 
 	// tsLow reflects the full_history_ts_low CF value. Since pruning is done in
 	// a lazy manner, we use this value to prevent reads for versions that will
@@ -293,6 +294,11 @@ func (db *Database) writeAsyncInBackground() {
 // lazy prune. Future compactions will honor the increased full_history_ts_low
 // and trim history when possible.
 func (db *Database) Prune(version int64) error {
+	// Defensive check: ensure database is not closed
+	if db.closed.Load() {
+		return fmt.Errorf("rocksdb: database is closed")
+	}
+
 	tsLow := version + 1 // we increment by 1 to include the provided version
 
 	var ts [TimestampSize]byte
@@ -494,6 +500,8 @@ func (db *Database) WriteBlockRangeHash(storeKey string, beginBlockRange, endBlo
 }
 
 func (db *Database) Close() error {
+	db.closed.Store(true)
+
 	if db.streamHandler != nil {
 		// Close the pending changes channel to signal the background goroutine to stop
 		close(db.pendingChanges)

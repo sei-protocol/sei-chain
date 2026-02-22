@@ -965,13 +965,8 @@ func (app *App) HandleClose() error {
 		}
 	}
 
-	// Close state store (SeiDB) - critical for cleaning up background goroutines
-	if app.stateStore != nil {
-		if err := app.stateStore.Close(); err != nil {
-			app.Logger().Error("failed to close state store", "error", err)
-			errs = append(errs, fmt.Errorf("failed to close state store: %w", err))
-		}
-	}
+	// Note: stateStore (ssStore) is already closed by cms.Close() in BaseApp.Close()
+	// No need to close it again here.
 
 	if len(errs) > 0 {
 		return fmt.Errorf("errors during close: %v", errs)
