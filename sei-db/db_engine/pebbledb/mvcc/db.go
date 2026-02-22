@@ -174,8 +174,9 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		_ = db.Close()
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
+	walKeepRecent := math.Max(MinWALEntriesToKeep, float64(config.AsyncWriteBuffer+1))
 	streamHandler, err := wal.NewChangelogWAL(logger.NewNopLogger(), utils.GetChangelogPath(dataDir), wal.Config{
-		KeepRecent:    uint64(config.KeepRecent),
+		KeepRecent:    uint64(walKeepRecent),
 		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
 	})
 	if err != nil {
