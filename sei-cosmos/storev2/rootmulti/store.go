@@ -556,35 +556,33 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 	var store types.Queryable
 	var commitInfo *types.CommitInfo
 
-	if !req.Prove && rs.ssStore != nil {
-		// Serve abci query from ss store if no proofs needed
+	if (!req.Prove || !rootmulti.RequireProof(subPath)) && rs.ssStore != nil {
+		// Serve abci query from ss store if no proofs needed and ss enabled
 		store = types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version))
-	} else {
-		// Serve abci query from historical sc store if proofs needed
-		scStore, err := rs.scStore.LoadVersion(version, true)
-		if err != nil {
-			return sdkerrors.QueryResult(err)
-		}
-		defer func() { _ = scStore.Close() }()
-		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName), rs.logger))
-		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
-		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
-	}
-
-	// trim the path and execute the query
-	req.Path = subPath
-	res := store.Query(req)
-
-	if !req.Prove || !rootmulti.RequireProof(subPath) {
+		req.Path = subPath
+		res := store.Query(req)
 		return res
-	} else if commitInfo != nil {
-		// Restore origin path and append proof op.
-		res.ProofOps.Ops = append(res.ProofOps.Ops, commitInfo.ProofOp(storeName))
 	}
-	if res.ProofOps == nil || len(res.ProofOps.Ops) == 0 {
-		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
+
+	if req.Height <= 0 || req.Height == rs.scStore.Version() {
+		// Serve abci query from SC only for latest height to avoid loading historical MemIAVL snapshot
+		store = types.Queryable(commitment.NewStore(rs.scStore.GetChildStoreByName(storeName), rs.logger))
+		commitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
+		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
+		req.Path = subPath
+		res := store.Query(req)
+		if commitInfo != nil {
+			// Restore origin path and append proof op.
+			res.ProofOps.Ops = append(res.ProofOps.Ops, commitInfo.ProofOp(storeName))
+		}
+		if res.ProofOps == nil || len(res.ProofOps.Ops) == 0 {
+			return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
+		}
 	}
-	return res
+
+	// We don't support historical proofs until we have a better solution
+	return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "only support proof on latest height"))
+
 }
 
 // parsePath expects a format like /<storeName>[/<subpath>]
