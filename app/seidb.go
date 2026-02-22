@@ -113,6 +113,17 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.MemIAVLConfig.SnapshotWriterLimit = cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit))
 	scConfig.MemIAVLConfig.SnapshotPrefetchThreshold = cast.ToFloat64(appOpts.Get(FlagSCSnapshotPrefetchThreshold))
 	scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
+
+	if v := appOpts.Get(FlagSCHistoricalProofMaxInFlight); v != nil {
+		scConfig.HistoricalProofMaxInFlight = cast.ToInt(v)
+	}
+	if v := appOpts.Get(FlagSCHistoricalProofRateLimit); v != nil {
+		scConfig.HistoricalProofRateLimit = cast.ToFloat64(v)
+	}
+	if v := appOpts.Get(FlagSCHistoricalProofBurst); v != nil {
+		scConfig.HistoricalProofBurst = cast.ToInt(v)
+	}
+
 	return scConfig
 }
 
@@ -142,17 +153,6 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 		}
 		ssConfig.ReadMode = parsedRM
 	}
-
-	if v := appOpts.Get(FlagSCHistoricalProofMaxInFlight); v != nil {
-		ssConfig.HistoricalProofMaxInFlight = cast.ToInt(v)
-	}
-	if v := appOpts.Get(FlagSCHistoricalProofRateLimit); v != nil {
-		ssConfig.HistoricalProofRateLimit = cast.ToFloat64(v)
-	}
-	if v := appOpts.Get(FlagSCHistoricalProofBurst); v != nil {
-		ssConfig.HistoricalProofBurst = cast.ToInt(v)
-	}
-
 	return ssConfig
 }
 
