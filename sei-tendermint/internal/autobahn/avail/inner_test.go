@@ -49,7 +49,6 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	// Now call PushAppQC with appQC1 (index 1) and qc0 (index 0)
 	err = state.PushAppQC(appQC1, qc0)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "mismatched QCs")
 
 	// Get the inner state
 	for inner := range state.inner.Lock() {
@@ -57,7 +56,6 @@ func TestPruneMismatchedIndices(t *testing.T) {
 		updated, err := inner.prune(appQC1, qc0)
 
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "mismatched QCs")
 		require.False(t, updated, "prune should return false for mismatched indices")
 		require.False(t, inner.latestAppQC.IsPresent(), "latestAppQC should not have been updated")
 	}

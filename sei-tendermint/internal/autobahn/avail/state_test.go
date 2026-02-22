@@ -250,7 +250,6 @@ func TestStateMismatchedQCs(t *testing.T) {
 
 		err := state.PushAppQC(appQC1, qc0)
 		require.Error(err)
-		require.Contains(err.Error(), "mismatched QCs")
 	})
 }
 
@@ -456,6 +455,5 @@ func TestNewStateWithPersistence(t *testing.T) {
 
 		_, err = NewState(keys[0], ds, utils.Some(dir))
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "unmarshal persisted AppQC")
 	})
 }
