@@ -33,6 +33,7 @@ const (
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
+	MinWALEntriesToKeep   = 1000
 )
 
 var (
@@ -112,14 +113,14 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
 	}
 	database.latestVersion.Store(latestVersion)
-
+	walKeepRecent := math.Max(MinWALEntriesToKeep, float64(config.AsyncWriteBuffer+1))
 	streamHandler, _ := changelog.NewStream(
 		logger.NewNopLogger(),
 		utils.GetChangelogPath(dataDir),
 		changelog.Config{
 			DisableFsync:  true,
 			ZeroCopy:      true,
-			KeepRecent:    uint64(config.KeepRecent),
+			KeepRecent:    uint64(walKeepRecent),
 			PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
 		},
 	)

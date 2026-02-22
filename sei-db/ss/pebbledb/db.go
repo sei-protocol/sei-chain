@@ -46,9 +46,9 @@ const (
 	ImportCommitBatchSize = 10000
 	PruneCommitBatchSize  = 50
 	DeleteCommitBatchSize = 50
-
 	// Number of workers to use for hash computation
 	HashComputationWorkers = 10
+	MinWALEntriesToKeep    = 1000
 )
 
 var (
@@ -165,13 +165,14 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	if config.KeepRecent < 0 {
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
+	walKeepRecent := math.Max(MinWALEntriesToKeep, float64(config.AsyncWriteBuffer+1))
 	streamHandler, _ := changelog.NewStream(
 		logger.NewNopLogger(),
 		utils.GetChangelogPath(dataDir),
 		changelog.Config{
 			DisableFsync:  true,
 			ZeroCopy:      true,
-			KeepRecent:    uint64(config.KeepRecent),
+			KeepRecent:    uint64(walKeepRecent),
 			PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
 		},
 	)
