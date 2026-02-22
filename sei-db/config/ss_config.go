@@ -5,6 +5,10 @@ const (
 	DefaultSSPruneInterval = 600
 	DefaultSSImportWorkers = 1
 	DefaultSSAsyncBuffer   = 100
+
+	DefaultSSHistoricalProofMaxInFlight = 1
+	DefaultSSHistoricalProofRateLimit   = 1.0 // req/s, <=0 disables rate limit
+	DefaultSSHistoricalProofBurst       = 1
 )
 
 // StateStoreConfig defines configuration for the state store (SS) layer.
@@ -70,6 +74,16 @@ type StateStoreConfig struct {
 	// EVMDBDirectory defines the directory for EVM state store db files.
 	// If not set, defaults to <home>/data/evm_ss
 	EVMDBDirectory string `mapstructure:"evm-db-directory"`
+
+	// Max concurrent historical proof queries (RPC /store path).
+	HistoricalProofMaxInFlight int `mapstructure:"historical-proof-max-inflight"`
+
+	// Token bucket rate (req/sec) for historical proof queries.
+	// <= 0 disables rate limiting.
+	HistoricalProofRateLimit float64 `mapstructure:"historical-proof-rate-limit"`
+
+	// Token bucket burst for historical proof queries.
+	HistoricalProofBurst int `mapstructure:"historical-proof-burst"`
 }
 
 // EVMEnabled returns true if EVM state stores should be opened.
@@ -100,5 +114,9 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		UseDefaultComparer:   false,
 		WriteMode:            CosmosOnlyWrite,
 		ReadMode:             CosmosOnlyRead,
+
+		HistoricalProofMaxInFlight: DefaultSSHistoricalProofMaxInFlight,
+		HistoricalProofRateLimit:   DefaultSSHistoricalProofRateLimit,
+		HistoricalProofBurst:       DefaultSSHistoricalProofBurst,
 	}
 }

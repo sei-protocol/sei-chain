@@ -21,7 +21,6 @@ sc-write-mode = "{{ .StateCommit.WriteMode }}"
 # ReadMode defines how EVM data reads are routed between backends.
 # Valid values: cosmos_only, evm_first, split_read
 # defaults to cosmos_only
-sc-read-mode = "{{ .StateCommit.ReadMode }}"
 
 # AsyncCommitBuffer defines the size of asynchronous commit queue, this greatly improve block catching-up
 # performance, setting to 0 means synchronous commit.
@@ -106,6 +105,15 @@ ss-prune-interval = {{ .StateStore.PruneIntervalSeconds }}
 # ImportNumWorkers defines the concurrency for state sync import
 # defaults to 1
 ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
+
+# Max concurrent historical proof queries (RPC /store path)
+ss-historical-proof-max-inflight = {{ .StateStore.HistoricalProofMaxInFlight }}
+ 
+# Historical proof query rate limit in req/sec (<=0 disables rate limiting)
+ss-historical-proof-rate-limit = {{ .StateStore.HistoricalProofRateLimit }}
+ 
+# Historical proof query burst size
+ss-historical-proof-burst = {{ .StateStore.HistoricalProofBurst }}
 `
 
 // ReceiptStoreConfigTemplate defines the configuration template for receipt-store
