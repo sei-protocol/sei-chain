@@ -582,7 +582,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 
 	// We don't support historical proofs until we have a better solution
 	rs.logger.Error("unable to serve ABCI request with proof=true", "request_height", req.Height, "latest_height", rs.scStore.Version())
-	return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "only support proof on latest height"))
+	return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof only supported on latest height"))
 
 }
 
