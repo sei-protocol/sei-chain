@@ -559,9 +559,11 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 	if rs.ssStore != nil {
 		// Serve abci query from ss store if no proofs needed and ss enabled
 		store = types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version))
-	} else {
+	} else if req.Height <= 0 || req.Height == rs.scStore.Version() {
 		// Serve abci query from SC only when SS disabled
 		store = types.Queryable(commitment.NewStore(rs.scStore.GetChildStoreByName(storeName), rs.logger))
+	} else {
+		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "only support ABCI on latest height when ss disabled"))
 	}
 
 	if !req.Prove || !rootmulti.RequireProof(subPath) {
@@ -569,8 +571,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		req.Path = subPath
 		res := store.Query(req)
 		return res
-	}
-	if req.Height <= 0 || req.Height == rs.scStore.Version() {
+	} else {
 		// Reaching here means proof needed and we are at latest height
 		req.Path = subPath
 		res := store.Query(req)
