@@ -1,17 +1,20 @@
 package config
 
 const (
-	DefaultSnapshotInterval          = 10000
-	DefaultSnapshotKeepRecent        = 0       // set to 0 to only keep one current snapshot
-	DefaultSnapshotMinTimeInterval   = 60 * 60 // 1 hour in seconds
-	DefaultAsyncCommitBuffer         = 100
-	DefaultSnapshotPrefetchThreshold = 0.8 // prefetch if <80% pages in cache
-	DefaultSnapshotWriteRateMBps     = 100 // 100 MB/s default
-	DefaultSSKeepRecent              = 100000
-	DefaultSSPruneInterval           = 600
-	DefaultSSImportWorkers           = 1
-	DefaultSSAsyncBuffer             = 100
-	DefaultSSHashRange               = -1
+	DefaultSnapshotInterval             = 10000
+	DefaultSnapshotKeepRecent           = 0       // set to 0 to only keep one current snapshot
+	DefaultSnapshotMinTimeInterval      = 60 * 60 // 1 hour in seconds
+	DefaultAsyncCommitBuffer            = 100
+	DefaultSnapshotPrefetchThreshold    = 0.8 // prefetch if <80% pages in cache
+	DefaultSnapshotWriteRateMBps        = 100 // 100 MB/s default
+	DefaultSSKeepRecent                 = 100000
+	DefaultSSPruneInterval              = 600
+	DefaultSSImportWorkers              = 1
+	DefaultSSAsyncBuffer                = 100
+	DefaultSSHashRange                  = -1
+	DefaultSCHistoricalProofMaxInFlight = 1
+	DefaultSCHistoricalProofRateLimit   = 1.0 // req/s, <=0 disables rate limit
+	DefaultSCHistoricalProofBurst       = 1
 )
 
 type StateCommitConfig struct {
@@ -68,6 +71,16 @@ type StateCommitConfig struct {
 	// OnlyAllowExportOnSnapshotVersion defines whether we only allow state sync
 	// snapshot creation happens after the memiavl snapshot is created
 	OnlyAllowExportOnSnapshotVersion bool `mapstructure:"only-allow-export-on-snapshot-version"`
+
+	// Max concurrent historical proof queries (RPC /store path).
+	HistoricalProofMaxInFlight int `mapstructure:"historical-proof-max-inflight"`
+
+	// Token bucket rate (req/sec) for historical proof queries.
+	// <= 0 disables rate limiting.
+	HistoricalProofRateLimit float64 `mapstructure:"historical-proof-rate-limit"`
+
+	// Token bucket burst for historical proof queries.
+	HistoricalProofBurst int `mapstructure:"historical-proof-burst"`
 }
 
 type StateStoreConfig struct {
@@ -114,13 +127,16 @@ type StateStoreConfig struct {
 
 func DefaultStateCommitConfig() StateCommitConfig {
 	return StateCommitConfig{
-		Enable:                    true,
-		AsyncCommitBuffer:         DefaultAsyncCommitBuffer,
-		SnapshotInterval:          DefaultSnapshotInterval,
-		SnapshotKeepRecent:        DefaultSnapshotKeepRecent,
-		SnapshotMinTimeInterval:   DefaultSnapshotMinTimeInterval,
-		SnapshotPrefetchThreshold: DefaultSnapshotPrefetchThreshold,
-		SnapshotWriteRateMBps:     DefaultSnapshotWriteRateMBps,
+		Enable:                     true,
+		AsyncCommitBuffer:          DefaultAsyncCommitBuffer,
+		SnapshotInterval:           DefaultSnapshotInterval,
+		SnapshotKeepRecent:         DefaultSnapshotKeepRecent,
+		SnapshotMinTimeInterval:    DefaultSnapshotMinTimeInterval,
+		SnapshotPrefetchThreshold:  DefaultSnapshotPrefetchThreshold,
+		SnapshotWriteRateMBps:      DefaultSnapshotWriteRateMBps,
+		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,
+		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,
+		HistoricalProofBurst:       DefaultSCHistoricalProofBurst,
 	}
 }
 
