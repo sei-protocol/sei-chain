@@ -33,6 +33,7 @@ const (
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
+	MinWALEntriesToKeep   = 1000
 )
 
 var (
@@ -112,6 +113,7 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
 	}
 	database.latestVersion.Store(latestVersion)
+<<<<<<< HEAD:sei-db/ss/rocksdb/db.go
 
 	streamHandler, _ := changelog.NewStream(
 		logger.NewNopLogger(),
@@ -123,6 +125,16 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 			PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
 		},
 	)
+=======
+	walKeepRecent := math.Max(MinWALEntriesToKeep, float64(config.AsyncWriteBuffer+1))
+	streamHandler, err := wal.NewChangelogWAL(logger.NewNopLogger(), utils.GetChangelogPath(dataDir), wal.Config{
+		KeepRecent:    uint64(walKeepRecent),
+		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
+	})
+	if err != nil {
+		return nil, err
+	}
+>>>>>>> 3f0be7c (Reduce SS changelog retention to use the async buffer size (#2954)):sei-db/db_engine/rocksdb/mvcc/db.go
 	database.streamHandler = streamHandler
 	go database.writeAsyncInBackground()
 
