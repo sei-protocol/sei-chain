@@ -66,7 +66,8 @@ type Store interface {
 	// Exporter creates an exporter for the given version (0 = current).
 	Exporter(version int64) (Exporter, error)
 
-	// WriteSnapshot writes a complete snapshot to dir.
+	// WriteSnapshot creates a PebbleDB checkpoint of the committed state.
+	// The dir parameter is ignored; snapshots are stored alongside the live data.
 	WriteSnapshot(dir string) error
 
 	// Rollback restores state to targetVersion by rewinding to the best

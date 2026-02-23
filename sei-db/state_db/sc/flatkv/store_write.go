@@ -221,6 +221,13 @@ func (s *CommitStore) Commit() (int64, error) {
 
 	s.clearPendingWrites()
 
+	// Periodic snapshot so WAL stays bounded and restarts are fast.
+	if s.config.SnapshotInterval > 0 && version%int64(s.config.SnapshotInterval) == 0 {
+		if err := s.WriteSnapshot(""); err != nil {
+			s.log.Error("auto snapshot failed", "version", version, "err", err)
+		}
+	}
+
 	// Best-effort WAL truncation, throttled to amortize ReadDir cost.
 	if version%1000 == 0 {
 		s.tryTruncateWAL()
