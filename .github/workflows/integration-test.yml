@@ -81,9 +81,6 @@ jobs:
           mkdir -p build/generated && echo DONE > build/generated/build.complete
           wait $ensure_pid
 
-      - name: Use host Docker for prebuilt app build (so FROM sees local base image)
-        run: docker buildx create --use --name prebuilt-app --driver docker 2>/dev/null || docker buildx use prebuilt-app
-
       - name: Build app image with prebuilt binary
         env:
           DOCKER_BUILDKIT: 1

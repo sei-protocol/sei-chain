@@ -1,5 +1,6 @@
-# App image with prebuilt seid (CI: build once, push to GHCR). Base must exist as sei-chain/localnode-base:go1.25.6.
-FROM sei-chain/localnode-base:go1.25.6
+# App image with prebuilt seid (CI: build once, push to GHCR). Base: local tag (default) or pass BASE_IMAGE in CI so buildx can pull from GHCR.
+ARG BASE_IMAGE=sei-chain/localnode-base:go1.25.6
+FROM ${BASE_IMAGE}
 ENV PATH="/root/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
 # Wasm libs for prebuilt seid
 ENV LD_LIBRARY_PATH="/opt/sei-wasmvm/lib"

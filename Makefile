@@ -262,6 +262,7 @@ build-docker-node-app-prebuilt:
 		docker buildx build --load \
 			--cache-from $(DOCKER_BUILD_CACHE_FROM) \
 			$(if $(DOCKER_BUILD_CACHE_TO),--cache-to $(DOCKER_BUILD_CACHE_TO),) \
+			$(if $(INTEGRATION_TEST_BASE_IMAGE),--build-arg BASE_IMAGE=$(INTEGRATION_TEST_BASE_IMAGE),) \
 			--tag sei-chain/localnode \
 			--platform $(DOCKER_PLATFORM) \
 			-f docker/localnode/Dockerfile.prebuilt \
