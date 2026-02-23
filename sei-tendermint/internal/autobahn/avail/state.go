@@ -206,7 +206,6 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 	if err := s.waitForCommitQC(ctx, idx); err != nil {
 		return err
 	}
-	var laneFirsts map[types.LaneID]types.BlockNumber
 	for inner, ctrl := range s.inner.Lock() {
 		// Early exit if not useful (we collect <=1 AppQC per road index).
 		if idx < types.NextOpt(inner.latestAppQC) {
@@ -239,12 +238,13 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 			if err := s.persistAppQC(appQC); err != nil {
 				log.Error().Err(err).Msg("failed to persist AppQC")
 			}
-			laneFirsts = snapshotLaneFirsts(inner)
+			if bp, ok := s.blockPersist.Get(); ok {
+				if err := bp.QueueDeleteBefore(ctx, firstBlockPerLane(inner)); err != nil {
+					log.Error().Err(err).Msg("failed to queue block cleanup")
+				}
+			}
 			ctrl.Updated()
 		}
-	}
-	if bp, ok := s.blockPersist.Get(); ok {
-		bp.DeleteBefore(laneFirsts)
 	}
 	return nil
 }
@@ -267,7 +267,6 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
 	}
-	var laneFirsts map[types.LaneID]types.BlockNumber
 	for inner, ctrl := range s.inner.Lock() {
 		updated, err := inner.prune(appQC, commitQC)
 		if err != nil {
@@ -279,17 +278,18 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 			if err := s.persistAppQC(appQC); err != nil {
 				log.Error().Err(err).Msg("failed to persist AppQC")
 			}
-			laneFirsts = snapshotLaneFirsts(inner)
+			if bp, ok := s.blockPersist.Get(); ok {
+				if err := bp.QueueDeleteBefore(context.Background(), firstBlockPerLane(inner)); err != nil {
+					log.Error().Err(err).Msg("failed to queue block cleanup")
+				}
+			}
 			ctrl.Updated()
 		}
-	}
-	if bp, ok := s.blockPersist.Get(); ok {
-		bp.DeleteBefore(laneFirsts)
 	}
 	return nil
 }
 
-func snapshotLaneFirsts(inner *inner) map[types.LaneID]types.BlockNumber {
+func firstBlockPerLane(inner *inner) map[types.LaneID]types.BlockNumber {
 	m := make(map[types.LaneID]types.BlockNumber, len(inner.blocks))
 	for lane, q := range inner.blocks {
 		m[lane] = q.first

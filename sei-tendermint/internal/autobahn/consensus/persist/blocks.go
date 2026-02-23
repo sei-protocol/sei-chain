@@ -50,7 +50,8 @@ type BlockPersister struct {
 }
 
 type persistJob struct {
-	proposal *types.Signed[*types.LaneProposal]
+	proposal   *types.Signed[*types.LaneProposal]
+	deleteBefore map[types.LaneID]types.BlockNumber
 }
 
 // persistQueueSize is the buffer for async block persistence. With 40 validators,
@@ -123,19 +124,19 @@ func (bp *BlockPersister) PersistBlock(proposal *types.Signed[*types.LaneProposa
 	return writeAndSync(path, data)
 }
 
-// DeleteBefore removes persisted block files that are no longer needed.
+// deleteBefore removes persisted block files that are no longer needed.
 // For lanes in laneFirsts, deletes files with block number below the map value.
 // For lanes NOT in laneFirsts (orphaned from a previous committee/epoch),
 // deletes all files — old blocks are not reusable after a committee change.
-// Scans the directory once. Best-effort: logs warnings on individual failures.
-func (bp *BlockPersister) DeleteBefore(laneFirsts map[types.LaneID]types.BlockNumber) {
+// Returns an error if the directory cannot be read; individual file removal
+// failures are logged but do not cause an error.
+func (bp *BlockPersister) deleteBefore(laneFirsts map[types.LaneID]types.BlockNumber) error {
 	if len(laneFirsts) == 0 {
-		return
+		return nil
 	}
 	entries, err := os.ReadDir(bp.dir)
 	if err != nil {
-		log.Warn().Err(err).Str("dir", bp.dir).Msg("failed to list blocks dir for cleanup")
-		return
+		return fmt.Errorf("list blocks dir for cleanup: %w", err)
 	}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".pb") {
@@ -153,6 +154,22 @@ func (bp *BlockPersister) DeleteBefore(laneFirsts map[types.LaneID]types.BlockNu
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			log.Warn().Err(err).Str("path", path).Msg("failed to delete block file")
 		}
+	}
+	return nil
+}
+
+// QueueDeleteBefore enqueues an async cleanup of persisted block files older
+// than the given lane boundaries. Processed by Run(); critical failures (e.g.
+// unreadable directory) terminate Run().
+func (bp *BlockPersister) QueueDeleteBefore(ctx context.Context, laneFirsts map[types.LaneID]types.BlockNumber) error {
+	if len(laneFirsts) == 0 {
+		return nil
+	}
+	select {
+	case bp.ch <- persistJob{deleteBefore: laneFirsts}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -187,6 +204,12 @@ func (bp *BlockPersister) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case job := <-bp.ch:
+			if job.deleteBefore != nil {
+				if err := bp.deleteBefore(job.deleteBefore); err != nil {
+					return fmt.Errorf("deleteBefore: %w", err)
+				}
+				continue
+			}
 			h := job.proposal.Msg().Block().Header()
 			if err := bp.PersistBlock(job.proposal); err != nil {
 				return fmt.Errorf("persist block %s/%d: %w", h.Lane(), h.BlockNumber(), err)
