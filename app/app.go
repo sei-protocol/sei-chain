@@ -1747,6 +1747,24 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	_, isAssociated := app.GigaEvmKeeper.GetEVMAddress(ctx, seiAddr)
 
 	// ============================================================================
+	// Nonce validation (mirrors V2's ante handler check in x/evm/ante/sig.go)
+	// V2 rejects with ErrWrongSequence if txNonce != expectedNonce, with NO state changes.
+	// ============================================================================
+	expectedNonce := app.GigaEvmKeeper.GetNonce(ctx, sender)
+	txNonce := ethTx.Nonce()
+	if txNonce != expectedNonce {
+		nonceDirection := "too high"
+		if txNonce < expectedNonce {
+			nonceDirection = "too low"
+		}
+		return &abci.ExecTxResult{
+			Code:      sdkerrors.ErrWrongSequence.ABCICode(),
+			GasWanted: int64(ethTx.Gas()), //nolint:gosec
+			Log:       fmt.Sprintf("nonce %s: address %s, tx: %d state: %d: %s", nonceDirection, sender.Hex(), txNonce, expectedNonce, sdkerrors.ErrWrongSequence.Error()),
+		}, nil
+	}
+
+	// ============================================================================
 	// Fee validation (mirrors V2's ante handler checks in evm_checktx.go)
 	// NOTE: In V2, failed transactions still increment nonce and charge gas.
 	// We track validation errors here but don't return early - we still need to
