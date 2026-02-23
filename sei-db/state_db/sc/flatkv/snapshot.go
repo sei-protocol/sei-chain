@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
@@ -25,6 +26,12 @@ const (
 	// workingDirName is cloned from the baseline snapshot on each open().
 	// Mutable DB operations go here, keeping snapshot dirs immutable.
 	workingDirName = "working"
+
+	// snapshotBaseFile records which snapshot the working dir was cloned from.
+	// When the current symlink still points at the same snapshot, we skip
+	// the expensive RemoveAll+re-clone on restart because WAL catchup is
+	// idempotent and will bring the working dir up to date.
+	snapshotBaseFile = "SNAPSHOT_BASE"
 )
 
 func snapshotName(version int64) string {
@@ -165,9 +172,16 @@ func removeTmpDirs(dir string) error {
 	return nil
 }
 
-// createWorkingDir clones a snapshot into a fresh working directory.
-// Immutable .sst files are hard-linked; all others are byte-copied.
+// createWorkingDir ensures a mutable working directory exists, cloned from
+// snapDir. If the working dir already exists and was cloned from the same
+// snapshot (recorded in SNAPSHOT_BASE), the expensive re-clone is skipped
+// because WAL catchup is idempotent and will bring data up to date.
 func createWorkingDir(snapDir, workDir string) error {
+	snapBase := filepath.Base(snapDir)
+	if reuseWorkingDir(workDir, snapBase) {
+		return nil
+	}
+
 	_ = os.RemoveAll(workDir)
 
 	if err := os.MkdirAll(workDir, 0750); err != nil {
@@ -189,7 +203,22 @@ func createWorkingDir(snapDir, workDir string) error {
 			return fmt.Errorf("clone %s: %w", sub, err)
 		}
 	}
-	return nil
+
+	return writeSnapshotBase(workDir, snapBase)
+}
+
+// reuseWorkingDir returns true if workDir exists and was cloned from the
+// same snapshot, meaning a full re-clone can be skipped.
+func reuseWorkingDir(workDir, snapBase string) bool {
+	data, err := os.ReadFile(filepath.Join(workDir, snapshotBaseFile))
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(data)) == snapBase
+}
+
+func writeSnapshotBase(workDir, snapBase string) error {
+	return os.WriteFile(filepath.Join(workDir, snapshotBaseFile), []byte(snapBase+"\n"), 0640)
 }
 
 // cloneDir copies a single PebbleDB directory. Immutable .sst files are
@@ -427,11 +456,40 @@ func (s *CommitStore) WriteSnapshot(_ string) error {
 		return fmt.Errorf("update current symlink: %w", err)
 	}
 
-	// TODO(PR2): prune old snapshots based on a configurable KeepSnapshots count.
+	s.pruneSnapshots(dir, version)
 
 	success = true
+	s.lastSnapshotTime = time.Now()
 	s.log.Info("FlatKV snapshot created", "version", version, "dir", finalPath)
 	return nil
+}
+
+// pruneSnapshots removes old snapshots beyond SnapshotKeepRecent, keeping
+// the latest snapshot (currentVersion) plus the N most recent older ones.
+// Best-effort: errors are logged but do not fail the snapshot operation.
+func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) {
+	keep := int(s.config.SnapshotKeepRecent)
+
+	var older []int64
+	_ = traverseSnapshots(dir, false, func(v int64) (bool, error) {
+		if v != currentVersion {
+			older = append(older, v)
+		}
+		return false, nil
+	})
+
+	if len(older) <= keep {
+		return
+	}
+
+	for _, v := range older[keep:] {
+		snapPath := filepath.Join(dir, snapshotName(v))
+		if err := atomicRemoveDir(snapPath); err != nil {
+			s.log.Error("prune snapshot failed", "version", v, "err", err)
+		} else {
+			s.log.Info("pruned old snapshot", "version", v)
+		}
+	}
 }
 
 // Rollback restores state to targetVersion by rewinding to the highest

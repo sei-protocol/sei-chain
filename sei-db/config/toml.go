@@ -70,6 +70,14 @@ async-write-buffer = {{ .StateCommit.FlatKVConfig.AsyncWriteBuffer }}
 # SnapshotInterval defines how often (in blocks) a PebbleDB checkpoint is taken.
 # 0 disables auto-snapshots. Default: 10000.
 snapshot-interval = {{ .StateCommit.FlatKVConfig.SnapshotInterval }}
+
+# SnapshotKeepRecent defines how many old snapshots to keep besides the latest one.
+# 0 = keep only the current snapshot. Default: 1.
+snapshot-keep-recent = {{ .StateCommit.FlatKVConfig.SnapshotKeepRecent }}
+
+# SnapshotMinTimeInterval is the minimum wall-clock seconds between consecutive
+# auto-snapshots. Prevents dense snapshots during catch-up. Default: 3600 (1 hour).
+snapshot-min-time-interval = {{ .StateCommit.FlatKVConfig.SnapshotMinTimeInterval }}
 `
 
 // StateStoreConfigTemplate defines the configuration template for state-store

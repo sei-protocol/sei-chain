@@ -6,10 +6,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// walOffsetForVersion returns the WAL offset corresponding to version.
+// walOffsetForVersion returns the WAL offset whose entry has the given version.
 // Returns 0 if the WAL is empty or the version predates all WAL entries.
-// The mapping relies on the invariant that each version produces exactly one
-// WAL entry and offsets are sequential.
+//
+// Strategy: try the arithmetic shortcut (O(1) reads) first -- it works when
+// each version maps 1:1 to a sequential offset. On mismatch, fall back to
+// binary search (O(log N) reads) which handles gaps and batched versions.
 func (s *CommitStore) walOffsetForVersion(version int64) (uint64, error) {
 	if s.changelog == nil {
 		return 0, fmt.Errorf("changelog not open")
@@ -21,31 +23,61 @@ func (s *CommitStore) walOffsetForVersion(version int64) (uint64, error) {
 	if firstOff == 0 {
 		return 0, nil
 	}
-	var firstVersion int64
-	if err := s.changelog.Replay(firstOff, firstOff, func(_ uint64, entry proto.ChangelogEntry) error {
-		firstVersion = entry.Version
-		return nil
-	}); err != nil {
-		return 0, fmt.Errorf("read first WAL entry: %w", err)
+	lastOff, err := s.changelog.LastOffset()
+	if err != nil {
+		return 0, fmt.Errorf("WAL last offset: %w", err)
 	}
-	if firstVersion <= 0 || version < firstVersion {
+	if lastOff == 0 || firstOff > lastOff {
 		return 0, nil
 	}
-	off := firstOff + uint64(version-firstVersion) //nolint:gosec // version >= firstVersion checked above
 
-	// Verify the entry at the computed offset actually has the expected version
-	// to guard against WAL corruption or gaps.
-	var gotVersion int64
-	if err := s.changelog.Replay(off, off, func(_ uint64, entry proto.ChangelogEntry) error {
-		gotVersion = entry.Version
+	firstVer, err := s.walVersionAtOffset(firstOff)
+	if err != nil {
+		return 0, fmt.Errorf("read first WAL entry: %w", err)
+	}
+	if firstVer <= 0 || version < firstVer {
+		return 0, nil
+	}
+
+	// Fast path: O(1) arithmetic guess.
+	guess := firstOff + uint64(version-firstVer) //nolint:gosec // version >= firstVer checked above
+	if guess >= firstOff && guess <= lastOff {
+		if v, err := s.walVersionAtOffset(guess); err == nil && v == version {
+			return guess, nil
+		}
+	}
+
+	// Slow path: binary search over [firstOff, lastOff].
+	lo, hi := firstOff, lastOff
+	for lo <= hi {
+		mid := lo + (hi-lo)/2
+		v, err := s.walVersionAtOffset(mid)
+		if err != nil {
+			return 0, fmt.Errorf("WAL binary search at offset %d: %w", mid, err)
+		}
+		switch {
+		case v == version:
+			return mid, nil
+		case v < version:
+			lo = mid + 1
+		default:
+			if mid == 0 {
+				break
+			}
+			hi = mid - 1
+		}
+	}
+	return 0, fmt.Errorf("WAL version %d not found (range %d-%d)", version, firstOff, lastOff)
+}
+
+// walVersionAtOffset reads a single WAL entry and returns its version.
+func (s *CommitStore) walVersionAtOffset(off uint64) (int64, error) {
+	var ver int64
+	err := s.changelog.Replay(off, off, func(_ uint64, entry proto.ChangelogEntry) error {
+		ver = entry.Version
 		return nil
-	}); err != nil {
-		return 0, fmt.Errorf("verify WAL offset %d for version %d: %w", off, version, err)
-	}
-	if gotVersion != version {
-		return 0, fmt.Errorf("WAL offset mismatch: offset %d has version %d, expected %d", off, gotVersion, version)
-	}
-	return off, nil
+	})
+	return ver, err
 }
 
 // catchup replays WAL entries from the current committedVersion up to (and

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
@@ -82,6 +83,8 @@ type CommitStore struct {
 	changelog         wal.ChangelogWAL
 	pendingChangeSets []*proto.NamedChangeSet
 
+	lastSnapshotTime time.Time
+
 	// File lock prevents multiple processes from opening the same DB.
 	fileLock filelock.TryLockerSafe
 }
@@ -153,6 +156,9 @@ func (s *CommitStore) LoadVersion(targetVersion int64) (_ Store, retErr error) {
 		} else {
 			s.log.Debug("no snapshot found, will open current", "target", targetVersion, "err", err)
 		}
+		// Force a fresh working dir clone: the working dir may contain data
+		// beyond targetVersion from a previous open-to-latest.
+		_ = os.Remove(filepath.Join(dir, workingDirName, snapshotBaseFile))
 	}
 
 	if err := s.openTo(targetVersion); err != nil {
