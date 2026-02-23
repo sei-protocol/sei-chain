@@ -49,9 +49,15 @@ import (
 
 // A/B file suffixes.
 const (
-	SuffixA = "_a.pb"
-	SuffixB = "_b.pb"
+	suffixA = "_a.pb"
+	suffixB = "_b.pb"
 )
+
+// WriteRawFile writes raw bytes to one of the A/B files for a given prefix.
+// Intended for tests that need to simulate corruption from outside the package.
+func WriteRawFile(dir, prefix string, data []byte) error {
+	return os.WriteFile(filepath.Join(dir, prefix+suffixA), data, 0600)
+}
 
 // ErrNoData is returned by loadPersisted when no persisted files exist for the prefix.
 var ErrNoData = errors.New("no persisted data")
@@ -109,7 +115,7 @@ func NewPersister[T protoutils.Message](dir string, prefix string) (Persister[T]
 	// Ensure both A/B files exist and are writable so Persist never creates new
 	// directory entries. Empty files are treated as non-existent by loadWrapped,
 	// so they won't interfere with loading on restart.
-	for _, suffix := range []string{SuffixA, SuffixB} {
+	for _, suffix := range []string{suffixA, suffixB} {
 		path := filepath.Join(dir, prefix+suffix)
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0600) //nolint:gosec // path is stateDir + hardcoded suffix; not user-controlled
 		if err != nil {
@@ -151,9 +157,9 @@ func (w *abPersister[T]) Persist(msg T) error {
 	seq := w.seq + 1
 
 	// Odd seq → A, even seq → B.
-	suffix := SuffixB
+	suffix := suffixB
 	if seq%2 == 1 {
-		suffix = SuffixA
+		suffix = suffixA
 	}
 	filename := w.prefix + suffix
 
@@ -207,7 +213,7 @@ func loadWrapped(stateDir, filename string) (*pb.PersistedWrapper, error) {
 // so the validator can restart. Returns ErrNoData when no persisted files exist (use errors.Is).
 // Returns other error only when both files fail to load or state is inconsistent (same seq).
 func loadPersisted(dir string, prefix string) (*pb.PersistedWrapper, error) {
-	fileA, fileB := prefix+SuffixA, prefix+SuffixB
+	fileA, fileB := prefix+suffixA, prefix+suffixB
 	wrapperA, errA := loadWrapped(dir, fileA)
 	wrapperB, errB := loadWrapped(dir, fileB)
 

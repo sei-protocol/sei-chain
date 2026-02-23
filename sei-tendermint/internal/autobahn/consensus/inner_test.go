@@ -940,15 +940,13 @@ func TestRunOutputsPersistErrorPropagates(t *testing.T) {
 	committee, keys := types.GenCommittee(rng, 4)
 	ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
 
-	cs, err := NewState(&Config{
+	wantErr := errors.New("disk on fire")
+	pers := utils.Some[persist.Persister[*pb.PersistedInner]](failPersister[*pb.PersistedInner]{err: wantErr})
+	cs, err := newState(&Config{
 		Key:         keys[0],
 		ViewTimeout: func(types.View) time.Duration { return time.Hour },
-	}, ds)
+	}, ds, pers, utils.None[*pb.PersistedInner]())
 	require.NoError(t, err)
-
-	// Inject a persister that always fails.
-	wantErr := errors.New("disk on fire")
-	cs.persister = utils.Some[persist.Persister[*pb.PersistedInner]](failPersister[*pb.PersistedInner]{err: wantErr})
 
 	// runOutputs should fail on the first Iter callback when it tries to persist.
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)

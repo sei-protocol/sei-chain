@@ -30,8 +30,8 @@ func TestPersisterAlternates(t *testing.T) {
 	require.NoError(t, err)
 
 	// Both files should be pre-created (empty) by NewPersister for dir-sync optimization.
-	_, errA := os.Stat(filepath.Join(dir, "test"+SuffixA))
-	_, errB := os.Stat(filepath.Join(dir, "test"+SuffixB))
+	_, errA := os.Stat(filepath.Join(dir, "test"+suffixA))
+	_, errB := os.Stat(filepath.Join(dir, "test"+suffixB))
 	require.NoError(t, errA, "A should be pre-created")
 	require.NoError(t, errB, "B should be pre-created")
 
@@ -82,7 +82,7 @@ func TestLoadPersistedOneCorruptFileSucceeds(t *testing.T) {
 	require.NoError(t, w.Persist(testMsg("second"))) // seq=2, B
 
 	// Corrupt B (the winner) — should fall back to A
-	err = os.WriteFile(filepath.Join(dir, "test"+SuffixB), []byte("corrupt"), 0600)
+	err = os.WriteFile(filepath.Join(dir, "test"+suffixB), []byte("corrupt"), 0600)
 	require.NoError(t, err)
 
 	_, loaded, err := NewPersister[*pb.PersistedWrapper](dir, "test")
@@ -101,7 +101,7 @@ func TestLoadPersistedBothCorruptError(t *testing.T) {
 	require.NoError(t, w.Persist(testMsg("valid"))) // seq=1, A
 
 	// Corrupt A (B is empty, treated as non-existent) — both files fail
-	err = os.WriteFile(filepath.Join(dir, "test"+SuffixA), []byte("corrupt"), 0600)
+	err = os.WriteFile(filepath.Join(dir, "test"+suffixA), []byte("corrupt"), 0600)
 	require.NoError(t, err)
 
 	_, _, err = NewPersister[*pb.PersistedWrapper](dir, "test")
@@ -118,7 +118,7 @@ func TestNewPersisterOneCorruptFileSucceeds(t *testing.T) {
 	require.NoError(t, w1.Persist(testMsg("second"))) // seq=2, B
 
 	// Corrupt B (the winner) — NewPersister should still succeed using A
-	err = os.WriteFile(filepath.Join(dir, "test"+SuffixB), []byte("corrupt"), 0600)
+	err = os.WriteFile(filepath.Join(dir, "test"+suffixB), []byte("corrupt"), 0600)
 	require.NoError(t, err)
 
 	w2, loaded, err := NewPersister[*pb.PersistedWrapper](dir, "test")
@@ -218,7 +218,7 @@ func TestLoadPersistedOSErrorPropagates(t *testing.T) {
 	require.NoError(t, w.Persist(testMsg("second"))) // seq=2, B
 
 	// Make B unreadable (OS error, not corrupt data)
-	pathB := filepath.Join(dir, "test"+SuffixB)
+	pathB := filepath.Join(dir, "test"+suffixB)
 	require.NoError(t, os.Chmod(pathB, 0000))
 	defer os.Chmod(pathB, 0600) //nolint:errcheck
 
@@ -240,7 +240,7 @@ func TestLoadPersistedCorruptFallsBack(t *testing.T) {
 	require.NoError(t, w.Persist(testMsg("second"))) // seq=2, B
 
 	// Corrupt B (simulates crash mid-write)
-	err = os.WriteFile(filepath.Join(dir, "test"+SuffixB), []byte("garbage"), 0600)
+	err = os.WriteFile(filepath.Join(dir, "test"+suffixB), []byte("garbage"), 0600)
 	require.NoError(t, err)
 
 	// Should succeed using A, since B's error is ErrCorrupt (tolerable)

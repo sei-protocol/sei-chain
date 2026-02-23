@@ -89,7 +89,17 @@ func NewState(cfg *Config, data *data.State) (*State, error) {
 		pers = utils.Some(p)
 		persistedData = d
 	}
+	return newState(cfg, data, pers, persistedData)
+}
 
+// newState is the internal constructor exposed for tests that need to inject
+// a custom persister (e.g. a failing mock). Production code should use NewState.
+func newState(
+	cfg *Config,
+	data *data.State,
+	pers utils.Option[persist.Persister[*pb.PersistedInner]],
+	persistedData utils.Option[*pb.PersistedInner],
+) (*State, error) {
 	initialInner, err := newInner(persistedData, data.Committee())
 	if err != nil {
 		return nil, fmt.Errorf("newInner: %w", err)

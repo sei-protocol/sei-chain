@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -454,7 +452,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		wrapper := &apb.PersistedWrapper{Seq: &seq, Data: []byte("not a valid protobuf")}
 		bz, err := proto.Marshal(wrapper)
 		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(filepath.Join(dir, innerFile+persist.SuffixA), bz, 0600))
+		require.NoError(t, persist.WriteRawFile(dir, innerFile, bz))
 
 		_, err = NewState(keys[0], ds, utils.Some(dir))
 		require.Error(t, err)
