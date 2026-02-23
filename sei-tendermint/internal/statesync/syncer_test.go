@@ -74,7 +74,7 @@ func TestSyncer_SyncAny(t *testing.T) {
 		},
 		AppHash: []byte("app_hash_2"),
 	}
-	app.offerSnapshot.Push(func(_ context.Context, req *abci.RequestOfferSnapshot) (*abci.ResponseOfferSnapshot,error) {
+	app.offerSnapshot.Push(func(_ context.Context, req *abci.RequestOfferSnapshot) (*abci.ResponseOfferSnapshot, error) {
 		require.Equal(t, rejectReq, req)
 		return &abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_REJECT_FORMAT}, nil
 	})
@@ -89,7 +89,7 @@ func TestSyncer_SyncAny(t *testing.T) {
 		AppHash: []byte("app_hash"),
 	}
 	for range 2 {
-		app.offerSnapshot.Push(func(_ context.Context, req *abci.RequestOfferSnapshot) (*abci.ResponseOfferSnapshot,error) {
+		app.offerSnapshot.Push(func(_ context.Context, req *abci.RequestOfferSnapshot) (*abci.ResponseOfferSnapshot, error) {
 			require.Equal(t, acceptReq, req)
 			return &abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_ACCEPT}, nil
 		})
@@ -183,17 +183,17 @@ func TestSyncer_SyncAny(t *testing.T) {
 		// The first time we're applying chunk 2 we tell it to retry the snapshot and discard chunk 1,
 		// which should cause it to keep the existing chunk 0 and 2, and restart restoration from
 		// beginning. We also wait for a little while, to exercise the retry logic in fetchChunks().
-		app.applySnapshotChunk.Push(func(ctx context.Context, req *abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk,error) {
-			require.Equal(t,req,&abci.RequestApplySnapshotChunk{
+		app.applySnapshotChunk.Push(func(ctx context.Context, req *abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk, error) {
+			require.Equal(t, req, &abci.RequestApplySnapshotChunk{
 				Index: 2, Chunk: []byte{1, 1, 2},
 			})
-			if err:=utils.Sleep(ctx, time.Second); err!=nil {
-				return nil,err
+			if err := utils.Sleep(ctx, time.Second); err != nil {
+				return nil, err
 			}
 			return &abci.ResponseApplySnapshotChunk{
 				Result:        abci.ResponseApplySnapshotChunk_RETRY_SNAPSHOT,
 				RefetchChunks: []uint32{1},
-			},nil
+			}, nil
 		})
 		app.applySnapshotChunk.Push(mkHandler(
 			&abci.RequestApplySnapshotChunk{Index: 0, Chunk: []byte{1, 1, 0}},
@@ -434,10 +434,10 @@ func TestSyncer_SyncAny_abciError(t *testing.T) {
 	_, err := rts.reactor.syncer.AddSnapshot(peerID, s)
 	require.NoError(t, err)
 
-	app.offerSnapshot.Push(func(_ context.Context, req *abci.RequestOfferSnapshot) (*abci.ResponseOfferSnapshot,error) {
+	app.offerSnapshot.Push(func(_ context.Context, req *abci.RequestOfferSnapshot) (*abci.ResponseOfferSnapshot, error) {
 		want := &abci.RequestOfferSnapshot{Snapshot: toABCI(s), AppHash: []byte("app_hash")}
-		utils.OrPanic(utils.TestDiff(want,req))
-		return nil,errBoom
+		utils.OrPanic(utils.TestDiff(want, req))
+		return nil, errBoom
 	})
 
 	_, _, err = rts.reactor.syncer.SyncAny(ctx, 0, func() error { return nil })
@@ -474,9 +474,9 @@ func TestSyncer_offerSnapshot(t *testing.T) {
 			rts := setup(t, nil, stateProvider, true)
 			app := rts.conn
 			s := &snapshot{Height: 1, Format: 1, Chunks: 3, Hash: []byte{1, 2, 3}, trustedAppHash: []byte("app_hash")}
-			app.offerSnapshot.Push(func(_ context.Context, req *abci.RequestOfferSnapshot) (*abci.ResponseOfferSnapshot,error) {
-				want := &abci.RequestOfferSnapshot{Snapshot: toABCI(s), AppHash:  []byte("app_hash")}
-				utils.OrPanic(utils.TestDiff(want,req))
+			app.offerSnapshot.Push(func(_ context.Context, req *abci.RequestOfferSnapshot) (*abci.ResponseOfferSnapshot, error) {
+				want := &abci.RequestOfferSnapshot{Snapshot: toABCI(s), AppHash: []byte("app_hash")}
+				utils.OrPanic(utils.TestDiff(want, req))
 				return &abci.ResponseOfferSnapshot{Result: tc.result}, tc.err
 			})
 
@@ -532,9 +532,9 @@ func TestSyncer_applyChunks_Results(t *testing.T) {
 			_, err = chunks.Add(&chunk{Height: 1, Format: 1, Index: 0, Chunk: body})
 			require.NoError(t, err)
 
-			app.applySnapshotChunk.Push(func(_ context.Context, req *abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk,error) {
+			app.applySnapshotChunk.Push(func(_ context.Context, req *abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk, error) {
 				want := &abci.RequestApplySnapshotChunk{Index: 0, Chunk: body}
-				utils.OrPanic(utils.TestDiff(want,req))
+				utils.OrPanic(utils.TestDiff(want, req))
 				return &abci.ResponseApplySnapshotChunk{Result: tc.result}, tc.err
 			})
 			if tc.result == abci.ResponseApplySnapshotChunk_RETRY {
@@ -776,8 +776,8 @@ func TestSyncer_verifyApp(t *testing.T) {
 			rts := setup(t, nil, nil, true)
 
 			app := rts.conn
-			app.info.Push(func(_ context.Context, req *abci.RequestInfo) (*abci.ResponseInfo,error) {
-				utils.OrPanic(utils.TestDiff(&proxy.RequestInfo,req))
+			app.info.Push(func(_ context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
+				utils.OrPanic(utils.TestDiff(&proxy.RequestInfo, req))
 				return tc.response, tc.err
 			})
 			err := rts.reactor.syncer.verifyApp(ctx, s, appVersion)

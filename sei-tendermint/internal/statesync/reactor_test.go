@@ -158,7 +158,7 @@ func TestReactor_Sync(t *testing.T) {
 	appConn.applySnapshotChunk.Set(func(context.Context, *abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk, error) {
 		return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT}, nil
 	})
-	appConn.info.Push(mkHandler(&proxy.RequestInfo,&abci.ResponseInfo{
+	appConn.info.Push(mkHandler(&proxy.RequestInfo, &abci.ResponseInfo{
 		AppVersion:       testAppVersion,
 		LastBlockHeight:  snapshotHeight,
 		LastBlockAppHash: chain[snapshotHeight+1].AppHash,
@@ -239,7 +239,7 @@ func TestReactor_ChunkRequest(t *testing.T) {
 				Format: tc.request.Format,
 				Chunk:  tc.request.Index,
 			}
-			conn.loadSnapshotChunk.Push(mkHandler(expected,&abci.ResponseLoadSnapshotChunk{Chunk: tc.chunk}))
+			conn.loadSnapshotChunk.Push(mkHandler(expected, &abci.ResponseLoadSnapshotChunk{Chunk: tc.chunk}))
 
 			rts := setup(t, conn, nil, false)
 			n := rts.AddPeer(t)
@@ -298,7 +298,7 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 
 			// mock ABCI connection to return local snapshots
 			conn := newTestStatesyncApp()
-			conn.listSnapshots.Push(mkHandler(&abci.RequestListSnapshots{},&abci.ResponseListSnapshots{Snapshots: snapshots}))
+			conn.listSnapshots.Set(mkHandler(&abci.RequestListSnapshots{}, &abci.ResponseListSnapshots{Snapshots: snapshots}))
 
 			rts := setup(t, conn, nil, false)
 			n := rts.AddPeer(t)
