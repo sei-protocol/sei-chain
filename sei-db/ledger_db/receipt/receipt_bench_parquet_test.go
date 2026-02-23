@@ -33,7 +33,10 @@ func benchmarkParquetWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) 
 	pqs.store.SetBlockFlushInterval(100)
 
 	totalReceipts := receiptsPerBlock * blocks
-	batch := makeDummyReceiptBatch(1, receiptsPerBlock, 0)
+	addrs := addressPool(5)
+	t0s := topicPool(3, 0x01)
+	t1s := topicPool(3, 0x02)
+	batch := makeDiverseReceiptBatch(1, receiptsPerBlock, 0, addrs, t0s, t1s, nil)
 	bytePerReceipt := len(batch[0].ReceiptBytes)
 	totalBytes := int64(bytePerReceipt * totalReceipts)
 

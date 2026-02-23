@@ -51,7 +51,10 @@ func benchmarkPebbleWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) {
 	}
 
 	totalReceipts := receiptsPerBlock * blocks
-	batch := makeDummyReceiptBatch(1, receiptsPerBlock, 0)
+	addrs := addressPool(5)
+	t0s := topicPool(3, 0x01)
+	t1s := topicPool(3, 0x02)
+	batch := makeDiverseReceiptBatch(1, receiptsPerBlock, 0, addrs, t0s, t1s, nil)
 	totalBytes := int64(len(batch[0].ReceiptBytes) * totalReceipts)
 
 	// Get Pebble metrics before writing mostly to track compaction and flush counts.
@@ -111,55 +114,6 @@ func applyReceiptsAsync(store *receiptStore, version int64, receipts []ReceiptRe
 		Changeset: iavl.ChangeSet{Pairs: pairs},
 	}
 	return store.db.ApplyChangesetAsync(version, []*proto.NamedChangeSet{ncs})
-}
-
-func makeDummyReceiptBatch(blockNumber uint64, count int, seed uint64) []ReceiptRecord {
-	records := make([]ReceiptRecord, count)
-
-	// ERC20 Transfer event signature: Transfer(address,address,uint256)
-	// keccak256("Transfer(address,address,uint256)")
-	transferEventSig := "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-
-	// Token contract address (e.g., USDC-like)
-	tokenAddress := common.HexToAddress("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48").Hex()
-
-	// From/To addresses (indexed topics, padded to 32 bytes)
-	fromAddr := common.BytesToHash(common.HexToAddress("0x1234567890123456789012345678901234567890").Bytes()).Hex()
-	toAddr := common.BytesToHash(common.HexToAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd").Bytes()).Hex()
-
-	// Transfer amount: 1000 USDC (6 decimals) = 1000000000 as uint256 (32 bytes)
-	amountData := make([]byte, 32)
-	binary.BigEndian.PutUint64(amountData[24:], 1000000000)
-
-	for i := 0; i < count; i++ {
-		txHash := hashFromUint64(seed + uint64(i))
-		receipt := &types.Receipt{
-			TxHashHex:         txHash.Hex(),
-			BlockNumber:       blockNumber,
-			TransactionIndex:  uint32(i),
-			GasUsed:           52000, // Typical ERC20 transfer gas
-			CumulativeGasUsed: uint64(52000 * (i + 1)),
-			Status:            1, // Success
-			Logs: []*types.Log{
-				{
-					Address: tokenAddress,
-					Topics:  []string{transferEventSig, fromAddr, toAddr},
-					Data:    amountData,
-					Index:   0,
-				},
-			},
-		}
-		receiptBytes, err := receipt.Marshal()
-		if err != nil {
-			panic(fmt.Sprintf("failed to marshal receipt in benchmark setup: %v", err))
-		}
-		records[i] = ReceiptRecord{
-			TxHash:       txHash,
-			Receipt:      receipt,
-			ReceiptBytes: receiptBytes,
-		}
-	}
-	return records
 }
 
 func hashFromUint64(value uint64) common.Hash {

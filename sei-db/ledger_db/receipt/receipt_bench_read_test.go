@@ -491,10 +491,14 @@ func makeDiverseReceiptBatch(
 			ReceiptBytes: receiptBytes,
 		}
 
-		idx.record(blockNumber, txHash)
+		if idx != nil {
+			idx.record(blockNumber, txHash)
+		}
 	}
 
-	idx.blockBlooms[blockNumber] = blockBloom
+	if idx != nil {
+		idx.blockBlooms[blockNumber] = blockBloom
+	}
 
 	return records
 }
