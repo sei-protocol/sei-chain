@@ -6,11 +6,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y make build-essential git jq python3 curl vim uuid-runtime
 RUN curl -L https://go.dev/dl/go1.25.6.linux-amd64.tar.gz | tar xvzf - -C /usr/local/
-RUN curl -L https://foundry.paradigm.xyz | bash
+RUN curl -fsSL https://raw.githubusercontent.com/foundry-rs/foundry/v1.5.1/foundryup/install | bash
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     curl -sL https://deb.nodesource.com/setup_16.x | bash - && apt-get install -y nodejs
-RUN /root/.foundry/bin/foundryup
+RUN /root/.foundry/bin/foundryup -i v1.5.1
 RUN mkdir -p /root/go/pkg/mod && \
     mkdir -p /root/.cache && \
     chmod -R a+rwX /root

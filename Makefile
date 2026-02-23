@@ -217,7 +217,7 @@ DOCKER_BUILD_CACHE_FROM ?=
 DOCKER_BUILD_CACHE_TO ?=
 LOCALNODE_BASE_TAG := sei-chain/localnode-base:go1.25.6
 
-# Base image (Go, Foundry, Node). Rebuild only when tool versions or Dockerfile.base change.
+# Base image (Go, Foundry, Node).
 build-docker-node-base:
 	@echo "Building localnode base image..."
 	@cd docker && \
@@ -234,8 +234,8 @@ build-docker-node-base:
 	fi
 .PHONY: build-docker-node-base
 
-# Build only the app image (requires sei-chain/localnode-base:go1.25.6 to exist locally; used in CI when base is pulled or pre-built)
-build-docker-node-app:
+# Build only the app image.
+build-docker-node-app: build-docker-node-base
 	@echo "Building localnode app image..."
 	@cd docker && \
 	if [ -n "$(DOCKER_BUILD_CACHE_FROM)" ]; then \
@@ -252,13 +252,12 @@ build-docker-node-app:
 	fi
 .PHONY: build-docker-node-app
 
-# Build app image with prebuilt seid binary (context = repo root; requires build/seid and build/price-feeder to exist).
-# Used in CI: build seid in a container first, then run this target so the image contains the binary.
+# Build app image with prebuilt binary (context = repo root). Used in the CI.
 build-docker-node-app-prebuilt:
-	@echo "Building localnode app image (with prebuilt binary)..."
 	@if [ ! -f build/seid ] || [ ! -f build/price-feeder ]; then \
 		echo "ERROR: build/seid and build/price-feeder must exist. Run the build step first."; exit 1; \
 	fi
+	@echo "Building localnode app image (with prebuilt binary)..."
 	@if [ -n "$(DOCKER_BUILD_CACHE_FROM)" ]; then \
 		docker buildx build --load \
 			--build-arg GHCR_ORG=$(GHCR_ORG) \
@@ -274,8 +273,7 @@ build-docker-node-app-prebuilt:
 .PHONY: build-docker-node-app-prebuilt
 
 # Build docker image for detected platform (depends on base; app layer is quick)
-build-docker-node: build-docker-node-base
-	@$(MAKE) build-docker-node-app
+build-docker-node: build-docker-node-base build-docker-node-app
 .PHONY: build-docker-node
 
 # RPC node image (context = repo root so we can COPY wasm libs)
