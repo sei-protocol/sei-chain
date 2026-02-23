@@ -99,7 +99,11 @@ func (rb *RandomBuffer) Int64() int64 {
 // Generate a random address suitable for use simulating an eth-style address. Given the same account ID,
 // the address will be deterministic, and any two unique account IDs are guaranteed to generate unique addresses.
 func (rb *RandomBuffer) Address(
+	// The prefix to use for the address.
+	keyPrefix []byte,
+	// The size of the address to generate, not including the key prefix.
 	addressSize int,
+	// The account ID to use for the address.
 	accountID int64,
 ) []byte {
 
@@ -107,21 +111,20 @@ func (rb *RandomBuffer) Address(
 		panic(fmt.Sprintf("address size must be at least 8 bytes, got %d", addressSize))
 	}
 
-	address := make([]byte, addressSize)
+	result := make([]byte, len(keyPrefix)+addressSize)
+	address := result[len(keyPrefix):]
+	copy(result, keyPrefix)
+
 	baseBytes := rb.SeededBytes(addressSize, accountID)
 
-	// Inject the account ID into the middle of the address to ensure uniqueness.
-	accountIDIndex := addressSize / 2
-	if accountIDIndex+8 > addressSize {
-		// If we don't have enough space, put the account ID at the end.
-		accountIDIndex = addressSize - 8
+	// Inject the account ID into the middle of the address span (excluding the prefix) to ensure uniqueness.
+	accountIDIndex := len(keyPrefix) + (addressSize / 2)
+	if accountIDIndex+8 > len(result) {
+		accountIDIndex = len(result) - 8
 	}
 
-	// copy base bytes to the address
 	copy(address, baseBytes)
+	binary.BigEndian.PutUint64(result[accountIDIndex:accountIDIndex+8], uint64(accountID))
 
-	// write the account ID to the address
-	binary.BigEndian.PutUint64(address[accountIDIndex:accountIDIndex+8], uint64(accountID))
-
-	return address
+	return result
 }

@@ -1,5 +1,7 @@
 package cryptosim
 
+import "github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
+
 // Defines the configuration for the cryptosim benchmark.
 type CryptoSimConfig struct {
 
@@ -38,6 +40,13 @@ type CryptoSimConfig struct {
 	// The directory to store the benchmark data. If unspecified, the benchmark will use a temporary directory
 	// that is destroyed after the benchmark completes.
 	DataDir string
+
+	// The seed to use for the random number generator. If starting from a state on disk, this seed is ignored
+	// (the benchmark DB saves its own seed internally).
+	Seed int64
+
+	// The backend to use for the benchmark database.
+	Backend wrappers.DBType
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -52,5 +61,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		PaddedAccountSize:    100,
 		TransactionsPerBlock: 100,
 		DataDir:              "",
+		Seed:                 0,
+		Backend:              wrappers.FlatKV,
 	}
 }

@@ -48,3 +48,8 @@ func (f *flatKVWrapper) Version() int64 {
 func (f *flatKVWrapper) Close() error {
 	return f.base.Close()
 }
+
+func (f *flatKVWrapper) Read(key []byte) (data []byte, found bool, err error) {
+	data, found = f.base.Get(key)
+	return data, found, nil
+}

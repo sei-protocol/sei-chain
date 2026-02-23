@@ -1,6 +1,12 @@
 package cryptosim
 
-import "math"
+import (
+	"fmt"
+	"math"
+	"os"
+	"path/filepath"
+	"strings"
+)
 
 // Hash64 returns a well-distributed 64-bit hash of x.
 // It implements the SplitMix64 finalizer, a fast non-cryptographic mixing
@@ -35,4 +41,25 @@ func PositiveHash64(x int64) int64 {
 		return -result
 	}
 	return result
+}
+
+// resolveAndCreateDataDir expands ~ to the home directory and creates the directory if it doesn't exist.
+func resolveAndCreateDataDir(dataDir string) (string, error) {
+	if dataDir == "~" || strings.HasPrefix(dataDir, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get home directory: %w", err)
+		}
+		if dataDir == "~" {
+			dataDir = home
+		} else {
+			dataDir = filepath.Join(home, dataDir[2:])
+		}
+	}
+	if dataDir != "" {
+		if err := os.MkdirAll(dataDir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create data directory: %w", err)
+		}
+	}
+	return dataDir, nil
 }

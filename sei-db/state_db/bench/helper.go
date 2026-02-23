@@ -264,7 +264,12 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 	for range b.N {
 		func() {
 			b.StopTimer()
-			cs := wrappers.NewDBImpl(b, scenario.Backend)
+			cs, err := wrappers.NewDBImpl(scenario.Backend, b.TempDir())
+			defer func() {
+				err := cs.Close()
+				require.NoError(b, err)
+			}()
+			require.NoError(b, err)
 			require.NotNil(b, cs)
 			changesetChannel := startChangesetGenerator(scenario)
 
@@ -291,7 +296,7 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 					progress.Add(len(changeset.Changeset.Pairs))
 				}
 			}
-			err := cs.Close() // close to make sure all data got flushed
+			err = cs.Close() // close to make sure all data got flushed
 			require.NoError(b, err)
 
 			b.StopTimer()

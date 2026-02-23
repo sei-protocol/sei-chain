@@ -34,3 +34,7 @@ func (m *memIAVLWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 func (m *memIAVLWrapper) Close() error {
 	return m.base.Close()
 }
+
+func (m *memIAVLWrapper) Read(key []byte) (data []byte, found bool, err error) {
+	// TODO: Implement this.
+}

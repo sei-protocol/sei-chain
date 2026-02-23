@@ -1,14 +1,13 @@
 package wrappers
 
 import (
-	"testing"
+	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 const EVMStoreName = "evm"
@@ -23,85 +22,85 @@ const (
 	CompositeCosmos DBType = "CompositeCosmos"
 )
 
-func newMemIAVLCommitStore(b *testing.B) DBWrapper {
-	b.Helper()
-	dir := b.TempDir()
+func newMemIAVLCommitStore(
+	dataDir string,
+) (DBWrapper, error) {
+
 	cfg := memiavl.DefaultConfig()
 	cfg.AsyncCommitBuffer = 10
 	cfg.SnapshotInterval = 100
-	cs := memiavl.NewCommitStore(dir, logger.NewNopLogger(), cfg)
+	cs := memiavl.NewCommitStore(dataDir, logger.NewNopLogger(), cfg)
 	cs.Initialize([]string{EVMStoreName})
 
 	_, err := cs.LoadVersion(0, false)
-	require.NoError(b, err)
+	if err != nil {
+		cs.Close()
+		return nil, fmt.Errorf("failed to load version: %w", err)
+	}
 
-	b.Cleanup(func() {
-		_ = cs.Close()
-	})
-
-	return NewMemIAVLWrapper(cs)
+	return NewMemIAVLWrapper(cs), nil
 }
 
-func newFlatKVCommitStore(b *testing.B) DBWrapper {
-	b.Helper()
-	dir := b.TempDir()
+func newFlatKVCommitStore(
+	dataDir string,
+) (DBWrapper, error) {
+
 	cfg := flatkv.DefaultConfig()
 	cfg.Fsync = false
-	cs := flatkv.NewCommitStore(dir, logger.NewNopLogger(), cfg)
+	cs := flatkv.NewCommitStore(dataDir, logger.NewNopLogger(), cfg)
 
 	_, err := cs.LoadVersion(0)
-	require.NoError(b, err)
+	if err != nil {
+		cs.Close()
+		return nil, fmt.Errorf("failed to load version: %w", err)
+	}
 
-	b.Cleanup(func() {
-		_ = cs.Close()
-	})
-
-	return NewFlatKVWrapper(cs)
+	return NewFlatKVWrapper(cs), nil
 }
 
-func newCompositeCommitStore(b *testing.B, writeMode config.WriteMode) DBWrapper {
-	b.Helper()
-	dir := b.TempDir()
+func newCompositeCommitStore(
+	dataDir string,
+	writeMode config.WriteMode,
+) (DBWrapper, error) {
+
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = writeMode
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 10
 	cfg.MemIAVLConfig.SnapshotInterval = 100
 
-	cs := composite.NewCompositeCommitStore(dir, logger.NewNopLogger(), cfg)
+	cs := composite.NewCompositeCommitStore(dataDir, logger.NewNopLogger(), cfg)
 	cs.Initialize([]string{EVMStoreName})
 
 	loaded, err := cs.LoadVersion(0, false)
-	require.NoError(b, err)
+	if err != nil {
+		cs.Close()
+		return nil, fmt.Errorf("failed to load version: %w", err)
+	}
 
 	loadedStore := loaded.(*composite.CompositeCommitStore)
 
-	b.Cleanup(func() {
-		_ = loadedStore.Close()
-	})
-
-	return NewCompositeWrapper(loadedStore)
+	return NewCompositeWrapper(loadedStore), nil
 }
 
 // Instantiates a new DBWrapper based on the given DBType.
 func NewDBImpl(
-	b *testing.B,
 	dbType DBType,
-) DBWrapper {
+	dataDir string,
+) (DBWrapper, error) {
 
 	switch dbType {
 	case MemIAVL:
-		return newMemIAVLCommitStore(b)
+		return newMemIAVLCommitStore(dataDir)
 	case FlatKV:
-		return newFlatKVCommitStore(b)
+		return newFlatKVCommitStore(dataDir)
 	case CompositeDual:
-		return newCompositeCommitStore(b, config.DualWrite)
+		return newCompositeCommitStore(dataDir, config.DualWrite)
 	case CompositeSplit:
-		return newCompositeCommitStore(b, config.SplitWrite)
+		return newCompositeCommitStore(dataDir, config.SplitWrite)
 	case CompositeCosmos:
-		return newCompositeCommitStore(b, config.CosmosOnlyWrite)
+		return newCompositeCommitStore(dataDir, config.CosmosOnlyWrite)
 	default:
-		b.Fatalf("unsupported DB type: %s", dbType)
-		return nil
+		return nil, fmt.Errorf("unsupported DB type: %s", dbType)
 	}
 
 }
