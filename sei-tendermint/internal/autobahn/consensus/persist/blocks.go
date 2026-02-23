@@ -120,7 +120,7 @@ func (bp *BlockPersister) PersistBlock(lane types.LaneID, n types.BlockNumber, p
 		return fmt.Errorf("marshal block %s/%d: %w", lane, n, err)
 	}
 	path := filepath.Join(bp.dir, blockFilename(lane, n))
-	return WriteAndSync(path, data)
+	return writeAndSync(path, data)
 }
 
 // DeleteBefore removes persisted block files that are no longer needed.

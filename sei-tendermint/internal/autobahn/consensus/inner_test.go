@@ -8,7 +8,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -28,11 +30,11 @@ func testCommittee(keys ...types.SecretKey) *types.Committee {
 
 // seedPersistedInner is a test helper that persists a persistedInner using the public API.
 func seedPersistedInner(dir string, state *persistedInner) {
-	p, _, err := persist.NewPersister(dir, innerFile)
+	p, _, err := persist.NewPersister[*pb.PersistedInner](dir, innerFile)
 	if err != nil {
 		panic(err)
 	}
-	if err := p.Persist(innerProtoConv.Marshal(state)); err != nil {
+	if err := p.Persist(innerProtoConv.Encode(state)); err != nil {
 		panic(err)
 	}
 }
@@ -40,7 +42,7 @@ func seedPersistedInner(dir string, state *persistedInner) {
 // loadInner is a test helper that loads persisted data and creates inner.
 // Mirrors what NewState does: NewPersister → newInner.
 func loadInner(dir string, committee *types.Committee) (inner, error) {
-	_, data, err := persist.NewPersister(dir, innerFile)
+	_, data, err := persist.NewPersister[*pb.PersistedInner](dir, innerFile)
 	if err != nil {
 		return inner{}, err
 	}
@@ -60,7 +62,7 @@ func TestNewInnerEmpty(t *testing.T) {
 	rng := utils.TestRng()
 	committee, _ := types.GenCommittee(rng, 1)
 	// No data should return empty inner (persistence disabled / fresh start)
-	i, err := newInner(utils.None[[]byte](), committee)
+	i, err := newInner(utils.None[*pb.PersistedInner](), committee)
 	require.NoError(t, err)
 	require.False(t, i.PrepareVote.IsPresent(), "prepareVote should be None")
 	require.False(t, i.CommitVote.IsPresent(), "commitVote should be None")
@@ -927,9 +929,9 @@ func TestPushTimeoutQCClearsStaleState(t *testing.T) {
 }
 
 // failPersister is a Persister that always returns an error.
-type failPersister struct{ err error }
+type failPersister[T protoutils.Message] struct{ err error }
 
-func (f failPersister) Persist([]byte) error { return f.err }
+func (f failPersister[T]) Persist(T) error { return f.err }
 
 func TestRunOutputsPersistErrorPropagates(t *testing.T) {
 	// Verify that a persist error in runOutputs propagates
@@ -946,7 +948,7 @@ func TestRunOutputsPersistErrorPropagates(t *testing.T) {
 
 	// Inject a persister that always fails.
 	wantErr := errors.New("disk on fire")
-	cs.persister = utils.Some[persist.Persister](failPersister{err: wantErr})
+	cs.persister = utils.Some[persist.Persister[*pb.PersistedInner]](failPersister[*pb.PersistedInner]{err: wantErr})
 
 	// runOutputs should fail on the first Iter callback when it tries to persist.
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)

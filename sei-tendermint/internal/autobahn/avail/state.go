@@ -6,10 +6,10 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog/log"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -42,7 +42,7 @@ type State struct {
 	inner utils.Watch[*inner]
 
 	// persister writes avail inner state to disk using A/B files; None when persistence is disabled.
-	persister utils.Option[persist.Persister]
+	persister utils.Option[persist.Persister[*apb.AppQC]]
 	// blockPersist writes/deletes individual block files; nil when persistence is disabled.
 	blockPersist *persist.BlockPersister
 }
@@ -51,17 +51,17 @@ type State struct {
 const innerFile = "avail_inner"
 
 // loadPersistedState loads persisted avail state from disk and creates persisters for ongoing writes.
-func loadPersistedState(dir string) (*loadedAvailState, persist.Persister, *persist.BlockPersister, error) {
-	persister, persistedData, err := persist.NewPersister(dir, innerFile)
+func loadPersistedState(dir string) (*loadedAvailState, persist.Persister[*apb.AppQC], *persist.BlockPersister, error) {
+	persister, persistedProto, err := persist.NewPersister[*apb.AppQC](dir, innerFile)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NewPersister %s: %w", innerFile, err)
 	}
 
 	var appQC utils.Option[*types.AppQC]
-	if bz, ok := persistedData.Get(); ok {
-		qc, err := types.AppQCConv.Unmarshal(bz)
+	if pb, ok := persistedProto.Get(); ok {
+		qc, err := types.AppQCConv.Decode(pb)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("unmarshal persisted AppQC: %w", err)
+			return nil, nil, nil, fmt.Errorf("decode persisted AppQC: %w", err)
 		}
 		log.Info().
 			Uint64("roadIndex", uint64(qc.Proposal().RoadIndex())).
@@ -82,7 +82,7 @@ func loadPersistedState(dir string) (*loadedAvailState, persist.Persister, *pers
 // stateDir is None when persistence is disabled (testing only).
 func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[string]) (*State, error) {
 	var loaded utils.Option[*loadedAvailState]
-	var p utils.Option[persist.Persister]
+	var p utils.Option[persist.Persister[*apb.AppQC]]
 	var bp *persist.BlockPersister
 
 	if dir, ok := stateDir.Get(); ok {
@@ -298,11 +298,7 @@ func (s *State) persistAppQC(appQC *types.AppQC) error {
 	if !ok {
 		return nil
 	}
-	bz, err := proto.Marshal(types.AppQCConv.Encode(appQC))
-	if err != nil {
-		return fmt.Errorf("marshal AppQC: %w", err)
-	}
-	return p.Persist(bz)
+	return p.Persist(types.AppQCConv.Encode(appQC))
 }
 
 // NextBlock returns the index of the next missing block in local storage for the given lane.

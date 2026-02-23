@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -324,11 +327,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 		appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng))
 		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
-		persister, _, err := persist.NewPersister(dir, innerFile)
+		persister, _, err := persist.NewPersister[*apb.AppQC](dir, innerFile)
 		require.NoError(t, err)
-		bz, err := proto.Marshal(types.AppQCConv.Encode(appQC))
-		require.NoError(t, err)
-		require.NoError(t, persister.Persist(bz))
+		require.NoError(t, persister.Persist(types.AppQCConv.Encode(appQC)))
 
 		// Now construct state — it should load the AppQC.
 		state, err := NewState(keys[0], ds, utils.Some(dir))
@@ -379,11 +380,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 		appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng))
 		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
-		persister, _, err := persist.NewPersister(dir, innerFile)
+		persister, _, err := persist.NewPersister[*apb.AppQC](dir, innerFile)
 		require.NoError(t, err)
-		bz, err := proto.Marshal(types.AppQCConv.Encode(appQC))
-		require.NoError(t, err)
-		require.NoError(t, persister.Persist(bz))
+		require.NoError(t, persister.Persist(types.AppQCConv.Encode(appQC)))
 
 		// Persist blocks.
 		bp, _, err := persist.NewBlockPersister(dir)
@@ -448,10 +447,14 @@ func TestNewStateWithPersistence(t *testing.T) {
 		dir := t.TempDir()
 		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
 
-		// Write garbage data as the "AppQC".
-		persister, _, err := persist.NewPersister(dir, innerFile)
+		// Write a valid PersistedWrapper whose Data payload is garbage.
+		// This simulates corruption at the application data level while
+		// keeping the outer A/B wrapper intact.
+		seq := uint64(1)
+		wrapper := &apb.PersistedWrapper{Seq: &seq, Data: []byte("not a valid protobuf")}
+		bz, err := proto.Marshal(wrapper)
 		require.NoError(t, err)
-		require.NoError(t, persister.Persist([]byte("not a valid protobuf")))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, innerFile+persist.SuffixA), bz, 0600))
 
 		_, err = NewState(keys[0], ds, utils.Some(dir))
 		require.Error(t, err)

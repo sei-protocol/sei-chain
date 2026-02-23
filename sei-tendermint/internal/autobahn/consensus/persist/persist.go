@@ -43,6 +43,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -61,16 +62,16 @@ var ErrNoData = errors.New("no persisted data")
 // I/O errors) are NOT wrapped with ErrCorrupt and cause loadPersisted to fail.
 var ErrCorrupt = errors.New("corrupt persisted data")
 
-// Persister writes data to persistent storage. Persist returns error on failure.
-type Persister interface {
-	Persist(data []byte) error
+// Persister[T] is a strongly-typed persister for a proto message type.
+type Persister[T protoutils.Message] interface {
+	Persist(T) error
 }
 
-// persister writes data to A/B files with automatic seq management.
+// abPersister writes data to A/B files with automatic seq management.
 // Uses PersistedWrapper protobuf for crash-safe persistence.
 // Only created when config has a state dir; dir is always a valid path.
 // File selection is derived from seq: odd seq → A, even seq → B.
-type persister struct {
+type abPersister[T protoutils.Message] struct {
 	dir    string
 	prefix string
 	seq    uint64
@@ -78,10 +79,10 @@ type persister struct {
 
 // NewPersister creates a crash-safe persister for the given directory and prefix.
 // dir must already exist and be a directory (we do not create it); returns error otherwise.
-// Also returns the loaded data (None on fresh start) for the caller to decode.
-// This encapsulates all on-disk format details (A/B files, seq wrapper) in one place.
-func NewPersister(dir string, prefix string) (Persister, utils.Option[[]byte], error) {
-	none := utils.None[[]byte]()
+// Also returns the loaded message (None on fresh start) for the caller to use.
+// This encapsulates all on-disk format details (A/B files, seq wrapper, proto marshal) in one place.
+func NewPersister[T protoutils.Message](dir string, prefix string) (Persister[T], utils.Option[T], error) {
+	none := utils.None[T]()
 
 	fi, err := os.Stat(dir)
 	if err != nil {
@@ -127,21 +128,26 @@ func NewPersister(dir string, prefix string) (Persister, utils.Option[[]byte], e
 	}
 
 	// wrapper is nil on fresh start (ErrNoData); protobuf Get methods return zero values for nil.
-	var data utils.Option[[]byte]
-	if d := wrapper.GetData(); d != nil {
-		data = utils.Some(d)
+	var loaded utils.Option[T]
+	if bz := wrapper.GetData(); bz != nil {
+		msg, err := protoutils.Unmarshal[T](bz)
+		if err != nil {
+			return nil, none, fmt.Errorf("unmarshal persisted %s: %w", prefix, err)
+		}
+		loaded = utils.Some(msg)
 	}
-	return &persister{
+	return &abPersister[T]{
 		dir:    dir,
 		prefix: prefix,
 		seq:    wrapper.GetSeq(),
-	}, data, nil
+	}, loaded, nil
 }
 
-// Persist writes data to persistent storage with seq wrapper.
+// Persist writes a proto message to persistent storage with seq wrapper.
 // Not safe for concurrent use.
 // Returns error on marshal or write failure.
-func (w *persister) Persist(data []byte) error {
+func (w *abPersister[T]) Persist(msg T) error {
+	data := protoutils.Marshal(msg)
 	seq := w.seq + 1
 
 	// Odd seq → A, even seq → B.
@@ -160,7 +166,7 @@ func (w *persister) Persist(data []byte) error {
 		return fmt.Errorf("marshal wrapper: %w", err)
 	}
 
-	if err := WriteAndSync(filepath.Join(w.dir, filename), bz); err != nil {
+	if err := writeAndSync(filepath.Join(w.dir, filename), bz); err != nil {
 		return fmt.Errorf("persist to %s: %w", filename, err)
 	}
 	w.seq = seq
@@ -246,9 +252,9 @@ func loadPersisted(dir string, prefix string) (*pb.PersistedWrapper, error) {
 	}
 }
 
-// WriteAndSync writes data to a file path and fsyncs. No dir sync needed because
+// writeAndSync writes data to a file path and fsyncs. No dir sync needed because
 // NewPersister pre-creates both A/B files at startup.
-func WriteAndSync(path string, data []byte) error {
+func writeAndSync(path string, data []byte) error {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600) //nolint:gosec // path is stateDir + hardcoded suffix; not user-controlled
 	if err != nil {
 		return err

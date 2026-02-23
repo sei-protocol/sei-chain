@@ -82,6 +82,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -96,11 +97,11 @@ type inner struct {
 // newInner creates the inner state from persisted data loaded by NewPersister.
 // data is None on fresh start (persistence disabled or no prior state).
 // Returns error if persisted state is corrupt (see persistedInner.validate).
-func newInner(data utils.Option[[]byte], committee *types.Committee) (inner, error) {
+func newInner(data utils.Option[*pb.PersistedInner], committee *types.Committee) (inner, error) {
 	var persisted persistedInner
 
-	if bz, ok := data.Get(); ok {
-		decoded, err := innerProtoConv.Unmarshal(bz)
+	if p, ok := data.Get(); ok {
+		decoded, err := innerProtoConv.Decode(p)
 		if err != nil {
 			return inner{}, fmt.Errorf("corrupt persisted state: %w", err)
 		}
