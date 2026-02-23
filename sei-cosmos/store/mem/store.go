@@ -5,10 +5,10 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/dbadapter"
-	"github.com/cosmos/cosmos-sdk/store/tracekv"
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/dbadapter"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 var (
@@ -26,7 +26,7 @@ func NewStore() *Store {
 	return NewStoreWithDB(dbm.NewMemDB())
 }
 
-func NewStoreWithDB(db *dbm.MemDB) *Store { // nolint: interfacer
+func NewStoreWithDB(db *dbm.MemDB) *Store {
 	return &Store{Store: dbadapter.Store{DB: db}}
 }
 

@@ -3,9 +3,9 @@ package proxy
 import (
 	"context"
 
-	lrpc "github.com/tendermint/tendermint/light/rpc"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
-	"github.com/tendermint/tendermint/rpc/coretypes"
+	lrpc "github.com/sei-protocol/sei-chain/sei-tendermint/light/rpc"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 // proxyService wraps a light RPC client to export the RPC service interfaces.
@@ -89,7 +89,7 @@ func (p proxyService) Genesis(ctx context.Context) (*coretypes.ResultGenesis, er
 }
 
 func (p proxyService) GenesisChunked(ctx context.Context, req *coretypes.RequestGenesisChunked) (*coretypes.ResultGenesisChunk, error) {
-	return p.Client.GenesisChunked(ctx, uint(req.Chunk))
+	return p.Client.GenesisChunked(ctx, uint(req.Chunk)) //nolint:gosec // chunk index is validated upstream by the RPC layer; no negative values expected
 }
 
 func (p proxyService) GetConsensusState(ctx context.Context) (*coretypes.ResultConsensusState, error) {

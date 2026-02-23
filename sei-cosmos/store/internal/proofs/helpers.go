@@ -3,11 +3,11 @@ package proofs
 import (
 	"sort"
 
-	"github.com/tendermint/tendermint/libs/rand"
-	tmcrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
+	tmcrypto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 
-	sdkmaps "github.com/cosmos/cosmos-sdk/store/internal/maps"
-	"github.com/cosmos/cosmos-sdk/utils"
+	sdkmaps "github.com/sei-protocol/sei-chain/sei-cosmos/store/internal/maps"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/utils"
 )
 
 // SimpleResult contains a merkle.SimpleProof along with all data needed to build the confio/proof

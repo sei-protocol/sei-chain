@@ -8,12 +8,12 @@ import (
 	"io"
 
 	"github.com/hdevalence/ed25519consensus"
-	"github.com/tendermint/tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	cosmoscrypto "github.com/cosmos/cosmos-sdk/crypto/utils"
-	"github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	cosmoscrypto "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/utils"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 //-------------------------------------

@@ -9,8 +9,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	"github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 func TestInMemoryCreateLedger(t *testing.T) {
@@ -120,4 +121,32 @@ func TestAltKeyring_SaveLedgerKey(t *testing.T) {
 	path, err := restoredKey.GetPath()
 	require.NoError(t, err)
 	require.Equal(t, "m/44'/118'/3'/0/1", path.String())
+}
+
+// TestSignWithLedger_PubKeyMismatch tests that SignWithLedger returns an error
+// when the public key from the device doesn't match the cached key in the keyring
+func TestSignWithLedger_PubKeyMismatch(t *testing.T) {
+	// Create a ledger info with a mismatched public key
+	// The path is valid but the public key is different from what the device will return
+	wrongPubKey := &secp256k1.PubKey{Key: make([]byte, secp256k1.PubKeySize)}
+	wrongPubKey.Key[0] = 0x02 // Valid compressed pubkey prefix
+
+	mismatchedInfo := newLedgerInfo(
+		"mismatched_key",
+		wrongPubKey,
+		*hd.NewFundraiserParams(0, types.GetConfig().GetCoinType(), 0),
+		hd.Secp256k1Type,
+	)
+
+	msg := []byte("test message")
+	_, _, err := SignWithLedger(mismatchedInfo, msg)
+
+	// If ledger support is not available, skip the test
+	if err != nil && err.Error() == "ledger signing failed: failed to connect to ledger: ledger nano S: support for ledger devices is not available in this executable" {
+		t.Skip("ledger nano S: support for ledger devices is not available in this executable")
+		return
+	}
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "the public key from the Ledger device does not match the cached key in the keyring")
 }

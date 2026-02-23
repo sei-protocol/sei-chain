@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -19,6 +20,7 @@ import (
 type Reader struct {
 	db                 *sql.DB
 	basePath           string
+	maxBlocksPerFile   uint64
 	mu                 sync.RWMutex
 	closedReceiptFiles []string
 	closedLogFiles     []string
@@ -33,6 +35,15 @@ type FilePair struct {
 
 // NewReader creates a new parquet reader for the given base path.
 func NewReader(basePath string) (*Reader, error) {
+	return NewReaderWithMaxBlocksPerFile(basePath, defaultMaxBlocksPerFile)
+}
+
+// NewReaderWithMaxBlocksPerFile creates a new parquet reader with a configured file span.
+func NewReaderWithMaxBlocksPerFile(basePath string, maxBlocksPerFile uint64) (*Reader, error) {
+	if maxBlocksPerFile == 0 {
+		maxBlocksPerFile = defaultMaxBlocksPerFile
+	}
+
 	connector, err := duckdb.NewConnector("", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DuckDB connector: %w", err)
@@ -43,20 +54,47 @@ func NewReader(basePath string) (*Reader, error) {
 	db.SetMaxOpenConns(numCPU * 2)
 	db.SetMaxIdleConns(numCPU)
 
-	_, _ = db.Exec(fmt.Sprintf("SET threads TO %d", numCPU))
-	_, _ = db.Exec("SET memory_limit = '1GB'")
-	_, _ = db.Exec("SET enable_object_cache = true")
-	_, _ = db.Exec("SET parquet_metadata_cache_size = 500")
-	_, _ = db.Exec("SET access_mode = 'READ_ONLY'")
-	_, _ = db.Exec("SET enable_progress_bar = false")
-	_, _ = db.Exec("SET preserve_insertion_order = false")
+	settings := []string{
+		fmt.Sprintf("SET threads TO %d", numCPU),
+		"SET memory_limit = '1GB'",
+		"SET enable_object_cache = true",
+		"SET enable_progress_bar = false",
+		"SET preserve_insertion_order = false",
+	}
+	for _, statement := range settings {
+		if _, err = db.Exec(statement); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("failed to configure duckdb (%s): %w", statement, err)
+		}
+	}
+	if err = configureParquetMetadataCache(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 
 	reader := &Reader{
-		db:       db,
-		basePath: basePath,
+		db:               db,
+		basePath:         basePath,
+		maxBlocksPerFile: maxBlocksPerFile,
 	}
 	reader.scanExistingFiles()
 	return reader, nil
+}
+
+func configureParquetMetadataCache(db *sql.DB) error {
+	const sizeSetting = "SET parquet_metadata_cache_size = 500"
+	if _, err := db.Exec(sizeSetting); err == nil {
+		return nil
+	} else if !strings.Contains(err.Error(), "unrecognized configuration parameter") {
+		return fmt.Errorf("failed to configure duckdb (%s): %w", sizeSetting, err)
+	}
+
+	const toggleSetting = "SET parquet_metadata_cache = true"
+	if _, err := db.Exec(toggleSetting); err != nil {
+		return fmt.Errorf("failed to configure duckdb (%s): %w", toggleSetting, err)
+	}
+
+	return nil
 }
 
 // Close closes the reader.
@@ -68,16 +106,24 @@ func (r *Reader) scanExistingFiles() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	receiptFiles, _ := filepath.Glob(filepath.Join(r.basePath, "receipts_*.parquet"))
-	r.closedReceiptFiles, _ = r.validateFiles(receiptFiles)
+	receiptPattern := filepath.Join(r.basePath, "receipts_*.parquet")
+	receiptFiles, err := filepath.Glob(receiptPattern)
+	if err != nil {
+		log.Printf("failed to glob receipt parquet files with pattern %q: %v", receiptPattern, err)
+	}
+	r.closedReceiptFiles = r.validateFiles(receiptFiles)
 
-	logFiles, _ := filepath.Glob(filepath.Join(r.basePath, "logs_*.parquet"))
-	r.closedLogFiles, _ = r.validateFiles(logFiles)
+	logPattern := filepath.Join(r.basePath, "logs_*.parquet")
+	logFiles, err := filepath.Glob(logPattern)
+	if err != nil {
+		log.Printf("failed to glob log parquet files with pattern %q: %v", logPattern, err)
+	}
+	r.closedLogFiles = r.validateFiles(logFiles)
 }
 
-func (r *Reader) validateFiles(files []string) ([]string, string) {
+func (r *Reader) validateFiles(files []string) []string {
 	if len(files) == 0 {
-		return nil, ""
+		return nil
 	}
 
 	sort.Slice(files, func(i, j int) bool {
@@ -86,14 +132,14 @@ func (r *Reader) validateFiles(files []string) ([]string, string) {
 
 	lastFile := files[len(files)-1]
 	if r.isFileReadable(lastFile) {
-		return files, ""
+		return files
 	}
-	return files[:len(files)-1], lastFile
+	return files[:len(files)-1]
 }
 
 func (r *Reader) isFileReadable(path string) bool {
 	// #nosec G201 -- path comes from validated local files, not user input
-	_, err := r.db.Exec(fmt.Sprintf("SELECT 1 FROM read_parquet('%s') LIMIT 1", path))
+	_, err := r.db.Exec(fmt.Sprintf("SELECT 1 FROM read_parquet(%s) LIMIT 1", quoteSQLString(path)))
 	return err == nil
 }
 
@@ -127,7 +173,7 @@ func (r *Reader) GetFilesBeforeBlock(pruneBeforeBlock uint64) []FilePair {
 		// Only prune files that are entirely before the prune threshold
 		// We need to check that the NEXT file starts before pruneBeforeBlock,
 		// meaning this file's data is all older than the threshold
-		if startBlock+500 <= pruneBeforeBlock { // 500 = MaxBlocksPerFile
+		if startBlock+r.maxBlocksPerFile <= pruneBeforeBlock {
 			logFile := filepath.Join(r.basePath, fmt.Sprintf("logs_%d.parquet", startBlock))
 			result = append(result, FilePair{
 				ReceiptFile: f,
@@ -139,30 +185,66 @@ func (r *Reader) GetFilesBeforeBlock(pruneBeforeBlock uint64) []FilePair {
 	return result
 }
 
-// RemoveFilesBeforeBlock removes files from tracking that are before the given block.
-func (r *Reader) RemoveFilesBeforeBlock(pruneBeforeBlock uint64) {
+// RemoveTrackedReceiptFile removes a specific receipt file from reader tracking.
+func (r *Reader) RemoveTrackedReceiptFile(startBlock uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Filter receipt files
-	newReceiptFiles := make([]string, 0, len(r.closedReceiptFiles))
+	newFiles := make([]string, 0, len(r.closedReceiptFiles))
 	for _, f := range r.closedReceiptFiles {
-		startBlock := ExtractBlockNumber(f)
-		if startBlock+500 > pruneBeforeBlock {
-			newReceiptFiles = append(newReceiptFiles, f)
+		if ExtractBlockNumber(f) != startBlock {
+			newFiles = append(newFiles, f)
 		}
 	}
-	r.closedReceiptFiles = newReceiptFiles
+	r.closedReceiptFiles = newFiles
+}
 
-	// Filter log files
-	newLogFiles := make([]string, 0, len(r.closedLogFiles))
+// RemoveTrackedLogFile removes a specific log file from reader tracking.
+func (r *Reader) RemoveTrackedLogFile(startBlock uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	newFiles := make([]string, 0, len(r.closedLogFiles))
 	for _, f := range r.closedLogFiles {
-		startBlock := ExtractBlockNumber(f)
-		if startBlock+500 > pruneBeforeBlock {
-			newLogFiles = append(newLogFiles, f)
+		if ExtractBlockNumber(f) != startBlock {
+			newFiles = append(newFiles, f)
 		}
 	}
-	r.closedLogFiles = newLogFiles
+	r.closedLogFiles = newFiles
+}
+
+// AddTrackedReceiptFile adds a specific receipt file to reader tracking if missing.
+func (r *Reader) AddTrackedReceiptFile(startBlock uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	path := filepath.Join(r.basePath, fmt.Sprintf("receipts_%d.parquet", startBlock))
+	for _, f := range r.closedReceiptFiles {
+		if f == path {
+			return
+		}
+	}
+	r.closedReceiptFiles = append(r.closedReceiptFiles, path)
+	sort.Slice(r.closedReceiptFiles, func(i, j int) bool {
+		return ExtractBlockNumber(r.closedReceiptFiles[i]) < ExtractBlockNumber(r.closedReceiptFiles[j])
+	})
+}
+
+// AddTrackedLogFile adds a specific log file to reader tracking if missing.
+func (r *Reader) AddTrackedLogFile(startBlock uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	path := filepath.Join(r.basePath, fmt.Sprintf("logs_%d.parquet", startBlock))
+	for _, f := range r.closedLogFiles {
+		if f == path {
+			return
+		}
+	}
+	r.closedLogFiles = append(r.closedLogFiles, path)
+	sort.Slice(r.closedLogFiles, func(i, j int) bool {
+		return ExtractBlockNumber(r.closedLogFiles[i]) < ExtractBlockNumber(r.closedLogFiles[j])
+	})
 }
 
 // MaxReceiptBlockNumber returns the maximum block number in the receipt files.
@@ -176,7 +258,7 @@ func (r *Reader) MaxReceiptBlockNumber(ctx context.Context) (uint64, bool, error
 
 	var parquetFiles string
 	if len(closedFiles) == 1 {
-		parquetFiles = fmt.Sprintf("'%s'", closedFiles[0])
+		parquetFiles = quoteSQLString(closedFiles[0])
 	} else {
 		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(closedFiles))
 	}
@@ -209,7 +291,7 @@ func (r *Reader) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*R
 
 	var parquetFiles string
 	if len(closedFiles) == 1 {
-		parquetFiles = fmt.Sprintf("'%s'", closedFiles[0])
+		parquetFiles = quoteSQLString(closedFiles[0])
 	} else {
 		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(closedFiles))
 	}
@@ -262,7 +344,7 @@ func (r *Reader) GetLogs(ctx context.Context, filter LogFilter) ([]LogResult, er
 func (r *Reader) queryLogFiles(ctx context.Context, files []string, filter LogFilter) ([]LogResult, error) {
 	var parquetFiles string
 	if len(files) == 1 {
-		parquetFiles = fmt.Sprintf("'%s'", files[0])
+		parquetFiles = quoteSQLString(files[0])
 	} else {
 		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(files))
 	}
@@ -367,7 +449,11 @@ func ExtractBlockNumber(path string) uint64 {
 func joinQuoted(files []string) string {
 	quoted := make([]string, len(files))
 	for i, f := range files {
-		quoted[i] = fmt.Sprintf("'%s'", f)
+		quoted[i] = quoteSQLString(f)
 	}
 	return strings.Join(quoted, ", ")
+}
+
+func quoteSQLString(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

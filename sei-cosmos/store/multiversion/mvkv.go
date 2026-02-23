@@ -6,10 +6,10 @@ import (
 	"io"
 	"sort"
 
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
-	scheduler "github.com/cosmos/cosmos-sdk/types/occ"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	scheduler "github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -82,9 +82,6 @@ type VersionIndexedStore struct {
 	iterateset Iterateset
 	// TODO: need to add iterateset here as well
 
-	// used for iterators - populated at the time of iterator instantiation
-	// TODO: when we want to perform iteration, we need to move all the dirty keys (writeset and readset) into the sortedTree and then combine with the iterators for the underlying stores
-	sortedStore *dbm.MemDB // always ascending sorted
 	// parent stores (both multiversion and underlying parent store)
 	multiVersionStore MultiVersionStore
 	parent            types.KVStore
@@ -104,7 +101,6 @@ func NewVersionIndexedStore(parent types.KVStore, multiVersionStore MultiVersion
 		readset:           make(map[string][][]byte),
 		writeset:          make(map[string][]byte),
 		iterateset:        []*iterationTracker{},
-		sortedStore:       dbm.NewMemDB(),
 		parent:            parent,
 		multiVersionStore: multiVersionStore,
 		transactionIndex:  transactionIndex,
@@ -292,11 +288,11 @@ func (store *VersionIndexedStore) iterator(start []byte, end []byte, ascending b
 	// TODO: ideally we persist writeset keys into a sorted btree for later use
 	// make a set of total keys across mvkv and mvs to iterate
 	for key := range store.writeset {
-		memDB.Set([]byte(key), []byte{})
+		_ = memDB.Set([]byte(key), []byte{})
 	}
 	// also add readset elements such that they fetch from readset instead of parent
 	for key := range store.readset {
-		memDB.Set([]byte(key), []byte{})
+		_ = memDB.Set([]byte(key), []byte{})
 	}
 
 	var parent, memIterator types.Iterator
@@ -334,7 +330,7 @@ func (v *VersionIndexedStore) DeleteAll(start, end []byte) error {
 
 func (v *VersionIndexedStore) GetAllKeyStrsInRange(start, end []byte) (res []string) {
 	iter := v.Iterator(start, end)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		res = append(res, string(iter.Key()))
 	}
@@ -389,22 +385,19 @@ func (store *VersionIndexedStore) WriteEstimatesToMultiVersionStore() {
 }
 
 func (store *VersionIndexedStore) UpdateReadSet(key []byte, value []byte) {
-	// TODO: make readset a list of byte slices, and store the value if it's a new value
-	// add to readset
 	keyStr := string(key)
-	// TODO: maybe only add if not already existing?
-	if _, ok := store.readset[keyStr]; !ok {
-		// if the entry doesnt exist, make a new empty slice
-		store.readset[keyStr] = [][]byte{}
+	existing, ok := store.readset[keyStr]
+	if !ok {
+		// fast path: new key, store value directly (avoids empty slice + append)
+		store.readset[keyStr] = [][]byte{value}
+		return
 	}
-	for _, readsetVal := range store.readset[keyStr] {
+	for _, readsetVal := range existing {
 		if bytes.Equal(value, readsetVal) {
-			// this means we have already added this value to our readset, so we continue
 			return
 		}
 	}
-	// if we get here, that means we have a new readset val, so we append it to the slice
-	store.readset[keyStr] = append(store.readset[keyStr], value)
+	store.readset[keyStr] = append(existing, value)
 }
 
 // Write implements types.CacheWrap so this store can exist on the cache multi store

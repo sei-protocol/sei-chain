@@ -3,10 +3,10 @@ package baseapp_test
 import (
 	"testing"
 
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 )
 
 func TestValidateBlockParams(t *testing.T) {

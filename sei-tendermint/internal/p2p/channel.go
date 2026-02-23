@@ -6,8 +6,8 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 
-	"github.com/tendermint/tendermint/internal/p2p/conn"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type ChannelID = conn.ChannelID
@@ -68,6 +68,7 @@ func newChannel(desc conn.ChannelDescriptor) *channel {
 }
 
 func (ch *Channel[T]) send(msg T, queues ...*Queue[sendMsg]) {
+	ch.router.metrics.ChannelMsgs.With("ch_id", fmt.Sprint(ch.desc.ID), "direction", "out").Add(1.)
 	m := sendMsg{msg, ch.desc.ID}
 	size := proto.Size(msg)
 	for _, q := range queues {
@@ -116,5 +117,6 @@ func (ch *Channel[T]) Recv(ctx context.Context) (RecvMsg[T], error) {
 	if err != nil {
 		return RecvMsg[T]{}, err
 	}
+	ch.router.metrics.ChannelMsgs.With("ch_id", fmt.Sprint(ch.desc.ID), "direction", "in").Add(1.)
 	return RecvMsg[T]{Message: recv.Message.(T), From: recv.From}, nil
 }

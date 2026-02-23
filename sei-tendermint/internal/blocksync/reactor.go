@@ -8,16 +8,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/internal/consensus"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/p2p"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/store"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
-	pb "github.com/tendermint/tendermint/proto/tendermint/blocksync"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/blocksync"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var _ service.Service = (*Reactor)(nil)
@@ -111,7 +111,7 @@ type Reactor struct {
 
 	syncStartTime time.Time
 
-	restartCh                 chan struct{}
+	restartEvent              func()
 	lastRestartTime           time.Time
 	blocksBehindThreshold     uint64
 	blocksBehindCheckInterval time.Duration
@@ -129,7 +129,7 @@ func NewReactor(
 	blockSync bool,
 	metrics *consensus.Metrics,
 	eventBus *eventbus.EventBus,
-	restartCh chan struct{},
+	restartEvent func(), // should be idempotent and non-blocking
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) (*Reactor, error) {
 	channel, err := p2p.OpenChannel(router, GetChannelDescriptor())
@@ -147,10 +147,10 @@ func NewReactor(
 		channel:                   channel,
 		metrics:                   metrics,
 		eventBus:                  eventBus,
-		restartCh:                 restartCh,
+		restartEvent:              restartEvent,
 		lastRestartTime:           time.Now(),
 		blocksBehindThreshold:     selfRemediationConfig.BlocksBehindThreshold,
-		blocksBehindCheckInterval: time.Duration(selfRemediationConfig.BlocksBehindCheckIntervalSeconds) * time.Second,
+		blocksBehindCheckInterval: time.Duration(selfRemediationConfig.BlocksBehindCheckIntervalSeconds) * time.Second, //nolint:gosec // validated in config.ValidateBasic against MaxInt64
 		restartCooldownSeconds:    selfRemediationConfig.RestartCooldownSeconds,
 	}
 
@@ -298,6 +298,7 @@ func (r *Reactor) processBlockSyncCh(ctx context.Context) {
 
 // autoRestartIfBehind will check if the node is behind the max peer height by
 // a certain threshold. If it is, the node will attempt to restart itself
+// TODO(gprusak): this should be a sub task of the consensus reactor instead.
 func (r *Reactor) autoRestartIfBehind(ctx context.Context) {
 	if r.blocksBehindThreshold == 0 || r.blocksBehindCheckInterval <= 0 {
 		r.logger.Info("Auto remediation is disabled")
@@ -310,7 +311,7 @@ func (r *Reactor) autoRestartIfBehind(ctx context.Context) {
 		case <-time.After(r.blocksBehindCheckInterval):
 			selfHeight := r.store.Height()
 			maxPeerHeight := r.pool.MaxPeerHeight()
-			threshold := int64(r.blocksBehindThreshold)
+			threshold := int64(r.blocksBehindThreshold) //nolint:gosec // validated in config.ValidateBasic against MaxInt64
 			behindHeight := maxPeerHeight - selfHeight
 			blockSyncIsSet := r.blockSync.IsSet()
 			if maxPeerHeight > r.previousMaxPeerHeight {
@@ -322,18 +323,17 @@ func (r *Reactor) autoRestartIfBehind(ctx context.Context) {
 				r.logger.Debug("does not exceed threshold or is already in block sync mode", "threshold", threshold, "behindHeight", behindHeight, "maxPeerHeight", maxPeerHeight, "selfHeight", selfHeight, "blockSyncIsSet", blockSyncIsSet)
 				continue
 			}
-
 			// Check if we have met cooldown time
 			if time.Since(r.lastRestartTime).Seconds() < float64(r.restartCooldownSeconds) {
 				r.logger.Debug("we are lagging behind, going to trigger a restart after cooldown time passes")
 				continue
 			}
-
 			r.logger.Info("Blocks behind threshold, restarting node", "threshold", threshold, "behindHeight", behindHeight, "maxPeerHeight", maxPeerHeight, "selfHeight", selfHeight)
 
 			// Send signal to restart the node
 			r.blockSync.Set()
-			r.restartCh <- struct{}{}
+			r.restartEvent()
+			return
 		case <-ctx.Done():
 			return
 		}

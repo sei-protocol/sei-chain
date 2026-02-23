@@ -8,31 +8,31 @@ import (
 	"strings"
 	"time"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
+	tmstrings "github.com/sei-protocol/sei-chain/sei-tendermint/libs/strings"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	tmgrpc "github.com/sei-protocol/sei-chain/sei-tendermint/privval/grpc"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 	dbm "github.com/tendermint/tm-db"
-
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/internal/blocksync"
-	"github.com/tendermint/tendermint/internal/consensus"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/evidence"
-	"github.com/tendermint/tendermint/internal/mempool"
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/p2p/conn"
-	"github.com/tendermint/tendermint/internal/p2p/pex"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/state/indexer"
-	"github.com/tendermint/tendermint/internal/statesync"
-	"github.com/tendermint/tendermint/internal/store"
-	"github.com/tendermint/tendermint/libs/log"
-	tmnet "github.com/tendermint/tendermint/libs/net"
-	tmstrings "github.com/tendermint/tendermint/libs/strings"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/privval"
-	tmgrpc "github.com/tendermint/tendermint/privval/grpc"
-	"github.com/tendermint/tendermint/types"
-	"github.com/tendermint/tendermint/version"
+	"golang.org/x/time/rate"
 
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
 )
@@ -147,7 +147,7 @@ func onlyValidatorIsUs(state sm.State, pubKey utils.Option[crypto.PubKey]) bool 
 func createMempoolReactor(
 	logger log.Logger,
 	cfg *config.Config,
-	appClient abciclient.Client,
+	appClient abci.Application,
 	store sm.Store,
 	memplMetrics *mempool.Metrics,
 	router *p2p.Router,
@@ -212,7 +212,7 @@ func createRouter(
 	nodeInfoProducer func() *types.NodeInfo,
 	nodeKey types.NodeKey,
 	cfg *config.Config,
-	appClient abciclient.Client,
+	appClient abci.Application,
 	dbProvider config.DBProvider,
 ) (*p2p.Router, closer, error) {
 	closer := func() error { return nil }
@@ -223,6 +223,7 @@ func createRouter(
 	options := getRouterConfig(cfg, appClient)
 	options.Endpoint = ep
 	options.MaxConcurrentAccepts = utils.Some(int(cfg.P2P.MaxConnections))
+	options.MaxDialRate = utils.Some(rate.Every(cfg.P2P.DialInterval))
 	options.Connection = conn.DefaultMConnConfig()
 	options.Connection.FlushThrottle = cfg.P2P.FlushThrottleTimeout
 	options.Connection.SendRate = cfg.P2P.SendRate

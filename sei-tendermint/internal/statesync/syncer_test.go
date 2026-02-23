@@ -11,17 +11,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	clientmocks "github.com/tendermint/tendermint/abci/client/mocks"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/internal/proxy"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/statesync/mocks"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/require"
-	"github.com/tendermint/tendermint/libs/utils/scope"
-	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
-	"github.com/tendermint/tendermint/types"
-	"github.com/tendermint/tendermint/version"
+	clientmocks "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client/mocks"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync/mocks"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	ssproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 func TestSyncer_SyncAny(t *testing.T) {
@@ -573,16 +573,27 @@ func TestSyncer_applyChunks_RefetchChunks(t *testing.T) {
 			// Since removing the chunk will cause Next() to block, we spawn a goroutine, then
 			// check the queue contents, and finally close the queue to end the goroutine.
 			// We don't really care about the result of applyChunks, since it has separate test.
+			done := make(chan struct{})
 			go func() {
-				rts.reactor.syncer.applyChunks(ctx, chunks, fetchStartTime) //nolint:errcheck // purposefully ignore error
+				defer close(done)
+				// purposefully ignore error
+				_ = rts.reactor.syncer.applyChunks(ctx, chunks, fetchStartTime)
 			}()
 
-			time.Sleep(50 * time.Millisecond)
-			require.True(t, chunks.Has(0))
-			require.False(t, chunks.Has(1))
-			require.True(t, chunks.Has(2))
+			require.Eventually(t, func() bool {
+				return chunks.Has(0) && !chunks.Has(1) && chunks.Has(2)
+			}, 2*time.Second, 20*time.Millisecond)
 
-			require.NoError(t, chunks.Close())
+			t.Cleanup(func() {
+				err = chunks.Close()
+				select {
+				case <-done:
+				case <-time.After(10 * time.Second):
+					t.Errorf("applyChunks goroutine did not exit")
+				}
+				require.NoError(t, err)
+			})
+
 		})
 	}
 }

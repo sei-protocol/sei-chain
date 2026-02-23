@@ -10,21 +10,21 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	tmtypes "github.com/tendermint/tendermint/types"
 	"golang.org/x/time/rate"
 )
 
@@ -934,25 +934,17 @@ func (f *LogFetcher) tryFilterLogsRange(_ context.Context, fromBlock, toBlock ui
 		return nil, err
 	}
 
-	// Sort logs by block number and index (should already be sorted from DuckDB, but ensure consistency)
-	sort.Slice(logs, func(i, j int) bool {
-		if logs[i].BlockNumber != logs[j].BlockNumber {
-			return logs[i].BlockNumber < logs[j].BlockNumber
-		}
-		return logs[i].Index < logs[j].Index
-	})
-
 	return logs, nil
 }
 
 // Pooled version that reuses slice allocation
 func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, result *[]*ethtypes.Log) {
 	collector := &pooledCollector{logs: result}
-	f.collectLogs(block, crit, collector, true) // Apply exact matching
+	f.collectLogs(block, crit, collector)
 }
 
 // Unified log collection logic - fallback path that fetches receipts individually
-func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, collector logCollector, applyExactMatch bool) {
+func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, collector logCollector) {
 	ctx := f.ctxProvider(block.Block.Height)
 
 	txHashes := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
@@ -963,12 +955,25 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	blockHeight := block.Block.Height
 	blockHash := common.BytesToHash(block.BlockID.Hash)
 
+	// Pre-encode bloom filter indexes for fast per-receipt filtering
+	hasFilters := len(crit.Addresses) != 0 || len(crit.Topics) != 0
+	var filterIndexes [][]bloomIndexes
+	if hasFilters {
+		filterIndexes = EncodeFilters(crit.Addresses, crit.Topics)
+	}
+
 	// Fetch receipts individually and filter logs locally
 	var logIndex uint
 	for txIdx, txHashEntry := range txHashes {
 		rcpt, err := f.k.GetReceipt(ctx, txHashEntry.hash)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s: %v", txHashEntry.hash.Hex(), err))
+			continue
+		}
+
+		// Skip receipt if its bloom filter doesn't match the criteria
+		if hasFilters && len(rcpt.LogsBloom) > 0 && !MatchFilters(ethtypes.Bloom(rcpt.LogsBloom), filterIndexes) {
+			logIndex += uint(len(rcpt.Logs))
 			continue
 		}
 
@@ -991,11 +996,8 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 			}
 			logIndex++
 
-			// Apply filtering if needed
-			if applyExactMatch {
-				if !matchesCriteria(ethLog, crit) {
-					continue
-				}
+			if !matchesCriteria(ethLog, crit) {
+				continue
 			}
 			collector.Append(ethLog)
 		}

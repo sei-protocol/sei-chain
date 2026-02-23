@@ -18,8 +18,15 @@ type WALEntry struct {
 // encodeWALEntry encodes a WALEntry to binary format:
 // [blockNumber:8][numReceipts:4][len1:4][receipt1]...[lenN:4][receiptN]
 func encodeWALEntry(entry WALEntry) ([]byte, error) {
+	if err := validateUint32Int(len(entry.Receipts), "receipt count"); err != nil {
+		return nil, err
+	}
+
 	size := 8 + 4 // blockNumber + numReceipts
 	for _, r := range entry.Receipts {
+		if err := validateUint32Int(len(r), "receipt length"); err != nil {
+			return nil, err
+		}
 		size += 4 + len(r) // length prefix + data
 	}
 
@@ -29,11 +36,14 @@ func encodeWALEntry(entry WALEntry) ([]byte, error) {
 	binary.LittleEndian.PutUint64(buf[offset:], entry.BlockNumber)
 	offset += 8
 
-	binary.LittleEndian.PutUint32(buf[offset:], uint32(len(entry.Receipts)))
+	putUint32FromInt(buf[offset:], len(entry.Receipts))
 	offset += 4
 
 	for _, r := range entry.Receipts {
-		binary.LittleEndian.PutUint32(buf[offset:], uint32(len(r)))
+		if err := validateUint32Int(len(r), "receipt length"); err != nil {
+			return nil, err
+		}
+		putUint32FromInt(buf[offset:], len(r))
 		offset += 4
 		copy(buf[offset:], r)
 		offset += len(r)
@@ -77,6 +87,20 @@ func decodeWALEntry(data []byte) (WALEntry, error) {
 		BlockNumber: blockNumber,
 		Receipts:    receipts,
 	}, nil
+}
+
+func validateUint32Int(value int, field string) error {
+	if value < 0 || uint64(value) > uint64(maxUint32) {
+		return fmt.Errorf("%s exceeds uint32 range: %d", field, value)
+	}
+	return nil
+}
+
+func putUint32FromInt(dst []byte, value int) {
+	dst[0] = byte(value)
+	dst[1] = byte(value >> 8)
+	dst[2] = byte(value >> 16)
+	dst[3] = byte(value >> 24)
 }
 
 // NewWAL creates a new WAL for parquet receipts.

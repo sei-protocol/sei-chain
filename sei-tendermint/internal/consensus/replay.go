@@ -6,14 +6,13 @@ import (
 	"fmt"
 	"reflect"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto/merkle"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/proxy"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // Functionality to replay blocks and messages on recovery from a crash.
@@ -167,7 +166,7 @@ func (h *Handshaker) NBlocks() int {
 }
 
 // TODO: retry the handshake/replay if it fails ?
-func (h *Handshaker) Handshake(ctx context.Context, appClient abciclient.Client) error {
+func (h *Handshaker) Handshake(ctx context.Context, appClient abci.Application) error {
 
 	// Handshake is done via ABCI Info on the query conn.
 	res, err := appClient.Info(ctx, &proxy.RequestInfo)
@@ -216,7 +215,7 @@ func (h *Handshaker) ReplayBlocks(
 	state sm.State,
 	appHash []byte,
 	appBlockHeight int64,
-	appClient abciclient.Client,
+	appClient abci.Application,
 ) ([]byte, error) {
 	storeBlockBase := h.store.Base()
 	storeBlockHeight := h.store.Height()
@@ -317,7 +316,8 @@ func (h *Handshaker) ReplayBlocks(
 	var err error
 	// Now either store is equal to state, or one ahead.
 	// For each, consider all cases of where the app could be, given app <= store
-	if storeBlockHeight == stateBlockHeight {
+	switch storeBlockHeight {
+	case stateBlockHeight:
 		// Tendermint ran Commit and saved the state.
 		// Either the app is asking for replay, or we're all synced up.
 		if appBlockHeight < storeBlockHeight {
@@ -336,7 +336,7 @@ func (h *Handshaker) ReplayBlocks(
 			return appHash, nil
 		}
 
-	} else if storeBlockHeight == stateBlockHeight+1 {
+	case stateBlockHeight + 1:
 		// We saved the block in the store but haven't updated the state,
 		// so we'll need to replay a block using the WAL.
 		switch {
@@ -364,13 +364,7 @@ func (h *Handshaker) ReplayBlocks(
 			if err != nil {
 				return nil, err
 			}
-			mockApp, err := newMockProxyApp(h.logger, appHash, finalizeBlockResponses)
-			if err != nil {
-				return nil, err
-			}
-			if err := mockApp.Start(ctx); err != nil {
-				return nil, err
-			}
+			mockApp := newMockProxyApp(appHash, finalizeBlockResponses)
 
 			h.logger.Info("Replay last block using mock app")
 			state, err = h.replayBlock(ctx, state, storeBlockHeight, mockApp)
@@ -390,7 +384,7 @@ func (h *Handshaker) ReplayBlocks(
 func (h *Handshaker) replayBlocks(
 	ctx context.Context,
 	state sm.State,
-	appClient abciclient.Client,
+	appClient abci.Application,
 	appBlockHeight,
 	storeBlockHeight int64,
 	mutateState bool,
@@ -464,7 +458,7 @@ func (h *Handshaker) replayBlock(
 	ctx context.Context,
 	state sm.State,
 	height int64,
-	appClient abciclient.Client,
+	appClient abci.Application,
 ) (sm.State, error) {
 	block := h.store.LoadBlock(height)
 	meta := h.store.LoadBlockMeta(height)

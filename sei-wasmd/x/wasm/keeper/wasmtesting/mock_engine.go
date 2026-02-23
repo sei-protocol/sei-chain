@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"crypto/sha256"
 
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
-	"github.com/tendermint/tendermint/libs/rand"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )

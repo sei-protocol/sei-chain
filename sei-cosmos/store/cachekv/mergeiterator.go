@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"errors"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
-	sdktypes "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdktypes "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // cacheMergeIterator merges a parent Iterator and a cache Iterator.
@@ -164,7 +164,7 @@ func (iter *cacheMergeIterator) Value() []byte {
 func (iter *cacheMergeIterator) Close() error {
 	if err := iter.parent.Close(); err != nil {
 		// still want to close cache iterator regardless
-		iter.cache.Close()
+		_ = iter.cache.Close()
 		return err
 	}
 

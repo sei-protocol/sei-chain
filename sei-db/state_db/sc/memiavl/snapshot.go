@@ -19,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"golang.org/x/sys/unix"
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -51,6 +52,66 @@ func (w *monitoringWriter) Write(p []byte) (n int, err error) {
 
 	w.written += int64(n)
 	return n, err
+}
+
+// rateLimitedWriter wraps an io.Writer with rate limiting to prevent
+// page cache eviction on machines with limited RAM.
+type rateLimitedWriter struct {
+	w       io.Writer
+	limiter *rate.Limiter
+	ctx     context.Context
+}
+
+// NewGlobalRateLimiter creates a shared rate limiter for snapshot writes.
+// rateMBps is the rate limit in MB/s. If <= 0, returns nil (no limit).
+// This limiter should be shared across all files and trees in a single snapshot operation.
+func NewGlobalRateLimiter(rateMBps int) *rate.Limiter {
+	if rateMBps <= 0 {
+		return nil
+	}
+	const mb = 1024 * 1024
+	bytesPerSec := rate.Limit(rateMBps * mb)
+	// Burst = 4MB: small enough to spread large bufio flushes (128MB) across
+	// many smaller IO ops, preventing page cache eviction spikes.
+	burstBytes := 4 * mb
+	return rate.NewLimiter(bytesPerSec, burstBytes)
+}
+
+// newRateLimitedWriter creates a rate-limited writer with a shared limiter.
+// If limiter is nil, returns the original writer (no limit).
+func newRateLimitedWriter(ctx context.Context, w io.Writer, limiter *rate.Limiter) io.Writer {
+	if limiter == nil {
+		return w
+	}
+	return &rateLimitedWriter{
+		w:       w,
+		limiter: limiter,
+		ctx:     ctx,
+	}
+}
+
+func (w *rateLimitedWriter) Write(p []byte) (n int, err error) {
+	// Wait for rate limiter before writing
+	// For large writes, we may need to wait multiple times
+	remaining := len(p)
+	written := 0
+	for remaining > 0 {
+		// Limit each wait to burst size to avoid very long waits
+		toWrite := remaining
+		if toWrite > w.limiter.Burst() {
+			toWrite = w.limiter.Burst()
+		}
+		if err := w.limiter.WaitN(w.ctx, toWrite); err != nil {
+			return written, err
+		}
+		n, err := w.w.Write(p[written : written+toWrite])
+		written += n
+		remaining -= n
+		if err != nil {
+			return written, err
+		}
+	}
+	return written, nil
 }
 
 // Snapshot manage the lifecycle of mmap-ed files for the snapshot,
@@ -119,6 +180,8 @@ func OpenSnapshot(snapshotDir string, opts Options) (*Snapshot, error) {
 		return errors.Join(errs...)
 	}
 
+	// Load snapshot mmap files with MADV_RANDOM.
+	// Snapshot prefetch is handled separately by prefetchSnapshot() at the end of this function.
 	if nodesMap, err = NewMmap(filepath.Join(snapshotDir, FileNameNodes)); err != nil {
 		return nil, cleanupHandles(err)
 	}
@@ -390,6 +453,12 @@ func (snapshot *Snapshot) export(callback func(*types.SnapshotNode) bool) {
 }
 
 func (t *Tree) WriteSnapshot(ctx context.Context, snapshotDir string) error {
+	return t.WriteSnapshotWithRateLimit(ctx, snapshotDir, nil)
+}
+
+// WriteSnapshotWithRateLimit writes snapshot with optional rate limiting.
+// limiter is a shared rate limiter. nil means unlimited.
+func (t *Tree) WriteSnapshotWithRateLimit(ctx context.Context, snapshotDir string, limiter *rate.Limiter) error {
 	// Estimate tree size: root.Size() returns leaf count, total = leaves + branches ≈ 2x
 	treeSize := int64(0)
 	if t.root != nil {
@@ -399,7 +468,7 @@ func (t *Tree) WriteSnapshot(ctx context.Context, snapshotDir string) error {
 	// Use 128MB buffer for all trees (large buffer for better performance)
 	bufSize := bufIOSize
 
-	err := writeSnapshotWithBuffer(ctx, snapshotDir, t.version, bufSize, treeSize, t.logger, func(w *snapshotWriter) (uint32, error) {
+	err := writeSnapshotWithBuffer(ctx, snapshotDir, t.version, bufSize, treeSize, limiter, t.logger, func(w *snapshotWriter) (uint32, error) {
 		if t.root == nil {
 			return 0, nil
 		}
@@ -417,12 +486,14 @@ func (t *Tree) WriteSnapshot(ctx context.Context, snapshotDir string) error {
 	return nil
 }
 
-// writeSnapshotWithBuffer writes snapshot with specified buffer size
+// writeSnapshotWithBuffer writes snapshot with specified buffer size and optional rate limiting.
+// limiter is a shared rate limiter. nil means unlimited.
 func writeSnapshotWithBuffer(
 	ctx context.Context,
 	dir string, version uint32,
 	bufSize int,
 	totalNodes int64,
+	limiter *rate.Limiter,
 	log logger.Logger,
 	doWrite func(*snapshotWriter) (uint32, error),
 ) (returnErr error) {
@@ -469,10 +540,17 @@ func writeSnapshotWithBuffer(
 	leavesMonitor := &monitoringWriter{f: fpLeaves}
 	kvsMonitor := &monitoringWriter{f: fpKVs}
 
+	// Apply rate limiting if configured (shared limiter across all files)
+	// This ensures total write rate is capped regardless of file count
+	var nodesRateLimited, leavesRateLimited, kvsRateLimited io.Writer
+	nodesRateLimited = newRateLimitedWriter(ctx, nodesMonitor, limiter)
+	leavesRateLimited = newRateLimitedWriter(ctx, leavesMonitor, limiter)
+	kvsRateLimited = newRateLimitedWriter(ctx, kvsMonitor, limiter)
+
 	// Create buffered writers with buffers
-	nodesWriter := bufio.NewWriterSize(nodesMonitor, bufSize)
-	leavesWriter := bufio.NewWriterSize(leavesMonitor, bufSize)
-	kvsWriter := bufio.NewWriterSize(kvsMonitor, bufSize)
+	nodesWriter := bufio.NewWriterSize(nodesRateLimited, bufSize)
+	leavesWriter := bufio.NewWriterSize(leavesRateLimited, bufSize)
+	kvsWriter := bufio.NewWriterSize(kvsRateLimited, bufSize)
 
 	w := newSnapshotWriter(ctx, nodesWriter, leavesWriter, kvsWriter, log)
 	w.treeName = filepath.Base(dir) // Set tree name for progress reporting
@@ -546,8 +624,8 @@ func writeSnapshot(
 	dir string, version uint32,
 	doWrite func(*snapshotWriter) (uint32, error),
 ) error {
-	// Use nop logger for backward compatibility
-	return writeSnapshotWithBuffer(ctx, dir, version, bufIOSize, 0, logger.NewNopLogger(), doWrite)
+	// Use nop logger and no rate limit for backward compatibility
+	return writeSnapshotWithBuffer(ctx, dir, version, bufIOSize, 0, nil, logger.NewNopLogger(), doWrite)
 }
 
 // kvWriteOp represents a key-value write operation
@@ -978,23 +1056,23 @@ func (snapshot *Snapshot) prefetchSnapshot(snapshotDir string, prefetchThreshold
 	residentLeaves, errLeaves := residentRatio(snapshot.leaves)
 	if errNodes == nil && errLeaves == nil {
 		if residentNodes >= prefetchThreshold && residentLeaves >= prefetchThreshold {
-			log.Info(fmt.Sprintf("Skipped prefetching for tree %s (nodes: %.2f%%, leaves: %.2f%%, threshold: %.2f%%)\n",
+			log.Info(fmt.Sprintf("Skipped prefetching for tree %s (nodes: %.2f%%, leaves: %.2f%%, threshold: %.2f%%)",
 				treeName, residentNodes*100, residentLeaves*100, prefetchThreshold*100))
 			return
 		}
 	}
 
 	if residentNodes < prefetchThreshold {
-		log.Info(fmt.Sprintf("CommitKVStore %s nodes page cache residency ratio is %f, below threshold %f\n", treeName, residentNodes, prefetchThreshold))
+		log.Info(fmt.Sprintf("Tree %s nodes page cache residency ratio is %f, below threshold %f", treeName, residentNodes, prefetchThreshold))
 		_ = SequentialReadAndFillPageCache(log, filepath.Join(snapshotDir, FileNameNodes))
 	}
 
 	if residentLeaves < prefetchThreshold {
-		log.Info(fmt.Sprintf("CommitKVStore %s leaves page cache residency ratio is %f, below threshold %f\n", treeName, residentLeaves, prefetchThreshold))
+		log.Info(fmt.Sprintf("Tree %s leaves page cache residency ratio is %f, below threshold %f", treeName, residentLeaves, prefetchThreshold))
 		_ = SequentialReadAndFillPageCache(log, filepath.Join(snapshotDir, FileNameLeaves))
 	}
 
-	log.Info(fmt.Sprintf("Prefetch snapshot for %s completed in %fs. Consider adding more RAM for page cache to avoid preloading during restart.\n", treeName, time.Since(startTime).Seconds()))
+	log.Info(fmt.Sprintf("Prefetch snapshot for %s completed in %fs. Consider adding more RAM for page cache to avoid preloading during restart.", treeName, time.Since(startTime).Seconds()))
 }
 
 // shouldPreloadTree determines if a tree should be preloaded based on size and name

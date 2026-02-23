@@ -4,14 +4,14 @@ package cosmos.params.v1beta1;
 import "cosmos/base/v1beta1/coin.proto";
 import "gogoproto/gogo.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/x/params/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types";
 option (gogoproto.equal_all) = true;
 
 // Defines fee params that are controlled through governance
 message FeesParams {
   repeated cosmos.base.v1beta1.DecCoin global_minimum_gas_prices = 1 [
     (gogoproto.nullable) = false,
-    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.DecCoins"
+    (gogoproto.castrepeated) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.DecCoins"
   ];
   repeated string allowed_fee_denoms = 2;
 }

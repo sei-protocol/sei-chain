@@ -7,11 +7,11 @@ import (
 	"strings"
 
 	"github.com/gogo/protobuf/proto"
-	abci "github.com/tendermint/tendermint/abci/types"
-	ctypes "github.com/tendermint/tendermint/rpc/coretypes"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	ctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 )
 
 var cdc = codec.NewLegacyAmino()
@@ -49,7 +49,7 @@ func NewABCIMessageLog(i uint32, log string, events Events) ABCIMessageLog {
 // String implements the fmt.Stringer interface for the ABCIMessageLogs type.
 func (logs ABCIMessageLogs) String() (str string) {
 	if logs != nil {
-		raw, err := cdc.MarshalJSON(logs)
+		raw, err := cdc.MarshalAsJSON(logs)
 		if err == nil {
 			str = string(raw)
 		}

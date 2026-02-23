@@ -3,13 +3,14 @@ package p2p
 import (
 	"context"
 	"fmt"
-	gogoproto "github.com/gogo/protobuf/proto"
-	"github.com/tendermint/tendermint/internal/p2p/conn"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
 
-	gogopb "github.com/tendermint/tendermint/proto/tendermint/p2p"
-	"github.com/tendermint/tendermint/types"
+	gogoproto "github.com/gogo/protobuf/proto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+
+	gogopb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type handshakedConn struct {
@@ -63,7 +64,7 @@ func exchangeNodeInfo(ctx context.Context, hConn *handshakedConn, nodeInfo types
 			}
 			return hConn.conn.Flush(ctx)
 		})
-		nodeInfoBytes, err := conn.ReadSizedMsg(ctx, hConn.conn, uint64(types.MaxNodeInfoSize()))
+		nodeInfoBytes, err := conn.ReadSizedMsg(ctx, hConn.conn, uint64(types.MaxNodeInfoSize())) //nolint:gosec // MaxNodeInfoSize() returns a small positive constant
 		if err != nil {
 			return types.NodeInfo{}, fmt.Errorf("conn.ReadSizedMsg(): %w", err)
 		}

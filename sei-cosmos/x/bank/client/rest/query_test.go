@@ -9,11 +9,11 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/cosmos-sdk/testutil/network"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/query"
-	"github.com/cosmos/cosmos-sdk/types/rest"
-	"github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/network"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
 type IntegrationTestSuite struct {
@@ -31,7 +31,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 	cfg.NumValidators = 1
 
 	var bankGenesis types.GenesisState
-	s.Require().NoError(cfg.Codec.UnmarshalJSON(genesisState[types.ModuleName], &bankGenesis))
+	s.Require().NoError(cfg.Codec.UnmarshalAsJSON(genesisState[types.ModuleName], &bankGenesis))
 
 	bankGenesis.DenomMetadata = []types.Metadata{
 		{
@@ -55,7 +55,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 		},
 	}
 
-	bankGenesisBz, err := cfg.Codec.MarshalJSON(&bankGenesis)
+	bankGenesisBz, err := cfg.Codec.MarshalAsJSON(&bankGenesis)
 	s.Require().NoError(err)
 	genesisState[types.ModuleName] = bankGenesisBz
 	cfg.GenesisState = genesisState

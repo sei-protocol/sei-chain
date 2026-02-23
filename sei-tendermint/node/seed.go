@@ -8,19 +8,18 @@ import (
 	"strings"
 	"time"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/p2p/pex"
-	"github.com/tendermint/tendermint/internal/proxy"
-	rpccore "github.com/tendermint/tendermint/internal/rpc/core"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/state/indexer/sink"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
-	tmtime "github.com/tendermint/tendermint/libs/time"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
+	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type seedNodeImpl struct {
@@ -46,19 +45,13 @@ type seedNodeImpl struct {
 
 // makeSeedNode returns a new seed node, containing only p2p, pex reactor
 func makeSeedNode(
-	ctx context.Context,
 	logger log.Logger,
 	cfg *config.Config,
-	restartCh chan struct{},
 	dbProvider config.DBProvider,
 	nodeKey types.NodeKey,
 	genesisDocProvider genesisDocProvider,
-	client abciclient.Client,
 	nodeMetrics *NodeMetrics,
 ) (service.Service, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	if !cfg.P2P.PexReactor {
 		return nil, errors.New("cannot run seed nodes with PEX disabled")
 	}
@@ -84,28 +77,13 @@ func makeSeedNode(
 			fmt.Errorf("failed to create router: %w", err),
 			peerCloser)
 	}
-	// Register a listener to restart router if signalled to do so
-	go func() {
-		for range restartCh {
-			logger.Info("Received signal to restart router, restarting...")
-			router.OnStop()
-			router.Wait()
-			logger.Info("Router successfully stopped. Restarting...")
-			// Start the transport.
-			if err := router.Start(ctx); err != nil {
-				logger.Error("Unable to start router, retrying...", err)
-			}
-		}
-	}()
 
 	pexReactor, err := pex.NewReactor(logger, router, pex.DefaultSendInterval)
 	if err != nil {
 		return nil, fmt.Errorf("pex.NewReactor(): %w", err)
 	}
 
-	proxyApp := proxy.New(client, logger.With("module", "proxy"), nodeMetrics.proxy)
-
-	closers := []closer{convertCancelCloser(cancel)}
+	closers := make([]closer, 0, 2)
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
 	if err != nil {
 		return nil, combineCloseError(err, dbCloser)
@@ -132,7 +110,7 @@ func makeSeedNode(
 
 		pexReactor: pexReactor,
 		rpcEnv: &rpccore.Environment{
-			ProxyApp: proxyApp,
+			ProxyApp: abci.NewBaseApplication(),
 
 			StateStore: stateStore,
 			BlockStore: blockStore,
@@ -157,7 +135,11 @@ func (n *seedNodeImpl) OnStart(ctx context.Context) error {
 
 	if n.config.RPC.PprofListenAddress != "" {
 		rpcCtx, rpcCancel := context.WithCancel(ctx)
-		srv := &http.Server{Addr: n.config.RPC.PprofListenAddress, Handler: nil}
+		srv := &http.Server{
+			Addr:              n.config.RPC.PprofListenAddress,
+			Handler:           nil,
+			ReadHeaderTimeout: 10 * time.Second, //nolint:gosec // G112: mitigate slowloris attacks
+		}
 		go func() {
 			select {
 			case <-ctx.Done():

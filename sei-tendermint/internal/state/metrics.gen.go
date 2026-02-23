@@ -34,23 +34,17 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Name:      "validator_set_updates",
 			Help:      "Number of validator set updates returned by the application since process start.",
 		}, labels).With(labelsAndValues...),
-		FlushAppConnectionTime: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "flush_app_connection_time",
-			Help:      "ValidatorSetUpdates measures how long it takes async ABCI requests to be flushed before committing application state",
-		}, labels).With(labelsAndValues...),
 		ApplicationCommitTime: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "application_commit_time",
-			Help:      "ApplicationCommitTime meaures how long it takes to commit application state",
+			Help:      "ApplicationCommitTime measures how long it takes to commit application state",
 		}, labels).With(labelsAndValues...),
 		UpdateMempoolTime: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "update_mempool_time",
-			Help:      "UpdateMempoolTime meaures how long it takes to update mempool after commiting, including reCheckTx",
+			Help:      "UpdateMempoolTime measures how long it takes to update mempool after committing, including reCheckTx",
 		}, labels).With(labelsAndValues...),
 		FinalizeBlockLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
 			Namespace: namespace,
@@ -100,7 +94,6 @@ func NopMetrics() *Metrics {
 		BlockProcessingTime:      discard.NewHistogram(),
 		ConsensusParamUpdates:    discard.NewCounter(),
 		ValidatorSetUpdates:      discard.NewCounter(),
-		FlushAppConnectionTime:   discard.NewHistogram(),
 		ApplicationCommitTime:    discard.NewHistogram(),
 		UpdateMempoolTime:        discard.NewHistogram(),
 		FinalizeBlockLatency:     discard.NewHistogram(),

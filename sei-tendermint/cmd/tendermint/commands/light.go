@@ -14,14 +14,14 @@ import (
 	"github.com/spf13/cobra"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/log"
-	tmmath "github.com/tendermint/tendermint/libs/math"
-	"github.com/tendermint/tendermint/light"
-	lproxy "github.com/tendermint/tendermint/light/proxy"
-	lrpc "github.com/tendermint/tendermint/light/rpc"
-	dbs "github.com/tendermint/tendermint/light/store/db"
-	rpcserver "github.com/tendermint/tendermint/rpc/jsonrpc/server"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
+	lproxy "github.com/sei-protocol/sei-chain/sei-tendermint/light/proxy"
+	lrpc "github.com/sei-protocol/sei-chain/sei-tendermint/light/rpc"
+	dbs "github.com/sei-protocol/sei-chain/sei-tendermint/light/store/db"
+	rpcserver "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/server"
 )
 
 // LightCmd constructs the base command called when invoked without any subcommands.
@@ -138,7 +138,7 @@ for applications built w/ Cosmos SDK).
 				return fmt.Errorf("can't parse trust level: %w", err)
 			}
 
-			options := []light.Option{light.Logger(logger)}
+			options := []light.Option{light.Logger(logger)} //nolint:prealloc
 
 			vo := light.SkippingVerification(trustLevel)
 			if sequential {
@@ -188,7 +188,7 @@ for applications built w/ Cosmos SDK).
 
 			go func() {
 				<-ctx.Done()
-				p.Listener.Close()
+				_ = p.Listener.Close()
 			}()
 
 			logger.Info("Starting proxy...", "laddr", listenAddr)

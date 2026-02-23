@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/internal/jsontypes"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // Waiter is informed of current height, decided whether to quit early
@@ -57,7 +57,7 @@ func WaitForHeight(ctx context.Context, c StatusClient, h int64, waiter Waiter) 
 // until ctx ends. It reports an error if ctx ends before a matching event is
 // received.
 func WaitForOneEvent(ctx context.Context, c EventsClient, query string) (types.EventData, error) {
-	for {
+	for ctx.Err() == nil {
 		rsp, err := c.Events(ctx, &coretypes.RequestEvents{
 			Filter:   &coretypes.EventFilter{Query: query},
 			MaxItems: 1,
@@ -74,4 +74,5 @@ func WaitForOneEvent(ctx context.Context, c EventsClient, query string) (types.E
 		}
 		return result, nil
 	}
+	return nil, ctx.Err()
 }

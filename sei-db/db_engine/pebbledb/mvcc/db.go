@@ -45,6 +45,7 @@ const (
 	ImportCommitBatchSize = 10000
 	PruneCommitBatchSize  = 50
 	DeleteCommitBatchSize = 50
+	MinWALEntriesToKeep   = 1000
 )
 
 var (
@@ -172,8 +173,9 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		_ = db.Close()
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
+	walKeepRecent := math.Max(MinWALEntriesToKeep, float64(config.AsyncWriteBuffer+1))
 	streamHandler, err := wal.NewChangelogWAL(logger.NewNopLogger(), utils.GetChangelogPath(dataDir), wal.Config{
-		KeepRecent:    uint64(config.KeepRecent),
+		KeepRecent:    uint64(walKeepRecent),
 		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
 	})
 	if err != nil {
@@ -517,6 +519,11 @@ func (db *Database) WaitForPendingWrites() {
 // it has been updated. This occurs when that module's keys are updated in between pruning runs, the node after is restarted.
 // This is not a large issue given the next time that module is updated, it will be properly pruned thereafter.
 func (db *Database) Prune(version int64) (_err error) {
+	// Defensive check: ensure database is not closed
+	if db.storage == nil {
+		return errors.New("pebbledb: database is closed")
+	}
+
 	startTime := time.Now()
 	defer func() {
 		otelMetrics.pruneLatency.Record(

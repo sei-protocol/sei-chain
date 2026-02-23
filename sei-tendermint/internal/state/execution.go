@@ -8,15 +8,14 @@ import (
 	"math"
 	"time"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/merkle"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/mempool"
-	"github.com/tendermint/tendermint/libs/log"
-	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	otrace "go.opentelemetry.io/otel/trace"
 )
 
@@ -34,7 +33,7 @@ type BlockExecutor struct {
 	blockStore BlockStore
 
 	// execute the app against this
-	appClient abciclient.Client
+	app abci.Application
 
 	// events
 	eventBus types.BlockEventPublisher
@@ -55,7 +54,7 @@ type BlockExecutor struct {
 func NewBlockExecutor(
 	stateStore Store,
 	logger log.Logger,
-	appClient abciclient.Client,
+	app abci.Application,
 	pool mempool.Mempool,
 	evpool EvidencePool,
 	blockStore BlockStore,
@@ -65,7 +64,7 @@ func NewBlockExecutor(
 	return &BlockExecutor{
 		eventBus:   eventBus,
 		store:      stateStore,
-		appClient:  appClient,
+		app:        app,
 		mempool:    pool,
 		evpool:     evpool,
 		logger:     logger,
@@ -112,7 +111,7 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 
 	txs := blockExec.mempool.ReapMaxBytesMaxGas(maxDataBytes, maxGasWanted, maxGas)
 	block = state.MakeBlock(height, txs, lastCommit, evidence, proposerAddr)
-	rpp, err := blockExec.appClient.PrepareProposal(
+	rpp, err := blockExec.app.PrepareProposal(
 		ctx,
 		&abci.RequestPrepareProposal{
 			MaxTxBytes:            maxDataBytes,
@@ -171,11 +170,11 @@ func (blockExec *BlockExecutor) ProcessProposal(
 	block *types.Block,
 	state State,
 ) (bool, error) {
-	txs := block.Data.Txs.ToSliceOfBytes()
-	resp, err := blockExec.appClient.ProcessProposal(ctx, &abci.RequestProcessProposal{
+	txs := block.Txs.ToSliceOfBytes()
+	resp, err := blockExec.app.ProcessProposal(ctx, &abci.RequestProcessProposal{
 		Hash:                  block.Header.Hash(),
-		Height:                block.Header.Height,
-		Time:                  block.Header.Time,
+		Height:                block.Height,
+		Time:                  block.Time,
 		Txs:                   txs,
 		ProposedLastCommit:    buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
 		ByzantineValidators:   block.Evidence.ToABCI(),
@@ -215,7 +214,7 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 	err := validateBlock(state, block)
 	if err != nil {
 		// Check if this is a LastResultsHash mismatch and log detailed info
-		if !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
+		if !types.SkipLastResultsHashValidation.Load() && !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
 			blockExec.logger.Error("LastResultsHash mismatch detected",
 				"height", block.Height,
 				"expectedHash", fmt.Sprintf("%X", state.LastResultsHash),
@@ -266,14 +265,14 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		_, finalizeBlockSpan = tracer.Start(ctx, "cs.state.ApplyBlock.FinalizeBlock")
 		defer finalizeBlockSpan.End()
 	}
-	txs := block.Data.Txs.ToSliceOfBytes()
+	txs := block.Txs.ToSliceOfBytes()
 	finalizeBlockStartTime := time.Now()
-	fBlockRes, err := blockExec.appClient.FinalizeBlock(
+	fBlockRes, err := blockExec.app.FinalizeBlock(
 		ctx,
 		&abci.RequestFinalizeBlock{
 			Hash:                  block.Hash(),
-			Height:                block.Header.Height,
-			Time:                  block.Header.Time,
+			Height:                block.Height,
+			Time:                  block.Time,
 			Txs:                   txs,
 			DecidedLastCommit:     buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
 			ByzantineValidators:   block.Evidence.ToABCI(),
@@ -364,17 +363,13 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		)
 		// Log per-tx deterministic fields (Code, Data, GasWanted, GasUsed) for debugging
 		for i, txRes := range fBlockRes.TxResults {
-			dataLen := 0
-			if txRes.Data != nil {
-				dataLen = len(txRes.Data)
-			}
 			blockExec.logger.Debug("TxResult for LastResultsHash",
 				"height", block.Height,
 				"txIndex", i,
 				"code", txRes.Code,
 				"gasWanted", txRes.GasWanted,
 				"gasUsed", txRes.GasUsed,
-				"dataLen", dataLen,
+				"dataLen", len(txRes.Data),
 			)
 		}
 	}
@@ -485,19 +480,9 @@ func (blockExec *BlockExecutor) Commit(
 	blockExec.mempool.Lock()
 	defer blockExec.mempool.Unlock()
 
-	// while mempool is Locked, flush to ensure all async requests have completed
-	// in the ABCI app before Commit.
-	start := time.Now()
-	err := blockExec.mempool.FlushAppConn(ctx)
-	if err != nil {
-		blockExec.logger.Error("client error during mempool.FlushAppConn", "err", err)
-		return 0, err
-	}
-	blockExec.metrics.FlushAppConnectionTime.Observe(float64(time.Since(start)))
-
 	// Commit block, get hash back
-	start = time.Now()
-	res, err := blockExec.appClient.Commit(ctx)
+	start := time.Now()
+	res, err := blockExec.app.Commit(ctx)
 	if err != nil {
 		blockExec.logger.Error("client error during proxyAppConn.Commit", "err", err)
 		return 0, err
@@ -789,16 +774,16 @@ func FireEvents(
 	}
 
 	// sanity check
-	if len(finalizeBlockResponse.TxResults) != len(block.Data.Txs) {
+	if len(finalizeBlockResponse.TxResults) != len(block.Txs) {
 		panic(fmt.Sprintf("number of TXs (%d) and ABCI TX responses (%d) do not match",
-			len(block.Data.Txs), len(finalizeBlockResponse.TxResults)))
+			len(block.Txs), len(finalizeBlockResponse.TxResults)))
 	}
 
-	for i, tx := range block.Data.Txs {
+	for i, tx := range block.Txs {
 		if err := eventBus.PublishEventTx(types.EventDataTx{
 			TxResultV2: abci.TxResultV2{
 				Height: block.Height,
-				Index:  uint32(i),
+				Index:  uint32(i), //nolint:gosec // i is bounded by block.Txs length which fits in uint32
 				Tx:     tx,
 				Result: *(finalizeBlockResponse.TxResults[i]),
 			},
@@ -823,7 +808,7 @@ func FireEvents(
 func ExecCommitBlock(
 	ctx context.Context,
 	be *BlockExecutor,
-	appConn abciclient.Client,
+	appConn abci.Application,
 	block *types.Block,
 	logger log.Logger,
 	store Store,

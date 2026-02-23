@@ -9,7 +9,7 @@ import (
 	"time"
 
 	metrics "github.com/armon/go-metrics"
-	"github.com/cosmos/cosmos-sdk/telemetry"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/prometheus"
@@ -99,6 +99,15 @@ func IncrTxProcessTypeCounter(processType string) {
 		[]string{"sei", "tx", "process", "type"},
 		1,
 		[]metrics.Label{telemetry.NewLabel("type", processType)},
+	)
+}
+
+// sei_giga_fallback_to_v2_count
+func IncrGigaFallbackToV2Counter() {
+	SafeMetricsIncrCounterWithLabels(
+		[]string{"sei", "giga", "fallback", "to", "v2", "count"},
+		1,
+		[]metrics.Label{},
 	)
 }
 

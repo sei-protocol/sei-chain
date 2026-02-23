@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
-	"github.com/tendermint/tendermint/libs/bits"
-	"github.com/tendermint/tendermint/libs/log"
-	tmtime "github.com/tendermint/tendermint/libs/time"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bits"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var (
@@ -173,7 +173,7 @@ func (ps *PeerState) PickVoteToSend(votes types.VoteSetReader) (*types.Vote, boo
 	var (
 		height    = votes.GetHeight()
 		round     = votes.GetRound()
-		votesType = tmproto.SignedMsgType(votes.Type())
+		votesType = tmproto.SignedMsgType(votes.Type()) //nolint:gosec // Type() returns a small enum value; no overflow risk
 		size      = votes.Size()
 	)
 
@@ -190,7 +190,7 @@ func (ps *PeerState) PickVoteToSend(votes types.VoteSetReader) (*types.Vote, boo
 	}
 
 	if index, ok := votes.BitArray().Sub(psVotes).PickRandom(); ok {
-		vote := votes.GetByIndex(int32(index))
+		vote := votes.GetByIndex(int32(index)) //nolint:gosec // index is bounded by validator set size which fits in int32
 		if vote != nil {
 			return vote, true
 		}
@@ -298,7 +298,8 @@ func (ps *PeerState) EnsureVoteBitArrays(height int64, numValidators int) {
 }
 
 func (ps *PeerState) ensureVoteBitArrays(height int64, numValidators int) {
-	if ps.PRS.Height == height {
+	switch ps.PRS.Height {
+	case height:
 		if ps.PRS.Prevotes == nil {
 			ps.PRS.Prevotes = bits.NewBitArray(numValidators)
 		}
@@ -311,7 +312,7 @@ func (ps *PeerState) ensureVoteBitArrays(height int64, numValidators int) {
 		if ps.PRS.ProposalPOL == nil {
 			ps.PRS.ProposalPOL = bits.NewBitArray(numValidators)
 		}
-	} else if ps.PRS.Height == height+1 {
+	case height + 1:
 		if ps.PRS.LastCommit == nil {
 			ps.PRS.LastCommit = bits.NewBitArray(numValidators)
 		}
@@ -394,7 +395,7 @@ func (ps *PeerState) ApplyNewRoundStepMessage(msg *NewRoundStepMessage) {
 	defer ps.mtx.Unlock()
 
 	// ignore duplicates or decreases
-	if msg.HRS.Cmp(ps.PRS.HRS) <= 0 {
+	if msg.Cmp(ps.PRS.HRS) <= 0 {
 		return
 	}
 

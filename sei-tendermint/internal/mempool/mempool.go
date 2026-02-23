@@ -11,15 +11,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/internal/libs/clist"
-	"github.com/tendermint/tendermint/internal/libs/reservoir"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/reservoir"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // Using SHA-256 truncated to 128 bits as the cache key: At 2K tx/sec, the
@@ -52,7 +51,7 @@ type TxMempool struct {
 	logger       log.Logger
 	metrics      *Metrics
 	config       *config.MempoolConfig
-	proxyAppConn abciclient.Client
+	proxyAppConn abci.Application
 
 	// txsAvailable fires once for each height when the mempool is not empty
 	txsAvailable         chan struct{}
@@ -128,7 +127,7 @@ type TxMempool struct {
 func NewTxMempool(
 	logger log.Logger,
 	cfg *config.MempoolConfig,
-	proxyAppConn abciclient.Client,
+	proxyAppConn abci.Application,
 	router router,
 	options ...TxMempoolOption,
 ) *TxMempool {
@@ -224,7 +223,7 @@ func (txmp *TxMempool) BytesNotPending() int64 {
 }
 
 func (txmp *TxMempool) TotalTxsBytesSize() int64 {
-	return txmp.BytesNotPending() + int64(txmp.pendingTxs.SizeBytes())
+	return txmp.BytesNotPending() + int64(txmp.pendingTxs.SizeBytes()) //nolint:gosec // mempool size is bounded by configured limits; no overflow risk
 }
 
 // PendingSize returns the number of pending transactions in the mempool.
@@ -240,13 +239,6 @@ func (txmp *TxMempool) SizeBytes() int64 {
 
 func (txmp *TxMempool) PendingSizeBytes() int64 {
 	return atomic.LoadInt64(&txmp.pendingSizeBytes)
-}
-
-// FlushAppConn executes FlushSync on the mempool's proxyAppConn.
-//
-// NOTE: The caller must obtain a write-lock prior to execution.
-func (txmp *TxMempool) FlushAppConn(ctx context.Context) error {
-	return txmp.proxyAppConn.Flush(ctx)
 }
 
 // WaitForNextTx returns a blocking channel that will be closed when the next
@@ -340,10 +332,6 @@ func (txmp *TxMempool) CheckTx(
 			txmp.incrementBlacklistCounter(txInfo.SenderNodeID)
 			return types.ErrPreCheck{Reason: err}
 		}
-	}
-
-	if err := txmp.proxyAppConn.Error(); err != nil {
-		return err
 	}
 
 	txHash := tx.Key()
@@ -461,7 +449,7 @@ func (txmp *TxMempool) incrementBlacklistCounter(nodeID types.NodeID) {
 	txmp.mtxFailedCheckTxCounts.Lock()
 	defer txmp.mtxFailedCheckTxCounts.Unlock()
 	txmp.failedCheckTxCounts[nodeID]++
-	if txmp.failedCheckTxCounts[nodeID] > uint64(txmp.config.CheckTxErrorThreshold) {
+	if txmp.failedCheckTxCounts[nodeID] > uint64(txmp.config.CheckTxErrorThreshold) { //nolint:gosec // CheckTxErrorThreshold is a validated non-negative config value
 		txmp.router.Evict(nodeID, errors.New("mempool: checkTx error exceeded threshold"))
 	}
 }
@@ -562,14 +550,15 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 		totalSize         int64
 	)
 
-	var evmTxs []types.Tx
-	var nonEvmTxs []types.Tx
 	numTxs := 0
 	encounteredGasUnfit := false
-	if uint64(txmp.NumTxsNotPending()) < txmp.config.TxNotifyThreshold {
+	if uint64(txmp.NumTxsNotPending()) < txmp.config.TxNotifyThreshold { //nolint:gosec // NumTxsNotPending returns non-negative value
 		// do not reap anything if threshold is not met
 		return []types.Tx{}
 	}
+	totalTxs := txmp.priorityIndex.NumTxs()
+	evmTxs := make([]types.Tx, 0, totalTxs)
+	nonEvmTxs := make([]types.Tx, 0, totalTxs)
 	txmp.priorityIndex.ForEachTx(func(wtx *WrappedTx) bool {
 		size := types.ComputeProtoSizeForTxs([]types.Tx{wtx.tx})
 
@@ -873,13 +862,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 
 	// Search through the remaining list of tx to recheck for a transaction that matches
 	// the one we received from the ABCI application.
-	for {
-		if bytes.Equal(tx, wtx.tx) {
-			// We've found a tx in the recheck list that matches the tx that we
-			// received from the ABCI application.
-			// Break, and use this transaction for further checks.
-			break
-		}
+	for !bytes.Equal(tx, wtx.tx) {
 
 		txmp.logger.Debug(
 			"re-CheckTx transaction mismatch",
@@ -987,9 +970,6 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 		}
 	}
 
-	if err := txmp.proxyAppConn.Flush(ctx); err != nil {
-		txmp.logger.Error("failed to flush transactions during rechecking", "err", err)
-	}
 }
 
 // canAddTx returns an error if we cannot insert the provided *WrappedTx into

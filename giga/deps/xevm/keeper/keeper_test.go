@@ -8,8 +8,6 @@ import (
 	"sync"
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -20,10 +18,12 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types/ethtx"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/rand"
-	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 func TestPurgePrefixNotHang(t *testing.T) {

@@ -1,10 +1,10 @@
 package types
 
 import (
-	tmprotocrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"
+	tmprotocrypto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // DelegationI delegation bond for a delegated proof of stake system

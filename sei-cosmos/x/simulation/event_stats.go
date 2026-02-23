@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"os"
 )
 
 // EventStats defines an object that keeps a tally of each event that has occurred
@@ -38,7 +38,7 @@ func (es EventStats) Print(w io.Writer) {
 		panic(err)
 	}
 
-	fmt.Fprintln(w, string(obj))
+	_, _ = fmt.Fprintln(w, string(obj))
 }
 
 // ExportJSON saves the event stats as a JSON file on a given path
@@ -48,7 +48,7 @@ func (es EventStats) ExportJSON(path string) {
 		panic(err)
 	}
 
-	err = ioutil.WriteFile(path, bz, 0600)
+	err = os.WriteFile(path, bz, 0600)
 	if err != nil {
 		panic(err)
 	}

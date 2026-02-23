@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto"
-	tmbytes "github.com/tendermint/tendermint/libs/bytes"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 type mockValidator struct {
@@ -133,12 +133,13 @@ func RandomRequestBeginBlock(r *rand.Rand, params Params,
 		mVal.livenessState = params.LivenessTransitionMatrix().NextState(r, mVal.livenessState)
 		signed := true
 
-		if mVal.livenessState == 1 {
+		switch mVal.livenessState {
+		case 1:
 			// spotty connection, 50% probability of success
 			// See https://github.com/golang/go/issues/23804#issuecomment-365370418
 			// for reasoning behind computing like this
 			signed = r.Int63()%2 == 0
-		} else if mVal.livenessState == 2 {
+		case 2:
 			// offline
 			signed = false
 		}

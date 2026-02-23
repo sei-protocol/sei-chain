@@ -4,18 +4,19 @@ import (
 	"embed"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math/big"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/query"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -222,6 +223,8 @@ func (p PrecompileExecutor) delegate(ctx sdk.Context, method *abi.Method, caller
 	if err != nil {
 		return nil, 0, err
 	}
+	withdrawAddress := p.distributionKeeper.GetDelegatorWithdrawAddr(ctx, delegator)
+	withdrawAddressBalanceBefore := p.bankKeeper.GetBalance(ctx, withdrawAddress, sdk.MustGetBaseDenom())
 	_, err = p.stakingKeeper.Delegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgDelegate{
 		DelegatorAddress: delegator.String(),
 		ValidatorAddress: validatorBech32,
@@ -230,11 +233,27 @@ func (p PrecompileExecutor) delegate(ctx sdk.Context, method *abi.Method, caller
 	if err != nil {
 		return nil, 0, err
 	}
+	withdrawAddressBalanceAfter := p.bankKeeper.GetBalance(ctx, withdrawAddress, sdk.MustGetBaseDenom())
+	// Use Int arithmetic because when withdrawAddress == delegator (the default),
+	// the delegated coin.Amount is sent from the delegator to the staking module,
+	// which can make balanceAfter < balanceBefore. We compensate for that.
+	rewardsAmount := withdrawAddressBalanceAfter.Amount.Sub(withdrawAddressBalanceBefore.Amount)
+	if withdrawAddress.Equals(delegator) {
+		rewardsAmount = rewardsAmount.Add(coin.Amount)
+	}
+	if rewardsAmount.IsNegative() {
+		return nil, 0, fmt.Errorf("unexpected negative rewards amount: %s", rewardsAmount.String())
+	}
 
 	// Emit EVM event
 	if emitErr := pcommon.EmitDelegateEvent(evm, p.address, caller, validatorBech32, value); emitErr != nil {
 		// Log error but don't fail the transaction
 		ctx.Logger().Error("Failed to emit EVM delegate event", "error", emitErr)
+	}
+
+	if emitErr := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, caller, validatorBech32, rewardsAmount.BigInt()); emitErr != nil {
+		// Log error but don't fail the transaction
+		ctx.Logger().Error("Failed to emit rewards withdrawn event", "error", emitErr)
 	}
 
 	bz, err := method.Outputs.Pack(true)
@@ -259,9 +278,25 @@ func (p PrecompileExecutor) redelegate(ctx sdk.Context, method *abi.Method, call
 	srcValidatorBech32 := args[0].(string)
 	dstValidatorBech32 := args[1].(string)
 	amount := args[2].(*big.Int)
+
+	// Pre-withdraw rewards from the destination validator if a delegation already exists.
+	// WithdrawDelegationRewards reinitializes the delegation's starting info, so the
+	// subsequent BeginRedelegate's internal Delegate call will see zero pending dst rewards.
+	// This lets us separately attribute rewards to each validator.
+	dstRewardAmount := big.NewInt(0)
+	dstValAddr, err := sdk.ValAddressFromBech32(dstValidatorBech32)
+	if err == nil {
+		dstWithdrawnCoins, wErr := p.distributionKeeper.WithdrawDelegationRewards(ctx, delegator, dstValAddr)
+		if wErr == nil {
+			dstRewardAmount = dstWithdrawnCoins.AmountOf(sdk.MustGetBaseDenom()).BigInt()
+		}
+	}
+
+	// Track balance changes around BeginRedelegate to capture src validator rewards only
+	// (dst rewards were already withdrawn above).
 	withdrawAddress := p.distributionKeeper.GetDelegatorWithdrawAddr(ctx, delegator)
 	withdrawAddressBalanceBefore := p.bankKeeper.GetBalance(ctx, withdrawAddress, sdk.MustGetBaseDenom())
-	_, err := p.stakingKeeper.BeginRedelegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgBeginRedelegate{
+	_, err = p.stakingKeeper.BeginRedelegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgBeginRedelegate{
 		DelegatorAddress:    delegator.String(),
 		ValidatorSrcAddress: srcValidatorBech32,
 		ValidatorDstAddress: dstValidatorBech32,
@@ -271,7 +306,7 @@ func (p PrecompileExecutor) redelegate(ctx sdk.Context, method *abi.Method, call
 		return nil, 0, err
 	}
 	withdrawAddressBalanceAfter := p.bankKeeper.GetBalance(ctx, withdrawAddress, sdk.MustGetBaseDenom())
-	rewardsWithdrawn := withdrawAddressBalanceAfter.Sub(withdrawAddressBalanceBefore)
+	srcRewardsWithdrawn := withdrawAddressBalanceAfter.Sub(withdrawAddressBalanceBefore)
 
 	// Emit EVM event
 	if emitErr := pcommon.EmitRedelegateEvent(evm, p.address, caller, srcValidatorBech32, dstValidatorBech32, amount); emitErr != nil {
@@ -279,7 +314,12 @@ func (p PrecompileExecutor) redelegate(ctx sdk.Context, method *abi.Method, call
 		ctx.Logger().Error("Failed to emit EVM redelegate event", "error", emitErr)
 	}
 
-	if emitErr := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, caller, srcValidatorBech32, rewardsWithdrawn.Amount.BigInt()); emitErr != nil {
+	if emitErr := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, caller, srcValidatorBech32, srcRewardsWithdrawn.Amount.BigInt()); emitErr != nil {
+		// Log error but don't fail the transaction
+		ctx.Logger().Error("Failed to emit rewards withdrawn event", "error", emitErr)
+	}
+
+	if emitErr := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, caller, dstValidatorBech32, dstRewardAmount); emitErr != nil {
 		// Log error but don't fail the transaction
 		ctx.Logger().Error("Failed to emit rewards withdrawn event", "error", emitErr)
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
 	"net/netip"
 	"strings"
 	"time"
@@ -13,33 +14,30 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/internal/blocksync"
-	"github.com/tendermint/tendermint/internal/consensus"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/eventlog"
-	"github.com/tendermint/tendermint/internal/evidence"
-	"github.com/tendermint/tendermint/internal/mempool"
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/p2p/pex"
-	"github.com/tendermint/tendermint/internal/proxy"
-	rpccore "github.com/tendermint/tendermint/internal/rpc/core"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/state/indexer"
-	"github.com/tendermint/tendermint/internal/state/indexer/sink"
-	"github.com/tendermint/tendermint/internal/statesync"
-	"github.com/tendermint/tendermint/internal/store"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
-	tmtime "github.com/tendermint/tendermint/libs/time"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/privval"
-	"github.com/tendermint/tendermint/types"
-
-	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventlog"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
 	_ "github.com/grafana/pyroscope-go/godeltaprof/http/pprof"
 
@@ -79,73 +77,20 @@ type nodeImpl struct {
 	prometheusSrv  *http.Server
 }
 
-// newDefaultNode returns a Tendermint node with default settings for the
-// PrivValidator, ClientCreator, GenesisDoc, and DBProvider.
-// It implements NodeProvider.
-func newDefaultNode(
-	ctx context.Context,
-	cfg *config.Config,
-	logger log.Logger,
-	restartCh chan struct{},
-) (service.Service, error) {
-	nodeKey, err := types.LoadOrGenNodeKey(cfg.NodeKeyFile())
-	if err != nil {
-		return nil, fmt.Errorf("failed to load or gen node key %s: %w", cfg.NodeKeyFile(), err)
-	}
-
-	appClient, _, err := proxy.ClientFactory(logger, cfg.ProxyApp, cfg.ABCI, cfg.DBDir())
-	if err != nil {
-		return nil, err
-	}
-
-	if cfg.Mode == config.ModeSeed {
-		return makeSeedNode(
-			ctx,
-			logger,
-			cfg,
-			restartCh,
-			config.DefaultDBProvider,
-			nodeKey,
-			defaultGenesisDocProviderFunc(cfg),
-			appClient,
-			DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
-		)
-	}
-	pval, err := makeDefaultPrivval(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	return makeNode(
-		ctx,
-		cfg,
-		restartCh,
-		pval,
-		nodeKey,
-		appClient,
-		defaultGenesisDocProviderFunc(cfg),
-		config.DefaultDBProvider,
-		logger,
-		[]trace.TracerProviderOption{},
-		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
-	)
-}
-
 // makeNode returns a new, ready to go, Tendermint Node.
 func makeNode(
 	ctx context.Context,
 	cfg *config.Config,
-	restartCh chan struct{},
+	restartEvent func(),
 	filePrivval *privval.FilePV,
 	nodeKey types.NodeKey,
-	client abciclient.Client,
+	app abci.Application,
 	genesisDocProvider genesisDocProvider,
 	dbProvider config.DBProvider,
 	logger log.Logger,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
 ) (service.Service, error) {
-
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 
@@ -173,7 +118,7 @@ func makeNode(
 		return nil, combineCloseError(err, makeCloser(closers))
 	}
 
-	proxyApp := proxy.New(client, logger.With("module", "proxy"), nodeMetrics.proxy)
+	proxyApp := proxy.New(app, nodeMetrics.proxy)
 	eventBus := eventbus.NewDefault(logger.With("module", "events"))
 
 	var eventLog *eventlog.Log
@@ -343,7 +288,7 @@ func makeNode(
 		blockSync && !stateSync,
 		nodeMetrics.consensus,
 		eventBus,
-		restartCh,
+		restartEvent,
 		cfg.SelfRemediation,
 	)
 	if err != nil {
@@ -406,7 +351,7 @@ func makeNode(
 		// the post-sync operation
 		postSyncHook,
 		stateSync,
-		restartCh,
+		restartEvent,
 		cfg.SelfRemediation,
 	)
 	if err != nil {
@@ -430,10 +375,6 @@ func makeNode(
 
 // OnStart starts the Node. It implements service.Service.
 func (n *nodeImpl) OnStart(ctx context.Context) error {
-	if err := n.rpcEnv.ProxyApp.Start(ctx); err != nil {
-		return fmt.Errorf("error starting proxy app connections: %w", err)
-	}
-
 	// EventBus and IndexerService must be started before the handshake because
 	// we might need to index the txs of the replayed block as this might not have happened
 	// when the node stopped last time (i.e. the node stopped or crashed after it saved the block
@@ -479,7 +420,11 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 
 	if n.config.RPC.PprofListenAddress != "" {
 		signal := make(chan struct{})
-		srv := &http.Server{Addr: n.config.RPC.PprofListenAddress, Handler: nil}
+		srv := &http.Server{
+			Addr:              n.config.RPC.PprofListenAddress,
+			Handler:           nil,
+			ReadHeaderTimeout: 10 * time.Second,
+		}
 		go func() {
 			select {
 			case <-ctx.Done():
@@ -617,6 +562,7 @@ func (n *nodeImpl) startPrometheusServer(ctx context.Context, addr string) *http
 				promhttp.HandlerOpts{MaxRequestsInFlight: n.config.Instrumentation.MaxOpenConnections},
 			),
 		),
+		ReadHeaderTimeout: 10 * time.Second, //nolint:gosec // G112: mitigate slowloris attacks
 	}
 
 	signal := make(chan struct{})
@@ -753,7 +699,7 @@ func LoadStateFromDBOrGenesisDocProvider(stateStore sm.Store, genDoc *types.Gene
 	return state, nil
 }
 
-func getRouterConfig(conf *config.Config, appClient abciclient.Client) *p2p.RouterOptions {
+func getRouterConfig(conf *config.Config, appClient abci.Application) *p2p.RouterOptions {
 	opts := p2p.RouterOptions{}
 
 	if conf.FilterPeers && appClient != nil {

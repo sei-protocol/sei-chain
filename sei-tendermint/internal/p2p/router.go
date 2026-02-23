@@ -8,14 +8,13 @@ import (
 	"time"
 
 	gogoproto "github.com/gogo/protobuf/proto"
-	"github.com/tendermint/tendermint/internal/p2p/conn"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/im"
-	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/libs/utils/tcp"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/time/rate"
@@ -39,7 +38,7 @@ type Router struct {
 	privKey     NodeSecretKey
 	peerManager *PeerManager
 
-	peerDB           utils.Mutex[*peerDB]
+	peerDB           utils.Watch[*peerDB]
 	nodeInfoProducer func() *types.NodeInfo
 
 	channels utils.RWMutex[map[ChannelID]*channel]
@@ -77,6 +76,11 @@ func NewRouter(
 	if err != nil {
 		return nil, fmt.Errorf("newPeerDB(): %w", err)
 	}
+	for addr := range peerDB.All() {
+		if err := peerManager.AddAddrs(utils.Slice(addr)); err != nil {
+			logger.Error("peerDB: bad address", "addr", addr.String(), "err", err)
+		}
+	}
 	router := &Router{
 		logger:           logger,
 		metrics:          metrics,
@@ -86,7 +90,7 @@ func NewRouter(
 		peerManager:      peerManager,
 		options:          options,
 		channels:         utils.NewRWMutex(map[ChannelID]*channel{}),
-		peerDB:           utils.NewMutex(peerDB),
+		peerDB:           utils.NewWatch(peerDB),
 		started:          make(chan struct{}),
 	}
 	if gigaCfg, ok := options.Giga.Get(); ok {
@@ -189,7 +193,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			r.metrics.NewConnections.With("direction", "in").Add(1)
+			r.metrics.NewConnections.With("direction", "in", "success", "true").Add(1)
 			addr := tcpConn.RemoteAddr()
 			// Spawn a goroutine per connection.
 			s.Spawn(func() error {
@@ -221,8 +225,9 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						release()
 						return giga.RunInboundConn(ctx, hConn)
 					}
-					if err := r.options.filterPeerByID(ctx, hConn.msg.NodeAuth.Key().NodeID()); err != nil {
-						return fmt.Errorf("peer filtered by ID: %w", err)
+					peerID := hConn.msg.NodeAuth.Key().NodeID()
+					if err := r.options.filterPeerByID(ctx, peerID); err != nil {
+						return fmt.Errorf("peer filtered by ID (%v): %w", peerID, err)
 					}
 					info, err := exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
 					if err != nil {
@@ -259,7 +264,6 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 								r.peerManager.DialFailed(addr)
 								return fmt.Errorf("r.dial(): %w", err)
 							}
-							r.metrics.NewConnections.With("direction", "out").Add(1)
 							s.SpawnBg(func() error { return tcpConn.Run(ctx) })
 
 							var hConn *handshakedConn
@@ -288,7 +292,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 							}
 							return nil
 						})
-						r.logger.Error("r.runConn(outbound)", "addr", addr, "err", err)
+						r.logger.Error("r.runConn(outbound)", "addr", addr.String(), "err", err)
 						return nil
 					})
 				}
@@ -301,12 +305,16 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 // storePeersRoutine periodically snapshots the current connection set to disk,
 // so that peers are immediately rediscovered on restart.
 func (r *Router) storePeersRoutine(ctx context.Context) error {
-	const storeInterval = 10 * time.Second
+	storeInterval := r.options.peerStoreInterval()
 	for {
-		for db := range r.peerDB.Lock() {
+		for db, ctrl := range r.peerDB.Lock() {
 			// Mark connections as still available.
 			now := time.Now()
-			for _, conn := range r.peerManager.Conns().All() {
+			conns := r.peerManager.Conns()
+			if conns.Len() > 0 {
+				ctrl.Updated()
+			}
+			for _, conn := range conns.All() {
 				if addr, ok := conn.dialAddr.Get(); ok {
 					if err := db.Insert(addr, now); err != nil {
 						return fmt.Errorf("db.Insert(): %w", err)
@@ -321,11 +329,13 @@ func (r *Router) storePeersRoutine(ctx context.Context) error {
 }
 
 func (r *Router) metricsRoutine(ctx context.Context) error {
-	_, err := r.peerManager.conns.Wait(ctx, func(conns im.Map[types.NodeID, *ConnV2]) bool {
+	for {
+		if err := utils.Sleep(ctx, 10*time.Second); err != nil {
+			return err
+		}
 		r.metrics.Peers.Set(float64(r.peerManager.Conns().Len()))
-		return false
-	})
-	return err
+		r.peerManager.LogState(r.logger)
+	}
 }
 
 // Evict reports a peer misbehavior and forces peer to be disconnected.
@@ -339,7 +349,14 @@ func (r *Router) IsBlockSyncPeer(id types.NodeID) bool {
 }
 
 // dialPeer connects to a peer by dialing it.
-func (r *Router) dial(ctx context.Context, addr NodeAddress) (tcp.Conn, error) {
+func (r *Router) dial(ctx context.Context, addr NodeAddress) (_ tcp.Conn, err error) {
+	defer func() {
+		success := "true"
+		if err != nil {
+			success = "false"
+		}
+		r.metrics.NewConnections.With("direction", "out", "success", success).Add(1)
+	}()
 	resolveCtx := ctx
 	if d, ok := r.options.ResolveTimeout.Get(); ok {
 		var cancel context.CancelFunc
@@ -371,7 +388,6 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (tcp.Conn, error) {
 			r.logger.Debug("failed to dial endpoint", "peer", addr.NodeID, "endpoint", endpoint, "err", err)
 			continue
 		}
-		r.metrics.NewConnections.With("direction", "out").Add(1)
 		r.logger.Debug("dialed peer", "peer", addr.NodeID, "endpoint", endpoint)
 		return c, nil
 	}

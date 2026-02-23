@@ -1,20 +1,18 @@
 package light_test
 
 import (
-	"errors"
-	"github.com/tendermint/tendermint/light/provider"
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
+	httpp "github.com/sei-protocol/sei-chain/sei-tendermint/light/provider/http"
+	dbs "github.com/sei-protocol/sei-chain/sei-tendermint/light/store/db"
+	rpctest "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/test"
 	dbm "github.com/tendermint/tm-db"
-
-	"github.com/tendermint/tendermint/abci/example/kvstore"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/light"
-	httpp "github.com/tendermint/tendermint/light/provider/http"
-	dbs "github.com/tendermint/tendermint/light/store/db"
-	rpctest "github.com/tendermint/tendermint/rpc/test"
-	"github.com/tendermint/tendermint/types"
 )
 
 // Manually getting light blocks and verifying them.
@@ -47,17 +45,12 @@ func TestExampleClient(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Logf("wait for the block")
-	var block *types.LightBlock
-	for {
-		block, err = primary.LightBlock(ctx, 2)
-		if err == nil {
-			break
-		}
-		if !errors.Is(err, provider.ErrHeightTooHigh) {
-			t.Fatal(err)
-		}
-		time.Sleep(time.Second)
+	t.Logf("wait for the blocks used in test")
+	utils.OrPanic1(waitForBlock(ctx, primary, 3))
+
+	block, err := primary.LightBlock(ctx, 2)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	db, err := dbm.NewGoLevelDB("light-client-db", dbDir)

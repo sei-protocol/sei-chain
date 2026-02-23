@@ -3,10 +3,10 @@ package evmrpc
 import (
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
-	"github.com/tendermint/tendermint/libs/time"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
 
 type NetAPI struct {

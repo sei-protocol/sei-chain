@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/x/capability/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 )
 
 func TestRevCapabilityKey(t *testing.T) {
@@ -43,11 +43,9 @@ func TestFwdCapabilityKeyCompatibility(t *testing.T) {
 	cap := types.NewCapability(24)
 	new := types.FwdCapabilityKey("bank", cap)
 	old := legacyFwdCapabilityKey("bank", cap)
-	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm" {
-		// the legacy version has 1 more byte on mac m1
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
 		require.Equal(t, len(old), len(new)+1)
 	} else {
-		// otherwise, the new version is identical
 		require.Equal(t, new, old)
 	}
 }

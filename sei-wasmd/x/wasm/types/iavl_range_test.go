@@ -3,8 +3,8 @@ package types
 import (
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/store"
-	"github.com/cosmos/cosmos-sdk/store/iavl"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/iavl"
 	iavl2 "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"

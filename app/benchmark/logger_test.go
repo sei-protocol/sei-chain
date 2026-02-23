@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/libs/log"
 )
 
 func TestCalculateTPS(t *testing.T) {
@@ -105,6 +105,66 @@ func TestCalculateAvgBlockTime(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := calculateAvgBlockTime(tt.totalBlockTime, tt.blockTimeCount)
 			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestCalculateTheoreticalTPS(t *testing.T) {
+	tests := []struct {
+		name              string
+		txCount           int64
+		blockCount        int64
+		avgBlockProcessMs int64
+		expected          float64
+	}{
+		{
+			name:              "10k txs in 10 blocks, 500ms avg process time",
+			txCount:           10000,
+			blockCount:        10,
+			avgBlockProcessMs: 500,
+			expected:          2000.0, // 1000 txs/block * (1000/500) = 2000 TPS
+		},
+		{
+			name:              "1k txs in 1 block, 100ms process time",
+			txCount:           1000,
+			blockCount:        1,
+			avgBlockProcessMs: 100,
+			expected:          10000.0, // 1000 * (1000/100) = 10000 TPS
+		},
+		{
+			name:              "zero block count",
+			txCount:           1000,
+			blockCount:        0,
+			avgBlockProcessMs: 500,
+			expected:          0.0,
+		},
+		{
+			name:              "zero process time",
+			txCount:           1000,
+			blockCount:        10,
+			avgBlockProcessMs: 0,
+			expected:          0.0,
+		},
+		{
+			name:              "zero transactions",
+			txCount:           0,
+			blockCount:        10,
+			avgBlockProcessMs: 500,
+			expected:          0.0,
+		},
+		{
+			name:              "negative block count",
+			txCount:           1000,
+			blockCount:        -1,
+			avgBlockProcessMs: 500,
+			expected:          0.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := calculateTheoreticalTPS(tt.txCount, tt.blockCount, tt.avgBlockProcessMs)
+			require.InDelta(t, tt.expected, result, 0.01)
 		})
 	}
 }

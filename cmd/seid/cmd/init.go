@@ -9,22 +9,26 @@ import (
 
 	"github.com/cosmos/go-bip39"
 	"github.com/pkg/errors"
+	"github.com/sei-protocol/sei-chain/app/genesis"
 	"github.com/sei-protocol/sei-chain/app/params"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
-	tmcfg "github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/cli"
-	tmos "github.com/tendermint/tendermint/libs/os"
-	"github.com/tendermint/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/client/input"
-	srvconfig "github.com/cosmos/cosmos-sdk/server/config"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/module"
-	"github.com/cosmos/cosmos-sdk/x/genutil"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	clientconfig "github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/input"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
 )
 
 const (
@@ -83,8 +87,9 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init [moniker]",
 		Short: "Initialize private validator, p2p, genesis, and application configuration files",
-		Long:  `Initialize validators's and node's configuration files.`,
-		Args:  cobra.ExactArgs(1),
+		Long: `Initialize the node's configuration files. Default mode is "full" (RPC and P2P bind to all interfaces).
+For validator or seed nodes, pass --mode validator or --mode seed so RPC and P2P bind to localhost only.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx := client.GetClientContextFromCmd(cmd)
 			cdc := clientCtx.Codec
@@ -140,32 +145,10 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 
 			genFile := tmConfig.GenesisFile()
 			overwrite, _ := cmd.Flags().GetBool(FlagOverwrite)
-
-			if !overwrite && tmos.FileExists(genFile) {
-				return fmt.Errorf("genesis.json file already exists: %v", genFile)
-			}
-			appState, err := json.MarshalIndent(mbm.DefaultGenesis(cdc), "", " ")
+			serverCtx := server.GetServerContextFromCmd(cmd)
+			genDoc, err := loadOrWriteGenesis(serverCtx.Logger, genFile, chainID, overwrite, mbm, cdc)
 			if err != nil {
-				return errors.Wrap(err, "Failed to marshall default genesis state")
-			}
-
-			genDoc := &types.GenesisDoc{}
-			if _, err := os.Stat(genFile); err != nil {
-				if !os.IsNotExist(err) {
-					return err
-				}
-			} else {
-				genDoc, err = types.GenesisDocFromFile(genFile)
-				if err != nil {
-					return errors.Wrap(err, "Failed to read genesis doc from file")
-				}
-			}
-
-			genDoc.ChainID = chainID
-			genDoc.Validators = nil
-			genDoc.AppState = appState
-			if err = genutil.ExportGenesisFile(genDoc, genFile); err != nil {
-				return errors.Wrap(err, "Failed to export genesis file")
+				return err
 			}
 
 			clientConfig, err := clientconfig.GetClientConfig(configPath, clientCtx.Viper)
@@ -176,7 +159,11 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 				return err
 			}
 
-			toPrint := newPrintInfo(tmConfig.Moniker, chainID, nodeID, "", appState)
+			toPrint := newPrintInfo(tmConfig.Moniker, chainID, nodeID, "", genDoc.AppState)
+
+			if err := checkConfigOverwrite(configPath, overwrite); err != nil {
+				return err
+			}
 
 			// Write Tendermint config.toml
 			err = tmcfg.WriteConfigFile(tmConfig.RootDir, tmConfig)
@@ -192,8 +179,6 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			evmConfig := evmrpcconfig.DefaultConfig
 			params.SetEVMConfigByMode(&evmConfig, nodeMode)
 
-			appTomlPath := filepath.Join(configPath, "app.toml")
-
 			// Get custom template from root.go
 			customAppTemplate, _ := initAppConfig()
 			srvconfig.SetConfigTemplate(customAppTemplate)
@@ -201,6 +186,7 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			// Build custom app config with mode-specific values
 			customAppConfig := NewCustomAppConfig(appConfig, evmConfig)
 
+			appTomlPath := filepath.Join(configPath, "app.toml")
 			srvconfig.WriteConfigFile(appTomlPath, customAppConfig)
 
 			fmt.Fprintf(os.Stderr, "\nNode initialized with mode: %s\n", nodeMode)
@@ -211,10 +197,97 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 	}
 
 	cmd.Flags().String(cli.HomeFlag, defaultNodeHome, "node's home directory")
-	cmd.Flags().BoolP(FlagOverwrite, "o", false, "overwrite the genesis.json file")
+	cmd.Flags().BoolP(FlagOverwrite, "o", false, "overwrite the genesis.json and existing config files (config.toml, app.toml)")
 	cmd.Flags().Bool(FlagRecover, false, "provide seed phrase to recover existing key instead of creating")
 	cmd.Flags().String(flags.FlagChainID, "", "genesis file chain-id, if left blank will use sei")
 	cmd.Flags().String(FlagMode, "full", "node mode: validator, full, seed, or archive")
 
 	return cmd
+}
+
+func checkConfigOverwrite(configPath string, overwrite bool) error {
+	if overwrite {
+		return nil
+	}
+	configTomlPath := filepath.Join(configPath, "config.toml")
+	appTomlPath := filepath.Join(configPath, "app.toml")
+	if tmos.FileExists(configTomlPath) || tmos.FileExists(appTomlPath) {
+		return fmt.Errorf("configuration files already exist in %s; if you intend to override them, use the --overwrite flag", configPath)
+	}
+	return nil
+}
+
+// loadOrWriteGenesis loads existing genesis at genFile if present and !overwrite, else writes embedded (well-known) or default.
+func loadOrWriteGenesis(logger log.Logger, genFile, chainID string, overwrite bool, mbm module.BasicManager, cdc codec.JSONCodec) (*types.GenesisDoc, error) {
+	if !overwrite && tmos.FileExists(genFile) {
+		if err := ensureGenesisPathIsFile(genFile); err != nil {
+			return nil, err
+		}
+		genDoc, err := types.GenesisDocFromFile(genFile)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to read genesis file %s", genFile)
+		}
+		if genDoc.ChainID != chainID {
+			return nil, fmt.Errorf("genesis file %s has chain_id %q but init chain-id is %q", genFile, genDoc.ChainID, chainID)
+		}
+		if logger != nil {
+			logger.Debug("using existing genesis file (not overwriting)", "path", genFile)
+		}
+		return genDoc, nil
+	}
+
+	if genesis.IsWellKnown(chainID) {
+		genDoc, err := genesis.EmbeddedGenesisDoc(chainID)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to load embedded genesis for %s", chainID)
+		}
+		if logger != nil {
+			logger.Debug("writing genesis file (embedded)", "chain_id", chainID, "path", genFile)
+		}
+		if err := genutil.ExportGenesisFile(genDoc, genFile); err != nil {
+			return nil, errors.Wrap(err, "Failed to export genesis file")
+		}
+		return genDoc, nil
+	}
+
+	appState, err := json.MarshalIndent(mbm.DefaultGenesis(cdc), "", " ")
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed to marshall default genesis state")
+	}
+	genDoc := &types.GenesisDoc{ChainID: chainID, AppState: appState}
+	if tmos.FileExists(genFile) {
+		if err := ensureGenesisPathIsFile(genFile); err != nil {
+			return nil, err
+		}
+		var err error
+		genDoc, err = types.GenesisDocFromFile(genFile)
+		if err != nil {
+			return nil, errors.Wrap(err, "Failed to read genesis doc from file")
+		}
+		genDoc.ChainID = chainID
+		genDoc.Validators = nil
+		genDoc.AppState = appState
+	}
+
+	if logger != nil {
+		logger.Debug("writing genesis file (default)", "chain_id", chainID, "path", genFile)
+	}
+	if err := genutil.ExportGenesisFile(genDoc, genFile); err != nil {
+		return nil, errors.Wrap(err, "Failed to export genesis file")
+	}
+	return genDoc, nil
+}
+
+func ensureGenesisPathIsFile(genFile string) error {
+	fi, err := os.Stat(genFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return errors.Wrapf(err, "failed to stat genesis file %s", genFile)
+	}
+	if fi.IsDir() {
+		return fmt.Errorf("genesis path is a directory, not a file: %s", genFile)
+	}
+	return nil
 }

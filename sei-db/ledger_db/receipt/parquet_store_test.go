@@ -1,6 +1,7 @@
 package receipt
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,6 +16,12 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
+
+type truncateOnlyWAL struct {
+	truncateErr error
+}
+
+func (w *truncateOnlyWAL) TruncateBefore(_ uint64) error { return w.truncateErr }
 
 func TestLedgerCacheReceiptsAndLogs(t *testing.T) {
 	cache := newLedgerCache()
@@ -45,8 +52,8 @@ func TestLedgerCacheReceiptsAndLogs(t *testing.T) {
 		},
 	})
 
-	require.True(t, cache.HasLogsForBlock(blockNumber))
-	require.False(t, cache.HasLogsForBlock(blockNumber+1))
+	require.Len(t, cache.FilterLogs(blockNumber, blockNumber, filters.FilterCriteria{}), 1)
+	require.Len(t, cache.FilterLogs(blockNumber+1, blockNumber+1, filters.FilterCriteria{}), 0)
 }
 
 func TestLedgerCacheRotatePrunes(t *testing.T) {
@@ -255,37 +262,6 @@ func TestParquetReaderGetFilesBeforeBlock(t *testing.T) {
 	require.Len(t, files, 0)
 }
 
-func TestParquetReaderRemoveFilesBeforeBlock(t *testing.T) {
-	dir := t.TempDir()
-
-	// Create mock parquet files
-	createMockParquetFile(t, dir, "receipts_0.parquet")
-	createMockParquetFile(t, dir, "receipts_500.parquet")
-	createMockParquetFile(t, dir, "receipts_1000.parquet")
-	createMockParquetFile(t, dir, "logs_0.parquet")
-	createMockParquetFile(t, dir, "logs_500.parquet")
-	createMockParquetFile(t, dir, "logs_1000.parquet")
-
-	reader, err := parquet.NewReader(dir)
-	require.NoError(t, err)
-	defer reader.Close()
-
-	initialCount := reader.ClosedReceiptFileCount()
-	require.Equal(t, 3, initialCount)
-
-	// Remove files before block 600
-	reader.RemoveFilesBeforeBlock(600)
-
-	// Should have 2 files left (500 and 1000)
-	require.Equal(t, 2, reader.ClosedReceiptFileCount())
-
-	// Remove files before block 1100
-	reader.RemoveFilesBeforeBlock(1100)
-
-	// Should have 1 file left (1000)
-	require.Equal(t, 1, reader.ClosedReceiptFileCount())
-}
-
 func TestParquetPruneOldFiles(t *testing.T) {
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
@@ -343,6 +319,13 @@ func TestExtractBlockNumber(t *testing.T) {
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestTruncateReplayWALReturnsError(t *testing.T) {
+	wal := &truncateOnlyWAL{truncateErr: errors.New("truncate failed")}
+	err := truncateReplayWAL(wal, 10)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "failed to truncate replay WAL")
 }
 
 // createMockParquetFile creates a minimal valid parquet file for testing

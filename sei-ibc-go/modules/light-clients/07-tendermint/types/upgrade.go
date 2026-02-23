@@ -3,10 +3,10 @@ package types
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	commitmenttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/23-commitment/types"
@@ -128,7 +128,7 @@ func (cs ClientState) VerifyUpgradeAndUpdateState(
 // construct MerklePath for the committed client from upgradePath
 func constructUpgradeClientMerklePath(upgradePath []string, lastHeight exported.Height) commitmenttypes.MerklePath {
 	// copy all elements from upgradePath except final element
-	clientPath := make([]string, len(upgradePath)-1)
+	clientPath := make([]string, len(upgradePath)-1, len(upgradePath))
 	copy(clientPath, upgradePath)
 
 	// append lastHeight and `upgradedClient` to last key of upgradePath and use as lastKey of clientPath
@@ -143,7 +143,7 @@ func constructUpgradeClientMerklePath(upgradePath []string, lastHeight exported.
 // construct MerklePath for the committed consensus state from upgradePath
 func constructUpgradeConsStateMerklePath(upgradePath []string, lastHeight exported.Height) commitmenttypes.MerklePath {
 	// copy all elements from upgradePath except final element
-	consPath := make([]string, len(upgradePath)-1)
+	consPath := make([]string, len(upgradePath)-1, len(upgradePath))
 	copy(consPath, upgradePath)
 
 	// append lastHeight and `upgradedClient` to last key of upgradePath and use as lastKey of clientPath

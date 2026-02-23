@@ -3,7 +3,7 @@ package state
 import (
 	"context"
 
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 //------------------------------------------------------

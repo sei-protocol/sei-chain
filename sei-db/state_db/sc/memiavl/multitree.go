@@ -13,6 +13,7 @@ import (
 
 	"github.com/alitto/pond"
 	"golang.org/x/exp/slices"
+	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
@@ -113,7 +114,7 @@ func LoadMultiTree(ctx context.Context, dir string, opts Options) (*MultiTree, e
 		treeMap[name] = NewFromSnapshot(snapshot, opts)
 	}
 	elapsed := time.Since(startTime)
-	log.Info(fmt.Sprintf("All %d memIAVL trees loaded in %.1fs\n", len(treeNames), elapsed.Seconds()))
+	log.Info(fmt.Sprintf("All %d memIAVL trees loaded in %.1fs", len(treeNames), elapsed.Seconds()))
 
 	if elapsed > slowLoadThreshold {
 		log.Info("Loading MemIAVL tree from disk is too slow! Consider increasing the disk bandwidth to speed up the tree loading time within 300 seconds.")
@@ -438,7 +439,7 @@ func (t *MultiTree) Catchup(ctx context.Context, stream wal.ChangelogWAL, delta 
 		t.lastCommitInfo.StoreInfos = []proto.StoreInfo{}
 		replayCount++
 		if replayCount%1000 == 0 {
-			t.logger.Info(fmt.Sprintf("Replayed %d changelog entries\n", replayCount))
+			t.logger.Info(fmt.Sprintf("Replayed %d changelog entries", replayCount))
 		}
 		return nil
 	})
@@ -454,7 +455,7 @@ func (t *MultiTree) Catchup(ctx context.Context, stream wal.ChangelogWAL, delta 
 	if replayCount > 0 {
 		t.UpdateCommitInfo()
 		replayElapsed := time.Since(startTime).Seconds()
-		t.logger.Info(fmt.Sprintf("Total replayed %d entries in %.1fs (%.1f entries/sec).\n",
+		t.logger.Info(fmt.Sprintf("Total replayed %d entries in %.1fs (%.1f entries/sec).",
 			replayCount, replayElapsed, float64(replayCount)/replayElapsed))
 	}
 
@@ -462,19 +463,35 @@ func (t *MultiTree) Catchup(ctx context.Context, stream wal.ChangelogWAL, delta 
 }
 
 func (t *MultiTree) WriteSnapshot(ctx context.Context, dir string, wp *pond.WorkerPool) error {
-	t.logger.Info("starting snapshot write", "trees", len(t.trees))
+	return t.WriteSnapshotWithRateLimit(ctx, dir, wp, 0)
+}
+
+// WriteSnapshotWithRateLimit writes snapshot with optional rate limiting.
+// rateMBps is the rate limit in MB/s. 0 means unlimited.
+// A single global limiter is shared across ALL trees and files to ensure
+// the total write rate is capped at the configured value.
+func (t *MultiTree) WriteSnapshotWithRateLimit(ctx context.Context, dir string, wp *pond.WorkerPool, rateMBps int) error {
+	t.logger.Info("starting snapshot write", "trees", len(t.trees), "rate_limit_mbps", rateMBps)
 
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil { //nolint:gosec
 		return err
 	}
 
+	// Create a single global limiter shared by all trees and files
+	// This ensures total write rate is capped regardless of parallelism
+	limiter := NewGlobalRateLimiter(rateMBps)
+	if limiter != nil {
+		t.logger.Info("global rate limiting enabled", "rate_mbps", rateMBps)
+	}
+
 	// Write EVM first to avoid disk I/O contention, then parallel
-	return t.writeSnapshotPriorityEVM(ctx, dir, wp)
+	return t.writeSnapshotPriorityEVM(ctx, dir, wp, limiter)
 }
 
 // writeSnapshotPriorityEVM writes EVM tree first, then others in parallel
 // Best strategy: reduces disk I/O contention for the largest tree
-func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp *pond.WorkerPool) error {
+// limiter is a shared rate limiter. nil means unlimited.
+func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp *pond.WorkerPool, limiter *rate.Limiter) error {
 	startTime := time.Now()
 
 	// Phase 1: Write EVM tree first (if it exists)
@@ -494,7 +511,7 @@ func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp
 	if evmTree != nil {
 		t.logger.Info("writing evm tree", "phase", "1/2")
 		evmStart := time.Now()
-		if err := evmTree.WriteSnapshot(ctx, filepath.Join(dir, evmName)); err != nil {
+		if err := evmTree.WriteSnapshotWithRateLimit(ctx, filepath.Join(dir, evmName), limiter); err != nil {
 			return err
 		}
 		evmElapsed := time.Since(evmStart).Seconds()
@@ -521,7 +538,7 @@ func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp
 			wg.Add(1)
 			wp.Submit(func() {
 				defer wg.Done()
-				if err := entry.WriteSnapshot(ctx, filepath.Join(dir, entry.Name)); err != nil {
+				if err := entry.WriteSnapshotWithRateLimit(ctx, filepath.Join(dir, entry.Name), limiter); err != nil {
 					mu.Lock()
 					errs = append(errs, fmt.Errorf("tree %s: %w", entry.Name, err))
 					mu.Unlock()

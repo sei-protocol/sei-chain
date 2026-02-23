@@ -2,16 +2,14 @@ package ledger
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/pkg/errors"
 
-	tmbtcec "github.com/tendermint/btcd/btcec"
-
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 )
 
 var (
@@ -34,7 +32,8 @@ type (
 		// Returns a compressed pubkey and bech32 address (requires user confirmation)
 		GetAddressPubKeySECP256K1([]uint32, string) ([]byte, string, error)
 		// Signs a message (requires user confirmation)
-		SignSECP256K1([]uint32, []byte) ([]byte, error)
+		// signMode: 0 = SIGN_MODE_LEGACY_AMINO, 1 = SIGN_MODE_TEXTUAL
+		SignSECP256K1([]uint32, []byte, byte) ([]byte, error)
 	}
 
 	// PrivKeyLedgerSecp256k1 implements PrivKey, calling the ledger nano we
@@ -94,11 +93,44 @@ func (pkl PrivKeyLedgerSecp256k1) PubKey() types.PubKey {
 func (pkl PrivKeyLedgerSecp256k1) Sign(message []byte) ([]byte, error) {
 	device, err := getDevice()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to ledger device: %w", err)
 	}
 	defer warnIfErrors(device.Close)
 
-	return sign(device, pkl, message)
+	sig, err := sign(device, pkl, message)
+	if err != nil {
+		return nil, err
+	}
+	return sig, nil
+}
+
+// SignWithPath signs a message using a single device connection.
+func SignWithPath(path hd.BIP44Params, message []byte) ([]byte, types.PubKey, error) {
+	device, err := getDevice()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to connect to ledger: %w", err)
+	}
+	defer warnIfErrors(device.Close)
+
+	pubKey, err := getPubKeyUnsafe(device, path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get public key: %w", err)
+	}
+
+	sig, err := device.SignSECP256K1(path.DerivationPath(), message, 0)
+	if err != nil {
+		if err.Error() == "" {
+			return nil, nil, errors.New("ledger returned empty error: transaction rejected, device timed out, or expert mode not enabled")
+		}
+		return nil, nil, fmt.Errorf("ledger signing failed: %w", err)
+	}
+
+	sig, err = convertDERtoBER(sig)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse signature: %w", err)
+	}
+
+	return sig, pubKey, nil
 }
 
 // ShowAddress triggers a ledger device to show the corresponding address.
@@ -163,33 +195,31 @@ func (pkl PrivKeyLedgerSecp256k1) Equals(other types.LedgerPrivKey) bool {
 
 func (pkl PrivKeyLedgerSecp256k1) Type() string { return "PrivKeyLedgerSecp256k1" }
 
-// warnIfErrors wraps a function and writes a warning to stderr. This is required
-// to avoid ignoring errors when defer is used. Using defer may result in linter warnings.
 func warnIfErrors(f func() error) {
-	if err := f(); err != nil {
-		_, _ = fmt.Fprint(os.Stderr, "received error when closing ledger connection", err)
-	}
+	_ = f()
 }
 
-func convertDERtoBER(signatureDER []byte) ([]byte, error) {
-	// Use tendermint btcec to parse DER signature since that's where it comes from
-	sig, err := tmbtcec.ParseSignature(signatureDER, tmbtcec.S256())
-	if err != nil {
-		return nil, err
+// convertDERtoBER converts a DER-encoded signature to 64-byte R||S format.
+func convertDERtoBER(sig []byte) ([]byte, error) {
+	if len(sig) == 64 {
+		return sig, nil
 	}
 
-	// Convert to 64-byte R||S format expected by secp256k1.VerifySignature
-	// R and S are each 32 bytes, zero-padded if necessary
-	rBytes := sig.R.Bytes()
-	sBytes := sig.S.Bytes()
+	parsed, err := ecdsa.ParseDERSignature(sig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse DER signature: %w", err)
+	}
 
-	signature := make([]byte, 64)
-	// Copy R to first 32 bytes, right-aligned (zero-padded on left if needed)
-	copy(signature[32-len(rBytes):32], rBytes)
-	// Copy S to last 32 bytes, right-aligned (zero-padded on left if needed)
-	copy(signature[64-len(sBytes):64], sBytes)
+	r, s := parsed.R(), parsed.S()
+	var rBytes, sBytes [32]byte
+	r.PutBytesUnchecked(rBytes[:])
+	s.PutBytesUnchecked(sBytes[:])
 
-	return signature, nil
+	result := make([]byte, 64)
+	copy(result[:32], rBytes[:])
+	copy(result[32:], sBytes[:])
+
+	return result, nil
 }
 
 func getDevice() (SECP256K1, error) {
@@ -210,52 +240,38 @@ func validateKey(device SECP256K1, pkl PrivKeyLedgerSecp256k1) error {
 	if err != nil {
 		return err
 	}
-
-	// verify this matches cached address
 	if !pub.Equals(pkl.CachedPubKey) {
-		return fmt.Errorf("cached key does not match retrieved key")
+		return errors.New("cached key does not match device key")
 	}
-
 	return nil
 }
 
-// Sign calls the ledger and stores the PubKey for future use.
-//
-// Communication is checked on NewPrivKeyLedger and PrivKeyFromBytes, returning
-// an error, so this should only trigger if the private key is held in memory
-// for a while before use.
 func sign(device SECP256K1, pkl PrivKeyLedgerSecp256k1, msg []byte) ([]byte, error) {
-	err := validateKey(device, pkl)
-	if err != nil {
-		return nil, err
+	if err := validateKey(device, pkl); err != nil {
+		return nil, fmt.Errorf("key validation failed: %w", err)
 	}
 
-	sig, err := device.SignSECP256K1(pkl.Path.DerivationPath(), msg)
+	sig, err := device.SignSECP256K1(pkl.Path.DerivationPath(), msg, 0)
 	if err != nil {
-		return nil, err
+		if err.Error() == "" {
+			return nil, errors.New("ledger returned empty error: transaction rejected, device timed out, or expert mode not enabled")
+		}
+		return nil, fmt.Errorf("ledger signing failed: %w", err)
 	}
 
 	return convertDERtoBER(sig)
 }
 
-// getPubKeyUnsafe reads the pubkey from a ledger device
-//
-// This function is marked as unsafe as it will retrieve a pubkey without user verification
-// It can only be used to verify a pubkey but never to create new accounts/keys. In that case,
-// please refer to getPubKeyAddrSafe
-//
-// since this involves IO, it may return an error, which is not exposed
-// in the PubKey interface, so this function allows better error handling
+// getPubKeyUnsafe retrieves pubkey without user verification (use getPubKeyAddrSafe for new keys).
 func getPubKeyUnsafe(device SECP256K1, path hd.BIP44Params) (types.PubKey, error) {
 	publicKey, err := device.GetPublicKeySECP256K1(path.DerivationPath())
 	if err != nil {
-		return nil, fmt.Errorf("please open Cosmos app on the Ledger device - error: %v", err)
+		return nil, fmt.Errorf("open Cosmos app on Ledger: %w", err)
 	}
 
-	// re-serialize in the 33-byte compressed format
 	cmp, err := btcec.ParsePubKey(publicKey)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing public key: %v", err)
+		return nil, fmt.Errorf("parse public key: %w", err)
 	}
 
 	compressedPublicKey := make([]byte, secp256k1.PubKeySize)
@@ -264,22 +280,16 @@ func getPubKeyUnsafe(device SECP256K1, path hd.BIP44Params) (types.PubKey, error
 	return &secp256k1.PubKey{Key: compressedPublicKey}, nil
 }
 
-// getPubKeyAddr reads the pubkey and the address from a ledger device.
-// This function is marked as Safe as it will require user confirmation and
-// account and index will be shown in the device.
-//
-// Since this involves IO, it may return an error, which is not exposed
-// in the PubKey interface, so this function allows better error handling.
+// getPubKeyAddrSafe retrieves pubkey with user confirmation (for creating new keys).
 func getPubKeyAddrSafe(device SECP256K1, path hd.BIP44Params, hrp string) (types.PubKey, string, error) {
 	publicKey, addr, err := device.GetAddressPubKeySECP256K1(path.DerivationPath(), hrp)
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: address rejected for path %s", err, path.String())
+		return nil, "", fmt.Errorf("address rejected for path %s: %w", path.String(), err)
 	}
 
-	// re-serialize in the 33-byte compressed format
 	cmp, err := btcec.ParsePubKey(publicKey)
 	if err != nil {
-		return nil, "", fmt.Errorf("error parsing public key: %v", err)
+		return nil, "", fmt.Errorf("parse public key: %w", err)
 	}
 
 	compressedPublicKey := make([]byte, secp256k1.PubKeySize)

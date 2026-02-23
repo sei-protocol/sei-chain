@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"math"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const (
@@ -81,13 +81,6 @@ type Mempool interface {
 		newPostFn PostCheckFunc,
 		recheck bool,
 	) error
-
-	// FlushAppConn flushes the mempool connection to ensure async callback calls
-	// are done, e.g. from CheckTx.
-	//
-	// NOTE:
-	// 1. Lock/Unlock must be managed by caller.
-	FlushAppConn(context.Context) error
 
 	// Flush removes all transactions from the mempool and caches.
 	Flush()

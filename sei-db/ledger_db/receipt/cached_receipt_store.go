@@ -1,12 +1,13 @@
 package receipt
 
 import (
+	"sort"
 	"sync"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -101,6 +102,7 @@ func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint
 		return backendLogs, nil
 	}
 	if len(backendLogs) == 0 {
+		sortLogs(cacheLogs)
 		return cacheLogs, nil
 	}
 
@@ -124,7 +126,20 @@ func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint
 		}
 	}
 
+	sortLogs(result)
 	return result, nil
+}
+
+func sortLogs(logs []*ethtypes.Log) {
+	sort.Slice(logs, func(i, j int) bool {
+		if logs[i].BlockNumber != logs[j].BlockNumber {
+			return logs[i].BlockNumber < logs[j].BlockNumber
+		}
+		if logs[i].TxIndex != logs[j].TxIndex {
+			return logs[i].TxIndex < logs[j].TxIndex
+		}
+		return logs[i].Index < logs[j].Index
+	})
 }
 
 func (s *cachedReceiptStore) Close() error {
