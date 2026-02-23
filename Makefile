@@ -260,7 +260,6 @@ build-docker-node-app-prebuilt:
 	@echo "Building localnode app image (with prebuilt binary)..."
 	@if [ -n "$(DOCKER_BUILD_CACHE_FROM)" ]; then \
 		docker buildx build --load \
-			--build-arg GHCR_ORG=$(GHCR_ORG) \
 			--cache-from $(DOCKER_BUILD_CACHE_FROM) \
 			$(if $(DOCKER_BUILD_CACHE_TO),--cache-to $(DOCKER_BUILD_CACHE_TO),) \
 			--tag sei-chain/localnode \
@@ -268,7 +267,7 @@ build-docker-node-app-prebuilt:
 			-f docker/localnode/Dockerfile.prebuilt \
 			.; \
 	else \
-		docker build --build-arg GHCR_ORG=$(GHCR_ORG) --tag sei-chain/localnode -f docker/localnode/Dockerfile.prebuilt . --platform $(DOCKER_PLATFORM); \
+		docker build --tag sei-chain/localnode -f docker/localnode/Dockerfile.prebuilt . --platform $(DOCKER_PLATFORM); \
 	fi
 .PHONY: build-docker-node-app-prebuilt
 
