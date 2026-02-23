@@ -76,15 +76,6 @@ func AddressFromBytes(b []byte) (Address, bool) {
 	return a, true
 }
 
-func CodeHashFromBytes(b []byte) (CodeHash, bool) {
-	if len(b) != CodeHashLen {
-		return CodeHash{}, false
-	}
-	var h CodeHash
-	copy(h[:], b)
-	return h, true
-}
-
 func SlotFromBytes(b []byte) (Slot, bool) {
 	if len(b) != SlotLen {
 		return Slot{}, false
@@ -104,12 +95,6 @@ func AccountKey(addr Address) []byte {
 	return addr[:]
 }
 
-// CodeKey returns the codeDB key for codeHash.
-// Key format: codeHash(32)
-func CodeKey(codeHash CodeHash) []byte {
-	return codeHash[:]
-}
-
 // StorageKey returns the storageDB key for (addr, slot).
 // Key format: addr(20) || slot(32) = 52 bytes
 func StorageKey(addr Address, slot Slot) []byte {
@@ -117,12 +102,6 @@ func StorageKey(addr Address, slot Slot) []byte {
 	copy(key[:AddressLen], addr[:])
 	copy(key[AddressLen:], slot[:])
 	return key
-}
-
-// StoragePrefix returns the storageDB prefix for iterating all slots of addr.
-// Prefix format: addr(20)
-func StoragePrefix(addr Address) []byte {
-	return addr[:]
 }
 
 // PrefixEnd returns the exclusive upper bound for prefix iteration (or nil).

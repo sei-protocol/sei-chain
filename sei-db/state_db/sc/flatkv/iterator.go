@@ -210,10 +210,6 @@ func (s *CommitStore) newStoragePrefixIterator(internalPrefix, internalEnd []byt
 	return newDBPrefixIterator(s.storageDB, evm.EVMKeyStorage, internalPrefix, memiavlPrefix)
 }
 
-func (s *CommitStore) newCodeIterator(start, end []byte) Iterator {
-	return newDBIterator(s.codeDB, evm.EVMKeyCode, start, end)
-}
-
 // emptyIterator is used when no data matches the query.
 // If err is set, it indicates a creation failure (e.g. PebbleDB error).
 type emptyIterator struct {

@@ -152,7 +152,7 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 	}
 
 	// Handle storage address prefix specially.
-	// ParseMemIAVLEVMKey requires full key length (prefix + addr + slot = 53 bytes),
+	// ParseEVMKey requires full key length (prefix + addr + slot = 53 bytes),
 	// but a storage prefix is only (prefix + addr = 21 bytes).
 	// Detect storage prefix: 0x03 || addr(20) = 21 bytes
 	statePrefix := evm.StateKeyPrefix()
@@ -215,19 +215,6 @@ func (s *CommitStore) getAccountValue(addr Address) (AccountValue, error) {
 		return AccountValue{}, fmt.Errorf("corrupted AccountValue for addr %x: %w", addr, err)
 	}
 	return av, nil
-}
-
-// getAccountValueFromDB loads AccountValue directly from DB (ignoring pending writes).
-// Used for LtHash computation to get the committed "old" value.
-func (s *CommitStore) getAccountValueFromDB(addr Address) (AccountValue, error) {
-	value, err := s.accountDB.Get(AccountKey(addr))
-	if err != nil {
-		if db_engine.IsNotFound(err) {
-			return AccountValue{}, nil
-		}
-		return AccountValue{}, err
-	}
-	return DecodeAccountValue(value)
 }
 
 // getStorageValue returns the storage value from pending writes or DB.
