@@ -43,8 +43,8 @@ type State struct {
 
 	// persister writes avail inner state to disk using A/B files; None when persistence is disabled.
 	persister utils.Option[persist.Persister[*apb.AppQC]]
-	// blockPersist writes/deletes individual block files; nil when persistence is disabled.
-	blockPersist *persist.BlockPersister
+	// blockPersist writes/deletes individual block files; None when persistence is disabled.
+	blockPersist utils.Option[*persist.BlockPersister]
 }
 
 // innerFile is the A/B file prefix for avail inner state persistence.
@@ -83,7 +83,7 @@ func loadPersistedState(dir string) (*loadedAvailState, persist.Persister[*apb.A
 func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[string]) (*State, error) {
 	var loaded utils.Option[*loadedAvailState]
 	var p utils.Option[persist.Persister[*apb.AppQC]]
-	var bp *persist.BlockPersister
+	var bp utils.Option[*persist.BlockPersister]
 
 	if dir, ok := stateDir.Get(); ok {
 		l, persister, blockPersist, err := loadPersistedState(dir)
@@ -92,7 +92,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		}
 		loaded = utils.Some(l)
 		p = utils.Some(persister)
-		bp = blockPersist
+		bp = utils.Some(blockPersist)
 	}
 
 	return &State{
@@ -232,15 +232,19 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 			return err
 		}
 		if updated {
+			// TODO: persistence errors should be handled by a dedicated background
+			// task (with retry) rather than propagated to the caller, since the
+			// caller is a peer message handler and disconnecting a peer for a local
+			// disk failure is misleading.
 			if err := s.persistAppQC(appQC); err != nil {
-				return err
+				log.Error().Err(err).Msg("failed to persist AppQC")
 			}
 			laneFirsts = snapshotLaneFirsts(inner)
 			ctrl.Updated()
 		}
 	}
-	if s.blockPersist != nil {
-		s.blockPersist.DeleteBefore(laneFirsts)
+	if bp, ok := s.blockPersist.Get(); ok {
+		bp.DeleteBefore(laneFirsts)
 	}
 	return nil
 }
@@ -270,15 +274,17 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 			return err
 		}
 		if updated {
+			// TODO: same as PushAppVote -- persistence errors should be retried
+			// by a background task, not returned to the caller.
 			if err := s.persistAppQC(appQC); err != nil {
-				return err
+				log.Error().Err(err).Msg("failed to persist AppQC")
 			}
 			laneFirsts = snapshotLaneFirsts(inner)
 			ctrl.Updated()
 		}
 	}
-	if s.blockPersist != nil {
-		s.blockPersist.DeleteBefore(laneFirsts)
+	if bp, ok := s.blockPersist.Get(); ok {
+		bp.DeleteBefore(laneFirsts)
 	}
 	return nil
 }
@@ -291,8 +297,8 @@ func snapshotLaneFirsts(inner *inner) map[types.LaneID]types.BlockNumber {
 	return m
 }
 
-// persistAppQC writes the AppQC to the A/B file. Called under the inner lock
-// so the checkpoint is durable before ctrl.Updated() notifies watchers.
+// persistAppQC writes the AppQC to the A/B file. Called under the inner lock.
+// Errors are logged but not fatal -- on crash we reload an older AppQC and re-converge.
 func (s *State) persistAppQC(appQC *types.AppQC) error {
 	p, ok := s.persister.Get()
 	if !ok {
@@ -382,10 +388,10 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		q.pushBack(p)
 		ctrl.Updated()
 	}
-	if s.blockPersist != nil {
+	if bp, ok := s.blockPersist.Get(); ok {
 		// Blocking: called outside the inner lock so only this goroutine stalls.
 		// See Queue() for why we must not drop blocks.
-		return utils.IgnoreAfterCancel(ctx, s.blockPersist.Queue(ctx, h.Lane(), h.BlockNumber(), p))
+		return utils.IgnoreAfterCancel(ctx, bp.Queue(ctx, h.Lane(), h.BlockNumber(), p))
 	}
 	return nil
 }
@@ -545,10 +551,10 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 		q.next += 1
 		ctrl.Updated()
 	}
-	if s.blockPersist != nil {
+	if bp, ok := s.blockPersist.Get(); ok {
 		// Blocking: called outside the inner lock so only this goroutine stalls.
 		// See Queue() for why we must not drop blocks.
-		if err := utils.IgnoreAfterCancel(ctx, s.blockPersist.Queue(ctx, lane, blockNum, result)); err != nil {
+		if err := utils.IgnoreAfterCancel(ctx, bp.Queue(ctx, lane, blockNum, result)); err != nil {
 			return nil, err
 		}
 	}
@@ -558,9 +564,9 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 // Run runs the background tasks of the state.
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		if s.blockPersist != nil {
+		if bp, ok := s.blockPersist.Get(); ok {
 			scope.SpawnNamed("blockPersistWriter", func() error {
-				return s.blockPersist.Run(ctx, func(lane types.LaneID, next types.BlockNumber) {
+				return bp.Run(ctx, func(lane types.LaneID, next types.BlockNumber) {
 					for inner, ctrl := range s.inner.Lock() {
 						inner.nextBlockToPersist[lane] = next
 						ctrl.Updated()
