@@ -480,10 +480,6 @@ func (k *Keeper) GetGasPool() core.GasPool {
 	return math.MaxUint64
 }
 
-func (k *Keeper) ShouldUseRegularStore() bool {
-	return k.UseRegularStore
-}
-
 func uint64Cmp(a, b uint64) int {
 	if a < b {
 		return -1
